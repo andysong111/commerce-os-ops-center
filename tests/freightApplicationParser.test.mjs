@@ -56,6 +56,7 @@ test("extracts all requested fields from the first item", () => {
   assert.equal(firstItem.unitPrice, 0.61);
   assert.equal(firstItem.quantity, 300);
   assert.equal(firstItem.orderNo, "3306760070065591852");
+  assert.equal(firstItem.locationCode, undefined);
 });
 
 test("keeps Chinese color values for repeated Key Ring rows", () => {

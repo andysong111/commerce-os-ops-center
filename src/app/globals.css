@@ -58,8 +58,8 @@ button:not(:disabled) {
 
   .freight-print-area .print-table {
     min-width: 0;
-    table-layout: fixed;
-    font-size: 8px;
+    table-layout: auto;
+    font-size: 7px;
   }
 
   .freight-print-area .print-table th,
@@ -71,5 +71,26 @@ button:not(:disabled) {
 
   .freight-print-area .print-table th {
     background: white !important;
+  }
+
+  .freight-print-area .barcode-cell {
+    min-width: 42mm;
+    overflow: visible;
+  }
+
+  .freight-print-area .location-barcode {
+    min-width: 40mm;
+  }
+
+  .freight-print-area .location-barcode,
+  .freight-print-area .location-barcode svg {
+    break-inside: avoid;
+    overflow: visible;
+    print-color-adjust: exact;
+  }
+
+  .freight-print-area .location-barcode svg {
+    width: 40mm;
+    height: 12mm;
   }
 }
