@@ -11,6 +11,7 @@ const OPTION_LINE_PATTERN = /(?:颜色|顏色|產品|产品|规格|規格|型号
 const LONG_NUMBER_PATTERN = /^\d{12,}$/;
 const SMALL_INTEGER_PATTERN = /^\d{1,3}$/;
 const URL_PATTERN = /https?:\/\/\S+/i;
+const IMAGE_URL_PATTERN = /https?:\/\/(?:[^/]*\.)?(?:alicdn\.com|cbu01\.alicdn\.com)\/\S+/i;
 
 const FIELD_LABELS = [
   "옵션\\s*\\(\\s*색상\\s*,\\s*사이즈\\s*\\)",
@@ -226,10 +227,14 @@ function parseLooseTableItems(lines: string[]): FreightApplicationItem[] {
     const urlOffset = followingLines.findIndex((candidate) =>
       URL_PATTERN.test(candidate),
     );
-    const detailUrl =
+    const copiedUrl =
       urlOffset >= 0
         ? followingLines[urlOffset].match(URL_PATTERN)?.[0]
         : undefined;
+    const imageUrl = copiedUrl && IMAGE_URL_PATTERN.test(copiedUrl)
+      ? copiedUrl
+      : undefined;
+    const detailUrl = imageUrl ? undefined : copiedUrl;
 
     const previousLine = lines[rowIndex - 1];
     const hasStrongRowContext = Boolean(
@@ -266,6 +271,7 @@ function parseLooseTableItems(lines: string[]): FreightApplicationItem[] {
       itemName,
       optionText,
       detailUrl,
+      imageUrl,
       hsCode: undefined,
       unitPrice: undefined,
       quantity,

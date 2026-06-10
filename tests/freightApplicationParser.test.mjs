@@ -94,12 +94,24 @@ test("falls back to parsing loose freight table-copy rows", () => {
   assert.equal(firstItem.orderNo, "3307376352586591852");
   assert.equal(firstItem.quantity, 200);
   assert.equal(firstItem.itemName, "Key Ring");
+  assert.equal(firstItem.detailUrl, undefined);
   assert.equal(
-    firstItem.detailUrl,
+    firstItem.imageUrl,
     "https://cbu01.alicdn.com/img/ibank/O1CN-test-gold.jpg",
   );
   assert.match(secondItem.optionText, /银色/);
   assert.match(thirdItem.optionText, /哑枪/);
+});
+
+test("stores a loose table image URL as imageUrl", () => {
+  assert.deepEqual(
+    looseApplication.items.map((item) => item.imageUrl),
+    [
+      "https://cbu01.alicdn.com/img/ibank/O1CN-test-gold.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN-test-silver.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN-test-black.jpg",
+    ],
+  );
 });
 
 test("allows loose table-copy input without an application number", () => {
