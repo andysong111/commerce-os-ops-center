@@ -16,4 +16,11 @@ export interface ProductMaster {
   status: ProductStatus;
   memo?: string;
   options: ProductOption[];
+  referenceUnitCostCny?: number;
+  productNameKo?: string;
+  productNameCn?: string;
+  barcode?: string;
+  originLabel?: string;
+  labelText?: string;
+  hsCode?: string;
 }

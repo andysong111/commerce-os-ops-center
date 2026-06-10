@@ -14,6 +14,12 @@ const modules = [
     href: "/product-master",
     active: true,
   },
+  {
+    title: "배대지 바코드 PDF 생성기",
+    description: "배송대행지 신청서 텍스트를 분석해 바코드/원산지 라벨 작업요청서를 만듭니다.",
+    href: "/freight-barcode-request",
+    active: true,
+  },
   { title: "키워드 엔진", description: "판매 채널별 검색 키워드를 발굴하고 정리합니다." },
   { title: "상세페이지 엔진", description: "상품 정보 기반의 판매 문구를 생성합니다." },
   { title: "재고/가격 관리", description: "재고 수량과 채널별 가격을 추적합니다." },
@@ -25,7 +31,7 @@ export default function DashboardPage() {
     <>
       <PageHeader
         title="대시보드"
-        description="온라인 판매 운영에 필요한 자동화 모듈을 한곳에서 관리하세요. 현재 중국주문 원가계산과 상품 마스터 모듈을 사용할 수 있습니다."
+        description="온라인 판매 운영에 필요한 자동화 모듈을 한곳에서 관리하세요. 현재 중국주문 원가계산, 상품 마스터, 배대지 바코드 PDF 생성기 모듈을 사용할 수 있습니다."
       />
 
       <section aria-labelledby="modules-heading">
@@ -33,7 +39,7 @@ export default function DashboardPage() {
           <h2 id="modules-heading" className="text-sm font-semibold text-slate-900">
             운영 모듈
           </h2>
-          <span className="text-xs text-slate-500">2 / 6 사용 가능</span>
+          <span className="text-xs text-slate-500">3 / 7 사용 가능</span>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {modules.map((module, index) => {
