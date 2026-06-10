@@ -35,7 +35,7 @@ button:not(:disabled) {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 6mm;
+    margin: 4mm;
   }
 
   html,
@@ -62,7 +62,7 @@ button:not(:disabled) {
     left: 0;
     right: 0;
     width: 100%;
-    max-width: 198mm;
+    max-width: 202mm;
     min-width: 0;
     margin: 0 auto;
     border: 0;
