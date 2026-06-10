@@ -228,3 +228,72 @@ test("returns an empty failed result without throwing for unrecognized text", ()
   assert.equal(parsed.diagnostics?.parserMode, "failed");
   assert.equal(parsed.diagnostics?.detectedCounts.lines, 1);
 });
+
+const trackingDetailBase = `신청번호:642700
+
+*품목
+Poultry Drinker
+옵션(색상,사이즈)
+产品规格: 固定螺丝水碗
+*상품상세url
+https://detail.1688.com/offer/552689871722.html
+*hs_code
+3926909000
+*단가
+0.61
+*수량
+300`;
+
+test("parses 트레킹번호 into trackingNo", () => {
+  const parsed = parseFreightApplicationText(`${trackingDetailBase}
+트레킹번호
+435218340023794
+오픈마켓 주문번호
+3306760070065591852`);
+
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].itemName, "Poultry Drinker");
+  assert.match(parsed.items[0].optionText, /固定螺丝水碗/);
+  assert.equal(parsed.items[0].hsCode, "3926909000");
+  assert.equal(parsed.items[0].unitPrice, 0.61);
+  assert.equal(parsed.items[0].quantity, 300);
+  assert.equal(parsed.items[0].trackingNo, "435218340023794");
+  assert.equal(parsed.items[0].orderNo, "3306760070065591852");
+});
+
+test("parses 트래킹번호 into trackingNo", () => {
+  const parsed = parseFreightApplicationText(`${trackingDetailBase}
+트래킹번호
+435218340023795`);
+
+  assert.equal(parsed.items[0].trackingNo, "435218340023795");
+});
+
+test("parses English tracking number labels", () => {
+  const withTrackingNo = parseFreightApplicationText(`${trackingDetailBase}
+Tracking No.
+YT123456789CN`);
+  const withTrackingNumber = parseFreightApplicationText(`${trackingDetailBase}
+tracking number
+YT987654321CN`);
+
+  assert.equal(withTrackingNo.items[0].trackingNo, "YT123456789CN");
+  assert.equal(withTrackingNumber.items[0].trackingNo, "YT987654321CN");
+});
+
+
+test("parses tracking number from an inline product block", () => {
+  const parsed = parseFreightApplicationText(`신청번호:642701
+제품정보:(1)
+품목: Poultry Drinker
+옵션(색상,사이즈): 产品规格: 固定螺丝水碗
+상품상세url: https://detail.1688.com/offer/552689871722.html
+hs_code: 3926909000
+단가: 0.61
+수량: 300
+트레킹번호: 435218340023796
+오픈마켓 주문번호: 3306760070065591852`);
+
+  assert.equal(parsed.diagnostics?.parserMode, "labeled-inline");
+  assert.equal(parsed.items[0].trackingNo, "435218340023796");
+});
