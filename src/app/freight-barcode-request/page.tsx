@@ -7,9 +7,9 @@ import { findProductByModelNoOrModelName } from "@/lib/productMaster";
 import { createCode128Layout } from "@/lib/code128";
 import {
   assignPastedImagesToItems,
-  extractImageUrlsFromHtml,
-  getPreferredFreightItemImage,
+  extractRichPasteImagesFromHtml,
 } from "@/lib/richPasteExtractor";
+import type { RichPasteImageExtraction } from "@/lib/richPasteExtractor";
 import type {
   FreightApplication,
   FreightApplicationItem,
@@ -53,12 +53,9 @@ hs_code: 7326209000
 수량: 200
 오픈마켓 주문번호: 3307376352586591852`;
 
-const KOREAN_MESSAGE = `첨부드린 PDF 기준으로 상품별 바코드/원산지 라벨 부착 작업 부탁드립니다.
-
-각 품목은 순번, 상품 이미지, 옵션, 수량, 위치코드를 기준으로 구분해 주세요.
-같은 상품명이라도 색상, 규격, 옵션이 다르면 위치코드 또는 바코드번호가 다를 수 있으니 반드시 각 행별로 확인 후 작업 부탁드립니다.
-각 바코드 라벨 상단에는 MADE IN CHINA 문구가 표시되어 있으며, 바코드는 하단 위치코드 기준으로 스캔됩니다.
-수량이나 옵션이 불명확한 부분이 있으면 작업 전 확인 부탁드립니다.`;
+const KOREAN_MESSAGE = `바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.
+PDF의 각 행별로 상품 이미지, 옵션, 수량, 위치코드를 확인 후 작업 부탁드립니다.
+같은 상품명이라도 옵션이나 위치코드가 다를 수 있으니 행별로 구분해서 작업 부탁드립니다.`;
 
 const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
 const NO_ITEMS_WARNING =
@@ -73,7 +70,12 @@ type AnalysisStatus =
 
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
-  const [pastedImageUrls, setPastedImageUrls] = useState<string[]>([]);
+  const [pastedImages, setPastedImages] = useState<RichPasteImageExtraction>({
+    totalImages: 0,
+    candidates: [],
+    ignoredImages: 0,
+    productBlockCount: 0,
+  });
   const richPasteRef = useRef<HTMLDivElement>(null);
   const [application, setApplication] =
     useState<FreightApplication>(EMPTY_APPLICATION);
@@ -92,7 +94,7 @@ export default function FreightBarcodeRequestPage() {
         ...parsedApplication,
         items: assignPastedImagesToItems(
           parsedApplication.items,
-          pastedImageUrls,
+          pastedImages,
         ),
       };
       setApplication(applicationWithPastedImages);
@@ -120,18 +122,23 @@ export default function FreightBarcodeRequestPage() {
     event.preventDefault();
     const html = event.clipboardData.getData("text/html");
     const plainText = event.clipboardData.getData("text/plain");
-    const imageUrls = extractImageUrlsFromHtml(html);
+    const imageExtraction = extractRichPasteImagesFromHtml(html);
 
     event.currentTarget.textContent = plainText;
     setRawText(plainText);
-    setPastedImageUrls(imageUrls);
+    setPastedImages(imageExtraction);
     setAnalysisStatus(null);
   }
 
   function loadSample() {
     const parsedApplication = parseFreightApplicationText(SAMPLE_TEXT);
     setRawText(SAMPLE_TEXT);
-    setPastedImageUrls([]);
+    setPastedImages({
+      totalImages: 0,
+      candidates: [],
+      ignoredImages: 0,
+      productBlockCount: 0,
+    });
     if (richPasteRef.current) richPasteRef.current.textContent = SAMPLE_TEXT;
     setApplication(parsedApplication);
     setAnalysisStatus({
@@ -143,7 +150,12 @@ export default function FreightBarcodeRequestPage() {
 
   function reset() {
     setRawText("");
-    setPastedImageUrls([]);
+    setPastedImages({
+      totalImages: 0,
+      candidates: [],
+      ignoredImages: 0,
+      productBlockCount: 0,
+    });
     if (richPasteRef.current) richPasteRef.current.textContent = "";
     setApplication(EMPTY_APPLICATION);
     setAnalysisStatus(null);
@@ -239,15 +251,25 @@ export default function FreightBarcodeRequestPage() {
             />
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
-                이미지 {pastedImageUrls.length}개 감지됨
+                전체 이미지 {pastedImages.totalImages}개
               </span>
-              {pastedImageUrls.map((imageUrl, index) => (
-                <span key={`${imageUrl}-${index}`} className="flex size-12 items-center justify-center overflow-hidden rounded border border-slate-300 bg-white" title={imageUrl}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={imageUrl} alt={`붙여넣기 이미지 ${index + 1}`} className="size-full object-contain" />
+              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                상품 이미지 후보 {pastedImages.candidates.length}개
+              </span>
+              <span className="rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                제외 {pastedImages.ignoredImages}개
+              </span>
+              {pastedImages.candidates.map((candidate, index) => (
+                <span key={`${candidate.url}-${index}`} className="flex size-12 items-center justify-center overflow-hidden rounded border border-slate-300 bg-white" title={candidate.url}>
+                  <FreightItemImage
+                    pastedImageUrl={candidate.url}
+                    alt={`상품 이미지 후보 ${index + 1}`}
+                    className="size-full object-contain"
+                  />
                 </span>
               ))}
             </div>
+            <p className="mt-2 text-xs text-slate-500">국기/아이콘/로고 등은 자동 제외됩니다.</p>
           </div>
 
           <label className="mb-2 block text-sm font-semibold text-slate-800" htmlFor="freight-plain-text">
@@ -268,7 +290,7 @@ export default function FreightBarcodeRequestPage() {
               세부 페이지에서는 제품정보 영역의 *품목, 옵션, 상품상세url, hs_code, 단가, 수량이 함께 포함되도록 복사하면 분석률이 높습니다.
             </p>
             <p>
-              일반 텍스트 입력도 그대로 사용할 수 있습니다. 이미지 포함 붙여넣기에서 감지한 이미지는 분석된 품목 순서대로 연결됩니다.
+              일반 텍스트 입력도 그대로 사용할 수 있습니다. 상품 이미지 후보는 제품정보 블록별로 우선 연결됩니다.
             </p>
             <p>
               분석 결과가 비어 있으면 아래 진단 정보를 보고 복사 범위를 넓혀 다시 시도하세요.
@@ -518,25 +540,25 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
       </div>
       <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
         <p className="mb-1 font-bold">작업 안내</p>
-        <p>아래 품목별 이미지, 옵션, 수량, 위치코드에 맞춰 바코드/원산지 라벨을 부착해주세요.</p>
-        <p>같은 상품명이라도 색상, 규격, 옵션이 다르면 위치코드 또는 바코드번호가 다를 수 있으니 각 품목 행을 반드시 구분해서 확인해주세요.</p>
-        <p>각 바코드 라벨 상단에는 MADE IN CHINA 문구가 표시되어 있으며, 바코드 스캔값은 하단 위치코드 기준입니다.</p>
-        <p>수량과 옵션이 불명확한 경우 작업 전 확인 부탁드립니다.</p>
+        <p>바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.</p>
+        <p>PDF의 각 행별로 상품 이미지, 옵션, 수량, 위치코드를 확인 후 작업 부탁드립니다.</p>
+        <p>같은 상품명이라도 옵션이나 위치코드가 다를 수 있으니 행별로 구분해서 작업 부탁드립니다.</p>
       </div>
       <div className="print-card-list mt-5 space-y-4">
         {application.items.map((item) => {
-          // Option-specific pasted/manual images intentionally take priority over Product Master.
-          const imageUrl = getPreferredFreightItemImage(item);
-
           return (
             <article key={item.id} className="freight-item-card break-inside-avoid rounded-lg border-2 border-slate-800 p-4 text-xs text-slate-950">
               <div className="item-card-top grid grid-cols-[3rem_4.5rem_minmax(0,1fr)] gap-3">
                 <div className="flex h-12 items-center justify-center rounded border border-slate-400 text-lg font-bold">{item.rowNo}</div>
                 <div className="product-image flex size-[72px] items-center justify-center overflow-hidden rounded border border-slate-300 bg-white text-center text-[10px] text-slate-500">
-                  {imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={imageUrl} alt={item.matchedModelName || item.itemName} className="size-[72px] object-contain" />
-                  ) : "이미지 없음"}
+                  <FreightItemImage
+                    key={[item.pastedImageUrl, item.imageUrl, item.matchedImageUrl].join("|")}
+                    pastedImageUrl={item.pastedImageUrl}
+                    imageUrl={item.imageUrl}
+                    matchedImageUrl={item.matchedImageUrl}
+                    alt={item.matchedModelName || item.itemName}
+                    className="size-[72px] object-contain"
+                  />
                 </div>
                 <dl className="min-w-0 space-y-1 leading-5">
                   <PrintField label="품목" value={item.matchedProductNameKo || item.itemName} />
@@ -573,6 +595,39 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
       </div>
       {application.items.length === 0 && <p className="py-12 text-center text-sm text-slate-500">분석된 품목이 없습니다.</p>}
     </section>
+  );
+}
+
+function FreightItemImage({
+  pastedImageUrl,
+  imageUrl,
+  matchedImageUrl,
+  alt,
+  className,
+}: {
+  pastedImageUrl?: string;
+  imageUrl?: string;
+  matchedImageUrl?: string;
+  alt: string;
+  className?: string;
+}) {
+  const sources = useMemo(
+    () => [...new Set([pastedImageUrl, imageUrl, matchedImageUrl].filter((source): source is string => Boolean(source)))],
+    [pastedImageUrl, imageUrl, matchedImageUrl],
+  );
+  const [sourceIndex, setSourceIndex] = useState(0);
+
+  const source = sources[sourceIndex];
+  if (!source) return <span className="px-1 font-semibold text-slate-500">이미지 없음</span>;
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={source}
+      alt={alt}
+      className={className}
+      onError={() => setSourceIndex((current) => current + 1)}
+    />
   );
 }
 
