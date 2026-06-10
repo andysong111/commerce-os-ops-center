@@ -1,8 +1,15 @@
 import type {
   ChinaOrderCalculatedRow,
+  ChinaOrderExchangeSettings,
   ChinaOrderRow,
   ChinaOrderWarning,
 } from "@/types/chinaOrders";
+
+export const DEFAULT_CHINA_ORDER_EXCHANGE_SETTINGS: ChinaOrderExchangeSettings = {
+  baseExchangeRateKrwPerCny: 235,
+  feeRatePercent: 0,
+  feeFixedKrwPerCny: 0,
+};
 
 export const SAMPLE_CHINA_ORDERS: ChinaOrderRow[] = [
   {
@@ -14,7 +21,6 @@ export const SAMPLE_CHINA_ORDERS: ChinaOrderRow[] = [
     quantity: 200,
     unitCostCny: 0.35,
     domesticChinaFreightCny: 10,
-    internalExchangeRateKrwPerCny: 235,
   },
   {
     id: "sample-2",
@@ -25,7 +31,6 @@ export const SAMPLE_CHINA_ORDERS: ChinaOrderRow[] = [
     quantity: 200,
     unitCostCny: 0.35,
     domesticChinaFreightCny: 0,
-    internalExchangeRateKrwPerCny: 235,
   },
   {
     id: "sample-3",
@@ -36,7 +41,6 @@ export const SAMPLE_CHINA_ORDERS: ChinaOrderRow[] = [
     quantity: 200,
     unitCostCny: 0.35,
     domesticChinaFreightCny: 0,
-    internalExchangeRateKrwPerCny: 235,
   },
   {
     id: "sample-4",
@@ -47,7 +51,6 @@ export const SAMPLE_CHINA_ORDERS: ChinaOrderRow[] = [
     quantity: 300,
     unitCostCny: 0.61,
     domesticChinaFreightCny: 42,
-    internalExchangeRateKrwPerCny: 235,
   },
 ];
 
@@ -61,12 +64,24 @@ export function createEmptyChinaOrder(id: string): ChinaOrderRow {
     quantity: 0,
     unitCostCny: 0,
     domesticChinaFreightCny: 0,
-    internalExchangeRateKrwPerCny: 235,
   };
+}
+
+export function calculateAppliedExchangeRate(
+  settings: ChinaOrderExchangeSettings,
+): number {
+  const baseRate = validNonNegativeNumber(
+    settings.baseExchangeRateKrwPerCny,
+  );
+  const feeRatePercent = validNonNegativeNumber(settings.feeRatePercent);
+  const fixedFee = validNonNegativeNumber(settings.feeFixedKrwPerCny);
+
+  return baseRate * (1 + feeRatePercent / 100) + fixedFee;
 }
 
 export function calculateChinaOrders(
   rows: ChinaOrderRow[],
+  appliedExchangeRateKrwPerCny: number,
 ): ChinaOrderCalculatedRow[] {
   const groupTotals = new Map<
     string,
@@ -88,6 +103,10 @@ export function calculateChinaOrders(
     groupTotals.set(row.freightGroupId, totals);
   }
 
+  const validAppliedExchangeRate = validNonNegativeNumber(
+    appliedExchangeRateKrwPerCny,
+  );
+
   return rows.map((row) => {
     const group = groupTotals.get(row.freightGroupId);
     const groupTotalQuantity = group?.quantity ?? 0;
@@ -100,8 +119,7 @@ export function calculateChinaOrders(
     const finalUnitCostCny =
       validNonNegativeNumber(row.unitCostCny) + domesticFreightPerUnitCny;
     const finalUnitCostKrw =
-      finalUnitCostCny *
-      validNonNegativeNumber(row.internalExchangeRateKrwPerCny);
+      finalUnitCostCny * validAppliedExchangeRate;
 
     return {
       ...row,
@@ -109,6 +127,7 @@ export function calculateChinaOrders(
       groupTotalDomesticChinaFreightCny,
       domesticFreightPerUnitCny,
       finalUnitCostCny,
+      appliedExchangeRateKrwPerCny: validAppliedExchangeRate,
       finalUnitCostKrw,
       totalFinalPurchaseCostKrw:
         finalUnitCostKrw * validNonNegativeNumber(row.quantity),
@@ -126,11 +145,6 @@ export function getChinaOrderWarnings(
     warnings.push("수량 확인");
   if (!Number.isFinite(row.unitCostCny) || row.unitCostCny <= 0)
     warnings.push("단가 확인");
-  if (
-    !Number.isFinite(row.internalExchangeRateKrwPerCny) ||
-    row.internalExchangeRateKrwPerCny <= 0
-  )
-    warnings.push("환율 확인");
 
   return warnings;
 }

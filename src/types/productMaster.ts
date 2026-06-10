@@ -4,7 +4,7 @@ export interface ProductOption {
   optionId: string;
   optionName: string;
   optionImageUrl?: string;
-  defaultUnitCostCny: number;
+  referenceUnitCostCny?: number;
   memo?: string;
 }
 
@@ -13,7 +13,6 @@ export interface ProductMaster {
   modelName: string;
   category: string;
   mainImageUrl?: string;
-  defaultExchangeRateKrwPerCny: number;
   status: ProductStatus;
   memo?: string;
   options: ProductOption[];

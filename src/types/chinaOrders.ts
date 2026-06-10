@@ -7,7 +7,12 @@ export interface ChinaOrderRow {
   quantity: number;
   unitCostCny: number;
   domesticChinaFreightCny: number;
-  internalExchangeRateKrwPerCny: number;
+}
+
+export interface ChinaOrderExchangeSettings {
+  baseExchangeRateKrwPerCny: number;
+  feeRatePercent: number;
+  feeFixedKrwPerCny: number;
 }
 
 export interface ChinaOrderCalculatedRow extends ChinaOrderRow {
@@ -15,17 +20,14 @@ export interface ChinaOrderCalculatedRow extends ChinaOrderRow {
   groupTotalDomesticChinaFreightCny: number;
   domesticFreightPerUnitCny: number;
   finalUnitCostCny: number;
+  appliedExchangeRateKrwPerCny: number;
   finalUnitCostKrw: number;
   totalFinalPurchaseCostKrw: number;
 }
 
-export type EditableChinaOrderField = Exclude<
-  keyof ChinaOrderRow,
-  "id"
->;
+export type EditableChinaOrderField = Exclude<keyof ChinaOrderRow, "id">;
 
 export type ChinaOrderWarning =
   | "운임 그룹 필요"
   | "수량 확인"
-  | "단가 확인"
-  | "환율 확인";
+  | "단가 확인";
