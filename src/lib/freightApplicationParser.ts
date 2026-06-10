@@ -7,6 +7,7 @@ import type {
 
 const PRODUCT_BLOCK_PATTERN = /제품\s*정보\s*:?\s*\(\s*(\d+)\s*\)/gi;
 const TRACKING_PLACEHOLDER = "입력란에 하나의 트래킹만 입력";
+const TRACKING_LABEL_PATTERN = "(?:트레킹번호|트래킹번호|tracking\\s*(?:no\\.?|number))";
 const OPTION_LINE_PATTERN = /(?:颜色|顏色|產品|产品|规格|規格|型号|型號|尺寸)\s*[:：]?/;
 const LONG_NUMBER_PATTERN = /^\d{12,}$/;
 const SMALL_INTEGER_PATTERN = /^\d{1,3}$/;
@@ -17,7 +18,7 @@ const FIELD_LABELS = [
   "옵션\\s*\\(\\s*색상\\s*,\\s*사이즈\\s*\\)",
   "오픈마켓\\s*주문번호",
   "상품상세\\s*url",
-  "트래킹번호",
+  TRACKING_LABEL_PATTERN,
   "hs[_\\s-]*code",
   "품목",
   "단가",
@@ -96,7 +97,7 @@ const NEXT_LINE_LABELS = {
   hsCode: /^hs[_\s-]*code$/i,
   unitPrice: /^단가$/i,
   quantity: /^수량$/i,
-  trackingNo: /^트래킹번호$/i,
+  trackingNo: /^(?:트레킹번호|트래킹번호|tracking\s*(?:no\.?|number))$/i,
   orderNo: /^오픈마켓\s*주문번호$/i,
 } as const;
 
@@ -175,7 +176,7 @@ function parseInlineLabeledItems(rawText: string): FreightApplicationItem[] {
       hsCode: extractField(block, "hs[_\\s-]*code"),
       unitPrice: parseOptionalNumber(extractField(block, "단가")),
       quantity: parseQuantity(extractField(block, "수량")),
-      trackingNo: extractField(block, "트래킹번호"),
+      trackingNo: extractField(block, TRACKING_LABEL_PATTERN),
       orderNo: extractField(block, "오픈마켓\\s*주문번호"),
     }))
     .filter(isUsefulItem);

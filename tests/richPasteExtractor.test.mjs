@@ -143,7 +143,7 @@ test("leaves unmatched items empty and preserves a manually entered imageUrl", (
   assert.equal(assigned[1].pastedImageUrl, undefined);
 });
 
-test("uses selected candidate, manual URL, pasted URL, then Product Master image priority", () => {
+test("falls back from a candidate to manual URL, Product Master image, then no image", () => {
   const item = {
     ...baseItems[0],
     selectedImageCandidateUrl: "https://selected.example/image.jpg",
@@ -155,30 +155,39 @@ test("uses selected candidate, manual URL, pasted URL, then Product Master image
   assert.deepEqual(getFreightItemImageSources(item), [
     item.selectedImageCandidateUrl,
     item.imageUrl,
-    item.pastedImageUrl,
     item.matchedImageUrl,
   ]);
   assert.equal(getPreferredFreightItemImage(item), item.selectedImageCandidateUrl);
-  assert.equal(
-    getPreferredFreightItemImage({ ...item, selectedImageCandidateUrl: undefined }),
-    item.imageUrl,
+  assert.deepEqual(
+    getFreightItemImageSources({ ...item, selectedImageCandidateUrl: undefined }),
+    [item.pastedImageUrl, item.imageUrl, item.matchedImageUrl],
   );
-  assert.equal(
-    getPreferredFreightItemImage({
+  assert.deepEqual(
+    getFreightItemImageSources({
       ...item,
       selectedImageCandidateUrl: undefined,
-      imageUrl: undefined,
-    }),
-    item.pastedImageUrl,
-  );
-  assert.equal(
-    getPreferredFreightItemImage({
-      ...item,
-      selectedImageCandidateUrl: undefined,
-      imageUrl: undefined,
       pastedImageUrl: undefined,
     }),
-    item.matchedImageUrl,
+    [item.imageUrl, item.matchedImageUrl],
+  );
+  assert.deepEqual(
+    getFreightItemImageSources({
+      ...item,
+      selectedImageCandidateUrl: undefined,
+      pastedImageUrl: undefined,
+      imageUrl: undefined,
+    }),
+    [item.matchedImageUrl],
+  );
+  assert.deepEqual(
+    getFreightItemImageSources({
+      ...item,
+      selectedImageCandidateUrl: undefined,
+      pastedImageUrl: undefined,
+      imageUrl: undefined,
+      matchedImageUrl: undefined,
+    }),
+    [],
   );
 });
 

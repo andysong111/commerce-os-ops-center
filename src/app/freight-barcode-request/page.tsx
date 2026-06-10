@@ -211,7 +211,17 @@ export default function FreightBarcodeRequestPage() {
       setApplication((current) => ({
         ...current,
         items: current.items.map((item) =>
-          item.pastedImageUrl === url ? { ...item, pastedImageUrl: undefined } : item,
+          item.pastedImageUrl === url || item.selectedImageCandidateUrl === url
+            ? {
+                ...item,
+                pastedImageUrl:
+                  item.pastedImageUrl === url ? undefined : item.pastedImageUrl,
+                selectedImageCandidateUrl:
+                  item.selectedImageCandidateUrl === url
+                    ? undefined
+                    : item.selectedImageCandidateUrl,
+              }
+            : item,
         ),
       }));
     }
@@ -319,7 +329,9 @@ export default function FreightBarcodeRequestPage() {
                 ))}
               </div>
             )}
-            <p className="mt-2 text-xs text-slate-500">국기/아이콘/로고 등은 후보 수에서 제외되며, 로딩 실패 후보는 자동 배정되지 않습니다.</p>
+            <p className="mt-2 text-xs leading-5 text-slate-500" title="온돌패스에서 복사된 일부 이미지는 외부 페이지에서 직접 열리지 않을 수 있습니다. 이 경우 상품마스터 이미지 또는 직접 이미지 URL을 사용해주세요.">
+              국기/아이콘/로고 등은 후보 수에서 제외되며, 로딩 실패 후보는 자동 배정되지 않습니다. 온돌패스에서 복사된 일부 이미지는 외부 페이지에서 직접 열리지 않을 수 있습니다. 이 경우 상품마스터 이미지 또는 직접 이미지 URL을 사용해주세요.
+            </p>
           </div>
 
           <label className="mb-2 block text-sm font-semibold text-slate-800" htmlFor="freight-plain-text">
@@ -516,8 +528,12 @@ function EditableRow({
           >
             <option value="">이미지 후보 선택</option>
             {imageCandidates.map((candidate, index) => (
-              <option key={`${candidate.url}-${index}`} value={candidate.url}>
-                후보 {index + 1} · {candidate.sourceType === "clipboard-file" ? "클립보드 파일" : candidate.loadStatus === "failed" ? "로딩 실패" : "붙여넣기 이미지"}
+              <option
+                key={`${candidate.url}-${index}`}
+                value={candidate.url}
+                disabled={candidate.loadStatus === "failed"}
+              >
+                후보 {index + 1} · {candidate.sourceType === "clipboard-file" ? "클립보드 파일" : candidate.loadStatus === "failed" ? "이미지 로딩 실패" : candidate.loadStatus === "pending" ? "로딩 확인 중" : "붙여넣기 이미지"}
               </option>
             ))}
           </select>
@@ -606,8 +622,7 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
   return (
     <section className="freight-print-area rounded-xl border border-slate-300 bg-white p-6 shadow-sm sm:p-8" aria-label="바코드 작업요청서 인쇄 미리보기">
       <div className="border-b-2 border-slate-900 pb-4 text-center">
-        <p className="text-xs font-semibold tracking-[0.2em] text-slate-500">COMMERCE OS</p>
-        <h2 className="mt-2 text-2xl font-bold text-slate-950">바코드 작업요청서</h2>
+        <h2 className="text-2xl font-bold text-slate-950">바코드 작업요청서</h2>
       </div>
       <div className="mt-4 flex flex-wrap justify-between gap-2 text-sm">
         <p><strong>신청번호:</strong> {application.applicationNo || "-"}</p>
@@ -636,9 +651,10 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
                 <dl className="min-w-0 space-y-1 leading-5">
                   <PrintField label="품목" value={item.matchedProductNameKo || item.itemName} />
                   <PrintField label="옵션" value={item.optionText} multiline />
-                  <div className="grid gap-x-4 sm:grid-cols-3">
+                  <div className="grid gap-x-4 sm:grid-cols-2">
                     <PrintField label="수량" value={String(item.quantity)} />
                     <PrintField label="HS CODE" value={item.hsCode} />
+                    <PrintField label="트래킹번호" value={item.trackingNo} breakAll />
                     <PrintField label="오픈마켓 주문번호" value={item.orderNo} breakAll />
                   </div>
                 </dl>
@@ -684,12 +700,20 @@ function ImageCandidateDiagnostic({
 }) {
   const [displayFailed, setDisplayFailed] = useState(!candidate.url);
   const failed = candidate.loadStatus === "failed" || displayFailed;
-  const statusLabel = excluded ? "제외됨" : failed ? "로딩 실패" : "정상 이미지";
+  const statusLabel = excluded
+    ? "제외됨"
+    : failed
+      ? "이미지 로딩 실패"
+      : candidate.loadStatus === "pending"
+        ? "로딩 확인 중"
+        : "정상 이미지";
   const statusStyle = excluded
     ? "bg-slate-200 text-slate-700"
     : failed
       ? "bg-red-100 text-red-700"
-      : "bg-emerald-100 text-emerald-700";
+      : candidate.loadStatus === "pending"
+        ? "bg-amber-100 text-amber-700"
+        : "bg-emerald-100 text-emerald-700";
 
   return (
     <div className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
