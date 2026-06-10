@@ -34,6 +34,7 @@ export interface FreightApplicationItem {
   trackingNo?: string;
   orderNo?: string;
   lookupText?: string;
+  locationCode?: string;
   matchedModelNo?: string;
   matchedModelName?: string;
   matchedProductNameKo?: string;

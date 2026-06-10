@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
 import { findProductByModelNoOrModelName } from "@/lib/productMaster";
+import { createCode128Layout } from "@/lib/code128";
 import type {
   FreightApplication,
   FreightApplicationItem,
@@ -47,10 +48,12 @@ hs_code: 7326209000
 수량: 200
 오픈마켓 주문번호: 3307376352586591852`;
 
-const CHINESE_MESSAGE = `请查看附件PDF。
-请按照PDF里的序号、商品图片、规格和数量进行条码/原产地标签粘贴。
-相同商品但不同颜色或规格的，请务必分开处理。
-如有不清楚的地方，请先联系我确认后再操作。`;
+const KOREAN_MESSAGE = `첨부드린 PDF 기준으로 상품별 바코드/원산지 라벨 부착 작업 부탁드립니다.
+
+각 품목은 순번, 상품 이미지, 옵션, 수량, 위치코드를 기준으로 구분해 주세요.
+같은 상품이라도 옵션이 다른 경우 반드시 별도로 구분해서 작업 부탁드립니다.
+바코드는 PDF에 표시된 바코드 이미지와 하단 텍스트 기준으로 부착해 주시면 됩니다.
+불명확한 부분이 있으면 작업 전 확인 부탁드립니다.`;
 
 const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
 const NO_ITEMS_WARNING =
@@ -68,7 +71,7 @@ export default function FreightBarcodeRequestPage() {
   const [application, setApplication] =
     useState<FreightApplication>(EMPTY_APPLICATION);
   const [lookupFailedIds, setLookupFailedIds] = useState<Set<string>>(new Set());
-  const [copyLabel, setCopyLabel] = useState("중국어 메시지 복사");
+  const [copyLabel, setCopyLabel] = useState("한국어 메시지 복사");
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
   const createdDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const matchedCount = application.items.filter(
@@ -158,10 +161,10 @@ export default function FreightBarcodeRequestPage() {
     });
   }
 
-  async function copyChineseMessage() {
-    await navigator.clipboard.writeText(CHINESE_MESSAGE);
+  async function copyKoreanMessage() {
+    await navigator.clipboard.writeText(KOREAN_MESSAGE);
     setCopyLabel("복사 완료");
-    window.setTimeout(() => setCopyLabel("중국어 메시지 복사"), 1500);
+    window.setTimeout(() => setCopyLabel("한국어 메시지 복사"), 1500);
   }
 
   return (
@@ -260,13 +263,13 @@ export default function FreightBarcodeRequestPage() {
             </label>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[2700px] border-collapse text-left text-xs">
+            <table className="w-full min-w-[2860px] border-collapse text-left text-xs">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
                   {[
                     "순번", "품목", "옵션", "수량", "단가", "HS CODE", "상세URL",
-                    "오픈마켓 주문번호", "트래킹번호", "모델번호/모델명 입력", "매칭상태",
-                    "모델번호", "모델명", "바코드", "원산지/라벨 문구", "비고",
+                    "오픈마켓 주문번호", "트래킹번호", "모델번호/모델명 입력", "위치코드", "매칭상태",
+                    "모델번호", "모델명", "상품 바코드", "원산지/라벨 문구", "비고",
                   ].map((heading) => (
                     <th key={heading} className="border-b border-r border-slate-200 px-3 py-3 font-semibold last:border-r-0">
                       {heading}
@@ -309,12 +312,12 @@ export default function FreightBarcodeRequestPage() {
           </div>
           <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-xs font-semibold text-slate-600">배송대행지 전달용 중국어 메시지</span>
-              <button type="button" onClick={copyChineseMessage} className="text-xs font-semibold text-blue-700 hover:text-blue-900">
+              <span className="text-xs font-semibold text-slate-600">배송대행지 전달용 한국어 메시지</span>
+              <button type="button" onClick={copyKoreanMessage} className="text-xs font-semibold text-blue-700 hover:text-blue-900">
                 {copyLabel}
               </button>
             </div>
-            <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-slate-700">{CHINESE_MESSAGE}</pre>
+            <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-slate-700">{KOREAN_MESSAGE}</pre>
           </div>
         </section>
       </div>
@@ -365,6 +368,12 @@ function EditableRow({
           <button type="button" onClick={onApply} className="w-full rounded-md bg-slate-800 px-3 py-2 font-semibold text-white hover:bg-slate-950">상품마스터 적용</button>
         </div>
       </td>
+      <td className={cellClassName}>
+        <label className="block w-36">
+          <span className="sr-only">위치코드</span>
+          <input value={item.locationCode ?? ""} onChange={(event) => onChange({ locationCode: event.target.value })} placeholder="예: BAA1-1" className={inputClassName} />
+        </label>
+      </td>
       <td className={cellClassName}><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 font-semibold ${statusStyle}`}>{status}</span></td>
       <td className={cellClassName}><input value={item.matchedModelNo ?? ""} onChange={(event) => onChange({ matchedModelNo: event.target.value })} className={`${inputClassName} w-32`} /></td>
       <td className={cellClassName}><input value={item.matchedModelName ?? ""} onChange={(event) => onChange({ matchedModelName: event.target.value })} className={`${inputClassName} w-40`} /></td>
@@ -380,6 +389,49 @@ function EditableRow({
   );
 }
 
+function LocationBarcode({ value }: { value?: string }) {
+  const normalizedValue = value?.trim();
+
+  if (!normalizedValue) {
+    return <span className="font-sans text-[10px] font-semibold">위치코드 미입력</span>;
+  }
+
+  let layout: ReturnType<typeof createCode128Layout> | null = null;
+
+  try {
+    layout = createCode128Layout(normalizedValue);
+  } catch {
+    layout = null;
+  }
+
+  if (!layout) {
+    return (
+      <span className="font-sans text-[10px] font-semibold">
+        위치코드 형식 확인: {normalizedValue}
+      </span>
+    );
+  }
+
+  return (
+    <div className="location-barcode mx-auto flex min-w-36 flex-col items-center bg-white p-1 text-black">
+      <svg
+        aria-label={`위치코드 ${normalizedValue} CODE128 바코드`}
+        className="block h-12 w-40 max-w-none bg-white"
+        role="img"
+        shapeRendering="crispEdges"
+        viewBox={`0 0 ${layout.width} 40`}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <rect fill="white" height="40" width={layout.width} />
+        {layout.bars.map((bar, index) => (
+          <rect key={`${bar.x}-${index}`} fill="black" height="40" width={bar.width} x={bar.x} />
+        ))}
+      </svg>
+      <span className="mt-1 font-mono text-[10px] font-bold tracking-wide">{normalizedValue}</span>
+    </div>
+  );
+}
+
 function WorkRequestPreview({ application, createdDate }: { application: FreightApplication; createdDate: string }) {
   return (
     <section className="freight-print-area rounded-xl border border-slate-300 bg-white p-6 shadow-sm sm:p-8" aria-label="바코드 작업요청서 인쇄 미리보기">
@@ -391,25 +443,18 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
         <p><strong>신청번호:</strong> {application.applicationNo || "-"}</p>
         <p><strong>생성일자:</strong> {createdDate}</p>
       </div>
-      <div className="mt-5 grid gap-4 border-y border-slate-300 py-4 text-sm leading-6 md:grid-cols-2">
-        <div>
-          <p className="mb-1 font-bold">작업 안내</p>
-          <p>아래 품목별 이미지, 옵션, 수량에 맞춰 바코드/원산지 라벨을 부착해주세요.</p>
-          <p>같은 상품이라도 색상/규격이 다른 경우 반드시 구분해서 작업해주세요.</p>
-          <p>불명확한 부분은 작업 전 확인 부탁드립니다.</p>
-        </div>
-        <div lang="zh-CN">
-          <p className="mb-1 font-bold">作业说明</p>
-          <p>请按照以下商品明细、图片、规格和数量粘贴条码/原产地标签。</p>
-          <p>相同商品但不同颜色或规格的，请务必分开处理。</p>
-          <p>如有不清楚的地方，请先联系我确认后再操作。</p>
-        </div>
+      <div className="mt-5 border-y border-slate-300 py-4 text-sm leading-6">
+        <p className="mb-1 font-bold">작업 안내</p>
+        <p>아래 품목별 이미지, 옵션, 수량, 위치코드에 맞춰 바코드/원산지 라벨을 부착해주세요.</p>
+        <p>같은 상품이라도 색상/규격이 다른 경우 반드시 구분해서 작업해주세요.</p>
+        <p>바코드는 각 행의 바코드 이미지와 하단 텍스트를 기준으로 부착해주세요.</p>
+        <p>불명확한 부분은 작업 전 확인 부탁드립니다.</p>
       </div>
       <div className="mt-5 overflow-x-auto">
-        <table className="print-table w-full min-w-[1120px] border-collapse text-left text-xs">
+        <table className="print-table w-full min-w-[1380px] border-collapse text-left text-xs">
           <thead>
             <tr>
-              {["순번", "상품이미지", "품목", "옵션", "수량", "오픈마켓 주문번호", "모델번호", "모델명", "바코드", "원산지/라벨 문구", "작업지시"].map((heading) => (
+              {["순번", "상품이미지", "품목", "옵션", "수량", "오픈마켓 주문번호", "모델번호", "모델명", "위치코드", "바코드", "원산지/라벨 문구", "작업지시"].map((heading) => (
                 <th key={heading} className="border border-slate-400 bg-slate-100 px-2 py-2 font-bold">{heading}</th>
               ))}
             </tr>
@@ -430,12 +475,13 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
                 <td className="border border-slate-400 px-2 py-3 break-all">{item.orderNo || "-"}</td>
                 <td className="border border-slate-400 px-2 py-3">{item.matchedModelNo || "확인 필요"}</td>
                 <td className="border border-slate-400 px-2 py-3">{item.matchedModelName || "확인 필요"}</td>
-                <td className="border border-slate-400 px-2 py-3 font-mono">{item.matchedBarcode || "확인 필요"}</td>
+                <td className="border border-slate-400 px-2 py-3 text-center font-mono font-bold">{item.locationCode?.trim() || "위치코드 미입력"}</td>
+                <td className="barcode-cell border border-slate-400 px-2 py-3 text-center"><LocationBarcode value={item.locationCode} /></td>
                 <td className="border border-slate-400 px-2 py-3">
                   <p>{item.matchedOriginLabel || "확인 필요"}</p>
                   {item.matchedLabelText && <p className="mt-1">{item.matchedLabelText}</p>}
                 </td>
-                <td className="border border-slate-400 px-2 py-3">바코드/원산지 라벨 부착</td>
+                <td className="border border-slate-400 px-2 py-3">위치코드 바코드/원산지 라벨 부착</td>
               </tr>
             ))}
           </tbody>
