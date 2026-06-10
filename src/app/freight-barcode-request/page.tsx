@@ -53,6 +53,8 @@ const CHINESE_MESSAGE = `请查看附件PDF。
 如有不清楚的地方，请先联系我确认后再操作。`;
 
 const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
+const NO_ITEMS_WARNING =
+  "분석된 품목이 없습니다. 제품정보 영역을 조금 더 넓게 복사하거나, 표의 번호/사진/수량/품목/옵션/오더번호 영역을 함께 복사해주세요.";
 
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
@@ -60,25 +62,32 @@ export default function FreightBarcodeRequestPage() {
     useState<FreightApplication>(EMPTY_APPLICATION);
   const [lookupFailedIds, setLookupFailedIds] = useState<Set<string>>(new Set());
   const [copyLabel, setCopyLabel] = useState("중국어 메시지 복사");
+  const [analysisWarning, setAnalysisWarning] = useState("");
   const createdDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
   ).length;
 
   function analyzeText() {
-    setApplication(parseFreightApplicationText(rawText));
+    const parsedApplication = parseFreightApplicationText(rawText);
+    setApplication(parsedApplication);
+    setAnalysisWarning(
+      parsedApplication.items.length === 0 ? NO_ITEMS_WARNING : "",
+    );
     setLookupFailedIds(new Set());
   }
 
   function loadSample() {
     setRawText(SAMPLE_TEXT);
     setApplication(parseFreightApplicationText(SAMPLE_TEXT));
+    setAnalysisWarning("");
     setLookupFailedIds(new Set());
   }
 
   function reset() {
     setRawText("");
     setApplication(EMPTY_APPLICATION);
+    setAnalysisWarning("");
     setLookupFailedIds(new Set());
   }
 
@@ -151,10 +160,21 @@ export default function FreightBarcodeRequestPage() {
           </div>
           <textarea
             value={rawText}
-            onChange={(event) => setRawText(event.target.value)}
+            onChange={(event) => {
+              setRawText(event.target.value);
+              setAnalysisWarning("");
+            }}
             placeholder="배송대행지 신청서 세부 페이지에서 제품정보 영역을 드래그해서 복사한 뒤 여기에 붙여넣으세요."
             className="min-h-72 w-full resize-y rounded-lg border border-slate-300 bg-slate-50 p-4 font-mono text-sm leading-6 text-slate-900 outline-none placeholder:font-sans placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
           />
+          <p className="mt-2 text-xs leading-5 text-slate-500">
+            배송대행지 화면을 복사할 때 번호, 사진, 수량, 품목, 옵션, 오더번호가 함께 포함되도록 드래그하면 분석률이 높아집니다.
+          </p>
+          {analysisWarning && (
+            <p role="alert" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium leading-6 text-amber-900">
+              {analysisWarning}
+            </p>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button onClick={analyzeText} primary>신청서 분석하기</Button>
             <Button onClick={loadSample}>샘플 불러오기</Button>
