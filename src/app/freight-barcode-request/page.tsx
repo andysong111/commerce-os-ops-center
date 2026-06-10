@@ -329,8 +329,8 @@ export default function FreightBarcodeRequestPage() {
                 ))}
               </div>
             )}
-            <p className="mt-2 text-xs leading-5 text-slate-500" title="온돌패스에서 복사된 일부 이미지는 외부 페이지에서 직접 열리지 않을 수 있습니다. 이 경우 상품마스터 이미지 또는 직접 이미지 URL을 사용해주세요.">
-              국기/아이콘/로고 등은 후보 수에서 제외되며, 로딩 실패 후보는 자동 배정되지 않습니다. 온돌패스에서 복사된 일부 이미지는 외부 페이지에서 직접 열리지 않을 수 있습니다. 이 경우 상품마스터 이미지 또는 직접 이미지 URL을 사용해주세요.
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              온돌패스에서 복사된 일부 1688 이미지는 외부 페이지에서 직접 열리지 않을 수 있습니다. 이미지가 필요한 품목만 상품마스터 이미지 또는 직접 이미지 URL로 보완해주세요.
             </p>
           </div>
 
