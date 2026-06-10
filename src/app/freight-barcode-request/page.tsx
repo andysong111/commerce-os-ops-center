@@ -1,15 +1,18 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
 import { findProductByModelNoOrModelName } from "@/lib/productMaster";
 import { createCode128Layout } from "@/lib/code128";
 import {
   assignPastedImagesToItems,
+  createClipboardImageCandidates,
   extractRichPasteImagesFromHtml,
+  getFreightItemImageSources,
+  mergeRichPasteImages,
 } from "@/lib/richPasteExtractor";
-import type { RichPasteImageExtraction } from "@/lib/richPasteExtractor";
+import type { RichPasteImageCandidate, RichPasteImageExtraction } from "@/lib/richPasteExtractor";
 import type {
   FreightApplication,
   FreightApplicationItem,
@@ -58,6 +61,13 @@ PDF의 각 행별로 상품 이미지, 옵션, 수량, 위치코드를 확인 �
 같은 상품명이라도 옵션이나 위치코드가 다를 수 있으니 행별로 구분해서 작업 부탁드립니다.`;
 
 const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
+const EMPTY_PASTED_IMAGES: RichPasteImageExtraction = {
+  totalImages: 0,
+  candidates: [],
+  excludedCandidates: [],
+  ignoredImages: 0,
+  productBlockCount: 0,
+};
 const NO_ITEMS_WARNING =
   "분석된 품목이 없습니다. 복사한 텍스트에서 품목/옵션/수량/URL을 찾지 못했습니다. 신청서 세부 페이지에서 제품정보 영역을 더 넓게 복사해주세요.";
 const ANALYSIS_ERROR =
@@ -70,13 +80,9 @@ type AnalysisStatus =
 
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
-  const [pastedImages, setPastedImages] = useState<RichPasteImageExtraction>({
-    totalImages: 0,
-    candidates: [],
-    ignoredImages: 0,
-    productBlockCount: 0,
-  });
+  const [pastedImages, setPastedImages] = useState<RichPasteImageExtraction>(EMPTY_PASTED_IMAGES);
   const richPasteRef = useRef<HTMLDivElement>(null);
+  const clipboardObjectUrlsRef = useRef<string[]>([]);
   const [application, setApplication] =
     useState<FreightApplication>(EMPTY_APPLICATION);
   const [lookupFailedIds, setLookupFailedIds] = useState<Set<string>>(new Set());
@@ -86,6 +92,17 @@ export default function FreightBarcodeRequestPage() {
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
   ).length;
+
+  useEffect(() => {
+    return () => {
+      clipboardObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
+  function clearClipboardObjectUrls() {
+    clipboardObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    clipboardObjectUrlsRef.current = [];
+  }
 
   function analyzeText() {
     try {
@@ -122,7 +139,20 @@ export default function FreightBarcodeRequestPage() {
     event.preventDefault();
     const html = event.clipboardData.getData("text/html");
     const plainText = event.clipboardData.getData("text/plain");
-    const imageExtraction = extractRichPasteImagesFromHtml(html);
+    clearClipboardObjectUrls();
+    const clipboardFiles = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    const clipboardInputs = clipboardFiles.map((file) => {
+      const url = URL.createObjectURL(file);
+      clipboardObjectUrlsRef.current.push(url);
+      return { url, type: file.type, name: file.name };
+    });
+    const imageExtraction = mergeRichPasteImages(
+      extractRichPasteImagesFromHtml(html),
+      createClipboardImageCandidates(clipboardInputs),
+    );
 
     event.currentTarget.textContent = plainText;
     setRawText(plainText);
@@ -133,12 +163,8 @@ export default function FreightBarcodeRequestPage() {
   function loadSample() {
     const parsedApplication = parseFreightApplicationText(SAMPLE_TEXT);
     setRawText(SAMPLE_TEXT);
-    setPastedImages({
-      totalImages: 0,
-      candidates: [],
-      ignoredImages: 0,
-      productBlockCount: 0,
-    });
+    clearClipboardObjectUrls();
+    setPastedImages(EMPTY_PASTED_IMAGES);
     if (richPasteRef.current) richPasteRef.current.textContent = SAMPLE_TEXT;
     setApplication(parsedApplication);
     setAnalysisStatus({
@@ -150,12 +176,8 @@ export default function FreightBarcodeRequestPage() {
 
   function reset() {
     setRawText("");
-    setPastedImages({
-      totalImages: 0,
-      candidates: [],
-      ignoredImages: 0,
-      productBlockCount: 0,
-    });
+    clearClipboardObjectUrls();
+    setPastedImages(EMPTY_PASTED_IMAGES);
     if (richPasteRef.current) richPasteRef.current.textContent = "";
     setApplication(EMPTY_APPLICATION);
     setAnalysisStatus(null);
@@ -176,6 +198,23 @@ export default function FreightBarcodeRequestPage() {
         item.id === id ? { ...item, ...changes } : item,
       ),
     }));
+  }
+
+  function updateCandidateLoadStatus(url: string, loadStatus: "loaded" | "failed") {
+    setPastedImages((current) => ({
+      ...current,
+      candidates: current.candidates.map((candidate) =>
+        candidate.url === url ? { ...candidate, loadStatus } : candidate,
+      ),
+    }));
+    if (loadStatus === "failed") {
+      setApplication((current) => ({
+        ...current,
+        items: current.items.map((item) =>
+          item.pastedImageUrl === url ? { ...item, pastedImageUrl: undefined } : item,
+        ),
+      }));
+    }
   }
 
   function applyProductMaster(item: FreightApplicationItem) {
@@ -259,17 +298,28 @@ export default function FreightBarcodeRequestPage() {
               <span className="rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">
                 제외 {pastedImages.ignoredImages}개
               </span>
-              {pastedImages.candidates.map((candidate, index) => (
-                <span key={`${candidate.url}-${index}`} className="flex size-12 items-center justify-center overflow-hidden rounded border border-slate-300 bg-white" title={candidate.url}>
-                  <FreightItemImage
-                    pastedImageUrl={candidate.url}
-                    alt={`상품 이미지 후보 ${index + 1}`}
-                    className="size-full object-contain"
-                  />
-                </span>
-              ))}
             </div>
-            <p className="mt-2 text-xs text-slate-500">국기/아이콘/로고 등은 자동 제외됩니다.</p>
+            {(pastedImages.candidates.length > 0 || pastedImages.excludedCandidates.length > 0) && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {pastedImages.candidates.map((candidate, index) => (
+                  <ImageCandidateDiagnostic
+                    key={`${candidate.url}-${index}`}
+                    candidate={candidate}
+                    label={`상품 이미지 후보 ${index + 1}`}
+                    onLoadStatusChange={(status) => updateCandidateLoadStatus(candidate.url, status)}
+                  />
+                ))}
+                {pastedImages.excludedCandidates.map((candidate, index) => (
+                  <ImageCandidateDiagnostic
+                    key={`${candidate.url ?? candidate.reason}-${index}`}
+                    candidate={{ ...candidate, url: candidate.url ?? "", score: 0, loadStatus: "failed" }}
+                    label={`제외 이미지 ${index + 1}`}
+                    excluded
+                  />
+                ))}
+              </div>
+            )}
+            <p className="mt-2 text-xs text-slate-500">국기/아이콘/로고 등은 후보 수에서 제외되며, 로딩 실패 후보는 자동 배정되지 않습니다.</p>
           </div>
 
           <label className="mb-2 block text-sm font-semibold text-slate-800" htmlFor="freight-plain-text">
@@ -374,6 +424,7 @@ export default function FreightBarcodeRequestPage() {
                   <EditableRow
                     key={item.id}
                     item={item}
+                    imageCandidates={pastedImages.candidates}
                     lookupFailed={lookupFailedIds.has(item.id)}
                     onChange={(changes) => updateItem(item.id, changes)}
                     onApply={() => applyProductMaster(item)}
@@ -421,11 +472,13 @@ export default function FreightBarcodeRequestPage() {
 
 function EditableRow({
   item,
+  imageCandidates,
   lookupFailed,
   onChange,
   onApply,
 }: {
   item: FreightApplicationItem;
+  imageCandidates: RichPasteImageCandidate[];
   lookupFailed: boolean;
   onChange: (changes: Partial<FreightApplicationItem>) => void;
   onApply: () => void;
@@ -452,7 +505,29 @@ function EditableRow({
       <td className={cellClassName}><input type="number" step="0.01" value={item.unitPrice ?? ""} onChange={(event) => onChange({ unitPrice: event.target.value === "" ? undefined : Number(event.target.value) })} className={`${inputClassName} w-24`} /></td>
       <td className={cellClassName}><input value={item.hsCode ?? ""} onChange={(event) => onChange({ hsCode: event.target.value })} className={`${inputClassName} w-32`} /></td>
       <td className={cellClassName}><textarea value={item.detailUrl ?? ""} onChange={(event) => onChange({ detailUrl: event.target.value })} className={`${inputClassName} min-h-16 w-64 resize-y break-all`} /></td>
-      <td className={cellClassName}><textarea value={item.imageUrl ?? ""} onChange={(event) => onChange({ imageUrl: event.target.value })} placeholder="https://..." className={`${inputClassName} min-h-16 w-64 resize-y break-all`} /></td>
+      <td className={cellClassName}>
+        <div className="w-72 space-y-2">
+          <textarea value={item.imageUrl ?? ""} onChange={(event) => onChange({ imageUrl: event.target.value })} placeholder="직접 이미지 URL 입력" className={`${inputClassName} min-h-16 resize-y break-all`} />
+          <select
+            aria-label={`${item.rowNo}행 이미지 후보 선택`}
+            value={item.selectedImageCandidateUrl ?? ""}
+            onChange={(event) => onChange({ selectedImageCandidateUrl: event.target.value || undefined })}
+            className={inputClassName}
+          >
+            <option value="">이미지 후보 선택</option>
+            {imageCandidates.map((candidate, index) => (
+              <option key={`${candidate.url}-${index}`} value={candidate.url}>
+                후보 {index + 1} · {candidate.sourceType === "clipboard-file" ? "클립보드 파일" : candidate.loadStatus === "failed" ? "로딩 실패" : "붙여넣기 이미지"}
+              </option>
+            ))}
+          </select>
+          {item.selectedImageCandidateUrl && imageCandidates.find((candidate) => candidate.url === item.selectedImageCandidateUrl)?.loadStatus === "failed" && (
+            <p className="text-[11px] font-semibold leading-4 text-red-700">
+              선택한 이미지가 로딩되지 않습니다. 다른 이미지 URL을 입력해주세요.
+            </p>
+          )}
+        </div>
+      </td>
       <td className={cellClassName}><input value={item.orderNo ?? ""} onChange={(event) => onChange({ orderNo: event.target.value })} className={`${inputClassName} w-48`} /></td>
       <td className={cellClassName}><input value={item.trackingNo ?? ""} onChange={(event) => onChange({ trackingNo: event.target.value })} className={`${inputClassName} w-40`} /></td>
       <td className={cellClassName}>
@@ -552,10 +627,8 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
                 <div className="flex h-12 items-center justify-center rounded border border-slate-400 text-lg font-bold">{item.rowNo}</div>
                 <div className="product-image flex size-[72px] items-center justify-center overflow-hidden rounded border border-slate-300 bg-white text-center text-[10px] text-slate-500">
                   <FreightItemImage
-                    key={[item.pastedImageUrl, item.imageUrl, item.matchedImageUrl].join("|")}
-                    pastedImageUrl={item.pastedImageUrl}
-                    imageUrl={item.imageUrl}
-                    matchedImageUrl={item.matchedImageUrl}
+                    key={getFreightItemImageSources(item).join("|")}
+                    sources={getFreightItemImageSources(item)}
                     alt={item.matchedModelName || item.itemName}
                     className="size-[72px] object-contain"
                   />
@@ -598,25 +671,67 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
   );
 }
 
+function ImageCandidateDiagnostic({
+  candidate,
+  label,
+  excluded = false,
+  onLoadStatusChange,
+}: {
+  candidate: RichPasteImageCandidate;
+  label: string;
+  excluded?: boolean;
+  onLoadStatusChange?: (status: "loaded" | "failed") => void;
+}) {
+  const [displayFailed, setDisplayFailed] = useState(!candidate.url);
+  const failed = candidate.loadStatus === "failed" || displayFailed;
+  const statusLabel = excluded ? "제외됨" : failed ? "로딩 실패" : "정상 이미지";
+  const statusStyle = excluded
+    ? "bg-slate-200 text-slate-700"
+    : failed
+      ? "bg-red-100 text-red-700"
+      : "bg-emerald-100 text-emerald-700";
+
+  return (
+    <div className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
+      <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-300 bg-slate-50 text-center text-[10px] font-semibold text-slate-500">
+        {candidate.url && !displayFailed ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={candidate.url}
+            alt={label}
+            className="size-full object-contain"
+            onLoad={() => onLoadStatusChange?.("loaded")}
+            onError={() => {
+              setDisplayFailed(true);
+              onLoadStatusChange?.("failed");
+            }}
+          />
+        ) : (
+          <span className="px-1">{excluded ? "제외된 이미지" : "이미지 로딩 실패"}</span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-semibold text-slate-800">{label}</span>
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${statusStyle}`}>{statusLabel}</span>
+        </div>
+        <p className="mt-1 truncate text-[10px] text-slate-500" title={candidate.url}>{candidate.url || "직접 로드할 수 없는 이미지"}</p>
+        <p className="mt-0.5 text-[10px] text-slate-500">{candidate.sourceType === "clipboard-file" ? "브라우저 임시 이미지" : excluded ? "상품 이미지 필터에서 제외" : "붙여넣기 URL"}</p>
+      </div>
+    </div>
+  );
+}
+
 function FreightItemImage({
-  pastedImageUrl,
-  imageUrl,
-  matchedImageUrl,
+  sources,
   alt,
   className,
 }: {
-  pastedImageUrl?: string;
-  imageUrl?: string;
-  matchedImageUrl?: string;
+  sources: string[];
   alt: string;
   className?: string;
 }) {
-  const sources = useMemo(
-    () => [...new Set([pastedImageUrl, imageUrl, matchedImageUrl].filter((source): source is string => Boolean(source)))],
-    [pastedImageUrl, imageUrl, matchedImageUrl],
-  );
   const [sourceIndex, setSourceIndex] = useState(0);
-
   const source = sources[sourceIndex];
   if (!source) return <span className="px-1 font-semibold text-slate-500">이미지 없음</span>;
 
