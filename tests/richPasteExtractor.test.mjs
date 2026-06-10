@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assignPastedImagesToItems,
+  createClipboardImageCandidates,
   extractImageUrlsFromHtml,
   extractRichPasteImagesFromHtml,
+  getFreightItemImageSources,
   getPreferredFreightItemImage,
   normalizePastedImageUrl,
 } from "../src/lib/richPasteExtractor.ts";
@@ -141,25 +143,65 @@ test("leaves unmatched items empty and preserves a manually entered imageUrl", (
   assert.equal(assigned[1].pastedImageUrl, undefined);
 });
 
-test("prefers pasted, then manual, then Product Master images", () => {
+test("uses selected candidate, manual URL, pasted URL, then Product Master image priority", () => {
   const item = {
     ...baseItems[0],
-    pastedImageUrl: "https://pasted.example/image.jpg",
+    selectedImageCandidateUrl: "https://selected.example/image.jpg",
     imageUrl: "https://manual.example/image.jpg",
+    pastedImageUrl: "https://pasted.example/image.jpg",
     matchedImageUrl: "https://master.example/image.jpg",
   };
 
-  assert.equal(getPreferredFreightItemImage(item), item.pastedImageUrl);
+  assert.deepEqual(getFreightItemImageSources(item), [
+    item.selectedImageCandidateUrl,
+    item.imageUrl,
+    item.pastedImageUrl,
+    item.matchedImageUrl,
+  ]);
+  assert.equal(getPreferredFreightItemImage(item), item.selectedImageCandidateUrl);
   assert.equal(
-    getPreferredFreightItemImage({ ...item, pastedImageUrl: undefined }),
+    getPreferredFreightItemImage({ ...item, selectedImageCandidateUrl: undefined }),
     item.imageUrl,
   );
   assert.equal(
     getPreferredFreightItemImage({
       ...item,
-      pastedImageUrl: undefined,
+      selectedImageCandidateUrl: undefined,
       imageUrl: undefined,
+    }),
+    item.pastedImageUrl,
+  );
+  assert.equal(
+    getPreferredFreightItemImage({
+      ...item,
+      selectedImageCandidateUrl: undefined,
+      imageUrl: undefined,
+      pastedImageUrl: undefined,
     }),
     item.matchedImageUrl,
   );
+});
+
+test("does not auto-assign image candidates marked as failed", () => {
+  const extraction = extractRichPasteImagesFromHtml(`
+    <div>제품정보:(1)
+      <img src="https://cbu01.alicdn.com/failed.jpg" width="100" height="100">
+    </div>
+  `);
+  extraction.candidates[0].loadStatus = "failed";
+
+  const assigned = assignPastedImagesToItems([baseItems[0]], extraction);
+  assert.equal(assigned[0].pastedImageUrl, undefined);
+});
+
+test("accepts browser-local clipboard image object URLs", () => {
+  const candidates = createClipboardImageCandidates([
+    { url: "blob:https://commerce-os.local/image-1", type: "image/png", name: "clipboard.png" },
+    { url: "blob:https://commerce-os.local/text-1", type: "text/plain", name: "not-image.txt" },
+    { url: "https://example.com/image.jpg", type: "image/jpeg", name: "remote.jpg" },
+  ]);
+
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].url, "blob:https://commerce-os.local/image-1");
+  assert.equal(candidates[0].sourceType, "clipboard-file");
 });

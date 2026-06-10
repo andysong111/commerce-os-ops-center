@@ -12,9 +12,15 @@ const NON_PRODUCT_KEYWORDS = [
   "loading",
   "avatar",
   "kakao",
-  "ch",
   "country",
+  "china",
+  "chinese",
+  "national",
   "lcl",
+  "국기",
+  "중국",
+  "国旗",
+  "中国",
 ];
 const PRODUCT_IMAGE_DOMAINS = [
   "alicdn.com",
@@ -25,6 +31,9 @@ const PRODUCT_IMAGE_DOMAINS = [
 const PRODUCT_SECTION_PATTERN = /제품정보\s*[:：]?\s*\(?\d+\)?/gi;
 const ITEM_SECTION_PATTERN = /(?:^|[>\s])\*?품목\s*[:：]/gi;
 
+export type RichPasteImageSource = "html" | "clipboard-file";
+export type RichPasteImageLoadStatus = "pending" | "loaded" | "failed";
+
 export interface RichPasteImageCandidate {
   url: string;
   blockIndex?: number;
@@ -33,13 +42,30 @@ export interface RichPasteImageCandidate {
   title?: string;
   width?: number;
   height?: number;
+  sourceType: RichPasteImageSource;
+  loadStatus: RichPasteImageLoadStatus;
+}
+
+export interface RichPasteExcludedImage {
+  url?: string;
+  alt?: string;
+  title?: string;
+  reason: string;
+  sourceType: "html";
 }
 
 export interface RichPasteImageExtraction {
   totalImages: number;
   candidates: RichPasteImageCandidate[];
+  excludedCandidates: RichPasteExcludedImage[];
   ignoredImages: number;
   productBlockCount: number;
+}
+
+export interface ClipboardImageCandidateInput {
+  url: string;
+  type: string;
+  name?: string;
 }
 
 function decodeHtmlAttribute(value: string): string {
@@ -55,6 +81,7 @@ export function normalizePastedImageUrl(value: string): string | undefined {
   const trimmed = decodeHtmlAttribute(value).trim();
 
   if (!trimmed || /^data:image\//i.test(trimmed)) return undefined;
+  if (trimmed.startsWith("blob:")) return trimmed;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
 
@@ -83,21 +110,28 @@ function readDimension(tag: string, attribute: "width" | "height"): number | und
   return match ? Number(match[1]) : undefined;
 }
 
-function containsNonProductKeyword(value: string): boolean {
-  const normalized = decodeURIComponentSafely(value).toLowerCase();
-
-  return NON_PRODUCT_KEYWORDS.some((keyword) => {
-    const pattern = new RegExp(`(?:^|[\\W_])${keyword}(?:$|[\\W_])`, "i");
-    return pattern.test(normalized);
-  });
-}
-
 function decodeURIComponentSafely(value: string): string {
   try {
     return decodeURIComponent(value);
   } catch {
     return value;
   }
+}
+
+function containsNonProductKeyword(value: string): boolean {
+  const normalized = decodeURIComponentSafely(value).toLowerCase();
+
+  return NON_PRODUCT_KEYWORDS.some((keyword) => {
+    if (/[^\x00-\x7F]/.test(keyword)) return normalized.includes(keyword);
+    const pattern = new RegExp(`(?:^|[\\W_])${keyword}(?:$|[\\W_])`, "i");
+    return pattern.test(normalized);
+  });
+}
+
+function hasFlagLikeDimensions(width?: number, height?: number): boolean {
+  if (!width || !height || width > 160 || height > 120) return false;
+  const ratio = width / height;
+  return ratio >= 1.35 && ratio <= 2.1;
 }
 
 function isPreferredProductDomain(url: string): boolean {
@@ -138,7 +172,7 @@ function scoreCandidate({
   width,
   height,
   blockIndex,
-}: Omit<RichPasteImageCandidate, "score">): number {
+}: Omit<RichPasteImageCandidate, "score" | "sourceType" | "loadStatus">): number {
   let score = 0;
   if (isPreferredProductDomain(url)) score += 100;
   if (blockIndex !== undefined) score += 30;
@@ -153,6 +187,7 @@ export function extractRichPasteImagesFromHtml(
   const imageMatches = [...html.matchAll(/<img\b[^>]*>/gi)];
   const sectionOffsets = findSectionOffsets(html);
   const candidates: RichPasteImageCandidate[] = [];
+  const excludedCandidates: RichPasteExcludedImage[] = [];
 
   for (const match of imageMatches) {
     const tag = match[0];
@@ -181,22 +216,65 @@ export function extractRichPasteImagesFromHtml(
     const isTooSmall =
       (width !== undefined && width < 40) ||
       (height !== undefined && height < 40);
+    const isFlag = containsNonProductKeyword(identifyingText);
+    const rawUrl = rawCandidates.find(Boolean);
 
-    if (!url || isTooSmall || containsNonProductKeyword(identifyingText)) continue;
+    if (!url || isTooSmall || isFlag || (hasFlagLikeDimensions(width, height) && /(?:flag|country|china|cn|国旗|中国|국기|중국)/i.test(identifyingText))) {
+      excludedCandidates.push({
+        url: url ?? (rawUrl && !/^data:image\//i.test(rawUrl) ? rawUrl : undefined),
+        alt,
+        title,
+        reason: !url
+          ? "직접 로드할 수 없는 URL"
+          : isTooSmall
+            ? "너무 작은 이미지"
+            : "국기/아이콘/로고 이미지",
+        sourceType: "html",
+      });
+      continue;
+    }
 
     const blockIndex = findBlockIndex(match.index, sectionOffsets);
     const candidateWithoutScore = { url, alt, title, width, height, blockIndex };
     candidates.push({
       ...candidateWithoutScore,
       score: scoreCandidate(candidateWithoutScore),
+      sourceType: "html",
+      loadStatus: "pending",
     });
   }
 
   return {
     totalImages: imageMatches.length,
     candidates,
-    ignoredImages: imageMatches.length - candidates.length,
+    excludedCandidates,
+    ignoredImages: excludedCandidates.length,
     productBlockCount: sectionOffsets.length,
+  };
+}
+
+export function createClipboardImageCandidates(
+  images: ClipboardImageCandidateInput[],
+): RichPasteImageCandidate[] {
+  return images
+    .filter((image) => image.type.startsWith("image/") && image.url.startsWith("blob:"))
+    .map((image) => ({
+      url: image.url,
+      alt: image.name || "클립보드 이미지",
+      score: 80,
+      sourceType: "clipboard-file" as const,
+      loadStatus: "pending" as const,
+    }));
+}
+
+export function mergeRichPasteImages(
+  extraction: RichPasteImageExtraction,
+  clipboardCandidates: RichPasteImageCandidate[],
+): RichPasteImageExtraction {
+  return {
+    ...extraction,
+    totalImages: extraction.totalImages + clipboardCandidates.length,
+    candidates: [...extraction.candidates, ...clipboardCandidates],
   };
 }
 
@@ -224,9 +302,16 @@ export function assignPastedImagesToItems(
   items: FreightApplicationItem[],
   images: string[] | RichPasteImageExtraction,
 ): FreightApplicationItem[] {
-  const candidates: RichPasteImageCandidate[] = Array.isArray(images)
-    ? images.map((url, index) => ({ url, score: 0, blockIndex: index }))
-    : images.candidates;
+  const candidates: RichPasteImageCandidate[] = (Array.isArray(images)
+    ? images.map((url, index) => ({
+        url,
+        score: 0,
+        blockIndex: index,
+        sourceType: "html" as const,
+        loadStatus: "loaded" as const,
+      }))
+    : images.candidates
+  ).filter((candidate) => candidate.loadStatus !== "failed");
   const usedCandidates = new Set<number>();
   const assignments = new Map<number, string>();
 
@@ -273,12 +358,26 @@ export function assignPastedImagesToItems(
 
   return items.map((item, index) => {
     const pastedImageUrl = assignments.get(index);
-    return pastedImageUrl ? { ...item, pastedImageUrl } : { ...item };
+    return pastedImageUrl ? { ...item, pastedImageUrl } : { ...item, pastedImageUrl: undefined };
   });
+}
+
+export function getFreightItemImageSources(
+  item: FreightApplicationItem,
+): string[] {
+  return [
+    item.selectedImageCandidateUrl,
+    item.imageUrl,
+    item.pastedImageUrl,
+    item.matchedImageUrl,
+  ].filter(
+    (source, index, sources): source is string =>
+      Boolean(source) && sources.indexOf(source) === index,
+  );
 }
 
 export function getPreferredFreightItemImage(
   item: FreightApplicationItem,
 ): string | undefined {
-  return item.pastedImageUrl || item.imageUrl || item.matchedImageUrl;
+  return getFreightItemImageSources(item)[0];
 }

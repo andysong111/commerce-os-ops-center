@@ -35,7 +35,7 @@ button:not(:disabled) {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 14mm;
+    margin: 8mm;
   }
 
   html,
@@ -62,7 +62,7 @@ button:not(:disabled) {
     left: 0;
     right: 0;
     width: 100%;
-    max-width: 180mm;
+    max-width: 194mm;
     min-width: 0;
     margin: 0 auto;
     border: 0;
@@ -75,8 +75,8 @@ button:not(:disabled) {
   }
 
   .freight-print-area .print-instructions {
-    font-size: 10px;
-    line-height: 1.45;
+    font-size: 11px;
+    line-height: 1.5;
   }
 
   .freight-print-area .print-card-list {
