@@ -138,3 +138,80 @@ test("creates a loose row when optional order, price, and HS code fields are mis
   assert.equal(parsed.items[0].unitPrice, undefined);
   assert.equal(parsed.items[0].hsCode, undefined);
 });
+
+const realDetailPageText = `신청번호:642611
+
+*품목
+Synthetic Blanket
+옵션(색상,사이즈)
+尺寸规格: 120cm百财盖毯
+*상품상세url
+https://detail.1688.com/offer/1038244115319.htm...
+*hs_code
+6301400000
+*단가
+12.63
+*수량
+60
+
+*품목
+Synthetic Blanket
+옵션(색상,사이즈)
+尺寸规格: 85cm百财盖毯
+*상품상세url
+https://detail.1688.com/offer/1038244115319.htm...
+*hs_code
+6301400000
+*단가
+7.96
+*수량
+60`;
+
+test("parses real detail-page label-next-line copied text", () => {
+  const parsed = parseFreightApplicationText(realDetailPageText);
+
+  assert.equal(parsed.applicationNo, "642611");
+  assert.equal(parsed.items.length, 2);
+  assert.equal(parsed.diagnostics?.parserMode, "labeled-next-line");
+
+  const [firstItem, secondItem] = parsed.items;
+  assert.equal(firstItem.rowNo, 1);
+  assert.equal(firstItem.itemName, "Synthetic Blanket");
+  assert.match(firstItem.optionText, /120cm/);
+  assert.match(firstItem.detailUrl, /detail\.1688\.com/);
+  assert.equal(firstItem.hsCode, "6301400000");
+  assert.equal(firstItem.unitPrice, 12.63);
+  assert.equal(firstItem.quantity, 60);
+
+  assert.equal(secondItem.rowNo, 2);
+  assert.match(secondItem.optionText, /85cm/);
+  assert.equal(secondItem.unitPrice, 7.96);
+  assert.equal(secondItem.quantity, 60);
+});
+
+test("detects application numbers when the value follows the label", () => {
+  const parsed = parseFreightApplicationText(
+    `신청번호\n642611\n품목\nSynthetic Blanket\n수량\n60`,
+  );
+
+  assert.equal(parsed.applicationNo, "642611");
+  assert.equal(parsed.items.length, 1);
+});
+
+test("does not return empty rows created from item labels without values", () => {
+  const parsed = parseFreightApplicationText(
+    `신청번호 642611\n*품목\n*품목\n옵션(색상,사이즈)\n수량`,
+  );
+
+  assert.equal(parsed.applicationNo, "642611");
+  assert.equal(parsed.items.length, 0);
+  assert.equal(parsed.diagnostics?.parserMode, "failed");
+});
+
+test("returns an empty failed result without throwing for unrecognized text", () => {
+  const parsed = parseFreightApplicationText("분석할 수 없는 임의의 텍스트입니다.");
+
+  assert.equal(parsed.items.length, 0);
+  assert.equal(parsed.diagnostics?.parserMode, "failed");
+  assert.equal(parsed.diagnostics?.detectedCounts.lines, 1);
+});

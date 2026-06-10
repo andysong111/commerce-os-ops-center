@@ -54,7 +54,14 @@ const CHINESE_MESSAGE = `请查看附件PDF。
 
 const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
 const NO_ITEMS_WARNING =
-  "분석된 품목이 없습니다. 제품정보 영역을 조금 더 넓게 복사하거나, 표의 번호/사진/수량/품목/옵션/오더번호 영역을 함께 복사해주세요.";
+  "분석된 품목이 없습니다. 복사한 텍스트에서 품목/옵션/수량/URL을 찾지 못했습니다. 신청서 세부 페이지에서 제품정보 영역을 더 넓게 복사해주세요.";
+const ANALYSIS_ERROR =
+  "분석 중 오류가 발생했습니다. 원문 형식이 예상과 다릅니다.";
+
+type AnalysisStatus =
+  | { kind: "success"; message: string }
+  | { kind: "warning"; message: string }
+  | { kind: "error"; message: string };
 
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
@@ -62,32 +69,51 @@ export default function FreightBarcodeRequestPage() {
     useState<FreightApplication>(EMPTY_APPLICATION);
   const [lookupFailedIds, setLookupFailedIds] = useState<Set<string>>(new Set());
   const [copyLabel, setCopyLabel] = useState("중국어 메시지 복사");
-  const [analysisWarning, setAnalysisWarning] = useState("");
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
   const createdDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
   ).length;
 
   function analyzeText() {
-    const parsedApplication = parseFreightApplicationText(rawText);
-    setApplication(parsedApplication);
-    setAnalysisWarning(
-      parsedApplication.items.length === 0 ? NO_ITEMS_WARNING : "",
-    );
+    try {
+      const parsedApplication = parseFreightApplicationText(rawText);
+      setApplication(parsedApplication);
+      const hasParseWarnings = Boolean(
+        parsedApplication.diagnostics?.warnings.length,
+      );
+      setAnalysisStatus(
+        parsedApplication.items.length > 0
+          ? {
+              kind: hasParseWarnings ? "warning" : "success",
+              message: `분석 완료: ${parsedApplication.items.length}개 품목을 찾았습니다.${
+                hasParseWarnings ? " 일부 품목은 값이 없어 제외되었습니다." : ""
+              }`,
+            }
+          : { kind: "warning", message: NO_ITEMS_WARNING },
+      );
+    } catch {
+      setApplication(EMPTY_APPLICATION);
+      setAnalysisStatus({ kind: "error", message: ANALYSIS_ERROR });
+    }
     setLookupFailedIds(new Set());
   }
 
   function loadSample() {
+    const parsedApplication = parseFreightApplicationText(SAMPLE_TEXT);
     setRawText(SAMPLE_TEXT);
-    setApplication(parseFreightApplicationText(SAMPLE_TEXT));
-    setAnalysisWarning("");
+    setApplication(parsedApplication);
+    setAnalysisStatus({
+      kind: "success",
+      message: `분석 완료: ${parsedApplication.items.length}개 품목을 찾았습니다.`,
+    });
     setLookupFailedIds(new Set());
   }
 
   function reset() {
     setRawText("");
     setApplication(EMPTY_APPLICATION);
-    setAnalysisWarning("");
+    setAnalysisStatus(null);
     setLookupFailedIds(new Set());
   }
 
@@ -162,18 +188,45 @@ export default function FreightBarcodeRequestPage() {
             value={rawText}
             onChange={(event) => {
               setRawText(event.target.value);
-              setAnalysisWarning("");
+              setAnalysisStatus(null);
             }}
             placeholder="배송대행지 신청서 세부 페이지에서 제품정보 영역을 드래그해서 복사한 뒤 여기에 붙여넣으세요."
             className="min-h-72 w-full resize-y rounded-lg border border-slate-300 bg-slate-50 p-4 font-mono text-sm leading-6 text-slate-900 outline-none placeholder:font-sans placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
           />
-          <p className="mt-2 text-xs leading-5 text-slate-500">
-            배송대행지 화면을 복사할 때 번호, 사진, 수량, 품목, 옵션, 오더번호가 함께 포함되도록 드래그하면 분석률이 높아집니다.
-          </p>
-          {analysisWarning && (
-            <p role="alert" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium leading-6 text-amber-900">
-              {analysisWarning}
+          <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
+            <p>
+              세부 페이지에서는 제품정보 영역의 *품목, 옵션, 상품상세url, hs_code, 단가, 수량이 함께 포함되도록 복사하면 분석률이 높습니다.
             </p>
+            <p>
+              분석 결과가 비어 있으면 아래 진단 정보를 보고 복사 범위를 넓혀 다시 시도하세요.
+            </p>
+          </div>
+          {analysisStatus && (
+            <p
+              role="status"
+              className={`mt-3 rounded-lg border px-4 py-3 text-sm font-medium leading-6 ${
+                analysisStatus.kind === "success"
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                  : analysisStatus.kind === "error"
+                    ? "border-red-300 bg-red-50 text-red-900"
+                    : "border-amber-300 bg-amber-50 text-amber-900"
+              }`}
+            >
+              {analysisStatus.message}
+            </p>
+          )}
+          {analysisStatus && application.diagnostics && (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+              <p className="font-semibold text-slate-900">분석 진단 정보</p>
+              <dl className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+                <div><dt className="inline font-medium">파서 모드: </dt><dd className="inline">{application.diagnostics.parserMode}</dd></div>
+                <div><dt className="inline font-medium">감지된 줄 수: </dt><dd className="inline">{application.diagnostics.detectedCounts.lines}</dd></div>
+                <div><dt className="inline font-medium">감지된 품목 라벨 수: </dt><dd className="inline">{application.diagnostics.detectedCounts.itemLabels}</dd></div>
+                <div><dt className="inline font-medium">감지된 URL 수: </dt><dd className="inline">{application.diagnostics.detectedCounts.urls}</dd></div>
+                <div><dt className="inline font-medium">감지된 수량 라벨 수: </dt><dd className="inline">{application.diagnostics.detectedCounts.quantityLabels}</dd></div>
+                <div><dt className="inline font-medium">감지된 오더번호 수: </dt><dd className="inline">{application.diagnostics.detectedCounts.orderNumbers}</dd></div>
+              </dl>
+            </div>
           )}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button onClick={analyzeText} primary>신청서 분석하기</Button>
