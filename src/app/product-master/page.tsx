@@ -17,10 +17,6 @@ const statusStyles: Record<ProductStatus, string> = {
   discontinued: "bg-red-50 text-red-700 ring-red-600/20",
 };
 
-const exchangeRateFormatter = new Intl.NumberFormat("ko-KR", {
-  maximumFractionDigits: 2,
-});
-
 const unitCostFormatter = new Intl.NumberFormat("ko-KR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 4,
@@ -59,7 +55,7 @@ export default function ProductMasterPage() {
     <>
       <PageHeader
         title="상품 마스터"
-        description="모델번호를 기준으로 상품 정보와 옵션별 기본 원가를 조회하는 중앙 상품 기준정보입니다."
+        description="모델번호를 기준으로 상품·옵션 등 안정적인 기준정보와 참고 원가를 조회합니다."
       />
 
       <section
@@ -74,6 +70,13 @@ export default function ProductMasterPage() {
           emphasized
         />
       </section>
+
+      <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <span className="font-semibold">참고 원가 안내</span>
+        <span className="ml-2 text-amber-800">
+          참고 원가는 과거 또는 기준값일 뿐이며, 실제 발주 원가는 원가계산기에서 회차별로 입력합니다.
+        </span>
+      </div>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
@@ -124,7 +127,7 @@ export default function ProductMasterPage() {
                 <th className="border-b border-slate-200 px-4 py-3 font-semibold">모델명</th>
                 <th className="border-b border-slate-200 px-4 py-3 font-semibold">카테고리</th>
                 <th className="border-b border-slate-200 px-4 py-3 font-semibold">상태</th>
-                <th className="border-b border-slate-200 px-4 py-3 text-right font-semibold">기본 환율</th>
+                <th className="border-b border-slate-200 px-4 py-3 font-semibold">대표 이미지</th>
                 <th className="border-b border-slate-200 px-4 py-3 text-right font-semibold">옵션 수</th>
                 <th className="border-b border-slate-200 px-5 py-3 font-semibold">메모</th>
               </tr>
@@ -144,8 +147,17 @@ export default function ProductMasterPage() {
                         {statusLabels[product.status]}
                       </span>
                     </td>
-                    <td className="px-4 pb-3 pt-5 text-right tabular-nums text-slate-700">
-                      ₩ {exchangeRateFormatter.format(product.defaultExchangeRateKrwPerCny)} / CNY
+                    <td className="px-4 pb-3 pt-5 text-slate-500">
+                      {product.mainImageUrl ? (
+                        <span
+                          role="img"
+                          aria-label={`${product.modelName} 대표 이미지`}
+                          className="block size-10 rounded-md border border-slate-200 bg-cover bg-center"
+                          style={{ backgroundImage: `url(${product.mainImageUrl})` }}
+                        />
+                      ) : (
+                        "미등록"
+                      )}
                     </td>
                     <td className="px-4 pb-3 pt-5 text-right font-semibold tabular-nums text-slate-700">
                       {product.options.length}개
@@ -156,7 +168,7 @@ export default function ProductMasterPage() {
                     <td colSpan={7} className="border-b border-slate-200 px-5 pb-5 pt-1">
                       <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
                         <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                          옵션 · 기본 원가(CNY)
+                          옵션 · 참고 원가(CNY)
                         </p>
                         <div className="flex flex-wrap gap-2">
                           {product.options.map((option) => (
@@ -167,7 +179,9 @@ export default function ProductMasterPage() {
                               <span className="font-medium text-slate-700">{option.optionName}</span>
                               <span className="h-4 w-px bg-slate-200" aria-hidden="true" />
                               <span className="font-semibold tabular-nums text-blue-700">
-                                ¥ {unitCostFormatter.format(option.defaultUnitCostCny)}
+                                {option.referenceUnitCostCny === undefined
+                                  ? "미등록"
+                                  : `¥ ${unitCostFormatter.format(option.referenceUnitCostCny)}`}
                               </span>
                             </div>
                           ))}
