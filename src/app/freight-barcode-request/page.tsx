@@ -48,10 +48,12 @@ hs_code: 7326209000
 수량: 200
 오픈마켓 주문번호: 3307376352586591852`;
 
-const KOREAN_MESSAGE = `아래 품목별 이미지, 옵션, 수량, 위치코드에 맞춰 바코드/원산지 라벨을 부착해주세요.
-같은 상품이라도 색상/규격이 다른 경우 반드시 구분해서 작업해주세요.
-바코드는 각 품목 카드의 바코드 이미지와 하단 텍스트를 기준으로 부착해주세요.
-불명확한 부분은 작업 전 확인 부탁드립니다.`;
+const KOREAN_MESSAGE = `첨부드린 PDF 기준으로 상품별 바코드/원산지 라벨 부착 작업 부탁드립니다.
+
+각 품목은 순번, 상품 이미지, 옵션, 수량, 위치코드를 기준으로 구분해 주세요.
+같은 상품명이라도 색상, 규격, 옵션이 다르면 위치코드 또는 바코드번호가 다를 수 있으니 반드시 각 행별로 확인 후 작업 부탁드립니다.
+바코드는 PDF에 표시된 바코드 이미지와 하단 텍스트 기준으로 부착해 주시면 됩니다.
+수량이나 옵션이 불명확한 부분이 있으면 작업 전 확인 부탁드립니다.`;
 
 const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
 const NO_ITEMS_WARNING =
@@ -436,70 +438,72 @@ function LocationBarcode({ value }: { value?: string }) {
 
 function WorkRequestPreview({ application, createdDate }: { application: FreightApplication; createdDate: string }) {
   return (
-    <section className="freight-print-area rounded-xl border border-slate-300 bg-white p-6 shadow-sm sm:p-8" aria-label="바코드 작업요청서 인쇄 미리보기">
-      <div className="border-b-2 border-slate-900 pb-4 text-center">
-        <p className="text-xs font-semibold tracking-[0.2em] text-slate-500">COMMERCE OS</p>
-        <h2 className="mt-2 text-2xl font-bold text-slate-950">바코드 작업요청서</h2>
-      </div>
-      <div className="mt-4 flex flex-wrap justify-between gap-2 text-sm">
-        <p><strong>신청번호:</strong> {application.applicationNo || "-"}</p>
-        <p><strong>생성일자:</strong> {createdDate}</p>
-      </div>
-      <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
-        <p className="mb-1 font-bold">작업 안내</p>
-        <p>아래 품목별 이미지, 옵션, 수량, 위치코드에 맞춰 바코드/원산지 라벨을 부착해주세요.</p>
-        <p>같은 상품이라도 색상/규격이 다른 경우 반드시 구분해서 작업해주세요.</p>
-        <p>바코드는 각 품목 카드의 바코드 이미지와 하단 텍스트를 기준으로 부착해주세요.</p>
-        <p>불명확한 부분은 작업 전 확인 부탁드립니다.</p>
-      </div>
-      <div className="print-card-list mt-5 space-y-4">
-        {application.items.map((item) => {
-          const imageUrl = item.matchedImageUrl || item.imageUrl;
+    <section className="freight-print-area print-root rounded-xl border border-slate-300 bg-white p-6 shadow-sm sm:p-8" aria-label="바코드 작업요청서 인쇄 미리보기">
+      <div className="print-document">
+        <div className="border-b-2 border-slate-900 pb-4 text-center">
+          <p className="text-xs font-semibold tracking-[0.2em] text-slate-500">COMMERCE OS</p>
+          <h2 className="mt-2 text-2xl font-bold text-slate-950">바코드 작업요청서</h2>
+        </div>
+        <div className="mt-4 flex flex-wrap justify-between gap-2 text-sm">
+          <p><strong>신청번호:</strong> {application.applicationNo || "-"}</p>
+          <p><strong>생성일자:</strong> {createdDate}</p>
+        </div>
+        <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
+          <p className="mb-1 font-bold">작업 안내</p>
+          <p>아래 품목별 이미지, 옵션, 수량, 위치코드에 맞춰 바코드/원산지 라벨을 부착해주세요.</p>
+          <p>같은 상품명이라도 색상, 규격, 옵션이 다르면 위치코드 또는 바코드번호가 다를 수 있으니 각 품목 행을 반드시 구분해서 확인해주세요.</p>
+          <p>바코드는 각 품목 카드의 바코드 이미지와 하단 텍스트를 기준으로 부착해주세요.</p>
+          <p>수량과 옵션이 불명확한 경우 작업 전 확인 부탁드립니다.</p>
+        </div>
+        <div className="print-card-list mt-5 space-y-4">
+          {application.items.map((item) => {
+            const imageUrl = item.matchedImageUrl || item.imageUrl;
 
-          return (
-            <article key={item.id} className="freight-item-card break-inside-avoid rounded-lg border-2 border-slate-800 p-4 text-xs text-slate-950">
-              <div className="item-card-top grid grid-cols-[3rem_4.5rem_minmax(0,1fr)] gap-3">
-                <div className="flex h-12 items-center justify-center rounded border border-slate-400 text-lg font-bold">{item.rowNo}</div>
-                <div className="product-image flex size-[72px] items-center justify-center overflow-hidden rounded border border-slate-300 bg-white text-center text-[10px] text-slate-500">
-                  {imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={imageUrl} alt={item.matchedModelName || item.itemName} className="size-[72px] object-contain" />
-                  ) : "이미지 없음"}
-                </div>
-                <dl className="min-w-0 space-y-1 leading-5">
-                  <PrintField label="품목" value={item.matchedProductNameKo || item.itemName} />
-                  <PrintField label="옵션" value={item.optionText} multiline />
-                  <div className="grid gap-x-4 sm:grid-cols-3">
-                    <PrintField label="수량" value={String(item.quantity)} />
-                    <PrintField label="HS CODE" value={item.hsCode} />
-                    <PrintField label="오픈마켓 주문번호" value={item.orderNo} breakAll />
+            return (
+              <article key={item.id} className="freight-item-card print-card break-inside-avoid rounded-lg border-2 border-slate-800 p-4 text-xs text-slate-950">
+                <div className="item-card-top grid grid-cols-[3rem_4.5rem_minmax(0,1fr)] gap-3">
+                  <div className="flex h-12 items-center justify-center rounded border border-slate-400 text-lg font-bold">{item.rowNo}</div>
+                  <div className="product-image flex size-[72px] items-center justify-center overflow-hidden rounded border border-slate-300 bg-white text-center text-[10px] text-slate-500">
+                    {imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={imageUrl} alt={item.matchedModelName || item.itemName} className="size-[72px] object-contain" />
+                    ) : "이미지 없음"}
                   </div>
+                  <dl className="min-w-0 space-y-1 leading-5">
+                    <PrintField label="품목" value={item.matchedProductNameKo || item.itemName} />
+                    <PrintField label="옵션" value={item.optionText} multiline />
+                    <div className="grid gap-x-4 sm:grid-cols-3">
+                      <PrintField label="수량" value={String(item.quantity)} />
+                      <PrintField label="HS CODE" value={item.hsCode} />
+                      <PrintField label="오픈마켓 주문번호" value={item.orderNo} breakAll />
+                    </div>
+                  </dl>
+                </div>
+
+                <dl className="item-model-grid mt-3 grid grid-cols-3 border-y border-slate-400 py-2">
+                  <PrintField label="모델번호" value={item.matchedModelNo || "확인 필요"} />
+                  <PrintField label="모델명" value={item.matchedModelName || "확인 필요"} />
+                  <PrintField label="위치코드" value={item.locationCode?.trim() || "위치코드 미입력"} mono />
                 </dl>
-              </div>
 
-              <dl className="item-model-grid mt-3 grid grid-cols-3 border-y border-slate-400 py-2">
-                <PrintField label="모델번호" value={item.matchedModelNo || "확인 필요"} />
-                <PrintField label="모델명" value={item.matchedModelName || "확인 필요"} />
-                <PrintField label="위치코드" value={item.locationCode?.trim() || "위치코드 미입력"} mono />
-              </dl>
+                <div className="barcode-area py-3 text-center">
+                  <LocationBarcode value={item.locationCode} />
+                </div>
 
-              <div className="barcode-area py-3 text-center">
-                <LocationBarcode value={item.locationCode} />
-              </div>
-
-              <dl className="space-y-2 border-t border-slate-400 pt-3 leading-5">
-                <PrintField
-                  label="원산지/라벨 문구"
-                  value={[item.matchedOriginLabel, item.matchedLabelText].filter(Boolean).join(" / ") || "확인 필요"}
-                  multiline
-                />
-                <PrintField label="작업지시" value={item.memo || "위치코드 바코드/원산지 라벨 부착"} multiline />
-              </dl>
-            </article>
-          );
-        })}
+                <dl className="space-y-2 border-t border-slate-400 pt-3 leading-5">
+                  <PrintField
+                    label="원산지/라벨 문구"
+                    value={[item.matchedOriginLabel, item.matchedLabelText].filter(Boolean).join(" / ") || "확인 필요"}
+                    multiline
+                  />
+                  <PrintField label="작업지시" value={item.memo || "위치코드 바코드/원산지 라벨 부착"} multiline />
+                </dl>
+              </article>
+            );
+          })}
+        </div>
+        {application.items.length === 0 && <p className="py-12 text-center text-sm text-slate-500">분석된 품목이 없습니다.</p>}
       </div>
-      {application.items.length === 0 && <p className="py-12 text-center text-sm text-slate-500">분석된 품목이 없습니다.</p>}
     </section>
   );
 }
