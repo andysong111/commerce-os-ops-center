@@ -29,16 +29,42 @@ button:not(:disabled) {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 12mm;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
   }
 
   html,
   body {
-    width: 100%;
-    max-width: 100%;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    margin: 0;
+    padding: 0;
     background: white;
     color: black;
-    overflow-x: hidden;
+    overflow: visible;
+  }
+
+  body > div,
+  body > div > div,
+  main,
+  main > div {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  aside,
+  body header,
+  .freight-editing-ui {
+    display: none !important;
   }
 
   body * {
@@ -50,11 +76,12 @@ button:not(:disabled) {
     visibility: visible;
   }
 
-  .freight-print-area {
-    position: absolute;
-    inset: 0;
+  .freight-print-area.print-root {
+    position: static;
     width: 100%;
+    min-width: 0;
     max-width: 100%;
+    margin: 0 auto;
     border: 0;
     border-radius: 0;
     padding: 0;
@@ -62,26 +89,42 @@ button:not(:disabled) {
     overflow: visible;
   }
 
+  .freight-print-area .print-document {
+    width: calc(100% - 2mm);
+    min-width: 0;
+    max-width: calc(100% - 2mm);
+    margin: 0 auto;
+    padding: 0;
+  }
+
   .freight-print-area .print-instructions {
+    margin-top: 3mm;
+    padding-block: 2.5mm;
     font-size: 10px;
     line-height: 1.45;
+    overflow-wrap: anywhere;
   }
 
   .freight-print-area .print-card-list {
     width: 100%;
+    min-width: 0;
     max-width: 100%;
+    margin-top: 3mm;
   }
 
-  .freight-print-area .freight-item-card {
+  .freight-print-area .freight-item-card,
+  .freight-print-area .print-card {
     width: 100%;
+    min-width: 0;
     max-width: 100%;
-    margin-bottom: 4mm;
+    margin-bottom: 3mm;
     border-color: #000;
     border-radius: 0;
-    padding: 3mm;
+    padding: 2.5mm;
     page-break-inside: avoid;
     break-inside: avoid;
     overflow: hidden;
+    overflow-wrap: anywhere;
   }
 
   .freight-print-area .item-card-top {
