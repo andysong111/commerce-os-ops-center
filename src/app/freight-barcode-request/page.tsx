@@ -1,10 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
 import { findProductByModelNoOrModelName } from "@/lib/productMaster";
 import { createCode128Layout } from "@/lib/code128";
+import {
+  assignPastedImagesToItems,
+  extractImageUrlsFromHtml,
+  getPreferredFreightItemImage,
+} from "@/lib/richPasteExtractor";
 import type {
   FreightApplication,
   FreightApplicationItem,
@@ -48,10 +53,12 @@ hs_code: 7326209000
 수량: 200
 오픈마켓 주문번호: 3307376352586591852`;
 
-const KOREAN_MESSAGE = `아래 품목별 이미지, 옵션, 수량, 위치코드에 맞춰 바코드/원산지 라벨을 부착해주세요.
-같은 상품이라도 색상/규격이 다른 경우 반드시 구분해서 작업해주세요.
-바코드는 각 품목 카드의 바코드 이미지와 하단 텍스트를 기준으로 부착해주세요.
-불명확한 부분은 작업 전 확인 부탁드립니다.`;
+const KOREAN_MESSAGE = `첨부드린 PDF 기준으로 상품별 바코드/원산지 라벨 부착 작업 부탁드립니다.
+
+각 품목은 순번, 상품 이미지, 옵션, 수량, 위치코드를 기준으로 구분해 주세요.
+같은 상품명이라도 색상, 규격, 옵션이 다르면 위치코드 또는 바코드번호가 다를 수 있으니 반드시 각 행별로 확인 후 작업 부탁드립니다.
+각 바코드 라벨 상단에는 MADE IN CHINA 문구가 표시되어 있으며, 바코드는 하단 위치코드 기준으로 스캔됩니다.
+수량이나 옵션이 불명확한 부분이 있으면 작업 전 확인 부탁드립니다.`;
 
 const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
 const NO_ITEMS_WARNING =
@@ -66,6 +73,8 @@ type AnalysisStatus =
 
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
+  const [pastedImageUrls, setPastedImageUrls] = useState<string[]>([]);
+  const richPasteRef = useRef<HTMLDivElement>(null);
   const [application, setApplication] =
     useState<FreightApplication>(EMPTY_APPLICATION);
   const [lookupFailedIds, setLookupFailedIds] = useState<Set<string>>(new Set());
@@ -79,7 +88,14 @@ export default function FreightBarcodeRequestPage() {
   function analyzeText() {
     try {
       const parsedApplication = parseFreightApplicationText(rawText);
-      setApplication(parsedApplication);
+      const applicationWithPastedImages = {
+        ...parsedApplication,
+        items: assignPastedImagesToItems(
+          parsedApplication.items,
+          pastedImageUrls,
+        ),
+      };
+      setApplication(applicationWithPastedImages);
       const hasParseWarnings = Boolean(
         parsedApplication.diagnostics?.warnings.length,
       );
@@ -100,9 +116,23 @@ export default function FreightBarcodeRequestPage() {
     setLookupFailedIds(new Set());
   }
 
+  function handleRichPaste(event: React.ClipboardEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const html = event.clipboardData.getData("text/html");
+    const plainText = event.clipboardData.getData("text/plain");
+    const imageUrls = extractImageUrlsFromHtml(html);
+
+    event.currentTarget.textContent = plainText;
+    setRawText(plainText);
+    setPastedImageUrls(imageUrls);
+    setAnalysisStatus(null);
+  }
+
   function loadSample() {
     const parsedApplication = parseFreightApplicationText(SAMPLE_TEXT);
     setRawText(SAMPLE_TEXT);
+    setPastedImageUrls([]);
+    if (richPasteRef.current) richPasteRef.current.textContent = SAMPLE_TEXT;
     setApplication(parsedApplication);
     setAnalysisStatus({
       kind: "success",
@@ -113,6 +143,8 @@ export default function FreightBarcodeRequestPage() {
 
   function reset() {
     setRawText("");
+    setPastedImageUrls([]);
+    if (richPasteRef.current) richPasteRef.current.textContent = "";
     setApplication(EMPTY_APPLICATION);
     setAnalysisStatus(null);
     setLookupFailedIds(new Set());
@@ -185,7 +217,44 @@ export default function FreightBarcodeRequestPage() {
               붙여넣기 기반 MVP
             </span>
           </div>
+          <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
+            <h3 className="font-semibold text-slate-950">이미지 포함 붙여넣기</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              1688 장바구니나 배송대행지 신청서처럼 이미지가 포함된 영역을 복사한 뒤 여기에 붙여넣으면 이미지 URL을 함께 추출합니다.
+            </p>
+            <div
+              ref={richPasteRef}
+              contentEditable
+              suppressContentEditableWarning
+              onPaste={handleRichPaste}
+              onInput={(event) => {
+                setRawText(event.currentTarget.textContent ?? "");
+                setAnalysisStatus(null);
+              }}
+              role="textbox"
+              aria-label="이미지 포함 HTML 붙여넣기"
+              aria-multiline="true"
+              data-placeholder="이미지가 포함된 1688 장바구니 또는 배송대행지 신청서 영역을 여기에 붙여넣으세요."
+              className="rich-paste-box mt-3 min-h-28 whitespace-pre-wrap rounded-lg border border-dashed border-blue-300 bg-white p-4 text-sm leading-6 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                이미지 {pastedImageUrls.length}개 감지됨
+              </span>
+              {pastedImageUrls.map((imageUrl, index) => (
+                <span key={`${imageUrl}-${index}`} className="flex size-12 items-center justify-center overflow-hidden rounded border border-slate-300 bg-white" title={imageUrl}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={imageUrl} alt={`붙여넣기 이미지 ${index + 1}`} className="size-full object-contain" />
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <label className="mb-2 block text-sm font-semibold text-slate-800" htmlFor="freight-plain-text">
+            일반 텍스트 붙여넣기
+          </label>
           <textarea
+            id="freight-plain-text"
             value={rawText}
             onChange={(event) => {
               setRawText(event.target.value);
@@ -199,7 +268,7 @@ export default function FreightBarcodeRequestPage() {
               세부 페이지에서는 제품정보 영역의 *품목, 옵션, 상품상세url, hs_code, 단가, 수량이 함께 포함되도록 복사하면 분석률이 높습니다.
             </p>
             <p>
-              textarea는 이미지를 직접 받을 수 없습니다. 이미지는 상품마스터 이미지 또는 이미지 URL 기준으로 표시됩니다.
+              일반 텍스트 입력도 그대로 사용할 수 있습니다. 이미지 포함 붙여넣기에서 감지한 이미지는 분석된 품목 순서대로 연결됩니다.
             </p>
             <p>
               분석 결과가 비어 있으면 아래 진단 정보를 보고 복사 범위를 넓혀 다시 시도하세요.
@@ -401,6 +470,7 @@ function LocationBarcode({ value }: { value?: string }) {
   let layout: ReturnType<typeof createCode128Layout> | null = null;
 
   try {
+    // MADE IN CHINA is display-only; the encoded value remains the location code.
     layout = createCode128Layout(normalizedValue);
   } catch {
     layout = null;
@@ -416,6 +486,7 @@ function LocationBarcode({ value }: { value?: string }) {
 
   return (
     <div className="location-barcode mx-auto flex min-w-36 flex-col items-center bg-white p-1 text-black">
+      <span className="mb-1 font-sans text-[11px] font-black tracking-wide">MADE IN CHINA</span>
       <svg
         aria-label={`위치코드 ${normalizedValue} CODE128 바코드`}
         className="block h-12 w-40 max-w-none bg-white"
@@ -448,13 +519,14 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
       <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
         <p className="mb-1 font-bold">작업 안내</p>
         <p>아래 품목별 이미지, 옵션, 수량, 위치코드에 맞춰 바코드/원산지 라벨을 부착해주세요.</p>
-        <p>같은 상품이라도 색상/규격이 다른 경우 반드시 구분해서 작업해주세요.</p>
-        <p>바코드는 각 품목 카드의 바코드 이미지와 하단 텍스트를 기준으로 부착해주세요.</p>
-        <p>불명확한 부분은 작업 전 확인 부탁드립니다.</p>
+        <p>같은 상품명이라도 색상, 규격, 옵션이 다르면 위치코드 또는 바코드번호가 다를 수 있으니 각 품목 행을 반드시 구분해서 확인해주세요.</p>
+        <p>각 바코드 라벨 상단에는 MADE IN CHINA 문구가 표시되어 있으며, 바코드 스캔값은 하단 위치코드 기준입니다.</p>
+        <p>수량과 옵션이 불명확한 경우 작업 전 확인 부탁드립니다.</p>
       </div>
       <div className="print-card-list mt-5 space-y-4">
         {application.items.map((item) => {
-          const imageUrl = item.matchedImageUrl || item.imageUrl;
+          // Option-specific pasted/manual images intentionally take priority over Product Master.
+          const imageUrl = getPreferredFreightItemImage(item);
 
           return (
             <article key={item.id} className="freight-item-card break-inside-avoid rounded-lg border-2 border-slate-800 p-4 text-xs text-slate-950">

@@ -5,7 +5,7 @@ import {
   encodeCode128B,
 } from "../src/lib/code128.ts";
 
-test("encodes a location code as CODE128-B with the expected checksum", () => {
+test("encodes only the location code as CODE128-B with the expected checksum", () => {
   assert.deepEqual(
     encodeCode128B("BAA1-1"),
     [104, 34, 33, 33, 17, 13, 17, 23, 106],

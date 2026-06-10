@@ -26,6 +26,12 @@ button:not(:disabled) {
   cursor: pointer;
 }
 
+.rich-paste-box:empty::before {
+  color: #94a3b8;
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
 @media print {
   @page {
     size: A4 portrait;
