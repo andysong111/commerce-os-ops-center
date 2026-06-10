@@ -10,6 +10,11 @@ const navigation = [
     label: "중국주문 원가계산",
     icon: CalculatorIcon,
   },
+  {
+    href: "/product-master",
+    label: "상품 마스터",
+    icon: ProductIcon,
+  },
 ];
 
 export function Sidebar() {
@@ -103,6 +108,15 @@ function CalculatorIcon() {
     <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
       <rect x="5" y="2" width="14" height="20" rx="2" />
       <path d="M8 6h8v4H8zM8 14h2m4 0h2m-8 4h2m4 0h2" />
+    </svg>
+  );
+}
+
+function ProductIcon() {
+  return (
+    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z" />
+      <path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12v9" />
     </svg>
   );
 }
