@@ -7,6 +7,11 @@ export const PRODUCT_MASTERS: ProductMaster[] = [
     category: "생활잡화",
     mainImageUrl: "",
     status: "active",
+    productNameKo: "말발굽 고리링",
+    barcode: "8800000002704",
+    originLabel: "MADE IN CHINA",
+    labelText: "원산지: 중국",
+    hsCode: "7326209000",
     options: [
       {
         optionId: "aaa270-gold",
@@ -31,6 +36,11 @@ export const PRODUCT_MASTERS: ProductMaster[] = [
     category: "생활잡화",
     mainImageUrl: "",
     status: "active",
+    productNameKo: "닭물통 니플형",
+    barcode: "8800000001790",
+    originLabel: "MADE IN CHINA",
+    labelText: "원산지: 중국",
+    hsCode: "3926909000",
     options: [
       {
         optionId: "aaa179-single",
@@ -45,6 +55,10 @@ export const PRODUCT_MASTERS: ProductMaster[] = [
     category: "생활잡화",
     mainImageUrl: "",
     status: "active",
+    productNameKo: "무타공 스티커 후크",
+    barcode: "8800000004197",
+    originLabel: "MADE IN CHINA",
+    labelText: "원산지: 중국",
     options: [
       {
         optionId: "aaa419-liquid-1p",
@@ -83,4 +97,30 @@ export function getProductByModelName(
 
 export function getOptionsByModelNo(modelNo: string): ProductOption[] {
   return getProductByModelNo(modelNo)?.options ?? [];
+}
+
+export function findProductByModelNoOrModelName(
+  query: string,
+): ProductMaster | undefined {
+  const normalizedQuery = query.trim().toLocaleLowerCase("ko-KR");
+  if (!normalizedQuery) return undefined;
+
+  const exactModelNo = PRODUCT_MASTERS.find(
+    (product) => product.modelNo.toLowerCase() === normalizedQuery,
+  );
+  if (exactModelNo) return exactModelNo;
+
+  const exactModelName = PRODUCT_MASTERS.find(
+    (product) =>
+      product.modelName.toLocaleLowerCase("ko-KR") === normalizedQuery,
+  );
+  if (exactModelName) return exactModelName;
+
+  const partialModelNameMatches = PRODUCT_MASTERS.filter((product) =>
+    product.modelName.toLocaleLowerCase("ko-KR").includes(normalizedQuery),
+  );
+
+  return partialModelNameMatches.length === 1
+    ? partialModelNameMatches[0]
+    : undefined;
 }

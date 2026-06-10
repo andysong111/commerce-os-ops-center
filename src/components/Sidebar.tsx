@@ -15,6 +15,11 @@ const navigation = [
     label: "상품 마스터",
     icon: ProductIcon,
   },
+  {
+    href: "/freight-barcode-request",
+    label: "배대지 바코드 PDF 생성기",
+    icon: BarcodeIcon,
+  },
 ];
 
 export function Sidebar() {
@@ -117,6 +122,15 @@ function ProductIcon() {
     <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
       <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z" />
       <path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12v9" />
+    </svg>
+  );
+}
+
+function BarcodeIcon() {
+  return (
+    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M4 5v14M8 5v14M12 5v14M16 5v14M20 5v14" />
+      <path d="M3 3h4M17 3h4M3 21h4M17 21h4" />
     </svg>
   );
 }
