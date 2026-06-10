@@ -1,6 +1,8 @@
 import type {
   FreightApplication,
   FreightApplicationItem,
+  FreightParseDiagnostics,
+  FreightParserMode,
 } from "../types/freightBarcodeRequest.ts";
 
 const PRODUCT_BLOCK_PATTERN = /제품\s*정보\s*:?\s*\(\s*(\d+)\s*\)/gi;
@@ -26,7 +28,7 @@ function extractField(block: string, labelPattern: string): string | undefined {
     (candidate) => candidate !== labelPattern,
   ).join("|");
   const pattern = new RegExp(
-    `(?:^|\\n)\\s*${labelPattern}\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*(?:${nextLabelPattern})\\s*:|$)`,
+    `(?:^|\\n)\\s*\\*?\\s*${labelPattern}\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*\\*?\\s*(?:${nextLabelPattern})\\s*:|$)`,
     "i",
   );
   const value = block.match(pattern)?.[1]?.trim();
@@ -55,6 +57,14 @@ function normalizeLines(rawText: string): string[] {
     .filter(Boolean);
 }
 
+function normalizeLabel(line: string): string {
+  return line.replace(/^\*+\s*/, "").trim();
+}
+
+function isExactLabel(line: string, pattern: RegExp): boolean {
+  return pattern.test(normalizeLabel(line));
+}
+
 function extractApplicationNo(lines: string[]): string {
   const applicationLabelIndex = lines.findIndex((line) => /신청\s*번호/i.test(line));
   if (applicationLabelIndex === -1) return "";
@@ -62,9 +72,79 @@ function extractApplicationNo(lines: string[]): string {
   const nearbyText = lines
     .slice(applicationLabelIndex, applicationLabelIndex + 3)
     .join(" ");
-  const afterLabel = nearbyText.replace(/^.*?신청\s*번호\s*:*/i, "");
+  const afterLabel = nearbyText.replace(/^.*?신청\s*번호\s*:*\s*/i, "");
 
   return afterLabel.match(/(?:\[[^\]]+\]\s*)?(\d{4,})/)?.[1] ?? "";
+}
+
+function isUsefulItem(item: FreightApplicationItem): boolean {
+  return Boolean(
+    item.itemName ||
+      item.optionText ||
+      item.detailUrl ||
+      item.hsCode ||
+      item.quantity > 0 ||
+      item.orderNo,
+  );
+}
+
+const NEXT_LINE_LABELS = {
+  itemName: /^품목$/i,
+  optionText: /^옵션\s*\(\s*색상\s*,\s*사이즈\s*\)$/i,
+  detailUrl: /^상품상세\s*url$/i,
+  hsCode: /^hs[_\s-]*code$/i,
+  unitPrice: /^단가$/i,
+  quantity: /^수량$/i,
+  trackingNo: /^트래킹번호$/i,
+  orderNo: /^오픈마켓\s*주문번호$/i,
+} as const;
+
+const ALL_NEXT_LINE_LABELS = Object.values(NEXT_LINE_LABELS);
+
+function nextLineValue(
+  block: string[],
+  labelPattern: RegExp,
+): string | undefined {
+  const labelIndex = block.findIndex((line) => isExactLabel(line, labelPattern));
+  if (labelIndex < 0) return undefined;
+
+  const value = block[labelIndex + 1];
+  if (!value || ALL_NEXT_LINE_LABELS.some((pattern) => isExactLabel(value, pattern))) {
+    return undefined;
+  }
+
+  return value;
+}
+
+function parseNextLineLabeledItems(lines: string[]): FreightApplicationItem[] {
+  const itemStarts = lines.reduce<number[]>((indexes, line, index) => {
+    if (isExactLabel(line, NEXT_LINE_LABELS.itemName)) indexes.push(index);
+    return indexes;
+  }, []);
+
+  return itemStarts
+    .map((startIndex, index): FreightApplicationItem => {
+      const block = lines.slice(startIndex, itemStarts[index + 1] ?? lines.length);
+      const rowNo = index + 1;
+
+      return {
+        id: `freight-item-${rowNo}-${index + 1}`,
+        rowNo,
+        itemName: nextLineValue(block, NEXT_LINE_LABELS.itemName) ?? "",
+        optionText: nextLineValue(block, NEXT_LINE_LABELS.optionText) ?? "",
+        detailUrl: nextLineValue(block, NEXT_LINE_LABELS.detailUrl),
+        hsCode: nextLineValue(block, NEXT_LINE_LABELS.hsCode),
+        unitPrice: parseOptionalNumber(
+          nextLineValue(block, NEXT_LINE_LABELS.unitPrice),
+        ),
+        quantity: parseQuantity(
+          nextLineValue(block, NEXT_LINE_LABELS.quantity),
+        ),
+        trackingNo: nextLineValue(block, NEXT_LINE_LABELS.trackingNo),
+        orderNo: nextLineValue(block, NEXT_LINE_LABELS.orderNo),
+      };
+    })
+    .filter(isUsefulItem);
 }
 
 function splitProductBlocks(rawText: string): Array<{ rowNo: number; block: string }> {
@@ -82,20 +162,22 @@ function splitProductBlocks(rawText: string): Array<{ rowNo: number; block: stri
   }));
 }
 
-function parseLabeledItems(rawText: string): FreightApplicationItem[] {
-  return splitProductBlocks(rawText).map(({ rowNo, block }, index) => ({
-    id: `freight-item-${rowNo}-${index + 1}`,
-    rowNo,
-    itemName: extractField(block, "품목") ?? "",
-    optionText:
-      extractField(block, "옵션\\s*\\(\\s*색상\\s*,\\s*사이즈\\s*\\)") ?? "",
-    detailUrl: extractField(block, "상품상세\\s*url"),
-    hsCode: extractField(block, "hs[_\\s-]*code"),
-    unitPrice: parseOptionalNumber(extractField(block, "단가")),
-    quantity: parseQuantity(extractField(block, "수량")),
-    trackingNo: extractField(block, "트래킹번호"),
-    orderNo: extractField(block, "오픈마켓\\s*주문번호"),
-  }));
+function parseInlineLabeledItems(rawText: string): FreightApplicationItem[] {
+  return splitProductBlocks(rawText)
+    .map(({ rowNo, block }, index): FreightApplicationItem => ({
+      id: `freight-item-${rowNo}-${index + 1}`,
+      rowNo,
+      itemName: extractField(block, "품목") ?? "",
+      optionText:
+        extractField(block, "옵션\\s*\\(\\s*색상\\s*,\\s*사이즈\\s*\\)") ?? "",
+      detailUrl: extractField(block, "상품상세\\s*url"),
+      hsCode: extractField(block, "hs[_\\s-]*code"),
+      unitPrice: parseOptionalNumber(extractField(block, "단가")),
+      quantity: parseQuantity(extractField(block, "수량")),
+      trackingNo: extractField(block, "트래킹번호"),
+      orderNo: extractField(block, "오픈마켓\\s*주문번호"),
+    }))
+    .filter(isUsefulItem);
 }
 
 function findNearestBefore(
@@ -178,9 +260,7 @@ function parseLooseTableItems(lines: string[]): FreightApplicationItem[] {
           }) ?? ""
         : "";
 
-    if (!quantity && !itemName && !orderNo) return;
-
-    items.push({
+    const item: FreightApplicationItem = {
       id: `freight-item-${rowNo}-${items.length + 1}`,
       rowNo,
       itemName,
@@ -191,10 +271,42 @@ function parseLooseTableItems(lines: string[]): FreightApplicationItem[] {
       quantity,
       trackingNo: findTrackingNo(lines, rowIndex, orderNo),
       orderNo,
-    });
+    };
+
+    if (isUsefulItem(item)) items.push(item);
   });
 
   return items;
+}
+
+function createDiagnostics(
+  lines: string[],
+  parserMode: FreightParserMode,
+  parsedItemCount: number,
+): FreightParseDiagnostics {
+  const detectedCounts = {
+    lines: lines.length,
+    itemLabels: lines.filter((line) =>
+      /^\*?\s*품목(?:\s*:|$)/i.test(line),
+    ).length,
+    urls: lines.filter((line) => URL_PATTERN.test(line)).length,
+    quantityLabels: lines.filter((line) =>
+      /^\*?\s*수량(?:\s*:|$)/i.test(line),
+    ).length,
+    orderNumbers: lines.filter((line) => /(?:^|\D)\d{12,}(?:\D|$)/.test(line))
+      .length,
+  };
+  const warnings: string[] = [];
+
+  if (parserMode === "failed") {
+    warnings.push("복사한 텍스트에서 분석 가능한 품목을 찾지 못했습니다.");
+  } else if (detectedCounts.itemLabels > parsedItemCount) {
+    warnings.push(
+      `품목 라벨 ${detectedCounts.itemLabels}개 중 ${parsedItemCount}개만 유효한 품목으로 분석했습니다.`,
+    );
+  }
+
+  return { parserMode, warnings, detectedCounts };
 }
 
 export function parseFreightApplicationText(
@@ -202,8 +314,32 @@ export function parseFreightApplicationText(
 ): FreightApplication {
   const lines = normalizeLines(rawText);
   const applicationNo = extractApplicationNo(lines);
-  const labeledItems = parseLabeledItems(rawText);
-  const items = labeledItems.length > 0 ? labeledItems : parseLooseTableItems(lines);
 
-  return { applicationNo, items };
+  const nextLineItems = parseNextLineLabeledItems(lines);
+  if (nextLineItems.length > 0) {
+    return {
+      applicationNo,
+      items: nextLineItems,
+      diagnostics: createDiagnostics(lines, "labeled-next-line", nextLineItems.length),
+    };
+  }
+
+  const inlineItems = parseInlineLabeledItems(rawText);
+  if (inlineItems.length > 0) {
+    return {
+      applicationNo,
+      items: inlineItems,
+      diagnostics: createDiagnostics(lines, "labeled-inline", inlineItems.length),
+    };
+  }
+
+  const looseItems = parseLooseTableItems(lines);
+  const parserMode: FreightParserMode =
+    looseItems.length > 0 ? "loose-table" : "failed";
+
+  return {
+    applicationNo,
+    items: looseItems,
+    diagnostics: createDiagnostics(lines, parserMode, looseItems.length),
+  };
 }

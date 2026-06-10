@@ -1,6 +1,25 @@
+export type FreightParserMode =
+  | "labeled-next-line"
+  | "labeled-inline"
+  | "loose-table"
+  | "failed";
+
+export interface FreightParseDiagnostics {
+  parserMode: FreightParserMode;
+  warnings: string[];
+  detectedCounts: {
+    lines: number;
+    itemLabels: number;
+    urls: number;
+    quantityLabels: number;
+    orderNumbers: number;
+  };
+}
+
 export interface FreightApplication {
   applicationNo: string;
   items: FreightApplicationItem[];
+  diagnostics?: FreightParseDiagnostics;
 }
 
 export interface FreightApplicationItem {
