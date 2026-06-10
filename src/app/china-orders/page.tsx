@@ -32,7 +32,7 @@ const textFields: Array<{
 }> = [
   { key: "freightGroupId", label: "운임 그룹 ID", width: "min-w-40" },
   { key: "modelNo", label: "모델 번호", width: "min-w-28" },
-  { key: "modelName", label: "상품명", width: "min-w-36" },
+  { key: "modelName", label: "모델명", width: "min-w-36" },
   { key: "optionName", label: "옵션명", width: "min-w-24" },
 ];
 
