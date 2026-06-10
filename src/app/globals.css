@@ -35,7 +35,7 @@ button:not(:disabled) {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 14mm;
   }
 
   html,
@@ -58,14 +58,20 @@ button:not(:disabled) {
 
   .freight-print-area {
     position: absolute;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
     width: 100%;
-    max-width: 100%;
+    max-width: 180mm;
+    min-width: 0;
+    margin: 0 auto;
     border: 0;
     border-radius: 0;
     padding: 0;
+    box-sizing: border-box;
     box-shadow: none;
-    overflow: visible;
+    overflow: hidden;
+    transform: none;
   }
 
   .freight-print-area .print-instructions {
@@ -87,6 +93,7 @@ button:not(:disabled) {
     padding: 3mm;
     page-break-inside: avoid;
     break-inside: avoid;
+    box-sizing: border-box;
     overflow: hidden;
   }
 
