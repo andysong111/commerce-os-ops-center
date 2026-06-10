@@ -28,6 +28,7 @@ export interface FreightApplicationItem {
   itemName: string;
   optionText: string;
   detailUrl?: string;
+  imageUrl?: string;
   hsCode?: string;
   unitPrice?: number;
   quantity: number;
