@@ -4,6 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
 import { findProductByModelNoOrModelName } from "@/lib/productMaster";
+import {
+  buildFreightBarcodeHistoryRecordFromCurrentState,
+  deleteFreightBarcodeHistory,
+  listFreightBarcodeHistory,
+  loadFreightBarcodeHistory,
+  saveFreightBarcodeHistory,
+} from "@/lib/freightBarcodeHistory";
 import { createCode128Layout } from "@/lib/code128";
 import {
   BARCODE_ORIGIN_LABEL,
@@ -22,6 +29,7 @@ import type { RichPasteImageCandidate, RichPasteImageExtraction } from "@/lib/ri
 import type {
   FreightApplication,
   FreightApplicationItem,
+  FreightBarcodeHistoryRecord,
 } from "@/types/freightBarcodeRequest";
 
 const SAMPLE_TEXT = `신청번호:642247
@@ -94,10 +102,22 @@ export default function FreightBarcodeRequestPage() {
   const [lookupFailedIds, setLookupFailedIds] = useState<Set<string>>(new Set());
   const [copyLabel, setCopyLabel] = useState("한국어 메시지 복사");
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
+  const [historyRecords, setHistoryRecords] = useState<FreightBarcodeHistoryRecord[]>([]);
+  const [loadedHistoryId, setLoadedHistoryId] = useState<string>();
+  const [historyTitle, setHistoryTitle] = useState("");
+  const [historyMemo, setHistoryMemo] = useState("");
+  const [historyStatus, setHistoryStatus] = useState("");
   const createdDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
   ).length;
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setHistoryRecords(listFreightBarcodeHistory());
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   useEffect(() => {
     const localImageObjectUrls = localImageObjectUrlsRef.current;
@@ -187,6 +207,10 @@ export default function FreightBarcodeRequestPage() {
       message: `분석 완료: ${parsedApplication.items.length}개 품목을 찾았습니다.`,
     });
     setLookupFailedIds(new Set());
+    setLoadedHistoryId(undefined);
+    setHistoryTitle("");
+    setHistoryMemo("");
+    setHistoryStatus("");
   }
 
   function reset() {
@@ -198,6 +222,10 @@ export default function FreightBarcodeRequestPage() {
     setApplication(EMPTY_APPLICATION);
     setAnalysisStatus(null);
     setLookupFailedIds(new Set());
+    setLoadedHistoryId(undefined);
+    setHistoryTitle("");
+    setHistoryMemo("");
+    setHistoryStatus("");
   }
 
   function updateApplicationNo(value: string) {
@@ -278,6 +306,73 @@ export default function FreightBarcodeRequestPage() {
       next.delete(item.id);
       return next;
     });
+  }
+
+  function refreshHistoryRecords() {
+    setHistoryRecords(listFreightBarcodeHistory());
+  }
+
+  function saveCurrentHistory(createNew: boolean) {
+    try {
+      const existingRecord = createNew
+        ? undefined
+        : historyRecords.find((record) => record.id === loadedHistoryId);
+      const record = buildFreightBarcodeHistoryRecordFromCurrentState({
+        applicationNo: application.applicationNo,
+        rawText,
+        items: application.items,
+        title: historyTitle,
+        memo: historyMemo,
+        existingRecord,
+      });
+
+      saveFreightBarcodeHistory(record);
+      setLoadedHistoryId(record.id);
+      setHistoryRecords(listFreightBarcodeHistory());
+      setHistoryStatus(
+        existingRecord ? "현재 작업 이력을 업데이트했습니다." : "새 작업 이력을 저장했습니다.",
+      );
+    } catch {
+      setHistoryStatus("이력을 저장하지 못했습니다. 브라우저 저장 공간을 확인해주세요.");
+    }
+  }
+
+  function reopenHistory(id: string) {
+    const record = loadFreightBarcodeHistory(id);
+    if (!record) {
+      refreshHistoryRecords();
+      setHistoryStatus("선택한 이력을 찾을 수 없습니다.");
+      return;
+    }
+
+    clearLocalImageObjectUrls();
+    clearClipboardObjectUrls();
+    setRawText(record.rawText);
+    if (richPasteRef.current) richPasteRef.current.textContent = record.rawText;
+    setPastedImages(EMPTY_PASTED_IMAGES);
+    setApplication({ applicationNo: record.applicationNo, items: record.items });
+    setLookupFailedIds(new Set());
+    setLoadedHistoryId(record.id);
+    setHistoryTitle(record.title ?? "");
+    setHistoryMemo(record.memo ?? "");
+    setAnalysisStatus({
+      kind: "success",
+      message: `저장된 이력을 다시 열었습니다: ${record.items.length}개 품목`,
+    });
+    setHistoryStatus("저장된 작업을 불러왔습니다. 미리보기에서 내용을 확인한 뒤 PDF로 저장하거나 인쇄할 수 있습니다.");
+  }
+
+  function removeHistory(id: string) {
+    if (!window.confirm("이 작업요청 이력을 삭제하시겠습니까?")) return;
+
+    deleteFreightBarcodeHistory(id);
+    if (loadedHistoryId === id) {
+      setLoadedHistoryId(undefined);
+      setHistoryStatus("현재 열려 있던 이력을 삭제했습니다. 편집 중인 내용은 유지됩니다.");
+    } else {
+      setHistoryStatus("작업요청 이력을 삭제했습니다.");
+    }
+    refreshHistoryRecords();
   }
 
   async function copyKoreanMessage() {
@@ -427,6 +522,95 @@ export default function FreightBarcodeRequestPage() {
           <SummaryCard label="확인 필요" value={`${application.items.length - matchedCount}개`} warning />
         </section>
 
+
+        <section className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="freight-history-title">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 id="freight-history-title" className="font-semibold text-slate-950">작업요청 이력</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                현재 신청번호와 편집된 품목 데이터를 이 브라우저에 저장하고, 나중에 다시 열어 같은 PDF를 생성할 수 있습니다.
+              </p>
+            </div>
+            {loadedHistoryId && (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                저장된 이력 편집 중
+              </span>
+            )}
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label>
+              <span className="mb-1 block text-xs font-semibold text-slate-600">제목 (선택)</span>
+              <input
+                value={historyTitle}
+                onChange={(event) => setHistoryTitle(event.target.value)}
+                placeholder="예: 6월 2차 바코드 작업"
+                className={inputClassName}
+              />
+            </label>
+            <label>
+              <span className="mb-1 block text-xs font-semibold text-slate-600">이력 메모 (선택)</span>
+              <input
+                value={historyMemo}
+                onChange={(event) => setHistoryMemo(event.target.value)}
+                placeholder="이력 목록에서 확인할 메모"
+                className={inputClassName}
+              />
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={() => saveCurrentHistory(false)} primary>현재 작업 저장</Button>
+            <Button onClick={() => saveCurrentHistory(true)}>새 이력으로 저장</Button>
+          </div>
+          {historyStatus && (
+            <p role="status" className="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700">
+              {historyStatus}
+            </p>
+          )}
+          <p className="mt-3 text-xs leading-5 text-amber-700">
+            로컬 이미지 파일은 브라우저 임시 이미지이므로, 이력을 다시 열었을 때 이미지가 표시되지 않으면 다시 선택해주세요.
+          </p>
+
+          <div className="mt-5 overflow-x-auto">
+            {historyRecords.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
+                저장된 작업요청 이력이 없습니다.
+              </p>
+            ) : (
+              <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                <thead className="bg-slate-100 text-xs text-slate-600">
+                  <tr>
+                    <th className="px-3 py-3 font-semibold">신청번호</th>
+                    <th className="px-3 py-3 font-semibold">저장일시</th>
+                    <th className="px-3 py-3 font-semibold">품목 수</th>
+                    <th className="px-3 py-3 font-semibold">제목 / 메모</th>
+                    <th className="px-3 py-3 font-semibold"><span className="sr-only">작업</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyRecords.map((record) => (
+                    <tr key={record.id} className={`border-b border-slate-200 ${record.id === loadedHistoryId ? "bg-emerald-50/60" : ""}`}>
+                      <td className="px-3 py-3 font-semibold text-slate-900">{record.applicationNo || "-"}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-600">{formatHistoryDate(record.updatedAt)}</td>
+                      <td className="px-3 py-3 text-slate-700">{record.items.length}개</td>
+                      <td className="max-w-sm px-3 py-3 text-slate-700">
+                        <p className="font-medium text-slate-900">{record.title || "제목 없음"}</p>
+                        {record.memo && <p className="mt-1 line-clamp-2 text-xs text-slate-500">{record.memo}</p>}
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => reopenHistory(record.id)} className="rounded-md bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-950">다시 열기</button>
+                          <button type="button" onClick={() => removeHistory(record.id)} className="rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">삭제</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
         <section className="mb-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -526,6 +710,19 @@ export default function FreightBarcodeRequestPage() {
       <WorkRequestPreview application={application} createdDate={createdDate} />
     </>
   );
+}
+
+function formatHistoryDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function EditableRow({
