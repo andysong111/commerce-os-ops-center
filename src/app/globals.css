@@ -35,7 +35,7 @@ button:not(:disabled) {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 1mm;
+    margin: 0;
   }
 
   html,
@@ -43,48 +43,64 @@ button:not(:disabled) {
     width: 100%;
     max-width: none;
     margin: 0;
+    padding: 0;
     background: white;
     color: black;
     overflow: visible;
   }
 
-  body * {
-    visibility: hidden;
-  }
-
-  .freight-print-wrapper,
-  .freight-print-area,
-  .freight-print-area * {
-    visibility: visible;
+  .freight-editing-ui {
+    display: none;
   }
 
   .freight-print-wrapper {
-    position: absolute;
-    inset: 0 auto auto 0;
+    display: block;
+    position: static;
     width: 100%;
     min-width: 0;
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    overflow: visible;
   }
 
   .freight-print-area {
-    width: 208mm;
-    max-width: 208mm;
+    display: block;
+    width: 209mm;
+    max-width: 209mm;
     min-width: 0;
     margin: 0 auto;
     border: 0;
     border-radius: 0;
-    padding: 0 0.5mm;
+    padding: 0 0.3mm;
     box-sizing: border-box;
     box-shadow: none;
     overflow: visible;
     transform: none;
   }
 
+  .freight-print-area .print-document-header {
+    padding-bottom: 2.5mm;
+  }
+
+  .freight-print-area .print-document-header h2 {
+    font-size: 20px;
+    line-height: 1.2;
+  }
+
+  .freight-print-area .print-document-meta {
+    margin-top: 2.5mm;
+    line-height: 1.35;
+  }
+
   .freight-print-area .print-instructions {
-    font-size: 11px;
-    line-height: 1.5;
+    display: block;
+    margin-top: 3mm;
+    padding-top: 2mm;
+    padding-bottom: 2mm;
+    font-size: 10.5px;
+    line-height: 1.4;
+    break-inside: avoid-page;
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -93,56 +109,101 @@ button:not(:disabled) {
     display: block;
     width: 100%;
     max-width: 100%;
+    margin-top: 3mm;
+    overflow: visible;
   }
 
-  .freight-print-area .freight-item-card {
+  .freight-print-area .print-card-list > .freight-item-card {
     display: block;
     width: 100%;
     max-width: 100%;
-    margin-bottom: 4mm;
+    margin-top: 0;
+    margin-bottom: 3mm;
     border-color: #000;
     border-radius: 0;
-    padding: 3mm;
+    padding: 2mm;
     box-sizing: border-box;
     overflow: visible;
-    break-inside: avoid;
     break-inside: avoid-page;
+    break-inside: avoid;
     page-break-inside: avoid;
   }
 
+  .freight-print-area .print-card-list > .freight-item-card:last-child {
+    margin-bottom: 0;
+  }
+
   .freight-print-area .item-card-top,
-  .freight-print-area .freight-item-card > dl,
+  .freight-print-area .item-card-details,
+  .freight-print-area .barcode-info-section,
+  .freight-print-area .memo-section,
   .freight-print-area .barcode-area,
   .freight-print-area .location-barcode {
+    display: block;
+    break-inside: avoid-page;
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
   .freight-print-area .item-card-top {
-    grid-template-columns: 12mm 20mm minmax(0, 1fr);
-    gap: 3mm;
+    display: grid;
+    grid-template-columns: 11mm 18mm minmax(0, 1fr);
+    gap: 2mm;
+  }
+
+  .freight-print-area .item-card-top > :first-child {
+    height: 11mm;
+  }
+
+  .freight-print-area .item-card-top dl {
+    line-height: 1.15rem;
   }
 
   .freight-print-area .product-image,
   .freight-print-area .product-image img {
-    width: 19mm;
-    height: 19mm;
-    max-width: 19mm;
-    max-height: 19mm;
+    width: 17mm;
+    height: 17mm;
+    max-width: 17mm;
+    max-height: 17mm;
+  }
+
+  .freight-print-area .item-card-details {
+    margin-top: 1.5mm;
+    padding-top: 1.25mm;
+    padding-bottom: 1.25mm;
+    line-height: 1.15rem;
+  }
+
+  .freight-print-area .memo-section {
+    margin-top: 0.5mm;
+  }
+
+  .freight-print-area .barcode-area {
+    padding-top: 1.5mm;
+    padding-bottom: 0;
   }
 
   .freight-print-area .location-barcode {
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    padding: 0;
     overflow: visible;
     print-color-adjust: exact;
+  }
+
+  .freight-print-area .location-barcode > span:first-child {
+    margin-bottom: 0.5mm;
+  }
+
+  .freight-print-area .location-barcode > span:last-child {
+    margin-top: 0.5mm;
   }
 
   .freight-print-area .location-barcode svg {
     width: 70mm;
     max-width: 100%;
-    height: 15mm;
+    height: 13mm;
     overflow: visible;
     print-color-adjust: exact;
   }

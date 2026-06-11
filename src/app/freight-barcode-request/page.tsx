@@ -671,10 +671,10 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
   return (
     <div className="freight-print-wrapper">
       <section className="freight-print-area rounded-xl border border-slate-300 bg-white p-6 shadow-sm sm:p-8" aria-label="바코드 작업요청서 인쇄 미리보기">
-        <div className="border-b-2 border-slate-900 pb-4 text-center">
+        <div className="print-document-header border-b-2 border-slate-900 pb-4 text-center">
           <h2 className="text-2xl font-bold text-slate-950">바코드 작업요청서</h2>
         </div>
-        <div className="mt-4 flex flex-wrap justify-between gap-2 text-sm">
+        <div className="print-document-meta mt-4 flex flex-wrap justify-between gap-2 text-sm">
           <p><strong>신청번호:</strong> {application.applicationNo || "-"}</p>
           <p><strong>생성일자:</strong> {createdDate}</p>
         </div>
@@ -708,10 +708,10 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
                   </dl>
                 </div>
 
-                <dl className="mt-3 border-y border-slate-400 py-2">
-                  <PrintField label="바코드" value={item.locationCode?.trim() || "바코드 미입력"} mono />
+                <dl className="item-card-details mt-3 border-y border-slate-400 py-2">
+                  <PrintField className="barcode-info-section" label="바코드" value={item.locationCode?.trim() || "바코드 미입력"} mono />
                   {item.memo?.trim() && (
-                    <PrintField label="작업메모" value={item.memo.trim()} multiline />
+                    <PrintField className="memo-section" label="작업메모" value={item.memo.trim()} multiline />
                   )}
                 </dl>
 
@@ -817,15 +817,17 @@ function PrintField({
   multiline = false,
   breakAll = false,
   mono = false,
+  className = "",
 }: {
   label: string;
   value?: string;
   multiline?: boolean;
   breakAll?: boolean;
   mono?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="min-w-0">
+    <div className={`min-w-0 ${className}`}>
       <dt className="inline font-bold">{label}: </dt>
       <dd className={`inline ${multiline ? "whitespace-pre-wrap break-words" : ""} ${breakAll ? "break-all" : ""} ${mono ? "font-mono font-bold" : ""}`}>
         {value || "-"}
