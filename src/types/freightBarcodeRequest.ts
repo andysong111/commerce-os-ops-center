@@ -48,3 +48,15 @@ export interface FreightApplicationItem {
   matchedImageUrl?: string;
   memo?: string;
 }
+
+export interface FreightBarcodeHistoryRecord {
+  id: string;
+  applicationNo: string;
+  createdAt: string;
+  updatedAt: string;
+  title?: string;
+  memo?: string;
+  rawText: string;
+  items: FreightApplicationItem[];
+  version: number;
+}
