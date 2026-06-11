@@ -40,8 +40,8 @@ button:not(:disabled) {
 
   html,
   body {
-    width: 100%;
-    max-width: 100%;
+    width: 210mm;
+    max-width: 210mm;
     background: white;
     color: black;
     overflow-x: hidden;
@@ -60,14 +60,13 @@ button:not(:disabled) {
     position: absolute;
     top: 0;
     left: 0;
-    right: 0;
-    width: 100%;
+    width: 210mm;
     max-width: 210mm;
     min-width: 0;
     margin: 0 auto;
     border: 0;
     border-radius: 0;
-    padding: 0 2mm;
+    padding: 0 0.5mm;
     box-sizing: border-box;
     box-shadow: none;
     overflow: visible;

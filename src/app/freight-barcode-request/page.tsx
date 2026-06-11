@@ -445,7 +445,7 @@ export default function FreightBarcodeRequestPage() {
                   {[
                     "순번", "품목", "옵션", "수량", "단가", "HS CODE", "상세URL", "이미지",
                     "오픈마켓 주문번호", "트래킹번호", "모델번호/모델명 입력", "바코드", "매칭상태",
-                    "모델번호", "모델명", "비고",
+                    "모델번호", "모델명", "작업메모",
                   ].map((heading) => (
                     <th key={heading} className="border-b border-r border-slate-200 px-3 py-3 font-semibold last:border-r-0">
                       {heading}
@@ -609,7 +609,15 @@ function EditableRow({
       <td className={cellClassName}><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 font-semibold ${statusStyle}`}>{status}</span></td>
       <td className={cellClassName}><input value={item.matchedModelNo ?? ""} onChange={(event) => onChange({ matchedModelNo: event.target.value })} className={`${inputClassName} w-32`} /></td>
       <td className={cellClassName}><input value={item.matchedModelName ?? ""} onChange={(event) => onChange({ matchedModelName: event.target.value })} className={`${inputClassName} w-40`} /></td>
-      <td className={cellClassName}><textarea value={item.memo ?? ""} onChange={(event) => onChange({ memo: event.target.value })} className={`${inputClassName} min-h-16 w-44 resize-y`} /></td>
+      <td className={cellClassName}>
+        <textarea
+          value={item.memo ?? ""}
+          onChange={(event) => onChange({ memo: event.target.value })}
+          placeholder={"예: 개별 부착\n10개씩 소분 후 바코드 부착\n50개씩 소분 후 바코드 부착\n100개씩 소분 후 바코드 부착\n박스 외부 바코드 부착"}
+          aria-label={`${item.rowNo}행 작업메모`}
+          className={`${inputClassName} min-h-28 w-60 resize-y`}
+        />
+      </td>
     </tr>
   );
 }
@@ -701,6 +709,9 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
 
               <dl className="mt-3 border-y border-slate-400 py-2">
                 <PrintField label="바코드" value={item.locationCode?.trim() || "바코드 미입력"} mono />
+                {item.memo?.trim() && (
+                  <PrintField label="작업메모" value={item.memo.trim()} multiline />
+                )}
               </dl>
 
               <div className="barcode-area py-3 text-center">
