@@ -35,7 +35,7 @@ button:not(:disabled) {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 1mm;
+    margin: 0;
   }
 
   html,
@@ -62,12 +62,12 @@ button:not(:disabled) {
     left: 0;
     right: 0;
     width: 100%;
-    max-width: 208mm;
+    max-width: 210mm;
     min-width: 0;
     margin: 0 auto;
     border: 0;
     border-radius: 0;
-    padding: 0;
+    padding: 0 2mm;
     box-sizing: border-box;
     box-shadow: none;
     overflow: visible;
@@ -108,10 +108,6 @@ button:not(:disabled) {
     height: 19mm;
     max-width: 19mm;
     max-height: 19mm;
-  }
-
-  .freight-print-area .item-model-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .freight-print-area .location-barcode {

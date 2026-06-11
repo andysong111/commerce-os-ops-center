@@ -285,7 +285,7 @@ export default function FreightBarcodeRequestPage() {
       <div className="freight-editing-ui">
         <PageHeader
           title="배대지 바코드 PDF 생성기"
-          description="배송대행지 신청서 세부 페이지의 제품정보를 붙여넣어 바코드/원산지 라벨 작업요청서를 만듭니다."
+          description="배송대행지 신청서 세부 페이지의 제품정보를 붙여넣어 바코드 작업요청서를 만듭니다."
         />
 
         <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -439,13 +439,13 @@ export default function FreightBarcodeRequestPage() {
             </label>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[2860px] border-collapse text-left text-xs">
+            <table className="w-full min-w-[2600px] border-collapse text-left text-xs">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
                   {[
                     "순번", "품목", "옵션", "수량", "단가", "HS CODE", "상세URL", "이미지",
                     "오픈마켓 주문번호", "트래킹번호", "모델번호/모델명 입력", "바코드", "매칭상태",
-                    "모델번호", "모델명", "원산지/라벨 문구", "비고",
+                    "모델번호", "모델명", "비고",
                   ].map((heading) => (
                     <th key={heading} className="border-b border-r border-slate-200 px-3 py-3 font-semibold last:border-r-0">
                       {heading}
@@ -609,12 +609,6 @@ function EditableRow({
       <td className={cellClassName}><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 font-semibold ${statusStyle}`}>{status}</span></td>
       <td className={cellClassName}><input value={item.matchedModelNo ?? ""} onChange={(event) => onChange({ matchedModelNo: event.target.value })} className={`${inputClassName} w-32`} /></td>
       <td className={cellClassName}><input value={item.matchedModelName ?? ""} onChange={(event) => onChange({ matchedModelName: event.target.value })} className={`${inputClassName} w-40`} /></td>
-      <td className={cellClassName}>
-        <div className="w-48 space-y-2">
-          <input value={item.matchedOriginLabel ?? ""} onChange={(event) => onChange({ matchedOriginLabel: event.target.value })} placeholder="원산지" className={inputClassName} />
-          <input value={item.matchedLabelText ?? ""} onChange={(event) => onChange({ matchedLabelText: event.target.value })} placeholder="라벨 문구" className={inputClassName} />
-        </div>
-      </td>
       <td className={cellClassName}><textarea value={item.memo ?? ""} onChange={(event) => onChange({ memo: event.target.value })} className={`${inputClassName} min-h-16 w-44 resize-y`} /></td>
     </tr>
   );
@@ -676,7 +670,6 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
         <p><strong>생성일자:</strong> {createdDate}</p>
       </div>
       <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
-        <p className="mb-1 font-bold">작업 안내</p>
         <p>바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.</p>
         <p>같은 상품이라도 옵션별로 바코드번호가 다를 수 있으니 상품 카드별로 구분해서 작업 부탁드립니다.</p>
       </div>
@@ -706,9 +699,7 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
                 </dl>
               </div>
 
-              <dl className="item-model-grid mt-3 grid grid-cols-3 border-y border-slate-400 py-2">
-                <PrintField label="모델번호" value={item.matchedModelNo || "확인 필요"} />
-                <PrintField label="모델명" value={item.matchedModelName || "확인 필요"} />
+              <dl className="mt-3 border-y border-slate-400 py-2">
                 <PrintField label="바코드" value={item.locationCode?.trim() || "바코드 미입력"} mono />
               </dl>
 
