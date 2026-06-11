@@ -29,6 +29,7 @@ export interface FreightApplicationItem {
   optionText: string;
   detailUrl?: string;
   imageUrl?: string;
+  localImageUrl?: string;
   selectedImageCandidateUrl?: string;
   pastedImageUrl?: string;
   hsCode?: string;

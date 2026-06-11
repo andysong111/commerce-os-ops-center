@@ -143,9 +143,10 @@ test("leaves unmatched items empty and preserves a manually entered imageUrl", (
   assert.equal(assigned[1].pastedImageUrl, undefined);
 });
 
-test("falls back from a candidate to manual URL, Product Master image, then no image", () => {
+test("prioritizes a local image before selected, manual, pasted, and Product Master images", () => {
   const item = {
     ...baseItems[0],
+    localImageUrl: "blob:https://commerce-os.local/local-image",
     selectedImageCandidateUrl: "https://selected.example/image.jpg",
     imageUrl: "https://manual.example/image.jpg",
     pastedImageUrl: "https://pasted.example/image.jpg",
@@ -153,40 +154,31 @@ test("falls back from a candidate to manual URL, Product Master image, then no i
   };
 
   assert.deepEqual(getFreightItemImageSources(item), [
+    item.localImageUrl,
     item.selectedImageCandidateUrl,
     item.imageUrl,
+    item.pastedImageUrl,
     item.matchedImageUrl,
   ]);
-  assert.equal(getPreferredFreightItemImage(item), item.selectedImageCandidateUrl);
+  assert.equal(getPreferredFreightItemImage(item), item.localImageUrl);
   assert.deepEqual(
-    getFreightItemImageSources({ ...item, selectedImageCandidateUrl: undefined }),
-    [item.pastedImageUrl, item.imageUrl, item.matchedImageUrl],
+    getFreightItemImageSources({ ...item, localImageUrl: undefined }),
+    [item.selectedImageCandidateUrl, item.imageUrl, item.pastedImageUrl, item.matchedImageUrl],
   );
   assert.deepEqual(
-    getFreightItemImageSources({
-      ...item,
-      selectedImageCandidateUrl: undefined,
-      pastedImageUrl: undefined,
-    }),
-    [item.imageUrl, item.matchedImageUrl],
+    getFreightItemImageSources({ ...item, localImageUrl: undefined, selectedImageCandidateUrl: undefined }),
+    [item.imageUrl, item.pastedImageUrl, item.matchedImageUrl],
   );
   assert.deepEqual(
-    getFreightItemImageSources({
-      ...item,
-      selectedImageCandidateUrl: undefined,
-      pastedImageUrl: undefined,
-      imageUrl: undefined,
-    }),
+    getFreightItemImageSources({ ...item, localImageUrl: undefined, selectedImageCandidateUrl: undefined, imageUrl: undefined }),
+    [item.pastedImageUrl, item.matchedImageUrl],
+  );
+  assert.deepEqual(
+    getFreightItemImageSources({ ...item, localImageUrl: undefined, selectedImageCandidateUrl: undefined, imageUrl: undefined, pastedImageUrl: undefined }),
     [item.matchedImageUrl],
   );
   assert.deepEqual(
-    getFreightItemImageSources({
-      ...item,
-      selectedImageCandidateUrl: undefined,
-      pastedImageUrl: undefined,
-      imageUrl: undefined,
-      matchedImageUrl: undefined,
-    }),
+    getFreightItemImageSources({ ...item, localImageUrl: undefined, selectedImageCandidateUrl: undefined, imageUrl: undefined, pastedImageUrl: undefined, matchedImageUrl: undefined }),
     [],
   );
 });
