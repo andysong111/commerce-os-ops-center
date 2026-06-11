@@ -12,6 +12,13 @@ test("encodes only the location code as CODE128-B with the expected checksum", (
   );
 });
 
+test("encodes BBA1-3 as exact CODE128-B data with the correct checksum", () => {
+  assert.deepEqual(
+    encodeCode128B("BBA1-3"),
+    [104, 34, 34, 33, 17, 13, 19, 37, 106],
+  );
+});
+
 test("creates printable black-bar positions with CODE128 quiet zones", () => {
   const layout = createCode128Layout("BAA1-1");
 
