@@ -6,6 +6,12 @@ import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
 import { findProductByModelNoOrModelName } from "@/lib/productMaster";
 import { createCode128Layout } from "@/lib/code128";
 import {
+  BARCODE_ORIGIN_LABEL,
+  getEncodedBarcodeValue,
+  isValidBarcodeValue,
+  sanitizeBarcodeValue,
+} from "@/lib/barcodeValue";
+import {
   assignPastedImagesToItems,
   createClipboardImageCandidates,
   extractRichPasteImagesFromHtml,
@@ -475,6 +481,23 @@ export default function FreightBarcodeRequestPage() {
           )}
         </section>
 
+        <section className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          <h2 className="font-semibold">바코드 스캐너 확인</h2>
+          <p className="mt-1 text-xs leading-5">
+            스캐너 테스트 시 입력한 바코드값과 스캔 결과가 정확히 일치해야 합니다.
+          </p>
+          <div className="mt-2 space-y-1 text-xs">
+            {application.items.map((item) => {
+              const encodedValue = getEncodedBarcodeValue(item.locationCode);
+              return (
+                <p key={item.id}>
+                  {item.rowNo}번 · 입력값: {item.locationCode || "-"} · 인코딩값: {encodedValue || "생성 안 함"}
+                </p>
+              );
+            })}
+          </div>
+        </section>
+
         <section className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -530,6 +553,8 @@ function EditableRow({
     : lookupFailed
       ? "bg-red-50 text-red-700"
       : "bg-amber-50 text-amber-700";
+  const barcodeValue = item.locationCode ?? "";
+  const barcodeInvalid = Boolean(barcodeValue) && !isValidBarcodeValue(barcodeValue);
 
   return (
     <tr className="align-top odd:bg-white even:bg-slate-50/50">
@@ -601,9 +626,24 @@ function EditableRow({
         </div>
       </td>
       <td className={cellClassName}>
-        <label className="block w-36">
+        <label className="block w-44">
           <span className="sr-only">바코드</span>
-          <input value={item.locationCode ?? ""} onChange={(event) => onChange({ locationCode: event.target.value })} placeholder="예: BAA1-1" className={inputClassName} />
+          <input
+            value={barcodeValue}
+            onChange={(event) => onChange({ locationCode: sanitizeBarcodeValue(event.target.value) })}
+            placeholder="예: BAA1-1"
+            aria-invalid={barcodeInvalid}
+            className={`${inputClassName} ${
+              barcodeInvalid
+                ? "border-red-400 bg-red-50 focus:border-red-500 focus:ring-red-100"
+                : ""
+            }`}
+          />
+          {barcodeInvalid && (
+            <span className="mt-1 block text-[11px] font-semibold leading-4 text-red-700">
+              영문 대문자, 숫자, 하이픈(-)만 입력하세요.
+            </span>
+          )}
         </label>
       </td>
       <td className={cellClassName}><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 font-semibold ${statusStyle}`}>{status}</span></td>
@@ -623,46 +663,54 @@ function EditableRow({
 }
 
 function LocationBarcode({ value }: { value?: string }) {
-  const normalizedValue = value?.trim();
+  const encodedValue = getEncodedBarcodeValue(value);
 
-  if (!normalizedValue) {
+  if (!value) {
     return <span className="font-sans text-[10px] font-semibold">바코드 미입력</span>;
   }
 
-  let layout: ReturnType<typeof createCode128Layout> | null = null;
-
-  try {
-    // MADE IN CHINA is display-only; the encoded value remains the location code.
-    layout = createCode128Layout(normalizedValue);
-  } catch {
-    layout = null;
-  }
-
-  if (!layout) {
+  if (!encodedValue) {
     return (
-      <span className="font-sans text-[10px] font-semibold">
-        바코드 형식 확인: {normalizedValue}
+      <span className="font-sans text-[10px] font-semibold text-red-700">
+        바코드 형식 확인: {value}
       </span>
     );
   }
 
+  // Render each CODE128 module at an exact integer width. Avoiding CSS scaling
+  // prevents bar-width distortion in the browser and generated PDF.
+  const layout = createCode128Layout(encodedValue);
+  const moduleWidth = 2;
+  const barcodeHeight = 52;
+  const svgWidth = layout.width * moduleWidth;
+
   return (
     <div className="location-barcode mx-auto flex min-w-36 flex-col items-center bg-white p-1 text-black">
-      <span className="mb-1 font-sans text-[11px] font-black tracking-wide">MADE IN CHINA</span>
+      <span className="mb-1 font-sans text-[11px] font-black tracking-wide">{BARCODE_ORIGIN_LABEL}</span>
       <svg
-        aria-label={`바코드 ${normalizedValue} CODE128`}
-        className="block h-12 w-40 max-w-none bg-white"
+        aria-label={`바코드 ${encodedValue} CODE128B`}
+        className="barcode-svg block bg-white"
+        height={barcodeHeight}
         role="img"
         shapeRendering="crispEdges"
-        viewBox={`0 0 ${layout.width} 40`}
+        viewBox={`0 0 ${svgWidth} ${barcodeHeight}`}
+        width={svgWidth}
         xmlns="http://www.w3.org/2000/svg"
       >
-        <rect fill="white" height="40" width={layout.width} />
+        <rect fill="#fff" height={barcodeHeight} width={svgWidth} />
         {layout.bars.map((bar, index) => (
-          <rect key={`${bar.x}-${index}`} fill="black" height="40" width={bar.width} x={bar.x} />
+          <rect
+            key={`${bar.x}-${index}`}
+            fill="#000"
+            height={barcodeHeight}
+            width={bar.width * moduleWidth}
+            x={bar.x * moduleWidth}
+          />
         ))}
       </svg>
-      <span className="mt-1 font-mono text-[10px] font-bold tracking-wide">{normalizedValue}</span>
+      <span className="mt-1 font-mono text-[10px] font-bold tracking-wide">
+        스캔값: {encodedValue}
+      </span>
     </div>
   );
 }
