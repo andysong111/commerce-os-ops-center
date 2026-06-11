@@ -57,8 +57,8 @@ hs_code: 7326209000
 오픈마켓 주문번호: 3307376352586591852`;
 
 const KOREAN_MESSAGE = `바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.
-PDF의 각 행별로 상품 이미지, 옵션, 수량, 위치코드를 확인 후 작업 부탁드립니다.
-같은 상품명이라도 옵션이나 위치코드가 다를 수 있으니 행별로 구분해서 작업 부탁드립니다.`;
+PDF의 각 상품 카드별로 상품 이미지, 옵션, 수량, 바코드를 확인 후 작업 부탁드립니다.
+같은 상품이라도 옵션별로 바코드번호가 다를 수 있으니 상품 카드별로 구분해서 작업 부탁드립니다.`;
 
 const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
 const EMPTY_PASTED_IMAGES: RichPasteImageExtraction = {
@@ -422,8 +422,8 @@ export default function FreightBarcodeRequestPage() {
                 <tr>
                   {[
                     "순번", "품목", "옵션", "수량", "단가", "HS CODE", "상세URL", "이미지 URL",
-                    "오픈마켓 주문번호", "트래킹번호", "모델번호/모델명 입력", "위치코드", "매칭상태",
-                    "모델번호", "모델명", "상품 바코드", "원산지/라벨 문구", "비고",
+                    "오픈마켓 주문번호", "트래킹번호", "모델번호/모델명 입력", "바코드", "매칭상태",
+                    "모델번호", "모델명", "원산지/라벨 문구", "비고",
                   ].map((heading) => (
                     <th key={heading} className="border-b border-r border-slate-200 px-3 py-3 font-semibold last:border-r-0">
                       {heading}
@@ -554,14 +554,13 @@ function EditableRow({
       </td>
       <td className={cellClassName}>
         <label className="block w-36">
-          <span className="sr-only">위치코드</span>
+          <span className="sr-only">바코드</span>
           <input value={item.locationCode ?? ""} onChange={(event) => onChange({ locationCode: event.target.value })} placeholder="예: BAA1-1" className={inputClassName} />
         </label>
       </td>
       <td className={cellClassName}><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 font-semibold ${statusStyle}`}>{status}</span></td>
       <td className={cellClassName}><input value={item.matchedModelNo ?? ""} onChange={(event) => onChange({ matchedModelNo: event.target.value })} className={`${inputClassName} w-32`} /></td>
       <td className={cellClassName}><input value={item.matchedModelName ?? ""} onChange={(event) => onChange({ matchedModelName: event.target.value })} className={`${inputClassName} w-40`} /></td>
-      <td className={cellClassName}><input value={item.matchedBarcode ?? ""} onChange={(event) => onChange({ matchedBarcode: event.target.value })} className={`${inputClassName} w-40`} /></td>
       <td className={cellClassName}>
         <div className="w-48 space-y-2">
           <input value={item.matchedOriginLabel ?? ""} onChange={(event) => onChange({ matchedOriginLabel: event.target.value })} placeholder="원산지" className={inputClassName} />
@@ -577,7 +576,7 @@ function LocationBarcode({ value }: { value?: string }) {
   const normalizedValue = value?.trim();
 
   if (!normalizedValue) {
-    return <span className="font-sans text-[10px] font-semibold">위치코드 미입력</span>;
+    return <span className="font-sans text-[10px] font-semibold">바코드 미입력</span>;
   }
 
   let layout: ReturnType<typeof createCode128Layout> | null = null;
@@ -592,7 +591,7 @@ function LocationBarcode({ value }: { value?: string }) {
   if (!layout) {
     return (
       <span className="font-sans text-[10px] font-semibold">
-        위치코드 형식 확인: {normalizedValue}
+        바코드 형식 확인: {normalizedValue}
       </span>
     );
   }
@@ -601,7 +600,7 @@ function LocationBarcode({ value }: { value?: string }) {
     <div className="location-barcode mx-auto flex min-w-36 flex-col items-center bg-white p-1 text-black">
       <span className="mb-1 font-sans text-[11px] font-black tracking-wide">MADE IN CHINA</span>
       <svg
-        aria-label={`위치코드 ${normalizedValue} CODE128 바코드`}
+        aria-label={`바코드 ${normalizedValue} CODE128`}
         className="block h-12 w-40 max-w-none bg-white"
         role="img"
         shapeRendering="crispEdges"
@@ -631,8 +630,8 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
       <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
         <p className="mb-1 font-bold">작업 안내</p>
         <p>바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.</p>
-        <p>PDF의 각 행별로 상품 이미지, 옵션, 수량, 위치코드를 확인 후 작업 부탁드립니다.</p>
-        <p>같은 상품명이라도 옵션이나 위치코드가 다를 수 있으니 행별로 구분해서 작업 부탁드립니다.</p>
+        <p>PDF의 각 상품 카드별로 상품 이미지, 옵션, 수량, 바코드를 확인 후 작업 부탁드립니다.</p>
+        <p>같은 상품이라도 옵션별로 바코드번호가 다를 수 있으니 상품 카드별로 구분해서 작업 부탁드립니다.</p>
       </div>
       <div className="print-card-list mt-5 space-y-4">
         {application.items.map((item) => {
@@ -663,21 +662,13 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
               <dl className="item-model-grid mt-3 grid grid-cols-3 border-y border-slate-400 py-2">
                 <PrintField label="모델번호" value={item.matchedModelNo || "확인 필요"} />
                 <PrintField label="모델명" value={item.matchedModelName || "확인 필요"} />
-                <PrintField label="위치코드" value={item.locationCode?.trim() || "위치코드 미입력"} mono />
+                <PrintField label="바코드" value={item.locationCode?.trim() || "바코드 미입력"} mono />
               </dl>
 
               <div className="barcode-area py-3 text-center">
                 <LocationBarcode value={item.locationCode} />
               </div>
 
-              <dl className="space-y-2 border-t border-slate-400 pt-3 leading-5">
-                <PrintField
-                  label="원산지/라벨 문구"
-                  value={[item.matchedOriginLabel, item.matchedLabelText].filter(Boolean).join(" / ") || "확인 필요"}
-                  multiline
-                />
-                <PrintField label="작업지시" value={item.memo || "위치코드 바코드/원산지 라벨 부착"} multiline />
-              </dl>
             </article>
           );
         })}
