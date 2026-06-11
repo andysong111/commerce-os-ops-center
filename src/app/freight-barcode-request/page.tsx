@@ -669,61 +669,62 @@ function LocationBarcode({ value }: { value?: string }) {
 
 function WorkRequestPreview({ application, createdDate }: { application: FreightApplication; createdDate: string }) {
   return (
-    <section className="freight-print-area rounded-xl border border-slate-300 bg-white p-6 shadow-sm sm:p-8" aria-label="바코드 작업요청서 인쇄 미리보기">
-      <div className="border-b-2 border-slate-900 pb-4 text-center">
-        <h2 className="text-2xl font-bold text-slate-950">바코드 작업요청서</h2>
-      </div>
-      <div className="mt-4 flex flex-wrap justify-between gap-2 text-sm">
-        <p><strong>신청번호:</strong> {application.applicationNo || "-"}</p>
-        <p><strong>생성일자:</strong> {createdDate}</p>
-      </div>
-      <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
-        <p>바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.</p>
-        <p>같은 상품이라도 옵션별로 바코드번호가 다를 수 있으니 상품 카드별로 구분해서 작업 부탁드립니다.</p>
-      </div>
-      <div className="print-card-list mt-5 space-y-4">
-        {application.items.map((item) => {
-          return (
-            <article key={item.id} className="freight-item-card break-inside-avoid rounded-lg border-2 border-slate-800 p-4 text-xs text-slate-950">
-              <div className="item-card-top grid grid-cols-[3rem_4.5rem_minmax(0,1fr)] gap-3">
-                <div className="flex h-12 items-center justify-center rounded border border-slate-400 text-lg font-bold">{item.rowNo}</div>
-                <div className="product-image flex size-[72px] items-center justify-center overflow-hidden rounded border border-slate-300 bg-white text-center text-[10px] text-slate-500">
-                  <FreightItemImage
-                    key={getFreightItemImageSources(item).join("|")}
-                    sources={getFreightItemImageSources(item)}
-                    alt={item.matchedModelName || item.itemName}
-                    className="size-[72px] object-contain"
-                  />
-                </div>
-                <dl className="min-w-0 space-y-1 leading-5">
-                  <PrintField label="품목" value={item.matchedProductNameKo || item.itemName} />
-                  <PrintField label="옵션" value={item.optionText} multiline />
-                  <div className="grid gap-x-4 sm:grid-cols-2">
-                    <PrintField label="수량" value={String(item.quantity)} />
-                    <PrintField label="HS CODE" value={item.hsCode} />
-                    <PrintField label="트래킹번호" value={item.trackingNo} breakAll />
-                    <PrintField label="오픈마켓 주문번호" value={item.orderNo} breakAll />
+    <div className="freight-print-wrapper">
+      <section className="freight-print-area rounded-xl border border-slate-300 bg-white p-6 shadow-sm sm:p-8" aria-label="바코드 작업요청서 인쇄 미리보기">
+        <div className="border-b-2 border-slate-900 pb-4 text-center">
+          <h2 className="text-2xl font-bold text-slate-950">바코드 작업요청서</h2>
+        </div>
+        <div className="mt-4 flex flex-wrap justify-between gap-2 text-sm">
+          <p><strong>신청번호:</strong> {application.applicationNo || "-"}</p>
+          <p><strong>생성일자:</strong> {createdDate}</p>
+        </div>
+        <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
+          <p>바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.</p>
+          <p>같은 상품이라도 옵션별로 바코드번호가 다를 수 있으니 상품 카드별로 구분해서 작업 부탁드립니다.</p>
+        </div>
+        <div className="print-card-list mt-5 space-y-4">
+          {application.items.map((item) => {
+            return (
+              <article key={item.id} className="freight-item-card break-inside-avoid rounded-lg border-2 border-slate-800 p-4 text-xs text-slate-950">
+                <div className="item-card-top grid grid-cols-[3rem_4.5rem_minmax(0,1fr)] gap-3">
+                  <div className="flex h-12 items-center justify-center rounded border border-slate-400 text-lg font-bold">{item.rowNo}</div>
+                  <div className="product-image flex size-[72px] items-center justify-center overflow-hidden rounded border border-slate-300 bg-white text-center text-[10px] text-slate-500">
+                    <FreightItemImage
+                      key={getFreightItemImageSources(item).join("|")}
+                      sources={getFreightItemImageSources(item)}
+                      alt={item.matchedModelName || item.itemName}
+                      className="size-[72px] object-contain"
+                    />
                   </div>
+                  <dl className="min-w-0 space-y-1 leading-5">
+                    <PrintField label="품목" value={item.matchedProductNameKo || item.itemName} />
+                    <PrintField label="옵션" value={item.optionText} multiline />
+                    <div className="grid gap-x-4 sm:grid-cols-2">
+                      <PrintField label="수량" value={String(item.quantity)} />
+                      <PrintField label="HS CODE" value={item.hsCode} />
+                      <PrintField label="트래킹번호" value={item.trackingNo} breakAll />
+                      <PrintField label="오픈마켓 주문번호" value={item.orderNo} breakAll />
+                    </div>
+                  </dl>
+                </div>
+
+                <dl className="mt-3 border-y border-slate-400 py-2">
+                  <PrintField label="바코드" value={item.locationCode?.trim() || "바코드 미입력"} mono />
+                  {item.memo?.trim() && (
+                    <PrintField label="작업메모" value={item.memo.trim()} multiline />
+                  )}
                 </dl>
-              </div>
 
-              <dl className="mt-3 border-y border-slate-400 py-2">
-                <PrintField label="바코드" value={item.locationCode?.trim() || "바코드 미입력"} mono />
-                {item.memo?.trim() && (
-                  <PrintField label="작업메모" value={item.memo.trim()} multiline />
-                )}
-              </dl>
-
-              <div className="barcode-area py-3 text-center">
-                <LocationBarcode value={item.locationCode} />
-              </div>
-
-            </article>
-          );
-        })}
-      </div>
-      {application.items.length === 0 && <p className="py-12 text-center text-sm text-slate-500">분석된 품목이 없습니다.</p>}
-    </section>
+                <div className="barcode-area py-3 text-center">
+                  <LocationBarcode value={item.locationCode} />
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        {application.items.length === 0 && <p className="py-12 text-center text-sm text-slate-500">분석된 품목이 없습니다.</p>}
+      </section>
+    </div>
   );
 }
 
