@@ -57,7 +57,6 @@ hs_code: 7326209000
 오픈마켓 주문번호: 3307376352586591852`;
 
 const KOREAN_MESSAGE = `바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.
-PDF의 각 상품 카드별로 상품 이미지, 옵션, 수량, 바코드를 확인 후 작업 부탁드립니다.
 같은 상품이라도 옵션별로 바코드번호가 다를 수 있으니 상품 카드별로 구분해서 작업 부탁드립니다.`;
 
 const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
@@ -83,6 +82,7 @@ export default function FreightBarcodeRequestPage() {
   const [pastedImages, setPastedImages] = useState<RichPasteImageExtraction>(EMPTY_PASTED_IMAGES);
   const richPasteRef = useRef<HTMLDivElement>(null);
   const clipboardObjectUrlsRef = useRef<string[]>([]);
+  const localImageObjectUrlsRef = useRef<Map<string, string>>(new Map());
   const [application, setApplication] =
     useState<FreightApplication>(EMPTY_APPLICATION);
   const [lookupFailedIds, setLookupFailedIds] = useState<Set<string>>(new Set());
@@ -94,8 +94,10 @@ export default function FreightBarcodeRequestPage() {
   ).length;
 
   useEffect(() => {
+    const localImageObjectUrls = localImageObjectUrlsRef.current;
     return () => {
       clipboardObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      localImageObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
 
@@ -104,7 +106,13 @@ export default function FreightBarcodeRequestPage() {
     clipboardObjectUrlsRef.current = [];
   }
 
+  function clearLocalImageObjectUrls() {
+    localImageObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    localImageObjectUrlsRef.current.clear();
+  }
+
   function analyzeText() {
+    clearLocalImageObjectUrls();
     try {
       const parsedApplication = parseFreightApplicationText(rawText);
       const applicationWithPastedImages = {
@@ -161,6 +169,7 @@ export default function FreightBarcodeRequestPage() {
   }
 
   function loadSample() {
+    clearLocalImageObjectUrls();
     const parsedApplication = parseFreightApplicationText(SAMPLE_TEXT);
     setRawText(SAMPLE_TEXT);
     clearClipboardObjectUrls();
@@ -176,6 +185,7 @@ export default function FreightBarcodeRequestPage() {
 
   function reset() {
     setRawText("");
+    clearLocalImageObjectUrls();
     clearClipboardObjectUrls();
     setPastedImages(EMPTY_PASTED_IMAGES);
     if (richPasteRef.current) richPasteRef.current.textContent = "";
@@ -198,6 +208,18 @@ export default function FreightBarcodeRequestPage() {
         item.id === id ? { ...item, ...changes } : item,
       ),
     }));
+  }
+
+  function updateLocalImage(itemId: string, file?: File) {
+    const previousUrl = localImageObjectUrlsRef.current.get(itemId);
+    if (previousUrl) {
+      URL.revokeObjectURL(previousUrl);
+      localImageObjectUrlsRef.current.delete(itemId);
+    }
+
+    const localImageUrl = file ? URL.createObjectURL(file) : undefined;
+    if (localImageUrl) localImageObjectUrlsRef.current.set(itemId, localImageUrl);
+    updateItem(itemId, { localImageUrl });
   }
 
   function updateCandidateLoadStatus(url: string, loadStatus: "loaded" | "failed") {
@@ -421,7 +443,7 @@ export default function FreightBarcodeRequestPage() {
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
                   {[
-                    "순번", "품목", "옵션", "수량", "단가", "HS CODE", "상세URL", "이미지 URL",
+                    "순번", "품목", "옵션", "수량", "단가", "HS CODE", "상세URL", "이미지",
                     "오픈마켓 주문번호", "트래킹번호", "모델번호/모델명 입력", "바코드", "매칭상태",
                     "모델번호", "모델명", "원산지/라벨 문구", "비고",
                   ].map((heading) => (
@@ -439,6 +461,7 @@ export default function FreightBarcodeRequestPage() {
                     imageCandidates={pastedImages.candidates}
                     lookupFailed={lookupFailedIds.has(item.id)}
                     onChange={(changes) => updateItem(item.id, changes)}
+                    onLocalImageChange={(file) => updateLocalImage(item.id, file)}
                     onApply={() => applyProductMaster(item)}
                   />
                 ))}
@@ -487,12 +510,14 @@ function EditableRow({
   imageCandidates,
   lookupFailed,
   onChange,
+  onLocalImageChange,
   onApply,
 }: {
   item: FreightApplicationItem;
   imageCandidates: RichPasteImageCandidate[];
   lookupFailed: boolean;
   onChange: (changes: Partial<FreightApplicationItem>) => void;
+  onLocalImageChange: (file?: File) => void;
   onApply: () => void;
 }) {
   const status = item.matchedModelNo
@@ -519,7 +544,30 @@ function EditableRow({
       <td className={cellClassName}><textarea value={item.detailUrl ?? ""} onChange={(event) => onChange({ detailUrl: event.target.value })} className={`${inputClassName} min-h-16 w-64 resize-y break-all`} /></td>
       <td className={cellClassName}>
         <div className="w-72 space-y-2">
+          <label className="block space-y-1">
+            <span className="block font-semibold text-slate-700">이미지 파일</span>
+            <input
+              key={item.localImageUrl ?? "no-local-image"}
+              type="file"
+              accept="image/*"
+              onChange={(event) => onLocalImageChange(event.target.files?.[0])}
+              className={`${inputClassName} file:mr-2 file:rounded file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:text-xs file:font-semibold`}
+            />
+          </label>
+          <p className="text-[11px] leading-4 text-slate-500">
+            로컬 이미지 파일은 현재 화면/PDF 생성에만 사용되며 서버에 저장되지 않습니다.
+          </p>
+          {item.localImageUrl && (
+            <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+              <FreightItemImage key={item.localImageUrl} sources={[item.localImageUrl]} alt={`${item.itemName} 로컬 이미지 미리보기`} className="size-14 rounded bg-white object-contain" />
+              <button type="button" onClick={() => onLocalImageChange(undefined)} className="font-semibold text-slate-600 hover:text-slate-900">선택 해제</button>
+            </div>
+          )}
           <textarea value={item.imageUrl ?? ""} onChange={(event) => onChange({ imageUrl: event.target.value })} placeholder="직접 이미지 URL 입력" className={`${inputClassName} min-h-16 resize-y break-all`} />
+          <p className="text-[11px] leading-4 text-slate-500">
+            일부 외부 이미지 주소는 원본 사이트의 차단 정책 때문에 표시되지 않을 수 있습니다.<br />
+            이미지가 꼭 필요한 경우 로컬 이미지 파일을 직접 선택하는 방식이 가장 안정적입니다.
+          </p>
           <select
             aria-label={`${item.rowNo}행 이미지 후보 선택`}
             value={item.selectedImageCandidateUrl ?? ""}
@@ -630,7 +678,6 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
       <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
         <p className="mb-1 font-bold">작업 안내</p>
         <p>바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.</p>
-        <p>PDF의 각 상품 카드별로 상품 이미지, 옵션, 수량, 바코드를 확인 후 작업 부탁드립니다.</p>
         <p>같은 상품이라도 옵션별로 바코드번호가 다를 수 있으니 상품 카드별로 구분해서 작업 부탁드립니다.</p>
       </div>
       <div className="print-card-list mt-5 space-y-4">

@@ -35,7 +35,7 @@ button:not(:disabled) {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 3mm;
+    margin: 1mm;
   }
 
   html,
@@ -62,7 +62,7 @@ button:not(:disabled) {
     left: 0;
     right: 0;
     width: 100%;
-    max-width: 204mm;
+    max-width: 208mm;
     min-width: 0;
     margin: 0 auto;
     border: 0;
@@ -70,7 +70,7 @@ button:not(:disabled) {
     padding: 0;
     box-sizing: border-box;
     box-shadow: none;
-    overflow: hidden;
+    overflow: visible;
     transform: none;
   }
 

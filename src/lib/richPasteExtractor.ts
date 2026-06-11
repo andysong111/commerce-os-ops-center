@@ -366,8 +366,10 @@ export function getFreightItemImageSources(
   item: FreightApplicationItem,
 ): string[] {
   return [
-    item.selectedImageCandidateUrl || item.pastedImageUrl,
+    item.localImageUrl,
+    item.selectedImageCandidateUrl,
     item.imageUrl,
+    item.pastedImageUrl,
     item.matchedImageUrl,
   ].filter(
     (source, index, sources): source is string =>
