@@ -27,7 +27,7 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-60 border-r border-slate-200 bg-slate-950 text-slate-100 lg:flex lg:flex-col">
+      <aside className="app-navigation fixed inset-y-0 left-0 z-20 hidden w-60 border-r border-slate-200 bg-slate-950 text-slate-100 lg:flex lg:flex-col">
         <Brand />
         <nav className="flex-1 space-y-1 px-3 py-4" aria-label="주요 메뉴">
           {navigation.map((item) => {
@@ -56,7 +56,7 @@ export function Sidebar() {
         </div>
       </aside>
 
-      <header className="border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
+      <header className="app-navigation border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
         <Brand compact />
         <nav className="mt-3 flex gap-2 overflow-x-auto" aria-label="모바일 메뉴">
           {navigation.map((item) => {

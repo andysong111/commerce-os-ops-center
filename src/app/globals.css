@@ -41,7 +41,7 @@ button:not(:disabled) {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 0;
+    margin: 2mm;
   }
 
   html,
@@ -55,12 +55,26 @@ button:not(:disabled) {
     overflow: visible;
   }
 
+  .app-navigation,
   .freight-editing-ui {
-    display: none;
+    display: none !important;
+  }
+
+  .app-shell,
+  .app-main,
+  .app-content {
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    background: white;
   }
 
   .freight-print-wrapper {
-    display: block;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
     position: static;
     width: 100%;
     min-width: 0;
@@ -72,13 +86,13 @@ button:not(:disabled) {
 
   .freight-print-area {
     display: block;
-    width: 209mm;
-    max-width: 209mm;
+    width: 204mm;
+    max-width: 204mm;
     min-width: 0;
     margin: 0 auto;
     border: 0;
     border-radius: 0;
-    padding: 0 0.3mm;
+    padding: 0 1mm;
     box-sizing: border-box;
     box-shadow: none;
     overflow: visible;

@@ -709,7 +709,7 @@ function LocationBarcode({ value }: { value?: string }) {
         ))}
       </svg>
       <span className="mt-1 font-mono text-[10px] font-bold tracking-wide">
-        스캔값: {encodedValue}
+        {encodedValue}
       </span>
     </div>
   );
