@@ -39,6 +39,12 @@ export interface FreightApplicationItem {
   orderNo?: string;
   lookupText?: string;
   locationCode?: string;
+  modelNo?: string;
+  modelName?: string;
+  optionName?: string;
+  barcode?: string;
+  origin?: string;
+  displayName?: string;
   matchedModelNo?: string;
   matchedModelName?: string;
   matchedProductNameKo?: string;

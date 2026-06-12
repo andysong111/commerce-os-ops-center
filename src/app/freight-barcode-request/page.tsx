@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
-import { findProductByModelNoOrModelName } from "@/lib/productMaster";
+import { findProductsByText } from "@/lib/productMaster";
 import {
   buildFreightBarcodeHistoryRecordFromCurrentState,
   deleteFreightBarcodeHistory,
@@ -284,7 +284,7 @@ export default function FreightBarcodeRequestPage() {
   }
 
   function applyProductMaster(item: FreightApplicationItem) {
-    const product = findProductByModelNoOrModelName(item.lookupText ?? "");
+    const product = findProductsByText(item.lookupText ?? "")[0];
 
     if (!product) {
       setLookupFailedIds((current) => new Set(current).add(item.id));
@@ -292,13 +292,19 @@ export default function FreightBarcodeRequestPage() {
     }
 
     updateItem(item.id, {
+      modelNo: product.modelNo,
+      modelName: product.modelName,
+      optionName: product.optionName,
+      barcode: product.barcode,
+      origin: product.origin,
+      displayName: product.displayName,
       matchedModelNo: product.modelNo,
       matchedModelName: product.modelName,
       matchedProductNameKo: product.productNameKo,
       matchedBarcode: product.barcode,
-      matchedOriginLabel: product.originLabel,
+      matchedOriginLabel: product.origin,
       matchedLabelText: product.labelText,
-      matchedImageUrl: product.mainImageUrl,
+      matchedImageUrl: product.imageUrl,
       hsCode: item.hsCode || product.hsCode,
     });
     setLookupFailedIds((current) => {
@@ -741,10 +747,8 @@ function EditableRow({
   onApply: () => void;
 }) {
   const status = item.matchedModelNo
-    ? "매칭 완료"
-    : lookupFailed
-      ? "마스터 없음"
-      : "확인 필요";
+    ? "Product Master matched"
+    : "No Product Master match";
   const statusStyle = item.matchedModelNo
     ? "bg-emerald-50 text-emerald-700"
     : lookupFailed

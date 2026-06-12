@@ -297,3 +297,46 @@ hs_code: 3926909000
   assert.equal(parsed.diagnostics?.parserMode, "labeled-inline");
   assert.equal(parsed.items[0].trackingNo, "435218340023796");
 });
+
+test("keeps parsed freight items unchanged when Product Master has no match", () => {
+  const parsed = parseFreightApplicationText(`신청번호:700001
+제품정보:(1)
+품목: Unknown Freight Item
+옵션(색상,사이즈): Blue
+수량: 12`);
+
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].itemName, "Unknown Freight Item");
+  assert.equal(parsed.items[0].quantity, 12);
+  assert.equal(parsed.items[0].modelNo, undefined);
+  assert.equal(parsed.items[0].matchedModelNo, undefined);
+});
+
+test("enriches a parsed item from an exact Product Master model number", () => {
+  const parsed = parseFreightApplicationText(`신청번호:700002
+제품정보:(1)
+품목: aaa179
+옵션(색상,사이즈): 단품
+수량: 30`);
+  const item = parsed.items[0];
+
+  assert.equal(item.modelNo, "aaa179");
+  assert.equal(item.modelName, "닭물통 니플형");
+  assert.equal(item.optionName, "단품");
+  assert.equal(item.barcode, "8800000001790");
+  assert.equal(item.origin, "MADE IN CHINA");
+  assert.match(item.displayName ?? "", /닭물통 니플형/);
+  assert.equal(item.matchedModelNo, "aaa179");
+});
+
+test("enriches a parsed item from Product Master text inclusion", () => {
+  const parsed = parseFreightApplicationText(`신청번호:700003
+제품정보:(1)
+품목: 말발굽 고리링
+옵션(색상,사이즈): 골드
+수량: 20`);
+
+  assert.equal(parsed.items[0].modelNo, "aaa270");
+  assert.equal(parsed.items[0].optionName, "골드");
+  assert.equal(parsed.items[0].matchedModelName, "말발굽 고리링");
+});

@@ -4,6 +4,7 @@ import type {
   FreightParseDiagnostics,
   FreightParserMode,
 } from "../types/freightBarcodeRequest.ts";
+import { findProductsByText } from "./productMaster.ts";
 
 const PRODUCT_BLOCK_PATTERN = /제품\s*정보\s*:?\s*\(\s*(\d+)\s*\)/gi;
 const TRACKING_PLACEHOLDER = "입력란에 하나의 트래킹만 입력";
@@ -286,6 +287,38 @@ function parseLooseTableItems(lines: string[]): FreightApplicationItem[] {
   return items;
 }
 
+function enrichItemFromProductMaster(
+  item: FreightApplicationItem,
+): FreightApplicationItem {
+  const lookupText = [item.itemName, item.optionText].filter(Boolean).join(" ");
+  const product = findProductsByText(lookupText)[0];
+  if (!product) return item;
+
+  return {
+    ...item,
+    modelNo: product.modelNo,
+    modelName: product.modelName,
+    optionName: product.optionName,
+    barcode: product.barcode,
+    origin: product.origin,
+    displayName: product.displayName,
+    matchedModelNo: product.modelNo,
+    matchedModelName: product.modelName,
+    matchedProductNameKo: product.productNameKo,
+    matchedBarcode: product.barcode,
+    matchedOriginLabel: product.origin,
+    matchedLabelText: product.labelText,
+    matchedImageUrl: product.imageUrl,
+    hsCode: item.hsCode || product.hsCode,
+  };
+}
+
+function enrichItemsFromProductMaster(
+  items: FreightApplicationItem[],
+): FreightApplicationItem[] {
+  return items.map(enrichItemFromProductMaster);
+}
+
 function createDiagnostics(
   lines: string[],
   parserMode: FreightParserMode,
@@ -326,7 +359,7 @@ export function parseFreightApplicationText(
   if (nextLineItems.length > 0) {
     return {
       applicationNo,
-      items: nextLineItems,
+      items: enrichItemsFromProductMaster(nextLineItems),
       diagnostics: createDiagnostics(lines, "labeled-next-line", nextLineItems.length),
     };
   }
@@ -335,7 +368,7 @@ export function parseFreightApplicationText(
   if (inlineItems.length > 0) {
     return {
       applicationNo,
-      items: inlineItems,
+      items: enrichItemsFromProductMaster(inlineItems),
       diagnostics: createDiagnostics(lines, "labeled-inline", inlineItems.length),
     };
   }
@@ -346,7 +379,7 @@ export function parseFreightApplicationText(
 
   return {
     applicationNo,
-    items: looseItems,
+    items: enrichItemsFromProductMaster(looseItems),
     diagnostics: createDiagnostics(lines, parserMode, looseItems.length),
   };
 }
