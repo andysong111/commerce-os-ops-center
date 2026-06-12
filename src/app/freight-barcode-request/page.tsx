@@ -13,6 +13,11 @@ import {
 } from "@/lib/freightBarcodeHistory";
 import { createCode128Layout } from "@/lib/code128";
 import {
+  buildBarcodeLabelPrintCounts,
+  calculateTotalBarcodeLabelPrintCount,
+  normalizeUnitsPerLabel,
+} from "@/lib/barcodeLabelPrint";
+import {
   BARCODE_ORIGIN_LABEL,
   getEncodedBarcodeValue,
   isValidBarcodeValue,
@@ -109,10 +114,20 @@ export default function FreightBarcodeRequestPage() {
   const [historyTitle, setHistoryTitle] = useState("");
   const [historyMemo, setHistoryMemo] = useState("");
   const [historyStatus, setHistoryStatus] = useState("");
+  const [unitsPerLabelByItemId, setUnitsPerLabelByItemId] = useState<Record<string, number>>({});
   const createdDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
   ).length;
+  const labelPrintCounts = buildBarcodeLabelPrintCounts(
+    application.items,
+    unitsPerLabelByItemId,
+  );
+  const printableLabelCounts = labelPrintCounts.filter((count) => {
+    const item = application.items.find((candidate) => candidate.id === count.itemId);
+    return Boolean(getEncodedBarcodeValue(item?.locationCode));
+  });
+  const totalLabelPrintCount = calculateTotalBarcodeLabelPrintCount(printableLabelCounts);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -475,6 +490,25 @@ export default function FreightBarcodeRequestPage() {
     window.setTimeout(() => setCopyLabel("한국어 메시지 복사"), 1500);
   }
 
+  function updateUnitsPerLabel(itemId: string, value: number) {
+    setUnitsPerLabelByItemId((current) => ({
+      ...current,
+      [itemId]: normalizeUnitsPerLabel(value),
+    }));
+  }
+
+  function printDocument(mode: "work-request" | "barcode-labels") {
+    document.body.classList.toggle("barcode-label-print-mode", mode === "barcode-labels");
+    if (mode === "barcode-labels") {
+      window.addEventListener(
+        "afterprint",
+        () => document.body.classList.remove("barcode-label-print-mode"),
+        { once: true },
+      );
+    }
+    window.print();
+  }
+
   return (
     <>
       <div className="freight-editing-ui">
@@ -824,6 +858,76 @@ export default function FreightBarcodeRequestPage() {
           </div>
         </section>
 
+        <section className="mb-5 rounded-xl border border-violet-200 bg-violet-50 p-4" aria-labelledby="barcode-label-print-title">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 id="barcode-label-print-title" className="font-semibold text-violet-950">바코드 라벨 PDF</h2>
+              <p className="mt-1 text-xs leading-5 text-violet-800">
+                묶음당 상품 수를 입력하면 품목 수량을 기준으로 필요한 라벨 장수를 올림 계산합니다.
+              </p>
+            </div>
+            <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
+              <span className="rounded-full bg-white px-3 py-1.5 text-sm font-bold text-violet-900 shadow-sm">
+                총 {totalLabelPrintCount.toLocaleString()}장
+              </span>
+              <Button
+                onClick={() => printDocument("barcode-labels")}
+                disabled={totalLabelPrintCount === 0}
+                primary
+              >
+                라벨 PDF로 저장/인쇄
+              </Button>
+            </div>
+          </div>
+          <div className="mt-4 overflow-x-auto rounded-lg border border-violet-200 bg-white">
+            <table className="w-full min-w-[680px] border-collapse text-left text-xs">
+              <thead className="bg-violet-100 text-violet-950">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">품목</th>
+                  <th className="px-3 py-2 text-right font-semibold">상품 수량</th>
+                  <th className="px-3 py-2 font-semibold">라벨 1장당 수량</th>
+                  <th className="px-3 py-2 text-right font-semibold">출력 장수</th>
+                </tr>
+              </thead>
+              <tbody>
+                {application.items.map((item, index) => {
+                  const count = labelPrintCounts[index];
+                  const printable = Boolean(getEncodedBarcodeValue(item.locationCode));
+                  return (
+                    <tr key={item.id} className="border-t border-violet-100">
+                      <td className="px-3 py-2">
+                        <span className="font-semibold text-slate-900">{item.rowNo}. {item.matchedProductNameKo || item.itemName || "품목명 없음"}</span>
+                        <span className="ml-2 text-slate-500">{item.locationCode || "바코드 미입력"}</span>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{count.quantity.toLocaleString()}개</td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={count.unitsPerLabel}
+                          onChange={(event) => updateUnitsPerLabel(item.id, event.currentTarget.valueAsNumber)}
+                          aria-label={`${item.rowNo}행 라벨 1장당 수량`}
+                          className={`${inputClassName} w-28 text-right tabular-nums`}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right font-bold tabular-nums text-violet-950">
+                        {printable ? `${count.printCount.toLocaleString()}장` : <span className="text-red-700">출력 제외</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {application.items.length === 0 && (
+              <p className="px-4 py-8 text-center text-sm text-slate-500">분석된 품목이 없습니다.</p>
+            )}
+          </div>
+          <p className="mt-2 text-[11px] leading-5 text-violet-800">
+            바코드가 비어 있거나 형식이 올바르지 않은 품목은 라벨 출력에서 제외됩니다. 예: 수량 101개, 라벨 1장당 10개 → 11장.
+          </p>
+        </section>
+
         <section className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -835,7 +939,7 @@ export default function FreightBarcodeRequestPage() {
                 PDF 저장 시 대상은 &apos;PDF로 저장&apos;, 용지는 A4, 배율은 기본값 또는 100%를 권장합니다.
               </p>
             </div>
-            <Button onClick={() => window.print()} primary>PDF로 저장/인쇄</Button>
+            <Button onClick={() => printDocument("work-request")} primary>PDF로 저장/인쇄</Button>
           </div>
           <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -850,6 +954,10 @@ export default function FreightBarcodeRequestPage() {
       </div>
 
       <WorkRequestPreview application={application} createdDate={createdDate} />
+      <BarcodeLabelPreview
+        application={application}
+        labelPrintCounts={labelPrintCounts}
+      />
     </>
   );
 }
@@ -1052,6 +1160,35 @@ function LocationBarcode({ value }: { value?: string }) {
   );
 }
 
+function BarcodeLabelPreview({
+  application,
+  labelPrintCounts,
+}: {
+  application: FreightApplication;
+  labelPrintCounts: ReturnType<typeof buildBarcodeLabelPrintCounts>;
+}) {
+  return (
+    <section className="barcode-label-print-area" aria-label="바코드 라벨 인쇄 영역">
+      {application.items.flatMap((item, index) => {
+        const encodedValue = getEncodedBarcodeValue(item.locationCode);
+        if (!encodedValue) return [];
+
+        return Array.from({ length: labelPrintCounts[index]?.printCount ?? 0 }, (_, labelIndex) => (
+          <article className="barcode-label" key={`${item.id}-${labelIndex}`}>
+            <p className="barcode-label-origin">{BARCODE_ORIGIN_LABEL}</p>
+            <p className="barcode-label-product">{item.matchedProductNameKo || item.itemName || "상품명 없음"}</p>
+            {item.optionText && <p className="barcode-label-option">{item.optionText}</p>}
+            <LocationBarcode value={item.locationCode} />
+            <p className="barcode-label-sequence">
+              {item.rowNo}번 · {labelIndex + 1}/{labelPrintCounts[index].printCount}
+            </p>
+          </article>
+        ));
+      })}
+    </section>
+  );
+}
+
 function WorkRequestPreview({ application, createdDate }: { application: FreightApplication; createdDate: string }) {
   return (
     <div className="freight-print-wrapper">
@@ -1221,8 +1358,27 @@ function PrintField({
   );
 }
 
-function Button({ children, onClick, primary = false }: { children: React.ReactNode; onClick: () => void; primary?: boolean }) {
-  return <button type="button" onClick={onClick} className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${primary ? "bg-blue-600 text-white hover:bg-blue-700" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>{children}</button>;
+function Button({
+  children,
+  onClick,
+  primary = false,
+  disabled = false,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${primary ? "bg-blue-600 text-white hover:bg-blue-700" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}
+    >
+      {children}
+    </button>
+  );
 }
 
 function SummaryCard({ label, value, emphasized = false, warning = false }: { label: string; value: string; emphasized?: boolean; warning?: boolean }) {

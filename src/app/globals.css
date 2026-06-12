@@ -236,3 +236,108 @@ button:not(:disabled) {
     print-color-adjust: exact;
   }
 }
+
+.barcode-label-print-area {
+  display: none;
+}
+
+@media print {
+  body.barcode-label-print-mode .freight-print-wrapper {
+    display: none !important;
+  }
+
+  body.barcode-label-print-mode .barcode-label-print-area {
+    display: flex;
+    width: 202mm;
+    margin: 0 auto;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 2mm;
+    color: #000;
+  }
+
+  body.barcode-label-print-mode .barcode-label {
+    display: flex;
+    width: 100mm;
+    height: 54mm;
+    margin: 0;
+    border: 0.35mm solid #000;
+    padding: 2mm;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+    box-sizing: border-box;
+    text-align: center;
+    print-color-adjust: exact;
+  }
+
+  body.barcode-label-print-mode .barcode-label:nth-child(10n) {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  body.barcode-label-print-mode .barcode-label-origin {
+    margin: 0 0 0.8mm;
+    font-size: 10pt;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  body.barcode-label-print-mode .barcode-label-product {
+    width: 100%;
+    margin: 0;
+    overflow: hidden;
+    font-size: 9pt;
+    font-weight: 700;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body.barcode-label-print-mode .barcode-label-option {
+    width: 100%;
+    margin: 0.5mm 0 0;
+    overflow: hidden;
+    font-size: 7pt;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body.barcode-label-print-mode .location-barcode {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    margin-top: 1mm;
+    padding: 0;
+    flex-direction: column;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  body.barcode-label-print-mode .location-barcode > span:first-child {
+    display: none;
+  }
+
+  body.barcode-label-print-mode .location-barcode > span:last-child {
+    margin-top: 0.5mm;
+    font-size: 8pt;
+    line-height: 1;
+  }
+
+  body.barcode-label-print-mode .location-barcode svg {
+    display: block;
+    width: auto;
+    max-width: 94mm;
+    height: 19mm;
+  }
+
+  body.barcode-label-print-mode .barcode-label-sequence {
+    margin: 0.5mm 0 0;
+    font-size: 6.5pt;
+    line-height: 1;
+  }
+}
