@@ -35,7 +35,15 @@ export interface ProductMasterItem {
   displayName: string;
   memo?: string;
   productNameKo?: string;
+  productNameCn?: string;
   labelText?: string;
   imageUrl?: string;
   hsCode?: string;
+  category?: string;
+  status?: ProductStatus;
+  mainImageUrl?: string;
+  productMemo?: string;
+  productReferenceUnitCostCny?: number;
+  optionImageUrl?: string;
+  referenceUnitCostCny?: number;
 }

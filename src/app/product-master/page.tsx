@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { PRODUCT_MASTERS } from "@/lib/productMaster";
+import { getProductMasters } from "@/lib/productMaster";
 import type { ProductStatus } from "@/types/productMaster";
 
 const statusLabels: Record<ProductStatus, string> = {
@@ -26,12 +26,13 @@ type StatusFilter = "all" | ProductStatus;
 
 export default function ProductMasterPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const productMasters = useMemo(() => getProductMasters(), []);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const filteredProducts = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    return PRODUCT_MASTERS.filter((product) => {
+    return productMasters.filter((product) => {
       const matchesSearch =
         normalizedQuery.length === 0 ||
         product.modelNo.toLowerCase().includes(normalizedQuery) ||
@@ -41,13 +42,13 @@ export default function ProductMasterPage() {
 
       return matchesSearch && matchesStatus;
     });
-  }, [searchQuery, statusFilter]);
+  }, [productMasters, searchQuery, statusFilter]);
 
-  const totalOptionCount = PRODUCT_MASTERS.reduce(
+  const totalOptionCount = productMasters.reduce(
     (total, product) => total + product.options.length,
     0,
   );
-  const activeProductCount = PRODUCT_MASTERS.filter(
+  const activeProductCount = productMasters.filter(
     (product) => product.status === "active",
   ).length;
 
@@ -62,7 +63,7 @@ export default function ProductMasterPage() {
         className="mb-6 grid gap-3 sm:grid-cols-3"
         aria-label="상품 마스터 요약"
       >
-        <SummaryCard label="전체 상품 수" value={`${PRODUCT_MASTERS.length}개`} />
+        <SummaryCard label="전체 상품 수" value={`${productMasters.length}개`} />
         <SummaryCard label="전체 옵션 수" value={`${totalOptionCount}개`} />
         <SummaryCard
           label="활성 상품 수"
