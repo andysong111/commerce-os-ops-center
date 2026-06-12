@@ -24,3 +24,18 @@ export interface ProductMaster {
   labelText?: string;
   hsCode?: string;
 }
+
+export interface ProductMasterItem {
+  id: string;
+  modelNo: string;
+  modelName: string;
+  optionName: string;
+  barcode?: string;
+  origin?: string;
+  displayName: string;
+  memo?: string;
+  productNameKo?: string;
+  labelText?: string;
+  imageUrl?: string;
+  hsCode?: string;
+}

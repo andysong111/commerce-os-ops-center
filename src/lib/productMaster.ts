@@ -1,4 +1,8 @@
-import type { ProductMaster, ProductOption } from "@/types/productMaster";
+import type {
+  ProductMaster,
+  ProductMasterItem,
+  ProductOption,
+} from "@/types/productMaster";
 
 export const PRODUCT_MASTERS: ProductMaster[] = [
   {
@@ -123,4 +127,92 @@ export function findProductByModelNoOrModelName(
   return partialModelNameMatches.length === 1
     ? partialModelNameMatches[0]
     : undefined;
+}
+
+function normalizeProductText(value: string): string {
+  return value.trim().toLocaleLowerCase("ko-KR").replace(/\s+/g, " ");
+}
+
+function toProductMasterItem(
+  product: ProductMaster,
+  option: ProductOption,
+): ProductMasterItem {
+  return {
+    id: option.optionId,
+    modelNo: product.modelNo,
+    modelName: product.modelName,
+    optionName: option.optionName,
+    barcode: product.barcode,
+    origin: product.originLabel,
+    displayName: [product.productNameKo || product.modelName, option.optionName]
+      .filter(Boolean)
+      .join(" · "),
+    memo: option.memo || product.memo,
+    productNameKo: product.productNameKo,
+    labelText: product.labelText,
+    imageUrl: option.optionImageUrl || product.mainImageUrl,
+    hsCode: product.hsCode,
+  };
+}
+
+const PRODUCT_MASTER_ITEMS: ProductMasterItem[] = PRODUCT_MASTERS.flatMap(
+  (product) =>
+    product.options.length > 0
+      ? product.options.map((option) => toProductMasterItem(product, option))
+      : [
+          toProductMasterItem(product, {
+            optionId: `${product.modelNo}-default`,
+            optionName: "",
+          }),
+        ],
+);
+
+export function getProductMasterItems(): ProductMasterItem[] {
+  return PRODUCT_MASTER_ITEMS.map((item) => ({ ...item }));
+}
+
+export function findProductByModelNo(
+  modelNo: string,
+): ProductMasterItem | undefined {
+  const normalizedModelNo = normalizeProductText(modelNo);
+  if (!normalizedModelNo) return undefined;
+
+  return PRODUCT_MASTER_ITEMS.find(
+    (item) => normalizeProductText(item.modelNo) === normalizedModelNo,
+  );
+}
+
+export function findProductsByText(text: string): ProductMasterItem[] {
+  const normalizedText = normalizeProductText(text);
+  if (!normalizedText) return [];
+
+  const exactModelMatches = PRODUCT_MASTER_ITEMS.filter((item) => {
+    const modelNo = normalizeProductText(item.modelNo);
+    const escapedModelNo = modelNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${escapedModelNo}([^a-z0-9]|$)`, "i").test(
+      normalizedText,
+    );
+  });
+  if (exactModelMatches.length > 0) {
+    const optionMatches = exactModelMatches.filter((item) => {
+      const optionName = normalizeProductText(item.optionName);
+      return optionName.length >= 2 && normalizedText.includes(optionName);
+    });
+    return optionMatches.length > 0 ? optionMatches : exactModelMatches;
+  }
+
+  const optionMatches = PRODUCT_MASTER_ITEMS.filter((item) => {
+    const optionName = normalizeProductText(item.optionName);
+    return optionName.length >= 2 && normalizedText.includes(optionName);
+  });
+  if (optionMatches.length > 0) return optionMatches;
+
+  return PRODUCT_MASTER_ITEMS.filter((item) =>
+    [item.modelName, item.displayName]
+      .map(normalizeProductText)
+      .filter((value) => value.length >= 2)
+      .some(
+        (value) => normalizedText.includes(value) || value.includes(normalizedText),
+      ),
+  );
 }
