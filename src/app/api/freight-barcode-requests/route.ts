@@ -1,7 +1,4 @@
-import {
-  createFreightBarcodeHistoryRecord,
-  listFreightBarcodeHistoryRecords,
-} from "@/lib/freightBarcodeHistoryStore";
+import { getFreightBarcodeHistoryStorage } from "@/lib/freightBarcodeHistoryStorage";
 import type { FreightApplicationItem } from "@/types/freightBarcodeRequest";
 
 interface CreateRequestBody {
@@ -26,7 +23,8 @@ function isFreightApplicationItem(value: unknown): value is FreightApplicationIt
 }
 
 export async function GET() {
-  return Response.json({ records: listFreightBarcodeHistoryRecords() });
+  const storage = getFreightBarcodeHistoryStorage();
+  return Response.json({ records: await storage.list() });
 }
 
 export async function POST(request: Request) {
@@ -51,7 +49,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid freight barcode history request." }, { status: 400 });
   }
 
-  const record = createFreightBarcodeHistoryRecord({
+  const storage = getFreightBarcodeHistoryStorage();
+  const record = await storage.create({
     applicationNo: body.applicationNo,
     rawText: body.rawText,
     items: body.parsedItems,
