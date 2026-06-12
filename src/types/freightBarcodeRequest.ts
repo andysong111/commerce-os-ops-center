@@ -53,6 +53,8 @@ export interface FreightApplicationItem {
   matchedLabelText?: string;
   matchedImageUrl?: string;
   memo?: string;
+  bundleUnit?: number;
+  labelPrintCount?: number;
 }
 
 export type FreightBarcodeHistorySource =
