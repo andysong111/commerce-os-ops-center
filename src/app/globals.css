@@ -60,6 +60,27 @@ button:not(:disabled) {
     display: none !important;
   }
 
+  .print-work-request .barcode-label-print-wrapper,
+  .print-labels .freight-print-wrapper {
+    display: none !important;
+  }
+
+  .print-labels .barcode-label-print-wrapper {
+    display: block !important;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  .print-labels .barcode-label-sheet {
+    width: 100%;
+  }
+
+  .print-labels .barcode-label-card,
+  .print-labels .location-barcode {
+    print-color-adjust: exact;
+  }
+
   .app-shell,
   .app-main,
   .app-content {
@@ -235,4 +256,58 @@ button:not(:disabled) {
     overflow: visible;
     print-color-adjust: exact;
   }
+}
+
+.barcode-label-print-wrapper {
+  display: none;
+}
+
+.barcode-label-sheet {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4mm;
+}
+
+.barcode-label-card {
+  display: flex;
+  min-height: 48mm;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #0f172a;
+  padding: 3mm;
+  text-align: center;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.barcode-label-item-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barcode-label-option {
+  max-width: 100%;
+  margin: 1mm 0;
+  overflow: hidden;
+  color: #475569;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barcode-label-sequence {
+  margin-top: 1mm;
+  color: #475569;
+  font-size: 9px;
+}
+
+.barcode-label-empty {
+  grid-column: 1 / -1;
+  padding: 20mm;
+  text-align: center;
 }
