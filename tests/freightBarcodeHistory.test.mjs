@@ -113,3 +113,42 @@ test("preserves the version field", () => {
 
   assert.equal(loadFreightBarcodeHistory("record-1", storage)?.version, 1);
 });
+
+
+test("restores legacy local history records without removing the browser workflow", () => {
+  const storage = new MemoryStorage();
+  storage.setItem(FREIGHT_BARCODE_HISTORY_STORAGE_KEY, JSON.stringify([{
+    id: "legacy-record",
+    applicationNo: "642247",
+    createdAt: "2026-06-10T10:00:00.000Z",
+    updatedAt: "2026-06-10T10:00:00.000Z",
+    rawText: "신청번호:642247",
+    items: [{
+      id: "legacy-item",
+      rowNo: 1,
+      itemName: "Legacy Key Ring",
+      optionText: "Gold",
+      quantity: 200,
+      matchedModelNo: "AAA270",
+    }],
+    version: 1,
+  }]));
+
+  const record = loadFreightBarcodeHistory("legacy-record", storage);
+  assert.equal(record?.parsedItems[0].itemName, "Legacy Key Ring");
+  assert.equal(record?.itemCount, 1);
+  assert.equal(record?.matchedItemCount, 1);
+  assert.equal(record?.pdfVersion, 1);
+});
+
+test("saved local history contains enough data to restore the PDF request", () => {
+  const record = buildRecord({
+    id: "restore-record",
+    updatedAt: "2026-06-10T10:00:00.000Z",
+  });
+
+  assert.equal(record.rawText, "신청번호:642247");
+  assert.equal(record.applicationNo, "642247");
+  assert.equal(record.parsedItems[0].locationCode, "BAA1-1");
+  assert.equal(record.productMasterMatches[0].matchedModelNo, "AAA270");
+});

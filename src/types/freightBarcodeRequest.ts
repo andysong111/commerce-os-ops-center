@@ -55,14 +55,39 @@ export interface FreightApplicationItem {
   memo?: string;
 }
 
+export type FreightBarcodeHistorySource =
+  | "manual-paste"
+  | "restored-history";
+
+export type FreightBarcodeProductMasterMatch = Pick<
+  FreightApplicationItem,
+  | "matchedModelNo"
+  | "matchedModelName"
+  | "matchedProductNameKo"
+  | "matchedBarcode"
+  | "matchedOriginLabel"
+  | "matchedLabelText"
+  | "matchedImageUrl"
+> & {
+  itemId: string;
+};
+
 export interface FreightBarcodeHistoryRecord {
   id: string;
   applicationNo: string;
+  title: string;
+  rawText: string;
+  parsedItems: FreightApplicationItem[];
+  productMasterMatches: FreightBarcodeProductMasterMatch[];
+  memo: string;
   createdAt: string;
   updatedAt: string;
-  title?: string;
-  memo?: string;
-  rawText: string;
+  source: FreightBarcodeHistorySource;
+  pdfVersion: number;
+  itemCount: number;
+  matchedItemCount: number;
+  /** @deprecated Local-history compatibility alias. Use parsedItems. */
   items: FreightApplicationItem[];
+  /** @deprecated Local-history compatibility alias. Use pdfVersion. */
   version: number;
 }
