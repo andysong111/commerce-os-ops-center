@@ -103,7 +103,9 @@ export default function FreightBarcodeRequestPage() {
   const [copyLabel, setCopyLabel] = useState("한국어 메시지 복사");
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
   const [historyRecords, setHistoryRecords] = useState<FreightBarcodeHistoryRecord[]>([]);
+  const [serverHistoryRecords, setServerHistoryRecords] = useState<FreightBarcodeHistoryRecord[]>([]);
   const [loadedHistoryId, setLoadedHistoryId] = useState<string>();
+  const [loadedServerHistoryId, setLoadedServerHistoryId] = useState<string>();
   const [historyTitle, setHistoryTitle] = useState("");
   const [historyMemo, setHistoryMemo] = useState("");
   const [historyStatus, setHistoryStatus] = useState("");
@@ -115,6 +117,7 @@ export default function FreightBarcodeRequestPage() {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setHistoryRecords(listFreightBarcodeHistory());
+      void refreshServerHistoryRecords();
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, []);
@@ -208,6 +211,7 @@ export default function FreightBarcodeRequestPage() {
     });
     setLookupFailedIds(new Set());
     setLoadedHistoryId(undefined);
+    setLoadedServerHistoryId(undefined);
     setHistoryTitle("");
     setHistoryMemo("");
     setHistoryStatus("");
@@ -223,6 +227,7 @@ export default function FreightBarcodeRequestPage() {
     setAnalysisStatus(null);
     setLookupFailedIds(new Set());
     setLoadedHistoryId(undefined);
+    setLoadedServerHistoryId(undefined);
     setHistoryTitle("");
     setHistoryMemo("");
     setHistoryStatus("");
@@ -318,6 +323,35 @@ export default function FreightBarcodeRequestPage() {
     setHistoryRecords(listFreightBarcodeHistory());
   }
 
+  async function refreshServerHistoryRecords() {
+    try {
+      const response = await fetch("/api/freight-barcode-requests", { cache: "no-store" });
+      if (!response.ok) throw new Error("History list request failed");
+      const data = await response.json() as { records: FreightBarcodeHistoryRecord[] };
+      setServerHistoryRecords(data.records);
+    } catch {
+      setHistoryStatus(
+        "서버 이력을 불러오지 못했습니다. 로컬 저장과 PDF 생성은 계속 사용할 수 있습니다.",
+      );
+    }
+  }
+
+  function restoreHistoryRecord(record: FreightBarcodeHistoryRecord) {
+    clearLocalImageObjectUrls();
+    clearClipboardObjectUrls();
+    setRawText(record.rawText);
+    if (richPasteRef.current) richPasteRef.current.textContent = record.rawText;
+    setPastedImages(EMPTY_PASTED_IMAGES);
+    setApplication({ applicationNo: record.applicationNo, items: record.parsedItems });
+    setLookupFailedIds(new Set());
+    setHistoryTitle(record.title);
+    setHistoryMemo(record.memo);
+    setAnalysisStatus({
+      kind: "success",
+      message: `저장된 이력을 다시 열었습니다: ${record.itemCount}개 품목`,
+    });
+  }
+
   function saveCurrentHistory(createNew: boolean) {
     try {
       const existingRecord = createNew
@@ -334,6 +368,7 @@ export default function FreightBarcodeRequestPage() {
 
       saveFreightBarcodeHistory(record);
       setLoadedHistoryId(record.id);
+      setLoadedServerHistoryId(undefined);
       setHistoryRecords(listFreightBarcodeHistory());
       setHistoryStatus(
         existingRecord ? "현재 작업 이력을 업데이트했습니다." : "새 작업 이력을 저장했습니다.",
@@ -351,21 +386,10 @@ export default function FreightBarcodeRequestPage() {
       return;
     }
 
-    clearLocalImageObjectUrls();
-    clearClipboardObjectUrls();
-    setRawText(record.rawText);
-    if (richPasteRef.current) richPasteRef.current.textContent = record.rawText;
-    setPastedImages(EMPTY_PASTED_IMAGES);
-    setApplication({ applicationNo: record.applicationNo, items: record.items });
-    setLookupFailedIds(new Set());
+    restoreHistoryRecord(record);
     setLoadedHistoryId(record.id);
-    setHistoryTitle(record.title ?? "");
-    setHistoryMemo(record.memo ?? "");
-    setAnalysisStatus({
-      kind: "success",
-      message: `저장된 이력을 다시 열었습니다: ${record.items.length}개 품목`,
-    });
-    setHistoryStatus("저장된 작업을 불러왔습니다. 미리보기에서 내용을 확인한 뒤 PDF로 저장하거나 인쇄할 수 있습니다.");
+    setLoadedServerHistoryId(undefined);
+    setHistoryStatus("로컬에 저장된 작업을 불러왔습니다. 미리보기에서 내용을 확인한 뒤 PDF로 저장하거나 인쇄할 수 있습니다.");
   }
 
   function removeHistory(id: string) {
@@ -379,6 +403,70 @@ export default function FreightBarcodeRequestPage() {
       setHistoryStatus("작업요청 이력을 삭제했습니다.");
     }
     refreshHistoryRecords();
+  }
+
+
+  async function saveCurrentServerHistory() {
+    try {
+      const response = await fetch("/api/freight-barcode-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          applicationNo: application.applicationNo,
+          title: historyTitle,
+          rawText,
+          parsedItems: application.items,
+          memo: historyMemo,
+          source: loadedHistoryId || loadedServerHistoryId
+            ? "restored-history"
+            : "manual-paste",
+        }),
+      });
+      if (!response.ok) throw new Error("History save request failed");
+      const data = await response.json() as { record: FreightBarcodeHistoryRecord };
+      setLoadedServerHistoryId(data.record.id);
+      setLoadedHistoryId(undefined);
+      await refreshServerHistoryRecords();
+      setHistoryStatus("현재 작업을 임시 서버 이력에 저장했습니다.");
+    } catch {
+      setHistoryStatus(
+        "서버 이력에 저장하지 못했습니다. 현재 편집 내용과 로컬 저장/PDF 기능은 그대로 유지됩니다.",
+      );
+    }
+  }
+
+  async function reopenServerHistory(id: string) {
+    try {
+      const response = await fetch(`/api/freight-barcode-requests/${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("History load request failed");
+      const data = await response.json() as { record: FreightBarcodeHistoryRecord };
+      restoreHistoryRecord(data.record);
+      setLoadedServerHistoryId(data.record.id);
+      setLoadedHistoryId(undefined);
+      setHistoryStatus("서버에 저장된 작업을 불러왔습니다. PDF를 다시 저장하거나 인쇄할 수 있습니다.");
+    } catch {
+      setHistoryStatus(
+        "서버 이력을 불러오지 못했습니다. 현재 편집 내용과 로컬 이력은 변경되지 않았습니다.",
+      );
+    }
+  }
+
+  async function removeServerHistory(id: string) {
+    if (!window.confirm("이 서버 작업요청 이력을 삭제하시겠습니까?")) return;
+
+    try {
+      const response = await fetch(`/api/freight-barcode-requests/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("History delete request failed");
+      if (loadedServerHistoryId === id) setLoadedServerHistoryId(undefined);
+      await refreshServerHistoryRecords();
+      setHistoryStatus("서버 작업요청 이력을 삭제했습니다.");
+    } catch {
+      setHistoryStatus("서버 이력을 삭제하지 못했습니다. 로컬 이력은 변경되지 않았습니다.");
+    }
   }
 
   async function copyKoreanMessage() {
@@ -534,12 +622,12 @@ export default function FreightBarcodeRequestPage() {
             <div>
               <h2 id="freight-history-title" className="font-semibold text-slate-950">작업요청 이력</h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                현재 신청번호와 편집된 품목 데이터를 이 브라우저에 저장하고, 나중에 다시 열어 같은 PDF를 생성할 수 있습니다.
+                기존 브라우저 로컬 이력은 그대로 유지됩니다. 필요하면 현재 작업을 임시 서버 이력에도 저장해 다시 열 수 있습니다.
               </p>
             </div>
-            {loadedHistoryId && (
+            {(loadedHistoryId || loadedServerHistoryId) && (
               <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-                저장된 이력 편집 중
+                {loadedServerHistoryId ? "서버 이력 편집 중" : "로컬 이력 편집 중"}
               </span>
             )}
           </div>
@@ -565,8 +653,10 @@ export default function FreightBarcodeRequestPage() {
             </label>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => saveCurrentHistory(false)} primary>현재 작업 저장</Button>
-            <Button onClick={() => saveCurrentHistory(true)}>새 이력으로 저장</Button>
+            <Button onClick={() => saveCurrentHistory(false)} primary>현재 로컬 작업 저장</Button>
+            <Button onClick={() => saveCurrentHistory(true)}>새 로컬 이력으로 저장</Button>
+            <Button onClick={saveCurrentServerHistory}>서버 이력에 저장</Button>
+            <Button onClick={refreshServerHistoryRecords}>서버 목록 새로고침</Button>
           </div>
           {historyStatus && (
             <p role="status" className="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700">
@@ -577,7 +667,53 @@ export default function FreightBarcodeRequestPage() {
             로컬 이미지 파일은 브라우저 임시 이미지이므로, 이력을 다시 열었을 때 이미지가 표시되지 않으면 다시 선택해주세요.
           </p>
 
+          <div className="mt-5">
+            <h3 className="text-sm font-semibold text-slate-900">임시 서버 이력</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              서버가 재시작되면 사라지는 임시 저장소이며, 영구 데이터베이스는 아직 연결되지 않았습니다.
+            </p>
+            <div className="mt-3 overflow-x-auto">
+              {serverHistoryRecords.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
+                  저장된 서버 작업요청 이력이 없습니다.
+                </p>
+              ) : (
+                <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                  <thead className="bg-slate-100 text-xs text-slate-600">
+                    <tr>
+                      <th className="px-3 py-3 font-semibold">신청번호</th>
+                      <th className="px-3 py-3 font-semibold">저장일시</th>
+                      <th className="px-3 py-3 font-semibold">품목 / 매칭</th>
+                      <th className="px-3 py-3 font-semibold">제목 / 메모</th>
+                      <th className="px-3 py-3 font-semibold"><span className="sr-only">작업</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {serverHistoryRecords.map((record) => (
+                      <tr key={record.id} className={`border-b border-slate-200 ${record.id === loadedServerHistoryId ? "bg-emerald-50/60" : ""}`}>
+                        <td className="px-3 py-3 font-semibold text-slate-900">{record.applicationNo || "-"}</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-600">{formatHistoryDate(record.updatedAt)}</td>
+                        <td className="px-3 py-3 text-slate-700">{record.itemCount}개 / {record.matchedItemCount}개</td>
+                        <td className="max-w-sm px-3 py-3 text-slate-700">
+                          <p className="font-medium text-slate-900">{record.title || "제목 없음"}</p>
+                          {record.memo && <p className="mt-1 line-clamp-2 text-xs text-slate-500">{record.memo}</p>}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex justify-end gap-2">
+                            <button type="button" onClick={() => reopenServerHistory(record.id)} className="rounded-md bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-950">다시 열기</button>
+                            <button type="button" onClick={() => removeServerHistory(record.id)} className="rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">삭제</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
           <div className="mt-5 overflow-x-auto">
+            <h3 className="mb-3 text-sm font-semibold text-slate-900">이 브라우저의 로컬 이력</h3>
             {historyRecords.length === 0 ? (
               <p className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
                 저장된 작업요청 이력이 없습니다.
