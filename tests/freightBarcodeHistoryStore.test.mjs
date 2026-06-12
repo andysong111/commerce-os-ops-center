@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import {
-  clearFreightBarcodeHistoryRecordsForTests,
-  createFreightBarcodeHistoryRecord,
-  deleteFreightBarcodeHistoryRecord,
-  getFreightBarcodeHistoryRecord,
-  listFreightBarcodeHistoryRecords,
-  updateFreightBarcodeHistoryRecord,
+  InMemoryFreightBarcodeHistoryStorage,
+  createInMemoryFreightBarcodeHistoryStorage,
 } from "../src/lib/freightBarcodeHistoryStore.ts";
+import {
+  getFreightBarcodeHistoryStorage,
+} from "../src/lib/freightBarcodeHistoryStorage.ts";
 
 const requestInput = {
   applicationNo: "642247",
@@ -33,12 +32,15 @@ const requestInput = {
   ],
 };
 
+let storage;
+
 beforeEach(() => {
-  clearFreightBarcodeHistoryRecordsForTests();
+  storage = createInMemoryFreightBarcodeHistoryStorage();
+  delete process.env.FREIGHT_BARCODE_HISTORY_STORAGE;
 });
 
-test("creates a server history record with regeneration data and match summary", () => {
-  const record = createFreightBarcodeHistoryRecord(requestInput);
+test("creates a server history record with regeneration data and match summary", async () => {
+  const record = await storage.create(requestInput);
 
   assert.ok(record.id);
   assert.equal(record.applicationNo, "642247");
@@ -52,38 +54,57 @@ test("creates a server history record with regeneration data and match summary",
   assert.equal(record.source, "manual-paste");
 });
 
-test("lists and gets detached server history records", () => {
-  const created = createFreightBarcodeHistoryRecord(requestInput);
-  const listed = listFreightBarcodeHistoryRecords();
+test("lists and gets detached server history records", async () => {
+  const created = await storage.create(requestInput);
+  const listed = await storage.list();
 
   assert.equal(listed.length, 1);
-  assert.deepEqual(getFreightBarcodeHistoryRecord(created.id), created);
+  assert.deepEqual(await storage.get(created.id), created);
 
   listed[0].parsedItems[0].itemName = "Changed outside store";
   assert.equal(
-    getFreightBarcodeHistoryRecord(created.id)?.parsedItems[0].itemName,
+    (await storage.get(created.id))?.parsedItems[0].itemName,
     "Key Ring",
   );
 });
 
-test("updates only the server history title and memo", () => {
-  const created = createFreightBarcodeHistoryRecord(requestInput);
-  const updated = updateFreightBarcodeHistoryRecord(created.id, {
-    title: "Updated title",
-    memo: "Updated memo",
+test("updates only the server history title and memo", async () => {
+  const created = await storage.create(requestInput);
+  const updated = await storage.update(created.id, {
+    title: " Updated title ",
+    memo: " Updated memo ",
   });
 
   assert.equal(updated?.title, "Updated title");
   assert.equal(updated?.memo, "Updated memo");
   assert.deepEqual(updated?.parsedItems, created.parsedItems);
   assert.equal(updated?.rawText, created.rawText);
+  assert.equal(updated?.createdAt, created.createdAt);
+  assert.ok(updated.updatedAt >= created.updatedAt);
+  assert.equal(await storage.update("missing", { title: "No record" }), undefined);
 });
 
-test("deletes a server history record", () => {
-  const created = createFreightBarcodeHistoryRecord(requestInput);
+test("deletes a server history record", async () => {
+  const created = await storage.create(requestInput);
 
-  assert.equal(deleteFreightBarcodeHistoryRecord(created.id), true);
-  assert.equal(getFreightBarcodeHistoryRecord(created.id), undefined);
-  assert.deepEqual(listFreightBarcodeHistoryRecords(), []);
-  assert.equal(deleteFreightBarcodeHistoryRecord(created.id), false);
+  assert.equal(await storage.delete(created.id), true);
+  assert.equal(await storage.get(created.id), undefined);
+  assert.deepEqual(await storage.list(), []);
+  assert.equal(await storage.delete(created.id), false);
+});
+
+test("default provider returns the process-local memory adapter", () => {
+  const first = getFreightBarcodeHistoryStorage();
+  const second = getFreightBarcodeHistoryStorage();
+
+  assert.ok(first instanceof InMemoryFreightBarcodeHistoryStorage);
+  assert.equal(second, first);
+});
+
+test("unsupported storage modes safely fall back to memory", () => {
+  process.env.FREIGHT_BARCODE_HISTORY_STORAGE = "supabase";
+
+  assert.ok(
+    getFreightBarcodeHistoryStorage() instanceof InMemoryFreightBarcodeHistoryStorage,
+  );
 });

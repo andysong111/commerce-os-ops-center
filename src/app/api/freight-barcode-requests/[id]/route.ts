@@ -1,8 +1,4 @@
-import {
-  deleteFreightBarcodeHistoryRecord,
-  getFreightBarcodeHistoryRecord,
-  updateFreightBarcodeHistoryRecord,
-} from "@/lib/freightBarcodeHistoryStore";
+import { getFreightBarcodeHistoryStorage } from "@/lib/freightBarcodeHistoryStorage";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -15,7 +11,8 @@ interface UpdateRequestBody {
 
 export async function GET(_request: Request, context: RouteContext) {
   const { id } = await context.params;
-  const record = getFreightBarcodeHistoryRecord(id);
+  const storage = getFreightBarcodeHistoryStorage();
+  const record = await storage.get(id);
   if (!record) {
     return Response.json({ error: "Freight barcode history record not found." }, { status: 404 });
   }
@@ -40,7 +37,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     return Response.json({ error: "Only title or memo can be updated." }, { status: 400 });
   }
 
-  const record = updateFreightBarcodeHistoryRecord(id, {
+  const storage = getFreightBarcodeHistoryStorage();
+  const record = await storage.update(id, {
     ...(typeof body.title === "string" ? { title: body.title } : {}),
     ...(typeof body.memo === "string" ? { memo: body.memo } : {}),
   });
@@ -53,7 +51,8 @@ export async function PATCH(request: Request, context: RouteContext) {
 
 export async function DELETE(_request: Request, context: RouteContext) {
   const { id } = await context.params;
-  if (!deleteFreightBarcodeHistoryRecord(id)) {
+  const storage = getFreightBarcodeHistoryStorage();
+  if (!await storage.delete(id)) {
     return Response.json({ error: "Freight barcode history record not found." }, { status: 404 });
   }
 
