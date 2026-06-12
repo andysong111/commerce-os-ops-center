@@ -236,3 +236,77 @@ button:not(:disabled) {
     print-color-adjust: exact;
   }
 }
+
+.barcode-label-print-area {
+  display: none;
+}
+
+@media print {
+  body.freight-label-print-mode .freight-print-wrapper {
+    display: none !important;
+  }
+
+  body.freight-label-print-mode .barcode-label-print-area {
+    display: grid;
+    grid-template-columns: repeat(3, 64mm);
+    grid-auto-rows: 35mm;
+    gap: 1mm;
+    width: 194mm;
+    margin: 0 auto;
+    padding: 0;
+  }
+
+  body.freight-label-print-mode .barcode-label-card {
+    display: flex;
+    min-width: 0;
+    height: 35mm;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 0.2mm dashed #94a3b8;
+    padding: 1.5mm 2mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    text-align: center;
+  }
+
+  body.freight-label-print-mode .barcode-label-product-name {
+    width: 100%;
+    overflow: hidden;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body.freight-label-print-mode .barcode-label-option-name {
+    width: 100%;
+    margin-top: 0.5mm;
+    overflow: hidden;
+    font-size: 8px;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body.freight-label-print-mode .barcode-label-card .location-barcode {
+    margin-top: 1mm;
+    padding: 0;
+  }
+
+  body.freight-label-print-mode .barcode-label-card .location-barcode > span:first-child {
+    margin-bottom: 0.3mm;
+    font-size: 8px;
+  }
+
+  body.freight-label-print-mode .barcode-label-card .location-barcode > span:last-child {
+    margin-top: 0.3mm;
+    font-size: 8px;
+  }
+
+  body.freight-label-print-mode .barcode-label-card svg {
+    max-width: 58mm;
+  }
+}

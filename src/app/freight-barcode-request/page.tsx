@@ -12,6 +12,7 @@ import {
   saveFreightBarcodeHistory,
 } from "@/lib/freightBarcodeHistory";
 import { createCode128Layout } from "@/lib/code128";
+import { calculateBarcodeLabelPrintCount } from "@/lib/barcodeLabelPrint";
 import {
   BARCODE_ORIGIN_LABEL,
   getEncodedBarcodeValue,
@@ -109,10 +110,32 @@ export default function FreightBarcodeRequestPage() {
   const [historyTitle, setHistoryTitle] = useState("");
   const [historyMemo, setHistoryMemo] = useState("");
   const [historyStatus, setHistoryStatus] = useState("");
+  const [labelUnitsByItem, setLabelUnitsByItem] = useState<Record<string, number>>({});
+  const [isLabelPrintPrepared, setIsLabelPrintPrepared] = useState(false);
   const createdDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
   ).length;
+  const labelPrintRows = application.items.map((item) => {
+    const barcodeValue = item.matchedBarcode?.trim() || item.barcode?.trim() || "";
+    const unitsPerLabel = labelUnitsByItem[item.id] ?? 1;
+    const hasPrintableBarcode = Boolean(getEncodedBarcodeValue(barcodeValue));
+
+    return {
+      item,
+      barcodeValue,
+      unitsPerLabel,
+      printCount: hasPrintableBarcode
+        ? calculateBarcodeLabelPrintCount(item.quantity, unitsPerLabel)
+        : 0,
+      hasPrintableBarcode,
+    };
+  });
+  const printableLabelRows = labelPrintRows.filter((row) => row.printCount > 0);
+  const totalLabelPrintCount = printableLabelRows.reduce(
+    (total, row) => total + row.printCount,
+    0,
+  );
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -120,6 +143,18 @@ export default function FreightBarcodeRequestPage() {
       void refreshServerHistoryRecords();
     }, 0);
     return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    const handleAfterPrint = () => {
+      document.body.classList.remove("freight-label-print-mode");
+      setIsLabelPrintPrepared(false);
+    };
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => {
+      window.removeEventListener("afterprint", handleAfterPrint);
+      document.body.classList.remove("freight-label-print-mode");
+    };
   }, []);
 
   useEffect(() => {
@@ -152,6 +187,7 @@ export default function FreightBarcodeRequestPage() {
         ),
       };
       setApplication(applicationWithPastedImages);
+      setLabelUnitsByItem({});
       const hasParseWarnings = Boolean(
         parsedApplication.diagnostics?.warnings.length,
       );
@@ -205,6 +241,7 @@ export default function FreightBarcodeRequestPage() {
     setPastedImages(EMPTY_PASTED_IMAGES);
     if (richPasteRef.current) richPasteRef.current.textContent = SAMPLE_TEXT;
     setApplication(parsedApplication);
+    setLabelUnitsByItem({});
     setAnalysisStatus({
       kind: "success",
       message: `분석 완료: ${parsedApplication.items.length}개 품목을 찾았습니다.`,
@@ -224,6 +261,7 @@ export default function FreightBarcodeRequestPage() {
     setPastedImages(EMPTY_PASTED_IMAGES);
     if (richPasteRef.current) richPasteRef.current.textContent = "";
     setApplication(EMPTY_APPLICATION);
+    setLabelUnitsByItem({});
     setAnalysisStatus(null);
     setLookupFailedIds(new Set());
     setLoadedHistoryId(undefined);
@@ -343,6 +381,7 @@ export default function FreightBarcodeRequestPage() {
     if (richPasteRef.current) richPasteRef.current.textContent = record.rawText;
     setPastedImages(EMPTY_PASTED_IMAGES);
     setApplication({ applicationNo: record.applicationNo, items: record.parsedItems });
+    setLabelUnitsByItem({});
     setLookupFailedIds(new Set());
     setHistoryTitle(record.title);
     setHistoryMemo(record.memo);
@@ -467,6 +506,21 @@ export default function FreightBarcodeRequestPage() {
     } catch {
       setHistoryStatus("서버 이력을 삭제하지 못했습니다. 로컬 이력은 변경되지 않았습니다.");
     }
+  }
+
+  function printWorkRequest() {
+    document.body.classList.remove("freight-label-print-mode");
+    setIsLabelPrintPrepared(false);
+    window.print();
+  }
+
+  function printBarcodeLabels() {
+    if (totalLabelPrintCount === 0) return;
+    setIsLabelPrintPrepared(true);
+    document.body.classList.add("freight-label-print-mode");
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.print());
+    });
   }
 
   async function copyKoreanMessage() {
@@ -835,7 +889,7 @@ export default function FreightBarcodeRequestPage() {
                 PDF 저장 시 대상은 &apos;PDF로 저장&apos;, 용지는 A4, 배율은 기본값 또는 100%를 권장합니다.
               </p>
             </div>
-            <Button onClick={() => window.print()} primary>PDF로 저장/인쇄</Button>
+            <Button onClick={printWorkRequest} primary>PDF로 저장/인쇄</Button>
           </div>
           <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -847,9 +901,84 @@ export default function FreightBarcodeRequestPage() {
             <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-slate-700">{KOREAN_MESSAGE}</pre>
           </div>
         </section>
+
+        <section className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4" aria-labelledby="barcode-label-print-title">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 id="barcode-label-print-title" className="font-semibold text-emerald-950">상품 바코드 라벨 PDF</h2>
+              <p className="mt-1 text-sm text-emerald-800">
+                상품마스터에서 매칭된 바코드로 A4 라벨을 생성합니다. 라벨 수는 상품 수량을 라벨당 수량으로 나눈 뒤 올림합니다.
+              </p>
+              <p className="mt-1 text-xs text-emerald-700">
+                권장 파일명: <strong>barcode-labels-{application.applicationNo || "unknown"}.pdf</strong>
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+              <span className="rounded-full bg-white px-3 py-1 text-center text-sm font-bold text-emerald-800 shadow-sm">
+                총 {totalLabelPrintCount.toLocaleString("ko-KR")}장
+              </span>
+              <Button onClick={printBarcodeLabels} primary disabled={totalLabelPrintCount === 0}>라벨 PDF로 저장/인쇄</Button>
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-x-auto rounded-lg border border-emerald-200 bg-white">
+            <table className="w-full min-w-[680px] border-collapse text-left text-xs">
+              <thead className="bg-emerald-100/70 text-emerald-950">
+                <tr>
+                  <th className="px-3 py-2">품목</th>
+                  <th className="px-3 py-2">상품 바코드</th>
+                  <th className="px-3 py-2 text-right">상품 수량</th>
+                  <th className="px-3 py-2">라벨당 수량</th>
+                  <th className="px-3 py-2 text-right">출력 라벨</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {labelPrintRows.map(({ item, barcodeValue, unitsPerLabel, printCount, hasPrintableBarcode }) => (
+                  <tr key={item.id}>
+                    <td className="px-3 py-2">
+                      <p className="font-semibold text-slate-900">{item.rowNo}. {item.matchedProductNameKo || item.displayName || item.itemName || "품목명 없음"}</p>
+                      <p className="mt-0.5 text-slate-500">{item.optionName || item.optionText || "옵션 없음"}</p>
+                    </td>
+                    <td className="px-3 py-2 font-mono font-semibold text-slate-800">
+                      {hasPrintableBarcode ? barcodeValue : <span className="font-sans text-red-700">상품마스터 바코드 확인 필요</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-slate-800">{item.quantity.toLocaleString("ko-KR")}</td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={unitsPerLabel}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setLabelUnitsByItem((current) => ({
+                            ...current,
+                            [item.id]: Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1,
+                          }));
+                        }}
+                        aria-label={`${item.rowNo}행 라벨당 수량`}
+                        className={`${inputClassName} w-24`}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-right text-sm font-bold text-emerald-800">{printCount.toLocaleString("ko-KR")}장</td>
+                  </tr>
+                ))}
+                {labelPrintRows.length === 0 && (
+                  <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">분석된 품목이 없습니다.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {labelPrintRows.some((row) => !row.hasPrintableBarcode) && (
+            <p className="mt-3 text-xs font-semibold text-amber-800">
+              상품 바코드가 없거나 유효하지 않은 품목은 라벨 출력에서 제외됩니다. 상품마스터 매칭 결과를 확인해주세요.
+            </p>
+          )}
+        </section>
       </div>
 
       <WorkRequestPreview application={application} createdDate={createdDate} />
+      <BarcodeLabelPrintArea rows={isLabelPrintPrepared ? printableLabelRows : []} />
     </>
   );
 }
@@ -999,7 +1128,7 @@ function EditableRow({
   );
 }
 
-function LocationBarcode({ value }: { value?: string }) {
+function LocationBarcode({ value, compact = false }: { value?: string; compact?: boolean }) {
   const encodedValue = getEncodedBarcodeValue(value);
 
   if (!value) {
@@ -1017,8 +1146,8 @@ function LocationBarcode({ value }: { value?: string }) {
   // Render each CODE128 module at an exact integer width. Avoiding CSS scaling
   // prevents bar-width distortion in the browser and generated PDF.
   const layout = createCode128Layout(encodedValue);
-  const moduleWidth = 2;
-  const barcodeHeight = 52;
+  const moduleWidth = compact ? 1 : 2;
+  const barcodeHeight = compact ? 42 : 52;
   const svgWidth = layout.width * moduleWidth;
 
   return (
@@ -1049,6 +1178,41 @@ function LocationBarcode({ value }: { value?: string }) {
         {encodedValue}
       </span>
     </div>
+  );
+}
+
+type BarcodeLabelPrintRow = {
+  item: FreightApplicationItem;
+  barcodeValue: string;
+  printCount: number;
+};
+
+function BarcodeLabelPrintArea({ rows }: { rows: BarcodeLabelPrintRow[] }) {
+  return (
+    <section className="barcode-label-print-area" aria-label="상품 바코드 라벨 인쇄 영역">
+      {rows.flatMap(({ item, barcodeValue, printCount }) =>
+        Array.from({ length: printCount }, (_, index) => (
+          <BarcodeLabelCard
+            key={`${item.id}-${index}`}
+            item={item}
+            barcodeValue={barcodeValue}
+          />
+        )),
+      )}
+    </section>
+  );
+}
+
+function BarcodeLabelCard({ item, barcodeValue }: { item: FreightApplicationItem; barcodeValue: string }) {
+  const productName = item.matchedProductNameKo || item.displayName || item.matchedModelName || item.itemName || "상품명 없음";
+  const optionName = item.optionName || item.optionText;
+
+  return (
+    <article className="barcode-label-card">
+      <p className="barcode-label-product-name">{productName}</p>
+      {optionName && <p className="barcode-label-option-name">{optionName}</p>}
+      <LocationBarcode value={barcodeValue} compact />
+    </article>
   );
 }
 
@@ -1221,8 +1385,8 @@ function PrintField({
   );
 }
 
-function Button({ children, onClick, primary = false }: { children: React.ReactNode; onClick: () => void; primary?: boolean }) {
-  return <button type="button" onClick={onClick} className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${primary ? "bg-blue-600 text-white hover:bg-blue-700" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>{children}</button>;
+function Button({ children, onClick, primary = false, disabled = false }: { children: React.ReactNode; onClick: () => void; primary?: boolean; disabled?: boolean }) {
+  return <button type="button" onClick={onClick} disabled={disabled} className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 ${primary ? "bg-blue-600 text-white hover:bg-blue-700" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>{children}</button>;
 }
 
 function SummaryCard({ label, value, emphasized = false, warning = false }: { label: string; value: string; emphasized?: boolean; warning?: boolean }) {
