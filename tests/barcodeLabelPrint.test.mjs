@@ -4,8 +4,10 @@ import test from "node:test";
 
 import {
   buildBarcodeLabelPages,
+  buildSampleBarcodeLabelPages,
   calculateBarcodeLabelPrint,
   formatBarcodeBundleUnit,
+  getSampleBarcodeLabelCount,
   getTotalBarcodeLabelCount,
 } from "../src/lib/barcodeLabelPrint.ts";
 
@@ -127,6 +129,28 @@ test("builds one small-page label per final print count without changing the bar
   assert.deepEqual(pages.map(({ item }) => item.barcode), Array(6).fill("BAA1-1"));
 });
 
+test("sample labels deduplicate barcodes, skip missing values, and preserve first occurrence order", () => {
+  const first = { id: "first", barcode: "BAA1-1", quantity: 6, printCount: 6 };
+  const items = [
+    first,
+    { id: "duplicate", barcode: "BAA1-1", quantity: 2, printCount: 2 },
+    { id: "missing", barcode: "  ", quantity: 3, printCount: 3 },
+    { id: "second", barcode: "BBA1-3", quantity: 4, printCount: 4 },
+    { id: "third", barcode: "C01-01", quantity: 1, printCount: 1 },
+  ];
+
+  const samplePages = buildSampleBarcodeLabelPages(items);
+
+  assert.equal(buildBarcodeLabelPages([first]).length, 6);
+  assert.equal(samplePages.length, 3);
+  assert.deepEqual(
+    samplePages.map(({ item }) => item.barcode),
+    ["BAA1-1", "BBA1-3", "C01-01"],
+  );
+  assert.deepEqual(samplePages.map(({ printCount }) => printCount), [1, 1, 1]);
+  assert.equal(getSampleBarcodeLabelCount(items), 3);
+});
+
 
 test("uses a horizontal custom page for individual barcode labels", async () => {
   const css = await readFile(new URL("../src/app/globals.css", import.meta.url), "utf8");
@@ -134,7 +158,7 @@ test("uses a horizontal custom page for individual barcode labels", async () => 
   assert.match(css, /@page barcode-label \{[\s\S]*?size: 52mm 32mm;/);
   assert.match(
     css,
-    /\.print-labels \.individual-label-page \{[\s\S]*?width: 52mm;[\s\S]*?height: 32mm;/,
+    /\.print-individual-labels \.individual-label-page,[\s\S]*?\.print-sample-labels \.individual-label-page \{[\s\S]*?width: 52mm;[\s\S]*?height: 32mm;/,
   );
   assert.match(
     css,

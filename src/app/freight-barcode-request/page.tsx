@@ -14,8 +14,10 @@ import {
 import { createCode128Layout } from "@/lib/code128";
 import {
   buildBarcodeLabelPages,
+  buildSampleBarcodeLabelPages,
   calculateBarcodeLabelPrint,
   formatBarcodeBundleUnit,
+  getSampleBarcodeLabelCount,
   getTotalBarcodeLabelCount,
 } from "@/lib/barcodeLabelPrint";
 import {
@@ -115,7 +117,9 @@ export default function FreightBarcodeRequestPage() {
   const [historyTitle, setHistoryTitle] = useState("");
   const [historyMemo, setHistoryMemo] = useState("");
   const [historyStatus, setHistoryStatus] = useState("");
-  const [printTarget, setPrintTarget] = useState<"work-request" | "labels">("work-request");
+  const [printMode, setPrintMode] = useState<
+    "work-request" | "individual-labels" | "sample-labels"
+  >("work-request");
   const createdDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
@@ -476,8 +480,8 @@ export default function FreightBarcodeRequestPage() {
     }
   }
 
-  function printDocument(target: "work-request" | "labels") {
-    setPrintTarget(target);
+  function printDocument(target: "work-request" | "individual-labels" | "sample-labels") {
+    setPrintMode(target);
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => window.print());
     });
@@ -490,7 +494,7 @@ export default function FreightBarcodeRequestPage() {
   }
 
   return (
-    <div className={printTarget === "labels" ? "print-labels" : "print-work-request"}>
+    <div className={`print-${printMode}`}>
       <div className="freight-editing-ui">
         <PageHeader
           title="배대지 바코드 PDF 생성기"
@@ -861,11 +865,15 @@ export default function FreightBarcodeRequestPage() {
             <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-slate-700">{KOREAN_MESSAGE}</pre>
           </div>
         </section>
-        <BarcodeLabelOutput application={application} onPrint={() => printDocument("labels")} />
+        <BarcodeLabelOutput
+          application={application}
+          onPrintIndividual={() => printDocument("individual-labels")}
+          onPrintSample={() => printDocument("sample-labels")}
+        />
       </div>
 
       <WorkRequestPreview application={application} createdDate={createdDate} />
-      <BarcodeLabelPrintPreview application={application} active={printTarget === "labels"} />
+      <BarcodeLabelPrintPreview application={application} printMode={printMode} />
     </div>
   );
 }
@@ -1123,15 +1131,24 @@ function BarcodeLabelCard({
   );
 }
 
-function BarcodeLabelOutput({ application, onPrint }: { application: FreightApplication; onPrint: () => void }) {
+function BarcodeLabelOutput({
+  application,
+  onPrintIndividual,
+  onPrintSample,
+}: {
+  application: FreightApplication;
+  onPrintIndividual: () => void;
+  onPrintSample: () => void;
+}) {
   const barcodeItems = application.items.filter((item) => item.barcode?.trim());
-  const totalPrintCount = getTotalBarcodeLabelCount(
-    application.items.map((item) => ({ ...item, printCount: item.labelPrintCount })),
-  );
+  const printableItems = application.items.map((item) => ({
+    ...item,
+    printCount: item.labelPrintCount,
+  }));
+  const totalPrintCount = getTotalBarcodeLabelCount(printableItems);
+  const samplePrintCount = getSampleBarcodeLabelCount(printableItems);
   const missingBarcodeItems = application.items.filter((item) => !item.barcode?.trim());
-  const sampleLabels = buildBarcodeLabelPages(
-    application.items.map((item) => ({ ...item, printCount: item.labelPrintCount })),
-  ).slice(0, 3);
+  const sampleLabels = buildBarcodeLabelPages(printableItems).slice(0, 3);
 
   return (
     <section className="mb-8 rounded-xl border border-violet-200 bg-violet-50 p-5 shadow-sm" aria-labelledby="barcode-label-output-title">
@@ -1142,12 +1159,16 @@ function BarcodeLabelOutput({ application, onPrint }: { application: FreightAppl
             화면에는 처음 3장만 표시하며, PDF에는 계산된 전체 수량이 한 페이지에 한 라벨씩 출력됩니다.
           </p>
         </div>
-        <Button onClick={onPrint} primary>개별 바코드 라벨 PDF 저장/인쇄</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onPrintIndividual} primary>개별 바코드 라벨 PDF 저장/인쇄</Button>
+          <Button onClick={onPrintSample}>배송대행지 전달용 샘플 PDF 저장</Button>
+        </div>
       </div>
-      <dl className="mt-4 grid gap-3 sm:grid-cols-3">
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="총 품목 수" value={`${application.items.length}개`} />
         <SummaryCard label="바코드 입력 품목 수" value={`${barcodeItems.length}개`} emphasized />
         <SummaryCard label="총 라벨 출력 수량" value={`${totalPrintCount}장`} emphasized />
+        <SummaryCard label="전달용 샘플 수량" value={`${samplePrintCount}장`} emphasized />
       </dl>
       {missingBarcodeItems.length > 0 && (
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
@@ -1177,15 +1198,27 @@ function BarcodeLabelOutput({ application, onPrint }: { application: FreightAppl
   );
 }
 
-function BarcodeLabelPrintPreview({ application, active }: { application: FreightApplication; active: boolean }) {
-  const labels = active
-    ? buildBarcodeLabelPages(
-        application.items.map((item) => ({ ...item, printCount: item.labelPrintCount })),
-      )
-    : [];
+function BarcodeLabelPrintPreview({
+  application,
+  printMode,
+}: {
+  application: FreightApplication;
+  printMode: "work-request" | "individual-labels" | "sample-labels";
+}) {
+  const printableItems = application.items.map((item) => ({
+    ...item,
+    printCount: item.labelPrintCount,
+  }));
+  const labels =
+    printMode === "individual-labels"
+      ? buildBarcodeLabelPages(printableItems)
+      : printMode === "sample-labels"
+        ? buildSampleBarcodeLabelPages(printableItems)
+        : [];
+  const active = printMode !== "work-request";
 
   return (
-    <div className="barcode-label-print-wrapper" aria-label="개별 바코드 라벨 인쇄 미리보기">
+    <div className="barcode-label-print-wrapper" aria-label="바코드 라벨 인쇄 미리보기">
       <section className="barcode-label-sheet">
         {labels.map(({ item, labelNumber }, index) => (
           <div className="individual-label-page" key={`${item.id}-${labelNumber}-${index}`}>

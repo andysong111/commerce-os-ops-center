@@ -66,23 +66,27 @@ button:not(:disabled) {
   }
 
   .print-work-request .barcode-label-print-wrapper,
-  .print-labels .freight-print-wrapper {
+  .print-individual-labels .freight-print-wrapper,
+  .print-sample-labels .freight-print-wrapper {
     display: none !important;
   }
 
-  .print-labels .barcode-label-print-wrapper {
+  .print-individual-labels .barcode-label-print-wrapper,
+  .print-sample-labels .barcode-label-print-wrapper {
     display: block !important;
     width: 100%;
     margin: 0;
     padding: 0;
   }
 
-  .print-labels .barcode-label-sheet {
+  .print-individual-labels .barcode-label-sheet,
+  .print-sample-labels .barcode-label-sheet {
     display: block;
     width: 100%;
   }
 
-  .print-labels .individual-label-page {
+  .print-individual-labels .individual-label-page,
+  .print-sample-labels .individual-label-page {
     display: flex;
     width: 52mm;
     height: 32mm;
@@ -95,12 +99,14 @@ button:not(:disabled) {
     page-break-after: always;
   }
 
-  .print-labels .individual-label-page:last-child {
+  .print-individual-labels .individual-label-page:last-child,
+  .print-sample-labels .individual-label-page:last-child {
     break-after: auto;
     page-break-after: auto;
   }
 
-  .print-labels .barcode-label-card {
+  .print-individual-labels .barcode-label-card,
+  .print-sample-labels .barcode-label-card {
     width: 52mm;
     height: 32mm;
     min-height: 32mm;
@@ -110,12 +116,15 @@ button:not(:disabled) {
     page-break-inside: avoid;
   }
 
-  .print-labels .barcode-label-card,
-  .print-labels .location-barcode {
+  .print-individual-labels .barcode-label-card,
+  .print-individual-labels .location-barcode,
+  .print-sample-labels .barcode-label-card,
+  .print-sample-labels .location-barcode {
     print-color-adjust: exact;
   }
 
-  .print-labels .location-barcode {
+  .print-individual-labels .location-barcode,
+  .print-sample-labels .location-barcode {
     width: 100%;
     max-width: 50mm;
   }
