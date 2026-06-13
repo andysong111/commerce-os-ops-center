@@ -12,7 +12,13 @@ import {
   saveFreightBarcodeHistory,
 } from "@/lib/freightBarcodeHistory";
 import { createCode128Layout } from "@/lib/code128";
-import { calculateBarcodeLabelPrint } from "@/lib/barcodeLabelPrint";
+import {
+  buildBarcodeLabelPages,
+  calculateBarcodeLabelPrint,
+  formatBarcodeBundleUnit,
+  formatBarcodeLabelQuantity,
+  getTotalBarcodeLabelCount,
+} from "@/lib/barcodeLabelPrint";
 import {
   BARCODE_ORIGIN_LABEL,
   getEncodedBarcodeValue,
@@ -844,7 +850,7 @@ export default function FreightBarcodeRequestPage() {
                 PDF 저장 시 대상은 &apos;PDF로 저장&apos;, 용지는 A4, 배율은 기본값 또는 100%를 권장합니다.
               </p>
             </div>
-            <Button onClick={() => printDocument("work-request")} primary>PDF로 저장/인쇄</Button>
+            <Button onClick={() => printDocument("work-request")} primary>작업요청서 PDF 저장/인쇄</Button>
           </div>
           <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -1095,32 +1101,71 @@ function getItemLabelCalculation(item: FreightApplicationItem) {
   });
 }
 
-function getItemQuantityText(item: FreightApplicationItem): string {
-  const calculation = getItemLabelCalculation(item);
+function getItemBundleUnitText(item: FreightApplicationItem): string {
+  return formatBarcodeBundleUnit({
+    quantity: item.quantity,
+    memo: item.memo,
+    bundleUnit: item.bundleUnit,
+    printCount: item.labelPrintCount,
+  });
+}
 
-  if (item.memo?.includes("박스")) return "박스 외부 부착";
-  if (calculation.bundleUnit) return `${calculation.bundleUnit}개 1세트`;
-  return "개별 부착";
+function getItemQuantityText(item: FreightApplicationItem): string {
+  return formatBarcodeLabelQuantity({
+    quantity: item.quantity,
+    memo: item.memo,
+    bundleUnit: item.bundleUnit,
+    printCount: item.labelPrintCount,
+  });
+}
+
+function BarcodeLabelCard({
+  item,
+  labelNumber,
+  printCount,
+  preview = false,
+}: {
+  item: FreightApplicationItem;
+  labelNumber: number;
+  printCount: number;
+  preview?: boolean;
+}) {
+  return (
+    <article className={`barcode-label-card${preview ? " barcode-label-card-preview" : ""}`}>
+      <p className="barcode-label-item-name"><strong>품목명:</strong> {item.matchedProductNameKo || item.itemName || "-"}</p>
+      <p className="barcode-label-option"><strong>옵션:</strong> {item.optionText || "-"}</p>
+      <LocationBarcode value={item.barcode} />
+      <dl className="barcode-label-details">
+        <div><dt>바코드:</dt><dd>{item.barcode}</dd></div>
+        <div><dt>수량:</dt><dd>{getItemQuantityText(item)}</dd></div>
+        <div><dt>출력수량:</dt><dd>{printCount}장</dd></div>
+        <div><dt>작업메모:</dt><dd>{item.memo?.trim() || "-"}</dd></div>
+      </dl>
+      <p className="barcode-label-sequence">{labelNumber}/{printCount}</p>
+    </article>
+  );
 }
 
 function BarcodeLabelOutput({ application, onPrint }: { application: FreightApplication; onPrint: () => void }) {
   const barcodeItems = application.items.filter((item) => item.barcode?.trim());
-  const totalPrintCount = barcodeItems.reduce(
-    (total, item) => total + getItemLabelCalculation(item).printCount,
-    0,
+  const totalPrintCount = getTotalBarcodeLabelCount(
+    application.items.map((item) => ({ ...item, printCount: item.labelPrintCount })),
   );
   const missingBarcodeItems = application.items.filter((item) => !item.barcode?.trim());
+  const sampleLabels = buildBarcodeLabelPages(
+    application.items.map((item) => ({ ...item, printCount: item.labelPrintCount })),
+  ).slice(0, 3);
 
   return (
     <section className="mb-8 rounded-xl border border-violet-200 bg-violet-50 p-5 shadow-sm" aria-labelledby="barcode-label-output-title">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 id="barcode-label-output-title" className="font-semibold text-violet-950">바코드 라벨 출력</h2>
+          <h2 id="barcode-label-output-title" className="font-semibold text-violet-950">개별 바코드 라벨 미리보기</h2>
           <p className="mt-1 text-xs leading-5 text-violet-800">
-            작업메모를 기준으로 자동 계산되며 소분단위와 바코드 출력수량을 품목별로 직접 수정할 수 있습니다.
+            화면에는 처음 3장만 표시하며, PDF에는 계산된 전체 수량이 한 페이지에 한 라벨씩 출력됩니다.
           </p>
         </div>
-        <Button onClick={onPrint} primary>바코드 라벨 PDF로 저장/인쇄</Button>
+        <Button onClick={onPrint} primary>개별 바코드 라벨 PDF 저장/인쇄</Button>
       </div>
       <dl className="mt-4 grid gap-3 sm:grid-cols-3">
         <SummaryCard label="총 품목 수" value={`${application.items.length}개`} />
@@ -1130,8 +1175,27 @@ function BarcodeLabelOutput({ application, onPrint }: { application: FreightAppl
       {missingBarcodeItems.length > 0 && (
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
           {missingBarcodeItems.map((item) => (
-            <p key={item.id}>{item.rowNo}번 품목 바코드 미입력</p>
+            <p key={item.id}>{item.rowNo}번 품목 바코드 미입력 · 라벨 PDF에서 제외됩니다.</p>
           ))}
+        </div>
+      )}
+      {sampleLabels.length > 0 && (
+        <div className="mt-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-violet-950">개별 라벨 샘플</h3>
+            <p className="text-xs font-semibold text-violet-800">총 {totalPrintCount}장 출력 예정</p>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-3">
+            {sampleLabels.map(({ item, labelNumber, printCount }) => (
+              <BarcodeLabelCard
+                item={item}
+                key={`${item.id}-${labelNumber}`}
+                labelNumber={labelNumber}
+                preview
+                printCount={printCount}
+              />
+            ))}
+          </div>
         </div>
       )}
     </section>
@@ -1140,33 +1204,18 @@ function BarcodeLabelOutput({ application, onPrint }: { application: FreightAppl
 
 function BarcodeLabelPrintPreview({ application, active }: { application: FreightApplication; active: boolean }) {
   const labels = active
-    ? application.items.flatMap((item) => {
-        if (!item.barcode?.trim()) return [];
-        const calculation = getItemLabelCalculation(item);
-        return Array.from({ length: calculation.printCount }, (_, index) => ({
-          item,
-          labelNumber: index + 1,
-          printCount: calculation.printCount,
-        }));
-      })
+    ? buildBarcodeLabelPages(
+        application.items.map((item) => ({ ...item, printCount: item.labelPrintCount })),
+      )
     : [];
 
   return (
-    <div className="barcode-label-print-wrapper" aria-label="바코드 라벨 인쇄 미리보기">
+    <div className="barcode-label-print-wrapper" aria-label="개별 바코드 라벨 인쇄 미리보기">
       <section className="barcode-label-sheet">
-        {labels.map(({ item, labelNumber, printCount }) => (
-          <article className="barcode-label-card" key={`${item.id}-${labelNumber}`}>
-            <p className="barcode-label-item-name"><strong>품목명:</strong> {item.matchedProductNameKo || item.itemName || "-"}</p>
-            <p className="barcode-label-option"><strong>옵션:</strong> {item.optionText || "-"}</p>
-            <LocationBarcode value={item.barcode} />
-            <dl className="barcode-label-details">
-              <div><dt>바코드 값:</dt><dd>{item.barcode}</dd></div>
-              <div><dt>수량:</dt><dd>{getItemQuantityText(item)}</dd></div>
-              <div><dt>출력수량:</dt><dd>{printCount}장</dd></div>
-              <div><dt>작업메모:</dt><dd>{item.memo?.trim() || "-"}</dd></div>
-            </dl>
-            <p className="barcode-label-sequence">{labelNumber}/{printCount}</p>
-          </article>
+        {labels.map(({ item, labelNumber, printCount }, index) => (
+          <div className="individual-label-page" key={`${item.id}-${labelNumber}-${index}`}>
+            <BarcodeLabelCard item={item} labelNumber={labelNumber} printCount={printCount} />
+          </div>
         ))}
         {active && labels.length === 0 && <p className="barcode-label-empty">출력할 바코드 라벨이 없습니다.</p>}
       </section>
@@ -1217,6 +1266,10 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
 
                 <dl className="item-card-details mt-3 border-y border-slate-400 py-2">
                   <PrintField className="barcode-info-section" label="바코드" value={item.barcode?.trim() || "바코드 미입력"} mono />
+                  <div className="label-calculation-fields grid gap-x-4 sm:grid-cols-2">
+                    <PrintField label="소분단위" value={getItemBundleUnitText(item)} />
+                    <PrintField label="바코드 출력수량" value={`${getItemLabelCalculation(item).printCount}장`} />
+                  </div>
                   {item.memo?.trim() && (
                     <PrintField className="memo-section" label="작업메모" value={item.memo.trim()} multiline />
                   )}
