@@ -110,3 +110,18 @@ test("totals final print counts across printable barcode items", () => {
   assert.equal(getTotalBarcodeLabelCount(items), 81);
   assert.equal(buildBarcodeLabelPages(items).length, 81);
 });
+
+test("builds one small-page label per final print count without changing the barcode value", () => {
+  const pages = buildBarcodeLabelPages([
+    {
+      id: "manual-count",
+      barcode: "BAA1-1",
+      quantity: 50,
+      memo: "long work request memo that must not affect the encoded barcode",
+      printCount: 6,
+    },
+  ]);
+
+  assert.equal(pages.length, 6);
+  assert.deepEqual(pages.map(({ item }) => item.barcode), Array(6).fill("BAA1-1"));
+});

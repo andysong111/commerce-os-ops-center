@@ -44,6 +44,11 @@ button:not(:disabled) {
     margin: 2mm;
   }
 
+  @page barcode-label {
+    size: 32mm 52mm;
+    margin: 0;
+  }
+
   html,
   body {
     width: 100%;
@@ -79,10 +84,13 @@ button:not(:disabled) {
 
   .print-labels .individual-label-page {
     display: flex;
-    width: 100%;
-    min-height: 293mm;
+    width: 32mm;
+    height: 52mm;
+    min-height: 52mm;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
+    page: barcode-label;
     break-after: page;
     page-break-after: always;
   }
@@ -93,10 +101,11 @@ button:not(:disabled) {
   }
 
   .print-labels .barcode-label-card {
-    width: 100mm;
-    min-height: 62mm;
-    border: 0.35mm solid #000;
-    padding: 3mm 5mm;
+    width: 32mm;
+    height: 52mm;
+    min-height: 52mm;
+    border: 0;
+    padding: 1.5mm 0;
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -107,7 +116,8 @@ button:not(:disabled) {
   }
 
   .print-labels .location-barcode {
-    max-width: 90mm;
+    width: 100%;
+    max-width: 32mm;
   }
 
   .app-shell,
@@ -303,75 +313,47 @@ button:not(:disabled) {
   page-break-after: always;
 }
 
-.individual-label-card,
-.barcode-label-card {
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-
 .barcode-label-card {
   display: flex;
-  min-height: 62mm;
+  width: 32mm;
+  height: 52mm;
+  min-height: 52mm;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   border: 1px solid #0f172a;
-  padding: 3mm;
+  padding: 1.5mm 0;
+  background: white;
   text-align: center;
   break-inside: avoid;
   page-break-inside: avoid;
 }
 
 .barcode-label-card-preview {
+  margin: 0 auto;
+}
+
+.label-location-barcode {
   width: 100%;
-  min-height: 62mm;
-  background: white;
-}
-
-.barcode-label-item-name {
-  max-width: 100%;
-  font-size: 12px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.barcode-label-option {
-  max-width: 100%;
-  margin: 1mm 0;
-  color: #475569;
-  font-size: 10px;
-  overflow-wrap: anywhere;
-}
-
-.barcode-label-details {
-  width: 100%;
-  margin-top: 1.5mm;
-  border-top: 1px solid #cbd5e1;
-  padding-top: 1.5mm;
-  font-size: 9px;
-  line-height: 1.35;
-  text-align: left;
-}
-
-.barcode-label-details > div {
-  display: grid;
-  grid-template-columns: 17mm minmax(0, 1fr);
-  gap: 1mm;
-}
-
-.barcode-label-details dt {
-  font-weight: 700;
-}
-
-.barcode-label-details dd {
   min-width: 0;
-  overflow-wrap: anywhere;
+  padding: 0;
 }
 
-.barcode-label-sequence {
-  margin-top: 1mm;
-  color: #475569;
+.label-location-barcode > span:first-child {
+  margin-bottom: 2mm;
   font-size: 9px;
+  line-height: 1;
+}
+
+.label-location-barcode > span:last-child {
+  margin-top: 2mm;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.label-location-barcode svg {
+  flex: none;
+  max-width: none;
 }
 
 .barcode-label-empty {

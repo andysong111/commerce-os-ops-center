@@ -16,7 +16,6 @@ import {
   buildBarcodeLabelPages,
   calculateBarcodeLabelPrint,
   formatBarcodeBundleUnit,
-  formatBarcodeLabelQuantity,
   getTotalBarcodeLabelCount,
 } from "@/lib/barcodeLabelPrint";
 import {
@@ -1038,7 +1037,7 @@ function EditableRow({
   );
 }
 
-function LocationBarcode({ value }: { value?: string }) {
+function LocationBarcode({ value, compact = false }: { value?: string; compact?: boolean }) {
   const encodedValue = getEncodedBarcodeValue(value);
 
   if (!value) {
@@ -1056,12 +1055,12 @@ function LocationBarcode({ value }: { value?: string }) {
   // Render each CODE128 module at an exact integer width. Avoiding CSS scaling
   // prevents bar-width distortion in the browser and generated PDF.
   const layout = createCode128Layout(encodedValue);
-  const moduleWidth = 2;
-  const barcodeHeight = 52;
+  const moduleWidth = compact ? 1 : 2;
+  const barcodeHeight = compact ? 60 : 52;
   const svgWidth = layout.width * moduleWidth;
 
   return (
-    <div className="location-barcode mx-auto flex min-w-36 flex-col items-center bg-white p-1 text-black">
+    <div className={`location-barcode mx-auto flex flex-col items-center bg-white text-black ${compact ? "label-location-barcode" : "min-w-36 p-1"}`}>
       <span className="mb-1 font-sans text-[11px] font-black tracking-wide">{BARCODE_ORIGIN_LABEL}</span>
       <svg
         aria-label={`바코드 ${encodedValue} CODE128B`}
@@ -1110,38 +1109,16 @@ function getItemBundleUnitText(item: FreightApplicationItem): string {
   });
 }
 
-function getItemQuantityText(item: FreightApplicationItem): string {
-  return formatBarcodeLabelQuantity({
-    quantity: item.quantity,
-    memo: item.memo,
-    bundleUnit: item.bundleUnit,
-    printCount: item.labelPrintCount,
-  });
-}
-
 function BarcodeLabelCard({
   item,
-  labelNumber,
-  printCount,
   preview = false,
 }: {
   item: FreightApplicationItem;
-  labelNumber: number;
-  printCount: number;
   preview?: boolean;
 }) {
   return (
     <article className={`barcode-label-card${preview ? " barcode-label-card-preview" : ""}`}>
-      <p className="barcode-label-item-name"><strong>품목명:</strong> {item.matchedProductNameKo || item.itemName || "-"}</p>
-      <p className="barcode-label-option"><strong>옵션:</strong> {item.optionText || "-"}</p>
-      <LocationBarcode value={item.barcode} />
-      <dl className="barcode-label-details">
-        <div><dt>바코드:</dt><dd>{item.barcode}</dd></div>
-        <div><dt>수량:</dt><dd>{getItemQuantityText(item)}</dd></div>
-        <div><dt>출력수량:</dt><dd>{printCount}장</dd></div>
-        <div><dt>작업메모:</dt><dd>{item.memo?.trim() || "-"}</dd></div>
-      </dl>
-      <p className="barcode-label-sequence">{labelNumber}/{printCount}</p>
+      <LocationBarcode value={item.barcode} compact />
     </article>
   );
 }
@@ -1186,13 +1163,11 @@ function BarcodeLabelOutput({ application, onPrint }: { application: FreightAppl
             <p className="text-xs font-semibold text-violet-800">총 {totalPrintCount}장 출력 예정</p>
           </div>
           <div className="grid gap-4 xl:grid-cols-3">
-            {sampleLabels.map(({ item, labelNumber, printCount }) => (
+            {sampleLabels.map(({ item, labelNumber }) => (
               <BarcodeLabelCard
                 item={item}
                 key={`${item.id}-${labelNumber}`}
-                labelNumber={labelNumber}
                 preview
-                printCount={printCount}
               />
             ))}
           </div>
@@ -1212,9 +1187,9 @@ function BarcodeLabelPrintPreview({ application, active }: { application: Freigh
   return (
     <div className="barcode-label-print-wrapper" aria-label="개별 바코드 라벨 인쇄 미리보기">
       <section className="barcode-label-sheet">
-        {labels.map(({ item, labelNumber, printCount }, index) => (
+        {labels.map(({ item, labelNumber }, index) => (
           <div className="individual-label-page" key={`${item.id}-${labelNumber}-${index}`}>
-            <BarcodeLabelCard item={item} labelNumber={labelNumber} printCount={printCount} />
+            <BarcodeLabelCard item={item} />
           </div>
         ))}
         {active && labels.length === 0 && <p className="barcode-label-empty">출력할 바코드 라벨이 없습니다.</p>}
@@ -1256,7 +1231,7 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
                     <PrintField label="품목" value={item.matchedProductNameKo || item.itemName} />
                     <PrintField label="옵션" value={item.optionText} multiline />
                     <div className="grid gap-x-4 sm:grid-cols-2">
-                      <PrintField label="수량" value={String(item.quantity)} />
+                      <PrintField label="제품 수량" value={String(item.quantity)} />
                       <PrintField label="HS CODE" value={item.hsCode} />
                       <PrintField label="트래킹번호" value={item.trackingNo} breakAll />
                       <PrintField label="오픈마켓 주문번호" value={item.orderNo} breakAll />
