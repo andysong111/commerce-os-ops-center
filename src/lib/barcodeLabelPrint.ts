@@ -112,6 +112,24 @@ export function buildBarcodeLabelPages<T extends BarcodeLabelPageInput>(
   });
 }
 
+export function buildSampleBarcodeLabelPages<T extends BarcodeLabelPageInput>(
+  items: T[],
+): BarcodeLabelPage<T>[] {
+  const seenBarcodes = new Set<string>();
+
+  return items.flatMap((item) => {
+    const barcode = item.barcode?.trim();
+    if (!barcode || seenBarcodes.has(barcode)) return [];
+
+    seenBarcodes.add(barcode);
+    return [{ item, labelNumber: 1, printCount: 1 }];
+  });
+}
+
 export function getTotalBarcodeLabelCount<T extends BarcodeLabelPageInput>(items: T[]): number {
   return buildBarcodeLabelPages(items).length;
+}
+
+export function getSampleBarcodeLabelCount<T extends BarcodeLabelPageInput>(items: T[]): number {
+  return buildSampleBarcodeLabelPages(items).length;
 }
