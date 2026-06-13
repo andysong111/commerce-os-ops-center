@@ -1056,7 +1056,7 @@ function LocationBarcode({ value, compact = false }: { value?: string; compact?:
   // larger compact label remains scan-safe without changing its encoding.
   const layout = createCode128Layout(encodedValue);
   const moduleWidth = compact ? 1.4 : 2;
-  const barcodeHeight = compact ? 68 : 52;
+  const barcodeHeight = compact ? 88 : 52;
   const svgWidth = layout.width * moduleWidth;
 
   return (
