@@ -45,7 +45,7 @@ button:not(:disabled) {
   }
 
   @page barcode-label {
-    size: 32mm 52mm;
+    size: 52mm 32mm;
     margin: 0;
   }
 
@@ -84,9 +84,9 @@ button:not(:disabled) {
 
   .print-labels .individual-label-page {
     display: flex;
-    width: 32mm;
-    height: 52mm;
-    min-height: 52mm;
+    width: 52mm;
+    height: 32mm;
+    min-height: 32mm;
     align-items: center;
     justify-content: center;
     overflow: hidden;
@@ -101,9 +101,9 @@ button:not(:disabled) {
   }
 
   .print-labels .barcode-label-card {
-    width: 32mm;
-    height: 52mm;
-    min-height: 52mm;
+    width: 52mm;
+    height: 32mm;
+    min-height: 32mm;
     border: 0;
     padding: 1.5mm 0;
     break-inside: avoid;
@@ -117,7 +117,7 @@ button:not(:disabled) {
 
   .print-labels .location-barcode {
     width: 100%;
-    max-width: 32mm;
+    max-width: 52mm;
   }
 
   .app-shell,
@@ -315,9 +315,9 @@ button:not(:disabled) {
 
 .barcode-label-card {
   display: flex;
-  width: 32mm;
-  height: 52mm;
-  min-height: 52mm;
+  width: 52mm;
+  height: 32mm;
+  min-height: 32mm;
   flex-direction: column;
   align-items: center;
   justify-content: center;

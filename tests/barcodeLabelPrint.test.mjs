@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -124,4 +125,19 @@ test("builds one small-page label per final print count without changing the bar
 
   assert.equal(pages.length, 6);
   assert.deepEqual(pages.map(({ item }) => item.barcode), Array(6).fill("BAA1-1"));
+});
+
+
+test("uses a horizontal custom page for individual barcode labels", async () => {
+  const css = await readFile(new URL("../src/app/globals.css", import.meta.url), "utf8");
+
+  assert.match(css, /@page barcode-label \{[\s\S]*?size: 52mm 32mm;/);
+  assert.match(
+    css,
+    /\.print-labels \.individual-label-page \{[\s\S]*?width: 52mm;[\s\S]*?height: 32mm;/,
+  );
+  assert.match(
+    css,
+    /\.barcode-label-card \{[\s\S]*?width: 52mm;[\s\S]*?height: 32mm;/,
+  );
 });
