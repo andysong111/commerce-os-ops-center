@@ -73,12 +73,41 @@ button:not(:disabled) {
   }
 
   .print-labels .barcode-label-sheet {
+    display: block;
     width: 100%;
+  }
+
+  .print-labels .individual-label-page {
+    display: flex;
+    width: 100%;
+    min-height: 293mm;
+    align-items: center;
+    justify-content: center;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .print-labels .individual-label-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .print-labels .barcode-label-card {
+    width: 100mm;
+    min-height: 62mm;
+    border: 0.35mm solid #000;
+    padding: 3mm 5mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .print-labels .barcode-label-card,
   .print-labels .location-barcode {
     print-color-adjust: exact;
+  }
+
+  .print-labels .location-barcode {
+    max-width: 90mm;
   }
 
   .app-shell,
@@ -263,14 +292,26 @@ button:not(:disabled) {
 }
 
 .barcode-label-sheet {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4mm;
+  display: block;
+}
+
+.individual-label-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  break-after: page;
+  page-break-after: always;
+}
+
+.individual-label-card,
+.barcode-label-card {
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .barcode-label-card {
   display: flex;
-  min-height: 68mm;
+  min-height: 62mm;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -279,6 +320,12 @@ button:not(:disabled) {
   text-align: center;
   break-inside: avoid;
   page-break-inside: avoid;
+}
+
+.barcode-label-card-preview {
+  width: 100%;
+  min-height: 62mm;
+  background: white;
 }
 
 .barcode-label-item-name {
@@ -328,7 +375,6 @@ button:not(:disabled) {
 }
 
 .barcode-label-empty {
-  grid-column: 1 / -1;
   padding: 20mm;
   text-align: center;
 }
