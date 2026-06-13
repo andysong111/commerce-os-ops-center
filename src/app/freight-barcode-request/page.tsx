@@ -1052,11 +1052,11 @@ function LocationBarcode({ value, compact = false }: { value?: string; compact?:
     );
   }
 
-  // Render each CODE128 module at an exact integer width. Avoiding CSS scaling
-  // prevents bar-width distortion in the browser and generated PDF.
+  // Keep every CODE128 bar proportional to the shared module width so the
+  // larger compact label remains scan-safe without changing its encoding.
   const layout = createCode128Layout(encodedValue);
-  const moduleWidth = compact ? 1 : 2;
-  const barcodeHeight = compact ? 60 : 52;
+  const moduleWidth = compact ? 1.4 : 2;
+  const barcodeHeight = compact ? 68 : 52;
   const svgWidth = layout.width * moduleWidth;
 
   return (

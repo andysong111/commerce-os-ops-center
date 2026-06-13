@@ -105,7 +105,7 @@ button:not(:disabled) {
     height: 32mm;
     min-height: 32mm;
     border: 0;
-    padding: 1.5mm 0;
+    padding: 0.75mm 1mm;
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -117,7 +117,7 @@ button:not(:disabled) {
 
   .print-labels .location-barcode {
     width: 100%;
-    max-width: 52mm;
+    max-width: 50mm;
   }
 
   .app-shell,
@@ -322,7 +322,7 @@ button:not(:disabled) {
   align-items: center;
   justify-content: center;
   border: 1px solid #0f172a;
-  padding: 1.5mm 0;
+  padding: 0.75mm 1mm;
   background: white;
   text-align: center;
   break-inside: avoid;
@@ -340,20 +340,20 @@ button:not(:disabled) {
 }
 
 .label-location-barcode > span:first-child {
-  margin-bottom: 2mm;
+  margin-bottom: 0.6mm;
   font-size: 9px;
   line-height: 1;
 }
 
 .label-location-barcode > span:last-child {
-  margin-top: 2mm;
+  margin-top: 0.6mm;
   font-size: 10px;
   line-height: 1;
 }
 
 .label-location-barcode svg {
   flex: none;
-  max-width: none;
+  max-width: 100%;
 }
 
 .barcode-label-empty {
