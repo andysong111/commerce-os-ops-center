@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { getProductMasters } from "@/lib/productMaster";
+import { getProductMasterItems, getProductMasters } from "@/lib/productMaster";
+import {
+  exportProductMasterCsv,
+  exportProductMasterJson,
+  parseProductMasterCsv,
+  validateProductMasterImport,
+  type ProductMasterImportValidationResult,
+} from "@/lib/productMasterImportExport";
 import type { ProductStatus } from "@/types/productMaster";
 
 const statusLabels: Record<ProductStatus, string> = {
@@ -28,6 +35,18 @@ export default function ProductMasterPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const productMasters = useMemo(() => getProductMasters(), []);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [importText, setImportText] = useState("");
+  const [importPreview, setImportPreview] =
+    useState<ProductMasterImportValidationResult>();
+  const productMasterItems = useMemo(() => getProductMasterItems(), []);
+  const exportCsv = useMemo(
+    () => exportProductMasterCsv(productMasterItems),
+    [productMasterItems],
+  );
+  const exportJson = useMemo(
+    () => exportProductMasterJson(productMasterItems),
+    [productMasterItems],
+  );
 
   const filteredProducts = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -78,6 +97,64 @@ export default function ProductMasterPage() {
           참고 원가는 과거 또는 기준값일 뿐이며, 실제 발주 원가는 원가계산기에서 회차별로 입력합니다.
         </span>
       </div>
+
+      <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div>
+          <h2 className="font-semibold text-slate-950">CSV / JSON 가져오기·내보내기</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            가져오기는 미리보기와 검증만 수행하며 기존 데이터를 변경하지 않습니다. 현재 상품 마스터 저장소는 영구 저장소가 추가되기 전까지 임시 메모리입니다.
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div>
+            <label htmlFor="product-master-csv" className="text-xs font-semibold text-slate-600">
+              CSV 가져오기 미리보기
+            </label>
+            <textarea
+              id="product-master-csv"
+              value={importText}
+              onChange={(event) => setImportText(event.target.value)}
+              placeholder={"modelNo,modelName,optionName,barcode,origin,displayName,memo\nAAA001,샘플 상품,기본,,MADE IN CHINA,샘플 상품,"}
+              className="mt-1.5 min-h-40 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+            <button
+              type="button"
+              onClick={() =>
+                setImportPreview(
+                  validateProductMasterImport(parseProductMasterCsv(importText)),
+                )
+              }
+              className="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              가져오기 미리보기
+            </button>
+
+            {importPreview && (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                <p className="font-semibold text-slate-800">
+                  전체 {importPreview.summary.totalRows} · 유효 {importPreview.summary.validCount} · 오류 {importPreview.summary.invalidCount} · 경고 {importPreview.summary.warningCount} · 중복 모델번호 {importPreview.summary.duplicateCount}
+                </p>
+                {importPreview.invalidRows.map((issue) => (
+                  <p key={`invalid-${issue.rowNumber}`} className="mt-2 text-red-700">
+                    {issue.rowNumber}행: {issue.messages.join(" ")}
+                  </p>
+                ))}
+                {importPreview.warnings.map((warning) => (
+                  <p key={`warning-${warning.rowNumber}`} className="mt-2 text-amber-700">
+                    {warning.rowNumber}행: {warning.message}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-3">
+            <ExportTextArea label="현재 데이터 CSV" value={exportCsv} />
+            <ExportTextArea label="현재 데이터 JSON" value={exportJson} />
+          </div>
+        </div>
+      </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
@@ -207,6 +284,20 @@ export default function ProductMasterPage() {
         현재 상품 마스터는 조회 전용 샘플 데이터입니다. 편집, 저장, 이미지 업로드 및 외부 데이터 연동은 추후 제공됩니다.
       </p>
     </>
+  );
+}
+
+function ExportTextArea({ label, value }: { label: string; value: string }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold text-slate-600">{label}</span>
+      <textarea
+        readOnly
+        value={value}
+        className="mt-1.5 min-h-32 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 font-mono text-xs text-slate-700"
+        onFocus={(event) => event.currentTarget.select()}
+      />
+    </label>
   );
 }
 
