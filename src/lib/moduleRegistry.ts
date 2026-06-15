@@ -74,6 +74,21 @@ export const moduleRegistry: readonly CommerceModule[] = [
     note: "This is being developed separately in the keyword-engine-soon repository. Commerce OS should not execute it yet.",
   },
   {
+    id: "keyword-review-queue",
+    title: "Keyword Review Queue",
+    navigationLabel: "키워드 검토 큐",
+    description:
+      "Review Keyword Engine MVP outputs, classify rows, and prepare safe manual approvals.",
+    status: "available",
+    route: "/keyword-review-queue",
+    category: "keyword",
+    inputType: "CSV/Markdown from keyword-engine-soon",
+    outputType: "reviewed keyword approval data",
+    historySupport: false,
+    externalProject: true,
+    note: "Initial review queue only. No live Shopling API execution. History support is future/planned.",
+  },
+  {
     id: "detail-page-engine",
     title: "Detail Page Engine",
     description:
