@@ -21,6 +21,12 @@ import {
   exportKeywordExecutionPlan,
   type KeywordExecutionPreflightResult,
 } from "@/lib/keywordReviewExecutionPreflight";
+import {
+  buildKeywordExecutionIntent,
+  DEFAULT_KEYWORD_EXECUTION_INTENT_CONFIRMATION,
+  exportKeywordExecutionIntent,
+  type KeywordExecutionIntentResult,
+} from "@/lib/keywordReviewExecutionIntent";
 
 const classificationLabels: Record<KeywordQueueClassification, string> = {
   auto_apply_candidate: "Auto apply candidate",
@@ -48,6 +54,11 @@ export default function KeywordReviewQueuePage() {
   const [maxRows, setMaxRows] = useState("0");
   const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
   const [finalConfirmation, setFinalConfirmation] = useState(false);
+  const [intentConfirmation, setIntentConfirmation] = useState(false);
+  const [intentConfirmationText, setIntentConfirmationText] = useState("");
+  const [executionIntent, setExecutionIntent] =
+    useState<KeywordExecutionIntentResult | null>(null);
+  const [executionIntentError, setExecutionIntentError] = useState("");
 
   const counts = useMemo(
     () => ({
@@ -72,6 +83,7 @@ export default function KeywordReviewQueuePage() {
     setCopyStatus("");
     setPayloadPreview(null);
     setPreflightResult(null);
+    setExecutionIntent(null);
   }
 
   function updateRow(
@@ -85,6 +97,7 @@ export default function KeywordReviewQueuePage() {
   ) {
     setPayloadPreview(null);
     setPreflightResult(null);
+    setExecutionIntent(null);
     setRows((current) =>
       current.map((row, rowIndex) =>
         rowIndex === index ? { ...row, ...update } : row,
@@ -233,6 +246,7 @@ export default function KeywordReviewQueuePage() {
         onGenerate={() => {
           setPayloadPreview(buildKeywordShoplingPayloadPreview(rows));
           setPreflightResult(null);
+          setExecutionIntent(null);
         }}
       />
       <ExecutionPreflightSection
@@ -245,18 +259,22 @@ export default function KeywordReviewQueuePage() {
         onAllowedMallKeysChange={(value) => {
           setAllowedMallKeys(value);
           setPreflightResult(null);
+          setExecutionIntent(null);
         }}
         onMaxRowsChange={(value) => {
           setMaxRows(value);
           setPreflightResult(null);
+          setExecutionIntent(null);
         }}
         onAlreadyAppliedGoodsKeysChange={(value) => {
           setAlreadyAppliedGoodsKeys(value);
           setPreflightResult(null);
+          setExecutionIntent(null);
         }}
         onFinalConfirmationChange={(value) => {
           setFinalConfirmation(value);
           setPreflightResult(null);
+          setExecutionIntent(null);
         }}
         onRun={(config) =>
           setPreflightResult(
@@ -272,7 +290,187 @@ export default function KeywordReviewQueuePage() {
           )
         }
       />
+      <ExecutionIntentSection
+        preflightResult={preflightResult}
+        confirmationAccepted={intentConfirmation}
+        confirmationText={intentConfirmationText}
+        intent={executionIntent}
+        error={executionIntentError}
+        onConfirmationAcceptedChange={(value) => {
+          setIntentConfirmation(value);
+          setExecutionIntent(null);
+          setExecutionIntentError("");
+        }}
+        onConfirmationTextChange={(value) => {
+          setIntentConfirmationText(value);
+          setExecutionIntent(null);
+          setExecutionIntentError("");
+        }}
+        onCreate={() => {
+          try {
+            setExecutionIntent(
+              buildKeywordExecutionIntent(preflightResult!, {
+                confirmationAccepted: intentConfirmation,
+                confirmationText: intentConfirmationText,
+                preflightConfig: {
+                  ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+                  allowedMallKeys: parseKeyList(allowedMallKeys),
+                  maxRows: Math.max(0, Number.parseInt(maxRows, 10) || 0),
+                  alreadyAppliedGoodsKeys: parseKeyList(
+                    alreadyAppliedGoodsKeys,
+                  ),
+                },
+              }),
+            );
+            setExecutionIntentError("");
+          } catch (error) {
+            setExecutionIntent(null);
+            setExecutionIntentError(
+              error instanceof Error
+                ? error.message
+                : "Execution intent could not be created.",
+            );
+          }
+        }}
+      />
     </>
+  );
+}
+
+function ExecutionIntentSection({
+  preflightResult,
+  confirmationAccepted,
+  confirmationText,
+  intent,
+  error,
+  onConfirmationAcceptedChange,
+  onConfirmationTextChange,
+  onCreate,
+}: {
+  preflightResult: KeywordExecutionPreflightResult | null;
+  confirmationAccepted: boolean;
+  confirmationText: string;
+  intent: KeywordExecutionIntentResult | null;
+  error: string;
+  onConfirmationAcceptedChange: (value: boolean) => void;
+  onConfirmationTextChange: (value: string) => void;
+  onCreate: () => void;
+}) {
+  const canCreate =
+    Boolean(preflightResult) &&
+    (preflightResult?.eligibleItems.length ?? 0) > 0 &&
+    !preflightResult?.summary.maxRowsExceeded &&
+    confirmationAccepted &&
+    confirmationText === DEFAULT_KEYWORD_EXECUTION_INTENT_CONFIRMATION;
+  const intentJson = intent ? exportKeywordExecutionIntent(intent) : "";
+
+  return (
+    <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 p-4 sm:p-5">
+        <h2 className="font-semibold text-slate-950">Execution Intent</h2>
+        <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-900">
+          This only records final execution intent. It does not execute
+          Shopling API updates.
+        </div>
+        <p className="mt-4 text-xs font-semibold text-slate-600">
+          Required phrase
+        </p>
+        <p className="mt-1 rounded-lg bg-slate-100 p-3 text-sm text-slate-800">
+          {DEFAULT_KEYWORD_EXECUTION_INTENT_CONFIRMATION}
+        </p>
+        <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={confirmationAccepted}
+            onChange={(event) =>
+              onConfirmationAcceptedChange(event.target.checked)
+            }
+            className="mt-1"
+          />
+          <span>I accept the final preview-only execution intent warning.</span>
+        </label>
+        <label className="mt-4 block text-xs font-semibold text-slate-600">
+          Final confirmation text
+          <input
+            type="text"
+            value={confirmationText}
+            onChange={(event) => onConfirmationTextChange(event.target.value)}
+            className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!canCreate}
+          onClick={onCreate}
+          className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          Create execution intent
+        </button>
+        {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+      </div>
+
+      {!intent ? (
+        <p className="p-8 text-center text-sm text-slate-500">
+          Complete a valid preflight and exact final confirmation to create a
+          non-executing intent artifact.
+        </p>
+      ) : (
+        <div className="p-4 sm:p-5">
+          <dl className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+            <IntentValue label="Intent ID" value={intent.intentId} />
+            <IntentValue label="Created at" value={intent.createdAt} />
+            <IntentValue
+              label="Eligible items"
+              value={String(intent.eligibleItemsSnapshot.length)}
+            />
+            <IntentValue
+              label="Blocked snapshot"
+              value={String(intent.blockedItemsSnapshot.length)}
+            />
+            <IntentValue label="Status" value={intent.status} />
+            <IntentValue label="executionDisabled" value="true" />
+            <IntentValue label="notExecuted" value="true" />
+          </dl>
+          <textarea
+            aria-label="Execution intent JSON"
+            readOnly
+            value={intentJson}
+            className="mt-5 min-h-64 w-full rounded-lg border border-slate-300 bg-slate-950 p-3 font-mono text-xs text-slate-100"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard.writeText(intentJson)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              Copy execution intent JSON
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                downloadText(
+                  `${intent.intentId}.json`,
+                  intentJson,
+                  "application/json",
+                )
+              }
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              Download execution intent JSON
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function IntentValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <dt className="text-xs font-semibold text-slate-500">{label}</dt>
+      <dd className="mt-1 break-words font-semibold text-slate-900">{value}</dd>
+    </div>
   );
 }
 
