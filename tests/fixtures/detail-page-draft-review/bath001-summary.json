@@ -1,0 +1,11 @@
+{
+  "sources": ["1688_snapshot", "generated_source"],
+  "source_links": ["local-artifact-only"],
+  "images_before": 3,
+  "images_after": 7,
+  "coverage_before": { "roles": 8 },
+  "coverage_after": { "roles": 12 },
+  "new_roles": ["lifestyle", "benefit"],
+  "missing_roles": [],
+  "collection_errors": []
+}
