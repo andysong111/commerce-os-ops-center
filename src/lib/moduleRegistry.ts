@@ -13,6 +13,7 @@ export type CommerceModule = {
   historySupport: boolean;
   externalProject: boolean;
   note: string | null;
+  helperNote?: string;
 };
 
 export const moduleRegistry: readonly CommerceModule[] = [
@@ -62,8 +63,10 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
   {
     id: "keyword-engine",
-    title: "Keyword Engine",
-    description: "Discovers and organizes search keywords by sales channel.",
+    title: "Keyword Engine Runner",
+    navigationLabel: "키워드 엔진 실행기",
+    description:
+      "Future module for running Keyword Engine dry-runs directly from Commerce OS. Currently, run the keyword engine outside Commerce OS and import results into the review queue.",
     status: "preparing",
     route: null,
     category: "Sales content automation",
@@ -72,13 +75,14 @@ export const moduleRegistry: readonly CommerceModule[] = [
     historySupport: false,
     externalProject: true,
     note: "This is being developed separately in the keyword-engine-soon repository. Commerce OS should not execute it yet.",
+    helperNote: "Future direct dry-run execution",
   },
   {
     id: "keyword-review-queue",
-    title: "Keyword Review Queue",
-    navigationLabel: "키워드 검토 큐",
+    title: "Keyword Review / Approval Queue",
+    navigationLabel: "키워드 검토/승인 큐",
     description:
-      "Review Keyword Engine MVP outputs, classify rows, and prepare safe manual approvals.",
+      "Upload or paste Keyword Engine MVP outputs, review auto/manual/blocked rows, edit keywords, approve rows, and prepare safe previews.",
     status: "available",
     route: "/keyword-review-queue",
     category: "keyword",
@@ -87,6 +91,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     historySupport: false,
     externalProject: true,
     note: "Includes approved-row payload/XML preview only. No live Shopling API execution. History support is future/planned.",
+    helperNote: "Current usable integration",
   },
   {
     id: "detail-page-engine",

@@ -90,6 +90,11 @@ function ModuleCard({
         </span>
       </div>
       <h3 className="font-semibold text-slate-950">{module.title}</h3>
+      {module.helperNote ? (
+        <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-blue-600">
+          {module.helperNote}
+        </p>
+      ) : null}
       <p className="mt-2 text-sm leading-6 text-slate-600">
         {module.description}
       </p>
