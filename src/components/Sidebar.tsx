@@ -8,6 +8,7 @@ const moduleIcons = {
   "china-order-cost": CalculatorIcon,
   "product-master": ProductIcon,
   "freight-barcode-pdf": BarcodeIcon,
+  "keyword-review-queue": KeywordIcon,
 } as const;
 
 const navigation = [
@@ -180,6 +181,22 @@ function BarcodeIcon() {
     >
       <path d="M4 5v14M8 5v14M12 5v14M16 5v14M20 5v14" />
       <path d="M3 3h4M17 3h4M3 21h4M17 21h4" />
+    </svg>
+  );
+}
+
+function KeywordIcon() {
+  return (
+    <svg
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m15.5 15.5 4.5 4.5M8 8h5M8 11h4" />
     </svg>
   );
 }
