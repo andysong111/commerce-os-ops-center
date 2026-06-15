@@ -10,6 +10,10 @@ import {
   validateProductMasterImport,
   type ProductMasterImportValidationResult,
 } from "@/lib/productMasterImportExport";
+import {
+  importProductMasterItemsToTemporaryStorage,
+  type ProductMasterImportApplicationResult,
+} from "@/lib/productMasterImport";
 import type { ProductStatus } from "@/types/productMaster";
 
 const statusLabels: Record<ProductStatus, string> = {
@@ -33,12 +37,16 @@ type StatusFilter = "all" | ProductStatus;
 
 export default function ProductMasterPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const productMasters = useMemo(() => getProductMasters(), []);
+  const [productMasters, setProductMasters] = useState(() => getProductMasters());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [importText, setImportText] = useState("");
   const [importPreview, setImportPreview] =
     useState<ProductMasterImportValidationResult>();
-  const productMasterItems = useMemo(() => getProductMasterItems(), []);
+  const [importResult, setImportResult] =
+    useState<ProductMasterImportApplicationResult>();
+  const [productMasterItems, setProductMasterItems] = useState(() =>
+    getProductMasterItems(),
+  );
   const exportCsv = useMemo(
     () => exportProductMasterCsv(productMasterItems),
     [productMasterItems],
@@ -120,11 +128,12 @@ export default function ProductMasterPage() {
             />
             <button
               type="button"
-              onClick={() =>
+              onClick={() => {
                 setImportPreview(
                   validateProductMasterImport(parseProductMasterCsv(importText)),
-                )
-              }
+                );
+                setImportResult(undefined);
+              }}
               className="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
             >
               가져오기 미리보기
@@ -145,6 +154,40 @@ export default function ProductMasterPage() {
                     {warning.rowNumber}행: {warning.message}
                   </p>
                 ))}
+                <p className="mt-3 text-xs leading-5 text-amber-800">
+                  Temporary memory import is not persistent. Data may reset after server/runtime restart until persistent storage is added.
+                </p>
+                <button
+                  type="button"
+                  disabled={importPreview.validItems.length === 0}
+                  onClick={() => {
+                    const result =
+                      importProductMasterItemsToTemporaryStorage(importPreview);
+                    setImportResult(result);
+                    setProductMasters(getProductMasters());
+                    setProductMasterItems(getProductMasterItems());
+                  }}
+                  className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  Import to temporary memory
+                </button>
+                {importResult && (
+                  <div className="mt-3 border-t border-slate-200 pt-3 text-slate-700">
+                    <p className="font-semibold">
+                      Imported {importResult.importedCount} · Skipped {importResult.skippedCount} · Attempted {importResult.totalAttempted}
+                    </p>
+                    {importResult.skippedExistingModelNos.length > 0 && (
+                      <p className="mt-1 text-amber-700">
+                        Skipped existing modelNos: {importResult.skippedExistingModelNos.join(", ")}
+                      </p>
+                    )}
+                    {importResult.errors.map((error) => (
+                      <p key={error} className="mt-1 text-red-700">
+                        {error}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
