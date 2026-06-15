@@ -15,6 +15,12 @@ import {
   exportKeywordPayloadPreview,
   type KeywordPayloadPreviewResult,
 } from "@/lib/keywordReviewPayloadPreview";
+import {
+  buildKeywordExecutionPreflight,
+  DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+  exportKeywordExecutionPlan,
+  type KeywordExecutionPreflightResult,
+} from "@/lib/keywordReviewExecutionPreflight";
 
 const classificationLabels: Record<KeywordQueueClassification, string> = {
   auto_apply_candidate: "Auto apply candidate",
@@ -36,6 +42,12 @@ export default function KeywordReviewQueuePage() {
   const [copyStatus, setCopyStatus] = useState("");
   const [payloadPreview, setPayloadPreview] =
     useState<KeywordPayloadPreviewResult | null>(null);
+  const [preflightResult, setPreflightResult] =
+    useState<KeywordExecutionPreflightResult | null>(null);
+  const [allowedMallKeys, setAllowedMallKeys] = useState("");
+  const [maxRows, setMaxRows] = useState("0");
+  const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
+  const [finalConfirmation, setFinalConfirmation] = useState(false);
 
   const counts = useMemo(
     () => ({
@@ -59,6 +71,7 @@ export default function KeywordReviewQueuePage() {
     setRows(createReviewedRows(parsed));
     setCopyStatus("");
     setPayloadPreview(null);
+    setPreflightResult(null);
   }
 
   function updateRow(
@@ -71,6 +84,7 @@ export default function KeywordReviewQueuePage() {
     >,
   ) {
     setPayloadPreview(null);
+    setPreflightResult(null);
     setRows((current) =>
       current.map((row, rowIndex) =>
         rowIndex === index ? { ...row, ...update } : row,
@@ -216,11 +230,294 @@ export default function KeywordReviewQueuePage() {
       <PayloadPreviewSection
         rows={rows}
         result={payloadPreview}
-        onGenerate={() =>
-          setPayloadPreview(buildKeywordShoplingPayloadPreview(rows))
+        onGenerate={() => {
+          setPayloadPreview(buildKeywordShoplingPayloadPreview(rows));
+          setPreflightResult(null);
+        }}
+      />
+      <ExecutionPreflightSection
+        previewResult={payloadPreview}
+        result={preflightResult}
+        allowedMallKeys={allowedMallKeys}
+        maxRows={maxRows}
+        alreadyAppliedGoodsKeys={alreadyAppliedGoodsKeys}
+        finalConfirmation={finalConfirmation}
+        onAllowedMallKeysChange={(value) => {
+          setAllowedMallKeys(value);
+          setPreflightResult(null);
+        }}
+        onMaxRowsChange={(value) => {
+          setMaxRows(value);
+          setPreflightResult(null);
+        }}
+        onAlreadyAppliedGoodsKeysChange={(value) => {
+          setAlreadyAppliedGoodsKeys(value);
+          setPreflightResult(null);
+        }}
+        onFinalConfirmationChange={(value) => {
+          setFinalConfirmation(value);
+          setPreflightResult(null);
+        }}
+        onRun={(config) =>
+          setPreflightResult(
+            buildKeywordExecutionPreflight(
+              {
+                previewResult: payloadPreview!,
+                finalConfirmationText: finalConfirmation
+                  ? config.confirmationText
+                  : "",
+              },
+              config,
+            ),
+          )
         }
       />
     </>
+  );
+}
+
+function parseKeyList(value: string) {
+  return value
+    .split(/[\n,]/)
+    .map((key) => key.trim())
+    .filter(Boolean);
+}
+
+function ExecutionPreflightSection({
+  previewResult,
+  result,
+  allowedMallKeys,
+  maxRows,
+  alreadyAppliedGoodsKeys,
+  finalConfirmation,
+  onAllowedMallKeysChange,
+  onMaxRowsChange,
+  onAlreadyAppliedGoodsKeysChange,
+  onFinalConfirmationChange,
+  onRun,
+}: {
+  previewResult: KeywordPayloadPreviewResult | null;
+  result: KeywordExecutionPreflightResult | null;
+  allowedMallKeys: string;
+  maxRows: string;
+  alreadyAppliedGoodsKeys: string;
+  finalConfirmation: boolean;
+  onAllowedMallKeysChange: (value: string) => void;
+  onMaxRowsChange: (value: string) => void;
+  onAlreadyAppliedGoodsKeysChange: (value: string) => void;
+  onFinalConfirmationChange: (value: boolean) => void;
+  onRun: (
+    config: typeof DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+  ) => void;
+}) {
+  const config = {
+    ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+    allowedMallKeys: parseKeyList(allowedMallKeys),
+    maxRows: Math.max(0, Number.parseInt(maxRows, 10) || 0),
+    alreadyAppliedGoodsKeys: parseKeyList(alreadyAppliedGoodsKeys),
+  };
+  const executionPlan = result
+    ? exportKeywordExecutionPlan(result, config)
+    : "";
+  const allItems = result
+    ? [...result.eligibleItems, ...result.blockedItems].sort(
+        (left, right) => left.source_row_index - right.source_row_index,
+      )
+    : [];
+
+  return (
+    <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 p-4 sm:p-5">
+        <h2 className="font-semibold text-slate-950">Execution Preflight</h2>
+        <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-900">
+          Preview only. This does not execute Shopling API updates.
+        </div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <label className="text-xs font-semibold text-slate-600">
+            Allowed mall keys
+            <textarea
+              value={allowedMallKeys}
+              onChange={(event) => onAllowedMallKeysChange(event.target.value)}
+              className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs font-normal text-slate-900"
+              placeholder="one mall_key per line or comma-separated"
+            />
+            <span className="mt-1 block font-normal">
+              Leave allowedMallKeys empty to block all rows.
+            </span>
+          </label>
+          <label className="text-xs font-semibold text-slate-600">
+            Already-applied goods keys
+            <textarea
+              value={alreadyAppliedGoodsKeys}
+              onChange={(event) =>
+                onAlreadyAppliedGoodsKeysChange(event.target.value)
+              }
+              className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs font-normal text-slate-900"
+              placeholder="one goods_key per line or comma-separated"
+            />
+            <span className="mt-1 block font-normal">
+              Already-applied goods_key examples can be entered here to prevent
+              re-execution.
+            </span>
+          </label>
+        </div>
+        <label className="mt-4 block max-w-xs text-xs font-semibold text-slate-600">
+          Maximum rows
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={maxRows}
+            onChange={(event) => onMaxRowsChange(event.target.value)}
+            className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"
+          />
+          <span className="mt-1 block font-normal">
+            maxRows must be greater than 0 to allow any row.
+          </span>
+        </label>
+        <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={finalConfirmation}
+            onChange={(event) =>
+              onFinalConfirmationChange(event.target.checked)
+            }
+            className="mt-1"
+          />
+          <span>
+            {DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG.confirmationText}
+          </span>
+        </label>
+        <button
+          type="button"
+          disabled={!previewResult}
+          onClick={() => onRun(config)}
+          className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          Run preflight check
+        </button>
+      </div>
+
+      {!result ? (
+        <p className="p-8 text-center text-sm text-slate-500">
+          Generate the payload/XML preview, configure the fail-closed guards,
+          and run the preflight check.
+        </p>
+      ) : (
+        <div className="p-4 sm:p-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard label="Eligible" value={result.summary.eligibleCount} />
+            <SummaryCard label="Blocked" value={result.summary.blockedCount} />
+            <SummaryCard
+              label="Already applied blocked"
+              value={result.summary.alreadyAppliedBlockedCount}
+            />
+            <SummaryCard
+              label="Mall key blocked"
+              value={result.summary.mallKeyBlockedCount}
+            />
+            <SummaryCard
+              label="Duplicate goods keys"
+              value={result.summary.duplicateGoodsKeyCount}
+            />
+            <StatusCard
+              label="Max rows exceeded"
+              value={result.summary.maxRowsExceeded}
+            />
+            <StatusCard
+              label="Final confirmation required"
+              value={result.summary.requiresFinalConfirmation}
+            />
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">goods_key</th>
+                  <th className="px-3 py-2">mall_key</th>
+                  <th className="px-3 py-2">Final title</th>
+                  <th className="px-3 py-2">Final site_srch</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Block reasons</th>
+                  <th className="px-3 py-2">Warnings</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {allItems.map((item) => (
+                  <tr key={`${item.source_row_index}-${item.goods_key}`}>
+                    <td className="px-3 py-3 align-top">
+                      {item.goods_key || "—"}
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      {item.mall_key || "—"}
+                    </td>
+                    <td className="max-w-xs px-3 py-3 align-top">
+                      {item.final_title || "—"}
+                    </td>
+                    <td className="max-w-sm px-3 py-3 align-top">
+                      {item.final_site_srch || "—"}
+                    </td>
+                    <td
+                      className={`px-3 py-3 align-top font-semibold ${
+                        item.preflight_status === "eligible"
+                          ? "text-emerald-700"
+                          : "text-red-700"
+                      }`}
+                    >
+                      {item.preflight_status}
+                    </td>
+                    <td className="min-w-56 px-3 py-3 align-top text-xs">
+                      {item.block_reasons.join(", ") || "—"}
+                    </td>
+                    <td className="min-w-56 px-3 py-3 align-top text-xs">
+                      {item.preflight_warnings.join(" ") || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <label
+            htmlFor="execution-plan-json"
+            className="mt-5 block text-xs font-semibold text-slate-600"
+          >
+            Preview-only execution plan JSON
+          </label>
+          <textarea
+            id="execution-plan-json"
+            readOnly
+            value={executionPlan}
+            className="mt-1.5 min-h-64 w-full rounded-lg border border-slate-300 bg-slate-950 p-3 font-mono text-xs text-slate-100"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                void navigator.clipboard.writeText(executionPlan)
+              }
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              Copy execution plan JSON
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                downloadText(
+                  "keyword-execution-plan-preview.json",
+                  executionPlan,
+                  "application/json",
+                )
+              }
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              Download execution plan JSON
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -438,6 +735,23 @@ function SummaryCard({ label, value }: { label: string; value: number }) {
         {label}
       </p>
       <p className="mt-2 text-2xl font-bold text-slate-950">{value}</p>
+    </article>
+  );
+}
+
+function StatusCard({ label, value }: { label: string; value: boolean }) {
+  return (
+    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <p
+        className={`mt-2 text-lg font-bold ${
+          value ? "text-red-700" : "text-emerald-700"
+        }`}
+      >
+        {value ? "Yes" : "No"}
+      </p>
     </article>
   );
 }
