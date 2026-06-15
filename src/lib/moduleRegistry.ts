@@ -86,7 +86,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     outputType: "reviewed keyword approval data",
     historySupport: false,
     externalProject: true,
-    note: "Initial review queue only. No live Shopling API execution. History support is future/planned.",
+    note: "Includes approved-row payload/XML preview only. No live Shopling API execution. History support is future/planned.",
   },
   {
     id: "detail-page-engine",

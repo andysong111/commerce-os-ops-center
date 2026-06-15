@@ -10,6 +10,11 @@ import {
   type ReviewedKeywordRow,
 } from "@/lib/keywordReviewQueue";
 import { KEYWORD_REVIEW_QUEUE_SAMPLE_CSV } from "@/lib/keywordReviewQueueSample";
+import {
+  buildKeywordShoplingPayloadPreview,
+  exportKeywordPayloadPreview,
+  type KeywordPayloadPreviewResult,
+} from "@/lib/keywordReviewPayloadPreview";
 
 const classificationLabels: Record<KeywordQueueClassification, string> = {
   auto_apply_candidate: "Auto apply candidate",
@@ -29,6 +34,8 @@ export default function KeywordReviewQueuePage() {
   const [summaryMarkdown, setSummaryMarkdown] = useState("");
   const [rows, setRows] = useState<ReviewedKeywordRow[]>([]);
   const [copyStatus, setCopyStatus] = useState("");
+  const [payloadPreview, setPayloadPreview] =
+    useState<KeywordPayloadPreviewResult | null>(null);
 
   const counts = useMemo(
     () => ({
@@ -51,6 +58,7 @@ export default function KeywordReviewQueuePage() {
     ];
     setRows(createReviewedRows(parsed));
     setCopyStatus("");
+    setPayloadPreview(null);
   }
 
   function updateRow(
@@ -62,6 +70,7 @@ export default function KeywordReviewQueuePage() {
       >
     >,
   ) {
+    setPayloadPreview(null);
     setRows((current) =>
       current.map((row, rowIndex) =>
         rowIndex === index ? { ...row, ...update } : row,
@@ -203,7 +212,185 @@ export default function KeywordReviewQueuePage() {
           </div>
         )}
       </section>
+
+      <PayloadPreviewSection
+        rows={rows}
+        result={payloadPreview}
+        onGenerate={() =>
+          setPayloadPreview(buildKeywordShoplingPayloadPreview(rows))
+        }
+      />
     </>
+  );
+}
+
+function downloadText(filename: string, text: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function PayloadPreviewSection({
+  rows,
+  result,
+  onGenerate,
+}: {
+  rows: ReviewedKeywordRow[];
+  result: KeywordPayloadPreviewResult | null;
+  onGenerate: () => void;
+}) {
+  const approvedCount = rows.filter(
+    (row) => row.reviewStatus === "approved",
+  ).length;
+
+  return (
+    <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 p-4 sm:p-5">
+        <h2 className="font-semibold text-slate-950">
+          Generate payload/XML preview
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Validate approved rows and create a proposed Shopling title and
+          site_srch update preview.
+        </p>
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+          This is preview only. No Shopling API execution is performed.
+        </div>
+        <button
+          type="button"
+          disabled={approvedCount === 0}
+          onClick={onGenerate}
+          className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          Generate payload/XML preview
+        </button>
+      </div>
+
+      {!result ? (
+        <p className="p-8 text-center text-sm text-slate-500">
+          Approve at least one reviewed row, then generate a non-executing
+          preview.
+        </p>
+      ) : (
+        <div className="p-4 sm:p-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard label="Approved rows" value={result.summary.approvedCount} />
+            <SummaryCard
+              label="Preview-ready rows"
+              value={result.summary.previewReadyCount}
+            />
+            <SummaryCard label="Invalid rows" value={result.summary.invalidCount} />
+            <SummaryCard
+              label="Blocked / risk excluded"
+              value={result.summary.blockedRiskCount}
+            />
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Keys</th>
+                  <th className="px-3 py-2">Final title</th>
+                  <th className="px-3 py-2">Final site_srch</th>
+                  <th className="px-3 py-2">Validation</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {result.items.map((item) => (
+                  <tr key={`${item.source_row_index}-${item.goods_key}`}>
+                    <td className="px-3 py-3 align-top">
+                      <strong>{item.goods_key || "—"}</strong>
+                      <br />
+                      <span className="text-xs text-slate-500">
+                        {item.mall_key || "—"}
+                      </span>
+                    </td>
+                    <td className="max-w-xs px-3 py-3 align-top">
+                      {item.final_title || "—"}
+                    </td>
+                    <td className="max-w-sm px-3 py-3 align-top">
+                      {item.final_site_srch || "—"}
+                    </td>
+                    <td className="min-w-64 px-3 py-3 align-top">
+                      <strong
+                        className={
+                          item.payload_status === "preview_ready"
+                            ? "text-emerald-700"
+                            : "text-red-700"
+                        }
+                      >
+                        {item.payload_status.replaceAll("_", " ")}
+                      </strong>
+                      {[...item.validation_errors, ...item.validation_warnings].map(
+                        (message) => (
+                          <p key={message} className="mt-1 text-xs text-slate-600">
+                            {message}
+                          </p>
+                        ),
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <label
+            htmlFor="payload-xml-preview"
+            className="mt-5 block text-xs font-semibold text-slate-600"
+          >
+            Preview XML
+          </label>
+          <textarea
+            id="payload-xml-preview"
+            readOnly
+            value={result.previewXml}
+            className="mt-1.5 min-h-64 w-full rounded-lg border border-slate-300 bg-slate-950 p-3 font-mono text-xs text-slate-100"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                void navigator.clipboard.writeText(result.previewXml)
+              }
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              Copy preview XML
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                downloadText(
+                  "keyword-shopling-preview.xml",
+                  result.previewXml,
+                  "application/xml",
+                )
+              }
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              Download preview XML
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                downloadText(
+                  "keyword-shopling-preview.json",
+                  exportKeywordPayloadPreview(result),
+                  "application/json",
+                )
+              }
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              Download preview JSON
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
