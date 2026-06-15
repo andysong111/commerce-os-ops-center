@@ -6,6 +6,8 @@ import {
   parseProductMasterCsv,
   validateProductMasterImport,
 } from "../src/lib/productMasterImportExport.ts";
+import { importProductMasterItemsToTemporaryStorage } from "../src/lib/productMasterImport.ts";
+import { createInMemoryProductMasterStorage } from "../src/lib/productMasterStore.ts";
 
 test("parses English headers, trims whitespace, and ignores empty rows", () => {
   const rows = parseProductMasterCsv(`model_no, model_name, option_name, barcodeNo, madeIn, display_name, note
@@ -135,4 +137,67 @@ test("exports stable Product Master CSV and JSON shapes", () => {
     displayName: "Sample Product · Blue",
     memo: 'memo "quoted"',
   }]);
+});
+
+test("imports only valid new records into temporary storage and exports them", () => {
+  const storage = createInMemoryProductMasterStorage([{
+    id: "existing",
+    modelNo: "EXISTING",
+    modelName: "Original",
+    optionName: "",
+    displayName: "Original",
+  }]);
+  const preview = validateProductMasterImport(parseProductMasterCsv(
+    `modelNo,modelName,optionName,barcode,origin,displayName,memo
+NEW001,New Product,Blue,123,KOREA,New Product Blue,
+EXISTING,Replacement,,,KOREA,Replacement,
+DUP,Duplicate one,,,KOREA,Duplicate one,
+dup,Duplicate two,,,KOREA,Duplicate two,
+,Invalid,,,KOREA,Invalid,`,
+  ));
+
+  const result = importProductMasterItemsToTemporaryStorage(preview, storage);
+
+  assert.deepEqual(result, {
+    importedCount: 1,
+    skippedCount: 4,
+    skippedExistingModelNos: ["EXISTING"],
+    errors: [],
+    totalAttempted: 5,
+  });
+  assert.equal(storage.findByModelNo("NEW001")?.barcode, "123");
+  assert.equal(storage.findByModelNo("EXISTING")?.modelName, "Original");
+  assert.equal(storage.findByModelNo("DUP"), undefined);
+  assert.match(exportProductMasterCsv(storage.list()), /NEW001,New Product/);
+  assert.ok(
+    JSON.parse(exportProductMasterJson(storage.list()))
+      .some((item) => item.modelNo === "NEW001"),
+  );
+});
+
+test("reports storage errors without counting failed records as imported", () => {
+  const storage = createInMemoryProductMasterStorage([{
+    id: "colliding-id",
+    modelNo: "OTHER",
+    modelName: "Other",
+    optionName: "",
+    displayName: "Other",
+  }]);
+  const preview = validateProductMasterImport([{
+    modelNo: "COLLIDE",
+    modelName: "Collision",
+    optionName: "id",
+    barcode: "",
+    origin: "KOREA",
+    displayName: "Collision",
+    memo: "",
+  }]);
+  preview.validItems[0].id = "colliding-id";
+
+  const result = importProductMasterItemsToTemporaryStorage(preview, storage);
+
+  assert.equal(result.importedCount, 0);
+  assert.equal(result.skippedCount, 1);
+  assert.equal(result.totalAttempted, 1);
+  assert.match(result.errors[0], /already exists/);
 });
