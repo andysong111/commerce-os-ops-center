@@ -66,7 +66,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Keyword Engine Runner",
     navigationLabel: "키워드 엔진 실행기",
     description:
-      "Future direct execution module for running Keyword Engine dry-runs from Commerce OS OPS CENTER. Currently, run the keyword engine outside this app and import results into the review queue.",
+      "Preparing future direct dry-run execution for Keyword Engine. Current usable workflow remains the review queue: import keyword-engine artifacts, then review, edit, approve, and export.",
     status: "preparing",
     route: null,
     category: "Sales content automation",
@@ -82,7 +82,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Keyword Review / Approval Queue",
     navigationLabel: "키워드 검토/승인 큐",
     description:
-      "Upload or paste Keyword Engine MVP outputs, review auto/manual/blocked rows, edit keywords, approve rows, and prepare safe previews.",
+      "Current usable workflow for imported keyword-engine artifacts: upload or paste outputs, review auto/manual/blocked rows, edit keywords, approve rows, and export safe previews.",
     status: "available",
     route: "/keyword-review-queue",
     category: "keyword",
@@ -98,7 +98,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Detail Page Engine Runner",
     navigationLabel: "상세페이지 엔진 실행기",
     description:
-      "Future direct execution module for running product-detail-page-auto from Commerce OS OPS CENTER. Currently, run the engine outside this app and import generated artifacts into the preview/review module.",
+      "Preparing future direct generation execution for product-detail-page-auto. Current usable workflow remains the draft review page: import detail-page artifacts, then preview, review, and export.",
     status: "preparing",
     route: null,
     category: "detail-page",
@@ -114,7 +114,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Detail Page Draft Review / Preview",
     navigationLabel: "상세페이지 초안 검토/미리보기",
     description:
-      "Import Detail Page Engine MVP outputs, preview generated HTML, inspect render reports, and mark drafts as final candidates.",
+      "Current usable workflow for imported detail-page artifacts: import Detail Page Engine MVP outputs, preview generated HTML, inspect render reports, review status, and export.",
     status: "available",
     route: "/detail-page-draft-review",
     category: "detail-page",

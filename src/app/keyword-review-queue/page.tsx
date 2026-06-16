@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ChangeEvent } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { createEngineArtifactReviewSummary } from "@/lib/engineArtifactReview";
 import {
   createReviewedRows,
   exportReviewedQueue,
@@ -33,6 +34,11 @@ const classificationStyles: Record<KeywordQueueClassification, string> = {
   manual_review: "bg-amber-50 text-amber-700",
   blocked_risk: "bg-red-50 text-red-700",
 };
+
+const reviewSummary = createEngineArtifactReviewSummary({
+  source: "keyword-engine-soon",
+  statuses: ["imported", "needs_review", "preview_ready", "export_ready", "execution_disabled"],
+});
 
 export default function KeywordReviewQueuePage() {
   const [approvalCsv, setApprovalCsv] = useState("");
@@ -110,11 +116,9 @@ export default function KeywordReviewQueuePage() {
         description="Import Keyword Engine MVP dry-run outputs, classify them conservatively, and prepare user-reviewed approval data."
       />
 
-      <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-        <strong>Review foundation only.</strong> Live Shopling API execution and
-        real product keyword updates are not available. This page only parses,
-        previews, edits, and exports local review data.
-      </div>
+      <EngineSafetyBanner />
+
+      <WhatThisPageDoes />
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="font-semibold text-slate-950">Import dry-run outputs</h2>
@@ -273,6 +277,50 @@ export default function KeywordReviewQueuePage() {
         }
       />
     </>
+  );
+}
+
+function EngineSafetyBanner() {
+  return (
+    <section className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+      <h2 className="font-semibold">Engine Artifact Review safety status</h2>
+      <p className="mt-1">
+        This page reviews imported external engine outputs only. No external
+        engine is executed from this page, no Shopling API call is made, and no
+        production publishing occurs.
+      </p>
+      <p className="mt-1">
+        Human approval is required before any future execution. Safety flags:
+        externalEngineExecution={String(reviewSummary.safetyFlags.externalEngineExecution)},
+        previewOnly={String(reviewSummary.safetyFlags.previewOnly)}.
+      </p>
+    </section>
+  );
+}
+
+function WhatThisPageDoes() {
+  return (
+    <section className="mb-6 grid gap-4 lg:grid-cols-2">
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
+        <h2 className="font-semibold">What this page does</h2>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>Imports keyword-engine dry-run CSV/Markdown outputs.</li>
+          <li>Classifies rows for conservative review.</li>
+          <li>Allows human review and edits.</li>
+          <li>Generates preview/export artifacts.</li>
+          <li>Prepares safe execution intent where already implemented.</li>
+        </ul>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+        <h2 className="font-semibold text-slate-950">What this page does not do</h2>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>Does not run keyword-engine-soon directly.</li>
+          <li>Does not call the Shopling API.</li>
+          <li>Does not auto-apply keywords.</li>
+          <li>Does not write to external systems.</li>
+        </ul>
+      </div>
+    </section>
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ChangeEvent } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { createEngineArtifactReviewSummary } from "@/lib/engineArtifactReview";
 import {
   exportReviewedDetailPageDraft,
   parseDetailPageDraftReview,
@@ -42,6 +43,11 @@ const reviewStatusLabels: Record<ReviewStatus, string> = {
   needs_manual_edit: "Mark as needs manual edit",
   hold_reject: "Hold / reject",
 };
+
+const reviewSummary = createEngineArtifactReviewSummary({
+  source: "product-detail-page-auto",
+  statuses: ["imported", "needs_review", "preview_ready", "export_ready", "execution_disabled"],
+});
 
 export default function DetailPageDraftReviewPage() {
   const [productCode, setProductCode] = useState("BATH001");
@@ -95,9 +101,9 @@ export default function DetailPageDraftReviewPage() {
         description="Import Detail Page Engine MVP outputs, preview generated HTML, inspect render reports, and mark drafts as final candidates."
       />
 
-      <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-        <strong>Imported artifacts only.</strong> This module reviews imported artifacts only. It does not run 1688 collection, AI image generation, or external APIs.
-      </div>
+      <EngineSafetyBanner />
+
+      <WhatThisPageDoes />
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="font-semibold text-slate-950">Import product-detail-page-auto artifacts</h2>
@@ -120,6 +126,53 @@ export default function DetailPageDraftReviewPage() {
 
       {result ? <ReviewResult result={result} reviewStatus={reviewStatus} setReviewStatus={setReviewStatus} memo={memo} setMemo={setMemo} exportText={exportText} copyStatus={copyStatus} setCopyStatus={setCopyStatus} /> : null}
     </>
+  );
+}
+
+function EngineSafetyBanner() {
+  return (
+    <section className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+      <h2 className="font-semibold">Engine Artifact Review safety status</h2>
+      <p className="mt-1">
+        This page reviews imported external engine outputs only. No external
+        engine is executed from this page, no Shopling API call is made, and no
+        production publishing occurs.
+      </p>
+      <p className="mt-1">
+        Human approval is required before any future execution. Safety flags:
+        externalEngineExecution={String(reviewSummary.safetyFlags.externalEngineExecution)},
+        previewOnly={String(reviewSummary.safetyFlags.previewOnly)}.
+      </p>
+    </section>
+  );
+}
+
+function WhatThisPageDoes() {
+  return (
+    <section className="mb-6 grid gap-4 lg:grid-cols-2">
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
+        <h2 className="font-semibold">What this page does</h2>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>Imports detailpage_final.html.</li>
+          <li>Imports render report JSON.</li>
+          <li>Imports multi-source summary JSON.</li>
+          <li>Shows sandboxed preview.</li>
+          <li>Allows human review memo/status.</li>
+          <li>Exports reviewed draft artifact.</li>
+        </ul>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+        <h2 className="font-semibold text-slate-950">What this page does not do</h2>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>Does not run product-detail-page-auto directly.</li>
+          <li>Does not call 1688.</li>
+          <li>Does not call OpenAI.</li>
+          <li>Does not generate images.</li>
+          <li>Does not publish product pages.</li>
+          <li>Does not upload to sales channels.</li>
+        </ul>
+      </div>
+    </section>
   );
 }
 
