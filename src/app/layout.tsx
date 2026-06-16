@@ -4,8 +4,8 @@ import { AppShell } from "@/components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "commerce-os",
-  description: "온라인 셀러를 위한 운영 자동화 SaaS",
+  title: "Commerce OS OPS CENTER",
+  description: "Operations center for product sourcing, review, approval, and fulfillment workflows.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

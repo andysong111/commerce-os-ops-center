@@ -1,25 +1,54 @@
-# commerce-os
+# Commerce OS OPS CENTER
 
-온라인 셀러와 수입 사업자를 위한 운영 자동화 SaaS의 초기 MVP입니다.
+Commerce OS OPS CENTER is the operational UI for product sourcing, review, approval, and fulfillment workflows. It coordinates product master work, freight barcode PDFs, keyword review/approval, detail page draft review, and future execution preparation without changing live external systems.
 
-현재 제공 기능:
+## Current modules
 
-- 중국주문 원가계산
-- 운임 그룹별 중국 내륙운송비 배부
-- 옵션별 CNY/KRW 최종 매입 원가 계산
+- Product Master: manages product and option records for operational workflows.
+- Freight Barcode PDF: creates freight forwarding barcode/origin label work request PDFs.
+- Keyword Review / Approval Queue: currently usable imported-artifact workflow for reviewing Keyword Engine dry-run outputs, editing rows, approving data, and preparing safe previews.
+- Keyword Engine Runner: future direct execution module; the engine is currently run outside this app and imported into the review queue.
+- Detail Page Draft Review / Preview: currently usable imported-artifact workflow for reviewing generated detail page HTML/JSON artifacts.
+- Detail Page Engine Runner: future direct execution module; the engine is currently run outside this app and imported into the preview/review module.
+- China Order Cost Calculator: allocates China domestic shipping and calculates option-level purchase costs.
 
-## 실행
+## Repository role
+
+### commerce-os-ops-center
+
+- operational UI
+- review/approval
+- previews
+- safe execution preparation
+- business workflows
+
+### dev-command-center
+
+- development command UI
+- PR/repo coordination
+- developer workflow
+
+### keyword-engine-soon
+
+- keyword generation and SearchAd validation engine
+
+### product-detail-page-auto
+
+- detail page generation engine
+
+## Running locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-브라우저에서 `http://localhost:3000`을 엽니다.
+Open `http://localhost:3000` in a browser.
 
-## 검증
+## Verification
 
 ```bash
+npm test
 npm run lint
 npm run build
 ```

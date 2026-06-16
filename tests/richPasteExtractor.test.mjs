@@ -146,7 +146,7 @@ test("leaves unmatched items empty and preserves a manually entered imageUrl", (
 test("prioritizes a local image before selected, manual, pasted, and Product Master images", () => {
   const item = {
     ...baseItems[0],
-    localImageUrl: "blob:https://commerce-os.local/local-image",
+    localImageUrl: "blob:https://commerce-os-ops-center.local/local-image",
     selectedImageCandidateUrl: "https://selected.example/image.jpg",
     imageUrl: "https://manual.example/image.jpg",
     pastedImageUrl: "https://pasted.example/image.jpg",
@@ -197,12 +197,12 @@ test("does not auto-assign image candidates marked as failed", () => {
 
 test("accepts browser-local clipboard image object URLs", () => {
   const candidates = createClipboardImageCandidates([
-    { url: "blob:https://commerce-os.local/image-1", type: "image/png", name: "clipboard.png" },
-    { url: "blob:https://commerce-os.local/text-1", type: "text/plain", name: "not-image.txt" },
+    { url: "blob:https://commerce-os-ops-center.local/image-1", type: "image/png", name: "clipboard.png" },
+    { url: "blob:https://commerce-os-ops-center.local/text-1", type: "text/plain", name: "not-image.txt" },
     { url: "https://example.com/image.jpg", type: "image/jpeg", name: "remote.jpg" },
   ]);
 
   assert.equal(candidates.length, 1);
-  assert.equal(candidates[0].url, "blob:https://commerce-os.local/image-1");
+  assert.equal(candidates[0].url, "blob:https://commerce-os-ops-center.local/image-1");
   assert.equal(candidates[0].sourceType, "clipboard-file");
 });

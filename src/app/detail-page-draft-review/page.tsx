@@ -102,7 +102,7 @@ export default function DetailPageDraftReviewPage() {
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="font-semibold text-slate-950">Import product-detail-page-auto artifacts</h2>
         <p className="mt-1 text-sm leading-6 text-slate-600">
-          Run the external engine outside Commerce OS, then paste or upload detailpage_final.html, detailpage_render_report.json, multi_source_summary.json, and an optional generated_source file list.
+          Run the external engine outside Commerce OS OPS CENTER, then paste or upload detailpage_final.html, detailpage_render_report.json, multi_source_summary.json, and an optional generated_source file list.
         </p>
         <label className="mt-4 block text-xs font-semibold text-slate-600" htmlFor="product-code">product_code</label>
         <input id="product-code" value={productCode} onChange={(event) => setProductCode(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 p-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
