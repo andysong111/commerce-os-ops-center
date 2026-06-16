@@ -114,7 +114,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Detail Page Draft Review / Preview",
     navigationLabel: "상세페이지 초안 검토/미리보기",
     description:
-      "Current usable workflow for imported detail-page artifacts: import Detail Page Engine MVP outputs, preview generated HTML, inspect render reports, review status, and export.",
+      "Current usable workflow for imported detail-page artifacts: import Detail Page Engine MVP outputs, preview generated HTML, inspect render reports, mark drafts with review status, and export.",
     status: "available",
     route: "/detail-page-draft-review",
     category: "detail-page",
