@@ -111,10 +111,10 @@ function Brand({ compact = false }: { compact?: boolean }) {
           <p
             className={`font-bold tracking-tight ${compact ? "text-slate-900" : "text-white"}`}
           >
-            commerce-os
+            Commerce OS OPS
           </p>
           {!compact && (
-            <p className="mt-0.5 text-xs text-slate-500">Seller operations</p>
+            <p className="mt-0.5 text-xs text-slate-500">OPS CENTER</p>
           )}
         </div>
       </div>

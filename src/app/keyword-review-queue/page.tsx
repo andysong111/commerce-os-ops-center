@@ -119,7 +119,7 @@ export default function KeywordReviewQueuePage() {
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="font-semibold text-slate-950">Import dry-run outputs</h2>
         <p className="mt-1 text-sm leading-6 text-slate-600">
-          Run the Keyword Engine outside Commerce OS, then paste or upload its
+          Run the Keyword Engine outside Commerce OS OPS CENTER, then paste or upload its
           approval sheet and optional manual candidates CSV. Summary Markdown
           is retained on this page for reviewer context only.
         </p>

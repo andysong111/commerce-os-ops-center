@@ -66,7 +66,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Keyword Engine Runner",
     navigationLabel: "키워드 엔진 실행기",
     description:
-      "Future module for running Keyword Engine dry-runs directly from Commerce OS. Currently, run the keyword engine outside Commerce OS and import results into the review queue.",
+      "Future direct execution module for running Keyword Engine dry-runs from Commerce OS OPS CENTER. Currently, run the keyword engine outside this app and import results into the review queue.",
     status: "preparing",
     route: null,
     category: "Sales content automation",
@@ -74,7 +74,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     outputType: "Organized keyword sets",
     historySupport: false,
     externalProject: true,
-    note: "This is being developed separately in the keyword-engine-soon repository. Commerce OS should not execute it yet.",
+    note: "This is being developed separately in the keyword-engine-soon repository. Commerce OS OPS CENTER should not execute it yet.",
     helperNote: "Future direct dry-run execution",
   },
   {
@@ -98,7 +98,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Detail Page Engine Runner",
     navigationLabel: "상세페이지 엔진 실행기",
     description:
-      "Future module for running product-detail-page-auto directly from Commerce OS. Currently, run the engine outside Commerce OS and import the generated artifacts into the preview/review module.",
+      "Future direct execution module for running product-detail-page-auto from Commerce OS OPS CENTER. Currently, run the engine outside this app and import generated artifacts into the preview/review module.",
     status: "preparing",
     route: null,
     category: "detail-page",
@@ -106,7 +106,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     outputType: "Detail page plans and sales copy",
     historySupport: false,
     externalProject: true,
-    note: "This is being developed separately in the product-detail-page-auto repository. Commerce OS should not execute it yet.",
+    note: "This is being developed separately in the product-detail-page-auto repository. Commerce OS OPS CENTER should not execute it yet.",
     helperNote: "Future direct engine execution",
   },
   {
