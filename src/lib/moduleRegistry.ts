@@ -1,4 +1,4 @@
-export type ModuleStatus = "available" | "preparing" | "disabled";
+export type ModuleStatus = "available" | "preparing" | "runner_scaffold" | "disabled";
 
 export type CommerceModule = {
   id: string;
@@ -66,16 +66,16 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Keyword Engine Runner",
     navigationLabel: "키워드 엔진 실행기",
     description:
-      "Preparing future direct dry-run execution for Keyword Engine. Current usable workflow remains the review queue: import keyword-engine artifacts, then review, edit, approve, and export.",
-    status: "preparing",
-    route: null,
+      "Dispatch keyword-engine dry-run workflows and review generated artifacts in OPS CENTER.",
+    status: "runner_scaffold",
+    route: "/keyword-engine-runner",
     category: "Sales content automation",
     inputType: "Product and sales channel data",
     outputType: "Organized keyword sets",
     historySupport: false,
     externalProject: true,
-    note: "This is being developed separately in the keyword-engine-soon repository. Commerce OS OPS CENTER should not execute it yet.",
-    helperNote: "Future direct dry-run execution",
+    note: "Dispatch scaffold targets the external keyword-engine-soon repository through GitHub Actions only.",
+    helperNote: "Runner scaffold",
   },
   {
     id: "keyword-review-queue",
@@ -98,16 +98,16 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Detail Page Engine Runner",
     navigationLabel: "상세페이지 엔진 실행기",
     description:
-      "Preparing future direct generation execution for product-detail-page-auto. Current usable workflow remains the draft review page: import detail-page artifacts, then preview, review, and export.",
-    status: "preparing",
-    route: null,
+      "Dispatch detail-page generation workflows and review generated artifacts in OPS CENTER.",
+    status: "runner_scaffold",
+    route: "/detail-page-engine-runner",
     category: "detail-page",
     inputType: "Product information",
     outputType: "Detail page plans and sales copy",
     historySupport: false,
     externalProject: true,
-    note: "This is being developed separately in the product-detail-page-auto repository. Commerce OS OPS CENTER should not execute it yet.",
-    helperNote: "Future direct engine execution",
+    note: "Dispatch scaffold targets the external product-detail-page-auto repository through GitHub Actions only.",
+    helperNote: "Runner scaffold",
   },
   {
     id: "detail-page-draft-review",
