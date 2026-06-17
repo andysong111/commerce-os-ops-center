@@ -12,6 +12,15 @@ const statusPresentation = {
     action: "Open module →",
     actionClassName: "text-blue-600",
   },
+  runner_scaffold: {
+    badge: "Runner scaffold",
+    badgeClassName: "bg-blue-50 text-blue-700",
+    cardClassName:
+      "border-blue-200 hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md",
+    iconClassName: "bg-blue-50 text-blue-700",
+    action: "Open runner →",
+    actionClassName: "text-blue-600",
+  },
   preparing: {
     badge: "Preparing",
     badgeClassName: "bg-amber-50 text-amber-700",
@@ -72,7 +81,10 @@ function ModuleCard({
   index: number;
 }) {
   const presentation = statusPresentation[module.status];
-  const href = module.status === "available" ? module.route : null;
+  const href =
+    (module.status === "available" || module.status === "runner_scaffold") && module.route
+      ? module.route
+      : null;
   const card = (
     <article
       className={`group h-full rounded-xl border bg-white p-5 shadow-sm transition ${presentation.cardClassName}`}
