@@ -20,9 +20,14 @@ export const engineRunnerConfigs = [
     label: "Keyword Engine Runner",
     provider: "github_actions",
     repo: "andysong111/andysong111-keyword-engine-soon",
+    repoOwner: "andysong111",
+    repoName: "andysong111-keyword-engine-soon",
     intendedWorkflowFile: "keyword-engine-runner.yml",
+    workflowName: "Keyword Engine Runner",
     supportedModes: ["dry_run"],
     outputReviewRoute: "/keyword-review-queue",
+    actionsUrl: "https://github.com/andysong111/andysong111-keyword-engine-soon/actions/workflows/keyword-engine-runner.yml",
+    expectedArtifactName: "keyword-engine-mvp-output",
     expectedArtifacts: [
       "keyword_mvp_approval_sheet.csv",
       "keyword_mvp_manual_candidates.csv",
@@ -35,9 +40,14 @@ export const engineRunnerConfigs = [
     label: "Detail Page Engine Runner",
     provider: "github_actions",
     repo: "andysong111/product-detail-page-auto",
+    repoOwner: "andysong111",
+    repoName: "product-detail-page-auto",
     intendedWorkflowFile: "detail-page-engine-runner.yml",
+    workflowName: "Detail Page Engine Runner",
     supportedModes: ["generate_artifacts"],
     outputReviewRoute: "/detail-page-draft-review",
+    actionsUrl: "https://github.com/andysong111/product-detail-page-auto/actions/workflows/detail-page-engine-runner.yml",
+    expectedArtifactName: "detail-page-engine-output",
     expectedArtifacts: [
       "detailpage_final.html",
       "detailpage_render_report.json",
@@ -53,6 +63,50 @@ export function getEngineRunnerConfig(kind: EngineRunnerKind) {
 
 export function isEngineDispatchTokenConfigured() {
   return Boolean(process.env.GITHUB_ENGINE_DISPATCH_TOKEN?.trim());
+}
+
+function trimInputs(inputs: Record<string, string> = {}) {
+  return Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, value.trim()]));
+}
+
+export function mapEngineWorkflowInputs(request: EngineRunnerDispatchInput): Record<string, string> {
+  const inputs = trimInputs(request.inputs);
+
+  if (request.kind === "keyword_engine") {
+    const goodsKey = inputs.goods_key || inputs.goods_keys || "";
+
+    if (!goodsKey) {
+      throw new Error("Keyword Engine dispatch requires goods_key.");
+    }
+
+    return {
+      goods_key: goodsKey,
+      seed_keyword: inputs.seed_keyword || "",
+      mode: request.mode,
+    };
+  }
+
+  if (request.kind === "detail_page_engine") {
+    if (!inputs.product_code) {
+      throw new Error("Detail Page Engine dispatch requires product_code.");
+    }
+
+    if (!inputs.source_link) {
+      throw new Error("Detail Page Engine dispatch requires source_link.");
+    }
+
+    return {
+      product_code: inputs.product_code,
+      source_link: inputs.source_link,
+      source_links: inputs.source_links || "",
+      planning_point: inputs.planning_point || "",
+      option_info: inputs.option_info || "",
+      target: inputs.target || "",
+      mode: request.mode,
+    };
+  }
+
+  throw new Error("Unsupported engine runner kind.");
 }
 
 export function buildEngineDispatchPreview(
@@ -75,10 +129,7 @@ export function buildEngineDispatchPreview(
     repo: config.repo,
     workflowFile: config.intendedWorkflowFile,
     ref: "main",
-    inputs: {
-      mode: request.mode,
-      ...(request.inputs ?? {}),
-    },
+    inputs: mapEngineWorkflowInputs(request),
     safetyFlags: config.safetyFlags,
   };
 }
