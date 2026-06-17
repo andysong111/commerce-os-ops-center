@@ -37,7 +37,18 @@ When this variable is missing, OPS CENTER keeps dispatch safely blocked and retu
 
 OPS CENTER runner buttons now call the server-side `/api/engine-runners/dispatch` route. The route validates the configured runner kind, validates the supported mode, validates required inputs, maps only approved fields, and sends a GitHub REST API `workflow_dispatch` request to the configured external repository workflow.
 
-GitHub `workflow_dispatch` returns HTTP 204 on success and does not return a run id immediately. Open the linked external Actions page to monitor the run. Artifact download and import will be handled in a later PR.
+GitHub `workflow_dispatch` returns HTTP 204 on success and does not return a run id immediately. OPS CENTER keeps the existing success message and tells operators to wait a few seconds, then click **Refresh runs**. The runner pages link to the external Actions page for direct GitHub monitoring.
+
+## Run monitoring and artifact discovery
+
+OPS CENTER can now list recent GitHub Actions workflow runs for the configured external engine workflows through the server-side `/api/engine-runners/runs` route. The route only accepts OPS CENTER runner kinds (`keyword_engine` and `detail_page_engine`) and resolves repository/workflow details from the checked-in runner configs. It does not accept arbitrary client-provided repositories or workflow files.
+
+For each runner, OPS CENTER can detect whether the expected GitHub Actions artifact exists:
+
+- Keyword Engine: `keyword-engine-mvp-output`
+- Detail Page Engine: `detail-page-engine-output`
+
+The run-monitoring API uses `GITHUB_ENGINE_DISPATCH_TOKEN` server-side only, returns safe normalized run/artifact data, and never returns the token to the browser. Full artifact zip download, parsing, persistence, and import into review pages is intentionally left for a later PR.
 
 ## Human review remains required
 

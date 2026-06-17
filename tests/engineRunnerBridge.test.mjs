@@ -10,6 +10,8 @@ import { moduleRegistry } from "../src/lib/moduleRegistry.ts";
 import { GET as getEngineRunners } from "../src/app/api/engine-runners/route.ts";
 import { POST as postDispatchPreview } from "../src/app/api/engine-runners/dispatch-preview/route.ts";
 import { POST as postDispatch } from "../src/app/api/engine-runners/dispatch/route.ts";
+import { GET as getRunnerRuns } from "../src/app/api/engine-runners/runs/route.ts";
+import { listWorkflowRunArtifacts, listWorkflowRuns } from "../src/lib/githubActionsRuns.ts";
 
 test("runner configs include both external repos", () => {
   assert.deepEqual(
@@ -142,6 +144,10 @@ test("Keyword Engine Runner page renders safety banner and expected artifacts", 
   assert.match(page, /does not run local PowerShell/);
   assert.match(page, /does not call Shopling/);
   assert.match(page, /Actions page/);
+  const consoleSource = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
+  assert.match(consoleSource, /Recent GitHub Actions runs/);
+  assert.match(consoleSource, /Refresh runs/);
+  assert.match(consoleSource, /GitHub does not return a run id immediately\. Wait a few seconds, then click Refresh runs\./);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifacts.includes("keyword_mvp_approval_sheet.csv"));
   assert.equal(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifactName, "keyword-engine-mvp-output");
 });
@@ -151,6 +157,9 @@ test("Detail Page Engine Runner page renders safety banner and expected artifact
   assert.match(page, /does not call 1688\/OpenAI from OPS CENTER/);
   assert.match(page, /does not publish pages/);
   assert.match(page, /Actions page/);
+  const consoleSource = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
+  assert.match(consoleSource, /Recent GitHub Actions runs/);
+  assert.match(consoleSource, /Refresh runs/);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifacts.includes("detailpage_final.html"));
   assert.equal(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifactName, "detail-page-engine-output");
 });
@@ -160,12 +169,78 @@ test("Dashboard links point to runner pages", () => {
   assert.equal(moduleRegistry.find((module) => module.id === "detail-page-engine")?.route, "/detail-page-engine-runner");
 });
 
+
+test("run listing API rejects invalid runner kind", async () => {
+  const response = await getRunnerRuns(new Request("http://localhost/api/engine-runners/runs?kind=unknown"));
+  assert.equal(response.status, 400);
+});
+
+test("run listing API returns not_configured when token is missing", async () => {
+  delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  const response = await getRunnerRuns(new Request("http://localhost/api/engine-runners/runs?kind=keyword_engine"));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "not_configured");
+  assert.deepEqual(body.runs, []);
+});
+
+test("run listing client calls the correct workflow runs URL and does not expose token", async () => {
+  const originalFetch = globalThis.fetch;
+  let calledUrl = "";
+  let auth = "";
+  globalThis.fetch = async (url, init) => {
+    calledUrl = String(url);
+    auth = init.headers.Authorization;
+    return Response.json({ workflow_runs: [{ id: 123, name: "Keyword Engine Runner", status: "completed", conclusion: "success", event: "workflow_dispatch", head_branch: "main", head_sha: "abc", created_at: "2026-06-17T00:00:00Z", updated_at: "2026-06-17T00:01:00Z", html_url: "https://github.com/run", run_number: 7, run_attempt: 1 }] });
+  };
+
+  try {
+    const config = engineRunnerConfigs.find((runner) => runner.kind === "keyword_engine");
+    const runs = await listWorkflowRuns({ ...config, token: "secret-test-token", perPage: 10 });
+    assert.equal(calledUrl, "https://api.github.com/repos/andysong111/andysong111-keyword-engine-soon/actions/workflows/keyword-engine-runner.yml/runs?per_page=10");
+    assert.equal(auth, "Bearer secret-test-token");
+    assert.doesNotMatch(JSON.stringify(runs), /secret-test-token/);
+    assert.equal(runs[0].runNumber, 7);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("artifact listing client calls the correct artifacts URL and detects expected names", async () => {
+  const originalFetch = globalThis.fetch;
+  let calledUrl = "";
+  globalThis.fetch = async (url) => {
+    calledUrl = String(url);
+    return Response.json({ artifacts: [{ id: 456, name: "detail-page-engine-output", size_in_bytes: 100, expired: false, created_at: "2026-06-17T00:00:00Z", updated_at: "2026-06-17T00:01:00Z", archive_download_url: "https://api.github.com/artifact.zip" }] });
+  };
+
+  try {
+    const config = engineRunnerConfigs.find((runner) => runner.kind === "detail_page_engine");
+    const artifacts = await listWorkflowRunArtifacts({ ...config, token: "secret-test-token" }, 123);
+    assert.equal(calledUrl, "https://api.github.com/repos/andysong111/product-detail-page-auto/actions/runs/123/artifacts");
+    assert.equal(artifacts[0].expected, true);
+    assert.equal(artifacts[0].archiveDownloadUrlAvailable, true);
+    assert.doesNotMatch(JSON.stringify(artifacts), /secret-test-token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("expected artifact names are detected for both engines", async () => {
+  assert.equal(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifactName, "keyword-engine-mvp-output");
+  assert.equal(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifactName, "detail-page-engine-output");
+});
+
 test("No local shell execution utility is introduced", async () => {
   const files = [
     "../src/lib/engineRunnerConfig.ts",
     "../src/app/api/engine-runners/dispatch/route.ts",
     "../src/app/api/engine-runners/dispatch-preview/route.ts",
     "../src/lib/githubActionsDispatch.ts",
+    "../src/lib/githubActionsRuns.ts",
+    "../src/app/api/engine-runners/runs/route.ts",
+    "../src/components/engine-runners/EngineRunnerConsole.tsx",
   ];
 
   for (const file of files) {
