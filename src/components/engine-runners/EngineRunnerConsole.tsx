@@ -4,6 +4,13 @@ import Link from "next/link";
 import { useState } from "react";
 import type { EngineRunnerConfig, EngineRunnerMode } from "@/lib/engineRunnerTypes";
 
+type DispatchResult = {
+  repo: string;
+  workflowFile: string;
+  actionsUrl: string;
+  expectedArtifactName: string;
+};
+
 type Field = {
   name: string;
   label: string;
@@ -26,6 +33,7 @@ export function EngineRunnerConsole({
 }) {
   const [preview, setPreview] = useState<string>("");
   const [message, setMessage] = useState<string>("");
+  const [dispatchResult, setDispatchResult] = useState<DispatchResult | null>(null);
 
   const collectPayload = (form: HTMLFormElement) => {
     const formData = new FormData(form);
@@ -39,6 +47,7 @@ export function EngineRunnerConsole({
 
   const postRunnerRequest = async (endpoint: string, form: HTMLFormElement) => {
     setMessage("");
+    setDispatchResult(null);
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -52,7 +61,12 @@ export function EngineRunnerConsole({
     }
 
     setPreview(JSON.stringify(data, null, 2));
-    setMessage(endpoint.endsWith("dispatch-preview") ? "Dispatch preview generated." : "Dispatch request accepted.");
+    if (endpoint.endsWith("dispatch-preview")) {
+      setMessage("Dispatch preview generated.");
+      return;
+    }
+    setDispatchResult(data);
+    setMessage("Dispatch requested");
   };
 
   return (
@@ -67,6 +81,10 @@ export function EngineRunnerConsole({
           <p className="mt-1 text-sm text-slate-600">
             Dispatch target: {config.repo} / {config.intendedWorkflowFile}
           </p>
+          <p className="mt-1 text-sm text-slate-600">
+            Actions page: <Link className="font-semibold text-blue-700 underline" href={config.actionsUrl}>{config.actionsUrl}</Link>
+          </p>
+          <p className="mt-1 text-xs text-slate-500">GitHub accepts dispatch requests without returning a run id immediately. Open the Actions page to monitor the run. Artifact import will be added in a later PR.</p>
         </div>
 
         <form
@@ -141,6 +159,7 @@ export function EngineRunnerConsole({
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Expected artifacts after run</h2>
+        <p className="mt-2 text-sm font-medium text-slate-700">Artifact name: {config.expectedArtifactName}</p>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
           {config.expectedArtifacts.map((artifact) => (
             <li key={artifact}>{artifact}</li>
@@ -149,6 +168,16 @@ export function EngineRunnerConsole({
       </section>
 
       {message ? <p className="text-sm font-medium text-slate-700">{message}</p> : null}
+      {dispatchResult ? (
+        <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">
+          <h2 className="font-semibold">Dispatch requested</h2>
+          <p>External repo: {dispatchResult.repo}</p>
+          <p>Workflow file: {dispatchResult.workflowFile}</p>
+          <p>Expected artifact name: {dispatchResult.expectedArtifactName}</p>
+          <p>Next step: open {reviewButtonLabel} after artifacts are ready.</p>
+          <Link className="font-semibold text-blue-700 underline" href={String(dispatchResult.actionsUrl)}>Open external repo Actions page</Link>
+        </section>
+      ) : null}
       {preview ? (
         <pre className="overflow-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">{preview}</pre>
       ) : null}

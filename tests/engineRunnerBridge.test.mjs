@@ -53,13 +53,81 @@ test("dispatch route blocks when token is missing", async () => {
   const response = await postDispatch(
     new Request("http://localhost/api/engine-runners/dispatch", {
       method: "POST",
-      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts" }),
+      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { product_code: "BATH001", source_link: "https://example.com" } }),
     }),
   );
   const body = await response.json();
 
   assert.equal(response.status, 501);
   assert.equal(body.message, "GitHub Actions dispatch is not configured yet.");
+});
+
+
+test("dispatch route rejects invalid runner kind", async () => {
+  const response = await postDispatch(
+    new Request("http://localhost/api/engine-runners/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ kind: "unknown", mode: "dry_run", inputs: { goods_key: "BATH001" } }),
+    }),
+  );
+
+  assert.equal(response.status, 400);
+});
+
+test("dispatch route rejects invalid mode", async () => {
+  const response = await postDispatch(
+    new Request("http://localhost/api/engine-runners/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ kind: "keyword_engine", mode: "generate_artifacts", inputs: { goods_key: "BATH001" } }),
+    }),
+  );
+
+  assert.equal(response.status, 400);
+});
+
+test("dispatch route maps keyword inputs correctly", async () => {
+  process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const response = await postDispatch(new Request("http://localhost/api/engine-runners/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ kind: "keyword_engine", mode: "dry_run", inputs: { goods_keys: "BATH001", seed_keyword: "bath towel" } }),
+    }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(requestBody.inputs, { goods_key: "BATH001", seed_keyword: "bath towel", mode: "dry_run" });
+    assert.doesNotMatch(JSON.stringify(await response.json()), /secret-test-token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  }
+});
+
+test("dispatch route maps detail page inputs correctly", async () => {
+  process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const response = await postDispatch(new Request("http://localhost/api/engine-runners/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { product_code: "BATH001", source_link: "https://example.com/1", source_links: "https://example.com/2", planning_point: "premium", option_info: "blue", target: "shop" } }),
+    }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(requestBody.inputs, { product_code: "BATH001", source_link: "https://example.com/1", source_links: "https://example.com/2", planning_point: "premium", option_info: "blue", target: "shop", mode: "generate_artifacts" });
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  }
 });
 
 test("dispatch preview validates mode", () => {
@@ -73,14 +141,18 @@ test("Keyword Engine Runner page renders safety banner and expected artifacts", 
   const page = await readFile(new URL("../src/app/keyword-engine-runner/page.tsx", import.meta.url), "utf8");
   assert.match(page, /does not run local PowerShell/);
   assert.match(page, /does not call Shopling/);
+  assert.match(page, /Actions page/);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifacts.includes("keyword_mvp_approval_sheet.csv"));
+  assert.equal(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifactName, "keyword-engine-mvp-output");
 });
 
 test("Detail Page Engine Runner page renders safety banner and expected artifacts", async () => {
   const page = await readFile(new URL("../src/app/detail-page-engine-runner/page.tsx", import.meta.url), "utf8");
   assert.match(page, /does not call 1688\/OpenAI from OPS CENTER/);
   assert.match(page, /does not publish pages/);
+  assert.match(page, /Actions page/);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifacts.includes("detailpage_final.html"));
+  assert.equal(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifactName, "detail-page-engine-output");
 });
 
 test("Dashboard links point to runner pages", () => {
@@ -93,6 +165,7 @@ test("No local shell execution utility is introduced", async () => {
     "../src/lib/engineRunnerConfig.ts",
     "../src/app/api/engine-runners/dispatch/route.ts",
     "../src/app/api/engine-runners/dispatch-preview/route.ts",
+    "../src/lib/githubActionsDispatch.ts",
   ];
 
   for (const file of files) {

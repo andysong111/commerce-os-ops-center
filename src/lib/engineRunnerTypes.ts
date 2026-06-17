@@ -28,9 +28,14 @@ export type EngineRunnerConfig = {
   label: string;
   provider: EngineRunnerProvider;
   repo: string;
+  repoOwner: string;
+  repoName: string;
   intendedWorkflowFile: string;
+  workflowName: string;
   supportedModes: readonly EngineRunnerMode[];
   outputReviewRoute: string;
+  actionsUrl: string;
+  expectedArtifactName: string;
   expectedArtifacts: readonly string[];
   safetyFlags: EngineRunnerSafetyFlags;
 };
