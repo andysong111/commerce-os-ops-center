@@ -61,6 +61,8 @@ export function EngineRunnerConsole({
   const [dispatchResult, setDispatchResult] = useState<DispatchResult | null>(null);
   const [runsResult, setRunsResult] = useState<RunsResult | null>(null);
   const [runsLoading, setRunsLoading] = useState(false);
+  const [importingArtifactId, setImportingArtifactId] = useState<number | null>(null);
+  const [artifactImport, setArtifactImport] = useState<{ message: string; reviewRoute?: string } | null>(null);
 
   const collectPayload = (form: HTMLFormElement) => {
     const formData = new FormData(form);
@@ -83,6 +85,52 @@ export function EngineRunnerConsole({
       }
     } finally {
       setRunsLoading(false);
+    }
+  };
+
+  const handoffStorageKey = config.kind === "keyword_engine"
+    ? "opsCenter.keywordEngine.importedArtifact.v1"
+    : "opsCenter.detailPageEngine.importedArtifact.v1";
+  const importButtonLabel = config.kind === "keyword_engine"
+    ? "Import artifact to Keyword Review / Approval Queue"
+    : "Import artifact to Detail Page Draft Review / Preview";
+  const openReviewLabel = config.kind === "keyword_engine"
+    ? "Open Keyword Review / Approval Queue"
+    : "Open Detail Page Draft Review / Preview";
+  const importSafetyText = config.kind === "keyword_engine"
+    ? "Imported artifacts are staged locally in OPS CENTER for human review. Nothing is applied to Shopling."
+    : "Imported artifacts are staged locally in OPS CENTER for human review. Nothing is published.";
+
+  const importArtifact = async (run: RunnerRun, artifact: RunArtifact) => {
+    setArtifactImport(null);
+    setImportingArtifactId(artifact.id);
+    try {
+      const response = await fetch("/api/engine-runners/artifacts/import-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: config.kind, runId: run.id, artifactId: artifact.id }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        setArtifactImport({ message: data.message ?? `Artifact import needs attention: ${(data.missingFiles ?? []).join(", ")}` });
+        return;
+      }
+      const handoffPayload = {
+        kind: data.kind,
+        source: data.source,
+        files: data.files,
+        generatedSourceFiles: data.generatedSourceFiles,
+        importedAt: new Date().toISOString(),
+        notAppliedToShopling: true,
+        notPublished: true,
+        requiresHumanReview: true,
+      };
+      window.sessionStorage.setItem(handoffStorageKey, JSON.stringify(handoffPayload));
+      setArtifactImport({ message: "Artifact imported and staged locally for human review.", reviewRoute: data.reviewRoute });
+    } catch {
+      setArtifactImport({ message: "Artifact import failed before it could be staged." });
+    } finally {
+      setImportingArtifactId(null);
     }
   };
 
@@ -128,7 +176,7 @@ export function EngineRunnerConsole({
           <p className="mt-1 text-sm text-slate-600">
             Actions page: <Link className="font-semibold text-blue-700 underline" href={config.actionsUrl}>{config.actionsUrl}</Link>
           </p>
-          <p className="mt-1 text-xs text-slate-500">GitHub accepts dispatch requests without returning a run id immediately. Open the Actions page to monitor the run. Artifact import will be added in a later PR.</p>
+          <p className="mt-1 text-xs text-slate-500">GitHub accepts dispatch requests without returning a run id immediately. Open the Actions page to monitor the run. Artifacts can now be imported into OPS CENTER review pages for human review.</p>
         </div>
 
         <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
@@ -184,8 +232,11 @@ export function EngineRunnerConsole({
                 {expectedArtifact ? (
                   <div className="mt-1 text-emerald-800">
                     <p>Artifact: {expectedArtifact.name}{expectedArtifact.expired ? " (expired)" : ""}</p>
-                    <p>Artifact import will be added next.</p>
-                    <Link className="font-semibold text-blue-700 underline" href={config.outputReviewRoute}>Next step: {reviewButtonLabel}</Link>
+                    <p>{importSafetyText}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button type="button" disabled={expectedArtifact.expired || importingArtifactId === expectedArtifact.id} onClick={() => importArtifact(run, expectedArtifact)} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">{importingArtifactId === expectedArtifact.id ? "Importing…" : importButtonLabel}</button>
+                      <Link className="font-semibold text-blue-700 underline" href={config.outputReviewRoute}>Next step: {reviewButtonLabel}</Link>
+                    </div>
                   </div>
                 ) : null}
               </article>
@@ -200,6 +251,7 @@ export function EngineRunnerConsole({
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">{config.expectedArtifacts.map((artifact) => <li key={artifact}>{artifact}</li>)}</ul>
       </section>
 
+      {artifactImport ? <p className="text-sm font-medium text-emerald-800">{artifactImport.message} {artifactImport.reviewRoute ? <Link className="ml-2 font-semibold text-blue-700 underline" href={artifactImport.reviewRoute}>{openReviewLabel}</Link> : null}</p> : null}
       {message ? <p className="text-sm font-medium text-slate-700">{message}</p> : null}
       {dispatchResult ? (
         <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">

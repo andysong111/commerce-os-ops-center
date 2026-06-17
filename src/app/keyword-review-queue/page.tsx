@@ -23,6 +23,29 @@ import {
   type KeywordExecutionPreflightResult,
 } from "@/lib/keywordReviewExecutionPreflight";
 
+type ImportedArtifactPayload = {
+  kind: "keyword_engine";
+  source?: { repo?: string; runId?: number; artifactId?: number };
+  files: Record<string, string>;
+  generatedSourceFiles?: string[];
+  requiresHumanReview: true;
+};
+
+function readImportedArtifactHandoff(): ImportedArtifactPayload | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem("opsCenter.keywordEngine.importedArtifact.v1");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ImportedArtifactPayload>;
+    if (parsed.kind === "keyword_engine" && parsed.requiresHumanReview === true && parsed.files) {
+      return parsed as ImportedArtifactPayload;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 const classificationLabels: Record<KeywordQueueClassification, string> = {
   auto_apply_candidate: "Auto apply candidate",
   manual_review: "Manual review",
@@ -54,6 +77,19 @@ export default function KeywordReviewQueuePage() {
   const [maxRows, setMaxRows] = useState("0");
   const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
   const [finalConfirmation, setFinalConfirmation] = useState(false);
+  const [importedArtifact] = useState<ImportedArtifactPayload | null>(() => readImportedArtifactHandoff());
+
+  function loadImportedArtifact() {
+    if (!importedArtifact?.files) return;
+    setApprovalCsv(String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? ""));
+    setManualCsv(String(importedArtifact.files["keyword_mvp_manual_candidates.csv"] ?? ""));
+    setSummaryMarkdown(String(importedArtifact.files["keyword_mvp_summary.md"] ?? ""));
+    setRows([]);
+    setPayloadPreview(null);
+    setPreflightResult(null);
+    setFinalConfirmation(false);
+    setCopyStatus("Imported keyword engine artifact loaded for human review. Nothing was approved or applied.");
+  }
 
   const counts = useMemo(
     () => ({
@@ -119,6 +155,14 @@ export default function KeywordReviewQueuePage() {
       <EngineSafetyBanner />
 
       <WhatThisPageDoes />
+
+      {importedArtifact ? (
+        <section className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 shadow-sm">
+          <h2 className="font-semibold">Imported keyword engine artifact is ready.</h2>
+          <p className="mt-1">The artifact is staged in this browser session only and requires human review. Nothing is applied to Shopling.</p>
+          <button type="button" onClick={loadImportedArtifact} className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Load imported artifact</button>
+        </section>
+      ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="font-semibold text-slate-950">Import dry-run outputs</h2>

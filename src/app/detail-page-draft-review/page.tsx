@@ -10,6 +10,29 @@ import {
   type ReviewStatus,
 } from "@/lib/detailPageDraftReview";
 
+type ImportedArtifactPayload = {
+  kind: "detail_page_engine";
+  source?: { repo?: string; runId?: number; artifactId?: number };
+  files: Record<string, string>;
+  generatedSourceFiles?: string[];
+  requiresHumanReview: true;
+};
+
+function readImportedArtifactHandoff(): ImportedArtifactPayload | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem("opsCenter.detailPageEngine.importedArtifact.v1");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ImportedArtifactPayload>;
+    if (parsed.kind === "detail_page_engine" && parsed.requiresHumanReview === true && parsed.files) {
+      return parsed as ImportedArtifactPayload;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 const BATH001_RENDER_REPORT = `{
   "product_code": "BATH001",
   "rendered_block_count": 12,
@@ -59,6 +82,19 @@ export default function DetailPageDraftReviewPage() {
   const [reviewStatus, setReviewStatus] = useState<ReviewStatus>("needs_manual_edit");
   const [memo, setMemo] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
+  const [importedArtifact] = useState<ImportedArtifactPayload | null>(() => readImportedArtifactHandoff());
+
+  function loadImportedArtifact() {
+    if (!importedArtifact?.files) return;
+    setHtml(String(importedArtifact.files["detailpage_final.html"] ?? ""));
+    setRenderReportText(String(importedArtifact.files["detailpage_render_report.json"] ?? ""));
+    setMultiSourceSummaryText(String(importedArtifact.files["multi_source_summary.json"] ?? ""));
+    setGeneratedSourceListText((importedArtifact.generatedSourceFiles ?? []).join("\n"));
+    setResult(null);
+    setReviewStatus("needs_manual_edit");
+    setMemo("");
+    setCopyStatus("Imported detail page engine artifact loaded for human review. Nothing was published.");
+  }
 
   const exportText = useMemo(() => {
     if (!result) return "";
@@ -104,6 +140,14 @@ export default function DetailPageDraftReviewPage() {
       <EngineSafetyBanner />
 
       <WhatThisPageDoes />
+
+      {importedArtifact ? (
+        <section className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 shadow-sm">
+          <h2 className="font-semibold">Imported detail page engine artifact is ready.</h2>
+          <p className="mt-1">The artifact is staged in this browser session only and requires human review. Nothing is published or uploaded to sales channels.</p>
+          <button type="button" onClick={loadImportedArtifact} className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Load imported artifact</button>
+        </section>
+      ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="font-semibold text-slate-950">Import product-detail-page-auto artifacts</h2>
