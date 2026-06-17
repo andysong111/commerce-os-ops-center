@@ -1,0 +1,165 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import { engineRunnerConfigs } from "../src/lib/engineRunnerConfig.ts";
+import { downloadWorkflowArtifact, extractExpectedArtifactFiles } from "../src/lib/githubActionsArtifacts.ts";
+import { POST as postImportPreview } from "../src/app/api/engine-runners/artifacts/import-preview/route.ts";
+
+function u16(n) { return [n & 255, (n >> 8) & 255]; }
+function u32(n) { return [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >> 24) & 255]; }
+function crc32(bytes) {
+  let crc = -1;
+  for (const b of bytes) {
+    crc ^= b;
+    for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ -1) >>> 0;
+}
+function zip(entries) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  for (const [name, value] of Object.entries(entries)) {
+    const nameBytes = encoder.encode(name);
+    const data = encoder.encode(value);
+    chunks.push(Uint8Array.from([
+      ...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc32(data)), ...u32(data.length), ...u32(data.length), ...u16(nameBytes.length), ...u16(0),
+      ...nameBytes, ...data,
+    ]));
+  }
+  return new Uint8Array(chunks.reduce((n, c) => n + c.length, 0)).map((_, i) => {
+    let offset = 0;
+    for (const c of chunks) {
+      if (i < offset + c.length) return c[i - offset];
+      offset += c.length;
+    }
+    return 0;
+  });
+}
+
+const keywordZip = zip({
+  "keyword_mvp_approval_sheet.csv": "goods_key,title\nBATH001,Towel",
+  "keyword_mvp_manual_candidates.csv": "goods_key,title\nBATH002,Mat",
+  "keyword_mvp_summary.md": "# Summary",
+  "unexpected.txt": "ignore me",
+});
+const detailZip = zip({
+  "detailpage_final.html": "<main>Draft</main>",
+  "detailpage_render_report.json": "{\"product_code\":\"BATH001\"}",
+  "multi_source_summary.json": "{\"sources\":[]}",
+  "generated_source/hero.png": "binary-not-returned",
+});
+
+test("expected keyword files are extracted and unexpected files ignored", () => {
+  const extracted = extractExpectedArtifactFiles("keyword_engine", keywordZip);
+  assert.equal(extracted.files["keyword_mvp_summary.md"], "# Summary");
+  assert.equal(extracted.files["unexpected.txt"], undefined);
+  assert.deepEqual(extracted.missingFiles, []);
+  assert.ok(extracted.skippedFiles.includes("unexpected.txt"));
+});
+
+test("expected detail page files are extracted and generated_source is metadata only", () => {
+  const extracted = extractExpectedArtifactFiles("detail_page_engine", detailZip);
+  assert.equal(extracted.files["detailpage_final.html"], "<main>Draft</main>");
+  assert.equal(extracted.files["generated_source/hero.png"], undefined);
+  assert.deepEqual(extracted.generatedSourceFiles, ["generated_source/hero.png"]);
+});
+
+test("path traversal zip entries are ignored", () => {
+  const extracted = extractExpectedArtifactFiles("keyword_engine", zip({ "../secret.txt": "no", "keyword_mvp_approval_sheet.csv": "ok" }));
+  assert.equal(extracted.files["../secret.txt"], undefined);
+  assert.ok(extracted.skippedFiles.includes("../secret.txt"));
+});
+
+test("oversized files are rejected", () => {
+  assert.throws(() => extractExpectedArtifactFiles("keyword_engine", zip({ "keyword_mvp_approval_sheet.csv": "x".repeat(2 * 1024 * 1024 + 1) })), /safe preview limit/);
+});
+
+test("artifact download uses configured repo only and does not return token", async () => {
+  const originalFetch = globalThis.fetch;
+  let calledUrl = "";
+  globalThis.fetch = async (url) => {
+    calledUrl = String(url);
+    return new Response(keywordZip);
+  };
+  try {
+    const config = engineRunnerConfigs.find((runner) => runner.kind === "keyword_engine");
+    const bytes = await downloadWorkflowArtifact({ ...config, token: "secret-test-token" }, 456);
+    assert.equal(calledUrl, "https://api.github.com/repos/andysong111/andysong111-keyword-engine-soon/actions/artifacts/456/zip");
+    assert.doesNotMatch(JSON.stringify(Array.from(bytes.slice(0, 5))), /secret-test-token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("artifact import rejects invalid runner kind", async () => {
+  const response = await postImportPreview(new Request("http://localhost/api/engine-runners/artifacts/import-preview", { method: "POST", body: JSON.stringify({ kind: "bad", runId: 1, artifactId: 2 }) }));
+  assert.equal(response.status, 400);
+});
+
+test("artifact import returns not_configured when token is missing", async () => {
+  delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  const response = await postImportPreview(new Request("http://localhost/api/engine-runners/artifacts/import-preview", { method: "POST", body: JSON.stringify({ kind: "keyword_engine", runId: 1, artifactId: 2 }) }));
+  const body = await response.json();
+  assert.equal(body.status, "not_configured");
+});
+
+test("artifact import returns normalized payload without token", async () => {
+  process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(keywordZip);
+  try {
+    const response = await postImportPreview(new Request("http://localhost/api/engine-runners/artifacts/import-preview", { method: "POST", body: JSON.stringify({ kind: "keyword_engine", runId: 123, artifactId: 456 }) }));
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.source.repo, "andysong111/andysong111-keyword-engine-soon");
+    assert.equal(body.reviewRoute, "/keyword-review-queue");
+    assert.doesNotMatch(JSON.stringify(body), /secret-test-token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  }
+});
+
+test("artifact import returns 502 JSON error on GitHub artifact download failure", async () => {
+  process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("no", { status: 500 });
+  try {
+    const response = await postImportPreview(new Request("http://localhost/api/engine-runners/artifacts/import-preview", { method: "POST", body: JSON.stringify({ kind: "detail_page_engine", runId: 123, artifactId: 456 }) }));
+    const body = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(body.status, "github_actions_error");
+    assert.doesNotMatch(JSON.stringify(body), /secret-test-token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  }
+});
+
+test("UI source includes artifact import buttons and staged handoff detection", async () => {
+  const runner = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
+  assert.match(runner, /Import artifact to Keyword Review \/ Approval Queue/);
+  assert.match(runner, /Import artifact to Detail Page Draft Review \/ Preview/);
+  assert.match(runner, /sessionStorage\.setItem/);
+  const keywordPage = await readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8");
+  assert.match(keywordPage, /Imported keyword engine artifact is ready/);
+  assert.match(keywordPage, /setFinalConfirmation\(false\)/);
+  const detailPage = await readFile(new URL("../src/app/detail-page-draft-review/page.tsx", import.meta.url), "utf8");
+  assert.match(detailPage, /Imported detail page engine artifact is ready/);
+  assert.match(detailPage, /Nothing was published/);
+});
+
+test("safety restrictions remain absent from artifact import implementation", async () => {
+  const files = [
+    "../src/lib/githubActionsArtifacts.ts",
+    "../src/app/api/engine-runners/artifacts/import-preview/route.ts",
+    "../src/components/engine-runners/EngineRunnerConsole.tsx",
+  ];
+  for (const file of files) {
+    const source = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /child_process|powershell|pwsh|spawn\(|exec\(/i);
+    assert.doesNotMatch(source, /\/api\/shopling|api\.1688|openai\.chat|images\.generate/i);
+  }
+});

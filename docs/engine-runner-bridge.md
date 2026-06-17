@@ -57,3 +57,23 @@ Generated artifacts must return to OPS CENTER review routes for human approval b
 ## Safety boundaries
 
 OPS CENTER must not copy external engine implementation logic or run the engines locally. This bridge does not add local PowerShell execution, shell execution helpers, Shopling execution, 1688 calls, OpenAI calls, image generation calls, publishing, sales channel upload, auth, or database persistence.
+
+## Artifact import into review pages
+
+OPS CENTER can now import GitHub Actions artifact zip output from the configured external engine repositories into the existing human review pages:
+
+- Keyword Engine artifacts are staged for `/keyword-review-queue`.
+- Detail Page Engine artifacts are staged for `/detail-page-draft-review`.
+
+The import flow is intentionally temporary and review-only: GitHub Actions artifact zip → server-side download → allowlisted text extraction → browser session handoff → human review in OPS CENTER. No database persistence, Shopling apply, publishing, sales-channel upload, 1688 call, OpenAI call, image generation, local shell execution, or PowerShell execution occurs during import.
+
+`GITHUB_ENGINE_DISPATCH_TOKEN` remains server-side only. The token is used only by API routes when downloading artifacts from the configured external repositories and is never stored in client state or returned in JSON responses.
+
+Artifact extraction uses allowlisted expected filenames only. Unexpected files are ignored, path traversal entries are skipped or rejected, conservative text-size limits are enforced, and generated source image binaries are not loaded into client state. Detail Page Engine `generated_source/` entries are represented only as safe file names for reviewer context.
+
+Future work:
+
+- Persistent run history.
+- Artifact import history.
+- Approval history.
+- Final execution verification.
