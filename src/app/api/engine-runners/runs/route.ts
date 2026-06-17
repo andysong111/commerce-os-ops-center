@@ -25,22 +25,33 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, status: "not_configured", ...basePayload, runs: [] });
   }
 
-  const token = process.env.GITHUB_ENGINE_DISPATCH_TOKEN!.trim();
-  const runs = await listWorkflowRuns({ ...config, token, perPage: 10 });
-  const runsWithArtifacts = await Promise.all(
-    runs.slice(0, 5).map(async (run) => ({
-      ...run,
-      artifacts: await listWorkflowRunArtifacts({ ...config, token }, run.id),
-    })),
-  );
+  try {
+    const token = process.env.GITHUB_ENGINE_DISPATCH_TOKEN!.trim();
+    const runs = await listWorkflowRuns({ ...config, token, perPage: 10 });
+    const runsWithArtifacts = await Promise.all(
+      runs.map(async (run) => ({
+        ...run,
+        artifacts: await listWorkflowRunArtifacts({ ...config, token }, run.id),
+      })),
+    );
 
-  return NextResponse.json({
-    ok: true,
-    status: "ready",
-    ...basePayload,
-    runs: [
-      ...runsWithArtifacts,
-      ...runs.slice(5).map((run) => ({ ...run, artifacts: [] })),
-    ],
-  });
+    return NextResponse.json({
+      ok: true,
+      status: "ready",
+      ...basePayload,
+      runs: runsWithArtifacts,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not load GitHub Actions runs.";
+    return NextResponse.json(
+      {
+        ok: false,
+        status: "github_actions_error",
+        ...basePayload,
+        message,
+        runs: [],
+      },
+      { status: 502 },
+    );
+  }
 }
