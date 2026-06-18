@@ -47,6 +47,7 @@ export async function POST(request: Request) {
     repo: config.repo,
     workflowFile: config.intendedWorkflowFile,
     ref: result.ref,
+    inputs: preview.inputs,
     actionsUrl: config.actionsUrl,
     expectedArtifactName: config.expectedArtifactName,
     expectedArtifacts: config.expectedArtifacts,

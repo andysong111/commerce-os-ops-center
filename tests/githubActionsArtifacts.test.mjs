@@ -140,15 +140,14 @@ test("artifact import returns 502 JSON error on GitHub artifact download failure
 
 test("UI source includes artifact import buttons and staged handoff detection", async () => {
   const runner = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
-  assert.match(runner, /Import artifact to Keyword Review \/ Approval Queue/);
-  assert.match(runner, /Import artifact to Detail Page Draft Review \/ Preview/);
+  assert.match(runner, /결과물 가져오기/);
   assert.match(runner, /sessionStorage\.setItem/);
   const keywordPage = await readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8");
-  assert.match(keywordPage, /Imported keyword engine artifact is ready/);
+  assert.match(keywordPage, /가져온 키워드 엔진 결과물이 준비되었습니다/);
   assert.match(keywordPage, /setFinalConfirmation\(false\)/);
   const detailPage = await readFile(new URL("../src/app/detail-page-draft-review/page.tsx", import.meta.url), "utf8");
-  assert.match(detailPage, /Imported detail page engine artifact is ready/);
-  assert.match(detailPage, /Nothing was published/);
+  assert.match(detailPage, /가져온 상세페이지 결과물이 준비되었습니다/);
+  assert.match(detailPage, /자동 게시하지 않습니다/);
 });
 
 test("safety restrictions remain absent from artifact import implementation", async () => {

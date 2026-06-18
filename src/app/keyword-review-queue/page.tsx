@@ -88,7 +88,7 @@ export default function KeywordReviewQueuePage() {
     setPayloadPreview(null);
     setPreflightResult(null);
     setFinalConfirmation(false);
-    setCopyStatus("Imported keyword engine artifact loaded for human review. Nothing was approved or applied.");
+    setCopyStatus("가져온 키워드 엔진 결과물을 검토용으로 불러왔습니다. 자동 반영은 하지 않습니다. 검토 후 승인해야 합니다.");
   }
 
   const counts = useMemo(
@@ -158,9 +158,9 @@ export default function KeywordReviewQueuePage() {
 
       {importedArtifact ? (
         <section className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 shadow-sm">
-          <h2 className="font-semibold">Imported keyword engine artifact is ready.</h2>
-          <p className="mt-1">The artifact is staged in this browser session only and requires human review. Nothing is applied to Shopling.</p>
-          <button type="button" onClick={loadImportedArtifact} className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Load imported artifact</button>
+          <h2 className="font-semibold">가져온 키워드 엔진 결과물이 준비되었습니다.</h2>
+          <p className="mt-1">자동 반영은 하지 않습니다. 검토 후 승인해야 합니다.</p>
+          <button type="button" onClick={loadImportedArtifact} className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">가져온 결과물 불러오기</button>
         </section>
       ) : null}
 

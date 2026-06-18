@@ -77,3 +77,10 @@ Future work:
 - Artifact import history.
 - Approval history.
 - Final execution verification.
+
+## Korean-friendly operation notes
+
+- 키워드 엔진은 `goods_key`만으로 실행할 수 있습니다.
+- `seed_keyword`는 선택 입력이며, 비워두면 외부 키워드 엔진이 `goods_key` 기준으로 상품 정보를 읽어 검토용 결과물을 생성합니다.
+- 상세페이지 엔진은 운영자가 1688 상품 링크만 입력해도 OPS CENTER가 `DP-YYYYMMDD-HHMMSS` 형식의 임시 `product_code`를 자동 생성해 기존 외부 workflow에 전달합니다.
+- 결과물은 OPS CENTER의 검토 화면으로 가져오지만, 키워드는 자동 반영하지 않고 상세페이지도 자동 게시하지 않습니다. 항상 사람이 검토한 뒤 사용해야 합니다.

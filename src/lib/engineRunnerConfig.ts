@@ -17,7 +17,7 @@ export const ENGINE_RUNNER_SAFETY_FLAGS = {
 export const engineRunnerConfigs = [
   {
     kind: "keyword_engine",
-    label: "Keyword Engine Runner",
+    label: "키워드 엔진 실행기",
     provider: "github_actions",
     repo: "andysong111/andysong111-keyword-engine-soon",
     repoOwner: "andysong111",
@@ -37,7 +37,7 @@ export const engineRunnerConfigs = [
   },
   {
     kind: "detail_page_engine",
-    label: "Detail Page Engine Runner",
+    label: "상세페이지 엔진 실행기",
     provider: "github_actions",
     repo: "andysong111/product-detail-page-auto",
     repoOwner: "andysong111",
@@ -69,6 +69,11 @@ function trimInputs(inputs: Record<string, string> = {}) {
   return Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, value.trim()]));
 }
 
+export function generateDetailPageProductCode(now = new Date()) {
+  const compact = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "");
+  return `DP-${compact.slice(0, 8)}-${compact.slice(9, 15)}`;
+}
+
 export function mapEngineWorkflowInputs(request: EngineRunnerDispatchInput): Record<string, string> {
   const inputs = trimInputs(request.inputs);
 
@@ -87,16 +92,12 @@ export function mapEngineWorkflowInputs(request: EngineRunnerDispatchInput): Rec
   }
 
   if (request.kind === "detail_page_engine") {
-    if (!inputs.product_code) {
-      throw new Error("Detail Page Engine dispatch requires product_code.");
-    }
-
     if (!inputs.source_link) {
       throw new Error("Detail Page Engine dispatch requires source_link.");
     }
 
     return {
-      product_code: inputs.product_code,
+      product_code: inputs.product_code || generateDetailPageProductCode(),
       source_link: inputs.source_link,
       source_links: inputs.source_links || "",
       planning_point: inputs.planning_point || "",

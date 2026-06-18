@@ -19,7 +19,7 @@ export type CommerceModule = {
 export const moduleRegistry: readonly CommerceModule[] = [
   {
     id: "china-order-cost",
-    title: "China Order Cost Calculator",
+    title: "중국주문 원가계산",
     navigationLabel: "중국주문 원가계산",
     description:
       "Allocates China domestic shipping costs by quantity for each freight group.",
@@ -34,7 +34,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
   {
     id: "product-master",
-    title: "Product Master",
+    title: "상품 마스터",
     navigationLabel: "상품 마스터",
     description: "Manage products and option information in one place.",
     status: "available",
@@ -48,7 +48,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
   {
     id: "freight-barcode-pdf",
-    title: "Freight Barcode PDF Generator",
+    title: "배대지 바코드 PDF 생성기",
     navigationLabel: "배대지 바코드 PDF 생성기",
     description:
       "Parses freight forwarding application text and creates barcode/origin label work request PDFs.",
@@ -63,7 +63,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
   {
     id: "keyword-engine",
-    title: "Keyword Engine Runner",
+    title: "키워드 엔진 실행기",
     navigationLabel: "키워드 엔진 실행기",
     description:
       "Dispatch keyword-engine dry-run workflows and review generated artifacts in OPS CENTER.",
@@ -79,7 +79,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
   {
     id: "keyword-review-queue",
-    title: "Keyword Review / Approval Queue",
+    title: "키워드 검토/승인 큐",
     navigationLabel: "키워드 검토/승인 큐",
     description:
       "Current usable workflow for imported keyword-engine artifacts: upload or paste outputs, review auto/manual/blocked rows, edit keywords, approve rows, and export safe previews.",
@@ -95,7 +95,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
   {
     id: "detail-page-engine",
-    title: "Detail Page Engine Runner",
+    title: "상세페이지 엔진 실행기",
     navigationLabel: "상세페이지 엔진 실행기",
     description:
       "Dispatch detail-page generation workflows and review generated artifacts in OPS CENTER.",
@@ -111,8 +111,8 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
   {
     id: "detail-page-draft-review",
-    title: "Detail Page Draft Review / Preview",
-    navigationLabel: "상세페이지 초안 검토/미리보기",
+    title: "상세페이지 검토/미리보기",
+    navigationLabel: "상세페이지 검토/미리보기",
     description:
       "Current usable workflow for imported detail-page artifacts: import Detail Page Engine MVP outputs, preview generated HTML, inspect render reports, mark drafts with review status, and export.",
     status: "available",

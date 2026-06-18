@@ -50,12 +50,49 @@ test("dispatch preview returns previewOnly true", async () => {
   assert.equal(body.repo, "andysong111/andysong111-keyword-engine-soon");
 });
 
+test("keyword preview allows goods_key only and maps empty seed keyword", async () => {
+  const response = await postDispatchPreview(
+    new Request("http://localhost/api/engine-runners/dispatch-preview", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "keyword_engine",
+        mode: "dry_run",
+        inputs: { goods_keys: "BATH001", seed_keyword: "" },
+      }),
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.inputs, { goods_key: "BATH001", seed_keyword: "", mode: "dry_run" });
+});
+
+test("detail preview allows source_link only and auto-generates product_code", async () => {
+  const response = await postDispatchPreview(
+    new Request("http://localhost/api/engine-runners/dispatch-preview", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "detail_page_engine",
+        mode: "generate_artifacts",
+        inputs: { source_link: "https://detail.1688.com/offer/1.html" },
+      }),
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.inputs.source_link, "https://detail.1688.com/offer/1.html");
+  assert.match(body.inputs.product_code, /^DP-\d{8}-\d{6}$/);
+  assert.equal(body.inputs.source_links, "");
+  assert.equal(body.inputs.planning_point, "");
+});
+
 test("dispatch route blocks when token is missing", async () => {
   delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
   const response = await postDispatch(
     new Request("http://localhost/api/engine-runners/dispatch", {
       method: "POST",
-      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { product_code: "BATH001", source_link: "https://example.com" } }),
+      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { source_link: "https://example.com" } }),
     }),
   );
   const body = await response.json();
@@ -99,11 +136,36 @@ test("dispatch route maps keyword inputs correctly", async () => {
   try {
     const response = await postDispatch(new Request("http://localhost/api/engine-runners/dispatch", {
       method: "POST",
-      body: JSON.stringify({ kind: "keyword_engine", mode: "dry_run", inputs: { goods_keys: "BATH001", seed_keyword: "bath towel" } }),
+      body: JSON.stringify({ kind: "keyword_engine", mode: "dry_run", inputs: { goods_keys: "BATH001", seed_keyword: "" } }),
     }));
     assert.equal(response.status, 200);
-    assert.deepEqual(requestBody.inputs, { goods_key: "BATH001", seed_keyword: "bath towel", mode: "dry_run" });
+    assert.deepEqual(requestBody.inputs, { goods_key: "BATH001", seed_keyword: "", mode: "dry_run" });
     assert.doesNotMatch(JSON.stringify(await response.json()), /secret-test-token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  }
+});
+
+test("dispatch route maps source_link-only detail input with generated product_code", async () => {
+  process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const response = await postDispatch(new Request("http://localhost/api/engine-runners/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { source_link: "https://example.com/only" } }),
+    }));
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.match(requestBody.inputs.product_code, /^DP-\d{8}-\d{6}$/);
+    assert.equal(requestBody.inputs.source_link, "https://example.com/only");
+    assert.equal(body.inputs.product_code, requestBody.inputs.product_code);
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
@@ -141,25 +203,26 @@ test("dispatch preview validates mode", () => {
 
 test("Keyword Engine Runner page renders safety banner and expected artifacts", async () => {
   const page = await readFile(new URL("../src/app/keyword-engine-runner/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /does not run local PowerShell/);
-  assert.match(page, /does not call Shopling/);
-  assert.match(page, /Actions page/);
+  assert.match(page, /상품번호\(goods_key\)/);
+  assert.match(page, /시드 키워드\(선택\)/);
+  assert.match(page, /Shopling을 호출하지/);
   const consoleSource = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
-  assert.match(consoleSource, /Recent GitHub Actions runs/);
-  assert.match(consoleSource, /Refresh runs/);
-  assert.match(consoleSource, /GitHub does not return a run id immediately\. Wait a few seconds, then click Refresh runs\./);
+  assert.match(consoleSource, /최근 실행 내역/);
+  assert.match(consoleSource, /실행 상태 새로고침/);
+  assert.match(consoleSource, /결과물 가져오기/);
+  assert.match(consoleSource, /seed keyword: \{previewData\.inputs\.seed_keyword \|\| "자동"\}/);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifacts.includes("keyword_mvp_approval_sheet.csv"));
   assert.equal(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifactName, "keyword-engine-mvp-output");
 });
 
 test("Detail Page Engine Runner page renders safety banner and expected artifacts", async () => {
   const page = await readFile(new URL("../src/app/detail-page-engine-runner/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /does not call 1688\/OpenAI from OPS CENTER/);
-  assert.match(page, /does not publish pages/);
-  assert.match(page, /Actions page/);
+  assert.match(page, /1688 상품 링크/);
+  assert.match(page, /상품코드\(선택\)/);
+  assert.match(page, /자동 게시하지 않습니다/);
   const consoleSource = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
-  assert.match(consoleSource, /Recent GitHub Actions runs/);
-  assert.match(consoleSource, /Refresh runs/);
+  assert.match(consoleSource, /최근 실행 내역/);
+  assert.match(consoleSource, /실행 상태 새로고침/);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifacts.includes("detailpage_final.html"));
   assert.equal(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifactName, "detail-page-engine-output");
 });
