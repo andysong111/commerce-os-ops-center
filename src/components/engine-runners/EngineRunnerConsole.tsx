@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { persistGeneratedDetailPageProductCode } from "@/lib/engineRunnerFormState";
 import type { EngineRunnerConfig, EngineRunnerMode } from "@/lib/engineRunnerTypes";
 
 type DispatchResult = {
@@ -151,6 +152,7 @@ export function EngineRunnerConsole({
 
     setPreview(JSON.stringify(data, null, 2));
     if (endpoint.endsWith("dispatch-preview")) {
+      persistGeneratedDetailPageProductCode(config.kind, form, data);
       setMessage("Dispatch preview generated.");
       return;
     }
