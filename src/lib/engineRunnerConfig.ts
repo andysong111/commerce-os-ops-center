@@ -69,6 +69,12 @@ function trimInputs(inputs: Record<string, string> = {}) {
   return Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, value.trim()]));
 }
 
+function generateDetailPageProductCode() {
+  const timestamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `DP-${timestamp}-${suffix}`;
+}
+
 export function mapEngineWorkflowInputs(request: EngineRunnerDispatchInput): Record<string, string> {
   const inputs = trimInputs(request.inputs);
 
@@ -87,16 +93,14 @@ export function mapEngineWorkflowInputs(request: EngineRunnerDispatchInput): Rec
   }
 
   if (request.kind === "detail_page_engine") {
-    if (!inputs.product_code) {
-      throw new Error("Detail Page Engine dispatch requires product_code.");
-    }
+    const productCode = inputs.product_code || generateDetailPageProductCode();
 
     if (!inputs.source_link) {
       throw new Error("Detail Page Engine dispatch requires source_link.");
     }
 
     return {
-      product_code: inputs.product_code,
+      product_code: productCode,
       source_link: inputs.source_link,
       source_links: inputs.source_links || "",
       planning_point: inputs.planning_point || "",

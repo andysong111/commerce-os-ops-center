@@ -248,3 +248,105 @@ test("No local shell execution utility is introduced", async () => {
     assert.doesNotMatch(source, /child_process|powershell|pwsh|exec\(|spawn\(/i);
   }
 });
+
+test("detail page dispatch preview generates a product_code when blank", async () => {
+  const response = await postDispatchPreview(
+    new Request("http://localhost/api/engine-runners/dispatch-preview", {
+      method: "POST",
+      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { product_code: "", source_link: "https://example.com/source" } }),
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.match(body.inputs.product_code, /^DP-\d{14}-[A-Z0-9]{6}$/);
+  assert.equal(body.inputs.source_link, "https://example.com/source");
+});
+
+test("client preserves generated detail page product_code for following dispatch", async () => {
+  const consoleSource = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
+
+  assert.match(consoleSource, /endpoint\.endsWith\("dispatch-preview"\)/);
+  assert.match(consoleSource, /config\.kind === "detail_page_engine" && data\.inputs\?\.product_code/);
+  assert.match(consoleSource, /form\.elements\.namedItem\("product_code"\)/);
+  assert.match(consoleSource, /productCodeField\.value = data\.inputs\.product_code/);
+});
+
+test("detail page dispatch after preview uses the exact generated product_code", async () => {
+  const previewResponse = await postDispatchPreview(
+    new Request("http://localhost/api/engine-runners/dispatch-preview", {
+      method: "POST",
+      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { product_code: "", source_link: "https://example.com/source" } }),
+    }),
+  );
+  const previewBody = await previewResponse.json();
+  const generatedProductCode = previewBody.inputs.product_code;
+
+  process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const response = await postDispatch(new Request("http://localhost/api/engine-runners/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { product_code: generatedProductCode, source_link: "https://example.com/source" } }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.equal(requestBody.inputs.product_code, generatedProductCode);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  }
+});
+
+test("manual detail page product_code overrides generated value", async () => {
+  process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const response = await postDispatch(new Request("http://localhost/api/engine-runners/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { product_code: "CUSTOM-DP-001", source_link: "https://example.com/source" } }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.equal(requestBody.inputs.product_code, "CUSTOM-DP-001");
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  }
+});
+
+test("source_link-only detail page dispatch works when preview is skipped", async () => {
+  process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const response = await postDispatch(new Request("http://localhost/api/engine-runners/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ kind: "detail_page_engine", mode: "generate_artifacts", inputs: { source_link: "https://example.com/source" } }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.match(requestBody.inputs.product_code, /^DP-\d{14}-[A-Z0-9]{6}$/);
+    assert.equal(requestBody.inputs.source_link, "https://example.com/source");
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  }
+});

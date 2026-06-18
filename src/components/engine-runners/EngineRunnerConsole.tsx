@@ -151,6 +151,12 @@ export function EngineRunnerConsole({
 
     setPreview(JSON.stringify(data, null, 2));
     if (endpoint.endsWith("dispatch-preview")) {
+      if (config.kind === "detail_page_engine" && data.inputs?.product_code) {
+        const productCodeField = form.elements.namedItem("product_code");
+        if (productCodeField instanceof HTMLInputElement) {
+          productCodeField.value = data.inputs.product_code;
+        }
+      }
       setMessage("Dispatch preview generated.");
       return;
     }
