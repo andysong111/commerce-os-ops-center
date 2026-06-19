@@ -47,9 +47,9 @@ function readImportedArtifactHandoff(): ImportedArtifactPayload | null {
 }
 
 const classificationLabels: Record<KeywordQueueClassification, string> = {
-  auto_apply_candidate: "Auto apply candidate",
-  manual_review: "Manual review",
-  blocked_risk: "Blocked / risk",
+  auto_apply_candidate: "자동 적용 후보",
+  manual_review: "수동 검토",
+  blocked_risk: "차단 / 위험",
 };
 
 const classificationStyles: Record<KeywordQueueClassification, string> = {
@@ -64,10 +64,14 @@ const reviewSummary = createEngineArtifactReviewSummary({
 });
 
 export default function KeywordReviewQueuePage() {
-  const [approvalCsv, setApprovalCsv] = useState("");
-  const [manualCsv, setManualCsv] = useState("");
-  const [summaryMarkdown, setSummaryMarkdown] = useState("");
-  const [rows, setRows] = useState<ReviewedKeywordRow[]>([]);
+  const [importedArtifact] = useState<ImportedArtifactPayload | null>(() => readImportedArtifactHandoff());
+  const [approvalCsv, setApprovalCsv] = useState(() => String(importedArtifact?.files?.["keyword_mvp_approval_sheet.csv"] ?? ""));
+  const [manualCsv, setManualCsv] = useState(() => String(importedArtifact?.files?.["keyword_mvp_manual_candidates.csv"] ?? ""));
+  const [summaryMarkdown, setSummaryMarkdown] = useState(() => String(importedArtifact?.files?.["keyword_mvp_summary.md"] ?? ""));
+  const [rows, setRows] = useState<ReviewedKeywordRow[]>(() => importedArtifact ? createReviewedRows([
+    ...parseKeywordMvpCsv(String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? "")),
+    ...parseKeywordMvpCsv(String(importedArtifact.files["keyword_mvp_manual_candidates.csv"] ?? "")),
+  ]) : []);
   const [copyStatus, setCopyStatus] = useState("");
   const [payloadPreview, setPayloadPreview] =
     useState<KeywordPayloadPreviewResult | null>(null);
@@ -77,8 +81,6 @@ export default function KeywordReviewQueuePage() {
   const [maxRows, setMaxRows] = useState("0");
   const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
   const [finalConfirmation, setFinalConfirmation] = useState(false);
-  const [importedArtifact] = useState<ImportedArtifactPayload | null>(() => readImportedArtifactHandoff());
-
   function loadImportedArtifact() {
     if (!importedArtifact?.files) return;
     setApprovalCsv(String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? ""));
@@ -88,7 +90,12 @@ export default function KeywordReviewQueuePage() {
     setPayloadPreview(null);
     setPreflightResult(null);
     setFinalConfirmation(false);
-    setCopyStatus("Imported keyword engine artifact loaded for human review. Nothing was approved or applied.");
+    const parsed = [
+      ...parseKeywordMvpCsv(String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? "")),
+      ...parseKeywordMvpCsv(String(importedArtifact.files["keyword_mvp_manual_candidates.csv"] ?? "")),
+    ];
+    setRows(createReviewedRows(parsed));
+    setCopyStatus("키워드 결과물을 가져왔습니다. 검토 목록을 불러왔습니다.");
   }
 
   const counts = useMemo(
@@ -148,8 +155,8 @@ export default function KeywordReviewQueuePage() {
   return (
     <>
       <PageHeader
-        title="Keyword Review Queue"
-        description="Import Keyword Engine MVP dry-run outputs, classify them conservatively, and prepare user-reviewed approval data."
+        title="키워드 검토/승인"
+        description="키워드 엔진 실행 후 가져온 결과물을 검토하고 사람이 승인한 미리보기 데이터를 준비합니다."
       />
 
       <EngineSafetyBanner />
@@ -158,18 +165,16 @@ export default function KeywordReviewQueuePage() {
 
       {importedArtifact ? (
         <section className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 shadow-sm">
-          <h2 className="font-semibold">Imported keyword engine artifact is ready.</h2>
-          <p className="mt-1">The artifact is staged in this browser session only and requires human review. Nothing is applied to Shopling.</p>
-          <button type="button" onClick={loadImportedArtifact} className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Load imported artifact</button>
+          <h2 className="font-semibold">키워드 엔진 결과물이 준비되었습니다.</h2>
+          <p className="mt-1">가져온 키워드를 아래에서 검토하세요. 이 브라우저 세션에만 보관되며 샵플링에 자동 반영되지 않습니다.</p>
+          <button type="button" onClick={loadImportedArtifact} className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">가져온 결과물 불러오기</button>
         </section>
       ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <h2 className="font-semibold text-slate-950">Import dry-run outputs</h2>
+        <h2 className="font-semibold text-slate-950">키워드 엔진 결과물 가져오기</h2>
         <p className="mt-1 text-sm leading-6 text-slate-600">
-          Run the Keyword Engine outside Commerce OS OPS CENTER, then paste or upload its
-          approval sheet and optional manual candidates CSV. Summary Markdown
-          is retained on this page for reviewer context only.
+          일반 흐름은 키워드 엔진 실행기 → 결과물 가져오기 → 키워드 결과 검토입니다. 필요하면 수동으로 CSV를 붙여넣거나 업로드할 수 있습니다. 요약 Markdown은 검토 참고용으로만 보관됩니다.
         </p>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -208,14 +213,14 @@ export default function KeywordReviewQueuePage() {
             onClick={previewQueue}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
           >
-            Parse / Preview Queue
+            검토 목록 만들기
           </button>
           <button
             type="button"
             onClick={() => setApprovalCsv(KEYWORD_REVIEW_QUEUE_SAMPLE_CSV)}
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Load sample CSV
+            샘플 CSV 불러오기
           </button>
         </div>
       </section>
@@ -224,19 +229,18 @@ export default function KeywordReviewQueuePage() {
         className="my-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Queue summary"
       >
-        <SummaryCard label="Auto apply candidates" value={counts.auto} />
-        <SummaryCard label="Manual review" value={counts.manual} />
-        <SummaryCard label="Blocked / risk" value={counts.blocked} />
-        <SummaryCard label="Total rows" value={counts.total} />
+        <SummaryCard label="자동 적용 후보" value={counts.auto} />
+        <SummaryCard label="수동 검토" value={counts.manual} />
+        <SummaryCard label="차단 / 위험" value={counts.blocked} />
+        <SummaryCard label="전체 행 수" value={counts.total} />
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
           <div>
-            <h2 className="font-semibold text-slate-950">Review rows</h2>
+            <h2 className="font-semibold text-slate-950">검토 행</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Only manual rows expose edits. Approval and hold state remains in
-              this browser session and does not trigger execution.
+              수동 검토 행은 수정할 수 있습니다. 승인/보류 상태는 이 브라우저 세션에만 남으며 실행을 유발하지 않습니다.
             </p>
           </div>
           <button
@@ -244,12 +248,12 @@ export default function KeywordReviewQueuePage() {
             disabled={rows.length === 0}
             onClick={() => {
               void navigator.clipboard.writeText(exportText).then(() => {
-                setCopyStatus("Reviewed JSON copied.");
+                setCopyStatus("검토 JSON을 복사했습니다.");
               });
             }}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            Copy reviewed JSON
+            검토 JSON 복사
           </button>
           {copyStatus && (
             <p className="w-full text-right text-xs text-emerald-700">
@@ -260,7 +264,7 @@ export default function KeywordReviewQueuePage() {
 
         {rows.length === 0 ? (
           <p className="p-8 text-center text-sm text-slate-500">
-            Paste or upload CSV data, then parse it to preview the queue.
+            CSV 데이터를 붙여넣거나 업로드한 뒤 검토 목록 만들기를 눌러 주세요.
           </p>
         ) : (
           <div className="divide-y divide-slate-200">
@@ -327,14 +331,12 @@ export default function KeywordReviewQueuePage() {
 function EngineSafetyBanner() {
   return (
     <section className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-      <h2 className="font-semibold">Engine Artifact Review safety status</h2>
+      <h2 className="font-semibold">산출물 검토 안전 상태</h2>
       <p className="mt-1">
-        This page reviews imported external engine outputs only. No external
-        engine is executed from this page, no Shopling API call is made, and no
-        production publishing occurs.
+        이 화면은 외부 키워드 엔진 결과물을 검토만 합니다. 이 화면에서는 키워드 엔진을 직접 실행하지 않고, 샵플링 API를 호출하지 않으며, 상품 정보를 자동 수정하지 않습니다. 사람이 검토/승인해야 다음 단계로 진행할 수 있습니다.
       </p>
       <p className="mt-1">
-        Human approval is required before any future execution. Safety flags:
+        안전 플래그:
         externalEngineExecution={String(reviewSummary.safetyFlags.externalEngineExecution)},
         previewOnly={String(reviewSummary.safetyFlags.previewOnly)}.
       </p>
@@ -346,22 +348,22 @@ function WhatThisPageDoes() {
   return (
     <section className="mb-6 grid gap-4 lg:grid-cols-2">
       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-        <h2 className="font-semibold">What this page does</h2>
+        <h2 className="font-semibold">이 화면에서 하는 일</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>Imports keyword-engine dry-run CSV/Markdown outputs.</li>
-          <li>Classifies rows for conservative review.</li>
-          <li>Allows human review and edits.</li>
-          <li>Generates preview/export artifacts.</li>
-          <li>Prepares safe execution intent where already implemented.</li>
+          <li>키워드 엔진 CSV/Markdown 결과물을 가져옵니다.</li>
+          <li>행을 보수적으로 분류해 검토합니다.</li>
+          <li>사람이 검토하고 수정할 수 있게 합니다.</li>
+          <li>미리보기/내보내기 산출물을 생성합니다.</li>
+          <li>이미 구현된 범위에서 안전한 실행 의도만 준비합니다.</li>
         </ul>
       </div>
       <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-        <h2 className="font-semibold text-slate-950">What this page does not do</h2>
+        <h2 className="font-semibold text-slate-950">이 화면에서 하지 않는 일</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>Does not run keyword-engine-soon directly.</li>
-          <li>Does not call the Shopling API.</li>
-          <li>Does not auto-apply keywords.</li>
-          <li>Does not write to external systems.</li>
+          <li>keyword-engine-soon을 직접 실행하지 않습니다.</li>
+          <li>샵플링 API를 호출하지 않습니다.</li>
+          <li>키워드를 자동 적용하지 않습니다.</li>
+          <li>외부 시스템에 쓰지 않습니다.</li>
         </ul>
       </div>
     </section>
@@ -673,7 +675,7 @@ function PayloadPreviewSection({
             />
             <SummaryCard label="Invalid rows" value={result.summary.invalidCount} />
             <SummaryCard
-              label="Blocked / risk excluded"
+              label="제외된 차단 / 위험"
               value={result.summary.blockedRiskCount}
             />
           </div>

@@ -65,7 +65,18 @@ export async function downloadWorkflowArtifact(
 }
 
 function isSafeEntryName(name: string) {
-  return Boolean(name) && !name.startsWith("/") && !/^[A-Za-z]:/.test(name) && !name.split("/").includes("..");
+  if (!name || name.startsWith("/") || /^[A-Za-z]:/.test(name) || name.includes("\\")) return false;
+  return !name.split("/").some((part) => part === ".." || part === "");
+}
+
+function allowedBasename(entryName: string, allowlist: Set<string>) {
+  const parts = entryName.split("/").filter(Boolean);
+  const basename = parts.at(-1) ?? "";
+  return allowlist.has(basename) ? basename : null;
+}
+
+function unsupportedLayoutMessage(expected: readonly string[]) {
+  return `산출물 ZIP 구조를 읽을 수 없습니다. 예상 파일이 ZIP 안에 있는지 확인해 주세요. 예상 파일: ${expected.join(", ")}`;
 }
 
 function readUInt16(bytes: Uint8Array, offset: number) {
@@ -104,24 +115,31 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
     const dataStart = nameStart + nameLength + extraLength;
     const dataEnd = dataStart + compressedSize;
     if (flags & 0x08 || dataEnd > zipBytes.byteLength) {
-      throw new Error("Unsupported zip entry layout for safe artifact preview.");
+      throw new Error(unsupportedLayoutMessage(expected));
     }
     const entryName = decoder.decode(zipBytes.slice(nameStart, nameStart + nameLength));
     if (!isSafeEntryName(entryName)) {
       skippedFiles.push(entryName || "unsafe-entry");
     } else if (kind === "detail_page_engine" && entryName.startsWith("generated_source/") && !entryName.endsWith("/")) {
       generatedSourceFiles.push(entryName);
-    } else if (allowlist.has(entryName)) {
-      if (uncompressedSize > MAX_TEXT_FILE_BYTES) {
-        throw new Error(`Artifact file ${entryName} is larger than the safe preview limit.`);
+    } else {
+      const basename = allowedBasename(entryName, allowlist);
+      if (basename) {
+        if (Object.hasOwn(files, basename)) {
+          throw new Error("동일한 산출물 파일이 여러 위치에서 발견되었습니다. 안전을 위해 가져오기를 중단했습니다.");
+        }
+        if (uncompressedSize > MAX_TEXT_FILE_BYTES) {
+          throw new Error(`Artifact file ${basename} is larger than the safe preview limit.`);
+        }
+        const inflated = decodeEntry(method, zipBytes.slice(dataStart, dataEnd));
+        if (inflated.byteLength > MAX_TEXT_FILE_BYTES) {
+          throw new Error(`Artifact file ${basename} is larger than the safe preview limit.`);
+        }
+        files[basename] = decoder.decode(inflated);
       }
-      const inflated = decodeEntry(method, zipBytes.slice(dataStart, dataEnd));
-      if (inflated.byteLength > MAX_TEXT_FILE_BYTES) {
-        throw new Error(`Artifact file ${entryName} is larger than the safe preview limit.`);
+      else if (!entryName.endsWith("/")) {
+        skippedFiles.push(entryName);
       }
-      files[entryName] = decoder.decode(inflated);
-    } else if (!entryName.endsWith("/")) {
-      skippedFiles.push(entryName);
     }
     offset = dataEnd;
   }

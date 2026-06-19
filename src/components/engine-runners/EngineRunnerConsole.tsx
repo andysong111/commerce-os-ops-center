@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { persistGeneratedDetailPageProductCode } from "@/lib/engineRunnerFormState";
 import { addEngineRunnerHistoryItem } from "@/lib/engineRunnerHistory";
+import { formatBrowserLocalDateTime } from "@/lib/browserTime";
 import { EngineRunnerHistoryPreview } from "./EngineRunnerHistoryPreview";
 import type { EngineRunnerConfig, EngineRunnerMode } from "@/lib/engineRunnerTypes";
 
@@ -73,7 +74,8 @@ export function EngineRunnerConsole({
   const [runsResult, setRunsResult] = useState<RunsResult | null>(null);
   const [runsLoading, setRunsLoading] = useState(false);
   const [importingArtifactId, setImportingArtifactId] = useState<number | null>(null);
-  const [artifactImport, setArtifactImport] = useState<{ message: string; reviewRoute?: string } | null>(null);
+  const [artifactImport, setArtifactImport] = useState<{ message: string; reviewRoute?: string; summary?: { totalRows: number; autoRows: number; manualRows: number; blockedRows: number } } | null>(null);
+  const [runFilter, setRunFilter] = useState<"all" | "success" | "failure" | "artifact">("all");
 
   const collectPayload = (form: HTMLFormElement) => {
     const formData = new FormData(form);
@@ -104,14 +106,14 @@ export function EngineRunnerConsole({
     : "opsCenter.detailPageEngine.importedArtifact.v1";
   const isKeywordRunner = config.kind === "keyword_engine";
   const operationSummary = isKeywordRunner
-    ? "샵플링 상품코드(goods_key)를 입력하고 키워드 엔진을 실행하세요. 결과물이 생성되면 키워드 검토/승인 큐로 가져와 검토합니다."
+    ? "샵플링 상품코드(goods_key)를 입력하고 키워드 엔진을 실행하세요. 결과물이 생성되면 키워드 검토 단계로 가져와 검토합니다."
     : "1688 상품 링크를 입력하고 상세페이지 엔진을 실행하세요. 상품코드는 비워두면 자동 생성됩니다. 결과물이 생성되면 상세페이지 검토/미리보기로 가져와 확인합니다.";
   const stepLabels = isKeywordRunner
     ? ["상품번호 입력", "키워드 엔진 실행", "결과물 가져와서 검토"]
     : ["1688 링크 입력", "상세페이지 엔진 실행", "결과물 가져와서 검토"];
   const importButtonLabel = "결과물 가져와서 검토하기";
   const openReviewLabel = "검토 화면 열기";
-  const reviewScreenLabel = "검토 화면 열기";
+  const reviewScreenLabel = isKeywordRunner ? "키워드 검토 단계 열기" : "검토 화면 열기";
   const importSafetyText = isKeywordRunner
     ? "가져온 키워드는 샵플링에 자동 반영되지 않습니다. 검토/승인 큐에서 사람이 확인해야 합니다."
     : "가져온 상세페이지는 자동 게시되지 않습니다. 검토/미리보기 화면에서 사람이 확인해야 합니다.";
@@ -119,8 +121,18 @@ export function EngineRunnerConsole({
   const emptyRunsMessage = isKeywordRunner
     ? "아직 실행 내역이 없습니다. 상품번호를 입력하고 키워드 엔진을 실행해 주세요."
     : "아직 실행 내역이 없습니다. 1688 링크를 입력하고 상세페이지 엔진을 실행해 주세요.";
-  const latestRun = runsResult?.runs[0];
+  const prioritizedRuns = runsResult?.runs ? [...runsResult.runs].sort((left, right) => {
+    const score = (run: RunnerRun) => run.artifacts.some((artifact) => artifact.expected) ? 3 : ["in_progress", "queued", "pending"].includes(run.status ?? "") ? 2 : run.status === "completed" && run.conclusion === "failure" ? 1 : 0;
+    return score(right) - score(left);
+  }) : [];
+  const latestRun = prioritizedRuns[0];
   const latestExpectedArtifact = latestRun?.artifacts.find((artifact) => artifact.expected);
+  const filteredRuns = prioritizedRuns.filter((run) => {
+    if (runFilter === "success") return run.status === "completed" && run.conclusion === "success";
+    if (runFilter === "failure") return run.status === "completed" && run.conclusion === "failure";
+    if (runFilter === "artifact") return run.artifacts.some((artifact) => artifact.expected);
+    return true;
+  });
   const activeStep = artifactImport?.reviewRoute ? 4 : latestExpectedArtifact ? 3 : preview || dispatchResult ? 2 : 1;
 
   const importArtifact = async (run: RunnerRun, artifact: RunArtifact) => {
@@ -162,7 +174,14 @@ export function EngineRunnerConsole({
         reviewRoute: data.reviewRoute,
         status: "imported",
       });
-      setArtifactImport({ message: "산출물을 가져와 검수용으로 보관했습니다.", reviewRoute: data.reviewRoute });
+      const countCsvRows = (value: unknown) => Math.max(0, String(value ?? "").split("\n").filter((line) => line.trim()).length - 1);
+      const autoRows = countCsvRows(data.files?.["keyword_mvp_approval_sheet.csv"]);
+      const manualRows = countCsvRows(data.files?.["keyword_mvp_manual_candidates.csv"]);
+      setArtifactImport({
+        message: isKeywordRunner ? "키워드 결과물을 가져왔습니다. 검토 목록을 불러왔습니다." : "산출물을 가져와 검수용으로 보관했습니다.",
+        reviewRoute: data.reviewRoute,
+        summary: isKeywordRunner ? { totalRows: autoRows + manualRows, autoRows, manualRows, blockedRows: 0 } : undefined,
+      });
     } catch {
       setArtifactImport({ message: "산출물을 검수용으로 보관하기 전에 가져오기에 실패했습니다." });
     } finally {
@@ -274,7 +293,7 @@ export function EngineRunnerConsole({
             {dispatchResult && !latestExpectedArtifact ? <button type="button" onClick={refreshRuns} disabled={runsLoading} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">{runsLoading ? "확인 중…" : "실행 결과 확인하기"}</button> : null}
             {artifactImport?.reviewRoute ? <Link href={artifactImport.reviewRoute} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">{reviewScreenLabel}</Link> : null}
             {preview ? <button type="button" onClick={(event) => postRunnerRequest("/api/engine-runners/dispatch-preview", event.currentTarget.form!)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">입력값 다시 확인</button> : null}
-            <Link href={config.outputReviewRoute} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">{reviewScreenLabel}</Link>
+            {!artifactImport?.reviewRoute ? <span className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-500">아직 가져온 결과물이 없습니다. 먼저 결과물을 가져와 주세요.</span> : null}
           </div>
         </form>
       </section>
@@ -287,22 +306,24 @@ export function EngineRunnerConsole({
           </div>
           <button type="button" onClick={refreshRuns} disabled={runsLoading} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">{runsLoading ? "확인 중…" : "실행 결과 확인하기"}</button>
         </div>
-        {latestExpectedArtifact ? <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">결과물이 준비되었습니다. 아래 버튼을 눌러 검토 화면으로 가져오세요.</p> : null}
-        {latestRun?.status === "completed" && latestRun.conclusion === "failure" ? <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">엔진 실행이 실패했습니다. 자세한 실행 로그를 확인해 주세요.</p> : null}
+        <p className="mt-2 text-xs font-medium text-slate-500">표시 시간은 현재 브라우저 시간대 기준입니다.</p>
+        <div className="mt-3 flex flex-wrap gap-2">{[{label:"전체",value:"all"},{label:"성공",value:"success"},{label:"실패",value:"failure"},{label:"결과물 있음",value:"artifact"}].map((option) => <button key={option.value} type="button" onClick={() => setRunFilter(option.value as typeof runFilter)} className={`rounded-full px-3 py-1 text-xs font-semibold ${runFilter === option.value ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"}`}>{option.label}</button>)}</div>
+        {latestExpectedArtifact ? <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">가져올 결과물이 준비되었습니다. 아래 버튼을 눌러 검토 단계로 가져오세요.</p> : null}
+        {latestRun?.status === "completed" && latestRun.conclusion === "failure" ? <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">이 실행은 실패했습니다. 같은 상품을 다시 실행할 수 있으며, 이전 실패 이력은 결과물 가져오기에 영향을 주지 않습니다.</p> : null}
         {runsResult?.status === "not_configured" ? <p className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">GitHub Actions 실행 모니터링이 아직 설정되지 않았습니다.</p> : null}
         {runsResult && runsResult.runs.length === 0 ? <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600">{emptyRunsMessage}</p> : null}
         <div className="mt-4 space-y-3">
-          {runsResult?.runs.map((run) => {
+          {filteredRuns.map((run) => {
             const expectedArtifact = run.artifacts.find((artifact) => artifact.expected);
             return (
               <article key={run.id} className="rounded-lg border border-slate-200 p-4 text-sm text-slate-700">
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
                   <span><strong>{describeRunStatus(run.status, run.conclusion)}</strong></span>
-                  <span>생성: {run.createdAt}</span>
+                  <span>생성: {formatBrowserLocalDateTime(run.createdAt)}</span>
                   <Link className="font-semibold text-blue-700 underline" href={run.htmlUrl}>자세한 실행 로그 보기</Link>
                 </div>
-                <p className={`mt-2 font-medium ${expectedArtifact ? "text-emerald-800" : "text-slate-600"}`}>{expectedArtifact ? "결과물이 준비되었습니다" : "아직 가져올 결과물이 없습니다"}</p>
-                {!expectedArtifact ? <p className="mt-1 text-slate-500">엔진 실행이 끝나기 전에는 결과물이 보이지 않을 수 있습니다. 잠시 후 다시 확인해 주세요.</p> : null}
+                <p className={`mt-2 font-medium ${expectedArtifact ? "text-emerald-800" : "text-slate-600"}`}>{expectedArtifact ? "가져올 결과물이 준비되었습니다" : run.status === "completed" && run.conclusion === "failure" ? "이전 실패 이력" : "아직 가져올 결과물이 없습니다"}</p>
+                {!expectedArtifact ? <p className="mt-1 text-slate-500">{run.status === "completed" && run.conclusion === "failure" ? "이 실행은 실패했습니다. 같은 상품을 다시 실행할 수 있으며, 이전 실패 이력은 결과물 가져오기에 영향을 주지 않습니다." : "엔진 실행이 끝나기 전에는 결과물이 보이지 않을 수 있습니다. 잠시 후 다시 확인해 주세요."}</p> : null}
                 {expectedArtifact ? (
                   <div className="mt-1 text-emerald-800">
                     <p>산출물: {expectedArtifact.name}{expectedArtifact.expired ? " (만료됨)" : ""}</p>
@@ -319,7 +340,7 @@ export function EngineRunnerConsole({
         </div>
       </section>
 
-      {artifactImport ? <p className="text-sm font-medium text-emerald-800">{artifactImport.message} {artifactImport.reviewRoute ? <Link className="ml-2 font-semibold text-blue-700 underline" href={artifactImport.reviewRoute}>{openReviewLabel}</Link> : null}</p> : null}
+      {artifactImport ? <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><h2 className="font-semibold">{isKeywordRunner ? "키워드 검토 단계" : "가져오기 완료"}</h2><p className="mt-1 font-medium">{artifactImport.message}</p>{artifactImport.summary ? <div className="mt-3 grid gap-2 sm:grid-cols-4"><span>전체 행 수: {artifactImport.summary.totalRows}</span><span>자동 적용 후보 수: {artifactImport.summary.autoRows}</span><span>수동 검토 수: {artifactImport.summary.manualRows}</span><span>차단/위험 수: {artifactImport.summary.blockedRows}</span></div> : null}{artifactImport.reviewRoute ? <Link className="mt-3 inline-block rounded-lg bg-emerald-700 px-4 py-2 font-semibold text-white" href={artifactImport.reviewRoute}>{openReviewLabel}</Link> : <p className="mt-2">아직 가져온 결과물이 없습니다. 먼저 결과물을 가져와 주세요.</p>}</section> : null}
       {message ? <p className="text-sm font-medium text-slate-700">{message}</p> : null}
       {dispatchResult ? (
         <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">
