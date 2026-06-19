@@ -40,7 +40,7 @@ test("dispatch preview returns previewOnly true", async () => {
       body: JSON.stringify({
         kind: "keyword_engine",
         mode: "dry_run",
-        inputs: { goods_keys: "BATH001", seed_keyword: "bath towel" },
+        inputs: { goods_key: "BATH001", seed_keyword: "bath towel" },
       }),
     }),
   );
@@ -99,10 +99,10 @@ test("dispatch route maps keyword inputs correctly", async () => {
   try {
     const response = await postDispatch(new Request("http://localhost/api/engine-runners/dispatch", {
       method: "POST",
-      body: JSON.stringify({ kind: "keyword_engine", mode: "dry_run", inputs: { goods_keys: "BATH001", seed_keyword: "bath towel" } }),
+      body: JSON.stringify({ kind: "keyword_engine", mode: "dry_run", inputs: { goods_key: "BATH001" } }),
     }));
     assert.equal(response.status, 200);
-    assert.deepEqual(requestBody.inputs, { goods_key: "BATH001", seed_keyword: "bath towel", mode: "dry_run" });
+    assert.deepEqual(requestBody.inputs, { goods_key: "BATH001", seed_keyword: "", mode: "dry_run" });
     assert.doesNotMatch(JSON.stringify(await response.json()), /secret-test-token/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -141,25 +141,27 @@ test("dispatch preview validates mode", () => {
 
 test("Keyword Engine Runner page renders safety banner and expected artifacts", async () => {
   const page = await readFile(new URL("../src/app/keyword-engine-runner/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /does not run local PowerShell/);
-  assert.match(page, /does not call Shopling/);
-  assert.match(page, /Actions page/);
+  assert.match(page, /로컬 PowerShell을 실행하지/);
+  assert.match(page, /Shopling을 호출하지/);
+  assert.match(page, /goods_key \(필수\)/);
+  assert.match(page, /seed_keyword \(선택\)/);
   const consoleSource = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
-  assert.match(consoleSource, /Recent GitHub Actions runs/);
-  assert.match(consoleSource, /Refresh runs/);
-  assert.match(consoleSource, /GitHub does not return a run id immediately\. Wait a few seconds, then click Refresh runs\./);
+  assert.match(consoleSource, /최근 GitHub Actions 실행/);
+  assert.match(consoleSource, /최근 실행 새로고침/);
+  assert.match(consoleSource, /GitHub는 run id를 즉시 반환하지 않습니다/);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifacts.includes("keyword_mvp_approval_sheet.csv"));
   assert.equal(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifactName, "keyword-engine-mvp-output");
 });
 
 test("Detail Page Engine Runner page renders safety banner and expected artifacts", async () => {
   const page = await readFile(new URL("../src/app/detail-page-engine-runner/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /does not call 1688\/OpenAI from OPS CENTER/);
-  assert.match(page, /does not publish pages/);
-  assert.match(page, /Actions page/);
+  assert.match(page, /1688\/OpenAI를 직접 호출하지/);
+  assert.match(page, /상세페이지를 자동 게시하지/);
+  assert.match(page, /source_link \(필수\)/);
+  assert.match(page, /product_code \(선택, 비워두면 DP-\*/);
   const consoleSource = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
-  assert.match(consoleSource, /Recent GitHub Actions runs/);
-  assert.match(consoleSource, /Refresh runs/);
+  assert.match(consoleSource, /최근 GitHub Actions 실행/);
+  assert.match(consoleSource, /최근 실행 새로고침/);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifacts.includes("detailpage_final.html"));
   assert.equal(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifactName, "detail-page-engine-output");
 });

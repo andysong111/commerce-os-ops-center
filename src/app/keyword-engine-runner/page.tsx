@@ -13,17 +13,17 @@ export default function KeywordEngineRunnerPage() {
   return (
     <>
       <PageHeader
-        title="Keyword Engine Runner"
-        description="Dispatch keyword-engine dry-run workflows and review generated artifacts in OPS CENTER."
+        title="키워드 엔진 실행"
+        description="goods_key로 키워드 엔진 드라이런을 요청하고 생성된 산출물을 OPS CENTER에서 검수합니다."
       />
       <EngineRunnerConsole
         config={config}
         tokenConfigured={isEngineDispatchTokenConfigured()}
-        safetyBanner="This runner dispatches the external keyword-engine repo. It does not run local PowerShell, does not call Shopling, and does not auto-apply keywords."
-        reviewButtonLabel="Open Keyword Review / Approval Queue"
+        safetyBanner="외부 keyword-engine 저장소의 GitHub Actions만 실행합니다. OPS CENTER는 로컬 PowerShell을 실행하지 않고, Shopling을 호출하지 않으며, 키워드를 자동 적용하지 않습니다."
+        reviewButtonLabel="키워드 검수 / 승인 큐 열기"
         fields={[
-          { name: "goods_keys", label: "goods_key or goods_keys", placeholder: "e.g. BATH001 or BATH001,BATH002" },
-          { name: "seed_keyword", label: "Seed keyword", placeholder: "e.g. bath towel" },
+          { name: "goods_key", label: "goods_key (필수)", placeholder: "예: BATH001 또는 BATH001,BATH002" },
+          { name: "seed_keyword", label: "seed_keyword (선택)", placeholder: "예: 욕실 수건" },
         ]}
       />
     </>
