@@ -129,6 +129,24 @@ export const moduleRegistry: readonly CommerceModule[] = [
     actionLabel: "검토 화면 열기",
   },
 
+
+  {
+    id: "engine-env-setup",
+    title: "엔진 환경변수 설정",
+    navigationLabel: "엔진 환경변수 설정",
+    description:
+      "키워드/상세페이지 엔진 실행에 필요한 GitHub Actions Secrets를 점검하고 설정합니다.",
+    status: "available",
+    route: "/engine-env-setup",
+    category: "판매 콘텐츠 자동화",
+    inputType: "GitHub Actions Secrets",
+    outputType: "외부 엔진 환경변수 설정 상태",
+    historySupport: false,
+    externalProject: true,
+    note: "Secret 값은 OPS CENTER에 저장하지 않습니다.",
+    helperNote: "사용 가능",
+    actionLabel: "환경변수 설정",
+  },
   {
     id: "engine-runner-history",
     title: "엔진 실행 이력",
