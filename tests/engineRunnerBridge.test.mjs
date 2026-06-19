@@ -148,9 +148,17 @@ test("Keyword Engine Runner page renders safety banner and expected artifacts", 
   assert.match(page, /시드 키워드\(선택\)/);
   assert.match(page, /비워두면 상품코드 기준으로 자동 진행합니다/);
   const consoleSource = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
-  assert.match(consoleSource, /최근 GitHub Actions 실행/);
-  assert.match(consoleSource, /실행 상태 새로고침/);
-  assert.match(consoleSource, /결과물 가져오기/);
+  assert.match(consoleSource, /오늘 할 일/);
+  assert.match(consoleSource, /상품번호 입력/);
+  assert.match(consoleSource, /키워드 엔진 실행/);
+  assert.match(consoleSource, /결과물 가져와서 검토/);
+  assert.match(consoleSource, /키워드 엔진 실행하기/);
+  assert.match(consoleSource, /실행 결과 확인하기/);
+  assert.match(consoleSource, /결과물 가져와서 검토하기/);
+  assert.match(consoleSource, /가져온 키워드는 샵플링에 자동 반영되지 않습니다/);
+  assert.match(consoleSource, /기술 정보 보기/);
+  assert.match(consoleSource, /raw JSON\/debug output/);
+  assert.match(consoleSource, /최근 엔진 실행 결과/);
   assert.match(consoleSource, /GitHub는 run id를 즉시 반환하지 않습니다/);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifacts.includes("keyword_mvp_approval_sheet.csv"));
   assert.equal(engineRunnerConfigs.find((config) => config.kind === "keyword_engine")?.expectedArtifactName, "keyword-engine-mvp-output");
@@ -164,8 +172,16 @@ test("Detail Page Engine Runner page renders safety banner and expected artifact
   assert.match(page, /1688 상품 링크\(필수\)/);
   assert.match(page, /상품코드\(선택, 비워두면 자동 생성\)/);
   const consoleSource = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
-  assert.match(consoleSource, /최근 GitHub Actions 실행/);
-  assert.match(consoleSource, /실행 상태 새로고침/);
+  assert.match(consoleSource, /오늘 할 일/);
+  assert.match(consoleSource, /1688 링크 입력/);
+  assert.match(consoleSource, /상세페이지 엔진 실행/);
+  assert.match(consoleSource, /결과물 가져와서 검토/);
+  assert.match(consoleSource, /상세페이지 엔진 실행하기/);
+  assert.match(consoleSource, /실행 결과 확인하기/);
+  assert.match(consoleSource, /결과물 가져와서 검토하기/);
+  assert.match(consoleSource, /가져온 상세페이지는 자동 게시되지 않습니다/);
+  assert.match(consoleSource, /기술 정보 보기/);
+  assert.match(consoleSource, /raw JSON\/debug output/);
   assert.match(consoleSource, /검토용 상세페이지 생성/);
   assert.ok(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifacts.includes("detailpage_final.html"));
   assert.equal(engineRunnerConfigs.find((config) => config.kind === "detail_page_engine")?.expectedArtifactName, "detail-page-engine-output");
@@ -252,7 +268,7 @@ test("No local shell execution utility is introduced", async () => {
 
   for (const file of files) {
     const source = await readFile(new URL(file, import.meta.url), "utf8");
-    assert.doesNotMatch(source, /child_process|powershell|pwsh|exec\(|spawn\(/i);
+    assert.doesNotMatch(source, /child_process|powershell|pwsh|exec\(|spawn\(|Shopling.*apply|publish.*Shopling|1688.*fetch|OpenAI|image generation/i);
   }
 });
 

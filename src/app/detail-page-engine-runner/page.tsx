@@ -20,7 +20,6 @@ export default function DetailPageEngineRunnerPage() {
         config={config}
         tokenConfigured={isEngineDispatchTokenConfigured()}
         safetyBanner="외부 detail-page engine 저장소의 GitHub Actions만 실행합니다. OPS CENTER는 1688/OpenAI를 직접 호출하지 않고 상세페이지를 자동 게시하지 않습니다."
-        reviewButtonLabel="상세페이지 검토/미리보기 열기"
         fields={[
           { name: "source_link", label: "1688 상품 링크(필수)", placeholder: "대표 소스 URL" },
           { name: "product_code", label: "상품코드(선택, 비워두면 자동 생성)", placeholder: "예: BATH001 또는 비워두기" },
