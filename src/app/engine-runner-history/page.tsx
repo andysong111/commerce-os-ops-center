@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { readEngineRunnerHistory, type EngineRunnerHistoryItem } from "@/lib/engineRunnerHistory";
+import { formatBrowserLocalDateTime } from "@/lib/browserTime";
 import type { EngineRunnerKind } from "@/lib/engineRunnerTypes";
 
 type Filter = "all" | EngineRunnerKind;
@@ -37,7 +38,7 @@ export default function EngineRunnerHistoryPage() {
     <>
       <PageHeader title="엔진 실행 이력" description="키워드/상세페이지 엔진 실행 요청과 결과물 가져오기 이력을 확인합니다." />
       <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900">
-        이 이력은 OPS CENTER 브라우저에 임시 저장됩니다. 샵플링 자동 반영이나 상세페이지 자동 게시 이력이 아닙니다. 현재 이력은 이 브라우저에 저장됩니다.
+        이 이력은 OPS CENTER 브라우저에 임시 저장됩니다. 샵플링 자동 반영이나 상세페이지 자동 게시 이력이 아닙니다. 현재 이력은 이 브라우저에 저장됩니다. 표시 시간은 현재 브라우저 시간대 기준입니다.
       </section>
       <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap gap-2">
@@ -66,14 +67,14 @@ function HistoryCard({ item }: { item: EngineRunnerHistoryItem }) {
         <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{item.status ? statusLabels[item.status] : "기록됨"}</span>
       </div>
       <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-        <div><dt className="font-semibold">시간</dt><dd>{new Date(item.createdAt).toLocaleString("ko-KR")}</dd></div>
+        <div><dt className="font-semibold">시간</dt><dd>{formatBrowserLocalDateTime(item.createdAt)}</dd></div>
         {item.input.goodsKey ? <div><dt className="font-semibold">goods_key</dt><dd>{item.input.goodsKey}</dd></div> : null}
         {item.input.sourceLink ? <div><dt className="font-semibold">source_link</dt><dd className="break-all">{item.input.sourceLink}</dd></div> : null}
         {item.input.productCode ? <div><dt className="font-semibold">product_code</dt><dd>{item.input.productCode}</dd></div> : null}
       </dl>
       <div className="mt-3 flex flex-wrap gap-3">
-        {item.github?.actionsUrl ? <Link href={item.github.actionsUrl} className="font-semibold text-blue-700 underline">Actions log link</Link> : null}
-        {item.reviewRoute ? <Link href={item.reviewRoute} className="font-semibold text-blue-700 underline">review page link</Link> : null}
+        {item.github?.actionsUrl ? <Link href={item.github.actionsUrl} className="font-semibold text-blue-700 underline">Actions 로그 보기</Link> : null}
+        {item.reviewRoute ? <Link href={item.reviewRoute} className="font-semibold text-blue-700 underline">검토 화면 열기</Link> : null}
       </div>
     </article>
   );

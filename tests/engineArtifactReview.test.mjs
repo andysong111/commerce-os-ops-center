@@ -21,18 +21,18 @@ test("shared engine safety flags default to no external execution", () => {
 
 test("keyword page safety banner and page boundaries copy exists", async () => {
   const source = await readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /reviews imported external engine outputs only/i);
-  assert.match(source, /No external\s+engine is executed from this page/i);
-  assert.match(source, /no Shopling API call is made/i);
-  assert.match(source, /Human approval is required before any future execution/i);
-  assert.match(source, /Does not run keyword-engine-soon directly/i);
+  assert.match(source, /외부 키워드 엔진 결과물을 검토만 합니다/);
+  assert.match(source, /키워드 엔진을 직접 실행하지 않고/);
+  assert.match(source, /샵플링 API를 호출하지 않으며|샵플링 API를 호출하지 않습니다/);
+  assert.match(source, /사람이 검토\/승인해야/);
+  assert.match(source, /keyword-engine-soon을 직접 실행하지 않습니다/);
 });
 
 test("detail page safety banner and page boundaries copy exists", async () => {
   const source = await readFile(new URL("../src/app/detail-page-draft-review/page.tsx", import.meta.url), "utf8");
   assert.match(source, /reviews imported external engine outputs only/i);
   assert.match(source, /No external\s+engine is executed from this page/i);
-  assert.match(source, /no Shopling API call is made/i);
+  assert.match(source, /샵플링 API를 호출하지 않습니다|no Shopling API call is made/i);
   assert.match(source, /Human approval is required before any future execution/i);
   assert.match(source, /Does not run product-detail-page-auto directly/i);
 });

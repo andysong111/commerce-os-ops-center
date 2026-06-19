@@ -80,10 +80,10 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
   {
     id: "keyword-review-queue",
-    title: "키워드 검토/승인 큐",
-    navigationLabel: "키워드 검토/승인 큐",
+    title: "키워드 결과 검토",
+    navigationLabel: "키워드 결과 검토",
     description:
-      "키워드 엔진 결과물을 불러와 자동/수동/차단 항목을 검토하고, 안전한 미리보기 데이터를 생성합니다.",
+      "키워드 엔진 실행 후 가져온 결과물을 검토합니다. 보통은 키워드 엔진 실행기에서 결과물을 가져온 뒤 열립니다.",
     status: "available",
     route: "/keyword-review-queue",
     category: "keyword",
@@ -92,7 +92,8 @@ export const moduleRegistry: readonly CommerceModule[] = [
     historySupport: false,
     externalProject: true,
     note: "승인 행 payload/XML 미리보기만 포함합니다. 실제 Shopling API 실행은 없습니다. 이력 관리는 향후 제공 예정입니다.",
-    helperNote: "현재 사용 가능",
+    helperNote: "후속 검토 단계",
+    actionLabel: "검토 화면 열기",
   },
   {
     id: "detail-page-engine",
@@ -124,7 +125,8 @@ export const moduleRegistry: readonly CommerceModule[] = [
     historySupport: false,
     externalProject: true,
     note: "현재 사용 가능한 연동입니다. 직접 엔진 실행은 없습니다. 이력 관리는 향후 제공 예정입니다.",
-    helperNote: "현재 사용 가능",
+    helperNote: "후속 검토 단계",
+    actionLabel: "검토 화면 열기",
   },
 
   {

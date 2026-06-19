@@ -140,11 +140,11 @@ test("artifact import returns 502 JSON error on GitHub artifact download failure
 
 test("UI source includes artifact import buttons and staged handoff detection", async () => {
   const runner = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
-  assert.match(runner, /키워드 검수 \/ 승인 큐로 산출물 가져오기/);
-  assert.match(runner, /상세페이지 초안 검수 \/ 미리보기로 산출물 가져오기/);
+  assert.match(runner, /결과물 가져와서 검토하기/);
+  assert.match(runner, /키워드 검토 단계/);
   assert.match(runner, /sessionStorage\.setItem/);
   const keywordPage = await readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8");
-  assert.match(keywordPage, /Imported keyword engine artifact is ready/);
+  assert.match(keywordPage, /키워드 엔진 결과물이 준비되었습니다/);
   assert.match(keywordPage, /setFinalConfirmation\(false\)/);
   const detailPage = await readFile(new URL("../src/app/detail-page-draft-review/page.tsx", import.meta.url), "utf8");
   assert.match(detailPage, /Imported detail page engine artifact is ready/);
@@ -162,4 +162,55 @@ test("safety restrictions remain absent from artifact import implementation", as
     assert.doesNotMatch(source, /child_process|powershell|pwsh|spawn\(|exec\(/i);
     assert.doesNotMatch(source, /\/api\/shopling|api\.1688|openai\.chat|images\.generate/i);
   }
+});
+
+test("artifact ZIP import supports root, single folder, output, and artifacts layouts safely", () => {
+  for (const prefix of ["", "keyword-engine-mvp-output/", "output/", "artifacts/"]) {
+    const extracted = extractExpectedArtifactFiles("keyword_engine", zip({
+      [`${prefix}keyword_mvp_approval_sheet.csv`]: "goods_key,title\nBATH001,Towel",
+      [`${prefix}keyword_mvp_manual_candidates.csv`]: "goods_key,title\nBATH002,Mat",
+      [`${prefix}keyword_mvp_summary.md`]: "# Summary",
+    }));
+    assert.equal(extracted.files["keyword_mvp_approval_sheet.csv"], "goods_key,title\nBATH001,Towel");
+    assert.deepEqual(extracted.missingFiles, []);
+  }
+});
+
+test("detail artifact ZIP import supports nested GitHub artifact folders", () => {
+  const extracted = extractExpectedArtifactFiles("detail_page_engine", zip({
+    "detail-page-engine-output/detailpage_final.html": "<main>Draft</main>",
+    "detail-page-engine-output/detailpage_render_report.json": "{}",
+    "detail-page-engine-output/multi_source_summary.json": "{}",
+  }));
+  assert.equal(extracted.files["detailpage_final.html"], "<main>Draft</main>");
+  assert.deepEqual(extracted.missingFiles, []);
+});
+
+test("duplicate allowed basenames fail safely", () => {
+  assert.throws(() => extractExpectedArtifactFiles("keyword_engine", zip({
+    "keyword_mvp_approval_sheet.csv": "one",
+    "output/keyword_mvp_approval_sheet.csv": "two",
+  })), /동일한 산출물 파일이 여러 위치/);
+});
+
+test("unsupported zip layout returns Korean expected-file guidance", () => {
+  const bad = zip({ "keyword_mvp_approval_sheet.csv": "ok" });
+  bad[6] = 8;
+  assert.throws(() => extractExpectedArtifactFiles("keyword_engine", bad), /산출물 ZIP 구조를 읽을 수 없습니다.*keyword_mvp_approval_sheet\.csv/);
+});
+
+test("timezone and Korean review UX source requirements are present", async () => {
+  const runner = await readFile(new URL("../src/components/engine-runners/EngineRunnerConsole.tsx", import.meta.url), "utf8");
+  assert.match(runner, /formatBrowserLocalDateTime/);
+  assert.match(runner, /브라우저 시간대 기준/);
+  assert.match(runner, /가져올 결과물이 준비되었습니다/);
+  assert.match(runner, /이전 실패 이력은 결과물 가져오기에 영향을 주지 않습니다/);
+  const review = await readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8");
+  assert.match(review, /키워드 검토\/승인/);
+  assert.match(review, /산출물 검토 안전 상태/);
+  assert.match(review, /자동 적용 후보/);
+  assert.match(review, /키워드 결과물을 가져왔습니다. 검토 목록을 불러왔습니다/);
+  const registry = await readFile(new URL("../src/lib/moduleRegistry.ts", import.meta.url), "utf8");
+  assert.match(registry, /키워드 결과 검토/);
+  assert.match(registry, /보통은 키워드 엔진 실행기에서 결과물을 가져온 뒤 열립니다/);
 });
