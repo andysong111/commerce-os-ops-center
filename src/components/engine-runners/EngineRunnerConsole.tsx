@@ -82,7 +82,7 @@ export function EngineRunnerConsole({
       const data = await response.json();
       setRunsResult(data);
       if (!response.ok) {
-        setMessage(data.message ?? "Could not load recent runs.");
+        setMessage(data.message ?? "최근 실행 내역을 불러오지 못했습니다.");
       }
     } finally {
       setRunsLoading(false);
@@ -93,14 +93,14 @@ export function EngineRunnerConsole({
     ? "opsCenter.keywordEngine.importedArtifact.v1"
     : "opsCenter.detailPageEngine.importedArtifact.v1";
   const importButtonLabel = config.kind === "keyword_engine"
-    ? "Import artifact to Keyword Review / Approval Queue"
-    : "Import artifact to Detail Page Draft Review / Preview";
+    ? "키워드 검수 / 승인 큐로 산출물 가져오기"
+    : "상세페이지 초안 검수 / 미리보기로 산출물 가져오기";
   const openReviewLabel = config.kind === "keyword_engine"
-    ? "Open Keyword Review / Approval Queue"
-    : "Open Detail Page Draft Review / Preview";
+    ? "키워드 검수 / 승인 큐 열기"
+    : "상세페이지 초안 검수 / 미리보기 열기";
   const importSafetyText = config.kind === "keyword_engine"
-    ? "Imported artifacts are staged locally in OPS CENTER for human review. Nothing is applied to Shopling."
-    : "Imported artifacts are staged locally in OPS CENTER for human review. Nothing is published.";
+    ? "가져온 산출물은 OPS CENTER에 검수용으로만 보관됩니다. Shopling에는 적용하지 않습니다."
+    : "가져온 산출물은 OPS CENTER에 검수용으로만 보관됩니다. 게시하지 않습니다.";
 
   const importArtifact = async (run: RunnerRun, artifact: RunArtifact) => {
     setArtifactImport(null);
@@ -113,7 +113,7 @@ export function EngineRunnerConsole({
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
-        setArtifactImport({ message: data.message ?? `Artifact import needs attention: ${(data.missingFiles ?? []).join(", ")}` });
+        setArtifactImport({ message: data.message ?? `산출물 가져오기에 확인이 필요합니다: ${(data.missingFiles ?? []).join(", ")}` });
         return;
       }
       const handoffPayload = {
@@ -127,9 +127,9 @@ export function EngineRunnerConsole({
         requiresHumanReview: true,
       };
       window.sessionStorage.setItem(handoffStorageKey, JSON.stringify(handoffPayload));
-      setArtifactImport({ message: "Artifact imported and staged locally for human review.", reviewRoute: data.reviewRoute });
+      setArtifactImport({ message: "산출물을 가져와 검수용으로 보관했습니다.", reviewRoute: data.reviewRoute });
     } catch {
-      setArtifactImport({ message: "Artifact import failed before it could be staged." });
+      setArtifactImport({ message: "산출물을 검수용으로 보관하기 전에 가져오기에 실패했습니다." });
     } finally {
       setImportingArtifactId(null);
     }
@@ -146,18 +146,18 @@ export function EngineRunnerConsole({
     const data = await response.json();
 
     if (!response.ok) {
-      setMessage(data.message ?? "Runner request failed.");
+      setMessage(data.message ?? "실행 요청에 실패했습니다.");
       return;
     }
 
     setPreview(JSON.stringify(data, null, 2));
     if (endpoint.endsWith("dispatch-preview")) {
       persistGeneratedDetailPageProductCode(config.kind, form, data);
-      setMessage("Dispatch preview generated.");
+      setMessage("실행 미리보기를 생성했습니다.");
       return;
     }
     setDispatchResult(data);
-    setMessage("Dispatch requested. GitHub does not return a run id immediately. Wait a few seconds, then click Refresh runs.");
+    setMessage("실행을 요청했습니다. GitHub는 run id를 즉시 반환하지 않습니다. 몇 초 뒤 최근 실행 새로고침을 눌러주세요.");
     window.setTimeout(() => {
       void refreshRuns();
     }, 5000);
@@ -173,12 +173,12 @@ export function EngineRunnerConsole({
         <div className="mb-4">
           <h2 className="text-lg font-semibold text-slate-950">{config.label}</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Dispatch target: {config.repo} / {config.intendedWorkflowFile}
+            실행 대상: {config.repo} / {config.intendedWorkflowFile}
           </p>
           <p className="mt-1 text-sm text-slate-600">
-            Actions page: <Link className="font-semibold text-blue-700 underline" href={config.actionsUrl}>{config.actionsUrl}</Link>
+            Actions 페이지: <Link className="font-semibold text-blue-700 underline" href={config.actionsUrl}>{config.actionsUrl}</Link>
           </p>
-          <p className="mt-1 text-xs text-slate-500">GitHub accepts dispatch requests without returning a run id immediately. Open the Actions page to monitor the run. Artifacts can now be imported into OPS CENTER review pages for human review.</p>
+          <p className="mt-1 text-xs text-slate-500">GitHub는 실행 요청 직후 run id를 반환하지 않습니다. Actions 페이지에서 실행을 확인하고, 생성된 산출물은 OPS CENTER 검수 화면으로 가져올 수 있습니다.</p>
         </div>
 
         <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
@@ -194,17 +194,17 @@ export function EngineRunnerConsole({
           ))}
 
           <label className="block text-sm font-medium text-slate-700">
-            Mode
+            실행 모드
             <select name="mode" defaultValue={config.supportedModes[0]} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
               {config.supportedModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
             </select>
           </label>
 
-          {!tokenConfigured ? <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">GitHub dispatch token not configured</p> : null}
+          {!tokenConfigured ? <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">GitHub dispatch token이 설정되지 않았습니다.</p> : null}
 
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={(event) => postRunnerRequest("/api/engine-runners/dispatch-preview", event.currentTarget.form!)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Preview dispatch</button>
-            <button type="button" disabled={!tokenConfigured} onClick={(event) => postRunnerRequest("/api/engine-runners/dispatch", event.currentTarget.form!)} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">Dispatch GitHub Actions run</button>
+            <button type="button" onClick={(event) => postRunnerRequest("/api/engine-runners/dispatch-preview", event.currentTarget.form!)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">실행 미리보기</button>
+            <button type="button" disabled={!tokenConfigured} onClick={(event) => postRunnerRequest("/api/engine-runners/dispatch", event.currentTarget.form!)} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">GitHub Actions 실행 요청</button>
             <Link href={config.outputReviewRoute} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">{reviewButtonLabel}</Link>
           </div>
         </form>
@@ -213,31 +213,31 @@ export function EngineRunnerConsole({
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-slate-950">Recent GitHub Actions runs</h2>
-            <p className="mt-1 text-sm text-slate-600">Check recent workflow status and whether the expected artifact exists.</p>
+            <h2 className="text-lg font-semibold text-slate-950">최근 GitHub Actions 실행</h2>
+            <p className="mt-1 text-sm text-slate-600">최근 workflow 상태와 예상 산출물 존재 여부를 확인합니다.</p>
           </div>
-          <button type="button" onClick={refreshRuns} disabled={runsLoading} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">{runsLoading ? "Refreshing…" : "Refresh runs"}</button>
+          <button type="button" onClick={refreshRuns} disabled={runsLoading} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">{runsLoading ? "새로고침 중…" : "최근 실행 새로고침"}</button>
         </div>
-        {runsResult?.status === "not_configured" ? <p className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">GitHub Actions run monitoring is not configured yet.</p> : null}
+        {runsResult?.status === "not_configured" ? <p className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">GitHub Actions 실행 모니터링이 아직 설정되지 않았습니다.</p> : null}
         <div className="mt-4 space-y-3">
           {runsResult?.runs.map((run) => {
             const expectedArtifact = run.artifacts.find((artifact) => artifact.expected);
             return (
               <article key={run.id} className="rounded-lg border border-slate-200 p-4 text-sm text-slate-700">
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
-                  <span>Status: <strong>{run.status ?? "unknown"}</strong></span>
-                  <span>Conclusion: <strong className={run.conclusion === "failure" ? "text-red-700" : ""}>{run.conclusion ?? "pending"}</strong></span>
-                  <span>Created: {run.createdAt}</span>
-                  <Link className="font-semibold text-blue-700 underline" href={run.htmlUrl}>Actions link</Link>
+                  <span>상태: <strong>{run.status ?? "알 수 없음"}</strong></span>
+                  <span>결과: <strong className={run.conclusion === "failure" ? "text-red-700" : ""}>{run.conclusion ?? "대기 중"}</strong></span>
+                  <span>생성: {run.createdAt}</span>
+                  <Link className="font-semibold text-blue-700 underline" href={run.htmlUrl}>Actions 링크</Link>
                 </div>
-                <p className="mt-2 font-medium">Expected artifact {expectedArtifact ? "found" : "not found"}</p>
+                <p className="mt-2 font-medium">예상 산출물 {expectedArtifact ? "찾음" : "없음"}</p>
                 {expectedArtifact ? (
                   <div className="mt-1 text-emerald-800">
-                    <p>Artifact: {expectedArtifact.name}{expectedArtifact.expired ? " (expired)" : ""}</p>
+                    <p>산출물: {expectedArtifact.name}{expectedArtifact.expired ? " (만료됨)" : ""}</p>
                     <p>{importSafetyText}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <button type="button" disabled={expectedArtifact.expired || importingArtifactId === expectedArtifact.id} onClick={() => importArtifact(run, expectedArtifact)} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">{importingArtifactId === expectedArtifact.id ? "Importing…" : importButtonLabel}</button>
-                      <Link className="font-semibold text-blue-700 underline" href={config.outputReviewRoute}>Next step: {reviewButtonLabel}</Link>
+                      <button type="button" disabled={expectedArtifact.expired || importingArtifactId === expectedArtifact.id} onClick={() => importArtifact(run, expectedArtifact)} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">{importingArtifactId === expectedArtifact.id ? "가져오는 중…" : importButtonLabel}</button>
+                      <Link className="font-semibold text-blue-700 underline" href={config.outputReviewRoute}>다음 단계: {reviewButtonLabel}</Link>
                     </div>
                   </div>
                 ) : null}
@@ -248,8 +248,8 @@ export function EngineRunnerConsole({
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Expected artifacts after run</h2>
-        <p className="mt-2 text-sm font-medium text-slate-700">Artifact name: {config.expectedArtifactName}</p>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">실행 후 예상 산출물</h2>
+        <p className="mt-2 text-sm font-medium text-slate-700">산출물 이름: {config.expectedArtifactName}</p>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">{config.expectedArtifacts.map((artifact) => <li key={artifact}>{artifact}</li>)}</ul>
       </section>
 
@@ -257,13 +257,13 @@ export function EngineRunnerConsole({
       {message ? <p className="text-sm font-medium text-slate-700">{message}</p> : null}
       {dispatchResult ? (
         <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">
-          <h2 className="font-semibold">Dispatch requested</h2>
-          <p>External repo: {dispatchResult.repo}</p>
-          <p>Workflow file: {dispatchResult.workflowFile}</p>
-          <p>Expected artifact name: {dispatchResult.expectedArtifactName}</p>
-          <p>GitHub does not return a run id immediately. Wait a few seconds, then click Refresh runs.</p>
-          <p>Next step: open {reviewButtonLabel} after artifacts are ready.</p>
-          <Link className="font-semibold text-blue-700 underline" href={String(dispatchResult.actionsUrl)}>Open external repo Actions page</Link>
+          <h2 className="font-semibold">실행 요청 완료</h2>
+          <p>외부 저장소: {dispatchResult.repo}</p>
+          <p>Workflow 파일: {dispatchResult.workflowFile}</p>
+          <p>예상 산출물 이름: {dispatchResult.expectedArtifactName}</p>
+          <p>GitHub는 run id를 즉시 반환하지 않습니다. 몇 초 뒤 최근 실행 새로고침을 눌러주세요.</p>
+          <p>다음 단계: {reviewButtonLabel} 산출물이 준비된 뒤 열어주세요.</p>
+          <Link className="font-semibold text-blue-700 underline" href={String(dispatchResult.actionsUrl)}>외부 저장소 Actions 페이지 열기</Link>
         </section>
       ) : null}
       {preview ? <pre className="overflow-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">{preview}</pre> : null}

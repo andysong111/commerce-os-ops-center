@@ -13,21 +13,17 @@ export default function DetailPageEngineRunnerPage() {
   return (
     <>
       <PageHeader
-        title="Detail Page Engine Runner"
-        description="Dispatch detail-page generation workflows and review generated artifacts in OPS CENTER."
+        title="상세페이지 엔진 실행"
+        description="source_link만으로 상세페이지 산출물 생성을 요청하고 OPS CENTER에서 검수합니다."
       />
       <EngineRunnerConsole
         config={config}
         tokenConfigured={isEngineDispatchTokenConfigured()}
-        safetyBanner="This runner dispatches the external detail-page engine repo. It does not call 1688/OpenAI from OPS CENTER and does not publish pages."
-        reviewButtonLabel="Open Detail Page Draft Review / Preview"
+        safetyBanner="외부 detail-page engine 저장소의 GitHub Actions만 실행합니다. OPS CENTER는 1688/OpenAI를 직접 호출하지 않고 상세페이지를 자동 게시하지 않습니다."
+        reviewButtonLabel="상세페이지 초안 검수 / 미리보기 열기"
         fields={[
-          { name: "product_code", label: "product_code", placeholder: "e.g. BATH001" },
-          { name: "source_link", label: "source_link", placeholder: "Primary source URL" },
-          { name: "source_links", label: "optional source_links", type: "textarea", placeholder: "One source URL per line" },
-          { name: "planning_point", label: "planning_point" },
-          { name: "option_info", label: "option_info" },
-          { name: "target", label: "target" },
+          { name: "source_link", label: "source_link (필수)", placeholder: "대표 소스 URL" },
+          { name: "product_code", label: "product_code (선택, 비워두면 DP-* 자동 생성)", placeholder: "예: BATH001 또는 비워두기" },
         ]}
       />
     </>
