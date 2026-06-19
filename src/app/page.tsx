@@ -4,37 +4,37 @@ import { moduleRegistry, type CommerceModule } from "@/lib/moduleRegistry";
 
 const statusPresentation = {
   available: {
-    badge: "Available",
+    badge: "사용 가능",
     badgeClassName: "bg-emerald-50 text-emerald-700",
     cardClassName:
       "border-blue-200 hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md",
     iconClassName: "bg-blue-50 text-blue-700",
-    action: "Open module →",
+    action: "모듈 열기 →",
     actionClassName: "text-blue-600",
   },
   runner_scaffold: {
-    badge: "Runner scaffold",
+    badge: "실행 가능",
     badgeClassName: "bg-blue-50 text-blue-700",
     cardClassName:
       "border-blue-200 hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md",
     iconClassName: "bg-blue-50 text-blue-700",
-    action: "Open runner →",
+    action: "실행기 열기 →",
     actionClassName: "text-blue-600",
   },
   preparing: {
-    badge: "Preparing",
+    badge: "준비 중",
     badgeClassName: "bg-amber-50 text-amber-700",
     cardClassName: "border-slate-200",
     iconClassName: "bg-slate-100 text-slate-500",
-    action: "Available later",
+    action: "추후 제공",
     actionClassName: "text-slate-400",
   },
   disabled: {
-    badge: "Disabled",
+    badge: "비활성",
     badgeClassName: "bg-slate-200 text-slate-500",
     cardClassName: "border-slate-200 bg-slate-50 opacity-60",
     iconClassName: "bg-slate-200 text-slate-400",
-    action: "Unavailable",
+    action: "사용 불가",
     actionClassName: "text-slate-400",
   },
 } as const;
@@ -48,7 +48,7 @@ export default function DashboardPage() {
     <>
       <PageHeader
         title="대시보드"
-        description="온라인 판매 운영에 필요한 자동화 모듈을 한곳에서 관리하세요. 사용 가능한 모듈은 바로 열고, 준비 중인 모듈은 향후 연결 상태를 확인할 수 있습니다."
+        description="온라인 판매 운영에 필요한 자동화 모듈을 한곳에서 관리하세요. 사용 가능한 모듈은 바로 열 수 있고, 준비 중인 모듈은 이후 연결됩니다."
       />
 
       <section aria-labelledby="modules-heading">

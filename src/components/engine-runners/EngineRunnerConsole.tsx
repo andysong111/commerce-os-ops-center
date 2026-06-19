@@ -42,7 +42,40 @@ type Field = {
   label: string;
   type?: "input" | "textarea";
   placeholder?: string;
+  helpText?: string;
 };
+
+
+function translateRunStatus(status: string | null) {
+  switch (status) {
+    case "queued":
+    case "pending":
+      return "대기 중";
+    case "in_progress":
+      return "실행 중";
+    case "completed":
+      return "완료";
+    default:
+      return status ?? "알 수 없음";
+  }
+}
+
+function translateRunConclusion(conclusion: string | null) {
+  switch (conclusion) {
+    case "success":
+      return "성공";
+    case "failure":
+      return "실패";
+    case "cancelled":
+      return "취소됨";
+    case "skipped":
+      return "건너뜀";
+    case "timed_out":
+      return "시간 초과";
+    default:
+      return conclusion ?? "대기 중";
+  }
+}
 
 export function EngineRunnerConsole({
   config,
@@ -93,11 +126,11 @@ export function EngineRunnerConsole({
     ? "opsCenter.keywordEngine.importedArtifact.v1"
     : "opsCenter.detailPageEngine.importedArtifact.v1";
   const importButtonLabel = config.kind === "keyword_engine"
-    ? "키워드 검수 / 승인 큐로 산출물 가져오기"
-    : "상세페이지 초안 검수 / 미리보기로 산출물 가져오기";
+    ? "키워드 검토/승인 큐로 결과물 가져오기"
+    : "상세페이지 검토/미리보기로 결과물 가져오기";
   const openReviewLabel = config.kind === "keyword_engine"
-    ? "키워드 검수 / 승인 큐 열기"
-    : "상세페이지 초안 검수 / 미리보기 열기";
+    ? "키워드 검토/승인 큐 열기"
+    : "상세페이지 검토/미리보기 열기";
   const importSafetyText = config.kind === "keyword_engine"
     ? "가져온 산출물은 OPS CENTER에 검수용으로만 보관됩니다. Shopling에는 적용하지 않습니다."
     : "가져온 산출물은 OPS CENTER에 검수용으로만 보관됩니다. 게시하지 않습니다.";
@@ -190,13 +223,14 @@ export function EngineRunnerConsole({
               ) : (
                 <input name={field.name} placeholder={field.placeholder} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
               )}
+              {field.helpText ? <span className="mt-1 block text-xs font-normal text-slate-500">{field.helpText}</span> : null}
             </label>
           ))}
 
           <label className="block text-sm font-medium text-slate-700">
             실행 모드
             <select name="mode" defaultValue={config.supportedModes[0]} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              {config.supportedModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+              {config.supportedModes.map((mode) => <option key={mode} value={mode}>{mode === "generate_artifacts" ? "검토용 상세페이지 생성" : mode}</option>)}
             </select>
           </label>
 
@@ -216,7 +250,7 @@ export function EngineRunnerConsole({
             <h2 className="text-lg font-semibold text-slate-950">최근 GitHub Actions 실행</h2>
             <p className="mt-1 text-sm text-slate-600">최근 workflow 상태와 예상 산출물 존재 여부를 확인합니다.</p>
           </div>
-          <button type="button" onClick={refreshRuns} disabled={runsLoading} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">{runsLoading ? "새로고침 중…" : "최근 실행 새로고침"}</button>
+          <button type="button" onClick={refreshRuns} disabled={runsLoading} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">{runsLoading ? "새로고침 중…" : "실행 상태 새로고침"}</button>
         </div>
         {runsResult?.status === "not_configured" ? <p className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">GitHub Actions 실행 모니터링이 아직 설정되지 않았습니다.</p> : null}
         <div className="mt-4 space-y-3">
@@ -225,8 +259,8 @@ export function EngineRunnerConsole({
             return (
               <article key={run.id} className="rounded-lg border border-slate-200 p-4 text-sm text-slate-700">
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
-                  <span>상태: <strong>{run.status ?? "알 수 없음"}</strong></span>
-                  <span>결과: <strong className={run.conclusion === "failure" ? "text-red-700" : ""}>{run.conclusion ?? "대기 중"}</strong></span>
+                  <span>상태: <strong>{translateRunStatus(run.status)}</strong></span>
+                  <span>결과: <strong className={run.conclusion === "failure" ? "text-red-700" : ""}>{translateRunConclusion(run.conclusion)}</strong></span>
                   <span>생성: {run.createdAt}</span>
                   <Link className="font-semibold text-blue-700 underline" href={run.htmlUrl}>Actions 링크</Link>
                 </div>

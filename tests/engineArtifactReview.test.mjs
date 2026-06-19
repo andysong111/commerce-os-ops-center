@@ -46,21 +46,33 @@ test("handoff docs mention both engine repos and OPS CENTER boundaries", async (
   assert.match(doc, /OPS CENTER owns review, approval, preview, history, and execution safety/);
 });
 
-test("dashboard descriptions distinguish review modules from runner modules", () => {
-  const keywordReview = moduleRegistry.find((module) => module.id === "keyword-review-queue");
-  const keywordRunner = moduleRegistry.find((module) => module.id === "keyword-engine");
-  const detailReview = moduleRegistry.find((module) => module.id === "detail-page-draft-review");
-  const detailRunner = moduleRegistry.find((module) => module.id === "detail-page-engine");
+test("dashboard descriptions and module labels are Korean-first", async () => {
+  const dashboardSource = await readFile(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  const registryText = JSON.stringify(moduleRegistry);
+  const dashboardText = `${dashboardSource} ${registryText}`;
 
-  assert.match(keywordReview?.description ?? "", /Current usable workflow for imported keyword-engine artifacts/i);
-  assert.match(keywordReview?.description ?? "", /review/i);
-  assert.match(keywordReview?.description ?? "", /export|previews/i);
-  assert.match(keywordRunner?.description ?? "", /Preparing future direct/i);
-  assert.equal(keywordRunner?.status, "preparing");
+  for (const label of [
+    "대시보드",
+    "중국주문 원가계산기",
+    "상품 마스터",
+    "배대지 바코드 PDF 생성기",
+    "키워드 엔진 실행기",
+    "키워드 검토/승인 큐",
+    "상세페이지 엔진 실행기",
+    "상세페이지 초안 검수 / 미리보기",
+    "재고 / 가격 관리",
+    "샵플링 API 자동화",
+    "사용 가능",
+    "준비 중",
+    "실행 가능",
+    "모듈 열기",
+    "실행기 열기",
+  ]) {
+    assert.match(dashboardText, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
 
-  assert.match(detailReview?.description ?? "", /Current usable workflow for imported detail-page artifacts/i);
-  assert.match(detailReview?.description ?? "", /preview/i);
-  assert.match(detailReview?.description ?? "", /mark drafts/i);
-  assert.match(detailRunner?.description ?? "", /Preparing future direct/i);
-  assert.equal(detailRunner?.status, "preparing");
+  assert.equal(moduleRegistry.find((module) => module.id === "keyword-engine")?.status, "runner_scaffold");
+  assert.equal(moduleRegistry.find((module) => module.id === "detail-page-engine")?.status, "runner_scaffold");
+  assert.match(moduleRegistry.find((module) => module.id === "keyword-review-queue")?.description ?? "", /키워드 엔진 결과물/);
+  assert.match(moduleRegistry.find((module) => module.id === "detail-page-draft-review")?.description ?? "", /상세페이지 엔진 산출물/);
 });
