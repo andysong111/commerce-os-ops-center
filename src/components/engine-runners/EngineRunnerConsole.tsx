@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { persistGeneratedDetailPageProductCode } from "@/lib/engineRunnerFormState";
+import { addEngineRunnerHistoryItem } from "@/lib/engineRunnerHistory";
+import { EngineRunnerHistoryPreview } from "./EngineRunnerHistoryPreview";
 import type { EngineRunnerConfig, EngineRunnerMode } from "@/lib/engineRunnerTypes";
 
 type DispatchResult = {
@@ -146,6 +148,20 @@ export function EngineRunnerConsole({
         requiresHumanReview: true,
       };
       window.sessionStorage.setItem(handoffStorageKey, JSON.stringify(handoffPayload));
+      addEngineRunnerHistoryItem({
+        kind: config.kind,
+        type: "artifact_imported",
+        title: isKeywordRunner ? "키워드 결과물 가져오기 완료" : "상세페이지 결과물 가져오기 완료",
+        summary: isKeywordRunner ? "키워드 엔진 결과물을 검토/승인 큐로 가져왔습니다." : "상세페이지 엔진 결과물을 검토/미리보기 화면으로 가져왔습니다.",
+        input: {},
+        github: {
+          runId: run.id,
+          artifactId: artifact.id,
+          artifactName: artifact.name,
+        },
+        reviewRoute: data.reviewRoute,
+        status: "imported",
+      });
       setArtifactImport({ message: "산출물을 가져와 검수용으로 보관했습니다.", reviewRoute: data.reviewRoute });
     } catch {
       setArtifactImport({ message: "산출물을 검수용으로 보관하기 전에 가져오기에 실패했습니다." });
@@ -176,6 +192,24 @@ export function EngineRunnerConsole({
       return;
     }
     setDispatchResult(data);
+    const formData = new FormData(form);
+    addEngineRunnerHistoryItem({
+      kind: config.kind,
+      type: "dispatch_requested",
+      title: isKeywordRunner ? "키워드 엔진 실행 요청" : "상세페이지 엔진 실행 요청",
+      summary: isKeywordRunner
+        ? `상품번호 ${formData.get("goods_key")?.toString() ?? ""} 기준으로 키워드 엔진 실행을 요청했습니다.`
+        : "1688 링크 기준으로 상세페이지 엔진 실행을 요청했습니다.",
+      input: isKeywordRunner
+        ? { goodsKey: formData.get("goods_key")?.toString() ?? "", seedKeyword: formData.get("seed_keyword")?.toString() || undefined }
+        : { sourceLink: formData.get("source_link")?.toString() ?? "", productCode: formData.get("product_code")?.toString() || undefined },
+      github: {
+        repo: data.repo,
+        workflowFile: data.workflowFile,
+        actionsUrl: data.actionsUrl,
+      },
+      status: "requested",
+    });
     setMessage("실행을 요청했습니다. GitHub는 run id를 즉시 반환하지 않습니다. 몇 초 뒤 실행 결과 확인하기를 눌러주세요.");
     window.setTimeout(() => {
       void refreshRuns();
@@ -294,6 +328,8 @@ export function EngineRunnerConsole({
           <p>다음 단계: 결과물이 준비된 뒤 결과물 가져와서 검토하기를 눌러주세요.</p>
         </section>
       ) : null}
+
+      <EngineRunnerHistoryPreview kind={config.kind} />
 
       <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <summary className="cursor-pointer text-sm font-semibold text-slate-700">기술 정보 보기</summary>
