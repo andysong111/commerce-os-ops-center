@@ -14,6 +14,7 @@ export type CommerceModule = {
   externalProject: boolean;
   note: string | null;
   helperNote?: string;
+  actionLabel?: string;
 };
 
 export const moduleRegistry: readonly CommerceModule[] = [
@@ -124,6 +125,23 @@ export const moduleRegistry: readonly CommerceModule[] = [
     externalProject: true,
     note: "현재 사용 가능한 연동입니다. 직접 엔진 실행은 없습니다. 이력 관리는 향후 제공 예정입니다.",
     helperNote: "현재 사용 가능",
+  },
+
+  {
+    id: "engine-runner-history",
+    title: "엔진 실행 이력",
+    navigationLabel: "엔진 실행 이력",
+    description: "키워드/상세페이지 엔진 실행 요청과 결과물 가져오기 이력을 확인합니다.",
+    status: "available",
+    route: "/engine-runner-history",
+    category: "판매 콘텐츠 자동화",
+    inputType: "브라우저 로컬 실행/가져오기 메타데이터",
+    outputType: "브라우저 로컬 엔진 실행 이력",
+    historySupport: true,
+    externalProject: false,
+    note: "현재 이력은 이 브라우저에 저장됩니다.",
+    helperNote: "사용 가능",
+    actionLabel: "이력 보기",
   },
   {
     id: "inventory-price",

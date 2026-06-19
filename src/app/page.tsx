@@ -113,7 +113,7 @@ function ModuleCard({
       <p
         className={`mt-5 text-sm font-semibold ${presentation.actionClassName}`}
       >
-        {presentation.action}
+        {module.actionLabel ?? presentation.action}
       </p>
     </article>
   );
