@@ -20,7 +20,6 @@ export default function KeywordEngineRunnerPage() {
         config={config}
         tokenConfigured={isEngineDispatchTokenConfigured()}
         safetyBanner="외부 keyword-engine 저장소의 GitHub Actions만 실행합니다. OPS CENTER는 로컬 PowerShell을 실행하지 않고, Shopling을 호출하지 않으며, 키워드를 자동 적용하지 않습니다."
-        reviewButtonLabel="키워드 검토/승인 큐 열기"
         fields={[
           { name: "goods_key", label: "샵플링 상품코드(goods_key) 필수", placeholder: "예: 121059 또는 121059,121060" },
           { name: "seed_keyword", label: "시드 키워드(선택)", placeholder: "예: 욕실 수건", helpText: "비워두면 상품코드 기준으로 자동 진행합니다." },
