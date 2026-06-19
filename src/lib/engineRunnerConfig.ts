@@ -17,7 +17,7 @@ export const ENGINE_RUNNER_SAFETY_FLAGS = {
 export const engineRunnerConfigs = [
   {
     kind: "keyword_engine",
-    label: "Keyword Engine Runner",
+    label: "키워드 엔진 실행기",
     provider: "github_actions",
     repo: "andysong111/andysong111-keyword-engine-soon",
     repoOwner: "andysong111",
@@ -37,7 +37,7 @@ export const engineRunnerConfigs = [
   },
   {
     kind: "detail_page_engine",
-    label: "Detail Page Engine Runner",
+    label: "상세페이지 엔진 실행기",
     provider: "github_actions",
     repo: "andysong111/product-detail-page-auto",
     repoOwner: "andysong111",
