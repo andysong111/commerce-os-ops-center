@@ -6,7 +6,8 @@ export type EngineSecretStatus = {
   updatedAt?: string;
 };
 
-const permissionMessage = "GitHub Secrets 확인 권한이 없습니다. GITHUB_ENGINE_ADMIN_TOKEN 권한을 확인해 주세요.";
+export const missingTokenMessage = "GITHUB_ENGINE_ADMIN_TOKEN이 없거나 권한이 부족합니다. Vercel 환경변수에 등록한 뒤 Redeploy 해주세요.";
+export const permissionMessage = "GitHub Secrets 확인 권한이 없습니다. GITHUB_ENGINE_ADMIN_TOKEN 권한을 확인해 주세요.";
 
 function headers(token: string) {
   return { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
@@ -18,7 +19,7 @@ export function isPermissionStatus(status: number) {
 
 export async function listRepositorySecretStatuses(config: EngineEnvConfig): Promise<EngineSecretStatus[]> {
   const token = getEngineAdminToken();
-  if (!token) throw new Error("OPS CENTER가 GitHub Secrets를 설정하려면 GITHUB_ENGINE_ADMIN_TOKEN이 필요합니다.");
+  if (!token) throw new Error(missingTokenMessage);
   const response = await fetch(`https://api.github.com/repos/${config.repoOwner}/${config.repoName}/actions/secrets`, { headers: headers(token) });
   if (!response.ok) {
     if (isPermissionStatus(response.status)) throw new Error(permissionMessage);
@@ -43,7 +44,7 @@ async function encryptWithGitHubPublicKey(publicKey: string, secretValue: string
 
 export async function saveRepositorySecrets(config: EngineEnvConfig, secrets: Record<string, string>) {
   const token = getEngineAdminToken();
-  if (!token) throw new Error("OPS CENTER가 GitHub Secrets를 설정하려면 GITHUB_ENGINE_ADMIN_TOKEN이 필요합니다.");
+  if (!token) throw new Error(missingTokenMessage);
   const publicKeyResponse = await fetch(`https://api.github.com/repos/${config.repoOwner}/${config.repoName}/actions/secrets/public-key`, { headers: headers(token) });
   if (!publicKeyResponse.ok) {
     if (isPermissionStatus(publicKeyResponse.status)) throw new Error(permissionMessage);
