@@ -1,4 +1,8 @@
-export type ModuleStatus = "available" | "preparing" | "runner_scaffold" | "disabled";
+export type ModuleStatus =
+  | "available"
+  | "preparing"
+  | "runner_scaffold"
+  | "disabled";
 
 export type CommerceModule = {
   id: string;
@@ -37,7 +41,8 @@ export const moduleRegistry: readonly CommerceModule[] = [
     id: "product-master",
     title: "상품 마스터",
     navigationLabel: "상품 마스터",
-    description: "상품코드, 모델명, 옵션, 바코드 연결 정보를 한곳에서 관리합니다.",
+    description:
+      "상품코드, 모델명, 옵션, 바코드 연결 정보를 한곳에서 관리합니다.",
     status: "available",
     route: "/product-master",
     category: "상품 관리",
@@ -83,7 +88,7 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "키워드 결과 검토",
     navigationLabel: "키워드 결과 검토",
     description:
-      "키워드 엔진 실행 후 가져온 결과물을 검토합니다. 보통은 키워드 엔진 실행기에서 결과물을 가져온 뒤 열립니다.",
+      "키워드 엔진 실행 후 가져온 결과물을 검토합니다. 보통은 키워드 엔진 실행기에서 ‘결과 가져오기 및 검토 시작’을 눌러 이동합니다.",
     status: "available",
     route: "/keyword-review-queue",
     category: "keyword",
@@ -129,7 +134,6 @@ export const moduleRegistry: readonly CommerceModule[] = [
     actionLabel: "검토 화면 열기",
   },
 
-
   {
     id: "engine-env-setup",
     title: "엔진 환경변수 설정",
@@ -151,7 +155,8 @@ export const moduleRegistry: readonly CommerceModule[] = [
     id: "engine-runner-history",
     title: "엔진 실행 이력",
     navigationLabel: "엔진 실행 이력",
-    description: "키워드/상세페이지 엔진 실행 요청과 결과물 가져오기 이력을 확인합니다.",
+    description:
+      "키워드/상세페이지 엔진 실행 요청과 결과물 가져오기 이력을 확인합니다.",
     status: "available",
     route: "/engine-runner-history",
     category: "판매 콘텐츠 자동화",
