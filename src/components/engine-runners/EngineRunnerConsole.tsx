@@ -84,8 +84,10 @@ export function EngineRunnerConsole({
     null,
   );
   const [artifactImport, setArtifactImport] = useState<{
+    state: "loading" | "success" | "error";
     message: string;
     reviewRoute?: string;
+    missingFiles?: string[];
     summary?: {
       totalRows: number;
       autoRows: number;
@@ -141,9 +143,7 @@ export function EngineRunnerConsole({
     ? "결과 가져오기 및 검토 시작"
     : "결과물 가져와서 검토하기";
   const openReviewLabel = "검토 화면 열기";
-  const reviewScreenLabel = isKeywordRunner
-    ? "검토 화면 열기"
-    : "검토 화면 열기";
+  const reviewScreenLabel = "검토 화면 열기";
   const importSafetyText = isKeywordRunner
     ? "가져온 키워드는 샵플링에 자동 반영되지 않습니다. 검토/승인 큐에서 사람이 확인해야 합니다."
     : "가져온 상세페이지는 자동 게시되지 않습니다. 검토/미리보기 화면에서 사람이 확인해야 합니다.";
@@ -179,17 +179,45 @@ export function EngineRunnerConsole({
       return run.artifacts.some((artifact) => artifact.expected);
     return true;
   });
-  const activeStep = artifactImport?.reviewRoute
-    ? 4
-    : latestExpectedArtifact
-      ? 3
-      : preview || dispatchResult
-        ? 2
-        : 1;
+  const activeStep =
+    artifactImport?.state === "success" && artifactImport.reviewRoute
+      ? 4
+      : latestExpectedArtifact
+        ? 3
+        : preview || dispatchResult
+          ? 2
+          : 1;
 
   const importArtifact = async (run: RunnerRun, artifact: RunArtifact) => {
-    setArtifactImport(null);
     setImportingArtifactId(artifact.id);
+    setArtifactImport({
+      state: "loading",
+      message: "GitHub Actions 산출물을 가져오는 중입니다. 잠시만 기다려 주세요.",
+    });
+    const reportImportError = (diagnostic: {
+      status?: number;
+      message?: string;
+      missingFiles?: string[];
+    }) => {
+      const missingFiles = diagnostic.missingFiles?.filter(Boolean) ?? [];
+      const safeMessage =
+        diagnostic.message?.trim() ||
+        (missingFiles.length > 0
+          ? "검토용 파일을 찾지 못했습니다."
+          : "결과물 가져오기에 실패했습니다.");
+      setArtifactImport({
+        state: "error",
+        message: `${safeMessage} 다시 실행 결과 확인하기를 누른 뒤 재시도해 주세요.`,
+        missingFiles,
+      });
+      if (process.env.NODE_ENV === "development") {
+        console.error("Keyword artifact import failed", {
+          status: diagnostic.status,
+          message: safeMessage,
+          missingFiles,
+        });
+      }
+    };
     try {
       const response = await fetch(
         "/api/engine-runners/artifacts/import-preview",
@@ -203,12 +231,17 @@ export function EngineRunnerConsole({
           }),
         },
       );
-      const data = await response.json();
+      const data = await response.json().catch(() => ({
+        ok: false,
+        message: "GitHub artifact를 다운로드하지 못했습니다.",
+      }));
       if (!response.ok || !data.ok) {
-        setArtifactImport({
-          message:
-            data.message ??
-            `산출물 가져오기에 확인이 필요합니다: ${(data.missingFiles ?? []).join(", ")}`,
+        reportImportError({
+          status: response.status,
+          message: data.message,
+          missingFiles: Array.isArray(data.missingFiles)
+            ? data.missingFiles
+            : undefined,
         });
         return;
       }
@@ -261,8 +294,9 @@ export function EngineRunnerConsole({
         ? `${data.reviewRoute}?from=keyword-runner`
         : data.reviewRoute;
       setArtifactImport({
+        state: "success",
         message: isKeywordRunner
-          ? "키워드 결과물을 가져왔습니다. 검토 목록을 불러왔습니다."
+          ? "결과물을 가져왔습니다. 검토 화면으로 이동합니다."
           : "산출물을 가져와 검수용으로 보관했습니다.",
         reviewRoute,
         summary: isKeywordRunner
@@ -274,12 +308,26 @@ export function EngineRunnerConsole({
             }
           : undefined,
       });
-      if (isKeywordRunner) {
-        router.push(reviewRoute);
+      if (isKeywordRunner && typeof router?.push === "function") {
+        try {
+          router.push(reviewRoute);
+        } catch (navigationError) {
+          if (process.env.NODE_ENV === "development") {
+            console.error("Keyword artifact review navigation failed", {
+              message:
+                navigationError instanceof Error
+                  ? navigationError.message
+                  : "router.push failed",
+            });
+          }
+        }
       }
-    } catch {
-      setArtifactImport({
-        message: "산출물을 검수용으로 보관하기 전에 가져오기에 실패했습니다.",
+    } catch (error) {
+      reportImportError({
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : "GitHub artifact를 다운로드하지 못했습니다.",
       });
     } finally {
       setImportingArtifactId(null);
@@ -642,19 +690,22 @@ export function EngineRunnerConsole({
                         className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                       >
                         {importingArtifactId === expectedArtifact.id
-                          ? "가져오는 중…"
+                          ? "결과 가져오는 중..."
                           : importButtonLabel}
                       </button>
-                      {artifactImport?.reviewRoute ? (
+                      {artifactImport?.state === "success" &&
+                      artifactImport.reviewRoute ? (
                         <Link
                           className="font-semibold text-blue-700 underline"
                           href={artifactImport.reviewRoute}
                         >
-                          {reviewScreenLabel}
+                          검토 화면으로 이동
                         </Link>
                       ) : (
                         <span className="text-xs font-semibold text-slate-500">
-                          먼저 결과물을 가져와 주세요.
+                          {importingArtifactId === expectedArtifact.id
+                            ? "결과물을 가져오는 중입니다."
+                            : "누르면 결과물을 가져온 뒤 검토 화면으로 이동합니다."}
                         </span>
                       )}
                     </div>
@@ -667,11 +718,26 @@ export function EngineRunnerConsole({
       </section>
 
       {artifactImport ? (
-        <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+        <section
+          className={`rounded-xl border p-4 text-sm ${
+            artifactImport.state === "error"
+              ? "border-red-200 bg-red-50 text-red-900"
+              : "border-emerald-200 bg-emerald-50 text-emerald-900"
+          }`}
+        >
           <h2 className="font-semibold">
-            {isKeywordRunner ? "키워드 검토 단계" : "가져오기 완료"}
+            {artifactImport.state === "error"
+              ? "결과물 가져오기 실패"
+              : isKeywordRunner
+                ? "키워드 검토 단계"
+                : "가져오기 완료"}
           </h2>
           <p className="mt-1 font-medium">{artifactImport.message}</p>
+          {artifactImport.missingFiles?.length ? (
+            <p className="mt-1">
+              누락된 파일: {artifactImport.missingFiles.join(", ")}
+            </p>
+          ) : null}
           {artifactImport.summary ? (
             <div className="mt-3 grid gap-2 sm:grid-cols-4">
               <span>전체 행 수: {artifactImport.summary.totalRows}</span>

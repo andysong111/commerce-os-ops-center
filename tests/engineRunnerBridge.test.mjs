@@ -218,6 +218,39 @@ test("Keyword Engine Runner page renders safety banner and expected artifacts", 
   assert.match(consoleSource, /결과 가져오기 및 검토 시작/);
   assert.match(
     consoleSource,
+    /onClick=\{\(\) => importArtifact\(run, expectedArtifact\)\}/,
+  );
+  assert.match(
+    consoleSource,
+    /fetch\(\s*"\/api\/engine-runners\/artifacts\/import-preview"/,
+  );
+  assert.match(consoleSource, /kind: config\.kind/);
+  assert.match(consoleSource, /runId: run\.id/);
+  assert.match(consoleSource, /artifactId: artifact\.id/);
+  assert.match(consoleSource, /결과 가져오는 중\.\.\./);
+  assert.match(
+    consoleSource,
+    /GitHub Actions 산출물을 가져오는 중입니다\. 잠시만 기다려 주세요\./,
+  );
+  assert.match(
+    consoleSource,
+    /결과물을 가져왔습니다\. 검토 화면으로 이동합니다\./,
+  );
+  assert.match(consoleSource, /결과물 가져오기에 실패했습니다\./);
+  assert.match(consoleSource, /missingFiles/);
+  assert.match(consoleSource, /sessionStorage\.setItem/);
+  assert.match(consoleSource, /router\.push\(reviewRoute\)/);
+  assert.match(consoleSource, /검토 화면으로 이동/);
+  assert.match(
+    consoleSource,
+    /누르면 결과물을 가져온 뒤 검토 화면으로 이동합니다\./,
+  );
+  assert.doesNotMatch(
+    consoleSource,
+    /expectedArtifact[\s\S]{0,2500}먼저 결과물을 가져와 주세요/,
+  );
+  assert.match(
+    consoleSource,
     /가져온 키워드는 샵플링에 자동 반영되지 않습니다/,
   );
   assert.match(consoleSource, /기술 정보 보기/);
