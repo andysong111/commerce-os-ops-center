@@ -31,15 +31,20 @@ export async function POST(request: Request) {
     const token = process.env.GITHUB_ENGINE_DISPATCH_TOKEN!.trim();
     const zipBytes = await downloadWorkflowArtifact({ ...config, token }, artifactId);
     const extracted = extractExpectedArtifactFiles(kind, zipBytes);
+    const missingMessage = extracted.missingFiles.length
+      ? `예상 파일을 찾지 못했습니다. 예상 파일: ${extracted.missingFiles.join(", ")}. ZIP 안에서 발견한 파일: ${extracted.foundSafeFiles.length ? extracted.foundSafeFiles.join(", ") : "없음"}`
+      : undefined;
     return NextResponse.json({
       ok: extracted.missingFiles.length === 0,
       status: extracted.missingFiles.length === 0 ? "ready" : "missing_expected_files",
+      message: missingMessage,
       kind,
       source,
       files: extracted.files,
       missingFiles: extracted.missingFiles,
       skippedFiles: extracted.skippedFiles,
       generatedSourceFiles: extracted.generatedSourceFiles,
+      foundSafeFiles: extracted.foundSafeFiles,
       reviewRoute: config.outputReviewRoute,
     });
   } catch (error) {

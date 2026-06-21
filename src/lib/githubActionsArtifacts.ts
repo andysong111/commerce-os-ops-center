@@ -31,6 +31,7 @@ export type ArtifactExtractionResult = {
   missingFiles: string[];
   skippedFiles: string[];
   generatedSourceFiles?: string[];
+  foundSafeFiles: string[];
 };
 
 type ArtifactDownloadConfig = Pick<EngineRunnerConfig, "repoOwner" | "repoName"> & { token: string };
@@ -64,14 +65,18 @@ export async function downloadWorkflowArtifact(
   return bytes;
 }
 
-function isSafeEntryName(name: string) {
-  if (!name || name.startsWith("/") || /^[A-Za-z]:/.test(name) || name.includes("\\")) return false;
-  return !name.split("/").some((part) => part === ".." || part === "");
+function normalizeSafeEntryName(name: string) {
+  if (!name || name.startsWith("/") || /^[A-Za-z]:/.test(name) || name.includes("\\")) return null;
+  const parts = name.split("/");
+  if (parts.some((part) => part === ".." || part === "")) return null;
+  const normalized = parts.join("/");
+  const basename = parts.at(-1) ?? "";
+  if (!basename) return null;
+  return normalized;
 }
 
 function allowedBasename(entryName: string, allowlist: Set<string>) {
-  const parts = entryName.split("/").filter(Boolean);
-  const basename = parts.at(-1) ?? "";
+  const basename = entryName.split("/").at(-1) ?? "";
   return allowlist.has(basename) ? basename : null;
 }
 
@@ -101,6 +106,7 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
   const files: Record<string, string> = {};
   const skippedFiles: string[] = [];
   const generatedSourceFiles: string[] = [];
+  const foundSafeFiles: string[] = [];
   const decoder = new TextDecoder("utf-8", { fatal: false });
   let offset = 0;
 
@@ -118,12 +124,15 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
       throw new Error(unsupportedLayoutMessage(expected));
     }
     const entryName = decoder.decode(zipBytes.slice(nameStart, nameStart + nameLength));
-    if (!isSafeEntryName(entryName)) {
+    const safeEntryName = normalizeSafeEntryName(entryName);
+    if (!safeEntryName) {
       skippedFiles.push(entryName || "unsafe-entry");
-    } else if (kind === "detail_page_engine" && entryName.startsWith("generated_source/") && !entryName.endsWith("/")) {
-      generatedSourceFiles.push(entryName);
+    } else if (kind === "detail_page_engine" && safeEntryName.startsWith("generated_source/") && !safeEntryName.endsWith("/")) {
+      foundSafeFiles.push(safeEntryName);
+      generatedSourceFiles.push(safeEntryName);
     } else {
-      const basename = allowedBasename(entryName, allowlist);
+      foundSafeFiles.push(safeEntryName);
+      const basename = allowedBasename(safeEntryName, allowlist);
       if (basename) {
         if (Object.hasOwn(files, basename)) {
           throw new Error("동일한 산출물 파일이 여러 위치에서 발견되었습니다. 안전을 위해 가져오기를 중단했습니다.");
@@ -137,8 +146,8 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
         }
         files[basename] = decoder.decode(inflated);
       }
-      else if (!entryName.endsWith("/")) {
-        skippedFiles.push(entryName);
+      else if (!safeEntryName.endsWith("/")) {
+        skippedFiles.push(safeEntryName);
       }
     }
     offset = dataEnd;
@@ -149,5 +158,6 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
     missingFiles: expected.filter((file) => !Object.hasOwn(files, file)),
     skippedFiles,
     generatedSourceFiles: kind === "detail_page_engine" ? generatedSourceFiles : undefined,
+    foundSafeFiles,
   };
 }
