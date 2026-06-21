@@ -77,13 +77,19 @@ test("status and save APIs expose per-secret statuses without secret values and 
   assert.match(saveRoute, /failed: result\.failed/);
   assert.match(saveRoute, /skipped: result\.skipped/);
   assert.match(saveRoute, /partial/);
+  assert.match(saveRoute, /runtime = "nodejs"/);
   assert.doesNotMatch(statusRoute, /secret_value|encrypted_value/);
   assert.doesNotMatch(saveRoute, /secretValues|localStorage|sessionStorage|encrypted_value/);
 });
 
 test("GitHub secret save implementation uses repository public-key encryption and safe errors", () => {
   assert.match(secretsLib, /actions\/secrets\/public-key/);
-  assert.match(secretsLib, /crypto_box_seal|__engineSecretEncryptForTest/);
+  assert.match(secretsLib, /export async function encryptGitHubSecret/);
+  assert.match(secretsLib, /sodium\.ready/);
+  assert.match(secretsLib, /from_base64\(publicKey, sodium\.base64_variants\.ORIGINAL\)/);
+  assert.match(secretsLib, /from_string\(secretValue\)/);
+  assert.match(secretsLib, /crypto_box_seal\(messageBytes, publicKeyBytes\)/);
+  assert.match(secretsLib, /to_base64\(encryptedBytes, sodium\.base64_variants\.ORIGINAL\)/);
   assert.match(secretsLib, /libsodium-wrappers/);
   assert.match(secretsLib, /fetch_public_key_failed/);
   assert.match(secretsLib, /encrypt_secret_failed/);
@@ -91,6 +97,8 @@ test("GitHub secret save implementation uses repository public-key encryption an
   assert.match(secretsLib, /status: response\.status/);
   assert.match(secretsLib, /githubMessage/);
   assert.match(secretsLib, /GitHub API가 \$\{response\.status\}을 반환했습니다/);
+  assert.match(secretsLib, /GitHub Secrets 저장 전 암호화에 실패했습니다\. 서버 암호화 모듈을 확인해 주세요\./);
+  assert.match(secretsLib, /JSON\.stringify\(\{ encrypted_value: encryptedValue, key_id: publicKeyPayload\.key_id \}\)/);
   assert.doesNotMatch(secretsLib, /console\.log|console\.error|console\.warn/);
 });
 

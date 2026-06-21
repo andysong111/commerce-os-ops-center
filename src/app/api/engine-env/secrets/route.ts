@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getEngineEnvConfig } from "@/lib/engineEnvConfig";
 import { saveRepositorySecrets } from "@/lib/githubActionsSecrets";
 
+export const runtime = "nodejs";
+
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null) as { engine?: unknown; secrets?: unknown } | null;
   const engine = typeof payload?.engine === "string" ? payload.engine : null;

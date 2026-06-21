@@ -1,4 +1,18 @@
+import { createRequire } from "node:module";
 import { getEngineAdminToken, type EngineEnvConfig } from "./engineEnvConfig";
+
+
+type LibsodiumWrappers = {
+  ready: Promise<void>;
+  base64_variants: { ORIGINAL: number };
+  from_base64(value: string, variant: number): Uint8Array;
+  from_string(value: string): Uint8Array;
+  crypto_box_seal(message: Uint8Array, publicKey: Uint8Array): Uint8Array;
+  to_base64(value: Uint8Array, variant: number): string;
+};
+
+const require = createRequire(import.meta.url);
+const sodium = require("libsodium-wrappers") as LibsodiumWrappers;
 
 export type EngineSecretStatus = {
   name: string;
@@ -84,13 +98,15 @@ export async function listRepositorySecretStatuses(config: EngineEnvConfig): Pro
   return config.secrets.map((secret) => ({ name: secret.name, configured: existing.has(secret.name), updatedAt: existing.get(secret.name) }));
 }
 
-async function encryptWithGitHubPublicKey(publicKey: string, secretValue: string): Promise<string> {
+export async function encryptGitHubSecret(publicKey: string, secretValue: string): Promise<string> {
   const testEncrypt = (globalThis as typeof globalThis & { __engineSecretEncryptForTest?: (key: string, value: string) => string }).__engineSecretEncryptForTest;
   if (testEncrypt) return testEncrypt(publicKey, secretValue);
-  const sodium = await (new Function("return import(\"libsodium-wrappers\")")() as Promise<{ ready: Promise<void>; crypto_box_seal: (message: Uint8Array, key: Uint8Array) => Uint8Array; from_string: (value: string) => Uint8Array; from_base64: (value: string, variant: unknown) => Uint8Array; to_base64: (value: Uint8Array, variant: unknown) => string; base64_variants: { ORIGINAL: unknown } }>);
+
   await sodium.ready;
-  const bytes = sodium.crypto_box_seal(sodium.from_string(secretValue), sodium.from_base64(publicKey, sodium.base64_variants.ORIGINAL));
-  return sodium.to_base64(bytes, sodium.base64_variants.ORIGINAL);
+  const publicKeyBytes = sodium.from_base64(publicKey, sodium.base64_variants.ORIGINAL);
+  const messageBytes = sodium.from_string(secretValue);
+  const encryptedBytes = sodium.crypto_box_seal(messageBytes, publicKeyBytes);
+  return sodium.to_base64(encryptedBytes, sodium.base64_variants.ORIGINAL);
 }
 
 export async function saveRepositorySecrets(config: EngineEnvConfig, secrets: Record<string, string>): Promise<SecretSaveResult> {
@@ -121,9 +137,9 @@ export async function saveRepositorySecrets(config: EngineEnvConfig, secrets: Re
   for (const [name, value] of entries) {
     let encryptedValue = "";
     try {
-      encryptedValue = await encryptWithGitHubPublicKey(publicKeyPayload.key, value);
+      encryptedValue = await encryptGitHubSecret(publicKeyPayload.key, value);
     } catch {
-      failed.push({ name, reason: "encrypt_secret_failed", action: "encrypt_secret_failed", message: "GitHub Secrets 암호화에 실패했습니다." });
+      failed.push({ name, reason: "encrypt_secret_failed", action: "encrypt_secret_failed", message: "GitHub Secrets 저장 전 암호화에 실패했습니다. 서버 암호화 모듈을 확인해 주세요." });
       continue;
     }
     let response: Response;
