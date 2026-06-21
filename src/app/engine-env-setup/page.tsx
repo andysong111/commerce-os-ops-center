@@ -6,7 +6,11 @@ import { PageHeader } from "@/components/PageHeader";
 import { keywordEngineSecrets } from "@/lib/engineEnvConfig";
 
 type AdminTokenStatus = "connected" | "missing" | "permission_denied" | "checking" | "unknown";
+type SecretName = (typeof keywordEngineSecrets)[number]["name"];
 type SecretStatus = { name: string; configured: boolean | "unknown"; updatedAt?: string };
+type SecretSaveFailure = { name: string; reason: string; action?: string; message: string; status?: number; githubMessage?: string };
+type SaveResult = { saved: string[]; failed: SecretSaveFailure[]; skipped: string[]; partial?: boolean; ok?: boolean; message?: string };
+type PerSecretSaveState = "저장 완료" | "저장 실패";
 
 function statusText(value: boolean | "unknown" | undefined) {
   if (value === true) return "설정됨";
@@ -22,16 +26,24 @@ function adminStatusText(status: AdminTokenStatus) {
   return "확인 불가";
 }
 
+function emptyInputs() {
+  return Object.fromEntries(keywordEngineSecrets.map((secret) => [secret.name, ""])) as Record<SecretName, string>;
+}
+
 export default function EngineEnvSetupPage() {
   const [statuses, setStatuses] = useState<Record<string, SecretStatus>>({});
+  const [inputs, setInputs] = useState<Record<SecretName, string>>(emptyInputs);
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<"success" | "error" | "warning">("success");
   const [permissionHelp, setPermissionHelp] = useState(false);
   const [saving, setSaving] = useState(false);
   const [adminTokenStatus, setAdminTokenStatus] = useState<AdminTokenStatus>("checking");
+  const [saveResults, setSaveResults] = useState<Record<string, PerSecretSaveState>>({});
+  const [failedResults, setFailedResults] = useState<SecretSaveFailure[]>([]);
 
   const allKeywordSecretsConfigured = useMemo(() => keywordEngineSecrets.every((secret) => statuses[secret.name]?.configured === true), [statuses]);
   const canSave = adminTokenStatus === "connected" && !saving;
+  const canRetryFailed = canSave && failedResults.some((failure) => Boolean(inputs[failure.name as SecretName]?.trim()));
 
   const refreshStatus = async () => {
     setAdminTokenStatus("checking");
@@ -52,8 +64,7 @@ export default function EngineEnvSetupPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void refreshStatus(); }, []);
 
-  const saveSecrets = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const submitSecrets = async (onlyFailed: boolean) => {
     if (adminTokenStatus !== "connected") {
       setMessage("관리 토큰이 연결된 뒤 저장할 수 있습니다.");
       setMessageKind("error");
@@ -62,22 +73,40 @@ export default function EngineEnvSetupPage() {
     }
     setSaving(true);
     setMessage("");
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const secrets = Object.fromEntries(keywordEngineSecrets.map((secret) => [secret.name, formData.get(secret.name)?.toString() ?? ""]));
+    const failedNames = new Set(failedResults.map((failure) => failure.name));
+    const secrets = Object.fromEntries(keywordEngineSecrets.map((secret) => [secret.name, onlyFailed && !failedNames.has(secret.name) ? "" : inputs[secret.name]]));
     const response = await fetch("/api/engine-env/secrets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine: "keyword_engine", secrets }) });
-    const data = await response.json();
-    setSaving(false);
-    if (!response.ok || !data.ok) {
-      setMessage(data.partial ? "일부 항목만 저장되었습니다. 저장되지 않은 항목을 확인해 주세요." : "저장 실패: GitHub Secrets에 저장하지 못했습니다. 관리 토큰 권한과 Vercel Redeploy 여부를 확인해 주세요.");
-      setMessageKind(data.partial ? "warning" : "error");
+    const data = await response.json() as SaveResult;
+    const saved = data.saved ?? [];
+    const failed = data.failed ?? [];
+    setSaveResults(Object.fromEntries([...saved.map((name) => [name, "저장 완료"]), ...failed.map((failure) => [failure.name, "저장 실패"])]) as Record<string, PerSecretSaveState>);
+    setFailedResults(failed);
+    setInputs((current) => {
+      const next = { ...current };
+      for (const name of saved) next[name as SecretName] = "";
+      return next;
+    });
+
+    if (failed.length === 0) {
+      setMessage("저장 완료: 모든 키워드 엔진 환경변수를 GitHub Actions Secrets에 저장했습니다.");
+      setMessageKind("success");
+      setPermissionHelp(false);
+    } else if (saved.length > 0) {
+      setMessage("일부 저장 완료: 저장된 항목과 실패한 항목을 확인해 주세요.");
+      setMessageKind("warning");
       setPermissionHelp(true);
-      return;
+    } else {
+      setMessage(data.message || "저장 실패: 어떤 항목도 GitHub Secrets에 저장하지 못했습니다.");
+      setMessageKind("error");
+      setPermissionHelp(true);
     }
-    form.reset();
-    setMessage("저장 완료: GitHub Actions Secrets에 등록했습니다. OPS CENTER에는 값이 저장되지 않습니다.");
-    setMessageKind("success");
     await refreshStatus();
+    setSaving(false);
+  };
+
+  const saveSecrets = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void submitSecrets(false);
   };
 
   const messageClass = messageKind === "success" ? "bg-emerald-50 text-emerald-900" : messageKind === "warning" ? "bg-amber-50 text-amber-950" : "bg-red-50 text-red-900";
@@ -96,7 +125,7 @@ export default function EngineEnvSetupPage() {
 
       <section className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-sm text-blue-950">
         <h2 className="text-lg font-bold">보안 안내</h2>
-        <p className="mt-2">입력한 Secret 값은 브라우저 저장소, operation history, 로그, 화면 JSON에 저장하지 않고 서버 API를 통해 GitHub Actions Secrets에 한 번만 전송합니다.</p>
+        <p className="mt-2">입력한 Secret 값은 브라우저 저장소, 작업 이력, 로그, 화면 JSON에 저장하지 않고 서버 API를 통해 GitHub Actions Secrets에 한 번만 전송합니다.</p>
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -106,16 +135,24 @@ export default function EngineEnvSetupPage() {
           <p className="mt-2 text-sm text-slate-700">이 설정은 한 번만 저장하면 됩니다. 값은 GitHub Actions Secrets에 저장되고, 이후 키워드 엔진 실행 때 자동으로 사용됩니다.</p>
           <p className="mt-1 text-sm text-slate-700">값을 변경해야 할 때만 다시 입력해서 저장하세요.</p>
         </div>
-        {allKeywordSecretsConfigured ? <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><p className="font-bold">키워드 엔진 환경변수 설정이 완료되었습니다. 이제 키워드 엔진 실행기에서 상품번호를 입력해 실행할 수 있습니다.</p><Link href="/keyword-engine-runner" className="mt-3 inline-block rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white">키워드 엔진 실행기로 이동</Link></div> : null}
+        {allKeywordSecretsConfigured ? <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><p className="font-bold">키워드 엔진 환경변수 설정이 완료되었습니다.</p><Link href="/keyword-engine-runner" className="mt-3 inline-block rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white">키워드 엔진 실행기로 이동</Link></div> : null}
         <form className="space-y-4" onSubmit={saveSecrets}>
-          {keywordEngineSecrets.map((secret) => (
-            <label key={secret.name} className="block rounded-lg border border-slate-200 p-4 text-sm">
-              <span className="flex flex-wrap items-center justify-between gap-2 font-semibold text-slate-800"><span>{secret.name} — {secret.label}</span><span className="rounded-full bg-slate-100 px-2 py-1 text-xs">{statusText(statuses[secret.name]?.configured)}</span></span>
-              <input name={secret.name} type="password" autoComplete="off" placeholder={secret.placeholder} className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2" />
-              <span className="mt-2 block text-xs text-slate-500">{secret.helperText} 빈 값은 저장하지 않습니다. Secret 값은 성공적으로 저장된 뒤에만 입력창에서 지워집니다.</span>
-            </label>
-          ))}
-          <button disabled={!canSave} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">{saving ? "저장 중…" : "GitHub Actions Secrets에 저장"}</button>
+          {keywordEngineSecrets.map((secret) => {
+            const failure = failedResults.find((item) => item.name === secret.name);
+            return (
+              <label key={secret.name} className="block rounded-lg border border-slate-200 p-4 text-sm">
+                <span className="flex flex-wrap items-center justify-between gap-2 font-semibold text-slate-800"><span>{secret.name} — {secret.label}</span><span className="rounded-full bg-slate-100 px-2 py-1 text-xs">{statusText(statuses[secret.name]?.configured)}</span></span>
+                <input name={secret.name} type="password" autoComplete="off" value={inputs[secret.name]} onChange={(event) => setInputs((current) => ({ ...current, [secret.name]: event.target.value }))} placeholder={secret.placeholder} className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2" />
+                <span className="mt-2 block text-xs text-slate-500">{secret.helperText} 빈 값은 저장하지 않습니다. Secret 값은 성공적으로 저장된 뒤에만 입력창에서 지워집니다.</span>
+                {saveResults[secret.name] ? <span className={saveResults[secret.name] === "저장 완료" ? "mt-2 block text-xs font-bold text-emerald-700" : "mt-2 block text-xs font-bold text-red-700"}>{secret.name}: {saveResults[secret.name]}</span> : null}
+                {failure ? <span className="mt-1 block text-xs text-red-700">{secret.name} 저장 실패: {failure.message}{failure.githubMessage ? ` GitHub 메시지: ${failure.githubMessage}` : ""}</span> : null}
+              </label>
+            );
+          })}
+          <div className="flex flex-wrap gap-2">
+            <button disabled={!canSave} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">{saving ? "저장 중…" : "GitHub Actions Secrets에 저장"}</button>
+            {failedResults.length > 0 ? <button type="button" disabled={!canRetryFailed} onClick={() => void submitSecrets(true)} className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">실패한 항목 다시 저장</button> : null}
+          </div>
           {adminTokenStatus !== "connected" ? <p className="text-sm font-semibold text-amber-900">관리 토큰이 연결된 뒤 저장할 수 있습니다.</p> : null}
         </form>
         {message ? <p className={`mt-4 rounded-lg px-3 py-2 text-sm font-semibold ${messageClass}`}>{message}</p> : null}
