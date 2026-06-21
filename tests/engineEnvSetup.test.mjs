@@ -9,13 +9,15 @@ const saveRoute = readFileSync("src/app/api/engine-env/secrets/route.ts", "utf8"
 const secretsLib = readFileSync("src/lib/githubActionsSecrets.ts", "utf8");
 const runner = readFileSync("src/components/engine-runners/EngineRunnerConsole.tsx", "utf8");
 
-test("environment setup page renders token status, one-time guidance, and success route", () => {
+test("environment setup page renders token status, one-time guidance, completed callout, and success route", () => {
   assert.match(page, /GitHub 관리 토큰 상태/);
   assert.match(page, /연결됨/);
   assert.match(page, /연결 안 됨/);
   assert.match(page, /권한 부족/);
   assert.match(page, /확인 중/);
   assert.match(page, /확인 불가/);
+  assert.match(page, /설정됨/);
+  assert.match(page, /미설정/);
   assert.match(page, /Vercel 환경변수를 추가한 뒤에는 반드시 Redeploy가 필요합니다/);
   assert.match(page, /관리 토큰이 연결된 뒤 저장할 수 있습니다/);
   assert.match(page, /이 설정은 한 번만 저장하면 됩니다/);
@@ -25,14 +27,25 @@ test("environment setup page renders token status, one-time guidance, and succes
   assert.match(page, /\/keyword-engine-runner/);
 });
 
-test("environment setup page keeps inputs on failure and clears only after successful save", () => {
-  assert.match(page, /if \(!response\.ok \|\| !data\.ok\)/);
-  assert.match(page, /form\.reset\(\)/);
-  assert.ok(page.indexOf("form.reset()") > page.indexOf("if (!response.ok || !data.ok)"));
-  assert.match(page, /저장 완료: GitHub Actions Secrets에 등록했습니다/);
-  assert.match(page, /저장 실패: GitHub Secrets에 저장하지 못했습니다/);
-  assert.match(page, /일부 항목만 저장되었습니다/);
+test("environment setup page renders per-secret save results and retry-only-failed UX", () => {
+  assert.match(page, /saveResults/);
+  assert.match(page, /failedResults/);
+  assert.match(page, /저장 완료/);
+  assert.match(page, /저장 실패/);
+  assert.match(page, /일부 저장 완료: 저장된 항목과 실패한 항목을 확인해 주세요/);
+  assert.match(page, /저장 실패: 어떤 항목도 GitHub Secrets에 저장하지 못했습니다/);
+  assert.match(page, /저장 완료: 모든 키워드 엔진 환경변수를 GitHub Actions Secrets에 저장했습니다/);
+  assert.match(page, /실패한 항목 다시 저장/);
+  assert.match(page, /onlyFailed && !failedNames\.has/);
+  assert.match(page, /canRetryFailed/);
+});
+
+test("environment setup page clears only successfully saved inputs, keeps failed inputs, and refreshes after any attempt", () => {
+  assert.match(page, /setInputs\(\(current\) =>/);
+  assert.match(page, /for \(const name of saved\) next\[name as SecretName\] = ""/);
+  assert.doesNotMatch(page, /form\.reset\(\)/);
   assert.match(page, /await refreshStatus\(\)/);
+  assert.ok(page.indexOf("await refreshStatus()") > page.indexOf("setFailedResults(failed)"));
   assert.doesNotMatch(page, /localStorage|sessionStorage|history\.pushState|replaceState/);
 });
 
@@ -44,11 +57,11 @@ test("environment setup page renders required Korean content", () => {
   assert.match(config, /샵플링 API 인증키/);
   assert.match(config, /샵플링 API 기본 주소/);
   assert.match(page, /GitHub Actions Secrets에 저장/);
-  assert.match(page, /OPS CENTER에는 값이 저장되지 않습니다/);
+  assert.match(page, /값이 저장되지 않습니다/);
   assert.match(page, /현재 상세페이지 엔진은 OPS CENTER에서 설정할 필수 환경변수가 없습니다/);
 });
 
-test("status and save APIs expose statuses without secret values and validate allowlists", () => {
+test("status and save APIs expose per-secret statuses without secret values and validate allowlists", () => {
   assert.match(statusRoute, /adminTokenStatus/);
   assert.match(statusRoute, /missing/);
   assert.match(statusRoute, /permission_denied/);
@@ -60,11 +73,25 @@ test("status and save APIs expose statuses without secret values and validate al
   assert.match(saveRoute, /허용되지 않은 엔진입니다/);
   assert.match(saveRoute, /허용되지 않은 Secret 이름입니다/);
   assert.match(saveRoute, /value\.trim\(\)/);
-  assert.match(secretsLib, /actions\/secrets\/public-key/);
-  assert.match(secretsLib, /crypto_box_seal|__engineSecretEncryptForTest/);
-  assert.match(saveRoute, /savedSecrets/);
+  assert.match(saveRoute, /saved: result\.saved/);
+  assert.match(saveRoute, /failed: result\.failed/);
+  assert.match(saveRoute, /skipped: result\.skipped/);
+  assert.match(saveRoute, /partial/);
   assert.doesNotMatch(statusRoute, /secret_value|encrypted_value/);
   assert.doesNotMatch(saveRoute, /secretValues|localStorage|sessionStorage|encrypted_value/);
+});
+
+test("GitHub secret save implementation uses repository public-key encryption and safe errors", () => {
+  assert.match(secretsLib, /actions\/secrets\/public-key/);
+  assert.match(secretsLib, /crypto_box_seal|__engineSecretEncryptForTest/);
+  assert.match(secretsLib, /libsodium-wrappers/);
+  assert.match(secretsLib, /fetch_public_key_failed/);
+  assert.match(secretsLib, /encrypt_secret_failed/);
+  assert.match(secretsLib, /put_secret_failed/);
+  assert.match(secretsLib, /status: response\.status/);
+  assert.match(secretsLib, /githubMessage/);
+  assert.match(secretsLib, /GitHub API가 \$\{response\.status\}을 반환했습니다/);
+  assert.doesNotMatch(secretsLib, /console\.log|console\.error|console\.warn/);
 });
 
 test("runner failure diagnosis links to environment setup", () => {
