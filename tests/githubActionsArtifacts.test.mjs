@@ -206,6 +206,38 @@ test("artifact import returns normalized payload without token", async () => {
   }
 });
 
+
+test("artifact import missing expected files returns Korean diagnostics with found safe filenames", async () => {
+  process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      zip({
+        "output/mvp/keyword_mvp_result.json": "{}",
+        "../keyword_mvp_approval_sheet.csv": "unsafe",
+      }),
+    );
+  try {
+    const response = await postImportPreview(
+      new Request("http://localhost/api/engine-runners/artifacts/import-preview", {
+        method: "POST",
+        body: JSON.stringify({ kind: "keyword_engine", runId: 123, artifactId: 456 }),
+      }),
+    );
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, false);
+    assert.equal(body.status, "missing_expected_files");
+    assert.match(body.message, /예상 파일을 찾지 못했습니다/);
+    assert.match(body.message, /keyword_mvp_approval_sheet\.csv/);
+    assert.match(body.message, /ZIP 안에서 발견한 파일: output\/mvp\/keyword_mvp_result\.json/);
+    assert.doesNotMatch(body.message, /secret-test-token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
+  }
+});
+
 test("artifact import returns 502 JSON error on GitHub artifact download failure", async () => {
   process.env.GITHUB_ENGINE_DISPATCH_TOKEN = "secret-test-token";
   const originalFetch = globalThis.fetch;
@@ -288,6 +320,7 @@ test("artifact ZIP import supports root, single folder, output, and artifacts la
     "keyword-engine-mvp-output/",
     "output/",
     "artifacts/",
+    "output/mvp/",
   ]) {
     const extracted = extractExpectedArtifactFiles(
       "keyword_engine",
@@ -305,6 +338,52 @@ test("artifact ZIP import supports root, single folder, output, and artifacts la
     );
     assert.deepEqual(extracted.missingFiles, []);
   }
+});
+
+
+test("output/mvp keyword artifacts include required and optional allowlisted files", () => {
+  const extracted = extractExpectedArtifactFiles(
+    "keyword_engine",
+    zip({
+      "output/mvp/keyword_mvp_approval_sheet.csv": "goods_key,title\nBATH001,Towel",
+      "output/mvp/keyword_mvp_manual_candidates.csv": "goods_key,title\nBATH002,Mat",
+      "output/mvp/keyword_mvp_summary.md": "# Summary",
+      "output/mvp/keyword_mvp_result.csv": "goods_key,status\nBATH001,ok",
+      "output/mvp/keyword_mvp_result.json": "{\"ok\":true}",
+      "output/mvp/keyword_mvp_auto_promotion_audit.csv": "goods_key,decision\nBATH001,review",
+      "output/mvp/not_allowed.txt": "ignored",
+    }),
+  );
+  assert.equal(extracted.files["keyword_mvp_approval_sheet.csv"], "goods_key,title\nBATH001,Towel");
+  assert.equal(extracted.files["keyword_mvp_manual_candidates.csv"], "goods_key,title\nBATH002,Mat");
+  assert.equal(extracted.files["keyword_mvp_summary.md"], "# Summary");
+  assert.equal(extracted.files["keyword_mvp_result.csv"], "goods_key,status\nBATH001,ok");
+  assert.equal(extracted.files["keyword_mvp_result.json"], "{\"ok\":true}");
+  assert.equal(extracted.files["keyword_mvp_auto_promotion_audit.csv"], "goods_key,decision\nBATH001,review");
+  assert.equal(extracted.files["not_allowed.txt"], undefined);
+  assert.ok(extracted.foundSafeFiles.includes("output/mvp/not_allowed.txt"));
+  assert.deepEqual(extracted.missingFiles, []);
+});
+
+test("path traversal and absolute zip entries are rejected before basename matching", () => {
+  const extracted = extractExpectedArtifactFiles(
+    "keyword_engine",
+    zip({
+      "../keyword_mvp_manual_candidates.csv": "no",
+      "output/../keyword_mvp_summary.md": "no",
+      "/keyword_mvp_result.csv": "no",
+      "C:/keyword_mvp_result.json": "no",
+      "output\\mvp\\keyword_mvp_auto_promotion_audit.csv": "no",
+      "output/mvp/keyword_mvp_approval_sheet.csv": "ok",
+    }),
+  );
+  assert.equal(extracted.files["keyword_mvp_manual_candidates.csv"], undefined);
+  assert.equal(extracted.files["keyword_mvp_summary.md"], undefined);
+  assert.equal(extracted.files["keyword_mvp_result.csv"], undefined);
+  assert.equal(extracted.files["keyword_mvp_result.json"], undefined);
+  assert.equal(extracted.files["keyword_mvp_auto_promotion_audit.csv"], undefined);
+  assert.equal(extracted.files["keyword_mvp_approval_sheet.csv"], "ok");
+  assert.deepEqual(extracted.foundSafeFiles, ["output/mvp/keyword_mvp_approval_sheet.csv"]);
 });
 
 test("detail artifact ZIP import supports nested GitHub artifact folders", () => {
