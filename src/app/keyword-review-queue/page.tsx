@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, type ChangeEvent } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { createEngineArtifactReviewSummary } from "@/lib/engineArtifactReview";
@@ -33,11 +34,17 @@ type ImportedArtifactPayload = {
 
 function readImportedArtifactHandoff(): ImportedArtifactPayload | null {
   if (typeof window === "undefined") return null;
-  const raw = window.sessionStorage.getItem("opsCenter.keywordEngine.importedArtifact.v1");
+  const raw = window.sessionStorage.getItem(
+    "opsCenter.keywordEngine.importedArtifact.v1",
+  );
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<ImportedArtifactPayload>;
-    if (parsed.kind === "keyword_engine" && parsed.requiresHumanReview === true && parsed.files) {
+    if (
+      parsed.kind === "keyword_engine" &&
+      parsed.requiresHumanReview === true &&
+      parsed.files
+    ) {
       return parsed as ImportedArtifactPayload;
     }
   } catch {
@@ -60,18 +67,46 @@ const classificationStyles: Record<KeywordQueueClassification, string> = {
 
 const reviewSummary = createEngineArtifactReviewSummary({
   source: "keyword-engine-soon",
-  statuses: ["imported", "needs_review", "preview_ready", "export_ready", "execution_disabled"],
+  statuses: [
+    "imported",
+    "needs_review",
+    "preview_ready",
+    "export_ready",
+    "execution_disabled",
+  ],
 });
 
 export default function KeywordReviewQueuePage() {
-  const [importedArtifact] = useState<ImportedArtifactPayload | null>(() => readImportedArtifactHandoff());
-  const [approvalCsv, setApprovalCsv] = useState(() => String(importedArtifact?.files?.["keyword_mvp_approval_sheet.csv"] ?? ""));
-  const [manualCsv, setManualCsv] = useState(() => String(importedArtifact?.files?.["keyword_mvp_manual_candidates.csv"] ?? ""));
-  const [summaryMarkdown, setSummaryMarkdown] = useState(() => String(importedArtifact?.files?.["keyword_mvp_summary.md"] ?? ""));
-  const [rows, setRows] = useState<ReviewedKeywordRow[]>(() => importedArtifact ? createReviewedRows([
-    ...parseKeywordMvpCsv(String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? "")),
-    ...parseKeywordMvpCsv(String(importedArtifact.files["keyword_mvp_manual_candidates.csv"] ?? "")),
-  ]) : []);
+  const [importedArtifact] = useState<ImportedArtifactPayload | null>(() =>
+    readImportedArtifactHandoff(),
+  );
+  const [approvalCsv, setApprovalCsv] = useState(() =>
+    String(importedArtifact?.files?.["keyword_mvp_approval_sheet.csv"] ?? ""),
+  );
+  const [manualCsv, setManualCsv] = useState(() =>
+    String(
+      importedArtifact?.files?.["keyword_mvp_manual_candidates.csv"] ?? "",
+    ),
+  );
+  const [summaryMarkdown, setSummaryMarkdown] = useState(() =>
+    String(importedArtifact?.files?.["keyword_mvp_summary.md"] ?? ""),
+  );
+  const [rows, setRows] = useState<ReviewedKeywordRow[]>(() =>
+    importedArtifact
+      ? createReviewedRows([
+          ...parseKeywordMvpCsv(
+            String(
+              importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? "",
+            ),
+          ),
+          ...parseKeywordMvpCsv(
+            String(
+              importedArtifact.files["keyword_mvp_manual_candidates.csv"] ?? "",
+            ),
+          ),
+        ])
+      : [],
+  );
   const [copyStatus, setCopyStatus] = useState("");
   const [payloadPreview, setPayloadPreview] =
     useState<KeywordPayloadPreviewResult | null>(null);
@@ -83,16 +118,28 @@ export default function KeywordReviewQueuePage() {
   const [finalConfirmation, setFinalConfirmation] = useState(false);
   function loadImportedArtifact() {
     if (!importedArtifact?.files) return;
-    setApprovalCsv(String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? ""));
-    setManualCsv(String(importedArtifact.files["keyword_mvp_manual_candidates.csv"] ?? ""));
-    setSummaryMarkdown(String(importedArtifact.files["keyword_mvp_summary.md"] ?? ""));
+    setApprovalCsv(
+      String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? ""),
+    );
+    setManualCsv(
+      String(importedArtifact.files["keyword_mvp_manual_candidates.csv"] ?? ""),
+    );
+    setSummaryMarkdown(
+      String(importedArtifact.files["keyword_mvp_summary.md"] ?? ""),
+    );
     setRows([]);
     setPayloadPreview(null);
     setPreflightResult(null);
     setFinalConfirmation(false);
     const parsed = [
-      ...parseKeywordMvpCsv(String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? "")),
-      ...parseKeywordMvpCsv(String(importedArtifact.files["keyword_mvp_manual_candidates.csv"] ?? "")),
+      ...parseKeywordMvpCsv(
+        String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? ""),
+      ),
+      ...parseKeywordMvpCsv(
+        String(
+          importedArtifact.files["keyword_mvp_manual_candidates.csv"] ?? "",
+        ),
+      ),
     ];
     setRows(createReviewedRows(parsed));
     setCopyStatus("키워드 결과물을 가져왔습니다. 검토 목록을 불러왔습니다.");
@@ -100,9 +147,8 @@ export default function KeywordReviewQueuePage() {
 
   const counts = useMemo(
     () => ({
-      auto: rows.filter(
-        (row) => row.classification === "auto_apply_candidate",
-      ).length,
+      auto: rows.filter((row) => row.classification === "auto_apply_candidate")
+        .length,
       manual: rows.filter((row) => row.classification === "manual_review")
         .length,
       blocked: rows.filter((row) => row.classification === "blocked_risk")
@@ -111,6 +157,8 @@ export default function KeywordReviewQueuePage() {
     }),
     [rows],
   );
+  const hasImportedArtifact = Boolean(importedArtifact);
+  const importedRowsAreEmpty = hasImportedArtifact && counts.total === 0;
 
   function previewQueue() {
     const parsed = [
@@ -165,16 +213,59 @@ export default function KeywordReviewQueuePage() {
 
       {importedArtifact ? (
         <section className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 shadow-sm">
-          <h2 className="font-semibold">키워드 엔진 결과물이 준비되었습니다.</h2>
-          <p className="mt-1">가져온 키워드를 아래에서 검토하세요. 이 브라우저 세션에만 보관되며 샵플링에 자동 반영되지 않습니다.</p>
-          <button type="button" onClick={loadImportedArtifact} className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">가져온 결과물 불러오기</button>
+          <h2 className="font-semibold">키워드 결과물을 불러왔습니다.</h2>
+          <p className="mt-1">
+            가져온 키워드를 자동으로 검토 목록에 불러왔습니다. 이 브라우저
+            세션에만 보관되며 샵플링에 자동 반영되지 않습니다.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-4">
+            <span>전체 행 수: {counts.total}</span>
+            <span>자동 적용 후보: {counts.auto}</span>
+            <span>수동 검토: {counts.manual}</span>
+            <span>차단 / 위험: {counts.blocked}</span>
+          </div>
+          {importedRowsAreEmpty ? (
+            <p className="mt-3 rounded-lg bg-white px-3 py-2 font-semibold text-amber-800">
+              가져온 파일에 검토할 행이 없습니다. artifact 내용을 확인해 주세요.
+            </p>
+          ) : null}
+          <button
+            type="button"
+            onClick={loadImportedArtifact}
+            className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
+          >
+            가져온 결과물 다시 불러오기
+          </button>
         </section>
-      ) : null}
+      ) : (
+        <section className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 shadow-sm">
+          <h2 className="font-semibold">
+            아직 가져온 키워드 결과물이 없습니다.
+          </h2>
+          <p className="mt-1">
+            일반 흐름은 키워드 엔진 실행기에서 상품번호를 입력한 뒤, ‘결과
+            가져오기 및 검토 시작’을 누르는 것입니다.
+          </p>
+          <Link
+            href="/keyword-engine-runner"
+            className="mt-3 inline-block rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white"
+          >
+            키워드 엔진 실행기로 이동
+          </Link>
+        </section>
+      )}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <h2 className="font-semibold text-slate-950">키워드 엔진 결과물 가져오기</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">
-          일반 흐름은 키워드 엔진 실행기 → 결과물 가져오기 → 키워드 결과 검토입니다. 필요하면 수동으로 CSV를 붙여넣거나 업로드할 수 있습니다. 요약 Markdown은 검토 참고용으로만 보관됩니다.
+      <details
+        open={!hasImportedArtifact}
+        className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+      >
+        <summary className="cursor-pointer font-semibold text-slate-950">
+          수동으로 CSV 붙여넣기 / 업로드하기
+        </summary>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          일반 흐름은 키워드 엔진 실행기 → 결과 가져오기 및 검토 시작 → 키워드
+          결과 검토입니다. 필요하면 수동으로 CSV를 붙여넣거나 업로드할 수
+          있습니다. 요약 Markdown은 검토 참고용으로만 보관됩니다.
         </p>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -223,7 +314,7 @@ export default function KeywordReviewQueuePage() {
             샘플 CSV 불러오기
           </button>
         </div>
-      </section>
+      </details>
 
       <section
         className="my-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
@@ -240,7 +331,8 @@ export default function KeywordReviewQueuePage() {
           <div>
             <h2 className="font-semibold text-slate-950">검토 행</h2>
             <p className="mt-1 text-sm text-slate-600">
-              수동 검토 행은 수정할 수 있습니다. 승인/보류 상태는 이 브라우저 세션에만 남으며 실행을 유발하지 않습니다.
+              수동 검토 행은 수정할 수 있습니다. 승인/보류 상태는 이 브라우저
+              세션에만 남으며 실행을 유발하지 않습니다.
             </p>
           </div>
           <button
@@ -263,9 +355,21 @@ export default function KeywordReviewQueuePage() {
         </div>
 
         {rows.length === 0 ? (
-          <p className="p-8 text-center text-sm text-slate-500">
-            CSV 데이터를 붙여넣거나 업로드한 뒤 검토 목록 만들기를 눌러 주세요.
-          </p>
+          <div className="p-8 text-center text-sm text-slate-500">
+            <p>
+              {hasImportedArtifact
+                ? "가져온 파일에 검토할 행이 없습니다. artifact 내용을 확인해 주세요."
+                : "아직 가져온 키워드 결과물이 없습니다."}
+            </p>
+            {!hasImportedArtifact ? (
+              <Link
+                href="/keyword-engine-runner"
+                className="mt-3 inline-block rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                키워드 엔진 실행기로 이동
+              </Link>
+            ) : null}
+          </div>
         ) : (
           <div className="divide-y divide-slate-200">
             {rows.map((row, index) => (
@@ -333,11 +437,14 @@ function EngineSafetyBanner() {
     <section className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
       <h2 className="font-semibold">산출물 검토 안전 상태</h2>
       <p className="mt-1">
-        이 화면은 외부 키워드 엔진 결과물을 검토만 합니다. 이 화면에서는 키워드 엔진을 직접 실행하지 않고, 샵플링 API를 호출하지 않으며, 상품 정보를 자동 수정하지 않습니다. 사람이 검토/승인해야 다음 단계로 진행할 수 있습니다.
+        이 화면은 외부 키워드 엔진 결과물을 검토만 합니다. 이 화면에서는 키워드
+        엔진을 직접 실행하지 않고, 샵플링 API를 호출하지 않으며, 상품 정보를
+        자동 수정하지 않습니다. 사람이 검토/승인해야 다음 단계로 진행할 수
+        있습니다.
       </p>
       <p className="mt-1">
-        안전 플래그:
-        externalEngineExecution={String(reviewSummary.safetyFlags.externalEngineExecution)},
+        안전 플래그: externalEngineExecution=
+        {String(reviewSummary.safetyFlags.externalEngineExecution)},
         previewOnly={String(reviewSummary.safetyFlags.previewOnly)}.
       </p>
     </section>
@@ -358,7 +465,9 @@ function WhatThisPageDoes() {
         </ul>
       </div>
       <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-        <h2 className="font-semibold text-slate-950">이 화면에서 하지 않는 일</h2>
+        <h2 className="font-semibold text-slate-950">
+          이 화면에서 하지 않는 일
+        </h2>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>keyword-engine-soon을 직접 실행하지 않습니다.</li>
           <li>샵플링 API를 호출하지 않습니다.</li>
@@ -400,9 +509,7 @@ function ExecutionPreflightSection({
   onMaxRowsChange: (value: string) => void;
   onAlreadyAppliedGoodsKeysChange: (value: string) => void;
   onFinalConfirmationChange: (value: boolean) => void;
-  onRun: (
-    config: typeof DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
-  ) => void;
+  onRun: (config: typeof DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG) => void;
 }) {
   const config = {
     ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
@@ -500,7 +607,10 @@ function ExecutionPreflightSection({
       ) : (
         <div className="p-4 sm:p-5">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard label="Eligible" value={result.summary.eligibleCount} />
+            <SummaryCard
+              label="Eligible"
+              value={result.summary.eligibleCount}
+            />
             <SummaryCard label="Blocked" value={result.summary.blockedCount} />
             <SummaryCard
               label="Already applied blocked"
@@ -588,9 +698,7 @@ function ExecutionPreflightSection({
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() =>
-                void navigator.clipboard.writeText(executionPlan)
-              }
+              onClick={() => void navigator.clipboard.writeText(executionPlan)}
               className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
             >
               Copy execution plan JSON
@@ -668,12 +776,18 @@ function PayloadPreviewSection({
       ) : (
         <div className="p-4 sm:p-5">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard label="Approved rows" value={result.summary.approvedCount} />
+            <SummaryCard
+              label="Approved rows"
+              value={result.summary.approvedCount}
+            />
             <SummaryCard
               label="Preview-ready rows"
               value={result.summary.previewReadyCount}
             />
-            <SummaryCard label="Invalid rows" value={result.summary.invalidCount} />
+            <SummaryCard
+              label="Invalid rows"
+              value={result.summary.invalidCount}
+            />
             <SummaryCard
               label="제외된 차단 / 위험"
               value={result.summary.blockedRiskCount}
@@ -716,13 +830,17 @@ function PayloadPreviewSection({
                       >
                         {item.payload_status.replaceAll("_", " ")}
                       </strong>
-                      {[...item.validation_errors, ...item.validation_warnings].map(
-                        (message) => (
-                          <p key={message} className="mt-1 text-xs text-slate-600">
-                            {message}
-                          </p>
-                        ),
-                      )}
+                      {[
+                        ...item.validation_errors,
+                        ...item.validation_warnings,
+                      ].map((message) => (
+                        <p
+                          key={message}
+                          className="mt-1 text-xs text-slate-600"
+                        >
+                          {message}
+                        </p>
+                      ))}
                     </td>
                   </tr>
                 ))}
@@ -908,7 +1026,9 @@ function ReviewRow({
             Edited title
             <input
               value={row.editedTitle}
-              onChange={(event) => onUpdate({ editedTitle: event.target.value })}
+              onChange={(event) =>
+                onUpdate({ editedTitle: event.target.value })
+              }
               className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-blue-500"
             />
           </label>
