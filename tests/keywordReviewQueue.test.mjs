@@ -84,14 +84,20 @@ test("keyword review foundation contains no live Shopling execution", async () =
   assert.doesNotMatch(source, /\/api\/shopling/i);
 });
 
-test("keyword review sheet and card modes are present", async () => {
+test("keyword review is sheet-only with no card or mode toggle", async () => {
   const source = await readFile(
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(source, /시트형 보기/);
-  assert.match(source, /카드형 보기/);
-  assert.match(source, /length > 5 \? "sheet" : "card"/);
+  assert.doesNotMatch(source, /카드형 보기/);
+  assert.doesNotMatch(source, /시트형 보기/);
+  assert.doesNotMatch(source, /viewMode|setViewMode|ReviewRow/);
+  assert.match(source, /검토 목록/);
+  assert.match(
+    source,
+    /표에서 상품명과 검색어를 확인하고 승인 또는 보류를 선택하세요/,
+  );
+  assert.match(source, /<SheetReviewTable/);
 });
 
 test("sheet table renders Korean bulk review columns", async () => {
@@ -99,9 +105,54 @@ test("sheet table renders Korean bulk review columns", async () => {
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
     "utf8",
   );
-  for (const label of ["선택", "상태", "상품번호", "현재 상품명", "추천 상품명", "추천 검색어", "검토 메모", "작업"]) {
+  for (const label of [
+    "선택",
+    "상태",
+    "상품번호",
+    "현재 상품명",
+    "추천 상품명",
+    "추천 검색어",
+    "검토 메모",
+    "작업",
+  ]) {
     assert.match(source, new RegExp(label));
   }
+});
+
+test("preview and safety sections use beginner-friendly Korean labels", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /검토 결과 미리보기 만들기/);
+  assert.match(source, /미리보기 만들기/);
+  assert.doesNotMatch(source, /Generate payload\/XML preview/);
+  assert.doesNotMatch(source, />Execution Preflight</);
+  assert.match(source, /고급 안전 확인 열기/);
+  for (const label of [
+    "허용할 몰 키",
+    "이미 처리한 상품번호",
+    "최대 처리 행 수",
+    "안전 확인 실행",
+  ]) {
+    assert.match(source, new RegExp(label));
+  }
+});
+
+test("technical preview terms are kept in collapsed details only", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /기술 정보 보기/);
+  assert.match(
+    source,
+    /Preview XML \/ payload \/ site_srch \/ preflight \/ preview-only flags/,
+  );
+  assert.doesNotMatch(
+    source,
+    /<h2[^>]*>.*payload|<p[^>]*>.*XML|<button[^>]*>.*preflight/i,
+  );
 });
 
 test("sheet mode supports editing title and keywords", async () => {
@@ -134,7 +185,16 @@ test("sheet filters and search are configured", async () => {
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
     "utf8",
   );
-  for (const label of ["전체", "검토 필요", "승인 가능", "보류", "승인됨", "위험/차단", "검색어 없음", "추천 상품명 없음"]) {
+  for (const label of [
+    "전체",
+    "검토 필요",
+    "승인 가능",
+    "보류",
+    "승인됨",
+    "위험/차단",
+    "검색어 없음",
+    "추천 상품명 없음",
+  ]) {
     assert.match(source, new RegExp(label));
   }
   assert.match(source, /상품번호 또는 상품명 검색/);
@@ -147,7 +207,16 @@ test("sheet details hide raw technical fields behind details action", async () =
     "utf8",
   );
   assert.match(source, /세부보기/);
-  for (const label of ["mail_key", "sourceRowIndex", "quality_status", "confidence_status", "block_reason", "warning_flags", "counts", "raw site_srch"]) {
+  for (const label of [
+    "mail_key",
+    "sourceRowIndex",
+    "quality_status",
+    "confidence_status",
+    "block_reason",
+    "warning_flags",
+    "counts",
+    "raw site_srch",
+  ]) {
     assert.match(source, new RegExp(label));
   }
   assert.match(source, /expandedRows\.has\(index\)/);
@@ -171,7 +240,13 @@ test("keyword review sheet safety contains no forbidden execution helpers", asyn
     new URL("../.github/workflows", import.meta.url),
     "utf8",
   ).catch(() => "");
-  assert.doesNotMatch(page, /child_process|PowerShell|powershell|pwsh|exec\(|spawn\(|SHOPLING_.*TOKEN|GITHUB_TOKEN/);
-  assert.doesNotMatch(page, /Shopling API 실행|auto-apply|auto apply|apply\/write/i);
+  assert.doesNotMatch(
+    page,
+    /child_process|PowerShell|powershell|pwsh|exec\(|spawn\(|SHOPLING_.*TOKEN|GITHUB_TOKEN/,
+  );
+  assert.doesNotMatch(
+    page,
+    /Shopling API 실행|auto-apply|auto apply|apply\/write/i,
+  );
   assert.equal(workflows, "");
 });
