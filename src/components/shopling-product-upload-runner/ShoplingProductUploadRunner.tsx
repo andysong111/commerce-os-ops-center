@@ -55,7 +55,7 @@ export function ShoplingProductUploadRunner() {
           channel: formData.get("channel")?.toString() ?? "",
           skip_if_goods_key: formData.get("skip_if_goods_key") === "on",
           dump: formData.get("dump") === "on",
-          sleep: formData.get("sleep")?.toString() ?? "1.2",
+          sleep: "1.2",
         }),
       });
       const data = await response.json();
@@ -94,19 +94,23 @@ export function ShoplingProductUploadRunner() {
           </label>
         </div>
 
-        <fieldset className="mt-6 grid gap-4 rounded-xl bg-slate-50 p-4 md:grid-cols-3">
+        <fieldset className="mt-6 grid gap-4 rounded-xl bg-slate-50 p-4">
           <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
             <input name="skip_if_goods_key" type="checkbox" defaultChecked className="size-4 rounded border-slate-300" />
             이미 goods_key 있으면 스킵
           </label>
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-            <input name="dump" type="checkbox" className="size-4 rounded border-slate-300" />
-            요청/응답 XML 덤프 저장
+          <label className="block text-sm font-medium text-slate-700">
+            <span className="flex items-center gap-2">
+              <input name="dump" type="checkbox" defaultChecked className="size-4 rounded border-slate-300" />
+              요청/응답 XML 덤프 저장
+            </span>
+            <span className="mt-2 block text-xs font-normal leading-5 text-slate-500">
+              오류 추적용입니다. 덤프 파일에는 민감정보가 포함될 수 있으므로 외부 공유 금지.
+            </span>
           </label>
-          <label className="text-sm font-semibold text-slate-800">
-            실행 간격 초
-            <input name="sleep" type="number" min="0" max="10" step="0.1" defaultValue="1.2" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          </label>
+          <p className="text-xs leading-5 text-slate-500">
+            실행 간격은 안정성을 위해 1.2초로 고정됩니다.
+          </p>
         </fieldset>
 
         <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold leading-6 text-red-700">
