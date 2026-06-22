@@ -1,0 +1,110 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  buildShoplingProductUploadCommand,
+  estimateTargetCount,
+  isValidRowExpression,
+  isValidShoplingProductUploadChannel,
+} from "../src/lib/shoplingProductUploadRunner.ts";
+
+const acceptedRows = ["967", "698,714", "714-730", "698,714-730,801"];
+const rejectedRows = [
+  "",
+  "abc",
+  "1; rm -rf",
+  "1 && echo test",
+  "../run_batch.py",
+  "1|whoami",
+  "1 2",
+  "1/2",
+  "1\\2",
+  '"1"',
+  "'1'",
+];
+
+test("row expression validation accepts supported formats", () => {
+  for (const rowExpression of acceptedRows) {
+    assert.equal(isValidRowExpression(rowExpression), true, rowExpression);
+  }
+});
+
+test("row expression validation rejects unsafe or unsupported formats", () => {
+  for (const rowExpression of rejectedRows) {
+    assert.equal(isValidRowExpression(rowExpression), false, rowExpression);
+  }
+});
+
+test("channel validation accepts only the allowlist and empty 전체 value", () => {
+  for (const channel of ["", "도매1", "도매2", "도매3", "도매4", "소매1", "소매2"]) {
+    assert.equal(isValidShoplingProductUploadChannel(channel), true, channel);
+  }
+  for (const channel of ["전체", "도매5", "소매3", "admin", "1;whoami"]) {
+    assert.equal(isValidShoplingProductUploadChannel(channel), false, channel);
+  }
+});
+
+test("command builder creates a safe argument array for all-channel runs", () => {
+  const command = buildShoplingProductUploadCommand({
+    rowExpression: "967",
+    channel: "",
+    skip_if_goods_key: true,
+    dump: true,
+    sleep: 1.2,
+  });
+
+  assert.deepEqual(command.args, [
+    "run_batch.py",
+    "967",
+    "--skip_if_goods_key",
+    "--dump",
+    "--sleep",
+    "1.2",
+  ]);
+  assert.equal(command.shell, false);
+  assert.equal(command.args.includes("--channel"), false);
+});
+
+test("command builder includes channel only when selected", () => {
+  const command = buildShoplingProductUploadCommand({
+    rowExpression: "698,714-730,801",
+    channel: "도매1",
+    skip_if_goods_key: true,
+    dump: false,
+    sleep: "1.2",
+  });
+
+  assert.deepEqual(command.args, [
+    "run_batch.py",
+    "698,714-730,801",
+    "--channel",
+    "도매1",
+    "--skip_if_goods_key",
+    "--sleep",
+    "1.2",
+  ]);
+  assert.equal(command.shell, false);
+  assert.equal(command.commandPreview.includes("--channel \"도매1\""), true);
+});
+
+test("target count protection allows small ranges and rejects over 300", () => {
+  assert.equal(estimateTargetCount("967", ""), 6);
+  assert.equal(estimateTargetCount("714-730", "도매1"), 17);
+  assert.throws(
+    () => buildShoplingProductUploadCommand({ rowExpression: "1-51", channel: "", sleep: 1.2 }),
+    /최대 300건/,
+  );
+});
+
+test("UI source includes required Korean labels", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const page = await readFile("src/app/shopling-product-upload-runner/page.tsx", "utf8");
+  const component = await readFile(
+    "src/components/shopling-product-upload-runner/ShoplingProductUploadRunner.tsx",
+    "utf8",
+  );
+  const source = `${page}\n${component}`;
+
+  for (const text of ["샵플링 상품등록 실행기", "실재고 시트 행 번호", "채널", "상품등록 실행", "실행 결과"]) {
+    assert.equal(source.includes(text), true, text);
+  }
+});
