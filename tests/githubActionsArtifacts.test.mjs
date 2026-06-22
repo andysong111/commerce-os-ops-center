@@ -492,12 +492,26 @@ test("timezone and Korean review UX source requirements are present", async () =
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(review, /키워드 검토\/승인/);
-  assert.match(review, /산출물 검토 안전 상태/);
-  assert.match(review, /자동 적용 후보/);
-  assert.match(review, /키워드 결과물을 불러왔습니다/);
-  assert.match(review, /전체 행 수/);
-  assert.match(review, /자동 적용 후보/);
+  assert.match(review, /키워드 결과 검토/);
+  assert.match(review, /안전 안내/);
+  assert.match(review, /이 화면에서는 키워드를 바로 적용하지 않습니다/);
+  assert.match(review, /키워드 결과를 불러왔습니다/);
+  assert.match(review, /결과 다시 불러오기/);
+  assert.match(review, /직접 파일 넣기/);
+  assert.match(review, /open=!hasImportedArtifact/);
+  assert.match(review, /현재 상품명/);
+  assert.match(review, /추천 상품명/);
+  assert.match(review, /추천 검색어/);
+  assert.match(review, /검토 필요/);
+  assert.match(review, /세부 정보 보기/);
+  assert.match(review, /warning_flags/);
+  assert.match(review, /검토 결과 복사/);
+  assert.match(review, /승인/);
+  assert.match(review, /보류/);
+  assert.match(review, /처음으로 되돌리기/);
+  assert.match(review, /createReviewedRows/);
+  assert.doesNotMatch(review, />[^<]*(externalEngineExecution|previewOnly)[^<]*</);
+  assert.doesNotMatch(review, /child_process|PowerShell|powershell|keyword-engine-soon.*git|Shopling API execution is performed.*fetch/);
   assert.match(review, /가져온 파일에 검토할 행이 없습니다/);
   const registry = await readFile(
     new URL("../src/lib/moduleRegistry.ts", import.meta.url),
