@@ -54,9 +54,9 @@ function readImportedArtifactHandoff(): ImportedArtifactPayload | null {
 }
 
 const classificationLabels: Record<KeywordQueueClassification, string> = {
-  auto_apply_candidate: "자동 적용 후보",
-  manual_review: "수동 검토",
-  blocked_risk: "차단 / 위험",
+  auto_apply_candidate: "승인 가능",
+  manual_review: "검토 필요",
+  blocked_risk: "위험/차단",
 };
 
 const classificationStyles: Record<KeywordQueueClassification, string> = {
@@ -203,9 +203,11 @@ export default function KeywordReviewQueuePage() {
   return (
     <>
       <PageHeader
-        title="키워드 검토/승인"
-        description="키워드 엔진 실행 후 가져온 결과물을 검토하고 사람이 승인한 미리보기 데이터를 준비합니다."
+        title="키워드 결과 검토"
+        description="키워드 엔진이 만든 상품명과 검색어 후보를 확인하고 승인합니다."
       />
+
+      <BeginnerGuide />
 
       <EngineSafetyBanner />
 
@@ -213,17 +215,16 @@ export default function KeywordReviewQueuePage() {
 
       {importedArtifact ? (
         <section className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 shadow-sm">
-          <h2 className="font-semibold">키워드 결과물을 불러왔습니다.</h2>
-          <p className="mt-1">
-            가져온 키워드를 자동으로 검토 목록에 불러왔습니다. 이 브라우저
-            세션에만 보관되며 샵플링에 자동 반영되지 않습니다.
-          </p>
+          <h2 className="font-semibold">키워드 결과를 불러왔습니다.</h2>
           <div className="mt-3 grid gap-2 sm:grid-cols-4">
-            <span>전체 행 수: {counts.total}</span>
-            <span>자동 적용 후보: {counts.auto}</span>
-            <span>수동 검토: {counts.manual}</span>
-            <span>차단 / 위험: {counts.blocked}</span>
+            <span>전체: {counts.total}개</span>
+            <span>승인 가능: {counts.auto}개</span>
+            <span>검토 필요: {counts.manual}개</span>
+            <span>위험/차단: {counts.blocked}개</span>
           </div>
+          <p className="mt-3">
+            아래 항목을 하나씩 확인하고 승인 또는 보류를 선택하세요.
+          </p>
           {importedRowsAreEmpty ? (
             <p className="mt-3 rounded-lg bg-white px-3 py-2 font-semibold text-amber-800">
               가져온 파일에 검토할 행이 없습니다. artifact 내용을 확인해 주세요.
@@ -234,7 +235,7 @@ export default function KeywordReviewQueuePage() {
             onClick={loadImportedArtifact}
             className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
           >
-            가져온 결과물 다시 불러오기
+            결과 다시 불러오기
           </button>
         </section>
       ) : (
@@ -260,12 +261,11 @@ export default function KeywordReviewQueuePage() {
         className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       >
         <summary className="cursor-pointer font-semibold text-slate-950">
-          수동으로 CSV 붙여넣기 / 업로드하기
+          직접 파일 넣기
         </summary>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          일반 흐름은 키워드 엔진 실행기 → 결과 가져오기 및 검토 시작 → 키워드
-          결과 검토입니다. 필요하면 수동으로 CSV를 붙여넣거나 업로드할 수
-          있습니다. 요약 Markdown은 검토 참고용으로만 보관됩니다.
+          보통은 사용할 필요 없습니다. 키워드 엔진 실행기에서 결과를 가져온 경우 자동으로 불러옵니다.
+          필요하면 CSV를 직접 붙여넣거나 업로드할 수 있습니다.
         </p>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -320,10 +320,10 @@ export default function KeywordReviewQueuePage() {
         className="my-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Queue summary"
       >
-        <SummaryCard label="자동 적용 후보" value={counts.auto} />
-        <SummaryCard label="수동 검토" value={counts.manual} />
-        <SummaryCard label="차단 / 위험" value={counts.blocked} />
-        <SummaryCard label="전체 행 수" value={counts.total} />
+        <SummaryCard label="승인 가능" value={counts.auto} />
+        <SummaryCard label="검토 필요" value={counts.manual} />
+        <SummaryCard label="위험/차단" value={counts.blocked} />
+        <SummaryCard label="전체" value={counts.total} />
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -331,8 +331,7 @@ export default function KeywordReviewQueuePage() {
           <div>
             <h2 className="font-semibold text-slate-950">검토 행</h2>
             <p className="mt-1 text-sm text-slate-600">
-              수동 검토 행은 수정할 수 있습니다. 승인/보류 상태는 이 브라우저
-              세션에만 남으며 실행을 유발하지 않습니다.
+              승인/보류한 결과를 다음 단계로 넘기기 위해 복사합니다.
             </p>
           </div>
           <button
@@ -340,12 +339,12 @@ export default function KeywordReviewQueuePage() {
             disabled={rows.length === 0}
             onClick={() => {
               void navigator.clipboard.writeText(exportText).then(() => {
-                setCopyStatus("검토 JSON을 복사했습니다.");
+                setCopyStatus("검토 결과를 복사했습니다.");
               });
             }}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            검토 JSON 복사
+            검토 결과 복사
           </button>
           {copyStatus && (
             <p className="w-full text-right text-xs text-emerald-700">
@@ -432,50 +431,50 @@ export default function KeywordReviewQueuePage() {
   );
 }
 
+function BeginnerGuide() {
+  return (
+    <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="text-sm font-semibold text-slate-950">검토 순서</h2>
+      <ol className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-3">
+        <li className="rounded-lg bg-slate-50 px-3 py-2">1. 추천 상품명 확인</li>
+        <li className="rounded-lg bg-slate-50 px-3 py-2">2. 필요하면 수정</li>
+        <li className="rounded-lg bg-slate-50 px-3 py-2">3. 승인 또는 보류 선택</li>
+      </ol>
+    </section>
+  );
+}
+
 function EngineSafetyBanner() {
   return (
-    <section className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-      <h2 className="font-semibold">산출물 검토 안전 상태</h2>
+    <section className="mb-6 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
+      <h2 className="font-semibold">안전 안내</h2>
       <p className="mt-1">
-        이 화면은 외부 키워드 엔진 결과물을 검토만 합니다. 이 화면에서는 키워드
-        엔진을 직접 실행하지 않고, 샵플링 API를 호출하지 않으며, 상품 정보를
-        자동 수정하지 않습니다. 사람이 검토/승인해야 다음 단계로 진행할 수
-        있습니다.
+        이 화면에서는 키워드를 바로 적용하지 않습니다. 승인해도 샵플링에는 자동 반영되지 않고, 검토 결과만 준비됩니다.
       </p>
-      <p className="mt-1">
-        안전 플래그: externalEngineExecution=
-        {String(reviewSummary.safetyFlags.externalEngineExecution)},
-        previewOnly={String(reviewSummary.safetyFlags.previewOnly)}.
-      </p>
+      <details className="mt-3 rounded-lg border border-blue-100 bg-white/70 px-3 py-2 text-xs text-slate-600">
+        <summary className="cursor-pointer font-semibold text-slate-800">기술 정보 보기</summary>
+        <p className="mt-2">
+          외부 엔진 실행은 비활성화되어 있고 미리보기만 준비합니다. 이 화면은 샵플링 API 호출이나 자동 적용을 수행하지 않습니다.
+        </p>
+        <dl className="mt-2 grid gap-1 sm:grid-cols-2">
+          <Detail label="외부 엔진 실행" value={String(reviewSummary.safetyFlags.externalEngineExecution)} />
+          <Detail label="미리보기 전용" value={String(reviewSummary.safetyFlags.previewOnly)} />
+        </dl>
+      </details>
     </section>
   );
 }
 
 function WhatThisPageDoes() {
   return (
-    <section className="mb-6 grid gap-4 lg:grid-cols-2">
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-        <h2 className="font-semibold">이 화면에서 하는 일</h2>
-        <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>키워드 엔진 CSV/Markdown 결과물을 가져옵니다.</li>
-          <li>행을 보수적으로 분류해 검토합니다.</li>
-          <li>사람이 검토하고 수정할 수 있게 합니다.</li>
-          <li>미리보기/내보내기 산출물을 생성합니다.</li>
-          <li>이미 구현된 범위에서 안전한 실행 의도만 준비합니다.</li>
-        </ul>
-      </div>
-      <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-        <h2 className="font-semibold text-slate-950">
-          이 화면에서 하지 않는 일
-        </h2>
-        <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>keyword-engine-soon을 직접 실행하지 않습니다.</li>
-          <li>샵플링 API를 호출하지 않습니다.</li>
-          <li>키워드를 자동 적용하지 않습니다.</li>
-          <li>외부 시스템에 쓰지 않습니다.</li>
-        </ul>
-      </div>
-    </section>
+    <details className="mb-6 rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+      <summary className="cursor-pointer font-semibold text-slate-950">도움말 보기</summary>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-slate-700">
+        <li>결과를 확인합니다.</li>
+        <li>필요하면 상품명과 검색어를 수정합니다.</li>
+        <li>승인 또는 보류를 선택합니다.</li>
+      </ul>
+    </details>
   );
 }
 
@@ -968,6 +967,24 @@ function StatusCard({ label, value }: { label: string; value: boolean }) {
   );
 }
 
+function reviewStatusLabel(status: ReviewedKeywordRow["reviewStatus"]) {
+  return { pending: "대기", approved: "승인됨", hold: "보류" }[status];
+}
+
+function reviewReasonFor(row: ReviewedKeywordRow) {
+  if (row.classification === "blocked_risk") {
+    return "위험 요소가 있어 보류하고 확인해야 합니다.";
+  }
+  if (row.reviewReason) return row.reviewReason;
+  if (row.blockReason || row.warningFlags) {
+    return "상품명이 짧거나 검색어가 부족해 검토가 필요합니다.";
+  }
+  if (row.classification === "auto_apply_candidate") {
+    return "승인할 수 있는 후보입니다. 그래도 상품명과 검색어를 확인해 주세요.";
+  }
+  return "상품명이 짧거나 검색어가 부족해 검토가 필요합니다.";
+}
+
 function ReviewRow({
   row,
   onUpdate,
@@ -982,17 +999,13 @@ function ReviewRow({
     >,
   ) => void;
 }) {
-  const editable = row.classification === "manual_review";
   return (
     <article className="p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="font-semibold text-slate-950">
-            goods_key: {row.goodsKey || "—"}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            mall_key: {row.mallKey || "—"} · source row {row.sourceRowIndex}
-          </p>
+          <h3 className="font-semibold text-slate-950">
+            상품번호 {row.goodsKey || "—"}
+          </h3>
         </div>
         <div className="flex gap-2">
           <span
@@ -1001,49 +1014,37 @@ function ReviewRow({
             {classificationLabels[row.classification]}
           </span>
           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-            {row.reviewStatus}
+            {reviewStatusLabel(row.reviewStatus)}
           </span>
         </div>
       </div>
 
-      <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-4">
-        <Detail label="Current / original title" value={row.originalTitle} />
-        <Detail label="Recommended title" value={row.recommendedTitle} />
-        <Detail label="Recommended site_srch" value={row.recommendedSiteSrch} />
-        <Detail
-          label="Counts"
-          value={`${row.siteSrchKeywordCount ?? "—"} keywords / ${row.verifiedKeywordCount ?? "—"} verified`}
-        />
-        <Detail label="Quality status" value={row.qualityStatus} />
-        <Detail label="Confidence status" value={row.confidenceStatus} />
-        <Detail label="Block reason" value={row.blockReason} />
-        <Detail label="Warning flags" value={row.warningFlags} />
-      </dl>
-
-      {editable && (
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          <label className="text-xs font-semibold text-slate-600">
-            Edited title
-            <input
-              value={row.editedTitle}
-              onChange={(event) =>
-                onUpdate({ editedTitle: event.target.value })
-              }
-              className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-blue-500"
-            />
-          </label>
-          <label className="text-xs font-semibold text-slate-600">
-            Edited site_srch
-            <textarea
-              value={row.editedSiteSrch}
-              onChange={(event) =>
-                onUpdate({ editedSiteSrch: event.target.value })
-              }
-              className="mt-1.5 min-h-20 w-full rounded-lg border border-slate-300 p-3 text-sm font-normal text-slate-900 outline-none focus:border-blue-500"
-            />
-          </label>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Detail label="현재 상품명" value={row.originalTitle} />
+        <label className="text-xs font-semibold text-slate-600">
+          추천 상품명
+          <input
+            value={row.editedTitle}
+            onChange={(event) => onUpdate({ editedTitle: event.target.value })}
+            className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-blue-500"
+          />
+        </label>
+        <label className="text-xs font-semibold text-slate-600 lg:col-span-2">
+          추천 검색어
+          <textarea
+            value={row.editedSiteSrch}
+            onChange={(event) =>
+              onUpdate({ editedSiteSrch: event.target.value })
+            }
+            className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-300 p-3 text-sm font-normal text-slate-900 outline-none focus:border-blue-500"
+            placeholder="추천 검색어가 없습니다. 필요하면 직접 입력하세요."
+          />
+        </label>
+        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 lg:col-span-2">
+          <p className="font-semibold">검토 메모</p>
+          <p className="mt-1">{reviewReasonFor(row)}</p>
         </div>
-      )}
+      </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button
@@ -1051,14 +1052,14 @@ function ReviewRow({
           onClick={() => onUpdate({ reviewStatus: "approved" })}
           className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"
         >
-          Approve
+          승인
         </button>
         <button
           type="button"
           onClick={() => onUpdate({ reviewStatus: "hold" })}
           className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white"
         >
-          Hold
+          보류
         </button>
         <button
           type="button"
@@ -1071,9 +1072,29 @@ function ReviewRow({
           }
           className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
         >
-          Reset edits
+          처음으로 되돌리기
         </button>
       </div>
+
+      <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+        <summary className="cursor-pointer font-semibold text-slate-900">세부 정보 보기</summary>
+        <dl className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <Detail label="mail_key" value={row.mallKey} />
+          <Detail label="quality_status" value={row.qualityStatus} />
+          <Detail label="confidence_status" value={row.confidenceStatus} />
+          <Detail label="block_reason" value={row.blockReason} />
+          <Detail label="warning_flags" value={row.warningFlags} />
+          <Detail
+            label="counts"
+            value={`${row.siteSrchKeywordCount ?? "—"} keywords / ${row.verifiedKeywordCount ?? "—"} verified`}
+          />
+          <Detail label="raw site_srch" value={row.originalSiteSrch} />
+          <Detail label="source row" value={String(row.sourceRowIndex)} />
+        </dl>
+        <pre className="mt-3 overflow-x-auto rounded bg-white p-3 font-mono text-[11px]">
+          {JSON.stringify(row.raw, null, 2)}
+        </pre>
+      </details>
     </article>
   );
 }
