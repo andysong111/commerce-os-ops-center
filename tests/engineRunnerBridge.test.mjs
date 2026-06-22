@@ -611,3 +611,49 @@ test("source_link-only detail page dispatch works when preview is skipped", asyn
     delete process.env.GITHUB_ENGINE_DISPATCH_TOKEN;
   }
 });
+
+test("keyword runner local hide and history clear controls are browser-only", async () => {
+  const consoleSource = await readFile(
+    new URL(
+      "../src/components/engine-runners/EngineRunnerConsole.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const historySource = await readFile(
+    new URL(
+      "../src/components/engine-runners/EngineRunnerHistoryPreview.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const historyLibSource = await readFile(
+    new URL("../src/lib/engineRunnerHistory.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(consoleSource, /목록에서 숨기기/);
+  assert.match(consoleSource, /commerce-os:hidden-keyword-run-ids/);
+  assert.match(consoleSource, /persistHiddenKeywordRunIds\(next\)/);
+  assert.match(consoleSource, /hiddenKeywordRunIds\.has\(run\.id\)/);
+  assert.match(consoleSource, /숨긴 목록 초기화/);
+  assert.match(
+    consoleSource,
+    /localStorage\.removeItem\(HIDDEN_KEYWORD_RUN_IDS_STORAGE_KEY\)/,
+  );
+  assert.match(consoleSource, /GitHub 실행 기록은 삭제되지 않고/);
+  assert.doesNotMatch(consoleSource, /method:\s*["']DELETE["']/i);
+  assert.doesNotMatch(
+    consoleSource,
+    /actions\/runs\/\$\{|artifacts\/\$\{[\s\S]{0,200}DELETE/i,
+  );
+
+  assert.match(historySource, /작업 이력 비우기/);
+  assert.match(historySource, /GitHub 실행 기록은 삭제되지 않습니다/);
+  assert.match(historySource, /clearEngineRunnerHistory\(kind\)/);
+  assert.match(historyLibSource, /clearEngineRunnerHistory/);
+  assert.match(
+    historyLibSource,
+    /localStorage\.removeItem\(ENGINE_RUNNER_HISTORY_STORAGE_KEY\)/,
+  );
+});

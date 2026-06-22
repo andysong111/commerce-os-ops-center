@@ -76,7 +76,9 @@ const classificationStyles: Record<KeywordQueueClassification, string> = {
   blocked_risk: "bg-red-50 text-red-700",
 };
 
-function createRowsFromImportedArtifact(artifact: ImportedArtifactPayload | null) {
+function createRowsFromImportedArtifact(
+  artifact: ImportedArtifactPayload | null,
+) {
   if (!artifact) return [];
   return createReviewedRows([
     ...parseKeywordMvpCsv(
@@ -100,9 +102,10 @@ const reviewSummary = createEngineArtifactReviewSummary({
 });
 
 export default function KeywordReviewQueuePage() {
-  const [importedArtifact] = useState<ImportedArtifactPayload | null>(() =>
-    readImportedArtifactHandoff(),
-  );
+  const [importedArtifact, setImportedArtifact] =
+    useState<ImportedArtifactPayload | null>(() =>
+      readImportedArtifactHandoff(),
+    );
   const [approvalCsv, setApprovalCsv] = useState(() =>
     String(importedArtifact?.files?.["keyword_mvp_approval_sheet.csv"] ?? ""),
   );
@@ -118,12 +121,18 @@ export default function KeywordReviewQueuePage() {
     createRowsFromImportedArtifact(importedArtifact),
   );
   const [viewMode, setViewMode] = useState<ViewMode>(() =>
-    createRowsFromImportedArtifact(importedArtifact).length > 5 ? "sheet" : "card",
+    createRowsFromImportedArtifact(importedArtifact).length > 5
+      ? "sheet"
+      : "card",
   );
-  const [selectedRows, setSelectedRows] = useState<Set<number>>(() => new Set());
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [sheetFilter, setSheetFilter] = useState<SheetFilter>("all");
   const [sheetSearch, setSheetSearch] = useState("");
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(() => new Set());
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [copyStatus, setCopyStatus] = useState("");
   const [payloadPreview, setPayloadPreview] =
     useState<KeywordPayloadPreviewResult | null>(null);
@@ -180,6 +189,48 @@ export default function KeywordReviewQueuePage() {
   const hasImportedArtifact = Boolean(importedArtifact);
   const importedRowsAreEmpty = hasImportedArtifact && counts.total === 0;
 
+  function resetReviewLocalState() {
+    setRows([]);
+    setSelectedRows(new Set());
+    setSheetFilter("all");
+    setSheetSearch("");
+    setExpandedRows(new Set());
+    setCopyStatus("");
+    setPayloadPreview(null);
+    setPreflightResult(null);
+    setImportedArtifact(null);
+    setApprovalCsv("");
+    setManualCsv("");
+    setSummaryMarkdown("");
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(
+        "opsCenter.keywordEngine.importedArtifact.v1",
+      );
+    }
+  }
+
+  function clearCurrentReviewList() {
+    if (
+      window.confirm(
+        "현재 불러온 키워드 검토 목록을 삭제하시겠습니까? 샵플링에는 영향이 없고, 이 브라우저의 검토 화면만 비워집니다.",
+      )
+    ) {
+      resetReviewLocalState();
+    }
+  }
+
+  function deleteReviewRows(indexes: number[]) {
+    const targetIndexes = new Set(indexes);
+    setRows((current) =>
+      current.filter((_, index) => !targetIndexes.has(index)),
+    );
+    setSelectedRows(new Set());
+    setExpandedRows(new Set());
+    setPayloadPreview(null);
+    setPreflightResult(null);
+    setCopyStatus("");
+  }
+
   function previewQueue() {
     const parsed = [
       ...parseKeywordMvpCsv(approvalCsv),
@@ -212,7 +263,10 @@ export default function KeywordReviewQueuePage() {
     );
   }
 
-  function updateRows(indexes: number[], update: Partial<Pick<ReviewedKeywordRow, "reviewStatus">>) {
+  function updateRows(
+    indexes: number[],
+    update: Partial<Pick<ReviewedKeywordRow, "reviewStatus">>,
+  ) {
     setPayloadPreview(null);
     setPreflightResult(null);
     const targetIndexes = new Set(indexes);
@@ -281,13 +335,24 @@ export default function KeywordReviewQueuePage() {
               가져온 파일에 검토할 행이 없습니다. artifact 내용을 확인해 주세요.
             </p>
           ) : null}
-          <button
-            type="button"
-            onClick={loadImportedArtifact}
-            className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
-          >
-            결과 다시 불러오기
-          </button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={loadImportedArtifact}
+              className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
+            >
+              결과 다시 불러오기
+            </button>
+            {rows.length > 0 ? (
+              <button
+                type="button"
+                onClick={clearCurrentReviewList}
+                className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800"
+              >
+                현재 검토 목록 삭제
+              </button>
+            ) : null}
+          </div>
         </section>
       ) : (
         <section className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 shadow-sm">
@@ -315,8 +380,9 @@ export default function KeywordReviewQueuePage() {
           직접 파일 넣기
         </summary>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          보통은 사용할 필요 없습니다. 키워드 엔진 실행기에서 결과를 가져온 경우 자동으로 불러옵니다.
-          필요하면 CSV를 직접 붙여넣거나 업로드할 수 있습니다.
+          보통은 사용할 필요 없습니다. 키워드 엔진 실행기에서 결과를 가져온 경우
+          자동으로 불러옵니다. 필요하면 CSV를 직접 붙여넣거나 업로드할 수
+          있습니다.
         </p>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -411,23 +477,41 @@ export default function KeywordReviewQueuePage() {
           <div className="p-8 text-center text-sm text-slate-500">
             <p>
               {hasImportedArtifact
-                ? "가져온 파일에 검토할 행이 없습니다. artifact 내용을 확인해 주세요."
-                : "아직 가져온 키워드 결과물이 없습니다."}
+                ? "검토할 키워드가 없습니다."
+                : "아직 불러온 키워드 결과가 없습니다."}
             </p>
-            {!hasImportedArtifact ? (
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
               <Link
                 href="/keyword-engine-runner"
-                className="mt-3 inline-block rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white"
+                className="inline-block rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white"
               >
                 키워드 엔진 실행기로 이동
               </Link>
-            ) : null}
+              <a
+                href="#approval-csv"
+                className="inline-block rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+              >
+                직접 파일 넣기
+              </a>
+            </div>
           </div>
         ) : (
           <div>
             <div className="flex flex-wrap gap-2 border-b border-slate-200 p-4">
-              <button type="button" onClick={() => setViewMode("sheet")} className={`rounded-lg px-4 py-2 text-sm font-semibold ${viewMode === "sheet" ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-700"}`}>시트형 보기</button>
-              <button type="button" onClick={() => setViewMode("card")} className={`rounded-lg px-4 py-2 text-sm font-semibold ${viewMode === "card" ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-700"}`}>카드형 보기</button>
+              <button
+                type="button"
+                onClick={() => setViewMode("sheet")}
+                className={`rounded-lg px-4 py-2 text-sm font-semibold ${viewMode === "sheet" ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-700"}`}
+              >
+                시트형 보기
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("card")}
+                className={`rounded-lg px-4 py-2 text-sm font-semibold ${viewMode === "card" ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-700"}`}
+              >
+                카드형 보기
+              </button>
             </div>
             {viewMode === "sheet" ? (
               <SheetReviewTable
@@ -441,10 +525,33 @@ export default function KeywordReviewQueuePage() {
                 expandedRows={expandedRows}
                 setExpandedRows={setExpandedRows}
                 onUpdate={updateRow}
-                onBulkApprove={() => updateRows([...selectedRows], { reviewStatus: "approved" })}
-                onBulkHold={() => updateRows([...selectedRows], { reviewStatus: "hold" })}
+                onBulkApprove={() =>
+                  updateRows([...selectedRows], { reviewStatus: "approved" })
+                }
+                onBulkHold={() =>
+                  updateRows([...selectedRows], { reviewStatus: "hold" })
+                }
                 onApproveAllReviewNeeded={approveAllReviewNeededRows}
                 onClearSelection={() => setSelectedRows(new Set())}
+                onDeleteRow={(index) => {
+                  if (
+                    window.confirm(
+                      "이 행을 현재 검토 목록에서 삭제하시겠습니까?",
+                    )
+                  ) {
+                    deleteReviewRows([index]);
+                  }
+                }}
+                onBulkDelete={() => {
+                  if (
+                    selectedRows.size > 0 &&
+                    window.confirm(
+                      "선택한 항목을 현재 검토 목록에서 삭제하시겠습니까?",
+                    )
+                  ) {
+                    deleteReviewRows([...selectedRows]);
+                  }
+                }}
               />
             ) : (
               <div className="divide-y divide-slate-200">
@@ -453,6 +560,15 @@ export default function KeywordReviewQueuePage() {
                     key={`${row.goodsKey}-${row.sourceRowIndex}-${index}`}
                     row={row}
                     onUpdate={(update) => updateRow(index, update)}
+                    onDelete={() => {
+                      if (
+                        window.confirm(
+                          "이 행을 현재 검토 목록에서 삭제하시겠습니까?",
+                        )
+                      ) {
+                        deleteReviewRows([index]);
+                      }
+                    }}
                   />
                 ))}
               </div>
@@ -515,9 +631,13 @@ function BeginnerGuide() {
     <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-sm font-semibold text-slate-950">검토 순서</h2>
       <ol className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-3">
-        <li className="rounded-lg bg-slate-50 px-3 py-2">1. 추천 상품명 확인</li>
+        <li className="rounded-lg bg-slate-50 px-3 py-2">
+          1. 추천 상품명 확인
+        </li>
         <li className="rounded-lg bg-slate-50 px-3 py-2">2. 필요하면 수정</li>
-        <li className="rounded-lg bg-slate-50 px-3 py-2">3. 승인 또는 보류 선택</li>
+        <li className="rounded-lg bg-slate-50 px-3 py-2">
+          3. 승인 또는 보류 선택
+        </li>
       </ol>
     </section>
   );
@@ -528,16 +648,26 @@ function EngineSafetyBanner() {
     <section className="mb-6 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
       <h2 className="font-semibold">안전 안내</h2>
       <p className="mt-1">
-        이 화면에서는 키워드를 바로 적용하지 않습니다. 승인해도 샵플링에는 자동 반영되지 않고, 검토 결과만 준비됩니다.
+        이 화면에서는 키워드를 바로 적용하지 않습니다. 승인해도 샵플링에는 자동
+        반영되지 않고, 검토 결과만 준비됩니다.
       </p>
       <details className="mt-3 rounded-lg border border-blue-100 bg-white/70 px-3 py-2 text-xs text-slate-600">
-        <summary className="cursor-pointer font-semibold text-slate-800">기술 정보 보기</summary>
+        <summary className="cursor-pointer font-semibold text-slate-800">
+          기술 정보 보기
+        </summary>
         <p className="mt-2">
-          외부 엔진 실행은 비활성화되어 있고 미리보기만 준비합니다. 이 화면은 샵플링 API 호출이나 자동 적용을 수행하지 않습니다.
+          외부 엔진 실행은 비활성화되어 있고 미리보기만 준비합니다. 이 화면은
+          샵플링 API 호출이나 자동 적용을 수행하지 않습니다.
         </p>
         <dl className="mt-2 grid gap-1 sm:grid-cols-2">
-          <Detail label="외부 엔진 실행" value={String(reviewSummary.safetyFlags.externalEngineExecution)} />
-          <Detail label="미리보기 전용" value={String(reviewSummary.safetyFlags.previewOnly)} />
+          <Detail
+            label="외부 엔진 실행"
+            value={String(reviewSummary.safetyFlags.externalEngineExecution)}
+          />
+          <Detail
+            label="미리보기 전용"
+            value={String(reviewSummary.safetyFlags.previewOnly)}
+          />
         </dl>
       </details>
     </section>
@@ -547,7 +677,9 @@ function EngineSafetyBanner() {
 function WhatThisPageDoes() {
   return (
     <details className="mb-6 rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <summary className="cursor-pointer font-semibold text-slate-950">도움말 보기</summary>
+      <summary className="cursor-pointer font-semibold text-slate-950">
+        도움말 보기
+      </summary>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-slate-700">
         <li>결과를 확인합니다.</li>
         <li>필요하면 상품명과 검색어를 수정합니다.</li>
@@ -1097,6 +1229,8 @@ function SheetReviewTable({
   onBulkHold,
   onApproveAllReviewNeeded,
   onClearSelection,
+  onDeleteRow,
+  onBulkDelete,
 }: {
   rows: ReviewedKeywordRow[];
   selectedRows: Set<number>;
@@ -1120,14 +1254,19 @@ function SheetReviewTable({
   onBulkHold: () => void;
   onApproveAllReviewNeeded: () => void;
   onClearSelection: () => void;
+  onDeleteRow: (index: number) => void;
+  onBulkDelete: () => void;
 }) {
   const normalizedSearch = sheetSearch.trim().toLowerCase();
   const visibleRows = rows
     .map((row, index) => ({ row, index }))
     .filter(({ row }) => {
-      if (sheetFilter === "manual_review") return row.classification === "manual_review";
-      if (sheetFilter === "auto_apply_candidate") return row.classification === "auto_apply_candidate";
-      if (sheetFilter === "blocked_risk") return row.classification === "blocked_risk";
+      if (sheetFilter === "manual_review")
+        return row.classification === "manual_review";
+      if (sheetFilter === "auto_apply_candidate")
+        return row.classification === "auto_apply_candidate";
+      if (sheetFilter === "blocked_risk")
+        return row.classification === "blocked_risk";
       if (sheetFilter === "hold") return row.reviewStatus === "hold";
       if (sheetFilter === "approved") return row.reviewStatus === "approved";
       if (sheetFilter === "missing_keywords") return !row.editedSiteSrch.trim();
@@ -1180,10 +1319,42 @@ function SheetReviewTable({
           className="min-w-72 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
           placeholder="상품번호 또는 상품명 검색"
         />
-        <button type="button" onClick={onBulkApprove} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white">선택 항목 승인</button>
-        <button type="button" onClick={onBulkHold} className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white">선택 항목 보류</button>
-        <button type="button" onClick={onApproveAllReviewNeeded} className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700">전체 검토 필요 항목 승인</button>
-        <button type="button" onClick={onClearSelection} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">선택 해제</button>
+        <button
+          type="button"
+          onClick={onBulkApprove}
+          className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"
+        >
+          선택 항목 승인
+        </button>
+        <button
+          type="button"
+          onClick={onBulkHold}
+          className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white"
+        >
+          선택 항목 보류
+        </button>
+        <button
+          type="button"
+          onClick={onBulkDelete}
+          disabled={selectedRows.size === 0}
+          className="rounded-lg border border-red-300 px-3 py-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          선택 항목 삭제
+        </button>
+        <button
+          type="button"
+          onClick={onApproveAllReviewNeeded}
+          className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700"
+        >
+          전체 검토 필요 항목 승인
+        </button>
+        <button
+          type="button"
+          onClick={onClearSelection}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+        >
+          선택 해제
+        </button>
       </div>
 
       <div className="mt-4 max-h-[680px] overflow-auto rounded-lg border border-slate-200">
@@ -1205,29 +1376,92 @@ function SheetReviewTable({
               <Fragment key={`${row.goodsKey}-${row.sourceRowIndex}-${index}`}>
                 <tr className="border-b border-slate-200 align-top">
                   <td className="px-2 py-2">
-                    <input type="checkbox" checked={selectedRows.has(index)} onChange={() => toggleSelected(index)} />
+                    <input
+                      type="checkbox"
+                      checked={selectedRows.has(index)}
+                      onChange={() => toggleSelected(index)}
+                    />
                   </td>
                   <td className="px-2 py-2">
                     <div className="flex flex-col gap-1">
-                      <span className={`rounded-full px-2 py-1 font-semibold ${classificationStyles[row.classification]}`}>{classificationLabels[row.classification]}</span>
-                      <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{reviewStatusLabel(row.reviewStatus)}</span>
-                      {isRowEdited(row) ? <span className="rounded-full bg-blue-50 px-2 py-1 font-semibold text-blue-700">수정됨</span> : null}
+                      <span
+                        className={`rounded-full px-2 py-1 font-semibold ${classificationStyles[row.classification]}`}
+                      >
+                        {classificationLabels[row.classification]}
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+                        {reviewStatusLabel(row.reviewStatus)}
+                      </span>
+                      {isRowEdited(row) ? (
+                        <span className="rounded-full bg-blue-50 px-2 py-1 font-semibold text-blue-700">
+                          수정됨
+                        </span>
+                      ) : null}
                     </div>
                   </td>
-                  <td className="px-2 py-2 font-semibold text-slate-900">{row.goodsKey || "—"}</td>
-                  <td className="px-2 py-2 text-slate-700">{row.originalTitle || "—"}</td>
-                  <td className="px-2 py-2">
-                    <input value={row.editedTitle} onChange={(event) => onUpdate(index, { editedTitle: event.target.value })} className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm" placeholder="추천 상품명 없음 — 직접 입력" />
+                  <td className="px-2 py-2 font-semibold text-slate-900">
+                    {row.goodsKey || "—"}
+                  </td>
+                  <td className="px-2 py-2 text-slate-700">
+                    {row.originalTitle || "—"}
                   </td>
                   <td className="px-2 py-2">
-                    <textarea value={row.editedSiteSrch} onChange={(event) => onUpdate(index, { editedSiteSrch: event.target.value })} className="min-h-9 w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:min-h-24" placeholder="검색어 없음 — 필요하면 입력" />
+                    <input
+                      value={row.editedTitle}
+                      onChange={(event) =>
+                        onUpdate(index, { editedTitle: event.target.value })
+                      }
+                      className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                      placeholder="추천 상품명 없음 — 직접 입력"
+                    />
                   </td>
-                  <td className="px-2 py-2 text-slate-700">{reviewReasonFor(row)}</td>
+                  <td className="px-2 py-2">
+                    <textarea
+                      value={row.editedSiteSrch}
+                      onChange={(event) =>
+                        onUpdate(index, { editedSiteSrch: event.target.value })
+                      }
+                      className="min-h-9 w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:min-h-24"
+                      placeholder="검색어 없음 — 필요하면 입력"
+                    />
+                  </td>
+                  <td className="px-2 py-2 text-slate-700">
+                    {reviewReasonFor(row)}
+                  </td>
                   <td className="px-2 py-2">
                     <div className="flex flex-wrap gap-1">
-                      <button type="button" onClick={() => onUpdate(index, { reviewStatus: "approved" })} className="rounded bg-emerald-600 px-2 py-1 font-semibold text-white">승인</button>
-                      <button type="button" onClick={() => onUpdate(index, { reviewStatus: "hold" })} className="rounded bg-amber-500 px-2 py-1 font-semibold text-white">보류</button>
-                      <button type="button" onClick={() => toggleExpanded(index)} className="rounded border border-slate-300 px-2 py-1 font-semibold text-slate-700">세부보기</button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdate(index, { reviewStatus: "approved" })
+                        }
+                        className="rounded bg-emerald-600 px-2 py-1 font-semibold text-white"
+                      >
+                        승인
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdate(index, { reviewStatus: "hold" })
+                        }
+                        className="rounded bg-amber-500 px-2 py-1 font-semibold text-white"
+                      >
+                        보류
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(index)}
+                        className="rounded border border-slate-300 px-2 py-1 font-semibold text-slate-700"
+                      >
+                        세부보기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteRow(index)}
+                        className="rounded border border-red-300 px-2 py-1 font-semibold text-red-700"
+                      >
+                        행 삭제
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1236,13 +1470,31 @@ function SheetReviewTable({
                     <td colSpan={8} className="px-3 py-3">
                       <dl className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <Detail label="mail_key" value={row.mallKey} />
-                        <Detail label="sourceRowIndex" value={String(row.sourceRowIndex)} />
-                        <Detail label="quality_status" value={row.qualityStatus} />
-                        <Detail label="confidence_status" value={row.confidenceStatus} />
+                        <Detail
+                          label="sourceRowIndex"
+                          value={String(row.sourceRowIndex)}
+                        />
+                        <Detail
+                          label="quality_status"
+                          value={row.qualityStatus}
+                        />
+                        <Detail
+                          label="confidence_status"
+                          value={row.confidenceStatus}
+                        />
                         <Detail label="block_reason" value={row.blockReason} />
-                        <Detail label="warning_flags" value={row.warningFlags} />
-                        <Detail label="counts" value={`${row.siteSrchKeywordCount ?? "—"} keywords / ${row.verifiedKeywordCount ?? "—"} verified`} />
-                        <Detail label="raw site_srch" value={row.originalSiteSrch} />
+                        <Detail
+                          label="warning_flags"
+                          value={row.warningFlags}
+                        />
+                        <Detail
+                          label="counts"
+                          value={`${row.siteSrchKeywordCount ?? "—"} keywords / ${row.verifiedKeywordCount ?? "—"} verified`}
+                        />
+                        <Detail
+                          label="raw site_srch"
+                          value={row.originalSiteSrch}
+                        />
                       </dl>
                     </td>
                   </tr>
@@ -1259,6 +1511,7 @@ function SheetReviewTable({
 function ReviewRow({
   row,
   onUpdate,
+  onDelete,
 }: {
   row: ReviewedKeywordRow;
   onUpdate: (
@@ -1269,6 +1522,7 @@ function ReviewRow({
       >
     >,
   ) => void;
+  onDelete: () => void;
 }) {
   return (
     <article className="p-4 sm:p-5">
@@ -1334,6 +1588,13 @@ function ReviewRow({
         </button>
         <button
           type="button"
+          onClick={onDelete}
+          className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700"
+        >
+          행 삭제
+        </button>
+        <button
+          type="button"
           onClick={() =>
             onUpdate({
               editedTitle: row.recommendedTitle,
@@ -1348,7 +1609,9 @@ function ReviewRow({
       </div>
 
       <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-        <summary className="cursor-pointer font-semibold text-slate-900">세부 정보 보기</summary>
+        <summary className="cursor-pointer font-semibold text-slate-900">
+          세부 정보 보기
+        </summary>
         <dl className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Detail label="mail_key" value={row.mallKey} />
           <Detail label="quality_status" value={row.qualityStatus} />

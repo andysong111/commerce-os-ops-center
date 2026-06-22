@@ -1,9 +1,12 @@
 import type { EngineRunnerKind } from "./engineRunnerTypes";
 
-export const ENGINE_RUNNER_HISTORY_STORAGE_KEY = "opsCenter.engineRunnerHistory.v1";
+export const ENGINE_RUNNER_HISTORY_STORAGE_KEY =
+  "opsCenter.engineRunnerHistory.v1";
 export const ENGINE_RUNNER_HISTORY_MAX_ITEMS = 100;
 
-export type EngineRunnerHistoryType = "dispatch_requested" | "artifact_imported";
+export type EngineRunnerHistoryType =
+  | "dispatch_requested"
+  | "artifact_imported";
 export type EngineRunnerHistoryStatus = "requested" | "imported" | "failed";
 
 export type EngineRunnerHistoryItem = {
@@ -36,7 +39,10 @@ export type EngineRunnerHistoryItem = {
   };
 };
 
-type EngineRunnerHistoryInput = Omit<EngineRunnerHistoryItem, "id" | "createdAt" | "safety"> & {
+type EngineRunnerHistoryInput = Omit<
+  EngineRunnerHistoryItem,
+  "id" | "createdAt" | "safety"
+> & {
   id?: string;
   createdAt?: string;
   safety?: EngineRunnerHistoryItem["safety"];
@@ -56,11 +62,14 @@ const FORBIDDEN_KEYS = new Set([
 ]);
 
 function hasStorage() {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+  return (
+    typeof window !== "undefined" && typeof window.localStorage !== "undefined"
+  );
 }
 
 function createId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto)
+    return crypto.randomUUID();
   return `engine-history-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
@@ -69,7 +78,11 @@ function sanitize<T>(value: T): T {
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value).flatMap(([key, entry]) => {
-        if (FORBIDDEN_KEYS.has(key) || /token|authorization|headers|contents|payload|csv|html/i.test(key)) return [];
+        if (
+          FORBIDDEN_KEYS.has(key) ||
+          /token|authorization|headers|contents|payload|csv|html/i.test(key)
+        )
+          return [];
         return [[key, sanitize(entry)]];
       }),
     ) as T;
@@ -77,7 +90,9 @@ function sanitize<T>(value: T): T {
   return value;
 }
 
-function normalizeItem(item: EngineRunnerHistoryInput): EngineRunnerHistoryItem {
+function normalizeItem(
+  item: EngineRunnerHistoryInput,
+): EngineRunnerHistoryItem {
   const sanitized = sanitize(item);
   return {
     ...sanitized,
@@ -99,17 +114,47 @@ export function readEngineRunnerHistory(): EngineRunnerHistoryItem[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((item) => normalizeItem(item)).slice(0, ENGINE_RUNNER_HISTORY_MAX_ITEMS);
+    return parsed
+      .map((item) => normalizeItem(item))
+      .slice(0, ENGINE_RUNNER_HISTORY_MAX_ITEMS);
   } catch {
     return [];
   }
 }
 
-export function addEngineRunnerHistoryItem(item: EngineRunnerHistoryInput): EngineRunnerHistoryItem | null {
+export function addEngineRunnerHistoryItem(
+  item: EngineRunnerHistoryInput,
+): EngineRunnerHistoryItem | null {
   if (!hasStorage()) return null;
   const normalized = normalizeItem(item);
-  const nextItems = [normalized, ...readEngineRunnerHistory()].slice(0, ENGINE_RUNNER_HISTORY_MAX_ITEMS);
-  window.localStorage.setItem(ENGINE_RUNNER_HISTORY_STORAGE_KEY, JSON.stringify(nextItems));
+  const nextItems = [normalized, ...readEngineRunnerHistory()].slice(
+    0,
+    ENGINE_RUNNER_HISTORY_MAX_ITEMS,
+  );
+  window.localStorage.setItem(
+    ENGINE_RUNNER_HISTORY_STORAGE_KEY,
+    JSON.stringify(nextItems),
+  );
   window.dispatchEvent(new Event("engine-runner-history-updated"));
   return normalized;
+}
+
+export function clearEngineRunnerHistory(kind?: EngineRunnerKind): void {
+  if (!hasStorage()) return;
+  if (!kind) {
+    window.localStorage.removeItem(ENGINE_RUNNER_HISTORY_STORAGE_KEY);
+  } else {
+    const nextItems = readEngineRunnerHistory().filter(
+      (item) => item.kind !== kind,
+    );
+    if (nextItems.length > 0) {
+      window.localStorage.setItem(
+        ENGINE_RUNNER_HISTORY_STORAGE_KEY,
+        JSON.stringify(nextItems),
+      );
+    } else {
+      window.localStorage.removeItem(ENGINE_RUNNER_HISTORY_STORAGE_KEY);
+    }
+  }
+  window.dispatchEvent(new Event("engine-runner-history-updated"));
 }
