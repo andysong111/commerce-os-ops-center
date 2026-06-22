@@ -35,6 +35,8 @@ export type ShoplingProductUploadResult = {
   stderr?: string;
   stdoutTruncated?: boolean;
   stderrTruncated?: boolean;
+  rawDumpEnabled?: boolean;
+  rawDumpReason?: string;
 };
 
 const ROW_EXPRESSION_PATTERN = /^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/;
@@ -42,6 +44,7 @@ const MAX_TARGET_COUNT = 300;
 const DEFAULT_SLEEP = 1.2;
 const MAX_OUTPUT_CHARS = 50_000;
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const RAW_DUMP_DISABLED_REASON = "민감정보 보호를 위해 원문 XML 덤프는 비활성화되어 있습니다.";
 
 export function buildShoplingProductUploadSpawnOptions(engineDir: string) {
   return {
@@ -117,17 +120,23 @@ export function buildShoplingProductUploadCommand(input: ShoplingProductUploadIn
     throw new Error(`예상 실행 대상이 ${targetCount}건입니다. 최대 ${MAX_TARGET_COUNT}건까지만 실행할 수 있습니다.`);
   }
 
+  const rawDumpAllowed = process.env.SHOPLING_PRODUCT_UPLOAD_RAW_DUMP_ENABLED === "1";
+  const rawDumpEnabled = input.dump === true && rawDumpAllowed;
+  const rawDumpReason = input.dump === true && !rawDumpAllowed ? RAW_DUMP_DISABLED_REASON : undefined;
+
   const args = ["run_batch.py", rowExpression];
   if (channel !== "") args.push("--channel", channel);
   if (input.skip_if_goods_key === true) args.push("--skip_if_goods_key");
-  if (input.dump === true) args.push("--dump");
+  if (rawDumpEnabled) args.push("--dump");
   args.push("--sleep", String(sleep));
 
   return {
     args,
-    commandPreview: ["python", "run_batch.py", quotePreview(rowExpression), ...(channel !== "" ? ["--channel", quotePreview(channel)] : []), ...(input.skip_if_goods_key === true ? ["--skip_if_goods_key"] : []), ...(input.dump === true ? ["--dump"] : []), "--sleep", String(sleep)].join(" "),
+    commandPreview: ["python", "run_batch.py", quotePreview(rowExpression), ...(channel !== "" ? ["--channel", quotePreview(channel)] : []), ...(input.skip_if_goods_key === true ? ["--skip_if_goods_key"] : []), ...(rawDumpEnabled ? ["--dump"] : []), "--sleep", String(sleep)].join(" "),
     shell: false as const,
     targetCount,
+    rawDumpEnabled,
+    rawDumpReason,
   };
 }
 
@@ -186,12 +195,12 @@ export async function runShoplingProductUpload(input: ShoplingProductUploadInput
     child.on("error", (error) => {
       clearTimeout(timer);
       const end = Date.now();
-      resolve({ status: "error", message: error.message, startTime, endTime: new Date(end).toISOString(), durationMs: end - start, commandPreview: command.commandPreview, stdout, stderr, stdoutTruncated, stderrTruncated });
+      resolve({ status: "error", message: error.message, startTime, endTime: new Date(end).toISOString(), durationMs: end - start, commandPreview: command.commandPreview, stdout, stderr, stdoutTruncated, stderrTruncated, rawDumpEnabled: command.rawDumpEnabled, rawDumpReason: command.rawDumpReason });
     });
     child.on("close", (exitCode) => {
       clearTimeout(timer);
       const end = Date.now();
-      resolve({ status: timedOut ? "timeout" : exitCode === 0 ? "success" : "error", startTime, endTime: new Date(end).toISOString(), durationMs: end - start, exitCode, commandPreview: command.commandPreview, stdout, stderr, stdoutTruncated, stderrTruncated });
+      resolve({ status: timedOut ? "timeout" : exitCode === 0 ? "success" : "error", startTime, endTime: new Date(end).toISOString(), durationMs: end - start, exitCode, commandPreview: command.commandPreview, stdout, stderr, stdoutTruncated, stderrTruncated, rawDumpEnabled: command.rawDumpEnabled, rawDumpReason: command.rawDumpReason });
     });
   });
 }
