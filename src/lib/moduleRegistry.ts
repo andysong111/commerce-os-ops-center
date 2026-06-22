@@ -135,6 +135,24 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
 
   {
+    id: "shopling-product-upload-runner",
+    title: "샵플링 상품등록 실행기",
+    navigationLabel: "샵플링 상품등록 실행기",
+    description:
+      "실재고 시트 행 번호를 입력해 외부 상품등록 엔진을 실행합니다.",
+    status: "runner_scaffold",
+    route: "/shopling-product-upload-runner",
+    category: "채널 자동화",
+    inputType: "실재고 시트 행 번호 및 채널",
+    outputType: "shopling-product-upload-auto 실행 결과",
+    historySupport: false,
+    externalProject: true,
+    note: "로컬 shopling-product-upload-auto 엔진을 서버에서 직접 실행합니다.",
+    helperNote: "실제 상품등록 실행",
+    actionLabel: "실행기 열기",
+  },
+
+  {
     id: "engine-env-setup",
     title: "엔진 환경변수 설정",
     navigationLabel: "엔진 환경변수 설정",
