@@ -99,7 +99,16 @@ test("sheet table renders Korean bulk review columns", async () => {
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
     "utf8",
   );
-  for (const label of ["선택", "상태", "상품번호", "현재 상품명", "추천 상품명", "추천 검색어", "검토 메모", "작업"]) {
+  for (const label of [
+    "선택",
+    "상태",
+    "상품번호",
+    "현재 상품명",
+    "추천 상품명",
+    "추천 검색어",
+    "검토 메모",
+    "작업",
+  ]) {
     assert.match(source, new RegExp(label));
   }
 });
@@ -134,7 +143,16 @@ test("sheet filters and search are configured", async () => {
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
     "utf8",
   );
-  for (const label of ["전체", "검토 필요", "승인 가능", "보류", "승인됨", "위험/차단", "검색어 없음", "추천 상품명 없음"]) {
+  for (const label of [
+    "전체",
+    "검토 필요",
+    "승인 가능",
+    "보류",
+    "승인됨",
+    "위험/차단",
+    "검색어 없음",
+    "추천 상품명 없음",
+  ]) {
     assert.match(source, new RegExp(label));
   }
   assert.match(source, /상품번호 또는 상품명 검색/);
@@ -147,7 +165,16 @@ test("sheet details hide raw technical fields behind details action", async () =
     "utf8",
   );
   assert.match(source, /세부보기/);
-  for (const label of ["mail_key", "sourceRowIndex", "quality_status", "confidence_status", "block_reason", "warning_flags", "counts", "raw site_srch"]) {
+  for (const label of [
+    "mail_key",
+    "sourceRowIndex",
+    "quality_status",
+    "confidence_status",
+    "block_reason",
+    "warning_flags",
+    "counts",
+    "raw site_srch",
+  ]) {
     assert.match(source, new RegExp(label));
   }
   assert.match(source, /expandedRows\.has\(index\)/);
@@ -171,7 +198,66 @@ test("keyword review sheet safety contains no forbidden execution helpers", asyn
     new URL("../.github/workflows", import.meta.url),
     "utf8",
   ).catch(() => "");
-  assert.doesNotMatch(page, /child_process|PowerShell|powershell|pwsh|exec\(|spawn\(|SHOPLING_.*TOKEN|GITHUB_TOKEN/);
-  assert.doesNotMatch(page, /Shopling API 실행|auto-apply|auto apply|apply\/write/i);
+  assert.doesNotMatch(
+    page,
+    /child_process|PowerShell|powershell|pwsh|exec\(|spawn\(|SHOPLING_.*TOKEN|GITHUB_TOKEN/,
+  );
+  assert.doesNotMatch(
+    page,
+    /Shopling API 실행|auto-apply|auto apply|apply\/write/i,
+  );
   assert.equal(workflows, "");
+});
+
+test("keyword review supports local full clear, row delete, and bulk delete", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /현재 검토 목록 삭제/);
+  assert.match(source, /현재 불러온 키워드 검토 목록을 삭제하시겠습니까/);
+  assert.match(source, /샵플링에는 영향이 없고/);
+  assert.match(source, /resetReviewLocalState/);
+  assert.match(
+    source,
+    /sessionStorage\.removeItem\("opsCenter\.keywordEngine\.importedArtifact\.v1"\)/,
+  );
+  assert.match(source, /setSheetFilter\("all"\)/);
+  assert.match(source, /setSheetSearch\(""\)/);
+  assert.match(source, /setPayloadPreview\(null\)/);
+  assert.match(source, /setPreflightResult\(null\)/);
+  assert.match(source, /setCopyStatus\(""\)/);
+  assert.match(source, /아직 불러온 키워드 결과가 없습니다/);
+  assert.match(source, /검토할 키워드가 없습니다/);
+  assert.match(source, /키워드 엔진 실행기로 이동/);
+  assert.match(source, /직접 파일 넣기/);
+
+  assert.match(source, /행 삭제/);
+  assert.match(source, /이 행을 현재 검토 목록에서 삭제하시겠습니까/);
+  assert.match(source, /선택 항목 삭제/);
+  assert.match(source, /선택한 항목을 현재 검토 목록에서 삭제하시겠습니까/);
+  assert.match(
+    source,
+    /current\.filter\(\(_, index\) => !targetIndexes\.has\(index\)\)/,
+  );
+  assert.match(source, /exportReviewedQueue\(rows\)/);
+});
+
+test("keyword review delete controls do not introduce external writes or shell helpers", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /\bfetch\s*\(/);
+  assert.doesNotMatch(
+    source,
+    /Shopling API 실행|auto-apply|auto apply|apply\/write/i,
+  );
+  assert.doesNotMatch(
+    source,
+    /child_process|PowerShell|powershell|pwsh|exec\(|spawn\(/,
+  );
+  assert.doesNotMatch(source, /GITHUB_TOKEN|SHOPLING_.*TOKEN|secret/i);
 });

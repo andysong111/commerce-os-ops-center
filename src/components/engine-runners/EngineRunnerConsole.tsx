@@ -52,6 +52,32 @@ type Field = {
   helpText?: string;
 };
 
+const HIDDEN_KEYWORD_RUN_IDS_STORAGE_KEY = "commerce-os:hidden-keyword-run-ids";
+
+function readHiddenKeywordRunIds() {
+  if (typeof window === "undefined") return new Set<number>();
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(HIDDEN_KEYWORD_RUN_IDS_STORAGE_KEY) ?? "[]",
+    );
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.map((id) => Number(id)).filter(Number.isFinite)
+        : [],
+    );
+  } catch {
+    return new Set<number>();
+  }
+}
+
+function persistHiddenKeywordRunIds(ids: Set<number>) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(
+    HIDDEN_KEYWORD_RUN_IDS_STORAGE_KEY,
+    JSON.stringify([...ids]),
+  );
+}
+
 function describeRunStatus(status: string | null, conclusion: string | null) {
   if (status === "completed" && conclusion === "success") return "실행 성공";
   if (status === "completed" && conclusion === "failure") return "실행 실패";
@@ -98,6 +124,10 @@ export function EngineRunnerConsole({
   const [runFilter, setRunFilter] = useState<
     "all" | "success" | "failure" | "artifact"
   >("all");
+  const [hiddenKeywordRunIds, setHiddenKeywordRunIds] = useState<Set<number>>(
+    () =>
+      config.kind === "keyword_engine" ? readHiddenKeywordRunIds() : new Set(),
+  );
 
   const collectPayload = (form: HTMLFormElement) => {
     const formData = new FormData(form);
@@ -166,11 +196,14 @@ export function EngineRunnerConsole({
         return score(right) - score(left);
       })
     : [];
-  const latestRun = prioritizedRuns[0];
+  const visiblePrioritizedRuns = isKeywordRunner
+    ? prioritizedRuns.filter((run) => !hiddenKeywordRunIds.has(run.id))
+    : prioritizedRuns;
+  const latestRun = visiblePrioritizedRuns[0];
   const latestExpectedArtifact = latestRun?.artifacts.find(
     (artifact) => artifact.expected,
   );
-  const filteredRuns = prioritizedRuns.filter((run) => {
+  const filteredRuns = visiblePrioritizedRuns.filter((run) => {
     if (runFilter === "success")
       return run.status === "completed" && run.conclusion === "success";
     if (runFilter === "failure")
@@ -179,6 +212,20 @@ export function EngineRunnerConsole({
       return run.artifacts.some((artifact) => artifact.expected);
     return true;
   });
+  function hideKeywordRun(runId: number) {
+    const next = new Set(hiddenKeywordRunIds);
+    next.add(runId);
+    setHiddenKeywordRunIds(next);
+    persistHiddenKeywordRunIds(next);
+  }
+
+  function clearHiddenKeywordRuns() {
+    setHiddenKeywordRunIds(new Set());
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(HIDDEN_KEYWORD_RUN_IDS_STORAGE_KEY);
+    }
+  }
+
   const activeStep =
     artifactImport?.state === "success" && artifactImport.reviewRoute
       ? 4
@@ -192,7 +239,8 @@ export function EngineRunnerConsole({
     setImportingArtifactId(artifact.id);
     setArtifactImport({
       state: "loading",
-      message: "GitHub Actions 산출물을 가져오는 중입니다. 잠시만 기다려 주세요.",
+      message:
+        "GitHub Actions 산출물을 가져오는 중입니다. 잠시만 기다려 주세요.",
     });
     const reportImportError = (diagnostic: {
       status?: number;
@@ -574,6 +622,22 @@ export function EngineRunnerConsole({
         <p className="mt-2 text-xs font-medium text-slate-500">
           표시 시간은 현재 브라우저 시간대 기준입니다.
         </p>
+        {isKeywordRunner ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <p>
+              GitHub 실행 기록은 삭제되지 않고, 이 브라우저의 OPS CENTER
+              목록에서만 숨겨집니다.
+            </p>
+            <button
+              type="button"
+              onClick={clearHiddenKeywordRuns}
+              disabled={hiddenKeywordRunIds.size === 0}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+            >
+              숨긴 목록 초기화
+            </button>
+          </div>
+        ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
           {[
             { label: "전체", value: "all" },
@@ -627,7 +691,7 @@ export function EngineRunnerConsole({
             GitHub Actions 실행 모니터링이 아직 설정되지 않았습니다.
           </p>
         ) : null}
-        {runsResult && runsResult.runs.length === 0 ? (
+        {runsResult && visiblePrioritizedRuns.length === 0 ? (
           <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600">
             {emptyRunsMessage}
           </p>
@@ -655,6 +719,15 @@ export function EngineRunnerConsole({
                   >
                     자세한 실행 로그 보기
                   </Link>
+                  {isKeywordRunner ? (
+                    <button
+                      type="button"
+                      onClick={() => hideKeywordRun(run.id)}
+                      className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                    >
+                      목록에서 숨기기
+                    </button>
+                  ) : null}
                 </div>
                 <p
                   className={`mt-2 font-medium ${expectedArtifact ? "text-emerald-800" : "text-slate-600"}`}
