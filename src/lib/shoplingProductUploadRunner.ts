@@ -43,6 +43,18 @@ const DEFAULT_SLEEP = 1.2;
 const MAX_OUTPUT_CHARS = 50_000;
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
+export function buildShoplingProductUploadSpawnOptions(engineDir: string) {
+  return {
+    cwd: engineDir,
+    shell: false as const,
+    env: {
+      ...process.env,
+      PYTHONIOENCODING: "utf-8",
+      PYTHONUTF8: "1",
+    },
+  };
+}
+
 export function isValidRowExpression(rowExpression: string) {
   return ROW_EXPRESSION_PATTERN.test(rowExpression);
 }
@@ -154,7 +166,7 @@ export async function runShoplingProductUpload(input: ShoplingProductUploadInput
   let stderrTruncated = false;
 
   return new Promise((resolve) => {
-    const child = spawn(python, command.args, { cwd: engineDir, shell: false });
+    const child = spawn(python, command.args, buildShoplingProductUploadSpawnOptions(engineDir));
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;

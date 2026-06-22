@@ -17,7 +17,7 @@ type RunResult = {
 };
 
 const channels = [
-  { value: "", label: "전체" },
+  { value: "", label: "전체 6채널" },
   { value: "도매1", label: "도매1" },
   { value: "도매2", label: "도매2" },
   { value: "도매3", label: "도매3" },
@@ -91,6 +91,7 @@ export function ShoplingProductUploadRunner() {
                 <option key={channel.label} value={channel.value}>{channel.label}</option>
               ))}
             </select>
+            <span className="mt-2 block text-xs font-normal text-slate-500">기본값은 도매1~도매4, 소매1~소매2 전체 등록입니다.</span>
           </label>
         </div>
 
