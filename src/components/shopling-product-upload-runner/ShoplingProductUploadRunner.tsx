@@ -14,6 +14,8 @@ type RunResult = {
   stderr?: string;
   stdoutTruncated?: boolean;
   stderrTruncated?: boolean;
+  rawDumpEnabled?: boolean;
+  rawDumpReason?: string;
 };
 
 const channels = [
@@ -54,7 +56,7 @@ export function ShoplingProductUploadRunner() {
           rowExpression: formData.get("rowExpression")?.toString() ?? "",
           channel: formData.get("channel")?.toString() ?? "",
           skip_if_goods_key: formData.get("skip_if_goods_key") === "on",
-          dump: formData.get("dump") === "on",
+          dump: false,
           sleep: "1.2",
         }),
       });
@@ -100,15 +102,10 @@ export function ShoplingProductUploadRunner() {
             <input name="skip_if_goods_key" type="checkbox" defaultChecked className="size-4 rounded border-slate-300" />
             이미 goods_key 있으면 스킵
           </label>
-          <label className="block text-sm font-medium text-slate-700">
-            <span className="flex items-center gap-2">
-              <input name="dump" type="checkbox" defaultChecked className="size-4 rounded border-slate-300" />
-              요청/응답 XML 덤프 저장
-            </span>
-            <span className="mt-2 block text-xs font-normal leading-5 text-slate-500">
-              오류 추적용입니다. 덤프 파일에는 민감정보가 포함될 수 있으므로 외부 공유 금지.
-            </span>
-          </label>
+          <div className="text-xs leading-5 text-slate-500">
+            <p>민감정보 보호를 위해 원문 XML 요청/응답은 기본 저장하지 않습니다.</p>
+            <p>실행 결과에는 행 번호, 채널, 성공/실패/SKIP, goods_key 중심의 요약 정보만 표시됩니다.</p>
+          </div>
           <p className="text-xs leading-5 text-slate-500">
             실행 간격은 안정성을 위해 1.2초로 고정됩니다.
           </p>
@@ -135,6 +132,7 @@ export function ShoplingProductUploadRunner() {
             <ResultRow label="exitCode" value={result.exitCode ?? "-"} />
             <ResultRow label="commandPreview" value={result.commandPreview ?? "-"} mono />
             {result.message ? <ResultRow label="message" value={result.message} /> : null}
+            {result.rawDumpReason ? <ResultRow label="rawDumpReason" value={result.rawDumpReason} /> : null}
             <OutputBlock label="stdout" value={result.stdout ?? ""} truncated={result.stdoutTruncated} />
             <OutputBlock label="stderr" value={result.stderr ?? ""} truncated={result.stderrTruncated} />
           </dl>

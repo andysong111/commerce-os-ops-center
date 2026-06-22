@@ -44,7 +44,9 @@ test("channel validation accepts only the allowlist and empty 전체 value", () 
   }
 });
 
-test("command builder creates a safe argument array for all-channel runs", () => {
+test("command builder creates a safe argument array for all-channel runs and ignores dump by default", () => {
+  delete process.env.SHOPLING_PRODUCT_UPLOAD_RAW_DUMP_ENABLED;
+
   const command = buildShoplingProductUploadCommand({
     rowExpression: "967",
     channel: "",
@@ -57,15 +59,37 @@ test("command builder creates a safe argument array for all-channel runs", () =>
     "run_batch.py",
     "967",
     "--skip_if_goods_key",
-    "--dump",
     "--sleep",
     "1.2",
   ]);
   assert.equal(command.shell, false);
   assert.equal(command.args.includes("--channel"), false);
-  assert.equal(command.commandPreview.includes("--sleep 1.2"), true);
-  assert.equal(command.args.includes("--dump"), true);
+  assert.equal(command.commandPreview, 'python run_batch.py "967" --skip_if_goods_key --sleep 1.2');
+  assert.equal(command.args.includes("--dump"), false);
+  assert.equal(command.commandPreview.includes("--dump"), false);
   assert.equal(command.args.includes("--skip_if_goods_key"), true);
+  assert.equal(command.rawDumpEnabled, false);
+  assert.equal(command.rawDumpReason, "민감정보 보호를 위해 원문 XML 덤프는 비활성화되어 있습니다.");
+});
+
+test("command builder allows dump only when explicit raw dump env flag is enabled", () => {
+  process.env.SHOPLING_PRODUCT_UPLOAD_RAW_DUMP_ENABLED = "1";
+  try {
+    const command = buildShoplingProductUploadCommand({
+      rowExpression: "967",
+      channel: "",
+      skip_if_goods_key: true,
+      dump: true,
+      sleep: 1.2,
+    });
+
+    assert.equal(command.args.includes("--dump"), true);
+    assert.equal(command.commandPreview.includes("--dump"), true);
+    assert.equal(command.rawDumpEnabled, true);
+    assert.equal(command.rawDumpReason, undefined);
+  } finally {
+    delete process.env.SHOPLING_PRODUCT_UPLOAD_RAW_DUMP_ENABLED;
+  }
 });
 
 test("command builder includes channel only when selected", () => {
@@ -127,7 +151,6 @@ test("UI source includes required Korean labels", async () => {
     "전체 6채널",
     "기본값은 도매1~도매4, 소매1~소매2 전체 등록입니다.",
     "이미 goods_key 있으면 스킵",
-    "요청/응답 XML 덤프 저장",
     "상품등록 실행",
     "실행 결과",
   ]) {
@@ -135,7 +158,7 @@ test("UI source includes required Korean labels", async () => {
   }
 });
 
-test("UI hides sleep input and explains fixed interval plus dump sensitivity", async () => {
+test("UI hides sleep and raw dump inputs and explains SaaS-safe logging", async () => {
   const { readFile } = await import("node:fs/promises");
   const component = await readFile(
     "src/components/shopling-product-upload-runner/ShoplingProductUploadRunner.tsx",
@@ -144,10 +167,13 @@ test("UI hides sleep input and explains fixed interval plus dump sensitivity", a
 
   assert.equal(component.includes("실행 간격 초"), false);
   assert.equal(component.includes("실행 간격은 안정성을 위해 1.2초로 고정됩니다."), true);
-  assert.equal(component.includes("덤프 파일에는 민감정보가 포함될 수 있으므로 외부 공유 금지."), true);
+  assert.equal(component.includes("요청/응답 XML 덤프 저장"), false);
+  assert.equal(component.includes('name="dump"'), false);
+  assert.equal(component.includes("민감정보 보호를 위해 원문 XML 요청/응답은 기본 저장하지 않습니다."), true);
+  assert.equal(component.includes("실행 결과에는 행 번호, 채널, 성공/실패/SKIP, goods_key 중심의 요약 정보만 표시됩니다."), true);
 });
 
-test("client request sends fixed sleep value", async () => {
+test("client request sends fixed sleep and does not read dump form data", async () => {
   const { readFile } = await import("node:fs/promises");
   const component = await readFile(
     "src/components/shopling-product-upload-runner/ShoplingProductUploadRunner.tsx",
@@ -155,7 +181,9 @@ test("client request sends fixed sleep value", async () => {
   );
 
   assert.equal(component.includes('sleep: "1.2"'), true);
+  assert.equal(component.includes('dump: false'), true);
   assert.equal(component.includes('formData.get("sleep")'), false);
+  assert.equal(component.includes('formData.get("dump")'), false);
 });
 
 
