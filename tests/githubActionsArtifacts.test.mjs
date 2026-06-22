@@ -22,40 +22,75 @@ function crc32(bytes) {
   }
   return (crc ^ -1) >>> 0;
 }
-function zip(entries) {
+function zip(entries, options = {}) {
   const encoder = new TextEncoder();
-  const chunks = [];
+  const localChunks = [];
+  const centralChunks = [];
+  let localOffset = 0;
   for (const [name, value] of Object.entries(entries)) {
     const nameBytes = encoder.encode(name);
     const data = encoder.encode(value);
-    chunks.push(
-      Uint8Array.from([
-        ...u32(0x04034b50),
-        ...u16(20),
-        ...u16(0),
-        ...u16(0),
-        ...u16(0),
-        ...u16(0),
-        ...u32(crc32(data)),
-        ...u32(data.length),
-        ...u32(data.length),
-        ...u16(nameBytes.length),
-        ...u16(0),
-        ...nameBytes,
-        ...data,
-      ]),
-    );
+    const crc = crc32(data);
+    const useDataDescriptor = options.dataDescriptor === true;
+    const local = Uint8Array.from([
+      ...u32(0x04034b50),
+      ...u16(20),
+      ...u16(useDataDescriptor ? 0x08 : 0),
+      ...u16(0),
+      ...u16(0),
+      ...u16(0),
+      ...u32(useDataDescriptor ? 0 : crc),
+      ...u32(useDataDescriptor ? 0 : data.length),
+      ...u32(useDataDescriptor ? 0 : data.length),
+      ...u16(nameBytes.length),
+      ...u16(0),
+      ...nameBytes,
+      ...data,
+      ...(useDataDescriptor ? [...u32(0x08074b50), ...u32(crc), ...u32(data.length), ...u32(data.length)] : []),
+    ]);
+    localChunks.push(local);
+    centralChunks.push(Uint8Array.from([
+      ...u32(0x02014b50),
+      ...u16(20),
+      ...u16(20),
+      ...u16(useDataDescriptor ? 0x08 : 0),
+      ...u16(0),
+      ...u16(0),
+      ...u16(0),
+      ...u32(crc),
+      ...u32(data.length),
+      ...u32(data.length),
+      ...u16(nameBytes.length),
+      ...u16(0),
+      ...u16(0),
+      ...u16(0),
+      ...u16(0),
+      ...u32(0),
+      ...u32(localOffset),
+      ...nameBytes,
+    ]));
+    localOffset += local.length;
   }
-  return new Uint8Array(chunks.reduce((n, c) => n + c.length, 0)).map(
-    (_, i) => {
-      let offset = 0;
-      for (const c of chunks) {
-        if (i < offset + c.length) return c[i - offset];
-        offset += c.length;
-      }
-      return 0;
-    },
-  );
+  const centralOffset = localOffset;
+  const centralSize = centralChunks.reduce((n, c) => n + c.length, 0);
+  const eocd = Uint8Array.from([
+    ...u32(0x06054b50),
+    ...u16(0),
+    ...u16(0),
+    ...u16(centralChunks.length),
+    ...u16(centralChunks.length),
+    ...u32(centralSize),
+    ...u32(centralOffset),
+    ...u16(0),
+  ]);
+  const chunks = [...localChunks, ...centralChunks, eocd];
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
 }
 
 const keywordZip = zip({
@@ -413,12 +448,28 @@ test("duplicate allowed basenames fail safely", () => {
   );
 });
 
-test("unsupported zip layout returns Korean expected-file guidance", () => {
-  const bad = zip({ "keyword_mvp_approval_sheet.csv": "ok" });
-  bad[6] = 8;
+test("data descriptor ZIP imports successfully without old manual parser error", () => {
+  assert.doesNotThrow(() => {
+    const extracted = extractExpectedArtifactFiles(
+      "keyword_engine",
+      zip(
+        {
+          "output/mvp/keyword_mvp_approval_sheet.csv": "goods_key,title\nBATH001,Towel",
+          "output/mvp/keyword_mvp_manual_candidates.csv": "goods_key,title\nBATH002,Mat",
+          "output/mvp/keyword_mvp_summary.md": "# Summary",
+        },
+        { dataDescriptor: true },
+      ),
+    );
+    assert.equal(extracted.files["keyword_mvp_summary.md"], "# Summary");
+    assert.deepEqual(extracted.missingFiles, []);
+  });
+});
+
+test("unreadable zip returns clearer Korean ZIP parser error", () => {
   assert.throws(
-    () => extractExpectedArtifactFiles("keyword_engine", bad),
-    /산출물 ZIP 구조를 읽을 수 없습니다.*keyword_mvp_approval_sheet\.csv/,
+    () => extractExpectedArtifactFiles("keyword_engine", new Uint8Array([1, 2, 3])),
+    /GitHub Actions 산출물 ZIP을 읽지 못했습니다/,
   );
 });
 
