@@ -1,4 +1,4 @@
-import { inflateRawSync } from "node:zlib";
+import { unzipSync } from "fflate";
 import type { EngineRunnerConfig, EngineRunnerKind } from "./engineRunnerTypes";
 
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
@@ -80,22 +80,17 @@ function allowedBasename(entryName: string, allowlist: Set<string>) {
   return allowlist.has(basename) ? basename : null;
 }
 
-function unsupportedLayoutMessage(expected: readonly string[]) {
-  return `산출물 ZIP 구조를 읽을 수 없습니다. 예상 파일이 ZIP 안에 있는지 확인해 주세요. 예상 파일: ${expected.join(", ")}`;
-}
+const unreadableZipMessage = "GitHub Actions 산출물 ZIP을 읽지 못했습니다. artifact가 손상되었거나 지원하지 않는 ZIP 형식일 수 있습니다.";
 
-function readUInt16(bytes: Uint8Array, offset: number) {
-  return bytes[offset] | (bytes[offset + 1] << 8);
-}
 
-function readUInt32(bytes: Uint8Array, offset: number) {
-  return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
-}
+type ZipEntries = Record<string, Uint8Array>;
 
-function decodeEntry(method: number, compressed: Uint8Array): Uint8Array {
-  if (method === 0) return compressed;
-  if (method === 8) return inflateRawSync(compressed);
-  throw new Error("Unsupported zip compression method.");
+function unzipArtifact(zipBytes: Uint8Array): ZipEntries {
+  try {
+    return unzipSync(zipBytes);
+  } catch {
+    throw new Error(unreadableZipMessage);
+  }
 }
 
 export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: Uint8Array): ArtifactExtractionResult {
@@ -108,22 +103,9 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
   const generatedSourceFiles: string[] = [];
   const foundSafeFiles: string[] = [];
   const decoder = new TextDecoder("utf-8", { fatal: false });
-  let offset = 0;
+  const entries = unzipArtifact(zipBytes);
 
-  while (offset + 30 <= zipBytes.byteLength && readUInt32(zipBytes, offset) === 0x04034b50) {
-    const flags = readUInt16(zipBytes, offset + 6);
-    const method = readUInt16(zipBytes, offset + 8);
-    const compressedSize = readUInt32(zipBytes, offset + 18);
-    const uncompressedSize = readUInt32(zipBytes, offset + 22);
-    const nameLength = readUInt16(zipBytes, offset + 26);
-    const extraLength = readUInt16(zipBytes, offset + 28);
-    const nameStart = offset + 30;
-    const dataStart = nameStart + nameLength + extraLength;
-    const dataEnd = dataStart + compressedSize;
-    if (flags & 0x08 || dataEnd > zipBytes.byteLength) {
-      throw new Error(unsupportedLayoutMessage(expected));
-    }
-    const entryName = decoder.decode(zipBytes.slice(nameStart, nameStart + nameLength));
+  for (const [entryName, entryBytes] of Object.entries(entries)) {
     const safeEntryName = normalizeSafeEntryName(entryName);
     if (!safeEntryName) {
       skippedFiles.push(entryName || "unsafe-entry");
@@ -137,20 +119,15 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
         if (Object.hasOwn(files, basename)) {
           throw new Error("동일한 산출물 파일이 여러 위치에서 발견되었습니다. 안전을 위해 가져오기를 중단했습니다.");
         }
-        if (uncompressedSize > MAX_TEXT_FILE_BYTES) {
+        if (entryBytes.byteLength > MAX_TEXT_FILE_BYTES) {
           throw new Error(`Artifact file ${basename} is larger than the safe preview limit.`);
         }
-        const inflated = decodeEntry(method, zipBytes.slice(dataStart, dataEnd));
-        if (inflated.byteLength > MAX_TEXT_FILE_BYTES) {
-          throw new Error(`Artifact file ${basename} is larger than the safe preview limit.`);
-        }
-        files[basename] = decoder.decode(inflated);
+        files[basename] = decoder.decode(entryBytes);
       }
       else if (!safeEntryName.endsWith("/")) {
         skippedFiles.push(safeEntryName);
       }
     }
-    offset = dataEnd;
   }
 
   return {
