@@ -62,6 +62,7 @@ test("command builder creates a safe argument array for all-channel runs", () =>
   ]);
   assert.equal(command.shell, false);
   assert.equal(command.args.includes("--channel"), false);
+  assert.equal(command.commandPreview.includes("--sleep 1.2"), true);
 });
 
 test("command builder includes channel only when selected", () => {
@@ -104,7 +105,38 @@ test("UI source includes required Korean labels", async () => {
   );
   const source = `${page}\n${component}`;
 
-  for (const text of ["샵플링 상품등록 실행기", "실재고 시트 행 번호", "채널", "상품등록 실행", "실행 결과"]) {
+  for (const text of [
+    "샵플링 상품등록 실행기",
+    "실재고 시트 행 번호",
+    "채널",
+    "이미 goods_key 있으면 스킵",
+    "요청/응답 XML 덤프 저장",
+    "상품등록 실행",
+    "실행 결과",
+  ]) {
     assert.equal(source.includes(text), true, text);
   }
+});
+
+test("UI hides sleep input and explains fixed interval plus dump sensitivity", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const component = await readFile(
+    "src/components/shopling-product-upload-runner/ShoplingProductUploadRunner.tsx",
+    "utf8",
+  );
+
+  assert.equal(component.includes("실행 간격 초"), false);
+  assert.equal(component.includes("실행 간격은 안정성을 위해 1.2초로 고정됩니다."), true);
+  assert.equal(component.includes("덤프 파일에는 민감정보가 포함될 수 있으므로 외부 공유 금지."), true);
+});
+
+test("client request sends fixed sleep value", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const component = await readFile(
+    "src/components/shopling-product-upload-runner/ShoplingProductUploadRunner.tsx",
+    "utf8",
+  );
+
+  assert.equal(component.includes('sleep: "1.2"'), true);
+  assert.equal(component.includes('formData.get("sleep")'), false);
 });
