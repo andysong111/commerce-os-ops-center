@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildShoplingProductUploadCommand,
+  buildShoplingProductUploadSpawnOptions,
   estimateTargetCount,
   isValidRowExpression,
   isValidShoplingProductUploadChannel,
@@ -63,6 +64,8 @@ test("command builder creates a safe argument array for all-channel runs", () =>
   assert.equal(command.shell, false);
   assert.equal(command.args.includes("--channel"), false);
   assert.equal(command.commandPreview.includes("--sleep 1.2"), true);
+  assert.equal(command.args.includes("--dump"), true);
+  assert.equal(command.args.includes("--skip_if_goods_key"), true);
 });
 
 test("command builder includes channel only when selected", () => {
@@ -85,6 +88,18 @@ test("command builder includes channel only when selected", () => {
   ]);
   assert.equal(command.shell, false);
   assert.equal(command.commandPreview.includes("--channel \"도매1\""), true);
+  assert.equal(command.args.includes("--dump"), false);
+  assert.equal(command.args.includes("--skip_if_goods_key"), true);
+});
+
+test("spawn options force Python UTF-8 output without enabling shell", () => {
+  const options = buildShoplingProductUploadSpawnOptions("/tmp/shopling-engine");
+
+  assert.equal(options.cwd, "/tmp/shopling-engine");
+  assert.equal(options.shell, false);
+  assert.equal(options.env.PYTHONIOENCODING, "utf-8");
+  assert.equal(options.env.PYTHONUTF8, "1");
+  assert.equal(options.env.PATH, process.env.PATH);
 });
 
 test("target count protection allows small ranges and rejects over 300", () => {
@@ -109,6 +124,8 @@ test("UI source includes required Korean labels", async () => {
     "샵플링 상품등록 실행기",
     "실재고 시트 행 번호",
     "채널",
+    "전체 6채널",
+    "기본값은 도매1~도매4, 소매1~소매2 전체 등록입니다.",
     "이미 goods_key 있으면 스킵",
     "요청/응답 XML 덤프 저장",
     "상품등록 실행",
@@ -139,4 +156,15 @@ test("client request sends fixed sleep value", async () => {
 
   assert.equal(component.includes('sleep: "1.2"'), true);
   assert.equal(component.includes('formData.get("sleep")'), false);
+});
+
+
+test("runner implementation keeps process execution safety constraints", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile("src/lib/shoplingProductUploadRunner.ts", "utf8");
+
+  assert.equal(source.includes("shell: true"), false);
+  assert.equal(source.includes("exec("), false);
+  assert.doesNotMatch(source, /PowerShell|powershell|pwsh/i);
+  assert.match(source, /spawn\(python, command\.args/);
 });
