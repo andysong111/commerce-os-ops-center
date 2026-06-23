@@ -102,7 +102,35 @@ test("result fetch matches request_id, returns pending, and latest fallback work
 test("UI source includes required labels, localStorage key, and security-sensitive omissions", async () => {
   const { readFile } = await import("node:fs/promises");
   const ui = await readFile(new URL("../src/components/shopling-price-modify-runner/ShoplingPriceModifyRunner.tsx", import.meta.url), "utf8");
-  for (const text of ["샵플링 goods_key", "가격설정 실행", "최근 실행 결과 가져오기", "요청 추적 ID", "성공 수", "실패 수", "idx", "mall", "goods_key", "code", "msg", "shoplingPriceModify.currentRequestId"]) assert.match(ui, new RegExp(text));
+  for (const text of [
+    "샵플링 goods_key",
+    "가격설정 실행",
+    "최근 실행 결과 가져오기",
+    "요청 추적 ID",
+    "성공 수",
+    "실패 수",
+    "idx",
+    "mall",
+    "goods_key",
+    "code",
+    "msg",
+    "shoplingPriceModify.currentRequestId",
+    "적용 쇼핑몰 및 가격 정책",
+    "카페24(1.9)",
+    "SMALL_00014",
+    "판매가 × 0.97 후 10원 단위 올림",
+    "도매창고",
+    "SMALL_00071",
+    "판매가 + 500원",
+    "에이블리",
+    "SMALL_00112",
+    "판매가 + 3,000원",
+    "옥션",
+    "쿠팡",
+    "롯데ON",
+    "TEMU",
+    "실제 가격설정 스크립트가 수정하는 24개 쇼핑몰만 표시합니다.",
+  ]) assert.ok(ui.includes(text), `Expected UI source to include ${text}`);
   const combined = ui + await readFile(new URL("../src/lib/shoplingPriceModifyRunner.ts", import.meta.url), "utf8");
   assert.doesNotMatch(combined, /service account|raw ZIP|PowerShell|shell:\s*true|child_process\.exec/);
 });
