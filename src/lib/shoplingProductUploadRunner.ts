@@ -142,14 +142,43 @@ async function readGithubJson(response: Response) {
   return text ? JSON.parse(text) : {};
 }
 
+const SHOPLING_RESULT_SUMMARY_EXACT_PATH = "output/github_actions/result_summary.json";
+const SHOPLING_RESULT_SUMMARY_ROOT_PATH = "result_summary.json";
+const SHOPLING_RESULT_SUMMARY_ENTRY_SUFFIX = "/result_summary.json";
+const SHOPLING_RESULT_SUMMARY_ENTRY_DEBUG_LIMIT = 10;
+
+function findShoplingResultSummaryPath(files: Record<string, Uint8Array>) {
+  if (files[SHOPLING_RESULT_SUMMARY_EXACT_PATH]) {
+    return SHOPLING_RESULT_SUMMARY_EXACT_PATH;
+  }
+  if (files[SHOPLING_RESULT_SUMMARY_ROOT_PATH]) {
+    return SHOPLING_RESULT_SUMMARY_ROOT_PATH;
+  }
+
+  return Object.keys(files)
+    .filter((entryName) => entryName.endsWith(SHOPLING_RESULT_SUMMARY_ENTRY_SUFFIX))
+    .sort((left, right) => left.localeCompare(right))
+    .at(0);
+}
+
+function formatArtifactEntryNamesForDebug(entryNames: string[]) {
+  const safeEntryNames = entryNames
+    .map((entryName) => entryName.replace(/[\r\n\t]/g, " "))
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, SHOPLING_RESULT_SUMMARY_ENTRY_DEBUG_LIMIT);
+
+  return safeEntryNames.length > 0 ? safeEntryNames.join(", ") : "(empty)";
+}
+
 export function extractShoplingUploadResultSummary(zipBytes: Uint8Array) {
   const files = unzipSync(zipBytes);
-  const summaryPath = "output/github_actions/result_summary.json";
-  const summaryBytes = files[summaryPath];
-  if (!summaryBytes) {
-    throw new Error("GitHub Actions artifact에서 result_summary.json을 찾을 수 없습니다.");
+  const summaryPath = findShoplingResultSummaryPath(files);
+  if (!summaryPath) {
+    throw new Error(
+      `GitHub Actions artifact에서 result_summary.json을 찾을 수 없습니다. artifact entries: ${formatArtifactEntryNamesForDebug(Object.keys(files))}`,
+    );
   }
-  const summaryText = new TextDecoder().decode(summaryBytes);
+  const summaryText = new TextDecoder().decode(files[summaryPath]);
   return JSON.parse(summaryText) as Record<string, unknown>;
 }
 
