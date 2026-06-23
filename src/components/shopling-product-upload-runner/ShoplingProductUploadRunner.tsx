@@ -19,6 +19,36 @@ type RunResult = {
   githubActionsUrl?: string;
 };
 
+type ActionsResult = {
+  status?: string;
+  message?: string;
+  runId?: number;
+  runUrl?: string;
+  runConclusion?: string | null;
+  runStatus?: string;
+  artifactName?: string;
+  summary?: {
+    row_expression?: string;
+    selected_channel?: string;
+    estimated_target_count?: number;
+    status?: string;
+    exit_code?: number;
+    ok_count?: number;
+    skip_count?: number;
+    fail_count?: number;
+    goods_keys?: GoodsKeyRow[];
+  };
+};
+
+type GoodsKeyRow = {
+  row?: number | string;
+  channel?: string;
+  code?: string;
+  success?: boolean | string;
+  goods_key?: string;
+  ptn_goods_cd?: string;
+};
+
 const channels = [
   { value: "", label: "전체 6채널" },
   { value: "도매1", label: "도매1" },
@@ -36,7 +66,9 @@ function formatDuration(durationMs?: number) {
 
 export function ShoplingProductUploadRunner() {
   const [running, setRunning] = useState(false);
+  const [fetchingResult, setFetchingResult] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [actionsResult, setActionsResult] = useState<ActionsResult | null>(null);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -49,6 +81,7 @@ export function ShoplingProductUploadRunner() {
     const formData = new FormData(event.currentTarget);
     setRunning(true);
     setResult(null);
+    setActionsResult(null);
     try {
       const response = await fetch("/api/shopling-product-upload/run", {
         method: "POST",
@@ -70,6 +103,23 @@ export function ShoplingProductUploadRunner() {
       });
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleFetchActionsResult = async () => {
+    if (fetchingResult) return;
+    setFetchingResult(true);
+    try {
+      const response = await fetch("/api/shopling-product-upload/actions-result");
+      const data = await response.json();
+      setActionsResult(data);
+    } catch (error) {
+      setActionsResult({
+        status: "error",
+        message: error instanceof Error ? error.message : "최근 실행 결과를 가져오는 중 오류가 발생했습니다.",
+      });
+    } finally {
+      setFetchingResult(false);
     }
   };
 
@@ -135,13 +185,84 @@ export function ShoplingProductUploadRunner() {
             {result.message ? <ResultRow label="message" value={result.message} /> : null}
             {result.rawDumpReason ? <ResultRow label="rawDumpReason" value={result.rawDumpReason} /> : null}
             {result.githubActionsUrl ? <ResultRow label="githubActionsUrl" value={result.githubActionsUrl} /> : null}
+            {result.status === "queued" ? (
+              <div className="rounded-lg bg-blue-50 p-3 text-sm font-medium text-blue-700">
+                실제 완료 여부는 GitHub Actions 실행이 끝난 뒤 ‘최근 실행 결과 가져오기’로 확인하세요.
+              </div>
+            ) : null}
             <OutputBlock label="stdout" value={result.stdout ?? ""} truncated={result.stdoutTruncated} />
             <OutputBlock label="stderr" value={result.stderr ?? ""} truncated={result.stderrTruncated} />
           </dl>
         ) : (
           <p className="mt-3 text-sm text-slate-500">아직 실행 결과가 없습니다.</p>
         )}
+        <button
+          type="button"
+          onClick={handleFetchActionsResult}
+          disabled={fetchingResult}
+          className="mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-400"
+        >
+          {fetchingResult ? "결과 가져오는 중..." : "최근 실행 결과 가져오기"}
+        </button>
+        {actionsResult ? <ActionsResultPanel result={actionsResult} /> : null}
       </section>
+    </div>
+  );
+}
+
+function ActionsResultPanel({ result }: { result: ActionsResult }) {
+  const summary = result.summary;
+  const goodsKeys = Array.isArray(summary?.goods_keys) ? summary.goods_keys : [];
+
+  return (
+    <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <h3 className="text-base font-bold text-slate-950">최근 GitHub Actions 실행 결과</h3>
+      {result.message ? <p className="mt-2 text-sm font-medium text-slate-700">{result.message}</p> : null}
+      <dl className="mt-4 grid gap-3 text-sm">
+        <ResultRow label="GitHub Actions 실행 상태" value={`${result.runStatus ?? result.status ?? "-"} / ${result.runConclusion ?? "-"}`} />
+        <div className="grid gap-1 border-b border-slate-100 pb-3 md:grid-cols-[160px_1fr]">
+          <dt className="font-semibold text-slate-700">GitHub Actions 실행 링크</dt>
+          <dd className="text-slate-900">
+            {result.runUrl ? <a className="text-blue-700 underline" href={result.runUrl} target="_blank" rel="noreferrer">{result.runUrl}</a> : "-"}
+          </dd>
+        </div>
+        <ResultRow label="row_expression" value={summary?.row_expression ?? "-"} />
+        <ResultRow label="selected_channel" value={summary?.selected_channel ?? "-"} />
+        <ResultRow label="estimated_target_count" value={summary?.estimated_target_count ?? "-"} />
+        <ResultRow label="status" value={summary?.status ?? "-"} />
+        <ResultRow label="exit_code" value={summary?.exit_code ?? "-"} />
+        <ResultRow label="OK" value={summary?.ok_count ?? "-"} />
+        <ResultRow label="SKIP" value={summary?.skip_count ?? "-"} />
+        <ResultRow label="FAIL" value={summary?.fail_count ?? "-"} />
+      </dl>
+      <div className="mt-4 overflow-x-auto">
+        <table className="min-w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-white text-left text-slate-700">
+              <th className="border border-slate-200 px-3 py-2">행</th>
+              <th className="border border-slate-200 px-3 py-2">채널</th>
+              <th className="border border-slate-200 px-3 py-2">코드</th>
+              <th className="border border-slate-200 px-3 py-2">성공 여부</th>
+              <th className="border border-slate-200 px-3 py-2">goods_key</th>
+              <th className="border border-slate-200 px-3 py-2">ptn_goods_cd</th>
+            </tr>
+          </thead>
+          <tbody>
+            {goodsKeys.length > 0 ? goodsKeys.map((row, index) => (
+              <tr key={`${row.row ?? index}-${row.channel ?? ""}-${row.code ?? ""}`} className="bg-white">
+                <td className="border border-slate-200 px-3 py-2">{row.row ?? "-"}</td>
+                <td className="border border-slate-200 px-3 py-2">{row.channel ?? "-"}</td>
+                <td className="border border-slate-200 px-3 py-2">{row.code ?? "-"}</td>
+                <td className="border border-slate-200 px-3 py-2">{String(row.success ?? "-")}</td>
+                <td className="border border-slate-200 px-3 py-2 font-mono">{row.goods_key ?? "-"}</td>
+                <td className="border border-slate-200 px-3 py-2 font-mono">{row.ptn_goods_cd ?? "-"}</td>
+              </tr>
+            )) : (
+              <tr><td className="border border-slate-200 px-3 py-2 text-slate-500" colSpan={6}>goods_key 결과가 없습니다.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

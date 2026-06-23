@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { unzipSync } from "fflate";
 
 export const SHOPLING_PRODUCT_UPLOAD_CHANNELS = [
   "도매1",
@@ -56,6 +57,29 @@ type ShoplingProductUploadDispatchConfig = {
   token: string;
 };
 
+export type ShoplingProductUploadActionsResult = {
+  status: "success" | "pending" | "error";
+  message?: string;
+  runId?: number;
+  runUrl?: string;
+  runConclusion?: string | null;
+  runStatus?: string;
+  artifactName?: string;
+  summary?: Record<string, unknown>;
+};
+
+type GithubWorkflowRun = {
+  id?: number;
+  status?: string;
+  conclusion?: string | null;
+  html_url?: string;
+};
+
+type GithubArtifact = {
+  name?: string;
+  archive_download_url?: string;
+};
+
 function getRequiredGithubActionsConfig(): ShoplingProductUploadDispatchConfig {
   const repo = process.env.SHOPLING_UPLOAD_REPO?.trim();
   const workflow = process.env.SHOPLING_UPLOAD_WORKFLOW?.trim();
@@ -71,6 +95,121 @@ function getRequiredGithubActionsConfig(): ShoplingProductUploadDispatchConfig {
   if (!token) throw new Error("GITHUB_ACTIONS_TOKEN 환경변수가 필요합니다.");
 
   return { repo, workflow, ref, token };
+}
+
+export function buildShoplingProductUploadActionsRunsUrl() {
+  const config = getRequiredGithubActionsConfig();
+  const [owner, repoName] = config.repo.split("/");
+  const params = new URLSearchParams({
+    branch: config.ref,
+    event: "workflow_dispatch",
+    per_page: "10",
+  });
+
+  return {
+    url: `https://api.github.com/repos/${owner}/${repoName}/actions/workflows/${encodeURIComponent(config.workflow)}/runs?${params.toString()}`,
+    token: config.token,
+  };
+}
+
+function githubJsonHeaders(token: string) {
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+}
+
+async function readGithubJson(response: Response) {
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`GitHub API 요청에 실패했습니다. status=${response.status}${text ? ` body=${text.slice(0, 300)}` : ""}`);
+  }
+  return text ? JSON.parse(text) : {};
+}
+
+export function extractShoplingUploadResultSummary(zipBytes: Uint8Array) {
+  const files = unzipSync(zipBytes);
+  const summaryPath = "output/github_actions/result_summary.json";
+  const summaryBytes = files[summaryPath];
+  if (!summaryBytes) {
+    throw new Error("GitHub Actions artifact에서 result_summary.json을 찾을 수 없습니다.");
+  }
+  const summaryText = new TextDecoder().decode(summaryBytes);
+  return JSON.parse(summaryText) as Record<string, unknown>;
+}
+
+export async function fetchShoplingProductUploadActionsResult(): Promise<ShoplingProductUploadActionsResult> {
+  if (process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED !== "1") {
+    return { status: "error", message: "SHOPLING_PRODUCT_UPLOAD_ENABLED=1 인 경우에만 최근 실행 결과를 가져올 수 있습니다." };
+  }
+
+  let runsRequest;
+  try {
+    runsRequest = buildShoplingProductUploadActionsRunsUrl();
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "GitHub Actions 설정이 올바르지 않습니다." };
+  }
+
+  try {
+    const runsResponse = await fetch(runsRequest.url, { headers: githubJsonHeaders(runsRequest.token) });
+    const runsJson = await readGithubJson(runsResponse);
+    const workflowRuns: GithubWorkflowRun[] = Array.isArray(runsJson.workflow_runs) ? runsJson.workflow_runs : [];
+    const completedRuns = workflowRuns.filter((run) => run?.status === "completed");
+    if (completedRuns.length === 0) {
+      return {
+        status: "pending",
+        message: "완료된 Shopling Product Upload GitHub Actions 실행이 아직 없습니다. 실행이 끝난 뒤 다시 확인하세요.",
+      };
+    }
+
+    const latestCompletedRun = completedRuns[0];
+    const runId = Number(latestCompletedRun.id);
+    const runConclusion = typeof latestCompletedRun.conclusion === "string" ? latestCompletedRun.conclusion : null;
+    const runUrl = typeof latestCompletedRun.html_url === "string" ? latestCompletedRun.html_url : undefined;
+    const artifactsUrl = `https://api.github.com/repos/${process.env.SHOPLING_UPLOAD_REPO?.trim()}/actions/runs/${runId}/artifacts`;
+    const artifactsResponse = await fetch(artifactsUrl, { headers: githubJsonHeaders(runsRequest.token) });
+    const artifactsJson = await readGithubJson(artifactsResponse);
+    const artifacts: GithubArtifact[] = Array.isArray(artifactsJson.artifacts) ? artifactsJson.artifacts : [];
+    const artifact = artifacts.find((item) => typeof item?.name === "string" && item.name.startsWith("shopling-upload-logs-queue-"));
+    if (!artifact?.archive_download_url) {
+      return {
+        status: "error",
+        message: "최근 완료된 GitHub Actions 실행에서 shopling-upload-logs-queue- artifact를 찾을 수 없습니다.",
+        runId,
+        runUrl,
+        runConclusion,
+        runStatus: "completed",
+      };
+    }
+
+    const zipResponse = await fetch(artifact.archive_download_url, { headers: githubJsonHeaders(runsRequest.token) });
+    if (!zipResponse.ok) {
+      return {
+        status: "error",
+        message: `GitHub Actions artifact 다운로드에 실패했습니다. status=${zipResponse.status}`,
+        runId,
+        runUrl,
+        runConclusion,
+        runStatus: "completed",
+        artifactName: artifact.name,
+      };
+    }
+    const zipBytes = new Uint8Array(await zipResponse.arrayBuffer());
+    const summary = extractShoplingUploadResultSummary(zipBytes);
+
+    return {
+      status: "success",
+      runId,
+      runUrl,
+      runConclusion,
+      runStatus: "completed",
+      artifactName: artifact.name,
+      summary,
+    };
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "최근 실행 결과를 가져오는 중 오류가 발생했습니다." };
+  }
 }
 
 export function buildShoplingProductUploadDispatchRequest(input: ShoplingProductUploadInput) {

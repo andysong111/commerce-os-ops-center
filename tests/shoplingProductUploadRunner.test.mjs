@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { strToU8, zipSync } from "fflate";
 import {
   buildShoplingProductUploadCommand,
   buildShoplingProductUploadDispatchRequest,
+  buildShoplingProductUploadActionsRunsUrl,
   dispatchShoplingProductUploadActions,
+  extractShoplingUploadResultSummary,
+  fetchShoplingProductUploadActionsResult,
   buildShoplingProductUploadSpawnOptions,
   estimateTargetCount,
   isValidRowExpression,
@@ -222,6 +226,133 @@ test("GitHub Actions env validation rejects missing or invalid repository settin
   });
 });
 
+test("GitHub Actions result helper builds workflow runs URL correctly", () => {
+  withGithubActionsEnv({}, () => {
+    const request = buildShoplingProductUploadActionsRunsUrl();
+    assert.equal(request.url, "https://api.github.com/repos/andysong111/shopling-product-upload-auto/actions/workflows/shopling-product-upload.yml/runs?branch=main&event=workflow_dispatch&per_page=10");
+    assert.equal(request.token, "ghp_test_secret");
+  });
+});
+
+test("GitHub Actions result helper requires token and rejects invalid repo", () => {
+  withGithubActionsEnv({ GITHUB_ACTIONS_TOKEN: undefined }, () => {
+    assert.throws(() => buildShoplingProductUploadActionsRunsUrl(), /GITHUB_ACTIONS_TOKEN/);
+  });
+  withGithubActionsEnv({ SHOPLING_UPLOAD_REPO: "invalid/repo/extra" }, () => {
+    assert.throws(() => buildShoplingProductUploadActionsRunsUrl(), /owner\/repo/);
+  });
+});
+
+test("GitHub Actions result helper extracts and parses result_summary.json from zip", () => {
+  const summary = {
+    schema_version: 1,
+    source: "shopling-product-upload-auto",
+    status: "success",
+    ok_count: 1,
+    skip_count: 2,
+    fail_count: 0,
+  };
+  const zip = zipSync({
+    "output/github_actions/result_summary.json": strToU8(JSON.stringify(summary)),
+  });
+
+  assert.deepEqual(extractShoplingUploadResultSummary(zip), summary);
+});
+
+test("GitHub Actions result helper handles no completed runs as pending", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ workflow_runs: [{ id: 1, status: "in_progress" }] }), { status: 200 });
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult();
+      assert.equal(result.status, "pending");
+      assert.match(result.message, /완료된/);
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+test("GitHub Actions result helper selects latest completed run and handles missing artifact as error", async () => {
+  const previousFetch = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url).includes("/runs?")) {
+      return new Response(JSON.stringify({ workflow_runs: [
+        { id: 10, status: "in_progress", conclusion: null, html_url: "https://github.com/run/10" },
+        { id: 9, status: "completed", conclusion: "failure", html_url: "https://github.com/run/9" },
+        { id: 8, status: "completed", conclusion: "success", html_url: "https://github.com/run/8" },
+      ] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ artifacts: [] }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult();
+      assert.equal(result.status, "error");
+      assert.equal(result.runId, 9);
+      assert.equal(result.runConclusion, "failure");
+      assert.match(result.message, /artifact/);
+      assert.equal(urls.some((url) => url.includes("/actions/runs/9/artifacts")), true);
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+test("GitHub Actions result helper downloads artifact summary without exposing secrets or binary", async () => {
+  const previousFetch = globalThis.fetch;
+  const summary = {
+    schema_version: 1,
+    source: "shopling-product-upload-auto",
+    status: "success",
+    exit_code: 0,
+    ok_count: 0,
+    skip_count: 6,
+    fail_count: 0,
+    goods_keys: [{ row: 950, channel: "도매1", code: "A", success: true, goods_key: "123", ptn_goods_cd: "P123" }],
+  };
+  const zip = zipSync({
+    "output/github_actions/result_summary.json": strToU8(JSON.stringify(summary)),
+    "service-account.json": strToU8("{\"private_key\":\"secret\"}"),
+  });
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/runs?")) {
+      return new Response(JSON.stringify({ workflow_runs: [{ id: 27999182522, status: "completed", conclusion: "success", html_url: "https://github.com/andysong111/shopling-product-upload-auto/actions/runs/27999182522" }] }), { status: 200 });
+    }
+    if (String(url).includes("/artifacts")) {
+      return new Response(JSON.stringify({ artifacts: [{ name: "shopling-upload-logs-queue-abc", archive_download_url: "https://api.github.com/artifact.zip" }] }), { status: 200 });
+    }
+    return new Response(zip, { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult();
+      const serialized = JSON.stringify(result);
+      assert.equal(result.status, "success");
+      assert.deepEqual(result.summary, summary);
+      assert.equal(serialized.includes("ghp_test_secret"), false);
+      assert.equal(serialized.includes("private_key"), false);
+      assert.equal(serialized.includes("PK"), false);
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
 test("GitHub Actions dispatch success returns queued result without exposing token", async () => {
   const previousFetch = globalThis.fetch;
   let fetchCall;
@@ -266,6 +397,18 @@ test("UI source includes required Korean labels", async () => {
     "이미 goods_key 있으면 스킵",
     "상품등록 실행",
     "실행 결과",
+    "최근 실행 결과 가져오기",
+    "결과 가져오는 중...",
+    "OK",
+    "SKIP",
+    "FAIL",
+    "행",
+    "채널",
+    "코드",
+    "성공 여부",
+    "goods_key",
+    "ptn_goods_cd",
+    "실제 완료 여부는 GitHub Actions 실행이 끝난 뒤 ‘최근 실행 결과 가져오기’로 확인하세요.",
   ]) {
     assert.equal(source.includes(text), true, text);
   }
