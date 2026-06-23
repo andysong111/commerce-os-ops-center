@@ -10,6 +10,8 @@ import {
   fetchShoplingProductUploadActionsResult,
   buildShoplingProductUploadSpawnOptions,
   estimateTargetCount,
+  generateShoplingProductUploadRequestId,
+  isValidShoplingRequestId,
   isValidRowExpression,
   isValidShoplingProductUploadChannel,
 } from "../src/lib/shoplingProductUploadRunner.ts";
@@ -167,6 +169,14 @@ function withGithubActionsEnv(overrides, callback) {
   }
 }
 
+test("request ID generation creates safe shopling-prefixed values", () => {
+  const requestId = generateShoplingProductUploadRequestId(new Date("2026-06-23T03:25:00.000Z"));
+  assert.match(requestId, /^[A-Za-z0-9._:-]{1,120}$/);
+  assert.equal(requestId.startsWith("shopling-20260623T032500Z-"), true);
+  assert.equal(isValidShoplingRequestId(requestId), true);
+  assert.equal(isValidShoplingRequestId("shopling bad/slash"), false);
+});
+
 test("GitHub Actions dispatch payload maps empty channel to all-channel workflow input", () => {
   withGithubActionsEnv({}, () => {
     const request = buildShoplingProductUploadDispatchRequest({
@@ -177,15 +187,14 @@ test("GitHub Actions dispatch payload maps empty channel to all-channel workflow
 
     assert.equal(request.url, "https://api.github.com/repos/andysong111/shopling-product-upload-auto/actions/workflows/shopling-product-upload.yml/dispatches");
     assert.equal(request.githubActionsUrl, "https://github.com/andysong111/shopling-product-upload-auto/actions/workflows/shopling-product-upload.yml");
-    assert.deepEqual(request.body, {
-      ref: "main",
-      inputs: {
-        row_expression: "950",
-        channel: "전체 6채널",
-        skip_if_goods_key: true,
-      },
-    });
-    assert.equal(request.commandPreview, "GitHub Actions: shopling-product-upload.yml row=950 channel=전체 6채널 skip_if_goods_key=true");
+    assert.equal(request.body.ref, "main");
+    assert.equal(request.body.inputs.row_expression, "950");
+    assert.equal(request.body.inputs.channel, "전체 6채널");
+    assert.equal(request.body.inputs.skip_if_goods_key, true);
+    assert.match(request.body.inputs.request_id, /^[A-Za-z0-9._:-]{1,120}$/);
+    assert.equal(request.body.inputs.request_id.startsWith("shopling-"), true);
+    assert.equal(request.requestId, request.body.inputs.request_id);
+    assert.equal(request.commandPreview, `GitHub Actions: shopling-product-upload.yml row=950 channel=전체 6채널 skip_if_goods_key=true request_id=${request.requestId}`);
     assert.equal(request.token, "ghp_test_secret");
   });
 });
@@ -202,6 +211,7 @@ test("GitHub Actions dispatch payload preserves selected channel and ref", () =>
     assert.equal(request.body.inputs.row_expression, "698,714-730,801");
     assert.equal(request.body.inputs.channel, "도매1");
     assert.equal(request.body.inputs.skip_if_goods_key, false);
+    assert.equal(request.body.inputs.request_id, request.requestId);
   });
 });
 
@@ -231,6 +241,8 @@ test("GitHub Actions result helper builds workflow runs URL correctly", () => {
     const request = buildShoplingProductUploadActionsRunsUrl();
     assert.equal(request.url, "https://api.github.com/repos/andysong111/shopling-product-upload-auto/actions/workflows/shopling-product-upload.yml/runs?branch=main&event=workflow_dispatch&per_page=10");
     assert.equal(request.token, "ghp_test_secret");
+    const correlatedRequest = buildShoplingProductUploadActionsRunsUrl(20);
+    assert.equal(correlatedRequest.url.endsWith("per_page=20"), true);
   });
 });
 
@@ -369,14 +381,88 @@ test("GitHub Actions dispatch success returns queued result without exposing tok
       });
 
       assert.equal(result.status, "queued");
+      assert.match(result.requestId, /^[A-Za-z0-9._:-]{1,120}$/);
+      assert.equal(result.commandPreview.includes(`request_id=${result.requestId}`), true);
       assert.equal(result.githubActionsUrl, "https://github.com/andysong111/shopling-product-upload-auto/actions/workflows/shopling-product-upload.yml");
       assert.equal(JSON.stringify(result).includes("ghp_test_secret"), false);
       assert.equal(fetchCall.init.headers.Authorization, "Bearer ghp_test_secret");
-      assert.equal(JSON.parse(fetchCall.init.body).inputs.channel, "전체 6채널");
+      const body = JSON.parse(fetchCall.init.body);
+      assert.equal(body.inputs.channel, "전체 6채널");
+      assert.equal(body.inputs.request_id, result.requestId);
     });
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+
+test("GitHub Actions result helper matches requested request_id and skips non-matching summaries", async () => {
+  const previousFetch = globalThis.fetch;
+  const summaries = {
+    11: { status: "success", request_id: "shopling-other" },
+    10: { status: "success", request_id: "shopling-match" },
+  };
+  globalThis.fetch = async (url) => {
+    const text = String(url);
+    if (text.includes("/runs?")) {
+      assert.equal(text.includes("per_page=20"), true);
+      return new Response(JSON.stringify({ workflow_runs: [
+        { id: 11, status: "completed", conclusion: "success", html_url: "https://github.com/run/11" },
+        { id: 10, status: "completed", conclusion: "success", html_url: "https://github.com/run/10" },
+      ] }), { status: 200 });
+    }
+    if (text.includes("/artifacts")) {
+      return new Response(JSON.stringify({ artifacts: [{ name: "shopling-upload-logs-queue-abc", archive_download_url: `https://api.github.com/artifact-${text.includes("/11/") ? "11" : "10"}.zip` }] }), { status: 200 });
+    }
+    const id = text.includes("artifact-11") ? 11 : 10;
+    return new Response(zipSync({ "output/github_actions/result_summary.json": strToU8(JSON.stringify(summaries[id])) }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult("shopling-match");
+      assert.equal(result.status, "success");
+      assert.equal(result.runId, 10);
+      assert.equal(result.summary.request_id, "shopling-match");
+      assert.equal(result.requestId, "shopling-match");
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+test("GitHub Actions result helper returns pending when requested request_id has no completed summary", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 1, status: "completed", conclusion: "success" }] }), { status: 200 });
+    if (String(url).includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "shopling-upload-logs-queue-abc", archive_download_url: "https://api.github.com/artifact.zip" }] }), { status: 200 });
+    return new Response(zipSync({ "output/github_actions/result_summary.json": strToU8(JSON.stringify({ request_id: "shopling-other" })) }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult("shopling-missing");
+      assert.equal(result.status, "pending");
+      assert.equal(result.requestId, "shopling-missing");
+      assert.match(result.message, /해당 요청 추적 ID/);
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+test("actions-result route parses and validates request_id query param", async () => {
+  const { GET } = await import("../src/app/api/shopling-product-upload/actions-result/route.ts");
+  const invalid = await GET(new Request("http://localhost/api/shopling-product-upload/actions-result?request_id=bad/slash"));
+  assert.equal(invalid.status, 400);
+  const invalidJson = await invalid.json();
+  assert.equal(invalidJson.status, "error");
 });
 
 test("UI source includes required Korean labels", async () => {
@@ -409,6 +495,8 @@ test("UI source includes required Korean labels", async () => {
     "goods_key",
     "ptn_goods_cd",
     "실제 완료 여부는 GitHub Actions 실행이 끝난 뒤 ‘최근 실행 결과 가져오기’로 확인하세요.",
+    "요청 추적 ID",
+    "최근 실행 결과 가져오기는 이 요청 추적 ID와 일치하는 결과를 우선 조회합니다.",
   ]) {
     assert.equal(source.includes(text), true, text);
   }
@@ -440,6 +528,10 @@ test("client request sends fixed sleep and does not read dump form data", async 
   assert.equal(component.includes('dump: false'), true);
   assert.equal(component.includes('formData.get("sleep")'), false);
   assert.equal(component.includes('formData.get("dump")'), false);
+  assert.equal(component.includes("shoplingProductUpload.currentRequestId"), true);
+  assert.equal(component.includes("window.localStorage.setItem(CURRENT_REQUEST_ID_STORAGE_KEY, data.requestId)"), true);
+  assert.equal(component.includes("window.localStorage.getItem(CURRENT_REQUEST_ID_STORAGE_KEY)"), true);
+  assert.equal(component.includes("request_id=${encodeURIComponent(currentRequestId)}"), true);
 });
 
 
