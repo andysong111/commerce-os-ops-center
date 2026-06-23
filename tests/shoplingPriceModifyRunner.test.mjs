@@ -9,6 +9,7 @@ import {
   fetchShoplingPriceModifyActionsResult,
   generateShoplingPriceModifyRequestId,
   parseShoplingPriceModifyGoodsKeys,
+  validateShoplingPriceModifyPolicyOverrides,
 } from "../src/lib/shoplingPriceModifyRunner.ts";
 
 const ENV_KEYS = ["SHOPLING_PRICE_MODIFY_ENABLED", "SHOPLING_PRICE_MODIFY_REPO", "SHOPLING_PRICE_MODIFY_WORKFLOW", "SHOPLING_PRICE_MODIFY_REF", "SHOPLING_PRICE_MODIFY_ACTIONS_TOKEN", "GITHUB_ACTIONS_TOKEN"];
@@ -41,22 +42,47 @@ test("goods_key parser rejects unsafe or invalid input", () => {
   }
 });
 
+
+test("policy override validation accepts valid policies and rejects unsafe values", () => {
+  const valid = [{ mall_key: "SMALL_00001", multiplier: 1, add: 500, subtract: 0, round_up_unit: 10 }];
+  assert.deepEqual(validateShoplingPriceModifyPolicyOverrides(valid), valid);
+  for (const invalid of [
+    [{ mall_key: "BAD", multiplier: 1, add: 500, subtract: 0, round_up_unit: 10 }],
+    [...valid, ...valid],
+    [{ mall_key: "SMALL_00001", multiplier: 0, add: 500, subtract: 0, round_up_unit: 10 }],
+    [{ mall_key: "SMALL_00001", multiplier: 20, add: 500, subtract: 0, round_up_unit: 10 }],
+    [{ mall_key: "SMALL_00001", multiplier: 1, add: -1, subtract: 0, round_up_unit: 10 }],
+    [{ mall_key: "SMALL_00001", multiplier: 1, add: 500, subtract: -1, round_up_unit: 10 }],
+    [{ mall_key: "SMALL_00001", multiplier: 1, add: 500, subtract: 0, round_up_unit: 7 }],
+    [{ mall_key: "SMALL_00001", multiplier: 1, add: 500, subtract: 0, round_up_unit: 10, extra: true }],
+    [{ mall_key: "SMALL_00001", multiplier: "1", add: 500, subtract: 0, round_up_unit: 10 }],
+    { mall_key: "SMALL_00001", multiplier: 1, add: 500, subtract: 0, round_up_unit: 10 },
+  ]) assert.throws(() => validateShoplingPriceModifyPolicyOverrides(invalid));
+});
+
 test("request_id is generated with expected prefix and pattern", () => {
   const requestId = generateShoplingPriceModifyRequestId(new Date("2026-06-23T10:30:00Z"));
   assert.match(requestId, /^price-modify-/);
   assert.match(requestId, /^[A-Za-z0-9._:-]{1,120}$/);
 });
 
-test("dispatch payload includes goods_keys, request_id, batch 80 and does not expose token", async () => withEnv(baseEnv, async () => {
+test("dispatch payload includes goods_keys, request_id, batch 80, policy_overrides_json and does not expose token", async () => withEnv(baseEnv, async () => {
   const request = buildShoplingPriceModifyDispatchRequest("121031 121044");
   assert.equal(request.body.inputs.goods_keys, "121031,121044");
   assert.equal(request.body.inputs.batch, "80");
   assert.match(request.body.inputs.request_id, /^price-modify-/);
+  assert.equal(request.body.inputs.policy_overrides_json, "");
+  assert.match(request.commandPreview, /policy_override_count=0/);
+  const policy = [{ mall_key: "SMALL_00001", multiplier: 1, add: 500, subtract: 0, round_up_unit: 10 }];
+  const requestWithPolicy = buildShoplingPriceModifyDispatchRequest("121031", policy);
+  assert.equal(requestWithPolicy.body.inputs.policy_overrides_json, JSON.stringify(policy));
+  assert.match(requestWithPolicy.commandPreview, /policy_override_count=1/);
   assert.equal(JSON.stringify(request.body).includes("secret-token"), false);
   const oldFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     assert.match(String(url), /dispatches$/);
     assert.equal(JSON.parse(init.body).inputs.batch, "80");
+    assert.equal(Object.hasOwn(JSON.parse(init.body).inputs, "policy_overrides_json"), true);
     return new Response("", { status: 204 });
   };
   try {
@@ -115,6 +141,20 @@ test("UI source includes required labels, localStorage key, and security-sensiti
     "code",
     "msg",
     "shoplingPriceModify.currentRequestId",
+    "커스텀 가격정책",
+    "커스텀 정책 추가",
+    "쇼핑몰 선택",
+    "곱하기",
+    "더하기",
+    "빼기",
+    "올림단위",
+    "계산식: 기본 판매가 × 곱하기 + 더하기 - 빼기",
+    "적용 쇼핑몰 및 가격 정책 보기",
+    "적용 쇼핑몰 및 가격 정책 접기",
+    "policy_override_count",
+    "policy_overrides",
+    "쇼핑몰명",
+    "커스텀 가격정책이 없습니다. 기본 정책으로 실행되었습니다.",
     "적용 쇼핑몰 및 가격 정책",
     "카페24(1.9)",
     "SMALL_00014",
@@ -132,5 +172,5 @@ test("UI source includes required labels, localStorage key, and security-sensiti
     "실제 가격설정 스크립트가 수정하는 24개 쇼핑몰만 표시합니다.",
   ]) assert.ok(ui.includes(text), `Expected UI source to include ${text}`);
   const combined = ui + await readFile(new URL("../src/lib/shoplingPriceModifyRunner.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(combined, /service account|raw ZIP|PowerShell|shell:\s*true|child_process\.exec/);
+  assert.doesNotMatch(combined, /service account|raw ZIP|PowerShell|shell:\s*true|child_process\.exec|child_process|exec\(/);
 });
