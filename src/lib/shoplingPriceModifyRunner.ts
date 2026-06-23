@@ -9,6 +9,18 @@ export const SHOPLING_PRICE_MODIFY_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,120}
 const GOODS_KEY_PATTERN = /^\d+$/;
 const ARTIFACT_NAME = "shopling-price-modify-result-summary";
 
+export const SHOPLING_PRICE_MODIFY_ALLOWED_MALLS = [
+  ["SMALL_00001", "옥션"], ["SMALL_00002", "지마켓"], ["SMALL_00003", "11번가"], ["SMALL_00004", "스마트스토어"],
+  ["SMALL_00005", "GS SHOP"], ["SMALL_00012", "쿠팡"], ["SMALL_00014", "카페24(1.9)"], ["SMALL_00019", "신세계몰"],
+  ["SMALL_00069", "도매꾹"], ["SMALL_00071", "도매창고"], ["SMALL_00101", "카카오톡 스토어"], ["SMALL_00107", "오너클랜"],
+  ["SMALL_00112", "에이블리"], ["SMALL_00116", "셀파"], ["SMALL_00130", "롯데ON"], ["SMALL_00165", "셀링콕"],
+  ["SMALL_00168", "인큐텐"], ["SMALL_00179", "투비즈온"], ["SMALL_00180", "도매아토즈"], ["SMALL_00186", "AliExpress"],
+  ["SMALL_00188", "셀리어스"], ["SMALL_00190", "도매의신"], ["SMALL_00191", "TEMU"], ["SMALL_00194", "토스쇼핑"],
+] as const;
+const ALLOWED_MALL_KEYS = new Set<string>(SHOPLING_PRICE_MODIFY_ALLOWED_MALLS.map(([mallKey]) => mallKey));
+const ROUND_UP_UNITS = new Set([0, 1, 10, 100, 1000]);
+export type ShoplingPriceModifyPolicyOverride = { mall_key: string; multiplier: number; add: number; subtract: number; round_up_unit: number };
+
 type Config = { repo: string; workflow: string; ref: string; token: string };
 export type ShoplingPriceModifySummary = {
   schema_version?: unknown;
@@ -25,6 +37,8 @@ export type ShoplingPriceModifySummary = {
   fail_count?: unknown;
   errors?: unknown;
   created_at?: unknown;
+  policy_override_count?: unknown;
+  policy_overrides?: unknown;
 };
 export type ShoplingPriceModifyActionsResult = {
   status: "success" | "pending" | "error";
@@ -72,6 +86,32 @@ export function parseShoplingPriceModifyGoodsKeys(input: string) {
   return { goodsKeys, goodsKeysCsv: goodsKeys.join(","), goodsKeyCount: goodsKeys.length, estimatedTargetCount };
 }
 
+
+export function validateShoplingPriceModifyPolicyOverrides(input: unknown): ShoplingPriceModifyPolicyOverride[] {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input)) throw new Error("커스텀 가격정책은 배열 형식이어야 합니다.");
+  const seen = new Set<string>();
+  return input.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`커스텀 가격정책 ${index + 1}번째 항목이 올바르지 않습니다.`);
+    const record = item as Record<string, unknown>;
+    const allowedKeys = ["mall_key", "multiplier", "add", "subtract", "round_up_unit"];
+    if (Object.keys(record).some((key) => !allowedKeys.includes(key))) throw new Error("커스텀 가격정책에 허용되지 않은 필드가 있습니다.");
+    const mallKey = record.mall_key;
+    if (typeof mallKey !== "string" || !ALLOWED_MALL_KEYS.has(mallKey)) throw new Error("커스텀 가격정책의 쇼핑몰 선택값이 올바르지 않습니다.");
+    if (seen.has(mallKey)) throw new Error("같은 쇼핑몰을 중복 선택할 수 없습니다.");
+    seen.add(mallKey);
+    const multiplier = record.multiplier;
+    const add = record.add;
+    const subtract = record.subtract;
+    const roundUpUnit = record.round_up_unit;
+    if (typeof multiplier !== "number" || !Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 10) throw new Error("곱하기 값은 0보다 크고 10 이하인 숫자여야 합니다.");
+    if (typeof add !== "number" || !Number.isInteger(add) || add < 0 || add > 10000000) throw new Error("더하기 값은 0부터 10000000까지의 정수여야 합니다.");
+    if (typeof subtract !== "number" || !Number.isInteger(subtract) || subtract < 0 || subtract > 10000000) throw new Error("빼기 값은 0부터 10000000까지의 정수여야 합니다.");
+    if (typeof roundUpUnit !== "number" || !ROUND_UP_UNITS.has(roundUpUnit)) throw new Error("올림단위는 0, 1, 10, 100, 1000 중 하나여야 합니다.");
+    return { mall_key: mallKey, multiplier, add, subtract, round_up_unit: roundUpUnit };
+  });
+}
+
 export function generateShoplingPriceModifyRequestId(now = new Date()) {
   const timestamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   return `price-modify-${timestamp}-${randomBytes(3).toString("hex")}`;
@@ -86,8 +126,10 @@ export function buildShoplingPriceModifyActionsRunsUrl(perPage = 10) {
   return { url: `https://api.github.com/repos/${owner}/${repoName}/actions/workflows/${encodeURIComponent(config.workflow)}/runs?${params.toString()}`, token: config.token };
 }
 
-export function buildShoplingPriceModifyDispatchRequest(goodsKeyInput: string) {
+export function buildShoplingPriceModifyDispatchRequest(goodsKeyInput: string, policyOverridesInput?: unknown) {
   const parsed = parseShoplingPriceModifyGoodsKeys(goodsKeyInput);
+  const policyOverrides = validateShoplingPriceModifyPolicyOverrides(policyOverridesInput);
+  const policyOverridesJson = policyOverrides.length > 0 ? JSON.stringify(policyOverrides) : "";
   const config = getConfig(); const [owner, repoName] = config.repo.split("/");
   const requestId = generateShoplingPriceModifyRequestId();
   return {
@@ -95,14 +137,14 @@ export function buildShoplingPriceModifyDispatchRequest(goodsKeyInput: string) {
     githubActionsUrl: `https://github.com/${config.repo}/actions/workflows/${encodeURIComponent(config.workflow)}`,
     token: config.token,
     requestId,
-    body: { ref: config.ref, inputs: { goods_keys: parsed.goodsKeysCsv, request_id: requestId, batch: SHOPLING_PRICE_MODIFY_BATCH } },
-    commandPreview: `GitHub Actions: ${config.workflow} goods_keys=${parsed.goodsKeysCsv} batch=${SHOPLING_PRICE_MODIFY_BATCH} request_id=${requestId}`,
+    body: { ref: config.ref, inputs: { goods_keys: parsed.goodsKeysCsv, request_id: requestId, batch: SHOPLING_PRICE_MODIFY_BATCH, policy_overrides_json: policyOverridesJson } },
+    commandPreview: `GitHub Actions: ${config.workflow} goods_keys=${parsed.goodsKeysCsv} batch=${SHOPLING_PRICE_MODIFY_BATCH} policy_override_count=${policyOverrides.length} request_id=${requestId}`,
   };
 }
 
-export async function dispatchShoplingPriceModifyActions(goodsKeyInput: string) {
+export async function dispatchShoplingPriceModifyActions(goodsKeyInput: string, policyOverridesInput?: unknown) {
   if (process.env.SHOPLING_PRICE_MODIFY_ENABLED !== "1") return { status: "error", message: "SHOPLING_PRICE_MODIFY_ENABLED=1 인 경우에만 실행할 수 있습니다." };
-  let request; try { request = buildShoplingPriceModifyDispatchRequest(goodsKeyInput); } catch (error) { return { status: "error", message: error instanceof Error ? error.message : "입력값이 올바르지 않습니다." }; }
+  let request; try { request = buildShoplingPriceModifyDispatchRequest(goodsKeyInput, policyOverridesInput); } catch (error) { return { status: "error", message: error instanceof Error ? error.message : "입력값이 올바르지 않습니다." }; }
   const response = await fetch(request.url, { method: "POST", headers: { ...headers(request.token), "Content-Type": "application/json" }, body: JSON.stringify(request.body) });
   if (response.status !== 204 && response.status !== 200) return { status: "error", message: `GitHub Actions 워크플로 실행 요청에 실패했습니다. status=${response.status}`, commandPreview: request.commandPreview, githubActionsUrl: request.githubActionsUrl, requestId: request.requestId };
   return { status: "queued", requestId: request.requestId, message: "GitHub Actions 가격설정 워크플로 실행 요청이 전송되었습니다.", githubActionsUrl: request.githubActionsUrl, commandPreview: request.commandPreview };

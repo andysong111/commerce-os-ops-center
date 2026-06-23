@@ -1,140 +1,61 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 
 const CURRENT_REQUEST_ID_STORAGE_KEY = "shoplingPriceModify.currentRequestId";
-
+const ROUND_UP_UNITS = [0, 1, 10, 100, 1000] as const;
 const PRICE_POLICY_MALLS = [
-  ["SMALL_00001", "옥션", "기본 판매가 그대로"],
-  ["SMALL_00002", "지마켓", "기본 판매가 그대로"],
-  ["SMALL_00003", "11번가", "기본 판매가 그대로"],
-  ["SMALL_00004", "스마트스토어", "기본 판매가 그대로"],
-  ["SMALL_00005", "GS SHOP", "기본 판매가 그대로"],
-  ["SMALL_00012", "쿠팡", "기본 판매가 그대로"],
-  ["SMALL_00014", "카페24(1.9)", "판매가 × 0.97 후 10원 단위 올림"],
-  ["SMALL_00019", "신세계몰", "기본 판매가 그대로"],
-  ["SMALL_00069", "도매꾹", "기본 판매가 그대로"],
-  ["SMALL_00071", "도매창고", "판매가 + 500원"],
-  ["SMALL_00101", "카카오톡 스토어", "기본 판매가 그대로"],
-  ["SMALL_00107", "오너클랜", "기본 판매가 그대로"],
-  ["SMALL_00112", "에이블리", "판매가 + 3,000원"],
-  ["SMALL_00116", "셀파", "기본 판매가 그대로"],
-  ["SMALL_00130", "롯데ON", "기본 판매가 그대로"],
-  ["SMALL_00165", "셀링콕", "기본 판매가 그대로"],
-  ["SMALL_00168", "인큐텐", "기본 판매가 그대로"],
-  ["SMALL_00179", "투비즈온", "기본 판매가 그대로"],
-  ["SMALL_00180", "도매아토즈", "기본 판매가 그대로"],
-  ["SMALL_00186", "AliExpress", "기본 판매가 그대로"],
-  ["SMALL_00188", "셀리어스", "기본 판매가 그대로"],
-  ["SMALL_00190", "도매의신", "기본 판매가 그대로"],
-  ["SMALL_00191", "TEMU", "기본 판매가 그대로"],
-  ["SMALL_00194", "토스쇼핑", "기본 판매가 그대로"],
+  ["SMALL_00001", "옥션", "기본 판매가 그대로"], ["SMALL_00002", "지마켓", "기본 판매가 그대로"], ["SMALL_00003", "11번가", "기본 판매가 그대로"], ["SMALL_00004", "스마트스토어", "기본 판매가 그대로"],
+  ["SMALL_00005", "GS SHOP", "기본 판매가 그대로"], ["SMALL_00012", "쿠팡", "기본 판매가 그대로"], ["SMALL_00014", "카페24(1.9)", "판매가 × 0.97 후 10원 단위 올림"], ["SMALL_00019", "신세계몰", "기본 판매가 그대로"],
+  ["SMALL_00069", "도매꾹", "기본 판매가 그대로"], ["SMALL_00071", "도매창고", "판매가 + 500원"], ["SMALL_00101", "카카오톡 스토어", "기본 판매가 그대로"], ["SMALL_00107", "오너클랜", "기본 판매가 그대로"],
+  ["SMALL_00112", "에이블리", "판매가 + 3,000원"], ["SMALL_00116", "셀파", "기본 판매가 그대로"], ["SMALL_00130", "롯데ON", "기본 판매가 그대로"], ["SMALL_00165", "셀링콕", "기본 판매가 그대로"],
+  ["SMALL_00168", "인큐텐", "기본 판매가 그대로"], ["SMALL_00179", "투비즈온", "기본 판매가 그대로"], ["SMALL_00180", "도매아토즈", "기본 판매가 그대로"], ["SMALL_00186", "AliExpress", "기본 판매가 그대로"],
+  ["SMALL_00188", "셀리어스", "기본 판매가 그대로"], ["SMALL_00190", "도매의신", "기본 판매가 그대로"], ["SMALL_00191", "TEMU", "기본 판매가 그대로"], ["SMALL_00194", "토스쇼핑", "기본 판매가 그대로"],
 ] as const;
-
+const MALL_NAME_BY_KEY = Object.fromEntries(PRICE_POLICY_MALLS.map(([key, name]) => [key, name]));
+type PolicyOverride = { id: string; mall_key: string; multiplier: number; add: number; subtract: number; round_up_unit: number };
 type RunResult = { status?: string; message?: string; requestId?: string; githubActionsUrl?: string; commandPreview?: string };
 type ErrorRow = { idx?: string | number; mall?: string; goods_key?: string; code?: string | number; msg?: string };
-type ActionsResult = {
-  status?: string; message?: string; requestId?: string; runId?: number; runUrl?: string; runConclusion?: string | null; runStatus?: string; artifactName?: string;
-  summary?: { schema_version?: unknown; source?: unknown; run_mode?: unknown; request_id?: string; goods_keys?: unknown; goods_key_count?: unknown; estimated_mall_update_count?: unknown; batch?: unknown; status?: unknown; exit_code?: unknown; ok_count?: unknown; fail_count?: unknown; errors?: ErrorRow[]; created_at?: unknown };
-};
+type SummaryPolicyOverride = { mall_key?: unknown; multiplier?: unknown; add?: unknown; subtract?: unknown; round_up_unit?: unknown };
+type ActionsResult = { status?: string; message?: string; requestId?: string; runId?: number; runUrl?: string; runConclusion?: string | null; runStatus?: string; artifactName?: string; summary?: { request_id?: string; goods_key_count?: unknown; estimated_mall_update_count?: unknown; batch?: unknown; status?: unknown; exit_code?: unknown; ok_count?: unknown; fail_count?: unknown; errors?: ErrorRow[]; policy_override_count?: unknown; policy_overrides?: unknown } };
+
+function defaultsForMall(mallKey: string): Omit<PolicyOverride, "id" | "mall_key"> {
+  if (mallKey === "SMALL_00014") return { multiplier: 0.97, add: 0, subtract: 0, round_up_unit: 10 };
+  if (mallKey === "SMALL_00071") return { multiplier: 1, add: 500, subtract: 0, round_up_unit: 0 };
+  if (mallKey === "SMALL_00112") return { multiplier: 1, add: 3000, subtract: 0, round_up_unit: 0 };
+  return { multiplier: 1, add: 0, subtract: 0, round_up_unit: 0 };
+}
+function newPolicy(existing: PolicyOverride[]): PolicyOverride {
+  const mallKey = PRICE_POLICY_MALLS.find(([key]) => !existing.some((row) => row.mall_key === key))?.[0] ?? PRICE_POLICY_MALLS[0][0];
+  return { id: crypto.randomUUID(), mall_key: mallKey, ...defaultsForMall(mallKey) };
+}
 
 export function ShoplingPriceModifyRunner() {
-  const [running, setRunning] = useState(false);
-  const [fetchingResult, setFetchingResult] = useState(false);
-  const [result, setResult] = useState<RunResult | null>(null);
-  const [actionsResult, setActionsResult] = useState<ActionsResult | null>(null);
-  const [currentRequestId, setCurrentRequestId] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem(CURRENT_REQUEST_ID_STORAGE_KEY) ?? "");
-
+  const [running, setRunning] = useState(false); const [fetchingResult, setFetchingResult] = useState(false);
+  const [result, setResult] = useState<RunResult | null>(null); const [actionsResult, setActionsResult] = useState<ActionsResult | null>(null);
+  const [policies, setPolicies] = useState<PolicyOverride[]>([]); const [currentRequestId, setCurrentRequestId] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem(CURRENT_REQUEST_ID_STORAGE_KEY) ?? "");
+  const duplicateMall = useMemo(() => policies.some((row, index) => policies.findIndex((other) => other.mall_key === row.mall_key) !== index), [policies]);
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (running) return;
+    event.preventDefault(); if (running || duplicateMall) return;
     if (!window.confirm("실제 샵플링 쇼핑몰별 가격을 즉시 수정합니다. goods_key를 확인했습니까?")) return;
-    const formData = new FormData(event.currentTarget);
-    setRunning(true); setResult(null); setActionsResult(null);
+    const formData = new FormData(event.currentTarget); setRunning(true); setResult(null); setActionsResult(null);
     try {
-      const response = await fetch("/api/shopling-price-modify/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ goods_key: formData.get("goods_key")?.toString() ?? "" }) });
+      const policy_overrides = policies.map((policy) => ({ mall_key: policy.mall_key, multiplier: policy.multiplier, add: policy.add, subtract: policy.subtract, round_up_unit: policy.round_up_unit }));
+      const response = await fetch("/api/shopling-price-modify/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ goods_key: formData.get("goods_key")?.toString() ?? "", policy_overrides }) });
       const data = await response.json(); setResult(data);
       if (typeof data.requestId === "string" && data.requestId) { setCurrentRequestId(data.requestId); window.localStorage.setItem(CURRENT_REQUEST_ID_STORAGE_KEY, data.requestId); }
-    } catch (error) { setResult({ status: "error", message: error instanceof Error ? error.message : "실행 요청 중 오류가 발생했습니다." }); }
-    finally { setRunning(false); }
+    } catch (error) { setResult({ status: "error", message: error instanceof Error ? error.message : "실행 요청 중 오류가 발생했습니다." }); } finally { setRunning(false); }
   };
-
-  const handleFetchActionsResult = async () => {
-    if (fetchingResult) return;
-    setFetchingResult(true);
-    try {
-      const url = currentRequestId ? `/api/shopling-price-modify/actions-result?request_id=${encodeURIComponent(currentRequestId)}` : "/api/shopling-price-modify/actions-result";
-      setActionsResult(await (await fetch(url)).json());
-    } catch (error) { setActionsResult({ status: "error", message: error instanceof Error ? error.message : "최근 실행 결과를 가져오는 중 오류가 발생했습니다." }); }
-    finally { setFetchingResult(false); }
-  };
-
-  return <div className="space-y-6">
-    <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <label className="block text-sm font-semibold text-slate-800">샵플링 goods_key
-        <textarea name="goods_key" placeholder="예: 121031 또는 121031,121044,121045" required className="mt-2 min-h-32 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
-        <span className="mt-2 block text-xs font-normal text-slate-500">쉼표, 공백, 줄바꿈으로 여러 goods_key를 입력할 수 있습니다.</span>
-      </label>
-      <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">goods_key 기준으로 24개 쇼핑몰의 판매가/소비자가/매입가를 설정합니다.</p>
-      <PricePolicyGuide />
-      <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold leading-6 text-red-700">이 기능은 실제 샵플링 쇼핑몰별 가격을 즉시 수정합니다. goods_key를 확인한 뒤 실행하세요.</div>
-      <button type="submit" disabled={running} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-400">{running ? "실행 요청 중..." : "가격설정 실행"}</button>
-    </form>
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-lg font-bold text-slate-950">실행 결과</h2>
-      {result ? <dl className="mt-4 grid gap-3 text-sm">
-        <ResultRow label="실행 상태" value={result.status === "queued" ? "GitHub Actions 실행 요청됨" : result.status ?? "-"} />
-        <ResultRow label="요청 추적 ID" value={result.requestId ?? currentRequestId ?? "-"} mono />
-        {result.githubActionsUrl ? <LinkRow label="githubActionsUrl" href={result.githubActionsUrl} /> : null}
-        <ResultRow label="commandPreview" value={result.commandPreview ?? "-"} mono />
-        {result.message ? <ResultRow label="message" value={result.message} /> : null}
-        {result.status === "queued" ? <p className="rounded-lg bg-blue-50 p-3 text-sm font-medium text-blue-700">실제 완료 여부는 GitHub Actions 실행이 끝난 뒤 ‘최근 실행 결과 가져오기’로 확인하세요.</p> : null}
-      </dl> : <p className="mt-3 text-sm text-slate-500">아직 실행 결과가 없습니다.</p>}
-      <button type="button" onClick={handleFetchActionsResult} disabled={fetchingResult} className="mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-400">{fetchingResult ? "결과 가져오는 중..." : "최근 실행 결과 가져오기"}</button>
-      {actionsResult ? <ActionsResultPanel result={actionsResult} currentRequestId={currentRequestId} /> : null}
-    </section>
-  </div>;
+  const handleFetchActionsResult = async () => { if (fetchingResult) return; setFetchingResult(true); try { const url = currentRequestId ? `/api/shopling-price-modify/actions-result?request_id=${encodeURIComponent(currentRequestId)}` : "/api/shopling-price-modify/actions-result"; setActionsResult(await (await fetch(url)).json()); } catch (error) { setActionsResult({ status: "error", message: error instanceof Error ? error.message : "최근 실행 결과를 가져오는 중 오류가 발생했습니다." }); } finally { setFetchingResult(false); } };
+  return <div className="space-y-6"><form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><label className="block text-sm font-semibold text-slate-800">샵플링 goods_key<textarea name="goods_key" placeholder="예: 121031 또는 121031,121044,121045" required className="mt-2 min-h-32 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" /><span className="mt-2 block text-xs font-normal text-slate-500">쉼표, 공백, 줄바꿈으로 여러 goods_key를 입력할 수 있습니다.</span></label><p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">goods_key 기준으로 24개 쇼핑몰의 판매가/소비자가/매입가를 설정합니다.</p><CustomPolicySection policies={policies} setPolicies={setPolicies} duplicateMall={duplicateMall} /><PricePolicyGuide /><div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold leading-6 text-red-700">이 기능은 실제 샵플링 쇼핑몰별 가격을 즉시 수정합니다. goods_key를 확인한 뒤 실행하세요.</div><button type="submit" disabled={running || duplicateMall} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-400">{running ? "실행 요청 중..." : "가격설정 실행"}</button></form><section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold text-slate-950">실행 결과</h2>{result ? <dl className="mt-4 grid gap-3 text-sm"><ResultRow label="실행 상태" value={result.status === "queued" ? "GitHub Actions 실행 요청됨" : result.status ?? "-"} /><ResultRow label="요청 추적 ID" value={result.requestId ?? currentRequestId ?? "-"} mono />{result.githubActionsUrl ? <LinkRow label="githubActionsUrl" href={result.githubActionsUrl} /> : null}<ResultRow label="commandPreview" value={result.commandPreview ?? "-"} mono />{result.message ? <ResultRow label="message" value={result.message} /> : null}{result.status === "queued" ? <p className="rounded-lg bg-blue-50 p-3 text-sm font-medium text-blue-700">실제 완료 여부는 GitHub Actions 실행이 끝난 뒤 ‘최근 실행 결과 가져오기’로 확인하세요.</p> : null}</dl> : <p className="mt-3 text-sm text-slate-500">아직 실행 결과가 없습니다.</p>}<button type="button" onClick={handleFetchActionsResult} disabled={fetchingResult} className="mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-400">{fetchingResult ? "결과 가져오는 중..." : "최근 실행 결과 가져오기"}</button>{actionsResult ? <ActionsResultPanel result={actionsResult} currentRequestId={currentRequestId} /> : null}</section></div>;
 }
-
-function PricePolicyGuide() {
-  return <section className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-    <h2 className="text-base font-bold text-slate-950">적용 쇼핑몰 및 가격 정책</h2>
-    <p className="mt-2 text-slate-600">아래 24개 쇼핑몰에 대해 쇼핑몰별 판매가/소비자가/매입가가 설정됩니다.</p>
-    <ul className="mt-3 list-disc space-y-1 pl-5 text-slate-700">
-      <li>카페24(1.9): 기본 판매가 × 0.97 후 10원 단위 올림</li>
-      <li>도매창고: 기본 판매가 + 500원</li>
-      <li>에이블리: 기본 판매가 + 3,000원</li>
-      <li>그 외 쇼핑몰: 기본 판매가 그대로 적용</li>
-      <li>소비자가/매입가는 기본 상품 정보 값을 쇼핑몰별 필드에 복사</li>
-    </ul>
-    <div className="mt-4 overflow-x-auto">
-      <table className="min-w-full border-collapse text-xs sm:text-sm">
-        <thead>
-          <tr className="bg-white text-left text-slate-700">
-            <th className="whitespace-nowrap border border-slate-200 px-3 py-2 font-semibold">mall_key</th>
-            <th className="whitespace-nowrap border border-slate-200 px-3 py-2 font-semibold">쇼핑몰명</th>
-            <th className="whitespace-nowrap border border-slate-200 px-3 py-2 font-semibold">가격 정책</th>
-          </tr>
-        </thead>
-        <tbody>
-          {PRICE_POLICY_MALLS.map(([mallKey, mallName, policy]) => <tr key={mallKey} className="bg-white odd:bg-slate-50/60">
-            <td className="whitespace-nowrap border border-slate-200 px-3 py-2 font-mono text-slate-900">{mallKey}</td>
-            <td className="whitespace-nowrap border border-slate-200 px-3 py-2 font-medium text-slate-900">{mallName}</td>
-            <td className="whitespace-nowrap border border-slate-200 px-3 py-2 text-slate-700">{policy}</td>
-          </tr>)}
-        </tbody>
-      </table>
-    </div>
-    <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">이 표는 현재 price modify 엔진의 적용 대상 기준입니다. 샵플링 전체 쇼핑몰 목록이 아니라 실제 가격설정 스크립트가 수정하는 24개 쇼핑몰만 표시합니다.</p>
-  </section>;
+function CustomPolicySection({ policies, setPolicies, duplicateMall }: { policies: PolicyOverride[]; setPolicies: (value: PolicyOverride[]) => void; duplicateMall: boolean }) {
+  const update = (id: string, patch: Partial<PolicyOverride>) => setPolicies(policies.map((row) => row.id === id ? { ...row, ...patch } : row));
+  return <section className="mt-4 rounded-xl border border-blue-100 bg-blue-50/50 p-4"><h2 className="text-base font-bold text-slate-950">커스텀 가격정책</h2><p className="mt-2 text-sm text-slate-600">선택한 쇼핑몰만 아래 정책으로 덮어씁니다. 추가하지 않은 쇼핑몰은 기본 정책을 그대로 사용합니다.</p><p className="mt-2 text-sm font-medium text-slate-700">커스텀 정책은 선택한 쇼핑몰에만 적용됩니다. 같은 쇼핑몰을 중복 선택할 수 없습니다.</p><p className="mt-2 text-xs text-slate-600">계산식: 기본 판매가 × 곱하기 + 더하기 - 빼기, 이후 선택한 단위로 올림</p><button type="button" onClick={() => setPolicies([...policies, newPolicy(policies)])} className="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white">커스텀 정책 추가</button>{duplicateMall ? <p className="mt-3 text-sm font-semibold text-red-700">같은 쇼핑몰을 중복 선택할 수 없습니다.</p> : null}<div className="mt-4 space-y-3">{policies.map((row) => <div key={row.id} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 lg:grid-cols-[minmax(180px,1.4fr)_repeat(4,minmax(100px,1fr))_auto]"><label className="text-xs font-semibold text-slate-700">쇼핑몰 선택<select value={row.mall_key} onChange={(event) => update(row.id, { mall_key: event.target.value, ...defaultsForMall(event.target.value) })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm">{PRICE_POLICY_MALLS.map(([key, name]) => <option key={key} value={key}>{key} | {name}</option>)}</select></label><NumberInput label="곱하기" value={row.multiplier} step="0.01" onChange={(value) => update(row.id, { multiplier: value })} /><NumberInput label="더하기" value={row.add} onChange={(value) => update(row.id, { add: value })} /><NumberInput label="빼기" value={row.subtract} onChange={(value) => update(row.id, { subtract: value })} /><label className="text-xs font-semibold text-slate-700">올림단위<select value={row.round_up_unit} onChange={(event) => update(row.id, { round_up_unit: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm">{ROUND_UP_UNITS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label><button type="button" onClick={() => setPolicies(policies.filter((policy) => policy.id !== row.id))} className="self-end rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700">삭제</button></div>)}</div></section>;
 }
-
-function ActionsResultPanel({ result, currentRequestId }: { result: ActionsResult; currentRequestId: string }) {
-  const summary = result.summary; const errors = Array.isArray(summary?.errors) ? summary.errors : []; const displayRequestId = summary?.request_id ?? result.requestId ?? currentRequestId ?? "-";
-  return <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4"><h3 className="text-base font-bold text-slate-950">최근 GitHub Actions 실행 결과</h3>{result.message ? <p className="mt-2 text-sm font-medium text-slate-700">{result.message}</p> : null}
-    <dl className="mt-4 grid gap-3 text-sm"><ResultRow label="GitHub Actions 실행 상태" value={`${result.runStatus ?? result.status ?? "-"} / ${result.runConclusion ?? "-"}`} /><LinkRow label="GitHub Actions 실행 링크" href={result.runUrl} /><ResultRow label="요청 추적 ID" value={displayRequestId} mono /><ResultRow label="goods_key_count" value={String(summary?.goods_key_count ?? "-")} /><ResultRow label="estimated_mall_update_count" value={String(summary?.estimated_mall_update_count ?? "-")} /><ResultRow label="batch" value={String(summary?.batch ?? "-")} /><ResultRow label="status" value={String(summary?.status ?? "-")} /><ResultRow label="exit_code" value={String(summary?.exit_code ?? "-")} /><ResultRow label="성공 수" value={String(summary?.ok_count ?? "-")} /><ResultRow label="실패 수" value={String(summary?.fail_count ?? "-")} /></dl>
-    <div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-white text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">idx</th><th className="border border-slate-200 px-3 py-2">mall</th><th className="border border-slate-200 px-3 py-2">goods_key</th><th className="border border-slate-200 px-3 py-2">code</th><th className="border border-slate-200 px-3 py-2">msg</th></tr></thead><tbody>{errors.length > 0 ? errors.map((row, index) => <tr key={`${row.idx ?? index}-${row.mall ?? ""}-${row.goods_key ?? ""}`} className="bg-white"><td className="border border-slate-200 px-3 py-2">{row.idx ?? index + 1}</td><td className="border border-slate-200 px-3 py-2">{row.mall ?? "-"}</td><td className="border border-slate-200 px-3 py-2 font-mono">{row.goods_key ?? "-"}</td><td className="border border-slate-200 px-3 py-2">{row.code ?? "-"}</td><td className="border border-slate-200 px-3 py-2">{row.msg ?? "-"}</td></tr>) : <tr><td className="border border-slate-200 px-3 py-2 text-slate-500" colSpan={5}>실패 항목이 없습니다.</td></tr>}</tbody></table></div>
-  </div>;
-}
+function NumberInput({ label, value, onChange, step = "1" }: { label: string; value: number; onChange: (value: number) => void; step?: string }) { return <label className="text-xs font-semibold text-slate-700">{label}<input type="number" min="0" step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm" /></label>; }
+function PricePolicyGuide() { const [expanded, setExpanded] = useState(false); return <section className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"><button type="button" onClick={() => setExpanded(!expanded)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800">{expanded ? "적용 쇼핑몰 및 가격 정책 접기" : "적용 쇼핑몰 및 가격 정책 보기"}</button>{expanded ? <div className="mt-4"><h2 className="text-base font-bold text-slate-950">적용 쇼핑몰 및 가격 정책</h2><p className="mt-2 text-slate-600">아래 24개 쇼핑몰에 대해 쇼핑몰별 판매가/소비자가/매입가가 설정됩니다.</p><ul className="mt-3 list-disc space-y-1 pl-5 text-slate-700"><li>카페24(1.9): 기본 판매가 × 0.97 후 10원 단위 올림</li><li>도매창고: 기본 판매가 + 500원</li><li>에이블리: 기본 판매가 + 3,000원</li><li>그 외 쇼핑몰: 기본 판매가 그대로 적용</li><li>소비자가/매입가는 기본 상품 정보 값을 쇼핑몰별 필드에 복사</li></ul><div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-xs sm:text-sm"><thead><tr className="bg-white text-left text-slate-700"><th className="whitespace-nowrap border border-slate-200 px-3 py-2 font-semibold">mall_key</th><th className="whitespace-nowrap border border-slate-200 px-3 py-2 font-semibold">쇼핑몰명</th><th className="whitespace-nowrap border border-slate-200 px-3 py-2 font-semibold">가격 정책</th></tr></thead><tbody>{PRICE_POLICY_MALLS.map(([mallKey, mallName, policy]) => <tr key={mallKey} className="bg-white odd:bg-slate-50/60"><td className="whitespace-nowrap border border-slate-200 px-3 py-2 font-mono text-slate-900">{mallKey}</td><td className="whitespace-nowrap border border-slate-200 px-3 py-2 font-medium text-slate-900">{mallName}</td><td className="whitespace-nowrap border border-slate-200 px-3 py-2 text-slate-700">{policy}</td></tr>)}</tbody></table></div><p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">이 표는 현재 price modify 엔진의 적용 대상 기준입니다. 샵플링 전체 쇼핑몰 목록이 아니라 실제 가격설정 스크립트가 수정하는 24개 쇼핑몰만 표시합니다.</p></div> : null}</section>; }
+function ActionsResultPanel({ result, currentRequestId }: { result: ActionsResult; currentRequestId: string }) { const summary = result.summary; const errors = Array.isArray(summary?.errors) ? summary.errors : []; const overrides = Array.isArray(summary?.policy_overrides) ? summary.policy_overrides as SummaryPolicyOverride[] : []; const displayRequestId = summary?.request_id ?? result.requestId ?? currentRequestId ?? "-"; return <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4"><h3 className="text-base font-bold text-slate-950">최근 GitHub Actions 실행 결과</h3>{result.message ? <p className="mt-2 text-sm font-medium text-slate-700">{result.message}</p> : null}<dl className="mt-4 grid gap-3 text-sm"><ResultRow label="GitHub Actions 실행 상태" value={`${result.runStatus ?? result.status ?? "-"} / ${result.runConclusion ?? "-"}`} /><LinkRow label="GitHub Actions 실행 링크" href={result.runUrl} /><ResultRow label="요청 추적 ID" value={displayRequestId} mono /><ResultRow label="goods_key_count" value={String(summary?.goods_key_count ?? "-")} /><ResultRow label="estimated_mall_update_count" value={String(summary?.estimated_mall_update_count ?? "-")} /><ResultRow label="batch" value={String(summary?.batch ?? "-")} /><ResultRow label="policy_override_count" value={String(summary?.policy_override_count ?? overrides.length)} /><ResultRow label="status" value={String(summary?.status ?? "-")} /><ResultRow label="exit_code" value={String(summary?.exit_code ?? "-")} /><ResultRow label="성공 수" value={String(summary?.ok_count ?? "-")} /><ResultRow label="실패 수" value={String(summary?.fail_count ?? "-")} /></dl><PolicyOverridesTable overrides={overrides} /><div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-white text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">idx</th><th className="border border-slate-200 px-3 py-2">mall</th><th className="border border-slate-200 px-3 py-2">goods_key</th><th className="border border-slate-200 px-3 py-2">code</th><th className="border border-slate-200 px-3 py-2">msg</th></tr></thead><tbody>{errors.length > 0 ? errors.map((row, index) => <tr key={`${row.idx ?? index}-${row.mall ?? ""}-${row.goods_key ?? ""}`} className="bg-white"><td className="border border-slate-200 px-3 py-2">{row.idx ?? index + 1}</td><td className="border border-slate-200 px-3 py-2">{row.mall ?? "-"}</td><td className="border border-slate-200 px-3 py-2 font-mono">{row.goods_key ?? "-"}</td><td className="border border-slate-200 px-3 py-2">{row.code ?? "-"}</td><td className="border border-slate-200 px-3 py-2">{row.msg ?? "-"}</td></tr>) : <tr><td className="border border-slate-200 px-3 py-2 text-slate-500" colSpan={5}>실패 항목이 없습니다.</td></tr>}</tbody></table></div></div>; }
+function PolicyOverridesTable({ overrides }: { overrides: SummaryPolicyOverride[] }) { if (overrides.length === 0) return <p className="mt-4 rounded-lg bg-white p-3 text-sm text-slate-600">커스텀 가격정책이 없습니다. 기본 정책으로 실행되었습니다.</p>; return <div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-white text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">mall_key</th><th className="border border-slate-200 px-3 py-2">쇼핑몰명</th><th className="border border-slate-200 px-3 py-2">곱하기</th><th className="border border-slate-200 px-3 py-2">더하기</th><th className="border border-slate-200 px-3 py-2">빼기</th><th className="border border-slate-200 px-3 py-2">올림단위</th></tr></thead><tbody>{overrides.map((row, index) => { const mallKey = typeof row.mall_key === "string" ? row.mall_key : ""; return <tr key={`${mallKey}-${index}`} className="bg-white"><td className="border border-slate-200 px-3 py-2 font-mono">{mallKey || "-"}</td><td className="border border-slate-200 px-3 py-2">{MALL_NAME_BY_KEY[mallKey] ?? "-"}</td><td className="border border-slate-200 px-3 py-2">{String(row.multiplier ?? "-")}</td><td className="border border-slate-200 px-3 py-2">{String(row.add ?? "-")}</td><td className="border border-slate-200 px-3 py-2">{String(row.subtract ?? "-")}</td><td className="border border-slate-200 px-3 py-2">{String(row.round_up_unit ?? "-")}</td></tr>; })}</tbody></table></div>; }
 function ResultRow({ label, value, mono }: { label: string; value: string | number; mono?: boolean }) { return <div className="grid gap-1 border-b border-slate-100 pb-3 md:grid-cols-[200px_1fr]"><dt className="font-semibold text-slate-700">{label}</dt><dd className={mono ? "font-mono text-slate-900" : "text-slate-900"}>{value}</dd></div>; }
 function LinkRow({ label, href }: { label: string; href?: string }) { return <div className="grid gap-1 border-b border-slate-100 pb-3 md:grid-cols-[200px_1fr]"><dt className="font-semibold text-slate-700">{label}</dt><dd>{href ? <a className="text-blue-700 underline" href={href} target="_blank" rel="noreferrer">{href}</a> : "-"}</dd></div>; }
