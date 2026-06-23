@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildShoplingProductUploadCommand,
+  buildShoplingProductUploadDispatchRequest,
+  dispatchShoplingProductUploadActions,
   buildShoplingProductUploadSpawnOptions,
   estimateTargetCount,
   isValidRowExpression,
@@ -135,6 +137,117 @@ test("target count protection allows small ranges and rejects over 300", () => {
   );
 });
 
+function withGithubActionsEnv(overrides, callback) {
+  const keys = [
+    "SHOPLING_UPLOAD_REPO",
+    "SHOPLING_UPLOAD_WORKFLOW",
+    "SHOPLING_UPLOAD_REF",
+    "GITHUB_ACTIONS_TOKEN",
+  ];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  process.env.SHOPLING_UPLOAD_REPO = "andysong111/shopling-product-upload-auto";
+  process.env.SHOPLING_UPLOAD_WORKFLOW = "shopling-product-upload.yml";
+  process.env.SHOPLING_UPLOAD_REF = "main";
+  process.env.GITHUB_ACTIONS_TOKEN = "ghp_test_secret";
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return callback();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("GitHub Actions dispatch payload maps empty channel to all-channel workflow input", () => {
+  withGithubActionsEnv({}, () => {
+    const request = buildShoplingProductUploadDispatchRequest({
+      rowExpression: "950",
+      channel: "",
+      skip_if_goods_key: true,
+    });
+
+    assert.equal(request.url, "https://api.github.com/repos/andysong111/shopling-product-upload-auto/actions/workflows/shopling-product-upload.yml/dispatches");
+    assert.equal(request.githubActionsUrl, "https://github.com/andysong111/shopling-product-upload-auto/actions/workflows/shopling-product-upload.yml");
+    assert.deepEqual(request.body, {
+      ref: "main",
+      inputs: {
+        row_expression: "950",
+        channel: "전체 6채널",
+        skip_if_goods_key: true,
+      },
+    });
+    assert.equal(request.commandPreview, "GitHub Actions: shopling-product-upload.yml row=950 channel=전체 6채널 skip_if_goods_key=true");
+    assert.equal(request.token, "ghp_test_secret");
+  });
+});
+
+test("GitHub Actions dispatch payload preserves selected channel and ref", () => {
+  withGithubActionsEnv({ SHOPLING_UPLOAD_REF: "main" }, () => {
+    const request = buildShoplingProductUploadDispatchRequest({
+      rowExpression: "698,714-730,801",
+      channel: "도매1",
+      skip_if_goods_key: false,
+    });
+
+    assert.equal(request.body.ref, "main");
+    assert.equal(request.body.inputs.row_expression, "698,714-730,801");
+    assert.equal(request.body.inputs.channel, "도매1");
+    assert.equal(request.body.inputs.skip_if_goods_key, false);
+  });
+});
+
+test("GitHub Actions env validation rejects missing or invalid repository settings safely", () => {
+  withGithubActionsEnv({ GITHUB_ACTIONS_TOKEN: undefined }, () => {
+    assert.throws(
+      () => buildShoplingProductUploadDispatchRequest({ rowExpression: "950", channel: "", skip_if_goods_key: true }),
+      /GITHUB_ACTIONS_TOKEN/,
+    );
+  });
+  withGithubActionsEnv({ SHOPLING_UPLOAD_REPO: undefined }, () => {
+    assert.throws(
+      () => buildShoplingProductUploadDispatchRequest({ rowExpression: "950", channel: "", skip_if_goods_key: true }),
+      /SHOPLING_UPLOAD_REPO/,
+    );
+  });
+  withGithubActionsEnv({ SHOPLING_UPLOAD_REPO: "invalid" }, () => {
+    assert.throws(
+      () => buildShoplingProductUploadDispatchRequest({ rowExpression: "950", channel: "", skip_if_goods_key: true }),
+      /owner\/repo/,
+    );
+  });
+});
+
+test("GitHub Actions dispatch success returns queued result without exposing token", async () => {
+  const previousFetch = globalThis.fetch;
+  let fetchCall;
+  globalThis.fetch = async (url, init) => {
+    fetchCall = { url, init };
+    return { status: 204, text: async () => "" };
+  };
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await dispatchShoplingProductUploadActions({
+        rowExpression: "950",
+        channel: "",
+        skip_if_goods_key: true,
+      });
+
+      assert.equal(result.status, "queued");
+      assert.equal(result.githubActionsUrl, "https://github.com/andysong111/shopling-product-upload-auto/actions/workflows/shopling-product-upload.yml");
+      assert.equal(JSON.stringify(result).includes("ghp_test_secret"), false);
+      assert.equal(fetchCall.init.headers.Authorization, "Bearer ghp_test_secret");
+      assert.equal(JSON.parse(fetchCall.init.body).inputs.channel, "전체 6채널");
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test("UI source includes required Korean labels", async () => {
   const { readFile } = await import("node:fs/promises");
   const page = await readFile("src/app/shopling-product-upload-runner/page.tsx", "utf8");
@@ -195,4 +308,5 @@ test("runner implementation keeps process execution safety constraints", async (
   assert.equal(source.includes("exec("), false);
   assert.doesNotMatch(source, /PowerShell|powershell|pwsh/i);
   assert.match(source, /spawn\(python, command\.args/);
+  assert.match(source, /SHOPLING_PRODUCT_UPLOAD_RUN_MODE === "github_actions"/);
 });
