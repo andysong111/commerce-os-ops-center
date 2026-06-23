@@ -16,6 +16,7 @@ type RunResult = {
   stderrTruncated?: boolean;
   rawDumpEnabled?: boolean;
   rawDumpReason?: string;
+  githubActionsUrl?: string;
 };
 
 const channels = [
@@ -125,7 +126,7 @@ export function ShoplingProductUploadRunner() {
         <h2 className="text-lg font-bold text-slate-950">실행 결과</h2>
         {result ? (
           <dl className="mt-4 grid gap-3 text-sm">
-            <ResultRow label="실행 상태" value={result.status ?? "-"} />
+            <ResultRow label="실행 상태" value={result.status === "queued" ? "GitHub Actions 실행 요청됨" : result.status ?? "-"} />
             <ResultRow label="시작 시간" value={result.startTime ?? "-"} />
             <ResultRow label="종료 시간" value={result.endTime ?? "-"} />
             <ResultRow label="실행 시간" value={formatDuration(result.durationMs)} />
@@ -133,6 +134,7 @@ export function ShoplingProductUploadRunner() {
             <ResultRow label="commandPreview" value={result.commandPreview ?? "-"} mono />
             {result.message ? <ResultRow label="message" value={result.message} /> : null}
             {result.rawDumpReason ? <ResultRow label="rawDumpReason" value={result.rawDumpReason} /> : null}
+            {result.githubActionsUrl ? <ResultRow label="githubActionsUrl" value={result.githubActionsUrl} /> : null}
             <OutputBlock label="stdout" value={result.stdout ?? ""} truncated={result.stdoutTruncated} />
             <OutputBlock label="stderr" value={result.stderr ?? ""} truncated={result.stderrTruncated} />
           </dl>
