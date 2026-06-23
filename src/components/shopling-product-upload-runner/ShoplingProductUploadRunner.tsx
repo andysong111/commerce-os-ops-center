@@ -17,6 +17,7 @@ type RunResult = {
   rawDumpEnabled?: boolean;
   rawDumpReason?: string;
   githubActionsUrl?: string;
+  requestId?: string;
 };
 
 type ActionsResult = {
@@ -27,6 +28,7 @@ type ActionsResult = {
   runConclusion?: string | null;
   runStatus?: string;
   artifactName?: string;
+  requestId?: string;
   summary?: {
     row_expression?: string;
     selected_channel?: string;
@@ -37,6 +39,7 @@ type ActionsResult = {
     skip_count?: number;
     fail_count?: number;
     goods_keys?: GoodsKeyRow[];
+    request_id?: string | null;
   };
 };
 
@@ -48,6 +51,8 @@ type GoodsKeyRow = {
   goods_key?: string;
   ptn_goods_cd?: string;
 };
+
+const CURRENT_REQUEST_ID_STORAGE_KEY = "shoplingProductUpload.currentRequestId";
 
 const channels = [
   { value: "", label: "전체 6채널" },
@@ -69,6 +74,10 @@ export function ShoplingProductUploadRunner() {
   const [fetchingResult, setFetchingResult] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
   const [actionsResult, setActionsResult] = useState<ActionsResult | null>(null);
+  const [currentRequestId, setCurrentRequestId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem(CURRENT_REQUEST_ID_STORAGE_KEY) ?? "";
+  });
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -96,6 +105,10 @@ export function ShoplingProductUploadRunner() {
       });
       const data = await response.json();
       setResult(data);
+      if (typeof data.requestId === "string" && data.requestId.length > 0) {
+        setCurrentRequestId(data.requestId);
+        window.localStorage.setItem(CURRENT_REQUEST_ID_STORAGE_KEY, data.requestId);
+      }
     } catch (error) {
       setResult({
         status: "error",
@@ -110,7 +123,10 @@ export function ShoplingProductUploadRunner() {
     if (fetchingResult) return;
     setFetchingResult(true);
     try {
-      const response = await fetch("/api/shopling-product-upload/actions-result");
+      const url = currentRequestId
+        ? `/api/shopling-product-upload/actions-result?request_id=${encodeURIComponent(currentRequestId)}`
+        : "/api/shopling-product-upload/actions-result";
+      const response = await fetch(url);
       const data = await response.json();
       setActionsResult(data);
     } catch (error) {
@@ -182,12 +198,14 @@ export function ShoplingProductUploadRunner() {
             <ResultRow label="실행 시간" value={formatDuration(result.durationMs)} />
             <ResultRow label="exitCode" value={result.exitCode ?? "-"} />
             <ResultRow label="commandPreview" value={result.commandPreview ?? "-"} mono />
+            <ResultRow label="요청 추적 ID" value={result.requestId ?? currentRequestId ?? "-"} mono />
             {result.message ? <ResultRow label="message" value={result.message} /> : null}
             {result.rawDumpReason ? <ResultRow label="rawDumpReason" value={result.rawDumpReason} /> : null}
             {result.githubActionsUrl ? <ResultRow label="githubActionsUrl" value={result.githubActionsUrl} /> : null}
             {result.status === "queued" ? (
               <div className="rounded-lg bg-blue-50 p-3 text-sm font-medium text-blue-700">
-                실제 완료 여부는 GitHub Actions 실행이 끝난 뒤 ‘최근 실행 결과 가져오기’로 확인하세요.
+                실제 완료 여부는 GitHub Actions 실행이 끝난 뒤 ‘최근 실행 결과 가져오기’로 확인하세요.<br />
+                최근 실행 결과 가져오기는 이 요청 추적 ID와 일치하는 결과를 우선 조회합니다.
               </div>
             ) : null}
             <OutputBlock label="stdout" value={result.stdout ?? ""} truncated={result.stdoutTruncated} />
@@ -204,15 +222,16 @@ export function ShoplingProductUploadRunner() {
         >
           {fetchingResult ? "결과 가져오는 중..." : "최근 실행 결과 가져오기"}
         </button>
-        {actionsResult ? <ActionsResultPanel result={actionsResult} /> : null}
+        {actionsResult ? <ActionsResultPanel result={actionsResult} currentRequestId={currentRequestId} /> : null}
       </section>
     </div>
   );
 }
 
-function ActionsResultPanel({ result }: { result: ActionsResult }) {
+function ActionsResultPanel({ result, currentRequestId }: { result: ActionsResult; currentRequestId: string }) {
   const summary = result.summary;
   const goodsKeys = Array.isArray(summary?.goods_keys) ? summary.goods_keys : [];
+  const displayRequestId = summary?.request_id ?? result.requestId ?? currentRequestId ?? "-";
 
   return (
     <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -220,6 +239,7 @@ function ActionsResultPanel({ result }: { result: ActionsResult }) {
       {result.message ? <p className="mt-2 text-sm font-medium text-slate-700">{result.message}</p> : null}
       <dl className="mt-4 grid gap-3 text-sm">
         <ResultRow label="GitHub Actions 실행 상태" value={`${result.runStatus ?? result.status ?? "-"} / ${result.runConclusion ?? "-"}`} />
+        <ResultRow label="요청 추적 ID" value={displayRequestId} mono />
         <div className="grid gap-1 border-b border-slate-100 pb-3 md:grid-cols-[160px_1fr]">
           <dt className="font-semibold text-slate-700">GitHub Actions 실행 링크</dt>
           <dd className="text-slate-900">
