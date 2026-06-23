@@ -153,6 +153,23 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
 
   {
+    id: "shopling-price-modify-runner",
+    title: "샵플링 쇼핑몰별 가격설정 실행기",
+    navigationLabel: "샵플링 가격설정 실행기",
+    description: "goods_key 기준으로 쇼핑몰별 가격설정을 실행합니다.",
+    status: "runner_scaffold",
+    route: "/shopling-price-modify-runner",
+    category: "채널 자동화",
+    inputType: "샵플링 goods_key",
+    outputType: "shopling-price-modify-auto result_summary.json",
+    historySupport: false,
+    externalProject: true,
+    note: "OPS Center는 GitHub Actions 실행과 결과 조회만 수행하며 샵플링을 직접 호출하지 않습니다.",
+    helperNote: "실제 가격설정 실행",
+    actionLabel: "실행기 열기",
+  },
+
+  {
     id: "engine-env-setup",
     title: "엔진 환경변수 설정",
     navigationLabel: "엔진 환경변수 설정",
