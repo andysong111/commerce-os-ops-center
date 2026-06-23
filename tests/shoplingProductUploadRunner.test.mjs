@@ -255,7 +255,11 @@ test("GitHub Actions result helper requires token and rejects invalid repo", () 
   });
 });
 
-test("GitHub Actions result helper extracts and parses result_summary.json from zip", () => {
+function zipSummary(path, summary) {
+  return zipSync({ [path]: strToU8(JSON.stringify(summary)) });
+}
+
+test("GitHub Actions result helper extracts result_summary.json from exact artifact path", () => {
   const summary = {
     schema_version: 1,
     source: "shopling-product-upload-auto",
@@ -264,11 +268,60 @@ test("GitHub Actions result helper extracts and parses result_summary.json from 
     skip_count: 2,
     fail_count: 0,
   };
+
+  assert.deepEqual(
+    extractShoplingUploadResultSummary(zipSummary("output/github_actions/result_summary.json", summary)),
+    summary,
+  );
+});
+
+test("GitHub Actions result helper extracts result_summary.json from artifact root", () => {
+  const summary = { status: "success", request_id: "shopling-root" };
+
+  assert.deepEqual(
+    extractShoplingUploadResultSummary(zipSummary("result_summary.json", summary)),
+    summary,
+  );
+});
+
+test("GitHub Actions result helper extracts nested result_summary.json artifact entry", () => {
+  const summary = { status: "success", request_id: "shopling-nested" };
+
+  assert.deepEqual(
+    extractShoplingUploadResultSummary(zipSummary("some/path/result_summary.json", summary)),
+    summary,
+  );
+});
+
+test("GitHub Actions result helper missing summary error includes safe artifact entry names", () => {
   const zip = zipSync({
-    "output/github_actions/result_summary.json": strToU8(JSON.stringify(summary)),
+    "logs/run.log": strToU8("log body should not be exposed"),
+    "queue/request.json": strToU8("{\"token\":\"secret\"}"),
   });
 
-  assert.deepEqual(extractShoplingUploadResultSummary(zip), summary);
+  assert.throws(
+    () => extractShoplingUploadResultSummary(zip),
+    (error) => {
+      assert.match(error.message, /result_summary\.json을 찾을 수 없습니다/);
+      assert.match(error.message, /artifact entries: logs\/run\.log, queue\/request\.json/);
+      assert.equal(error.message.includes("log body should not be exposed"), false);
+      assert.equal(error.message.includes("secret"), false);
+      return true;
+    },
+  );
+});
+
+test("GitHub Actions result helper prefers exact summary path when multiple entries exist", () => {
+  const exactSummary = { status: "success", request_id: "shopling-exact" };
+  const rootSummary = { status: "success", request_id: "shopling-root" };
+  const nestedSummary = { status: "success", request_id: "shopling-nested" };
+  const zip = zipSync({
+    "some/path/result_summary.json": strToU8(JSON.stringify(nestedSummary)),
+    "result_summary.json": strToU8(JSON.stringify(rootSummary)),
+    "output/github_actions/result_summary.json": strToU8(JSON.stringify(exactSummary)),
+  });
+
+  assert.deepEqual(extractShoplingUploadResultSummary(zip), exactSummary);
 });
 
 test("GitHub Actions result helper handles no completed runs as pending", async () => {
