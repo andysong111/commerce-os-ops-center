@@ -102,3 +102,17 @@ function booleanOrString(value: unknown): boolean | string | undefined {
   if (value === null || value === undefined) return undefined;
   return String(value);
 }
+
+
+export function buildKeywordEngineDispatchPayload(rows: ProductLaunchUploadRow[], seedKeyword?: string) {
+  const goodsKeyCsv = dedupeGoodsKeysForPriceModify(rows).join(",");
+  const trimmedSeedKeyword = seedKeyword?.trim() ?? "";
+  return {
+    kind: "keyword_engine",
+    mode: "dry_run",
+    inputs: {
+      goods_key: goodsKeyCsv,
+      ...(trimmedSeedKeyword ? { seed_keyword: trimmedSeedKeyword } : {}),
+    },
+  };
+}

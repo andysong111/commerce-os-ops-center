@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import {
+  buildKeywordEngineDispatchPayload,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
   inferProductGroupFromPtnGoodsCd,
@@ -43,7 +44,8 @@ test("extracts upload rows and de-duplicates goods_key values for price modify",
 test("UI source includes MVP copy, storage keys, and API usage strings", async () => {
   const component = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   const page = await readFile("src/app/product-launch-flow/page.tsx", "utf8");
-  const source = `${page}\n${component}`;
+  const lib = await readFile("src/lib/productLaunchFlow.ts", "utf8");
+  const source = `${page}\n${component}\n${lib}`;
   for (const expected of [
     "상품 출시 플로우",
     "상품업로드 실행",
@@ -52,13 +54,28 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
     "ptn_goods_cd",
     "가격설정 실행",
     "가격설정 결과 가져오기",
-    "상품명/키워드 준비",
+    "Step 3. 상품명/키워드 실행 및 검토",
+    "시드 키워드",
+    "키워드 엔진 입력값 확인",
+    "키워드 엔진 실행",
+    "키워드 실행 결과 확인",
+    "결과 가져오기 및 검토 시작",
+    "키워드 결과 검토 화면 열기",
+    "dry_run",
+    "키워드/상품명 결과는 샵플링에 자동 반영되지 않습니다",
     "현재 MVP에서는 상품명/키워드를 6개 상품코드에 동일하게 적용",
     "ptn_goods_cd 끝 글자 a~f 기준",
     "샵플링 마켓전송은 수동",
     "productLaunchFlow.uploadRequestId",
     "productLaunchFlow.priceRequestId",
     "productLaunchFlow.lastRowExpression",
+    "productLaunchFlow.keywordSeed",
+    "opsCenter.keywordEngine.importedArtifact.v1",
+    "/api/engine-runners/dispatch-preview",
+    "/api/engine-runners/dispatch",
+    "/api/engine-runners/runs?kind=keyword_engine",
+    "/api/engine-runners/artifacts/import-preview",
+    "/keyword-review-queue?from=product-launch-flow",
     "/api/shopling-product-upload/run",
     "/api/shopling-product-upload/actions-result",
     "/api/shopling-price-modify/run",
@@ -66,6 +83,24 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
   ]) {
     assert.match(source, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), expected);
   }
+});
+
+test("builds keyword engine dry_run dispatch payload with de-duplicated goods_key and optional seed", () => {
+  const rows = [
+    { goods_key: "121112" },
+    { goods_key: "121113" },
+    { goods_key: "121112" },
+  ];
+  assert.deepEqual(buildKeywordEngineDispatchPayload(rows, " 욕실 수납 "), {
+    kind: "keyword_engine",
+    mode: "dry_run",
+    inputs: { goods_key: "121112,121113", seed_keyword: "욕실 수납" },
+  });
+  assert.deepEqual(buildKeywordEngineDispatchPayload(rows, " "), {
+    kind: "keyword_engine",
+    mode: "dry_run",
+    inputs: { goods_key: "121112,121113" },
+  });
 });
 
 test("product launch flow sources do not include restricted execution or credential literals", async () => {
@@ -80,4 +115,5 @@ test("product launch flow sources do not include restricted execution or credent
   assert.doesNotMatch(source, /PowerShell/i);
   assert.doesNotMatch(source, /github[_-]?token\s*[:=]\s*["'][^"']+/i);
   assert.doesNotMatch(source, /(shopling|샵플링).{0,30}(password|secret|credential|token)\s*[:=]\s*["'][^"']+/i);
+  assert.doesNotMatch(source, /\/api\/shopling-(?!product-upload|price-modify)/i);
 });
