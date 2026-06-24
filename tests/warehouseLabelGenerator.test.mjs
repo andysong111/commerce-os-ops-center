@@ -44,3 +44,19 @@ test("shrinks long warehouse codes below the default label font size", () => {
   assert.equal(getFontSizeForCode("BAA1-1"), 22);
   assert.ok(getFontSizeForCode("VERY-LONG-WAREHOUSE-LOCATION-CODE-001") < 22);
 });
+
+test("allows the warehouse label max font size to be increased", () => {
+  assert.equal(getFontSizeForCode("BAA1-1", { maxFontSize: 28 }), 28);
+
+  const pdf = new TextDecoder().decode(createWarehouseLabelPdf(["BAA1-1"], { maxFontSize: 36 }));
+  assert.match(pdf, /\/F1 36 Tf/);
+  assert.match(pdf, /\/MediaBox \[0 0 141\.732 85\.039\]/);
+});
+
+test("uses safe margin when shrinking oversized warehouse codes", () => {
+  const code = "VERY-LONG-WAREHOUSE-LOCATION-CODE-001";
+  const fontWithSmallMargin = getFontSizeForCode(code, { maxFontSize: 36, safeMarginMm: 1 });
+  const fontWithLargeMargin = getFontSizeForCode(code, { maxFontSize: 36, safeMarginMm: 3 });
+
+  assert.ok(fontWithLargeMargin < fontWithSmallMargin);
+});

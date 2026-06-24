@@ -3,11 +3,24 @@
 import { ChangeEvent, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import {
+  DEFAULT_WAREHOUSE_LABEL_SAFE_MARGIN_MM,
   WAREHOUSE_LABEL_50X30_MM,
   createWarehouseLabelPdf,
   parseWarehouseCodesFromCsv,
   parseWarehouseCodesFromText,
 } from "@/lib/warehouseLabelGenerator";
+
+type FontSizeMode = "auto" | "large" | "xlarge" | "custom";
+
+const FONT_SIZE_MODE_OPTIONS: { value: FontSizeMode; label: string; maxFontSize: number }[] = [
+  { value: "auto", label: "자동", maxFontSize: 22 },
+  { value: "large", label: "크게", maxFontSize: 28 },
+  { value: "xlarge", label: "매우 크게", maxFontSize: 36 },
+  { value: "custom", label: "직접 입력", maxFontSize: 28 },
+];
+
+const SAFE_MARGIN_OPTIONS = [1, 2, 3];
+const DEFAULT_CUSTOM_MAX_FONT_SIZE = 28;
 
 export default function WarehouseLabelGeneratorPage() {
   const [csvCodes, setCsvCodes] = useState<string[]>([]);
@@ -15,10 +28,15 @@ export default function WarehouseLabelGeneratorPage() {
   const [status, setStatus] = useState("CSV를 업로드하거나 직접 입력 후 PDF를 생성하세요.");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfFileName, setPdfFileName] = useState("warehouse-labels-50x30.pdf");
+  const [fontSizeMode, setFontSizeMode] = useState<FontSizeMode>("auto");
+  const [customMaxFontSize, setCustomMaxFontSize] = useState(DEFAULT_CUSTOM_MAX_FONT_SIZE);
+  const [safeMarginMm, setSafeMarginMm] = useState(DEFAULT_WAREHOUSE_LABEL_SAFE_MARGIN_MM);
   const currentPdfUrlRef = useRef<string | null>(null);
 
   const manualCodes = useMemo(() => parseWarehouseCodesFromText(manualText), [manualText]);
   const codes = csvCodes.length > 0 ? csvCodes : manualCodes;
+  const selectedMode = FONT_SIZE_MODE_OPTIONS.find((option) => option.value === fontSizeMode) ?? FONT_SIZE_MODE_OPTIONS[0];
+  const maxFontSize = fontSizeMode === "custom" ? customMaxFontSize : selectedMode.maxFontSize;
 
   function replacePdfUrl(nextUrl: string | null) {
     if (currentPdfUrlRef.current) {
@@ -56,7 +74,7 @@ export default function WarehouseLabelGeneratorPage() {
       return;
     }
 
-    const pdfBytes = createWarehouseLabelPdf(codes);
+    const pdfBytes = createWarehouseLabelPdf(codes, { maxFontSize, safeMarginMm });
     const pdfBuffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength);
     const blob = new Blob([pdfBuffer], { type: "application/pdf" });
     const nextUrl = URL.createObjectURL(blob);
@@ -132,6 +150,76 @@ export default function WarehouseLabelGeneratorPage() {
               </button>
             </div>
           </div>
+
+          <div>
+            <h2 className="text-sm font-semibold text-slate-950">4. 글씨 크기 / 여백 설정</h2>
+            <p className="mt-1 text-xs text-slate-500">PDF 생성 단계에서 글씨 크기를 조절하며, 긴 코드는 안전 영역 안에 맞도록 자동 축소됩니다.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-4">
+              {FONT_SIZE_MODE_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className={`rounded-lg border p-3 text-sm font-semibold ${fontSizeMode === option.value ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-700"}`}
+                >
+                  <input
+                    type="radio"
+                    name="font-size-mode"
+                    value={option.value}
+                    checked={fontSizeMode === option.value}
+                    onChange={() => {
+                      setFontSizeMode(option.value);
+                      replacePdfUrl(null);
+                    }}
+                    className="mr-2"
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+
+            {fontSizeMode === "custom" ? (
+              <label className="mt-3 block text-sm font-semibold text-slate-700">
+                최대 폰트 크기 (22~36pt, 기본 28pt 추천)
+                <input
+                  type="number"
+                  min={22}
+                  max={36}
+                  step={1}
+                  value={customMaxFontSize}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    setCustomMaxFontSize(Math.min(36, Math.max(22, Number.isFinite(value) ? value : DEFAULT_CUSTOM_MAX_FONT_SIZE)));
+                    replacePdfUrl(null);
+                  }}
+                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+            ) : null}
+
+            <div className="mt-3">
+              <p className="text-sm font-semibold text-slate-700">여백 설정</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {SAFE_MARGIN_OPTIONS.map((margin) => (
+                  <label
+                    key={margin}
+                    className={`rounded-lg border px-3 py-2 text-sm font-semibold ${safeMarginMm === margin ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-700"}`}
+                  >
+                    <input
+                      type="radio"
+                      name="safe-margin-mm"
+                      value={margin}
+                      checked={safeMarginMm === margin}
+                      onChange={() => {
+                        setSafeMarginMm(margin);
+                        replacePdfUrl(null);
+                      }}
+                      className="mr-2"
+                    />
+                    {margin}mm
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
         </section>
 
         <aside className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -153,9 +241,20 @@ export default function WarehouseLabelGeneratorPage() {
               <dt className="text-slate-500">페이지 크기</dt>
               <dd className="font-semibold text-slate-900">50×30mm</dd>
             </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-500">글씨 크기</dt>
+              <dd className="font-semibold text-slate-900">{selectedMode.label} / 최대 {maxFontSize}pt</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-500">안전 여백</dt>
+              <dd className="font-semibold text-slate-900">{safeMarginMm}mm</dd>
+            </div>
           </dl>
 
-          <div className="mt-5 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600">{status}</div>
+          <div className="mt-5 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+            <p>{status}</p>
+            <p className="mt-2 font-semibold text-red-700">Chrome 인쇄 배율은 반드시 100%로 출력하세요.</p>
+          </div>
 
           <div className="mt-5 space-y-2">
             <button type="button" onClick={generatePdf} className="w-full rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">

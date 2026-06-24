@@ -9,6 +9,15 @@ export const WAREHOUSE_LABEL_50X30_MM = {
 
 const PDF_ESCAPE_PATTERN = /[\\()]/g;
 
+export type WarehouseLabelPdfOptions = {
+  maxFontSize?: number;
+  safeMarginMm?: number;
+};
+
+export const DEFAULT_WAREHOUSE_LABEL_MAX_FONT_SIZE = 22;
+export const DEFAULT_WAREHOUSE_LABEL_SAFE_MARGIN_MM = 2;
+export const MIN_WAREHOUSE_LABEL_FONT_SIZE = 10;
+
 export function mmToPt(mm: number): number {
   return (mm / 25.4) * 72;
 }
@@ -37,8 +46,12 @@ export function parseWarehouseCodesFromCsv(csv: string): string[] {
   );
 }
 
-export function createWarehouseLabelPdf(codes: string[]): Uint8Array<ArrayBuffer> {
+export function createWarehouseLabelPdf(
+  codes: string[],
+  options: WarehouseLabelPdfOptions = {},
+): Uint8Array<ArrayBuffer> {
   const normalizedCodes = normalizeWarehouseCodes(codes);
+  const resolvedOptions = resolveWarehouseLabelPdfOptions(options);
   const objects: string[] = [];
   const pageObjectIds: number[] = [];
   const contentObjectIds: number[] = [];
@@ -55,7 +68,7 @@ export function createWarehouseLabelPdf(codes: string[]): Uint8Array<ArrayBuffer
     pageObjectIds.push(pageId);
     contentObjectIds.push(contentId);
 
-    const content = buildLabelPageContent(code);
+    const content = buildLabelPageContent(code, resolvedOptions);
     objects[pageId] = `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${formatNumber(
       WAREHOUSE_LABEL_50X30_MM.widthPt,
     )} ${formatNumber(WAREHOUSE_LABEL_50X30_MM.heightPt)}] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`;
@@ -86,12 +99,12 @@ export function createWarehouseLabelPdf(codes: string[]): Uint8Array<ArrayBuffer
   return new TextEncoder().encode(chunks.join(""));
 }
 
-function buildLabelPageContent(code: string): string {
+function buildLabelPageContent(code: string, options: Required<WarehouseLabelPdfOptions>): string {
   const width = WAREHOUSE_LABEL_50X30_MM.widthPt;
   const height = WAREHOUSE_LABEL_50X30_MM.heightPt;
-  const fontSize = getFontSizeForCode(code);
+  const fontSize = getFontSizeForCode(code, options);
   const textWidth = estimateHelveticaBoldWidth(code, fontSize);
-  const x = Math.max(2, (width - textWidth) / 2);
+  const x = (width - textWidth) / 2;
   const y = (height - fontSize) / 2 + fontSize * 0.28;
 
   return [
@@ -108,10 +121,30 @@ function buildLabelPageContent(code: string): string {
   ].join("\n");
 }
 
-export function getFontSizeForCode(code: string): number {
-  const estimatedAt22 = estimateHelveticaBoldWidth(code, 22);
-  const maxWidth = WAREHOUSE_LABEL_50X30_MM.widthPt - 8;
-  return Math.max(10, Math.min(22, (22 * maxWidth) / Math.max(estimatedAt22, 1)));
+export function getFontSizeForCode(
+  code: string,
+  options: WarehouseLabelPdfOptions = {},
+): number {
+  const { maxFontSize, safeMarginMm } = resolveWarehouseLabelPdfOptions(options);
+  const safeWidth = Math.max(1, WAREHOUSE_LABEL_50X30_MM.widthPt - mmToPt(safeMarginMm) * 2);
+  const textWidthAtMax = estimateHelveticaBoldWidth(code, maxFontSize);
+  return Math.max(
+    MIN_WAREHOUSE_LABEL_FONT_SIZE,
+    Math.min(maxFontSize, (maxFontSize * safeWidth) / Math.max(textWidthAtMax, 1)),
+  );
+}
+
+function resolveWarehouseLabelPdfOptions(
+  options: WarehouseLabelPdfOptions,
+): Required<WarehouseLabelPdfOptions> {
+  return {
+    maxFontSize: sanitizePositiveNumber(options.maxFontSize, DEFAULT_WAREHOUSE_LABEL_MAX_FONT_SIZE),
+    safeMarginMm: sanitizePositiveNumber(options.safeMarginMm, DEFAULT_WAREHOUSE_LABEL_SAFE_MARGIN_MM),
+  };
+}
+
+function sanitizePositiveNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function estimateHelveticaBoldWidth(text: string, fontSize: number): number {
