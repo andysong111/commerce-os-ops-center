@@ -67,6 +67,22 @@ export const moduleRegistry: readonly CommerceModule[] = [
     externalProject: false,
     note: "기존 배대지 바코드 작업요청서 흐름을 사용합니다.",
   },
+
+  {
+    id: "warehouse-label-generator",
+    title: "창고 라벨 출력기",
+    navigationLabel: "창고 라벨 출력기",
+    description:
+      "창고 위치코드를 CSV 또는 직접 입력으로 받아 50×30mm 롤지용 PDF 라벨을 생성합니다.",
+    status: "available",
+    route: "/warehouse-label-generator",
+    category: "도구",
+    inputType: "창고 위치코드 CSV 또는 줄바꿈 텍스트",
+    outputType: "50×30mm 창고 위치코드 라벨 PDF",
+    historySupport: false,
+    externalProject: false,
+    note: "Xprinter XP-DT108B 50×30mm 롤지 출력용 MVP입니다.",
+  },
   {
     id: "keyword-engine",
     title: "키워드 엔진 실행기",

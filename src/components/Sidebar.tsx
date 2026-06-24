@@ -9,6 +9,7 @@ const moduleIcons = {
   "product-master": ProductIcon,
   "freight-barcode-pdf": BarcodeIcon,
   "keyword-review-queue": KeywordIcon,
+  "warehouse-label-generator": LabelIcon,
 } as const;
 
 const navigation = [
@@ -197,6 +198,23 @@ function KeywordIcon() {
     >
       <circle cx="10.5" cy="10.5" r="6.5" />
       <path d="m15.5 15.5 4.5 4.5M8 8h5M8 11h4" />
+    </svg>
+  );
+}
+
+
+function LabelIcon() {
+  return (
+    <svg
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <rect x="4" y="6" width="16" height="12" rx="2" />
+      <path d="M8 10h8M9 14h6" />
     </svg>
   );
 }
