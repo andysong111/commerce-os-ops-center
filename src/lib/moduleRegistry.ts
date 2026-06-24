@@ -135,6 +135,24 @@ export const moduleRegistry: readonly CommerceModule[] = [
   },
 
   {
+    id: "product-launch-flow",
+    title: "상품 출시 플로우",
+    navigationLabel: "상품 출시 플로우",
+    description:
+      "실재고 시트 행번호 기준으로 상품업로드, 가격설정, 상품명/키워드 준비 상태를 연결합니다.",
+    status: "available",
+    route: "/product-launch-flow",
+    category: "채널 자동화",
+    inputType: "실재고 시트 행 번호",
+    outputType: "상품업로드/가격설정/상품명·키워드 준비 상태",
+    historySupport: false,
+    externalProject: true,
+    note: "기존 상품업로드/가격설정 GitHub Actions 연동만 사용하며 마켓전송은 수동으로 진행합니다.",
+    helperNote: "출시 MVP",
+    actionLabel: "플로우 열기",
+  },
+
+  {
     id: "shopling-product-upload-runner",
     title: "샵플링 상품등록 실행기",
     navigationLabel: "샵플링 상품등록 실행기",
