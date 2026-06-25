@@ -121,7 +121,7 @@ export function buildKeywordExecutionPreflight(
       if (!siteSrch) {
         blockReasons.push("FINAL_SITE_SRCH_REQUIRED");
       } else if (siteSrchKeywordCount < 10) {
-        blockReasons.push("FINAL_SITE_SRCH_UNDERFILLED");
+        warnings.push("FINAL_SITE_SRCH_UNDERFILLED");
       } else if (siteSrchKeywordCount > 10) {
         blockReasons.push("FINAL_SITE_SRCH_TOO_MANY_KEYWORDS");
       }

@@ -164,16 +164,31 @@ test("preview item with validation_errors cannot pass", () => {
   );
 });
 
-test("underfilled final_site_srch fails closed at preflight", () => {
-  const { result } = run([
-    row({ recommendedSiteSrch: "one, two, three" }),
-  ]);
-  assert.equal(result.summary.eligibleCount, 0);
+test("final_site_srch with 1 keyword is warning, not blocked", () => {
+  const { result } = run([row({ recommendedSiteSrch: "one" })]);
+  assert.equal(result.summary.eligibleCount, 1);
   assert.ok(
-    result.blockedItems[0].block_reasons.includes(
+    result.eligibleItems[0].preflight_warnings.includes(
       "FINAL_SITE_SRCH_UNDERFILLED",
     ),
   );
+  assert.ok(
+    !result.eligibleItems[0].block_reasons.includes(
+      "FINAL_SITE_SRCH_UNDERFILLED",
+    ),
+  );
+});
+
+test("empty final_site_srch is blocked", () => {
+  const { result } = run([row({ recommendedSiteSrch: "" })]);
+  assert.equal(result.summary.eligibleCount, 0);
+  assert.ok(result.blockedItems[0].block_reasons.includes("FINAL_SITE_SRCH_REQUIRED"));
+});
+
+test("11 keywords is blocked", () => {
+  const { result } = run([row({ recommendedSiteSrch: "1,2,3,4,5,6,7,8,9,10,11" })]);
+  assert.equal(result.summary.eligibleCount, 0);
+  assert.ok(result.blockedItems[0].block_reasons.includes("FINAL_SITE_SRCH_TOO_MANY_KEYWORDS"));
 });
 
 test("missing final confirmation blocks the plan", () => {
