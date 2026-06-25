@@ -21,6 +21,7 @@ import {
   buildKeywordExecutionPreflight,
   DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
   exportKeywordExecutionPlan,
+  formatKeywordExecutionPreflightLabels,
   type KeywordExecutionPreflightResult,
 } from "@/lib/keywordReviewExecutionPreflight";
 
@@ -46,6 +47,7 @@ const APPLY_RESULT_LABELS: Record<string, string> = {
   failed_item_count: "실패 행 수",
   warnings: "경고",
 };
+
 
 const SHOPLING_MALL_OPTIONS = [
   ["SMALL_00001", "옥션"],
@@ -192,10 +194,9 @@ export default function KeywordReviewQueuePage() {
     useState<KeywordPayloadPreviewResult | null>(null);
   const [preflightResult, setPreflightResult] =
     useState<KeywordExecutionPreflightResult | null>(null);
-  const [allowedMallKeys, setAllowedMallKeys] = useState("");
-  const [maxRows, setMaxRows] = useState("0");
+  const [allowedMallKeys, setAllowedMallKeys] = useState(DEFAULT_MALL_KEY);
+  const [maxRows, setMaxRows] = useState("20");
   const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
-  const [finalConfirmation, setFinalConfirmation] = useState(false);
   const [keywordApplyMaxRows, setKeywordApplyMaxRows] = useState("20");
   const [keywordApplyConfirmationText, setKeywordApplyConfirmationText] =
     useState("");
@@ -214,7 +215,16 @@ export default function KeywordReviewQueuePage() {
   const [mallKeyFillStatus, setMallKeyFillStatus] = useState("");
 
   function changeDefaultMallKey(value: string) {
+    const previousDefaultMallKey = defaultMallKey;
     setDefaultMallKey(value);
+    setAllowedMallKeys((current) => {
+      const normalizedCurrent = current.trim();
+      if (!normalizedCurrent || normalizedCurrent === previousDefaultMallKey) {
+        return value;
+      }
+      return current;
+    });
+    setPreflightResult(null);
     window.localStorage.setItem(DEFAULT_MALL_KEY_STORAGE_KEY, value);
   }
   function loadImportedArtifact() {
@@ -231,7 +241,6 @@ export default function KeywordReviewQueuePage() {
     setRows([]);
     setPayloadPreview(null);
     setPreflightResult(null);
-    setFinalConfirmation(false);
     const parsed = [
       ...parseKeywordMvpCsv(
         String(importedArtifact.files["keyword_mvp_approval_sheet.csv"] ?? ""),
@@ -793,7 +802,6 @@ export default function KeywordReviewQueuePage() {
         allowedMallKeys={allowedMallKeys}
         maxRows={maxRows}
         alreadyAppliedGoodsKeys={alreadyAppliedGoodsKeys}
-        finalConfirmation={finalConfirmation}
         onAllowedMallKeysChange={(value) => {
           setAllowedMallKeys(value);
           setPreflightResult(null);
@@ -806,18 +814,12 @@ export default function KeywordReviewQueuePage() {
           setAlreadyAppliedGoodsKeys(value);
           setPreflightResult(null);
         }}
-        onFinalConfirmationChange={(value) => {
-          setFinalConfirmation(value);
-          setPreflightResult(null);
-        }}
         onRun={(config) =>
           setPreflightResult(
             buildKeywordExecutionPreflight(
               {
                 previewResult: payloadPreview!,
-                finalConfirmationText: finalConfirmation
-                  ? config.confirmationText
-                  : "",
+                finalConfirmationText: "",
               },
               config,
             ),
@@ -915,11 +917,9 @@ function ExecutionPreflightSection({
   allowedMallKeys,
   maxRows,
   alreadyAppliedGoodsKeys,
-  finalConfirmation,
   onAllowedMallKeysChange,
   onMaxRowsChange,
   onAlreadyAppliedGoodsKeysChange,
-  onFinalConfirmationChange,
   onRun,
 }: {
   previewResult: KeywordPayloadPreviewResult | null;
@@ -927,11 +927,9 @@ function ExecutionPreflightSection({
   allowedMallKeys: string;
   maxRows: string;
   alreadyAppliedGoodsKeys: string;
-  finalConfirmation: boolean;
   onAllowedMallKeysChange: (value: string) => void;
   onMaxRowsChange: (value: string) => void;
   onAlreadyAppliedGoodsKeysChange: (value: string) => void;
-  onFinalConfirmationChange: (value: boolean) => void;
   onRun: (config: typeof DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG) => void;
 }) {
   const config = {
@@ -966,7 +964,7 @@ function ExecutionPreflightSection({
               placeholder="mall_key를 줄바꿈 또는 쉼표로 입력"
             />
             <span className="mt-1 block font-normal">
-              허용 쇼핑몰을 비워두면 모든 행이 차단됩니다.
+              허용 쇼핑몰은 위 ‘적용 쇼핑몰 선택’ 값으로 자동 설정됩니다.
             </span>
           </label>
           <label className="text-xs font-semibold text-slate-600">
@@ -995,22 +993,12 @@ function ExecutionPreflightSection({
             className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"
           />
           <span className="mt-1 block font-normal">
-            실행을 허용하려면 최대 실행 행 수가 0보다 커야 합니다.
+            테스트는 1, 기본은 20입니다.
           </span>
         </label>
-        <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={finalConfirmation}
-            onChange={(event) =>
-              onFinalConfirmationChange(event.target.checked)
-            }
-            className="mt-1"
-          />
-          <span>
-            {DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG.confirmationText}
-          </span>
-        </label>
+        <p className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          실행 전 점검은 미리보기 전용입니다. 실제 반영은 아래 ‘실제 샵플링 반영 실행’에서 확인문구 입력 후 진행됩니다.
+        </p>
         <button
           type="button"
           disabled={!previewResult}
@@ -1023,8 +1011,7 @@ function ExecutionPreflightSection({
 
       {!result ? (
         <p className="p-8 text-center text-sm text-slate-500">
-          샵플링 반영 미리보기를 생성하고 안전 설정을 입력한 뒤 실행 전 점검을
-          실행하세요.
+          샵플링 반영 미리보기를 생성한 뒤 실행 전 점검을 누르세요. 기본 쇼핑몰은 위에서 선택한 값이 자동 적용됩니다.
         </p>
       ) : (
         <div className="p-4 sm:p-5">
@@ -1096,10 +1083,10 @@ function ExecutionPreflightSection({
                         : "차단됨"}
                     </td>
                     <td className="min-w-56 px-3 py-3 align-top text-xs">
-                      {item.block_reasons.join(", ") || "—"}
+                      {formatKeywordExecutionPreflightLabels(item.block_reasons) || "—"}
                     </td>
                     <td className="min-w-56 px-3 py-3 align-top text-xs">
-                      {item.preflight_warnings.join(" ") || "—"}
+                      {formatKeywordExecutionPreflightLabels(item.preflight_warnings) || "—"}
                     </td>
                   </tr>
                 ))}

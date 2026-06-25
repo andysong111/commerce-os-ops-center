@@ -290,6 +290,31 @@ test("keyword review apply UX source includes mall key fill and Korean labels", 
     assert.match(source, new RegExp(text.replace(/[()]/g, "\\$&")));
 });
 
+test("keyword review preflight defaults and Korean labels are present", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const text of [
+    "useState(DEFAULT_MALL_KEY)",
+    "허용 쇼핑몰은 위 ‘적용 쇼핑몰 선택’ 값으로 자동 설정됩니다.",
+    "useState(\"20\")",
+    "실제 반영은 아래 ‘실제 샵플링 반영 실행’에서 확인문구 입력 후 진행됩니다.",
+  ])
+    assert.match(source, new RegExp(text.replace(/[()]/g, "\\$&")));
+
+  const labelSource = await readFile(
+    new URL("../src/lib/keywordReviewExecutionPreflight.ts", import.meta.url),
+    "utf8",
+  );
+  for (const text of [
+    "선택한 쇼핑몰이 허용 목록에 없습니다.",
+    "같은 상품번호/쇼핑몰 조합이 중복되었습니다.",
+    "검색어가 10개 미만입니다. 현재는 경고만 표시합니다.",
+  ])
+    assert.match(labelSource, new RegExp(text.replace(/[()]/g, "\\$&")));
+});
+
 test("keyword review apply UX removes selected English visible labels", async () => {
   const source = await readFile(
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
@@ -303,6 +328,11 @@ test("keyword review apply UX removes selected English visible labels", async ()
     "Execution Preflight",
     "Run preflight check",
     "Result summary",
+    "I understand this is a preview-only preflight",
+    "FINAL_CONFIRMATION_REQUIRED",
+    "MALL_KEY_NOT_ALLOWED",
+    "DUPLICATE_GOODS_KEY",
+    "FINAL_SITE_SRCH_UNDERFILLED",
   ])
     assert.doesNotMatch(source, new RegExp(text));
 });

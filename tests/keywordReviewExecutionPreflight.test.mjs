@@ -66,11 +66,16 @@ test("empty allowedMallKeys blocks all rows", () => {
   );
 });
 
-test("maxRows zero blocks all otherwise eligible rows", () => {
-  const { result } = run([row()], { maxRows: 0 });
-  assert.equal(result.summary.eligibleCount, 0);
-  assert.equal(result.summary.maxRowsExceeded, true);
-  assert.ok(result.blockedItems[0].block_reasons.includes("MAX_ROWS_EXCEEDED"));
+test("default preflight does not require final confirmation", () => {
+  const { result } = run([row()], {}, false);
+  assert.equal(DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG.requireFinalConfirmation, false);
+  assert.equal(result.summary.requiresFinalConfirmation, false);
+  assert.equal(result.summary.eligibleCount, 1);
+  assert.ok(
+    !result.eligibleItems[0].block_reasons.includes(
+      "FINAL_CONFIRMATION_REQUIRED",
+    ),
+  );
 });
 
 test("allowed mall_key passes and disallowed mall_key blocks", () => {
@@ -95,7 +100,17 @@ test("already-applied goods_key is excluded", () => {
   );
 });
 
-test("duplicate goods_key blocks every duplicate safely", () => {
+test("duplicate detection ignores non-approved duplicate rows", () => {
+  const { result } = run([
+    row(),
+    row({ sourceRowIndex: 3, reviewStatus: "hold" }),
+    row({ sourceRowIndex: 4, reviewStatus: "" }),
+  ]);
+  assert.equal(result.summary.eligibleCount, 1);
+  assert.equal(result.summary.duplicateGoodsKeyCount, 0);
+});
+
+test("duplicate detection blocks same approved goods_key and mall_key pair", () => {
   const { result } = run([
     row(),
     row({ sourceRowIndex: 3, mallKey: "mall-1" }),
@@ -104,7 +119,21 @@ test("duplicate goods_key blocks every duplicate safely", () => {
   assert.equal(result.summary.duplicateGoodsKeyCount, 2);
   assert.ok(
     result.blockedItems.every((item) =>
-      item.block_reasons.includes("DUPLICATE_GOODS_KEY"),
+      item.block_reasons.includes("DUPLICATE_GOODS_KEY_MALL_KEY"),
+    ),
+  );
+});
+
+test("same goods_key with non-approved held rows does not block approved row", () => {
+  const { result } = run([
+    row(),
+    row({ sourceRowIndex: 3, reviewStatus: "hold", mallKey: "mall-1" }),
+  ]);
+  assert.equal(result.summary.eligibleCount, 1);
+  assert.equal(result.summary.duplicateGoodsKeyCount, 0);
+  assert.ok(
+    result.eligibleItems[0].block_reasons.every(
+      (reason) => reason !== "DUPLICATE_GOODS_KEY_MALL_KEY",
     ),
   );
 });
@@ -189,17 +218,6 @@ test("11 keywords is blocked", () => {
   const { result } = run([row({ recommendedSiteSrch: "1,2,3,4,5,6,7,8,9,10,11" })]);
   assert.equal(result.summary.eligibleCount, 0);
   assert.ok(result.blockedItems[0].block_reasons.includes("FINAL_SITE_SRCH_TOO_MANY_KEYWORDS"));
-});
-
-test("missing final confirmation blocks the plan", () => {
-  const { result } = run([row()], {}, false);
-  assert.equal(result.summary.requiresFinalConfirmation, true);
-  assert.equal(result.summary.eligibleCount, 0);
-  assert.ok(
-    result.blockedItems[0].block_reasons.includes(
-      "FINAL_CONFIRMATION_REQUIRED",
-    ),
-  );
 });
 
 test("eligible rows export to a marked preview-only execution plan", () => {
