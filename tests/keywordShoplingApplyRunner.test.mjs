@@ -89,10 +89,12 @@ test("artifact parsing extracts nested JSON/JSONL and omits raw XML/secrets", ()
 
 test("keyword review queue UI contains apply runner source strings and guards", async () => {
   const source = await readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8");
-  for (const text of ["샵플링 반영 실행", "dry_run", "APPLY_KEYWORD_RESULTS_TO_SHOPLING", "확인문구 자동 입력", "실제 반영은 이 문구가 정확히 입력되어야만 실행됩니다.", "샵플링 반영 dry_run 실행", "dry_run 결과 가져오기", "실제 샵플링 반영 실행", "반영 결과 가져오기", "상품별 첫 후보만 승인", "keywordReviewQueue.keywordApplyDryRunRequestId", "keywordReviewQueue.keywordApplyRequestId", "keywordApplyDryRunResult", "keywordApplyRealResult", "keywordApplyDryRunStatus", "keywordApplyRealStatus", "아직 실제 반영 실행 요청 ID가 없습니다", "아직 dry_run 실행 요청 ID가 없습니다", "가져온 결과가 실제 반영 결과가 아니라 dry_run 결과입니다", "confirmationText.trim() === KEYWORD_APPLY_CONFIRMATION_TEXT", "/api/keyword-shopling-apply/run", "/api/keyword-shopling-apply/actions-result", "mode=${encodeURIComponent(mode)}", "buildCompactKeywordApplyExecutionPlan", "GitHub Actions 입력값 검증에서 거절되었습니다"]) {
+  for (const text of ["샵플링 반영 실행", "dry_run", "APPLY_KEYWORD_RESULTS_TO_SHOPLING", "확인문구가 내부에서 자동으로 전달됩니다", "확인문구가 자동으로 포함됩니다", "샵플링 반영 dry_run 실행", "dry_run 결과 가져오기", "실제 샵플링 반영 실행", "반영 결과 가져오기", "상품별 첫 후보만 승인", "keywordReviewQueue.keywordApplyDryRunRequestId", "keywordReviewQueue.keywordApplyRequestId", "keywordApplyDryRunResult", "keywordApplyRealResult", "keywordApplyDryRunStatus", "keywordApplyRealStatus", "아직 실제 반영 실행 요청 ID가 없습니다", "아직 dry_run 실행 요청 ID가 없습니다", "가져온 결과가 실제 반영 결과가 아니라 dry_run 결과입니다", "confirmation_text: mode === \"apply\" ? KEYWORD_APPLY_CONFIRMATION_TEXT : \"\"", "/api/keyword-shopling-apply/run", "/api/keyword-shopling-apply/actions-result", "mode=${encodeURIComponent(mode)}", "buildCompactKeywordApplyExecutionPlan", "GitHub Actions 입력값 검증에서 거절되었습니다"]) {
     assert.match(source, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.doesNotMatch(source, /executionPlanJson = preflightResult[\s\S]*blockedItems: preflightResult\.blockedItems/);
+  assert.doesNotMatch(source, /placeholder="APPLY_KEYWORD_RESULTS_TO_SHOPLING"/);
+  assert.doesNotMatch(source, /onConfirmationTextChange|keywordApplyConfirmationText|확인문구 자동 입력|최종 확인문구/);
 });
 
 test("actions result API and runner support mode filtering", async () => {

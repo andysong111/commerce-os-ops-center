@@ -64,10 +64,6 @@ const KEYWORD_APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_TO_SHOPLING";
 const KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY = "keywordReviewQueue.keywordApplyDryRunRequestId";
 const KEYWORD_APPLY_REAL_REQUEST_ID_KEY = "keywordReviewQueue.keywordApplyRequestId";
 
-function isKeywordApplyConfirmationSatisfied(confirmationText: string) {
-  return confirmationText.trim() === KEYWORD_APPLY_CONFIRMATION_TEXT;
-}
-
 function formatApplyResultValue(value: unknown): string {
   if (Array.isArray(value)) return value.map(formatApplyResultValue).join(", ");
   const raw = String(value ?? "—");
@@ -223,8 +219,6 @@ export default function KeywordReviewQueuePage() {
   const [maxRows, setMaxRows] = useState("20");
   const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
   const [keywordApplyMaxRows, setKeywordApplyMaxRows] = useState("20");
-  const [keywordApplyConfirmationText, setKeywordApplyConfirmationText] =
-    useState("");
   const [keywordApplyDryRunStatus, setKeywordApplyDryRunStatus] = useState("");
   const [keywordApplyRealStatus, setKeywordApplyRealStatus] = useState("");
   const [keywordApplyDryRunResult, setKeywordApplyDryRunResult] = useState<Record<
@@ -859,13 +853,11 @@ export default function KeywordReviewQueuePage() {
       <KeywordShoplingApplySection
         preflightResult={preflightResult}
         maxRows={keywordApplyMaxRows}
-        confirmationText={keywordApplyConfirmationText}
         dryRunStatusMessage={keywordApplyDryRunStatus}
         realStatusMessage={keywordApplyRealStatus}
         dryRunResult={keywordApplyDryRunResult}
         realResult={keywordApplyRealResult}
         onMaxRowsChange={setKeywordApplyMaxRows}
-        onConfirmationTextChange={setKeywordApplyConfirmationText}
         onDryRunStatusChange={setKeywordApplyDryRunStatus}
         onRealStatusChange={setKeywordApplyRealStatus}
         onDryRunResultChange={setKeywordApplyDryRunResult}
@@ -1171,13 +1163,11 @@ function ExecutionPreflightSection({
 function KeywordShoplingApplySection({
   preflightResult,
   maxRows,
-  confirmationText,
   dryRunStatusMessage,
   realStatusMessage,
   dryRunResult,
   realResult,
   onMaxRowsChange,
-  onConfirmationTextChange,
   onDryRunStatusChange,
   onRealStatusChange,
   onDryRunResultChange,
@@ -1185,13 +1175,11 @@ function KeywordShoplingApplySection({
 }: {
   preflightResult: KeywordExecutionPreflightResult | null;
   maxRows: string;
-  confirmationText: string;
   dryRunStatusMessage: string;
   realStatusMessage: string;
   dryRunResult: Record<string, unknown> | null;
   realResult: Record<string, unknown> | null;
   onMaxRowsChange: (value: string) => void;
-  onConfirmationTextChange: (value: string) => void;
   onDryRunStatusChange: (value: string) => void;
   onRealStatusChange: (value: string) => void;
   onDryRunResultChange: (value: Record<string, unknown> | null) => void;
@@ -1205,12 +1193,7 @@ function KeywordShoplingApplySection({
   async function run(mode: "dry_run" | "apply") {
     if (!preflightResult) return;
     const setStatus = mode === "dry_run" ? onDryRunStatusChange : onRealStatusChange;
-    const trimmedConfirmationText = confirmationText.trim();
     if (mode === "apply") {
-      if (!isKeywordApplyConfirmationSatisfied(confirmationText)) {
-        setStatus("확인문구가 정확하지 않습니다.");
-        return;
-      }
       if (
         !window.confirm(
           "실제 샵플링 상품명/검색어를 수정합니다. 계속하시겠습니까?",
@@ -1225,7 +1208,7 @@ function KeywordShoplingApplySection({
       body: JSON.stringify({
         execution_plan_json: executionPlanJson,
         mode,
-        confirmation_text: mode === "apply" ? trimmedConfirmationText : "",
+        confirmation_text: mode === "apply" ? KEYWORD_APPLY_CONFIRMATION_TEXT : "",
         max_items: Number.parseInt(maxRows, 10) || 20,
       }),
     });
@@ -1282,8 +1265,8 @@ function KeywordShoplingApplySection({
           반영합니다. OPS Center는 샵플링을 직접 호출하지 않습니다.
         </p>
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-          먼저 dry_run으로 결과를 확인한 뒤, 최종 확인문구를 입력해야 실제
-          반영할 수 있습니다.
+          먼저 dry_run으로 결과를 확인한 뒤, 실제 반영 버튼을 누르면 필요한
+          확인문구가 내부에서 자동으로 전달됩니다.
         </p>
         {!preflightResult ? (
           <p className="mt-3 text-sm font-semibold text-red-700">
@@ -1337,17 +1320,10 @@ function KeywordShoplingApplySection({
         </div>
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
           <h3 className="font-semibold text-red-950">2단계: 실제 반영</h3>
-        <label className="mt-3 block text-xs font-semibold text-slate-600">
-          최종 확인문구
-          <input
-            value={confirmationText}
-            onChange={(event) => onConfirmationTextChange(event.target.value)}
-            placeholder="APPLY_KEYWORD_RESULTS_TO_SHOPLING"
-            className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm font-normal"
-          />
-        </label>
-        <p className="mt-2 text-xs font-semibold text-red-800">실제 반영은 이 문구가 정확히 입력되어야만 실행됩니다.</p>
-        <button type="button" onClick={() => onConfirmationTextChange(KEYWORD_APPLY_CONFIRMATION_TEXT)} className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700">확인문구 자동 입력</button>
+        <p className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800">
+          실제 반영 요청에는 외부 runner가 요구하는 확인문구가 자동으로 포함됩니다.
+          버튼 클릭 후 브라우저 최종 확인창에서 한 번 더 승인하세요.
+        </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
