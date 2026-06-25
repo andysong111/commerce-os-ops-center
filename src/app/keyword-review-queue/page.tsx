@@ -142,6 +142,10 @@ export default function KeywordReviewQueuePage() {
   const [maxRows, setMaxRows] = useState("0");
   const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
   const [finalConfirmation, setFinalConfirmation] = useState(false);
+  const [keywordApplyMaxRows, setKeywordApplyMaxRows] = useState("20");
+  const [keywordApplyConfirmationText, setKeywordApplyConfirmationText] = useState("");
+  const [keywordApplyStatus, setKeywordApplyStatus] = useState("");
+  const [keywordApplyResult, setKeywordApplyResult] = useState<Record<string, unknown> | null>(null);
   function loadImportedArtifact() {
     if (!importedArtifact?.files) return;
     setApprovalCsv(
@@ -274,6 +278,24 @@ export default function KeywordReviewQueuePage() {
       current.map((row, rowIndex) =>
         targetIndexes.has(rowIndex) ? { ...row, ...update } : row,
       ),
+    );
+  }
+
+  function approveFirstCandidatePerGoodsKey() {
+    setPayloadPreview(null);
+    setPreflightResult(null);
+    const seen = new Set<string>();
+    setRows((current) =>
+      current.map((row) => {
+        const goodsKey = row.goodsKey.trim();
+        if (row.classification === "blocked_risk") return row;
+        if (!goodsKey || !row.recommendedTitle.trim()) return row;
+        if (!seen.has(goodsKey)) {
+          seen.add(goodsKey);
+          return { ...row, reviewStatus: "approved" };
+        }
+        return { ...row, reviewStatus: "hold" };
+      }),
     );
   }
 
@@ -532,6 +554,7 @@ export default function KeywordReviewQueuePage() {
                   updateRows([...selectedRows], { reviewStatus: "hold" })
                 }
                 onApproveAllReviewNeeded={approveAllReviewNeededRows}
+                onApproveFirstCandidatePerGoodsKey={approveFirstCandidatePerGoodsKey}
                 onClearSelection={() => setSelectedRows(new Set())}
                 onDeleteRow={(index) => {
                   if (
@@ -621,6 +644,17 @@ export default function KeywordReviewQueuePage() {
             ),
           )
         }
+      />
+      <KeywordShoplingApplySection
+        preflightResult={preflightResult}
+        maxRows={keywordApplyMaxRows}
+        confirmationText={keywordApplyConfirmationText}
+        statusMessage={keywordApplyStatus}
+        result={keywordApplyResult}
+        onMaxRowsChange={setKeywordApplyMaxRows}
+        onConfirmationTextChange={setKeywordApplyConfirmationText}
+        onStatusChange={setKeywordApplyStatus}
+        onResultChange={setKeywordApplyResult}
       />
     </>
   );
@@ -933,6 +967,85 @@ function ExecutionPreflightSection({
   );
 }
 
+
+function KeywordShoplingApplySection({
+  preflightResult,
+  maxRows,
+  confirmationText,
+  statusMessage,
+  result,
+  onMaxRowsChange,
+  onConfirmationTextChange,
+  onStatusChange,
+  onResultChange,
+}: {
+  preflightResult: KeywordExecutionPreflightResult | null;
+  maxRows: string;
+  confirmationText: string;
+  statusMessage: string;
+  result: Record<string, unknown> | null;
+  onMaxRowsChange: (value: string) => void;
+  onConfirmationTextChange: (value: string) => void;
+  onStatusChange: (value: string) => void;
+  onResultChange: (value: Record<string, unknown> | null) => void;
+}) {
+  const disabled = !preflightResult;
+  const executionPlanJson = preflightResult
+    ? JSON.stringify({ eligibleItems: preflightResult.eligibleItems, blockedItems: preflightResult.blockedItems, summary: preflightResult.summary })
+    : "";
+  async function run(mode: "dry_run" | "apply") {
+    if (!preflightResult) return;
+    if (mode === "apply") {
+      if (confirmationText !== "APPLY_KEYWORD_RESULTS_TO_SHOPLING") {
+        onStatusChange("확인문구가 정확하지 않습니다.");
+        return;
+      }
+      if (!window.confirm("실제 샵플링 상품명/검색어를 수정합니다. 계속하시겠습니까?")) return;
+    }
+    onStatusChange("GitHub Actions 요청 중...");
+    const response = await fetch("/api/keyword-shopling-apply/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ execution_plan_json: executionPlanJson, mode, confirmation_text: mode === "apply" ? confirmationText : "", max_items: Number.parseInt(maxRows, 10) || 20 }),
+    });
+    const json = await response.json();
+    if (json.requestId) {
+      window.localStorage.setItem(mode === "dry_run" ? "keywordReviewQueue.keywordApplyDryRunRequestId" : "keywordReviewQueue.keywordApplyRequestId", json.requestId);
+    }
+    onStatusChange(json.message || json.commandPreview || (response.ok ? "요청 완료" : "요청 실패"));
+  }
+  async function fetchResult(mode: "dry_run" | "apply") {
+    const requestId = window.localStorage.getItem(mode === "dry_run" ? "keywordReviewQueue.keywordApplyDryRunRequestId" : "keywordReviewQueue.keywordApplyRequestId") || "";
+    const response = await fetch(`/api/keyword-shopling-apply/actions-result${requestId ? `?request_id=${encodeURIComponent(requestId)}` : ""}`);
+    const json = await response.json();
+    onResultChange(json);
+    onStatusChange(json.message || json.status || "결과를 가져왔습니다.");
+  }
+  return (
+    <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 p-4 sm:p-5">
+        <h2 className="font-semibold text-slate-950">샵플링 반영 실행</h2>
+        <p className="mt-2 text-sm text-slate-600">이 단계는 승인된 상품명/검색어를 외부 GitHub Actions로 보내 샵플링에 반영합니다. OPS Center는 샵플링을 직접 호출하지 않습니다.</p>
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">먼저 dry_run으로 결과를 확인한 뒤, 최종 확인문구를 입력해야 실제 반영할 수 있습니다.</p>
+        {!preflightResult ? <p className="mt-3 text-sm font-semibold text-red-700">먼저 payload preview와 preflight check를 실행하세요.</p> : null}
+        <div className="mt-4 grid gap-3 sm:grid-cols-3"><SummaryCard label="preflight eligible" value={preflightResult?.summary.eligibleCount ?? 0} /><SummaryCard label="blocked" value={preflightResult?.summary.blockedCount ?? 0} /><label className="text-xs font-semibold text-slate-600">max rows input<input type="number" min="1" max="100" value={maxRows} onChange={(event) => onMaxRowsChange(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" /></label></div>
+        <div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("dry_run")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">샵플링 반영 dry_run 실행</button><button type="button" onClick={() => void fetchResult("dry_run")} className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700">dry_run 결과 가져오기</button></div>
+        <label className="mt-4 block text-xs font-semibold text-slate-600">confirmation text<input value={confirmationText} onChange={(event) => onConfirmationTextChange(event.target.value)} placeholder="APPLY_KEYWORD_RESULTS_TO_SHOPLING" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm font-normal" /></label>
+        <div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">실제 샵플링 반영 실행</button><button type="button" onClick={() => void fetchResult("apply")} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700">반영 결과 가져오기</button></div>
+        {statusMessage ? <p className="mt-3 text-sm text-slate-700">{statusMessage}</p> : null}
+      </div>
+      {result ? <ApplyResultDisplay result={result} /> : null}
+    </section>
+  );
+}
+function ApplyResultDisplay({ result }: { result: Record<string, unknown> }) {
+  const summary = (result.summary && typeof result.summary === "object" ? result.summary : {}) as Record<string, unknown>;
+  const rows = (key: string) => Array.isArray(result[key]) ? result[key] as Record<string, unknown>[] : [];
+  return <div className="p-4 sm:p-5"><h3 className="font-semibold">Result summary</h3><div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">{["mode","status","input_item_count","valid_item_count","blocked_item_count","applied_item_count","failed_item_count","dry_run","warnings"].map((key) => <div key={key} className="rounded-lg bg-slate-50 p-2"><strong>{key}</strong>: {String(summary[key] ?? "—")}</div>)}</div><ResultRows title="apply_results" rows={rows("applyResults")} /><ResultRows title="verify_results" rows={rows("verifyResults")} /><BlockedRows rows={rows("blockedItems")} /></div>;
+}
+function ResultRows({ title, rows }: { title: string; rows: Record<string, unknown>[] }) { return <div className="mt-5 overflow-x-auto"><h3 className="font-semibold">{title}</h3><table className="mt-2 min-w-full divide-y divide-slate-200 text-left text-xs"><thead><tr>{["goods_key","mall_key","title_update_status","site_srch_update_status","code","msg","dry_run","warning_flags"].map((h)=><th key={h} className="px-2 py-2">{h}</th>)}</tr></thead><tbody>{rows.map((row, i)=><tr key={i}>{["goods_key","mall_key","title_update_status","site_srch_update_status","code","msg","dry_run","warning_flags"].map((h)=><td key={h} className="px-2 py-2">{String(row[h] ?? "—")}</td>)}</tr>)}</tbody></table></div>; }
+function BlockedRows({ rows }: { rows: Record<string, unknown>[] }) { return <div className="mt-5 overflow-x-auto"><h3 className="font-semibold">blocked_items</h3><table className="mt-2 min-w-full divide-y divide-slate-200 text-left text-xs"><thead><tr>{["goods_key","mall_key","reasons"].map((h)=><th key={h} className="px-2 py-2">{h}</th>)}</tr></thead><tbody>{rows.map((row, i)=><tr key={i}>{["goods_key","mall_key","reasons"].map((h)=><td key={h} className="px-2 py-2">{Array.isArray(row[h]) ? (row[h] as unknown[]).join(", ") : String(row[h] ?? "—")}</td>)}</tr>)}</tbody></table></div>; }
+
 function downloadText(filename: string, text: string, type: string) {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const anchor = document.createElement("a");
@@ -1228,6 +1341,7 @@ function SheetReviewTable({
   onBulkApprove,
   onBulkHold,
   onApproveAllReviewNeeded,
+  onApproveFirstCandidatePerGoodsKey,
   onClearSelection,
   onDeleteRow,
   onBulkDelete,
@@ -1253,6 +1367,7 @@ function SheetReviewTable({
   onBulkApprove: () => void;
   onBulkHold: () => void;
   onApproveAllReviewNeeded: () => void;
+  onApproveFirstCandidatePerGoodsKey: () => void;
   onClearSelection: () => void;
   onDeleteRow: (index: number) => void;
   onBulkDelete: () => void;
@@ -1348,6 +1463,17 @@ function SheetReviewTable({
         >
           전체 검토 필요 항목 승인
         </button>
+        <button
+          type="button"
+          onClick={onApproveFirstCandidatePerGoodsKey}
+          className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700"
+          title="플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고 나머지는 보류합니다."
+        >
+          상품별 첫 후보만 승인
+        </button>
+        <span className="text-xs text-slate-500">
+          플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고 나머지는 보류합니다.
+        </span>
         <button
           type="button"
           onClick={onClearSelection}
