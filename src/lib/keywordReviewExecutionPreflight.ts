@@ -3,6 +3,32 @@ import type {
   KeywordPayloadPreviewResult,
 } from "./keywordReviewPayloadPreview";
 
+
+export const KEYWORD_EXECUTION_PREFLIGHT_LABELS: Record<string, string> = {
+  MALL_KEY_NOT_ALLOWED: "선택한 쇼핑몰이 허용 목록에 없습니다.",
+  DUPLICATE_GOODS_KEY: "중복 상품번호입니다.",
+  DUPLICATE_GOODS_KEY_MALL_KEY: "같은 상품번호/쇼핑몰 조합이 중복되었습니다.",
+  FINAL_CONFIRMATION_REQUIRED: "최종 확인이 필요합니다.",
+  NOT_PREVIEW_READY_APPROVED: "반영 준비가 완료되지 않았습니다.",
+  VALIDATION_ERRORS_PRESENT: "미리보기 검사 오류가 있습니다.",
+  BLOCKED_RISK: "위험/차단 항목입니다.",
+  HELD: "보류 항목입니다.",
+  GOODS_KEY_REQUIRED: "상품번호가 없습니다.",
+  MALL_KEY_REQUIRED: "쇼핑몰을 선택하세요.",
+  FINAL_TITLE_REQUIRED: "상품명을 입력하세요.",
+  FINAL_SITE_SRCH_REQUIRED: "검색어를 입력하세요.",
+  FINAL_SITE_SRCH_TOO_MANY_KEYWORDS: "검색어는 최대 10개까지만 가능합니다.",
+  ALREADY_APPLIED_GOODS_KEY: "이미 반영한 상품번호입니다.",
+  MAX_ROWS_EXCEEDED: "최대 실행 행 수를 초과했습니다.",
+  FINAL_SITE_SRCH_UNDERFILLED: "검색어가 10개 미만입니다. 현재는 경고만 표시합니다.",
+};
+
+export function formatKeywordExecutionPreflightLabels(values: string[]) {
+  return values
+    .map((value) => KEYWORD_EXECUTION_PREFLIGHT_LABELS[value] ?? value)
+    .join(", ");
+}
+
 export type KeywordExecutionPreflightConfig = {
   allowedMallKeys: string[];
   maxRows: number;
@@ -41,12 +67,12 @@ export type KeywordExecutionPreflightResult = {
 
 export const DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG: KeywordExecutionPreflightConfig =
   {
-    allowedMallKeys: [],
-    maxRows: 0,
+    allowedMallKeys: ["SMALL_00004"],
+    maxRows: 20,
     alreadyAppliedGoodsKeys: [],
-    requireFinalConfirmation: true,
+    requireFinalConfirmation: false,
     confirmationText:
-      "I understand this is a preview-only preflight. No Shopling API execution is performed.",
+      "실행 전 점검은 미리보기 전용입니다. 실제 반영은 아래 ‘실제 샵플링 반영 실행’에서 확인문구 입력 후 진행됩니다.",
   };
 
 function normalizedSet(values: string[]) {
@@ -75,19 +101,29 @@ export function buildKeywordExecutionPreflight(
   const confirmationSatisfied =
     !config.requireFinalConfirmation ||
     input.finalConfirmationText.trim() === config.confirmationText;
-  const goodsKeyCounts = new Map<string, number>();
+  const candidateItems = input.previewResult.items.filter(
+    (item) =>
+      item.review_status === "approved" ||
+      item.payload_status === "preview_ready",
+  );
+  const goodsMallKeyCounts = new Map<string, number>();
 
-  for (const item of input.previewResult.items) {
+  for (const item of candidateItems) {
     const goodsKey = item.goods_key.trim();
-    if (goodsKey) {
-      goodsKeyCounts.set(goodsKey, (goodsKeyCounts.get(goodsKey) ?? 0) + 1);
+    const mallKey = item.mall_key.trim();
+    if (goodsKey && mallKey) {
+      const duplicateKey = `${goodsKey}::${mallKey}`;
+      goodsMallKeyCounts.set(
+        duplicateKey,
+        (goodsMallKeyCounts.get(duplicateKey) ?? 0) + 1,
+      );
     }
   }
 
-  const duplicateGoodsKeys = new Set(
-    [...goodsKeyCounts.entries()]
+  const duplicateGoodsMallKeys = new Set(
+    [...goodsMallKeyCounts.entries()]
       .filter(([, count]) => count > 1)
-      .map(([goodsKey]) => goodsKey),
+      .map(([duplicateKey]) => duplicateKey),
   );
 
   const evaluatedItems = input.previewResult.items.map(
@@ -136,8 +172,12 @@ export function buildKeywordExecutionPreflight(
       if (goodsKey && alreadyAppliedGoodsKeys.has(goodsKey)) {
         blockReasons.push("ALREADY_APPLIED_GOODS_KEY");
       }
-      if (goodsKey && duplicateGoodsKeys.has(goodsKey)) {
-        blockReasons.push("DUPLICATE_GOODS_KEY");
+      if (
+        goodsKey &&
+        mallKey &&
+        duplicateGoodsMallKeys.has(`${goodsKey}::${mallKey}`)
+      ) {
+        blockReasons.push("DUPLICATE_GOODS_KEY_MALL_KEY");
       }
       if (!confirmationSatisfied) {
         blockReasons.push("FINAL_CONFIRMATION_REQUIRED");
@@ -177,12 +217,14 @@ export function buildKeywordExecutionPreflight(
   );
   const warnings = evaluatedItems.flatMap((item) =>
     item.preflight_warnings.map(
-      (warning) => `${item.goods_key || "(missing goods_key)"}: ${warning}`,
+      (warning) =>
+        `${item.goods_key || "(missing goods_key)"}: ${KEYWORD_EXECUTION_PREFLIGHT_LABELS[warning] ?? warning}`,
     ),
   );
   const errors = blockedItems.flatMap((item) =>
     item.block_reasons.map(
-      (reason) => `${item.goods_key || "(missing goods_key)"}: ${reason}`,
+      (reason) =>
+        `${item.goods_key || "(missing goods_key)"}: ${KEYWORD_EXECUTION_PREFLIGHT_LABELS[reason] ?? reason}`,
     ),
   );
 
@@ -203,7 +245,7 @@ export function buildKeywordExecutionPreflight(
       ).length,
       maxRowsExceeded,
       duplicateGoodsKeyCount: evaluatedItems.filter((item) =>
-        item.block_reasons.includes("DUPLICATE_GOODS_KEY"),
+        item.block_reasons.includes("DUPLICATE_GOODS_KEY_MALL_KEY"),
       ).length,
       requiresFinalConfirmation:
         config.requireFinalConfirmation && !confirmationSatisfied,
