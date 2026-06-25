@@ -49,6 +49,30 @@ const APPLY_RESULT_LABELS: Record<string, string> = {
   warnings: "경고",
 };
 
+const APPLY_RESULT_VALUE_LABELS: Record<string, string> = {
+  dry_run: "dry_run 확인",
+  success: "성공",
+  blocked: "차단",
+  failed: "실패",
+  partial_failure: "일부 실패",
+  true: "예",
+  false: "아니오",
+  underfilled_search_keywords: "검색어가 10개 미만입니다. 현재는 경고입니다.",
+};
+
+const KEYWORD_APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_TO_SHOPLING";
+const KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY = "keywordReviewQueue.keywordApplyDryRunRequestId";
+const KEYWORD_APPLY_REAL_REQUEST_ID_KEY = "keywordReviewQueue.keywordApplyRequestId";
+
+function isKeywordApplyConfirmationSatisfied(confirmationText: string) {
+  return confirmationText.trim() === KEYWORD_APPLY_CONFIRMATION_TEXT;
+}
+
+function formatApplyResultValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(formatApplyResultValue).join(", ");
+  const raw = String(value ?? "—");
+  return APPLY_RESULT_VALUE_LABELS[raw] ?? raw;
+}
 
 const SHOPLING_MALL_OPTIONS = [
   ["SMALL_00001", "옥션"],
@@ -201,8 +225,13 @@ export default function KeywordReviewQueuePage() {
   const [keywordApplyMaxRows, setKeywordApplyMaxRows] = useState("20");
   const [keywordApplyConfirmationText, setKeywordApplyConfirmationText] =
     useState("");
-  const [keywordApplyStatus, setKeywordApplyStatus] = useState("");
-  const [keywordApplyResult, setKeywordApplyResult] = useState<Record<
+  const [keywordApplyDryRunStatus, setKeywordApplyDryRunStatus] = useState("");
+  const [keywordApplyRealStatus, setKeywordApplyRealStatus] = useState("");
+  const [keywordApplyDryRunResult, setKeywordApplyDryRunResult] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [keywordApplyRealResult, setKeywordApplyRealResult] = useState<Record<
     string,
     unknown
   > | null>(null);
@@ -831,12 +860,16 @@ export default function KeywordReviewQueuePage() {
         preflightResult={preflightResult}
         maxRows={keywordApplyMaxRows}
         confirmationText={keywordApplyConfirmationText}
-        statusMessage={keywordApplyStatus}
-        result={keywordApplyResult}
+        dryRunStatusMessage={keywordApplyDryRunStatus}
+        realStatusMessage={keywordApplyRealStatus}
+        dryRunResult={keywordApplyDryRunResult}
+        realResult={keywordApplyRealResult}
         onMaxRowsChange={setKeywordApplyMaxRows}
         onConfirmationTextChange={setKeywordApplyConfirmationText}
-        onStatusChange={setKeywordApplyStatus}
-        onResultChange={setKeywordApplyResult}
+        onDryRunStatusChange={setKeywordApplyDryRunStatus}
+        onRealStatusChange={setKeywordApplyRealStatus}
+        onDryRunResultChange={setKeywordApplyDryRunResult}
+        onRealResultChange={setKeywordApplyRealResult}
       />
     </>
   );
@@ -1139,33 +1172,43 @@ function KeywordShoplingApplySection({
   preflightResult,
   maxRows,
   confirmationText,
-  statusMessage,
-  result,
+  dryRunStatusMessage,
+  realStatusMessage,
+  dryRunResult,
+  realResult,
   onMaxRowsChange,
   onConfirmationTextChange,
-  onStatusChange,
-  onResultChange,
+  onDryRunStatusChange,
+  onRealStatusChange,
+  onDryRunResultChange,
+  onRealResultChange,
 }: {
   preflightResult: KeywordExecutionPreflightResult | null;
   maxRows: string;
   confirmationText: string;
-  statusMessage: string;
-  result: Record<string, unknown> | null;
+  dryRunStatusMessage: string;
+  realStatusMessage: string;
+  dryRunResult: Record<string, unknown> | null;
+  realResult: Record<string, unknown> | null;
   onMaxRowsChange: (value: string) => void;
   onConfirmationTextChange: (value: string) => void;
-  onStatusChange: (value: string) => void;
-  onResultChange: (value: Record<string, unknown> | null) => void;
+  onDryRunStatusChange: (value: string) => void;
+  onRealStatusChange: (value: string) => void;
+  onDryRunResultChange: (value: Record<string, unknown> | null) => void;
+  onRealResultChange: (value: Record<string, unknown> | null) => void;
 }) {
   const disabled = !preflightResult;
   const executionPlanJson = preflightResult
     ? buildCompactKeywordApplyExecutionPlan(preflightResult)
     : "";
-  const showGithub422Hint = statusMessage.includes("status=422");
+  const showGithub422Hint = `${dryRunStatusMessage} ${realStatusMessage}`.includes("status=422");
   async function run(mode: "dry_run" | "apply") {
     if (!preflightResult) return;
+    const setStatus = mode === "dry_run" ? onDryRunStatusChange : onRealStatusChange;
+    const trimmedConfirmationText = confirmationText.trim();
     if (mode === "apply") {
-      if (confirmationText !== "APPLY_KEYWORD_RESULTS_TO_SHOPLING") {
-        onStatusChange("확인문구가 정확하지 않습니다.");
+      if (!isKeywordApplyConfirmationSatisfied(confirmationText)) {
+        setStatus("확인문구가 정확하지 않습니다.");
         return;
       }
       if (
@@ -1175,14 +1218,14 @@ function KeywordShoplingApplySection({
       )
         return;
     }
-    onStatusChange("GitHub Actions 요청 중...");
+    setStatus("GitHub Actions 요청 중...");
     const response = await fetch("/api/keyword-shopling-apply/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         execution_plan_json: executionPlanJson,
         mode,
-        confirmation_text: mode === "apply" ? confirmationText : "",
+        confirmation_text: mode === "apply" ? trimmedConfirmationText : "",
         max_items: Number.parseInt(maxRows, 10) || 20,
       }),
     });
@@ -1190,30 +1233,45 @@ function KeywordShoplingApplySection({
     if (json.requestId) {
       window.localStorage.setItem(
         mode === "dry_run"
-          ? "keywordReviewQueue.keywordApplyDryRunRequestId"
-          : "keywordReviewQueue.keywordApplyRequestId",
+          ? KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY
+          : KEYWORD_APPLY_REAL_REQUEST_ID_KEY,
         json.requestId,
       );
     }
-    onStatusChange(
-      json.message ||
+    setStatus(
+      response.ok && json.requestId
+        ? "실행 요청을 보냈습니다. 30~60초 후 결과 가져오기를 누르세요."
+        : json.message ||
         json.commandPreview ||
         (response.ok ? "요청 완료" : "요청 실패"),
     );
   }
   async function fetchResult(mode: "dry_run" | "apply") {
+    const setStatus = mode === "dry_run" ? onDryRunStatusChange : onRealStatusChange;
+    const setResult = mode === "dry_run" ? onDryRunResultChange : onRealResultChange;
     const requestId =
       window.localStorage.getItem(
         mode === "dry_run"
-          ? "keywordReviewQueue.keywordApplyDryRunRequestId"
-          : "keywordReviewQueue.keywordApplyRequestId",
+          ? KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY
+          : KEYWORD_APPLY_REAL_REQUEST_ID_KEY,
       ) || "";
+    if (!requestId) {
+      setResult(null);
+      setStatus(mode === "dry_run" ? "아직 dry_run 실행 요청 ID가 없습니다. 먼저 dry_run 실행을 눌러주세요." : "아직 실제 반영 실행 요청 ID가 없습니다. 먼저 ‘실제 샵플링 반영 실행’을 눌러주세요.");
+      return;
+    }
     const response = await fetch(
-      `/api/keyword-shopling-apply/actions-result${requestId ? `?request_id=${encodeURIComponent(requestId)}` : ""}`,
+      `/api/keyword-shopling-apply/actions-result?request_id=${encodeURIComponent(requestId)}&mode=${encodeURIComponent(mode)}`,
     );
     const json = await response.json();
-    onResultChange(json);
-    onStatusChange(json.message || json.status || "결과를 가져왔습니다.");
+    const fetchedMode = typeof json.summary?.mode === "string" ? json.summary.mode : undefined;
+    if (json.status === "success" && fetchedMode !== mode) {
+      setResult(null);
+      setStatus(mode === "apply" ? "가져온 결과가 실제 반영 결과가 아니라 dry_run 결과입니다. 실제 반영 실행 요청 ID를 확인하세요." : "가져온 결과가 dry_run 결과가 아닙니다.");
+      return;
+    }
+    setResult(json);
+    setStatus(json.message || json.status || "결과를 가져왔습니다.");
   }
   return (
     <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -1253,7 +1311,9 @@ function KeywordShoplingApplySection({
             />
           </label>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <h3 className="font-semibold text-blue-950">1단계: dry_run 확인</h3>
+          <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
             disabled={disabled}
@@ -1269,8 +1329,15 @@ function KeywordShoplingApplySection({
           >
             dry_run 결과 가져오기
           </button>
+          </div>
+          <p className="mt-3 text-xs text-blue-900">dry_run request id: <span className="font-mono">{typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY) || "-" : "-"}</span></p>
+          {dryRunStatusMessage ? <p className="mt-3 text-sm text-slate-700">{dryRunStatusMessage}</p> : null}
+          {dryRunResult?.runUrl ? <Link href={String(dryRunResult.runUrl)} className="mt-2 inline-block text-sm font-semibold text-blue-700 underline">GitHub Actions URL</Link> : null}
+          {dryRunResult ? <ApplyResultDisplay result={dryRunResult} title="dry_run result summary" /> : null}
         </div>
-        <label className="mt-4 block text-xs font-semibold text-slate-600">
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+          <h3 className="font-semibold text-red-950">2단계: 실제 반영</h3>
+        <label className="mt-3 block text-xs font-semibold text-slate-600">
           최종 확인문구
           <input
             value={confirmationText}
@@ -1279,6 +1346,8 @@ function KeywordShoplingApplySection({
             className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm font-normal"
           />
         </label>
+        <p className="mt-2 text-xs font-semibold text-red-800">실제 반영은 이 문구가 정확히 입력되어야만 실행됩니다.</p>
+        <button type="button" onClick={() => onConfirmationTextChange(KEYWORD_APPLY_CONFIRMATION_TEXT)} className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700">확인문구 자동 입력</button>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
@@ -1296,20 +1365,21 @@ function KeywordShoplingApplySection({
             반영 결과 가져오기
           </button>
         </div>
-        {statusMessage ? (
-          <p className="mt-3 text-sm text-slate-700">{statusMessage}</p>
-        ) : null}
+          <p className="mt-3 text-xs text-red-900">apply request id: <span className="font-mono">{typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_REAL_REQUEST_ID_KEY) || "-" : "-"}</span></p>
+          {realStatusMessage ? <p className="mt-3 text-sm text-slate-700">{realStatusMessage}</p> : null}
+          {realResult?.runUrl ? <Link href={String(realResult.runUrl)} className="mt-2 inline-block text-sm font-semibold text-red-700 underline">GitHub Actions URL</Link> : null}
+          {realResult ? <ApplyResultDisplay result={realResult} title="apply result summary" /> : null}
+        </div>
         {showGithub422Hint ? (
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
             GitHub Actions 입력값 검증에서 거절되었습니다. 실행 계획 크기 또는 workflow 입력값을 확인하세요.
           </p>
         ) : null}
       </div>
-      {result ? <ApplyResultDisplay result={result} /> : null}
     </section>
   );
 }
-function ApplyResultDisplay({ result }: { result: Record<string, unknown> }) {
+function ApplyResultDisplay({ result, title = "실행 결과 요약" }: { result: Record<string, unknown>; title?: string }) {
   const summary = (
     result.summary && typeof result.summary === "object" ? result.summary : {}
   ) as Record<string, unknown>;
@@ -1319,7 +1389,7 @@ function ApplyResultDisplay({ result }: { result: Record<string, unknown> }) {
       : [];
   return (
     <div className="p-4 sm:p-5">
-      <h3 className="font-semibold">실행 결과 요약</h3>
+      <h3 className="font-semibold">{title}</h3>
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
         {[
           "mode",
@@ -1334,7 +1404,7 @@ function ApplyResultDisplay({ result }: { result: Record<string, unknown> }) {
         ].map((key) => (
           <div key={key} className="rounded-lg bg-slate-50 p-2">
             <strong>{APPLY_RESULT_LABELS[key] ?? key}</strong>:{" "}
-            {String(summary[key] ?? "—")}
+            {formatApplyResultValue(summary[key])}
           </div>
         ))}
       </div>
@@ -1387,7 +1457,7 @@ function ResultRows({
                 "warning_flags",
               ].map((h) => (
                 <td key={h} className="px-2 py-2">
-                  {String(row[h] ?? "—")}
+                  {formatApplyResultValue(row[h])}
                 </td>
               ))}
             </tr>
@@ -1416,9 +1486,7 @@ function BlockedRows({ rows }: { rows: Record<string, unknown>[] }) {
             <tr key={i}>
               {["goods_key", "mall_key", "reasons"].map((h) => (
                 <td key={h} className="px-2 py-2">
-                  {Array.isArray(row[h])
-                    ? (row[h] as unknown[]).join(", ")
-                    : String(row[h] ?? "—")}
+                  {formatApplyResultValue(row[h])}
                 </td>
               ))}
             </tr>

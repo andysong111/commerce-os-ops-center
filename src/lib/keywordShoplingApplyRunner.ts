@@ -49,7 +49,7 @@ export function validateKeywordShoplingApplyInput(input: { execution_plan_json?:
   if (input.mode !== "dry_run" && input.mode !== "apply") throw new Error("mode는 dry_run 또는 apply여야 합니다.");
   const maxItems = Number(input.max_items);
   if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 100) throw new Error("max_items는 1부터 100 사이의 정수여야 합니다.");
-  const confirmationText = typeof input.confirmation_text === "string" ? input.confirmation_text : "";
+  const confirmationText = typeof input.confirmation_text === "string" ? input.confirmation_text.trim() : "";
   if (input.mode === "apply" && confirmationText !== KEYWORD_SHOPLING_APPLY_CONFIRMATION_TEXT) throw new Error("실제 반영은 정확한 확인문구가 필요합니다.");
   return { executionPlanJson: input.execution_plan_json, mode: input.mode as Mode, confirmationText, maxItems, itemCount: itemCountFromPlan(input.execution_plan_json) };
 }
@@ -87,8 +87,9 @@ export function extractKeywordShoplingApplyArtifact(zipBytes: Uint8Array) {
   const read = (name: string) => { const path = find(files, name); return path ? decoder.decode(files[path]) : ""; };
   return { summary: safeJson(JSON.parse(decoder.decode(files[summaryPath]))), applyResults: parseJsonl(read("apply_results.jsonl")), verifyResults: parseJsonl(read("verify_results.jsonl")), blockedItems: parseJsonl(read("blocked_items.jsonl")) };
 }
-export async function fetchKeywordShoplingApplyActionsResult(requestId?: string) {
+export async function fetchKeywordShoplingApplyActionsResult(requestId?: string, mode?: Mode) {
   if (requestId && !isValidKeywordShoplingApplyRequestId(requestId)) return { status: "error", message: "요청 추적 ID 형식이 올바르지 않습니다.", requestId };
+  if (mode !== undefined && mode !== "dry_run" && mode !== "apply") return { status: "error", message: "mode는 dry_run 또는 apply여야 합니다.", requestId };
   if (!enabled()) return { status: "error", message: "KEYWORD_SHOPLING_APPLY_ENABLED=1 인 경우에만 최근 실행 결과를 가져올 수 있습니다.", requestId };
   const config = getConfig(); const [owner, repoName] = config.repo.split("/");
   const params = new URLSearchParams({ branch: config.ref, event: "workflow_dispatch", per_page: requestId ? "30" : "10" });
@@ -103,6 +104,11 @@ export async function fetchKeywordShoplingApplyActionsResult(requestId?: string)
       const zipResponse = await fetch(artifact.archive_download_url, { headers: headers(config.token) }); if (!zipResponse.ok) continue;
       const extracted = extractKeywordShoplingApplyArtifact(new Uint8Array(await zipResponse.arrayBuffer()));
       const summaryRequestId = typeof extracted.summary.request_id === "string" ? extracted.summary.request_id : undefined; if (requestId && summaryRequestId !== requestId) continue;
+      const summaryMode = typeof extracted.summary.mode === "string" ? extracted.summary.mode : undefined;
+      if (mode && summaryMode !== mode) {
+        if (requestId) return { status: "pending", requestId, message: mode === "apply" ? "가져온 결과가 실제 반영 결과가 아니라 dry_run 결과입니다. 실제 반영 실행 요청 ID를 확인하세요." : "가져온 결과가 dry_run 결과가 아닙니다." };
+        continue;
+      }
       return { status: "success", requestId: summaryRequestId ?? requestId, runId, runUrl: run.html_url, runStatus: "completed", runConclusion: typeof run.conclusion === "string" ? run.conclusion : null, artifactName: artifact.name, ...extracted };
     }
     return { status: "pending", requestId, message: "GitHub Actions 실행 또는 결과 artifact가 아직 준비되지 않았습니다. 잠시 후 다시 확인하세요." };
