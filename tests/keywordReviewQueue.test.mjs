@@ -69,7 +69,9 @@ test("reviewed export includes edits and review status", () => {
   const [exported] = JSON.parse(exportReviewedQueue([reviewed]));
 
   assert.equal(exported.edited_title, "User edited title");
+  assert.equal(reviewed.editedMallKey, reviewed.mallKey);
   assert.equal(exported.edited_site_srch, "user, edited, keywords");
+  assert.equal(exported.edited_mall_key, reviewed.mallKey);
   assert.equal(exported.review_status, "approved");
   assert.equal(exported.classification, "manual_review");
   assert.equal(exported.source_row_index, 3);
@@ -260,4 +262,47 @@ test("keyword review delete controls do not introduce external writes or shell h
     /child_process|PowerShell|powershell|pwsh|exec\(|spawn\(/,
   );
   assert.doesNotMatch(source, /GITHUB_TOKEN|SHOPLING_.*TOKEN|secret/i);
+});
+
+test("keyword review apply UX source includes mall key fill and Korean labels", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const text of [
+    "샵플링 반영 미리보기 생성",
+    "승인된 행",
+    "반영 준비 완료",
+    "수정 필요",
+    "적용할 쇼핑몰(mall_key)을 선택하세요",
+    "검색어를 입력하세요",
+    "적용 쇼핑몰 선택",
+    "선택 쇼핑몰 일괄 적용",
+    "승인된 행에 쇼핑몰 적용",
+    "빈 검색어 자동 채우기",
+    "실행 전 최종 점검",
+    "실행 가능 행",
+    "최종 확인문구",
+    "keywordReviewQueue.defaultMallKey",
+    "defaultMallKey",
+    "fallbackSiteSrchFromTitle",
+  ])
+    assert.match(source, new RegExp(text.replace(/[()]/g, "\\$&")));
+});
+
+test("keyword review apply UX removes selected English visible labels", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const text of [
+    "Generate payload/XML preview",
+    "INVALID ROWS",
+    "PREVIEW-READY ROWS",
+    "APPROVED ROWS",
+    "Execution Preflight",
+    "Run preflight check",
+    "Result summary",
+  ])
+    assert.doesNotMatch(source, new RegExp(text));
 });
