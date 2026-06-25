@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  buildCompactKeywordApplyExecutionPlan,
   buildKeywordExecutionPreflight,
   DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
   exportKeywordExecutionPlan,
@@ -250,4 +251,36 @@ test("preflight implementation contains no live Shopling execution", async () =>
   assert.doesNotMatch(source, /\bfetch\s*\(/);
   assert.doesNotMatch(source, /\/api\/shopling/i);
   assert.doesNotMatch(source, /SHOPLING_(API_KEY|SECRET|TOKEN)/i);
+});
+
+test("compact keyword apply execution plan includes only eligible apply fields", () => {
+  const rows = [
+    ...Array.from({ length: 6 }, (_, index) =>
+      row({ goodsKey: `eligible-${index}`, sourceRowIndex: index + 1 }),
+    ),
+    ...Array.from({ length: 100 }, (_, index) =>
+      row({
+        goodsKey: `blocked-${index}`,
+        sourceRowIndex: index + 100,
+        reviewStatus: "hold",
+        raw: { preview_xml_fragment: "<xml/>", validation_errors: ["secret"] },
+      }),
+    ),
+  ];
+  const { result } = run(rows);
+  const json = buildCompactKeywordApplyExecutionPlan(result);
+  const parsed = JSON.parse(json);
+
+  assert.equal(parsed.length, 6);
+  assert.deepEqual(Object.keys(parsed[0]), [
+    "goods_key",
+    "mall_key",
+    "final_title",
+    "final_site_srch",
+  ]);
+  assert.doesNotMatch(json, /blockedItems/);
+  assert.doesNotMatch(json, /preview_xml_fragment/);
+  assert.doesNotMatch(json, /validation_errors/);
+  assert.doesNotMatch(json, /original_title/);
+  assert.ok(parsed.every((item) => item.goods_key.startsWith("eligible-")));
 });

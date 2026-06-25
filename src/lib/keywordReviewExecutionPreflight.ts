@@ -253,6 +253,19 @@ export function buildKeywordExecutionPreflight(
   };
 }
 
+export function buildCompactKeywordApplyExecutionPlan(
+  preflightResult: KeywordExecutionPreflightResult,
+) {
+  return JSON.stringify(
+    preflightResult.eligibleItems.map((item) => ({
+      goods_key: item.goods_key,
+      mall_key: item.mall_key,
+      final_title: item.final_title,
+      final_site_srch: item.final_site_srch,
+    })),
+  );
+}
+
 export function exportKeywordExecutionPlan(
   result: KeywordExecutionPreflightResult,
   config: KeywordExecutionPreflightConfig,
