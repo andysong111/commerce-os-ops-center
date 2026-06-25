@@ -24,6 +24,60 @@ import {
   type KeywordExecutionPreflightResult,
 } from "@/lib/keywordReviewExecutionPreflight";
 
+const DEFAULT_MALL_KEY_STORAGE_KEY = "keywordReviewQueue.defaultMallKey";
+const DEFAULT_MALL_KEY = "SMALL_00004";
+
+const APPLY_RESULT_LABELS: Record<string, string> = {
+  goods_key: "상품번호",
+  mall_key: "쇼핑몰",
+  title_update_status: "상품명 반영 상태",
+  site_srch_update_status: "검색어 반영 상태",
+  code: "코드",
+  msg: "메시지",
+  dry_run: "dry_run 여부",
+  warning_flags: "경고",
+  reasons: "사유",
+  mode: "모드",
+  status: "상태",
+  input_item_count: "입력 행 수",
+  valid_item_count: "유효 행 수",
+  blocked_item_count: "차단 행 수",
+  applied_item_count: "반영 행 수",
+  failed_item_count: "실패 행 수",
+  warnings: "경고",
+};
+
+const SHOPLING_MALL_OPTIONS = [
+  ["SMALL_00001", "옥션"],
+  ["SMALL_00002", "지마켓"],
+  ["SMALL_00003", "11번가"],
+  ["SMALL_00004", "스마트스토어"],
+  ["SMALL_00005", "GS SHOP"],
+  ["SMALL_00012", "쿠팡"],
+  ["SMALL_00014", "카페24(1.9)"],
+  ["SMALL_00019", "신세계몰"],
+  ["SMALL_00069", "도매꾹"],
+  ["SMALL_00071", "도매창고"],
+  ["SMALL_00101", "카카오톡 스토어"],
+  ["SMALL_00107", "오너클랜"],
+  ["SMALL_00112", "에이블리"],
+  ["SMALL_00116", "셀파"],
+  ["SMALL_00130", "롯데ON"],
+  ["SMALL_00165", "셀링콕"],
+  ["SMALL_00168", "인큐텐"],
+  ["SMALL_00179", "투비즈온"],
+  ["SMALL_00180", "도매아토즈"],
+  ["SMALL_00186", "AliExpress"],
+  ["SMALL_00188", "셀리어스"],
+  ["SMALL_00190", "도매의신"],
+  ["SMALL_00191", "TEMU"],
+  ["SMALL_00194", "토스쇼핑"],
+] as const;
+
+function fallbackSiteSrchFromTitle(title: string) {
+  return title.replace(/\s+/g, " ").trim();
+}
+
 type ViewMode = "sheet" | "card";
 type SheetFilter =
   | "all"
@@ -143,9 +197,26 @@ export default function KeywordReviewQueuePage() {
   const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
   const [finalConfirmation, setFinalConfirmation] = useState(false);
   const [keywordApplyMaxRows, setKeywordApplyMaxRows] = useState("20");
-  const [keywordApplyConfirmationText, setKeywordApplyConfirmationText] = useState("");
+  const [keywordApplyConfirmationText, setKeywordApplyConfirmationText] =
+    useState("");
   const [keywordApplyStatus, setKeywordApplyStatus] = useState("");
-  const [keywordApplyResult, setKeywordApplyResult] = useState<Record<string, unknown> | null>(null);
+  const [keywordApplyResult, setKeywordApplyResult] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [defaultMallKey, setDefaultMallKey] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_MALL_KEY;
+    return (
+      window.localStorage.getItem(DEFAULT_MALL_KEY_STORAGE_KEY) ||
+      DEFAULT_MALL_KEY
+    );
+  });
+  const [mallKeyFillStatus, setMallKeyFillStatus] = useState("");
+
+  function changeDefaultMallKey(value: string) {
+    setDefaultMallKey(value);
+    window.localStorage.setItem(DEFAULT_MALL_KEY_STORAGE_KEY, value);
+  }
   function loadImportedArtifact() {
     if (!importedArtifact?.files) return;
     setApprovalCsv(
@@ -254,7 +325,7 @@ export default function KeywordReviewQueuePage() {
     update: Partial<
       Pick<
         ReviewedKeywordRow,
-        "editedTitle" | "editedSiteSrch" | "reviewStatus"
+        "editedTitle" | "editedSiteSrch" | "editedMallKey" | "reviewStatus"
       >
     >,
   ) {
@@ -269,7 +340,12 @@ export default function KeywordReviewQueuePage() {
 
   function updateRows(
     indexes: number[],
-    update: Partial<Pick<ReviewedKeywordRow, "reviewStatus">>,
+    update: Partial<
+      Pick<
+        ReviewedKeywordRow,
+        "reviewStatus" | "editedMallKey" | "editedSiteSrch"
+      >
+    >,
   ) {
     setPayloadPreview(null);
     setPreflightResult(null);
@@ -292,9 +368,56 @@ export default function KeywordReviewQueuePage() {
         if (!goodsKey || !row.recommendedTitle.trim()) return row;
         if (!seen.has(goodsKey)) {
           seen.add(goodsKey);
-          return { ...row, reviewStatus: "approved" };
+          return {
+            ...row,
+            reviewStatus: "approved",
+            editedMallKey:
+              row.editedMallKey.trim() || row.mallKey.trim() || defaultMallKey,
+            editedSiteSrch:
+              row.editedSiteSrch.trim() ||
+              row.recommendedSiteSrch.trim() ||
+              fallbackSiteSrchFromTitle(
+                row.editedTitle || row.recommendedTitle,
+              ),
+          };
         }
         return { ...row, reviewStatus: "hold" };
+      }),
+    );
+    setMallKeyFillStatus(
+      "상품별 첫 후보에 쇼핑몰과 임시 검색어를 자동으로 채웠습니다.",
+    );
+  }
+
+  function fillMallKeyForRows(approvedOnly: boolean) {
+    setPayloadPreview(null);
+    setPreflightResult(null);
+    setRows((current) =>
+      current.map((row) => {
+        if (row.classification === "blocked_risk") return row;
+        if (approvedOnly && row.reviewStatus !== "approved") return row;
+        return row.mallKey.trim() || row.editedMallKey.trim()
+          ? row
+          : { ...row, editedMallKey: defaultMallKey };
+      }),
+    );
+    setMallKeyFillStatus("선택한 쇼핑몰을 검토 행에 적용했습니다.");
+  }
+
+  function fillEmptySiteSrch() {
+    setPayloadPreview(null);
+    setPreflightResult(null);
+    setRows((current) =>
+      current.map((row) => {
+        const finalSiteSrch =
+          row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim();
+        if (finalSiteSrch) return row;
+        return {
+          ...row,
+          editedSiteSrch: fallbackSiteSrchFromTitle(
+            row.editedTitle || row.recommendedTitle,
+          ),
+        };
       }),
     );
   }
@@ -465,6 +588,60 @@ export default function KeywordReviewQueuePage() {
         <SummaryCard label="전체" value={counts.total} />
       </section>
 
+      <section className="my-6 rounded-xl border border-blue-200 bg-white p-4 shadow-sm sm:p-5">
+        <h2 className="font-semibold text-slate-950">적용 쇼핑몰 선택</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          mall_key는 샵플링 쇼핑몰 코드입니다. 도매1/소매1 상품그룹과는
+          다릅니다. 먼저 테스트할 쇼핑몰 1개를 선택하세요.
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="text-xs font-semibold text-slate-600">
+            쇼핑몰 코드
+            <select
+              value={defaultMallKey}
+              onChange={(event) => changeDefaultMallKey(event.target.value)}
+              className="mt-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"
+            >
+              {SHOPLING_MALL_OPTIONS.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {key} {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => fillMallKeyForRows(false)}
+            className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700"
+          >
+            선택 쇼핑몰 일괄 적용
+          </button>
+          <button
+            type="button"
+            onClick={() => fillMallKeyForRows(true)}
+            className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700"
+          >
+            승인된 행에 쇼핑몰 적용
+          </button>
+          <button
+            type="button"
+            onClick={fillEmptySiteSrch}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+          >
+            빈 검색어 자동 채우기
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          검색어가 비어 있으면 상품명을 임시 검색어로 사용합니다. 품질 개선은
+          이후 단계에서 진행합니다.
+        </p>
+        {mallKeyFillStatus ? (
+          <p className="mt-2 text-xs font-semibold text-emerald-700">
+            {mallKeyFillStatus}
+          </p>
+        ) : null}
+      </section>
+
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
           <div>
@@ -554,7 +731,9 @@ export default function KeywordReviewQueuePage() {
                   updateRows([...selectedRows], { reviewStatus: "hold" })
                 }
                 onApproveAllReviewNeeded={approveAllReviewNeededRows}
-                onApproveFirstCandidatePerGoodsKey={approveFirstCandidatePerGoodsKey}
+                onApproveFirstCandidatePerGoodsKey={
+                  approveFirstCandidatePerGoodsKey
+                }
                 onClearSelection={() => setSelectedRows(new Set())}
                 onDeleteRow={(index) => {
                   if (
@@ -773,41 +952,40 @@ function ExecutionPreflightSection({
   return (
     <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 p-4 sm:p-5">
-        <h2 className="font-semibold text-slate-950">Execution Preflight</h2>
+        <h2 className="font-semibold text-slate-950">실행 전 최종 점검</h2>
         <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-900">
-          Preview only. This does not execute Shopling API updates.
+          미리보기 전용입니다. 이 단계에서는 샵플링 API를 실행하지 않습니다.
         </div>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <label className="text-xs font-semibold text-slate-600">
-            Allowed mall keys
+            허용 쇼핑몰
             <textarea
               value={allowedMallKeys}
               onChange={(event) => onAllowedMallKeysChange(event.target.value)}
               className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs font-normal text-slate-900"
-              placeholder="one mall_key per line or comma-separated"
+              placeholder="mall_key를 줄바꿈 또는 쉼표로 입력"
             />
             <span className="mt-1 block font-normal">
-              Leave allowedMallKeys empty to block all rows.
+              허용 쇼핑몰을 비워두면 모든 행이 차단됩니다.
             </span>
           </label>
           <label className="text-xs font-semibold text-slate-600">
-            Already-applied goods keys
+            이미 반영한 상품번호
             <textarea
               value={alreadyAppliedGoodsKeys}
               onChange={(event) =>
                 onAlreadyAppliedGoodsKeysChange(event.target.value)
               }
               className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs font-normal text-slate-900"
-              placeholder="one goods_key per line or comma-separated"
+              placeholder="goods_key를 줄바꿈 또는 쉼표로 입력"
             />
             <span className="mt-1 block font-normal">
-              Already-applied goods_key examples can be entered here to prevent
-              re-execution.
+              이미 반영한 goods_key를 입력하면 중복 실행을 막습니다.
             </span>
           </label>
         </div>
         <label className="mt-4 block max-w-xs text-xs font-semibold text-slate-600">
-          Maximum rows
+          최대 실행 행 수
           <input
             type="number"
             min="0"
@@ -817,7 +995,7 @@ function ExecutionPreflightSection({
             className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"
           />
           <span className="mt-1 block font-normal">
-            maxRows must be greater than 0 to allow any row.
+            실행을 허용하려면 최대 실행 행 수가 0보다 커야 합니다.
           </span>
         </label>
         <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
@@ -839,41 +1017,41 @@ function ExecutionPreflightSection({
           onClick={() => onRun(config)}
           className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          Run preflight check
+          실행 전 점검
         </button>
       </div>
 
       {!result ? (
         <p className="p-8 text-center text-sm text-slate-500">
-          Generate the payload/XML preview, configure the fail-closed guards,
-          and run the preflight check.
+          샵플링 반영 미리보기를 생성하고 안전 설정을 입력한 뒤 실행 전 점검을
+          실행하세요.
         </p>
       ) : (
         <div className="p-4 sm:p-5">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard
-              label="Eligible"
+              label="실행 가능"
               value={result.summary.eligibleCount}
             />
-            <SummaryCard label="Blocked" value={result.summary.blockedCount} />
+            <SummaryCard label="차단됨" value={result.summary.blockedCount} />
             <SummaryCard
-              label="Already applied blocked"
+              label="이미 반영됨"
               value={result.summary.alreadyAppliedBlockedCount}
             />
             <SummaryCard
-              label="Mall key blocked"
+              label="쇼핑몰 제한"
               value={result.summary.mallKeyBlockedCount}
             />
             <SummaryCard
-              label="Duplicate goods keys"
+              label="중복 상품번호"
               value={result.summary.duplicateGoodsKeyCount}
             />
             <StatusCard
-              label="Max rows exceeded"
+              label="최대 행 초과"
               value={result.summary.maxRowsExceeded}
             />
             <StatusCard
-              label="Final confirmation required"
+              label="최종 확인 필요"
               value={result.summary.requiresFinalConfirmation}
             />
           </div>
@@ -882,13 +1060,13 @@ function ExecutionPreflightSection({
             <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="px-3 py-2">goods_key</th>
-                  <th className="px-3 py-2">mall_key</th>
-                  <th className="px-3 py-2">Final title</th>
-                  <th className="px-3 py-2">Final site_srch</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Block reasons</th>
-                  <th className="px-3 py-2">Warnings</th>
+                  <th className="px-3 py-2">상품번호</th>
+                  <th className="px-3 py-2">쇼핑몰</th>
+                  <th className="px-3 py-2">최종 상품명</th>
+                  <th className="px-3 py-2">최종 검색어</th>
+                  <th className="px-3 py-2">상태</th>
+                  <th className="px-3 py-2">차단 사유</th>
+                  <th className="px-3 py-2">경고</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -913,7 +1091,9 @@ function ExecutionPreflightSection({
                           : "text-red-700"
                       }`}
                     >
-                      {item.preflight_status}
+                      {item.preflight_status === "eligible"
+                        ? "실행 가능"
+                        : "차단됨"}
                     </td>
                     <td className="min-w-56 px-3 py-3 align-top text-xs">
                       {item.block_reasons.join(", ") || "—"}
@@ -931,7 +1111,7 @@ function ExecutionPreflightSection({
             htmlFor="execution-plan-json"
             className="mt-5 block text-xs font-semibold text-slate-600"
           >
-            Preview-only execution plan JSON
+            미리보기용 실행 계획 JSON
           </label>
           <textarea
             id="execution-plan-json"
@@ -945,7 +1125,7 @@ function ExecutionPreflightSection({
               onClick={() => void navigator.clipboard.writeText(executionPlan)}
               className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
             >
-              Copy execution plan JSON
+              실행 계획 복사
             </button>
             <button
               type="button"
@@ -958,7 +1138,7 @@ function ExecutionPreflightSection({
               }
               className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
             >
-              Download execution plan JSON
+              실행 계획 다운로드
             </button>
           </div>
         </div>
@@ -966,7 +1146,6 @@ function ExecutionPreflightSection({
     </section>
   );
 }
-
 
 function KeywordShoplingApplySection({
   preflightResult,
@@ -991,7 +1170,11 @@ function KeywordShoplingApplySection({
 }) {
   const disabled = !preflightResult;
   const executionPlanJson = preflightResult
-    ? JSON.stringify({ eligibleItems: preflightResult.eligibleItems, blockedItems: preflightResult.blockedItems, summary: preflightResult.summary })
+    ? JSON.stringify({
+        eligibleItems: preflightResult.eligibleItems,
+        blockedItems: preflightResult.blockedItems,
+        summary: preflightResult.summary,
+      })
     : "";
   async function run(mode: "dry_run" | "apply") {
     if (!preflightResult) return;
@@ -1000,23 +1183,49 @@ function KeywordShoplingApplySection({
         onStatusChange("확인문구가 정확하지 않습니다.");
         return;
       }
-      if (!window.confirm("실제 샵플링 상품명/검색어를 수정합니다. 계속하시겠습니까?")) return;
+      if (
+        !window.confirm(
+          "실제 샵플링 상품명/검색어를 수정합니다. 계속하시겠습니까?",
+        )
+      )
+        return;
     }
     onStatusChange("GitHub Actions 요청 중...");
     const response = await fetch("/api/keyword-shopling-apply/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ execution_plan_json: executionPlanJson, mode, confirmation_text: mode === "apply" ? confirmationText : "", max_items: Number.parseInt(maxRows, 10) || 20 }),
+      body: JSON.stringify({
+        execution_plan_json: executionPlanJson,
+        mode,
+        confirmation_text: mode === "apply" ? confirmationText : "",
+        max_items: Number.parseInt(maxRows, 10) || 20,
+      }),
     });
     const json = await response.json();
     if (json.requestId) {
-      window.localStorage.setItem(mode === "dry_run" ? "keywordReviewQueue.keywordApplyDryRunRequestId" : "keywordReviewQueue.keywordApplyRequestId", json.requestId);
+      window.localStorage.setItem(
+        mode === "dry_run"
+          ? "keywordReviewQueue.keywordApplyDryRunRequestId"
+          : "keywordReviewQueue.keywordApplyRequestId",
+        json.requestId,
+      );
     }
-    onStatusChange(json.message || json.commandPreview || (response.ok ? "요청 완료" : "요청 실패"));
+    onStatusChange(
+      json.message ||
+        json.commandPreview ||
+        (response.ok ? "요청 완료" : "요청 실패"),
+    );
   }
   async function fetchResult(mode: "dry_run" | "apply") {
-    const requestId = window.localStorage.getItem(mode === "dry_run" ? "keywordReviewQueue.keywordApplyDryRunRequestId" : "keywordReviewQueue.keywordApplyRequestId") || "";
-    const response = await fetch(`/api/keyword-shopling-apply/actions-result${requestId ? `?request_id=${encodeURIComponent(requestId)}` : ""}`);
+    const requestId =
+      window.localStorage.getItem(
+        mode === "dry_run"
+          ? "keywordReviewQueue.keywordApplyDryRunRequestId"
+          : "keywordReviewQueue.keywordApplyRequestId",
+      ) || "";
+    const response = await fetch(
+      `/api/keyword-shopling-apply/actions-result${requestId ? `?request_id=${encodeURIComponent(requestId)}` : ""}`,
+    );
     const json = await response.json();
     onResultChange(json);
     onStatusChange(json.message || json.status || "결과를 가져왔습니다.");
@@ -1025,26 +1234,210 @@ function KeywordShoplingApplySection({
     <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 p-4 sm:p-5">
         <h2 className="font-semibold text-slate-950">샵플링 반영 실행</h2>
-        <p className="mt-2 text-sm text-slate-600">이 단계는 승인된 상품명/검색어를 외부 GitHub Actions로 보내 샵플링에 반영합니다. OPS Center는 샵플링을 직접 호출하지 않습니다.</p>
-        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">먼저 dry_run으로 결과를 확인한 뒤, 최종 확인문구를 입력해야 실제 반영할 수 있습니다.</p>
-        {!preflightResult ? <p className="mt-3 text-sm font-semibold text-red-700">먼저 payload preview와 preflight check를 실행하세요.</p> : null}
-        <div className="mt-4 grid gap-3 sm:grid-cols-3"><SummaryCard label="preflight eligible" value={preflightResult?.summary.eligibleCount ?? 0} /><SummaryCard label="blocked" value={preflightResult?.summary.blockedCount ?? 0} /><label className="text-xs font-semibold text-slate-600">max rows input<input type="number" min="1" max="100" value={maxRows} onChange={(event) => onMaxRowsChange(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" /></label></div>
-        <div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("dry_run")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">샵플링 반영 dry_run 실행</button><button type="button" onClick={() => void fetchResult("dry_run")} className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700">dry_run 결과 가져오기</button></div>
-        <label className="mt-4 block text-xs font-semibold text-slate-600">confirmation text<input value={confirmationText} onChange={(event) => onConfirmationTextChange(event.target.value)} placeholder="APPLY_KEYWORD_RESULTS_TO_SHOPLING" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm font-normal" /></label>
-        <div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">실제 샵플링 반영 실행</button><button type="button" onClick={() => void fetchResult("apply")} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700">반영 결과 가져오기</button></div>
-        {statusMessage ? <p className="mt-3 text-sm text-slate-700">{statusMessage}</p> : null}
+        <p className="mt-2 text-sm text-slate-600">
+          이 단계는 승인된 상품명/검색어를 외부 GitHub Actions로 보내 샵플링에
+          반영합니다. OPS Center는 샵플링을 직접 호출하지 않습니다.
+        </p>
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+          먼저 dry_run으로 결과를 확인한 뒤, 최종 확인문구를 입력해야 실제
+          반영할 수 있습니다.
+        </p>
+        {!preflightResult ? (
+          <p className="mt-3 text-sm font-semibold text-red-700">
+            먼저 반영 미리보기와 실행 전 점검을 실행하세요.
+          </p>
+        ) : null}
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <SummaryCard
+            label="실행 가능 행"
+            value={preflightResult?.summary.eligibleCount ?? 0}
+          />
+          <SummaryCard
+            label="차단 행"
+            value={preflightResult?.summary.blockedCount ?? 0}
+          />
+          <label className="text-xs font-semibold text-slate-600">
+            최대 실행 행 수
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={maxRows}
+              onChange={(event) => onMaxRowsChange(event.target.value)}
+              className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+            />
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => void run("dry_run")}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300"
+          >
+            샵플링 반영 dry_run 실행
+          </button>
+          <button
+            type="button"
+            onClick={() => void fetchResult("dry_run")}
+            className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700"
+          >
+            dry_run 결과 가져오기
+          </button>
+        </div>
+        <label className="mt-4 block text-xs font-semibold text-slate-600">
+          최종 확인문구
+          <input
+            value={confirmationText}
+            onChange={(event) => onConfirmationTextChange(event.target.value)}
+            placeholder="APPLY_KEYWORD_RESULTS_TO_SHOPLING"
+            className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm font-normal"
+          />
+        </label>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => void run("apply")}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300"
+          >
+            실제 샵플링 반영 실행
+          </button>
+          <button
+            type="button"
+            onClick={() => void fetchResult("apply")}
+            className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700"
+          >
+            반영 결과 가져오기
+          </button>
+        </div>
+        {statusMessage ? (
+          <p className="mt-3 text-sm text-slate-700">{statusMessage}</p>
+        ) : null}
       </div>
       {result ? <ApplyResultDisplay result={result} /> : null}
     </section>
   );
 }
 function ApplyResultDisplay({ result }: { result: Record<string, unknown> }) {
-  const summary = (result.summary && typeof result.summary === "object" ? result.summary : {}) as Record<string, unknown>;
-  const rows = (key: string) => Array.isArray(result[key]) ? result[key] as Record<string, unknown>[] : [];
-  return <div className="p-4 sm:p-5"><h3 className="font-semibold">Result summary</h3><div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">{["mode","status","input_item_count","valid_item_count","blocked_item_count","applied_item_count","failed_item_count","dry_run","warnings"].map((key) => <div key={key} className="rounded-lg bg-slate-50 p-2"><strong>{key}</strong>: {String(summary[key] ?? "—")}</div>)}</div><ResultRows title="apply_results" rows={rows("applyResults")} /><ResultRows title="verify_results" rows={rows("verifyResults")} /><BlockedRows rows={rows("blockedItems")} /></div>;
+  const summary = (
+    result.summary && typeof result.summary === "object" ? result.summary : {}
+  ) as Record<string, unknown>;
+  const rows = (key: string) =>
+    Array.isArray(result[key])
+      ? (result[key] as Record<string, unknown>[])
+      : [];
+  return (
+    <div className="p-4 sm:p-5">
+      <h3 className="font-semibold">실행 결과 요약</h3>
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+        {[
+          "mode",
+          "status",
+          "input_item_count",
+          "valid_item_count",
+          "blocked_item_count",
+          "applied_item_count",
+          "failed_item_count",
+          "dry_run",
+          "warnings",
+        ].map((key) => (
+          <div key={key} className="rounded-lg bg-slate-50 p-2">
+            <strong>{APPLY_RESULT_LABELS[key] ?? key}</strong>:{" "}
+            {String(summary[key] ?? "—")}
+          </div>
+        ))}
+      </div>
+      <ResultRows title="반영 결과" rows={rows("applyResults")} />
+      <ResultRows title="검증 결과" rows={rows("verifyResults")} />
+      <BlockedRows rows={rows("blockedItems")} />
+    </div>
+  );
 }
-function ResultRows({ title, rows }: { title: string; rows: Record<string, unknown>[] }) { return <div className="mt-5 overflow-x-auto"><h3 className="font-semibold">{title}</h3><table className="mt-2 min-w-full divide-y divide-slate-200 text-left text-xs"><thead><tr>{["goods_key","mall_key","title_update_status","site_srch_update_status","code","msg","dry_run","warning_flags"].map((h)=><th key={h} className="px-2 py-2">{h}</th>)}</tr></thead><tbody>{rows.map((row, i)=><tr key={i}>{["goods_key","mall_key","title_update_status","site_srch_update_status","code","msg","dry_run","warning_flags"].map((h)=><td key={h} className="px-2 py-2">{String(row[h] ?? "—")}</td>)}</tr>)}</tbody></table></div>; }
-function BlockedRows({ rows }: { rows: Record<string, unknown>[] }) { return <div className="mt-5 overflow-x-auto"><h3 className="font-semibold">blocked_items</h3><table className="mt-2 min-w-full divide-y divide-slate-200 text-left text-xs"><thead><tr>{["goods_key","mall_key","reasons"].map((h)=><th key={h} className="px-2 py-2">{h}</th>)}</tr></thead><tbody>{rows.map((row, i)=><tr key={i}>{["goods_key","mall_key","reasons"].map((h)=><td key={h} className="px-2 py-2">{Array.isArray(row[h]) ? (row[h] as unknown[]).join(", ") : String(row[h] ?? "—")}</td>)}</tr>)}</tbody></table></div>; }
+function ResultRows({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Record<string, unknown>[];
+}) {
+  return (
+    <div className="mt-5 overflow-x-auto">
+      <h3 className="font-semibold">{title}</h3>
+      <table className="mt-2 min-w-full divide-y divide-slate-200 text-left text-xs">
+        <thead>
+          <tr>
+            {[
+              "goods_key",
+              "mall_key",
+              "title_update_status",
+              "site_srch_update_status",
+              "code",
+              "msg",
+              "dry_run",
+              "warning_flags",
+            ].map((h) => (
+              <th key={h} className="px-2 py-2">
+                {APPLY_RESULT_LABELS[h] ?? h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i}>
+              {[
+                "goods_key",
+                "mall_key",
+                "title_update_status",
+                "site_srch_update_status",
+                "code",
+                "msg",
+                "dry_run",
+                "warning_flags",
+              ].map((h) => (
+                <td key={h} className="px-2 py-2">
+                  {String(row[h] ?? "—")}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+function BlockedRows({ rows }: { rows: Record<string, unknown>[] }) {
+  return (
+    <div className="mt-5 overflow-x-auto">
+      <h3 className="font-semibold">차단 항목</h3>
+      <table className="mt-2 min-w-full divide-y divide-slate-200 text-left text-xs">
+        <thead>
+          <tr>
+            {["goods_key", "mall_key", "reasons"].map((h) => (
+              <th key={h} className="px-2 py-2">
+                {APPLY_RESULT_LABELS[h] ?? h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i}>
+              {["goods_key", "mall_key", "reasons"].map((h) => (
+                <td key={h} className="px-2 py-2">
+                  {Array.isArray(row[h])
+                    ? (row[h] as unknown[]).join(", ")
+                    : String(row[h] ?? "—")}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function downloadText(filename: string, text: string, type: string) {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -1072,14 +1465,14 @@ function PayloadPreviewSection({
     <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 p-4 sm:p-5">
         <h2 className="font-semibold text-slate-950">
-          Generate payload/XML preview
+          샵플링 반영 미리보기 생성
         </h2>
         <p className="mt-1 text-sm text-slate-600">
-          Validate approved rows and create a proposed Shopling title and
-          site_srch update preview.
+          승인된 행을 검사하고 샵플링에 반영될 상품명/검색어 미리보기를
+          만듭니다.
         </p>
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-          This is preview only. No Shopling API execution is performed.
+          미리보기 전용입니다. 이 단계에서는 샵플링 API를 실행하지 않습니다.
         </div>
         <button
           type="button"
@@ -1087,28 +1480,27 @@ function PayloadPreviewSection({
           onClick={onGenerate}
           className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          Generate payload/XML preview
+          샵플링 반영 미리보기 생성
         </button>
       </div>
 
       {!result ? (
         <p className="p-8 text-center text-sm text-slate-500">
-          Approve at least one reviewed row, then generate a non-executing
-          preview.
+          승인된 행이 1개 이상 있으면 실행 없는 미리보기를 생성할 수 있습니다.
         </p>
       ) : (
         <div className="p-4 sm:p-5">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard
-              label="Approved rows"
+              label="승인된 행"
               value={result.summary.approvedCount}
             />
             <SummaryCard
-              label="Preview-ready rows"
+              label="반영 준비 완료"
               value={result.summary.previewReadyCount}
             />
             <SummaryCard
-              label="Invalid rows"
+              label="수정 필요"
               value={result.summary.invalidCount}
             />
             <SummaryCard
@@ -1121,10 +1513,10 @@ function PayloadPreviewSection({
             <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="px-3 py-2">Keys</th>
-                  <th className="px-3 py-2">Final title</th>
-                  <th className="px-3 py-2">Final site_srch</th>
-                  <th className="px-3 py-2">Validation</th>
+                  <th className="px-3 py-2">상품번호 / 쇼핑몰</th>
+                  <th className="px-3 py-2">최종 상품명</th>
+                  <th className="px-3 py-2">최종 검색어</th>
+                  <th className="px-3 py-2">검사 결과</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -1151,7 +1543,7 @@ function PayloadPreviewSection({
                             : "text-red-700"
                         }
                       >
-                        {item.payload_status.replaceAll("_", " ")}
+                        {payloadStatusLabel(item.payload_status)}
                       </strong>
                       {[
                         ...item.validation_errors,
@@ -1291,6 +1683,20 @@ function StatusCard({ label, value }: { label: string; value: boolean }) {
   );
 }
 
+function payloadStatusLabel(status: string) {
+  return (
+    (
+      {
+        invalid: "수정 필요",
+        not_approved: "미승인",
+        held: "보류",
+        preview_ready: "반영 준비 완료",
+        blocked_risk: "위험/차단",
+      } as Record<string, string>
+    )[status] ?? status
+  );
+}
+
 function reviewStatusLabel(status: ReviewedKeywordRow["reviewStatus"]) {
   return { pending: "대기", approved: "승인됨", hold: "보류" }[status];
 }
@@ -1360,7 +1766,7 @@ function SheetReviewTable({
     update: Partial<
       Pick<
         ReviewedKeywordRow,
-        "editedTitle" | "editedSiteSrch" | "reviewStatus"
+        "editedTitle" | "editedSiteSrch" | "editedMallKey" | "reviewStatus"
       >
     >,
   ) => void;
@@ -1467,12 +1873,13 @@ function SheetReviewTable({
           type="button"
           onClick={onApproveFirstCandidatePerGoodsKey}
           className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700"
-          title="플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고 나머지는 보류합니다."
+          title="플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고, 쇼핑몰과 임시 검색어를 자동으로 채웁니다."
         >
           상품별 첫 후보만 승인
         </button>
         <span className="text-xs text-slate-500">
-          플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고 나머지는 보류합니다.
+          플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고, 쇼핑몰과
+          임시 검색어를 자동으로 채웁니다.
         </span>
         <button
           type="button"
@@ -1489,7 +1896,7 @@ function SheetReviewTable({
             <tr className="border-b border-slate-300">
               <th className="w-14 px-2 py-2">선택</th>
               <th className="w-28 px-2 py-2">상태</th>
-              <th className="w-28 px-2 py-2">상품번호</th>
+              <th className="w-36 px-2 py-2">상품번호 / 쇼핑몰</th>
               <th className="min-w-56 px-2 py-2">현재 상품명</th>
               <th className="min-w-72 px-2 py-2">추천 상품명</th>
               <th className="min-w-80 px-2 py-2">추천 검색어</th>
@@ -1526,7 +1933,21 @@ function SheetReviewTable({
                     </div>
                   </td>
                   <td className="px-2 py-2 font-semibold text-slate-900">
-                    {row.goodsKey || "—"}
+                    <div>{row.goodsKey || "—"}</div>
+                    <select
+                      value={row.editedMallKey || row.mallKey || ""}
+                      onChange={(event) =>
+                        onUpdate(index, { editedMallKey: event.target.value })
+                      }
+                      className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-xs font-normal"
+                    >
+                      <option value="">쇼핑몰 선택 필요</option>
+                      {SHOPLING_MALL_OPTIONS.map(([key, label]) => (
+                        <option key={key} value={key}>
+                          {key} {label}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-2 py-2 text-slate-700">
                     {row.originalTitle || "—"}
@@ -1595,7 +2016,14 @@ function SheetReviewTable({
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <td colSpan={8} className="px-3 py-3">
                       <dl className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        <Detail label="mail_key" value={row.mallKey} />
+                        <Detail
+                          label="mall_key"
+                          value={
+                            row.editedMallKey ||
+                            row.mallKey ||
+                            "쇼핑몰 선택 필요"
+                          }
+                        />
                         <Detail
                           label="sourceRowIndex"
                           value={String(row.sourceRowIndex)}
@@ -1644,7 +2072,7 @@ function ReviewRow({
     update: Partial<
       Pick<
         ReviewedKeywordRow,
-        "editedTitle" | "editedSiteSrch" | "reviewStatus"
+        "editedTitle" | "editedSiteSrch" | "editedMallKey" | "reviewStatus"
       >
     >,
   ) => void;
@@ -1672,6 +2100,23 @@ function ReviewRow({
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Detail label="현재 상품명" value={row.originalTitle} />
+        <label className="text-xs font-semibold text-slate-600">
+          적용 쇼핑몰
+          <select
+            value={row.editedMallKey || row.mallKey || ""}
+            onChange={(event) =>
+              onUpdate({ editedMallKey: event.target.value })
+            }
+            className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"
+          >
+            <option value="">쇼핑몰 선택 필요</option>
+            {SHOPLING_MALL_OPTIONS.map(([key, label]) => (
+              <option key={key} value={key}>
+                {key} {label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="text-xs font-semibold text-slate-600">
           추천 상품명
           <input
@@ -1739,7 +2184,10 @@ function ReviewRow({
           세부 정보 보기
         </summary>
         <dl className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Detail label="mail_key" value={row.mallKey} />
+          <Detail
+            label="mall_key"
+            value={row.editedMallKey || row.mallKey || "쇼핑몰 선택 필요"}
+          />
           <Detail label="quality_status" value={row.qualityStatus} />
           <Detail label="confidence_status" value={row.confidenceStatus} />
           <Detail label="block_reason" value={row.blockReason} />

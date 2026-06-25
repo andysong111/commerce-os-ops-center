@@ -30,6 +30,7 @@ export type KeywordReviewRow = {
 export type ReviewedKeywordRow = KeywordReviewRow & {
   editedTitle: string;
   editedSiteSrch: string;
+  editedMallKey: string;
   reviewStatus: KeywordReviewStatus;
 };
 
@@ -66,10 +67,7 @@ const aliases = {
   reviewReason: ["review_reason", "manual_review_reason"],
   payloadStatus: ["payload_status"],
   approvalStatus: ["approval_status", "review_status"],
-  manualCandidateKeywords: [
-    "manual_candidate_keywords",
-    "candidate_keywords",
-  ],
+  manualCandidateKeywords: ["manual_candidate_keywords", "candidate_keywords"],
 } as const;
 
 const manualIndicators = [
@@ -102,7 +100,10 @@ const riskIndicators = [
 ];
 
 function normalizeHeader(header: string) {
-  return header.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return header
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
 }
 
 function valueFor(
@@ -219,10 +220,7 @@ export function parseKeywordMvpCsv(csvText: string): KeywordReviewRow[] {
       originalTitle: valueFor(normalizedRow, aliases.originalTitle),
       recommendedTitle: valueFor(normalizedRow, aliases.recommendedTitle),
       originalSiteSrch: valueFor(normalizedRow, aliases.originalSiteSrch),
-      recommendedSiteSrch: valueFor(
-        normalizedRow,
-        aliases.recommendedSiteSrch,
-      ),
+      recommendedSiteSrch: valueFor(normalizedRow, aliases.recommendedSiteSrch),
       siteSrchKeywordCount: numberOrNull(
         valueFor(normalizedRow, aliases.siteSrchKeywordCount),
       ),
@@ -254,6 +252,7 @@ export function createReviewedRows(
     ...row,
     editedTitle: row.recommendedTitle,
     editedSiteSrch: row.recommendedSiteSrch,
+    editedMallKey: row.mallKey,
     reviewStatus: "pending",
   }));
 }
@@ -269,6 +268,7 @@ export function exportReviewedQueue(rows: ReviewedKeywordRow[]) {
       recommended_site_srch: row.recommendedSiteSrch,
       edited_title: row.editedTitle,
       edited_site_srch: row.editedSiteSrch,
+      edited_mall_key: row.editedMallKey,
       classification: row.classification,
       review_status: row.reviewStatus,
       block_reason: row.blockReason,

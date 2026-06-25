@@ -24,6 +24,7 @@ export type KeywordPayloadPreviewItem = {
   original_site_srch: string;
   recommended_site_srch: string;
   edited_site_srch: string;
+  edited_mall_key: string;
   final_site_srch: string;
   classification: KeywordQueueClassification;
   review_status: KeywordReviewStatus;
@@ -85,7 +86,11 @@ function normalizeSiteSrch(value: string) {
     seen.add(key);
     return true;
   });
-  return { normalized: uniqueKeywords.join(", "), duplicateKeywords, keywords: uniqueKeywords };
+  return {
+    normalized: uniqueKeywords.join(", "),
+    duplicateKeywords,
+    keywords: uniqueKeywords,
+  };
 }
 
 function xmlFragment(
@@ -95,7 +100,7 @@ function xmlFragment(
   siteSrch: string,
 ) {
   return [
-    "  <product-update preview-only=\"true\">",
+    '  <product-update preview-only="true">',
     `    <goods_key>${escapeXml(goodsKey)}</goods_key>`,
     `    <mall_key>${escapeXml(mallKey)}</mall_key>`,
     `    <title>${escapeXml(title)}</title>`,
@@ -115,6 +120,7 @@ export function buildKeywordShoplingPayloadPreview(
     const validation_errors: string[] = [];
     const validation_warnings: string[] = [];
     const final_title = preferredValue(row.editedTitle, row.recommendedTitle);
+    const final_mall_key = preferredValue(row.editedMallKey, row.mallKey);
     const preferredSiteSrch = preferredValue(
       row.editedSiteSrch,
       row.recommendedSiteSrch,
@@ -128,17 +134,19 @@ export function buildKeywordShoplingPayloadPreview(
     } else if (row.classification === "blocked_risk") {
       payload_status = "blocked_risk";
     } else if (row.reviewStatus === "approved") {
-      if (!row.goodsKey.trim()) validation_errors.push("goods_key is required.");
-      if (!row.mallKey.trim()) validation_errors.push("mall_key is required.");
-      if (!final_title) validation_errors.push("final_title is required.");
+      if (!row.goodsKey.trim())
+        validation_errors.push("goods_key is required.");
+      if (!final_mall_key)
+        validation_errors.push("적용할 쇼핑몰(mall_key)을 선택하세요.");
+      if (!final_title) validation_errors.push("상품명을 입력하세요.");
       if (!final_site_srch) {
-        validation_errors.push("final_site_srch is required.");
+        validation_errors.push("검색어를 입력하세요.");
       } else if (normalizedSiteSrch.keywords.length > 10) {
-        validation_errors.push("site_srch must contain no more than 10 keywords.");
+        validation_errors.push("검색어는 최대 10개까지만 입력할 수 있습니다.");
       }
       if (normalizedSiteSrch.duplicateKeywords.length > 0) {
         validation_warnings.push(
-          `Duplicate site_srch keywords were removed: ${normalizedSiteSrch.duplicateKeywords.join(", ")}.`,
+          `중복 검색어를 제거했습니다: ${normalizedSiteSrch.duplicateKeywords.join(", ")}.`,
         );
       }
       if (
@@ -146,7 +154,7 @@ export function buildKeywordShoplingPayloadPreview(
         normalizedSiteSrch.keywords.length !== 10
       ) {
         validation_warnings.push(
-          `site_srch contains ${normalizedSiteSrch.keywords.length} keywords; 10 is recommended.`,
+          `검색어가 ${normalizedSiteSrch.keywords.length}개입니다. 권장 개수는 10개입니다.`,
         );
       }
       payload_status =
@@ -157,7 +165,7 @@ export function buildKeywordShoplingPayloadPreview(
     const preview_payload = canPreview
       ? {
           goods_key: row.goodsKey.trim(),
-          mall_key: row.mallKey.trim(),
+          mall_key: final_mall_key,
           title: final_title,
           site_srch: final_site_srch,
         }
@@ -173,7 +181,7 @@ export function buildKeywordShoplingPayloadPreview(
 
     return {
       goods_key: row.goodsKey,
-      mall_key: row.mallKey,
+      mall_key: final_mall_key,
       source_row_index: row.sourceRowIndex,
       original_title: row.originalTitle,
       recommended_title: row.recommendedTitle,
@@ -182,6 +190,7 @@ export function buildKeywordShoplingPayloadPreview(
       original_site_srch: row.originalSiteSrch,
       recommended_site_srch: row.recommendedSiteSrch,
       edited_site_srch: row.editedSiteSrch,
+      edited_mall_key: row.editedMallKey,
       final_site_srch,
       classification: row.classification,
       review_status: row.reviewStatus,

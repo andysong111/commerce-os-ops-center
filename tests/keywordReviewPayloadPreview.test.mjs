@@ -10,7 +10,8 @@ function row(overrides = {}) {
     originalTitle: "Old title",
     recommendedTitle: "Recommended title",
     originalSiteSrch: "old",
-    recommendedSiteSrch: "one, two, three, four, five, six, seven, eight, nine, ten",
+    recommendedSiteSrch:
+      "one, two, three, four, five, six, seven, eight, nine, ten",
     siteSrchKeywordCount: 10,
     verifiedKeywordCount: 10,
     qualityStatus: "PASS",
@@ -27,6 +28,7 @@ function row(overrides = {}) {
     editedTitle: "",
     editedSiteSrch: "",
     reviewStatus: "approved",
+    editedMallKey: "",
     ...overrides,
   };
 }
@@ -53,16 +55,20 @@ test("held and blocked risk rows are excluded", () => {
 
 for (const [name, overrides, error] of [
   ["goods_key", { goodsKey: "" }, "goods_key is required."],
-  ["mall_key", { mallKey: "" }, "mall_key is required."],
+  [
+    "mall_key",
+    { mallKey: "", editedMallKey: "" },
+    "적용할 쇼핑몰(mall_key)을 선택하세요.",
+  ],
   [
     "final_title",
     { editedTitle: "", recommendedTitle: "" },
-    "final_title is required.",
+    "상품명을 입력하세요.",
   ],
   [
     "final_site_srch",
     { editedSiteSrch: "", recommendedSiteSrch: "" },
-    "final_site_srch is required.",
+    "검색어를 입력하세요.",
   ],
 ]) {
   test(`missing ${name} fails validation`, () => {
@@ -84,13 +90,22 @@ test("edited values override recommended values", () => {
   assert.equal(item.final_site_srch, "a, b, c, d, e, f, g, h, i, j");
 });
 
+test("editedMallKey overrides an empty mallKey for preview", () => {
+  const [item] = buildKeywordShoplingPayloadPreview([
+    row({ mallKey: "", editedMallKey: "SMALL_00004" }),
+  ]).items;
+  assert.equal(item.payload_status, "preview_ready");
+  assert.equal(item.mall_key, "SMALL_00004");
+  assert.equal(item.preview_payload.mall_key, "SMALL_00004");
+});
+
 test("site_srch removes empty and duplicate keywords safely", () => {
   const [item] = buildKeywordShoplingPayloadPreview([
     row({ editedSiteSrch: "alpha, , beta, Alpha, gamma" }),
   ]).items;
   assert.equal(item.final_site_srch, "alpha, beta, gamma");
-  assert.match(item.validation_warnings.join(" "), /Duplicate/);
-  assert.match(item.validation_warnings.join(" "), /3 keywords/);
+  assert.match(item.validation_warnings.join(" "), /중복 검색어/);
+  assert.match(item.validation_warnings.join(" "), /검색어가 3개/);
 });
 
 test("more than ten keywords is invalid", () => {
@@ -98,7 +113,7 @@ test("more than ten keywords is invalid", () => {
     row({ editedSiteSrch: "1,2,3,4,5,6,7,8,9,10,11" }),
   ]).items;
   assert.equal(item.payload_status, "invalid");
-  assert.match(item.validation_errors.join(" "), /no more than 10/);
+  assert.match(item.validation_errors.join(" "), /최대 10개/);
 });
 
 test("preview summary counts all outcomes", () => {
