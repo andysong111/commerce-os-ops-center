@@ -30,7 +30,19 @@ export function generateKeywordShoplingApplyRequestId(now = new Date()) { return
 export function isValidKeywordShoplingApplyRequestId(requestId: string) { return KEYWORD_SHOPLING_APPLY_REQUEST_ID_PATTERN.test(requestId); }
 function enabled() { return process.env.KEYWORD_SHOPLING_APPLY_ENABLED === "1"; }
 
-function itemCountFromPlan(json: string) { try { const parsed = JSON.parse(json); return Array.isArray(parsed?.eligibleItems) ? parsed.eligibleItems.length : undefined; } catch { return undefined; } }
+function itemCountFromPlan(json: string) { try { const parsed = JSON.parse(json); if (Array.isArray(parsed)) return parsed.length; return Array.isArray(parsed?.eligibleItems) ? parsed.eligibleItems.length : undefined; } catch { return undefined; } }
+async function safeGithubErrorBodyPreview(response: Response) {
+  try {
+    const text = await response.text();
+    if (!text) return "";
+    return text
+      .replace(/execution_plan_json/gi, "[redacted_plan]")
+      .replace(/(token|authorization|password|secret|credential)([\s"':=]+)[^\s"',}]+/gi, "$1$2[redacted]")
+      .slice(0, 500);
+  } catch {
+    return "";
+  }
+}
 export function validateKeywordShoplingApplyInput(input: { execution_plan_json?: unknown; mode?: unknown; confirmation_text?: unknown; max_items?: unknown }) {
   if (typeof input.execution_plan_json !== "string" || input.execution_plan_json.trim().length === 0) throw new Error("execution_plan_json이 필요합니다.");
   JSON.parse(input.execution_plan_json);
@@ -58,7 +70,10 @@ export async function dispatchKeywordShoplingApplyActions(input: { execution_pla
   if (!enabled()) return { status: "error", message: "KEYWORD_SHOPLING_APPLY_ENABLED=1 인 경우에만 실행할 수 있습니다." };
   let req; try { req = buildKeywordShoplingApplyDispatchRequest(input); } catch (error) { return { status: "error", message: error instanceof Error ? error.message : "입력값이 올바르지 않습니다." }; }
   const response = await fetch(req.url, { method: "POST", headers: { ...headers(req.token), "Content-Type": "application/json" }, body: JSON.stringify(req.body) });
-  if (response.status !== 204 && response.status !== 200) return { status: "error", message: `GitHub Actions 워크플로 실행 요청에 실패했습니다. status=${response.status}`, requestId: req.requestId, githubActionsUrl: req.githubActionsUrl, commandPreview: req.commandPreview };
+  if (response.status !== 204 && response.status !== 200) {
+    const bodyPreview = await safeGithubErrorBodyPreview(response);
+    return { status: "error", message: `GitHub Actions 워크플로 실행 요청에 실패했습니다. status=${response.status}${bodyPreview ? ` body=${bodyPreview}` : ""}`, requestId: req.requestId, githubActionsUrl: req.githubActionsUrl, commandPreview: req.commandPreview };
+  }
   return { status: "queued", requestId: req.requestId, githubActionsUrl: req.githubActionsUrl, commandPreview: req.commandPreview, message: "GitHub Actions 키워드 샵플링 반영 워크플로 실행 요청이 전송되었습니다." };
 }
 

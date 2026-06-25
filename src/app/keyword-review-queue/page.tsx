@@ -18,6 +18,7 @@ import {
   type KeywordPayloadPreviewResult,
 } from "@/lib/keywordReviewPayloadPreview";
 import {
+  buildCompactKeywordApplyExecutionPlan,
   buildKeywordExecutionPreflight,
   DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
   exportKeywordExecutionPlan,
@@ -1157,12 +1158,9 @@ function KeywordShoplingApplySection({
 }) {
   const disabled = !preflightResult;
   const executionPlanJson = preflightResult
-    ? JSON.stringify({
-        eligibleItems: preflightResult.eligibleItems,
-        blockedItems: preflightResult.blockedItems,
-        summary: preflightResult.summary,
-      })
+    ? buildCompactKeywordApplyExecutionPlan(preflightResult)
     : "";
+  const showGithub422Hint = statusMessage.includes("status=422");
   async function run(mode: "dry_run" | "apply") {
     if (!preflightResult) return;
     if (mode === "apply") {
@@ -1300,6 +1298,11 @@ function KeywordShoplingApplySection({
         </div>
         {statusMessage ? (
           <p className="mt-3 text-sm text-slate-700">{statusMessage}</p>
+        ) : null}
+        {showGithub422Hint ? (
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+            GitHub Actions 입력값 검증에서 거절되었습니다. 실행 계획 크기 또는 workflow 입력값을 확인하세요.
+          </p>
         ) : null}
       </div>
       {result ? <ApplyResultDisplay result={result} /> : null}

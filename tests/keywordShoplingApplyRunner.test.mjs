@@ -4,6 +4,7 @@ import test from "node:test";
 import { zipSync, strToU8 } from "fflate";
 import {
   buildKeywordShoplingApplyDispatchRequest,
+  dispatchKeywordShoplingApplyActions,
   extractKeywordShoplingApplyArtifact,
 } from "../src/lib/keywordShoplingApplyRunner.ts";
 
@@ -27,6 +28,39 @@ test("dry_run dispatch request includes dry_run and safe preview", () => withEnv
   assert.doesNotMatch(req.commandPreview, /eligibleItems|execution_plan_json/);
   assert.equal("token" in JSON.parse(JSON.stringify({ ...req, token: undefined })), false);
 }));
+
+
+test("command preview counts direct list execution plans", () => withEnv(() => {
+  const directPlan = JSON.stringify([{ goods_key: "1" }, { goods_key: "2" }, { goods_key: "3" }]);
+  const req = buildKeywordShoplingApplyDispatchRequest({ execution_plan_json: directPlan, mode: "dry_run", confirmation_text: "", max_items: 20 });
+  assert.match(req.commandPreview, /item_count=3/);
+  assert.doesNotMatch(req.commandPreview, /execution_plan_json|goods_key/);
+}));
+
+test("dispatch failure returns safe GitHub body preview", async () => {
+  await withEnv(async () => {
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          message: "Validation Failed",
+          execution_plan_json: [{ goods_key: "leak" }],
+          token: "ghp_test_token",
+        }),
+        { status: 422 },
+      );
+    try {
+      const result = await dispatchKeywordShoplingApplyActions({ execution_plan_json: JSON.stringify([{ goods_key: "1" }]), mode: "dry_run", confirmation_text: "", max_items: 20 });
+      assert.equal(result.status, "error");
+      assert.match(result.message, /status=422/);
+      assert.match(result.message, /body=/);
+      assert.doesNotMatch(result.message, /ghp_test_token/);
+      assert.doesNotMatch(result.message, /execution_plan_json/);
+    } finally {
+      globalThis.fetch = oldFetch;
+    }
+  });
+});
 
 test("apply dispatch requires exact confirmation", () => withEnv(() => {
   assert.throws(() => buildKeywordShoplingApplyDispatchRequest({ execution_plan_json: plan, mode: "apply", confirmation_text: "wrong", max_items: 20 }), /확인문구/);
@@ -53,9 +87,10 @@ test("artifact parsing extracts nested JSON/JSONL and omits raw XML/secrets", ()
 
 test("keyword review queue UI contains apply runner source strings", async () => {
   const source = await readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8");
-  for (const text of ["샵플링 반영 실행", "dry_run", "APPLY_KEYWORD_RESULTS_TO_SHOPLING", "샵플링 반영 dry_run 실행", "dry_run 결과 가져오기", "실제 샵플링 반영 실행", "반영 결과 가져오기", "상품별 첫 후보만 승인", "keywordReviewQueue.keywordApplyDryRunRequestId", "keywordReviewQueue.keywordApplyRequestId", "/api/keyword-shopling-apply/run", "/api/keyword-shopling-apply/actions-result"]) {
+  for (const text of ["샵플링 반영 실행", "dry_run", "APPLY_KEYWORD_RESULTS_TO_SHOPLING", "샵플링 반영 dry_run 실행", "dry_run 결과 가져오기", "실제 샵플링 반영 실행", "반영 결과 가져오기", "상품별 첫 후보만 승인", "keywordReviewQueue.keywordApplyDryRunRequestId", "keywordReviewQueue.keywordApplyRequestId", "/api/keyword-shopling-apply/run", "/api/keyword-shopling-apply/actions-result", "buildCompactKeywordApplyExecutionPlan", "GitHub Actions 입력값 검증에서 거절되었습니다"]) {
     assert.match(source, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+  assert.doesNotMatch(source, /executionPlanJson = preflightResult[\s\S]*blockedItems: preflightResult\.blockedItems/);
 });
 
 test("security source scan", async () => {
