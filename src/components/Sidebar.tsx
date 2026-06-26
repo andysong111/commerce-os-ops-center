@@ -10,12 +10,16 @@ const moduleIcons = {
   "freight-barcode-pdf": BarcodeIcon,
   "keyword-review-queue": KeywordIcon,
   "warehouse-label-generator": LabelIcon,
+  "warehouse-location-sync": LocationSyncIcon,
 } as const;
 
 const navigation = [
   { href: "/", label: "대시보드", icon: DashboardIcon },
   ...moduleRegistry.flatMap((module) => {
-    if (module.status !== "available" || module.route === null) {
+    if (
+      !["available", "check_mode"].includes(module.status) ||
+      module.route === null
+    ) {
       return [];
     }
 
@@ -215,6 +219,24 @@ function LabelIcon() {
     >
       <rect x="4" y="6" width="16" height="12" rx="2" />
       <path d="M8 10h8M9 14h6" />
+    </svg>
+  );
+}
+
+
+function LocationSyncIcon() {
+  return (
+    <svg
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path d="M4 7h16v12H4z" />
+      <path d="M8 7V5h8v2M8 11h4M8 15h8" />
+      <path d="m17 3 2 2-2 2M7 21l-2-2 2-2" />
     </svg>
   );
 }
