@@ -1161,7 +1161,7 @@ function ExecutionPreflightSection({
   );
 }
 
-type ApplyRunMeta = { requestId?: string; phase?: string; state: OperationStatusState; runUrl?: string; runStatus?: string | null; runConclusion?: string | null; artifactName?: string; fetchedAt?: string; lastCheckedAt?: string; pollCount: number; message?: string };
+type ApplyRunMeta = { requestId?: string; phase?: string; state: OperationStatusState; runUrl?: string; githubActionsUrl?: string; runStatus?: string | null; runConclusion?: string | null; artifactName?: string; fetchedAt?: string; lastCheckedAt?: string; pollCount: number; message?: string };
 const MAX_APPLY_POLLS = 18;
 const APPLY_POLL_INTERVAL_MS = 5000;
 
@@ -1232,7 +1232,7 @@ function KeywordShoplingApplySection({
     }
     setResult({ ...json, fetchedAt });
     const state = toOperationState(json, auto ? "waiting_artifact" : "unknown");
-    setMeta((m) => ({ ...m, requestId, state, phase: String(json.phase ?? "unknown"), runUrl: json.runUrl, runStatus: json.runStatus, runConclusion: json.runConclusion, artifactName: json.artifactName, fetchedAt, lastCheckedAt, pollCount: auto ? m.pollCount + 1 : m.pollCount, message: json.message || formatKeywordApplyRunPhase(String(json.phase ?? "unknown")) }));
+    setMeta((m) => ({ ...m, requestId, state, phase: String(json.phase ?? "unknown"), runUrl: json.runUrl, githubActionsUrl: json.githubActionsUrl, runStatus: json.runStatus, runConclusion: json.runConclusion, artifactName: json.artifactName, fetchedAt, lastCheckedAt, pollCount: auto ? m.pollCount + 1 : m.pollCount, message: json.message || formatKeywordApplyRunPhase(String(json.phase ?? "unknown")) }));
     setStatus(json.message || formatKeywordApplyRunPhase(String(json.phase ?? "unknown")));
     return json.status !== "success" && json.status !== "error" && state !== "failed" && state !== "blocked";
   }
@@ -1256,7 +1256,7 @@ function KeywordShoplingApplySection({
     if (json.requestId) {
       const storageKey = mode === "dry_run" ? KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY : KEYWORD_APPLY_REAL_REQUEST_ID_KEY;
       window.localStorage.setItem(storageKey, json.requestId);
-      setMeta({ requestId: json.requestId, state: "queued", phase: "queued", runUrl: json.runUrl || json.githubActionsUrl, runStatus: "queued", pollCount: 0, message: "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." });
+      setMeta({ requestId: json.requestId, state: "queued", phase: "queued", runUrl: json.runUrl, githubActionsUrl: json.githubActionsUrl, runStatus: "queued", pollCount: 0, message: "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." });
       setStatus("실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다.");
       void pollAfterDispatch(mode);
       return;
@@ -1267,6 +1267,7 @@ function KeywordShoplingApplySection({
 
   const renderControls = (mode: "dry_run" | "apply", result: Record<string, unknown> | null, meta: ApplyRunMeta) => <>
     <OperationStatusCard state={meta.state || toOperationState(result)} phase={meta.phase || String(result?.phase ?? "unknown")} requestId={meta.requestId || String(result?.requestId ?? "")} runUrl={meta.runUrl || String(result?.runUrl ?? "")} runStatus={meta.runStatus || String(result?.runStatus ?? "")} runConclusion={meta.runConclusion || String(result?.runConclusion ?? "")} artifactName={meta.artifactName || String(result?.artifactName ?? "")} fetchedAt={meta.fetchedAt || String(result?.fetchedAt ?? "")} lastCheckedAt={meta.lastCheckedAt} pollCount={meta.pollCount} maxPolls={MAX_APPLY_POLLS} message={meta.message} />
+    {meta.githubActionsUrl ? <a href={meta.githubActionsUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold underline">GitHub Actions 워크플로 열기</a> : null}
     {result ? <ApplyResultFreshness result={result} /> : null}
     {result ? <ApplyResultDisplay result={result} title={mode === "dry_run" ? "dry_run result summary" : "apply result summary"} /> : null}
   </>;
@@ -1278,7 +1279,7 @@ function KeywordShoplingApplySection({
   );
 }
 function ApplyResultFreshness({ result }: { result: Record<string, unknown> }) {
-  return <dl className="mt-3 grid gap-2 rounded-lg bg-white/80 p-3 text-xs sm:grid-cols-3"><div>request id: <span className="font-mono">{String(result.requestId ?? "-")}</span></div><div>mode: {String((result.summary as Record<string, unknown> | undefined)?.mode ?? "-")}</div><div>fetchedAt: {String(result.fetchedAt ?? "-")}</div><div>runStatus/conclusion: {String(result.runStatus ?? "-")} / {String(result.runConclusion ?? "-")}</div><div>artifactName: {String(result.artifactName ?? "-")}</div>{result.runUrl ? <div><a href={String(result.runUrl)} target="_blank" rel="noreferrer" className="font-semibold underline">GitHub Actions 열기</a></div> : null}</dl>;
+  return <dl className="mt-3 grid gap-2 rounded-lg bg-white/80 p-3 text-xs sm:grid-cols-3"><div>request id: <span className="font-mono">{String(result.requestId ?? "-")}</span></div><div>mode: {String((result.summary as Record<string, unknown> | undefined)?.mode ?? "-")}</div><div>fetchedAt: {String(result.fetchedAt ?? "-")}</div><div>runStatus/conclusion: {String(result.runStatus ?? "-")} / {String(result.runConclusion ?? "-")}</div><div>artifactName: {String(result.artifactName ?? "-")}</div>{result.runUrl ? <div><a href={String(result.runUrl)} target="_blank" rel="noreferrer" className="font-semibold underline">GitHub Actions 실행 열기</a></div> : null}</dl>;
 }
 function ApplyResultDisplay({ result, title = "실행 결과 요약" }: { result: Record<string, unknown>; title?: string }) {
   const summary = (

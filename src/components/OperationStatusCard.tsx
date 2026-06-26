@@ -49,6 +49,8 @@ export function OperationStatusCard({ state, phase, requestId, runUrl, runStatus
   const danger = state === "failed" || state === "blocked";
   const tone = danger ? "border-red-200 bg-red-50 text-red-950" : state === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-blue-200 bg-white text-slate-950";
   const copy = loadingCopy[(pollCount ?? 0) % loadingCopy.length];
+  const hasSpecificRunUrl = Boolean(runIdFromUrl(runUrl));
+  const linkLabel = hasSpecificRunUrl ? "실행 로그 열기" : "워크플로 목록 열기";
   return <div className={`mt-3 rounded-xl border p-4 shadow-sm ${tone}`}>
     <style>{`@keyframes opsPulse{0%,100%{transform:scale(.85);opacity:.45}50%{transform:scale(1.15);opacity:1}}@keyframes opsOrbit{to{transform:rotate(360deg)}}`}</style>
     <div className="flex items-start gap-3">
@@ -65,8 +67,13 @@ export function OperationStatusCard({ state, phase, requestId, runUrl, runStatus
           <div>artifact: {artifactName || "-"}</div><div>fetchedAt: {fetchedAt || "-"}</div>
           <div>마지막 확인: {lastCheckedAt || "-"}</div><div>poll: {pollCount ?? 0}/{maxPolls}</div>
         </dl>
-        {runUrl ? <a href={runUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-semibold underline">GitHub Actions 열기</a> : null}
+        {phase === "queued" && !hasSpecificRunUrl ? <p className="mt-2 text-xs font-semibold text-blue-700">아직 실행 페이지가 연결되지 않았습니다. 잠시 후 자동으로 다시 확인합니다.</p> : null}
+        {runUrl ? <a href={runUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-semibold underline">{linkLabel}</a> : null}
       </div>
     </div>
   </div>;
+}
+
+function runIdFromUrl(url?: string) {
+  return typeof url === "string" && /\/actions\/runs\/\d+/.test(url);
 }
