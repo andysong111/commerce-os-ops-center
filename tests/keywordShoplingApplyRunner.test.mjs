@@ -114,7 +114,7 @@ test("fetch result rejects mismatched mode instead of returning stale dry_run as
     const oldFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
       const text = String(url);
-      if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 1, status: "completed", conclusion: "success", html_url: "https://github.com/x/y/actions/runs/1" }] }));
+      if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 1, status: "completed", conclusion: "success", display_title: "Keyword Shopling Apply - dry_run - keyword-apply-match", html_url: "https://github.com/x/y/actions/runs/1" }] }));
       if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "keyword-shopling-apply-result", archive_download_url: "https://artifact.local/zip" }] }));
       return new Response(zip);
     };
@@ -127,6 +127,115 @@ test("fetch result rejects mismatched mode instead of returning stale dry_run as
       globalThis.fetch = oldFetch;
     }
   });
+});
+
+
+test("request_id strict matching ignores old unrelated completed run", async () => {
+  await withEnv(async () => {
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const text = String(url);
+      if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 3, name: "Keyword Shopling Apply", display_title: "Keyword Shopling Apply #3", status: "completed", conclusion: "failure", html_url: "https://github.com/x/y/actions/runs/3" }] }));
+      throw new Error(`unexpected fetch ${text}`);
+    };
+    try {
+      const result = await fetchKeywordShoplingApplyActionsResult("keyword-apply-new", "dry_run");
+      assert.equal(result.status, "pending");
+      assert.equal(result.phase, "queued");
+      assert.equal(result.runId, undefined);
+      assert.match(result.message, /아직 이 요청 ID와 매칭되는 GitHub Actions 실행을 찾지 못했습니다/);
+      assert.equal(result.runUrl, "https://github.com/andysong111/andysong111-keyword-engine-soon/actions/workflows/keyword-shopling-apply.yml");
+    } finally {
+      globalThis.fetch = oldFetch;
+    }
+  });
+});
+
+test("request_id matches display_title and returns matched run while artifact is pending", async () => {
+  await withEnv(async () => {
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const text = String(url);
+      if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 9, display_title: "Keyword Shopling Apply - dry_run - keyword-apply-title", status: "in_progress", conclusion: null, html_url: "https://github.com/x/y/actions/runs/9" }] }));
+      if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [] }));
+      throw new Error(`unexpected fetch ${text}`);
+    };
+    try {
+      const result = await fetchKeywordShoplingApplyActionsResult("keyword-apply-title", "dry_run");
+      assert.equal(result.status, "pending");
+      assert.equal(result.phase, "running");
+      assert.equal(result.runId, 9);
+      assert.equal(result.runUrl, "https://github.com/x/y/actions/runs/9");
+    } finally {
+      globalThis.fetch = oldFetch;
+    }
+  });
+});
+
+test("request_id matches artifact summary and returns success", async () => {
+  await withEnv(async () => {
+    const zip = zipSync({ "output/shopling_apply/result_summary.json": strToU8(JSON.stringify({ request_id: "keyword-apply-artifact", mode: "dry_run", status: "success" })) });
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const text = String(url);
+      if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 7, display_title: "Keyword Shopling Apply - dry_run - keyword-apply-artifact", status: "completed", conclusion: "success", html_url: "https://github.com/x/y/actions/runs/7" }] }));
+      if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "keyword-shopling-apply-result", archive_download_url: "https://artifact.local/zip" }] }));
+      return new Response(zip);
+    };
+    try {
+      const result = await fetchKeywordShoplingApplyActionsResult("keyword-apply-artifact", "dry_run");
+      assert.equal(result.status, "success");
+      assert.equal(result.summary.request_id, "keyword-apply-artifact");
+    } finally { globalThis.fetch = oldFetch; }
+  });
+});
+
+test("artifact summary request_id mismatch is skipped", async () => {
+  await withEnv(async () => {
+    const zip = zipSync({ "output/shopling_apply/result_summary.json": strToU8(JSON.stringify({ request_id: "keyword-apply-other", mode: "dry_run", status: "success" })) });
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const text = String(url);
+      if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 8, display_title: "Keyword Shopling Apply - dry_run - keyword-apply-wanted", status: "completed", conclusion: "success", html_url: "https://github.com/x/y/actions/runs/8" }] }));
+      if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "keyword-shopling-apply-result", archive_download_url: "https://artifact.local/zip" }] }));
+      return new Response(zip);
+    };
+    try {
+      const result = await fetchKeywordShoplingApplyActionsResult("keyword-apply-wanted", "dry_run");
+      assert.equal(result.status, "pending");
+      assert.equal(result.summary, undefined);
+    } finally { globalThis.fetch = oldFetch; }
+  });
+});
+
+test("without request_id latest artifact-backed run can still be returned", async () => {
+  await withEnv(async () => {
+    const zip = zipSync({ "output/shopling_apply/result_summary.json": strToU8(JSON.stringify({ request_id: "keyword-apply-latest", mode: "dry_run", status: "success" })) });
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const text = String(url);
+      if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 11, status: "completed", conclusion: "success", html_url: "https://github.com/x/y/actions/runs/11" }] }));
+      if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "keyword-shopling-apply-result", archive_download_url: "https://artifact.local/zip" }] }));
+      return new Response(zip);
+    };
+    try {
+      const result = await fetchKeywordShoplingApplyActionsResult(undefined, "dry_run");
+      assert.equal(result.status, "success");
+      assert.equal(result.requestId, "keyword-apply-latest");
+    } finally { globalThis.fetch = oldFetch; }
+  });
+});
+
+test("UI and runner contain strict matching labels and no stale latest wording", async () => {
+  const source = (await Promise.all([
+    readFile(new URL("../src/lib/keywordShoplingApplyRunner.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/OperationStatusCard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8"),
+  ])).join("\n");
+  for (const text of ["아직 이 요청 ID와 매칭되는 GitHub Actions 실행을 찾지 못했습니다", "GitHub Actions 워크플로 열기", "GitHub Actions 실행 열기", "아직 실행 페이지가 연결되지 않았습니다", "워크플로 목록 열기", "실행 로그 열기"]) {
+    assert.match(source, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.doesNotMatch(source, /최신 실행을 확인하세요/);
 });
 
 test("security source scan", async () => {

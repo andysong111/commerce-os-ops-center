@@ -7,7 +7,7 @@ export const KEYWORD_SHOPLING_APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_T
 
 type Config = { repo: string; workflow: string; ref: string; token: string };
 type Mode = "dry_run" | "apply";
-type GithubWorkflowRun = { id?: number; status?: string; conclusion?: string | null; html_url?: string };
+type GithubWorkflowRun = { id?: number; name?: string; display_title?: string; status?: string; conclusion?: string | null; html_url?: string; head_sha?: string; created_at?: string };
 export type KeywordShoplingApplyPhase = "queued" | "running" | "completed_no_artifact" | "artifact_ready" | "failed" | "unknown";
 type GithubArtifact = { name?: string; archive_download_url?: string };
 export type KeywordApplySummary = Partial<Record<"request_id" | "mode" | "status" | "created_at", unknown>> & Partial<Record<"input_item_count" | "valid_item_count" | "blocked_item_count" | "applied_item_count" | "failed_item_count", unknown>> & { dry_run?: unknown; warnings?: unknown };
@@ -75,7 +75,7 @@ export async function dispatchKeywordShoplingApplyActions(input: { execution_pla
     const bodyPreview = await safeGithubErrorBodyPreview(response);
     return { status: "error", message: `GitHub Actions 워크플로 실행 요청에 실패했습니다. status=${response.status}${bodyPreview ? ` body=${bodyPreview}` : ""}`, requestId: req.requestId, githubActionsUrl: req.githubActionsUrl, commandPreview: req.commandPreview };
   }
-  return { status: "queued", phase: "queued", requestId: req.requestId, githubActionsUrl: req.githubActionsUrl, runUrl: req.githubActionsUrl, commandPreview: req.commandPreview, message: "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." };
+  return { status: "queued", phase: "queued", requestId: req.requestId, githubActionsUrl: req.githubActionsUrl, commandPreview: req.commandPreview, message: "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." };
 }
 
 function safeJson(value: unknown): KeywordApplySummary { const allowed = ["request_id", "mode", "status", "input_item_count", "valid_item_count", "blocked_item_count", "applied_item_count", "failed_item_count", "dry_run", "warnings", "created_at"]; const out: KeywordApplySummary = {}; if (value && typeof value === "object" && !Array.isArray(value)) for (const key of allowed) (out as Record<string, unknown>)[key] = (value as Record<string, unknown>)[key]; return out; }
@@ -88,26 +88,44 @@ export function extractKeywordShoplingApplyArtifact(zipBytes: Uint8Array) {
   const read = (name: string) => { const path = find(files, name); return path ? decoder.decode(files[path]) : ""; };
   return { summary: safeJson(JSON.parse(decoder.decode(files[summaryPath]))), applyResults: parseJsonl(read("apply_results.jsonl")), verifyResults: parseJsonl(read("verify_results.jsonl")), blockedItems: parseJsonl(read("blocked_items.jsonl")) };
 }
+
+export function runMatchesRequestId(run: GithubWorkflowRun, requestId?: string): boolean {
+  if (!requestId) return true;
+  return [run.name, run.display_title, run.html_url].some((value) => typeof value === "string" && value.includes(requestId));
+}
+
+function pendingNoMatchingRun(requestId: string | undefined, githubActionsUrl: string) {
+  return {
+    status: "pending",
+    phase: "queued",
+    requestId,
+    message: "아직 이 요청 ID와 매칭되는 GitHub Actions 실행을 찾지 못했습니다. GitHub Actions가 시작되는 중이거나 run-name 반영 전일 수 있습니다.",
+    runId: undefined,
+    runUrl: githubActionsUrl,
+    githubActionsUrl,
+  };
+}
 export async function fetchKeywordShoplingApplyActionsResult(requestId?: string, mode?: Mode) {
   if (requestId && !isValidKeywordShoplingApplyRequestId(requestId)) return { status: "error", phase: "unknown", message: "요청 추적 ID 형식이 올바르지 않습니다.", requestId };
   if (mode !== undefined && mode !== "dry_run" && mode !== "apply") return { status: "error", phase: "unknown", message: "mode는 dry_run 또는 apply여야 합니다.", requestId };
   if (!enabled()) return { status: "error", phase: "unknown", message: "KEYWORD_SHOPLING_APPLY_ENABLED=1 인 경우에만 최근 실행 결과를 가져올 수 있습니다.", requestId };
   const config = getConfig(); const [owner, repoName] = config.repo.split("/");
+  const githubActionsUrl = `https://github.com/${config.repo}/actions/workflows/${encodeURIComponent(config.workflow)}`;
   const params = new URLSearchParams({ branch: config.ref, event: "workflow_dispatch", per_page: requestId ? "30" : "10" });
   try {
     const runsJson = await readJson(await fetch(`https://api.github.com/repos/${owner}/${repoName}/actions/workflows/${encodeURIComponent(config.workflow)}/runs?${params}`, { headers: headers(config.token) }));
-    const runs = (Array.isArray(runsJson.workflow_runs) ? runsJson.workflow_runs : []) as GithubWorkflowRun[];
+    const allRuns = (Array.isArray(runsJson.workflow_runs) ? runsJson.workflow_runs : []) as GithubWorkflowRun[];
+    const runs = requestId ? allRuns.filter((run) => runMatchesRequestId(run, requestId)) : allRuns;
+    if (requestId && runs.length === 0) return pendingNoMatchingRun(requestId, githubActionsUrl);
+
     let latestRelevantRun: GithubWorkflowRun | undefined = runs[0];
+    let latestCompletedWithoutArtifact: GithubWorkflowRun | undefined;
     for (const run of runs) {
       const runId = Number(run.id); if (!Number.isFinite(runId)) continue;
       const artifactsJson = await readJson(await fetch(`https://api.github.com/repos/${owner}/${repoName}/actions/runs/${runId}/artifacts`, { headers: headers(config.token) }));
       const artifact = (Array.isArray(artifactsJson.artifacts) ? artifactsJson.artifacts : []).find((item: GithubArtifact) => item?.name === KEYWORD_SHOPLING_APPLY_ARTIFACT_NAME);
       if (!artifact?.archive_download_url) {
-        latestRelevantRun ||= run;
-        if (run.status === "completed") {
-          const failed = run.conclusion && run.conclusion !== "success";
-          return { status: "error", phase: failed ? "failed" : "completed_no_artifact", requestId, runId, runUrl: run.html_url, runStatus: run.status, runConclusion: typeof run.conclusion === "string" ? run.conclusion : null, artifactName: KEYWORD_SHOPLING_APPLY_ARTIFACT_NAME, message: failed ? "GitHub Actions 실행이 실패했습니다. GitHub Actions 로그를 확인하세요." : "GitHub Actions는 종료되었지만 결과 artifact가 없습니다. 외부 runner 오류 또는 secret 누락 가능성이 있습니다." };
-        }
+        if (run.status === "completed") latestCompletedWithoutArtifact ||= run;
         continue;
       }
       const zipResponse = await fetch(artifact.archive_download_url, { headers: headers(config.token) }); if (!zipResponse.ok) continue;
@@ -121,10 +139,21 @@ export async function fetchKeywordShoplingApplyActionsResult(requestId?: string,
       }
       return { status: "success", phase: "artifact_ready", requestId: summaryRequestId ?? requestId, runId, runUrl: run.html_url, runStatus: "completed", runConclusion: typeof run.conclusion === "string" ? run.conclusion : null, artifactName: artifact.name, message: "결과 파일을 확인했습니다.", ...extracted };
     }
+    if (requestId) {
+      if (latestRelevantRun) {
+        const phase = latestRelevantRun.status === "queued" ? "queued" : latestRelevantRun.status === "in_progress" ? "running" : "unknown";
+        return { status: "pending", phase, requestId, runId: latestRelevantRun.id, runUrl: latestRelevantRun.html_url, runStatus: latestRelevantRun.status, runConclusion: typeof latestRelevantRun.conclusion === "string" ? latestRelevantRun.conclusion : null, artifactName: undefined, message: "매칭되는 GitHub Actions 실행을 찾았지만 결과 artifact가 아직 없습니다." };
+      }
+      return pendingNoMatchingRun(requestId, githubActionsUrl);
+    }
+    if (latestCompletedWithoutArtifact) {
+      const failed = latestCompletedWithoutArtifact.conclusion && latestCompletedWithoutArtifact.conclusion !== "success";
+      return { status: "error", phase: failed ? "failed" : "completed_no_artifact", requestId, runId: latestCompletedWithoutArtifact.id, runUrl: latestCompletedWithoutArtifact.html_url, runStatus: latestCompletedWithoutArtifact.status, runConclusion: typeof latestCompletedWithoutArtifact.conclusion === "string" ? latestCompletedWithoutArtifact.conclusion : null, artifactName: KEYWORD_SHOPLING_APPLY_ARTIFACT_NAME, message: failed ? "GitHub Actions 실행이 실패했습니다. GitHub Actions 로그를 확인하세요." : "GitHub Actions는 종료되었지만 결과 artifact가 없습니다. 외부 runner 오류 또는 secret 누락 가능성이 있습니다." };
+    }
     if (latestRelevantRun) {
       const phase = latestRelevantRun.status === "queued" ? "queued" : latestRelevantRun.status === "in_progress" ? "running" : "unknown";
-      return { status: "pending", phase, requestId, runId: latestRelevantRun.id, runUrl: latestRelevantRun.html_url, runStatus: latestRelevantRun.status, runConclusion: typeof latestRelevantRun.conclusion === "string" ? latestRelevantRun.conclusion : null, artifactName: undefined, message: requestId ? "GitHub Actions는 실행 중일 수 있지만 artifact가 아직 없어 request_id 매칭 전입니다. GitHub Actions 화면에서 최신 실행을 확인하세요." : "최근 GitHub Actions 실행 상태를 확인했습니다." };
+      return { status: "pending", phase, requestId, runId: latestRelevantRun.id, runUrl: latestRelevantRun.html_url, runStatus: latestRelevantRun.status, runConclusion: typeof latestRelevantRun.conclusion === "string" ? latestRelevantRun.conclusion : null, artifactName: undefined, message: "최근 GitHub Actions 실행 상태를 확인했습니다." };
     }
-    return { status: "pending", phase: "unknown", requestId, message: "GitHub Actions는 실행 중일 수 있지만 artifact가 아직 없어 request_id 매칭 전입니다. GitHub Actions 화면에서 최신 실행을 확인하세요." };
+    return { status: "pending", phase: "unknown", requestId, runUrl: githubActionsUrl, githubActionsUrl, message: "완료된 Keyword Shopling Apply GitHub Actions 실행이 아직 없습니다. 실행이 끝난 뒤 다시 확인하세요." };
   } catch (error) { return { status: "error", phase: "unknown", requestId, message: error instanceof Error ? error.message : "최근 실행 결과를 가져오는 중 오류가 발생했습니다." }; }
 }
