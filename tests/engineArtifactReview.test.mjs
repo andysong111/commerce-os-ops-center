@@ -76,3 +76,25 @@ test("dashboard descriptions and module labels are Korean-first", async () => {
   assert.match(moduleRegistry.find((module) => module.id === "keyword-review-queue")?.description ?? "", /키워드 엔진 결과물/);
   assert.match(moduleRegistry.find((module) => module.id === "detail-page-draft-review")?.description ?? "", /상세페이지 엔진 산출물/);
 });
+
+
+test("warehouse location sync OPS entry point stays safe and external", async () => {
+  const pageSource = await readFile(new URL("../src/app/warehouse-location-sync/page.tsx", import.meta.url), "utf8");
+  const dashboardSource = await readFile(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  const sidebarSource = await readFile(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  const warehouseLocationModule = moduleRegistry.find((item) => item.id === "warehouse-location-sync");
+
+  assert.equal(warehouseLocationModule?.title, "창고 위치코드 관리");
+  assert.equal(warehouseLocationModule?.route, "/warehouse-location-sync");
+  assert.equal(warehouseLocationModule?.status, "check_mode");
+  assert.equal(warehouseLocationModule?.safetyBadge, "실제 반영 차단");
+  assert.match(warehouseLocationModule?.description ?? "", /모델번호와 위치코드 입력 후 샵플링 반영 전 검증/);
+
+  assert.match(dashboardSource, /점검 모드/);
+  assert.match(sidebarSource, /warehouse-location-sync/);
+  assert.match(pageSource, /NEXT_PUBLIC_WAREHOUSE_LOCATION_SYNC_URL/);
+  assert.match(pageSource, /창고 위치코드 모듈 열기/);
+  assert.match(pageSource, /샵플링 실제 쓰기\/수정 API는 호출하지 않습니다/);
+  assert.match(pageSource, /andysong111\/commerce-os-warehouse-location-sync/);
+  assert.match(pageSource, /실제 샵플링 반영 없음/);
+});

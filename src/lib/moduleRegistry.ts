@@ -2,6 +2,7 @@ export type ModuleStatus =
   | "available"
   | "preparing"
   | "runner_scaffold"
+  | "check_mode"
   | "disabled";
 
 export type CommerceModule = {
@@ -19,6 +20,7 @@ export type CommerceModule = {
   note: string | null;
   helperNote?: string;
   actionLabel?: string;
+  safetyBadge?: string;
 };
 
 export const moduleRegistry: readonly CommerceModule[] = [
@@ -68,6 +70,25 @@ export const moduleRegistry: readonly CommerceModule[] = [
     note: "기존 배대지 바코드 작업요청서 흐름을 사용합니다.",
   },
 
+
+  {
+    id: "warehouse-location-sync",
+    title: "창고 위치코드 관리",
+    navigationLabel: "창고 위치코드 관리",
+    description:
+      "모델번호와 위치코드 입력 후 샵플링 반영 전 검증합니다.",
+    status: "check_mode",
+    route: "/warehouse-location-sync",
+    category: "창고 운영",
+    inputType: "모델번호와 창고 위치코드",
+    outputType: "적용계획, 이력, 롤백계획, API 사전검증",
+    historySupport: true,
+    externalProject: true,
+    note: "독립 모듈 commerce-os-warehouse-location-sync를 source of truth로 사용합니다. 실제 샵플링 쓰기/수정 실행은 차단되어 있습니다.",
+    helperNote: "점검 모드",
+    actionLabel: "점검 화면 열기",
+    safetyBadge: "실제 반영 차단",
+  },
   {
     id: "warehouse-label-generator",
     title: "창고 라벨 출력기",

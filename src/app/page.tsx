@@ -21,6 +21,15 @@ const statusPresentation = {
     action: "실행기 열기 →",
     actionClassName: "text-blue-600",
   },
+  check_mode: {
+    badge: "점검 모드",
+    badgeClassName: "bg-indigo-50 text-indigo-700",
+    cardClassName:
+      "border-indigo-200 hover:-translate-y-0.5 hover:border-indigo-400 hover:shadow-md",
+    iconClassName: "bg-indigo-50 text-indigo-700",
+    action: "점검 화면 열기 →",
+    actionClassName: "text-indigo-600",
+  },
   preparing: {
     badge: "준비 중",
     badgeClassName: "bg-amber-50 text-amber-700",
@@ -82,7 +91,10 @@ function ModuleCard({
 }) {
   const presentation = statusPresentation[module.status];
   const href =
-    (module.status === "available" || module.status === "runner_scaffold") && module.route
+    (module.status === "available" ||
+      module.status === "runner_scaffold" ||
+      module.status === "check_mode") &&
+    module.route
       ? module.route
       : null;
   const card = (
@@ -95,11 +107,18 @@ function ModuleCard({
         >
           {String(index + 1).padStart(2, "0")}
         </span>
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${presentation.badgeClassName}`}
-        >
-          {presentation.badge}
-        </span>
+        <div className="flex flex-col items-end gap-2">
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${presentation.badgeClassName}`}
+          >
+            {presentation.badge}
+          </span>
+          {module.safetyBadge ? (
+            <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+              {module.safetyBadge}
+            </span>
+          ) : null}
+        </div>
       </div>
       <h3 className="font-semibold text-slate-950">{module.title}</h3>
       {module.helperNote ? (
