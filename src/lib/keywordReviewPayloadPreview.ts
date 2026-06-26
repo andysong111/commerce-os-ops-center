@@ -17,6 +17,11 @@ export type KeywordPayloadPreviewItem = {
   goods_key: string;
   mall_key: string;
   source_row_index: number;
+  ptn_goods_cd: string;
+  group_suffix: string;
+  product_group: string;
+  product_group_type: string;
+  product_group_status: string;
   original_title: string;
   recommended_title: string;
   edited_title: string;
@@ -183,6 +188,11 @@ export function buildKeywordShoplingPayloadPreview(
       goods_key: row.goodsKey,
       mall_key: final_mall_key,
       source_row_index: row.sourceRowIndex,
+      ptn_goods_cd: row.ptnGoodsCd ?? "",
+      group_suffix: row.groupSuffix ?? "",
+      product_group: row.productGroup ?? "상품그룹 확인 필요",
+      product_group_type: row.productGroupType ?? "확인 필요",
+      product_group_status: row.productGroupStatus ?? "missing",
       original_title: row.originalTitle,
       recommended_title: row.recommendedTitle,
       edited_title: row.editedTitle,
