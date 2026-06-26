@@ -62,7 +62,7 @@ test("an ambiguous row defaults to manual review", () => {
 });
 
 test("reviewed export includes edits and review status", () => {
-  const [reviewed] = createReviewedRows([rows[1]]);
+  const [reviewed] = createReviewedRows([rows[1]], { [rows[1].goodsKey]: { ptn_goods_cd: "TEST1-1g", group_suffix: "g", product_group: "미등록 그룹(g)", product_group_type: "확인 필요", product_group_status: "unregistered" } });
   reviewed.editedTitle = "User edited title";
   reviewed.editedSiteSrch = "user, edited, keywords";
   reviewed.reviewStatus = "approved";
@@ -75,6 +75,9 @@ test("reviewed export includes edits and review status", () => {
   assert.equal(exported.review_status, "approved");
   assert.equal(exported.classification, "manual_review");
   assert.equal(exported.source_row_index, 3);
+  assert.equal(exported.ptn_goods_cd, "TEST1-1g");
+  assert.equal(exported.product_group, "미등록 그룹(g)");
+  assert.equal(exported.product_group_status, "unregistered");
 });
 
 test("keyword review foundation contains no live Shopling execution", async () => {
@@ -335,4 +338,35 @@ test("keyword review apply UX removes selected English visible labels", async ()
     "FINAL_SITE_SRCH_UNDERFILLED",
   ])
     assert.doesNotMatch(source, new RegExp(text));
+});
+
+
+test("reviewed rows include product group metadata and missing fallback", () => {
+  const [withMetadata, missingMetadata] = createReviewedRows([rows[0], rows[1]], {
+    [rows[0].goodsKey]: { ptn_goods_cd: "TEST1-1a", group_suffix: "a", product_group: "도매1", product_group_type: "도매", product_group_status: "registered" },
+  });
+  assert.equal(withMetadata.ptnGoodsCd, "TEST1-1a");
+  assert.equal(withMetadata.groupSuffix, "a");
+  assert.equal(withMetadata.productGroup, "도매1");
+  assert.equal(withMetadata.productGroupType, "도매");
+  assert.equal(withMetadata.productGroupStatus, "registered");
+  assert.equal(missingMetadata.productGroup, "상품그룹 확인 필요");
+  assert.equal(missingMetadata.productGroupType, "확인 필요");
+  assert.equal(missingMetadata.productGroupStatus, "missing");
+});
+
+test("keyword review UI includes dynamic group filters and policy placeholder copy", async () => {
+  const source = await readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8");
+  for (const expected of [
+    "상품그룹",
+    "도매 전체",
+    "소매 전체",
+    "기타 전체",
+    "상품그룹 확인 필요",
+    "미등록 그룹",
+    "다음 단계에서 상품그룹별 상품명 정책을 적용합니다",
+    "미등록 그룹은 정책 적용 전 상품그룹 정의표에 등록하는 것을 권장합니다",
+  ]) {
+    assert.match(source, new RegExp(expected));
+  }
 });

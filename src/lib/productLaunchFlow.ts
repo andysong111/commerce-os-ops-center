@@ -1,3 +1,5 @@
+import { inferProductGroupFromPtnGoodsCd, type ProductGroupInference } from "./productGroup";
+
 export type ProductLaunchUploadRow = {
   row?: string | number;
   channel?: string;
@@ -28,20 +30,39 @@ export type ProductLaunchPriceError = {
   msg?: string;
 };
 
-const PRODUCT_GROUP_BY_SUFFIX: Record<string, string> = {
-  a: "도매1",
-  b: "도매2",
-  c: "도매3",
-  d: "도매4",
-  e: "소매1",
-  f: "소매2",
+export { inferProductGroupFromPtnGoodsCd };
+
+export type ProductLaunchGoodsKeyGroupMetadata = {
+  goods_key: string;
+  ptn_goods_cd: string;
+  group_suffix: string;
+  product_group: string;
+  product_group_type: ProductGroupInference["productGroupType"];
+  product_group_status: ProductGroupInference["productGroupStatus"];
 };
 
-export function inferProductGroupFromPtnGoodsCd(ptnGoodsCd: string): string {
-  const trimmed = ptnGoodsCd.trim();
-  if (!trimmed) return "확인 필요";
-  const suffix = trimmed.slice(-1).toLowerCase();
-  return PRODUCT_GROUP_BY_SUFFIX[suffix] ?? "확인 필요";
+export function buildGoodsKeyGroupMap(rows: ProductLaunchUploadRow[]) {
+  return Object.fromEntries(
+    rows
+      .map((row) => {
+        const goodsKey = (row.goods_key ?? "").trim();
+        if (!goodsKey) return null;
+        const ptnGoodsCd = (row.ptn_goods_cd ?? "").trim();
+        const productGroup = inferProductGroupFromPtnGoodsCd(ptnGoodsCd);
+        return [
+          goodsKey,
+          {
+            goods_key: goodsKey,
+            ptn_goods_cd: ptnGoodsCd,
+            group_suffix: productGroup.groupSuffix,
+            product_group: productGroup.productGroup,
+            product_group_type: productGroup.productGroupType,
+            product_group_status: productGroup.productGroupStatus,
+          },
+        ];
+      })
+      .filter((entry): entry is [string, ProductLaunchGoodsKeyGroupMetadata] => entry !== null),
+  );
 }
 
 export function extractUploadRows(uploadResult: unknown): ProductLaunchUploadRow[] {

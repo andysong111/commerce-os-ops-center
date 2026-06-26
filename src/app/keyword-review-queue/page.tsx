@@ -10,8 +10,10 @@ import {
   exportReviewedQueue,
   parseKeywordMvpCsv,
   type KeywordQueueClassification,
+  type GoodsKeyGroupMap,
   type ReviewedKeywordRow,
 } from "@/lib/keywordReviewQueue";
+import { PRODUCT_GROUP_DEFINITIONS } from "@/lib/productGroup";
 import { KEYWORD_REVIEW_QUEUE_SAMPLE_CSV } from "@/lib/keywordReviewQueueSample";
 import {
   buildKeywordShoplingPayloadPreview,
@@ -103,15 +105,7 @@ function fallbackSiteSrchFromTitle(title: string) {
 }
 
 type ViewMode = "sheet" | "card";
-type SheetFilter =
-  | "all"
-  | "manual_review"
-  | "auto_apply_candidate"
-  | "hold"
-  | "approved"
-  | "blocked_risk"
-  | "missing_keywords"
-  | "missing_title";
+type SheetFilter = string;
 
 type ImportedArtifactPayload = {
   kind: "keyword_engine";
@@ -119,6 +113,7 @@ type ImportedArtifactPayload = {
   files: Record<string, string>;
   generatedSourceFiles?: string[];
   requiresHumanReview: true;
+  goodsKeyGroupMap?: GoodsKeyGroupMap;
 };
 
 function readImportedArtifactHandoff(): ImportedArtifactPayload | null {
@@ -165,7 +160,7 @@ function createRowsFromImportedArtifact(
     ...parseKeywordMvpCsv(
       String(artifact.files["keyword_mvp_manual_candidates.csv"] ?? ""),
     ),
-  ]);
+  ], artifact.goodsKeyGroupMap ?? {});
 }
 
 const reviewSummary = createEngineArtifactReviewSummary({
@@ -276,7 +271,7 @@ export default function KeywordReviewQueuePage() {
         ),
       ),
     ];
-    const reviewedRows = createReviewedRows(parsed);
+    const reviewedRows = createReviewedRows(parsed, importedArtifact?.goodsKeyGroupMap ?? {});
     setRows(reviewedRows);
     setSelectedRows(new Set());
     setViewMode(reviewedRows.length > 5 ? "sheet" : "card");
@@ -295,6 +290,7 @@ export default function KeywordReviewQueuePage() {
     }),
     [rows],
   );
+  const productGroupSummary = useMemo(() => createProductGroupSummary(rows), [rows]);
   const hasImportedArtifact = Boolean(importedArtifact);
   const importedRowsAreEmpty = hasImportedArtifact && counts.total === 0;
 
@@ -345,7 +341,7 @@ export default function KeywordReviewQueuePage() {
       ...parseKeywordMvpCsv(approvalCsv),
       ...parseKeywordMvpCsv(manualCsv),
     ];
-    const reviewedRows = createReviewedRows(parsed);
+    const reviewedRows = createReviewedRows(parsed, importedArtifact?.goodsKeyGroupMap ?? {});
     setRows(reviewedRows);
     setSelectedRows(new Set());
     setViewMode(reviewedRows.length > 5 ? "sheet" : "card");
@@ -497,6 +493,8 @@ export default function KeywordReviewQueuePage() {
 
       <WhatThisPageDoes />
 
+      <ProductGroupPolicyPlaceholder />
+
       {importedArtifact ? (
         <section className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 shadow-sm">
           <h2 className="font-semibold">키워드 결과를 불러왔습니다.</h2>
@@ -620,6 +618,23 @@ export default function KeywordReviewQueuePage() {
         <SummaryCard label="검토 필요" value={counts.manual} />
         <SummaryCard label="위험/차단" value={counts.blocked} />
         <SummaryCard label="전체" value={counts.total} />
+      </section>
+
+      <section className="my-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <h2 className="font-semibold text-slate-950">상품그룹 요약</h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard label="도매" value={productGroupSummary.typeCounts["도매"] ?? 0} />
+          <SummaryCard label="소매" value={productGroupSummary.typeCounts["소매"] ?? 0} />
+          <SummaryCard label="기타" value={productGroupSummary.typeCounts["기타"] ?? 0} />
+          <SummaryCard label="확인 필요" value={productGroupSummary.typeCounts["확인 필요"] ?? 0} />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          {productGroupSummary.groupCounts.map((entry) => (
+            <span key={entry.productGroup} className="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700">
+              {entry.productGroup} {entry.count}
+            </span>
+          ))}
+        </div>
       </section>
 
       <section className="my-6 rounded-xl border border-blue-200 bg-white p-4 shadow-sm sm:p-5">
@@ -928,6 +943,20 @@ function WhatThisPageDoes() {
         <li>승인 또는 보류를 선택합니다.</li>
       </ul>
     </details>
+  );
+}
+
+function ProductGroupPolicyPlaceholder() {
+  return (
+    <section className="mb-6 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-950 shadow-sm">
+      <h2 className="font-semibold">상품그룹별 정책 안내</h2>
+      <ul className="mt-2 list-disc space-y-1 pl-5">
+        <li>다음 단계에서 상품그룹별 상품명 정책을 적용합니다.</li>
+        <li>도매/소매/기타 그룹은 서로 다른 상품명·검색어 규칙을 사용할 수 있습니다.</li>
+        <li>미등록 그룹은 정책 적용 전 상품그룹 정의표에 등록하는 것을 권장합니다.</li>
+        <li>예: 미등록 그룹(g)은 검토 후 정의표에 추가할 수 있습니다.</li>
+      </ul>
+    </section>
   );
 }
 
@@ -1514,6 +1543,10 @@ function PayloadPreviewSection({
                       <span className="text-xs text-slate-500">
                         {item.mall_key || "—"}
                       </span>
+                      <br />
+                      <span className="text-xs font-semibold text-blue-700">
+                        {item.ptn_goods_cd || "—"} · {item.product_group || "상품그룹 확인 필요"}
+                      </span>
                     </td>
                     <td className="max-w-xs px-3 py-3 align-top">
                       {item.final_title || "—"}
@@ -1701,16 +1734,54 @@ function reviewReasonFor(row: ReviewedKeywordRow) {
   return "상품명이 짧거나 검색어가 부족해 검토가 필요합니다.";
 }
 
-const sheetFilters: { key: SheetFilter; label: string }[] = [
-  { key: "all", label: "전체" },
-  { key: "manual_review", label: "검토 필요" },
-  { key: "auto_apply_candidate", label: "승인 가능" },
-  { key: "hold", label: "보류" },
-  { key: "approved", label: "승인됨" },
-  { key: "blocked_risk", label: "위험/차단" },
-  { key: "missing_keywords", label: "검색어 없음" },
-  { key: "missing_title", label: "추천 상품명 없음" },
-];
+function productGroupDisplay(row: ReviewedKeywordRow) {
+  const productGroup = row.productGroup || "상품그룹 확인 필요";
+  const productGroupType = row.productGroupType || "확인 필요";
+  return productGroupType === "확인 필요" && productGroup === "상품그룹 확인 필요"
+    ? productGroup
+    : `${productGroup} · ${productGroupType}`;
+}
+
+function createProductGroupSummary(rows: ReviewedKeywordRow[]) {
+  const typeCounts: Record<string, number> = { "도매": 0, "소매": 0, "기타": 0, "확인 필요": 0 };
+  const groupCounts = new Map<string, number>();
+  for (const row of rows) {
+    const type = row.productGroupType || "확인 필요";
+    typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+    const group = row.productGroup || "상품그룹 확인 필요";
+    groupCounts.set(group, (groupCounts.get(group) ?? 0) + 1);
+  }
+  return {
+    typeCounts,
+    groupCounts: [...groupCounts.entries()].map(([productGroup, count]) => ({ productGroup, count })),
+  };
+}
+
+function createSheetFilters(rows: ReviewedKeywordRow[]): { key: SheetFilter; label: string }[] {
+  const baseFilters = [
+    { key: "all", label: "전체" },
+    { key: "manual_review", label: "검토 필요" },
+    { key: "auto_apply_candidate", label: "승인 가능" },
+    { key: "hold", label: "보류" },
+    { key: "approved", label: "승인됨" },
+    { key: "blocked_risk", label: "위험/차단" },
+    { key: "missing_keywords", label: "검색어 없음" },
+    { key: "missing_title", label: "추천 상품명 없음" },
+    { key: "group_type:도매", label: "도매 전체" },
+    { key: "group_type:소매", label: "소매 전체" },
+    { key: "group_type:기타", label: "기타 전체" },
+    { key: "group_status:missing", label: "상품그룹 확인 필요" },
+  ];
+  const groupNames = new Set<string>(PRODUCT_GROUP_DEFINITIONS.map((definition) => definition.productGroup));
+  for (const row of rows) {
+    if (row.productGroup && row.productGroup !== "상품그룹 확인 필요") groupNames.add(row.productGroup);
+  }
+  return [
+    ...baseFilters,
+    ...[...groupNames].map((group) => ({ key: `group:${group}`, label: group })),
+  ];
+}
+
 
 function isRowEdited(row: ReviewedKeywordRow) {
   return (
@@ -1774,6 +1845,9 @@ function SheetReviewTable({
         return row.classification === "auto_apply_candidate";
       if (sheetFilter === "blocked_risk")
         return row.classification === "blocked_risk";
+      if (sheetFilter.startsWith("group_type:")) return row.productGroupType === sheetFilter.slice("group_type:".length);
+      if (sheetFilter === "group_status:missing") return row.productGroupStatus === "missing";
+      if (sheetFilter.startsWith("group:")) return row.productGroup === sheetFilter.slice("group:".length);
       if (sheetFilter === "hold") return row.reviewStatus === "hold";
       if (sheetFilter === "approved") return row.reviewStatus === "approved";
       if (sheetFilter === "missing_keywords") return !row.editedSiteSrch.trim();
@@ -1782,7 +1856,7 @@ function SheetReviewTable({
     })
     .filter(({ row }) => {
       if (!normalizedSearch) return true;
-      return [row.goodsKey, row.originalTitle, row.editedTitle].some((value) =>
+      return [row.goodsKey, row.ptnGoodsCd ?? "", row.productGroup ?? "", row.originalTitle, row.editedTitle].some((value) =>
         value.toLowerCase().includes(normalizedSearch),
       );
     });
@@ -1804,7 +1878,7 @@ function SheetReviewTable({
   return (
     <div className="p-4 sm:p-5">
       <div className="flex flex-wrap gap-2">
-        {sheetFilters.map((filter) => (
+        {createSheetFilters(rows).map((filter) => (
           <button
             key={filter.key}
             type="button"
@@ -1882,7 +1956,8 @@ function SheetReviewTable({
             <tr className="border-b border-slate-300">
               <th className="w-14 px-2 py-2">선택</th>
               <th className="w-28 px-2 py-2">상태</th>
-              <th className="w-36 px-2 py-2">상품번호 / 쇼핑몰</th>
+              <th className="w-40 px-2 py-2">상품번호 / 상품그룹</th>
+              <th className="w-36 px-2 py-2">쇼핑몰</th>
               <th className="min-w-56 px-2 py-2">현재 상품명</th>
               <th className="min-w-72 px-2 py-2">추천 상품명</th>
               <th className="min-w-80 px-2 py-2">추천 검색어</th>
@@ -1920,6 +1995,10 @@ function SheetReviewTable({
                   </td>
                   <td className="px-2 py-2 font-semibold text-slate-900">
                     <div>{row.goodsKey || "—"}</div>
+                    <div className="mt-1 font-mono text-[11px] text-slate-500">{row.ptnGoodsCd || "—"}</div>
+                    <div className="mt-1 text-xs font-semibold text-blue-700">{productGroupDisplay(row)}</div>
+                  </td>
+                  <td className="px-2 py-2 font-semibold text-slate-900">
                     <select
                       value={row.editedMallKey || row.mallKey || ""}
                       onChange={(event) =>
@@ -2000,8 +2079,12 @@ function SheetReviewTable({
                 </tr>
                 {expandedRows.has(index) ? (
                   <tr className="border-b border-slate-200 bg-slate-50">
-                    <td colSpan={8} className="px-3 py-3">
+                    <td colSpan={9} className="px-3 py-3">
                       <dl className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <Detail label="상품그룹" value={productGroupDisplay(row)} />
+                        <Detail label="ptn_goods_cd" value={row.ptnGoodsCd ?? ""} />
+                        <Detail label="group_suffix" value={row.groupSuffix ?? ""} />
+                        <Detail label="product_group_status" value={row.productGroupStatus ?? "missing"} />
                         <Detail
                           label="mall_key"
                           value={
@@ -2071,6 +2154,8 @@ function ReviewRow({
           <h3 className="font-semibold text-slate-950">
             상품번호 {row.goodsKey || "—"}
           </h3>
+          <p className="mt-1 text-sm font-semibold text-blue-700">{row.ptnGoodsCd || "—"}</p>
+          <p className="text-sm text-slate-700">{productGroupDisplay(row)}</p>
         </div>
         <div className="flex gap-2">
           <span
@@ -2174,6 +2259,10 @@ function ReviewRow({
             label="mall_key"
             value={row.editedMallKey || row.mallKey || "쇼핑몰 선택 필요"}
           />
+          <Detail label="상품그룹" value={productGroupDisplay(row)} />
+          <Detail label="ptn_goods_cd" value={row.ptnGoodsCd ?? ""} />
+          <Detail label="group_suffix" value={row.groupSuffix ?? ""} />
+          <Detail label="product_group_status" value={row.productGroupStatus ?? "missing"} />
           <Detail label="quality_status" value={row.qualityStatus} />
           <Detail label="confidence_status" value={row.confidenceStatus} />
           <Detail label="block_reason" value={row.blockReason} />

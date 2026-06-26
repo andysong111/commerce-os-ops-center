@@ -2,23 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import {
+  buildGoodsKeyGroupMap,
   buildKeywordEngineDispatchPayload,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
   inferProductGroupFromPtnGoodsCd,
 } from "../src/lib/productLaunchFlow.ts";
 
-test("suffix group inference uses ptn_goods_cd ending letters only", () => {
-  assert.equal(inferProductGroupFromPtnGoodsCd("BAA1-1a"), "도매1");
-  assert.equal(inferProductGroupFromPtnGoodsCd("BAA1-1b"), "도매2");
-  assert.equal(inferProductGroupFromPtnGoodsCd("BAA1-1c"), "도매3");
-  assert.equal(inferProductGroupFromPtnGoodsCd("BAA1-1d"), "도매4");
-  assert.equal(inferProductGroupFromPtnGoodsCd("BAA1-1e"), "소매1");
-  assert.equal(inferProductGroupFromPtnGoodsCd("BAA1-1f"), "소매2");
-  assert.equal(inferProductGroupFromPtnGoodsCd("BAA1-1A"), "도매1");
-  assert.equal(inferProductGroupFromPtnGoodsCd("1BAA1-1"), "확인 필요");
-  assert.equal(inferProductGroupFromPtnGoodsCd("6BAA1-1"), "확인 필요");
-  assert.equal(inferProductGroupFromPtnGoodsCd(""), "확인 필요");
+test("suffix group inference uses extensible ptn_goods_cd ending metadata", () => {
+  assert.deepEqual(inferProductGroupFromPtnGoodsCd("TEST1-1a"), { groupSuffix: "a", productGroup: "도매1", productGroupType: "도매", productGroupStatus: "registered" });
+  assert.deepEqual(inferProductGroupFromPtnGoodsCd("TEST1-1b"), { groupSuffix: "b", productGroup: "도매2", productGroupType: "도매", productGroupStatus: "registered" });
+  assert.deepEqual(inferProductGroupFromPtnGoodsCd("TEST1-1c"), { groupSuffix: "c", productGroup: "도매3", productGroupType: "도매", productGroupStatus: "registered" });
+  assert.deepEqual(inferProductGroupFromPtnGoodsCd("TEST1-1d"), { groupSuffix: "d", productGroup: "도매4", productGroupType: "도매", productGroupStatus: "registered" });
+  assert.deepEqual(inferProductGroupFromPtnGoodsCd("TEST1-1e"), { groupSuffix: "e", productGroup: "소매1", productGroupType: "소매", productGroupStatus: "registered" });
+  assert.deepEqual(inferProductGroupFromPtnGoodsCd("TEST1-1f"), { groupSuffix: "f", productGroup: "소매2", productGroupType: "소매", productGroupStatus: "registered" });
+  assert.deepEqual(inferProductGroupFromPtnGoodsCd("TEST1-1F"), { groupSuffix: "f", productGroup: "소매2", productGroupType: "소매", productGroupStatus: "registered" });
+  assert.deepEqual(inferProductGroupFromPtnGoodsCd("TEST1-1g"), { groupSuffix: "g", productGroup: "미등록 그룹(g)", productGroupType: "확인 필요", productGroupStatus: "unregistered" });
+  assert.deepEqual(inferProductGroupFromPtnGoodsCd(""), { groupSuffix: "", productGroup: "상품그룹 확인 필요", productGroupType: "확인 필요", productGroupStatus: "missing" });
 });
 
 test("extracts upload rows and de-duplicates goods_key values for price modify", () => {
@@ -64,7 +64,9 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
     "dry_run",
     "키워드/상품명 결과는 샵플링에 자동 반영되지 않습니다",
     "현재 MVP에서는 상품명/키워드를 6개 상품코드에 동일하게 적용",
-    "ptn_goods_cd 끝 글자 a~f 기준",
+    "ptn_goods_cd 끝 글자 기준",
+    "goodsKeyGroupMap",
+    "product_group_status",
     "샵플링 마켓전송은 수동",
     "productLaunchFlow.uploadRequestId",
     "productLaunchFlow.priceRequestId",
@@ -116,4 +118,24 @@ test("product launch flow sources do not include restricted execution or credent
   assert.doesNotMatch(source, /github[_-]?token\s*[:=]\s*["'][^"']+/i);
   assert.doesNotMatch(source, /(shopling|샵플링).{0,30}(password|secret|credential|token)\s*[:=]\s*["'][^"']+/i);
   assert.doesNotMatch(source, /\/api\/shopling-(?!product-upload|price-modify)/i);
+});
+
+
+test("builds goodsKeyGroupMap with registered and unregistered product group status", () => {
+  const map = buildGoodsKeyGroupMap([
+    { goods_key: "121118", ptn_goods_cd: "TEST1-1a" },
+    { goods_key: "121124", ptn_goods_cd: "TEST1-1g" },
+  ]);
+  assert.equal(map["121118"].product_group, "도매1");
+  assert.equal(map["121118"].product_group_status, "registered");
+  assert.equal(map["121124"].group_suffix, "g");
+  assert.equal(map["121124"].product_group, "미등록 그룹(g)");
+  assert.equal(map["121124"].product_group_status, "unregistered");
+});
+
+test("product group registry is table based and extensible", async () => {
+  const source = await readFile("src/lib/productGroup.ts", "utf8");
+  assert.match(source, /PRODUCT_GROUP_DEFINITIONS/);
+  assert.match(source, /new Map/);
+  assert.doesNotMatch(source, /switch\s*\(/);
 });

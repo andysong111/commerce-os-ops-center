@@ -1,3 +1,5 @@
+import { MISSING_PRODUCT_GROUP, type ProductGroupStatus, type ProductGroupType } from "./productGroup";
+
 export type KeywordQueueClassification =
   | "auto_apply_candidate"
   | "manual_review"
@@ -28,6 +30,11 @@ export type KeywordReviewRow = {
 };
 
 export type ReviewedKeywordRow = KeywordReviewRow & {
+  ptnGoodsCd?: string;
+  groupSuffix?: string;
+  productGroup?: string;
+  productGroupType?: ProductGroupType;
+  productGroupStatus?: ProductGroupStatus;
   editedTitle: string;
   editedSiteSrch: string;
   editedMallKey: string;
@@ -245,16 +252,36 @@ export function parseKeywordMvpCsv(csvText: string): KeywordReviewRow[] {
   });
 }
 
+export type GoodsKeyGroupMapEntry = {
+  goods_key?: string;
+  ptn_goods_cd?: string;
+  group_suffix?: string;
+  product_group?: string;
+  product_group_type?: ProductGroupType;
+  product_group_status?: ProductGroupStatus;
+};
+
+export type GoodsKeyGroupMap = Record<string, GoodsKeyGroupMapEntry>;
+
 export function createReviewedRows(
   rows: KeywordReviewRow[],
+  goodsKeyGroupMap: GoodsKeyGroupMap = {},
 ): ReviewedKeywordRow[] {
-  return rows.map((row) => ({
+  return rows.map((row) => {
+    const metadata = goodsKeyGroupMap[row.goodsKey.trim()];
+    return ({
     ...row,
     editedTitle: row.recommendedTitle,
     editedSiteSrch: row.recommendedSiteSrch,
     editedMallKey: row.mallKey,
     reviewStatus: "pending",
-  }));
+    ptnGoodsCd: metadata?.ptn_goods_cd ?? "",
+    groupSuffix: metadata?.group_suffix ?? MISSING_PRODUCT_GROUP.groupSuffix,
+    productGroup: metadata?.product_group ?? MISSING_PRODUCT_GROUP.productGroup,
+    productGroupType: metadata?.product_group_type ?? MISSING_PRODUCT_GROUP.productGroupType,
+    productGroupStatus: metadata?.product_group_status ?? MISSING_PRODUCT_GROUP.productGroupStatus,
+  });
+  });
 }
 
 export function exportReviewedQueue(rows: ReviewedKeywordRow[]) {
@@ -274,6 +301,11 @@ export function exportReviewedQueue(rows: ReviewedKeywordRow[]) {
       block_reason: row.blockReason,
       warning_flags: row.warningFlags,
       source_row_index: row.sourceRowIndex,
+      ptn_goods_cd: row.ptnGoodsCd ?? "",
+      group_suffix: row.groupSuffix ?? "",
+      product_group: row.productGroup ?? MISSING_PRODUCT_GROUP.productGroup,
+      product_group_type: row.productGroupType ?? MISSING_PRODUCT_GROUP.productGroupType,
+      product_group_status: row.productGroupStatus ?? MISSING_PRODUCT_GROUP.productGroupStatus,
     })),
     null,
     2,
