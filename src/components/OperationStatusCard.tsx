@@ -3,8 +3,8 @@ export type OperationStatusState = "idle" | "queued" | "running" | "waiting_arti
 export function formatKeywordApplyRunPhase(phase?: string) {
   switch (phase) {
     case "queued": return "실행 대기 중입니다.";
-    case "running": return "GitHub Actions가 실행 중입니다.";
-    case "waiting_artifact": return "실행은 완료 대기/결과 파일 생성 대기 중입니다.";
+    case "running": return "GitHub Actions는 아직 실행 중입니다.";
+    case "waiting_artifact": return "결과 artifact가 아직 생성되지 않았습니다.";
     case "completed_no_artifact": return "실행은 끝났지만 결과 파일이 없습니다.";
     case "artifact_ready": return "결과 파일을 확인했습니다.";
     case "failed": return "GitHub Actions 실행이 실패했습니다.";
@@ -25,9 +25,11 @@ const labels: Record<OperationStatusState, string> = {
 
 const steps = ["요청 접수", "GitHub Actions 실행", "샵플링 API 처리", "결과 artifact 생성", "OPS Center 결과 확인"];
 const loadingCopy = [
-  "샵플링 반영 작업을 준비하고 있습니다.",
-  "GitHub Actions에서 안전하게 실행 중입니다.",
-  "결과 파일이 생성되면 자동으로 가져옵니다.",
+  "실행 중입니다. 결과 가져오기를 반복해서 누르지 않아도 자동으로 확인합니다.",
+  "GitHub Actions는 아직 실행 중입니다.",
+  "결과 artifact가 아직 생성되지 않았습니다.",
+  "이 상태는 실패가 아닙니다. 잠시 후 다시 확인합니다.",
+  "최종 실패는 GitHub Actions가 종료된 뒤에만 표시됩니다.",
   "OPS Center는 샵플링을 직접 호출하지 않고 상태만 확인합니다.",
 ];
 

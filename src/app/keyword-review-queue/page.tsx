@@ -1161,18 +1161,34 @@ function ExecutionPreflightSection({
   );
 }
 
-type ApplyRunMeta = { requestId?: string; phase?: string; state: OperationStatusState; runUrl?: string; runStatus?: string | null; runConclusion?: string | null; artifactName?: string; fetchedAt?: string; lastCheckedAt?: string; pollCount: number; message?: string };
+type ApplyRunMeta = { requestId?: string; phase?: string; state: OperationStatusState; runUrl?: string; runStatus?: string | null; runConclusion?: string | null; artifactName?: string; fetchedAt?: string; lastCheckedAt?: string; pollCount: number; polling: boolean; message?: string };
 const MAX_APPLY_POLLS = 18;
 const APPLY_POLL_INTERVAL_MS = 5000;
 
+function isArtifactBackedFailure(summary: unknown) {
+  if (!summary || typeof summary !== "object") return false;
+  const status = String((summary as Record<string, unknown>).status ?? "");
+  return status === "failed" || status === "partial_failure" || status === "blocked";
+}
+
 function toOperationState(result: Record<string, unknown> | null, fallback: OperationStatusState = "idle"): OperationStatusState {
   const phase = String(result?.phase ?? "");
-  if (result?.status === "success" || phase === "artifact_ready") return "success";
+  const runStatus = String(result?.runStatus ?? "");
+  const runConclusion = String(result?.runConclusion ?? "");
+  if (result?.status === "success" || phase === "artifact_ready") return isArtifactBackedFailure(result?.summary) ? "failed" : "success";
+  if (result?.status === "pending") {
+    if (phase === "queued") return "queued";
+    if (phase === "running") return "running";
+    if (phase === "waiting_artifact") return "waiting_artifact";
+    return fallback === "idle" || fallback === "failed" || fallback === "blocked" ? "waiting_artifact" : fallback;
+  }
+  if (result?.status === "error" && (phase === "failed" || phase === "completed_no_artifact")) return "failed";
+  if (runStatus === "completed" && runConclusion === "failure") return "failed";
+  if (isArtifactBackedFailure(result?.summary)) return "failed";
   if (phase === "queued") return "queued";
   if (phase === "running") return "running";
-  if (phase === "completed_no_artifact" || phase === "failed") return "failed";
+  if (phase === "waiting_artifact") return "waiting_artifact";
   if (result?.status === "error") return "blocked";
-  if (result?.status === "pending") return "waiting_artifact";
   return fallback;
 }
 
@@ -1204,8 +1220,8 @@ function KeywordShoplingApplySection({
   const disabled = !preflightResult;
   const executionPlanJson = preflightResult ? buildCompactKeywordApplyExecutionPlan(preflightResult) : "";
   const showGithub422Hint = `${dryRunStatusMessage} ${realStatusMessage}`.includes("status=422");
-  const [dryRunMeta, setDryRunMeta] = useState<ApplyRunMeta>(() => ({ state: "idle", pollCount: 0, requestId: typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY) || undefined : undefined }));
-  const [realMeta, setRealMeta] = useState<ApplyRunMeta>(() => ({ state: "idle", pollCount: 0, requestId: typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_REAL_REQUEST_ID_KEY) || undefined : undefined }));
+  const [dryRunMeta, setDryRunMeta] = useState<ApplyRunMeta>(() => ({ state: "idle", pollCount: 0, polling: false, requestId: typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY) || undefined : undefined }));
+  const [realMeta, setRealMeta] = useState<ApplyRunMeta>(() => ({ state: "idle", pollCount: 0, polling: false, requestId: typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_REAL_REQUEST_ID_KEY) || undefined : undefined }));
 
   function metaSetter(mode: "dry_run" | "apply") { return mode === "dry_run" ? setDryRunMeta : setRealMeta; }
 
@@ -1230,18 +1246,31 @@ function KeywordShoplingApplySection({
       setStatus(mode === "apply" ? "가져온 결과가 실제 반영 결과가 아니라 dry_run 결과입니다. 실제 반영 실행 요청 ID를 확인하세요." : "가져온 결과가 dry_run 결과가 아닙니다.");
       return false;
     }
-    setResult({ ...json, fetchedAt });
+    const pendingMessage = "아직 실행 중이거나 결과 파일을 생성하는 중입니다. 잠시 후 자동으로 다시 확인합니다. 실행 중입니다. 결과 가져오기를 반복해서 누르지 않아도 자동으로 확인합니다. 이 상태는 실패가 아닙니다. 잠시 후 다시 확인합니다. 최종 실패는 GitHub Actions가 종료된 뒤에만 표시됩니다.";
+    if (json.status !== "pending") setResult({ ...json, fetchedAt });
+    const phase = String(json.phase ?? (json.status === "pending" ? "waiting_artifact" : "unknown"));
     const state = toOperationState(json, auto ? "waiting_artifact" : "unknown");
-    setMeta((m) => ({ ...m, requestId, state, phase: String(json.phase ?? "unknown"), runUrl: json.runUrl, runStatus: json.runStatus, runConclusion: json.runConclusion, artifactName: json.artifactName, fetchedAt, lastCheckedAt, pollCount: auto ? m.pollCount + 1 : m.pollCount, message: json.message || formatKeywordApplyRunPhase(String(json.phase ?? "unknown")) }));
-    setStatus(json.message || formatKeywordApplyRunPhase(String(json.phase ?? "unknown")));
-    return json.status !== "success" && json.status !== "error" && state !== "failed" && state !== "blocked";
+    const message = json.status === "pending" ? pendingMessage : json.message || formatKeywordApplyRunPhase(phase);
+    setMeta((m) => ({ ...m, requestId, state, phase, runUrl: json.runUrl, runStatus: json.runStatus, runConclusion: json.runConclusion, artifactName: json.artifactName, fetchedAt, lastCheckedAt, pollCount: auto ? m.pollCount + 1 : m.pollCount, polling: json.status === "pending" && (auto || m.polling), message }));
+    setStatus(message);
+    return json.status === "pending" && state !== "failed" && state !== "blocked";
   }
 
   async function pollAfterDispatch(mode: "dry_run" | "apply") {
+    const setMeta = metaSetter(mode);
+    const setStatus = mode === "dry_run" ? onDryRunStatusChange : onRealStatusChange;
+    let completed = false;
     for (let count = 0; count < MAX_APPLY_POLLS; count += 1) {
       await new Promise((resolve) => setTimeout(resolve, APPLY_POLL_INTERVAL_MS));
       const keepGoing = await fetchResult(mode, true);
-      if (!keepGoing) break;
+      if (!keepGoing) { completed = true; break; }
+    }
+    if (!completed) {
+      const message = "자동 확인 시간이 끝났습니다. GitHub Actions 화면을 확인하거나 잠시 후 결과 가져오기를 다시 눌러주세요.";
+      setMeta((m) => ({ ...m, state: m.state === "queued" || m.state === "running" ? "waiting_artifact" : m.state === "failed" || m.state === "blocked" ? "unknown" : m.state, polling: false, message }));
+      setStatus(message);
+    } else {
+      setMeta((m) => ({ ...m, polling: false }));
     }
   }
 
@@ -1250,18 +1279,21 @@ function KeywordShoplingApplySection({
     const setStatus = mode === "dry_run" ? onDryRunStatusChange : onRealStatusChange;
     const setMeta = metaSetter(mode);
     if (mode === "apply" && !window.confirm("실제 샵플링 상품명/검색어를 수정합니다. 계속하시겠습니까?")) return;
-    setStatus("GitHub Actions 요청 중...");
+    const setResult = mode === "dry_run" ? onDryRunResultChange : onRealResultChange;
+    setResult(null);
+    setStatus(mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다.");
+    setMeta((m) => ({ ...m, state: "queued", phase: "queued", pollCount: 0, polling: true, message: mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." }));
     const response = await fetch("/api/keyword-shopling-apply/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ execution_plan_json: executionPlanJson, mode, confirmation_text: mode === "apply" ? KEYWORD_APPLY_CONFIRMATION_TEXT : "", max_items: Number.parseInt(maxRows, 10) || 20 }) });
     const json = await response.json();
     if (json.requestId) {
       const storageKey = mode === "dry_run" ? KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY : KEYWORD_APPLY_REAL_REQUEST_ID_KEY;
       window.localStorage.setItem(storageKey, json.requestId);
-      setMeta({ requestId: json.requestId, state: "queued", phase: "queued", runUrl: json.runUrl || json.githubActionsUrl, runStatus: "queued", pollCount: 0, message: "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." });
-      setStatus("실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다.");
+      setMeta({ requestId: json.requestId, state: "queued", phase: "queued", runUrl: json.runUrl || json.githubActionsUrl, runStatus: "queued", pollCount: 0, polling: true, message: mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." });
+      setStatus(mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다.");
       void pollAfterDispatch(mode);
       return;
     }
-    setMeta((m) => ({ ...m, state: "blocked", message: json.message || "요청 실패" }));
+    setMeta((m) => ({ ...m, state: "blocked", polling: false, message: json.message || "요청 실패" }));
     setStatus(json.message || json.commandPreview || (response.ok ? "요청 완료" : "요청 실패"));
   }
 
@@ -1273,8 +1305,8 @@ function KeywordShoplingApplySection({
 
   return (
     <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-200 p-4 sm:p-5"><h2 className="font-semibold text-slate-950">샵플링 반영 실행</h2><p className="mt-2 text-sm text-slate-600">이 단계는 승인된 상품명/검색어를 외부 GitHub Actions로 보내 샵플링에 반영합니다. OPS Center는 샵플링을 직접 호출하지 않습니다.</p><p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">먼저 dry_run으로 결과를 확인한 뒤, 실제 반영 버튼을 누르면 필요한 확인문구가 내부에서 자동으로 전달됩니다.</p>{!preflightResult ? <p className="mt-3 text-sm font-semibold text-red-700">먼저 반영 미리보기와 실행 전 점검을 실행하세요.</p> : null}<div className="mt-4 grid gap-3 sm:grid-cols-3"><SummaryCard label="실행 가능 행" value={preflightResult?.summary.eligibleCount ?? 0} /><SummaryCard label="차단 행" value={preflightResult?.summary.blockedCount ?? 0} /><label className="text-xs font-semibold text-slate-600">최대 실행 행 수<input type="number" min="1" max="100" value={maxRows} onChange={(event) => onMaxRowsChange(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" /></label></div>
-      <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><h3 className="font-semibold text-blue-950">1단계: dry_run 확인</h3><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("dry_run")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">샵플링 반영 dry_run 실행</button><button type="button" onClick={() => void fetchResult("dry_run")} className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700">결과 가져오기</button></div><p className="mt-3 text-xs text-blue-900">dry_run request id: <span className="font-mono">{dryRunMeta.requestId || "-"}</span></p>{dryRunStatusMessage ? <p className="mt-3 text-sm text-slate-700">{dryRunStatusMessage}</p> : null}{renderControls("dry_run", dryRunResult, dryRunMeta)}</div>
-      <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4"><h3 className="font-semibold text-red-950">2단계: 실제 반영</h3><p className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800">실제 반영 요청에는 외부 runner가 요구하는 확인문구가 자동으로 포함됩니다. 버튼 클릭 후 브라우저 최종 확인창에서 한 번 더 승인하세요.</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">실제 샵플링 반영 실행</button><button type="button" onClick={() => void fetchResult("apply")} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700">결과 가져오기</button></div><p className="mt-3 text-xs text-red-900">apply request id: <span className="font-mono">{realMeta.requestId || "-"}</span></p>{realStatusMessage ? <p className="mt-3 text-sm text-slate-700">{realStatusMessage}</p> : null}{renderControls("apply", realResult, realMeta)}</div>{showGithub422Hint ? <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">GitHub Actions 입력값 검증에서 거절되었습니다. 실행 계획 크기 또는 workflow 입력값을 확인하세요.</p> : null}</div></section>
+      <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><h3 className="font-semibold text-blue-950">1단계: dry_run 확인</h3><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("dry_run")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">샵플링 반영 dry_run 실행</button><button type="button" disabled={dryRunMeta.polling} onClick={() => void fetchResult("dry_run")} className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400">{dryRunMeta.polling ? "자동 확인 중..." : "결과 가져오기"}</button>{dryRunMeta.polling ? <span className="self-center text-xs font-semibold text-blue-900">자동 확인 {dryRunMeta.pollCount}/{MAX_APPLY_POLLS}</span> : null}</div><p className="mt-3 text-xs text-blue-900">dry_run request id: <span className="font-mono">{dryRunMeta.requestId || "-"}</span></p>{dryRunStatusMessage ? <p className="mt-3 text-sm text-slate-700">{dryRunStatusMessage}</p> : null}{renderControls("dry_run", dryRunResult, dryRunMeta)}</div>
+      <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4"><h3 className="font-semibold text-red-950">2단계: 실제 반영</h3><p className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800">실제 반영 요청에는 외부 runner가 요구하는 확인문구가 자동으로 포함됩니다. 버튼 클릭 후 브라우저 최종 확인창에서 한 번 더 승인하세요.</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">실제 샵플링 반영 실행</button><button type="button" disabled={realMeta.polling} onClick={() => void fetchResult("apply")} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400">{realMeta.polling ? "자동 확인 중..." : "결과 가져오기"}</button>{realMeta.polling ? <span className="self-center text-xs font-semibold text-red-900">자동 확인 {realMeta.pollCount}/{MAX_APPLY_POLLS}</span> : null}</div><p className="mt-3 text-xs text-red-900">apply request id: <span className="font-mono">{realMeta.requestId || "-"}</span></p>{realStatusMessage ? <p className="mt-3 text-sm text-slate-700">{realStatusMessage}</p> : null}{renderControls("apply", realResult, realMeta)}</div>{showGithub422Hint ? <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">GitHub Actions 입력값 검증에서 거절되었습니다. 실행 계획 크기 또는 workflow 입력값을 확인하세요.</p> : null}</div></section>
   );
 }
 function ApplyResultFreshness({ result }: { result: Record<string, unknown> }) {

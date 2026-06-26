@@ -39,3 +39,28 @@ test("keyword apply observability keeps security boundaries", async () => {
   assert.doesNotMatch(combined, /https?:\/\/[^\s"']*shopling/i);
   assert.doesNotMatch(combined, /localStorage\.setItem\([^)]*(token|secret|password|credential)/i);
 });
+
+test("keyword apply false-failure safeguards are present in UI source", async () => {
+  const { page } = await files();
+  for (const text of [
+    "실행 중입니다. 결과 가져오기를 반복해서 누르지 않아도 자동으로 확인합니다.",
+    "이 상태는 실패가 아닙니다. 잠시 후 다시 확인합니다.",
+    "자동 확인 중...",
+    "자동 확인 시간이 끝났습니다.",
+    "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다.",
+  ]) assert.match(page, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(page, /setResult\(null\)/);
+  assert.match(page, /dryRunMeta\.polling/);
+  assert.match(page, /realMeta\.polling/);
+  assert.match(page, /disabled=\{dryRunMeta\.polling\}/);
+  assert.match(page, /disabled=\{realMeta\.polling\}/);
+});
+
+test("pending state mapping is non-failure and completed failures stay red", async () => {
+  const { page } = await files();
+  assert.match(page, /result\?\.status === "pending"[\s\S]*phase === "queued"[\s\S]*return "queued"/);
+  assert.match(page, /result\?\.status === "pending"[\s\S]*phase === "running"[\s\S]*return "running"/);
+  assert.match(page, /result\?\.status === "pending"[\s\S]*phase === "waiting_artifact"[\s\S]*return "waiting_artifact"/);
+  assert.match(page, /runStatus === "completed" && runConclusion === "failure"[\s\S]*return "failed"/);
+  assert.match(page, /result\?\.status === "error" && \(phase === "failed" \|\| phase === "completed_no_artifact"\)/);
+});
