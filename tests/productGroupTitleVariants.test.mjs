@@ -49,6 +49,8 @@ test("apply plan expansion counts, blocking, and duplicate goods/mall removal", 
 test("UI source includes group variant controls and security-sensitive strings are absent", () => {
   const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
   for (const text of ["상품그룹별 상품명 차별화", "상품그룹별 속성 꾸밈어 적용", "상품그룹에 연결된 모든 쇼핑몰로 적용 대상 확장", "상품그룹/쇼핑몰별 상품명 미리보기", "상품에 실제로 확인되는 속성만 꾸밈어로 사용합니다", "미확인 속성, 인증, 방수, 최저가 등 위험 표현은 자동 추가하지 않습니다"]) assert.ok(ui.includes(text));
+  const guided = "미리보기와 적용 계획을 생성했습니다. 실제 반영 전 dry_run을 먼저 실행하세요.";
+  assert.doesNotMatch(guided, /dispatch|fetch\s*\(|run\("apply"|keywordShoplingApply/i);
   const all = readFileSync("src/lib/productTitleVariants.ts", "utf8") + ui;
   for (const bad of ["child_process", "shell: true", "PowerShell", "API_AUTH_KEY", "LOGIN_PASSWORD", "localStorage.setItem(\"token", "raw XML"]) assert.equal(all.includes(bad), false);
 });
