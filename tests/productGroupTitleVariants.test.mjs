@@ -52,3 +52,13 @@ test("UI source includes group variant controls and security-sensitive strings a
   const all = readFileSync("src/lib/productTitleVariants.ts", "utf8") + ui;
   for (const bad of ["child_process", "shell: true", "PowerShell", "API_AUTH_KEY", "LOGIN_PASSWORD", "localStorage.setItem(\"token", "raw XML"]) assert.equal(all.includes(bad), false);
 });
+
+test("guided action approves first candidates and only generates previews", () => {
+  const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
+  const start = ui.indexOf("title=\"플로우 테스트용입니다");
+  const end = ui.indexOf("onClick={onClearSelection}", start);
+  const guided = ui.slice(start, end);
+  assert.match(guided, /상품별 첫 후보만 승인/);
+  assert.match(ui, /dry_run/);
+  assert.doesNotMatch(guided, /dispatch|fetch\s*\(|run\("apply"|keywordShoplingApply/i);
+});
