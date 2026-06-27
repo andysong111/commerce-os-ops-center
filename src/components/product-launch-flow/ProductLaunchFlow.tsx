@@ -168,7 +168,7 @@ export function ProductLaunchFlow() {
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.message ?? "키워드 결과 가져오기에 실패했습니다.");
       window.sessionStorage.setItem(KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY, JSON.stringify({ kind: data.kind, source: data.source, files: data.files, generatedSourceFiles: data.generatedSourceFiles, goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows), importedAt: new Date().toISOString(), notAppliedToShopling: true, notPublished: true, requiresHumanReview: true }));
-      setKeywordImportMessage("키워드 결과를 검토 화면으로 가져왔습니다.");
+      setKeywordImportMessage("키워드 결과를 검토 화면으로 가져왔습니다. 키워드 결과 검토 화면의 ‘상품 출시 플로우’를 Step 1부터 Step 5까지 순서대로 진행하세요.");
     } catch (error) {
       setKeywordImportMessage(error instanceof Error ? error.message : "키워드 결과 가져오기에 실패했습니다.");
     } finally { setKeywordBusy(""); }
