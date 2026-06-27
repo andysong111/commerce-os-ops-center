@@ -449,6 +449,42 @@ export default function KeywordReviewQueuePage() {
     setGuidedActionStatus("미리보기와 적용 계획을 생성했습니다. 실제 반영 전 dry_run을 먼저 실행하세요.");
   }
 
+  function generateProductGroupPreview() {
+    if (readinessCounts.approvedCount === 0) return;
+    setGroupVariantPreview(createGroupVariantPreviewRows(rows, groupVariantEnabled, expandProductGroupMarkets));
+  }
+
+  function generateApplyPlan() {
+    if (groupVariantPreview.length === 0) return;
+    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
+    if (preview.expandedItemCount > 100) {
+      setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다.");
+      return;
+    }
+    setPayloadPreview(preview);
+    setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
+    setMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
+    if (expandProductGroupMarkets) {
+      setAllowedMallKeys([...new Set(preview.previewableItems.map((item) => item.mall_key))].join(","));
+    }
+    setPreflightResult(null);
+  }
+
+  function createApplyPreflightPlan() {
+    if (!payloadPreview || payloadPreview.summary.previewReadyCount === 0) return;
+    setPreflightResult(
+      buildKeywordExecutionPreflight(
+        { previewResult: payloadPreview, finalConfirmationText: "" },
+        {
+          ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+          allowedMallKeys: parseKeyList(allowedMallKeys),
+          maxRows: Math.max(0, Number.parseInt(maxRows, 10) || 0),
+          alreadyAppliedGoodsKeys: parseKeyList(alreadyAppliedGoodsKeys),
+        },
+      ),
+    );
+  }
+
   function fillMallKeyForRows(approvedOnly: boolean) {
     setPayloadPreview(null);
     setPreflightResult(null);
@@ -517,7 +553,22 @@ export default function KeywordReviewQueuePage() {
         description="키워드 엔진이 만든 상품명과 검색어 후보를 확인하고 승인합니다."
       />
 
-      <WorkflowHeader counts={readinessCounts} />
+      <ProductLaunchWizard
+        counts={readinessCounts}
+        groupPreviewReady={groupVariantPreview.length > 0}
+        applyPlanReady={Boolean(payloadPreview)}
+        preflightReady={Boolean(preflightResult && preflightResult.summary.eligibleCount > 0)}
+        dryRunSucceeded={toOperationState(keywordApplyDryRunResult) === "success"}
+        realApplySucceeded={toOperationState(keywordApplyRealResult) === "success"}
+        productGroupPreviewStatus={groupVariantPreview.length > 0 ? "성공" : "대기 중"}
+        applyPlanStatus={payloadPreview ? "성공" : "대기 중"}
+        dryRunStatus={toWizardStatus(toOperationState(keywordApplyDryRunResult))}
+        realApplyStatus={toWizardStatus(toOperationState(keywordApplyRealResult))}
+        onApproveFirstCandidate={approveFirstCandidatePerGoodsKey}
+        onGenerateGroupPreview={generateProductGroupPreview}
+        onGenerateApplyPlan={generateApplyPlan}
+        onCreatePreflightPlan={createApplyPreflightPlan}
+      />
 
       <BeginnerGuide />
 
@@ -737,6 +788,9 @@ export default function KeywordReviewQueuePage() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
           <div>
             <h2 className="font-semibold text-slate-950">검토 행</h2>
+            <p className="mt-1 text-sm font-semibold text-blue-800">
+              상세 검토표입니다. 기본 사용자는 위의 상품 출시 플로우 버튼을 순서대로 누르면 됩니다.
+            </p>
             <p className="mt-1 text-sm text-slate-600">
               승인/보류한 결과를 다음 단계로 넘기기 위해 복사합니다.
             </p>
@@ -1541,30 +1595,107 @@ function downloadText(filename: string, text: string, type: string) {
 }
 
 
-function WorkflowHeader({ counts }: { counts: { totalCandidates: number; approvedCount: number; groupConfirmedCount: number; expandedMarketCount: number; previewReadyCount: number } }) {
+
+function toWizardStatus(state: OperationStatusState): string {
+  if (state === "queued" || state === "running") return "실행 중";
+  if (state === "waiting_artifact") return "결과 생성 대기 중";
+  if (state === "success") return "성공";
+  if (state === "failed" || state === "blocked") return "실패";
+  return "대기 중";
+}
+
+function ProductLaunchWizard({
+  counts,
+  groupPreviewReady,
+  applyPlanReady,
+  preflightReady,
+  dryRunSucceeded,
+  realApplySucceeded,
+  productGroupPreviewStatus,
+  applyPlanStatus,
+  dryRunStatus,
+  realApplyStatus,
+  onApproveFirstCandidate,
+  onGenerateGroupPreview,
+  onGenerateApplyPlan,
+  onCreatePreflightPlan,
+}: {
+  counts: { totalCandidates: number; approvedCount: number; groupConfirmedCount: number; expandedMarketCount: number; previewReadyCount: number };
+  groupPreviewReady: boolean;
+  applyPlanReady: boolean;
+  preflightReady: boolean;
+  dryRunSucceeded: boolean;
+  realApplySucceeded: boolean;
+  productGroupPreviewStatus: string;
+  applyPlanStatus: string;
+  dryRunStatus: string;
+  realApplyStatus: string;
+  onApproveFirstCandidate: () => void;
+  onGenerateGroupPreview: () => void;
+  onGenerateApplyPlan: () => void;
+  onCreatePreflightPlan: () => void;
+}) {
+  const step2Disabled = counts.approvedCount === 0;
+  const step3Disabled = !groupPreviewReady;
+  const step4Disabled = !applyPlanReady || counts.previewReadyCount === 0 || !preflightReady;
+  const step5Disabled = !dryRunSucceeded;
+  const completedCount = [counts.approvedCount > 0, groupPreviewReady, applyPlanReady, dryRunSucceeded, realApplySucceeded].filter(Boolean).length;
+  const currentStep = !counts.approvedCount ? "상품명 후보 선택" : !groupPreviewReady ? "상품그룹별 상품명 미리보기" : !applyPlanReady ? "적용 계획 생성" : !dryRunSucceeded ? "dry_run 실행" : "실제 반영";
+  const nextStep = currentStep === "실제 반영" ? "완료 확인" : ["상품명 후보 선택", "상품그룹별 상품명 미리보기", "적용 계획 생성", "dry_run 실행", "실제 반영"][completedCount] ?? "완료 확인";
+  const steps = [
+    { n: 1, t: "상품명 후보 선택", b: "상품별 첫 후보 자동 선택", disabled: false, status: counts.approvedCount > 0 ? "completed" : "current", onClick: onApproveFirstCandidate, message: "이 단계는 아직 샵플링에 반영하지 않습니다." },
+    { n: 2, t: "상품그룹별 상품명 미리보기", b: "상품그룹별 상품명 미리보기", disabled: step2Disabled, status: groupPreviewReady ? "completed" : step2Disabled ? "locked" : "current", onClick: onGenerateGroupPreview, message: step2Disabled ? "승인된 상품명이 있어야 진행할 수 있습니다." : "이 단계는 아직 샵플링에 반영하지 않습니다." },
+    { n: 3, t: "적용 계획 생성", b: "적용 계획 생성", disabled: step3Disabled, status: applyPlanReady ? "completed" : step3Disabled ? "locked" : "current", onClick: onGenerateApplyPlan, message: step3Disabled ? "상품그룹별 미리보기를 먼저 생성하세요." : "이 단계는 아직 샵플링에 반영하지 않습니다." },
+    { n: 4, t: "dry_run 실행", b: "샵플링 반영 dry_run 실행", disabled: step4Disabled, status: dryRunSucceeded ? "completed" : step4Disabled ? "locked" : "current", onClick: onCreatePreflightPlan, message: step4Disabled ? "적용 계획을 먼저 생성하세요." : "아래 샵플링 반영 실행 섹션에서 dry_run 버튼을 눌러 GitHub Actions runner로 실행하세요." },
+    { n: 5, t: "실제 반영", b: "실제 샵플링 반영 실행", disabled: step5Disabled, status: realApplySucceeded ? "completed" : step5Disabled ? "locked" : "current", onClick: () => undefined, message: step5Disabled ? "dry_run 성공 후 실제 반영이 가능합니다." : "dry_run 성공 후에만 실제 반영을 진행하세요." },
+  ];
+  const styles = { completed: "border-emerald-300 bg-emerald-50 text-emerald-950", current: "border-blue-300 bg-blue-50 text-blue-950", locked: "border-slate-200 bg-slate-50 text-slate-500", failed: "border-red-300 bg-red-50 text-red-950" } as const;
   return (
     <section className="mb-6 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm sm:p-6">
-      <div className="grid gap-3 lg:grid-cols-3">
-        {["Step 1. 상품명 후보 선택", "Step 2. 상품그룹별 상품명 차별화", "Step 3. 샵플링 반영 준비"].map((step) => (
-          <div key={step} className="rounded-xl border border-blue-100 bg-white p-4">
-            <p className="text-sm font-bold text-blue-900">{step}</p>
-          </div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-950">상품 출시 플로우</h2>
+          <p className="mt-2 text-sm font-semibold text-blue-900">1 → 2 → 3 → 4 → 5 순서대로 진행하세요.</p>
+          <p className="mt-1 text-sm text-slate-700">버튼을 순서대로 누르면 안전하게 등록할 수 있습니다.</p>
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950">
+          <p>실제 반영은 dry_run 확인 후 진행하세요.</p>
+          <p>실제 반영 버튼을 누르기 전까지 상품명은 변경되지 않습니다.</p>
+        </div>
+      </div>
+      <div className="mt-5 grid gap-3 lg:grid-cols-5">
+        {steps.map((step, index) => (
+          <article key={step.n} className={`rounded-xl border p-4 ${styles[step.status as keyof typeof styles]}`}>
+            <p className="text-xs font-bold uppercase">Step {step.n}</p>
+            <h3 className="mt-1 font-bold">{step.t}</h3>
+            <button type="button" disabled={step.disabled} onClick={step.onClick} className="mt-3 w-full rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">
+              {step.b}
+            </button>
+            <p className="mt-2 text-xs font-semibold">{step.message}</p>
+            {index < steps.length - 1 ? <p className="mt-2 hidden text-center font-bold text-slate-400 lg:block">→</p> : null}
+          </article>
         ))}
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard label="전체 후보 수" value={counts.totalCandidates} />
-        <SummaryCard label="승인된 상품 수" value={counts.approvedCount} />
-        <SummaryCard label="상품그룹 확인 완료 수" value={counts.groupConfirmedCount} />
-        <SummaryCard label="확장 적용 예상 쇼핑몰 수" value={counts.expandedMarketCount} />
-        <SummaryCard label="반영 가능 행 수" value={counts.previewReadyCount} />
+      <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-5">
+        <StatusPill label="현재 단계" value={currentStep} />
+        <StatusPill label="다음 단계" value={nextStep} />
+        <StatusPill label="진행률" value={`${completedCount}/5 완료`} />
+        <StatusPill label="승인된 상품명" value={`${counts.approvedCount}개`} />
+        <StatusPill label="상품그룹 미리보기" value={productGroupPreviewStatus} />
+        <StatusPill label="적용 계획" value={applyPlanStatus} />
+        <StatusPill label="dry_run" value={dryRunStatus} />
+        <StatusPill label="실제 반영" value={realApplyStatus} />
+        <StatusPill label="반영 가능 행" value={`${counts.previewReadyCount}개`} />
+        <StatusPill label="확장 예상" value={`${counts.expandedMarketCount}개`} />
       </div>
-      <div className="mt-4 grid gap-2 text-sm font-semibold text-amber-900">
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">이 단계는 아직 샵플링에 반영하지 않습니다.</p>
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">dry_run을 먼저 실행해야 실제 반영 전 결과를 확인할 수 있습니다.</p>
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">실제 반영 버튼을 누르기 전까지 상품명은 변경되지 않습니다.</p>
-      </div>
+      {(dryRunStatus === "실행 중" || realApplyStatus === "실행 중") ? <p className="mt-4 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900">실행 중입니다. 결과를 생성하는 중입니다.</p> : null}
+      {(dryRunStatus === "결과 생성 대기 중" || realApplyStatus === "결과 생성 대기 중") ? <p className="mt-4 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-amber-900">결과 파일을 생성하는 중입니다. 이 상태는 실패가 아닙니다.</p> : null}
     </section>
   );
+}
+
+function StatusPill({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl border border-slate-200 bg-white px-3 py-2"><dt className="text-xs font-semibold text-slate-500">{label}</dt><dd className="mt-1 font-bold text-slate-950">{value}</dd></div>;
 }
 
 function PrimaryApprovalCta({ approvedCount, selectedCount, guidedActionStatus, onApproveFirstCandidate, onApproveSelected, onApproveAllReviewNeeded, onGuidedAction }: { approvedCount: number; selectedCount: number; guidedActionStatus: string; onApproveFirstCandidate: () => void; onApproveSelected: () => void; onApproveAllReviewNeeded: () => void; onGuidedAction: () => void }) {
