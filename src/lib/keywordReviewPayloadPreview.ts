@@ -162,7 +162,7 @@ export function buildKeywordShoplingPayloadPreview(
     } else if (row.reviewStatus === "approved") {
       if (!row.goodsKey.trim())
         validation_errors.push("goods_key is required.");
-      if (!final_mall_key)
+      if (!options.expandProductGroupMarkets && !final_mall_key)
         validation_errors.push("적용할 쇼핑몰(mall_key)을 선택하세요.");
       if (!final_title) validation_errors.push("상품명을 입력하세요.");
       if (!final_site_srch) {
@@ -243,8 +243,8 @@ export function buildKeywordShoplingPayloadPreview(
     if (!row) return [item];
     const markets = getMarketsForProductGroup(row.productGroup ?? "");
     if (markets.length === 0) {
-      expansionErrors.push(`${row.goodsKey || "(missing goods_key)"}: 상품그룹 확인 필요`);
-      return [{ ...item, payload_status: "invalid" as const, validation_errors: [...item.validation_errors, "상품그룹 확인 필요"] }];
+      expansionErrors.push(`${row.goodsKey || "(missing goods_key)"}: 상품그룹을 확인해야 쇼핑몰 자동 확장이 가능합니다.`);
+      return [{ ...item, payload_status: "invalid" as const, validation_errors: [...item.validation_errors, "상품그룹을 확인해야 쇼핑몰 자동 확장이 가능합니다."] }];
     }
     const source = sourceFromReviewedRow(row);
     return markets.map((market) => {

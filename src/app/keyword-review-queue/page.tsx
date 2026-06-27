@@ -31,9 +31,6 @@ import {
   type KeywordExecutionPreflightResult,
 } from "@/lib/keywordReviewExecutionPreflight";
 
-const DEFAULT_MALL_KEY_STORAGE_KEY = "keywordReviewQueue.defaultMallKey";
-const DEFAULT_MALL_KEY = "SMALL_00004";
-
 const APPLY_RESULT_LABELS: Record<string, string> = {
   goods_key: "상품번호",
   mall_key: "쇼핑몰",
@@ -75,41 +72,14 @@ function formatApplyResultValue(value: unknown): string {
   return APPLY_RESULT_VALUE_LABELS[raw] ?? raw;
 }
 
-function createGroupVariantPreviewRows(rows: ReviewedKeywordRow[], groupVariantEnabled: boolean, expandProductGroupMarkets: boolean) {
+function createGroupVariantPreviewRows(rows: ReviewedKeywordRow[], groupVariantEnabled: boolean) {
   return rows.filter((row) => row.reviewStatus === "approved").flatMap((row) => {
     const source = sourceFromReviewedRow(row);
-    const markets = expandProductGroupMarkets ? getMarketsForProductGroup(row.productGroup ?? "") : [{ productGroup: row.productGroup ?? "상품그룹 확인 필요", groupSuffix: row.groupSuffix ?? "", productGroupType: row.productGroupType ?? "확인 필요", marketName: "현재 선택 쇼핑몰", mallType: "", mallKey: row.editedMallKey || row.mallKey, accountIdLabel: "-" } as const];
-    if (markets.length === 0) return [{ row, mallKey: "상품그룹 확인 필요", marketName: "상품그룹 확인 필요", accountIdLabel: "-", groupTitle: source.baseTitle, mallTitle: source.baseTitle, selectedModifier: "", wordOrderStrategy: "blocked" }];
+    const markets = getMarketsForProductGroup(row.productGroup ?? "");
+    if (markets.length === 0) return [{ row, mallKey: "상품그룹 확인 필요", marketName: "상품그룹 확인 필요", accountIdLabel: "-", groupTitle: source.baseTitle, mallTitle: source.baseTitle, selectedModifier: "", wordOrderStrategy: "상품그룹을 확인해야 쇼핑몰 자동 확장이 가능합니다." }];
     return markets.map((market) => { const variant = groupVariantEnabled ? buildMallSpecificTitleVariant(source, market) : null; return { row, mallKey: market.mallKey, marketName: market.marketName, accountIdLabel: market.accountIdLabel, groupTitle: variant?.groupTitle ?? source.baseTitle, mallTitle: variant?.mallTitle ?? source.baseTitle, selectedModifier: variant?.selectedModifier ?? "", wordOrderStrategy: variant?.wordOrderStrategy ?? "single_mall" }; });
   });
 }
-
-const SHOPLING_MALL_OPTIONS = [
-  ["SMALL_00001", "옥션"],
-  ["SMALL_00002", "지마켓"],
-  ["SMALL_00003", "11번가"],
-  ["SMALL_00004", "스마트스토어"],
-  ["SMALL_00005", "GS SHOP"],
-  ["SMALL_00012", "쿠팡"],
-  ["SMALL_00014", "카페24(1.9)"],
-  ["SMALL_00019", "신세계몰"],
-  ["SMALL_00069", "도매꾹"],
-  ["SMALL_00071", "도매창고"],
-  ["SMALL_00101", "카카오톡 스토어"],
-  ["SMALL_00107", "오너클랜"],
-  ["SMALL_00112", "에이블리"],
-  ["SMALL_00116", "셀파"],
-  ["SMALL_00130", "롯데ON"],
-  ["SMALL_00165", "셀링콕"],
-  ["SMALL_00168", "인큐텐"],
-  ["SMALL_00179", "투비즈온"],
-  ["SMALL_00180", "도매아토즈"],
-  ["SMALL_00186", "AliExpress"],
-  ["SMALL_00188", "셀리어스"],
-  ["SMALL_00190", "도매의신"],
-  ["SMALL_00191", "TEMU"],
-  ["SMALL_00194", "토스쇼핑"],
-] as const;
 
 function fallbackSiteSrchFromTitle(title: string) {
   return title.replace(/\s+/g, " ").trim();
@@ -221,12 +191,12 @@ export default function KeywordReviewQueuePage() {
   const [payloadPreview, setPayloadPreview] =
     useState<KeywordPayloadPreviewResult | null>(null);
   const [groupVariantEnabled, setGroupVariantEnabled] = useState(false);
-  const [expandProductGroupMarkets, setExpandProductGroupMarkets] = useState(false);
+  const [expandProductGroupMarkets] = useState(true);
   const [groupVariantPreview, setGroupVariantPreview] = useState<ReturnType<typeof createGroupVariantPreviewRows>>([]);
   const [guidedActionStatus, setGuidedActionStatus] = useState("");
   const [preflightResult, setPreflightResult] =
     useState<KeywordExecutionPreflightResult | null>(null);
-  const [allowedMallKeys, setAllowedMallKeys] = useState(DEFAULT_MALL_KEY);
+  const [allowedMallKeys, setAllowedMallKeys] = useState("");
   const [maxRows, setMaxRows] = useState("20");
   const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
   const [keywordApplyMaxRows, setKeywordApplyMaxRows] = useState("20");
@@ -240,28 +210,6 @@ export default function KeywordReviewQueuePage() {
     string,
     unknown
   > | null>(null);
-  const [defaultMallKey, setDefaultMallKey] = useState(() => {
-    if (typeof window === "undefined") return DEFAULT_MALL_KEY;
-    return (
-      window.localStorage.getItem(DEFAULT_MALL_KEY_STORAGE_KEY) ||
-      DEFAULT_MALL_KEY
-    );
-  });
-  const [mallKeyFillStatus, setMallKeyFillStatus] = useState("");
-
-  function changeDefaultMallKey(value: string) {
-    const previousDefaultMallKey = defaultMallKey;
-    setDefaultMallKey(value);
-    setAllowedMallKeys((current) => {
-      const normalizedCurrent = current.trim();
-      if (!normalizedCurrent || normalizedCurrent === previousDefaultMallKey) {
-        return value;
-      }
-      return current;
-    });
-    setPreflightResult(null);
-    window.localStorage.setItem(DEFAULT_MALL_KEY_STORAGE_KEY, value);
-  }
   function loadImportedArtifact() {
     if (!importedArtifact?.files) return;
     setApprovalCsv(
@@ -421,7 +369,7 @@ export default function KeywordReviewQueuePage() {
         return {
           ...row,
           reviewStatus: "approved" as const,
-          editedMallKey: row.editedMallKey.trim() || row.mallKey.trim() || defaultMallKey,
+          editedMallKey: row.editedMallKey.trim() || row.mallKey.trim(),
           editedSiteSrch: row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim() || fallbackSiteSrchFromTitle(row.editedTitle || row.recommendedTitle),
         };
       }
@@ -433,12 +381,12 @@ export default function KeywordReviewQueuePage() {
     setPayloadPreview(null);
     setPreflightResult(null);
     setRows((current) => approveFirstCandidateRows(current));
-    setMallKeyFillStatus("상품별 첫 후보에 쇼핑몰과 임시 검색어를 자동으로 채웠습니다.");
+    setGuidedActionStatus("상품별 첫 후보를 선택했습니다. mall_key는 상품그룹 설정에 따라 자동으로 결정됩니다.");
   }
 
   function runGuidedApprovalPreviewPlan() {
     const sourceRows = rows.filter((row) => row.reviewStatus === "approved").length === 0 ? approveFirstCandidateRows(rows) : rows;
-    const previewRows = createGroupVariantPreviewRows(sourceRows, groupVariantEnabled, expandProductGroupMarkets);
+    const previewRows = createGroupVariantPreviewRows(sourceRows, groupVariantEnabled);
     const preview = buildKeywordShoplingPayloadPreview(sourceRows, { groupVariantEnabled, expandProductGroupMarkets });
     setRows(sourceRows);
     setGroupVariantPreview(previewRows);
@@ -457,7 +405,7 @@ export default function KeywordReviewQueuePage() {
       setGuidedActionStatus("승인된 상품명이 있어야 진행할 수 있습니다.");
       return;
     }
-    setGroupVariantPreview(createGroupVariantPreviewRows(rows, groupVariantEnabled, expandProductGroupMarkets));
+    setGroupVariantPreview(createGroupVariantPreviewRows(rows, groupVariantEnabled));
     setGuidedActionStatus("상품그룹별 상품명 미리보기를 생성했습니다. 다음 단계에서 적용 계획을 생성하세요.");
   }
 
@@ -492,38 +440,7 @@ export default function KeywordReviewQueuePage() {
     window.setTimeout(() => document.getElementById("keyword-shopling-apply-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
-  function fillMallKeyForRows(approvedOnly: boolean) {
-    setPayloadPreview(null);
-    setPreflightResult(null);
-    setRows((current) =>
-      current.map((row) => {
-        if (row.classification === "blocked_risk") return row;
-        if (approvedOnly && row.reviewStatus !== "approved") return row;
-        return row.mallKey.trim() || row.editedMallKey.trim()
-          ? row
-          : { ...row, editedMallKey: defaultMallKey };
-      }),
-    );
-    setMallKeyFillStatus("선택한 쇼핑몰을 검토 행에 적용했습니다.");
-  }
 
-  function fillEmptySiteSrch() {
-    setPayloadPreview(null);
-    setPreflightResult(null);
-    setRows((current) =>
-      current.map((row) => {
-        const finalSiteSrch =
-          row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim();
-        if (finalSiteSrch) return row;
-        return {
-          ...row,
-          editedSiteSrch: fallbackSiteSrchFromTitle(
-            row.editedTitle || row.recommendedTitle,
-          ),
-        };
-      }),
-    );
-  }
 
   function approveAllReviewNeededRows() {
     if (
@@ -740,58 +657,14 @@ export default function KeywordReviewQueuePage() {
         </div>
       </section>
 
-      <section className="my-6 rounded-xl border border-blue-200 bg-white p-4 shadow-sm sm:p-5">
-        <h2 className="font-semibold text-slate-950">적용 쇼핑몰 선택</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          mall_key는 샵플링 쇼핑몰 코드입니다. 도매1/소매1 상품그룹과는
-          다릅니다. 먼저 테스트할 쇼핑몰 1개를 선택하세요.
-        </p>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="text-xs font-semibold text-slate-600">
-            쇼핑몰 코드
-            <select
-              value={defaultMallKey}
-              onChange={(event) => changeDefaultMallKey(event.target.value)}
-              className="mt-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"
-            >
-              {SHOPLING_MALL_OPTIONS.map(([key, label]) => (
-                <option key={key} value={key}>
-                  {key} {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={() => fillMallKeyForRows(false)}
-            className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700"
-          >
-            선택 쇼핑몰 일괄 적용
-          </button>
-          <button
-            type="button"
-            onClick={() => fillMallKeyForRows(true)}
-            className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700"
-          >
-            승인된 행에 쇼핑몰 적용
-          </button>
-          <button
-            type="button"
-            onClick={fillEmptySiteSrch}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
-          >
-            빈 검색어 자동 채우기
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-slate-500">
-          검색어가 비어 있으면 상품명을 임시 검색어로 사용합니다. 품질 개선은
-          이후 단계에서 진행합니다.
-        </p>
-        {mallKeyFillStatus ? (
-          <p className="mt-2 text-xs font-semibold text-emerald-700">
-            {mallKeyFillStatus}
-          </p>
-        ) : null}
+      <section className="my-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 shadow-sm sm:p-5">
+        <h2 className="font-semibold">상품그룹 기준 쇼핑몰 자동 선택</h2>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>상품그룹 기준으로 연결 쇼핑몰이 자동 선택됩니다.</li>
+          <li>mall_key는 상품그룹 설정에 따라 자동으로 결정됩니다.</li>
+          <li>사용자는 쇼핑몰을 직접 선택하지 않아도 됩니다.</li>
+          <li>상품그룹이 확인되지 않은 행은 적용 계획에서 차단됩니다.</li>
+        </ul>
       </section>
 
       <PrimaryApprovalCta
@@ -948,8 +821,7 @@ export default function KeywordReviewQueuePage() {
         expandProductGroupMarkets={expandProductGroupMarkets}
         previewRows={groupVariantPreview}
         onGroupVariantEnabledChange={(value) => { setGroupVariantEnabled(value); setPayloadPreview(null); setPreflightResult(null); }}
-        onExpandProductGroupMarketsChange={(value) => { setExpandProductGroupMarkets(value); setPayloadPreview(null); setPreflightResult(null); }}
-        onPreview={() => setGroupVariantPreview(createGroupVariantPreviewRows(rows, groupVariantEnabled, expandProductGroupMarkets))}
+        onPreview={() => setGroupVariantPreview(createGroupVariantPreviewRows(rows, groupVariantEnabled))}
         onApplyPreview={() => {
           if (expandProductGroupMarkets) {
             const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
@@ -1171,7 +1043,7 @@ function ExecutionPreflightSection({
               placeholder="mall_key를 줄바꿈 또는 쉼표로 입력"
             />
             <span className="mt-1 block font-normal">
-              허용 쇼핑몰은 위 ‘적용 쇼핑몰 선택’ 값으로 자동 설정됩니다.
+              허용 쇼핑몰은 상품그룹 시장 등록 설정에 따라 자동 설정됩니다.
             </span>
           </label>
           <label className="text-xs font-semibold text-slate-600">
@@ -1218,7 +1090,7 @@ function ExecutionPreflightSection({
 
       {!result ? (
         <p className="p-8 text-center text-sm text-slate-500">
-          샵플링 반영 미리보기를 생성한 뒤 실행 전 점검을 누르세요. 기본 쇼핑몰은 위에서 선택한 값이 자동 적용됩니다.
+          샵플링 반영 미리보기를 생성한 뒤 실행 전 점검을 누르세요. mall_key는 상품그룹 설정에 따라 자동 적용됩니다.
         </p>
       ) : (
         <div className="p-4 sm:p-5">
@@ -1662,7 +1534,7 @@ function ProductLaunchWizard({
 }) {
   const completedCount = [counts.approvedCount > 0, groupPreviewReady, applyPlanReady, dryRunSucceeded, realApplySucceeded].filter(Boolean).length;
   const currentStep = completedCount >= 5 ? "완료" : `Step ${completedCount + 1}`;
-  const nextStep = completedCount >= 5 ? "모든 단계 완료" : ["상품명 후보 선택", "상품그룹별 상품명 미리보기", "적용 계획 생성", "dry_run 실행 준비", "실제 반영"][completedCount];
+  const nextStep = completedCount >= 5 ? "모든 단계 완료" : ["상품명 후보 선택", "상품그룹별 상품명 미리보기", "상품그룹 기준 적용 계획 생성", "dry_run 실행 준비", "실제 반영"][completedCount];
   const statusLabel = (ready: boolean, state?: OperationStatusState) => {
     if (state === "queued" || state === "running") return "실행 중";
     if (state === "waiting_artifact") return "결과 생성 대기 중";
@@ -1673,7 +1545,7 @@ function ProductLaunchWizard({
   const steps = [
     { step: "Step 1", title: "상품명 후보 선택", button: "상품별 첫 후보 자동 선택", disabled: false, reason: "", done: counts.approvedCount > 0, onClick: onStep1 },
     { step: "Step 2", title: "상품그룹별 상품명 미리보기", button: "상품그룹별 상품명 미리보기", disabled: step2Disabled, reason: "승인된 상품명이 있어야 진행할 수 있습니다.", done: groupPreviewReady, onClick: onStep2 },
-    { step: "Step 3", title: "적용 계획 생성", button: "적용 계획 생성", disabled: step3Disabled, reason: "상품그룹별 미리보기를 먼저 생성하세요.", done: applyPlanReady, onClick: onStep3 },
+    { step: "Step 3", title: "상품그룹 기준 적용 계획 생성", button: "상품그룹 기준 적용 계획 생성", disabled: step3Disabled, reason: "상품그룹별 미리보기를 먼저 생성하세요.", done: applyPlanReady, onClick: onStep3 },
     { step: "Step 4", title: "dry_run 실행 준비", button: "dry_run 실행 준비", disabled: step4Disabled, reason: "적용 계획을 먼저 생성하세요.", done: preflightReady, onClick: onStep4 },
     { step: "Step 5", title: "실제 반영", button: "실제 샵플링 반영 실행", disabled: step5Disabled, reason: "dry_run 성공 후 실제 반영이 가능합니다.", done: realApplySucceeded, onClick: onStep5 },
   ];
@@ -1692,6 +1564,7 @@ function ProductLaunchWizard({
           <p><strong>진행률</strong>: {completedCount}/5 완료</p>
         </div>
       </div>
+      <p className="mt-4 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900">상품그룹에 연결된 쇼핑몰별로 상품명과 mall_key가 자동 생성됩니다.</p>
       <div className="mt-5 grid gap-3 lg:grid-cols-5">
         {steps.map((item, index) => {
           const stateClass = item.done ? "border-emerald-300 bg-emerald-50" : item.disabled ? "border-slate-200 bg-slate-50" : "border-blue-300 bg-blue-50";
@@ -1751,7 +1624,6 @@ function GroupVariantSection({
   expandProductGroupMarkets,
   previewRows,
   onGroupVariantEnabledChange,
-  onExpandProductGroupMarketsChange,
   onPreview,
   onApplyPreview,
 }: {
@@ -1760,7 +1632,6 @@ function GroupVariantSection({
   expandProductGroupMarkets: boolean;
   previewRows: ReturnType<typeof createGroupVariantPreviewRows>;
   onGroupVariantEnabledChange: (value: boolean) => void;
-  onExpandProductGroupMarketsChange: (value: boolean) => void;
   onPreview: () => void;
   onApplyPreview: () => void;
 }) {
@@ -1778,13 +1649,12 @@ function GroupVariantSection({
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">이 단계는 아직 샵플링에 반영하지 않습니다.</p>
           {approvedCount === 0 ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 font-semibold">먼저 승인된 상품명이 필요합니다. 위의 ‘상품별 첫 후보만 승인’을 누르거나 각 행의 ‘승인’을 눌러주세요.</p> : null}
           {!groupVariantEnabled ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">속성 꾸밈어를 적용하려면 ‘상품그룹별 속성 꾸밈어 적용’을 켜세요.</p> : null}
-          {!expandProductGroupMarkets ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">현재는 선택 쇼핑몰 1개 기준입니다. 그룹에 연결된 모든 쇼핑몰에 적용하려면 확장 옵션을 켜세요.</p> : null}
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">상품에 실제로 확인되는 속성만 꾸밈어로 사용합니다. 미확인 속성, 인증, 방수, 최저가 등 위험 표현은 자동 추가하지 않습니다.</p>
           <p className="sr-only">상품그룹에 연결된 모든 쇼핑몰로 적용 대상 확장</p>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <span className="sr-only">상품그룹별 속성 꾸밈어 적용</span><ToggleCard title="속성 꾸밈어 추가" description="상품명/검색어에 실제로 있는 미니, 수납, 주방용 같은 안전한 속성만 추가합니다." checked={groupVariantEnabled} onChange={onGroupVariantEnabledChange} />
-          <ToggleCard title="연결 쇼핑몰 전체로 확장" description="도매1, 소매1 같은 상품그룹에 연결된 모든 쇼핑몰로 적용 대상을 늘립니다." checked={expandProductGroupMarkets} onChange={onExpandProductGroupMarketsChange} />
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-950"><strong>연결 쇼핑몰 자동 확장</strong><p className="mt-1">도매1, 소매1 같은 상품그룹에 연결된 모든 쇼핑몰로 적용 대상을 자동 확장합니다.</p></div>
         </div>
         <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">예상 적용 행 수: {expectedRows}개 <span className="block text-xs font-normal text-slate-500">Example: {groupBreakdown} = 36개</span></p>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -2339,21 +2209,9 @@ function SheetReviewTable({
                     <div className="mt-1 font-mono text-[11px] text-slate-500">{row.ptnGoodsCd || "—"}</div>
                     <div className="mt-1 text-xs font-semibold text-blue-700">{productGroupDisplay(row)}</div>
                   </td>
-                  <td className="px-2 py-2 font-semibold text-slate-900">
-                    <select
-                      value={row.editedMallKey || row.mallKey || ""}
-                      onChange={(event) =>
-                        onUpdate(index, { editedMallKey: event.target.value })
-                      }
-                      className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-xs font-normal"
-                    >
-                      <option value="">쇼핑몰 선택 필요</option>
-                      {SHOPLING_MALL_OPTIONS.map(([key, label]) => (
-                        <option key={key} value={key}>
-                          {key} {label}
-                        </option>
-                      ))}
-                    </select>
+                  <td className="px-2 py-2 text-xs text-slate-700">
+                    <span className="font-semibold text-blue-700">상품그룹 기준 자동 결정</span>
+                    <span className="mt-1 block font-mono text-[11px] text-slate-500">{row.productGroup || "상품그룹 확인 필요"}</span>
                   </td>
                   <td className="px-2 py-2 text-slate-700">
                     {row.originalTitle || "—"}
@@ -2512,23 +2370,7 @@ function ReviewRow({
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Detail label="현재 상품명" value={row.originalTitle} />
-        <label className="text-xs font-semibold text-slate-600">
-          적용 쇼핑몰
-          <select
-            value={row.editedMallKey || row.mallKey || ""}
-            onChange={(event) =>
-              onUpdate({ editedMallKey: event.target.value })
-            }
-            className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"
-          >
-            <option value="">쇼핑몰 선택 필요</option>
-            {SHOPLING_MALL_OPTIONS.map(([key, label]) => (
-              <option key={key} value={key}>
-                {key} {label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Detail label="쇼핑몰 자동 확장" value="상품그룹 기준으로 연결 쇼핑몰이 자동 선택됩니다." />
         <label className="text-xs font-semibold text-slate-600">
           추천 상품명
           <input
