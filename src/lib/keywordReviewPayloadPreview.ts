@@ -3,6 +3,8 @@ import type {
   KeywordReviewStatus,
   ReviewedKeywordRow,
 } from "./keywordReviewQueue";
+import { buildMallSpecificTitleVariant, sourceFromReviewedRow } from "./productTitleVariants";
+import { getMarketsForProductGroup } from "./productGroupMarketRegistry";
 
 export type KeywordReviewedRow = ReviewedKeywordRow;
 
@@ -45,6 +47,14 @@ export type KeywordPayloadPreviewItem = {
     title: string;
     site_srch: string;
   } | null;
+  expansion_mode?: "single_mall" | "product_group_markets";
+  group_variant_enabled?: boolean;
+  market_name?: string;
+  account_id_label?: string;
+  group_title?: string;
+  mall_title?: string;
+  selected_modifier?: string;
+  word_order_strategy?: string;
 };
 
 export type KeywordPayloadPreviewResult = {
@@ -60,6 +70,11 @@ export type KeywordPayloadPreviewResult = {
     blockedRiskCount: number;
   };
   previewXml: string;
+  expansionMode: "single_mall" | "product_group_markets";
+  expandedItemCount: number;
+  groupVariantEnabled: boolean;
+  attributeModifierMode: "safe_source_only";
+  expansionErrors: string[];
 };
 
 function escapeXml(value: string) {
@@ -120,11 +135,14 @@ function xmlFragment(
  */
 export function buildKeywordShoplingPayloadPreview(
   reviewedRows: KeywordReviewedRow[],
+  options: { groupVariantEnabled?: boolean; expandProductGroupMarkets?: boolean } = {},
 ): KeywordPayloadPreviewResult {
-  const items = reviewedRows.map((row): KeywordPayloadPreviewItem => {
+  const expansionMode = options.expandProductGroupMarkets ? "product_group_markets" : "single_mall";
+  const expansionErrors: string[] = [];
+  const baseItems = reviewedRows.map((row): KeywordPayloadPreviewItem => {
     const validation_errors: string[] = [];
     const validation_warnings: string[] = [];
-    const final_title = preferredValue(row.editedTitle, row.recommendedTitle);
+    let final_title = preferredValue(row.editedTitle, row.recommendedTitle);
     const final_mall_key = preferredValue(row.editedMallKey, row.mallKey);
     const preferredSiteSrch = preferredValue(
       row.editedSiteSrch,
@@ -133,6 +151,9 @@ export function buildKeywordShoplingPayloadPreview(
     const normalizedSiteSrch = normalizeSiteSrch(preferredSiteSrch);
     const final_site_srch = normalizedSiteSrch.normalized;
 
+    if (options.groupVariantEnabled && final_title) {
+      final_title = sourceFromReviewedRow(row).baseTitle ? buildMallSpecificTitleVariant(sourceFromReviewedRow(row), { productGroup: row.productGroup ?? "", groupSuffix: row.groupSuffix ?? "", productGroupType: row.productGroupType ?? "확인 필요", marketName: "single", mallType: "", mallKey: final_mall_key || row.mallKey, accountIdLabel: "single" }).mallTitle : final_title;
+    }
     let payload_status: KeywordPayloadStatus = "not_approved";
     if (row.reviewStatus === "hold") {
       payload_status = "held";
@@ -211,8 +232,28 @@ export function buildKeywordShoplingPayloadPreview(
       validation_warnings,
       preview_xml_fragment,
       preview_payload,
+      expansion_mode: expansionMode,
+      group_variant_enabled: Boolean(options.groupVariantEnabled),
     };
   });
+
+  const items = options.expandProductGroupMarkets ? baseItems.flatMap((item) => {
+    if (item.payload_status !== "preview_ready") return [item];
+    const row = reviewedRows.find((candidate) => candidate.sourceRowIndex === item.source_row_index && candidate.goodsKey === item.goods_key);
+    if (!row) return [item];
+    const markets = getMarketsForProductGroup(row.productGroup ?? "");
+    if (markets.length === 0) {
+      expansionErrors.push(`${row.goodsKey || "(missing goods_key)"}: 상품그룹 확인 필요`);
+      return [{ ...item, payload_status: "invalid" as const, validation_errors: [...item.validation_errors, "상품그룹 확인 필요"] }];
+    }
+    const source = sourceFromReviewedRow(row);
+    return markets.map((market) => {
+      const variant = options.groupVariantEnabled ? buildMallSpecificTitleVariant(source, market) : null;
+      const finalTitle = variant?.mallTitle ?? item.final_title;
+      const preview_payload = { goods_key: item.goods_key.trim(), mall_key: market.mallKey, title: finalTitle, site_srch: item.final_site_srch };
+      return { ...item, mall_key: market.mallKey, edited_mall_key: market.mallKey, final_title: finalTitle, preview_payload, preview_xml_fragment: xmlFragment(preview_payload.goods_key, preview_payload.mall_key, preview_payload.title, preview_payload.site_srch), market_name: market.marketName, account_id_label: market.accountIdLabel, group_title: variant?.groupTitle, mall_title: variant?.mallTitle, selected_modifier: variant?.selectedModifier, word_order_strategy: variant?.wordOrderStrategy };
+    });
+  }).filter((item, index, all) => all.findIndex((other) => `${other.goods_key}::${other.mall_key}` === `${item.goods_key}::${item.mall_key}`) === index) : baseItems;
 
   const previewableItems = items.filter(
     (item) => item.payload_status === "preview_ready",
@@ -239,6 +280,11 @@ export function buildKeywordShoplingPayloadPreview(
         (item) => item.payload_status === "blocked_risk",
       ).length,
     },
+    expansionMode,
+    expandedItemCount: previewableItems.length,
+    groupVariantEnabled: Boolean(options.groupVariantEnabled),
+    attributeModifierMode: "safe_source_only",
+    expansionErrors,
     previewXml: [
       '<?xml version="1.0" encoding="UTF-8"?>',
       "<!-- PREVIEW ONLY. Not sent to Shopling. -->",
