@@ -370,3 +370,63 @@ test("keyword review UI includes dynamic group filters and policy placeholder co
     assert.match(source, new RegExp(expected));
   }
 });
+
+
+test("keyword review page contains complete product launch wizard copy and anchors", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const label of [
+    "상품 출시 플로우",
+    "Step 1",
+    "Step 2",
+    "Step 3",
+    "Step 4",
+    "Step 5",
+    "상품명 후보 선택",
+    "상품그룹별 상품명 미리보기",
+    "적용 계획 생성",
+    "dry_run 실행 준비",
+    "실제 반영",
+    "1 → 2 → 3 → 4 → 5 순서대로 진행하세요",
+    "버튼을 순서대로 누르면 안전하게 등록할 수 있습니다",
+    "승인된 상품명이 있어야 진행할 수 있습니다",
+    "상품그룹별 미리보기를 먼저 생성하세요",
+    "적용 계획을 먼저 생성하세요",
+    "dry_run 성공 후 실제 반영이 가능합니다",
+    "적용 점검을 생성했습니다. 아래 dry_run 실행 버튼을 눌러 실제 반영 전 안전 점검을 진행하세요.",
+    "이 단계는 아직 샵플링에 반영하지 않습니다",
+    "실제 반영 버튼을 누르기 전까지 상품명은 변경되지 않습니다",
+    "고급 검토 옵션 열기",
+    "상세 검토표입니다",
+    "keyword-shopling-apply-section",
+  ]) {
+    assert.match(source, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
+test("keyword review wizard readiness rules avoid Step 4 deadlock", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /const step2Disabled = counts\.approvedCount === 0/);
+  assert.match(source, /const step3Disabled = !groupPreviewReady/);
+  assert.match(source, /const step4Disabled = !applyPlanReady \|\| counts\.previewReadyCount === 0/);
+  assert.doesNotMatch(source, /const step4Disabled = !applyPlanReady \|\| counts\.previewReadyCount === 0 \|\| !preflightReady/);
+  assert.match(source, /const step5Disabled = !dryRunSucceeded/);
+});
+
+test("guided preview action is preview only and actual apply is dry_run guarded", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const guided = source.slice(source.indexOf("function runGuidedApprovalPreviewPlan"), source.indexOf("function generateGroupPreview"));
+  assert.doesNotMatch(guided, /fetch\s*\(/);
+  assert.doesNotMatch(guided, /\/api\/keyword-shopling-apply\/run/);
+  assert.doesNotMatch(guided, /mode:\s*["'](?:dry_run|apply)["']/);
+  assert.match(source, /mode === "apply" && !dryRunSucceeded/);
+  assert.match(source, /disabled=\{disabled \|\| !dryRunSucceeded\}/);
+});

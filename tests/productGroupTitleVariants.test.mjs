@@ -58,8 +58,13 @@ test("keyword review SaaS workflow source includes beginner guidance and safety 
   const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
   for (const text of [
     "Step 1. 상품명 후보 선택",
-    "Step 2. 상품그룹별 상품명 차별화",
-    "Step 3. 샵플링 반영 준비",
+    "Step 2",
+    "Step 3",
+    "Step 4",
+    "Step 5",
+    "상품그룹별 상품명 미리보기",
+    "적용 계획 생성",
+    "dry_run 실행 준비",
     "먼저 승인된 상품명이 필요합니다",
     "승인된 상품명이 필요합니다",
     "승인 → 상품그룹 미리보기 → 적용 계획 생성",
