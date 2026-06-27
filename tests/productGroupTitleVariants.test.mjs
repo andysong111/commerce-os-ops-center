@@ -83,18 +83,29 @@ test("keyword review preview button explains disabled state and enables after ap
 
 test("guided action approves first candidates and only generates previews", () => {
   const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
-  const guided = ui.slice(ui.indexOf("function runGuidedApprovalPreviewPlan"), ui.indexOf("function fillMallKeyForRows"));
+  const guided = ui.slice(ui.indexOf("function runGuidedApprovalPreviewPlan"), ui.indexOf("function generateGroupPreview"));
   assert.match(guided, /approveFirstCandidateRows\(rows\)/);
   assert.match(guided, /createGroupVariantPreviewRows/);
   assert.match(guided, /buildKeywordShoplingPayloadPreview/);
   assert.doesNotMatch(guided, /dispatch|fetch\s*\(|run\("apply"|keywordShoplingApply/i);
 });
 
-test("keyword review keeps single mall default and group expansion opt-in", () => {
+test("keyword review defaults to product group automatic mall expansion", () => {
   const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
-  assert.match(ui, /useState\(false\)/);
-  assert.match(ui, /현재는 선택 쇼핑몰 1개 기준입니다/);
-  assert.match(ui, /연결 쇼핑몰 전체로 확장/);
+  for (const text of [
+    "상품그룹 기준으로 연결 쇼핑몰이 자동 선택됩니다",
+    "mall_key는 상품그룹 설정에 따라 자동으로 결정됩니다",
+    "사용자는 쇼핑몰을 직접 선택하지 않아도 됩니다",
+    "상품그룹이 확인되지 않은 행은 적용 계획에서 차단됩니다",
+    "상품그룹 기준 적용 계획 생성",
+    "연결 쇼핑몰 자동 확장",
+  ]) assert.ok(ui.includes(text), text);
+  for (const removedText of [
+    "현재는 선택 쇼핑몰 " + "1개 기준입니다",
+    "연결 쇼핑몰 " + "전체로 확장",
+    "single mall " + "default",
+    "group expansion " + "opt-in",
+  ]) assert.equal(ui.includes(removedText), false, removedText);
 });
 
 test("keyword review UI security forbids direct secret and shell patterns", () => {
