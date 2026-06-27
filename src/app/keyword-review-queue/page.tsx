@@ -20,6 +20,8 @@ import {
   exportKeywordPayloadPreview,
   type KeywordPayloadPreviewResult,
 } from "@/lib/keywordReviewPayloadPreview";
+import { buildMallSpecificTitleVariant, sourceFromReviewedRow } from "@/lib/productTitleVariants";
+import { getMarketsForProductGroup } from "@/lib/productGroupMarketRegistry";
 import {
   buildCompactKeywordApplyExecutionPlan,
   buildKeywordExecutionPreflight,
@@ -71,6 +73,15 @@ function formatApplyResultValue(value: unknown): string {
   if (Array.isArray(value)) return value.map(formatApplyResultValue).join(", ");
   const raw = String(value ?? "—");
   return APPLY_RESULT_VALUE_LABELS[raw] ?? raw;
+}
+
+function createGroupVariantPreviewRows(rows: ReviewedKeywordRow[], groupVariantEnabled: boolean, expandProductGroupMarkets: boolean) {
+  return rows.filter((row) => row.reviewStatus === "approved").flatMap((row) => {
+    const source = sourceFromReviewedRow(row);
+    const markets = expandProductGroupMarkets ? getMarketsForProductGroup(row.productGroup ?? "") : [{ productGroup: row.productGroup ?? "상품그룹 확인 필요", groupSuffix: row.groupSuffix ?? "", productGroupType: row.productGroupType ?? "확인 필요", marketName: "현재 선택 쇼핑몰", mallType: "", mallKey: row.editedMallKey || row.mallKey, accountIdLabel: "-" } as const];
+    if (markets.length === 0) return [{ row, mallKey: "상품그룹 확인 필요", marketName: "상품그룹 확인 필요", accountIdLabel: "-", groupTitle: source.baseTitle, mallTitle: source.baseTitle, selectedModifier: "", wordOrderStrategy: "blocked" }];
+    return markets.map((market) => { const variant = groupVariantEnabled ? buildMallSpecificTitleVariant(source, market) : null; return { row, mallKey: market.mallKey, marketName: market.marketName, accountIdLabel: market.accountIdLabel, groupTitle: variant?.groupTitle ?? source.baseTitle, mallTitle: variant?.mallTitle ?? source.baseTitle, selectedModifier: variant?.selectedModifier ?? "", wordOrderStrategy: variant?.wordOrderStrategy ?? "single_mall" }; });
+  });
 }
 
 const SHOPLING_MALL_OPTIONS = [
@@ -209,6 +220,9 @@ export default function KeywordReviewQueuePage() {
   const [copyStatus, setCopyStatus] = useState("");
   const [payloadPreview, setPayloadPreview] =
     useState<KeywordPayloadPreviewResult | null>(null);
+  const [groupVariantEnabled, setGroupVariantEnabled] = useState(false);
+  const [expandProductGroupMarkets, setExpandProductGroupMarkets] = useState(false);
+  const [groupVariantPreview, setGroupVariantPreview] = useState<ReturnType<typeof createGroupVariantPreviewRows>>([]);
   const [preflightResult, setPreflightResult] =
     useState<KeywordExecutionPreflightResult | null>(null);
   const [allowedMallKeys, setAllowedMallKeys] = useState(DEFAULT_MALL_KEY);
@@ -828,11 +842,43 @@ export default function KeywordReviewQueuePage() {
         )}
       </section>
 
+      <GroupVariantSection
+        rows={rows}
+        groupVariantEnabled={groupVariantEnabled}
+        expandProductGroupMarkets={expandProductGroupMarkets}
+        previewRows={groupVariantPreview}
+        onGroupVariantEnabledChange={(value) => { setGroupVariantEnabled(value); setPayloadPreview(null); setPreflightResult(null); }}
+        onExpandProductGroupMarketsChange={(value) => { setExpandProductGroupMarkets(value); setPayloadPreview(null); setPreflightResult(null); }}
+        onPreview={() => setGroupVariantPreview(createGroupVariantPreviewRows(rows, groupVariantEnabled, expandProductGroupMarkets))}
+        onApplyPreview={() => {
+          if (expandProductGroupMarkets) {
+            const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
+            if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
+            setPayloadPreview(preview);
+            setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount, 100)));
+            setMaxRows(String(Math.min(preview.expandedItemCount, 100)));
+            setAllowedMallKeys([...new Set(preview.previewableItems.map((item) => item.mall_key))].join(","));
+          } else {
+            setRows((current) => current.map((row) => {
+              if (row.reviewStatus !== "approved") return row;
+              const market = getMarketsForProductGroup(row.productGroup ?? "")[0];
+              if (!market || !groupVariantEnabled) return row;
+              return { ...row, editedTitle: buildMallSpecificTitleVariant(sourceFromReviewedRow(row), market).groupTitle };
+            }));
+          }
+          setPreflightResult(null);
+        }}
+      />
       <PayloadPreviewSection
         rows={rows}
         result={payloadPreview}
         onGenerate={() => {
-          setPayloadPreview(buildKeywordShoplingPayloadPreview(rows));
+          const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
+          if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
+          setPayloadPreview(preview);
+          setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
+          setMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
+          if (expandProductGroupMarkets) setAllowedMallKeys([...new Set(preview.previewableItems.map((item) => item.mall_key))].join(","));
           setPreflightResult(null);
         }}
       />
@@ -1461,6 +1507,50 @@ function downloadText(filename: string, text: string, type: string) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+
+function GroupVariantSection({
+  rows,
+  groupVariantEnabled,
+  expandProductGroupMarkets,
+  previewRows,
+  onGroupVariantEnabledChange,
+  onExpandProductGroupMarketsChange,
+  onPreview,
+  onApplyPreview,
+}: {
+  rows: ReviewedKeywordRow[];
+  groupVariantEnabled: boolean;
+  expandProductGroupMarkets: boolean;
+  previewRows: ReturnType<typeof createGroupVariantPreviewRows>;
+  onGroupVariantEnabledChange: (value: boolean) => void;
+  onExpandProductGroupMarketsChange: (value: boolean) => void;
+  onPreview: () => void;
+  onApplyPreview: () => void;
+}) {
+  const approvedCount = rows.filter((row) => row.reviewStatus === "approved").length;
+  return (
+    <section className="mt-6 rounded-xl border border-indigo-200 bg-white shadow-sm">
+      <div className="border-b border-indigo-100 p-4 sm:p-5">
+        <h2 className="font-semibold text-slate-950">상품그룹별 상품명 차별화</h2>
+        <div className="mt-3 grid gap-2 text-sm text-amber-900">
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">상품에 실제로 확인되는 속성만 꾸밈어로 사용합니다.</p>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">미확인 속성, 인증, 방수, 최저가 등 위험 표현은 자동 추가하지 않습니다.</p>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">소속 쇼핑몰 전체 적용은 실행 전 미리보기에서 반드시 확인하세요.</p>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={groupVariantEnabled} onChange={(event) => onGroupVariantEnabledChange(event.target.checked)} />상품그룹별 속성 꾸밈어 적용</label>
+          <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={expandProductGroupMarkets} onChange={(event) => onExpandProductGroupMarketsChange(event.target.checked)} />상품그룹에 연결된 모든 쇼핑몰로 적용 대상 확장</label>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" disabled={approvedCount === 0} onClick={onPreview} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">상품그룹/쇼핑몰별 상품명 미리보기</button>
+          <button type="button" disabled={approvedCount === 0} onClick={onApplyPreview} className="rounded-lg border border-indigo-300 px-4 py-2 text-sm font-semibold text-indigo-700 disabled:border-slate-300 disabled:text-slate-400">{expandProductGroupMarkets ? "확장 적용 계획 생성" : "미리보기 상품명으로 검토표에 적용"}</button>
+        </div>
+      </div>
+      {previewRows.length > 0 ? <div className="overflow-x-auto p-4 sm:p-5"><table className="min-w-full divide-y divide-slate-200 text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["goods_key","상품그룹","ptn_goods_cd","mall_key","쇼핑몰","로그인 ID","기존 상품명","그룹 상품명","쇼핑몰별 상품명","선택된 꾸밈어","순서 전략"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-200">{previewRows.map((item, index) => <tr key={`${item.row.goodsKey}-${item.mallKey}-${index}`}><td className="px-3 py-2">{item.row.goodsKey}</td><td className="px-3 py-2">{item.row.productGroup || "상품그룹 확인 필요"}</td><td className="px-3 py-2">{item.row.ptnGoodsCd || "—"}</td><td className="px-3 py-2">{item.mallKey}</td><td className="px-3 py-2">{item.marketName}</td><td className="px-3 py-2">{item.accountIdLabel}</td><td className="px-3 py-2">{item.row.editedTitle || item.row.recommendedTitle}</td><td className="px-3 py-2">{item.groupTitle}</td><td className="px-3 py-2">{item.mallTitle}</td><td className="px-3 py-2">{item.selectedModifier || "—"}</td><td className="px-3 py-2">{item.wordOrderStrategy}</td></tr>)}</tbody></table></div> : null}
+    </section>
+  );
 }
 
 function PayloadPreviewSection({
