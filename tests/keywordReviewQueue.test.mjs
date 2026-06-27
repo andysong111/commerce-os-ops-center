@@ -85,8 +85,10 @@ test("keyword review foundation contains no live Shopling execution", async () =
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
     "utf8",
   );
-  assert.doesNotMatch(source, /\bfetch\s*\(/);
-  assert.doesNotMatch(source, /\/api\/shopling/i);
+  assert.doesNotMatch(source, /https?:\/\/[^"\']*shopling/i);
+  assert.doesNotMatch(source, /\/api\/shopling(?!-)/i);
+  assert.match(source, /\/api\/keyword-shopling-apply\/run/);
+  assert.match(source, /\/api\/keyword-shopling-apply\/actions-result/);
 });
 
 test("keyword review sheet and card modes are present", async () => {
@@ -267,27 +269,28 @@ test("keyword review delete controls do not introduce external writes or shell h
   assert.doesNotMatch(source, /GITHUB_TOKEN|SHOPLING_.*TOKEN|secret/i);
 });
 
-test("keyword review apply UX source includes mall key fill and Korean labels", async () => {
+test("keyword review apply UX source removes manual mall selection and explains product-group automation", async () => {
   const source = await readFile(
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
     "utf8",
   );
   for (const text of [
-    "샵플링 반영 미리보기 생성",
-    "승인된 행",
-    "반영 준비 완료",
-    "수정 필요",
-    "적용할 쇼핑몰(mall_key)을 선택하세요",
-    "검색어를 입력하세요",
     "적용 쇼핑몰 선택",
     "선택 쇼핑몰 일괄 적용",
     "승인된 행에 쇼핑몰 적용",
     "빈 검색어 자동 채우기",
-    "실행 전 최종 점검",
-    "실행 가능 행",
-    "최종 확인문구",
-    "keywordReviewQueue.defaultMallKey",
-    "defaultMallKey",
+  ])
+    assert.doesNotMatch(source, new RegExp(text));
+  for (const text of [
+    "상품그룹 기준으로 연결 쇼핑몰이 자동 선택됩니다",
+    "mall_key는 상품그룹 설정에 따라 자동으로 결정됩니다",
+    "사용자는 쇼핑몰을 직접 선택하지 않아도 됩니다",
+    "상품그룹이 확인되지 않은 행은 적용 계획에서 차단됩니다",
+    "상품그룹별 상품명 미리보기",
+    "상품그룹 기준 적용 계획 생성",
+    "keyword-shopling-apply-section",
+    "dry_run 실행 준비",
+    "실제 샵플링 반영 실행",
     "fallbackSiteSrchFromTitle",
   ])
     assert.match(source, new RegExp(text.replace(/[()]/g, "\\$&")));
@@ -299,8 +302,8 @@ test("keyword review preflight defaults and Korean labels are present", async ()
     "utf8",
   );
   for (const text of [
-    "useState(DEFAULT_MALL_KEY)",
-    "허용 쇼핑몰은 위 ‘적용 쇼핑몰 선택’ 값으로 자동 설정됩니다.",
+    "useState(\"\")",
+    "허용 쇼핑몰은 상품그룹 시장 등록 설정에 따라 자동 설정됩니다.",
     "useState(\"20\")",
     "실제 반영은 아래 ‘실제 샵플링 반영 실행’에서 확인문구 입력 후 진행됩니다.",
   ])
@@ -386,7 +389,7 @@ test("keyword review page contains complete product launch wizard copy and ancho
     "Step 5",
     "상품명 후보 선택",
     "상품그룹별 상품명 미리보기",
-    "적용 계획 생성",
+    "상품그룹 기준 적용 계획 생성",
     "dry_run 실행 준비",
     "실제 반영",
     "1 → 2 → 3 → 4 → 5 순서대로 진행하세요",
