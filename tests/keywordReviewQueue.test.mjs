@@ -340,6 +340,32 @@ test("keyword review apply UX removes selected English visible labels", async ()
     assert.doesNotMatch(source, new RegExp(text));
 });
 
+test("product launch wizard keeps dry_run preparation unblocked before preflight", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const step4Condition = source.match(/const step4Disabled = ([^;]+);/)?.[1] ?? "";
+  const guidedPreviewAction =
+    source.match(/function runGuidedApprovalPreviewPlan\(\) \{[\s\S]*?\n  \}/)?.[0] ??
+    "";
+
+  assert.equal(
+    step4Condition.trim(),
+    "!applyPlanReady || counts.previewReadyCount === 0",
+  );
+  assert.doesNotMatch(step4Condition, /!preflightReady/);
+  assert.match(source, /const step5Disabled = !dryRunSucceeded;/);
+  assert.match(source, /dry_run 실행 준비/);
+  assert.match(
+    source,
+    /적용 점검을 생성했습니다\. 아래 dry_run 실행 버튼을 눌러 실제 반영 전 안전 점검을 진행하세요\./,
+  );
+  assert.match(source, /dry_run 성공 후 실제 반영이 가능합니다\./);
+  assert.match(source, /OPS Center는 샵플링을 직접 호출하지 않습니다\./);
+  assert.doesNotMatch(guidedPreviewAction, /run\("dry_run"\)|run\("apply"\)/);
+});
+
 
 test("reviewed rows include product group metadata and missing fallback", () => {
   const [withMetadata, missingMetadata] = createReviewedRows([rows[0], rows[1]], {

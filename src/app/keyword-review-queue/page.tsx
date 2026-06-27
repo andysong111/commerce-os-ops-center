@@ -312,6 +312,9 @@ export default function KeywordReviewQueuePage() {
     const expandedMarketCount = expandProductGroupMarkets ? approvedRows.reduce((sum, row) => sum + Math.max(getMarketsForProductGroup(row.productGroup ?? "").length, 0), 0) : approvedRows.length;
     return { totalCandidates: rows.length, approvedCount: approvedRows.length, groupConfirmedCount: groups.size, expandedMarketCount, previewReadyCount: payloadPreview?.summary.previewReadyCount ?? 0 };
   }, [rows, expandProductGroupMarkets, payloadPreview]);
+  const dryRunSucceeded = keywordApplyDryRunResult?.summary
+    ? String((keywordApplyDryRunResult.summary as Record<string, unknown>).status) === "success"
+    : false;
   const hasImportedArtifact = Boolean(importedArtifact);
   const importedRowsAreEmpty = hasImportedArtifact && counts.total === 0;
 
@@ -447,6 +450,38 @@ export default function KeywordReviewQueuePage() {
     if (expandProductGroupMarkets) setAllowedMallKeys([...new Set(preview.previewableItems.map((item) => item.mall_key))].join(","));
     setPreflightResult(null);
     setGuidedActionStatus("미리보기와 적용 계획을 생성했습니다. 실제 반영 전 dry_run을 먼저 실행하세요.");
+  }
+
+  function prepareDryRunExecution() {
+    if (!payloadPreview) return;
+    setPreflightResult(
+      buildKeywordExecutionPreflight(
+        {
+          previewResult: payloadPreview,
+          finalConfirmationText: "",
+        },
+        {
+          ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+          allowedMallKeys: allowedMallKeys
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+          maxRows: Number(maxRows) || DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG.maxRows,
+          alreadyAppliedGoodsKeys: alreadyAppliedGoodsKeys
+            .split(/[,\n]/)
+            .map((value) => value.trim())
+            .filter(Boolean),
+        },
+      ),
+    );
+    setGuidedActionStatus(
+      "적용 점검을 생성했습니다. 아래 dry_run 실행 버튼을 눌러 실제 반영 전 안전 점검을 진행하세요.",
+    );
+    window.setTimeout(() => {
+      document
+        .getElementById("keyword-shopling-apply-section")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   }
 
   function fillMallKeyForRows(approvedOnly: boolean) {
@@ -732,6 +767,14 @@ export default function KeywordReviewQueuePage() {
         onApproveAllReviewNeeded={approveAllReviewNeededRows}
         onGuidedAction={runGuidedApprovalPreviewPlan}
       />
+      <ProductLaunchWizard
+        counts={readinessCounts}
+        applyPlanReady={Boolean(payloadPreview)}
+        preflightReady={Boolean(preflightResult)}
+        dryRunSucceeded={dryRunSucceeded}
+        guidedActionStatus={guidedActionStatus}
+        onPrepareDryRun={prepareDryRunExecution}
+      />
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
@@ -950,6 +993,7 @@ export default function KeywordReviewQueuePage() {
         realStatusMessage={keywordApplyRealStatus}
         dryRunResult={keywordApplyDryRunResult}
         realResult={keywordApplyRealResult}
+        dryRunSucceeded={dryRunSucceeded}
         onMaxRowsChange={setKeywordApplyMaxRows}
         onDryRunStatusChange={setKeywordApplyDryRunStatus}
         onRealStatusChange={setKeywordApplyRealStatus}
@@ -1300,6 +1344,7 @@ function KeywordShoplingApplySection({
   realStatusMessage,
   dryRunResult,
   realResult,
+  dryRunSucceeded,
   onMaxRowsChange,
   onDryRunStatusChange,
   onRealStatusChange,
@@ -1312,6 +1357,7 @@ function KeywordShoplingApplySection({
   realStatusMessage: string;
   dryRunResult: Record<string, unknown> | null;
   realResult: Record<string, unknown> | null;
+  dryRunSucceeded: boolean;
   onMaxRowsChange: (value: string) => void;
   onDryRunStatusChange: (value: string) => void;
   onRealStatusChange: (value: string) => void;
@@ -1319,6 +1365,7 @@ function KeywordShoplingApplySection({
   onRealResultChange: (value: Record<string, unknown> | null) => void;
 }) {
   const disabled = !preflightResult;
+  const applyDisabled = disabled || !dryRunSucceeded;
   const executionPlanJson = preflightResult ? buildCompactKeywordApplyExecutionPlan(preflightResult) : "";
   const showGithub422Hint = `${dryRunStatusMessage} ${realStatusMessage}`.includes("status=422");
   const [dryRunMeta, setDryRunMeta] = useState<ApplyRunMeta>(() => ({ state: "idle", pollCount: 0, requestId: typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY) || undefined : undefined }));
@@ -1377,6 +1424,7 @@ function KeywordShoplingApplySection({
 
   async function run(mode: "dry_run" | "apply") {
     if (!preflightResult) return;
+    if (mode === "apply" && !dryRunSucceeded) return;
     const setStatus = mode === "dry_run" ? onDryRunStatusChange : onRealStatusChange;
     const setMeta = metaSetter(mode);
     const setResult = mode === "dry_run" ? onDryRunResultChange : onRealResultChange;
@@ -1405,9 +1453,9 @@ function KeywordShoplingApplySection({
   </>;
 
   return (
-    <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-200 p-4 sm:p-5"><h2 className="font-semibold text-slate-950">샵플링 반영 실행</h2><p className="mt-2 text-sm text-slate-600">이 단계는 승인된 상품명/검색어를 외부 GitHub Actions로 보내 샵플링에 반영합니다. OPS Center는 샵플링을 직접 호출하지 않습니다.</p><p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">먼저 dry_run으로 결과를 확인한 뒤, 실제 반영 버튼을 누르면 필요한 확인문구가 내부에서 자동으로 전달됩니다.</p>{!preflightResult ? <p className="mt-3 text-sm font-semibold text-red-700">먼저 반영 미리보기와 실행 전 점검을 실행하세요.</p> : null}<div className="mt-4 grid gap-3 sm:grid-cols-3"><SummaryCard label="실행 가능 행" value={preflightResult?.summary.eligibleCount ?? 0} /><SummaryCard label="차단 행" value={preflightResult?.summary.blockedCount ?? 0} /><label className="text-xs font-semibold text-slate-600">최대 실행 행 수<input type="number" min="1" max="100" value={maxRows} onChange={(event) => onMaxRowsChange(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" /></label></div>
+    <section id="keyword-shopling-apply-section" className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-200 p-4 sm:p-5"><h2 className="font-semibold text-slate-950">샵플링 반영 실행</h2><p className="mt-2 text-sm text-slate-600">이 단계는 승인된 상품명/검색어를 외부 GitHub Actions로 보내 샵플링에 반영합니다. OPS Center는 샵플링을 직접 호출하지 않습니다.</p><p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">먼저 dry_run으로 결과를 확인한 뒤, 실제 반영 버튼을 누르면 필요한 확인문구가 내부에서 자동으로 전달됩니다.</p>{!preflightResult ? <p className="mt-3 text-sm font-semibold text-red-700">먼저 반영 미리보기와 실행 전 점검을 실행하세요.</p> : null}<div className="mt-4 grid gap-3 sm:grid-cols-3"><SummaryCard label="실행 가능 행" value={preflightResult?.summary.eligibleCount ?? 0} /><SummaryCard label="차단 행" value={preflightResult?.summary.blockedCount ?? 0} /><label className="text-xs font-semibold text-slate-600">최대 실행 행 수<input type="number" min="1" max="100" value={maxRows} onChange={(event) => onMaxRowsChange(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" /></label></div>
       <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><h3 className="font-semibold text-blue-950">1단계: dry_run 확인</h3><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("dry_run")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">샵플링 반영 dry_run 실행</button><button type="button" disabled={dryRunMeta.isPolling} onClick={() => void fetchResult("dry_run")} className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700 disabled:border-slate-300 disabled:text-slate-400">{dryRunMeta.isPolling ? "자동 확인 중..." : "결과 가져오기"}</button>{dryRunMeta.isPolling ? <span className="self-center text-xs font-semibold text-blue-900">자동 확인 {dryRunMeta.pollCount}/{MAX_APPLY_POLLS}</span> : null}</div><p className="mt-3 text-xs text-blue-900">dry_run request id: <span className="font-mono">{dryRunMeta.requestId || "-"}</span></p>{dryRunStatusMessage ? <p className="mt-3 text-sm text-slate-700">{dryRunStatusMessage}</p> : null}{renderControls("dry_run", dryRunResult, dryRunMeta)}</div>
-      <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4"><h3 className="font-semibold text-red-950">2단계: 실제 반영</h3><p className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800">실제 반영 요청에는 외부 runner가 요구하는 확인문구가 자동으로 포함됩니다. 버튼 클릭 후 브라우저 최종 확인창에서 한 번 더 승인하세요.</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">실제 샵플링 반영 실행</button><button type="button" disabled={realMeta.isPolling} onClick={() => void fetchResult("apply")} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 disabled:border-slate-300 disabled:text-slate-400">{realMeta.isPolling ? "자동 확인 중..." : "결과 가져오기"}</button>{realMeta.isPolling ? <span className="self-center text-xs font-semibold text-red-900">자동 확인 {realMeta.pollCount}/{MAX_APPLY_POLLS}</span> : null}</div><p className="mt-3 text-xs text-red-900">apply request id: <span className="font-mono">{realMeta.requestId || "-"}</span></p>{realStatusMessage ? <p className="mt-3 text-sm text-slate-700">{realStatusMessage}</p> : null}{renderControls("apply", realResult, realMeta)}</div>{showGithub422Hint ? <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">GitHub Actions 입력값 검증에서 거절되었습니다. 실행 계획 크기 또는 workflow 입력값을 확인하세요.</p> : null}</div></section>
+      <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4"><h3 className="font-semibold text-red-950">2단계: 실제 반영</h3><p className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800">실제 반영 요청에는 외부 runner가 요구하는 확인문구가 자동으로 포함됩니다. 버튼 클릭 후 브라우저 최종 확인창에서 한 번 더 승인하세요.</p>{!dryRunSucceeded ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-900">dry_run 성공 후 실제 반영이 가능합니다.</p> : null}<div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={applyDisabled} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">실제 샵플링 반영 실행</button><button type="button" disabled={realMeta.isPolling} onClick={() => void fetchResult("apply")} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 disabled:border-slate-300 disabled:text-slate-400">{realMeta.isPolling ? "자동 확인 중..." : "결과 가져오기"}</button>{realMeta.isPolling ? <span className="self-center text-xs font-semibold text-red-900">자동 확인 {realMeta.pollCount}/{MAX_APPLY_POLLS}</span> : null}</div><p className="mt-3 text-xs text-red-900">apply request id: <span className="font-mono">{realMeta.requestId || "-"}</span></p>{realStatusMessage ? <p className="mt-3 text-sm text-slate-700">{realStatusMessage}</p> : null}{renderControls("apply", realResult, realMeta)}</div>{showGithub422Hint ? <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">GitHub Actions 입력값 검증에서 거절되었습니다. 실행 계획 크기 또는 workflow 입력값을 확인하세요.</p> : null}</div></section>
   );
 }
 function ApplyResultFreshness({ result }: { result: Record<string, unknown> }) {
@@ -1579,6 +1627,76 @@ function PrimaryApprovalCta({ approvedCount, selectedCount, guidedActionStatus, 
       </div>
       {approvedCount > 0 ? <p className="mt-3 text-sm font-semibold text-emerald-900">승인된 상품명 {approvedCount}개가 준비되었습니다. 이제 상품그룹별 상품명 차별화를 생성할 수 있습니다.</p> : null}
       {guidedActionStatus ? <p className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900">{guidedActionStatus}</p> : null}
+    </section>
+  );
+}
+
+function ProductLaunchWizard({
+  counts,
+  applyPlanReady,
+  preflightReady,
+  dryRunSucceeded,
+  guidedActionStatus,
+  onPrepareDryRun,
+}: {
+  counts: {
+    totalCandidates: number;
+    approvedCount: number;
+    groupConfirmedCount: number;
+    expandedMarketCount: number;
+    previewReadyCount: number;
+  };
+  applyPlanReady: boolean;
+  preflightReady: boolean;
+  dryRunSucceeded: boolean;
+  guidedActionStatus: string;
+  onPrepareDryRun: () => void;
+}) {
+  const step4Disabled = !applyPlanReady || counts.previewReadyCount === 0;
+  const step5Disabled = !dryRunSucceeded;
+
+  return (
+    <section className="my-6 rounded-2xl border border-blue-200 bg-white p-4 shadow-sm sm:p-6">
+      <h2 className="text-lg font-bold text-blue-950">순서형 상품 반영 마법사</h2>
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+          <p className="text-sm font-bold text-blue-950">Step 4. dry_run 안전 점검 준비</p>
+          <p className="mt-2 text-sm text-blue-900">
+            적용 계획이 있으면 실행 전 점검을 만들고 아래 dry_run 실행 섹션으로 이동합니다.
+          </p>
+          <button
+            type="button"
+            disabled={step4Disabled}
+            onClick={onPrepareDryRun}
+            className="mt-3 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            dry_run 실행 준비
+          </button>
+          {preflightReady ? (
+            <p className="mt-3 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800">
+              적용 점검이 준비되었습니다.
+            </p>
+          ) : null}
+          {guidedActionStatus ? (
+            <p className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900">
+              {guidedActionStatus}
+            </p>
+          ) : null}
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-bold text-slate-950">Step 5. 실제 반영</p>
+          <p className="mt-2 text-sm text-slate-700">
+            dry_run 성공 후 실제 반영이 가능합니다.
+          </p>
+          <button
+            type="button"
+            disabled={step5Disabled}
+            className="mt-3 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            실제 반영 단계로 이동
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
