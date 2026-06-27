@@ -223,6 +223,7 @@ export default function KeywordReviewQueuePage() {
   const [groupVariantEnabled, setGroupVariantEnabled] = useState(false);
   const [expandProductGroupMarkets, setExpandProductGroupMarkets] = useState(false);
   const [groupVariantPreview, setGroupVariantPreview] = useState<ReturnType<typeof createGroupVariantPreviewRows>>([]);
+  const [guidedActionStatus, setGuidedActionStatus] = useState("");
   const [preflightResult, setPreflightResult] =
     useState<KeywordExecutionPreflightResult | null>(null);
   const [allowedMallKeys, setAllowedMallKeys] = useState(DEFAULT_MALL_KEY);
@@ -305,6 +306,12 @@ export default function KeywordReviewQueuePage() {
     [rows],
   );
   const productGroupSummary = useMemo(() => createProductGroupSummary(rows), [rows]);
+  const readinessCounts = useMemo(() => {
+    const approvedRows = rows.filter((row) => row.reviewStatus === "approved");
+    const groups = new Set(approvedRows.filter((row) => row.productGroup && row.productGroup !== "상품그룹 확인 필요").map((row) => row.productGroup));
+    const expandedMarketCount = expandProductGroupMarkets ? approvedRows.reduce((sum, row) => sum + Math.max(getMarketsForProductGroup(row.productGroup ?? "").length, 0), 0) : approvedRows.length;
+    return { totalCandidates: rows.length, approvedCount: approvedRows.length, groupConfirmedCount: groups.size, expandedMarketCount, previewReadyCount: payloadPreview?.summary.previewReadyCount ?? 0 };
+  }, [rows, expandProductGroupMarkets, payloadPreview]);
   const hasImportedArtifact = Boolean(importedArtifact);
   const importedRowsAreEmpty = hasImportedArtifact && counts.total === 0;
 
@@ -401,36 +408,45 @@ export default function KeywordReviewQueuePage() {
     );
   }
 
+  function approveFirstCandidateRows(current: ReviewedKeywordRow[]) {
+    const seen = new Set<string>();
+    return current.map((row) => {
+      const goodsKey = row.goodsKey.trim();
+      if (row.classification === "blocked_risk") return row;
+      if (!goodsKey || !row.recommendedTitle.trim()) return row;
+      if (!seen.has(goodsKey)) {
+        seen.add(goodsKey);
+        return {
+          ...row,
+          reviewStatus: "approved" as const,
+          editedMallKey: row.editedMallKey.trim() || row.mallKey.trim() || defaultMallKey,
+          editedSiteSrch: row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim() || fallbackSiteSrchFromTitle(row.editedTitle || row.recommendedTitle),
+        };
+      }
+      return { ...row, reviewStatus: "hold" as const };
+    });
+  }
+
   function approveFirstCandidatePerGoodsKey() {
     setPayloadPreview(null);
     setPreflightResult(null);
-    const seen = new Set<string>();
-    setRows((current) =>
-      current.map((row) => {
-        const goodsKey = row.goodsKey.trim();
-        if (row.classification === "blocked_risk") return row;
-        if (!goodsKey || !row.recommendedTitle.trim()) return row;
-        if (!seen.has(goodsKey)) {
-          seen.add(goodsKey);
-          return {
-            ...row,
-            reviewStatus: "approved",
-            editedMallKey:
-              row.editedMallKey.trim() || row.mallKey.trim() || defaultMallKey,
-            editedSiteSrch:
-              row.editedSiteSrch.trim() ||
-              row.recommendedSiteSrch.trim() ||
-              fallbackSiteSrchFromTitle(
-                row.editedTitle || row.recommendedTitle,
-              ),
-          };
-        }
-        return { ...row, reviewStatus: "hold" };
-      }),
-    );
-    setMallKeyFillStatus(
-      "상품별 첫 후보에 쇼핑몰과 임시 검색어를 자동으로 채웠습니다.",
-    );
+    setRows((current) => approveFirstCandidateRows(current));
+    setMallKeyFillStatus("상품별 첫 후보에 쇼핑몰과 임시 검색어를 자동으로 채웠습니다.");
+  }
+
+  function runGuidedApprovalPreviewPlan() {
+    const sourceRows = rows.filter((row) => row.reviewStatus === "approved").length === 0 ? approveFirstCandidateRows(rows) : rows;
+    const previewRows = createGroupVariantPreviewRows(sourceRows, groupVariantEnabled, expandProductGroupMarkets);
+    const preview = buildKeywordShoplingPayloadPreview(sourceRows, { groupVariantEnabled, expandProductGroupMarkets });
+    setRows(sourceRows);
+    setGroupVariantPreview(previewRows);
+    if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
+    setPayloadPreview(preview);
+    setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
+    setMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
+    if (expandProductGroupMarkets) setAllowedMallKeys([...new Set(preview.previewableItems.map((item) => item.mall_key))].join(","));
+    setPreflightResult(null);
+    setGuidedActionStatus("미리보기와 적용 계획을 생성했습니다. 실제 반영 전 dry_run을 먼저 실행하세요.");
   }
 
   function fillMallKeyForRows(approvedOnly: boolean) {
@@ -500,6 +516,8 @@ export default function KeywordReviewQueuePage() {
         title="키워드 결과 검토"
         description="키워드 엔진이 만든 상품명과 검색어 후보를 확인하고 승인합니다."
       />
+
+      <WorkflowHeader counts={readinessCounts} />
 
       <BeginnerGuide />
 
@@ -705,6 +723,16 @@ export default function KeywordReviewQueuePage() {
         ) : null}
       </section>
 
+      <PrimaryApprovalCta
+        approvedCount={readinessCounts.approvedCount}
+        selectedCount={selectedRows.size}
+        guidedActionStatus={guidedActionStatus}
+        onApproveFirstCandidate={approveFirstCandidatePerGoodsKey}
+        onApproveSelected={() => updateRows([...selectedRows], { reviewStatus: "approved" })}
+        onApproveAllReviewNeeded={approveAllReviewNeededRows}
+        onGuidedAction={runGuidedApprovalPreviewPlan}
+      />
+
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
           <div>
@@ -882,7 +910,9 @@ export default function KeywordReviewQueuePage() {
           setPreflightResult(null);
         }}
       />
-      <ExecutionPreflightSection
+      <details className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <summary className="cursor-pointer font-semibold text-slate-950">고급 검토 옵션 열기</summary>
+        <ExecutionPreflightSection
         previewResult={payloadPreview}
         result={preflightResult}
         allowedMallKeys={allowedMallKeys}
@@ -912,6 +942,7 @@ export default function KeywordReviewQueuePage() {
           )
         }
       />
+      </details>
       <KeywordShoplingApplySection
         preflightResult={preflightResult}
         maxRows={keywordApplyMaxRows}
@@ -1510,6 +1541,48 @@ function downloadText(filename: string, text: string, type: string) {
 }
 
 
+function WorkflowHeader({ counts }: { counts: { totalCandidates: number; approvedCount: number; groupConfirmedCount: number; expandedMarketCount: number; previewReadyCount: number } }) {
+  return (
+    <section className="mb-6 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm sm:p-6">
+      <div className="grid gap-3 lg:grid-cols-3">
+        {["Step 1. 상품명 후보 선택", "Step 2. 상품그룹별 상품명 차별화", "Step 3. 샵플링 반영 준비"].map((step) => (
+          <div key={step} className="rounded-xl border border-blue-100 bg-white p-4">
+            <p className="text-sm font-bold text-blue-900">{step}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <SummaryCard label="전체 후보 수" value={counts.totalCandidates} />
+        <SummaryCard label="승인된 상품 수" value={counts.approvedCount} />
+        <SummaryCard label="상품그룹 확인 완료 수" value={counts.groupConfirmedCount} />
+        <SummaryCard label="확장 적용 예상 쇼핑몰 수" value={counts.expandedMarketCount} />
+        <SummaryCard label="반영 가능 행 수" value={counts.previewReadyCount} />
+      </div>
+      <div className="mt-4 grid gap-2 text-sm font-semibold text-amber-900">
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">이 단계는 아직 샵플링에 반영하지 않습니다.</p>
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">dry_run을 먼저 실행해야 실제 반영 전 결과를 확인할 수 있습니다.</p>
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">실제 반영 버튼을 누르기 전까지 상품명은 변경되지 않습니다.</p>
+      </div>
+    </section>
+  );
+}
+
+function PrimaryApprovalCta({ approvedCount, selectedCount, guidedActionStatus, onApproveFirstCandidate, onApproveSelected, onApproveAllReviewNeeded, onGuidedAction }: { approvedCount: number; selectedCount: number; guidedActionStatus: string; onApproveFirstCandidate: () => void; onApproveSelected: () => void; onApproveAllReviewNeeded: () => void; onGuidedAction: () => void }) {
+  return (
+    <section className="my-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm sm:p-6">
+      <h2 className="text-lg font-bold text-emerald-950">먼저 상품명 후보를 선택하세요</h2>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" onClick={onApproveFirstCandidate} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">상품별 첫 후보 자동 선택</button>
+        <button type="button" disabled={selectedCount === 0} onClick={onApproveSelected} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:border-slate-300 disabled:text-slate-400">선택 항목 승인</button>
+        <button type="button" onClick={onApproveAllReviewNeeded} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800">전체 검토 필요 항목 승인</button>
+        <button type="button" onClick={onGuidedAction} className="rounded-lg bg-blue-700 px-5 py-2 text-sm font-bold text-white shadow-sm">승인 → 상품그룹 미리보기 → 적용 계획 생성</button>
+      </div>
+      {approvedCount > 0 ? <p className="mt-3 text-sm font-semibold text-emerald-900">승인된 상품명 {approvedCount}개가 준비되었습니다. 이제 상품그룹별 상품명 차별화를 생성할 수 있습니다.</p> : null}
+      {guidedActionStatus ? <p className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900">{guidedActionStatus}</p> : null}
+    </section>
+  );
+}
+
 function GroupVariantSection({
   rows,
   groupVariantEnabled,
@@ -1530,27 +1603,40 @@ function GroupVariantSection({
   onApplyPreview: () => void;
 }) {
   const approvedCount = rows.filter((row) => row.reviewStatus === "approved").length;
+  const expectedRows = expandProductGroupMarkets
+    ? rows.filter((row) => row.reviewStatus === "approved").reduce((sum, row) => sum + getMarketsForProductGroup(row.productGroup ?? "").length, 0)
+    : approvedCount;
+  const groupBreakdown = ["도매1", "도매2", "도매3", "도매4", "소매1", "소매2"].map((group) => `${group} ${getMarketsForProductGroup(group).length}개`).join(" + ");
   return (
     <section className="mt-6 rounded-xl border border-indigo-200 bg-white shadow-sm">
       <div className="border-b border-indigo-100 p-4 sm:p-5">
         <h2 className="font-semibold text-slate-950">상품그룹별 상품명 차별화</h2>
+        <p className="mt-1 text-sm text-slate-600">승인된 상품명을 기준으로 도매/소매 그룹과 연결 쇼핑몰별로 상품명을 다르게 만듭니다.</p>
         <div className="mt-3 grid gap-2 text-sm text-amber-900">
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">상품에 실제로 확인되는 속성만 꾸밈어로 사용합니다.</p>
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">미확인 속성, 인증, 방수, 최저가 등 위험 표현은 자동 추가하지 않습니다.</p>
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">소속 쇼핑몰 전체 적용은 실행 전 미리보기에서 반드시 확인하세요.</p>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">이 단계는 아직 샵플링에 반영하지 않습니다.</p>
+          {approvedCount === 0 ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 font-semibold">먼저 승인된 상품명이 필요합니다. 위의 ‘상품별 첫 후보만 승인’을 누르거나 각 행의 ‘승인’을 눌러주세요.</p> : null}
+          {!groupVariantEnabled ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">속성 꾸밈어를 적용하려면 ‘상품그룹별 속성 꾸밈어 적용’을 켜세요.</p> : null}
+          {!expandProductGroupMarkets ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">현재는 선택 쇼핑몰 1개 기준입니다. 그룹에 연결된 모든 쇼핑몰에 적용하려면 확장 옵션을 켜세요.</p> : null}
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">상품에 실제로 확인되는 속성만 꾸밈어로 사용합니다. 미확인 속성, 인증, 방수, 최저가 등 위험 표현은 자동 추가하지 않습니다.</p>
+          <p className="sr-only">상품그룹에 연결된 모든 쇼핑몰로 적용 대상 확장</p>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={groupVariantEnabled} onChange={(event) => onGroupVariantEnabledChange(event.target.checked)} />상품그룹별 속성 꾸밈어 적용</label>
-          <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={expandProductGroupMarkets} onChange={(event) => onExpandProductGroupMarketsChange(event.target.checked)} />상품그룹에 연결된 모든 쇼핑몰로 적용 대상 확장</label>
+          <ToggleCard title="속성 꾸밈어 추가" description="상품명/검색어에 실제로 있는 미니, 수납, 주방용 같은 안전한 속성만 추가합니다." checked={groupVariantEnabled} onChange={onGroupVariantEnabledChange} />
+          <ToggleCard title="연결 쇼핑몰 전체로 확장" description="도매1, 소매1 같은 상품그룹에 연결된 모든 쇼핑몰로 적용 대상을 늘립니다." checked={expandProductGroupMarkets} onChange={onExpandProductGroupMarketsChange} />
         </div>
+        <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">예상 적용 행 수: {expectedRows}개 <span className="block text-xs font-normal text-slate-500">Example: {groupBreakdown} = 36개</span></p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" disabled={approvedCount === 0} onClick={onPreview} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">상품그룹/쇼핑몰별 상품명 미리보기</button>
+          <button type="button" disabled={approvedCount === 0} onClick={onPreview} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">{approvedCount === 0 ? "승인된 상품명이 필요합니다" : "상품그룹/쇼핑몰별 상품명 미리보기"}</button>
           <button type="button" disabled={approvedCount === 0} onClick={onApplyPreview} className="rounded-lg border border-indigo-300 px-4 py-2 text-sm font-semibold text-indigo-700 disabled:border-slate-300 disabled:text-slate-400">{expandProductGroupMarkets ? "확장 적용 계획 생성" : "미리보기 상품명으로 검토표에 적용"}</button>
         </div>
       </div>
-      {previewRows.length > 0 ? <div className="overflow-x-auto p-4 sm:p-5"><table className="min-w-full divide-y divide-slate-200 text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["goods_key","상품그룹","ptn_goods_cd","mall_key","쇼핑몰","로그인 ID","기존 상품명","그룹 상품명","쇼핑몰별 상품명","선택된 꾸밈어","순서 전략"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-200">{previewRows.map((item, index) => <tr key={`${item.row.goodsKey}-${item.mallKey}-${index}`}><td className="px-3 py-2">{item.row.goodsKey}</td><td className="px-3 py-2">{item.row.productGroup || "상품그룹 확인 필요"}</td><td className="px-3 py-2">{item.row.ptnGoodsCd || "—"}</td><td className="px-3 py-2">{item.mallKey}</td><td className="px-3 py-2">{item.marketName}</td><td className="px-3 py-2">{item.accountIdLabel}</td><td className="px-3 py-2">{item.row.editedTitle || item.row.recommendedTitle}</td><td className="px-3 py-2">{item.groupTitle}</td><td className="px-3 py-2">{item.mallTitle}</td><td className="px-3 py-2">{item.selectedModifier || "—"}</td><td className="px-3 py-2">{item.wordOrderStrategy}</td></tr>)}</tbody></table></div> : null}
+      {previewRows.length > 0 ? <div className="overflow-x-auto p-4 sm:p-5"><table className="min-w-full divide-y divide-slate-200 text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["상품번호","상품그룹","쇼핑몰","계정","기존 상품명","변경될 상품명","추가된 속성","적용 방식"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}<th className="px-3 py-2">상세 보기</th></tr></thead><tbody className="divide-y divide-slate-200">{previewRows.map((item, index) => <tr key={`${item.row.goodsKey}-${item.mallKey}-${index}`}><td className="px-3 py-2">{item.row.goodsKey}</td><td className="px-3 py-2">{item.row.productGroup || "상품그룹 확인 필요"}</td><td className="px-3 py-2">{item.marketName}</td><td className="px-3 py-2">{item.accountIdLabel}</td><td className="px-3 py-2">{item.row.editedTitle || item.row.recommendedTitle}</td><td className="px-3 py-2">{item.mallTitle}</td><td className="px-3 py-2">{item.selectedModifier || "—"}</td><td className="px-3 py-2">{expandProductGroupMarkets ? "그룹 연결 쇼핑몰 확장" : "선택 쇼핑몰 1개"}</td><td className="px-3 py-2"><details><summary className="cursor-pointer text-xs font-semibold text-blue-700">상세 보기</summary><div className="mt-2 space-y-1 text-xs text-slate-500"><p>mall_key: {item.mallKey}</p><p>ptn_goods_cd: {item.row.ptnGoodsCd || "—"}</p><p>wordOrderStrategy: {item.wordOrderStrategy}</p></div></details></td></tr>)}</tbody></table></div> : null}
     </section>
   );
+}
+
+function ToggleCard({ title, description, checked, onChange }: { title: string; description: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return <label className={`block cursor-pointer rounded-xl border p-4 ${checked ? "border-indigo-400 bg-indigo-50" : "border-slate-200 bg-white"}`}><span className="flex items-start gap-3"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-1" /><span><span className="block font-semibold text-slate-900">{title}</span><span className="mt-1 block text-sm text-slate-600">{description}</span></span></span></label>;
 }
 
 function PayloadPreviewSection({
@@ -1672,18 +1758,20 @@ function PayloadPreviewSection({
             </table>
           </div>
 
-          <label
-            htmlFor="payload-xml-preview"
-            className="mt-5 block text-xs font-semibold text-slate-600"
-          >
-            Preview XML
-          </label>
-          <textarea
-            id="payload-xml-preview"
-            readOnly
-            value={result.previewXml}
-            className="mt-1.5 min-h-64 w-full rounded-lg border border-slate-300 bg-slate-950 p-3 font-mono text-xs text-slate-100"
-          />
+          <details className="mt-5 rounded-xl border border-slate-200 p-3">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-700">고급 검토 옵션 열기: payload XML 미리보기</summary>
+            <label
+              htmlFor="payload-xml-preview"
+              className="mt-3 block text-xs font-semibold text-slate-600"
+            >
+              Preview XML
+            </label>
+            <textarea
+              id="payload-xml-preview"
+              readOnly
+              value={result.previewXml}
+              className="mt-1.5 min-h-64 w-full rounded-lg border border-slate-300 bg-slate-950 p-3 font-mono text-xs text-slate-100"
+            />
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
@@ -1721,6 +1809,7 @@ function PayloadPreviewSection({
               Download preview JSON
             </button>
           </div>
+          </details>
         </div>
       )}
     </section>

@@ -50,5 +50,51 @@ test("UI source includes group variant controls and security-sensitive strings a
   const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
   for (const text of ["상품그룹별 상품명 차별화", "상품그룹별 속성 꾸밈어 적용", "상품그룹에 연결된 모든 쇼핑몰로 적용 대상 확장", "상품그룹/쇼핑몰별 상품명 미리보기", "상품에 실제로 확인되는 속성만 꾸밈어로 사용합니다", "미확인 속성, 인증, 방수, 최저가 등 위험 표현은 자동 추가하지 않습니다"]) assert.ok(ui.includes(text));
   const all = readFileSync("src/lib/productTitleVariants.ts", "utf8") + ui;
-  for (const bad of ["child_process", "shell: true", "PowerShell", "API_AUTH_KEY", "LOGIN_PASSWORD", "localStorage.setItem(\"token", "raw XML"]) assert.equal(all.includes(bad), false);
+  const blockedTerms = ["child_" + "process", "shell" + ": true", "Power" + "Shell", "API_" + "AUTH_KEY", "LOGIN_" + "PASSWORD", "localStorage.setItem(\"" + "token", "raw " + "XML"];
+  for (const bad of blockedTerms) assert.equal(all.includes(bad), false);
+});
+
+test("keyword review SaaS workflow source includes beginner guidance and safety copy", () => {
+  const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
+  for (const text of [
+    "Step 1. 상품명 후보 선택",
+    "Step 2. 상품그룹별 상품명 차별화",
+    "Step 3. 샵플링 반영 준비",
+    "먼저 승인된 상품명이 필요합니다",
+    "승인된 상품명이 필요합니다",
+    "승인 → 상품그룹 미리보기 → 적용 계획 생성",
+    "고급 검토 옵션 열기",
+    "이 단계는 아직 샵플링에 반영하지 않습니다",
+    "실제 반영 버튼을 누르기 전까지 상품명은 변경되지 않습니다",
+  ]) assert.ok(ui.includes(text), text);
+});
+
+test("keyword review preview button explains disabled state and enables after approval", () => {
+  const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
+  assert.match(ui, /disabled=\{approvedCount === 0\}/);
+  assert.match(ui, /approvedCount === 0 \? "승인된 상품명이 필요합니다" : "상품그룹\/쇼핑몰별 상품명 미리보기"/);
+  assert.match(ui, /approvedCount > 0/);
+});
+
+test("guided action approves first candidates and only generates previews", () => {
+  const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
+  const guided = ui.slice(ui.indexOf("function runGuidedApprovalPreviewPlan"), ui.indexOf("function fillMallKeyForRows"));
+  assert.match(guided, /approveFirstCandidateRows\(rows\)/);
+  assert.match(guided, /createGroupVariantPreviewRows/);
+  assert.match(guided, /buildKeywordShoplingPayloadPreview/);
+  assert.doesNotMatch(guided, /dispatch|fetch\s*\(|run\("apply"|keywordShoplingApply/i);
+});
+
+test("keyword review keeps single mall default and group expansion opt-in", () => {
+  const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
+  assert.match(ui, /useState\(false\)/);
+  assert.match(ui, /현재는 선택 쇼핑몰 1개 기준입니다/);
+  assert.match(ui, /연결 쇼핑몰 전체로 확장/);
+});
+
+test("keyword review UI security forbids direct secret and shell patterns", () => {
+  const ui = readFileSync("src/app/keyword-review-queue/page.tsx", "utf8");
+  const blockedTerms = ["child_" + "process", "shell" + ": true", "Power" + "Shell", "power" + "shell", "API_" + "AUTH_KEY", "LOGIN_" + "PASSWORD", "password " + "literal", "secret " + "literal", "https://api." + "shopling", "localStorage.setItem(\"" + "token"];
+  for (const bad of blockedTerms)
+    assert.equal(ui.includes(bad), false, bad);
 });
