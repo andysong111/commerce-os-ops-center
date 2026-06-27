@@ -341,6 +341,26 @@ test("keyword review apply UX removes selected English visible labels", async ()
 });
 
 
+test("product launch wizard step 4 prepares dry_run without requiring preflight readiness", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /const step4Disabled = !applyPlanReady \|\| readinessCounts\.previewReadyCount === 0;/,
+  );
+  assert.doesNotMatch(source, /const step4Disabled = .*preflightReady/);
+  assert.match(source, /dry_run 실행 준비/);
+  assert.match(
+    source,
+    /적용 점검을 생성했습니다\. 아래 dry_run 실행 버튼을 눌러 실제 반영 전 안전 점검을 진행하세요\./,
+  );
+  assert.match(source, /const step5Disabled = !dryRunSucceeded;/);
+  assert.match(source, /dry_run 성공 후 실제 반영이 가능합니다\./);
+});
+
 test("reviewed rows include product group metadata and missing fallback", () => {
   const [withMetadata, missingMetadata] = createReviewedRows([rows[0], rows[1]], {
     [rows[0].goodsKey]: { ptn_goods_cd: "TEST1-1a", group_suffix: "a", product_group: "도매1", product_group_type: "도매", product_group_status: "registered" },

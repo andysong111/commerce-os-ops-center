@@ -314,6 +314,11 @@ export default function KeywordReviewQueuePage() {
   }, [rows, expandProductGroupMarkets, payloadPreview]);
   const hasImportedArtifact = Boolean(importedArtifact);
   const importedRowsAreEmpty = hasImportedArtifact && counts.total === 0;
+  const applyPlanReady = Boolean(payloadPreview);
+  const preflightReady = Boolean(preflightResult);
+  const dryRunSucceeded = Boolean(keywordApplyDryRunResult);
+  const step4Disabled = !applyPlanReady || readinessCounts.previewReadyCount === 0;
+  const step5Disabled = !dryRunSucceeded;
 
   function resetReviewLocalState() {
     setRows([]);
@@ -449,6 +454,26 @@ export default function KeywordReviewQueuePage() {
     setGuidedActionStatus("미리보기와 적용 계획을 생성했습니다. 실제 반영 전 dry_run을 먼저 실행하세요.");
   }
 
+  function runGuidedPreflight() {
+    if (!payloadPreview) return;
+    const config = {
+      ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+      allowedMallKeys: parseKeyList(allowedMallKeys),
+      maxRows: Math.max(0, Number.parseInt(maxRows, 10) || 0),
+      alreadyAppliedGoodsKeys: parseKeyList(alreadyAppliedGoodsKeys),
+    };
+    setPreflightResult(
+      buildKeywordExecutionPreflight(
+        {
+          previewResult: payloadPreview,
+          finalConfirmationText: "",
+        },
+        config,
+      ),
+    );
+    setGuidedActionStatus("적용 점검을 생성했습니다. 아래 dry_run 실행 버튼을 눌러 실제 반영 전 안전 점검을 진행하세요.");
+  }
+
   function fillMallKeyForRows(approvedOnly: boolean) {
     setPayloadPreview(null);
     setPreflightResult(null);
@@ -518,6 +543,14 @@ export default function KeywordReviewQueuePage() {
       />
 
       <WorkflowHeader counts={readinessCounts} />
+
+      <ProductLaunchWizard
+        counts={readinessCounts}
+        step4Disabled={step4Disabled}
+        step5Disabled={step5Disabled}
+        preflightReady={preflightReady}
+        onCreatePreflight={runGuidedPreflight}
+      />
 
       <BeginnerGuide />
 
@@ -1540,6 +1573,49 @@ function downloadText(filename: string, text: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+
+function ProductLaunchWizard({
+  counts,
+  step4Disabled,
+  step5Disabled,
+  preflightReady,
+  onCreatePreflight,
+}: {
+  counts: { totalCandidates: number; approvedCount: number; groupConfirmedCount: number; expandedMarketCount: number; previewReadyCount: number };
+  step4Disabled: boolean;
+  step5Disabled: boolean;
+  preflightReady: boolean;
+  onCreatePreflight: () => void;
+}) {
+  return (
+    <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+      <h2 className="text-lg font-bold text-slate-950">ProductLaunchWizard</h2>
+      <ol className="mt-4 grid gap-3 lg:grid-cols-5">
+        <li className="rounded-xl border border-slate-200 p-3 text-sm font-semibold text-slate-700">Step 1. 후보 검토</li>
+        <li className="rounded-xl border border-slate-200 p-3 text-sm font-semibold text-slate-700">Step 2. 상품그룹 확인</li>
+        <li className="rounded-xl border border-slate-200 p-3 text-sm font-semibold text-slate-700">Step 3. 적용 계획 생성</li>
+        <li className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm">
+          <p className="font-semibold text-blue-950">Step 4. 적용 점검</p>
+          <p className="mt-1 text-xs text-blue-900">반영 가능 행 수: {counts.previewReadyCount}</p>
+          <button
+            type="button"
+            disabled={step4Disabled}
+            onClick={onCreatePreflight}
+            className="mt-3 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            dry_run 실행 준비
+          </button>
+          {preflightReady ? <p className="mt-2 text-xs font-semibold text-blue-900">적용 점검이 준비되었습니다.</p> : null}
+        </li>
+        <li className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
+          <p className="font-semibold text-emerald-950">Step 5. 실제 반영</p>
+          <p className="mt-1 text-xs text-emerald-900">dry_run 성공 후 실제 반영이 가능합니다.</p>
+          <button type="button" disabled={step5Disabled} className="mt-3 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300">실제 반영 준비</button>
+        </li>
+      </ol>
+    </section>
+  );
+}
 
 function WorkflowHeader({ counts }: { counts: { totalCandidates: number; approvedCount: number; groupConfirmedCount: number; expandedMarketCount: number; previewReadyCount: number } }) {
   return (
