@@ -85,8 +85,9 @@ test("keyword review foundation contains no live Shopling execution", async () =
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
     "utf8",
   );
-  assert.doesNotMatch(source, /\bfetch\s*\(/);
   assert.doesNotMatch(source, /\/api\/shopling/i);
+  assert.match(source, /\/api\/keyword-shopling-apply\/run/);
+  assert.match(source, /mode,\s*confirmation_text/);
 });
 
 test("keyword review sheet and card modes are present", async () => {
@@ -255,7 +256,7 @@ test("keyword review delete controls do not introduce external writes or shell h
     "utf8",
   );
 
-  assert.doesNotMatch(source, /\bfetch\s*\(/);
+  assert.doesNotMatch(source, /\/api\/shopling/i);
   assert.doesNotMatch(
     source,
     /Shopling API 실행|auto-apply|auto apply|apply\/write/i,
@@ -265,6 +266,44 @@ test("keyword review delete controls do not introduce external writes or shell h
     /child_process|PowerShell|powershell|pwsh|exec\(|spawn\(/,
   );
   assert.doesNotMatch(source, /GITHUB_TOKEN|SHOPLING_.*TOKEN|secret/i);
+});
+
+test("sequential product launch wizard keeps step 4 unblocked by preflight and locks step 5", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /const step4Disabled = !applyPlanReady \|\| counts\.previewReadyCount === 0/,
+  );
+  assert.doesNotMatch(
+    source,
+    /const step4Disabled = !applyPlanReady \|\| counts\.previewReadyCount === 0 \|\| !preflightReady/,
+  );
+  assert.match(source, /const step5Disabled = !dryRunSucceeded/);
+  assert.match(source, /dry_run 성공 후 실제 반영이 가능합니다/);
+  assert.doesNotMatch(
+    source,
+    /ProductLaunchWizard[\s\S]*샵플링 반영 dry_run 실행[\s\S]*<\/section>/,
+  );
+  assert.match(source, /dry_run 실행 준비/);
+  assert.match(
+    source,
+    /적용 점검을 생성했습니다\. 아래 dry_run 실행 버튼을 눌러 실제 반영 전 안전 점검을 진행하세요\./,
+  );
+});
+
+test("guided preview action still only prepares preview and does not dispatch apply runs", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const guidedPreview = source.match(/function runGuidedApprovalPreviewPlan\(\) \{[\s\S]*?\n  \}/)?.[0] ?? "";
+  assert.match(guidedPreview, /buildKeywordShoplingPayloadPreview/);
+  assert.doesNotMatch(guidedPreview, /\/api\/keyword-shopling-apply\/run/);
+  assert.doesNotMatch(guidedPreview, /mode:\s*"dry_run"|mode:\s*"apply"/);
 });
 
 test("keyword review apply UX source includes mall key fill and Korean labels", async () => {
