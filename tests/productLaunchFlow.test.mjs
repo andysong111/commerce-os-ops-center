@@ -150,3 +150,21 @@ test("product group registry is table based and extensible", async () => {
   assert.match(source, /new Map/);
   assert.doesNotMatch(source, /switch\s*\(/);
 });
+
+test("upload polling UI distinguishes uncertain, artifact pending, confirmed failure, and check error states", async () => {
+  const component = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+
+  assert.match(component, /GitHub Actions 실행을 확인하는 중입니다\. 잠시 후 자동으로 다시 확인합니다\./);
+  assert.match(component, /실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다\./);
+  assert.match(component, /상품업로드 결과 확인 중 오류가 발생했습니다\./);
+  assert.match(component, /상세 오류/);
+  assert.match(component, /result\?\.message/);
+  assert.match(component, /result\?\.runId/);
+  assert.match(component, /result\?\.runUrl/);
+  assert.match(component, /function isConfirmedUploadFailure/);
+  assert.match(component, /runStatus === "completed" && \["failure", "cancelled", "timed_out"\]/);
+  assert.match(component, /phase === "failed" && \(!!result\.runId \|\| !!result\.runUrl\)/);
+  assert.match(component, /result\?\.phase === "waiting_artifact" \|\| result\?\.phase === "completed_no_artifact"/);
+  assert.match(component, /cardClass: "border-amber-200 bg-amber-50"/);
+  assert.doesNotMatch(component, /result\?\.status === "error" \|\| result\?\.phase === "failed"/);
+});

@@ -235,7 +235,7 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
       if (!Number.isFinite(runId)) continue;
       const runConclusion = typeof completedRun.conclusion === "string" ? completedRun.conclusion : null;
       const runUrl = typeof completedRun.html_url === "string" ? completedRun.html_url : undefined;
-      if (runConclusion && runConclusion !== "success") {
+      if (["failure", "cancelled", "timed_out"].includes(String(runConclusion ?? ""))) {
         if (requestId) continue;
         return {
           status: "error",
@@ -269,7 +269,8 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
       if (!zipResponse.ok) {
         if (requestId) continue;
         return {
-          status: "error",
+          status: "pending",
+          phase: "waiting_artifact",
           message: `GitHub Actions artifact 다운로드에 실패했습니다. status=${zipResponse.status}`,
           runId,
           runUrl,
@@ -298,12 +299,14 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
 
     return {
       status: "pending",
-      phase: "waiting_artifact",
-      message: "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.",
+      phase: requestId ? "request_sent" : "waiting_artifact",
+      message: requestId
+        ? "GitHub Actions 실행을 확인하는 중입니다. 잠시 후 자동으로 다시 확인합니다."
+        : "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.",
       requestId,
     };
   } catch (error) {
-    return { status: "error", message: error instanceof Error ? error.message : "최근 실행 결과를 가져오는 중 오류가 발생했습니다.", requestId };
+    return { status: "error", phase: "unknown", message: error instanceof Error ? error.message : "최근 실행 결과를 가져오는 중 오류가 발생했습니다.", requestId };
   }
 }
 
