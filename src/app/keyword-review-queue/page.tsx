@@ -863,7 +863,7 @@ export default function KeywordReviewQueuePage() {
       />
       <details className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <summary className="cursor-pointer font-semibold text-slate-950">고급 검토 옵션 열기</summary>
-        <p className="mt-3 text-sm text-slate-600">상세 표 보기, payload JSON/XML 보기, 수동 preflight 설정, allowed mall_key input, maxRows input, already applied goods_key input은 고급 사용자용으로 접어두었습니다.</p>
+        <p className="mt-3 text-sm text-slate-600">상세 표 보기, payload JSON/XML 보기, 수동 preflight 설정, 고급 옵션: mall_key 직접 지정, maxRows input, already applied goods_key input은 고급 사용자용으로 접어두었습니다.</p>
         <ExecutionPreflightSection
         previewResult={payloadPreview}
         result={preflightResult}
@@ -1669,7 +1669,7 @@ function GroupVariantSection({
           <button type="button" disabled={approvedCount === 0} onClick={onApplyPreview} className="rounded-lg border border-indigo-300 px-4 py-2 text-sm font-semibold text-indigo-700 disabled:border-slate-300 disabled:text-slate-400">{expandProductGroupMarkets ? "확장 적용 계획 생성" : "미리보기 상품명으로 검토표에 적용"}</button>
         </div>
       </div>
-      {previewRows.length > 0 ? <div className="overflow-x-auto p-4 sm:p-5"><table className="min-w-full divide-y divide-slate-200 text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["상품번호","상품그룹","쇼핑몰","계정","기존 상품명","변경될 상품명","추가된 속성","적용 방식"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}<th className="px-3 py-2">상세 보기</th></tr></thead><tbody className="divide-y divide-slate-200">{previewRows.map((item, index) => <tr key={`${item.row.goodsKey}-${item.mallKey}-${index}`}><td className="px-3 py-2">{item.row.goodsKey}</td><td className="px-3 py-2">{item.row.productGroup || "상품그룹 확인 필요"}</td><td className="px-3 py-2">{item.marketName}</td><td className="px-3 py-2">{item.accountIdLabel}</td><td className="px-3 py-2">{item.row.editedTitle || item.row.recommendedTitle}</td><td className="px-3 py-2">{item.mallTitle}</td><td className="px-3 py-2">{item.selectedModifier || "—"}</td><td className="px-3 py-2">{expandProductGroupMarkets ? "그룹 연결 쇼핑몰 확장" : "선택 쇼핑몰 1개"}</td><td className="px-3 py-2"><details><summary className="cursor-pointer text-xs font-semibold text-blue-700">상세 보기</summary><div className="mt-2 space-y-1 text-xs text-slate-500"><p>mall_key: {item.mallKey}</p><p>ptn_goods_cd: {item.row.ptnGoodsCd || "—"}</p><p>wordOrderStrategy: {item.wordOrderStrategy}</p></div></details></td></tr>)}</tbody></table></div> : null}
+      {previewRows.length > 0 ? <div className="overflow-x-auto p-4 sm:p-5"><table className="min-w-full divide-y divide-slate-200 text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["상품번호","상품그룹","쇼핑몰","계정","기존 상품명","변경될 상품명","추가된 속성","적용 방식"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}<th className="px-3 py-2">상세 보기</th></tr></thead><tbody className="divide-y divide-slate-200">{previewRows.map((item, index) => <tr key={`${item.row.goodsKey}-${item.mallKey}-${index}`}><td className="px-3 py-2">{item.row.goodsKey}</td><td className="px-3 py-2">{item.row.productGroup || "상품그룹 확인 필요"}</td><td className="px-3 py-2">{item.marketName}</td><td className="px-3 py-2">{item.accountIdLabel}</td><td className="px-3 py-2">{item.row.editedTitle || item.row.recommendedTitle}</td><td className="px-3 py-2">{item.mallTitle}</td><td className="px-3 py-2">{item.selectedModifier || "—"}</td><td className="px-3 py-2">그룹 연결 쇼핑몰 확장</td><td className="px-3 py-2"><details><summary className="cursor-pointer text-xs font-semibold text-blue-700">상세 보기</summary><div className="mt-2 space-y-1 text-xs text-slate-500"><p>mall_key: {item.mallKey}</p><p>ptn_goods_cd: {item.row.ptnGoodsCd || "—"}</p><p>wordOrderStrategy: {item.wordOrderStrategy}</p></div></details></td></tr>)}</tbody></table></div> : null}
     </section>
   );
 }
@@ -2151,13 +2151,13 @@ function SheetReviewTable({
           type="button"
           onClick={onApproveFirstCandidatePerGoodsKey}
           className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700"
-          title="플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고, 쇼핑몰과 임시 검색어를 자동으로 채웁니다."
+          title="플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고, 검색어를 자동으로 채웁니다. mall_key는 상품그룹 설정으로 결정됩니다."
         >
           상품별 첫 후보만 승인
         </button>
         <span className="text-xs text-slate-500">
-          플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고, 쇼핑몰과
-          임시 검색어를 자동으로 채웁니다.
+          플로우 테스트용입니다. goods_key별 첫 후보 1개만 승인하고,
+          검색어를 자동으로 채웁니다. mall_key는 상품그룹 설정으로 결정됩니다.
         </span>
         <button
           type="button"
@@ -2296,7 +2296,7 @@ function SheetReviewTable({
                           value={
                             row.editedMallKey ||
                             row.mallKey ||
-                            "쇼핑몰 선택 필요"
+                            "상품그룹 확인 필요"
                           }
                         />
                         <Detail
@@ -2447,7 +2447,7 @@ function ReviewRow({
         <dl className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Detail
             label="mall_key"
-            value={row.editedMallKey || row.mallKey || "쇼핑몰 선택 필요"}
+            value={row.editedMallKey || row.mallKey || "상품그룹 확인 필요"}
           />
           <Detail label="상품그룹" value={productGroupDisplay(row)} />
           <Detail label="ptn_goods_cd" value={row.ptnGoodsCd ?? ""} />

@@ -257,7 +257,9 @@ test("keyword review delete controls do not introduce external writes or shell h
     "utf8",
   );
 
-  assert.doesNotMatch(source, /\bfetch\s*\(/);
+  assert.doesNotMatch(source, /https?:\/\/[^"'`]*shopling/i);
+  assert.match(source, /\/api\/keyword-shopling-apply\/run/);
+  assert.match(source, /\/api\/keyword-shopling-apply\/actions-result/);
   assert.doesNotMatch(
     source,
     /Shopling API 실행|auto-apply|auto apply|apply\/write/i,
@@ -279,6 +281,7 @@ test("keyword review apply UX source removes manual mall selection and explains 
     "선택 쇼핑몰 일괄 적용",
     "승인된 행에 쇼핑몰 적용",
     "빈 검색어 자동 채우기",
+    "쇼핑몰 코드 select",
   ])
     assert.doesNotMatch(source, new RegExp(text));
   for (const text of [
@@ -292,6 +295,7 @@ test("keyword review apply UX source removes manual mall selection and explains 
     "keyword-shopling-apply-section",
     "dry_run 실행 준비",
     "실제 샵플링 반영 실행",
+    "고급 옵션: mall_key 직접 지정",
     "fallbackSiteSrchFromTitle",
   ])
     assert.match(source, new RegExp(text.replace(/[()]/g, "\\$&")));
