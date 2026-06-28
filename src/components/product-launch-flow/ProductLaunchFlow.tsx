@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildGoodsKeyGroupMap,
   buildKeywordEngineDispatchPayload,
@@ -17,9 +17,11 @@ const PRICE_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.priceRequestId";
 const LAST_ROW_EXPRESSION_STORAGE_KEY = "productLaunchFlow.lastRowExpression";
 const KEYWORD_SEED_STORAGE_KEY = "productLaunchFlow.keywordSeed";
 const KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY = "opsCenter.keywordEngine.importedArtifact.v1";
+const UPLOAD_POLL_INTERVAL_MS = 5_000;
+const UPLOAD_MAX_POLLS = 24;
 
 type RunResult = { status?: string; message?: string; requestId?: string; githubActionsUrl?: string; commandPreview?: string };
-type UploadActionsResult = { status?: string; message?: string; requestId?: string; runStatus?: string; runConclusion?: string | null; runUrl?: string; summary?: unknown };
+type UploadActionsResult = { status?: string; phase?: string; message?: string; requestId?: string; runStatus?: string; runConclusion?: string | null; runUrl?: string; summary?: unknown };
 type PriceActionsResult = { status?: string; message?: string; requestId?: string; runStatus?: string; runConclusion?: string | null; runUrl?: string; summary?: { status?: unknown; exit_code?: unknown; goods_key_count?: unknown; estimated_mall_update_count?: unknown; policy_override_count?: unknown; ok_count?: unknown; fail_count?: unknown; errors?: ProductLaunchPriceError[] } };
 type KeywordArtifact = { id: number; name: string; expired?: boolean; expected?: boolean };
 type KeywordRun = { id: number; status?: string | null; conclusion?: string | null; createdAt?: string; htmlUrl?: string; artifacts?: KeywordArtifact[] };
@@ -36,6 +38,13 @@ export function ProductLaunchFlow() {
   const [priceFetching, setPriceFetching] = useState(false);
   const [uploadRunResult, setUploadRunResult] = useState<RunResult | null>(null);
   const [uploadActionsResult, setUploadActionsResult] = useState<UploadActionsResult | null>(null);
+  const [uploadPolling, setUploadPolling] = useState(false);
+  const [uploadPollStartedAt, setUploadPollStartedAt] = useState<number | null>(null);
+  const [uploadLastCheckedAt, setUploadLastCheckedAt] = useState<Date | null>(null);
+  const [uploadPollCount, setUploadPollCount] = useState(0);
+  const [uploadNextCheckIn, setUploadNextCheckIn] = useState(0);
+  const [uploadElapsedSeconds, setUploadElapsedSeconds] = useState(0);
+  const uploadPollCountRef = useRef(0);
   const [priceRunResult, setPriceRunResult] = useState<RunResult | null>(null);
   const [priceActionsResult, setPriceActionsResult] = useState<PriceActionsResult | null>(null);
   const [keywordSeed, setKeywordSeed] = useState(() => getStoredValue(KEYWORD_SEED_STORAGE_KEY));
@@ -48,6 +57,60 @@ export function ProductLaunchFlow() {
 
   const uploadRows = useMemo(() => extractRowsWithGoodsKey(uploadActionsResult), [uploadActionsResult]);
   const goodsKeys = useMemo(() => dedupeGoodsKeysForPriceModify(uploadRows), [uploadRows]);
+  const uploadPollingFinal = isFinalUploadPollingResult(uploadActionsResult, uploadRows.length);
+
+  const pollUploadResult = useCallback(async (reset: boolean) => {
+    if (uploadFetching) return;
+    if (reset) {
+      uploadPollCountRef.current = 0;
+      setUploadPollCount(0);
+      setUploadElapsedSeconds(0);
+      setUploadPollStartedAt(Date.now());
+      setUploadPolling(true);
+      setUploadActionsResult({ status: "pending", phase: "request_sent", requestId: uploadRequestId, message: "상품업로드 결과 확인을 시작했습니다. 결과 파일이 준비되면 자동으로 다시 확인합니다." });
+    }
+    uploadPollCountRef.current += 1;
+    setUploadPollCount(uploadPollCountRef.current);
+    setUploadFetching(true);
+    try {
+      const url = uploadRequestId ? `/api/shopling-product-upload/actions-result?request_id=${encodeURIComponent(uploadRequestId)}` : "/api/shopling-product-upload/actions-result";
+      const data = await (await fetch(url)).json();
+      setUploadActionsResult(data);
+      const rows = extractRowsWithGoodsKey(data);
+      const final = isFinalUploadPollingResult(data, rows.length);
+      if (final || uploadPollCountRef.current >= UPLOAD_MAX_POLLS) {
+        setUploadPolling(false);
+        setUploadNextCheckIn(0);
+      } else {
+        setUploadNextCheckIn(UPLOAD_POLL_INTERVAL_MS / 1_000);
+      }
+    } catch (error) {
+      setUploadActionsResult({ status: "error", phase: "failed", message: error instanceof Error ? error.message : "상품업로드 결과를 가져오는 중 오류가 발생했습니다." });
+      setUploadPolling(false);
+      setUploadNextCheckIn(0);
+    } finally {
+      setUploadLastCheckedAt(new Date());
+      setUploadFetching(false);
+    }
+  }, [uploadFetching, uploadRequestId]);
+
+  useEffect(() => {
+    if (!uploadPolling || uploadPollingFinal) return;
+    const timer = window.setInterval(() => {
+      setUploadNextCheckIn((current) => Math.max(0, current - 1));
+      if (uploadPollStartedAt) setUploadElapsedSeconds(Math.max(0, Math.floor((Date.now() - uploadPollStartedAt) / 1_000)));
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [uploadPolling, uploadPollingFinal, uploadPollStartedAt]);
+
+  useEffect(() => {
+    if (!uploadPolling || uploadPollingFinal) return;
+    if (uploadPollCount === 0 || uploadPollCount >= UPLOAD_MAX_POLLS || uploadFetching) return;
+    const timer = window.setTimeout(() => {
+      void pollUploadResult(false);
+    }, UPLOAD_POLL_INTERVAL_MS);
+    return () => window.clearTimeout(timer);
+  }, [uploadPolling, uploadPollCount, uploadPollingFinal, uploadFetching, pollUploadResult]);
 
   const runUpload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -74,17 +137,8 @@ export function ProductLaunchFlow() {
     }
   };
 
-  const fetchUploadResult = async () => {
-    if (uploadFetching) return;
-    setUploadFetching(true);
-    try {
-      const url = uploadRequestId ? `/api/shopling-product-upload/actions-result?request_id=${encodeURIComponent(uploadRequestId)}` : "/api/shopling-product-upload/actions-result";
-      setUploadActionsResult(await (await fetch(url)).json());
-    } catch (error) {
-      setUploadActionsResult({ status: "error", message: error instanceof Error ? error.message : "상품업로드 결과를 가져오는 중 오류가 발생했습니다." });
-    } finally {
-      setUploadFetching(false);
-    }
+  const fetchUploadResult = () => {
+    void pollUploadResult(true);
   };
 
   const runPriceModify = async () => {
@@ -186,8 +240,9 @@ export function ProductLaunchFlow() {
         <p className="mt-1 text-xs text-slate-500">체크 해제하면 이미 goods_key가 있어도 상품업로드를 다시 실행합니다.</p>
         <p className="mt-3 text-sm text-slate-600">채널 선택 없이 도매1~도매4, 소매1~소매2 전체 6채널로 실행합니다.</p>
         <button type="submit" disabled={uploadRunning} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{uploadRunning ? "실행 요청 중..." : "상품업로드 실행"}</button>
-        <button type="button" onClick={fetchUploadResult} disabled={uploadFetching} className="ml-3 mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{uploadFetching ? "가져오는 중..." : "상품업로드 결과 가져오기"}</button>
+        <button type="button" onClick={fetchUploadResult} disabled={uploadFetching || uploadPolling} className="ml-3 mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{uploadFetching || uploadPolling ? "확인 중..." : "상품업로드 결과 가져오기"}</button>
         <StatusBlock result={uploadRunResult} requestId={uploadRequestId} />
+        <UploadPollingStatusCard result={uploadActionsResult} requestId={uploadRequestId} rowsWithGoodsKeyCount={uploadRows.length} polling={uploadPolling} fetching={uploadFetching} elapsedSeconds={uploadElapsedSeconds} lastCheckedAt={uploadLastCheckedAt} pollCount={uploadPollCount} maxPolls={UPLOAD_MAX_POLLS} nextCheckIn={uploadNextCheckIn} />
       </form>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -206,6 +261,57 @@ export function ProductLaunchFlow() {
 
 function UploadRowsTable({ rows }: { rows: ProductLaunchUploadRow[] }) {
   return <div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-slate-50 text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">행</th><th className="border border-slate-200 px-3 py-2">상품그룹</th><th className="border border-slate-200 px-3 py-2">채널</th><th className="border border-slate-200 px-3 py-2">code</th><th className="border border-slate-200 px-3 py-2">goods_key</th><th className="border border-slate-200 px-3 py-2">ptn_goods_cd</th></tr></thead><tbody>{rows.length > 0 ? rows.map((row, index) => <tr key={`${row.goods_key}-${index}`} className="bg-white"><td className="border border-slate-200 px-3 py-2">{row.row ?? "-"}</td><td className="border border-slate-200 px-3 py-2 font-semibold">{inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? "").productGroup}</td><td className="border border-slate-200 px-3 py-2">{row.channel ?? "-"}</td><td className="border border-slate-200 px-3 py-2">{row.code ?? "-"}</td><td className="border border-slate-200 px-3 py-2 font-mono">{row.goods_key ?? "-"}</td><td className="border border-slate-200 px-3 py-2 font-mono">{row.ptn_goods_cd ?? "-"}</td></tr>) : <tr><td className="border border-slate-200 px-3 py-2 text-slate-500" colSpan={6}>goods_key 결과가 없습니다.</td></tr>}</tbody></table></div>;
+}
+
+function UploadPollingStatusCard({ result, requestId, rowsWithGoodsKeyCount, polling, fetching, elapsedSeconds, lastCheckedAt, pollCount, maxPolls, nextCheckIn }: { result: UploadActionsResult | null; requestId: string; rowsWithGoodsKeyCount: number; polling: boolean; fetching: boolean; elapsedSeconds: number; lastCheckedAt: Date | null; pollCount: number; maxPolls: number; nextCheckIn: number }) {
+  const state = getUploadPollingState(result, rowsWithGoodsKeyCount, polling, pollCount >= maxPolls);
+  if (!result && !polling && pollCount === 0) return null;
+  return <article className={`mt-5 rounded-2xl border p-4 ${state.cardClass}`}>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <p className={`text-sm font-bold ${state.textClass}`}>{state.label}</p>
+        <p className="mt-1 text-sm text-slate-700">{state.message}</p>
+      </div>
+      {state.showSpinner || fetching ? <span aria-label="확인 중" className="inline-flex size-6 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" /> : null}
+    </div>
+    <div className="mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 lg:grid-cols-4">
+      <span>경과 시간: <strong>{formatElapsed(elapsedSeconds)}</strong></span>
+      <span>마지막 확인: <strong>{lastCheckedAt ? lastCheckedAt.toLocaleTimeString("ko-KR") : "-"}</strong></span>
+      <span>확인 횟수: <strong>{pollCount}/{maxPolls}</strong></span>
+      <span>다음 자동 확인: <strong>{polling && !state.final ? `${nextCheckIn}초 후` : "-"}</strong></span>
+    </div>
+    <ol className="mt-4 grid gap-2 md:grid-cols-5">
+      {["요청 전송", "GitHub Actions 실행 확인", "워크플로우 진행 중", "결과 artifact 확인 중", "OPS Center 결과 반영 완료"].map((step, index) => {
+        const stepNumber = index + 1;
+        const statusClass = stepNumber < state.currentStep ? "border-emerald-300 bg-emerald-50 text-emerald-800" : stepNumber === state.currentStep ? state.stepClass : "border-slate-200 bg-slate-50 text-slate-500";
+        return <li key={step} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${statusClass}`}><span className="mr-1">{stepNumber}</span>{step}</li>;
+      })}
+    </ol>
+    <div className="mt-4 flex flex-wrap gap-3 text-sm">
+      {requestId || result?.requestId ? <span className="font-mono text-xs text-slate-600">request_id: {result?.requestId ?? requestId}</span> : null}
+      {result?.runUrl ? <Link href={result.runUrl} className="font-semibold text-blue-700 underline">GitHub Actions 로그 확인</Link> : null}
+    </div>
+  </article>;
+}
+
+function getUploadPollingState(result: UploadActionsResult | null, rowsWithGoodsKeyCount: number, polling: boolean, timedOut: boolean) {
+  if (timedOut && !isFinalUploadPollingResult(result, rowsWithGoodsKeyCount)) return { label: "자동 확인 시간 초과", message: "자동 확인 시간이 초과되었습니다. 잠시 후 다시 확인하거나 GitHub Actions 로그를 확인하세요.", currentStep: 4, final: true, showSpinner: false, cardClass: "border-amber-200 bg-amber-50", textClass: "text-amber-800", stepClass: "border-amber-300 bg-amber-100 text-amber-900" };
+  if (result?.status === "error" || result?.phase === "failed") return { label: "실패", message: "상품업로드 실행이 실패했습니다. GitHub Actions 로그를 확인하세요.", currentStep: 3, final: true, showSpinner: false, cardClass: "border-red-200 bg-red-50", textClass: "text-red-700", stepClass: "border-red-300 bg-red-100 text-red-800" };
+  if (result?.status === "success" && rowsWithGoodsKeyCount > 0) return { label: "성공", message: "상품업로드가 완료되었습니다. goods_key를 확인했습니다.", currentStep: 5, final: true, showSpinner: false, cardClass: "border-emerald-200 bg-emerald-50", textClass: "text-emerald-800", stepClass: "border-emerald-300 bg-emerald-100 text-emerald-800" };
+  if (result?.status === "success") return { label: "성공 - goods_key 없음", message: "실행은 완료되었지만 goods_key 결과가 아직 없습니다.", currentStep: 5, final: true, showSpinner: false, cardClass: "border-amber-200 bg-amber-50", textClass: "text-amber-800", stepClass: "border-amber-300 bg-amber-100 text-amber-900" };
+  if (result?.phase === "waiting_artifact" || result?.phase === "completed_no_artifact") return { label: "결과 파일 대기", message: "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.", currentStep: 4, final: false, showSpinner: true, cardClass: "border-slate-200 bg-slate-50", textClass: "text-slate-700", stepClass: "border-slate-300 bg-white text-slate-700 animate-pulse" };
+  if (result?.phase === "queued" || result?.phase === "running" || result?.runStatus === "queued" || result?.runStatus === "in_progress") return { label: "진행 중", message: "상품업로드가 아직 진행 중입니다. 결과 파일이 준비되면 자동으로 다시 확인합니다.", currentStep: 3, final: false, showSpinner: true, cardClass: "border-blue-200 bg-blue-50", textClass: "text-blue-800", stepClass: "border-blue-300 bg-blue-100 text-blue-800 animate-pulse" };
+  return { label: polling ? "요청 전송" : "결과 확인 대기", message: "상품업로드 결과 확인을 시작했습니다. 결과 파일이 준비되면 자동으로 다시 확인합니다.", currentStep: 1, final: false, showSpinner: polling, cardClass: "border-blue-200 bg-blue-50", textClass: "text-blue-800", stepClass: "border-blue-300 bg-blue-100 text-blue-800 animate-pulse" };
+}
+
+function isFinalUploadPollingResult(result: UploadActionsResult | null, rowsWithGoodsKeyCount: number) {
+  return result?.status === "error" || result?.phase === "failed" || result?.status === "success" || rowsWithGoodsKeyCount > 0;
+}
+
+function formatElapsed(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${minutes}분 ${rest}초`;
 }
 
 function PriceSection({ goodsKeyCount, result, actionsResult, requestId, running, fetching, onRun, onFetch }: { goodsKeyCount: number; result: RunResult | null; actionsResult: PriceActionsResult | null; requestId: string; running: boolean; fetching: boolean; onRun: () => void; onFetch: () => void }) {
