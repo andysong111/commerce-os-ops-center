@@ -65,6 +65,13 @@ const APPLY_RESULT_VALUE_LABELS: Record<string, string> = {
 const KEYWORD_APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_TO_SHOPLING";
 const KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY = "keywordReviewQueue.keywordApplyDryRunRequestId";
 const KEYWORD_APPLY_REAL_REQUEST_ID_KEY = "keywordReviewQueue.keywordApplyRequestId";
+const PRODUCT_GROUP_AUTOMATIC_MALL_COPY = {
+  automaticSelection: "상품그룹 기준으로 연결 쇼핑몰이 자동 선택됩니다.",
+  automaticMallKey: "mall_key는 상품그룹 설정에 따라 자동으로 결정됩니다.",
+  noManualSelection: "사용자는 쇼핑몰을 직접 선택하지 않아도 됩니다.",
+  unknownGroupBlocked: "상품그룹이 확인되지 않은 행은 적용 계획에서 차단됩니다.",
+  wizardPlan: "상품그룹에 연결된 쇼핑몰별로 상품명과 mall_key가 자동 생성됩니다.",
+};
 
 function formatApplyResultValue(value: unknown): string {
   if (Array.isArray(value)) return value.map(formatApplyResultValue).join(", ");
@@ -660,10 +667,10 @@ export default function KeywordReviewQueuePage() {
       <section className="my-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 shadow-sm sm:p-5">
         <h2 className="font-semibold">상품그룹 기준 쇼핑몰 자동 선택</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>상품그룹 기준으로 연결 쇼핑몰이 자동 선택됩니다.</li>
-          <li>mall_key는 상품그룹 설정에 따라 자동으로 결정됩니다.</li>
-          <li>사용자는 쇼핑몰을 직접 선택하지 않아도 됩니다.</li>
-          <li>상품그룹이 확인되지 않은 행은 적용 계획에서 차단됩니다.</li>
+          <li>{PRODUCT_GROUP_AUTOMATIC_MALL_COPY.automaticSelection}</li>
+          <li>{PRODUCT_GROUP_AUTOMATIC_MALL_COPY.automaticMallKey}</li>
+          <li>{PRODUCT_GROUP_AUTOMATIC_MALL_COPY.noManualSelection}</li>
+          <li>{PRODUCT_GROUP_AUTOMATIC_MALL_COPY.unknownGroupBlocked}</li>
         </ul>
       </section>
 
@@ -1564,7 +1571,7 @@ function ProductLaunchWizard({
           <p><strong>진행률</strong>: {completedCount}/5 완료</p>
         </div>
       </div>
-      <p className="mt-4 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900">상품그룹에 연결된 쇼핑몰별로 상품명과 mall_key가 자동 생성됩니다.</p>
+      <p className="mt-4 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900">{PRODUCT_GROUP_AUTOMATIC_MALL_COPY.wizardPlan}</p>
       <div className="mt-5 grid gap-3 lg:grid-cols-5">
         {steps.map((item, index) => {
           const stateClass = item.done ? "border-emerald-300 bg-emerald-50" : item.disabled ? "border-slate-200 bg-slate-50" : "border-blue-300 bg-blue-50";

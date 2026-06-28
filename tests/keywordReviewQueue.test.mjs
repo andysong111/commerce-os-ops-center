@@ -286,6 +286,7 @@ test("keyword review apply UX source removes manual mall selection and explains 
     "mall_key는 상품그룹 설정에 따라 자동으로 결정됩니다",
     "사용자는 쇼핑몰을 직접 선택하지 않아도 됩니다",
     "상품그룹이 확인되지 않은 행은 적용 계획에서 차단됩니다",
+    "상품그룹에 연결된 쇼핑몰별로 상품명과 mall_key가 자동 생성됩니다",
     "상품그룹별 상품명 미리보기",
     "상품그룹 기준 적용 계획 생성",
     "keyword-shopling-apply-section",
