@@ -155,7 +155,7 @@ test("upload polling UI distinguishes uncertain, artifact pending, confirmed fai
   const component = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
 
   assert.match(component, /현재 요청 ID와 일치하는 GitHub Actions 실행을 찾는 중입니다\./);
-  assert.match(component, /실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다\./);
+  assert.match(component, /현재 요청의 실행은 확인됐고, 결과 파일을 기다리는 중입니다\./);
   assert.match(component, /상품업로드 결과 확인 중 오류가 발생했습니다\./);
   assert.match(component, /상세 오류/);
   assert.match(component, /result\?\.message/);
