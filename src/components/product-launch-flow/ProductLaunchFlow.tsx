@@ -21,7 +21,7 @@ const UPLOAD_POLL_INTERVAL_MS = 5_000;
 const UPLOAD_MAX_POLLS = 24;
 
 type RunResult = { status?: string; message?: string; requestId?: string; githubActionsUrl?: string; commandPreview?: string };
-type UploadActionsResult = { status?: string; phase?: string; message?: string; requestId?: string; runStatus?: string; runConclusion?: string | null; runUrl?: string; summary?: unknown };
+type UploadActionsResult = { status?: string; phase?: string; message?: string; requestId?: string; runId?: number; runStatus?: string; runConclusion?: string | null; runUrl?: string; summary?: unknown };
 type PriceActionsResult = { status?: string; message?: string; requestId?: string; runStatus?: string; runConclusion?: string | null; runUrl?: string; summary?: { status?: unknown; exit_code?: unknown; goods_key_count?: unknown; estimated_mall_update_count?: unknown; policy_override_count?: unknown; ok_count?: unknown; fail_count?: unknown; errors?: ProductLaunchPriceError[] } };
 type KeywordArtifact = { id: number; name: string; expired?: boolean; expected?: boolean };
 type KeywordRun = { id: number; status?: string | null; conclusion?: string | null; createdAt?: string; htmlUrl?: string; artifacts?: KeywordArtifact[] };
@@ -85,7 +85,7 @@ export function ProductLaunchFlow() {
         setUploadNextCheckIn(UPLOAD_POLL_INTERVAL_MS / 1_000);
       }
     } catch (error) {
-      setUploadActionsResult({ status: "error", phase: "failed", message: error instanceof Error ? error.message : "상품업로드 결과를 가져오는 중 오류가 발생했습니다." });
+      setUploadActionsResult({ status: "error", phase: "unknown", requestId: uploadRequestId, message: error instanceof Error ? error.message : "상품업로드 결과를 가져오는 중 오류가 발생했습니다." });
       setUploadPolling(false);
       setUploadNextCheckIn(0);
     } finally {
@@ -289,23 +289,37 @@ function UploadPollingStatusCard({ result, requestId, rowsWithGoodsKeyCount, pol
     </ol>
     <div className="mt-4 flex flex-wrap gap-3 text-sm">
       {requestId || result?.requestId ? <span className="font-mono text-xs text-slate-600">request_id: {result?.requestId ?? requestId}</span> : null}
+      {result?.runId ? <span className="font-mono text-xs text-slate-600">run_id: {result.runId}</span> : null}
       {result?.runUrl ? <Link href={result.runUrl} className="font-semibold text-blue-700 underline">GitHub Actions 로그 확인</Link> : null}
     </div>
+    {state.showDetails ? <UploadPollingErrorDetails result={result} requestId={requestId} /> : null}
   </article>;
 }
 
 function getUploadPollingState(result: UploadActionsResult | null, rowsWithGoodsKeyCount: number, polling: boolean, timedOut: boolean) {
-  if (timedOut && !isFinalUploadPollingResult(result, rowsWithGoodsKeyCount)) return { label: "자동 확인 시간 초과", message: "자동 확인 시간이 초과되었습니다. 잠시 후 다시 확인하거나 GitHub Actions 로그를 확인하세요.", currentStep: 4, final: true, showSpinner: false, cardClass: "border-amber-200 bg-amber-50", textClass: "text-amber-800", stepClass: "border-amber-300 bg-amber-100 text-amber-900" };
-  if (result?.status === "error" || result?.phase === "failed") return { label: "실패", message: "상품업로드 실행이 실패했습니다. GitHub Actions 로그를 확인하세요.", currentStep: 3, final: true, showSpinner: false, cardClass: "border-red-200 bg-red-50", textClass: "text-red-700", stepClass: "border-red-300 bg-red-100 text-red-800" };
-  if (result?.status === "success" && rowsWithGoodsKeyCount > 0) return { label: "성공", message: "상품업로드가 완료되었습니다. goods_key를 확인했습니다.", currentStep: 5, final: true, showSpinner: false, cardClass: "border-emerald-200 bg-emerald-50", textClass: "text-emerald-800", stepClass: "border-emerald-300 bg-emerald-100 text-emerald-800" };
-  if (result?.status === "success") return { label: "성공 - goods_key 없음", message: "실행은 완료되었지만 goods_key 결과가 아직 없습니다.", currentStep: 5, final: true, showSpinner: false, cardClass: "border-amber-200 bg-amber-50", textClass: "text-amber-800", stepClass: "border-amber-300 bg-amber-100 text-amber-900" };
-  if (result?.phase === "waiting_artifact" || result?.phase === "completed_no_artifact") return { label: "결과 파일 대기", message: "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.", currentStep: 4, final: false, showSpinner: true, cardClass: "border-slate-200 bg-slate-50", textClass: "text-slate-700", stepClass: "border-slate-300 bg-white text-slate-700 animate-pulse" };
-  if (result?.phase === "queued" || result?.phase === "running" || result?.runStatus === "queued" || result?.runStatus === "in_progress") return { label: "진행 중", message: "상품업로드가 아직 진행 중입니다. 결과 파일이 준비되면 자동으로 다시 확인합니다.", currentStep: 3, final: false, showSpinner: true, cardClass: "border-blue-200 bg-blue-50", textClass: "text-blue-800", stepClass: "border-blue-300 bg-blue-100 text-blue-800 animate-pulse" };
-  return { label: polling ? "요청 전송" : "결과 확인 대기", message: "상품업로드 결과 확인을 시작했습니다. 결과 파일이 준비되면 자동으로 다시 확인합니다.", currentStep: 1, final: false, showSpinner: polling, cardClass: "border-blue-200 bg-blue-50", textClass: "text-blue-800", stepClass: "border-blue-300 bg-blue-100 text-blue-800 animate-pulse" };
+  if (timedOut && !isFinalUploadPollingResult(result, rowsWithGoodsKeyCount)) return { label: "자동 확인 시간 초과", message: "자동 확인 시간이 초과되었습니다. 잠시 후 다시 확인하거나 GitHub Actions 로그를 확인하세요.", currentStep: 4, final: true, showSpinner: false, showDetails: true, cardClass: "border-red-200 bg-red-50", textClass: "text-red-700", stepClass: "border-red-300 bg-red-100 text-red-800" };
+  if (isConfirmedUploadFailure(result)) return { label: "실패", message: result?.message ?? "상품업로드 실행이 실패했습니다. GitHub Actions 로그를 확인하세요.", currentStep: 3, final: true, showSpinner: false, showDetails: true, cardClass: "border-red-200 bg-red-50", textClass: "text-red-700", stepClass: "border-red-300 bg-red-100 text-red-800" };
+  if (result?.status === "error") return { label: "결과 확인 오류", message: "상품업로드 결과 확인 중 오류가 발생했습니다.", currentStep: 2, final: true, showSpinner: false, showDetails: true, cardClass: "border-red-200 bg-red-50", textClass: "text-red-700", stepClass: "border-red-300 bg-red-100 text-red-800" };
+  if (result?.status === "success" && rowsWithGoodsKeyCount > 0) return { label: "성공", message: "상품업로드가 완료되었습니다. goods_key를 확인했습니다.", currentStep: 5, final: true, showSpinner: false, showDetails: false, cardClass: "border-emerald-200 bg-emerald-50", textClass: "text-emerald-800", stepClass: "border-emerald-300 bg-emerald-100 text-emerald-800" };
+  if (result?.status === "success") return { label: "성공 - goods_key 없음", message: "실행은 완료되었지만 goods_key 결과가 아직 없습니다.", currentStep: 5, final: true, showSpinner: false, showDetails: false, cardClass: "border-amber-200 bg-amber-50", textClass: "text-amber-800", stepClass: "border-amber-300 bg-amber-100 text-amber-900" };
+  if (result?.phase === "waiting_artifact" || result?.phase === "completed_no_artifact") return { label: "결과 파일 대기", message: "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.", currentStep: 4, final: false, showSpinner: true, showDetails: false, cardClass: "border-amber-200 bg-amber-50", textClass: "text-amber-800", stepClass: "border-amber-300 bg-amber-100 text-amber-900 animate-pulse" };
+  if (result?.phase === "queued" || result?.phase === "running" || result?.runStatus === "queued" || result?.runStatus === "in_progress") return { label: "진행 중", message: "상품업로드가 아직 진행 중입니다. 결과 파일이 준비되면 자동으로 다시 확인합니다.", currentStep: 3, final: false, showSpinner: true, showDetails: false, cardClass: "border-blue-200 bg-blue-50", textClass: "text-blue-800", stepClass: "border-blue-300 bg-blue-100 text-blue-800 animate-pulse" };
+  return { label: polling ? "GitHub Actions 확인 중" : "결과 확인 대기", message: "GitHub Actions 실행을 확인하는 중입니다. 잠시 후 자동으로 다시 확인합니다.", currentStep: 2, final: false, showSpinner: polling, showDetails: false, cardClass: "border-blue-200 bg-blue-50", textClass: "text-blue-800", stepClass: "border-blue-300 bg-blue-100 text-blue-800 animate-pulse" };
+}
+
+function UploadPollingErrorDetails({ result, requestId }: { result: UploadActionsResult | null; requestId: string }) {
+  return <div className="mt-4 rounded-xl border border-red-200 bg-white p-3 text-sm text-slate-800"><p className="font-bold text-red-700">상세 오류</p><dl className="mt-2 grid gap-1"><ResultRow label="message" value={result?.message ?? "-"} /><ResultRow label="requestId" value={result?.requestId ?? requestId ?? "-"} mono />{result?.runId ? <ResultRow label="runId" value={result.runId} mono /> : null}{result?.runUrl ? <ResultRow label="runUrl" value={result.runUrl} /> : null}</dl></div>;
+}
+
+function isConfirmedUploadFailure(result: UploadActionsResult | null) {
+  if (!result) return false;
+  const confirmedConclusion = result.runStatus === "completed" && ["failure", "cancelled", "timed_out"].includes(String(result.runConclusion ?? ""));
+  const backendConfirmedFailure = result.phase === "failed" && (!!result.runId || !!result.runUrl);
+  return confirmedConclusion || backendConfirmedFailure;
 }
 
 function isFinalUploadPollingResult(result: UploadActionsResult | null, rowsWithGoodsKeyCount: number) {
-  return result?.status === "error" || result?.phase === "failed" || result?.status === "success" || rowsWithGoodsKeyCount > 0;
+  return isConfirmedUploadFailure(result) || result?.status === "success" || rowsWithGoodsKeyCount > 0;
 }
 
 function formatElapsed(seconds: number) {

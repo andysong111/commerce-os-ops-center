@@ -599,3 +599,80 @@ test("runner implementation keeps process execution safety constraints", async (
   assert.match(source, /spawn\(python, command\.args/);
   assert.match(source, /SHOPLING_PRODUCT_UPLOAD_RUN_MODE === "github_actions"/);
 });
+
+test("GitHub Actions result helper keeps unmatched request_id polling instead of failing early", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/runs?")) {
+      return new Response(JSON.stringify({ workflow_runs: [
+        { id: 44, status: "completed", conclusion: "failure", html_url: "https://github.com/run/44" },
+      ] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ artifacts: [] }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult("shopling-not-matched-yet");
+      assert.equal(result.status, "pending");
+      assert.equal(result.phase, "request_sent");
+      assert.equal(result.requestId, "shopling-not-matched-yet");
+      assert.match(result.message, /GitHub Actions 실행을 확인하는 중입니다/);
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+test("GitHub Actions result helper treats missing artifact as pending, not failure", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/runs?")) {
+      return new Response(JSON.stringify({ workflow_runs: [
+        { id: 55, status: "completed", conclusion: "success", html_url: "https://github.com/run/55" },
+      ] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ artifacts: [] }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult();
+      assert.equal(result.status, "pending");
+      assert.equal(result.phase, "completed_no_artifact");
+      assert.equal(result.runId, 55);
+      assert.match(result.message, /결과 파일이 아직 준비되지 않았습니다/);
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+test("GitHub Actions result helper returns confirmed failure for failed completed run", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ workflow_runs: [
+    { id: 66, status: "completed", conclusion: "failure", html_url: "https://github.com/run/66" },
+  ] }), { status: 200 });
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult();
+      assert.equal(result.status, "error");
+      assert.equal(result.phase, "failed");
+      assert.equal(result.runId, 66);
+      assert.equal(result.runStatus, "completed");
+      assert.equal(result.runConclusion, "failure");
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
