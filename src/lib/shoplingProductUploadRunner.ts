@@ -61,7 +61,7 @@ type ShoplingProductUploadDispatchConfig = {
 };
 
 export type ShoplingProductUploadActionsResult = {
-  status: "success" | "pending" | "error";
+  status: "success" | "pending" | "running" | "artifact_pending" | "error";
   message?: string;
   runId?: number;
   runUrl?: string;
@@ -201,13 +201,20 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
     const runsResponse = await fetch(runsRequest.url, { headers: githubJsonHeaders(runsRequest.token) });
     const runsJson = await readGithubJson(runsResponse);
     const workflowRuns: GithubWorkflowRun[] = Array.isArray(runsJson.workflow_runs) ? runsJson.workflow_runs : [];
+    const activeRun = workflowRuns.find((run) => run?.status && run.status !== "completed");
     const completedRuns = workflowRuns.filter((run) => run?.status === "completed");
     if (completedRuns.length === 0) {
       return {
-        status: "pending",
-        message: requestId
-          ? "해당 요청 추적 ID의 완료 결과가 아직 없습니다. GitHub Actions 실행이 끝난 뒤 다시 확인하세요."
-          : "완료된 Shopling Product Upload GitHub Actions 실행이 아직 없습니다. 실행이 끝난 뒤 다시 확인하세요.",
+        status: activeRun ? "running" : "pending",
+        message: activeRun
+          ? "상품업로드를 실행 중입니다. 잠시만 기다려주세요."
+          : requestId
+            ? "작업 요청을 전송했습니다. GitHub Actions 실행을 기다리는 중입니다."
+            : "완료된 Shopling Product Upload GitHub Actions 실행이 아직 없습니다. 실행이 끝난 뒤 다시 확인하세요.",
+        runId: typeof activeRun?.id === "number" ? activeRun.id : undefined,
+        runUrl: typeof activeRun?.html_url === "string" ? activeRun.html_url : undefined,
+        runStatus: typeof activeRun?.status === "string" ? activeRun.status : undefined,
+        runConclusion: typeof activeRun?.conclusion === "string" ? activeRun.conclusion : null,
         requestId,
       };
     }
@@ -223,10 +230,22 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
       const artifacts: GithubArtifact[] = Array.isArray(artifactsJson.artifacts) ? artifactsJson.artifacts : [];
       const artifact = artifacts.find((item) => typeof item?.name === "string" && item.name.startsWith("shopling-upload-logs-queue-"));
       if (!artifact?.archive_download_url) {
-        if (requestId) continue;
+        if (requestId) {
+          return {
+            status: runConclusion === "success" ? "artifact_pending" : "error",
+            message: runConclusion === "success"
+              ? "실행은 완료됐지만 결과 파일을 준비 중입니다."
+              : "상품업로드 실행이 실패했습니다. 오류 로그를 확인하세요.",
+            runId,
+            runUrl,
+            runConclusion,
+            runStatus: "completed",
+            requestId,
+          };
+        }
         return {
-          status: "error",
-          message: "최근 완료된 GitHub Actions 실행에서 shopling-upload-logs-queue- artifact를 찾을 수 없습니다.",
+          status: runConclusion === "success" ? "artifact_pending" : "error",
+          message: runConclusion === "success" ? "최근 완료된 실행의 결과 파일을 준비 중입니다." : "최근 완료된 GitHub Actions 실행에서 shopling-upload-logs-queue- artifact를 찾을 수 없습니다.",
           runId,
           runUrl,
           runConclusion,
