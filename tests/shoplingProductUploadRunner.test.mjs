@@ -478,6 +478,7 @@ test("GitHub Actions result helper matches requested request_id and skips non-ma
       const result = await fetchShoplingProductUploadActionsResult("shopling-match");
       assert.equal(result.status, "success");
       assert.equal(result.runId, 10);
+      assert.equal(result.artifactName, "shopling-upload-logs-queue-abc");
       assert.equal(result.summary.request_id, "shopling-match");
       assert.equal(result.requestId, "shopling-match");
     });
@@ -502,7 +503,79 @@ test("GitHub Actions result helper returns pending when requested request_id has
       const result = await fetchShoplingProductUploadActionsResult("shopling-missing");
       assert.equal(result.status, "pending");
       assert.equal(result.requestId, "shopling-missing");
-      assert.match(result.message, /해당 요청 추적 ID/);
+      assert.equal(result.message, "현재 요청 ID와 일치하는 GitHub Actions 실행을 찾는 중입니다.");
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+
+test("GitHub Actions result helper accepts run_id-based artifact name when summary request_id matches", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const text = String(url);
+    if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 123456, status: "completed", conclusion: "success", html_url: "https://github.com/run/123456" }] }), { status: 200 });
+    if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "shopling-upload-logs-queue-123456", archive_download_url: "https://api.github.com/artifact.zip" }] }), { status: 200 });
+    return new Response(zipSync({ "output/github_actions/result_summary.json": strToU8(JSON.stringify({ request_id: "shopling-run-id-match", status: "success" })) }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult("shopling-run-id-match");
+      assert.equal(result.status, "success");
+      assert.equal(result.artifactName, "shopling-upload-logs-queue-123456");
+      assert.equal(result.summary.request_id, "shopling-run-id-match");
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+test("GitHub Actions result helper treats old artifact without summary as pending for request_id", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const text = String(url);
+    if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 1, status: "completed", conclusion: "success" }] }), { status: 200 });
+    if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "shopling-upload-logs-queue-123456", archive_download_url: "https://api.github.com/artifact.zip" }] }), { status: 200 });
+    return new Response(zipSync({ "logs/run.log": strToU8("old log") }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult("shopling-missing-summary");
+      assert.equal(result.status, "pending");
+      assert.equal(result.message, "현재 요청 ID와 일치하는 GitHub Actions 실행을 찾는 중입니다.");
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+test("GitHub Actions result helper does not fallback to latest completed run when request_id differs", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const text = String(url);
+    if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 99, status: "completed", conclusion: "success" }] }), { status: 200 });
+    if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "shopling-upload-logs-queue-99", archive_download_url: "https://api.github.com/artifact.zip" }] }), { status: 200 });
+    return new Response(zipSync({ "result_summary.json": strToU8(JSON.stringify({ request_id: "shopling-latest", status: "success" })) }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult("shopling-current");
+      assert.equal(result.status, "pending");
+      assert.equal(result.summary, undefined);
+      assert.equal(result.message, "현재 요청 ID와 일치하는 GitHub Actions 실행을 찾는 중입니다.");
     });
   } finally {
     globalThis.fetch = previousFetch;
@@ -551,6 +624,8 @@ test("UI source includes required Korean labels", async () => {
     "실제 완료 여부는 GitHub Actions 실행이 끝난 뒤 ‘최근 실행 결과 가져오기’로 확인하세요.",
     "요청 추적 ID",
     "최근 실행 결과 가져오기는 이 요청 추적 ID와 일치하는 결과를 우선 조회합니다.",
+    "GitHub Actions 바로가기",
+    "문제가 있으면 실행 로그에서 실패 원인을 바로 확인할 수 있습니다.",
   ]) {
     assert.equal(source.includes(text), true, text);
   }

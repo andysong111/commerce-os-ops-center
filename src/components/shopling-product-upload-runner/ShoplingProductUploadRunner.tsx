@@ -241,9 +241,10 @@ function ActionsResultPanel({ result, currentRequestId }: { result: ActionsResul
         <ResultRow label="GitHub Actions 실행 상태" value={`${result.runStatus ?? result.status ?? "-"} / ${result.runConclusion ?? "-"}`} />
         <ResultRow label="요청 추적 ID" value={displayRequestId} mono />
         <div className="grid gap-1 border-b border-slate-100 pb-3 md:grid-cols-[160px_1fr]">
-          <dt className="font-semibold text-slate-700">GitHub Actions 실행 링크</dt>
+          <dt className="font-semibold text-slate-700">GitHub Actions 바로가기</dt>
           <dd className="text-slate-900">
-            {result.runUrl ? <a className="text-blue-700 underline" href={result.runUrl} target="_blank" rel="noreferrer">{result.runUrl}</a> : "-"}
+            {result.runUrl ? <a className="text-blue-700 underline" href={result.runUrl} target="_blank" rel="noreferrer">GitHub Actions 바로가기</a> : "-"}
+            <p className="mt-1 text-xs text-slate-500">문제가 있으면 실행 로그에서 실패 원인을 바로 확인할 수 있습니다.</p>
           </dd>
         </div>
         <ResultRow label="row_expression" value={summary?.row_expression ?? "-"} />

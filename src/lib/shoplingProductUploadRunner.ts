@@ -147,6 +147,8 @@ const SHOPLING_RESULT_SUMMARY_EXACT_PATH = "output/github_actions/result_summary
 const SHOPLING_RESULT_SUMMARY_ROOT_PATH = "result_summary.json";
 const SHOPLING_RESULT_SUMMARY_ENTRY_SUFFIX = "/result_summary.json";
 const SHOPLING_RESULT_SUMMARY_ENTRY_DEBUG_LIMIT = 10;
+const SHOPLING_UPLOAD_ARTIFACT_NAME_PREFIX = "shopling-upload-logs-queue-";
+const SHOPLING_REQUEST_ID_MATCH_PENDING_MESSAGE = "현재 요청 ID와 일치하는 GitHub Actions 실행을 찾는 중입니다.";
 
 function findShoplingResultSummaryPath(files: Record<string, Uint8Array>) {
   if (files[SHOPLING_RESULT_SUMMARY_EXACT_PATH]) {
@@ -209,7 +211,9 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
       return {
         status: "pending",
         phase,
-        message: phase === "queued" ? "상품업로드 실행이 대기열에 있습니다. 곧 시작됩니다." : "상품업로드가 아직 진행 중입니다. 결과 파일이 준비되면 자동으로 다시 확인합니다.",
+        message: requestId
+          ? SHOPLING_REQUEST_ID_MATCH_PENDING_MESSAGE
+          : phase === "queued" ? "상품업로드 실행이 대기열에 있습니다. 곧 시작됩니다." : "상품업로드가 아직 진행 중입니다. 결과 파일이 준비되면 자동으로 다시 확인합니다.",
         requestId,
         runId: Number.isFinite(runId) ? runId : undefined,
         runUrl: typeof activeRun.html_url === "string" ? activeRun.html_url : undefined,
@@ -224,7 +228,7 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
         status: "pending",
         phase: "request_sent",
         message: requestId
-          ? "상품업로드 실행 요청을 확인 중입니다. GitHub Actions가 시작되면 자동으로 다시 확인합니다."
+          ? SHOPLING_REQUEST_ID_MATCH_PENDING_MESSAGE
           : "완료된 상품업로드 실행 결과가 아직 없습니다. 실행이 끝난 뒤 다시 확인하세요.",
         requestId,
       };
@@ -251,8 +255,8 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
       const artifactsResponse = await fetch(artifactsUrl, { headers: githubJsonHeaders(runsRequest.token) });
       const artifactsJson = await readGithubJson(artifactsResponse);
       const artifacts: GithubArtifact[] = Array.isArray(artifactsJson.artifacts) ? artifactsJson.artifacts : [];
-      const artifact = artifacts.find((item) => typeof item?.name === "string" && item.name.startsWith("shopling-upload-logs-queue-"));
-      if (!artifact?.archive_download_url) {
+      const uploadArtifacts = artifacts.filter((item) => typeof item?.name === "string" && item.name.startsWith(SHOPLING_UPLOAD_ARTIFACT_NAME_PREFIX));
+      if (uploadArtifacts.length === 0) {
         if (requestId) continue;
         return {
           status: "pending",
@@ -265,43 +269,61 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
         };
       }
 
-      const zipResponse = await fetch(artifact.archive_download_url, { headers: githubJsonHeaders(runsRequest.token) });
-      if (!zipResponse.ok) {
-        if (requestId) continue;
+      for (const artifact of uploadArtifacts) {
+        if (!artifact.archive_download_url) continue;
+        const zipResponse = await fetch(artifact.archive_download_url, { headers: githubJsonHeaders(runsRequest.token) });
+        if (!zipResponse.ok) {
+          if (requestId) continue;
+          return {
+            status: "pending",
+            phase: "waiting_artifact",
+            message: `GitHub Actions artifact 다운로드에 실패했습니다. status=${zipResponse.status}`,
+            runId,
+            runUrl,
+            runConclusion,
+            runStatus: "completed",
+            artifactName: artifact.name,
+          };
+        }
+        const zipBytes = new Uint8Array(await zipResponse.arrayBuffer());
+        let summary: Record<string, unknown>;
+        try {
+          summary = extractShoplingUploadResultSummary(zipBytes);
+        } catch (error) {
+          if (requestId) continue;
+          return {
+            status: "error",
+            phase: "completed_no_artifact",
+            message: error instanceof Error ? error.message : "현재 요청의 artifact에서 result_summary.json을 찾지 못했습니다.",
+            runId,
+            runUrl,
+            runConclusion,
+            runStatus: "completed",
+            artifactName: artifact.name,
+          };
+        }
+        const summaryRequestId = typeof summary.request_id === "string" ? summary.request_id : undefined;
+        if (requestId && summaryRequestId !== requestId) continue;
+
         return {
-          status: "pending",
-          phase: "waiting_artifact",
-          message: `GitHub Actions artifact 다운로드에 실패했습니다. status=${zipResponse.status}`,
+          status: "success",
+          phase: "artifact_ready",
           runId,
           runUrl,
           runConclusion,
           runStatus: "completed",
           artifactName: artifact.name,
+          summary,
+          requestId: summaryRequestId ?? requestId,
         };
       }
-      const zipBytes = new Uint8Array(await zipResponse.arrayBuffer());
-      const summary = extractShoplingUploadResultSummary(zipBytes);
-      const summaryRequestId = typeof summary.request_id === "string" ? summary.request_id : undefined;
-      if (requestId && summaryRequestId !== requestId) continue;
-
-      return {
-        status: "success",
-        phase: "artifact_ready",
-        runId,
-        runUrl,
-        runConclusion,
-        runStatus: "completed",
-        artifactName: artifact.name,
-        summary,
-        requestId: summaryRequestId ?? requestId,
-      };
     }
 
     return {
       status: "pending",
       phase: requestId ? "request_sent" : "waiting_artifact",
       message: requestId
-        ? "GitHub Actions 실행을 확인하는 중입니다. 잠시 후 자동으로 다시 확인합니다."
+        ? SHOPLING_REQUEST_ID_MATCH_PENDING_MESSAGE
         : "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.",
       requestId,
     };
