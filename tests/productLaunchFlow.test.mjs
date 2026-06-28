@@ -87,6 +87,17 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
   }
 });
 
+test("product launch flow skip existing goods_key checkbox is editable and drives upload request", async () => {
+  const component = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+
+  assert.match(component, /const \[skipIfGoodsKey, setSkipIfGoodsKey\] = useState\(true\)/);
+  assert.match(component, /checked=\{skipIfGoodsKey\}/);
+  assert.match(component, /onChange=\{\(event\) => setSkipIfGoodsKey\(event\.target\.checked\)\}/);
+  assert.match(component, /skip_if_goods_key: skipIfGoodsKey/);
+  assert.match(component, /체크 해제하면 이미 goods_key가 있어도 상품업로드를 다시 실행합니다\./);
+  assert.doesNotMatch(component, /<input[^>]*type="checkbox"[^>]*readOnly/);
+});
+
 test("builds keyword engine dry_run dispatch payload with de-duplicated goods_key and optional seed", () => {
   const rows = [
     { goods_key: "121112" },

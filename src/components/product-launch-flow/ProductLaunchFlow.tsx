@@ -44,6 +44,7 @@ export function ProductLaunchFlow() {
   const [keywordRunsResult, setKeywordRunsResult] = useState<KeywordRunsResult | null>(null);
   const [keywordImportMessage, setKeywordImportMessage] = useState<string>("");
   const [keywordBusy, setKeywordBusy] = useState<string>("");
+  const [skipIfGoodsKey, setSkipIfGoodsKey] = useState(true);
 
   const uploadRows = useMemo(() => extractRowsWithGoodsKey(uploadActionsResult), [uploadActionsResult]);
   const goodsKeys = useMemo(() => dedupeGoodsKeysForPriceModify(uploadRows), [uploadRows]);
@@ -57,7 +58,7 @@ export function ProductLaunchFlow() {
       const response = await fetch("/api/shopling-product-upload/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowExpression, channel: "", skip_if_goods_key: true, dump: false, sleep: "1.2" }),
+        body: JSON.stringify({ rowExpression, channel: "", skip_if_goods_key: skipIfGoodsKey, dump: false, sleep: "1.2" }),
       });
       const data = await response.json();
       setUploadRunResult(data);
@@ -181,7 +182,8 @@ export function ProductLaunchFlow() {
         <label className="mt-4 block text-sm font-semibold text-slate-800">실재고 시트 행 번호
           <input value={rowExpression} onChange={(event) => setRowExpression(event.target.value)} placeholder="예: 950 또는 950-952 또는 950,951" required className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
         </label>
-        <label className="mt-4 flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked readOnly className="size-4 rounded border-slate-300" />이미 goods_key 있으면 스킵</label>
+        <label className="mt-4 flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={skipIfGoodsKey} onChange={(event) => setSkipIfGoodsKey(event.target.checked)} className="size-4 rounded border-slate-300" />이미 goods_key 있으면 스킵</label>
+        <p className="mt-1 text-xs text-slate-500">체크 해제하면 이미 goods_key가 있어도 상품업로드를 다시 실행합니다.</p>
         <p className="mt-3 text-sm text-slate-600">채널 선택 없이 도매1~도매4, 소매1~소매2 전체 6채널로 실행합니다.</p>
         <button type="submit" disabled={uploadRunning} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{uploadRunning ? "실행 요청 중..." : "상품업로드 실행"}</button>
         <button type="button" onClick={fetchUploadResult} disabled={uploadFetching} className="ml-3 mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{uploadFetching ? "가져오는 중..." : "상품업로드 결과 가져오기"}</button>
