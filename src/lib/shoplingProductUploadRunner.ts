@@ -62,6 +62,7 @@ type ShoplingProductUploadDispatchConfig = {
 
 export type ShoplingProductUploadActionsResult = {
   status: "success" | "pending" | "error";
+  phase?: "request_sent" | "queued" | "running" | "waiting_artifact" | "completed_no_artifact" | "failed" | "artifact_ready" | "unknown";
   message?: string;
   runId?: number;
   runUrl?: string;
@@ -201,13 +202,30 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
     const runsResponse = await fetch(runsRequest.url, { headers: githubJsonHeaders(runsRequest.token) });
     const runsJson = await readGithubJson(runsResponse);
     const workflowRuns: GithubWorkflowRun[] = Array.isArray(runsJson.workflow_runs) ? runsJson.workflow_runs : [];
+    const activeRun = workflowRuns.find((run) => run?.status === "queued" || run?.status === "in_progress");
+    if (activeRun) {
+      const runId = Number(activeRun.id);
+      const phase = activeRun.status === "queued" ? "queued" : "running";
+      return {
+        status: "pending",
+        phase,
+        message: phase === "queued" ? "상품업로드 실행이 대기열에 있습니다. 곧 시작됩니다." : "상품업로드가 아직 진행 중입니다. 결과 파일이 준비되면 자동으로 다시 확인합니다.",
+        requestId,
+        runId: Number.isFinite(runId) ? runId : undefined,
+        runUrl: typeof activeRun.html_url === "string" ? activeRun.html_url : undefined,
+        runStatus: activeRun.status,
+        runConclusion: typeof activeRun.conclusion === "string" ? activeRun.conclusion : null,
+      };
+    }
+
     const completedRuns = workflowRuns.filter((run) => run?.status === "completed");
     if (completedRuns.length === 0) {
       return {
         status: "pending",
+        phase: "request_sent",
         message: requestId
-          ? "해당 요청 추적 ID의 완료 결과가 아직 없습니다. GitHub Actions 실행이 끝난 뒤 다시 확인하세요."
-          : "완료된 Shopling Product Upload GitHub Actions 실행이 아직 없습니다. 실행이 끝난 뒤 다시 확인하세요.",
+          ? "상품업로드 실행 요청을 확인 중입니다. GitHub Actions가 시작되면 자동으로 다시 확인합니다."
+          : "완료된 상품업로드 실행 결과가 아직 없습니다. 실행이 끝난 뒤 다시 확인하세요.",
         requestId,
       };
     }
@@ -217,6 +235,18 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
       if (!Number.isFinite(runId)) continue;
       const runConclusion = typeof completedRun.conclusion === "string" ? completedRun.conclusion : null;
       const runUrl = typeof completedRun.html_url === "string" ? completedRun.html_url : undefined;
+      if (runConclusion && runConclusion !== "success") {
+        if (requestId) continue;
+        return {
+          status: "error",
+          phase: "failed",
+          message: "상품업로드 실행이 실패했습니다. GitHub Actions 로그를 확인하세요.",
+          runId,
+          runUrl,
+          runConclusion,
+          runStatus: "completed",
+        };
+      }
       const artifactsUrl = `https://api.github.com/repos/${process.env.SHOPLING_UPLOAD_REPO?.trim()}/actions/runs/${runId}/artifacts`;
       const artifactsResponse = await fetch(artifactsUrl, { headers: githubJsonHeaders(runsRequest.token) });
       const artifactsJson = await readGithubJson(artifactsResponse);
@@ -225,8 +255,9 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
       if (!artifact?.archive_download_url) {
         if (requestId) continue;
         return {
-          status: "error",
-          message: "최근 완료된 GitHub Actions 실행에서 shopling-upload-logs-queue- artifact를 찾을 수 없습니다.",
+          status: "pending",
+          phase: "completed_no_artifact",
+          message: "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.",
           runId,
           runUrl,
           runConclusion,
@@ -254,6 +285,7 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
 
       return {
         status: "success",
+        phase: "artifact_ready",
         runId,
         runUrl,
         runConclusion,
@@ -266,7 +298,8 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
 
     return {
       status: "pending",
-      message: "해당 요청 추적 ID의 완료 결과가 아직 없습니다. GitHub Actions 실행이 끝난 뒤 다시 확인하세요.",
+      phase: "waiting_artifact",
+      message: "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.",
       requestId,
     };
   } catch (error) {

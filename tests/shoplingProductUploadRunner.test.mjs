@@ -333,7 +333,8 @@ test("GitHub Actions result helper handles no completed runs as pending", async 
     await withGithubActionsEnv({}, async () => {
       const result = await fetchShoplingProductUploadActionsResult();
       assert.equal(result.status, "pending");
-      assert.match(result.message, /완료된/);
+      assert.match(result.message, /진행 중/);
+      assert.equal(result.phase, "running");
     });
   } finally {
     globalThis.fetch = previousFetch;
@@ -342,7 +343,7 @@ test("GitHub Actions result helper handles no completed runs as pending", async 
   }
 });
 
-test("GitHub Actions result helper selects latest completed run and handles missing artifact as error", async () => {
+test("GitHub Actions result helper reports active runs before final artifact polling", async () => {
   const previousFetch = globalThis.fetch;
   const urls = [];
   globalThis.fetch = async (url) => {
@@ -361,11 +362,11 @@ test("GitHub Actions result helper selects latest completed run and handles miss
   try {
     await withGithubActionsEnv({}, async () => {
       const result = await fetchShoplingProductUploadActionsResult();
-      assert.equal(result.status, "error");
-      assert.equal(result.runId, 9);
-      assert.equal(result.runConclusion, "failure");
-      assert.match(result.message, /artifact/);
-      assert.equal(urls.some((url) => url.includes("/actions/runs/9/artifacts")), true);
+      assert.equal(result.status, "pending");
+      assert.equal(result.phase, "running");
+      assert.equal(result.runId, 10);
+      assert.match(result.message, /진행 중/);
+      assert.equal(urls.some((url) => url.includes("/actions/runs/9/artifacts")), false);
     });
   } finally {
     globalThis.fetch = previousFetch;
