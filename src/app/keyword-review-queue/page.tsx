@@ -217,6 +217,7 @@ export default function KeywordReviewQueuePage() {
     string,
     unknown
   > | null>(null);
+  const [exceptionOnly, setExceptionOnly] = useState(true);
   function loadImportedArtifact() {
     if (!importedArtifact?.files) return;
     setApprovalCsv(
@@ -493,6 +494,20 @@ export default function KeywordReviewQueuePage() {
         description="키워드 엔진이 만든 상품명과 검색어 후보를 확인하고 승인합니다."
       />
 
+      <section className="mb-6 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+        <p className="text-sm font-bold text-blue-700">운영 집중 모드</p>
+        <h2 className="mt-1 text-xl font-black text-slate-950">다음 권장 작업</h2>
+        <p className="mt-2 text-sm text-slate-700">검토 필요/차단/미승인 행만 먼저 확인하세요. 성공한 apply 결과와 긴 원본 로그는 기본으로 숨깁니다.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" onClick={() => setExceptionOnly(true)} className={`rounded-lg px-3 py-2 text-xs font-bold ${exceptionOnly ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-700"}`}>문제만 보기</button>
+          <button type="button" onClick={() => setExceptionOnly(false)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">전체 보기</button>
+          <button type="button" onClick={() => setExceptionOnly(true)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">성공 항목 숨기기</button>
+          <button type="button" onClick={() => setExceptionOnly(false)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">성공 항목 보기</button>
+        </div>
+        <p className="mt-3 text-xs text-slate-600">underfilled_search_keywords: 검색어가 10개 미만입니다. 현재는 경고입니다.</p>
+        <p className="mt-1 text-xs text-slate-600">missing result_summary: 결과 파일이 아직 준비되지 않았거나, 해당 실행에서 요약 파일이 생성되지 않았습니다. product gather fallback: 상품정보 조회에 실패해 goods_key 기준으로 후보를 생성했습니다.</p>
+      </section>
+
       <ProductLaunchWizard
         counts={readinessCounts}
         groupPreviewReady={groupPreviewReady}
@@ -684,7 +699,7 @@ export default function KeywordReviewQueuePage() {
         onGuidedAction={runGuidedApprovalPreviewPlan}
       />
 
-      <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <details open={!exceptionOnly} className="rounded-xl border border-slate-200 bg-white shadow-sm"><summary className="cursor-pointer p-4 font-semibold text-slate-950">전체 행 보기</summary>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
           <div>
             <h2 className="font-semibold text-slate-950">검토 행</h2>
@@ -820,7 +835,7 @@ export default function KeywordReviewQueuePage() {
             )}
           </div>
         )}
-      </section>
+      </details>
 
       <GroupVariantSection
         rows={rows}
@@ -1401,9 +1416,9 @@ function ApplyResultDisplay({ result, title = "실행 결과 요약" }: { result
           </div>
         ))}
       </div>
-      <ResultRows title="반영 결과" rows={rows("applyResults")} />
+      <details className="mt-4 rounded-lg border border-slate-200 p-3"><summary className="cursor-pointer font-semibold">상세 실행 결과 열기</summary><ResultRows title="반영 결과" rows={rows("applyResults")} />
       <ResultRows title="검증 결과" rows={rows("verifyResults")} />
-      <BlockedRows rows={rows("blockedItems")} />
+      <BlockedRows rows={rows("blockedItems")} /></details>
     </div>
   );
 }
