@@ -6,6 +6,7 @@ import {
   buildKeywordEngineDispatchPayload,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
+  extractUploadRows,
   inferProductGroupFromPtnGoodsCd,
 } from "../src/lib/productLaunchFlow.ts";
 
@@ -27,7 +28,7 @@ test("extracts upload rows and de-duplicates goods_key values for price modify",
       goods_keys: [
         { row: 950, channel: "도매1", code: "OK", success: true, goods_key: "121112", ptn_goods_cd: "BAA1-1a" },
         { row: 950, channel: "도매2", code: "OK", ok: true, goods_key: "121113", ptn_goods_cd: "BAA1-1b" },
-        { row: 950, channel: "도매3", code: "SKIP", success: false, goods_key: "", ptn_goods_cd: "BAA1-1c" },
+        { row: 950, channel: "도매3", code: "SKIP", success: false, goods_key: "", ptn_goods_cd: "BAA1-1c", status: "failed", message: "skip" },
         { row: 950, channel: "도매1", code: "OK", success: true, goods_key: "121112", ptn_goods_cd: "BAA1-1a" },
       ],
     },
@@ -41,6 +42,28 @@ test("extracts upload rows and de-duplicates goods_key values for price modify",
   assert.deepEqual(dedupeGoodsKeysForPriceModify(rows), ["121112", "121113"]);
 });
 
+test("extractUploadRows prefers summary.rows over goods_keys and preserves failed row fields", () => {
+  const sample = {
+    summary: {
+      status: "failed",
+      rows: [
+        { row: 1, channel: "도매1", code: "110[121118]", status: "failed", message: "1 번째 줄 상품 자사상품코드 중복", goods_key: "", ptn_goods_cd: "TEST1-1a" },
+      ],
+      goods_keys: [
+        { row: 1, channel: "도매1", code: "OK", status: "success", goods_key: "121118", ptn_goods_cd: "TEST1-1a" },
+      ],
+    },
+  };
+
+  const rows = extractUploadRows(sample);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].code, "110[121118]");
+  assert.equal(rows[0].status, "failed");
+  assert.equal(rows[0].message, "1 번째 줄 상품 자사상품코드 중복");
+  assert.equal(rows[0].ptn_goods_cd, "TEST1-1a");
+  assert.deepEqual(extractRowsWithGoodsKey(sample), []);
+});
+
 test("UI source includes MVP copy, storage keys, and API usage strings", async () => {
   const component = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   const page = await readFile("src/app/product-launch-flow/page.tsx", "utf8");
@@ -50,6 +73,10 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
     "상품 출시 플로우",
     "상품업로드 실행",
     "상품업로드 결과 가져오기",
+    "상품업로드 실패",
+    "행별 오류",
+    "같은 자사상품코드가 이미 샵플링에 등록되어 있습니다",
+    "이미 goods_key 있으면 스킵(권장)",
     "상품그룹",
     "ptn_goods_cd",
     "가격설정 실행",
@@ -94,7 +121,9 @@ test("product launch flow skip existing goods_key checkbox is editable and drive
   assert.match(component, /checked=\{skipIfGoodsKey\}/);
   assert.match(component, /onChange=\{\(event\) => setSkipIfGoodsKey\(event\.target\.checked\)\}/);
   assert.match(component, /skip_if_goods_key: skipIfGoodsKey/);
-  assert.match(component, /체크 해제하면 이미 goods_key가 있어도 상품업로드를 다시 실행합니다\./);
+  assert.match(component, /체크하면 이미 업로드된 상품은 건너뜁니다\./);
+  assert.match(component, /체크 해제는 기존 상품 수정이 아니라 새 상품 등록을 다시 시도합니다/);
+  assert.match(component, /주의: 체크 해제 상태에서는 같은 행을 다시 업로드할 때 자사상품코드 중복으로 실패할 수 있습니다/);
   assert.doesNotMatch(component, /<input[^>]*type="checkbox"[^>]*readOnly/);
 });
 
@@ -162,6 +191,8 @@ test("upload polling UI distinguishes uncertain, artifact pending, confirmed fai
   assert.match(component, /result\?\.runId/);
   assert.match(component, /result\?\.runUrl/);
   assert.match(component, /GitHub Actions 바로가기/);
+  assert.match(component, /target="_blank"/);
+  assert.match(component, /rel="noopener noreferrer"/);
   assert.match(component, /문제가 있으면 실행 로그에서 실패 원인을 바로 확인할 수 있습니다/);
   assert.match(component, /function isConfirmedUploadFailure/);
   assert.match(component, /runStatus === "completed" && \["failure", "cancelled", "timed_out"\]/);

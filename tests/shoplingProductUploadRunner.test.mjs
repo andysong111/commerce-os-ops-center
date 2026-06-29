@@ -722,3 +722,57 @@ test("GitHub Actions result helper reports missing result_summary only for match
     else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
   }
 });
+
+test("GitHub Actions result helper parses matching result_summary from failed workflow conclusion", async () => {
+  const previousFetch = globalThis.fetch;
+  const summary = {
+    request_id: "shopling-failed-match",
+    status: "failed",
+    rows: [{ row: 1, channel: "도매1", code: "110[121118]", status: "failed", message: "1 번째 줄 상품 자사상품코드 중복", ptn_goods_cd: "TEST1-1a" }],
+  };
+  globalThis.fetch = async (url) => {
+    const text = String(url);
+    if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 22, status: "completed", conclusion: "failure", html_url: "https://github.com/run/22" }] }), { status: 200 });
+    if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "shopling-upload-logs-queue-failed", archive_download_url: "https://api.github.com/artifact-failed.zip" }] }), { status: 200 });
+    return new Response(zipSync({ "result_summary.json": strToU8(JSON.stringify(summary)) }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult("shopling-failed-match");
+      assert.equal(result.status, "success");
+      assert.equal(result.runConclusion, "failure");
+      assert.equal(result.runStatus, "completed");
+      assert.deepEqual(result.summary, summary);
+      assert.equal(result.summary.rows[0].message, "1 번째 줄 상품 자사상품코드 중복");
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
+
+test("GitHub Actions result helper keeps pending for unrelated old artifact without result_summary", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const text = String(url);
+    if (text.includes("/runs?")) return new Response(JSON.stringify({ workflow_runs: [{ id: 23, status: "completed", conclusion: "failure", html_url: "https://github.com/run/23" }] }), { status: 200 });
+    if (text.includes("/artifacts")) return new Response(JSON.stringify({ artifacts: [{ name: "shopling-upload-logs-queue-old", archive_download_url: "https://api.github.com/artifact-old.zip" }] }), { status: 200 });
+    return new Response(zipSync({ "safe.log": strToU8("old request") }), { status: 200 });
+  };
+  const previousEnabled = process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+  process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = "1";
+  try {
+    await withGithubActionsEnv({}, async () => {
+      const result = await fetchShoplingProductUploadActionsResult("shopling-new-request");
+      assert.equal(result.status, "pending");
+      assert.equal(result.requestId, "shopling-new-request");
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEnabled === undefined) delete process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED;
+    else process.env.SHOPLING_PRODUCT_UPLOAD_ENABLED = previousEnabled;
+  }
+});
