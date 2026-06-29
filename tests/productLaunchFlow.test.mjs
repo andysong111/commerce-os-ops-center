@@ -123,6 +123,24 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
   }
 });
 
+
+test("product launch flow includes operations focus autopilot and exception lens copy", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "운영 집중 모드",
+    "다음 안전 단계 실행",
+    "자동 진행 모드",
+    "업로드 → 가격설정 → 키워드 dry_run까지 자동으로 이어서 진행합니다",
+    "실제 상품명/검색어 반영은 검토 화면에서 별도 승인해야 합니다",
+    "가격이 비어 있을 수 있는 쇼핑몰이 있습니다",
+    "모든 필수 쇼핑몰 가격 반영을 확인했습니다",
+    "문제만 보기",
+    "전체 보기",
+  ]) {
+    assert.ok(source.includes(expected), expected);
+  }
+});
+
 test("product launch flow GitHub Actions links are safe new-tab shortcuts", async () => {
   const component = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   const actionLinkMatches = component.match(/(?:<Link|<a)[^>]*(?:GitHub Actions|githubActionsUrl)[\s\S]{0,240}/g) ?? [];

@@ -80,6 +80,27 @@ test("reviewed export includes edits and review status", () => {
   assert.equal(exported.product_group_status, "unregistered");
 });
 
+
+test("keyword review queue includes exception-first launch flow polish", async () => {
+  const source = await readFile(
+    new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const expected of [
+    "문제만 보기",
+    "성공 항목 숨기기",
+    "성공 항목 보기",
+    "상세 실행 결과 열기",
+    "전체 행 보기",
+    "검색어가 10개 미만입니다. 현재는 경고입니다.",
+    "KEYWORD_APPLY_CONFIRMATION_TEXT",
+    "dry_run 성공 후 실제 반영이 가능합니다.",
+  ]) {
+    assert.ok(source.includes(expected), expected);
+  }
+  assert.doesNotMatch(source, /자동 진행.*run\("apply"\)|useEffect\([\s\S]{0,400}run\("apply"\)/);
+});
+
 test("keyword review foundation contains no live Shopling execution", async () => {
   const source = await readFile(
     new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url),
