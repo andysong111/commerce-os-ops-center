@@ -71,6 +71,15 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
   const source = `${page}\n${component}\n${lib}`;
   for (const expected of [
     "상품 출시 플로우",
+    "현재 단계",
+    "다음 권장 작업",
+    "실패 원인",
+    "고급 옵션 열기",
+    "상세 실행 정보 열기",
+    "이전 실행 기록 보기",
+    "GitHub Actions 바로가기",
+    "키워드 엔진 실행이 실패했습니다",
+    "시드 키워드를 입력하고 다시 실행",
     "상품업로드 실행",
     "상품업로드 결과 가져오기",
     "상품업로드 실패",
@@ -111,6 +120,16 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
     "/api/shopling-price-modify/actions-result",
   ]) {
     assert.match(source, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), expected);
+  }
+});
+
+test("product launch flow GitHub Actions links are safe new-tab shortcuts", async () => {
+  const component = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  const actionLinkMatches = component.match(/(?:<Link|<a)[^>]*(?:GitHub Actions|githubActionsUrl)[\s\S]{0,240}/g) ?? [];
+  assert.ok(actionLinkMatches.length > 0);
+  for (const match of actionLinkMatches) {
+    assert.match(match, /target="_blank"/);
+    assert.match(match, /rel="noopener noreferrer"/);
   }
 });
 
