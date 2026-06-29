@@ -72,7 +72,7 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
   for (const expected of [
     "상품 출시 플로우",
     "현재 단계",
-    "다음 권장 작업",
+    "지금 할 일",
     "실패 원인",
     "고급 옵션 열기",
     "상세 실행 정보 열기",
@@ -80,7 +80,7 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
     "GitHub Actions 바로가기",
     "키워드 엔진 실행이 실패했습니다",
     "시드 키워드를 입력하고 다시 실행",
-    "상품업로드 실행",
+    "상품업로드 시작",
     "상품업로드 결과 가져오기",
     "상품업로드 실패",
     "행별 오류",
@@ -88,7 +88,7 @@ test("UI source includes MVP copy, storage keys, and API usage strings", async (
     "이미 goods_key 있으면 스킵(권장)",
     "상품그룹",
     "ptn_goods_cd",
-    "가격설정 실행",
+    "가격설정 시작",
     "가격설정 결과 가져오기",
     "Step 3. 상품명/키워드 실행 및 검토",
     "시드 키워드",
@@ -128,9 +128,18 @@ test("product launch flow includes operations focus autopilot and exception lens
   const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   for (const expected of [
     "운영 집중 모드",
-    "다음 안전 단계 실행",
+    "먼저 실재고 시트 행 번호를 입력하세요",
+    "처음에는 행 번호만 입력하면 됩니다",
+    "행 번호 입력 후 시작",
+    "상품업로드 시작",
+    "가격설정 시작",
+    "키워드 dry_run 시작",
+    "키워드 결과 검토 화면 열기",
+    "지금 할 일",
+    "현재 입력 행",
+    "선택 옵션 열기",
     "자동 진행 모드",
-    "업로드 → 가격설정 → 키워드 dry_run까지 자동으로 이어서 진행합니다",
+    "켜면 상품업로드 성공 후 가격설정과 키워드 dry_run까지 자동으로 이어서 진행합니다",
     "실제 상품명/검색어 반영은 검토 화면에서 별도 승인해야 합니다",
     "가격이 비어 있을 수 있는 쇼핑몰이 있습니다",
     "모든 필수 쇼핑몰 가격 반영을 확인했습니다",
@@ -140,6 +149,29 @@ test("product launch flow includes operations focus autopilot and exception lens
     assert.ok(source.includes(expected), expected);
   }
 });
+
+test("product launch flow first action UX avoids generic button copy and DOM proxy", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "먼저 실재고 시트 행 번호를 입력하세요",
+    "처음에는 행 번호만 입력하면 됩니다",
+    "행 번호 입력 후 시작",
+    "상품업로드 시작",
+    "가격설정 시작",
+    "키워드 dry_run 시작",
+    "키워드 결과 검토 화면 열기",
+    "지금 할 일",
+    "현재 입력 행",
+    "선택 옵션 열기",
+    "실제 상품명/검색어 반영은 검토 화면에서 별도 승인해야 합니다",
+  ]) {
+    assert.ok(source.includes(expected), expected);
+  }
+  assert.doesNotMatch(source, /다음 안전 단계 실행/);
+  assert.doesNotMatch(source, /document\.getElementById\("product-launch-primary-upload-submit"\)/);
+  assert.match(source, /const \[autopilotEnabled, setAutopilotEnabled\] = useState\(false\)/);
+});
+
 
 test("product launch flow GitHub Actions links are safe new-tab shortcuts", async () => {
   const component = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
