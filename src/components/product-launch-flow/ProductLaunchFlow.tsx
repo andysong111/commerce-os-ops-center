@@ -34,6 +34,7 @@ type KeywordDispatchResult = { repo?: string; workflowFile?: string; actionsUrl?
 
 export function ProductLaunchFlow() {
   const [rowExpression, setRowExpression] = useState(() => getStoredValue(LAST_ROW_EXPRESSION_STORAGE_KEY));
+  const [lastStartedRowExpression, setLastStartedRowExpression] = useState(() => getStoredValue(LAST_ROW_EXPRESSION_STORAGE_KEY));
   const [uploadRequestId, setUploadRequestId] = useState(() => getStoredValue(UPLOAD_REQUEST_ID_STORAGE_KEY));
   const [priceRequestId, setPriceRequestId] = useState(() => getStoredValue(PRICE_REQUEST_ID_STORAGE_KEY));
   const [uploadRunning, setUploadRunning] = useState(false);
@@ -124,9 +125,8 @@ export function ProductLaunchFlow() {
     return () => window.clearTimeout(timer);
   }, [uploadPolling, uploadPollCount, uploadPollingFinal, uploadFetching, pollUploadResult]);
 
-  const runUpload = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (uploadRunning) return;
+  const runUploadRequest = async () => {
+    if (uploadRunning || !rowExpression.trim()) return;
     setUploadRunning(true);
     setUploadRunResult(null);
     try {
@@ -137,6 +137,7 @@ export function ProductLaunchFlow() {
       });
       const data = await response.json();
       setUploadRunResult(data);
+      setLastStartedRowExpression(rowExpression);
       persistValue(LAST_ROW_EXPRESSION_STORAGE_KEY, rowExpression);
       if (typeof data.requestId === "string" && data.requestId) {
         setUploadRequestId(data.requestId);
@@ -147,6 +148,11 @@ export function ProductLaunchFlow() {
     } finally {
       setUploadRunning(false);
     }
+  };
+
+  const runUpload = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await runUploadRequest();
   };
 
   const fetchUploadResult = () => {
@@ -271,7 +277,9 @@ export function ProductLaunchFlow() {
     } finally { setKeywordBusy(""); }
   };
 
-  const uploadGithubActionsUrl = uploadActionsResult?.runUrl ?? uploadRunResult?.githubActionsUrl;
+  const rowMatchesCurrentRun = rowExpression === lastStartedRowExpression;
+  const currentUploadRequestId = rowMatchesCurrentRun ? uploadRequestId : "";
+  const uploadGithubActionsUrl = currentUploadRequestId ? uploadActionsResult?.runUrl ?? uploadRunResult?.githubActionsUrl : undefined;
   const priceGithubActionsUrl = priceRunResult?.githubActionsUrl;
   const keywordGithubActionsUrl = keywordRunsResult?.runs?.[0]?.htmlUrl ?? keywordDispatchResult?.actionsUrl ?? keywordRunsResult?.actionsUrl;
   const uploadCounts = getUploadCounts(uploadActionsResult, uploadResultRows, uploadRows);
@@ -289,10 +297,11 @@ export function ProductLaunchFlow() {
     keywordSuccess: !!keywordSummary.artifact,
     keywordFailed: hasKeywordFailure(keywordRunsResult),
   });
-  const lastRequestId = priceRequestId || uploadRequestId || keywordDispatchResult?.expectedArtifactName || "-";
+  const currentRequestId = rowMatchesCurrentRun ? priceRequestId || currentUploadRequestId || keywordDispatchResult?.expectedArtifactName || "" : "";
+  const previousRequestId = priceRequestId || uploadRequestId || keywordDispatchResult?.expectedArtifactName || "-";
   const lastCheckedAt = keywordLastCheckedAt ?? priceLastCheckedAt ?? uploadLastCheckedAt;
   const runNextSafeStep = () => {
-    if (cockpit.primaryAction === "upload") document.getElementById("product-launch-primary-upload-submit")?.click();
+    if (cockpit.primaryAction === "upload") void runUploadRequest();
     if (cockpit.primaryAction === "price") void runPriceModify();
     if (cockpit.primaryAction === "keyword") void dispatchKeywordEngine();
   };
@@ -311,12 +320,11 @@ export function ProductLaunchFlow() {
 
   return (
     <div className="space-y-6">
-      <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} lastRequestId={lastRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} />
-      {cockpit.primaryAction === "upload" ? <form onSubmit={runUpload} className="rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm"><label className="block text-sm font-semibold text-slate-800">실재고 시트 행 번호<input value={rowExpression} onChange={(event) => setRowExpression(event.target.value)} placeholder="예: 950 또는 950-952" required className="mt-2 mr-3 rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><button id="product-launch-primary-upload-submit" type="submit" disabled={uploadRunning || uploadFetching || uploadPolling} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">상품업로드 실행</button></form> : null}
+      <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} />
       {cockpit.primaryAction === "price" ? <PrimaryButton onClick={runPriceModify} disabled={priceRunning || priceFetching || pricePolling || goodsKeys.length === 0}>가격설정 실행</PrimaryButton> : null}
       {cockpit.primaryAction === "keyword" ? <PrimaryButton onClick={dispatchKeywordEngine} disabled={!!keywordBusy || keywordPolling}>키워드 엔진 실행</PrimaryButton> : null}
       {cockpit.primaryAction === "review" ? <Link href="/keyword-review-queue?from=product-launch-flow" className="inline-flex rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">키워드 결과 검토 화면 열기</Link> : null}
-      {cockpit.primaryAction === "failed" ? <ErrorDrawer title="실패 원인" uploadResult={uploadActionsResult} priceResult={priceActionsResult} keywordResult={keywordRunsResult} requestId={lastRequestId} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} /> : null}
+      {cockpit.primaryAction === "failed" ? <ErrorDrawer title="실패 원인" uploadResult={uploadActionsResult} priceResult={priceActionsResult} keywordResult={keywordRunsResult} requestId={previousRequestId} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} /> : null}
 
       <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <summary className="cursor-pointer text-lg font-bold text-slate-950">고급 옵션 열기</summary>
@@ -329,7 +337,7 @@ export function ProductLaunchFlow() {
         <div className="mt-1 space-y-1 text-xs text-slate-600"><p>체크하면 이미 업로드된 상품은 건너뜁니다.</p><p>체크 해제는 기존 상품 수정이 아니라 새 상품 등록을 다시 시도합니다. 같은 자사상품코드가 이미 있으면 중복 오류가 발생할 수 있습니다.</p></div>
         {!skipIfGoodsKey ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">주의: 체크 해제 상태에서는 같은 행을 다시 업로드할 때 자사상품코드 중복으로 실패할 수 있습니다. 기존 상품 수정이 목적이라면 업로드가 아니라 수정/가격/상품명 반영 플로우를 사용하세요.</p> : null}
         <p className="mt-3 text-sm text-slate-600">채널 선택 없이 도매1~도매4, 소매1~소매2 전체 6채널로 실행합니다.</p>
-        <button type="submit" disabled={uploadRunning} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{uploadRunning ? "실행 요청 중..." : "상품업로드 실행"}</button>
+        <button type="submit" disabled={uploadRunning || !rowExpression.trim()} className="mt-5 rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-800 disabled:bg-slate-100">{uploadRunning ? "실행 요청 중..." : "고급 옵션으로 상품업로드 시작"}</button>
         <button type="button" onClick={fetchUploadResult} disabled={uploadFetching || uploadPolling} className="ml-3 mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{uploadFetching || uploadPolling ? "확인 중..." : "상품업로드 결과 가져오기"}</button>
         <GithubActionsShortcutButton href={uploadGithubActionsUrl} className="ml-3 mt-5" />
         <StatusBlock result={uploadRunResult} requestId={uploadRequestId} />
@@ -356,13 +364,29 @@ export function ProductLaunchFlow() {
 type StepState = "waiting" | "running" | "checking" | "success" | "failed" | "action";
 type CockpitStep = { name: string; state: StepState; action: string; message: string; count?: string };
 
-function LaunchCockpit({ steps, currentStage, nextAction, primaryAction, onNext, autoPilotEnabled, onAutoPilotChange, lastRequestId, lastCheckedAt, autoPollStatus, actionsUrl, counts }: { steps: CockpitStep[]; currentStage: string; nextAction: string; primaryAction: string; onNext: () => void; autoPilotEnabled: boolean; onAutoPilotChange: (value: boolean) => void; lastRequestId: string; lastCheckedAt: Date | null; autoPollStatus: string; actionsUrl?: string; counts: { upload: Record<string, number>; price: Record<string, number>; keyword: { targetCount: number; artifactState: string; reviewPendingCount: number; failureReason: string; artifact?: KeywordArtifact } } }) {
+function LaunchCockpit({ steps, currentStage, nextAction, primaryAction, onNext, rowExpression, onRowExpressionChange, uploadBusy, autoPilotEnabled, onAutoPilotChange, currentRequestId, previousRequestId, lastCheckedAt, autoPollStatus, actionsUrl, counts }: { steps: CockpitStep[]; currentStage: string; nextAction: string; primaryAction: string; onNext: () => void; rowExpression: string; onRowExpressionChange: (value: string) => void; uploadBusy: boolean; autoPilotEnabled: boolean; onAutoPilotChange: (value: boolean) => void; currentRequestId: string; previousRequestId: string; lastCheckedAt: Date | null; autoPollStatus: string; actionsUrl?: string; counts: { upload: Record<string, number>; price: Record<string, number>; keyword: { targetCount: number; artifactState: string; reviewPendingCount: number; failureReason: string; artifact?: KeywordArtifact } } }) {
+  const rowIsValid = rowExpression.trim().length > 0;
+  const primaryLabel = getPrimaryActionLabel(primaryAction, uploadBusy, currentStage);
+  const disabled = primaryAction === "upload" ? !rowIsValid || uploadBusy : primaryAction === "wait" || primaryAction === "review" || primaryAction === "failed";
   return <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-    <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-semibold text-blue-700">운영 집중 모드</p><h1 className="text-2xl font-black text-slate-950">상품 출시 플로우</h1><p className="mt-1 text-sm text-slate-600">복잡한 실행 정보는 접고, 지금 안전하게 할 수 있는 작업만 먼저 보여줍니다.</p></div><div className="flex flex-col gap-3"><button type="button" onClick={onNext} disabled={primaryAction === "wait" || primaryAction === "review" || primaryAction === "failed"} className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300">{primaryAction === "wait" ? nextAction : primaryAction === "review" ? "키워드 결과 검토 화면 열기" : primaryAction === "failed" ? "실패 원인 보기" : "다음 안전 단계 실행"}</button><label className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950"><input type="checkbox" checked={autoPilotEnabled} onChange={(event) => onAutoPilotChange(event.target.checked)} className="mr-2 size-4" />자동 진행 모드<p className="mt-1 text-xs font-medium">업로드 → 가격설정 → 키워드 dry_run까지 자동으로 이어서 진행합니다. 실제 상품명/검색어 반영은 검토 화면에서 별도 승인해야 합니다.</p></label><GithubActionsShortcutButton href={actionsUrl} /></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-semibold text-blue-700">운영 집중 모드</p><h1 className="text-2xl font-black text-slate-950">상품 출시 플로우</h1><p className="mt-1 text-sm text-slate-600">행 번호를 입력하면 상품업로드부터 순서대로 진행합니다.</p></div></div>
+    {primaryAction === "upload" ? <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-5"><h2 className="text-lg font-black text-slate-950">먼저 실재고 시트 행 번호를 입력하세요</h2><label className="mt-4 block text-sm font-semibold text-slate-800">실재고 시트 행 번호<input value={rowExpression} onChange={(event) => onRowExpressionChange(event.target.value)} placeholder="예: 950 또는 950-955" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><p className="mt-2 text-sm text-slate-700">상품을 업로드할 실재고 시트의 행 번호입니다. 처음에는 행 번호만 입력하면 됩니다.</p>{!rowIsValid ? <p className="mt-3 rounded-lg bg-white p-3 text-sm font-semibold text-blue-800">행 번호를 입력하면 상품업로드를 시작할 수 있습니다.</p> : null}<button type="button" onClick={onNext} disabled={disabled} className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300">{rowIsValid ? primaryLabel : "행 번호 입력 후 시작"}</button></div> : <div className="mt-5"><button type="button" onClick={onNext} disabled={disabled} className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300">{primaryLabel}</button></div>}
+    <details className="mt-4 rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer text-sm font-bold text-slate-700">선택 옵션 열기</summary><label className="mt-3 flex items-start gap-2 text-sm font-semibold text-slate-800"><input type="checkbox" checked={autoPilotEnabled} onChange={(event) => onAutoPilotChange(event.target.checked)} className="mt-1 size-4" />자동 진행 모드</label><p className="mt-2 text-xs text-slate-600">켜면 상품업로드 성공 후 가격설정과 키워드 dry_run까지 자동으로 이어서 진행합니다.</p><p className="mt-1 text-xs text-slate-600">실제 상품명/검색어 반영은 검토 화면에서 별도 승인해야 합니다.</p>{!currentRequestId && actionsUrl ? <div className="mt-3"><GithubActionsShortcutButton href={actionsUrl} /></div> : null}</details>
     <div className="mt-5 grid gap-3 lg:grid-cols-5">{steps.map((step, index) => <article key={step.name} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-bold text-slate-900">{index + 1}. {step.name}</h3><StateBadge state={step.state} /></div><p className="mt-3 text-sm font-semibold text-slate-800">{step.action}</p><p className="mt-1 text-xs text-slate-600">{step.message}</p>{step.count ? <p className="mt-3 rounded-lg bg-slate-50 p-2 text-xs font-semibold text-slate-700">{step.count}</p> : null}</article>)}</div>
-    <div className="mt-5 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm md:grid-cols-2 lg:grid-cols-3"><ResultRow label="현재 단계" value={currentStage} /><ResultRow label="다음 권장 작업" value={nextAction} /><ResultRow label="마지막 요청 ID" value={lastRequestId} mono /><ResultRow label="마지막 확인 시각" value={lastCheckedAt ? lastCheckedAt.toLocaleTimeString("ko-KR") : "-"} /><ResultRow label="자동 확인 상태" value={autoPollStatus} /><div><GithubActionsShortcutButton href={actionsUrl} /></div></div>
+    <div className="mt-5 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm md:grid-cols-2 lg:grid-cols-3"><ResultRow label="현재 단계" value={currentStage} /><ResultRow label="지금 할 일" value={nextAction} /><ResultRow label="현재 입력 행" value={rowExpression || "아직 없음"} /><ResultRow label="현재 요청 ID" value={currentRequestId || "아직 없음"} mono /><ResultRow label="마지막 확인 시각" value={lastCheckedAt ? lastCheckedAt.toLocaleTimeString("ko-KR") : "-"} /><ResultRow label="자동 확인" value={autoPollStatus} />{currentRequestId && actionsUrl ? <div><GithubActionsShortcutButton href={actionsUrl} /></div> : null}</div>
+    <details className="mt-4 rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer text-sm font-bold text-slate-700">이전 실행 기록 보기</summary><ResultRow label="이전 요청 ID" value={previousRequestId} mono /></details>
     <div className="mt-4 grid gap-2 text-xs text-slate-700 md:grid-cols-3"><p>업로드: 대상 행 {counts.upload.targetRows} · 생성 goods_key 수 {counts.upload.goodsKeyCount} · 실패 행 수 {counts.upload.failedRows} · 중복 자사상품코드 수 {counts.upload.duplicateRows}</p><p>가격: 대상 goods_key 수 {counts.price.targetGoodsKeys} · 성공 수 {counts.price.okCount} · 실패 수 {counts.price.failCount}</p><p>키워드: 대상 goods_key 수 {counts.keyword.targetCount} · artifact 상태 {counts.keyword.artifactState} · 검토 대기 수 {counts.keyword.reviewPendingCount} · 실패 원인 {counts.keyword.failureReason}</p></div>
   </section>;
+}
+function getPrimaryActionLabel(primaryAction: string, uploadBusy: boolean, currentStage: string) {
+  if (primaryAction === "upload") return uploadBusy ? "상품업로드 결과 확인 중..." : "상품업로드 시작";
+  if (primaryAction === "price") return "가격설정 시작";
+  if (primaryAction === "keyword") return "키워드 dry_run 시작";
+  if (primaryAction === "review") return "키워드 결과 검토 화면 열기";
+  if (primaryAction === "failed") return "실패 원인 보기";
+  if (currentStage === "가격설정") return "가격설정 결과 확인 중...";
+  if (currentStage === "키워드/상품명 준비") return "키워드 결과 확인 중...";
+  return "상품업로드 결과 확인 중...";
 }
 function StateBadge({ state }: { state: StepState }) { const map = { waiting: ["대기", "bg-slate-100 text-slate-700"], running: ["실행 중", "bg-blue-100 text-blue-800"], checking: ["결과 확인 중", "bg-blue-100 text-blue-800"], success: ["성공", "bg-emerald-100 text-emerald-800"], failed: ["실패", "bg-red-100 text-red-800"], action: ["확인 필요", "bg-amber-100 text-amber-900"] } as const; const [label, cls] = map[state]; return <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-bold ${cls}`}>{state === "running" || state === "checking" ? <span className="size-3 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" /> : null}{label}</span>; }
 function PrimaryButton({ children, onClick, disabled }: { children: string; onClick: () => void; disabled?: boolean }) { return <button type="button" onClick={onClick} disabled={disabled} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:bg-slate-400">{children}</button>; }
@@ -512,9 +536,9 @@ function hasKeywordFailure(result: KeywordRunsResult | null) { const run = resul
 function isFinalKeywordRuns(result: KeywordRunsResult | null) { const run = result?.runs?.[0]; return !!run && (hasKeywordFailure(result) || !!run.artifacts?.some((artifact) => artifact.expected && !artifact.expired)); }
 function buildCockpit(state: { hasUploadRequest: boolean; uploadActive: boolean; uploadSuccess: boolean; uploadFailed: boolean; priceActive: boolean; priceSuccess: boolean; priceFailed: boolean; keywordActive: boolean; keywordSuccess: boolean; keywordFailed: boolean }) {
   const steps: CockpitStep[] = [
-    { name: "상품업로드", state: state.uploadFailed ? "failed" : state.uploadActive ? "checking" : state.uploadSuccess ? "success" : "waiting", action: state.uploadSuccess ? "가격설정으로 이동" : state.uploadActive ? "확인 중, 잠시 기다리세요" : "상품업로드 실행", message: state.uploadSuccess ? "goods_key가 준비되었습니다." : state.uploadActive ? "중복 클릭 없이 자동 확인합니다." : "행 번호 입력 후 시작하세요." },
-    { name: "가격설정", state: state.priceFailed ? "failed" : state.priceActive ? "checking" : state.priceSuccess ? "success" : state.uploadSuccess ? "action" : "waiting", action: state.priceSuccess ? "키워드 엔진 실행" : "가격설정 실행", message: state.uploadSuccess ? "업로드 성공 후 실행할 수 있습니다." : "업로드 완료 후 활성화됩니다." },
-    { name: "키워드/상품명 준비", state: state.keywordFailed ? "failed" : state.keywordActive ? "running" : state.keywordSuccess ? "success" : state.priceSuccess ? "action" : "waiting", action: state.keywordSuccess ? "검토 화면 열기" : "키워드 엔진 실행", message: state.keywordActive ? "키워드 엔진이 실행 중입니다. 결과 파일이 생성되면 자동으로 표시됩니다." : state.keywordFailed ? "키워드 엔진 실행이 실패했습니다." : "dry_run 결과만 준비합니다." },
+    { name: "상품업로드", state: state.uploadFailed ? "failed" : state.uploadActive ? "checking" : state.uploadSuccess ? "success" : "waiting", action: state.uploadSuccess ? "가격설정 시작" : state.uploadActive ? "상품업로드 결과 확인 중..." : "상품업로드 시작", message: state.uploadSuccess ? "goods_key가 준비되었습니다." : state.uploadActive ? "중복 클릭 없이 자동 확인합니다." : "행 번호 입력 후 시작하세요." },
+    { name: "가격설정", state: state.priceFailed ? "failed" : state.priceActive ? "checking" : state.priceSuccess ? "success" : state.uploadSuccess ? "action" : "waiting", action: state.priceSuccess ? "키워드 dry_run 시작" : state.priceActive ? "가격설정 결과 확인 중..." : "가격설정 시작", message: state.uploadSuccess ? "업로드 성공 후 실행할 수 있습니다." : "업로드 완료 후 활성화됩니다." },
+    { name: "키워드/상품명 준비", state: state.keywordFailed ? "failed" : state.keywordActive ? "running" : state.keywordSuccess ? "success" : state.priceSuccess ? "action" : "waiting", action: state.keywordSuccess ? "키워드 결과 검토 화면 열기" : state.keywordActive ? "키워드 결과 확인 중..." : "키워드 dry_run 시작", message: state.keywordActive ? "키워드 엔진이 실행 중입니다. 결과 파일이 생성되면 자동으로 표시됩니다." : state.keywordFailed ? "키워드 엔진 실행이 실패했습니다." : "dry_run 결과만 준비합니다." },
     { name: "키워드 결과 검토", state: state.keywordSuccess ? "action" : "waiting", action: "키워드 결과 검토 화면 열기", message: state.keywordSuccess ? "결과 파일이 준비되었습니다. 검토 화면에서 확인하세요." : "artifact 생성 후 열 수 있습니다." },
     { name: "최종 확인", state: state.keywordSuccess ? "action" : "waiting", action: "최종 확인", message: "마켓전송은 수동으로 진행합니다." },
   ];
@@ -526,6 +550,6 @@ function buildCockpit(state: { hasUploadRequest: boolean; uploadActive: boolean;
   else if (!state.keywordSuccess) primaryAction = "keyword";
   else primaryAction = "review";
   const currentStage = steps.find((step) => step.state === "failed" || step.state === "running" || step.state === "checking" || step.state === "action")?.name ?? "상품업로드";
-  const nextAction = primaryAction === "failed" ? "키워드 엔진 결과를 기다리거나 실패 원인을 확인하세요." : primaryAction === "wait" ? "자동 확인 중입니다. 중복 클릭하지 말고 기다리세요." : steps.find((step) => step.name === currentStage)?.action ?? "상품업로드 실행";
+  const nextAction = primaryAction === "failed" ? "문제가 발생했습니다. 실패 원인을 확인하세요." : state.uploadActive ? "상품업로드 결과를 확인하는 중입니다. 잠시만 기다려주세요." : state.priceActive ? "가격설정 결과를 확인하는 중입니다. 잠시만 기다려주세요." : state.keywordActive ? "키워드 결과를 확인하는 중입니다. 잠시만 기다려주세요." : primaryAction === "upload" ? "행 번호를 입력하고 상품업로드를 시작하세요." : primaryAction === "price" ? "상품업로드가 완료되었습니다. 이제 가격설정을 시작하세요." : primaryAction === "keyword" ? "가격설정이 완료되었습니다. 이제 키워드 dry_run을 시작하세요." : primaryAction === "review" ? "키워드 결과가 준비되었습니다. 검토 화면에서 확인하세요." : steps.find((step) => step.name === currentStage)?.action ?? "상품업로드 시작";
   return { steps, primaryAction, currentStage, nextAction };
 }
