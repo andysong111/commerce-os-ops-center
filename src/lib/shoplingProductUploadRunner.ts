@@ -257,18 +257,7 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
       if (!Number.isFinite(runId)) continue;
       const runConclusion = typeof completedRun.conclusion === "string" ? completedRun.conclusion : null;
       const runUrl = typeof completedRun.html_url === "string" ? completedRun.html_url : undefined;
-      if (["failure", "cancelled", "timed_out"].includes(String(runConclusion ?? ""))) {
-        if (requestId) continue;
-        return {
-          status: "error",
-          phase: "failed",
-          message: "상품업로드 실행이 실패했습니다. GitHub Actions 로그를 확인하세요.",
-          runId,
-          runUrl,
-          runConclusion,
-          runStatus: "completed",
-        };
-      }
+      const completedRunFailed = ["failure", "cancelled", "timed_out"].includes(String(runConclusion ?? ""));
       const artifactsUrl = `https://api.github.com/repos/${process.env.SHOPLING_UPLOAD_REPO?.trim()}/actions/runs/${runId}/artifacts`;
       const artifactsResponse = await fetch(artifactsUrl, { headers: githubJsonHeaders(runsRequest.token) });
       const artifactsJson = await readGithubJson(artifactsResponse);
@@ -276,15 +265,25 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
       const uploadArtifacts = artifacts.filter((item) => typeof item?.name === "string" && item.name.startsWith("shopling-upload-logs-queue-"));
       if (uploadArtifacts.length === 0) {
         if (requestId) continue;
-        return {
-          status: "pending",
-          phase: "completed_no_artifact",
-          message: "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.",
-          runId,
-          runUrl,
-          runConclusion,
-          runStatus: "completed",
-        };
+        return completedRunFailed
+          ? {
+            status: "error",
+            phase: "failed",
+            message: "상품업로드 실행이 실패했습니다. GitHub Actions 로그를 확인하세요.",
+            runId,
+            runUrl,
+            runConclusion,
+            runStatus: "completed",
+          }
+          : {
+            status: "pending",
+            phase: "completed_no_artifact",
+            message: "실행은 시작되었지만 결과 파일이 아직 준비되지 않았습니다.",
+            runId,
+            runUrl,
+            runConclusion,
+            runStatus: "completed",
+          };
       }
 
       for (const artifact of uploadArtifacts) {
@@ -339,6 +338,18 @@ export async function fetchShoplingProductUploadActionsResult(requestId?: string
           artifactName: artifact.name,
           summary,
           requestId: summaryRequestId ?? requestId,
+        };
+      }
+
+      if (completedRunFailed && !requestId) {
+        return {
+          status: "error",
+          phase: "failed",
+          message: "상품업로드 실행이 실패했습니다. GitHub Actions 로그를 확인하세요.",
+          runId,
+          runUrl,
+          runConclusion,
+          runStatus: "completed",
         };
       }
     }

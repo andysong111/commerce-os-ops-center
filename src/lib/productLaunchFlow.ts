@@ -8,6 +8,9 @@ export type ProductLaunchUploadRow = {
   ok?: boolean | string;
   goods_key?: string;
   ptn_goods_cd?: string;
+  status?: string;
+  message?: string;
+  msg?: string;
 };
 
 export type ProductLaunchPriceSummary = {
@@ -76,6 +79,9 @@ export function extractUploadRows(uploadResult: unknown): ProductLaunchUploadRow
     ok: booleanOrString(row.ok),
     goods_key: stringify(row.goods_key),
     ptn_goods_cd: stringify(row.ptn_goods_cd),
+    status: stringify(row.status),
+    message: stringify(row.message),
+    msg: stringify(row.msg),
   }));
 }
 
@@ -98,10 +104,16 @@ export function dedupeGoodsKeysForPriceModify(rows: ProductLaunchUploadRow[]): s
 function collectCandidateArrays(value: unknown): Array<Record<string, unknown>[]> {
   if (!value || typeof value !== "object") return [];
   const objectValue = value as Record<string, unknown>;
-  const knownKeys = ["goods_keys", "goodsKeys", "rows", "results", "items"];
-  const arrays = knownKeys
-    .map((key) => objectValue[key])
-    .filter((entry): entry is Record<string, unknown>[] => Array.isArray(entry));
+  const primaryRows = objectValue.rows;
+  const arrays: Array<Record<string, unknown>[]> = [];
+  if (Array.isArray(primaryRows) && primaryRows.length > 0) {
+    arrays.push(primaryRows);
+  } else {
+    const knownKeys = ["goods_keys", "goodsKeys", "results", "items"];
+    arrays.push(...knownKeys
+      .map((key) => objectValue[key])
+      .filter((entry): entry is Record<string, unknown>[] => Array.isArray(entry)));
+  }
 
   if (objectValue.summary && typeof objectValue.summary === "object") {
     arrays.push(...collectCandidateArrays(objectValue.summary));
