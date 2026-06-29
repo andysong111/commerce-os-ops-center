@@ -66,13 +66,16 @@ export function ProductLaunchFlow() {
   const [keywordLastCheckedAt, setKeywordLastCheckedAt] = useState<Date | null>(null);
   const [skipIfGoodsKey, setSkipIfGoodsKey] = useState(true);
   const [autopilotEnabled, setAutopilotEnabled] = useState(false);
+  const autoPriceStartedForUploadRequestRef = useRef<string>("");
+  const autoKeywordStartedForPriceRequestRef = useRef<string>("");
 
   const uploadResultRows = useMemo(() => extractUploadRows(uploadActionsResult), [uploadActionsResult]);
   const uploadRows = useMemo(() => extractRowsWithGoodsKey(uploadActionsResult), [uploadActionsResult]);
   const goodsKeys = useMemo(() => dedupeGoodsKeysForPriceModify(uploadRows), [uploadRows]);
   const uploadPollingFinal = isFinalUploadPollingResult(uploadActionsResult, uploadRows.length);
 
-  const pollUploadResult = useCallback(async (reset: boolean) => {
+  const pollUploadResult = useCallback(async (reset: boolean, requestIdOverride?: string) => {
+    const effectiveRequestId = requestIdOverride || uploadRequestId;
     if (uploadFetching) return;
     if (reset) {
       uploadPollCountRef.current = 0;
@@ -80,13 +83,14 @@ export function ProductLaunchFlow() {
       setUploadElapsedSeconds(0);
       setUploadPollStartedAt(Date.now());
       setUploadPolling(true);
-      setUploadActionsResult({ status: "pending", phase: "request_sent", requestId: uploadRequestId, message: "상품업로드 결과 확인을 시작했습니다. 결과 파일이 준비되면 자동으로 다시 확인합니다." });
+      setUploadNextCheckIn(0);
+      setUploadActionsResult({ status: "pending", phase: "request_sent", requestId: effectiveRequestId, message: "상품업로드 실행을 확인하는 중입니다. 결과가 준비되면 자동으로 다음 단계로 이동합니다." });
     }
     uploadPollCountRef.current += 1;
     setUploadPollCount(uploadPollCountRef.current);
     setUploadFetching(true);
     try {
-      const url = uploadRequestId ? `/api/shopling-product-upload/actions-result?request_id=${encodeURIComponent(uploadRequestId)}` : "/api/shopling-product-upload/actions-result";
+      const url = effectiveRequestId ? `/api/shopling-product-upload/actions-result?request_id=${encodeURIComponent(effectiveRequestId)}` : "/api/shopling-product-upload/actions-result";
       const data = await (await fetch(url)).json();
       setUploadActionsResult(data);
       const rows = extractRowsWithGoodsKey(data);
@@ -98,7 +102,7 @@ export function ProductLaunchFlow() {
         setUploadNextCheckIn(UPLOAD_POLL_INTERVAL_MS / 1_000);
       }
     } catch (error) {
-      setUploadActionsResult({ status: "error", phase: "unknown", requestId: uploadRequestId, message: error instanceof Error ? error.message : "상품업로드 결과를 가져오는 중 오류가 발생했습니다." });
+      setUploadActionsResult({ status: "error", phase: "unknown", requestId: effectiveRequestId, message: error instanceof Error ? error.message : "상품업로드 결과를 가져오는 중 오류가 발생했습니다." });
       setUploadPolling(false);
       setUploadNextCheckIn(0);
     } finally {
@@ -106,6 +110,17 @@ export function ProductLaunchFlow() {
       setUploadFetching(false);
     }
   }, [uploadFetching, uploadRequestId]);
+
+  const startUploadPolling = useCallback((requestId: string) => {
+    uploadPollCountRef.current = 0;
+    setUploadPollCount(0);
+    setUploadElapsedSeconds(0);
+    setUploadPollStartedAt(Date.now());
+    setUploadPolling(true);
+    setUploadNextCheckIn(0);
+    setUploadActionsResult({ status: "pending", phase: "request_sent", requestId, message: "상품업로드 실행을 확인하는 중입니다. 결과가 준비되면 자동으로 다음 단계로 이동합니다." });
+    void pollUploadResult(false, requestId);
+  }, [pollUploadResult]);
 
   useEffect(() => {
     if (!uploadPolling || uploadPollingFinal) return;
@@ -120,15 +135,23 @@ export function ProductLaunchFlow() {
     if (!uploadPolling || uploadPollingFinal) return;
     if (uploadPollCount === 0 || uploadPollCount >= UPLOAD_MAX_POLLS || uploadFetching) return;
     const timer = window.setTimeout(() => {
-      void pollUploadResult(false);
+      void pollUploadResult(false, uploadRequestId);
     }, UPLOAD_POLL_INTERVAL_MS);
     return () => window.clearTimeout(timer);
-  }, [uploadPolling, uploadPollCount, uploadPollingFinal, uploadFetching, pollUploadResult]);
+  }, [uploadPolling, uploadPollCount, uploadPollingFinal, uploadFetching, pollUploadResult, uploadRequestId]);
 
-  const runUploadRequest = async () => {
+  const runUploadRequest = useCallback(async () => {
     if (uploadRunning || !rowExpression.trim()) return;
     setUploadRunning(true);
     setUploadRunResult(null);
+    setUploadActionsResult(null);
+    setPriceRunResult(null);
+    setPriceActionsResult(null);
+    setKeywordDispatchResult(null);
+    setKeywordRunsResult(null);
+    setKeywordImportMessage("");
+    autoPriceStartedForUploadRequestRef.current = "";
+    autoKeywordStartedForPriceRequestRef.current = "";
     try {
       const response = await fetch("/api/shopling-product-upload/run", {
         method: "POST",
@@ -142,13 +165,14 @@ export function ProductLaunchFlow() {
       if (typeof data.requestId === "string" && data.requestId) {
         setUploadRequestId(data.requestId);
         persistValue(UPLOAD_REQUEST_ID_STORAGE_KEY, data.requestId);
+        startUploadPolling(data.requestId);
       }
     } catch (error) {
       setUploadRunResult({ status: "error", message: error instanceof Error ? error.message : "상품업로드 실행 요청 중 오류가 발생했습니다." });
     } finally {
       setUploadRunning(false);
     }
-  };
+  }, [rowExpression, skipIfGoodsKey, startUploadPolling, uploadRunning]);
 
   const runUpload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -156,10 +180,10 @@ export function ProductLaunchFlow() {
   };
 
   const fetchUploadResult = () => {
-    void pollUploadResult(true);
+    void pollUploadResult(true, currentUploadRequestId || uploadRequestId);
   };
 
-  const runPriceModify = async () => {
+  const runPriceModify = useCallback(async () => {
     if (priceRunning || goodsKeys.length === 0) return;
     setPriceRunning(true);
     setPriceRunResult(null);
@@ -182,7 +206,7 @@ export function ProductLaunchFlow() {
       setPricePolling(true);
       setPricePollCount(0);
     }
-  };
+  }, [goodsKeys, priceRunning]);
 
   const fetchPriceResult = useCallback(async () => {
     if (priceFetching) return;
@@ -210,7 +234,7 @@ export function ProductLaunchFlow() {
     return () => window.clearTimeout(timer);
   }, [pricePolling, priceFetching, pricePollCount, priceActionsResult, fetchPriceResult]);
 
-  const keywordPayload = () => buildKeywordEngineDispatchPayload(uploadRows, keywordSeed);
+  const keywordPayload = useCallback(() => buildKeywordEngineDispatchPayload(uploadRows, keywordSeed), [keywordSeed, uploadRows]);
 
   const previewKeywordDispatch = async () => {
     if (keywordBusy) return;
@@ -225,7 +249,7 @@ export function ProductLaunchFlow() {
     } finally { setKeywordBusy(""); }
   };
 
-  const dispatchKeywordEngine = async () => {
+  const dispatchKeywordEngine = useCallback(async () => {
     if (keywordBusy) return;
     setKeywordBusy("dispatch");
     try {
@@ -237,7 +261,7 @@ export function ProductLaunchFlow() {
     } catch (error) {
       setKeywordDispatchResult({ message: error instanceof Error ? error.message : "키워드 엔진 실행 요청 중 오류가 발생했습니다." });
     } finally { setKeywordBusy(""); }
-  };
+  }, [keywordBusy, keywordPayload, keywordSeed]);
 
   const fetchKeywordRuns = useCallback(async () => {
     if (keywordBusy) return;
@@ -297,7 +321,7 @@ export function ProductLaunchFlow() {
     keywordSuccess: !!keywordSummary.artifact,
     keywordFailed: hasKeywordFailure(keywordRunsResult),
   });
-  const currentRequestId = rowMatchesCurrentRun ? priceRequestId || currentUploadRequestId || keywordDispatchResult?.expectedArtifactName || "" : "";
+  const currentRequestId = rowMatchesCurrentRun ? (uploadRunning || uploadFetching || uploadPolling ? currentUploadRequestId : priceRequestId || currentUploadRequestId || keywordDispatchResult?.expectedArtifactName || "") : "";
   const previousRequestId = priceRequestId || uploadRequestId || keywordDispatchResult?.expectedArtifactName || "-";
   const lastCheckedAt = keywordLastCheckedAt ?? priceLastCheckedAt ?? uploadLastCheckedAt;
   const runNextSafeStep = () => {
@@ -308,19 +332,31 @@ export function ProductLaunchFlow() {
 
   useEffect(() => {
     if (!autopilotEnabled) return;
-    if (cockpit.primaryAction !== "price" && cockpit.primaryAction !== "keyword") return;
-    if (cockpit.primaryAction === "price" && (priceRunning || priceFetching || pricePolling)) return;
-    if (cockpit.primaryAction === "keyword" && (keywordBusy || keywordPolling)) return;
+    if (goodsKeys.length === 0 || !currentUploadRequestId) return;
+    if (priceRunning || priceFetching || pricePolling || isSuccessfulPriceResult(priceActionsResult)) return;
+    if (autoPriceStartedForUploadRequestRef.current === currentUploadRequestId) return;
+    autoPriceStartedForUploadRequestRef.current = currentUploadRequestId;
     const timer = window.setTimeout(() => {
-      if (cockpit.primaryAction === "price") void runPriceModify();
-      if (cockpit.primaryAction === "keyword") void dispatchKeywordEngine();
+      void runPriceModify();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [autopilotEnabled, cockpit.primaryAction, priceRunning, priceFetching, pricePolling, keywordBusy, keywordPolling, runPriceModify, dispatchKeywordEngine]);
+  }, [autopilotEnabled, currentUploadRequestId, goodsKeys.length, priceActionsResult, priceFetching, pricePolling, priceRunning, runPriceModify]);
+
+  useEffect(() => {
+    if (!autopilotEnabled) return;
+    if (!priceRequestId || !isSuccessfulPriceResult(priceActionsResult)) return;
+    if (keywordBusy || keywordPolling || keywordSummary.artifact) return;
+    if (autoKeywordStartedForPriceRequestRef.current === priceRequestId) return;
+    autoKeywordStartedForPriceRequestRef.current = priceRequestId;
+    const timer = window.setTimeout(() => {
+      void dispatchKeywordEngine();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [autopilotEnabled, dispatchKeywordEngine, keywordBusy, keywordPolling, keywordSummary.artifact, priceActionsResult, priceRequestId]);
 
   return (
     <div className="space-y-6">
-      <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} />
+      <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} />
       {cockpit.primaryAction === "price" ? <PrimaryButton onClick={runPriceModify} disabled={priceRunning || priceFetching || pricePolling || goodsKeys.length === 0}>가격설정 실행</PrimaryButton> : null}
       {cockpit.primaryAction === "keyword" ? <PrimaryButton onClick={dispatchKeywordEngine} disabled={!!keywordBusy || keywordPolling}>키워드 엔진 실행</PrimaryButton> : null}
       {cockpit.primaryAction === "review" ? <Link href="/keyword-review-queue?from=product-launch-flow" className="inline-flex rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">키워드 결과 검토 화면 열기</Link> : null}
@@ -364,13 +400,32 @@ export function ProductLaunchFlow() {
 type StepState = "waiting" | "running" | "checking" | "success" | "failed" | "action";
 type CockpitStep = { name: string; state: StepState; action: string; message: string; count?: string };
 
-function LaunchCockpit({ steps, currentStage, nextAction, primaryAction, onNext, rowExpression, onRowExpressionChange, uploadBusy, autoPilotEnabled, onAutoPilotChange, currentRequestId, previousRequestId, lastCheckedAt, autoPollStatus, actionsUrl, counts }: { steps: CockpitStep[]; currentStage: string; nextAction: string; primaryAction: string; onNext: () => void; rowExpression: string; onRowExpressionChange: (value: string) => void; uploadBusy: boolean; autoPilotEnabled: boolean; onAutoPilotChange: (value: boolean) => void; currentRequestId: string; previousRequestId: string; lastCheckedAt: Date | null; autoPollStatus: string; actionsUrl?: string; counts: { upload: Record<string, number>; price: Record<string, number>; keyword: { targetCount: number; artifactState: string; reviewPendingCount: number; failureReason: string; artifact?: KeywordArtifact } } }) {
+function LaunchCockpit({ steps, currentStage, nextAction, primaryAction, onNext, rowExpression, onRowExpressionChange, uploadBusy, priceBusy, keywordBusy, autoPilotEnabled, onAutoPilotChange, currentRequestId, previousRequestId, lastCheckedAt, autoPollStatus, actionsUrl, counts, uploadProgress }: { steps: CockpitStep[]; currentStage: string; nextAction: string; primaryAction: string; onNext: () => void; rowExpression: string; onRowExpressionChange: (value: string) => void; uploadBusy: boolean; priceBusy: boolean; keywordBusy: boolean; autoPilotEnabled: boolean; onAutoPilotChange: (value: boolean) => void; currentRequestId: string; previousRequestId: string; lastCheckedAt: Date | null; autoPollStatus: string; actionsUrl?: string; counts: { upload: Record<string, number>; price: Record<string, number>; keyword: { targetCount: number; artifactState: string; reviewPendingCount: number; failureReason: string; artifact?: KeywordArtifact } }; uploadProgress: { active: boolean; phase: string; elapsedSeconds: number; pollCount: number; lastCheckedAt: Date | null; nextCheckIn: number; requestId: string; actionsUrl?: string; onCheckNow: () => void; checking: boolean } }) {
   const rowIsValid = rowExpression.trim().length > 0;
-  const primaryLabel = getPrimaryActionLabel(primaryAction, uploadBusy, currentStage);
-  const disabled = primaryAction === "upload" ? !rowIsValid || uploadBusy : primaryAction === "wait" || primaryAction === "review" || primaryAction === "failed";
+  const primaryLabel = getPrimaryActionLabel(primaryAction, uploadBusy, priceBusy, keywordBusy, currentStage);
+  const disabled = primaryAction === "upload" ? !rowIsValid || uploadBusy : primaryAction === "wait" || primaryAction === "review" || primaryAction === "failed" || priceBusy || keywordBusy;
   return <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
     <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-semibold text-blue-700">운영 집중 모드</p><h1 className="text-2xl font-black text-slate-950">상품 출시 플로우</h1><p className="mt-1 text-sm text-slate-600">행 번호를 입력하면 상품업로드부터 순서대로 진행합니다.</p></div></div>
     {primaryAction === "upload" ? <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-5"><h2 className="text-lg font-black text-slate-950">먼저 실재고 시트 행 번호를 입력하세요</h2><label className="mt-4 block text-sm font-semibold text-slate-800">실재고 시트 행 번호<input value={rowExpression} onChange={(event) => onRowExpressionChange(event.target.value)} placeholder="예: 950 또는 950-955" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><p className="mt-2 text-sm text-slate-700">상품을 업로드할 실재고 시트의 행 번호입니다. 처음에는 행 번호만 입력하면 됩니다.</p>{!rowIsValid ? <p className="mt-3 rounded-lg bg-white p-3 text-sm font-semibold text-blue-800">행 번호를 입력하면 상품업로드를 시작할 수 있습니다.</p> : null}<button type="button" onClick={onNext} disabled={disabled} className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300">{rowIsValid ? primaryLabel : "행 번호 입력 후 시작"}</button></div> : <div className="mt-5"><button type="button" onClick={onNext} disabled={disabled} className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300">{primaryLabel}</button></div>}
+
+    {uploadProgress.active ? <div className="mt-5 rounded-2xl border border-blue-300 bg-blue-50 p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="inline-flex items-center gap-2 text-lg font-black text-blue-950"><span className="size-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-800" />상품업로드 진행 중<span className="inline-flex gap-1"><span className="animate-pulse">.</span><span className="animate-pulse delay-150">.</span><span className="animate-pulse delay-300">.</span></span></p>
+          <p className="mt-2 text-sm font-semibold text-blue-900">GitHub Actions에서 상품업로드가 실행 중입니다. 완료되면 자동으로 결과를 확인합니다.</p>
+        </div>
+        <GithubActionsShortcutButton href={uploadProgress.actionsUrl} />
+      </div>
+      <div className="mt-4 grid gap-2 text-sm text-blue-950 md:grid-cols-2 lg:grid-cols-4">
+        <ResultRow label="현재 phase" value={uploadProgress.phase} />
+        <ResultRow label="경과 시간" value={formatElapsed(uploadProgress.elapsedSeconds)} />
+        <ResultRow label="자동 확인" value={`업로드 ${uploadProgress.pollCount}회`} />
+        <ResultRow label="마지막 확인" value={uploadProgress.lastCheckedAt ? uploadProgress.lastCheckedAt.toLocaleTimeString("ko-KR") : "-"} />
+        <ResultRow label="다음 확인" value={uploadProgress.nextCheckIn > 0 ? `${uploadProgress.nextCheckIn}초 후` : "곧 확인"} />
+        <ResultRow label="현재 요청 ID" value={uploadProgress.requestId || "아직 없음"} mono />
+      </div>
+      <button type="button" onClick={uploadProgress.onCheckNow} disabled={uploadProgress.checking} className="mt-4 rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-bold text-blue-800 disabled:bg-slate-100">지금 다시 확인</button>
+    </div> : null}
     <details className="mt-4 rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer text-sm font-bold text-slate-700">선택 옵션 열기</summary><label className="mt-3 flex items-start gap-2 text-sm font-semibold text-slate-800"><input type="checkbox" checked={autoPilotEnabled} onChange={(event) => onAutoPilotChange(event.target.checked)} className="mt-1 size-4" />자동 진행 모드</label><p className="mt-2 text-xs text-slate-600">켜면 상품업로드 성공 후 가격설정과 키워드 dry_run까지 자동으로 이어서 진행합니다.</p><p className="mt-1 text-xs text-slate-600">실제 상품명/검색어 반영은 검토 화면에서 별도 승인해야 합니다.</p>{!currentRequestId && actionsUrl ? <div className="mt-3"><GithubActionsShortcutButton href={actionsUrl} /></div> : null}</details>
     <div className="mt-5 grid gap-3 lg:grid-cols-5">{steps.map((step, index) => <article key={step.name} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-bold text-slate-900">{index + 1}. {step.name}</h3><StateBadge state={step.state} /></div><p className="mt-3 text-sm font-semibold text-slate-800">{step.action}</p><p className="mt-1 text-xs text-slate-600">{step.message}</p>{step.count ? <p className="mt-3 rounded-lg bg-slate-50 p-2 text-xs font-semibold text-slate-700">{step.count}</p> : null}</article>)}</div>
     <div className="mt-5 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm md:grid-cols-2 lg:grid-cols-3"><ResultRow label="현재 단계" value={currentStage} /><ResultRow label="지금 할 일" value={nextAction} /><ResultRow label="현재 입력 행" value={rowExpression || "아직 없음"} /><ResultRow label="현재 요청 ID" value={currentRequestId || "아직 없음"} mono /><ResultRow label="마지막 확인 시각" value={lastCheckedAt ? lastCheckedAt.toLocaleTimeString("ko-KR") : "-"} /><ResultRow label="자동 확인" value={autoPollStatus} />{currentRequestId && actionsUrl ? <div><GithubActionsShortcutButton href={actionsUrl} /></div> : null}</div>
@@ -378,8 +433,11 @@ function LaunchCockpit({ steps, currentStage, nextAction, primaryAction, onNext,
     <div className="mt-4 grid gap-2 text-xs text-slate-700 md:grid-cols-3"><p>업로드: 대상 행 {counts.upload.targetRows} · 생성 goods_key 수 {counts.upload.goodsKeyCount} · 실패 행 수 {counts.upload.failedRows} · 중복 자사상품코드 수 {counts.upload.duplicateRows}</p><p>가격: 대상 goods_key 수 {counts.price.targetGoodsKeys} · 성공 수 {counts.price.okCount} · 실패 수 {counts.price.failCount}</p><p>키워드: 대상 goods_key 수 {counts.keyword.targetCount} · artifact 상태 {counts.keyword.artifactState} · 검토 대기 수 {counts.keyword.reviewPendingCount} · 실패 원인 {counts.keyword.failureReason}</p></div>
   </section>;
 }
-function getPrimaryActionLabel(primaryAction: string, uploadBusy: boolean, currentStage: string) {
-  if (primaryAction === "upload") return uploadBusy ? "상품업로드 결과 확인 중..." : "상품업로드 시작";
+function getPrimaryActionLabel(primaryAction: string, uploadBusy: boolean, priceBusy: boolean, keywordBusy: boolean, currentStage: string) {
+  if (uploadBusy) return "상품업로드 결과 확인 중...";
+  if (priceBusy) return "가격설정 결과 확인 중...";
+  if (keywordBusy) return "키워드 결과 확인 중...";
+  if (primaryAction === "upload") return "상품업로드 시작";
   if (primaryAction === "price") return "가격설정 시작";
   if (primaryAction === "keyword") return "키워드 dry_run 시작";
   if (primaryAction === "review") return "키워드 결과 검토 화면 열기";
@@ -438,6 +496,14 @@ function UploadPollingStatusCard({ result, requestId, rowsWithGoodsKeyCount, pol
     </div>
     {state.showDetails ? <UploadPollingErrorDetails result={result} requestId={requestId} /> : null}
   </article>;
+}
+
+function getUploadPhaseLabel(result: UploadActionsResult | null, running: boolean, fetching: boolean, polling: boolean) {
+  if (running || result?.phase === "request_sent") return "요청 전송";
+  if (result?.phase === "queued" || result?.phase === "running" || result?.runStatus === "queued" || result?.runStatus === "in_progress") return "GitHub Actions 실행 중";
+  if (result?.phase === "waiting_artifact" || result?.phase === "completed_no_artifact" || polling) return "결과 파일 확인 중";
+  if (fetching || result?.status === "success") return "OPS Center 결과 반영 중";
+  return "요청 전송";
 }
 
 function getUploadPollingState(result: UploadActionsResult | null, rowsWithGoodsKeyCount: number, polling: boolean, timedOut: boolean) {
