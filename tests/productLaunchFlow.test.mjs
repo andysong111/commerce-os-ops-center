@@ -173,6 +173,30 @@ test("product launch flow first action UX avoids generic button copy and DOM pro
 });
 
 
+test("product launch flow starts upload polling and guards autopilot transitions", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "상품업로드 진행 중",
+    "상품업로드 실행을 확인하는 중입니다",
+    "완료되면 자동으로 결과를 확인합니다",
+    "결과가 준비되면 자동으로 다음 단계로 이동합니다",
+    "지금 다시 확인",
+    "startUploadPolling",
+    "startUploadPolling(data.requestId)",
+    "autoPriceStartedForUploadRequestRef",
+    "autoKeywordStartedForPriceRequestRef",
+    "상품업로드 결과 확인 중...",
+    "가격설정 결과 확인 중...",
+    "키워드 결과 확인 중...",
+  ]) {
+    assert.ok(source.includes(expected), expected);
+  }
+
+  assert.doesNotMatch(source, /document\.getElementById\("product-launch-primary-upload-submit"\)/);
+  assert.doesNotMatch(source, /run\("apply"\)/);
+  assert.doesNotMatch(source, /keywordShoplingApply/);
+});
+
 test("product launch flow GitHub Actions links are safe new-tab shortcuts", async () => {
   const component = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   const actionLinkMatches = component.match(/(?:<Link|<a)[^>]*(?:GitHub Actions|githubActionsUrl)[\s\S]{0,240}/g) ?? [];
