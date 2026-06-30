@@ -294,3 +294,27 @@ test("upload polling UI distinguishes uncertain, artifact pending, confirmed fai
   assert.match(component, /cardClass: "border-amber-200 bg-amber-50"/);
   assert.doesNotMatch(component, /result\?\.status === "error" \|\| result\?\.phase === "failed"/);
 });
+test("product launch flow embeds keyword review workspace copy and guarded actions", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "키워드 검토 시작",
+    "이 화면에서 상품명 후보 선택부터 실제 반영 전 dry_run까지 이어서 진행합니다",
+    "이제 화면을 이동하지 않고 이 상품출시 플로우 안에서 키워드 검토와 반영 준비를 진행합니다",
+    "현재 연결된 상품출시 작업",
+    "상품업로드 request id",
+    "가격설정 request id",
+    "키워드 run id",
+    "artifact name",
+    "상품명 첫 후보 자동 선택",
+    "상품그룹별 상품명 미리보기",
+    "적용 계획 생성",
+    "dry_run 실행",
+    "실제 샵플링 반영 실행",
+    "키워드 결과 후보가 아직 불러와지지 않았습니다",
+    "승인된 상품명이 있어야 미리보기를 생성할 수 있습니다",
+    "적용 계획을 먼저 생성하세요",
+    "dry_run 성공 후 실제 반영이 가능합니다",
+    "개별 키워드 검토 화면에서 열기",
+  ]) assert.ok(source.includes(expected), expected);
+  assert.doesNotMatch(source, /<Link href="\/keyword-review-queue\?from=product-launch-flow" className="inline-flex rounded-lg bg-emerald-700[^>]*>키워드 결과 검토 화면 열기<\/Link>/);
+});
