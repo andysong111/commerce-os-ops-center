@@ -455,3 +455,12 @@ test("guided preview action is preview only and actual apply is dry_run guarded"
   assert.match(source, /mode === "apply" && !dryRunSucceeded/);
   assert.match(source, /disabled=\{disabled \|\| !dryRunSucceeded\}/);
 });
+
+test("standalone keyword review page is labeled as advanced direct tool", async () => {
+  const source = await readFile(new URL("../src/app/keyword-review-queue/page.tsx", import.meta.url), "utf8");
+  for (const expected of [
+    "개별 실행 도구",
+    "상품출시 플로우와 별도로 키워드 결과를 검토할 때 사용합니다",
+    "상품출시 플로우에서 열린 작업입니다",
+  ]) assert.ok(source.includes(expected), expected);
+});
