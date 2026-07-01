@@ -58,7 +58,7 @@ const APPLY_RESULT_VALUE_LABELS: Record<string, string> = {
   partial_failure: "일부 실패",
   true: "예",
   false: "아니오",
-  underfilled_search_keywords: "검색어가 10개 미만입니다. 현재는 경고입니다.",
+  underfilled_search_keywords: "검색어가 부족합니다. 반영은 가능하지만 나중에 보강하면 좋습니다.",
 };
 
 const KEYWORD_APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_TO_SHOPLING";
@@ -512,8 +512,8 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
           <button type="button" onClick={() => setExceptionOnly(true)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">성공 항목 숨기기</button>
           <button type="button" onClick={() => setExceptionOnly(false)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">성공 항목 보기</button>
         </div>
-        <p className="mt-3 text-xs text-slate-600">underfilled_search_keywords: 검색어가 10개 미만입니다. 현재는 경고입니다.</p>
-        <p className="mt-1 text-xs text-slate-600">missing result_summary: 결과 파일이 아직 준비되지 않았거나, 해당 실행에서 요약 파일이 생성되지 않았습니다. product gather fallback: 상품정보 조회에 실패해 goods_key 기준으로 후보를 생성했습니다.</p>
+        <p className="mt-3 text-xs text-slate-600">검색어가 부족합니다. 반영은 가능하지만 나중에 보강하면 좋습니다.</p>
+        <p className="mt-1 text-xs text-slate-600">결과 요약 파일이 아직 준비되지 않았습니다. 일부 상품정보 조회가 늦어 안전한 대체 후보를 사용했습니다.</p>
       </section>
 
       <ProductLaunchWizard
