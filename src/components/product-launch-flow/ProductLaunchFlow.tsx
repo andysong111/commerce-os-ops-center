@@ -30,7 +30,10 @@ const PRODUCT_LAUNCH_INLINE_REVIEW_COPY = [
   "가격설정 request id",
   "키워드 run id",
   "artifact name",
+  "AI가 상품명 반영 준비",
   "상품명 첫 후보 자동 선택",
+  "상품명 반영 커버리지",
+  "누락 상품명 자동 보강",
   "상품그룹별 상품명 미리보기",
   "적용 계획 생성",
   "dry_run 실행",
@@ -408,7 +411,7 @@ export function ProductLaunchFlow() {
         <div className="mt-4 flex flex-wrap gap-3"><button type="button" onClick={openInlineKeywordReview} disabled={!!keywordBusy} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">키워드 검토 시작</button><Link href="/keyword-review-queue?from=product-launch-flow" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">개별 키워드 검토 화면에서 열기</Link></div>
         {keywordImportMessage ? <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{keywordImportMessage}</p> : null}
       </section> : null}
-      {embeddedReviewOpen ? <KeywordReviewWorkspace mode="embedded" launchContext={{ rowExpression: lastStartedRowExpression || rowExpression, uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRunId: keywordRunsResult?.runs?.[0]?.id, artifactName: keywordSummary.artifact?.name, importedAt: keywordImportedAt || "확인 중", goodsKeyCount: goodsKeys.length, productGroupCount: new Set(uploadRows.map((row) => inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? ""))).size }} /> : null}
+      {embeddedReviewOpen ? <KeywordReviewWorkspace mode="embedded" launchContext={{ rowExpression: lastStartedRowExpression || rowExpression, uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRunId: keywordRunsResult?.runs?.[0]?.id, artifactName: keywordSummary.artifact?.name, importedAt: keywordImportedAt || "확인 중", goodsKeyCount: goodsKeys.length, productGroupCount: new Set(uploadRows.map((row) => inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? ""))).size, uploadRows, goodsKeys, goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows) }} /> : null}
       {cockpit.primaryAction === "failed" ? <ErrorDrawer title="실패 원인" uploadResult={uploadActionsResult} priceResult={priceActionsResult} keywordResult={keywordRunsResult} requestId={previousRequestId} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} /> : null}
 
       <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
