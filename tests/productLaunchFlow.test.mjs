@@ -172,7 +172,7 @@ test("product launch flow first action UX avoids generic button copy and DOM pro
   }
   assert.doesNotMatch(source, /다음 안전 단계 실행/);
   assert.doesNotMatch(source, /document\.getElementById\("product-launch-primary-upload-submit"\)/);
-  assert.match(source, /const \[autopilotEnabled, setAutopilotEnabled\] = useState\(false\)/);
+  assert.match(source, /const \[autopilotEnabled, setAutopilotEnabled\] = useState\(true\)/);
 });
 
 
@@ -198,6 +198,43 @@ test("product launch flow starts upload polling and guards autopilot transitions
   assert.doesNotMatch(source, /document\.getElementById\("product-launch-primary-upload-submit"\)/);
   assert.doesNotMatch(source, /run\("apply"\)/);
   assert.doesNotMatch(source, /keywordShoplingApply/);
+});
+
+test("product launch flow restores one-button autopilot transitions", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+
+  for (const expected of [
+    "const [autopilotEnabled, setAutopilotEnabled] = useState(true)",
+    "autoPriceStartedForUploadRequestRef",
+    "autoKeywordStartedForPriceRequestRef",
+    "isSuccessfulUploadResult(uploadActionsResult, uploadRows.length)",
+    "void runPriceModify();",
+    "isAutopilotSafePriceResult(priceActionsResult)",
+    "void dispatchKeywordEngine();",
+    "verification_supported === false",
+    "api_success_count",
+    "required_update_count",
+    "missing_price_count",
+    "missing_mall_row_count",
+    "mismatch_count",
+    "failed_count",
+    "상품출시 준비 시작",
+    "준비 중입니다...",
+    "AI가 상품명 반영 준비",
+    "고급 / 수동 조작",
+    "자동 진행 모드가 켜져 있습니다. 상품업로드 성공 후 가격설정과 키워드 dry_run까지 자동으로 이어집니다.",
+    "진행 중입니다. 현재 단계: 가격설정. 자동으로 다음 단계로 이동합니다. 가격설정 결과 확인 중...",
+    "키워드 dry_run 결과 확인 중...",
+  ]) {
+    assert.ok(source.includes(expected), expected);
+  }
+
+  assert.doesNotMatch(source, /const \[autopilotEnabled, setAutopilotEnabled\] = useState\(false\)/);
+
+  const useEffectBlocks = source.match(/useEffect\(\(\) => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/g) ?? [];
+  assert.ok(useEffectBlocks.some((block) => block.includes("autoPriceStartedForUploadRequestRef") && block.includes("void runPriceModify();")));
+  assert.ok(useEffectBlocks.some((block) => block.includes("autoKeywordStartedForPriceRequestRef") && block.includes("void dispatchKeywordEngine();")));
+  assert.ok(useEffectBlocks.every((block) => !block.includes("keywordShoplingApply") && !block.includes("/api/keyword-shopling-apply") && !block.includes('run("apply")')));
 });
 
 test("product launch flow GitHub Actions links are safe new-tab shortcuts", async () => {
