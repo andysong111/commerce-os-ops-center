@@ -23,6 +23,26 @@ export type ProductLaunchPriceSummary = {
   fail_count?: unknown;
   errors?: ProductLaunchPriceError[];
   policy_override_count?: unknown;
+  verified_success_count?: unknown;
+  missing_price_count?: unknown;
+  missing_mall_row_count?: unknown;
+  mismatch_count?: unknown;
+  unverified_count?: unknown;
+  affected_goods_keys?: unknown;
+  affected_malls?: unknown;
+  rows?: ProductLaunchPriceVerificationRow[];
+};
+
+export type ProductLaunchPriceVerificationStatus = "missing_price" | "missing_mall_row" | "mismatch" | "unverified" | "verified" | string;
+
+export type ProductLaunchPriceVerificationRow = {
+  goods_key?: string | number;
+  mall_key?: string | number;
+  mall_name?: string;
+  planned_sale_price?: string | number;
+  verified_sale_price?: string | number;
+  verification_status?: ProductLaunchPriceVerificationStatus;
+  message?: string;
 };
 
 export type ProductLaunchPriceError = {

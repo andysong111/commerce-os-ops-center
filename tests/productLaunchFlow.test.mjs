@@ -173,6 +173,26 @@ test("product launch flow first action UX avoids generic button copy and DOM pro
 });
 
 
+test("product launch flow blocks keyword autopilot when price verification has unresolved counts", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "가격 검증 결과",
+    "모든 필수 쇼핑몰 가격 반영을 확인했습니다",
+    "가격이 비어 있거나 확인되지 않은 쇼핑몰이 있습니다",
+    "쇼핑몰 행 없음",
+    "검증 불가",
+    "상품명/검색어 반영은 완료됐지만, 일부 쇼핑몰 가격이 비어 있어 최종 출시 완료로 볼 수 없습니다",
+    "가격 검증 문제를 먼저 해결해야 다음 단계로 진행할 수 있습니다",
+    "missing_price_count",
+    "missing_mall_row_count",
+    "mismatch_count",
+    "unverified_count",
+  ]) {
+    assert.ok(source.includes(expected), expected);
+  }
+  assert.match(source, /!priceRequestId \|\| !isSuccessfulPriceResult\(priceActionsResult\) \|\| hasPriceVerificationIssue\(priceActionsResult\)/);
+});
+
 test("product launch flow starts upload polling and guards autopilot transitions", async () => {
   const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   for (const expected of [
