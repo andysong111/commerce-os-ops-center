@@ -22,6 +22,14 @@ import {
 import { buildMallSpecificTitleVariant, sourceFromReviewedRow } from "@/lib/productTitleVariants";
 import { getMarketsForProductGroup } from "@/lib/productGroupMarketRegistry";
 import {
+  LAUNCH_TITLE_BLOCK_REASON_LABELS,
+  computeLaunchTitleCoverage,
+  expectedLaunchApplyCount,
+  isSafeLaunchTitle,
+  type ProductLaunchGoodsKeyGroupMetadata,
+  type ProductLaunchUploadRow,
+} from "@/lib/productLaunchFlow";
+import {
   buildCompactKeywordApplyExecutionPlan,
   buildKeywordExecutionPreflight,
   DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
@@ -170,6 +178,9 @@ export type KeywordReviewWorkspaceContext = {
   importedAt?: string;
   goodsKeyCount?: number;
   productGroupCount?: number;
+  uploadRows?: ProductLaunchUploadRow[];
+  goodsKeys?: string[];
+  goodsKeyGroupMap?: Record<string, ProductLaunchGoodsKeyGroupMetadata>;
 };
 
 export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: { mode?: "embedded" | "standalone"; launchContext?: KeywordReviewWorkspaceContext }) {
@@ -229,6 +240,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
     unknown
   > | null>(null);
   const [exceptionOnly, setExceptionOnly] = useState(true);
+  const [partialApplyOverride, setPartialApplyOverride] = useState(false);
   function loadImportedArtifact() {
     if (!importedArtifact?.files) return;
     setApprovalCsv(
@@ -281,6 +293,11 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
     const expandedMarketCount = expandProductGroupMarkets ? approvedRows.reduce((sum, row) => sum + Math.max(getMarketsForProductGroup(row.productGroup ?? "").length, 0), 0) : approvedRows.length;
     return { totalCandidates: rows.length, approvedCount: approvedRows.length, groupConfirmedCount: groups.size, expandedMarketCount, previewReadyCount: payloadPreview?.summary.previewReadyCount ?? 0 };
   }, [rows, expandProductGroupMarkets, payloadPreview]);
+  const launchCoverage = useMemo(() => computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows }), [launchContext?.goodsKeys, launchContext?.uploadRows, rows]);
+  const expectedFullApplyCount = useMemo(() => expectedLaunchApplyCount(launchCoverage.launchGoodsKeys, launchContext?.goodsKeyGroupMap ?? {}), [launchCoverage.launchGoodsKeys, launchContext?.goodsKeyGroupMap]);
+  const actualApplyCount = payloadPreview?.expandedItemCount ?? readinessCounts.expandedMarketCount;
+  const launchApplyCountMismatch = isEmbedded && expectedFullApplyCount > 0 && actualApplyCount > 0 && actualApplyCount < expectedFullApplyCount;
+  const launchCoverageBlocksApply = isEmbedded && !partialApplyOverride && !launchCoverage.covered;
   const hasImportedArtifact = Boolean(importedArtifact);
   const importedRowsAreEmpty = hasImportedArtifact && counts.total === 0;
 
@@ -399,8 +416,54 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
   function approveFirstCandidatePerGoodsKey() {
     setPayloadPreview(null);
     setPreflightResult(null);
-    setRows((current) => approveFirstCandidateRows(current));
-    setGuidedActionStatus("상품별 첫 후보를 선택했습니다. mall_key는 상품그룹 설정에 따라 자동으로 결정됩니다.");
+    setRows((current) => isEmbedded ? autoFillMissingLaunchTitles(approveFirstCandidateRows(current)) : approveFirstCandidateRows(current));
+    setGuidedActionStatus(isEmbedded ? "AI가 상품명 반영 준비를 시작했습니다. 누락 상품명 자동 보강까지 완료했습니다." : "상품별 첫 후보를 선택했습니다. mall_key는 상품그룹 설정에 따라 자동으로 결정됩니다.");
+  }
+
+  function autoFillMissingLaunchTitles(current: ReviewedKeywordRow[]) {
+    const coverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows: current });
+    const approvedByGoodsKey = new Map(current.filter((row) => row.reviewStatus === "approved").map((row) => [row.goodsKey.trim(), row]));
+    const uploadTitleByGoodsKey = new Map((launchContext?.uploadRows ?? []).map((row) => [(row.goods_key ?? "").trim(), (row as ProductLaunchUploadRow & { title?: string; product_name?: string; productTitle?: string }).title ?? (row as ProductLaunchUploadRow & { title?: string; product_name?: string; productTitle?: string }).product_name ?? (row as ProductLaunchUploadRow & { title?: string; product_name?: string; productTitle?: string }).productTitle ?? ""]));
+    return current.map((row) => {
+      const goodsKey = row.goodsKey.trim();
+      if (!coverage.missingGoodsKeys.includes(goodsKey)) return row;
+      const sameKeyRows = current.filter((candidate) => candidate.goodsKey.trim() === goodsKey);
+      const ptnBase = (row.ptnGoodsCd ?? "").replace(/[a-z]$/i, "");
+      const siblingRows = ptnBase ? current.filter((candidate) => candidate.goodsKey.trim() !== goodsKey && (candidate.ptnGoodsCd ?? "").replace(/[a-z]$/i, "") === ptnBase) : [];
+      const candidateTitle = [
+        approvedByGoodsKey.get(goodsKey)?.recommendedTitle,
+        row.recommendedTitle,
+        row.originalTitle,
+        sameKeyRows.find((candidate) => isSafeLaunchTitle(candidate.originalTitle))?.originalTitle,
+        uploadTitleByGoodsKey.get(goodsKey),
+        siblingRows.find((candidate) => isSafeLaunchTitle(candidate.editedTitle || candidate.recommendedTitle || candidate.originalTitle))?.editedTitle,
+        siblingRows.find((candidate) => isSafeLaunchTitle(candidate.recommendedTitle || candidate.originalTitle))?.recommendedTitle,
+        siblingRows.find((candidate) => isSafeLaunchTitle(candidate.originalTitle))?.originalTitle,
+      ].find(isSafeLaunchTitle);
+      if (!candidateTitle) return row;
+      return { ...row, editedTitle: candidateTitle, recommendedTitle: row.recommendedTitle || candidateTitle, editedSiteSrch: row.editedSiteSrch || row.recommendedSiteSrch || fallbackSiteSrchFromTitle(candidateTitle), reviewStatus: "approved" as const };
+    });
+  }
+
+  function autoFillMissingLaunchTitlesAction() {
+    setPayloadPreview(null);
+    setPreflightResult(null);
+    setRows((current) => autoFillMissingLaunchTitles(current));
+    setGuidedActionStatus("누락 상품명 자동 보강을 실행했습니다. 숫자만 있는 상품명은 자동 승인하지 않습니다.");
+  }
+
+  function ensureLaunchCoverageBeforeApply(preview?: KeywordPayloadPreviewResult, coverageRows: ReviewedKeywordRow[] = rows) {
+    const coverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows: coverageRows });
+    if (isEmbedded && !partialApplyOverride && coverage.missingGoodsKeys.length > 0) {
+      setGuidedActionStatus(`전체 상품그룹 반영 준비가 끝나지 않았습니다. 누락 상품명을 자동 보강하거나 문제 상품을 확인하세요. 누락: ${coverage.missingGoodsKeys.join(", ")}`);
+      return false;
+    }
+    const count = preview?.expandedItemCount ?? payloadPreview?.expandedItemCount ?? 0;
+    if (isEmbedded && !partialApplyOverride && expectedFullApplyCount > 0 && count > 0 && count < expectedFullApplyCount) {
+      setGuidedActionStatus(`반영 대상이 일부 상품그룹으로 제한되었습니다. 전체 출시 기준 예상 ${expectedFullApplyCount}개 중 ${count}개만 준비되었습니다.`);
+      return false;
+    }
+    return true;
   }
 
   function runGuidedApprovalPreviewPlan() {
@@ -410,6 +473,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
     setRows(sourceRows);
     setGroupVariantPreview(previewRows);
     if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
+    if (!ensureLaunchCoverageBeforeApply(preview, sourceRows)) return;
     setPayloadPreview(preview);
     setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
     setMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
@@ -435,6 +499,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
     }
     const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
     if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
+    if (!ensureLaunchCoverageBeforeApply(preview)) return;
     setPayloadPreview(preview);
     setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
     setMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
@@ -448,6 +513,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
       setGuidedActionStatus("적용 계획을 먼저 생성하세요.");
       return;
     }
+    if (!ensureLaunchCoverageBeforeApply(payloadPreview)) return;
     const config = {
       ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
       allowedMallKeys: parseKeyList(allowedMallKeys),
@@ -501,6 +567,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
   return (
     <>
       {!isEmbedded ? null : <EmbeddedLaunchContextPanel launchContext={launchContext} importedArtifact={importedArtifact} counts={counts} />}
+      {!isEmbedded ? null : <LaunchCoveragePanel coverage={launchCoverage} expectedFullApplyCount={expectedFullApplyCount} actualApplyCount={actualApplyCount} mismatch={launchApplyCountMismatch} goodsKeyGroupMap={launchContext?.goodsKeyGroupMap ?? {}} onAutoFill={autoFillMissingLaunchTitlesAction} partialApplyOverride={partialApplyOverride} onPartialApplyOverrideChange={setPartialApplyOverride} />}
 
       <section className="mb-6 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
         <p className="text-sm font-bold text-blue-700">운영 집중 모드</p>
@@ -528,9 +595,9 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
         statusMessage={guidedActionStatus}
         step2Disabled={step2Disabled}
         step3Disabled={step3Disabled}
-        step4Disabled={step4Disabled}
-        step5Disabled={step5Disabled}
-        onStep1={approveFirstCandidatePerGoodsKey}
+        step4Disabled={step4Disabled || launchCoverageBlocksApply || launchApplyCountMismatch}
+        step5Disabled={step5Disabled || launchCoverageBlocksApply || launchApplyCountMismatch}
+        onStep1={() => { approveFirstCandidatePerGoodsKey(); window.setTimeout(() => { generateGroupPreview(); generateApplyPlan(); prepareDryRun(); }, 0); }}
         onStep2={generateGroupPreview}
         onStep3={generateApplyPlan}
         onStep4={prepareDryRun}
@@ -704,7 +771,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
         onApproveFirstCandidate={approveFirstCandidatePerGoodsKey}
         onApproveSelected={() => updateRows([...selectedRows], { reviewStatus: "approved" })}
         onApproveAllReviewNeeded={approveAllReviewNeededRows}
-        onGuidedAction={runGuidedApprovalPreviewPlan}
+        onGuidedAction={isEmbedded ? () => { approveFirstCandidatePerGoodsKey(); window.setTimeout(() => runGuidedApprovalPreviewPlan(), 0); } : runGuidedApprovalPreviewPlan}
       />
 
       <details open={!exceptionOnly} className="rounded-xl border border-slate-200 bg-white shadow-sm"><summary className="cursor-pointer p-4 font-semibold text-slate-950">전체 행 보기</summary>
@@ -934,6 +1001,19 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
       />
     </>
   );
+}
+
+function LaunchCoveragePanel({ coverage, expectedFullApplyCount, actualApplyCount, mismatch, goodsKeyGroupMap, onAutoFill, partialApplyOverride, onPartialApplyOverrideChange }: { coverage: ReturnType<typeof computeLaunchTitleCoverage>; expectedFullApplyCount: number; actualApplyCount: number; mismatch: boolean; goodsKeyGroupMap: Record<string, ProductLaunchGoodsKeyGroupMetadata | undefined>; onAutoFill: () => void; partialApplyOverride: boolean; onPartialApplyOverrideChange: (value: boolean) => void; }) {
+  const missingLabels = coverage.missingGoodsKeys.map((goodsKey) => `${goodsKey}${goodsKeyGroupMap[goodsKey]?.product_group ? ` (${goodsKeyGroupMap[goodsKey]?.product_group})` : ""}`);
+  return <section className={`mb-6 rounded-2xl border p-5 shadow-sm ${coverage.covered && !mismatch ? "border-emerald-200 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
+    <h2 className="text-lg font-black text-slate-950">상품명 반영 커버리지</h2>
+    {coverage.covered ? <p className="mt-2 text-sm font-bold text-emerald-800">{coverage.launchGoodsKeys.length}개 상품그룹 모두 반영 준비 완료</p> : <div className="mt-2 space-y-2 text-sm font-semibold text-amber-950"><p>{coverage.launchGoodsKeys.length}개 중 {coverage.approvedGoodsKeys.length}개 준비됨</p><p>{coverage.missingGoodsKeys.length}개 상품그룹이 아직 반영 대상에 포함되지 않았습니다.</p><p className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-red-700">전체 상품그룹 반영 준비가 끝나지 않았습니다. 누락 상품명을 자동 보강하거나 문제 상품을 확인하세요.</p></div>}
+    {mismatch ? <p className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">반영 대상이 일부 상품그룹으로 제한되었습니다. 전체 출시 기준 예상 {expectedFullApplyCount}개 중 {actualApplyCount}개만 준비되었습니다.</p> : null}
+    {missingLabels.length > 0 ? <ul className="mt-3 list-disc pl-5 text-sm text-slate-800">{missingLabels.map((label) => <li key={label}>{label}</li>)}</ul> : null}
+    {coverage.blockedGoodsKeys.length > 0 ? <div className="mt-3 grid gap-2 text-sm">{coverage.blockedGoodsKeys.map((item) => <p key={item.goodsKey} className="rounded-lg bg-white px-3 py-2"><strong>{item.goodsKey}</strong>: {LAUNCH_TITLE_BLOCK_REASON_LABELS[item.reason]}</p>)}</div> : null}
+    <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={onAutoFill} className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-bold text-white">누락 상품명 자동 보강</button></div>
+    <details className="mt-4 rounded-xl border border-slate-300 bg-white p-3"><summary className="cursor-pointer text-sm font-bold text-slate-800">고급 / 일부 상품만 반영</summary><label className="mt-3 flex items-start gap-2 text-sm font-semibold text-slate-800"><input type="checkbox" checked={partialApplyOverride} onChange={(event) => onPartialApplyOverrideChange(event.target.checked)} className="mt-1" />일부 상품만 반영 허용</label><p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">일부 상품그룹만 반영하면 나머지 쇼핑몰 상품명은 기존 상태로 남습니다.</p></details>
+  </section>;
 }
 
 function BeginnerGuide() {
@@ -1573,7 +1653,7 @@ function ProductLaunchWizard({
     return "대기 중";
   };
   const steps = [
-    { step: "Step 1", title: "상품명 후보 선택", button: "상품명 첫 후보 자동 선택", disabled: counts.totalCandidates === 0, reason: "키워드 결과 후보가 아직 불러와지지 않았습니다.", done: counts.approvedCount > 0, onClick: onStep1 },
+    { step: "Step 1", title: "상품명 후보 선택", button: "AI가 상품명 반영 준비", disabled: counts.totalCandidates === 0, reason: "키워드 결과 후보가 아직 불러와지지 않았습니다.", done: counts.approvedCount > 0, onClick: onStep1 },
     { step: "Step 2", title: "상품그룹별 상품명 미리보기", button: "상품그룹별 상품명 미리보기", disabled: step2Disabled, reason: "승인된 상품명이 있어야 미리보기를 생성할 수 있습니다.", done: groupPreviewReady, onClick: onStep2 },
     { step: "Step 3", title: "상품그룹 기준 적용 계획 생성", button: "적용 계획 생성", disabled: step3Disabled, reason: "상품그룹 미리보기를 먼저 생성하세요.", done: applyPlanReady, onClick: onStep3 },
     { step: "Step 4", title: "dry_run 실행", button: "dry_run 실행", disabled: step4Disabled, reason: "적용 계획을 먼저 생성하세요.", done: preflightReady, onClick: onStep4 },
@@ -1637,10 +1717,10 @@ function PrimaryApprovalCta({ approvedCount, selectedCount, guidedActionStatus, 
     <section className="my-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm sm:p-6">
       <h2 className="text-lg font-bold text-emerald-950">먼저 상품명 후보를 선택하세요</h2>
       <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" onClick={onApproveFirstCandidate} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">상품별 첫 후보 자동 선택</button>
+        <button type="button" onClick={onApproveFirstCandidate} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">AI가 상품명 반영 준비</button>
         <button type="button" disabled={selectedCount === 0} onClick={onApproveSelected} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 disabled:border-slate-300 disabled:text-slate-400">선택 항목 승인</button>
         <button type="button" onClick={onApproveAllReviewNeeded} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800">전체 검토 필요 항목 승인</button>
-        <button type="button" onClick={onGuidedAction} className="rounded-lg bg-blue-700 px-5 py-2 text-sm font-bold text-white shadow-sm">승인 → 상품그룹 미리보기 → 적용 계획 생성</button>
+        <button type="button" onClick={onGuidedAction} className="rounded-lg bg-blue-700 px-5 py-2 text-sm font-bold text-white shadow-sm">AI가 상품명 반영 준비</button>
       </div>
       {approvedCount > 0 ? <p className="mt-3 text-sm font-semibold text-emerald-900">승인된 상품명 {approvedCount}개가 준비되었습니다. 이제 상품그룹별 상품명 차별화를 생성할 수 있습니다.</p> : null}
       {guidedActionStatus ? <p className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900">{guidedActionStatus}</p> : null}

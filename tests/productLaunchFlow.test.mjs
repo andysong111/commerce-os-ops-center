@@ -3,6 +3,9 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import {
   buildGoodsKeyGroupMap,
+  computeLaunchTitleCoverage,
+  expectedLaunchApplyCount,
+  isSafeLaunchTitle,
   buildKeywordEngineDispatchPayload,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
@@ -317,4 +320,46 @@ test("product launch flow embeds keyword review workspace copy and guarded actio
     "개별 키워드 검토 화면에서 열기",
   ]) assert.ok(source.includes(expected), expected);
   assert.doesNotMatch(source, /<Link href="\/keyword-review-queue\?from=product-launch-flow" className="inline-flex rounded-lg bg-emerald-700[^>]*>키워드 결과 검토 화면 열기<\/Link>/);
+});
+
+
+test("embedded launch coverage requires every launched goods_key before apply", () => {
+  const goodsKeys = ["121180", "121181", "121182", "121183", "121184", "121185"];
+  const rows = [
+    { goodsKey: "121180", reviewStatus: "approved", recommendedTitle: "안전 상품명 A", productGroup: "도매1" },
+    { goodsKey: "121181", reviewStatus: "approved", recommendedTitle: "안전 상품명 B", productGroup: "도매2" },
+    { goodsKey: "121185", reviewStatus: "pending", recommendedTitle: "121185", productGroup: "소매2" },
+  ];
+  const coverage = computeLaunchTitleCoverage({ goodsKeys, rows });
+  assert.deepEqual(coverage.approvedGoodsKeys, ["121180", "121181"]);
+  assert.deepEqual(coverage.missingGoodsKeys, ["121182", "121183", "121184", "121185"]);
+  assert.equal(coverage.covered, false);
+  assert.equal(isSafeLaunchTitle("121185"), false);
+  assert.equal(isSafeLaunchTitle("안전한 원본 상품명"), true);
+});
+
+test("full launch market sanity expects 36 expanded apply items", () => {
+  const uploadRows = [
+    { goods_key: "1", ptn_goods_cd: "BASE-1a" },
+    { goods_key: "2", ptn_goods_cd: "BASE-1b" },
+    { goods_key: "3", ptn_goods_cd: "BASE-1c" },
+    { goods_key: "4", ptn_goods_cd: "BASE-1d" },
+    { goods_key: "5", ptn_goods_cd: "BASE-1e" },
+    { goods_key: "6", ptn_goods_cd: "BASE-1f" },
+  ];
+  const goodsKeys = dedupeGoodsKeysForPriceModify(uploadRows);
+  assert.equal(expectedLaunchApplyCount(goodsKeys, buildGoodsKeyGroupMap(uploadRows)), 36);
+});
+
+test("product launch coverage source copy exists", async () => {
+  const source = `${await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8")}\n${await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8")}`;
+  for (const expected of [
+    "상품명 반영 커버리지",
+    "누락 상품명 자동 보강",
+    "전체 상품그룹 반영 준비가 끝나지 않았습니다",
+    "반영 대상이 일부 상품그룹으로 제한되었습니다",
+    "AI가 상품명 반영 준비",
+    "일부 상품그룹만 반영하면 나머지 쇼핑몰 상품명은 기존 상태로 남습니다",
+    "고급 / 일부 상품만 반영",
+  ]) assert.ok(source.includes(expected), expected);
 });

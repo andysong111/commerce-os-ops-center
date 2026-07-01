@@ -149,3 +149,70 @@ export function buildKeywordEngineDispatchPayload(rows: ProductLaunchUploadRow[]
     },
   };
 }
+
+export type LaunchCoverageRowLike = {
+  goodsKey?: string;
+  recommendedTitle?: string;
+  originalTitle?: string;
+  editedTitle?: string;
+  reviewStatus?: string;
+  classification?: string;
+  blockReason?: string;
+  productGroup?: string;
+  ptnGoodsCd?: string;
+};
+
+export type LaunchTitleBlockReason = "no_candidate" | "numeric_only" | "product_gather_failed" | "missing_product_group";
+
+export const LAUNCH_TITLE_BLOCK_REASON_LABELS: Record<LaunchTitleBlockReason, string> = {
+  no_candidate: "상품명 후보가 없습니다.",
+  numeric_only: "상품명이 상품번호로만 되어 있어 자동 반영하지 않았습니다.",
+  product_gather_failed: "상품정보 조회가 늦어 후보가 부족합니다. 현재 상품명을 다시 확인하거나 잠시 후 재실행하세요.",
+  missing_product_group: "상품그룹을 확인할 수 없습니다.",
+};
+
+export function isSafeLaunchTitle(title: unknown): title is string {
+  const value = String(title ?? "").replace(/\s+/g, " ").trim();
+  if (!value || value === "-") return false;
+  return !/^\d+$/.test(value);
+}
+
+export function getLaunchGoodsKeys(goodsKeys: string[] = [], uploadRows: ProductLaunchUploadRow[] = []) {
+  return dedupeGoodsKeysForPriceModify([
+    ...goodsKeys.map((goods_key) => ({ goods_key })),
+    ...uploadRows,
+  ]);
+}
+
+export function computeLaunchTitleCoverage(input: {
+  goodsKeys?: string[];
+  uploadRows?: ProductLaunchUploadRow[];
+  rows: LaunchCoverageRowLike[];
+}) {
+  const launchGoodsKeys = getLaunchGoodsKeys(input.goodsKeys ?? [], input.uploadRows ?? []);
+  const approvedGoodsKeys = new Set(input.rows.filter((row) => row.reviewStatus === "approved" && launchGoodsKeys.includes(String(row.goodsKey ?? "").trim())).map((row) => String(row.goodsKey ?? "").trim()));
+  const missingGoodsKeys = launchGoodsKeys.filter((goodsKey) => !approvedGoodsKeys.has(goodsKey));
+  const blockedGoodsKeys = missingGoodsKeys.map((goodsKey) => {
+    const candidates = input.rows.filter((row) => String(row.goodsKey ?? "").trim() === goodsKey);
+    const hasCandidate = candidates.length > 0;
+    const hasAnySafeTitle = candidates.some((row) => [row.editedTitle, row.recommendedTitle, row.originalTitle].some(isSafeLaunchTitle));
+    const hasNumericOnly = candidates.some((row) => [row.editedTitle, row.recommendedTitle, row.originalTitle].some((title) => /^\d+$/.test(String(title ?? "").trim())));
+    const missingGroup = candidates.some((row) => String(row.productGroup ?? "").includes("확인 필요"));
+    const gatherFailed = candidates.some((row) => /gather|조회|product/i.test(`${row.blockReason ?? ""} ${row.classification ?? ""}`));
+    const reason: LaunchTitleBlockReason = missingGroup ? "missing_product_group" : gatherFailed ? "product_gather_failed" : hasNumericOnly && !hasAnySafeTitle ? "numeric_only" : hasCandidate ? "numeric_only" : "no_candidate";
+    return { goodsKey, reason, label: LAUNCH_TITLE_BLOCK_REASON_LABELS[reason] };
+  });
+  return { launchGoodsKeys, approvedGoodsKeys: [...approvedGoodsKeys], missingGoodsKeys, blockedGoodsKeys, covered: missingGoodsKeys.length === 0 };
+}
+
+export function expectedLaunchApplyCount(goodsKeys: string[], goodsKeyGroupMap: Record<string, ProductLaunchGoodsKeyGroupMetadata | undefined>) {
+  return goodsKeys.reduce((sum, goodsKey) => {
+    const group = goodsKeyGroupMap[goodsKey]?.product_group ?? "";
+    return sum + getMarketsForLaunchProductGroup(group);
+  }, 0);
+}
+
+function getMarketsForLaunchProductGroup(productGroup: string) {
+  const counts: Record<string, number> = { "도매1": 10, "도매2": 4, "도매3": 4, "도매4": 1, "소매1": 12, "소매2": 5 };
+  return counts[productGroup.trim()] ?? 0;
+}
