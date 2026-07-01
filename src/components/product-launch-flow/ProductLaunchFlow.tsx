@@ -394,9 +394,29 @@ export function ProductLaunchFlow() {
     return () => window.clearTimeout(timer);
   }, [autopilotEnabled, dispatchKeywordEngine, keywordBusy, keywordPolling, keywordSummary.artifact, priceActionsResult, priceRequestId]);
 
+  const finalVerdict = !isSuccessfulPriceResult(priceActionsResult) ? "출시 보류 - 가격 검증 필요" : embeddedReviewOpen ? "출시 보류 - 실제 반영 미완료" : "출시 보류 - 실제 반영 미완료";
+  const headerState = cockpit.primaryAction === "failed" ? "실패" : cockpit.primaryAction === "wait" ? "진행 중" : cockpit.primaryAction === "review" ? "확인 필요" : "확인 필요";
+
   return (
     <div className="space-y-6">
+      <div className="sticky top-0 z-30 rounded-b-2xl border border-blue-200 bg-white/95 p-3 shadow-lg backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <div>
+            <p className="font-black text-blue-700">상품 출시 진행</p>
+            <p><strong>현재 단계:</strong> {cockpit.currentStage}</p>
+            <p><strong>다음 작업:</strong> {cockpit.nextAction}</p>
+          </div>
+          <div className="font-bold text-slate-800">상태: {headerState}<span className="ml-3 rounded-full bg-amber-100 px-3 py-1 text-amber-900">{finalVerdict}</span></div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => document.getElementById("launch-cockpit-main")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-bold text-blue-800">현재 단계로 이동</button>
+            <button type="button" onClick={() => document.getElementById("launch-issues")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-900">문제만 보기</button>
+            <button type="button" onClick={() => document.getElementById("launch-final-verdict")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">최종 확인으로 이동</button>
+          </div>
+        </div>
+      </div>
+      <div id="launch-cockpit-main">
       <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} />
+      </div>
       {cockpit.primaryAction === "price" ? <PrimaryButton onClick={runPriceModify} disabled={priceRunning || priceFetching || pricePolling || goodsKeys.length === 0}>가격설정 실행</PrimaryButton> : null}
       {cockpit.primaryAction === "keyword" ? <PrimaryButton onClick={dispatchKeywordEngine} disabled={!!keywordBusy || keywordPolling}>키워드 엔진 실행</PrimaryButton> : null}
       {cockpit.primaryAction === "review" ? <button type="button" onClick={openInlineKeywordReview} disabled={!!keywordBusy} className="inline-flex rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">키워드 검토 시작</button> : null}
@@ -405,14 +425,17 @@ export function ProductLaunchFlow() {
         <h2 className="mt-1 text-xl font-black text-slate-950">키워드 결과 파일이 준비되었습니다.</h2>
         <p className="mt-2 text-sm text-slate-700">이 화면에서 상품명 후보 선택부터 실제 반영 전 dry_run까지 이어서 진행합니다.</p>
         <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">이제 화면을 이동하지 않고 이 상품출시 플로우 안에서 키워드 검토와 반영 준비를 진행합니다.</p>
-        <div className="mt-4 flex flex-wrap gap-3"><button type="button" onClick={openInlineKeywordReview} disabled={!!keywordBusy} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">키워드 검토 시작</button><Link href="/keyword-review-queue?from=product-launch-flow" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">개별 키워드 검토 화면에서 열기</Link></div>
+        <div className="mt-4 flex flex-wrap gap-3"><button type="button" onClick={openInlineKeywordReview} disabled={!!keywordBusy} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">키워드 검토 시작</button></div>
         {keywordImportMessage ? <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{keywordImportMessage}</p> : null}
       </section> : null}
       {embeddedReviewOpen ? <KeywordReviewWorkspace mode="embedded" launchContext={{ rowExpression: lastStartedRowExpression || rowExpression, uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRunId: keywordRunsResult?.runs?.[0]?.id, artifactName: keywordSummary.artifact?.name, importedAt: keywordImportedAt || "확인 중", goodsKeyCount: goodsKeys.length, productGroupCount: new Set(uploadRows.map((row) => inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? ""))).size }} /> : null}
       {cockpit.primaryAction === "failed" ? <ErrorDrawer title="실패 원인" uploadResult={uploadActionsResult} priceResult={priceActionsResult} keywordResult={keywordRunsResult} requestId={previousRequestId} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} /> : null}
 
+      <section id="launch-final-verdict" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><p className="text-sm font-bold text-slate-600">최종 확인</p><h2 className="mt-1 text-2xl font-black text-slate-950">{finalVerdict}</h2><p className="mt-2 text-sm text-slate-700">가격 검증과 실제 반영 완료 여부를 기준으로 출시 상태를 판단합니다. 가능한 verdict: 출시 완료, 출시 완료 - 경고 있음, 출시 보류 - 가격 검증 필요, 출시 보류 - 실제 반영 미완료.</p></section>
+      <section id="launch-issues" className="sr-only">문제만 보기</section>
+
       <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <summary className="cursor-pointer text-lg font-bold text-slate-950">고급 옵션 열기</summary>
+        <summary className="cursor-pointer text-lg font-bold text-slate-950">고급 / 개별 실행 도구 <span className="sr-only">고급 옵션 열기</span></summary>
       <form onSubmit={runUpload} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-950">Step 1. 상품업로드</h2>
         <label className="mt-4 block text-sm font-semibold text-slate-800">실재고 시트 행 번호

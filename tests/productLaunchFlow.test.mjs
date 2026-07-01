@@ -318,3 +318,24 @@ test("product launch flow embeds keyword review workspace copy and guarded actio
   ]) assert.ok(source.includes(expected), expected);
   assert.doesNotMatch(source, /<Link href="\/keyword-review-queue\?from=product-launch-flow" className="inline-flex rounded-lg bg-emerald-700[^>]*>키워드 결과 검토 화면 열기<\/Link>/);
 });
+
+test("product launch cockpit polish copy is present", async () => {
+  const launch = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  const review = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
+  for (const expected of [
+    "상품 출시 진행",
+    "현재 단계로 이동",
+    "문제만 보기",
+    "최종 확인으로 이동",
+    "상품명 차별화 옵션",
+    "속성 꾸밈어 추가",
+    "현재 작업",
+    "출시 완료 - 경고 있음",
+    "출시 보류 - 가격 검증 필요",
+    "성공했지만 품질 경고가 있습니다",
+    "부족한 검색어 자동 보강 준비",
+    "고급 / 개별 실행 도구",
+  ]) {
+    assert.ok(`${launch}\n${review}`.includes(expected), expected);
+  }
+});

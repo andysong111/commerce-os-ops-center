@@ -58,7 +58,7 @@ const APPLY_RESULT_VALUE_LABELS: Record<string, string> = {
   partial_failure: "일부 실패",
   true: "예",
   false: "아니오",
-  underfilled_search_keywords: "검색어가 10개 미만입니다. 현재는 경고입니다.",
+  underfilled_search_keywords: "검색어가 10개 미만입니다. 현재는 경고이지만, 검색 품질 개선 대상입니다.",
 };
 
 const KEYWORD_APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_TO_SHOPLING";
@@ -512,10 +512,11 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
           <button type="button" onClick={() => setExceptionOnly(true)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">성공 항목 숨기기</button>
           <button type="button" onClick={() => setExceptionOnly(false)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">성공 항목 보기</button>
         </div>
-        <p className="mt-3 text-xs text-slate-600">underfilled_search_keywords: 검색어가 10개 미만입니다. 현재는 경고입니다.</p>
+        <p className="mt-3 text-xs text-slate-600">underfilled_search_keywords: 검색어가 10개 미만입니다. 현재는 경고이지만, 검색 품질 개선 대상입니다.</p><button type="button" onClick={() => setGuidedActionStatus("부족한 검색어 자동 보강 TODO를 준비했습니다. 샵플링에는 직접 반영하지 않습니다.")} className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">부족한 검색어 자동 보강 준비</button>
         <p className="mt-1 text-xs text-slate-600">missing result_summary: 결과 파일이 아직 준비되지 않았거나, 해당 실행에서 요약 파일이 생성되지 않았습니다. product gather fallback: 상품정보 조회에 실패해 goods_key 기준으로 후보를 생성했습니다.</p>
       </section>
 
+      <section id="current-keyword-review-step" />
       <ProductLaunchWizard
         counts={readinessCounts}
         groupPreviewReady={groupPreviewReady}
@@ -536,6 +537,14 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
         onStep4={prepareDryRun}
         onStep5={() => document.getElementById("keyword-shopling-apply-section")?.scrollIntoView({ behavior: "smooth", block: "start" })}
       />
+
+      <section className="mb-6 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 shadow-sm sm:p-5">
+        <p className="text-sm font-bold text-indigo-700">상품명 차별화 옵션</p>
+        <h2 className="mt-1 text-lg font-black text-slate-950">속성 꾸밈어 추가</h2>
+        <p className="mt-2 text-sm text-slate-700">상품명에 실제로 확인되는 속성만 추가합니다.</p>
+        <p className="mt-1 text-sm text-slate-600">예: 미니, 수납, 무선, 접이식</p>
+        <ToggleCard title="속성 꾸밈어 추가" description="기본값은 off입니다. 켜면 상품명/검색어에 실제로 확인되는 안전한 속성만 추가합니다." checked={groupVariantEnabled} onChange={setGroupVariantEnabled} />
+      </section>
 
       <BeginnerGuide />
 
@@ -1403,9 +1412,18 @@ function ApplyResultDisplay({ result, title = "실행 결과 요약" }: { result
     Array.isArray(result[key])
       ? (result[key] as Record<string, unknown>[])
       : [];
+  const warningCount = Array.isArray(summary.warnings) ? summary.warnings.length : Number(summary.warnings ?? 0) || rows("applyResults").filter((row) => Array.isArray(row.warning_flags) ? row.warning_flags.length > 0 : Boolean(row.warning_flags)).length;
+  const blockedCount = Number(summary.blocked_item_count ?? 0) || rows("blockedItems").length;
+  const failedCount = Number(summary.failed_item_count ?? 0);
+  const validCount = Number(summary.valid_item_count ?? summary.input_item_count ?? rows("applyResults").length);
+  const appliedCount = Number(summary.applied_item_count ?? validCount);
+  const isApply = String(summary.mode ?? title).includes("apply");
+  const compactSummary = isApply ? `실제 반영 성공: ${appliedCount}개 반영, 실패 ${failedCount}개, 경고 ${warningCount}개` : `dry_run 성공: ${validCount}개 실행 가능, ${blockedCount}개 차단, 경고 ${warningCount}개`;
   return (
     <div className="p-4 sm:p-5">
       <h3 className="font-semibold">{title}</h3>
+      <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">{compactSummary}</p>
+      {warningCount > 0 ? <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">성공했지만 품질 경고가 있습니다.</p> : null}
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
         {[
           "mode",
@@ -1424,7 +1442,7 @@ function ApplyResultDisplay({ result, title = "실행 결과 요약" }: { result
           </div>
         ))}
       </div>
-      <details className="mt-4 rounded-lg border border-slate-200 p-3"><summary className="cursor-pointer font-semibold">상세 실행 결과 열기</summary><ResultRows title="반영 결과" rows={rows("applyResults")} />
+      <details className="mt-4 rounded-lg border border-slate-200 p-3"><summary className="cursor-pointer font-semibold">상세 실행 결과 열기 (기본 접힘)</summary><ResultRows title="반영 결과" rows={rows("applyResults")} />
       <ResultRows title="검증 결과" rows={rows("verifyResults")} />
       <BlockedRows rows={rows("blockedItems")} /></details>
     </div>
@@ -1572,6 +1590,14 @@ function ProductLaunchWizard({
     if (ready || state === "success") return "성공";
     return "대기 중";
   };
+  const actionCards = [
+    { title: "상품명 후보 선택", status: statusLabel(counts.approvedCount > 0), count: `${counts.approvedCount}/${counts.totalCandidates}개`, button: "상품명 첫 후보 자동 선택", disabled: counts.totalCandidates === 0, reason: "키워드 결과 후보가 아직 불러와지지 않았습니다.", explanation: "상품별 대표 후보를 선택합니다.", done: counts.approvedCount > 0, onClick: onStep1 },
+    { title: "상품그룹별 상품명 미리보기", status: statusLabel(groupPreviewReady), count: `${counts.expandedMarketCount}개 예상`, button: "상품그룹별 상품명 미리보기", disabled: step2Disabled, reason: "승인된 상품명이 있어야 미리보기를 생성할 수 있습니다.", explanation: "상품명 차별화 옵션을 반영해 쇼핑몰별 미리보기를 만듭니다.", done: groupPreviewReady, onClick: onStep2 },
+    { title: "적용 계획 생성", status: statusLabel(applyPlanReady), count: `${counts.previewReadyCount}개`, button: "적용 계획 생성", disabled: step3Disabled, reason: "상품그룹 미리보기를 먼저 생성하세요.", explanation: "샵플링에 보낼 후보 계획만 생성합니다.", done: applyPlanReady, onClick: onStep3 },
+    { title: "dry_run 실행", status: statusLabel(dryRunSucceeded, dryRunState), count: preflightReady ? "점검 준비됨" : "점검 대기", button: "dry_run 실행", disabled: step4Disabled, reason: "적용 계획을 먼저 생성하세요.", explanation: "실제 반영 전 안전 점검을 실행합니다.", done: preflightReady, onClick: onStep4 },
+    { title: "실제 반영", status: statusLabel(realApplySucceeded, realApplyState), count: realApplySucceeded ? "반영 완료" : "반영 대기", button: "실제 샵플링 반영 실행", disabled: step5Disabled, reason: "dry_run 성공 후 실제 반영이 가능합니다.", explanation: "최종 승인 후 실제로 반영합니다.", done: realApplySucceeded, onClick: onStep5 },
+  ];
+  const activeActionCard = actionCards.find((item) => !item.done) ?? actionCards[actionCards.length - 1];
   const steps = [
     { step: "Step 1", title: "상품명 후보 선택", button: "상품명 첫 후보 자동 선택", disabled: counts.totalCandidates === 0, reason: "키워드 결과 후보가 아직 불러와지지 않았습니다.", done: counts.approvedCount > 0, onClick: onStep1 },
     { step: "Step 2", title: "상품그룹별 상품명 미리보기", button: "상품그룹별 상품명 미리보기", disabled: step2Disabled, reason: "승인된 상품명이 있어야 미리보기를 생성할 수 있습니다.", done: groupPreviewReady, onClick: onStep2 },
@@ -1595,6 +1621,13 @@ function ProductLaunchWizard({
         </div>
       </div>
       <p className="mt-4 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900">{PRODUCT_GROUP_AUTOMATIC_MALL_COPY.wizardPlan}</p>
+      <article className="mt-5 rounded-2xl border border-blue-300 bg-white p-5 shadow-sm">
+        <p className="text-sm font-bold text-blue-700">현재 작업</p>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-xl font-black text-slate-950">{activeActionCard.title}</h3><p className="mt-1 text-sm text-slate-600">{activeActionCard.explanation}</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">상태: {activeActionCard.status}</span></div>
+        <p className="mt-3 text-sm font-semibold text-slate-700">count: {activeActionCard.count}</p>
+        <button type="button" disabled={activeActionCard.disabled} onClick={activeActionCard.onClick} className="mt-4 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300">{activeActionCard.button}</button>
+        {activeActionCard.disabled ? <p className="mt-2 text-xs font-semibold text-amber-800">disabled reason: {activeActionCard.reason}</p> : null}
+      </article>
       <div className="mt-5 grid gap-3 lg:grid-cols-5">
         {steps.map((item, index) => {
           const stateClass = item.done ? "border-emerald-300 bg-emerald-50" : item.disabled ? "border-slate-200 bg-slate-50" : "border-blue-300 bg-blue-50";
