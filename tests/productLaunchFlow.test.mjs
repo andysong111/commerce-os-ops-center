@@ -408,7 +408,8 @@ test("keyword apply auto confirmation safety remains strict", async () => {
   assert.match(applyEffect, /autoApplyToShopling !== true/);
   assert.match(applyEffect, /autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING"/);
 
-  assert.match(productLaunchFlow, /const \[autoActualApplyEnabled\] = useState\(false\)/);
+  assert.match(productLaunchFlow, /const \[autoActualApplyEnabled, setAutoActualApplyEnabled\] = useState\(false\)/);
+  assert.match(productLaunchFlow, /autoActualApplyEnabled === true && autoActualApplyConfirmation === "AUTO_APPLY_TO_SHOPLING"/);
   assert.doesNotMatch(productLaunchFlow, /keywordShoplingApply/);
   assert.doesNotMatch(productLaunchFlow, /\/api\/keyword-shopling-apply/);
 });
