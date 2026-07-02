@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useMemo, useState, type ChangeEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { OperationStatusCard, formatKeywordApplyRunPhase, type OperationStatusState } from "@/components/OperationStatusCard";
 import { createEngineArtifactReviewSummary } from "@/lib/engineArtifactReview";
 import {
@@ -998,6 +998,8 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
         onDryRunResultChange={setKeywordApplyDryRunResult}
         onRealResultChange={setKeywordApplyRealResult}
         dryRunSucceeded={dryRunSucceeded}
+        autoApplyToShopling={false}
+        autoApplyConfirmationText=""
       />
     </>
   );
@@ -1362,6 +1364,8 @@ function KeywordShoplingApplySection({
   onDryRunResultChange,
   onRealResultChange,
   dryRunSucceeded,
+  autoApplyToShopling = false,
+  autoApplyConfirmationText = "",
 }: {
   preflightResult: KeywordExecutionPreflightResult | null;
   maxRows: string;
@@ -1375,6 +1379,8 @@ function KeywordShoplingApplySection({
   onDryRunResultChange: (value: Record<string, unknown> | null) => void;
   onRealResultChange: (value: Record<string, unknown> | null) => void;
   dryRunSucceeded: boolean;
+  autoApplyToShopling?: boolean;
+  autoApplyConfirmationText?: string;
 }) {
   const disabled = !preflightResult;
   const executionPlanJson = preflightResult ? buildCompactKeywordApplyExecutionPlan(preflightResult) : "";
@@ -1433,7 +1439,7 @@ function KeywordShoplingApplySection({
     setStatus(message);
   }
 
-  async function run(mode: "dry_run" | "apply") {
+  async function run(mode: "dry_run" | "apply", auto = false) {
     if (!preflightResult) return;
     const setStatus = mode === "dry_run" ? onDryRunStatusChange : onRealStatusChange;
     const setMeta = metaSetter(mode);
@@ -1442,7 +1448,12 @@ function KeywordShoplingApplySection({
       setStatus("dry_run 성공 후 실제 반영이 가능합니다.");
       return;
     }
-    if (mode === "apply" && !window.confirm("실제 샵플링 상품명/검색어를 수정합니다. 계속하시겠습니까?")) return;
+    const autoApplyConfirmed =
+      mode === "apply" &&
+      auto === true &&
+      autoApplyToShopling === true &&
+      autoApplyConfirmationText === "AUTO_APPLY_TO_SHOPLING";
+    if (mode === "apply" && !autoApplyConfirmed && !window.confirm("실제 샵플링 상품명/검색어를 수정합니다. 계속하시겠습니까?")) return;
     setResult(null);
     setMeta((m) => ({ ...m, state: "queued", phase: "queued", runStatus: "queued", pollCount: 0, isPolling: false, message: mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." }));
     setStatus(mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다.");
@@ -1459,6 +1470,15 @@ function KeywordShoplingApplySection({
     setMeta((m) => ({ ...m, state: "blocked", isPolling: false, message: json.message || "요청 실패" }));
     setStatus(json.message || json.commandPreview || (response.ok ? "요청 완료" : "요청 실패"));
   }
+
+
+  useEffect(() => {
+    if (disabled || !dryRunSucceeded) return;
+    if (autoApplyToShopling !== true) return;
+    if (autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING") return;
+    void run("apply", true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoApplyToShopling, autoApplyConfirmationText, disabled, dryRunSucceeded]);
 
   const renderControls = (mode: "dry_run" | "apply", result: Record<string, unknown> | null, meta: ApplyRunMeta) => <>
     <OperationStatusCard state={meta.state || toOperationState(result)} phase={meta.phase || String(result?.phase ?? "unknown")} requestId={meta.requestId || String(result?.requestId ?? "")} runUrl={meta.runUrl || String(result?.runUrl ?? "")} runStatus={meta.runStatus || String(result?.runStatus ?? "")} runConclusion={meta.runConclusion || String(result?.runConclusion ?? "")} artifactName={meta.artifactName || String(result?.artifactName ?? "")} fetchedAt={meta.fetchedAt || String(result?.fetchedAt ?? "")} lastCheckedAt={meta.lastCheckedAt} pollCount={meta.pollCount} maxPolls={MAX_APPLY_POLLS} message={meta.message} />
