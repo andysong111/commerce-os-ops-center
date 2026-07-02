@@ -1720,6 +1720,7 @@ function ProductLaunchWizard({
       </div>
       {(dryRunState === "queued" || dryRunState === "running" || realApplyState === "queued" || realApplyState === "running") ? <p className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900">실행 중입니다. 결과를 생성하는 중입니다.</p> : null}
       {(dryRunState === "waiting_artifact" || realApplyState === "waiting_artifact") ? <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">결과 파일을 생성하는 중입니다. 이 상태는 실패가 아닙니다.</p> : null}
+      {realApplySucceeded ? <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-900">출시 완료: 샵플링 상품명/검색어 반영까지 완료되었습니다.</p> : null}
       <div className="mt-4 grid gap-2 text-sm font-semibold text-amber-900">
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">이 단계는 아직 샵플링에 반영하지 않습니다</p>
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">실제 반영 버튼을 누르기 전까지 상품명은 변경되지 않습니다</p>
