@@ -401,6 +401,7 @@ test("keyword apply auto confirmation safety remains strict", async () => {
   assert.match(keywordWorkspace, /void run\("apply", true\);/);
   assert.match(keywordWorkspace, /onClick=\{\(\) => void run\("apply"\)\}/);
   assert.doesNotMatch(keywordWorkspace, /onClick=\{\(\) => void run\("apply", true\)\}/);
+  assert.match(keywordWorkspace, /출시 완료: 샵플링 상품명\/검색어 반영까지 완료되었습니다\./);
 
   const useEffectBlocks = keywordWorkspace.match(/useEffect\(\(\) => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/g) ?? [];
   const applyEffect = useEffectBlocks.find((block) => block.includes('void run("apply", true);'));
@@ -410,6 +411,7 @@ test("keyword apply auto confirmation safety remains strict", async () => {
 
   assert.match(productLaunchFlow, /const \[autoActualApplyEnabled, setAutoActualApplyEnabled\] = useState\(false\)/);
   assert.match(productLaunchFlow, /autoActualApplyEnabled === true && autoActualApplyConfirmation === "AUTO_APPLY_TO_SHOPLING"/);
+  assert.match(productLaunchFlow, /autoApplyConfirmationText: autoActualApplyConfirmation/);
   assert.doesNotMatch(productLaunchFlow, /keywordShoplingApply/);
   assert.doesNotMatch(productLaunchFlow, /\/api\/keyword-shopling-apply/);
 });
