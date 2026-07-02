@@ -91,6 +91,8 @@ export function ProductLaunchFlow() {
   const [keywordLastCheckedAt, setKeywordLastCheckedAt] = useState<Date | null>(null);
   const [skipIfGoodsKey, setSkipIfGoodsKey] = useState(true);
   const [autopilotEnabled, setAutopilotEnabled] = useState(true);
+  const [autoActualApplyEnabled] = useState(false);
+  void autoActualApplyEnabled;
   const autoPriceStartedForUploadRequestRef = useRef<string>("");
   const autoKeywordStartedForPriceRequestRef = useRef<string>("");
 

@@ -388,6 +388,31 @@ test("full launch market sanity expects 36 expanded apply items", () => {
   assert.equal(expectedLaunchApplyCount(goodsKeys, buildGoodsKeyGroupMap(uploadRows)), 36);
 });
 
+
+
+test("keyword apply auto confirmation safety remains strict", async () => {
+  const keywordWorkspace = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
+  const productLaunchFlow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+
+  assert.match(keywordWorkspace, /async function run\(mode: "dry_run" \| "apply", auto = false\)/);
+  assert.match(keywordWorkspace, /const autoApplyConfirmed =\s*mode === "apply" &&\s*auto === true &&\s*autoApplyToShopling === true &&\s*autoApplyConfirmationText === "AUTO_APPLY_TO_SHOPLING";/);
+  assert.match(keywordWorkspace, /if \(mode === "apply" && !autoApplyConfirmed && !window\.confirm\("실제 샵플링 상품명\/검색어를 수정합니다\. 계속하시겠습니까\?"\)\) return;/);
+  assert.match(keywordWorkspace, /confirmation_text: mode === "apply" \? KEYWORD_APPLY_CONFIRMATION_TEXT : ""/);
+  assert.match(keywordWorkspace, /void run\("apply", true\);/);
+  assert.match(keywordWorkspace, /onClick=\{\(\) => void run\("apply"\)\}/);
+  assert.doesNotMatch(keywordWorkspace, /onClick=\{\(\) => void run\("apply", true\)\}/);
+
+  const useEffectBlocks = keywordWorkspace.match(/useEffect\(\(\) => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/g) ?? [];
+  const applyEffect = useEffectBlocks.find((block) => block.includes('void run("apply", true);'));
+  assert.ok(applyEffect, "automatic apply effect exists");
+  assert.match(applyEffect, /autoApplyToShopling !== true/);
+  assert.match(applyEffect, /autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING"/);
+
+  assert.match(productLaunchFlow, /const \[autoActualApplyEnabled\] = useState\(false\)/);
+  assert.doesNotMatch(productLaunchFlow, /keywordShoplingApply/);
+  assert.doesNotMatch(productLaunchFlow, /\/api\/keyword-shopling-apply/);
+});
+
 test("product launch coverage source copy exists", async () => {
   const source = `${await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8")}\n${await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8")}`;
   for (const expected of [
