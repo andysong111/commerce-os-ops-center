@@ -55,6 +55,23 @@ export const moduleRegistry: readonly CommerceModule[] = [
     note: null,
   },
   {
+    id: "sourcing-engine",
+    title: "1688 주문추천 카드 생성기",
+    navigationLabel: "1688 소싱엔진",
+    description:
+      "실제 수집된 1688 후보 링크 안에서 1순위 주문 후보와 백업 2개를 압축하고, 위험 필터와 테스트 비용 판단을 적용합니다.",
+    status: "available",
+    route: "/sourcing-engine",
+    category: "소싱",
+    inputType: "상품명, 경쟁상품 URL, 1688 후보 링크, 목표 판매가, 테스트 예산",
+    outputType: "주문 가능/보류/폐기 카드, 1순위 링크, 백업 링크, 대략 원가, 수동 피드백",
+    historySupport: true,
+    externalProject: false,
+    note: "MVP는 완전 자동 소싱이 아니라 수동/반자동 1688 후보 링크를 주문추천 카드로 압축합니다.",
+    helperNote: "MVP",
+    actionLabel: "소싱 카드 만들기",
+  },
+  {
     id: "freight-barcode-pdf",
     title: "배대지 바코드 PDF 생성기",
     navigationLabel: "배대지 바코드 PDF 생성기",
@@ -69,8 +86,6 @@ export const moduleRegistry: readonly CommerceModule[] = [
     externalProject: false,
     note: "기존 배대지 바코드 작업요청서 흐름을 사용합니다.",
   },
-
-
   {
     id: "warehouse-location-sync",
     title: "창고 위치코드 관리",
@@ -170,7 +185,6 @@ export const moduleRegistry: readonly CommerceModule[] = [
     helperNote: "후속 검토 단계",
     actionLabel: "검토 화면 열기",
   },
-
   {
     id: "product-launch-flow",
     title: "상품 출시 플로우",
@@ -188,7 +202,6 @@ export const moduleRegistry: readonly CommerceModule[] = [
     helperNote: "MVP 플로우",
     actionLabel: "플로우 열기",
   },
-
   {
     id: "shopling-product-upload-runner",
     title: "샵플링 상품등록 실행기",
@@ -206,7 +219,6 @@ export const moduleRegistry: readonly CommerceModule[] = [
     helperNote: "실제 상품등록 실행",
     actionLabel: "실행기 열기",
   },
-
   {
     id: "shopling-price-modify-runner",
     title: "샵플링 쇼핑몰별 가격설정 실행기",
@@ -223,7 +235,6 @@ export const moduleRegistry: readonly CommerceModule[] = [
     helperNote: "실제 가격설정 실행",
     actionLabel: "실행기 열기",
   },
-
   {
     id: "engine-env-setup",
     title: "엔진 환경변수 설정",
