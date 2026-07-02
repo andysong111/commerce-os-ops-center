@@ -400,3 +400,43 @@ test("product launch coverage source copy exists", async () => {
     "고급 / 일부 상품만 반영",
   ]) assert.ok(source.includes(expected), expected);
 });
+
+test("product launch flow includes AI agent board, final verdict, and guarded one-click apply copy", async () => {
+  const source = `${await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8")}\n${await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8")}`;
+  for (const expected of [
+    "AI 상품출시 에이전트",
+    "출시 완료",
+    "샵플링 상품명/검색어 반영까지 완료되었습니다",
+    "실제 반영까지 자동 실행",
+    "AUTO_APPLY_TO_SHOPLING",
+    "가격 API 반영 완료 / 화면 검증 미지원",
+    "가격 확인 필요",
+    "출시 완료 - 경고 있음",
+    "출시 보류 - 가격 확인 필요",
+    "출시 보류 - 실제 반영 미완료",
+    "출시 보류 - 상품명 일부 누락",
+    "진행 중입니다...",
+    "실제 샵플링 반영 실행",
+    "검증 불가",
+    "가격 0원",
+    "상품명 누락",
+    "검색어 부족",
+  ]) assert.ok(source.includes(expected), expected);
+});
+
+test("one-click full launch remains off by default and uses guarded apply flow", async () => {
+  const productSource = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  const reviewSource = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
+  const source = `${productSource}\n${reviewSource}`;
+  assert.match(productSource, /const \[autoActualApplyEnabled, setAutoActualApplyEnabled\] = useState\(false\)/);
+  assert.ok(reviewSource.includes('autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING"'));
+  assert.ok(reviewSource.includes('/api/keyword-shopling-apply/run'));
+  assert.ok(reviewSource.includes('KEYWORD_APPLY_CONFIRMATION_TEXT'));
+  assert.doesNotMatch(productSource, /\/api\/keyword-shopling-apply\/run/);
+  assert.doesNotMatch(source, /\/api\/shopling-(?!product-upload|price-modify)/i);
+  assert.doesNotMatch(source, /API_AUTH_KEY/);
+  assert.doesNotMatch(source, /LOGIN_PASSWORD/);
+  assert.doesNotMatch(source, /shell\s*:\s*true/i);
+  assert.doesNotMatch(source, /child_process/);
+  assert.doesNotMatch(source, /PowerShell/i);
+});
