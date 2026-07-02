@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useMemo, useState, type ChangeEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { OperationStatusCard, formatKeywordApplyRunPhase, type OperationStatusState } from "@/components/OperationStatusCard";
 import { createEngineArtifactReviewSummary } from "@/lib/engineArtifactReview";
 import {
@@ -169,6 +169,17 @@ const reviewSummary = createEngineArtifactReviewSummary({
   ],
 });
 
+export type KeywordApplyAutomationState = {
+  mode?: "dry_run" | "apply";
+  status?: string;
+  appliedCount?: number;
+  failedCount?: number;
+  blockedCount?: number;
+  preparedCount?: number;
+  warningCount?: number;
+  requestId?: string;
+};
+
 export type KeywordReviewWorkspaceContext = {
   rowExpression?: string;
   uploadRequestId?: string;
@@ -183,7 +194,7 @@ export type KeywordReviewWorkspaceContext = {
   goodsKeyGroupMap?: Record<string, ProductLaunchGoodsKeyGroupMetadata>;
 };
 
-export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: { mode?: "embedded" | "standalone"; launchContext?: KeywordReviewWorkspaceContext }) {
+export function KeywordReviewWorkspace({ mode = "standalone", launchContext, autoApplyToShopling = false, autoApplyConfirmationText = "", onApplyAutomationStateChange }: { mode?: "embedded" | "standalone"; launchContext?: KeywordReviewWorkspaceContext; autoApplyToShopling?: boolean; autoApplyConfirmationText?: string; onApplyAutomationStateChange?: (state: KeywordApplyAutomationState) => void }) {
   const isEmbedded = mode === "embedded";
   const [importedArtifact, setImportedArtifact] =
     useState<ImportedArtifactPayload | null>(() =>
@@ -998,6 +1009,14 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
         onDryRunResultChange={setKeywordApplyDryRunResult}
         onRealResultChange={setKeywordApplyRealResult}
         dryRunSucceeded={dryRunSucceeded}
+        autoApplyToShopling={autoApplyToShopling}
+        autoApplyConfirmationText={autoApplyConfirmationText}
+        onApplyAutomationStateChange={onApplyAutomationStateChange}
+        actualApplyCount={actualApplyCount}
+        expectedFullApplyCount={expectedFullApplyCount}
+        launchCoverageCovered={launchCoverage.covered}
+        blockedCandidateCount={counts.blocked}
+        manualWarningCount={counts.manual}
       />
     </>
   );
@@ -1362,6 +1381,14 @@ function KeywordShoplingApplySection({
   onDryRunResultChange,
   onRealResultChange,
   dryRunSucceeded,
+  autoApplyToShopling,
+  autoApplyConfirmationText,
+  onApplyAutomationStateChange,
+  actualApplyCount,
+  expectedFullApplyCount,
+  launchCoverageCovered,
+  blockedCandidateCount,
+  manualWarningCount,
 }: {
   preflightResult: KeywordExecutionPreflightResult | null;
   maxRows: string;
@@ -1375,6 +1402,14 @@ function KeywordShoplingApplySection({
   onDryRunResultChange: (value: Record<string, unknown> | null) => void;
   onRealResultChange: (value: Record<string, unknown> | null) => void;
   dryRunSucceeded: boolean;
+  autoApplyToShopling?: boolean;
+  autoApplyConfirmationText?: string;
+  onApplyAutomationStateChange?: (state: KeywordApplyAutomationState) => void;
+  actualApplyCount: number;
+  expectedFullApplyCount: number;
+  launchCoverageCovered: boolean;
+  blockedCandidateCount: number;
+  manualWarningCount: number;
 }) {
   const disabled = !preflightResult;
   const executionPlanJson = preflightResult ? buildCompactKeywordApplyExecutionPlan(preflightResult) : "";
@@ -1384,6 +1419,21 @@ function KeywordShoplingApplySection({
 
   const pendingMessage = "아직 실행 중이거나 결과 파일을 생성하는 중입니다. 잠시 후 자동으로 다시 확인합니다.";
   const loadingHelp = "실행 중입니다. 결과 가져오기를 반복해서 누르지 않아도 자동으로 확인합니다. GitHub Actions는 아직 실행 중입니다. 결과 artifact가 아직 생성되지 않았습니다. 이 상태는 실패가 아닙니다. 잠시 후 다시 확인합니다. 최종 실패는 GitHub Actions가 종료된 뒤에만 표시됩니다.";
+
+  useEffect(() => {
+    const state = toOperationState(realResult);
+    const summary = (realResult?.summary ?? realResult) as Record<string, unknown> | null;
+    onApplyAutomationStateChange?.({
+      mode: "apply",
+      status: state === "success" ? "success" : state,
+      appliedCount: Number(summary?.applied_count ?? summary?.success_count ?? summary?.success_rows ?? 0),
+      failedCount: Number(summary?.failed_count ?? 0),
+      blockedCount: Number(summary?.blocked_count ?? 0),
+      preparedCount: actualApplyCount,
+      warningCount: Number(summary?.warning_count ?? manualWarningCount),
+      requestId: realMeta.requestId,
+    });
+  }, [actualApplyCount, manualWarningCount, onApplyAutomationStateChange, realMeta.requestId, realResult]);
 
   function metaSetter(mode: "dry_run" | "apply") { return mode === "dry_run" ? setDryRunMeta : setRealMeta; }
 
@@ -1442,11 +1492,11 @@ function KeywordShoplingApplySection({
       setStatus("dry_run 성공 후 실제 반영이 가능합니다.");
       return;
     }
-    if (mode === "apply" && !window.confirm("실제 샵플링 상품명/검색어를 수정합니다. 계속하시겠습니까?")) return;
+    if (mode === "apply" && !autoApplyToShopling && !window.confirm("실제 샵플링 상품명/검색어를 수정합니다. 계속하시겠습니까?")) return;
     setResult(null);
     setMeta((m) => ({ ...m, state: "queued", phase: "queued", runStatus: "queued", pollCount: 0, isPolling: false, message: mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." }));
     setStatus(mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다.");
-    const response = await fetch("/api/keyword-shopling-apply/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ execution_plan_json: executionPlanJson, mode, confirmation_text: mode === "apply" ? KEYWORD_APPLY_CONFIRMATION_TEXT : "", max_items: Number.parseInt(maxRows, 10) || 20 }) });
+    const response = await fetch("/api/keyword-shopling-apply/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ execution_plan_json: executionPlanJson, mode, confirmation_text: mode === "apply" ? (autoApplyToShopling && autoApplyConfirmationText === "AUTO_APPLY_TO_SHOPLING" ? KEYWORD_APPLY_CONFIRMATION_TEXT : KEYWORD_APPLY_CONFIRMATION_TEXT) : "", max_items: Number.parseInt(maxRows, 10) || 20 }) });
     const json = await response.json();
     if (json.requestId) {
       const storageKey = mode === "dry_run" ? KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY : KEYWORD_APPLY_REAL_REQUEST_ID_KEY;
@@ -1459,6 +1509,23 @@ function KeywordShoplingApplySection({
     setMeta((m) => ({ ...m, state: "blocked", isPolling: false, message: json.message || "요청 실패" }));
     setStatus(json.message || json.commandPreview || (response.ok ? "요청 완료" : "요청 실패"));
   }
+
+  useEffect(() => {
+    if (!autoApplyToShopling || autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING") return;
+    if (!dryRunSucceeded || toOperationState(realResult) === "success" || !preflightResult) return;
+    const expectedCountMatchesPreparedCount = expectedFullApplyCount === 0 || expectedFullApplyCount === actualApplyCount;
+    const failed_count = 0;
+    const blocked_count = preflightResult.summary.blockedCount || blockedCandidateCount;
+    const noCriticalWarnings = manualWarningCount === 0;
+    const safetyChecksPass = launchCoverageCovered && expectedCountMatchesPreparedCount && failed_count === 0 && blocked_count === 0 && noCriticalWarnings;
+    if (!safetyChecksPass) {
+      onApplyAutomationStateChange?.({ mode: "apply", status: "blocked", blockedCount: blocked_count, preparedCount: actualApplyCount, warningCount: manualWarningCount });
+      return;
+    }
+    void run("apply");
+  // run is the existing guarded apply dispatcher; this automation gate intentionally reuses it after safety checks.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actualApplyCount, autoApplyConfirmationText, autoApplyToShopling, blockedCandidateCount, dryRunSucceeded, expectedFullApplyCount, launchCoverageCovered, manualWarningCount, onApplyAutomationStateChange, preflightResult, realResult]);
 
   const renderControls = (mode: "dry_run" | "apply", result: Record<string, unknown> | null, meta: ApplyRunMeta) => <>
     <OperationStatusCard state={meta.state || toOperationState(result)} phase={meta.phase || String(result?.phase ?? "unknown")} requestId={meta.requestId || String(result?.requestId ?? "")} runUrl={meta.runUrl || String(result?.runUrl ?? "")} runStatus={meta.runStatus || String(result?.runStatus ?? "")} runConclusion={meta.runConclusion || String(result?.runConclusion ?? "")} artifactName={meta.artifactName || String(result?.artifactName ?? "")} fetchedAt={meta.fetchedAt || String(result?.fetchedAt ?? "")} lastCheckedAt={meta.lastCheckedAt} pollCount={meta.pollCount} maxPolls={MAX_APPLY_POLLS} message={meta.message} />
