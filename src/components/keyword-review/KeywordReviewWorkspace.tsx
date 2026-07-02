@@ -181,6 +181,8 @@ export type KeywordReviewWorkspaceContext = {
   uploadRows?: ProductLaunchUploadRow[];
   goodsKeys?: string[];
   goodsKeyGroupMap?: Record<string, ProductLaunchGoodsKeyGroupMetadata>;
+  autoApplyToShopling?: boolean;
+  autoApplyConfirmationText?: string;
 };
 
 export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: { mode?: "embedded" | "standalone"; launchContext?: KeywordReviewWorkspaceContext }) {
@@ -998,8 +1000,8 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
         onDryRunResultChange={setKeywordApplyDryRunResult}
         onRealResultChange={setKeywordApplyRealResult}
         dryRunSucceeded={dryRunSucceeded}
-        autoApplyToShopling={false}
-        autoApplyConfirmationText=""
+        autoApplyToShopling={launchContext?.autoApplyToShopling === true}
+        autoApplyConfirmationText={launchContext?.autoApplyConfirmationText ?? ""}
       />
     </>
   );
