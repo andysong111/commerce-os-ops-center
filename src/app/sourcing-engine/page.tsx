@@ -11,6 +11,14 @@ const workflows = [
     steps: ["후보 붙여넣기", "리스크 필터", "테스트 비용", "주문 판단"],
   },
   {
+    title: "저장형 빠른 카드 생성",
+    href: "/sourcing-engine/quick-save",
+    badge: "저장 흐름",
+    description:
+      "후보 파싱, 카드 생성, 카드 이력 저장을 한 화면에서 처리합니다.",
+    steps: ["파싱", "생성", "저장", "이력"],
+  },
+  {
     title: "소싱 시장 스냅샷",
     href: "/sourcing-engine/market-snapshot",
     badge: "신규제품 보조",
@@ -44,7 +52,7 @@ export default function SourcingEngineHubPage() {
         description="주문 후보를 압축하고 테스트 결과를 기억하는 OPS CENTER 소싱 워크플로우입니다."
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {workflows.map((workflow) => (
           <Link
             key={workflow.href}
