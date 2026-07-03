@@ -118,7 +118,7 @@ function buildSnapshotNotes(snapshot: NaverShoppingSnapshot) {
   if (snapshot.mallCount > 0 && snapshot.topMalls[0]?.count >= snapshot.displayCount * 0.35) {
     notes.push("특정 몰 비중이 높아 가격 기준이 왜곡될 수 있습니다.");
   }
-  if (snapshot.displayCount > 0 && snapshot.notes.length === 0) {
+  if (snapshot.displayCount > 0 && notes.length === 0) {
     notes.push("MVP 기준상 경쟁 스냅샷 참고 가능. 실제 판매량 데이터는 아닙니다.");
   }
 
