@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import {
+  buildGoodsKeyGroupJson,
   buildGoodsKeyGroupMap,
+  buildGoodsKeyProductGroupMap,
   computeLaunchTitleCoverage,
   expectedLaunchApplyCount,
+  expectedPriceModifyUpdateCount,
   isSafeLaunchTitle,
   buildKeywordEngineDispatchPayload,
   dedupeGoodsKeysForPriceModify,
@@ -276,6 +279,42 @@ test("builds keyword engine dry_run dispatch payload with de-duplicated goods_ke
     mode: "dry_run",
     inputs: { goods_key: "121112,121113" },
   });
+});
+
+
+test("ProductLaunchFlow builds goods_key group mapping for price modify", () => {
+  const uploadRows = [
+    { goods_key: "121207", ptn_goods_cd: "BASE-1a" },
+    { goods_key: "121208", ptn_goods_cd: "BASE-1b" },
+    { goods_key: "121209", ptn_goods_cd: "BASE-1c" },
+    { goods_key: "121210", ptn_goods_cd: "BASE-1d" },
+    { goods_key: "121211", ptn_goods_cd: "BASE-1e" },
+    { goods_key: "121212", ptn_goods_cd: "BASE-1f" },
+  ];
+  const expected = { "121207": "도매1", "121208": "도매2", "121209": "도매3", "121210": "도매4", "121211": "소매1", "121212": "소매2" };
+  assert.deepEqual(buildGoodsKeyProductGroupMap(uploadRows), expected);
+  assert.equal(buildGoodsKeyGroupJson(uploadRows), JSON.stringify(expected));
+});
+
+test("mixed 6-group launch expected price update count is 36 and not 24 per goods", () => {
+  const uploadRows = [
+    { goods_key: "121207", ptn_goods_cd: "BASE-1a" },
+    { goods_key: "121208", ptn_goods_cd: "BASE-1b" },
+    { goods_key: "121209", ptn_goods_cd: "BASE-1c" },
+    { goods_key: "121210", ptn_goods_cd: "BASE-1d" },
+    { goods_key: "121211", ptn_goods_cd: "BASE-1e" },
+    { goods_key: "121212", ptn_goods_cd: "BASE-1f" },
+  ];
+  const mapping = buildGoodsKeyProductGroupMap(uploadRows);
+  assert.equal(expectedPriceModifyUpdateCount(mapping), 36);
+  assert.notEqual(expectedPriceModifyUpdateCount(mapping), uploadRows.length * 24);
+});
+
+test("ProductLaunchFlow price modify dispatch contains goods_key_group_json and summary copy", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  assert.match(source, /goods_key_group_json: buildGoodsKeyGroupJson\(uploadRows\)/);
+  assert.match(source, /가격설정 대상: 상품그룹 연결 쇼핑몰 기준/);
+  assert.doesNotMatch(source, /goods_key count × 24/);
 });
 
 test("product launch flow sources do not include restricted execution or credential literals", async () => {

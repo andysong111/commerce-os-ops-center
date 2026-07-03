@@ -205,6 +205,30 @@ export function computeLaunchTitleCoverage(input: {
   return { launchGoodsKeys, approvedGoodsKeys: [...approvedGoodsKeys], missingGoodsKeys, blockedGoodsKeys, covered: missingGoodsKeys.length === 0 };
 }
 
+export function buildGoodsKeyProductGroupMap(rows: ProductLaunchUploadRow[]) {
+  return Object.fromEntries(
+    Object.entries(buildGoodsKeyGroupMap(rows))
+      .filter(([, metadata]) => metadata.product_group_status === "registered")
+      .map(([goodsKey, metadata]) => [goodsKey, metadata.product_group]),
+  );
+}
+
+export function buildGoodsKeyGroupJson(rows: ProductLaunchUploadRow[]) {
+  return JSON.stringify(buildGoodsKeyProductGroupMap(rows));
+}
+
+export function expectedPriceModifyUpdateCount(goodsKeyProductGroupMap: Record<string, string>) {
+  return Object.values(goodsKeyProductGroupMap).reduce((sum, productGroup) => sum + getMarketsForLaunchProductGroup(productGroup), 0);
+}
+
+export function getProductGroupMallCounts(goodsKeyProductGroupMap: Record<string, string>) {
+  const counts: Record<string, number> = {};
+  for (const productGroup of Object.values(goodsKeyProductGroupMap)) {
+    counts[productGroup] = (counts[productGroup] ?? 0) + getMarketsForLaunchProductGroup(productGroup);
+  }
+  return counts;
+}
+
 export function expectedLaunchApplyCount(goodsKeys: string[], goodsKeyGroupMap: Record<string, ProductLaunchGoodsKeyGroupMetadata | undefined>) {
   return goodsKeys.reduce((sum, goodsKey) => {
     const group = goodsKeyGroupMap[goodsKey]?.product_group ?? "";
@@ -212,7 +236,7 @@ export function expectedLaunchApplyCount(goodsKeys: string[], goodsKeyGroupMap: 
   }, 0);
 }
 
-function getMarketsForLaunchProductGroup(productGroup: string) {
+export function getMarketsForLaunchProductGroup(productGroup: string) {
   const counts: Record<string, number> = { "도매1": 10, "도매2": 4, "도매3": 4, "도매4": 1, "소매1": 12, "소매2": 5 };
   return counts[productGroup.trim()] ?? 0;
 }
