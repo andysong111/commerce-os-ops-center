@@ -97,6 +97,7 @@ export function ProductLaunchFlow() {
   const [autoActualApplyConfirmation, setAutoActualApplyConfirmation] = useState("");
   const autoPriceStartedForUploadRequestRef = useRef<string>("");
   const autoKeywordStartedForPriceRequestRef = useRef<string>("");
+  const autoKeywordImportedArtifactRef = useRef<string>("");
 
   const uploadResultRows = useMemo(() => extractUploadRows(uploadActionsResult), [uploadActionsResult]);
   const uploadRows = useMemo(() => extractRowsWithGoodsKey(uploadActionsResult), [uploadActionsResult]);
@@ -372,6 +373,17 @@ export function ProductLaunchFlow() {
   const currentRequestId = rowMatchesCurrentRun ? (uploadRunning || uploadFetching || uploadPolling ? currentUploadRequestId : priceRequestId || currentUploadRequestId || keywordDispatchResult?.expectedArtifactName || "") : "";
   const previousRequestId = priceRequestId || uploadRequestId || keywordDispatchResult?.expectedArtifactName || "-";
   const lastCheckedAt = keywordLastCheckedAt ?? priceLastCheckedAt ?? uploadLastCheckedAt;
+  useEffect(() => {
+    const artifact = keywordSummary.artifact;
+    const run = keywordRunsResult?.runs?.find((item) => item.artifacts?.some((candidate) => candidate.id === artifact?.id));
+    const importKey = artifact && run ? `${run.id}:${artifact.name}:${artifact.id}` : "";
+    if (!autopilotEnabled || !artifact || !run || !importKey) return;
+    if (autoKeywordImportedArtifactRef.current === importKey) return;
+    autoKeywordImportedArtifactRef.current = importKey;
+    void importKeywordArtifact(run, artifact);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autopilotEnabled, keywordRunsResult, keywordSummary.artifact]);
+
   const runNextSafeStep = () => {
     if (cockpit.primaryAction === "upload") void runUploadRequest();
     if (cockpit.primaryAction === "price") void runPriceModify();
@@ -405,6 +417,7 @@ export function ProductLaunchFlow() {
 
   return (
     <div className="space-y-6">
+      <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={priceCounts.targetGoodsKeys} titleTargetCount={goodsKeys.length} keywordWarningCount={0} issueCount={cockpit.primaryAction === "failed" ? 1 : 0} actualApplyDone={false} onNext={runNextSafeStep} />
       <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} autoActualApplyConfirmation={autoActualApplyConfirmation} onAutoActualApplyConfirmationChange={setAutoActualApplyConfirmation} />
       {keywordSummary.artifact ? <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold text-emerald-700">키워드 결과 검토</p>
@@ -450,6 +463,37 @@ export function ProductLaunchFlow() {
       </details>
     </div>
   );
+}
+
+function SummaryCard({ label, value }: { label: string; value: string | number }) {
+  return <div className="rounded-xl bg-white p-3"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-1 text-lg font-black text-slate-950">{value}</p></div>;
+}
+
+function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, keywordWarningCount, issueCount, actualApplyDone, onNext }: { state: ReturnType<typeof buildCockpit>; productCount: number; mallCount: number; titleTargetCount: number; keywordWarningCount: number; issueCount: number; actualApplyDone: boolean; onNext: () => void }) {
+  const status: string = actualApplyDone ? "실제 반영 완료" : state.primaryAction === "failed" ? "확인 필요" : state.primaryAction === "review" ? "출시 준비 완료" : state.primaryAction === "upload" ? "대기" : "진행 중";
+  const progress = Math.round((state.steps.filter((step) => step.state === "success").length / Math.max(state.steps.length, 1)) * 100);
+  const stages = ["상품업로드", "가격설정", "키워드 dry_run", "상품명 준비", "dry_run 점검", "실제 반영"];
+  return <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+    <p className="text-sm font-black text-emerald-700">AI 상품출시 에이전트</p>
+    <h1 className="mt-1 text-2xl font-black text-slate-950">{actualApplyDone ? "출시 완료" : state.currentStage}</h1>
+    {actualApplyDone ? <p className="mt-2 text-sm font-bold text-emerald-900">샵플링 상품명/검색어 반영까지 완료되었습니다.</p> : null}
+    <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <SummaryCard label="현재 상태" value={status} />
+      <SummaryCard label="다음 작업" value={state.nextAction} />
+      <SummaryCard label="진행률" value={`${progress}%`} />
+    </div>
+    <div className="mt-4 flex flex-wrap gap-2">{stages.map((stage) => <span key={stage} className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-700">{stage}</span>)}</div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-5">
+      <SummaryCard label="상품 수" value={productCount} />
+      <SummaryCard label="가격설정 대상 쇼핑몰 수" value={mallCount} />
+      <SummaryCard label="상품명 반영 대상 수" value={titleTargetCount} />
+      <SummaryCard label="검색어 경고 수" value={keywordWarningCount} />
+      <SummaryCard label="문제 수" value={issueCount} />
+    </div>
+    {status === "상품명 일부 누락" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">상품명 일부 누락</p> : null}
+    {actualApplyDone ? <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>반영 상품 수: {titleTargetCount}</p><p>반영 쇼핑몰 수: {mallCount}</p><p>가격 상태: 확인 완료</p><p>검색어 경고 수: {keywordWarningCount}</p><p>다음 수동 작업: 샵플링에서 마켓전송 전 최종 확인</p></div> : null}
+    <button type="button" onClick={onNext} className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white">{state.nextAction}</button>
+  </section>;
 }
 
 type StepState = "waiting" | "running" | "checking" | "success" | "failed" | "action";
