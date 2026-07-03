@@ -56,9 +56,12 @@ export default function SourcingFeedbackPage() {
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored) setFeedbackList(JSON.parse(stored) as SourcingFeedback[]);
+      if (stored) {
+        const parsed = JSON.parse(stored) as SourcingFeedback[];
+        window.queueMicrotask(() => setFeedbackList(parsed));
+      }
     } catch {
-      setFeedbackList([]);
+      window.queueMicrotask(() => setFeedbackList([]));
     }
   }, []);
 

@@ -13,9 +13,12 @@ export function SourcingCardsClient() {
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
-      if (stored) setCards(JSON.parse(stored) as RecommendationCard[]);
+      if (stored) {
+        const parsed = JSON.parse(stored) as RecommendationCard[];
+        window.queueMicrotask(() => setCards(parsed));
+      }
     } catch {
-      setCards([]);
+      window.queueMicrotask(() => setCards([]));
     }
   }, []);
 
