@@ -4,17 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { moduleRegistry } from "@/lib/moduleRegistry";
 
-const moduleIcons = {
-  "china-order-cost": CalculatorIcon,
-  "product-master": ProductIcon,
-  "freight-barcode-pdf": BarcodeIcon,
-  "keyword-review-queue": KeywordIcon,
-  "warehouse-label-generator": LabelIcon,
-  "warehouse-location-sync": LocationSyncIcon,
-} as const;
+const moduleIconLabels: Record<string, string> = {
+  "china-order-cost": "₩",
+  "product-master": "P",
+  "sourcing-engine": "S",
+  "freight-barcode-pdf": "B",
+  "keyword-review-queue": "K",
+  "warehouse-label-generator": "L",
+  "warehouse-location-sync": "W",
+};
 
 const navigation = [
-  { href: "/", label: "대시보드", icon: DashboardIcon },
+  { href: "/", label: "대시보드", iconLabel: "D" },
   ...moduleRegistry.flatMap((module) => {
     if (
       !["available", "check_mode"].includes(module.status) ||
@@ -23,8 +24,8 @@ const navigation = [
       return [];
     }
 
-    const icon = moduleIcons[module.id as keyof typeof moduleIcons];
-    if (!icon) {
+    const iconLabel = moduleIconLabels[module.id];
+    if (!iconLabel) {
       return [];
     }
 
@@ -32,7 +33,7 @@ const navigation = [
       {
         href: module.route,
         label: module.navigationLabel ?? module.title,
-        icon,
+        iconLabel,
       },
     ];
   }),
@@ -51,7 +52,6 @@ export function Sidebar() {
               item.href === "/"
                 ? pathname === "/"
                 : pathname.startsWith(item.href);
-            const Icon = item.icon;
 
             return (
               <Link
@@ -63,7 +63,9 @@ export function Sidebar() {
                     : "text-slate-300 hover:bg-slate-800 hover:text-white"
                 }`}
               >
-                <Icon />
+                <span className="grid size-4 place-items-center rounded bg-white/10 text-[10px] font-bold">
+                  {item.iconLabel}
+                </span>
                 {item.label}
               </Link>
             );
@@ -124,119 +126,5 @@ function Brand({ compact = false }: { compact?: boolean }) {
         </div>
       </div>
     </div>
-  );
-}
-
-function DashboardIcon() {
-  return (
-    <svg
-      className="size-4"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
-    </svg>
-  );
-}
-
-function CalculatorIcon() {
-  return (
-    <svg
-      className="size-4"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <rect x="5" y="2" width="14" height="20" rx="2" />
-      <path d="M8 6h8v4H8zM8 14h2m4 0h2m-8 4h2m4 0h2" />
-    </svg>
-  );
-}
-
-function ProductIcon() {
-  return (
-    <svg
-      className="size-4"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z" />
-      <path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12v9" />
-    </svg>
-  );
-}
-
-function BarcodeIcon() {
-  return (
-    <svg
-      className="size-4"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <path d="M4 5v14M8 5v14M12 5v14M16 5v14M20 5v14" />
-      <path d="M3 3h4M17 3h4M3 21h4M17 21h4" />
-    </svg>
-  );
-}
-
-function KeywordIcon() {
-  return (
-    <svg
-      className="size-4"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <circle cx="10.5" cy="10.5" r="6.5" />
-      <path d="m15.5 15.5 4.5 4.5M8 8h5M8 11h4" />
-    </svg>
-  );
-}
-
-
-function LabelIcon() {
-  return (
-    <svg
-      className="size-4"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <rect x="4" y="6" width="16" height="12" rx="2" />
-      <path d="M8 10h8M9 14h6" />
-    </svg>
-  );
-}
-
-
-function LocationSyncIcon() {
-  return (
-    <svg
-      className="size-4"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <path d="M4 7h16v12H4z" />
-      <path d="M8 7V5h8v2M8 11h4M8 15h8" />
-      <path d="m17 3 2 2-2 2M7 21l-2-2 2-2" />
-    </svg>
   );
 }
