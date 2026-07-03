@@ -126,10 +126,26 @@ export function buildShoplingPriceModifyActionsRunsUrl(perPage = 10) {
   return { url: `https://api.github.com/repos/${owner}/${repoName}/actions/workflows/${encodeURIComponent(config.workflow)}/runs?${params.toString()}`, token: config.token };
 }
 
-export function buildShoplingPriceModifyDispatchRequest(goodsKeyInput: string, policyOverridesInput?: unknown) {
+export function validateGoodsKeyGroupJson(input?: unknown) {
+  if (input === undefined || input === null || input === "") return "";
+  if (typeof input !== "string") throw new Error("goods_key_group_json은 JSON 문자열이어야 합니다.");
+  const parsed = JSON.parse(input) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("goods_key_group_json은 객체 JSON이어야 합니다.");
+  const allowedGroups = new Set(["도매1", "도매2", "도매3", "도매4", "소매1", "소매2"]);
+  const normalized: Record<string, string> = {};
+  for (const [goodsKey, group] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!GOODS_KEY_PATTERN.test(goodsKey)) throw new Error("goods_key_group_json의 키는 숫자 goods_key여야 합니다.");
+    if (typeof group !== "string" || !allowedGroups.has(group)) throw new Error("goods_key_group_json의 상품그룹 값이 올바르지 않습니다.");
+    normalized[goodsKey] = group;
+  }
+  return JSON.stringify(normalized);
+}
+
+export function buildShoplingPriceModifyDispatchRequest(goodsKeyInput: string, policyOverridesInput?: unknown, goodsKeyGroupJsonInput?: unknown) {
   const parsed = parseShoplingPriceModifyGoodsKeys(goodsKeyInput);
   const policyOverrides = validateShoplingPriceModifyPolicyOverrides(policyOverridesInput);
   const policyOverridesJson = policyOverrides.length > 0 ? JSON.stringify(policyOverrides) : "";
+  const goodsKeyGroupJson = validateGoodsKeyGroupJson(goodsKeyGroupJsonInput);
   const config = getConfig(); const [owner, repoName] = config.repo.split("/");
   const requestId = generateShoplingPriceModifyRequestId();
   return {
@@ -137,14 +153,14 @@ export function buildShoplingPriceModifyDispatchRequest(goodsKeyInput: string, p
     githubActionsUrl: `https://github.com/${config.repo}/actions/workflows/${encodeURIComponent(config.workflow)}`,
     token: config.token,
     requestId,
-    body: { ref: config.ref, inputs: { goods_keys: parsed.goodsKeysCsv, request_id: requestId, batch: SHOPLING_PRICE_MODIFY_BATCH, policy_overrides_json: policyOverridesJson } },
-    commandPreview: `GitHub Actions: ${config.workflow} goods_keys=${parsed.goodsKeysCsv} batch=${SHOPLING_PRICE_MODIFY_BATCH} policy_override_count=${policyOverrides.length} request_id=${requestId}`,
+    body: { ref: config.ref, inputs: { goods_keys: parsed.goodsKeysCsv, request_id: requestId, batch: SHOPLING_PRICE_MODIFY_BATCH, policy_overrides_json: policyOverridesJson, goods_key_group_json: goodsKeyGroupJson } },
+    commandPreview: `GitHub Actions: ${config.workflow} goods_keys=${parsed.goodsKeysCsv} batch=${SHOPLING_PRICE_MODIFY_BATCH} policy_override_count=${policyOverrides.length} goods_key_group_count=${goodsKeyGroupJson ? Object.keys(JSON.parse(goodsKeyGroupJson)).length : 0} request_id=${requestId}`,
   };
 }
 
-export async function dispatchShoplingPriceModifyActions(goodsKeyInput: string, policyOverridesInput?: unknown) {
+export async function dispatchShoplingPriceModifyActions(goodsKeyInput: string, policyOverridesInput?: unknown, goodsKeyGroupJsonInput?: unknown) {
   if (process.env.SHOPLING_PRICE_MODIFY_ENABLED !== "1") return { status: "error", message: "SHOPLING_PRICE_MODIFY_ENABLED=1 인 경우에만 실행할 수 있습니다." };
-  let request; try { request = buildShoplingPriceModifyDispatchRequest(goodsKeyInput, policyOverridesInput); } catch (error) { return { status: "error", message: error instanceof Error ? error.message : "입력값이 올바르지 않습니다." }; }
+  let request; try { request = buildShoplingPriceModifyDispatchRequest(goodsKeyInput, policyOverridesInput, goodsKeyGroupJsonInput); } catch (error) { return { status: "error", message: error instanceof Error ? error.message : "입력값이 올바르지 않습니다." }; }
   const response = await fetch(request.url, { method: "POST", headers: { ...headers(request.token), "Content-Type": "application/json" }, body: JSON.stringify(request.body) });
   if (response.status !== 204 && response.status !== 200) return { status: "error", message: `GitHub Actions 워크플로 실행 요청에 실패했습니다. status=${response.status}`, commandPreview: request.commandPreview, githubActionsUrl: request.githubActionsUrl, requestId: request.requestId };
   return { status: "queued", requestId: request.requestId, message: "GitHub Actions 가격설정 워크플로 실행 요청이 전송되었습니다.", githubActionsUrl: request.githubActionsUrl, commandPreview: request.commandPreview };

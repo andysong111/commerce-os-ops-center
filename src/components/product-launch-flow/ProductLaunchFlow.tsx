@@ -4,7 +4,9 @@ import Link from "next/link";
 import { KeywordReviewWorkspace } from "@/components/keyword-review/KeywordReviewWorkspace";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  buildGoodsKeyGroupJson,
   buildGoodsKeyGroupMap,
+  buildGoodsKeyProductGroupMap,
   buildKeywordEngineDispatchPayload,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
@@ -99,6 +101,7 @@ export function ProductLaunchFlow() {
   const uploadResultRows = useMemo(() => extractUploadRows(uploadActionsResult), [uploadActionsResult]);
   const uploadRows = useMemo(() => extractRowsWithGoodsKey(uploadActionsResult), [uploadActionsResult]);
   const goodsKeys = useMemo(() => dedupeGoodsKeysForPriceModify(uploadRows), [uploadRows]);
+  const goodsKeyProductGroupMap = useMemo(() => buildGoodsKeyProductGroupMap(uploadRows), [uploadRows]);
   const uploadPollingFinal = isFinalUploadPollingResult(uploadActionsResult, uploadRows.length);
 
   const pollUploadResult = useCallback(async (reset: boolean, requestIdOverride?: string) => {
@@ -218,7 +221,7 @@ export function ProductLaunchFlow() {
       const response = await fetch("/api/shopling-price-modify/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goods_key: goodsKeys.join(","), policy_overrides: [] }),
+        body: JSON.stringify({ goods_key: goodsKeys.join(","), goods_key_group_json: buildGoodsKeyGroupJson(uploadRows), policy_overrides: [] }),
       });
       const data = await response.json();
       setPriceRunResult(data);
@@ -233,7 +236,7 @@ export function ProductLaunchFlow() {
       setPricePolling(true);
       setPricePollCount(0);
     }
-  }, [goodsKeys, priceRunning]);
+  }, [goodsKeys, priceRunning, uploadRows]);
 
   const fetchPriceResult = useCallback(async () => {
     if (priceFetching) return;
@@ -441,7 +444,7 @@ export function ProductLaunchFlow() {
       </section>
 
       {goodsKeys.length === 0 && uploadActionsResult?.status === "success" ? <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">goods_key가 생성된 상품이 없어 가격설정을 진행할 수 없습니다.</p> : null}
-      {goodsKeys.length > 0 ? <PriceSection goodsKeyCount={goodsKeys.length} result={priceRunResult} actionsResult={priceActionsResult} requestId={priceRequestId} running={priceRunning} fetching={priceFetching} onRun={runPriceModify} onFetch={fetchPriceResult} /> : null}
+      {goodsKeys.length > 0 ? <PriceSection goodsKeyCount={goodsKeys.length} goodsKeyProductGroupMap={goodsKeyProductGroupMap} result={priceRunResult} actionsResult={priceActionsResult} requestId={priceRequestId} running={priceRunning} fetching={priceFetching} onRun={runPriceModify} onFetch={fetchPriceResult} /> : null}
       {goodsKeys.length > 0 ? <KeywordPrepSection rows={uploadRows} goodsKeys={goodsKeys} seedKeyword={keywordSeed} onSeedKeywordChange={setKeywordSeed} preview={keywordPreview} dispatchResult={keywordDispatchResult} runsResult={keywordRunsResult} importMessage={keywordImportMessage} busy={keywordBusy} onPreview={previewKeywordDispatch} onDispatch={dispatchKeywordEngine} onFetchRuns={fetchKeywordRuns} onImport={importKeywordArtifact} /> : null}
       <FinalChecklist />
       </details>
@@ -614,7 +617,7 @@ function formatElapsed(seconds: number) {
   return `${minutes}분 ${rest}초`;
 }
 
-function PriceSection({ goodsKeyCount, result, actionsResult, requestId, running, fetching, onRun, onFetch }: { goodsKeyCount: number; result: RunResult | null; actionsResult: PriceActionsResult | null; requestId: string; running: boolean; fetching: boolean; onRun: () => void; onFetch: () => void }) {
+function PriceSection({ goodsKeyCount, goodsKeyProductGroupMap, result, actionsResult, requestId, running, fetching, onRun, onFetch }: { goodsKeyCount: number; goodsKeyProductGroupMap: Record<string, string>; result: RunResult | null; actionsResult: PriceActionsResult | null; requestId: string; running: boolean; fetching: boolean; onRun: () => void; onFetch: () => void }) {
   const summary = actionsResult?.summary;
   const errors = Array.isArray(summary?.errors) ? summary.errors : [];
   const notApplied = Number(summary?.not_applied_count ?? 0);
@@ -622,8 +625,18 @@ function PriceSection({ goodsKeyCount, result, actionsResult, requestId, running
   const failed = Number(summary?.failed_count ?? summary?.fail_count ?? 0);
   const affectedMalls = Array.isArray(summary?.affected_malls) ? summary.affected_malls.join(", ") : [...new Set(errors.map((error) => error.mall).filter(Boolean))].join(", ");
   const hasCoverageRisk = notApplied > 0 || blankRisk > 0 || failed > 0;
-  const confirmedAll = actionsResult && !hasCoverageRisk && Number(summary?.estimated_mall_update_count ?? 0) >= goodsKeyCount * 24;
-  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold text-slate-950">Step 2. 가격설정</h2><p className="mt-3 text-sm text-slate-700">대상 goods_key 수: <strong>{goodsKeyCount}</strong></p><p className="mt-1 text-sm text-slate-700">예상 쇼핑몰 가격설정 대상 수 = goods_key count × 24: <strong>{goodsKeyCount * 24}</strong></p><button type="button" onClick={onRun} disabled={running} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{running ? "실행 요청 중..." : "가격설정 실행"}</button><button type="button" onClick={onFetch} disabled={fetching} className="ml-3 mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{fetching ? "가져오는 중..." : "가격설정 결과 가져오기"}</button><StatusBlock result={result} requestId={requestId} />{hasCoverageRisk ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950"><h3 className="font-black">가격이 비어 있을 수 있는 쇼핑몰이 있습니다.</h3><p className="mt-2">영향 쇼핑몰: {affectedMalls || "확인 필요"}</p><p>영향 goods_key 수: {String(summary?.goods_key_count ?? goodsKeyCount)}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={onRun} className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white">가격설정 재실행</button><GithubActionsShortcutButton href={actionsResult?.runUrl} /><button type="button" className="rounded-lg border border-red-300 px-3 py-2 text-xs font-bold text-red-800">상세 결과 보기</button></div></div> : confirmedAll ? <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-800">모든 필수 쇼핑몰 가격 반영을 확인했습니다.</p> : null}{actionsResult ? <dl className="mt-4 grid gap-3 text-sm"><ResultRow label="status" value={String(summary?.status ?? actionsResult.status ?? "-")} /><ResultRow label="exit_code" value={String(summary?.exit_code ?? "-")} /><ResultRow label="goods_key_count" value={String(summary?.goods_key_count ?? "-")} /><ResultRow label="estimated_mall_update_count" value={String(summary?.estimated_mall_update_count ?? "-")} /><ResultRow label="policy_override_count" value={String(summary?.policy_override_count ?? 0)} /><ResultRow label="성공 수" value={String(summary?.ok_count ?? "-")} /><ResultRow label="실패 수" value={String(summary?.fail_count ?? "-")} /></dl> : null}<ErrorsTable errors={errors} /></section>;
+  const productGroupMallCounts = getPriceTargetGroupCounts(goodsKeyProductGroupMap);
+  const expectedUpdateCount = Object.values(productGroupMallCounts).reduce((sum, count) => sum + count, 0);
+  const confirmedAll = actionsResult && !hasCoverageRisk && Number(summary?.estimated_mall_update_count ?? 0) >= expectedUpdateCount;
+  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold text-slate-950">Step 2. 가격설정</h2><p className="mt-3 text-sm text-slate-700">대상 goods_key 수: <strong>{goodsKeyCount}</strong></p><p className="mt-1 text-sm text-slate-700">가격설정 대상: 상품그룹 연결 쇼핑몰 기준</p><p className="mt-1 text-sm text-slate-700">예상 쇼핑몰 가격설정 대상 수: <strong>{expectedUpdateCount}</strong></p><ul className="mt-3 grid gap-1 text-sm text-slate-700 sm:grid-cols-2">{["도매1", "도매2", "도매3", "도매4", "소매1", "소매2"].map((group) => <li key={group}>{group} <strong>{productGroupMallCounts[group] ?? 0}개</strong></li>)}<li>총 <strong>{expectedUpdateCount}개</strong></li></ul><button type="button" onClick={onRun} disabled={running} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{running ? "실행 요청 중..." : "가격설정 실행"}</button><button type="button" onClick={onFetch} disabled={fetching} className="ml-3 mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{fetching ? "가져오는 중..." : "가격설정 결과 가져오기"}</button><StatusBlock result={result} requestId={requestId} />{hasCoverageRisk ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950"><h3 className="font-black">가격이 비어 있을 수 있는 쇼핑몰이 있습니다.</h3><p className="mt-2">영향 쇼핑몰: {affectedMalls || "확인 필요"}</p><p>영향 goods_key 수: {String(summary?.goods_key_count ?? goodsKeyCount)}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={onRun} className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white">가격설정 재실행</button><GithubActionsShortcutButton href={actionsResult?.runUrl} /><button type="button" className="rounded-lg border border-red-300 px-3 py-2 text-xs font-bold text-red-800">상세 결과 보기</button></div></div> : confirmedAll ? <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-800">모든 필수 쇼핑몰 가격 반영을 확인했습니다.</p> : null}{actionsResult ? <dl className="mt-4 grid gap-3 text-sm"><ResultRow label="status" value={String(summary?.status ?? actionsResult.status ?? "-")} /><ResultRow label="exit_code" value={String(summary?.exit_code ?? "-")} /><ResultRow label="goods_key_count" value={String(summary?.goods_key_count ?? "-")} /><ResultRow label="estimated_mall_update_count" value={String(summary?.estimated_mall_update_count ?? "-")} /><ResultRow label="policy_override_count" value={String(summary?.policy_override_count ?? 0)} /><ResultRow label="성공 수" value={String(summary?.ok_count ?? "-")} /><ResultRow label="실패 수" value={String(summary?.fail_count ?? "-")} /></dl> : null}<ErrorsTable errors={errors} /></section>;
+}
+
+function getPriceTargetGroupCounts(goodsKeyProductGroupMap: Record<string, string>) {
+  const mallCounts: Record<string, number> = { "도매1": 10, "도매2": 4, "도매3": 4, "도매4": 1, "소매1": 12, "소매2": 5 };
+  return Object.values(goodsKeyProductGroupMap).reduce<Record<string, number>>((counts, group) => {
+    counts[group] = (counts[group] ?? 0) + (mallCounts[group] ?? 0);
+    return counts;
+  }, {});
 }
 
 function KeywordPrepSection({ rows, goodsKeys, seedKeyword, onSeedKeywordChange, preview, dispatchResult, runsResult, importMessage, busy, onPreview, onDispatch, onFetchRuns, onImport }: { rows: ProductLaunchUploadRow[]; goodsKeys: string[]; seedKeyword: string; onSeedKeywordChange: (value: string) => void; preview: unknown; dispatchResult: KeywordDispatchResult | null; runsResult: KeywordRunsResult | null; importMessage: string; busy: string; onPreview: () => void; onDispatch: () => void; onFetchRuns: () => void; onImport: (run: KeywordRun, artifact: KeywordArtifact) => void }) {

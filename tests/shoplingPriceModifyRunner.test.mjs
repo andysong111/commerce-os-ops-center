@@ -9,6 +9,7 @@ import {
   fetchShoplingPriceModifyActionsResult,
   generateShoplingPriceModifyRequestId,
   parseShoplingPriceModifyGoodsKeys,
+  validateGoodsKeyGroupJson,
   validateShoplingPriceModifyPolicyOverrides,
 } from "../src/lib/shoplingPriceModifyRunner.ts";
 
@@ -60,6 +61,13 @@ test("policy override validation accepts valid policies and rejects unsafe value
   ]) assert.throws(() => validateShoplingPriceModifyPolicyOverrides(invalid));
 });
 
+test("goods_key group json validation accepts six groups and rejects unsafe payloads", () => {
+  assert.equal(validateGoodsKeyGroupJson(JSON.stringify({ "121207": "도매1", "121212": "소매2" })), JSON.stringify({ "121207": "도매1", "121212": "소매2" }));
+  for (const invalid of ["[]", "{\"bad\":\"도매1\"}", "{\"121207\":\"전체\"}", 123]) {
+    assert.throws(() => validateGoodsKeyGroupJson(invalid));
+  }
+});
+
 test("request_id is generated with expected prefix and pattern", () => {
   const requestId = generateShoplingPriceModifyRequestId(new Date("2026-06-23T10:30:00Z"));
   assert.match(requestId, /^price-modify-/);
@@ -72,8 +80,12 @@ test("dispatch payload includes goods_keys, request_id, batch 80, policy_overrid
   assert.equal(request.body.inputs.batch, "80");
   assert.match(request.body.inputs.request_id, /^price-modify-/);
   assert.equal(request.body.inputs.policy_overrides_json, "");
+  assert.equal(request.body.inputs.goods_key_group_json, "");
   assert.match(request.commandPreview, /policy_override_count=0/);
   const policy = [{ mall_key: "SMALL_00001", multiplier: 1, add: 500, subtract: 0, round_up_unit: 10 }];
+  const requestWithMapping = buildShoplingPriceModifyDispatchRequest("121031", undefined, JSON.stringify({ "121031": "도매1" }));
+  assert.equal(requestWithMapping.body.inputs.goods_key_group_json, JSON.stringify({ "121031": "도매1" }));
+  assert.match(requestWithMapping.commandPreview, /goods_key_group_count=1/);
   const requestWithPolicy = buildShoplingPriceModifyDispatchRequest("121031", policy);
   assert.equal(requestWithPolicy.body.inputs.policy_overrides_json, JSON.stringify(policy));
   assert.match(requestWithPolicy.commandPreview, /policy_override_count=1/);
@@ -83,6 +95,7 @@ test("dispatch payload includes goods_keys, request_id, batch 80, policy_overrid
     assert.match(String(url), /dispatches$/);
     assert.equal(JSON.parse(init.body).inputs.batch, "80");
     assert.equal(Object.hasOwn(JSON.parse(init.body).inputs, "policy_overrides_json"), true);
+    assert.equal(Object.hasOwn(JSON.parse(init.body).inputs, "goods_key_group_json"), true);
     return new Response("", { status: 204 });
   };
   try {
