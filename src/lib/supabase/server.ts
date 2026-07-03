@@ -1,0 +1,45 @@
+import { cookies } from "next/headers";
+
+type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
+
+type SupabaseServerClient = {
+  auth: { getUser: () => Promise<{ data: { user: { id: string } | null }; error: { message: string } | null }> };
+  from: (table: string) => SupabaseQueryBuilder;
+};
+
+type SupabaseQueryBuilder = PromiseLike<{ data: unknown; error: { message: string } | null }> & {
+  select: (columns?: string) => SupabaseQueryBuilder;
+  eq: (column: string, value: unknown) => SupabaseQueryBuilder;
+  order: (column: string, options?: { ascending?: boolean }) => SupabaseQueryBuilder;
+  limit: (count: number) => SupabaseQueryBuilder;
+  maybeSingle: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+  single: () => Promise<{ data: Record<string, unknown>; error: { message: string } | null }>;
+  upsert: (row: Record<string, unknown>, options?: Record<string, unknown>) => SupabaseQueryBuilder;
+  insert: (row: Record<string, unknown>) => SupabaseQueryBuilder;
+};
+
+export async function createSupabaseServerClient(): Promise<SupabaseServerClient | null> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!supabaseUrl || !supabasePublishableKey) return null;
+
+  const { createServerClient } = await dynamicImportSupabaseSsr();
+  const cookieStore = await cookies();
+  return createServerClient(supabaseUrl, supabasePublishableKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet: CookieToSet[]) {
+        cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+      },
+    },
+  }) as SupabaseServerClient;
+}
+
+async function dynamicImportSupabaseSsr(): Promise<{
+  createServerClient: (url: string, key: string, options: unknown) => unknown;
+}> {
+  return Function("specifier", "return import(specifier)")("@supabase/ssr");
+}
