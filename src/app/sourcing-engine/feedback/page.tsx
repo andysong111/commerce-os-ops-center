@@ -54,12 +54,14 @@ export default function SourcingFeedbackPage() {
   const successRate = totalTests > 0 ? successCount / totalTests : 0;
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored) setFeedbackList(JSON.parse(stored) as SourcingFeedback[]);
-    } catch {
-      setFeedbackList([]);
-    }
+    queueMicrotask(() => {
+      try {
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        if (stored) setFeedbackList(JSON.parse(stored) as SourcingFeedback[]);
+      } catch {
+        setFeedbackList([]);
+      }
+    });
   }, []);
 
   function saveFeedback() {

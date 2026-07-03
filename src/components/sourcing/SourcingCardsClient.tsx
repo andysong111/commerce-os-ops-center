@@ -11,12 +11,14 @@ export function SourcingCardsClient() {
   const [cards, setCards] = useState<RecommendationCard[]>([]);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
-      if (stored) setCards(JSON.parse(stored) as RecommendationCard[]);
-    } catch {
-      setCards([]);
-    }
+    queueMicrotask(() => {
+      try {
+        const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
+        if (stored) setCards(JSON.parse(stored) as RecommendationCard[]);
+      } catch {
+        setCards([]);
+      }
+    });
   }, []);
 
   async function copyJson() {
