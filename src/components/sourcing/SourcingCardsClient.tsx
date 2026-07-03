@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { RecommendationCard } from "@/lib/sourcingEngine";
 import { SOURCING_CARD_STORAGE_KEY } from "@/lib/sourcingCardStorage";
 
@@ -8,16 +8,7 @@ const krwFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }
 const percentFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 });
 
 export function SourcingCardsClient() {
-  const [cards, setCards] = useState<RecommendationCard[]>([]);
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
-      if (stored) setCards(JSON.parse(stored) as RecommendationCard[]);
-    } catch {
-      setCards([]);
-    }
-  }, []);
+  const [cards] = useState<RecommendationCard[]>(() => getStoredCards());
 
   async function copyJson() {
     await navigator.clipboard.writeText(JSON.stringify(cards, null, 2));
@@ -82,6 +73,16 @@ export function SourcingCardsClient() {
       </section>
     </>
   );
+}
+
+function getStoredCards() {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
+    return stored ? JSON.parse(stored) as RecommendationCard[] : [];
+  } catch {
+    return [];
+  }
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

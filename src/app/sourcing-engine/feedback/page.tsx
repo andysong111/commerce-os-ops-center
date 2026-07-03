@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -33,7 +33,7 @@ const percentFormatter = new Intl.NumberFormat("ko-KR", {
 });
 
 export default function SourcingFeedbackPage() {
-  const [feedbackList, setFeedbackList] = useState<SourcingFeedback[]>([]);
+  const [feedbackList, setFeedbackList] = useState<SourcingFeedback[]>(() => getStoredFeedbackList());
   const [draft, setDraft] = useState({
     mode: "FOLLOW_PROVEN" as SourcingMode,
     categoryHint: "차량용 수납",
@@ -52,15 +52,6 @@ export default function SourcingFeedbackPage() {
   const successCount = feedbackList.filter((item) => item.salesResult === "SUCCESS").length;
   const failCount = feedbackList.filter((item) => item.salesResult === "FAIL").length;
   const successRate = totalTests > 0 ? successCount / totalTests : 0;
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored) setFeedbackList(JSON.parse(stored) as SourcingFeedback[]);
-    } catch {
-      setFeedbackList([]);
-    }
-  }, []);
 
   function saveFeedback() {
     const feedback: SourcingFeedback = {
@@ -344,6 +335,16 @@ export default function SourcingFeedbackPage() {
       </div>
     </>
   );
+}
+
+function getStoredFeedbackList() {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) as SourcingFeedback[] : [];
+  } catch {
+    return [];
+  }
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
