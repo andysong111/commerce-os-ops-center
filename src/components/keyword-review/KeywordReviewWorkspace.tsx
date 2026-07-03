@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { OperationStatusCard, formatKeywordApplyRunPhase, type OperationStatusState } from "@/components/OperationStatusCard";
 import { createEngineArtifactReviewSummary } from "@/lib/engineArtifactReview";
 import {
@@ -66,7 +66,7 @@ const APPLY_RESULT_VALUE_LABELS: Record<string, string> = {
   partial_failure: "일부 실패",
   true: "예",
   false: "아니오",
-  underfilled_search_keywords: "검색어가 10개 미만입니다. 현재는 경고입니다.",
+  underfilled_search_keywords: "검색어가 부족합니다. 반영은 가능하지만 나중에 보강하면 좋습니다.",
 };
 
 const KEYWORD_APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_TO_SHOPLING";
@@ -243,6 +243,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
   > | null>(null);
   const [exceptionOnly, setExceptionOnly] = useState(true);
   const [partialApplyOverride, setPartialApplyOverride] = useState(false);
+  const autoEmbeddedPrepareRef = useRef("");
   function loadImportedArtifact() {
     if (!importedArtifact?.files) return;
     setApprovalCsv(
@@ -430,17 +431,12 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
       const goodsKey = row.goodsKey.trim();
       if (!coverage.missingGoodsKeys.includes(goodsKey)) return row;
       const sameKeyRows = current.filter((candidate) => candidate.goodsKey.trim() === goodsKey);
-      const ptnBase = (row.ptnGoodsCd ?? "").replace(/[a-z]$/i, "");
-      const siblingRows = ptnBase ? current.filter((candidate) => candidate.goodsKey.trim() !== goodsKey && (candidate.ptnGoodsCd ?? "").replace(/[a-z]$/i, "") === ptnBase) : [];
       const candidateTitle = [
         approvedByGoodsKey.get(goodsKey)?.recommendedTitle,
         row.recommendedTitle,
         row.originalTitle,
         sameKeyRows.find((candidate) => isSafeLaunchTitle(candidate.originalTitle))?.originalTitle,
         uploadTitleByGoodsKey.get(goodsKey),
-        siblingRows.find((candidate) => isSafeLaunchTitle(candidate.editedTitle || candidate.recommendedTitle || candidate.originalTitle))?.editedTitle,
-        siblingRows.find((candidate) => isSafeLaunchTitle(candidate.recommendedTitle || candidate.originalTitle))?.recommendedTitle,
-        siblingRows.find((candidate) => isSafeLaunchTitle(candidate.originalTitle))?.originalTitle,
       ].find(isSafeLaunchTitle);
       if (!candidateTitle) return row;
       return { ...row, editedTitle: candidateTitle, recommendedTitle: row.recommendedTitle || candidateTitle, editedSiteSrch: row.editedSiteSrch || row.recommendedSiteSrch || fallbackSiteSrchFromTitle(candidateTitle), reviewStatus: "approved" as const };
@@ -555,6 +551,39 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
     void file.text().then(setter);
   }
 
+  useEffect(() => {
+    if (!isEmbedded || rows.length === 0 || !launchContext?.goodsKeys?.length) return;
+    const runKey = `${launchContext.keywordRunId ?? "local"}:${launchContext.artifactName ?? "artifact"}:${rows.length}`;
+    if (autoEmbeddedPrepareRef.current === runKey) return;
+    autoEmbeddedPrepareRef.current = runKey;
+    setRows((current) => autoFillMissingLaunchTitles(approveFirstCandidateRows(current)));
+    setGuidedActionStatus("AI가 상품명 반영 준비를 시작했습니다. 누락 상품명 자동 보강까지 완료했습니다.");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEmbedded, launchContext?.keywordRunId, launchContext?.artifactName, launchContext?.goodsKeys?.length, rows.length]);
+
+  useEffect(() => {
+    if (!isEmbedded || !launchCoverage.covered || rows.filter((row) => row.reviewStatus === "approved").length === 0 || preflightResult) return;
+    const previewRows = createGroupVariantPreviewRows(rows, groupVariantEnabled);
+    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
+    const previewCoverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows });
+    const previewCount = preview.expandedItemCount ?? 0;
+    if (preview.expandedItemCount > 100 || (!partialApplyOverride && previewCoverage.missingGoodsKeys.length > 0) || (!partialApplyOverride && expectedFullApplyCount > 0 && previewCount > 0 && previewCount < expectedFullApplyCount)) return;
+    const timer = window.setTimeout(() => {
+      setGroupVariantPreview(previewRows);
+      setPayloadPreview(preview);
+      const safeMaxRows = String(Math.min(preview.expandedItemCount || 20, 100));
+      setKeywordApplyMaxRows(safeMaxRows);
+      setMaxRows(safeMaxRows);
+      const safeAllowedMallKeys = expandProductGroupMarkets ? [...new Set(preview.previewableItems.map((item) => item.mall_key))].join(",") : allowedMallKeys;
+      if (expandProductGroupMarkets) setAllowedMallKeys(safeAllowedMallKeys);
+      const config = { ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG, allowedMallKeys: parseKeyList(safeAllowedMallKeys), maxRows: Math.max(0, Number.parseInt(safeMaxRows, 10) || 0), alreadyAppliedGoodsKeys: parseKeyList(alreadyAppliedGoodsKeys) };
+      setPreflightResult(buildKeywordExecutionPreflight({ previewResult: preview, finalConfirmationText: "" }, config));
+      setGuidedActionStatus("AI가 상품그룹 미리보기, 적용 계획, dry_run 점검을 자동으로 준비했습니다.");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEmbedded, launchCoverage.covered, rows, preflightResult]);
+
   const groupPreviewReady = groupVariantPreview.length > 0;
   const applyPlanReady = Boolean(payloadPreview);
   const preflightReady = Boolean(preflightResult);
@@ -581,8 +610,8 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
           <button type="button" onClick={() => setExceptionOnly(true)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">성공 항목 숨기기</button>
           <button type="button" onClick={() => setExceptionOnly(false)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">성공 항목 보기</button>
         </div>
-        <p className="mt-3 text-xs text-slate-600">underfilled_search_keywords: 검색어가 10개 미만입니다. 현재는 경고입니다.</p>
-        <p className="mt-1 text-xs text-slate-600">missing result_summary: 결과 파일이 아직 준비되지 않았거나, 해당 실행에서 요약 파일이 생성되지 않았습니다. product gather fallback: 상품정보 조회에 실패해 goods_key 기준으로 후보를 생성했습니다.</p>
+        <p className="mt-3 text-xs text-slate-600">underfilled_search_keywords: 검색어가 부족합니다. 반영은 가능하지만 나중에 보강하면 좋습니다.</p>
+        <p className="mt-1 text-xs text-slate-600">missing result_summary: 결과 요약 파일이 아직 준비되지 않았습니다. product gather fallback: 일부 상품정보 조회가 늦어 안전한 대체 후보를 사용했습니다.</p>
       </section>
 
       <ProductLaunchWizard
@@ -1002,6 +1031,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
         dryRunSucceeded={dryRunSucceeded}
         autoApplyToShopling={launchContext?.autoApplyToShopling === true}
         autoApplyConfirmationText={launchContext?.autoApplyConfirmationText ?? ""}
+        autoDryRun={isEmbedded}
       />
     </>
   );
@@ -1368,6 +1398,7 @@ function KeywordShoplingApplySection({
   dryRunSucceeded,
   autoApplyToShopling = false,
   autoApplyConfirmationText = "",
+  autoDryRun = false,
 }: {
   preflightResult: KeywordExecutionPreflightResult | null;
   maxRows: string;
@@ -1383,12 +1414,14 @@ function KeywordShoplingApplySection({
   dryRunSucceeded: boolean;
   autoApplyToShopling?: boolean;
   autoApplyConfirmationText?: string;
+  autoDryRun?: boolean;
 }) {
   const disabled = !preflightResult;
   const executionPlanJson = preflightResult ? buildCompactKeywordApplyExecutionPlan(preflightResult) : "";
   const showGithub422Hint = `${dryRunStatusMessage} ${realStatusMessage}`.includes("status=422");
   const [dryRunMeta, setDryRunMeta] = useState<ApplyRunMeta>(() => ({ state: "idle", pollCount: 0, requestId: typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY) || undefined : undefined }));
   const [realMeta, setRealMeta] = useState<ApplyRunMeta>(() => ({ state: "idle", pollCount: 0, requestId: typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_REAL_REQUEST_ID_KEY) || undefined : undefined }));
+  const autoDryRunStartedRef = useRef(false);
 
   const pendingMessage = "아직 실행 중이거나 결과 파일을 생성하는 중입니다. 잠시 후 자동으로 다시 확인합니다.";
   const loadingHelp = "실행 중입니다. 결과 가져오기를 반복해서 누르지 않아도 자동으로 확인합니다. GitHub Actions는 아직 실행 중입니다. 결과 artifact가 아직 생성되지 않았습니다. 이 상태는 실패가 아닙니다. 잠시 후 다시 확인합니다. 최종 실패는 GitHub Actions가 종료된 뒤에만 표시됩니다.";
@@ -1473,6 +1506,13 @@ function KeywordShoplingApplySection({
     setStatus(json.message || json.commandPreview || (response.ok ? "요청 완료" : "요청 실패"));
   }
 
+
+  useEffect(() => {
+    if (disabled || !autoDryRun || autoDryRunStartedRef.current || dryRunSucceeded) return;
+    autoDryRunStartedRef.current = true;
+    void run("dry_run", true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDryRun, disabled, dryRunSucceeded]);
 
   useEffect(() => {
     if (disabled || !dryRunSucceeded) return;

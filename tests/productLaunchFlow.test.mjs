@@ -428,3 +428,29 @@ test("product launch coverage source copy exists", async () => {
     "고급 / 일부 상품만 반영",
   ]) assert.ok(source.includes(expected), expected);
 });
+
+test("AI launch agent board and automatic review preparation source exists", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  const workspace = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
+  const source = `${flow}\n${workspace}`;
+
+  for (const expected of [
+    "AI 상품출시 에이전트",
+    "출시 완료",
+    "샵플링 상품명/검색어 반영까지 완료되었습니다",
+    "고급 / 수동 조작",
+    "검색어가 부족합니다. 반영은 가능하지만 나중에 보강하면 좋습니다.",
+    "일부 상품정보 조회가 늦어 안전한 대체 후보를 사용했습니다.",
+    "결과 요약 파일이 아직 준비되지 않았습니다.",
+  ]) assert.ok(source.includes(expected), expected);
+
+  assert.match(flow, /const autoKeywordImportedArtifactRef = useRef<string>\(""\)/);
+  assert.match(flow, /autoKeywordImportedArtifactRef\.current === importKey/);
+  assert.match(flow, /autoKeywordImportedArtifactRef\.current = importKey/);
+  assert.match(flow, /void importKeywordArtifact\(run, artifact\)/);
+  assert.match(workspace, /autoFillMissingLaunchTitles\(approveFirstCandidateRows\(current\)\)/);
+  assert.match(workspace, /setPreflightResult\(buildKeywordExecutionPreflight/);
+  assert.match(workspace, /void run\("dry_run", true\)/);
+  assert.match(workspace, /if \(disabled \|\| !dryRunSucceeded\) return;\n    if \(autoApplyToShopling !== true\) return;\n    if \(autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING"\) return;/);
+  assert.match(flow, /const \[autoActualApplyEnabled, setAutoActualApplyEnabled\] = useState\(false\)/);
+});
