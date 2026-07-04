@@ -30,18 +30,24 @@ export async function createSupabaseServerClient(): Promise<SupabaseServerClient
 
   if (!supabaseUrl || !supabasePublishableKey) return null;
 
-  const { createServerClient } = await dynamicImportSupabaseSsr();
-  const cookieStore = await cookies();
-  return createServerClient(supabaseUrl, supabasePublishableKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
+  try {
+    const { createServerClient } = await dynamicImportSupabaseSsr();
+    const cookieStore = await cookies();
+    return createServerClient(supabaseUrl, supabasePublishableKey, {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet: CookieToSet[]) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+          } catch {}
+        },
       },
-      setAll(cookiesToSet: CookieToSet[]) {
-        cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
-      },
-    },
-  }) as SupabaseServerClient;
+    }) as SupabaseServerClient;
+  } catch {
+    return null;
+  }
 }
 
 async function dynamicImportSupabaseSsr(): Promise<{
