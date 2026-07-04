@@ -7,6 +7,10 @@ import {
   normalizeRecommendationCardPayload,
   validateSourcingStorageConfig,
 } from "../src/lib/sourcingServerStorage.ts";
+import {
+  classifySourcingApiResponse,
+  toLocalFallbackStatus,
+} from "../src/lib/sourcingStorageStatus.ts";
 
 test("Supabase API config guard reports missing env without throwing", () => {
   const check = validateSourcingStorageConfig({});
@@ -54,4 +58,11 @@ test("client components do not import the Supabase secret key or admin client", 
     if (source.includes("SUPABASE_SECRET_KEY") || source.includes("supabase/admin")) offenders.push(file);
   }
   assert.deepEqual(offenders, []);
+});
+
+test("storage fallback status utility maps API failures to user-facing messages", () => {
+  assert.equal(toLocalFallbackStatus(classifySourcingApiResponse(201)), "server saved");
+  assert.equal(toLocalFallbackStatus(classifySourcingApiResponse(401, "AUTH_REQUIRED")), "local only: auth required");
+  assert.equal(toLocalFallbackStatus(classifySourcingApiResponse(503, "SUPABASE_NOT_CONFIGURED")), "local only: server not configured");
+  assert.equal(toLocalFallbackStatus(classifySourcingApiResponse(500, "SUPABASE_WRITE_FAILED")), "local only: server error");
 });

@@ -11,6 +11,7 @@ import {
   type SourcingFeedback,
   type SourcingMode,
 } from "@/lib/sourcingEngine";
+import { classifySourcingApiResponse, toLocalFallbackStatus } from "@/lib/sourcingStorageStatus";
 
 const STORAGE_KEY = "commerce-os:sourcing-engine-feedback";
 
@@ -34,6 +35,7 @@ const percentFormatter = new Intl.NumberFormat("ko-KR", {
 
 export default function SourcingFeedbackPage() {
   const [feedbackList, setFeedbackList] = useState<SourcingFeedback[]>([]);
+  const [syncStatus, setSyncStatus] = useState("");
   const [draft, setDraft] = useState({
     mode: "FOLLOW_PROVEN" as SourcingMode,
     categoryHint: "차량용 수납",
@@ -64,7 +66,7 @@ export default function SourcingFeedbackPage() {
     });
   }, []);
 
-  function saveFeedback() {
+  async function saveFeedback() {
     const feedback: SourcingFeedback = {
       cardId: `manual-${Date.now()}`,
       mode: draft.mode,
@@ -77,11 +79,21 @@ export default function SourcingFeedbackPage() {
       createdAt: new Date().toISOString(),
     };
 
-    setFeedbackList((current) => {
-      const next = [feedback, ...current].slice(0, 500);
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+    const nextFeedback = [feedback, ...feedbackList].slice(0, 500);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextFeedback));
+    setFeedbackList(nextFeedback);
+
+    try {
+      const response = await fetch("/api/sourcing/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(feedback),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { code?: string };
+      setSyncStatus(`${toLocalFallbackStatus(classifySourcingApiResponse(response.status, payload.code))} · local feedback: ${nextFeedback.length}`);
+    } catch {
+      setSyncStatus(`${toLocalFallbackStatus("SERVER_ERROR")} · local feedback: ${nextFeedback.length}`);
+    }
 
     setDraft((current) => ({
       ...current,
@@ -248,6 +260,7 @@ export default function SourcingFeedbackPage() {
             >
               피드백 저장
             </button>
+            {syncStatus ? <p className="mt-3 text-sm font-semibold text-emerald-700">{syncStatus}</p> : null}
           </Panel>
 
           <Panel title="백업 / 복구">

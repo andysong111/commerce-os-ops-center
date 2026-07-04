@@ -9,16 +9,31 @@ const percentFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits:
 
 export function SourcingCardsClient() {
   const [cards, setCards] = useState<RecommendationCard[]>([]);
+  const [source, setSource] = useState<"Server" | "Local fallback">("Local fallback");
 
   useEffect(() => {
-    queueMicrotask(() => {
+    async function loadCards() {
+      try {
+        const response = await fetch("/api/sourcing/cards", { cache: "no-store" });
+        const payload = (await response.json().catch(() => ({}))) as { cards?: RecommendationCard[] };
+        if (response.ok && Array.isArray(payload.cards)) {
+          setCards(payload.cards);
+          setSource("Server");
+          return;
+        }
+      } catch {
+        // Fall back to localStorage below.
+      }
+
       try {
         const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
-        if (stored) setCards(JSON.parse(stored) as RecommendationCard[]);
+        setCards(stored ? (JSON.parse(stored) as RecommendationCard[]) : []);
       } catch {
         setCards([]);
       }
-    });
+      setSource("Local fallback");
+    }
+    loadCards();
   }, []);
 
   async function copyJson() {
@@ -28,6 +43,7 @@ export function SourcingCardsClient() {
   if (cards.length === 0) {
     return (
       <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
+        <span className="mb-3 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">Source: {source}</span>
         <p className="text-sm font-semibold text-slate-700">저장된 카드가 없습니다.</p>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           다음 단계에서 카드 생성 화면의 저장 버튼과 연결됩니다.
@@ -38,7 +54,8 @@ export function SourcingCardsClient() {
 
   return (
     <>
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">Source: {source}</span>
         <button
           type="button"
           onClick={copyJson}

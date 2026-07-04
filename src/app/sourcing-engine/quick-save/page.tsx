@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { parseCandidateImportText } from "@/lib/sourcingCandidateImport";
 import { SOURCING_CARD_STORAGE_KEY } from "@/lib/sourcingCardStorage";
+import { classifySourcingApiResponse, toLocalFallbackStatus } from "@/lib/sourcingStorageStatus";
 import {
   buildRecommendationCard,
   generateChineseSearchTerms,
@@ -95,13 +96,24 @@ export default function SourcingQuickSavePage() {
     setMessage("");
   }
 
-  function save() {
+  async function save() {
     if (!card) return;
     const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
     const current = stored ? (JSON.parse(stored) as RecommendationCard[]) : [];
     const next = [card, ...current.filter((item) => item.id !== card.id)].slice(0, 200);
     window.localStorage.setItem(SOURCING_CARD_STORAGE_KEY, JSON.stringify(next));
-    setMessage(`Saved cards: ${next.length}`);
+
+    try {
+      const response = await fetch("/api/sourcing/cards", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(card),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { code?: string };
+      setMessage(`${toLocalFallbackStatus(classifySourcingApiResponse(response.status, payload.code))} · local cards: ${next.length}`);
+    } catch {
+      setMessage(`${toLocalFallbackStatus("SERVER_ERROR")} · local cards: ${next.length}`);
+    }
   }
 
   return (
