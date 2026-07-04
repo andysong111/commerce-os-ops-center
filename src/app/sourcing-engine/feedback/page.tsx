@@ -12,7 +12,7 @@ import {
   type SourcingMode,
 } from "@/lib/sourcingEngine";
 
-const STORAGE_KEY = "commerce-os:sourcing-engine-feedback";
+import { SOURCING_FEEDBACK_STORAGE_KEY, saveFeedbackToLocalStorage, getServerFallbackMessage } from "@/lib/sourcingClientStorage";
 
 const failureReasonOptions = [
   "안 팔림",
@@ -34,6 +34,7 @@ const percentFormatter = new Intl.NumberFormat("ko-KR", {
 
 export default function SourcingFeedbackPage() {
   const [feedbackList, setFeedbackList] = useState<SourcingFeedback[]>([]);
+  const [syncStatus, setSyncStatus] = useState("Local fallback ready.");
   const [draft, setDraft] = useState({
     mode: "FOLLOW_PROVEN" as SourcingMode,
     categoryHint: "차량용 수납",
@@ -56,7 +57,7 @@ export default function SourcingFeedbackPage() {
   useEffect(() => {
     queueMicrotask(() => {
       try {
-        const stored = window.localStorage.getItem(STORAGE_KEY);
+        const stored = window.localStorage.getItem(SOURCING_FEEDBACK_STORAGE_KEY);
         if (stored) setFeedbackList(JSON.parse(stored) as SourcingFeedback[]);
       } catch {
         setFeedbackList([]);
@@ -64,7 +65,7 @@ export default function SourcingFeedbackPage() {
     });
   }, []);
 
-  function saveFeedback() {
+  async function saveFeedback() {
     const feedback: SourcingFeedback = {
       cardId: `manual-${Date.now()}`,
       mode: draft.mode,
@@ -77,11 +78,19 @@ export default function SourcingFeedbackPage() {
       createdAt: new Date().toISOString(),
     };
 
-    setFeedbackList((current) => {
-      const next = [feedback, ...current].slice(0, 500);
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+    const next = saveFeedbackToLocalStorage(feedback);
+    setFeedbackList(next);
+    try {
+      const response = await fetch("/api/sourcing/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(feedback),
+      });
+      const body = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
+      setSyncStatus(response.ok ? "Server saved. Local fallback also updated." : getServerFallbackMessage({ ok: false, code: body.code ?? "SERVER_SAVE_FAILED", message: body.message ?? `HTTP ${response.status}` }));
+    } catch (error) {
+      setSyncStatus(getServerFallbackMessage({ ok: false, code: "NETWORK_ERROR", message: error instanceof Error ? error.message : "Network error" }));
+    }
 
     setDraft((current) => ({
       ...current,
@@ -93,7 +102,8 @@ export default function SourcingFeedbackPage() {
 
   function clearFeedback() {
     setFeedbackList([]);
-    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(SOURCING_FEEDBACK_STORAGE_KEY);
+    setSyncStatus("Local feedback cleared.");
   }
 
   function toggleFailureReason(reason: string) {
@@ -119,7 +129,8 @@ export default function SourcingFeedbackPage() {
       if (!Array.isArray(parsed)) return;
       const normalized = parsed.filter((item) => item && typeof item === "object");
       setFeedbackList(normalized);
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+      window.localStorage.setItem(SOURCING_FEEDBACK_STORAGE_KEY, JSON.stringify(normalized));
+      setSyncStatus("Imported to local fallback storage.");
     } catch {
       // ignore invalid JSON to keep the page safe
     }
@@ -274,6 +285,7 @@ export default function SourcingFeedbackPage() {
         </section>
 
         <section className="space-y-4">
+          <Panel title="Sync status"><p className="text-sm font-semibold text-slate-600">Source: Local fallback · {syncStatus}</p></Panel>
           <Panel title="누적 타율 요약">
             <div className="grid gap-3 sm:grid-cols-4">
               <Metric label="총 기록" value={`${totalTests}개`} />

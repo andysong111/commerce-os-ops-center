@@ -3,7 +3,13 @@ import { cookies } from "next/headers";
 type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
 
 type SupabaseServerClient = {
-  auth: { getUser: () => Promise<{ data: { user: { id: string } | null }; error: { message: string } | null }> };
+  auth: {
+    getUser: () => Promise<{ data: { user: { id: string; email?: string } | null }; error: { message: string } | null }>;
+    signInWithPassword: (credentials: { email: string; password: string }) => Promise<{ error: { message: string } | null }>;
+    signInWithOtp: (credentials: { email: string; options?: { emailRedirectTo?: string } }) => Promise<{ error: { message: string } | null }>;
+    exchangeCodeForSession: (code: string) => Promise<{ error: { message: string } | null }>;
+    signOut: () => Promise<{ error: { message: string } | null }>;
+  };
   from: (table: string) => SupabaseQueryBuilder;
 };
 

@@ -9,16 +9,37 @@ const percentFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits:
 
 export function SourcingCardsClient() {
   const [cards, setCards] = useState<RecommendationCard[]>([]);
+  const [source, setSource] = useState<"Server" | "Local fallback">("Local fallback");
+  const [status, setStatus] = useState("Loading cards...");
 
   useEffect(() => {
-    queueMicrotask(() => {
+    let cancelled = false;
+    async function loadCards() {
+      const localCards = readLocalCards();
       try {
-        const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
-        if (stored) setCards(JSON.parse(stored) as RecommendationCard[]);
+        const response = await fetch("/api/sourcing/cards");
+        const body = (await response.json().catch(() => ({}))) as { ok?: boolean; cards?: RecommendationCard[]; code?: string; message?: string };
+        if (!cancelled && response.ok && Array.isArray(body.cards)) {
+          setCards(body.cards);
+          setSource("Server");
+          setStatus(`Loaded ${body.cards.length} server cards.`);
+          return;
+        }
+        if (!cancelled) {
+          setCards(localCards);
+          setSource("Local fallback");
+          setStatus(body.code === "AUTH_REQUIRED" ? "Sign in to load server cards. Showing local fallback." : `Server cards unavailable. Showing local fallback.${body.message ? ` ${body.message}` : ""}`);
+        }
       } catch {
-        setCards([]);
+        if (!cancelled) {
+          setCards(localCards);
+          setSource("Local fallback");
+          setStatus("Server cards unavailable. Showing local fallback.");
+        }
       }
-    });
+    }
+    loadCards();
+    return () => { cancelled = true; };
   }, []);
 
   async function copyJson() {
@@ -28,6 +49,7 @@ export function SourcingCardsClient() {
   if (cards.length === 0) {
     return (
       <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
+        <p className="mb-3 text-xs font-semibold text-slate-500">Source: {source} · {status}</p>
         <p className="text-sm font-semibold text-slate-700">저장된 카드가 없습니다.</p>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           다음 단계에서 카드 생성 화면의 저장 버튼과 연결됩니다.
@@ -38,7 +60,7 @@ export function SourcingCardsClient() {
 
   return (
     <>
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex items-center justify-between gap-3"><p className="text-sm font-semibold text-slate-600">Source: {source} · {status}</p>
         <button
           type="button"
           onClick={copyJson}
@@ -97,4 +119,14 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function formatKrw(value: number) {
   return `${krwFormatter.format(Math.max(0, Math.round(value)))}원`;
+}
+
+
+function readLocalCards(): RecommendationCard[] {
+  try {
+    const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
+    return stored ? (JSON.parse(stored) as RecommendationCard[]) : [];
+  } catch {
+    return [];
+  }
 }
