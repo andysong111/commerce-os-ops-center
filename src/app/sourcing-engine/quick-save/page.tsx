@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { parseCandidateImportText } from "@/lib/sourcingCandidateImport";
-import { SOURCING_CARD_STORAGE_KEY } from "@/lib/sourcingCardStorage";
+import { getServerFallbackMessage, saveCardWithServerFallback } from "@/lib/sourcingClientStorage";
 import {
   buildRecommendationCard,
   generateChineseSearchTerms,
@@ -95,13 +95,10 @@ export default function SourcingQuickSavePage() {
     setMessage("");
   }
 
-  function save() {
+  async function save() {
     if (!card) return;
-    const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
-    const current = stored ? (JSON.parse(stored) as RecommendationCard[]) : [];
-    const next = [card, ...current.filter((item) => item.id !== card.id)].slice(0, 200);
-    window.localStorage.setItem(SOURCING_CARD_STORAGE_KEY, JSON.stringify(next));
-    setMessage(`Saved cards: ${next.length}`);
+    const result = await saveCardWithServerFallback(card);
+    setMessage(`${getServerFallbackMessage(result.server)} Saved cards: ${result.localCards.length}`);
   }
 
   return (
