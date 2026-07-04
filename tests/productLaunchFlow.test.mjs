@@ -493,3 +493,32 @@ test("AI launch agent board and automatic review preparation source exists", asy
   assert.match(workspace, /if \(disabled \|\| !dryRunSucceeded\) return;\n    if \(autoApplyToShopling !== true\) return;\n    if \(autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING"\) return;/);
   assert.match(flow, /const \[autoActualApplyEnabled, setAutoActualApplyEnabled\] = useState\(false\)/);
 });
+
+test("AI launch board derives final apply, counts, verdicts, and price issue copy", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  const workspace = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
+
+  assert.doesNotMatch(flow, /actualApplyDone=\{false\}/);
+  assert.match(flow, /const actualApplyDone = keywordApplyState\?\.realApplyStatus === "success" && keywordApplyState\.failedCount === 0 && keywordApplyState\.appliedCount > 0/);
+  assert.match(flow, /actualApplyDone=\{actualApplyDone\}/);
+  assert.match(flow, /mallCount=\{boardMallCount\}/);
+  assert.match(flow, /const boardMallCount = expectedPriceModifyUpdateCount\(goodsKeyProductGroupMap\)/);
+  assert.match(flow, /titleTargetCount=\{titleTargetCount\}/);
+  assert.match(flow, /const titleTargetCount = expectedLaunchApplyCount\(goodsKeys, buildGoodsKeyGroupMap\(uploadRows\)\)/);
+  assert.match(flow, /출시 완료 - 경고 있음/);
+  assert.match(flow, /출시 보류 - 가격 확인 필요/);
+  assert.match(flow, /쇼핑몰별 판매가 0원 항목이 남아 있습니다/);
+  assert.match(flow, /가격 화면 검증 필요/);
+  assert.match(flow, /가격 API는 실행됐지만 샵플링 화면 기준 0원 여부를 확인하지 못했습니다/);
+  assert.match(flow, /setKeywordApplyState/);
+
+  assert.match(workspace, /onApplyStateChange/);
+  assert.match(workspace, /export type KeywordApplyState/);
+  assert.match(workspace, /dryRunStatus/);
+  assert.match(workspace, /realApplyStatus/);
+  assert.match(workspace, /appliedCount/);
+  assert.match(workspace, /failedCount/);
+  assert.match(workspace, /warningCount/);
+  assert.match(workspace, /requestId/);
+  assert.match(workspace, /lastUpdatedAt/);
+});

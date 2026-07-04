@@ -185,7 +185,17 @@ export type KeywordReviewWorkspaceContext = {
   autoApplyConfirmationText?: string;
 };
 
-export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: { mode?: "embedded" | "standalone"; launchContext?: KeywordReviewWorkspaceContext }) {
+export type KeywordApplyState = {
+  dryRunStatus: "idle" | "queued" | "running" | "success" | "failed" | "blocked" | "waiting_artifact";
+  realApplyStatus: "idle" | "queued" | "running" | "success" | "failed" | "blocked" | "waiting_artifact";
+  appliedCount: number;
+  failedCount: number;
+  warningCount: number;
+  requestId: string;
+  lastUpdatedAt: string;
+};
+
+export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onApplyStateChange }: { mode?: "embedded" | "standalone"; launchContext?: KeywordReviewWorkspaceContext; onApplyStateChange?: (state: KeywordApplyState) => void }) {
   const isEmbedded = mode === "embedded";
   const [importedArtifact, setImportedArtifact] =
     useState<ImportedArtifactPayload | null>(() =>
@@ -1032,6 +1042,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext }: {
         autoApplyToShopling={launchContext?.autoApplyToShopling === true}
         autoApplyConfirmationText={launchContext?.autoApplyConfirmationText ?? ""}
         autoDryRun={isEmbedded}
+        onApplyStateChange={onApplyStateChange}
       />
     </>
   );
@@ -1383,6 +1394,28 @@ function toOperationState(result: Record<string, unknown> | null, fallback: Oper
   return fallback;
 }
 
+function getApplySummary(result: Record<string, unknown> | null) {
+  return (result?.summary && typeof result.summary === "object" ? result.summary : {}) as Record<string, unknown>;
+}
+
+function getApplySummaryNumber(result: Record<string, unknown> | null, key: string) {
+  return Number(getApplySummary(result)[key] ?? 0);
+}
+
+function getApplyWarningCount(result: Record<string, unknown> | null) {
+  const summary = getApplySummary(result);
+  const warningValue = summary.warnings;
+  const explicitCount = Number(summary.warning_count ?? summary.warningCount ?? 0);
+  const warningArrayCount = Array.isArray(warningValue) ? warningValue.length : typeof warningValue === "string" && warningValue.trim() ? 1 : 0;
+  const underfilledCount = String(summary.underfilled_search_keywords ?? "").trim() ? 1 : 0;
+  return Math.max(explicitCount, warningArrayCount) + underfilledCount;
+}
+
+function normalizeApplyBoardStatus(result: Record<string, unknown> | null, metaState?: string): KeywordApplyState["dryRunStatus"] {
+  const state = toOperationState(result) || metaState || "idle";
+  return ["idle", "queued", "running", "success", "failed", "blocked", "waiting_artifact"].includes(state) ? state as KeywordApplyState["dryRunStatus"] : "idle";
+}
+
 function KeywordShoplingApplySection({
   preflightResult,
   maxRows,
@@ -1399,6 +1432,7 @@ function KeywordShoplingApplySection({
   autoApplyToShopling = false,
   autoApplyConfirmationText = "",
   autoDryRun = false,
+  onApplyStateChange,
 }: {
   preflightResult: KeywordExecutionPreflightResult | null;
   maxRows: string;
@@ -1415,6 +1449,7 @@ function KeywordShoplingApplySection({
   autoApplyToShopling?: boolean;
   autoApplyConfirmationText?: string;
   autoDryRun?: boolean;
+  onApplyStateChange?: (state: KeywordApplyState) => void;
 }) {
   const disabled = !preflightResult;
   const executionPlanJson = preflightResult ? buildCompactKeywordApplyExecutionPlan(preflightResult) : "";
@@ -1425,6 +1460,19 @@ function KeywordShoplingApplySection({
 
   const pendingMessage = "아직 실행 중이거나 결과 파일을 생성하는 중입니다. 잠시 후 자동으로 다시 확인합니다.";
   const loadingHelp = "실행 중입니다. 결과 가져오기를 반복해서 누르지 않아도 자동으로 확인합니다. GitHub Actions는 아직 실행 중입니다. 결과 artifact가 아직 생성되지 않았습니다. 이 상태는 실패가 아닙니다. 잠시 후 다시 확인합니다. 최종 실패는 GitHub Actions가 종료된 뒤에만 표시됩니다.";
+
+  useEffect(() => {
+    if (!onApplyStateChange) return;
+    onApplyStateChange({
+      dryRunStatus: normalizeApplyBoardStatus(dryRunResult, dryRunMeta.state),
+      realApplyStatus: normalizeApplyBoardStatus(realResult, realMeta.state),
+      appliedCount: getApplySummaryNumber(realResult, "applied_item_count"),
+      failedCount: getApplySummaryNumber(realResult, "failed_item_count"),
+      warningCount: getApplyWarningCount(dryRunResult) + getApplyWarningCount(realResult),
+      requestId: realMeta.requestId || dryRunMeta.requestId || "",
+      lastUpdatedAt: realMeta.fetchedAt || dryRunMeta.fetchedAt || new Date().toISOString(),
+    });
+  }, [dryRunMeta, dryRunResult, onApplyStateChange, realMeta, realResult]);
 
   function metaSetter(mode: "dry_run" | "apply") { return mode === "dry_run" ? setDryRunMeta : setRealMeta; }
 
