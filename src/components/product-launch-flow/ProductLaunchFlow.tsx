@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { KeywordReviewWorkspace } from "@/components/keyword-review/KeywordReviewWorkspace";
+import { KeywordReviewWorkspace, type KeywordApplyState } from "@/components/keyword-review/KeywordReviewWorkspace";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildGoodsKeyGroupJson,
@@ -10,6 +10,8 @@ import {
   buildKeywordEngineDispatchPayload,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
+  expectedLaunchApplyCount,
+  expectedPriceModifyUpdateCount,
   extractUploadRows,
   inferProductGroupFromPtnGoodsCd,
   type ProductLaunchPriceError,
@@ -50,7 +52,7 @@ const PRODUCT_LAUNCH_INLINE_REVIEW_COPY = [
 type RunResult = { status?: string; message?: string; requestId?: string; githubActionsUrl?: string; commandPreview?: string };
 type UploadSummary = { status?: unknown; rows?: ProductLaunchUploadRow[]; goods_keys?: ProductLaunchUploadRow[] };
 type UploadActionsResult = { status?: string; phase?: string; message?: string; requestId?: string; runId?: number; runStatus?: string; runConclusion?: string | null; runUrl?: string; summary?: UploadSummary | unknown };
-type PriceActionsResult = { status?: string; message?: string; requestId?: string; runStatus?: string; runConclusion?: string | null; runUrl?: string; summary?: { status?: unknown; exit_code?: unknown; goods_key_count?: unknown; estimated_mall_update_count?: unknown; policy_override_count?: unknown; ok_count?: unknown; fail_count?: unknown; failed_count?: unknown; not_applied_count?: unknown; blank_risk_count?: unknown; affected_malls?: unknown; errors?: ProductLaunchPriceError[]; verification_supported?: unknown; api_success_count?: unknown; required_update_count?: unknown; missing_price_count?: unknown; missing_mall_row_count?: unknown; mismatch_count?: unknown } };
+type PriceActionsResult = { status?: string; message?: string; requestId?: string; runStatus?: string; runConclusion?: string | null; runUrl?: string; summary?: { status?: unknown; exit_code?: unknown; goods_key_count?: unknown; estimated_mall_update_count?: unknown; policy_override_count?: unknown; ok_count?: unknown; fail_count?: unknown; failed_count?: unknown; not_applied_count?: unknown; blank_risk_count?: unknown; affected_malls?: unknown; errors?: ProductLaunchPriceError[]; verification_supported?: unknown; api_success_count?: unknown; required_update_count?: unknown; missing_price_count?: unknown; missing_mall_row_count?: unknown; mismatch_count?: unknown; visible_price_unrepaired_count?: unknown } };
 type KeywordArtifact = { id: number; name: string; expired?: boolean; expected?: boolean };
 type KeywordRun = { id: number; status?: string | null; conclusion?: string | null; createdAt?: string; htmlUrl?: string; artifacts?: KeywordArtifact[] };
 type KeywordRunsResult = { status?: string; message?: string; actionsUrl?: string; expectedArtifactName?: string; outputReviewRoute?: string; runs?: KeywordRun[] };
@@ -95,6 +97,7 @@ export function ProductLaunchFlow() {
   const [autopilotEnabled, setAutopilotEnabled] = useState(true);
   const [autoActualApplyEnabled, setAutoActualApplyEnabled] = useState(false);
   const [autoActualApplyConfirmation, setAutoActualApplyConfirmation] = useState("");
+  const [keywordApplyState, setKeywordApplyState] = useState<KeywordApplyState | null>(null);
   const autoPriceStartedForUploadRequestRef = useRef<string>("");
   const autoKeywordStartedForPriceRequestRef = useRef<string>("");
   const autoKeywordImportedArtifactRef = useRef<string>("");
@@ -181,6 +184,7 @@ export function ProductLaunchFlow() {
     setKeywordDispatchResult(null);
     setKeywordRunsResult(null);
     setKeywordImportMessage("");
+    setKeywordApplyState(null);
     autoPriceStartedForUploadRequestRef.current = "";
     autoKeywordStartedForPriceRequestRef.current = "";
     try {
@@ -370,6 +374,12 @@ export function ProductLaunchFlow() {
     keywordSuccess: !!keywordSummary.artifact,
     keywordFailed: hasKeywordFailure(keywordRunsResult),
   });
+  const boardMallCount = expectedPriceModifyUpdateCount(goodsKeyProductGroupMap);
+  const titleTargetCount = expectedLaunchApplyCount(goodsKeys, buildGoodsKeyGroupMap(uploadRows));
+  const actualApplyDone = keywordApplyState?.realApplyStatus === "success" && keywordApplyState.failedCount === 0 && keywordApplyState.appliedCount > 0;
+  const priceIssueState = getPriceIssueState(priceActionsResult);
+  const keywordWarningCount = getKeywordWarningCount(keywordApplyState);
+  const issueCount = getLaunchBoardIssueCount({ priceIssueState, uploadRows, goodsKeys, titleTargetCount, keywordApplyState, cockpit });
   const currentRequestId = rowMatchesCurrentRun ? (uploadRunning || uploadFetching || uploadPolling ? currentUploadRequestId : priceRequestId || currentUploadRequestId || keywordDispatchResult?.expectedArtifactName || "") : "";
   const previousRequestId = priceRequestId || uploadRequestId || keywordDispatchResult?.expectedArtifactName || "-";
   const lastCheckedAt = keywordLastCheckedAt ?? priceLastCheckedAt ?? uploadLastCheckedAt;
@@ -417,7 +427,7 @@ export function ProductLaunchFlow() {
 
   return (
     <div className="space-y-6">
-      <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={priceCounts.targetGoodsKeys} titleTargetCount={goodsKeys.length} keywordWarningCount={0} issueCount={cockpit.primaryAction === "failed" ? 1 : 0} actualApplyDone={false} onNext={runNextSafeStep} />
+      <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} priceIssueState={priceIssueState} onNext={runNextSafeStep} />
       <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} autoActualApplyConfirmation={autoActualApplyConfirmation} onAutoActualApplyConfirmationChange={setAutoActualApplyConfirmation} />
       {keywordSummary.artifact ? <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold text-emerald-700">키워드 결과 검토</p>
@@ -427,7 +437,7 @@ export function ProductLaunchFlow() {
         <div className="mt-4 flex flex-wrap gap-3"><button type="button" onClick={openInlineKeywordReview} disabled={!!keywordBusy} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">키워드 검토 시작</button><Link href="/keyword-review-queue?from=product-launch-flow" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">개별 키워드 검토 화면에서 열기</Link></div>
         {keywordImportMessage ? <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{keywordImportMessage}</p> : null}
       </section> : null}
-      {embeddedReviewOpen ? <KeywordReviewWorkspace mode="embedded" launchContext={{ rowExpression: lastStartedRowExpression || rowExpression, uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRunId: keywordRunsResult?.runs?.[0]?.id, artifactName: keywordSummary.artifact?.name, importedAt: keywordImportedAt || "확인 중", goodsKeyCount: goodsKeys.length, productGroupCount: new Set(uploadRows.map((row) => inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? ""))).size, uploadRows, goodsKeys, goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows), autoApplyToShopling: autoActualApplyEnabled === true && autoActualApplyConfirmation === "AUTO_APPLY_TO_SHOPLING", autoApplyConfirmationText: autoActualApplyConfirmation }} /> : null}
+      {embeddedReviewOpen ? <KeywordReviewWorkspace mode="embedded" launchContext={{ rowExpression: lastStartedRowExpression || rowExpression, uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRunId: keywordRunsResult?.runs?.[0]?.id, artifactName: keywordSummary.artifact?.name, importedAt: keywordImportedAt || "확인 중", goodsKeyCount: goodsKeys.length, productGroupCount: new Set(uploadRows.map((row) => inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? ""))).size, uploadRows, goodsKeys, goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows), autoApplyToShopling: autoActualApplyEnabled === true && autoActualApplyConfirmation === "AUTO_APPLY_TO_SHOPLING", autoApplyConfirmationText: autoActualApplyConfirmation }} onApplyStateChange={setKeywordApplyState} /> : null}
       {cockpit.primaryAction === "failed" ? <ErrorDrawer title="실패 원인" uploadResult={uploadActionsResult} priceResult={priceActionsResult} keywordResult={keywordRunsResult} requestId={previousRequestId} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} /> : null}
 
       <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -469,14 +479,18 @@ function SummaryCard({ label, value }: { label: string; value: string | number }
   return <div className="rounded-xl bg-white p-3"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-1 text-lg font-black text-slate-950">{value}</p></div>;
 }
 
-function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, keywordWarningCount, issueCount, actualApplyDone, onNext }: { state: ReturnType<typeof buildCockpit>; productCount: number; mallCount: number; titleTargetCount: number; keywordWarningCount: number; issueCount: number; actualApplyDone: boolean; onNext: () => void }) {
-  const status: string = actualApplyDone ? "실제 반영 완료" : state.primaryAction === "failed" ? "확인 필요" : state.primaryAction === "review" ? "출시 준비 완료" : state.primaryAction === "upload" ? "대기" : "진행 중";
-  const progress = Math.round((state.steps.filter((step) => step.state === "success").length / Math.max(state.steps.length, 1)) * 100);
+function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, keywordWarningCount, issueCount, actualApplyDone, priceIssueState, onNext }: { state: ReturnType<typeof buildCockpit>; productCount: number; mallCount: number; titleTargetCount: number; keywordWarningCount: number; issueCount: number; actualApplyDone: boolean; priceIssueState: PriceIssueState; onNext: () => void }) {
+  const hasCriticalPriceIssue = priceIssueState.kind === "critical";
+  const finalVerdict = state.primaryAction === "wait" ? "진행 중" : hasCriticalPriceIssue ? "출시 보류 - 가격 확인 필요" : actualApplyDone && keywordWarningCount > 0 && issueCount === keywordWarningCount ? "출시 완료 - 경고 있음" : actualApplyDone ? "출시 완료" : "출시 보류 - 실제 반영 미완료";
+  const status: string = finalVerdict;
+  const progress = actualApplyDone ? 100 : Math.round((state.steps.filter((step) => step.state === "success").length / Math.max(state.steps.length, 1)) * 100);
   const stages = ["상품업로드", "가격설정", "키워드 dry_run", "상품명 준비", "dry_run 점검", "실제 반영"];
   return <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
     <p className="text-sm font-black text-emerald-700">AI 상품출시 에이전트</p>
-    <h1 className="mt-1 text-2xl font-black text-slate-950">{actualApplyDone ? "출시 완료" : state.currentStage}</h1>
+    <h1 className="mt-1 text-2xl font-black text-slate-950">{actualApplyDone && !hasCriticalPriceIssue ? "출시 완료" : finalVerdict}</h1>
     {actualApplyDone ? <p className="mt-2 text-sm font-bold text-emerald-900">샵플링 상품명/검색어 반영까지 완료되었습니다.</p> : null}
+    {hasCriticalPriceIssue ? <p className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-bold text-red-800">가격 확인 필요<br />쇼핑몰별 판매가 0원 항목이 남아 있습니다.</p> : null}
+    {priceIssueState.kind === "unsupported" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">가격 화면 검증 필요<br />가격 API는 실행됐지만 샵플링 화면 기준 0원 여부를 확인하지 못했습니다.</p> : null}
     <div className="mt-4 grid gap-3 md:grid-cols-3">
       <SummaryCard label="현재 상태" value={status} />
       <SummaryCard label="다음 작업" value={state.nextAction} />
@@ -491,7 +505,7 @@ function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, 
       <SummaryCard label="문제 수" value={issueCount} />
     </div>
     {status === "상품명 일부 누락" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">상품명 일부 누락</p> : null}
-    {actualApplyDone ? <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>반영 상품 수: {titleTargetCount}</p><p>반영 쇼핑몰 수: {mallCount}</p><p>가격 상태: 확인 완료</p><p>검색어 경고 수: {keywordWarningCount}</p><p>다음 수동 작업: 샵플링에서 마켓전송 전 최종 확인</p></div> : null}
+    {actualApplyDone ? <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>반영 상품 수: {titleTargetCount}</p><p>반영 쇼핑몰 수: {mallCount}</p><p>가격 상태: {priceIssueState.label}</p><p>검색어 경고 수: {keywordWarningCount}</p><p>다음 수동 작업: 샵플링에서 마켓전송 전 최종 확인</p></div> : null}
     <button type="button" onClick={onNext} className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white">{state.nextAction}</button>
   </section>;
 }
@@ -694,6 +708,31 @@ function StatusBlock({ result, requestId }: { result: RunResult | null; requestI
 function ResultRow({ label, value, mono }: { label: string; value: string | number; mono?: boolean }) { return <div className="grid gap-1 border-b border-slate-100 pb-3 md:grid-cols-[220px_1fr]"><dt className="font-semibold text-slate-700">{label}</dt><dd className={mono ? "font-mono text-slate-900" : "text-slate-900"}>{value}</dd></div>; }
 function getStoredValue(key: string) { if (typeof window === "undefined") return ""; return window.localStorage.getItem(key) ?? ""; }
 function persistValue(key: string, value: string) { if (typeof window !== "undefined") window.localStorage.setItem(key, value); }
+
+type PriceIssueState = { kind: "ok" | "critical" | "unsupported" | "unknown"; count: number; label: string };
+
+function getPriceIssueState(result: PriceActionsResult | null): PriceIssueState {
+  const summary = result?.summary;
+  if (!summary) return { kind: "unknown", count: 0, label: "확인 전" };
+  const visibleUnrepaired = Number(summary.visible_price_unrepaired_count ?? 0);
+  const missingPrice = Number(summary.missing_price_count ?? 0);
+  const count = visibleUnrepaired + missingPrice;
+  if (count > 0) return { kind: "critical", count, label: "가격 확인 필요" };
+  if (summary.verification_supported === false) return { kind: "unsupported", count: 0, label: "가격 화면 검증 필요" };
+  return { kind: "ok", count: 0, label: "확인 완료" };
+}
+
+function getKeywordWarningCount(state: KeywordApplyState | null) {
+  return state?.warningCount ?? 0;
+}
+
+function getLaunchBoardIssueCount({ priceIssueState, uploadRows, goodsKeys, titleTargetCount, keywordApplyState, cockpit }: { priceIssueState: PriceIssueState; uploadRows: ProductLaunchUploadRow[]; goodsKeys: string[]; titleTargetCount: number; keywordApplyState: KeywordApplyState | null; cockpit: ReturnType<typeof buildCockpit> }) {
+  const missingProductGroupCount = Object.values(buildGoodsKeyGroupMap(uploadRows)).filter((metadata) => metadata.product_group_status !== "registered").length;
+  const titleCoverageMissingCount = Math.max(0, expectedLaunchApplyCount(goodsKeys, buildGoodsKeyGroupMap(uploadRows)) - titleTargetCount);
+  const failedDryRunOrApplyCount = [keywordApplyState?.dryRunStatus, keywordApplyState?.realApplyStatus].filter((status) => status === "failed").length;
+  const actualApplyFailedCount = keywordApplyState?.failedCount ?? 0;
+  return priceIssueState.count + missingProductGroupCount + titleCoverageMissingCount + failedDryRunOrApplyCount + actualApplyFailedCount + (cockpit.primaryAction === "failed" ? 1 : 0) + (keywordApplyState?.warningCount ?? 0);
+}
 
 function getUploadCounts(result: UploadActionsResult | null, rows: ProductLaunchUploadRow[], rowsWithGoodsKey: ProductLaunchUploadRow[]) {
   return { targetRows: rows.length, goodsKeyCount: rowsWithGoodsKey.length, failedRows: rows.filter(isFailedUploadRow).length, duplicateRows: rows.filter(isDuplicatePtnGoodsCdError).length };
