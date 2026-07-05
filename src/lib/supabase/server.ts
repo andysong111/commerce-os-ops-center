@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { getSupabasePublicConfig } from "@/lib/supabase/config";
 
 type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
 
@@ -25,15 +26,13 @@ type SupabaseQueryBuilder = PromiseLike<{ data: unknown; error: { message: strin
 };
 
 export async function createSupabaseServerClient(): Promise<SupabaseServerClient | null> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
-  if (!supabaseUrl || !supabasePublishableKey) return null;
+  const config = getSupabasePublicConfig();
+  if (!config.ok) return null;
 
   try {
     const { createServerClient } = await dynamicImportSupabaseSsr();
     const cookieStore = await cookies();
-    return createServerClient(supabaseUrl, supabasePublishableKey, {
+    return createServerClient(config.url, config.publicKey, {
       cookies: {
         getAll() {
           return cookieStore.getAll();
