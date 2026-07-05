@@ -43,7 +43,7 @@ export async function createSupabaseServerClient(): Promise<SupabaseServerClient
           } catch {}
         },
       },
-    }) as SupabaseServerClient;
+    }) as unknown as SupabaseServerClient;
   } catch {
     return null;
   }
