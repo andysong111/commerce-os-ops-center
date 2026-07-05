@@ -22,6 +22,8 @@ import {
 import { buildMallSpecificTitleVariant, sourceFromReviewedRow } from "@/lib/productTitleVariants";
 import { getMarketsForProductGroup } from "@/lib/productGroupMarketRegistry";
 import {
+  BLANK_MALL_TITLE_BLOCK_MESSAGE,
+  PARTIAL_MALL_TITLE_BLOCK_MESSAGE,
   LAUNCH_TITLE_BLOCK_REASON_LABELS,
   computeLaunchTitleCoverage,
   expectedLaunchApplyCount,
@@ -463,7 +465,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   function ensureLaunchCoverageBeforeApply(preview?: KeywordPayloadPreviewResult, coverageRows: ReviewedKeywordRow[] = rows) {
     const coverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows: coverageRows });
     if (isEmbedded && !partialApplyOverride && coverage.missingGoodsKeys.length > 0) {
-      setGuidedActionStatus(`전체 상품그룹 반영 준비가 끝나지 않았습니다. 누락 상품명을 자동 보강하거나 문제 상품을 확인하세요. 누락: ${coverage.missingGoodsKeys.join(", ")}`);
+      setGuidedActionStatus(`${BLANK_MALL_TITLE_BLOCK_MESSAGE} ${PARTIAL_MALL_TITLE_BLOCK_MESSAGE} 누락: ${coverage.missingGoodsKeys.join(", ")}`);
       return false;
     }
     const count = preview?.expandedItemCount ?? payloadPreview?.expandedItemCount ?? 0;
@@ -1052,7 +1054,7 @@ function LaunchCoveragePanel({ coverage, expectedFullApplyCount, actualApplyCoun
   const missingLabels = coverage.missingGoodsKeys.map((goodsKey) => `${goodsKey}${goodsKeyGroupMap[goodsKey]?.product_group ? ` (${goodsKeyGroupMap[goodsKey]?.product_group})` : ""}`);
   return <section className={`mb-6 rounded-2xl border p-5 shadow-sm ${coverage.covered && !mismatch ? "border-emerald-200 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
     <h2 className="text-lg font-black text-slate-950">상품명 반영 커버리지</h2>
-    {coverage.covered ? <p className="mt-2 text-sm font-bold text-emerald-800">{coverage.launchGoodsKeys.length}개 상품그룹 모두 반영 준비 완료</p> : <div className="mt-2 space-y-2 text-sm font-semibold text-amber-950"><p>{coverage.launchGoodsKeys.length}개 중 {coverage.approvedGoodsKeys.length}개 준비됨</p><p>{coverage.missingGoodsKeys.length}개 상품그룹이 아직 반영 대상에 포함되지 않았습니다.</p><p className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-red-700">전체 상품그룹 반영 준비가 끝나지 않았습니다. 누락 상품명을 자동 보강하거나 문제 상품을 확인하세요.</p></div>}
+    <p className="mt-2 text-sm font-semibold text-slate-700">준비 {coverage.titleReadyCount} / 누락 {coverage.titleBlankCount} / 차단 {coverage.titleBlockedCount}</p>{coverage.covered ? <p className="mt-2 text-sm font-bold text-emerald-800">{coverage.launchGoodsKeys.length}개 상품그룹 모두 반영 준비 완료</p> : <div className="mt-2 space-y-2 text-sm font-semibold text-amber-950"><p>{coverage.launchGoodsKeys.length}개 중 {coverage.approvedGoodsKeys.length}개 준비됨</p><p>{coverage.missingGoodsKeys.length}개 상품그룹이 아직 반영 대상에 포함되지 않았습니다.</p><p className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-red-700">{BLANK_MALL_TITLE_BLOCK_MESSAGE}</p><p className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-red-700">{PARTIAL_MALL_TITLE_BLOCK_MESSAGE}</p></div>}
     {mismatch ? <p className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">반영 대상이 일부 상품그룹으로 제한되었습니다. 전체 출시 기준 예상 {expectedFullApplyCount}개 중 {actualApplyCount}개만 준비되었습니다.</p> : null}
     {missingLabels.length > 0 ? <ul className="mt-3 list-disc pl-5 text-sm text-slate-800">{missingLabels.map((label) => <li key={label}>{label}</li>)}</ul> : null}
     {coverage.blockedGoodsKeys.length > 0 ? <div className="mt-3 grid gap-2 text-sm">{coverage.blockedGoodsKeys.map((item) => <p key={item.goodsKey} className="rounded-lg bg-white px-3 py-2"><strong>{item.goodsKey}</strong>: {LAUNCH_TITLE_BLOCK_REASON_LABELS[item.reason]}</p>)}</div> : null}
