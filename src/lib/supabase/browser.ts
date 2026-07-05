@@ -1,11 +1,11 @@
-export async function createSupabaseBrowserClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+import { getSupabasePublicConfig } from "@/lib/supabase/config";
 
-  if (!supabaseUrl || !supabasePublishableKey) return null;
+export async function createSupabaseBrowserClient() {
+  const config = getSupabasePublicConfig();
+  if (!config.ok) return null;
 
   const { createBrowserClient } = await dynamicImportSupabaseSsr();
-  return createBrowserClient(supabaseUrl, supabasePublishableKey);
+  return createBrowserClient(config.url, config.publicKey);
 }
 
 async function dynamicImportSupabaseSsr(): Promise<{ createBrowserClient: (url: string, key: string) => unknown }> {
