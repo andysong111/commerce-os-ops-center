@@ -296,7 +296,7 @@ test("ProductLaunchFlow builds goods_key group mapping for price modify", () => 
   assert.equal(buildGoodsKeyGroupJson(uploadRows), JSON.stringify(expected));
 });
 
-test("mixed 6-group launch expected price update count is 36 and not 24 per goods", () => {
+test("price board count uses goodsKeys.length times 24", () => {
   const uploadRows = [
     { goods_key: "121207", ptn_goods_cd: "BASE-1a" },
     { goods_key: "121208", ptn_goods_cd: "BASE-1b" },
@@ -306,15 +306,16 @@ test("mixed 6-group launch expected price update count is 36 and not 24 per good
     { goods_key: "121212", ptn_goods_cd: "BASE-1f" },
   ];
   const mapping = buildGoodsKeyProductGroupMap(uploadRows);
-  assert.equal(expectedPriceModifyUpdateCount(mapping), 36);
-  assert.notEqual(expectedPriceModifyUpdateCount(mapping), uploadRows.length * 24);
+  assert.equal(expectedPriceModifyUpdateCount(mapping), uploadRows.length * 24);
+  assert.equal(expectedPriceModifyUpdateCount(mapping), 144);
 });
 
 test("ProductLaunchFlow price modify dispatch contains goods_key_group_json and summary copy", async () => {
   const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   assert.match(source, /goods_key_group_json: buildGoodsKeyGroupJson\(uploadRows\)/);
-  assert.match(source, /가격설정 대상: 상품그룹 연결 쇼핑몰 기준/);
-  assert.doesNotMatch(source, /goods_key count × 24/);
+  assert.match(source, /가격 정책: 전체 쇼핑몰 가격 일괄 적용/);
+  assert.match(source, /상품명\/검색어는 상품그룹별로 다르게 반영하고, 가격은 모든 쇼핑몰에 동일 정책으로 채웁니다\./);
+  assert.match(source, /goodsKeyCount \* FULL_PRICE_POLICY_MALL_COUNT/);
 });
 
 test("product launch flow sources do not include restricted execution or credential literals", async () => {
