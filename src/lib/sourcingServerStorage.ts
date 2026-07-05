@@ -11,7 +11,7 @@ export type ConfigCheck = { ok: true } | { ok: false; missing: string[]; message
 export function getSourcingStorageConfig(env: NodeJS.ProcessEnv = process.env): SourcingStorageConfig {
   return {
     supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL,
-    supabasePublishableKey: env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    supabasePublishableKey: env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     supabaseSecretKey: env.SUPABASE_SECRET_KEY,
   };
 }
@@ -19,7 +19,7 @@ export function getSourcingStorageConfig(env: NodeJS.ProcessEnv = process.env): 
 export function validateSourcingStorageConfig(config = getSourcingStorageConfig()): ConfigCheck {
   const missing = [
     ["NEXT_PUBLIC_SUPABASE_URL", config.supabaseUrl],
-    ["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", config.supabasePublishableKey],
+    ["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY", config.supabasePublishableKey],
     ["SUPABASE_SECRET_KEY", config.supabaseSecretKey],
   ]
     .filter(([, value]) => !value)
@@ -62,6 +62,10 @@ function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 export function normalizeRecommendationCardPayload(payload: unknown): RecommendationCard {
   if (!payload || typeof payload !== "object") {
     throw new Error("Card payload must be an object.");
@@ -69,7 +73,7 @@ export function normalizeRecommendationCardPayload(payload: unknown): Recommenda
 
   const card = payload as Partial<RecommendationCard>;
   return {
-    id: asString(card.id, crypto.randomUUID()),
+    id: asString(card.id, `sourcing-card-${Date.now()}`),
     decision: card.decision === "HOLD" || card.decision === "REJECT" ? card.decision : "ORDER_READY",
     decisionLabel: asString(card.decisionLabel, "Order ready"),
     mode: card.mode === "DISCOVER_NEW" ? "DISCOVER_NEW" : "FOLLOW_PROVEN",
@@ -97,7 +101,6 @@ export function normalizeRecommendationCardPayload(payload: unknown): Recommenda
 
 export function cardToRecommendationRow(card: RecommendationCard, organizationId: string) {
   return {
-    id: card.id,
     organization_id: organizationId,
     decision: card.decision,
     korean_product_name: card.koreanProductName,
@@ -134,7 +137,7 @@ export function normalizeFeedbackPayload(payload: unknown): SourcingFeedback {
 export function feedbackToRow(feedback: SourcingFeedback, organizationId: string) {
   return {
     organization_id: organizationId,
-    card_id: feedback.cardId || null,
+    card_id: feedback.cardId && isUuid(feedback.cardId) ? feedback.cardId : null,
     human_order_decision: feedback.humanOrderDecision,
     sales_result: feedback.salesResult,
     reordered: feedback.reordered,
