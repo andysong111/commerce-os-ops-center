@@ -1,17 +1,22 @@
 import type { RecommendationCard, SourcingFeedback } from "@/lib/sourcingEngine";
+import { getSupabasePublicConfig } from "@/lib/supabase/config";
 
 export type SourcingStorageConfig = {
   supabaseUrl?: string;
-  supabasePublishableKey?: string;
+  supabasePublicKey?: string;
+  supabasePublicKeyName?: string | null;
   supabaseSecretKey?: string;
 };
 
 export type ConfigCheck = { ok: true } | { ok: false; missing: string[]; message: string };
 
 export function getSourcingStorageConfig(env: NodeJS.ProcessEnv = process.env): SourcingStorageConfig {
+  const publicConfig = getSupabasePublicConfig(env);
+
   return {
-    supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL,
-    supabasePublishableKey: env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    supabaseUrl: publicConfig.url,
+    supabasePublicKey: publicConfig.publicKey,
+    supabasePublicKeyName: publicConfig.publicKeyName,
     supabaseSecretKey: env.SUPABASE_SECRET_KEY,
   };
 }
@@ -19,7 +24,7 @@ export function getSourcingStorageConfig(env: NodeJS.ProcessEnv = process.env): 
 export function validateSourcingStorageConfig(config = getSourcingStorageConfig()): ConfigCheck {
   const missing = [
     ["NEXT_PUBLIC_SUPABASE_URL", config.supabaseUrl],
-    ["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", config.supabasePublishableKey],
+    ["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY", config.supabasePublicKey],
     ["SUPABASE_SECRET_KEY", config.supabaseSecretKey],
   ]
     .filter(([, value]) => !value)
