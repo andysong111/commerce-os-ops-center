@@ -11,6 +11,10 @@ export type ProductLaunchUploadRow = {
   status?: string;
   message?: string;
   msg?: string;
+  title?: string;
+  product_name?: string;
+  productTitle?: string;
+  upload_title?: string;
 };
 
 export type ProductLaunchPriceSummary = {
@@ -82,6 +86,10 @@ export function extractUploadRows(uploadResult: unknown): ProductLaunchUploadRow
     status: stringify(row.status),
     message: stringify(row.message),
     msg: stringify(row.msg),
+    title: stringify(row.title),
+    product_name: stringify(row.product_name),
+    productTitle: stringify(row.productTitle),
+    upload_title: stringify(row.upload_title),
   }));
 }
 
@@ -171,10 +179,44 @@ export const LAUNCH_TITLE_BLOCK_REASON_LABELS: Record<LaunchTitleBlockReason, st
   missing_product_group: "상품그룹을 확인할 수 없습니다.",
 };
 
-export function isSafeLaunchTitle(title: unknown): title is string {
+export const BLANK_MALL_TITLE_BLOCK_MESSAGE = "쇼핑몰별 상품명이 비어 있어 실제 반영을 중단했습니다.";
+export const PARTIAL_MALL_TITLE_BLOCK_MESSAGE = "상품명 반영 대상 중 일부가 비어 있습니다. 누락 상품명을 자동 보강하세요.";
+
+export function readRawString(row: { raw?: Record<string, string> } | Record<string, unknown> | undefined, keys: string[]): string {
+  if (!row || typeof row !== "object") return "";
+  const direct = row as Record<string, unknown>;
+  for (const key of keys) {
+    const value = direct[key];
+    if (value !== null && value !== undefined && String(value).trim()) return String(value);
+  }
+  const raw = "raw" in direct && direct.raw && typeof direct.raw === "object" ? direct.raw as Record<string, unknown> : {};
+  for (const key of keys) {
+    const value = raw[key];
+    if (value !== null && value !== undefined && String(value).trim()) return String(value);
+  }
+  return "";
+}
+
+export function isSafeMallTitle(title: unknown): title is string {
   const value = String(title ?? "").replace(/\s+/g, " ").trim();
   if (!value || value === "-") return false;
   return !/^\d+$/.test(value);
+}
+
+export function isSafeLaunchTitle(title: unknown): title is string {
+  return isSafeMallTitle(title);
+}
+
+export function resolveMallTitle(row: LaunchCoverageRowLike, uploadRow?: ProductLaunchUploadRow): string {
+  const candidates = [
+    row.editedTitle,
+    row.recommendedTitle,
+    readRawString(row, ["mall_title", "final_title", "new_title", "recommended_title", "suggested_title"]),
+    row.originalTitle,
+    readRawString(row, ["current_title", "old_title", "original_title", "title"]),
+    readRawString(uploadRow, ["title", "product_name", "productTitle", "upload_title", "original_title"]),
+  ];
+  return String(candidates.find(isSafeMallTitle) ?? "").replace(/\s+/g, " ").trim();
 }
 
 export function getLaunchGoodsKeys(goodsKeys: string[] = [], uploadRows: ProductLaunchUploadRow[] = []) {
@@ -190,19 +232,26 @@ export function computeLaunchTitleCoverage(input: {
   rows: LaunchCoverageRowLike[];
 }) {
   const launchGoodsKeys = getLaunchGoodsKeys(input.goodsKeys ?? [], input.uploadRows ?? []);
-  const approvedGoodsKeys = new Set(input.rows.filter((row) => row.reviewStatus === "approved" && launchGoodsKeys.includes(String(row.goodsKey ?? "").trim())).map((row) => String(row.goodsKey ?? "").trim()));
-  const missingGoodsKeys = launchGoodsKeys.filter((goodsKey) => !approvedGoodsKeys.has(goodsKey));
+  const uploadRowsByGoodsKey = new Map((input.uploadRows ?? []).map((row) => [(row.goods_key ?? "").trim(), row]));
+  const approvedRows = input.rows.filter((row) => row.reviewStatus === "approved" && launchGoodsKeys.includes(String(row.goodsKey ?? "").trim()));
+  const approvedGoodsKeys = new Set(approvedRows.map((row) => String(row.goodsKey ?? "").trim()));
+  const readyGoodsKeys = new Set(approvedRows.filter((row) => resolveMallTitle(row, uploadRowsByGoodsKey.get(String(row.goodsKey ?? "").trim()))).map((row) => String(row.goodsKey ?? "").trim()));
+  const missingGoodsKeys = launchGoodsKeys.filter((goodsKey) => !readyGoodsKeys.has(goodsKey));
   const blockedGoodsKeys = missingGoodsKeys.map((goodsKey) => {
     const candidates = input.rows.filter((row) => String(row.goodsKey ?? "").trim() === goodsKey);
+    const uploadRow = uploadRowsByGoodsKey.get(goodsKey);
     const hasCandidate = candidates.length > 0;
-    const hasAnySafeTitle = candidates.some((row) => [row.editedTitle, row.recommendedTitle, row.originalTitle].some(isSafeLaunchTitle));
-    const hasNumericOnly = candidates.some((row) => [row.editedTitle, row.recommendedTitle, row.originalTitle].some((title) => /^\d+$/.test(String(title ?? "").trim())));
+    const hasAnySafeTitle = candidates.some((row) => Boolean(resolveMallTitle(row, uploadRow))) || isSafeMallTitle(readRawString(uploadRow, ["title", "product_name", "productTitle", "upload_title", "original_title"]));
+    const hasNumericOnly = candidates.some((row) => [row.editedTitle, row.recommendedTitle, row.originalTitle, readRawString(row, ["mall_title", "final_title", "title"])].some((title) => /^\d+$/.test(String(title ?? "").trim())));
     const missingGroup = candidates.some((row) => String(row.productGroup ?? "").includes("확인 필요"));
     const gatherFailed = candidates.some((row) => /gather|조회|product/i.test(`${row.blockReason ?? ""} ${row.classification ?? ""}`));
     const reason: LaunchTitleBlockReason = missingGroup ? "missing_product_group" : gatherFailed ? "product_gather_failed" : hasNumericOnly && !hasAnySafeTitle ? "numeric_only" : hasCandidate ? "numeric_only" : "no_candidate";
     return { goodsKey, reason, label: LAUNCH_TITLE_BLOCK_REASON_LABELS[reason] };
   });
-  return { launchGoodsKeys, approvedGoodsKeys: [...approvedGoodsKeys], missingGoodsKeys, blockedGoodsKeys, covered: missingGoodsKeys.length === 0 };
+  const titleReadyCount = readyGoodsKeys.size;
+  const titleBlankCount = launchGoodsKeys.length - titleReadyCount;
+  const titleBlockedCount = blockedGoodsKeys.length;
+  return { launchGoodsKeys, approvedGoodsKeys: [...approvedGoodsKeys], missingGoodsKeys, blockedGoodsKeys, titleReadyCount, titleBlankCount, titleBlockedCount, covered: missingGoodsKeys.length === 0 };
 }
 
 export function buildGoodsKeyProductGroupMap(rows: ProductLaunchUploadRow[]) {
