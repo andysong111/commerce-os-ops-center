@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await resolved.context.supabase
     .from("recommendation_cards")
-    .upsert(cardToRecommendationRow(card, resolved.context.organizationId), { onConflict: "id" })
+    .insert(cardToRecommendationRow(card, resolved.context.organizationId))
     .select("card_payload")
     .single();
 
