@@ -449,8 +449,11 @@ test("keyword apply auto confirmation safety remains strict", async () => {
   assert.match(applyEffect, /autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING"/);
 
   assert.match(productLaunchFlow, /const \[autoActualApplyEnabled, setAutoActualApplyEnabled\] = useState\(false\)/);
-  assert.match(productLaunchFlow, /autoActualApplyEnabled === true && autoActualApplyConfirmation === "AUTO_APPLY_TO_SHOPLING"/);
-  assert.match(productLaunchFlow, /autoApplyConfirmationText: autoActualApplyConfirmation/);
+  assert.doesNotMatch(productLaunchFlow, /autoActualApplyConfirmation/);
+  assert.doesNotMatch(productLaunchFlow, /placeholder="AUTO_APPLY_TO_SHOPLING"/);
+  assert.match(productLaunchFlow, /window\.confirm\("실제 샵플링 상품명\/검색어 반영까지 자동 실행합니다\. 계속하시겠습니까\?"\)/);
+  assert.match(productLaunchFlow, /autoApplyToShopling: autoActualApplyEnabled === true/);
+  assert.match(productLaunchFlow, /autoApplyConfirmationText: autoActualApplyEnabled === true \? "AUTO_APPLY_TO_SHOPLING" : ""/);
   assert.doesNotMatch(productLaunchFlow, /keywordShoplingApply/);
   assert.doesNotMatch(productLaunchFlow, /\/api\/keyword-shopling-apply/);
 });
@@ -492,6 +495,10 @@ test("AI launch agent board and automatic review preparation source exists", asy
   assert.match(workspace, /void run\("dry_run", true\)/);
   assert.match(workspace, /if \(disabled \|\| !dryRunSucceeded\) return;\n    if \(autoApplyToShopling !== true\) return;\n    if \(autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING"\) return;/);
   assert.match(flow, /const \[autoActualApplyEnabled, setAutoActualApplyEnabled\] = useState\(false\)/);
+  assert.match(flow, /if \(!checked\) \{\n      onAutoActualApplyEnabledChange\(false\);\n      return;\n    \}/);
+  assert.match(flow, /onAutoActualApplyEnabledChange\(confirmed\)/);
+  assert.match(flow, /켜면 상품업로드, 가격설정, 키워드 dry_run, 상품명 준비, 실제 샵플링 반영까지 자동으로 진행합니다/);
+  assert.match(flow, /실제 반영은 되돌리기 어려우므로 처음 켤 때 한 번 확인합니다/);
 });
 
 test("AI launch board derives final apply, counts, verdicts, and price issue copy", async () => {
