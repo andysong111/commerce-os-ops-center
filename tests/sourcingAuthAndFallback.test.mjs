@@ -23,5 +23,5 @@ test("card local fallback upserts latest card and reports auth fallback", () => 
 test("server API not configured guard reports missing keys", () => {
   const check = validateSourcingStorageConfig({});
   assert.equal(check.ok, false);
-  assert.deepEqual(check.missing, ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY"]);
+  assert.deepEqual(check.missing, ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SECRET_KEY"]);
 });

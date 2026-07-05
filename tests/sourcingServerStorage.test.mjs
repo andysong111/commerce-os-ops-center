@@ -13,7 +13,7 @@ test("Supabase API config guard reports missing env without throwing", () => {
   assert.equal(check.ok, false);
   assert.deepEqual(check.missing, [
     "NEXT_PUBLIC_SUPABASE_URL",
-    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY",
     "SUPABASE_SECRET_KEY",
   ]);
   assert.match(check.message, /not configured/i);

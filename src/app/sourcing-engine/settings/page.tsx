@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { validateSourcingStorageConfig } from "@/lib/sourcingServerStorage";
+import { validateSourcingStorageConfig, getSourcingStorageConfig } from "@/lib/sourcingServerStorage";
 
 export default async function SourcingSettingsPage() {
   const config = validateSourcingStorageConfig();
+  const storageConfig = getSourcingStorageConfig();
   const supabase = await createSupabaseServerClient();
   const { data } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
   const email = data.user?.email ?? "Not signed in";
@@ -23,6 +24,7 @@ export default async function SourcingSettingsPage() {
           <h2 className="text-sm font-bold text-slate-950">API status</h2>
           <dl className="mt-3 space-y-3 text-sm">
             <StatusRow label="Supabase env configured" value={config.ok ? "Yes" : `No (${config.missing.join(", ")})`} ok={config.ok} />
+            <StatusRow label="Supabase public key env" value={storageConfig.supabasePublicKeyName ?? "Not configured"} ok={Boolean(storageConfig.supabasePublicKeyName)} />
             <StatusRow label="Signed-in user" value={email} ok={Boolean(data.user)} />
             <StatusRow label="SOURCING_ORGANIZATION_ID" value={organizationId} ok={Boolean(process.env.SOURCING_ORGANIZATION_ID)} />
             <StatusRow label="/api/sourcing/cards usable" value={cardsUsable ? "Yes" : "No — localStorage fallback remains active"} ok={cardsUsable} />
