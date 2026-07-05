@@ -217,8 +217,10 @@ export function buildGoodsKeyGroupJson(rows: ProductLaunchUploadRow[]) {
   return JSON.stringify(buildGoodsKeyProductGroupMap(rows));
 }
 
+export const FULL_PRICE_POLICY_MALL_COUNT = 24;
+
 export function expectedPriceModifyUpdateCount(goodsKeyProductGroupMap: Record<string, string>) {
-  return Object.values(goodsKeyProductGroupMap).reduce((sum, productGroup) => sum + getMarketsForLaunchProductGroup(productGroup), 0);
+  return Object.keys(goodsKeyProductGroupMap).length * FULL_PRICE_POLICY_MALL_COUNT;
 }
 
 export function getProductGroupMallCounts(goodsKeyProductGroupMap: Record<string, string>) {
