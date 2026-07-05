@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
 
 type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
@@ -30,7 +31,6 @@ export async function createSupabaseServerClient(): Promise<SupabaseServerClient
   if (!config.ok) return null;
 
   try {
-    const { createServerClient } = await dynamicImportSupabaseSsr();
     const cookieStore = await cookies();
     return createServerClient(config.url, config.publicKey, {
       cookies: {
@@ -47,10 +47,4 @@ export async function createSupabaseServerClient(): Promise<SupabaseServerClient
   } catch {
     return null;
   }
-}
-
-async function dynamicImportSupabaseSsr(): Promise<{
-  createServerClient: (url: string, key: string, options: unknown) => unknown;
-}> {
-  return Function("specifier", "return import(specifier)")("@supabase/ssr");
 }
