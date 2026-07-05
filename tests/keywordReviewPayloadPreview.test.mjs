@@ -63,7 +63,7 @@ for (const [name, overrides, error] of [
   [
     "final_title",
     { editedTitle: "", recommendedTitle: "" },
-    "상품명을 입력하세요.",
+    "쇼핑몰별 상품명이 비어 있어 실제 반영을 중단했습니다.",
   ],
   [
     "final_site_srch",
@@ -131,6 +131,9 @@ test("preview summary counts all outcomes", () => {
     invalidCount: 1,
     heldCount: 1,
     blockedRiskCount: 1,
+    titleReadyCount: 1,
+    titleBlankCount: 1,
+    titleBlockedCount: 1,
   });
 });
 
@@ -148,4 +151,44 @@ test("preview implementation contains no live Shopling API execution", async () 
   const source = files.join("\n");
   assert.doesNotMatch(source, /\bfetch\s*\(/);
   assert.doesNotMatch(source, /\/api\/shopling/i);
+});
+
+
+test("blank mall title blocks payload preview", () => {
+  const [item] = buildKeywordShoplingPayloadPreview([
+    row({ editedTitle: "", recommendedTitle: "", originalTitle: "", raw: {} }),
+  ]).items;
+  assert.equal(item.payload_status, "invalid");
+  assert.equal(item.preview_payload, null);
+  assert.ok(item.validation_errors.includes("쇼핑몰별 상품명이 비어 있어 실제 반영을 중단했습니다."));
+});
+
+test("numeric-only fallback is not allowed", () => {
+  const [item] = buildKeywordShoplingPayloadPreview([
+    row({ goodsKey: "121044", editedTitle: "", recommendedTitle: "121044", originalTitle: "-", raw: { registered_title: "121044" } }),
+  ]).items;
+  assert.equal(item.payload_status, "invalid");
+  assert.equal(item.final_title, "");
+});
+
+test("originalTitle fallback fills missing title", () => {
+  const [item] = buildKeywordShoplingPayloadPreview([
+    row({ editedTitle: "", recommendedTitle: "", originalTitle: "Original fallback title" }),
+  ]).items;
+  assert.equal(item.payload_status, "preview_ready");
+  assert.equal(item.final_title, "Original fallback title");
+});
+
+test("upload registered_title fallback fills missing title", () => {
+  const [item] = buildKeywordShoplingPayloadPreview([
+    row({ editedTitle: "", recommendedTitle: "", originalTitle: "-", raw: { registered_title: "Upload registered title" } }),
+  ]).items;
+  assert.equal(item.payload_status, "preview_ready");
+  assert.equal(item.final_title, "Upload registered title");
+});
+
+test("source contains strict blank title block copy", async () => {
+  const source = await readFile(new URL("../src/lib/keywordReviewPayloadPreview.ts", import.meta.url), "utf8");
+  assert.match(source, /쇼핑몰별 상품명이 비어 있어 실제 반영을 중단했습니다/);
+  assert.match(source, /상품명 반영 대상 중 일부가 비어 있습니다/);
 });

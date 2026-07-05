@@ -17,6 +17,8 @@ import { KEYWORD_REVIEW_QUEUE_SAMPLE_CSV } from "@/lib/keywordReviewQueueSample"
 import {
   buildKeywordShoplingPayloadPreview,
   exportKeywordPayloadPreview,
+  BLANK_MALL_TITLE_BLOCK_MESSAGE,
+  PARTIAL_MALL_TITLE_BLOCK_MESSAGE,
   type KeywordPayloadPreviewResult,
 } from "@/lib/keywordReviewPayloadPreview";
 import { buildMallSpecificTitleVariant, sourceFromReviewedRow } from "@/lib/productTitleVariants";
@@ -466,9 +468,20 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
       setGuidedActionStatus(`전체 상품그룹 반영 준비가 끝나지 않았습니다. 누락 상품명을 자동 보강하거나 문제 상품을 확인하세요. 누락: ${coverage.missingGoodsKeys.join(", ")}`);
       return false;
     }
-    const count = preview?.expandedItemCount ?? payloadPreview?.expandedItemCount ?? 0;
+    const activePreview = preview ?? payloadPreview;
+    const count = activePreview?.expandedItemCount ?? 0;
+    const titleReadyCount = activePreview?.summary.titleReadyCount ?? count;
+    const titleBlankCount = activePreview?.summary.titleBlankCount ?? 0;
+    if (activePreview && titleBlankCount > 0) {
+      setGuidedActionStatus(BLANK_MALL_TITLE_BLOCK_MESSAGE);
+      return false;
+    }
     if (isEmbedded && !partialApplyOverride && expectedFullApplyCount > 0 && count > 0 && count < expectedFullApplyCount) {
       setGuidedActionStatus(`반영 대상이 일부 상품그룹으로 제한되었습니다. 전체 출시 기준 예상 ${expectedFullApplyCount}개 중 ${count}개만 준비되었습니다.`);
+      return false;
+    }
+    if (isEmbedded && !partialApplyOverride && expectedFullApplyCount > 0 && count === expectedFullApplyCount && titleReadyCount < expectedFullApplyCount) {
+      setGuidedActionStatus(PARTIAL_MALL_TITLE_BLOCK_MESSAGE);
       return false;
     }
     return true;
@@ -1042,6 +1055,9 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
         autoApplyToShopling={launchContext?.autoApplyToShopling === true}
         autoApplyConfirmationText={launchContext?.autoApplyConfirmationText ?? ""}
         autoDryRun={isEmbedded}
+        isEmbedded={isEmbedded}
+        partialApplyOverride={partialApplyOverride}
+        expectedFullApplyCount={expectedFullApplyCount}
         onApplyStateChange={onApplyStateChange}
       />
     </>
@@ -1432,6 +1448,9 @@ function KeywordShoplingApplySection({
   autoApplyToShopling = false,
   autoApplyConfirmationText = "",
   autoDryRun = false,
+  isEmbedded = false,
+  partialApplyOverride = false,
+  expectedFullApplyCount = 0,
   onApplyStateChange,
 }: {
   preflightResult: KeywordExecutionPreflightResult | null;
@@ -1449,6 +1468,9 @@ function KeywordShoplingApplySection({
   autoApplyToShopling?: boolean;
   autoApplyConfirmationText?: string;
   autoDryRun?: boolean;
+  isEmbedded?: boolean;
+  partialApplyOverride?: boolean;
+  expectedFullApplyCount?: number;
   onApplyStateChange?: (state: KeywordApplyState) => void;
 }) {
   const disabled = !preflightResult;
@@ -1527,6 +1549,14 @@ function KeywordShoplingApplySection({
     const setStatus = mode === "dry_run" ? onDryRunStatusChange : onRealStatusChange;
     const setMeta = metaSetter(mode);
     const setResult = mode === "dry_run" ? onDryRunResultChange : onRealResultChange;
+    if (preflightResult.blockedItems.some((item) => item.block_reasons.includes("FINAL_TITLE_REQUIRED")) || preflightResult.eligibleItems.some((item) => !item.final_title.trim())) {
+      setStatus(BLANK_MALL_TITLE_BLOCK_MESSAGE);
+      return;
+    }
+    if (mode === "apply" && isEmbedded && !partialApplyOverride && expectedFullApplyCount > 0 && preflightResult.summary.eligibleCount < expectedFullApplyCount) {
+      setStatus(PARTIAL_MALL_TITLE_BLOCK_MESSAGE);
+      return;
+    }
     if (mode === "apply" && !dryRunSucceeded) {
       setStatus("dry_run 성공 후 실제 반영이 가능합니다.");
       return;
@@ -1951,6 +1981,9 @@ function PayloadPreviewSection({
               label="제외된 차단 / 위험"
               value={result.summary.blockedRiskCount}
             />
+            <SummaryCard label="상품명 준비 완료" value={result.summary.titleReadyCount} />
+            <SummaryCard label="상품명 공백" value={result.summary.titleBlankCount} />
+            <SummaryCard label="차단" value={result.summary.titleBlockedCount} />
           </div>
 
           <div className="mt-5 overflow-x-auto">

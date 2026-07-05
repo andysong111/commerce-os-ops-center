@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { unzipSync } from "fflate";
+import { BLANK_MALL_TITLE_BLOCK_MESSAGE, PARTIAL_MALL_TITLE_BLOCK_MESSAGE } from "./keywordReviewPayloadPreview";
 
 export const KEYWORD_SHOPLING_APPLY_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,120}$/;
 export const KEYWORD_SHOPLING_APPLY_ARTIFACT_NAME = "keyword-shopling-apply-result";
@@ -31,6 +32,23 @@ export function generateKeywordShoplingApplyRequestId(now = new Date()) { return
 export function isValidKeywordShoplingApplyRequestId(requestId: string) { return KEYWORD_SHOPLING_APPLY_REQUEST_ID_PATTERN.test(requestId); }
 function enabled() { return process.env.KEYWORD_SHOPLING_APPLY_ENABLED === "1"; }
 
+function isUnsafeApplyTitle(value: unknown, goodsKey?: unknown) {
+  const title = String(value ?? "").replace(/\s+/g, " ").trim();
+  const normalizedGoodsKey = String(goodsKey ?? "").trim();
+  return !title || title === "-" || /^\d+$/.test(title) || (title === normalizedGoodsKey && /^\d+$/.test(normalizedGoodsKey));
+}
+function validateApplyPlanTitlePayload(json: string, mode: Mode) {
+  const parsed = JSON.parse(json);
+  const items = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.eligibleItems) ? parsed.eligibleItems : [];
+  const blankTitleCount = items.filter((item: unknown) => {
+    const record = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+    const title = record.mallTitle ?? record.mall_title ?? record.productTitle ?? record.product_name ?? record.final_title ?? record.title;
+    return !String(record.goods_key ?? "").trim() || !String(record.mall_key ?? "").trim() || isUnsafeApplyTitle(title, record.goods_key);
+  }).length;
+  if (blankTitleCount > 0) throw new Error(BLANK_MALL_TITLE_BLOCK_MESSAGE);
+  if (mode === "apply" && items.length > 0 && blankTitleCount > 0) throw new Error(PARTIAL_MALL_TITLE_BLOCK_MESSAGE);
+}
+
 function itemCountFromPlan(json: string) { try { const parsed = JSON.parse(json); if (Array.isArray(parsed)) return parsed.length; return Array.isArray(parsed?.eligibleItems) ? parsed.eligibleItems.length : undefined; } catch { return undefined; } }
 async function safeGithubErrorBodyPreview(response: Response) {
   try {
@@ -46,8 +64,8 @@ async function safeGithubErrorBodyPreview(response: Response) {
 }
 export function validateKeywordShoplingApplyInput(input: { execution_plan_json?: unknown; mode?: unknown; confirmation_text?: unknown; max_items?: unknown }) {
   if (typeof input.execution_plan_json !== "string" || input.execution_plan_json.trim().length === 0) throw new Error("execution_plan_json이 필요합니다.");
-  JSON.parse(input.execution_plan_json);
   if (input.mode !== "dry_run" && input.mode !== "apply") throw new Error("mode는 dry_run 또는 apply여야 합니다.");
+  validateApplyPlanTitlePayload(input.execution_plan_json, input.mode);
   const maxItems = Number(input.max_items);
   if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 100) throw new Error("max_items는 1부터 100 사이의 정수여야 합니다.");
   const confirmationText = typeof input.confirmation_text === "string" ? input.confirmation_text.trim() : "";

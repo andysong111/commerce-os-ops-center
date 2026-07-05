@@ -150,7 +150,7 @@ for (const [name, overrides, reason] of [
   ["missing mall_key", { mallKey: "" }, "MALL_KEY_REQUIRED"],
   [
     "missing final_title",
-    { recommendedTitle: "" },
+    { recommendedTitle: "", originalTitle: "" },
     "FINAL_TITLE_REQUIRED",
   ],
   [
@@ -283,4 +283,15 @@ test("compact keyword apply execution plan includes only eligible apply fields",
   assert.doesNotMatch(json, /validation_errors/);
   assert.doesNotMatch(json, /original_title/);
   assert.ok(parsed.every((item) => item.goods_key.startsWith("eligible-")));
+});
+
+
+test("expected 36 count with 0 blank allows dry_run plan", () => {
+  const rows = Array.from({ length: 36 }, (_, index) =>
+    row({ goodsKey: `eligible-${index}`, sourceRowIndex: index + 1, mallKey: "mall-1", recommendedTitle: `Safe title ${index}` }),
+  );
+  const { result } = run(rows, { maxRows: 36 });
+  assert.equal(result.summary.eligibleCount, 36);
+  assert.equal(result.summary.blockedCount, 0);
+  assert.equal(JSON.parse(buildCompactKeywordApplyExecutionPlan(result)).length, 36);
 });
