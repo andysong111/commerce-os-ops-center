@@ -24,6 +24,7 @@ type SupabaseQueryBuilder = PromiseLike<{ data: unknown; error: { message: strin
   single: () => Promise<{ data: Record<string, unknown>; error: { message: string } | null }>;
   upsert: (row: Record<string, unknown>, options?: Record<string, unknown>) => SupabaseQueryBuilder;
   insert: (row: Record<string, unknown>) => SupabaseQueryBuilder;
+  delete: () => SupabaseQueryBuilder;
 };
 
 export async function createSupabaseServerClient(): Promise<SupabaseServerClient | null> {
