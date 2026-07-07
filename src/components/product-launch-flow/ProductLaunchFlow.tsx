@@ -83,6 +83,14 @@ export function ProductLaunchFlow() {
   const [pricePolling, setPricePolling] = useState(false);
   const [pricePollCount, setPricePollCount] = useState(0);
   const [priceLastCheckedAt, setPriceLastCheckedAt] = useState<Date | null>(null);
+  const [finalPriceRequestId, setFinalPriceRequestId] = useState("");
+  const [finalPriceRunResult, setFinalPriceRunResult] = useState<RunResult | null>(null);
+  const [finalPriceActionsResult, setFinalPriceActionsResult] = useState<PriceActionsResult | null>(null);
+  const [finalPriceRunning, setFinalPriceRunning] = useState(false);
+  const [finalPriceFetching, setFinalPriceFetching] = useState(false);
+  const [finalPricePolling, setFinalPricePolling] = useState(false);
+  const [finalPricePollCount, setFinalPricePollCount] = useState(0);
+  const [finalPriceLastCheckedAt, setFinalPriceLastCheckedAt] = useState<Date | null>(null);
   const [keywordSeed, setKeywordSeed] = useState(() => getStoredValue(KEYWORD_SEED_STORAGE_KEY));
   const [keywordPreview, setKeywordPreview] = useState<unknown>(null);
   const [keywordDispatchResult, setKeywordDispatchResult] = useState<KeywordDispatchResult | null>(null);
@@ -101,6 +109,7 @@ export function ProductLaunchFlow() {
   const autoPriceStartedForUploadRequestRef = useRef<string>("");
   const autoKeywordStartedForPriceRequestRef = useRef<string>("");
   const autoKeywordImportedArtifactRef = useRef<string>("");
+  const finalPriceStartedForRealApplyRequestRef = useRef<string>("");
 
   const uploadResultRows = useMemo(() => extractUploadRows(uploadActionsResult), [uploadActionsResult]);
   const uploadRows = useMemo(() => extractRowsWithGoodsKey(uploadActionsResult), [uploadActionsResult]);
@@ -185,6 +194,10 @@ export function ProductLaunchFlow() {
     setKeywordRunsResult(null);
     setKeywordImportMessage("");
     setKeywordApplyState(null);
+    setFinalPriceRequestId("");
+    setFinalPriceRunResult(null);
+    setFinalPriceActionsResult(null);
+    finalPriceStartedForRealApplyRequestRef.current = "";
     autoPriceStartedForUploadRequestRef.current = "";
     autoKeywordStartedForPriceRequestRef.current = "";
     try {
@@ -268,6 +281,56 @@ export function ProductLaunchFlow() {
     }, pricePollCount === 0 ? 0 : ACTIVE_POLL_INTERVAL_MS);
     return () => window.clearTimeout(timer);
   }, [pricePolling, priceFetching, pricePollCount, priceActionsResult, fetchPriceResult]);
+
+
+  const runFinalPriceModify = useCallback(async () => {
+    if (finalPriceRunning || goodsKeys.length === 0) return;
+    setFinalPriceRunning(true);
+    setFinalPriceRunResult(null);
+    setFinalPriceActionsResult(null);
+    try {
+      const response = await fetch("/api/shopling-price-modify/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goods_key: goodsKeys.join(","), goods_key_group_json: buildGoodsKeyGroupJson(uploadRows), policy_overrides: [], reason: "finalize_after_keyword_apply" }),
+      });
+      const data = await response.json();
+      setFinalPriceRunResult(data);
+      if (typeof data.requestId === "string" && data.requestId) setFinalPriceRequestId(data.requestId);
+    } catch (error) {
+      setFinalPriceRunResult({ status: "error", message: error instanceof Error ? error.message : "가격 최종 재적용 실행 요청 중 오류가 발생했습니다." });
+    } finally {
+      setFinalPriceRunning(false);
+      setFinalPricePolling(true);
+      setFinalPricePollCount(0);
+    }
+  }, [finalPriceRunning, goodsKeys, uploadRows]);
+
+  const fetchFinalPriceResult = useCallback(async () => {
+    if (finalPriceFetching) return;
+    setFinalPriceFetching(true);
+    try {
+      const url = finalPriceRequestId ? `/api/shopling-price-modify/actions-result?request_id=${encodeURIComponent(finalPriceRequestId)}` : "/api/shopling-price-modify/actions-result";
+      const data = await (await fetch(url)).json();
+      setFinalPriceActionsResult(data);
+      setFinalPriceLastCheckedAt(new Date());
+      if (isFinalPriceResult(data)) setFinalPricePolling(false);
+    } catch (error) {
+      setFinalPriceActionsResult({ status: "error", message: error instanceof Error ? error.message : "가격 최종 재적용 결과를 가져오는 중 오류가 발생했습니다." });
+    } finally {
+      setFinalPriceFetching(false);
+    }
+  }, [finalPriceFetching, finalPriceRequestId]);
+
+  useEffect(() => {
+    if (!finalPricePolling || finalPriceFetching) return;
+    if (finalPricePollCount >= ACTIVE_MAX_POLLS || isFinalPriceResult(finalPriceActionsResult)) return;
+    const timer = window.setTimeout(() => {
+      setFinalPricePollCount((count) => { const next = count + 1; if (next >= ACTIVE_MAX_POLLS) setFinalPricePolling(false); return next; });
+      void fetchFinalPriceResult();
+    }, finalPricePollCount === 0 ? 0 : ACTIVE_POLL_INTERVAL_MS);
+    return () => window.clearTimeout(timer);
+  }, [finalPricePolling, finalPriceFetching, finalPricePollCount, finalPriceActionsResult, fetchFinalPriceResult]);
 
   const keywordPayload = useCallback(() => buildKeywordEngineDispatchPayload(uploadRows, keywordSeed), [keywordSeed, uploadRows]);
 
@@ -357,10 +420,10 @@ export function ProductLaunchFlow() {
   const rowMatchesCurrentRun = rowExpression === lastStartedRowExpression;
   const currentUploadRequestId = rowMatchesCurrentRun ? uploadRequestId : "";
   const uploadGithubActionsUrl = currentUploadRequestId ? uploadActionsResult?.runUrl ?? uploadRunResult?.githubActionsUrl : undefined;
-  const priceGithubActionsUrl = priceRunResult?.githubActionsUrl;
+  const priceGithubActionsUrl = finalPriceRunResult?.githubActionsUrl ?? priceRunResult?.githubActionsUrl;
   const keywordGithubActionsUrl = keywordRunsResult?.runs?.[0]?.htmlUrl ?? keywordDispatchResult?.actionsUrl ?? keywordRunsResult?.actionsUrl;
   const uploadCounts = getUploadCounts(uploadActionsResult, uploadResultRows, uploadRows);
-  const priceCounts = getPriceCounts(priceActionsResult, goodsKeys.length);
+  const priceCounts = getPriceCounts(finalPriceActionsResult ?? priceActionsResult, goodsKeys.length);
   const keywordSummary = getKeywordSummary(keywordRunsResult, goodsKeys.length);
   const cockpit = buildCockpit({
     hasUploadRequest: !!uploadRequestId || !!uploadRunResult,
@@ -376,13 +439,17 @@ export function ProductLaunchFlow() {
   });
   const boardMallCount = expectedPriceModifyUpdateCount(goodsKeyProductGroupMap);
   const titleTargetCount = expectedLaunchApplyCount(goodsKeys, buildGoodsKeyGroupMap(uploadRows));
-  const actualApplyDone = isSuccessfulPriceResult(priceActionsResult) && keywordApplyState?.realApplyStatus === "success" && keywordApplyState.failedCount === 0 && keywordApplyState.appliedCount > 0 && (keywordApplyState.blankMallTitleBlockedCount ?? 0) === 0;
-  const priceIssueState = getPriceIssueState(priceActionsResult);
+  const keywordRealApplySucceeded = isKeywordRealApplySuccess(keywordApplyState);
+  const finalPriceDone = isSuccessfulPriceResult(finalPriceActionsResult) && getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount === 0;
+  const finalPriceFailed = hasPriceFailure(finalPriceActionsResult) || getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount > 0;
+  const finalPriceActive = finalPriceRunning || finalPriceFetching || finalPricePolling;
+  const actualApplyDone = (isSuccessfulPriceResult(priceActionsResult) || finalPriceDone) && keywordRealApplySucceeded && finalPriceDone;
+  const priceIssueState = getPriceIssueState(finalPriceActionsResult ?? priceActionsResult);
   const keywordWarningCount = getKeywordWarningCount(keywordApplyState);
   const issueCount = getLaunchBoardIssueCount({ priceIssueState, uploadRows, goodsKeys, titleTargetCount, keywordApplyState, cockpit });
   const currentRequestId = rowMatchesCurrentRun ? (uploadRunning || uploadFetching || uploadPolling ? currentUploadRequestId : priceRequestId || currentUploadRequestId || keywordDispatchResult?.expectedArtifactName || "") : "";
   const previousRequestId = priceRequestId || uploadRequestId || keywordDispatchResult?.expectedArtifactName || "-";
-  const lastCheckedAt = keywordLastCheckedAt ?? priceLastCheckedAt ?? uploadLastCheckedAt;
+  const lastCheckedAt = finalPriceLastCheckedAt ?? keywordLastCheckedAt ?? priceLastCheckedAt ?? uploadLastCheckedAt;
   useEffect(() => {
     const artifact = keywordSummary.artifact;
     const run = keywordRunsResult?.runs?.find((item) => item.artifacts?.some((candidate) => candidate.id === artifact?.id));
@@ -425,10 +492,23 @@ export function ProductLaunchFlow() {
     return () => window.clearTimeout(timer);
   }, [autopilotEnabled, dispatchKeywordEngine, goodsKeys.length, keywordBusy, keywordDispatchResult, keywordPolling, keywordSummary.artifact, priceActionsResult, priceRequestId]);
 
+  useEffect(() => {
+    const realApplyRequestId = keywordApplyState?.realApplyRequestId ?? "";
+    if (!autopilotEnabled) return;
+    if (!keywordRealApplySucceeded || goodsKeys.length === 0 || !realApplyRequestId) return;
+    if (finalPriceActive || finalPriceRunResult || finalPriceActionsResult) return;
+    if (finalPriceStartedForRealApplyRequestRef.current === realApplyRequestId) return;
+    finalPriceStartedForRealApplyRequestRef.current = realApplyRequestId;
+    const timer = window.setTimeout(() => {
+      void runFinalPriceModify();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [autopilotEnabled, finalPriceActionsResult, finalPriceActive, finalPriceRunResult, goodsKeys.length, keywordApplyState?.realApplyRequestId, keywordRealApplySucceeded, runFinalPriceModify]);
+
   return (
     <div className="space-y-6">
-      <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} keywordApplyState={keywordApplyState} priceIssueState={priceIssueState} onNext={runNextSafeStep} />
-      <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
+      <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} keywordApplyState={keywordApplyState} priceIssueState={priceIssueState} onNext={keywordRealApplySucceeded && !finalPriceDone ? runFinalPriceModify : runNextSafeStep} initialPriceRequestId={priceRequestId} finalPriceRequestId={finalPriceRequestId} finalPriceActionsResult={finalPriceActionsResult} finalPriceActive={finalPriceActive} finalPriceDone={finalPriceDone} finalPriceFailed={finalPriceFailed} finalPriceTargetCount={goodsKeys.length * FULL_PRICE_POLICY_MALL_COUNT} />
+      <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling || finalPriceActive} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회 · 최종가격 ${finalPricePollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
       {keywordSummary.artifact ? <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold text-emerald-700">키워드 결과 검토</p>
         <h2 className="mt-1 text-xl font-black text-slate-950">키워드 결과 파일이 준비되었습니다.</h2>
@@ -468,6 +548,7 @@ export function ProductLaunchFlow() {
 
       {goodsKeys.length === 0 && uploadActionsResult?.status === "success" ? <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">goods_key가 생성된 상품이 없어 가격설정을 진행할 수 없습니다.</p> : null}
       {goodsKeys.length > 0 ? <PriceSection goodsKeyCount={goodsKeys.length} result={priceRunResult} actionsResult={priceActionsResult} requestId={priceRequestId} running={priceRunning} fetching={priceFetching} onRun={runPriceModify} onFetch={fetchPriceResult} /> : null}
+      {keywordRealApplySucceeded ? <PriceSection title="가격 최종 재적용" goodsKeyCount={goodsKeys.length} result={finalPriceRunResult} actionsResult={finalPriceActionsResult} requestId={finalPriceRequestId} running={finalPriceRunning} fetching={finalPriceFetching} onRun={runFinalPriceModify} onFetch={fetchFinalPriceResult} finalPass /> : null}
       {goodsKeys.length > 0 ? <KeywordPrepSection rows={uploadRows} goodsKeys={goodsKeys} seedKeyword={keywordSeed} onSeedKeywordChange={setKeywordSeed} preview={keywordPreview} dispatchResult={keywordDispatchResult} runsResult={keywordRunsResult} importMessage={keywordImportMessage} busy={keywordBusy} onPreview={previewKeywordDispatch} onDispatch={dispatchKeywordEngine} onFetchRuns={fetchKeywordRuns} onImport={importKeywordArtifact} /> : null}
       <FinalChecklist />
       </details>
@@ -479,16 +560,18 @@ function SummaryCard({ label, value }: { label: string; value: string | number }
   return <div className="rounded-xl bg-white p-3"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-1 text-lg font-black text-slate-950">{value}</p></div>;
 }
 
-function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, keywordWarningCount, issueCount, actualApplyDone, keywordApplyState, priceIssueState, onNext }: { state: ReturnType<typeof buildCockpit>; productCount: number; mallCount: number; titleTargetCount: number; keywordWarningCount: number; issueCount: number; actualApplyDone: boolean; keywordApplyState: KeywordApplyState | null; priceIssueState: PriceIssueState; onNext: () => void }) {
+function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, keywordWarningCount, issueCount, actualApplyDone, keywordApplyState, priceIssueState, onNext, initialPriceRequestId, finalPriceRequestId, finalPriceActionsResult, finalPriceActive, finalPriceDone, finalPriceFailed, finalPriceTargetCount }: { state: ReturnType<typeof buildCockpit>; productCount: number; mallCount: number; titleTargetCount: number; keywordWarningCount: number; issueCount: number; actualApplyDone: boolean; keywordApplyState: KeywordApplyState | null; priceIssueState: PriceIssueState; onNext: () => void; initialPriceRequestId: string; finalPriceRequestId: string; finalPriceActionsResult: PriceActionsResult | null; finalPriceActive: boolean; finalPriceDone: boolean; finalPriceFailed: boolean; finalPriceTargetCount: number }) {
   const hasCriticalPriceIssue = priceIssueState.kind === "critical";
   const realApplyStatus = keywordApplyState?.realApplyStatus ?? "idle";
   const realApplyRunning = realApplyStatus === "queued" || realApplyStatus === "running" || realApplyStatus === "waiting_artifact";
   const realApplyLabel = getKeywordApplyPhaseLabelForBoard(keywordApplyState);
-  const boardButtonLabel = realApplyRunning ? "실제 반영 확인 중" : actualApplyDone ? "출시 결과 확인" : realApplyStatus === "failed" || realApplyStatus === "blocked" ? "문제 확인" : "실제 샵플링 반영 실행";
-  const finalVerdict = state.primaryAction === "wait" ? "진행 중" : hasCriticalPriceIssue ? "출시 보류 - 가격 확인 필요" : actualApplyDone && keywordWarningCount > 0 && issueCount === keywordWarningCount ? "출시 완료 - 경고 있음" : actualApplyDone ? "출시 완료" : "출시 보류 - 실제 반영 미완료";
+  const keywordRealApplySucceeded = isKeywordRealApplySuccess(keywordApplyState);
+  const finalPriceStatus = finalPriceActive ? "가격 최종 재적용 중" : finalPriceDone ? "success" : finalPriceFailed ? "failed" : "waiting";
+  const boardButtonLabel = finalPriceActive ? "가격 최종 재적용 확인 중" : keywordRealApplySucceeded && !finalPriceDone ? "가격 최종 재적용 실행" : actualApplyDone ? "출시 결과 확인" : realApplyRunning ? "실제 반영 확인 중" : realApplyStatus === "failed" || realApplyStatus === "blocked" ? "문제 확인" : "실제 샵플링 반영 실행";
+  const finalVerdict = finalPriceActive ? "가격 최종 재적용 중" : finalPriceFailed ? "출시 보류 - 가격 최종 재적용 실패" : keywordRealApplySucceeded && !finalPriceDone ? "출시 보류 - 가격 최종 재적용 대기" : state.primaryAction === "wait" ? "진행 중" : hasCriticalPriceIssue ? "출시 보류 - 가격 확인 필요" : actualApplyDone && keywordWarningCount > 0 && issueCount === keywordWarningCount ? "출시 완료 - 경고 있음" : actualApplyDone ? "출시 완료" : "출시 보류 - 실제 반영 미완료";
   const status: string = finalVerdict;
   const progress = actualApplyDone ? 100 : Math.round((state.steps.filter((step) => step.state === "success").length / Math.max(state.steps.length, 1)) * 100);
-  const stages = ["상품업로드", "가격설정", "키워드 dry_run", "상품명 준비", "dry_run 점검", "실제 반영"];
+  const stages = ["상품업로드", "가격 1차 적용", "키워드 dry_run", "상품명/키워드 실제 반영", "가격 최종 재적용", "출시 완료"];
   return <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
     <p className="text-sm font-black text-emerald-700">AI 상품출시 에이전트</p>
     <h1 className="mt-1 text-2xl font-black text-slate-950">{actualApplyDone && !hasCriticalPriceIssue ? "출시 완료" : finalVerdict}</h1>
@@ -508,18 +591,26 @@ function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, 
       <SummaryCard label="검색어 경고 수" value={keywordWarningCount} />
       <SummaryCard label="문제 수" value={issueCount} />
       <SummaryCard label="실제 반영 상태" value={realApplyLabel} />
+      <SummaryCard label="최종 가격 상태" value={finalPriceStatus} />
+      <SummaryCard label="최종 가격 대상 수" value={finalPriceTargetCount} />
     </div>
     {status === "상품명 일부 누락" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">상품명 일부 누락</p> : null}
     {!actualApplyDone && keywordApplyState?.dryRunStatus === "success" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">키워드 dry_run은 완료됐지만 실제 샵플링 반영은 아직 실행되지 않았습니다.</p> : null}
-    <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>dry_run request id: <span className="font-mono">{keywordApplyState?.dryRunRequestId || "-"}</span></p><p>real apply request id: <span className="font-mono">{keywordApplyState?.realApplyRequestId || "-"}</span></p><p>real apply status: {realApplyLabel}</p><p>applied count: {keywordApplyState?.appliedCount ?? 0}</p><p>failed count: {keywordApplyState?.failedCount ?? 0}</p><p>blocked blank title count: {keywordApplyState?.blankMallTitleBlockedCount ?? 0}</p></div>
+    <div className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-bold text-blue-900">상품명/키워드 반영 후 가격을 마지막으로 한 번 더 적용합니다.<br />상품명 반영 과정에서 일부 쇼핑몰 가격이 0원으로 돌아가는 것을 방지하기 위한 최종 보정 단계입니다.</div>
+    <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>1차 가격 request id: <span className="font-mono">{initialPriceRequestId || "-"}</span></p><p>실제 반영 request id: <span className="font-mono">{keywordApplyState?.realApplyRequestId || "-"}</span></p><p>최종 가격 request id: <span className="font-mono">{finalPriceRequestId || finalPriceActionsResult?.requestId || "-"}</span></p><p>final price status: {finalPriceStatus}</p><p>final price target count: {finalPriceTargetCount}</p><p>dry_run request id: <span className="font-mono">{keywordApplyState?.dryRunRequestId || "-"}</span></p><p>real apply request id: <span className="font-mono">{keywordApplyState?.realApplyRequestId || "-"}</span></p><p>real apply status: {realApplyLabel}</p><p>applied count: {keywordApplyState?.appliedCount ?? 0}</p><p>failed count: {keywordApplyState?.failedCount ?? 0}</p><p>blocked blank title count: {keywordApplyState?.blankMallTitleBlockedCount ?? 0}</p></div>
     {actualApplyDone ? <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>반영 상품 수: {titleTargetCount}</p><p>반영 쇼핑몰 수: {mallCount}</p><p>가격 상태: {priceIssueState.label}</p><p>검색어 경고 수: {keywordWarningCount}</p><p>다음 수동 작업: 샵플링에서 마켓전송 전 최종 확인</p></div> : null}
     <button type="button" onClick={onNext} className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white">{boardButtonLabel}</button>
   </section>;
 }
 
+function isKeywordRealApplySuccess(state: KeywordApplyState | null) {
+  const status = String(state?.realApplyStatus ?? "");
+  return (status === "success" || status === "success_with_verification_warning") && (state?.appliedCount ?? 0) > 0 && (state?.failedCount ?? 0) === 0 && (state?.blankMallTitleBlockedCount ?? 0) === 0;
+}
+
 function getKeywordApplyPhaseLabelForBoard(state: KeywordApplyState | null) {
   if (!state || state.dryRunStatus === "idle") return "키워드 dry_run 대기";
-  if (state.realApplyStatus === "success") return "실제 샵플링 반영 완료";
+  if (String(state.realApplyStatus) === "success" || String(state.realApplyStatus) === "success_with_verification_warning") return "실제 샵플링 반영 완료";
   if (state.realApplyStatus === "failed") return "실제 샵플링 반영 실패";
   if (state.realApplyStatus === "blocked") return "실제 샵플링 반영 차단됨";
   if (state.realApplyStatus === "queued" || state.realApplyStatus === "running" || state.realApplyStatus === "waiting_artifact") return "실제 샵플링 반영 실행 중";
@@ -700,7 +791,7 @@ function formatElapsed(seconds: number) {
   return `${minutes}분 ${rest}초`;
 }
 
-function PriceSection({ goodsKeyCount, result, actionsResult, requestId, running, fetching, onRun, onFetch }: { goodsKeyCount: number; result: RunResult | null; actionsResult: PriceActionsResult | null; requestId: string; running: boolean; fetching: boolean; onRun: () => void; onFetch: () => void }) {
+function PriceSection({ title = "Step 2. 가격설정", goodsKeyCount, result, actionsResult, requestId, running, fetching, onRun, onFetch, finalPass = false }: { title?: string; goodsKeyCount: number; result: RunResult | null; actionsResult: PriceActionsResult | null; requestId: string; running: boolean; fetching: boolean; onRun: () => void; onFetch: () => void; finalPass?: boolean }) {
   const summary = actionsResult?.summary;
   const errors = Array.isArray(summary?.errors) ? summary.errors : [];
   const notApplied = Number(summary?.not_applied_count ?? 0);
@@ -710,7 +801,7 @@ function PriceSection({ goodsKeyCount, result, actionsResult, requestId, running
   const hasCoverageRisk = notApplied > 0 || blankRisk > 0 || failed > 0;
   const expectedUpdateCount = goodsKeyCount * FULL_PRICE_POLICY_MALL_COUNT;
   const confirmedAll = actionsResult && !hasCoverageRisk && Number(summary?.estimated_mall_update_count ?? 0) >= expectedUpdateCount;
-  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold text-slate-950">Step 2. 가격설정</h2><p className="mt-3 text-sm text-slate-700">대상 goods_key 수: <strong>{goodsKeyCount}</strong></p><p className="mt-1 text-sm font-bold text-slate-800">가격 정책: 전체 쇼핑몰 가격 일괄 적용</p><p className="mt-1 text-sm text-slate-700">상품명/검색어는 상품그룹별로 다르게 반영하고, 가격은 모든 쇼핑몰에 동일 정책으로 채웁니다.</p><p className="mt-1 text-sm text-slate-700">예상 쇼핑몰 가격설정 대상 수: <strong>{expectedUpdateCount}</strong></p><p className="mt-2 rounded-lg bg-slate-50 p-3 text-xs font-semibold text-slate-600">가격설정 대상 쇼핑몰 수 = goods_key 수 × {FULL_PRICE_POLICY_MALL_COUNT}</p><button type="button" onClick={onRun} disabled={running} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{running ? "실행 요청 중..." : "가격설정 실행"}</button><button type="button" onClick={onFetch} disabled={fetching} className="ml-3 mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{fetching ? "가져오는 중..." : "가격설정 결과 가져오기"}</button><StatusBlock result={result} requestId={requestId} />{hasCoverageRisk ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950"><h3 className="font-black">가격이 비어 있을 수 있는 쇼핑몰이 있습니다.</h3><p className="mt-2">영향 쇼핑몰: {affectedMalls || "확인 필요"}</p><p>영향 goods_key 수: {String(summary?.goods_key_count ?? goodsKeyCount)}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={onRun} className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white">가격설정 재실행</button><GithubActionsShortcutButton href={actionsResult?.runUrl} /><button type="button" className="rounded-lg border border-red-300 px-3 py-2 text-xs font-bold text-red-800">상세 결과 보기</button></div></div> : confirmedAll ? <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-800">모든 필수 쇼핑몰 가격 반영을 확인했습니다.</p> : null}{actionsResult ? <dl className="mt-4 grid gap-3 text-sm"><ResultRow label="status" value={String(summary?.status ?? actionsResult.status ?? "-")} /><ResultRow label="exit_code" value={String(summary?.exit_code ?? "-")} /><ResultRow label="goods_key_count" value={String(summary?.goods_key_count ?? "-")} /><ResultRow label="estimated_mall_update_count" value={String(summary?.estimated_mall_update_count ?? "-")} /><ResultRow label="policy_override_count" value={String(summary?.policy_override_count ?? 0)} /><ResultRow label="성공 수" value={String(summary?.ok_count ?? "-")} /><ResultRow label="실패 수" value={String(summary?.fail_count ?? "-")} /></dl> : null}<ErrorsTable errors={errors} /></section>;
+  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold text-slate-950">{title}</h2>{finalPass ? <p className="mt-2 rounded-lg bg-blue-50 p-3 text-sm font-bold text-blue-900">상품명/키워드 반영 후 가격을 마지막으로 한 번 더 적용합니다.<br />상품명 반영 과정에서 일부 쇼핑몰 가격이 0원으로 돌아가는 것을 방지하기 위한 최종 보정 단계입니다.</p> : null}<p className="mt-3 text-sm text-slate-700">대상 goods_key 수: <strong>{goodsKeyCount}</strong></p><p className="mt-1 text-sm font-bold text-slate-800">가격 정책: 전체 쇼핑몰 가격 일괄 적용</p><p className="mt-1 text-sm text-slate-700">상품명/검색어는 상품그룹별로 다르게 반영하고, 가격은 모든 쇼핑몰에 동일 정책으로 채웁니다.</p><p className="mt-1 text-sm text-slate-700">예상 쇼핑몰 가격설정 대상 수: <strong>{expectedUpdateCount}</strong></p><p className="mt-2 rounded-lg bg-slate-50 p-3 text-xs font-semibold text-slate-600">가격설정 대상 쇼핑몰 수 = goods_key 수 × {FULL_PRICE_POLICY_MALL_COUNT}</p><button type="button" onClick={onRun} disabled={running} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{running ? "실행 요청 중..." : finalPass ? "가격 최종 재적용 실행" : "가격설정 실행"}</button><button type="button" onClick={onFetch} disabled={fetching} className="ml-3 mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{fetching ? "가져오는 중..." : finalPass ? "가격 최종 재적용 결과 가져오기" : "가격설정 결과 가져오기"}</button><StatusBlock result={result} requestId={requestId} />{hasCoverageRisk ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950"><h3 className="font-black">가격이 비어 있을 수 있는 쇼핑몰이 있습니다.</h3><p className="mt-2">영향 쇼핑몰: {affectedMalls || "확인 필요"}</p><p>영향 goods_key 수: {String(summary?.goods_key_count ?? goodsKeyCount)}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={onRun} className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white">가격설정 재실행</button><GithubActionsShortcutButton href={actionsResult?.runUrl} /><button type="button" className="rounded-lg border border-red-300 px-3 py-2 text-xs font-bold text-red-800">상세 결과 보기</button></div></div> : confirmedAll ? <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-800">모든 필수 쇼핑몰 가격 반영을 확인했습니다.</p> : null}{actionsResult ? <dl className="mt-4 grid gap-3 text-sm"><ResultRow label="status" value={String(summary?.status ?? actionsResult.status ?? "-")} /><ResultRow label="exit_code" value={String(summary?.exit_code ?? "-")} /><ResultRow label="goods_key_count" value={String(summary?.goods_key_count ?? "-")} /><ResultRow label="estimated_mall_update_count" value={String(summary?.estimated_mall_update_count ?? "-")} /><ResultRow label="policy_override_count" value={String(summary?.policy_override_count ?? 0)} /><ResultRow label="성공 수" value={String(summary?.ok_count ?? "-")} /><ResultRow label="실패 수" value={String(summary?.fail_count ?? "-")} /></dl> : null}<ErrorsTable errors={errors} /></section>;
 }
 
 
@@ -754,7 +845,7 @@ function getLaunchBoardIssueCount({ priceIssueState, uploadRows, goodsKeys, titl
 function getUploadCounts(result: UploadActionsResult | null, rows: ProductLaunchUploadRow[], rowsWithGoodsKey: ProductLaunchUploadRow[]) {
   return { targetRows: rows.length, goodsKeyCount: rowsWithGoodsKey.length, failedRows: rows.filter(isFailedUploadRow).length, duplicateRows: rows.filter(isDuplicatePtnGoodsCdError).length };
 }
-function getPriceCounts(result: PriceActionsResult | null, targetGoodsKeys: number) { const summary = result?.summary; return { targetGoodsKeys, okCount: Number(summary?.ok_count ?? 0), failCount: Number(summary?.fail_count ?? 0) }; }
+function getPriceCounts(result: PriceActionsResult | null, targetGoodsKeys: number) { const summary = result?.summary; return { targetGoodsKeys, okCount: Number(summary?.ok_count ?? 0), failCount: Number(summary?.failed_count ?? summary?.fail_count ?? 0) }; }
 function getKeywordSummary(result: KeywordRunsResult | null, targetCount: number) { const latest = result?.runs?.[0]; const artifact = latest?.artifacts?.find((item) => item.expected && !item.expired); const failed = hasKeywordFailure(result); return { targetCount, artifact, artifactState: artifact ? "ready" : latest?.status === "queued" || latest?.status === "in_progress" ? "waiting" : failed ? "missing" : "not checked", reviewPendingCount: artifact ? 1 : 0, failureReason: failed && !artifact ? "키워드 결과 파일이 아직 없습니다. 실행 중이거나 실패했을 수 있습니다." : "-" }; }
 function isFinalPriceResult(result: PriceActionsResult | null) { if (!result) return false; const status = String(result.summary?.status ?? result.status ?? "").toLowerCase(); const conclusion = String(result.runConclusion ?? "").toLowerCase(); return ["success", "failed", "failure", "error"].includes(status) || ["success", "failure", "cancelled", "timed_out"].includes(conclusion); }
 function isSuccessfulPriceResult(result: PriceActionsResult | null) { const status = String(result?.summary?.status ?? result?.status ?? "").toLowerCase(); const conclusion = String(result?.runConclusion ?? "").toLowerCase(); return status === "success" || conclusion === "success"; }

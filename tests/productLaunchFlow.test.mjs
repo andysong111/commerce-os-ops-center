@@ -524,7 +524,7 @@ test("product launch flow makes keyword real apply state explicit", async () => 
     "문제 확인",
   ]) assert.ok(source.includes(expected), expected);
 
-  assert.match(flow, /actualApplyDone = isSuccessfulPriceResult\(priceActionsResult\).*realApplyStatus === "success".*failedCount === 0.*appliedCount > 0.*blankMallTitleBlockedCount/s);
+  assert.match(flow, /actualApplyDone = \(isSuccessfulPriceResult\(priceActionsResult\) \|\| finalPriceDone\) && keywordRealApplySucceeded && finalPriceDone/s);
   assert.match(flow, /dry_run request id/);
   assert.match(flow, /real apply request id/);
   assert.match(flow, /real apply status/);
@@ -541,7 +541,7 @@ test("AI launch board derives final apply, counts, verdicts, and price issue cop
   const workspace = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
 
   assert.doesNotMatch(flow, /actualApplyDone=\{false\}/);
-  assert.match(flow, /const actualApplyDone = isSuccessfulPriceResult\(priceActionsResult\) && keywordApplyState\?\.realApplyStatus === "success" && keywordApplyState\.failedCount === 0 && keywordApplyState\.appliedCount > 0 && \(keywordApplyState\.blankMallTitleBlockedCount \?\? 0\) === 0/);
+  assert.match(flow, /const actualApplyDone = \(isSuccessfulPriceResult\(priceActionsResult\) \|\| finalPriceDone\) && keywordRealApplySucceeded && finalPriceDone/);
   assert.match(flow, /actualApplyDone=\{actualApplyDone\}/);
   assert.match(flow, /mallCount=\{boardMallCount\}/);
   assert.match(flow, /const boardMallCount = expectedPriceModifyUpdateCount\(goodsKeyProductGroupMap\)/);
@@ -563,4 +563,34 @@ test("AI launch board derives final apply, counts, verdicts, and price issue cop
   assert.match(workspace, /warningCount/);
   assert.match(workspace, /requestId/);
   assert.match(workspace, /lastUpdatedAt/);
+});
+
+
+test("product launch flow final price pass source exists", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "가격 최종 재적용",
+    "출시 보류 - 가격 최종 재적용 대기",
+    "출시 보류 - 가격 최종 재적용 실패",
+    "상품명/키워드 반영 후 가격을 마지막으로 한 번 더 적용합니다.",
+    "finalPriceStartedForRealApplyRequestRef",
+    "finalize_after_keyword_apply",
+    "goodsKeys.length * FULL_PRICE_POLICY_MALL_COUNT",
+    "가격 최종 재적용 실행",
+    "가격 최종 재적용 확인 중",
+    "final price target count",
+  ]) assert.ok(source.includes(expected), expected);
+
+  assert.match(source, /const actualApplyDone = \(isSuccessfulPriceResult\(priceActionsResult\) \|\| finalPriceDone\) && keywordRealApplySucceeded && finalPriceDone/);
+  assert.match(source, /if \(finalPriceStartedForRealApplyRequestRef\.current === realApplyRequestId\) return;/);
+  assert.match(source, /finalPriceStartedForRealApplyRequestRef\.current = realApplyRequestId;/);
+  assert.match(source, /goods_key: goodsKeys\.join\("\,"\)/);
+  assert.match(source, /goods_key_group_json: buildGoodsKeyGroupJson\(uploadRows\), policy_overrides: \[\], reason: "finalize_after_keyword_apply"/);
+  assert.doesNotMatch(source, /keywordShoplingApply/);
+  assert.doesNotMatch(source, /\/api\/keyword-shopling-apply/);
+  assert.doesNotMatch(source, /API_AUTH_KEY/);
+  assert.doesNotMatch(source, /LOGIN_PASSWORD/);
+  assert.doesNotMatch(source, /shell\s*:\s*true/i);
+  assert.doesNotMatch(source, /child_process/);
+  assert.doesNotMatch(source, /PowerShell/i);
 });
