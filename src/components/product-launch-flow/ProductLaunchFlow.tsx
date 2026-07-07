@@ -376,7 +376,7 @@ export function ProductLaunchFlow() {
   });
   const boardMallCount = expectedPriceModifyUpdateCount(goodsKeyProductGroupMap);
   const titleTargetCount = expectedLaunchApplyCount(goodsKeys, buildGoodsKeyGroupMap(uploadRows));
-  const actualApplyDone = keywordApplyState?.realApplyStatus === "success" && keywordApplyState.failedCount === 0 && keywordApplyState.appliedCount > 0;
+  const actualApplyDone = isSuccessfulPriceResult(priceActionsResult) && keywordApplyState?.realApplyStatus === "success" && keywordApplyState.failedCount === 0 && keywordApplyState.appliedCount > 0 && (keywordApplyState.blankMallTitleBlockedCount ?? 0) === 0;
   const priceIssueState = getPriceIssueState(priceActionsResult);
   const keywordWarningCount = getKeywordWarningCount(keywordApplyState);
   const issueCount = getLaunchBoardIssueCount({ priceIssueState, uploadRows, goodsKeys, titleTargetCount, keywordApplyState, cockpit });
@@ -427,7 +427,7 @@ export function ProductLaunchFlow() {
 
   return (
     <div className="space-y-6">
-      <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} priceIssueState={priceIssueState} onNext={runNextSafeStep} />
+      <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} keywordApplyState={keywordApplyState} priceIssueState={priceIssueState} onNext={runNextSafeStep} />
       <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
       {keywordSummary.artifact ? <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold text-emerald-700">키워드 결과 검토</p>
@@ -479,8 +479,12 @@ function SummaryCard({ label, value }: { label: string; value: string | number }
   return <div className="rounded-xl bg-white p-3"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-1 text-lg font-black text-slate-950">{value}</p></div>;
 }
 
-function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, keywordWarningCount, issueCount, actualApplyDone, priceIssueState, onNext }: { state: ReturnType<typeof buildCockpit>; productCount: number; mallCount: number; titleTargetCount: number; keywordWarningCount: number; issueCount: number; actualApplyDone: boolean; priceIssueState: PriceIssueState; onNext: () => void }) {
+function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, keywordWarningCount, issueCount, actualApplyDone, keywordApplyState, priceIssueState, onNext }: { state: ReturnType<typeof buildCockpit>; productCount: number; mallCount: number; titleTargetCount: number; keywordWarningCount: number; issueCount: number; actualApplyDone: boolean; keywordApplyState: KeywordApplyState | null; priceIssueState: PriceIssueState; onNext: () => void }) {
   const hasCriticalPriceIssue = priceIssueState.kind === "critical";
+  const realApplyStatus = keywordApplyState?.realApplyStatus ?? "idle";
+  const realApplyRunning = realApplyStatus === "queued" || realApplyStatus === "running" || realApplyStatus === "waiting_artifact";
+  const realApplyLabel = getKeywordApplyPhaseLabelForBoard(keywordApplyState);
+  const boardButtonLabel = realApplyRunning ? "실제 반영 확인 중" : actualApplyDone ? "출시 결과 확인" : realApplyStatus === "failed" || realApplyStatus === "blocked" ? "문제 확인" : "실제 샵플링 반영 실행";
   const finalVerdict = state.primaryAction === "wait" ? "진행 중" : hasCriticalPriceIssue ? "출시 보류 - 가격 확인 필요" : actualApplyDone && keywordWarningCount > 0 && issueCount === keywordWarningCount ? "출시 완료 - 경고 있음" : actualApplyDone ? "출시 완료" : "출시 보류 - 실제 반영 미완료";
   const status: string = finalVerdict;
   const progress = actualApplyDone ? 100 : Math.round((state.steps.filter((step) => step.state === "success").length / Math.max(state.steps.length, 1)) * 100);
@@ -503,11 +507,24 @@ function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, 
       <SummaryCard label="상품명 반영 대상 수" value={titleTargetCount} />
       <SummaryCard label="검색어 경고 수" value={keywordWarningCount} />
       <SummaryCard label="문제 수" value={issueCount} />
+      <SummaryCard label="실제 반영 상태" value={realApplyLabel} />
     </div>
     {status === "상품명 일부 누락" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">상품명 일부 누락</p> : null}
+    {!actualApplyDone && keywordApplyState?.dryRunStatus === "success" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">키워드 dry_run은 완료됐지만 실제 샵플링 반영은 아직 실행되지 않았습니다.</p> : null}
+    <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>dry_run request id: <span className="font-mono">{keywordApplyState?.dryRunRequestId || "-"}</span></p><p>real apply request id: <span className="font-mono">{keywordApplyState?.realApplyRequestId || "-"}</span></p><p>real apply status: {realApplyLabel}</p><p>applied count: {keywordApplyState?.appliedCount ?? 0}</p><p>failed count: {keywordApplyState?.failedCount ?? 0}</p><p>blocked blank title count: {keywordApplyState?.blankMallTitleBlockedCount ?? 0}</p></div>
     {actualApplyDone ? <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>반영 상품 수: {titleTargetCount}</p><p>반영 쇼핑몰 수: {mallCount}</p><p>가격 상태: {priceIssueState.label}</p><p>검색어 경고 수: {keywordWarningCount}</p><p>다음 수동 작업: 샵플링에서 마켓전송 전 최종 확인</p></div> : null}
-    <button type="button" onClick={onNext} className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white">{state.nextAction}</button>
+    <button type="button" onClick={onNext} className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white">{boardButtonLabel}</button>
   </section>;
+}
+
+function getKeywordApplyPhaseLabelForBoard(state: KeywordApplyState | null) {
+  if (!state || state.dryRunStatus === "idle") return "키워드 dry_run 대기";
+  if (state.realApplyStatus === "success") return "실제 샵플링 반영 완료";
+  if (state.realApplyStatus === "failed") return "실제 샵플링 반영 실패";
+  if (state.realApplyStatus === "blocked") return "실제 샵플링 반영 차단됨";
+  if (state.realApplyStatus === "queued" || state.realApplyStatus === "running" || state.realApplyStatus === "waiting_artifact") return "실제 샵플링 반영 실행 중";
+  if (state.dryRunStatus === "success") return "실제 샵플링 반영 대기";
+  return "키워드 dry_run 대기";
 }
 
 type StepState = "waiting" | "running" | "checking" | "success" | "failed" | "action";

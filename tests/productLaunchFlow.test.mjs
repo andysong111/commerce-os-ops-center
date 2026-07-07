@@ -494,7 +494,7 @@ test("AI launch agent board and automatic review preparation source exists", asy
   assert.match(workspace, /autoFillMissingLaunchTitles\(approveFirstCandidateRows\(current\)\)/);
   assert.match(workspace, /setPreflightResult\(buildKeywordExecutionPreflight/);
   assert.match(workspace, /void run\("dry_run", true\)/);
-  assert.match(workspace, /if \(disabled \|\| !dryRunSucceeded\) return;\n    if \(autoApplyToShopling !== true\) return;\n    if \(autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING"\) return;/);
+  assert.match(workspace, /if \(disabled \|\| !dryRunSucceeded\) return;[\s\S]*if \(autoApplyToShopling !== true\) return;[\s\S]*if \(autoApplyConfirmationText !== "AUTO_APPLY_TO_SHOPLING"\) return;/);
   assert.match(flow, /const \[autoActualApplyEnabled, setAutoActualApplyEnabled\] = useState\(false\)/);
   assert.match(flow, /if \(!checked\) \{\n      onAutoActualApplyEnabledChange\(false\);\n      return;\n    \}/);
   assert.match(flow, /onAutoActualApplyEnabledChange\(confirmed\)/);
@@ -502,12 +502,46 @@ test("AI launch agent board and automatic review preparation source exists", asy
   assert.match(flow, /실제 반영은 되돌리기 어려우므로 처음 켤 때 한 번 확인합니다/);
 });
 
+
+test("product launch flow makes keyword real apply state explicit", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  const workspace = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
+  const source = `${flow}\n${workspace}`;
+
+  for (const expected of [
+    "키워드 dry_run 대기",
+    "키워드 dry_run 완료",
+    "실제 샵플링 반영 대기",
+    "실제 샵플링 반영 실행 중",
+    "실제 샵플링 반영 완료",
+    "실제 샵플링 반영 실패",
+    "실제 샵플링 반영 차단됨",
+    "키워드 dry_run은 완료됐지만 실제 샵플링 반영은 아직 실행되지 않았습니다.",
+    "출시 보류 - 실제 반영 미완료",
+    "실제 샵플링 반영 실행",
+    "실제 반영 확인 중",
+    "출시 결과 확인",
+    "문제 확인",
+  ]) assert.ok(source.includes(expected), expected);
+
+  assert.match(flow, /actualApplyDone = isSuccessfulPriceResult\(priceActionsResult\).*realApplyStatus === "success".*failedCount === 0.*appliedCount > 0.*blankMallTitleBlockedCount/s);
+  assert.match(flow, /dry_run request id/);
+  assert.match(flow, /real apply request id/);
+  assert.match(flow, /real apply status/);
+  assert.match(flow, /applied count/);
+  assert.match(flow, /failed count/);
+  assert.match(flow, /blocked blank title count/);
+  assert.match(workspace, /if \(autoApplyToShopling !== true\) return;/);
+  assert.match(workspace, /if \(preflightResult\?\.summary\.blockedCount \?\? 0\) > 0\) return;/);
+  assert.match(workspace, /if \(preflightResult\?\.summary\.eligibleCount \?\? 0\) <= 0\) return;/);
+});
+
 test("AI launch board derives final apply, counts, verdicts, and price issue copy", async () => {
   const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   const workspace = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
 
   assert.doesNotMatch(flow, /actualApplyDone=\{false\}/);
-  assert.match(flow, /const actualApplyDone = keywordApplyState\?\.realApplyStatus === "success" && keywordApplyState\.failedCount === 0 && keywordApplyState\.appliedCount > 0/);
+  assert.match(flow, /const actualApplyDone = isSuccessfulPriceResult\(priceActionsResult\) && keywordApplyState\?\.realApplyStatus === "success" && keywordApplyState\.failedCount === 0 && keywordApplyState\.appliedCount > 0 && \(keywordApplyState\.blankMallTitleBlockedCount \?\? 0\) === 0/);
   assert.match(flow, /actualApplyDone=\{actualApplyDone\}/);
   assert.match(flow, /mallCount=\{boardMallCount\}/);
   assert.match(flow, /const boardMallCount = expectedPriceModifyUpdateCount\(goodsKeyProductGroupMap\)/);
