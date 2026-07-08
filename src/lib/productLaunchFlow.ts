@@ -149,15 +149,43 @@ function booleanOrString(value: unknown): boolean | string | undefined {
 }
 
 
-export function buildKeywordEngineDispatchPayload(rows: ProductLaunchUploadRow[], seedKeyword?: string) {
+export function normalizeSeedKeywords(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const seen = new Set<string>();
+  return raw
+    .split(/[\s,;\/|\n]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => {
+      const key = token.toLocaleLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 10)
+    .join(",");
+}
+
+export function normalizeSeedKeywordsByGoodsKey(values: Record<string, string> = {}) {
+  return Object.fromEntries(
+    Object.entries(values)
+      .map(([goodsKey, value]) => [goodsKey.trim(), normalizeSeedKeywords(value)] as const)
+      .filter(([goodsKey, value]) => goodsKey && value),
+  );
+}
+
+export function buildKeywordEngineDispatchPayload(rows: ProductLaunchUploadRow[], seedKeyword?: string, seedKeywordsByGoodsKey: Record<string, string> = {}) {
   const goodsKeyCsv = dedupeGoodsKeysForPriceModify(rows).join(",");
   const trimmedSeedKeyword = seedKeyword?.trim() ?? "";
+  const normalizedSeedKeywordsByGoodsKey = normalizeSeedKeywordsByGoodsKey(seedKeywordsByGoodsKey);
   return {
     kind: "keyword_engine",
     mode: "dry_run",
     inputs: {
       goods_key: goodsKeyCsv,
       ...(trimmedSeedKeyword ? { seed_keyword: trimmedSeedKeyword } : {}),
+      ...(Object.keys(normalizedSeedKeywordsByGoodsKey).length > 0 ? { seed_keywords_by_goods_key_json: JSON.stringify(normalizedSeedKeywordsByGoodsKey) } : {}),
     },
   };
 }
@@ -267,19 +295,21 @@ export function computeLaunchTitleCoverage(input: {
   uploadRows?: ProductLaunchUploadRow[];
   rows: LaunchCoverageRowLike[];
   manualTitleOverridesByGoodsKey?: Record<string, string>;
+  seedKeywordsByGoodsKey?: Record<string, string>;
 }) {
   const launchGoodsKeys = getLaunchGoodsKeys(input.goodsKeys ?? [], input.uploadRows ?? []);
   const uploadRowsByGoodsKey = new Map((input.uploadRows ?? []).map((row) => [(row.goods_key ?? "").trim(), row]));
   const manualReadyGoodsKeys = launchGoodsKeys.filter((goodsKey) => resolveManualTitleOverride(input.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey));
+  const seedReadyGoodsKeys = launchGoodsKeys.filter((goodsKey) => normalizeSeedKeywords(input.seedKeywordsByGoodsKey?.[goodsKey]));
   const approvedRows = input.rows.filter((row) => (row.reviewStatus === "approved" || manualReadyGoodsKeys.includes(String(row.goodsKey ?? "").trim())) && launchGoodsKeys.includes(String(row.goodsKey ?? "").trim()));
-  const approvedGoodsKeys = new Set([...approvedRows.map((row) => String(row.goodsKey ?? "").trim()), ...manualReadyGoodsKeys]);
-  const readyGoodsKeys = new Set([...manualReadyGoodsKeys, ...approvedRows.filter((row) => resolveMallTitle(row, uploadRowsByGoodsKey.get(String(row.goodsKey ?? "").trim()), input.manualTitleOverridesByGoodsKey)).map((row) => String(row.goodsKey ?? "").trim())]);
+  const approvedGoodsKeys = new Set([...approvedRows.map((row) => String(row.goodsKey ?? "").trim()), ...manualReadyGoodsKeys, ...seedReadyGoodsKeys]);
+  const readyGoodsKeys = new Set([...manualReadyGoodsKeys, ...seedReadyGoodsKeys, ...approvedRows.filter((row) => resolveMallTitle(row, uploadRowsByGoodsKey.get(String(row.goodsKey ?? "").trim()), input.manualTitleOverridesByGoodsKey)).map((row) => String(row.goodsKey ?? "").trim())]);
   const missingGoodsKeys = launchGoodsKeys.filter((goodsKey) => !readyGoodsKeys.has(goodsKey));
   const blockedGoodsKeys = missingGoodsKeys.map((goodsKey) => {
     const candidates = input.rows.filter((row) => String(row.goodsKey ?? "").trim() === goodsKey);
     const uploadRow = uploadRowsByGoodsKey.get(goodsKey);
     const hasCandidate = candidates.length > 0;
-    const hasAnySafeTitle = Boolean(resolveManualTitleOverride(input.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey)) || candidates.some((row) => Boolean(resolveMallTitle(row, uploadRow, input.manualTitleOverridesByGoodsKey))) || isSafeMallTitle(readRawString(uploadRow, ["upload_title", "product_name", "registered_title", "final_title", "title", "productTitle", "original_title"]));
+    const hasAnySafeTitle = Boolean(resolveManualTitleOverride(input.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey)) || Boolean(normalizeSeedKeywords(input.seedKeywordsByGoodsKey?.[goodsKey])) || candidates.some((row) => Boolean(resolveMallTitle(row, uploadRow, input.manualTitleOverridesByGoodsKey))) || isSafeMallTitle(readRawString(uploadRow, ["upload_title", "product_name", "registered_title", "final_title", "title", "productTitle", "original_title"]));
     const hasNumericOnly = candidates.some((row) => [row.editedTitle, row.recommendedTitle, row.originalTitle, readRawString(row, ["mall_title", "final_title", "title"])].some((title) => /^\d+$/.test(String(title ?? "").trim())));
     const missingGroup = candidates.some((row) => String(row.productGroup ?? "").includes("확인 필요"));
     const gatherFailed = candidates.some((row) => /gather|조회|product/i.test(`${row.blockReason ?? ""} ${row.classification ?? ""}`));

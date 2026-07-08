@@ -5,7 +5,7 @@ import type {
 } from "./keywordReviewQueue";
 import { buildMallSpecificTitleVariant, sourceFromReviewedRow } from "./productTitleVariants";
 import { getMarketsForProductGroup } from "./productGroupMarketRegistry";
-import { normalizeManualKeywordOverride, resolveManualTitleOverride } from "./productLaunchFlow";
+import { normalizeManualKeywordOverride, normalizeSeedKeywords, resolveManualTitleOverride } from "./productLaunchFlow";
 
 export type KeywordReviewedRow = ReviewedKeywordRow;
 
@@ -141,7 +141,7 @@ function xmlFragment(
  */
 export function buildKeywordShoplingPayloadPreview(
   reviewedRows: KeywordReviewedRow[],
-  options: { groupVariantEnabled?: boolean; expandProductGroupMarkets?: boolean; manualTitleOverridesByGoodsKey?: Record<string, string>; manualKeywordOverridesByGoodsKey?: Record<string, string> } = {},
+  options: { groupVariantEnabled?: boolean; expandProductGroupMarkets?: boolean; manualTitleOverridesByGoodsKey?: Record<string, string>; manualKeywordOverridesByGoodsKey?: Record<string, string>; seedKeywordsByGoodsKey?: Record<string, string> } = {},
 ): KeywordPayloadPreviewResult {
   const expansionMode = options.expandProductGroupMarkets ? "product_group_markets" : "single_mall";
   const expansionErrors: string[] = [];
@@ -149,14 +149,15 @@ export function buildKeywordShoplingPayloadPreview(
     const validation_errors: string[] = [];
     const validation_warnings: string[] = [];
     const goodsKey = row.goodsKey.trim();
-    let final_title = resolveManualTitleOverride(options.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey) || preferredValue(row.editedTitle, row.recommendedTitle) || row.originalTitle.trim();
+    const seedKeywords = normalizeSeedKeywords(options.seedKeywordsByGoodsKey?.[goodsKey]);
+    let final_title = resolveManualTitleOverride(options.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey) || (seedKeywords ? `${seedKeywords.split(",").join(" ")} ${row.productGroup ?? ""}`.replace(/\s+/g, " ").trim() : "") || preferredValue(row.editedTitle, row.recommendedTitle) || row.originalTitle.trim();
     const final_mall_key = preferredValue(row.editedMallKey, row.mallKey);
-    const preferredSiteSrch = normalizeManualKeywordOverride(options.manualKeywordOverridesByGoodsKey?.[goodsKey]) || row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim() || fallbackSiteSrchFromTitle(final_title);
+    const preferredSiteSrch = normalizeManualKeywordOverride(options.manualKeywordOverridesByGoodsKey?.[goodsKey]) || seedKeywords || row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim() || fallbackSiteSrchFromTitle(final_title);
     const normalizedSiteSrch = normalizeSiteSrch(preferredSiteSrch);
     const final_site_srch = normalizedSiteSrch.normalized;
 
     if (options.groupVariantEnabled && final_title) {
-      final_title = sourceFromReviewedRow(row).baseTitle ? buildMallSpecificTitleVariant(sourceFromReviewedRow(row), { productGroup: row.productGroup ?? "", groupSuffix: row.groupSuffix ?? "", productGroupType: row.productGroupType ?? "확인 필요", marketName: "single", mallType: "", mallKey: final_mall_key || row.mallKey, accountIdLabel: "single" }).mallTitle : final_title;
+      final_title = (seedKeywords || sourceFromReviewedRow(row).baseTitle) ? buildMallSpecificTitleVariant(seedKeywords ? { ...sourceFromReviewedRow(row), baseTitle: finalTitleSeedBase(seedKeywords, row.productGroup ?? "") } : sourceFromReviewedRow(row), { productGroup: row.productGroup ?? "", groupSuffix: row.groupSuffix ?? "", productGroupType: row.productGroupType ?? "확인 필요", marketName: "single", mallType: "", mallKey: final_mall_key || row.mallKey, accountIdLabel: "single" }).mallTitle : final_title;
     }
     let payload_status: KeywordPayloadStatus = "not_approved";
     if (row.reviewStatus === "hold") {
@@ -250,7 +251,8 @@ export function buildKeywordShoplingPayloadPreview(
       expansionErrors.push(`${row.goodsKey || "(missing goods_key)"}: 상품그룹을 확인해야 쇼핑몰 자동 확장이 가능합니다.`);
       return [{ ...item, payload_status: "invalid" as const, validation_errors: [...item.validation_errors, "상품그룹을 확인해야 쇼핑몰 자동 확장이 가능합니다."] }];
     }
-    const source = sourceFromReviewedRow(row);
+    const itemSeedKeywords = normalizeSeedKeywords(options.seedKeywordsByGoodsKey?.[item.goods_key]);
+    const source = itemSeedKeywords ? { ...sourceFromReviewedRow(row), baseTitle: finalTitleSeedBase(itemSeedKeywords, row.productGroup ?? item.product_group) } : sourceFromReviewedRow(row);
     return markets.map((market) => {
       const variant = options.groupVariantEnabled ? buildMallSpecificTitleVariant(source, market) : null;
       const finalTitle = variant?.mallTitle ?? item.final_title;
@@ -297,6 +299,10 @@ export function buildKeywordShoplingPayloadPreview(
       "</shopling-update-preview>",
     ].join("\n"),
   };
+}
+
+function finalTitleSeedBase(seedKeywords: string, productGroup: string) {
+  return `${seedKeywords.split(",").join(" ")} ${productGroup}`.replace(/\s+/g, " ").trim();
 }
 
 export function exportKeywordPayloadPreview(
