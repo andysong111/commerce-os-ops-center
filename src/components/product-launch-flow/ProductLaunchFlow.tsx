@@ -15,6 +15,8 @@ import {
   FULL_PRICE_POLICY_MALL_COUNT,
   extractUploadRows,
   inferProductGroupFromPtnGoodsCd,
+  normalizeManualKeywordOverride,
+  resolveManualTitleOverride,
   type ProductLaunchPriceError,
   type ProductLaunchUploadRow,
 } from "@/lib/productLaunchFlow";
@@ -23,6 +25,8 @@ const UPLOAD_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.uploadRequestId";
 const PRICE_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.priceRequestId";
 const LAST_ROW_EXPRESSION_STORAGE_KEY = "productLaunchFlow.lastRowExpression";
 const KEYWORD_SEED_STORAGE_KEY = "productLaunchFlow.keywordSeed";
+const MANUAL_TITLE_OVERRIDES_STORAGE_PREFIX = "productLaunchFlow.manualTitleOverrides";
+const MANUAL_KEYWORD_OVERRIDES_STORAGE_PREFIX = "productLaunchFlow.manualKeywordOverrides";
 const KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY = "opsCenter.keywordEngine.importedArtifact.v1";
 const UPLOAD_POLL_INTERVAL_MS = 5_000;
 const UPLOAD_MAX_POLLS = 24;
@@ -92,6 +96,8 @@ export function ProductLaunchFlow() {
   const [finalPricePollCount, setFinalPricePollCount] = useState(0);
   const [finalPriceLastCheckedAt, setFinalPriceLastCheckedAt] = useState<Date | null>(null);
   const [keywordSeed, setKeywordSeed] = useState(() => getStoredValue(KEYWORD_SEED_STORAGE_KEY));
+  const [manualTitleOverridesByGoodsKey, setManualTitleOverridesByGoodsKey] = useState<Record<string, string>>({});
+  const [manualKeywordOverridesByGoodsKey, setManualKeywordOverridesByGoodsKey] = useState<Record<string, string>>({});
   const [keywordPreview, setKeywordPreview] = useState<unknown>(null);
   const [keywordDispatchResult, setKeywordDispatchResult] = useState<KeywordDispatchResult | null>(null);
   const [keywordRunsResult, setKeywordRunsResult] = useState<KeywordRunsResult | null>(null);
@@ -116,6 +122,22 @@ export function ProductLaunchFlow() {
   const goodsKeys = useMemo(() => dedupeGoodsKeysForPriceModify(uploadRows), [uploadRows]);
   const goodsKeyProductGroupMap = useMemo(() => buildGoodsKeyProductGroupMap(uploadRows), [uploadRows]);
   const uploadPollingFinal = isFinalUploadPollingResult(uploadActionsResult, uploadRows.length);
+  const manualOverrideStorageScope = currentManualOverrideStorageScope(rowExpression, uploadRequestId);
+
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setManualTitleOverridesByGoodsKey(readStoredRecord(`${MANUAL_TITLE_OVERRIDES_STORAGE_PREFIX}.${manualOverrideStorageScope}`));
+    setManualKeywordOverridesByGoodsKey(readStoredRecord(`${MANUAL_KEYWORD_OVERRIDES_STORAGE_PREFIX}.${manualOverrideStorageScope}`));
+  }, [manualOverrideStorageScope]);
+
+  useEffect(() => {
+    persistRecord(`${MANUAL_TITLE_OVERRIDES_STORAGE_PREFIX}.${manualOverrideStorageScope}`, manualTitleOverridesByGoodsKey);
+  }, [manualOverrideStorageScope, manualTitleOverridesByGoodsKey]);
+
+  useEffect(() => {
+    persistRecord(`${MANUAL_KEYWORD_OVERRIDES_STORAGE_PREFIX}.${manualOverrideStorageScope}`, manualKeywordOverridesByGoodsKey);
+  }, [manualOverrideStorageScope, manualKeywordOverridesByGoodsKey]);
 
   const pollUploadResult = useCallback(async (reset: boolean, requestIdOverride?: string) => {
     const effectiveRequestId = requestIdOverride || uploadRequestId;
@@ -508,6 +530,7 @@ export function ProductLaunchFlow() {
   return (
     <div className="space-y-6">
       <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} keywordApplyState={keywordApplyState} priceIssueState={priceIssueState} onNext={keywordRealApplySucceeded && !finalPriceDone ? runFinalPriceModify : runNextSafeStep} initialPriceRequestId={priceRequestId} finalPriceRequestId={finalPriceRequestId} finalPriceActionsResult={finalPriceActionsResult} finalPriceActive={finalPriceActive} finalPriceDone={finalPriceDone} finalPriceFailed={finalPriceFailed} finalPriceTargetCount={goodsKeys.length * FULL_PRICE_POLICY_MALL_COUNT} />
+      <ManualOverrideSection goodsKeys={goodsKeys} uploadRows={uploadRows} manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey} manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey} onManualTitleChange={(goodsKey, value) => setManualTitleOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} onManualKeywordChange={(goodsKey, value) => setManualKeywordOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} />
       <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling || finalPriceActive} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회 · 최종가격 ${finalPricePollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
       {keywordSummary.artifact ? <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold text-emerald-700">키워드 결과 검토</p>
@@ -517,11 +540,11 @@ export function ProductLaunchFlow() {
         <div className="mt-4 flex flex-wrap gap-3"><button type="button" onClick={openInlineKeywordReview} disabled={!!keywordBusy} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">키워드 검토 시작</button><Link href="/keyword-review-queue?from=product-launch-flow" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">개별 키워드 검토 화면에서 열기</Link></div>
         {keywordImportMessage ? <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{keywordImportMessage}</p> : null}
       </section> : null}
-      {embeddedReviewOpen ? <KeywordReviewWorkspace mode="embedded" launchContext={{ rowExpression: lastStartedRowExpression || rowExpression, uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRunId: keywordRunsResult?.runs?.[0]?.id, artifactName: keywordSummary.artifact?.name, importedAt: keywordImportedAt || "확인 중", goodsKeyCount: goodsKeys.length, productGroupCount: new Set(uploadRows.map((row) => inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? ""))).size, uploadRows, goodsKeys, goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows), autoApplyToShopling: autoActualApplyEnabled === true, autoApplyConfirmationText: autoActualApplyEnabled === true ? "AUTO_APPLY_TO_SHOPLING" : "" }} onApplyStateChange={setKeywordApplyState} /> : null}
+      {embeddedReviewOpen ? <KeywordReviewWorkspace mode="embedded" launchContext={{ rowExpression: lastStartedRowExpression || rowExpression, uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRunId: keywordRunsResult?.runs?.[0]?.id, artifactName: keywordSummary.artifact?.name, importedAt: keywordImportedAt || "확인 중", goodsKeyCount: goodsKeys.length, productGroupCount: new Set(uploadRows.map((row) => inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? ""))).size, uploadRows, goodsKeys, goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows), manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey, autoApplyToShopling: autoActualApplyEnabled === true, autoApplyConfirmationText: autoActualApplyEnabled === true ? "AUTO_APPLY_TO_SHOPLING" : "" }} onApplyStateChange={setKeywordApplyState} /> : null}
       {cockpit.primaryAction === "failed" ? <ErrorDrawer title="실패 원인" uploadResult={uploadActionsResult} priceResult={priceActionsResult} keywordResult={keywordRunsResult} requestId={previousRequestId} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} /> : null}
 
       <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <summary className="cursor-pointer text-lg font-bold text-slate-950">고급 / 수동 조작</summary>
+        <summary className="cursor-pointer text-lg font-bold text-slate-950">고급 / 상세 결과 보기</summary>
       <form onSubmit={runUpload} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-950">Step 1. 상품업로드</h2>
         <label className="mt-4 block text-sm font-semibold text-slate-800">실재고 시트 행 번호
@@ -556,6 +579,26 @@ export function ProductLaunchFlow() {
   );
 }
 
+
+function ManualOverrideSection({ goodsKeys, uploadRows, manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey, onManualTitleChange, onManualKeywordChange }: { goodsKeys: string[]; uploadRows: ProductLaunchUploadRow[]; manualTitleOverridesByGoodsKey: Record<string, string>; manualKeywordOverridesByGoodsKey: Record<string, string>; onManualTitleChange: (goodsKey: string, value: string) => void; onManualKeywordChange: (goodsKey: string, value: string) => void; }) {
+  const uploadRowsByGoodsKey = new Map(uploadRows.map((row) => [(row.goods_key ?? "").trim(), row]));
+  const rows = goodsKeys.length > 0 ? goodsKeys : uploadRows.map((row) => (row.goods_key ?? "").trim()).filter(Boolean);
+  return <section className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
+    <p className="text-sm font-bold text-blue-700">상품별 수동 보정</p>
+    <h2 className="mt-1 text-xl font-black text-slate-950">상품별 수동 보정</h2>
+    <p className="mt-2 text-sm font-semibold text-slate-700">상품명을 직접 입력하면 이 값이 1순위로 반영됩니다.<br />비워두면 키워드 엔진이 만든 상품명을 사용합니다.</p>
+    {rows.length === 0 ? <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">상품업로드 후 goods_key별 수동 상품명/검색어 입력칸이 표시됩니다.</p> : <div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-slate-50 text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">goods_key</th><th className="border border-slate-200 px-3 py-2">상품그룹</th><th className="border border-slate-200 px-3 py-2">현재 엔진 추천 상품명</th><th className="border border-slate-200 px-3 py-2">수동 상품명 입력</th><th className="border border-slate-200 px-3 py-2">수동 검색어 입력</th><th className="border border-slate-200 px-3 py-2">상태</th></tr></thead><tbody>{rows.map((goodsKey) => {
+      const uploadRow = uploadRowsByGoodsKey.get(goodsKey);
+      const productGroup = inferProductGroupFromPtnGoodsCd(uploadRow?.ptn_goods_cd ?? "").productGroup;
+      const engineTitle = [uploadRow?.final_title, uploadRow?.registered_title, uploadRow?.upload_title, uploadRow?.product_name, uploadRow?.title, uploadRow?.productTitle].find((value) => String(value ?? "").trim()) ?? "키워드 엔진 대기";
+      const manualTitle = manualTitleOverridesByGoodsKey[goodsKey] ?? "";
+      const manualKeyword = manualKeywordOverridesByGoodsKey[goodsKey] ?? "";
+      const status = resolveManualTitleOverride(manualTitle, goodsKey) ? "수동" : String(engineTitle).trim() && engineTitle !== "키워드 엔진 대기" ? "엔진" : "보강 필요";
+      return <tr key={goodsKey} className="bg-white"><td className="border border-slate-200 px-3 py-2 font-mono">{goodsKey}</td><td className="border border-slate-200 px-3 py-2 font-semibold">{productGroup}</td><td className="border border-slate-200 px-3 py-2">{engineTitle}</td><td className="border border-slate-200 px-3 py-2"><input value={manualTitle} onChange={(event) => onManualTitleChange(goodsKey, event.target.value)} placeholder="수동 상품명" className="w-64 rounded-lg border border-slate-300 px-3 py-2" /></td><td className="border border-slate-200 px-3 py-2"><input value={manualKeyword} onChange={(event) => onManualKeywordChange(goodsKey, normalizeManualKeywordOverride(event.target.value) || event.target.value)} placeholder="게임패드,컨트롤러" className="w-64 rounded-lg border border-slate-300 px-3 py-2" /></td><td className="border border-slate-200 px-3 py-2 font-bold">{status}</td></tr>;
+    })}</tbody></table></div>}
+  </section>;
+}
+
 function SummaryCard({ label, value }: { label: string; value: string | number }) {
   return <div className="rounded-xl bg-white p-3"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-1 text-lg font-black text-slate-950">{value}</p></div>;
 }
@@ -567,7 +610,7 @@ function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, 
   const realApplyLabel = getKeywordApplyPhaseLabelForBoard(keywordApplyState);
   const keywordRealApplySucceeded = isKeywordRealApplySuccess(keywordApplyState);
   const finalPriceStatus = finalPriceActive ? "가격 최종 재적용 중" : finalPriceDone ? "success" : finalPriceFailed ? "failed" : "waiting";
-  const boardButtonLabel = finalPriceActive ? "가격 최종 재적용 확인 중" : keywordRealApplySucceeded && !finalPriceDone ? "가격 최종 재적용 실행" : actualApplyDone ? "출시 결과 확인" : realApplyRunning ? "실제 반영 확인 중" : realApplyStatus === "failed" || realApplyStatus === "blocked" ? "문제 확인" : "실제 샵플링 반영 실행";
+  const boardButtonLabel = finalPriceActive ? "가격 최종 재적용 확인 중" : keywordRealApplySucceeded && !finalPriceDone ? "가격 최종 재적용" : actualApplyDone ? "출시 결과 확인" : realApplyRunning ? "실제 반영 확인 중" : realApplyStatus === "failed" || realApplyStatus === "blocked" ? "문제 확인" : state.primaryAction === "upload" ? "상품출시 시작" : "상품명/검색어 적용하고 가격 마무리";
   const finalVerdict = finalPriceActive ? "가격 최종 재적용 중" : finalPriceFailed ? "출시 보류 - 가격 최종 재적용 실패" : keywordRealApplySucceeded && !finalPriceDone ? "출시 보류 - 가격 최종 재적용 대기" : state.primaryAction === "wait" ? "진행 중" : hasCriticalPriceIssue ? "출시 보류 - 가격 확인 필요" : actualApplyDone && keywordWarningCount > 0 && issueCount === keywordWarningCount ? "출시 완료 - 경고 있음" : actualApplyDone ? "출시 완료" : "출시 보류 - 실제 반영 미완료";
   const status: string = finalVerdict;
   const progress = actualApplyDone ? 100 : Math.round((state.steps.filter((step) => step.state === "success").length / Math.max(state.steps.length, 1)) * 100);
@@ -577,7 +620,7 @@ function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, 
     <h1 className="mt-1 text-2xl font-black text-slate-950">{actualApplyDone && !hasCriticalPriceIssue ? "출시 완료" : finalVerdict}</h1>
     {actualApplyDone ? <p className="mt-2 text-sm font-bold text-emerald-900">샵플링 상품명/검색어 반영까지 완료되었습니다.</p> : null}
     {hasCriticalPriceIssue ? <p className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-bold text-red-800">가격 확인 필요<br />쇼핑몰별 판매가 0원 항목이 남아 있습니다.</p> : null}
-    {priceIssueState.kind === "unsupported" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">가격 화면 검증 필요<br />가격 API는 실행됐지만 샵플링 화면 기준 0원 여부를 확인하지 못했습니다.</p> : null}
+    {priceIssueState.kind === "unsupported" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">가격 화면 검증 필요<br />가격 API는 실행됐지만 샵플링 화면 기준 0원 여부를 확인하지 못했습니다. 상품명 API 반영은 실행됐지만 샵플링 화면 확인이 필요합니다.</p> : null}
     <div className="mt-4 grid gap-3 md:grid-cols-3">
       <SummaryCard label="현재 상태" value={status} />
       <SummaryCard label="다음 작업" value={state.nextAction} />
@@ -598,6 +641,7 @@ function AILaunchAgentBoard({ state, productCount, mallCount, titleTargetCount, 
     {!actualApplyDone && keywordApplyState?.dryRunStatus === "success" ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">키워드 dry_run은 완료됐지만 실제 샵플링 반영은 아직 실행되지 않았습니다.</p> : null}
     <div className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-bold text-blue-900">상품명/키워드 반영 후 가격을 마지막으로 한 번 더 적용합니다.<br />상품명 반영 과정에서 일부 쇼핑몰 가격이 0원으로 돌아가는 것을 방지하기 위한 최종 보정 단계입니다.</div>
     <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>1차 가격 request id: <span className="font-mono">{initialPriceRequestId || "-"}</span></p><p>실제 반영 request id: <span className="font-mono">{keywordApplyState?.realApplyRequestId || "-"}</span></p><p>최종 가격 request id: <span className="font-mono">{finalPriceRequestId || finalPriceActionsResult?.requestId || "-"}</span></p><p>final price status: {finalPriceStatus}</p><p>final price target count: {finalPriceTargetCount}</p><p>dry_run request id: <span className="font-mono">{keywordApplyState?.dryRunRequestId || "-"}</span></p><p>real apply request id: <span className="font-mono">{keywordApplyState?.realApplyRequestId || "-"}</span></p><p>real apply status: {realApplyLabel}</p><p>applied count: {keywordApplyState?.appliedCount ?? 0}</p><p>failed count: {keywordApplyState?.failedCount ?? 0}</p><p>blocked blank title count: {keywordApplyState?.blankMallTitleBlockedCount ?? 0}</p></div>
+    {keywordApplyState ? <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>상품명 반영 {keywordApplyState.failedCount === 0 ? "성공" : "실패"}</p><p>검색어 반영 {keywordApplyState.failedCount === 0 ? "성공" : "실패"}</p><p>가격 최종 재적용 {finalPriceDone ? "성공" : finalPriceFailed ? "실패" : "대기"}</p></div> : null}
     {actualApplyDone ? <div className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-slate-800"><p>반영 상품 수: {titleTargetCount}</p><p>반영 쇼핑몰 수: {mallCount}</p><p>가격 상태: {priceIssueState.label}</p><p>검색어 경고 수: {keywordWarningCount}</p><p>다음 수동 작업: 샵플링에서 마켓전송 전 최종 확인</p></div> : null}
     <button type="button" onClick={onNext} className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white">{boardButtonLabel}</button>
   </section>;
@@ -816,6 +860,9 @@ function StatusBlock({ result, requestId }: { result: RunResult | null; requestI
 function ResultRow({ label, value, mono }: { label: string; value: string | number; mono?: boolean }) { return <div className="grid gap-1 border-b border-slate-100 pb-3 md:grid-cols-[220px_1fr]"><dt className="font-semibold text-slate-700">{label}</dt><dd className={mono ? "font-mono text-slate-900" : "text-slate-900"}>{value}</dd></div>; }
 function getStoredValue(key: string) { if (typeof window === "undefined") return ""; return window.localStorage.getItem(key) ?? ""; }
 function persistValue(key: string, value: string) { if (typeof window !== "undefined") window.localStorage.setItem(key, value); }
+function currentManualOverrideStorageScope(rowExpression: string, launchRequestId: string) { return (launchRequestId || rowExpression || "draft").replace(/[^a-zA-Z0-9_.-]+/g, "_"); }
+function readStoredRecord(key: string): Record<string, string> { if (typeof window === "undefined") return {}; try { const parsed = JSON.parse(window.localStorage.getItem(key) ?? "{}"); return parsed && typeof parsed === "object" ? parsed as Record<string, string> : {}; } catch { return {}; } }
+function persistRecord(key: string, value: Record<string, string>) { if (typeof window !== "undefined") window.localStorage.setItem(key, JSON.stringify(value)); }
 
 type PriceIssueState = { kind: "ok" | "critical" | "unsupported" | "unknown"; count: number; label: string };
 

@@ -15,6 +15,8 @@ export type ProductLaunchUploadRow = {
   product_name?: string;
   productTitle?: string;
   upload_title?: string;
+  registered_title?: string;
+  final_title?: string;
 };
 
 export type ProductLaunchPriceSummary = {
@@ -90,6 +92,8 @@ export function extractUploadRows(uploadResult: unknown): ProductLaunchUploadRow
     product_name: stringify(row.product_name),
     productTitle: stringify(row.productTitle),
     upload_title: stringify(row.upload_title),
+    registered_title: stringify(row.registered_title),
+    final_title: stringify(row.final_title),
   }));
 }
 
@@ -207,14 +211,46 @@ export function isSafeLaunchTitle(title: unknown): title is string {
   return isSafeMallTitle(title);
 }
 
-export function resolveMallTitle(row: LaunchCoverageRowLike, uploadRow?: ProductLaunchUploadRow): string {
+export function resolveManualTitleOverride(value: unknown, goodsKey?: string): string {
+  const title = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!isSafeMallTitle(title)) return "";
+  if (goodsKey && title === String(goodsKey).trim()) return "";
+  return title;
+}
+
+export function normalizeManualKeywordOverride(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const tokens = raw
+    .split(/[\s,]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => /[가-힣]/.test(token));
+  const source = tokens.length > 0 ? tokens : raw.split(/[\s,]+/).map((token) => token.trim()).filter(Boolean);
+  const seen = new Set<string>();
+  return source.filter((token) => {
+    const key = token.toLocaleLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 10).join(",");
+}
+
+export function resolveManualKeywordOverride(value: unknown): string {
+  return normalizeManualKeywordOverride(value);
+}
+
+export function resolveMallTitle(row: LaunchCoverageRowLike, uploadRow?: ProductLaunchUploadRow, manualTitleOverridesByGoodsKey: Record<string, string> = {}): string {
+  const goodsKey = String(row.goodsKey ?? uploadRow?.goods_key ?? "").trim();
+  const manualTitle = resolveManualTitleOverride(manualTitleOverridesByGoodsKey[goodsKey], goodsKey);
   const candidates = [
+    manualTitle,
     row.editedTitle,
     row.recommendedTitle,
     readRawString(row, ["mall_title", "final_title", "new_title", "recommended_title", "suggested_title"]),
     row.originalTitle,
     readRawString(row, ["current_title", "old_title", "original_title", "title"]),
-    readRawString(uploadRow, ["title", "product_name", "productTitle", "upload_title", "original_title"]),
+    readRawString(uploadRow, ["upload_title", "product_name", "registered_title", "final_title", "title", "productTitle", "original_title"]),
   ];
   return String(candidates.find(isSafeMallTitle) ?? "").replace(/\s+/g, " ").trim();
 }
@@ -230,18 +266,20 @@ export function computeLaunchTitleCoverage(input: {
   goodsKeys?: string[];
   uploadRows?: ProductLaunchUploadRow[];
   rows: LaunchCoverageRowLike[];
+  manualTitleOverridesByGoodsKey?: Record<string, string>;
 }) {
   const launchGoodsKeys = getLaunchGoodsKeys(input.goodsKeys ?? [], input.uploadRows ?? []);
   const uploadRowsByGoodsKey = new Map((input.uploadRows ?? []).map((row) => [(row.goods_key ?? "").trim(), row]));
-  const approvedRows = input.rows.filter((row) => row.reviewStatus === "approved" && launchGoodsKeys.includes(String(row.goodsKey ?? "").trim()));
-  const approvedGoodsKeys = new Set(approvedRows.map((row) => String(row.goodsKey ?? "").trim()));
-  const readyGoodsKeys = new Set(approvedRows.filter((row) => resolveMallTitle(row, uploadRowsByGoodsKey.get(String(row.goodsKey ?? "").trim()))).map((row) => String(row.goodsKey ?? "").trim()));
+  const manualReadyGoodsKeys = launchGoodsKeys.filter((goodsKey) => resolveManualTitleOverride(input.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey));
+  const approvedRows = input.rows.filter((row) => (row.reviewStatus === "approved" || manualReadyGoodsKeys.includes(String(row.goodsKey ?? "").trim())) && launchGoodsKeys.includes(String(row.goodsKey ?? "").trim()));
+  const approvedGoodsKeys = new Set([...approvedRows.map((row) => String(row.goodsKey ?? "").trim()), ...manualReadyGoodsKeys]);
+  const readyGoodsKeys = new Set([...manualReadyGoodsKeys, ...approvedRows.filter((row) => resolveMallTitle(row, uploadRowsByGoodsKey.get(String(row.goodsKey ?? "").trim()), input.manualTitleOverridesByGoodsKey)).map((row) => String(row.goodsKey ?? "").trim())]);
   const missingGoodsKeys = launchGoodsKeys.filter((goodsKey) => !readyGoodsKeys.has(goodsKey));
   const blockedGoodsKeys = missingGoodsKeys.map((goodsKey) => {
     const candidates = input.rows.filter((row) => String(row.goodsKey ?? "").trim() === goodsKey);
     const uploadRow = uploadRowsByGoodsKey.get(goodsKey);
     const hasCandidate = candidates.length > 0;
-    const hasAnySafeTitle = candidates.some((row) => Boolean(resolveMallTitle(row, uploadRow))) || isSafeMallTitle(readRawString(uploadRow, ["title", "product_name", "productTitle", "upload_title", "original_title"]));
+    const hasAnySafeTitle = Boolean(resolveManualTitleOverride(input.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey)) || candidates.some((row) => Boolean(resolveMallTitle(row, uploadRow, input.manualTitleOverridesByGoodsKey))) || isSafeMallTitle(readRawString(uploadRow, ["upload_title", "product_name", "registered_title", "final_title", "title", "productTitle", "original_title"]));
     const hasNumericOnly = candidates.some((row) => [row.editedTitle, row.recommendedTitle, row.originalTitle, readRawString(row, ["mall_title", "final_title", "title"])].some((title) => /^\d+$/.test(String(title ?? "").trim())));
     const missingGroup = candidates.some((row) => String(row.productGroup ?? "").includes("확인 필요"));
     const gatherFailed = candidates.some((row) => /gather|조회|product/i.test(`${row.blockReason ?? ""} ${row.classification ?? ""}`));
