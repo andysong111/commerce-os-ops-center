@@ -141,7 +141,7 @@ function xmlFragment(
  */
 export function buildKeywordShoplingPayloadPreview(
   reviewedRows: KeywordReviewedRow[],
-  options: { groupVariantEnabled?: boolean; expandProductGroupMarkets?: boolean; manualTitleOverridesByGoodsKey?: Record<string, string>; manualKeywordOverridesByGoodsKey?: Record<string, string> } = {},
+  options: { groupVariantEnabled?: boolean; expandProductGroupMarkets?: boolean; seedKeywordsByGoodsKey?: Record<string, string>; manualTitleOverridesByGoodsKey?: Record<string, string>; manualKeywordOverridesByGoodsKey?: Record<string, string> } = {},
 ): KeywordPayloadPreviewResult {
   const expansionMode = options.expandProductGroupMarkets ? "product_group_markets" : "single_mall";
   const expansionErrors: string[] = [];
@@ -149,9 +149,11 @@ export function buildKeywordShoplingPayloadPreview(
     const validation_errors: string[] = [];
     const validation_warnings: string[] = [];
     const goodsKey = row.goodsKey.trim();
-    let final_title = resolveManualTitleOverride(options.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey) || preferredValue(row.editedTitle, row.recommendedTitle) || row.originalTitle.trim();
+    const seedKeywords = normalizeManualKeywordOverride(options.seedKeywordsByGoodsKey?.[goodsKey]);
+    const seedGeneratedTitle = seedKeywords ? `${seedKeywords.split(",").join(" ")} ${row.productGroup ?? ""}`.replace(/\s+/g, " ").trim() : "";
+    let final_title = resolveManualTitleOverride(options.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey) || seedGeneratedTitle || preferredValue(row.editedTitle, row.recommendedTitle) || row.originalTitle.trim();
     const final_mall_key = preferredValue(row.editedMallKey, row.mallKey);
-    const preferredSiteSrch = normalizeManualKeywordOverride(options.manualKeywordOverridesByGoodsKey?.[goodsKey]) || row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim() || fallbackSiteSrchFromTitle(final_title);
+    const preferredSiteSrch = normalizeManualKeywordOverride(options.manualKeywordOverridesByGoodsKey?.[goodsKey]) || seedKeywords || row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim() || fallbackSiteSrchFromTitle(final_title);
     const normalizedSiteSrch = normalizeSiteSrch(preferredSiteSrch);
     const final_site_srch = normalizedSiteSrch.normalized;
 

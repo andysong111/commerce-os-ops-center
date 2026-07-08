@@ -185,6 +185,7 @@ export type KeywordReviewWorkspaceContext = {
   goodsKeyGroupMap?: Record<string, ProductLaunchGoodsKeyGroupMetadata>;
   autoApplyToShopling?: boolean;
   autoApplyConfirmationText?: string;
+  seedKeywordsByGoodsKey?: Record<string, string>;
   manualTitleOverridesByGoodsKey?: Record<string, string>;
   manualKeywordOverridesByGoodsKey?: Record<string, string>;
 };
@@ -484,7 +485,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   function runGuidedApprovalPreviewPlan() {
     const sourceRows = rows.filter((row) => row.reviewStatus === "approved").length === 0 ? approveFirstCandidateRows(rows) : rows;
     const previewRows = createGroupVariantPreviewRows(sourceRows, groupVariantEnabled);
-    const preview = buildKeywordShoplingPayloadPreview(sourceRows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
+    const preview = buildKeywordShoplingPayloadPreview(sourceRows, { groupVariantEnabled, expandProductGroupMarkets, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
     setRows(sourceRows);
     setGroupVariantPreview(previewRows);
     if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
@@ -512,7 +513,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
       setGuidedActionStatus("상품그룹별 미리보기를 먼저 생성하세요.");
       return;
     }
-    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
+    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
     if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
     if (!ensureLaunchCoverageBeforeApply(preview)) return;
     setPayloadPreview(preview);
@@ -581,7 +582,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   useEffect(() => {
     if (!isEmbedded || !launchCoverage.covered || rows.filter((row) => row.reviewStatus === "approved").length === 0 || preflightResult) return;
     const previewRows = createGroupVariantPreviewRows(rows, groupVariantEnabled);
-    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
+    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
     const previewCoverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey });
     const previewCount = preview.expandedItemCount ?? 0;
     if (preview.expandedItemCount > 100 || (!partialApplyOverride && previewCoverage.missingGoodsKeys.length > 0) || (!partialApplyOverride && expectedFullApplyCount > 0 && previewCount > 0 && previewCount < expectedFullApplyCount)) return;
@@ -969,7 +970,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
         onPreview={() => setGroupVariantPreview(createGroupVariantPreviewRows(rows, groupVariantEnabled))}
         onApplyPreview={() => {
           if (expandProductGroupMarkets) {
-            const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
+            const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
             if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
             setPayloadPreview(preview);
             setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount, 100)));
@@ -990,7 +991,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
         rows={rows}
         result={payloadPreview}
         onGenerate={() => {
-          const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
+          const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
           if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
           setPayloadPreview(preview);
           setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));

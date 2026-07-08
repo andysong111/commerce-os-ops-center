@@ -90,6 +90,20 @@ test("edited values override recommended values", () => {
   assert.equal(item.final_site_srch, "a, b, c, d, e, f, g, h, i, j");
 });
 
+test("seed keywords feed preview but manual exact overrides stay first priority", () => {
+  const [seedItem] = buildKeywordShoplingPayloadPreview([
+    row({ goodsKey: "121180", editedTitle: "", recommendedTitle: "Engine title", editedSiteSrch: "", recommendedSiteSrch: "engine,keyword" }),
+  ], { seedKeywordsByGoodsKey: { "121180": "게임패드, 컨트롤러, 조이스틱 미니" } }).items;
+  assert.equal(seedItem.final_title, "게임패드 컨트롤러 조이스틱 미니");
+  assert.equal(seedItem.final_site_srch, "게임패드,컨트롤러,조이스틱,미니");
+
+  const [manualItem] = buildKeywordShoplingPayloadPreview([
+    row({ goodsKey: "121180", editedTitle: "", recommendedTitle: "Engine title", editedSiteSrch: "", recommendedSiteSrch: "engine,keyword" }),
+  ], { seedKeywordsByGoodsKey: { "121180": "게임패드, 컨트롤러" }, manualTitleOverridesByGoodsKey: { "121180": "직접 고정 상품명" }, manualKeywordOverridesByGoodsKey: { "121180": "직접, 검색어" } }).items;
+  assert.equal(manualItem.final_title, "직접 고정 상품명");
+  assert.equal(manualItem.final_site_srch, "직접,검색어");
+});
+
 test("editedMallKey overrides an empty mallKey for preview", () => {
   const [item] = buildKeywordShoplingPayloadPreview([
     row({ mallKey: "", editedMallKey: "SMALL_00004" }),

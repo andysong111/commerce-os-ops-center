@@ -149,15 +149,21 @@ function booleanOrString(value: unknown): boolean | string | undefined {
 }
 
 
-export function buildKeywordEngineDispatchPayload(rows: ProductLaunchUploadRow[], seedKeyword?: string) {
+export function buildKeywordEngineDispatchPayload(rows: ProductLaunchUploadRow[], seedKeyword?: string, seedKeywordsByGoodsKey: Record<string, string> = {}) {
   const goodsKeyCsv = dedupeGoodsKeysForPriceModify(rows).join(",");
   const trimmedSeedKeyword = seedKeyword?.trim() ?? "";
+  const normalizedSeedKeywordsByGoodsKey = Object.fromEntries(
+    Object.entries(seedKeywordsByGoodsKey)
+      .map(([goodsKey, value]) => [goodsKey.trim(), normalizeManualKeywordOverride(value)] as const)
+      .filter(([goodsKey, value]) => goodsKey && value),
+  );
   return {
     kind: "keyword_engine",
     mode: "dry_run",
     inputs: {
       goods_key: goodsKeyCsv,
       ...(trimmedSeedKeyword ? { seed_keyword: trimmedSeedKeyword } : {}),
+      ...(Object.keys(normalizedSeedKeywordsByGoodsKey).length > 0 ? { seed_keywords_by_goods_key_json: JSON.stringify(normalizedSeedKeywordsByGoodsKey) } : {}),
     },
   };
 }

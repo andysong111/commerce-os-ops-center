@@ -272,10 +272,10 @@ test("builds keyword engine dry_run dispatch payload with de-duplicated goods_ke
     { goods_key: "121113" },
     { goods_key: "121112" },
   ];
-  assert.deepEqual(buildKeywordEngineDispatchPayload(rows, " 욕실 수납 "), {
+  assert.deepEqual(buildKeywordEngineDispatchPayload(rows, " 욕실 수납 ", { "121112": "게임패드, 컨트롤러", "121113": "조이스틱 미니" }), {
     kind: "keyword_engine",
     mode: "dry_run",
-    inputs: { goods_key: "121112,121113", seed_keyword: "욕실 수납" },
+    inputs: { goods_key: "121112,121113", seed_keyword: "욕실 수납", seed_keywords_by_goods_key_json: JSON.stringify({ "121112": "게임패드,컨트롤러", "121113": "조이스틱,미니" }) },
   });
   assert.deepEqual(buildKeywordEngineDispatchPayload(rows, " "), {
     kind: "keyword_engine",
@@ -603,11 +603,18 @@ test("product launch flow manual overrides and simplified UI are present", async
   for (const expected of [
     "manualTitleOverridesByGoodsKey",
     "manualKeywordOverridesByGoodsKey",
-    "상품별 수동 보정",
-    "상품명을 직접 입력하면 이 값이 1순위로 반영됩니다.",
+    "seedKeywordsByGoodsKey",
+    "productLaunchFlow.seedKeywordsByGoodsKey",
+    "seed_keywords_by_goods_key_json",
+    "상품별 핵심 키워드",
+    "상품별로 좋은 키워드를 입력하면 AI가 쇼핑몰별 상품명과 검색어를 자동으로 만듭니다.",
+    "검색어는 샵플링 기본정보 기준으로 상품별 1세트가 반영됩니다.",
+    "직접 상품명 고정 입력",
+    "직접 검색어 고정 입력",
     "상품명/검색어 적용하고 가격 마무리",
     "고급 / 상세 결과 보기",
     "상품명이 비어 있어 반영할 수 없습니다. 수동 상품명을 입력하세요.",
+    "게임패드,컨트롤러,조이스틱,미니",
     "상품명 API 반영은 실행됐지만 샵플링 화면 확인이 필요합니다.",
   ]) assert.ok(flow.includes(expected), expected);
 });
