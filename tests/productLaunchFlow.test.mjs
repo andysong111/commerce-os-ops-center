@@ -15,6 +15,7 @@ import {
   extractUploadRows,
   inferProductGroupFromPtnGoodsCd,
   normalizeManualKeywordOverride,
+  normalizeSeedKeywords,
   resolveMallTitle,
   resolveManualTitleOverride,
 } from "../src/lib/productLaunchFlow.ts";
@@ -272,10 +273,10 @@ test("builds keyword engine dry_run dispatch payload with de-duplicated goods_ke
     { goods_key: "121113" },
     { goods_key: "121112" },
   ];
-  assert.deepEqual(buildKeywordEngineDispatchPayload(rows, " 욕실 수납 "), {
+  assert.deepEqual(buildKeywordEngineDispatchPayload(rows, " 욕실 수납 ", { "121112": "게임패드, 컨트롤러, 조이스틱 미니", "121113": "레이싱휠/조이스틱" }), {
     kind: "keyword_engine",
     mode: "dry_run",
-    inputs: { goods_key: "121112,121113", seed_keyword: "욕실 수납" },
+    inputs: { goods_key: "121112,121113", seed_keyword: "욕실 수납", seed_keywords_by_goods_key_json: JSON.stringify({ "121112": "게임패드,컨트롤러,조이스틱,미니", "121113": "레이싱휠,조이스틱" }) },
   });
   assert.deepEqual(buildKeywordEngineDispatchPayload(rows, " "), {
     kind: "keyword_engine",
@@ -598,18 +599,27 @@ test("product launch flow final price pass source exists", async () => {
   assert.doesNotMatch(source, /PowerShell/i);
 });
 
-test("product launch flow manual overrides and simplified UI are present", async () => {
+test("product launch flow seed keyword board is default and old controls are advanced", async () => {
   const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  const defaultSource = flow.split("고급 / 상세 결과 보기")[0];
   for (const expected of [
-    "manualTitleOverridesByGoodsKey",
-    "manualKeywordOverridesByGoodsKey",
-    "상품별 수동 보정",
-    "상품명을 직접 입력하면 이 값이 1순위로 반영됩니다.",
+    "seedKeywordsByGoodsKey",
+    "productLaunchFlow.seedKeywords",
+    "상품별 핵심 키워드",
+    "상품별로 좋은 키워드를 입력하면 AI가 쇼핑몰별 상품명과 검색어를 자동으로 만듭니다.",
+    "검색어는 샵플링 기본정보 기준으로 상품별 1세트가 반영됩니다.",
+    "게임패드,컨트롤러,조이스틱,미니",
     "상품명/검색어 적용하고 가격 마무리",
     "고급 / 상세 결과 보기",
-    "상품명이 비어 있어 반영할 수 없습니다. 수동 상품명을 입력하세요.",
-    "상품명 API 반영은 실행됐지만 샵플링 화면 확인이 필요합니다.",
+    "seed_keywords_by_goods_key_json",
+    "seedKeywordsByGoodsKey, autoApplyToShopling",
   ]) assert.ok(flow.includes(expected), expected);
+  assert.doesNotMatch(defaultSource, /수동 상품명 입력/);
+  assert.doesNotMatch(defaultSource, /수동 검색어 입력/);
+  assert.match(flow, /<ManualOverrideSection[\s\S]*<form onSubmit=\{runUpload\}/);
+  assert.equal(normalizeSeedKeywords("게임패드, 컨트롤러, 조이스틱 미니"), "게임패드,컨트롤러,조이스틱,미니");
+  const coverage = computeLaunchTitleCoverage({ goodsKeys: ["121181"], rows: [{ goodsKey: "121181", recommendedTitle: "", reviewStatus: "hold" }], seedKeywordsByGoodsKey: { "121181": "게임패드,컨트롤러" } });
+  assert.equal(coverage.covered, true);
 });
 
 test("manual launch override helpers enforce priority and validation", () => {

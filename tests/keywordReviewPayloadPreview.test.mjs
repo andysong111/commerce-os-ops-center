@@ -149,3 +149,16 @@ test("preview implementation contains no live Shopling API execution", async () 
   assert.doesNotMatch(source, /\bfetch\s*\(/);
   assert.doesNotMatch(source, /\/api\/shopling/i);
 });
+
+
+test("seed keywords drive title/search priority and keep same goods_key search across mall expansion", () => {
+  const result = buildKeywordShoplingPayloadPreview([row({ goodsKey: "121261", productGroup: "도매1", groupSuffix: "a", recommendedTitle: "Engine title", recommendedSiteSrch: "engine,keyword" })], {
+    expandProductGroupMarkets: true,
+    groupVariantEnabled: true,
+    seedKeywordsByGoodsKey: { "121261": "게임패드, 컨트롤러, 조이스틱 미니" },
+  });
+  assert.ok(result.previewableItems.length > 1);
+  assert.ok(result.previewableItems.every((item) => item.final_site_srch === "게임패드,컨트롤러,조이스틱,미니"));
+  assert.ok(new Set(result.previewableItems.map((item) => item.final_site_srch)).size === 1);
+  assert.ok(result.previewableItems.every((item) => item.final_site_srch.split(",").length <= 10));
+});
