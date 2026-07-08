@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { RecommendationCard } from "@/lib/sourcingEngine";
+import { deleteCardFromLocalStorage, removeCardById, type SourcingHistoryCard } from "@/lib/sourcingCardsHistory";
 import { SOURCING_CARD_STORAGE_KEY } from "@/lib/sourcingCardStorage";
 
 const krwFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const percentFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 });
 
 export function SourcingCardsClient() {
-  const [cards, setCards] = useState<RecommendationCard[]>([]);
+  const [cards, setCards] = useState<SourcingHistoryCard[]>([]);
   const [source, setSource] = useState<"Server" | "Local fallback">("Local fallback");
   const [status, setStatus] = useState("Loading cards...");
+  const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -18,7 +19,7 @@ export function SourcingCardsClient() {
       const localCards = readLocalCards();
       try {
         const response = await fetch("/api/sourcing/cards");
-        const body = (await response.json().catch(() => ({}))) as { ok?: boolean; cards?: RecommendationCard[]; code?: string; message?: string };
+        const body = (await response.json().catch(() => ({}))) as { ok?: boolean; cards?: SourcingHistoryCard[]; code?: string; message?: string };
         if (!cancelled && response.ok && Array.isArray(body.cards)) {
           setCards(body.cards);
           setSource("Server");
@@ -44,6 +45,37 @@ export function SourcingCardsClient() {
 
   async function copyJson() {
     await navigator.clipboard.writeText(JSON.stringify(cards, null, 2));
+  }
+
+  async function deleteCard(card: SourcingHistoryCard) {
+    setDeletingCardId(card.id);
+    try {
+      if (source === "Local fallback") {
+        deleteCardFromLocalStorage(card.id);
+        setCards((current) => removeCardById(current, card.id));
+        setStatus("로컬 카드 삭제 완료");
+        return;
+      }
+
+      if (!card.serverId) {
+        throw new Error("서버 카드 ID가 없습니다.");
+      }
+
+      const response = await fetch(`/api/sourcing/cards?id=${encodeURIComponent(card.serverId)}`, {
+        method: "DELETE",
+      });
+      const body = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) {
+        throw new Error(body.message ?? `HTTP ${response.status}`);
+      }
+
+      setCards((current) => removeCardById(current, card.id));
+      setStatus("서버 카드 삭제 완료");
+    } catch (error) {
+      setStatus(`삭제 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+    } finally {
+      setDeletingCardId(null);
+    }
   }
 
   if (cards.length === 0) {
@@ -72,7 +104,7 @@ export function SourcingCardsClient() {
       <section className="space-y-3">
         {cards.map((card) => (
           <article key={card.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex flex-wrap gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
                 {card.decisionLabel}
               </span>
@@ -82,6 +114,17 @@ export function SourcingCardsClient() {
               <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
                 위험 {card.riskLevel}
               </span>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                {source === "Server" && card.serverId ? "서버 저장" : "로컬 저장"}
+              </span>
+              <button
+                type="button"
+                onClick={() => deleteCard(card)}
+                disabled={deletingCardId === card.id}
+                className="ml-auto rounded-lg border border-red-200 bg-white px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deletingCardId === card.id ? "삭제 중..." : "삭제"}
+              </button>
             </div>
             <h2 className="text-lg font-bold text-slate-950">{card.koreanProductName}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">{card.shortDescription}</p>
@@ -122,10 +165,10 @@ function formatKrw(value: number) {
 }
 
 
-function readLocalCards(): RecommendationCard[] {
+function readLocalCards(): SourcingHistoryCard[] {
   try {
     const stored = window.localStorage.getItem(SOURCING_CARD_STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as RecommendationCard[]) : [];
+    return stored ? (JSON.parse(stored) as SourcingHistoryCard[]) : [];
   } catch {
     return [];
   }
