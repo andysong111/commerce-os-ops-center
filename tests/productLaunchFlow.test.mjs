@@ -10,6 +10,8 @@ import {
   expectedPriceModifyUpdateCount,
   isSafeLaunchTitle,
   buildKeywordEngineDispatchPayload,
+  buildLaunchSourceRowGroups,
+  expandSeedKeywordsBySourceRowToGoodsKeys,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
   extractUploadRows,
@@ -599,27 +601,61 @@ test("product launch flow final price pass source exists", async () => {
   assert.doesNotMatch(source, /PowerShell/i);
 });
 
-test("product launch flow seed keyword board is default and old controls are advanced", async () => {
+test("product launch flow source-row seed keyword board is default and old controls are advanced", async () => {
   const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   const defaultSource = flow.split("고급 / 상세 결과 보기")[0];
   for (const expected of [
-    "seedKeywordsByGoodsKey",
-    "productLaunchFlow.seedKeywords",
-    "상품별 핵심 키워드",
-    "상품별로 좋은 키워드를 입력하면 AI가 쇼핑몰별 상품명과 검색어를 자동으로 만듭니다.",
-    "검색어는 샵플링 기본정보 기준으로 상품별 1세트가 반영됩니다.",
+    "seedKeywordsBySourceRow",
+    "productLaunchFlow.seedKeywordsBySourceRow",
+    "행별 핵심 키워드",
+    "실재고 시트 행마다 좋은 키워드를 한 번만 입력하세요.",
+    "같은 행에서 생성된 도매/소매 상품들은 이 키워드를 함께 사용합니다.",
+    "AI가 이 키워드로 쇼핑몰별 상품명과 상품별 검색어를 자동 생성합니다.",
+    "검색어는 상품별 1세트로 반영됩니다",
     "게임패드,컨트롤러,조이스틱,미니",
     "상품명/검색어 적용하고 가격 마무리",
     "고급 / 상세 결과 보기",
     "seed_keywords_by_goods_key_json",
     "seedKeywordsByGoodsKey, autoApplyToShopling",
   ]) assert.ok(flow.includes(expected), expected);
+  assert.doesNotMatch(defaultSource, /<SeedKeywordSection goodsKeys=/);
+  assert.doesNotMatch(defaultSource, /상품별 핵심 키워드/);
   assert.doesNotMatch(defaultSource, /수동 상품명 입력/);
   assert.doesNotMatch(defaultSource, /수동 검색어 입력/);
   assert.match(flow, /<ManualOverrideSection[\s\S]*<form onSubmit=\{runUpload\}/);
   assert.equal(normalizeSeedKeywords("게임패드, 컨트롤러, 조이스틱 미니"), "게임패드,컨트롤러,조이스틱,미니");
   const coverage = computeLaunchTitleCoverage({ goodsKeys: ["121181"], rows: [{ goodsKey: "121181", recommendedTitle: "", reviewStatus: "hold" }], seedKeywordsByGoodsKey: { "121181": "게임패드,컨트롤러" } });
   assert.equal(coverage.covered, true);
+});
+
+test("source-row launch seed helpers group and expand goods keys", () => {
+  const rows = ["a", "b", "c", "d", "e", "f"].map((suffix, index) => ({ source_row: 950, goods_key: String(121267 + index), ptn_goods_cd: `TEST1-1${suffix}`, product_name: "현재 상품명" }));
+  const groups = buildLaunchSourceRowGroups(rows, "950");
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].sourceRowId, "950");
+  assert.deepEqual(groups[0].goodsKeys, ["121267", "121268", "121269", "121270", "121271", "121272"]);
+  assert.deepEqual(groups[0].productGroups, ["도매1", "도매2", "도매3", "도매4", "소매1", "소매2"]);
+  assert.deepEqual(expandSeedKeywordsBySourceRowToGoodsKeys({ "950": "게임패드, 컨트롤러, 조이스틱 미니" }, groups), {
+    "121267": "게임패드,컨트롤러,조이스틱,미니",
+    "121268": "게임패드,컨트롤러,조이스틱,미니",
+    "121269": "게임패드,컨트롤러,조이스틱,미니",
+    "121270": "게임패드,컨트롤러,조이스틱,미니",
+    "121271": "게임패드,컨트롤러,조이스틱,미니",
+    "121272": "게임패드,컨트롤러,조이스틱,미니",
+  });
+});
+
+test("source-row launch groups handle multiple rows and missing metadata warning", async () => {
+  const rows = [
+    { source_row: 950, goods_key: "121267", ptn_goods_cd: "TEST1-1a" },
+    { source_row: 951, goods_key: "121268", ptn_goods_cd: "TEST1-1b" },
+    { source_row: 952, goods_key: "121269", ptn_goods_cd: "TEST1-1c" },
+  ];
+  assert.deepEqual(buildLaunchSourceRowGroups(rows, "950,951,952").map((group) => group.sourceRowId), ["950", "951", "952"]);
+  const missing = buildLaunchSourceRowGroups([{ goods_key: "121270", ptn_goods_cd: "TEST1-1a" }], "950,951");
+  assert.equal(missing[0].mappingMissing, true);
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  assert.ok(flow.includes("업로드 결과에 원본 행 번호가 없어 행별 키워드를 정확히 연결할 수 없습니다."));
 });
 
 test("manual launch override helpers enforce priority and validation", () => {
