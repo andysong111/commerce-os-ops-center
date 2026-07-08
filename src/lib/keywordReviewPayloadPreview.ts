@@ -5,6 +5,7 @@ import type {
 } from "./keywordReviewQueue";
 import { buildMallSpecificTitleVariant, sourceFromReviewedRow } from "./productTitleVariants";
 import { getMarketsForProductGroup } from "./productGroupMarketRegistry";
+import { normalizeManualKeywordOverride, resolveManualTitleOverride } from "./productLaunchFlow";
 
 export type KeywordReviewedRow = ReviewedKeywordRow;
 
@@ -90,8 +91,13 @@ function preferredValue(edited: string, recommended: string) {
   return edited.trim() || recommended.trim();
 }
 
+function fallbackSiteSrchFromTitle(title: string) {
+  return title.replace(/\s+/g, ",").trim();
+}
+
 function normalizeSiteSrch(value: string) {
-  const keywords = value
+  const manualNormalized = normalizeManualKeywordOverride(value);
+  const keywords = (manualNormalized || value)
     .split(",")
     .map((keyword) => keyword.trim())
     .filter(Boolean);
@@ -107,7 +113,7 @@ function normalizeSiteSrch(value: string) {
     return true;
   });
   return {
-    normalized: uniqueKeywords.join(", "),
+    normalized: uniqueKeywords.slice(0, 10).join(","),
     duplicateKeywords,
     keywords: uniqueKeywords,
   };
@@ -135,19 +141,17 @@ function xmlFragment(
  */
 export function buildKeywordShoplingPayloadPreview(
   reviewedRows: KeywordReviewedRow[],
-  options: { groupVariantEnabled?: boolean; expandProductGroupMarkets?: boolean } = {},
+  options: { groupVariantEnabled?: boolean; expandProductGroupMarkets?: boolean; manualTitleOverridesByGoodsKey?: Record<string, string>; manualKeywordOverridesByGoodsKey?: Record<string, string> } = {},
 ): KeywordPayloadPreviewResult {
   const expansionMode = options.expandProductGroupMarkets ? "product_group_markets" : "single_mall";
   const expansionErrors: string[] = [];
   const baseItems = reviewedRows.map((row): KeywordPayloadPreviewItem => {
     const validation_errors: string[] = [];
     const validation_warnings: string[] = [];
-    let final_title = preferredValue(row.editedTitle, row.recommendedTitle);
+    const goodsKey = row.goodsKey.trim();
+    let final_title = resolveManualTitleOverride(options.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey) || preferredValue(row.editedTitle, row.recommendedTitle) || row.originalTitle.trim();
     const final_mall_key = preferredValue(row.editedMallKey, row.mallKey);
-    const preferredSiteSrch = preferredValue(
-      row.editedSiteSrch,
-      row.recommendedSiteSrch,
-    );
+    const preferredSiteSrch = normalizeManualKeywordOverride(options.manualKeywordOverridesByGoodsKey?.[goodsKey]) || row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim() || fallbackSiteSrchFromTitle(final_title);
     const normalizedSiteSrch = normalizeSiteSrch(preferredSiteSrch);
     const final_site_srch = normalizedSiteSrch.normalized;
 

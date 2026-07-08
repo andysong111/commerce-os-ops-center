@@ -14,6 +14,9 @@ import {
   extractRowsWithGoodsKey,
   extractUploadRows,
   inferProductGroupFromPtnGoodsCd,
+  normalizeManualKeywordOverride,
+  resolveMallTitle,
+  resolveManualTitleOverride,
 } from "../src/lib/productLaunchFlow.ts";
 
 test("suffix group inference uses extensible ptn_goods_cd ending metadata", () => {
@@ -593,4 +596,40 @@ test("product launch flow final price pass source exists", async () => {
   assert.doesNotMatch(source, /shell\s*:\s*true/i);
   assert.doesNotMatch(source, /child_process/);
   assert.doesNotMatch(source, /PowerShell/i);
+});
+
+test("product launch flow manual overrides and simplified UI are present", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "manualTitleOverridesByGoodsKey",
+    "manualKeywordOverridesByGoodsKey",
+    "상품별 수동 보정",
+    "상품명을 직접 입력하면 이 값이 1순위로 반영됩니다.",
+    "상품명/검색어 적용하고 가격 마무리",
+    "고급 / 상세 결과 보기",
+    "상품명이 비어 있어 반영할 수 없습니다. 수동 상품명을 입력하세요.",
+    "상품명 API 반영은 실행됐지만 샵플링 화면 확인이 필요합니다.",
+  ]) assert.ok(flow.includes(expected), expected);
+});
+
+test("manual launch override helpers enforce priority and validation", () => {
+  const row = { goodsKey: "121180", editedTitle: "Edited", recommendedTitle: "Recommended", originalTitle: "Original", reviewStatus: "approved" };
+  assert.equal(resolveMallTitle(row, undefined, { "121180": "Manual Title" }), "Manual Title");
+  assert.equal(resolveMallTitle(row, undefined, { "121180": "" }), "Edited");
+  assert.equal(resolveMallTitle(row, undefined, { "121180": "121180" }), "Edited");
+  assert.equal(resolveManualTitleOverride("-", "121180"), "");
+  assert.equal(normalizeManualKeywordOverride("게임패드, 컨트롤러, 조이스틱 미니"), "게임패드,컨트롤러,조이스틱,미니");
+});
+
+test("manual title makes launch goods_key ready without separate approval", () => {
+  const coverage = computeLaunchTitleCoverage({ goodsKeys: ["121180"], rows: [{ goodsKey: "121180", recommendedTitle: "", reviewStatus: "hold" }], manualTitleOverridesByGoodsKey: { "121180": "수동 상품명" } });
+  assert.equal(coverage.covered, true);
+  assert.equal(coverage.titleReadyCount, 1);
+});
+
+test("manual overrides flow source avoids forbidden execution and secret patterns", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const forbidden of [/API_AUTH_KEY/, /LOGIN_PASSWORD/, /shell:\s*true/, /child_process/, /PowerShell/, /keywordShoplingApply/]) {
+    assert.doesNotMatch(source, forbidden);
+  }
 });

@@ -185,6 +185,8 @@ export type KeywordReviewWorkspaceContext = {
   goodsKeyGroupMap?: Record<string, ProductLaunchGoodsKeyGroupMetadata>;
   autoApplyToShopling?: boolean;
   autoApplyConfirmationText?: string;
+  manualTitleOverridesByGoodsKey?: Record<string, string>;
+  manualKeywordOverridesByGoodsKey?: Record<string, string>;
 };
 
 export type KeywordApplyState = {
@@ -311,7 +313,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
     const expandedMarketCount = expandProductGroupMarkets ? approvedRows.reduce((sum, row) => sum + Math.max(getMarketsForProductGroup(row.productGroup ?? "").length, 0), 0) : approvedRows.length;
     return { totalCandidates: rows.length, approvedCount: approvedRows.length, groupConfirmedCount: groups.size, expandedMarketCount, previewReadyCount: payloadPreview?.summary.previewReadyCount ?? 0 };
   }, [rows, expandProductGroupMarkets, payloadPreview]);
-  const launchCoverage = useMemo(() => computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows }), [launchContext?.goodsKeys, launchContext?.uploadRows, rows]);
+  const launchCoverage = useMemo(() => computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey }), [launchContext?.goodsKeys, launchContext?.uploadRows, launchContext?.manualTitleOverridesByGoodsKey, rows]);
   const expectedFullApplyCount = useMemo(() => expectedLaunchApplyCount(launchCoverage.launchGoodsKeys, launchContext?.goodsKeyGroupMap ?? {}), [launchCoverage.launchGoodsKeys, launchContext?.goodsKeyGroupMap]);
   const actualApplyCount = payloadPreview?.expandedItemCount ?? readinessCounts.expandedMarketCount;
   const launchApplyCountMismatch = isEmbedded && expectedFullApplyCount > 0 && actualApplyCount > 0 && actualApplyCount < expectedFullApplyCount;
@@ -439,7 +441,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   }
 
   function autoFillMissingLaunchTitles(current: ReviewedKeywordRow[]) {
-    const coverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows: current });
+    const coverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows: current, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey });
     const approvedByGoodsKey = new Map(current.filter((row) => row.reviewStatus === "approved").map((row) => [row.goodsKey.trim(), row]));
     const uploadTitleByGoodsKey = new Map((launchContext?.uploadRows ?? []).map((row) => [(row.goods_key ?? "").trim(), (row as ProductLaunchUploadRow & { title?: string; product_name?: string; productTitle?: string }).title ?? (row as ProductLaunchUploadRow & { title?: string; product_name?: string; productTitle?: string }).product_name ?? (row as ProductLaunchUploadRow & { title?: string; product_name?: string; productTitle?: string }).productTitle ?? ""]));
     return current.map((row) => {
@@ -466,9 +468,9 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   }
 
   function ensureLaunchCoverageBeforeApply(preview?: KeywordPayloadPreviewResult, coverageRows: ReviewedKeywordRow[] = rows) {
-    const coverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows: coverageRows });
+    const coverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows: coverageRows, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey });
     if (isEmbedded && !partialApplyOverride && coverage.missingGoodsKeys.length > 0) {
-      setGuidedActionStatus(`${BLANK_MALL_TITLE_BLOCK_MESSAGE} ${PARTIAL_MALL_TITLE_BLOCK_MESSAGE} 누락: ${coverage.missingGoodsKeys.join(", ")}`);
+      setGuidedActionStatus(`상품명이 비어 있어 반영할 수 없습니다. 수동 상품명을 입력하세요. ${PARTIAL_MALL_TITLE_BLOCK_MESSAGE} 누락: ${coverage.missingGoodsKeys.join(", ")}`);
       return false;
     }
     const count = preview?.expandedItemCount ?? payloadPreview?.expandedItemCount ?? 0;
@@ -482,7 +484,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   function runGuidedApprovalPreviewPlan() {
     const sourceRows = rows.filter((row) => row.reviewStatus === "approved").length === 0 ? approveFirstCandidateRows(rows) : rows;
     const previewRows = createGroupVariantPreviewRows(sourceRows, groupVariantEnabled);
-    const preview = buildKeywordShoplingPayloadPreview(sourceRows, { groupVariantEnabled, expandProductGroupMarkets });
+    const preview = buildKeywordShoplingPayloadPreview(sourceRows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
     setRows(sourceRows);
     setGroupVariantPreview(previewRows);
     if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
@@ -510,7 +512,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
       setGuidedActionStatus("상품그룹별 미리보기를 먼저 생성하세요.");
       return;
     }
-    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
+    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
     if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
     if (!ensureLaunchCoverageBeforeApply(preview)) return;
     setPayloadPreview(preview);
@@ -579,8 +581,8 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   useEffect(() => {
     if (!isEmbedded || !launchCoverage.covered || rows.filter((row) => row.reviewStatus === "approved").length === 0 || preflightResult) return;
     const previewRows = createGroupVariantPreviewRows(rows, groupVariantEnabled);
-    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
-    const previewCoverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows });
+    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
+    const previewCoverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey });
     const previewCount = preview.expandedItemCount ?? 0;
     if (preview.expandedItemCount > 100 || (!partialApplyOverride && previewCoverage.missingGoodsKeys.length > 0) || (!partialApplyOverride && expectedFullApplyCount > 0 && previewCount > 0 && previewCount < expectedFullApplyCount)) return;
     const timer = window.setTimeout(() => {
@@ -967,7 +969,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
         onPreview={() => setGroupVariantPreview(createGroupVariantPreviewRows(rows, groupVariantEnabled))}
         onApplyPreview={() => {
           if (expandProductGroupMarkets) {
-            const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
+            const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
             if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
             setPayloadPreview(preview);
             setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount, 100)));
@@ -988,7 +990,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
         rows={rows}
         result={payloadPreview}
         onGenerate={() => {
-          const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets });
+          const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey });
           if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
           setPayloadPreview(preview);
           setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
