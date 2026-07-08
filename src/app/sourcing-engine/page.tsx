@@ -51,6 +51,13 @@ const DEFAULT_SETTINGS: SourcingCostSettings = {
 
 const krwFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const percentFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 });
+const DETAIL_1688_LINK_PATTERN = /https?:\/\/detail\.1688\.com\/offer\/[^\s"'<>]+/i;
+const SAMPLE_1688_LINKS = [
+  "https://detail.1688.com/offer/943183302518.html?offerId=943183302518&hotSaleSkuId=5846198593803&spm=a260k.home2025.recommendpart.15",
+  "https://detail.1688.com/offer/986385739550.html?offerId=986385739550&hotSaleSkuId=6261924287539&spm=a260k.home2025.recommendpart.44",
+  "https://detail.1688.com/offer/1008082834046.html?offerId=1008082834046&spm=a260k.home2025.recommendpart.56",
+].join("\n");
+const DETAIL_1688_REQUIRED_MESSAGE = "현재 버전은 실제 1688 상품 링크가 필요합니다. 상품명만으로 자동 탐색하는 기능은 다음 단계입니다.";
 
 export default function SourcingEngineCockpitPage() {
   const [rawText, setRawText] = useState("");
@@ -67,6 +74,12 @@ export default function SourcingEngineCockpitPage() {
     setIsLoading(true);
     setMessage("");
     try {
+      if (!DETAIL_1688_LINK_PATTERN.test(rawText)) {
+        setCard(null);
+        setMessage(DETAIL_1688_REQUIRED_MESSAGE);
+        return;
+      }
+
       const parsed = parseCandidateImportText(rawText);
       if (parsed.candidates.length === 0) {
         setCard(null);
@@ -123,7 +136,7 @@ export default function SourcingEngineCockpitPage() {
     <>
       <PageHeader
         title="1688 소싱엔진"
-        description="상품 텍스트, 경쟁 URL, 1688 후보 링크를 붙여넣고 한 번에 주문추천 카드를 만듭니다."
+        description="1688 후보 링크를 붙여넣으면 주문추천 카드를 만듭니다. 상품명만 입력하는 자동 1688 탐색은 준비 중입니다."
       />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
@@ -131,7 +144,9 @@ export default function SourcingEngineCockpitPage() {
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">One-button cockpit</p>
-              <h2 className="mt-2 text-2xl font-black text-slate-950">붙여넣고 바로 판단</h2>
+              <h2 className="mt-2 text-2xl font-black text-slate-950">1688 후보 링크로 바로 판단</h2>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">1688 후보 링크를 붙여넣으면 주문추천 카드를 만듭니다.</p>
+              <p className="text-sm leading-6 text-slate-500">상품명만 입력하는 자동 1688 탐색은 준비 중입니다.</p>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">FOLLOW_PROVEN</span>
           </div>
@@ -140,15 +155,40 @@ export default function SourcingEngineCockpitPage() {
             value={rawText}
             onChange={(event) => setRawText(event.target.value)}
             rows={18}
-            placeholder={`상품 설명, 경쟁 URL, 1688 링크를 그대로 붙여넣으세요.\n\n예)\n경쟁상품: https://smartstore.naver.com/...\n타깃 키워드: 차량용 틈새 수납함\nhttps://detail.1688.com/offer/100.html\nprice: 8.6\nmoq: 2\nshipping: 10`}
+            placeholder={`1688 후보 링크 2~3개를 붙여넣으세요.\n현재 버전은 detail.1688.com 상품 링크가 필요합니다.\n\n예)\nhttps://detail.1688.com/offer/100.html\nprice: 8.6\nmoq: 2\nshipping: 10`}
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-100"
           />
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setRawText(SAMPLE_1688_LINKS);
+                setMessage("");
+              }}
+              className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-black text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
+            >
+              샘플 붙여넣기
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRawText("");
+                setCard(null);
+                setMessage("");
+              }}
+              disabled={rawText.length === 0 && !card && !message}
+              className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-300"
+            >
+              비우기
+            </button>
+          </div>
 
           <button
             type="button"
             onClick={createCard}
             disabled={isLoading || rawText.trim().length === 0}
-            className="mt-4 w-full rounded-2xl bg-blue-600 px-5 py-4 text-base font-black text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="mt-3 w-full rounded-2xl bg-blue-600 px-5 py-4 text-base font-black text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {isLoading ? "카드 생성 및 저장 중..." : "주문추천 카드 만들기"}
           </button>
@@ -182,8 +222,8 @@ export default function SourcingEngineCockpitPage() {
         </section>
       </div>
 
-      <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm font-bold text-slate-950">고급 도구</p>
+      <details className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <summary className="cursor-pointer text-sm font-bold text-slate-950">고급 도구</summary>
         <div className="mt-3 flex flex-wrap gap-2">
           <ToolLink href="/sourcing-engine/importer">고급 파서</ToolLink>
           <ToolLink href="/sourcing-engine/market-snapshot">시장 스냅샷</ToolLink>
@@ -191,14 +231,27 @@ export default function SourcingEngineCockpitPage() {
           <ToolLink href="/sourcing-engine/feedback">피드백 기록</ToolLink>
           <ToolLink href="/sourcing-engine/tools">전체 도구</ToolLink>
         </div>
-      </section>
+      </details>
     </>
   );
 }
 
 function ResultCard({ card, status, onStatus }: { card: RecommendationCard | null; status?: HumanOrderDecision; onStatus: (status: HumanOrderDecision) => void }) {
   if (!card) {
-    return <section className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">주문추천 카드가 여기에 표시됩니다.</section>;
+    const steps = ["1688 후보 링크 2~3개 붙여넣기", "주문추천 카드 만들기 클릭", "주문함 / 보류 / 폐기 선택"];
+    return (
+      <section className="rounded-3xl border border-dashed border-blue-200 bg-white p-6 shadow-sm">
+        <p className="text-center text-sm font-bold text-slate-500">주문추천 카드가 여기에 표시됩니다.</p>
+        <ol className="mt-5 grid gap-3">
+          {steps.map((step, index) => (
+            <li key={step} className="flex items-center gap-3 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-900">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">{index + 1}</span>
+              <span>{step}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+    );
   }
 
   return (
