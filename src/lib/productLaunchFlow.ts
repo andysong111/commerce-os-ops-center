@@ -2,6 +2,14 @@ import { inferProductGroupFromPtnGoodsCd, type ProductGroupInference } from "./p
 
 export type ProductLaunchUploadRow = {
   row?: string | number;
+  source_row?: string | number;
+  sheet_row?: string | number;
+  input_row?: string | number;
+  row_number?: string | number;
+  sourceRow?: string | number;
+  sheetRow?: string | number;
+  original_row?: string | number;
+  originalRow?: string | number;
   channel?: string;
   code?: string;
   success?: boolean | string;
@@ -79,6 +87,14 @@ export function extractUploadRows(uploadResult: unknown): ProductLaunchUploadRow
   const rows = candidates.flatMap((candidate) => candidate.filter(isUploadRowLike));
   return rows.map((row) => ({
     row: stringify(row.row),
+    source_row: stringify(row.source_row),
+    sheet_row: stringify(row.sheet_row),
+    input_row: stringify(row.input_row),
+    row_number: stringify(row.row_number),
+    sourceRow: stringify(row.sourceRow),
+    sheetRow: stringify(row.sheetRow),
+    original_row: stringify(row.original_row),
+    originalRow: stringify(row.originalRow),
     channel: stringify(row.channel),
     code: stringify(row.code),
     success: booleanOrString(row.success),
@@ -148,6 +164,79 @@ function booleanOrString(value: unknown): boolean | string | undefined {
   return String(value);
 }
 
+
+export type LaunchSourceRowGroup = {
+  sourceRowId: string;
+  displayLabel: string;
+  goodsKeys: string[];
+  productGroups: string[];
+  currentTitle: string;
+  representativeUploadRow?: ProductLaunchUploadRow;
+  mappingMissing: boolean;
+};
+
+export const MISSING_SOURCE_ROW_WARNING = "업로드 결과에 원본 행 번호가 없어 행별 키워드를 정확히 연결할 수 없습니다.";
+
+export function parseLaunchRowExpression(rowExpression: string): string[] {
+  const rows: string[] = [];
+  for (const part of String(rowExpression ?? "").split(/[\s,]+/).map((value) => value.trim()).filter(Boolean)) {
+    const range = part.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      const step = start <= end ? 1 : -1;
+      for (let row = start; step > 0 ? row <= end : row >= end; row += step) rows.push(String(row));
+      continue;
+    }
+    if (/^\d+$/.test(part)) rows.push(part);
+  }
+  return [...new Set(rows)];
+}
+
+export function getLaunchSourceRowId(uploadRow: ProductLaunchUploadRow, fallbackRowExpression = ""): string {
+  const sourceRow = readRawString(uploadRow, ["source_row", "sheet_row", "input_row", "row", "row_number", "sourceRow", "sheetRow", "original_row", "originalRow"]).trim();
+  if (sourceRow) return sourceRow;
+  const parsedRows = parseLaunchRowExpression(fallbackRowExpression);
+  return parsedRows.length === 1 ? parsedRows[0] : "";
+}
+
+export function buildLaunchSourceRowGroups(uploadRows: ProductLaunchUploadRow[], rowExpression = ""): LaunchSourceRowGroup[] {
+  const parsedRows = parseLaunchRowExpression(rowExpression);
+  const singleFallbackRow = parsedRows.length === 1 ? parsedRows[0] : "";
+  const groups = new Map<string, LaunchSourceRowGroup>();
+  for (const uploadRow of uploadRows) {
+    const detectedSourceRowId = getLaunchSourceRowId(uploadRow, rowExpression);
+    const goodsKey = (uploadRow.goods_key ?? "").trim();
+    const sourceRowId = detectedSourceRowId || (goodsKey ? `missing:${goodsKey}` : `missing:${groups.size + 1}`);
+    const productGroup = inferProductGroupFromPtnGoodsCd(uploadRow.ptn_goods_cd ?? "").productGroup;
+    const currentTitle = String([uploadRow.final_title, uploadRow.registered_title, uploadRow.upload_title, uploadRow.product_name, uploadRow.title, uploadRow.productTitle].find((value) => String(value ?? "").trim()) ?? "키워드 엔진 대기").trim();
+    const existing = groups.get(sourceRowId) ?? {
+      sourceRowId,
+      displayLabel: detectedSourceRowId || singleFallbackRow || "확인 필요",
+      goodsKeys: [],
+      productGroups: [],
+      currentTitle,
+      representativeUploadRow: uploadRow,
+      mappingMissing: !detectedSourceRowId,
+    };
+    if (goodsKey && !existing.goodsKeys.includes(goodsKey)) existing.goodsKeys.push(goodsKey);
+    if (productGroup && !existing.productGroups.includes(productGroup)) existing.productGroups.push(productGroup);
+    if ((!existing.currentTitle || existing.currentTitle === "키워드 엔진 대기") && currentTitle) existing.currentTitle = currentTitle;
+    existing.mappingMissing = existing.mappingMissing || !detectedSourceRowId;
+    groups.set(sourceRowId, existing);
+  }
+  return [...groups.values()];
+}
+
+export function expandSeedKeywordsBySourceRowToGoodsKeys(seedKeywordsBySourceRow: Record<string, string> = {}, sourceRowGroups: LaunchSourceRowGroup[] = []) {
+  const expanded: Record<string, string> = {};
+  for (const group of sourceRowGroups) {
+    const normalized = normalizeSeedKeywords(seedKeywordsBySourceRow[group.sourceRowId] ?? seedKeywordsBySourceRow[group.displayLabel] ?? "");
+    if (!normalized) continue;
+    for (const goodsKey of group.goodsKeys) expanded[goodsKey] = normalized;
+  }
+  return expanded;
+}
 
 export function normalizeSeedKeywords(value: unknown): string {
   const raw = String(value ?? "").trim();

@@ -8,6 +8,11 @@ import {
   buildGoodsKeyGroupMap,
   buildGoodsKeyProductGroupMap,
   buildKeywordEngineDispatchPayload,
+  buildLaunchSourceRowGroups,
+  expandSeedKeywordsBySourceRowToGoodsKeys,
+  isSafeLaunchTitle,
+  MISSING_SOURCE_ROW_WARNING,
+  parseLaunchRowExpression,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
   expectedLaunchApplyCount,
@@ -26,7 +31,7 @@ const UPLOAD_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.uploadRequestId";
 const PRICE_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.priceRequestId";
 const LAST_ROW_EXPRESSION_STORAGE_KEY = "productLaunchFlow.lastRowExpression";
 const KEYWORD_SEED_STORAGE_KEY = "productLaunchFlow.keywordSeed";
-const SEED_KEYWORDS_STORAGE_PREFIX = "productLaunchFlow.seedKeywords";
+const SEED_KEYWORDS_STORAGE_PREFIX = "productLaunchFlow.seedKeywordsBySourceRow";
 const MANUAL_TITLE_OVERRIDES_STORAGE_PREFIX = "productLaunchFlow.manualTitleOverrides";
 const MANUAL_KEYWORD_OVERRIDES_STORAGE_PREFIX = "productLaunchFlow.manualKeywordOverrides";
 const KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY = "opsCenter.keywordEngine.importedArtifact.v1";
@@ -98,7 +103,7 @@ export function ProductLaunchFlow() {
   const [finalPricePollCount, setFinalPricePollCount] = useState(0);
   const [finalPriceLastCheckedAt, setFinalPriceLastCheckedAt] = useState<Date | null>(null);
   const [keywordSeed, setKeywordSeed] = useState(() => getStoredValue(KEYWORD_SEED_STORAGE_KEY));
-  const [seedKeywordsByGoodsKey, setSeedKeywordsByGoodsKey] = useState<Record<string, string>>({});
+  const [seedKeywordsBySourceRow, setSeedKeywordsBySourceRow] = useState<Record<string, string>>({});
   const [manualTitleOverridesByGoodsKey, setManualTitleOverridesByGoodsKey] = useState<Record<string, string>>({});
   const [manualKeywordOverridesByGoodsKey, setManualKeywordOverridesByGoodsKey] = useState<Record<string, string>>({});
   const [keywordPreview, setKeywordPreview] = useState<unknown>(null);
@@ -129,12 +134,12 @@ export function ProductLaunchFlow() {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSeedKeywordsByGoodsKey(readStoredRecord(`${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`));
+    setSeedKeywordsBySourceRow(readStoredRecord(`${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`));
   }, [manualOverrideStorageScope]);
 
   useEffect(() => {
-    persistRecord(`${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`, seedKeywordsByGoodsKey);
-  }, [manualOverrideStorageScope, seedKeywordsByGoodsKey]);
+    persistRecord(`${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`, seedKeywordsBySourceRow);
+  }, [manualOverrideStorageScope, seedKeywordsBySourceRow]);
 
 
   useEffect(() => {
@@ -366,6 +371,8 @@ export function ProductLaunchFlow() {
     return () => window.clearTimeout(timer);
   }, [finalPricePolling, finalPriceFetching, finalPricePollCount, finalPriceActionsResult, fetchFinalPriceResult]);
 
+  const sourceRowGroups = useMemo(() => buildLaunchSourceRowGroups(uploadRows, lastStartedRowExpression || rowExpression), [lastStartedRowExpression, rowExpression, uploadRows]);
+  const seedKeywordsByGoodsKey = useMemo(() => expandSeedKeywordsBySourceRowToGoodsKeys(seedKeywordsBySourceRow, sourceRowGroups), [seedKeywordsBySourceRow, sourceRowGroups]);
   const keywordPayload = useCallback(() => buildKeywordEngineDispatchPayload(uploadRows, keywordSeed, seedKeywordsByGoodsKey), [keywordSeed, seedKeywordsByGoodsKey, uploadRows]);
 
   const previewKeywordDispatch = async () => {
@@ -374,7 +381,7 @@ export function ProductLaunchFlow() {
     setKeywordPreview(null);
     try {
       persistValue(KEYWORD_SEED_STORAGE_KEY, keywordSeed);
-      persistRecord(`${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`, seedKeywordsByGoodsKey);
+      persistRecord(`${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`, seedKeywordsBySourceRow);
       const response = await fetch("/api/engine-runners/dispatch-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(keywordPayload()) });
       setKeywordPreview(await response.json());
     } catch (error) {
@@ -387,7 +394,7 @@ export function ProductLaunchFlow() {
     setKeywordBusy("dispatch");
     try {
       persistValue(KEYWORD_SEED_STORAGE_KEY, keywordSeed);
-      persistRecord(`${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`, seedKeywordsByGoodsKey);
+      persistRecord(`${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`, seedKeywordsBySourceRow);
       const response = await fetch("/api/engine-runners/dispatch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(keywordPayload()) });
       setKeywordDispatchResult(await response.json());
       setKeywordPolling(true);
@@ -395,7 +402,7 @@ export function ProductLaunchFlow() {
     } catch (error) {
       setKeywordDispatchResult({ message: error instanceof Error ? error.message : "키워드 엔진 실행 요청 중 오류가 발생했습니다." });
     } finally { setKeywordBusy(""); }
-  }, [keywordBusy, keywordPayload, keywordSeed, manualOverrideStorageScope, seedKeywordsByGoodsKey]);
+  }, [keywordBusy, keywordPayload, keywordSeed, manualOverrideStorageScope, seedKeywordsBySourceRow]);
 
   const fetchKeywordRuns = useCallback(async () => {
     if (keywordBusy) return;
@@ -544,7 +551,7 @@ export function ProductLaunchFlow() {
   return (
     <div className="space-y-6">
       <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} keywordApplyState={keywordApplyState} priceIssueState={priceIssueState} onNext={keywordRealApplySucceeded && !finalPriceDone ? runFinalPriceModify : runNextSafeStep} initialPriceRequestId={priceRequestId} finalPriceRequestId={finalPriceRequestId} finalPriceActionsResult={finalPriceActionsResult} finalPriceActive={finalPriceActive} finalPriceDone={finalPriceDone} finalPriceFailed={finalPriceFailed} finalPriceTargetCount={goodsKeys.length * FULL_PRICE_POLICY_MALL_COUNT} />
-      <SeedKeywordSection goodsKeys={goodsKeys} uploadRows={uploadRows} seedKeywordsByGoodsKey={seedKeywordsByGoodsKey} onSeedKeywordChange={(goodsKey, value) => setSeedKeywordsByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} />
+      <SeedKeywordSection sourceRowGroups={sourceRowGroups} rowExpression={lastStartedRowExpression || rowExpression} seedKeywordsBySourceRow={seedKeywordsBySourceRow} onSeedKeywordChange={(sourceRowId, value) => setSeedKeywordsBySourceRow((current) => ({ ...current, [sourceRowId]: value }))} />
       <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling || finalPriceActive} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회 · 최종가격 ${finalPricePollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
       {keywordSummary.artifact ? <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold text-emerald-700">키워드 결과 검토</p>
@@ -596,22 +603,21 @@ export function ProductLaunchFlow() {
 
 
 
-function SeedKeywordSection({ goodsKeys, uploadRows, seedKeywordsByGoodsKey, onSeedKeywordChange }: { goodsKeys: string[]; uploadRows: ProductLaunchUploadRow[]; seedKeywordsByGoodsKey: Record<string, string>; onSeedKeywordChange: (goodsKey: string, value: string) => void; }) {
-  const uploadRowsByGoodsKey = new Map(uploadRows.map((row) => [(row.goods_key ?? "").trim(), row]));
-  const rows = goodsKeys.length > 0 ? goodsKeys : uploadRows.map((row) => (row.goods_key ?? "").trim()).filter(Boolean);
+function SeedKeywordSection({ sourceRowGroups, rowExpression, seedKeywordsBySourceRow, onSeedKeywordChange }: { sourceRowGroups: ReturnType<typeof buildLaunchSourceRowGroups>; rowExpression: string; seedKeywordsBySourceRow: Record<string, string>; onSeedKeywordChange: (sourceRowId: string, value: string) => void; }) {
+  const hasMissingMapping = sourceRowGroups.some((group) => group.mappingMissing) && parseLaunchRowExpression(rowExpression).length > 1;
   return <section className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
-    <p className="text-sm font-bold text-blue-700">상품별 핵심 키워드</p>
-    <h2 className="mt-1 text-xl font-black text-slate-950">상품별 핵심 키워드</h2>
-    <p className="mt-2 text-sm font-semibold text-slate-700">상품별로 좋은 키워드를 입력하면 AI가 쇼핑몰별 상품명과 검색어를 자동으로 만듭니다.<br />검색어는 상품별 최대 10개까지 콤마로 정리됩니다.<br />쇼핑몰별 상품명은 도매/소매 그룹과 마켓별로 다르게 생성됩니다.</p>
-    <p className="mt-2 rounded-lg bg-blue-50 p-3 text-xs font-semibold text-blue-800">검색어는 샵플링 기본정보 기준으로 상품별 1세트가 반영됩니다.<br />쇼핑몰별 차별화는 상품명에서 적용합니다.</p>
-    {rows.length === 0 ? <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">상품별 핵심 키워드를 입력하세요.</p> : <div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-slate-50 text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">goods_key</th><th className="border border-slate-200 px-3 py-2">상품그룹</th><th className="border border-slate-200 px-3 py-2">현재 상품명</th><th className="border border-slate-200 px-3 py-2">핵심 키워드 입력</th><th className="border border-slate-200 px-3 py-2">상태</th></tr></thead><tbody>{rows.map((goodsKey) => {
-      const uploadRow = uploadRowsByGoodsKey.get(goodsKey);
-      const productGroup = inferProductGroupFromPtnGoodsCd(uploadRow?.ptn_goods_cd ?? "").productGroup;
-      const currentTitle = [uploadRow?.final_title, uploadRow?.registered_title, uploadRow?.upload_title, uploadRow?.product_name, uploadRow?.title, uploadRow?.productTitle].find((value) => String(value ?? "").trim()) ?? "키워드 엔진 대기";
-      const seedValue = seedKeywordsByGoodsKey[goodsKey] ?? "";
+    <p className="text-sm font-bold text-blue-700">행별 핵심 키워드</p>
+    <h2 className="mt-1 text-xl font-black text-slate-950">행별 핵심 키워드</h2>
+    <p className="mt-2 text-sm font-semibold text-slate-700">실재고 시트 행마다 좋은 키워드를 한 번만 입력하세요.<br />같은 행에서 생성된 도매/소매 상품들은 이 키워드를 함께 사용합니다.<br />AI가 이 키워드로 쇼핑몰별 상품명과 상품별 검색어를 자동 생성합니다.</p>
+    <p className="mt-2 rounded-lg bg-blue-50 p-3 text-xs font-semibold text-blue-800">검색어는 상품별 1세트로 반영됩니다. 쇼핑몰별 차별화는 상품명에서 적용합니다.</p>
+    {hasMissingMapping ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">{MISSING_SOURCE_ROW_WARNING}</p> : null}
+    {sourceRowGroups.length === 0 ? <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">상품업로드 후 실재고 행별 핵심 키워드 입력칸이 표시됩니다.</p> : <div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-slate-50 text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">실재고 행</th><th className="border border-slate-200 px-3 py-2">생성 상품</th><th className="border border-slate-200 px-3 py-2">현재 상품명</th><th className="border border-slate-200 px-3 py-2">핵심 키워드 입력</th><th className="border border-slate-200 px-3 py-2">상태</th></tr></thead><tbody>{sourceRowGroups.map((group) => {
+      const seedValue = seedKeywordsBySourceRow[group.sourceRowId] ?? "";
       const normalizedPreview = normalizeSeedKeywords(seedValue);
-      const status = normalizedPreview ? "준비 완료" : String(currentTitle).trim() && currentTitle !== "키워드 엔진 대기" ? "엔진 보강" : "키워드 부족";
-      return <tr key={goodsKey} className="bg-white"><td className="border border-slate-200 px-3 py-2 font-mono">{goodsKey}</td><td className="border border-slate-200 px-3 py-2 font-semibold">{productGroup}</td><td className="border border-slate-200 px-3 py-2">{currentTitle}</td><td className="border border-slate-200 px-3 py-2"><input value={seedValue} onChange={(event) => onSeedKeywordChange(goodsKey, event.target.value)} placeholder="게임패드,컨트롤러,조이스틱,미니" className="w-80 rounded-lg border border-slate-300 px-3 py-2" />{normalizedPreview ? <p className="mt-1 text-xs font-semibold text-emerald-700">{normalizedPreview}</p> : <p className="mt-1 text-xs text-slate-500">상품별 핵심 키워드를 입력하세요.</p>}</td><td className="border border-slate-200 px-3 py-2 font-bold">{status}</td></tr>;
+      const safeTitle = isSafeLaunchTitle(group.currentTitle) ? group.currentTitle : "키워드 엔진 대기";
+      const status = group.mappingMissing ? "확인 필요" : normalizedPreview ? "준비 완료" : safeTitle !== "키워드 엔진 대기" ? "엔진 보강" : "키워드 필요";
+      const productSummary = `${group.productGroups.join("·") || "상품그룹 확인 필요"} / goods_key ${group.goodsKeys.length}개`;
+      return <tr key={group.sourceRowId} className="bg-white"><td className="border border-slate-200 px-3 py-2 font-mono font-bold">{group.displayLabel}</td><td className="border border-slate-200 px-3 py-2 font-semibold">{productSummary}</td><td className="border border-slate-200 px-3 py-2">{safeTitle}</td><td className="border border-slate-200 px-3 py-2"><input value={seedValue} onChange={(event) => onSeedKeywordChange(group.sourceRowId, event.target.value)} placeholder="게임패드,컨트롤러,조이스틱,미니" className="w-80 rounded-lg border border-slate-300 px-3 py-2" />{normalizedPreview ? <p className="mt-1 text-xs font-semibold text-emerald-700">{normalizedPreview}</p> : <p className="mt-1 text-xs text-slate-500">행별 핵심 키워드를 입력하세요.</p>}</td><td className="border border-slate-200 px-3 py-2 font-bold">{status}</td></tr>;
     })}</tbody></table></div>}
   </section>;
 }
