@@ -170,6 +170,17 @@ test("UI source removes base price inputs and keeps automatic price policy copy"
     "상품 기본 판매정보와 쇼핑몰별 가격을 함께 수정합니다",
     "상품 기본정보의 소비자가/판매가/매입가",
     "상품 기본 판매정보",
+    "가격 계산 기준",
+    "판매가를 먼저 계산합니다.",
+    "소비자가 = 판매가 × 1.5",
+    "매입가(원가) = 판매가 ÷ 2",
+    "카페24/도매창고/에이블리 정책은 판매가에 먼저 적용",
+    "가격 공식",
+    "price_formula",
+    "상품 기본 가격 공식 적용",
+    "쇼핑몰별 가격 공식 적용",
+    "product_level_price_formula_applied",
+    "mall_price_formula_applied",
     "소비자가 / 판매가 / 매입가(원가)를 상품출시 플로우와 같은 기준으로 자동 설정합니다",
     "쇼핑몰별 가격정책은 그 다음 24개 쇼핑몰에 적용됩니다",
     "상품 기본 판매정보 반영 수",
@@ -237,5 +248,5 @@ test("UI source removes base price inputs and keeps automatic price policy copy"
   const combined = ui + await readFile(new URL("../src/lib/shoplingPriceModifyRunner.ts", import.meta.url), "utf8") + route;
   const forbiddenSecrets = ["API" + "_AUTH_KEY", "LOGIN" + "_PASSWORD"];
   for (const secretText of forbiddenSecrets) assert.equal(combined.includes(secretText), false);
-  assert.doesNotMatch(combined, /service account|raw ZIP|PowerShell|shell:\s*true|child_process\.exec|child_process|exec\(/);
+  assert.doesNotMatch(combined, /service account|raw ZIP|PowerShell|shell\s*:?\s*true|child_process\.exec|child_process|exec\(/);
 });
