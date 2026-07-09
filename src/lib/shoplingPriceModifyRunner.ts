@@ -39,6 +39,13 @@ export type ShoplingPriceModifySummary = {
   created_at?: unknown;
   policy_override_count?: unknown;
   policy_overrides?: unknown;
+  consumer_price_input?: unknown;
+  sell_price_input?: unknown;
+  purchase_price_input?: unknown;
+  three_column_payload_count?: unknown;
+  missing_consumer_price_count?: unknown;
+  missing_purchase_price_count?: unknown;
+  blocked_missing_base_price_count?: unknown;
 };
 export type ShoplingPriceModifyActionsResult = {
   status: "success" | "pending" | "error";
@@ -141,11 +148,15 @@ export function validateGoodsKeyGroupJson(input?: unknown) {
   return JSON.stringify(normalized);
 }
 
-export function buildShoplingPriceModifyDispatchRequest(goodsKeyInput: string, policyOverridesInput?: unknown, goodsKeyGroupJsonInput?: unknown) {
+export function buildShoplingPriceModifyDispatchRequest(goodsKeyInput: string, policyOverridesInput?: unknown, goodsKeyGroupJsonInput?: unknown, basePriceInput?: { base_consumer_price?: unknown; base_sell_price?: unknown; base_purchase_price?: unknown; base_prices_json?: unknown }) {
   const parsed = parseShoplingPriceModifyGoodsKeys(goodsKeyInput);
   const policyOverrides = validateShoplingPriceModifyPolicyOverrides(policyOverridesInput);
   const policyOverridesJson = policyOverrides.length > 0 ? JSON.stringify(policyOverrides) : "";
   const goodsKeyGroupJson = validateGoodsKeyGroupJson(goodsKeyGroupJsonInput);
+  const baseConsumerPrice = typeof basePriceInput?.base_consumer_price === "string" || typeof basePriceInput?.base_consumer_price === "number" ? String(basePriceInput.base_consumer_price).trim() : "";
+  const baseSellPrice = typeof basePriceInput?.base_sell_price === "string" || typeof basePriceInput?.base_sell_price === "number" ? String(basePriceInput.base_sell_price).trim() : "";
+  const basePurchasePrice = typeof basePriceInput?.base_purchase_price === "string" || typeof basePriceInput?.base_purchase_price === "number" ? String(basePriceInput.base_purchase_price).trim() : "";
+  const basePricesJson = typeof basePriceInput?.base_prices_json === "string" ? basePriceInput.base_prices_json.trim() : "";
   const config = getConfig(); const [owner, repoName] = config.repo.split("/");
   const requestId = generateShoplingPriceModifyRequestId();
   return {
@@ -153,14 +164,14 @@ export function buildShoplingPriceModifyDispatchRequest(goodsKeyInput: string, p
     githubActionsUrl: `https://github.com/${config.repo}/actions/workflows/${encodeURIComponent(config.workflow)}`,
     token: config.token,
     requestId,
-    body: { ref: config.ref, inputs: { goods_keys: parsed.goodsKeysCsv, request_id: requestId, batch: SHOPLING_PRICE_MODIFY_BATCH, policy_overrides_json: policyOverridesJson, goods_key_group_json: goodsKeyGroupJson } },
-    commandPreview: `GitHub Actions: ${config.workflow} goods_keys=${parsed.goodsKeysCsv} batch=${SHOPLING_PRICE_MODIFY_BATCH} policy_override_count=${policyOverrides.length} goods_key_group_count=${goodsKeyGroupJson ? Object.keys(JSON.parse(goodsKeyGroupJson)).length : 0} request_id=${requestId}`,
+    body: { ref: config.ref, inputs: { goods_keys: parsed.goodsKeysCsv, request_id: requestId, batch: SHOPLING_PRICE_MODIFY_BATCH, policy_overrides_json: policyOverridesJson, goods_key_group_json: goodsKeyGroupJson, base_consumer_price: baseConsumerPrice, base_sell_price: baseSellPrice, base_purchase_price: basePurchasePrice, base_prices_json: basePricesJson } },
+    commandPreview: `GitHub Actions: ${config.workflow} goods_keys=${parsed.goodsKeysCsv} batch=${SHOPLING_PRICE_MODIFY_BATCH} policy_override_count=${policyOverrides.length} goods_key_group_count=${goodsKeyGroupJson ? Object.keys(JSON.parse(goodsKeyGroupJson)).length : 0} base_price_inputs=${[baseConsumerPrice, baseSellPrice, basePurchasePrice].filter(Boolean).length} base_prices_json=${basePricesJson ? "provided" : "empty"} request_id=${requestId}`,
   };
 }
 
-export async function dispatchShoplingPriceModifyActions(goodsKeyInput: string, policyOverridesInput?: unknown, goodsKeyGroupJsonInput?: unknown) {
+export async function dispatchShoplingPriceModifyActions(goodsKeyInput: string, policyOverridesInput?: unknown, goodsKeyGroupJsonInput?: unknown, basePriceInput?: { base_consumer_price?: unknown; base_sell_price?: unknown; base_purchase_price?: unknown; base_prices_json?: unknown }) {
   if (process.env.SHOPLING_PRICE_MODIFY_ENABLED !== "1") return { status: "error", message: "SHOPLING_PRICE_MODIFY_ENABLED=1 인 경우에만 실행할 수 있습니다." };
-  let request; try { request = buildShoplingPriceModifyDispatchRequest(goodsKeyInput, policyOverridesInput, goodsKeyGroupJsonInput); } catch (error) { return { status: "error", message: error instanceof Error ? error.message : "입력값이 올바르지 않습니다." }; }
+  let request; try { request = buildShoplingPriceModifyDispatchRequest(goodsKeyInput, policyOverridesInput, goodsKeyGroupJsonInput, basePriceInput); } catch (error) { return { status: "error", message: error instanceof Error ? error.message : "입력값이 올바르지 않습니다." }; }
   const response = await fetch(request.url, { method: "POST", headers: { ...headers(request.token), "Content-Type": "application/json" }, body: JSON.stringify(request.body) });
   if (response.status !== 204 && response.status !== 200) return { status: "error", message: `GitHub Actions 워크플로 실행 요청에 실패했습니다. status=${response.status}`, commandPreview: request.commandPreview, githubActionsUrl: request.githubActionsUrl, requestId: request.requestId };
   return { status: "queued", requestId: request.requestId, message: "GitHub Actions 가격설정 워크플로 실행 요청이 전송되었습니다.", githubActionsUrl: request.githubActionsUrl, commandPreview: request.commandPreview };
