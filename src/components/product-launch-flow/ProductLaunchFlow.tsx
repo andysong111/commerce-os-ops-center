@@ -27,6 +27,7 @@ import {
   type ProductLaunchUploadRow,
 } from "@/lib/productLaunchFlow";
 
+const PRODUCT_LAUNCH_SESSION_STORAGE_KEY = "productLaunchFlow.session.v2";
 const UPLOAD_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.uploadRequestId";
 const PRICE_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.priceRequestId";
 const LAST_ROW_EXPRESSION_STORAGE_KEY = "productLaunchFlow.lastRowExpression";
@@ -69,19 +70,23 @@ type KeywordArtifact = { id: number; name: string; expired?: boolean; expected?:
 type KeywordRun = { id: number; status?: string | null; conclusion?: string | null; createdAt?: string; htmlUrl?: string; artifacts?: KeywordArtifact[] };
 type KeywordRunsResult = { status?: string; message?: string; actionsUrl?: string; expectedArtifactName?: string; outputReviewRoute?: string; runs?: KeywordRun[] };
 type KeywordDispatchResult = { repo?: string; workflowFile?: string; actionsUrl?: string; expectedArtifactName?: string; message?: string };
+type ProductLaunchSessionV2 = { rowExpression?: string; startedAt?: string; updatedAt?: string; uploadRequestId?: string; priceRequestId?: string; keywordRequestId?: string; keywordRunId?: string; keywordDryRunRequestId?: string; keywordRealApplyRequestId?: string; finalPriceRequestId?: string; uploadResult?: UploadActionsResult | null; priceResult?: PriceActionsResult | null; keywordResult?: KeywordRunsResult | null; finalPriceResult?: PriceActionsResult | null; seedKeywordsBySourceRow?: Record<string, string>; stage?: string };
 
 export function ProductLaunchFlow() {
   void PRODUCT_LAUNCH_INLINE_REVIEW_COPY;
-  const [rowExpression, setRowExpression] = useState(() => getStoredValue(LAST_ROW_EXPRESSION_STORAGE_KEY));
-  const [lastStartedRowExpression, setLastStartedRowExpression] = useState(() => getStoredValue(LAST_ROW_EXPRESSION_STORAGE_KEY));
-  const [uploadRequestId, setUploadRequestId] = useState(() => getStoredValue(UPLOAD_REQUEST_ID_STORAGE_KEY));
-  const [priceRequestId, setPriceRequestId] = useState(() => getStoredValue(PRICE_REQUEST_ID_STORAGE_KEY));
+  const restoredSession = useMemo(() => readProductLaunchSession(), []);
+  const [sessionRestored, setSessionRestored] = useState(() => !!restoredSession);
+  const [uploadRecovered, setUploadRecovered] = useState(false);
+  const [rowExpression, setRowExpression] = useState(() => restoredSession?.rowExpression ?? getStoredValue(LAST_ROW_EXPRESSION_STORAGE_KEY));
+  const [lastStartedRowExpression, setLastStartedRowExpression] = useState(() => restoredSession?.rowExpression ?? getStoredValue(LAST_ROW_EXPRESSION_STORAGE_KEY));
+  const [uploadRequestId, setUploadRequestId] = useState(() => restoredSession?.uploadRequestId ?? getStoredValue(UPLOAD_REQUEST_ID_STORAGE_KEY));
+  const [priceRequestId, setPriceRequestId] = useState(() => restoredSession?.priceRequestId ?? getStoredValue(PRICE_REQUEST_ID_STORAGE_KEY));
   const [uploadRunning, setUploadRunning] = useState(false);
   const [uploadFetching, setUploadFetching] = useState(false);
   const [priceRunning, setPriceRunning] = useState(false);
   const [priceFetching, setPriceFetching] = useState(false);
   const [uploadRunResult, setUploadRunResult] = useState<RunResult | null>(null);
-  const [uploadActionsResult, setUploadActionsResult] = useState<UploadActionsResult | null>(null);
+  const [uploadActionsResult, setUploadActionsResult] = useState<UploadActionsResult | null>(restoredSession?.uploadResult ?? null);
   const [uploadPolling, setUploadPolling] = useState(false);
   const [uploadPollStartedAt, setUploadPollStartedAt] = useState<number | null>(null);
   const [uploadLastCheckedAt, setUploadLastCheckedAt] = useState<Date | null>(null);
@@ -90,25 +95,25 @@ export function ProductLaunchFlow() {
   const [uploadElapsedSeconds, setUploadElapsedSeconds] = useState(0);
   const uploadPollCountRef = useRef(0);
   const [priceRunResult, setPriceRunResult] = useState<RunResult | null>(null);
-  const [priceActionsResult, setPriceActionsResult] = useState<PriceActionsResult | null>(null);
+  const [priceActionsResult, setPriceActionsResult] = useState<PriceActionsResult | null>(restoredSession?.priceResult ?? null);
   const [pricePolling, setPricePolling] = useState(false);
   const [pricePollCount, setPricePollCount] = useState(0);
   const [priceLastCheckedAt, setPriceLastCheckedAt] = useState<Date | null>(null);
-  const [finalPriceRequestId, setFinalPriceRequestId] = useState("");
+  const [finalPriceRequestId, setFinalPriceRequestId] = useState(restoredSession?.finalPriceRequestId ?? "");
   const [finalPriceRunResult, setFinalPriceRunResult] = useState<RunResult | null>(null);
-  const [finalPriceActionsResult, setFinalPriceActionsResult] = useState<PriceActionsResult | null>(null);
+  const [finalPriceActionsResult, setFinalPriceActionsResult] = useState<PriceActionsResult | null>(restoredSession?.finalPriceResult ?? null);
   const [finalPriceRunning, setFinalPriceRunning] = useState(false);
   const [finalPriceFetching, setFinalPriceFetching] = useState(false);
   const [finalPricePolling, setFinalPricePolling] = useState(false);
   const [finalPricePollCount, setFinalPricePollCount] = useState(0);
   const [finalPriceLastCheckedAt, setFinalPriceLastCheckedAt] = useState<Date | null>(null);
   const [keywordSeed, setKeywordSeed] = useState(() => getStoredValue(KEYWORD_SEED_STORAGE_KEY));
-  const [seedKeywordsBySourceRow, setSeedKeywordsBySourceRow] = useState<Record<string, string>>({});
+  const [seedKeywordsBySourceRow, setSeedKeywordsBySourceRow] = useState<Record<string, string>>(restoredSession?.seedKeywordsBySourceRow ?? {});
   const [manualTitleOverridesByGoodsKey, setManualTitleOverridesByGoodsKey] = useState<Record<string, string>>({});
   const [manualKeywordOverridesByGoodsKey, setManualKeywordOverridesByGoodsKey] = useState<Record<string, string>>({});
   const [keywordPreview, setKeywordPreview] = useState<unknown>(null);
   const [keywordDispatchResult, setKeywordDispatchResult] = useState<KeywordDispatchResult | null>(null);
-  const [keywordRunsResult, setKeywordRunsResult] = useState<KeywordRunsResult | null>(null);
+  const [keywordRunsResult, setKeywordRunsResult] = useState<KeywordRunsResult | null>(restoredSession?.keywordResult ?? null);
   const [keywordImportMessage, setKeywordImportMessage] = useState<string>("");
   const [embeddedReviewOpen, setEmbeddedReviewOpen] = useState(false);
   const [keywordImportedAt, setKeywordImportedAt] = useState("");
@@ -176,6 +181,7 @@ export function ProductLaunchFlow() {
       const data = await (await fetch(url)).json();
       setUploadActionsResult(data);
       const rows = extractRowsWithGoodsKey(data);
+      if (isSuccessfulUploadResult(data, rows.length)) setUploadRecovered(true);
       const final = isFinalUploadPollingResult(data, rows.length);
       if (final || uploadPollCountRef.current >= UPLOAD_MAX_POLLS) {
         setUploadPolling(false);
@@ -268,6 +274,10 @@ export function ProductLaunchFlow() {
 
   const fetchUploadResult = () => {
     void pollUploadResult(true, currentUploadRequestId || uploadRequestId);
+  };
+
+  const recoverLatestUploadResult = () => {
+    void pollUploadResult(true, uploadRequestId);
   };
 
   const runPriceModify = useCallback(async () => {
@@ -490,9 +500,77 @@ export function ProductLaunchFlow() {
   const priceIssueState = getPriceIssueState(finalPriceActionsResult ?? priceActionsResult);
   const keywordWarningCount = getKeywordWarningCount(keywordApplyState);
   const issueCount = getLaunchBoardIssueCount({ priceIssueState, uploadRows, goodsKeys, titleTargetCount, keywordApplyState, cockpit });
-  const currentRequestId = rowMatchesCurrentRun ? (uploadRunning || uploadFetching || uploadPolling ? currentUploadRequestId : priceRequestId || currentUploadRequestId || keywordDispatchResult?.expectedArtifactName || "") : "";
-  const previousRequestId = priceRequestId || uploadRequestId || keywordDispatchResult?.expectedArtifactName || "-";
+  const derivedStage = deriveLaunchStage({ uploadActionsResult, uploadRowsCount: uploadRows.length, priceActionsResult, keywordRunsResult, keywordApplyState, finalPriceActionsResult });
+  const currentRequestId = getRequestIdForStage(derivedStage, { uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRequestId: keywordDispatchResult?.expectedArtifactName ?? String(keywordRunsResult?.runs?.[0]?.id ?? restoredSession?.keywordRequestId ?? restoredSession?.keywordRunId ?? ""), keywordDryRunRequestId: keywordApplyState?.dryRunRequestId ?? restoredSession?.keywordDryRunRequestId ?? "", keywordRealApplyRequestId: keywordApplyState?.realApplyRequestId ?? restoredSession?.keywordRealApplyRequestId ?? "", finalPriceRequestId });
+  const previousRequestId = finalPriceRequestId || keywordApplyState?.realApplyRequestId || keywordApplyState?.dryRunRequestId || priceRequestId || uploadRequestId || keywordDispatchResult?.expectedArtifactName || "-";
   const lastCheckedAt = finalPriceLastCheckedAt ?? keywordLastCheckedAt ?? priceLastCheckedAt ?? uploadLastCheckedAt;
+
+  useEffect(() => {
+    const nextSession: ProductLaunchSessionV2 = {
+      rowExpression,
+      startedAt: restoredSession?.startedAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      uploadRequestId,
+      priceRequestId,
+      keywordRequestId: keywordDispatchResult?.expectedArtifactName ?? restoredSession?.keywordRequestId ?? "",
+      keywordRunId: String(keywordRunsResult?.runs?.[0]?.id ?? restoredSession?.keywordRunId ?? ""),
+      keywordDryRunRequestId: keywordApplyState?.dryRunRequestId ?? restoredSession?.keywordDryRunRequestId ?? "",
+      keywordRealApplyRequestId: keywordApplyState?.realApplyRequestId ?? restoredSession?.keywordRealApplyRequestId ?? "",
+      finalPriceRequestId,
+      uploadResult: uploadActionsResult,
+      priceResult: priceActionsResult,
+      keywordResult: keywordRunsResult,
+      finalPriceResult: finalPriceActionsResult,
+      seedKeywordsBySourceRow,
+      stage: derivedStage,
+    };
+    persistProductLaunchSession(nextSession);
+  }, [derivedStage, finalPriceActionsResult, finalPriceRequestId, keywordApplyState?.dryRunRequestId, keywordApplyState?.realApplyRequestId, keywordDispatchResult?.expectedArtifactName, keywordRunsResult, priceActionsResult, priceRequestId, restoredSession, rowExpression, seedKeywordsBySourceRow, uploadActionsResult, uploadRequestId]);
+
+  useEffect(() => {
+    if (!restoredSession) return;
+    const timer = window.setTimeout(() => {
+      if (restoredSession.uploadRequestId && !isSuccessfulUploadResult(restoredSession.uploadResult ?? null, extractRowsWithGoodsKey(restoredSession.uploadResult ?? null).length)) {
+        setUploadPolling(true);
+        void pollUploadResult(true, restoredSession.uploadRequestId);
+      }
+      if (restoredSession.priceRequestId && !restoredSession.priceResult) {
+        setPricePolling(true);
+        void fetchPriceResult();
+      }
+      if ((restoredSession.keywordRequestId || restoredSession.keywordRunId) && !restoredSession.keywordResult) {
+        setKeywordPolling(true);
+        void fetchKeywordRuns();
+      }
+      if (restoredSession.finalPriceRequestId && !restoredSession.finalPriceResult) {
+        setFinalPricePolling(true);
+        void fetchFinalPriceResult();
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  // run once on mount; persisted request IDs are intentionally recovered after a Vercel-style remount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const resetProductLaunchSession = () => {
+    clearProductLaunchSession();
+    setSessionRestored(false);
+    setUploadRecovered(false);
+    setRowExpression("");
+    setLastStartedRowExpression("");
+    setUploadRequestId("");
+    setPriceRequestId("");
+    setFinalPriceRequestId("");
+    setUploadRunResult(null);
+    setUploadActionsResult(null);
+    setPriceRunResult(null);
+    setPriceActionsResult(null);
+    setKeywordDispatchResult(null);
+    setKeywordRunsResult(null);
+    setKeywordApplyState(null);
+    setFinalPriceRunResult(null);
+    setFinalPriceActionsResult(null);
+  };
   useEffect(() => {
     const artifact = keywordSummary.artifact;
     const run = keywordRunsResult?.runs?.find((item) => item.artifacts?.some((candidate) => candidate.id === artifact?.id));
@@ -550,9 +628,10 @@ export function ProductLaunchFlow() {
 
   return (
     <div className="space-y-6">
+      {sessionRestored ? <RecoveryBanner uploadRecovered={uploadRecovered || isSuccessfulUploadResult(uploadActionsResult, uploadRows.length)} /> : null}
       <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} keywordApplyState={keywordApplyState} priceIssueState={priceIssueState} onNext={keywordRealApplySucceeded && !finalPriceDone ? runFinalPriceModify : runNextSafeStep} initialPriceRequestId={priceRequestId} finalPriceRequestId={finalPriceRequestId} finalPriceActionsResult={finalPriceActionsResult} finalPriceActive={finalPriceActive} finalPriceDone={finalPriceDone} finalPriceFailed={finalPriceFailed} finalPriceTargetCount={goodsKeys.length * FULL_PRICE_POLICY_MALL_COUNT} />
       <SeedKeywordSection sourceRowGroups={sourceRowGroups} rowExpression={lastStartedRowExpression || rowExpression} seedKeywordsBySourceRow={seedKeywordsBySourceRow} onSeedKeywordChange={(sourceRowId, value) => setSeedKeywordsBySourceRow((current) => ({ ...current, [sourceRowId]: value }))} />
-      <LaunchCockpit steps={cockpit.steps} currentStage={cockpit.currentStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling || finalPriceActive} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회 · 최종가격 ${finalPricePollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
+      <LaunchCockpit steps={cockpit.steps} currentStage={derivedStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling || finalPriceActive} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회 · 최종가격 ${finalPricePollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
       {keywordSummary.artifact ? <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold text-emerald-700">키워드 결과 검토</p>
         <h2 className="mt-1 text-xl font-black text-slate-950">키워드 결과 파일이 준비되었습니다.</h2>
@@ -566,6 +645,7 @@ export function ProductLaunchFlow() {
 
       <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <summary className="cursor-pointer text-lg font-bold text-slate-950">고급 / 상세 결과 보기</summary>
+      <button type="button" onClick={resetProductLaunchSession} className="mb-4 rounded-lg border border-red-300 px-4 py-2 text-sm font-bold text-red-700">현재 상품출시 작업 초기화</button>
       <ManualOverrideSection goodsKeys={goodsKeys} uploadRows={uploadRows} manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey} manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey} onManualTitleChange={(goodsKey, value) => setManualTitleOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} onManualKeywordChange={(goodsKey, value) => setManualKeywordOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} />
       <form onSubmit={runUpload} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-950">Step 1. 상품업로드</h2>
@@ -577,6 +657,7 @@ export function ProductLaunchFlow() {
         {!skipIfGoodsKey ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">주의: 체크 해제 상태에서는 같은 행을 다시 업로드할 때 자사상품코드 중복으로 실패할 수 있습니다. 기존 상품 수정이 목적이라면 업로드가 아니라 수정/가격/상품명 반영 플로우를 사용하세요.</p> : null}
         <p className="mt-3 text-sm text-slate-600">채널 선택 없이 도매1~도매4, 소매1~소매2 전체 6채널로 실행합니다.</p>
         <button type="submit" disabled={uploadRunning || !rowExpression.trim()} className="mt-5 rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-800 disabled:bg-slate-100">{uploadRunning ? "실행 요청 중..." : "고급 옵션으로 상품업로드 시작"}</button>
+        {!uploadRequestId && rowExpression ? <button type="button" onClick={recoverLatestUploadResult} disabled={uploadFetching || uploadPolling} className="ml-3 mt-5 rounded-lg border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-800 disabled:bg-slate-100">최근 상품업로드 결과 복구</button> : null}
         <button type="button" onClick={fetchUploadResult} disabled={uploadFetching || uploadPolling} className="ml-3 mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">{uploadFetching || uploadPolling ? "확인 중..." : "상품업로드 결과 가져오기"}</button>
         <GithubActionsShortcutButton href={uploadGithubActionsUrl} className="ml-3 mt-5" />
         <StatusBlock result={uploadRunResult} requestId={uploadRequestId} />
@@ -602,6 +683,14 @@ export function ProductLaunchFlow() {
 }
 
 
+
+function RecoveryBanner({ uploadRecovered }: { uploadRecovered: boolean }) {
+  return <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-bold text-emerald-900">
+    <p>이전 상품출시 작업을 복구했습니다.</p>
+    <p>완료된 GitHub Actions 결과를 다시 확인하는 중입니다.</p>
+    {uploadRecovered ? <p className="mt-2">상품업로드 결과를 복구했습니다. 생성된 goods_key 기준으로 다음 단계를 이어갑니다.</p> : <p className="mt-2">상품업로드 결과 확인 중</p>}
+  </section>;
+}
 
 function SeedKeywordSection({ sourceRowGroups, rowExpression, seedKeywordsBySourceRow, onSeedKeywordChange }: { sourceRowGroups: ReturnType<typeof buildLaunchSourceRowGroups>; rowExpression: string; seedKeywordsBySourceRow: Record<string, string>; onSeedKeywordChange: (sourceRowId: string, value: string) => void; }) {
   const hasMissingMapping = sourceRowGroups.some((group) => group.mappingMissing) && parseLaunchRowExpression(rowExpression).length > 1;
@@ -905,6 +994,25 @@ function persistValue(key: string, value: string) { if (typeof window !== "undef
 function currentManualOverrideStorageScope(rowExpression: string, launchRequestId: string) { return (launchRequestId || rowExpression || "draft").replace(/[^a-zA-Z0-9_.-]+/g, "_"); }
 function readStoredRecord(key: string): Record<string, string> { if (typeof window === "undefined") return {}; try { const parsed = JSON.parse(window.localStorage.getItem(key) ?? "{}"); return parsed && typeof parsed === "object" ? parsed as Record<string, string> : {}; } catch { return {}; } }
 function persistRecord(key: string, value: Record<string, string>) { if (typeof window !== "undefined") window.localStorage.setItem(key, JSON.stringify(value)); }
+function readProductLaunchSession(): ProductLaunchSessionV2 | null { if (typeof window === "undefined") return null; try { const parsed = JSON.parse(window.localStorage.getItem(PRODUCT_LAUNCH_SESSION_STORAGE_KEY) ?? "null"); return parsed && typeof parsed === "object" ? parsed as ProductLaunchSessionV2 : null; } catch { return null; } }
+function persistProductLaunchSession(session: ProductLaunchSessionV2) { if (typeof window !== "undefined") window.localStorage.setItem(PRODUCT_LAUNCH_SESSION_STORAGE_KEY, JSON.stringify(session)); }
+function clearProductLaunchSession() { if (typeof window === "undefined") return; [PRODUCT_LAUNCH_SESSION_STORAGE_KEY, UPLOAD_REQUEST_ID_STORAGE_KEY, PRICE_REQUEST_ID_STORAGE_KEY, LAST_ROW_EXPRESSION_STORAGE_KEY, KEYWORD_SEED_STORAGE_KEY].forEach((key) => window.localStorage.removeItem(key)); }
+function deriveLaunchStage({ uploadActionsResult, uploadRowsCount, priceActionsResult, keywordRunsResult, keywordApplyState, finalPriceActionsResult }: { uploadActionsResult: UploadActionsResult | null; uploadRowsCount: number; priceActionsResult: PriceActionsResult | null; keywordRunsResult: KeywordRunsResult | null; keywordApplyState: KeywordApplyState | null; finalPriceActionsResult: PriceActionsResult | null }) {
+  if (!isSuccessfulUploadResult(uploadActionsResult, uploadRowsCount)) return "상품업로드";
+  if (!isSuccessfulPriceResult(priceActionsResult)) return "가격설정";
+  if (!isFinalKeywordRuns(keywordRunsResult) && keywordApplyState?.dryRunStatus !== "success") return "키워드 dry_run";
+  if (keywordApplyState?.dryRunStatus === "success" && !isKeywordRealApplySuccess(keywordApplyState)) return "실제 반영 대기";
+  if (isKeywordRealApplySuccess(keywordApplyState) && !isSuccessfulPriceResult(finalPriceActionsResult)) return "가격 최종 재적용";
+  return "출시 완료";
+}
+function getRequestIdForStage(stage: string, ids: { uploadRequestId: string; priceRequestId: string; keywordRequestId: string; keywordDryRunRequestId: string; keywordRealApplyRequestId: string; finalPriceRequestId: string }) {
+  if (stage === "상품업로드") return ids.uploadRequestId;
+  if (stage === "가격설정") return ids.priceRequestId;
+  if (stage === "키워드 dry_run") return ids.keywordDryRunRequestId || ids.keywordRequestId;
+  if (stage === "실제 반영 대기") return ids.keywordRealApplyRequestId || ids.keywordDryRunRequestId || ids.keywordRequestId;
+  if (stage === "가격 최종 재적용" || stage === "출시 완료") return ids.finalPriceRequestId;
+  return "";
+}
 
 type PriceIssueState = { kind: "ok" | "critical" | "unsupported" | "unknown"; count: number; label: string };
 

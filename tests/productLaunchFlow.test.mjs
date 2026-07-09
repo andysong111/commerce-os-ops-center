@@ -679,3 +679,66 @@ test("manual overrides flow source avoids forbidden execution and secret pattern
     assert.doesNotMatch(source, forbidden);
   }
 });
+
+test("product launch flow persists and recovers stage-specific session ids", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "productLaunchFlow.session.v2",
+    "uploadRequestId",
+    "priceRequestId",
+    "keywordRequestId",
+    "keywordDryRunRequestId",
+    "keywordRealApplyRequestId",
+    "finalPriceRequestId",
+    "uploadResult",
+    "priceResult",
+    "keywordResult",
+    "finalPriceResult",
+    "seedKeywordsBySourceRow",
+    "readProductLaunchSession",
+    "persistProductLaunchSession",
+    "clearProductLaunchSession",
+  ]) assert.ok(source.includes(expected), expected);
+
+  assert.match(source, /if \(stage === "상품업로드"\) return ids\.uploadRequestId/);
+  assert.match(source, /if \(stage === "가격설정"\) return ids\.priceRequestId/);
+  assert.match(source, /if \(stage === "키워드 dry_run"\) return ids\.keywordDryRunRequestId \|\| ids\.keywordRequestId/);
+  assert.doesNotMatch(source, /상품업로드[\s\S]{0,120}return ids\.priceRequestId/);
+});
+
+test("product launch flow restores persisted session and fetches completed artifacts", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "이전 상품출시 작업을 복구했습니다.",
+    "완료된 GitHub Actions 결과를 다시 확인하는 중입니다.",
+    "상품업로드 결과를 복구했습니다. 생성된 goods_key 기준으로 다음 단계를 이어갑니다.",
+    "상품업로드 결과 확인 중",
+    "최근 상품업로드 결과 복구",
+    "현재 상품출시 작업 초기화",
+    "restoredSession.uploadRequestId",
+    "pollUploadResult(true, restoredSession.uploadRequestId)",
+    "restoredSession.priceRequestId",
+    "fetchPriceResult()",
+    "restoredSession.keywordRequestId || restoredSession.keywordRunId",
+    "fetchKeywordRuns()",
+    "restoredSession.finalPriceRequestId",
+    "fetchFinalPriceResult()",
+    "extractRowsWithGoodsKey(data)",
+    "setUploadRecovered(true)",
+  ]) assert.ok(source.includes(expected), expected);
+});
+
+test("product launch flow derives stage from recovered results and keeps remount sessions", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "deriveLaunchStage",
+    "if (!isSuccessfulUploadResult(uploadActionsResult, uploadRowsCount)) return \"상품업로드\";",
+    "if (!isSuccessfulPriceResult(priceActionsResult)) return \"가격설정\";",
+    "return \"키워드 dry_run\";",
+    "return \"실제 반영 대기\";",
+    "return \"가격 최종 재적용\";",
+    "return \"출시 완료\";",
+    "persisted request IDs are intentionally recovered after a Vercel-style remount",
+  ]) assert.ok(source.includes(expected), expected);
+  assert.doesNotMatch(source, /removeItem\(PRODUCT_LAUNCH_SESSION_STORAGE_KEY\)[\s\S]{0,120}useEffect/);
+});
