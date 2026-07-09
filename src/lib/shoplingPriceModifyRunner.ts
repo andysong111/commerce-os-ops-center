@@ -46,6 +46,8 @@ export type ShoplingPriceModifySummary = {
   missing_consumer_price_count?: unknown;
   missing_purchase_price_count?: unknown;
   blocked_missing_base_price_count?: unknown;
+  auto_price_policy_used?: unknown;
+  base_price_input_required?: unknown;
 };
 export type ShoplingPriceModifyActionsResult = {
   status: "success" | "pending" | "error";

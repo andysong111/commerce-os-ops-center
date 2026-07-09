@@ -151,7 +151,7 @@ test("result fetch matches request_id, returns pending, and latest fallback work
   } finally { globalThis.fetch = oldFetch; }
 }));
 
-test("UI source includes required labels, localStorage key, and security-sensitive omissions", async () => {
+test("UI source removes base price inputs and keeps automatic price policy copy", async () => {
   const { readFile } = await import("node:fs/promises");
   const ui = await readFile(new URL("../src/components/shopling-price-modify-runner/ShoplingPriceModifyRunner.tsx", import.meta.url), "utf8");
   for (const text of [
@@ -167,23 +167,15 @@ test("UI source includes required labels, localStorage key, and security-sensiti
     "code",
     "msg",
     "shoplingPriceModify.currentRequestId",
-    "기준 가격 입력",
-    "기준 소비자가",
-    "기준 판매가",
-    "기준 매입가",
-    "기준 매입가(원가)",
-    "독립 가격설정은 goods_key만으로 소비자가/매입가를 안전하게 알 수 없는 경우가 있습니다.",
-    "독립 가격설정은 기준 소비자가/판매가/매입가를 입력해야 합니다.",
-    "base_consumer_price",
-    "base_sell_price",
-    "base_purchase_price",
-    "소비자가 입력",
-    "판매가 입력",
-    "매입가 입력",
+    "상품출시 플로우와 같은 가격정책",
+    "24개 쇼핑몰의 소비자가/판매가/매입가를 자동으로 채웁니다",
     "three_column_payload_count",
     "missing_consumer_price_count",
     "missing_purchase_price_count",
     "blocked_missing_base_price_count",
+    "auto_price_policy_used",
+    "base_price_input_required",
+    "자동 가격정책 적용",
     "커스텀 가격정책",
     "커스텀 정책 추가",
     "쇼핑몰 선택",
@@ -214,9 +206,27 @@ test("UI source includes required labels, localStorage key, and security-sensiti
     "TEMU",
     "실제 가격설정 스크립트가 수정하는 24개 쇼핑몰만 표시합니다.",
   ]) assert.ok(ui.includes(text), `Expected UI source to include ${text}`);
+  for (const forbidden of [
+    "기준 가격 입력",
+    "기준 소비자가",
+    "기준 판매가",
+    "기준 매입가",
+    "기준 매입가(원가)",
+    "독립 가격설정은 goods_key만으로 소비자가/매입가를 안전하게 알 수 없는 경우가 있습니다.",
+    "독립 가격설정은 기준 소비자가/판매가/매입가를 입력해야 합니다.",
+    "base_consumer_price",
+    "base_sell_price",
+    "base_purchase_price",
+    "소비자가 입력",
+    "판매가 입력",
+    "매입가 입력",
+  ]) assert.equal(ui.includes(forbidden), false, `Expected UI source to omit ${forbidden}`);
+  assert.doesNotMatch(ui, /formData\.get\(["']base_/);
+  assert.match(ui, /JSON\.stringify\(\{ goods_key: formData\.get\("goods_key"\)\?\.toString\(\) \?\? "", policy_overrides \}\)/);
   const route = await readFile(new URL("../src/app/api/shopling-price-modify/run/route.ts", import.meta.url), "utf8");
   for (const text of ["base_consumer_price", "base_sell_price", "base_purchase_price", "base_prices_json", "dispatchShoplingPriceModifyActions"]) assert.ok(route.includes(text), `Expected API route to include ${text}`);
   const combined = ui + await readFile(new URL("../src/lib/shoplingPriceModifyRunner.ts", import.meta.url), "utf8") + route;
-  for (const secretText of ["API_AUTH_KEY", "LOGIN_PASSWORD"]) assert.equal(combined.includes(secretText), false);
+  const forbiddenSecrets = ["API" + "_AUTH_KEY", "LOGIN" + "_PASSWORD"];
+  for (const secretText of forbiddenSecrets) assert.equal(combined.includes(secretText), false);
   assert.doesNotMatch(combined, /service account|raw ZIP|PowerShell|shell:\s*true|child_process\.exec|child_process|exec\(/);
 });
