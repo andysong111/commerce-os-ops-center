@@ -592,8 +592,11 @@ export default function FreightBarcodeRequestPage() {
               aria-label="이미지 포함 HTML 붙여넣기"
               aria-multiline="true"
               data-placeholder="이미지가 포함된 1688 장바구니 또는 배송대행지 신청서 영역을 여기에 붙여넣으세요."
-              className="rich-paste-box mt-3 min-h-28 whitespace-pre-wrap rounded-lg border border-dashed border-blue-300 bg-white p-4 text-sm leading-6 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="rich-paste-box mt-3 min-h-[260px] max-h-[480px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-dashed border-blue-300 bg-white p-4 text-sm leading-6 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 [word-break:break-word]"
             />
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              붙여넣은 내용이 길면 입력창 안에서 스크롤해 확인할 수 있습니다.
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
                 전체 이미지 {pastedImages.totalImages}개
