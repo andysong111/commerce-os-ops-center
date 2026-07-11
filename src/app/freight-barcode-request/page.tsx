@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
+import { buildFreightForwarderMvpZip } from "@/lib/freightForwarderZipMvp";
 import { findProductsByText } from "@/lib/productMaster";
 import {
   buildFreightBarcodeHistoryRecordFromCurrentState,
@@ -120,6 +121,7 @@ export default function FreightBarcodeRequestPage() {
   const [historyTitle, setHistoryTitle] = useState("");
   const [historyMemo, setHistoryMemo] = useState("");
   const [historyStatus, setHistoryStatus] = useState("");
+  const [freightForwarderZipStatus, setFreightForwarderZipStatus] = useState("");
   const [bulkBundleUnit, setBulkBundleUnit] = useState("");
   const [bulkBundleNote, setBulkBundleNote] = useState("");
   const [printMode, setPrintMode] = useState<
@@ -531,6 +533,20 @@ export default function FreightBarcodeRequestPage() {
     } catch {
       setHistoryStatus("서버 이력을 삭제하지 못했습니다. 로컬 이력은 변경되지 않았습니다.");
     }
+  }
+
+  function downloadFreightForwarderMvpZip() {
+    const result = buildFreightForwarderMvpZip(application);
+    const blob = new Blob([new Uint8Array(result.zipBytes)], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = result.zipFilename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setFreightForwarderZipStatus(result.statusMessage);
   }
 
   function printDocument(target: "work-request" | "individual-labels" | "sample-labels") {
@@ -949,8 +965,16 @@ export default function FreightBarcodeRequestPage() {
                 PDF 저장 시 대상은 &apos;PDF로 저장&apos;, 용지는 A4, 배율은 기본값 또는 100%를 권장합니다.
               </p>
             </div>
-            <Button onClick={() => printDocument("work-request")} primary>작업요청서 PDF 저장/인쇄</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={downloadFreightForwarderMvpZip}>배대지 전달용 개별 PDF ZIP 다운로드</Button>
+              <Button onClick={() => printDocument("work-request")} primary>작업요청서 PDF 저장/인쇄</Button>
+            </div>
           </div>
+          {freightForwarderZipStatus && (
+            <p role="status" className="mt-3 whitespace-pre-wrap rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold leading-5 text-emerald-900">
+              {freightForwarderZipStatus}
+            </p>
+          )}
           <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="text-xs font-semibold text-slate-600">배송대행지 전달용 한국어 메시지</span>
