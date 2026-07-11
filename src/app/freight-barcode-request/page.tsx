@@ -117,6 +117,8 @@ export default function FreightBarcodeRequestPage() {
   const [historyTitle, setHistoryTitle] = useState("");
   const [historyMemo, setHistoryMemo] = useState("");
   const [historyStatus, setHistoryStatus] = useState("");
+  const [bulkBundleUnit, setBulkBundleUnit] = useState("");
+  const [bulkBundleNote, setBulkBundleNote] = useState("");
   const [printMode, setPrintMode] = useState<
     "work-request" | "individual-labels" | "sample-labels"
   >("work-request");
@@ -258,6 +260,54 @@ export default function FreightBarcodeRequestPage() {
         item.id === id ? { ...item, ...changes } : item,
       ),
     }));
+  }
+
+  function rerunAutoImageMatching() {
+    setApplication((current) => {
+      const assignedItems = assignPastedImagesToItems(current.items, pastedImages);
+
+      return {
+        ...current,
+        items: current.items.map((item, index) => {
+          const hasManualOrLocalImage = Boolean(
+            item.localImageUrl || item.selectedImageCandidateUrl || item.imageUrl?.trim(),
+          );
+          if (hasManualOrLocalImage) return item;
+
+          return { ...item, pastedImageUrl: assignedItems[index]?.pastedImageUrl };
+        }),
+      };
+    });
+  }
+
+  function applyBulkBundleUnit(mode: "all" | "with-barcode" | "empty-only") {
+    const bundleUnit = Number(bulkBundleUnit);
+    if (!Number.isFinite(bundleUnit) || bundleUnit <= 0) {
+      setBulkBundleNote("소분단위는 1 이상의 숫자로 입력해주세요.");
+      return;
+    }
+
+    let manualPrintCountPreserved = 0;
+    let changedCount = 0;
+    setApplication((current) => ({
+      ...current,
+      items: current.items.map((item) => {
+        const isTarget =
+          mode === "all" ||
+          (mode === "with-barcode" && Boolean(item.barcode?.trim())) ||
+          (mode === "empty-only" && !item.bundleUnit);
+        if (!isTarget) return item;
+
+        changedCount += 1;
+        if (item.labelPrintCount) manualPrintCountPreserved += 1;
+        return { ...item, bundleUnit };
+      }),
+    }));
+    setBulkBundleNote(
+      `${changedCount}개 품목에 소분단위를 적용했습니다.${
+        manualPrintCountPreserved > 0 ? " 수동 출력수량은 유지됩니다." : ""
+      }`,
+    );
   }
 
   function updateLocalImage(itemId: string, file?: File) {
@@ -788,12 +838,31 @@ export default function FreightBarcodeRequestPage() {
               />
             </label>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[2900px] border-collapse text-left text-xs">
+          <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">소분단위 일괄 입력</h3>
+                <p className="mt-1 text-xs text-slate-500">수동 출력수량이 입력된 행은 출력수량을 유지하고 소분단위만 적용합니다.</p>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="w-36">
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">소분단위</span>
+                  <input type="number" min="1" step="1" value={bulkBundleUnit} onChange={(event) => setBulkBundleUnit(event.target.value)} className={inputClassName} />
+                </label>
+                <Button onClick={() => applyBulkBundleUnit("all")} primary>전체 품목에 적용</Button>
+                <Button onClick={() => applyBulkBundleUnit("with-barcode")}>바코드 입력된 품목에만 적용</Button>
+                <Button onClick={() => applyBulkBundleUnit("empty-only")}>소분단위 비어있는 품목에만 적용</Button>
+                <Button onClick={rerunAutoImageMatching}>이미지 자동 매칭 다시 실행</Button>
+              </div>
+            </div>
+            {bulkBundleNote && <p className="mt-2 text-xs font-semibold text-slate-600">{bulkBundleNote}</p>}
+          </div>
+          <div className="max-w-full overflow-x-auto">
+            <table className="w-full min-w-[3100px] border-collapse text-left text-xs">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
                   {[
-                    "순번", "품목", "옵션", "수량", "단가", "HS CODE", "상세URL", "이미지",
+                    "순번", "이미지", "품목", "옵션", "수량", "단가", "HS CODE", "상세URL", "이미지 설정",
                     "오픈마켓 주문번호", "트래킹번호", "모델번호/모델명 입력", "바코드", "매칭상태",
                     "모델번호", "모델명", "작업메모", "소분단위", "바코드 출력수량",
                   ].map((heading) => (
@@ -916,11 +985,29 @@ function EditableRow({
       : "bg-amber-50 text-amber-700";
   const barcodeValue = item.barcode ?? "";
   const barcodeInvalid = Boolean(barcodeValue) && !isValidBarcodeValue(barcodeValue);
+  const labelCalculation = calculateBarcodeLabelPrint({
+    quantity: item.quantity,
+    memo: item.memo,
+    bundleUnit: item.bundleUnit,
+    printCount: item.labelPrintCount,
+  });
+  const detectedBundleUnit = calculateBarcodeLabelPrint({ quantity: item.quantity, memo: item.memo }).bundleUnit;
+  const imageSources = getFreightItemImageSources(item);
 
   return (
     <tr className="align-top odd:bg-white even:bg-slate-50/50">
       <td className={cellClassName}>
         <input type="number" value={item.rowNo} onChange={(event) => onChange({ rowNo: Number(event.target.value) })} className={`${inputClassName} w-16`} />
+      </td>
+      <td className={cellClassName}>
+        <div className="flex size-16 items-center justify-center overflow-hidden rounded border border-slate-200 bg-white text-center text-[10px] text-slate-500">
+          <FreightItemImage
+            key={imageSources.join("|")}
+            sources={imageSources}
+            alt={`${item.itemName} 이미지`}
+            className="size-16 object-contain"
+          />
+        </div>
       </td>
       <td className={cellClassName}><input value={item.itemName} onChange={(event) => onChange({ itemName: event.target.value })} className={`${inputClassName} w-44`} /></td>
       <td className={cellClassName}><textarea value={item.optionText} onChange={(event) => onChange({ optionText: event.target.value })} className={`${inputClassName} min-h-16 w-56 resize-y`} /></td>
@@ -1024,7 +1111,7 @@ function EditableRow({
           type="number"
           min="1"
           step="1"
-          value={item.bundleUnit ?? calculateBarcodeLabelPrint({ quantity: item.quantity, memo: item.memo }).bundleUnit ?? ""}
+          value={item.bundleUnit ?? detectedBundleUnit ?? ""}
           onChange={(event) => onChange({ bundleUnit: event.target.value ? Number(event.target.value) : undefined })}
           aria-label={`${item.rowNo}행 소분단위`}
           className={`${inputClassName} w-28`}
@@ -1035,11 +1122,17 @@ function EditableRow({
           type="number"
           min="1"
           step="1"
-          value={item.labelPrintCount ?? calculateBarcodeLabelPrint({ quantity: item.quantity, memo: item.memo, bundleUnit: item.bundleUnit }).printCount}
+          value={item.labelPrintCount ?? labelCalculation.printCount}
           onChange={(event) => onChange({ labelPrintCount: event.target.value ? Number(event.target.value) : undefined })}
           aria-label={`${item.rowNo}행 바코드 출력수량`}
           className={`${inputClassName} w-32`}
         />
+        {labelCalculation.hasRemainderWarning && (
+          <p className="mt-1 w-44 text-[11px] font-semibold leading-4 text-amber-700">
+            주의: {labelCalculation.bundleUnit}개씩 소분 시 {labelCalculation.remainder}개가 남습니다.<br />
+            {labelCalculation.fullBundleCount}묶음 + 잔여 {labelCalculation.remainder}개
+          </p>
+        )}
       </td>
     </tr>
   );
@@ -1148,6 +1241,9 @@ function BarcodeLabelOutput({
   const totalPrintCount = getTotalBarcodeLabelCount(printableItems);
   const samplePrintCount = getSampleBarcodeLabelCount(printableItems);
   const missingBarcodeItems = application.items.filter((item) => !item.barcode?.trim());
+  const remainderItems = application.items
+    .map((item) => ({ item, calculation: getItemLabelCalculation(item) }))
+    .filter(({ calculation }) => calculation.hasRemainderWarning);
   const sampleLabels = buildBarcodeLabelPages(printableItems).slice(0, 3);
 
   return (
@@ -1175,6 +1271,18 @@ function BarcodeLabelOutput({
           {missingBarcodeItems.map((item) => (
             <p key={item.id}>{item.rowNo}번 품목 바코드 미입력 · 라벨 PDF에서 제외됩니다.</p>
           ))}
+        </div>
+      )}
+      {remainderItems.length > 0 && (
+        <div className="mt-4 rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 text-xs font-semibold text-orange-900">
+          <p>소분 잔여 발생 품목 {remainderItems.length}건</p>
+          <div className="mt-1 space-y-1 font-medium">
+            {remainderItems.map(({ item, calculation }) => (
+              <p key={item.id}>
+                {item.rowNo}번: {item.quantity}개 / {calculation.bundleUnit}개씩 → 잔여 {calculation.remainder}개
+              </p>
+            ))}
+          </div>
         </div>
       )}
       {sampleLabels.length > 0 && (
@@ -1248,6 +1356,7 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
         </div>
         <div className="print-card-list mt-5 space-y-4">
           {application.items.map((item) => {
+            const labelCalculation = getItemLabelCalculation(item);
             return (
               <article key={item.id} className="freight-item-card break-inside-avoid rounded-lg border-2 border-slate-800 p-4 text-xs text-slate-950">
                 <div className="item-card-top grid grid-cols-[3rem_4.5rem_minmax(0,1fr)] gap-3">
@@ -1276,7 +1385,10 @@ function WorkRequestPreview({ application, createdDate }: { application: Freight
                   <PrintField className="barcode-info-section" label="바코드" value={item.barcode?.trim() || "바코드 미입력"} mono />
                   <div className="label-calculation-fields grid gap-x-4 sm:grid-cols-2">
                     <PrintField label="소분단위" value={getItemBundleUnitText(item)} />
-                    <PrintField label="바코드 출력수량" value={`${getItemLabelCalculation(item).printCount}장`} />
+                    <PrintField label="바코드 출력수량" value={`${labelCalculation.printCount}장`} />
+                    {labelCalculation.hasRemainderWarning && (
+                      <PrintField label="소분 잔여" value={`${labelCalculation.remainder}개`} />
+                    )}
                   </div>
                   {item.memo?.trim() && (
                     <PrintField className="memo-section" label="작업메모" value={item.memo.trim()} multiline />

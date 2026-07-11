@@ -8,6 +8,9 @@ export interface BarcodeLabelPrintInput {
 export interface BarcodeLabelPrintCalculation {
   bundleUnit?: number;
   printCount: number;
+  remainder: number;
+  fullBundleCount?: number;
+  hasRemainderWarning: boolean;
 }
 
 export interface BarcodeLabelPageInput extends BarcodeLabelPrintInput {
@@ -28,9 +31,30 @@ function toPositiveNumber(value: unknown): number | undefined {
   return Number.isFinite(number) && number > 0 ? number : undefined;
 }
 
+function isIndividualOrBoxMemo(memo = ""): boolean {
+  return memo.includes("개별") || memo.includes("박스");
+}
+
 function detectMemoBundleUnit(memo = ""): number | undefined {
   const detectedBundleMatch = memo.match(/(\d+(?:\.\d+)?)\s*개씩/);
   return toPositiveNumber(detectedBundleMatch?.[1]);
+}
+
+
+function buildBundleCalculation(
+  quantity: number,
+  bundleUnit: number,
+  memo = "",
+): BarcodeLabelPrintCalculation {
+  const remainder = isIndividualOrBoxMemo(memo) ? 0 : quantity % bundleUnit;
+
+  return {
+    bundleUnit,
+    printCount: Math.ceil(quantity / bundleUnit),
+    remainder,
+    fullBundleCount: Math.floor(quantity / bundleUnit),
+    hasRemainderWarning: remainder > 0,
+  };
 }
 
 /**
@@ -46,38 +70,34 @@ export function calculateBarcodeLabelPrint({
   printCount,
 }: BarcodeLabelPrintInput): BarcodeLabelPrintCalculation {
   const validQuantity = toPositiveNumber(quantity);
-  if (validQuantity === undefined) return { printCount: 1 };
+  if (validQuantity === undefined) {
+    return { printCount: 1, remainder: 0, hasRemainderWarning: false };
+  }
 
   const manualPrintCount = toPositiveNumber(printCount);
   if (manualPrintCount !== undefined) {
-    return { printCount: Math.ceil(manualPrintCount) };
+    return { printCount: Math.ceil(manualPrintCount), remainder: 0, hasRemainderWarning: false };
   }
 
   const manualBundleUnit = toPositiveNumber(bundleUnit);
   if (manualBundleUnit !== undefined) {
-    return {
-      bundleUnit: manualBundleUnit,
-      printCount: Math.ceil(validQuantity / manualBundleUnit),
-    };
+    return buildBundleCalculation(validQuantity, manualBundleUnit, memo);
   }
 
   const detectedBundleUnit = detectMemoBundleUnit(memo);
   if (detectedBundleUnit !== undefined) {
-    return {
-      bundleUnit: detectedBundleUnit,
-      printCount: Math.ceil(validQuantity / detectedBundleUnit),
-    };
+    return buildBundleCalculation(validQuantity, detectedBundleUnit, memo);
   }
 
   if (memo.includes("개별")) {
-    return { printCount: Math.ceil(validQuantity) };
+    return { printCount: Math.ceil(validQuantity), remainder: 0, hasRemainderWarning: false };
   }
 
   if (memo.includes("박스")) {
-    return { printCount: 1 };
+    return { printCount: 1, remainder: 0, hasRemainderWarning: false };
   }
 
-  return { printCount: Math.ceil(validQuantity) };
+  return { printCount: Math.ceil(validQuantity), remainder: 0, hasRemainderWarning: false };
 }
 
 export function formatBarcodeBundleUnit(input: BarcodeLabelPrintInput): string {
