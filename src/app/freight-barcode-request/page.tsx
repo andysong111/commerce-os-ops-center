@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { createFreightForwarderBarcodeZip } from "@/lib/freightForwarderBarcodeZip";
 import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
 import { findProductsByText } from "@/lib/productMaster";
 import {
@@ -540,6 +541,23 @@ export default function FreightBarcodeRequestPage() {
     });
   }
 
+  function downloadFreightForwarderZip() {
+    const result = createFreightForwarderBarcodeZip(application);
+    const zipBuffer = result.bytes.buffer.slice(
+      result.bytes.byteOffset,
+      result.bytes.byteOffset + result.bytes.byteLength,
+    ) as ArrayBuffer;
+    const blob = new Blob([zipBuffer], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = result.zipFilename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function syncEditTableHorizontalScroll(
     source: HTMLDivElement,
     target: HTMLDivElement | null,
@@ -965,6 +983,7 @@ export default function FreightBarcodeRequestPage() {
           application={application}
           onPrintIndividual={() => printDocument("individual-labels")}
           onPrintSample={() => printDocument("sample-labels")}
+          onDownloadFreightForwarderZip={downloadFreightForwarderZip}
         />
       </div>
 
@@ -1255,10 +1274,12 @@ function BarcodeLabelOutput({
   application,
   onPrintIndividual,
   onPrintSample,
+  onDownloadFreightForwarderZip,
 }: {
   application: FreightApplication;
   onPrintIndividual: () => void;
   onPrintSample: () => void;
+  onDownloadFreightForwarderZip: () => void;
 }) {
   const barcodeItems = application.items.filter((item) => item.barcode?.trim());
   const printableItems = application.items.map((item) => ({
@@ -1285,6 +1306,7 @@ function BarcodeLabelOutput({
         <div className="flex flex-wrap gap-2">
           <Button onClick={onPrintIndividual} primary>개별 바코드 라벨 PDF 저장/인쇄</Button>
           <Button onClick={onPrintSample}>배송대행지 전달용 샘플 PDF 저장</Button>
+          <Button onClick={onDownloadFreightForwarderZip}>배송대행지 ZIP 다운로드</Button>
         </div>
       </div>
       <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
