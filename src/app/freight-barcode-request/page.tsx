@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { buildFreightForwarderBarcodeZip, FREIGHT_FORWARDER_BARCODE_TEMPLATES } from "@/lib/freightForwarderBarcodeZip";
+import type { FreightForwarderBarcodeTemplateId } from "@/lib/freightForwarderBarcodeZip";
 import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
 import { findProductsByText } from "@/lib/productMaster";
 import {
@@ -122,6 +124,9 @@ export default function FreightBarcodeRequestPage() {
   const [historyStatus, setHistoryStatus] = useState("");
   const [bulkBundleUnit, setBulkBundleUnit] = useState("");
   const [bulkBundleNote, setBulkBundleNote] = useState("");
+  const [freightForwarderTemplateId, setFreightForwarderTemplateId] =
+    useState<FreightForwarderBarcodeTemplateId>("small");
+  const [freightForwarderZipStatus, setFreightForwarderZipStatus] = useState("");
   const [printMode, setPrintMode] = useState<
     "work-request" | "individual-labels" | "sample-labels"
   >("work-request");
@@ -538,6 +543,27 @@ export default function FreightBarcodeRequestPage() {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => window.print());
     });
+  }
+
+  function downloadFreightForwarderBarcodeZip() {
+    const result = buildFreightForwarderBarcodeZip(application, freightForwarderTemplateId);
+    if (result.includedItems.length === 0) {
+      setFreightForwarderZipStatus("ZIP에 포함할 유효한 바코드 품목이 없습니다.");
+      return;
+    }
+
+    const blob = new Blob([new Uint8Array(result.zipBytes)], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = result.fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setFreightForwarderZipStatus(
+      `${result.fileName} 생성 완료 · PDF ${result.includedItems.length}개 · 제외 ${result.excludedItems.length}개 · ${result.template.label}`,
+    );
   }
 
   function syncEditTableHorizontalScroll(
@@ -965,6 +991,10 @@ export default function FreightBarcodeRequestPage() {
           application={application}
           onPrintIndividual={() => printDocument("individual-labels")}
           onPrintSample={() => printDocument("sample-labels")}
+          onDownloadFreightForwarderZip={downloadFreightForwarderBarcodeZip}
+          templateId={freightForwarderTemplateId}
+          onTemplateChange={setFreightForwarderTemplateId}
+          zipStatus={freightForwarderZipStatus}
         />
       </div>
 
@@ -1255,10 +1285,18 @@ function BarcodeLabelOutput({
   application,
   onPrintIndividual,
   onPrintSample,
+  onDownloadFreightForwarderZip,
+  templateId,
+  onTemplateChange,
+  zipStatus,
 }: {
   application: FreightApplication;
   onPrintIndividual: () => void;
   onPrintSample: () => void;
+  onDownloadFreightForwarderZip: () => void;
+  templateId: FreightForwarderBarcodeTemplateId;
+  onTemplateChange: (templateId: FreightForwarderBarcodeTemplateId) => void;
+  zipStatus: string;
 }) {
   const barcodeItems = application.items.filter((item) => item.barcode?.trim());
   const printableItems = application.items.map((item) => ({
@@ -1285,6 +1323,19 @@ function BarcodeLabelOutput({
         <div className="flex flex-wrap gap-2">
           <Button onClick={onPrintIndividual} primary>개별 바코드 라벨 PDF 저장/인쇄</Button>
           <Button onClick={onPrintSample}>배송대행지 전달용 샘플 PDF 저장</Button>
+          <label className="flex items-center gap-2 rounded-md border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-900">
+            배대지 ZIP 템플릿
+            <select
+              value={templateId}
+              onChange={(event) => onTemplateChange(event.target.value as FreightForwarderBarcodeTemplateId)}
+              className="rounded border border-violet-200 bg-white px-2 py-1"
+            >
+              {FREIGHT_FORWARDER_BARCODE_TEMPLATES.map((template) => (
+                <option key={template.id} value={template.id}>{template.label}</option>
+              ))}
+            </select>
+          </label>
+          <Button onClick={onDownloadFreightForwarderZip}>배대지 전달용 ZIP 저장</Button>
         </div>
       </div>
       <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1293,6 +1344,9 @@ function BarcodeLabelOutput({
         <SummaryCard label="총 라벨 출력 수량" value={`${totalPrintCount}장`} emphasized />
         <SummaryCard label="전달용 샘플 수량" value={`${samplePrintCount}장`} emphasized />
       </dl>
+      {zipStatus && (
+        <p className="mt-4 rounded-lg border border-violet-200 bg-white px-4 py-3 text-xs font-semibold text-violet-900">{zipStatus}</p>
+      )}
       {missingBarcodeItems.length > 0 && (
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
           {missingBarcodeItems.map((item) => (
