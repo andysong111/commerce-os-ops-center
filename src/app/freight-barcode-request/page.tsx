@@ -966,15 +966,9 @@ export default function FreightBarcodeRequestPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={downloadFreightForwarderMvpZip}>배대지 전달용 개별 PDF ZIP 다운로드</Button>
               <Button onClick={() => printDocument("work-request")} primary>작업요청서 PDF 저장/인쇄</Button>
             </div>
           </div>
-          {freightForwarderZipStatus && (
-            <p role="status" className="mt-3 whitespace-pre-wrap rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold leading-5 text-emerald-900">
-              {freightForwarderZipStatus}
-            </p>
-          )}
           <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="text-xs font-semibold text-slate-600">배송대행지 전달용 한국어 메시지</span>
@@ -987,6 +981,8 @@ export default function FreightBarcodeRequestPage() {
         </section>
         <BarcodeLabelOutput
           application={application}
+          freightForwarderZipStatus={freightForwarderZipStatus}
+          onDownloadFreightForwarderZip={downloadFreightForwarderMvpZip}
           onPrintIndividual={() => printDocument("individual-labels")}
           onPrintSample={() => printDocument("sample-labels")}
         />
@@ -1277,10 +1273,14 @@ function BarcodeLabelCard({
 
 function BarcodeLabelOutput({
   application,
+  freightForwarderZipStatus,
+  onDownloadFreightForwarderZip,
   onPrintIndividual,
   onPrintSample,
 }: {
   application: FreightApplication;
+  freightForwarderZipStatus: string;
+  onDownloadFreightForwarderZip: () => void;
   onPrintIndividual: () => void;
   onPrintSample: () => void;
 }) {
@@ -1308,9 +1308,15 @@ function BarcodeLabelOutput({
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={onPrintIndividual} primary>개별 바코드 라벨 PDF 저장/인쇄</Button>
+          <Button onClick={onDownloadFreightForwarderZip}>배대지 전달용 개별 PDF ZIP 다운로드</Button>
           <Button onClick={onPrintSample}>구버전 샘플 PDF 저장</Button>
         </div>
       </div>
+      {freightForwarderZipStatus && (
+        <p role="status" className="mt-3 whitespace-pre-wrap rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold leading-5 text-emerald-900">
+          {freightForwarderZipStatus}
+        </p>
+      )}
       <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="총 품목 수" value={`${application.items.length}개`} />
         <SummaryCard label="바코드 입력 품목 수" value={`${barcodeItems.length}개`} emphasized />
