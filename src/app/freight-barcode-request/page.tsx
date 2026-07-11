@@ -27,6 +27,12 @@ import {
   sanitizeBarcodeValue,
 } from "@/lib/barcodeValue";
 import {
+  buildFreightForwarderBarcodeZip,
+  formatFreightForwarderZipStatus,
+  isWarehouseLocationLikeBarcode,
+} from "@/lib/freightForwarderBarcodeZip";
+import type { FreightForwarderLabelTemplate } from "@/lib/freightForwarderBarcodePdf";
+import {
   assignPastedImagesToItems,
   createClipboardImageCandidates,
   extractRichPasteImagesFromHtml,
@@ -122,6 +128,9 @@ export default function FreightBarcodeRequestPage() {
   const [historyStatus, setHistoryStatus] = useState("");
   const [bulkBundleUnit, setBulkBundleUnit] = useState("");
   const [bulkBundleNote, setBulkBundleNote] = useState("");
+  const [bulkLabelTemplate, setBulkLabelTemplate] =
+    useState<FreightForwarderLabelTemplate>("small");
+  const [freightZipStatus, setFreightZipStatus] = useState<AnalysisStatus | null>(null);
   const [printMode, setPrintMode] = useState<
     "work-request" | "individual-labels" | "sample-labels"
   >("work-request");
@@ -311,6 +320,42 @@ export default function FreightBarcodeRequestPage() {
         manualPrintCountPreserved > 0 ? " 수동 출력수량은 유지됩니다." : ""
       }`,
     );
+  }
+
+  function applyBulkLabelTemplate() {
+    setApplication((current) => ({
+      ...current,
+      items: current.items.map((item) => ({ ...item, labelTemplate: bulkLabelTemplate })),
+    }));
+    setFreightZipStatus({
+      kind: "success",
+      message: `전체 기본 템플릿을 ${
+        bulkLabelTemplate === "small" ? "소형" : bulkLabelTemplate === "large" ? "대형" : "자동"
+      }으로 적용했습니다.`,
+    });
+  }
+
+  async function downloadFreightForwarderZip() {
+    const result = buildFreightForwarderBarcodeZip(application, bulkLabelTemplate);
+    setFreightZipStatus({
+      kind: result.exclusions.length ? "warning" : "success",
+      message: formatFreightForwarderZipStatus(result.total, result.generated, result.exclusions),
+    });
+    if (result.generated === 0) return;
+
+    const zipArrayBuffer = result.zipBytes.buffer.slice(
+      result.zipBytes.byteOffset,
+      result.zipBytes.byteOffset + result.zipBytes.byteLength,
+    ) as ArrayBuffer;
+    const blob = new Blob([zipArrayBuffer], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = result.zipFileName;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   function updateLocalImage(itemId: string, file?: File) {
@@ -867,6 +912,24 @@ export default function FreightBarcodeRequestPage() {
               </div>
             </div>
             {bulkBundleNote && <p className="mt-2 text-xs font-semibold text-slate-600">{bulkBundleNote}</p>}
+            <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-4">
+              <label className="w-44">
+                <span className="mb-1 block text-xs font-semibold text-slate-600">전체 기본 템플릿</span>
+                <select
+                  value={bulkLabelTemplate}
+                  onChange={(event) => setBulkLabelTemplate(event.target.value as FreightForwarderLabelTemplate)}
+                  className={inputClassName}
+                >
+                  <option value="small">소형</option>
+                  <option value="large">대형</option>
+                  <option value="auto">자동</option>
+                </select>
+              </label>
+              <Button onClick={applyBulkLabelTemplate}>전체 품목 라벨 템플릿 적용</Button>
+              <p className="text-xs leading-5 text-slate-500">
+                자동은 상품명/옵션에 스펀지테이프, 테이프, tape 키워드가 있으면 대형을 제안하고 그 외에는 소형을 사용합니다.
+              </p>
+            </div>
           </div>
           <div
             ref={editTableTopScrollRef}
@@ -891,7 +954,7 @@ export default function FreightBarcodeRequestPage() {
                   {[
                     "순번", "이미지", "품목", "옵션", "수량", "단가", "HS CODE", "상세URL", "이미지 설정",
                     "오픈마켓 주문번호", "트래킹번호", "모델번호/모델명 입력", "바코드", "매칭상태",
-                    "모델번호", "모델명", "작업메모", "소분단위", "바코드 출력수량",
+                    "모델번호", "모델명", "작업메모", "소분단위", "바코드 출력수량", "라벨 템플릿",
                   ].map((heading) => (
                     <th key={heading} className="border-b border-r border-slate-200 px-3 py-3 font-semibold last:border-r-0">
                       {heading}
@@ -961,6 +1024,29 @@ export default function FreightBarcodeRequestPage() {
             <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-slate-700">{KOREAN_MESSAGE}</pre>
           </div>
         </section>
+        <section className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-semibold text-emerald-950">배대지 전달용 개별 PDF ZIP</h2>
+              <p className="mt-1 text-sm text-emerald-800">
+                브라우저 인쇄 CSS가 아닌 PDF 바이너리를 생성해 {application.applicationNo || "신청번호"}.zip 한 번만 다운로드합니다.
+              </p>
+              <p className="mt-1 text-xs text-emerald-700">
+                ZIP 내부 폴더: {application.applicationNo || "신청번호"} · 파일명: 신청번호-순번번 출력수량개.pdf · 출력수량만 파일명에 사용하고 PDF 페이지는 반복하지 않습니다.
+              </p>
+            </div>
+            <Button onClick={downloadFreightForwarderZip} primary>배대지 전달용 개별 PDF ZIP 다운로드</Button>
+          </div>
+          {freightZipStatus && (
+            <pre className={`mt-3 whitespace-pre-wrap rounded-lg border p-3 text-xs font-semibold ${
+              freightZipStatus.kind === "warning"
+                ? "border-amber-200 bg-amber-50 text-amber-900"
+                : freightZipStatus.kind === "error"
+                  ? "border-red-200 bg-red-50 text-red-800"
+                  : "border-emerald-200 bg-white text-emerald-900"
+            }`}>{freightZipStatus.message}</pre>
+          )}
+        </section>
         <BarcodeLabelOutput
           application={application}
           onPrintIndividual={() => printDocument("individual-labels")}
@@ -1012,6 +1098,7 @@ function EditableRow({
       : "bg-amber-50 text-amber-700";
   const barcodeValue = item.barcode ?? "";
   const barcodeInvalid = Boolean(barcodeValue) && !isValidBarcodeValue(barcodeValue);
+  const barcodeLooksLikeLocation = Boolean(barcodeValue) && isWarehouseLocationLikeBarcode(barcodeValue);
   const labelCalculation = calculateBarcodeLabelPrint({
     quantity: item.quantity,
     memo: item.memo,
@@ -1119,6 +1206,11 @@ function EditableRow({
               영문 대문자, 숫자, 하이픈(-)만 입력하세요.
             </span>
           )}
+          {barcodeLooksLikeLocation && (
+            <span className="mt-1 block text-[11px] font-semibold leading-4 text-amber-700">
+              BAA1-1 같은 창고 위치코드 형식입니다. 실제 상품 바코드가 별도로 있으면 상품 바코드를 입력하세요.
+            </span>
+          )}
         </label>
       </td>
       <td className={cellClassName}><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 font-semibold ${statusStyle}`}>{status}</span></td>
@@ -1160,6 +1252,18 @@ function EditableRow({
             {labelCalculation.fullBundleCount}묶음 + 잔여 {labelCalculation.remainder}개
           </p>
         )}
+      </td>
+      <td className={cellClassName}>
+        <select
+          value={item.labelTemplate ?? "auto"}
+          onChange={(event) => onChange({ labelTemplate: event.target.value as FreightForwarderLabelTemplate })}
+          aria-label={`${item.rowNo}행 라벨 템플릿`}
+          className={`${inputClassName} w-28`}
+        >
+          <option value="auto">자동</option>
+          <option value="small">소형</option>
+          <option value="large">대형</option>
+        </select>
       </td>
     </tr>
   );

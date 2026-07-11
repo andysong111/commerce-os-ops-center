@@ -55,6 +55,7 @@ export interface FreightApplicationItem {
   memo?: string;
   bundleUnit?: number;
   labelPrintCount?: number;
+  labelTemplate?: "auto" | "small" | "large";
 }
 
 export type FreightBarcodeHistorySource =
