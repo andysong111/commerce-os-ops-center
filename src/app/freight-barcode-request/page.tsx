@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
 import { findProductsByText } from "@/lib/productMaster";
+import { buildFreightForwarderZipExport } from "@/lib/freightForwarderExport";
 import {
   buildFreightBarcodeHistoryRecordFromCurrentState,
   deleteFreightBarcodeHistory,
@@ -548,6 +549,23 @@ export default function FreightBarcodeRequestPage() {
     target.scrollLeft = source.scrollLeft;
   }
 
+  function downloadFreightForwarderZip() {
+    const exportResult = buildFreightForwarderZipExport(application, createdDate);
+    const arrayBuffer = exportResult.bytes.buffer.slice(
+      exportResult.bytes.byteOffset,
+      exportResult.bytes.byteOffset + exportResult.bytes.byteLength,
+    );
+    const url = URL.createObjectURL(new Blob([arrayBuffer], { type: "application/zip" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = exportResult.filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setHistoryStatus(`배송대행지 전달용 ZIP을 생성했습니다: ${exportResult.filename}`);
+  }
+
   async function copyKoreanMessage() {
     await navigator.clipboard.writeText(KOREAN_MESSAGE);
     setCopyLabel("복사 완료");
@@ -949,7 +967,7 @@ export default function FreightBarcodeRequestPage() {
                 PDF 저장 시 대상은 &apos;PDF로 저장&apos;, 용지는 A4, 배율은 기본값 또는 100%를 권장합니다.
               </p>
             </div>
-            <Button onClick={() => printDocument("work-request")} primary>작업요청서 PDF 저장/인쇄</Button>
+            <div className="flex flex-wrap gap-2"><Button onClick={() => printDocument("work-request")} primary>작업요청서 PDF 저장/인쇄</Button><Button onClick={downloadFreightForwarderZip}>배송대행지 ZIP 내보내기</Button></div>
           </div>
           <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
