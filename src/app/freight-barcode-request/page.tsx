@@ -12,6 +12,7 @@ import {
   saveFreightBarcodeHistory,
 } from "@/lib/freightBarcodeHistory";
 import { createCode128Layout } from "@/lib/code128";
+import { buildFreightBarcodePdfZip } from "@/lib/freightBarcodePdfZip";
 import {
   buildBarcodeLabelPages,
   buildSampleBarcodeLabelPages,
@@ -533,6 +534,20 @@ export default function FreightBarcodeRequestPage() {
     }
   }
 
+  function downloadBarcodeZip() {
+    const zipBytes = buildFreightBarcodePdfZip(application);
+    const zipBuffer = new Uint8Array(zipBytes);
+    const blob = new Blob([zipBuffer], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${application.applicationNo || "신청번호없음"}-바코드라벨.zip`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function printDocument(target: "work-request" | "individual-labels" | "sample-labels") {
     setPrintMode(target);
     window.requestAnimationFrame(() => {
@@ -964,6 +979,7 @@ export default function FreightBarcodeRequestPage() {
         <BarcodeLabelOutput
           application={application}
           onPrintIndividual={() => printDocument("individual-labels")}
+          onDownloadZip={downloadBarcodeZip}
           onPrintSample={() => printDocument("sample-labels")}
         />
       </div>
@@ -1255,10 +1271,12 @@ function BarcodeLabelOutput({
   application,
   onPrintIndividual,
   onPrintSample,
+  onDownloadZip,
 }: {
   application: FreightApplication;
   onPrintIndividual: () => void;
   onPrintSample: () => void;
+  onDownloadZip: () => void;
 }) {
   const barcodeItems = application.items.filter((item) => item.barcode?.trim());
   const printableItems = application.items.map((item) => ({
@@ -1284,6 +1302,7 @@ function BarcodeLabelOutput({
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={onPrintIndividual} primary>개별 바코드 라벨 PDF 저장/인쇄</Button>
+          <Button onClick={onDownloadZip}>ZIP 다운로드</Button>
           <Button onClick={onPrintSample}>배송대행지 전달용 샘플 PDF 저장</Button>
         </div>
       </div>
