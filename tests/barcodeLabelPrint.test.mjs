@@ -11,74 +11,81 @@ import {
   getTotalBarcodeLabelCount,
 } from "../src/lib/barcodeLabelPrint.ts";
 
+function base(printCount) {
+  return { printCount, remainder: 0, hasRemainderWarning: false };
+}
+
 test("detects a 10-item bundle unit from the work memo", () => {
-  assert.deepEqual(
-    calculateBarcodeLabelPrint({
-      quantity: 300,
-      memo: "10개씩 소분 후 바코드 부착",
-    }),
-    { printCount: 30, bundleUnit: 10 },
-  );
-});
-
-test("prints one label per item for an individual-attachment memo", () => {
-  assert.deepEqual(
-    calculateBarcodeLabelPrint({ quantity: 50, memo: "개별 부착" }),
-    { printCount: 50 },
-  );
-});
-
-test("prints one label for a box memo", () => {
-  assert.deepEqual(
-    calculateBarcodeLabelPrint({ quantity: 50, memo: "박스 외부 바코드 부착" }),
-    { printCount: 1 },
-  );
-});
-
-test("falls back to quantity when the memo is empty", () => {
-  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 60, memo: "" }), {
-    printCount: 60,
+  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 300, memo: "10개씩 소분 후 바코드 부착" }), {
+    printCount: 30,
+    bundleUnit: 10,
+    remainder: 0,
+    fullBundleCount: 30,
+    hasRemainderWarning: false,
   });
 });
 
+test("prints one label per item for an individual-attachment memo", () => {
+  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 50, memo: "개별 부착" }), base(50));
+});
+
+test("prints one label for a box memo", () => {
+  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 50, memo: "박스 외부 바코드 부착" }), base(1));
+});
+
+test("falls back to quantity when the memo is empty", () => {
+  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 60, memo: "" }), base(60));
+});
+
 test("rounds up partial memo-detected bundles", () => {
-  assert.deepEqual(
-    calculateBarcodeLabelPrint({ quantity: 55, memo: "10개씩" }),
-    { printCount: 6, bundleUnit: 10 },
-  );
+  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 55, memo: "10개씩" }), {
+    printCount: 6,
+    bundleUnit: 10,
+    remainder: 5,
+    fullBundleCount: 5,
+    hasRemainderWarning: true,
+  });
 });
 
 test("falls back to one label for invalid quantities", () => {
   for (const quantity of [undefined, null, "", 0, -1, Number.NaN, "invalid"]) {
-    assert.deepEqual(calculateBarcodeLabelPrint({ quantity, memo: "10개씩" }), {
-      printCount: 1,
-    });
+    assert.deepEqual(calculateBarcodeLabelPrint({ quantity, memo: "10개씩" }), base(1));
   }
 });
 
 test("manual bundle unit takes precedence over memo detection", () => {
-  assert.deepEqual(
-    calculateBarcodeLabelPrint({
-      quantity: 95,
-      memo: "10개씩",
-      bundleUnit: 20,
-    }),
-    { printCount: 5, bundleUnit: 20 },
-  );
+  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 95, memo: "10개씩", bundleUnit: 20 }), {
+    printCount: 5,
+    bundleUnit: 20,
+    remainder: 15,
+    fullBundleCount: 4,
+    hasRemainderWarning: true,
+  });
 });
 
 test("manual print count takes precedence over bundle unit and memo", () => {
   assert.deepEqual(
-    calculateBarcodeLabelPrint({
-      quantity: 95,
-      memo: "10개씩",
-      bundleUnit: 20,
-      printCount: 7,
-    }),
-    { printCount: 7 },
+    calculateBarcodeLabelPrint({ quantity: 95, memo: "10개씩", bundleUnit: 20, printCount: 7 }),
+    base(7),
   );
 });
 
+test("calculates bundle print counts and remainders", () => {
+  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 115, bundleUnit: 10 }), {
+    printCount: 12, bundleUnit: 10, remainder: 5, fullBundleCount: 11, hasRemainderWarning: true,
+  });
+  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 100, bundleUnit: 10 }), {
+    printCount: 10, bundleUnit: 10, remainder: 0, fullBundleCount: 10, hasRemainderWarning: false,
+  });
+  assert.deepEqual(calculateBarcodeLabelPrint({ quantity: 53, bundleUnit: 20 }), {
+    printCount: 3, bundleUnit: 20, remainder: 13, fullBundleCount: 2, hasRemainderWarning: true,
+  });
+});
+
+test("does not show remainder warnings for individual or box memos", () => {
+  assert.equal(calculateBarcodeLabelPrint({ quantity: 50, memo: "개별 부착" }).hasRemainderWarning, false);
+  assert.equal(calculateBarcodeLabelPrint({ quantity: 50, memo: "박스 외부 바코드 부착" }).hasRemainderWarning, false);
+});
 
 test("formats detected bundle units for the work request", () => {
   assert.equal(
