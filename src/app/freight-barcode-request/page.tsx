@@ -91,6 +91,7 @@ const EMPTY_PASTED_IMAGES: RichPasteImageExtraction = {
 };
 const NO_ITEMS_WARNING =
   "분석된 품목이 없습니다. 복사한 텍스트에서 품목/옵션/수량/URL을 찾지 못했습니다. 신청서 세부 페이지에서 제품정보 영역을 더 넓게 복사해주세요.";
+const EDIT_TABLE_MIN_WIDTH = 3100;
 const ANALYSIS_ERROR =
   "분석 중 오류가 발생했습니다. 원문 형식이 예상과 다릅니다.";
 
@@ -103,6 +104,8 @@ export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
   const [pastedImages, setPastedImages] = useState<RichPasteImageExtraction>(EMPTY_PASTED_IMAGES);
   const richPasteRef = useRef<HTMLDivElement>(null);
+  const editTableTopScrollRef = useRef<HTMLDivElement>(null);
+  const editTableScrollRef = useRef<HTMLDivElement>(null);
   const clipboardObjectUrlsRef = useRef<string[]>([]);
   const localImageObjectUrlsRef = useRef<Map<string, string>>(new Map());
   const [application, setApplication] =
@@ -537,6 +540,14 @@ export default function FreightBarcodeRequestPage() {
     });
   }
 
+  function syncEditTableHorizontalScroll(
+    source: HTMLDivElement,
+    target: HTMLDivElement | null,
+  ) {
+    if (!target || target.scrollLeft === source.scrollLeft) return;
+    target.scrollLeft = source.scrollLeft;
+  }
+
   async function copyKoreanMessage() {
     await navigator.clipboard.writeText(KOREAN_MESSAGE);
     setCopyLabel("복사 완료");
@@ -857,7 +868,23 @@ export default function FreightBarcodeRequestPage() {
             </div>
             {bulkBundleNote && <p className="mt-2 text-xs font-semibold text-slate-600">{bulkBundleNote}</p>}
           </div>
-          <div className="max-w-full overflow-x-auto">
+          <div
+            ref={editTableTopScrollRef}
+            aria-label="분석 품목 편집 테이블 상단 가로 스크롤"
+            className="max-w-full overflow-x-auto"
+            onScroll={(event) => {
+              syncEditTableHorizontalScroll(event.currentTarget, editTableScrollRef.current);
+            }}
+          >
+            <div aria-hidden="true" className="h-4" style={{ minWidth: EDIT_TABLE_MIN_WIDTH }} />
+          </div>
+          <div
+            ref={editTableScrollRef}
+            className="max-w-full overflow-x-auto"
+            onScroll={(event) => {
+              syncEditTableHorizontalScroll(event.currentTarget, editTableTopScrollRef.current);
+            }}
+          >
             <table className="w-full min-w-[3100px] border-collapse text-left text-xs">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
