@@ -1308,7 +1308,7 @@ function BarcodeLabelOutput({
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={onPrintIndividual} primary>개별 바코드 라벨 PDF 저장/인쇄</Button>
-          <Button onClick={onPrintSample}>배송대행지 전달용 샘플 PDF 저장</Button>
+          <Button onClick={onPrintSample}>구버전 샘플 PDF 저장</Button>
         </div>
       </div>
       <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

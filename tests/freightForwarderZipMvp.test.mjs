@@ -9,7 +9,7 @@ import {
   validateFreightForwarderMvpRows,
 } from "../src/lib/freightForwarderZipMvp.ts";
 
-const item = (rowNo, barcode = `BBA1-${rowNo}`, printCount = 50) => ({
+const item = (rowNo, barcode = `BBA1-${rowNo}`, printCount = 50, overrides = {}) => ({
   id: `item-${rowNo}-${barcode}`,
   rowNo,
   itemName: "Product name must not render",
@@ -17,6 +17,7 @@ const item = (rowNo, barcode = `BBA1-${rowNo}`, printCount = 50) => ({
   quantity: 100,
   barcode,
   labelPrintCount: printCount,
+  ...overrides,
 });
 
 function pdfText(bytes) {
@@ -42,6 +43,50 @@ test("PDF filename rule preserves Korean filename parts", () => {
   assert.equal(buildFreightForwarderMvpFilename("634993", 9, 60), "634993-9번 60개.pdf");
   const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(9, "BBA1-9", 60)] });
   assert.ok(Object.hasOwn(zipEntries(result), "634993/634993-9번 60개.pdf"));
+});
+
+
+test("rows without manual labelPrintCount use calculated positive print count", () => {
+  const result = validateFreightForwarderMvpRows([
+    item(1, "BBA1-1", undefined, { quantity: 6 }),
+    item(2, "BBA1-2", undefined, { quantity: 12, bundleUnit: 2 }),
+  ]);
+
+  assert.deepEqual(result.excludedRows, []);
+  assert.deepEqual(result.validRows.map((row) => [row.rowNo, row.printCount]), [
+    [1, 6],
+    [2, 6],
+  ]);
+});
+
+test("quantity 6 without manual labelPrintCount creates filename with 6개", () => {
+  const result = buildFreightForwarderMvpZip({
+    applicationNo: "649324",
+    items: [item(1, "BBA1-1", undefined, { quantity: 6 })],
+  });
+
+  assert.deepEqual(result.validRows.map((row) => row.printCount), [6]);
+  assert.ok(Object.hasOwn(zipEntries(result), "649324/649324-1번 6개.pdf"));
+});
+
+test("ZIP contains actual PDF files for calculated rows, not only folder", () => {
+  const result = buildFreightForwarderMvpZip({
+    applicationNo: "649324",
+    items: [
+      item(1, "BBA1-1", undefined, { quantity: 6 }),
+      item(2, "BBA1-2", undefined, { quantity: 12, bundleUnit: 2 }),
+    ],
+  });
+  const entries = zipEntries(result);
+  const pdfNames = Object.keys(entries).filter((name) => name.endsWith(".pdf"));
+
+  assert.deepEqual(pdfNames.sort(), [
+    "649324/649324-1번 6개.pdf",
+    "649324/649324-2번 6개.pdf",
+  ]);
+  for (const pdfName of pdfNames) {
+    assert.match(pdfText(entries[pdfName]), /^%PDF-1\.4/);
+  }
 });
 
 test("numeric row sorting works", () => {

@@ -1,6 +1,7 @@
 import { zipSync } from "fflate";
 import { createCode128Layout } from "./code128";
 import { getEncodedBarcodeValue } from "./barcodeValue";
+import { calculateBarcodeLabelPrint } from "./barcodeLabelPrint";
 import type { FreightApplication, FreightApplicationItem } from "../types/freightBarcodeRequest";
 
 export const FREIGHT_FORWARDER_MVP_WIDTH_PT = 90;
@@ -82,8 +83,13 @@ export function validateFreightForwarderMvpRows(
       continue;
     }
 
-    const printCount = item.labelPrintCount;
-    if (typeof printCount !== "number" || !Number.isInteger(printCount) || printCount <= 0) {
+    const { printCount } = calculateBarcodeLabelPrint({
+      quantity: item.quantity,
+      memo: item.memo,
+      bundleUnit: item.bundleUnit,
+      printCount: item.labelPrintCount,
+    });
+    if (!Number.isInteger(printCount) || printCount <= 0) {
       excludedRows.push({ rowNo, reason: "출력 수량 없음" });
       continue;
     }
