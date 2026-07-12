@@ -101,6 +101,15 @@ test("each PDF has exactly one page and MediaBox is exactly 90 x 147pt", () => {
   assert.match(pdf, /\/MediaBox \[0 0 90 147\]/);
 });
 
+test("PDF rotates only the label content clockwise while preserving the page", () => {
+  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1"), 50));
+
+  assert.match(pdf, /\/MediaBox \[0 0 90 147\]/);
+  assert.equal(countPdfPages(pdf), 1);
+  assert.match(pdf, /q\n0 -1 1 0 -36 126 cm\n[\s\S]*MADE IN CHINA[\s\S]*BBA1-1[\s\S]*\nQ/);
+  assert.doesNotMatch(pdf, /\/Rotate\b/);
+});
+
 test("printCount does not create repeated pages", () => {
   const pdf = pdfText(buildFreightForwarderMvpPdf(item(1), 100));
   assert.equal(countPdfPages(pdf), 1);
