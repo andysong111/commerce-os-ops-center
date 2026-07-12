@@ -983,8 +983,6 @@ export default function FreightBarcodeRequestPage() {
           application={application}
           freightForwarderZipStatus={freightForwarderZipStatus}
           onDownloadFreightForwarderZip={downloadFreightForwarderMvpZip}
-          onPrintIndividual={() => printDocument("individual-labels")}
-          onPrintSample={() => printDocument("sample-labels")}
         />
       </div>
 
@@ -1275,14 +1273,10 @@ function BarcodeLabelOutput({
   application,
   freightForwarderZipStatus,
   onDownloadFreightForwarderZip,
-  onPrintIndividual,
-  onPrintSample,
 }: {
   application: FreightApplication;
   freightForwarderZipStatus: string;
   onDownloadFreightForwarderZip: () => void;
-  onPrintIndividual: () => void;
-  onPrintSample: () => void;
 }) {
   const barcodeItems = application.items.filter((item) => item.barcode?.trim());
   const printableItems = application.items.map((item) => ({
@@ -1307,9 +1301,7 @@ function BarcodeLabelOutput({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={onPrintIndividual} primary>개별 바코드 라벨 PDF 저장/인쇄</Button>
-          <Button onClick={onDownloadFreightForwarderZip}>배대지 전달용 개별 PDF ZIP 다운로드</Button>
-          <Button onClick={onPrintSample}>구버전 샘플 PDF 저장</Button>
+          <Button onClick={onDownloadFreightForwarderZip} primary>배대지 전달용 개별 PDF ZIP 다운로드</Button>
         </div>
       </div>
       {freightForwarderZipStatus && (
