@@ -122,24 +122,24 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
   if (!barcodeValue) throw new Error("Valid barcode is required to build freight-forwarder MVP PDF.");
 
   const layout = createCode128Layout(barcodeValue);
-  const barcodeX = 10;
-  const barcodeY = 52;
-  const barcodeWidth = 70;
-  const barcodeHeight = 42;
+  const barcodeX = 7;
+  const barcodeY = 41;
+  const barcodeWidth = 133;
+  const barcodeHeight = 64;
   const moduleScale = barcodeWidth / layout.width;
   const bars = layout.bars
     .map((bar) => `${formatPdfNumber(barcodeX + bar.x * moduleScale)} ${barcodeY} ${formatPdfNumber(bar.width * moduleScale)} ${barcodeHeight} re f`)
     .join("\n");
   const rotatedContent = [
-    "BT /F1 8 Tf 15 116 Td (MADE IN CHINA) Tj ET",
+    "BT /F1 8 Tf 15 108 Td (MADE IN CHINA) Tj ET",
     bars,
     `BT /F1 7 Tf ${formatPdfNumber(centeredTextX(barcodeValue, 7))} 38 Td (${escapePdfText(barcodeValue)}) Tj ET`,
   ].join("\n");
   const content = [
     "q",
-    // Rotate the complete label artwork clockwise inside the unchanged 90 x 147pt page.
-    // Matrix: x' = y - 36, y' = -x + 126 keeps the existing artwork bounds on-page.
-    "0 -1 1 0 -36 126 cm",
+    // Rotate the enlarged vector barcode artwork clockwise inside the unchanged 90 x 147pt page.
+    // Matrix: x' = y - 28, y' = -x + 147 keeps the barcode outer bounds at x=13..77, y=7..140.
+    "0 -1 1 0 -28 147 cm",
     rotatedContent,
     "Q",
   ].join("\n");
