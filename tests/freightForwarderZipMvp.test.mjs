@@ -114,7 +114,7 @@ test("PDF rotates enlarged label content clockwise while preserving the page", (
 
   assert.match(pdf, /\/MediaBox \[0 0 90 147\]/);
   assert.equal(countPdfPages(pdf), 1);
-  assert.match(pdf, /q\n0 -1 1 0 -28 147 cm\n[\s\S]*BT \/F1 9 Tf [\d.]+ 107 Td \(MADE IN CHINA\)[\s\S]*BAA1-1[\s\S]*\nQ/);
+  assert.match(pdf, /q\n0 -1 1 0 -28 147 cm\n[\s\S]*BT \/F1 10 Tf [\d.]+ 107 Td \(MADE IN CHINA\)[\s\S]*BAA1-1[\s\S]*\nQ/);
   assert.doesNotMatch(pdf, /\/Rotate\b/);
 });
 
@@ -134,20 +134,20 @@ test("barcode layout constants remain unchanged", () => {
   assert.match(source, /const barcodeHeight = 29;/);
 });
 
-test("origin and barcode value text use 9pt centered logical positions", () => {
+test("origin and barcode value text use 10pt centered logical positions", () => {
   const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BAA1-1"), 50));
 
   const origin = extractTextCommand(pdf, "MADE IN CHINA");
   const barcode = extractTextCommand(pdf, "BAA1-1");
 
-  assert.deepEqual(origin, { fontSize: 9, x: 39.498, y: 107 });
-  assert.deepEqual(barcode, { fontSize: 9, x: 57.993, y: 30 });
+  assert.deepEqual(origin, { fontSize: 10, x: 35.72, y: 107 });
+  assert.deepEqual(barcode, { fontSize: 10, x: 56.27, y: 29 });
 });
 
 test("rotated text areas do not overlap barcode area", () => {
   const barcodePhysicalXStart = 41 - 28;
   const barcodePhysicalXEnd = barcodePhysicalXStart + 29;
-  const barcodeValuePhysicalXEnd = 30 - 28 + 9;
+  const barcodeValuePhysicalXEnd = 29 - 28 + 10;
   const originPhysicalXStart = 107 - 28;
 
   assert.equal(barcodePhysicalXStart, 13);

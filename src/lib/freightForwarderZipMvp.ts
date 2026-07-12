@@ -132,12 +132,12 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
     .map((bar) => `${formatPdfNumber(barcodeX + bar.x * moduleScale)} ${barcodeY} ${formatPdfNumber(bar.width * moduleScale)} ${barcodeHeight} re f`)
     .join("\n");
   const originText = "MADE IN CHINA";
-  const originFontSize = 9;
-  const barcodeTextFontSize = 9;
+  const originFontSize = 10;
+  const barcodeTextFontSize = 10;
   const rotatedContent = [
     `BT /F1 ${originFontSize} Tf ${formatPdfNumber(centeredLogicalTextX(originText, originFontSize))} ${formatPdfNumber(107)} Td (${originText}) Tj ET`,
     bars,
-    `BT /F1 ${barcodeTextFontSize} Tf ${formatPdfNumber(centeredLogicalTextX(barcodeValue, barcodeTextFontSize))} ${formatPdfNumber(30)} Td (${escapePdfText(barcodeValue)}) Tj ET`,
+    `BT /F1 ${barcodeTextFontSize} Tf ${formatPdfNumber(centeredLogicalTextX(barcodeValue, barcodeTextFontSize))} ${formatPdfNumber(29)} Td (${escapePdfText(barcodeValue)}) Tj ET`,
   ].join("\n");
   const content = [
     "q",
