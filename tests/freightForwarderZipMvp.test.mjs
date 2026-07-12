@@ -32,16 +32,16 @@ function countPdfPages(pdf) {
   return (pdf.match(/\/Type \/Page\b/g) ?? []).length;
 }
 
-test("ZIP filename is applicationNo.zip and folder is applicationNo/", () => {
-  const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1)] });
+test("ZIP filename is applicationNo.zip and folder is applicationNo/", async () => {
+  const result = await buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1)] });
   assert.equal(result.zipFilename, "634993.zip");
   assert.equal(result.folderName, "634993");
   assert.ok(Object.hasOwn(zipEntries(result), "634993/"));
 });
 
-test("PDF filename rule preserves Korean filename parts", () => {
+test("PDF filename rule preserves Korean filename parts", async () => {
   assert.equal(buildFreightForwarderMvpFilename("634993", 9, 60), "634993-9번 60개.pdf");
-  const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(9, "BBA1-9", 60)] });
+  const result = await buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(9, "BBA1-9", 60)] });
   assert.ok(Object.hasOwn(zipEntries(result), "634993/634993-9번 60개.pdf"));
 });
 
@@ -59,8 +59,8 @@ test("rows without manual labelPrintCount use calculated positive print count", 
   ]);
 });
 
-test("quantity 6 without manual labelPrintCount creates filename with 6개", () => {
-  const result = buildFreightForwarderMvpZip({
+test("quantity 6 without manual labelPrintCount creates filename with 6개", async () => {
+  const result = await buildFreightForwarderMvpZip({
     applicationNo: "649324",
     items: [item(1, "BBA1-1", undefined, { quantity: 6 })],
   });
@@ -69,8 +69,8 @@ test("quantity 6 without manual labelPrintCount creates filename with 6개", () 
   assert.ok(Object.hasOwn(zipEntries(result), "649324/649324-1번 6개.pdf"));
 });
 
-test("ZIP contains actual PDF files for calculated rows, not only folder", () => {
-  const result = buildFreightForwarderMvpZip({
+test("ZIP contains actual PDF files for calculated rows, not only folder", async () => {
+  const result = await buildFreightForwarderMvpZip({
     applicationNo: "649324",
     items: [
       item(1, "BBA1-1", undefined, { quantity: 6 }),
@@ -89,20 +89,20 @@ test("ZIP contains actual PDF files for calculated rows, not only folder", () =>
   }
 });
 
-test("numeric row sorting works", () => {
+test("numeric row sorting works", async () => {
   assert.deepEqual(sortRowsByRowNo([{ rowNo: 10 }, { rowNo: 2 }, { rowNo: 1 }, { rowNo: 11 }]).map((row) => row.rowNo), [1, 2, 10, 11]);
-  const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(10), item(2), item(1)] });
+  const result = await buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(10), item(2), item(1)] });
   assert.deepEqual(result.validRows.map((row) => row.rowNo), [1, 2, 10]);
 });
 
-test("each PDF has exactly one page and MediaBox is exactly 90 x 147pt", () => {
-  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1), 50));
+test("each PDF has exactly one page and MediaBox is exactly 90 x 147pt", async () => {
+  const pdf = pdfText(await buildFreightForwarderMvpPdf(item(1), 50));
   assert.equal(countPdfPages(pdf), 1);
   assert.match(pdf, /\/MediaBox \[0 0 90 147\]/);
 });
 
-test("PDF rotates only the label content clockwise while preserving the page", () => {
-  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1"), 50));
+test("PDF rotates only the label content clockwise while preserving the page", async () => {
+  const pdf = pdfText(await buildFreightForwarderMvpPdf(item(1, "BBA1-1"), 50));
 
   assert.match(pdf, /\/MediaBox \[0 0 90 147\]/);
   assert.equal(countPdfPages(pdf), 1);
@@ -110,13 +110,13 @@ test("PDF rotates only the label content clockwise while preserving the page", (
   assert.doesNotMatch(pdf, /\/Rotate\b/);
 });
 
-test("printCount does not create repeated pages", () => {
-  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1), 100));
+test("printCount does not create repeated pages", async () => {
+  const pdf = pdfText(await buildFreightForwarderMvpPdf(item(1), 100));
   assert.equal(countPdfPages(pdf), 1);
 });
 
-test("PDF embeds a Korean-capable Type0 font and keeps label fields", () => {
-  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1"), 50));
+test("PDF embeds a Korean-capable Type0 font and keeps label fields", async () => {
+  const pdf = pdfText(await buildFreightForwarderMvpPdf(item(1, "BBA1-1"), 50));
   assert.match(pdf, /\/Subtype \/Type0/);
   assert.match(pdf, /\/FontFile2/);
   assert.doesNotMatch(pdf, /\/BaseFont \/Helvetica/);
@@ -124,8 +124,8 @@ test("PDF embeds a Korean-capable Type0 font and keeps label fields", () => {
   assert.match(pdf, /0042004200410031002d0031/);
 });
 
-test("missing barcode row is excluded while valid rows still generate", () => {
-  const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1), item(7, "", 50)] });
+test("missing barcode row is excluded while valid rows still generate", async () => {
+  const result = await buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1), item(7, "", 50)] });
   assert.deepEqual(result.validRows.map((row) => row.rowNo), [1]);
   assert.deepEqual(result.excludedRows, [{ rowNo: 7, reason: "바코드 값 없음" }]);
   assert.ok(Object.hasOwn(zipEntries(result), "634993/634993-1번 50개.pdf"));
@@ -141,9 +141,9 @@ test("duplicate rowNo is excluded", () => {
 });
 
 
-test("matchedLabelText Korean text is encoded and long labels report wrapping", () => {
+test("matchedLabelText Korean text is encoded and long labels report wrapping", async () => {
   const label = "재봉용 벨크로 블랙 너비 20mm 25M 1롤\n수입원:와일드사운드 제조원:와일드사운드협력사\n제조국:중국 내용량:단품 재질:폴리+나일론\n상품유형:벨크로테이프 사용기준:14세이상\n주의사항:용도 이외에 사용하지 마세요";
-  const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1, "S0030616878361", 50, { matchedLabelText: label })] });
+  const result = await buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1, "S0030616878361", 50, { matchedLabelText: label })] });
   const pdf = pdfText(zipEntries(result)["634993/634993-1번 50개.pdf"]);
 
   assert.match(pdf, /c7ac/);
@@ -152,8 +152,8 @@ test("matchedLabelText Korean text is encoded and long labels report wrapping", 
   assert.match(result.statusMessage, /라벨 문구 자동 줄바꿈 발생/);
 });
 
-test("S0030616878361 barcode is drawn with Code128 Auto encoded bar count", () => {
-  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "S0030616878361"), 50));
+test("S0030616878361 barcode is drawn with Code128 Auto encoded bar count", async () => {
+  const pdf = pdfText(await buildFreightForwarderMvpPdf(item(1, "S0030616878361"), 50));
   assert.match(pdf, /00530030003000330030003600310036003800370038003300360031/);
   assert.ok((pdf.match(/ re f/g) ?? []).length > 20);
 });

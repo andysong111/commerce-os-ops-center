@@ -11,8 +11,8 @@ const destinationDir = join("public", "generated-fonts");
 const destination = join(destinationDir, "NotoSansKR-VF.ttf");
 
 if (!source) {
-  console.warn("[copy-korean-pdf-font] @noto-pdf-ts/fonts-kr NotoSansKR-VF.ttf not found; run npm install in an environment with registry access.");
-  process.exit(0);
+  console.error("[copy-korean-pdf-font] @noto-pdf-ts/fonts-kr NotoSansKR-VF.ttf not found; Korean PDF generation requires this font.");
+  process.exit(1);
 }
 
 mkdirSync(destinationDir, { recursive: true });
