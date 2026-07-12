@@ -535,8 +535,8 @@ export default function FreightBarcodeRequestPage() {
     }
   }
 
-  async function downloadFreightForwarderMvpZip() {
-    const result = await buildFreightForwarderMvpZip(application);
+  function downloadFreightForwarderMvpZip() {
+    const result = buildFreightForwarderMvpZip(application);
     const blob = new Blob([new Uint8Array(result.zipBytes)], { type: "application/zip" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");

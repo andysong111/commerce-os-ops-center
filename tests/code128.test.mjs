@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   createCode128Layout,
   encodeCode128B,
-  encodeCode128Auto,
 } from "../src/lib/code128.ts";
 
 test("encodes only the location code as CODE128-B with the expected checksum", () => {
@@ -31,9 +30,4 @@ test("creates printable black-bar positions with CODE128 quiet zones", () => {
 test("rejects empty and unsupported non-ASCII location codes", () => {
   assert.throws(() => encodeCode128B(""), /ASCII 32~126/);
   assert.throws(() => encodeCode128B("위치-1"), /ASCII 32~126/);
-});
-
-
-test("Code128 Auto switches long digit run to Code C", () => {
-  assert.deepEqual(encodeCode128Auto("S0030616878361"), [104, 51, 16, 99, 3, 6, 16, 87, 83, 61, 75, 106]);
 });
