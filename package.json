@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "postinstall": "node scripts/copy-korean-pdf-font.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
@@ -17,7 +18,8 @@
     "libsodium-wrappers": "^0.7.15",
     "next": "^16.0.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "@noto-pdf-ts/fonts-kr": "^1.0.0-alpha.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",

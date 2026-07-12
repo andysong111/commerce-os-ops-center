@@ -106,7 +106,7 @@ test("PDF rotates only the label content clockwise while preserving the page", (
 
   assert.match(pdf, /\/MediaBox \[0 0 90 147\]/);
   assert.equal(countPdfPages(pdf), 1);
-  assert.match(pdf, /q\n0 -1 1 0 -36 126 cm\n[\s\S]*MADE IN CHINA[\s\S]*BBA1-1[\s\S]*\nQ/);
+  assert.match(pdf, /q\n0 -1 1 0 0 147 cm\n[\s\S]*004d00410044004500200049004e0020004300480049004e0041[\s\S]*0042004200410031002d0031[\s\S]*\nQ/);
   assert.doesNotMatch(pdf, /\/Rotate\b/);
 });
 
@@ -115,11 +115,13 @@ test("printCount does not create repeated pages", () => {
   assert.equal(countPdfPages(pdf), 1);
 });
 
-test("PDF body contains only origin label, barcode bars, and barcode value text", () => {
+test("PDF embeds a Korean-capable Type0 font and keeps label fields", () => {
   const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1"), 50));
-  assert.match(pdf, /MADE IN CHINA/);
-  assert.match(pdf, /BBA1-1/);
-  assert.doesNotMatch(pdf, /Product name must not render|옵션|中文/);
+  assert.match(pdf, /\/Subtype \/Type0/);
+  assert.match(pdf, /\/FontFile2/);
+  assert.doesNotMatch(pdf, /\/BaseFont \/Helvetica/);
+  assert.match(pdf, /004d00410044004500200049004e0020004300480049004e0041/);
+  assert.match(pdf, /0042004200410031002d0031/);
 });
 
 test("missing barcode row is excluded while valid rows still generate", () => {
@@ -136,4 +138,22 @@ test("duplicate rowNo is excluded", () => {
     { rowNo: 1, reason: "중복 순번" },
     { rowNo: 1, reason: "중복 순번" },
   ]);
+});
+
+
+test("matchedLabelText Korean text is encoded and long labels report wrapping", () => {
+  const label = "재봉용 벨크로 블랙 너비 20mm 25M 1롤\n수입원:와일드사운드 제조원:와일드사운드협력사\n제조국:중국 내용량:단품 재질:폴리+나일론\n상품유형:벨크로테이프 사용기준:14세이상\n주의사항:용도 이외에 사용하지 마세요";
+  const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1, "S0030616878361", 50, { matchedLabelText: label })] });
+  const pdf = pdfText(zipEntries(result)["634993/634993-1번 50개.pdf"]);
+
+  assert.match(pdf, /c7ac/);
+  assert.match(pdf, /\/FontFile2/);
+  assert.doesNotMatch(pdf, /\/Rotate\b/);
+  assert.match(result.statusMessage, /라벨 문구 자동 줄바꿈 발생/);
+});
+
+test("S0030616878361 barcode is drawn with Code128 Auto encoded bar count", () => {
+  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "S0030616878361"), 50));
+  assert.match(pdf, /00530030003000330030003600310036003800370038003300360031/);
+  assert.ok((pdf.match(/ re f/g) ?? []).length > 20);
 });
