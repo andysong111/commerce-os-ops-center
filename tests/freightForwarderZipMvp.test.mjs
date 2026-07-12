@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { unzipSync } from "fflate";
 import {
@@ -30,6 +31,13 @@ function zipEntries(result) {
 
 function countPdfPages(pdf) {
   return (pdf.match(/\/Type \/Page\b/g) ?? []).length;
+}
+
+function extractTextCommand(pdf, text) {
+  const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = pdf.match(new RegExp(`BT /F1 (\\d+) Tf ([\\d.]+) ([\\d.]+) Td \\(${escapedText}\\) Tj ET`));
+  assert.ok(match, `${text} text command should exist`);
+  return { fontSize: Number(match[1]), x: Number(match[2]), y: Number(match[3]) };
 }
 
 test("ZIP filename is applicationNo.zip and folder is applicationNo/", () => {
@@ -102,19 +110,50 @@ test("each PDF has exactly one page and MediaBox is exactly 90 x 147pt", () => {
 });
 
 test("PDF rotates enlarged label content clockwise while preserving the page", () => {
-  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1"), 50));
+  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BAA1-1"), 50));
 
   assert.match(pdf, /\/MediaBox \[0 0 90 147\]/);
   assert.equal(countPdfPages(pdf), 1);
-  assert.match(pdf, /q\n0 -1 1 0 -28 147 cm\n[\s\S]*BT \/F1 8 Tf 15 108 Td \(MADE IN CHINA\)[\s\S]*BBA1-1[\s\S]*\nQ/);
+  assert.match(pdf, /q\n0 -1 1 0 -28 147 cm\n[\s\S]*BT \/F1 9 Tf [\d.]+ 107 Td \(MADE IN CHINA\)[\s\S]*BAA1-1[\s\S]*\nQ/);
   assert.doesNotMatch(pdf, /\/Rotate\b/);
 });
 
-test("barcode remains vector rectangles and uses enlarged logical height", () => {
-  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1"), 50));
+test("barcode remains vector rectangles and uses enlarged logical bounds", () => {
+  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BAA1-1"), 50));
   const barcodeBars = pdf.match(/[\d.]+ 41 [\d.]+ 64 re f/g) ?? [];
 
   assert.ok(barcodeBars.length > 20);
+});
+
+test("barcode layout constants remain unchanged", () => {
+  const source = readFileSync(new URL("../src/lib/freightForwarderZipMvp.ts", import.meta.url), "utf8");
+
+  assert.match(source, /const barcodeX = 7;/);
+  assert.match(source, /const barcodeY = 41;/);
+  assert.match(source, /const barcodeWidth = 133;/);
+  assert.match(source, /const barcodeHeight = 64;/);
+});
+
+test("origin and barcode value text use 9pt centered logical positions", () => {
+  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BAA1-1"), 50));
+
+  const origin = extractTextCommand(pdf, "MADE IN CHINA");
+  const barcode = extractTextCommand(pdf, "BAA1-1");
+
+  assert.deepEqual(origin, { fontSize: 9, x: 39.498, y: 107 });
+  assert.deepEqual(barcode, { fontSize: 9, x: 57.993, y: 30 });
+});
+
+test("rotated text areas do not overlap barcode area", () => {
+  const barcodePhysicalXStart = 41 - 28;
+  const barcodePhysicalXEnd = barcodePhysicalXStart + 64;
+  const barcodeValuePhysicalXEnd = 30 - 28 + 9;
+  const originPhysicalXStart = 107 - 28;
+
+  assert.equal(barcodePhysicalXStart, 13);
+  assert.equal(barcodePhysicalXEnd, 77);
+  assert.ok(barcodeValuePhysicalXEnd <= barcodePhysicalXStart - 2);
+  assert.ok(originPhysicalXStart >= barcodePhysicalXEnd + 2);
 });
 
 test("printCount does not create repeated pages", () => {

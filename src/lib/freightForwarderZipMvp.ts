@@ -6,6 +6,7 @@ import type { FreightApplication, FreightApplicationItem } from "../types/freigh
 
 export const FREIGHT_FORWARDER_MVP_WIDTH_PT = 90;
 export const FREIGHT_FORWARDER_MVP_HEIGHT_PT = 147;
+const FREIGHT_FORWARDER_LOGICAL_WIDTH_PT = 147;
 
 export interface FreightForwarderMvpValidRow {
   item: FreightApplicationItem;
@@ -130,10 +131,13 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
   const bars = layout.bars
     .map((bar) => `${formatPdfNumber(barcodeX + bar.x * moduleScale)} ${barcodeY} ${formatPdfNumber(bar.width * moduleScale)} ${barcodeHeight} re f`)
     .join("\n");
+  const originText = "MADE IN CHINA";
+  const originFontSize = 9;
+  const barcodeTextFontSize = 9;
   const rotatedContent = [
-    "BT /F1 8 Tf 15 108 Td (MADE IN CHINA) Tj ET",
+    `BT /F1 ${originFontSize} Tf ${formatPdfNumber(centeredLogicalTextX(originText, originFontSize))} ${formatPdfNumber(107)} Td (${originText}) Tj ET`,
     bars,
-    `BT /F1 7 Tf ${formatPdfNumber(centeredTextX(barcodeValue, 7))} 38 Td (${escapePdfText(barcodeValue)}) Tj ET`,
+    `BT /F1 ${barcodeTextFontSize} Tf ${formatPdfNumber(centeredLogicalTextX(barcodeValue, barcodeTextFontSize))} ${formatPdfNumber(30)} Td (${escapePdfText(barcodeValue)}) Tj ET`,
   ].join("\n");
   const content = [
     "q",
@@ -191,8 +195,60 @@ function escapePdfText(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
-function centeredTextX(value: string, fontSize: number): number {
-  return Math.max(4, (FREIGHT_FORWARDER_MVP_WIDTH_PT - value.length * fontSize * 0.55) / 2);
+function helveticaTextWidth(value: string, fontSize: number): number {
+  return [...value].reduce((total, character) => total + getHelveticaGlyphWidth(character), 0) / 1000 * fontSize;
+}
+
+function centeredLogicalTextX(value: string, fontSize: number): number {
+  return (FREIGHT_FORWARDER_LOGICAL_WIDTH_PT - helveticaTextWidth(value, fontSize)) / 2;
+}
+
+function getHelveticaGlyphWidth(character: string): number {
+  if (character >= "0" && character <= "9") return 556;
+
+  switch (character) {
+    case " ":
+      return 278;
+    case "-":
+      return 333;
+    case "A":
+    case "B":
+    case "E":
+    case "S":
+      return 667;
+    case "C":
+    case "D":
+    case "H":
+    case "N":
+      return 722;
+    case "I":
+      return 278;
+    case "M":
+      return 833;
+    case "F":
+    case "K":
+    case "L":
+    case "P":
+    case "R":
+    case "T":
+    case "V":
+    case "X":
+    case "Y":
+    case "Z":
+      return 611;
+    case "G":
+    case "O":
+    case "Q":
+      return 778;
+    case "J":
+      return 500;
+    case "U":
+      return 722;
+    case "W":
+      return 944;
+    default:
+      return 556;
+  }
 }
 
 function formatPdfNumber(value: number): string {
