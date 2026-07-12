@@ -118,11 +118,11 @@ test("PDF rotates enlarged label content clockwise while preserving the page", (
   assert.doesNotMatch(pdf, /\/Rotate\b/);
 });
 
-test("barcode remains vector rectangles and uses enlarged logical bounds", () => {
+test("barcode remains vector rectangles and uses sample-like logical bounds", () => {
   const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BAA1-1"), 50));
-  const barcodeBars = pdf.match(/[\d.]+ 41 [\d.]+ 64 re f/g) ?? [];
+  const barcodeBars = pdf.match(/[\d.]+ 41 [\d.]+ 29 re f/g) ?? [];
 
-  assert.ok(barcodeBars.length > 20);
+  assert.ok(barcodeBars.length >= 20);
 });
 
 test("barcode layout constants remain unchanged", () => {
@@ -130,8 +130,8 @@ test("barcode layout constants remain unchanged", () => {
 
   assert.match(source, /const barcodeX = 7;/);
   assert.match(source, /const barcodeY = 41;/);
-  assert.match(source, /const barcodeWidth = 133;/);
-  assert.match(source, /const barcodeHeight = 64;/);
+  assert.match(source, /const barcodeWidth = 130;/);
+  assert.match(source, /const barcodeHeight = 29;/);
 });
 
 test("origin and barcode value text use 9pt centered logical positions", () => {
@@ -146,12 +146,12 @@ test("origin and barcode value text use 9pt centered logical positions", () => {
 
 test("rotated text areas do not overlap barcode area", () => {
   const barcodePhysicalXStart = 41 - 28;
-  const barcodePhysicalXEnd = barcodePhysicalXStart + 64;
+  const barcodePhysicalXEnd = barcodePhysicalXStart + 29;
   const barcodeValuePhysicalXEnd = 30 - 28 + 9;
   const originPhysicalXStart = 107 - 28;
 
   assert.equal(barcodePhysicalXStart, 13);
-  assert.equal(barcodePhysicalXEnd, 77);
+  assert.equal(barcodePhysicalXEnd, 42);
   assert.ok(barcodeValuePhysicalXEnd <= barcodePhysicalXStart - 2);
   assert.ok(originPhysicalXStart >= barcodePhysicalXEnd + 2);
 });
