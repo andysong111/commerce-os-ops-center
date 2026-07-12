@@ -130,10 +130,18 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
   const bars = layout.bars
     .map((bar) => `${formatPdfNumber(barcodeX + bar.x * moduleScale)} ${barcodeY} ${formatPdfNumber(bar.width * moduleScale)} ${barcodeHeight} re f`)
     .join("\n");
-  const content = [
+  const rotatedContent = [
     "BT /F1 8 Tf 15 116 Td (MADE IN CHINA) Tj ET",
     bars,
     `BT /F1 7 Tf ${formatPdfNumber(centeredTextX(barcodeValue, 7))} 38 Td (${escapePdfText(barcodeValue)}) Tj ET`,
+  ].join("\n");
+  const content = [
+    "q",
+    // Rotate the complete label artwork clockwise inside the unchanged 90 x 147pt page.
+    // Matrix: x' = y - 36, y' = -x + 126 keeps the existing artwork bounds on-page.
+    "0 -1 1 0 -36 126 cm",
+    rotatedContent,
+    "Q",
   ].join("\n");
 
   return new TextEncoder().encode(buildPdfDocument(content));
