@@ -7,6 +7,8 @@ import type { FreightApplication, FreightApplicationItem } from "../types/freigh
 export const FREIGHT_FORWARDER_MVP_WIDTH_PT = 90;
 export const FREIGHT_FORWARDER_MVP_HEIGHT_PT = 147;
 const LOGICAL_WIDTH_PT = 147;
+const LOGICAL_HEIGHT_PT = 90;
+const LABEL_SAFE_INSET_PT = 4;
 const GENERATED_FONT_PATH = "/generated-fonts/NotoSansKR-VF.ttf";
 const NODE_MODULE_FONT_CANDIDATES = [
   "node_modules/@noto-pdf-ts/fonts-kr/NotoSansKR-VF.ttf",
@@ -84,20 +86,22 @@ export function buildFreightForwarderMvpZip(application: FreightApplication): Fr
 
 function buildLogicalLabelContent(item: FreightApplicationItem, barcodeValue: string): { content: string; wrapped: boolean } {
   const layout = createCode128Layout(barcodeValue, encodeCode128Auto);
-  const barcodeX = 8.16, barcodeY = 8.62, barcodeWidth = 129.84, barcodeHeight = 28.8;
+  const barcodeX = 8.16, barcodeY = 8, barcodeWidth = 129.84, barcodeHeight = 26.4;
   const moduleScale = barcodeWidth / layout.width;
   const bars = layout.bars.map((bar) => `${n(barcodeX + bar.x * moduleScale)} ${n(barcodeY)} ${n(Math.max(0.18, bar.width * moduleScale))} ${n(barcodeHeight)} re f`).join("\n");
   const label = labelLines(item);
-  const product = fitLines([label[0] ?? ""], 132, 7.8, 4.8);
-  const info = fitLines(label.slice(1), 132, 7, 4.8);
-  const made = fitLines(["MADE IN CHINA"], 132, 6.4, 4.8);
+  const product = fitLines([label[0] ?? ""], 132, 7.2, 5.2);
+  const info = fitLines(label.slice(1), 132, 6.2, 4.6);
+  const visibleInfoLines = info.lines.slice(0, 5);
+  const made = fitLines(["MADE IN CHINA"], 132, 6.2, 5.2);
   const text = [
-    drawCentered(barcodeValue, 38.62, 12, 132),
-    ...product.lines.slice(0, 1).map((line, i) => drawCentered(line, 48.7 + i * 6.2, product.size, 132)),
-    ...info.lines.slice(0, 5).map((line, i) => drawCentered(line, 55.66 + i * 5.2, info.size, 132)),
-    ...made.lines.map((line) => drawCentered(line, 81.82, made.size, 132)),
+    drawCentered(barcodeValue, 36.9, 10.8, 132),
+    ...product.lines.slice(0, 1).map((line, i) => drawCentered(line, 47 + i * 6.2, product.size, 132)),
+    ...visibleInfoLines.map((line, i) => drawCentered(line, 55 + i * 5.4, info.size, 132)),
+    ...made.lines.map((line) => drawCentered(line, 84, made.size, 132)),
   ].join("\n");
-  return { content: ["q", "0 -1 1 0 0 147 cm", "1 1 1 rg", `${n(barcodeX)} ${n(barcodeY)} ${n(barcodeWidth)} ${n(barcodeHeight)} re f`, "0 0 0 rg", bars, text, "Q"].join("\n"), wrapped: product.wrapped || info.wrapped };
+  const wrapped = product.wrapped || info.wrapped || visibleInfoLines.length < info.lines.length;
+  return { content: ["q", "0 -1 1 0 0 147 cm", "1 1 1 rg", `${n(barcodeX)} ${n(barcodeY)} ${n(barcodeWidth)} ${n(barcodeHeight)} re f`, "0 0 0 rg", bars, text, "Q"].join("\n"), wrapped };
 }
 
 function labelLines(item: FreightApplicationItem): string[] {
@@ -113,7 +117,7 @@ function fitLines(input: string[], maxWidth: number, startSize: number, minSize:
 }
 function wrapLine(line: string, maxWidth: number, size: number): string[] { const out: string[] = []; let cur = ""; for (const ch of [...line]) { if (cur && textWidth(cur + ch, size) > maxWidth) { out.push(cur); cur = ch; } else cur += ch; } if (cur) out.push(cur); return out; }
 function textWidth(value: string, size: number): number { return [...value].reduce((sum, ch) => sum + ((ch.codePointAt(0) ?? 0) > 127 ? 0.92 : 0.56) * size, 0); }
-function drawCentered(value: string, y: number, size: number, maxWidth: number): string { const x = (LOGICAL_WIDTH_PT - Math.min(maxWidth, textWidth(value, size))) / 2; return `BT /F1 ${n(size)} Tf 1 0 0 1 ${n(x)} ${n(y)} Tm <${utf16beHex(value)}> Tj ET`; }
+function drawCentered(value: string, y: number, size: number, maxWidth: number): string { const renderedWidth = Math.min(maxWidth, textWidth(value, size)); const x = Math.max(LABEL_SAFE_INSET_PT, Math.min(LOGICAL_WIDTH_PT - LABEL_SAFE_INSET_PT - renderedWidth, (LOGICAL_WIDTH_PT - renderedWidth) / 2)); const safeY = Math.max(LABEL_SAFE_INSET_PT, Math.min(LOGICAL_HEIGHT_PT - LABEL_SAFE_INSET_PT - size, y)); return `BT /F1 ${n(size)} Tf 1 0 0 1 ${n(x)} ${n(safeY)} Tm <${utf16beHex(value)}> Tj ET`; }
 function utf16beHex(value: string): string { return [...value].map((ch) => { const cp = ch.codePointAt(0) ?? 32; return cp <= 0xffff ? cp.toString(16).padStart(4, "0") : "0020"; }).join(""); }
 function n(value: number): string { return Number(value.toFixed(3)).toString(); }
 function loadKoreanFontBytes(): Uint8Array {
@@ -136,9 +140,11 @@ function loadKoreanFontBytes(): Uint8Array {
     throw new Error(`배대지 PDF 한글 글꼴을 불러오지 못했습니다: ${GENERATED_FONT_PATH}`);
   }
 
-  const requireFromNode = Function("return typeof require === 'function' ? require : undefined")() as
+  const nodeProcess = typeof process !== "undefined" ? process as NodeJS.Process & { getBuiltinModule?: (id: string) => unknown } : undefined;
+  const moduleApi = nodeProcess?.getBuiltinModule?.("node:module") as { createRequire?: (url: string) => (id: string) => unknown } | undefined;
+  const requireFromNode = moduleApi?.createRequire?.(import.meta.url) ?? (Function("return typeof require === 'function' ? require : undefined")() as
     | ((id: string) => unknown)
-    | undefined;
+    | undefined);
   if (!requireFromNode) throw new Error("배대지 PDF 한글 글꼴을 불러올 수 있는 Node require가 없습니다.");
 
   const fs = requireFromNode("node:fs") as { existsSync(path: string): boolean; readFileSync(path: string): Uint8Array };
@@ -161,7 +167,7 @@ function buildPdfDocument(content: string): Uint8Array {
     enc.encode("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"),
     enc.encode(`3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${FREIGHT_FORWARDER_MVP_WIDTH_PT} ${FREIGHT_FORWARDER_MVP_HEIGHT_PT}] /Resources << /Font << /F1 4 0 R >> >> /Contents 9 0 R >> endobj\n`),
     enc.encode("4 0 obj << /Type /Font /Subtype /Type0 /BaseFont /KoreanLabelFallback /Encoding /Identity-H /DescendantFonts [5 0 R] /ToUnicode 8 0 R >> endobj\n"),
-    enc.encode("5 0 obj << /Type /Font /Subtype /CIDFontType2 /BaseFont /KoreanLabelFallback /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 6 0 R /W [0 [500]] >> endobj\n"),
+    enc.encode("5 0 obj << /Type /Font /Subtype /CIDFontType2 /BaseFont /KoreanLabelFallback /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 6 0 R /CIDToGIDMap /Identity /W [0 [500]] >> endobj\n"),
     enc.encode(`6 0 obj << /Type /FontDescriptor /FontName /KoreanLabelFallback /Flags 4 /FontBBox [-1000 -1000 2000 2000] /ItalicAngle 0 /Ascent 1000 /Descent -300 /CapHeight 700 /StemV 80 /FontFile2 7 0 R >> endobj\n`),
     concat([enc.encode(`7 0 obj << /Length ${font.length} /Length1 ${font.length} >> stream\n`), font, enc.encode("\nendstream endobj\n")]),
     enc.encode(`8 0 obj << /Length ${TO_UNICODE_CMAP.length} >> stream\n${TO_UNICODE_CMAP}\nendstream endobj\n`),

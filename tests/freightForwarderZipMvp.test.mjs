@@ -32,6 +32,33 @@ function countPdfPages(pdf) {
   return (pdf.match(/\/Type \/Page\b/g) ?? []).length;
 }
 
+function assertTextMatricesStayInsideLogicalLabel(pdf) {
+  const matrices = [...pdf.matchAll(/BT \/F1 ([0-9.]+) Tf 1 0 0 1 ([0-9.]+) ([0-9.]+) Tm <([0-9a-f]+)> Tj ET/g)];
+  assert.ok(matrices.length > 0);
+  for (const [, sizeText, xText, yText, hex] of matrices) {
+    const size = Number(sizeText);
+    const x = Number(xText);
+    const y = Number(yText);
+    const charCount = hex.length / 4;
+    const conservativeWidth = charCount * size;
+    assert.ok(x >= 4, `text x ${x} should stay inside left inset`);
+    assert.ok(x + Math.min(132, conservativeWidth) <= 143.001, `text should stay inside right inset: ${x} + ${conservativeWidth}`);
+    assert.ok(y >= 4, `text y ${y} should stay inside bottom inset`);
+    assert.ok(y + size <= 86.001, `text should stay inside top inset: ${y} + ${size}`);
+  }
+}
+
+function assertNoTextOverlap(pdf) {
+  const rows = [...pdf.matchAll(/BT \/F1 ([0-9.]+) Tf 1 0 0 1 [0-9.]+ ([0-9.]+) Tm </g)]
+    .map((match) => ({ size: Number(match[1]), y: Number(match[2]) }))
+    .sort((a, b) => a.y - b.y);
+  for (let i = 1; i < rows.length; i += 1) {
+    const previous = rows[i - 1];
+    const current = rows[i];
+    assert.ok(current.y - previous.y >= Math.min(previous.size, current.size) * 0.72, `text rows overlap near y=${previous.y} and y=${current.y}`);
+  }
+}
+
 test("ZIP filename is applicationNo.zip and folder is applicationNo/", () => {
   const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1)] });
   assert.equal(result.zipFilename, "634993.zip");
@@ -156,4 +183,18 @@ test("S0030616878361 barcode is drawn with Code128 Auto encoded bar count", () =
   const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "S0030616878361"), 50));
   assert.match(pdf, /00530030003000330030003600310036003800370038003300360031/);
   assert.ok((pdf.match(/ re f/g) ?? []).length > 20);
+});
+
+test("long Korean PDF label keeps every text matrix inside the rotated label page", () => {
+  const label = [
+    "재봉용 벨크로 블랙 너비 20mm 25M 1롤 추가 긴 제품명 확인용",
+    "수입원:와일드사운드 제조원:와일드사운드협력사 아주긴문구",
+    "제조국:중국 내용량:단품 재질:폴리+나일론",
+    "상품유형:벨크로테이프 사용기준:14세이상",
+    "주의사항:용도 이외에 사용하지 마세요 어린이 손이 닿지 않는 곳 보관",
+  ].join("\n");
+  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "S0030616878361", 50, { matchedLabelText: label }), 50));
+
+  assertTextMatricesStayInsideLogicalLabel(pdf);
+  assertNoTextOverlap(pdf);
 });
