@@ -125,8 +125,8 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
   const layout = createCode128Layout(barcodeValue);
   const barcodeX = 7;
   const barcodeY = 41;
-  const barcodeWidth = 133;
-  const barcodeHeight = 64;
+  const barcodeWidth = 130;
+  const barcodeHeight = 29;
   const moduleScale = barcodeWidth / layout.width;
   const bars = layout.bars
     .map((bar) => `${formatPdfNumber(barcodeX + bar.x * moduleScale)} ${barcodeY} ${formatPdfNumber(bar.width * moduleScale)} ${barcodeHeight} re f`)
@@ -142,7 +142,7 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
   const content = [
     "q",
     // Rotate the enlarged vector barcode artwork clockwise inside the unchanged 90 x 147pt page.
-    // Matrix: x' = y - 28, y' = -x + 147 keeps the barcode outer bounds at x=13..77, y=7..140.
+    // Matrix: x' = y - 28, y' = -x + 147 keeps the barcode outer bounds at x=13..42, y=10..140.
     "0 -1 1 0 -28 147 cm",
     rotatedContent,
     "Q",
