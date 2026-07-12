@@ -9,15 +9,15 @@ import type { FreightApplication, FreightApplicationItem } from "../types/freigh
 export const FREIGHT_FORWARDER_MVP_WIDTH_PT = 90;
 export const FREIGHT_FORWARDER_MVP_HEIGHT_PT = 147;
 const LOGICAL_WIDTH_PT = 147;
-const GENERATED_FONT_PATH = "/generated-fonts/NotoSansKR-VF.ttf";
+const GENERATED_FONT_PATH = "/generated-fonts/NotoSansKR.woff2";
 const NODE_MODULE_FONT_CANDIDATES = [
-  "node_modules/@noto-pdf-ts/fonts-kr/NotoSansKR-VF.ttf",
-  "node_modules/@noto-pdf-ts/fonts-kr/fonts/NotoSansKR-VF.ttf",
-  "node_modules/@noto-pdf-ts/fonts-kr/dist/NotoSansKR-VF.ttf",
+  "node_modules/@fontsource/noto-sans-kr/files/noto-sans-kr-korean-400-normal.woff2",
+  "node_modules/@fontsource/noto-sans-kr/files/noto-sans-kr-korean-500-normal.woff2",
+  "node_modules/@fontsource/noto-sans-kr/files/noto-sans-kr-korean-700-normal.woff2",
 ];
 let cachedFontBytes: Uint8Array | undefined;
 
-export const FREIGHT_FORWARDER_KOREAN_FONT_SOURCE = "@noto-pdf-ts/fonts-kr/NotoSansKR-VF.ttf";
+export const FREIGHT_FORWARDER_KOREAN_FONT_SOURCE = "@fontsource/noto-sans-kr/files/noto-sans-kr-korean-400-normal.woff2";
 
 
 export interface FreightForwarderMvpValidRow { item: FreightApplicationItem; rowNo: number; printCount: number; barcodeValue: string; }
@@ -73,17 +73,24 @@ export async function buildFreightForwarderMvpZip(application: FreightApplicatio
   const validation = validateFreightForwarderMvpRows(application.items);
   const folderName = applicationNo;
   const files: Record<string, Uint8Array> = { [`${folderName}/`]: new Uint8Array() };
+  const validRows: FreightForwarderMvpValidRow[] = [];
+  const excludedRows = [...validation.excludedRows];
   let labelWrapOccurred = false;
   for (const row of validation.validRows) {
-    const { pdfBytes, wrapped } = await buildPdfDocument(row.item, row.barcodeValue);
+    const { pdfBytes, wrapped, excludedReason } = await buildPdfDocument(row.item, row.barcodeValue);
+    if (excludedReason) {
+      excludedRows.push({ rowNo: row.rowNo, reason: excludedReason });
+      continue;
+    }
+    validRows.push(row);
     labelWrapOccurred ||= wrapped;
     files[`${folderName}/${buildFreightForwarderMvpFilename(applicationNo, row.rowNo, row.printCount)}`] = pdfBytes;
   }
-  const result = { ...validation, labelWrapOccurred };
+  const result = { ...validation, validRows, excludedRows: excludedRows.sort((a, b) => (a.rowNo ?? Number.MAX_SAFE_INTEGER) - (b.rowNo ?? Number.MAX_SAFE_INTEGER)), labelWrapOccurred };
   return { ...result, zipFilename: `${applicationNo}.zip`, folderName, zipBytes: zipSync(files), statusMessage: buildFreightForwarderMvpStatusMessage(result) };
 }
 
-async function buildPdfDocument(item: FreightApplicationItem, barcodeValue: string): Promise<{ pdfBytes: Uint8Array; wrapped: boolean }> {
+async function buildPdfDocument(item: FreightApplicationItem, barcodeValue: string): Promise<{ pdfBytes: Uint8Array; wrapped: boolean; excludedReason?: string }> {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
   const font = await pdfDoc.embedFont(loadKoreanFontBytes(), { subset: true });
@@ -92,9 +99,11 @@ async function buildPdfDocument(item: FreightApplicationItem, barcodeValue: stri
   const barcodeX = 8.16, barcodeY = 8.62, barcodeWidth = 129.84, barcodeHeight = 28.8;
   const moduleScale = barcodeWidth / layout.width;
   const label = labelLines(item);
-  const product = fitLines([label[0] ?? ""], 132, 7.8, 4.8, font);
-  const info = fitLines(label.slice(1), 132, 7, 4.8, font);
-  const made = fitLines(["MADE IN CHINA"], 132, 6.4, 4.8, font);
+  const textLayout = fitLabelText(label, font);
+  if (!textLayout) {
+    return { pdfBytes: new Uint8Array(), wrapped: false, excludedReason: "라벨 문구 세로 영역 초과" };
+  }
+  const made = fitLines(["MADE IN CHINA"], TEXT_MAX_WIDTH, 6.4, MIN_TEXT_SIZE, font);
 
   const map = (x: number, y: number) => ({ x: y, y: FREIGHT_FORWARDER_MVP_HEIGHT_PT - x });
   const rect = (x: number, y: number, width: number, height: number, color = rgb(0, 0, 0)) => {
@@ -110,12 +119,36 @@ async function buildPdfDocument(item: FreightApplicationItem, barcodeValue: stri
 
   rect(barcodeX, barcodeY, barcodeWidth, barcodeHeight, rgb(1, 1, 1));
   for (const bar of layout.bars) rect(barcodeX + bar.x * moduleScale, barcodeY, Math.max(0.18, bar.width * moduleScale), barcodeHeight);
-  centered(barcodeValue, 38.62, 12, 132);
-  product.lines.forEach((line, i) => centered(line, 48.7 + i * 6.2, product.size, 132));
-  info.lines.forEach((line, i) => centered(line, 55.66 + i * 5.2, info.size, 132));
-  made.lines.forEach((line) => centered(line, 81.82 + (info.lines.length > 5 ? (info.lines.length - 5) * 5.2 : 0), made.size, 132));
+  centered(barcodeValue, 38.62, 12, TEXT_MAX_WIDTH);
+  textLayout.product.lines.forEach((line, i) => centered(line, textLayout.product.y + i * textLayout.product.leading, textLayout.product.size, TEXT_MAX_WIDTH));
+  textLayout.info.lines.forEach((line, i) => centered(line, textLayout.info.y + i * textLayout.info.leading, textLayout.info.size, TEXT_MAX_WIDTH));
+  made.lines.forEach((line) => centered(line, MADE_IN_CHINA_Y, made.size, TEXT_MAX_WIDTH));
 
-  return { pdfBytes: await pdfDoc.save({ useObjectStreams: false }), wrapped: product.wrapped || info.wrapped };
+  return { pdfBytes: await pdfDoc.save({ useObjectStreams: false }), wrapped: textLayout.product.wrapped || textLayout.info.wrapped };
+}
+
+const TEXT_MAX_WIDTH = 132;
+const MIN_TEXT_SIZE = 4.8;
+const PRODUCT_TEXT_Y = 48.7;
+const PRODUCT_LEADING = 6.2;
+const DETAIL_LEADING = 5.2;
+const MADE_IN_CHINA_Y = 81.82;
+const TEXT_BOTTOM_GAP = 2.4;
+
+function fitLabelText(label: string[], font: PDFFont): {
+  product: ReturnType<typeof fitLines> & { y: number; leading: number };
+  info: ReturnType<typeof fitLines> & { y: number; leading: number };
+} | undefined {
+  const product = fitLines([label[0] ?? ""], TEXT_MAX_WIDTH, 7.8, MIN_TEXT_SIZE, font);
+  const infoStartY = PRODUCT_TEXT_Y + Math.max(1, product.lines.length) * PRODUCT_LEADING + 0.8;
+  const availableInfoHeight = MADE_IN_CHINA_Y - TEXT_BOTTOM_GAP - infoStartY;
+  const maxInfoLines = Math.max(0, Math.floor(availableInfoHeight / DETAIL_LEADING) + 1);
+  const info = fitLines(label.slice(1), TEXT_MAX_WIDTH, 7, MIN_TEXT_SIZE, font);
+  if (info.lines.length > maxInfoLines) return undefined;
+  return {
+    product: { ...product, y: PRODUCT_TEXT_Y, leading: PRODUCT_LEADING },
+    info: { ...info, y: infoStartY, leading: DETAIL_LEADING },
+  };
 }
 
 function labelLines(item: FreightApplicationItem): string[] {

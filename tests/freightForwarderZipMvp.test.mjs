@@ -157,3 +157,18 @@ test("S0030616878361 barcode is drawn with Code128 Auto encoded bar count", asyn
   assert.match(pdf, /00530030003000330030003600310036003800370038003300360031/);
   assert.ok((pdf.match(/ re f/g) ?? []).length > 20);
 });
+
+test("rows whose wrapped Korean label exceeds vertical label area are explicitly excluded", async () => {
+  const label = [
+    "아주 긴 상품명 ".repeat(20),
+    "상세문구 ".repeat(40),
+    "추가상세 ".repeat(40),
+    "주의사항 ".repeat(40),
+    "재질정보 ".repeat(40),
+  ].join("\n");
+  const result = await buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1, "S0030616878361", 50, { matchedLabelText: label })] });
+
+  assert.deepEqual(result.validRows, []);
+  assert.deepEqual(result.excludedRows, [{ rowNo: 1, reason: "라벨 문구 세로 영역 초과" }]);
+  assert.match(result.statusMessage, /1번: 라벨 문구 세로 영역 초과/);
+});
