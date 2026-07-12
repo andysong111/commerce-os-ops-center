@@ -16,6 +16,8 @@ const CODE128_PATTERNS = [
 ] as const;
 
 const START_CODE_B = 104;
+const CODE_B = 100;
+const CODE_C = 99;
 const STOP_CODE = 106;
 const QUIET_ZONE_MODULES = 10;
 
@@ -46,8 +48,63 @@ export function encodeCode128B(value: string): number[] {
   return [START_CODE_B, ...dataCodes, checksum, STOP_CODE];
 }
 
-export function createCode128Layout(value: string): Code128Layout {
-  const codes = encodeCode128B(value);
+export function encodeCode128Auto(value: string): number[] {
+  if (!value || [...value].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint < 32 || codePoint > 126;
+  })) {
+    throw new Error("CODE128 Auto는 ASCII 32~126 문자만 지원합니다.");
+  }
+
+  const dataCodes: number[] = [];
+  let set: "B" | "C" = "B";
+  let index = 0;
+
+  while (index < value.length) {
+    const digitRun = value.slice(index).match(/^\d+/)?.[0] ?? "";
+    const shouldUseCodeC = digitRun.length >= 4;
+
+    if (shouldUseCodeC) {
+      if (digitRun.length % 2 === 1) {
+        if (set !== "B") {
+          dataCodes.push(CODE_B);
+          set = "B";
+        }
+        dataCodes.push(value.charCodeAt(index) - 32);
+        index += 1;
+        continue;
+      }
+
+      if (set !== "C") {
+        dataCodes.push(CODE_C);
+        set = "C";
+      }
+
+      for (let offset = 0; offset < digitRun.length; offset += 2) {
+        dataCodes.push(Number(digitRun.slice(offset, offset + 2)));
+      }
+      index += digitRun.length;
+      continue;
+    }
+
+    if (set !== "B") {
+      dataCodes.push(CODE_B);
+      set = "B";
+    }
+    dataCodes.push(value.charCodeAt(index) - 32);
+    index += 1;
+  }
+
+  const checksum = dataCodes.reduce(
+    (sum, code, dataIndex) => sum + code * (dataIndex + 1),
+    START_CODE_B,
+  ) % 103;
+
+  return [START_CODE_B, ...dataCodes, checksum, STOP_CODE];
+}
+
+export function createCode128Layout(value: string, encoder: (value: string) => number[] = encodeCode128B): Code128Layout {
+  const codes = encoder(value);
   const bars: Code128Bar[] = [];
   let x = QUIET_ZONE_MODULES;
 
