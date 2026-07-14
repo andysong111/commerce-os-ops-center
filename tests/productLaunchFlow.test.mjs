@@ -742,3 +742,27 @@ test("product launch flow derives stage from recovered results and keeps remount
   ]) assert.ok(source.includes(expected), expected);
   assert.doesNotMatch(source, /removeItem\(PRODUCT_LAUNCH_SESSION_STORAGE_KEY\)[\s\S]{0,120}useEffect/);
 });
+
+
+test("manual candidate launch apply guards use runner confirmation, safe max_items, and manual readiness", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  const workspace = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
+  const runner = await readFile("src/lib/keywordShoplingApplyRunner.ts", "utf8");
+  const combined = `${flow}\n${workspace}`;
+  assert.match(flow, /APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_TO_SHOPLING"/);
+  assert.match(runner, /KEYWORD_SHOPLING_APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_TO_SHOPLING"/);
+  assert.doesNotMatch(combined, /APPLY_SHOPLING_KEYWORD_UPDATES/);
+  assert.match(workspace, /max_items: 100/);
+  assert.doesNotMatch(workspace, /max_items: 500/);
+  assert.match(workspace, /isSuccessfulApplyResult/);
+  assert.match(workspace, /"partial_failure"/);
+  assert.match(workspace, /json\.status === "error" \|\| !json\.requestId/);
+  assert.match(workspace, /setResult\(json\)/);
+  assert.match(combined, /hasManualCandidatesForAllSourceRows/);
+  assert.match(combined, /행별 상품명\/검색어 후보를 입력하면 미리보기를 생성합니다\./);
+  assert.match(workspace, /if \(!manualCandidatesReady\) return;/);
+  assert.match(flow, /후보 입력 대기/);
+  assert.match(workspace, /disabled=\{disabled \|\| !manualCandidatesReady\}/);
+  assert.doesNotMatch(flow, /\/api\/keyword-shopling-apply/);
+  assert.doesNotMatch(flow, /API_AUTH_KEY|LOGIN_PASSWORD|shell\s*:\s*true|child_process|PowerShell/i);
+});
