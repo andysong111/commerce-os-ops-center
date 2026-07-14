@@ -1,4 +1,6 @@
 import { inferProductGroupFromPtnGoodsCd, type ProductGroupInference } from "./productGroup";
+import type { KeywordPayloadPreviewItem, KeywordPayloadPreviewResult } from "./keywordReviewPayloadPreview";
+import { getMarketsForProductGroup } from "./productGroupMarketRegistry";
 
 export type ProductLaunchUploadRow = {
   row?: string | number;
@@ -351,6 +353,156 @@ export function normalizeManualKeywordOverride(value: unknown): string {
     seen.add(key);
     return true;
   }).slice(0, 10).join(",");
+}
+
+const DANGEROUS_MANUAL_TERMS = new Set(["무료배송", "최저가", "1위", "특허", "인증완료"]);
+
+export function parseManualCandidateList(value: string, maxCandidates = 20): string[] {
+  const seen = new Set<string>();
+  return String(value ?? "")
+    .split(/[,\n;\/|]+/)
+    .map((token) => token.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((token) => !DANGEROUS_MANUAL_TERMS.has(token))
+    .filter((token) => {
+      const key = token.toLocaleLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, maxCandidates);
+}
+
+export function normalizeSearchKeywords(candidates: string[]): string {
+  const seen = new Set<string>();
+  return candidates
+    .map((token) => token.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((token) => {
+      const key = token.toLocaleLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 10)
+    .join(",");
+}
+
+const UNVERIFIED_ATTRIBUTE_MODIFIERS = new Set(["방수", "인증", "KC", "정품", "공식", "새상품"]);
+
+function baseProductTitleTokens(baseProductTitle: string) {
+  return parseManualCandidateList(baseProductTitle.replace(/[^\p{L}\p{N}\s,;\/|]+/gu, " "), 20);
+}
+
+export function generateMallTitlesFromManualCandidates(input: {
+  sourceRow: string;
+  goodsKey: string;
+  productGroup: string;
+  mallKey: string;
+  baseProductTitle: string;
+  titleCandidates: string[];
+  searchCandidates: string[];
+}): string {
+  const sourceTitle = input.baseProductTitle ?? "";
+  const allowedAttributeCandidates = new Set(
+    [...input.titleCandidates, ...baseProductTitleTokens(sourceTitle)].filter((token) => !UNVERIFIED_ATTRIBUTE_MODIFIERS.has(token) || sourceTitle.includes(token)),
+  );
+  const safeTitleCandidates = input.titleCandidates.filter((token) => !UNVERIFIED_ATTRIBUTE_MODIFIERS.has(token) || allowedAttributeCandidates.has(token));
+  const baseTokens = baseProductTitleTokens(sourceTitle).filter((token) => !UNVERIFIED_ATTRIBUTE_MODIFIERS.has(token) || allowedAttributeCandidates.has(token));
+  const pool = [...safeTitleCandidates, ...baseTokens].filter(Boolean);
+  const deduped = [...new Map(pool.map((token) => [token.toLocaleLowerCase(), token])).values()].slice(0, 6);
+  if (deduped.length === 0) return "";
+  const rotationSeed = Math.abs([...`${input.sourceRow}:${input.goodsKey}:${input.productGroup}:${input.mallKey}`].reduce((sum, char) => sum + char.charCodeAt(0), 0));
+  const offset = deduped.length > 1 ? rotationSeed % deduped.length : 0;
+  const rotated = [...deduped.slice(offset), ...deduped.slice(0, offset)];
+  return rotated.slice(0, Math.min(5, rotated.length)).join(" ").replace(/,/g, "").replace(/\s+/g, " ").trim();
+}
+
+export function buildManualCandidatePreview(input: {
+  sourceRowGroups: LaunchSourceRowGroup[];
+  uploadRows: ProductLaunchUploadRow[];
+  manualTitleCandidatesBySourceRow: Record<string, string>;
+  manualSearchCandidatesBySourceRow: Record<string, string>;
+}): KeywordPayloadPreviewResult {
+  const uploadRowsByGoodsKey = new Map(input.uploadRows.map((row) => [(row.goods_key ?? "").trim(), row]));
+  const items: KeywordPayloadPreviewItem[] = input.sourceRowGroups.flatMap((group) => {
+    const titleCandidates = parseManualCandidateList(input.manualTitleCandidatesBySourceRow[group.sourceRowId] ?? "");
+    const searchCandidates = parseManualCandidateList(input.manualSearchCandidatesBySourceRow[group.sourceRowId] ?? "");
+    return group.goodsKeys.flatMap((goodsKey) => {
+      const uploadRow = uploadRowsByGoodsKey.get(goodsKey);
+      const productGroup = inferProductGroupFromPtnGoodsCd(uploadRow?.ptn_goods_cd ?? "").productGroup;
+      const markets = getMarketsForProductGroup(productGroup);
+      const fallbackSearch = searchCandidates.length > 0 ? searchCandidates : titleCandidates.length > 0 ? titleCandidates : baseProductTitleTokens(group.currentTitle);
+      const finalSiteSrch = normalizeSearchKeywords(fallbackSearch);
+      return markets.map((market, index) => {
+        const finalTitle = generateMallTitlesFromManualCandidates({
+          sourceRow: group.sourceRowId,
+          goodsKey,
+          productGroup,
+          mallKey: market.mallKey,
+          baseProductTitle: group.currentTitle,
+          titleCandidates,
+          searchCandidates,
+        });
+        const validation_errors = [!finalTitle ? "상품명 후보가 없습니다." : "", !finalSiteSrch ? "검색어 부족" : ""].filter(Boolean);
+        return {
+          goods_key: goodsKey,
+          mall_key: market.mallKey,
+          source_row_index: Number(group.displayLabel) || index,
+          ptn_goods_cd: uploadRow?.ptn_goods_cd ?? "",
+          group_suffix: inferProductGroupFromPtnGoodsCd(uploadRow?.ptn_goods_cd ?? "").groupSuffix,
+          product_group: productGroup,
+          product_group_type: String(inferProductGroupFromPtnGoodsCd(uploadRow?.ptn_goods_cd ?? "").productGroupType),
+          product_group_status: String(inferProductGroupFromPtnGoodsCd(uploadRow?.ptn_goods_cd ?? "").productGroupStatus),
+          original_title: group.currentTitle,
+          recommended_title: finalTitle,
+          edited_title: "",
+          final_title: finalTitle,
+          original_site_srch: "",
+          recommended_site_srch: finalSiteSrch,
+          edited_site_srch: "",
+          edited_mall_key: market.mallKey,
+          final_site_srch: finalSiteSrch,
+          classification: validation_errors.length ? "manual_review" as const : "auto_apply_candidate" as const,
+          review_status: validation_errors.length ? "hold" as const : "approved" as const,
+          block_reason: validation_errors.join(", "),
+          warning_flags: finalSiteSrch.split(",").filter(Boolean).length < 10 ? "검색어 부족" : "",
+          payload_status: validation_errors.length ? "invalid" as const : "preview_ready" as const,
+          validation_errors,
+          validation_warnings: finalSiteSrch.split(",").filter(Boolean).length < 10 && finalSiteSrch ? ["검색어 부족"] : [],
+          preview_xml_fragment: null,
+          preview_payload: validation_errors.length ? null : { goods_key: goodsKey, mall_key: market.mallKey, title: finalTitle, site_srch: finalSiteSrch },
+          expansion_mode: "product_group_markets" as const,
+          group_variant_enabled: true,
+          market_name: market.marketName,
+          account_id_label: market.accountIdLabel,
+          group_title: finalTitle,
+          mall_title: finalTitle,
+          selected_modifier: "",
+          word_order_strategy: "manual_candidate_rotation",
+        };
+      });
+    });
+  });
+  return {
+    items,
+    previewableItems: items.filter((item) => item.payload_status === "preview_ready"),
+    excludedItems: items.filter((item) => item.payload_status !== "preview_ready"),
+    summary: {
+      totalReviewedRows: items.length,
+      approvedCount: items.filter((item) => item.review_status === "approved").length,
+      previewReadyCount: items.filter((item) => item.payload_status === "preview_ready").length,
+      invalidCount: items.filter((item) => item.payload_status === "invalid").length,
+      heldCount: items.filter((item) => item.payload_status === "held").length,
+      blockedRiskCount: 0,
+    },
+    previewXml: "",
+    expansionMode: "product_group_markets" as const,
+    expandedItemCount: items.length,
+    groupVariantEnabled: true,
+    attributeModifierMode: "safe_source_only" as const,
+    expansionErrors: [],
+  };
 }
 
 export function resolveManualKeywordOverride(value: unknown): string {
