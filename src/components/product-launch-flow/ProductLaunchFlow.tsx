@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { KeywordReviewWorkspace, type KeywordApplyState } from "@/components/keyword-review/KeywordReviewWorkspace";
+import { type KeywordApplyState } from "@/components/keyword-review/KeywordReviewWorkspace";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildGoodsKeyGroupJson,
@@ -26,6 +26,9 @@ import {
   type ProductLaunchPriceError,
   type ProductLaunchUploadRow,
 } from "@/lib/productLaunchFlow";
+import { getMarketsForProductGroup, PRODUCT_GROUP_MARKET_REGISTRY } from "@/lib/productGroupMarketRegistry";
+import { buildCompactKeywordApplyExecutionPlan, buildKeywordExecutionPreflight, type KeywordExecutionPreflightResult } from "@/lib/keywordReviewExecutionPreflight";
+import type { KeywordPayloadPreviewItem, KeywordPayloadPreviewResult } from "@/lib/keywordReviewPayloadPreview";
 
 const PRODUCT_LAUNCH_SESSION_STORAGE_KEY = "productLaunchFlow.session.v2";
 const UPLOAD_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.uploadRequestId";
@@ -128,6 +131,7 @@ export function ProductLaunchFlow() {
   const [autopilotEnabled, setAutopilotEnabled] = useState(true);
   const [autoActualApplyEnabled, setAutoActualApplyEnabled] = useState(false);
   const [keywordApplyState, setKeywordApplyState] = useState<KeywordApplyState | null>(null);
+  const [manualApplyState, setManualApplyState] = useState<KeywordApplyState | null>(null);
   const autoPriceStartedForUploadRequestRef = useRef<string>("");
   const autoKeywordStartedForPriceRequestRef = useRef<string>("");
   const autoKeywordImportedArtifactRef = useRef<string>("");
@@ -496,7 +500,7 @@ export function ProductLaunchFlow() {
   const boardMallCount = expectedPriceModifyUpdateCount(goodsKeyProductGroupMap);
   const titleTargetCount = expectedLaunchApplyCount(goodsKeys, buildGoodsKeyGroupMap(uploadRows));
   const manualCandidatesReady = hasManualCandidatesForAllSourceRows(sourceRowGroups, manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey);
-  const keywordRealApplySucceeded = isKeywordRealApplySuccess(keywordApplyState);
+  const keywordRealApplySucceeded = isKeywordRealApplySuccess(manualApplyState ?? keywordApplyState);
   const finalPriceDone = isSuccessfulPriceResult(finalPriceActionsResult) && getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount === 0;
   const finalPriceFailed = hasPriceFailure(finalPriceActionsResult) || getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount > 0;
   const finalPriceActive = finalPriceRunning || finalPriceFetching || finalPricePolling;
@@ -633,22 +637,14 @@ export function ProductLaunchFlow() {
   return (
     <div className="space-y-6">
       {sessionRestored ? <RecoveryBanner uploadRecovered={uploadRecovered || isSuccessfulUploadResult(uploadActionsResult, uploadRows.length)} /> : null}
-      <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} keywordApplyState={keywordApplyState} priceIssueState={priceIssueState} manualCandidatesReady={manualCandidatesReady} onNext={keywordRealApplySucceeded && !finalPriceDone ? runFinalPriceModify : runNextSafeStep} initialPriceRequestId={priceRequestId} finalPriceRequestId={finalPriceRequestId} finalPriceActionsResult={finalPriceActionsResult} finalPriceActive={finalPriceActive} finalPriceDone={finalPriceDone} finalPriceFailed={finalPriceFailed} finalPriceTargetCount={goodsKeys.length * FULL_PRICE_POLICY_MALL_COUNT} />
-      <SeedKeywordSection sourceRowGroups={sourceRowGroups} rowExpression={lastStartedRowExpression || rowExpression} seedKeywordsBySourceRow={seedKeywordsBySourceRow} onSeedKeywordChange={(sourceRowId, value) => setSeedKeywordsBySourceRow((current) => ({ ...current, [sourceRowId]: value }))} />
-      <LaunchCockpit steps={cockpit.steps} currentStage={derivedStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling || finalPriceActive} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회 · 최종가격 ${finalPricePollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
-      {keywordSummary.artifact ? <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-bold text-emerald-700">키워드 결과 검토</p>
-        <h2 className="mt-1 text-xl font-black text-slate-950">키워드 결과 파일이 준비되었습니다.</h2>
-        <p className="mt-2 text-sm text-slate-700">이 화면에서 상품명 후보 선택부터 실제 반영 전 dry_run까지 이어서 진행합니다.</p>
-        <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">이제 화면을 이동하지 않고 이 상품출시 플로우 안에서 키워드 검토와 반영 준비를 진행합니다.</p>
-        <div className="mt-4 flex flex-wrap gap-3"><button type="button" onClick={openInlineKeywordReview} disabled={!!keywordBusy} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">키워드 검토 시작</button><Link href="/keyword-review-queue?from=product-launch-flow" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">개별 키워드 검토 화면에서 열기</Link></div>
-        {keywordImportMessage ? <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{keywordImportMessage}</p> : null}
-      </section> : null}
-      {embeddedReviewOpen ? <KeywordReviewWorkspace mode="embedded" launchContext={{ rowExpression: lastStartedRowExpression || rowExpression, uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRunId: keywordRunsResult?.runs?.[0]?.id, artifactName: keywordSummary.artifact?.name, importedAt: keywordImportedAt || "확인 중", goodsKeyCount: goodsKeys.length, productGroupCount: new Set(uploadRows.map((row) => inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? ""))).size, uploadRows, goodsKeys, goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows), manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey, autoApplyToShopling: autoActualApplyEnabled === true, autoApplyConfirmationText: autoActualApplyEnabled === true ? "AUTO_APPLY_TO_SHOPLING" : "", sourceRowGroups, manualCandidatesReady }} onApplyStateChange={setKeywordApplyState} /> : null}
+      <ManualLaunchWizard rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} onUpload={runUploadRequest} uploadRows={uploadRows} sourceRowGroups={sourceRowGroups} manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey} manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey} onManualTitleChange={(goodsKey, value) => setManualTitleOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} onManualKeywordChange={(goodsKey, value) => setManualKeywordOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} onApplyStateChange={setManualApplyState} />
       {cockpit.primaryAction === "failed" ? <ErrorDrawer title="실패 원인" uploadResult={uploadActionsResult} priceResult={priceActionsResult} keywordResult={keywordRunsResult} requestId={previousRequestId} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} /> : null}
 
       <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <summary className="cursor-pointer text-lg font-bold text-slate-950">고급 / 상세 결과 보기</summary>
+      <LaunchCockpit steps={cockpit.steps} currentStage={derivedStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling || finalPriceActive} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회 · 최종가격 ${finalPricePollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
+      <AILaunchAgentBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} keywordApplyState={keywordApplyState} priceIssueState={priceIssueState} manualCandidatesReady={manualCandidatesReady} onNext={keywordRealApplySucceeded && !finalPriceDone ? runFinalPriceModify : runNextSafeStep} initialPriceRequestId={priceRequestId} finalPriceRequestId={finalPriceRequestId} finalPriceActionsResult={finalPriceActionsResult} finalPriceActive={finalPriceActive} finalPriceDone={finalPriceDone} finalPriceFailed={finalPriceFailed} finalPriceTargetCount={goodsKeys.length * FULL_PRICE_POLICY_MALL_COUNT} />
+      <SeedKeywordSection sourceRowGroups={sourceRowGroups} rowExpression={lastStartedRowExpression || rowExpression} seedKeywordsBySourceRow={seedKeywordsBySourceRow} onSeedKeywordChange={(sourceRowId, value) => setSeedKeywordsBySourceRow((current) => ({ ...current, [sourceRowId]: value }))} />
       <button type="button" onClick={resetProductLaunchSession} className="mb-4 rounded-lg border border-red-300 px-4 py-2 text-sm font-bold text-red-700">현재 상품출시 작업 초기화</button>
       <ManualOverrideSection goodsKeys={goodsKeys} uploadRows={uploadRows} manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey} manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey} onManualTitleChange={(goodsKey, value) => setManualTitleOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} onManualKeywordChange={(goodsKey, value) => setManualKeywordOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} />
       <form onSubmit={runUpload} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -696,6 +692,63 @@ export function hasManualCandidatesForAllSourceRows(sourceRowGroups: ReturnType<
     if (sourceRowTitle || sourceRowSearch) return true;
     return group.goodsKeys.some((goodsKey) => String(manualTitleCandidatesBySourceRow[goodsKey] ?? "").trim() || String(manualSearchCandidatesBySourceRow[goodsKey] ?? "").trim());
   });
+}
+
+
+
+function ManualLaunchWizard({ rowExpression, onRowExpressionChange, uploadBusy, onUpload, uploadRows, sourceRowGroups, manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey, onManualTitleChange, onManualKeywordChange, onApplyStateChange }: { rowExpression: string; onRowExpressionChange: (value: string) => void; uploadBusy: boolean; onUpload: () => void; uploadRows: ProductLaunchUploadRow[]; sourceRowGroups: ReturnType<typeof buildLaunchSourceRowGroups>; manualTitleOverridesByGoodsKey: Record<string, string>; manualKeywordOverridesByGoodsKey: Record<string, string>; onManualTitleChange: (goodsKey: string, value: string) => void; onManualKeywordChange: (goodsKey: string, value: string) => void; onApplyStateChange: (state: KeywordApplyState | null) => void }) {
+  const [preflight, setPreflight] = useState<KeywordExecutionPreflightResult | null>(null);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [running, setRunning] = useState(false);
+  const previewResult = useMemo(() => buildManualKeywordPreviewResult(uploadRows, manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey), [manualKeywordOverridesByGoodsKey, manualTitleOverridesByGoodsKey, uploadRows]);
+  const representativeItem = previewResult.items[0];
+  const ready = sourceRowGroups.length > 0 && hasManualCandidatesForAllSourceRows(sourceRowGroups, manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey);
+  const makePreflight = () => {
+    const next = buildKeywordExecutionPreflight({ previewResult, finalConfirmationText: APPLY_CONFIRMATION_TEXT }, { allowedMallKeys: PRODUCT_GROUP_MARKET_REGISTRY.map((market) => market.mallKey), maxRows: 100, alreadyAppliedGoodsKeys: [], requireFinalConfirmation: true, confirmationText: APPLY_CONFIRMATION_TEXT });
+    setPreflight(next);
+    return next;
+  };
+  const runApply = async () => {
+    if (running || !ready) return;
+    setRunning(true);
+    setResult(null);
+    try {
+      const next = makePreflight();
+      if (next.summary.blockedCount > 0 || next.summary.eligibleCount === 0) throw new Error("차단 항목을 해결한 뒤 다시 실행하세요.");
+      const json = buildCompactKeywordApplyExecutionPlan(next);
+      const response = await fetch("/api/keyword-shopling-apply/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ execution_plan_json: json, mode: "apply", confirmation_text: APPLY_CONFIRMATION_TEXT, max_items: 100 }) });
+      const payload = await response.json();
+      setResult(payload);
+      onApplyStateChange({ dryRunStatus: "success", realApplyStatus: response.ok && payload.status !== "error" ? "queued" : "failed", appliedCount: 0, failedCount: 0, warningCount: 0, requestId: typeof payload.requestId === "string" ? payload.requestId : "", dryRunRequestId: "", realApplyRequestId: typeof payload.requestId === "string" ? payload.requestId : "", blankMallTitleBlockedCount: 0, lastUpdatedAt: new Date().toISOString() });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "실제 반영 실행 요청 중 오류가 발생했습니다.";
+      setResult({ status: "error", message });
+      onApplyStateChange({ dryRunStatus: "success", realApplyStatus: "failed", appliedCount: 0, failedCount: 1, warningCount: 0, requestId: "", dryRunRequestId: "", realApplyRequestId: "", blankMallTitleBlockedCount: 0, lastUpdatedAt: new Date().toISOString() });
+    } finally {
+      setRunning(false);
+    }
+  };
+  return <section className="rounded-3xl border border-blue-200 bg-white p-6 shadow-sm">
+    <p className="text-sm font-semibold text-blue-700">수동 상품 출시</p><h1 className="text-2xl font-black text-slate-950">상품 출시 플로우</h1>
+    <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-5"><h2 className="text-lg font-black text-slate-950">1. 행번호 입력</h2><label className="mt-4 block text-sm font-semibold text-slate-800">실재고 시트 행번호<input value={rowExpression} onChange={(event) => onRowExpressionChange(event.target.value)} placeholder="예: 950 또는 950-955" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><button type="button" onClick={onUpload} disabled={uploadBusy || !rowExpression.trim()} className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">행번호로 상품업로드 실행</button></div>
+    <div className="mt-5 rounded-2xl border border-slate-200 p-5"><h2 className="text-lg font-black text-slate-950">2. 행별 상품명/검색어 후보 입력</h2><p className="mt-2 text-sm text-slate-700">업로드 결과의 goods_key에 실제 상품명과 검색어 후보를 직접 입력합니다. 검색어는 상품별 1세트로 반영됩니다.</p><ManualOverrideSection goodsKeys={uploadRows.map((row) => row.goods_key ?? "").filter(Boolean)} uploadRows={uploadRows} manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey} manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey} onManualTitleChange={onManualTitleChange} onManualKeywordChange={onManualKeywordChange} /></div>
+    <div className="mt-5 rounded-2xl border border-slate-200 p-5"><h2 className="text-lg font-black text-slate-950">3. 대표 미리보기 1개</h2>{representativeItem ? <dl className="mt-3 grid gap-2 text-sm"><ResultRow label="goods_key" value={representativeItem.goods_key} mono /><ResultRow label="상품그룹" value={representativeItem.product_group} /><ResultRow label="쇼핑몰" value={`${representativeItem.market_name ?? "-"} / ${representativeItem.mall_key}`} /><ResultRow label="상품명" value={representativeItem.final_title} /><ResultRow label="검색어" value={representativeItem.final_site_srch} /></dl> : <p className="mt-3 text-sm text-slate-600">행번호 업로드 결과와 후보 입력 후 대표 미리보기가 표시됩니다.</p>}<button type="button" onClick={makePreflight} disabled={!ready} className="mt-4 rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-800 disabled:bg-slate-100">미리보기 점검</button>{preflight ? <p className="mt-3 text-sm font-semibold text-slate-700">반영 가능 {preflight.summary.eligibleCount}개 · 차단 {preflight.summary.blockedCount}개</p> : null}</div>
+    <details className="mt-5 rounded-2xl border border-slate-200 p-5"><summary className="cursor-pointer text-lg font-black text-slate-950">4. 전체 항목 펼쳐보기</summary><div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-slate-50 text-left"><th className="border px-3 py-2">goods_key</th><th className="border px-3 py-2">mall_key</th><th className="border px-3 py-2">상품명</th><th className="border px-3 py-2">검색어</th></tr></thead><tbody>{previewResult.items.map((item) => <tr key={`${item.goods_key}-${item.mall_key}`}><td className="border px-3 py-2 font-mono">{item.goods_key}</td><td className="border px-3 py-2 font-mono">{item.mall_key}</td><td className="border px-3 py-2">{item.final_title}</td><td className="border px-3 py-2">{item.final_site_srch}</td></tr>)}</tbody></table></div></details>
+    <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5"><h2 className="text-lg font-black text-slate-950">5. 승인하고 실제 반영 실행</h2><p className="mt-2 text-sm text-emerald-900">확인문구는 {APPLY_CONFIRMATION_TEXT}로 고정되며 compact execution plan만 전송합니다.</p><button type="button" onClick={runApply} disabled={running || !ready} className="mt-4 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">승인하고 샵플링 반영 실행</button>{result ? <pre className="mt-4 overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-50">{JSON.stringify(result, null, 2)}</pre> : null}</div>
+  </section>;
+}
+
+function buildManualKeywordPreviewResult(rows: ProductLaunchUploadRow[], titles: Record<string, string>, keywords: Record<string, string>): KeywordPayloadPreviewResult {
+  const items: KeywordPayloadPreviewItem[] = rows.flatMap((row, sourceIndex) => {
+    const goodsKey = String(row.goods_key ?? "").trim();
+    if (!goodsKey) return [];
+    const group = inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? "").productGroup;
+    const markets = getMarketsForProductGroup(group);
+    const title = resolveManualTitleOverride(titles[goodsKey] ?? "", String(row.product_name ?? "")).trim();
+    const siteSrch = normalizeManualKeywordOverride(keywords[goodsKey] ?? normalizeSeedKeywords(title));
+    return markets.map((market): KeywordPayloadPreviewItem => ({ goods_key: goodsKey, mall_key: market.mallKey, source_row_index: sourceIndex, ptn_goods_cd: String(row.ptn_goods_cd ?? ""), group_suffix: market.groupSuffix, product_group: group, product_group_type: market.productGroupType, product_group_status: "registered", original_title: String(row.product_name ?? ""), recommended_title: title, edited_title: title, final_title: title, original_site_srch: "", recommended_site_srch: siteSrch, edited_site_srch: siteSrch, edited_mall_key: market.mallKey, final_site_srch: siteSrch, classification: "auto_apply_candidate", review_status: "approved", block_reason: "", warning_flags: "", payload_status: title && siteSrch ? "preview_ready" : "invalid", validation_errors: title && siteSrch ? [] : ["manual candidate required"], validation_warnings: [], preview_xml_fragment: null, preview_payload: title && siteSrch ? { goods_key: goodsKey, mall_key: market.mallKey, title, site_srch: siteSrch } : null, expansion_mode: "product_group_markets", market_name: market.marketName, account_id_label: market.accountIdLabel }));
+  }).slice(0, 100);
+  return { items, previewableItems: items.filter((item) => item.payload_status === "preview_ready"), excludedItems: items.filter((item) => item.payload_status !== "preview_ready"), summary: { totalReviewedRows: rows.length, approvedCount: items.length, previewReadyCount: items.filter((item) => item.payload_status === "preview_ready").length, invalidCount: items.filter((item) => item.payload_status === "invalid").length, heldCount: 0, blockedRiskCount: 0 }, previewXml: "", expansionMode: "product_group_markets", expandedItemCount: items.length, groupVariantEnabled: false, attributeModifierMode: "safe_source_only", expansionErrors: [] };
 }
 
 
