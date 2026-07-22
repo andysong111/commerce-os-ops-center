@@ -2,7 +2,9 @@ import type {
   KeywordPayloadPreviewItem,
   KeywordPayloadPreviewResult,
 } from "./keywordReviewPayloadPreview";
+import { PRODUCT_GROUP_MARKET_MALL_KEYS } from "./productGroupMarketRegistry";
 
+const SHOPLING_MALL_KEY_PATTERN = /^SMALL_\d{5}$/;
 
 export const KEYWORD_EXECUTION_PREFLIGHT_LABELS: Record<string, string> = {
   MALL_KEY_NOT_ALLOWED: "선택한 쇼핑몰이 허용 목록에 없습니다.",
@@ -15,6 +17,7 @@ export const KEYWORD_EXECUTION_PREFLIGHT_LABELS: Record<string, string> = {
   HELD: "보류 항목입니다.",
   GOODS_KEY_REQUIRED: "상품번호가 없습니다.",
   MALL_KEY_REQUIRED: "쇼핑몰을 선택하세요.",
+  MALL_KEY_INVALID_FORMAT: "실제 샵플링 mall_key(SMALL_000xx) 형식만 사용할 수 있습니다.",
   FINAL_TITLE_REQUIRED: "상품명을 입력하세요.",
   FINAL_SITE_SRCH_REQUIRED: "검색어를 입력하세요.",
   FINAL_SITE_SRCH_TOO_MANY_KEYWORDS: "검색어는 최대 10개까지만 가능합니다.",
@@ -67,7 +70,7 @@ export type KeywordExecutionPreflightResult = {
 
 export const DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG: KeywordExecutionPreflightConfig =
   {
-    allowedMallKeys: ["SMALL_00004"],
+    allowedMallKeys: PRODUCT_GROUP_MARKET_MALL_KEYS,
     maxRows: 20,
     alreadyAppliedGoodsKeys: [],
     requireFinalConfirmation: false,
@@ -153,6 +156,7 @@ export function buildKeywordExecutionPreflight(
       }
       if (!goodsKey) blockReasons.push("GOODS_KEY_REQUIRED");
       if (!mallKey) blockReasons.push("MALL_KEY_REQUIRED");
+      else if (!SHOPLING_MALL_KEY_PATTERN.test(mallKey)) blockReasons.push("MALL_KEY_INVALID_FORMAT");
       if (!title) blockReasons.push("FINAL_TITLE_REQUIRED");
       if (!siteSrch) {
         blockReasons.push("FINAL_SITE_SRCH_REQUIRED");

@@ -129,6 +129,18 @@ test("fetch result rejects mismatched mode instead of returning stale dry_run as
   });
 });
 
+test("apply runner rejects previewItems-shaped or fake mall_key plans", async () => {
+  const { validateKeywordShoplingApplyInput } = await import("../src/lib/keywordShoplingApplyRunner.ts");
+  assert.throws(
+    () => validateKeywordShoplingApplyInput({ execution_plan_json: JSON.stringify([{ goods_key: "1", mall_key: "SMALL_00004", final_title: "t", final_site_srch: "k", preview_payload: {} }]), mode: "dry_run", max_items: 10 }),
+    /buildCompactKeywordApplyExecutionPlan/,
+  );
+  assert.throws(
+    () => validateKeywordShoplingApplyInput({ execution_plan_json: JSON.stringify([{ goods_key: "1", mall_key: "mall-1", final_title: "t", final_site_srch: "k" }]), mode: "dry_run", max_items: 10 }),
+    /SMALL_000xx/,
+  );
+});
+
 test("security source scan", async () => {
   const files = await Promise.all([
     readFile(new URL("../src/lib/keywordShoplingApplyRunner.ts", import.meta.url), "utf8"),

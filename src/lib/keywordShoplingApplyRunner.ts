@@ -31,7 +31,23 @@ export function generateKeywordShoplingApplyRequestId(now = new Date()) { return
 export function isValidKeywordShoplingApplyRequestId(requestId: string) { return KEYWORD_SHOPLING_APPLY_REQUEST_ID_PATTERN.test(requestId); }
 function enabled() { return process.env.KEYWORD_SHOPLING_APPLY_ENABLED === "1"; }
 
-function itemCountFromPlan(json: string) { try { const parsed = JSON.parse(json); if (Array.isArray(parsed)) return parsed.length; return Array.isArray(parsed?.eligibleItems) ? parsed.eligibleItems.length : undefined; } catch { return undefined; } }
+type CompactKeywordApplyPlanItem = { goods_key: string; mall_key: string; final_title: string; final_site_srch: string };
+const COMPACT_PLAN_KEYS = ["final_site_srch", "final_title", "goods_key", "mall_key"];
+const SHOPLING_MALL_KEY_PATTERN = /^SMALL_\d{5}$/;
+function parseCompactKeywordApplyPlan(json: string): CompactKeywordApplyPlanItem[] {
+  const parsed = JSON.parse(json);
+  if (!Array.isArray(parsed)) throw new Error("execution_plan_json은 buildCompactKeywordApplyExecutionPlan 결과 배열이어야 합니다.");
+  return parsed.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`execution_plan_json[${index}] 항목이 올바르지 않습니다.`);
+    const keys = Object.keys(item).sort();
+    if (keys.length !== COMPACT_PLAN_KEYS.length || keys.some((key, keyIndex) => key !== COMPACT_PLAN_KEYS[keyIndex])) throw new Error("execution_plan_json은 previewItems 원본 JSON이 아니라 buildCompactKeywordApplyExecutionPlan 결과만 사용할 수 있습니다.");
+    const row = item as Record<string, unknown>;
+    for (const key of COMPACT_PLAN_KEYS) if (typeof row[key] !== "string" || !row[key].trim()) throw new Error(`execution_plan_json[${index}].${key} 값이 필요합니다.`);
+    if (!SHOPLING_MALL_KEY_PATTERN.test(String(row.mall_key))) throw new Error("execution_plan_json에는 실제 샵플링 mall_key(SMALL_000xx)만 사용할 수 있습니다.");
+    return { goods_key: String(row.goods_key), mall_key: String(row.mall_key), final_title: String(row.final_title), final_site_srch: String(row.final_site_srch) };
+  });
+}
+function itemCountFromPlan(json: string) { try { return parseCompactKeywordApplyPlan(json).length; } catch { return undefined; } }
 async function safeGithubErrorBodyPreview(response: Response) {
   try {
     const text = await response.text();
@@ -46,7 +62,7 @@ async function safeGithubErrorBodyPreview(response: Response) {
 }
 export function validateKeywordShoplingApplyInput(input: { execution_plan_json?: unknown; mode?: unknown; confirmation_text?: unknown; max_items?: unknown }) {
   if (typeof input.execution_plan_json !== "string" || input.execution_plan_json.trim().length === 0) throw new Error("execution_plan_json이 필요합니다.");
-  JSON.parse(input.execution_plan_json);
+  parseCompactKeywordApplyPlan(input.execution_plan_json);
   if (input.mode !== "dry_run" && input.mode !== "apply") throw new Error("mode는 dry_run 또는 apply여야 합니다.");
   const maxItems = Number(input.max_items);
   if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 100) throw new Error("max_items는 1부터 100 사이의 정수여야 합니다.");
