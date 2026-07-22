@@ -678,6 +678,58 @@ test("manual candidate parsing preserves raw comma input until generation", asyn
   assert.equal(normalizeManualKeywordOverride("k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11"), "k1,k2,k3,k4,k5,k6,k7,k8,k9,k10");
 });
 
+
+test("product launch failure UI exposes reset and retry actions with duplicate helper copy", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "문제 해결 후 처음부터 다시 시작",
+    "현재 실패 기록 지우기",
+    "문제 해결 후 같은 행 다시 실행",
+    "자사상품코드나 실재고 시트 값을 수정했다면 아래 버튼으로 이전 실패 기록을 지우고 다시 시작하세요.",
+    "같은 자사상품코드가 이미 샵플링에 등록되어 있습니다.",
+    "실재고 시트의 자사상품코드를 수정했거나 goods_key가 이미 있는 행을 다시 업로드하려는 경우, 실패 기록을 지운 뒤 다시 실행하세요.",
+  ]) assert.ok(flow.includes(expected), expected);
+});
+
+test("product launch reset clears persisted local and session storage keys", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "productLaunchFlow.session.v2",
+    "productLaunchFlow.uploadRequestId",
+    "productLaunchFlow.priceRequestId",
+    "productLaunchFlow.lastRowExpression",
+    "productLaunchFlow.keywordSeed",
+    "productLaunchFlow.manualWizard.v1",
+    "productLaunchFlow.manualCandidatesBySourceRow",
+    "opsCenter.keywordEngine.importedArtifact.v1",
+    "removeStorageKeysByPrefix(window.localStorage",
+    "SEED_KEYWORDS_STORAGE_PREFIX",
+    "MANUAL_TITLE_OVERRIDES_STORAGE_PREFIX",
+    "MANUAL_KEYWORD_OVERRIDES_STORAGE_PREFIX",
+    "removeStorageKeysByPrefix(window.sessionStorage, [\"productLaunchFlow\"])",
+  ]) assert.ok(flow.includes(expected), expected);
+});
+
+test("product launch retry keeps row expression while clearing request and result state", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  assert.match(flow, /retryProductLaunchSession = \(\) => clearProductLaunchFailureState\(\{ keepRowExpression: true \}\)/);
+  assert.match(flow, /setRowExpression\(options\.keepRowExpression \? preservedRowExpression : ""\)/);
+  for (const expected of [
+    "setUploadRequestId(\"\")",
+    "setPriceRequestId(\"\")",
+    "setFinalPriceRequestId(\"\")",
+    "setUploadRunResult(null)",
+    "setUploadActionsResult(null)",
+    "setPriceRunResult(null)",
+    "setPriceActionsResult(null)",
+    "setKeywordDispatchResult(null)",
+    "setKeywordRunsResult(null)",
+    "setKeywordApplyState(null)",
+    "setFinalPriceRunResult(null)",
+    "setFinalPriceActionsResult(null)",
+  ]) assert.ok(flow.includes(expected), expected);
+});
+
 test("manual product launch default source hides legacy keyword UI labels", async () => {
   const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
   for (const forbidden of [
@@ -755,7 +807,8 @@ test("product launch flow restores persisted session and fetches completed artif
     "상품업로드 결과를 복구했습니다. 생성된 goods_key 기준으로 다음 단계를 이어갑니다.",
     "상품업로드 결과 확인 중",
     "최근 상품업로드 결과 복구",
-    "현재 상품출시 작업 초기화",
+    "문제 해결 후 처음부터 다시 시작",
+    "현재 실패 기록 지우기",
     "restoredSession.uploadRequestId",
     "pollUploadResult(true, restoredSession.uploadRequestId)",
     "restoredSession.priceRequestId",
