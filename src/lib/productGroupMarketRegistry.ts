@@ -57,3 +57,7 @@ export function getMarketsForProductGroup(productGroup: string): ProductGroupMar
 export function getMarketsForGroupSuffix(groupSuffix: string): ProductGroupMarketAccount[] {
   return PRODUCT_GROUP_MARKET_REGISTRY.filter((account) => account.groupSuffix === groupSuffix.trim());
 }
+
+export function getAllRegistryMallKeys(): string[] {
+  return [...new Set(PRODUCT_GROUP_MARKET_REGISTRY.map((account) => account.mallKey))];
+}

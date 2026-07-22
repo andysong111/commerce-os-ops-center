@@ -325,7 +325,7 @@ test("keyword review preflight defaults and Korean labels are present", async ()
   );
   for (const text of [
     "useState(\"\")",
-    "허용 쇼핑몰은 상품그룹 시장 등록 설정에 따라 자동 설정됩니다.",
+    "mall_key는 상품그룹 시장 등록 설정에서 생성된 적용 계획 기준으로만 점검합니다.",
     "useState(\"20\")",
     "실제 반영은 아래 ‘실제 샵플링 반영 실행’에서 확인문구 입력 후 진행됩니다.",
   ])

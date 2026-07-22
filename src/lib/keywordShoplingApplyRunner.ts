@@ -31,7 +31,37 @@ export function generateKeywordShoplingApplyRequestId(now = new Date()) { return
 export function isValidKeywordShoplingApplyRequestId(requestId: string) { return KEYWORD_SHOPLING_APPLY_REQUEST_ID_PATTERN.test(requestId); }
 function enabled() { return process.env.KEYWORD_SHOPLING_APPLY_ENABLED === "1"; }
 
-function itemCountFromPlan(json: string) { try { const parsed = JSON.parse(json); if (Array.isArray(parsed)) return parsed.length; return Array.isArray(parsed?.eligibleItems) ? parsed.eligibleItems.length : undefined; } catch { return undefined; } }
+type CompactKeywordApplyPlanItem = {
+  goods_key: string;
+  mall_key: string;
+  final_title: string;
+  final_site_srch: string;
+};
+
+function parseExecutionPlan(json: string): CompactKeywordApplyPlanItem[] {
+  const parsed = JSON.parse(json);
+  const items = Array.isArray(parsed) ? parsed : parsed?.eligibleItems;
+  if (!Array.isArray(items)) throw new Error("execution_plan_json은 compact item 배열이어야 합니다.");
+  if (items.length === 0) throw new Error("execution_plan_json에는 최소 1개 이상의 실행 항목이 필요합니다.");
+  if (items.length > 100) throw new Error("execution_plan_json은 최대 100개 항목까지만 허용됩니다.");
+  return items.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`execution_plan_json[${index}] 형식이 올바르지 않습니다.`);
+    const allowed = new Set(["goods_key", "mall_key", "final_title", "final_site_srch"]);
+    for (const key of Object.keys(item)) if (!allowed.has(key)) throw new Error(`execution_plan_json[${index}]에 허용되지 않은 필드가 있습니다: ${key}`);
+    const record = item as Record<string, unknown>;
+    const required = ["goods_key", "mall_key", "final_title", "final_site_srch"] as const;
+    for (const key of required) if (typeof record[key] !== "string" || record[key].trim().length === 0) throw new Error(`execution_plan_json[${index}].${key}가 필요합니다.`);
+    const normalized: CompactKeywordApplyPlanItem = {
+      goods_key: String(record.goods_key).trim(),
+      mall_key: String(record.mall_key).trim(),
+      final_title: String(record.final_title).trim(),
+      final_site_srch: String(record.final_site_srch).trim(),
+    };
+    if (!/^SMALL_\d{5}$/.test(normalized.mall_key)) throw new Error(`execution_plan_json[${index}].mall_key 형식이 올바르지 않습니다.`);
+    return normalized;
+  });
+}
+
 async function safeGithubErrorBodyPreview(response: Response) {
   try {
     const text = await response.text();
@@ -46,13 +76,14 @@ async function safeGithubErrorBodyPreview(response: Response) {
 }
 export function validateKeywordShoplingApplyInput(input: { execution_plan_json?: unknown; mode?: unknown; confirmation_text?: unknown; max_items?: unknown }) {
   if (typeof input.execution_plan_json !== "string" || input.execution_plan_json.trim().length === 0) throw new Error("execution_plan_json이 필요합니다.");
-  JSON.parse(input.execution_plan_json);
+  const executionPlan = parseExecutionPlan(input.execution_plan_json);
   if (input.mode !== "dry_run" && input.mode !== "apply") throw new Error("mode는 dry_run 또는 apply여야 합니다.");
   const maxItems = Number(input.max_items);
   if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 100) throw new Error("max_items는 1부터 100 사이의 정수여야 합니다.");
   const confirmationText = typeof input.confirmation_text === "string" ? input.confirmation_text.trim() : "";
   if (input.mode === "apply" && confirmationText !== KEYWORD_SHOPLING_APPLY_CONFIRMATION_TEXT) throw new Error("실제 반영은 정확한 확인문구가 필요합니다.");
-  return { executionPlanJson: input.execution_plan_json, mode: input.mode as Mode, confirmationText, maxItems, itemCount: itemCountFromPlan(input.execution_plan_json) };
+  if (executionPlan.length > maxItems) throw new Error("execution_plan_json 항목 수가 max_items를 초과합니다.");
+  return { executionPlanJson: JSON.stringify(executionPlan), mode: input.mode as Mode, confirmationText, maxItems, itemCount: executionPlan.length };
 }
 
 export function buildKeywordShoplingApplyDispatchRequest(input: { execution_plan_json?: unknown; mode?: unknown; confirmation_text?: unknown; max_items?: unknown }) {

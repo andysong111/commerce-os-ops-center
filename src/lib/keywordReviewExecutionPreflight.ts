@@ -2,6 +2,7 @@ import type {
   KeywordPayloadPreviewItem,
   KeywordPayloadPreviewResult,
 } from "./keywordReviewPayloadPreview";
+import { getAllRegistryMallKeys } from "./productGroupMarketRegistry";
 
 
 export const KEYWORD_EXECUTION_PREFLIGHT_LABELS: Record<string, string> = {
@@ -67,7 +68,7 @@ export type KeywordExecutionPreflightResult = {
 
 export const DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG: KeywordExecutionPreflightConfig =
   {
-    allowedMallKeys: ["SMALL_00004"],
+    allowedMallKeys: getAllRegistryMallKeys(),
     maxRows: 20,
     alreadyAppliedGoodsKeys: [],
     requireFinalConfirmation: false,
