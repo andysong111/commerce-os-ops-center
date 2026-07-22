@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { KeywordReviewWorkspace, type KeywordApplyState } from "@/components/keyword-review/KeywordReviewWorkspace";
+import type { KeywordApplyState } from "@/components/keyword-review/KeywordReviewWorkspace";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildGoodsKeyGroupJson,
@@ -10,9 +10,6 @@ import {
   buildKeywordEngineDispatchPayload,
   buildLaunchSourceRowGroups,
   expandSeedKeywordsBySourceRowToGoodsKeys,
-  isSafeLaunchTitle,
-  MISSING_SOURCE_ROW_WARNING,
-  parseLaunchRowExpression,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
   expectedLaunchApplyCount,
@@ -21,7 +18,7 @@ import {
   extractUploadRows,
   inferProductGroupFromPtnGoodsCd,
   normalizeManualKeywordOverride,
-  normalizeSeedKeywords,
+  parseManualCandidateList,
   resolveManualTitleOverride,
   type ProductLaunchPriceError,
   type ProductLaunchUploadRow,
@@ -43,28 +40,7 @@ const ACTIVE_POLL_INTERVAL_MS = 5_000;
 const ACTIVE_MAX_POLLS = 24;
 const APPLY_CONFIRMATION_TEXT = "APPLY_KEYWORD_RESULTS_TO_SHOPLING";
 
-const PRODUCT_LAUNCH_INLINE_REVIEW_COPY = [
-  "현재 연결된 상품출시 작업",
-  "상품업로드 request id",
-  "가격설정 request id",
-  "키워드 run id",
-  "artifact name",
-  "상품명/검색어 후보 확인",
-  "상품명 첫 후보 자동 선택",
-  "상품명 반영 커버리지",
-  "누락 상품명 자동 보강",
-  "상품그룹별 상품명 미리보기",
-  "적용 계획 생성",
-  "dry_run 실행",
-  "실제 샵플링 반영 실행",
-  "켜면 상품업로드 성공 후 가격설정과 키워드 dry_run까지 자동으로 이어서 진행합니다",
-  "키워드 결과 후보가 아직 불러와지지 않았습니다",
-  "승인된 상품명이 있어야 미리보기를 생성할 수 있습니다",
-  "적용 계획을 먼저 생성하세요",
-  "dry_run 성공 후 실제 반영이 가능합니다",
-  "행별 상품명/검색어 후보를 입력하면 미리보기를 생성합니다.",
-  APPLY_CONFIRMATION_TEXT,
-] as const;
+const PRODUCT_LAUNCH_INLINE_REVIEW_COPY = [APPLY_CONFIRMATION_TEXT] as const;
 
 type RunResult = { status?: string; message?: string; requestId?: string; githubActionsUrl?: string; commandPreview?: string };
 type UploadSummary = { status?: unknown; rows?: ProductLaunchUploadRow[]; goods_keys?: ProductLaunchUploadRow[] };
@@ -119,8 +95,8 @@ export function ProductLaunchFlow() {
   const [keywordDispatchResult, setKeywordDispatchResult] = useState<KeywordDispatchResult | null>(null);
   const [keywordRunsResult, setKeywordRunsResult] = useState<KeywordRunsResult | null>(restoredSession?.keywordResult ?? null);
   const [keywordImportMessage, setKeywordImportMessage] = useState<string>("");
-  const [embeddedReviewOpen, setEmbeddedReviewOpen] = useState(false);
-  const [keywordImportedAt, setKeywordImportedAt] = useState("");
+  const [, setEmbeddedReviewOpen] = useState(false);
+  const [, setKeywordImportedAt] = useState("");
   const [keywordBusy, setKeywordBusy] = useState<string>("");
   const [keywordPolling, setKeywordPolling] = useState(false);
   const [keywordPollCount, setKeywordPollCount] = useState(0);
@@ -635,19 +611,9 @@ export function ProductLaunchFlow() {
     <div className="space-y-6">
       {sessionRestored ? <RecoveryBanner uploadRecovered={uploadRecovered || isSuccessfulUploadResult(uploadActionsResult, uploadRows.length)} /> : null}
       <OperatorLaunchStatusBoard state={cockpit} productCount={goodsKeys.length} mallCount={boardMallCount} titleTargetCount={titleTargetCount} keywordWarningCount={keywordWarningCount} issueCount={issueCount} actualApplyDone={actualApplyDone} keywordApplyState={keywordApplyState} priceIssueState={priceIssueState} manualCandidatesReady={manualCandidatesReady} onNext={keywordRealApplySucceeded && !finalPriceDone ? runFinalPriceModify : runNextSafeStep} initialPriceRequestId={priceRequestId} finalPriceRequestId={finalPriceRequestId} finalPriceActionsResult={finalPriceActionsResult} finalPriceActive={finalPriceActive} finalPriceDone={finalPriceDone} finalPriceFailed={finalPriceFailed} finalPriceTargetCount={goodsKeys.length * FULL_PRICE_POLICY_MALL_COUNT} />
-      <SeedKeywordSection sourceRowGroups={sourceRowGroups} rowExpression={lastStartedRowExpression || rowExpression} seedKeywordsBySourceRow={seedKeywordsBySourceRow} onSeedKeywordChange={(sourceRowId, value) => setSeedKeywordsBySourceRow((current) => ({ ...current, [sourceRowId]: value }))} />
       <ManualOverrideSection goodsKeys={goodsKeys} uploadRows={uploadRows} manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey} manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey} onManualTitleChange={(goodsKey, value) => setManualTitleOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} onManualKeywordChange={(goodsKey, value) => setManualKeywordOverridesByGoodsKey((current) => ({ ...current, [goodsKey]: value }))} />
       <RepresentativePreviewCard uploadRows={uploadRows} goodsKeys={goodsKeys} manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey} manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey} />
       <LaunchCockpit steps={cockpit.steps} currentStage={derivedStage} nextAction={cockpit.nextAction} primaryAction={cockpit.primaryAction} onNext={runNextSafeStep} rowExpression={rowExpression} onRowExpressionChange={setRowExpression} uploadBusy={uploadRunning || uploadFetching || uploadPolling} priceBusy={priceRunning || priceFetching || pricePolling || finalPriceActive} keywordBusy={keywordBusy === "dispatch" || keywordBusy === "runs" || keywordPolling || isKeywordRunning(keywordRunsResult)} autoPilotEnabled={autopilotEnabled} onAutoPilotChange={setAutopilotEnabled} currentRequestId={currentRequestId} previousRequestId={previousRequestId} lastCheckedAt={lastCheckedAt} autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회 · 최종가격 ${finalPricePollCount}회`} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} counts={{ upload: uploadCounts, price: priceCounts, keyword: keywordSummary }} uploadProgress={{ phase: getUploadPhaseLabel(uploadActionsResult, uploadRunning, uploadFetching, uploadPolling), elapsedSeconds: uploadElapsedSeconds, pollCount: uploadPollCount, lastCheckedAt: uploadLastCheckedAt, nextCheckIn: uploadNextCheckIn, requestId: currentUploadRequestId, actionsUrl: uploadGithubActionsUrl, active: uploadRunning || uploadFetching || uploadPolling, onCheckNow: fetchUploadResult, checking: uploadFetching }} autoActualApplyEnabled={autoActualApplyEnabled} onAutoActualApplyEnabledChange={setAutoActualApplyEnabled} />
-      {keywordSummary.artifact ? <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-bold text-emerald-700">키워드 결과 검토</p>
-        <h2 className="mt-1 text-xl font-black text-slate-950">키워드 결과 파일이 준비되었습니다.</h2>
-        <p className="mt-2 text-sm text-slate-700">이 화면에서 상품명 후보 선택부터 실제 반영 전 dry_run까지 이어서 진행합니다.</p>
-        <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">이제 화면을 이동하지 않고 이 상품출시 플로우 안에서 키워드 검토와 반영 준비를 진행합니다.</p>
-        <div className="mt-4 flex flex-wrap gap-3"><button type="button" onClick={openInlineKeywordReview} disabled={!!keywordBusy} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">키워드 검토 시작</button><Link href="/keyword-review-queue?from=product-launch-flow" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">개별 키워드 검토 화면에서 열기</Link></div>
-        {keywordImportMessage ? <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{keywordImportMessage}</p> : null}
-      </section> : null}
-      {embeddedReviewOpen ? <KeywordReviewWorkspace mode="embedded" launchContext={{ rowExpression: lastStartedRowExpression || rowExpression, uploadRequestId: currentUploadRequestId || uploadRequestId, priceRequestId, keywordRunId: keywordRunsResult?.runs?.[0]?.id, artifactName: keywordSummary.artifact?.name, importedAt: keywordImportedAt || "확인 중", goodsKeyCount: goodsKeys.length, productGroupCount: new Set(uploadRows.map((row) => inferProductGroupFromPtnGoodsCd(row.ptn_goods_cd ?? ""))).size, uploadRows, goodsKeys, goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows), manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey, autoApplyToShopling: autoActualApplyEnabled === true, autoApplyConfirmationText: autoActualApplyEnabled === true ? "AUTO_APPLY_TO_SHOPLING" : "", sourceRowGroups, manualCandidatesReady }} onApplyStateChange={setKeywordApplyState} /> : null}
       {cockpit.primaryAction === "failed" ? <ErrorDrawer title="실패 원인" uploadResult={uploadActionsResult} priceResult={priceActionsResult} keywordResult={keywordRunsResult} requestId={previousRequestId} actionsUrl={keywordGithubActionsUrl ?? priceGithubActionsUrl ?? uploadGithubActionsUrl} /> : null}
 
       <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -709,25 +675,6 @@ function RecoveryBanner({ uploadRecovered }: { uploadRecovered: boolean }) {
   </section>;
 }
 
-function SeedKeywordSection({ sourceRowGroups, rowExpression, seedKeywordsBySourceRow, onSeedKeywordChange }: { sourceRowGroups: ReturnType<typeof buildLaunchSourceRowGroups>; rowExpression: string; seedKeywordsBySourceRow: Record<string, string>; onSeedKeywordChange: (sourceRowId: string, value: string) => void; }) {
-  const hasMissingMapping = sourceRowGroups.some((group) => group.mappingMissing) && parseLaunchRowExpression(rowExpression).length > 1;
-  return <section className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
-    <p className="text-sm font-bold text-blue-700">행별 핵심 키워드</p>
-    <h2 className="mt-1 text-xl font-black text-slate-950">행별 핵심 키워드</h2>
-    <p className="mt-2 text-sm font-semibold text-slate-700">실재고 시트 행마다 좋은 키워드를 한 번만 입력하세요.<br />같은 행에서 생성된 도매/소매 상품들은 이 키워드를 함께 사용합니다.<br />AI가 이 키워드로 쇼핑몰별 상품명과 상품별 검색어를 자동 생성합니다.</p>
-    <p className="mt-2 rounded-lg bg-blue-50 p-3 text-xs font-semibold text-blue-800">검색어는 상품별 1세트로 반영됩니다. 쇼핑몰별 차별화는 상품명에서 적용합니다.</p>
-    {hasMissingMapping ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">{MISSING_SOURCE_ROW_WARNING}</p> : null}
-    {sourceRowGroups.length === 0 ? <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">상품업로드 후 실재고 행별 핵심 키워드 입력칸이 표시됩니다.</p> : <div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-slate-50 text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">실재고 행</th><th className="border border-slate-200 px-3 py-2">생성 상품</th><th className="border border-slate-200 px-3 py-2">현재 상품명</th><th className="border border-slate-200 px-3 py-2">핵심 키워드 입력</th><th className="border border-slate-200 px-3 py-2">상태</th></tr></thead><tbody>{sourceRowGroups.map((group) => {
-      const seedValue = seedKeywordsBySourceRow[group.sourceRowId] ?? "";
-      const normalizedPreview = normalizeSeedKeywords(seedValue);
-      const safeTitle = isSafeLaunchTitle(group.currentTitle) ? group.currentTitle : "키워드 엔진 대기";
-      const status = group.mappingMissing ? "확인 필요" : normalizedPreview ? "준비 완료" : safeTitle !== "키워드 엔진 대기" ? "엔진 보강" : "키워드 필요";
-      const productSummary = `${group.productGroups.join("·") || "상품그룹 확인 필요"} / goods_key ${group.goodsKeys.length}개`;
-      return <tr key={group.sourceRowId} className="bg-white"><td className="border border-slate-200 px-3 py-2 font-mono font-bold">{group.displayLabel}</td><td className="border border-slate-200 px-3 py-2 font-semibold">{productSummary}</td><td className="border border-slate-200 px-3 py-2">{safeTitle}</td><td className="border border-slate-200 px-3 py-2"><input value={seedValue} onChange={(event) => onSeedKeywordChange(group.sourceRowId, event.target.value)} placeholder="게임패드,컨트롤러,조이스틱,미니" className="w-80 rounded-lg border border-slate-300 px-3 py-2" />{normalizedPreview ? <p className="mt-1 text-xs font-semibold text-emerald-700">{normalizedPreview}</p> : <p className="mt-1 text-xs text-slate-500">행별 핵심 키워드를 입력하세요.</p>}</td><td className="border border-slate-200 px-3 py-2 font-bold">{status}</td></tr>;
-    })}</tbody></table></div>}
-  </section>;
-}
-
 function ManualOverrideSection({ goodsKeys, uploadRows, manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey, onManualTitleChange, onManualKeywordChange }: { goodsKeys: string[]; uploadRows: ProductLaunchUploadRow[]; manualTitleOverridesByGoodsKey: Record<string, string>; manualKeywordOverridesByGoodsKey: Record<string, string>; onManualTitleChange: (goodsKey: string, value: string) => void; onManualKeywordChange: (goodsKey: string, value: string) => void; }) {
   const uploadRowsByGoodsKey = new Map(uploadRows.map((row) => [(row.goods_key ?? "").trim(), row]));
   const rows = goodsKeys.length > 0 ? goodsKeys : uploadRows.map((row) => (row.goods_key ?? "").trim()).filter(Boolean);
@@ -735,14 +682,14 @@ function ManualOverrideSection({ goodsKeys, uploadRows, manualTitleOverridesByGo
     <p className="text-sm font-bold text-blue-700">행별 상품명/검색어 후보 입력</p>
     <h2 className="mt-1 text-xl font-black text-slate-950">행별 상품명/검색어 후보 입력</h2>
     <p className="mt-2 text-sm font-semibold text-slate-700">행별 또는 상품별 상품명과 검색어 후보를 입력하세요. 상품그룹별 쇼핑몰은 등록 정책표에서 자동 선택됩니다.</p>
-    {rows.length === 0 ? <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">상품업로드 후 행별 상품명/검색어 후보 입력칸이 표시됩니다.</p> : <div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-slate-50 text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">goods_key</th><th className="border border-slate-200 px-3 py-2">상품그룹</th><th className="border border-slate-200 px-3 py-2">현재 엔진 추천 상품명</th><th className="border border-slate-200 px-3 py-2">상품명 후보 입력</th><th className="border border-slate-200 px-3 py-2">검색어 후보 입력</th><th className="border border-slate-200 px-3 py-2">상태</th></tr></thead><tbody>{rows.map((goodsKey) => {
+    {rows.length === 0 ? <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">상품업로드 후 행별 상품명/검색어 후보 입력칸이 표시됩니다.</p> : <div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-sm"><thead><tr className="bg-slate-50 text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">goods_key</th><th className="border border-slate-200 px-3 py-2">상품그룹</th><th className="border border-slate-200 px-3 py-2">현재 상품명</th><th className="border border-slate-200 px-3 py-2">상품명 후보 입력</th><th className="border border-slate-200 px-3 py-2">검색어 후보 입력</th><th className="border border-slate-200 px-3 py-2">상태</th></tr></thead><tbody>{rows.map((goodsKey) => {
       const uploadRow = uploadRowsByGoodsKey.get(goodsKey);
       const productGroup = inferProductGroupFromPtnGoodsCd(uploadRow?.ptn_goods_cd ?? "").productGroup;
-      const engineTitle = [uploadRow?.final_title, uploadRow?.registered_title, uploadRow?.upload_title, uploadRow?.product_name, uploadRow?.title, uploadRow?.productTitle].find((value) => String(value ?? "").trim()) ?? "키워드 엔진 대기";
+      const engineTitle = [uploadRow?.final_title, uploadRow?.registered_title, uploadRow?.upload_title, uploadRow?.product_name, uploadRow?.title, uploadRow?.productTitle].find((value) => String(value ?? "").trim()) ?? "상품명 대기";
       const manualTitle = manualTitleOverridesByGoodsKey[goodsKey] ?? "";
       const manualKeyword = manualKeywordOverridesByGoodsKey[goodsKey] ?? "";
-      const status = resolveManualTitleOverride(manualTitle, goodsKey) ? "수동" : String(engineTitle).trim() && engineTitle !== "키워드 엔진 대기" ? "엔진" : "보강 필요";
-      return <tr key={goodsKey} className="bg-white"><td className="border border-slate-200 px-3 py-2 font-mono">{goodsKey}</td><td className="border border-slate-200 px-3 py-2 font-semibold">{productGroup}</td><td className="border border-slate-200 px-3 py-2">{engineTitle}</td><td className="border border-slate-200 px-3 py-2"><input value={manualTitle} onChange={(event) => onManualTitleChange(goodsKey, event.target.value)} placeholder="상품명 후보" className="w-64 rounded-lg border border-slate-300 px-3 py-2" /></td><td className="border border-slate-200 px-3 py-2"><input value={manualKeyword} onChange={(event) => onManualKeywordChange(goodsKey, normalizeManualKeywordOverride(event.target.value) || event.target.value)} placeholder="게임패드,컨트롤러,조이스틱" className="w-64 rounded-lg border border-slate-300 px-3 py-2" /></td><td className="border border-slate-200 px-3 py-2 font-bold">{status}</td></tr>;
+      const status = resolveManualTitleOverride(manualTitle, goodsKey) ? "수동" : String(engineTitle).trim() && engineTitle !== "상품명 대기" ? "엔진" : "보강 필요";
+      return <tr key={goodsKey} className="bg-white"><td className="border border-slate-200 px-3 py-2 font-mono">{goodsKey}</td><td className="border border-slate-200 px-3 py-2 font-semibold">{productGroup}</td><td className="border border-slate-200 px-3 py-2">{engineTitle}</td><td className="border border-slate-200 px-3 py-2"><input value={manualTitle} onChange={(event) => onManualTitleChange(goodsKey, event.target.value)} placeholder="상품명 후보" className="w-64 rounded-lg border border-slate-300 px-3 py-2" /></td><td className="border border-slate-200 px-3 py-2"><input value={manualKeyword} onChange={(event) => onManualKeywordChange(goodsKey, event.target.value)} placeholder="게임패드,컨트롤러,조이스틱" className="w-64 rounded-lg border border-slate-300 px-3 py-2" /></td><td className="border border-slate-200 px-3 py-2 font-bold">{status}</td></tr>;
     })}</tbody></table></div>}
   </section>;
 }
@@ -753,8 +700,9 @@ function RepresentativePreviewCard({ uploadRows, goodsKeys, manualTitleOverrides
   const row = uploadRowsByGoodsKey.get(firstGoodsKey) ?? uploadRows[0];
   const productGroup = inferProductGroupFromPtnGoodsCd(row?.ptn_goods_cd ?? "").productGroup;
   const markets = getMarketsForProductGroup(productGroup);
-  const titleCandidate = resolveManualTitleOverride(manualTitleOverridesByGoodsKey[firstGoodsKey] ?? "", firstGoodsKey) || String(row?.final_title ?? row?.registered_title ?? row?.upload_title ?? row?.product_name ?? row?.title ?? "상품명 후보 대기");
-  const searchCandidate = normalizeManualKeywordOverride(manualKeywordOverridesByGoodsKey[firstGoodsKey] ?? "") || "검색어 후보 대기";
+  const parsedTitleCandidates = parseManualCandidateList(manualTitleOverridesByGoodsKey[firstGoodsKey] ?? "");
+  const titleCandidate = parsedTitleCandidates.join(" ") || resolveManualTitleOverride(manualTitleOverridesByGoodsKey[firstGoodsKey] ?? "", firstGoodsKey) || String(row?.final_title ?? row?.registered_title ?? row?.upload_title ?? row?.product_name ?? row?.title ?? "상품명 후보 대기");
+  const searchCandidate = normalizeManualKeywordOverride(manualKeywordOverridesByGoodsKey[firstGoodsKey] ?? "") || normalizeManualKeywordOverride(parsedTitleCandidates.join(",")) || "검색어 후보 대기";
   return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
     <p className="text-sm font-bold text-indigo-700">대표 미리보기</p>
     <h2 className="mt-1 text-xl font-black text-slate-950">대표 미리보기</h2>
@@ -780,7 +728,7 @@ function OperatorLaunchStatusBoard({ state, productCount, mallCount, titleTarget
   const realApplyLabel = getKeywordApplyPhaseLabelForBoard(keywordApplyState);
   const keywordRealApplySucceeded = isKeywordRealApplySuccess(keywordApplyState);
   const finalPriceStatus = finalPriceActive ? "가격 최종 재적용 중" : finalPriceDone ? "success" : finalPriceFailed ? "failed" : "waiting";
-  const boardButtonLabel = finalPriceActive ? "가격 최종 재적용 확인 중" : keywordRealApplySucceeded && !finalPriceDone ? "가격 최종 재적용 확인 중" : actualApplyDone ? "출시 결과 확인" : realApplyRunning ? "검토 결과 새로고침" : realApplyStatus === "failed" || realApplyStatus === "blocked" ? "문제 확인" : state.primaryAction === "upload" ? "상품출시 시작" : keywordApplyState?.dryRunStatus === "success" ? "승인하고 샵플링 반영 실행" : "상품명/검색어 후보 입력 후 검토 생성";
+  const boardButtonLabel = finalPriceActive ? "가격 최종 재적용 확인 중" : keywordRealApplySucceeded && !finalPriceDone ? "가격 최종 재적용 확인 중" : actualApplyDone ? "출시 결과 확인" : realApplyRunning ? "검토 결과 새로고침" : realApplyStatus === "failed" || realApplyStatus === "blocked" ? "문제 확인" : state.primaryAction === "upload" ? "상품출시 시작" : keywordApplyState?.dryRunStatus === "success" ? "승인하고 실제 반영 실행" : "상품명/검색어 후보 입력 후 검토 생성";
   const dryRunComplete = keywordApplyState?.dryRunStatus === "success";
   const blockedByApply = realApplyStatus === "blocked" || (keywordApplyState?.blankMallTitleBlockedCount ?? 0) > 0;
   const uploadAndPriceComplete = state.steps[0]?.state === "success" && state.steps[1]?.state === "success";
@@ -827,11 +775,11 @@ function isKeywordRealApplySuccess(state: KeywordApplyState | null) {
 
 function getKeywordApplyPhaseLabelForBoard(state: KeywordApplyState | null) {
   if (!state || state.dryRunStatus === "idle") return "키워드 dry_run 대기";
-  if (String(state.realApplyStatus) === "success" || String(state.realApplyStatus) === "success_with_verification_warning") return "실제 샵플링 반영 완료";
-  if (state.realApplyStatus === "failed") return "실제 샵플링 반영 실패";
-  if (state.realApplyStatus === "blocked") return "실제 샵플링 반영 차단됨";
-  if (state.realApplyStatus === "queued" || state.realApplyStatus === "running" || state.realApplyStatus === "waiting_artifact") return "실제 샵플링 반영 실행 중";
-  if (state.dryRunStatus === "success") return "실제 샵플링 반영 대기";
+  if (String(state.realApplyStatus) === "success" || String(state.realApplyStatus) === "success_with_verification_warning") return "실제 반영 완료";
+  if (state.realApplyStatus === "failed") return "실제 반영 실패";
+  if (state.realApplyStatus === "blocked") return "실제 반영 차단됨";
+  if (state.realApplyStatus === "queued" || state.realApplyStatus === "running" || state.realApplyStatus === "waiting_artifact") return "실제 반영 실행 중";
+  if (state.dryRunStatus === "success") return "실제 반영 대기";
   return "키워드 dry_run 대기";
 }
 
@@ -842,7 +790,7 @@ function LaunchCockpit({ steps, currentStage, nextAction, primaryAction, onNext,
   const rowIsValid = rowExpression.trim().length > 0;
   const primaryLabel = getPrimaryActionLabel(primaryAction, uploadBusy, priceBusy, keywordBusy, currentStage);
   const disabled = primaryAction === "upload" ? !rowIsValid || uploadBusy : primaryAction === "wait" || primaryAction === "failed" || priceBusy || keywordBusy;
-  void autoPilotEnabled; void onAutoPilotChange; void autoActualApplyEnabled; void onAutoActualApplyEnabledChange; void currentRequestId; void previousRequestId; void autoPollStatus; void actionsUrl;
+  void steps; void counts; void autoPilotEnabled; void onAutoPilotChange; void autoActualApplyEnabled; void onAutoActualApplyEnabledChange; void currentRequestId; void previousRequestId; void autoPollStatus; void actionsUrl;
   return <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
     <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-semibold text-blue-700">운영 집중 모드</p><h1 className="text-2xl font-black text-slate-950">상품 출시 플로우</h1><p className="mt-1 text-sm text-slate-600">행 번호를 입력하면 상품업로드부터 순서대로 진행합니다.</p></div></div>
     {primaryAction === "upload" ? <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-5"><p className="text-sm font-bold text-blue-700">행번호 입력</p><h2 className="mt-1 text-lg font-black text-slate-950">먼저 실재고 시트 행 번호를 입력하세요</h2><label className="mt-4 block text-sm font-semibold text-slate-800">실재고 시트 행 번호<input value={rowExpression} onChange={(event) => onRowExpressionChange(event.target.value)} placeholder="예: 950 또는 950-955" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><p className="mt-2 text-sm text-slate-700">상품을 업로드할 실재고 시트의 행 번호입니다. 처음에는 행 번호만 입력하면 됩니다.</p>{!rowIsValid ? <p className="mt-3 rounded-lg bg-white p-3 text-sm font-semibold text-blue-800">행 번호를 입력하면 상품업로드를 시작할 수 있습니다.</p> : null}<button type="button" onClick={onNext} disabled={disabled} className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300">{rowIsValid ? primaryLabel : "행 번호 입력 후 시작"}</button></div> : <div className="mt-5"><button type="button" onClick={onNext} disabled={disabled} className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300">{primaryLabel}</button></div>}
@@ -865,9 +813,7 @@ function LaunchCockpit({ steps, currentStage, nextAction, primaryAction, onNext,
       </div>
       <button type="button" onClick={uploadProgress.onCheckNow} disabled={uploadProgress.checking} className="mt-4 rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-bold text-blue-800 disabled:bg-slate-100">지금 다시 확인</button>
     </div> : null}
-    <div className="mt-5 grid gap-3 lg:grid-cols-5">{steps.map((step, index) => <article key={step.name} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-bold text-slate-900">{index + 1}. {step.name}</h3><StateBadge state={step.state} /></div><p className="mt-3 text-sm font-semibold text-slate-800">{step.action}</p><p className="mt-1 text-xs text-slate-600">{step.message}</p>{primaryAction === "review" && index === 3 ? <button type="button" onClick={onNext} className="mt-3 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">키워드 검토 시작</button> : null}{step.count ? <p className="mt-3 rounded-lg bg-slate-50 p-2 text-xs font-semibold text-slate-700">{step.count}</p> : null}</article>)}</div>
-    <div className="mt-5 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm md:grid-cols-2 lg:grid-cols-3"><ResultRow label="현재 단계" value={currentStage} /><ResultRow label="지금 할 일" value={nextAction} /><ResultRow label="현재 입력 행" value={rowExpression || "아직 없음"} /><ResultRow label="마지막 확인 시각" value={lastCheckedAt ? lastCheckedAt.toLocaleTimeString("ko-KR") : "-"} /></div>
-    <div className="mt-4 grid gap-2 text-xs text-slate-700 md:grid-cols-3"><p>업로드: 대상 행 {counts.upload.targetRows} · 생성 goods_key 수 {counts.upload.goodsKeyCount} · 실패 행 수 {counts.upload.failedRows} · 중복 자사상품코드 수 {counts.upload.duplicateRows}</p><p>가격: 대상 goods_key 수 {counts.price.targetGoodsKeys} · 성공 수 {counts.price.okCount} · 실패 수 {counts.price.failCount}</p><p>키워드: 대상 goods_key 수 {counts.keyword.targetCount} · artifact 상태 {counts.keyword.artifactState} · 검토 대기 수 {counts.keyword.reviewPendingCount} · 실패 원인 {counts.keyword.failureReason}</p></div>
+    <details className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm"><summary className="cursor-pointer font-bold">전체 항목 펼쳐보기</summary><div className="mt-3 grid gap-3 md:grid-cols-2"><ResultRow label="현재 단계" value={currentStage} /><ResultRow label="지금 할 일" value={nextAction} /><ResultRow label="현재 입력 행" value={rowExpression || "아직 없음"} /><ResultRow label="마지막 확인 시각" value={lastCheckedAt ? lastCheckedAt.toLocaleTimeString("ko-KR") : "-"} /></div></details>
   </section>;
 }
 function getPrimaryActionLabel(primaryAction: string, uploadBusy: boolean, priceBusy: boolean, keywordBusy: boolean, currentStage: string) {
@@ -882,8 +828,7 @@ function getPrimaryActionLabel(primaryAction: string, uploadBusy: boolean, price
   if (currentStage === "키워드/상품명 준비") return "키워드 결과 확인 중...";
   return "상품업로드 결과 확인 중...";
 }
-function StateBadge({ state }: { state: StepState }) { const map = { waiting: ["대기", "bg-slate-100 text-slate-700"], running: ["실행 중", "bg-blue-100 text-blue-800"], checking: ["결과 확인 중", "bg-blue-100 text-blue-800"], success: ["성공", "bg-emerald-100 text-emerald-800"], failed: ["실패", "bg-red-100 text-red-800"], action: ["확인 필요", "bg-amber-100 text-amber-900"] } as const; const [label, cls] = map[state]; return <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-bold ${cls}`}>{state === "running" || state === "checking" ? <span className="size-3 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" /> : null}{label}</span>; }
-function ErrorDrawer({ title, uploadResult, priceResult, keywordResult, requestId, actionsUrl }: { title: string; uploadResult: UploadActionsResult | null; priceResult: PriceActionsResult | null; keywordResult: KeywordRunsResult | null; requestId: string; actionsUrl?: string }) { const keywordFailure = hasKeywordFailure(keywordResult); const duplicate = allFailedRowsAreDuplicatePtnGoodsCd(uploadResult); return <details open className="rounded-2xl border border-red-200 bg-red-50 p-5"><summary className="cursor-pointer text-lg font-bold text-red-800">{title}</summary><div className="mt-3 space-y-3 text-sm text-red-950"><p className="font-semibold">{keywordFailure ? "키워드 엔진 실행이 실패했습니다." : duplicate ? "같은 자사상품코드가 이미 샵플링에 등록되어 있습니다. 같은 행을 다시 업로드할 때는 “이미 goods_key 있으면 스킵(권장)”을 켜세요." : "실패한 단계의 로그와 행별 오류를 확인하세요."}</p>{keywordFailure ? <p>키워드 엔진이 상품정보를 조회하지 못했습니다. 새로 업로드한 상품은 API 반영 지연일 수 있습니다. 잠시 후 다시 실행하거나 seed keyword를 입력해 실행하세요. 권장 작업: GitHub Actions 로그 확인, 잠시 후 다시 실행, 시드 키워드를 입력하고 다시 실행.</p> : null}<dl className="grid gap-2"><ResultRow label="technical detail" value={uploadResult?.message ?? priceResult?.message ?? keywordResult?.message ?? "-"} /><ResultRow label="request id" value={requestId} mono /><ResultRow label="run id" value={String(uploadResult?.runId ?? keywordResult?.runs?.[0]?.id ?? "-")} mono /><ResultRow label="run conclusion" value={String(uploadResult?.runConclusion ?? keywordResult?.runs?.[0]?.conclusion ?? "-")} /><ResultRow label="artifact state" value={getKeywordSummary(keywordResult, 0).artifactState} /><ResultRow label="recommended next action" value="실패 원인 보기 후 GitHub Actions 바로가기에서 로그를 확인하고, 안전 재시도 안내에 따라 중복 스킵 또는 시드 키워드를 사용해 다시 실행하세요." /></dl><GithubActionsShortcutButton href={actionsUrl} /></div></details>; }
+function ErrorDrawer({ title, uploadResult, priceResult, keywordResult, requestId, actionsUrl }: { title: string; uploadResult: UploadActionsResult | null; priceResult: PriceActionsResult | null; keywordResult: KeywordRunsResult | null; requestId: string; actionsUrl?: string }) { const keywordFailure = hasKeywordFailure(keywordResult); const duplicate = allFailedRowsAreDuplicatePtnGoodsCd(uploadResult); return <details open className="rounded-2xl border border-red-200 bg-red-50 p-5"><summary className="cursor-pointer text-lg font-bold text-red-800">{title}</summary><div className="mt-3 space-y-3 text-sm text-red-950"><p className="font-semibold">{keywordFailure ? "검토 준비가 실패했습니다." : duplicate ? "같은 자사상품코드가 이미 샵플링에 등록되어 있습니다. 같은 행을 다시 업로드할 때는 “이미 goods_key 있으면 스킵(권장)”을 켜세요." : "실패한 단계의 로그와 행별 오류를 확인하세요."}</p>{keywordFailure ? <p>키워드 엔진이 상품정보를 조회하지 못했습니다. 새로 업로드한 상품은 API 반영 지연일 수 있습니다. 잠시 후 다시 실행하거나 seed keyword를 입력해 실행하세요. 권장 작업: GitHub Actions 로그 확인, 잠시 후 다시 실행, 시드 키워드를 입력하고 다시 실행.</p> : null}<dl className="grid gap-2"><ResultRow label="technical detail" value={uploadResult?.message ?? priceResult?.message ?? keywordResult?.message ?? "-"} /><ResultRow label="request id" value={requestId} mono /><ResultRow label="run id" value={String(uploadResult?.runId ?? keywordResult?.runs?.[0]?.id ?? "-")} mono /><ResultRow label="run conclusion" value={String(uploadResult?.runConclusion ?? keywordResult?.runs?.[0]?.conclusion ?? "-")} /><ResultRow label="artifact state" value={getKeywordSummary(keywordResult, 0).artifactState} /><ResultRow label="recommended next action" value="실패 원인 보기 후 GitHub Actions 바로가기에서 로그를 확인하고, 안전 재시도 안내에 따라 중복 스킵 또는 시드 키워드를 사용해 다시 실행하세요." /></dl><GithubActionsShortcutButton href={actionsUrl} /></div></details>; }
 
 function GithubActionsShortcutButton({ href, className = "" }: { href?: string; className?: string }) {
   if (!href) return null;
@@ -1103,8 +1048,8 @@ function buildCockpit(state: { hasUploadRequest: boolean; uploadActive: boolean;
   const steps: CockpitStep[] = [
     { name: "상품업로드", state: state.uploadFailed ? "failed" : state.uploadActive ? "checking" : state.uploadSuccess ? "success" : "waiting", action: state.uploadSuccess ? "가격설정 시작" : state.uploadActive ? "상품업로드 결과 확인 중..." : "상품업로드 시작", message: state.uploadSuccess ? "goods_key가 준비되었습니다." : state.uploadActive ? "중복 클릭 없이 자동 확인합니다." : "행 번호 입력 후 시작하세요." },
     { name: "가격설정", state: state.priceFailed ? "failed" : state.priceActive ? "checking" : state.priceSuccess ? "success" : state.uploadSuccess ? "action" : "waiting", action: state.priceSuccess ? "상품명/검색어 검토 시작" : state.priceActive ? "가격설정 결과 확인 중..." : "가격설정 시작", message: state.uploadSuccess ? "업로드 성공 후 실행할 수 있습니다." : "업로드 완료 후 활성화됩니다." },
-    { name: "키워드/상품명 준비", state: state.keywordFailed ? "failed" : state.keywordActive ? "running" : state.keywordSuccess ? "action" : state.priceSuccess ? "action" : "waiting", action: state.keywordSuccess ? "키워드 검토 시작" : state.keywordActive ? "키워드 결과 확인 중..." : "상품명/검색어 검토 시작", message: state.keywordSuccess ? "검토 진행 중 · 승인된 행이 있으면 적용 계획 생성으로 이동" : state.keywordActive ? "키워드 엔진이 실행 중입니다. 결과 파일이 생성되면 자동으로 표시됩니다." : state.keywordFailed ? "키워드 엔진 실행이 실패했습니다." : "dry_run 결과만 준비합니다." },
-    { name: "키워드 결과 검토", state: state.keywordSuccess ? "action" : "waiting", action: state.keywordSuccess ? "키워드 검토 시작" : "artifact 생성 후 열 수 있습니다.", message: state.keywordSuccess ? "검토 진행 중 · 승인된 행이 있으면 적용 계획 생성으로 이동" : "artifact 생성 후 열 수 있습니다." },
+    { name: "키워드/상품명 준비", state: state.keywordFailed ? "failed" : state.keywordActive ? "running" : state.keywordSuccess ? "action" : state.priceSuccess ? "action" : "waiting", action: state.keywordSuccess ? "키워드 검토 시작" : state.keywordActive ? "키워드 결과 확인 중..." : "상품명/검색어 검토 시작", message: state.keywordSuccess ? "검토 진행 중 · 승인된 행이 있으면 반영 준비으로 이동" : state.keywordActive ? "검토 준비가 진행 중입니다. 결과가 준비되면 자동으로 표시됩니다." : state.keywordFailed ? "검토 준비가 실패했습니다." : "사전 검토 결과만 준비합니다." },
+    { name: "키워드 결과 검토", state: state.keywordSuccess ? "action" : "waiting", action: state.keywordSuccess ? "키워드 검토 시작" : "artifact 생성 후 열 수 있습니다.", message: state.keywordSuccess ? "검토 진행 중 · 승인된 행이 있으면 반영 준비으로 이동" : "artifact 생성 후 열 수 있습니다." },
     { name: "최종 확인", state: state.keywordSuccess ? "action" : "waiting", action: "최종 확인", message: "마켓전송은 수동으로 진행합니다." },
   ];
   let primaryAction: "upload" | "price" | "keyword" | "review" | "failed" | "wait" = "upload";

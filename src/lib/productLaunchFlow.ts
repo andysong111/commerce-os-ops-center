@@ -328,22 +328,32 @@ export function isSafeLaunchTitle(title: unknown): title is string {
   return isSafeMallTitle(title);
 }
 
+export function parseManualCandidateList(value: unknown): string[] {
+  const raw = String(value ?? "");
+  if (!raw.trim()) return [];
+  const seen = new Set<string>();
+  return raw
+    .split(/[,\n|]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => {
+      const key = token.toLocaleLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 export function resolveManualTitleOverride(value: unknown, goodsKey?: string): string {
-  const title = String(value ?? "").replace(/\s+/g, " ").trim();
+  const title = parseManualCandidateList(value).join(" ").replace(/\s+/g, " ").trim();
   if (!isSafeMallTitle(title)) return "";
   if (goodsKey && title === String(goodsKey).trim()) return "";
   return title;
 }
 
 export function normalizeManualKeywordOverride(value: unknown): string {
-  const raw = String(value ?? "").trim();
-  if (!raw) return "";
-  const tokens = raw
-    .split(/[\s,]+/)
-    .map((token) => token.trim())
-    .filter(Boolean)
-    .filter((token) => /[가-힣]/.test(token));
-  const source = tokens.length > 0 ? tokens : raw.split(/[\s,]+/).map((token) => token.trim()).filter(Boolean);
+  const candidates = parseManualCandidateList(value);
+  const source = candidates.length > 0 ? candidates : String(value ?? "").split(/[\s,]+/).map((token) => token.trim()).filter(Boolean);
   const seen = new Set<string>();
   return source.filter((token) => {
     const key = token.toLocaleLowerCase();

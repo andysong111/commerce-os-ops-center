@@ -17,6 +17,7 @@ import {
   extractUploadRows,
   inferProductGroupFromPtnGoodsCd,
   normalizeManualKeywordOverride,
+  parseManualCandidateList,
   normalizeSeedKeywords,
   resolveMallTitle,
   resolveManualTitleOverride,
@@ -654,8 +655,6 @@ test("source-row launch groups handle multiple rows and missing metadata warning
   assert.deepEqual(buildLaunchSourceRowGroups(rows, "950,951,952").map((group) => group.sourceRowId), ["950", "951", "952"]);
   const missing = buildLaunchSourceRowGroups([{ goods_key: "121270", ptn_goods_cd: "TEST1-1a" }], "950,951");
   assert.equal(missing[0].mappingMissing, true);
-  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
-  assert.ok(flow.includes("업로드 결과에 원본 행 번호가 없어 행별 키워드를 정확히 연결할 수 없습니다."));
 });
 
 test("manual launch override helpers enforce priority and validation", () => {
@@ -664,7 +663,49 @@ test("manual launch override helpers enforce priority and validation", () => {
   assert.equal(resolveMallTitle(row, undefined, { "121180": "" }), "Edited");
   assert.equal(resolveMallTitle(row, undefined, { "121180": "121180" }), "Edited");
   assert.equal(resolveManualTitleOverride("-", "121180"), "");
-  assert.equal(normalizeManualKeywordOverride("게임패드, 컨트롤러, 조이스틱 미니"), "게임패드,컨트롤러,조이스틱,미니");
+  assert.equal(resolveManualTitleOverride("피파게임패드,농구게임패드,축구게임패드,조이스틱,미니", "121180"), "피파게임패드 농구게임패드 축구게임패드 조이스틱 미니");
+  assert.equal(normalizeManualKeywordOverride("게임패드,조이스틱,컨트롤러,축구게임패드,미니게임패드"), "게임패드,조이스틱,컨트롤러,축구게임패드,미니게임패드");
+});
+
+
+test("manual candidate parsing preserves raw comma input until generation", async () => {
+  assert.deepEqual(parseManualCandidateList("피파게임패드, 농구게임패드\n축구게임패드|조이스틱,,미니|피파게임패드"), ["피파게임패드", "농구게임패드", "축구게임패드", "조이스틱", "미니"]);
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  assert.match(flow, /onManualTitleChange\(goodsKey, event\.target\.value\)/);
+  assert.match(flow, /onManualKeywordChange\(goodsKey, event\.target\.value\)/);
+  assert.doesNotMatch(flow, /onManualKeywordChange\(goodsKey, normalizeManualKeywordOverride\(event\.target\.value\)/);
+  assert.match(flow, /parseManualCandidateList\(manualTitleOverridesByGoodsKey\[firstGoodsKey\]/);
+  assert.equal(normalizeManualKeywordOverride("k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11"), "k1,k2,k3,k4,k5,k6,k7,k8,k9,k10");
+});
+
+test("manual product launch default source hides legacy keyword UI labels", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const forbidden of [
+    "AI가 상품명 반영 준비",
+    "AI 상품출시 에이전트",
+    "행별 핵심 키워드",
+    "키워드 결과를 불러왔습니다",
+    "직접 파일 넣기",
+    "상품그룹별 정책 안내",
+    "상품그룹별 상품명 차별화",
+    "적용 계획 생성",
+    "dry_run 실행",
+    "실제 샵플링 반영 실행",
+    "자동 진행 모드",
+  ]) assert.ok(!flow.includes(forbidden), forbidden);
+  for (const expected of [
+    "행별 상품명/검색어 후보 입력",
+    "상품명 후보 입력",
+    "검색어 후보 입력",
+    "대표 미리보기",
+    "전체 항목 펼쳐보기",
+    "승인하고 실제 반영 실행",
+    "개발자 진단 보기",
+  ]) assert.ok(flow.includes(expected), expected);
+  for (const forbidden of [/cafe24/i, /coupang/i, /smartstore/i, /\bdefault\b/, /API_AUTH_KEY/, /LOGIN_PASSWORD/, /shell:\s*true/, /child_process/, /PowerShell/]) {
+    assert.doesNotMatch(flow, forbidden);
+  }
+  assert.doesNotMatch(flow, /https?:\/\/[^"']*shopling/i);
 });
 
 test("manual title makes launch goods_key ready without separate approval", () => {
