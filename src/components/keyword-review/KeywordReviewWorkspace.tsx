@@ -1008,17 +1008,13 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
       />
       <details className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <summary className="cursor-pointer font-semibold text-slate-950">고급 검토 옵션 열기</summary>
-        <p className="mt-3 text-sm text-slate-600">상세 표 보기, payload JSON/XML 보기, 수동 preflight 설정, allowed mall_key input, maxRows input, already applied goods_key input은 고급 사용자용으로 접어두었습니다.</p>
+        <p className="mt-3 text-sm text-slate-600">상세 표 보기, payload JSON/XML 보기, maxRows input, already applied goods_key input은 고급 사용자용으로 접어두었습니다. mall_key는 상품그룹 registry에서 자동 적용됩니다.</p>
         <ExecutionPreflightSection
         previewResult={payloadPreview}
         result={preflightResult}
         allowedMallKeys={allowedMallKeys}
         maxRows={maxRows}
         alreadyAppliedGoodsKeys={alreadyAppliedGoodsKeys}
-        onAllowedMallKeysChange={(value) => {
-          setAllowedMallKeys(value);
-          setPreflightResult(null);
-        }}
         onMaxRowsChange={(value) => {
           setMaxRows(value);
           setPreflightResult(null);
@@ -1166,7 +1162,6 @@ function ExecutionPreflightSection({
   allowedMallKeys,
   maxRows,
   alreadyAppliedGoodsKeys,
-  onAllowedMallKeysChange,
   onMaxRowsChange,
   onAlreadyAppliedGoodsKeysChange,
   onRun,
@@ -1176,7 +1171,6 @@ function ExecutionPreflightSection({
   allowedMallKeys: string;
   maxRows: string;
   alreadyAppliedGoodsKeys: string;
-  onAllowedMallKeysChange: (value: string) => void;
   onMaxRowsChange: (value: string) => void;
   onAlreadyAppliedGoodsKeysChange: (value: string) => void;
   onRun: (config: typeof DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG) => void;
@@ -1204,18 +1198,11 @@ function ExecutionPreflightSection({
           미리보기 전용입니다. 이 단계에서는 샵플링 API를 실행하지 않습니다.
         </div>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <label className="text-xs font-semibold text-slate-600">
-            허용 쇼핑몰
-            <textarea
-              value={allowedMallKeys}
-              onChange={(event) => onAllowedMallKeysChange(event.target.value)}
-              className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs font-normal text-slate-900"
-              placeholder="mall_key를 줄바꿈 또는 쉼표로 입력"
-            />
-            <span className="mt-1 block font-normal">
-              허용 쇼핑몰은 상품그룹 시장 등록 설정에 따라 자동 설정됩니다.
-            </span>
-          </label>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">
+            <p className="font-semibold">허용 쇼핑몰 자동 설정</p>
+            <p className="mt-1">mall_key는 상품그룹 시장 등록 설정에서 생성된 적용 계획 기준으로만 점검합니다.</p>
+            <p className="mt-2 font-mono text-[11px] text-emerald-900">{parseKeyList(allowedMallKeys).join(", ") || "적용 계획 생성 후 자동 표시"}</p>
+          </div>
           <label className="text-xs font-semibold text-slate-600">
             이미 반영한 상품번호
             <textarea

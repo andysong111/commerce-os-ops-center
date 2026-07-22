@@ -67,6 +67,11 @@ test("empty allowedMallKeys blocks all rows", () => {
   );
 });
 
+test("default preflight uses product group market registry mall keys", () => {
+  assert.ok(DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG.allowedMallKeys.includes("SMALL_00014"));
+  assert.ok(DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG.allowedMallKeys.includes("SMALL_00194"));
+});
+
 test("default preflight does not require final confirmation", () => {
   const { result } = run([row()], {}, false);
   assert.equal(DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG.requireFinalConfirmation, false);

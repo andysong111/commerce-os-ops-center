@@ -18,7 +18,7 @@ function withEnv(fn) {
   process.env.KEYWORD_SHOPLING_APPLY_ACTIONS_TOKEN = "ghp_test_token";
   try { return fn(); } finally { process.env = old; }
 }
-const plan = JSON.stringify({ eligibleItems: [{ goods_key: "1" }], blockedItems: [], summary: {} });
+const plan = JSON.stringify([{ goods_key: "1", mall_key: "SMALL_00004", final_title: "title", final_site_srch: "a,b,c,d,e,f,g,h,i,j" }]);
 
 test("dry_run dispatch request includes dry_run and safe preview", () => withEnv(() => {
   const req = buildKeywordShoplingApplyDispatchRequest({ execution_plan_json: plan, mode: "dry_run", confirmation_text: "", max_items: 20 });
@@ -32,7 +32,11 @@ test("dry_run dispatch request includes dry_run and safe preview", () => withEnv
 
 
 test("command preview counts direct list execution plans", () => withEnv(() => {
-  const directPlan = JSON.stringify([{ goods_key: "1" }, { goods_key: "2" }, { goods_key: "3" }]);
+  const directPlan = JSON.stringify([
+    { goods_key: "1", mall_key: "SMALL_00004", final_title: "title 1", final_site_srch: "a,b,c,d,e,f,g,h,i,j" },
+    { goods_key: "2", mall_key: "SMALL_00004", final_title: "title 2", final_site_srch: "a,b,c,d,e,f,g,h,i,j" },
+    { goods_key: "3", mall_key: "SMALL_00004", final_title: "title 3", final_site_srch: "a,b,c,d,e,f,g,h,i,j" },
+  ]);
   const req = buildKeywordShoplingApplyDispatchRequest({ execution_plan_json: directPlan, mode: "dry_run", confirmation_text: "", max_items: 20 });
   assert.match(req.commandPreview, /item_count=3/);
   assert.doesNotMatch(req.commandPreview, /execution_plan_json|goods_key/);
@@ -51,7 +55,7 @@ test("dispatch failure returns safe GitHub body preview", async () => {
         { status: 422 },
       );
     try {
-      const result = await dispatchKeywordShoplingApplyActions({ execution_plan_json: JSON.stringify([{ goods_key: "1" }]), mode: "dry_run", confirmation_text: "", max_items: 20 });
+      const result = await dispatchKeywordShoplingApplyActions({ execution_plan_json: JSON.stringify([{ goods_key: "1", mall_key: "SMALL_00004", final_title: "title", final_site_srch: "a,b,c,d,e,f,g,h,i,j" }]), mode: "dry_run", confirmation_text: "", max_items: 20 });
       assert.equal(result.status, "error");
       assert.match(result.message, /status=422/);
       assert.match(result.message, /body=/);
@@ -62,6 +66,18 @@ test("dispatch failure returns safe GitHub body preview", async () => {
     }
   });
 });
+
+
+test("apply runner rejects non-compact execution plans", () => withEnv(() => {
+  assert.throws(
+    () => buildKeywordShoplingApplyDispatchRequest({ execution_plan_json: JSON.stringify({ eligibleItems: [{ goods_key: "1", mall_key: "SMALL_00004", final_title: "title", final_site_srch: "a,b,c,d,e,f,g,h,i,j", preview_xml_fragment: "<xml/>" }] }), mode: "dry_run", confirmation_text: "", max_items: 20 }),
+    /허용되지 않은 필드/,
+  );
+  assert.throws(
+    () => buildKeywordShoplingApplyDispatchRequest({ execution_plan_json: JSON.stringify([{ goods_key: "1", mall_key: "BAD", final_title: "title", final_site_srch: "a,b,c,d,e,f,g,h,i,j" }]), mode: "dry_run", confirmation_text: "", max_items: 20 }),
+    /mall_key 형식/,
+  );
+}));
 
 test("apply dispatch trims confirmation and still requires exact confirmation", () => withEnv(() => {
   assert.throws(() => buildKeywordShoplingApplyDispatchRequest({ execution_plan_json: plan, mode: "apply", confirmation_text: "wrong", max_items: 20 }), /확인문구/);
