@@ -12,7 +12,7 @@ import { buildKeywordShoplingPayloadPreview } from "../src/lib/keywordReviewPayl
 function row(overrides = {}) {
   return {
     goodsKey: "121044",
-    mallKey: "mall-1",
+    mallKey: "SMALL_00004",
     originalTitle: "Old title",
     recommendedTitle: "Recommended title",
     originalSiteSrch: "old",
@@ -42,7 +42,7 @@ function run(rows, configOverrides = {}, confirmation = true) {
   const previewResult = buildKeywordShoplingPayloadPreview(rows);
   const config = {
     ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
-    allowedMallKeys: ["mall-1"],
+    allowedMallKeys: ["SMALL_00004"],
     maxRows: 10,
     ...configOverrides,
   };
@@ -81,7 +81,7 @@ test("default preflight does not require final confirmation", () => {
 
 test("allowed mall_key passes and disallowed mall_key blocks", () => {
   assert.equal(run([row()]).result.summary.eligibleCount, 1);
-  const { result } = run([row()], { allowedMallKeys: ["different-mall"] });
+  const { result } = run([row()], { allowedMallKeys: ["SMALL_00069"] });
   assert.equal(result.summary.eligibleCount, 0);
   assert.ok(
     result.blockedItems[0].block_reasons.includes("MALL_KEY_NOT_ALLOWED"),
@@ -114,7 +114,7 @@ test("duplicate detection ignores non-approved duplicate rows", () => {
 test("duplicate detection blocks same approved goods_key and mall_key pair", () => {
   const { result } = run([
     row(),
-    row({ sourceRowIndex: 3, mallKey: "mall-1" }),
+    row({ sourceRowIndex: 3, mallKey: "SMALL_00004" }),
   ]);
   assert.equal(result.summary.eligibleCount, 0);
   assert.equal(result.summary.duplicateGoodsKeyCount, 2);
@@ -128,7 +128,7 @@ test("duplicate detection blocks same approved goods_key and mall_key pair", () 
 test("same goods_key with non-approved held rows does not block approved row", () => {
   const { result } = run([
     row(),
-    row({ sourceRowIndex: 3, reviewStatus: "hold", mallKey: "mall-1" }),
+    row({ sourceRowIndex: 3, reviewStatus: "hold", mallKey: "SMALL_00004" }),
   ]);
   assert.equal(result.summary.eligibleCount, 1);
   assert.equal(result.summary.duplicateGoodsKeyCount, 0);
@@ -176,7 +176,7 @@ test("preview item with validation_errors cannot pass", () => {
   previewResult.items[0].validation_errors.push("fixture validation error");
   const config = {
     ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
-    allowedMallKeys: ["mall-1"],
+    allowedMallKeys: ["SMALL_00004"],
     maxRows: 1,
   };
   const result = buildKeywordExecutionPreflight(

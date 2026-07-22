@@ -50,6 +50,8 @@ export const PRODUCT_GROUP_MARKET_REGISTRY: ProductGroupMarketAccount[] = [
   ["소매2","f",retail,"토스쇼핑","종합몰","SMALL_00194","andy80101@naver.com"],
 ].map(([productGroup, groupSuffix, productGroupType, marketName, mallType, mallKey, accountIdLabel]) => ({ productGroup, groupSuffix, productGroupType, marketName, mallType, mallKey, accountIdLabel } as ProductGroupMarketAccount));
 
+export const PRODUCT_GROUP_MARKET_MALL_KEYS = [...new Set(PRODUCT_GROUP_MARKET_REGISTRY.map((account) => account.mallKey))];
+
 export function getMarketsForProductGroup(productGroup: string): ProductGroupMarketAccount[] {
   return PRODUCT_GROUP_MARKET_REGISTRY.filter((account) => account.productGroup === productGroup.trim());
 }
