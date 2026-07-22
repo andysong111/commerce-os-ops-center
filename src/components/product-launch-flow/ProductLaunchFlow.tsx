@@ -30,7 +30,20 @@ import {
   type ProductLaunchPriceError,
   type ProductLaunchUploadRow,
 } from "@/lib/productLaunchFlow";
-import { getMarketsForProductGroup } from "@/lib/productGroupMarketRegistry";
+import {
+  getMarketsForProductGroup,
+  PRODUCT_GROUP_MARKET_REGISTRY,
+} from "@/lib/productGroupMarketRegistry";
+import {
+  buildCompactKeywordApplyExecutionPlan,
+  buildKeywordExecutionPreflight,
+  formatKeywordExecutionPreflightLabels,
+  type KeywordExecutionPreflightResult,
+} from "@/lib/keywordReviewExecutionPreflight";
+import type {
+  KeywordPayloadPreviewItem,
+  KeywordPayloadPreviewResult,
+} from "@/lib/keywordReviewPayloadPreview";
 
 const PRODUCT_LAUNCH_SESSION_STORAGE_KEY = "productLaunchFlow.session.v2";
 const UPLOAD_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.uploadRequestId";
@@ -238,6 +251,20 @@ export function ProductLaunchFlow() {
     manualKeywordOverridesByGoodsKey,
     setManualKeywordOverridesByGoodsKey,
   ] = useState<Record<string, string>>({});
+  const [manualPreviewResult, setManualPreviewResult] =
+    useState<KeywordPayloadPreviewResult | null>(null);
+  const [manualPreflightResult, setManualPreflightResult] =
+    useState<KeywordExecutionPreflightResult | null>(null);
+  const [manualPreviewStatus, setManualPreviewStatus] = useState<
+    "idle" | "checking" | "success" | "error"
+  >("idle");
+  const [manualPreviewMessage, setManualPreviewMessage] = useState(
+    "상품명/검색어 후보를 입력하세요.",
+  );
+  const [manualApplyBusy, setManualApplyBusy] = useState(false);
+  const [manualApplyResult, setManualApplyResult] = useState<RunResult | null>(
+    null,
+  );
   const [keywordPreview, setKeywordPreview] = useState<unknown>(null);
   const [keywordDispatchResult, setKeywordDispatchResult] =
     useState<KeywordDispatchResult | null>(null);
@@ -873,27 +900,6 @@ export function ProductLaunchFlow() {
     }
   };
 
-  const openInlineKeywordReview = async () => {
-    const artifact = keywordSummary.artifact;
-    const run = keywordRunsResult?.runs?.find((item) =>
-      item.artifacts?.some((candidate) => candidate.id === artifact?.id),
-    );
-    if (artifact && run) {
-      await importKeywordArtifact(run, artifact);
-      return;
-    }
-    if (
-      typeof window !== "undefined" &&
-      window.sessionStorage.getItem(KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY)
-    ) {
-      setEmbeddedReviewOpen(true);
-      return;
-    }
-    setKeywordImportMessage(
-      "키워드 결과 파일은 불러왔지만 검토할 후보가 없습니다. GitHub Actions 로그 또는 artifact 파일을 확인하세요.",
-    );
-  };
-
   const rowMatchesCurrentRun = rowExpression === lastStartedRowExpression;
   const currentUploadRequestId = rowMatchesCurrentRun ? uploadRequestId : "";
   const uploadGithubActionsUrl = currentUploadRequestId
@@ -943,6 +949,184 @@ export function ProductLaunchFlow() {
     manualTitleOverridesByGoodsKey,
     manualKeywordOverridesByGoodsKey,
   );
+
+  const confirmManualCandidates = async () => {
+    setManualPreviewStatus("checking");
+    setManualPreviewMessage("후보 검토 중...");
+    setManualApplyResult(null);
+    setManualPreviewResult(null);
+    setManualPreflightResult(null);
+    try {
+      if (uploadRows.length === 0 || goodsKeys.length === 0)
+        throw new Error("상품업로드 결과의 goods_key를 먼저 확인하세요.");
+
+      const rowsByGoodsKey = new Map(
+        uploadRows.map((row) => [(row.goods_key ?? "").trim(), row]),
+      );
+      const items: KeywordPayloadPreviewItem[] = [];
+      for (const goodsKey of goodsKeys) {
+        const row = rowsByGoodsKey.get(goodsKey);
+        if (!row) continue;
+        const titleCandidates = parseManualCandidateList(
+          manualTitleOverridesByGoodsKey[goodsKey] ?? "",
+        );
+        const normalizedManualKeywords = normalizeManualKeywordOverride(
+          manualKeywordOverridesByGoodsKey[goodsKey] ?? "",
+        );
+        const keywordCandidates = normalizedManualKeywords
+          ? normalizedManualKeywords.split(",").filter(Boolean)
+          : titleCandidates;
+        if (titleCandidates.length === 0 && keywordCandidates.length === 0)
+          throw new Error(
+            `${goodsKey} 상품명 후보 또는 검색어 후보를 입력하세요.`,
+          );
+        const groupInfo = inferProductGroupFromPtnGoodsCd(
+          row.ptn_goods_cd ?? "",
+        );
+        const markets = getMarketsForProductGroup(groupInfo.productGroup).filter(
+          (market) => /^SMALL_\d{5}$/.test(market.mallKey),
+        );
+        const originalTitle = String(
+          row.final_title ??
+            row.registered_title ??
+            row.upload_title ??
+            row.product_name ??
+            row.title ??
+            row.productTitle ??
+            "",
+        ).trim();
+        const rowRecord = row as ProductLaunchUploadRow & Record<string, unknown>;
+        const originalSiteSrch = String(rowRecord.site_srch ?? rowRecord.siteSearch ?? "").trim();
+        markets.forEach((market, marketIndex) => {
+          const rotatedTitleCandidates = titleCandidates.length
+            ? titleCandidates.map(
+                (_, index) => titleCandidates[(index + marketIndex) % titleCandidates.length],
+              )
+            : parseManualCandidateList(resolveManualTitleOverride("", goodsKey));
+          const finalTitle = (rotatedTitleCandidates.join(" ") || originalTitle)
+            .replaceAll(",", " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          const finalSiteSrch = (keywordCandidates.length
+            ? keywordCandidates
+            : parseManualCandidateList(finalTitle)
+          )
+            .slice(0, 10)
+            .join(",");
+          const validationErrors = [] as string[];
+          if (!finalTitle) validationErrors.push("FINAL_TITLE_REQUIRED");
+          if (!finalSiteSrch) validationErrors.push("FINAL_SITE_SRCH_REQUIRED");
+          const payloadStatus = validationErrors.length ? "invalid" : "preview_ready";
+          items.push({
+            goods_key: goodsKey,
+            mall_key: market.mallKey,
+            source_row_index: Number(rowRecord.row ?? rowRecord.source_row_index ?? 0),
+            ptn_goods_cd: String(row.ptn_goods_cd ?? ""),
+            group_suffix: groupInfo.groupSuffix,
+            product_group: groupInfo.productGroup,
+            product_group_type: groupInfo.productGroupType,
+            product_group_status: groupInfo.productGroupStatus,
+            original_title: originalTitle,
+            recommended_title: finalTitle,
+            edited_title: finalTitle,
+            final_title: finalTitle,
+            original_site_srch: originalSiteSrch,
+            recommended_site_srch: finalSiteSrch,
+            edited_site_srch: finalSiteSrch,
+            edited_mall_key: market.mallKey,
+            final_site_srch: finalSiteSrch,
+            classification: "auto_apply_candidate",
+            review_status: "approved",
+            block_reason: "",
+            warning_flags: "",
+            payload_status: payloadStatus,
+            validation_errors: validationErrors,
+            validation_warnings: [],
+            preview_xml_fragment: null,
+            preview_payload:
+              payloadStatus === "preview_ready"
+                ? { goods_key: goodsKey, mall_key: market.mallKey, title: finalTitle, site_srch: finalSiteSrch }
+                : null,
+            expansion_mode: "product_group_markets",
+            market_name: market.marketName,
+            account_id_label: market.accountIdLabel,
+          });
+        });
+      }
+      const previewResult: KeywordPayloadPreviewResult = {
+        items,
+        previewableItems: items.filter((item) => item.payload_status === "preview_ready"),
+        excludedItems: items.filter((item) => item.payload_status !== "preview_ready"),
+        summary: {
+          totalReviewedRows: goodsKeys.length,
+          approvedCount: goodsKeys.length,
+          previewReadyCount: items.filter((item) => item.payload_status === "preview_ready").length,
+          invalidCount: items.filter((item) => item.payload_status === "invalid").length,
+          heldCount: 0,
+          blockedRiskCount: 0,
+        },
+        previewXml: "",
+        expansionMode: "product_group_markets",
+        expandedItemCount: items.length,
+        groupVariantEnabled: true,
+        attributeModifierMode: "safe_source_only",
+        expansionErrors: [],
+      };
+      const preflight = buildKeywordExecutionPreflight(
+        { previewResult, finalConfirmationText: APPLY_CONFIRMATION_TEXT },
+        {
+          allowedMallKeys: PRODUCT_GROUP_MARKET_REGISTRY.map((market) => market.mallKey),
+          maxRows: 100,
+          alreadyAppliedGoodsKeys: [],
+          requireFinalConfirmation: true,
+          confirmationText: APPLY_CONFIRMATION_TEXT,
+        },
+      );
+      setManualPreviewResult(previewResult);
+      setManualPreflightResult(preflight);
+      setManualPreviewStatus("success");
+      setManualPreviewMessage(
+        preflight.summary.blockedCount > 0
+          ? "차단 항목이 있습니다. 전체 항목 펼쳐보기에서 확인하세요."
+          : preflight.summary.eligibleCount > 0
+            ? "검토 완료 - 실제 반영을 실행할 수 있습니다."
+            : "반영 가능한 항목이 없습니다.",
+      );
+    } catch (error) {
+      setManualPreviewStatus("error");
+      setManualPreviewMessage(error instanceof Error ? error.message : "후보 검토 중 오류가 발생했습니다.");
+    }
+  };
+
+  const applyManualCandidates = async () => {
+    if (!manualPreflightResult || manualApplyBusy) return;
+    setManualApplyBusy(true);
+    setManualApplyResult(null);
+    try {
+      const executionPlanJson = buildCompactKeywordApplyExecutionPlan(manualPreflightResult);
+      const response = await fetch("/api/keyword-shopling-apply/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          execution_plan_json: executionPlanJson,
+          mode: "apply",
+          confirmation_text: APPLY_CONFIRMATION_TEXT,
+          max_items: 100,
+        }),
+      });
+      const data = await response.json();
+      setManualApplyResult({
+        ...data,
+        message:
+          data.message ||
+          "실제 반영 요청을 보냈습니다. GitHub Actions 결과 확인 후 가격 최종 재적용을 진행하세요.",
+      });
+    } catch (error) {
+      setManualApplyResult({ status: "error", message: error instanceof Error ? error.message : "실제 반영 요청 중 오류가 발생했습니다." });
+    } finally {
+      setManualApplyBusy(false);
+    }
+  };
   const keywordRealApplySucceeded =
     isKeywordRealApplySuccess(keywordApplyState);
   const finalPriceDone =
@@ -1173,6 +1357,12 @@ export function ProductLaunchFlow() {
     setSeedKeywordsBySourceRow({});
     setManualTitleOverridesByGoodsKey({});
     setManualKeywordOverridesByGoodsKey({});
+    setManualPreviewResult(null);
+    setManualPreflightResult(null);
+    setManualPreviewStatus("idle");
+    setManualPreviewMessage("상품명/검색어 후보를 입력하세요.");
+    setManualApplyBusy(false);
+    setManualApplyResult(null);
     autoPriceStartedForUploadRequestRef.current = "";
     autoKeywordStartedForPriceRequestRef.current = "";
     autoKeywordImportedArtifactRef.current = "";
@@ -1195,13 +1385,6 @@ export function ProductLaunchFlow() {
     void importKeywordArtifact(run, artifact);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autopilotEnabled, keywordRunsResult, keywordSummary.artifact]);
-
-  const runNextSafeStep = () => {
-    if (cockpit.primaryAction === "upload") void runUploadRequest();
-    if (cockpit.primaryAction === "price") void runPriceModify();
-    if (cockpit.primaryAction === "keyword") void dispatchKeywordEngine();
-    if (cockpit.primaryAction === "review") void openInlineKeywordReview();
-  };
 
   useEffect(() => {
     if (!autopilotEnabled) return;
@@ -1324,9 +1507,12 @@ export function ProductLaunchFlow() {
         priceIssueState={priceIssueState}
         manualCandidatesReady={manualCandidatesReady}
         onNext={
-          keywordRealApplySucceeded && !finalPriceDone
-            ? runFinalPriceModify
-            : runNextSafeStep
+          manualPreflightResult?.summary.eligibleCount &&
+          manualPreflightResult.summary.blockedCount === 0
+            ? applyManualCandidates
+            : keywordRealApplySucceeded && !finalPriceDone
+              ? runFinalPriceModify
+              : confirmManualCandidates
         }
         initialPriceRequestId={priceRequestId}
         finalPriceRequestId={finalPriceRequestId}
@@ -1359,25 +1545,35 @@ export function ProductLaunchFlow() {
         goodsKeys={goodsKeys}
         manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey}
         manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey}
+        manualPreviewResult={manualPreviewResult}
+      />
+      <ManualPreviewReviewSection
+        manualPreviewResult={manualPreviewResult}
+        manualPreflightResult={manualPreflightResult}
+        manualPreviewStatus={manualPreviewStatus}
+        manualPreviewMessage={manualPreviewMessage}
+        manualApplyBusy={manualApplyBusy}
+        manualApplyResult={manualApplyResult}
+        onApply={applyManualCandidates}
       />
       <LaunchCockpit
         steps={cockpit.steps}
         currentStage={derivedStage}
         nextAction={cockpit.nextAction}
         primaryAction={cockpit.primaryAction}
-        onNext={runNextSafeStep}
+        onNext={
+          manualPreflightResult?.summary.eligibleCount &&
+          manualPreflightResult.summary.blockedCount === 0
+            ? applyManualCandidates
+            : confirmManualCandidates
+        }
         rowExpression={rowExpression}
         onRowExpressionChange={setRowExpression}
         uploadBusy={uploadRunning || uploadFetching || uploadPolling}
         priceBusy={
           priceRunning || priceFetching || pricePolling || finalPriceActive
         }
-        keywordBusy={
-          keywordBusy === "dispatch" ||
-          keywordBusy === "runs" ||
-          keywordPolling ||
-          isKeywordRunning(keywordRunsResult)
-        }
+        keywordBusy={manualPreviewStatus === "checking" || manualApplyBusy}
         autoPilotEnabled={autopilotEnabled}
         onAutoPilotChange={setAutopilotEnabled}
         currentRequestId={currentRequestId}
@@ -1413,6 +1609,9 @@ export function ProductLaunchFlow() {
         }}
         autoActualApplyEnabled={autoActualApplyEnabled}
         onAutoActualApplyEnabledChange={setAutoActualApplyEnabled}
+        manualCandidatesReady={manualCandidatesReady}
+        manualPreviewStatus={manualPreviewStatus}
+        manualPreflightResult={manualPreflightResult}
       />
       {cockpit.primaryAction === "failed" ? (
         <ErrorDrawer
@@ -1783,28 +1982,32 @@ function RepresentativePreviewCard({
   goodsKeys,
   manualTitleOverridesByGoodsKey,
   manualKeywordOverridesByGoodsKey,
+  manualPreviewResult,
 }: {
   uploadRows: ProductLaunchUploadRow[];
   goodsKeys: string[];
   manualTitleOverridesByGoodsKey: Record<string, string>;
   manualKeywordOverridesByGoodsKey: Record<string, string>;
+  manualPreviewResult: KeywordPayloadPreviewResult | null;
 }) {
   const firstGoodsKey = goodsKeys[0] ?? "";
   const uploadRowsByGoodsKey = new Map(
     uploadRows.map((row) => [(row.goods_key ?? "").trim(), row]),
   );
-  const row = uploadRowsByGoodsKey.get(firstGoodsKey) ?? uploadRows[0];
+  const confirmedItem = manualPreviewResult?.items[0] ?? null;
+  const effectiveGoodsKey = confirmedItem?.goods_key ?? firstGoodsKey;
+  const row = uploadRowsByGoodsKey.get(effectiveGoodsKey) ?? uploadRows[0];
   const productGroup = inferProductGroupFromPtnGoodsCd(
     row?.ptn_goods_cd ?? "",
   ).productGroup;
   const markets = getMarketsForProductGroup(productGroup);
   const parsedTitleCandidates = parseManualCandidateList(
-    manualTitleOverridesByGoodsKey[firstGoodsKey] ?? "",
+    manualTitleOverridesByGoodsKey[effectiveGoodsKey] ?? "",
   );
   const titleCandidate =
     parsedTitleCandidates.join(" ") ||
     resolveManualTitleOverride(
-      manualTitleOverridesByGoodsKey[firstGoodsKey] ?? "",
+      manualTitleOverridesByGoodsKey[effectiveGoodsKey] ?? "",
       firstGoodsKey,
     ) ||
     String(
@@ -1817,7 +2020,7 @@ function RepresentativePreviewCard({
     );
   const searchCandidate =
     normalizeManualKeywordOverride(
-      manualKeywordOverridesByGoodsKey[firstGoodsKey] ?? "",
+      manualKeywordOverridesByGoodsKey[effectiveGoodsKey] ?? "",
     ) ||
     normalizeManualKeywordOverride(parsedTitleCandidates.join(",")) ||
     "검색어 후보 대기";
@@ -1831,14 +2034,15 @@ function RepresentativePreviewCard({
         </p>
       ) : (
         <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-          <ResultRow label="대표 goods_key" value={firstGoodsKey || "-"} mono />
+          <ResultRow label="대표 goods_key" value={effectiveGoodsKey || "-"} mono />
           <ResultRow label="상품그룹" value={productGroup || "-"} />
           <ResultRow
             label="자동 선택 쇼핑몰 수"
             value={`${markets.length}개`}
           />
-          <ResultRow label="상품명 후보" value={titleCandidate} />
-          <ResultRow label="검색어 후보" value={searchCandidate} />
+          <ResultRow label="상품명 후보 / 최종 상품명" value={confirmedItem ? confirmedItem.final_title : titleCandidate} />
+          <ResultRow label="검색어 후보 / 최종 검색어" value={confirmedItem ? confirmedItem.final_site_srch : searchCandidate} />
+          <ResultRow label="대표 쇼핑몰" value={confirmedItem ? `${confirmedItem.market_name ?? "-"}(${confirmedItem.mall_key})` : (markets[0] ? `${markets[0].marketName}(${markets[0].mallKey})` : "-")} />
           <ResultRow
             label="쇼핑몰 정책"
             value={
@@ -1849,6 +2053,64 @@ function RepresentativePreviewCard({
           />
         </div>
       )}
+    </section>
+  );
+}
+
+function ManualPreviewReviewSection({
+  manualPreviewResult,
+  manualPreflightResult,
+  manualPreviewStatus,
+  manualPreviewMessage,
+  manualApplyBusy,
+  manualApplyResult,
+  onApply,
+}: {
+  manualPreviewResult: KeywordPayloadPreviewResult | null;
+  manualPreflightResult: KeywordExecutionPreflightResult | null;
+  manualPreviewStatus: string;
+  manualPreviewMessage: string;
+  manualApplyBusy: boolean;
+  manualApplyResult: RunResult | null;
+  onApply: () => void;
+}) {
+  const eligibleCount = manualPreflightResult?.summary.eligibleCount ?? 0;
+  const blockedCount = manualPreflightResult?.summary.blockedCount ?? 0;
+  const totalCount = manualPreflightResult?.summary.totalPreviewItems ?? 0;
+  const canApply = !!manualPreflightResult && eligibleCount > 0 && blockedCount === 0 && eligibleCount <= 100 && !manualApplyBusy;
+  return (
+    <section className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-sm">
+      <p className="text-sm font-bold text-indigo-700">수동 후보 검토 결과</p>
+      <h2 className="mt-1 text-xl font-black text-slate-950">미리보기/사전 점검</h2>
+      <p className={`mt-3 rounded-lg p-3 text-sm font-bold ${manualPreviewStatus === "error" ? "bg-red-50 text-red-800" : "bg-indigo-50 text-indigo-900"}`}>
+        {manualPreviewMessage}
+      </p>
+      {manualPreflightResult ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <SummaryCard label="반영 가능" value={`${eligibleCount}개`} />
+          <SummaryCard label="차단" value={`${blockedCount}개`} />
+          <SummaryCard label="전체" value={`${totalCount}개`} />
+        </div>
+      ) : null}
+      {manualPreviewResult ? (
+        <details className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm">
+          <summary className="cursor-pointer font-bold">전체 항목 펼쳐보기</summary>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full border-collapse text-sm">
+              <thead><tr className="bg-white text-left text-slate-700"><th className="border px-2 py-1">goods_key</th><th className="border px-2 py-1">상품그룹</th><th className="border px-2 py-1">쇼핑몰</th><th className="border px-2 py-1">mall_key</th><th className="border px-2 py-1">최종 상품명</th><th className="border px-2 py-1">최종 검색어</th><th className="border px-2 py-1">상태</th><th className="border px-2 py-1">오류</th></tr></thead>
+              <tbody>{manualPreviewResult.items.map((item) => { const preflightItem = [...(manualPreflightResult?.eligibleItems ?? []), ...(manualPreflightResult?.blockedItems ?? [])].find((candidate) => candidate.goods_key === item.goods_key && candidate.mall_key === item.mall_key); return (
+                <tr key={`${item.goods_key}-${item.mall_key}`} className="bg-white"><td className="border px-2 py-1 font-mono">{item.goods_key}</td><td className="border px-2 py-1">{item.product_group}</td><td className="border px-2 py-1">{item.market_name}</td><td className="border px-2 py-1 font-mono">{item.mall_key}</td><td className="border px-2 py-1">{item.final_title}</td><td className="border px-2 py-1">{item.final_site_srch}</td><td className="border px-2 py-1 font-bold">{preflightItem?.preflight_status ?? item.payload_status}</td><td className="border px-2 py-1">{formatKeywordExecutionPreflightLabels(preflightItem?.block_reasons ?? item.validation_errors)}</td></tr>
+              ); })}</tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
+      {manualPreflightResult ? (
+        <button type="button" onClick={onApply} disabled={!canApply} className="mt-4 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300">
+          {manualApplyBusy ? "실제 반영 요청 중..." : "승인하고 실제 반영 실행"}
+        </button>
+      ) : null}
+      {manualApplyResult?.message ? <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-bold text-emerald-900">{manualApplyResult.message}</p> : null}
     </section>
   );
 }
@@ -2191,6 +2453,9 @@ function LaunchCockpit({
   actionsUrl,
   counts,
   uploadProgress,
+  manualCandidatesReady,
+  manualPreviewStatus,
+  manualPreflightResult,
 }: {
   steps: CockpitStep[];
   currentStage: string;
@@ -2222,6 +2487,9 @@ function LaunchCockpit({
       artifact?: KeywordArtifact;
     };
   };
+  manualCandidatesReady: boolean;
+  manualPreviewStatus: string;
+  manualPreflightResult: KeywordExecutionPreflightResult | null;
   uploadProgress: {
     active: boolean;
     phase: string;
@@ -2236,20 +2504,24 @@ function LaunchCockpit({
   };
 }) {
   const rowIsValid = rowExpression.trim().length > 0;
-  const primaryLabel = getPrimaryActionLabel(
-    primaryAction,
-    uploadBusy,
-    priceBusy,
-    keywordBusy,
-    currentStage,
-  );
+  const primaryLabel = manualPreflightResult?.summary.eligibleCount && manualPreflightResult.summary.blockedCount === 0
+    ? "승인하고 실제 반영 실행"
+    : manualPreviewStatus === "checking"
+      ? "후보 검토 중..."
+      : manualCandidatesReady
+        ? "상품명/검색어 후보 확인"
+        : "상품명/검색어 후보를 입력하세요.";
   const disabled =
     primaryAction === "upload"
       ? !rowIsValid || uploadBusy
-      : primaryAction === "wait" ||
+      : !manualCandidatesReady ||
         primaryAction === "failed" ||
         priceBusy ||
-        keywordBusy;
+        keywordBusy ||
+        (!!manualPreflightResult &&
+          (manualPreflightResult.summary.blockedCount > 0 ||
+            manualPreflightResult.summary.eligibleCount === 0 ||
+            manualPreflightResult.summary.eligibleCount > 100));
   void steps;
   void counts;
   void autoPilotEnabled;
@@ -2402,24 +2674,6 @@ function LaunchCockpit({
       </details>
     </section>
   );
-}
-function getPrimaryActionLabel(
-  primaryAction: string,
-  uploadBusy: boolean,
-  priceBusy: boolean,
-  keywordBusy: boolean,
-  currentStage: string,
-) {
-  if (uploadBusy || priceBusy || keywordBusy) return "준비 중입니다...";
-  if (primaryAction === "upload") return "상품출시 진행 시작";
-  if (primaryAction === "price") return "가격설정 시작";
-  if (primaryAction === "keyword") return "상품명/검색어 검토 시작";
-  if (primaryAction === "review") return "상품명/검색어 후보 확인";
-  if (primaryAction === "failed") return "실패 원인 보기";
-  if (currentStage === "가격설정") return "가격설정 결과 확인 중...";
-  if (currentStage === "키워드 결과 검토") return "상품명/검색어 후보 확인";
-  if (currentStage === "키워드/상품명 준비") return "키워드 결과 확인 중...";
-  return "상품업로드 결과 확인 중...";
 }
 function ErrorDrawer({
   title,

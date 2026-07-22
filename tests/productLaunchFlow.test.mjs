@@ -860,3 +860,33 @@ test("manual candidate launch apply guards use runner confirmation, safe max_ite
   assert.doesNotMatch(flow, /\/api\/keyword-shopling-apply/);
   assert.doesNotMatch(flow, /API_AUTH_KEY|LOGIN_PASSWORD|shell\s*:\s*true|child_process|PowerShell/i);
 });
+
+test("manual candidate confirmation is wired to preflight and guarded apply", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  assert.match(flow, /manualPreviewResult/);
+  assert.match(flow, /manualPreflightResult/);
+  assert.match(flow, /manualPreviewStatus/);
+  assert.match(flow, /manualPreviewMessage/);
+  assert.match(flow, /manualApplyBusy/);
+  assert.match(flow, /manualApplyResult/);
+  assert.match(flow, /const confirmManualCandidates = async \(\) =>/);
+  assert.match(flow, /: confirmManualCandidates/);
+  assert.doesNotMatch(flow, /상품명\/검색어 후보 확인[\s\S]{0,300}runNextSafeStep/);
+  assert.match(flow, /buildKeywordExecutionPreflight/);
+  assert.match(flow, /getMarketsForProductGroup\(groupInfo\.productGroup\)/);
+  assert.match(flow, /PRODUCT_GROUP_MARKET_REGISTRY\.map\(\(market\) => market\.mallKey\)/);
+  assert.match(flow, /buildCompactKeywordApplyExecutionPlan\(manualPreflightResult\)/);
+  assert.match(flow, /fetch\("\/api\/keyword-shopling-apply\/run"/);
+  assert.match(flow, /confirmation_text: APPLY_CONFIRMATION_TEXT/);
+  assert.match(flow, /max_items: 100/);
+  for (const expected of [
+    "반영 가능",
+    "차단",
+    "검토 완료 - 실제 반영을 실행할 수 있습니다.",
+    "승인하고 실제 반영 실행",
+  ]) assert.ok(flow.includes(expected), expected);
+  for (const forbidden of [/cafe24/i, /coupang/i, /smartstore/i, /mall_key:\s*"default"/]) {
+    assert.doesNotMatch(flow, forbidden);
+  }
+  assert.doesNotMatch(flow, /https?:\/\/[^"']*shopling/i);
+});
