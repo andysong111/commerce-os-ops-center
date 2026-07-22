@@ -857,6 +857,49 @@ test("manual candidate launch apply guards use runner confirmation, safe max_ite
   assert.match(workspace, /if \(!manualCandidatesReady\) return;/);
   assert.match(flow, /후보 입력 대기/);
   assert.match(workspace, /disabled=\{disabled \|\| !manualCandidatesReady\}/);
-  assert.doesNotMatch(flow, /\/api\/keyword-shopling-apply/);
+  assert.match(flow, /fetch\("\/api\/keyword-shopling-apply\/run"/);
+  assert.doesNotMatch(flow, /API_AUTH_KEY|LOGIN_PASSWORD|shell\s*:\s*true|child_process|PowerShell/i);
+});
+
+test("product launch primary action router preserves upload and price before manual confirmation", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  assert.match(flow, /const handleProductLaunchPrimaryAction = \(\) => \{/);
+  assert.match(flow, /if \(cockpit\.primaryAction === "upload"\) void runUploadRequest\(\);/);
+  assert.match(flow, /else if \(cockpit\.primaryAction === "price"\) void runPriceModify\(\);/);
+  assert.match(flow, /else if \(cockpit\.primaryAction === "wait"\) return;/);
+  assert.match(flow, /else if \(cockpit\.primaryAction === "failed"\) return;/);
+  assert.match(flow, /manualPreflightResult[\s\S]{0,180}manualPreflightResult\.summary\.eligibleCount > 0[\s\S]{0,180}manualPreflightResult\.summary\.blockedCount === 0[\s\S]{0,120}void applyManualCandidates\(\);/);
+  assert.match(flow, /else confirmManualCandidates\(\);/);
+  assert.match(flow, /<OperatorLaunchStatusBoard[\s\S]*onNext=\{[\s\S]*handleProductLaunchPrimaryAction/);
+  assert.match(flow, /<LaunchCockpit[\s\S]*onNext=\{handleProductLaunchPrimaryAction\}/);
+  assert.doesNotMatch(flow, /onNext=\{confirmManualCandidates\}/);
+});
+
+test("product launch primary labels stay stage-specific for upload price and manual candidates", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "상품출시 진행 시작",
+    "가격설정 시작",
+    "준비 중입니다...",
+    "실패 원인 보기",
+    "후보 검토 중...",
+    "승인하고 실제 반영 실행",
+    "상품명/검색어 후보 확인",
+    "상품명/검색어 후보를 입력하세요.",
+  ]) assert.ok(flow.includes(expected), expected);
+  for (const forbidden of ["상품명/검색어 검토 시작", "키워드 dry_run 시작", "AI", "AI 추천"])
+    assert.ok(!flow.includes(forbidden), forbidden);
+});
+
+test("product launch manual apply remains compact runner only without fake malls or direct Shopling", async () => {
+  const flow = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  const runner = await readFile("src/lib/keywordShoplingApplyRunner.ts", "utf8");
+  assert.match(flow, /buildCompactKeywordApplyExecutionPlan\(manualPreflightResult\)/);
+  assert.match(flow, /fetch\("\/api\/keyword-shopling-apply\/run"/);
+  assert.match(flow, /confirmation_text: APPLY_CONFIRMATION_TEXT/);
+  assert.match(flow, /max_items: 100/);
+  assert.doesNotMatch(flow, /previewItems/);
+  assert.doesNotMatch(flow, /mallKey:\s*["'`](?:FAKE|test|mall_|MALL|smartstore)/i);
+  assert.doesNotMatch(`${flow}\n${runner}`, /https?:\/\/[^"'`]*shopling/i);
   assert.doesNotMatch(flow, /API_AUTH_KEY|LOGIN_PASSWORD|shell\s*:\s*true|child_process|PowerShell/i);
 });

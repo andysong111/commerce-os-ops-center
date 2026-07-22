@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import type { KeywordApplyState } from "@/components/keyword-review/KeywordReviewWorkspace";
+import { createReviewedRows, type KeywordReviewRow } from "@/lib/keywordReviewQueue";
+import { buildKeywordShoplingPayloadPreview, type KeywordPayloadPreviewResult } from "@/lib/keywordReviewPayloadPreview";
+import { buildCompactKeywordApplyExecutionPlan, buildKeywordExecutionPreflight, DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG, type KeywordExecutionPreflightResult } from "@/lib/keywordReviewExecutionPreflight";
 import {
   FormEvent,
   useCallback,
@@ -257,6 +260,12 @@ export function ProductLaunchFlow() {
   const [autoActualApplyEnabled, setAutoActualApplyEnabled] = useState(false);
   const [keywordApplyState, setKeywordApplyState] =
     useState<KeywordApplyState | null>(null);
+  const [manualPreviewStatus, setManualPreviewStatus] = useState("");
+  const [manualPreviewResult, setManualPreviewResult] =
+    useState<KeywordPayloadPreviewResult | null>(null);
+  const [manualPreflightResult, setManualPreflightResult] =
+    useState<KeywordExecutionPreflightResult | null>(null);
+  const [manualApplyBusy, setManualApplyBusy] = useState(false);
   const autoPriceStartedForUploadRequestRef = useRef<string>("");
   const autoKeywordStartedForPriceRequestRef = useRef<string>("");
   const autoKeywordImportedArtifactRef = useRef<string>("");
@@ -703,6 +712,11 @@ export function ProductLaunchFlow() {
       ),
     [keywordSeed, seedKeywordsByGoodsKey, uploadRows],
   );
+  const manualCandidatesReady = hasManualCandidatesForAllSourceRows(
+    sourceRowGroups,
+    manualTitleOverridesByGoodsKey,
+    manualKeywordOverridesByGoodsKey,
+  );
 
   const previewKeywordDispatch = async () => {
     if (keywordBusy) return;
@@ -894,6 +908,107 @@ export function ProductLaunchFlow() {
     );
   };
 
+  const buildManualReviewedRows = useCallback(() => {
+    const rows: KeywordReviewRow[] = uploadRows.map((row, index) => {
+      const goodsKey = String(row.goods_key ?? "").trim();
+      return {
+        goodsKey,
+        mallKey: "",
+        originalTitle: String(row.title ?? row.product_name ?? row.productTitle ?? row.upload_title ?? row.registered_title ?? row.final_title ?? ""),
+        recommendedTitle: resolveManualTitleOverride(
+          manualTitleOverridesByGoodsKey[goodsKey],
+          goodsKey,
+        ),
+        originalSiteSrch: "",
+        recommendedSiteSrch: normalizeManualKeywordOverride(
+          manualKeywordOverridesByGoodsKey[goodsKey],
+        ),
+        siteSrchKeywordCount: null,
+        verifiedKeywordCount: null,
+        qualityStatus: "manual",
+        confidenceStatus: "manual",
+        blockReason: "",
+        warningFlags: "",
+        reviewReason: "manual product launch candidate confirmation",
+        payloadStatus: "",
+        approvalStatus: "approved",
+        manualCandidateKeywords: normalizeManualKeywordOverride(
+          manualKeywordOverridesByGoodsKey[goodsKey],
+        ),
+        sourceRowIndex: index + 2,
+        raw: {},
+        classification: "auto_apply_candidate",
+      };
+    });
+    return createReviewedRows(rows, buildGoodsKeyGroupMap(uploadRows)).map(
+      (row) => ({ ...row, reviewStatus: "approved" as const }),
+    );
+  }, [manualKeywordOverridesByGoodsKey, manualTitleOverridesByGoodsKey, uploadRows]);
+
+  const confirmManualCandidates = useCallback(() => {
+    if (!manualCandidatesReady || keywordBusy || manualApplyBusy) return;
+    setManualPreviewStatus("checking");
+    const previewResult = buildKeywordShoplingPayloadPreview(
+      buildManualReviewedRows(),
+      {
+        expandProductGroupMarkets: true,
+        manualTitleOverridesByGoodsKey,
+        manualKeywordOverridesByGoodsKey,
+        seedKeywordsByGoodsKey,
+      },
+    );
+    const preflightResult = buildKeywordExecutionPreflight(
+      { previewResult, finalConfirmationText: "" },
+      { ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG, maxRows: 100, confirmationText: APPLY_CONFIRMATION_TEXT },
+    );
+    setManualPreviewResult(previewResult);
+    setManualPreflightResult(preflightResult);
+    setManualPreviewStatus("");
+  }, [
+    buildManualReviewedRows,
+    keywordBusy,
+    manualApplyBusy,
+    manualCandidatesReady,
+    manualKeywordOverridesByGoodsKey,
+    manualTitleOverridesByGoodsKey,
+    seedKeywordsByGoodsKey,
+  ]);
+
+  const applyManualCandidates = useCallback(async () => {
+    if (!manualPreflightResult || manualApplyBusy) return;
+    setManualApplyBusy(true);
+    try {
+      const response = await fetch("/api/keyword-shopling-apply/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          execution_plan_json:
+            buildCompactKeywordApplyExecutionPlan(manualPreflightResult),
+          mode: "apply",
+          confirmation_text: APPLY_CONFIRMATION_TEXT,
+          max_items: 100,
+        }),
+      });
+      const json = await response.json();
+      setKeywordApplyState({
+        dryRunStatus: "success",
+        realApplyStatus: json.status === "error" ? "failed" : "queued",
+        appliedCount: 0,
+        failedCount: 0,
+        warningCount: manualPreflightResult.warnings.length,
+        requestId: json.requestId || "",
+        dryRunRequestId: "",
+        realApplyRequestId: json.requestId || "",
+        blankMallTitleBlockedCount: 0,
+        lastUpdatedAt: new Date().toISOString(),
+      });
+    } finally {
+      setManualApplyBusy(false);
+    }
+  }, [manualApplyBusy, manualPreflightResult]);
+
+  void openInlineKeywordReview;
+
   const rowMatchesCurrentRun = rowExpression === lastStartedRowExpression;
   const currentUploadRequestId = rowMatchesCurrentRun ? uploadRequestId : "";
   const uploadGithubActionsUrl = currentUploadRequestId
@@ -937,11 +1052,6 @@ export function ProductLaunchFlow() {
   const titleTargetCount = expectedLaunchApplyCount(
     goodsKeys,
     buildGoodsKeyGroupMap(uploadRows),
-  );
-  const manualCandidatesReady = hasManualCandidatesForAllSourceRows(
-    sourceRowGroups,
-    manualTitleOverridesByGoodsKey,
-    manualKeywordOverridesByGoodsKey,
   );
   const keywordRealApplySucceeded =
     isKeywordRealApplySuccess(keywordApplyState);
@@ -1196,11 +1306,18 @@ export function ProductLaunchFlow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autopilotEnabled, keywordRunsResult, keywordSummary.artifact]);
 
-  const runNextSafeStep = () => {
+  const handleProductLaunchPrimaryAction = () => {
     if (cockpit.primaryAction === "upload") void runUploadRequest();
-    if (cockpit.primaryAction === "price") void runPriceModify();
-    if (cockpit.primaryAction === "keyword") void dispatchKeywordEngine();
-    if (cockpit.primaryAction === "review") void openInlineKeywordReview();
+    else if (cockpit.primaryAction === "price") void runPriceModify();
+    else if (cockpit.primaryAction === "wait") return;
+    else if (cockpit.primaryAction === "failed") return;
+    else if (
+      manualPreflightResult &&
+      manualPreflightResult.summary.eligibleCount > 0 &&
+      manualPreflightResult.summary.blockedCount === 0
+    )
+      void applyManualCandidates();
+    else confirmManualCandidates();
   };
 
   useEffect(() => {
@@ -1326,7 +1443,7 @@ export function ProductLaunchFlow() {
         onNext={
           keywordRealApplySucceeded && !finalPriceDone
             ? runFinalPriceModify
-            : runNextSafeStep
+            : handleProductLaunchPrimaryAction
         }
         initialPriceRequestId={priceRequestId}
         finalPriceRequestId={finalPriceRequestId}
@@ -1360,12 +1477,16 @@ export function ProductLaunchFlow() {
         manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey}
         manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey}
       />
+      <ManualPreviewReviewSection
+        manualPreviewResult={manualPreviewResult}
+        manualPreflightResult={manualPreflightResult}
+      />
       <LaunchCockpit
         steps={cockpit.steps}
         currentStage={derivedStage}
         nextAction={cockpit.nextAction}
         primaryAction={cockpit.primaryAction}
-        onNext={runNextSafeStep}
+        onNext={handleProductLaunchPrimaryAction}
         rowExpression={rowExpression}
         onRowExpressionChange={setRowExpression}
         uploadBusy={uploadRunning || uploadFetching || uploadPolling}
@@ -1413,6 +1534,11 @@ export function ProductLaunchFlow() {
         }}
         autoActualApplyEnabled={autoActualApplyEnabled}
         onAutoActualApplyEnabledChange={setAutoActualApplyEnabled}
+        manualCandidatesReady={manualCandidatesReady}
+        manualPreviewStatus={manualPreviewStatus}
+        manualPreflightResult={manualPreflightResult}
+        manualBusy={manualApplyBusy}
+        goodsKeysEmpty={goodsKeys.length === 0}
       />
       {cockpit.primaryAction === "failed" ? (
         <ErrorDrawer
@@ -1853,6 +1979,35 @@ function RepresentativePreviewCard({
   );
 }
 
+function ManualPreviewReviewSection({
+  manualPreviewResult,
+  manualPreflightResult,
+}: {
+  manualPreviewResult: KeywordPayloadPreviewResult | null;
+  manualPreflightResult: KeywordExecutionPreflightResult | null;
+}) {
+  if (!manualPreviewResult && !manualPreflightResult) return null;
+  return (
+    <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+      <p className="text-sm font-bold text-emerald-800">수동 후보 검토 결과</p>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <SummaryCard
+          label="미리보기 대상"
+          value={manualPreviewResult?.expandedItemCount ?? 0}
+        />
+        <SummaryCard
+          label="반영 가능"
+          value={manualPreflightResult?.summary.eligibleCount ?? 0}
+        />
+        <SummaryCard
+          label="차단"
+          value={manualPreflightResult?.summary.blockedCount ?? 0}
+        />
+      </div>
+    </section>
+  );
+}
+
 function SummaryCard({
   label,
   value,
@@ -2191,6 +2346,11 @@ function LaunchCockpit({
   actionsUrl,
   counts,
   uploadProgress,
+  manualCandidatesReady,
+  manualPreviewStatus,
+  manualPreflightResult,
+  manualBusy,
+  goodsKeysEmpty,
 }: {
   steps: CockpitStep[];
   currentStage: string;
@@ -2222,6 +2382,11 @@ function LaunchCockpit({
       artifact?: KeywordArtifact;
     };
   };
+  manualCandidatesReady: boolean;
+  manualPreviewStatus: string;
+  manualPreflightResult: KeywordExecutionPreflightResult | null;
+  manualBusy: boolean;
+  goodsKeysEmpty: boolean;
   uploadProgress: {
     active: boolean;
     phase: string;
@@ -2242,14 +2407,26 @@ function LaunchCockpit({
     priceBusy,
     keywordBusy,
     currentStage,
+    manualCandidatesReady,
+    manualPreviewStatus,
+    manualPreflightResult,
   );
   const disabled =
     primaryAction === "upload"
       ? !rowIsValid || uploadBusy
-      : primaryAction === "wait" ||
-        primaryAction === "failed" ||
-        priceBusy ||
-        keywordBusy;
+      : primaryAction === "price"
+        ? priceBusy || goodsKeysEmpty
+        : primaryAction === "wait" || primaryAction === "failed"
+          ? true
+          : !manualCandidatesReady ||
+            manualPreviewStatus === "checking" ||
+            !!keywordBusy ||
+            manualBusy ||
+            !!manualPreflightResult?.summary.blockedCount ||
+            (manualPreflightResult
+              ? manualPreflightResult.summary.eligibleCount === 0 ||
+                manualPreflightResult.summary.eligibleCount > 100
+              : false);
   void steps;
   void counts;
   void autoPilotEnabled;
@@ -2409,13 +2586,20 @@ function getPrimaryActionLabel(
   priceBusy: boolean,
   keywordBusy: boolean,
   currentStage: string,
+  manualCandidatesReady: boolean,
+  manualPreviewStatus: string,
+  manualPreflightResult: KeywordExecutionPreflightResult | null,
 ) {
-  if (uploadBusy || priceBusy || keywordBusy) return "준비 중입니다...";
   if (primaryAction === "upload") return "상품출시 진행 시작";
   if (primaryAction === "price") return "가격설정 시작";
-  if (primaryAction === "keyword") return "상품명/검색어 검토 시작";
-  if (primaryAction === "review") return "상품명/검색어 후보 확인";
+  if (primaryAction === "wait") return "준비 중입니다...";
   if (primaryAction === "failed") return "실패 원인 보기";
+  if (uploadBusy || priceBusy || keywordBusy) return "준비 중입니다...";
+  if (manualPreviewStatus === "checking") return "후보 검토 중...";
+  if (manualPreflightResult?.summary.eligibleCount && manualPreflightResult.summary.blockedCount === 0)
+    return "승인하고 실제 반영 실행";
+  if (manualCandidatesReady) return "상품명/검색어 후보 확인";
+  if (primaryAction === "keyword" || primaryAction === "review") return "상품명/검색어 후보를 입력하세요.";
   if (currentStage === "가격설정") return "가격설정 결과 확인 중...";
   if (currentStage === "키워드 결과 검토") return "상품명/검색어 후보 확인";
   if (currentStage === "키워드/상품명 준비") return "키워드 결과 확인 중...";
