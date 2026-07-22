@@ -188,6 +188,8 @@ export type KeywordReviewWorkspaceContext = {
   manualTitleOverridesByGoodsKey?: Record<string, string>;
   manualKeywordOverridesByGoodsKey?: Record<string, string>;
   seedKeywordsByGoodsKey?: Record<string, string>;
+  sourceRowGroups?: Array<{ sourceRowId: string; goodsKeys: string[] }>;
+  manualCandidatesReady?: boolean;
 };
 
 export type KeywordApplyState = {
@@ -248,7 +250,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   const [allowedMallKeys, setAllowedMallKeys] = useState("");
   const [maxRows, setMaxRows] = useState("20");
   const [alreadyAppliedGoodsKeys, setAlreadyAppliedGoodsKeys] = useState("");
-  const [keywordApplyMaxRows, setKeywordApplyMaxRows] = useState("20");
+  const [keywordApplyMaxRows, setKeywordApplyMaxRows] = useState("100");
   const [keywordApplyDryRunStatus, setKeywordApplyDryRunStatus] = useState("");
   const [keywordApplyRealStatus, setKeywordApplyRealStatus] = useState("");
   const [keywordApplyDryRunResult, setKeywordApplyDryRunResult] = useState<Record<
@@ -581,6 +583,10 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
 
   useEffect(() => {
     if (!isEmbedded || !launchCoverage.covered || rows.filter((row) => row.reviewStatus === "approved").length === 0 || preflightResult) return;
+    if (!hasManualCandidatesForAllSourceRows(launchContext?.sourceRowGroups ?? [], launchContext?.manualTitleOverridesByGoodsKey ?? {}, launchContext?.manualKeywordOverridesByGoodsKey ?? {})) {
+      const timer = window.setTimeout(() => setGuidedActionStatus("행별 상품명/검색어 후보를 입력하면 미리보기를 생성합니다."), 0);
+      return () => window.clearTimeout(timer);
+    }
     const previewRows = createGroupVariantPreviewRows(rows, groupVariantEnabled);
     const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey });
     const previewCoverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey });
@@ -600,7 +606,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
     }, 0);
     return () => window.clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEmbedded, launchCoverage.covered, rows, preflightResult]);
+  }, [isEmbedded, launchCoverage.covered, rows, preflightResult, launchContext?.manualCandidatesReady]);
 
   const groupPreviewReady = groupVariantPreview.length > 0;
   const applyPlanReady = Boolean(payloadPreview);
@@ -1050,6 +1056,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
         autoApplyToShopling={launchContext?.autoApplyToShopling === true}
         autoApplyConfirmationText={launchContext?.autoApplyConfirmationText ?? ""}
         autoDryRun={isEmbedded}
+        manualCandidatesReady={launchContext?.manualCandidatesReady ?? false}
         onApplyStateChange={onApplyStateChange}
       />
     </>
@@ -1449,6 +1456,7 @@ function KeywordShoplingApplySection({
   autoApplyToShopling = false,
   autoApplyConfirmationText = "",
   autoDryRun = false,
+  manualCandidatesReady = true,
   onApplyStateChange,
 }: {
   preflightResult: KeywordExecutionPreflightResult | null;
@@ -1466,6 +1474,7 @@ function KeywordShoplingApplySection({
   autoApplyToShopling?: boolean;
   autoApplyConfirmationText?: string;
   autoDryRun?: boolean;
+  manualCandidatesReady?: boolean;
   onApplyStateChange?: (state: KeywordApplyState) => void;
 }) {
   const disabled = !preflightResult;
@@ -1482,7 +1491,7 @@ function KeywordShoplingApplySection({
     if (!onApplyStateChange) return;
     onApplyStateChange({
       dryRunStatus: normalizeApplyBoardStatus(dryRunResult, dryRunMeta.state),
-      realApplyStatus: normalizeApplyBoardStatus(realResult, realMeta.state),
+      realApplyStatus: isSuccessfulApplyResult(realResult) ? "success" : normalizeApplyBoardStatus(realResult, realMeta.state),
       appliedCount: getApplySummaryNumber(realResult, "applied_item_count"),
       failedCount: getApplySummaryNumber(realResult, "failed_item_count"),
       warningCount: getApplyWarningCount(dryRunResult) + getApplyWarningCount(realResult),
@@ -1560,8 +1569,14 @@ function KeywordShoplingApplySection({
     setResult(null);
     setMeta((m) => ({ ...m, state: "queued", phase: "queued", runStatus: "queued", pollCount: 0, isPolling: false, message: mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." }));
     setStatus(mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다.");
-    const response = await fetch("/api/keyword-shopling-apply/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ execution_plan_json: executionPlanJson, mode, confirmation_text: mode === "apply" ? KEYWORD_APPLY_CONFIRMATION_TEXT : "", max_items: Number.parseInt(maxRows, 10) || 20 }) });
+    const response = await fetch("/api/keyword-shopling-apply/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ execution_plan_json: executionPlanJson, mode, confirmation_text: mode === "apply" ? KEYWORD_APPLY_CONFIRMATION_TEXT : "", max_items: 100 }) });
     const json = await response.json();
+    if (json.status === "error" || !json.requestId) {
+      setResult(json);
+      setMeta((m) => ({ ...m, state: json.status === "error" ? "failed" : "blocked", phase: String(json.phase ?? "dispatch_failed"), isPolling: false, message: json.message || "요청 ID가 없어 시작 전 상태로 돌아갑니다." }));
+      setStatus(json.message || "요청 ID가 없어 시작 전 상태로 돌아갑니다.");
+      return;
+    }
     if (json.requestId) {
       const storageKey = mode === "dry_run" ? KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY : KEYWORD_APPLY_REAL_REQUEST_ID_KEY;
       window.localStorage.setItem(storageKey, json.requestId);
@@ -1577,10 +1592,11 @@ function KeywordShoplingApplySection({
 
   useEffect(() => {
     if (disabled || !autoDryRun || autoDryRunStartedRef.current || dryRunSucceeded) return;
+    if (!manualCandidatesReady) return;
     autoDryRunStartedRef.current = true;
     void run("dry_run", true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoDryRun, disabled, dryRunSucceeded]);
+  }, [autoDryRun, disabled, dryRunSucceeded, manualCandidatesReady]);
 
   useEffect(() => {
     if (disabled || !dryRunSucceeded) return;
@@ -1609,7 +1625,7 @@ function KeywordShoplingApplySection({
   const warningCount = preflightResult ? preflightResult.eligibleItems.filter((item) => item.preflight_warnings.length > 0).length : 0;
   const underfilledCount = preflightResult ? [...preflightResult.eligibleItems, ...preflightResult.blockedItems].filter((item) => String(item.final_site_srch ?? "").split(",").filter(Boolean).length < 10).length : 0;
   const dangerousCount = preflightResult?.summary.blockedCount ?? 0;
-  const compactApplyDisabled = disabled || !dryRunSucceeded || blockedCount > 0 || realMeta.isPolling;
+  const compactApplyDisabled = disabled || !manualCandidatesReady || !dryRunSucceeded || blockedCount > 0 || realMeta.isPolling;
 
   return (
     <section id="keyword-shopling-apply-section" className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -1623,6 +1639,7 @@ function KeywordShoplingApplySection({
           <SummaryCard label="검색어 부족" value={underfilledCount} />
           <SummaryCard label="위험 키워드" value={dangerousCount} />
         </div>
+        {!manualCandidatesReady ? <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-900">행별 상품명/검색어 후보를 입력하면 미리보기를 생성합니다.</p> : null}
         {blockedCount > 0 ? <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">차단 항목이 있어 실제 반영할 수 없습니다. 고급 상세에서 원인을 확인하세요.</p> : null}
         {!dryRunSucceeded ? <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900">검토 준비가 끝나면 승인할 수 있습니다.</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">
@@ -1636,12 +1653,32 @@ function KeywordShoplingApplySection({
         <p className="mt-3 text-sm text-slate-600">상세 점검, 요청 식별값, 실행 결과 원본은 이 영역에서만 확인합니다.</p>
         {!preflightResult ? <p className="mt-3 text-sm font-semibold text-red-700">먼저 반영 미리보기와 실행 전 점검을 실행하세요.</p> : null}
         <div className="mt-4 grid gap-3 sm:grid-cols-3"><SummaryCard label="실행 가능 행" value={safeCount} /><SummaryCard label="차단 행" value={blockedCount} /><label className="text-xs font-semibold text-slate-600">최대 실행 행 수<input type="number" min="1" max="100" value={maxRows} onChange={(event) => onMaxRowsChange(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" /></label></div>
-        <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><h3 className="font-semibold text-blue-950">1단계: dry_run 확인</h3><p className="mt-2 text-sm font-black text-blue-950">{dryRunPhaseLabel}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={disabled} onClick={() => void run("dry_run")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">샵플링 반영 dry_run 실행</button><button type="button" disabled={dryRunMeta.isPolling} onClick={() => void fetchResult("dry_run")} className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700 disabled:border-slate-300 disabled:text-slate-400">{dryRunMeta.isPolling ? "자동 확인 중..." : "결과 가져오기"}</button>{dryRunMeta.isPolling ? <span className="self-center text-xs font-semibold text-blue-900">자동 확인 {dryRunMeta.pollCount}/{MAX_APPLY_POLLS}</span> : null}</div><p className="mt-3 text-xs text-blue-900">dry_run request id: <span className="font-mono">{dryRunMeta.requestId || "-"}</span></p>{dryRunStatusMessage ? <p className="mt-3 text-sm text-slate-700">{dryRunStatusMessage}</p> : null}{renderControls("dry_run", dryRunResult, dryRunMeta)}</div>
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4"><h3 className="font-semibold text-red-950">2단계: 실제 반영</h3><p className="mt-2 text-sm font-black text-red-950">{realApplyPhaseLabel}</p>{realApplyWaitingAfterDryRun ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">키워드 dry_run은 완료됐지만 실제 샵플링 반영은 아직 실행되지 않았습니다.</p> : null}<div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={disabled || !dryRunSucceeded || blockedCount > 0} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">승인하고 샵플링 반영 실행</button><button type="button" disabled={realMeta.isPolling} onClick={() => void fetchResult("apply")} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 disabled:border-slate-300 disabled:text-slate-400">{realMeta.isPolling ? "자동 확인 중..." : "결과 가져오기"}</button>{realMeta.isPolling ? <span className="self-center text-xs font-semibold text-red-900">자동 확인 {realMeta.pollCount}/{MAX_APPLY_POLLS}</span> : null}</div><p className="mt-3 text-xs text-red-900">apply request id: <span className="font-mono">{realMeta.requestId || "-"}</span></p>{realStatusMessage ? <p className="mt-3 text-sm text-slate-700">{realStatusMessage}</p> : null}{renderControls("apply", realResult, realMeta)}</div>{showGithub422Hint ? <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">GitHub Actions 입력값 검증에서 거절되었습니다. 실행 계획 크기 또는 workflow 입력값을 확인하세요.</p> : null}
+        <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><h3 className="font-semibold text-blue-950">1단계: dry_run 확인</h3><p className="mt-2 text-sm font-black text-blue-950">{dryRunPhaseLabel}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={disabled || !manualCandidatesReady} onClick={() => void run("dry_run")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">샵플링 반영 dry_run 실행</button><button type="button" disabled={dryRunMeta.isPolling} onClick={() => void fetchResult("dry_run")} className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700 disabled:border-slate-300 disabled:text-slate-400">{dryRunMeta.isPolling ? "자동 확인 중..." : "결과 가져오기"}</button>{dryRunMeta.isPolling ? <span className="self-center text-xs font-semibold text-blue-900">자동 확인 {dryRunMeta.pollCount}/{MAX_APPLY_POLLS}</span> : null}</div><p className="mt-3 text-xs text-blue-900">dry_run request id: <span className="font-mono">{dryRunMeta.requestId || "-"}</span></p>{dryRunStatusMessage ? <p className="mt-3 text-sm text-slate-700">{dryRunStatusMessage}</p> : null}{renderControls("dry_run", dryRunResult, dryRunMeta)}</div>
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4"><h3 className="font-semibold text-red-950">2단계: 실제 반영</h3><p className="mt-2 text-sm font-black text-red-950">{realApplyPhaseLabel}</p>{realApplyWaitingAfterDryRun ? <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">키워드 dry_run은 완료됐지만 실제 샵플링 반영은 아직 실행되지 않았습니다.</p> : null}<div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={disabled || !manualCandidatesReady || !dryRunSucceeded || blockedCount > 0} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">승인하고 샵플링 반영 실행</button><button type="button" disabled={realMeta.isPolling} onClick={() => void fetchResult("apply")} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 disabled:border-slate-300 disabled:text-slate-400">{realMeta.isPolling ? "자동 확인 중..." : "결과 가져오기"}</button>{realMeta.isPolling ? <span className="self-center text-xs font-semibold text-red-900">자동 확인 {realMeta.pollCount}/{MAX_APPLY_POLLS}</span> : null}</div><p className="mt-3 text-xs text-red-900">apply request id: <span className="font-mono">{realMeta.requestId || "-"}</span></p>{realStatusMessage ? <p className="mt-3 text-sm text-slate-700">{realStatusMessage}</p> : null}{renderControls("apply", realResult, realMeta)}</div>{showGithub422Hint ? <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">GitHub Actions 입력값 검증에서 거절되었습니다. 실행 계획 크기 또는 workflow 입력값을 확인하세요.</p> : null}
       </details>
     </section>
   );
 }
+export function isSuccessfulApplyResult(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const summary = record.summary && typeof record.summary === "object" ? record.summary as Record<string, unknown> : {};
+  const status = String(record.status ?? "").toLowerCase();
+  const phase = String(record.phase ?? "").toLowerCase();
+  const summaryStatus = String(summary.status ?? "").toLowerCase();
+  const failedStatuses = new Set(["error", "failed", "blocked", "partial_failure"]);
+  if (failedStatuses.has(status) || failedStatuses.has(phase) || failedStatuses.has(summaryStatus)) return false;
+  return status === "success" || (phase === "artifact_ready" && summaryStatus === "success");
+}
+
+export function hasManualCandidatesForAllSourceRows(sourceRowGroups: Array<{ sourceRowId: string; goodsKeys: string[] }>, manualTitleCandidatesBySourceRow: Record<string, string>, manualSearchCandidatesBySourceRow: Record<string, string>): boolean {
+  if (sourceRowGroups.length === 0) return false;
+  return sourceRowGroups.every((group) => {
+    if (String(manualTitleCandidatesBySourceRow[group.sourceRowId] ?? "").trim() || String(manualSearchCandidatesBySourceRow[group.sourceRowId] ?? "").trim()) return true;
+    return group.goodsKeys.some((goodsKey) => String(manualTitleCandidatesBySourceRow[goodsKey] ?? "").trim() || String(manualSearchCandidatesBySourceRow[goodsKey] ?? "").trim());
+  });
+}
+
 function ApplyResultFreshness({ result }: { result: Record<string, unknown> }) {
   return <dl className="mt-3 grid gap-2 rounded-lg bg-white/80 p-3 text-xs sm:grid-cols-3"><div>request id: <span className="font-mono">{String(result.requestId ?? "-")}</span></div><div>mode: {String((result.summary as Record<string, unknown> | undefined)?.mode ?? "-")}</div><div>fetchedAt: {String(result.fetchedAt ?? "-")}</div><div>runStatus/conclusion: {String(result.runStatus ?? "-")} / {String(result.runConclusion ?? "-")}</div><div>artifactName: {String(result.artifactName ?? "-")}</div>{result.runUrl ? <div><a href={String(result.runUrl)} target="_blank" rel="noreferrer" className="font-semibold underline">GitHub Actions 열기</a></div> : null}</dl>;
 }
