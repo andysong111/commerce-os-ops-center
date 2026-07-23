@@ -5,6 +5,7 @@ const KEYWORD_SPLIT_PATTERN = /[,;|\n\r]+/u;
 
 export type ManualMallTitleVariant = {
   mallKey: string;
+  orderedKeywords: string[];
   marketName: string;
   accountIdLabel: string;
   title: string;
@@ -58,15 +59,18 @@ function sortedTokenMultiset(value: string[]) {
   return value.map((token) => token.toLocaleLowerCase()).sort().join("\u0000");
 }
 
-export function validateManualMallTitleIntegrity(title: string, keywords: string[]) {
-  const titleTokens = title.split(" ").filter(Boolean);
+export function validateManualMallTitleIntegrity(title: string, keywords: string[], orderedKeywords = keywords) {
   const errors: string[] = [];
   const byteLength = utf8ByteLength(title);
-  const keywordIntegrityOk = sortedTokenMultiset(titleTokens) === sortedTokenMultiset(keywords);
+  const normalizedTitle = title.replace(/\s+/gu, " ").trim();
+  const expectedTitle = orderedKeywords.join(" ").replace(/\s+/gu, " ").trim();
+  const keywordIntegrityOk =
+    sortedTokenMultiset(orderedKeywords) === sortedTokenMultiset(keywords) &&
+    normalizedTitle === expectedTitle;
   if (keywords.length === 0) errors.push("상품명 키워드를 입력하세요.");
-  if (!keywordIntegrityOk) errors.push("상품명은 입력 키워드를 각각 정확히 한 번만 포함해야 합니다.");
+  if (!keywordIntegrityOk) errors.push("상품명은 입력 키워드 배열의 순열을 정확히 한 번만 포함해야 합니다.");
   if (byteLength > SHOPLING_PRODUCT_TITLE_MAX_BYTES) errors.push(`상품명 UTF-8 길이 ${byteLength} bytes가 제한 ${SHOPLING_PRODUCT_TITLE_MAX_BYTES} bytes를 초과했습니다.`);
-  return { keywordIntegrityOk, includedKeywordCount: titleTokens.length, byteLength, errors };
+  return { keywordIntegrityOk, includedKeywordCount: orderedKeywords.length, byteLength, errors };
 }
 
 export function buildManualMallTitleVariants(input: {
@@ -76,13 +80,15 @@ export function buildManualMallTitleVariants(input: {
   const totalPermutations = permutationCount(input.keywords.length);
   return input.markets.map((market, index): ManualMallTitleVariant => {
     const permutationIndex = totalPermutations > BigInt(0) ? Number(BigInt(index) % totalPermutations) : 0;
-    const title = unrankKeywordPermutation(input.keywords, permutationIndex).join(" ");
-    const integrity = validateManualMallTitleIntegrity(title, input.keywords);
+    const orderedKeywords = unrankKeywordPermutation(input.keywords, permutationIndex);
+    const title = orderedKeywords.join(" ");
+    const integrity = validateManualMallTitleIntegrity(title, input.keywords, orderedKeywords);
     return {
       mallKey: market.mallKey,
       marketName: market.marketName,
       accountIdLabel: market.accountIdLabel,
       title,
+      orderedKeywords,
       keywordCount: input.keywords.length,
       includedKeywordCount: integrity.includedKeywordCount,
       keywordIntegrityOk: integrity.keywordIntegrityOk,

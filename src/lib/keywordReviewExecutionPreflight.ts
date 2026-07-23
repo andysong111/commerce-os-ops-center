@@ -231,6 +231,19 @@ export function buildKeywordExecutionPreflight(
     }
   }
 
+  if (requiresProductGroupCoverage) {
+    for (const [goodsKey, expectedMallKeys] of expectedMallKeysByGoodsKey.entries()) {
+      const generatedMallKeys = new Set(initiallyEligible.filter((item) => item.goods_key.trim() === goodsKey).map((item) => item.mall_key.trim()));
+      const matches = generatedMallKeys.size === expectedMallKeys.size && [...expectedMallKeys].every((mallKey) => generatedMallKeys.has(mallKey));
+      if (!matches) {
+        for (const item of initiallyEligible.filter((candidate) => candidate.goods_key.trim() === goodsKey)) {
+          item.preflight_status = "blocked";
+          item.block_reasons.push("PRODUCT_GROUP_MARKETS_MISMATCH");
+        }
+      }
+    }
+  }
+
   const eligibleItems = evaluatedItems.filter(
     (item) => item.preflight_status === "eligible",
   );

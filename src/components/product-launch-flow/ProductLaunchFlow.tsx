@@ -30,7 +30,6 @@ import {
   buildGoodsKeyProductGroupMap,
   buildKeywordEngineDispatchPayload,
   buildLaunchSourceRowGroups,
-  expandSeedKeywordsBySourceRowToGoodsKeys,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
   expectedLaunchApplyCount,
@@ -736,22 +735,9 @@ export function ProductLaunchFlow() {
       ),
     [lastStartedRowExpression, rowExpression, uploadRows],
   );
-  const seedKeywordsByGoodsKey = useMemo(
-    () =>
-      expandSeedKeywordsBySourceRowToGoodsKeys(
-        seedKeywordsBySourceRow,
-        sourceRowGroups,
-      ),
-    [seedKeywordsBySourceRow, sourceRowGroups],
-  );
   const keywordPayload = useCallback(
-    () =>
-      buildKeywordEngineDispatchPayload(
-        uploadRows,
-        keywordSeed,
-        seedKeywordsByGoodsKey,
-      ),
-    [keywordSeed, seedKeywordsByGoodsKey, uploadRows],
+    () => buildKeywordEngineDispatchPayload(uploadRows, keywordSeed, {}),
+    [keywordSeed, uploadRows],
   );
   const manualCandidatesReady = hasManualCandidatesForAllSourceRows(
     sourceRowGroups,
@@ -1007,7 +993,6 @@ export function ProductLaunchFlow() {
         expandProductGroupMarkets: true,
         manualTitleOverridesByGoodsKey,
         manualKeywordOverridesByGoodsKey,
-        seedKeywordsByGoodsKey,
       },
     );
     const preflightResult = buildKeywordExecutionPreflight(
@@ -1028,7 +1013,6 @@ export function ProductLaunchFlow() {
     manualCandidatesReady,
     manualKeywordOverridesByGoodsKey,
     manualTitleOverridesByGoodsKey,
-    seedKeywordsByGoodsKey,
   ]);
 
   const fetchManualApplyResult = useCallback(
@@ -1127,7 +1111,7 @@ export function ProductLaunchFlow() {
   ]);
 
   const applyManualCandidates = useCallback(async () => {
-    if (!manualPreflightResult || manualApplyBusy) return;
+    if (!manualPreflightResult || manualApplyBusy || manualPreflightResult.summary.eligibleCount === 0 || manualPreflightResult.summary.blockedCount > 0) return;
     setManualApplyBusy(true);
     try {
       const response = await fetch("/api/keyword-shopling-apply/run", {
@@ -1878,23 +1862,7 @@ export function ProductLaunchFlow() {
             finalPass
           />
         ) : null}
-        {goodsKeys.length > 0 ? (
-          <KeywordPrepSection
-            rows={uploadRows}
-            goodsKeys={goodsKeys}
-            seedKeyword={keywordSeed}
-            onSeedKeywordChange={setKeywordSeed}
-            preview={keywordPreview}
-            dispatchResult={keywordDispatchResult}
-            runsResult={keywordRunsResult}
-            importMessage={keywordImportMessage}
-            busy={keywordBusy}
-            onPreview={previewKeywordDispatch}
-            onDispatch={dispatchKeywordEngine}
-            onFetchRuns={fetchKeywordRuns}
-            onImport={importKeywordArtifact}
-          />
-        ) : null}
+        <p className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-700">키워드 엔진 workflow/artifact 실행 UI는 상품출시 플로우에서 분리되었습니다. 이 화면에서는 수동 상품명과 수동 검색어를 모두 입력한 뒤 검토 계획만 생성합니다.</p>
         <FinalChecklist />
       </details>
     </div>
@@ -1914,10 +1882,10 @@ export function hasManualCandidatesForAllSourceRows(
     const sourceRowSearch = String(
       manualSearchCandidatesBySourceRow[group.sourceRowId] ?? "",
     ).trim();
-    if (sourceRowTitle || sourceRowSearch) return true;
+    if (sourceRowTitle && sourceRowSearch) return true;
     return group.goodsKeys.some(
       (goodsKey) =>
-        String(manualTitleCandidatesBySourceRow[goodsKey] ?? "").trim() ||
+        String(manualTitleCandidatesBySourceRow[goodsKey] ?? "").trim() &&
         String(manualSearchCandidatesBySourceRow[goodsKey] ?? "").trim(),
     );
   });
@@ -2155,8 +2123,16 @@ function ManualPreviewReviewSection({
       <p className="text-sm font-bold text-emerald-800">수동 후보 검토 결과</p>
       <div className="mt-3 grid gap-3 md:grid-cols-3">
         <SummaryCard
-          label="미리보기 대상"
-          value={manualPreviewResult?.expandedItemCount ?? 0}
+          label="전체 쇼핑몰 미리보기"
+          value={manualPreviewResult?.items.length ?? 0}
+        />
+        <SummaryCard
+          label="예상 대상"
+          value={manualPreflightResult?.summary.expectedTitleTargetCount ?? 0}
+        />
+        <SummaryCard
+          label="생성 대상"
+          value={manualPreflightResult?.summary.generatedTitleTargetCount ?? 0}
         />
         <SummaryCard
           label="반영 가능"
@@ -2165,6 +2141,10 @@ function ManualPreviewReviewSection({
         <SummaryCard
           label="차단"
           value={manualPreflightResult?.summary.blockedCount ?? 0}
+        />
+        <SummaryCard
+          label="검색어 goods_key 수"
+          value={manualPreflightResult?.summary.siteSrchGoodsKeyCount ?? 0}
         />
       </div>
     </section>

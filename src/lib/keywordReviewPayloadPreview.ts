@@ -5,7 +5,7 @@ import type {
 } from "./keywordReviewQueue.ts";
 import { getMarketsForProductGroup } from "./productGroupMarketRegistry.ts";
 import { buildManualMallTitleVariants, parseManualMallTitleKeywords, validateManualMallTitleIntegrity } from "./manualMallTitleVariants.ts";
-import { normalizeManualKeywordOverride, normalizeSeedKeywords } from "./productLaunchFlow.ts";
+import { normalizeManualKeywordOverride } from "./productLaunchFlow.ts";
 
 export type KeywordReviewedRow = ReviewedKeywordRow;
 
@@ -151,11 +151,10 @@ export function buildKeywordShoplingPayloadPreview(
     const validation_warnings: string[] = [];
     const goodsKey = row.goodsKey.trim();
     const manualTitleKeywords = parseManualMallTitleKeywords(options.manualTitleOverridesByGoodsKey?.[goodsKey] ?? "");
-    const seedKeywords = normalizeSeedKeywords(options.seedKeywordsByGoodsKey?.[goodsKey]);
-    const final_title = manualTitleKeywords.join(" ") || preferredValue(row.editedTitle, row.recommendedTitle);
+    const final_title = options.expandProductGroupMarkets ? manualTitleKeywords.join(" ") : manualTitleKeywords.join(" ") || preferredValue(row.editedTitle, row.recommendedTitle);
     const final_mall_key = preferredValue(row.editedMallKey, row.mallKey);
     const manualKeywordOverride = options.manualKeywordOverridesByGoodsKey?.[goodsKey];
-    const preferredSiteSrch = (manualKeywordOverride === undefined ? "" : normalizeManualKeywordOverride(manualKeywordOverride)) || seedKeywords || String(row.editedSiteSrch ?? "").trim() || String(row.recommendedSiteSrch ?? "").trim();
+    const preferredSiteSrch = options.expandProductGroupMarkets ? (manualKeywordOverride === undefined ? "" : normalizeManualKeywordOverride(manualKeywordOverride)) : (manualKeywordOverride === undefined ? "" : normalizeManualKeywordOverride(manualKeywordOverride)) || String(row.editedSiteSrch ?? "").trim() || String(row.recommendedSiteSrch ?? "").trim();
     const normalizedSiteSrch = normalizeSiteSrch(preferredSiteSrch);
     const final_site_srch = normalizedSiteSrch.normalized;
 
@@ -244,7 +243,7 @@ export function buildKeywordShoplingPayloadPreview(
       expansion_mode: expansionMode,
       group_variant_enabled: Boolean(options.groupVariantEnabled),
       title_keyword_count: manualTitleKeywords.length,
-      title_included_keyword_count: final_title.split(" ").filter(Boolean).length,
+      title_included_keyword_count: manualTitleKeywords.length,
       title_keyword_integrity_ok: options.expandProductGroupMarkets ? validateManualMallTitleIntegrity(final_title, manualTitleKeywords).keywordIntegrityOk : undefined,
       apply_blocked: payload_status !== "preview_ready",
     };
@@ -259,7 +258,7 @@ export function buildKeywordShoplingPayloadPreview(
       expansionErrors.push(`${row.goodsKey || "(missing goods_key)"}: 상품그룹을 확인해야 쇼핑몰 자동 확장이 가능합니다.`);
       return [{ ...item, payload_status: "invalid" as const, validation_errors: [...item.validation_errors, "상품그룹을 확인해야 쇼핑몰 자동 확장이 가능합니다."] }];
     }
-    const manualTitleKeywords = parseManualMallTitleKeywords(options.manualTitleOverridesByGoodsKey?.[item.goods_key] ?? item.final_title);
+    const manualTitleKeywords = parseManualMallTitleKeywords(options.manualTitleOverridesByGoodsKey?.[item.goods_key] ?? "");
     const variants = buildManualMallTitleVariants({ keywords: manualTitleKeywords, markets });
     return markets.map((market, marketIndex) => {
       const variant = variants[marketIndex];
