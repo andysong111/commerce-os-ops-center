@@ -28,9 +28,7 @@ import {
   buildGoodsKeyGroupJson,
   buildGoodsKeyGroupMap,
   buildGoodsKeyProductGroupMap,
-  buildKeywordEngineDispatchPayload,
   buildLaunchSourceRowGroups,
-  expandSeedKeywordsBySourceRowToGoodsKeys,
   dedupeGoodsKeysForPriceModify,
   extractRowsWithGoodsKey,
   expectedLaunchApplyCount,
@@ -39,21 +37,18 @@ import {
   extractUploadRows,
   inferProductGroupFromPtnGoodsCd,
   normalizeManualKeywordOverride,
-  parseManualCandidateList,
   resolveManualTitleOverride,
   isGithubCredentialError,
   type ProductLaunchPriceError,
   type ProductLaunchUploadRow,
 } from "@/lib/productLaunchFlow";
 import { getMarketsForProductGroup } from "@/lib/productGroupMarketRegistry";
+import { buildManualMallTitleVariants, parseManualMallTitleKeywords } from "@/lib/manualMallTitleVariants";
 
 const PRODUCT_LAUNCH_SESSION_STORAGE_KEY = "productLaunchFlow.session.v2";
 const UPLOAD_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.uploadRequestId";
 const PRICE_REQUEST_ID_STORAGE_KEY = "productLaunchFlow.priceRequestId";
 const LAST_ROW_EXPRESSION_STORAGE_KEY = "productLaunchFlow.lastRowExpression";
-const KEYWORD_SEED_STORAGE_KEY = "productLaunchFlow.keywordSeed";
-const SEED_KEYWORDS_STORAGE_PREFIX =
-  "productLaunchFlow.seedKeywordsBySourceRow";
 const MANUAL_TITLE_OVERRIDES_STORAGE_PREFIX =
   "productLaunchFlow.manualTitleOverrides";
 const MANUAL_KEYWORD_OVERRIDES_STORAGE_PREFIX =
@@ -61,8 +56,6 @@ const MANUAL_KEYWORD_OVERRIDES_STORAGE_PREFIX =
 const MANUAL_WIZARD_STORAGE_KEY = "productLaunchFlow.manualWizard.v1";
 const MANUAL_CANDIDATES_STORAGE_KEY =
   "productLaunchFlow.manualCandidatesBySourceRow";
-const KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY =
-  "opsCenter.keywordEngine.importedArtifact.v1";
 const UPLOAD_POLL_INTERVAL_MS = 5_000;
 const UPLOAD_MAX_POLLS = 24;
 const ACTIVE_POLL_INTERVAL_MS = 5_000;
@@ -123,28 +116,7 @@ type PriceActionsResult = {
     visible_price_unrepaired_count?: unknown;
   };
 };
-type KeywordArtifact = {
-  id: number;
-  name: string;
-  expired?: boolean;
-  expected?: boolean;
-};
-type KeywordRun = {
-  id: number;
-  status?: string | null;
-  conclusion?: string | null;
-  createdAt?: string;
-  htmlUrl?: string;
-  artifacts?: KeywordArtifact[];
-};
-type KeywordRunsResult = {
-  status?: string;
-  message?: string;
-  actionsUrl?: string;
-  expectedArtifactName?: string;
-  outputReviewRoute?: string;
-  runs?: KeywordRun[];
-};
+
 type ManualApplyActionsResult = {
   status?: string;
   phase?: string;
@@ -159,29 +131,17 @@ type ManualApplyActionsResult = {
   errors?: unknown;
   warnings?: unknown;
 };
-type KeywordDispatchResult = {
-  repo?: string;
-  workflowFile?: string;
-  actionsUrl?: string;
-  expectedArtifactName?: string;
-  message?: string;
-};
 type ProductLaunchSessionV2 = {
   rowExpression?: string;
   startedAt?: string;
   updatedAt?: string;
   uploadRequestId?: string;
   priceRequestId?: string;
-  keywordRequestId?: string;
-  keywordRunId?: string;
-  keywordDryRunRequestId?: string;
   keywordRealApplyRequestId?: string;
   finalPriceRequestId?: string;
   uploadResult?: UploadActionsResult | null;
   priceResult?: PriceActionsResult | null;
-  keywordResult?: KeywordRunsResult | null;
   finalPriceResult?: PriceActionsResult | null;
-  seedKeywordsBySourceRow?: Record<string, string>;
   stage?: string;
 };
 
@@ -255,32 +215,12 @@ export function ProductLaunchFlow() {
   const [finalPricePollCount, setFinalPricePollCount] = useState(0);
   const [finalPriceLastCheckedAt, setFinalPriceLastCheckedAt] =
     useState<Date | null>(null);
-  const [keywordSeed, setKeywordSeed] = useState(() =>
-    getStoredValue(KEYWORD_SEED_STORAGE_KEY),
-  );
-  const [seedKeywordsBySourceRow, setSeedKeywordsBySourceRow] = useState<
-    Record<string, string>
-  >(restoredSession?.seedKeywordsBySourceRow ?? {});
   const [manualTitleOverridesByGoodsKey, setManualTitleOverridesByGoodsKey] =
     useState<Record<string, string>>({});
   const [
     manualKeywordOverridesByGoodsKey,
     setManualKeywordOverridesByGoodsKey,
   ] = useState<Record<string, string>>({});
-  const [keywordPreview, setKeywordPreview] = useState<unknown>(null);
-  const [keywordDispatchResult, setKeywordDispatchResult] =
-    useState<KeywordDispatchResult | null>(null);
-  const [keywordRunsResult, setKeywordRunsResult] =
-    useState<KeywordRunsResult | null>(restoredSession?.keywordResult ?? null);
-  const [keywordImportMessage, setKeywordImportMessage] = useState<string>("");
-  const [, setEmbeddedReviewOpen] = useState(false);
-  const [, setKeywordImportedAt] = useState("");
-  const [keywordBusy, setKeywordBusy] = useState<string>("");
-  const [keywordPolling, setKeywordPolling] = useState(false);
-  const [keywordPollCount, setKeywordPollCount] = useState(0);
-  const [keywordLastCheckedAt, setKeywordLastCheckedAt] = useState<Date | null>(
-    null,
-  );
   const [skipIfGoodsKey, setSkipIfGoodsKey] = useState(true);
   const [autopilotEnabled, setAutopilotEnabled] = useState(false);
   const [autoActualApplyEnabled, setAutoActualApplyEnabled] = useState(false);
@@ -308,8 +248,6 @@ export function ProductLaunchFlow() {
   const [manualApplyNextCheckIn, setManualApplyNextCheckIn] = useState(0);
   const [manualApplyErrorMessage, setManualApplyErrorMessage] = useState("");
   const autoPriceStartedForUploadRequestRef = useRef<string>("");
-  const autoKeywordStartedForPriceRequestRef = useRef<string>("");
-  const autoKeywordImportedArtifactRef = useRef<string>("");
   const finalPriceStartedForRealApplyRequestRef = useRef<string>("");
 
   const uploadResultRows = useMemo(
@@ -337,21 +275,6 @@ export function ProductLaunchFlow() {
     uploadRequestId,
   );
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSeedKeywordsBySourceRow(
-      readStoredRecord(
-        `${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`,
-      ),
-    );
-  }, [manualOverrideStorageScope]);
-
-  useEffect(() => {
-    persistRecord(
-      `${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`,
-      seedKeywordsBySourceRow,
-    );
-  }, [manualOverrideStorageScope, seedKeywordsBySourceRow]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -499,16 +422,12 @@ export function ProductLaunchFlow() {
     setUploadActionsResult(null);
     setPriceRunResult(null);
     setPriceActionsResult(null);
-    setKeywordDispatchResult(null);
-    setKeywordRunsResult(null);
-    setKeywordImportMessage("");
     setKeywordApplyState(null);
     setFinalPriceRequestId("");
     setFinalPriceRunResult(null);
     setFinalPriceActionsResult(null);
     finalPriceStartedForRealApplyRequestRef.current = "";
     autoPriceStartedForUploadRequestRef.current = "";
-    autoKeywordStartedForPriceRequestRef.current = "";
     try {
       const response = await fetch("/api/shopling-product-upload/run", {
         method: "POST",
@@ -736,218 +655,11 @@ export function ProductLaunchFlow() {
       ),
     [lastStartedRowExpression, rowExpression, uploadRows],
   );
-  const seedKeywordsByGoodsKey = useMemo(
-    () =>
-      expandSeedKeywordsBySourceRowToGoodsKeys(
-        seedKeywordsBySourceRow,
-        sourceRowGroups,
-      ),
-    [seedKeywordsBySourceRow, sourceRowGroups],
-  );
-  const keywordPayload = useCallback(
-    () =>
-      buildKeywordEngineDispatchPayload(
-        uploadRows,
-        keywordSeed,
-        seedKeywordsByGoodsKey,
-      ),
-    [keywordSeed, seedKeywordsByGoodsKey, uploadRows],
-  );
   const manualCandidatesReady = hasManualCandidatesForAllSourceRows(
     sourceRowGroups,
     manualTitleOverridesByGoodsKey,
     manualKeywordOverridesByGoodsKey,
   );
-
-  const previewKeywordDispatch = async () => {
-    if (keywordBusy) return;
-    setKeywordBusy("preview");
-    setKeywordPreview(null);
-    try {
-      persistValue(KEYWORD_SEED_STORAGE_KEY, keywordSeed);
-      persistRecord(
-        `${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`,
-        seedKeywordsBySourceRow,
-      );
-      const response = await fetch("/api/engine-runners/dispatch-preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(keywordPayload()),
-      });
-      setKeywordPreview(await response.json());
-    } catch (error) {
-      setKeywordPreview({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "키워드 엔진 입력값 확인 중 오류가 발생했습니다.",
-      });
-    } finally {
-      setKeywordBusy("");
-    }
-  };
-
-  const dispatchKeywordEngine = useCallback(async () => {
-    if (keywordBusy) return;
-    setKeywordBusy("dispatch");
-    try {
-      persistValue(KEYWORD_SEED_STORAGE_KEY, keywordSeed);
-      persistRecord(
-        `${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`,
-        seedKeywordsBySourceRow,
-      );
-      const response = await fetch("/api/engine-runners/dispatch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(keywordPayload()),
-      });
-      setKeywordDispatchResult(await response.json());
-      setKeywordPolling(true);
-      setKeywordPollCount(0);
-    } catch (error) {
-      setKeywordDispatchResult({
-        message:
-          error instanceof Error
-            ? error.message
-            : "키워드 엔진 실행 요청 중 오류가 발생했습니다.",
-      });
-    } finally {
-      setKeywordBusy("");
-    }
-  }, [
-    keywordBusy,
-    keywordPayload,
-    keywordSeed,
-    manualOverrideStorageScope,
-    seedKeywordsBySourceRow,
-  ]);
-
-  const fetchKeywordRuns = useCallback(async () => {
-    if (keywordBusy) return;
-    setKeywordBusy("runs");
-    try {
-      const data = await (
-        await fetch("/api/engine-runners/runs?kind=keyword_engine")
-      ).json();
-      setKeywordRunsResult(data);
-      setKeywordLastCheckedAt(new Date());
-      if (isFinalKeywordRuns(data)) setKeywordPolling(false);
-    } catch (error) {
-      setKeywordRunsResult({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "키워드 실행 결과 확인 중 오류가 발생했습니다.",
-      });
-    } finally {
-      setKeywordBusy("");
-    }
-  }, [keywordBusy]);
-
-  useEffect(() => {
-    if (!keywordPolling || keywordBusy) return;
-    if (
-      keywordPollCount >= ACTIVE_MAX_POLLS ||
-      isFinalKeywordRuns(keywordRunsResult)
-    )
-      return;
-    const timer = window.setTimeout(
-      () => {
-        setKeywordPollCount((count) => {
-          const next = count + 1;
-          if (next >= ACTIVE_MAX_POLLS) setKeywordPolling(false);
-          return next;
-        });
-        void fetchKeywordRuns();
-      },
-      keywordPollCount === 0 ? 0 : ACTIVE_POLL_INTERVAL_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [
-    keywordPolling,
-    keywordBusy,
-    keywordPollCount,
-    keywordRunsResult,
-    fetchKeywordRuns,
-  ]);
-
-  const importKeywordArtifact = async (
-    run: KeywordRun,
-    artifact: KeywordArtifact,
-  ) => {
-    if (keywordBusy) return;
-    setKeywordBusy(`import-${artifact.id}`);
-    setKeywordImportMessage("");
-    try {
-      const response = await fetch(
-        "/api/engine-runners/artifacts/import-preview",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            kind: "keyword_engine",
-            runId: run.id,
-            artifactId: artifact.id,
-          }),
-        },
-      );
-      const data = await response.json();
-      if (!response.ok || !data.ok)
-        throw new Error(data.message ?? "키워드 결과 가져오기에 실패했습니다.");
-      const importedAt = new Date().toISOString();
-      window.sessionStorage.setItem(
-        KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY,
-        JSON.stringify({
-          kind: data.kind,
-          source: data.source,
-          files: data.files,
-          generatedSourceFiles: data.generatedSourceFiles,
-          goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows),
-          importedAt,
-          artifactName: artifact.name,
-          notAppliedToShopling: true,
-          notPublished: true,
-          requiresHumanReview: true,
-        }),
-      );
-      setKeywordImportedAt(importedAt);
-      setEmbeddedReviewOpen(true);
-      setKeywordImportMessage(
-        "키워드 결과 파일이 준비되었습니다. 이 화면에서 상품명 후보 선택부터 실제 반영 전 dry_run까지 이어서 진행합니다.",
-      );
-    } catch (error) {
-      setKeywordImportMessage(
-        error instanceof Error
-          ? error.message
-          : "키워드 결과 가져오기에 실패했습니다.",
-      );
-    } finally {
-      setKeywordBusy("");
-    }
-  };
-
-  const openInlineKeywordReview = async () => {
-    const artifact = keywordSummary.artifact;
-    const run = keywordRunsResult?.runs?.find((item) =>
-      item.artifacts?.some((candidate) => candidate.id === artifact?.id),
-    );
-    if (artifact && run) {
-      await importKeywordArtifact(run, artifact);
-      return;
-    }
-    if (
-      typeof window !== "undefined" &&
-      window.sessionStorage.getItem(KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY)
-    ) {
-      setEmbeddedReviewOpen(true);
-      return;
-    }
-    setKeywordImportMessage(
-      "키워드 결과 파일은 불러왔지만 검토할 후보가 없습니다. GitHub Actions 로그 또는 artifact 파일을 확인하세요.",
-    );
-  };
 
   const buildManualReviewedRows = useCallback(() => {
     const rows: KeywordReviewRow[] = uploadRows.map((row, index) => {
@@ -999,7 +711,7 @@ export function ProductLaunchFlow() {
   ]);
 
   const confirmManualCandidates = useCallback(() => {
-    if (!manualCandidatesReady || keywordBusy || manualApplyBusy) return;
+    if (!manualCandidatesReady || manualApplyBusy) return;
     setManualPreviewStatus("checking");
     const previewResult = buildKeywordShoplingPayloadPreview(
       buildManualReviewedRows(),
@@ -1007,7 +719,6 @@ export function ProductLaunchFlow() {
         expandProductGroupMarkets: true,
         manualTitleOverridesByGoodsKey,
         manualKeywordOverridesByGoodsKey,
-        seedKeywordsByGoodsKey,
       },
     );
     const preflightResult = buildKeywordExecutionPreflight(
@@ -1023,12 +734,10 @@ export function ProductLaunchFlow() {
     setManualPreviewStatus("");
   }, [
     buildManualReviewedRows,
-    keywordBusy,
     manualApplyBusy,
     manualCandidatesReady,
     manualKeywordOverridesByGoodsKey,
     manualTitleOverridesByGoodsKey,
-    seedKeywordsByGoodsKey,
   ]);
 
   const fetchManualApplyResult = useCallback(
@@ -1184,8 +893,6 @@ export function ProductLaunchFlow() {
     }
   }, [manualApplyBusy, manualPreflightResult]);
 
-  void openInlineKeywordReview;
-
   const rowMatchesCurrentRun = rowExpression === lastStartedRowExpression;
   const currentUploadRequestId = rowMatchesCurrentRun ? uploadRequestId : "";
   const uploadGithubActionsUrl = currentUploadRequestId
@@ -1193,10 +900,6 @@ export function ProductLaunchFlow() {
     : undefined;
   const priceGithubActionsUrl =
     finalPriceRunResult?.githubActionsUrl ?? priceRunResult?.githubActionsUrl;
-  const keywordGithubActionsUrl =
-    keywordRunsResult?.runs?.[0]?.htmlUrl ??
-    keywordDispatchResult?.actionsUrl ??
-    keywordRunsResult?.actionsUrl;
   const uploadCounts = getUploadCounts(
     uploadActionsResult,
     uploadResultRows,
@@ -1206,7 +909,8 @@ export function ProductLaunchFlow() {
     finalPriceActionsResult ?? priceActionsResult,
     goodsKeys.length,
   );
-  const keywordSummary = getKeywordSummary(keywordRunsResult, goodsKeys.length);
+  const keywordRealApplySucceeded =
+    isKeywordRealApplySuccess(keywordApplyState);
   const cockpit = buildCockpit({
     hasUploadRequest: !!uploadRequestId || !!uploadRunResult,
     uploadActive: uploadRunning || uploadFetching || uploadPolling,
@@ -1215,13 +919,10 @@ export function ProductLaunchFlow() {
     priceActive: priceRunning || priceFetching || pricePolling,
     priceSuccess: isSuccessfulPriceResult(priceActionsResult),
     priceFailed: hasPriceFailure(priceActionsResult),
-    keywordActive:
-      keywordBusy === "dispatch" ||
-      keywordBusy === "runs" ||
-      keywordPolling ||
-      isKeywordRunning(keywordRunsResult),
-    keywordSuccess: !!keywordSummary.artifact,
-    keywordFailed: hasKeywordFailure(keywordRunsResult),
+    manualReviewReady: manualCandidatesReady || !!manualPreflightResult,
+    manualApplyActive: manualApplyBusy || manualApplyPolling,
+    manualApplySuccess: keywordRealApplySucceeded,
+    manualApplyFailed: keywordApplyState?.realApplyStatus === "failed" || keywordApplyState?.realApplyStatus === "blocked",
   });
   const boardMallCount = expectedPriceModifyUpdateCount(
     goodsKeyProductGroupMap,
@@ -1230,8 +931,6 @@ export function ProductLaunchFlow() {
     goodsKeys,
     buildGoodsKeyGroupMap(uploadRows),
   );
-  const keywordRealApplySucceeded =
-    isKeywordRealApplySuccess(keywordApplyState);
   const manualApplyReadyForFinalPrice =
     keywordRealApplySucceeded ||
     isManualApplyReadyForFinalPrice(manualApplyResult);
@@ -1263,7 +962,6 @@ export function ProductLaunchFlow() {
     uploadActionsResult,
     uploadRowsCount: uploadRows.length,
     priceActionsResult,
-    keywordRunsResult,
     keywordApplyState,
     finalPriceActionsResult,
     manualCandidatesReady,
@@ -1271,18 +969,8 @@ export function ProductLaunchFlow() {
   const currentRequestId = getRequestIdForStage(derivedStage, {
     uploadRequestId: currentUploadRequestId || uploadRequestId,
     priceRequestId,
-    keywordRequestId:
-      keywordDispatchResult?.expectedArtifactName ??
-      String(
-        keywordRunsResult?.runs?.[0]?.id ??
-          restoredSession?.keywordRequestId ??
-          restoredSession?.keywordRunId ??
-          "",
-      ),
-    keywordDryRunRequestId:
-      keywordApplyState?.dryRunRequestId ??
-      restoredSession?.keywordDryRunRequestId ??
-      "",
+    keywordRequestId: "",
+    keywordDryRunRequestId: "",
     keywordRealApplyRequestId:
       keywordApplyState?.realApplyRequestId ??
       restoredSession?.keywordRealApplyRequestId ??
@@ -1295,7 +983,6 @@ export function ProductLaunchFlow() {
     keywordApplyState?.dryRunRequestId ||
     priceRequestId ||
     uploadRequestId ||
-    keywordDispatchResult?.expectedArtifactName ||
     "-";
   const failureActionsDisabled =
     uploadRunning ||
@@ -1307,11 +994,10 @@ export function ProductLaunchFlow() {
     finalPriceRunning ||
     finalPriceFetching ||
     finalPricePolling ||
-    !!keywordBusy ||
-    keywordPolling;
+    manualApplyBusy ||
+    manualApplyPolling;
   const lastCheckedAt =
     finalPriceLastCheckedAt ??
-    keywordLastCheckedAt ??
     priceLastCheckedAt ??
     uploadLastCheckedAt;
 
@@ -1323,9 +1009,8 @@ export function ProductLaunchFlow() {
       !!finalPriceRequestId ||
       !!uploadActionsResult ||
       !!priceActionsResult ||
-      !!keywordRunsResult ||
       !!finalPriceActionsResult ||
-      Object.keys(seedKeywordsBySourceRow).length > 0;
+      false;
     if (!hasPersistableProductLaunchState) {
       clearProductLaunchSession();
       return;
@@ -1336,17 +1021,6 @@ export function ProductLaunchFlow() {
       updatedAt: new Date().toISOString(),
       uploadRequestId,
       priceRequestId,
-      keywordRequestId:
-        keywordDispatchResult?.expectedArtifactName ??
-        restoredSession?.keywordRequestId ??
-        "",
-      keywordRunId: String(
-        keywordRunsResult?.runs?.[0]?.id ?? restoredSession?.keywordRunId ?? "",
-      ),
-      keywordDryRunRequestId:
-        keywordApplyState?.dryRunRequestId ??
-        restoredSession?.keywordDryRunRequestId ??
-        "",
       keywordRealApplyRequestId:
         keywordApplyState?.realApplyRequestId ??
         restoredSession?.keywordRealApplyRequestId ??
@@ -1354,9 +1028,7 @@ export function ProductLaunchFlow() {
       finalPriceRequestId,
       uploadResult: uploadActionsResult,
       priceResult: priceActionsResult,
-      keywordResult: keywordRunsResult,
       finalPriceResult: finalPriceActionsResult,
-      seedKeywordsBySourceRow,
       stage: derivedStage,
     };
     persistProductLaunchSession(nextSession);
@@ -1364,15 +1036,11 @@ export function ProductLaunchFlow() {
     derivedStage,
     finalPriceActionsResult,
     finalPriceRequestId,
-    keywordApplyState?.dryRunRequestId,
     keywordApplyState?.realApplyRequestId,
-    keywordDispatchResult?.expectedArtifactName,
-    keywordRunsResult,
     priceActionsResult,
     priceRequestId,
     restoredSession,
     rowExpression,
-    seedKeywordsBySourceRow,
     uploadActionsResult,
     uploadRequestId,
   ]);
@@ -1393,13 +1061,6 @@ export function ProductLaunchFlow() {
       if (restoredSession.priceRequestId && !restoredSession.priceResult) {
         setPricePolling(true);
         void fetchPriceResult();
-      }
-      if (
-        (restoredSession.keywordRequestId || restoredSession.keywordRunId) &&
-        !restoredSession.keywordResult
-      ) {
-        setKeywordPolling(true);
-        void fetchKeywordRuns();
       }
       if (
         restoredSession.finalPriceRequestId &&
@@ -1432,14 +1093,6 @@ export function ProductLaunchFlow() {
     setUploadActionsResult(null);
     setPriceRunResult(null);
     setPriceActionsResult(null);
-    setKeywordPreview(null);
-    setKeywordDispatchResult(null);
-    setKeywordRunsResult(null);
-    setKeywordImportMessage("");
-    setKeywordBusy("");
-    setKeywordPolling(false);
-    setKeywordPollCount(0);
-    setKeywordLastCheckedAt(null);
     setKeywordApplyState(null);
     setFinalPriceRunResult(null);
     setFinalPriceActionsResult(null);
@@ -1460,31 +1113,15 @@ export function ProductLaunchFlow() {
     setFinalPricePolling(false);
     setFinalPricePollCount(0);
     setFinalPriceLastCheckedAt(null);
-    setSeedKeywordsBySourceRow({});
     setManualTitleOverridesByGoodsKey({});
     setManualKeywordOverridesByGoodsKey({});
     autoPriceStartedForUploadRequestRef.current = "";
-    autoKeywordStartedForPriceRequestRef.current = "";
-    autoKeywordImportedArtifactRef.current = "";
     finalPriceStartedForRealApplyRequestRef.current = "";
   };
   const resetProductLaunchSession = () =>
     clearProductLaunchFailureState({ keepRowExpression: false });
   const retryProductLaunchSession = () =>
     clearProductLaunchFailureState({ keepRowExpression: true });
-  useEffect(() => {
-    const artifact = keywordSummary.artifact;
-    const run = keywordRunsResult?.runs?.find((item) =>
-      item.artifacts?.some((candidate) => candidate.id === artifact?.id),
-    );
-    const importKey =
-      artifact && run ? `${run.id}:${artifact.name}:${artifact.id}` : "";
-    if (!autopilotEnabled || !artifact || !run || !importKey) return;
-    if (autoKeywordImportedArtifactRef.current === importKey) return;
-    autoKeywordImportedArtifactRef.current = importKey;
-    void importKeywordArtifact(run, artifact);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autopilotEnabled, keywordRunsResult, keywordSummary.artifact]);
 
   const handleProductLaunchPrimaryAction = () => {
     if (cockpit.primaryAction === "upload") void runUploadRequest();
@@ -1536,8 +1173,6 @@ export function ProductLaunchFlow() {
     uploadActionsResult,
     uploadRows.length,
   ]);
-
-  // 상품출시플로우는 가격설정 후 키워드 엔진을 자동 dispatch하지 않습니다.
 
   useEffect(() => {
     const realApplyRequestId = keywordApplyState?.realApplyRequestId ?? "";
@@ -1626,6 +1261,13 @@ export function ProductLaunchFlow() {
         manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey}
         manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey}
       />
+      <MallManualPreviewTable
+        uploadRows={uploadRows}
+        goodsKeys={goodsKeys}
+        manualTitleOverridesByGoodsKey={manualTitleOverridesByGoodsKey}
+        manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey}
+        manualApplyResult={manualApplyResult}
+      />
       <ManualPreviewReviewSection
         manualPreviewResult={manualPreviewResult}
         manualPreflightResult={manualPreflightResult}
@@ -1654,27 +1296,17 @@ export function ProductLaunchFlow() {
         priceBusy={
           priceRunning || priceFetching || pricePolling || finalPriceActive
         }
-        keywordBusy={
-          keywordBusy === "dispatch" ||
-          keywordBusy === "runs" ||
-          keywordPolling ||
-          isKeywordRunning(keywordRunsResult)
-        }
+        keywordBusy={manualApplyBusy || manualApplyPolling}
         autoPilotEnabled={autopilotEnabled}
         onAutoPilotChange={setAutopilotEnabled}
         currentRequestId={currentRequestId}
         previousRequestId={previousRequestId}
         lastCheckedAt={lastCheckedAt}
-        autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 키워드 ${keywordPollCount}회 · 최종가격 ${finalPricePollCount}회`}
-        actionsUrl={
-          keywordGithubActionsUrl ??
-          priceGithubActionsUrl ??
-          uploadGithubActionsUrl
-        }
+        autoPollStatus={`업로드 ${uploadPollCount}회 · 가격 ${pricePollCount}회 · 수동반영 ${manualApplyPollCount}회 · 최종가격 ${finalPricePollCount}회`}
+        actionsUrl={priceGithubActionsUrl ?? uploadGithubActionsUrl}
         counts={{
           upload: uploadCounts,
           price: priceCounts,
-          keyword: keywordSummary,
         }}
         uploadProgress={{
           phase: getUploadPhaseLabel(
@@ -1706,12 +1338,9 @@ export function ProductLaunchFlow() {
           title="실패 원인"
           uploadResult={uploadActionsResult}
           priceResult={priceActionsResult}
-          keywordResult={keywordRunsResult}
           requestId={previousRequestId}
           actionsUrl={
-            keywordGithubActionsUrl ??
-            priceGithubActionsUrl ??
-            uploadGithubActionsUrl
+            priceGithubActionsUrl ?? uploadGithubActionsUrl
           }
           onReset={resetProductLaunchSession}
           onRetry={retryProductLaunchSession}
@@ -1878,23 +1507,6 @@ export function ProductLaunchFlow() {
             finalPass
           />
         ) : null}
-        {goodsKeys.length > 0 ? (
-          <KeywordPrepSection
-            rows={uploadRows}
-            goodsKeys={goodsKeys}
-            seedKeyword={keywordSeed}
-            onSeedKeywordChange={setKeywordSeed}
-            preview={keywordPreview}
-            dispatchResult={keywordDispatchResult}
-            runsResult={keywordRunsResult}
-            importMessage={keywordImportMessage}
-            busy={keywordBusy}
-            onPreview={previewKeywordDispatch}
-            onDispatch={dispatchKeywordEngine}
-            onFetchRuns={fetchKeywordRuns}
-            onImport={importKeywordArtifact}
-          />
-        ) : null}
         <FinalChecklist />
       </details>
     </div>
@@ -1914,10 +1526,10 @@ export function hasManualCandidatesForAllSourceRows(
     const sourceRowSearch = String(
       manualSearchCandidatesBySourceRow[group.sourceRowId] ?? "",
     ).trim();
-    if (sourceRowTitle || sourceRowSearch) return true;
+    if (sourceRowTitle && sourceRowSearch) return true;
     return group.goodsKeys.some(
       (goodsKey) =>
-        String(manualTitleCandidatesBySourceRow[goodsKey] ?? "").trim() ||
+        String(manualTitleCandidatesBySourceRow[goodsKey] ?? "").trim() &&
         String(manualSearchCandidatesBySourceRow[goodsKey] ?? "").trim(),
     );
   });
@@ -2087,29 +1699,14 @@ function RepresentativePreviewCard({
     row?.ptn_goods_cd ?? "",
   ).productGroup;
   const markets = getMarketsForProductGroup(productGroup);
-  const parsedTitleCandidates = parseManualCandidateList(
+  const titleCandidate = resolveManualTitleOverride(
     manualTitleOverridesByGoodsKey[firstGoodsKey] ?? "",
+    firstGoodsKey,
   );
-  const titleCandidate =
-    parsedTitleCandidates.join(" ") ||
-    resolveManualTitleOverride(
-      manualTitleOverridesByGoodsKey[firstGoodsKey] ?? "",
-      firstGoodsKey,
-    ) ||
-    String(
-      row?.final_title ??
-        row?.registered_title ??
-        row?.upload_title ??
-        row?.product_name ??
-        row?.title ??
-        "상품명 후보 대기",
-    );
-  const searchCandidate =
-    normalizeManualKeywordOverride(
-      manualKeywordOverridesByGoodsKey[firstGoodsKey] ?? "",
-    ) ||
-    normalizeManualKeywordOverride(parsedTitleCandidates.join(",")) ||
-    "검색어 후보 대기";
+  const searchCandidate = normalizeManualKeywordOverride(
+    manualKeywordOverridesByGoodsKey[firstGoodsKey] ?? "",
+  );
+  const manualInputRequired = !titleCandidate || !searchCandidate;
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <p className="text-sm font-bold text-indigo-700">대표 미리보기</p>
@@ -2126,8 +1723,11 @@ function RepresentativePreviewCard({
             label="자동 선택 쇼핑몰 수"
             value={`${markets.length}개`}
           />
-          <ResultRow label="상품명 후보" value={titleCandidate} />
-          <ResultRow label="검색어 후보" value={searchCandidate} />
+          <ResultRow label="상품명 후보" value={titleCandidate || "manual input required"} />
+          <ResultRow label="검색어 후보" value={searchCandidate || "manual input required"} />
+          {manualInputRequired ? (
+            <ResultRow label="입력 상태" value="manual input required" />
+          ) : null}
           <ResultRow
             label="쇼핑몰 정책"
             value={
@@ -2140,6 +1740,47 @@ function RepresentativePreviewCard({
       )}
     </section>
   );
+}
+
+
+function MallManualPreviewTable({
+  uploadRows,
+  goodsKeys,
+  manualTitleOverridesByGoodsKey,
+  manualKeywordOverridesByGoodsKey,
+  manualApplyResult,
+}: {
+  uploadRows: ProductLaunchUploadRow[];
+  goodsKeys: string[];
+  manualTitleOverridesByGoodsKey: Record<string, string>;
+  manualKeywordOverridesByGoodsKey: Record<string, string>;
+  manualApplyResult: ManualApplyActionsResult | null;
+}) {
+  const uploadRowsByGoodsKey = new Map(uploadRows.map((row) => [(row.goods_key ?? "").trim(), row]));
+  const applyRows = [...(manualApplyResult?.applyResults ?? []), ...(manualApplyResult?.verifyResults ?? [])];
+  const rows = goodsKeys.flatMap((goodsKey) => {
+    const uploadRow = uploadRowsByGoodsKey.get(goodsKey);
+    const productGroup = inferProductGroupFromPtnGoodsCd(uploadRow?.ptn_goods_cd ?? "").productGroup;
+    const markets = getMarketsForProductGroup(productGroup);
+    const manualTitle = resolveManualTitleOverride(manualTitleOverridesByGoodsKey[goodsKey] ?? "", goodsKey);
+    const manualSearch = normalizeManualKeywordOverride(manualKeywordOverridesByGoodsKey[goodsKey] ?? "");
+    const keywords = parseManualMallTitleKeywords(manualTitle);
+    const variants = manualTitle && manualSearch ? buildManualMallTitleVariants({ keywords, markets }) : [];
+    return markets.map((market, index) => {
+      const variant = variants[index];
+      const applyRow = applyRows.find((row) => String(row.goods_key ?? row.goodsKey ?? "") === goodsKey && String(row.mall_key ?? row.mallKey ?? "") === market.mallKey);
+      const blockingReasons = [
+        !manualTitle ? "manual title missing" : "",
+        !manualSearch ? "manual search keywords missing" : "",
+        ...(variant?.validationErrors ?? []),
+        String(applyRow?.block_reason ?? applyRow?.blocking_reason ?? applyRow?.message ?? ""),
+      ].filter(Boolean);
+      const blocked = blockingReasons.length > 0;
+      return { goodsKey, productGroup, marketName: market.marketName, mallKey: market.mallKey, title: variant?.title ?? "manual input required", keywordCount: variant?.keywordCount ?? 0, includedKeywordCount: variant?.includedKeywordCount ?? 0, integrityStatus: variant?.keywordIntegrityOk ? "ok" : "blocked", applyStatus: blocked ? "blocked" : String(applyRow?.status ?? applyRow?.title_update_status ?? "ready"), blockingReasons: blockingReasons.join("; ") || "-" };
+    });
+  });
+  if (rows.length === 0) return null;
+  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><p className="text-sm font-bold text-indigo-700">전체 쇼핑몰 적용 미리보기</p><h2 className="mt-1 text-xl font-black text-slate-950">mall preview table</h2><div className="mt-4 overflow-x-auto"><table className="min-w-full border-collapse text-xs"><thead><tr className="bg-slate-50 text-left text-slate-700"><th className="border border-slate-200 px-3 py-2">goods_key</th><th className="border border-slate-200 px-3 py-2">product group</th><th className="border border-slate-200 px-3 py-2">market name</th><th className="border border-slate-200 px-3 py-2">mall_key</th><th className="border border-slate-200 px-3 py-2">generated title</th><th className="border border-slate-200 px-3 py-2">keyword count</th><th className="border border-slate-200 px-3 py-2">included count</th><th className="border border-slate-200 px-3 py-2">integrity status</th><th className="border border-slate-200 px-3 py-2">apply/blocked status</th><th className="border border-slate-200 px-3 py-2">blocking reasons</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.goodsKey}:${row.mallKey}`}><td className="border border-slate-200 px-3 py-2 font-mono">{row.goodsKey}</td><td className="border border-slate-200 px-3 py-2">{row.productGroup}</td><td className="border border-slate-200 px-3 py-2">{row.marketName}</td><td className="border border-slate-200 px-3 py-2 font-mono">{row.mallKey}</td><td className="border border-slate-200 px-3 py-2">{row.title}</td><td className="border border-slate-200 px-3 py-2">{row.keywordCount}</td><td className="border border-slate-200 px-3 py-2">{row.includedKeywordCount}</td><td className="border border-slate-200 px-3 py-2 font-bold">{row.integrityStatus}</td><td className="border border-slate-200 px-3 py-2 font-bold">{row.applyStatus}</td><td className="border border-slate-200 px-3 py-2">{row.blockingReasons}</td></tr>)}</tbody></table></div></section>;
 }
 
 function ManualPreviewReviewSection({
@@ -2778,13 +2419,6 @@ function LaunchCockpit({
   counts: {
     upload: Record<string, number>;
     price: Record<string, number>;
-    keyword: {
-      targetCount: number;
-      artifactState: string;
-      reviewPendingCount: number;
-      failureReason: string;
-      artifact?: KeywordArtifact;
-    };
   };
   manualCandidatesReady: boolean;
   manualPreviewStatus: string;
@@ -3017,7 +2651,6 @@ function ErrorDrawer({
   title,
   uploadResult,
   priceResult,
-  keywordResult,
   requestId,
   actionsUrl,
   onReset,
@@ -3028,7 +2661,6 @@ function ErrorDrawer({
   title: string;
   uploadResult: UploadActionsResult | null;
   priceResult: PriceActionsResult | null;
-  keywordResult: KeywordRunsResult | null;
   requestId: string;
   actionsUrl?: string;
   onReset: () => void;
@@ -3036,7 +2668,7 @@ function ErrorDrawer({
   onFetchPriceResult: () => void;
   actionsDisabled: boolean;
 }) {
-  const keywordFailure = hasKeywordFailure(keywordResult);
+  const keywordFailure = false;
   const githubCredentialError = isGithubCredentialError(priceResult);
   const duplicate = !githubCredentialError && allFailedRowsAreDuplicatePtnGoodsCd(uploadResult);
   const operatorMessage = githubCredentialError
@@ -3077,14 +2709,6 @@ function ErrorDrawer({
             <br />
             실재고 시트의 자사상품코드를 수정했거나 goods_key가 이미 있는 행을
             다시 업로드하려는 경우, 실패 기록을 지운 뒤 다시 실행하세요.
-          </p>
-        ) : null}
-        {keywordFailure ? (
-          <p>
-            키워드 엔진이 상품정보를 조회하지 못했습니다. 새로 업로드한 상품은
-            API 반영 지연일 수 있습니다. 잠시 후 다시 실행하거나 seed keyword를
-            입력해 실행하세요. 권장 작업: GitHub Actions 로그 확인, 잠시 후 다시
-            실행, 시드 키워드를 입력하고 다시 실행.
           </p>
         ) : null}
         {!githubCredentialError ? <div className="rounded-xl border border-red-200 bg-white p-4">
@@ -3129,7 +2753,6 @@ function ErrorDrawer({
               value={
                 uploadResult?.message ??
                 priceResult?.message ??
-                keywordResult?.message ??
                 "-"
               }
             />
@@ -3137,25 +2760,19 @@ function ErrorDrawer({
             <ResultRow
               label="run id"
               value={String(
-                uploadResult?.runId ?? keywordResult?.runs?.[0]?.id ?? "-",
+                uploadResult?.runId ?? "-",
               )}
               mono
             />
             <ResultRow
               label="run conclusion"
               value={String(
-                uploadResult?.runConclusion ??
-                  keywordResult?.runs?.[0]?.conclusion ??
-                  "-",
+                uploadResult?.runConclusion ?? "-",
               )}
             />
             <ResultRow
-              label="artifact state"
-              value={getKeywordSummary(keywordResult, 0).artifactState}
-            />
-            <ResultRow
               label="recommended next action"
-              value="실패 원인 보기 후 GitHub Actions 바로가기에서 로그를 확인하고, 안전 재시도 안내에 따라 중복 스킵 또는 시드 키워드를 사용해 다시 실행하세요."
+              value="실패 원인 보기 후 GitHub Actions 바로가기에서 로그를 확인하고, 안전 재시도 안내에 따라 중복 스킵으로 다시 실행하세요."
             />
           </dl>
         </details>
@@ -3860,216 +3477,6 @@ function PriceSection({
   );
 }
 
-function KeywordPrepSection({
-  rows,
-  goodsKeys,
-  seedKeyword,
-  onSeedKeywordChange,
-  preview,
-  dispatchResult,
-  runsResult,
-  importMessage,
-  busy,
-  onPreview,
-  onDispatch,
-  onFetchRuns,
-  onImport,
-}: {
-  rows: ProductLaunchUploadRow[];
-  goodsKeys: string[];
-  seedKeyword: string;
-  onSeedKeywordChange: (value: string) => void;
-  preview: unknown;
-  dispatchResult: KeywordDispatchResult | null;
-  runsResult: KeywordRunsResult | null;
-  importMessage: string;
-  busy: string;
-  onPreview: () => void;
-  onDispatch: () => void;
-  onFetchRuns: () => void;
-  onImport: (run: KeywordRun, artifact: KeywordArtifact) => void;
-}) {
-  const latestRunWithArtifact = runsResult?.runs?.find((run) =>
-    run.artifacts?.some((artifact) => artifact.expected && !artifact.expired),
-  );
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-lg font-bold text-slate-950">
-        Step 3. 상품명/키워드 실행 및 검토
-      </h2>
-      <p className="mt-3 text-sm text-slate-700">
-        현재 MVP에서는 상품명/키워드를 6개 상품코드에 동일하게 적용하는 기준으로
-        준비합니다.
-      </p>
-      <p className="mt-1 text-sm text-slate-700">
-        키워드 엔진은 dry_run으로만 실행되며, 결과는 전체 쇼핑몰 적용 검토 화면에서
-        사람이 확인합니다.
-      </p>
-      <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm font-bold text-red-700">
-        키워드/상품명 결과는 샵플링에 자동 반영되지 않습니다. 검토 화면에서 확인
-        후 별도 승인해야 합니다.
-      </p>
-      <p className="mt-3 text-sm text-slate-700">
-        대상 goods_key 수: <strong>{goodsKeys.length}</strong>
-      </p>
-      <p className="mt-1 break-all font-mono text-xs text-slate-700">
-        goods_key CSV preview: {goodsKeys.join(",")}
-      </p>
-      <label className="mt-4 block text-sm font-semibold text-slate-800">
-        시드 키워드
-        <input
-          value={seedKeyword}
-          onChange={(event) => onSeedKeywordChange(event.target.value)}
-          placeholder="예: 욕실 수납, 주방 정리, 차량용 수납"
-          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        />
-      </label>
-      <p className="mt-1 text-xs text-slate-600">
-        비워두면 goods_key 기준으로 키워드 엔진이 자동 진행합니다.
-      </p>
-      <UploadRowsTable rows={rows} />
-      <div className="mt-5 flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={onPreview}
-          disabled={!!busy}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400"
-        >
-          키워드 엔진 입력값 확인
-        </button>
-        <button
-          type="button"
-          onClick={onDispatch}
-          disabled={!!busy}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400"
-        >
-          키워드 엔진 실행
-        </button>
-        <button
-          type="button"
-          onClick={onFetchRuns}
-          disabled={!!busy}
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:bg-slate-100"
-        >
-          키워드 실행 결과 확인
-        </button>
-      </div>
-      {preview ? (
-        <details className="mt-4 rounded-lg border border-slate-200 p-3">
-          <summary className="cursor-pointer text-sm font-bold text-slate-700">
-            상세 실행 정보 열기
-          </summary>
-          <pre className="mt-3 overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-50">
-            {JSON.stringify(preview, null, 2)}
-          </pre>
-        </details>
-      ) : null}
-      {dispatchResult ? (
-        <dl className="mt-4 grid gap-3 text-sm">
-          <ResultRow label="repo" value={dispatchResult.repo ?? "-"} />
-          <ResultRow
-            label="workflowFile"
-            value={dispatchResult.workflowFile ?? "-"}
-          />
-          <ResultRow
-            label="actionsUrl"
-            value={dispatchResult.actionsUrl ?? "-"}
-          />
-          <ResultRow
-            label="expectedArtifactName"
-            value={dispatchResult.expectedArtifactName ?? "-"}
-          />
-          <ResultRow
-            label="message"
-            value="키워드 엔진 실행을 요청했습니다. 몇 초 뒤 실행 결과 확인을 눌러주세요."
-          />
-        </dl>
-      ) : null}
-      {runsResult?.message ? (
-        <p className="mt-3 text-sm text-slate-600">{runsResult.message}</p>
-      ) : null}
-      {latestRunWithArtifact ? (
-        <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
-          가져올 결과물이 있는 최신 실행을 우선 표시합니다.
-        </p>
-      ) : null}
-      <details className="mt-4">
-        <summary className="cursor-pointer text-sm font-bold text-slate-700">
-          이전 실행 기록 보기
-        </summary>
-        <div className="mt-4 space-y-3">
-          {runsResult?.runs?.map((run) => {
-            const expectedArtifact = run.artifacts?.find(
-              (artifact) => artifact.expected,
-            );
-            return (
-              <article
-                key={run.id}
-                className="rounded-lg border border-slate-200 p-4 text-sm"
-              >
-                <div className="flex flex-wrap gap-3">
-                  <span>
-                    run id: <strong>{run.id}</strong>
-                  </span>
-                  <span>status: {run.status ?? "-"}</span>
-                  <span>conclusion: {run.conclusion ?? "-"}</span>
-                  <span>createdAt: {run.createdAt ?? "-"}</span>
-                  {run.htmlUrl ? (
-                    <Link
-                      href={run.htmlUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold text-blue-700 underline"
-                    >
-                      GitHub Actions 바로가기
-                    </Link>
-                  ) : null}
-                </div>
-                <p
-                  className={
-                    expectedArtifact
-                      ? "mt-2 font-semibold text-emerald-700"
-                      : "mt-2 text-slate-600"
-                  }
-                >
-                  {expectedArtifact
-                    ? `expected artifact exists: ${expectedArtifact.name}`
-                    : "expected artifact exists: no"}
-                </p>
-                {expectedArtifact ? (
-                  <button
-                    type="button"
-                    onClick={() => onImport(run, expectedArtifact)}
-                    disabled={!!busy || expectedArtifact.expired}
-                    className="mt-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:bg-slate-300"
-                  >
-                    결과 가져오기 및 검토 시작
-                  </button>
-                ) : null}
-              </article>
-            );
-          })}
-        </div>
-      </details>
-      {importMessage ? (
-        <p className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
-          {importMessage}
-        </p>
-      ) : null}
-      {importMessage ? (
-        <Link
-          href="/keyword-review-queue?from=product-launch-flow"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 inline-flex rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
-        >
-          개별 키워드 검토 화면에서 열기
-        </Link>
-      ) : null}
-    </section>
-  );
-}
-
 function FinalChecklist() {
   const items = [
     "상품업로드 결과 확인",
@@ -4274,19 +3681,15 @@ function clearProductLaunchSession() {
     UPLOAD_REQUEST_ID_STORAGE_KEY,
     PRICE_REQUEST_ID_STORAGE_KEY,
     LAST_ROW_EXPRESSION_STORAGE_KEY,
-    KEYWORD_SEED_STORAGE_KEY,
     MANUAL_WIZARD_STORAGE_KEY,
     MANUAL_CANDIDATES_STORAGE_KEY,
-    KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY,
   ];
   const localPrefixes = [
-    SEED_KEYWORDS_STORAGE_PREFIX,
     MANUAL_TITLE_OVERRIDES_STORAGE_PREFIX,
     MANUAL_KEYWORD_OVERRIDES_STORAGE_PREFIX,
   ];
   exactKeys.forEach((key) => window.localStorage.removeItem(key));
   removeStorageKeysByPrefix(window.localStorage, localPrefixes);
-  window.sessionStorage.removeItem(KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY);
   removeStorageKeysByPrefix(window.sessionStorage, ["productLaunchFlow"]);
 }
 function removeStorageKeysByPrefix(storage: Storage, prefixes: string[]) {
@@ -4301,7 +3704,6 @@ function deriveLaunchStage({
   uploadActionsResult,
   uploadRowsCount,
   priceActionsResult,
-  keywordRunsResult,
   keywordApplyState,
   finalPriceActionsResult,
   manualCandidatesReady,
@@ -4309,7 +3711,6 @@ function deriveLaunchStage({
   uploadActionsResult: UploadActionsResult | null;
   uploadRowsCount: number;
   priceActionsResult: PriceActionsResult | null;
-  keywordRunsResult: KeywordRunsResult | null;
   keywordApplyState: KeywordApplyState | null;
   finalPriceActionsResult: PriceActionsResult | null;
   manualCandidatesReady?: boolean;
@@ -4317,10 +3718,7 @@ function deriveLaunchStage({
   if (!isSuccessfulUploadResult(uploadActionsResult, uploadRowsCount))
     return "상품업로드";
   if (!isSuccessfulPriceResult(priceActionsResult)) return "가격설정";
-  if (
-    !isFinalKeywordRuns(keywordRunsResult) &&
-    keywordApplyState?.dryRunStatus !== "success"
-  )
+  if (keywordApplyState?.dryRunStatus !== "success")
     return manualCandidatesReady === false
       ? "후보 입력 대기"
       : "수동 상품명/검색어 입력";
@@ -4448,32 +3846,6 @@ function getPriceCounts(
     failCount: Number(summary?.failed_count ?? summary?.fail_count ?? 0),
   };
 }
-function getKeywordSummary(
-  result: KeywordRunsResult | null,
-  targetCount: number,
-) {
-  const latest = result?.runs?.[0];
-  const artifact = latest?.artifacts?.find(
-    (item) => item.expected && !item.expired,
-  );
-  const failed = hasKeywordFailure(result);
-  return {
-    targetCount,
-    artifact,
-    artifactState: artifact
-      ? "ready"
-      : latest?.status === "queued" || latest?.status === "in_progress"
-        ? "waiting"
-        : failed
-          ? "missing"
-          : "not checked",
-    reviewPendingCount: artifact ? 1 : 0,
-    failureReason:
-      failed && !artifact
-        ? "키워드 결과 파일이 아직 없습니다. 실행 중이거나 실패했을 수 있습니다."
-        : "-",
-  };
-}
 function isFinalPriceResult(result: PriceActionsResult | null) {
   if (!result) return false;
   const status = String(
@@ -4519,30 +3891,6 @@ function hasUploadFailure(result: UploadActionsResult | null) {
     getUploadSummaryStatus(result) === "partial_failure"
   );
 }
-function isKeywordRunning(result: KeywordRunsResult | null) {
-  const status = result?.runs?.[0]?.status;
-  return status === "queued" || status === "in_progress";
-}
-function hasKeywordFailure(result: KeywordRunsResult | null) {
-  const run = result?.runs?.[0];
-  return (
-    run?.status === "completed" &&
-    ["failure", "cancelled", "timed_out"].includes(
-      String(run.conclusion ?? ""),
-    ) &&
-    !run.artifacts?.some((artifact) => artifact.expected && !artifact.expired)
-  );
-}
-function isFinalKeywordRuns(result: KeywordRunsResult | null) {
-  const run = result?.runs?.[0];
-  return (
-    !!run &&
-    (hasKeywordFailure(result) ||
-      !!run.artifacts?.some(
-        (artifact) => artifact.expected && !artifact.expired,
-      ))
-  );
-}
 function buildCockpit(state: {
   hasUploadRequest: boolean;
   uploadActive: boolean;
@@ -4551,9 +3899,10 @@ function buildCockpit(state: {
   priceActive: boolean;
   priceSuccess: boolean;
   priceFailed: boolean;
-  keywordActive: boolean;
-  keywordSuccess: boolean;
-  keywordFailed: boolean;
+  manualReviewReady: boolean;
+  manualApplyActive: boolean;
+  manualApplySuccess: boolean;
+  manualApplyFailed: boolean;
 }) {
   const steps: CockpitStep[] = [
     {
@@ -4598,41 +3947,41 @@ function buildCockpit(state: {
     },
     {
       name: "수동 상품명/검색어 입력",
-      state: state.keywordFailed
+      state: state.manualApplyFailed
         ? "failed"
-        : state.keywordActive
+        : state.manualApplyActive
           ? "running"
-          : state.keywordSuccess
+          : state.manualReviewReady
             ? "action"
             : state.priceSuccess
               ? "action"
               : "waiting",
-      action: state.keywordSuccess
+      action: state.manualReviewReady
         ? "수동 입력 검토"
-        : state.keywordActive
+        : state.manualApplyActive
           ? "수동 입력 처리 중..."
           : "상품명/검색어 검토 시작",
-      message: state.keywordSuccess
+      message: state.manualReviewReady
         ? "검토 진행 중 · 승인된 행이 있으면 반영 준비으로 이동"
-        : state.keywordActive
+        : state.manualApplyActive
           ? "입력한 상품명 키워드만 사용하고 쇼핑몰별로 단어 순서만 변경합니다."
-          : state.keywordFailed
+          : state.manualApplyFailed
             ? "검토 준비가 실패했습니다."
             : "사전 검토 결과만 준비합니다.",
     },
     {
       name: "전체 쇼핑몰 적용 검토",
-      state: state.keywordSuccess ? "action" : "waiting",
-      action: state.keywordSuccess
+      state: state.manualReviewReady ? "action" : "waiting",
+      action: state.manualReviewReady
         ? "수동 입력 검토"
         : "수동 입력 후 전체 쇼핑몰 적용계획을 확인합니다.",
-      message: state.keywordSuccess
+      message: state.manualReviewReady
         ? "검토 진행 중 · 승인된 행이 있으면 반영 준비으로 이동"
         : "수동 입력 후 전체 쇼핑몰 적용계획을 확인합니다.",
     },
     {
       name: "최종 확인",
-      state: state.keywordSuccess ? "action" : "waiting",
+      state: state.manualReviewReady ? "action" : "waiting",
       action: "최종 확인",
       message: "마켓전송은 수동으로 진행합니다.",
     },
@@ -4644,13 +3993,13 @@ function buildCockpit(state: {
     | "review"
     | "failed"
     | "wait" = "upload";
-  if (state.uploadFailed || state.priceFailed || state.keywordFailed)
+  if (state.uploadFailed || state.priceFailed || state.manualApplyFailed)
     primaryAction = "failed";
-  else if (state.uploadActive || state.priceActive || state.keywordActive)
+  else if (state.uploadActive || state.priceActive || state.manualApplyActive)
     primaryAction = "wait";
   else if (!state.uploadSuccess) primaryAction = "upload";
   else if (!state.priceSuccess) primaryAction = "price";
-  else if (!state.keywordSuccess) primaryAction = "keyword";
+  else if (!state.manualReviewReady) primaryAction = "keyword";
   else primaryAction = "review";
   const currentStage =
     steps.find(
@@ -4667,7 +4016,7 @@ function buildCockpit(state: {
         ? "상품업로드 결과를 확인하는 중입니다. 잠시만 기다려주세요."
         : state.priceActive
           ? "진행 중입니다. 현재 단계: 가격설정. 자동으로 다음 단계로 이동합니다. 가격설정 결과 확인 중..."
-          : state.keywordActive
+          : state.manualApplyActive
             ? "진행 중입니다. 현재 단계: 수동 상품명/검색어 입력. 자동으로 다음 단계로 이동합니다. 수동 상품명/검색어 입력 결과 확인 중..."
             : primaryAction === "upload"
               ? "행 번호를 입력하고 상품업로드를 시작하세요."
