@@ -162,6 +162,18 @@ test("strict manual expansion marks title keyword integrity fields", () => {
   assert.equal(result.previewableItems[0].apply_blocked, false);
 });
 
+test("regular non-manual mode truncates eleven search keywords and remains preview ready", () => {
+  const eleven = "one,two,three,four,five,six,seven,eight,nine,ten,eleven";
+  const result = buildKeywordShoplingPayloadPreview([row({ editedSiteSrch: eleven })]);
+
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].payload_status, "preview_ready");
+  assert.equal(
+    result.items[0].final_site_srch,
+    "one,two,three,four,five,six,seven,eight,nine,ten",
+  );
+});
+
 test("strict manual expansion keeps more than ten manual search keywords invalid and untruncated", () => {
   const eleven = "one,two,three,four,five,six,seven,eight,nine,ten,eleven";
   const result = buildKeywordShoplingPayloadPreview([row()], { expandProductGroupMarkets: true, manualTitleOverridesByGoodsKey: { "121261": "alpha, beta" }, manualKeywordOverridesByGoodsKey: { "121261": eleven } });
@@ -170,6 +182,20 @@ test("strict manual expansion keeps more than ten manual search keywords invalid
   assert.ok(result.items.every((item) => item.payload_status === "invalid"));
   assert.ok(result.items.every((item) => item.final_site_srch === eleven));
   assert.ok(result.items.every((item) => item.validation_errors.includes("검색어는 최대 10개까지만 입력할 수 있습니다.")));
+});
+
+test("strict manual expansion first row uses factoradic zero strategy", () => {
+  const result = buildKeywordShoplingPayloadPreview([row()], { expandProductGroupMarkets: true, manualTitleOverridesByGoodsKey: { "121261": "alpha, beta" }, manualKeywordOverridesByGoodsKey: { "121261": "one,two" } });
+
+  assert.equal(result.previewableItems[0].word_order_strategy, "manual_factoradic_0");
+  assert.ok(!result.previewableItems[0].selected_modifier);
+});
+
+test("strict manual expansion rows disable group variants", () => {
+  const result = buildKeywordShoplingPayloadPreview([row()], { expandProductGroupMarkets: true, groupVariantEnabled: true, manualTitleOverridesByGoodsKey: { "121261": "alpha, beta" }, manualKeywordOverridesByGoodsKey: { "121261": "one,two" } });
+
+  assert.ok(result.previewableItems.length > 0);
+  assert.ok(result.previewableItems.every((item) => item.group_variant_enabled === false));
 });
 
 test("strict manual expansion missing manual keyword value is invalid without fallback", () => {

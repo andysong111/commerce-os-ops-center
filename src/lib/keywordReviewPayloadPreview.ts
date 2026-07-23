@@ -101,7 +101,16 @@ function fallbackSiteSrchFromTitle(title: string) {
   return title.replace(/\s+/g, ",").trim();
 }
 
-function normalizeSiteSrch(value: string) {
+function normalizeSiteSrch(value: string, options: { strictManualProductGroupExpansion?: boolean } = {}) {
+  if (!options.strictManualProductGroupExpansion) {
+    const normalized = normalizeManualKeywordOverride(value);
+    return {
+      normalized,
+      duplicateKeywords: [],
+      keywords: normalized.split(",").map((keyword) => keyword.trim()).filter(Boolean),
+    };
+  }
+
   const keywords = value
     .split(/[,;|\n\r]+/)
     .map((keyword) => keyword.trim())
@@ -175,8 +184,8 @@ export function buildManualProductGroupPreview(input: {
       account_id_label: variant.accountIdLabel,
       group_title: variant.title,
       mall_title: variant.title,
-      selected_modifier: "manual_keyword_permutation",
-      word_order_strategy: `manual_permutation_${variant.permutationIndex.toString()}`,
+      selected_modifier: "",
+      word_order_strategy: `manual_factoradic_${variant.permutationIndex.toString()}`,
       title_keyword_count: variant.keywordCount,
       title_included_keyword_count: variant.includedKeywordCount,
       title_keyword_integrity_ok: variant.keywordIntegrityOk,
@@ -214,7 +223,7 @@ export function buildKeywordShoplingPayloadPreview(
     );
     const rawManualKeywordOverride = allowManualOverrides ? options.manualKeywordOverridesByGoodsKey?.[goodsKey] : undefined;
     const manualSiteSrch = strictManualProductGroupExpansion
-      ? normalizeSiteSrch(String(rawManualKeywordOverride ?? "")).normalized
+      ? normalizeSiteSrch(String(rawManualKeywordOverride ?? ""), { strictManualProductGroupExpansion: true }).normalized
       : normalizeManualKeywordOverride(rawManualKeywordOverride);
     let final_title = strictManualProductGroupExpansion
       ? manualTitle
@@ -234,7 +243,7 @@ export function buildKeywordShoplingPayloadPreview(
         row.editedSiteSrch.trim() ||
         row.recommendedSiteSrch.trim() ||
         fallbackSiteSrchFromTitle(final_title);
-    const normalizedSiteSrch = normalizeSiteSrch(preferredSiteSrch);
+    const normalizedSiteSrch = normalizeSiteSrch(preferredSiteSrch, { strictManualProductGroupExpansion });
     const final_site_srch = normalizedSiteSrch.normalized;
 
     if (strictManualProductGroupExpansion && !manualTitle) {
@@ -326,7 +335,7 @@ export function buildKeywordShoplingPayloadPreview(
       preview_xml_fragment,
       preview_payload,
       expansion_mode: expansionMode,
-      group_variant_enabled: Boolean(options.groupVariantEnabled),
+      group_variant_enabled: strictManualProductGroupExpansion ? false : Boolean(options.groupVariantEnabled),
     };
   });
 
