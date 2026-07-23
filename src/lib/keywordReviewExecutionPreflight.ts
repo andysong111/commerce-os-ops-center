@@ -106,7 +106,9 @@ function buildProductGroupCoverageReasons(items: KeywordPayloadPreviewItem[]) {
 
   const reasonsByGoodsKey = new Map<string, string>();
   let expectedTitleTargetCount = 0;
-  let generatedTitleTargetCount = 0;
+  const generatedTitleTargetCount = items.filter(
+    (item) => item.goods_key.trim() && item.mall_key.trim(),
+  ).length;
 
   for (const [goodsKey, goodsItems] of itemsByGoodsKey.entries()) {
     const productGroup =
@@ -123,7 +125,6 @@ function buildProductGroupCoverageReasons(items: KeywordPayloadPreviewItem[]) {
     expectedTitleTargetCount += expectedMallKeys.length;
 
     const generatedMallKeys = goodsItems.map((item) => item.mall_key.trim());
-    generatedTitleTargetCount += generatedMallKeys.filter(Boolean).length;
 
     const generatedMallKeySet = new Set(generatedMallKeys.filter(Boolean));
     const expectedMallKeySet = new Set(expectedMallKeys);

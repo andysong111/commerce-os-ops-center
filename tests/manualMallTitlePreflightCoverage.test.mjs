@@ -156,10 +156,51 @@ test("coverage mismatch goods_key는 compact plan에서 완전히 제외", () =>
   assert.equal(plan.filter((item) => item.goods_key === "G-002").length, mallKeys("소매2").length);
 });
 
-test("정상 compact plan은 preview eligible identity와 완전히 동일", () => {
+function compactPlanIdentityFields(items) {
+  return items.map(({ goods_key, mall_key, final_title, final_site_srch }) => ({
+    goods_key,
+    mall_key,
+    final_title,
+    final_site_srch,
+  }));
+}
+
+test("정상 compact plan은 preview eligible identity 네 필드와 완전히 동일", () => {
   const result = preflight(previewForGroups(["도매2"]));
   const plan = JSON.parse(buildCompactKeywordApplyExecutionPlan(result));
-  assert.deepEqual(plan.map(({ goods_key, mall_key }) => ({ goods_key, mall_key })), result.eligibleItems.map(({ goods_key, mall_key }) => ({ goods_key, mall_key })));
+  assert.deepEqual(compactPlanIdentityFields(plan), compactPlanIdentityFields(result.eligibleItems));
+});
+
+test("등록되지 않은 상품그룹의 생성 행은 goods_key와 mall_key가 있으면 generatedTitleTargetCount에 포함", () => {
+  const preview = previewForGroups(["도매1", "미등록"]);
+  preview.items.push({
+    ...preview.items.at(-1),
+    goods_key: "",
+    mall_key: "SMALL_00004",
+    edited_mall_key: "SMALL_00004",
+  });
+  preview.items.push({
+    ...preview.items.at(-1),
+    goods_key: "G-EMPTY-MALL",
+    mall_key: "",
+    edited_mall_key: "",
+  });
+
+  const result = preflight(preview);
+
+  assert.equal(result.summary.expectedTitleTargetCount, mallKeys("도매1").length);
+  assert.equal(
+    result.summary.generatedTitleTargetCount,
+    preview.items.filter((item) => item.goods_key.trim() && item.mall_key.trim()).length,
+  );
+  assert.equal(result.summary.unregisteredProductGroupGoodsKeyCount, 2);
+});
+
+test("compact plan과 eligibleItems는 순서와 네 필드 identity가 완전히 동일", () => {
+  const result = preflight(previewForGroups(["도매3", "소매2"]));
+  const plan = JSON.parse(buildCompactKeywordApplyExecutionPlan(result));
+
+  assert.deepEqual(compactPlanIdentityFields(plan), compactPlanIdentityFields(result.eligibleItems));
 });
 
 test("compact plan 행은 네 필드만 포함", () => {
