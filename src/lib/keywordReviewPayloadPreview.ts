@@ -144,19 +144,48 @@ export function buildKeywordShoplingPayloadPreview(
   options: { groupVariantEnabled?: boolean; expandProductGroupMarkets?: boolean; manualTitleOverridesByGoodsKey?: Record<string, string>; manualKeywordOverridesByGoodsKey?: Record<string, string>; seedKeywordsByGoodsKey?: Record<string, string> } = {},
 ): KeywordPayloadPreviewResult {
   const expansionMode = options.expandProductGroupMarkets ? "product_group_markets" : "single_mall";
+  const strictManualProductGroupExpansion = Boolean(
+    options.expandProductGroupMarkets &&
+      options.manualTitleOverridesByGoodsKey !== undefined &&
+      options.manualKeywordOverridesByGoodsKey !== undefined,
+  );
+  const allowManualOverrides = strictManualProductGroupExpansion ||
+    !options.expandProductGroupMarkets;
   const expansionErrors: string[] = [];
   const baseItems = reviewedRows.map((row): KeywordPayloadPreviewItem => {
     const validation_errors: string[] = [];
     const validation_warnings: string[] = [];
     const goodsKey = row.goodsKey.trim();
     const seedKeywords = normalizeSeedKeywords(options.seedKeywordsByGoodsKey?.[goodsKey]);
-    let final_title = resolveManualTitleOverride(options.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey) || (seedKeywords ? `${seedKeywords.split(",").join(" ")} ${row.productGroup ?? ""}`.replace(/\s+/g, " ").trim() : "") || preferredValue(row.editedTitle, row.recommendedTitle) || row.originalTitle.trim();
+    const manualTitle = resolveManualTitleOverride(
+      allowManualOverrides ? options.manualTitleOverridesByGoodsKey?.[goodsKey] : undefined,
+      goodsKey,
+    );
+    const manualSiteSrch = normalizeManualKeywordOverride(
+      allowManualOverrides ? options.manualKeywordOverridesByGoodsKey?.[goodsKey] : undefined,
+    );
+    let final_title = strictManualProductGroupExpansion
+      ? manualTitle
+      : manualTitle ||
+        (seedKeywords
+          ? `${seedKeywords.split(",").join(" ")} ${row.productGroup ?? ""}`
+              .replace(/\s+/g, " ")
+              .trim()
+          : "") ||
+        preferredValue(row.editedTitle, row.recommendedTitle) ||
+        row.originalTitle.trim();
     const final_mall_key = preferredValue(row.editedMallKey, row.mallKey);
-    const preferredSiteSrch = normalizeManualKeywordOverride(options.manualKeywordOverridesByGoodsKey?.[goodsKey]) || seedKeywords || row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim() || fallbackSiteSrchFromTitle(final_title);
+    const preferredSiteSrch = strictManualProductGroupExpansion
+      ? manualSiteSrch
+      : manualSiteSrch ||
+        seedKeywords ||
+        row.editedSiteSrch.trim() ||
+        row.recommendedSiteSrch.trim() ||
+        fallbackSiteSrchFromTitle(final_title);
     const normalizedSiteSrch = normalizeSiteSrch(preferredSiteSrch);
     const final_site_srch = normalizedSiteSrch.normalized;
 
-    if (options.groupVariantEnabled && final_title) {
+    if (!strictManualProductGroupExpansion && options.groupVariantEnabled && final_title) {
       final_title = (seedKeywords || sourceFromReviewedRow(row).baseTitle) ? buildMallSpecificTitleVariant(seedKeywords ? { ...sourceFromReviewedRow(row), baseTitle: finalTitleSeedBase(seedKeywords, row.productGroup ?? "") } : sourceFromReviewedRow(row), { productGroup: row.productGroup ?? "", groupSuffix: row.groupSuffix ?? "", productGroupType: row.productGroupType ?? "확인 필요", marketName: "single", mallType: "", mallKey: final_mall_key || row.mallKey, accountIdLabel: "single" }).mallTitle : final_title;
     }
     let payload_status: KeywordPayloadStatus = "not_approved";
@@ -254,7 +283,7 @@ export function buildKeywordShoplingPayloadPreview(
     const itemSeedKeywords = normalizeSeedKeywords(options.seedKeywordsByGoodsKey?.[item.goods_key]);
     const source = itemSeedKeywords ? { ...sourceFromReviewedRow(row), baseTitle: finalTitleSeedBase(itemSeedKeywords, row.productGroup ?? item.product_group) } : sourceFromReviewedRow(row);
     return markets.map((market) => {
-      const variant = options.groupVariantEnabled ? buildMallSpecificTitleVariant(source, market) : null;
+      const variant = !strictManualProductGroupExpansion && options.groupVariantEnabled ? buildMallSpecificTitleVariant(source, market) : null;
       const finalTitle = variant?.mallTitle ?? item.final_title;
       const preview_payload = { goods_key: item.goods_key.trim(), mall_key: market.mallKey, title: finalTitle, site_srch: item.final_site_srch };
       return { ...item, mall_key: market.mallKey, edited_mall_key: market.mallKey, final_title: finalTitle, preview_payload, preview_xml_fragment: xmlFragment(preview_payload.goods_key, preview_payload.mall_key, preview_payload.title, preview_payload.site_srch), market_name: market.marketName, account_id_label: market.accountIdLabel, group_title: variant?.groupTitle, mall_title: variant?.mallTitle, selected_modifier: variant?.selectedModifier, word_order_strategy: variant?.wordOrderStrategy };
@@ -275,8 +304,8 @@ export function buildKeywordShoplingPayloadPreview(
       (item) => item.payload_status !== "preview_ready",
     ),
     summary: {
-      totalReviewedRows: items.length,
-      approvedCount: items.filter((item) => item.review_status === "approved")
+      totalReviewedRows: reviewedRows.length,
+      approvedCount: reviewedRows.filter((row) => row.reviewStatus === "approved")
         .length,
       previewReadyCount: previewableItems.length,
       invalidCount: items.filter((item) => item.payload_status === "invalid")
@@ -287,7 +316,7 @@ export function buildKeywordShoplingPayloadPreview(
       ).length,
     },
     expansionMode,
-    expandedItemCount: previewableItems.length,
+    expandedItemCount: items.length,
     groupVariantEnabled: Boolean(options.groupVariantEnabled),
     attributeModifierMode: "safe_source_only",
     expansionErrors,
