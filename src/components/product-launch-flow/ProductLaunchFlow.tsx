@@ -41,6 +41,7 @@ import {
   normalizeManualKeywordOverride,
   parseManualCandidateList,
   resolveManualTitleOverride,
+  isGithubCredentialError,
   type ProductLaunchPriceError,
   type ProductLaunchUploadRow,
 } from "@/lib/productLaunchFlow";
@@ -1745,6 +1746,7 @@ export function ProductLaunchFlow() {
           }
           onReset={resetProductLaunchSession}
           onRetry={retryProductLaunchSession}
+          onFetchPriceResult={fetchPriceResult}
           actionsDisabled={failureActionsDisabled}
         />
       ) : null}
@@ -1890,6 +1892,7 @@ export function ProductLaunchFlow() {
             fetching={priceFetching}
             onRun={runPriceModify}
             onFetch={fetchPriceResult}
+            onClearFailure={retryProductLaunchSession}
           />
         ) : null}
         {manualApplyReadyForFinalPrice ? (
@@ -3050,6 +3053,7 @@ function ErrorDrawer({
   actionsUrl,
   onReset,
   onRetry,
+  onFetchPriceResult,
   actionsDisabled,
 }: {
   title: string;
@@ -3060,12 +3064,16 @@ function ErrorDrawer({
   actionsUrl?: string;
   onReset: () => void;
   onRetry: () => void;
+  onFetchPriceResult: () => void;
   actionsDisabled: boolean;
 }) {
   const keywordFailure = hasKeywordFailure(keywordResult);
-  const duplicate = allFailedRowsAreDuplicatePtnGoodsCd(uploadResult);
-  const operatorMessage = keywordFailure
-    ? "검토 준비가 실패했습니다."
+  const githubCredentialError = isGithubCredentialError(priceResult);
+  const duplicate = !githubCredentialError && allFailedRowsAreDuplicatePtnGoodsCd(uploadResult);
+  const operatorMessage = githubCredentialError
+    ? "GitHub 토큰 오류"
+    : keywordFailure
+      ? "검토 준비가 실패했습니다."
     : duplicate
       ? "같은 자사상품코드가 이미 샵플링에 등록되어 있습니다."
       : "실패한 단계의 로그와 행별 오류를 확인하세요.";
@@ -3074,7 +3082,27 @@ function ErrorDrawer({
       <h2 className="text-lg font-bold text-red-800">{title}</h2>
       <div className="mt-3 space-y-3 text-sm text-red-950">
         <p className="font-semibold">{operatorMessage}</p>
-        {duplicate ? (
+        {githubCredentialError ? (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+            <h3 className="font-black">GitHub 토큰 오류</h3>
+            <p className="mt-2 font-semibold">
+              가격설정 실행은 완료되었을 수 있지만, OPS Center가 GitHub Actions 결과 파일을 가져오지 못했습니다.
+            </p>
+            <p className="mt-2">
+              Vercel 환경변수 SHOPLING_PRICE_MODIFY_ACTIONS_TOKEN 또는 GITHUB_ACTIONS_TOKEN을 확인하세요.
+            </p>
+            {priceResult?.runConclusion === "success" ? (
+              <p className="mt-2 rounded-lg bg-white p-3 font-bold">
+                가격설정 작업은 성공했을 수 있습니다. 토큰을 수정한 뒤 결과만 다시 가져오세요.
+              </p>
+            ) : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" onClick={onFetchPriceResult} disabled={actionsDisabled} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-400">가격설정 결과 다시 가져오기</button>
+              <GithubActionsShortcutButton href={actionsUrl ?? priceResult?.runUrl} />
+              <button type="button" onClick={onRetry} disabled={actionsDisabled} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 disabled:bg-slate-100">현재 실패 기록 지우기</button>
+            </div>
+          </div>
+        ) : duplicate ? (
           <p className="rounded-xl border border-red-200 bg-white p-3 font-semibold">
             같은 자사상품코드가 이미 샵플링에 등록되어 있습니다.
             <br />
@@ -3090,7 +3118,7 @@ function ErrorDrawer({
             실행, 시드 키워드를 입력하고 다시 실행.
           </p>
         ) : null}
-        <div className="rounded-xl border border-red-200 bg-white p-4">
+        {!githubCredentialError ? <div className="rounded-xl border border-red-200 bg-white p-4">
           <p className="font-bold text-red-900">
             자사상품코드나 실재고 시트 값을 수정했다면 아래 버튼으로 이전 실패
             기록을 지우고 다시 시작하세요.
@@ -3121,7 +3149,7 @@ function ErrorDrawer({
               문제 해결 후 같은 행 다시 실행
             </button>
           </div>
-        </div>
+        </div> : null}
         <details className="rounded-xl border border-slate-200 bg-white p-3">
           <summary className="cursor-pointer font-bold text-slate-900">
             개발자 진단 보기
@@ -3678,6 +3706,7 @@ function PriceSection({
   fetching,
   onRun,
   onFetch,
+  onClearFailure,
   finalPass = false,
 }: {
   title?: string;
@@ -3689,6 +3718,7 @@ function PriceSection({
   fetching: boolean;
   onRun: () => void;
   onFetch: () => void;
+  onClearFailure?: () => void;
   finalPass?: boolean;
 }) {
   const summary = actionsResult?.summary;
@@ -3701,7 +3731,8 @@ function PriceSection({
     : [...new Set(errors.map((error) => error.mall).filter(Boolean))].join(
         ", ",
       );
-  const hasCoverageRisk = notApplied > 0 || blankRisk > 0 || failed > 0;
+  const githubCredentialError = isGithubCredentialError(actionsResult);
+  const hasCoverageRisk = !githubCredentialError && (notApplied > 0 || blankRisk > 0 || failed > 0);
   const expectedUpdateCount = goodsKeyCount * FULL_PRICE_POLICY_MALL_COUNT;
   const confirmedAll =
     actionsResult &&
@@ -3759,7 +3790,42 @@ function PriceSection({
             : "가격설정 결과 가져오기"}
       </button>
       <StatusBlock result={result} requestId={requestId} />
-      {hasCoverageRisk ? (
+      {githubCredentialError ? (
+        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <h3 className="text-base font-black">GitHub 토큰 오류</h3>
+          <p className="mt-2 font-semibold">
+            가격설정 실행은 완료되었을 수 있지만, OPS Center가 GitHub Actions 결과 파일을 가져오지 못했습니다.
+          </p>
+          <p className="mt-2">
+            Vercel 환경변수 SHOPLING_PRICE_MODIFY_ACTIONS_TOKEN 또는 GITHUB_ACTIONS_TOKEN을 확인하세요.
+          </p>
+          {actionsResult?.runConclusion === "success" ? (
+            <p className="mt-2 rounded-lg bg-white p-3 font-bold">
+              가격설정 작업은 성공했을 수 있습니다. 토큰을 수정한 뒤 결과만 다시 가져오세요.
+            </p>
+          ) : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onFetch}
+              disabled={fetching}
+              className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-400"
+            >
+              {fetching ? "가져오는 중..." : "가격설정 결과 다시 가져오기"}
+            </button>
+            <GithubActionsShortcutButton href={actionsResult?.runUrl ?? result?.githubActionsUrl} />
+            {onClearFailure ? (
+              <button
+                type="button"
+                onClick={onClearFailure}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900"
+              >
+                현재 실패 기록 지우기
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : hasCoverageRisk ? (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950">
           <h3 className="font-black">
             가격이 비어 있을 수 있는 쇼핑몰이 있습니다.
