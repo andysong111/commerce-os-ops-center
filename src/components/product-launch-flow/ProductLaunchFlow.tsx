@@ -14,6 +14,7 @@ import {
   buildCompactKeywordApplyExecutionPlan,
   buildKeywordExecutionPreflight,
   DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+  formatKeywordExecutionPreflightLabels,
   type KeywordExecutionPreflightResult,
 } from "@/lib/keywordReviewExecutionPreflight";
 import {
@@ -45,6 +46,7 @@ import {
   type ProductLaunchPriceError,
   type ProductLaunchUploadRow,
 } from "@/lib/productLaunchFlow";
+import { buildManualMallPreviewRows } from "@/lib/manualMallPreviewRows";
 import { getMarketsForProductGroup } from "@/lib/productGroupMarketRegistry";
 
 const PRODUCT_LAUNCH_SESSION_STORAGE_KEY = "productLaunchFlow.session.v2";
@@ -327,6 +329,20 @@ export function ProductLaunchFlow() {
   const goodsKeyProductGroupMap = useMemo(
     () => buildGoodsKeyProductGroupMap(uploadRows),
     [uploadRows],
+  );
+  const manualMallPreviewRows = useMemo(
+    () =>
+      buildManualMallPreviewRows({
+        previewResult: manualPreviewResult,
+        preflightResult: manualPreflightResult,
+        applyResults: Array.isArray(manualApplyResult?.applyResults)
+          ? manualApplyResult.applyResults
+          : [],
+        verifyResults: Array.isArray(manualApplyResult?.verifyResults)
+          ? manualApplyResult.verifyResults
+          : [],
+      }),
+    [manualPreviewResult, manualPreflightResult, manualApplyResult],
   );
   const uploadPollingFinal = isFinalUploadPollingResult(
     uploadActionsResult,
@@ -1658,7 +1674,7 @@ export function ProductLaunchFlow() {
         manualKeywordOverridesByGoodsKey={manualKeywordOverridesByGoodsKey}
       />
       <ManualPreviewReviewSection
-        manualPreviewResult={manualPreviewResult}
+        manualMallPreviewRows={manualMallPreviewRows}
         manualPreflightResult={manualPreflightResult}
       />
       <ManualApplyStatusCard
@@ -2174,32 +2190,130 @@ function RepresentativePreviewCard({
 }
 
 function ManualPreviewReviewSection({
-  manualPreviewResult,
+  manualMallPreviewRows,
   manualPreflightResult,
 }: {
-  manualPreviewResult: KeywordPayloadPreviewResult | null;
+  manualMallPreviewRows: ReturnType<typeof buildManualMallPreviewRows>;
   manualPreflightResult: KeywordExecutionPreflightResult | null;
 }) {
-  if (!manualPreviewResult && !manualPreflightResult) return null;
+  const { status, rows, summary } = manualMallPreviewRows;
+  const preflightSummary = manualPreflightResult?.summary;
   return (
     <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
-      <p className="text-sm font-bold text-emerald-800">수동 후보 검토 결과</p>
-      <div className="mt-3 grid gap-3 md:grid-cols-3">
-        <SummaryCard
-          label="미리보기 대상"
-          value={manualPreviewResult?.expandedItemCount ?? 0}
-        />
-        <SummaryCard
-          label="반영 가능"
-          value={manualPreflightResult?.summary.eligibleCount ?? 0}
-        />
-        <SummaryCard
-          label="차단"
-          value={manualPreflightResult?.summary.blockedCount ?? 0}
-        />
-      </div>
+      <p className="text-sm font-bold text-emerald-800">
+        전체 쇼핑몰 적용 미리보기
+      </p>
+      {status === "not_generated" ? (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+          <h2 className="text-lg font-black text-slate-950">
+            검토 계획 생성 전
+          </h2>
+          <p className="mt-2 text-sm font-semibold text-slate-600">
+            상품명과 검색어를 입력한 뒤 검토 계획을 생성하세요.
+          </p>
+        </div>
+      ) : (
+        <>
+          {status === "preview_only" ? (
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-black text-amber-900">
+              미리보기 생성됨 · 사전점검 전
+            </p>
+          ) : null}
+          <div className="mt-3 grid gap-3 md:grid-cols-3 lg:grid-cols-5">
+            <SummaryCard label="전체" value={summary.totalCount} />
+            <SummaryCard label="반영 가능" value={summary.eligibleCount} />
+            <SummaryCard label="차단" value={summary.blockedCount} />
+            <SummaryCard label="반영 완료" value={summary.appliedCount} />
+            <SummaryCard label="실패" value={summary.failedCount} />
+          </div>
+          {preflightSummary ? (
+            <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+              <SummaryCard label="예상 상품명 대상" value={preflightSummary.expectedTitleTargetCount} />
+              <SummaryCard label="생성 상품명 대상" value={preflightSummary.generatedTitleTargetCount} />
+              <SummaryCard label="검색어 goods_key" value={preflightSummary.siteSrchGoodsKeyCount} />
+              <SummaryCard label="커버리지 불일치" value={preflightSummary.coverageMismatchGoodsKeyCount} />
+              <SummaryCard label="미등록 상품그룹" value={preflightSummary.unregisteredProductGroupGoodsKeyCount} />
+            </div>
+          ) : null}
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-emerald-200 bg-white">
+            <table className="min-w-[1500px] text-left text-xs">
+              <thead className="bg-emerald-100 text-emerald-950">
+                <tr>
+                  {[
+                    "goods_key",
+                    "상품그룹",
+                    "쇼핑몰",
+                    "mall_key",
+                    "생성 상품명",
+                    "검색어",
+                    "상품명 키워드 수",
+                    "포함 키워드 수",
+                    "무결성",
+                    "미리보기 상태",
+                    "사전점검 상태",
+                    "반영 상태",
+                    "차단 사유",
+                    "경고",
+                  ].map((header) => (
+                    <th key={header} className="border border-emerald-200 px-3 py-2">
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr
+                    key={`${row.goodsKey}:${row.mallKey}:${row.sourceRowIndex}:${index}`}
+                    className={manualMallPreviewRowClassName(row)}
+                  >
+                    <td className="border border-slate-200 px-3 py-2 font-mono">{row.goodsKey}</td>
+                    <td className="border border-slate-200 px-3 py-2">{row.productGroup}</td>
+                    <td className="border border-slate-200 px-3 py-2">{row.marketName}</td>
+                    <td className="border border-slate-200 px-3 py-2 font-mono">{row.mallKey}</td>
+                    <td className="border border-slate-200 px-3 py-2 font-semibold">{row.finalTitle}</td>
+                    <td className="border border-slate-200 px-3 py-2">{row.finalSiteSrch}</td>
+                    <td className="border border-slate-200 px-3 py-2">{row.titleKeywordCount}</td>
+                    <td className="border border-slate-200 px-3 py-2">{row.titleIncludedKeywordCount}</td>
+                    <td className="border border-slate-200 px-3 py-2">{row.titleKeywordIntegrityOk ? "정상" : "확인 필요"}</td>
+                    <td className="border border-slate-200 px-3 py-2">{row.previewStatus}</td>
+                    <td className="border border-slate-200 px-3 py-2">{manualPreflightStatusLabel(row.preflightStatus)}</td>
+                    <td className="border border-slate-200 px-3 py-2">{manualApplyStatusLabel(row.applyStatus)}</td>
+                    <td className="border border-slate-200 px-3 py-2">{formatKeywordExecutionPreflightLabels(row.blockingReasons) || "-"}</td>
+                    <td className="border border-slate-200 px-3 py-2">{row.validationWarnings.join(", ") || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </section>
   );
+}
+
+function manualPreflightStatusLabel(status: string) {
+  return status === "eligible" ? "반영 가능" : status === "blocked" ? "차단" : "사전점검 전";
+}
+
+function manualApplyStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    preflight_pending: "사전점검 전",
+    ready: "반영 준비",
+    applied: "반영 완료",
+    verified: "검증 완료",
+    failed: "실패",
+    blocked: "차단",
+    not_started: "실행 전",
+  };
+  return labels[status] ?? status;
+}
+
+function manualMallPreviewRowClassName(row: ReturnType<typeof buildManualMallPreviewRows>["rows"][number]) {
+  if (row.applyStatus === "failed" || row.applyStatus === "blocked" || row.preflightStatus === "blocked") return "bg-red-50 text-red-950";
+  if (row.applyStatus === "verified" || row.applyStatus === "applied") return "bg-emerald-50 text-emerald-950";
+  if (row.applyStatus === "preflight_pending" || row.preflightStatus === "pending") return "bg-slate-50 text-slate-600";
+  return "bg-white text-slate-900";
 }
 
 function ManualApplyStatusCard({
