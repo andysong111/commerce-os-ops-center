@@ -458,3 +458,15 @@ export function getMarketsForLaunchProductGroup(productGroup: string) {
   const counts: Record<string, number> = { "도매1": 10, "도매2": 4, "도매3": 4, "도매4": 1, "소매1": 12, "소매2": 5 };
   return counts[productGroup.trim()] ?? 0;
 }
+
+export function isGithubCredentialError(value: unknown) {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
+  return (
+    /status\s*[=:]\s*401/i.test(text) ||
+    /\b401\b/.test(text) && /(?:bad credentials|requires authentication|token invalid|unauthorized)/i.test(text) ||
+    /bad credentials/i.test(text) ||
+    /requires authentication/i.test(text) ||
+    /token invalid/i.test(text) ||
+    /unauthorized/i.test(text)
+  );
+}

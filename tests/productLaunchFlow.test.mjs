@@ -21,6 +21,7 @@ import {
   normalizeSeedKeywords,
   resolveMallTitle,
   resolveManualTitleOverride,
+  isGithubCredentialError,
 } from "../src/lib/productLaunchFlow.ts";
 
 test("suffix group inference uses extensible ptn_goods_cd ending metadata", () => {
@@ -902,4 +903,32 @@ test("product launch manual apply remains compact runner only without fake malls
   assert.doesNotMatch(flow, /mallKey:\s*["'`](?:FAKE|test|mall_|MALL|smartstore)/i);
   assert.doesNotMatch(`${flow}\n${runner}`, /https?:\/\/[^"'`]*shopling/i);
   assert.doesNotMatch(flow, /API_AUTH_KEY|LOGIN_PASSWORD|shell\s*:\s*true|child_process|PowerShell/i);
+});
+
+test("price result fetch GitHub credential errors are detected", () => {
+  assert.equal(isGithubCredentialError("GitHub API 요청에 실패했습니다. status=401 body={ message: Bad credentials }"), true);
+  assert.equal(isGithubCredentialError({ status: 401, body: { message: "Requires authentication" } }), true);
+  assert.equal(isGithubCredentialError("token invalid"), true);
+  assert.equal(isGithubCredentialError("unauthorized"), true);
+});
+
+test("product launch flow renders GitHub token guidance and fetch-only retry", async () => {
+  const source = await readFile("src/components/product-launch-flow/ProductLaunchFlow.tsx", "utf8");
+  for (const expected of [
+    "GitHub 토큰 오류",
+    "SHOPLING_PRICE_MODIFY_ACTIONS_TOKEN",
+    "GITHUB_ACTIONS_TOKEN",
+    "가격설정 결과 다시 가져오기",
+    "가격설정 작업은 성공했을 수 있습니다. 토큰을 수정한 뒤 결과만 다시 가져오세요.",
+    "onFetchPriceResult={fetchPriceResult}",
+  ]) assert.ok(source.includes(expected), expected);
+
+  const retryButton = source.match(/<button[^>]*onClick=\{onFetchPriceResult\}[\s\S]*?가격설정 결과 다시 가져오기[\s\S]*?<\/button>/);
+  assert.ok(retryButton, "retry result button exists");
+  assert.doesNotMatch(retryButton[0], /runUploadRequest/);
+  assert.doesNotMatch(retryButton[0], /runPriceModify/);
+  assert.match(retryButton[0], /onFetchPriceResult/);
+  const tokenPanel = source.match(/GitHub 토큰 오류[\s\S]*?가격설정 결과 다시 가져오기[\s\S]*?현재 실패 기록 지우기/);
+  assert.ok(tokenPanel, "GitHub token panel exists");
+  assert.doesNotMatch(tokenPanel[0], /자사상품코드 중복/);
 });
