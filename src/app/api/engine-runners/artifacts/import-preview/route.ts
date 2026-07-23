@@ -41,6 +41,7 @@ export async function POST(request: Request) {
       kind,
       source,
       files: extracted.files,
+      binaryFiles: extracted.binaryFiles,
       missingFiles: extracted.missingFiles,
       skippedFiles: extracted.skippedFiles,
       generatedSourceFiles: extracted.generatedSourceFiles,

@@ -5,6 +5,9 @@ import {
   classifyDetailPageDraft,
   exportReviewedDetailPageDraft,
   parseDetailPageDraftReview,
+  parseCopywriterV2Report,
+  parseFinalImageUrl,
+  parseShoplingFullImageReport,
   parseMultiSourceSummary,
   parseRenderReport,
 } from "../src/lib/detailPageDraftReview.ts";
@@ -82,4 +85,38 @@ test("no external API execution is present", async () => {
   const page = await readFile(new URL("../src/app/detail-page-draft-review/page.tsx", import.meta.url), "utf8").catch(() => "");
   const source = `${lib}\n${page}`;
   assert.equal(/fetch\(|new XMLHttpRequest|child_process|exec\(|spawn\(/i.test(source), false);
+});
+
+test("production detail result parses readiness, image URL, and copywriter fields", () => {
+  const imageReport = '{"product_code":"P1","production_ready":true,"full_image_ready":true,"full_image_width":1000,"full_image_format":"jpg","recommended_upload_html":"<img src=\\"https://cdn.test/report.jpg\\" />","recommended_upload_mode":"single_full_page_jpg","full_image_uploaded_url":"https://cdn.test/report.jpg"}';
+  const manifest = '{"uploaded_url":"https://cdn.test/manifest.jpg"}';
+  const copywriter = '{"product_code":"P1","copy_quality_score":0.98,"final_defect_counts":{"typo":0,"claim":0}}';
+  const result = parseDetailPageDraftReview({
+    html: "<main>final</main>",
+    fullImageHtml: '<img src="https://cdn.test/html.jpg" />',
+    renderReportText: bathReport,
+    multiSourceSummaryText: bathSummary,
+    fullImageReportText: imageReport,
+    fullImageManifestText: manifest,
+    copywriterReportText: copywriter,
+  });
+  assert.equal(result.classification, "production_ready");
+  assert.equal(result.production.productionReady, true);
+  assert.equal(result.production.finalImageUrl, "https://cdn.test/manifest.jpg");
+  assert.equal(result.production.copywriterReport.data?.copy_quality_score, 0.98);
+});
+
+test("final image URL fallback order is manifest, report, then html src", () => {
+  const report = parseShoplingFullImageReport('{"full_image_uploaded_url":"https://cdn.test/report.jpg"}');
+  const manifest = parseShoplingFullImageReport('{"uploaded_url":"https://cdn.test/manifest.jpg"}', "manifest");
+  assert.equal(parseFinalImageUrl({ manifest, report, fullImageHtml: '<img src="https://cdn.test/html.jpg">' }), "https://cdn.test/manifest.jpg");
+  assert.equal(parseFinalImageUrl({ report, fullImageHtml: '<img src="https://cdn.test/html.jpg">' }), "https://cdn.test/report.jpg");
+  assert.equal(parseFinalImageUrl({ fullImageHtml: '<img src="https://cdn.test/html.jpg">' }), "https://cdn.test/html.jpg");
+});
+
+test("copywriter report fields are parsed", () => {
+  const parsed = parseCopywriterV2Report('{"product_code":"P1","copy_quality_score":0.9,"final_defect_counts":{"a":0,"b":1}}');
+  assert.equal(parsed.data?.product_code, "P1");
+  assert.equal(parsed.data?.copy_quality_score, 0.9);
+  assert.equal(parsed.data?.total_final_defects, 1);
 });

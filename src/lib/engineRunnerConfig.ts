@@ -49,6 +49,12 @@ export const engineRunnerConfigs = [
     actionsUrl: "https://github.com/andysong111/product-detail-page-auto/actions/workflows/detail-page-engine-runner.yml",
     expectedArtifactName: "detail-page-engine-output",
     expectedArtifacts: [
+      "detailpage_shopling_FINAL.html",
+      "detailpage_shopling_FULL_IMAGE.html",
+      "shopling_section_image_export_report.json",
+      "shopling_full_image_manifest.json",
+      "copywriter_v2_report.json",
+      "narrative_blueprint_v2.polished.json",
       "detailpage_final.html",
       "detailpage_render_report.json",
       "multi_source_summary.json",
