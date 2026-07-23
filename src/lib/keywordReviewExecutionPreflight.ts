@@ -2,7 +2,10 @@ import type {
   KeywordPayloadPreviewItem,
   KeywordPayloadPreviewResult,
 } from "./keywordReviewPayloadPreview";
-import { PRODUCT_GROUP_MARKET_MALL_KEYS } from "./productGroupMarketRegistry";
+import {
+  PRODUCT_GROUP_MARKET_MALL_KEYS,
+  getMarketsForProductGroup,
+} from "./productGroupMarketRegistry";
 
 const SHOPLING_MALL_KEY_PATTERN = /^SMALL_\d{5}$/;
 
@@ -24,6 +27,9 @@ export const KEYWORD_EXECUTION_PREFLIGHT_LABELS: Record<string, string> = {
   ALREADY_APPLIED_GOODS_KEY: "이미 반영한 상품번호입니다.",
   MAX_ROWS_EXCEEDED: "최대 실행 행 수를 초과했습니다.",
   FINAL_SITE_SRCH_UNDERFILLED: "검색어가 10개 미만입니다. 현재는 경고만 표시합니다.",
+  PRODUCT_GROUP_MARKETS_MISMATCH:
+    "상품그룹의 전체 쇼핑몰 대상과 실행계획이 일치하지 않습니다.",
+  PRODUCT_GROUP_UNREGISTERED: "등록되지 않은 상품그룹입니다.",
 };
 
 export function formatKeywordExecutionPreflightLabels(values: string[]) {
@@ -65,6 +71,11 @@ export type KeywordExecutionPreflightResult = {
     maxRowsExceeded: boolean;
     duplicateGoodsKeyCount: number;
     requiresFinalConfirmation: boolean;
+    expectedTitleTargetCount: number;
+    generatedTitleTargetCount: number;
+    siteSrchGoodsKeyCount: number;
+    coverageMismatchGoodsKeyCount: number;
+    unregisteredProductGroupGoodsKeyCount: number;
   };
 };
 
@@ -77,6 +88,74 @@ export const DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG: KeywordExecutionPreflig
     confirmationText:
       "실행 전 점검은 미리보기 전용입니다. 실제 반영은 아래 ‘실제 샵플링 반영 실행’에서 확인문구 입력 후 진행됩니다.",
   };
+
+function pushUnique(values: string[], value: string) {
+  if (!values.includes(value)) values.push(value);
+}
+
+function buildProductGroupCoverageReasons(items: KeywordPayloadPreviewItem[]) {
+  const itemsByGoodsKey = new Map<string, KeywordPayloadPreviewItem[]>();
+
+  for (const item of items) {
+    const goodsKey = item.goods_key.trim();
+    if (!goodsKey) continue;
+    const goodsItems = itemsByGoodsKey.get(goodsKey) ?? [];
+    goodsItems.push(item);
+    itemsByGoodsKey.set(goodsKey, goodsItems);
+  }
+
+  const reasonsByGoodsKey = new Map<string, string>();
+  let expectedTitleTargetCount = 0;
+  const generatedTitleTargetCount = items.filter(
+    (item) => item.goods_key.trim() && item.mall_key.trim(),
+  ).length;
+
+  for (const [goodsKey, goodsItems] of itemsByGoodsKey.entries()) {
+    const productGroup =
+      goodsItems.find((item) => item.product_group.trim())?.product_group ?? "";
+    const expectedMallKeys = getMarketsForProductGroup(productGroup).map(
+      (market) => market.mallKey.trim(),
+    );
+
+    if (expectedMallKeys.length === 0) {
+      reasonsByGoodsKey.set(goodsKey, "PRODUCT_GROUP_UNREGISTERED");
+      continue;
+    }
+
+    expectedTitleTargetCount += expectedMallKeys.length;
+
+    const generatedMallKeys = goodsItems.map((item) => item.mall_key.trim());
+
+    const generatedMallKeySet = new Set(generatedMallKeys.filter(Boolean));
+    const expectedMallKeySet = new Set(expectedMallKeys);
+    const hasEmptyGeneratedMallKey = generatedMallKeys.some((mallKey) => !mallKey);
+    const hasExpectedMissing = expectedMallKeys.some(
+      (mallKey) => !generatedMallKeySet.has(mallKey),
+    );
+    const hasUnexpectedGenerated = [...generatedMallKeySet].some(
+      (mallKey) => !expectedMallKeySet.has(mallKey),
+    );
+    const hasDuplicateGeneratedMallKey =
+      generatedMallKeys.filter(Boolean).length !== generatedMallKeySet.size;
+
+    if (
+      hasEmptyGeneratedMallKey ||
+      generatedMallKeys.length !== expectedMallKeys.length ||
+      generatedMallKeySet.size !== expectedMallKeys.length ||
+      hasExpectedMissing ||
+      hasUnexpectedGenerated ||
+      hasDuplicateGeneratedMallKey
+    ) {
+      reasonsByGoodsKey.set(goodsKey, "PRODUCT_GROUP_MARKETS_MISMATCH");
+    }
+  }
+
+  return {
+    reasonsByGoodsKey,
+    expectedTitleTargetCount,
+    generatedTitleTargetCount,
+  };
+}
 
 function normalizedSet(values: string[]) {
   return new Set(values.map((value) => value.trim()).filter(Boolean));
@@ -109,6 +188,16 @@ export function buildKeywordExecutionPreflight(
       item.review_status === "approved" ||
       item.payload_status === "preview_ready",
   );
+  const productGroupCoverage =
+    input.previewResult.expansionMode === "product_group_markets"
+      ? buildProductGroupCoverageReasons(input.previewResult.items)
+      : {
+          reasonsByGoodsKey: new Map<string, string>(),
+          expectedTitleTargetCount: 0,
+          generatedTitleTargetCount: input.previewResult.items.filter(
+            (item) => item.goods_key.trim() && item.mall_key.trim(),
+          ).length,
+        };
   const goodsMallKeyCounts = new Map<string, number>();
 
   for (const item of candidateItems) {
@@ -183,6 +272,10 @@ export function buildKeywordExecutionPreflight(
       ) {
         blockReasons.push("DUPLICATE_GOODS_KEY_MALL_KEY");
       }
+      const coverageReason = productGroupCoverage.reasonsByGoodsKey.get(goodsKey);
+      if (coverageReason) {
+        blockReasons.push(coverageReason);
+      }
       if (!confirmationSatisfied) {
         blockReasons.push("FINAL_CONFIRMATION_REQUIRED");
       }
@@ -209,7 +302,7 @@ export function buildKeywordExecutionPreflight(
   if (maxRowsExceeded) {
     for (const item of initiallyEligible) {
       item.preflight_status = "blocked";
-      item.block_reasons.push("MAX_ROWS_EXCEEDED");
+      pushUnique(item.block_reasons, "MAX_ROWS_EXCEEDED");
     }
   }
 
@@ -253,6 +346,30 @@ export function buildKeywordExecutionPreflight(
       ).length,
       requiresFinalConfirmation:
         config.requireFinalConfirmation && !confirmationSatisfied,
+      expectedTitleTargetCount: productGroupCoverage.expectedTitleTargetCount,
+      generatedTitleTargetCount: productGroupCoverage.generatedTitleTargetCount,
+      siteSrchGoodsKeyCount: new Set(
+        eligibleItems
+          .filter((item) => item.final_site_srch.trim())
+          .map((item) => item.goods_key.trim())
+          .filter(Boolean),
+      ).size,
+      coverageMismatchGoodsKeyCount: new Set(
+        evaluatedItems
+          .filter((item) =>
+            item.block_reasons.includes("PRODUCT_GROUP_MARKETS_MISMATCH"),
+          )
+          .map((item) => item.goods_key.trim())
+          .filter(Boolean),
+      ).size,
+      unregisteredProductGroupGoodsKeyCount: new Set(
+        evaluatedItems
+          .filter((item) =>
+            item.block_reasons.includes("PRODUCT_GROUP_UNREGISTERED"),
+          )
+          .map((item) => item.goods_key.trim())
+          .filter(Boolean),
+      ).size,
     },
   };
 }
