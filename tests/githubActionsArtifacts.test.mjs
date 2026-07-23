@@ -434,6 +434,25 @@ test("detail artifact ZIP import supports nested GitHub artifact folders", () =>
   assert.deepEqual(extracted.missingFiles, []);
 });
 
+test("detail artifact ZIP import supports production files and keeps JPG as metadata only", () => {
+  const extracted = extractExpectedArtifactFiles(
+    "detail_page_engine",
+    zip({
+      "detail-page-engine-output/detailpage_shopling_FINAL.html": "<main>Final</main>",
+      "detail-page-engine-output/detailpage_shopling_FULL_IMAGE.html": '<img src="https://cdn.test/full.jpg" />',
+      "detail-page-engine-output/shopling_section_image_export_report.json": '{"production_ready":true}',
+      "detail-page-engine-output/shopling_full_image_manifest.json": '{"uploaded_url":"https://cdn.test/full.jpg"}',
+      "detail-page-engine-output/copywriter_v2_report.json": '{"final_defect_counts":{"typo":0}}',
+      "detail-page-engine-output/narrative_blueprint_v2.polished.json": '{"ok":true}',
+      "detail-page-engine-output/shopling_full_page_image/detailpage_full_1000.jpg": "binary-jpg-placeholder",
+    }),
+  );
+  assert.equal(extracted.files["detailpage_shopling_FINAL.html"], "<main>Final</main>");
+  assert.equal(extracted.files["shopling_full_page_image/detailpage_full_1000.jpg"], undefined);
+  assert.equal(extracted.binaryFiles?.["shopling_full_page_image/detailpage_full_1000.jpg"]?.contentType, "image/jpeg");
+  assert.deepEqual(extracted.missingFiles, []);
+});
+
 test("duplicate allowed basenames fail safely", () => {
   assert.throws(
     () =>

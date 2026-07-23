@@ -297,7 +297,17 @@ export function EngineRunnerConsole({
         kind: data.kind,
         source: data.source,
         files: data.files,
+        binaryFiles: data.binaryFiles,
         generatedSourceFiles: data.generatedSourceFiles,
+        finalHtml: data.files?.["detailpage_shopling_FINAL.html"] ?? data.files?.["detailpage_final.html"] ?? "",
+        fullImageHtml: data.files?.["detailpage_shopling_FULL_IMAGE.html"] ?? "",
+        finalImageUrl: extractDetailFinalImageUrl(data.files ?? {}),
+        fullImageReport: data.files?.["shopling_section_image_export_report.json"] ?? "",
+        copywriterReport: data.files?.["copywriter_v2_report.json"] ?? "",
+        polishedBlueprint: data.files?.["narrative_blueprint_v2.polished.json"] ?? "",
+        recommendedUploadHtml: extractRecommendedUploadHtml(data.files ?? {}),
+        recommendedUploadMode: extractRecommendedUploadMode(data.files ?? {}),
+        productionReady: extractProductionReady(data.files ?? {}),
         importedAt: new Date().toISOString(),
         notAppliedToShopling: true,
         notPublished: true,
@@ -381,6 +391,42 @@ export function EngineRunnerConsole({
       setImportingArtifactId(null);
     }
   };
+
+  function parseJson(value: unknown) {
+    try {
+      return typeof value === "string" && value.trim() ? JSON.parse(value) as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function extractDetailFinalImageUrl(files: Record<string, unknown>) {
+    const manifest = parseJson(files["shopling_full_image_manifest.json"]);
+    const report = parseJson(files["shopling_section_image_export_report.json"]);
+    const html = String(files["detailpage_shopling_FULL_IMAGE.html"] ?? "");
+    return String(manifest.uploaded_url ?? manifest.full_image_uploaded_url ?? report.full_image_uploaded_url ?? report.uploaded_url ?? html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] ?? "");
+  }
+
+  function extractRecommendedUploadHtml(files: Record<string, unknown>) {
+    const report = parseJson(files["shopling_section_image_export_report.json"]);
+    const manifest = parseJson(files["shopling_full_image_manifest.json"]);
+    return String(report.recommended_upload_html ?? manifest.recommended_upload_html ?? files["detailpage_shopling_FULL_IMAGE.html"] ?? files["detailpage_shopling_FINAL.html"] ?? files["detailpage_final.html"] ?? "");
+  }
+
+  function extractRecommendedUploadMode(files: Record<string, unknown>) {
+    const report = parseJson(files["shopling_section_image_export_report.json"]);
+    const manifest = parseJson(files["shopling_full_image_manifest.json"]);
+    return String(report.recommended_upload_mode ?? manifest.recommended_upload_mode ?? "");
+  }
+
+  function extractProductionReady(files: Record<string, unknown>) {
+    const report = parseJson(files["shopling_section_image_export_report.json"]);
+    const copywriter = parseJson(files["copywriter_v2_report.json"]);
+    const counts = copywriter.final_defect_counts && typeof copywriter.final_defect_counts === "object"
+      ? Object.values(copywriter.final_defect_counts as Record<string, unknown>)
+      : [];
+    return report.production_ready === true && report.full_image_ready === true && report.full_image_width === 1000 && report.full_image_format === "jpg" && String(report.recommended_upload_html ?? "").length > 0 && counts.every((count) => count === 0);
+  }
 
   const postRunnerRequest = async (endpoint: string, form: HTMLFormElement) => {
     setMessage("");

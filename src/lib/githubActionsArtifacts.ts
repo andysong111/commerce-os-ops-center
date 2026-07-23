@@ -11,6 +11,12 @@ const EXPECTED_FILES = {
     "keyword_mvp_summary.md",
   ],
   detail_page_engine: [
+    "detailpage_shopling_FINAL.html",
+    "detailpage_shopling_FULL_IMAGE.html",
+    "shopling_section_image_export_report.json",
+    "shopling_full_image_manifest.json",
+    "copywriter_v2_report.json",
+    "narrative_blueprint_v2.polished.json",
     "detailpage_final.html",
     "detailpage_render_report.json",
     "multi_source_summary.json",
@@ -28,11 +34,29 @@ const OPTIONAL_FILES = {
 
 export type ArtifactExtractionResult = {
   files: Record<string, string>;
+  binaryFiles?: Record<string, { path: string; byteLength: number; contentType: string }>;
   missingFiles: string[];
   skippedFiles: string[];
   generatedSourceFiles?: string[];
   foundSafeFiles: string[];
 };
+
+const DETAIL_PRODUCTION_TEXT_FILES = [
+  "detailpage_shopling_FINAL.html",
+  "detailpage_shopling_FULL_IMAGE.html",
+  "shopling_section_image_export_report.json",
+  "shopling_full_image_manifest.json",
+  "copywriter_v2_report.json",
+  "narrative_blueprint_v2.polished.json",
+] as const;
+
+const DETAIL_LEGACY_TEXT_FILES = [
+  "detailpage_final.html",
+  "detailpage_render_report.json",
+  "multi_source_summary.json",
+] as const;
+
+const DETAIL_BINARY_REFERENCES = new Set(["shopling_full_page_image/detailpage_full_1000.jpg"]);
 
 type ArtifactDownloadConfig = Pick<EngineRunnerConfig, "repoOwner" | "repoName"> & { token: string };
 
@@ -99,6 +123,7 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
 
   const allowlist = new Set<string>([...expected, ...OPTIONAL_FILES[kind]]);
   const files: Record<string, string> = {};
+  const binaryFiles: Record<string, { path: string; byteLength: number; contentType: string }> = {};
   const skippedFiles: string[] = [];
   const generatedSourceFiles: string[] = [];
   const foundSafeFiles: string[] = [];
@@ -109,6 +134,17 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
     const safeEntryName = normalizeSafeEntryName(entryName);
     if (!safeEntryName) {
       skippedFiles.push(entryName || "unsafe-entry");
+    } else if (
+      kind === "detail_page_engine" &&
+      [...DETAIL_BINARY_REFERENCES].some((path) => safeEntryName === path || safeEntryName.endsWith(`/${path}`))
+    ) {
+      foundSafeFiles.push(safeEntryName);
+      const binaryPath = "shopling_full_page_image/detailpage_full_1000.jpg";
+      binaryFiles[binaryPath] = {
+        path: binaryPath,
+        byteLength: entryBytes.byteLength,
+        contentType: "image/jpeg",
+      };
     } else if (kind === "detail_page_engine" && safeEntryName.startsWith("generated_source/") && !safeEntryName.endsWith("/")) {
       foundSafeFiles.push(safeEntryName);
       generatedSourceFiles.push(safeEntryName);
@@ -132,9 +168,19 @@ export function extractExpectedArtifactFiles(kind: EngineRunnerKind, zipBytes: U
 
   return {
     files,
-    missingFiles: expected.filter((file) => !Object.hasOwn(files, file)),
+    binaryFiles: kind === "detail_page_engine" ? binaryFiles : undefined,
+    missingFiles: missingExpectedFiles(kind, files),
     skippedFiles,
     generatedSourceFiles: kind === "detail_page_engine" ? generatedSourceFiles : undefined,
     foundSafeFiles,
   };
+}
+
+function missingExpectedFiles(kind: EngineRunnerKind, files: Record<string, string>) {
+  if (kind !== "detail_page_engine") {
+    return EXPECTED_FILES[kind].filter((file) => !Object.hasOwn(files, file));
+  }
+  const hasProduction = DETAIL_PRODUCTION_TEXT_FILES.some((file) => Object.hasOwn(files, file));
+  const required = hasProduction ? DETAIL_PRODUCTION_TEXT_FILES : DETAIL_LEGACY_TEXT_FILES;
+  return required.filter((file) => !Object.hasOwn(files, file));
 }

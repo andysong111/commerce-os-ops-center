@@ -77,3 +77,19 @@ Future work:
 - Artifact import history.
 - Approval history.
 - Final execution verification.
+
+## Detail Page Engine production artifact contract
+
+The Detail Page Engine still runs externally in `andysong111/product-detail-page-auto` through `detail-page-engine-runner.yml`; OPS CENTER only dispatches the workflow, imports the resulting `detail-page-engine-output` artifact, and stages it for human review at `/detail-page-draft-review`.
+
+The current production-ready detail page bundle includes these preferred files:
+
+- `detailpage_shopling_FINAL.html` — recommended operator file to copy for Shopling HTML upload.
+- `detailpage_shopling_FULL_IMAGE.html` — single full-page JPG HTML wrapper used for final upload preview/copy fallback.
+- `shopling_section_image_export_report.json` — production readiness, full-image dimensions, format, and upload recommendation report.
+- `shopling_full_image_manifest.json` — uploaded full-image URL manifest when the external engine produced one.
+- `copywriter_v2_report.json` — final copy quality score and defect counts.
+- `narrative_blueprint_v2.polished.json` — polished narrative/source context for review.
+- `shopling_full_page_image/detailpage_full_1000.jpg` — binary JPG artifact reference only; OPS CENTER does not store raw image bytes/base64 in session storage.
+
+Legacy detail artifacts (`detailpage_final.html`, `detailpage_render_report.json`, and `multi_source_summary.json`) remain supported as a fallback. The final upload format for production-ready output is a single full-page JPG represented by Shopling-ready HTML.
