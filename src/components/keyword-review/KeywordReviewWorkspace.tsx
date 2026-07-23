@@ -487,7 +487,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   function runGuidedApprovalPreviewPlan() {
     const sourceRows = rows.filter((row) => row.reviewStatus === "approved").length === 0 ? approveFirstCandidateRows(rows) : rows;
     const previewRows = createGroupVariantPreviewRows(sourceRows, groupVariantEnabled);
-    const preview = buildKeywordShoplingPayloadPreview(sourceRows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey });
+    const preview = buildKeywordShoplingPayloadPreview(sourceRows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, sourceRowGroups: launchContext?.sourceRowGroups });
     setRows(sourceRows);
     setGroupVariantPreview(previewRows);
     if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
@@ -515,7 +515,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
       setGuidedActionStatus("상품그룹별 미리보기를 먼저 생성하세요.");
       return;
     }
-    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey });
+    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, sourceRowGroups: launchContext?.sourceRowGroups });
     if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
     if (!ensureLaunchCoverageBeforeApply(preview)) return;
     setPayloadPreview(preview);
@@ -588,7 +588,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
       return () => window.clearTimeout(timer);
     }
     const previewRows = createGroupVariantPreviewRows(rows, groupVariantEnabled);
-    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey });
+    const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, sourceRowGroups: launchContext?.sourceRowGroups });
     const previewCoverage = computeLaunchTitleCoverage({ goodsKeys: launchContext?.goodsKeys, uploadRows: launchContext?.uploadRows, rows, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey });
     const previewCount = preview.expandedItemCount ?? 0;
     if (preview.expandedItemCount > 100 || (!partialApplyOverride && previewCoverage.missingGoodsKeys.length > 0) || (!partialApplyOverride && expectedFullApplyCount > 0 && previewCount > 0 && previewCount < expectedFullApplyCount)) return;
@@ -976,7 +976,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
         onPreview={() => setGroupVariantPreview(createGroupVariantPreviewRows(rows, groupVariantEnabled))}
         onApplyPreview={() => {
           if (expandProductGroupMarkets) {
-            const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey });
+            const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, sourceRowGroups: launchContext?.sourceRowGroups });
             if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
             setPayloadPreview(preview);
             setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount, 100)));
@@ -997,7 +997,7 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
         rows={rows}
         result={payloadPreview}
         onGenerate={() => {
-          const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey });
+          const preview = buildKeywordShoplingPayloadPreview(rows, { groupVariantEnabled, expandProductGroupMarkets, manualTitleOverridesByGoodsKey: launchContext?.manualTitleOverridesByGoodsKey, manualKeywordOverridesByGoodsKey: launchContext?.manualKeywordOverridesByGoodsKey, seedKeywordsByGoodsKey: launchContext?.seedKeywordsByGoodsKey, sourceRowGroups: launchContext?.sourceRowGroups });
           if (preview.expandedItemCount > 100) { setCopyStatus("확장 적용 계획이 100개를 초과하여 생성할 수 없습니다."); return; }
           setPayloadPreview(preview);
           setKeywordApplyMaxRows(String(Math.min(preview.expandedItemCount || 20, 100)));
@@ -1625,7 +1625,8 @@ function KeywordShoplingApplySection({
   const warningCount = preflightResult ? preflightResult.eligibleItems.filter((item) => item.preflight_warnings.length > 0).length : 0;
   const underfilledCount = preflightResult ? [...preflightResult.eligibleItems, ...preflightResult.blockedItems].filter((item) => String(item.final_site_srch ?? "").split(",").filter(Boolean).length < 10).length : 0;
   const dangerousCount = preflightResult?.summary.blockedCount ?? 0;
-  const compactApplyDisabled = disabled || !manualCandidatesReady || !dryRunSucceeded || blockedCount > 0 || realMeta.isPolling;
+  const representativePreviewItems = preflightResult ? [...preflightResult.eligibleItems, ...preflightResult.blockedItems].filter((item, index, all) => all.findIndex((candidate) => candidate.source_row_index === item.source_row_index) === index) : [];
+  const compactApplyDisabled = disabled || !manualCandidatesReady || !dryRunSucceeded || safeCount <= 0 || blockedCount > 0 || realMeta.isPolling;
 
   return (
     <section id="keyword-shopling-apply-section" className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -1647,6 +1648,7 @@ function KeywordShoplingApplySection({
           <button type="button" onClick={() => document.getElementById("keyword-advanced-apply-details")?.setAttribute("open", "true")} className="rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700">전체 항목 펼쳐보기</button>
         </div>
         {realStatusMessage ? <p className="mt-3 text-sm text-slate-700">{realStatusMessage}</p> : null}
+        {representativePreviewItems.length > 0 ? <div className="mt-5 overflow-x-auto"><h3 className="text-sm font-black text-slate-950">대표 미리보기</h3><table className="mt-2 min-w-full divide-y divide-slate-200 text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-3 py-2">goods_key</th><th className="px-3 py-2">mall_key</th><th className="px-3 py-2">final_title</th><th className="px-3 py-2">final_site_srch</th></tr></thead><tbody className="divide-y divide-slate-200">{representativePreviewItems.map((item) => <tr key={`${item.source_row_index}-${item.goods_key}-${item.mall_key}`}><td className="px-3 py-2 font-mono">{item.goods_key}</td><td className="px-3 py-2 font-mono">{item.mall_key}</td><td className="px-3 py-2">{item.final_title}</td><td className="px-3 py-2">{item.final_site_srch}</td></tr>)}</tbody></table></div> : null}
       </div>
       <details id="keyword-advanced-apply-details" className="p-4 sm:p-5">
         <summary className="cursor-pointer font-semibold text-slate-950">고급 / 상세 결과 보기</summary>

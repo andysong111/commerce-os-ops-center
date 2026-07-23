@@ -40,7 +40,7 @@ test("embedded launch mode auto-prepares review but keeps real apply approval ex
   assert.match(workspace, /void run\("dry_run", true\)/);
   assert.match(workspace, /onClick=\{\(\) => void run\("apply"\)\}/);
   assert.match(workspace, /blockedCount > 0/);
-  assert.match(workspace, /compactApplyDisabled = disabled \|\| !dryRunSucceeded \|\| blockedCount > 0/);
+  assert.match(workspace, /compactApplyDisabled = disabled \|\| !manualCandidatesReady \|\| !dryRunSucceeded \|\| safeCount <= 0 \|\| blockedCount > 0/);
   assert.match(workspace, /<details id="keyword-advanced-apply-details"/);
 });
 
@@ -52,4 +52,37 @@ test("request identifiers and internal controls are gated behind advanced detail
   for (const text of ["속성 꾸밈어 추가", "확장 적용 계획 생성", "dry_run 실행", "payload JSON"]) {
     assert.ok(workspace.includes(text) || flow.includes(text), `${text} remains available in source for advanced mode`);
   }
+});
+
+test("manual product launch apply uses registry preview preflight execution plan pipeline", async () => {
+  const payloadPreview = await readFile("src/lib/keywordReviewPayloadPreview.ts", "utf8");
+  const workspace = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
+  const source = `${payloadPreview}\n${workspace}`;
+
+  assert.doesNotMatch(source, /MALLS_BY_GROUP/);
+  assert.doesNotMatch(payloadPreview, /mall_key\s*[:=]\s*["'](?:cafe24|coupang|smartstore|default)["']/i);
+  assert.match(payloadPreview, /getMarketsForProductGroup/);
+  assert.match(payloadPreview, /sourceRowGroups/);
+  assert.match(payloadPreview, /goods_key: item\.goods_key/);
+  assert.match(payloadPreview, /mall_key: market\.mallKey/);
+  assert.match(payloadPreview, /final_title: finalTitle/);
+  assert.match(payloadPreview, /final_site_srch: item\.final_site_srch/);
+  for (const field of ["product_group", "product_group_status", "payload_status", "review_status", "validation_errors", "validation_warnings", "market_name", "account_id_label", "mall_title"]) {
+    assert.ok(payloadPreview.includes(field), `${field} is preserved on KeywordPayloadPreviewItem-compatible manual preview items`);
+  }
+  assert.match(workspace, /buildKeywordExecutionPreflight\(\{ previewResult: preview/);
+  assert.match(workspace, /buildCompactKeywordApplyExecutionPlan\(preflightResult\)/);
+  assert.match(workspace, /execution_plan_json: executionPlanJson/);
+  assert.match(workspace, /confirmation_text: mode === "apply" \? KEYWORD_APPLY_CONFIRMATION_TEXT : ""/);
+  assert.match(workspace, /max_items: 100/);
+  assert.doesNotMatch(workspace, /source:\s*["']manual_product_launch_wizard["']/);
+  assert.doesNotMatch(workspace, /generatedTitle|searchKeywords/);
+});
+
+test("manual launch UI keeps representative preview default and full table collapsed", async () => {
+  const workspace = await readFile("src/components/keyword-review/KeywordReviewWorkspace.tsx", "utf8");
+  assert.match(workspace, /대표 미리보기/);
+  assert.match(workspace, /전체 항목 펼쳐보기/);
+  assert.match(workspace, /<details id="keyword-advanced-apply-details"/);
+  assert.doesNotMatch(workspace, /<details id="keyword-advanced-apply-details"[^>]*open/);
 });
