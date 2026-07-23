@@ -28,7 +28,6 @@ import {
   buildGoodsKeyGroupJson,
   buildGoodsKeyGroupMap,
   buildGoodsKeyProductGroupMap,
-  buildKeywordEngineDispatchPayload,
   buildLaunchSourceRowGroups,
   expandSeedKeywordsBySourceRowToGoodsKeys,
   dedupeGoodsKeysForPriceModify,
@@ -274,7 +273,6 @@ export function ProductLaunchFlow() {
     useState<KeywordRunsResult | null>(restoredSession?.keywordResult ?? null);
   const [keywordImportMessage, setKeywordImportMessage] = useState<string>("");
   const [, setEmbeddedReviewOpen] = useState(false);
-  const [, setKeywordImportedAt] = useState("");
   const [keywordBusy, setKeywordBusy] = useState<string>("");
   const [keywordPolling, setKeywordPolling] = useState(false);
   const [keywordPollCount, setKeywordPollCount] = useState(0);
@@ -309,7 +307,6 @@ export function ProductLaunchFlow() {
   const [manualApplyErrorMessage, setManualApplyErrorMessage] = useState("");
   const autoPriceStartedForUploadRequestRef = useRef<string>("");
   const autoKeywordStartedForPriceRequestRef = useRef<string>("");
-  const autoKeywordImportedArtifactRef = useRef<string>("");
   const finalPriceStartedForRealApplyRequestRef = useRef<string>("");
 
   const uploadResultRows = useMemo(
@@ -744,15 +741,6 @@ export function ProductLaunchFlow() {
       ),
     [seedKeywordsBySourceRow, sourceRowGroups],
   );
-  const keywordPayload = useCallback(
-    () =>
-      buildKeywordEngineDispatchPayload(
-        uploadRows,
-        keywordSeed,
-        seedKeywordsByGoodsKey,
-      ),
-    [keywordSeed, seedKeywordsByGoodsKey, uploadRows],
-  );
   const manualCandidatesReady = hasManualCandidatesForAllSourceRows(
     sourceRowGroups,
     manualTitleOverridesByGoodsKey,
@@ -760,172 +748,34 @@ export function ProductLaunchFlow() {
   );
 
   const previewKeywordDispatch = async () => {
-    if (keywordBusy) return;
-    setKeywordBusy("preview");
-    setKeywordPreview(null);
-    try {
-      persistValue(KEYWORD_SEED_STORAGE_KEY, keywordSeed);
-      persistRecord(
-        `${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`,
-        seedKeywordsBySourceRow,
-      );
-      const response = await fetch("/api/engine-runners/dispatch-preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(keywordPayload()),
-      });
-      setKeywordPreview(await response.json());
-    } catch (error) {
-      setKeywordPreview({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "키워드 엔진 입력값 확인 중 오류가 발생했습니다.",
-      });
-    } finally {
-      setKeywordBusy("");
-    }
+    setKeywordPreview({
+      status: "disabled",
+      message: "상품출시플로우에서는 키워드 엔진 미리보기 요청을 실행하지 않습니다.",
+    });
   };
 
   const dispatchKeywordEngine = useCallback(async () => {
-    if (keywordBusy) return;
-    setKeywordBusy("dispatch");
-    try {
-      persistValue(KEYWORD_SEED_STORAGE_KEY, keywordSeed);
-      persistRecord(
-        `${SEED_KEYWORDS_STORAGE_PREFIX}.${manualOverrideStorageScope}`,
-        seedKeywordsBySourceRow,
-      );
-      const response = await fetch("/api/engine-runners/dispatch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(keywordPayload()),
-      });
-      setKeywordDispatchResult(await response.json());
-      setKeywordPolling(true);
-      setKeywordPollCount(0);
-    } catch (error) {
-      setKeywordDispatchResult({
-        message:
-          error instanceof Error
-            ? error.message
-            : "키워드 엔진 실행 요청 중 오류가 발생했습니다.",
-      });
-    } finally {
-      setKeywordBusy("");
-    }
-  }, [
-    keywordBusy,
-    keywordPayload,
-    keywordSeed,
-    manualOverrideStorageScope,
-    seedKeywordsBySourceRow,
-  ]);
+    setKeywordDispatchResult({
+      message: "상품출시플로우에서는 키워드 엔진 workflow dispatch를 실행하지 않습니다.",
+    });
+  }, []);
 
   const fetchKeywordRuns = useCallback(async () => {
-    if (keywordBusy) return;
-    setKeywordBusy("runs");
-    try {
-      const data = await (
-        await fetch("/api/engine-runners/runs?kind=keyword_engine")
-      ).json();
-      setKeywordRunsResult(data);
-      setKeywordLastCheckedAt(new Date());
-      if (isFinalKeywordRuns(data)) setKeywordPolling(false);
-    } catch (error) {
-      setKeywordRunsResult({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "키워드 실행 결과 확인 중 오류가 발생했습니다.",
-      });
-    } finally {
-      setKeywordBusy("");
-    }
-  }, [keywordBusy]);
-
-  useEffect(() => {
-    if (!keywordPolling || keywordBusy) return;
-    if (
-      keywordPollCount >= ACTIVE_MAX_POLLS ||
-      isFinalKeywordRuns(keywordRunsResult)
-    )
-      return;
-    const timer = window.setTimeout(
-      () => {
-        setKeywordPollCount((count) => {
-          const next = count + 1;
-          if (next >= ACTIVE_MAX_POLLS) setKeywordPolling(false);
-          return next;
-        });
-        void fetchKeywordRuns();
-      },
-      keywordPollCount === 0 ? 0 : ACTIVE_POLL_INTERVAL_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [
-    keywordPolling,
-    keywordBusy,
-    keywordPollCount,
-    keywordRunsResult,
-    fetchKeywordRuns,
-  ]);
+    setKeywordRunsResult({
+      status: "disabled",
+      message: "상품출시플로우에서는 키워드 run polling을 실행하지 않습니다.",
+    });
+  }, []);
 
   const importKeywordArtifact = async (
     run: KeywordRun,
     artifact: KeywordArtifact,
   ) => {
-    if (keywordBusy) return;
-    setKeywordBusy(`import-${artifact.id}`);
-    setKeywordImportMessage("");
-    try {
-      const response = await fetch(
-        "/api/engine-runners/artifacts/import-preview",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            kind: "keyword_engine",
-            runId: run.id,
-            artifactId: artifact.id,
-          }),
-        },
-      );
-      const data = await response.json();
-      if (!response.ok || !data.ok)
-        throw new Error(data.message ?? "키워드 결과 가져오기에 실패했습니다.");
-      const importedAt = new Date().toISOString();
-      window.sessionStorage.setItem(
-        KEYWORD_ARTIFACT_HANDOFF_STORAGE_KEY,
-        JSON.stringify({
-          kind: data.kind,
-          source: data.source,
-          files: data.files,
-          generatedSourceFiles: data.generatedSourceFiles,
-          goodsKeyGroupMap: buildGoodsKeyGroupMap(uploadRows),
-          importedAt,
-          artifactName: artifact.name,
-          notAppliedToShopling: true,
-          notPublished: true,
-          requiresHumanReview: true,
-        }),
-      );
-      setKeywordImportedAt(importedAt);
-      setEmbeddedReviewOpen(true);
-      setKeywordImportMessage(
-        "키워드 결과 파일이 준비되었습니다. 이 화면에서 상품명 후보 선택부터 실제 반영 전 dry_run까지 이어서 진행합니다.",
-      );
-    } catch (error) {
-      setKeywordImportMessage(
-        error instanceof Error
-          ? error.message
-          : "키워드 결과 가져오기에 실패했습니다.",
-      );
-    } finally {
-      setKeywordBusy("");
-    }
+    void run;
+    void artifact;
+    setKeywordImportMessage(
+      "상품출시플로우에서는 키워드 artifact import를 실행하지 않습니다.",
+    );
   };
 
   const openInlineKeywordReview = async () => {
@@ -1465,26 +1315,13 @@ export function ProductLaunchFlow() {
     setManualKeywordOverridesByGoodsKey({});
     autoPriceStartedForUploadRequestRef.current = "";
     autoKeywordStartedForPriceRequestRef.current = "";
-    autoKeywordImportedArtifactRef.current = "";
     finalPriceStartedForRealApplyRequestRef.current = "";
   };
   const resetProductLaunchSession = () =>
     clearProductLaunchFailureState({ keepRowExpression: false });
   const retryProductLaunchSession = () =>
     clearProductLaunchFailureState({ keepRowExpression: true });
-  useEffect(() => {
-    const artifact = keywordSummary.artifact;
-    const run = keywordRunsResult?.runs?.find((item) =>
-      item.artifacts?.some((candidate) => candidate.id === artifact?.id),
-    );
-    const importKey =
-      artifact && run ? `${run.id}:${artifact.name}:${artifact.id}` : "";
-    if (!autopilotEnabled || !artifact || !run || !importKey) return;
-    if (autoKeywordImportedArtifactRef.current === importKey) return;
-    autoKeywordImportedArtifactRef.current = importKey;
-    void importKeywordArtifact(run, artifact);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autopilotEnabled, keywordRunsResult, keywordSummary.artifact]);
+
 
   const handleProductLaunchPrimaryAction = () => {
     if (cockpit.primaryAction === "upload") void runUploadRequest();
@@ -3005,7 +2842,7 @@ function getPrimaryActionLabel(
     manualPreflightResult.summary.blockedCount === 0
   )
     return "승인하고 실제 반영 실행";
-  if (manualCandidatesReady) return "상품명/검색어 후보 확인";
+  if (manualCandidatesReady) return "검토 계획 생성 전";
   if (primaryAction === "keyword" || primaryAction === "review")
     return "상품명/검색어 후보를 입력하세요.";
   if (currentStage === "가격설정") return "가격설정 결과 확인 중...";

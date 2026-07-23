@@ -98,3 +98,40 @@ test("테스트 중 실제 GitHub Actions dispatch나 Shopling API 호출이 발
   const source = await readFile(new URL("../src/lib/manualMallTitleVariants.ts", import.meta.url), "utf8");
   assert.doesNotMatch(source, /fetch\s*\(|workflow_dispatch/);
 });
+
+
+test("manual preview items preserve multi-word title keywords across mall expansion", () => {
+  const r = row("9700", "도매4");
+  const p = buildKeywordShoplingPayloadPreview([r], {
+    expandProductGroupMarkets: true,
+    manualTitleOverridesByGoodsKey: { 9700: "alpha pad,beta guard,gamma case" },
+    manualKeywordOverridesByGoodsKey: { 9700: searchKeywords },
+  });
+  for (const phrase of ["alpha pad", "beta guard", "gamma case"]) assert.match(p.items[0].final_title, new RegExp(phrase));
+});
+
+test("manual preview table source rows exactly match compact execution plan identity set", () => {
+  const p = preview(["도매1"]);
+  const f = preflight(p);
+  const tableIdentity = f.eligibleItems.map((item) => `${item.goods_key}::${item.mall_key}::${item.final_title}`).sort();
+  const planIdentity = JSON.parse(buildCompactKeywordApplyExecutionPlan(f)).map((item) => `${item.goods_key}::${item.mall_key}::${item.final_title}`).sort();
+  assert.deepEqual(tableIdentity, planIdentity);
+});
+
+test("manual apply success API message 정상 is not counted as blocked", async () => {
+  const source = await readFile(new URL("../src/components/product-launch-flow/ProductLaunchFlow.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /message[^\n]+정상[^\n]+blocked|blocked[^\n]+message[^\n]+정상/);
+  assert.match(source, /not_applied/);
+});
+
+test("manual apply failed and not_applied statuses are blocking signals", async () => {
+  const source = await readFile(new URL("../src/components/product-launch-flow/ProductLaunchFlow.tsx", import.meta.url), "utf8");
+  assert.match(source, /not_applied/);
+  assert.match(source, /fail/);
+});
+
+test("상품출시플로우 has no keyword engine workflow dispatch artifact import or keyword-run polling endpoints", async () => {
+  const source = await readFile(new URL("../src/components/product-launch-flow/ProductLaunchFlow.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /\/api\/engine-runners\/(dispatch|runs|artifacts\/import-preview)/);
+  assert.doesNotMatch(source, /workflow_dispatch/);
+});
