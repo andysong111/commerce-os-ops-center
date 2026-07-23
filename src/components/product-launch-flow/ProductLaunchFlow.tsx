@@ -2,9 +2,20 @@
 
 import Link from "next/link";
 import type { KeywordApplyState } from "@/components/keyword-review/KeywordReviewWorkspace";
-import { createReviewedRows, type KeywordReviewRow } from "@/lib/keywordReviewQueue";
-import { buildKeywordShoplingPayloadPreview, type KeywordPayloadPreviewResult } from "@/lib/keywordReviewPayloadPreview";
-import { buildCompactKeywordApplyExecutionPlan, buildKeywordExecutionPreflight, DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG, type KeywordExecutionPreflightResult } from "@/lib/keywordReviewExecutionPreflight";
+import {
+  createReviewedRows,
+  type KeywordReviewRow,
+} from "@/lib/keywordReviewQueue";
+import {
+  buildKeywordShoplingPayloadPreview,
+  type KeywordPayloadPreviewResult,
+} from "@/lib/keywordReviewPayloadPreview";
+import {
+  buildCompactKeywordApplyExecutionPlan,
+  buildKeywordExecutionPreflight,
+  DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+  type KeywordExecutionPreflightResult,
+} from "@/lib/keywordReviewExecutionPreflight";
 import {
   FormEvent,
   useCallback,
@@ -132,6 +143,20 @@ type KeywordRunsResult = {
   expectedArtifactName?: string;
   outputReviewRoute?: string;
   runs?: KeywordRun[];
+};
+type ManualApplyActionsResult = {
+  status?: string;
+  phase?: string;
+  message?: string;
+  requestId?: string;
+  runUrl?: string;
+  githubActionsUrl?: string;
+  summary?: Record<string, unknown>;
+  applyResults?: Array<Record<string, unknown>>;
+  verifyResults?: Array<Record<string, unknown>>;
+  blockedItems?: Array<Record<string, unknown>>;
+  errors?: unknown;
+  warnings?: unknown;
 };
 type KeywordDispatchResult = {
   repo?: string;
@@ -266,6 +291,21 @@ export function ProductLaunchFlow() {
   const [manualPreflightResult, setManualPreflightResult] =
     useState<KeywordExecutionPreflightResult | null>(null);
   const [manualApplyBusy, setManualApplyBusy] = useState(false);
+  const [manualApplyRequestId, setManualApplyRequestId] = useState(
+    restoredSession?.keywordRealApplyRequestId ?? "",
+  );
+  const [manualApplyActionsUrl, setManualApplyActionsUrl] = useState("");
+  const [manualApplyRunUrl, setManualApplyRunUrl] = useState("");
+  const [manualApplyCommandPreview, setManualApplyCommandPreview] =
+    useState("");
+  const [manualApplyResult, setManualApplyResult] =
+    useState<ManualApplyActionsResult | null>(null);
+  const [manualApplyPolling, setManualApplyPolling] = useState(false);
+  const [manualApplyPollCount, setManualApplyPollCount] = useState(0);
+  const [manualApplyLastCheckedAt, setManualApplyLastCheckedAt] =
+    useState<Date | null>(null);
+  const [manualApplyNextCheckIn, setManualApplyNextCheckIn] = useState(0);
+  const [manualApplyErrorMessage, setManualApplyErrorMessage] = useState("");
   const autoPriceStartedForUploadRequestRef = useRef<string>("");
   const autoKeywordStartedForPriceRequestRef = useRef<string>("");
   const autoKeywordImportedArtifactRef = useRef<string>("");
@@ -914,7 +954,15 @@ export function ProductLaunchFlow() {
       return {
         goodsKey,
         mallKey: "",
-        originalTitle: String(row.title ?? row.product_name ?? row.productTitle ?? row.upload_title ?? row.registered_title ?? row.final_title ?? ""),
+        originalTitle: String(
+          row.title ??
+            row.product_name ??
+            row.productTitle ??
+            row.upload_title ??
+            row.registered_title ??
+            row.final_title ??
+            "",
+        ),
         recommendedTitle: resolveManualTitleOverride(
           manualTitleOverridesByGoodsKey[goodsKey],
           goodsKey,
@@ -943,7 +991,11 @@ export function ProductLaunchFlow() {
     return createReviewedRows(rows, buildGoodsKeyGroupMap(uploadRows)).map(
       (row) => ({ ...row, reviewStatus: "approved" as const }),
     );
-  }, [manualKeywordOverridesByGoodsKey, manualTitleOverridesByGoodsKey, uploadRows]);
+  }, [
+    manualKeywordOverridesByGoodsKey,
+    manualTitleOverridesByGoodsKey,
+    uploadRows,
+  ]);
 
   const confirmManualCandidates = useCallback(() => {
     if (!manualCandidatesReady || keywordBusy || manualApplyBusy) return;
@@ -959,7 +1011,11 @@ export function ProductLaunchFlow() {
     );
     const preflightResult = buildKeywordExecutionPreflight(
       { previewResult, finalConfirmationText: "" },
-      { ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG, maxRows: 100, confirmationText: APPLY_CONFIRMATION_TEXT },
+      {
+        ...DEFAULT_KEYWORD_EXECUTION_PREFLIGHT_CONFIG,
+        maxRows: 100,
+        confirmationText: APPLY_CONFIRMATION_TEXT,
+      },
     );
     setManualPreviewResult(previewResult);
     setManualPreflightResult(preflightResult);
@@ -974,6 +1030,101 @@ export function ProductLaunchFlow() {
     seedKeywordsByGoodsKey,
   ]);
 
+  const fetchManualApplyResult = useCallback(
+    async (requestIdOverride?: string) => {
+      const requestId = requestIdOverride || manualApplyRequestId;
+      if (!requestId) return;
+      setManualApplyErrorMessage("");
+      try {
+        const data = await (
+          await fetch(
+            `/api/keyword-shopling-apply/actions-result?request_id=${encodeURIComponent(requestId)}&mode=apply`,
+          )
+        ).json();
+        setManualApplyResult(data);
+        setManualApplyRunUrl(
+          String(
+            data.runUrl || data.githubActionsUrl || manualApplyRunUrl || "",
+          ),
+        );
+        setManualApplyLastCheckedAt(new Date());
+        if (isFinalManualApplyResult(data)) {
+          setManualApplyPolling(false);
+          setManualApplyNextCheckIn(0);
+          const summary = summarizeManualApplyResult(data);
+          setKeywordApplyState({
+            dryRunStatus: "success",
+            realApplyStatus: summary.overallSuccess
+              ? "success"
+              : summary.blockedCount > 0
+                ? "blocked"
+                : summary.failedCount > 0
+                  ? "failed"
+                  : "waiting_artifact",
+            appliedCount: summary.appliedItemCount,
+            failedCount: summary.failedCount,
+            warningCount: summary.warningCount,
+            requestId,
+            dryRunRequestId: "",
+            realApplyRequestId: requestId,
+            blankMallTitleBlockedCount:
+              summary.titleNotAppliedCount + summary.titleFailedCount,
+            lastUpdatedAt: new Date().toISOString(),
+          });
+        }
+      } catch (error) {
+        setManualApplyErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "실제 반영 결과를 가져오는 중 오류가 발생했습니다.",
+        );
+        setManualApplyPolling(false);
+        setManualApplyNextCheckIn(0);
+      }
+    },
+    [manualApplyRequestId, manualApplyRunUrl],
+  );
+
+  useEffect(() => {
+    if (!manualApplyPolling) return;
+    const timer = window.setInterval(
+      () => setManualApplyNextCheckIn((current) => Math.max(0, current - 1)),
+      1_000,
+    );
+    return () => window.clearInterval(timer);
+  }, [manualApplyPolling]);
+
+  useEffect(() => {
+    if (!manualApplyPolling) return;
+    if (
+      manualApplyPollCount >= ACTIVE_MAX_POLLS ||
+      isFinalManualApplyResult(manualApplyResult)
+    )
+      return;
+    const timer = window.setTimeout(
+      () => {
+        setManualApplyPollCount((count) => {
+          const next = count + 1;
+          if (next >= ACTIVE_MAX_POLLS) {
+            setManualApplyPolling(false);
+            setManualApplyNextCheckIn(0);
+          } else {
+            setManualApplyNextCheckIn(ACTIVE_POLL_INTERVAL_MS / 1_000);
+          }
+          return next;
+        });
+        void fetchManualApplyResult();
+      },
+      manualApplyPollCount === 0 ? 0 : ACTIVE_POLL_INTERVAL_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    fetchManualApplyResult,
+    manualApplyPollCount,
+    manualApplyPolling,
+    manualApplyResult,
+  ]);
+
   const applyManualCandidates = useCallback(async () => {
     if (!manualPreflightResult || manualApplyBusy) return;
     setManualApplyBusy(true);
@@ -982,26 +1133,51 @@ export function ProductLaunchFlow() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          execution_plan_json:
-            buildCompactKeywordApplyExecutionPlan(manualPreflightResult),
+          execution_plan_json: buildCompactKeywordApplyExecutionPlan(
+            manualPreflightResult,
+          ),
           mode: "apply",
           confirmation_text: APPLY_CONFIRMATION_TEXT,
           max_items: 100,
         }),
       });
       const json = await response.json();
+      const requestId = String(json.requestId || "");
+      setManualApplyRequestId(requestId);
+      setManualApplyActionsUrl(
+        String(json.githubActionsUrl || json.runUrl || ""),
+      );
+      setManualApplyRunUrl(String(json.runUrl || json.githubActionsUrl || ""));
+      setManualApplyCommandPreview(String(json.commandPreview || ""));
+      setManualApplyResult({
+        status: json.status === "error" ? "error" : "pending",
+        phase: json.phase || "queued",
+        requestId,
+        runUrl: json.runUrl || json.githubActionsUrl,
+        githubActionsUrl: json.githubActionsUrl,
+        message:
+          json.status === "error"
+            ? json.message
+            : "실제 반영 요청 전송 완료\nGitHub Actions에서 쇼핑몰별 상품명/검색어 반영을 실행 중입니다.",
+      });
       setKeywordApplyState({
         dryRunStatus: "success",
         realApplyStatus: json.status === "error" ? "failed" : "queued",
         appliedCount: 0,
         failedCount: 0,
         warningCount: manualPreflightResult.warnings.length,
-        requestId: json.requestId || "",
+        requestId,
         dryRunRequestId: "",
-        realApplyRequestId: json.requestId || "",
+        realApplyRequestId: requestId,
         blankMallTitleBlockedCount: 0,
         lastUpdatedAt: new Date().toISOString(),
       });
+      if (requestId && json.status !== "error") {
+        setManualApplyPollCount(0);
+        setManualApplyLastCheckedAt(null);
+        setManualApplyNextCheckIn(0);
+        setManualApplyPolling(true);
+      }
     } finally {
       setManualApplyBusy(false);
     }
@@ -1055,6 +1231,9 @@ export function ProductLaunchFlow() {
   );
   const keywordRealApplySucceeded =
     isKeywordRealApplySuccess(keywordApplyState);
+  const manualApplyReadyForFinalPrice =
+    keywordRealApplySucceeded ||
+    isManualApplyReadyForFinalPrice(manualApplyResult);
   const finalPriceDone =
     isSuccessfulPriceResult(finalPriceActionsResult) &&
     getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount === 0;
@@ -1394,7 +1573,7 @@ export function ProductLaunchFlow() {
     const realApplyRequestId = keywordApplyState?.realApplyRequestId ?? "";
     if (!autopilotEnabled) return;
     if (
-      !keywordRealApplySucceeded ||
+      !manualApplyReadyForFinalPrice ||
       goodsKeys.length === 0 ||
       !realApplyRequestId
     )
@@ -1415,7 +1594,7 @@ export function ProductLaunchFlow() {
     finalPriceRunResult,
     goodsKeys.length,
     keywordApplyState?.realApplyRequestId,
-    keywordRealApplySucceeded,
+    manualApplyReadyForFinalPrice,
     runFinalPriceModify,
   ]);
 
@@ -1441,7 +1620,7 @@ export function ProductLaunchFlow() {
         priceIssueState={priceIssueState}
         manualCandidatesReady={manualCandidatesReady}
         onNext={
-          keywordRealApplySucceeded && !finalPriceDone
+          manualApplyReadyForFinalPrice && !finalPriceDone
             ? runFinalPriceModify
             : handleProductLaunchPrimaryAction
         }
@@ -1480,6 +1659,18 @@ export function ProductLaunchFlow() {
       <ManualPreviewReviewSection
         manualPreviewResult={manualPreviewResult}
         manualPreflightResult={manualPreflightResult}
+      />
+      <ManualApplyStatusCard
+        requestId={manualApplyRequestId}
+        actionsUrl={manualApplyActionsUrl}
+        runUrl={manualApplyRunUrl}
+        commandPreview={manualApplyCommandPreview}
+        result={manualApplyResult}
+        polling={manualApplyPolling}
+        pollCount={manualApplyPollCount}
+        lastCheckedAt={manualApplyLastCheckedAt}
+        nextCheckIn={manualApplyNextCheckIn}
+        errorMessage={manualApplyErrorMessage}
       />
       <LaunchCockpit
         steps={cockpit.steps}
@@ -1701,7 +1892,7 @@ export function ProductLaunchFlow() {
             onFetch={fetchPriceResult}
           />
         ) : null}
-        {keywordRealApplySucceeded ? (
+        {manualApplyReadyForFinalPrice ? (
           <PriceSection
             title="가격 최종 재적용"
             goodsKeyCount={goodsKeys.length}
@@ -2008,6 +2199,246 @@ function ManualPreviewReviewSection({
   );
 }
 
+function ManualApplyStatusCard({
+  requestId,
+  actionsUrl,
+  runUrl,
+  commandPreview,
+  result,
+  polling,
+  pollCount,
+  lastCheckedAt,
+  nextCheckIn,
+  errorMessage,
+}: {
+  requestId: string;
+  actionsUrl: string;
+  runUrl: string;
+  commandPreview: string;
+  result: ManualApplyActionsResult | null;
+  polling: boolean;
+  pollCount: number;
+  lastCheckedAt: Date | null;
+  nextCheckIn: number;
+  errorMessage: string;
+}) {
+  if (!requestId && !result && !commandPreview) return null;
+  const summary = summarizeManualApplyResult(result);
+  const titleWarning =
+    summary.titleNotAppliedCount + summary.titleFailedCount > 0;
+  return (
+    <section className="rounded-3xl border border-indigo-200 bg-indigo-50 p-6 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-bold text-indigo-800">
+            실제 반영 진행상태
+          </p>
+          <h2 className="mt-1 text-lg font-black text-slate-950">
+            {result?.message || "실제 반영 요청 전송 완료"}
+          </h2>
+          <p className="mt-2 text-sm font-semibold text-indigo-900">
+            GitHub Actions에서 쇼핑몰별 상품명/검색어 반영을 실행 중입니다.
+          </p>
+        </div>
+        <GithubActionsShortcutButton href={runUrl || actionsUrl} />
+      </div>
+      {errorMessage ? (
+        <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">
+          {errorMessage}
+        </p>
+      ) : null}
+      {titleWarning ? (
+        <p className="mt-3 rounded-xl border border-red-300 bg-red-50 p-3 text-sm font-black text-red-800">
+          검색어는 반영되었지만 쇼핑몰별 상품명이 반영되지 않았습니다. GitHub
+          Actions 결과의 title_update_status / mall_title_apply_status /
+          message를 확인해야 합니다.
+        </p>
+      ) : null}
+      <div className="mt-4 grid gap-2 text-sm text-indigo-950 md:grid-cols-2 lg:grid-cols-4">
+        <ResultRow
+          label="현재 상태"
+          value={`${result?.phase ?? "queued"} / ${result?.status ?? (polling ? "pending" : "queued")}`}
+        />
+        <ResultRow
+          label="request_id"
+          value={requestId || result?.requestId || "-"}
+          mono
+        />
+        <ResultRow
+          label="GitHub Actions 바로가기"
+          value={runUrl || actionsUrl || "-"}
+          mono
+        />
+        <ResultRow
+          label="마지막 확인 시각"
+          value={
+            lastCheckedAt ? lastCheckedAt.toLocaleTimeString("ko-KR") : "-"
+          }
+        />
+        <ResultRow
+          label="자동 확인 횟수"
+          value={`${pollCount} / ${ACTIVE_MAX_POLLS}`}
+        />
+        <ResultRow
+          label="다음 확인까지"
+          value={
+            polling
+              ? nextCheckIn > 0
+                ? `${nextCheckIn}초`
+                : "곧 확인"
+              : "자동 확인 종료"
+          }
+        />
+        <ResultRow
+          label="상품명 반영 상태"
+          value={`쇼핑몰별 상품명 반영 성공 ${summary.titleSuccessCount} · 미확인 ${summary.titleUnverifiedCount} · 미반영 ${summary.titleNotAppliedCount} · 실패 ${summary.titleFailedCount}`}
+        />
+        <ResultRow
+          label="검색어 반영 상태"
+          value={`검색어 반영 성공 ${summary.searchSuccessCount} · 미확인 ${summary.searchUnverifiedCount} · 미반영 ${summary.searchNotAppliedCount} · 실패 ${summary.searchFailedCount}`}
+        />
+        <ResultRow label="반영 상품 수" value={summary.appliedItemCount} />
+        <ResultRow label="실패 수" value={summary.failedCount} />
+        <ResultRow label="차단 수" value={summary.blockedCount} />
+      </div>
+      {isManualApplyReadyForFinalPrice(result) ? (
+        <p className="mt-3 rounded-xl border border-emerald-200 bg-white p-3 text-sm font-bold text-emerald-800">
+          실제 반영 결과 확인 후 가격 최종 재적용을 진행하세요.
+        </p>
+      ) : null}
+      {commandPreview ? (
+        <p className="mt-3 rounded-xl bg-white p-3 font-mono text-xs text-slate-700">
+          {commandPreview}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function summarizeManualApplyResult(result: ManualApplyActionsResult | null) {
+  const summary = result?.summary ?? {};
+  const rows = [
+    ...(result?.applyResults ?? []),
+    ...(result?.verifyResults ?? []),
+  ];
+  const countRows = (predicate: (row: Record<string, unknown>) => boolean) =>
+    rows.filter(predicate).length;
+  const text = (value: unknown) => String(value ?? "").toLowerCase();
+  const titleSuccessCount = Number(
+    summary.title_apply_success_count ??
+      countRows((row) =>
+        ["success", "ok", "api_success", "verified"].includes(
+          text(row.title_update_status || row.mall_title_apply_status),
+        ),
+      ),
+  );
+  const titleUnverifiedCount = Number(
+    summary.title_apply_unverified_count ??
+      countRows((row) =>
+        text(row.title_update_status || row.mall_title_apply_status).includes(
+          "unverified",
+        ),
+      ),
+  );
+  const titleNotAppliedCount = Number(
+    summary.title_apply_not_applied_count ??
+      countRows(
+        (row) =>
+          text(row.title_update_status || row.mall_title_apply_status) ===
+          "not_applied",
+      ),
+  );
+  const titleFailedCount = countRows((row) =>
+    text(row.title_update_status || row.mall_title_apply_status).includes(
+      "fail",
+    ),
+  );
+  const searchSuccessCount = Number(
+    summary.search_apply_success_count ??
+      countRows((row) =>
+        ["verified", "success", "ok", "api_success"].includes(
+          text(row.site_srch_update_status || row.verification_status),
+        ),
+      ),
+  );
+  const searchUnverifiedCount = countRows((row) =>
+    text(row.site_srch_update_status || row.verification_status).includes(
+      "unverified",
+    ),
+  );
+  const searchNotAppliedCount = Number(
+    summary.search_apply_not_applied_count ??
+      countRows((row) => text(row.site_srch_update_status) === "not_applied"),
+  );
+  const searchFailedCount = countRows((row) =>
+    text(row.site_srch_update_status || row.verification_status).includes(
+      "fail",
+    ),
+  );
+  const failedCount = Number(
+    summary.failed_item_count ?? titleFailedCount + searchFailedCount,
+  );
+  const blockedCount = Number(
+    summary.blocked_item_count ?? result?.blockedItems?.length ?? 0,
+  );
+  const warningCount = Array.isArray(summary.warnings)
+    ? summary.warnings.length
+    : Number(summary.warning_count ?? 0);
+  const appliedItemCount = Number(
+    summary.applied_item_count ??
+      Math.max(titleSuccessCount, searchSuccessCount),
+  );
+  const status = text(summary.status || result?.status);
+  return {
+    titleSuccessCount,
+    titleUnverifiedCount,
+    titleNotAppliedCount,
+    titleFailedCount,
+    searchSuccessCount,
+    searchUnverifiedCount,
+    searchNotAppliedCount,
+    searchFailedCount,
+    failedCount,
+    blockedCount,
+    warningCount,
+    appliedItemCount,
+    overallSuccess: ["success", "success_with_verification_warning"].includes(
+      status,
+    ),
+  };
+}
+
+function isFinalManualApplyResult(result: ManualApplyActionsResult | null) {
+  const value = String(
+    result?.phase ?? result?.status ?? result?.summary?.status ?? "",
+  );
+  return [
+    "artifact_ready",
+    "failed",
+    "blocked",
+    "completed_no_artifact",
+    "error",
+    "success",
+    "partial_failure",
+    "success_with_verification_warning",
+    "partial_success_unverified",
+  ].includes(value);
+}
+
+function isManualApplyReadyForFinalPrice(
+  result: ManualApplyActionsResult | null,
+) {
+  const status = String(result?.summary?.status ?? result?.status ?? "");
+  return (
+    isFinalManualApplyResult(result) &&
+    [
+      "success",
+      "success_with_verification_warning",
+      "partial_success_unverified",
+    ].includes(status)
+  );
+}
+
 function SummaryCard({
   label,
   value,
@@ -2071,6 +2502,7 @@ function OperatorLaunchStatusBoard({
   const realApplyLabel = getKeywordApplyPhaseLabelForBoard(keywordApplyState);
   const keywordRealApplySucceeded =
     isKeywordRealApplySuccess(keywordApplyState);
+  const manualApplyReadyForFinalPrice = keywordRealApplySucceeded;
   const finalPriceStatus = finalPriceActive
     ? "가격 최종 재적용 중"
     : finalPriceDone
@@ -2080,7 +2512,7 @@ function OperatorLaunchStatusBoard({
         : "waiting";
   const boardButtonLabel = finalPriceActive
     ? "가격 최종 재적용 확인 중"
-    : keywordRealApplySucceeded && !finalPriceDone
+    : manualApplyReadyForFinalPrice && !finalPriceDone
       ? "가격 최종 재적용 확인 중"
       : actualApplyDone
         ? "출시 결과 확인"
@@ -2107,7 +2539,7 @@ function OperatorLaunchStatusBoard({
         ? "가격 최종 재적용 중"
         : finalPriceFailed
           ? "출시 보류 - 가격 최종 재적용 실패"
-          : keywordRealApplySucceeded && !finalPriceDone
+          : manualApplyReadyForFinalPrice && !finalPriceDone
             ? "가격 최종 재적용 중"
             : actualApplyDone
               ? "출시 완료"
@@ -2596,10 +3028,14 @@ function getPrimaryActionLabel(
   if (primaryAction === "failed") return "실패 원인 보기";
   if (uploadBusy || priceBusy || keywordBusy) return "준비 중입니다...";
   if (manualPreviewStatus === "checking") return "후보 검토 중...";
-  if (manualPreflightResult?.summary.eligibleCount && manualPreflightResult.summary.blockedCount === 0)
+  if (
+    manualPreflightResult?.summary.eligibleCount &&
+    manualPreflightResult.summary.blockedCount === 0
+  )
     return "승인하고 실제 반영 실행";
   if (manualCandidatesReady) return "상품명/검색어 후보 확인";
-  if (primaryAction === "keyword" || primaryAction === "review") return "상품명/검색어 후보를 입력하세요.";
+  if (primaryAction === "keyword" || primaryAction === "review")
+    return "상품명/검색어 후보를 입력하세요.";
   if (currentStage === "가격설정") return "가격설정 결과 확인 중...";
   if (currentStage === "키워드 결과 검토") return "상품명/검색어 후보 확인";
   if (currentStage === "키워드/상품명 준비") return "키워드 결과 확인 중...";
