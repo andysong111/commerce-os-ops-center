@@ -1,4 +1,5 @@
-import { inferProductGroupFromPtnGoodsCd, type ProductGroupInference } from "./productGroup";
+import { inferProductGroupFromPtnGoodsCd, type ProductGroupInference } from "./productGroup.ts";
+import { getMarketsForProductGroup } from "./productGroupMarketRegistry.ts";
 
 export type ProductLaunchUploadRow = {
   row?: string | number;
@@ -455,8 +456,7 @@ export function expectedLaunchApplyCount(goodsKeys: string[], goodsKeyGroupMap: 
 }
 
 export function getMarketsForLaunchProductGroup(productGroup: string) {
-  const counts: Record<string, number> = { "도매1": 10, "도매2": 4, "도매3": 4, "도매4": 1, "소매1": 12, "소매2": 5 };
-  return counts[productGroup.trim()] ?? 0;
+  return getMarketsForProductGroup(productGroup).length;
 }
 
 export function isGithubCredentialError(value: unknown) {

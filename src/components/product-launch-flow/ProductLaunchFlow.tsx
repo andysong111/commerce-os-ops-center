@@ -1537,38 +1537,7 @@ export function ProductLaunchFlow() {
     uploadRows.length,
   ]);
 
-  useEffect(() => {
-    if (!autopilotEnabled) return;
-    if (
-      !priceRequestId ||
-      !isAutopilotSafePriceResult(priceActionsResult) ||
-      goodsKeys.length === 0
-    )
-      return;
-    if (
-      keywordBusy ||
-      keywordPolling ||
-      keywordDispatchResult ||
-      keywordSummary.artifact
-    )
-      return;
-    if (autoKeywordStartedForPriceRequestRef.current === priceRequestId) return;
-    autoKeywordStartedForPriceRequestRef.current = priceRequestId;
-    const timer = window.setTimeout(() => {
-      void dispatchKeywordEngine();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [
-    autopilotEnabled,
-    dispatchKeywordEngine,
-    goodsKeys.length,
-    keywordBusy,
-    keywordDispatchResult,
-    keywordPolling,
-    keywordSummary.artifact,
-    priceActionsResult,
-    priceRequestId,
-  ]);
+  // 상품출시플로우는 가격설정 후 키워드 엔진을 자동 dispatch하지 않습니다.
 
   useEffect(() => {
     const realApplyRequestId = keywordApplyState?.realApplyRequestId ?? "";
@@ -2631,7 +2600,7 @@ function OperatorLaunchStatusBoard({
       ) : null}
       {!actualApplyDone && keywordApplyState?.dryRunStatus === "success" ? (
         <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-bold text-amber-900">
-          키워드 dry_run은 완료됐지만 실제 샵플링 반영은 아직 실행되지
+          수동 상품명/검색어 입력은 완료됐지만 실제 샵플링 반영은 아직 실행되지
           않았습니다.
         </p>
       ) : null}
@@ -2726,7 +2695,7 @@ function isKeywordRealApplySuccess(state: KeywordApplyState | null) {
 }
 
 function getKeywordApplyPhaseLabelForBoard(state: KeywordApplyState | null) {
-  if (!state || state.dryRunStatus === "idle") return "키워드 dry_run 대기";
+  if (!state || state.dryRunStatus === "idle") return "수동 상품명/검색어 입력 대기";
   if (
     String(state.realApplyStatus) === "success" ||
     String(state.realApplyStatus) === "success_with_verification_warning"
@@ -2741,7 +2710,7 @@ function getKeywordApplyPhaseLabelForBoard(state: KeywordApplyState | null) {
   )
     return "실제 반영 실행 중";
   if (state.dryRunStatus === "success") return "실제 반영 대기";
-  return "키워드 dry_run 대기";
+  return "수동 상품명/검색어 입력 대기";
 }
 
 type StepState =
@@ -3040,8 +3009,8 @@ function getPrimaryActionLabel(
   if (primaryAction === "keyword" || primaryAction === "review")
     return "상품명/검색어 후보를 입력하세요.";
   if (currentStage === "가격설정") return "가격설정 결과 확인 중...";
-  if (currentStage === "키워드 결과 검토") return "상품명/검색어 후보 확인";
-  if (currentStage === "키워드/상품명 준비") return "키워드 결과 확인 중...";
+  if (currentStage === "전체 쇼핑몰 적용 검토") return "상품명/검색어 후보 확인";
+  if (currentStage === "수동 상품명/검색어 입력") return "수동 입력 처리 중...";
   return "상품업로드 결과 확인 중...";
 }
 function ErrorDrawer({
@@ -3933,7 +3902,7 @@ function KeywordPrepSection({
         준비합니다.
       </p>
       <p className="mt-1 text-sm text-slate-700">
-        키워드 엔진은 dry_run으로만 실행되며, 결과는 키워드 결과 검토 화면에서
+        키워드 엔진은 dry_run으로만 실행되며, 결과는 전체 쇼핑몰 적용 검토 화면에서
         사람이 확인합니다.
       </p>
       <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm font-bold text-red-700">
@@ -4354,7 +4323,7 @@ function deriveLaunchStage({
   )
     return manualCandidatesReady === false
       ? "후보 입력 대기"
-      : "키워드 dry_run";
+      : "수동 상품명/검색어 입력";
   if (
     keywordApplyState?.dryRunStatus === "success" &&
     !isKeywordRealApplySuccess(keywordApplyState)
@@ -4380,7 +4349,7 @@ function getRequestIdForStage(
 ) {
   if (stage === "상품업로드") return ids.uploadRequestId;
   if (stage === "가격설정") return ids.priceRequestId;
-  if (stage === "키워드 dry_run")
+  if (stage === "수동 상품명/검색어 입력")
     return ids.keywordDryRunRequestId || ids.keywordRequestId;
   if (stage === "실제 반영 대기")
     return (
@@ -4523,38 +4492,6 @@ function isSuccessfulPriceResult(result: PriceActionsResult | null) {
   const conclusion = String(result?.runConclusion ?? "").toLowerCase();
   return status === "success" || conclusion === "success";
 }
-function isAutopilotSafePriceResult(result: PriceActionsResult | null) {
-  if (!result) return false;
-  const summary = result.summary;
-  const status = String(summary?.status ?? result.status ?? "").toLowerCase();
-  const conclusion = String(result.runConclusion ?? "").toLowerCase();
-  const failedCount = Number(summary?.failed_count ?? summary?.fail_count ?? 0);
-  const missingPriceCount = Number(summary?.missing_price_count ?? 0);
-  const missingMallRowCount = Number(summary?.missing_mall_row_count ?? 0);
-  const mismatchCount = Number(summary?.mismatch_count ?? 0);
-  if (
-    ["failed", "partial_failure", "failure", "error"].includes(status) ||
-    ["failure", "cancelled", "timed_out"].includes(conclusion)
-  )
-    return false;
-  if (
-    missingPriceCount > 0 ||
-    missingMallRowCount > 0 ||
-    mismatchCount > 0 ||
-    failedCount > 0
-  )
-    return false;
-  const verificationUnavailableButApiComplete =
-    status === "success" &&
-    summary?.verification_supported === false &&
-    Number(summary?.api_success_count ?? 0) ===
-      Number(summary?.required_update_count ?? -1);
-  return (
-    status === "success" ||
-    conclusion === "success" ||
-    verificationUnavailableButApiComplete
-  );
-}
 function hasPriceFailure(result: PriceActionsResult | null) {
   const status = String(
     result?.summary?.status ?? result?.status ?? "",
@@ -4660,7 +4597,7 @@ function buildCockpit(state: {
         : "업로드 완료 후 활성화됩니다.",
     },
     {
-      name: "키워드/상품명 준비",
+      name: "수동 상품명/검색어 입력",
       state: state.keywordFailed
         ? "failed"
         : state.keywordActive
@@ -4671,27 +4608,27 @@ function buildCockpit(state: {
               ? "action"
               : "waiting",
       action: state.keywordSuccess
-        ? "키워드 검토 시작"
+        ? "수동 입력 검토"
         : state.keywordActive
-          ? "키워드 결과 확인 중..."
+          ? "수동 입력 처리 중..."
           : "상품명/검색어 검토 시작",
       message: state.keywordSuccess
         ? "검토 진행 중 · 승인된 행이 있으면 반영 준비으로 이동"
         : state.keywordActive
-          ? "검토 준비가 진행 중입니다. 결과가 준비되면 자동으로 표시됩니다."
+          ? "입력한 상품명 키워드만 사용하고 쇼핑몰별로 단어 순서만 변경합니다."
           : state.keywordFailed
             ? "검토 준비가 실패했습니다."
             : "사전 검토 결과만 준비합니다.",
     },
     {
-      name: "키워드 결과 검토",
+      name: "전체 쇼핑몰 적용 검토",
       state: state.keywordSuccess ? "action" : "waiting",
       action: state.keywordSuccess
-        ? "키워드 검토 시작"
-        : "artifact 생성 후 열 수 있습니다.",
+        ? "수동 입력 검토"
+        : "수동 입력 후 전체 쇼핑몰 적용계획을 확인합니다.",
       message: state.keywordSuccess
         ? "검토 진행 중 · 승인된 행이 있으면 반영 준비으로 이동"
-        : "artifact 생성 후 열 수 있습니다.",
+        : "수동 입력 후 전체 쇼핑몰 적용계획을 확인합니다.",
     },
     {
       name: "최종 확인",
@@ -4731,13 +4668,13 @@ function buildCockpit(state: {
         : state.priceActive
           ? "진행 중입니다. 현재 단계: 가격설정. 자동으로 다음 단계로 이동합니다. 가격설정 결과 확인 중..."
           : state.keywordActive
-            ? "진행 중입니다. 현재 단계: 키워드/상품명 준비. 자동으로 다음 단계로 이동합니다. 키워드 dry_run 결과 확인 중..."
+            ? "진행 중입니다. 현재 단계: 수동 상품명/검색어 입력. 자동으로 다음 단계로 이동합니다. 수동 상품명/검색어 입력 결과 확인 중..."
             : primaryAction === "upload"
               ? "행 번호를 입력하고 상품업로드를 시작하세요."
               : primaryAction === "price"
                 ? "상품업로드가 완료되었습니다. 이제 가격설정을 시작하세요."
                 : primaryAction === "keyword"
-                  ? "가격설정이 완료되었습니다. 이제 키워드 dry_run을 시작하세요."
+                  ? "가격설정이 완료되었습니다. 이제 수동 상품명/검색어 입력을 시작하세요."
                   : primaryAction === "review"
                     ? "키워드 결과가 준비되었습니다. 검토 화면에서 확인하세요."
                     : (steps.find((step) => step.name === currentStage)

@@ -2,10 +2,10 @@ import type {
   KeywordQueueClassification,
   KeywordReviewStatus,
   ReviewedKeywordRow,
-} from "./keywordReviewQueue";
-import { buildMallSpecificTitleVariant, sourceFromReviewedRow } from "./productTitleVariants";
-import { getMarketsForProductGroup } from "./productGroupMarketRegistry";
-import { normalizeManualKeywordOverride, normalizeSeedKeywords, resolveManualTitleOverride } from "./productLaunchFlow";
+} from "./keywordReviewQueue.ts";
+import { getMarketsForProductGroup } from "./productGroupMarketRegistry.ts";
+import { buildManualMallTitleVariants, parseManualMallTitleKeywords, validateManualMallTitleIntegrity } from "./manualMallTitleVariants.ts";
+import { normalizeManualKeywordOverride, normalizeSeedKeywords } from "./productLaunchFlow.ts";
 
 export type KeywordReviewedRow = ReviewedKeywordRow;
 
@@ -56,6 +56,10 @@ export type KeywordPayloadPreviewItem = {
   mall_title?: string;
   selected_modifier?: string;
   word_order_strategy?: string;
+  title_keyword_count?: number;
+  title_included_keyword_count?: number;
+  title_keyword_integrity_ok?: boolean;
+  apply_blocked?: boolean;
 };
 
 export type KeywordPayloadPreviewResult = {
@@ -87,17 +91,13 @@ function escapeXml(value: string) {
     .replaceAll("'", "&apos;");
 }
 
-function preferredValue(edited: string, recommended: string) {
-  return edited.trim() || recommended.trim();
+function preferredValue(edited: string | undefined, recommended: string | undefined) {
+  return String(edited ?? "").trim() || String(recommended ?? "").trim();
 }
 
-function fallbackSiteSrchFromTitle(title: string) {
-  return title.replace(/\s+/g, ",").trim();
-}
 
 function normalizeSiteSrch(value: string) {
-  const manualNormalized = normalizeManualKeywordOverride(value);
-  const keywords = (manualNormalized || value)
+  const keywords = value
     .split(",")
     .map((keyword) => keyword.trim())
     .filter(Boolean);
@@ -113,9 +113,10 @@ function normalizeSiteSrch(value: string) {
     return true;
   });
   return {
-    normalized: uniqueKeywords.slice(0, 10).join(","),
+    normalized: uniqueKeywords.join(","),
     duplicateKeywords,
     keywords: uniqueKeywords,
+    originalKeywordCount: uniqueKeywords.length,
   };
 }
 
@@ -149,16 +150,15 @@ export function buildKeywordShoplingPayloadPreview(
     const validation_errors: string[] = [];
     const validation_warnings: string[] = [];
     const goodsKey = row.goodsKey.trim();
+    const manualTitleKeywords = parseManualMallTitleKeywords(options.manualTitleOverridesByGoodsKey?.[goodsKey] ?? "");
     const seedKeywords = normalizeSeedKeywords(options.seedKeywordsByGoodsKey?.[goodsKey]);
-    let final_title = resolveManualTitleOverride(options.manualTitleOverridesByGoodsKey?.[goodsKey], goodsKey) || (seedKeywords ? `${seedKeywords.split(",").join(" ")} ${row.productGroup ?? ""}`.replace(/\s+/g, " ").trim() : "") || preferredValue(row.editedTitle, row.recommendedTitle) || row.originalTitle.trim();
+    const final_title = manualTitleKeywords.join(" ") || preferredValue(row.editedTitle, row.recommendedTitle);
     const final_mall_key = preferredValue(row.editedMallKey, row.mallKey);
-    const preferredSiteSrch = normalizeManualKeywordOverride(options.manualKeywordOverridesByGoodsKey?.[goodsKey]) || seedKeywords || row.editedSiteSrch.trim() || row.recommendedSiteSrch.trim() || fallbackSiteSrchFromTitle(final_title);
+    const manualKeywordOverride = options.manualKeywordOverridesByGoodsKey?.[goodsKey];
+    const preferredSiteSrch = (manualKeywordOverride === undefined ? "" : normalizeManualKeywordOverride(manualKeywordOverride)) || seedKeywords || String(row.editedSiteSrch ?? "").trim() || String(row.recommendedSiteSrch ?? "").trim();
     const normalizedSiteSrch = normalizeSiteSrch(preferredSiteSrch);
     const final_site_srch = normalizedSiteSrch.normalized;
 
-    if (options.groupVariantEnabled && final_title) {
-      final_title = (seedKeywords || sourceFromReviewedRow(row).baseTitle) ? buildMallSpecificTitleVariant(seedKeywords ? { ...sourceFromReviewedRow(row), baseTitle: finalTitleSeedBase(seedKeywords, row.productGroup ?? "") } : sourceFromReviewedRow(row), { productGroup: row.productGroup ?? "", groupSuffix: row.groupSuffix ?? "", productGroupType: row.productGroupType ?? "확인 필요", marketName: "single", mallType: "", mallKey: final_mall_key || row.mallKey, accountIdLabel: "single" }).mallTitle : final_title;
-    }
     let payload_status: KeywordPayloadStatus = "not_approved";
     if (row.reviewStatus === "hold") {
       payload_status = "held";
@@ -169,10 +169,14 @@ export function buildKeywordShoplingPayloadPreview(
         validation_errors.push("goods_key is required.");
       if (!options.expandProductGroupMarkets && !final_mall_key)
         validation_errors.push("적용할 쇼핑몰(mall_key)을 선택하세요.");
+      if (options.expandProductGroupMarkets) {
+        if (manualTitleKeywords.length === 0) validation_errors.push("상품명 키워드를 입력하세요.");
+        validation_errors.push(...validateManualMallTitleIntegrity(final_title, manualTitleKeywords).errors);
+      }
       if (!final_title) validation_errors.push("상품명을 입력하세요.");
       if (!final_site_srch) {
         validation_errors.push("검색어를 입력하세요.");
-      } else if (normalizedSiteSrch.keywords.length > 10) {
+      } else if (normalizedSiteSrch.originalKeywordCount > 10) {
         validation_errors.push("검색어는 최대 10개까지만 입력할 수 있습니다.");
       }
       if (normalizedSiteSrch.duplicateKeywords.length > 0) {
@@ -239,6 +243,10 @@ export function buildKeywordShoplingPayloadPreview(
       preview_payload,
       expansion_mode: expansionMode,
       group_variant_enabled: Boolean(options.groupVariantEnabled),
+      title_keyword_count: manualTitleKeywords.length,
+      title_included_keyword_count: final_title.split(" ").filter(Boolean).length,
+      title_keyword_integrity_ok: options.expandProductGroupMarkets ? validateManualMallTitleIntegrity(final_title, manualTitleKeywords).keywordIntegrityOk : undefined,
+      apply_blocked: payload_status !== "preview_ready",
     };
   });
 
@@ -251,13 +259,15 @@ export function buildKeywordShoplingPayloadPreview(
       expansionErrors.push(`${row.goodsKey || "(missing goods_key)"}: 상품그룹을 확인해야 쇼핑몰 자동 확장이 가능합니다.`);
       return [{ ...item, payload_status: "invalid" as const, validation_errors: [...item.validation_errors, "상품그룹을 확인해야 쇼핑몰 자동 확장이 가능합니다."] }];
     }
-    const itemSeedKeywords = normalizeSeedKeywords(options.seedKeywordsByGoodsKey?.[item.goods_key]);
-    const source = itemSeedKeywords ? { ...sourceFromReviewedRow(row), baseTitle: finalTitleSeedBase(itemSeedKeywords, row.productGroup ?? item.product_group) } : sourceFromReviewedRow(row);
-    return markets.map((market) => {
-      const variant = options.groupVariantEnabled ? buildMallSpecificTitleVariant(source, market) : null;
-      const finalTitle = variant?.mallTitle ?? item.final_title;
-      const preview_payload = { goods_key: item.goods_key.trim(), mall_key: market.mallKey, title: finalTitle, site_srch: item.final_site_srch };
-      return { ...item, mall_key: market.mallKey, edited_mall_key: market.mallKey, final_title: finalTitle, preview_payload, preview_xml_fragment: xmlFragment(preview_payload.goods_key, preview_payload.mall_key, preview_payload.title, preview_payload.site_srch), market_name: market.marketName, account_id_label: market.accountIdLabel, group_title: variant?.groupTitle, mall_title: variant?.mallTitle, selected_modifier: variant?.selectedModifier, word_order_strategy: variant?.wordOrderStrategy };
+    const manualTitleKeywords = parseManualMallTitleKeywords(options.manualTitleOverridesByGoodsKey?.[item.goods_key] ?? item.final_title);
+    const variants = buildManualMallTitleVariants({ keywords: manualTitleKeywords, markets });
+    return markets.map((market, marketIndex) => {
+      const variant = variants[marketIndex];
+      const finalTitle = variant.title;
+      const validation_errors = [...item.validation_errors, ...variant.validationErrors];
+      const payload_status = validation_errors.length === 0 ? item.payload_status : "invalid" as const;
+      const preview_payload = payload_status === "preview_ready" ? { goods_key: item.goods_key.trim(), mall_key: market.mallKey, title: finalTitle, site_srch: item.final_site_srch } : null;
+      return { ...item, mall_key: market.mallKey, edited_mall_key: market.mallKey, final_title: finalTitle, payload_status, validation_errors, preview_payload, preview_xml_fragment: preview_payload ? xmlFragment(preview_payload.goods_key, preview_payload.mall_key, preview_payload.title, preview_payload.site_srch) : null, market_name: market.marketName, account_id_label: market.accountIdLabel, group_title: finalTitle, mall_title: finalTitle, selected_modifier: "", word_order_strategy: `manual_factoradic_${variant.permutationIndex}`, title_keyword_count: variant.keywordCount, title_included_keyword_count: variant.includedKeywordCount, title_keyword_integrity_ok: variant.keywordIntegrityOk, apply_blocked: payload_status !== "preview_ready" };
     });
   }).filter((item, index, all) => all.findIndex((other) => `${other.goods_key}::${other.mall_key}` === `${item.goods_key}::${item.mall_key}`) === index) : baseItems;
 
@@ -301,9 +311,6 @@ export function buildKeywordShoplingPayloadPreview(
   };
 }
 
-function finalTitleSeedBase(seedKeywords: string, productGroup: string) {
-  return `${seedKeywords.split(",").join(" ")} ${productGroup}`.replace(/\s+/g, " ").trim();
-}
 
 export function exportKeywordPayloadPreview(
   result: KeywordPayloadPreviewResult,

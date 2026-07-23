@@ -2,7 +2,7 @@ import type {
   KeywordPayloadPreviewItem,
   KeywordPayloadPreviewResult,
 } from "./keywordReviewPayloadPreview";
-import { PRODUCT_GROUP_MARKET_MALL_KEYS } from "./productGroupMarketRegistry";
+import { getMarketsForProductGroup, PRODUCT_GROUP_MARKET_MALL_KEYS } from "./productGroupMarketRegistry.ts";
 
 const SHOPLING_MALL_KEY_PATTERN = /^SMALL_\d{5}$/;
 
@@ -24,6 +24,8 @@ export const KEYWORD_EXECUTION_PREFLIGHT_LABELS: Record<string, string> = {
   ALREADY_APPLIED_GOODS_KEY: "이미 반영한 상품번호입니다.",
   MAX_ROWS_EXCEEDED: "최대 실행 행 수를 초과했습니다.",
   FINAL_SITE_SRCH_UNDERFILLED: "검색어가 10개 미만입니다. 현재는 경고만 표시합니다.",
+  PRODUCT_GROUP_MARKETS_MISMATCH: "상품그룹 쇼핑몰 전체 대상과 실행계획이 일치하지 않습니다.",
+  PRODUCT_GROUP_UNREGISTERED: "등록되지 않은 상품그룹입니다.",
 };
 
 export function formatKeywordExecutionPreflightLabels(values: string[]) {
@@ -65,6 +67,9 @@ export type KeywordExecutionPreflightResult = {
     maxRowsExceeded: boolean;
     duplicateGoodsKeyCount: number;
     requiresFinalConfirmation: boolean;
+    expectedTitleTargetCount: number;
+    generatedTitleTargetCount: number;
+    siteSrchGoodsKeyCount: number;
   };
 };
 
@@ -110,6 +115,14 @@ export function buildKeywordExecutionPreflight(
       item.payload_status === "preview_ready",
   );
   const goodsMallKeyCounts = new Map<string, number>();
+  const requiresProductGroupCoverage = input.previewResult.expansionMode === "product_group_markets";
+  const expectedMallKeysByGoodsKey = new Map<string, Set<string>>();
+  if (requiresProductGroupCoverage) for (const item of candidateItems) {
+    const goodsKey = item.goods_key.trim();
+    if (!goodsKey || expectedMallKeysByGoodsKey.has(goodsKey)) continue;
+    const markets = getMarketsForProductGroup(item.product_group);
+    if (markets.length > 0) expectedMallKeysByGoodsKey.set(goodsKey, new Set(markets.map((market) => market.mallKey)));
+  }
 
   for (const item of candidateItems) {
     const goodsKey = item.goods_key.trim();
@@ -172,6 +185,11 @@ export function buildKeywordExecutionPreflight(
       }
       if (!allowedMallKeys.has(mallKey)) {
         blockReasons.push("MALL_KEY_NOT_ALLOWED");
+      }
+      const expectedMallKeys = expectedMallKeysByGoodsKey.get(goodsKey);
+      if (requiresProductGroupCoverage && !expectedMallKeys && goodsKey) blockReasons.push("PRODUCT_GROUP_UNREGISTERED");
+      if (requiresProductGroupCoverage && expectedMallKeys && (!expectedMallKeys.has(mallKey) || candidateItems.filter((candidate) => candidate.goods_key.trim() === goodsKey).length !== expectedMallKeys.size)) {
+        blockReasons.push("PRODUCT_GROUP_MARKETS_MISMATCH");
       }
       if (goodsKey && alreadyAppliedGoodsKeys.has(goodsKey)) {
         blockReasons.push("ALREADY_APPLIED_GOODS_KEY");
@@ -251,6 +269,9 @@ export function buildKeywordExecutionPreflight(
       duplicateGoodsKeyCount: evaluatedItems.filter((item) =>
         item.block_reasons.includes("DUPLICATE_GOODS_KEY_MALL_KEY"),
       ).length,
+      expectedTitleTargetCount: [...expectedMallKeysByGoodsKey.values()].reduce((sum, keys) => sum + keys.size, 0),
+      generatedTitleTargetCount: candidateItems.length,
+      siteSrchGoodsKeyCount: new Set(eligibleItems.map((item) => item.goods_key.trim()).filter(Boolean)).size,
       requiresFinalConfirmation:
         config.requireFinalConfirmation && !confirmationSatisfied,
     },
