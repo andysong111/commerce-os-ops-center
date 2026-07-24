@@ -1,8 +1,15 @@
 "use client";
 
-import { FormEvent, useCallback, useState } from "react";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 import { LocalBridgeStatus } from "./LocalBridgeStatus";
 import { defaultBaseUrl, normalizeLocalBridgeBaseUrl } from "@/lib/localOpsBridgeConfig";
+
+type LocalRunLogs = {
+  error_text?: string;
+  log_text?: string;
+  diagnostic_files?: unknown;
+  status_json?: unknown;
+};
 
 type RunResult = {
   run_id?: string;
@@ -120,10 +127,54 @@ function ImageUploadFields() { return <><p className="text-sm text-slate-600">�
 function Input(props: { name: string; label: string; required?: boolean }) { return <label className="text-sm font-semibold">{props.label}<input name={props.name} required={props.required} className="mt-2 w-full rounded-lg border px-3 py-2" /></label>; }
 
 export function ResultPanel({ result, baseUrl }: { result: RunResult | null; baseUrl: string }) {
+  const [logs, setLogs] = useState<LocalRunLogs | null>(null);
+  const [logStatus, setLogStatus] = useState("");
   const canCopy = Boolean(result?.production_ready && result.full_image_ready && result.shopling_html);
   const imageUrl = result?.full_image_url || bridgeFileUrl(baseUrl, result?.full_image_path);
-  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">실행 결과</h2>{!result ? <p className="mt-2 text-sm text-slate-500">결과가 없습니다.</p> : <><div className="mt-4 flex flex-wrap gap-2"><Badge ok={result.production_ready} label="production_ready" /><Badge ok={result.full_image_ready} label="full_image_ready" /></div><dl className="mt-4 grid gap-2 text-sm md:grid-cols-2"><Row k="full_image_width" v={result.full_image_width} /><Row k="full_image_format" v={result.full_image_format} /><Row k="copy_quality_score" v={result.copy_quality_score} /><Row k="source_image_count" v={result.source_image_count} /><Row k="blocker_reasons" v={result.blocker_reasons?.join(", ")} /><Row k="warnings" v={result.warnings?.join(", ")} /></dl>{!canCopy ? <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">이미지 수집 또는 최종 JPG 생성이 완료되지 않아 샵플링 HTML을 복사할 수 없습니다.</p> : null}<div className="mt-4 flex flex-wrap gap-2"><button disabled={!canCopy} onClick={() => navigator.clipboard.writeText(result.shopling_html ?? "")} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">샵플링 HTML 복사</button><button disabled={!canCopy || !imageUrl} onClick={() => navigator.clipboard.writeText(imageUrl)} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">이미지 주소 복사</button>{imageUrl ? <a href={imageUrl} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 열기</a> : null}{imageUrl ? <a href={imageUrl} download className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 다운로드</a> : null}{result.preview_url ? <a href={result.preview_url} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">미리보기 열기</a> : null}{result.report_json_url ? <a href={result.report_json_url} target="_blank" className="rounded bg-slate-100 px-3 py-2 text-sm text-slate-700">report JSON 보기</a> : null}</div>{imageUrl ? <ImagePreview src={imageUrl} /> : result.shopling_html ? <iframe sandbox="" srcDoc={result.shopling_html} className="mt-5 h-[720px] w-full rounded border" title="샵플링 HTML 미리보기" /> : null}</>}</section>;
+  const isFailedRun = result?.status === "failed";
+  const normalizedBaseUrl = normalizeLocalBridgeBaseUrl(baseUrl);
+  const diagnosticText = useMemo(() => logs ? buildDiagnosticText(result, logs) : "", [logs, result]);
+  const statusJson = useMemo(() => JSON.stringify(result ?? {}, null, 2), [result]);
+  const hints = useMemo(() => buildFailureHints(result, logs), [result, logs]);
+
+  const loadLogs = useCallback(async () => {
+    if (!result?.run_id) return;
+    setLogStatus("실패 로그를 불러오는 중...");
+    const response = await fetch(`${normalizedBaseUrl}/runs/${encodeURIComponent(result.run_id)}/logs`);
+    const json = (await response.json()) as LocalRunLogs;
+    setLogs(json);
+    setLogStatus(response.ok ? "실패 로그를 불러왔습니다." : "실패 로그를 불러오지 못했습니다.");
+  }, [normalizedBaseUrl, result]);
+
+  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">실행 결과</h2>{!result ? <p className="mt-2 text-sm text-slate-500">결과가 없습니다.</p> : <><div className="mt-4 flex flex-wrap gap-2"><Badge ok={result.production_ready} label="production_ready" /><Badge ok={result.full_image_ready} label="full_image_ready" /></div><dl className="mt-4 grid gap-2 text-sm md:grid-cols-2"><Row k="full_image_width" v={result.full_image_width} /><Row k="full_image_format" v={result.full_image_format} /><Row k="copy_quality_score" v={result.copy_quality_score} /><Row k="source_image_count" v={result.source_image_count} /><Row k="blocker_reasons" v={result.blocker_reasons?.join(", ")} /><Row k="warnings" v={result.warnings?.join(", ")} /></dl>{!canCopy ? <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">이미지 수집 또는 최종 JPG 생성이 완료되지 않아 샵플링 HTML을 복사할 수 없습니다.</p> : null}{isFailedRun ? <FailureDiagnosticsCard result={result} logs={logs} logStatus={logStatus} diagnosticText={diagnosticText} statusJson={statusJson} hints={hints} onLoadLogs={loadLogs} /> : null}<div className="mt-4 flex flex-wrap gap-2"><button disabled={!canCopy} onClick={() => navigator.clipboard.writeText(result.shopling_html ?? "")} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">샵플링 HTML 복사</button><button disabled={!canCopy || !imageUrl} onClick={() => navigator.clipboard.writeText(imageUrl)} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">이미지 주소 복사</button>{imageUrl ? <a href={imageUrl} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 열기</a> : null}{imageUrl ? <a href={imageUrl} download className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 다운로드</a> : null}{result.preview_url ? <a href={result.preview_url} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">미리보기 열기</a> : null}{result.report_json_url ? <a href={result.report_json_url} target="_blank" className="rounded bg-slate-100 px-3 py-2 text-sm text-slate-700">report JSON 보기</a> : null}</div>{imageUrl ? <ImagePreview src={imageUrl} /> : result.shopling_html ? <iframe sandbox="" srcDoc={result.shopling_html} className="mt-5 h-[720px] w-full rounded border" title="샵플링 HTML 미리보기" /> : null}</>}</section>;
 }
+
+function FailureDiagnosticsCard({ result, logs, logStatus, diagnosticText, statusJson, hints, onLoadLogs }: { result: RunResult; logs: LocalRunLogs | null; logStatus: string; diagnosticText: string; statusJson: string; hints: string[]; onLoadLogs: () => void }) {
+  return <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold">실패 진단</h3><p className="mt-1 text-red-700">로컬 상세페이지 실행이 실패했습니다. 로그를 펼쳐 원인을 확인하세요.</p></div><button type="button" onClick={onLoadLogs} disabled={!result.run_id} className="rounded bg-red-700 px-3 py-2 font-semibold text-white disabled:bg-red-200">실패 로그 펼쳐보기</button></div>{logStatus ? <p className="mt-2 text-red-700">{logStatus}</p> : null}{hints.length ? <ul className="mt-3 list-disc space-y-1 pl-5">{hints.map((hint) => <li key={hint}>{hint}</li>)}</ul> : null}{logs ? <div className="mt-4 space-y-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => navigator.clipboard.writeText(diagnosticText)} className="rounded bg-slate-900 px-3 py-2 text-white">전체 진단 복사</button><button type="button" onClick={() => navigator.clipboard.writeText(logs.error_text ?? "")} className="rounded bg-slate-900 px-3 py-2 text-white">에러 로그 복사</button><button type="button" onClick={() => navigator.clipboard.writeText(statusJson)} className="rounded bg-slate-900 px-3 py-2 text-white">상태 JSON 복사</button></div><DiagnosticBlock title="error_text" value={logs.error_text} /><DiagnosticBlock title="log_text" value={logs.log_text} /><DiagnosticBlock title="diagnostic_files" value={formatDiagnosticValue(logs.diagnostic_files)} /></div> : null}</div>;
+}
+
+function DiagnosticBlock({ title, value }: { title: string; value?: string }) {
+  return <div><h4 className="font-semibold text-red-950">{title}</h4><pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-white p-3 text-xs text-slate-800">{value || "-"}</pre></div>;
+}
+
+function formatDiagnosticValue(value: unknown) {
+  if (value == null || value === "") return "";
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+function buildDiagnosticText(result: RunResult | null, logs: LocalRunLogs) {
+  return [`status_json\n${JSON.stringify(result ?? {}, null, 2)}`, `error_text\n${logs.error_text ?? ""}`, `log_text\n${logs.log_text ?? ""}`, `diagnostic_files\n${formatDiagnosticValue(logs.diagnostic_files)}`].join("\n\n");
+}
+
+function buildFailureHints(result: RunResult | null, logs: LocalRunLogs | null) {
+  const source = [logs?.error_text, logs?.log_text, formatDiagnosticValue(logs?.diagnostic_files), result?.blocker_reasons?.join(" "), result?.warnings?.join(" ")].join("\n");
+  const hints = [];
+  if (source.includes("image_hosting_map.json")) hints.push("image_hosting_map.json 문제가 감지되었습니다. 이미지 호스팅 매핑 파일 생성/경로/권한을 확인하세요.");
+  if (source.includes("no_usable_source_images")) hints.push("사용 가능한 원본 이미지가 없습니다. 1688 링크 접근 상태 또는 업로드 이미지 품질을 확인하세요.");
+  if (source.includes("1688_auth_or_traffic_challenge")) hints.push("1688 인증 또는 트래픽 차단이 의심됩니다. 로그인/쿠키/수동 인증 후 다시 실행하세요.");
+  return hints;
+}
+
 function Badge({ ok, label }: { ok?: boolean; label: string }) { return <span className={`rounded-full px-3 py-1 text-xs font-bold ${ok ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{label}: {ok ? "Y" : "N"}</span>; }
 function Row({ k, v }: { k: string; v: unknown }) { return <div><dt className="font-semibold text-slate-700">{k}</dt><dd className="break-all text-slate-600">{v == null || v === "" ? "-" : String(v)}</dd></div>; }
 
