@@ -14,6 +14,10 @@ type RunLogs = {
 type RunResult = {
   run_id?: string;
   status?: string;
+  step?: string;
+  message?: string;
+  product_dir?: string;
+  outer_status?: string;
   progress?: number;
   production_ready?: boolean;
   full_image_ready?: boolean;
@@ -28,13 +32,50 @@ type RunResult = {
   full_image_path?: string;
   preview_url?: string;
   report_json_url?: string;
+  result?: unknown;
 };
+
+export function normalizeRunResult(payload: RunResult): RunResult {
+  if (payload?.result && typeof payload.result === "object" && !Array.isArray(payload.result)) {
+    const nested = payload.result as RunResult;
+    return {
+      ...nested,
+      run_id: payload.run_id ?? nested.run_id,
+      status: payload.status ?? nested.status,
+      step: payload.step,
+      message: payload.message,
+      product_dir: payload.product_dir,
+      outer_status: payload.status,
+    };
+  }
+
+  return payload;
+}
+
+async function fetchRunResult(baseUrl: string, runId: string) {
+  const response = await fetch(`${baseUrl}/runs/${encodeURIComponent(runId)}/result`);
+  if (!response.ok) throw new Error("실행 결과를 불러오지 못했습니다.");
+  return normalizeRunResult((await response.json()) as RunResult);
+}
+
+async function refreshRunResult(baseUrl: string, runId: string) {
+  const response = await fetch(`${baseUrl}/runs/${encodeURIComponent(runId)}`);
+  if (!response.ok) throw new Error("실행 상태를 불러오지 못했습니다.");
+  const statusResult = normalizeRunResult((await response.json()) as RunResult);
+  if (statusResult.status === "success") return fetchRunResult(baseUrl, runId);
+  return statusResult;
+}
 
 async function pollRun(baseUrl: string, runId: string, onResult: (result: RunResult) => void) {
   for (let i = 0; i < 120; i += 1) {
     const response = await fetch(`${baseUrl}/runs/${encodeURIComponent(runId)}`);
-    const json = (await response.json()) as RunResult;
+    const json = normalizeRunResult((await response.json()) as RunResult);
     onResult(json);
+    if (json.status === "success") {
+      const finalResult = await fetchRunResult(baseUrl, runId);
+      onResult(finalResult);
+      return finalResult;
+    }
     if (["completed", "failed", "blocked", "cancelled"].includes(String(json.status))) return json;
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
@@ -104,7 +145,7 @@ export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-
         body: mode === "source-link" ? JSON.stringify(sourceLinkPayload) : form,
         headers: mode === "source-link" ? { "Content-Type": "application/json" } : undefined,
       });
-      const json = (await response.json()) as RunResult;
+      const json = normalizeRunResult((await response.json()) as RunResult);
       const runId = json.run_id;
       setResult(json);
       if (!response.ok || !runId) throw new Error(json.status ?? "run_id가 없습니다.");
@@ -121,6 +162,27 @@ export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-
     }
   }, [baseUrl, mode]);
 
+  const runId = result?.run_id;
+
+  const refreshResult = useCallback(async () => {
+    if (!runId) return;
+    setBusy(true);
+    setStatus("결과를 다시 불러오는 중...");
+    try {
+      const refreshed = await refreshRunResult(normalizeLocalBridgeBaseUrl(baseUrl), runId);
+      setResult(refreshed);
+      setStatus(`상태: ${refreshed.status ?? "확인 중"}`);
+      if (refreshed.run_id && isFailureStatus(refreshed.status)) {
+        const logs = await fetchRunLogs(normalizeLocalBridgeBaseUrl(baseUrl), refreshed.run_id);
+        setRunLogs(logs);
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "결과 새로고침 실패");
+    } finally {
+      setBusy(false);
+    }
+  }, [baseUrl, runId]);
+
   return (
     <div className="space-y-6">
       <LocalBridgeStatus onBaseUrlChange={setBaseUrl} />
@@ -133,7 +195,7 @@ export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-
         </button>
       </form>
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">진행 상태</h2><p className="mt-2 text-sm text-slate-600">{status}</p>{result?.progress ? <p className="mt-2 text-sm">진행률: {result.progress}%</p> : null}</section>
-      <ResultPanel result={result} runLogs={runLogs} baseUrl={baseUrl} />
+      <ResultPanel result={result} runLogs={runLogs} baseUrl={baseUrl} onRefresh={refreshResult} refreshDisabled={busy || !runId} />
     </div>
   );
 }
@@ -142,10 +204,10 @@ function SourceLinkFields() { return <><p className="text-sm text-slate-600">168
 function ImageUploadFields() { return <><p className="text-sm text-slate-600">상세페이지 이미지만 업로드하면 로컬 브릿지가 이미지 기반 상세페이지를 생성합니다.</p><label className="text-sm font-semibold">상세페이지 이미지 업로드<input name="images" type="file" multiple accept="image/*" className="mt-2 block w-full rounded-lg border px-3 py-2" /></label></>; }
 function Input(props: { name: string; label: string; required?: boolean }) { return <label className="text-sm font-semibold">{props.label}<input name={props.name} required={props.required} className="mt-2 w-full rounded-lg border px-3 py-2" /></label>; }
 
-export function ResultPanel({ result, runLogs, baseUrl }: { result: RunResult | null; runLogs: RunLogs | null; baseUrl: string }) {
+export function ResultPanel({ result, runLogs, baseUrl, onRefresh, refreshDisabled }: { result: RunResult | null; runLogs: RunLogs | null; baseUrl: string; onRefresh: () => void; refreshDisabled: boolean }) {
   const canCopy = Boolean(result?.production_ready && result.full_image_ready && result.shopling_html);
   const imageUrl = result?.full_image_url || bridgeFileUrl(baseUrl, result?.full_image_path);
-  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">실행 결과</h2>{!result ? <p className="mt-2 text-sm text-slate-500">결과가 없습니다.</p> : <><div className="mt-4 flex flex-wrap gap-2"><Badge ok={result.production_ready} label="production_ready" /><Badge ok={result.full_image_ready} label="full_image_ready" /></div><dl className="mt-4 grid gap-2 text-sm md:grid-cols-2"><Row k="full_image_width" v={result.full_image_width} /><Row k="full_image_format" v={result.full_image_format} /><Row k="copy_quality_score" v={result.copy_quality_score} /><Row k="source_image_count" v={result.source_image_count} /><Row k="blocker_reasons" v={result.blocker_reasons?.join(", ")} /><Row k="warnings" v={result.warnings?.join(", ")} /></dl>{!canCopy ? <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">이미지 수집 또는 최종 JPG 생성이 완료되지 않아 샵플링 HTML을 복사할 수 없습니다.</p> : null}<div className="mt-4 flex flex-wrap gap-2"><button disabled={!canCopy} onClick={() => navigator.clipboard.writeText(result.shopling_html ?? "")} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">샵플링 HTML 복사</button><button disabled={!canCopy || !imageUrl} onClick={() => navigator.clipboard.writeText(imageUrl)} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">이미지 주소 복사</button>{imageUrl ? <a href={imageUrl} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 열기</a> : null}{imageUrl ? <a href={imageUrl} download className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 다운로드</a> : null}{result.preview_url ? <a href={result.preview_url} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">미리보기 열기</a> : null}{result.report_json_url ? <a href={result.report_json_url} target="_blank" className="rounded bg-slate-100 px-3 py-2 text-sm text-slate-700">report JSON 보기</a> : null}</div>{isFailureStatus(result.status) ? <FailureDiagnosticsCard result={result} runLogs={runLogs} /> : null}{imageUrl ? <ImagePreview src={imageUrl} /> : result.shopling_html ? <iframe sandbox="" srcDoc={result.shopling_html} className="mt-5 h-[720px] w-full rounded border" title="샵플링 HTML 미리보기" /> : null}</>}</section>;
+  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-bold">실행 결과</h2><button type="button" onClick={onRefresh} disabled={refreshDisabled} className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 disabled:text-slate-300">결과 다시 불러오기</button></div>{!result ? <p className="mt-2 text-sm text-slate-500">결과가 없습니다.</p> : <><dl className="mt-4 grid gap-2 text-sm md:grid-cols-2"><Row k="run_id" v={result.run_id} /><Row k="status" v={result.status} /><Row k="step" v={result.step} /><Row k="message" v={result.message} /></dl><div className="mt-4 flex flex-wrap gap-2"><Badge ok={result.production_ready} label="production_ready" /><Badge ok={result.full_image_ready} label="full_image_ready" /></div><dl className="mt-4 grid gap-2 text-sm md:grid-cols-2"><Row k="product_dir" v={result.product_dir} /><Row k="outer_status" v={result.outer_status} /><Row k="full_image_width" v={result.full_image_width} /><Row k="full_image_format" v={result.full_image_format} /><Row k="copy_quality_score" v={result.copy_quality_score} /><Row k="source_image_count" v={result.source_image_count} /><Row k="blocker_reasons" v={result.blocker_reasons?.join(", ")} /><Row k="warnings" v={result.warnings?.join(", ")} /></dl>{!canCopy ? <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">이미지 수집 또는 최종 JPG 생성이 완료되지 않아 샵플링 HTML을 복사할 수 없습니다.</p> : null}<div className="mt-4 flex flex-wrap gap-2"><button disabled={!canCopy} onClick={() => navigator.clipboard.writeText(result.shopling_html ?? "")} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">샵플링 HTML 복사</button><button disabled={!canCopy || !imageUrl} onClick={() => navigator.clipboard.writeText(imageUrl)} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">이미지 주소 복사</button>{imageUrl ? <a href={imageUrl} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 열기</a> : null}{imageUrl ? <a href={imageUrl} download className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 다운로드</a> : null}{result.preview_url ? <a href={result.preview_url} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">미리보기 열기</a> : null}{result.report_json_url ? <a href={result.report_json_url} target="_blank" className="rounded bg-slate-100 px-3 py-2 text-sm text-slate-700">report JSON 보기</a> : null}</div>{isFailureStatus(result.status) ? <FailureDiagnosticsCard result={result} runLogs={runLogs} /> : null}{imageUrl ? <ImagePreview src={imageUrl} /> : result.shopling_html ? <iframe sandbox="" srcDoc={result.shopling_html} className="mt-5 h-[720px] w-full rounded border" title="샵플링 HTML 미리보기" /> : null}</>}</section>;
 }
 function FailureDiagnosticsCard({ result, runLogs }: { result: RunResult; runLogs: RunLogs | null }) {
   const [open, setOpen] = useState(false);

@@ -60,9 +60,44 @@ test("result panel disables copy buttons when production_ready=false", () => {
   assert.match(runner, /이미지 수집 또는 최종 JPG 생성이 완료되지 않아 샵플링 HTML을 복사할 수 없습니다/);
 });
 
-test("result panel enables copy buttons when production_ready=true and full_image_ready=true", () => {
+test("nested run payloads are normalized before result panel copy gating", () => {
+  assert.match(runner, /export function normalizeRunResult\(payload: RunResult\): RunResult/);
+  assert.match(runner, /payload\?\.result && typeof payload\.result === "object" && !Array\.isArray\(payload\.result\)/);
+  assert.match(runner, /\.\.\.nested/);
+  assert.match(runner, /run_id: payload\.run_id \?\? nested\.run_id/);
+  assert.match(runner, /status: payload\.status \?\? nested\.status/);
+  assert.match(runner, /outer_status: payload\.status/);
+  assert.match(runner, /const json = normalizeRunResult\(\(await response\.json\(\)\) as RunResult\)/);
+});
+
+test("success polling fetches and unwraps the final result endpoint", () => {
+  assert.match(runner, /async function fetchRunResult\(baseUrl: string, runId: string\)/);
+  assert.match(runner, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/result/);
+  assert.match(runner, /return normalizeRunResult\(\(await response\.json\(\)\) as RunResult\)/);
+  assert.match(runner, /if \(json\.status === "success"\) \{/);
+  assert.match(runner, /const finalResult = await fetchRunResult\(baseUrl, runId\)/);
+  assert.match(runner, /onResult\(finalResult\)/);
+});
+
+test("manual result refresh button reloads run status and final result", () => {
+  assert.match(runner, /결과 다시 불러오기/);
+  assert.match(runner, /async function refreshRunResult\(baseUrl: string, runId: string\)/);
+  assert.match(runner, /fetch\(`\$\{baseUrl\}\/runs\/\$\{encodeURIComponent\(runId\)\}`\)/);
+  assert.match(runner, /if \(statusResult\.status === "success"\) return fetchRunResult\(baseUrl, runId\)/);
+  assert.match(runner, /onRefresh=\{refreshResult\}/);
+});
+
+test("result panel enables copy buttons when nested result has production_ready=true and full_image_ready=true", () => {
+  assert.match(runner, /const canCopy = Boolean\(result\?\.production_ready && result\.full_image_ready && result\.shopling_html\)/);
   assert.match(runner, /navigator\.clipboard\.writeText\(result\.shopling_html/);
   assert.match(runner, /navigator\.clipboard\.writeText\(imageUrl\)/);
+});
+
+test("result panel renders visible run metadata", () => {
+  assert.match(runner, /<Row k="run_id" v=\{result\.run_id\}/);
+  assert.match(runner, /<Row k="status" v=\{result\.status\}/);
+  assert.match(runner, /<Row k="step" v=\{result\.step\}/);
+  assert.match(runner, /<Row k="message" v=\{result\.message\}/);
 });
 
 
