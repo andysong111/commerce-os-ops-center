@@ -54,6 +54,26 @@ test("submit logic adds bridge-compatible hidden defaults", () => {
   assert.match(runner, /offerId \? `DP-\$\{offerId\}` : `DP-local-\$\{localTimestamp\(\)\}`/);
 });
 
+
+test("failed result panel exposes expandable diagnostics and log copy actions", () => {
+  assert.match(runner, /실패 로그 펼쳐보기/);
+  assert.match(runner, /`\$\{normalizedBaseUrl\}\/runs\/\$\{encodeURIComponent\(result\.run_id\)\}\/logs`/);
+  assert.match(runner, /error_text/);
+  assert.match(runner, /log_text/);
+  assert.match(runner, /diagnostic_files/);
+  assert.match(runner, /전체 진단 복사/);
+  assert.match(runner, /에러 로그 복사/);
+  assert.match(runner, /상태 JSON 복사/);
+});
+
+test("failed diagnostics show targeted Korean hints", () => {
+  assert.match(runner, /image_hosting_map\.json 문제가 감지되었습니다/);
+  assert.match(runner, /no_usable_source_images/);
+  assert.match(runner, /사용 가능한 원본 이미지가 없습니다/);
+  assert.match(runner, /1688_auth_or_traffic_challenge/);
+  assert.match(runner, /1688 인증 또는 트래픽 차단이 의심됩니다/);
+});
+
 test("result panel disables copy buttons when production_ready=false", () => {
   assert.match(runner, /production_ready && result\.full_image_ready && result\.shopling_html/);
   assert.match(runner, /disabled=\{!canCopy\}/);
