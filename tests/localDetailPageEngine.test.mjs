@@ -7,10 +7,21 @@ const status = await readFile("src/components/local-ops/LocalBridgeStatus.tsx", 
 const sidebar = await readFile("src/components/Sidebar.tsx", "utf8");
 const registry = await readFile("src/lib/moduleRegistry.ts", "utf8");
 
-test("LocalBridgeStatus renders disconnected state and start command", () => {
+test("LocalBridgeStatus renders custom protocol bridge controls", () => {
   assert.match(status, /연결 안 됨/);
   assert.match(status, /승준컴 로컬 브릿지 실행 필요/);
-  assert.match(status, /python tools\/run_local_ops_bridge\.py --host 127\.0\.0\.1 --port 8765/);
+  assert.match(status, /승준컴 브릿지 실행/);
+  assert.match(status, /seungjun-ops-bridge:\/\/start/);
+  assert.match(status, /seungjun-ops-bridge:\/\/stop/);
+  assert.match(status, /연결 다시 확인/);
+  assert.match(status, /\$\{currentBaseUrl\}\/health/);
+  assert.match(status, /설치 안내 보기/);
+  assert.match(status, /최초 1회 product-detail-page-auto에서 프로토콜 설치가 필요합니다/);
+  assert.match(status, /Invoke-RestMethod http:\/\/127\.0\.0\.1:8765\/health/);
+  assert.match(status, /브릿지가 꺼져 있습니다. ‘승준컴 브릿지 실행’을 누른 뒤 3~5초 후 연결 다시 확인을 눌러주세요/);
+  assert.match(status, /브릿지 실행 요청을 보냈습니다. 브라우저 확인창이 뜨면 허용하세요/);
+  assert.match(status, /3000/);
+  assert.match(status, /6000/);
 });
 
 test("source-link runner only exposes the 1688 link field", () => {
