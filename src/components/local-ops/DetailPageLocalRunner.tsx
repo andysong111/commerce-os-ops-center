@@ -38,6 +38,15 @@ function bridgeFileUrl(baseUrl: string, path?: string) {
   return `${baseUrl}/files?path=${encodeURIComponent(path)}`;
 }
 
+function localTimestamp() {
+  return new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+}
+
+function buildSourceLinkProductCode(sourceLink: string) {
+  const offerId = sourceLink.match(/\/offer\/(\d+)/)?.[1];
+  return offerId ? `DP-${offerId}` : `DP-local-${localTimestamp()}`;
+}
+
 export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-images" }) {
   const [baseUrl, setBaseUrl] = useState(defaultBaseUrl);
   const [busy, setBusy] = useState(false);
@@ -51,10 +60,29 @@ export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-
     setResult(null);
     const form = new FormData(event.currentTarget);
     const url = normalizeLocalBridgeBaseUrl(baseUrl);
+    const sourceLink = String(form.get("source_link") ?? "");
+    const sourceLinkPayload = {
+      source_link: sourceLink,
+      product_code: buildSourceLinkProductCode(sourceLink),
+      source_links: "",
+      option_info: "",
+      planning_point: "",
+      target: "",
+    };
+
+    if (mode === "upload-images") {
+      form.set("product_code", `IMG-local-${localTimestamp()}`);
+      form.set("product_name", "");
+      form.set("category_hint", "");
+      form.set("option_info", "");
+      form.set("planning_point", "");
+      form.set("target", "");
+    }
+
     try {
       const response = await fetch(`${url}${mode === "source-link" ? "/runs/source-link" : "/runs/upload-images"}`, {
         method: "POST",
-        body: mode === "source-link" ? JSON.stringify(Object.fromEntries(form.entries())) : form,
+        body: mode === "source-link" ? JSON.stringify(sourceLinkPayload) : form,
         headers: mode === "source-link" ? { "Content-Type": "application/json" } : undefined,
       });
       const json = (await response.json()) as RunResult;
@@ -74,7 +102,7 @@ export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-
     <div className="space-y-6">
       <LocalBridgeStatus onBaseUrlChange={setBaseUrl} />
       <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-4">
           {mode === "source-link" ? <SourceLinkFields /> : <ImageUploadFields />}
         </div>
         <button type="submit" disabled={busy} className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400">
@@ -87,8 +115,8 @@ export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-
   );
 }
 
-function SourceLinkFields() { return <><Input name="source_link" label="1688 상품 링크" required /><Input name="product_code" label="상품코드" /><label className="md:col-span-2 text-sm font-semibold">보조 링크<textarea name="supporting_links" className="mt-2 min-h-24 w-full rounded-lg border px-3 py-2" /></label><Input name="option_color_memo" label="옵션/색상 메모" /><label className="md:col-span-2 text-sm font-semibold">기획 메모<textarea name="planning_memo" className="mt-2 min-h-28 w-full rounded-lg border px-3 py-2" /></label></>; }
-function ImageUploadFields() { return <><Input name="product_name" label="상품명" required /><Input name="product_code" label="상품코드" /><Input name="category_hint" label="카테고리 힌트" /><Input name="option_color_info" label="옵션/색상 정보" /><label className="md:col-span-2 text-sm font-semibold">기획 메모<textarea name="planning_memo" className="mt-2 min-h-28 w-full rounded-lg border px-3 py-2" /></label><label className="md:col-span-2 text-sm font-semibold">상세페이지 이미지 다중 업로드<input name="images" type="file" multiple accept="image/*" className="mt-2 block w-full rounded-lg border px-3 py-2" /></label></>; }
+function SourceLinkFields() { return <><p className="text-sm text-slate-600">1688 상품 링크만 넣고 실행하면 승준컴 로컬 브릿지가 상세페이지를 생성합니다.</p><Input name="source_link" label="1688 상품 링크" required /></>; }
+function ImageUploadFields() { return <><p className="text-sm text-slate-600">상세페이지 이미지만 업로드하면 로컬 브릿지가 이미지 기반 상세페이지를 생성합니다.</p><label className="text-sm font-semibold">상세페이지 이미지 업로드<input name="images" type="file" multiple accept="image/*" className="mt-2 block w-full rounded-lg border px-3 py-2" /></label></>; }
 function Input(props: { name: string; label: string; required?: boolean }) { return <label className="text-sm font-semibold">{props.label}<input name={props.name} required={props.required} className="mt-2 w-full rounded-lg border px-3 py-2" /></label>; }
 
 export function ResultPanel({ result, baseUrl }: { result: RunResult | null; baseUrl: string }) {
