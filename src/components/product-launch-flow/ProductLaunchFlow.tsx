@@ -1366,6 +1366,49 @@ export function ProductLaunchFlow() {
     finalPricePolling ||
     !!keywordBusy ||
     keywordPolling;
+  const resetProductLaunchDisabled =
+    uploadRunning ||
+    uploadFetching ||
+    uploadPolling ||
+    priceRunning ||
+    priceFetching ||
+    pricePolling ||
+    finalPriceRunning ||
+    finalPriceFetching ||
+    finalPricePolling ||
+    !!keywordBusy ||
+    keywordPolling ||
+    manualApplyBusy ||
+    manualApplyPolling ||
+    manualPreviewStatus === "checking";
+  const hasProductLaunchWorkState =
+    sessionRestored ||
+    !!rowExpression.trim() ||
+    !!uploadRequestId ||
+    !!priceRequestId ||
+    !!finalPriceRequestId ||
+    !!uploadRunResult ||
+    !!uploadActionsResult ||
+    !!priceRunResult ||
+    !!priceActionsResult ||
+    !!keywordPreview ||
+    !!keywordDispatchResult ||
+    !!keywordRunsResult ||
+    !!keywordApplyState ||
+    !!manualPreviewResult ||
+    !!manualPreflightResult ||
+    !!manualApplyRequestId ||
+    !!manualApplyResult ||
+    !!finalPriceRunResult ||
+    !!finalPriceActionsResult ||
+    Object.values(manualTitleOverridesByGoodsKey).some((value) =>
+      value.trim(),
+    ) ||
+    Object.values(manualKeywordOverridesByGoodsKey).some((value) =>
+      value.trim(),
+    ) ||
+    !!keywordSeed.trim() ||
+    Object.values(seedKeywordsBySourceRow).some((value) => value.trim());
   const lastCheckedAt =
     finalPriceLastCheckedAt ??
     keywordLastCheckedAt ??
@@ -1498,11 +1541,27 @@ export function ProductLaunchFlow() {
     setKeywordPollCount(0);
     setKeywordLastCheckedAt(null);
     setKeywordApplyState(null);
+    setManualPreviewStatus("");
+    setManualPreviewResult(null);
+    setManualPreflightResult(null);
+    setManualApplyBusy(false);
+    setManualApplyRequestId("");
+    setManualApplyActionsUrl("");
+    setManualApplyRunUrl("");
+    setManualApplyCommandPreview("");
+    setManualApplyResult(null);
+    setManualApplyPolling(false);
+    setManualApplyPollCount(0);
+    setManualApplyLastCheckedAt(null);
+    setManualApplyNextCheckIn(0);
+    setManualApplyErrorMessage("");
     setFinalPriceRunResult(null);
     setFinalPriceActionsResult(null);
     setUploadRunning(false);
     setUploadFetching(false);
     setUploadPolling(false);
+    uploadPollCountRef.current = 0;
+    setUploadPollStartedAt(null);
     setUploadPollCount(0);
     setUploadNextCheckIn(0);
     setUploadElapsedSeconds(0);
@@ -1520,13 +1579,31 @@ export function ProductLaunchFlow() {
     setSeedKeywordsBySourceRow({});
     setManualTitleOverridesByGoodsKey({});
     setManualKeywordOverridesByGoodsKey({});
+    setEmbeddedReviewOpen(false);
+    setKeywordImportedAt("");
     autoPriceStartedForUploadRequestRef.current = "";
     autoKeywordStartedForPriceRequestRef.current = "";
     autoKeywordImportedArtifactRef.current = "";
     finalPriceStartedForRealApplyRequestRef.current = "";
   };
-  const resetProductLaunchSession = () =>
+  const resetProductLaunchSession = () => {
     clearProductLaunchFailureState({ keepRowExpression: false });
+    setKeywordSeed("");
+    setAutoActualApplyEnabled(false);
+  };
+  const startFreshProductLaunch = () => {
+    if (resetProductLaunchDisabled) return;
+    if (!hasProductLaunchWorkState) return;
+    const confirmed = window.confirm(
+      "현재 OPS Center에 저장된 상품출시 작업 내용, 요청 ID, 후보,\n" +
+        "미리보기와 결과를 모두 지웁니다.\n\n" +
+        "이미 샵플링에 반영된 상품, 가격, 상품명과 검색어는 되돌아가지 않습니다.\n\n" +
+        "새 상품출시 작업을 시작하시겠습니까?",
+    );
+    if (!confirmed) return;
+    resetProductLaunchSession();
+    window.location.reload();
+  };
   const retryProductLaunchSession = () =>
     clearProductLaunchFailureState({ keepRowExpression: true });
   useEffect(() => {
@@ -1677,6 +1754,16 @@ export function ProductLaunchFlow() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end rounded-2xl border border-red-100 bg-red-50/60 px-4 py-3">
+        <button
+          type="button"
+          onClick={startFreshProductLaunch}
+          disabled={resetProductLaunchDisabled || !hasProductLaunchWorkState}
+          className="rounded-lg border border-red-500 bg-white px-3 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:border-red-200 disabled:text-red-300 disabled:hover:bg-white"
+        >
+          이전 내용 지우고 새로 시작
+        </button>
+      </div>
       {sessionRestored ? (
         <RecoveryBanner
           uploadRecovered={
@@ -3107,11 +3194,12 @@ function LaunchCockpit({
               : false);
   const finalPriceReady =
     manualApplyReadyForFinalPrice && !finalPriceDone && !finalPriceActive;
+  // prettier-ignore
   const disabled = finalPriceActive || actualApplyDone
     ? true
-    : finalPriceReady
-      ? false
-      : normalStepDisabled;
+      : finalPriceReady
+        ? false
+        : normalStepDisabled;
   void steps;
   void counts;
   void autoPilotEnabled;
