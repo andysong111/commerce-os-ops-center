@@ -13,16 +13,45 @@ test("LocalBridgeStatus renders disconnected state and start command", () => {
   assert.match(status, /python tools\/run_local_ops_bridge\.py --host 127\.0\.0\.1 --port 8765/);
 });
 
-test("source-link page posts to /runs/source-link", () => {
+test("source-link runner only exposes the 1688 link field", () => {
   assert.match(runner, /\/runs\/source-link/);
   assert.match(runner, /1688 상품 링크/);
+  assert.match(runner, /1688 상품 링크만 넣고 실행하면 승준컴 로컬 브릿지가 상세페이지를 생성합니다/);
+  assert.doesNotMatch(runner, /상품코드/);
+  assert.doesNotMatch(runner, /보조 링크/);
+  assert.doesNotMatch(runner, /옵션\/색상 메모/);
+  assert.doesNotMatch(runner, /기획 메모/);
+});
+
+test("image-upload runner only exposes the image upload field", () => {
+  assert.match(runner, /상세페이지 이미지/);
+  assert.match(runner, /상세페이지 이미지만 업로드하면 로컬 브릿지가 이미지 기반 상세페이지를 생성합니다/);
+  assert.match(runner, /type="file"/);
+  assert.doesNotMatch(runner, /상품명/);
+  assert.doesNotMatch(runner, /카테고리 힌트/);
+  assert.doesNotMatch(runner, /옵션\/색상 정보/);
 });
 
 test("image-upload page sends multipart form-data to /runs/upload-images", () => {
   assert.match(runner, /\/runs\/upload-images/);
   assert.match(runner, /new FormData/);
-  assert.match(runner, /type=\"file\"/);
+  assert.match(runner, /body: mode === "source-link" \? JSON\.stringify\(sourceLinkPayload\) : form/);
   assert.match(runner, /headers: mode === "source-link" \? \{ "Content-Type": "application\/json" \} : undefined/);
+});
+
+test("submit logic adds bridge-compatible hidden defaults", () => {
+  assert.match(runner, /product_code: buildSourceLinkProductCode\(sourceLink\)/);
+  assert.match(runner, /source_links: ""/);
+  assert.match(runner, /option_info: ""/);
+  assert.match(runner, /planning_point: ""/);
+  assert.match(runner, /target: ""/);
+  assert.match(runner, /form\.set\("product_code", `IMG-local-\$\{localTimestamp\(\)\}`\)/);
+  assert.match(runner, /form\.set\("product_name", ""\)/);
+  assert.match(runner, /form\.set\("category_hint", ""\)/);
+  assert.match(runner, /form\.set\("option_info", ""\)/);
+  assert.match(runner, /form\.set\("planning_point", ""\)/);
+  assert.match(runner, /form\.set\("target", ""\)/);
+  assert.match(runner, /offerId \? `DP-\$\{offerId\}` : `DP-local-\$\{localTimestamp\(\)\}`/);
 });
 
 test("result panel disables copy buttons when production_ready=false", () => {
