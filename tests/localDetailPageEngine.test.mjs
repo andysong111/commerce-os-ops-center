@@ -65,6 +65,22 @@ test("result panel enables copy buttons when production_ready=true and full_imag
   assert.match(runner, /navigator\.clipboard\.writeText\(imageUrl\)/);
 });
 
+
+test("failed local runs fetch and render expandable diagnostics", () => {
+  assert.match(runner, /fetchRunLogs/);
+  assert.match(runner, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/logs/);
+  assert.match(runner, /실패 로그 펼쳐보기/);
+  assert.match(runner, /error_text/);
+  assert.match(runner, /log_text/);
+  assert.match(runner, /diagnostic_files/);
+  assert.match(runner, /전체 진단 복사/);
+  assert.match(runner, /에러 로그 복사/);
+  assert.match(runner, /상태 JSON 복사/);
+  assert.match(runner, /image_hosting_map\.json/);
+  assert.match(runner, /no_usable_source_images/);
+  assert.match(runner, /1688_auth_or_traffic_challenge/);
+});
+
 test("dashboard/sidebar contains local-only and image-upload labels", () => {
   assert.match(sidebar, /승준컴 로컬 전용/);
   assert.match(registry, /상세페이지 엔진 \(이미지 업로드\)/);
