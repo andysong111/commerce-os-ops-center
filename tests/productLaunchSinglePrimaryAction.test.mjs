@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
@@ -34,20 +33,6 @@ const cockpitCallBlock = between("      <LaunchCockpit", "      />");
 
 const countMatches = (text, pattern) => text.match(pattern)?.length ?? 0;
 
-function assertUnchangedOnlyAllowedFiles() {
-  const changed = execSync("git status --porcelain --untracked-files=all", {
-    encoding: "utf8",
-  })
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.replace(/^[? MADRCU]{1,2}\s+/, ""));
-  assert.deepEqual(changed.toSorted(), [
-    "src/components/product-launch-flow/ProductLaunchFlow.tsx",
-    "tests/productLaunchSinglePrimaryAction.test.mjs",
-  ]);
-}
-
 test("OperatorLaunchStatusBoard no longer accepts onNext", () => {
   assert.doesNotMatch(boardBlock, /onNext/);
   assert.doesNotMatch(boardBlock, /onNext: \(\) => void/);
@@ -63,9 +48,8 @@ test("boardButtonLabel is removed", () => {
 });
 
 test("LaunchCockpit still contains one main primary button", () => {
-  assert.equal(countMatches(cockpitBlock, /onClick=\{onNext\}/g), 2);
+  assert.equal(countMatches(cockpitBlock, /onClick=\{onNext\}/g), 1);
   assert.match(cockpitBlock, /primaryAction === "upload"/);
-  assert.match(cockpitBlock, /\) : \(/);
 });
 
 test("LaunchCockpit receives handleUnifiedProductLaunchAction", () => {
@@ -96,6 +80,21 @@ test("final-price failed state shows retry label", () => {
   assert.match(cockpitBlock, /finalPriceFailed\n\s+\? "가격 최종 재적용 다시 실행"/);
 });
 
+test("final-price dispatch error participates in retry state", () => {
+  assert.match(
+    source,
+    /const finalPriceDispatchFailed =\n\s+String\(finalPriceRunResult\?\.status \?\? ""\)\.toLowerCase\(\) === "error";/,
+  );
+  assert.match(
+    source,
+    /const finalPriceFailed =\n\s+finalPriceDispatchFailed \|\|\n\s+hasPriceFailure\(finalPriceActionsResult\) \|\|\n\s+getPriceCounts\(finalPriceActionsResult, goodsKeys\.length\)\.failCount > 0;/,
+  );
+  assert.match(
+    cockpitBlock,
+    /manualApplyReadyForFinalPrice && !finalPriceDone && finalPriceFailed\n\s+\? "가격 최종 재적용 다시 실행"/,
+  );
+});
+
 test("normal upload button label remains", () => {
   assert.match(source, /if \(primaryAction === "upload"\) return "상품출시 진행 시작";/);
 });
@@ -121,8 +120,14 @@ test("final-price safety guards from PR #252 remain", () => {
   assert.doesNotMatch(between("useEffect(() => {\n    const realApplyRequestId = manualApplyRequestId;", "\n  return ("), /autopilotEnabled/);
 });
 
-test("no API route, runner, workflow, preview, or preflight changes", () => {
-  assertUnchangedOnlyAllowedFiles();
+test("clean-checkout guard does not inspect git status", () => {
+  const testSource = readFileSync(new URL(import.meta.url), "utf8");
+  for (const forbiddenSnippet of [
+    "node:" + "child_process",
+    "exec" + "Sync",
+    "git status --" + "porcelain",
+    "assertUnchanged" + "OnlyAllowedFiles",
+  ]) assert.doesNotMatch(testSource, new RegExp(forbiddenSnippet));
 });
 
 test("no real external calls occur in tests", () => {
@@ -130,4 +135,3 @@ test("no real external calls occur in tests", () => {
   assert.equal(process.env.GITHUB_ACTIONS_DISPATCH, undefined);
   assert.equal(process.env.SHOPLING_WRITE, undefined);
 });
-

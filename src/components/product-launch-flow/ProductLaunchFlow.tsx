@@ -1292,7 +1292,10 @@ export function ProductLaunchFlow() {
   const finalPriceDone =
     isSuccessfulPriceResult(finalPriceActionsResult) &&
     getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount === 0;
+  const finalPriceDispatchFailed =
+    String(finalPriceRunResult?.status ?? "").toLowerCase() === "error";
   const finalPriceFailed =
+    finalPriceDispatchFailed ||
     hasPriceFailure(finalPriceActionsResult) ||
     getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount > 0;
   const finalPriceActive =
@@ -3156,27 +3159,20 @@ function LaunchCockpit({
               행 번호를 입력하면 상품업로드를 시작할 수 있습니다.
             </p>
           ) : null}
-          <button
-            type="button"
-            onClick={onNext}
-            disabled={disabled}
-            className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300"
-          >
-            {rowIsValid ? primaryLabel : "행 번호 입력 후 시작"}
-          </button>
         </div>
-      ) : (
-        <div className="mt-5">
-          <button
-            type="button"
-            onClick={onNext}
-            disabled={disabled}
-            className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300"
-          >
-            {primaryLabel}
-          </button>
-        </div>
-      )}
+      ) : null}
+      <div className="mt-5">
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={disabled}
+          className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300"
+        >
+          {primaryAction === "upload" && !rowIsValid
+            ? "행 번호 입력 후 시작"
+            : primaryLabel}
+        </button>
+      </div>
 
       {uploadProgress.active ? (
         <div className="mt-5 rounded-2xl border border-blue-300 bg-blue-50 p-5 shadow-sm">
