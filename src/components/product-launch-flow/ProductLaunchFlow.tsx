@@ -1292,7 +1292,10 @@ export function ProductLaunchFlow() {
   const finalPriceDone =
     isSuccessfulPriceResult(finalPriceActionsResult) &&
     getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount === 0;
+  const finalPriceDispatchFailed =
+    String(finalPriceRunResult?.status ?? "").toLowerCase() === "error";
   const finalPriceFailed =
+    finalPriceDispatchFailed ||
     hasPriceFailure(finalPriceActionsResult) ||
     getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount > 0;
   const finalPriceActive =
@@ -1554,6 +1557,17 @@ export function ProductLaunchFlow() {
     else confirmManualCandidates();
   };
 
+  const handleUnifiedProductLaunchAction = () => {
+    if (finalPriceActive) return;
+
+    if (manualApplyReadyForFinalPrice && !finalPriceDone) {
+      void runFinalPriceModify();
+      return;
+    }
+
+    handleProductLaunchPrimaryAction();
+  };
+
   useEffect(() => {
     if (!autopilotEnabled) return;
     if (
@@ -1683,11 +1697,6 @@ export function ProductLaunchFlow() {
         keywordApplyState={keywordApplyState}
         priceIssueState={priceIssueState}
         manualCandidatesReady={manualCandidatesReady}
-        onNext={
-          manualApplyReadyForFinalPrice && !finalPriceDone
-            ? runFinalPriceModify
-            : handleProductLaunchPrimaryAction
-        }
         initialPriceRequestId={priceRequestId}
         finalPriceRequestId={finalPriceRequestId}
         finalPriceActionsResult={finalPriceActionsResult}
@@ -1741,7 +1750,7 @@ export function ProductLaunchFlow() {
         currentStage={derivedStage}
         nextAction={cockpit.nextAction}
         primaryAction={cockpit.primaryAction}
-        onNext={handleProductLaunchPrimaryAction}
+        onNext={handleUnifiedProductLaunchAction}
         rowExpression={rowExpression}
         onRowExpressionChange={setRowExpression}
         uploadBusy={uploadRunning || uploadFetching || uploadPolling}
@@ -1794,6 +1803,11 @@ export function ProductLaunchFlow() {
         manualPreflightResult={manualPreflightResult}
         manualBusy={manualApplyBusy}
         goodsKeysEmpty={goodsKeys.length === 0}
+        manualApplyReadyForFinalPrice={manualApplyReadyForFinalPrice}
+        finalPriceActive={finalPriceActive}
+        finalPriceDone={finalPriceDone}
+        finalPriceFailed={finalPriceFailed}
+        actualApplyDone={actualApplyDone}
       />
       {cockpit.primaryAction === "failed" ? (
         <ErrorDrawer
@@ -2702,7 +2716,6 @@ function OperatorLaunchStatusBoard({
   keywordApplyState,
   priceIssueState,
   manualCandidatesReady,
-  onNext,
   initialPriceRequestId,
   finalPriceRequestId,
   finalPriceActionsResult,
@@ -2722,7 +2735,6 @@ function OperatorLaunchStatusBoard({
   keywordApplyState: KeywordApplyState | null;
   priceIssueState: PriceIssueState;
   manualCandidatesReady: boolean;
-  onNext: () => void;
   initialPriceRequestId: string;
   finalPriceRequestId: string;
   finalPriceActionsResult: PriceActionsResult | null;
@@ -2747,21 +2759,6 @@ function OperatorLaunchStatusBoard({
       : finalPriceFailed
         ? "failed"
         : "waiting";
-  const boardButtonLabel = finalPriceActive
-    ? "가격 최종 재적용 확인 중"
-    : manualApplyReadyForFinalPrice && !finalPriceDone
-      ? "가격 최종 재적용 확인 중"
-      : actualApplyDone
-        ? "출시 결과 확인"
-        : realApplyRunning
-          ? "검토 결과 새로고침"
-          : realApplyStatus === "failed" || realApplyStatus === "blocked"
-            ? "문제 확인"
-            : state.primaryAction === "upload"
-              ? "상품출시 시작"
-              : keywordApplyState?.dryRunStatus === "success"
-                ? "승인하고 실제 반영 실행"
-                : "상품명/검색어 후보 입력 후 검토 생성";
   const dryRunComplete = keywordApplyState?.dryRunStatus === "success";
   const blockedByApply =
     realApplyStatus === "blocked" ||
@@ -2938,13 +2935,6 @@ function OperatorLaunchStatusBoard({
           <p>다음 수동 작업: 샵플링에서 마켓전송 전 최종 확인</p>
         </div>
       ) : null}
-      <button
-        type="button"
-        onClick={onNext}
-        className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white"
-      >
-        {boardButtonLabel}
-      </button>
     </section>
   );
 }
@@ -3020,6 +3010,11 @@ function LaunchCockpit({
   manualPreflightResult,
   manualBusy,
   goodsKeysEmpty,
+  manualApplyReadyForFinalPrice,
+  finalPriceActive,
+  finalPriceDone,
+  finalPriceFailed,
+  actualApplyDone,
 }: {
   steps: CockpitStep[];
   currentStage: string;
@@ -3056,6 +3051,11 @@ function LaunchCockpit({
   manualPreflightResult: KeywordExecutionPreflightResult | null;
   manualBusy: boolean;
   goodsKeysEmpty: boolean;
+  manualApplyReadyForFinalPrice: boolean;
+  finalPriceActive: boolean;
+  finalPriceDone: boolean;
+  finalPriceFailed: boolean;
+  actualApplyDone: boolean;
   uploadProgress: {
     active: boolean;
     phase: string;
@@ -3070,7 +3070,7 @@ function LaunchCockpit({
   };
 }) {
   const rowIsValid = rowExpression.trim().length > 0;
-  const primaryLabel = getPrimaryActionLabel(
+  const normalPrimaryLabel = getPrimaryActionLabel(
     primaryAction,
     uploadBusy,
     priceBusy,
@@ -3080,7 +3080,16 @@ function LaunchCockpit({
     manualPreviewStatus,
     manualPreflightResult,
   );
-  const disabled =
+  const primaryLabel = finalPriceActive
+    ? "가격 최종 재적용 확인 중"
+    : actualApplyDone
+      ? "출시 완료"
+      : manualApplyReadyForFinalPrice && !finalPriceDone && finalPriceFailed
+        ? "가격 최종 재적용 다시 실행"
+        : manualApplyReadyForFinalPrice && !finalPriceDone
+          ? "가격 최종 재적용 시작"
+          : normalPrimaryLabel;
+  const normalStepDisabled =
     primaryAction === "upload"
       ? !rowIsValid || uploadBusy
       : primaryAction === "price"
@@ -3096,6 +3105,13 @@ function LaunchCockpit({
               ? manualPreflightResult.summary.eligibleCount === 0 ||
                 manualPreflightResult.summary.eligibleCount > 100
               : false);
+  const finalPriceReady =
+    manualApplyReadyForFinalPrice && !finalPriceDone && !finalPriceActive;
+  const disabled = finalPriceActive || actualApplyDone
+    ? true
+    : finalPriceReady
+      ? false
+      : normalStepDisabled;
   void steps;
   void counts;
   void autoPilotEnabled;
@@ -3143,27 +3159,20 @@ function LaunchCockpit({
               행 번호를 입력하면 상품업로드를 시작할 수 있습니다.
             </p>
           ) : null}
-          <button
-            type="button"
-            onClick={onNext}
-            disabled={disabled}
-            className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300"
-          >
-            {rowIsValid ? primaryLabel : "행 번호 입력 후 시작"}
-          </button>
         </div>
-      ) : (
-        <div className="mt-5">
-          <button
-            type="button"
-            onClick={onNext}
-            disabled={disabled}
-            className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300"
-          >
-            {primaryLabel}
-          </button>
-        </div>
-      )}
+      ) : null}
+      <div className="mt-5">
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={disabled}
+          className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:bg-slate-300"
+        >
+          {primaryAction === "upload" && !rowIsValid
+            ? "행 번호 입력 후 시작"
+            : primaryLabel}
+        </button>
+      </div>
 
       {uploadProgress.active ? (
         <div className="mt-5 rounded-2xl border border-blue-300 bg-blue-50 p-5 shadow-sm">
