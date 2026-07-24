@@ -60,6 +60,16 @@ test("result panel disables copy buttons when production_ready=false", () => {
   assert.match(runner, /이미지 수집 또는 최종 JPG 생성이 완료되지 않아 샵플링 HTML을 복사할 수 없습니다/);
 });
 
+test("failed runner UI exposes expandable copyable local bridge logs", () => {
+  assert.match(runner, /result\?\.status === "failed" \|\| result\?\.status === "error"/);
+  assert.match(runner, /실패 로그 펼쳐보기/);
+  assert.match(runner, /runs\/\$\{encodeURIComponent\(result\.run_id\)\}\/logs/);
+  assert.match(runner, /전체 진단 복사/);
+  assert.match(runner, /에러 로그 복사/);
+  assert.match(runner, /상태 JSON 복사/);
+  assert.match(runner, /로컬 브릿지 로그를 불러오지 못했습니다. 브릿지가 켜져 있는지 확인해 주세요./);
+});
+
 test("result panel enables copy buttons when production_ready=true and full_image_ready=true", () => {
   assert.match(runner, /navigator\.clipboard\.writeText\(result\.shopling_html/);
   assert.match(runner, /navigator\.clipboard\.writeText\(imageUrl\)/);
