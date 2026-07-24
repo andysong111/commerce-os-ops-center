@@ -659,7 +659,13 @@ export function ProductLaunchFlow() {
   ]);
 
   const runFinalPriceModify = useCallback(async () => {
-    if (finalPriceRunning || goodsKeys.length === 0) return;
+    if (
+      finalPriceRunning ||
+      finalPriceFetching ||
+      finalPricePolling ||
+      goodsKeys.length === 0
+    )
+      return;
     setFinalPriceRunning(true);
     setFinalPriceRunResult(null);
     setFinalPriceActionsResult(null);
@@ -702,7 +708,13 @@ export function ProductLaunchFlow() {
     } finally {
       setFinalPriceRunning(false);
     }
-  }, [finalPriceRunning, goodsKeys, uploadRows]);
+  }, [
+    finalPriceFetching,
+    finalPricePolling,
+    finalPriceRunning,
+    goodsKeys,
+    uploadRows,
+  ]);
 
   const fetchFinalPriceResult = useCallback(async () => {
     if (finalPriceFetching || !finalPriceRequestId) return;
@@ -1622,7 +1634,13 @@ export function ProductLaunchFlow() {
       manualApplyResult?.requestId !== realApplyRequestId
     )
       return;
-    if (finalPriceActive || finalPriceDone) return;
+    if (
+      finalPriceActive ||
+      finalPriceDone ||
+      finalPriceRunResult ||
+      finalPriceActionsResult
+    )
+      return;
     if (finalPriceStartedForRealApplyRequestRef.current === realApplyRequestId)
       return;
     finalPriceStartedForRealApplyRequestRef.current = realApplyRequestId;
@@ -1631,8 +1649,10 @@ export function ProductLaunchFlow() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [
+    finalPriceActionsResult,
     finalPriceActive,
     finalPriceDone,
+    finalPriceRunResult,
     goodsKeys.length,
     manualApplyPolling,
     manualApplyReadyForFinalPrice,

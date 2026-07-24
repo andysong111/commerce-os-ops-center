@@ -271,6 +271,61 @@ test("final price request still sends every goodsKey and goods_key_group_json", 
   assert.match(runFinalPriceBlock, /policy_overrides: \[\]/);
 });
 
+
+test("finalPriceRunResult error blocks automatic effect rerun", () => {
+  assert.match(effectBlock, /finalPriceRunResult/);
+  assert.match(
+    effectBlock,
+    /finalPriceActive \|\|\n\s+finalPriceDone \|\|\n\s+finalPriceRunResult \|\|\n\s+finalPriceActionsResult/,
+  );
+});
+
+test("finalPriceActionsResult error blocks automatic effect rerun", () => {
+  assert.match(effectBlock, /finalPriceActionsResult/);
+  assert.match(
+    effectBlock,
+    /finalPriceActive \|\|\n\s+finalPriceDone \|\|\n\s+finalPriceRunResult \|\|\n\s+finalPriceActionsResult/,
+  );
+});
+
+test("missing requestId dispatch failure is not automatically requested again", () => {
+  assert.match(runFinalPriceBlock, /!requestId/);
+  assert.match(runFinalPriceBlock, /setFinalPriceRunResult\(\{\n\s+\.\.\.data,\n\s+status: "error"/);
+  assert.match(effectBlock, /finalPriceRunResult/);
+});
+
+test("finalPriceFetching blocks repeated runFinalPriceModify calls", () => {
+  assert.match(runFinalPriceBlock, /finalPriceFetching/);
+  assert.match(
+    runFinalPriceBlock,
+    /finalPriceRunning \|\|\n\s+finalPriceFetching \|\|\n\s+finalPricePolling \|\|\n\s+goodsKeys\.length === 0/,
+  );
+});
+
+test("finalPricePolling blocks repeated runFinalPriceModify calls", () => {
+  assert.match(runFinalPriceBlock, /finalPricePolling/);
+  assert.match(
+    runFinalPriceBlock,
+    /finalPriceRunning \|\|\n\s+finalPriceFetching \|\|\n\s+finalPricePolling \|\|\n\s+goodsKeys\.length === 0/,
+  );
+});
+
+test("repeated progress button clicks cannot queue more than one final-price request", () => {
+  assert.match(runFinalPriceBlock, /setFinalPricePolling\(true\)/);
+  assert.match(
+    runFinalPriceBlock,
+    /finalPriceRunning \|\|\n\s+finalPriceFetching \|\|\n\s+finalPricePolling \|\|\n\s+goodsKeys\.length === 0/,
+  );
+});
+
+test("new manual apply clears final-price results so a new requestId can auto-run", () => {
+  assert.match(applyManualBlock, /setFinalPriceRunResult\(null\)/);
+  assert.match(applyManualBlock, /setFinalPriceActionsResult\(null\)/);
+  assert.match(effectBlock, /manualApplyRequestId/);
+  assert.match(effectBlock, /manualApplyResult\?\.requestId !== realApplyRequestId/);
+  assert.match(effectBlock, /finalPriceStartedForRealApplyRequestRef\.current = realApplyRequestId/);
+});
+
 test("no title-generation, preview, preflight, API route, or workflow file changes", () => {
   assert.equal(process.env.REAL_FETCH, undefined);
   assert.equal(process.env.GITHUB_ACTIONS_DISPATCH, undefined);
