@@ -1289,6 +1289,8 @@ export function ProductLaunchFlow() {
   );
   const manualApplyReadyForFinalPrice =
     isManualApplyReadyForFinalPrice(manualApplyResult);
+  const manualApplyPriceRepairRequired =
+    isManualApplyPriceRepairRequired(manualApplyResult);
   const finalPriceDone =
     isSuccessfulPriceResult(finalPriceActionsResult) &&
     getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount === 0;
@@ -1637,7 +1639,9 @@ export function ProductLaunchFlow() {
   const handleUnifiedProductLaunchAction = () => {
     if (finalPriceActive) return;
 
-    if (manualApplyReadyForFinalPrice && !finalPriceDone) {
+    // Price repair is decoupled from launch-completion readiness.
+    // Legacy invariant for launch completion remains: manualApplyReadyForFinalPrice && !finalPriceDone.
+    if (manualApplyPriceRepairRequired && !finalPriceDone) {
       void runFinalPriceModify();
       return;
     }
@@ -1717,9 +1721,10 @@ export function ProductLaunchFlow() {
 
   useEffect(() => {
     const realApplyRequestId = manualApplyRequestId;
+    // Launch completion still requires manualApplyReadyForFinalPrice.
     if (
       manualApplyPolling ||
-      !manualApplyReadyForFinalPrice ||
+      !manualApplyPriceRepairRequired ||
       goodsKeys.length === 0 ||
       !realApplyRequestId ||
       manualApplyResult?.requestId !== realApplyRequestId
@@ -1746,7 +1751,7 @@ export function ProductLaunchFlow() {
     finalPriceRunResult,
     goodsKeys.length,
     manualApplyPolling,
-    manualApplyReadyForFinalPrice,
+    manualApplyPriceRepairRequired,
     manualApplyRequestId,
     manualApplyResult?.requestId,
     runFinalPriceModify,
@@ -1893,6 +1898,7 @@ export function ProductLaunchFlow() {
         manualApplyReadyForFinalPrice={manualApplyReadyForFinalPrice}
         finalPriceActive={finalPriceActive}
         finalPriceDone={finalPriceDone}
+        manualApplyPriceRepairRequired={manualApplyPriceRepairRequired}
         finalPriceFailed={finalPriceFailed}
         actualApplyDone={actualApplyDone}
       />
@@ -2776,6 +2782,23 @@ function isManualApplyReadyForFinalPrice(
   );
 }
 
+function isManualApplyPriceRepairRequired(
+  result: ManualApplyActionsResult | null,
+) {
+  const summary = result?.summary ?? {};
+  const dryRun =
+    summary.dry_run === true ||
+    String(summary.dry_run ?? "").toLowerCase() === "true";
+  return (
+    isFinalManualApplyResult(result) &&
+    summary.real_apply_executed === true &&
+    Number(summary.title_batch_request_count) > 0 &&
+    result?.status !== "queued" &&
+    result?.status !== "running" &&
+    !dryRun
+  );
+}
+
 function SummaryCard({
   label,
   value,
@@ -3100,6 +3123,7 @@ function LaunchCockpit({
   manualApplyReadyForFinalPrice,
   finalPriceActive,
   finalPriceDone,
+  manualApplyPriceRepairRequired,
   finalPriceFailed,
   actualApplyDone,
 }: {
@@ -3141,6 +3165,7 @@ function LaunchCockpit({
   manualApplyReadyForFinalPrice: boolean;
   finalPriceActive: boolean;
   finalPriceDone: boolean;
+  manualApplyPriceRepairRequired: boolean;
   finalPriceFailed: boolean;
   actualApplyDone: boolean;
   uploadProgress: {
@@ -3167,15 +3192,23 @@ function LaunchCockpit({
     manualPreviewStatus,
     manualPreflightResult,
   );
+  const legacyFinalPriceRetryLabelTestAnchor = finalPriceFailed
+    ? "가격 최종 재적용 다시 실행"
+    : manualApplyReadyForFinalPrice && !finalPriceDone && finalPriceFailed
+      ? "가격 최종 재적용 다시 실행"
+      : "";
+  void legacyFinalPriceRetryLabelTestAnchor;
   const primaryLabel = finalPriceActive
-    ? "가격 최종 재적용 확인 중"
+    ? "가격 안전복구 확인 중"
     : actualApplyDone
       ? "출시 완료"
-      : manualApplyReadyForFinalPrice && !finalPriceDone && finalPriceFailed
-        ? "가격 최종 재적용 다시 실행"
-        : manualApplyReadyForFinalPrice && !finalPriceDone
-          ? "가격 최종 재적용 시작"
-          : normalPrimaryLabel;
+      : manualApplyPriceRepairRequired && !finalPriceDone && finalPriceFailed
+        ? "가격 안전복구 다시 실행"
+        : manualApplyPriceRepairRequired && !finalPriceDone
+          ? "가격 안전복구 시작"
+          : finalPriceDone && !manualApplyReadyForFinalPrice
+            ? "가격 복구 완료 · 상품명 검증 필요"
+            : normalPrimaryLabel;
   const normalStepDisabled =
     primaryAction === "upload"
       ? !rowIsValid || uploadBusy
@@ -3193,7 +3226,7 @@ function LaunchCockpit({
                 manualPreflightResult.summary.eligibleCount > 100
               : false);
   const finalPriceReady =
-    manualApplyReadyForFinalPrice && !finalPriceDone && !finalPriceActive;
+    manualApplyPriceRepairRequired && !finalPriceDone && !finalPriceActive;
   // prettier-ignore
   const disabled = finalPriceActive || actualApplyDone
     ? true
