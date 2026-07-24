@@ -4,6 +4,13 @@ import { FormEvent, useCallback, useState } from "react";
 import { LocalBridgeStatus } from "./LocalBridgeStatus";
 import { defaultBaseUrl, normalizeLocalBridgeBaseUrl } from "@/lib/localOpsBridgeConfig";
 
+type RunLogs = {
+  error_text?: string;
+  log_text?: string;
+  diagnostic_files?: string[];
+  status_json?: unknown;
+};
+
 type RunResult = {
   run_id?: string;
   status?: string;
@@ -33,6 +40,16 @@ async function pollRun(baseUrl: string, runId: string, onResult: (result: RunRes
   }
 }
 
+async function fetchRunLogs(baseUrl: string, runId: string) {
+  const response = await fetch(`${baseUrl}/runs/${encodeURIComponent(runId)}/logs`);
+  if (!response.ok) throw new Error("실패 로그를 불러오지 못했습니다.");
+  return (await response.json()) as RunLogs;
+}
+
+function isFailureStatus(status?: string) {
+  return ["failed", "blocked", "cancelled"].includes(String(status));
+}
+
 function bridgeFileUrl(baseUrl: string, path?: string) {
   if (!path) return "";
   return `${baseUrl}/files?path=${encodeURIComponent(path)}`;
@@ -52,12 +69,14 @@ export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("아직 실행 전입니다.");
   const [result, setResult] = useState<RunResult | null>(null);
+  const [runLogs, setRunLogs] = useState<RunLogs | null>(null);
 
   const submit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBusy(true);
     setStatus("로컬 브릿지에 실행 요청 중...");
     setResult(null);
+    setRunLogs(null);
     const form = new FormData(event.currentTarget);
     const url = normalizeLocalBridgeBaseUrl(baseUrl);
     const sourceLink = String(form.get("source_link") ?? "");
@@ -90,7 +109,11 @@ export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-
       setResult(json);
       if (!response.ok || !runId) throw new Error(json.status ?? "run_id가 없습니다.");
       setStatus(`실행 중: ${runId}`);
-      await pollRun(url, runId, (next) => { setResult(next); setStatus(`상태: ${next.status ?? "확인 중"}`); });
+      const finalResult = await pollRun(url, runId, (next) => { setResult(next); setStatus(`상태: ${next.status ?? "확인 중"}`); });
+      if (finalResult?.run_id && isFailureStatus(finalResult.status)) {
+        const logs = await fetchRunLogs(url, finalResult.run_id);
+        setRunLogs(logs);
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "실행 요청 실패");
     } finally {
@@ -110,7 +133,7 @@ export function DetailPageLocalRunner({ mode }: { mode: "source-link" | "upload-
         </button>
       </form>
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">진행 상태</h2><p className="mt-2 text-sm text-slate-600">{status}</p>{result?.progress ? <p className="mt-2 text-sm">진행률: {result.progress}%</p> : null}</section>
-      <ResultPanel result={result} baseUrl={baseUrl} />
+      <ResultPanel result={result} runLogs={runLogs} baseUrl={baseUrl} />
     </div>
   );
 }
@@ -119,11 +142,35 @@ function SourceLinkFields() { return <><p className="text-sm text-slate-600">168
 function ImageUploadFields() { return <><p className="text-sm text-slate-600">상세페이지 이미지만 업로드하면 로컬 브릿지가 이미지 기반 상세페이지를 생성합니다.</p><label className="text-sm font-semibold">상세페이지 이미지 업로드<input name="images" type="file" multiple accept="image/*" className="mt-2 block w-full rounded-lg border px-3 py-2" /></label></>; }
 function Input(props: { name: string; label: string; required?: boolean }) { return <label className="text-sm font-semibold">{props.label}<input name={props.name} required={props.required} className="mt-2 w-full rounded-lg border px-3 py-2" /></label>; }
 
-export function ResultPanel({ result, baseUrl }: { result: RunResult | null; baseUrl: string }) {
+export function ResultPanel({ result, runLogs, baseUrl }: { result: RunResult | null; runLogs: RunLogs | null; baseUrl: string }) {
   const canCopy = Boolean(result?.production_ready && result.full_image_ready && result.shopling_html);
   const imageUrl = result?.full_image_url || bridgeFileUrl(baseUrl, result?.full_image_path);
-  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">실행 결과</h2>{!result ? <p className="mt-2 text-sm text-slate-500">결과가 없습니다.</p> : <><div className="mt-4 flex flex-wrap gap-2"><Badge ok={result.production_ready} label="production_ready" /><Badge ok={result.full_image_ready} label="full_image_ready" /></div><dl className="mt-4 grid gap-2 text-sm md:grid-cols-2"><Row k="full_image_width" v={result.full_image_width} /><Row k="full_image_format" v={result.full_image_format} /><Row k="copy_quality_score" v={result.copy_quality_score} /><Row k="source_image_count" v={result.source_image_count} /><Row k="blocker_reasons" v={result.blocker_reasons?.join(", ")} /><Row k="warnings" v={result.warnings?.join(", ")} /></dl>{!canCopy ? <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">이미지 수집 또는 최종 JPG 생성이 완료되지 않아 샵플링 HTML을 복사할 수 없습니다.</p> : null}<div className="mt-4 flex flex-wrap gap-2"><button disabled={!canCopy} onClick={() => navigator.clipboard.writeText(result.shopling_html ?? "")} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">샵플링 HTML 복사</button><button disabled={!canCopy || !imageUrl} onClick={() => navigator.clipboard.writeText(imageUrl)} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">이미지 주소 복사</button>{imageUrl ? <a href={imageUrl} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 열기</a> : null}{imageUrl ? <a href={imageUrl} download className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 다운로드</a> : null}{result.preview_url ? <a href={result.preview_url} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">미리보기 열기</a> : null}{result.report_json_url ? <a href={result.report_json_url} target="_blank" className="rounded bg-slate-100 px-3 py-2 text-sm text-slate-700">report JSON 보기</a> : null}</div>{imageUrl ? <ImagePreview src={imageUrl} /> : result.shopling_html ? <iframe sandbox="" srcDoc={result.shopling_html} className="mt-5 h-[720px] w-full rounded border" title="샵플링 HTML 미리보기" /> : null}</>}</section>;
+  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">실행 결과</h2>{!result ? <p className="mt-2 text-sm text-slate-500">결과가 없습니다.</p> : <><div className="mt-4 flex flex-wrap gap-2"><Badge ok={result.production_ready} label="production_ready" /><Badge ok={result.full_image_ready} label="full_image_ready" /></div><dl className="mt-4 grid gap-2 text-sm md:grid-cols-2"><Row k="full_image_width" v={result.full_image_width} /><Row k="full_image_format" v={result.full_image_format} /><Row k="copy_quality_score" v={result.copy_quality_score} /><Row k="source_image_count" v={result.source_image_count} /><Row k="blocker_reasons" v={result.blocker_reasons?.join(", ")} /><Row k="warnings" v={result.warnings?.join(", ")} /></dl>{!canCopy ? <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">이미지 수집 또는 최종 JPG 생성이 완료되지 않아 샵플링 HTML을 복사할 수 없습니다.</p> : null}<div className="mt-4 flex flex-wrap gap-2"><button disabled={!canCopy} onClick={() => navigator.clipboard.writeText(result.shopling_html ?? "")} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">샵플링 HTML 복사</button><button disabled={!canCopy || !imageUrl} onClick={() => navigator.clipboard.writeText(imageUrl)} className="rounded bg-slate-900 px-3 py-2 text-sm text-white disabled:bg-slate-300">이미지 주소 복사</button>{imageUrl ? <a href={imageUrl} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 열기</a> : null}{imageUrl ? <a href={imageUrl} download className="rounded bg-blue-600 px-3 py-2 text-sm text-white">JPG 다운로드</a> : null}{result.preview_url ? <a href={result.preview_url} target="_blank" className="rounded bg-blue-600 px-3 py-2 text-sm text-white">미리보기 열기</a> : null}{result.report_json_url ? <a href={result.report_json_url} target="_blank" className="rounded bg-slate-100 px-3 py-2 text-sm text-slate-700">report JSON 보기</a> : null}</div>{isFailureStatus(result.status) ? <FailureDiagnosticsCard result={result} runLogs={runLogs} /> : null}{imageUrl ? <ImagePreview src={imageUrl} /> : result.shopling_html ? <iframe sandbox="" srcDoc={result.shopling_html} className="mt-5 h-[720px] w-full rounded border" title="샵플링 HTML 미리보기" /> : null}</>}</section>;
 }
+function FailureDiagnosticsCard({ result, runLogs }: { result: RunResult; runLogs: RunLogs | null }) {
+  const [open, setOpen] = useState(false);
+  const statusJson = JSON.stringify(result, null, 2);
+  const fullDiagnostics = [
+    "[status_json]",
+    statusJson,
+    "[error_text]",
+    runLogs?.error_text ?? "",
+    "[log_text]",
+    runLogs?.log_text ?? "",
+    "[diagnostic_files]",
+    ...(runLogs?.diagnostic_files ?? []),
+  ].join("\n");
+  return <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold">실패 진단</h3><p className="mt-1 text-red-700">로컬 실행이 실패했습니다. 로그와 생성된 진단 파일을 확인하세요.</p></div><button type="button" onClick={() => setOpen((next) => !next)} className="rounded bg-red-700 px-3 py-2 text-sm font-semibold text-white">실패 로그 펼쳐보기</button></div><div className="mt-3 rounded-lg bg-white/70 p-3 text-xs text-red-800"><p><strong>힌트:</strong> image_hosting_map.json이 비었거나 누락되었는지, no_usable_source_images 또는 1688_auth_or_traffic_challenge 원인이 있는지 확인하세요.</p></div>{open ? <div className="mt-4 space-y-4"><div className="flex flex-wrap gap-2"><CopyButton text={fullDiagnostics} label="전체 진단 복사" /><CopyButton text={runLogs?.error_text ?? ""} label="에러 로그 복사" /><CopyButton text={statusJson} label="상태 JSON 복사" /></div><DiagnosticsBlock title="error_text" value={runLogs?.error_text} /><DiagnosticsBlock title="log_text" value={runLogs?.log_text} /><DiagnosticsBlock title="diagnostic_files" value={(runLogs?.diagnostic_files ?? []).join("\n")} /></div> : null}</div>;
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  return <button type="button" disabled={!text} onClick={() => navigator.clipboard.writeText(text)} className="rounded bg-red-700 px-3 py-2 text-sm font-semibold text-white disabled:bg-red-200">{label}</button>;
+}
+
+function DiagnosticsBlock({ title, value }: { title: string; value?: string }) {
+  return <div><h4 className="font-semibold">{title}</h4><pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-white p-3 text-xs text-slate-800">{value || "-"}</pre></div>;
+}
+
 function Badge({ ok, label }: { ok?: boolean; label: string }) { return <span className={`rounded-full px-3 py-1 text-xs font-bold ${ok ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{label}: {ok ? "Y" : "N"}</span>; }
 function Row({ k, v }: { k: string; v: unknown }) { return <div><dt className="font-semibold text-slate-700">{k}</dt><dd className="break-all text-slate-600">{v == null || v === "" ? "-" : String(v)}</dd></div>; }
 
