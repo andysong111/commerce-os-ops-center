@@ -101,7 +101,25 @@ test("manual result refresh button reloads run status and final result", () => {
 test("result panel enables copy buttons when nested result has production_ready=true and full_image_ready=true", () => {
   assert.match(runner, /const canCopy = Boolean\(result\?\.production_ready && result\.full_image_ready && result\.shopling_html\)/);
   assert.match(runner, /navigator\.clipboard\.writeText\(result\.shopling_html/);
-  assert.match(runner, /navigator\.clipboard\.writeText\(imageUrl\)/);
+  assert.match(runner, /navigator\.clipboard\.writeText\(finalImageUrl\)/);
+});
+
+test("result panel separates JPG open and robust download actions", () => {
+  assert.match(runner, /JPG 새창 열기/);
+  assert.match(runner, /JPG 다운로드/);
+  assert.match(runner, /window\.open\(finalImageUrl, "_blank", "noopener,noreferrer"\)/);
+  assert.doesNotMatch(runner, /window\.location\.href/);
+  assert.doesNotMatch(runner, /location\.href\s*=/);
+  assert.match(runner, /const response = await fetch\(finalImageUrl\)/);
+  assert.match(runner, /const blob = await response\.blob\(\)/);
+  assert.match(runner, /URL\.createObjectURL\(blob\)/);
+  assert.match(runner, /document\.createElement\("a"\)/);
+  assert.match(runner, /anchor\.download = filename/);
+  assert.match(runner, /anchor\.click\(\)/);
+  assert.match(runner, /URL\.revokeObjectURL\(objectUrl\)/);
+  assert.match(runner, /detailpage_\$\{safeIdentifier\}_1000\.jpg/);
+  assert.match(runner, /result\.product_code \|\| result\.run_id/);
+  assert.match(runner, /브라우저 보안 정책 때문에 직접 다운로드가 실패했습니다\. 새 탭에서 열린 이미지에서 저장해 주세요\./);
 });
 
 test("result panel renders visible run metadata", () => {
