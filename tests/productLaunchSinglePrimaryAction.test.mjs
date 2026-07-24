@@ -57,8 +57,9 @@ test("LaunchCockpit receives handleUnifiedProductLaunchAction", () => {
   assert.doesNotMatch(cockpitCallBlock, /onNext=\{handleProductLaunchPrimaryAction\}/);
 });
 
-test("unified handler calls runFinalPriceModify when manual apply is ready", () => {
-  assert.match(unifiedHandlerBlock, /manualApplyReadyForFinalPrice && !finalPriceDone/);
+test("unified handler calls runFinalPriceModify when price repair is required", () => {
+  assert.match(unifiedHandlerBlock, /manualApplyPriceRepairRequired && !finalPriceDone/);
+  assert.doesNotMatch(unifiedHandlerBlock, /manualApplyReadyForFinalPrice && !finalPriceDone/);
   assert.match(unifiedHandlerBlock, /void runFinalPriceModify\(\);/);
 });
 
@@ -69,15 +70,22 @@ test("unified handler does not call manual apply again during final-price stage"
 });
 
 test("final-price active disables the retained button", () => {
-  assert.match(cockpitBlock, /const disabled = finalPriceActive \|\| actualApplyDone\n\s+\? true/);
+  assert.match(cockpitBlock, /finalPriceActive \|\| priceRepairCompletedVerificationPending \|\| actualApplyDone\n\s+\? true/);
 });
 
 test("completed launch disables the retained button", () => {
-  assert.match(cockpitBlock, /const disabled = finalPriceActive \|\| actualApplyDone\n\s+\? true/);
+  assert.match(cockpitBlock, /finalPriceActive \|\| priceRepairCompletedVerificationPending \|\| actualApplyDone\n\s+\? true/);
 });
 
-test("final-price failed state shows retry label", () => {
-  assert.match(cockpitBlock, /finalPriceFailed\n\s+\? "가격 최종 재적용 다시 실행"/);
+test("price repair completed verification pending disables the retained button", () => {
+  assert.match(source, /const priceRepairCompletedVerificationPending =\n\s+manualApplyPriceRepairRequired &&\n\s+finalPriceDone &&\n\s+!manualApplyReadyForFinalPrice;/);
+  assert.match(unifiedHandlerBlock, /finalPriceActive \|\| priceRepairCompletedVerificationPending/);
+  assert.match(cockpitBlock, /priceRepairCompletedVerificationPending \|\| actualApplyDone/);
+});
+
+test("price repair labels use required and retry states", () => {
+  assert.match(cockpitBlock, /manualApplyPriceRepairRequired && !finalPriceDone && finalPriceFailed\n\s+\? "가격 안전복구 다시 실행"/);
+  assert.match(cockpitBlock, /manualApplyPriceRepairRequired && !finalPriceDone\n\s+\? "가격 안전복구 시작"/);
 });
 
 test("final-price dispatch error participates in retry state", () => {
@@ -91,7 +99,7 @@ test("final-price dispatch error participates in retry state", () => {
   );
   assert.match(
     cockpitBlock,
-    /manualApplyReadyForFinalPrice && !finalPriceDone && finalPriceFailed\n\s+\? "가격 최종 재적용 다시 실행"/,
+    /manualApplyPriceRepairRequired && !finalPriceDone && finalPriceFailed\n\s+\? "가격 안전복구 다시 실행"/,
   );
 });
 
@@ -128,6 +136,10 @@ test("clean-checkout guard does not inspect git status", () => {
     "git status --" + "porcelain",
     "assertUnchanged" + "OnlyAllowedFiles",
   ]) assert.doesNotMatch(testSource, new RegExp(forbiddenSnippet));
+});
+
+test("legacy test anchor dead code is removed", () => {
+  assert.doesNotMatch(source, /legacyFinalPriceRetryLabelTestAnchor/);
 });
 
 test("no real external calls occur in tests", () => {

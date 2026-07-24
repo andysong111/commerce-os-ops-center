@@ -145,11 +145,34 @@ test("same apply requestId cannot dispatch price twice and polling blocks duplic
   assert.match(runFinalPriceBlock, /finalPricePolling/);
 });
 
-test("price repair success does not falsely mark launch complete", () => {
+test("price repair success enters explicit verification-pending state, not launch complete", () => {
+  const pendingSnippet = between("const priceRepairCompletedVerificationPending =", ";\n  const actualApplyDone");
+  assert.match(pendingSnippet, /manualApplyPriceRepairRequired &&\n\s+finalPriceDone &&\n\s+!manualApplyReadyForFinalPrice/);
   const actualApplySnippet = between("const actualApplyDone =", ";\n  const priceIssueState");
   assert.match(actualApplySnippet, /manualApplyReadyForFinalPrice/);
   assert.doesNotMatch(actualApplySnippet, /manualApplyPriceRepairRequired/);
-  assert.match(launchCockpitBlock, /finalPriceDone && !manualApplyReadyForFinalPrice\n\s+\? "가격 복구 완료 · 상품명 검증 필요"/);
+  assert.match(launchCockpitBlock, /priceRepairCompletedVerificationPending\n\s+\? "가격 복구 완료 · 상품명 검증 필요"/);
+  assert.doesNotMatch(launchCockpitBlock, /finalPriceDone && !manualApplyReadyForFinalPrice\n\s+\? "가격 복구 완료 · 상품명 검증 필요"/);
+});
+
+test("real failure fixture with final price done disables button and blocks resend", () => {
+  const finalPriceDone = true;
+  const manualApplyPriceRepairRequired =
+    isManualApplyPriceRepairRequiredLocal(realFailureFixture);
+  const manualApplyReadyForFinalPrice =
+    isManualApplyReadyForFinalPriceLocal(realFailureFixture);
+  const priceRepairCompletedVerificationPending =
+    manualApplyPriceRepairRequired &&
+    finalPriceDone &&
+    !manualApplyReadyForFinalPrice;
+  const actualApplyDone = manualApplyReadyForFinalPrice && finalPriceDone;
+
+  assert.equal(manualApplyPriceRepairRequired, true);
+  assert.equal(manualApplyReadyForFinalPrice, false);
+  assert.equal(priceRepairCompletedVerificationPending, true);
+  assert.equal(actualApplyDone, false);
+  assert.match(launchCockpitBlock, /finalPriceActive \|\| priceRepairCompletedVerificationPending \|\| actualApplyDone\n\s+\? true/);
+  assert.match(unifiedHandlerBlock, /finalPriceActive \|\| priceRepairCompletedVerificationPending/);
 });
 
 test("unified button starts repair instead of resending manual title apply", () => {

@@ -1302,6 +1302,10 @@ export function ProductLaunchFlow() {
     getPriceCounts(finalPriceActionsResult, goodsKeys.length).failCount > 0;
   const finalPriceActive =
     finalPriceRunning || finalPriceFetching || finalPricePolling;
+  const priceRepairCompletedVerificationPending =
+    manualApplyPriceRepairRequired &&
+    finalPriceDone &&
+    !manualApplyReadyForFinalPrice;
   const actualApplyDone =
     isSuccessfulPriceResult(priceActionsResult) &&
     manualApplyReadyForFinalPrice &&
@@ -1637,10 +1641,8 @@ export function ProductLaunchFlow() {
   };
 
   const handleUnifiedProductLaunchAction = () => {
-    if (finalPriceActive) return;
+    if (finalPriceActive || priceRepairCompletedVerificationPending) return;
 
-    // Price repair is decoupled from launch-completion readiness.
-    // Legacy invariant for launch completion remains: manualApplyReadyForFinalPrice && !finalPriceDone.
     if (manualApplyPriceRepairRequired && !finalPriceDone) {
       void runFinalPriceModify();
       return;
@@ -1895,10 +1897,12 @@ export function ProductLaunchFlow() {
         manualPreflightResult={manualPreflightResult}
         manualBusy={manualApplyBusy}
         goodsKeysEmpty={goodsKeys.length === 0}
-        manualApplyReadyForFinalPrice={manualApplyReadyForFinalPrice}
         finalPriceActive={finalPriceActive}
         finalPriceDone={finalPriceDone}
         manualApplyPriceRepairRequired={manualApplyPriceRepairRequired}
+        priceRepairCompletedVerificationPending={
+          priceRepairCompletedVerificationPending
+        }
         finalPriceFailed={finalPriceFailed}
         actualApplyDone={actualApplyDone}
       />
@@ -3120,10 +3124,10 @@ function LaunchCockpit({
   manualPreflightResult,
   manualBusy,
   goodsKeysEmpty,
-  manualApplyReadyForFinalPrice,
   finalPriceActive,
   finalPriceDone,
   manualApplyPriceRepairRequired,
+  priceRepairCompletedVerificationPending,
   finalPriceFailed,
   actualApplyDone,
 }: {
@@ -3162,10 +3166,10 @@ function LaunchCockpit({
   manualPreflightResult: KeywordExecutionPreflightResult | null;
   manualBusy: boolean;
   goodsKeysEmpty: boolean;
-  manualApplyReadyForFinalPrice: boolean;
   finalPriceActive: boolean;
   finalPriceDone: boolean;
   manualApplyPriceRepairRequired: boolean;
+  priceRepairCompletedVerificationPending: boolean;
   finalPriceFailed: boolean;
   actualApplyDone: boolean;
   uploadProgress: {
@@ -3192,12 +3196,6 @@ function LaunchCockpit({
     manualPreviewStatus,
     manualPreflightResult,
   );
-  const legacyFinalPriceRetryLabelTestAnchor = finalPriceFailed
-    ? "가격 최종 재적용 다시 실행"
-    : manualApplyReadyForFinalPrice && !finalPriceDone && finalPriceFailed
-      ? "가격 최종 재적용 다시 실행"
-      : "";
-  void legacyFinalPriceRetryLabelTestAnchor;
   const primaryLabel = finalPriceActive
     ? "가격 안전복구 확인 중"
     : actualApplyDone
@@ -3206,7 +3204,7 @@ function LaunchCockpit({
         ? "가격 안전복구 다시 실행"
         : manualApplyPriceRepairRequired && !finalPriceDone
           ? "가격 안전복구 시작"
-          : finalPriceDone && !manualApplyReadyForFinalPrice
+          : priceRepairCompletedVerificationPending
             ? "가격 복구 완료 · 상품명 검증 필요"
             : normalPrimaryLabel;
   const normalStepDisabled =
@@ -3228,8 +3226,9 @@ function LaunchCockpit({
   const finalPriceReady =
     manualApplyPriceRepairRequired && !finalPriceDone && !finalPriceActive;
   // prettier-ignore
-  const disabled = finalPriceActive || actualApplyDone
-    ? true
+  const disabled =
+    finalPriceActive || priceRepairCompletedVerificationPending || actualApplyDone
+      ? true
       : finalPriceReady
         ? false
         : normalStepDisabled;
