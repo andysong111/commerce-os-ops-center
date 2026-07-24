@@ -659,7 +659,13 @@ export function ProductLaunchFlow() {
   ]);
 
   const runFinalPriceModify = useCallback(async () => {
-    if (finalPriceRunning || goodsKeys.length === 0) return;
+    if (
+      finalPriceRunning ||
+      finalPriceFetching ||
+      finalPricePolling ||
+      goodsKeys.length === 0
+    )
+      return;
     setFinalPriceRunning(true);
     setFinalPriceRunResult(null);
     setFinalPriceActionsResult(null);
@@ -675,9 +681,21 @@ export function ProductLaunchFlow() {
         }),
       });
       const data = await response.json();
+      const requestId = String(data.requestId || "");
+      if (!response.ok || data.status !== "queued" || !requestId) {
+        setFinalPriceRunResult({
+          ...data,
+          status: "error",
+          message:
+            data.message || "가격 최종 재적용 요청이 큐에 등록되지 않았습니다.",
+        });
+        finalPriceStartedForRealApplyRequestRef.current = "";
+        return;
+      }
+      setFinalPriceRequestId(requestId);
       setFinalPriceRunResult(data);
-      if (typeof data.requestId === "string" && data.requestId)
-        setFinalPriceRequestId(data.requestId);
+      setFinalPricePolling(true);
+      setFinalPricePollCount(0);
     } catch (error) {
       setFinalPriceRunResult({
         status: "error",
@@ -686,21 +704,37 @@ export function ProductLaunchFlow() {
             ? error.message
             : "가격 최종 재적용 실행 요청 중 오류가 발생했습니다.",
       });
+      finalPriceStartedForRealApplyRequestRef.current = "";
     } finally {
       setFinalPriceRunning(false);
-      setFinalPricePolling(true);
-      setFinalPricePollCount(0);
     }
-  }, [finalPriceRunning, goodsKeys, uploadRows]);
+  }, [
+    finalPriceFetching,
+    finalPricePolling,
+    finalPriceRunning,
+    goodsKeys,
+    uploadRows,
+  ]);
 
   const fetchFinalPriceResult = useCallback(async () => {
-    if (finalPriceFetching) return;
+    if (finalPriceFetching || !finalPriceRequestId) return;
     setFinalPriceFetching(true);
     try {
-      const url = finalPriceRequestId
-        ? `/api/shopling-price-modify/actions-result?request_id=${encodeURIComponent(finalPriceRequestId)}`
-        : "/api/shopling-price-modify/actions-result";
-      const data = await (await fetch(url)).json();
+      const data = await (
+        await fetch(
+          `/api/shopling-price-modify/actions-result?request_id=${encodeURIComponent(finalPriceRequestId)}`,
+        )
+      ).json();
+      if (String(data.requestId || "") !== finalPriceRequestId) {
+        setFinalPriceActionsResult({
+          status: "error",
+          message:
+            "가격 최종 재적용 결과 request_id가 현재 요청과 일치하지 않습니다.",
+          requestId: data.requestId,
+        });
+        setFinalPricePolling(false);
+        return;
+      }
       setFinalPriceActionsResult(data);
       setFinalPriceLastCheckedAt(new Date());
       if (isFinalPriceResult(data)) setFinalPricePolling(false);
@@ -1145,6 +1179,13 @@ export function ProductLaunchFlow() {
   const applyManualCandidates = useCallback(async () => {
     if (!manualPreflightResult || manualApplyBusy) return;
     setManualApplyBusy(true);
+    setFinalPriceRequestId("");
+    setFinalPriceRunResult(null);
+    setFinalPriceActionsResult(null);
+    setFinalPricePolling(false);
+    setFinalPricePollCount(0);
+    setFinalPriceLastCheckedAt(null);
+    finalPriceStartedForRealApplyRequestRef.current = "";
     try {
       const response = await fetch("/api/keyword-shopling-apply/run", {
         method: "POST",
@@ -1246,10 +1287,7 @@ export function ProductLaunchFlow() {
     goodsKeys,
     buildGoodsKeyGroupMap(uploadRows),
   );
-  const keywordRealApplySucceeded =
-    isKeywordRealApplySuccess(keywordApplyState);
   const manualApplyReadyForFinalPrice =
-    keywordRealApplySucceeded ||
     isManualApplyReadyForFinalPrice(manualApplyResult);
   const finalPriceDone =
     isSuccessfulPriceResult(finalPriceActionsResult) &&
@@ -1260,8 +1298,8 @@ export function ProductLaunchFlow() {
   const finalPriceActive =
     finalPriceRunning || finalPriceFetching || finalPricePolling;
   const actualApplyDone =
-    (isSuccessfulPriceResult(priceActionsResult) || finalPriceDone) &&
-    keywordRealApplySucceeded &&
+    isSuccessfulPriceResult(priceActionsResult) &&
+    manualApplyReadyForFinalPrice &&
     finalPriceDone;
   const priceIssueState = getPriceIssueState(
     finalPriceActionsResult ?? priceActionsResult,
@@ -1587,15 +1625,21 @@ export function ProductLaunchFlow() {
   ]);
 
   useEffect(() => {
-    const realApplyRequestId = keywordApplyState?.realApplyRequestId ?? "";
-    if (!autopilotEnabled) return;
+    const realApplyRequestId = manualApplyRequestId;
     if (
+      manualApplyPolling ||
       !manualApplyReadyForFinalPrice ||
       goodsKeys.length === 0 ||
-      !realApplyRequestId
+      !realApplyRequestId ||
+      manualApplyResult?.requestId !== realApplyRequestId
     )
       return;
-    if (finalPriceActive || finalPriceRunResult || finalPriceActionsResult)
+    if (
+      finalPriceActive ||
+      finalPriceDone ||
+      finalPriceRunResult ||
+      finalPriceActionsResult
+    )
       return;
     if (finalPriceStartedForRealApplyRequestRef.current === realApplyRequestId)
       return;
@@ -1605,13 +1649,15 @@ export function ProductLaunchFlow() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [
-    autopilotEnabled,
     finalPriceActionsResult,
     finalPriceActive,
+    finalPriceDone,
     finalPriceRunResult,
     goodsKeys.length,
-    keywordApplyState?.realApplyRequestId,
+    manualApplyPolling,
     manualApplyReadyForFinalPrice,
+    manualApplyRequestId,
+    manualApplyResult?.requestId,
     runFinalPriceModify,
   ]);
 
@@ -1633,6 +1679,7 @@ export function ProductLaunchFlow() {
         keywordWarningCount={keywordWarningCount}
         issueCount={issueCount}
         actualApplyDone={actualApplyDone}
+        manualApplyReadyForFinalPrice={manualApplyReadyForFinalPrice}
         keywordApplyState={keywordApplyState}
         priceIssueState={priceIssueState}
         manualCandidatesReady={manualCandidatesReady}
@@ -2228,11 +2275,26 @@ function ManualPreviewReviewSection({
           </div>
           {preflightSummary ? (
             <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
-              <SummaryCard label="예상 상품명 대상" value={preflightSummary.expectedTitleTargetCount} />
-              <SummaryCard label="생성 상품명 대상" value={preflightSummary.generatedTitleTargetCount} />
-              <SummaryCard label="검색어 goods_key" value={preflightSummary.siteSrchGoodsKeyCount} />
-              <SummaryCard label="커버리지 불일치" value={preflightSummary.coverageMismatchGoodsKeyCount} />
-              <SummaryCard label="미등록 상품그룹" value={preflightSummary.unregisteredProductGroupGoodsKeyCount} />
+              <SummaryCard
+                label="예상 상품명 대상"
+                value={preflightSummary.expectedTitleTargetCount}
+              />
+              <SummaryCard
+                label="생성 상품명 대상"
+                value={preflightSummary.generatedTitleTargetCount}
+              />
+              <SummaryCard
+                label="검색어 goods_key"
+                value={preflightSummary.siteSrchGoodsKeyCount}
+              />
+              <SummaryCard
+                label="커버리지 불일치"
+                value={preflightSummary.coverageMismatchGoodsKeyCount}
+              />
+              <SummaryCard
+                label="미등록 상품그룹"
+                value={preflightSummary.unregisteredProductGroupGoodsKeyCount}
+              />
             </div>
           ) : null}
           <div className="mt-4 overflow-x-auto rounded-2xl border border-emerald-200 bg-white">
@@ -2255,7 +2317,10 @@ function ManualPreviewReviewSection({
                     "차단 사유",
                     "경고",
                   ].map((header) => (
-                    <th key={header} className="border border-emerald-200 px-3 py-2">
+                    <th
+                      key={header}
+                      className="border border-emerald-200 px-3 py-2"
+                    >
                       {header}
                     </th>
                   ))}
@@ -2267,20 +2332,50 @@ function ManualPreviewReviewSection({
                     key={`${row.goodsKey}:${row.mallKey}:${row.sourceRowIndex}:${index}`}
                     className={manualMallPreviewRowClassName(row)}
                   >
-                    <td className="border border-slate-200 px-3 py-2 font-mono">{row.goodsKey}</td>
-                    <td className="border border-slate-200 px-3 py-2">{row.productGroup}</td>
-                    <td className="border border-slate-200 px-3 py-2">{row.marketName}</td>
-                    <td className="border border-slate-200 px-3 py-2 font-mono">{row.mallKey}</td>
-                    <td className="border border-slate-200 px-3 py-2 font-semibold">{row.finalTitle}</td>
-                    <td className="border border-slate-200 px-3 py-2">{row.finalSiteSrch}</td>
-                    <td className="border border-slate-200 px-3 py-2">{row.titleKeywordCount}</td>
-                    <td className="border border-slate-200 px-3 py-2">{row.titleIncludedKeywordCount}</td>
-                    <td className="border border-slate-200 px-3 py-2">{row.titleKeywordIntegrityOk ? "정상" : "확인 필요"}</td>
-                    <td className="border border-slate-200 px-3 py-2">{row.previewStatus}</td>
-                    <td className="border border-slate-200 px-3 py-2">{manualPreflightStatusLabel(row.preflightStatus)}</td>
-                    <td className="border border-slate-200 px-3 py-2">{manualApplyStatusLabel(row.applyStatus)}</td>
-                    <td className="border border-slate-200 px-3 py-2">{formatKeywordExecutionPreflightLabels(row.blockingReasons) || "-"}</td>
-                    <td className="border border-slate-200 px-3 py-2">{row.validationWarnings.join(", ") || "-"}</td>
+                    <td className="border border-slate-200 px-3 py-2 font-mono">
+                      {row.goodsKey}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {row.productGroup}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {row.marketName}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2 font-mono">
+                      {row.mallKey}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2 font-semibold">
+                      {row.finalTitle}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {row.finalSiteSrch}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {row.titleKeywordCount}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {row.titleIncludedKeywordCount}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {row.titleKeywordIntegrityOk ? "정상" : "확인 필요"}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {row.previewStatus}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {manualPreflightStatusLabel(row.preflightStatus)}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {manualApplyStatusLabel(row.applyStatus)}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {formatKeywordExecutionPreflightLabels(
+                        row.blockingReasons,
+                      ) || "-"}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {row.validationWarnings.join(", ") || "-"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2293,7 +2388,11 @@ function ManualPreviewReviewSection({
 }
 
 function manualPreflightStatusLabel(status: string) {
-  return status === "eligible" ? "반영 가능" : status === "blocked" ? "차단" : "사전점검 전";
+  return status === "eligible"
+    ? "반영 가능"
+    : status === "blocked"
+      ? "차단"
+      : "사전점검 전";
 }
 
 function manualApplyStatusLabel(status: string) {
@@ -2309,10 +2408,22 @@ function manualApplyStatusLabel(status: string) {
   return labels[status] ?? status;
 }
 
-function manualMallPreviewRowClassName(row: ReturnType<typeof buildManualMallPreviewRows>["rows"][number]) {
-  if (row.applyStatus === "failed" || row.applyStatus === "blocked" || row.preflightStatus === "blocked") return "bg-red-50 text-red-950";
-  if (row.applyStatus === "verified" || row.applyStatus === "applied") return "bg-emerald-50 text-emerald-950";
-  if (row.applyStatus === "preflight_pending" || row.preflightStatus === "pending") return "bg-slate-50 text-slate-600";
+function manualMallPreviewRowClassName(
+  row: ReturnType<typeof buildManualMallPreviewRows>["rows"][number],
+) {
+  if (
+    row.applyStatus === "failed" ||
+    row.applyStatus === "blocked" ||
+    row.preflightStatus === "blocked"
+  )
+    return "bg-red-50 text-red-950";
+  if (row.applyStatus === "verified" || row.applyStatus === "applied")
+    return "bg-emerald-50 text-emerald-950";
+  if (
+    row.applyStatus === "preflight_pending" ||
+    row.preflightStatus === "pending"
+  )
+    return "bg-slate-50 text-slate-600";
   return "bg-white text-slate-900";
 }
 
@@ -2546,13 +2657,21 @@ function isManualApplyReadyForFinalPrice(
   result: ManualApplyActionsResult | null,
 ) {
   const status = String(result?.summary?.status ?? result?.status ?? "");
+  const summary = summarizeManualApplyResult(result);
   return (
     isFinalManualApplyResult(result) &&
     [
       "success",
       "success_with_verification_warning",
       "partial_success_unverified",
-    ].includes(status)
+    ].includes(status) &&
+    summary.appliedItemCount > 0 &&
+    summary.failedCount === 0 &&
+    summary.blockedCount === 0 &&
+    summary.titleNotAppliedCount === 0 &&
+    summary.titleFailedCount === 0 &&
+    summary.searchNotAppliedCount === 0 &&
+    summary.searchFailedCount === 0
   );
 }
 
@@ -2579,6 +2698,7 @@ function OperatorLaunchStatusBoard({
   keywordWarningCount,
   issueCount,
   actualApplyDone,
+  manualApplyReadyForFinalPrice,
   keywordApplyState,
   priceIssueState,
   manualCandidatesReady,
@@ -2598,6 +2718,7 @@ function OperatorLaunchStatusBoard({
   keywordWarningCount: number;
   issueCount: number;
   actualApplyDone: boolean;
+  manualApplyReadyForFinalPrice: boolean;
   keywordApplyState: KeywordApplyState | null;
   priceIssueState: PriceIssueState;
   manualCandidatesReady: boolean;
@@ -2616,10 +2737,9 @@ function OperatorLaunchStatusBoard({
     realApplyStatus === "queued" ||
     realApplyStatus === "running" ||
     realApplyStatus === "waiting_artifact";
-  const realApplyLabel = getKeywordApplyPhaseLabelForBoard(keywordApplyState);
-  const keywordRealApplySucceeded =
-    isKeywordRealApplySuccess(keywordApplyState);
-  const manualApplyReadyForFinalPrice = keywordRealApplySucceeded;
+  const realApplyLabel = manualApplyReadyForFinalPrice
+    ? "반영 요청 완료 · 화면 확인 필요"
+    : getKeywordApplyPhaseLabelForBoard(keywordApplyState);
   const finalPriceStatus = finalPriceActive
     ? "가격 최종 재적용 중"
     : finalPriceDone
@@ -3183,14 +3303,15 @@ function ErrorDrawer({
 }) {
   const keywordFailure = hasKeywordFailure(keywordResult);
   const githubCredentialError = isGithubCredentialError(priceResult);
-  const duplicate = !githubCredentialError && allFailedRowsAreDuplicatePtnGoodsCd(uploadResult);
+  const duplicate =
+    !githubCredentialError && allFailedRowsAreDuplicatePtnGoodsCd(uploadResult);
   const operatorMessage = githubCredentialError
     ? "GitHub 토큰 오류"
     : keywordFailure
       ? "검토 준비가 실패했습니다."
-    : duplicate
-      ? "같은 자사상품코드가 이미 샵플링에 등록되어 있습니다."
-      : "실패한 단계의 로그와 행별 오류를 확인하세요.";
+      : duplicate
+        ? "같은 자사상품코드가 이미 샵플링에 등록되어 있습니다."
+        : "실패한 단계의 로그와 행별 오류를 확인하세요.";
   return (
     <section className="rounded-2xl border border-red-200 bg-red-50 p-5">
       <h2 className="text-lg font-bold text-red-800">{title}</h2>
@@ -3200,20 +3321,39 @@ function ErrorDrawer({
           <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
             <h3 className="font-black">GitHub 토큰 오류</h3>
             <p className="mt-2 font-semibold">
-              가격설정 실행은 완료되었을 수 있지만, OPS Center가 GitHub Actions 결과 파일을 가져오지 못했습니다.
+              가격설정 실행은 완료되었을 수 있지만, OPS Center가 GitHub Actions
+              결과 파일을 가져오지 못했습니다.
             </p>
             <p className="mt-2">
-              Vercel 환경변수 SHOPLING_PRICE_MODIFY_ACTIONS_TOKEN 또는 GITHUB_ACTIONS_TOKEN을 확인하세요.
+              Vercel 환경변수 SHOPLING_PRICE_MODIFY_ACTIONS_TOKEN 또는
+              GITHUB_ACTIONS_TOKEN을 확인하세요.
             </p>
             {priceResult?.runConclusion === "success" ? (
               <p className="mt-2 rounded-lg bg-white p-3 font-bold">
-                가격설정 작업은 성공했을 수 있습니다. 토큰을 수정한 뒤 결과만 다시 가져오세요.
+                가격설정 작업은 성공했을 수 있습니다. 토큰을 수정한 뒤 결과만
+                다시 가져오세요.
               </p>
             ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" onClick={onFetchPriceResult} disabled={actionsDisabled} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-400">가격설정 결과 다시 가져오기</button>
-              <GithubActionsShortcutButton href={actionsUrl ?? priceResult?.runUrl} />
-              <button type="button" onClick={onRetry} disabled={actionsDisabled} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 disabled:bg-slate-100">현재 실패 기록 지우기</button>
+              <button
+                type="button"
+                onClick={onFetchPriceResult}
+                disabled={actionsDisabled}
+                className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-400"
+              >
+                가격설정 결과 다시 가져오기
+              </button>
+              <GithubActionsShortcutButton
+                href={actionsUrl ?? priceResult?.runUrl}
+              />
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={actionsDisabled}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 disabled:bg-slate-100"
+              >
+                현재 실패 기록 지우기
+              </button>
             </div>
           </div>
         ) : duplicate ? (
@@ -3232,38 +3372,40 @@ function ErrorDrawer({
             실행, 시드 키워드를 입력하고 다시 실행.
           </p>
         ) : null}
-        {!githubCredentialError ? <div className="rounded-xl border border-red-200 bg-white p-4">
-          <p className="font-bold text-red-900">
-            자사상품코드나 실재고 시트 값을 수정했다면 아래 버튼으로 이전 실패
-            기록을 지우고 다시 시작하세요.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={onReset}
-              disabled={actionsDisabled}
-              className="rounded-lg bg-red-700 px-4 py-2 text-sm font-black text-white disabled:bg-slate-400"
-            >
-              문제 해결 후 처음부터 다시 시작
-            </button>
-            <button
-              type="button"
-              onClick={onReset}
-              disabled={actionsDisabled}
-              className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-black text-red-800 disabled:bg-slate-100"
-            >
-              현재 실패 기록 지우기
-            </button>
-            <button
-              type="button"
-              onClick={onRetry}
-              disabled={actionsDisabled}
-              className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-black text-blue-800 disabled:bg-slate-100"
-            >
-              문제 해결 후 같은 행 다시 실행
-            </button>
+        {!githubCredentialError ? (
+          <div className="rounded-xl border border-red-200 bg-white p-4">
+            <p className="font-bold text-red-900">
+              자사상품코드나 실재고 시트 값을 수정했다면 아래 버튼으로 이전 실패
+              기록을 지우고 다시 시작하세요.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={onReset}
+                disabled={actionsDisabled}
+                className="rounded-lg bg-red-700 px-4 py-2 text-sm font-black text-white disabled:bg-slate-400"
+              >
+                문제 해결 후 처음부터 다시 시작
+              </button>
+              <button
+                type="button"
+                onClick={onReset}
+                disabled={actionsDisabled}
+                className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-black text-red-800 disabled:bg-slate-100"
+              >
+                현재 실패 기록 지우기
+              </button>
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={actionsDisabled}
+                className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-black text-blue-800 disabled:bg-slate-100"
+              >
+                문제 해결 후 같은 행 다시 실행
+              </button>
+            </div>
           </div>
-        </div> : null}
+        ) : null}
         <details className="rounded-xl border border-slate-200 bg-white p-3">
           <summary className="cursor-pointer font-bold text-slate-900">
             개발자 진단 보기
@@ -3846,7 +3988,8 @@ function PriceSection({
         ", ",
       );
   const githubCredentialError = isGithubCredentialError(actionsResult);
-  const hasCoverageRisk = !githubCredentialError && (notApplied > 0 || blankRisk > 0 || failed > 0);
+  const hasCoverageRisk =
+    !githubCredentialError && (notApplied > 0 || blankRisk > 0 || failed > 0);
   const expectedUpdateCount = goodsKeyCount * FULL_PRICE_POLICY_MALL_COUNT;
   const confirmedAll =
     actionsResult &&
@@ -3908,14 +4051,17 @@ function PriceSection({
         <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
           <h3 className="text-base font-black">GitHub 토큰 오류</h3>
           <p className="mt-2 font-semibold">
-            가격설정 실행은 완료되었을 수 있지만, OPS Center가 GitHub Actions 결과 파일을 가져오지 못했습니다.
+            가격설정 실행은 완료되었을 수 있지만, OPS Center가 GitHub Actions
+            결과 파일을 가져오지 못했습니다.
           </p>
           <p className="mt-2">
-            Vercel 환경변수 SHOPLING_PRICE_MODIFY_ACTIONS_TOKEN 또는 GITHUB_ACTIONS_TOKEN을 확인하세요.
+            Vercel 환경변수 SHOPLING_PRICE_MODIFY_ACTIONS_TOKEN 또는
+            GITHUB_ACTIONS_TOKEN을 확인하세요.
           </p>
           {actionsResult?.runConclusion === "success" ? (
             <p className="mt-2 rounded-lg bg-white p-3 font-bold">
-              가격설정 작업은 성공했을 수 있습니다. 토큰을 수정한 뒤 결과만 다시 가져오세요.
+              가격설정 작업은 성공했을 수 있습니다. 토큰을 수정한 뒤 결과만 다시
+              가져오세요.
             </p>
           ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
@@ -3927,7 +4073,9 @@ function PriceSection({
             >
               {fetching ? "가져오는 중..." : "가격설정 결과 다시 가져오기"}
             </button>
-            <GithubActionsShortcutButton href={actionsResult?.runUrl ?? result?.githubActionsUrl} />
+            <GithubActionsShortcutButton
+              href={actionsResult?.runUrl ?? result?.githubActionsUrl}
+            />
             {onClearFailure ? (
               <button
                 type="button"
