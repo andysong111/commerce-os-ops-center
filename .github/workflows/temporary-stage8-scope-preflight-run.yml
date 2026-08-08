@@ -1,0 +1,141 @@
+name: Temporary Stage8 Scope Preflight Runner
+
+on:
+  push:
+    branches:
+      - ops/stage8-scope-preflight-run-20260809
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    if: >-
+      ${{
+        (github.event_name == 'push' && github.ref_name == 'ops/stage8-scope-preflight-run-20260809') ||
+        (github.event_name == 'pull_request' && github.head_ref == 'ops/stage8-scope-preflight-run-20260809')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Re-run read-only mismatch evidence with fetch-range preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://commerce-os-ops-center.vercel.app'
+          page="$base/stage8-demand-mismatch-evidence"
+          api="$base/api/stage8/demand-mismatch-evidence"
+
+          ready=0
+          for i in $(seq 1 36); do
+            code="$(curl -L -sS --connect-timeout 10 --max-time 60 -o /tmp/page -w '%{http_code}' "$page" || true)"
+            if [ "$code" = '200' ] && grep -q 'Shopling 조회구간과 실제 주문일이 달라' /tmp/page; then
+              ready=1
+              break
+            fi
+            echo "waiting for deployed scope-preflight page: HTTP $code"
+            sleep 5
+          done
+          test "$ready" = '1'
+
+          start_file="$(mktemp)"
+          start_code="$(curl -L -sS --connect-timeout 10 --max-time 120 \
+            -o "$start_file" -w '%{http_code}' \
+            -X POST "$api" \
+            -H 'content-type: application/json' \
+            -H "origin: $base" \
+            -H "referer: $page" \
+            --data '{"action":"start"}')"
+          echo "START HTTP $start_code"
+          cat "$start_file"
+          test "$start_code" = '200' -o "$start_code" = '202'
+          START_FILE="$start_file" python - <<'PY'
+          import json, os
+          with open(os.environ['START_FILE'], encoding='utf-8') as f:
+              data=json.load(f)
+          assert data.get('ok') is True, data
+          PY
+
+          for i in $(seq 1 90); do
+            response_file="$(mktemp)"
+            code="$(curl -L -sS --connect-timeout 10 --max-time 290 \
+              -o "$response_file" -w '%{http_code}' \
+              -X POST "$api" \
+              -H 'content-type: application/json' \
+              -H "origin: $base" \
+              -H "referer: $page" \
+              --data '{"action":"run-next"}' || true)"
+            echo "STEP $i HTTP $code"
+            if [ "$code" != '200' ]; then
+              cat "$response_file"
+              exit 1
+            fi
+            STEP_FILE="$response_file" python - <<'PY'
+          import json, os, sys
+          with open(os.environ['STEP_FILE'], encoding='utf-8') as f:
+              data=json.load(f)
+          if data.get('ok') is not True:
+              print(data, file=sys.stderr)
+              raise SystemExit(1)
+          result=data.get('result') or {}
+          print(json.dumps({k:result.get(k) for k in ('state','range','fetchedRows','candidateRows','evidenceRows','attempt','message') if k in result}, ensure_ascii=False))
+          if result.get('state') == 'FAILED':
+              raise SystemExit(2)
+          PY
+
+            current_file="$(mktemp)"
+            current_code="$(curl -L -sS --connect-timeout 10 --max-time 60 \
+              -o "$current_file" -w '%{http_code}' "$api" \
+              -H "origin: $base" -H "referer: $page")"
+            test "$current_code" = '200'
+            rm -f /tmp/stage8-scope-complete
+            CURRENT_FILE="$current_file" python - <<'PY'
+          import json, os, pathlib, sys
+          with open(os.environ['CURRENT_FILE'], encoding='utf-8') as f:
+              data=json.load(f)
+          status=data.get('status') or {}
+          state=status.get('state')
+          print('STATUS', state, status.get('completedRanges'), '/', status.get('totalRanges'))
+          if state == 'FAILED':
+              print(data, file=sys.stderr)
+              raise SystemExit(3)
+          if state == 'COMPLETE':
+              report=status.get('report') or {}
+              summary={
+                  'requestId': status.get('requestId'),
+                  'fetchedRows': report.get('fetchedRows'),
+                  'candidateRows': report.get('candidateRows'),
+                  'evidenceRows': report.get('evidenceRows'),
+                  'affectedBarcodes': len(report.get('affectedBarcodes') or []),
+                  'categoryCounts': report.get('categoryCounts'),
+                  'reasonCounts': report.get('reasonCounts'),
+                  'reasonUnitDelta': report.get('reasonUnitDelta'),
+                  'reasonRevenueDelta': report.get('reasonRevenueDelta'),
+                  'evidenceFingerprint': report.get('evidenceFingerprint'),
+              }
+              print('FINAL_SUMMARY', json.dumps(summary, ensure_ascii=False))
+              rows=[]
+              for row in (report.get('topEvidence') or [])[:20]:
+                  rows.append({k:row.get(k) for k in (
+                      'reason','category','orderNo','sourceRangeStart','sourceRangeEnd','orderedAt',
+                      'orderedLocalDate','canonicalUtcOrderedDate','canonicalDateInsideFetchRange','rawIDt',
+                      'canonicalScopeWouldBeManaged','canonicalScopeDecisionPath',
+                      'canonicalScopeOptionStructuredCode','canonicalScopePartnerStructuredCode',
+                      'optionId','rawOptionBarcode','rawPartnerCode','rawMallOrderCount',
+                      'canonicalState','canonicalBarcode','legacyState','legacyBarcode','legacyUnits',
+                      'unitDeltaLegacyMinusCanonical','revenueDeltaLegacyMinusCanonical'
+                  )})
+              print('TOP_PREFLIGHT_EVIDENCE', json.dumps(rows, ensure_ascii=False))
+              pathlib.Path('/tmp/stage8-scope-complete').write_text('complete')
+          PY
+            if [ -f /tmp/stage8-scope-complete ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo 'Scope-preflight evidence runner exhausted before terminal state.' >&2
+          exit 1
