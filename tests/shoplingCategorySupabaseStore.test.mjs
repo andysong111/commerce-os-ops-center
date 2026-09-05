@@ -19,6 +19,7 @@ test("샵플링 카테고리 저장은 GitHub 쓰기 대신 Supabase 시스템 �
   assert.match(store, /shopling_category_catalog/);
   assert.match(store, /7fcb0ac2-cc25-4f0a-a2d9-6f94fbdb7b91/);
   assert.match(store, /resolution=merge-duplicates/);
+  assert.match(store, /7fcb0ac2-cc25-4f0a-a2d9-6f94fbdb7b91/);
   assert.match(publisher, /writeShoplingCategoryCatalogToSupabase/);
   assert.doesNotMatch(publisher, /git\/blobs/);
   assert.match(catalog, /readShoplingCategoryCatalogFromSupabase/);
