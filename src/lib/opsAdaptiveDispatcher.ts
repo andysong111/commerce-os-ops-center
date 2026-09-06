@@ -56,6 +56,11 @@ const REGISTRY: Record<string, RegistryEntry> = {
     load: async () =>
       (await import("@/app/api/cron/seo-run-worker/route")).GET as CronHandler,
   },
+  "legacy-seo-run-worker": {
+    routePath: "/api/cron/legacy-seo-run-worker",
+    load: async () =>
+      (await import("@/app/api/cron/legacy-seo-run-worker/route")).GET as CronHandler,
+  },
   "detail-page-jobs": {
     routePath: "/api/cron/detail-page-jobs",
     load: async () =>
