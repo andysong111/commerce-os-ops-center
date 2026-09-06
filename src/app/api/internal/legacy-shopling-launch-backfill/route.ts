@@ -3,6 +3,8 @@ import {
   DEFAULT_SHOPLING_READ_URLS,
   parseShoplingReadResponse,
   shoplingReadConfigFromEnv,
+  splitShoplingDateRange,
+  type ShoplingDateRange,
   type ShoplingReadConfig,
 } from "@/lib/shopling/shoplingReadClient";
 import { postShoplingXml } from "@/lib/shopling/shoplingTlsTransport";
@@ -22,6 +24,7 @@ const TARGET_BATCH = "등록완료건";
 const MAX_GOODS_PER_REQUEST = 40;
 const MAX_ADDITIONAL_IMAGES = 10;
 const DEFAULT_PRODUCT_MASTER_URL = "https://commerce-os-product-master.vercel.app";
+const LEGACY_CATALOG_START = process.env.SHOPLING_LEGACY_CATALOG_START_DATE?.trim() || "2020-01-01";
 const PRODUCT_FIELDS = [
   "goods_key",
   "prod_nm",
@@ -31,6 +34,7 @@ const PRODUCT_FIELDS = [
   ...Array.from({ length: 18 }, (_, index) => `img_${index + 1}`),
   ...Array.from({ length: 10 }, (_, index) => `img_${index + 22}`),
 ].join(",");
+const LEGACY_SCAN_FIELDS = "goods_key,model_no";
 
 const SHIPPING_NOTICE_URLS = [
   "https://gi.esmplus.com/andy80101/%EB%8F%84%EB%A7%A4%EC%9E%AC%EA%B3%A0%20%ED%95%98%EB%8B%A8%EA%B3%B5%EC%A7%80/%ED%95%98%EB%8B%A8%20%EA%B3%B5%EC%A7%801%EB%B2%88111.jpg",
@@ -47,14 +51,9 @@ type GoodsEvidence = {
   mainImageUrl: string;
   additionalImageUrls: string[];
 };
-type ModelEvidence = {
-  modelNumber: string;
-  goodsKeys: string[];
-  goods: GoodsEvidence[];
-};
+type ModelEvidence = { modelNumber: string; goodsKeys: string[]; goods: GoodsEvidence[] };
 type ListingMapPayload = {
   ok?: boolean;
-  matchedModelCount?: number;
   rows?: Array<{ modelNumber?: unknown; goodsKeys?: unknown }>;
   error?: string;
   message?: string;
@@ -88,26 +87,40 @@ function unique(values: string[], limit = Number.MAX_SAFE_INTEGER) {
   }
   return result;
 }
-function xmlCdata(value: string) {
+function cdata(value: string) {
   return `<![CDATA[${value.replaceAll("]]>", "]]]]><![CDATA[>")}]]>`;
 }
-function todayYmd() {
-  return new Date().toISOString().slice(0, 10).replaceAll("-", "");
+function ymd(value: string) {
+  return value.replaceAll("-", "");
 }
 function buildProductLookupXml(
   config: Pick<ShoplingReadConfig, "loginId" | "companyId" | "authKey">,
   goodsKeys: string[],
 ) {
-  const today = todayYmd();
+  const today = ymd(new Date().toISOString().slice(0, 10));
   return `<?xml version="1.0" encoding="UTF-8"?><reqst><apiProdGather>` +
-    `<login_id>${xmlCdata(config.loginId)}</login_id>` +
-    `<company_id>${xmlCdata(config.companyId)}</company_id>` +
-    `<api_auth_key>${xmlCdata(config.authKey)}</api_auth_key>` +
-    `<search_tp>${xmlCdata("수정일")}</search_tp>` +
+    `<login_id>${cdata(config.loginId)}</login_id>` +
+    `<company_id>${cdata(config.companyId)}</company_id>` +
+    `<api_auth_key>${cdata(config.authKey)}</api_auth_key>` +
+    `<search_tp>${cdata("수정일")}</search_tp>` +
     `<start_dt>${today}</start_dt><end_dt>${today}</end_dt>` +
-    `<key_search_tp>${xmlCdata("상품코드")}</key_search_tp>` +
-    `<prod_id>${xmlCdata(goodsKeys.join(","))}</prod_id>` +
-    `<prod_fields>${xmlCdata(PRODUCT_FIELDS)}</prod_fields>` +
+    `<key_search_tp>${cdata("상품코드")}</key_search_tp>` +
+    `<prod_id>${cdata(goodsKeys.join(","))}</prod_id>` +
+    `<prod_fields>${cdata(PRODUCT_FIELDS)}</prod_fields>` +
+    `<opt_yn>N</opt_yn><attri_yn>N</attri_yn>` +
+    `</apiProdGather></reqst>`;
+}
+function buildLegacyScanXml(
+  config: Pick<ShoplingReadConfig, "loginId" | "companyId" | "authKey">,
+  range: ShoplingDateRange,
+) {
+  return `<?xml version="1.0" encoding="UTF-8"?><reqst><apiProdGather>` +
+    `<login_id>${cdata(config.loginId)}</login_id>` +
+    `<company_id>${cdata(config.companyId)}</company_id>` +
+    `<api_auth_key>${cdata(config.authKey)}</api_auth_key>` +
+    `<search_tp>${cdata("수정일")}</search_tp>` +
+    `<start_dt>${ymd(range.start)}</start_dt><end_dt>${ymd(range.end)}</end_dt>` +
+    `<prod_fields>${cdata(LEGACY_SCAN_FIELDS)}</prod_fields>` +
     `<opt_yn>N</opt_yn><attri_yn>N</attri_yn>` +
     `</apiProdGather></reqst>`;
 }
@@ -183,18 +196,13 @@ function chooseCategory(goods: GoodsEvidence[], currentCategory: string) {
     else counts.set(key, { value: category, count: 1 });
   }
   const ranked = [...counts.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "ko"));
-  if (!ranked.length) return { value: "", tied: false, count: 0, choices: [] as string[] };
+  if (!ranked.length) return { value: "", tied: false, choices: [] as string[] };
   const topCount = ranked[0].count;
   const top = ranked.filter((row) => row.count === topCount);
-  if (top.length === 1) return { value: top[0].value, tied: false, count: topCount, choices: [top[0].value] };
+  if (top.length === 1) return { value: top[0].value, tied: false, choices: [top[0].value] };
   const currentKey = text(currentCategory).toLowerCase();
   const currentMatch = top.find((row) => row.value.toLowerCase() === currentKey);
-  return {
-    value: currentMatch?.value || "",
-    tied: true,
-    count: topCount,
-    choices: top.map((row) => row.value),
-  };
+  return { value: currentMatch?.value || "", tied: true, choices: top.map((row) => row.value) };
 }
 function chooseDetailHtml(goods: GoodsEvidence[]) {
   const values = goods.map((row) => row.detailHtml).filter(Boolean);
@@ -241,21 +249,15 @@ function chooseAdditionalImages(goods: GoodsEvidence[], mainImageUrl: string) {
     gifExcluded,
   };
 }
-
 async function loadCompleteProductMasterListingMap(modelNumbers: string[]) {
   const models = unique(modelNumbers.map(normalizeModel), 500);
   const secret = process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim();
-  const baseUrl = (
-    process.env.PRODUCT_MASTER_BASE_URL?.trim() || DEFAULT_PRODUCT_MASTER_URL
-  ).replace(/\/$/, "");
+  const baseUrl = (process.env.PRODUCT_MASTER_BASE_URL?.trim() || DEFAULT_PRODUCT_MASTER_URL).replace(/\/$/, "");
   if (!secret) throw new Error("PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED");
   const url = new URL(`${baseUrl}/api/integrations/listing-map`);
   url.searchParams.set("models", models.join(","));
   const response = await fetch(url, {
-    headers: {
-      accept: "application/json",
-      "x-commerce-os-integration-secret": secret,
-    },
+    headers: { accept: "application/json", "x-commerce-os-integration-secret": secret },
     cache: "no-store",
     signal: AbortSignal.timeout(60_000),
   });
@@ -266,40 +268,73 @@ async function loadCompleteProductMasterListingMap(modelNumbers: string[]) {
   const result = new Map<string, Set<string>>();
   for (const row of payload.rows) {
     const model = normalizeModel(row.modelNumber);
-    const goodsKeys = Array.isArray(row.goodsKeys)
-      ? row.goodsKeys.map(normalizeGoodsKey).filter(Boolean)
-      : [];
+    const goodsKeys = Array.isArray(row.goodsKeys) ? row.goodsKeys.map(normalizeGoodsKey).filter(Boolean) : [];
     if (model && goodsKeys.length) result.set(model, new Set(goodsKeys));
   }
   return result;
 }
-
+async function recoverHistoricalShoplingModels(
+  requestedModels: string[],
+  existing: Map<string, Set<string>>,
+  config: ShoplingReadConfig,
+) {
+  const missing = new Set(requestedModels.filter((model) => !existing.has(model)));
+  const recovered = new Map<string, Set<string>>();
+  if (!missing.size) return { recovered, rangeCount: 0, rowCount: 0 };
+  const end = new Date().toISOString().slice(0, 10);
+  const ranges = splitShoplingDateRange(LEGACY_CATALOG_START, end, 90);
+  let rowCount = 0;
+  for (const range of ranges) {
+    const response = await postShoplingXml(config.productsUrl, buildLegacyScanXml(config, range), {
+      headers: {
+        accept: "application/xml, text/xml",
+        "content-type": "application/xml; charset=utf-8",
+        "user-agent": "commerce-os-legacy-model-scan/1.0",
+      },
+      timeoutMs: 45_000,
+    });
+    const body = await response.text();
+    if (!response.ok) throw new Error(`LEGACY_SHOPLING_SCAN_HTTP_${response.status}`);
+    const rows = parseShoplingReadResponse("products", body).map(record);
+    rowCount += rows.length;
+    for (const row of rows) {
+      const model = normalizeModel(row.model_no);
+      const goodsKey = normalizeGoodsKey(row.goods_key);
+      if (!missing.has(model) || !goodsKey) continue;
+      const set = recovered.get(model) ?? new Set<string>();
+      set.add(goodsKey);
+      recovered.set(model, set);
+    }
+  }
+  return { recovered, rangeCount: ranges.length, rowCount };
+}
 async function fetchShoplingEvidence(modelNumbers: string[]) {
   const requestedModels = unique(modelNumbers.map(normalizeModel), 500);
+  const config = shoplingReadConfigFromEnv(shoplingEnvironment());
   const goodsByModel = await loadCompleteProductMasterListingMap(requestedModels);
+  const historical = await recoverHistoricalShoplingModels(requestedModels, goodsByModel, config);
+  for (const [model, recoveredKeys] of historical.recovered) {
+    const set = goodsByModel.get(model) ?? new Set<string>();
+    for (const key of recoveredKeys) set.add(key);
+    goodsByModel.set(model, set);
+  }
   const allGoodsKeys = unique(
     requestedModels.flatMap((model) => [...(goodsByModel.get(model) ?? [])]),
-    10000,
+    12000,
   );
-  const config = shoplingReadConfigFromEnv(shoplingEnvironment());
   const productByGoodsKey = new Map<string, GoodsEvidence>();
   let shippingNoticeRemovedCount = 0;
   let fetchedRowCount = 0;
-
   for (let index = 0; index < allGoodsKeys.length; index += MAX_GOODS_PER_REQUEST) {
     const chunk = allGoodsKeys.slice(index, index + MAX_GOODS_PER_REQUEST);
-    const response = await postShoplingXml(
-      config.productsUrl,
-      buildProductLookupXml(config, chunk),
-      {
-        headers: {
-          accept: "application/xml, text/xml",
-          "content-type": "application/xml; charset=utf-8",
-          "user-agent": "commerce-os-legacy-launch-backfill/1.1",
-        },
-        timeoutMs: 45_000,
+    const response = await postShoplingXml(config.productsUrl, buildProductLookupXml(config, chunk), {
+      headers: {
+        accept: "application/xml, text/xml",
+        "content-type": "application/xml; charset=utf-8",
+        "user-agent": "commerce-os-legacy-launch-backfill/1.2",
       },
-    );
+      timeoutMs: 45_000,
+    });
     const body = await response.text();
     if (!response.ok) throw new Error(`LEGACY_SHOPLING_BACKFILL_HTTP_${response.status}`);
     const rows = parseShoplingReadResponse("products", body).map(record);
@@ -318,7 +353,6 @@ async function fetchShoplingEvidence(modelNumbers: string[]) {
       });
     }
   }
-
   const result = new Map<string, ModelEvidence>();
   for (const model of requestedModels) {
     const goodsKeys = [...(goodsByModel.get(model) ?? [])];
@@ -328,6 +362,10 @@ async function fetchShoplingEvidence(modelNumbers: string[]) {
   return {
     evidenceByModel: result,
     mappedModelCount: goodsByModel.size,
+    productMasterMappedModelCount: goodsByModel.size - historical.recovered.size,
+    historicalRecoveredModelCount: historical.recovered.size,
+    historicalCatalogRangeCount: historical.rangeCount,
+    historicalCatalogRowCount: historical.rowCount,
     requestedGoodsKeyCount: allGoodsKeys.length,
     fetchedProductCount: productByGoodsKey.size,
     fetchedRowCount,
@@ -340,7 +378,6 @@ export async function POST(request: NextRequest) {
   if (!identityResult.ok) return Response.json(identityResult.body, { status: identityResult.status });
   const configResult = getProductLaunchAdminConfig();
   if (!configResult.ok) return Response.json(configResult.body, { status: configResult.status });
-
   const mode = request.nextUrl.searchParams.get("mode") === "apply" ? "apply" : "dry-run";
   const identity = identityResult.value;
   const config = configResult.value;
@@ -352,10 +389,13 @@ export async function POST(request: NextRequest) {
     .filter(({ item }) => text(item.workBatch) === TARGET_BATCH && !text(item.archivedAt));
   const modelNumbers = targetIndexes.map(({ item }) => normalizeModel(item.modelNumber)).filter(Boolean);
   const loaded = await fetchShoplingEvidence(modelNumbers);
-
   const stats = {
     targetCount: targetIndexes.length,
     mappedModelCount: loaded.mappedModelCount,
+    productMasterMappedModelCount: loaded.productMasterMappedModelCount,
+    historicalRecoveredModelCount: loaded.historicalRecoveredModelCount,
+    historicalCatalogRangeCount: loaded.historicalCatalogRangeCount,
+    historicalCatalogRowCount: loaded.historicalCatalogRowCount,
     requestedGoodsKeyCount: loaded.requestedGoodsKeyCount,
     fetchedProductCount: loaded.fetchedProductCount,
     fetchedRowCount: loaded.fetchedRowCount,
@@ -380,7 +420,6 @@ export async function POST(request: NextRequest) {
   const changedIds: string[] = [];
   const samples: UnknownRecord[] = [];
   const unmatchedModels: string[] = [];
-
   for (const { item, index } of targetIndexes) {
     const modelNumber = normalizeModel(item.modelNumber);
     const evidence = loaded.evidenceByModel.get(modelNumber);
@@ -389,24 +428,20 @@ export async function POST(request: NextRequest) {
       unmatchedModels.push(modelNumber || text(item.id));
       continue;
     }
-
     const currentCategory = text(item.shoplingCategory);
     const categoryChoice = chooseCategory(evidence.goods, currentCategory);
     const chosenHtml = chooseDetailHtml(evidence.goods);
     const chosenMain = chooseMainImage(evidence.goods);
     const chosenAdditional = chooseAdditionalImages(evidence.goods, chosenMain);
     stats.gifExcludedCount += chosenAdditional.gifExcluded;
-
     const currentAsset = record(item.detailPageAsset);
     const currentHtml = text(currentAsset.html);
     const currentMain = text(currentAsset.mainImageUrl);
     const currentAdditional = Array.isArray(currentAsset.additionalImageUrls)
       ? unique(currentAsset.additionalImageUrls.map(text).filter(Boolean), MAX_ADDITIONAL_IMAGES)
       : [];
-
     let changed = false;
     const nextItem = { ...item };
-
     if (categoryChoice.value) {
       if (categoryChoice.value === currentCategory) stats.categoryAlreadySameCount += 1;
       else {
@@ -416,7 +451,6 @@ export async function POST(request: NextRequest) {
       }
     } else if (categoryChoice.tied) stats.categoryTieSkippedCount += 1;
     else stats.categoryMissingCount += 1;
-
     const nextAsset: UnknownRecord = { ...currentAsset };
     if (currentHtml) stats.htmlPreservedCount += 1;
     else if (chosenHtml) {
@@ -424,21 +458,18 @@ export async function POST(request: NextRequest) {
       stats.htmlFilledCount += 1;
       changed = true;
     } else stats.htmlMissingCount += 1;
-
     if (currentMain) stats.mainImagePreservedCount += 1;
     else if (chosenMain) {
       nextAsset.mainImageUrl = chosenMain;
       stats.mainImageFilledCount += 1;
       changed = true;
     } else stats.mainImageMissingCount += 1;
-
     if (currentAdditional.length) stats.additionalImagesPreservedCount += 1;
     else if (chosenAdditional.images.length) {
       nextAsset.additionalImageUrls = chosenAdditional.images;
       stats.additionalImagesFilledCount += 1;
       changed = true;
     } else stats.additionalImagesMissingCount += 1;
-
     if (changed) {
       const now = new Date().toISOString();
       nextItem.detailPageAsset = nextAsset;
@@ -455,7 +486,6 @@ export async function POST(request: NextRequest) {
       items[index] = nextItem;
       changedIds.push(text(item.id));
     }
-
     if (samples.length < 20) {
       samples.push({
         modelNumber,
@@ -471,14 +501,12 @@ export async function POST(request: NextRequest) {
       });
     }
   }
-
   if (mode === "apply" && changedIds.length) {
     state.items = items;
     state.savedAt = new Date().toISOString();
     await writeProductLaunchState(config, identity, state);
     await reconcileProductLaunchNormalizedAfterLegacyItems(config, identity, changedIds);
   }
-
   return Response.json({
     ok: true,
     mode,
