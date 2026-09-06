@@ -114,7 +114,7 @@ function kindLabel(value: ProductKind) {
 
 function routeLabel(job: SyncJob) {
   return job.productKind === "OPTION"
-    ? `A6 ${statusLabel(job.desiredStatus)} → A21 goods key 옵션송신`
+    ? `Shopling API ${statusLabel(job.desiredStatus)} 검증·변경 → A21 goods key 옵션송신`
     : `A4 ${statusLabel(job.desiredStatus)} → A21 상품판매상태 ${statusLabel(job.desiredStatus)} 송신`;
 }
 
@@ -551,7 +551,7 @@ export function InventoryStockControlPanel() {
               Shopling 품절·판매중 동기화 대기
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Shopling/마켓에는 재고수량을 맞추지 않고 품절·판매중 상태만 전송합니다. 옵션상품은 A6 상태변경 후 A21 goods key 옵션송신, 단품은 A4 상품상태 변경 후 A21 상품판매상태 송신을 사용합니다.
+              Shopling/마켓에는 재고수량을 맞추지 않고 품절·판매중 상태만 전송합니다. 옵션상품은 Shopling API에서 B코드 정확 옵션의 상태만 변경·재검증한 뒤 A21 goods key 옵션송신, 단품은 A4 상품상태 변경 후 A21 상품판매상태 송신을 사용합니다.
             </p>
           </div>
           <span
