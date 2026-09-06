@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import {
   DEFAULT_SHOPLING_READ_URLS,
   parseShoplingReadResponse,
@@ -22,6 +21,7 @@ export const maxDuration = 300;
 const TARGET_BATCH = "등록완료건";
 const MAX_GOODS_PER_REQUEST = 40;
 const MAX_ADDITIONAL_IMAGES = 10;
+const DEFAULT_PRODUCT_MASTER_URL = "https://commerce-os-product-master.vercel.app";
 const PRODUCT_FIELDS = [
   "goods_key",
   "prod_nm",
@@ -47,11 +47,17 @@ type GoodsEvidence = {
   mainImageUrl: string;
   additionalImageUrls: string[];
 };
-
 type ModelEvidence = {
   modelNumber: string;
   goodsKeys: string[];
   goods: GoodsEvidence[];
+};
+type ListingMapPayload = {
+  ok?: boolean;
+  matchedModelCount?: number;
+  rows?: Array<{ modelNumber?: unknown; goodsKeys?: unknown }>;
+  error?: string;
+  message?: string;
 };
 
 function record(value: unknown): UnknownRecord {
@@ -59,20 +65,16 @@ function record(value: unknown): UnknownRecord {
     ? (value as UnknownRecord)
     : {};
 }
-
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
 }
-
 function normalizeModel(value: unknown) {
   return text(value).toUpperCase().replace(/\s+/g, "");
 }
-
 function normalizeGoodsKey(value: unknown) {
   const normalized = text(value);
   return /^\d{5,12}$/.test(normalized) ? normalized : "";
 }
-
 function unique(values: string[], limit = Number.MAX_SAFE_INTEGER) {
   const result: string[] = [];
   const seen = new Set<string>();
@@ -86,15 +88,12 @@ function unique(values: string[], limit = Number.MAX_SAFE_INTEGER) {
   }
   return result;
 }
-
 function xmlCdata(value: string) {
   return `<![CDATA[${value.replaceAll("]]>", "]]]]><![CDATA[>")}]]>`;
 }
-
 function todayYmd() {
   return new Date().toISOString().slice(0, 10).replaceAll("-", "");
 }
-
 function buildProductLookupXml(
   config: Pick<ShoplingReadConfig, "loginId" | "companyId" | "authKey">,
   goodsKeys: string[],
@@ -112,7 +111,6 @@ function buildProductLookupXml(
     `<opt_yn>N</opt_yn><attri_yn>N</attri_yn>` +
     `</apiProdGather></reqst>`;
 }
-
 function shoplingEnvironment() {
   return {
     SHOPLING_LOGIN_ID: process.env.SHOPLING_LOGIN_ID,
@@ -124,7 +122,6 @@ function shoplingEnvironment() {
     SHOPLING_CLAIMS_API_URL: process.env.SHOPLING_CLAIMS_API_URL,
   };
 }
-
 function normalizedUrlKey(value: string) {
   const trimmed = text(value).replace(/^http:/i, "https:");
   try {
@@ -133,9 +130,7 @@ function normalizedUrlKey(value: string) {
     return trimmed.toLowerCase();
   }
 }
-
 const SHIPPING_NOTICE_KEYS = new Set(SHIPPING_NOTICE_URLS.map(normalizedUrlKey));
-
 function stripShippingNoticeHtml(htmlInput: unknown) {
   const html = text(htmlInput);
   if (!html) return { html: "", removedCount: 0 };
@@ -150,7 +145,6 @@ function stripShippingNoticeHtml(htmlInput: unknown) {
   );
   return { html: cleaned.trim(), removedCount };
 }
-
 function isGifUrl(value: string) {
   const normalized = text(value);
   if (!normalized) return false;
@@ -160,14 +154,12 @@ function isGifUrl(value: string) {
     return /\.gif(?:$|[?#])/i.test(normalized);
   }
 }
-
 function imageValues(row: UnknownRecord) {
   const values: string[] = [];
   for (let index = 1; index <= 18; index += 1) values.push(text(row[`img_${index}`]));
   for (let index = 22; index <= 31; index += 1) values.push(text(row[`img_${index}`]));
   return values.filter(Boolean);
 }
-
 function mostFrequentValue(values: string[]) {
   const counts = new Map<string, { value: string; count: number; first: number }>();
   values.forEach((value, index) => {
@@ -180,7 +172,6 @@ function mostFrequentValue(values: string[]) {
   });
   return [...counts.values()].sort((a, b) => b.count - a.count || a.first - b.first)[0] ?? null;
 }
-
 function chooseCategory(goods: GoodsEvidence[], currentCategory: string) {
   const counts = new Map<string, { value: string; count: number }>();
   for (const row of goods) {
@@ -205,7 +196,6 @@ function chooseCategory(goods: GoodsEvidence[], currentCategory: string) {
     choices: top.map((row) => row.value),
   };
 }
-
 function chooseDetailHtml(goods: GoodsEvidence[]) {
   const values = goods.map((row) => row.detailHtml).filter(Boolean);
   if (!values.length) return "";
@@ -218,11 +208,9 @@ function chooseDetailHtml(goods: GoodsEvidence[]) {
   }
   return [...counts.values()].sort((a, b) => b.count - a.count || b.length - a.length)[0]?.value || "";
 }
-
 function chooseMainImage(goods: GoodsEvidence[]) {
   return mostFrequentValue(goods.map((row) => row.mainImageUrl).filter(Boolean))?.value || "";
 }
-
 function chooseAdditionalImages(goods: GoodsEvidence[], mainImageUrl: string) {
   const counts = new Map<string, { value: string; count: number; first: number }>();
   let first = 0;
@@ -245,29 +233,50 @@ function chooseAdditionalImages(goods: GoodsEvidence[], mainImageUrl: string) {
       else counts.set(key, { value, count: 1, first: first++ });
     }
   }
-  const images = [...counts.values()]
-    .sort((a, b) => b.count - a.count || a.first - b.first)
-    .map((row) => row.value)
-    .slice(0, MAX_ADDITIONAL_IMAGES);
-  return { images, gifExcluded };
+  return {
+    images: [...counts.values()]
+      .sort((a, b) => b.count - a.count || a.first - b.first)
+      .map((row) => row.value)
+      .slice(0, MAX_ADDITIONAL_IMAGES),
+    gifExcluded,
+  };
+}
+
+async function loadCompleteProductMasterListingMap(modelNumbers: string[]) {
+  const models = unique(modelNumbers.map(normalizeModel), 500);
+  const secret = process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim();
+  const baseUrl = (
+    process.env.PRODUCT_MASTER_BASE_URL?.trim() || DEFAULT_PRODUCT_MASTER_URL
+  ).replace(/\/$/, "");
+  if (!secret) throw new Error("PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED");
+  const url = new URL(`${baseUrl}/api/integrations/listing-map`);
+  url.searchParams.set("models", models.join(","));
+  const response = await fetch(url, {
+    headers: {
+      accept: "application/json",
+      "x-commerce-os-integration-secret": secret,
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(60_000),
+  });
+  const payload = (await response.json().catch(() => ({}))) as ListingMapPayload;
+  if (!response.ok || payload.ok !== true || !Array.isArray(payload.rows)) {
+    throw new Error(payload.message || payload.error || `PRODUCT_MASTER_LISTING_MAP_FAILED:${response.status}`);
+  }
+  const result = new Map<string, Set<string>>();
+  for (const row of payload.rows) {
+    const model = normalizeModel(row.modelNumber);
+    const goodsKeys = Array.isArray(row.goodsKeys)
+      ? row.goodsKeys.map(normalizeGoodsKey).filter(Boolean)
+      : [];
+    if (model && goodsKeys.length) result.set(model, new Set(goodsKeys));
+  }
+  return result;
 }
 
 async function fetchShoplingEvidence(modelNumbers: string[]) {
-  const requestedModels = unique(modelNumbers.map(normalizeModel), 1000);
-  const snapshot = await loadProductPlanningSnapshot();
-  const goodsByModel = new Map<string, Set<string>>();
-  for (const product of snapshot.products ?? []) {
-    const model = normalizeModel(product.modelNo);
-    if (!model || !requestedModels.includes(model)) continue;
-    const set = goodsByModel.get(model) ?? new Set<string>();
-    for (const listing of product.listings ?? []) {
-      if (listing.active === false) continue;
-      const goodsKey = normalizeGoodsKey(listing.goodsKey);
-      if (goodsKey) set.add(goodsKey);
-    }
-    if (set.size) goodsByModel.set(model, set);
-  }
-
+  const requestedModels = unique(modelNumbers.map(normalizeModel), 500);
+  const goodsByModel = await loadCompleteProductMasterListingMap(requestedModels);
   const allGoodsKeys = unique(
     requestedModels.flatMap((model) => [...(goodsByModel.get(model) ?? [])]),
     10000,
@@ -286,15 +295,13 @@ async function fetchShoplingEvidence(modelNumbers: string[]) {
         headers: {
           accept: "application/xml, text/xml",
           "content-type": "application/xml; charset=utf-8",
-          "user-agent": "commerce-os-legacy-launch-backfill/1.0",
+          "user-agent": "commerce-os-legacy-launch-backfill/1.1",
         },
         timeoutMs: 45_000,
       },
     );
     const body = await response.text();
-    if (!response.ok) {
-      throw new Error(`LEGACY_SHOPLING_BACKFILL_HTTP_${response.status}`);
-    }
+    if (!response.ok) throw new Error(`LEGACY_SHOPLING_BACKFILL_HTTP_${response.status}`);
     const rows = parseShoplingReadResponse("products", body).map(record);
     fetchedRowCount += rows.length;
     for (const row of rows) {
@@ -330,13 +337,9 @@ async function fetchShoplingEvidence(modelNumbers: string[]) {
 
 export async function POST(request: NextRequest) {
   const identityResult = await resolveProductLaunchIdentity(request);
-  if (!identityResult.ok) {
-    return Response.json(identityResult.body, { status: identityResult.status });
-  }
+  if (!identityResult.ok) return Response.json(identityResult.body, { status: identityResult.status });
   const configResult = getProductLaunchAdminConfig();
-  if (!configResult.ok) {
-    return Response.json(configResult.body, { status: configResult.status });
-  }
+  if (!configResult.ok) return Response.json(configResult.body, { status: configResult.status });
 
   const mode = request.nextUrl.searchParams.get("mode") === "apply" ? "apply" : "dry-run";
   const identity = identityResult.value;
@@ -411,11 +414,8 @@ export async function POST(request: NextRequest) {
         stats.categoryChangedCount += 1;
         changed = true;
       }
-    } else if (categoryChoice.tied) {
-      stats.categoryTieSkippedCount += 1;
-    } else {
-      stats.categoryMissingCount += 1;
-    }
+    } else if (categoryChoice.tied) stats.categoryTieSkippedCount += 1;
+    else stats.categoryMissingCount += 1;
 
     const nextAsset: UnknownRecord = { ...currentAsset };
     if (currentHtml) stats.htmlPreservedCount += 1;
@@ -484,7 +484,7 @@ export async function POST(request: NextRequest) {
     mode,
     changedCount: changedIds.length,
     stats,
-    unmatchedModels: unique(unmatchedModels, 100),
+    unmatchedModels: unique(unmatchedModels, 500),
     samples,
   });
 }
