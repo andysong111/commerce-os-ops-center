@@ -6,7 +6,7 @@ import { buildStockWorkerV030 } from "../../../../../scripts/build-shopling-stoc
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 const FILES = [
   "manifest.json",
   "background-v020.js",
@@ -99,10 +99,12 @@ export async function GET(request: Request) {
         zipBytes: zip.byteLength,
         workerSha256,
         searchStart: "2024-01-01",
-        mode: "SHOPLING_API_OPTION_STATUS_THEN_A21_ONLY_V041",
+        mode: "SHOPLING_API_OPTION_STATUS_THEN_A21_MULTIROW_V042",
         optionLocalMutation: "SERVER_API_GUARDED",
         a21SearchBinding: "ROW_SCOPED_VERIFIED",
         a21SearchSubmitGuard: "ONE_CLICK_TICKET",
+        a21ResultSelection: "EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200",
+        a21BatchLimit: 200,
         optionBrowserStages: ["A21_LIST", "A21_POPUP"],
         singleBrowserStages: ["A4", "A21_LIST", "A21_POPUP"],
         liveShoplingVerified: false,

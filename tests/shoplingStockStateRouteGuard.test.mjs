@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v030.mjs";
 const root = "public/shopling-stock-state-sync";
 
 test("v0.4 option route is API-A21 while single route remains A4-A21, no A22", async () => {
@@ -16,18 +17,23 @@ test("v0.4 option route is API-A21 while single route remains A4-A21, no A22", a
   assert.match(worker, /A21_SALE_STATUS_MODE_NOT_FOUND/);
 });
 
-test("exact goods-key and browser single-row gates remain before marketplace transmission", async () => {
+test("API goods key stays exact while A21 fans out to all exact marketplace rows up to 200", async () => {
   const legacy = await readFile(`${root}/background-v020.js`, "utf8");
   const cutover = await readFile(`${root}/background-v040.js`, "utf8");
-  const worker = await readFile(`${root}/content-shopling-v018.js`, "utf8");
+  const template = await readFile(`${root}/content-shopling-v018.js`, "utf8");
+  const policy = await readFile(`${root}/search-policy-v023.js`, "utf8");
+  const worker = buildStockWorkerV030(template, policy);
   assert.match(legacy, /STOCK_SYNC_GOODS_KEY_REQUIRED/);
   assert.match(cutover, /goodsKeys\.length !== 1/);
   assert.match(cutover, /SHOPLING_OPTION_API_GOODS_KEY_NOT_EXACT/);
   assert.match(worker, /샵플링상품코드/);
-  for (const code of ["A4_EXACT_ROW_SELECTION_FAILED", "A21_EXACT_ROW_SELECTION_FAILED"]) {
-    assert.ok(worker.includes(code));
-  }
-  assert.match(worker, /selected\.count !== 1/);
+  assert.match(worker, /A4_EXACT_ROW_SELECTION_FAILED/);
+  assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
+  assert.match(worker, /A21_RESULT_OVER_200_BATCH_LIMIT/);
+  assert.match(worker, /setA21PageSize200V042/);
+  assert.match(worker, /selected\.count !== totalResultCount/);
+  assert.match(worker, /batchLimit: 200/);
+  assert.doesNotMatch(worker, /A21 정확 일치 행 1건을 단독 선택하지 못했습니다/);
   assert.match(legacy, /PRE_SUBMIT_TIMEOUT_MS = 60_000/);
   assert.match(legacy, /STOCK_SYNC_OPPOSITE_JOB_BLOCKED/);
 });
@@ -48,20 +54,22 @@ test("server option mutation preserves Shopling quantity and fails closed on amb
   assert.match(api, /SHOPLING_OPTION_READBACK_QTY_MISMATCH/);
 });
 
-test("ZIP generates v0.4.1 API-option plus guarded A21-only package and checks all declared files", async () => {
+test("ZIP generates v0.4.2 API-option plus exact A21 multirow package and checks all declared files", async () => {
   const route = await readFile(
     "src/app/api/shopling-stock-state-sync/download/route.ts",
     "utf8",
   );
-  assert.match(route, /const VERSION = "0\.4\.1"/);
+  assert.match(route, /const VERSION = "0\.4\.2"/);
   assert.match(route, /buildStockWorkerV030/);
   assert.match(route, /content-shopling-v030\.js/);
   assert.match(route, /background-v040\.js/);
   assert.match(route, /missing_packaged_file/);
   assert.match(route, /workerSha256/);
-  assert.match(route, /SHOPLING_API_OPTION_STATUS_THEN_A21_ONLY_V041/);
+  assert.match(route, /SHOPLING_API_OPTION_STATUS_THEN_A21_MULTIROW_V042/);
   assert.match(route, /a21SearchBinding: "ROW_SCOPED_VERIFIED"/);
   assert.match(route, /a21SearchSubmitGuard: "ONE_CLICK_TICKET"/);
+  assert.match(route, /a21ResultSelection: "EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200"/);
+  assert.match(route, /a21BatchLimit: 200/);
   assert.match(route, /optionBrowserStages: \["A21_LIST", "A21_POPUP"\]/);
 });
 
