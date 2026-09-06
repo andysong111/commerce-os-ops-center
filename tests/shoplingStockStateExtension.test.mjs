@@ -4,23 +4,26 @@ import test from "node:test";
 import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v030.mjs";
 const root = "public/shopling-stock-state-sync";
 
-test("v0.4.2 manifest keeps all-frame Shopling worker and uses API+A21 cutover background", async () => {
+test("v0.4.3 manifest isolates A21 popup from list worker and uses API+A21 cutover background", async () => {
   const m = JSON.parse(await readFile(`${root}/manifest.json`, "utf8"));
   assert.equal(m.manifest_version, 3);
-  assert.equal(m.version, "0.4.2");
+  assert.equal(m.version, "0.4.3");
   assert.equal(m.background.service_worker, "background-v040.js");
-  const shopling = m.content_scripts.find((s) =>
-    s.js.includes("content-shopling-v030.js"),
-  );
-  assert.ok(shopling?.all_frames);
+  const listWorker = m.content_scripts.find((s) => s.js.includes("content-shopling-v030.js"));
+  const popupWorker = m.content_scripts.find((s) => s.js.includes("content-a21-popup-v043.js"));
+  assert.ok(listWorker?.all_frames);
+  assert.ok(listWorker?.exclude_matches?.some((value) => value.includes("goods_mallMdfy_trsmt.phtml")));
+  assert.ok(popupWorker?.all_frames);
+  assert.ok(popupWorker?.matches?.some((value) => value.includes("goods_mallMdfy_trsmt.phtml")));
 });
 
-test("generated Shopling worker remains syntactically valid and preserves proven A21 machinery", async () => {
+test("generated list worker remains syntactically valid and preserves proven A21 multirow machinery", async () => {
   for (const name of [
     "background-v020.js",
     "background-v030.js",
     "background-v040.js",
     "content-ops-v021.js",
+    "content-a21-popup-v043.js",
     "main-shopling.js",
     "popup.js",
   ]) {
@@ -32,8 +35,6 @@ test("generated Shopling worker remains syntactically valid and preserves proven
     await readFile(`${root}/search-policy-v023.js`, "utf8"),
   );
   assert.doesNotThrow(() => new Function(built));
-  assert.match(built, /A21_OPTION_SEND_MODE_NOT_FOUND/);
-  assert.match(built, /A21_SALE_STATUS_MODE_NOT_FOUND/);
   assert.match(built, /샵플링상품코드/);
   assert.match(built, /A21_EXACT_BATCH_SELECTION_FAILED/);
   assert.match(built, /A21_RESULT_OVER_200_BATCH_LIMIT/);
@@ -44,7 +45,21 @@ test("generated Shopling worker remains syntactically valid and preserves proven
   assert.match(built, /findInput: searchInputV041/);
 });
 
-test("v0.4.2 option jobs bypass A6 and require API evidence before A21", async () => {
+test("v0.4.3 dedicated popup worker ports price-engine option configuration", async () => {
+  const popup = await readFile(`${root}/content-a21-popup-v043.js`, "utf8");
+  assert.match(popup, /function modeRadio\(target\)/);
+  assert.match(popup, /function optionSelectionControl\(\)/);
+  assert.match(popup, /function configureOptionPopup\(\)/);
+  assert.match(popup, /modeRadio\("옵션송신"\)/);
+  assert.match(popup, /text\.includes\("옵션송신"\) && text\.includes\("선택"\)/);
+  assert.match(popup, /추가상품송신/);
+  assert.match(popup, /옵션\+추가상품송신/);
+  assert.match(popup, /A21_OPTION_CONFIGURATION_VERIFY_FAILED/);
+  assert.match(popup, /A21_POPUP_SUBMITTED/);
+  assert.match(popup, /STOCK_SYNC_RESULT_EVIDENCE/);
+});
+
+test("v0.4.3 option jobs bypass A6 and require API evidence before A21", async () => {
   const b = await readFile(`${root}/background-v040.js`, "utf8");
   assert.match(b, /productKind === "OPTION"\s*\? \["A21_LIST"\]/);
   assert.match(b, /optionApiApplied !== true/);
@@ -64,7 +79,7 @@ test("OPS bridge calls guarded option API, narrows to one exact goods key, then 
   assert.match(b, /chrome\.runtime\.sendMessage\(\{ type: "STOCK_SYNC_START", job \}\)/);
 });
 
-test("v0.4.2 search continuation waits for rows without re-submitting same-document search", async () => {
+test("v0.4.3 search continuation keeps v0.4.1 one-click guard", async () => {
   const p = await readFile(`${root}/search-policy-v023.js`, "utf8");
   assert.match(p, /awaitRows\(token, api, 20_000\)/);
   assert.match(p, /awaitRows\(token, api, 30_000\)/);

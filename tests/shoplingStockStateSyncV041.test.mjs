@@ -5,7 +5,7 @@ import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v03
 
 const file = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("v0.4.2 A21 worker binds only the local search row, supports exact multirow selection and compiles", async () => {
+test("v0.4.3 A21 list worker keeps local search binding and exact multirow selection", async () => {
   const [template, policy] = await Promise.all([
     file("public/shopling-stock-state-sync/content-shopling-v018.js"),
     file("public/shopling-stock-state-sync/search-policy-v023.js"),
@@ -25,7 +25,7 @@ test("v0.4.2 A21 worker binds only the local search row, supports exact multirow
   assert.match(worker, /selected\.count !== totalResultCount/);
 });
 
-test("v0.4.2 keeps v0.4.1 search policy fail-closed and one-click per execution", async () => {
+test("v0.4.3 keeps v0.4.1 search policy fail-closed and one-click per execution", async () => {
   const policy = await file("public/shopling-stock-state-sync/search-policy-v023.js");
 
   assert.match(policy, /commerce-stock-search-v041/);
@@ -37,23 +37,30 @@ test("v0.4.2 keeps v0.4.1 search policy fail-closed and one-click per execution"
   assert.match(policy, /submitted: true/);
 });
 
-test("v0.4.2 package, UI and popup report the same release", async () => {
-  const [manifestSource, downloadSource, pageSource, popupSource, backgroundSource] = await Promise.all([
+test("v0.4.3 package, UI and popup worker report the release and popup isolation", async () => {
+  const [manifestSource, downloadSource, pageSource, popupSource, backgroundSource, popupWorkerSource] = await Promise.all([
     file("public/shopling-stock-state-sync/manifest.json"),
     file("src/app/api/shopling-stock-state-sync/download/route.ts"),
     file("src/app/china-order-manager/stock-control/page.tsx"),
     file("public/shopling-stock-state-sync/popup.js"),
     file("public/shopling-stock-state-sync/background-v040.js"),
+    file("public/shopling-stock-state-sync/content-a21-popup-v043.js"),
   ]);
   const manifest = JSON.parse(manifestSource);
 
-  assert.equal(manifest.version, "0.4.2");
-  assert.match(downloadSource, /const VERSION = "0\.4\.2"/);
+  assert.equal(manifest.version, "0.4.3");
+  assert.match(downloadSource, /const VERSION = "0\.4\.3"/);
   assert.match(downloadSource, /ROW_SCOPED_VERIFIED/);
   assert.match(downloadSource, /ONE_CLICK_TICKET/);
   assert.match(downloadSource, /EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200/);
   assert.match(downloadSource, /a21BatchLimit: 200/);
-  assert.match(pageSource, /v0\.4\.2 다운로드/);
+  assert.match(downloadSource, /PRICE_ENGINE_PROVEN_OPTION_MODE_PLUS_SELECTION/);
+  assert.match(pageSource, /v0\.4\.3 다운로드/);
   assert.match(popupSource, /chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(backgroundSource, /chrome\.runtime\.getManifest\(\)\.version/);
+  assert.match(popupWorkerSource, /chrome\.runtime\.getManifest\(\)\.version/);
+  const listWorker = manifest.content_scripts.find((script) => script.js.includes("content-shopling-v030.js"));
+  const dedicatedPopup = manifest.content_scripts.find((script) => script.js.includes("content-a21-popup-v043.js"));
+  assert.ok(listWorker?.exclude_matches?.some((value) => value.includes("goods_mallMdfy_trsmt.phtml")));
+  assert.ok(dedicatedPopup?.matches?.some((value) => value.includes("goods_mallMdfy_trsmt.phtml")));
 });
