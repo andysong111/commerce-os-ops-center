@@ -48,17 +48,19 @@ test("server option mutation preserves Shopling quantity and fails closed on amb
   assert.match(api, /SHOPLING_OPTION_READBACK_QTY_MISMATCH/);
 });
 
-test("ZIP generates v0.4.0 API-option plus A21-only package and checks all declared files", async () => {
+test("ZIP generates v0.4.1 API-option plus guarded A21-only package and checks all declared files", async () => {
   const route = await readFile(
     "src/app/api/shopling-stock-state-sync/download/route.ts",
     "utf8",
   );
-  assert.match(route, /const VERSION = "0\.4\.0"/);
+  assert.match(route, /const VERSION = "0\.4\.1"/);
   assert.match(route, /buildStockWorkerV030/);
   assert.match(route, /content-shopling-v030\.js/);
   assert.match(route, /background-v040\.js/);
   assert.match(route, /missing_packaged_file/);
   assert.match(route, /workerSha256/);
-  assert.match(route, /SHOPLING_API_OPTION_STATUS_THEN_A21_ONLY_V040/);
+  assert.match(route, /SHOPLING_API_OPTION_STATUS_THEN_A21_ONLY_V041/);
+  assert.match(route, /a21SearchBinding: "ROW_SCOPED_VERIFIED"/);
+  assert.match(route, /a21SearchSubmitGuard: "ONE_CLICK_TICKET"/);
   assert.match(route, /optionBrowserStages: \["A21_LIST", "A21_POPUP"\]/);
 });
