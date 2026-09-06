@@ -121,10 +121,12 @@ async function loadOperatorStoppedRetryableBarcodes(
     .limit(Math.min(2_000, Math.max(100, candidates.size * 40)));
   if (response.error) return new Set<string>();
 
+  const storedRows = Array.isArray(response.data)
+    ? (response.data as Array<Record<string, unknown>>)
+    : [];
   const retryable = new Set<string>();
   const seen = new Set<string>();
-  for (const raw of response.data ?? []) {
-    const row = raw as Record<string, unknown>;
+  for (const row of storedRows) {
     const source = storedSnapshot(row);
     const barcode =
       normalizedBarcode(source.barcode) ||
