@@ -1,13 +1,13 @@
 // Compose the unchanged mutation template with the tested 2024 search policy.
-// v0.4.1 keeps the API+A21 cutover and hardens A21 search binding so the local
-// 검색항목 row is selected, the global Shopling header search is never used, and
-// one execution can submit Search at most once.
+// v0.4.2 keeps the API+A21 cutover, binds search to the local 검색항목 row,
+// and allows one exact goods key to fan out to multiple marketplace rows.
+// A21 transmission is fail-closed above 200 rows and only exact goods-key rows are selected.
 export function buildStockWorkerV030(base, policy) {
   function once(source, before, after) {
     if (source.split(before).length !== 2) throw new Error(`stock_worker_template_mismatch:${before.slice(0,70)}`);
     return source.replace(before, after);
   }
-  let source = once(base, 'const VERSION = "0.1.8";', 'const VERSION = "0.4.1";\n  if (globalThis.__commerceStockWorkerV041) return;\n  globalThis.__commerceStockWorkerV041 = true;\n  let executionContext = {};');
+  let source = once(base, 'const VERSION = "0.1.8";', 'const VERSION = "0.4.2";\n  if (globalThis.__commerceStockWorkerV042) return;\n  globalThis.__commerceStockWorkerV042 = true;\n  let executionContext = {};');
   const start = '  async function searchExact(fieldLabel, token) {';
   const end = '  async function searchGoodsKey(goodsKey) {';
   if (source.split(start).length !== 2 || source.split(end).length !== 2) throw new Error('stock_search_template_mismatch');
@@ -71,6 +71,62 @@ export function buildStockWorkerV030(base, policy) {
     '      .filter((row) => visible(row) && regex.test(norm(row.textContent).toUpperCase()))',
     '      .filter((row) => regex.test(norm(row.textContent).toUpperCase()))',
   );
+
+  const oldA21Start = '  async function runA21List(job, goodsKey) {';
+  const newA21Start = `  function setA21PageSize200V042() {
+    const candidate = [...document.querySelectorAll("select")].find((select) => {
+      const labels = [...select.options].map((option) => norm(option.textContent));
+      return labels.includes("200") && (labels.includes("25") || labels.includes("50") || labels.includes("100") || labels.includes("500"));
+    });
+    if (!candidate) return { ok: false, code: "A21_PAGE_SIZE_200_NOT_FOUND", message: "A21 화면출력 200개 선택값을 찾지 못했습니다." };
+    const current = norm(candidate.options?.[candidate.selectedIndex]?.textContent);
+    if (current !== "200" && !selectByText(candidate, "200", true)) {
+      return { ok: false, code: "A21_PAGE_SIZE_200_SET_FAILED", message: "A21 화면출력을 200개로 변경하지 못했습니다." };
+    }
+    const verified = norm(candidate.options?.[candidate.selectedIndex]?.textContent);
+    return verified === "200"
+      ? { ok: true }
+      : { ok: false, code: "A21_PAGE_SIZE_200_VERIFY_FAILED", message: "A21 화면출력 200개 설정이 유지되지 않았습니다." };
+  }
+
+  function a21TotalResultCountV042() {
+    const match = bodyText().match(/총\\s*조회수\\s*[:：]?\\s*([\\d,]+)\\s*건/i);
+    return match ? Number(match[1].replace(/,/g, "")) : null;
+  }
+
+  async function runA21List(job, goodsKey) {`;
+  source = once(source, oldA21Start, newA21Start);
+
+  const oldA21Selection = `    const search = await searchGoodsKey(goodsKey);
+    if (!search.ok) return search;
+    const selected = selectOnlyMatchingRows(goodsKey);
+    if (!selected.ok || selected.count !== 1) {
+      return { ok: false, code: "A21_EXACT_ROW_SELECTION_FAILED", message: \`${'${goodsKey}'} A21 정확 일치 행 1건을 단독 선택하지 못했습니다.\`, evidence: { selectedCount: selected.count, searchField: search.fieldLabel } };
+    }
+    const button = buttonByText(/^상품\\s*수정전송$/i);`;
+  const newA21Selection = `    const pageSize = setA21PageSize200V042();
+    if (!pageSize.ok) return pageSize;
+    const search = await searchGoodsKey(goodsKey);
+    if (!search.ok) return search;
+    const totalResultCount = a21TotalResultCountV042();
+    if (!Number.isInteger(totalResultCount) || totalResultCount <= 0) {
+      return { ok: false, code: "A21_RESULT_COUNT_INVALID", message: \`${'${goodsKey}'} A21 조회결과 건수를 확인하지 못했습니다.\`, evidence: { totalResultCount, searchField: search.fieldLabel } };
+    }
+    if (totalResultCount > 200) {
+      return { ok: false, code: "A21_RESULT_OVER_200_BATCH_LIMIT", message: \`${'${goodsKey}'} A21 조회결과가 ${'${totalResultCount}'}건으로 200건을 초과해 부분 전송을 차단했습니다. 200건 단위 페이지 배치가 필요합니다.\`, evidence: { totalResultCount, batchLimit: 200, searchField: search.fieldLabel } };
+    }
+    const selected = selectOnlyMatchingRows(goodsKey);
+    if (!selected.ok || selected.count !== totalResultCount) {
+      return { ok: false, code: "A21_EXACT_BATCH_SELECTION_FAILED", message: \`${'${goodsKey}'} A21 조회 ${'${totalResultCount}'}건 중 정확 goods key 행 ${'${selected.count}'}건만 선택되어 전송을 차단했습니다.\`, evidence: { selectedCount: selected.count, totalResultCount, batchLimit: 200, searchField: search.fieldLabel } };
+    }
+    const button = buttonByText(/^상품\\s*수정전송$/i);`;
+  source = once(source, oldA21Selection, newA21Selection);
+  source = once(
+    source,
+    'message: `A21 goods key ${goodsKey} 정확 일치 상품의 수정전송 팝업을 열었습니다.`, evidence: { goodsKey, selectedRows: selected.count, searchField: search.fieldLabel, alerts: click.alerts }',
+    'message: `A21 goods key ${goodsKey} 정확 일치 쇼핑몰 행 ${selected.count}건의 수정전송 팝업을 열었습니다.`, evidence: { goodsKey, selectedRows: selected.count, totalResultCount, batchLimit: 200, searchField: search.fieldLabel, alerts: click.alerts }',
+  );
+
   // Legacy A6 mutation code remains in the shared single-product template for backward compatibility,
   // but v0.4.x OPTION jobs never dispatch A6 because background-v040 requires A21 only.
   const oldA6Status = `    const targetLabel = desiredKorean(job.desiredStatus);
