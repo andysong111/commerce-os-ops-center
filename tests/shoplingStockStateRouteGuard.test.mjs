@@ -64,3 +64,33 @@ test("ZIP generates v0.4.1 API-option plus guarded A21-only package and checks a
   assert.match(route, /a21SearchSubmitGuard: "ONE_CLICK_TICKET"/);
   assert.match(route, /optionBrowserStages: \["A21_LIST", "A21_POPUP"\]/);
 });
+
+test("explicit operator safe-stop is retryable without weakening other UNCERTAIN blocks", async () => {
+  const resolution = await readFile(
+    "src/lib/inventoryStockSyncResolution.ts",
+    "utf8",
+  );
+  const stateRoute = await readFile(
+    "src/app/api/inventory-stock-control/route.ts",
+    "utf8",
+  );
+  const syncRoute = await readFile(
+    "src/app/api/inventory-stock-control/sync/route.ts",
+    "utf8",
+  );
+  assert.match(resolution, /STOCK_SYNC_OPERATOR_STOPPED/);
+  assert.match(resolution, /outcome === "UNCERTAIN"/);
+  assert.match(resolution, /code === OPERATOR_STOP_CODE/);
+  assert.match(resolution, /desiredStatus === candidate\.desiredStatus/);
+  assert.match(resolution, /occurredAt >= desiredSince/);
+  assert.match(resolution, /if \(response\.error\) return new Set<string>\(\)/);
+  assert.match(resolution, /syncBlocked: false/);
+  assert.match(
+    stateRoute,
+    /await normalizeRetryableShoplingSyncReportWithEvidence/,
+  );
+  assert.match(
+    syncRoute,
+    /return normalizeRetryableShoplingSyncReportWithEvidence/,
+  );
+});
