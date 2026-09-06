@@ -61,6 +61,16 @@ const REGISTRY: Record<string, RegistryEntry> = {
     load: async () =>
       (await import("@/app/api/cron/legacy-seo-run-worker/route")).GET as CronHandler,
   },
+  "legacy-shopling-launch-backfill-dry": {
+    routePath: "/api/cron/legacy-shopling-launch-backfill?mode=dry-run",
+    load: async () =>
+      (await import("@/app/api/cron/legacy-shopling-launch-backfill/route")).GET as CronHandler,
+  },
+  "legacy-shopling-launch-backfill-apply": {
+    routePath: "/api/cron/legacy-shopling-launch-backfill?mode=apply",
+    load: async () =>
+      (await import("@/app/api/cron/legacy-shopling-launch-backfill/route")).GET as CronHandler,
+  },
   "detail-page-jobs": {
     routePath: "/api/cron/detail-page-jobs",
     load: async () =>
