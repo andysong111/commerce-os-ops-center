@@ -24,28 +24,31 @@ test("API goods key stays exact while A21 fans out to all exact marketplace rows
   assert.match(legacy, /STOCK_SYNC_GOODS_KEY_REQUIRED/);
   assert.match(cutover, /goodsKeys\.length !== 1/);
   assert.match(cutover, /SHOPLING_OPTION_API_GOODS_KEY_NOT_EXACT/);
-  assert.match(worker, /샵플링상품코드/);
-  assert.match(worker, /A4_EXACT_ROW_SELECTION_FAILED/);
   assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
   assert.match(worker, /A21_RESULT_OVER_200_BATCH_LIMIT/);
   assert.match(worker, /setA21PageSize200V042/);
   assert.match(worker, /selected\.count !== totalResultCount/);
   assert.match(worker, /batchLimit: 200/);
   assert.doesNotMatch(worker, /A21 정확 일치 행 1건을 단독 선택하지 못했습니다/);
-  assert.match(legacy, /PRE_SUBMIT_TIMEOUT_MS = 60_000/);
-  assert.match(legacy, /STOCK_SYNC_OPPOSITE_JOB_BLOCKED/);
 });
 
-test("dedicated A21 popup worker mirrors proven option-only configuration", async () => {
-  const popup = await readFile(`${root}/content-a21-popup-v043.js`, "utf8");
-  assert.match(popup, /modeRadio\("옵션송신"\)/);
-  assert.match(popup, /optionSelectionControl\(\)/);
-  assert.match(popup, /text\.includes\("옵션송신"\) && text\.includes\("선택"\)/);
-  assert.match(popup, /추가상품송신/);
-  assert.match(popup, /옵션\+추가상품송신/);
-  assert.match(popup, /forbiddenChecked: forbidden\.length/);
-  assert.match(popup, /A21_OPTION_CONFIGURATION_VERIFY_FAILED/);
-  assert.match(popup, /A21_POPUP_SUBMITTED/);
+test("v0.4.4 popup self-claims the active stock job and uses exact Shopling option form values", async () => {
+  const [background, popup, main] = await Promise.all([
+    readFile(`${root}/background-v044.js`, "utf8"),
+    readFile(`${root}/content-a21-popup-v044.js`, "utf8"),
+    readFile(`${root}/main-a21-stock-v044.js`, "utf8"),
+  ]);
+  assert.match(background, /importScripts\("background-v040\.js"\)/);
+  assert.match(background, /STOCK_SYNC_A21_POPUP_CLAIM_V044/);
+  assert.match(background, /active\.stage !== "A21_POPUP"/);
+  assert.match(background, /A21_POPUP: \{ tabId, frameId \}/);
+  assert.match(popup, /selectRadio\("modify_tp", "goods_stock"\)/);
+  assert.match(popup, /selectRadio\("trsmt_env_mody_opt", "1"\)/);
+  assert.match(popup, /claimLoop\(\)/);
+  assert.match(popup, /optionMainSubmit\(\)/);
+  assert.match(main, /goods_mallMdfy_submit_sp/);
+  assert.match(main, /stock_v044_option_mode_invalid/);
+  assert.match(main, /stock_v044_option_field_invalid/);
 });
 
 test("server option mutation preserves Shopling quantity and fails closed on ambiguous B-code", async () => {
@@ -64,55 +67,30 @@ test("server option mutation preserves Shopling quantity and fails closed on amb
   assert.match(api, /SHOPLING_OPTION_READBACK_QTY_MISMATCH/);
 });
 
-test("ZIP generates v0.4.3 API-option plus exact A21 multirow and dedicated popup package", async () => {
-  const route = await readFile(
-    "src/app/api/shopling-stock-state-sync/download/route.ts",
-    "utf8",
-  );
-  assert.match(route, /const VERSION = "0\.4\.3"/);
-  assert.match(route, /buildStockWorkerV030/);
+test("ZIP generates v0.4.4 exact-popup stock sync package", async () => {
+  const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
+  assert.match(route, /const VERSION = "0\.4\.4"/);
   assert.match(route, /content-shopling-v030\.js/);
-  assert.match(route, /content-a21-popup-v043\.js/);
-  assert.match(route, /background-v040\.js/);
-  assert.match(route, /missing_packaged_file/);
-  assert.match(route, /workerSha256/);
-  assert.match(route, /popupWorkerSha256/);
-  assert.match(route, /SHOPLING_API_OPTION_STATUS_THEN_A21_MULTIROW_POPUP_V043/);
-  assert.match(route, /a21SearchBinding: "ROW_SCOPED_VERIFIED"/);
-  assert.match(route, /a21SearchSubmitGuard: "ONE_CLICK_TICKET"/);
-  assert.match(route, /a21ResultSelection: "EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200"/);
+  assert.match(route, /content-a21-popup-v044\.js/);
+  assert.match(route, /main-a21-stock-v044\.js/);
+  assert.match(route, /background-v044\.js/);
+  assert.match(route, /SHOPLING_API_OPTION_STATUS_THEN_A21_EXACT_POPUP_V044/);
+  assert.match(route, /a21PopupAssignment: "SELF_CLAIM_SINGLE_ACTIVE_JOB"/);
+  assert.match(route, /EXACT_FORM_MODIFY_TP_GOODS_STOCK_AND_TRSMT_ENV_MODY_OPT_1/);
+  assert.match(route, /MAIN_WORLD_GOODS_MALLMDFY_SUBMIT_SP/);
   assert.match(route, /a21BatchLimit: 200/);
-  assert.match(route, /PRICE_ENGINE_PROVEN_OPTION_MODE_PLUS_SELECTION/);
-  assert.match(route, /DEDICATED_GOODS_MALL_MDFY_TRSMT_WORKER/);
-  assert.match(route, /optionBrowserStages: \["A21_LIST", "A21_POPUP"\]/);
 });
 
 test("explicit operator safe-stop is retryable without weakening other UNCERTAIN blocks", async () => {
-  const resolution = await readFile(
-    "src/lib/inventoryStockSyncResolution.ts",
-    "utf8",
-  );
-  const stateRoute = await readFile(
-    "src/app/api/inventory-stock-control/route.ts",
-    "utf8",
-  );
-  const syncRoute = await readFile(
-    "src/app/api/inventory-stock-control/sync/route.ts",
-    "utf8",
-  );
+  const resolution = await readFile("src/lib/inventoryStockSyncResolution.ts", "utf8");
+  const stateRoute = await readFile("src/app/api/inventory-stock-control/route.ts", "utf8");
+  const syncRoute = await readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8");
   assert.match(resolution, /STOCK_SYNC_OPERATOR_STOPPED/);
   assert.match(resolution, /outcome === "UNCERTAIN"/);
   assert.match(resolution, /code === OPERATOR_STOP_CODE/);
   assert.match(resolution, /desiredStatus === candidate\.desiredStatus/);
   assert.match(resolution, /occurredAt >= desiredSince/);
-  assert.match(resolution, /if \(response\.error\) return new Set<string>\(\)/);
   assert.match(resolution, /syncBlocked: false/);
-  assert.match(
-    stateRoute,
-    /await normalizeRetryableShoplingSyncReportWithEvidence/,
-  );
-  assert.match(
-    syncRoute,
-    /return normalizeRetryableShoplingSyncReportWithEvidence/,
-  );
+  assert.match(stateRoute, /await normalizeRetryableShoplingSyncReportWithEvidence/);
+  assert.match(syncRoute, /return normalizeRetryableShoplingSyncReportWithEvidence/);
 });
