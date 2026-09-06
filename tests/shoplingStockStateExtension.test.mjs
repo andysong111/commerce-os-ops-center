@@ -4,10 +4,10 @@ import test from "node:test";
 import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v030.mjs";
 const root = "public/shopling-stock-state-sync";
 
-test("v0.4.1 manifest keeps all-frame Shopling worker and uses API+A21 cutover background", async () => {
+test("v0.4.2 manifest keeps all-frame Shopling worker and uses API+A21 cutover background", async () => {
   const m = JSON.parse(await readFile(`${root}/manifest.json`, "utf8"));
   assert.equal(m.manifest_version, 3);
-  assert.equal(m.version, "0.4.1");
+  assert.equal(m.version, "0.4.2");
   assert.equal(m.background.service_worker, "background-v040.js");
   const shopling = m.content_scripts.find((s) =>
     s.js.includes("content-shopling-v030.js"),
@@ -35,13 +35,16 @@ test("generated Shopling worker remains syntactically valid and preserves proven
   assert.match(built, /A21_OPTION_SEND_MODE_NOT_FOUND/);
   assert.match(built, /A21_SALE_STATUS_MODE_NOT_FOUND/);
   assert.match(built, /샵플링상품코드/);
-  assert.match(built, /A21_EXACT_ROW_SELECTION_FAILED/);
+  assert.match(built, /A21_EXACT_BATCH_SELECTION_FAILED/);
+  assert.match(built, /A21_RESULT_OVER_200_BATCH_LIMIT/);
+  assert.match(built, /function setA21PageSize200V042\(\)/);
+  assert.match(built, /selected\.count !== totalResultCount/);
   assert.match(built, /function searchFieldV041\(label\)/);
   assert.match(built, /function searchInputV041\(field\)/);
   assert.match(built, /findInput: searchInputV041/);
 });
 
-test("v0.4.1 option jobs bypass A6 and require API evidence before A21", async () => {
+test("v0.4.2 option jobs bypass A6 and require API evidence before A21", async () => {
   const b = await readFile(`${root}/background-v040.js`, "utf8");
   assert.match(b, /productKind === "OPTION"\s*\? \["A21_LIST"\]/);
   assert.match(b, /optionApiApplied !== true/);
@@ -61,7 +64,7 @@ test("OPS bridge calls guarded option API, narrows to one exact goods key, then 
   assert.match(b, /chrome\.runtime\.sendMessage\(\{ type: "STOCK_SYNC_START", job \}\)/);
 });
 
-test("v0.4.1 search continuation waits for rows without re-submitting same-document search", async () => {
+test("v0.4.2 search continuation waits for rows without re-submitting same-document search", async () => {
   const p = await readFile(`${root}/search-policy-v023.js`, "utf8");
   assert.match(p, /awaitRows\(token, api, 20_000\)/);
   assert.match(p, /awaitRows\(token, api, 30_000\)/);
