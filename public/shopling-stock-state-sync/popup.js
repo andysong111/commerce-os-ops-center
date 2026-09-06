@@ -2,6 +2,11 @@ const value = document.getElementById("value");
 const stage = document.getElementById("stage");
 const stop = document.getElementById("stop");
 const open = document.getElementById("open");
+const title = document.getElementById("title");
+
+if (title) {
+  title.textContent = `품절·판매중 동기화 v${chrome.runtime.getManifest().version}`;
+}
 
 function statusKorean(status) {
   return status === "SOLD_OUT" ? "품절" : "판매중";

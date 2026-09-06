@@ -1,10 +1,10 @@
 importScripts("background-v030.js");
 
-// v0.4.0 cutover:
+// v0.4.x cutover:
 // OPTION jobs no longer operate A6. Commerce OS server API first verifies/mutates the
 // exact B-code option, preserving Shopling optQty, then this worker performs A21 only.
 (() => {
-  const VERSION_V040 = "0.4.0";
+  const VERSION_V040 = chrome.runtime.getManifest().version;
   const legacyRequiredStagesV040 = requiredStages;
   const legacyStartV040 = start;
 

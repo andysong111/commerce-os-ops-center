@@ -1,20 +1,60 @@
 // Compose the unchanged mutation template with the tested 2024 search policy.
-// v0.3.2 keeps the price-engine workspace/result-row handling and fixes the live A6
-// mutation contract: the same '옵션상태' select contains 판매중/단종/품절/미사용.
+// v0.4.1 keeps the API+A21 cutover and hardens A21 search binding so the local
+// 검색항목 row is selected, the global Shopling header search is never used, and
+// one execution can submit Search at most once.
 export function buildStockWorkerV030(base, policy) {
   function once(source, before, after) {
     if (source.split(before).length !== 2) throw new Error(`stock_worker_template_mismatch:${before.slice(0,70)}`);
     return source.replace(before, after);
   }
-  let source = once(base, 'const VERSION = "0.1.8";', 'const VERSION = "0.3.2";\n  if (globalThis.__commerceStockWorkerV032) return;\n  globalThis.__commerceStockWorkerV032 = true;\n  let executionContext = {};');
+  let source = once(base, 'const VERSION = "0.1.8";', 'const VERSION = "0.4.1";\n  if (globalThis.__commerceStockWorkerV041) return;\n  globalThis.__commerceStockWorkerV041 = true;\n  let executionContext = {};');
   const start = '  async function searchExact(fieldLabel, token) {';
   const end = '  async function searchGoodsKey(goodsKey) {';
   if (source.split(start).length !== 2 || source.split(end).length !== 2) throw new Error('stock_search_template_mismatch');
-  source = source.slice(0, source.indexOf(start)) + `  async function searchExact(fieldLabel, token) {
+  source = source.slice(0, source.indexOf(start)) + `  function searchFieldV041(label) {
+    const candidates = selectWithOption(label).map((select, index) => {
+      const labels = [...select.options].map((option) => norm(option.textContent));
+      const row = select.closest("tr");
+      const context = norm(row?.textContent || select.parentElement?.textContent || "");
+      const localInputs = row
+        ? [...row.querySelectorAll('input[type="text"], input:not([type]), input[type="search"]')].filter(visible)
+        : [];
+      let score = 0;
+      if (labels.includes(label)) score += 80;
+      if (labels.includes("검색항목")) score += 220;
+      if (/검색\\s*항목/.test(context)) score += 180;
+      if (localInputs.length) score += 120;
+      if (/화면출력|내림차순|오름차순/.test(context)) score -= 500;
+      return { select, index, score };
+    });
+    candidates.sort((left, right) => right.score - left.score || left.index - right.index);
+    const best = candidates[0] || null;
+    return best && best.score >= 200 ? best.select : null;
+  }
+
+  function searchInputV041(field) {
+    const row = field?.closest("tr");
+    if (!row) return null;
+    const fieldRect = field.getBoundingClientRect();
+    const inputs = [...row.querySelectorAll('input[type="text"], input:not([type]), input[type="search"]')]
+      .filter((input) => visible(input) && !input.disabled)
+      .map((input, index) => {
+        const rect = input.getBoundingClientRect();
+        let score = 0;
+        if (rect.left >= fieldRect.right - 8) score += 120;
+        score += Math.max(0, 80 - Math.abs(rect.top - fieldRect.top) * 4);
+        score += Math.min(80, rect.width / 4);
+        return { input, index, score };
+      })
+      .sort((left, right) => right.score - left.score || left.index - right.index);
+    return inputs[0]?.input || null;
+  }
+
+  async function searchExact(fieldLabel, token) {
     return globalThis.CommerceStockSearchV023.search(fieldLabel, token, {
       scope: [executionContext.jobId, executionContext.executionId, executionContext.stage].join(":"),
-      getField: (label) => selectWithOption(label)[0] || null,
-      selectField: selectByText, findInput: findSearchInput, setInput,
+      getField: searchFieldV041,
+      selectField: selectByText, findInput: searchInputV041, setInput,
       clickSearch, rows: matchingRows, waitFor, sleep,
       resultCount: () => {
         const match = bodyText().match(/총\\s*조회수\\s*[:：]?\\s*([\\d,]+)\\s*건/i);
@@ -31,8 +71,8 @@ export function buildStockWorkerV030(base, policy) {
     '      .filter((row) => visible(row) && regex.test(norm(row.textContent).toUpperCase()))',
     '      .filter((row) => regex.test(norm(row.textContent).toUpperCase()))',
   );
-  // Live A6 evidence: there is one toolbar select whose placeholder is '옵션상태' and whose
-  // same option list contains 판매중/단종/품절/미사용. Select the target on that control directly.
+  // Legacy A6 mutation code remains in the shared single-product template for backward compatibility,
+  // but v0.4.x OPTION jobs never dispatch A6 because background-v040 requires A21 only.
   const oldA6Status = `    const targetLabel = desiredKorean(job.desiredStatus);
     const selector = selectWithOption("옵션상태")[0] || null;
     if (!selector || !selectByText(selector, "옵션상태")) {
