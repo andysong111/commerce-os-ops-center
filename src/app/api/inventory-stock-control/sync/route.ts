@@ -4,7 +4,7 @@ import {
   normalizeShoplingStockSyncInput,
   storeInventoryOperation,
 } from "@/lib/inventoryStockControl";
-import { normalizeRetryableShoplingSyncReport } from "@/lib/inventoryStockSyncResolution";
+import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -109,7 +109,7 @@ async function loadPreparedGoodsKeysByBarcode() {
 }
 
 async function loadRetryableReport() {
-  return normalizeRetryableShoplingSyncReport(
+  return normalizeRetryableShoplingSyncReportWithEvidence(
     await loadInventoryStockControlReport(),
   );
 }
