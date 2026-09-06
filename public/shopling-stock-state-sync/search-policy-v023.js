@@ -53,56 +53,104 @@
       return found.length ? found : null;
     }, timeoutMs, 200);
   }
+  function bindingEvidence(fieldLabel, token, field, input) {
+    return {
+      expectedFieldLabel: fieldLabel,
+      selectedFieldLabel: norm(field?.options?.[field.selectedIndex]?.textContent),
+      expectedToken: norm(token).toUpperCase(),
+      inputToken: norm(input?.value).toUpperCase(),
+    };
+  }
+  function bindingMatches(evidence) {
+    return evidence.selectedFieldLabel === evidence.expectedFieldLabel && evidence.inputToken === evidence.expectedToken;
+  }
   async function search(fieldLabel, token, api) {
     let field = api.getField(fieldLabel);
     if (!field) return { ok: false, code: "SEARCH_FIELD_NOT_FOUND", message: `${fieldLabel} 검색항목을 찾지 못했습니다.` };
     let input = api.findInput(field);
     const scope = `${api.scope}:${location.pathname}:${fieldLabel}:${token}`;
-    const key = `commerce-stock-search-v023:${scope}`;
+    const key = `commerce-stock-search-v041:${scope}`;
     let ticket = null;
     try { ticket = JSON.parse(sessionStorage.getItem(key) || "null"); } catch { /* no usable ticket */ }
     const inDateRange = (e) => e?.start === START && e?.end === todayKst();
     const form = field.form || field.closest("form") || document;
     const pair = datePair(form);
     const currentPeriod = pair ? { start: digits(pair[0].value), end: digits(pair[1].value) } : null;
-    const selectedLabel = norm(field.options?.[field.selectedIndex]?.textContent);
-    const queryMatches = input && norm(input.value).toUpperCase() === norm(token).toUpperCase() && selectedLabel === fieldLabel && inDateRange(currentPeriod);
-    // Shopling may reload only the inner frame. In that resumed document, wait long enough for the
-    // legacy result table to repaint; v0.3.0's 2.5s resume window could fail while the exact row was visibly loading.
-    const resumed = ticket && ticket.documentToken !== documentToken && Date.now() - ticket.at < 90_000 && queryMatches;
+    const initialBinding = bindingEvidence(fieldLabel, token, field, input);
+    const queryMatches = bindingMatches(initialBinding) && inDateRange(currentPeriod);
+    // v0.4.1: a successful click ticket is a one-click guard even when Shopling updates
+    // the same document/AJAX frame. The previous documentToken inequality retried Search forever.
+    const resumed = Boolean(
+      ticket &&
+      Date.now() - Number(ticket.at || 0) < 90_000 &&
+      ticket.fieldLabel === fieldLabel &&
+      String(ticket.token || "").toUpperCase() === norm(token).toUpperCase() &&
+      queryMatches,
+    );
     if (resumed || (completed.has(scope) && queryMatches)) {
       const rows = await awaitRows(token, api, 20_000);
       if (!rows?.length) {
-        const evidence = { ...currentPeriod, ...resultEvidence(api) };
+        const evidence = { ...currentPeriod, ...resultEvidence(api), binding: initialBinding, oneClickGuard: resumed };
         const code = Number(evidence.totalResultCount || 0) > 0 ? "EXACT_RESULT_ROW_NOT_BOUND" : "EXACT_RESULT_NOT_FOUND";
         const message = Number(evidence.totalResultCount || 0) > 0
           ? `${token} 조회결과 ${evidence.totalResultCount}건은 확인했지만 정확 행을 worker가 연결하지 못했습니다.`
-          : `${token} 정확 일치 검색결과가 없습니다. 검색기간: 2024-01-01~${todayKst()}`;
+          : `${token} 정확 일치 검색결과가 없습니다. 동일 작업에서 검색 버튼을 다시 누르지 않았습니다.`;
         return { ok: false, code, message, evidence };
       }
       completed.set(scope, true);
       return { ok: true, rows, fieldLabel, period: currentPeriod };
     }
     if (!api.selectField(field, fieldLabel)) return { ok: false, code: "SEARCH_FIELD_NOT_FOUND", message: `${fieldLabel} 검색항목을 선택하지 못했습니다.` };
-    input = await api.waitFor(() => { field = api.getField(fieldLabel) || field; return api.findInput(field); }, 6_000, 120);
-    if (!input || !api.setInput(input, token)) return { ok: false, code: "SEARCH_INPUT_SET_FAILED", message: `${fieldLabel} 검색어 ${token}을 입력하지 못했습니다.` };
+    input = await api.waitFor(() => {
+      field = api.getField(fieldLabel) || field;
+      return api.findInput(field);
+    }, 6_000, 120);
+    if (!input) {
+      return { ok: false, code: "SEARCH_INPUT_NOT_BOUND", message: `${fieldLabel}과 같은 검색행의 입력칸을 찾지 못해 검색을 차단했습니다.` };
+    }
+    if (!api.setInput(input, token)) return { ok: false, code: "SEARCH_INPUT_SET_FAILED", message: `${fieldLabel} 검색어 ${token}을 입력하지 못했습니다.` };
+    field = api.getField(fieldLabel) || field;
+    input = api.findInput(field) || input;
+    const verifiedBinding = bindingEvidence(fieldLabel, token, field, input);
+    if (!bindingMatches(verifiedBinding)) {
+      return {
+        ok: false,
+        code: "SEARCH_BINDING_MISMATCH",
+        message: `${fieldLabel} 검색항목과 검색어 입력칸의 결합 검증에 실패해 검색 버튼을 누르지 않았습니다.`,
+        evidence: verifiedBinding,
+      };
+    }
     const period = applyPeriod(input.form || form, api.setInput);
     if (!period.ok) return period;
     await api.sleep(120);
     const livePair = datePair(input.form || form);
+    const finalBinding = bindingEvidence(fieldLabel, token, field, input);
+    if (!bindingMatches(finalBinding)) {
+      return { ok: false, code: "SEARCH_BINDING_MISMATCH", message: "검색 직전 검색항목 또는 검색어가 변경되어 실행을 차단했습니다.", evidence: finalBinding };
+    }
     if (!livePair || digits(livePair[0].value) !== START || digits(livePair[1].value) !== todayKst()) {
       return { ok: false, code: "SEARCH_DATE_VERIFY_FAILED", message: "검색 직전 날짜가 변경되어 실행을 차단했습니다." };
     }
-    try { sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), documentToken, period: period.evidence })); }
-    catch { return { ok: false, code: "SEARCH_CONTINUATION_STORAGE_FAILED", message: "검색 후 화면 복구정보를 저장하지 못해 실행을 차단했습니다." }; }
+    try {
+      sessionStorage.setItem(key, JSON.stringify({
+        at: Date.now(),
+        documentToken,
+        fieldLabel,
+        token: norm(token).toUpperCase(),
+        period: period.evidence,
+        submitted: true,
+      }));
+    } catch {
+      return { ok: false, code: "SEARCH_CONTINUATION_STORAGE_FAILED", message: "검색 후 화면 복구정보를 저장하지 못해 실행을 차단했습니다." };
+    }
     if (!api.clickSearch(input)) return { ok: false, code: "SEARCH_BUTTON_NOT_FOUND", message: "검색 버튼을 찾지 못했습니다." };
     const rows = await awaitRows(token, api, 30_000);
     if (!rows?.length) {
-      const evidence = { ...period.evidence, ...resultEvidence(api) };
+      const evidence = { ...period.evidence, ...resultEvidence(api), binding: finalBinding, oneClickGuard: true };
       const code = Number(evidence.totalResultCount || 0) > 0 ? "EXACT_RESULT_ROW_NOT_BOUND" : "EXACT_RESULT_NOT_FOUND";
       const message = Number(evidence.totalResultCount || 0) > 0
         ? `${token} 조회결과 ${evidence.totalResultCount}건은 확인했지만 정확 행을 worker가 연결하지 못했습니다.`
-        : `${token} 정확 일치 검색결과가 없습니다. 검색기간: 2024-01-01~${todayKst()}`;
+        : `${token} 정확 일치 검색결과가 없습니다. 동일 작업에서 검색 버튼을 다시 누르지 않습니다.`;
       return { ok: false, code, message, evidence };
     }
     completed.set(scope, true);
