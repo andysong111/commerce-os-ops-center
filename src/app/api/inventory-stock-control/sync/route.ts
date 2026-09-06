@@ -146,7 +146,7 @@ export async function GET(request: Request) {
             resetAt: row.resetAt,
             route:
               row.productKind === "OPTION"
-                ? ["A6_OPTION_STATUS", "A21_GOODS_KEY_OPTION_SEND"]
+                ? ["SHOPLING_API_OPTION_STATUS", "A21_GOODS_KEY_OPTION_SEND"]
                 : ["A4_PRODUCT_STATUS", "A21_GOODS_KEY_PRODUCT_SALE_STATUS"],
           };
         }),
