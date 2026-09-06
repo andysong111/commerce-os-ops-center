@@ -6,13 +6,14 @@ import { buildStockWorkerV030 } from "../../../../../scripts/build-shopling-stoc
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const VERSION = "0.4.2";
+const VERSION = "0.4.3";
 const FILES = [
   "manifest.json",
   "background-v020.js",
   "background-v030.js",
   "background-v040.js",
   "content-ops-v021.js",
+  "content-a21-popup-v043.js",
   "main-shopling.js",
   "popup.html",
   "popup.js",
@@ -35,7 +36,14 @@ export async function GET(request: Request) {
     path.join(root, "search-policy-v023.js"),
     "utf8",
   );
-  const worker = buildStockWorkerV030(template, policy);
+  const builtWorker = buildStockWorkerV030(template, policy);
+  if (!builtWorker.includes('const VERSION = "0.4.2";')) {
+    throw new Error("shopling_stock_state_list_worker_version_template_mismatch");
+  }
+  const worker = builtWorker
+    .replace('const VERSION = "0.4.2";', 'const VERSION = "0.4.3";')
+    .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV043");
+  new Function(worker);
   entries["content-shopling-v030.js"] = strToU8(worker);
   const manifest = JSON.parse(
     await readFile(path.join(root, "manifest.json"), "utf8"),
@@ -49,6 +57,7 @@ export async function GET(request: Request) {
     content_scripts: Array<{
       js: string[];
       matches: string[];
+      exclude_matches?: string[];
       world?: string;
       all_frames?: boolean;
     }>;
@@ -88,8 +97,24 @@ export async function GET(request: Request) {
       throw new Error(`shopling_stock_state_missing_packaged_file:${file}`);
     }
   }
+  const listWorker = manifest.content_scripts.find((script) =>
+    script.js.includes("content-shopling-v030.js"),
+  );
+  const popupWorker = manifest.content_scripts.find((script) =>
+    script.js.includes("content-a21-popup-v043.js"),
+  );
+  if (!listWorker?.exclude_matches?.some((value) => value.includes("goods_mallMdfy_trsmt.phtml"))) {
+    throw new Error("shopling_stock_state_popup_must_be_excluded_from_list_worker");
+  }
+  if (!popupWorker?.matches?.some((value) => value.includes("goods_mallMdfy_trsmt.phtml"))) {
+    throw new Error("shopling_stock_state_dedicated_popup_worker_required");
+  }
+
   const zip = zipSync(entries, { level: 9 });
   const workerSha256 = createHash("sha256").update(worker).digest("hex");
+  const popupWorkerSha256 = createHash("sha256")
+    .update(await readFile(path.join(root, "content-a21-popup-v043.js"), "utf8"))
+    .digest("hex");
   if (new URL(request.url).searchParams.get("verify") === "1") {
     return Response.json(
       {
@@ -98,13 +123,16 @@ export async function GET(request: Request) {
         files: Object.keys(entries),
         zipBytes: zip.byteLength,
         workerSha256,
+        popupWorkerSha256,
         searchStart: "2024-01-01",
-        mode: "SHOPLING_API_OPTION_STATUS_THEN_A21_MULTIROW_V042",
+        mode: "SHOPLING_API_OPTION_STATUS_THEN_A21_MULTIROW_POPUP_V043",
         optionLocalMutation: "SERVER_API_GUARDED",
         a21SearchBinding: "ROW_SCOPED_VERIFIED",
         a21SearchSubmitGuard: "ONE_CLICK_TICKET",
         a21ResultSelection: "EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200",
         a21BatchLimit: 200,
+        a21PopupConfiguration: "PRICE_ENGINE_PROVEN_OPTION_MODE_PLUS_SELECTION",
+        popupWorkerIsolation: "DEDICATED_GOODS_MALL_MDFY_TRSMT_WORKER",
         optionBrowserStages: ["A21_LIST", "A21_POPUP"],
         singleBrowserStages: ["A4", "A21_LIST", "A21_POPUP"],
         liveShoplingVerified: false,
@@ -119,6 +147,7 @@ export async function GET(request: Request) {
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
       "x-stock-worker-sha256": workerSha256,
+      "x-stock-popup-worker-sha256": popupWorkerSha256,
     },
   });
 }
