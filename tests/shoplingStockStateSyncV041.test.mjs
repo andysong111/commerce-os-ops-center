@@ -50,7 +50,7 @@ test("v0.5.0 package uses literal copied price-core popup with isolated namespac
   assert.equal(manifest.background.service_worker, "background-v050.js");
   assert.equal(copiedContent, canonicalContent);
   assert.equal(copiedMain, canonicalMain);
-  assert.match(canonicalContent, /selectRadio\("modify_tp", "goods_stock"\)/);
+  assert.match(canonicalContent, /chooseMode\("goods_stock"\)/);
   assert.match(canonicalContent, /selectRadio\("trsmt_env_mody_opt", "1"\)/);
   assert.match(canonicalMain, /goods_mallMdfy_submit_sp/);
   assert.match(downloadSource, /const VERSION = "0\.5\.0"/);
