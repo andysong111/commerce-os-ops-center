@@ -72,7 +72,15 @@ function clone(value: unknown): UnknownRecord {
 }
 
 function activeGroupOptions(group: LegacySeoShoplingOptionGroup) {
-  return group.options.filter((option) => text(option.status).toUpperCase() !== "X");
+  // Legacy SEO re-registration requires a real inventory B-code for every option.
+  // Shopling can still return historical/discontinued option rows whose status is
+  // not X but whose B-code is already gone. Importing those rows would recreate
+  // options that can never pass registration. Fail closed here and keep only
+  // Shopling options that still have a managed B-code.
+  return group.options.filter(
+    (option) =>
+      text(option.status).toUpperCase() !== "X" && Boolean(text(option.bCode)),
+  );
 }
 
 function optionValue(optionName: string) {
