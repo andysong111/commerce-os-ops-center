@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/ops-dispatcher",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/legacy-seo-option-sync-drain-v2",
+      "schedule": "* * * * *"
     }
   ]
 }
