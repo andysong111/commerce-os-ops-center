@@ -5,7 +5,7 @@ import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v03
 
 const file = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("v0.5.4 A21 list worker keeps local search binding and exact multirow selection", async () => {
+test("v0.5.5 A21 list worker keeps local search binding and exact multirow selection", async () => {
   const [template, policy] = await Promise.all([
     file("public/shopling-stock-state-sync/content-shopling-v018.js"),
     file("public/shopling-stock-state-sync/search-policy-v023.js"),
@@ -19,9 +19,10 @@ test("v0.5.4 A21 list worker keeps local search binding and exact multirow selec
   assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
   assert.match(worker, /A21_RESULT_OVER_200_BATCH_LIMIT/);
   assert.match(worker, /selected\.count !== totalResultCount/);
+  assert.match(worker, /EXACT_BOUND_ROWS/);
 });
 
-test("v0.5.4 keeps the one-click search policy while using the maximum Shopling search horizon", async () => {
+test("v0.5.5 keeps the one-click search policy while using the maximum Shopling search horizon", async () => {
   const policy = await file("public/shopling-stock-state-sync/search-policy-v023.js");
   assert.match(policy, /const START = "20130912"/);
   assert.match(policy, /commerce-stock-search-v041/);
@@ -33,7 +34,7 @@ test("v0.5.4 keeps the one-click search policy while using the maximum Shopling 
   assert.match(policy, /submitted: true/);
 });
 
-test("v0.5.4 package reads A6 goods keys without checking rows, applies API per key, then keeps serial A21 price core", async () => {
+test("v0.5.5 package reads A6 goods keys without checking rows, applies API per key, then uses proven A21 list click and serial price core", async () => {
   const [manifestSource, downloadSource, pageSource, popupSource, adapterSource, liveA6Source, opsSource, template, policy, copiedContent, copiedMain, canonicalContent, canonicalMain] = await Promise.all([
     file("public/shopling-stock-state-sync/manifest.json"),
     file("src/app/api/shopling-stock-state-sync/download/route.ts"),
@@ -52,20 +53,23 @@ test("v0.5.4 package reads A6 goods keys without checking rows, applies API per 
   const manifest = JSON.parse(manifestSource);
   const worker = buildStockWorkerV030(template, policy);
 
-  assert.equal(manifest.version, "0.5.4");
+  assert.equal(manifest.version, "0.5.5");
   assert.equal(manifest.background.service_worker, "background-v052.js");
   assert.equal(copiedContent, canonicalContent);
   assert.equal(copiedMain, canonicalMain);
   assert.match(canonicalContent, /chooseMode\("goods_stock"\)/);
   assert.match(canonicalContent, /selectRadio\("trsmt_env_mody_opt", "1"\)/);
   assert.match(canonicalMain, /goods_mallMdfy_submit_sp/);
-  assert.match(downloadSource, /const VERSION = "0\.5\.4"/);
+  assert.match(downloadSource, /const VERSION = "0\.5\.5"/);
   assert.match(downloadSource, /priceCoreLiteralCopyVerified: true/);
-  assert.match(downloadSource, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_SERIAL_V054/);
+  assert.match(downloadSource, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_PROVEN_LIST_V055/);
   assert.match(downloadSource, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
   assert.match(downloadSource, /a6Checkbox: "NOT_TOUCHED"/);
   assert.match(downloadSource, /optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY"/);
   assert.match(downloadSource, /patchA6ReadOnlyResolverV054/);
+  assert.match(downloadSource, /patchA21ProvenListClickV055/);
+  assert.match(downloadSource, /PROVEN_A21_LIST_DIRECT_CLICK/);
+  assert.match(downloadSource, /a21ListClick: "PROVEN_PRICE_OPTION_RESEND_DIRECT_NO_VISIBILITY_FILTER"/);
   assert.match(downloadSource, /checkboxTouched: false/);
   assert.match(downloadSource, /optionGoodsKeySource: "A6_LIVE_OPTION_BARCODE"/);
   assert.match(downloadSource, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
@@ -73,7 +77,7 @@ test("v0.5.4 package reads A6 goods keys without checking rows, applies API per 
   assert.match(downloadSource, /stock_price_core_not_option_popup_stage/);
   assert.match(downloadSource, /attempt < 16/);
   assert.match(downloadSource, /CANONICAL_PRICE_CORE_MODIFY_TP_GOODS_STOCK_AND_TRSMT_ENV_MODY_OPT_1/);
-  assert.match(pageSource, /v0\.5\.4 다운로드/);
+  assert.match(pageSource, /v0\.5\.5 다운로드/);
   assert.match(popupSource, /chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(adapterSource, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
   assert.match(adapterSource, /continueNextGoodsKey/);
