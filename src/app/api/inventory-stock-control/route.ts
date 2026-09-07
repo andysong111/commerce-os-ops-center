@@ -4,6 +4,10 @@ import {
   normalizeStockoutResetInput,
   storeInventoryOperation,
 } from "@/lib/inventoryStockControl";
+import {
+  ensureInventoryStockSalesTailCoverage,
+  overlayInventoryStockControlReportWithTail,
+} from "@/lib/inventoryStockSalesTail";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
@@ -36,17 +40,21 @@ function unauthorized() {
   );
 }
 
-async function loadStableInventoryStockControlReport() {
-  const first = await normalizeRetryableShoplingSyncReportWithEvidence(
-    await loadInventoryStockControlReport(),
+async function loadResolvedInventoryStockControlReport() {
+  return normalizeRetryableShoplingSyncReportWithEvidence(
+    await overlayInventoryStockControlReportWithTail(
+      await loadInventoryStockControlReport(),
+    ),
   );
+}
+
+async function loadStableInventoryStockControlReport() {
+  const first = await loadResolvedInventoryStockControlReport();
   if (first.state !== "READY" || first.resetCount > 0) return first;
 
   // A reset ledger has no operator delete path, so an unexpected zero can be a
   // transient read. Re-read once before presenting an empty canonical state.
-  const second = await normalizeRetryableShoplingSyncReportWithEvidence(
-    await loadInventoryStockControlReport(),
-  );
+  const second = await loadResolvedInventoryStockControlReport();
   return second.resetCount >= first.resetCount ? second : first;
 }
 
@@ -86,8 +94,7 @@ async function ensureCanonicalSalesCoverageAfterReset(resetAt: string) {
     const analysisMs = current.analysisAsOf
       ? Date.parse(current.analysisAsOf)
       : Number.NaN;
-    const coversReset =
-      Number.isFinite(analysisMs) && analysisMs >= resetMs;
+    const coversReset = Number.isFinite(analysisMs) && analysisMs >= resetMs;
 
     if (coversReset) {
       const wakeRequested = WORKER_RUNNABLE_SALES_EVENT_STATES.has(current.state)
@@ -149,14 +156,29 @@ async function ensureCanonicalSalesCoverageAfterReset(resetAt: string) {
 
 export async function GET(request: Request) {
   if (!isSameOriginOpsRequest(request)) return unauthorized();
-  const report = await loadStableInventoryStockControlReport();
+
+  let report = await loadStableInventoryStockControlReport();
+  const tailSalesRefresh =
+    report.state === "READY"
+      ? await ensureInventoryStockSalesTailCoverage(report)
+      : null;
+  if (tailSalesRefresh?.refreshed) {
+    report = await loadStableInventoryStockControlReport();
+  }
+
   const coverageGapResetAt =
     report.state === "READY" ? latestCanonicalCoverageGapResetAt(report) : null;
   const canonicalSalesRefresh = coverageGapResetAt
     ? await ensureCanonicalSalesCoverageAfterReset(coverageGapResetAt)
     : null;
+
   return Response.json(
-    { ok: report.state === "READY", report, canonicalSalesRefresh },
+    {
+      ok: report.state === "READY",
+      report,
+      tailSalesRefresh,
+      canonicalSalesRefresh,
+    },
     {
       status: report.state === "READY" ? 200 : 503,
       headers: { "cache-control": "no-store" },
@@ -193,9 +215,6 @@ export async function POST(request: Request) {
       snapshot: event,
     });
 
-    // A write is not considered successful until the canonical read path can see
-    // the exact reset again. This prevents a transient/permission/cache problem
-    // from being presented to the operator as a durable 0 baseline.
     const persistenceReport = await loadStableInventoryStockControlReport();
     const persistedReset = persistenceReport.rows.some(
       (row) =>
@@ -215,10 +234,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const canonicalSalesRefresh = await ensureCanonicalSalesCoverageAfterReset(
-      event.occurredAt,
-    );
-    const report = await loadStableInventoryStockControlReport();
+    const tailSalesRefresh =
+      await ensureInventoryStockSalesTailCoverage(persistenceReport);
+    let report = tailSalesRefresh.refreshed
+      ? await loadStableInventoryStockControlReport()
+      : persistenceReport;
+    const coverageGapResetAt = latestCanonicalCoverageGapResetAt(report);
+    const canonicalSalesRefresh = coverageGapResetAt
+      ? await ensureCanonicalSalesCoverageAfterReset(coverageGapResetAt)
+      : null;
+    if (canonicalSalesRefresh?.accepted) {
+      report = await loadStableInventoryStockControlReport();
+    }
+
     const stillVisible = report.rows.some(
       (row) =>
         row.barcode === event.barcode && row.resetEventId === event.eventId,
@@ -229,25 +257,30 @@ export async function POST(request: Request) {
           ok: false,
           code: "INVENTORY_STOCKOUT_RESET_PERSISTENCE_LOST_AFTER_REFRESH",
           event,
+          tailSalesRefresh,
           canonicalSalesRefresh,
           report,
           message:
-            "Canonical 판매 최신화 이후 기준점 재조회 검증에 실패했습니다. 기준점을 0건으로 간주하지 않고 작업을 차단했습니다.",
+            "판매범위 최신화 이후 기준점 재조회 검증에 실패했습니다. 기준점을 0건으로 간주하지 않고 작업을 차단했습니다.",
         },
         { status: 503, headers: { "cache-control": "no-store" } },
       );
     }
 
+    const coverageMessage = tailSalesRefresh.ok
+      ? tailSalesRefresh.message
+      : canonicalSalesRefresh?.message ?? tailSalesRefresh.message;
     return Response.json(
       {
         ok: true,
         duplicate: stored.duplicate,
         event,
+        tailSalesRefresh,
         canonicalSalesRefresh,
         report,
         message: stored.duplicate
-          ? `이미 저장한 품절 기준점입니다. 저장·재조회 일치를 확인했습니다. ${canonicalSalesRefresh.message}`
-          : `B코드 재고를 0으로 초기화했고 저장·재조회 일치를 검증했습니다. ${canonicalSalesRefresh.message}`,
+          ? `이미 저장한 품절 기준점입니다. 저장·재조회 일치를 확인했습니다. ${coverageMessage}`
+          : `B코드 재고를 0으로 초기화했고 저장·재조회 일치를 검증했습니다. ${coverageMessage}`,
       },
       {
         status: stored.duplicate ? 200 : 201,
