@@ -1,45 +1,27 @@
-Commerce OS · Shopling Stock State Sync v0.5.0
+Commerce OS · Shopling Stock State Sync v0.5.3
 
 사용자 준비
-- Stock State Sync 구버전은 모두 제거/비활성화하고 v0.5.0 하나만 사용합니다.
-- Shopling에 로그인 완료한 관리자 메인 탭 하나와 Commerce OS 재고·품절·재입고 탭만 열어둡니다.
-- A4/A21은 미리 열 필요가 없습니다. 실행 시 필요한 전용 작업창만 자동 생성합니다.
-- 옵션상품은 A6 작업창을 생성하지 않습니다.
+- 이전 Stock State Sync 확장은 제거/비활성화하고 v0.5.3 하나만 사용합니다.
+- Shopling 로그인 관리자 탭 하나와 Commerce OS 재고·품절·재입고 탭을 열어둡니다.
+- A4/A6/A21은 미리 열 필요가 없습니다. 실행 시 전용 작업창을 자동 생성합니다.
 - 재고 0 기준점은 다시 만들지 않고 1건 안전 실행만 합니다.
 
-실행
-- 옵션: Commerce OS 서버 → Shopling API에서 B코드 옵션 정확 1건 검증 → 현재 optQty 보존 → optStatus만 판매중(B)/품절(C) 변경·재검증 → A21 goods key 정확검색 → 같은 goods key 쇼핑몰 행 전체 선택(최대 200건) → 수정전송 팝업 → 옵션송신.
-- 단품: 자동 생성 A4 → goods key 정확검색 → 상품상태 품절/판매중 → A21 → 상품판매상태송신.
-- A22 및 마켓 재고수량 동기화는 사용하지 않습니다.
+옵션상품 실행
+- A6 옵션대량수정 자동 진입.
+- 검색기간 2013-09-12~실행 당일(KST).
+- 검색항목 `옵션자체관리코드`에 실행 B코드를 정확 검색.
+- 검색결과 행의 textContent뿐 아니라 input/textarea/select의 현재 value까지 읽어 B코드 정확 행을 연결합니다.
+- 정확 B코드 행 전체에서 `상품코드-옵션코드`를 읽고 Shopling goods key를 전부 수집·중복 제거합니다.
+- 해당 B코드 옵션행 전체를 품절/판매중으로 일괄 변경합니다.
+- 확보한 모든 goods key를 A21에서 1/N → 2/N → ... 순서로 직렬 옵션송신합니다.
+- 모든 goods key가 완료되어야 B코드 전체를 성공으로 처리합니다.
+- 조회건수와 정확 행 수가 다르거나 goods key를 하나도 확보하지 못하면 부분 송신하지 않고 중단합니다.
 
-v0.5.0 A21 팝업 코어 교체
-- 재고동기화 전용 팝업 DOM 추측 로직을 제거했습니다.
-- 현재 실전에서 동작하는 public/shopling-a21-price-option-resend/content-a21-v024.js 와 main-a21-v024.js를 Git blob 그대로 복사해 price-core-content-a21-v024.js / price-core-main-a21-v024.js로 보관합니다.
-- 다운로드 패키지를 만들 때 원본 두 파일과 복사본이 byte-for-byte 동일한지 검증합니다. 다르면 ZIP 생성을 중단합니다.
-- 패키징 시 동작 로직은 바꾸지 않고 extension 간 충돌 방지를 위해 claim message, DOM overlay id, MAIN-world custom event namespace만 Stock Sync 전용으로 변경합니다.
-- 따라서 옵션송신 버튼 조작, 실제 form name/value 선택, Shopling 원본 goods_mallMdfy_submit_sp() 호출은 가격조정 확장과 동일한 코어입니다.
-- 기존 v0.4.4에서 실패 원인이었던 '화면 본문에 상품수정 송신 문구가 있어야 A21 팝업으로 인정' 조건은 더 이상 사용하지 않습니다. 가격조정 코어처럼 정확 popup URL + 실제 form payload를 기준으로 동작합니다.
-- OPTION 팝업은 background의 단발성 dispatch를 기다리지 않고 PriceCore가 self-claim합니다.
-- 전송 후 결과 증거는 별도의 passive all-frame observer가 Commerce OS background에 전달합니다.
+단품상품 실행
+- A4에서 goods key 정확 검색 → 상품상태 품절/판매중 변경 → A21 상품판매상태송신.
 
-v0.4.2 A21 다건 선택
-- goods key 1개 검색 시 여러 쇼핑몰 상품행이 나오는 것이 정상입니다.
-- 화면출력을 200개로 맞추고 조회결과 1~200건이면 모든 행이 정확 goods key인지 검증한 뒤 전체 선택합니다.
-- 조회건수와 정확 goods key 행 수가 다르면 전송하지 않습니다.
-- 200건 초과 시 부분 전송하지 않고 안전 중단합니다.
-
-v0.4.1 검색 안전장치
-- 실제 A21 '검색항목' 행의 드롭다운과 같은 행의 입력칸만 사용합니다.
-- 상단 전역 검색창은 사용하지 않습니다.
-- 동일 실행에서 검색 버튼을 중복 클릭하지 않습니다.
-
-v0.4.0 옵션상태 API 전환
-- A6 레거시 웹조작은 옵션상품 경로에서 제거했습니다.
-- Shopling API에서 optPtnOptCd가 B코드와 정확히 일치하는 옵션 1건만 변경합니다.
-- optQty는 Shopling 현재값을 그대로 보존하고 optStatus만 B↔C로 변경합니다.
-- API 성공 및 readback 검증 후에만 A21을 실행합니다.
-
-구현/배포
-- Shopling API 인증정보는 Commerce OS 서버 환경변수에서만 사용합니다.
-- 가격조정 확장 자체는 수정하지 않습니다.
-- 재고·발주·취소·반품 데이터와 계산 로직은 수정하지 않습니다.
+A21 안전장치
+- 가격조정 확장의 검증된 price-core를 그대로 사용합니다.
+- goods key 검색 결과가 여러 쇼핑몰 행이면 최대 200건까지 정확 일치 전체를 선택합니다.
+- Shopling 자체 수정전송 완료가 확인되면 쇼핑몰별 개별 실패는 증거로 기록하고 다음 goods key로 진행합니다.
+- A22 및 마켓 숫자 재고수량 동기화는 사용하지 않습니다.
