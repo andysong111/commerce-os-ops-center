@@ -71,6 +71,11 @@ const REGISTRY: Record<string, RegistryEntry> = {
     load: async () =>
       (await import("@/app/api/cron/legacy-shopling-launch-backfill/route")).GET as CronHandler,
   },
+  "legacy-shopling-image-repair": {
+    routePath: "/api/cron/legacy-shopling-image-repair",
+    load: async () =>
+      (await import("@/app/api/cron/legacy-shopling-image-repair/route")).GET as CronHandler,
+  },
   "detail-page-jobs": {
     routePath: "/api/cron/detail-page-jobs",
     load: async () =>
