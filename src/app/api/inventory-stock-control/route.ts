@@ -4,10 +4,8 @@ import {
   normalizeStockoutResetInput,
   storeInventoryOperation,
 } from "@/lib/inventoryStockControl";
-import {
-  ensureInventoryStockSalesTailCoverage,
-  overlayInventoryStockControlReportWithTail,
-} from "@/lib/inventoryStockSalesTail";
+import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
+import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
@@ -51,9 +49,6 @@ async function loadResolvedInventoryStockControlReport() {
 async function loadStableInventoryStockControlReport() {
   const first = await loadResolvedInventoryStockControlReport();
   if (first.state !== "READY" || first.resetCount > 0) return first;
-
-  // A reset ledger has no operator delete path, so an unexpected zero can be a
-  // transient read. Re-read once before presenting an empty canonical state.
   const second = await loadResolvedInventoryStockControlReport();
   return second.resetCount >= first.resetCount ? second : first;
 }
@@ -160,7 +155,7 @@ export async function GET(request: Request) {
   let report = await loadStableInventoryStockControlReport();
   const tailSalesRefresh =
     report.state === "READY"
-      ? await ensureInventoryStockSalesTailCoverage(report)
+      ? await ensureExactInventoryStockSalesTailCoverage(report)
       : null;
   if (tailSalesRefresh?.refreshed) {
     report = await loadStableInventoryStockControlReport();
@@ -217,8 +212,7 @@ export async function POST(request: Request) {
 
     const persistenceReport = await loadStableInventoryStockControlReport();
     const persistedReset = persistenceReport.rows.some(
-      (row) =>
-        row.barcode === event.barcode && row.resetEventId === event.eventId,
+      (row) => row.barcode === event.barcode && row.resetEventId === event.eventId,
     );
     if (!persistedReset) {
       return Response.json(
@@ -235,7 +229,7 @@ export async function POST(request: Request) {
     }
 
     const tailSalesRefresh =
-      await ensureInventoryStockSalesTailCoverage(persistenceReport);
+      await ensureExactInventoryStockSalesTailCoverage(persistenceReport);
     let report = tailSalesRefresh.refreshed
       ? await loadStableInventoryStockControlReport()
       : persistenceReport;
@@ -248,8 +242,7 @@ export async function POST(request: Request) {
     }
 
     const stillVisible = report.rows.some(
-      (row) =>
-        row.barcode === event.barcode && row.resetEventId === event.eventId,
+      (row) => row.barcode === event.barcode && row.resetEventId === event.eventId,
     );
     if (!stillVisible) {
       return Response.json(
