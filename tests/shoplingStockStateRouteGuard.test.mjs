@@ -107,3 +107,15 @@ test("inventory stock control accepts both one-letter and two-letter B-code pref
   assert.ok(panel.includes("/^B[A-Z]{1,2}\\d+-\\d+$/"));
   assert.match(panel, /BZ7341-1 또는 BCC3-2/);
 });
+
+test("inventory stock control self-heals stale canonical sales coverage", async () => {
+  const route = await readFile("src/app/api/inventory-stock-control/route.ts", "utf8");
+  assert.match(route, /latestCanonicalCoverageGapResetAt/);
+  assert.match(route, /\.filter\(\(row\) => !row\.salesCoverageReady\)/);
+  assert.match(route, /createCanonicalSalesCoverageRequest\(resetMs\)/);
+  assert.match(route, /createdAnalysisMs < resetMs/);
+  assert.match(route, /supersededStaleRequest: staleRequestWasActive/);
+  assert.match(route, /canonicalSalesRefresh = coverageGapResetAt/);
+  assert.match(route, /ensureCanonicalSalesCoverageAfterReset\(coverageGapResetAt\)/);
+  assert.doesNotMatch(route, /현재 작업을 우선 완료하고 새 범위가 필요합니다/);
+});

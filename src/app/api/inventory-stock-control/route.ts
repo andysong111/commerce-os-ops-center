@@ -23,6 +23,7 @@ const ACTIVE_SALES_EVENT_STATES = new Set([
   "READY_FULL",
   "STORAGE_NOT_READY",
 ]);
+const WORKER_RUNNABLE_SALES_EVENT_STATES = new Set(["QUEUED", "RUNNING"]);
 
 function unauthorized() {
   return Response.json(
@@ -49,26 +50,55 @@ async function loadStableInventoryStockControlReport() {
   return second.resetCount >= first.resetCount ? second : first;
 }
 
+function latestCanonicalCoverageGapResetAt(
+  report: Awaited<ReturnType<typeof loadStableInventoryStockControlReport>>,
+) {
+  const candidates = report.rows
+    .filter((row) => !row.salesCoverageReady)
+    .map((row) => row.resetAt)
+    .filter((value) => Number.isFinite(Date.parse(value)))
+    .sort((left, right) => Date.parse(left) - Date.parse(right));
+  return candidates.at(-1) ?? null;
+}
+
+async function createCanonicalSalesCoverageRequest(resetMs: number) {
+  const created = await createProductMasterShoplingSalesEventSyncRequest();
+  const createdAnalysisMs = Date.parse(created.analysisAsOf);
+  if (!Number.isFinite(createdAnalysisMs) || createdAnalysisMs < resetMs) {
+    throw new Error(
+      "CANONICAL_SALES_REFRESH_ANALYSIS_BEFORE_RESET: 새 판매 이벤트 분석시점이 재고 0 기준시점보다 이릅니다.",
+    );
+  }
+  const wakeRequested = await wakeOpsDispatchTask(
+    "product-master-shopling-sales-events",
+    0,
+  );
+  return { created, wakeRequested };
+}
+
 async function ensureCanonicalSalesCoverageAfterReset(resetAt: string) {
   try {
     const current = await loadProductMasterShoplingSalesEventSyncStatus();
     const resetMs = Date.parse(resetAt);
+    if (!Number.isFinite(resetMs)) {
+      throw new Error("CANONICAL_SALES_REFRESH_RESET_AT_INVALID");
+    }
     const analysisMs = current.analysisAsOf
       ? Date.parse(current.analysisAsOf)
       : Number.NaN;
     const coversReset =
-      Number.isFinite(resetMs) &&
-      Number.isFinite(analysisMs) &&
-      analysisMs >= resetMs;
+      Number.isFinite(analysisMs) && analysisMs >= resetMs;
 
     if (coversReset) {
-      const wakeRequested = ACTIVE_SALES_EVENT_STATES.has(current.state)
+      const wakeRequested = WORKER_RUNNABLE_SALES_EVENT_STATES.has(current.state)
         ? await wakeOpsDispatchTask("product-master-shopling-sales-events", 0)
         : false;
       return {
         accepted: false,
         alreadyCovered: true,
         alreadyActive: ACTIVE_SALES_EVENT_STATES.has(current.state),
+        supersededStaleRequest: false,
+        previousRequestId: null,
         requestId: current.requestId,
         analysisAsOf: current.analysisAsOf,
         state: current.state,
@@ -78,47 +108,32 @@ async function ensureCanonicalSalesCoverageAfterReset(resetAt: string) {
       };
     }
 
-    if (ACTIVE_SALES_EVENT_STATES.has(current.state)) {
-      const wakeRequested = await wakeOpsDispatchTask(
-        "product-master-shopling-sales-events",
-        0,
-      );
-      return {
-        accepted: false,
-        alreadyCovered: false,
-        alreadyActive: true,
-        requestId: current.requestId,
-        analysisAsOf: current.analysisAsOf,
-        state: current.state,
-        wakeRequested,
-        followupRequired: true,
-        message:
-          "진행 중인 Canonical 판매 이벤트가 품절 기준시점보다 이릅니다. 현재 작업을 우선 완료하고 새 범위가 필요합니다.",
-      };
-    }
-
-    const created = await createProductMasterShoplingSalesEventSyncRequest();
-    const wakeRequested = await wakeOpsDispatchTask(
-      "product-master-shopling-sales-events",
-      0,
-    );
+    const previousRequestId = current.requestId;
+    const staleRequestWasActive = ACTIVE_SALES_EVENT_STATES.has(current.state);
+    const { created, wakeRequested } =
+      await createCanonicalSalesCoverageRequest(resetMs);
     return {
       accepted: true,
       alreadyCovered: false,
-      alreadyActive: false,
+      alreadyActive: staleRequestWasActive,
+      supersededStaleRequest: staleRequestWasActive,
+      previousRequestId,
       requestId: created.requestId,
       analysisAsOf: created.analysisAsOf,
       state: "QUEUED",
       wakeRequested,
       followupRequired: false,
-      message:
-        "품절 기준시점 이후까지 확인하도록 Canonical 판매 이벤트 최신화를 접수했습니다.",
+      message: staleRequestWasActive
+        ? "기존 Canonical 판매 이벤트 분석시점이 품절 기준시점보다 오래되어, 최신 분석시점의 새 요청으로 자동 교체했습니다."
+        : "품절 기준시점 이후까지 확인하도록 Canonical 판매 이벤트 최신화를 접수했습니다.",
     };
   } catch (error) {
     return {
       accepted: false,
       alreadyCovered: false,
       alreadyActive: false,
+      supersededStaleRequest: false,
+      previousRequestId: null,
       requestId: null,
       analysisAsOf: null,
       state: "REFRESH_QUEUE_FAILED",
@@ -135,8 +150,13 @@ async function ensureCanonicalSalesCoverageAfterReset(resetAt: string) {
 export async function GET(request: Request) {
   if (!isSameOriginOpsRequest(request)) return unauthorized();
   const report = await loadStableInventoryStockControlReport();
+  const coverageGapResetAt =
+    report.state === "READY" ? latestCanonicalCoverageGapResetAt(report) : null;
+  const canonicalSalesRefresh = coverageGapResetAt
+    ? await ensureCanonicalSalesCoverageAfterReset(coverageGapResetAt)
+    : null;
   return Response.json(
-    { ok: report.state === "READY", report },
+    { ok: report.state === "READY", report, canonicalSalesRefresh },
     {
       status: report.state === "READY" ? 200 : 503,
       headers: { "cache-control": "no-store" },
@@ -226,8 +246,8 @@ export async function POST(request: Request) {
         canonicalSalesRefresh,
         report,
         message: stored.duplicate
-          ? "이미 저장한 품절 기준점입니다. 저장·재조회 일치와 Canonical 판매 범위를 함께 확인했습니다."
-          : "B코드 재고를 0으로 초기화했고 저장·재조회 일치를 검증한 뒤, 기준시점 이후까지 확인할 Canonical 판매 최신화를 접수했습니다.",
+          ? `이미 저장한 품절 기준점입니다. 저장·재조회 일치를 확인했습니다. ${canonicalSalesRefresh.message}`
+          : `B코드 재고를 0으로 초기화했고 저장·재조회 일치를 검증했습니다. ${canonicalSalesRefresh.message}`,
       },
       {
         status: stored.duplicate ? 200 : 201,
