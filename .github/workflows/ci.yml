@@ -29,6 +29,8 @@ jobs:
           src/lib/extendedModuleRegistry.ts
           src/lib/productLaunchTrackerRows.ts
           src/lib/productLaunchTrackerShopling.ts
+          src/lib/tossCompatibleOption.ts
+          src/app/api/product-launch-tracker/model-order-options/route.ts
           src/app/api/product-launch-tracker/flow-selection/route.ts
           src/components/product-launch-flow/ProductLaunchFlowConnected.tsx
           src/components/product-launch-flow/ProductLaunchTrackerHandoffSync.tsx
@@ -141,6 +143,7 @@ jobs:
           tests/productLaunchTrackerRows.test.mjs
           tests/productLaunchTrackerBarcodeMapping.test.mjs
           tests/productLaunchTrackerFlowConnection.test.mjs
+          tests/tossCompatibleOption.test.mjs
           tests/seoBulkCloudParallel.test.mjs
           tests/seoGroundedReservoirV11.test.mjs
       - name: Build
