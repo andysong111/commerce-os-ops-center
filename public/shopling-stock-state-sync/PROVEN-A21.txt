@@ -1,1 +1,0 @@
-A21 `상품 수정전송`: detect candidates without visible() filtering and call element.click(), matching the previously proven price/option resend path.
