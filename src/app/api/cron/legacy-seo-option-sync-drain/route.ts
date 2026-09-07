@@ -31,8 +31,8 @@ function authorized(request: Request, secret: string) {
   return received.length === expected.length && timingSafeEqual(received, expected);
 }
 
-function synced(itemPayload: unknown) {
-  return Boolean(text(record(record(itemPayload).shoplingOptionSync).syncedAt));
+function synced(syncMeta: unknown) {
+  return Boolean(text(record(syncMeta).syncedAt));
 }
 
 export async function GET(request: Request) {
@@ -57,22 +57,36 @@ export async function GET(request: Request) {
   }
   const config = configResult.value;
   const params = new URLSearchParams({
-    select: "owner_id,item_id,model_number,item_payload",
+    select: "owner_id,item_id,model_number,sync_meta:item_payload->shoplingOptionSync",
     work_batch: "eq.등록완료건",
     shopling_upload_status: "eq.완료",
     archived_at: "is.null",
     order: "owner_id.asc,model_number.asc",
     limit: "1000",
   });
-  const { body } = await readProductLaunchStorageJson(
-    `${config.supabaseUrl}/rest/v1/product_launch_items?${params.toString()}`,
-    {
-      headers: createSupabaseAdminHeaders(config.secretKey),
-      cache: "no-store",
-    },
-  );
+  let body: unknown;
+  try {
+    ({ body } = await readProductLaunchStorageJson(
+      `${config.supabaseUrl}/rest/v1/product_launch_items?${params.toString()}`,
+      {
+        headers: createSupabaseAdminHeaders(config.secretKey),
+        cache: "no-store",
+      },
+      { attempts: 1, timeoutMs: 5_000, retryDelaysMs: [] },
+    ));
+  } catch (error) {
+    return Response.json(
+      {
+        ok: false,
+        busy: true,
+        state: "DATABASE_BUSY",
+        message: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
+    );
+  }
   const allRows = (Array.isArray(body) ? body : []).map(record);
-  const pendingRows = allRows.filter((row) => !synced(row.item_payload));
+  const pendingRows = allRows.filter((row) => !synced(row.sync_meta));
   if (!pendingRows.length) {
     return Response.json({
       ok: true,
