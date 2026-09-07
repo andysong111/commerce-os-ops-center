@@ -1,2 +1,0 @@
-Known-good source reused conceptually: public/shopling-a21-price-option-resend/content-a21.js -> clickModifySend().
-Only the A21 list button discovery/click semantics are restored. A6 live discovery, API option status mutation, serial goods-key processing, popup core, and HF1 remain current.
