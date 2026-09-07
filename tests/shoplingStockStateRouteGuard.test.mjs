@@ -45,7 +45,7 @@ test("v0.5.0 copies the proven price popup core literally and only namespaces pa
   assert.match(canonicalContent, /selectRadio\("trsmt_env_mody_opt", "1"\)/);
   assert.match(canonicalMain, /goods_mallMdfy_submit_sp/);
   assert.match(adapter, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
-  assert.match(adapter, /active\.job\?\.productKind === "OPTION" && active\.stage === "A21_POPUP"/);
+  assert.match(adapter, /active\?\.job\?\.productKind === "OPTION" && active\.stage === "A21_POPUP"/);
   assert.match(route, /copiedPriceContent !== canonicalPriceContent/);
   assert.match(route, /namespacePriceCoreContent/);
   assert.match(route, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
