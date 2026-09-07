@@ -4,6 +4,8 @@ import {
   normalizeShoplingStockSyncInput,
   storeInventoryOperation,
 } from "@/lib/inventoryStockControl";
+import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
+import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -109,21 +111,31 @@ async function loadPreparedGoodsKeysByBarcode() {
 }
 
 async function loadRetryableReport() {
-  return normalizeRetryableShoplingSyncReportWithEvidence(
+  let report = await overlayInventoryStockControlReportWithTail(
     await loadInventoryStockControlReport(),
   );
+  const tailSalesRefresh =
+    await ensureExactInventoryStockSalesTailCoverage(report);
+  if (tailSalesRefresh.refreshed) {
+    report = await overlayInventoryStockControlReportWithTail(
+      await loadInventoryStockControlReport(),
+    );
+  }
+  return {
+    report: await normalizeRetryableShoplingSyncReportWithEvidence(report),
+    tailSalesRefresh,
+  };
 }
 
 export async function GET(request: Request) {
   if (!isSameOriginOpsRequest(request)) return unauthorized();
-  const [report, preparedGoodsKeysByBarcode] = await Promise.all([
-    loadRetryableReport(),
-    loadPreparedGoodsKeysByBarcode(),
-  ]);
+  const [{ report, tailSalesRefresh }, preparedGoodsKeysByBarcode] =
+    await Promise.all([loadRetryableReport(), loadPreparedGoodsKeysByBarcode()]);
   return Response.json(
     {
       ok: report.state === "READY",
       report,
+      tailSalesRefresh,
       jobs: report.rows
         .filter((row) => row.syncNeeded && !row.syncBlocked)
         .map((row) => {
@@ -180,13 +192,14 @@ export async function POST(request: Request) {
       correlationId: `shopling-stock:${event.barcode}`,
       snapshot: event,
     });
-    const report = await loadRetryableReport();
+    const { report, tailSalesRefresh } = await loadRetryableReport();
     return Response.json(
       {
         ok: true,
         duplicate: stored.duplicate,
         event,
         report,
+        tailSalesRefresh,
         message: stored.duplicate
           ? "이미 기록한 Shopling 동기화 결과입니다."
           : "Shopling 재고상태 동기화 결과를 저장했습니다.",

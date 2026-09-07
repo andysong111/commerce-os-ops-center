@@ -7,10 +7,16 @@ on:
       - "scripts/build-shopling-stock-worker-v030.mjs"
       - "src/app/api/shopling-stock-state-sync/**"
       - "src/app/api/inventory-stock-control/sync/**"
+      - "src/app/api/inventory-stock-control/route.ts"
+      - "src/lib/inventoryStockSalesTail.ts"
+      - "src/lib/inventoryStockSalesTailCoverage.ts"
+      - "src/lib/inventoryStockSyncResolution.ts"
       - "src/app/china-order-manager/stock-control/**"
       - "tests/shoplingStockStateRouteGuard.test.mjs"
       - "tests/shoplingStockStateExtension.test.mjs"
       - "tests/shoplingStockStateSyncV041.test.mjs"
+      - "tests/inventoryStockSalesTail.test.mjs"
+      - "tests/inventoryStockSyncTimeoutRetry.test.mjs"
       - ".github/workflows/shopling-stock-state-sync-ci.yml"
   workflow_dispatch:
 
@@ -39,9 +45,13 @@ jobs:
           && node --check public/shopling-stock-state-sync/background-v040.js
           && node --check public/shopling-stock-state-sync/content-ops-v021.js
           && node --check public/shopling-stock-state-sync/popup.js
-      - name: Regression - v0.4.1 API plus row-scoped one-click A21
-        run: >-
-          node --test
-          tests/shoplingStockStateRouteGuard.test.mjs
-          tests/shoplingStockStateExtension.test.mjs
-          tests/shoplingStockStateSyncV041.test.mjs
+      - name: Regression - route guard
+        run: node --test tests/shoplingStockStateRouteGuard.test.mjs
+      - name: Regression - extension package
+        run: node --test tests/shoplingStockStateExtension.test.mjs
+      - name: Regression - v0.4.1 sync
+        run: node --test tests/shoplingStockStateSyncV041.test.mjs
+      - name: Regression - reset-tail coverage
+        run: node --test tests/inventoryStockSalesTail.test.mjs
+      - name: Regression - result-timeout retry
+        run: node --test tests/inventoryStockSyncTimeoutRetry.test.mjs

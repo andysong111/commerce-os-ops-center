@@ -44,19 +44,19 @@ test("completed canonical read covers a reset through analysisAsOf even when no 
   );
 });
 
-test("zero inventory requests stockout and confirmed inbound requests on-sale recovery through the v0.1.3 routes", async () => {
+test("zero inventory requests stockout and confirmed inbound requests on-sale recovery through the API-first A21 routes", async () => {
   const { inventory, syncRoute } = await sources();
   assert.match(
     inventory,
     /quantityOnHand > 0 \? "ON_SALE" : "SOLD_OUT"/,
   );
-  assert.match(syncRoute, /A6_OPTION_STATUS/);
+  assert.match(syncRoute, /SHOPLING_API_OPTION_STATUS/);
   assert.match(syncRoute, /A21_GOODS_KEY_OPTION_SEND/);
   assert.match(syncRoute, /A4_PRODUCT_STATUS/);
   assert.match(syncRoute, /A21_GOODS_KEY_PRODUCT_SALE_STATUS/);
   assert.match(
     syncRoute,
-    /row\.productKind === "OPTION"[\s\S]*A6_OPTION_STATUS[\s\S]*A21_GOODS_KEY_OPTION_SEND[\s\S]*A4_PRODUCT_STATUS[\s\S]*A21_GOODS_KEY_PRODUCT_SALE_STATUS/,
+    /row\.productKind === "OPTION"[\s\S]*SHOPLING_API_OPTION_STATUS[\s\S]*A21_GOODS_KEY_OPTION_SEND[\s\S]*A4_PRODUCT_STATUS[\s\S]*A21_GOODS_KEY_PRODUCT_SALE_STATUS/,
   );
   assert.doesNotMatch(syncRoute, /A22_OPTION_TRANSMIT/);
 });

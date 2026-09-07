@@ -10,6 +10,7 @@ const STALE_UNRESOLVED_REASON =
 const SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE =
   "SHOPLING_STOCK_STATUS_SYNC_EVENT";
 const OPERATOR_STOP_CODE = "STOCK_SYNC_OPERATOR_STOPPED";
+const RESULT_TIMEOUT_CODE = "STOCK_SYNC_RESULT_TIMEOUT";
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -59,6 +60,39 @@ function legacyMarketplaceFailureCompletionEvidence(
       text(result.readyState).toLowerCase() === "complete" &&
       marketplaceFailure,
   );
+}
+
+function resultTimeoutRetryEvidence(
+  source: Record<string, unknown>,
+  productKind: string,
+  desiredStatus: string,
+) {
+  if (productKind !== "OPTION") return false;
+  const evidence = object(source.evidence);
+  if (
+    text(evidence.code).toUpperCase() !== RESULT_TIMEOUT_CODE ||
+    text(evidence.stage).toUpperCase() !== "WAIT_A21_RESULT"
+  ) {
+    return false;
+  }
+  const history = Array.isArray(evidence.history)
+    ? evidence.history.map(object)
+    : [];
+  const targetStatus = desiredStatus === "SOLD_OUT" ? "C" : "B";
+  const optionApiVerified = history.some((entry) => {
+    const optionEvidence = object(entry.optionApiEvidence);
+    return Boolean(
+      /^\d+$/.test(text(optionEvidence.matchedGoodsKey)) &&
+        text(optionEvidence.statusAfter).toUpperCase() === targetStatus &&
+        text(optionEvidence.targetStatusCode).toUpperCase() === targetStatus,
+    );
+  });
+  const submitWasInvoked = history.some(
+    (entry) =>
+      text(entry.priceCoreStage).toUpperCase() === "SUBMIT_CLICKED" &&
+      /^\d+$/.test(text(entry.goodsKey)),
+  );
+  return optionApiVerified && submitWasInvoked;
 }
 
 export function latestRelevantShoplingSync(
@@ -180,11 +214,18 @@ async function loadEvidenceRetryableBarcodes(
         source,
         text(candidate.productKind).toUpperCase(),
       );
+    const retryableResultTimeout = resultTimeoutRetryEvidence(
+      source,
+      text(candidate.productKind).toUpperCase(),
+      desiredStatus,
+    );
 
     if (
       matchesCurrentDesiredState &&
       outcome === "UNCERTAIN" &&
-      (retryableOperatorStop || retryableLegacyMarketplaceFailure)
+      (retryableOperatorStop ||
+        retryableLegacyMarketplaceFailure ||
+        retryableResultTimeout)
     ) {
       retryable.add(barcode);
     }
