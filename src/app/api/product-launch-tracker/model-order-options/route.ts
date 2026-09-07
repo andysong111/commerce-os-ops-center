@@ -153,7 +153,8 @@ export async function GET(request: NextRequest) {
       {
         ok: true,
         modelNumber,
-        source: "product_master_planning_snapshot_toss_normalized",
+        source: "product_master_planning_snapshot",
+        optionNormalization: "toss_compatible_v1",
         generatedAt: snapshot.generatedAt,
         contentFingerprint: snapshot.contentFingerprint,
         optionCount: options.length,
