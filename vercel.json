@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/legacy-shopling-image-repair",
-      "schedule": "* * * * *"
+      "schedule": "*/10 * * * *"
     }
   ]
 }
