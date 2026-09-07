@@ -23,11 +23,14 @@ const TARGET_BATCH = "등록완료건";
 const SOURCE_NAME = "shopling_existing_product_backfill";
 const REPAIR_VERSION = "legacy_shopling_image_repair_v1";
 const MAX_GOODS_PER_REQUEST = 40;
-const MAX_GOODS_KEYS_PER_RUN = 480;
+const MAX_GOODS_KEYS_PER_RUN = 240;
 const MAX_NO_IMAGE_ATTEMPTS = 3;
 const MAX_ADDITIONAL_IMAGES = 10;
+const CDN_PROBE_CONCURRENCY = 12;
+const CDN_PROBE_TIMEOUT_MS = 5_000;
 const PRODUCT_FIELDS = [
   "goods_key",
+  "dtl_desc",
   ...Array.from({ length: 32 }, (_, index) => `img_${index}`),
 ].join(",");
 
@@ -41,6 +44,7 @@ const SHIPPING_NOTICE_URLS = [
 type UnknownRecord = Record<string, unknown>;
 type GoodsImages = {
   goodsKey: string;
+  detailHtml: string;
   mainImageUrl: string;
   additionalImageUrls: string[];
 };
@@ -50,6 +54,11 @@ type RepairCandidate = {
   modelNumber: string;
   goodsKeys: string[];
   attemptedAtMs: number;
+};
+type CdnProbeResult = {
+  probedGoodsCount: number;
+  resolvedGoodsCount: number;
+  byGoodsKey: Map<string, string>;
 };
 
 function record(value: unknown): UnknownRecord {
@@ -141,6 +150,10 @@ function validRepresentativeUrl(value: string) {
   );
 }
 
+function htmlFingerprint(value: unknown) {
+  return text(value).replace(/\s+/g, " ").trim();
+}
+
 function rowImages(row: UnknownRecord): GoodsImages | null {
   const goodsKey = normalizeGoodsKey(row.goods_key);
   if (!goodsKey) return null;
@@ -149,10 +162,6 @@ function rowImages(row: UnknownRecord): GoodsImages | null {
     splitImageField(row[`img_${index}`]),
   );
   const allImages = unique(byField.flat()).filter(validRepresentativeUrl);
-  if (!allImages.length) {
-    return { goodsKey, mainImageUrl: "", additionalImageUrls: [] };
-  }
-
   const primaryCandidates = unique([
     ...byField[0],
     ...byField[19],
@@ -164,13 +173,26 @@ function rowImages(row: UnknownRecord): GoodsImages | null {
     .filter((url) => normalizedUrlKey(url) !== mainKey)
     .slice(0, MAX_ADDITIONAL_IMAGES);
 
-  return { goodsKey, mainImageUrl, additionalImageUrls };
+  return {
+    goodsKey,
+    detailHtml: text(row.dtl_desc),
+    mainImageUrl,
+    additionalImageUrls,
+  };
 }
 
-function chooseMainImage(goods: GoodsImages[]) {
+function chooseMainImage(goods: GoodsImages[], preferredHtml: unknown) {
+  const expectedFingerprint = htmlFingerprint(preferredHtml);
+  const preferredGoods = expectedFingerprint
+    ? goods.filter(
+        (row) =>
+          row.mainImageUrl && htmlFingerprint(row.detailHtml) === expectedFingerprint,
+      )
+    : [];
+  const source = preferredGoods.length ? preferredGoods : goods;
   const ranked = new Map<string, { value: string; count: number; first: number }>();
   let first = 0;
-  for (const row of goods) {
+  for (const row of source) {
     const value = text(row.mainImageUrl);
     if (!validRepresentativeUrl(value)) continue;
     const key = normalizedUrlKey(value);
@@ -191,7 +213,7 @@ function chooseAdditionalImages(goods: GoodsImages[], mainImageUrl: string) {
   let first = 0;
   for (const row of goods) {
     const seenInGoods = new Set<string>();
-    for (const value of row.additionalImageUrls) {
+    for (const value of [row.mainImageUrl, ...row.additionalImageUrls]) {
       if (!validRepresentativeUrl(value)) continue;
       const key = normalizedUrlKey(value);
       if (!key || key === mainKey || seenInGoods.has(key)) continue;
@@ -276,11 +298,16 @@ function itemGoodsKeys(item: UnknownRecord) {
 }
 
 function repairAttemptCount(item: UnknownRecord) {
-  return Math.max(0, integer(record(item.detailPageAssetSource).imageRepairAttemptCount));
+  return Math.max(
+    0,
+    integer(record(item.detailPageAssetSource).imageRepairAttemptCount),
+  );
 }
 
 function repairAttemptedAtMs(item: UnknownRecord) {
-  const value = Date.parse(text(record(item.detailPageAssetSource).imageRepairAttemptedAt));
+  const value = Date.parse(
+    text(record(item.detailPageAssetSource).imageRepairAttemptedAt),
+  );
   return Number.isFinite(value) ? value : 0;
 }
 
@@ -306,7 +333,9 @@ function repairCandidates(items: UnknownRecord[]) {
       attemptedAtMs: repairAttemptedAtMs(item),
     }))
     .filter((candidate) => candidate.itemId && candidate.goodsKeys.length > 0)
-    .sort((a, b) => a.attemptedAtMs - b.attemptedAtMs || a.itemIndex - b.itemIndex);
+    .sort(
+      (a, b) => a.attemptedAtMs - b.attemptedAtMs || a.itemIndex - b.itemIndex,
+    );
 }
 
 function selectCandidateBatch(candidates: RepairCandidate[]) {
@@ -339,7 +368,7 @@ async function fetchGoodsImages(config: ShoplingReadConfig, goodsKeys: string[])
         headers: {
           accept: "application/xml, text/xml",
           "content-type": "application/xml; charset=utf-8",
-          "user-agent": "commerce-os-legacy-image-repair/1.1",
+          "user-agent": "commerce-os-legacy-image-repair/1.2",
         },
         timeoutMs: 45_000,
       },
@@ -358,6 +387,169 @@ async function fetchGoodsImages(config: ShoplingReadConfig, goodsKeys: string[])
     }
   }
   return { byGoodsKey, fetchedRows };
+}
+
+function inferShoplingCdnBases(items: UnknownRecord[]) {
+  const counts = new Map<string, { base: string; count: number; first: number }>();
+  let first = 0;
+  for (const item of items) {
+    const asset = record(item.detailPageAsset);
+    const urls = [
+      ...splitImageField(asset.mainImageUrl),
+      ...normalizeExistingAdditional(asset.additionalImageUrls),
+    ];
+    for (const url of urls) {
+      const match = url.match(
+        /^(https?):\/\/img\.shopling\.co\.kr\/prodImg\/(img_\d+)\/([^/]+)\/prod_\d+\/\d+_0\.(?:jpe?g|png|webp)(?:[?#].*)?$/i,
+      );
+      if (!match) continue;
+      const base = `${match[1].toLowerCase()}://img.shopling.co.kr/prodImg/${match[2]}/${match[3]}`;
+      const key = base.toLowerCase();
+      const current = counts.get(key);
+      if (current) current.count += 1;
+      else counts.set(key, { base, count: 1, first: first++ });
+    }
+  }
+  const primary = [...counts.values()].sort(
+    (a, b) => b.count - a.count || a.first - b.first,
+  )[0]?.base;
+  if (!primary) return [];
+  return unique([
+    primary.replace(/^http:/i, "https:"),
+    primary.replace(/^https:/i, "http:"),
+  ]);
+}
+
+function shoplingCdnCandidateUrls(bases: string[], goodsKey: string) {
+  const numeric = Number(goodsKey);
+  if (!Number.isSafeInteger(numeric) || numeric <= 0) return [];
+  const bucket = Math.floor(numeric / 1000);
+  return unique(
+    bases.map(
+      (base) => `${base}/prod_${bucket}/${goodsKey}_0.jpg`,
+    ),
+  );
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      cache: "no-store",
+      redirect: "follow",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function responseIsImage(response: Response) {
+  const contentType = text(response.headers.get("content-type")).toLowerCase();
+  return response.ok && contentType.startsWith("image/");
+}
+
+async function cancelBody(response: Response) {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The probe already has enough response metadata; body cancellation is best-effort.
+  }
+}
+
+async function probeImageUrl(url: string) {
+  try {
+    const head = await fetchWithTimeout(
+      url,
+      {
+        method: "HEAD",
+        headers: { accept: "image/*,*/*;q=0.8" },
+      },
+      CDN_PROBE_TIMEOUT_MS,
+    );
+    if (responseIsImage(head)) return url;
+  } catch {
+    // Some legacy image hosts reject HEAD; use a bounded ranged GET below.
+  }
+
+  try {
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: "GET",
+        headers: {
+          accept: "image/*,*/*;q=0.8",
+          range: "bytes=0-1023",
+        },
+      },
+      CDN_PROBE_TIMEOUT_MS,
+    );
+    const valid = responseIsImage(response);
+    await cancelBody(response);
+    return valid ? url : "";
+  } catch {
+    return "";
+  }
+}
+
+async function probeShoplingCdn(
+  bases: string[],
+  goodsKeys: string[],
+  current: Map<string, GoodsImages>,
+): Promise<CdnProbeResult> {
+  const missingKeys = goodsKeys.filter(
+    (goodsKey) => !text(current.get(goodsKey)?.mainImageUrl),
+  );
+  const byGoodsKey = new Map<string, string>();
+  let probedGoodsCount = 0;
+
+  for (
+    let index = 0;
+    index < missingKeys.length;
+    index += CDN_PROBE_CONCURRENCY
+  ) {
+    const chunk = missingKeys.slice(index, index + CDN_PROBE_CONCURRENCY);
+    const resolved = await Promise.all(
+      chunk.map(async (goodsKey) => {
+        probedGoodsCount += 1;
+        for (const url of shoplingCdnCandidateUrls(bases, goodsKey)) {
+          const validUrl = await probeImageUrl(url);
+          if (validUrl) return { goodsKey, validUrl };
+        }
+        return { goodsKey, validUrl: "" };
+      }),
+    );
+    for (const entry of resolved) {
+      if (entry.validUrl) byGoodsKey.set(entry.goodsKey, entry.validUrl);
+    }
+  }
+
+  return {
+    probedGoodsCount,
+    resolvedGoodsCount: byGoodsKey.size,
+    byGoodsKey,
+  };
+}
+
+function mergeCdnEvidence(
+  current: Map<string, GoodsImages>,
+  cdn: CdnProbeResult,
+) {
+  for (const [goodsKey, mainImageUrl] of cdn.byGoodsKey) {
+    const existing = current.get(goodsKey);
+    current.set(goodsKey, {
+      goodsKey,
+      detailHtml: text(existing?.detailHtml),
+      mainImageUrl: text(existing?.mainImageUrl) || mainImageUrl,
+      additionalImageUrls: existing?.additionalImageUrls ?? [],
+    });
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -397,6 +589,16 @@ export async function GET(request: NextRequest) {
   const allGoodsKeys = batch.goodsKeys;
   const shoplingConfig = shoplingReadConfigFromEnv(shoplingEnvironment());
   const fetched = await fetchGoodsImages(shoplingConfig, allGoodsKeys);
+  const cdnBases = inferShoplingCdnBases(items);
+  const cdn = cdnBases.length
+    ? await probeShoplingCdn(cdnBases, allGoodsKeys, fetched.byGoodsKey)
+    : {
+        probedGoodsCount: 0,
+        resolvedGoodsCount: 0,
+        byGoodsKey: new Map<string, string>(),
+      };
+  mergeCdnEvidence(fetched.byGoodsKey, cdn);
+
   const now = new Date().toISOString();
   const changedIds: string[] = [];
   const unresolvedModels: string[] = [];
@@ -415,7 +617,7 @@ export async function GET(request: NextRequest) {
       .map((goodsKey) => fetched.byGoodsKey.get(goodsKey))
       .filter(Boolean) as GoodsImages[];
 
-    const chosenMain = chooseMainImage(goods);
+    const chosenMain = chooseMainImage(goods, existingAsset.html);
     const chosenAdditional = chooseAdditionalImages(goods, chosenMain);
     const existingMain =
       splitImageField(existingAsset.mainImageUrl).filter(validRepresentativeUrl)[0] || "";
@@ -457,6 +659,7 @@ export async function GET(request: NextRequest) {
           : "retry_no_image_evidence",
         imageRepairLastGoodsKeys: candidate.goodsKeys,
         imageRepairFetchedGoodsCount: goods.length,
+        imageRepairCdnBaseDetected: cdnBases.length > 0,
       };
       item.updatedAt = now;
       item.updatedBy = "legacy Shopling image repair";
@@ -480,8 +683,12 @@ export async function GET(request: NextRequest) {
       imageRepairAttemptedAt: now,
       imageRepairAttemptCount: attemptCount,
       imageRepairState: "completed",
+      imageRepairEvidenceSource: cdn.resolvedGoodsCount > 0
+        ? "shopling_api_or_validated_cdn"
+        : "shopling_api",
       imageRepairGoodsKeys: candidate.goodsKeys,
       imageRepairFetchedGoodsCount: goods.length,
+      imageRepairCdnBaseDetected: cdnBases.length > 0,
     };
     item.updatedAt = now;
     item.updatedBy = "legacy Shopling image repair";
@@ -505,6 +712,9 @@ export async function GET(request: NextRequest) {
     requestedGoodsKeyCount: allGoodsKeys.length,
     fetchedRows: fetched.fetchedRows,
     fetchedGoodsCount: fetched.byGoodsKey.size,
+    cdnBaseDetected: cdnBases.length > 0,
+    cdnProbedGoodsCount: cdn.probedGoodsCount,
+    cdnResolvedGoodsCount: cdn.resolvedGoodsCount,
     repairedMain,
     repairedAdditional,
     normalizedDelimiterItems,
@@ -523,6 +733,9 @@ export async function GET(request: NextRequest) {
     requestedGoodsKeyCount: allGoodsKeys.length,
     fetchedRows: fetched.fetchedRows,
     fetchedGoodsCount: fetched.byGoodsKey.size,
+    cdnBaseDetected: cdnBases.length > 0,
+    cdnProbedGoodsCount: cdn.probedGoodsCount,
+    cdnResolvedGoodsCount: cdn.resolvedGoodsCount,
     repairedItems: changedIds.length,
     repairedMain,
     repairedAdditional,
