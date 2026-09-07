@@ -1,4 +1,5 @@
 import { redactReliabilityText } from "@/lib/reliability/reliabilityEvent";
+import { claimReliabilityAutofixIdempotently } from "@/lib/reliability/reliabilityAutofixClaim";
 import { requestReliabilityAutofixProposal } from "@/lib/reliability/reliabilityAutofixOpenAi";
 import {
   assertAutofixJobEligible,
@@ -136,6 +137,28 @@ async function loadClaimedJob(
   });
 }
 
+async function findClaimedJobForRun(
+  repository: string,
+  runId: string,
+): Promise<ReliabilityAutofixJob | null> {
+  const admin = await adminClient();
+  const result = await admin
+    .from("reliability_autofix_jobs")
+    .select("id")
+    .eq("target_repo", repository)
+    .eq("claimed_by", repository)
+    .eq("github_run_id", runId)
+    .eq("status", "claimed")
+    .order("claimed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (result.error) {
+    throw new Error(`기존 자동수정 작업 조회 실패: ${result.error.message}`);
+  }
+  const jobId = text(object(result.data).id, 100);
+  return jobId ? loadClaimedJob(jobId, repository, runId) : null;
+}
+
 function parseFiles(value: unknown): ReliabilityAutofixContextFile[] {
   if (!Array.isArray(value)) throw new Error("자동수정 코드 문맥이 없습니다.");
   return value.slice(0, 20).map((entry) => {
@@ -174,16 +197,23 @@ export async function POST(request: Request) {
     const action = text(body.action, 80);
 
     if (action === "claim") {
-      const admin = await adminClient();
-      const result = await admin.rpc("claim_reliability_autofix_job", {
-        p_repo: identity.repository,
-        p_run_id: identity.runId,
+      const claim = await claimReliabilityAutofixIdempotently<ReliabilityAutofixJob>({
+        findExisting: () => findClaimedJobForRun(identity.repository, identity.runId),
+        claimFresh: async () => {
+          const admin = await adminClient();
+          const result = await admin.rpc("claim_reliability_autofix_job", {
+            p_repo: identity.repository,
+            p_run_id: identity.runId,
+          });
+          if (result.error) {
+            throw new Error(`자동수정 작업 가져오기 실패: ${result.error.message}`);
+          }
+          const rows = Array.isArray(result.data) ? result.data : [];
+          return rows.length ? normalizeJob(rows[0]) : null;
+        },
       });
-      if (result.error) throw new Error(`자동수정 작업 가져오기 실패: ${result.error.message}`);
-      const rows = Array.isArray(result.data) ? result.data : [];
-      const job = rows.length ? normalizeJob(rows[0]) : null;
       return Response.json(
-        { ok: true, job },
+        { ok: true, job: claim.job, recovered: claim.recovered },
         { headers: { "cache-control": "no-store" } },
       );
     }
