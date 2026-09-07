@@ -10,6 +10,13 @@ test("명시적 등록 제외 정책을 우선한다", () => {
     legacySeoRegistrationExclusionFromPolicy({ excluded: true, reason: "단종" }),
     { excluded: true, reason: "단종" },
   );
+  assert.deepEqual(
+    legacySeoRegistrationExclusion({
+      legacySeoRegistrationPolicy: { excluded: true, reason: "관리자 제외" },
+      orderOptions: [{ barcode: "BAA1-1", saleOption: "단품" }],
+    }),
+    { excluded: true, reason: "관리자 제외" },
+  );
 });
 
 test("정규화 옵션이 없는 이전상품은 B코드를 만들어내지 않고 자동 제외한다", () => {
