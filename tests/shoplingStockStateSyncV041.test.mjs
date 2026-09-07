@@ -5,7 +5,7 @@ import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v03
 
 const file = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("v0.5.3 A21 list worker keeps local search binding and exact multirow selection", async () => {
+test("v0.5.4 A21 list worker keeps local search binding and exact multirow selection", async () => {
   const [template, policy] = await Promise.all([
     file("public/shopling-stock-state-sync/content-shopling-v018.js"),
     file("public/shopling-stock-state-sync/search-policy-v023.js"),
@@ -21,7 +21,7 @@ test("v0.5.3 A21 list worker keeps local search binding and exact multirow selec
   assert.match(worker, /selected\.count !== totalResultCount/);
 });
 
-test("v0.5.3 keeps the one-click search policy while extending stock search start to Shopling service origin", async () => {
+test("v0.5.4 keeps the one-click search policy while using the maximum Shopling search horizon", async () => {
   const policy = await file("public/shopling-stock-state-sync/search-policy-v023.js");
   assert.match(policy, /const START = "20130912"/);
   assert.match(policy, /commerce-stock-search-v041/);
@@ -33,14 +33,15 @@ test("v0.5.3 keeps the one-click search policy while extending stock search star
   assert.match(policy, /submitted: true/);
 });
 
-test("v0.5.3 package binds A6 B-code from control values while retaining serial A21 price core", async () => {
-  const [manifestSource, downloadSource, pageSource, popupSource, adapterSource, liveA6Source, template, policy, copiedContent, copiedMain, canonicalContent, canonicalMain] = await Promise.all([
+test("v0.5.4 package reads A6 goods keys without checking rows, applies API per key, then keeps serial A21 price core", async () => {
+  const [manifestSource, downloadSource, pageSource, popupSource, adapterSource, liveA6Source, opsSource, template, policy, copiedContent, copiedMain, canonicalContent, canonicalMain] = await Promise.all([
     file("public/shopling-stock-state-sync/manifest.json"),
     file("src/app/api/shopling-stock-state-sync/download/route.ts"),
     file("src/app/china-order-manager/stock-control/page.tsx"),
     file("public/shopling-stock-state-sync/popup.js"),
     file("public/shopling-stock-state-sync/background-v050.js"),
     file("public/shopling-stock-state-sync/background-v052.js"),
+    file("public/shopling-stock-state-sync/content-ops-v021.js"),
     file("public/shopling-stock-state-sync/content-shopling-v018.js"),
     file("public/shopling-stock-state-sync/search-policy-v023.js"),
     file("public/shopling-stock-state-sync/price-core-content-a21-v024.js"),
@@ -51,29 +52,35 @@ test("v0.5.3 package binds A6 B-code from control values while retaining serial 
   const manifest = JSON.parse(manifestSource);
   const worker = buildStockWorkerV030(template, policy);
 
-  assert.equal(manifest.version, "0.5.3");
+  assert.equal(manifest.version, "0.5.4");
   assert.equal(manifest.background.service_worker, "background-v052.js");
   assert.equal(copiedContent, canonicalContent);
   assert.equal(copiedMain, canonicalMain);
   assert.match(canonicalContent, /chooseMode\("goods_stock"\)/);
   assert.match(canonicalContent, /selectRadio\("trsmt_env_mody_opt", "1"\)/);
   assert.match(canonicalMain, /goods_mallMdfy_submit_sp/);
-  assert.match(downloadSource, /const VERSION = "0\.5\.3"/);
+  assert.match(downloadSource, /const VERSION = "0\.5\.4"/);
   assert.match(downloadSource, /priceCoreLiteralCopyVerified: true/);
-  assert.match(downloadSource, /A6_LIVE_BCODE_CONTROL_VALUE_ROWS_THEN_A21_SERIAL_PRICE_CORE_V053/);
-  assert.match(downloadSource, /a6RowBinding: "TEXT_CONTENT_PLUS_INPUT_SELECT_VALUES"/);
+  assert.match(downloadSource, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_SERIAL_V054/);
+  assert.match(downloadSource, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
+  assert.match(downloadSource, /a6Checkbox: "NOT_TOUCHED"/);
+  assert.match(downloadSource, /optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY"/);
+  assert.match(downloadSource, /patchA6ReadOnlyResolverV054/);
+  assert.match(downloadSource, /checkboxTouched: false/);
   assert.match(downloadSource, /optionGoodsKeySource: "A6_LIVE_OPTION_BARCODE"/);
   assert.match(downloadSource, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
   assert.match(downloadSource, /PRICE_CORE_SELF_CLAIM_ADAPTER_WITH_STAGE_RACE_RETRY/);
   assert.match(downloadSource, /stock_price_core_not_option_popup_stage/);
   assert.match(downloadSource, /attempt < 16/);
   assert.match(downloadSource, /CANONICAL_PRICE_CORE_MODIFY_TP_GOODS_STOCK_AND_TRSMT_ENV_MODY_OPT_1/);
-  assert.match(pageSource, /v0\.5\.3 다운로드/);
+  assert.match(pageSource, /v0\.5\.4 다운로드/);
   assert.match(popupSource, /chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(adapterSource, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
   assert.match(adapterSource, /continueNextGoodsKey/);
-  assert.match(liveA6Source, /A6/);
-  assert.match(liveA6Source, /goodsKeys/);
+  assert.match(liveA6Source, /STOCK_SYNC_APPLY_OPTION_STATUS_V054/);
+  assert.match(liveA6Source, /active\.stage = "A21_LIST"/);
+  assert.match(opsSource, /goodsKeys: \[goodsKey\]/);
+  assert.match(opsSource, /inventory-stock-control\/shopling-option-status/);
   assert.match(worker, /rowEvidenceTextV053/);
   assert.match(worker, /values\.push\(control\.value \|\| ""\)/);
   const listWorker = manifest.content_scripts.find((script) => script.js.includes("content-shopling-v030.js"));
