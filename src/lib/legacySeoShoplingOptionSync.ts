@@ -1,3 +1,4 @@
+import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   loadLegacySeoShoplingEvidence,
   type LegacySeoShoplingEvidence,
@@ -5,12 +6,7 @@ import {
   type LegacySeoShoplingOptionGroup,
 } from "@/lib/legacySeoShoplingEvidence";
 import {
-  syncProductLaunchNormalizedChangedItems,
-} from "@/lib/productLaunchTrackerNormalizedStore";
-import type { ProductLaunchTrackerState } from "@/lib/productLaunchTrackerOptimized";
-import {
-  readProductLaunchState,
-  writeProductLaunchState,
+  readProductLaunchStorageJson,
   type ProductLaunchAdminConfig,
   type ProductLaunchIdentity,
 } from "@/lib/productLaunchTrackerServer";
@@ -25,6 +21,17 @@ type SyncResult = {
   bCodeCount: number;
   reason: string;
 };
+
+type NormalizedItem = {
+  itemId: string;
+  modelNumber: string;
+  itemPayload: UnknownRecord;
+  summaryPayload: UnknownRecord;
+  options: UnknownRecord[];
+};
+
+const ITEM_TABLE = "product_launch_items";
+const OPTION_TABLE = "product_launch_options";
 
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -54,6 +61,16 @@ function unique(values: string[]) {
   return [...new Set(values.map((value) => text(value)).filter(Boolean))];
 }
 
+function postgrestIn(values: string[]) {
+  return values
+    .map((value) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`)
+    .join(",");
+}
+
+function clone(value: unknown): UnknownRecord {
+  return { ...record(value) };
+}
+
 function activeGroupOptions(group: LegacySeoShoplingOptionGroup) {
   return group.options.filter((option) => text(option.status).toUpperCase() !== "X");
 }
@@ -61,14 +78,16 @@ function activeGroupOptions(group: LegacySeoShoplingOptionGroup) {
 function optionValue(optionName: string) {
   const normalized = text(optionName);
   if (!normalized || normalized === "단품") return "단품";
-  return normalized
-    .split(/\s*\/\s*/)
-    .map((part) => {
-      const index = part.search(/[:：]/);
-      return index >= 0 ? part.slice(index + 1).trim() : part.trim();
-    })
-    .filter(Boolean)
-    .join(" ") || normalized;
+  return (
+    normalized
+      .split(/\s*\/\s*/)
+      .map((part) => {
+        const index = part.search(/[:：]/);
+        return index >= 0 ? part.slice(index + 1).trim() : part.trim();
+      })
+      .filter(Boolean)
+      .join(" ") || normalized
+  );
 }
 
 function optionTitles(optionName: string) {
@@ -105,10 +124,7 @@ function goodsKeyNumber(group: LegacySeoShoplingOptionGroup) {
   return Number.isFinite(value) ? value : 0;
 }
 
-function selectGroup(
-  evidence: LegacySeoShoplingEvidence,
-  currentOptionCount: number,
-): LegacySeoShoplingOptionGroup | null {
+function selectGroup(evidence: LegacySeoShoplingEvidence, currentOptionCount: number) {
   const groups = evidence.optionGroups.filter((group) => activeGroupOptions(group).length > 0);
   if (!groups.length) return null;
   const grouped = groups.filter(isGroupedCandidate);
@@ -128,16 +144,44 @@ function selectGroup(
   })[0] ?? null;
 }
 
-function existingOptions(item: UnknownRecord) {
-  return array(item.orderOptions).map(record);
+function rowToOption(row: UnknownRecord) {
+  const payload = clone(row.option_payload);
+  const barcode = text(payload.barcode) || text(row.barcode);
+  const optionBarcodeNo = text(payload.optionBarcodeNo) || text(row.option_barcode_no);
+  const identityKey =
+    text(payload.optionBarcodeIdentityKey) ||
+    text(row.option_barcode_identity_key) ||
+    (barcode ? `B:${barcode}` : "");
+  return {
+    ...payload,
+    id: text(payload.id) || text(row.option_id),
+    optionName: text(payload.optionName) || text(row.option_name) || "옵션",
+    saleOption: text(payload.saleOption ?? payload.value) || text(row.sale_option),
+    chinaOption: text(payload.chinaOption) || text(row.china_option),
+    barcode,
+    baseSalePriceKrw: Math.max(
+      0,
+      Math.floor(Number(payload.baseSalePriceKrw ?? row.base_sale_price_krw) || 0),
+    ),
+    unitCostKrw: Math.max(
+      0,
+      Math.floor(Number(payload.unitCostKrw ?? row.unit_cost_krw) || 0),
+    ),
+    sourceOrderItemId:
+      payload.sourceOrderItemId ?? row.source_order_item_id ?? null,
+    optionBarcodeNo,
+    optionBarcodeIdentityKey: identityKey,
+    optionBarcodeIdentityKind:
+      text(payload.optionBarcodeIdentityKind) ||
+      (identityKey.startsWith("B:") ? "B_CODE" : "OPTION"),
+  };
 }
 
-function existingRealOptionCount(item: UnknownRecord) {
-  return existingOptions(item).filter((option) => text(option.saleOption ?? option.value) !== "단품").length;
+function existingRealOptionCount(options: UnknownRecord[]) {
+  return options.filter((option) => text(option.saleOption ?? option.value) !== "단품").length;
 }
 
-function mergeOptions(item: UnknownRecord, group: LegacySeoShoplingOptionGroup) {
-  const current = existingOptions(item);
+function mergeOptions(current: UnknownRecord[], group: LegacySeoShoplingOptionGroup) {
   const byBCode = new Map<string, UnknownRecord>();
   const byValue = new Map<string, UnknownRecord>();
   for (const option of current) {
@@ -160,7 +204,7 @@ function mergeOptions(item: UnknownRecord, group: LegacySeoShoplingOptionGroup) 
     const optionId = matchedId || `shopling-${group.goodsKey}-${text(shopling.optionId) || index + 1}`;
     const optionBarcodeNo = text(matched.optionBarcodeNo) || text(shopling.optionBarcode);
     const identityKey = bCode ? `B:${bCode}` : text(matched.optionBarcodeIdentityKey);
-    const identityKind = bCode ? "B_CODE" : text(matched.optionBarcodeIdentityKind);
+    const identityKind = bCode ? "B_CODE" : text(matched.optionBarcodeIdentityKind) || "OPTION";
     return {
       ...matched,
       id: optionId,
@@ -189,12 +233,164 @@ function mergeOptions(item: UnknownRecord, group: LegacySeoShoplingOptionGroup) 
   });
 }
 
-function isActiveLegacyItem(item: UnknownRecord, requestedModels: Set<string>) {
-  const model = modelKey(item.modelNumber);
-  if (!requestedModels.has(model)) return false;
-  if (text(item.workBatch) !== "등록완료건") return false;
-  if (text(item.archivedAt)) return false;
-  return true;
+async function loadNormalizedItems(
+  config: ProductLaunchAdminConfig,
+  ownerId: string,
+  modelNumbers: string[],
+): Promise<NormalizedItem[]> {
+  const models = unique(modelNumbers.map(modelKey));
+  if (!models.length) return [];
+  const itemParams = new URLSearchParams({
+    select:
+      "item_id,model_number,item_payload,summary_payload,option_labels,option_barcodes,updated_at,updated_by",
+    owner_id: `eq.${ownerId}`,
+    work_batch: "eq.등록완료건",
+    archived_at: "is.null",
+    model_number: `in.(${postgrestIn(models)})`,
+    limit: "500",
+  });
+  const { body: itemBody } = await readProductLaunchStorageJson(
+    `${config.supabaseUrl}/rest/v1/${ITEM_TABLE}?${itemParams.toString()}`,
+    {
+      headers: createSupabaseAdminHeaders(config.secretKey),
+      cache: "no-store",
+    },
+  );
+  const itemRows = (Array.isArray(itemBody) ? itemBody : []).map(record);
+  const itemIds = itemRows.map((row) => text(row.item_id)).filter(Boolean);
+  if (!itemIds.length) return [];
+  const optionParams = new URLSearchParams({
+    select:
+      "item_id,option_id,option_index,option_name,sale_option,china_option,barcode,base_sale_price_krw,unit_cost_krw,source_order_item_id,option_payload,option_barcode_no,option_barcode_identity_key,updated_at",
+    owner_id: `eq.${ownerId}`,
+    item_id: `in.(${postgrestIn(itemIds)})`,
+    order: "item_id.asc,option_index.asc",
+    limit: "5000",
+  });
+  const { body: optionBody } = await readProductLaunchStorageJson(
+    `${config.supabaseUrl}/rest/v1/${OPTION_TABLE}?${optionParams.toString()}`,
+    {
+      headers: createSupabaseAdminHeaders(config.secretKey),
+      cache: "no-store",
+    },
+  );
+  const optionsByItem = new Map<string, UnknownRecord[]>();
+  for (const raw of Array.isArray(optionBody) ? optionBody : []) {
+    const row = record(raw);
+    const itemId = text(row.item_id);
+    if (!itemId) continue;
+    const list = optionsByItem.get(itemId) ?? [];
+    list.push(rowToOption(row));
+    optionsByItem.set(itemId, list);
+  }
+  return itemRows.map((row) => ({
+    itemId: text(row.item_id),
+    modelNumber: modelKey(row.model_number),
+    itemPayload: clone(row.item_payload),
+    summaryPayload: clone(row.summary_payload),
+    options: optionsByItem.get(text(row.item_id)) ?? [],
+  }));
+}
+
+async function patchItem(
+  config: ProductLaunchAdminConfig,
+  ownerId: string,
+  item: NormalizedItem,
+  options: UnknownRecord[],
+  metadata: UnknownRecord,
+  now: string,
+) {
+  const labels = options.map((option) => text(option.saleOption ?? option.value)).filter(Boolean);
+  const barcodes = options.map((option) => text(option.barcode)).filter(Boolean);
+  const itemPayload = {
+    ...item.itemPayload,
+    optionLabels: labels,
+    options: labels,
+    shoplingOptionSync: metadata,
+    updatedAt: now,
+    updatedBy: "이전상품 Shopling 묶음옵션/B코드 동기화",
+  };
+  const summaryPayload = {
+    ...item.summaryPayload,
+    optionLabels: labels,
+  };
+  const params = new URLSearchParams({
+    owner_id: `eq.${ownerId}`,
+    item_id: `eq.${item.itemId}`,
+  });
+  await readProductLaunchStorageJson(
+    `${config.supabaseUrl}/rest/v1/${ITEM_TABLE}?${params.toString()}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...createSupabaseAdminHeaders(config.secretKey),
+        Prefer: "return=minimal",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        option_labels: labels,
+        option_barcodes: barcodes,
+        option_sort_text: labels.join(", "),
+        item_payload: itemPayload,
+        summary_payload: summaryPayload,
+        updated_at: now,
+        updated_by: "이전상품 Shopling 묶음옵션/B코드 동기화",
+      }),
+      cache: "no-store",
+    },
+  );
+}
+
+async function replaceOptions(
+  config: ProductLaunchAdminConfig,
+  ownerId: string,
+  itemId: string,
+  options: UnknownRecord[],
+  now: string,
+) {
+  const params = new URLSearchParams({
+    owner_id: `eq.${ownerId}`,
+    item_id: `eq.${itemId}`,
+  });
+  await readProductLaunchStorageJson(
+    `${config.supabaseUrl}/rest/v1/${OPTION_TABLE}?${params.toString()}`,
+    {
+      method: "DELETE",
+      headers: {
+        ...createSupabaseAdminHeaders(config.secretKey),
+        Prefer: "return=minimal",
+      },
+      cache: "no-store",
+    },
+  );
+  if (!options.length) return;
+  const rows = options.map((option, index) => ({
+    owner_id: ownerId,
+    item_id: itemId,
+    option_id: text(option.id) || `shopling-option-${index + 1}`,
+    option_index: index,
+    option_name: text(option.optionName) || "옵션",
+    sale_option: text(option.saleOption ?? option.value),
+    china_option: text(option.chinaOption),
+    barcode: text(option.barcode).toUpperCase().replace(/\s+/g, ""),
+    base_sale_price_krw: Math.max(0, Math.floor(Number(option.baseSalePriceKrw) || 0)),
+    unit_cost_krw: Math.max(0, Math.floor(Number(option.unitCostKrw) || 0)),
+    source_order_item_id: option.sourceOrderItemId ?? null,
+    option_payload: option,
+    option_barcode_no: text(option.optionBarcodeNo),
+    option_barcode_identity_key: text(option.optionBarcodeIdentityKey),
+    updated_at: now,
+  }));
+  await readProductLaunchStorageJson(`${config.supabaseUrl}/rest/v1/${OPTION_TABLE}`, {
+    method: "POST",
+    headers: {
+      ...createSupabaseAdminHeaders(config.secretKey),
+      Prefer: "return=minimal",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(rows),
+    cache: "no-store",
+  });
 }
 
 export async function syncLegacySeoShoplingOptions(input: {
@@ -203,103 +399,75 @@ export async function syncLegacySeoShoplingOptions(input: {
   modelNumbers: string[];
 }) {
   const requested = unique(input.modelNumbers.map(modelKey)).slice(0, 100);
-  const requestedModels = new Set(requested);
-  if (!requested.length) {
-    return { changedCount: 0, results: [] as SyncResult[] };
-  }
+  if (!requested.length) return { changedCount: 0, processedCount: 0, results: [] as SyncResult[] };
 
-  const [stateRow, evidenceByModel] = await Promise.all([
-    readProductLaunchState(input.config, input.identity.userId),
+  const [items, evidenceByModel] = await Promise.all([
+    loadNormalizedItems(input.config, input.identity.userId, requested),
     loadLegacySeoShoplingEvidence(requested),
   ]);
-  const state = record(stateRow?.state_payload);
-  const stateItems = array(state.items).map(record);
-  if (!stateItems.length) throw new Error("PRODUCT_LAUNCH_STATE_ITEMS_REQUIRED");
-
   const now = new Date().toISOString();
   const results: SyncResult[] = [];
-  const changedIds: string[] = [];
-  const nextItems = stateItems.map((item) => {
-    if (!isActiveLegacyItem(item, requestedModels)) return item;
-    const modelNumber = modelKey(item.modelNumber);
-    const evidence = evidenceByModel.get(modelNumber);
-    if (!evidence) {
-      results.push({
-        modelNumber,
-        changed: false,
-        sourceGoodsKey: "",
-        optionCount: 0,
-        bCodeCount: 0,
-        reason: "Shopling 조회 데이터 없음",
-      });
-      return item;
-    }
-    const currentCount = existingRealOptionCount(item);
-    const group = selectGroup(evidence, currentCount);
+  let changedCount = 0;
+
+  for (const item of items) {
+    const evidence = evidenceByModel.get(item.modelNumber);
+    const current = item.options;
+    const currentCount = existingRealOptionCount(current);
+    const group = evidence ? selectGroup(evidence, currentCount) : null;
+
     if (!group) {
+      const reason = evidence
+        ? currentCount > 1
+          ? "묶음형 Shopling 상품을 찾지 못해 기존 옵션 유지"
+          : "Shopling 묶음옵션 없음 · 기존 옵션 유지"
+        : "Shopling 조회 데이터 없음 · 기존 옵션 유지";
+      const metadata = {
+        source: "shopling_live_grouped_option_sync",
+        status: "existing_preserved",
+        reason,
+        optionCount: current.length,
+        bCodeCount: current.filter((option) => text(option.barcode)).length,
+        syncedAt: now,
+      };
+      await patchItem(input.config, input.identity.userId, item, current, metadata, now);
       results.push({
-        modelNumber,
+        modelNumber: item.modelNumber,
         changed: false,
         sourceGoodsKey: "",
-        optionCount: currentCount,
-        bCodeCount: existingOptions(item).filter((option) => text(option.barcode)).length,
-        reason:
-          currentCount > 1
-            ? "묶음형 Shopling 상품을 찾지 못해 기존 옵션 유지"
-            : "Shopling 옵션을 찾지 못함",
+        optionCount: current.length,
+        bCodeCount: current.filter((option) => text(option.barcode)).length,
+        reason,
       });
-      return item;
+      continue;
     }
 
-    const merged = mergeOptions(item, group);
-    const optionLabels = merged.map((option) => text(option.saleOption)).filter(Boolean);
+    const merged = mergeOptions(current, group);
     const bCodeCount = merged.filter((option) => text(option.barcode)).length;
-    const id = text(item.id);
-    if (id) changedIds.push(id);
+    const metadata = {
+      source: "shopling_live_grouped_option_sync",
+      status: "synced",
+      goodsKey: group.goodsKey,
+      ptnGoodsCd: group.ptnGoodsCd,
+      optionCount: merged.length,
+      bCodeCount,
+      syncedAt: now,
+    };
+    await replaceOptions(input.config, input.identity.userId, item.itemId, merged, now);
+    await patchItem(input.config, input.identity.userId, item, merged, metadata, now);
+    changedCount += 1;
     results.push({
-      modelNumber,
+      modelNumber: item.modelNumber,
       changed: true,
       sourceGoodsKey: group.goodsKey,
       optionCount: merged.length,
       bCodeCount,
       reason: isGroupedCandidate(group) ? "묶음형 Shopling 상품 기준" : "단품 Shopling 기준",
     });
-    return {
-      ...item,
-      optionLabels,
-      options: optionLabels,
-      orderOptions: merged,
-      updatedAt: now,
-      updatedBy: "이전상품 Shopling 묶음옵션/B코드 동기화",
-      shoplingOptionSync: {
-        source: "shopling_live_grouped_option_sync",
-        goodsKey: group.goodsKey,
-        ptnGoodsCd: group.ptnGoodsCd,
-        optionCount: merged.length,
-        bCodeCount,
-        syncedAt: now,
-      },
-    };
-  });
-
-  if (!changedIds.length) return { changedCount: 0, results };
-
-  const nextState = {
-    ...state,
-    items: nextItems,
-  } as ProductLaunchTrackerState;
-  const persisted = await writeProductLaunchState(input.config, input.identity, nextState as UnknownRecord);
-  const sourceUpdatedAt = text(record(persisted).updated_at) || now;
-  await syncProductLaunchNormalizedChangedItems(
-    input.config,
-    input.identity,
-    nextState,
-    sourceUpdatedAt,
-    changedIds,
-  );
+  }
 
   return {
-    changedCount: changedIds.length,
+    changedCount,
+    processedCount: items.length,
     results,
   };
 }
