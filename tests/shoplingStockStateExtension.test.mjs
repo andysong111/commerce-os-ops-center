@@ -78,6 +78,26 @@ test("v0.5.1 package adapter retries only the observed A21 popup stage race", as
   assert.match(route, /PRICE_CORE_SELF_CLAIM_ADAPTER_WITH_STAGE_RACE_RETRY/);
 });
 
+test("v0.5.1 treats marketplace failures as advisory only after Shopling completion", async () => {
+  const background = await readFile(`${root}/background-v050.js`, "utf8");
+  assert.match(background, /const legacyHandleEvidenceV051 = handleEvidence/);
+  assert.match(background, /if \(evidence\.processing\) return legacyHandleEvidenceV051/);
+  assert.match(background, /Boolean\(evidence\.optionComplete\)/);
+  assert.match(background, /Boolean\(evidence\.productComplete\)/);
+  assert.match(background, /evidence\.readyState !== "complete"/);
+  assert.match(background, /marketplaceFailuresIgnored/);
+  assert.match(background, /SHOPLING_A21_COMPLETION_AUTHORITATIVE_MARKETPLACE_FAILURES_ADVISORY/);
+  assert.match(background, /return continueNextGoodsKey\(active, sender, normalizedEvidence\)/);
+});
+
+test("v0.5.1 preserves marketplace failure details in evidence instead of discarding them", async () => {
+  const background = await readFile(`${root}/background-v050.js`, "utf8");
+  assert.match(background, /marketplaceFailureCount/);
+  assert.match(background, /marketplaceFailureText/);
+  assert.match(background, /result: normalizedEvidence/);
+  assert.match(background, /마켓별 실패 .*건은 기록만 하고 성공 판정/);
+});
+
 test("OPTION jobs still bypass A6 and require server API evidence", async () => {
   const b = await readFile(`${root}/background-v040.js`, "utf8");
   assert.match(b, /productKind === "OPTION"\s*\? \["A21_LIST"\]/);
