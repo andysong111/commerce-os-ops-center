@@ -29,7 +29,7 @@ test("API goods key stays exact while A21 fans out to exact marketplace rows up 
   assert.match(worker, /batchLimit: 200/);
 });
 
-test("v0.5.0 copies the proven price popup core literally and only namespaces package boundaries", async () => {
+test("v0.5.1 copies the proven price popup core literally and adapts package boundary plus claim race retry", async () => {
   const [copiedContent, copiedMain, canonicalContent, canonicalMain, adapter, route] = await Promise.all([
     readFile(`${root}/price-core-content-a21-v024.js`, "utf8"),
     readFile(`${root}/price-core-main-a21-v024.js`, "utf8"),
@@ -50,6 +50,8 @@ test("v0.5.0 copies the proven price popup core literally and only namespaces pa
   assert.match(route, /namespacePriceCoreContent/);
   assert.match(route, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
   assert.match(route, /commerce-os-stock-price-core-v050-main-submit-request/);
+  assert.match(route, /stock_price_core_not_option_popup_stage/);
+  assert.match(route, /attempt < 16/);
 });
 
 test("server option mutation preserves Shopling quantity and fails closed on ambiguous B-code", async () => {
@@ -63,15 +65,17 @@ test("server option mutation preserves Shopling quantity and fails closed on amb
   assert.match(api, /SHOPLING_OPTION_READBACK_QTY_MISMATCH/);
 });
 
-test("ZIP generates v0.5.0 literal price-core package with passive result observer", async () => {
+test("ZIP generates v0.5.1 literal price-core package with bounded popup claim retry and passive result observer", async () => {
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
-  assert.match(route, /const VERSION = "0\.5\.0"/);
+  assert.match(route, /const VERSION = "0\.5\.1"/);
   assert.match(route, /background-v050\.js/);
   assert.match(route, /content-a21-price-core-v050\.js/);
   assert.match(route, /main-a21-price-core-v050\.js/);
   assert.match(route, /content-stock-result-v050\.js/);
   assert.match(route, /priceCoreLiteralCopyVerified: true/);
-  assert.match(route, /SHOPLING_API_OPTION_STATUS_THEN_A21_LITERAL_PRICE_CORE_V050/);
+  assert.match(route, /SHOPLING_API_OPTION_STATUS_THEN_A21_LITERAL_PRICE_CORE_V051_CLAIM_RACE_RETRY/);
+  assert.match(route, /PRICE_CORE_SELF_CLAIM_ADAPTER_WITH_STAGE_RACE_RETRY/);
+  assert.match(route, /a21PopupClaimRetry/);
   assert.match(route, /a21BatchLimit: 200/);
 });
 
