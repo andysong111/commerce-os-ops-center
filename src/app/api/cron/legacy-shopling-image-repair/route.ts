@@ -23,6 +23,8 @@ const TARGET_BATCH = "등록완료건";
 const SOURCE_NAME = "shopling_existing_product_backfill";
 const REPAIR_VERSION = "legacy_shopling_image_repair_v1";
 const MAX_GOODS_PER_REQUEST = 40;
+const MAX_GOODS_KEYS_PER_RUN = 480;
+const MAX_NO_IMAGE_ATTEMPTS = 3;
 const MAX_ADDITIONAL_IMAGES = 10;
 const PRODUCT_FIELDS = [
   "goods_key",
@@ -47,6 +49,7 @@ type RepairCandidate = {
   itemId: string;
   modelNumber: string;
   goodsKeys: string[];
+  attemptedAtMs: number;
 };
 
 function record(value: unknown): UnknownRecord {
@@ -57,6 +60,11 @@ function record(value: unknown): UnknownRecord {
 
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
+}
+
+function integer(value: unknown, fallback = 0) {
+  const parsed = Math.trunc(Number(value));
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function normalizeModel(value: unknown) {
@@ -267,12 +275,56 @@ function itemGoodsKeys(item: UnknownRecord) {
   );
 }
 
+function repairAttemptCount(item: UnknownRecord) {
+  return Math.max(0, integer(record(item.detailPageAssetSource).imageRepairAttemptCount));
+}
+
+function repairAttemptedAtMs(item: UnknownRecord) {
+  const value = Date.parse(text(record(item.detailPageAssetSource).imageRepairAttemptedAt));
+  return Number.isFinite(value) ? value : 0;
+}
+
 function needsRepair(item: UnknownRecord) {
   if (text(item.workBatch) !== TARGET_BATCH || text(item.archivedAt)) return false;
   const source = record(item.detailPageAssetSource);
   if (text(source.source) !== SOURCE_NAME) return false;
   if (text(source.imageRepairVersion) === REPAIR_VERSION) return false;
+  if (text(source.imageRepairState) === "deferred_no_image_evidence") return false;
+  if (repairAttemptCount(item) >= MAX_NO_IMAGE_ATTEMPTS) return false;
   return itemGoodsKeys(item).length > 0;
+}
+
+function repairCandidates(items: UnknownRecord[]) {
+  return items
+    .map((item, itemIndex) => ({ item, itemIndex }))
+    .filter(({ item }) => needsRepair(item))
+    .map(({ item, itemIndex }) => ({
+      itemIndex,
+      itemId: text(item.id),
+      modelNumber: normalizeModel(item.modelNumber),
+      goodsKeys: itemGoodsKeys(item),
+      attemptedAtMs: repairAttemptedAtMs(item),
+    }))
+    .filter((candidate) => candidate.itemId && candidate.goodsKeys.length > 0)
+    .sort((a, b) => a.attemptedAtMs - b.attemptedAtMs || a.itemIndex - b.itemIndex);
+}
+
+function selectCandidateBatch(candidates: RepairCandidate[]) {
+  const selected: RepairCandidate[] = [];
+  const goodsKeys = new Set<string>();
+  for (const candidate of candidates) {
+    const additions = candidate.goodsKeys.filter((key) => !goodsKeys.has(key));
+    if (
+      selected.length > 0 &&
+      goodsKeys.size + additions.length > MAX_GOODS_KEYS_PER_RUN
+    ) {
+      break;
+    }
+    selected.push(candidate);
+    candidate.goodsKeys.forEach((key) => goodsKeys.add(key));
+    if (goodsKeys.size >= MAX_GOODS_KEYS_PER_RUN) break;
+  }
+  return { selected, goodsKeys: [...goodsKeys] };
 }
 
 async function fetchGoodsImages(config: ShoplingReadConfig, goodsKeys: string[]) {
@@ -287,7 +339,7 @@ async function fetchGoodsImages(config: ShoplingReadConfig, goodsKeys: string[])
         headers: {
           accept: "application/xml, text/xml",
           "content-type": "application/xml; charset=utf-8",
-          "user-agent": "commerce-os-legacy-image-repair/1.0",
+          "user-agent": "commerce-os-legacy-image-repair/1.1",
         },
         timeoutMs: 45_000,
       },
@@ -328,27 +380,21 @@ export async function GET(request: NextRequest) {
   const stateRow = await readProductLaunchState(adminConfig.value, identity.userId);
   const state = record(stateRow?.state_payload);
   const items = Array.isArray(state.items) ? state.items.map(record) : [];
-  const candidates: RepairCandidate[] = items
-    .map((item, itemIndex) => ({ item, itemIndex }))
-    .filter(({ item }) => needsRepair(item))
-    .map(({ item, itemIndex }) => ({
-      itemIndex,
-      itemId: text(item.id),
-      modelNumber: normalizeModel(item.modelNumber),
-      goodsKeys: itemGoodsKeys(item),
-    }))
-    .filter((candidate) => candidate.itemId && candidate.goodsKeys.length > 0);
+  const allCandidates = repairCandidates(items);
 
-  if (!candidates.length) {
+  if (!allCandidates.length) {
     return Response.json({
       ok: true,
       done: true,
+      busy: false,
       repairedItems: 0,
       reason: "no_candidates",
     });
   }
 
-  const allGoodsKeys = unique(candidates.flatMap((candidate) => candidate.goodsKeys));
+  const batch = selectCandidateBatch(allCandidates);
+  const candidates = batch.selected;
+  const allGoodsKeys = batch.goodsKeys;
   const shoplingConfig = shoplingReadConfigFromEnv(shoplingEnvironment());
   const fetched = await fetchGoodsImages(shoplingConfig, allGoodsKeys);
   const now = new Date().toISOString();
@@ -358,11 +404,13 @@ export async function GET(request: NextRequest) {
   let repairedAdditional = 0;
   let normalizedDelimiterItems = 0;
   let noImageEvidenceItems = 0;
+  let deferredNoImageItems = 0;
 
   for (const candidate of candidates) {
     const item = items[candidate.itemIndex];
     const existingAsset = record(item.detailPageAsset);
     const existingSource = record(item.detailPageAssetSource);
+    const attemptCount = repairAttemptCount(item) + 1;
     const goods = candidate.goodsKeys
       .map((goodsKey) => fetched.byGoodsKey.get(goodsKey))
       .filter(Boolean) as GoodsImages[];
@@ -395,9 +443,24 @@ export async function GET(request: NextRequest) {
 
     if (!finalMain) {
       noImageEvidenceItems += 1;
+      const deferred = attemptCount >= MAX_NO_IMAGE_ATTEMPTS;
+      if (deferred) deferredNoImageItems += 1;
       if (candidate.modelNumber && unresolvedModels.length < 25) {
         unresolvedModels.push(candidate.modelNumber);
       }
+      item.detailPageAssetSource = {
+        ...existingSource,
+        imageRepairAttemptedAt: now,
+        imageRepairAttemptCount: attemptCount,
+        imageRepairState: deferred
+          ? "deferred_no_image_evidence"
+          : "retry_no_image_evidence",
+        imageRepairLastGoodsKeys: candidate.goodsKeys,
+        imageRepairFetchedGoodsCount: goods.length,
+      };
+      item.updatedAt = now;
+      item.updatedBy = "legacy Shopling image repair";
+      changedIds.push(candidate.itemId);
       continue;
     }
 
@@ -414,34 +477,15 @@ export async function GET(request: NextRequest) {
       ...existingSource,
       imageRepairVersion: REPAIR_VERSION,
       imageRepairedAt: now,
+      imageRepairAttemptedAt: now,
+      imageRepairAttemptCount: attemptCount,
+      imageRepairState: "completed",
       imageRepairGoodsKeys: candidate.goodsKeys,
       imageRepairFetchedGoodsCount: goods.length,
     };
     item.updatedAt = now;
     item.updatedBy = "legacy Shopling image repair";
     changedIds.push(candidate.itemId);
-  }
-
-  if (!changedIds.length) {
-    console.warn("[legacy-shopling-image-repair] no repairable image evidence", {
-      candidateCount: candidates.length,
-      requestedGoodsKeyCount: allGoodsKeys.length,
-      fetchedRows: fetched.fetchedRows,
-      fetchedGoodsCount: fetched.byGoodsKey.size,
-      unresolvedModels,
-    });
-    return Response.json({
-      ok: true,
-      done: false,
-      candidateCount: candidates.length,
-      repairedItems: 0,
-      requestedGoodsKeyCount: allGoodsKeys.length,
-      fetchedRows: fetched.fetchedRows,
-      fetchedGoodsCount: fetched.byGoodsKey.size,
-      noImageEvidenceItems,
-      unresolvedModels,
-      reason: "no_repairable_image_evidence",
-    });
   }
 
   const nextState = { ...state, items, updatedAt: now };
@@ -451,9 +495,13 @@ export async function GET(request: NextRequest) {
     identity,
     changedIds,
   );
+  const remainingRetryableCount = repairCandidates(items).length;
+  const busy = remainingRetryableCount > 0;
 
-  console.info("[legacy-shopling-image-repair] completed", {
-    candidateCount: candidates.length,
+  console.info("[legacy-shopling-image-repair] batch completed", {
+    totalCandidateCount: allCandidates.length,
+    batchCandidateCount: candidates.length,
+    remainingRetryableCount,
     requestedGoodsKeyCount: allGoodsKeys.length,
     fetchedRows: fetched.fetchedRows,
     fetchedGoodsCount: fetched.byGoodsKey.size,
@@ -461,13 +509,17 @@ export async function GET(request: NextRequest) {
     repairedAdditional,
     normalizedDelimiterItems,
     noImageEvidenceItems,
+    deferredNoImageItems,
     unresolvedModels,
   });
 
   return Response.json({
     ok: true,
-    done: noImageEvidenceItems === 0,
-    candidateCount: candidates.length,
+    done: !busy,
+    busy,
+    totalCandidateCount: allCandidates.length,
+    batchCandidateCount: candidates.length,
+    remainingRetryableCount,
     requestedGoodsKeyCount: allGoodsKeys.length,
     fetchedRows: fetched.fetchedRows,
     fetchedGoodsCount: fetched.byGoodsKey.size,
@@ -476,6 +528,7 @@ export async function GET(request: NextRequest) {
     repairedAdditional,
     normalizedDelimiterItems,
     noImageEvidenceItems,
+    deferredNoImageItems,
     unresolvedModels,
     normalizedSync,
   });
