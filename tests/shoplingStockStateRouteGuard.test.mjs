@@ -97,3 +97,13 @@ test("explicit operator safe-stop and pre-HF1 marketplace-failure completion are
   assert.match(stateRoute, /await normalizeRetryableShoplingSyncReportWithEvidence/);
   assert.match(syncRoute, /return normalizeRetryableShoplingSyncReportWithEvidence/);
 });
+
+test("inventory stock control accepts both one-letter and two-letter B-code prefixes", async () => {
+  const [inventory, panel] = await Promise.all([
+    readFile("src/lib/inventoryStockControl.ts", "utf8"),
+    readFile("src/components/china-order-manager/InventoryStockControlPanel.tsx", "utf8"),
+  ]);
+  assert.ok(inventory.includes("const BARCODE_PATTERN = /^B[A-Z]{1,2}\\d+-\\d+$/;"));
+  assert.ok(panel.includes("/^B[A-Z]{1,2}\\d+-\\d+$/"));
+  assert.match(panel, /BZ7341-1 또는 BCC3-2/);
+});

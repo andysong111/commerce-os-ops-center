@@ -10,7 +10,7 @@ export const SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE =
   "SHOPLING_STOCK_STATUS_SYNC_EVENT";
 
 const READ_LIMIT = 10_000;
-const BARCODE_PATTERN = /^B[A-Z]{2}\d+-\d+$/;
+const BARCODE_PATTERN = /^B[A-Z]{1,2}\d+-\d+$/;
 const DAY_MS = 86_400_000;
 
 export type ShoplingStockProductKind = "OPTION" | "SINGLE";
