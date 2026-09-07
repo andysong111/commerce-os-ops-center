@@ -4,10 +4,8 @@ import {
   normalizeShoplingStockSyncInput,
   storeInventoryOperation,
 } from "@/lib/inventoryStockControl";
-import {
-  ensureInventoryStockSalesTailCoverage,
-  overlayInventoryStockControlReportWithTail,
-} from "@/lib/inventoryStockSalesTail";
+import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
+import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -116,7 +114,8 @@ async function loadRetryableReport() {
   let report = await overlayInventoryStockControlReportWithTail(
     await loadInventoryStockControlReport(),
   );
-  const tailSalesRefresh = await ensureInventoryStockSalesTailCoverage(report);
+  const tailSalesRefresh =
+    await ensureExactInventoryStockSalesTailCoverage(report);
   if (tailSalesRefresh.refreshed) {
     report = await overlayInventoryStockControlReportWithTail(
       await loadInventoryStockControlReport(),
