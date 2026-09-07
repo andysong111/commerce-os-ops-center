@@ -16,10 +16,13 @@ import {
   refreshLegacySeoRegistrationStatuses,
   startLegacySeoShoplingRegistration,
 } from "@/lib/legacySeoShoplingRegistration";
-import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
 import {
-  readProductLaunchStorageJson,
-} from "@/lib/productLaunchTrackerServer";
+  legacySeoRegistrationExclusion,
+  isLegacySeoRegistrationPolicyExcluded,
+} from "@/lib/legacySeoRegistrationPolicy";
+import { recoverLegacySeoShoplingPrices } from "@/lib/legacySeoShoplingPriceRecovery";
+import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
+import { readProductLaunchStorageJson } from "@/lib/productLaunchTrackerServer";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
 import type { SeoRunJobInsert } from "@/lib/seoRunJobServer";
@@ -131,7 +134,7 @@ async function listLegacyItems(
 ) {
   const params = new URLSearchParams({
     select:
-      "item_id,tracker_row_number,work_batch,model_number,product_name,shopling_category,shopling_upload_status,overall_status,option_labels,updated_at",
+      "item_id,tracker_row_number,work_batch,model_number,product_name,shopling_category,shopling_upload_status,overall_status,option_labels,updated_at,exclusion_policy:item_payload->legacySeoRegistrationPolicy",
     owner_id: `eq.${ownerId}`,
     work_batch: "eq.등록완료건",
     shopling_upload_status: "eq.완료",
@@ -146,9 +149,10 @@ async function listLegacyItems(
       cache: "no-store",
     },
   );
-  return (Array.isArray(body) ? body : []).map((value) => {
-    const row = record(value);
-    return {
+  return (Array.isArray(body) ? body : [])
+    .map(record)
+    .filter((row) => !isLegacySeoRegistrationPolicyExcluded(row.exclusion_policy))
+    .map((row) => ({
       id: text(row.item_id),
       trackerRowNumber: Number(row.tracker_row_number) || null,
       workBatch: text(row.work_batch),
@@ -159,8 +163,7 @@ async function listLegacyItems(
       overallStatus: text(row.overall_status),
       optionLabels: uniqueStrings(row.option_labels, 50),
       updatedAt: text(row.updated_at),
-    };
-  });
+    }));
 }
 
 export async function GET(request: NextRequest) {
@@ -207,7 +210,10 @@ export async function POST(request: NextRequest) {
       if (id) itemById.set(id, item);
     }
     const modelNumbers = itemIds
-      .map((id) => text(itemById.get(id)?.modelNumber))
+      .map((id) => itemById.get(id))
+      .filter((item): item is UnknownRecord => Boolean(item))
+      .filter((item) => !legacySeoRegistrationExclusion(item).excluded)
+      .map((item) => text(item.modelNumber))
       .filter(Boolean);
     const evidenceByModel = await loadLegacySeoShoplingEvidence(modelNumbers);
     const existing = await listLegacySeoRunJobs(context, {
@@ -236,6 +242,11 @@ export async function POST(request: NextRequest) {
         continue;
       }
       const modelNumber = text(item.modelNumber);
+      const exclusion = legacySeoRegistrationExclusion(item);
+      if (exclusion.excluded) {
+        missing.push(`${modelNumber || itemId}:${exclusion.reason}`);
+        continue;
+      }
       const evidence = evidenceByModel.get(
         modelNumber.toUpperCase().replace(/\s+/g, ""),
       );
@@ -354,8 +365,55 @@ export async function POST(request: NextRequest) {
       includeArchived: false,
       limit: runIds.length || 1,
     });
+    const normalizedItems = await readProductLaunchNormalizedItems(
+      context.config,
+      context.identity.userId,
+      jobs.map((job) => job.launch_item_id),
+    );
+    const normalizedById = new Map(
+      normalizedItems.map((value) => {
+        const item = record(value);
+        return [text(item.id), item] as const;
+      }),
+    );
+    const eligibleJobs = jobs.filter((job) => {
+      const item = normalizedById.get(job.launch_item_id);
+      return item ? !legacySeoRegistrationExclusion(item).excluded : true;
+    });
+    let priceRecovery: UnknownRecord | null = null;
+    let priceRecoveryError = "";
+    try {
+      priceRecovery = record(
+        await recoverLegacySeoShoplingPrices({
+          config: context.config,
+          identity: context.identity,
+          modelNumbers: eligibleJobs.map((job) => job.model_number),
+        }),
+      );
+    } catch (error) {
+      priceRecoveryError = error instanceof Error ? error.message : String(error);
+    }
+
     const results = [];
     for (const job of jobs) {
+      const item = normalizedById.get(job.launch_item_id);
+      const exclusion = item ? legacySeoRegistrationExclusion(item) : { excluded: false, reason: "" };
+      if (exclusion.excluded) {
+        results.push({
+          runId: job.run_id,
+          started: false,
+          error: `${job.model_number}: ${exclusion.reason}`,
+        });
+        continue;
+      }
+      if (priceRecoveryError) {
+        results.push({
+          runId: job.run_id,
+          started: false,
+          error: `Shopling 현재 판매가 복구 실패: ${priceRecoveryError}`,
+        });
+        continue;
+      }
       try {
         results.push({
           runId: job.run_id,
@@ -369,7 +427,7 @@ export async function POST(request: NextRequest) {
         });
       }
     }
-    return Response.json({ ok: true, results });
+    return Response.json({ ok: true, results, priceRecovery });
   }
 
   if (action === "pulse") {
