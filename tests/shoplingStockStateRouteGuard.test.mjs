@@ -40,8 +40,8 @@ test("A6 exact B-code reads control values and goods keys without checkbox or st
   assert.match(overlay, /active\.job\.goodsKeys = discoveredGoodsKeys/);
   assert.match(overlay, /applyOptionStatusViaOpsV054/);
   assert.match(ops, /goodsKeys: \[goodsKey\]/);
-  assert.match(route, /A21_EXACT_BATCH_SELECTION_FAILED/);
-  assert.match(route, /A21_RESULT_OVER_200_BATCH_LIMIT/);
+  assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
+  assert.match(worker, /A21_RESULT_OVER_200_BATCH_LIMIT/);
 });
 
 test("v0.5.4 preserves the proven price popup core literally and bounded claim race retry", async () => {
