@@ -4,10 +4,10 @@ import test from "node:test";
 import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v030.mjs";
 const root = "public/shopling-stock-state-sync";
 
-test("v0.5.0 manifest wires price-core popup, MAIN bridge, result observer and v050 background", async () => {
+test("v0.5.1 manifest wires price-core popup, MAIN bridge, result observer and v050 background", async () => {
   const m = JSON.parse(await readFile(`${root}/manifest.json`, "utf8"));
   assert.equal(m.manifest_version, 3);
-  assert.equal(m.version, "0.5.0");
+  assert.equal(m.version, "0.5.1");
   assert.equal(m.background.service_worker, "background-v050.js");
   const listWorker = m.content_scripts.find((s) => s.js.includes("content-shopling-v030.js"));
   const popupCore = m.content_scripts.find((s) => s.js.includes("content-a21-price-core-v050.js"));
@@ -19,7 +19,7 @@ test("v0.5.0 manifest wires price-core popup, MAIN bridge, result observer and v
   assert.ok(resultObserver?.all_frames);
 });
 
-test("v0.5.0 static stock scripts compile and generated list worker preserves exact multirow machinery", async () => {
+test("v0.5.1 static stock scripts compile and generated list worker preserves exact multirow machinery", async () => {
   for (const name of [
     "background-v020.js",
     "background-v030.js",
@@ -44,7 +44,7 @@ test("v0.5.0 static stock scripts compile and generated list worker preserves ex
   assert.match(built, /selected\.count !== totalResultCount/);
 });
 
-test("v0.5.0 price-core source is byte-identical to the working price extension", async () => {
+test("v0.5.1 price-core source stays byte-identical to the working price extension", async () => {
   const [copiedContent, copiedMain, canonicalContent, canonicalMain] = await Promise.all([
     readFile(`${root}/price-core-content-a21-v024.js`, "utf8"),
     readFile(`${root}/price-core-main-a21-v024.js`, "utf8"),
@@ -60,12 +60,22 @@ test("v0.5.0 price-core source is byte-identical to the working price extension"
   assert.match(canonicalMain, /goods_mallMdfy_submit_sp/);
 });
 
-test("v0.5.0 adapter self-claims only OPTION popup and suppresses legacy OPTION popup dispatch", async () => {
+test("v0.5.1 adapter self-claims only OPTION popup and suppresses legacy OPTION popup dispatch", async () => {
   const background = await readFile(`${root}/background-v050.js`, "utf8");
   assert.match(background, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
   assert.match(background, /active\?\.job\?\.productKind === "OPTION" && active\.stage === "A21_POPUP"/);
   assert.match(background, /return true;/);
   assert.match(background, /assignment: \{ jobId: active\.job\.jobId, mode: "OPTION", goodsKey \}/);
+});
+
+test("v0.5.1 package adapter retries only the observed A21 popup stage race", async () => {
+  const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
+  assert.match(route, /let claimInFlight = false/);
+  assert.match(route, /attempt < 16/);
+  assert.match(route, /await sleep\(250\)/);
+  assert.match(route, /error !== "stock_price_core_not_option_popup_stage"/);
+  assert.match(route, /shopling_stock_price_core_claim_retry_adapter_missing/);
+  assert.match(route, /PRICE_CORE_SELF_CLAIM_ADAPTER_WITH_STAGE_RACE_RETRY/);
 });
 
 test("OPTION jobs still bypass A6 and require server API evidence", async () => {
