@@ -49,3 +49,18 @@ test("legacy image repair is protected, idempotent, and registered in the existi
   assert.equal((vercel.match(/"path"\s*:/g) ?? []).length, 1);
   assert.ok(vercel.includes('"path": "/api/cron/ops-dispatcher"'));
 });
+
+test("legacy image repair batches Shopling reads and rotates unresolved evidence safely", async () => {
+  const source = await readFile(routePath, "utf8");
+  assert.ok(source.includes("MAX_GOODS_KEYS_PER_RUN = 480"));
+  assert.ok(source.includes("MAX_NO_IMAGE_ATTEMPTS = 3"));
+  assert.ok(source.includes("selectCandidateBatch"));
+  assert.ok(source.includes("attemptedAtMs"));
+  assert.ok(source.includes("imageRepairAttemptedAt"));
+  assert.ok(source.includes("imageRepairAttemptCount"));
+  assert.ok(source.includes('"retry_no_image_evidence"'));
+  assert.ok(source.includes('"deferred_no_image_evidence"'));
+  assert.ok(source.includes("remainingRetryableCount"));
+  assert.ok(source.includes("busy,"));
+  assert.ok(source.includes("done: !busy"));
+});
