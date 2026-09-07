@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { normalizeTossCompatibleOptionRows } from "@/lib/tossCompatibleOption";
 
 export const PRODUCT_LAUNCH_CHANNELS = [
   { key: "wholesale1", label: "도매1", suffix: "a" },
@@ -140,10 +141,10 @@ export function buildProductLaunchShoplingPayload(
     rawOptions.length === 1
       ? mainBarcode || normalizeCode(asRecord(rawOptions[0]).barcode)
       : "";
-  const options = rawOptions.map((value, index) => {
+  const optionDrafts = rawOptions.map((value, index) => {
     const option = asRecord(value);
     return {
-      optionName: text(option.optionName) || "옵션",
+      optionName: text(option.optionName),
       saleOption: text(option.saleOption),
       barcode:
         rawOptions.length === 1
@@ -155,6 +156,21 @@ export function buildProductLaunchShoplingPayload(
       index,
     };
   });
+  let options = optionDrafts;
+  if (optionDrafts.length) {
+    try {
+      options = normalizeTossCompatibleOptionRows(
+        optionDrafts,
+        [modelName, category].filter(Boolean).join(" "),
+      ).rows;
+    } catch (error) {
+      throw new Error(
+        `토스 호환 옵션 사전검증 실패: ${
+          error instanceof Error ? error.message : "옵션 구조를 확인하세요."
+        }`,
+      );
+    }
+  }
 
   const errors: string[] = [];
   if (!text(item.id)) errors.push("출시 상품 ID가 없습니다.");
