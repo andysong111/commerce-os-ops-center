@@ -9,6 +9,7 @@ on:
       - "src/app/api/inventory-stock-control/sync/**"
       - "src/app/api/inventory-stock-control/route.ts"
       - "src/lib/inventoryStockSalesTail.ts"
+      - "src/lib/inventoryStockSalesTailCoverage.ts"
       - "src/app/china-order-manager/stock-control/**"
       - "tests/shoplingStockStateRouteGuard.test.mjs"
       - "tests/shoplingStockStateExtension.test.mjs"
