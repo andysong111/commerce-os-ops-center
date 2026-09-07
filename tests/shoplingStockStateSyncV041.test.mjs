@@ -5,7 +5,7 @@ import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v03
 
 const file = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("v0.5.0 A21 list worker keeps local search binding and exact multirow selection", async () => {
+test("v0.5.1 A21 list worker keeps local search binding and exact multirow selection", async () => {
   const [template, policy] = await Promise.all([
     file("public/shopling-stock-state-sync/content-shopling-v018.js"),
     file("public/shopling-stock-state-sync/search-policy-v023.js"),
@@ -21,7 +21,7 @@ test("v0.5.0 A21 list worker keeps local search binding and exact multirow selec
   assert.match(worker, /selected\.count !== totalResultCount/);
 });
 
-test("v0.5.0 keeps v0.4.1 search policy fail-closed and one-click per execution", async () => {
+test("v0.5.1 keeps v0.4.1 search policy fail-closed and one-click per execution", async () => {
   const policy = await file("public/shopling-stock-state-sync/search-policy-v023.js");
   assert.match(policy, /commerce-stock-search-v041/);
   assert.match(policy, /SEARCH_BINDING_MISMATCH/);
@@ -32,7 +32,7 @@ test("v0.5.0 keeps v0.4.1 search policy fail-closed and one-click per execution"
   assert.match(policy, /submitted: true/);
 });
 
-test("v0.5.0 package uses literal copied price-core popup with isolated namespace", async () => {
+test("v0.5.1 package uses literal copied price-core popup with isolated namespace and bounded stage-race retry", async () => {
   const [manifestSource, downloadSource, pageSource, popupSource, adapterSource, copiedContent, copiedMain, canonicalContent, canonicalMain] = await Promise.all([
     file("public/shopling-stock-state-sync/manifest.json"),
     file("src/app/api/shopling-stock-state-sync/download/route.ts"),
@@ -46,18 +46,20 @@ test("v0.5.0 package uses literal copied price-core popup with isolated namespac
   ]);
   const manifest = JSON.parse(manifestSource);
 
-  assert.equal(manifest.version, "0.5.0");
+  assert.equal(manifest.version, "0.5.1");
   assert.equal(manifest.background.service_worker, "background-v050.js");
   assert.equal(copiedContent, canonicalContent);
   assert.equal(copiedMain, canonicalMain);
   assert.match(canonicalContent, /chooseMode\("goods_stock"\)/);
   assert.match(canonicalContent, /selectRadio\("trsmt_env_mody_opt", "1"\)/);
   assert.match(canonicalMain, /goods_mallMdfy_submit_sp/);
-  assert.match(downloadSource, /const VERSION = "0\.5\.0"/);
+  assert.match(downloadSource, /const VERSION = "0\.5\.1"/);
   assert.match(downloadSource, /priceCoreLiteralCopyVerified: true/);
-  assert.match(downloadSource, /PRICE_CORE_SELF_CLAIM_ADAPTER/);
+  assert.match(downloadSource, /PRICE_CORE_SELF_CLAIM_ADAPTER_WITH_STAGE_RACE_RETRY/);
+  assert.match(downloadSource, /stock_price_core_not_option_popup_stage/);
+  assert.match(downloadSource, /attempt < 16/);
   assert.match(downloadSource, /CANONICAL_PRICE_CORE_MODIFY_TP_GOODS_STOCK_AND_TRSMT_ENV_MODY_OPT_1/);
-  assert.match(pageSource, /v0\.5\.0 다운로드/);
+  assert.match(pageSource, /v0\.5\.1 다운로드/);
   assert.match(popupSource, /chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(adapterSource, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
   const listWorker = manifest.content_scripts.find((script) => script.js.includes("content-shopling-v030.js"));
