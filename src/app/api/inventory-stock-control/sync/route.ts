@@ -123,7 +123,7 @@ async function loadRetryableReport() {
     );
   }
   return {
-    report: normalizeRetryableShoplingSyncReportWithEvidence(report),
+    report: await normalizeRetryableShoplingSyncReportWithEvidence(report),
     tailSalesRefresh,
   };
 }
