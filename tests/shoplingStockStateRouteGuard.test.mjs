@@ -41,7 +41,7 @@ test("v0.5.0 copies the proven price popup core literally and only namespaces pa
   assert.equal(copiedContent, canonicalContent);
   assert.equal(copiedMain, canonicalMain);
   assert.match(canonicalContent, /configureOption\(\)/);
-  assert.match(canonicalContent, /selectRadio\("modify_tp", "goods_stock"\)/);
+  assert.match(canonicalContent, /chooseMode\("goods_stock"\)/);
   assert.match(canonicalContent, /selectRadio\("trsmt_env_mody_opt", "1"\)/);
   assert.match(canonicalMain, /goods_mallMdfy_submit_sp/);
   assert.match(adapter, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
