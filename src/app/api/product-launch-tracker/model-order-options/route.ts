@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 import type { ProductPlanningSnapshot } from "@/lib/shopling/shoplingLiveAggregation";
+import { normalizeTossCompatibleOptionRows } from "@/lib/tossCompatibleOption";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,7 @@ function optionsForModel(
       sourceOrderItemId: null;
     }
   >();
+  const productNames = new Set<string>();
 
   for (const product of products) {
     if (product.skuActive === false) continue;
@@ -81,6 +83,8 @@ function optionsForModel(
     const barcode = normalizeBarcode(product.barcode);
     if (!barcode) continue;
     const saleOption = text(product.optionName) || "단품";
+    const productName = text(product.productName);
+    if (productName) productNames.add(productName);
     const unitCostKrw =
       nonNegativeInteger(product.protectedCostKrw) ||
       nonNegativeInteger(product.latestCostKrw);
@@ -88,7 +92,7 @@ function optionsForModel(
     if (!current) {
       byBarcode.set(barcode, {
         id: `model-${barcode}`,
-        optionName: "옵션",
+        optionName: "",
         saleOption,
         barcode,
         baseSalePriceKrw: 0,
@@ -103,9 +107,25 @@ function optionsForModel(
     current.unitCostKrw = Math.max(current.unitCostKrw, unitCostKrw);
   }
 
-  return [...byBarcode.values()].sort((left, right) =>
+  const options = [...byBarcode.values()].sort((left, right) =>
     left.barcode.localeCompare(right.barcode),
   );
+  if (!options.length) return options;
+
+  return normalizeTossCompatibleOptionRows(
+    options,
+    [...productNames, modelNumber].join(" "),
+  ).rows;
+}
+
+function isTossOptionNormalizationError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return [
+    "토스 호환 옵션",
+    "서로 다른 옵션명",
+    "동일한 옵션값",
+    "단품 옵션",
+  ].some((fragment) => error.message.includes(fragment));
 }
 
 export async function GET(request: NextRequest) {
@@ -133,18 +153,31 @@ export async function GET(request: NextRequest) {
       {
         ok: true,
         modelNumber,
-        source: "product_master_planning_snapshot",
+        source: "product_master_planning_snapshot_toss_normalized",
         generatedAt: snapshot.generatedAt,
         contentFingerprint: snapshot.contentFingerprint,
         optionCount: options.length,
         options,
         message: options.length
-          ? `${modelNumber}의 실제 B-code ${options.length}개를 Product Master에서 확인했습니다.`
+          ? `${modelNumber}의 실제 B-code ${options.length}개를 Product Master에서 확인하고 토스 호환 옵션명으로 정규화했습니다.`
           : `${modelNumber}에 연결된 활성 B-code를 Product Master에서 찾지 못했습니다.`,
       },
       { status: 200 },
     );
   } catch (error) {
+    if (isTossOptionNormalizationError(error)) {
+      return Response.json(
+        {
+          ok: false,
+          code: "TOSS_OPTION_REVIEW_REQUIRED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "토스 호환 옵션명을 자동 확정하지 못했습니다.",
+        },
+        { status: 422 },
+      );
+    }
     return Response.json(
       {
         ok: false,
