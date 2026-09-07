@@ -67,9 +67,9 @@ test("v0.5.2 package adds live A6 goods-key discovery while retaining literal pr
   assert.match(pageSource, /v0\.5\.2 다운로드/);
   assert.match(popupSource, /chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(adapterSource, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
+  assert.match(adapterSource, /continueNextGoodsKey/);
   assert.match(liveA6Source, /A6/);
   assert.match(liveA6Source, /goodsKeys/);
-  assert.match(liveA6Source, /continueNextGoodsKey/);
   const listWorker = manifest.content_scripts.find((script) => script.js.includes("content-shopling-v030.js"));
   const popupCore = manifest.content_scripts.find((script) => script.js.includes("content-a21-price-core-v050.js"));
   const mainCore = manifest.content_scripts.find((script) => script.js.includes("main-a21-price-core-v050.js"));
