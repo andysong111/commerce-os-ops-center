@@ -6,7 +6,10 @@ export function buildStockWorkerV030(base, policy) {
     if (source.split(before).length !== 2) throw new Error(`stock_worker_template_mismatch:${before.slice(0,70)}`);
     return source.replace(before, after);
   }
-  let source = once(base, 'const VERSION = "0.1.8";', 'const VERSION = "0.4.2";\n  if (globalThis.__commerceStockWorkerV042) return;\n  globalThis.__commerceStockWorkerV042 = true;\n  let executionContext = {};');
+  let source = once(base, 'const VERSION = "0.1.8";', 'const VERSION = "0.4.2";\
+  if (globalThis.__commerceStockWorkerV042) return;\
+  globalThis.__commerceStockWorkerV042 = true;\
+  let executionContext = {};');
   const start = '  async function searchExact(fieldLabel, token) {';
   const end = '  async function searchGoodsKey(goodsKey) {';
   if (source.split(start).length !== 2 || source.split(end).length !== 2) throw new Error('stock_search_template_mismatch');
@@ -60,8 +63,11 @@ export function buildStockWorkerV030(base, policy) {
         return match ? Number(match[1].replace(/,/g, "")) : null;
       },
     });
-  }\n\n` + source.slice(source.indexOf(end));
-  source = once(source, '    const job = message.job || {};', '    const job = message.job || {};\n    executionContext = { jobId: job.jobId, executionId: job.executionId, stage: message.stage };');
+  }\
+\
+` + source.slice(source.indexOf(end));
+  source = once(source, '    const job = message.job || {};', '    const job = message.job || {};\
+    executionContext = { jobId: job.jobId, executionId: job.executionId, stage: message.stage };');
   source = once(source, '${job.jobId || "unknown"}:${stage}:${goodsKey}:${location.href}', '${job.jobId || "unknown"}:${job.executionId || ""}:${stage}:${goodsKey}:${location.href}');
   source = once(
     source,
@@ -127,11 +133,16 @@ export function buildStockWorkerV030(base, policy) {
     if (!pageSize.ok) return pageSize;
     const search = await searchGoodsKey(goodsKey);
     if (!search.ok) return search;
-    const totalResultCount = a21TotalResultCountV042();
-    if (!Number.isInteger(totalResultCount) || totalResultCount <= 0) return { ok: false, code: "A21_RESULT_COUNT_INVALID", message: \`${'${goodsKey}'} A21 조회결과 건수를 확인하지 못했습니다.\`, evidence: { totalResultCount, searchField: search.fieldLabel } };
-    if (totalResultCount > 200) return { ok: false, code: "A21_RESULT_OVER_200_BATCH_LIMIT", message: \`${'${goodsKey}'} A21 조회결과가 ${'${totalResultCount}'}건으로 200건을 초과해 부분 전송을 차단했습니다.\`, evidence: { totalResultCount, batchLimit: 200, searchField: search.fieldLabel } };
+    const reportedResultCount = a21TotalResultCountV042();
+    const exactRows = matchingRows(goodsKey);
+    if (!exactRows.length) return { ok: false, code: "A21_EXACT_RESULT_ROWS_NOT_FOUND", message: \`${'${goodsKey}'} A21 정확 goods key 행을 찾지 못했습니다.\`, evidence: { reportedResultCount, boundRowCount: 0, searchField: search.fieldLabel } };
+    const reportedCountAvailable = Number.isInteger(reportedResultCount) && reportedResultCount > 0;
+    if (reportedCountAvailable && reportedResultCount > 200) return { ok: false, code: "A21_RESULT_OVER_200_BATCH_LIMIT", message: \`${'${goodsKey}'} A21 조회결과가 ${'${reportedResultCount}'}건으로 200건을 초과해 부분 전송을 차단했습니다.\`, evidence: { reportedResultCount, boundRowCount: exactRows.length, batchLimit: 200, searchField: search.fieldLabel } };
+    if (!reportedCountAvailable && exactRows.length >= 200) return { ok: false, code: "A21_RESULT_COUNT_UNAVAILABLE_AT_BATCH_LIMIT", message: \`${'${goodsKey}'} A21 총 조회건수 문구가 없고 정확 행이 200건에 도달해 다음 페이지 가능성을 배제할 수 없어 전송을 차단했습니다.\`, evidence: { reportedResultCount, boundRowCount: exactRows.length, batchLimit: 200, searchField: search.fieldLabel } };
+    const totalResultCount = reportedCountAvailable ? reportedResultCount : exactRows.length;
+    const resultCountSource = reportedCountAvailable ? "SHOPLING_TOTAL_TEXT" : "EXACT_BOUND_ROWS";
     const selected = selectOnlyMatchingRows(goodsKey);
-    if (!selected.ok || selected.count !== totalResultCount) return { ok: false, code: "A21_EXACT_BATCH_SELECTION_FAILED", message: \`${'${goodsKey}'} A21 조회 ${'${totalResultCount}'}건 중 정확 goods key 행 ${'${selected.count}'}건만 선택되어 전송을 차단했습니다.\`, evidence: { selectedCount: selected.count, totalResultCount, batchLimit: 200, searchField: search.fieldLabel } };
+    if (!selected.ok || selected.count !== totalResultCount) return { ok: false, code: "A21_EXACT_BATCH_SELECTION_FAILED", message: \`${'${goodsKey}'} A21 기대 ${'${totalResultCount}'}건 중 정확 goods key 행 ${'${selected.count}'}건만 선택되어 전송을 차단했습니다.\`, evidence: { selectedCount: selected.count, totalResultCount, reportedResultCount, resultCountSource, boundRowCount: exactRows.length, batchLimit: 200, searchField: search.fieldLabel } };
     const button = buttonByText(/^상품\\s*수정전송$/i);`;
   source = once(source, oldA21Selection, newA21Selection);
   source = once(
@@ -223,7 +234,8 @@ export function buildStockWorkerV030(base, policy) {
     void execute(message).catch(() => null);
     return;`;
   source = once(source, oldListener, newListener);
-  const output = `${policy}\n${source}`;
+  const output = `${policy}\
+${source}`;
   new Function(output);
   return output;
 }
