@@ -4,10 +4,10 @@ import test from "node:test";
 import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v030.mjs";
 const root = "public/shopling-stock-state-sync";
 
-test("v0.5.4 manifest wires A6 resolver, price-core popup and result observer", async () => {
+test("v0.5.5 manifest wires A6 resolver, proven A21 list, price-core popup and result observer", async () => {
   const m = JSON.parse(await readFile(`${root}/manifest.json`, "utf8"));
   assert.equal(m.manifest_version, 3);
-  assert.equal(m.version, "0.5.4");
+  assert.equal(m.version, "0.5.5");
   assert.equal(m.background.service_worker, "background-v052.js");
   const listWorker = m.content_scripts.find((s) => s.js.includes("content-shopling-v030.js"));
   const popupCore = m.content_scripts.find((s) => s.js.includes("content-a21-price-core-v050.js"));
@@ -19,7 +19,7 @@ test("v0.5.4 manifest wires A6 resolver, price-core popup and result observer", 
   assert.ok(resultObserver?.all_frames);
 });
 
-test("v0.5.4 source worker still reads legacy A6 control values and package route replaces A6 with readonly resolver", async () => {
+test("v0.5.5 source worker still reads legacy A6 control values and package route replaces A6 with readonly resolver", async () => {
   for (const name of ["background-v020.js","background-v030.js","background-v040.js","background-v050.js","background-v052.js","content-ops-v021.js","content-stock-result-v050.js","main-shopling.js","popup.js"]) {
     const src = await readFile(`${root}/${name}`, "utf8");
     assert.doesNotThrow(() => new Function(src));
@@ -41,7 +41,7 @@ test("v0.5.4 source worker still reads legacy A6 control values and package rout
   assert.match(route, /discoveredGoodsKeys/);
 });
 
-test("v0.5.4 background uses A6 only for goods keys, then applies API per goods key before A21", async () => {
+test("v0.5.5 background uses A6 only for goods keys, then applies API per goods key before A21", async () => {
   const [background, ops] = await Promise.all([
     readFile(`${root}/background-v052.js`, "utf8"),
     readFile(`${root}/content-ops-v021.js`, "utf8"),
@@ -65,7 +65,7 @@ test("v0.5.4 background uses A6 only for goods keys, then applies API per goods 
   assert.match(ops, /matchedGoodsKey !== goodsKey/);
 });
 
-test("v0.5.4 keeps the observed Shopling maximum A6 date horizon", async () => {
+test("v0.5.5 keeps the observed Shopling maximum A6 date horizon", async () => {
   const policy = await readFile(`${root}/search-policy-v023.js`, "utf8");
   assert.match(policy, /const START = "20130912"/);
   assert.match(policy, /2013-09-12~오늘 최대 검색기간/);
@@ -86,7 +86,7 @@ test("price-core source stays byte-identical to the working price extension", as
   assert.match(canonicalMain, /goods_mallMdfy_submit_sp/);
 });
 
-test("v0.5.4 preserves A21 stage-race retry and marketplace advisory policy", async () => {
+test("v0.5.5 preserves A21 stage-race retry and marketplace advisory policy", async () => {
   const [route, background] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8"),
     readFile(`${root}/background-v050.js`, "utf8"),
@@ -99,15 +99,16 @@ test("v0.5.4 preserves A21 stage-race retry and marketplace advisory policy", as
   assert.match(background, /return continueNextGoodsKey\(active, sender, normalizedEvidence\)/);
 });
 
-test("v0.5.4 package verify declares readonly A6 then per-goods-key API then serial A21", async () => {
+test("v0.5.5 package verify declares readonly A6 then per-goods-key API then proven-list serial A21", async () => {
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
-  assert.match(route, /const VERSION = "0\.5\.4"/);
+  assert.match(route, /const VERSION = "0\.5\.5"/);
   assert.match(route, /background-v052\.js/);
-  assert.match(route, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_SERIAL_V054/);
+  assert.match(route, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_PROVEN_LIST_V055/);
   assert.match(route, /a6RowBinding: "TEXT_CONTENT_PLUS_INPUT_SELECT_VALUES"/);
   assert.match(route, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
   assert.match(route, /a6Checkbox: "NOT_TOUCHED"/);
   assert.match(route, /optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY"/);
   assert.match(route, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
+  assert.match(route, /a21ListClick: "PROVEN_PRICE_OPTION_RESEND_DIRECT_NO_VISIBILITY_FILTER"/);
   assert.match(route, /optionBrowserStages: \["A6", "A21_LIST", "A21_POPUP"\]/);
 });
