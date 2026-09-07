@@ -21,6 +21,10 @@ function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
 }
 
+function truthy(value: unknown) {
+  return value === true || text(value).toLowerCase() === "true";
+}
+
 function normalizedBarcode(value: unknown) {
   return text(value)
     .toUpperCase()
@@ -34,6 +38,27 @@ function storedSnapshot(row: Record<string, unknown>) {
   if (Object.keys(nested).length) return nested;
   const input = object(row.input_snapshot);
   return Object.keys(input).length ? input : result;
+}
+
+function legacyMarketplaceFailureCompletionEvidence(
+  source: Record<string, unknown>,
+  productKind: string,
+) {
+  const evidence = object(source.evidence);
+  const result = object(evidence.result);
+  const expectedComplete =
+    productKind === "OPTION"
+      ? truthy(result.optionComplete)
+      : truthy(result.productComplete);
+  const failureCount = Number(result.failureCount || 0);
+  const marketplaceFailure =
+    (Number.isFinite(failureCount) && failureCount > 0) ||
+    truthy(result.explicitFailure);
+  return Boolean(
+    expectedComplete &&
+      text(result.readyState).toLowerCase() === "complete" &&
+      marketplaceFailure,
+  );
 }
 
 export function latestRelevantShoplingSync(
@@ -88,7 +113,7 @@ export function normalizeRetryableShoplingSyncReport(
   };
 }
 
-async function loadOperatorStoppedRetryableBarcodes(
+async function loadEvidenceRetryableBarcodes(
   report: InventoryStockControlReport,
 ) {
   const candidates = new Map(
@@ -138,7 +163,8 @@ async function loadOperatorStoppedRetryableBarcodes(
     seen.add(barcode);
 
     const outcome = text(source.outcome).toUpperCase();
-    const code = text(object(source.evidence).code).toUpperCase();
+    const evidence = object(source.evidence);
+    const code = text(evidence.code).toUpperCase();
     const desiredStatus = text(source.desiredStatus).toUpperCase();
     const occurredAt =
       Date.parse(text(source.occurredAt)) || Date.parse(text(row.started_at));
@@ -148,11 +174,17 @@ async function loadOperatorStoppedRetryableBarcodes(
       Number.isFinite(occurredAt) &&
       Number.isFinite(desiredSince) &&
       occurredAt >= desiredSince;
+    const retryableOperatorStop = code === OPERATOR_STOP_CODE;
+    const retryableLegacyMarketplaceFailure =
+      legacyMarketplaceFailureCompletionEvidence(
+        source,
+        text(candidate.productKind).toUpperCase(),
+      );
 
     if (
       matchesCurrentDesiredState &&
       outcome === "UNCERTAIN" &&
-      code === OPERATOR_STOP_CODE
+      (retryableOperatorStop || retryableLegacyMarketplaceFailure)
     ) {
       retryable.add(barcode);
     }
@@ -164,18 +196,18 @@ export async function normalizeRetryableShoplingSyncReportWithEvidence(
   report: InventoryStockControlReport,
 ): Promise<InventoryStockControlReport> {
   const normalized = normalizeRetryableShoplingSyncReport(report);
-  const retryableBarcodes = await loadOperatorStoppedRetryableBarcodes(normalized);
+  const retryableBarcodes = await loadEvidenceRetryableBarcodes(normalized);
   if (!retryableBarcodes.size) return normalized;
 
   let changed = false;
   const rows = normalized.rows.map((row) => {
-    const operatorStoppedBlock =
+    const evidenceRetryableBlock =
       retryableBarcodes.has(row.barcode) &&
       row.syncNeeded &&
       row.syncBlocked &&
       row.latestSyncOutcome === "UNCERTAIN" &&
       row.syncBlockReason === STALE_UNRESOLVED_REASON;
-    if (!operatorStoppedBlock) return row;
+    if (!evidenceRetryableBlock) return row;
     changed = true;
     return {
       ...row,
