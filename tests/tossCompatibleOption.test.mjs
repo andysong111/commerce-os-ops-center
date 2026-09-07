@@ -16,6 +16,22 @@ test("기존 범용 옵션명은 색상 값 집합을 토스 호환 '색상'으�
   );
 });
 
+test("기존 데이터에 한 개의 이질값이 섞여도 명확한 다수 의미를 범용 '옵션'보다 우선한다", () => {
+  const colorDominant = normalizeTossCompatibleOptionRows([
+    { optionName: "옵션", saleOption: "블랙" },
+    { optionName: "옵션", saleOption: "화이트" },
+    { optionName: "옵션", saleOption: "대형" },
+  ]);
+  assert.equal(colorDominant.optionName, "색상");
+
+  const sizeDominant = normalizeTossCompatibleOptionRows([
+    { optionName: "구성", saleOption: "소형" },
+    { optionName: "구성", saleOption: "대형" },
+    { optionName: "구성", saleOption: "블랙" },
+  ]);
+  assert.equal(sizeDominant.optionName, "사이즈");
+});
+
 test("'구성: 2개입'처럼 수량 의미가 명확하면 토스 호환 '수량'으로 바꾼다", () => {
   const result = normalizeTossCompatibleOptionRows([
     { optionName: "구성", saleOption: "2개입" },
@@ -78,6 +94,8 @@ test("Product Master 자동옵션과 샵플링 최종 payload 양쪽 모두 토�
   );
 
   assert.match(modelOptionsSource, /normalizeTossCompatibleOptionRows\(/);
+  assert.match(modelOptionsSource, /source: "product_master_planning_snapshot"/);
+  assert.match(modelOptionsSource, /optionNormalization: "toss_compatible_v1"/);
   assert.doesNotMatch(modelOptionsSource, /optionName:\s*["']옵션["']/);
   assert.match(payloadSource, /normalizeTossCompatibleOptionRows\(/);
   assert.doesNotMatch(payloadSource, /text\(option\.optionName\)\s*\|\|\s*["']옵션["']/);
