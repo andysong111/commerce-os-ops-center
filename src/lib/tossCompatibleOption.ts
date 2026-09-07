@@ -158,14 +158,23 @@ function inferOptionName(values: string[], context: string) {
   }
   if (pureQuantityCount === values.length && values.length > 0) return "수량";
 
-  // A color family may contain seller-specific shade names such as "밀크티".
-  // Infer color only when there is strong evidence and no competing size/quantity signal.
+  // Legacy Shopling data sometimes has one stray value inside an otherwise clear
+  // option family (for example 블랙/화이트/대형). Do not fall back to the generic
+  // title "옵션" in that case: use the dominant semantic family while preserving
+  // every original sale value exactly.
   if (
     colorCount >= Math.min(2, values.length) &&
-    sizeCount === 0 &&
+    colorCount > sizeCount &&
     pureQuantityCount === 0
   ) {
     return "색상";
+  }
+  if (
+    sizeCount >= Math.min(2, values.length) &&
+    sizeCount > colorCount &&
+    pureQuantityCount === 0
+  ) {
+    return "사이즈";
   }
   if (values.length === 1 && colorCount === 1 && sizeCount === 0) return "색상";
 
