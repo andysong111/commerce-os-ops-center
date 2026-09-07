@@ -1,7 +1,7 @@
-Commerce OS · Shopling Stock State Sync v0.5.3
+Commerce OS · Shopling Stock State Sync v0.5.4
 
 사용자 준비
-- 이전 Stock State Sync 확장은 제거/비활성화하고 v0.5.3 하나만 사용합니다.
+- 이전 Stock State Sync 확장은 제거/비활성화하고 v0.5.4 하나만 사용합니다.
 - Shopling 로그인 관리자 탭 하나와 Commerce OS 재고·품절·재입고 탭을 열어둡니다.
 - A4/A6/A21은 미리 열 필요가 없습니다. 실행 시 전용 작업창을 자동 생성합니다.
 - 재고 0 기준점은 다시 만들지 않고 1건 안전 실행만 합니다.
@@ -10,12 +10,12 @@ Commerce OS · Shopling Stock State Sync v0.5.3
 - A6 옵션대량수정 자동 진입.
 - 검색기간 2013-09-12~실행 당일(KST).
 - 검색항목 `옵션자체관리코드`에 실행 B코드를 정확 검색.
-- 검색결과 행의 textContent뿐 아니라 input/textarea/select의 현재 value까지 읽어 B코드 정확 행을 연결합니다.
-- 정확 B코드 행 전체에서 `상품코드-옵션코드`를 읽고 Shopling goods key를 전부 수집·중복 제거합니다.
-- 해당 B코드 옵션행 전체를 품절/판매중으로 일괄 변경합니다.
-- 확보한 모든 goods key를 A21에서 1/N → 2/N → ... 순서로 직렬 옵션송신합니다.
+- A6에서는 결과행을 체크하거나 상태변경하지 않습니다. 검색결과의 textContent와 input/textarea/select 현재값을 읽어 정확 B코드 행을 확인합니다.
+- 정확 B코드 행의 `상품코드-옵션코드`에서 Shopling 상품코드(goods key)만 전부 수집·중복 제거합니다.
+- 확보한 goods key를 하나씩 Commerce OS Shopling API에 보내 해당 B코드 옵션상태만 품절/판매중으로 검증·변경합니다. Shopling 현재 옵션수량은 그대로 보존합니다.
+- 모든 goods key의 API 검증이 끝나면 A21에서 1/N → 2/N → ... 순서로 직렬 옵션송신합니다.
 - 모든 goods key가 완료되어야 B코드 전체를 성공으로 처리합니다.
-- 조회건수와 정확 행 수가 다르거나 goods key를 하나도 확보하지 못하면 부분 송신하지 않고 중단합니다.
+- 조회건수와 정확 상품코드 행 수가 다르거나 goods key를 하나도 확보하지 못하면 부분 송신하지 않고 중단합니다.
 
 단품상품 실행
 - A4에서 goods key 정확 검색 → 상품상태 품절/판매중 변경 → A21 상품판매상태송신.
