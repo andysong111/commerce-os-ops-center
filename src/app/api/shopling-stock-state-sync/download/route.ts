@@ -6,7 +6,7 @@ import { buildStockWorkerV030 } from "../../../../../scripts/build-shopling-stoc
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const VERSION = "0.5.4";
+const VERSION = "0.5.5";
 const FILES = [
   "manifest.json",
   "background-v020.js",
@@ -146,6 +146,43 @@ function patchA6ReadOnlyResolverV054(source: string) {
   return patched;
 }
 
+function patchA21ProvenListClickV055(source: string) {
+  const oldBlock = `    const button = buttonByText(/^상품\\s*수정전송$/i);
+    if (!button) return { ok: false, code: "A21_MODIFY_SEND_BUTTON_NOT_FOUND", message: "A21 상품 수정전송 버튼을 찾지 못했습니다." };
+    const click = await clickViaMain(button);
+    const failure = alertFailure(click.alerts);
+    if (!click.ok || failure) {
+      return { ok: false, code: "A21_POPUP_OPEN_REJECTED", message: failure || click.message || "A21 수정전송 팝업을 열지 못했습니다.", evidence: click };
+    }`;
+  const newBlock = `    const modifySendCandidates = [...document.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]')]
+      .filter((element) => /상품\\s*수정전송/.test(controlText(element)));
+    const button = modifySendCandidates[0] || null;
+    if (!button) return { ok: false, code: "A21_MODIFY_SEND_BUTTON_NOT_FOUND", message: "A21 상품 수정전송 버튼을 찾지 못했습니다." };
+    let clicked = false;
+    try {
+      button.click();
+      clicked = true;
+    } catch {}
+    if (!clicked) {
+      return { ok: false, code: "A21_POPUP_OPEN_REJECTED", message: "A21 검증 경로의 상품 수정전송 직접 클릭이 실패했습니다.", evidence: { clickMode: "PROVEN_A21_LIST_DIRECT_CLICK" } };
+    }
+    const click = { ok: true, code: "PROVEN_A21_LIST_DIRECT_CLICK", alerts: [] };`;
+  if (source.split(oldBlock).length !== 2) {
+    throw new Error("shopling_stock_a21_proven_list_click_source_mismatch");
+  }
+  const patched = source.replace(oldBlock, newBlock);
+  const start = patched.indexOf("  async function runA21List(job, goodsKey) {");
+  const end = patched.indexOf("  function radioByAdjacentText", start);
+  const segment = start >= 0 && end > start ? patched.slice(start, end) : "";
+  if (!segment.includes("PROVEN_A21_LIST_DIRECT_CLICK") || !segment.includes("button.click()")) {
+    throw new Error("shopling_stock_a21_proven_list_click_guard_missing");
+  }
+  if (segment.includes("clickViaMain(button)")) {
+    throw new Error("shopling_stock_a21_proven_list_click_legacy_main_click_present");
+  }
+  return patched;
+}
+
 export async function GET(request: Request) {
   const root = path.join(process.cwd(), "public", "shopling-stock-state-sync");
   const canonicalRoot = path.join(process.cwd(), "public", "shopling-a21-price-option-resend");
@@ -172,9 +209,10 @@ export async function GET(request: Request) {
   const builtWorker = buildStockWorkerV030(template, policy);
   if (!builtWorker.includes('const VERSION = "0.4.2";')) throw new Error("shopling_stock_state_list_worker_version_template_mismatch");
   const readOnlyWorker = patchA6ReadOnlyResolverV054(builtWorker);
-  const worker = readOnlyWorker
-    .replace('const VERSION = "0.4.2";', 'const VERSION = "0.5.4";')
-    .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV054");
+  const provenA21Worker = patchA21ProvenListClickV055(readOnlyWorker);
+  const worker = provenA21Worker
+    .replace('const VERSION = "0.4.2";', 'const VERSION = "0.5.5";')
+    .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV055");
   new Function(worker);
   entries["content-shopling-v030.js"] = strToU8(worker);
 
@@ -212,7 +250,7 @@ export async function GET(request: Request) {
       priceCoreLiteralCopyVerified: true,
       priceCoreCanonical: ["shopling-a21-price-option-resend/content-a21-v024.js", "shopling-a21-price-option-resend/main-a21-v024.js"],
       searchStart: "2013-09-12",
-      mode: "A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_SERIAL_V054",
+      mode: "A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_PROVEN_LIST_V055",
       optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY",
       optionGoodsKeySource: "A6_LIVE_OPTION_BARCODE",
       optionGoodsKeyPolicy: "ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED",
@@ -223,6 +261,7 @@ export async function GET(request: Request) {
       a21SearchSubmitGuard: "ONE_CLICK_TICKET",
       a21ResultSelection: "EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200",
       a21BatchLimit: 200,
+      a21ListClick: "PROVEN_PRICE_OPTION_RESEND_DIRECT_NO_VISIBILITY_FILTER",
       a21PopupAssignment: "PRICE_CORE_SELF_CLAIM_ADAPTER_WITH_STAGE_RACE_RETRY",
       a21PopupClaimRetry: { intervalMs: 250, attempts: 16, onlyError: "stock_price_core_not_option_popup_stage" },
       a21PopupConfiguration: "CANONICAL_PRICE_CORE_MODIFY_TP_GOODS_STOCK_AND_TRSMT_ENV_MODY_OPT_1",
