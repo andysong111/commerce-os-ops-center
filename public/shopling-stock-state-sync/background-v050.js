@@ -109,3 +109,53 @@ importScripts("background-v040.js");
     return true;
   });
 })();
+
+// v0.5.1 operator policy hotfix:
+// Once Shopling itself reports the expected A21 completion, marketplace-level failures are advisory.
+// They remain in evidence for later cleanup, but do not stop serial stock-state synchronization.
+const legacyHandleEvidenceV051 = handleEvidence;
+handleEvidence = async function handleEvidenceV051(message, sender) {
+  const active = await loadActive();
+  if (!active || active.status !== "RUNNING" || active.stage !== "WAIT_A21_RESULT") {
+    return legacyHandleEvidenceV051(message, sender);
+  }
+
+  const evidence = message?.evidence || {};
+  if (evidence.processing) return legacyHandleEvidenceV051(message, sender);
+
+  const expectedComplete =
+    active.job?.productKind === "OPTION"
+      ? Boolean(evidence.optionComplete)
+      : Boolean(evidence.productComplete);
+  if (!expectedComplete || evidence.readyState !== "complete") {
+    return legacyHandleEvidenceV051(message, sender);
+  }
+
+  const rawFailureCount = Number(evidence.failureCount || 0);
+  const marketplaceFailureCount =
+    Number.isFinite(rawFailureCount) && rawFailureCount > 0 ? rawFailureCount : 0;
+  const marketplaceFailureText = Boolean(evidence.explicitFailure);
+  const marketplaceFailuresIgnored = marketplaceFailureCount > 0 || marketplaceFailureText;
+  const normalizedEvidence = {
+    ...evidence,
+    marketplaceFailuresIgnored,
+    marketplaceFailureCount,
+    marketplaceFailureText,
+    completionPolicy: "SHOPLING_A21_COMPLETION_AUTHORITATIVE_MARKETPLACE_FAILURES_ADVISORY",
+  };
+
+  if (marketplaceFailuresIgnored) {
+    await progress(
+      active,
+      `${stageLabel(active.stage, active.job.productKind)} · Shopling 완료 확인 · 마켓별 실패 ${marketplaceFailureCount}건은 기록만 하고 성공 판정`,
+      {
+        resultTabId: sender?.tab?.id,
+        resultFrameId: sender?.frameId,
+        result: normalizedEvidence,
+        marketplaceFailuresIgnored: true,
+      },
+    );
+  }
+
+  return continueNextGoodsKey(active, sender, normalizedEvidence);
+};
