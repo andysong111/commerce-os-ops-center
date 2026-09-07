@@ -1,7 +1,7 @@
-Commerce OS · Shopling Stock State Sync v0.4.4
+Commerce OS · Shopling Stock State Sync v0.5.0
 
 사용자 준비
-- Stock State Sync 구버전은 모두 제거/비활성화하고 v0.4.4 하나만 사용합니다.
+- Stock State Sync 구버전은 모두 제거/비활성화하고 v0.5.0 하나만 사용합니다.
 - Shopling에 로그인 완료한 관리자 메인 탭 하나와 Commerce OS 재고·품절·재입고 탭만 열어둡니다.
 - A4/A21은 미리 열 필요가 없습니다. 실행 시 필요한 전용 작업창만 자동 생성합니다.
 - 옵션상품은 A6 작업창을 생성하지 않습니다.
@@ -12,15 +12,15 @@ Commerce OS · Shopling Stock State Sync v0.4.4
 - 단품: 자동 생성 A4 → goods key 정확검색 → 상품상태 품절/판매중 → A21 → 상품판매상태송신.
 - A22 및 마켓 재고수량 동기화는 사용하지 않습니다.
 
-v0.4.4 A21 수정전송 팝업
-- 현재 운영 중인 Shopling A21 가격·옵션 수정전송 v0.4.4의 실제 구조를 기준으로 재작성했습니다.
-- 팝업은 background가 한 번의 타이밍으로 찾아주기를 기다리지 않고 STOCK_SYNC_A21_POPUP_CLAIM_V044로 현재 재고동기화 RUNNING 작업을 스스로 claim합니다.
-- 옵션송신은 화면 글자나 위치를 추측하지 않습니다. Shopling 실제 form 계약인 modify_tp=goods_stock과 trsmt_env_mody_opt=1을 직접 선택하고 라디오 그룹의 단독선택 상태를 재검증합니다.
-- prod_join_chk[] 전송대상이 1건 이상이며 모두 숫자인지 검증합니다.
-- 옵션 설정 후 MAIN world 전용 main-a21-stock-v044.js가 window.goods_mallMdfy_submit_sp() 원본 함수를 호출합니다.
-- 원본 confirm 문구 '수정전송 할 상품을 선택하셨습니까'만 자동 승인하며 예상 밖 confirm/alert는 실패로 처리합니다.
-- 팝업 content worker와 MAIN-world bridge는 재고동기화 전용 event namespace를 사용해 가격조정 확장과 충돌하지 않도록 분리합니다.
-- 단품 상품판매상태송신은 기존 팝업 경로를 유지합니다.
+v0.5.0 A21 팝업 코어 교체
+- 재고동기화 전용 팝업 DOM 추측 로직을 제거했습니다.
+- 현재 실전에서 동작하는 public/shopling-a21-price-option-resend/content-a21-v024.js 와 main-a21-v024.js를 Git blob 그대로 복사해 price-core-content-a21-v024.js / price-core-main-a21-v024.js로 보관합니다.
+- 다운로드 패키지를 만들 때 원본 두 파일과 복사본이 byte-for-byte 동일한지 검증합니다. 다르면 ZIP 생성을 중단합니다.
+- 패키징 시 동작 로직은 바꾸지 않고 extension 간 충돌 방지를 위해 claim message, DOM overlay id, MAIN-world custom event namespace만 Stock Sync 전용으로 변경합니다.
+- 따라서 옵션송신 버튼 조작, 실제 form name/value 선택, Shopling 원본 goods_mallMdfy_submit_sp() 호출은 가격조정 확장과 동일한 코어입니다.
+- 기존 v0.4.4에서 실패 원인이었던 '화면 본문에 상품수정 송신 문구가 있어야 A21 팝업으로 인정' 조건은 더 이상 사용하지 않습니다. 가격조정 코어처럼 정확 popup URL + 실제 form payload를 기준으로 동작합니다.
+- OPTION 팝업은 background의 단발성 dispatch를 기다리지 않고 PriceCore가 self-claim합니다.
+- 전송 후 결과 증거는 별도의 passive all-frame observer가 Commerce OS background에 전달합니다.
 
 v0.4.2 A21 다건 선택
 - goods key 1개 검색 시 여러 쇼핑몰 상품행이 나오는 것이 정상입니다.
