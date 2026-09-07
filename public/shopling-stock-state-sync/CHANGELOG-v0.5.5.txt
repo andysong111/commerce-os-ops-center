@@ -1,0 +1,7 @@
+v0.5.5 selective rollback
+- KEEP: A6 live B-code read-only goods-key resolver.
+- KEEP: Shopling API exact B-code option status mutation with quantity preservation.
+- KEEP: all discovered goods keys serial A21 processing.
+- KEEP: exact-row fallback when A21 total-count text is absent.
+- RESTORE: A21 list `상품 수정전송` discovery/click to the previously proven price/option resend behavior: no DOM visibility gate, direct element.click().
+- KEEP: proven A21 popup price-core and HF1 completion policy.
