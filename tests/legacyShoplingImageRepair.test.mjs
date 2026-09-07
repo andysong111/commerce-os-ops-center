@@ -7,6 +7,7 @@ const routePath = "src/app/api/cron/legacy-shopling-image-repair/route.ts";
 test("legacy image repair reads every Shopling image field including 19-21", async () => {
   const source = await readFile(routePath, "utf8");
   assert.ok(source.includes('Array.from({ length: 32 }, (_, index) => `img_${index}`)'));
+  assert.ok(source.includes('"dtl_desc"'));
   assert.ok(source.includes("...byField[0]"));
   assert.ok(source.includes("...byField[19]"));
   assert.ok(source.includes("PRODUCT_FIELDS"));
@@ -21,14 +22,38 @@ test("legacy image repair splits embedded tab/newline URL payloads and removes u
   assert.ok(source.includes("normalizedDelimiterItems"));
 });
 
-test("legacy image repair preserves existing main image and only fills missing evidence", async () => {
+test("legacy image repair preserves existing main image and merges validated extras", async () => {
   const source = await readFile(routePath, "utf8");
   assert.ok(source.includes("const finalMain = existingMain || chosenMain"));
-  assert.ok(source.includes("unique(["));
   assert.ok(source.includes("...existingAdditional"));
   assert.ok(source.includes("...chosenAdditional"));
+  assert.ok(source.includes("[row.mainImageUrl, ...row.additionalImageUrls]"));
   assert.ok(source.includes("normalizedUrlKey(url) !== finalMainKey"));
   assert.ok(source.includes("MAX_ADDITIONAL_IMAGES"));
+});
+
+test("legacy image repair infers a strict Shopling CDN root and probes candidates before persistence", async () => {
+  const source = await readFile(routePath, "utf8");
+  assert.ok(source.includes("inferShoplingCdnBases"));
+  assert.ok(source.includes("img\\.shopling\\.co\\.kr\\/prodImg"));
+  assert.ok(source.includes("shoplingCdnCandidateUrls"));
+  assert.ok(source.includes("Math.floor(numeric / 1000)"));
+  assert.ok(source.includes("`${base}/prod_${bucket}/${goodsKey}_0.jpg`"));
+  assert.ok(source.includes("probeImageUrl"));
+  assert.ok(source.includes('method: "HEAD"'));
+  assert.ok(source.includes('method: "GET"'));
+  assert.ok(source.includes('range: "bytes=0-1023"'));
+  assert.ok(source.includes('contentType.startsWith("image/")'));
+  assert.ok(source.includes("CDN_PROBE_TIMEOUT_MS"));
+  assert.ok(source.includes("CDN_PROBE_CONCURRENCY"));
+  assert.ok(source.includes("mergeCdnEvidence"));
+});
+
+test("legacy image repair prefers CDN evidence belonging to the selected detail HTML when possible", async () => {
+  const source = await readFile(routePath, "utf8");
+  assert.ok(source.includes("htmlFingerprint"));
+  assert.ok(source.includes("preferredGoods"));
+  assert.ok(source.includes("chooseMainImage(goods, existingAsset.html)"));
 });
 
 test("legacy image repair is protected, idempotent, and registered in the existing dispatcher", async () => {
@@ -50,9 +75,9 @@ test("legacy image repair is protected, idempotent, and registered in the existi
   assert.ok(vercel.includes('"path": "/api/cron/ops-dispatcher"'));
 });
 
-test("legacy image repair batches Shopling reads and rotates unresolved evidence safely", async () => {
+test("legacy image repair keeps each dispatcher pass bounded and unresolved evidence retryable", async () => {
   const source = await readFile(routePath, "utf8");
-  assert.ok(source.includes("MAX_GOODS_KEYS_PER_RUN = 480"));
+  assert.ok(source.includes("MAX_GOODS_KEYS_PER_RUN = 240"));
   assert.ok(source.includes("MAX_NO_IMAGE_ATTEMPTS = 3"));
   assert.ok(source.includes("selectCandidateBatch"));
   assert.ok(source.includes("attemptedAtMs"));
@@ -61,6 +86,13 @@ test("legacy image repair batches Shopling reads and rotates unresolved evidence
   assert.ok(source.includes('"retry_no_image_evidence"'));
   assert.ok(source.includes('"deferred_no_image_evidence"'));
   assert.ok(source.includes("remainingRetryableCount"));
-  assert.ok(source.includes("busy,"));
   assert.ok(source.includes("done: !busy"));
+});
+
+test("legacy image repair exposes CDN canary evidence in each batch result", async () => {
+  const source = await readFile(routePath, "utf8");
+  assert.ok(source.includes("cdnBaseDetected"));
+  assert.ok(source.includes("cdnProbedGoodsCount"));
+  assert.ok(source.includes("cdnResolvedGoodsCount"));
+  assert.ok(source.includes('"shopling_api_or_validated_cdn"'));
 });
