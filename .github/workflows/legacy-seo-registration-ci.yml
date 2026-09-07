@@ -1,0 +1,37 @@
+name: Legacy SEO Registration CI
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/legacy-seo-registration-ci.yml'
+      - 'src/lib/legacySeoRegistrationPolicy.ts'
+      - 'src/lib/legacySeoShoplingPayload.ts'
+      - 'src/lib/legacySeoShoplingPriceMath.ts'
+      - 'src/lib/legacySeoShoplingPriceRecovery.ts'
+      - 'src/lib/legacySeoShoplingRegistration.ts'
+      - 'src/app/api/legacy-seo-run-jobs/route.ts'
+      - 'tests/legacySeoRegistrationPolicy.test.mjs'
+      - 'tests/legacySeoShoplingPayload.test.mjs'
+      - 'tests/legacySeoShoplingPriceRecovery.test.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Test legacy SEO registration safety
+        run: >-
+          node --experimental-strip-types --test
+          tests/legacySeoRegistrationPolicy.test.mjs
+          tests/legacySeoShoplingPayload.test.mjs
+          tests/legacySeoShoplingPriceRecovery.test.mjs
