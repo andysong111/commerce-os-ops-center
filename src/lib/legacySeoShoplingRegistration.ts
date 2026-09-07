@@ -3,7 +3,7 @@ import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { reconcileProductLaunchNormalizedAfterLegacyItems } from "@/lib/productLaunchTrackerNormalizedLegacyReconcile";
 import { readProductLaunchNormalizedItem } from "@/lib/productLaunchTrackerNormalizedStore";
 import { recoverProductLaunchOrderOptionsFromSuccessfulUpload } from "@/lib/productLaunchShoplingHistoricalOptionRecovery";
-import { buildProductLaunchShoplingPayload } from "@/lib/productLaunchTrackerShopling";
+import { buildLegacySeoShoplingPayload } from "@/lib/legacySeoShoplingPayload";
 import {
   readProductLaunchState,
   readProductLaunchStorageJson,
@@ -275,7 +275,7 @@ export async function startLegacySeoShoplingRegistration(
 
     const jobId = randomUUID();
     const requestId = `legacy-seo-${Date.now()}-${jobId.slice(0, 8)}`;
-    const basePayload = buildProductLaunchShoplingPayload(item, state.policy, requestId);
+    const basePayload = buildLegacySeoShoplingPayload(item, state.policy, requestId);
     const payload = historicalOptionRecovery
       ? { ...basePayload, optionRecovery: historicalOptionRecovery.evidence }
       : basePayload;
