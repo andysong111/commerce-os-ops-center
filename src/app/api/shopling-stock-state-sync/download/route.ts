@@ -6,7 +6,7 @@ import { buildStockWorkerV030 } from "../../../../../scripts/build-shopling-stoc
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 const FILES = [
   "manifest.json",
   "background-v020.js",
@@ -22,7 +22,7 @@ const FILES = [
 ];
 
 function namespacePriceCoreContent(source: string) {
-  return source
+  const namespaced = source
     .replace('const VERSION = "0.2.4";', 'const VERSION = chrome.runtime.getManifest().version;')
     .replaceAll("A21_POPUP_CLAIM_V020", "STOCK_PRICE_CORE_POPUP_CLAIM_V050")
     .replaceAll("commerce-os-a21-v024-main-submit-request", "commerce-os-stock-price-core-v050-main-submit-request")
@@ -32,6 +32,53 @@ function namespacePriceCoreContent(source: string) {
     .replace('node.textContent = `Commerce OS v0.2.4 · ${text}`;', 'node.textContent = `Stock Sync PriceCore v${VERSION} · ${text}`;')
     .replaceAll('type: "A21_JOB_FAILURE"', 'type: "STOCK_PRICE_CORE_FAILURE_V050"')
     .replaceAll('type: "A21_STAGE"', 'type: "STOCK_PRICE_CORE_STAGE_V050"');
+
+  const originalClaim = `  async function claim() {
+    if (!isExactPopupUrl()) return;
+    status("송신 작업 assignment 요청 중");
+    const response = await chrome.runtime.sendMessage({ type: CLAIM_MESSAGE, role: "A21_POPUP", href: location.href, version: VERSION }).catch(() => null);
+    if (!response?.ok || !response.assignment?.jobId) {
+      status(\`assignment 대기 · \${response?.error || "응답 없음"}\`, "warn");
+      return;
+    }
+    return configureAndSubmit(response.assignment);
+  }`;
+  if (!namespaced.includes("  let busy = false;") || !namespaced.includes(originalClaim)) {
+    throw new Error("shopling_stock_price_core_claim_adapter_source_mismatch");
+  }
+
+  const retryingClaim = `  async function claim() {
+    if (!isExactPopupUrl() || claimInFlight || busy) return;
+    claimInFlight = true;
+    try {
+      for (let attempt = 0; attempt < 16; attempt += 1) {
+        status(attempt === 0 ? "송신 작업 assignment 요청 중" : \`assignment 상태전환 재시도 \${attempt}/15\`);
+        const response = await chrome.runtime.sendMessage({ type: CLAIM_MESSAGE, role: "A21_POPUP", href: location.href, version: VERSION }).catch(() => null);
+        if (response?.ok && response.assignment?.jobId) {
+          return await configureAndSubmit(response.assignment);
+        }
+        const error = response?.error || "응답 없음";
+        status(\`assignment 대기 · \${error}\`, "warn");
+        if (error !== "stock_price_core_not_option_popup_stage") return;
+        await sleep(250);
+      }
+      status("assignment 대기 · A21 상태전환 시간초과", "warn");
+    } finally {
+      claimInFlight = false;
+    }
+  }`;
+
+  const adapted = namespaced
+    .replace("  let busy = false;", "  let busy = false;\n  let claimInFlight = false;")
+    .replace(originalClaim, retryingClaim);
+  if (
+    !adapted.includes("let claimInFlight = false") ||
+    !adapted.includes("attempt < 16") ||
+    !adapted.includes('error !== "stock_price_core_not_option_popup_stage"')
+  ) {
+    throw new Error("shopling_stock_price_core_claim_retry_adapter_missing");
+  }
+  return adapted;
 }
 
 function namespacePriceCoreMain(source: string) {
@@ -72,7 +119,7 @@ export async function GET(request: Request) {
     throw new Error("shopling_stock_state_list_worker_version_template_mismatch");
   }
   const worker = builtWorker
-    .replace('const VERSION = "0.4.2";', 'const VERSION = "0.5.0";')
+    .replace('const VERSION = "0.4.2";', 'const VERSION = "0.5.1";')
     .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV050");
   new Function(worker);
   entries["content-shopling-v030.js"] = strToU8(worker);
@@ -151,13 +198,14 @@ export async function GET(request: Request) {
         priceCoreLiteralCopyVerified: true,
         priceCoreCanonical: ["shopling-a21-price-option-resend/content-a21-v024.js", "shopling-a21-price-option-resend/main-a21-v024.js"],
         searchStart: "2024-01-01",
-        mode: "SHOPLING_API_OPTION_STATUS_THEN_A21_LITERAL_PRICE_CORE_V050",
+        mode: "SHOPLING_API_OPTION_STATUS_THEN_A21_LITERAL_PRICE_CORE_V051_CLAIM_RACE_RETRY",
         optionLocalMutation: "SERVER_API_GUARDED",
         a21SearchBinding: "ROW_SCOPED_VERIFIED",
         a21SearchSubmitGuard: "ONE_CLICK_TICKET",
         a21ResultSelection: "EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200",
         a21BatchLimit: 200,
-        a21PopupAssignment: "PRICE_CORE_SELF_CLAIM_ADAPTER",
+        a21PopupAssignment: "PRICE_CORE_SELF_CLAIM_ADAPTER_WITH_STAGE_RACE_RETRY",
+        a21PopupClaimRetry: { intervalMs: 250, attempts: 16, onlyError: "stock_price_core_not_option_popup_stage" },
         a21PopupConfiguration: "CANONICAL_PRICE_CORE_MODIFY_TP_GOODS_STOCK_AND_TRSMT_ENV_MODY_OPT_1",
         a21PopupSubmit: "CANONICAL_PRICE_CORE_MAIN_WORLD_GOODS_MALLMDFY_SUBMIT_SP",
         resultEvidence: "PASSIVE_ALL_FRAME_OBSERVER",
