@@ -4,12 +4,19 @@ import {
   type ProductLaunchIdentity,
 } from "@/lib/productLaunchTrackerServer";
 import {
+  readProductLaunchNormalizedItems,
   syncProductLaunchNormalizedChangedItems,
   syncProductLaunchNormalizedFull,
 } from "@/lib/productLaunchTrackerNormalizedStore";
 import type { ProductLaunchTrackerState } from "@/lib/productLaunchTrackerOptimized";
 
 type StoredRow = { state_payload?: unknown; updated_at?: unknown };
+type UnknownRecord = Record<string, unknown>;
+
+const SHOPLING_OPTION_SYNC_SOURCES = new Set([
+  "shopling_live_grouped_option_sync",
+  "shopling_live_grouped_option_sync_atomic",
+]);
 
 export async function reconcileProductLaunchNormalizedAfterLegacyItems(
   config: ProductLaunchAdminConfig,
@@ -28,10 +35,16 @@ export async function reconcileProductLaunchNormalizedAfterLegacyItems(
   }
 
   const state = row.state_payload as ProductLaunchTrackerState;
-  const result = await syncProductLaunchNormalizedChangedItems(
+  const guarded = await preserveNormalizedShoplingOptionsForImageRepair(
     config,
     identity,
     state,
+    changedIds,
+  );
+  const result = await syncProductLaunchNormalizedChangedItems(
+    config,
+    identity,
+    guarded.state,
     row.updated_at,
     changedIds,
   );
@@ -39,17 +52,105 @@ export async function reconcileProductLaunchNormalizedAfterLegacyItems(
     const full = await syncProductLaunchNormalizedFull(
       config,
       identity,
-      state,
+      guarded.state,
       row.updated_at,
     );
-    return { mode: "full" as const, ...full };
+    return {
+      mode: "full" as const,
+      preservedShoplingOptionItems: guarded.preservedCount,
+      ...full,
+    };
   }
 
-  return { mode: "changed" as const, ...result };
+  return {
+    mode: "changed" as const,
+    preservedShoplingOptionItems: guarded.preservedCount,
+    ...result,
+  };
+}
+
+async function preserveNormalizedShoplingOptionsForImageRepair(
+  config: ProductLaunchAdminConfig,
+  identity: ProductLaunchIdentity,
+  state: ProductLaunchTrackerState,
+  changedIds: string[],
+) {
+  const normalizedItems = await readProductLaunchNormalizedItems(
+    config,
+    identity.userId,
+    changedIds,
+  );
+  const normalizedById = new Map<string, UnknownRecord>();
+  for (const raw of normalizedItems) {
+    const item = record(raw);
+    const id = text(item.id);
+    if (id) normalizedById.set(id, item);
+  }
+
+  const stateRecord = state as unknown as UnknownRecord;
+  const stateItems = Array.isArray(stateRecord.items) ? stateRecord.items : [];
+  const changed = new Set(changedIds);
+  let preservedCount = 0;
+
+  const nextItems = stateItems.map((raw) => {
+    const item = record(raw);
+    const id = text(item.id);
+    if (!id || !changed.has(id)) return raw;
+
+    // Image repair is intentionally image-only. It starts from the legacy state,
+    // which can lag behind the normalized option ledger. Never let that stale
+    // snapshot erase a later Shopling option/B-code sync.
+    if (text(item.updatedBy) !== "legacy Shopling image repair") return raw;
+
+    const normalized = normalizedById.get(id);
+    if (!normalized) return raw;
+    const normalizedSync = record(normalized.shoplingOptionSync);
+    if (!SHOPLING_OPTION_SYNC_SOURCES.has(text(normalizedSync.source))) return raw;
+    const normalizedOptions = Array.isArray(normalized.orderOptions)
+      ? normalized.orderOptions.map(record)
+      : [];
+    if (!normalizedOptions.length) return raw;
+
+    const currentSync = record(item.shoplingOptionSync);
+    const currentOptions = Array.isArray(item.orderOptions)
+      ? item.orderOptions.map(record)
+      : [];
+    if (
+      SHOPLING_OPTION_SYNC_SOURCES.has(text(currentSync.source)) &&
+      currentOptions.length > 0
+    ) {
+      return raw;
+    }
+
+    const labels = normalizedOptions
+      .map((option) => text(option.saleOption ?? option.value))
+      .filter(Boolean);
+    preservedCount += 1;
+    return {
+      ...item,
+      orderOptions: normalizedOptions,
+      optionLabels: labels,
+      options: labels,
+      shoplingOptionSync: normalizedSync,
+    };
+  });
+
+  if (!preservedCount) return { state, preservedCount };
+  return {
+    state: {
+      ...(state as unknown as UnknownRecord),
+      items: nextItems,
+    } as ProductLaunchTrackerState,
+    preservedCount,
+  };
 }
 
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function record(value: unknown): UnknownRecord {
+  return isRecord(value) ? value : {};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
