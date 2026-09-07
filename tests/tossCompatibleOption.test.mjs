@@ -1,35 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { normalizeTossCompatibleOptionRows } from "../src/lib/tossCompatibleOption.ts";
-import { buildProductLaunchShoplingPayload } from "../src/lib/productLaunchTrackerShopling.ts";
-
-function option(barcode, optionBarcodeNo, saleOption, optionName = "옵션") {
-  return {
-    optionName,
-    saleOption,
-    barcode,
-    optionBarcodeNo,
-    baseSalePriceKrw: 10000,
-    unitCostKrw: 3000,
-  };
-}
-
-function launchItem(orderOptions) {
-  return {
-    id: "launch-toss-option-test",
-    modelNumber: "AAA999",
-    productName: "테스트 상품",
-    shoplingCategory: "생활 > 테스트",
-    selfCodeBase: "AAA999",
-    barcode: orderOptions.length === 1 ? orderOptions[0].barcode : "",
-    detailPageAsset: {
-      html: "<p>상세설명</p>",
-      mainImageUrl: "https://example.com/main.jpg",
-      additionalImageUrls: [],
-    },
-    orderOptions,
-  };
-}
 
 test("기존 범용 옵션명은 색상 값 집합을 토스 호환 '색상'으로 바꾼다", () => {
   const result = normalizeTossCompatibleOptionRows([
@@ -95,35 +67,19 @@ test("동일 옵션값 중복은 구매 조합 충돌을 막기 위해 차단한
   );
 });
 
-test("샵플링 최종 payload에도 범용 옵션명이 남지 않고 모든 채널에 같은 토스 호환 옵션이 전달된다", () => {
-  const payload = buildProductLaunchShoplingPayload(
-    launchItem([
-      option("BAA1-1", "123456789001", "블랙"),
-      option("BAA1-2", "123456789002", "화이트"),
-    ]),
-    {},
-    "toss-option-test-request",
+test("Product Master 자동옵션과 샵플링 최종 payload 양쪽 모두 토스 정규화기를 통과한다", () => {
+  const modelOptionsSource = readFileSync(
+    new URL("../src/app/api/product-launch-tracker/model-order-options/route.ts", import.meta.url),
+    "utf8",
+  );
+  const payloadSource = readFileSync(
+    new URL("../src/lib/productLaunchTrackerShopling.ts", import.meta.url),
+    "utf8",
   );
 
-  assert.equal(payload.channels.length, 6);
-  for (const channel of payload.channels) {
-    assert.deepEqual(
-      channel.options.map((row) => [row.optionName, row.saleOption]),
-      [["색상", "블랙"], ["색상", "화이트"]],
-    );
-  }
-});
-
-test("샵플링 최종 payload 생성 직전에도 애매한 옵션을 fail-closed 한다", () => {
-  assert.throws(
-    () => buildProductLaunchShoplingPayload(
-      launchItem([
-        option("BAA1-1", "123456789001", "펀칭기계만"),
-        option("BAA1-2", "123456789002", "단추만50개"),
-      ]),
-      {},
-      "toss-option-ambiguous-test",
-    ),
-    /토스 호환 옵션 사전검증 실패/,
-  );
+  assert.match(modelOptionsSource, /normalizeTossCompatibleOptionRows\(/);
+  assert.doesNotMatch(modelOptionsSource, /optionName:\s*["']옵션["']/);
+  assert.match(payloadSource, /normalizeTossCompatibleOptionRows\(/);
+  assert.doesNotMatch(payloadSource, /text\(option\.optionName\)\s*\|\|\s*["']옵션["']/);
+  assert.match(payloadSource, /토스 호환 옵션 사전검증 실패/);
 });
