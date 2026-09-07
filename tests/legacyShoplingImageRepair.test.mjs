@@ -24,14 +24,17 @@ test("legacy image repair splits embedded tab/newline URL payloads and removes u
 test("legacy image repair preserves existing main image and only fills missing evidence", async () => {
   const source = await readFile(routePath, "utf8");
   assert.ok(source.includes("const finalMain = existingMain || chosenMain"));
-  assert.ok(source.includes("unique([...existingAdditional, ...chosenAdditional])"));
+  assert.ok(source.includes("unique(["));
+  assert.ok(source.includes("...existingAdditional"));
+  assert.ok(source.includes("...chosenAdditional"));
   assert.ok(source.includes("normalizedUrlKey(url) !== finalMainKey"));
   assert.ok(source.includes("MAX_ADDITIONAL_IMAGES"));
 });
 
-test("legacy image repair is production cron protected and idempotently marks repaired items", async () => {
-  const [source, vercel] = await Promise.all([
+test("legacy image repair is protected, idempotent, and registered in the existing dispatcher", async () => {
+  const [source, dispatcher, vercel] = await Promise.all([
     readFile(routePath, "utf8"),
+    readFile("src/lib/opsAdaptiveDispatcher.ts", "utf8"),
     readFile("vercel.json", "utf8"),
   ]);
   assert.ok(source.includes('process.env.VERCEL_ENV !== "production"'));
@@ -40,5 +43,9 @@ test("legacy image repair is production cron protected and idempotently marks re
   assert.ok(source.includes("imageRepairVersion"));
   assert.ok(source.includes("REPAIR_VERSION"));
   assert.ok(source.includes("reconcileProductLaunchNormalizedAfterLegacyItems"));
-  assert.ok(vercel.includes("/api/cron/legacy-shopling-image-repair"));
+  assert.ok(dispatcher.includes('"legacy-shopling-image-repair"'));
+  assert.ok(dispatcher.includes('routePath: "/api/cron/legacy-shopling-image-repair"'));
+  assert.ok(dispatcher.includes('import("@/app/api/cron/legacy-shopling-image-repair/route")'));
+  assert.equal((vercel.match(/"path"\s*:/g) ?? []).length, 1);
+  assert.ok(vercel.includes('"path": "/api/cron/ops-dispatcher"'));
 });
