@@ -4,7 +4,7 @@ import test from "node:test";
 import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v030.mjs";
 const root = "public/shopling-stock-state-sync";
 
-test("v0.5.2 option route is live A6-A21 while single route remains A4-A21 and A22 is absent", async () => {
+test("v0.5.3 option route is live A6-A21 while single route remains A4-A21 and A22 is absent", async () => {
   const [overlay, legacy, worker] = await Promise.all([
     readFile(`${root}/background-v052.js`, "utf8"),
     readFile(`${root}/background-v020.js`, "utf8"),
@@ -17,13 +17,15 @@ test("v0.5.2 option route is live A6-A21 while single route remains A4-A21 and A
   assert.doesNotMatch(worker, /runA22/);
 });
 
-test("A6 live exact B-code resolves all goods keys while A21 fans out exact marketplace rows up to 200", async () => {
+test("A6 exact B-code can bind input values, resolve all goods keys and fan out A21 rows", async () => {
   const overlay = await readFile(`${root}/background-v052.js`, "utf8");
   const template = await readFile(`${root}/content-shopling-v018.js`, "utf8");
   const policy = await readFile(`${root}/search-policy-v023.js`, "utf8");
   const worker = buildStockWorkerV030(template, policy);
   assert.match(overlay, /active\.job\.goodsKeys = discoveredGoodsKeys/);
   assert.match(overlay, /A6_BCODE_GOODSKEY_NOT_FOUND/);
+  assert.match(worker, /rowEvidenceTextV053/);
+  assert.match(worker, /values\.push\(control\.value \|\| ""\)/);
   assert.match(worker, /discoveredGoodsKeys/);
   assert.match(worker, /A6_RESULT_PAGE_INCOMPLETE/);
   assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
@@ -32,7 +34,7 @@ test("A6 live exact B-code resolves all goods keys while A21 fans out exact mark
   assert.match(worker, /batchLimit: 200/);
 });
 
-test("v0.5.2 preserves the proven price popup core literally and bounded claim race retry", async () => {
+test("v0.5.3 preserves the proven price popup core literally and bounded claim race retry", async () => {
   const [copiedContent, copiedMain, canonicalContent, canonicalMain, adapter, route] = await Promise.all([
     readFile(`${root}/price-core-content-a21-v024.js`, "utf8"),
     readFile(`${root}/price-core-main-a21-v024.js`, "utf8"),
@@ -55,7 +57,7 @@ test("v0.5.2 preserves the proven price popup core literally and bounded claim r
   assert.match(route, /attempt < 16/);
 });
 
-test("legacy server option mutation remains fail-closed but is not v0.5.2 runtime authority", async () => {
+test("legacy server option mutation remains fail-closed but is not v0.5.3 runtime authority", async () => {
   const [api, ops] = await Promise.all([
     readFile("src/lib/shopling/shoplingOptionStatus.ts", "utf8"),
     readFile(`${root}/content-ops-v021.js`, "utf8"),
@@ -68,15 +70,16 @@ test("legacy server option mutation remains fail-closed but is not v0.5.2 runtim
   assert.match(ops, /A6_LIVE_GOODSKEY_DISCOVERY/);
 });
 
-test("ZIP generates v0.5.2 live-A6 package with all-goods-key serial contract", async () => {
+test("ZIP generates v0.5.3 live-A6 package with control-value binding and serial contract", async () => {
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
-  assert.match(route, /const VERSION = "0\.5\.2"/);
+  assert.match(route, /const VERSION = "0\.5\.3"/);
   assert.match(route, /background-v052\.js/);
   assert.match(route, /content-a21-price-core-v050\.js/);
   assert.match(route, /main-a21-price-core-v050\.js/);
   assert.match(route, /content-stock-result-v050\.js/);
   assert.match(route, /priceCoreLiteralCopyVerified: true/);
-  assert.match(route, /A6_LIVE_BCODE_ALL_GOODSKEYS_THEN_A21_SERIAL_PRICE_CORE_V052/);
+  assert.match(route, /A6_LIVE_BCODE_CONTROL_VALUE_ROWS_THEN_A21_SERIAL_PRICE_CORE_V053/);
+  assert.match(route, /a6RowBinding: "TEXT_CONTENT_PLUS_INPUT_SELECT_VALUES"/);
   assert.match(route, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
   assert.match(route, /a21PopupClaimRetry/);
   assert.match(route, /a21BatchLimit: 200/);

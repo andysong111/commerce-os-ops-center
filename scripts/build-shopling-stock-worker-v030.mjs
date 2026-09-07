@@ -1,6 +1,6 @@
 // Compose the unchanged mutation template with the tested maximum-range search policy.
-// v0.5.2 restores A6 for OPTION jobs as the live source of truth: exact B-code rows are
-// collected/mutated together and every discovered Shopling goods key is sent serially in A21.
+// v0.5.3 keeps A6 as the live source of truth and fixes legacy result rows where
+// B-code is rendered in an input value instead of row textContent.
 export function buildStockWorkerV030(base, policy) {
   function once(source, before, after) {
     if (source.split(before).length !== 2) throw new Error(`stock_worker_template_mismatch:${before.slice(0,70)}`);
@@ -68,6 +68,32 @@ export function buildStockWorkerV030(base, policy) {
     '      .filter((row) => visible(row) && regex.test(norm(row.textContent).toUpperCase()))',
     '      .filter((row) => regex.test(norm(row.textContent).toUpperCase()))',
   );
+
+  const oldMatchingRowsV053 = `  function matchingRows(token) {
+    const regex = exactTokenRegex(token);
+    return [...document.querySelectorAll("tr")]
+      .filter((row) => regex.test(norm(row.textContent).toUpperCase()))
+      .map((row) => ({ row, checkbox: row.querySelector('input[type="checkbox"]'), text: norm(row.textContent) }))
+      .filter((entry) => entry.checkbox && !entry.checkbox.disabled);
+  }`;
+  const newMatchingRowsV053 = `  function rowEvidenceTextV053(row) {
+    const values = [row?.textContent || ""];
+    for (const control of row?.querySelectorAll?.("input,textarea,select") || []) {
+      if ("value" in control) values.push(control.value || "");
+      if (control instanceof HTMLSelectElement) values.push(control.options?.[control.selectedIndex]?.textContent || "");
+    }
+    return norm(values.join(" "));
+  }
+
+  function matchingRows(token) {
+    const regex = exactTokenRegex(token);
+    return [...document.querySelectorAll("tr")]
+      .map((row) => ({ row, evidenceText: rowEvidenceTextV053(row) }))
+      .filter(({ evidenceText }) => regex.test(evidenceText.toUpperCase()))
+      .map(({ row, evidenceText }) => ({ row, checkbox: row.querySelector('input[type="checkbox"]'), text: evidenceText }))
+      .filter((entry) => entry.checkbox && !entry.checkbox.disabled);
+  }`;
+  source = once(source, oldMatchingRowsV053, newMatchingRowsV053);
 
   const oldA21Start = '  async function runA21List(job, goodsKey) {';
   const newA21Start = `  function setA21PageSize200V042() {

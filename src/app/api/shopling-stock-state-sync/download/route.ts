@@ -6,7 +6,7 @@ import { buildStockWorkerV030 } from "../../../../../scripts/build-shopling-stoc
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const VERSION = "0.5.2";
+const VERSION = "0.5.3";
 const FILES = [
   "manifest.json",
   "background-v020.js",
@@ -102,8 +102,8 @@ export async function GET(request: Request) {
   const builtWorker = buildStockWorkerV030(template, policy);
   if (!builtWorker.includes('const VERSION = "0.4.2";')) throw new Error("shopling_stock_state_list_worker_version_template_mismatch");
   const worker = builtWorker
-    .replace('const VERSION = "0.4.2";', 'const VERSION = "0.5.2";')
-    .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV052");
+    .replace('const VERSION = "0.4.2";', 'const VERSION = "0.5.3";')
+    .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV053");
   new Function(worker);
   entries["content-shopling-v030.js"] = strToU8(worker);
 
@@ -141,10 +141,11 @@ export async function GET(request: Request) {
       priceCoreLiteralCopyVerified: true,
       priceCoreCanonical: ["shopling-a21-price-option-resend/content-a21-v024.js", "shopling-a21-price-option-resend/main-a21-v024.js"],
       searchStart: "2013-09-12",
-      mode: "A6_LIVE_BCODE_ALL_GOODSKEYS_THEN_A21_SERIAL_PRICE_CORE_V052",
+      mode: "A6_LIVE_BCODE_CONTROL_VALUE_ROWS_THEN_A21_SERIAL_PRICE_CORE_V053",
       optionLocalMutation: "A6_EXACT_BCODE_ALL_ROWS",
       optionGoodsKeySource: "A6_LIVE_OPTION_BARCODE",
       optionGoodsKeyPolicy: "ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED",
+      a6RowBinding: "TEXT_CONTENT_PLUS_INPUT_SELECT_VALUES",
       a21SearchBinding: "ROW_SCOPED_VERIFIED",
       a21SearchSubmitGuard: "ONE_CLICK_TICKET",
       a21ResultSelection: "EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200",
