@@ -133,6 +133,16 @@ export async function GET(request: Request) {
     identity,
     modelNumbers,
   });
+  if (result.unresolvedCount > 0) {
+    console.info(
+      "[legacy-seo-price-recovery] unresolved",
+      JSON.stringify({
+        ownerId,
+        unresolvedCount: result.unresolvedCount,
+        unresolved: result.unresolved,
+      }),
+    );
+  }
   return Response.json({
     ok: true,
     state: result.unresolvedCount > 0 ? "PARTIAL" : "RUNNING",
