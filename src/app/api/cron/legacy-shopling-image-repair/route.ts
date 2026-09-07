@@ -42,7 +42,6 @@ type GoodsImages = {
   mainImageUrl: string;
   additionalImageUrls: string[];
 };
-
 type RepairCandidate = {
   itemIndex: number;
   itemId: string;
@@ -120,25 +119,31 @@ function splitImageField(value: unknown) {
       .map((entry) => entry.trim())
       .filter(Boolean);
     for (const piece of pieces) {
-      if (!isHttpUrl(piece)) continue;
-      result.push(piece);
+      if (isHttpUrl(piece)) result.push(piece);
     }
   }
   return unique(result);
 }
 
 function validRepresentativeUrl(value: string) {
-  if (!isHttpUrl(value) || isGifUrl(value)) return false;
-  return !SHIPPING_NOTICE_KEYS.has(normalizedUrlKey(value));
+  return (
+    isHttpUrl(value) &&
+    !isGifUrl(value) &&
+    !SHIPPING_NOTICE_KEYS.has(normalizedUrlKey(value))
+  );
 }
 
 function rowImages(row: UnknownRecord): GoodsImages | null {
   const goodsKey = normalizeGoodsKey(row.goods_key);
   if (!goodsKey) return null;
 
-  const byField = Array.from({ length: 32 }, (_, index) => splitImageField(row[`img_${index}`]));
+  const byField = Array.from({ length: 32 }, (_, index) =>
+    splitImageField(row[`img_${index}`]),
+  );
   const allImages = unique(byField.flat()).filter(validRepresentativeUrl);
-  if (!allImages.length) return { goodsKey, mainImageUrl: "", additionalImageUrls: [] };
+  if (!allImages.length) {
+    return { goodsKey, mainImageUrl: "", additionalImageUrls: [] };
+  }
 
   const primaryCandidates = unique([
     ...byField[0],
@@ -165,7 +170,11 @@ function chooseMainImage(goods: GoodsImages[]) {
     if (current) current.count += 1;
     else ranked.set(key, { value, count: 1, first: first++ });
   }
-  return [...ranked.values()].sort((a, b) => b.count - a.count || a.first - b.first)[0]?.value || "";
+  return (
+    [...ranked.values()].sort(
+      (a, b) => b.count - a.count || a.first - b.first,
+    )[0]?.value || ""
+  );
 }
 
 function chooseAdditionalImages(goods: GoodsImages[], mainImageUrl: string) {
@@ -210,7 +219,8 @@ function buildProductLookupXml(
   goodsKeys: string[],
 ) {
   const today = todayYmd();
-  return `<?xml version="1.0" encoding="UTF-8"?><reqst><apiProdGather>` +
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?><reqst><apiProdGather>` +
     `<login_id>${cdata(config.loginId)}</login_id>` +
     `<company_id>${cdata(config.companyId)}</company_id>` +
     `<api_auth_key>${cdata(config.authKey)}</api_auth_key>` +
@@ -220,7 +230,8 @@ function buildProductLookupXml(
     `<prod_id>${cdata(goodsKeys.join(","))}</prod_id>` +
     `<prod_fields>${cdata(PRODUCT_FIELDS)}</prod_fields>` +
     `<opt_yn>N</opt_yn><attri_yn>N</attri_yn>` +
-    `</apiProdGather></reqst>`;
+    `</apiProdGather></reqst>`
+  );
 }
 
 function shoplingEnvironment() {
@@ -244,12 +255,16 @@ function authorized(request: Request, secret: string) {
 function itemGoodsKeys(item: UnknownRecord) {
   const source = record(item.detailPageAssetSource);
   const sourceGoods = Array.isArray(source.goodsKeys) ? source.goodsKeys : [];
-  const shoplingProducts = Array.isArray(item.shoplingProducts) ? item.shoplingProducts : [];
+  const shoplingProducts = Array.isArray(item.shoplingProducts)
+    ? item.shoplingProducts
+    : [];
   const fallbackGoods = shoplingProducts.flatMap((value) => {
     const row = record(value);
     return [row.goodsKey, row.goods_key, row.productId, row.product_id];
   });
-  return unique([...sourceGoods, ...fallbackGoods].map(normalizeGoodsKey).filter(Boolean));
+  return unique(
+    [...sourceGoods, ...fallbackGoods].map(normalizeGoodsKey).filter(Boolean),
+  );
 }
 
 function needsRepair(item: UnknownRecord) {
@@ -265,16 +280,22 @@ async function fetchGoodsImages(config: ShoplingReadConfig, goodsKeys: string[])
   let fetchedRows = 0;
   for (let index = 0; index < goodsKeys.length; index += MAX_GOODS_PER_REQUEST) {
     const chunk = goodsKeys.slice(index, index + MAX_GOODS_PER_REQUEST);
-    const response = await postShoplingXml(config.productsUrl, buildProductLookupXml(config, chunk), {
-      headers: {
-        accept: "application/xml, text/xml",
-        "content-type": "application/xml; charset=utf-8",
-        "user-agent": "commerce-os-legacy-image-repair/1.0",
+    const response = await postShoplingXml(
+      config.productsUrl,
+      buildProductLookupXml(config, chunk),
+      {
+        headers: {
+          accept: "application/xml, text/xml",
+          "content-type": "application/xml; charset=utf-8",
+          "user-agent": "commerce-os-legacy-image-repair/1.0",
+        },
+        timeoutMs: 45_000,
       },
-      timeoutMs: 45_000,
-    });
+    );
     const body = await response.text();
-    if (!response.ok) throw new Error(`LEGACY_SHOPLING_IMAGE_REPAIR_HTTP_${response.status}`);
+    if (!response.ok) {
+      throw new Error(`LEGACY_SHOPLING_IMAGE_REPAIR_HTTP_${response.status}`);
+    }
     const rows = parseShoplingReadResponse("products", body).map(record);
     fetchedRows += rows.length;
     for (const row of rows) {
@@ -300,7 +321,9 @@ export async function GET(request: NextRequest) {
   }
 
   const adminConfig = getProductLaunchAdminConfig();
-  if (!adminConfig.ok) return Response.json(adminConfig.body, { status: adminConfig.status });
+  if (!adminConfig.ok) {
+    return Response.json(adminConfig.body, { status: adminConfig.status });
+  }
   const identity = temporaryOpsIdentity();
   const stateRow = await readProductLaunchState(adminConfig.value, identity.userId);
   const state = record(stateRow?.state_payload);
@@ -317,7 +340,12 @@ export async function GET(request: NextRequest) {
     .filter((candidate) => candidate.itemId && candidate.goodsKeys.length > 0);
 
   if (!candidates.length) {
-    return Response.json({ ok: true, done: true, repairedItems: 0, reason: "no_candidates" });
+    return Response.json({
+      ok: true,
+      done: true,
+      repairedItems: 0,
+      reason: "no_candidates",
+    });
   }
 
   const allGoodsKeys = unique(candidates.flatMap((candidate) => candidate.goodsKeys));
@@ -325,6 +353,7 @@ export async function GET(request: NextRequest) {
   const fetched = await fetchGoodsImages(shoplingConfig, allGoodsKeys);
   const now = new Date().toISOString();
   const changedIds: string[] = [];
+  const unresolvedModels: string[] = [];
   let repairedMain = 0;
   let repairedAdditional = 0;
   let normalizedDelimiterItems = 0;
@@ -340,26 +369,39 @@ export async function GET(request: NextRequest) {
 
     const chosenMain = chooseMainImage(goods);
     const chosenAdditional = chooseAdditionalImages(goods, chosenMain);
-    const existingMain = splitImageField(existingAsset.mainImageUrl).filter(validRepresentativeUrl)[0] || "";
+    const existingMain =
+      splitImageField(existingAsset.mainImageUrl).filter(validRepresentativeUrl)[0] || "";
     const existingAdditionalRaw = Array.isArray(existingAsset.additionalImageUrls)
       ? existingAsset.additionalImageUrls
       : existingAsset.additionalImageUrls
         ? [existingAsset.additionalImageUrls]
         : [];
-    const existingAdditional = normalizeExistingAdditional(existingAsset.additionalImageUrls);
+    const existingAdditional = normalizeExistingAdditional(
+      existingAsset.additionalImageUrls,
+    );
     const hadEmbeddedDelimiter = existingAdditionalRaw.some(
       (value) => splitImageField(value).length > 1,
     );
 
     const finalMain = existingMain || chosenMain;
     const finalMainKey = normalizedUrlKey(finalMain);
-    const finalAdditional = unique([...existingAdditional, ...chosenAdditional])
+    const finalAdditional = unique([
+      ...existingAdditional,
+      ...chosenAdditional,
+    ])
       .filter(validRepresentativeUrl)
       .filter((url) => normalizedUrlKey(url) !== finalMainKey)
       .slice(0, MAX_ADDITIONAL_IMAGES);
 
-    if (!finalMain && !finalAdditional.length) noImageEvidenceItems += 1;
-    if (!existingMain && finalMain) repairedMain += 1;
+    if (!finalMain) {
+      noImageEvidenceItems += 1;
+      if (candidate.modelNumber && unresolvedModels.length < 25) {
+        unresolvedModels.push(candidate.modelNumber);
+      }
+      continue;
+    }
+
+    if (!existingMain) repairedMain += 1;
     if (finalAdditional.length > existingAdditional.length) repairedAdditional += 1;
     if (hadEmbeddedDelimiter) normalizedDelimiterItems += 1;
 
@@ -380,6 +422,28 @@ export async function GET(request: NextRequest) {
     changedIds.push(candidate.itemId);
   }
 
+  if (!changedIds.length) {
+    console.warn("[legacy-shopling-image-repair] no repairable image evidence", {
+      candidateCount: candidates.length,
+      requestedGoodsKeyCount: allGoodsKeys.length,
+      fetchedRows: fetched.fetchedRows,
+      fetchedGoodsCount: fetched.byGoodsKey.size,
+      unresolvedModels,
+    });
+    return Response.json({
+      ok: true,
+      done: false,
+      candidateCount: candidates.length,
+      repairedItems: 0,
+      requestedGoodsKeyCount: allGoodsKeys.length,
+      fetchedRows: fetched.fetchedRows,
+      fetchedGoodsCount: fetched.byGoodsKey.size,
+      noImageEvidenceItems,
+      unresolvedModels,
+      reason: "no_repairable_image_evidence",
+    });
+  }
+
   const nextState = { ...state, items, updatedAt: now };
   await writeProductLaunchState(adminConfig.value, identity, nextState);
   const normalizedSync = await reconcileProductLaunchNormalizedAfterLegacyItems(
@@ -397,11 +461,12 @@ export async function GET(request: NextRequest) {
     repairedAdditional,
     normalizedDelimiterItems,
     noImageEvidenceItems,
+    unresolvedModels,
   });
 
   return Response.json({
     ok: true,
-    done: true,
+    done: noImageEvidenceItems === 0,
     candidateCount: candidates.length,
     requestedGoodsKeyCount: allGoodsKeys.length,
     fetchedRows: fetched.fetchedRows,
@@ -411,6 +476,7 @@ export async function GET(request: NextRequest) {
     repairedAdditional,
     normalizedDelimiterItems,
     noImageEvidenceItems,
+    unresolvedModels,
     normalizedSync,
   });
 }
