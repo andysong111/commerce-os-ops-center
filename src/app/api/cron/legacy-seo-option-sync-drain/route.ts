@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const BATCH_SIZE = 20;
+const TEMPORARY_DRAIN_EXPIRES_AT = Date.parse("2026-09-08T03:00:00Z");
 type UnknownRecord = Record<string, unknown>;
 
 function record(value: unknown): UnknownRecord {
@@ -41,6 +42,14 @@ export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret || !authorized(request, secret)) {
     return Response.json({ ok: false, error: "cron 인증 실패" }, { status: 401 });
+  }
+  if (Date.now() >= TEMPORARY_DRAIN_EXPIRES_AT) {
+    return Response.json({
+      ok: true,
+      busy: false,
+      state: "EXPIRED",
+      message: "임시 이전상품 옵션 동기화 실행기간이 종료되었습니다.",
+    });
   }
   const configResult = getProductLaunchAdminConfig();
   if (!configResult.ok) {
