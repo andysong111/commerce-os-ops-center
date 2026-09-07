@@ -1,0 +1,41 @@
+name: Reliability Autofix Claim Safety
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/api/integrations/reliability/autofix/route.ts"
+      - "src/lib/reliability/reliabilityAutofixClaim.ts"
+      - "src/lib/reliability/reliabilityAutofixClaim.test.ts"
+      - ".github/workflows/reliability-autofix-claim-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/app/api/integrations/reliability/autofix/route.ts"
+      - "src/lib/reliability/reliabilityAutofixClaim.ts"
+      - "src/lib/reliability/reliabilityAutofixClaim.test.ts"
+      - ".github/workflows/reliability-autofix-claim-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  claim-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Lint changed reliability files
+        run: >-
+          npx eslint
+          src/app/api/integrations/reliability/autofix/route.ts
+          src/lib/reliability/reliabilityAutofixClaim.ts
+          src/lib/reliability/reliabilityAutofixClaim.test.ts
+      - name: Test idempotent claim recovery
+        run: npx vitest run src/lib/reliability/reliabilityAutofixClaim.test.ts
