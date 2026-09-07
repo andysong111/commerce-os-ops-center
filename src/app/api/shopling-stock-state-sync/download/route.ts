@@ -6,7 +6,7 @@ import { buildStockWorkerV030 } from "../../../../../scripts/build-shopling-stoc
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const VERSION = "0.5.3";
+const VERSION = "0.5.4";
 const FILES = [
   "manifest.json",
   "background-v020.js",
@@ -76,6 +76,76 @@ function namespacePriceCoreMain(source: string) {
     .replaceAll("commerce-os-a21-v024-main-submit-response", "commerce-os-stock-price-core-v050-main-submit-response");
 }
 
+function patchA6ReadOnlyResolverV054(source: string) {
+  const start = '  async function runA6(job) {';
+  const end = '  async function runA4(job, goodsKey) {';
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  if (startIndex < 0 || endIndex < 0 || endIndex <= startIndex) {
+    throw new Error("shopling_stock_a6_readonly_patch_source_mismatch");
+  }
+  const replacement = `  async function runA6(job) {
+    if (role() !== "A6") return navigateTo("A6");
+    const search = await searchExact("옵션자체관리코드", job.barcode);
+    if (!search.ok) return search;
+
+    const barcodeRegex = exactTokenRegex(job.barcode);
+    const pairRegex = /(^|[^0-9])(\\d{4,})-(\\d{4,})(?=[^0-9]|$)/g;
+    const resultRows = [...document.querySelectorAll("tr")]
+      .map((row) => ({ row, text: rowEvidenceTextV053(row) }))
+      .filter(({ text }) => barcodeRegex.test(text.toUpperCase()) && /(^|[^0-9])\\d{4,}-\\d{4,}(?=[^0-9]|$)/.test(text));
+
+    const totalMatch = bodyText().match(/총\\s*조회수\\s*[:：]?\\s*([\\d,]+)\\s*건/i);
+    const totalResultCount = totalMatch ? Number(totalMatch[1].replace(/,/g, "")) : null;
+    if (!resultRows.length) {
+      return { ok: false, code: "A6_BCODE_RESULT_ROW_NOT_FOUND", message: \`${'${job.barcode}'} 검색결과에서 상품코드가 있는 정확 행을 찾지 못했습니다.\`, evidence: { totalResultCount, matchedRows: 0, readOnly: true } };
+    }
+    if (Number.isInteger(totalResultCount) && totalResultCount > 0 && resultRows.length !== totalResultCount) {
+      return { ok: false, code: "A6_RESULT_PAGE_INCOMPLETE", message: \`${'${job.barcode}'} A6 조회 ${'${totalResultCount}'}건 중 상품코드 행 ${'${resultRows.length}'}건만 읽혀 일부 누락 위험 때문에 중단했습니다.\`, evidence: { totalResultCount, matchedRows: resultRows.length, readOnly: true } };
+    }
+
+    const discoveredPairs = [];
+    for (const entry of resultRows) {
+      for (const match of entry.text.matchAll(pairRegex)) {
+        discoveredPairs.push({ goodsKey: match[2], optionId: match[3], rowText: entry.text.slice(0, 500) });
+      }
+    }
+    const discoveredGoodsKeys = [...new Set(discoveredPairs.map((pair) => pair.goodsKey).filter((value) => /^\\d+$/.test(value)))].sort((a, b) => Number(a) - Number(b));
+    if (!discoveredGoodsKeys.length) {
+      return { ok: false, code: "A6_BCODE_GOODSKEY_NOT_FOUND", message: \`${'${job.barcode}'} 검색결과에서 Shopling 상품코드를 읽지 못했습니다.\`, evidence: { totalResultCount, matchedRows: resultRows.length, readOnly: true } };
+    }
+
+    return {
+      ok: true,
+      completed: true,
+      message: \`${'${job.barcode}'} A6 읽기전용 조회 완료 · 상품코드 ${'${discoveredGoodsKeys.length}'}건: ${'${discoveredGoodsKeys.join(", ")}'}\`,
+      evidence: {
+        discoveredGoodsKeys,
+        discoveredPairs,
+        goodsKeyCount: discoveredGoodsKeys.length,
+        goodsKeySource: "A6_LIVE_OPTION_BARCODE",
+        matchedRows: resultRows.length,
+        totalResultCount,
+        readOnly: true,
+        checkboxTouched: false,
+        optionStatusTouched: false,
+      },
+    };
+  }
+
+`;
+  const patched = source.slice(0, startIndex) + replacement + source.slice(endIndex);
+  const patchedA6End = patched.indexOf(end, startIndex);
+  const a6Segment = patched.slice(startIndex, patchedA6End);
+  if (/selectOnlyMatchingRows|setCheck\(|clickViaMain\(|일괄\\s*상태변경|targetLabel/.test(a6Segment)) {
+    throw new Error("shopling_stock_a6_readonly_patch_contains_mutation");
+  }
+  if (!a6Segment.includes("checkboxTouched: false") || !a6Segment.includes("discoveredGoodsKeys")) {
+    throw new Error("shopling_stock_a6_readonly_patch_guard_missing");
+  }
+  return patched;
+}
+
 export async function GET(request: Request) {
   const root = path.join(process.cwd(), "public", "shopling-stock-state-sync");
   const canonicalRoot = path.join(process.cwd(), "public", "shopling-a21-price-option-resend");
@@ -101,9 +171,10 @@ export async function GET(request: Request) {
   const policy = await readFile(path.join(root, "search-policy-v023.js"), "utf8");
   const builtWorker = buildStockWorkerV030(template, policy);
   if (!builtWorker.includes('const VERSION = "0.4.2";')) throw new Error("shopling_stock_state_list_worker_version_template_mismatch");
-  const worker = builtWorker
-    .replace('const VERSION = "0.4.2";', 'const VERSION = "0.5.3";')
-    .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV053");
+  const readOnlyWorker = patchA6ReadOnlyResolverV054(builtWorker);
+  const worker = readOnlyWorker
+    .replace('const VERSION = "0.4.2";', 'const VERSION = "0.5.4";')
+    .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV054");
   new Function(worker);
   entries["content-shopling-v030.js"] = strToU8(worker);
 
@@ -141,11 +212,13 @@ export async function GET(request: Request) {
       priceCoreLiteralCopyVerified: true,
       priceCoreCanonical: ["shopling-a21-price-option-resend/content-a21-v024.js", "shopling-a21-price-option-resend/main-a21-v024.js"],
       searchStart: "2013-09-12",
-      mode: "A6_LIVE_BCODE_CONTROL_VALUE_ROWS_THEN_A21_SERIAL_PRICE_CORE_V053",
-      optionLocalMutation: "A6_EXACT_BCODE_ALL_ROWS",
+      mode: "A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_SERIAL_V054",
+      optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY",
       optionGoodsKeySource: "A6_LIVE_OPTION_BARCODE",
       optionGoodsKeyPolicy: "ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED",
       a6RowBinding: "TEXT_CONTENT_PLUS_INPUT_SELECT_VALUES",
+      a6Mutation: "NONE_READ_ONLY_RESOLVER",
+      a6Checkbox: "NOT_TOUCHED",
       a21SearchBinding: "ROW_SCOPED_VERIFIED",
       a21SearchSubmitGuard: "ONE_CLICK_TICKET",
       a21ResultSelection: "EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200",
