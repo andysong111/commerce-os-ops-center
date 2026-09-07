@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/ops-dispatcher",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/legacy-shopling-image-repair",
+      "schedule": "* * * * *"
     }
   ]
 }
