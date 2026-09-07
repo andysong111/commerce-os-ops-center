@@ -4,37 +4,47 @@ import test from "node:test";
 import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v030.mjs";
 const root = "public/shopling-stock-state-sync";
 
-test("v0.5.3 option route is live A6-A21 while single route remains A4-A21 and A22 is absent", async () => {
-  const [overlay, legacy, worker] = await Promise.all([
+test("v0.5.4 option route is A6-readonly -> API -> A21 while single remains A4-A21 and A22 is absent", async () => {
+  const [overlay, legacy, worker, route] = await Promise.all([
     readFile(`${root}/background-v052.js`, "utf8"),
     readFile(`${root}/background-v020.js`, "utf8"),
     readFile(`${root}/content-shopling-v018.js`, "utf8"),
+    readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8"),
   ]);
   assert.match(overlay, /productKind === "OPTION" \? \["A6", "A21_LIST"\]/);
-  assert.match(overlay, /goodsKeySource: "A6_LIVE_OPTION_BARCODE"/);
+  assert.match(overlay, /STOCK_SYNC_APPLY_OPTION_STATUS_V054/);
+  assert.match(overlay, /active\.stage = "A21_LIST"/);
+  assert.match(route, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
+  assert.match(route, /a6Checkbox: "NOT_TOUCHED"/);
   assert.match(legacy, /\["A4", "A21_LIST"\]/);
   assert.doesNotMatch(overlay, /A22/);
   assert.doesNotMatch(worker, /runA22/);
 });
 
-test("A6 exact B-code can bind input values, resolve all goods keys and fan out A21 rows", async () => {
-  const overlay = await readFile(`${root}/background-v052.js`, "utf8");
-  const template = await readFile(`${root}/content-shopling-v018.js`, "utf8");
-  const policy = await readFile(`${root}/search-policy-v023.js`, "utf8");
+test("A6 exact B-code reads control values and goods keys without checkbox or status mutation", async () => {
+  const [overlay, template, policy, route, ops] = await Promise.all([
+    readFile(`${root}/background-v052.js`, "utf8"),
+    readFile(`${root}/content-shopling-v018.js`, "utf8"),
+    readFile(`${root}/search-policy-v023.js`, "utf8"),
+    readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8"),
+    readFile(`${root}/content-ops-v021.js`, "utf8"),
+  ]);
   const worker = buildStockWorkerV030(template, policy);
-  assert.match(overlay, /active\.job\.goodsKeys = discoveredGoodsKeys/);
-  assert.match(overlay, /A6_BCODE_GOODSKEY_NOT_FOUND/);
   assert.match(worker, /rowEvidenceTextV053/);
   assert.match(worker, /values\.push\(control\.value \|\| ""\)/);
-  assert.match(worker, /discoveredGoodsKeys/);
-  assert.match(worker, /A6_RESULT_PAGE_INCOMPLETE/);
-  assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
-  assert.match(worker, /A21_RESULT_OVER_200_BATCH_LIMIT/);
-  assert.match(worker, /setA21PageSize200V042/);
-  assert.match(worker, /batchLimit: 200/);
+  assert.match(route, /patchA6ReadOnlyResolverV054/);
+  assert.match(route, /const resultRows = \[\.\.\.document\.querySelectorAll\("tr"\)\]/);
+  assert.match(route, /checkboxTouched: false/);
+  assert.match(route, /optionStatusTouched: false/);
+  assert.match(route, /shopling_stock_a6_readonly_patch_contains_mutation/);
+  assert.match(overlay, /active\.job\.goodsKeys = discoveredGoodsKeys/);
+  assert.match(overlay, /applyOptionStatusViaOpsV054/);
+  assert.match(ops, /goodsKeys: \[goodsKey\]/);
+  assert.match(route, /A21_EXACT_BATCH_SELECTION_FAILED/);
+  assert.match(route, /A21_RESULT_OVER_200_BATCH_LIMIT/);
 });
 
-test("v0.5.3 preserves the proven price popup core literally and bounded claim race retry", async () => {
+test("v0.5.4 preserves the proven price popup core literally and bounded claim race retry", async () => {
   const [copiedContent, copiedMain, canonicalContent, canonicalMain, adapter, route] = await Promise.all([
     readFile(`${root}/price-core-content-a21-v024.js`, "utf8"),
     readFile(`${root}/price-core-main-a21-v024.js`, "utf8"),
@@ -57,29 +67,35 @@ test("v0.5.3 preserves the proven price popup core literally and bounded claim r
   assert.match(route, /attempt < 16/);
 });
 
-test("legacy server option mutation remains fail-closed but is not v0.5.3 runtime authority", async () => {
-  const [api, ops] = await Promise.all([
+test("server option mutation is reused per discovered goods key and preserves quantity", async () => {
+  const [api, ops, background] = await Promise.all([
     readFile("src/lib/shopling/shoplingOptionStatus.ts", "utf8"),
     readFile(`${root}/content-ops-v021.js`, "utf8"),
+    readFile(`${root}/background-v052.js`, "utf8"),
   ]);
   assert.match(api, /variant\.partnerOptionCode === barcode/);
   assert.match(api, /matches\.length !== 1/);
   assert.match(api, /SHOPLING_OPTION_EXACT_MATCH_REQUIRED/);
   assert.match(api, /after\.optionQuantity !== before\.optionQuantity/);
-  assert.doesNotMatch(ops, /shopling-option-status/);
-  assert.match(ops, /A6_LIVE_GOODSKEY_DISCOVERY/);
+  assert.match(ops, /inventory-stock-control\/shopling-option-status/);
+  assert.match(ops, /goodsKeys: \[goodsKey\]/);
+  assert.match(ops, /matchedGoodsKey !== goodsKey/);
+  assert.match(background, /optionApiApplied = true/);
+  assert.match(background, /optionApiEvidence = apiResult\.results/);
 });
 
-test("ZIP generates v0.5.3 live-A6 package with control-value binding and serial contract", async () => {
+test("ZIP generates v0.5.4 readonly-A6 package with API mutation and serial A21 contract", async () => {
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
-  assert.match(route, /const VERSION = "0\.5\.3"/);
+  assert.match(route, /const VERSION = "0\.5\.4"/);
   assert.match(route, /background-v052\.js/);
   assert.match(route, /content-a21-price-core-v050\.js/);
   assert.match(route, /main-a21-price-core-v050\.js/);
   assert.match(route, /content-stock-result-v050\.js/);
   assert.match(route, /priceCoreLiteralCopyVerified: true/);
-  assert.match(route, /A6_LIVE_BCODE_CONTROL_VALUE_ROWS_THEN_A21_SERIAL_PRICE_CORE_V053/);
-  assert.match(route, /a6RowBinding: "TEXT_CONTENT_PLUS_INPUT_SELECT_VALUES"/);
+  assert.match(route, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_SERIAL_V054/);
+  assert.match(route, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
+  assert.match(route, /a6Checkbox: "NOT_TOUCHED"/);
+  assert.match(route, /optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY"/);
   assert.match(route, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
   assert.match(route, /a21PopupClaimRetry/);
   assert.match(route, /a21BatchLimit: 200/);
