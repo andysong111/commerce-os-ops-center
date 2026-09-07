@@ -1,5 +1,6 @@
 import Link from "next/link";
 import LegacySeoBulkCloudClient from "./LegacySeoBulkCloudClient";
+import LegacySeoBulkOptionSyncEnhancer from "./LegacySeoBulkOptionSyncEnhancer";
 import LegacySeoBulkSelectEnhancer from "./LegacySeoBulkSelectEnhancer";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +70,7 @@ export default function LegacySeoBulkCloudPage() {
         </div>
 
         <LegacySeoBulkSelectEnhancer />
+        <LegacySeoBulkOptionSyncEnhancer />
         <LegacySeoBulkCloudClient />
       </div>
     </main>
