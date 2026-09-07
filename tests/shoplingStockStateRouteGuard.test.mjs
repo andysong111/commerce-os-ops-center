@@ -4,7 +4,7 @@ import test from "node:test";
 import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v030.mjs";
 const root = "public/shopling-stock-state-sync";
 
-test("v0.5.4 option route is A6-readonly -> API -> A21 while single remains A4-A21 and A22 is absent", async () => {
+test("v0.5.5 option route is A6-readonly -> API -> proven A21 while single remains A4-A21 and A22 is absent", async () => {
   const [overlay, legacy, worker, route] = await Promise.all([
     readFile(`${root}/background-v052.js`, "utf8"),
     readFile(`${root}/background-v020.js`, "utf8"),
@@ -16,6 +16,7 @@ test("v0.5.4 option route is A6-readonly -> API -> A21 while single remains A4-A
   assert.match(overlay, /active\.stage = "A21_LIST"/);
   assert.match(route, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
   assert.match(route, /a6Checkbox: "NOT_TOUCHED"/);
+  assert.match(route, /a21ListClick: "PROVEN_PRICE_OPTION_RESEND_DIRECT_NO_VISIBILITY_FILTER"/);
   assert.match(legacy, /\["A4", "A21_LIST"\]/);
   assert.doesNotMatch(overlay, /A22/);
   assert.doesNotMatch(worker, /runA22/);
@@ -42,9 +43,20 @@ test("A6 exact B-code reads control values and goods keys without checkbox or st
   assert.match(ops, /goodsKeys: \[goodsKey\]/);
   assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
   assert.match(worker, /A21_RESULT_OVER_200_BATCH_LIMIT/);
+  assert.match(worker, /resultCountSource = reportedCountAvailable \? "SHOPLING_TOTAL_TEXT" : "EXACT_BOUND_ROWS"/);
 });
 
-test("v0.5.4 preserves the proven price popup core literally and bounded claim race retry", async () => {
+test("v0.5.5 restores the proven A21 list direct click without the visibility-gated helper", async () => {
+  const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
+  assert.match(route, /patchA21ProvenListClickV055/);
+  assert.match(route, /PROVEN_A21_LIST_DIRECT_CLICK/);
+  assert.match(route, /document\.querySelectorAll\('button,input\[type="button"\],input\[type="submit"\],input\[type="image"\],a,\[onclick\]'\)/);
+  assert.match(route, /button\.click\(\)/);
+  assert.match(route, /shopling_stock_a21_proven_list_click_legacy_main_click_present/);
+  assert.match(route, /const provenA21Worker = patchA21ProvenListClickV055\(readOnlyWorker\)/);
+});
+
+test("v0.5.5 preserves the proven price popup core literally and bounded claim race retry", async () => {
   const [copiedContent, copiedMain, canonicalContent, canonicalMain, adapter, route] = await Promise.all([
     readFile(`${root}/price-core-content-a21-v024.js`, "utf8"),
     readFile(`${root}/price-core-main-a21-v024.js`, "utf8"),
@@ -84,19 +96,20 @@ test("server option mutation is reused per discovered goods key and preserves qu
   assert.match(background, /optionApiEvidence = apiResult\.results/);
 });
 
-test("ZIP generates v0.5.4 readonly-A6 package with API mutation and serial A21 contract", async () => {
+test("ZIP generates v0.5.5 readonly-A6 package with proven A21 list click and serial popup contract", async () => {
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
-  assert.match(route, /const VERSION = "0\.5\.4"/);
+  assert.match(route, /const VERSION = "0\.5\.5"/);
   assert.match(route, /background-v052\.js/);
   assert.match(route, /content-a21-price-core-v050\.js/);
   assert.match(route, /main-a21-price-core-v050\.js/);
   assert.match(route, /content-stock-result-v050\.js/);
   assert.match(route, /priceCoreLiteralCopyVerified: true/);
-  assert.match(route, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_SERIAL_V054/);
+  assert.match(route, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_PROVEN_LIST_V055/);
   assert.match(route, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
   assert.match(route, /a6Checkbox: "NOT_TOUCHED"/);
   assert.match(route, /optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY"/);
   assert.match(route, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
+  assert.match(route, /a21ListClick: "PROVEN_PRICE_OPTION_RESEND_DIRECT_NO_VISIBILITY_FILTER"/);
   assert.match(route, /a21PopupClaimRetry/);
   assert.match(route, /a21BatchLimit: 200/);
 });
