@@ -339,8 +339,8 @@ export function InventoryStockControlPanel() {
       .normalize("NFKC")
       .toUpperCase()
       .replace(/\s+/g, "");
-    if (!/^B[A-Z]{2}\d+-\d+$/.test(normalizedBarcode)) {
-      setNotice("B코드를 BAA1-1 형식으로 입력하세요.");
+    if (!/^B[A-Z]{1,2}\d+-\d+$/.test(normalizedBarcode)) {
+      setNotice("B코드를 BZ7341-1 또는 BCC3-2 형식으로 입력하세요.");
       return;
     }
     if (productKind === "SINGLE" && !modelNo.trim()) {
