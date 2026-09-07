@@ -92,7 +92,10 @@ test("explicit operator safe-stop and pre-HF1 marketplace-failure completion are
   assert.match(resolution, /result\.readyState/);
   assert.match(resolution, /result\.failureCount/);
   assert.match(resolution, /result\.explicitFailure/);
-  assert.match(resolution, /retryableOperatorStop \|\| retryableLegacyMarketplaceFailure/);
+  assert.match(
+    resolution,
+    /retryableOperatorStop\s*\|\|\s*retryableLegacyMarketplaceFailure/,
+  );
   assert.match(resolution, /syncBlocked: false/);
   assert.match(stateRoute, /normalizeRetryableShoplingSyncReportWithEvidence\(/);
   assert.match(stateRoute, /overlayInventoryStockControlReportWithTail\(/);
