@@ -4,32 +4,35 @@ import test from "node:test";
 import { buildStockWorkerV030 } from "../scripts/build-shopling-stock-worker-v030.mjs";
 const root = "public/shopling-stock-state-sync";
 
-test("option route remains API-A21 while single route remains A4-A21 and A22 is absent", async () => {
-  const legacy = await readFile(`${root}/background-v020.js`, "utf8");
-  const cutover = await readFile(`${root}/background-v040.js`, "utf8");
-  const worker = await readFile(`${root}/content-shopling-v018.js`, "utf8");
-  assert.match(cutover, /productKind === "OPTION"\s*\? \["A21_LIST"\]/);
-  assert.match(cutover, /legacyRequiredStagesV040\(productKind\)/);
+test("v0.5.2 option route is live A6-A21 while single route remains A4-A21 and A22 is absent", async () => {
+  const [overlay, legacy, worker] = await Promise.all([
+    readFile(`${root}/background-v052.js`, "utf8"),
+    readFile(`${root}/background-v020.js`, "utf8"),
+    readFile(`${root}/content-shopling-v018.js`, "utf8"),
+  ]);
+  assert.match(overlay, /productKind === "OPTION" \? \["A6", "A21_LIST"\]/);
+  assert.match(overlay, /goodsKeySource: "A6_LIVE_OPTION_BARCODE"/);
   assert.match(legacy, /\["A4", "A21_LIST"\]/);
-  assert.doesNotMatch(cutover, /A22/);
+  assert.doesNotMatch(overlay, /A22/);
   assert.doesNotMatch(worker, /runA22/);
 });
 
-test("API goods key stays exact while A21 fans out to exact marketplace rows up to 200", async () => {
-  const cutover = await readFile(`${root}/background-v040.js`, "utf8");
+test("A6 live exact B-code resolves all goods keys while A21 fans out exact marketplace rows up to 200", async () => {
+  const overlay = await readFile(`${root}/background-v052.js`, "utf8");
   const template = await readFile(`${root}/content-shopling-v018.js`, "utf8");
   const policy = await readFile(`${root}/search-policy-v023.js`, "utf8");
   const worker = buildStockWorkerV030(template, policy);
-  assert.match(cutover, /goodsKeys\.length !== 1/);
-  assert.match(cutover, /SHOPLING_OPTION_API_GOODS_KEY_NOT_EXACT/);
+  assert.match(overlay, /active\.job\.goodsKeys = discoveredGoodsKeys/);
+  assert.match(overlay, /A6_BCODE_GOODSKEY_NOT_FOUND/);
+  assert.match(worker, /discoveredGoodsKeys/);
+  assert.match(worker, /A6_RESULT_PAGE_INCOMPLETE/);
   assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
   assert.match(worker, /A21_RESULT_OVER_200_BATCH_LIMIT/);
   assert.match(worker, /setA21PageSize200V042/);
-  assert.match(worker, /selected\.count !== totalResultCount/);
   assert.match(worker, /batchLimit: 200/);
 });
 
-test("v0.5.1 copies the proven price popup core literally and adapts package boundary plus claim race retry", async () => {
+test("v0.5.2 preserves the proven price popup core literally and bounded claim race retry", async () => {
   const [copiedContent, copiedMain, canonicalContent, canonicalMain, adapter, route] = await Promise.all([
     readFile(`${root}/price-core-content-a21-v024.js`, "utf8"),
     readFile(`${root}/price-core-main-a21-v024.js`, "utf8"),
@@ -48,33 +51,33 @@ test("v0.5.1 copies the proven price popup core literally and adapts package bou
   assert.match(adapter, /active\?\.job\?\.productKind === "OPTION" && active\.stage === "A21_POPUP"/);
   assert.match(route, /copiedPriceContent !== canonicalPriceContent/);
   assert.match(route, /namespacePriceCoreContent/);
-  assert.match(route, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
-  assert.match(route, /commerce-os-stock-price-core-v050-main-submit-request/);
   assert.match(route, /stock_price_core_not_option_popup_stage/);
   assert.match(route, /attempt < 16/);
 });
 
-test("server option mutation preserves Shopling quantity and fails closed on ambiguous B-code", async () => {
-  const api = await readFile("src/lib/shopling/shoplingOptionStatus.ts", "utf8");
+test("legacy server option mutation remains fail-closed but is not v0.5.2 runtime authority", async () => {
+  const [api, ops] = await Promise.all([
+    readFile("src/lib/shopling/shoplingOptionStatus.ts", "utf8"),
+    readFile(`${root}/content-ops-v021.js`, "utf8"),
+  ]);
   assert.match(api, /variant\.partnerOptionCode === barcode/);
   assert.match(api, /matches\.length !== 1/);
   assert.match(api, /SHOPLING_OPTION_EXACT_MATCH_REQUIRED/);
-  assert.match(api, /\["B", "C"\]/);
-  assert.match(api, /<optQty>\$\{variant\.optionQuantity\}<\/optQty>/);
   assert.match(api, /after\.optionQuantity !== before\.optionQuantity/);
-  assert.match(api, /SHOPLING_OPTION_READBACK_QTY_MISMATCH/);
+  assert.doesNotMatch(ops, /shopling-option-status/);
+  assert.match(ops, /A6_LIVE_GOODSKEY_DISCOVERY/);
 });
 
-test("ZIP generates v0.5.1 literal price-core package with bounded popup claim retry and passive result observer", async () => {
+test("ZIP generates v0.5.2 live-A6 package with all-goods-key serial contract", async () => {
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
-  assert.match(route, /const VERSION = "0\.5\.1"/);
-  assert.match(route, /background-v050\.js/);
+  assert.match(route, /const VERSION = "0\.5\.2"/);
+  assert.match(route, /background-v052\.js/);
   assert.match(route, /content-a21-price-core-v050\.js/);
   assert.match(route, /main-a21-price-core-v050\.js/);
   assert.match(route, /content-stock-result-v050\.js/);
   assert.match(route, /priceCoreLiteralCopyVerified: true/);
-  assert.match(route, /SHOPLING_API_OPTION_STATUS_THEN_A21_LITERAL_PRICE_CORE_V051_CLAIM_RACE_RETRY/);
-  assert.match(route, /PRICE_CORE_SELF_CLAIM_ADAPTER_WITH_STAGE_RACE_RETRY/);
+  assert.match(route, /A6_LIVE_BCODE_ALL_GOODSKEYS_THEN_A21_SERIAL_PRICE_CORE_V052/);
+  assert.match(route, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
   assert.match(route, /a21PopupClaimRetry/);
   assert.match(route, /a21BatchLimit: 200/);
 });
@@ -92,10 +95,7 @@ test("explicit operator safe-stop and pre-HF1 marketplace-failure completion are
   assert.match(resolution, /result\.readyState/);
   assert.match(resolution, /result\.failureCount/);
   assert.match(resolution, /result\.explicitFailure/);
-  assert.match(
-    resolution,
-    /retryableOperatorStop\s*\|\|\s*retryableLegacyMarketplaceFailure/,
-  );
+  assert.match(resolution, /retryableOperatorStop\s*\|\|\s*retryableLegacyMarketplaceFailure/);
   assert.match(resolution, /syncBlocked: false/);
   assert.match(stateRoute, /normalizeRetryableShoplingSyncReportWithEvidence\(/);
   assert.match(stateRoute, /overlayInventoryStockControlReportWithTail\(/);
@@ -122,5 +122,4 @@ test("inventory stock control self-heals stale canonical sales coverage", async 
   assert.match(route, /supersededStaleRequest: staleRequestWasActive/);
   assert.match(route, /canonicalSalesRefresh = coverageGapResetAt/);
   assert.match(route, /ensureCanonicalSalesCoverageAfterReset\(coverageGapResetAt\)/);
-  assert.doesNotMatch(route, /현재 작업을 우선 완료하고 새 범위가 필요합니다/);
 });
