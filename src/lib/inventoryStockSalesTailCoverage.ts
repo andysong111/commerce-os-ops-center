@@ -6,7 +6,11 @@ import {
 } from "@/lib/inventoryStockSalesTail";
 import { storeInventoryOperation } from "@/lib/inventoryStockControl";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
-import { normalizeShoplingOrder } from "@/lib/shopling/shoplingNormalize";
+import {
+  normalizeShoplingBarcode,
+  normalizeShoplingOrder,
+  type ShoplingRawRow,
+} from "@/lib/shopling/shoplingNormalize";
 import {
   ShoplingReadClient,
   shoplingReadConfigFromEnv,
@@ -20,13 +24,17 @@ const BARCODE_PATTERN = /^B[A-Z]{1,2}\d+-\d+$/;
 const TAIL_CHUNK_DAYS = 7;
 const TAIL_MAX_WINDOW_DAYS = 31;
 const TAIL_REFRESH_AFTER_MS = 2 * 60 * 1000;
+const SHOPLING_KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_UNMAPPED_SAMPLES = 20;
+const EXACT_PREPARATION_LEDGER_STATUSES = new Set(["SUCCEEDED", "PENDING"]);
 
 type UnknownRecord = Record<string, unknown>;
 type Identity = { barcode: string; unitsPerOrder: number };
 type IdentityIndex = {
   byOptionId: Map<string, Identity>;
   byGoodsKey: Map<string, Identity>;
+  byBarcode: Map<string, Identity>;
   knownBarcodes: Set<string>;
 };
 
@@ -47,10 +55,7 @@ function text(value: unknown) {
 }
 
 function barcode(value: unknown) {
-  const normalized = text(value)
-    .toUpperCase()
-    .replace(/[‐‑‒–—−]/g, "-")
-    .replace(/\s+/g, "");
+  const normalized = normalizeShoplingBarcode(value);
   return BARCODE_PATTERN.test(normalized) ? normalized : "";
 }
 
@@ -78,6 +83,49 @@ function validSaleStatus(status: string) {
 
 function truthy(value: unknown) {
   return value === true || text(value).toLowerCase() === "true";
+}
+
+function shoplingCalendarDate(value: string) {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error("SHOPLING_TAIL_DATE_INVALID");
+  return new Date(parsed + SHOPLING_KST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function rawValue(row: ShoplingRawRow, keys: string[]) {
+  for (const key of keys) {
+    const direct = row[key];
+    if (direct !== undefined && direct !== null && direct !== "") {
+      return text(direct);
+    }
+    const match = Object.keys(row).find(
+      (candidate) => candidate.toLowerCase() === key.toLowerCase(),
+    );
+    if (match && row[match] !== undefined && row[match] !== null) {
+      return text(row[match]);
+    }
+  }
+  return "";
+}
+
+function rawOptionManagedCode(row: ShoplingRawRow) {
+  for (const key of ["optBarcode", "opt_barcode", "barcode"]) {
+    const code = barcode(rawValue(row, [key]));
+    if (code) return code;
+  }
+  return "";
+}
+
+function rawPartnerManagedCode(row: ShoplingRawRow) {
+  for (const key of [
+    "ptn_goods_cd",
+    "buying_cd",
+    "mall_ptn_goods_cd",
+    "mall_opt_cd",
+  ]) {
+    const code = barcode(rawValue(row, [key]));
+    if (code) return code;
+  }
+  return "";
 }
 
 function registerUnique(
@@ -108,7 +156,7 @@ async function preparationRows() {
     .from("commerce_operation_runs")
     .select("status,input_snapshot,result_snapshot")
     .eq("operation_type", SHOPLING_STOCK_CANARY_PREPARATION_OPERATION_TYPE)
-    .eq("status", "SUCCEEDED")
+    .in("status", [...EXACT_PREPARATION_LEDGER_STATUSES])
     .order("started_at", { ascending: true })
     .limit(2_000);
   if (result.error) throw new Error(result.error.message);
@@ -116,6 +164,9 @@ async function preparationRows() {
 }
 
 function exactPreparation(row: PreparationRow) {
+  const ledgerStatus = text(row.status).toUpperCase();
+  if (!EXACT_PREPARATION_LEDGER_STATUSES.has(ledgerStatus)) return null;
+
   const input = object(row.input_snapshot);
   const root = object(row.result_snapshot);
   const nested = object(root.snapshot);
@@ -157,8 +208,10 @@ async function buildIdentityIndex() {
   ]);
   const byOptionId = new Map<string, Identity>();
   const byGoodsKey = new Map<string, Identity>();
+  const byBarcode = new Map<string, Identity>();
   const ambiguousOptionIds = new Set<string>();
   const ambiguousGoodsKeys = new Set<string>();
+  const ambiguousBarcodes = new Set<string>();
   const knownBarcodes = new Set<string>();
 
   for (const product of planning.products ?? []) {
@@ -175,6 +228,7 @@ async function buildIdentityIndex() {
       if (optionId || goodsKey) knownBarcodes.add(code);
       registerUnique(byOptionId, ambiguousOptionIds, optionId, identity);
       registerUnique(byGoodsKey, ambiguousGoodsKeys, goodsKey, identity);
+      registerUnique(byBarcode, ambiguousBarcodes, code, identity);
     }
   }
 
@@ -183,6 +237,7 @@ async function buildIdentityIndex() {
     if (!prepared) continue;
     const identity = { barcode: prepared.barcode, unitsPerOrder: 1 };
     knownBarcodes.add(prepared.barcode);
+    registerUnique(byBarcode, ambiguousBarcodes, prepared.barcode, identity);
     for (const optionId of prepared.optionIds) {
       registerUnique(byOptionId, ambiguousOptionIds, optionId, identity);
     }
@@ -191,13 +246,18 @@ async function buildIdentityIndex() {
     }
   }
 
-  return { byOptionId, byGoodsKey, knownBarcodes } satisfies IdentityIndex;
+  return { byOptionId, byGoodsKey, byBarcode, knownBarcodes } satisfies IdentityIndex;
 }
 
 function resolveIdentity(
   index: IdentityIndex,
   order: ReturnType<typeof normalizeShoplingOrder>,
+  raw: ShoplingRawRow,
 ) {
+  const directCode = rawOptionManagedCode(raw) || rawPartnerManagedCode(raw);
+  if (directCode && index.byBarcode.has(directCode)) {
+    return index.byBarcode.get(directCode)!;
+  }
   const optionId = numericKey(order.optionId);
   if (optionId && index.byOptionId.has(optionId)) {
     return index.byOptionId.get(optionId)!;
@@ -206,6 +266,26 @@ function resolveIdentity(
     if (key && index.byGoodsKey.has(key)) return index.byGoodsKey.get(key)!;
   }
   return null;
+}
+
+function potentialTargetManagedOrder(
+  index: IdentityIndex,
+  targetBarcodes: Set<string>,
+  order: ReturnType<typeof normalizeShoplingOrder>,
+  raw: ShoplingRawRow,
+) {
+  const directCode = rawOptionManagedCode(raw) || rawPartnerManagedCode(raw);
+  if (directCode) return targetBarcodes.has(directCode);
+
+  const optionId = numericKey(order.optionId);
+  const optionIdentity = optionId ? index.byOptionId.get(optionId) : null;
+  if (optionIdentity && targetBarcodes.has(optionIdentity.barcode)) return true;
+
+  for (const key of [numericKey(order.productId), numericKey(order.mallProductKey)]) {
+    const identity = key ? index.byGoodsKey.get(key) : null;
+    if (identity && targetBarcodes.has(identity.barcode)) return true;
+  }
+  return false;
 }
 
 function shoplingEnvironment() {
@@ -262,6 +342,7 @@ export async function ensureExactInventoryStockSalesTailCoverage(
       reused: true,
       targetCount: 0,
       unmappedBarcodes: [] as string[],
+      managedUnmappedRows: 0,
       message: "재고 기준점 Tail 판매 범위가 이미 최신입니다.",
     };
   }
@@ -280,16 +361,18 @@ export async function ensureExactInventoryStockSalesTailCoverage(
         reused: false,
         targetCount: 0,
         unmappedBarcodes,
+        managedUnmappedRows: 0,
         message: `TAIL_IDENTITY_REQUIRED:${unmappedBarcodes.join(",")}`,
       };
     }
 
     const oldestResetAt = [...targets]
       .sort((left, right) => left.resetAt.localeCompare(right.resetAt))[0]!.resetAt;
+    const oldestResetMs = Date.parse(oldestResetAt);
     const config = shoplingReadConfigFromEnv(shoplingEnvironment());
     const ranges = splitShoplingDateRange(
-      oldestResetAt.slice(0, 10),
-      nowIso.slice(0, 10),
+      shoplingCalendarDate(oldestResetAt),
+      shoplingCalendarDate(nowIso),
       TAIL_CHUNK_DAYS,
     );
     const client = new ShoplingReadClient(config);
@@ -298,6 +381,7 @@ export async function ensureExactInventoryStockSalesTailCoverage(
       rawRows.push(...(await client.read("orders", range)));
     }
 
+    const targetBarcodes = new Set(targets.map((row) => row.barcode));
     const seen = new Set<string>();
     const resolvedEvents: Array<{
       externalId: string;
@@ -306,14 +390,51 @@ export async function ensureExactInventoryStockSalesTailCoverage(
       quantity: number;
       validSale: boolean;
     }> = [];
+    const managedUnmappedSamples: Array<{
+      orderNo: string;
+      occurredAt: string;
+      optionId: string | null;
+      productId: string | null;
+      mallProductKey: string | null;
+      directCode: string | null;
+    }> = [];
+    let managedUnmappedRows = 0;
+
     for (const raw of rawRows) {
-      const order = normalizeShoplingOrder(raw);
+      const shoplingRaw = raw as ShoplingRawRow;
+      const order = normalizeShoplingOrder(shoplingRaw);
       const occurredAt = iso(order.orderedAt);
       if (!order.id || !order.orderNo || !occurredAt || seen.has(order.id)) continue;
       seen.add(order.id);
-      if (Date.parse(occurredAt) >= nowMs) continue;
-      const identity = resolveIdentity(index, order);
-      if (!identity) continue;
+      const occurredMs = Date.parse(occurredAt);
+      if (
+        !Number.isFinite(occurredMs) ||
+        occurredMs < oldestResetMs ||
+        occurredMs >= nowMs
+      ) {
+        continue;
+      }
+
+      const identity = resolveIdentity(index, order, shoplingRaw);
+      if (!identity) {
+        if (potentialTargetManagedOrder(index, targetBarcodes, order, shoplingRaw)) {
+          managedUnmappedRows += 1;
+          if (managedUnmappedSamples.length < MAX_UNMAPPED_SAMPLES) {
+            managedUnmappedSamples.push({
+              orderNo: order.orderNo,
+              occurredAt,
+              optionId: order.optionId || null,
+              productId: order.productId,
+              mallProductKey: order.mallProductKey,
+              directCode:
+                rawOptionManagedCode(shoplingRaw) ||
+                rawPartnerManagedCode(shoplingRaw) ||
+                null,
+            });
+          }
+        }
+        continue;
+      }
       const orderedQuantity = Math.max(0, Math.round(Number(order.quantity) || 0));
       resolvedEvents.push({
         externalId: order.id,
@@ -322,6 +443,22 @@ export async function ensureExactInventoryStockSalesTailCoverage(
         quantity: orderedQuantity * identity.unitsPerOrder,
         validSale: validSaleStatus(order.status) && orderedQuantity > 0,
       });
+    }
+
+    if (managedUnmappedRows > 0) {
+      return {
+        ok: false as const,
+        refreshed: false,
+        reused: false,
+        targetCount: targets.length,
+        unmappedBarcodes,
+        managedUnmappedRows,
+        managedUnmappedSamples,
+        rangeCount: ranges.length,
+        fetchedRows: rawRows.length,
+        resolvedRows: resolvedEvents.length,
+        message: `TAIL_MANAGED_ORDER_UNMAPPED:${managedUnmappedRows}: 대상 B코드 후보 주문을 정확히 연결하지 못해 Tail 성공 판정을 차단하고 Canonical fallback을 유지합니다.`,
+      };
     }
 
     for (const target of targets) {
@@ -344,7 +481,7 @@ export async function ensureExactInventoryStockSalesTailCoverage(
         analysisAsOf: nowIso,
         coverageStartAt: target.resetAt,
         coverageEndAt: nowIso,
-        planningContentFingerprint: "exact-identity-tail-v1",
+        planningContentFingerprint: "exact-identity-tail-v2-kst-safe",
         fetchedRows: rawRows.length,
         matchedRows: events.length,
         events,
@@ -365,13 +502,14 @@ export async function ensureExactInventoryStockSalesTailCoverage(
       reused: false,
       targetCount: targets.length,
       unmappedBarcodes,
+      managedUnmappedRows: 0,
       rangeCount: ranges.length,
       fetchedRows: rawRows.length,
       resolvedRows: resolvedEvents.length,
       analysisAsOf: nowIso,
       message: unmappedBarcodes.length
-        ? `정확 identity가 있는 ${targets.length}개 기준점의 Tail 판매범위를 확인했습니다. 미연결 ${unmappedBarcodes.length}개는 Canonical fallback을 유지합니다.`
-        : `재고 0 기준점 이후 Tail 판매범위를 ${ranges.length}개 구간으로 확인했습니다.`,
+        ? `정확 identity가 있는 ${targets.length}개 기준점의 KST Tail 판매범위를 확인했습니다. 미연결 ${unmappedBarcodes.length}개는 Canonical fallback을 유지합니다.`
+        : `재고 0 기준점 이후 KST Tail 판매범위를 ${ranges.length}개 구간으로 확인했습니다.`,
     };
   } catch (error) {
     return {
@@ -380,6 +518,7 @@ export async function ensureExactInventoryStockSalesTailCoverage(
       reused: false,
       targetCount: staleTargets.length,
       unmappedBarcodes: [] as string[],
+      managedUnmappedRows: 0,
       message:
         error instanceof Error
           ? error.message

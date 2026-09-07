@@ -47,7 +47,57 @@ test("tail identity accepts both B+one-letter and B+two-letter barcode families 
   );
   assert.match(coverage, /byOptionId/);
   assert.match(coverage, /byGoodsKey/);
+  assert.match(coverage, /byBarcode/);
   assert.match(coverage, /unitsPerOrder/);
   assert.match(coverage, /index\.knownBarcodes\.has\(row\.barcode\)/);
   assert.match(coverage, /unmappedBarcodes/);
+});
+
+test("exact A6 preparation can recover a pending ledger row only with strict one-row evidence", async () => {
+  const coverage = await readFile(
+    "src/lib/inventoryStockSalesTailCoverage.ts",
+    "utf8",
+  );
+  assert.match(
+    coverage,
+    /EXACT_PREPARATION_LEDGER_STATUSES = new Set\(\["SUCCEEDED", "PENDING"\]\)/,
+  );
+  assert.match(coverage, /\.in\("status", \[\.\.\.EXACT_PREPARATION_LEDGER_STATUSES\]\)/);
+  assert.match(coverage, /truthy\(input\.preparationOnly\)/);
+  assert.match(coverage, /A6_UNIQUENESS_CONFIRMED/);
+  assert.match(coverage, /Number\(output\.a6SearchResultCount\) === 1/);
+  assert.match(coverage, /EXACT_ONE_ROW_CONFIRMED/);
+  assert.match(coverage, /if \(!optionIds\.length && !goodsKeys\.length\) return null/);
+});
+
+test("Shopling tail fetch uses KST calendar dates instead of UTC date slices", async () => {
+  const coverage = await readFile(
+    "src/lib/inventoryStockSalesTailCoverage.ts",
+    "utf8",
+  );
+  assert.match(coverage, /SHOPLING_KST_OFFSET_MS = 9 \* 60 \* 60 \* 1000/);
+  assert.match(
+    coverage,
+    /new Date\(parsed \+ SHOPLING_KST_OFFSET_MS\)\.toISOString\(\)\.slice\(0, 10\)/,
+  );
+  assert.match(coverage, /shoplingCalendarDate\(oldestResetAt\)/);
+  assert.match(coverage, /shoplingCalendarDate\(nowIso\)/);
+  assert.doesNotMatch(coverage, /nowIso\.slice\(0, 10\)/);
+});
+
+test("tail refuses success when a target managed Shopling order cannot be mapped", async () => {
+  const coverage = await readFile(
+    "src/lib/inventoryStockSalesTailCoverage.ts",
+    "utf8",
+  );
+  assert.match(coverage, /ptn_goods_cd/);
+  assert.match(coverage, /buying_cd/);
+  assert.match(coverage, /mall_ptn_goods_cd/);
+  assert.match(coverage, /mall_opt_cd/);
+  assert.match(coverage, /potentialTargetManagedOrder/);
+  assert.match(coverage, /managedUnmappedRows \+= 1/);
+  assert.match(coverage, /if \(managedUnmappedRows > 0\)/);
+  assert.match(coverage, /TAIL_MANAGED_ORDER_UNMAPPED/);
+  assert.match(coverage, /refreshed: false/);
+  assert.match(coverage, /exact-identity-tail-v2-kst-safe/);
 });
