@@ -25,6 +25,24 @@ const MAX_EVIDENCE_OPTIONS = 60;
 
 type UnknownRecord = Record<string, unknown>;
 
+export type LegacySeoShoplingOption = {
+  optionName: string;
+  optionId: string;
+  bCode: string;
+  optionBarcode: string;
+  status: string;
+  quantity: string;
+  amount: string;
+};
+
+export type LegacySeoShoplingOptionGroup = {
+  goodsKey: string;
+  ptnGoodsCd: string;
+  productName: string;
+  saleStatus: string;
+  options: LegacySeoShoplingOption[];
+};
+
 export type LegacySeoShoplingEvidence = {
   modelNumber: string;
   goodsKeys: string[];
@@ -32,6 +50,7 @@ export type LegacySeoShoplingEvidence = {
   searchKeywords: string[];
   categories: string[];
   optionNames: string[];
+  optionGroups: LegacySeoShoplingOptionGroup[];
   fetchedRowCount: number;
   source: "shopling_live_api";
 };
@@ -172,6 +191,35 @@ function goodsKeysByModelFromPlanning(
   return result;
 }
 
+function optionGroupsFromRows(
+  goodsKeys: string[],
+  rowsByGoodsKey: Map<string, UnknownRecord[]>,
+): LegacySeoShoplingOptionGroup[] {
+  return goodsKeys
+    .map((goodsKey) => {
+      const rows = rowsByGoodsKey.get(goodsKey) ?? [];
+      if (!rows.length) return null;
+      const first = rows[0] ?? {};
+      const options = rows.map((row) => ({
+        optionName: scalar(row.optionName) || "단품",
+        optionId: scalar(row.optId),
+        bCode: scalar(row.optPtnOptCd),
+        optionBarcode: scalar(row.optBarcode),
+        status: scalar(row.optStatus),
+        quantity: scalar(row.optQty),
+        amount: scalar(row.optAmt),
+      }));
+      return {
+        goodsKey,
+        ptnGoodsCd: scalar(first.ptn_goods_cd),
+        productName: scalar(first.prod_nm),
+        saleStatus: scalar(first.sale_status),
+        options,
+      } satisfies LegacySeoShoplingOptionGroup;
+    })
+    .filter((value): value is LegacySeoShoplingOptionGroup => Boolean(value));
+}
+
 export async function loadLegacySeoShoplingEvidence(
   modelNumbers: string[],
 ): Promise<Map<string, LegacySeoShoplingEvidence>> {
@@ -214,7 +262,8 @@ export async function loadLegacySeoShoplingEvidence(
       modelRows.map((row) => row.optionName),
       MAX_EVIDENCE_OPTIONS,
     );
-    if (!titles.length && !searchKeywords.length) continue;
+    const optionGroups = optionGroupsFromRows(goodsKeys, rowsByGoodsKey);
+    if (!titles.length && !searchKeywords.length && !optionGroups.length) continue;
     result.set(model, {
       modelNumber: model,
       goodsKeys,
@@ -222,6 +271,7 @@ export async function loadLegacySeoShoplingEvidence(
       searchKeywords,
       categories,
       optionNames,
+      optionGroups,
       fetchedRowCount: modelRows.length,
       source: "shopling_live_api",
     });
