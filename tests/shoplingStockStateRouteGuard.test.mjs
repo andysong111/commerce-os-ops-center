@@ -79,13 +79,20 @@ test("ZIP generates v0.5.1 literal price-core package with bounded popup claim r
   assert.match(route, /a21BatchLimit: 200/);
 });
 
-test("explicit operator safe-stop is retryable without weakening other UNCERTAIN blocks", async () => {
+test("explicit operator safe-stop and pre-HF1 marketplace-failure completion are retryable without weakening other UNCERTAIN blocks", async () => {
   const resolution = await readFile("src/lib/inventoryStockSyncResolution.ts", "utf8");
   const stateRoute = await readFile("src/app/api/inventory-stock-control/route.ts", "utf8");
   const syncRoute = await readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8");
   assert.match(resolution, /STOCK_SYNC_OPERATOR_STOPPED/);
   assert.match(resolution, /outcome === "UNCERTAIN"/);
   assert.match(resolution, /code === OPERATOR_STOP_CODE/);
+  assert.match(resolution, /legacyMarketplaceFailureCompletionEvidence/);
+  assert.match(resolution, /result\.optionComplete/);
+  assert.match(resolution, /result\.productComplete/);
+  assert.match(resolution, /result\.readyState/);
+  assert.match(resolution, /result\.failureCount/);
+  assert.match(resolution, /result\.explicitFailure/);
+  assert.match(resolution, /retryableOperatorStop \|\| retryableLegacyMarketplaceFailure/);
   assert.match(resolution, /syncBlocked: false/);
   assert.match(stateRoute, /await normalizeRetryableShoplingSyncReportWithEvidence/);
   assert.match(syncRoute, /return normalizeRetryableShoplingSyncReportWithEvidence/);
