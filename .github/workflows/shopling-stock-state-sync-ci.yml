@@ -10,11 +10,13 @@ on:
       - "src/app/api/inventory-stock-control/route.ts"
       - "src/lib/inventoryStockSalesTail.ts"
       - "src/lib/inventoryStockSalesTailCoverage.ts"
+      - "src/lib/inventoryStockSyncResolution.ts"
       - "src/app/china-order-manager/stock-control/**"
       - "tests/shoplingStockStateRouteGuard.test.mjs"
       - "tests/shoplingStockStateExtension.test.mjs"
       - "tests/shoplingStockStateSyncV041.test.mjs"
       - "tests/inventoryStockSalesTail.test.mjs"
+      - "tests/inventoryStockSyncTimeoutRetry.test.mjs"
       - ".github/workflows/shopling-stock-state-sync-ci.yml"
   workflow_dispatch:
 
@@ -50,3 +52,4 @@ jobs:
           tests/shoplingStockStateExtension.test.mjs
           tests/shoplingStockStateSyncV041.test.mjs
           tests/inventoryStockSalesTail.test.mjs
+          tests/inventoryStockSyncTimeoutRetry.test.mjs
