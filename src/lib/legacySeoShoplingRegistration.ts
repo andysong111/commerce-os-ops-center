@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { reconcileProductLaunchNormalizedAfterLegacyItems } from "@/lib/productLaunchTrackerNormalizedLegacyReconcile";
+import { readProductLaunchNormalizedItem } from "@/lib/productLaunchTrackerNormalizedStore";
 import { recoverProductLaunchOrderOptionsFromSuccessfulUpload } from "@/lib/productLaunchShoplingHistoricalOptionRecovery";
 import { buildProductLaunchShoplingPayload } from "@/lib/productLaunchTrackerShopling";
 import {
@@ -45,6 +46,19 @@ function itemGoodsKeys(item: UnknownRecord) {
   return Object.values(record(item.shoplingProducts))
     .map((value) => text(record(value).goodsKey))
     .filter(Boolean);
+}
+
+function hasSyncedLegacyOptions(item: UnknownRecord) {
+  return (
+    text(record(item.shoplingOptionSync).source) === "shopling_live_grouped_option_sync" ||
+    array(item.orderOptions)
+      .map(record)
+      .some(
+        (option) =>
+          text(record(option.shoplingOptionSync).source) ===
+          "shopling_live_grouped_option_sync",
+      )
+  );
 }
 
 function nextSelfCode() {
@@ -175,6 +189,25 @@ export async function startLegacySeoShoplingRegistration(
     const now = new Date().toISOString();
     const previousItem = { ...items[itemIndex] };
     let item = { ...previousItem };
+
+    const normalizedItem = record(
+      await readProductLaunchNormalizedItem(
+        context.config,
+        context.identity.userId,
+        run.launch_item_id,
+      ),
+    );
+    if (hasSyncedLegacyOptions(normalizedItem) && array(normalizedItem.orderOptions).length) {
+      const normalizedOptions = array(normalizedItem.orderOptions).map(record);
+      const normalizedLabels = normalizedOptions
+        .map((option) => text(option.saleOption ?? option.value))
+        .filter(Boolean);
+      item.orderOptions = normalizedOptions;
+      item.optionLabels = normalizedLabels;
+      item.options = normalizedLabels;
+      item.shoplingOptionSync = normalizedItem.shoplingOptionSync;
+    }
+
     const existingGoods = itemGoodsKeys(item);
     const previousHistory = array(item.shoplingRegistrationHistory).map(record);
     const newSelfCodeBase = nextSelfCode();
@@ -333,7 +366,9 @@ export async function refreshLegacySeoRegistrationStatuses(
     if (nextStatus === run.registration_status) continue;
     const error =
       nextStatus === "failed"
-        ? text(job.error_message) || text(record(job.result).error_message) || `Shopling 등록 ${status}`
+        ? text(job.error_message) ||
+          text(record(job.result).error_message) ||
+          `Shopling 등록 ${status}`
         : "";
     await patchOwnedLegacySeoRunJobs(context, [run.run_id], {
       registration_status: nextStatus,
