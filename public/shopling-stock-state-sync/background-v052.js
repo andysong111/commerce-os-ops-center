@@ -262,3 +262,59 @@ importScripts("background-v050.js");
     return { ok: true, active: await loadActive() };
   };
 })();
+
+// HF7 self-heal: an extension reload can preserve a RUNNING A21_POPUP state even
+// when no real Shopling modify-send popup exists. After a short grace period,
+// return that stale job to A21_LIST so the direct row-checkbox step can actually run.
+(() => {
+  const POPUP_MATCH_V057 = "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*";
+  let recoveryInFlightV057 = false;
+
+  async function recoverStalePopupV057(trigger) {
+    if (recoveryInFlightV057) return false;
+    recoveryInFlightV057 = true;
+    try {
+      const active = await loadActive();
+      if (!active || active.status !== "RUNNING" || active.job?.productKind !== "OPTION" || active.stage !== "A21_POPUP") return false;
+      const ageMs = Date.now() - Number(active.stageStartedAt || active.updatedAt || active.startedAt || 0);
+      if (ageMs < 5_000) return false;
+      const popupTabs = await chrome.tabs.query({ url: POPUP_MATCH_V057 }).catch(() => []);
+      if (popupTabs.some((tab) => Number.isInteger(tab?.id))) return false;
+      const goodsKey = currentGoodsKey(active);
+      active.stage = "A21_LIST";
+      active.stageStartedAt = Date.now();
+      active.attempts = {};
+      active.shoplingTabId = active.workTabs?.A21_LIST?.tabId || null;
+      active.shoplingFrameId = active.workTabs?.A21_LIST?.frameId || null;
+      await saveActive(active);
+      await chrome.alarms.create(ALARM_NAME, { delayInMinutes: 0.5, periodInMinutes: 0.5 }).catch(() => null);
+      await progress(active, `${active.job.barcode} · 실제 A21 수정전송 팝업이 없어 오래된 팝업 대기상태를 자동복구 · goods key ${goodsKey || "미확인"} 개별행 체크부터 재실행`, {
+        code: "A21_STALE_POPUP_WAIT_RECOVERED",
+        trigger,
+        staleAgeMs: ageMs,
+        goodsKey,
+        recoveryStage: "A21_LIST",
+      });
+      await sleep(180);
+      const dispatched = await dispatchCurrent(active, { focus: true });
+      if (!dispatched) {
+        await progress(active, `${active.job.barcode} · stale 팝업 대기는 해제했지만 A21 작업창 재연결을 기다립니다.`, {
+          code: "A21_STALE_RECOVERY_DISPATCH_WAIT",
+          trigger,
+          goodsKey,
+        });
+      }
+      return dispatched;
+    } finally {
+      recoveryInFlightV057 = false;
+    }
+  }
+
+  chrome.runtime.onInstalled.addListener(() => {
+    setTimeout(() => void recoverStalePopupV057("onInstalled"), 1200);
+  });
+  chrome.runtime.onStartup.addListener(() => {
+    setTimeout(() => void recoverStalePopupV057("onStartup"), 1200);
+  });
+  setTimeout(() => void recoverStalePopupV057("serviceWorkerStart"), 1500);
+})();
