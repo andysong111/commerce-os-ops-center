@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { mergeLegacySeoPlanningCandidates } from "@/lib/legacySeoPlanningBootstrap";
 import { readProductLaunchStorageJson } from "@/lib/productLaunchTrackerServer";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
@@ -114,7 +115,6 @@ async function listLegacyItems(
       "exclusion_policy:item_payload->legacySeoRegistrationPolicy",
     ].join(","),
     owner_id: `eq.${ownerId}`,
-    shopling_upload_status: "eq.완료",
     archived_at: "is.null",
     order: "tracker_row_number.asc",
     limit: String(ITEM_LIMIT),
@@ -126,7 +126,10 @@ async function listLegacyItems(
       cache: "no-store",
     },
   );
-  return (Array.isArray(body) ? body : [])
+  const merged = await mergeLegacySeoPlanningCandidates(
+    (Array.isArray(body) ? body : []).map(record),
+  );
+  return merged
     .map(record)
     .filter((row) => !isExcluded(row.exclusion_policy))
     .map((row) => ({
@@ -136,8 +139,8 @@ async function listLegacyItems(
       modelNumber: text(row.model_number),
       productName: text(row.product_name),
       shoplingCategory: text(row.shopling_category),
-      shoplingUploadStatus: text(row.shopling_upload_status),
-      overallStatus: text(row.overall_status),
+      shoplingUploadStatus: text(row.shopling_upload_status) || "완료",
+      overallStatus: text(row.overall_status) || "완료",
       optionLabels: list(row.option_labels, 50),
       updatedAt: text(row.updated_at),
     }));
