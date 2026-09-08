@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 const API = "/api/legacy-seo-run-jobs";
+const PREFLIGHT_API = "/api/legacy-seo-preflight";
 const CHUNK_SIZE = 50;
 const CUSTOM_BLOCKED_STORAGE_KEY =
   "keywordEngineElonLab.step4.customBlockedTerms.v1";
@@ -18,6 +19,14 @@ type LegacyItem = {
 type Job = {
   launch_item_id?: unknown;
   status?: unknown;
+};
+
+type PreflightItem = {
+  itemId?: unknown;
+  modelNumber?: unknown;
+  ready?: unknown;
+  excluded?: unknown;
+  issues?: unknown;
 };
 
 function record(value: unknown): UnknownRecord {
@@ -65,6 +74,21 @@ async function readBody(response: Response) {
   }
 }
 
+function chunksOf(ids: string[]) {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += CHUNK_SIZE) {
+    chunks.push(ids.slice(index, index + CHUNK_SIZE));
+  }
+  return chunks;
+}
+
+function preflightIssueSummary(value: unknown) {
+  const row = record(value);
+  const issues = Array.isArray(row.issues) ? row.issues.map(record) : [];
+  const first = issues[0];
+  return text(first?.message) || "사전점검 미통과";
+}
+
 async function loadTargets() {
   const response = await fetch(API, {
     headers: { Accept: "application/json" },
@@ -91,6 +115,55 @@ async function loadTargets() {
   return {
     candidateCount: allIds.length,
     targetIds: allIds.filter((id) => !blocked.has(id)),
+  };
+}
+
+async function preflightAll(
+  ids: string[],
+  onProgress: (message: string) => void,
+) {
+  const chunks = chunksOf(ids);
+  const readyIds: string[] = [];
+  const excluded: PreflightItem[] = [];
+  const failed: PreflightItem[] = [];
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    onProgress(
+      `전체 사전점검 ${index + 1}/${chunks.length} · 옵션/B코드·중국주문 원가/판매가·이미지 확인 중`,
+    );
+    const response = await fetch(PREFLIGHT_API, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      credentials: "same-origin",
+      cache: "no-store",
+      body: JSON.stringify({ itemIds: chunks[index] }),
+    });
+    const body = await readBody(response);
+    if (!response.ok && response.status !== 422) {
+      throw new Error(text(body.message) || `사전점검 HTTP ${response.status}`);
+    }
+    const results = (Array.isArray(body.results) ? body.results : []).map(
+      (value) => record(value) as PreflightItem,
+    );
+    for (const result of results) {
+      const itemId = text(result.itemId);
+      if (result.ready === true && itemId) {
+        readyIds.push(itemId);
+      } else if (result.excluded === true) {
+        excluded.push(result);
+      } else {
+        failed.push(result);
+      }
+    }
+  }
+
+  return {
+    readyIds: [...new Set(readyIds)],
+    excluded,
+    failed,
   };
 }
 
@@ -129,10 +202,6 @@ export default function LegacySeoBulkRunAllEnhancer() {
     syncDom();
     void refresh();
 
-    // Do not observe and mutate the entire document. The previous enhancer rewrote
-    // section text from inside a MutationObserver callback, which could trigger
-    // itself continuously and starve React hydration. A light timer is enough to
-    // discover the action container after the main list has rendered.
     const domTimer = window.setInterval(syncDom, 1_000);
     const refreshTimer = window.setInterval(() => {
       if (!busy) void refresh();
@@ -165,15 +234,37 @@ export default function LegacySeoBulkRunAllEnhancer() {
               setStatus("미실행 상품이 없습니다.");
               return;
             }
-            const chunks: string[][] = [];
-            for (let index = 0; index < ids.length; index += CHUNK_SIZE) {
-              chunks.push(ids.slice(index, index + CHUNK_SIZE));
+
+            // Phase 1: validate the entire candidate set before any RUN job is
+            // inserted. This prevents the old failure mode where batch 1 was
+            // already queued before a later 50-item batch discovered bad data.
+            const preflight = await preflightAll(ids, setStatus);
+            if (preflight.failed.length) {
+              const summary = preflight.failed
+                .slice(0, 8)
+                .map((result) =>
+                  `${text(result.modelNumber) || text(result.itemId)}: ${preflightIssueSummary(result)}`,
+                )
+                .join(" · ");
+              throw new Error(
+                `전체 SEO RUN 중단 · 사전점검 ${preflight.failed.length}개 미통과${summary ? ` · ${summary}` : ""}`,
+              );
             }
-            let inserted = 0;
-            let skipped = 0;
-            for (let index = 0; index < chunks.length; index += 1) {
+            if (!preflight.readyIds.length) {
               setStatus(
-                `일괄 RUN ${index + 1}/${chunks.length} 배치 처리 중 · 시작 ${inserted}건 · 제외 ${skipped}건`,
+                `실행 가능한 상품이 없습니다.${preflight.excluded.length ? ` · 단종/적용제외 ${preflight.excluded.length}개` : ""}`,
+              );
+              return;
+            }
+
+            // Phase 2: only the already-green item ids are enqueued. The server
+            // insert path runs the hard preflight gate again as the final defense.
+            const runChunks = chunksOf(preflight.readyIds);
+            let inserted = 0;
+            let skipped = preflight.excluded.length;
+            for (let index = 0; index < runChunks.length; index += 1) {
+              setStatus(
+                `사전점검 통과 · SEO RUN ${index + 1}/${runChunks.length} 배치 처리 중 · 시작 ${inserted}건 · 제외 ${skipped}건`,
               );
               const response = await fetch(API, {
                 method: "POST",
@@ -185,21 +276,21 @@ export default function LegacySeoBulkRunAllEnhancer() {
                 cache: "no-store",
                 body: JSON.stringify({
                   action: "enqueue",
-                  itemIds: chunks[index],
+                  itemIds: runChunks[index],
                   bulkMode: true,
                   customBlockedTerms: readCustomBlockedTerms(),
                 }),
               });
               const body = await readBody(response);
               const missing = Array.isArray(body.missing) ? body.missing : [];
-              if (!response.ok && response.status !== 422) {
+              if (!response.ok) {
                 throw new Error(text(body.message) || `HTTP ${response.status}`);
               }
               inserted += Math.max(0, Number(body.insertedCount) || 0);
               skipped += missing.length;
             }
             setStatus(
-              `전체 SEO RUN 요청 완료 · 시작 ${inserted}건${skipped ? ` · 제외/기존 RUN ${skipped}건` : ""}`,
+              `전체 SEO RUN 요청 완료 · 시작 ${inserted}건${skipped ? ` · 단종/제외/기존 RUN ${skipped}건` : ""}`,
             );
             const refreshed = await loadTargets();
             setCandidateCount(refreshed.candidateCount);
@@ -214,18 +305,18 @@ export default function LegacySeoBulkRunAllEnhancer() {
           }
         }}
         className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 font-semibold text-violet-800 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
-        title="Shopling 등록완료 전체 후보 중 아직 RUN이 없는 상품을 50개씩 안전하게 나누어 SEO RUN을 시작합니다."
+        title="전체 후보를 먼저 사전점검하고 모든 활성 상품이 통과한 경우에만 50개씩 SEO RUN을 시작합니다."
       >
         {busy
-          ? "전체 SEO RUN 처리 중…"
-          : `전체 미실행 ${targetIds.length}개 SEO RUN`}
+          ? "전체 사전점검/SEO RUN 처리 중…"
+          : `전체 미실행 ${targetIds.length}개 사전점검 후 SEO RUN`}
       </button>
       <span className="self-center text-xs text-slate-500" title="전체 Shopling 등록완료 후보 수">
         전체후보 {candidateCount}개
       </span>
       {(status || error) && (
         <span
-          className={`self-center max-w-[460px] text-xs font-semibold ${
+          className={`self-center max-w-[680px] text-xs font-semibold ${
             error ? "text-rose-700" : "text-violet-700"
           }`}
         >

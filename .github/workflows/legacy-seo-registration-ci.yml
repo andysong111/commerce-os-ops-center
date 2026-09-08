@@ -9,11 +9,17 @@ on:
       - 'src/lib/legacySeoStockRecovery.ts'
       - 'src/lib/legacySeoShoplingEvidence.ts'
       - 'src/lib/legacySeoShoplingOptionSync.ts'
+      - 'src/lib/legacySeoShoplingAssetRecovery.ts'
+      - 'src/lib/legacySeoCanonicalPrice.ts'
+      - 'src/lib/legacySeoDuplicateModelGuard.ts'
+      - 'src/lib/legacySeoPreflight.ts'
       - 'src/lib/legacySeoShoplingPayload.ts'
       - 'src/lib/legacySeoShoplingPriceMath.ts'
       - 'src/lib/legacySeoShoplingPriceRecovery.ts'
       - 'src/lib/legacySeoShoplingRegistration.ts'
+      - 'src/app/api/cron/legacy-shopling-image-repair/route.ts'
       - 'src/app/api/legacy-seo-source-recovery/route.ts'
+      - 'src/app/api/legacy-seo-preflight/route.ts'
       - 'src/app/api/legacy-seo-run-jobs/route.ts'
       - 'src/app/api/legacy-seo-run-jobs-lite/route.ts'
       - 'src/app/legacy-seo-bulk-cloud/LegacySeoSourceRecoveryEnhancer.tsx'
@@ -22,6 +28,7 @@ on:
       - 'src/app/legacy-seo-bulk-cloud/page.tsx'
       - 'tests/legacySeoRegistrationPolicy.test.mjs'
       - 'tests/legacySeoShoplingOptionSyncSafety.test.mjs'
+      - 'tests/legacySeoShoplingEvidenceStaleFallback.test.mjs'
       - 'tests/legacySeoBulkRunAll.test.mjs'
       - 'tests/legacySeoBulkLoading.test.mjs'
       - 'tests/legacySeoStockRecovery.test.mjs'
@@ -48,6 +55,7 @@ jobs:
           node --experimental-strip-types --test
           tests/legacySeoRegistrationPolicy.test.mjs
           tests/legacySeoShoplingOptionSyncSafety.test.mjs
+          tests/legacySeoShoplingEvidenceStaleFallback.test.mjs
           tests/legacySeoBulkRunAll.test.mjs
           tests/legacySeoBulkLoading.test.mjs
           tests/legacySeoStockRecovery.test.mjs

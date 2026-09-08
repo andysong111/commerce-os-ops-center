@@ -1,3 +1,4 @@
+import { prepareLegacySeoPreflight } from "@/lib/legacySeoPreflight";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   readProductLaunchError,
@@ -97,6 +98,30 @@ export async function insertLegacySeoRunJobs(
   rows: SeoRunJobInsert[],
 ) {
   if (!rows.length) return [];
+
+  // RUN 생성은 되돌리기 쉬운 SEO 작업처럼 보이지만, 이후 자동 등록까지 이어지는
+  // 시작점이다. 따라서 Shopling 현재 옵션/B코드, 중국주문 최종확정 원가·판매가,
+  // 상세/대표/부가이미지가 모두 검증되기 전에는 DB 큐 자체에 넣지 않는다.
+  const itemIds = [...new Set(rows.map((row) => text(row.launch_item_id)).filter(Boolean))];
+  const preflight = await prepareLegacySeoPreflight({
+    config: context.config,
+    identity: context.identity,
+    itemIds,
+  });
+  const blocked = preflight.results.filter((result) => !result.ready);
+  if (blocked.length) {
+    const summary = blocked
+      .slice(0, 20)
+      .map((result) => {
+        const issue = result.issues[0]?.message || "사전점검 미통과";
+        return `${result.modelNumber || result.itemId}:${issue}`;
+      })
+      .join(", ");
+    throw new Error(
+      `LEGACY_SEO_PREFLIGHT_BLOCKED:${blocked.length}개 상품 미통과${summary ? ` · ${summary}` : ""}`,
+    );
+  }
+
   const payload = rows.map((row) => ({
     ...row,
     owner_id: context.identity.userId,

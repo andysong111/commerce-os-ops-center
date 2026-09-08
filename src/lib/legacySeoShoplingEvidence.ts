@@ -339,6 +339,65 @@ function mergeDiscoveredGoodsKeys(
   return mapping;
 }
 
+function rowMatchesModel(row: UnknownRecord, model: string) {
+  const rowModel = normalizeModel(row.model_no);
+  return !rowModel || rowModel === model;
+}
+
+function modelRowsFromMapping(
+  model: string,
+  mapping: Map<string, Set<string>>,
+  rowsByGoodsKey: Map<string, UnknownRecord[]>,
+) {
+  const goodsKeys = unique(
+    [...(mapping.get(model) ?? [])].map(normalizeGoodsKey),
+    MAX_GOODS_KEYS_PER_MODEL,
+  );
+  return goodsKeys.flatMap((goodsKey) =>
+    (rowsByGoodsKey.get(goodsKey) ?? []).filter((row) => rowMatchesModel(row, model)),
+  );
+}
+
+function hasActiveManagedOption(
+  model: string,
+  mapping: Map<string, Set<string>>,
+  rowsByGoodsKey: Map<string, UnknownRecord[]>,
+) {
+  return modelRowsFromMapping(model, mapping, rowsByGoodsKey).some(
+    (row) =>
+      scalar(row.optStatus).toUpperCase() !== "X" &&
+      Boolean(scalar(row.optPtnOptCd)),
+  );
+}
+
+function addRowsByGoodsKey(
+  rowsByGoodsKey: Map<string, UnknownRecord[]>,
+  rows: UnknownRecord[],
+) {
+  for (const row of rows) {
+    const goodsKey = normalizeGoodsKey(row.goods_key);
+    if (!goodsKey) continue;
+    const current = rowsByGoodsKey.get(goodsKey) ?? [];
+    current.push(row);
+    rowsByGoodsKey.set(goodsKey, current);
+  }
+}
+
+function compatibleGoodsKeys(
+  model: string,
+  mapping: Map<string, Set<string>>,
+  rowsByGoodsKey: Map<string, UnknownRecord[]>,
+) {
+  return unique(
+    [...(mapping.get(model) ?? [])]
+      .map(normalizeGoodsKey)
+      .filter((goodsKey) =>
+        (rowsByGoodsKey.get(goodsKey) ?? []).some((row) => rowMatchesModel(row, model)),
+      ),
+    MAX_GOODS_KEYS_PER_MODEL,
+  );
+}
+
 function optionGroupsFromRows(
   goodsKeys: string[],
   rowsByGoodsKey: Map<string, UnknownRecord[]>,
@@ -393,39 +452,63 @@ export async function loadLegacySeoShoplingEvidence(
     goodsKeyOverrides,
   );
 
-  const discoveryModels = requestedModels.filter(
+  const initialDiscoveryModels = requestedModels.filter(
     (model) =>
       isConfirmedLegacyInventoryModel(model) &&
       (mapping.get(model)?.size ?? 0) === 0,
   );
-  if (discoveryModels.length) {
-    const discovered = await discoverGoodsKeysByModel(config, discoveryModels);
+  if (initialDiscoveryModels.length) {
+    const discovered = await discoverGoodsKeysByModel(config, initialDiscoveryModels);
     mergeDiscoveredGoodsKeys(mapping, discovered);
   }
 
-  const requestedGoodsKeys = unique(
+  const initialGoodsKeys = unique(
     requestedModels.flatMap((model) => [...(mapping.get(model) ?? [])]),
     2500,
   );
-  if (!requestedGoodsKeys.length) return new Map();
-
-  const rows = await fetchExactShoplingProducts(config, requestedGoodsKeys);
+  const initialRows = initialGoodsKeys.length
+    ? await fetchExactShoplingProducts(config, initialGoodsKeys)
+    : [];
   const rowsByGoodsKey = new Map<string, UnknownRecord[]>();
-  for (const row of rows) {
-    const goodsKey = normalizeGoodsKey(row.goods_key);
-    if (!goodsKey) continue;
-    const current = rowsByGoodsKey.get(goodsKey) ?? [];
-    current.push(row);
-    rowsByGoodsKey.set(goodsKey, current);
+  addRowsByGoodsKey(rowsByGoodsKey, initialRows);
+
+  // A stored goods_key is only a hint. Legacy tracker rows can contain many stale
+  // Shopling keys from older channel registrations. If those keys no longer yield
+  // a current option carrying a managed B-code, rediscover by model_no even though
+  // a mapping already exists. This is the AAA116 class of failure: 49 historical
+  // goods keys existed, so the old code never ran model discovery and preserved an
+  // empty option list forever.
+  const staleMappedModels = requestedModels.filter(
+    (model) =>
+      isConfirmedLegacyInventoryModel(model) &&
+      !hasActiveManagedOption(model, mapping, rowsByGoodsKey),
+  );
+  if (staleMappedModels.length) {
+    const discovered = await discoverGoodsKeysByModel(config, staleMappedModels);
+    const alreadyFetched = new Set(initialGoodsKeys);
+    const rediscoveredGoodsKeys = unique(
+      [...discovered.values()].flatMap((keys) => [...keys]),
+      2500,
+    ).filter((goodsKey) => !alreadyFetched.has(goodsKey));
+    mergeDiscoveredGoodsKeys(mapping, discovered);
+    if (rediscoveredGoodsKeys.length) {
+      const rediscoveredRows = await fetchExactShoplingProducts(
+        config,
+        rediscoveredGoodsKeys,
+      );
+      addRowsByGoodsKey(rowsByGoodsKey, rediscoveredRows);
+    }
   }
 
   const result = new Map<string, LegacySeoShoplingEvidence>();
   for (const model of requestedModels) {
-    const goodsKeys = unique(
-      [...(mapping.get(model) ?? [])].map(normalizeGoodsKey),
-      MAX_GOODS_KEYS_PER_MODEL,
+    // Reject stale goods keys that resolve to a different model number. Historical
+    // tracker source metadata is intentionally broad; Shopling's current model_no
+    // is the identity check for option parity.
+    const goodsKeys = compatibleGoodsKeys(model, mapping, rowsByGoodsKey);
+    const modelRows = goodsKeys.flatMap((goodsKey) =>
+      (rowsByGoodsKey.get(goodsKey) ?? []).filter((row) => rowMatchesModel(row, model)),
     );
-    const modelRows = goodsKeys.flatMap((goodsKey) => rowsByGoodsKey.get(goodsKey) ?? []);
     const titles = unique(modelRows.map((row) => row.prod_nm), MAX_EVIDENCE_TITLES);
     const searchKeywords = unique(
       modelRows.flatMap((row) => splitSearchKeywords(row.site_srch)),
