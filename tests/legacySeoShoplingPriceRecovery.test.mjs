@@ -39,6 +39,28 @@ test("중복 옵션 가격은 값이 동일할 때만 자동 허용하고 값이
   assert.match(source, /optionCount === 1 && sameCanonicalValues\(activeRows\)/);
 });
 
+test("동일 모델번호로 활성 상품이 둘 이상이면 가격 적용 전에 전역 중복검사로 차단한다", async () => {
+  const guard = await readFile(
+    new URL("../src/lib/legacySeoDuplicateModelGuard.ts", import.meta.url),
+    "utf8",
+  );
+  const preflight = await readFile(
+    new URL("../src/lib/legacySeoPreflight.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(guard, /shopling_upload_status: "eq\.완료"/);
+  assert.match(guard, /archived_at: "is\.null"/);
+  assert.match(guard, /value\.itemIds\.size < 2/);
+  assert.match(preflight, /readDuplicateActiveLegacySeoModels/);
+  assert.match(preflight, /models\.filter\(\(modelNumber\) => !duplicateActiveModels\.has\(modelNumber\)\)/);
+  assert.match(preflight, /동일 모델번호로 활성 상품이/);
+  assert.match(preflight, /중복 모델번호 안전검사 실패로 가격 적용을 차단/);
+  assert.ok(
+    preflight.indexOf("duplicateActiveModels = await readDuplicateActiveLegacySeoModels") <
+      preflight.indexOf("canonicalPrice = await applyLegacySeoCanonicalPrices"),
+  );
+});
+
 test("SEO RUN 큐 삽입 전에 옵션·B코드·원가·판매가·상세·대표·부가이미지 사전점검을 강제한다", async () => {
   const server = await readFile(
     new URL("../src/lib/legacySeoRunJobServer.ts", import.meta.url),
