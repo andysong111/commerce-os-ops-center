@@ -36,7 +36,7 @@ importScripts("background-v040.js");
         const tabId = sender?.tab?.id;
         const frameId = Number.isInteger(sender?.frameId) ? sender.frameId : 0;
         const href = String(message?.href || sender?.tab?.url || "");
-        if (active.stage !== "A21_POPUP" || active.job?.productKind !== "OPTION") {
+        if (active.job?.productKind !== "OPTION") {
           sendResponse({ ok: false, error: "stock_price_core_not_option_popup_stage", version: VERSION });
           return;
         }
@@ -44,6 +44,23 @@ importScripts("background-v040.js");
           sendResponse({ ok: false, error: "stock_price_core_popup_target_mismatch", version: VERSION });
           return;
         }
+
+        // HF8: do not advance into A21_POPUP merely because the list worker says it
+        // clicked 상품 수정전송. Advance only when the real Shopling popup has loaded
+        // and this PriceCore claim arrives from the exact popup URL.
+        if (active.stage === "A21_LIST" && active.a21CanonicalStage === "POPUP_OPENING") {
+          active.stage = "A21_POPUP";
+          active.stageStartedAt = Date.now();
+          active.attempts = {};
+          active.a21CanonicalStage = "POPUP_CONNECTED";
+          active.a21CanonicalStageAt = Date.now();
+          await saveActive(active);
+        }
+        if (active.stage !== "A21_POPUP") {
+          sendResponse({ ok: false, error: "stock_price_core_not_option_popup_stage", version: VERSION });
+          return;
+        }
+
         const goodsKey = currentGoodsKey(active);
         if (!goodsKey) {
           sendResponse({ ok: false, error: "stock_price_core_goods_key_missing", version: VERSION });
@@ -52,7 +69,7 @@ importScripts("background-v040.js");
         active.shoplingTabId = tabId;
         active.shoplingFrameId = frameId;
         active.workTabs = { ...(active.workTabs || {}), A21_POPUP: { tabId, frameId } };
-        active.message = `A21 goods key ${goodsKey} 팝업 연결 · 검증된 가격조정 옵션송신 코어 실행`;
+        active.message = `A21 goods key ${goodsKey} 실제 수정전송 팝업 연결 · 검증된 가격조정 옵션송신 코어 실행`;
         await saveActive(active);
         await progress(active, active.message, {
           popupClaim: true,
@@ -60,6 +77,7 @@ importScripts("background-v040.js");
           popupFrameId: frameId,
           extensionVersion: VERSION,
           popupEngine: "PRICE_CORE_V024",
+          popupTransitionEvidence: "REAL_EXACT_URL_CLAIM",
         });
         sendResponse({
           ok: true,
