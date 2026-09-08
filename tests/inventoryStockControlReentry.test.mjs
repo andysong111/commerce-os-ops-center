@@ -39,9 +39,7 @@ function point(occurredAt, delta, order = delta >= 0 ? 0 : 1, type = delta >= 0 
 }
 
 test("confirmed receipt after stockout reset restores desired Shopling state to ON_SALE", () => {
-  const transition = stateTransition(resetAt, [
-    point("2026-09-02T00:00:00.000Z", 5),
-  ]);
+  const transition = stateTransition(resetAt, [point("2026-09-02T00:00:00.000Z", 5)]);
   assert.equal(transition.quantityOnHand, 5);
   assert.equal(transition.desired, "ON_SALE");
   assert.equal(transition.desiredSince, "2026-09-02T00:00:00.000Z");
@@ -73,26 +71,16 @@ test("cumulative China receipt events produce only incremental stock deltas", ()
     {
       started_at: "2026-09-02T00:00:00.000Z",
       input_snapshot: {
-        sourceSystem: "china-order-manager",
-        sourceLineId: "draft-1:line-1",
-        barcode: "BZZ341-1",
-        status: "PARTIALLY_RECEIVED",
-        requestedQuantity: 10,
-        orderedQuantity: 10,
-        receivedQuantity: 4,
+        sourceSystem: "china-order-manager", sourceLineId: "draft-1:line-1", barcode: "BZZ341-1",
+        status: "PARTIALLY_RECEIVED", requestedQuantity: 10, orderedQuantity: 10, receivedQuantity: 4,
         occurredAt: "2026-09-02T00:00:00.000Z",
       },
     },
     {
       started_at: "2026-09-03T00:00:00.000Z",
       input_snapshot: {
-        sourceSystem: "china-order-manager",
-        sourceLineId: "draft-1:line-1",
-        barcode: "BZZ341-1",
-        status: "RECEIVED",
-        requestedQuantity: 10,
-        orderedQuantity: 10,
-        receivedQuantity: 10,
+        sourceSystem: "china-order-manager", sourceLineId: "draft-1:line-1", barcode: "BZZ341-1",
+        status: "RECEIVED", requestedQuantity: 10, orderedQuantity: 10, receivedQuantity: 10,
         occurredAt: "2026-09-03T00:00:00.000Z",
       },
     },
@@ -150,4 +138,39 @@ test("HF11 SINGLE result waits for a stable product-complete footer and closes o
   assert.match(background, /closeManagedSinglePopup/);
   assert.match(background, /chrome\.windows\.remove\(windowId\)/);
   assert.match(background, /chrome\.tabs\.remove\(tabId\)/);
+});
+
+test("OPTION A6 replaces stale cached goodsKeys with the complete deduplicated live discovery set", async () => {
+  const background = await readFile("public/shopling-stock-state-sync/background-v052.js", "utf8");
+  assert.match(background, /const discoveredGoodsKeys = Array\.isArray\(result\?\.evidence\?\.discoveredGoodsKeys\)/);
+  assert.match(background, /\[\.\.\.new Set\(result\.evidence\.discoveredGoodsKeys/);
+  assert.match(background, /active\.job\.goodsKeys = discoveredGoodsKeys/);
+  assert.match(background, /active\.job\.discoveredGoodsKeys = discoveredGoodsKeys/);
+  assert.match(background, /active\.goodsKeyIndex = 0/);
+});
+
+test("OPTION API bridge applies every discovered goodsKey serially and stops safely on a partial failure", async () => {
+  const bridge = await readFile("public/shopling-stock-state-sync/content-ops-v021.js", "utf8");
+  assert.match(bridge, /for \(let index = 0; index < goodsKeys\.length; index \+= 1\)/);
+  assert.match(bridge, /const goodsKey = goodsKeys\[index\]/);
+  assert.match(bridge, /const result = await applyOptionStatusApi\(job, goodsKey\)/);
+  assert.match(bridge, /SHOPLING_OPTION_API_PARTIAL_FAILED_RETRY_SAFE/);
+  assert.match(bridge, /failedGoodsKey: goodsKey/);
+});
+
+test("multi-goodsKey OPTION transmission advances exactly one goodsKey after each confirmed result and does not rerun A6", async () => {
+  const base = await readFile("public/shopling-stock-state-sync/background-v020.js", "utf8");
+  assert.match(base, /const nextIndex = Number\(active\.goodsKeyIndex \|\| 0\) \+ 1/);
+  assert.match(base, /if \(nextIndex >= active\.job\.goodsKeys\.length\)/);
+  assert.match(base, /active\.goodsKeyIndex = nextIndex/);
+  assert.match(base, /active\.stage = active\.job\.productKind === "OPTION" \? "A21_LIST" : "A4"/);
+  assert.match(base, /다음 goods key \$\{currentGoodsKey\(active\)\} 고정 A21 탭 옵션송신 계속/);
+});
+
+test("HF10 closes only the completed option popup after serial advance while protecting fixed A6/A21 worker windows", async () => {
+  const hf10 = await readFile("public/shopling-stock-state-sync/background-v055.js", "utf8");
+  assert.match(hf10, /const advanced = await continueNextGoodsKey\(latest, sender, evidence\)/);
+  assert.match(hf10, /const closeResult = await closeManagedPopupV055\(tabId, latest\)/);
+  assert.match(hf10, /if \(stage === "A21_POPUP" \|\| !Number\.isInteger\(value\?\.tabId\)\) continue/);
+  assert.match(hf10, /protectedWindowIds\.has\(tab\.windowId\)/);
 });
