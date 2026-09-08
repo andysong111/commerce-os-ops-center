@@ -174,3 +174,22 @@ test("HF10 closes only the completed option popup after serial advance while pro
   assert.match(hf10, /if \(stage === "A21_POPUP" \|\| !Number\.isInteger\(value\?\.tabId\)\) continue/);
   assert.match(hf10, /protectedWindowIds\.has\(tab\.windowId\)/);
 });
+
+test("HF12 wraps HF11 and recognizes an already-loaded A4 product-list frame instead of re-clicking the menu", async () => {
+  const route = await readFile("src/app/api/shopling-stock-state-sync/download-hf12/route.ts", "utf8");
+  assert.match(route, /getHf11Download/);
+  assert.match(route, /HF12_SINGLE_A4_EXACT_FRAME_REUSE_NO_REENTRY_LOOP/);
+  assert.match(route, /path === "\/prod\/prodlst\.phtml" && hasExact\("샵플링상품코드"\)/);
+  assert.match(route, /singleA4RepeatedMenuClickAfterExactLoad: false/);
+});
+
+test("HF12 patches the packaged A4 worker to trust the exact prodLst path while preserving the locked OPTION and SINGLE A21 checkpoints", async () => {
+  const route = await readFile("src/app/api/shopling-stock-state-sync/download-hf12/route.ts", "utf8");
+  assert.match(route, /String\(location\.pathname \|\| ""\)\.toLowerCase\(\) === "\/prod\/prodlst\.phtml"/);
+  assert.match(route, /manifest\.background\.service_worker !== "background-v056\.js"/);
+  assert.match(route, /background-v055\.js/);
+  assert.match(route, /background-v056\.js/);
+  assert.match(route, /content-a21-canonical-v014\.js/);
+  assert.match(route, /optionA21Execution: "HF10_PRICE_EXTENSION_LITERAL_UNCHANGED"/);
+  assert.match(route, /hf11SingleA21CheckpointPreserved: true/);
+});
