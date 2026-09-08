@@ -38,6 +38,14 @@ function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
 }
 
+function parseJsonRecord(raw: string) {
+  try {
+    return record(raw ? JSON.parse(raw) : {});
+  } catch {
+    return {};
+  }
+}
+
 function uniqueStrings(value: unknown, limit = 500) {
   if (!Array.isArray(value)) return [] as string[];
   const result: string[] = [];
@@ -171,7 +179,7 @@ export async function POST(request: NextRequest) {
   const context = authenticated.value;
 
   const rawBody = await request.text();
-  const body = record(JSON.parse(rawBody || "{}").catch?.(() => ({})));
+  const body = parseJsonRecord(rawBody);
   if (text(body.action) !== "enqueue") {
     return legacySeoRunJobsPost(delegatedRequest(request, rawBody));
   }
