@@ -45,14 +45,6 @@ function actionContainer(section: HTMLElement) {
   return button?.parentElement ?? null;
 }
 
-function updateLegacyScopeCopy(section: HTMLElement) {
-  const heading = section.querySelector("h2");
-  const copy = heading?.parentElement?.querySelector("p");
-  if (!copy) return;
-  copy.textContent =
-    "상품출시 진행관리 전체 작업묶음 중 Shopling 등록완료 상품을 표시합니다. RUN 직전 누락 옵션/B코드는 기존 Shopling goods_key 근거로 자동 복구하고, 근거가 없으면 안전하게 제외합니다.";
-}
-
 function readCustomBlockedTerms() {
   try {
     const raw = window.localStorage.getItem(CUSTOM_BLOCKED_STORAGE_KEY);
@@ -112,16 +104,17 @@ export default function LegacySeoBulkRunAllEnhancer() {
 
   useEffect(() => {
     let cancelled = false;
+
     const syncDom = () => {
       const section = selectionSection();
       if (!section) {
         setContainer(null);
         return;
       }
-      updateLegacyScopeCopy(section);
       const next = actionContainer(section);
       setContainer((current) => (current === next ? current : next));
     };
+
     const refresh = async () => {
       try {
         const result = await loadTargets();
@@ -132,18 +125,23 @@ export default function LegacySeoBulkRunAllEnhancer() {
         // The main client owns the page-level load error. Avoid duplicating it here.
       }
     };
+
     syncDom();
     void refresh();
-    const observer = new MutationObserver(syncDom);
-    observer.observe(document.body, { childList: true, subtree: true });
-    const timer = window.setInterval(() => {
-      syncDom();
+
+    // Do not observe and mutate the entire document. The previous enhancer rewrote
+    // section text from inside a MutationObserver callback, which could trigger
+    // itself continuously and starve React hydration. A light timer is enough to
+    // discover the action container after the main list has rendered.
+    const domTimer = window.setInterval(syncDom, 1_000);
+    const refreshTimer = window.setInterval(() => {
       if (!busy) void refresh();
     }, 5_000);
+
     return () => {
       cancelled = true;
-      observer.disconnect();
-      window.clearInterval(timer);
+      window.clearInterval(domTimer);
+      window.clearInterval(refreshTimer);
     };
   }, [busy]);
 
