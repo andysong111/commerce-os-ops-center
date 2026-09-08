@@ -27,6 +27,18 @@ test("중국주문 최종가격 적용기는 원가와 최종확정 판매가를
   assert.match(source, /price_status/);
 });
 
+test("중복 옵션 가격은 값이 동일할 때만 자동 허용하고 값이 다르면 제품명까지 검증 후 차단한다", async () => {
+  const source = await readFile(
+    new URL("../src/lib/legacySeoCanonicalPrice.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /sameCanonicalValues/);
+  assert.match(source, /uniqueProductNameMatch/);
+  assert.match(source, /product_name/);
+  assert.match(source, /원가\/판매가가 달라 자동 매칭할 수 없음/);
+  assert.match(source, /optionCount === 1 && sameCanonicalValues\(activeRows\)/);
+});
+
 test("SEO RUN 큐 삽입 전에 옵션·B코드·원가·판매가·상세·대표·부가이미지 사전점검을 강제한다", async () => {
   const server = await readFile(
     new URL("../src/lib/legacySeoRunJobServer.ts", import.meta.url),
@@ -44,4 +56,22 @@ test("SEO RUN 큐 삽입 전에 옵션·B코드·원가·판매가·상세·대�
   assert.match(preflight, /상세페이지 HTML/);
   assert.match(preflight, /대표이미지/);
   assert.match(preflight, /부가이미지/);
+});
+
+test("사전점검은 현재 Shopling 상세·이미지를 복구하되 기존 값과 원본 item_payload를 보존한다", async () => {
+  const preflight = await readFile(
+    new URL("../src/lib/legacySeoPreflight.ts", import.meta.url),
+    "utf8",
+  );
+  const assets = await readFile(
+    new URL("../src/lib/legacySeoShoplingAssetRecovery.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(preflight, /recoverLegacySeoShoplingAssets/);
+  assert.match(assets, /readRawItemPayload/);
+  assert.match(assets, /item_payload: payload/);
+  assert.match(assets, /text\(current\.html\) \|\| text\(group\.detailHtml\)/);
+  assert.match(assets, /currentMain \|\| shoplingImages\[0\]/);
+  assert.match(assets, /currentImages\.length\s*\? currentImages/);
+  assert.doesNotMatch(assets, /\.\.\.item,\s*detailPageAsset/);
 });
