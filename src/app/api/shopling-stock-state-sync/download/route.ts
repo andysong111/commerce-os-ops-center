@@ -154,19 +154,121 @@ function patchA21ProvenListClickV055(source: string) {
     if (!click.ok || failure) {
       return { ok: false, code: "A21_POPUP_OPEN_REJECTED", message: failure || click.message || "A21 수정전송 팝업을 열지 못했습니다.", evidence: click };
     }`;
-  const newBlock = `    const modifySendCandidates = [...document.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]')]
-      .filter((element) => /상품\\s*수정전송/.test(controlText(element)));
-    const button = modifySendCandidates[0] || null;
-    if (!button) return { ok: false, code: "A21_MODIFY_SEND_BUTTON_NOT_FOUND", message: "A21 상품 수정전송 버튼을 찾지 못했습니다." };
-    let clicked = false;
-    try {
-      button.click();
-      clicked = true;
-    } catch {}
-    if (!clicked) {
-      return { ok: false, code: "A21_POPUP_OPEN_REJECTED", message: "A21 검증 경로의 상품 수정전송 직접 클릭이 실패했습니다.", evidence: { clickMode: "PROVEN_A21_LIST_DIRECT_CLICK" } };
+  const newBlock = `    function a21CanonicalTextV056(element) {
+      if (!element) return "";
+      const values = [
+        element.textContent,
+        element.value,
+        element.title,
+        element.alt,
+        element.name,
+        element.id,
+        element.getAttribute?.("aria-label"),
+        element.getAttribute?.("onclick"),
+      ];
+      for (const image of element.querySelectorAll?.("img[alt],img[title]") || []) {
+        values.push(image.getAttribute("alt") || "", image.getAttribute("title") || "");
+      }
+      return norm(values.filter(Boolean).join(" "));
     }
-    const click = { ok: true, code: "PROVEN_A21_LIST_DIRECT_CLICK", alerts: [] };`;
+
+    function a21AccessibleDocumentsV056() {
+      const scopes = [];
+      const seen = new Set();
+      const add = (doc, path) => {
+        if (!doc || seen.has(doc)) return;
+        seen.add(doc);
+        scopes.push({ doc, path });
+      };
+      add(document, "self");
+      const visit = (frame, path) => {
+        let doc = null;
+        try {
+          doc = frame.document;
+          void doc.documentElement;
+        } catch {
+          return;
+        }
+        add(doc, path);
+        let count = 0;
+        try { count = frame.frames.length; } catch {}
+        for (let index = 0; index < count; index += 1) {
+          try { visit(frame.frames[index], \`${'${path}'}.${'${index}'}\`); } catch {}
+        }
+      };
+      try { visit(window.top, "top"); } catch {}
+      return scopes;
+    }
+
+    function a21ClickableTargetV056(node) {
+      if (!node) return null;
+      const selector = 'button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]';
+      if (node.matches?.(selector)) return node;
+      return node.closest?.("a,button,input,[onclick]") || null;
+    }
+
+    function a21ClickCanonicalModifySendV056() {
+      const scopes = a21AccessibleDocumentsV056();
+      const diagnostics = [];
+      const selector = 'button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick],img[alt],img[title]';
+      for (const scope of scopes) {
+        const candidates = [];
+        const push = (node) => {
+          const button = a21ClickableTargetV056(node);
+          if (button && !candidates.includes(button)) candidates.push(button);
+        };
+        for (const node of scope.doc.querySelectorAll(selector)) {
+          if (/상품\\s*수정전송/.test(a21CanonicalTextV056(node))) push(node);
+        }
+        if (!candidates.length) {
+          for (const node of scope.doc.querySelectorAll("span,div,td,th")) {
+            const label = norm(node.textContent || "");
+            if (!/상품\\s*수정전송/.test(label) || label.length > 80) continue;
+            const button = node.closest?.("a,button,input,[onclick]") || node.querySelector?.("a,button,input,[onclick]") || null;
+            if (button && !candidates.includes(button)) candidates.push(button);
+          }
+        }
+        diagnostics.push({ framePath: scope.path, candidateCount: candidates.length });
+        const button = candidates[0] || null;
+        if (!button) continue;
+        try {
+          const view = button.ownerDocument?.defaultView || window;
+          const Mouse = view?.MouseEvent || MouseEvent;
+          button.dispatchEvent(new Mouse("mousedown", { bubbles: true, cancelable: true, view }));
+          button.dispatchEvent(new Mouse("mouseup", { bubbles: true, cancelable: true, view }));
+          button.click();
+          return {
+            ok: true,
+            code: "PROVEN_A21_LIST_DIRECT_CLICK_CANONICAL_CROSS_FRAME",
+            clickMode: "CANONICAL_PRICE_EXTENSION_CURRENT_THEN_ACCESSIBLE_FRAMES",
+            framePath: scope.path,
+            scannedDocuments: scopes.length,
+            diagnostics,
+            alerts: [],
+          };
+        } catch (error) {
+          diagnostics.push({ framePath: scope.path, clickError: String(error?.message || error) });
+        }
+      }
+      return {
+        ok: false,
+        code: "A21_MODIFY_SEND_BUTTON_NOT_FOUND",
+        clickMode: "CANONICAL_PRICE_EXTENSION_CURRENT_THEN_ACCESSIBLE_FRAMES",
+        scannedDocuments: scopes.length,
+        diagnostics,
+        alerts: [],
+      };
+    }
+
+    const click = a21ClickCanonicalModifySendV056();
+    if (!click.ok) {
+      return {
+        ok: false,
+        code: "A21_MODIFY_SEND_BUTTON_NOT_FOUND",
+        message: \`A21 접근 가능한 ${'${click.scannedDocuments}'}개 frame에서 상품 수정전송 버튼을 찾지 못했습니다.\`,
+        evidence: click,
+      };
+    }`;
   if (source.split(oldBlock).length !== 2) {
     throw new Error("shopling_stock_a21_proven_list_click_source_mismatch");
   }
@@ -176,6 +278,9 @@ function patchA21ProvenListClickV055(source: string) {
   const segment = start >= 0 && end > start ? patched.slice(start, end) : "";
   if (!segment.includes("PROVEN_A21_LIST_DIRECT_CLICK") || !segment.includes("button.click()")) {
     throw new Error("shopling_stock_a21_proven_list_click_guard_missing");
+  }
+  if (!segment.includes("a21AccessibleDocumentsV056") || !segment.includes("CANONICAL_PRICE_EXTENSION_CURRENT_THEN_ACCESSIBLE_FRAMES")) {
+    throw new Error("shopling_stock_a21_cross_frame_canonical_guard_missing");
   }
   if (segment.includes("clickViaMain(button)")) {
     throw new Error("shopling_stock_a21_proven_list_click_legacy_main_click_present");
@@ -212,7 +317,7 @@ export async function GET(request: Request) {
   const provenA21Worker = patchA21ProvenListClickV055(readOnlyWorker);
   const worker = provenA21Worker
     .replace('const VERSION = "0.4.2";', 'const VERSION = "0.5.5";')
-    .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV055");
+    .replaceAll("__commerceStockWorkerV042", "__commerceStockWorkerV055HF3");
   new Function(worker);
   entries["content-shopling-v030.js"] = strToU8(worker);
 
@@ -245,12 +350,13 @@ export async function GET(request: Request) {
 
   if (new URL(request.url).searchParams.get("verify") === "1") {
     return Response.json({
-      ok: true, version: VERSION, files: Object.keys(entries), zipBytes: zip.byteLength,
+      ok: true, version: VERSION, hotfix: "HF3_CANONICAL_A21_CROSS_FRAME", files: Object.keys(entries), zipBytes: zip.byteLength,
       workerSha256, popupWorkerSha256, popupMainSha256, canonicalPriceContentSha256, canonicalPriceMainSha256,
       priceCoreLiteralCopyVerified: true,
       priceCoreCanonical: ["shopling-a21-price-option-resend/content-a21-v024.js", "shopling-a21-price-option-resend/main-a21-v024.js"],
+      a21CanonicalListSource: "shopling-a21-price-option-resend/content-a21.js:clickModifySend",
       searchStart: "2013-09-12",
-      mode: "A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_PROVEN_LIST_V055",
+      mode: "A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_CANONICAL_CROSS_FRAME_HF3",
       optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY",
       optionGoodsKeySource: "A6_LIVE_OPTION_BARCODE",
       optionGoodsKeyPolicy: "ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED",
@@ -262,6 +368,7 @@ export async function GET(request: Request) {
       a21ResultSelection: "EXACT_GOODS_KEY_ALL_ROWS_UP_TO_200",
       a21BatchLimit: 200,
       a21ListClick: "PROVEN_PRICE_OPTION_RESEND_DIRECT_NO_VISIBILITY_FILTER",
+      a21ListFrameStrategy: "CURRENT_FRAME_THEN_ALL_ACCESSIBLE_SHOPLING_FRAMES",
       a21PopupAssignment: "PRICE_CORE_SELF_CLAIM_ADAPTER_WITH_STAGE_RACE_RETRY",
       a21PopupClaimRetry: { intervalMs: 250, attempts: 16, onlyError: "stock_price_core_not_option_popup_stage" },
       a21PopupConfiguration: "CANONICAL_PRICE_CORE_MODIFY_TP_GOODS_STOCK_AND_TRSMT_ENV_MODY_OPT_1",
@@ -275,11 +382,12 @@ export async function GET(request: Request) {
   return new Response(zip, {
     headers: {
       "content-type": "application/zip",
-      "content-disposition": `attachment; filename="commerce-os-shopling-stock-state-v${VERSION}.zip"`,
+      "content-disposition": `attachment; filename="commerce-os-shopling-stock-state-v${VERSION}-hf3.zip"`,
       "cache-control": "no-store", "x-content-type-options": "nosniff",
       "x-stock-worker-sha256": workerSha256,
       "x-stock-popup-worker-sha256": popupWorkerSha256,
       "x-stock-popup-main-sha256": popupMainSha256,
+      "x-stock-hotfix": "HF3_CANONICAL_A21_CROSS_FRAME",
     },
   });
 }
