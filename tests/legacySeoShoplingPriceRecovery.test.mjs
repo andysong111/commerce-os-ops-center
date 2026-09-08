@@ -95,5 +95,8 @@ test("사전점검은 현재 Shopling 상세·이미지를 복구하되 기존 �
   assert.match(assets, /text\(current\.html\) \|\| text\(group\.detailHtml\)/);
   assert.match(assets, /currentMain \|\| shoplingImages\[0\]/);
   assert.match(assets, /currentImages\.length\s*\? currentImages/);
-  assert.doesNotMatch(assets, /\.\.\.item,\s*detailPageAsset/);
+  assert.match(
+    assets,
+    /const payload = \{\s*\.\.\.rawPayload,\s*detailPageAsset: rawRecovery\.asset,/,
+  );
 });
