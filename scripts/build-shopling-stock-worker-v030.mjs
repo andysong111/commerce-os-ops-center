@@ -150,7 +150,7 @@ export function buildStockWorkerV030(base, policy) {
         if (!(checkbox instanceof HTMLInputElement) || checkbox.disabled || rowBoxes.has(checkbox)) continue;
         const rect = checkbox.getBoundingClientRect();
         const row = checkbox.closest("tr");
-        const label = norm(`${checkbox.name || ""} ${checkbox.id || ""} ${checkbox.className || ""} ${checkbox.getAttribute("onclick") || ""} ${row?.textContent || ""}`);
+        const label = norm([checkbox.name || "", checkbox.id || "", checkbox.className || "", checkbox.getAttribute("onclick") || "", row?.textContent || ""].join(" "));
         let score = entries.length * 1000;
         if (checkbox.closest("thead") || checkbox.closest("th")) score += 5000;
         if (rect.top <= minTop) score += 2000;
