@@ -1,0 +1,1 @@
+This file documents that build-shopling-stock-worker-v030-legacy.mjs is a byte-for-byte copy of the previously deployed v030 builder blob 3df128e32c845125f85c119fa106c41f33d920a3. It exists only so HF7 can wrap the proven builder and replace the A21 row-selection step without rewriting unrelated stock-sync logic.
