@@ -3,11 +3,11 @@
   "name": "Commerce OS · Shopling Stock State Sync",
   "short_name": "Stock State Sync",
   "version": "0.5.5",
-  "description": "옵션상품은 A6에서 B코드의 Shopling goods key를 읽기전용으로 확보하고 Commerce OS API로 해당 옵션상태만 검증·변경합니다. A21은 정확 goods key 결과를 최대 200건씩 처리합니다. HF5는 결과표의 체크박스 헤더에 의존하지 않고 상품 수정전송 앞의 범위를 '전체정보'로 고정하며, 가격조정 확장프로그램에서 검증된 각 결과행 checkbox.click() + checked/input/change 방식을 호환성 검증용으로 재사용한 뒤 빨간 상품 수정전송을 누릅니다. 팝업 이후에는 검증된 옵션송신 PriceCore를 그대로 재사용합니다. 수량은 보존하며 모든 goods key 완료 전에는 성공 처리하지 않습니다. 단품은 기존 A4→A21 경로를 유지합니다.",
+  "description": "옵션상품은 A6에서 B코드의 Shopling goods key를 읽기전용으로 확보하고 Commerce OS API로 해당 옵션상태만 검증·변경합니다. HF6는 A21 검색결과의 실제 각 행 체크박스를 가격조정 확장프로그램과 동일하게 checkbox.click() → checked=true → input/change 이벤트 순서로 직접 처리합니다. 헤더 전체선택 버튼에는 의존하지 않으며, 결과행 전건 체크 검증 후에만 빨간 상품 수정전송을 누르고 팝업에서는 검증된 PriceCore로 옵션송신만 실행합니다. 수량은 보존하며 모든 goods key 완료 전에는 성공 처리하지 않습니다. 단품은 기존 A4→A21 경로를 유지합니다.",
   "permissions": ["storage", "tabs", "windows", "scripting", "webNavigation", "alarms"],
   "host_permissions": ["https://a.shopling.co.kr/*", "https://commerce-os-ops-center.vercel.app/*"],
   "background": { "service_worker": "background-v052.js" },
-  "action": { "default_title": "Shopling 품절·판매중 동기화 v0.5.5 HF5", "default_popup": "popup.html" },
+  "action": { "default_title": "Shopling 품절·판매중 동기화 v0.5.5 HF6", "default_popup": "popup.html" },
   "content_scripts": [
     { "matches": ["https://commerce-os-ops-center.vercel.app/*"], "js": ["content-ops-v021.js"], "run_at": "document_start" },
     { "matches": ["https://a.shopling.co.kr/*"], "js": ["main-shopling.js"], "world": "MAIN", "all_frames": true, "run_at": "document_start" },
