@@ -20,27 +20,26 @@ const LEGACY_INBOUND = new Set(INBOUND.values());
 
 export function StockSyncHF15Bridge() {
   useLayoutEffect(() => {
-    const host = window as typeof window & { [CHANNEL_MARK]?: boolean };
-    if (host[CHANNEL_MARK]) return;
+    const host = window as unknown as Record<string, unknown> & Window;
+    if (host[CHANNEL_MARK] === true) return;
     host[CHANNEL_MARK] = true;
 
-    const nativePostMessage = window.postMessage.bind(window);
+    const nativePostMessage = window.postMessage.bind(window) as (...args: unknown[]) => void;
     const originalPostMessage = window.postMessage;
 
-    (window as unknown as { postMessage: (...args: unknown[]) => unknown }).postMessage = ((...args: unknown[]) => {
-      const [message, targetOrigin, transfer] = args as [Record<string, unknown> | null, string | undefined, unknown];
+    const patchedPostMessage = (...args: unknown[]) => {
+      const message = args[0] as Record<string, unknown> | null | undefined;
+      const targetOrigin = typeof args[1] === "string" ? args[1] : window.location.origin;
       const type = message && typeof message === "object" ? String(message.type || "") : "";
       const mapped = OUTBOUND.get(type);
-      if (mapped) {
-        const next = { ...message, type: mapped, [CHANNEL_MARK]: true };
-        return transfer === undefined
-          ? nativePostMessage(next, targetOrigin || window.location.origin)
-          : (nativePostMessage as (...values: unknown[]) => unknown)(next, targetOrigin || window.location.origin, transfer);
-      }
-      return transfer === undefined
-        ? nativePostMessage(message, targetOrigin || window.location.origin)
-        : (nativePostMessage as (...values: unknown[]) => unknown)(message, targetOrigin || window.location.origin, transfer);
-    }) as typeof window.postMessage;
+      const next = mapped && message
+        ? { ...message, type: mapped, [CHANNEL_MARK]: true }
+        : message;
+      if (args.length >= 3) nativePostMessage(next, targetOrigin, args[2]);
+      else nativePostMessage(next, targetOrigin);
+    };
+
+    (host as unknown as { postMessage: (...args: unknown[]) => void }).postMessage = patchedPostMessage;
 
     const capture = (event: MessageEvent) => {
       if (event.source !== window || event.origin !== window.location.origin || !event.data || typeof event.data !== "object") return;
@@ -55,8 +54,9 @@ export function StockSyncHF15Bridge() {
         return;
       }
       if (LEGACY_INBOUND.has(type) && data[CHANNEL_MARK] !== true) {
-        // Ignore READY/STATUS/PROGRESS/RESULT emitted by older concurrently installed
-        // stock-sync extensions. Only the HF15 namespaced channel is authoritative.
+        // Older concurrently installed stock-sync extensions still auto-announce on the
+        // generic channel. Hide those messages from the current page so they cannot mark
+        // themselves authoritative or revive an A4-era RUNNING state.
         event.stopImmediatePropagation();
       }
     };
