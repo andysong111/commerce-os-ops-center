@@ -3,12 +3,62 @@
   const RESULT_EVENT = "commerce-os-stock-main-click-result";
   const ALERT_EVENT = "commerce-os-stock-main-alert";
   const TOKEN_ATTRIBUTE = "data-commerce-os-stock-click-token";
+  const LEGACY_ACTION_ATTRIBUTE = "data-commerce-os-stock-legacy-action-label";
 
   const text = (value) =>
     String(value ?? "")
       .normalize("NFKC")
       .replace(/\s+/g, " ")
       .trim();
+
+  function annotateLegacyA21ActionButtons(root = document) {
+    const images = [];
+    if (root instanceof Element && root.matches("img[alt],img[title]")) {
+      images.push(root);
+    }
+    if (root?.querySelectorAll) {
+      images.push(...root.querySelectorAll("img[alt],img[title]"));
+    }
+
+    for (const image of images) {
+      const label = text(
+        [image.getAttribute("alt"), image.getAttribute("title")]
+          .filter(Boolean)
+          .join(" "),
+      );
+      if (!/상품\s*수정전송/i.test(label)) continue;
+
+      const clickable = image.closest("a,button,input,[onclick]");
+      if (!clickable) continue;
+
+      if (!text(clickable.getAttribute("aria-label"))) {
+        clickable.setAttribute("aria-label", "상품 수정전송");
+      }
+      clickable.setAttribute(
+        LEGACY_ACTION_ATTRIBUTE,
+        label || "상품 수정전송",
+      );
+    }
+  }
+
+  annotateLegacyA21ActionButtons(document);
+  const legacyActionObserver = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === "attributes") {
+        annotateLegacyA21ActionButtons(record.target);
+        continue;
+      }
+      for (const node of record.addedNodes) {
+        if (node instanceof Element) annotateLegacyA21ActionButtons(node);
+      }
+    }
+  });
+  legacyActionObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["alt", "title"],
+  });
 
   const browserAlert = window.alert.bind(window);
   window.alert = (message) => {
