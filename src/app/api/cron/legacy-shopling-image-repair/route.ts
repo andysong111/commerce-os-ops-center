@@ -11,7 +11,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const BATCH_SIZE = 20;
+// Missing-option recovery can require several Shopling evidence lookups per model.
+// Keep the dispatcher slice deliberately small so a single cron invocation stays
+// well below Vercel's 300-second hard runtime limit.
+const BATCH_SIZE = 4;
 type UnknownRecord = Record<string, unknown>;
 
 function record(value: unknown): UnknownRecord {
@@ -124,8 +127,9 @@ export async function GET(request: Request) {
       processed: false,
       processedCount: 0,
       pendingCount: 0,
+      batchSize: BATCH_SIZE,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v3-atomic",
+      engine: "legacy-seo-preflight-drain-v4-sliced-atomic",
     });
   }
 
@@ -175,8 +179,9 @@ export async function GET(request: Request) {
       processedCount: 0,
       pendingCount: 0,
       totalCount: ownerItems.length,
+      batchSize: BATCH_SIZE,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v3-atomic",
+      engine: "legacy-seo-preflight-drain-v4-sliced-atomic",
     });
   }
 
@@ -221,6 +226,7 @@ export async function GET(request: Request) {
     processedCount: batch.length,
     pendingCount: pending.length,
     totalCount: ownerItems.length,
+    batchSize: BATCH_SIZE,
     batchModels: batch.map((entry) => entry.modelNumber),
     batchPendingReasons: batch.map((entry) => ({
       modelNumber: entry.modelNumber,
@@ -239,6 +245,6 @@ export async function GET(request: Request) {
     duplicateActiveModels: preflight.duplicateActiveModels,
     duplicateModelGuardError: preflight.duplicateModelGuardError,
     state: pending.length > batch.length || hasFailures ? "RUNNING" : "COMPLETE",
-    engine: "legacy-seo-preflight-drain-v3-atomic",
+    engine: "legacy-seo-preflight-drain-v4-sliced-atomic",
   });
 }
