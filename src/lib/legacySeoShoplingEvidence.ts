@@ -1,4 +1,5 @@
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import { isConfirmedLegacyInventoryModel } from "@/lib/legacySeoInventoryCatalog";
 import {
   DEFAULT_SHOPLING_READ_URLS,
   parseShoplingReadResponse,
@@ -16,6 +17,24 @@ const PRODUCT_LOOKUP_FIELDS = [
   "model_no",
   "model_nm",
   "sale_status",
+  "org_price",
+  "sale_price",
+  "list_price",
+  "origin_nm",
+  "dtl_desc",
+  "img_0",
+  "img_1",
+  "img_2",
+  "img_3",
+  "img_4",
+].join(",");
+const MODEL_DISCOVERY_FIELDS = [
+  "goods_key",
+  "ptn_goods_cd",
+  "prod_nm",
+  "model_no",
+  "model_nm",
+  "sale_status",
 ].join(",");
 const MAX_GOODS_PER_REQUEST = 40;
 const MAX_EVIDENCE_TITLES = 32;
@@ -23,6 +42,9 @@ const MAX_EVIDENCE_KEYWORDS = 120;
 const MAX_EVIDENCE_CATEGORIES = 12;
 const MAX_EVIDENCE_OPTIONS = 60;
 const MAX_GOODS_KEYS_PER_MODEL = 120;
+const DISCOVERY_EARLIEST = new Date("2021-01-01T00:00:00.000Z");
+const DISCOVERY_WINDOW_DAYS = 89;
+const MAX_DISCOVERY_WINDOWS = 28;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -45,6 +67,12 @@ export type LegacySeoShoplingOptionGroup = {
   ptnGoodsCd: string;
   productName: string;
   saleStatus: string;
+  originalPrice: string;
+  salePrice: string;
+  listPrice: string;
+  originName: string;
+  detailHtml: string;
+  imageUrls: string[];
   options: LegacySeoShoplingOption[];
 };
 
@@ -113,8 +141,12 @@ function compactXml(parts: string[]) {
   return `<?xml version="1.0" encoding="UTF-8"?>${parts.join("")}`;
 }
 
+function formatYmd(date: Date) {
+  return date.toISOString().slice(0, 10).replaceAll("-", "");
+}
+
 function todayYmd() {
-  return new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  return formatYmd(new Date());
 }
 
 export function buildLegacyShoplingProductLookupXml(
@@ -140,6 +172,25 @@ export function buildLegacyShoplingProductLookupXml(
   ]);
 }
 
+export function buildLegacyShoplingModelDiscoveryXml(
+  config: Pick<ShoplingReadConfig, "loginId" | "companyId" | "authKey">,
+  startDate: Date,
+  endDate: Date,
+) {
+  return compactXml([
+    "<reqst><apiProdGather>",
+    `<login_id>${xmlCdata(config.loginId)}</login_id>`,
+    `<company_id>${xmlCdata(config.companyId)}</company_id>`,
+    `<api_auth_key>${xmlCdata(config.authKey)}</api_auth_key>`,
+    `<search_tp>${xmlCdata("등록일")}</search_tp>`,
+    `<start_dt>${formatYmd(startDate)}</start_dt>`,
+    `<end_dt>${formatYmd(endDate)}</end_dt>`,
+    `<prod_fields>${xmlCdata(MODEL_DISCOVERY_FIELDS)}</prod_fields>`,
+    "<opt_yn>N</opt_yn><attri_yn>N</attri_yn>",
+    "</apiProdGather></reqst>",
+  ]);
+}
+
 function shoplingEnvironment() {
   return {
     SHOPLING_LOGIN_ID: process.env.SHOPLING_LOGIN_ID,
@@ -152,6 +203,22 @@ function shoplingEnvironment() {
   };
 }
 
+async function postProductGather(config: ShoplingReadConfig, xml: string) {
+  const response = await postShoplingXml(config.productsUrl, xml, {
+    headers: {
+      accept: "application/xml, text/xml",
+      "content-type": "application/xml; charset=utf-8",
+      "user-agent": "commerce-os-legacy-seo-shopling-read/1.0",
+    },
+    timeoutMs: 45_000,
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`LEGACY_SEO_SHOPLING_PRODUCTS_HTTP_${response.status}`);
+  }
+  return parseShoplingReadResponse("products", body).map(record);
+}
+
 async function fetchExactShoplingProducts(
   config: ShoplingReadConfig,
   goodsKeys: string[],
@@ -159,21 +226,53 @@ async function fetchExactShoplingProducts(
   const result: UnknownRecord[] = [];
   for (let index = 0; index < goodsKeys.length; index += MAX_GOODS_PER_REQUEST) {
     const chunk = goodsKeys.slice(index, index + MAX_GOODS_PER_REQUEST);
-    const xml = buildLegacyShoplingProductLookupXml(config, chunk);
-    const response = await postShoplingXml(config.productsUrl, xml, {
-      headers: {
-        accept: "application/xml, text/xml",
-        "content-type": "application/xml; charset=utf-8",
-        "user-agent": "commerce-os-legacy-seo-shopling-read/1.0",
-      },
-      timeoutMs: 45_000,
-    });
-    const body = await response.text();
-    if (!response.ok) {
-      throw new Error(`LEGACY_SEO_SHOPLING_PRODUCTS_HTTP_${response.status}`);
+    const rows = await postProductGather(
+      config,
+      buildLegacyShoplingProductLookupXml(config, chunk),
+    );
+    result.push(...rows);
+  }
+  return result;
+}
+
+function discoveryWindows(now = new Date()) {
+  const windows: Array<{ start: Date; end: Date }> = [];
+  let end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  for (let index = 0; index < MAX_DISCOVERY_WINDOWS; index += 1) {
+    if (end < DISCOVERY_EARLIEST) break;
+    const start = new Date(end);
+    start.setUTCDate(start.getUTCDate() - DISCOVERY_WINDOW_DAYS);
+    if (start < DISCOVERY_EARLIEST) start.setTime(DISCOVERY_EARLIEST.getTime());
+    windows.push({ start: new Date(start), end: new Date(end) });
+    end = new Date(start);
+    end.setUTCDate(end.getUTCDate() - 1);
+  }
+  return windows;
+}
+
+async function discoverGoodsKeysByModel(
+  config: ShoplingReadConfig,
+  modelNumbers: string[],
+) {
+  const wanted = new Set(modelNumbers.map(normalizeModel).filter(Boolean));
+  const result = new Map<string, Set<string>>();
+  if (!wanted.size) return result;
+
+  for (const window of discoveryWindows()) {
+    const rows = await postProductGather(
+      config,
+      buildLegacyShoplingModelDiscoveryXml(config, window.start, window.end),
+    );
+    for (const row of rows) {
+      const model = normalizeModel(row.model_no);
+      if (!wanted.has(model)) continue;
+      const goodsKey = normalizeGoodsKey(row.goods_key);
+      if (!goodsKey) continue;
+      const keys = result.get(model) ?? new Set<string>();
+      keys.add(goodsKey);
+      result.set(model, keys);
     }
-    const rows = parseShoplingReadResponse("products", body);
-    for (const row of rows) result.push(record(row));
+    if ([...wanted].every((model) => (result.get(model)?.size ?? 0) > 0)) break;
   }
   return result;
 }
@@ -215,14 +314,27 @@ function mergeGoodsKeyOverrides(
       Array.isArray(rawKeys) ? rawKeys.map(normalizeGoodsKey) : [],
       MAX_GOODS_KEYS_PER_MODEL,
     );
-    // Tracker evidence is newest/closest to the actual legacy card, so add it
-    // before the Product Master history and cap the total request fan-out.
     const merged = new Set<string>(normalized);
     for (const key of existing) {
       if (merged.size >= MAX_GOODS_KEYS_PER_MODEL) break;
       merged.add(key);
     }
     if (merged.size) mapping.set(model, merged);
+  }
+  return mapping;
+}
+
+function mergeDiscoveredGoodsKeys(
+  mapping: Map<string, Set<string>>,
+  discovered: Map<string, Set<string>>,
+) {
+  for (const [model, keys] of discovered.entries()) {
+    const current = mapping.get(model) ?? new Set<string>();
+    for (const key of keys) {
+      if (current.size >= MAX_GOODS_KEYS_PER_MODEL) break;
+      current.add(key);
+    }
+    if (current.size) mapping.set(model, current);
   }
   return mapping;
 }
@@ -250,6 +362,15 @@ function optionGroupsFromRows(
         ptnGoodsCd: scalar(first.ptn_goods_cd),
         productName: scalar(first.prod_nm),
         saleStatus: scalar(first.sale_status),
+        originalPrice: scalar(first.org_price),
+        salePrice: scalar(first.sale_price),
+        listPrice: scalar(first.list_price),
+        originName: scalar(first.origin_nm),
+        detailHtml: scalar(first.dtl_desc),
+        imageUrls: unique(
+          [first.img_0, first.img_1, first.img_2, first.img_3, first.img_4],
+          5,
+        ),
         options,
       } satisfies LegacySeoShoplingOptionGroup;
     })
@@ -263,18 +384,31 @@ export async function loadLegacySeoShoplingEvidence(
   const requestedModels = unique(modelNumbers.map(normalizeModel), 250);
   if (!requestedModels.length) return new Map();
 
-  const snapshot = await loadProductPlanningSnapshot();
+  const [snapshot, config] = await Promise.all([
+    loadProductPlanningSnapshot(),
+    Promise.resolve(shoplingReadConfigFromEnv(shoplingEnvironment())),
+  ]);
   const mapping = mergeGoodsKeyOverrides(
     goodsKeysByModelFromPlanning(snapshot),
     goodsKeyOverrides,
   );
+
+  const discoveryModels = requestedModels.filter(
+    (model) =>
+      isConfirmedLegacyInventoryModel(model) &&
+      (mapping.get(model)?.size ?? 0) === 0,
+  );
+  if (discoveryModels.length) {
+    const discovered = await discoverGoodsKeysByModel(config, discoveryModels);
+    mergeDiscoveredGoodsKeys(mapping, discovered);
+  }
+
   const requestedGoodsKeys = unique(
     requestedModels.flatMap((model) => [...(mapping.get(model) ?? [])]),
     2500,
   );
   if (!requestedGoodsKeys.length) return new Map();
 
-  const config = shoplingReadConfigFromEnv(shoplingEnvironment());
   const rows = await fetchExactShoplingProducts(config, requestedGoodsKeys);
   const rowsByGoodsKey = new Map<string, UnknownRecord[]>();
   for (const row of rows) {
