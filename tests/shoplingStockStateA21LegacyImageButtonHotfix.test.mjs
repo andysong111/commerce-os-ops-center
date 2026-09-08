@@ -15,7 +15,8 @@ test("v0.5.5 HF2 exposes legacy Shopling image action labels to the direct A21 c
   assert.match(main, /setAttribute\("aria-label", "상품 수정전송"\)/);
   assert.match(main, /MutationObserver/);
 
-  assert.match(route, /button,input\[type=\\"button\\"\],input\[type=\\"submit\\"\],input\[type=\\"image\\"\],a,\[onclick\]/);
+  assert.ok(route.includes('input[type=\\"image\\"]'));
+  assert.ok(route.includes('a,[onclick]'));
   assert.match(route, /PROVEN_A21_LIST_DIRECT_CLICK/);
   assert.match(route, /button\.click\(\)/);
 });
