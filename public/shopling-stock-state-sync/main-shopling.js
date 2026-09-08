@@ -74,9 +74,8 @@
     return current === "전체정보" || selectOptionByLabel(target, "전체정보");
   }
 
-  // This is intentionally the same checkbox mutation sequence used by the proven
-  // A21 price-adjustment extension: real click first, then checked assignment,
-  // then input/change events. Do not replace this with header-select emulation.
+  // Exact sequence copied from the proven A21 price-adjustment extension:
+  // checkbox.click() -> checked assignment -> input/change events.
   function setCheckboxLikePriceExtension(checkbox, checked = true) {
     if (!(checkbox instanceof HTMLInputElement) || checkbox.type !== "checkbox" || checkbox.disabled) return false;
     try {
@@ -115,6 +114,41 @@
     });
   }
 
+  function bridgeHostCell(table, anchor) {
+    const anchorRow = anchor.closest("tr");
+    const anchorRect = elementRect(anchor);
+    if (anchorRow && anchorRect) {
+      const rows = [...table.querySelectorAll("tr")];
+      const anchorIndex = rows.indexOf(anchorRow);
+      const earlierRows = anchorIndex > 0 ? rows.slice(0, anchorIndex).reverse() : [];
+      for (const row of earlierRows) {
+        const cells = [...row.querySelectorAll(":scope > th, :scope > td")];
+        if (!cells.length) continue;
+        const anchorCenter = anchorRect.left + anchorRect.width / 2;
+        cells.sort((left, right) => {
+          const lr = elementRect(left);
+          const rr = elementRect(right);
+          const lc = lr ? lr.left + lr.width / 2 : Number.MAX_SAFE_INTEGER;
+          const rc = rr ? rr.left + rr.width / 2 : Number.MAX_SAFE_INTEGER;
+          return Math.abs(lc - anchorCenter) - Math.abs(rc - anchorCenter);
+        });
+        return cells[0] || null;
+      }
+    }
+
+    let caption = table.querySelector(`caption[${A21_PRICE_ROW_BRIDGE}-host="1"]`);
+    if (!(caption instanceof HTMLTableCaptionElement)) {
+      caption = document.createElement("caption");
+      caption.setAttribute(`${A21_PRICE_ROW_BRIDGE}-host`, "1");
+      caption.style.height = "0";
+      caption.style.padding = "0";
+      caption.style.margin = "0";
+      caption.style.overflow = "hidden";
+      table.insertBefore(caption, table.firstChild);
+    }
+    return caption;
+  }
+
   function installA21PriceRowBridge(root = document) {
     if (!isA21ListContext()) return;
     const tables = [];
@@ -131,7 +165,9 @@
           const rect = elementRect(box);
           return rect && rect.width > 0 && rect.height > 0;
         }) || boxes[0];
-        if (!anchor?.parentElement) continue;
+        if (!anchor) continue;
+        const host = bridgeHostCell(table, anchor);
+        if (!host) continue;
 
         bridge = document.createElement("input");
         bridge.type = "checkbox";
@@ -147,7 +183,7 @@
         bridge.style.padding = "0";
         bridge.style.pointerEvents = "none";
         bridge.style.verticalAlign = "middle";
-        anchor.parentElement.insertBefore(bridge, anchor);
+        host.appendChild(bridge);
       }
 
       const syncBridge = () => {
