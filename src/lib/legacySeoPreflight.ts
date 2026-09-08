@@ -1,6 +1,9 @@
 import { applyLegacySeoCanonicalPrices } from "@/lib/legacySeoCanonicalPrice";
 import { readDuplicateActiveLegacySeoModels } from "@/lib/legacySeoDuplicateModelGuard";
-import { legacySeoRegistrationExclusion } from "@/lib/legacySeoRegistrationPolicy";
+import {
+  legacySeoRegistrationExclusion,
+  legacySeoRegistrationExclusionFromPolicy,
+} from "@/lib/legacySeoRegistrationPolicy";
 import { recoverLegacySeoShoplingAssets } from "@/lib/legacySeoShoplingAssetRecovery";
 import { syncLegacySeoShoplingOptions } from "@/lib/legacySeoShoplingOptionSync";
 import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
@@ -127,11 +130,18 @@ export async function prepareLegacySeoPreflight(input: {
     itemIds,
   )).map(record);
   const initialById = new Map(items.map((item) => [text(item.id), item]));
+
+  // Missing normalized options are recoverable and must not be excluded before
+  // Shopling synchronization. Only an explicit stored exclusion policy is allowed
+  // to prevent the recovery attempt at this stage.
   const models = [...new Set(
     itemIds
       .map((id) => initialById.get(id))
       .filter((item): item is UnknownRecord => Boolean(item))
-      .filter((item) => !legacySeoRegistrationExclusion(item).excluded)
+      .filter(
+        (item) =>
+          !legacySeoRegistrationExclusionFromPolicy(item.legacySeoRegistrationPolicy).excluded,
+      )
       .map((item) => modelKey(item.modelNumber))
       .filter(Boolean),
   )].slice(0, 100);
@@ -152,7 +162,7 @@ export async function prepareLegacySeoPreflight(input: {
       duplicateModelGuardError = error instanceof Error ? error.message : String(error);
     }
   }
-  const canonicalModels = duplicateModelGuardError
+  const duplicateSafeModels = duplicateModelGuardError
     ? []
     : models.filter((modelNumber) => !duplicateActiveModels.has(modelNumber));
 
@@ -172,6 +182,13 @@ export async function prepareLegacySeoPreflight(input: {
     }
   }
 
+  const optionSyncByModel = new Map<string, UnknownRecord>();
+  for (const value of array(optionSync?.results)) {
+    const result = record(value);
+    const modelNumber = modelKey(result.modelNumber);
+    if (modelNumber) optionSyncByModel.set(modelNumber, result);
+  }
+
   items = (await readProductLaunchNormalizedItems(
     input.config,
     input.identity.userId,
@@ -180,7 +197,7 @@ export async function prepareLegacySeoPreflight(input: {
 
   let assetRecoveryError = "";
   let assetRecovery: Awaited<ReturnType<typeof recoverLegacySeoShoplingAssets>> | null = null;
-  if (!optionSyncError && items.length) {
+  if (items.length) {
     try {
       assetRecovery = await recoverLegacySeoShoplingAssets({
         config: input.config,
@@ -198,9 +215,24 @@ export async function prepareLegacySeoPreflight(input: {
     itemIds,
   )).map(record);
 
+  // Canonical price writes are allowed only after the same model has a confirmed
+  // current-Shopling option set. A single failed model can no longer block every
+  // other model in the batch, while an unconfirmed model remains fail-closed.
+  const priceEligibleModels = new Set(
+    items
+      .filter((item) => !legacySeoRegistrationExclusion(item).excluded)
+      .filter((item) => syncedFromCurrentShopling(item))
+      .filter((item) => record(optionSyncByModel.get(modelKey(item.modelNumber))).failed !== true)
+      .map((item) => modelKey(item.modelNumber))
+      .filter(Boolean),
+  );
+  const canonicalModels = optionSyncError
+    ? []
+    : duplicateSafeModels.filter((modelNumber) => priceEligibleModels.has(modelNumber));
+
   let canonicalPriceError = "";
   let canonicalPrice: Awaited<ReturnType<typeof applyLegacySeoCanonicalPrices>> | null = null;
-  if (!optionSyncError && canonicalModels.length) {
+  if (canonicalModels.length) {
     try {
       canonicalPrice = await applyLegacySeoCanonicalPrices({
         config: input.config,
@@ -246,6 +278,9 @@ export async function prepareLegacySeoPreflight(input: {
     const exclusion = legacySeoRegistrationExclusion(item);
     const canonical = canonicalByModel.get(modelNumber);
     const duplicateActiveModel = duplicateActiveModels.get(modelNumber);
+    const syncResult = record(optionSyncByModel.get(modelNumber));
+    const syncFailed = syncResult.failed === true;
+    const shoplingConfirmed = syncedFromCurrentShopling(item);
     const issues: LegacySeoPreflightIssue[] = [];
     const add = (field: string, message: string) =>
       issues.push({ itemId, modelNumber, field, message });
@@ -253,7 +288,14 @@ export async function prepareLegacySeoPreflight(input: {
     if (exclusion.excluded) {
       add("policy", exclusion.reason || "이전상품 SEO 등록 제외 정책");
     }
-    if (optionSyncError) add("shoplingOptions", `Shopling 옵션 동기화 실패: ${optionSyncError}`);
+    if (optionSyncError) {
+      add("shoplingOptions", `Shopling 옵션 동기화 실패: ${optionSyncError}`);
+    } else if (syncFailed) {
+      add(
+        "shoplingOptions",
+        `Shopling 옵션 동기화 개별 실패: ${text(syncResult.reason) || "원인 미확인"}`,
+      );
+    }
     if (assetRecoveryError) add("detailAssets", `Shopling 상세/이미지 복구 실패: ${assetRecoveryError}`);
     for (const reason of assetIssuesByModel.get(modelNumber) ?? []) {
       add("detailAssets", reason);
@@ -271,6 +313,8 @@ export async function prepareLegacySeoPreflight(input: {
           "canonicalPrice",
           `동일 모델번호로 활성 상품이 ${duplicateActiveModel.itemIds.length}개 존재하여 자동 가격 매칭을 차단했습니다${names ? ` (${names})` : ""}.`,
         );
+      } else if (optionSyncError || syncFailed || !shoplingConfirmed) {
+        add("canonicalPrice", "현재 Shopling 옵션/B코드 확정 전이라 중국주문 최종가격 적용을 차단했습니다.");
       } else {
         if (canonicalPriceError) {
           add("canonicalPrice", `중국주문 최종가격 적용 실패: ${canonicalPriceError}`);
@@ -315,6 +359,7 @@ export async function prepareLegacySeoPreflight(input: {
     duplicateActiveModels: [...duplicateActiveModels.values()],
     optionSync,
     optionSyncError,
+    priceEligibleModels: [...priceEligibleModels],
     assetRecovery,
     assetRecoveryError,
     canonicalPrice,
