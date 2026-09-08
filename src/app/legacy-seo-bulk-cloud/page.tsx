@@ -1,5 +1,6 @@
 import Link from "next/link";
 import LegacySeoBulkCloudClient from "./LegacySeoBulkCloudClient";
+import LegacySeoBulkListFetchShim from "./LegacySeoBulkListFetchShim";
 import LegacySeoBulkOptionSyncEnhancer from "./LegacySeoBulkOptionSyncEnhancer";
 import LegacySeoBulkRunAllEnhancer from "./LegacySeoBulkRunAllEnhancer";
 import LegacySeoBulkSelectEnhancer from "./LegacySeoBulkSelectEnhancer";
@@ -70,6 +71,7 @@ export default function LegacySeoBulkCloudPage() {
           </div>
         </div>
 
+        <LegacySeoBulkListFetchShim />
         <LegacySeoBulkSelectEnhancer />
         <LegacySeoBulkOptionSyncEnhancer />
         <LegacySeoBulkRunAllEnhancer />
