@@ -95,6 +95,35 @@ function discontinuedPriceRow(row: CanonicalPriceRow) {
   return text(row.price_status).includes("단종") || text(row.price_status).includes("적용제외");
 }
 
+function canonicalValueSignature(row: CanonicalPriceRow) {
+  const cost = positiveNumber(row.unit_cost_krw);
+  const sale = Math.round(positiveNumber(row.base_sale_price_krw));
+  return cost > 0 && sale > 0 ? `${cost.toFixed(6)}|${sale}` : "";
+}
+
+function sameCanonicalValues(rows: CanonicalPriceRow[]) {
+  if (!rows.length) return false;
+  const signatures = new Set(rows.map(canonicalValueSignature).filter(Boolean));
+  return signatures.size === 1 && rows.every((row) => Boolean(canonicalValueSignature(row)));
+}
+
+function uniqueProductNameMatch(
+  rows: CanonicalPriceRow[],
+  itemProductName: string,
+) {
+  const itemKey = legacySeoCanonicalOptionKey(itemProductName);
+  if (!itemKey) return null;
+  const exact = rows.filter(
+    (row) => legacySeoCanonicalOptionKey(row.product_name) === itemKey,
+  );
+  if (exact.length === 1) return exact[0];
+  const contains = rows.filter((row) => {
+    const rowKey = legacySeoCanonicalOptionKey(row.product_name);
+    return Boolean(rowKey) && (rowKey.includes(itemKey) || itemKey.includes(rowKey));
+  });
+  return contains.length === 1 ? contains[0] : null;
+}
+
 async function readActiveBatch(
   config: ProductLaunchAdminConfig,
   ownerId: string,
@@ -178,21 +207,34 @@ function matchCanonicalRow(
   option: UnknownRecord,
   activeRows: CanonicalPriceRow[],
   optionCount: number,
+  itemProductName: string,
 ) {
   const saleOption = text(record(option.option_payload).saleOption ?? option.sale_option);
   const key = legacySeoCanonicalOptionKey(saleOption);
-  const exact = activeRows.filter((row) =>
-    (row.option_key || legacySeoCanonicalOptionKey(row.sale_option)) === key,
+  const exact = activeRows.filter(
+    (row) => (row.option_key || legacySeoCanonicalOptionKey(row.sale_option)) === key,
   );
   if (exact.length === 1) return { row: exact[0], reason: "" };
   if (exact.length > 1) {
-    const exactProduct = exact.filter((row) =>
-      legacySeoCanonicalOptionKey(row.product_name).includes(key) && Boolean(key),
-    );
-    if (exactProduct.length === 1) return { row: exactProduct[0], reason: "" };
-    return { row: null, reason: "중국주문 최종가격 옵션이 중복되어 자동 매칭할 수 없음" };
+    if (sameCanonicalValues(exact)) {
+      return { row: exact[0], reason: "" };
+    }
+    const exactProduct = uniqueProductNameMatch(exact, itemProductName);
+    if (exactProduct) return { row: exactProduct, reason: "" };
+    return {
+      row: null,
+      reason: "중국주문 최종가격 옵션이 중복되고 원가/판매가가 달라 자동 매칭할 수 없음",
+    };
+  }
+
+  const productMatch = uniqueProductNameMatch(activeRows, itemProductName);
+  if (productMatch && optionCount === 1) {
+    return { row: productMatch, reason: "" };
   }
   if (optionCount === 1 && activeRows.length === 1) {
+    return { row: activeRows[0], reason: "" };
+  }
+  if (optionCount === 1 && sameCanonicalValues(activeRows)) {
     return { row: activeRows[0], reason: "" };
   }
   return { row: null, reason: "중국주문 최종가격에서 동일 옵션을 찾지 못함" };
@@ -305,7 +347,7 @@ export async function applyLegacySeoCanonicalPrices(input: {
   }
 
   const itemParams = new URLSearchParams({
-    select: "item_id,model_number",
+    select: "item_id,model_number,product_name",
     owner_id: `eq.${input.identity.userId}`,
     shopling_upload_status: "eq.완료",
     archived_at: "is.null",
@@ -394,7 +436,12 @@ export async function applyLegacySeoCanonicalPrices(input: {
     if (!excluded && activeRows.length && options.length) {
       for (const option of options) {
         const saleOption = text(record(option.option_payload).saleOption ?? option.sale_option);
-        const matched = matchCanonicalRow(option, activeRows, options.length);
+        const matched = matchCanonicalRow(
+          option,
+          activeRows,
+          options.length,
+          text(item.product_name),
+        );
         if (!matched.row) {
           unresolved.push({
             itemId,
