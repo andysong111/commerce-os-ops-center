@@ -117,3 +117,37 @@ test("option stock-sync extension accepts ON_SALE and forwards desiredStatus thr
   assert.match(background, /job:\s*\{[\s\S]*\.\.\.active\.job,[\s\S]*goodsKeys:/);
   assert.match(background, /API 상태변경 → A21 전건 직렬송신/);
 });
+
+test("SINGLE route keeps A4 as the first mutation and A21 as the sale-status transmission stage", async () => {
+  const background = await readFile("public/shopling-stock-state-sync/background-v052.js", "utf8");
+  assert.match(background, /productKind === "OPTION" \? \["A6", "A21_LIST"\] : \["A4", "A21_LIST"\]/);
+  assert.match(background, /stage: "A4"/);
+  assert.match(background, /A4 → A21 상품판매상태 송신/);
+});
+
+test("HF11 SINGLE A21 list delegates row selection to the literal price-extension engine without altering HF10 OPTION core", async () => {
+  const background = await readFile("public/shopling-stock-state-sync/background-v056.js", "utf8");
+  assert.match(background, /importScripts\("background-v055\.js"\)/);
+  assert.match(background, /PRICE_EXTENSION_CONTENT_A21_LITERAL_SINGLE_LIST_ONLY/);
+  assert.match(background, /active\.job\?\.productKind === "SINGLE"/);
+  assert.match(background, /goodsKeys: \[goodsKey\]/);
+  assert.match(background, /type: CANONICAL_ASSIGN/);
+});
+
+test("HF11 SINGLE popup sends only product sale status and maps both SOLD_OUT and ON_SALE explicitly", async () => {
+  const popup = await readFile("public/shopling-stock-state-sync/content-stock-single-popup-v011.js", "utf8");
+  assert.match(popup, /상품판매상태송신/);
+  assert.match(popup, /desiredStatus === "SOLD_OUT" \? "품절" : desiredStatus === "ON_SALE" \? "판매중"/);
+  assert.match(popup, /\^상품수정\\s\*송신\$/);
+  assert.match(popup, /clickViaMain\(button\)/);
+  assert.doesNotMatch(popup, /옵션송신만/);
+});
+
+test("HF11 SINGLE result waits for a stable product-complete footer and closes only its managed result window/tab", async () => {
+  const background = await readFile("public/shopling-stock-state-sync/background-v056.js", "utf8");
+  assert.match(background, /STABLE_MS = 2_500/);
+  assert.match(background, /productComplete: \/상품\\s\*수정\\s\*전송이\\s\*완료되었습니다/);
+  assert.match(background, /closeManagedSinglePopup/);
+  assert.match(background, /chrome\.windows\.remove\(windowId\)/);
+  assert.match(background, /chrome\.tabs\.remove\(tabId\)/);
+});
