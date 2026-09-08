@@ -1,6 +1,8 @@
 // Compose the unchanged mutation template with the tested maximum-range search policy.
 // v0.5.3 keeps A6 as the live source of truth and fixes legacy result rows where
 // B-code is rendered in an input value instead of row textContent.
+// A21 keeps the exact goods-key safety checks, but drives Shopling's own header
+// select-all checkbox before opening the red 상품 수정전송 action.
 export function buildStockWorkerV030(base, policy) {
   function once(source, before, after) {
     if (source.split(before).length !== 2) throw new Error(`stock_worker_template_mismatch:${before.slice(0,70)}`);
@@ -120,6 +122,69 @@ export function buildStockWorkerV030(base, policy) {
     return match ? Number(match[1].replace(/,/g, "")) : null;
   }
 
+  function a21RowsForHeaderSelectV057(goodsKey) {
+    const bound = matchingRows(goodsKey).map((entry) => {
+      const boxes = [...entry.row.querySelectorAll('input[type="checkbox"]')].filter((box) => !box.disabled);
+      const checkbox = boxes.find((box) => visible(box)) || entry.checkbox || boxes[0] || null;
+      return { ...entry, checkbox };
+    }).filter((entry) => entry.checkbox);
+    const visibleBound = bound.filter((entry) => visible(entry.row) || visible(entry.checkbox));
+    return visibleBound.length ? visibleBound : bound;
+  }
+
+  function a21HeaderCheckboxV057(exactRows) {
+    if (!exactRows.length) return null;
+    const tableGroups = new Map();
+    for (const entry of exactRows) {
+      const table = entry.row.closest("table");
+      if (!table) continue;
+      if (!tableGroups.has(table)) tableGroups.set(table, []);
+      tableGroups.get(table).push(entry);
+    }
+    const ranked = [];
+    for (const [table, entries] of tableGroups.entries()) {
+      const rowBoxes = new Set(entries.map((entry) => entry.checkbox));
+      const firstRect = entries[0].checkbox.getBoundingClientRect();
+      const minTop = Math.min(...entries.map((entry) => entry.checkbox.getBoundingClientRect().top));
+      for (const checkbox of table.querySelectorAll('input[type="checkbox"]')) {
+        if (!(checkbox instanceof HTMLInputElement) || checkbox.disabled || rowBoxes.has(checkbox)) continue;
+        const rect = checkbox.getBoundingClientRect();
+        const row = checkbox.closest("tr");
+        const label = norm([checkbox.name || "", checkbox.id || "", checkbox.className || "", checkbox.getAttribute("onclick") || "", row?.textContent || ""].join(" "));
+        let score = entries.length * 1000;
+        if (checkbox.closest("thead") || checkbox.closest("th")) score += 5000;
+        if (rect.top <= minTop) score += 2000;
+        score += Math.max(0, 1000 - Math.abs(rect.left - firstRect.left) * 20);
+        if (/전체|all|check|select/i.test(label)) score += 800;
+        ranked.push({ checkbox, score });
+      }
+    }
+    ranked.sort((left, right) => right.score - left.score);
+    return ranked[0]?.checkbox || null;
+  }
+
+  async function selectA21HeaderAllV057(exactRows, expectedCount) {
+    const master = a21HeaderCheckboxV057(exactRows);
+    if (!master) {
+      return { ok: false, code: "A21_HEADER_SELECT_ALL_NOT_FOUND", count: 0, rows: exactRows, selectionMode: "SHOPLING_HEADER_SELECT_ALL" };
+    }
+    const selectedCount = () => exactRows.filter((entry) => entry.checkbox.checked).length;
+    if (selectedCount() === expectedCount) {
+      return { ok: true, count: expectedCount, rows: exactRows, selectionMode: "SHOPLING_HEADER_SELECT_ALL_ALREADY" };
+    }
+    if (master.checked) {
+      if (!clickDirect(master)) return { ok: false, code: "A21_HEADER_SELECT_ALL_RESET_FAILED", count: selectedCount(), rows: exactRows, selectionMode: "SHOPLING_HEADER_SELECT_ALL" };
+      await sleep(120);
+    }
+    if (!clickDirect(master)) return { ok: false, code: "A21_HEADER_SELECT_ALL_CLICK_FAILED", count: selectedCount(), rows: exactRows, selectionMode: "SHOPLING_HEADER_SELECT_ALL" };
+    await sleep(220);
+    const count = selectedCount();
+    if (count !== expectedCount) {
+      return { ok: false, code: "A21_HEADER_SELECT_ALL_VERIFY_FAILED", count, rows: exactRows, selectionMode: "SHOPLING_HEADER_SELECT_ALL", masterChecked: Boolean(master.checked) };
+    }
+    return { ok: true, count, rows: exactRows, selectionMode: "SHOPLING_HEADER_SELECT_ALL", masterChecked: Boolean(master.checked) };
+  }
+
   async function runA21List(job, goodsKey) {`;
   source = once(source, oldA21Start, newA21Start);
   const oldA21Selection = `    const search = await searchGoodsKey(goodsKey);
@@ -134,21 +199,22 @@ export function buildStockWorkerV030(base, policy) {
     const search = await searchGoodsKey(goodsKey);
     if (!search.ok) return search;
     const reportedResultCount = a21TotalResultCountV042();
-    const exactRows = matchingRows(goodsKey);
+    const exactRows = a21RowsForHeaderSelectV057(goodsKey);
     if (!exactRows.length) return { ok: false, code: "A21_EXACT_RESULT_ROWS_NOT_FOUND", message: \`${'${goodsKey}'} A21 정확 goods key 행을 찾지 못했습니다.\`, evidence: { reportedResultCount, boundRowCount: 0, searchField: search.fieldLabel } };
     const reportedCountAvailable = Number.isInteger(reportedResultCount) && reportedResultCount > 0;
     if (reportedCountAvailable && reportedResultCount > 200) return { ok: false, code: "A21_RESULT_OVER_200_BATCH_LIMIT", message: \`${'${goodsKey}'} A21 조회결과가 ${'${reportedResultCount}'}건으로 200건을 초과해 부분 전송을 차단했습니다.\`, evidence: { reportedResultCount, boundRowCount: exactRows.length, batchLimit: 200, searchField: search.fieldLabel } };
     if (!reportedCountAvailable && exactRows.length >= 200) return { ok: false, code: "A21_RESULT_COUNT_UNAVAILABLE_AT_BATCH_LIMIT", message: \`${'${goodsKey}'} A21 총 조회건수 문구가 없고 정확 행이 200건에 도달해 다음 페이지 가능성을 배제할 수 없어 전송을 차단했습니다.\`, evidence: { reportedResultCount, boundRowCount: exactRows.length, batchLimit: 200, searchField: search.fieldLabel } };
     const totalResultCount = reportedCountAvailable ? reportedResultCount : exactRows.length;
     const resultCountSource = reportedCountAvailable ? "SHOPLING_TOTAL_TEXT" : "EXACT_BOUND_ROWS";
-    const selected = selectOnlyMatchingRows(goodsKey);
-    if (!selected.ok || selected.count !== totalResultCount) return { ok: false, code: "A21_EXACT_BATCH_SELECTION_FAILED", message: \`${'${goodsKey}'} A21 기대 ${'${totalResultCount}'}건 중 정확 goods key 행 ${'${selected.count}'}건만 선택되어 전송을 차단했습니다.\`, evidence: { selectedCount: selected.count, totalResultCount, reportedResultCount, resultCountSource, boundRowCount: exactRows.length, batchLimit: 200, searchField: search.fieldLabel } };
+    if (exactRows.length !== totalResultCount) return { ok: false, code: "A21_EXACT_ROW_BINDING_MISMATCH", message: \`${'${goodsKey}'} A21 조회 ${'${totalResultCount}'}건과 실제 연결된 행 ${'${exactRows.length}'}건이 달라 전체선택을 차단했습니다.\`, evidence: { totalResultCount, reportedResultCount, resultCountSource, boundRowCount: exactRows.length, batchLimit: 200, searchField: search.fieldLabel } };
+    const selected = await selectA21HeaderAllV057(exactRows, totalResultCount);
+    if (!selected.ok || selected.count !== totalResultCount) return { ok: false, code: selected.code || "A21_HEADER_SELECT_ALL_FAILED", message: \`${'${goodsKey}'} A21 전체선택 후 ${'${totalResultCount}'}건 체크 검증에 실패했습니다.\`, evidence: { selectedCount: selected.count, totalResultCount, reportedResultCount, resultCountSource, boundRowCount: exactRows.length, batchLimit: 200, searchField: search.fieldLabel, selectionMode: selected.selectionMode, masterChecked: selected.masterChecked } };
     const button = buttonByText(/^상품\\s*수정전송$/i);`;
   source = once(source, oldA21Selection, newA21Selection);
   source = once(
     source,
     'message: `A21 goods key ${goodsKey} 정확 일치 상품의 수정전송 팝업을 열었습니다.`, evidence: { goodsKey, selectedRows: selected.count, searchField: search.fieldLabel, alerts: click.alerts }',
-    'message: `A21 goods key ${goodsKey} 정확 일치 쇼핑몰 행 ${selected.count}건의 수정전송 팝업을 열었습니다.`, evidence: { goodsKey, selectedRows: selected.count, totalResultCount, batchLimit: 200, searchField: search.fieldLabel, alerts: click.alerts }',
+    'message: `A21 goods key ${goodsKey} 전체선택 ${selected.count}건 → 상품 수정전송 팝업을 열었습니다.`, evidence: { goodsKey, selectedRows: selected.count, totalResultCount, batchLimit: 200, searchField: search.fieldLabel, selectionMode: selected.selectionMode, alerts: click.alerts }',
   );
 
   // Live A6: one B-code may appear under several Shopling products. Select every exact B-code row,
