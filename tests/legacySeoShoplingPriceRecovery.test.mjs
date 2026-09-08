@@ -1,47 +1,47 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
-  parseShoplingKrw,
-  resolveLegacyShoplingOptionSalePrice,
-} from "../src/lib/legacySeoShoplingPriceMath.ts";
 
-test("Shopling 판매가와 옵션 추가금액으로 실제 옵션 기준판매가를 복구한다", () => {
-  assert.equal(parseShoplingKrw("12,300원"), 12300);
-  assert.equal(resolveLegacyShoplingOptionSalePrice("10,000", "2,500"), 12500);
-  assert.equal(resolveLegacyShoplingOptionSalePrice("10,000", "-1,000"), 9000);
-  assert.equal(resolveLegacyShoplingOptionSalePrice("0", "2,500"), 0);
-  assert.equal(resolveLegacyShoplingOptionSalePrice("잘못된값", "100"), 0);
-});
-
-test("이전상품 가격복구는 Shopling sale_price + optAmt를 쓰고 정규화 옵션에 저장한다", async () => {
+test("이전상품 가격권위는 Shopling 현재 판매가가 아니라 중국주문 최종확정표다", async () => {
   const source = await readFile(
     new URL("../src/lib/legacySeoShoplingPriceRecovery.ts", import.meta.url),
     "utf8",
   );
-  assert.match(source, /"sale_price"/);
-  assert.match(source, /shoplingRow\.optAmt/);
-  assert.match(source, /resolveLegacyShoplingOptionSalePrice/);
-  assert.match(source, /base_sale_price_krw: price/);
-  assert.match(source, /shopling-live-sale-v1/);
+  assert.match(source, /prepareLegacySeoPreflight/);
+  assert.match(source, /china_order_final_confirmed_v4/);
+  assert.doesNotMatch(source, /sale_price/);
+  assert.doesNotMatch(source, /shoplingRow\.optAmt/);
+  assert.doesNotMatch(source, /resolveLegacyShoplingOptionSalePrice/);
 });
 
-test("샵플링 신규등록 직전에 현재 판매가 복구를 다시 실행해 0원 등록을 차단한다", async () => {
-  const route = await readFile(
-    new URL("../src/app/api/legacy-seo-run-jobs/route.ts", import.meta.url),
+test("중국주문 최종가격 적용기는 원가와 최종확정 판매가를 함께 정규화 옵션에 저장한다", async () => {
+  const source = await readFile(
+    new URL("../src/lib/legacySeoCanonicalPrice.ts", import.meta.url),
     "utf8",
   );
-  assert.match(route, /recoverLegacySeoShoplingPrices/);
-  assert.match(route, /Shopling 현재 판매가 복구 실패/);
-  assert.match(route, /legacySeoRegistrationExclusion/);
+  assert.match(source, /legacy_seo_canonical_prices/);
+  assert.match(source, /unit_cost_krw: integerUnitCost/);
+  assert.match(source, /base_sale_price_krw: finalSalePrice/);
+  assert.match(source, /unitCostKrwExact/);
+  assert.match(source, /finalSalePriceKrw/);
+  assert.match(source, /price_status/);
 });
 
-test("임시 cron은 0원 옵션만 대상으로 가격복구를 반복한다", async () => {
-  const route = await readFile(
-    new URL("../src/app/api/cron/legacy-seo-price-recovery/route.ts", import.meta.url),
+test("SEO RUN 큐 삽입 전에 옵션·B코드·원가·판매가·상세·대표·부가이미지 사전점검을 강제한다", async () => {
+  const server = await readFile(
+    new URL("../src/lib/legacySeoRunJobServer.ts", import.meta.url),
     "utf8",
   );
-  assert.match(route, /base_sale_price_krw: "eq\.0"/);
-  assert.match(route, /recoverLegacySeoShoplingPrices/);
-  assert.match(route, /TEMPORARY_RECOVERY_EXPIRES_AT/);
+  const preflight = await readFile(
+    new URL("../src/lib/legacySeoPreflight.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(server, /prepareLegacySeoPreflight/);
+  assert.match(server, /LEGACY_SEO_PREFLIGHT_BLOCKED/);
+  assert.match(preflight, /Shopling 옵션\/B코드/);
+  assert.match(preflight, /중국주문 최종확정 판매가/);
+  assert.match(preflight, /중국주문 최종확정 원가/);
+  assert.match(preflight, /상세페이지 HTML/);
+  assert.match(preflight, /대표이미지/);
+  assert.match(preflight, /부가이미지/);
 });
