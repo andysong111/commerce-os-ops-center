@@ -1,5 +1,6 @@
 import { applyLegacySeoCanonicalPrices } from "@/lib/legacySeoCanonicalPrice";
 import { legacySeoRegistrationExclusion } from "@/lib/legacySeoRegistrationPolicy";
+import { recoverLegacySeoShoplingAssets } from "@/lib/legacySeoShoplingAssetRecovery";
 import { syncLegacySeoShoplingOptions } from "@/lib/legacySeoShoplingOptionSync";
 import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
 import type {
@@ -156,6 +157,26 @@ export async function prepareLegacySeoPreflight(input: {
     itemIds,
   )).map(record);
 
+  let assetRecoveryError = "";
+  let assetRecovery: Awaited<ReturnType<typeof recoverLegacySeoShoplingAssets>> | null = null;
+  if (!optionSyncError && items.length) {
+    try {
+      assetRecovery = await recoverLegacySeoShoplingAssets({
+        config: input.config,
+        identity: input.identity,
+        items,
+      });
+    } catch (error) {
+      assetRecoveryError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  items = (await readProductLaunchNormalizedItems(
+    input.config,
+    input.identity.userId,
+    itemIds,
+  )).map(record);
+
   let canonicalPriceError = "";
   let canonicalPrice: Awaited<ReturnType<typeof applyLegacySeoCanonicalPrices>> | null = null;
   if (!optionSyncError && models.length) {
@@ -179,6 +200,13 @@ export async function prepareLegacySeoPreflight(input: {
   const canonicalByModel = new Map(
     (canonicalPrice?.results ?? []).map((result) => [modelKey(result.modelNumber), result] as const),
   );
+  const assetIssuesByModel = new Map<string, string[]>();
+  for (const issue of assetRecovery?.unresolved ?? []) {
+    const modelNumber = modelKey(issue.modelNumber);
+    const values = assetIssuesByModel.get(modelNumber) ?? [];
+    values.push(issue.reason);
+    assetIssuesByModel.set(modelNumber, values);
+  }
   const results: LegacySeoPreflightItem[] = [];
 
   for (const itemId of itemIds) {
@@ -204,6 +232,10 @@ export async function prepareLegacySeoPreflight(input: {
       add("policy", exclusion.reason || "이전상품 SEO 등록 제외 정책");
     }
     if (optionSyncError) add("shoplingOptions", `Shopling 옵션 동기화 실패: ${optionSyncError}`);
+    if (assetRecoveryError) add("detailAssets", `Shopling 상세/이미지 복구 실패: ${assetRecoveryError}`);
+    for (const reason of assetIssuesByModel.get(modelNumber) ?? []) {
+      add("detailAssets", reason);
+    }
     if (canonicalPriceError) add("canonicalPrice", `중국주문 최종가격 적용 실패: ${canonicalPriceError}`);
     if (!canonicalPrice?.batchReady) {
       const firstReason = canonical?.unresolved?.[0]?.reason;
@@ -241,6 +273,8 @@ export async function prepareLegacySeoPreflight(input: {
     issueCount,
     optionSync,
     optionSyncError,
+    assetRecovery,
+    assetRecoveryError,
     canonicalPrice,
     canonicalPriceError,
     items,
