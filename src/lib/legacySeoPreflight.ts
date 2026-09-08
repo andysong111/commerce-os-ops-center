@@ -1,4 +1,5 @@
 import { applyLegacySeoCanonicalPrices } from "@/lib/legacySeoCanonicalPrice";
+import { readDuplicateActiveLegacySeoModels } from "@/lib/legacySeoDuplicateModelGuard";
 import { legacySeoRegistrationExclusion } from "@/lib/legacySeoRegistrationPolicy";
 import { recoverLegacySeoShoplingAssets } from "@/lib/legacySeoShoplingAssetRecovery";
 import { syncLegacySeoShoplingOptions } from "@/lib/legacySeoShoplingOptionSync";
@@ -135,6 +136,26 @@ export async function prepareLegacySeoPreflight(input: {
       .filter(Boolean),
   )].slice(0, 100);
 
+  let duplicateModelGuardError = "";
+  let duplicateActiveModels = new Map<
+    string,
+    { modelNumber: string; itemIds: string[]; productNames: string[] }
+  >();
+  if (models.length) {
+    try {
+      duplicateActiveModels = await readDuplicateActiveLegacySeoModels({
+        config: input.config,
+        ownerId: input.identity.userId,
+        requestedModels: models,
+      });
+    } catch (error) {
+      duplicateModelGuardError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const canonicalModels = duplicateModelGuardError
+    ? []
+    : models.filter((modelNumber) => !duplicateActiveModels.has(modelNumber));
+
   let optionSyncError = "";
   let optionSync: UnknownRecord | null = null;
   if (models.length) {
@@ -179,12 +200,12 @@ export async function prepareLegacySeoPreflight(input: {
 
   let canonicalPriceError = "";
   let canonicalPrice: Awaited<ReturnType<typeof applyLegacySeoCanonicalPrices>> | null = null;
-  if (!optionSyncError && models.length) {
+  if (!optionSyncError && canonicalModels.length) {
     try {
       canonicalPrice = await applyLegacySeoCanonicalPrices({
         config: input.config,
         identity: input.identity,
-        modelNumbers: models,
+        modelNumbers: canonicalModels,
       });
     } catch (error) {
       canonicalPriceError = error instanceof Error ? error.message : String(error);
@@ -224,6 +245,7 @@ export async function prepareLegacySeoPreflight(input: {
     const modelNumber = modelKey(item.modelNumber);
     const exclusion = legacySeoRegistrationExclusion(item);
     const canonical = canonicalByModel.get(modelNumber);
+    const duplicateActiveModel = duplicateActiveModels.get(modelNumber);
     const issues: LegacySeoPreflightIssue[] = [];
     const add = (field: string, message: string) =>
       issues.push({ itemId, modelNumber, field, message });
@@ -236,18 +258,36 @@ export async function prepareLegacySeoPreflight(input: {
     for (const reason of assetIssuesByModel.get(modelNumber) ?? []) {
       add("detailAssets", reason);
     }
-    if (canonicalPriceError) add("canonicalPrice", `중국주문 최종가격 적용 실패: ${canonicalPriceError}`);
-    if (!canonicalPrice?.batchReady) {
-      const firstReason = canonical?.unresolved?.[0]?.reason;
-      add("canonicalPrice", firstReason || "중국주문 최종가격 원장이 완전 적재되지 않았습니다.");
-    } else if (canonical?.excluded) {
-      add("canonicalPrice", canonical.excludedReason || "중국주문 최종확정표 단종/적용제외");
-    } else if (canonical && canonical.unresolved.length) {
-      for (const issue of canonical.unresolved) {
-        add("canonicalPrice", `${issue.saleOption ? `${issue.saleOption}: ` : ""}${issue.reason}`);
+
+    if (!exclusion.excluded) {
+      if (duplicateModelGuardError) {
+        add(
+          "canonicalPrice",
+          `중복 모델번호 안전검사 실패로 가격 적용을 차단했습니다: ${duplicateModelGuardError}`,
+        );
+      } else if (duplicateActiveModel) {
+        const names = duplicateActiveModel.productNames.filter(Boolean).join(" / ");
+        add(
+          "canonicalPrice",
+          `동일 모델번호로 활성 상품이 ${duplicateActiveModel.itemIds.length}개 존재하여 자동 가격 매칭을 차단했습니다${names ? ` (${names})` : ""}.`,
+        );
+      } else {
+        if (canonicalPriceError) {
+          add("canonicalPrice", `중국주문 최종가격 적용 실패: ${canonicalPriceError}`);
+        }
+        if (!canonicalPrice?.batchReady) {
+          const firstReason = canonical?.unresolved?.[0]?.reason;
+          add("canonicalPrice", firstReason || "중국주문 최종가격 원장이 완전 적재되지 않았습니다.");
+        } else if (canonical?.excluded) {
+          add("canonicalPrice", canonical.excludedReason || "중국주문 최종확정표 단종/적용제외");
+        } else if (canonical && canonical.unresolved.length) {
+          for (const issue of canonical.unresolved) {
+            add("canonicalPrice", `${issue.saleOption ? `${issue.saleOption}: ` : ""}${issue.reason}`);
+          }
+        } else if (!canonical) {
+          add("canonicalPrice", "중국주문 최종확정표에서 모델을 찾지 못했습니다.");
+        }
       }
-    } else if (!canonical && !exclusion.excluded) {
-      add("canonicalPrice", "중국주문 최종확정표에서 모델을 찾지 못했습니다.");
     }
 
     if (!exclusion.excluded && !canonical?.excluded) {
@@ -271,6 +311,8 @@ export async function prepareLegacySeoPreflight(input: {
     excludedCount: results.filter((result) => result.excluded).length,
     failedCount: results.filter((result) => !result.ready && !result.excluded).length,
     issueCount,
+    duplicateModelGuardError,
+    duplicateActiveModels: [...duplicateActiveModels.values()],
     optionSync,
     optionSyncError,
     assetRecovery,
