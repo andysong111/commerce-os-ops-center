@@ -22,8 +22,13 @@ const MAX_EVIDENCE_TITLES = 32;
 const MAX_EVIDENCE_KEYWORDS = 120;
 const MAX_EVIDENCE_CATEGORIES = 12;
 const MAX_EVIDENCE_OPTIONS = 60;
+const MAX_GOODS_KEYS_PER_MODEL = 120;
 
 type UnknownRecord = Record<string, unknown>;
+
+export type LegacySeoGoodsKeyOverrides =
+  | ReadonlyMap<string, readonly string[]>
+  | Record<string, readonly string[]>;
 
 export type LegacySeoShoplingOption = {
   optionName: string;
@@ -191,6 +196,37 @@ function goodsKeysByModelFromPlanning(
   return result;
 }
 
+function overrideEntries(overrides?: LegacySeoGoodsKeyOverrides) {
+  if (!overrides) return [] as Array<[string, readonly string[]]>;
+  return overrides instanceof Map
+    ? [...overrides.entries()]
+    : Object.entries(overrides);
+}
+
+function mergeGoodsKeyOverrides(
+  mapping: Map<string, Set<string>>,
+  overrides?: LegacySeoGoodsKeyOverrides,
+) {
+  for (const [rawModel, rawKeys] of overrideEntries(overrides)) {
+    const model = normalizeModel(rawModel);
+    if (!model) continue;
+    const existing = mapping.get(model) ?? new Set<string>();
+    const normalized = unique(
+      Array.isArray(rawKeys) ? rawKeys.map(normalizeGoodsKey) : [],
+      MAX_GOODS_KEYS_PER_MODEL,
+    );
+    // Tracker evidence is newest/closest to the actual legacy card, so add it
+    // before the Product Master history and cap the total request fan-out.
+    const merged = new Set<string>(normalized);
+    for (const key of existing) {
+      if (merged.size >= MAX_GOODS_KEYS_PER_MODEL) break;
+      merged.add(key);
+    }
+    if (merged.size) mapping.set(model, merged);
+  }
+  return mapping;
+}
+
 function optionGroupsFromRows(
   goodsKeys: string[],
   rowsByGoodsKey: Map<string, UnknownRecord[]>,
@@ -222,12 +258,16 @@ function optionGroupsFromRows(
 
 export async function loadLegacySeoShoplingEvidence(
   modelNumbers: string[],
+  goodsKeyOverrides?: LegacySeoGoodsKeyOverrides,
 ): Promise<Map<string, LegacySeoShoplingEvidence>> {
   const requestedModels = unique(modelNumbers.map(normalizeModel), 250);
   if (!requestedModels.length) return new Map();
 
   const snapshot = await loadProductPlanningSnapshot();
-  const mapping = goodsKeysByModelFromPlanning(snapshot);
+  const mapping = mergeGoodsKeyOverrides(
+    goodsKeysByModelFromPlanning(snapshot),
+    goodsKeyOverrides,
+  );
   const requestedGoodsKeys = unique(
     requestedModels.flatMap((model) => [...(mapping.get(model) ?? [])]),
     2500,
@@ -247,7 +287,10 @@ export async function loadLegacySeoShoplingEvidence(
 
   const result = new Map<string, LegacySeoShoplingEvidence>();
   for (const model of requestedModels) {
-    const goodsKeys = unique([...(mapping.get(model) ?? [])].map(normalizeGoodsKey), 500);
+    const goodsKeys = unique(
+      [...(mapping.get(model) ?? [])].map(normalizeGoodsKey),
+      MAX_GOODS_KEYS_PER_MODEL,
+    );
     const modelRows = goodsKeys.flatMap((goodsKey) => rowsByGoodsKey.get(goodsKey) ?? []);
     const titles = unique(modelRows.map((row) => row.prod_nm), MAX_EVIDENCE_TITLES);
     const searchKeywords = unique(

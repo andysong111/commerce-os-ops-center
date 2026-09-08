@@ -1,6 +1,7 @@
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   loadLegacySeoShoplingEvidence,
+  type LegacySeoGoodsKeyOverrides,
   type LegacySeoShoplingEvidence,
   type LegacySeoShoplingOption,
   type LegacySeoShoplingOptionGroup,
@@ -32,6 +33,7 @@ type NormalizedItem = {
 
 const ITEM_TABLE = "product_launch_items";
 const OPTION_TABLE = "product_launch_options";
+const MAX_TRACKER_GOODS_KEYS_PER_MODEL = 120;
 
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -241,6 +243,29 @@ function mergeOptions(current: UnknownRecord[], group: LegacySeoShoplingOptionGr
   });
 }
 
+function trackerGoodsKeys(itemPayload: UnknownRecord) {
+  const detailSource = record(itemPayload.detailPageAssetSource);
+  const detailAsset = record(itemPayload.detailPageAsset);
+  const detailAssetSource = record(detailAsset.source);
+  const keys = [
+    ...array(detailSource.goodsKeys),
+    ...array(detailAssetSource.goodsKeys),
+    ...Object.values(record(itemPayload.shoplingProducts)).map((value) => record(value).goodsKey),
+  ]
+    .map(text)
+    .filter((value) => /^\d{5,12}$/.test(value));
+  return unique(keys).slice(-MAX_TRACKER_GOODS_KEYS_PER_MODEL).reverse();
+}
+
+function goodsKeyOverridesFromItems(items: NormalizedItem[]): LegacySeoGoodsKeyOverrides {
+  const result = new Map<string, readonly string[]>();
+  for (const item of items) {
+    const keys = trackerGoodsKeys(item.itemPayload);
+    if (keys.length) result.set(item.modelNumber, keys);
+  }
+  return result;
+}
+
 async function loadNormalizedItems(
   config: ProductLaunchAdminConfig,
   ownerId: string,
@@ -252,7 +277,7 @@ async function loadNormalizedItems(
     select:
       "item_id,model_number,item_payload,summary_payload,option_labels,option_barcodes,updated_at,updated_by",
     owner_id: `eq.${ownerId}`,
-    work_batch: "eq.등록완료건",
+    shopling_upload_status: "eq.완료",
     archived_at: "is.null",
     model_number: `in.(${postgrestIn(models)})`,
     limit: "500",
@@ -409,10 +434,15 @@ export async function syncLegacySeoShoplingOptions(input: {
   const requested = unique(input.modelNumbers.map(modelKey)).slice(0, 100);
   if (!requested.length) return { changedCount: 0, processedCount: 0, results: [] as SyncResult[] };
 
-  const [items, evidenceByModel] = await Promise.all([
-    loadNormalizedItems(input.config, input.identity.userId, requested),
-    loadLegacySeoShoplingEvidence(requested),
-  ]);
+  const items = await loadNormalizedItems(
+    input.config,
+    input.identity.userId,
+    requested,
+  );
+  const evidenceByModel = await loadLegacySeoShoplingEvidence(
+    requested,
+    goodsKeyOverridesFromItems(items),
+  );
   const now = new Date().toISOString();
   const results: SyncResult[] = [];
   let changedCount = 0;
