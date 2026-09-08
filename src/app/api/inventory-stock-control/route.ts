@@ -5,6 +5,7 @@ import {
   storeInventoryOperation,
 } from "@/lib/inventoryStockControl";
 import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/inventoryStockResetCorrections";
+import { validateInventoryStockoutResetIdentity } from "@/lib/inventoryStockResetIdentity";
 import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
@@ -197,7 +198,7 @@ export async function POST(request: Request) {
         { status: 400, headers: { "cache-control": "no-store" } },
       );
     }
-    const event = normalizeStockoutResetInput({
+    const normalizedEvent = normalizeStockoutResetInput({
       eventId: body.eventId,
       barcode: body.barcode,
       productKind: body.productKind,
@@ -205,6 +206,7 @@ export async function POST(request: Request) {
       occurredAt: body.occurredAt,
       note: body.note,
     });
+    const event = await validateInventoryStockoutResetIdentity(normalizedEvent);
     const stored = await storeInventoryOperation({
       operationType: INVENTORY_STOCKOUT_RESET_OPERATION_TYPE,
       sourceEventId: `inventory-stockout-reset:${encodeURIComponent(event.eventId)}`,
