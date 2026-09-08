@@ -139,6 +139,55 @@
     }
   }
 
+  function selectOptionByLabel(select, wanted) {
+    if (!(select instanceof HTMLSelectElement)) return false;
+    const option = [...select.options].find((item) => text(item.textContent) === wanted)
+      || [...select.options].find((item) => text(item.textContent).includes(wanted));
+    if (!option) return false;
+    select.value = option.value;
+    select.dispatchEvent(new Event("input", { bubbles: true }));
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    return text(select.options?.[select.selectedIndex]?.textContent) === wanted;
+  }
+
+  function ensureA21WholeInfo(table) {
+    const candidates = [...document.querySelectorAll("select")]
+      .filter((select) => {
+        const labels = [...select.options].map((option) => text(option.textContent));
+        return labels.includes("선택정보") && labels.includes("전체정보");
+      });
+    if (!candidates.length) return false;
+
+    const tableRect = elementRect(table);
+    if (tableRect) {
+      candidates.sort((left, right) => {
+        const lr = elementRect(left);
+        const rr = elementRect(right);
+        const leftDistance = lr ? Math.abs(lr.bottom - tableRect.top) + Math.max(0, lr.top - tableRect.top) * 3 : Number.MAX_SAFE_INTEGER;
+        const rightDistance = rr ? Math.abs(rr.bottom - tableRect.top) + Math.max(0, rr.top - tableRect.top) * 3 : Number.MAX_SAFE_INTEGER;
+        return leftDistance - rightDistance;
+      });
+    }
+
+    const target = candidates[0];
+    const current = text(target.options?.[target.selectedIndex]?.textContent);
+    return current === "전체정보" || selectOptionByLabel(target, "전체정보");
+  }
+
+  function setCheckboxLikePriceExtension(checkbox, checked = true) {
+    if (!(checkbox instanceof HTMLInputElement) || checkbox.type !== "checkbox" || checkbox.disabled) return false;
+    try {
+      if (checked && !checkbox.checked) checkbox.click();
+      if (!checked && checkbox.checked) checkbox.click();
+      checkbox.checked = checked;
+      checkbox.dispatchEvent(new Event("input", { bubbles: true }));
+      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      return checkbox.checked === checked;
+    } catch {
+      return false;
+    }
+  }
+
   function installA21HeaderSelectBridge(root = document) {
     const tables = [];
     if (root instanceof HTMLTableElement) tables.push(root);
@@ -155,8 +204,7 @@
         const rowBoxes = rowSelectionCheckboxes(table, headerCell);
         if (!rowBoxes.length) continue;
         const source = headerLegacySelectSource(table, headerCell, rowBoxes);
-        if (!source) continue;
-        source.setAttribute(A21_SELECT_ALL_SOURCE, "1");
+        if (source) source.setAttribute(A21_SELECT_ALL_SOURCE, "1");
 
         let bridge = headerCell.querySelector(`input[${A21_SELECT_ALL_BRIDGE}="1"]`);
         if (!(bridge instanceof HTMLInputElement)) {
@@ -187,15 +235,27 @@
           bridge.dataset.commerceOsBound = "1";
           bridge.addEventListener("click", () => {
             const liveRows = rowSelectionCheckboxes(table, headerCell);
-            if (liveRows.length && liveRows.every((checkbox) => checkbox.checked)) {
-              syncBridge();
-              return;
+            ensureA21WholeInfo(table);
+
+            let rowSelectionOk = liveRows.length > 0;
+            for (const checkbox of liveRows) {
+              if (!setCheckboxLikePriceExtension(checkbox, true)) rowSelectionOk = false;
             }
-            const liveSource = headerLegacySelectSource(table, headerCell, liveRows) || source;
-            clickLegacyControl(liveSource);
-            window.setTimeout(syncBridge, 60);
-            window.setTimeout(syncBridge, 180);
-            window.setTimeout(syncBridge, 450);
+            ensureA21WholeInfo(table);
+
+            if (!rowSelectionOk || !liveRows.every((checkbox) => checkbox.checked)) {
+              const liveSource = headerLegacySelectSource(table, headerCell, liveRows) || source;
+              if (liveSource) clickLegacyControl(liveSource);
+            }
+
+            const settle = () => {
+              ensureA21WholeInfo(table);
+              syncBridge();
+            };
+            window.setTimeout(settle, 20);
+            window.setTimeout(settle, 80);
+            window.setTimeout(settle, 180);
+            window.setTimeout(settle, 450);
           });
         }
 
