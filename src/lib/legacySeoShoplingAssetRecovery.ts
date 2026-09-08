@@ -138,6 +138,28 @@ function recoveredDetailAsset(
   };
 }
 
+async function readRawItemPayload(
+  config: ProductLaunchAdminConfig,
+  ownerId: string,
+  itemId: string,
+) {
+  const params = new URLSearchParams({
+    select: "item_payload",
+    owner_id: `eq.${ownerId}`,
+    item_id: `eq.${itemId}`,
+    limit: "1",
+  });
+  const { body } = await readProductLaunchStorageJson(
+    `${config.supabaseUrl}/rest/v1/${ITEM_TABLE}?${params.toString()}`,
+    {
+      headers: createSupabaseAdminHeaders(config.secretKey),
+      cache: "no-store",
+    },
+  );
+  const row = Array.isArray(body) ? record(body[0]) : {};
+  return record(row.item_payload);
+}
+
 async function patchItemAsset(
   config: ProductLaunchAdminConfig,
   ownerId: string,
@@ -147,16 +169,23 @@ async function patchItemAsset(
   const recovered = recoveredDetailAsset(item, group);
   if (!recovered.changed) return false;
   const itemId = text(item.id);
+  const rawPayload = await readRawItemPayload(config, ownerId, itemId);
+  if (!Object.keys(rawPayload).length) {
+    throw new Error(`LEGACY_SEO_RAW_ITEM_PAYLOAD_MISSING:${itemId}`);
+  }
+  const rawCurrentAsset = record(rawPayload.detailPageAsset);
+  const rawRecovery = recoveredDetailAsset(
+    { ...item, detailPageAsset: rawCurrentAsset },
+    group,
+  );
+  if (!rawRecovery.changed) return false;
   const now = new Date().toISOString();
   const payload = {
-    ...item,
-    detailPageAsset: recovered.asset,
+    ...rawPayload,
+    detailPageAsset: rawRecovery.asset,
     updatedAt: now,
     updatedBy: "이전상품 Shopling 상세/이미지 복구",
   };
-  delete payload.orderOptions;
-  delete payload.options;
-  delete payload.id;
   const params = new URLSearchParams({
     owner_id: `eq.${ownerId}`,
     item_id: `eq.${itemId}`,
