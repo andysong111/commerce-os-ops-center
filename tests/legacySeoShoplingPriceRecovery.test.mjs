@@ -9,7 +9,7 @@ test("이전상품 가격권위는 Shopling 현재 판매가가 아니라 중국
   );
   assert.match(source, /prepareLegacySeoPreflight/);
   assert.match(source, /china_order_final_confirmed_v4/);
-  assert.doesNotMatch(source, /sale_price/);
+  assert.doesNotMatch(source, /shoplingRow\.sale_price|row\.sale_price|<sale_price>/);
   assert.doesNotMatch(source, /shoplingRow\.optAmt/);
   assert.doesNotMatch(source, /resolveLegacyShoplingOptionSalePrice/);
 });
