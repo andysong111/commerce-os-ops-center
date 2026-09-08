@@ -125,7 +125,7 @@ export async function GET(request: Request) {
       processedCount: 0,
       pendingCount: 0,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v2",
+      engine: "legacy-seo-preflight-drain-v3-atomic",
     });
   }
 
@@ -176,7 +176,7 @@ export async function GET(request: Request) {
       pendingCount: 0,
       totalCount: ownerItems.length,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v2",
+      engine: "legacy-seo-preflight-drain-v3-atomic",
     });
   }
 
@@ -206,6 +206,13 @@ export async function GET(request: Request) {
     itemIds: batch.map((entry) => entry.itemId),
   });
   const hasFailures = preflight.failedCount > 0;
+  const optionSync = record(preflight.optionSync);
+  const failedItems = preflight.results
+    .filter((result) => !result.ready && !result.excluded)
+    .map((result) => ({
+      modelNumber: result.modelNumber,
+      issues: result.issues.map((issue) => `${issue.field}: ${issue.message}`),
+    }));
 
   return Response.json({
     ok: true,
@@ -223,9 +230,15 @@ export async function GET(request: Request) {
     excludedCount: preflight.excludedCount,
     failedCount: preflight.failedCount,
     issueCount: preflight.issueCount,
+    failedItems,
+    optionSyncFailedCount: Math.max(0, Math.floor(Number(optionSync.failedCount) || 0)),
+    optionSyncError: preflight.optionSyncError,
+    assetRecoveryError: preflight.assetRecoveryError,
+    canonicalPriceError: preflight.canonicalPriceError,
+    priceEligibleCount: preflight.priceEligibleModels.length,
     duplicateActiveModels: preflight.duplicateActiveModels,
     duplicateModelGuardError: preflight.duplicateModelGuardError,
     state: pending.length > batch.length || hasFailures ? "RUNNING" : "COMPLETE",
-    engine: "legacy-seo-preflight-drain-v2",
+    engine: "legacy-seo-preflight-drain-v3-atomic",
   });
 }

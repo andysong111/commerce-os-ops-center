@@ -15,8 +15,11 @@ import {
 type UnknownRecord = Record<string, unknown>;
 
 type SyncResult = {
+  itemId: string;
   modelNumber: string;
   changed: boolean;
+  failed: boolean;
+  status: "synced" | "existing_preserved" | "failed";
   sourceGoodsKey: string;
   optionCount: number;
   bCodeCount: number;
@@ -75,10 +78,8 @@ function clone(value: unknown): UnknownRecord {
 
 function activeGroupOptions(group: LegacySeoShoplingOptionGroup) {
   // Legacy SEO re-registration requires a real inventory B-code for every option.
-  // Shopling can still return historical/discontinued option rows whose status is
-  // not X but whose B-code is already gone. Importing those rows would recreate
-  // options that can never pass registration. Fail closed here and keep only
-  // Shopling options that still have a managed B-code.
+  // Historical/discontinued Shopling option rows whose B-code is already gone
+  // must never be recreated as a registration option.
   return group.options.filter(
     (option) =>
       text(option.status).toUpperCase() !== "X" && Boolean(text(option.bCode)),
@@ -374,32 +375,17 @@ async function patchItem(
   );
 }
 
-async function replaceOptions(
+async function replaceOptionsAtomic(
   config: ProductLaunchAdminConfig,
   ownerId: string,
   itemId: string,
   options: UnknownRecord[],
   now: string,
 ) {
-  const params = new URLSearchParams({
-    owner_id: `eq.${ownerId}`,
-    item_id: `eq.${itemId}`,
-  });
-  await readProductLaunchStorageJson(
-    `${config.supabaseUrl}/rest/v1/${OPTION_TABLE}?${params.toString()}`,
-    {
-      method: "DELETE",
-      headers: {
-        ...createSupabaseAdminHeaders(config.secretKey),
-        Prefer: "return=minimal",
-      },
-      cache: "no-store",
-    },
-  );
-  if (!options.length) return;
+  if (!options.length) {
+    throw new Error("LEGACY_SEO_OPTION_REPLACE_EMPTY_ROWS_BLOCKED");
+  }
   const rows = options.map((option, index) => ({
-    owner_id: ownerId,
-    item_id: itemId,
     option_id: text(option.id) || `shopling-option-${index + 1}`,
     option_index: index,
     option_name: text(option.optionName) || "옵션",
@@ -414,16 +400,29 @@ async function replaceOptions(
     option_barcode_identity_key: text(option.optionBarcodeIdentityKey),
     updated_at: now,
   }));
-  await readProductLaunchStorageJson(`${config.supabaseUrl}/rest/v1/${OPTION_TABLE}`, {
-    method: "POST",
-    headers: {
-      ...createSupabaseAdminHeaders(config.secretKey),
-      Prefer: "return=minimal",
-      "Content-Type": "application/json",
+  const { body } = await readProductLaunchStorageJson(
+    `${config.supabaseUrl}/rest/v1/rpc/replace_product_launch_options_atomic`,
+    {
+      method: "POST",
+      headers: {
+        ...createSupabaseAdminHeaders(config.secretKey),
+        Prefer: "return=representation",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_owner_id: ownerId,
+        p_item_id: itemId,
+        p_rows: rows,
+      }),
+      cache: "no-store",
     },
-    body: JSON.stringify(rows),
-    cache: "no-store",
-  });
+  );
+  const result = record(body);
+  if (result.ok !== true || Number(result.insertedCount) !== rows.length) {
+    throw new Error(
+      `LEGACY_SEO_OPTION_REPLACE_COUNT_MISMATCH:${Number(result.insertedCount) || 0}/${rows.length}`,
+    );
+  }
 }
 
 export async function syncLegacySeoShoplingOptions(input: {
@@ -432,7 +431,14 @@ export async function syncLegacySeoShoplingOptions(input: {
   modelNumbers: string[];
 }) {
   const requested = unique(input.modelNumbers.map(modelKey)).slice(0, 100);
-  if (!requested.length) return { changedCount: 0, processedCount: 0, results: [] as SyncResult[] };
+  if (!requested.length) {
+    return {
+      changedCount: 0,
+      processedCount: 0,
+      failedCount: 0,
+      results: [] as SyncResult[],
+    };
+  }
 
   const items = await loadNormalizedItems(
     input.config,
@@ -448,64 +454,91 @@ export async function syncLegacySeoShoplingOptions(input: {
   let changedCount = 0;
 
   for (const item of items) {
-    const evidence = evidenceByModel.get(item.modelNumber);
     const current = item.options;
-    const currentCount = existingRealOptionCount(current);
-    const group = evidence ? selectGroup(evidence, currentCount) : null;
+    try {
+      const evidence = evidenceByModel.get(item.modelNumber);
+      const currentCount = existingRealOptionCount(current);
+      const group = evidence ? selectGroup(evidence, currentCount) : null;
 
-    if (!group) {
-      const reason = evidence
-        ? currentCount > 1
-          ? "묶음형 Shopling 상품을 찾지 못해 기존 옵션 유지"
-          : "Shopling 묶음옵션 없음 · 기존 옵션 유지"
-        : "Shopling 조회 데이터 없음 · 기존 옵션 유지";
+      if (!group) {
+        const reason = evidence
+          ? currentCount > 1
+            ? "묶음형 Shopling 상품을 찾지 못해 기존 옵션 유지"
+            : "Shopling 묶음옵션 없음 · 기존 옵션 유지"
+          : "Shopling 조회 데이터 없음 · 기존 옵션 유지";
+        const metadata = {
+          source: "shopling_live_grouped_option_sync",
+          status: "existing_preserved",
+          reason,
+          optionCount: current.length,
+          bCodeCount: current.filter((option) => text(option.barcode)).length,
+          syncedAt: now,
+        };
+        await patchItem(input.config, input.identity.userId, item, current, metadata, now);
+        results.push({
+          itemId: item.itemId,
+          modelNumber: item.modelNumber,
+          changed: false,
+          failed: false,
+          status: "existing_preserved",
+          sourceGoodsKey: "",
+          optionCount: current.length,
+          bCodeCount: current.filter((option) => text(option.barcode)).length,
+          reason,
+        });
+        continue;
+      }
+
+      const merged = mergeOptions(current, group);
+      const bCodeCount = merged.filter((option) => text(option.barcode)).length;
       const metadata = {
         source: "shopling_live_grouped_option_sync",
-        status: "existing_preserved",
-        reason,
-        optionCount: current.length,
-        bCodeCount: current.filter((option) => text(option.barcode)).length,
+        status: "synced",
+        goodsKey: group.goodsKey,
+        ptnGoodsCd: group.ptnGoodsCd,
+        optionCount: merged.length,
+        bCodeCount,
         syncedAt: now,
       };
-      await patchItem(input.config, input.identity.userId, item, current, metadata, now);
+      await replaceOptionsAtomic(
+        input.config,
+        input.identity.userId,
+        item.itemId,
+        merged,
+        now,
+      );
+      await patchItem(input.config, input.identity.userId, item, merged, metadata, now);
+      changedCount += 1;
       results.push({
+        itemId: item.itemId,
+        modelNumber: item.modelNumber,
+        changed: true,
+        failed: false,
+        status: "synced",
+        sourceGoodsKey: group.goodsKey,
+        optionCount: merged.length,
+        bCodeCount,
+        reason: isGroupedCandidate(group) ? "묶음형 Shopling 상품 기준" : "단품 Shopling 기준",
+      });
+    } catch (error) {
+      results.push({
+        itemId: item.itemId,
         modelNumber: item.modelNumber,
         changed: false,
+        failed: true,
+        status: "failed",
         sourceGoodsKey: "",
         optionCount: current.length,
         bCodeCount: current.filter((option) => text(option.barcode)).length,
-        reason,
+        reason: error instanceof Error ? error.message : String(error),
       });
-      continue;
     }
-
-    const merged = mergeOptions(current, group);
-    const bCodeCount = merged.filter((option) => text(option.barcode)).length;
-    const metadata = {
-      source: "shopling_live_grouped_option_sync",
-      status: "synced",
-      goodsKey: group.goodsKey,
-      ptnGoodsCd: group.ptnGoodsCd,
-      optionCount: merged.length,
-      bCodeCount,
-      syncedAt: now,
-    };
-    await replaceOptions(input.config, input.identity.userId, item.itemId, merged, now);
-    await patchItem(input.config, input.identity.userId, item, merged, metadata, now);
-    changedCount += 1;
-    results.push({
-      modelNumber: item.modelNumber,
-      changed: true,
-      sourceGoodsKey: group.goodsKey,
-      optionCount: merged.length,
-      bCodeCount,
-      reason: isGroupedCandidate(group) ? "묶음형 Shopling 상품 기준" : "단품 Shopling 기준",
-    });
   }
 
   return {
     changedCount,
     processedCount: items.length,
+    failedCount: results.filter((result) => result.failed).length,
     results,
   };
 }
