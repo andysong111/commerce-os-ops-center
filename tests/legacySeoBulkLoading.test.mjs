@@ -19,3 +19,13 @@ test("이전상품 SEO 목록 조회는 대형 checkpoint 전체가 아닌 compa
   assert.match(shim, /AbortSignal\.timeout\(LIST_TIMEOUT_MS\)/);
   assert.match(page, /<LegacySeoBulkListFetchShim \/>/);
 });
+
+test("전체 RUN enhancer는 MutationObserver 안에서 DOM을 재작성하지 않는다", async () => {
+  const enhancer = await source(
+    "src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx",
+  );
+
+  assert.doesNotMatch(enhancer, /new MutationObserver/);
+  assert.doesNotMatch(enhancer, /\.textContent\s*=/);
+  assert.match(enhancer, /window\.setInterval\(syncDom, 1_000\)/);
+});
