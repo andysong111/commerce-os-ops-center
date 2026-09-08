@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { loadLegacySeoShoplingEvidence } from "@/lib/legacySeoShoplingEvidence";
 import { syncLegacySeoShoplingOptions } from "@/lib/legacySeoShoplingOptionSync";
 import {
   LEGACY_SEO_CONFIRMED_STOCK_MODELS,
@@ -168,6 +169,22 @@ async function executeRecovery(request: NextRequest) {
     const state = stateRow.state_payload as ProductLaunchTrackerState;
     const targets = await loadLegacySeoConfirmedStockTargets();
     const plan = buildRecoveryPlan(state, targets);
+
+    let liveEvidenceModels: string[] = [];
+    let liveEvidenceError = "";
+    try {
+      const liveEvidence = await loadLegacySeoShoplingEvidence([
+        ...LEGACY_SEO_CONFIRMED_STOCK_MODELS,
+      ]);
+      liveEvidenceModels = [...liveEvidence.keys()].sort();
+    } catch (error) {
+      liveEvidenceError = error instanceof Error ? error.message : String(error);
+    }
+    const liveEvidenceSet = new Set(liveEvidenceModels);
+    const missingLiveEvidenceModels = LEGACY_SEO_CONFIRMED_STOCK_MODELS.filter(
+      (model) => !liveEvidenceSet.has(model),
+    );
+
     const report = {
       version: SOURCE_IMPORT,
       targetCount: LEGACY_SEO_CONFIRMED_STOCK_MODELS.length,
@@ -178,6 +195,10 @@ async function executeRecovery(request: NextRequest) {
       missingSourceModels: plan.missingSourceModels,
       createModels: plan.createTargets.map((target) => target.modelNumber),
       alreadyEligible: plan.alreadyEligible,
+      liveShoplingEvidenceCount: liveEvidenceModels.length,
+      liveShoplingEvidenceModels: liveEvidenceModels,
+      missingLiveShoplingEvidenceModels: missingLiveEvidenceModels,
+      liveShoplingEvidenceError: liveEvidenceError,
     };
 
     if (plan.missingSourceModels.length) {
