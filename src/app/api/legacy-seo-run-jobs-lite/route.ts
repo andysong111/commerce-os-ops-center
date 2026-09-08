@@ -1,4 +1,10 @@
 import { NextRequest } from "next/server";
+import {
+  confirmedLegacyInventoryModels,
+  confirmedLegacyInventoryName,
+  legacyInventorySyntheticId,
+  normalizeLegacyModel,
+} from "@/lib/legacySeoInventoryCatalog";
 import { readProductLaunchStorageJson } from "@/lib/productLaunchTrackerServer";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
@@ -10,6 +16,20 @@ const JOB_LIMIT = 800;
 const ITEM_LIMIT = 1000;
 
 type UnknownRecord = Record<string, unknown>;
+
+type LegacyCandidate = {
+  id: string;
+  trackerRowNumber: number | null;
+  workBatch: string;
+  modelNumber: string;
+  productName: string;
+  shoplingCategory: string;
+  shoplingUploadStatus: string;
+  overallStatus: string;
+  optionLabels: string[];
+  updatedAt: string;
+  legacyInventorySource?: boolean;
+};
 
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -28,6 +48,27 @@ function list(value: unknown, limit = 100) {
 
 function isExcluded(value: unknown) {
   return record(value).excluded === true;
+}
+
+function postgrestIn(values: string[]) {
+  return values
+    .map((value) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`)
+    .join(",");
+}
+
+function candidateFromRow(row: UnknownRecord): LegacyCandidate {
+  return {
+    id: text(row.item_id),
+    trackerRowNumber: Number(row.tracker_row_number) || null,
+    workBatch: text(row.work_batch),
+    modelNumber: normalizeLegacyModel(row.model_number),
+    productName: text(row.product_name),
+    shoplingCategory: text(row.shopling_category),
+    shoplingUploadStatus: text(row.shopling_upload_status),
+    overallStatus: text(row.overall_status),
+    optionLabels: list(row.option_labels, 50),
+    updatedAt: text(row.updated_at),
+  };
 }
 
 async function listCompactJobs(
@@ -129,18 +170,87 @@ async function listLegacyItems(
   return (Array.isArray(body) ? body : [])
     .map(record)
     .filter((row) => !isExcluded(row.exclusion_policy))
-    .map((row) => ({
-      id: text(row.item_id),
-      trackerRowNumber: Number(row.tracker_row_number) || null,
-      workBatch: text(row.work_batch),
-      modelNumber: text(row.model_number),
-      productName: text(row.product_name),
-      shoplingCategory: text(row.shopling_category),
-      shoplingUploadStatus: text(row.shopling_upload_status),
-      overallStatus: text(row.overall_status),
-      optionLabels: list(row.option_labels, 50),
-      updatedAt: text(row.updated_at),
-    }));
+    .map(candidateFromRow);
+}
+
+async function listConfirmedTrackerRows(
+  config: { supabaseUrl: string; secretKey: string },
+  ownerId: string,
+) {
+  const models = confirmedLegacyInventoryModels();
+  if (!models.length) return [] as LegacyCandidate[];
+  const params = new URLSearchParams({
+    select: [
+      "item_id",
+      "tracker_row_number",
+      "work_batch",
+      "model_number",
+      "product_name",
+      "shopling_category",
+      "shopling_upload_status",
+      "overall_status",
+      "option_labels",
+      "updated_at",
+      "exclusion_policy:item_payload->legacySeoRegistrationPolicy",
+    ].join(","),
+    owner_id: `eq.${ownerId}`,
+    archived_at: "is.null",
+    model_number: `in.(${postgrestIn(models)})`,
+    order: "updated_at.desc",
+    limit: "200",
+  });
+  const { body } = await readProductLaunchStorageJson(
+    `${config.supabaseUrl}/rest/v1/product_launch_items?${params.toString()}`,
+    {
+      headers: createSupabaseAdminHeaders(config.secretKey),
+      cache: "no-store",
+    },
+  );
+  return (Array.isArray(body) ? body : []).map(record).map(candidateFromRow);
+}
+
+function mergeConfirmedInventoryCandidates(
+  baseItems: LegacyCandidate[],
+  trackerRows: LegacyCandidate[],
+) {
+  const byModel = new Map<string, LegacyCandidate>();
+  for (const item of baseItems) {
+    const model = normalizeLegacyModel(item.modelNumber);
+    if (model) byModel.set(model, item);
+  }
+  const trackerByModel = new Map<string, LegacyCandidate>();
+  for (const item of trackerRows) {
+    const model = normalizeLegacyModel(item.modelNumber);
+    if (model && !trackerByModel.has(model)) trackerByModel.set(model, item);
+  }
+
+  for (const modelNumber of confirmedLegacyInventoryModels()) {
+    if (byModel.has(modelNumber)) continue;
+    const tracker = trackerByModel.get(modelNumber);
+    byModel.set(modelNumber, {
+      id: tracker?.id || legacyInventorySyntheticId(modelNumber),
+      trackerRowNumber: tracker?.trackerRowNumber ?? null,
+      workBatch: tracker?.workBatch || "실재고 사전 이전상품",
+      modelNumber,
+      productName:
+        tracker?.productName || confirmedLegacyInventoryName(modelNumber),
+      shoplingCategory: tracker?.shoplingCategory || "",
+      // This is a legacy-catalog eligibility flag, not a rewrite of the current
+      // product-launch stage. The original tracker row remains untouched.
+      shoplingUploadStatus: "완료",
+      overallStatus: "기존 Shopling 상품 · 실재고 사전 확인",
+      optionLabels: tracker?.optionLabels || [],
+      updatedAt: tracker?.updatedAt || "",
+      legacyInventorySource: true,
+    });
+  }
+
+  return [...byModel.values()].sort((left, right) =>
+    normalizeLegacyModel(left.modelNumber).localeCompare(
+      normalizeLegacyModel(right.modelNumber),
+      "en",
+    ),
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -149,12 +259,18 @@ export async function GET(request: NextRequest) {
   const context = authenticated.value;
   const includeItems = request.nextUrl.searchParams.get("items") !== "false";
 
-  const [jobs, items] = await Promise.all([
+  const [jobs, baseItems, confirmedTrackerRows] = await Promise.all([
     listCompactJobs(context.config, context.identity.userId),
     includeItems
       ? listLegacyItems(context.config, context.identity.userId)
       : Promise.resolve([]),
+    includeItems
+      ? listConfirmedTrackerRows(context.config, context.identity.userId)
+      : Promise.resolve([]),
   ]);
+  const items = includeItems
+    ? mergeConfirmedInventoryCandidates(baseItems, confirmedTrackerRows)
+    : [];
 
   return Response.json(
     { ok: true, jobs, items },
