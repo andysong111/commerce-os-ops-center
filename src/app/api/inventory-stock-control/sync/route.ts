@@ -4,6 +4,7 @@ import {
   normalizeShoplingStockSyncInput,
   storeInventoryOperation,
 } from "@/lib/inventoryStockControl";
+import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/inventoryStockResetCorrections";
 import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
@@ -110,16 +111,19 @@ async function loadPreparedGoodsKeysByBarcode() {
   return result;
 }
 
-async function loadRetryableReport() {
-  let report = await overlayInventoryStockControlReportWithTail(
+async function loadCorrectedReport() {
+  const tailed = await overlayInventoryStockControlReportWithTail(
     await loadInventoryStockControlReport(),
   );
+  return overlayInventoryStockControlReportWithResetCorrections(tailed);
+}
+
+async function loadRetryableReport() {
+  let report = await loadCorrectedReport();
   const tailSalesRefresh =
     await ensureExactInventoryStockSalesTailCoverage(report);
   if (tailSalesRefresh.refreshed) {
-    report = await overlayInventoryStockControlReportWithTail(
-      await loadInventoryStockControlReport(),
-    );
+    report = await loadCorrectedReport();
   }
   return {
     report: await normalizeRetryableShoplingSyncReportWithEvidence(report),
