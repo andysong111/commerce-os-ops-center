@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server";
-import { mergeLegacySeoPlanningCandidates } from "@/lib/legacySeoPlanningBootstrap";
+import {
+  bootstrapLegacySeoPlanningItems,
+  loadLegacySeoPlanningCatalog,
+  mergeLegacySeoPlanningCandidates,
+} from "@/lib/legacySeoPlanningBootstrap";
 import { readProductLaunchStorageJson } from "@/lib/productLaunchTrackerServer";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
@@ -20,6 +24,10 @@ function record(value: unknown): UnknownRecord {
 
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function modelKey(value: unknown) {
+  return text(value).toUpperCase().replace(/\s+/g, "");
 }
 
 function list(value: unknown, limit = 100) {
@@ -96,7 +104,7 @@ async function listCompactJobs(
   });
 }
 
-async function listLegacyItems(
+async function readRawLegacyItems(
   config: { supabaseUrl: string; secretKey: string },
   ownerId: string,
 ) {
@@ -126,9 +134,40 @@ async function listLegacyItems(
       cache: "no-store",
     },
   );
-  const merged = await mergeLegacySeoPlanningCandidates(
-    (Array.isArray(body) ? body : []).map(record),
-  );
+  return (Array.isArray(body) ? body : []).map(record);
+}
+
+async function listLegacyItems(
+  config: { supabaseUrl: string; secretKey: string },
+  identity: { userId: string; email: string },
+) {
+  let rawRows = await readRawLegacyItems(config, identity.userId);
+
+  // 실재고 사전에서 확인된 필수 이전상품 중, Product Master에 활성 Shopling listing이
+  // 있는 모델만 DB에 영구 복구한다. 1회 복구 후에는 다음 polling부터 일반 normalized row로 읽힌다.
+  const catalog = await loadLegacySeoPlanningCatalog();
+  const rawByModel = new Map<string, UnknownRecord>();
+  for (const row of rawRows) {
+    const model = modelKey(row.model_number);
+    if (model && !rawByModel.has(model)) rawByModel.set(model, row);
+  }
+  const recoveryIds: string[] = [];
+  for (const [model, candidate] of catalog) {
+    const row = rawByModel.get(model);
+    if (!row || text(row.shopling_upload_status) !== "완료") {
+      recoveryIds.push(candidate.id);
+    }
+  }
+  if (recoveryIds.length) {
+    await bootstrapLegacySeoPlanningItems({
+      config,
+      identity,
+      itemIds: recoveryIds,
+    });
+    rawRows = await readRawLegacyItems(config, identity.userId);
+  }
+
+  const merged = await mergeLegacySeoPlanningCandidates(rawRows);
   return merged
     .map(record)
     .filter((row) => !isExcluded(row.exclusion_policy))
@@ -155,7 +194,7 @@ export async function GET(request: NextRequest) {
   const [jobs, items] = await Promise.all([
     listCompactJobs(context.config, context.identity.userId),
     includeItems
-      ? listLegacyItems(context.config, context.identity.userId)
+      ? listLegacyItems(context.config, context.identity)
       : Promise.resolve([]),
   ]);
 
