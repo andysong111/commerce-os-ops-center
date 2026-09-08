@@ -4,6 +4,7 @@ import {
   normalizeStockoutResetInput,
   storeInventoryOperation,
 } from "@/lib/inventoryStockControl";
+import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/inventoryStockResetCorrections";
 import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
@@ -39,11 +40,12 @@ function unauthorized() {
 }
 
 async function loadResolvedInventoryStockControlReport() {
-  return normalizeRetryableShoplingSyncReportWithEvidence(
-    await overlayInventoryStockControlReportWithTail(
-      await loadInventoryStockControlReport(),
-    ),
+  const tailed = await overlayInventoryStockControlReportWithTail(
+    await loadInventoryStockControlReport(),
   );
+  const corrected =
+    await overlayInventoryStockControlReportWithResetCorrections(tailed);
+  return normalizeRetryableShoplingSyncReportWithEvidence(corrected);
 }
 
 async function loadStableInventoryStockControlReport() {
