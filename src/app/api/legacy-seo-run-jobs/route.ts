@@ -11,7 +11,9 @@ import { processLegacySeoRunQueue } from "@/lib/legacySeoRunWorker";
 import {
   buildLegacySeoSupportingText,
   loadLegacySeoShoplingEvidence,
+  type LegacySeoGoodsKeyOverrides,
 } from "@/lib/legacySeoShoplingEvidence";
+import { syncLegacySeoShoplingOptions } from "@/lib/legacySeoShoplingOptionSync";
 import {
   refreshLegacySeoRegistrationStatuses,
   startLegacySeoShoplingRegistration,
@@ -33,6 +35,7 @@ export const maxDuration = 300;
 
 const MAX_ENQUEUE_ITEMS = 100;
 const CUSTOM_BLOCKED_LIMIT = 200;
+const MAX_TRACKER_GOODS_KEYS_PER_MODEL = 120;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -116,6 +119,40 @@ function candidate1688Url(item: UnknownRecord) {
   return "";
 }
 
+function trackerGoodsKeys(item: UnknownRecord) {
+  const detailSource = record(item.detailPageAssetSource);
+  const detailAssetSource = record(record(item.detailPageAsset).source);
+  const values = [
+    ...array(detailSource.goodsKeys),
+    ...array(detailAssetSource.goodsKeys),
+    ...Object.values(record(item.shoplingProducts)).map((value) => record(value).goodsKey),
+  ];
+  return uniqueStrings(values, MAX_TRACKER_GOODS_KEYS_PER_MODEL)
+    .filter((value) => /^\d{5,12}$/.test(value))
+    .slice(-MAX_TRACKER_GOODS_KEYS_PER_MODEL)
+    .reverse();
+}
+
+function goodsKeyOverridesFromItems(items: UnknownRecord[]): LegacySeoGoodsKeyOverrides {
+  const result = new Map<string, readonly string[]>();
+  for (const item of items) {
+    const model = text(item.modelNumber).toUpperCase().replace(/\s+/g, "");
+    if (!model) continue;
+    const keys = trackerGoodsKeys(item);
+    if (keys.length) result.set(model, keys);
+  }
+  return result;
+}
+
+function mapItems(items: UnknownRecord[]) {
+  const result = new Map<string, UnknownRecord>();
+  for (const item of items) {
+    const id = text(item.id);
+    if (id) result.set(id, item);
+  }
+  return result;
+}
+
 function scheduleWorker(ownerId: string, maxJobs: number) {
   after(async () => {
     await processLegacySeoRunQueue({
@@ -136,7 +173,6 @@ async function listLegacyItems(
     select:
       "item_id,tracker_row_number,work_batch,model_number,product_name,shopling_category,shopling_upload_status,overall_status,option_labels,updated_at,exclusion_policy:item_payload->legacySeoRegistrationPolicy",
     owner_id: `eq.${ownerId}`,
-    work_batch: "eq.등록완료건",
     shopling_upload_status: "eq.완료",
     archived_at: "is.null",
     order: "tracker_row_number.asc",
@@ -198,24 +234,51 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const items = await readProductLaunchNormalizedItems(
+
+    let items = (await readProductLaunchNormalizedItems(
       context.config,
       context.identity.userId,
       itemIds,
+    )).map(record);
+    let itemById = mapItems(items);
+
+    const missingOptionModels = uniqueStrings(
+      itemIds
+        .map((id) => itemById.get(id))
+        .filter((item): item is UnknownRecord => Boolean(item))
+        .filter((item) => !Array.isArray(item.orderOptions) || item.orderOptions.length === 0)
+        .map((item) => text(item.modelNumber)),
+      MAX_ENQUEUE_ITEMS,
     );
-    const itemById = new Map<string, UnknownRecord>();
-    for (const value of items) {
-      const item = record(value);
-      const id = text(item.id);
-      if (id) itemById.set(id, item);
+    let optionSyncError = "";
+    if (missingOptionModels.length) {
+      try {
+        await syncLegacySeoShoplingOptions({
+          config: context.config,
+          identity: context.identity,
+          modelNumbers: missingOptionModels,
+        });
+        items = (await readProductLaunchNormalizedItems(
+          context.config,
+          context.identity.userId,
+          itemIds,
+        )).map(record);
+        itemById = mapItems(items);
+      } catch (error) {
+        optionSyncError = error instanceof Error ? error.message : String(error);
+      }
     }
+
     const modelNumbers = itemIds
       .map((id) => itemById.get(id))
       .filter((item): item is UnknownRecord => Boolean(item))
       .filter((item) => !legacySeoRegistrationExclusion(item).excluded)
       .map((item) => text(item.modelNumber))
       .filter(Boolean);
-    const evidenceByModel = await loadLegacySeoShoplingEvidence(modelNumbers);
+    const evidenceByModel = await loadLegacySeoShoplingEvidence(
+      modelNumbers,
+      goodsKeyOverridesFromItems(items),
+    );
     const existing = await listLegacySeoRunJobs(context, {
       includeArchived: true,
       launchItemIds: itemIds,
@@ -227,6 +290,14 @@ export async function POST(request: NextRequest) {
       values.push(...resultMallTitles(job.result_payload));
       previousTitles.set(job.launch_item_id, values);
     }
+    const bulkMode = body.bulkMode === true;
+    const bulkBlockedItems = new Set(
+      bulkMode
+        ? existing
+            .filter((job) => ["queued", "running", "ready"].includes(job.status))
+            .map((job) => job.launch_item_id)
+        : [],
+    );
     const customBlockedTerms = uniqueStrings(
       body.customBlockedTerms,
       CUSTOM_BLOCKED_LIMIT,
@@ -242,6 +313,10 @@ export async function POST(request: NextRequest) {
         continue;
       }
       const modelNumber = text(item.modelNumber);
+      if (bulkBlockedItems.has(itemId)) {
+        missing.push(`${modelNumber || itemId}:기존 RUN 있음`);
+        continue;
+      }
       const exclusion = legacySeoRegistrationExclusion(item);
       if (exclusion.excluded) {
         missing.push(`${modelNumber || itemId}:${exclusion.reason}`);
@@ -323,6 +398,7 @@ export async function POST(request: NextRequest) {
           code: "LEGACY_SEO_ITEMS_NOT_READY",
           message: `실행할 이전상품이 없습니다: ${missing.slice(0, 20).join(", ")}`,
           missing,
+          optionSyncError,
         },
         { status: 422 },
       );
@@ -335,6 +411,7 @@ export async function POST(request: NextRequest) {
       requestedCount: itemIds.length,
       insertedCount: inserted.length,
       missing,
+      optionSyncError,
       jobs: await listLegacySeoRunJobs(context, {
         runIds: rows.map((row) => row.run_id),
         includeArchived: true,
