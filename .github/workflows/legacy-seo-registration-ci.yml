@@ -5,14 +5,18 @@ on:
     paths:
       - '.github/workflows/legacy-seo-registration-ci.yml'
       - 'src/lib/legacySeoRegistrationPolicy.ts'
+      - 'src/lib/legacySeoInventoryCatalog.ts'
+      - 'src/lib/legacySeoStockRecovery.ts'
       - 'src/lib/legacySeoShoplingEvidence.ts'
       - 'src/lib/legacySeoShoplingOptionSync.ts'
       - 'src/lib/legacySeoShoplingPayload.ts'
       - 'src/lib/legacySeoShoplingPriceMath.ts'
       - 'src/lib/legacySeoShoplingPriceRecovery.ts'
       - 'src/lib/legacySeoShoplingRegistration.ts'
+      - 'src/app/api/legacy-seo-source-recovery/route.ts'
       - 'src/app/api/legacy-seo-run-jobs/route.ts'
       - 'src/app/api/legacy-seo-run-jobs-lite/route.ts'
+      - 'src/app/legacy-seo-bulk-cloud/LegacySeoSourceRecoveryEnhancer.tsx'
       - 'src/app/legacy-seo-bulk-cloud/LegacySeoBulkListFetchShim.tsx'
       - 'src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx'
       - 'src/app/legacy-seo-bulk-cloud/page.tsx'
@@ -20,6 +24,7 @@ on:
       - 'tests/legacySeoShoplingOptionSyncSafety.test.mjs'
       - 'tests/legacySeoBulkRunAll.test.mjs'
       - 'tests/legacySeoBulkLoading.test.mjs'
+      - 'tests/legacySeoStockRecovery.test.mjs'
       - 'tests/legacySeoShoplingPayload.test.mjs'
       - 'tests/legacySeoShoplingPriceRecovery.test.mjs'
   workflow_dispatch:
@@ -45,5 +50,6 @@ jobs:
           tests/legacySeoShoplingOptionSyncSafety.test.mjs
           tests/legacySeoBulkRunAll.test.mjs
           tests/legacySeoBulkLoading.test.mjs
+          tests/legacySeoStockRecovery.test.mjs
           tests/legacySeoShoplingPayload.test.mjs
           tests/legacySeoShoplingPriceRecovery.test.mjs
