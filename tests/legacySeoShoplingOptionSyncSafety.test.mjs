@@ -83,3 +83,18 @@ test("수정된 rediscovery 이후 옵션 0개가 live 확인된 상품은 termi
   assert.match(source, /terminalExcludedCount/);
   assert.match(source, /legacy-seo-preflight-drain-v6-terminal-aware-weighted-atomic/);
 });
+
+test("가격 옵션명 접두·접미 자동매칭은 잔여 옵션 전체가 완전한 1:1 대응일 때만 허용한다", async () => {
+  const source = await readFile(
+    new URL("../src/lib/legacySeoCanonicalPrice.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /function bijectiveAffixResidualCanonicalRows/);
+  assert.match(source, /residualRows\.length !== unmatchedOptions\.length/);
+  assert.match(source, /currentKey\.length < 2/);
+  assert.match(source, /canonicalKey\.endsWith\(currentKey\) \|\| currentKey\.endsWith\(canonicalKey\)/);
+  assert.match(source, /candidates\.length !== 1/);
+  assert.match(source, /claimedCanonicalIds\.has\(candidate\.canonical_price_id\)/);
+  assert.match(source, /method: "bijective_affix_option_name"/);
+});
