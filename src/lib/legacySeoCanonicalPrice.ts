@@ -34,7 +34,7 @@ type CanonicalPriceRow = {
 };
 
 type CanonicalMatchAudit = {
-  method: "uniform_single_residual_name_mismatch";
+  method: "uniform_single_residual_name_mismatch" | "bijective_affix_option_name";
   currentSaleOption: string;
   canonicalSaleOption: string;
 };
@@ -297,6 +297,63 @@ function matchCanonicalRow(
   return { row: null, reason: "중국주문 최종가격에서 동일 옵션을 찾지 못함" };
 }
 
+function bijectiveAffixResidualCanonicalRows(
+  options: UnknownRecord[],
+  activeRows: CanonicalPriceRow[],
+  itemProductName: string,
+) {
+  // Deliberately fail closed. This is not fuzzy matching: it only accepts a full
+  // one-to-one residual mapping where every unmatched normalized option name is a
+  // unique prefix/suffix extension of exactly one unused canonical option name.
+  const directMatches = options.map((option) =>
+    matchCanonicalRow(option, activeRows, options.length, itemProductName),
+  );
+  const unmatchedOptions = options.filter((_, index) => !directMatches[index]?.row);
+  if (!unmatchedOptions.length) return new Map<string, CanonicalPriceRow>();
+
+  const usedCanonicalIds = new Set(
+    directMatches
+      .map((matched) => matched.row?.canonical_price_id)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const residualRows = activeRows.filter(
+    (row) => !usedCanonicalIds.has(row.canonical_price_id),
+  );
+  if (residualRows.length !== unmatchedOptions.length) {
+    return new Map<string, CanonicalPriceRow>();
+  }
+
+  const mapping = new Map<string, CanonicalPriceRow>();
+  const claimedCanonicalIds = new Set<string>();
+  for (const option of unmatchedOptions) {
+    const optionId = text(option.option_id);
+    const currentKey = optionSaleKey(option);
+    if (!optionId || currentKey.length < 2) {
+      return new Map<string, CanonicalPriceRow>();
+    }
+    const candidates = residualRows.filter((row) => {
+      const canonicalKey = canonicalRowKey(row);
+      if (!canonicalKey || canonicalKey === currentKey || canonicalKey.length < 2) {
+        return false;
+      }
+      return canonicalKey.endsWith(currentKey) || currentKey.endsWith(canonicalKey);
+    });
+    if (candidates.length !== 1) {
+      return new Map<string, CanonicalPriceRow>();
+    }
+    const candidate = candidates[0];
+    if (claimedCanonicalIds.has(candidate.canonical_price_id)) {
+      return new Map<string, CanonicalPriceRow>();
+    }
+    claimedCanonicalIds.add(candidate.canonical_price_id);
+    mapping.set(optionId, candidate);
+  }
+
+  return mapping.size === unmatchedOptions.length
+    ? mapping
+    : new Map<string, CanonicalPriceRow>();
+}
+
 async function patchOptionPrice(
   config: ProductLaunchAdminConfig,
   ownerId: string,
@@ -499,6 +556,11 @@ export async function applyLegacySeoCanonicalPrices(input: {
     }
 
     if (!excluded && activeRows.length && options.length) {
+      const affixResidualByOption = bijectiveAffixResidualCanonicalRows(
+        options,
+        activeRows,
+        text(item.product_name),
+      );
       for (const option of options) {
         const saleOption = text(record(option.option_payload).saleOption ?? option.sale_option);
         const matched = matchCanonicalRow(
@@ -509,6 +571,17 @@ export async function applyLegacySeoCanonicalPrices(input: {
         );
         let canonical = matched.row;
         let matchAudit: CanonicalMatchAudit | undefined;
+        if (!canonical) {
+          const affixResidual = affixResidualByOption.get(text(option.option_id));
+          if (affixResidual) {
+            canonical = affixResidual;
+            matchAudit = {
+              method: "bijective_affix_option_name",
+              currentSaleOption: saleOption,
+              canonicalSaleOption: affixResidual.sale_option,
+            };
+          }
+        }
         if (!canonical) {
           const residual = uniqueUniformResidualCanonicalRow(option, options, activeRows);
           if (residual) {
