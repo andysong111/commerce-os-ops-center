@@ -18,6 +18,8 @@ const BATCH_SIZE = 4;
 const MAX_BATCH_WEIGHT = 4;
 const OPTIONS_MISSING_WEIGHT = 3;
 const SHOPLING_SYNC_WEIGHT = 2;
+const CANONICAL_PRICE_SOURCE = "china_order_final_confirmed_v4";
+const CANONICAL_PRICE_REVISION = "20260809_v4_option_max_uniform";
 
 // Commit 5f4d937 (atomic Shopling option recovery v3) shipped current-model
 // rediscovery before this boundary. An existing_preserved zero-option marker older
@@ -51,6 +53,29 @@ function positiveNumber(value: unknown) {
 
 function optionBarcodeNoValid(value: unknown) {
   return /^(?:OB)?\d{12}$/.test(text(value).toUpperCase());
+}
+
+function canonicalPriceConfirmed(option: UnknownRecord) {
+  const canonical = record(record(option.option_payload).canonicalChinaPrice);
+  if (
+    text(canonical.source) !== CANONICAL_PRICE_SOURCE ||
+    text(canonical.sourceRevision) !== CANONICAL_PRICE_REVISION
+  ) {
+    return false;
+  }
+  const currentSale = Math.round(positiveNumber(option.base_sale_price_krw));
+  const currentCost = Math.round(positiveNumber(option.unit_cost_krw));
+  const canonicalSale = Math.round(positiveNumber(canonical.finalSalePriceKrw));
+  const canonicalCost = Math.round(
+    positiveNumber(canonical.unitCostKrwMirror) ||
+      positiveNumber(canonical.unitCostKrwExact),
+  );
+  return (
+    currentSale > 0 &&
+    currentCost > 0 &&
+    currentSale === canonicalSale &&
+    currentCost === canonicalCost
+  );
 }
 
 function authorized(request: Request, secret: string) {
@@ -108,6 +133,7 @@ function pendingReasons(item: UnknownRecord, options: UnknownRecord[]) {
     if (!optionBarcodeNoValid(option.option_barcode_no)) reasons.push("option-barcode-no");
     if (positiveNumber(option.base_sale_price_krw) <= 0) reasons.push("sale-price");
     if (positiveNumber(option.unit_cost_krw) <= 0) reasons.push("unit-cost");
+    if (!canonicalPriceConfirmed(option)) reasons.push("canonical-price");
   }
   const detail = record(record(item.item_payload).detailPageAsset);
   if (!text(detail.html)) reasons.push("detail-html");
@@ -181,7 +207,7 @@ export async function GET(request: Request) {
       batchSize: BATCH_SIZE,
       maxBatchWeight: MAX_BATCH_WEIGHT,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v6-terminal-aware-weighted-atomic",
+      engine: "legacy-seo-preflight-drain-v7-canonical-authority",
     });
   }
 
@@ -239,7 +265,7 @@ export async function GET(request: Request) {
       batchSize: BATCH_SIZE,
       maxBatchWeight: MAX_BATCH_WEIGHT,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v6-terminal-aware-weighted-atomic",
+      engine: "legacy-seo-preflight-drain-v7-canonical-authority",
     });
   }
 
@@ -309,6 +335,6 @@ export async function GET(request: Request) {
     duplicateActiveModels: preflight.duplicateActiveModels,
     duplicateModelGuardError: preflight.duplicateModelGuardError,
     state: pending.length > batch.length || hasFailures ? "RUNNING" : "COMPLETE",
-    engine: "legacy-seo-preflight-drain-v6-terminal-aware-weighted-atomic",
+    engine: "legacy-seo-preflight-drain-v7-canonical-authority",
   });
 }
