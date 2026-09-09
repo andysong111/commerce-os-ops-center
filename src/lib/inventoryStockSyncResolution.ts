@@ -11,6 +11,7 @@ const SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE =
   "SHOPLING_STOCK_STATUS_SYNC_EVENT";
 const OPERATOR_STOP_CODE = "STOCK_SYNC_OPERATOR_STOPPED";
 const RESULT_TIMEOUT_CODE = "STOCK_SYNC_RESULT_TIMEOUT";
+const STALE_UNRESOLVED_MAX_AGE_MS = 35 * 60 * 1000;
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -122,14 +123,25 @@ export function isUnresolvedShoplingSync(
 export function normalizeRetryableShoplingSyncReport(
   report: InventoryStockControlReport,
 ): InventoryStockControlReport {
+  const now = Date.now();
   let changed = false;
   const rows = report.rows.map((row) => {
-    const staleFailedBlock =
-      row.syncNeeded &&
-      row.syncBlocked &&
-      row.latestSyncOutcome === "FAILED" &&
-      row.syncBlockReason === STALE_UNRESOLVED_REASON;
-    if (!staleFailedBlock) return row;
+    const staleReason =
+      row.syncBlocked && row.syncBlockReason === STALE_UNRESOLVED_REASON;
+    if (!staleReason) return row;
+
+    const latestAt = Date.parse(text(row.latestSyncAt));
+    const latestIsTerminal =
+      row.latestSyncOutcome === "FAILED" || row.latestSyncOutcome === "SUCCEEDED";
+    const unresolvedLockExpired =
+      Number.isFinite(latestAt) &&
+      now - latestAt > STALE_UNRESOLVED_MAX_AGE_MS;
+
+    // The extension's longest legitimate result wait is 30 minutes. A STARTED/UNCERTAIN
+    // lock older than 35 minutes cannot represent a currently protected run, so it must
+    // not remain as a permanent ghost lock. Terminal latest evidence also always clears it.
+    if (!latestIsTerminal && !unresolvedLockExpired) return row;
+
     changed = true;
     return {
       ...row,
@@ -143,6 +155,12 @@ export function normalizeRetryableShoplingSyncReport(
     rows,
     pendingSyncCount: rows.filter(
       (row) => row.syncNeeded && !row.syncBlocked,
+    ).length,
+    uncertainSyncCount: rows.filter(
+      (row) =>
+        row.syncNeeded &&
+        row.syncBlocked &&
+        row.latestSyncOutcome === "UNCERTAIN",
     ).length,
   };
 }
