@@ -33,6 +33,12 @@ type CanonicalPriceRow = {
   confirmation_reason: string;
 };
 
+type CanonicalMatchAudit = {
+  method: "uniform_single_residual_name_mismatch";
+  currentSaleOption: string;
+  canonicalSaleOption: string;
+};
+
 export type LegacySeoCanonicalPriceIssue = {
   itemId: string;
   modelNumber: string;
@@ -105,6 +111,57 @@ function sameCanonicalValues(rows: CanonicalPriceRow[]) {
   if (!rows.length) return false;
   const signatures = new Set(rows.map(canonicalValueSignature).filter(Boolean));
   return signatures.size === 1 && rows.every((row) => Boolean(canonicalValueSignature(row)));
+}
+
+function optionSaleKey(option: UnknownRecord) {
+  return legacySeoCanonicalOptionKey(
+    record(option.option_payload).saleOption ?? option.sale_option,
+  );
+}
+
+function canonicalRowKey(row: CanonicalPriceRow) {
+  return row.option_key || legacySeoCanonicalOptionKey(row.sale_option);
+}
+
+function uniqueUniformResidualCanonicalRow(
+  option: UnknownRecord,
+  options: UnknownRecord[],
+  activeRows: CanonicalPriceRow[],
+) {
+  // This fallback is intentionally narrow. It only resolves one renamed/typo option
+  // when every other option name matches exactly and every canonical row has the same
+  // confirmed cost and final sale price. The canonical ledger itself is never edited.
+  if (
+    options.length < 2 ||
+    activeRows.length !== options.length ||
+    !sameCanonicalValues(activeRows)
+  ) {
+    return null;
+  }
+
+  const optionKeys = options.map(optionSaleKey);
+  const canonicalKeys = activeRows.map(canonicalRowKey);
+  if (optionKeys.some((key) => !key) || canonicalKeys.some((key) => !key)) return null;
+  if (
+    new Set(optionKeys).size !== optionKeys.length ||
+    new Set(canonicalKeys).size !== canonicalKeys.length
+  ) {
+    return null;
+  }
+
+  const optionKeySet = new Set(optionKeys);
+  const canonicalKeySet = new Set(canonicalKeys);
+  const unmatchedOptionKeys = optionKeys.filter((key) => !canonicalKeySet.has(key));
+  const unmatchedCanonicalRows = activeRows.filter(
+    (row) => !optionKeySet.has(canonicalRowKey(row)),
+  );
+  if (unmatchedOptionKeys.length !== 1 || unmatchedCanonicalRows.length !== 1) {
+    return null;
+  }
+
+  return optionSaleKey(option) === unmatchedOptionKeys[0]
+    ? unmatchedCanonicalRows[0]
+    : null;
 }
 
 function uniqueProductNameMatch(
@@ -246,6 +303,7 @@ async function patchOptionPrice(
   option: UnknownRecord,
   canonical: CanonicalPriceRow,
   batch: CanonicalBatch,
+  matchAudit?: CanonicalMatchAudit,
 ) {
   const exactUnitCost = positiveNumber(canonical.unit_cost_krw);
   const finalSalePrice = Math.round(positiveNumber(canonical.base_sale_price_krw));
@@ -273,6 +331,13 @@ async function patchOptionPrice(
       costBasisDate: canonical.cost_basis_date,
       costSourceSheet: canonical.cost_source_sheet,
       confirmationReason: canonical.confirmation_reason,
+      ...(matchAudit
+        ? {
+            matchMethod: matchAudit.method,
+            currentSaleOption: matchAudit.currentSaleOption,
+            canonicalSaleOption: matchAudit.canonicalSaleOption,
+          }
+        : {}),
       appliedAt: new Date().toISOString(),
     },
   };
@@ -442,7 +507,20 @@ export async function applyLegacySeoCanonicalPrices(input: {
           options.length,
           text(item.product_name),
         );
-        if (!matched.row) {
+        let canonical = matched.row;
+        let matchAudit: CanonicalMatchAudit | undefined;
+        if (!canonical) {
+          const residual = uniqueUniformResidualCanonicalRow(option, options, activeRows);
+          if (residual) {
+            canonical = residual;
+            matchAudit = {
+              method: "uniform_single_residual_name_mismatch",
+              currentSaleOption: saleOption,
+              canonicalSaleOption: residual.sale_option,
+            };
+          }
+        }
+        if (!canonical) {
           unresolved.push({
             itemId,
             modelNumber,
@@ -452,8 +530,8 @@ export async function applyLegacySeoCanonicalPrices(input: {
           continue;
         }
         if (
-          positiveNumber(matched.row.unit_cost_krw) <= 0 ||
-          positiveNumber(matched.row.base_sale_price_krw) <= 0
+          positiveNumber(canonical.unit_cost_krw) <= 0 ||
+          positiveNumber(canonical.base_sale_price_krw) <= 0
         ) {
           unresolved.push({
             itemId,
@@ -470,8 +548,9 @@ export async function applyLegacySeoCanonicalPrices(input: {
             input.config,
             input.identity.userId,
             option,
-            matched.row as CanonicalPriceRow,
+            canonical as CanonicalPriceRow,
             batch,
+            matchAudit,
           ),
         );
       }
