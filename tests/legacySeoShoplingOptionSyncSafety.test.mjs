@@ -51,14 +51,21 @@ test("옵션 누락 상품도 먼저 Shopling 복구를 시도하고 가격은 �
   assert.match(source, /현재 Shopling 옵션\/B코드 확정 전이라 중국주문 최종가격 적용을 차단/);
 });
 
-test("전체 복구 드레인은 Vercel 300초 한도를 넘지 않도록 4개 모델 단위로만 실행한다", async () => {
+test("전체 복구 드레인은 Vercel 300초 한도 안에서 무거운 Shopling 탐색을 가중치로 제한한다", async () => {
   const source = await readFile(
     new URL("../src/app/api/cron/legacy-shopling-image-repair/route.ts", import.meta.url),
     "utf8",
   );
 
   assert.match(source, /const BATCH_SIZE = 4;/);
-  assert.match(source, /batchSize: BATCH_SIZE/);
-  assert.match(source, /legacy-seo-preflight-drain-v4-sliced-atomic/);
+  assert.match(source, /const MAX_BATCH_WEIGHT = 4;/);
+  assert.match(source, /const OPTIONS_MISSING_WEIGHT = 3;/);
+  assert.match(source, /const SHOPLING_SYNC_WEIGHT = 2;/);
+  assert.match(source, /function circularWeightedBatch/);
+  assert.match(source, /entry\.reasons\.includes\("options"\)/);
+  assert.match(source, /entry\.reasons\.includes\("shopling-sync"\)/);
+  assert.match(source, /selectedBatchSize: batch\.length/);
+  assert.match(source, /batchWeight/);
+  assert.match(source, /legacy-seo-preflight-drain-v5-weighted-atomic/);
   assert.doesNotMatch(source, /const BATCH_SIZE = 20;/);
 });
