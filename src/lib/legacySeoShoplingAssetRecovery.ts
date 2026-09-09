@@ -21,6 +21,7 @@ export type LegacySeoShoplingAssetIssue = {
 const ITEM_TABLE = "product_launch_items";
 const MAX_ITEMS = 100;
 const PATCH_CONCURRENCY = 10;
+const RECENT_NO_OPTION_PROOF_MS = 5 * 60 * 1000;
 
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -71,6 +72,24 @@ function syncedGoodsKey(item: UnknownRecord) {
     if (key) return key;
   }
   return "";
+}
+
+function recentlyConfirmedNoManagedOptions(item: UnknownRecord) {
+  const sync = record(item.shoplingOptionSync);
+  if (
+    text(sync.source) !== "shopling_live_grouped_option_sync" ||
+    text(sync.status) !== "existing_preserved" ||
+    Number(sync.optionCount) !== 0 ||
+    Number(sync.bCodeCount) !== 0
+  ) {
+    return false;
+  }
+  const syncedAt = Date.parse(text(sync.syncedAt));
+  return (
+    Number.isFinite(syncedAt) &&
+    syncedAt <= Date.now() &&
+    Date.now() - syncedAt <= RECENT_NO_OPTION_PROOF_MS
+  );
 }
 
 export function chooseLegacySeoShoplingAssetGroup(
@@ -226,9 +245,18 @@ export async function recoverLegacySeoShoplingAssets(input: {
   identity: ProductLaunchIdentity;
   items: UnknownRecord[];
 }) {
-  const items = input.items.slice(0, MAX_ITEMS);
+  // Option synchronization runs immediately before this stage. When that fresh,
+  // corrected live discovery has just proved there are no managed Shopling
+  // options/B-codes, preflight will exclude the item. Repeating the same years-long
+  // Shopling discovery solely for assets is redundant and was the dominant source
+  // of near-300s recovery calls.
+  const items = input.items
+    .slice(0, MAX_ITEMS)
+    .filter((item) => !recentlyConfirmedNoManagedOptions(item));
   const models = [...new Set(items.map((item) => modelKey(item.modelNumber)).filter(Boolean))];
-  const evidenceByModel = await loadLegacySeoShoplingEvidence(models);
+  const evidenceByModel = models.length
+    ? await loadLegacySeoShoplingEvidence(models)
+    : new Map<string, LegacySeoShoplingEvidence>();
   const tasks: Array<() => Promise<boolean>> = [];
   const unresolved: LegacySeoShoplingAssetIssue[] = [];
 
