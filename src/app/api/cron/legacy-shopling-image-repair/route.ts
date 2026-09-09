@@ -18,6 +18,15 @@ const BATCH_SIZE = 4;
 const MAX_BATCH_WEIGHT = 4;
 const OPTIONS_MISSING_WEIGHT = 3;
 const SHOPLING_SYNC_WEIGHT = 2;
+
+// Commit 5f4d937 (atomic Shopling option recovery v3) shipped current-model
+// rediscovery before this boundary. An existing_preserved zero-option marker older
+// than the boundary may come from the stale-goods-key bug (AAA116 class), so it
+// must be rechecked once. A marker written after this boundary is the result of
+// the corrected exhaustive discovery path and is a terminal SEO exclusion rather
+// than work to repeat forever.
+const TRUSTED_REDISCOVERY_CUTOFF_MS = Date.parse("2026-09-08T19:58:00.000Z");
+
 type UnknownRecord = Record<string, unknown>;
 type PendingEntry = { itemId: string; modelNumber: string; reasons: string[] };
 
@@ -68,7 +77,27 @@ function currentShoplingSync(item: UnknownRecord, options: UnknownRecord[]) {
   );
 }
 
+function verifiedNoOptionExclusion(item: UnknownRecord, options: UnknownRecord[]) {
+  if (options.length > 0) return false;
+  const itemSync = record(record(item.item_payload).shoplingOptionSync);
+  if (
+    text(itemSync.source) !== "shopling_live_grouped_option_sync" ||
+    text(itemSync.status) !== "existing_preserved" ||
+    Number(itemSync.optionCount) !== 0 ||
+    Number(itemSync.bCodeCount) !== 0
+  ) {
+    return false;
+  }
+  const syncedAt = Date.parse(text(itemSync.syncedAt));
+  return Number.isFinite(syncedAt) && syncedAt >= TRUSTED_REDISCOVERY_CUTOFF_MS;
+}
+
 function pendingReasons(item: UnknownRecord, options: UnknownRecord[]) {
+  // A corrected exhaustive Shopling discovery already proved that this legacy
+  // listing has no current managed option/B-code. Preflight treats it as excluded;
+  // do not keep rescanning years of history on every dispatcher cycle.
+  if (verifiedNoOptionExclusion(item, options)) return [];
+
   const reasons: string[] = [];
   if (!currentShoplingSync(item, options)) reasons.push("shopling-sync");
   if (!options.length) reasons.push("options");
@@ -148,10 +177,11 @@ export async function GET(request: Request) {
       processed: false,
       processedCount: 0,
       pendingCount: 0,
+      terminalExcludedCount: 0,
       batchSize: BATCH_SIZE,
       maxBatchWeight: MAX_BATCH_WEIGHT,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v5-weighted-atomic",
+      engine: "legacy-seo-preflight-drain-v6-terminal-aware-weighted-atomic",
     });
   }
 
@@ -181,6 +211,10 @@ export async function GET(request: Request) {
     optionsByItem.set(itemId, current);
   }
 
+  const terminalExcludedCount = ownerItems.filter((item) =>
+    verifiedNoOptionExclusion(item, optionsByItem.get(text(item.item_id)) ?? []),
+  ).length;
+
   const pending: PendingEntry[] = ownerItems
     .map((item) => {
       const itemId = text(item.item_id);
@@ -200,11 +234,12 @@ export async function GET(request: Request) {
       processed: false,
       processedCount: 0,
       pendingCount: 0,
+      terminalExcludedCount,
       totalCount: ownerItems.length,
       batchSize: BATCH_SIZE,
       maxBatchWeight: MAX_BATCH_WEIGHT,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v5-weighted-atomic",
+      engine: "legacy-seo-preflight-drain-v6-terminal-aware-weighted-atomic",
     });
   }
 
@@ -249,6 +284,7 @@ export async function GET(request: Request) {
     processed: true,
     processedCount: batch.length,
     pendingCount: pending.length,
+    terminalExcludedCount,
     totalCount: ownerItems.length,
     batchSize: BATCH_SIZE,
     selectedBatchSize: batch.length,
@@ -273,6 +309,6 @@ export async function GET(request: Request) {
     duplicateActiveModels: preflight.duplicateActiveModels,
     duplicateModelGuardError: preflight.duplicateModelGuardError,
     state: pending.length > batch.length || hasFailures ? "RUNNING" : "COMPLETE",
-    engine: "legacy-seo-preflight-drain-v5-weighted-atomic",
+    engine: "legacy-seo-preflight-drain-v6-terminal-aware-weighted-atomic",
   });
 }
