@@ -1,14 +1,13 @@
-importScripts("background-v063.js");
+importScripts("background-v060.js");
 
 // HF23: direct bridge for the REAL Shopling sale-status result host observed live:
 //   aapi*.shopling.co.kr:<port>/prod_a/prod_status_trsmt.phtml
 //
-// The price-adjustment extension succeeds because it owns popup/worker window ids and,
-// after definitive completion, completeJob -> closeManaged removes those windows directly.
-// For SINGLE stock-state jobs we now do the same. A dedicated content script is allowed on
-// both http/https *.shopling.co.kr, reports the exact terminal footer from the cross-host
-// result page, then this background layer ACKs the stock job and removes the real result/
-// popup window ids deterministically. HF22 CDP/Accessibility remains as a fallback.
+// Start from HF19 so A6 max-pagination, A21 200-row batching, HF10 OPTION and every
+// previously proven stock core remain, but do not start the unsuccessful HF20-HF22
+// SINGLE result watchers in parallel. The direct cross-host result script is now the
+// single authority for SINGLE completion. It ACKs first, then copies the live price
+// extension's completeJob -> closeManaged policy and removes the actual managed windows.
 (() => {
   const VERSION_V064 = chrome.runtime.getManifest().version;
   const RESULT_MESSAGE_V064 = "STOCK_SINGLE_STATUS_RESULT_TERMINAL_V023";
