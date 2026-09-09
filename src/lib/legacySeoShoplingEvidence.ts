@@ -8,6 +8,10 @@ import {
 } from "@/lib/shopling/shoplingReadClient";
 import { postShoplingXml } from "@/lib/shopling/shoplingTlsTransport";
 
+const SHOPLING_PRODUCT_IMAGE_FIELDS = Array.from(
+  { length: 32 },
+  (_, index) => `img_${index}`,
+);
 const PRODUCT_LOOKUP_FIELDS = [
   "goods_key",
   "ptn_goods_cd",
@@ -22,11 +26,7 @@ const PRODUCT_LOOKUP_FIELDS = [
   "list_price",
   "origin_nm",
   "dtl_desc",
-  "img_0",
-  "img_1",
-  "img_2",
-  "img_3",
-  "img_4",
+  ...SHOPLING_PRODUCT_IMAGE_FIELDS,
 ].join(",");
 const MODEL_DISCOVERY_FIELDS = [
   "goods_key",
@@ -427,8 +427,11 @@ function optionGroupsFromRows(
         originName: scalar(first.origin_nm),
         detailHtml: scalar(first.dtl_desc),
         imageUrls: unique(
-          [first.img_0, first.img_1, first.img_2, first.img_3, first.img_4],
-          5,
+          [
+            ...SHOPLING_PRODUCT_IMAGE_FIELDS.map((field) => first[field]),
+            ...rows.map((row) => row.optImgUrl),
+          ],
+          32,
         ),
         options,
       } satisfies LegacySeoShoplingOptionGroup;
