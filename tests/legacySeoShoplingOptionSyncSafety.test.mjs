@@ -66,6 +66,20 @@ test("전체 복구 드레인은 Vercel 300초 한도 안에서 무거운 Shopli
   assert.match(source, /entry\.reasons\.includes\("shopling-sync"\)/);
   assert.match(source, /selectedBatchSize: batch\.length/);
   assert.match(source, /batchWeight/);
-  assert.match(source, /legacy-seo-preflight-drain-v5-weighted-atomic/);
   assert.doesNotMatch(source, /const BATCH_SIZE = 20;/);
+});
+
+test("수정된 rediscovery 이후 옵션 0개가 live 확인된 상품은 terminal 제외하고 과거 marker는 한 번 더 재검증한다", async () => {
+  const source = await readFile(
+    new URL("../src/app/api/cron/legacy-shopling-image-repair/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /const TRUSTED_REDISCOVERY_CUTOFF_MS = Date\.parse/);
+  assert.match(source, /function verifiedNoOptionExclusion/);
+  assert.match(source, /text\(itemSync\.status\) !== "existing_preserved"/);
+  assert.match(source, /Number\(itemSync\.optionCount\) !== 0/);
+  assert.match(source, /syncedAt >= TRUSTED_REDISCOVERY_CUTOFF_MS/);
+  assert.match(source, /terminalExcludedCount/);
+  assert.match(source, /legacy-seo-preflight-drain-v6-terminal-aware-weighted-atomic/);
 });
