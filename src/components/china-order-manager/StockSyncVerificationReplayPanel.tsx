@@ -55,6 +55,7 @@ type ResultMessage = {
 
 const number = new Intl.NumberFormat("ko-KR");
 const VERIFY_PREFIX = "stock-sync-verify";
+const PINNED_REPEAT_TEST_BARCODE = "BZ7341-1";
 
 function statusLabel(value: DesiredStatus) {
   return value === "SOLD_OUT" ? "품절" : "판매중";
@@ -240,12 +241,19 @@ export function StockSyncVerificationReplayPanel() {
 
   const replayRows = useMemo(
     () =>
-      (report?.rows ?? []).filter(
-        (row) =>
-          !row.syncBlocked &&
-          !row.syncNeeded &&
-          row.latestSyncOutcome === "SUCCEEDED",
-      ),
+      (report?.rows ?? []).filter((row) => {
+        const pinnedRepeatTest =
+          row.barcode === PINNED_REPEAT_TEST_BARCODE &&
+          row.productKind === "OPTION" &&
+          row.desiredStatus === "SOLD_OUT" &&
+          row.exactInventoryQuantity === 0;
+        return (
+          pinnedRepeatTest ||
+          (!row.syncBlocked &&
+            !row.syncNeeded &&
+            row.latestSyncOutcome === "SUCCEEDED")
+        );
+      }),
     [report],
   );
 
@@ -297,7 +305,7 @@ export function StockSyncVerificationReplayPanel() {
             완료 건 동일상태 검증 재실행
           </h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-            이미 완료된 품절·판매중 상태를 동일한 값으로 한 번 더 송신해 확장프로그램 경로를 검증합니다. Commerce OS의 정확재고, 입고·판매 수량, 재고 0 기준점은 변경하지 않습니다.
+            이미 완료된 품절·판매중 상태를 동일한 값으로 한 번 더 송신해 확장프로그램 경로를 검증합니다. Commerce OS의 정확재고, 입고·판매 수량, 재고 0 기준점은 변경하지 않습니다. BZ7341-1은 현재 옵션상품·정확재고 0·목표 품절 조건이 유지되는 동안 반복 검증 대상으로 계속 표시합니다.
           </p>
         </div>
         <span
@@ -337,6 +345,11 @@ export function StockSyncVerificationReplayPanel() {
                     {row.modelNo ? `${row.modelNo} · ` : ""}
                     {row.productName}
                   </span>
+                  {row.barcode === PINNED_REPEAT_TEST_BARCODE ? (
+                    <span className="ml-2 rounded-full bg-violet-100 px-2 py-1 text-[10px] font-black text-violet-800">
+                      반복 검증 대상
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-3 py-3 font-bold">{kindLabel(row.productKind)}</td>
                 <td className="px-3 py-3 text-right font-black text-slate-950">
