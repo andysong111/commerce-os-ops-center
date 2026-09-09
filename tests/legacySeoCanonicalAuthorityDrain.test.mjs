@@ -18,3 +18,17 @@ test("복구 드레인은 가격이 양수여도 최종확정 v4 provenance와 �
   assert.match(source, /if \(!canonicalPriceConfirmed\(option\)\) reasons\.push\("canonical-price"\);/);
   assert.match(source, /legacy-seo-preflight-drain-v7-canonical-authority/);
 });
+
+test("preflight 자체도 최종확정 v4 provenance가 없는 기존 양수 가격을 GREEN으로 인정하지 않는다", async () => {
+  const source = await readFile(
+    new URL("../src/lib/legacySeoPreflight.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /const CANONICAL_PRICE_SOURCE = "china_order_final_confirmed_v4";/);
+  assert.match(source, /const CANONICAL_PRICE_REVISION = "20260809_v4_option_max_uniform";/);
+  assert.match(source, /function canonicalPriceConfirmed/);
+  assert.match(source, /record\(option\.canonicalChinaPrice\)/);
+  assert.match(source, /"canonicalPriceAuthority"/);
+  assert.match(source, /중국주문 최종확정 v4 적용근거와 현재 가격이 일치하지 않습니다/);
+});
