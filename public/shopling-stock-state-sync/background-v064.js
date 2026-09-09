@@ -100,7 +100,12 @@ importScripts("background-v060.js");
 
   async function handleDirectResultV064(message, sender) {
     const active = await loadActive();
-    if (!isSingleWaitV064(active)) return { ok: false, noActiveJob: true, accepted: false };
+    if (!active || active.status !== "RUNNING" || active.job?.productKind !== "SINGLE") {
+      return { ok: false, noActiveJob: true, accepted: false };
+    }
+    if (!isSingleWaitV064(active)) {
+      return { ok: false, noActiveJob: false, retry: true, accepted: false, stage: String(active.stage || "") };
+    }
 
     const evidence = message?.evidence || {};
     const senderTabId = sender?.tab?.id;
