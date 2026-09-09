@@ -150,13 +150,17 @@ export function normalizeRetryableShoplingSyncReport(
 async function loadEvidenceRetryableBarcodes(
   report: InventoryStockControlReport,
 ) {
+  // Base report construction can keep an old STARTED/UNCERTAIN event as a blocker even
+  // after the same logical Shopling job has a later terminal FAILED event. Resolve the
+  // blocker from the persisted event stream itself instead of trusting the derived
+  // latestSyncOutcome field. This also keeps a genuinely latest STARTED/UNCERTAIN event
+  // blocked, preserving the no-concurrency safety rule.
   const candidates = new Map(
     report.rows
       .filter(
         (row) =>
           row.syncNeeded &&
           row.syncBlocked &&
-          row.latestSyncOutcome === "UNCERTAIN" &&
           row.syncBlockReason === STALE_UNRESOLVED_REASON,
       )
       .map((row) => [row.barcode, row] as const),
@@ -184,7 +188,8 @@ async function loadEvidenceRetryableBarcodes(
     ? (response.data as Array<Record<string, unknown>>)
     : [];
   const retryable = new Set<string>();
-  const seen = new Set<string>();
+  const latestRelevantSeen = new Set<string>();
+
   for (const row of storedRows) {
     const source = storedSnapshot(row);
     const barcode =
@@ -193,12 +198,8 @@ async function loadEvidenceRetryableBarcodes(
         text(row.correlation_id).replace(/^shopling-stock:/i, ""),
       );
     const candidate = candidates.get(barcode);
-    if (!candidate || seen.has(barcode)) continue;
-    seen.add(barcode);
+    if (!candidate || latestRelevantSeen.has(barcode)) continue;
 
-    const outcome = text(source.outcome).toUpperCase();
-    const evidence = object(source.evidence);
-    const code = text(evidence.code).toUpperCase();
     const desiredStatus = text(source.desiredStatus).toUpperCase();
     const occurredAt =
       Date.parse(text(source.occurredAt)) || Date.parse(text(row.started_at));
@@ -208,6 +209,15 @@ async function loadEvidenceRetryableBarcodes(
       Number.isFinite(occurredAt) &&
       Number.isFinite(desiredSince) &&
       occurredAt >= desiredSince;
+    if (!matchesCurrentDesiredState) continue;
+
+    // Rows are ordered newest first. The first event that belongs to the current desired
+    // state is the only event allowed to decide whether retry is safe.
+    latestRelevantSeen.add(barcode);
+
+    const outcome = text(source.outcome).toUpperCase();
+    const evidence = object(source.evidence);
+    const code = text(evidence.code).toUpperCase();
     const retryableOperatorStop = code === OPERATOR_STOP_CODE;
     const retryableLegacyMarketplaceFailure =
       legacyMarketplaceFailureCompletionEvidence(
@@ -220,8 +230,11 @@ async function loadEvidenceRetryableBarcodes(
       desiredStatus,
     );
 
+    if (outcome === "FAILED") {
+      retryable.add(barcode);
+      continue;
+    }
     if (
-      matchesCurrentDesiredState &&
       outcome === "UNCERTAIN" &&
       (retryableOperatorStop ||
         retryableLegacyMarketplaceFailure ||
@@ -246,7 +259,6 @@ export async function normalizeRetryableShoplingSyncReportWithEvidence(
       retryableBarcodes.has(row.barcode) &&
       row.syncNeeded &&
       row.syncBlocked &&
-      row.latestSyncOutcome === "UNCERTAIN" &&
       row.syncBlockReason === STALE_UNRESOLVED_REASON;
     if (!evidenceRetryableBlock) return row;
     changed = true;
