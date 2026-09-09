@@ -72,7 +72,7 @@ type ActiveBatch = {
 type LocalException = {
   jobId: string;
   barcode: string;
-  outcome: "FAILED" | "UNCERTAIN";
+  outcome: Exclude<SyncOutcome, "STARTED">;
   message: string;
 };
 
@@ -105,7 +105,6 @@ function stableEventId(prefix: string, job: SyncJob, outcome: SyncOutcome, finis
 }
 
 function prioritySort(left: SyncJob, right: SyncJob) {
-  // 품절을 먼저 처리해 초과판매 위험을 낮추고, 같은 상태에서는 오래된 전환부터 처리한다.
   const leftPriority = left.desiredStatus === "SOLD_OUT" ? 0 : 1;
   const rightPriority = right.desiredStatus === "SOLD_OUT" ? 0 : 1;
   if (leftPriority !== rightPriority) return leftPriority - rightPriority;
@@ -198,8 +197,7 @@ export function StockSyncOperationalQueuePanel() {
   );
 
   const blockedRows = useMemo(
-    () =>
-      (report?.rows ?? []).filter((row) => row.syncNeeded && row.syncBlocked),
+    () => (report?.rows ?? []).filter((row) => row.syncNeeded && row.syncBlocked),
     [report],
   );
 
@@ -266,14 +264,9 @@ export function StockSyncOperationalQueuePanel() {
         { type: PARALLEL_START, batchId, jobs: prepared },
         window.location.origin,
       );
-      setNotice(
-        `${prepared[0].barcode} + ${prepared[1].barcode} 운영 큐 2-Lane 시작 · 품절 우선순위로 최대 2건을 겹쳐 처리합니다.`,
-      );
+      setNotice(`${prepared[0].barcode} + ${prepared[1].barcode} 운영 큐 2-Lane 시작 · 품절 우선순위로 최대 2건을 겹쳐 처리합니다.`);
     } else {
-      window.postMessage(
-        { type: SINGLE_START, job: prepared[0] },
-        window.location.origin,
-      );
+      window.postMessage({ type: SINGLE_START, job: prepared[0] }, window.location.origin);
       setNotice(`${prepared[0].barcode} 운영 큐 마지막 1건을 단독 실행합니다.`);
     }
   }, [blockedRows.length, loadQueue, localExceptions.length, recordSync]);
@@ -283,23 +276,14 @@ export function StockSyncOperationalQueuePanel() {
       setNotice(error instanceof Error ? error.message : "운영 큐 조회 실패");
     });
     const timer = window.setInterval(() => {
-      if (!activeBatch.current) {
-        void loadQueue().catch(() => undefined);
-      }
+      if (!activeBatch.current) void loadQueue().catch(() => undefined);
     }, REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [loadQueue]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      if (
-        event.source !== window ||
-        event.origin !== window.location.origin ||
-        !event.data ||
-        typeof event.data !== "object"
-      ) {
-        return;
-      }
+      if (event.source !== window || event.origin !== window.location.origin || !event.data || typeof event.data !== "object") return;
       const data = event.data as Record<string, unknown>;
       const type = String(data.type || "");
 
@@ -357,21 +341,20 @@ export function StockSyncOperationalQueuePanel() {
 
           if (result.outcome !== "SUCCEEDED") {
             excludedThisRun.current.add(job.jobId);
+            const exceptionOutcome: Exclude<SyncOutcome, "STARTED"> = result.outcome;
             setLocalExceptions((current) => [
               ...current.filter((row) => row.jobId !== job.jobId),
               {
                 jobId: job.jobId,
                 barcode: job.barcode,
-                outcome: result.outcome,
+                outcome: exceptionOutcome,
                 message: result.message || "원인 확인 필요",
               },
             ]);
           }
 
           if (batch.terminalJobIds.size < batch.jobs.length) {
-            setNotice(
-              `${job.barcode} ${result.outcome} · 같은 배치의 다른 Lane 결과를 기다리며 창 닫힘 여부는 무시합니다.`,
-            );
+            setNotice(`${job.barcode} ${result.outcome} · 같은 배치의 다른 Lane 결과를 기다리며 창 닫힘 여부는 무시합니다.`);
             return;
           }
 
@@ -397,10 +380,7 @@ export function StockSyncOperationalQueuePanel() {
     };
 
     window.addEventListener("message", onMessage);
-    window.postMessage(
-      { type: "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING" },
-      window.location.origin,
-    );
+    window.postMessage({ type: "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING" }, window.location.origin);
     return () => window.removeEventListener("message", onMessage);
   }, [launchNext, loadQueue, recordSync]);
 
@@ -451,105 +431,47 @@ export function StockSyncOperationalQueuePanel() {
     <section className="rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <span className="text-xs font-black tracking-[0.12em] text-sky-800">
-            OPERATION QUEUE · EXACT INVENTORY → SHOPLING · MAX 2 LANES
-          </span>
+          <span className="text-xs font-black tracking-[0.12em] text-sky-800">OPERATION QUEUE · EXACT INVENTORY → SHOPLING · MAX 2 LANES</span>
           <h2 className="mt-1 text-xl font-black text-slate-950">실제 운영 재고상태 자동 큐</h2>
           <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
             Commerce OS 정확재고가 만든 syncNeeded만 실행 대상으로 사용합니다. 품절을 판매중보다 먼저 처리하고 최대 2건을 HF28 Lane으로 겹쳐 실행합니다. FAILED/UNCERTAIN은 같은 실행에서 자동 재시도하지 않고 예외 큐로 격리하며, 결과창 닫힘 여부는 다음 작업 진행과 성공판정 조건에서 제외합니다.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-black">
-          <span className={`rounded-full border px-3 py-1.5 ${extensionReady ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
-            {extensionReady ? "HF28 연결됨" : "HF28 연결 대기"}
-          </span>
-          <span className={`rounded-full border px-3 py-1.5 ${report?.state === "READY" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-rose-300 bg-rose-50 text-rose-800"}`}>
-            원장 {report?.state || "조회중"}
-          </span>
+          <span className={`rounded-full border px-3 py-1.5 ${extensionReady ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{extensionReady ? "HF28 연결됨" : "HF28 연결 대기"}</span>
+          <span className={`rounded-full border px-3 py-1.5 ${report?.state === "READY" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-rose-300 bg-rose-50 text-rose-800"}`}>원장 {report?.state || "조회중"}</span>
         </div>
       </div>
 
-      {notice ? (
-        <div className="mt-4 rounded-xl border border-sky-200 bg-white px-4 py-3 text-sm font-bold text-slate-800">
-          {notice}
-        </div>
-      ) : null}
+      {notice ? <div className="mt-4 rounded-xl border border-sky-200 bg-white px-4 py-3 text-sm font-bold text-slate-800">{notice}</div> : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-sky-200 bg-white p-4">
-          <div className="text-xs font-bold text-slate-500">실행 가능 대기</div>
-          <div className="mt-1 text-2xl font-black text-slate-950">{jobs.length}</div>
-        </div>
-        <div className="rounded-xl border border-sky-200 bg-white p-4">
-          <div className="text-xs font-bold text-slate-500">현재 Lane</div>
-          <div className="mt-1 text-lg font-black text-slate-950">{runningBarcodes.length ? runningBarcodes.join(" + ") : "없음"}</div>
-        </div>
-        <div className="rounded-xl border border-sky-200 bg-white p-4">
-          <div className="text-xs font-bold text-slate-500">차단/확인 필요</div>
-          <div className="mt-1 text-2xl font-black text-slate-950">{blockedRows.length + localExceptions.length}</div>
-        </div>
-        <div className="rounded-xl border border-sky-200 bg-white p-4">
-          <div className="text-xs font-bold text-slate-500">운영 단계</div>
-          <div className="mt-1 text-sm font-black text-slate-950">{phase}</div>
-        </div>
+        <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">실행 가능 대기</div><div className="mt-1 text-2xl font-black text-slate-950">{jobs.length}</div></div>
+        <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">현재 Lane</div><div className="mt-1 text-lg font-black text-slate-950">{runningBarcodes.length ? runningBarcodes.join(" + ") : "없음"}</div></div>
+        <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">차단/확인 필요</div><div className="mt-1 text-2xl font-black text-slate-950">{blockedRows.length + localExceptions.length}</div></div>
+        <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">운영 단계</div><div className="mt-1 text-sm font-black text-slate-950">{phase}</div></div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => void startDrain()}
-          disabled={draining || !extensionReady || report?.state !== "READY" || !jobs.length}
-          className="rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-black text-white hover:bg-sky-800 disabled:bg-slate-400"
-        >
-          현재 대기건 2-Lane 자동처리
-        </button>
-        <button
-          type="button"
-          onClick={pauseAfterCurrent}
-          disabled={!draining}
-          className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:text-slate-400"
-        >
-          현재 배치 후 중지
-        </button>
-        <button
-          type="button"
-          onClick={() => void loadQueue().catch((error) => setNotice(error instanceof Error ? error.message : "큐 새로고침 실패"))}
-          className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50"
-        >
-          큐 새로고침
-        </button>
+        <button type="button" onClick={() => void startDrain()} disabled={draining || !extensionReady || report?.state !== "READY" || !jobs.length} className="rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-black text-white hover:bg-sky-800 disabled:bg-slate-400">현재 대기건 2-Lane 자동처리</button>
+        <button type="button" onClick={pauseAfterCurrent} disabled={!draining} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:text-slate-400">현재 배치 후 중지</button>
+        <button type="button" onClick={() => void loadQueue().catch((error) => setNotice(error instanceof Error ? error.message : "큐 새로고침 실패"))} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50">큐 새로고침</button>
       </div>
 
       <div className="mt-4 overflow-x-auto rounded-xl border border-sky-200 bg-white">
         <table className="min-w-[900px] text-left text-xs">
-          <thead className="bg-sky-100/70 text-slate-600">
-            <tr>
-              <th className="px-3 py-3">우선순위 / B코드</th>
-              <th className="px-3 py-3">형태</th>
-              <th className="px-3 py-3 text-right">정확재고</th>
-              <th className="px-3 py-3">목표상태</th>
-              <th className="px-3 py-3">상태전환 시점</th>
-            </tr>
-          </thead>
+          <thead className="bg-sky-100/70 text-slate-600"><tr><th className="px-3 py-3">우선순위 / B코드</th><th className="px-3 py-3">형태</th><th className="px-3 py-3 text-right">정확재고</th><th className="px-3 py-3">목표상태</th><th className="px-3 py-3">상태전환 시점</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {jobs.map((job, index) => (
               <tr key={job.jobId}>
-                <td className="px-3 py-3">
-                  <span className="mr-2 rounded-full bg-slate-100 px-2 py-1 font-black">{index + 1}</span>
-                  <strong className="font-mono text-slate-950">{job.barcode}</strong>
-                  <span className="ml-2 text-slate-500">{job.productName}</span>
-                </td>
+                <td className="px-3 py-3"><span className="mr-2 rounded-full bg-slate-100 px-2 py-1 font-black">{index + 1}</span><strong className="font-mono text-slate-950">{job.barcode}</strong><span className="ml-2 text-slate-500">{job.productName}</span></td>
                 <td className="px-3 py-3 font-bold">{kindLabel(job.productKind)}</td>
                 <td className="px-3 py-3 text-right font-black">{job.exactInventoryQuantity}개</td>
-                <td className={`px-3 py-3 font-black ${job.desiredStatus === "SOLD_OUT" ? "text-rose-700" : "text-emerald-700"}`}>
-                  {statusLabel(job.desiredStatus)}
-                </td>
+                <td className={`px-3 py-3 font-black ${job.desiredStatus === "SOLD_OUT" ? "text-rose-700" : "text-emerald-700"}`}>{statusLabel(job.desiredStatus)}</td>
                 <td className="px-3 py-3 text-slate-600">{new Date(job.desiredSince).toLocaleString("ko-KR")}</td>
               </tr>
             ))}
-            {!jobs.length ? (
-              <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-500">현재 실행 가능한 Shopling 재고상태 대기건이 없습니다.</td></tr>
-            ) : null}
+            {!jobs.length ? <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-500">현재 실행 가능한 Shopling 재고상태 대기건이 없습니다.</td></tr> : null}
           </tbody>
         </table>
       </div>
@@ -558,23 +480,13 @@ export function StockSyncOperationalQueuePanel() {
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <h3 className="text-sm font-black text-amber-950">예외 큐 · 자동 재시도 금지</h3>
           <div className="mt-2 space-y-2 text-xs text-amber-950">
-            {blockedRows.map((row) => (
-              <div key={`blocked:${row.barcode}`} className="rounded-lg bg-white px-3 py-2">
-                <strong>{row.barcode}</strong> · {statusLabel(row.desiredStatus)} · {row.syncBlockReason || "수동 확인 필요"}
-              </div>
-            ))}
-            {localExceptions.map((row) => (
-              <div key={`local:${row.jobId}`} className="rounded-lg bg-white px-3 py-2">
-                <strong>{row.barcode}</strong> · {row.outcome} · {row.message}
-              </div>
-            ))}
+            {blockedRows.map((row) => <div key={`blocked:${row.barcode}`} className="rounded-lg bg-white px-3 py-2"><strong>{row.barcode}</strong> · {statusLabel(row.desiredStatus)} · {row.syncBlockReason || "수동 확인 필요"}</div>)}
+            {localExceptions.map((row) => <div key={`local:${row.jobId}`} className="rounded-lg bg-white px-3 py-2"><strong>{row.barcode}</strong> · {row.outcome} · {row.message}</div>)}
           </div>
         </div>
       ) : null}
 
-      <p className="mt-3 text-xs leading-5 text-slate-500">
-        자동감지는 30초마다 큐를 갱신하지만, 현재 단계에서는 새 대기건의 실제 송신 시작은 위 버튼으로 승인합니다. 이 운영 큐가 실전 대기건에서 안정적으로 통과하면 다음 단계에서 승인 버튼 자체를 제거해 완전자동으로 전환할 수 있습니다.
-      </p>
+      <p className="mt-3 text-xs leading-5 text-slate-500">자동감지는 30초마다 큐를 갱신하지만, 현재 단계에서는 새 대기건의 실제 송신 시작은 위 버튼으로 승인합니다. 이 운영 큐가 실전 대기건에서 안정적으로 통과하면 다음 단계에서 승인 버튼 자체를 제거해 완전자동으로 전환할 수 있습니다.</p>
     </section>
   );
 }
