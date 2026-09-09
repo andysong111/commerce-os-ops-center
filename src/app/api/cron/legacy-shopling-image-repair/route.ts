@@ -11,11 +11,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-// Missing-option recovery can require several Shopling evidence lookups per model.
-// Keep the dispatcher slice deliberately small so a single cron invocation stays
-// well below Vercel's 300-second hard runtime limit.
+// Four light models remain safe, but missing-option recovery can scan years of
+// Shopling history. Weight deep discovery more heavily so one invocation cannot
+// accidentally pack several expensive models into the same 300-second window.
 const BATCH_SIZE = 4;
+const MAX_BATCH_WEIGHT = 4;
+const OPTIONS_MISSING_WEIGHT = 3;
+const SHOPLING_SYNC_WEIGHT = 2;
 type UnknownRecord = Record<string, unknown>;
+type PendingEntry = { itemId: string; modelNumber: string; reasons: string[] };
 
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -85,10 +89,27 @@ function pendingReasons(item: UnknownRecord, options: UnknownRecord[]) {
   return [...new Set(reasons)];
 }
 
-function circularBatch<T>(values: T[], size: number, seed: number) {
-  if (values.length <= size) return values;
-  const offset = ((seed * size) % values.length + values.length) % values.length;
-  return [...values.slice(offset), ...values.slice(0, offset)].slice(0, size);
+function pendingWeight(entry: PendingEntry) {
+  if (entry.reasons.includes("options")) return OPTIONS_MISSING_WEIGHT;
+  if (entry.reasons.includes("shopling-sync")) return SHOPLING_SYNC_WEIGHT;
+  return 1;
+}
+
+function circularWeightedBatch(values: PendingEntry[], seed: number) {
+  if (!values.length) return [] as PendingEntry[];
+  const offset = ((seed * BATCH_SIZE) % values.length + values.length) % values.length;
+  const rotated = [...values.slice(offset), ...values.slice(0, offset)];
+  const batch: PendingEntry[] = [];
+  let weight = 0;
+
+  for (const entry of rotated) {
+    const itemWeight = pendingWeight(entry);
+    if (batch.length > 0 && weight + itemWeight > MAX_BATCH_WEIGHT) break;
+    batch.push(entry);
+    weight += itemWeight;
+    if (batch.length >= BATCH_SIZE || weight >= MAX_BATCH_WEIGHT) break;
+  }
+  return batch;
 }
 
 export async function GET(request: Request) {
@@ -128,8 +149,9 @@ export async function GET(request: Request) {
       processedCount: 0,
       pendingCount: 0,
       batchSize: BATCH_SIZE,
+      maxBatchWeight: MAX_BATCH_WEIGHT,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v4-sliced-atomic",
+      engine: "legacy-seo-preflight-drain-v5-weighted-atomic",
     });
   }
 
@@ -159,7 +181,7 @@ export async function GET(request: Request) {
     optionsByItem.set(itemId, current);
   }
 
-  const pending = ownerItems
+  const pending: PendingEntry[] = ownerItems
     .map((item) => {
       const itemId = text(item.item_id);
       const reasons = pendingReasons(item, optionsByItem.get(itemId) ?? []);
@@ -180,8 +202,9 @@ export async function GET(request: Request) {
       pendingCount: 0,
       totalCount: ownerItems.length,
       batchSize: BATCH_SIZE,
+      maxBatchWeight: MAX_BATCH_WEIGHT,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v4-sliced-atomic",
+      engine: "legacy-seo-preflight-drain-v5-weighted-atomic",
     });
   }
 
@@ -204,7 +227,8 @@ export async function GET(request: Request) {
   };
 
   const minuteSeed = Math.floor(Date.now() / 60_000);
-  const batch = circularBatch(pending, BATCH_SIZE, minuteSeed);
+  const batch = circularWeightedBatch(pending, minuteSeed);
+  const batchWeight = batch.reduce((sum, entry) => sum + pendingWeight(entry), 0);
   const preflight = await prepareLegacySeoPreflight({
     config,
     identity,
@@ -227,10 +251,14 @@ export async function GET(request: Request) {
     pendingCount: pending.length,
     totalCount: ownerItems.length,
     batchSize: BATCH_SIZE,
+    selectedBatchSize: batch.length,
+    batchWeight,
+    maxBatchWeight: MAX_BATCH_WEIGHT,
     batchModels: batch.map((entry) => entry.modelNumber),
     batchPendingReasons: batch.map((entry) => ({
       modelNumber: entry.modelNumber,
       reasons: entry.reasons,
+      weight: pendingWeight(entry),
     })),
     readyCount: preflight.readyCount,
     excludedCount: preflight.excludedCount,
@@ -245,6 +273,6 @@ export async function GET(request: Request) {
     duplicateActiveModels: preflight.duplicateActiveModels,
     duplicateModelGuardError: preflight.duplicateModelGuardError,
     state: pending.length > batch.length || hasFailures ? "RUNNING" : "COMPLETE",
-    engine: "legacy-seo-preflight-drain-v4-sliced-atomic",
+    engine: "legacy-seo-preflight-drain-v5-weighted-atomic",
   });
 }
