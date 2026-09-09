@@ -55,7 +55,8 @@ type ResultMessage = {
 
 const number = new Intl.NumberFormat("ko-KR");
 const VERIFY_PREFIX = "stock-sync-verify";
-const PINNED_REPEAT_TEST_BARCODE = "BZ7341-1";
+const PINNED_REPEAT_TEST_BARCODE = "BZZ341-1";
+const LEGACY_MISTYPED_BARCODE = "BZ7341-1";
 
 function normalizedBarcode(value: string) {
   return String(value || "")
@@ -310,7 +311,7 @@ export function StockSyncVerificationReplayPanel() {
             완료 건 동일상태 검증 재실행
           </h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-            이미 완료된 품절·판매중 상태를 동일한 값으로 한 번 더 송신해 확장프로그램 경로를 검증합니다. Commerce OS의 정확재고, 입고·판매 수량, 재고 0 기준점은 변경하지 않습니다. BZ7341-1은 직전 검증이 FAILED여도 현재 재고원장 행이 존재하는 동안 반복 검증 목록 맨 위에 계속 고정합니다.
+            이미 완료된 품절·판매중 상태를 동일한 값으로 한 번 더 송신해 확장프로그램 경로를 검증합니다. Commerce OS의 정확재고, 입고·판매 수량, 재고 0 기준점은 변경하지 않습니다. 검증된 canonical 옵션자체관리코드는 BZZ341-1이며, 이전에 입력된 BZ7341-1 기준점은 오기로 정정 원장에서 실행 대상에서 제외되어 있습니다. BZZ341-1은 직전 검증이 FAILED여도 반복 검증 목록 맨 위에 계속 고정합니다.
           </p>
         </div>
         <span
@@ -351,9 +352,14 @@ export function StockSyncVerificationReplayPanel() {
                     {row.productName}
                   </span>
                   {normalizedBarcode(row.barcode) === PINNED_REPEAT_TEST_BARCODE ? (
-                    <span className="ml-2 rounded-full bg-violet-100 px-2 py-1 text-[10px] font-black text-violet-800">
-                      실패 후 재검증 가능
-                    </span>
+                    <>
+                      <span className="ml-2 rounded-full bg-violet-100 px-2 py-1 text-[10px] font-black text-violet-800">
+                        실패 후 재검증 가능
+                      </span>
+                      <span className="ml-2 text-[10px] font-bold text-slate-500">
+                        이전 오기 {LEGACY_MISTYPED_BARCODE}
+                      </span>
+                    </>
                   ) : null}
                 </td>
                 <td className="px-3 py-3 font-bold">{kindLabel(row.productKind)}</td>
