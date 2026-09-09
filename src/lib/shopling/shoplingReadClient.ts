@@ -247,6 +247,7 @@ function flattenProduct(goods: RawObject) {
   const optionStatuses = splitCsv(options?.optStatus);
   const optionQuantities = splitCsv(options?.optQty);
   const optionAmounts = splitCsv(options?.optAmt);
+  const optionImageUrls = splitCsv(options?.optImgUrl);
   const optionCount = Math.max(
     optionNames.length,
     optionIds.length,
@@ -255,6 +256,7 @@ function flattenProduct(goods: RawObject) {
     optionStatuses.length,
     optionQuantities.length,
     optionAmounts.length,
+    optionImageUrls.length,
     1,
   );
   const product = { ...goods };
@@ -269,6 +271,7 @@ function flattenProduct(goods: RawObject) {
     optStatus: optionStatuses[index] ?? "",
     optQty: optionQuantities[index] ?? "",
     optAmt: optionAmounts[index] ?? "",
+    optImgUrl: optionImageUrls[index] ?? "",
     optionName: optionNames[index] ?? `옵션 ${index + 1}`,
   }));
 }
