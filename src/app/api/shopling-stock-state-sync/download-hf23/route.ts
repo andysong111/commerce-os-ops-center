@@ -99,12 +99,12 @@ export async function GET(request: Request) {
 
   manifest.background.service_worker = BACKGROUND_NEW;
   manifest.name = "Commerce OS · Shopling Stock State Sync HF23";
-  manifest.description = "HF23 fixes the real Shopling sale-status result host observed at aapi*.shopling.co.kr:4315/prod_a/prod_status_trsmt.phtml. It grants direct http/https *.shopling.co.kr result access, detects the exact '상품상태 변경 전송이 완료되었습니다.' footer in-page, ACKs the SINGLE stock-state job, then copies the price-adjustment extension's closeManaged policy by removing the actual result/popup window ids. HF22 CDP/Accessibility stays as fallback.";
+  manifest.description = "HF23 fixes the live sale-status result at aapi*.shopling.co.kr:4315/prod_a/prod_status_trsmt.phtml. It starts from the stable HF19/HF10 core instead of running the unsuccessful HF20-HF22 SINGLE result watchers in parallel, grants direct http/https *.shopling.co.kr result access, detects the exact terminal footer, ACKs first, then copies the price-adjustment completeJob->closeManaged window-removal order.";
   manifest.action.default_title = `Shopling 품절·판매중 동기화 v${VERSION} HF23`;
   entries["manifest.json"] = strToU8(`${JSON.stringify(manifest, null, 2)}\n`);
 
   for (const guard of [
-    'importScripts("background-v063.js")',
+    'importScripts("background-v060.js")',
     'const RESULT_MESSAGE_V064 = "STOCK_SINGLE_STATUS_RESULT_TERMINAL_V023"',
     "closeManagedPriceStyleV064",
     "chrome.windows.remove(windowId)",
@@ -112,6 +112,9 @@ export async function GET(request: Request) {
     "HF23_DIRECT_AAPI_RESULT_CLOSEMANAGED",
   ]) {
     if (!background.includes(guard)) throw new Error(`shopling_stock_hf23_background_guard_missing:${guard}`);
+  }
+  if (background.includes('importScripts("background-v061.js")') || background.includes('importScripts("background-v062.js")') || background.includes('importScripts("background-v063.js")')) {
+    throw new Error("shopling_stock_hf23_parallel_single_result_watcher_imported");
   }
   for (const guard of [
     'const MESSAGE = "STOCK_SINGLE_STATUS_RESULT_TERMINAL_V023"',
@@ -167,8 +170,9 @@ export async function GET(request: Request) {
       pageChannel: "HF23_ONLY",
       hf19A6MaxPaginationPreserved: true,
       hf19A21Output200Preserved: true,
-      hf22CdpAxFallbackPreserved: true,
       optionFlow: "HF10_UNCHANGED",
+      singleResultAuthority: "HF23_DIRECT_CROSS_HOST_CONTENT",
+      priorParallelSingleResultWatchersActive: false,
       observedLiveResult: "aapi10.shopling.co.kr:4315/prod_a/prod_status_trsmt.phtml",
       resultHostPermissions: RESULT_MATCHES,
       directResultContentScript: RESULT_CONTENT,
