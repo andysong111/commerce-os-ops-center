@@ -34,10 +34,18 @@ test("purchase sensitivity reuses the existing net-requirement and decision-enve
   assert.match(source, /actualDraftCreationEnabled: false/);
 });
 
-test("canonical sales snapshot is read-only and uses completed persisted event chunks", () => {
+test("canonical sales snapshot is read-only and only accepts explicit completed-report states", () => {
   assert.match(salesSnapshotSource, /SALES_EVENT_CHUNK/);
   assert.match(salesSnapshotSource, /loadProductMasterShoplingSalesEventSyncStatus/);
-  assert.match(salesSnapshotSource, /state !== "COMPLETED"/);
+  assert.match(salesSnapshotSource, /CANONICAL_REPORT_READY_STATES/);
+  assert.match(
+    salesSnapshotSource,
+    /new Set\(\["READY_CANARY", "READY_FULL", "COMPLETED"\]\)/,
+  );
+  assert.match(
+    salesSnapshotSource,
+    /!isStage8CanonicalSalesReportReadyState\(status\.state\)/,
+  );
   assert.match(salesSnapshotSource, /writesEnabled: false/);
   assert.doesNotMatch(salesSnapshotSource, /\.from\([^\n]+\)[\s\S]{0,200}\.insert\(/);
   assert.doesNotMatch(salesSnapshotSource, /\.from\([^\n]+\)[\s\S]{0,200}\.update\(/);
