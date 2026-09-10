@@ -1478,7 +1478,7 @@ function KeywordShoplingApplySection({
   onApplyStateChange?: (state: KeywordApplyState) => void;
 }) {
   const disabled = !preflightResult;
-  const executionPlanJson = preflightResult ? buildCompactKeywordApplyExecutionPlan(preflightResult) : "";
+  const representativePreviewItem = preflightResult?.eligibleItems[0] ?? preflightResult?.blockedItems[0] ?? null;
   const showGithub422Hint = `${dryRunStatusMessage} ${realStatusMessage}`.includes("status=422");
   const [dryRunMeta, setDryRunMeta] = useState<ApplyRunMeta>(() => ({ state: "idle", pollCount: 0, requestId: typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_DRY_RUN_REQUEST_ID_KEY) || undefined : undefined }));
   const [realMeta, setRealMeta] = useState<ApplyRunMeta>(() => ({ state: "idle", pollCount: 0, requestId: typeof window !== "undefined" ? window.localStorage.getItem(KEYWORD_APPLY_REAL_REQUEST_ID_KEY) || undefined : undefined }));
@@ -1569,7 +1569,7 @@ function KeywordShoplingApplySection({
     setResult(null);
     setMeta((m) => ({ ...m, state: "queued", phase: "queued", runStatus: "queued", pollCount: 0, isPolling: false, message: mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." }));
     setStatus(mode === "dry_run" ? "실행 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다." : "실제 반영 요청을 보냈습니다. GitHub Actions가 시작되는 중입니다.");
-    const response = await fetch("/api/keyword-shopling-apply/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ execution_plan_json: executionPlanJson, mode, confirmation_text: mode === "apply" ? KEYWORD_APPLY_CONFIRMATION_TEXT : "", max_items: 100 }) });
+    const response = await fetch("/api/keyword-shopling-apply/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ execution_plan_json: buildCompactKeywordApplyExecutionPlan(preflightResult), mode, confirmation_text: mode === "apply" ? KEYWORD_APPLY_CONFIRMATION_TEXT : "", max_items: 100 }) });
     const json = await response.json();
     if (json.status === "error" || !json.requestId) {
       setResult(json);
@@ -1642,8 +1642,23 @@ function KeywordShoplingApplySection({
         {!manualCandidatesReady ? <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-900">행별 상품명/검색어 후보를 입력하면 미리보기를 생성합니다.</p> : null}
         {blockedCount > 0 ? <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">차단 항목이 있어 실제 반영할 수 없습니다. 고급 상세에서 원인을 확인하세요.</p> : null}
         {!dryRunSucceeded ? <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900">검토 준비가 끝나면 승인할 수 있습니다.</p> : null}
+        {representativePreviewItem ? <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+          <p className="font-black text-slate-950">대표 미리보기 1개</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <PreviewField label="goods_key" value={representativePreviewItem.goods_key || "-"} mono />
+            <PreviewField label="mall_key" value={representativePreviewItem.mall_key || "-"} mono />
+            <PreviewField label="product_group" value={representativePreviewItem.product_group || "-"} />
+            <PreviewField label="market_name" value={representativePreviewItem.market_name || "-"} />
+            <PreviewField label="final_title" value={representativePreviewItem.final_title || "-"} />
+            <PreviewField label="final_site_srch" value={representativePreviewItem.final_site_srch || "-"} />
+            <PreviewField label="payload_status" value={representativePreviewItem.payload_status} />
+            <PreviewField label="review_status" value={representativePreviewItem.review_status} />
+            <PreviewField label="validation_errors" value={representativePreviewItem.validation_errors.join(", ") || "-"} />
+            <PreviewField label="validation_warnings" value={representativePreviewItem.validation_warnings.join(", ") || "-"} />
+          </div>
+        </div> : null}
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" disabled={compactApplyDisabled} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">승인하고 샵플링 반영 실행</button>
+          <button type="button" disabled={compactApplyDisabled} onClick={() => void run("apply")} className="rounded-lg bg-red-600 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">승인하고 실제 반영 실행</button>
           <button type="button" onClick={() => document.getElementById("keyword-advanced-apply-details")?.setAttribute("open", "true")} className="rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700">전체 항목 펼쳐보기</button>
         </div>
         {realStatusMessage ? <p className="mt-3 text-sm text-slate-700">{realStatusMessage}</p> : null}
@@ -1659,6 +1674,10 @@ function KeywordShoplingApplySection({
     </section>
   );
 }
+function PreviewField({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return <div className="rounded-lg bg-white p-3"><p className="text-xs font-bold text-slate-500">{label}</p><p className={`mt-1 break-words text-sm font-semibold text-slate-950 ${mono ? "font-mono" : ""}`}>{value}</p></div>;
+}
+
 export function isSuccessfulApplyResult(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
