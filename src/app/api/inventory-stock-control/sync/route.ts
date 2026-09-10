@@ -122,13 +122,26 @@ async function loadCorrectedReport() {
   return overlayInventoryStockControlReportWithStocktakeBaselines(corrected);
 }
 
-async function loadRetryableReport() {
+async function loadRetryableReport({
+  refreshTail = false,
+}: {
+  refreshTail?: boolean;
+} = {}) {
   let report = await loadCorrectedReport();
-  const tailSalesRefresh =
-    await ensureExactInventoryStockSalesTailCoverage(report);
-  if (tailSalesRefresh.refreshed) {
-    report = await loadCorrectedReport();
+  let tailSalesRefresh: Awaited<
+    ReturnType<typeof ensureExactInventoryStockSalesTailCoverage>
+  > | null = null;
+
+  // The operational queue polls this GET endpoint every 30 seconds. Polling must
+  // remain read-only; otherwise every stale check appends a Tail snapshot to the
+  // operation ledger. Refresh Tail coverage only after a real state-changing POST.
+  if (refreshTail) {
+    tailSalesRefresh = await ensureExactInventoryStockSalesTailCoverage(report);
+    if (tailSalesRefresh.refreshed) {
+      report = await loadCorrectedReport();
+    }
   }
+
   return {
     report: await normalizeRetryableShoplingSyncReportWithEvidence(report),
     tailSalesRefresh,
@@ -200,7 +213,9 @@ export async function POST(request: Request) {
       correlationId: `shopling-stock:${event.barcode}`,
       snapshot: event,
     });
-    const { report, tailSalesRefresh } = await loadRetryableReport();
+    const { report, tailSalesRefresh } = await loadRetryableReport({
+      refreshTail: true,
+    });
     return Response.json(
       {
         ok: true,
