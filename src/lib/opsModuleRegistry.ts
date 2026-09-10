@@ -10,6 +10,25 @@ import { seoTitleCloudShoplingRunnerModule } from "@/lib/seoTitleCloudShoplingRu
 import { shoplingSeoDispatchModule } from "@/lib/shoplingSeoDispatchModule";
 import type { CommerceModule } from "@/lib/moduleRegistry";
 
+const inventoryStockOperationsModule: CommerceModule = {
+  id: "inventory-stock-operations",
+  title: "재고·품절·판매재개",
+  navigationLabel: "재고·품절·판매재개",
+  description:
+    "창고에서 품절을 확인한 B코드와 재입고·실사 수량만 입력하면 이후 입고·판매를 반영해 현재 재고와 판매상태를 자동 판단합니다.",
+  status: "available",
+  route: "/china-order-manager/stock-control",
+  category: "발주·입고 관리",
+  inputType: "품절 B코드, 재입고·실사 현재수량",
+  outputType: "현재 재고, 품절·판매중 자동판단, 반영 대기·확인 필요 상태",
+  historySupport: true,
+  externalProject: false,
+  note: "내부 Shopling 화면번호와 기술 경로는 기본 운영화면에서 숨기고 실제 작업에 필요한 상태와 행동만 표시합니다.",
+  helperNote: "B코드 중심 · 자동판단",
+  actionLabel: "재고 운영 열기",
+  safetyBadge: "실물확인 기준",
+};
+
 const isolatedBaseModules: readonly CommerceModule[] = extendedModuleRegistry.map(
   (module) => {
     if (module.id === "sourcing-engine") {
@@ -53,6 +72,7 @@ const isolatedBaseModules: readonly CommerceModule[] = extendedModuleRegistry.ma
 
 export const opsModuleRegistry: readonly CommerceModule[] = [
   reliabilityLearningModule,
+  inventoryStockOperationsModule,
   ...isolatedBaseModules,
   legacySeoBulkCloudModule,
   keywordEngineElonLabModule,
