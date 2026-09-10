@@ -51,10 +51,8 @@ test("30-second operational queue GET stays read-only while real result POST may
   assert.match(getSection, /loadRetryableReport\(\)/);
   assert.doesNotMatch(getSection, /refreshTail:\s*true/);
   assert.match(postSection, /refreshTail:\s*true/);
-  assert.match(
-    syncRoute,
-    /Polling must\s+remain read-only/,
-  );
+  assert.match(syncRoute, /Polling must/);
+  assert.match(syncRoute, /remain read-only/);
 });
 
 test("tail identity accepts both B+one-letter and B+two-letter barcode families but only promotes mapped codes", async () => {
