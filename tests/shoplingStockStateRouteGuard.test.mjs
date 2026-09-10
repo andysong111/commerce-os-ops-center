@@ -35,22 +35,26 @@ test("A6 exact B-code reads control values and goods keys without checkbox or st
   assert.match(worker, /values\.push\(control\.value \|\| ""\)/);
   assert.match(route, /patchA6ReadOnlyResolverV054/);
   assert.match(route, /const resultRows = \[\.\.\.document\.querySelectorAll\("tr"\)\]/);
+  assert.match(route, /A6_BCODE_RESULT_ROW_NOT_FOUND/);
+  assert.match(route, /A6_BCODE_GOODSKEY_NOT_FOUND/);
   assert.match(route, /checkboxTouched: false/);
   assert.match(route, /optionStatusTouched: false/);
   assert.match(route, /shopling_stock_a6_readonly_patch_contains_mutation/);
   assert.match(overlay, /active\.job\.goodsKeys = discoveredGoodsKeys/);
   assert.match(overlay, /applyOptionStatusViaOpsV054/);
   assert.match(ops, /goodsKeys: \[goodsKey\]/);
-  assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
+  assert.match(worker, /A21_EXACT_ROW_BINDING_MISMATCH/);
   assert.match(worker, /A21_RESULT_OVER_200_BATCH_LIMIT/);
   assert.match(worker, /resultCountSource = reportedCountAvailable \? "SHOPLING_TOTAL_TEXT" : "EXACT_BOUND_ROWS"/);
 });
 
-test("v0.5.5 restores the proven A21 list direct click without the visibility-gated helper", async () => {
+test("v0.5.5 uses canonical cross-frame A21 direct click without the legacy main-click helper", async () => {
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
   assert.match(route, /patchA21ProvenListClickV055/);
-  assert.match(route, /PROVEN_A21_LIST_DIRECT_CLICK/);
-  assert.match(route, /document\.querySelectorAll\('button,input\[type="button"\],input\[type="submit"\],input\[type="image"\],a,\[onclick\]'\)/);
+  assert.match(route, /PROVEN_A21_LIST_DIRECT_CLICK_CANONICAL_CROSS_FRAME/);
+  assert.match(route, /a21AccessibleDocumentsV056/);
+  assert.match(route, /scope\.doc\.querySelectorAll\(selector\)/);
+  assert.match(route, /CANONICAL_PRICE_EXTENSION_CURRENT_THEN_ACCESSIBLE_FRAMES/);
   assert.match(route, /button\.click\(\)/);
   assert.match(route, /shopling_stock_a21_proven_list_click_legacy_main_click_present/);
   assert.match(route, /const provenA21Worker = patchA21ProvenListClickV055\(readOnlyWorker\)/);
@@ -96,7 +100,7 @@ test("server option mutation is reused per discovered goods key and preserves qu
   assert.match(background, /optionApiEvidence = apiResult\.results/);
 });
 
-test("ZIP generates v0.5.5 readonly-A6 package with proven A21 list click and serial popup contract", async () => {
+test("ZIP generates v0.5.5 readonly-A6 package with canonical cross-frame A21 and serial popup contract", async () => {
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
   assert.match(route, /const VERSION = "0\.5\.5"/);
   assert.match(route, /background-v052\.js/);
@@ -104,12 +108,14 @@ test("ZIP generates v0.5.5 readonly-A6 package with proven A21 list click and se
   assert.match(route, /main-a21-price-core-v050\.js/);
   assert.match(route, /content-stock-result-v050\.js/);
   assert.match(route, /priceCoreLiteralCopyVerified: true/);
-  assert.match(route, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_PROVEN_LIST_V055/);
+  assert.match(route, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_CANONICAL_CROSS_FRAME_HF3/);
+  assert.match(route, /hotfix: "HF3_CANONICAL_A21_CROSS_FRAME"/);
   assert.match(route, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
   assert.match(route, /a6Checkbox: "NOT_TOUCHED"/);
   assert.match(route, /optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY"/);
   assert.match(route, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
   assert.match(route, /a21ListClick: "PROVEN_PRICE_OPTION_RESEND_DIRECT_NO_VISIBILITY_FILTER"/);
+  assert.match(route, /a21ListFrameStrategy: "CURRENT_FRAME_THEN_ALL_ACCESSIBLE_SHOPLING_FRAMES"/);
   assert.match(route, /a21PopupClaimRetry/);
   assert.match(route, /a21BatchLimit: 200/);
 });
