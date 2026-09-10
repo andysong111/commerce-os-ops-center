@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { prepareLegacySeoPreflight } from "@/lib/legacySeoPreflight";
+import { isLegacySeoRegistrationPolicyExcluded } from "@/lib/legacySeoRegistrationPolicy";
 import {
   getProductLaunchAdminConfig,
   readProductLaunchStorageJson,
@@ -102,6 +103,12 @@ function currentShoplingSync(item: UnknownRecord, options: UnknownRecord[]) {
   );
 }
 
+function policyExcluded(item: UnknownRecord) {
+  return isLegacySeoRegistrationPolicyExcluded(
+    record(item.item_payload).legacySeoRegistrationPolicy,
+  );
+}
+
 function verifiedNoOptionExclusion(item: UnknownRecord, options: UnknownRecord[]) {
   if (options.length > 0) return false;
   const itemSync = record(record(item.item_payload).shoplingOptionSync);
@@ -118,10 +125,10 @@ function verifiedNoOptionExclusion(item: UnknownRecord, options: UnknownRecord[]
 }
 
 function pendingReasons(item: UnknownRecord, options: UnknownRecord[]) {
-  // A corrected exhaustive Shopling discovery already proved that this legacy
-  // listing has no current managed option/B-code. Preflight treats it as excluded;
-  // do not keep rescanning years of history on every dispatcher cycle.
-  if (verifiedNoOptionExclusion(item, options)) return [];
+  // Explicit registration exclusions (for example user-confirmed discontinuations)
+  // and corrected exhaustive no-option discoveries are terminal for this drain.
+  // Do not keep rescanning or repairing items that policy intentionally excludes.
+  if (policyExcluded(item) || verifiedNoOptionExclusion(item, options)) return [];
 
   const reasons: string[] = [];
   if (!currentShoplingSync(item, options)) reasons.push("shopling-sync");
@@ -207,7 +214,7 @@ export async function GET(request: Request) {
       batchSize: BATCH_SIZE,
       maxBatchWeight: MAX_BATCH_WEIGHT,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v7-canonical-authority",
+      engine: "legacy-seo-preflight-drain-v8-policy-aware-canonical-authority",
     });
   }
 
@@ -237,9 +244,10 @@ export async function GET(request: Request) {
     optionsByItem.set(itemId, current);
   }
 
-  const terminalExcludedCount = ownerItems.filter((item) =>
-    verifiedNoOptionExclusion(item, optionsByItem.get(text(item.item_id)) ?? []),
-  ).length;
+  const terminalExcludedCount = ownerItems.filter((item) => {
+    const options = optionsByItem.get(text(item.item_id)) ?? [];
+    return policyExcluded(item) || verifiedNoOptionExclusion(item, options);
+  }).length;
 
   const pending: PendingEntry[] = ownerItems
     .map((item) => {
@@ -265,7 +273,7 @@ export async function GET(request: Request) {
       batchSize: BATCH_SIZE,
       maxBatchWeight: MAX_BATCH_WEIGHT,
       state: "COMPLETE",
-      engine: "legacy-seo-preflight-drain-v7-canonical-authority",
+      engine: "legacy-seo-preflight-drain-v8-policy-aware-canonical-authority",
     });
   }
 
@@ -335,6 +343,6 @@ export async function GET(request: Request) {
     duplicateActiveModels: preflight.duplicateActiveModels,
     duplicateModelGuardError: preflight.duplicateModelGuardError,
     state: pending.length > batch.length || hasFailures ? "RUNNING" : "COMPLETE",
-    engine: "legacy-seo-preflight-drain-v7-canonical-authority",
+    engine: "legacy-seo-preflight-drain-v8-policy-aware-canonical-authority",
   });
 }
