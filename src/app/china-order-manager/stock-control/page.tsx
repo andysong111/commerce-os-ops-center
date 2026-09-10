@@ -1,19 +1,50 @@
 import Link from "next/link";
-import { InventoryStockControlPanel } from "@/components/china-order-manager/InventoryStockControlPanel";
-import { InventoryStocktakeBaselinePanel } from "@/components/china-order-manager/InventoryStocktakeBaselinePanel";
+import { InventoryStockoutOperatorPanel } from "@/components/china-order-manager/InventoryStockoutOperatorPanel";
+import { InventoryStockOverviewPanel } from "@/components/china-order-manager/InventoryStockOverviewPanel";
+import { InventoryStocktakeOperatorPanel } from "@/components/china-order-manager/InventoryStocktakeOperatorPanel";
 import { StockSyncHF15Bridge } from "@/components/china-order-manager/StockSyncHF15Bridge";
 import { StockSyncOperationalQueuePanel } from "@/components/china-order-manager/StockSyncOperationalQueuePanel";
 import { PageHeader } from "@/components/PageHeader";
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
 export default function InventoryStockControlPage() {
-  return <div className="space-y-5">
-    <StockSyncHF15Bridge />
-    <PageHeader eyebrow="COMMERCE OS · EXACT INVENTORY · SHOPLING STOCK STATE" title="재고·품절·재입고 동기화"
-      description="HF28의 단품·옵션 2-Lane 병렬 검증을 통과했으므로 반복 검증 패널은 운영 화면에서 제거했습니다. 실제 운영 큐는 Commerce OS 정확재고의 syncNeeded만 사용하고 품절을 우선하여 최대 2건씩 처리합니다. Lane 1 결과대기는 송신 접수 후 별도 watcher로 분리하고 Lane 2는 새 Shopling 창에서 진행하며 결과창 닫힘 여부는 성공판정이나 다음 작업의 조건이 아닙니다. FAILED/UNCERTAIN은 같은 실행에서 자동 재시도하지 않고 예외 큐로 격리합니다. 현재 단계는 30초 자동감지 + 버튼 1회 승인 방식이며 실전 대기건 검증 후 완전자동으로 전환합니다."
-      actions={<Link href="/api/shopling-stock-state-sync/download-hf28" className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800">Shopling 재고상태 확장 v0.5.5 다운로드 · HF28</Link>} />
-    <StockSyncOperationalQueuePanel />
-    <InventoryStocktakeBaselinePanel />
-    <InventoryStockControlPanel />
-  </div>;
+  return (
+    <div className="space-y-5">
+      <StockSyncHF15Bridge />
+      <PageHeader
+        eyebrow="COMMERCE OS · 재고 운영"
+        title="재고·품절·판매재개"
+        description="창고에서 확인한 사실만 입력하면 됩니다. 품절은 B코드로 확정하고, 재입고·실사 후에는 현재 수량을 확정합니다. 이후 입고와 판매를 반영해 현재 재고와 판매상태를 자동 판단합니다."
+        actions={
+          <Link
+            href="/api/shopling-stock-state-sync/download-hf28"
+            className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800"
+          >
+            재고상태 자동화 확장 v0.5.5 다운로드
+          </Link>
+        }
+      />
+
+      <InventoryStockOverviewPanel />
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <InventoryStockoutOperatorPanel />
+        <InventoryStocktakeOperatorPanel />
+      </div>
+
+      <details className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+        <summary className="cursor-pointer select-none text-sm font-black text-slate-800">
+          자동 처리 실행 · 현재는 승인 1회 필요
+        </summary>
+        <p className="mt-2 text-xs leading-5 text-slate-500">
+          평소에는 위 화면만 확인하면 됩니다. 실제 판매상태 변경을 실행하거나 예외 원인을 확인할 때만 이 영역을 엽니다.
+        </p>
+        <div className="mt-4">
+          <StockSyncOperationalQueuePanel />
+        </div>
+      </details>
+    </div>
+  );
 }
