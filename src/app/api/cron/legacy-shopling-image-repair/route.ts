@@ -12,10 +12,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-// Four light models remain safe, but missing-option recovery can scan years of
-// Shopling history. Weight deep discovery more heavily so one invocation cannot
-// accidentally pack several expensive models into the same 300-second window.
-const BATCH_SIZE = 4;
+// Missing-option recovery can scan years of Shopling history. Keep one model per
+// invocation so a single expensive rediscovery cannot share the 300-second
+// function budget with unrelated repairs.
+const BATCH_SIZE = 1;
 const MAX_BATCH_WEIGHT = 4;
 const OPTIONS_MISSING_WEIGHT = 3;
 const SHOPLING_SYNC_WEIGHT = 2;
@@ -298,10 +298,24 @@ export async function GET(request: Request) {
   const minuteSeed = Math.floor(Date.now() / 60_000);
   const batch = circularWeightedBatch(pending, minuteSeed);
   const batchWeight = batch.reduce((sum, entry) => sum + pendingWeight(entry), 0);
+  const startedAt = Date.now();
+  console.info("[legacy-shopling-image-repair] preflight:start", {
+    pendingCount: pending.length,
+    batchSize: batch.length,
+    batchWeight,
+    models: batch.map((entry) => entry.modelNumber),
+  });
   const preflight = await prepareLegacySeoPreflight({
     config,
     identity,
     itemIds: batch.map((entry) => entry.itemId),
+  });
+  console.info("[legacy-shopling-image-repair] preflight:finish", {
+    durationMs: Date.now() - startedAt,
+    models: batch.map((entry) => entry.modelNumber),
+    readyCount: preflight.readyCount,
+    failedCount: preflight.failedCount,
+    excludedCount: preflight.excludedCount,
   });
   const hasFailures = preflight.failedCount > 0;
   const optionSync = record(preflight.optionSync);
