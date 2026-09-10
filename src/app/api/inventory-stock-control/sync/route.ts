@@ -8,6 +8,7 @@ import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/in
 import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
+import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -112,10 +113,13 @@ async function loadPreparedGoodsKeysByBarcode() {
 }
 
 async function loadCorrectedReport() {
-  const tailed = await overlayInventoryStockControlReportWithTail(
+  const seeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
     await loadInventoryStockControlReport(),
   );
-  return overlayInventoryStockControlReportWithResetCorrections(tailed);
+  const tailed = await overlayInventoryStockControlReportWithTail(seeded);
+  const corrected =
+    await overlayInventoryStockControlReportWithResetCorrections(tailed);
+  return overlayInventoryStockControlReportWithStocktakeBaselines(corrected);
 }
 
 async function loadRetryableReport() {
