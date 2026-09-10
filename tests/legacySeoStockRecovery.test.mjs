@@ -58,7 +58,10 @@ test("Shopling 근거가 Product Master에 없으면 확인 모델만 등록일 
   assert.match(evidence, /discoverGoodsKeysByModel/);
   assert.match(evidence, /"sale_price"/);
   assert.match(evidence, /"dtl_desc"/);
-  assert.match(evidence, /"img_0"/);
+  assert.match(evidence, /const SHOPLING_PRODUCT_IMAGE_FIELDS = Array\.from/);
+  assert.match(evidence, /\{ length: 32 \}/);
+  assert.match(evidence, /`img_\$\{index\}`/);
+  assert.match(evidence, /\.\.\.SHOPLING_PRODUCT_IMAGE_FIELDS/);
 });
 
 test("이전상품 SEO 화면은 누락 46개를 자동 복구하고 실패 시 재시도만 노출한다", async () => {
