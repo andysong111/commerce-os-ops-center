@@ -9,6 +9,7 @@ import { validateInventoryStockoutResetIdentity } from "@/lib/inventoryStockRese
 import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
+import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 import {
@@ -41,12 +42,15 @@ function unauthorized() {
 }
 
 async function loadResolvedInventoryStockControlReport() {
-  const tailed = await overlayInventoryStockControlReportWithTail(
+  const seeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
     await loadInventoryStockControlReport(),
   );
+  const tailed = await overlayInventoryStockControlReportWithTail(seeded);
   const corrected =
     await overlayInventoryStockControlReportWithResetCorrections(tailed);
-  return normalizeRetryableShoplingSyncReportWithEvidence(corrected);
+  const finalized =
+    await overlayInventoryStockControlReportWithStocktakeBaselines(corrected);
+  return normalizeRetryableShoplingSyncReportWithEvidence(finalized);
 }
 
 async function loadStableInventoryStockControlReport() {
@@ -72,7 +76,7 @@ async function createCanonicalSalesCoverageRequest(resetMs: number) {
   const createdAnalysisMs = Date.parse(created.analysisAsOf);
   if (!Number.isFinite(createdAnalysisMs) || createdAnalysisMs < resetMs) {
     throw new Error(
-      "CANONICAL_SALES_REFRESH_ANALYSIS_BEFORE_RESET: 새 판매 이벤트 분석시점이 재고 0 기준시점보다 이릅니다.",
+      "CANONICAL_SALES_REFRESH_ANALYSIS_BEFORE_RESET: 새 판매 이벤트 분석시점이 재고 기준시점보다 이릅니다.",
     );
   }
   const wakeRequested = await wakeOpsDispatchTask(
@@ -109,7 +113,7 @@ async function ensureCanonicalSalesCoverageAfterReset(resetAt: string) {
         state: current.state,
         wakeRequested,
         followupRequired: false,
-        message: "Canonical 판매 이벤트 범위가 품절 기준시점을 이미 포함합니다.",
+        message: "Canonical 판매 이벤트 범위가 재고 기준시점을 이미 포함합니다.",
       };
     }
 
@@ -129,8 +133,8 @@ async function ensureCanonicalSalesCoverageAfterReset(resetAt: string) {
       wakeRequested,
       followupRequired: false,
       message: staleRequestWasActive
-        ? "기존 Canonical 판매 이벤트 분석시점이 품절 기준시점보다 오래되어, 최신 분석시점의 새 요청으로 자동 교체했습니다."
-        : "품절 기준시점 이후까지 확인하도록 Canonical 판매 이벤트 최신화를 접수했습니다.",
+        ? "기존 Canonical 판매 이벤트 분석시점이 재고 기준시점보다 오래되어, 최신 분석시점의 새 요청으로 자동 교체했습니다."
+        : "재고 기준시점 이후까지 확인하도록 Canonical 판매 이벤트 최신화를 접수했습니다.",
     };
   } catch (error) {
     return {
