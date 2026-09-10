@@ -37,6 +37,26 @@ test("stock control uses exact-identity reset-tail coverage before 360-day canon
   assert.match(syncRoute, /tailSalesRefresh/);
 });
 
+test("30-second operational queue GET stays read-only while real result POST may refresh Tail coverage", async () => {
+  const syncRoute = await readFile(
+    "src/app/api/inventory-stock-control/sync/route.ts",
+    "utf8",
+  );
+  const getSection = syncRoute
+    .split("export async function GET")[1]
+    .split("export async function POST")[0];
+  const postSection = syncRoute.split("export async function POST")[1];
+
+  assert.match(syncRoute, /refreshTail = false/);
+  assert.match(getSection, /loadRetryableReport\(\)/);
+  assert.doesNotMatch(getSection, /refreshTail:\s*true/);
+  assert.match(postSection, /refreshTail:\s*true/);
+  assert.match(
+    syncRoute,
+    /Polling must\s+remain read-only/,
+  );
+});
+
 test("tail identity accepts both B+one-letter and B+two-letter barcode families but only promotes mapped codes", async () => {
   const coverage = await readFile(
     "src/lib/inventoryStockSalesTailCoverage.ts",
