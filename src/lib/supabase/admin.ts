@@ -7,18 +7,27 @@ type WriteBody = Record<string, unknown> | Array<Record<string, unknown>>;
 // Fail before a stalled PostgREST request can consume the whole Vercel function
 // invocation. Reads are intentionally short; writes/RPCs get a larger window but
 // are never automatically retried here because an ambiguous write must remain
-// fail-closed and operator-visible.
+// fail-closed and operator-visible. A timed-out GET is idempotent, so it gets one
+// bounded retry to absorb short Supabase/PostgREST latency spikes.
 export const SUPABASE_ADMIN_READ_TIMEOUT_MS = 5_000;
 export const SUPABASE_ADMIN_WRITE_TIMEOUT_MS = 12_000;
 export const SUPABASE_ADMIN_RPC_TIMEOUT_MS = 12_000;
+export const SUPABASE_ADMIN_READ_RETRY_LIMIT = 1;
+export const SUPABASE_ADMIN_READ_RETRY_DELAY_MS = 200;
+
+function isTransportTimeout(error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error ?? "unknown error");
+  const name = error instanceof Error ? error.name : "";
+  return (
+    name === "TimeoutError" ||
+    name === "AbortError" ||
+    /timeout|timed out|aborted/i.test(detail)
+  );
+}
 
 function adminTransportError(error: unknown, timeoutMs: number) {
   const detail = error instanceof Error ? error.message : String(error ?? "unknown error");
-  const name = error instanceof Error ? error.name : "";
-  const timeout =
-    name === "TimeoutError" ||
-    name === "AbortError" ||
-    /timeout|timed out|aborted/i.test(detail);
+  const timeout = isTransportTimeout(error);
   return {
     data: null,
     error: {
@@ -28,6 +37,10 @@ function adminTransportError(error: unknown, timeoutMs: number) {
     },
     count: null,
   } satisfies AdminResult;
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 class SupabaseRestQuery implements PromiseLike<AdminResult> {
@@ -165,18 +178,34 @@ class SupabaseRestQuery implements PromiseLike<AdminResult> {
       this.method === "GET"
         ? SUPABASE_ADMIN_READ_TIMEOUT_MS
         : SUPABASE_ADMIN_WRITE_TIMEOUT_MS;
-    try {
-      const response = await fetch(`${this.baseUrl}/rest/v1/${encodeURIComponent(this.table)}?${this.params.toString()}`, {
-        method: this.head ? "HEAD" : this.method,
-        headers,
-        body: this.method === "GET" ? undefined : JSON.stringify(this.requestBody ?? {}),
-        cache: "no-store",
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      return readAdminResponse(response);
-    } catch (error) {
-      return adminTransportError(error, timeoutMs);
+    const maxAttempts =
+      this.method === "GET"
+        ? 1 + SUPABASE_ADMIN_READ_RETRY_LIMIT
+        : 1;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await fetch(`${this.baseUrl}/rest/v1/${encodeURIComponent(this.table)}?${this.params.toString()}`, {
+          method: this.head ? "HEAD" : this.method,
+          headers,
+          body: this.method === "GET" ? undefined : JSON.stringify(this.requestBody ?? {}),
+          cache: "no-store",
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        return readAdminResponse(response);
+      } catch (error) {
+        lastError = error;
+        const canRetry =
+          this.method === "GET" &&
+          isTransportTimeout(error) &&
+          attempt < maxAttempts;
+        if (!canRetry) return adminTransportError(error, timeoutMs);
+        await wait(SUPABASE_ADMIN_READ_RETRY_DELAY_MS);
+      }
     }
+
+    return adminTransportError(lastError, timeoutMs);
   }
 }
 
