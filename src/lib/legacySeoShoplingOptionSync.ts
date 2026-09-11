@@ -1,4 +1,5 @@
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
+import { legacySeoOptionGroupMatchesCanonical } from "@/lib/legacySeoCanonicalOptionGroup";
 import {
   loadLegacySeoShoplingEvidence,
   type LegacySeoGoodsKeyOverrides,
@@ -36,6 +37,8 @@ type NormalizedItem = {
 
 const ITEM_TABLE = "product_launch_items";
 const OPTION_TABLE = "product_launch_options";
+const CANONICAL_PRICE_TABLE = "legacy_seo_canonical_prices";
+const CANONICAL_BATCH_TABLE = "legacy_seo_canonical_price_batches";
 const MAX_TRACKER_GOODS_KEYS_PER_MODEL = 120;
 
 function record(value: unknown): UnknownRecord {
@@ -77,9 +80,6 @@ function clone(value: unknown): UnknownRecord {
 }
 
 function activeGroupOptions(group: LegacySeoShoplingOptionGroup) {
-  // Legacy SEO re-registration requires a real inventory B-code for every option.
-  // Historical/discontinued Shopling option rows whose B-code is already gone
-  // must never be recreated as a registration option.
   return group.options.filter(
     (option) =>
       text(option.status).toUpperCase() !== "X" && Boolean(text(option.bCode)),
@@ -135,13 +135,8 @@ function goodsKeyNumber(group: LegacySeoShoplingOptionGroup) {
   return Number.isFinite(value) ? value : 0;
 }
 
-function selectGroup(evidence: LegacySeoShoplingEvidence, currentOptionCount: number) {
-  const groups = evidence.optionGroups.filter((group) => activeGroupOptions(group).length > 0);
-  if (!groups.length) return null;
-  const grouped = groups.filter(isGroupedCandidate);
-  const pool = grouped.length ? grouped : currentOptionCount <= 1 ? groups : [];
-  if (!pool.length) return null;
-  return [...pool].sort((left, right) => {
+function rankGroups(groups: LegacySeoShoplingOptionGroup[]) {
+  return [...groups].sort((left, right) => {
     const leftOptions = activeGroupOptions(left);
     const rightOptions = activeGroupOptions(right);
     const leftB = leftOptions.filter((option) => text(option.bCode)).length;
@@ -153,6 +148,29 @@ function selectGroup(evidence: LegacySeoShoplingEvidence, currentOptionCount: nu
     if (rightB !== leftB) return rightB - leftB;
     return goodsKeyNumber(right) - goodsKeyNumber(left);
   })[0] ?? null;
+}
+
+function selectGroup(
+  evidence: LegacySeoShoplingEvidence,
+  currentOptionCount: number,
+  canonicalSaleOptions: string[],
+) {
+  const groups = evidence.optionGroups.filter((group) => activeGroupOptions(group).length > 0);
+  if (!groups.length) return null;
+
+  if (canonicalSaleOptions.length) {
+    const compatible = groups.filter((group) =>
+      legacySeoOptionGroupMatchesCanonical(
+        activeGroupOptions(group).map((option) => optionValue(option.optionName)),
+        canonicalSaleOptions,
+      ),
+    );
+    return compatible.length ? rankGroups(compatible) : null;
+  }
+
+  const grouped = groups.filter(isGroupedCandidate);
+  const pool = grouped.length ? grouped : currentOptionCount <= 1 ? groups : [];
+  return pool.length ? rankGroups(pool) : null;
 }
 
 function rowToOption(row: UnknownRecord) {
@@ -178,8 +196,7 @@ function rowToOption(row: UnknownRecord) {
       0,
       Math.floor(Number(payload.unitCostKrw ?? row.unit_cost_krw) || 0),
     ),
-    sourceOrderItemId:
-      payload.sourceOrderItemId ?? row.source_order_item_id ?? null,
+    sourceOrderItemId: payload.sourceOrderItemId ?? row.source_order_item_id ?? null,
     optionBarcodeNo,
     optionBarcodeIdentityKey: identityKey,
     optionBarcodeIdentityKind:
@@ -326,6 +343,55 @@ async function loadNormalizedItems(
   }));
 }
 
+async function loadCanonicalOptionHints(
+  config: ProductLaunchAdminConfig,
+  ownerId: string,
+  modelNumbers: string[],
+) {
+  const batchParams = new URLSearchParams({
+    select: "import_batch_id,expected_row_count,imported_row_count",
+    owner_id: `eq.${ownerId}`,
+    is_active: "eq.true",
+    status: "eq.ready",
+    order: "updated_at.desc",
+    limit: "1",
+  });
+  const { body: batchBody } = await readProductLaunchStorageJson(
+    `${config.supabaseUrl}/rest/v1/${CANONICAL_BATCH_TABLE}?${batchParams.toString()}`,
+    { headers: createSupabaseAdminHeaders(config.secretKey), cache: "no-store" },
+  );
+  const batch = Array.isArray(batchBody) ? record(batchBody[0]) : {};
+  const batchId = text(batch.import_batch_id);
+  const expected = Math.max(0, Math.floor(Number(batch.expected_row_count) || 0));
+  const imported = Math.max(0, Math.floor(Number(batch.imported_row_count) || 0));
+  const result = new Map<string, string[]>();
+  if (!batchId || expected <= 0 || imported < expected || !modelNumbers.length) return result;
+
+  const priceParams = new URLSearchParams({
+    select: "model_number,sale_option,option_key",
+    owner_id: `eq.${ownerId}`,
+    import_batch_id: `eq.${batchId}`,
+    model_number: `in.(${postgrestIn(modelNumbers)})`,
+    price_status: "eq.적용대상",
+    order: "source_row_index.asc.nullslast,created_at.asc",
+    limit: "5000",
+  });
+  const { body: priceBody } = await readProductLaunchStorageJson(
+    `${config.supabaseUrl}/rest/v1/${CANONICAL_PRICE_TABLE}?${priceParams.toString()}`,
+    { headers: createSupabaseAdminHeaders(config.secretKey), cache: "no-store" },
+  );
+  for (const raw of Array.isArray(priceBody) ? priceBody : []) {
+    const row = record(raw);
+    const model = modelKey(row.model_number);
+    const saleOption = text(row.sale_option) || text(row.option_key);
+    if (!model || !saleOption) continue;
+    const list = result.get(model) ?? [];
+    list.push(saleOption);
+    result.set(model, list);
+  }
+  return result;
+}
+
 async function patchItem(
   config: ProductLaunchAdminConfig,
   ownerId: string,
@@ -344,14 +410,8 @@ async function patchItem(
     updatedAt: now,
     updatedBy: "이전상품 Shopling 묶음옵션/B코드 동기화",
   };
-  const summaryPayload = {
-    ...item.summaryPayload,
-    optionLabels: labels,
-  };
-  const params = new URLSearchParams({
-    owner_id: `eq.${ownerId}`,
-    item_id: `eq.${item.itemId}`,
-  });
+  const summaryPayload = { ...item.summaryPayload, optionLabels: labels };
+  const params = new URLSearchParams({ owner_id: `eq.${ownerId}`, item_id: `eq.${item.itemId}` });
   await readProductLaunchStorageJson(
     `${config.supabaseUrl}/rest/v1/${ITEM_TABLE}?${params.toString()}`,
     {
@@ -382,9 +442,7 @@ async function replaceOptionsAtomic(
   options: UnknownRecord[],
   now: string,
 ) {
-  if (!options.length) {
-    throw new Error("LEGACY_SEO_OPTION_REPLACE_EMPTY_ROWS_BLOCKED");
-  }
+  if (!options.length) throw new Error("LEGACY_SEO_OPTION_REPLACE_EMPTY_ROWS_BLOCKED");
   const rows = options.map((option, index) => ({
     option_id: text(option.id) || `shopling-option-${index + 1}`,
     option_index: index,
@@ -409,11 +467,7 @@ async function replaceOptionsAtomic(
         Prefer: "return=representation",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        p_owner_id: ownerId,
-        p_item_id: itemId,
-        p_rows: rows,
-      }),
+      body: JSON.stringify({ p_owner_id: ownerId, p_item_id: itemId, p_rows: rows }),
       cache: "no-store",
     },
   );
@@ -432,23 +486,14 @@ export async function syncLegacySeoShoplingOptions(input: {
 }) {
   const requested = unique(input.modelNumbers.map(modelKey)).slice(0, 100);
   if (!requested.length) {
-    return {
-      changedCount: 0,
-      processedCount: 0,
-      failedCount: 0,
-      results: [] as SyncResult[],
-    };
+    return { changedCount: 0, processedCount: 0, failedCount: 0, results: [] as SyncResult[] };
   }
 
-  const items = await loadNormalizedItems(
-    input.config,
-    input.identity.userId,
-    requested,
-  );
-  const evidenceByModel = await loadLegacySeoShoplingEvidence(
-    requested,
-    goodsKeyOverridesFromItems(items),
-  );
+  const items = await loadNormalizedItems(input.config, input.identity.userId, requested);
+  const [evidenceByModel, canonicalOptionsByModel] = await Promise.all([
+    loadLegacySeoShoplingEvidence(requested, goodsKeyOverridesFromItems(items)),
+    loadCanonicalOptionHints(input.config, input.identity.userId, requested),
+  ]);
   const now = new Date().toISOString();
   const results: SyncResult[] = [];
   let changedCount = 0;
@@ -458,18 +503,24 @@ export async function syncLegacySeoShoplingOptions(input: {
     try {
       const evidence = evidenceByModel.get(item.modelNumber);
       const currentCount = existingRealOptionCount(current);
-      const group = evidence ? selectGroup(evidence, currentCount) : null;
+      const canonicalSaleOptions = canonicalOptionsByModel.get(item.modelNumber) ?? [];
+      const group = evidence ? selectGroup(evidence, currentCount, canonicalSaleOptions) : null;
 
       if (!group) {
         const reason = evidence
-          ? currentCount > 1
-            ? "묶음형 Shopling 상품을 찾지 못해 기존 옵션 유지"
-            : "Shopling 묶음옵션 없음 · 기존 옵션 유지"
+          ? canonicalSaleOptions.length
+            ? "중국주문 최종확정 옵션 구조와 일치하는 Shopling 상품군 없음 · 기존 옵션 유지"
+            : currentCount > 1
+              ? "묶음형 Shopling 상품을 찾지 못해 기존 옵션 유지"
+              : "Shopling 묶음옵션 없음 · 기존 옵션 유지"
           : "Shopling 조회 데이터 없음 · 기존 옵션 유지";
         const metadata = {
           source: "shopling_live_grouped_option_sync",
           status: "existing_preserved",
           reason,
+          selectionReason: canonicalSaleOptions.length
+            ? "canonical_option_group_mismatch"
+            : "legacy_group_fallback_no_match",
           optionCount: current.length,
           bCodeCount: current.filter((option) => text(option.barcode)).length,
           syncedAt: now,
@@ -491,6 +542,11 @@ export async function syncLegacySeoShoplingOptions(input: {
 
       const merged = mergeOptions(current, group);
       const bCodeCount = merged.filter((option) => text(option.barcode)).length;
+      const selectionReason = canonicalSaleOptions.length
+        ? "canonical_option_exact_group"
+        : isGroupedCandidate(group)
+          ? "legacy_grouped_candidate"
+          : "legacy_single_candidate";
       const metadata = {
         source: "shopling_live_grouped_option_sync",
         status: "synced",
@@ -498,15 +554,10 @@ export async function syncLegacySeoShoplingOptions(input: {
         ptnGoodsCd: group.ptnGoodsCd,
         optionCount: merged.length,
         bCodeCount,
+        selectionReason,
         syncedAt: now,
       };
-      await replaceOptionsAtomic(
-        input.config,
-        input.identity.userId,
-        item.itemId,
-        merged,
-        now,
-      );
+      await replaceOptionsAtomic(input.config, input.identity.userId, item.itemId, merged, now);
       await patchItem(input.config, input.identity.userId, item, merged, metadata, now);
       changedCount += 1;
       results.push({
@@ -518,7 +569,11 @@ export async function syncLegacySeoShoplingOptions(input: {
         sourceGoodsKey: group.goodsKey,
         optionCount: merged.length,
         bCodeCount,
-        reason: isGroupedCandidate(group) ? "묶음형 Shopling 상품 기준" : "단품 Shopling 기준",
+        reason: canonicalSaleOptions.length
+          ? "중국주문 최종확정 옵션 구조와 일치하는 Shopling 상품 기준"
+          : isGroupedCandidate(group)
+            ? "묶음형 Shopling 상품 기준"
+            : "단품 Shopling 기준",
       });
     } catch (error) {
       results.push({
