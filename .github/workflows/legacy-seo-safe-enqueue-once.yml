@@ -1,0 +1,152 @@
+name: Legacy SEO Safe Enqueue Once
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/legacy-seo-safe-enqueue-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Preflight entire cohort, then enqueue only if all targets are green
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://commerce-os-ops-center.vercel.app'
+          headers=(
+            --header 'Accept: application/json'
+            --header 'Origin: https://commerce-os-ops-center.vercel.app'
+            --header 'Sec-Fetch-Site: same-origin'
+          )
+
+          inventory="$(mktemp)"
+          inventory_status="$(curl --silent --show-error --max-time 300 \
+            --output "$inventory" --write-out '%{http_code}' \
+            "${headers[@]}" \
+            "$base/api/legacy-seo-run-jobs")"
+          echo "INVENTORY_HTTP_STATUS=$inventory_status"
+          [[ "$inventory_status" == '200' ]] || { cat "$inventory"; exit 1; }
+
+          all_ids="$(mktemp)"
+          blocked_ids="$(mktemp)"
+          target_ids="$(mktemp)"
+          ready_ids="$(mktemp)"
+          : > "$ready_ids"
+
+          jq -r '.items[]?.id // empty' "$inventory" | sort -u > "$all_ids"
+          jq -r '.jobs[]? | select(.status == "queued" or .status == "running" or .status == "ready") | .launch_item_id // empty' "$inventory" | sort -u > "$blocked_ids"
+          if [[ -s "$blocked_ids" ]]; then
+            grep -vxFf "$blocked_ids" "$all_ids" > "$target_ids" || true
+          else
+            cp "$all_ids" "$target_ids"
+          fi
+
+          target_count="$(wc -l < "$target_ids" | tr -d ' ')"
+          echo "TARGET_COUNT=$target_count"
+          if [[ "$target_count" == '0' ]]; then
+            echo 'No targets to enqueue.'
+            exit 0
+          fi
+
+          # Preserve the same browser-configured custom blocked-term set used by
+          # the latest successful legacy SEO runs. Fail closed if no prior set is
+          # available instead of silently weakening keyword safety.
+          custom_terms="$(jq -c '[.jobs[]? | .input_payload.customBlockedTerms? | select(type == "array" and length > 0)][0] // []' "$inventory")"
+          custom_term_count="$(jq 'length' <<<"$custom_terms")"
+          echo "CUSTOM_BLOCKED_TERM_COUNT=$custom_term_count"
+          if (( custom_term_count == 0 )); then
+            echo 'No persisted custom blocked-term evidence found in current legacy jobs.'
+            exit 3
+          fi
+
+          workdir="$(mktemp -d)"
+          split -l 50 -d -a 3 "$target_ids" "$workdir/preflight-"
+          total_ready=0
+          total_failed=0
+          total_excluded=0
+
+          for chunk in "$workdir"/preflight-*; do
+            [[ -f "$chunk" ]] || continue
+            payload="$workdir/preflight-payload-$(basename "$chunk").json"
+            response="$workdir/preflight-response-$(basename "$chunk").json"
+            jq -R -s 'split("\n") | map(select(length > 0)) | {itemIds: .}' "$chunk" > "$payload"
+            status="$(curl --silent --show-error --max-time 320 \
+              --output "$response" --write-out '%{http_code}' \
+              --request POST "${headers[@]}" \
+              --header 'Content-Type: application/json' \
+              --data-binary "@$payload" \
+              "$base/api/legacy-seo-preflight")"
+            if [[ "$status" != '200' && "$status" != '422' ]]; then
+              cat "$response"
+              exit 1
+            fi
+            ready="$(jq -r '.readyCount // 0' "$response")"
+            failed="$(jq -r '.failedCount // 0' "$response")"
+            excluded="$(jq -r '.excludedCount // 0' "$response")"
+            total_ready=$((total_ready + ready))
+            total_failed=$((total_failed + failed))
+            total_excluded=$((total_excluded + excluded))
+            jq -r '.results[]? | select(.ready == true) | .itemId' "$response" >> "$ready_ids"
+            if (( failed > 0 )); then
+              jq -c '.results[]? | select(.ready != true and .excluded != true) | {itemId,modelNumber,issues}' "$response"
+            fi
+          done
+
+          sort -u -o "$ready_ids" "$ready_ids"
+          ready_count="$(wc -l < "$ready_ids" | tr -d ' ')"
+          echo "PREFLIGHT_READY=$total_ready"
+          echo "PREFLIGHT_EXCLUDED=$total_excluded"
+          echo "PREFLIGHT_FAILED=$total_failed"
+          echo "UNIQUE_READY_IDS=$ready_count"
+
+          # All-or-none gate: no enqueue is attempted if a target became unsafe
+          # between the earlier validation and this one-off execution.
+          if (( total_failed > 0 || total_excluded > 0 || ready_count != target_count )); then
+            echo 'Fail-closed: cohort changed during final enqueue preflight.'
+            exit 2
+          fi
+
+          split -l 50 -d -a 3 "$ready_ids" "$workdir/enqueue-"
+          total_inserted=0
+          enqueue_index=0
+          for chunk in "$workdir"/enqueue-*; do
+            [[ -f "$chunk" ]] || continue
+            enqueue_index=$((enqueue_index + 1))
+            ids_json="$(jq -R -s 'split("\n") | map(select(length > 0))' "$chunk")"
+            payload="$workdir/enqueue-payload-$enqueue_index.json"
+            response="$workdir/enqueue-response-$enqueue_index.json"
+            jq -n \
+              --argjson ids "$ids_json" \
+              --argjson blocked "$custom_terms" \
+              '{action:"enqueue",itemIds:$ids,bulkMode:true,customBlockedTerms:$blocked}' > "$payload"
+            expected="$(jq '.itemIds | length' "$payload")"
+            status="$(curl --silent --show-error --max-time 320 \
+              --output "$response" --write-out '%{http_code}' \
+              --request POST "${headers[@]}" \
+              --header 'Content-Type: application/json' \
+              --data-binary "@$payload" \
+              "$base/api/legacy-seo-run-jobs")"
+            echo "ENQUEUE_${enqueue_index}_HTTP_STATUS=$status"
+            if [[ "$status" != '200' ]]; then
+              cat "$response"
+              exit 1
+            fi
+            inserted="$(jq -r '.insertedCount // 0' "$response")"
+            missing="$(jq -r '.missing | length // 0' "$response")"
+            echo "ENQUEUE_${enqueue_index}: expected=$expected inserted=$inserted missing=$missing"
+            if (( inserted != expected || missing != 0 )); then
+              cat "$response"
+              exit 4
+            fi
+            total_inserted=$((total_inserted + inserted))
+          done
+
+          echo "TOTAL_INSERTED=$total_inserted"
+          if (( total_inserted != ready_count )); then
+            exit 5
+          fi
