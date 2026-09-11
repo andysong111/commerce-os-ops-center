@@ -77,7 +77,7 @@ test("failed warehouse mutations preserve operator input for correction and retr
   assert.doesNotMatch(ui, /\.then\(\(\) => setSlotCodes\(""\)\)/);
 });
 
-test("capacity proxy keeps the Product Master secret server-side", async () => {
+test("capacity proxy keeps the Product Master secret server-side and same-origin guarded", async () => {
   const bridge = await readFile(
     new URL("../src/lib/warehouseCapacityBridge.ts", import.meta.url),
     "utf8",
@@ -91,6 +91,16 @@ test("capacity proxy keeps the Product Master secret server-side", async () => {
   assert.match(bridge, /x-commerce-os-integration-secret/);
   assert.doesNotMatch(route, /x-commerce-os-integration-secret/);
   assert.doesNotMatch(route, /PRODUCT_MASTER_INTEGRATION_SECRET\s*:/);
+  assert.match(route, /import \{ isSameOriginOpsRequest \} from "@\/lib\/opsLoginBypass"/);
+  assert.match(
+    route,
+    /export async function GET\(request: Request\)[\s\S]*?if \(!isSameOriginOpsRequest\(request\)\) return unauthorized\(\);/,
+  );
+  assert.match(
+    route,
+    /export async function POST\(request: Request\)[\s\S]*?if \(!isSameOriginOpsRequest\(request\)\) return unauthorized\(\);/,
+  );
+  assert.match(route, /WAREHOUSE_CAPACITY_UNAUTHORIZED/);
   assert.match(route, /configured: warehouseCapacityBridgeConfigured\(\)/);
 });
 
