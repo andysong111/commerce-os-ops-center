@@ -30,12 +30,14 @@ function formatNumber(value: number | null | undefined) {
 }
 
 function parseCodes(value: string) {
-  return [...new Set(
-    value
-      .split(/[\n,;\t]+/)
-      .map((row) => row.trim())
-      .filter(Boolean),
-  )];
+  return [
+    ...new Set(
+      value
+        .split(/[\n,;\t]+/)
+        .map((row) => row.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function MetricCard({
@@ -123,6 +125,12 @@ export function WarehouseCapacityClient() {
   const [registryConfirmation, setRegistryConfirmation] = useState("");
   const [message, setMessage] = useState("");
 
+  const parsedSlotCodes = useMemo(() => parseCodes(slotCodes), [slotCodes]);
+  const parsedAllocationCodes = useMemo(
+    () => parseCodes(allocationCodes),
+    [allocationCodes],
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -162,12 +170,15 @@ export function WarehouseCapacityClient() {
         if (!response.ok || !payload.ok) {
           throw new Error(payload.message || "저장에 실패했습니다.");
         }
+        setConfigured(true);
         if (payload.snapshot) setSnapshot(payload.snapshot);
         setMessage(successMessage);
+        return true;
       } catch (mutationError) {
         setError(
           mutationError instanceof Error ? mutationError.message : "저장에 실패했습니다.",
         );
+        return false;
       } finally {
         setSaving(false);
       }
@@ -219,7 +230,9 @@ export function WarehouseCapacityClient() {
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
         <p className="font-black text-amber-950">
-          {configured === false ? "상품마스터 연동 설정이 필요합니다." : "창고 위치 원장을 불러오지 못했습니다."}
+          {configured === false
+            ? "상품마스터 연동 설정이 필요합니다."
+            : "창고 위치 원장을 불러오지 못했습니다."}
         </p>
         <p className="mt-2 text-sm leading-6 text-amber-800">{error}</p>
         <button
@@ -276,7 +289,11 @@ export function WarehouseCapacityClient() {
         <MetricCard
           label="등록 위치코드"
           value={formatNumber(snapshot.registeredSlotCount)}
-          helper={snapshot.registryComplete ? "전체 물리 위치 목록 확정" : "현재 등록된 범위 · 전체 목록 미확정"}
+          helper={
+            snapshot.registryComplete
+              ? "전체 물리 위치 목록 확정"
+              : "현재 등록된 범위 · 전체 목록 미확정"
+          }
         />
         <MetricCard
           label="현재 사용 중 위치"
@@ -290,13 +307,21 @@ export function WarehouseCapacityClient() {
         />
         <MetricCard
           label="창고 수용률"
-          value={snapshot.occupancyRate === null ? "미확정" : `${snapshot.occupancyRate}%`}
+          value={
+            snapshot.occupancyRate === null
+              ? "미확정"
+              : `${snapshot.occupancyRate}%`
+          }
           helper="전체 물리 위치 목록 확정 후에만 계산"
         />
         <MetricCard
           label="단종·정리 후보 위치"
           value={trustedExitText}
-          helper={snapshot.exitCandidateCountTrusted ? "확정된 생애주기 원장 기준" : "현재 lifecycle 기준선 미확정 · 의사결정 사용 금지"}
+          helper={
+            snapshot.exitCandidateCountTrusted
+              ? "확정된 생애주기 원장 기준"
+              : "현재 lifecycle 기준선 미확정 · 의사결정 사용 금지"
+          }
         />
         <MetricCard
           label="즉시 신규 SKU 수용"
@@ -398,13 +423,17 @@ export function WarehouseCapacityClient() {
             />
             <button
               type="button"
-              disabled={saving || parseCodes(slotCodes).length === 0}
-              onClick={() =>
-                void mutate(
-                  { action: "register_slots", locationCodes: parseCodes(slotCodes) },
-                  `${parseCodes(slotCodes).length}개 위치코드 등록 요청을 반영했습니다.`,
-                ).then(() => setSlotCodes(""))
-              }
+              disabled={saving || parsedSlotCodes.length === 0}
+              onClick={() => {
+                const codes = parsedSlotCodes;
+                void (async () => {
+                  const ok = await mutate(
+                    { action: "register_slots", locationCodes: codes },
+                    `${codes.length}개 위치코드 등록 요청을 반영했습니다.`,
+                  );
+                  if (ok) setSlotCodes("");
+                })();
+              }}
               className="mt-3 rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               위치코드 추가
@@ -422,34 +451,42 @@ export function WarehouseCapacityClient() {
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
-                disabled={saving || parseCodes(allocationCodes).length === 0}
-                onClick={() =>
-                  void mutate(
-                    {
-                      action: "set_slot_allocatable",
-                      locationCodes: parseCodes(allocationCodes),
-                      allocatable: false,
-                    },
-                    "선택 위치를 신규 배정 금지로 변경했습니다.",
-                  )
-                }
+                disabled={saving || parsedAllocationCodes.length === 0}
+                onClick={() => {
+                  const codes = parsedAllocationCodes;
+                  void (async () => {
+                    const ok = await mutate(
+                      {
+                        action: "set_slot_allocatable",
+                        locationCodes: codes,
+                        allocatable: false,
+                      },
+                      "선택 위치를 신규 배정 금지로 변경했습니다.",
+                    );
+                    if (ok) setAllocationCodes("");
+                  })();
+                }}
                 className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 disabled:opacity-40"
               >
                 신규배정 금지
               </button>
               <button
                 type="button"
-                disabled={saving || parseCodes(allocationCodes).length === 0}
-                onClick={() =>
-                  void mutate(
-                    {
-                      action: "set_slot_allocatable",
-                      locationCodes: parseCodes(allocationCodes),
-                      allocatable: true,
-                    },
-                    "선택 위치를 신규 배정 가능으로 변경했습니다.",
-                  )
-                }
+                disabled={saving || parsedAllocationCodes.length === 0}
+                onClick={() => {
+                  const codes = parsedAllocationCodes;
+                  void (async () => {
+                    const ok = await mutate(
+                      {
+                        action: "set_slot_allocatable",
+                        locationCodes: codes,
+                        allocatable: true,
+                      },
+                      "선택 위치를 신규 배정 가능으로 변경했습니다.",
+                    );
+                    if (ok) setAllocationCodes("");
+                  })();
+                }}
                 className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
               >
                 신규배정 가능
@@ -485,16 +522,19 @@ export function WarehouseCapacityClient() {
                 <button
                   type="button"
                   disabled={saving || registryConfirmation !== "확정"}
-                  onClick={() =>
-                    void mutate(
-                      {
-                        action: "set_registry_status",
-                        registryComplete: true,
-                        reserveSlots: Number(reserveSlots || 0),
-                      },
-                      "전체 물리 위치 목록을 확정했습니다.",
-                    ).then(() => setRegistryConfirmation(""))
-                  }
+                  onClick={() => {
+                    void (async () => {
+                      const ok = await mutate(
+                        {
+                          action: "set_registry_status",
+                          registryComplete: true,
+                          reserveSlots: Number(reserveSlots || 0),
+                        },
+                        "전체 물리 위치 목록을 확정했습니다.",
+                      );
+                      if (ok) setRegistryConfirmation("");
+                    })();
+                  }}
                   className="rounded-lg bg-rose-700 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
                 >
                   전체 목록 확정
