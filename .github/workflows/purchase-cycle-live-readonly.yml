@@ -1,0 +1,57 @@
+name: Purchase Cycle Production Read-Only Verification
+on:
+  push:
+    branches: [main]
+    paths:
+      # Follow transitive server-library changes, not just the original patch.
+      - 'src/lib/**'
+      - 'src/app/api/china-order-manager/cycle-status/**'
+      - 'public/shopling-stock-state-sync/README.txt'
+      - 'src/middleware.*'
+      - 'src/proxy.*'
+      - 'middleware.*'
+      - 'proxy.*'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'next.config.*'
+      - 'vercel.json'
+      - 'scripts/verify-purchase-cycle-live-readonly.mjs'
+      - 'tests/purchaseCycleLiveReadOnly.test.mjs'
+      - '.github/workflows/purchase-cycle-live-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  statuses: read
+concurrency:
+  group: purchase-cycle-live-readonly
+  cancel-in-progress: true
+jobs:
+  verify-production-readback:
+    if: github.repository == 'andysong111/commerce-os-ops-center' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Verify read-only allowlist and evidence validator before any live request
+        run: node --test tests/purchaseCycleLiveReadOnly.test.mjs
+      - name: Install isolated browser tools without altering production manifests
+        run: npm install --no-save --package-lock=false playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Wait for this commit deployment and read two months through a real browser
+        env:
+          GH_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/verify-purchase-cycle-live-readonly.mjs
+      - name: Retain sanitized proof only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: purchase-cycle-live-readonly-${{ github.sha }}
+          path: artifacts/purchase-cycle-live/summary.json
+          if-no-files-found: ignore
+          retention-days: 7

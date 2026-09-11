@@ -15,6 +15,7 @@ export type InternalChinaReceiptFollowupStatus = {
 };
 const SOURCE = "ops-center-internal-china-receipt";
 const LIMIT = 1000;
+const READBACK_CONCURRENCY = 3;
 function connection() {
   const secret = process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim();
   const base = (process.env.PRODUCT_MASTER_BASE_URL || "https://commerce-os-product-master.vercel.app").trim().replace(/\/$/, "");
@@ -86,12 +87,17 @@ export async function loadInternalChinaReceiptFollowups(cycleMonth: string) {
     if (!validInternalReceiptId(id)) throw new Error("RECEIPT_FOLLOWUP_LEDGER_ID_INVALID");
     grouped.set(id, [...(grouped.get(id) ?? []), row]);
   }
-  if (grouped.size > 30) throw new Error("RECEIPT_FOLLOWUP_BATCH_REVIEW_REQUIRED");
   if (!grouped.size) return [] as InternalChinaReceiptFollowupStatus[];
   const cache = await readPriceAdjustmentReceiptCache();
   const entries = [...grouped.entries()];
   const result: InternalChinaReceiptFollowupStatus[] = [];
-  for (let i = 0; i < entries.length; i += 3) result.push(...await Promise.all(entries.slice(i, i + 3).map(([id, values]) => verifyRows(id, values, cache))));
+  // A valid month can contain more than 30 partial receipts. Bound concurrent
+  // downstream reads, not the number of receipts eligible for verification.
+  // Every ledger page and every receipt remains part of the completion proof.
+  for (let i = 0; i < entries.length; i += READBACK_CONCURRENCY) {
+    const batch = entries.slice(i, i + READBACK_CONCURRENCY);
+    result.push(...await Promise.all(batch.map(([id, values]) => verifyRows(id, values, cache))));
+  }
   return result;
 }
 async function pushOnlyReceiptCosts(costs: PriceAdjustmentReceipt[]) {
