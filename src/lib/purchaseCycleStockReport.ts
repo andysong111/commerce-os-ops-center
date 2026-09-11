@@ -4,16 +4,17 @@ import { overlayInventoryStockControlReportWithTail, loadLatestInventoryStockSal
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
-import { overlayProductMasterVerifiedZeroBaselines } from "@/lib/productMasterVerifiedInventoryBaselines";
+import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
 import { loadStage8CanonicalSalesEventSnapshot } from "@/lib/stage8CanonicalSalesEventSnapshot";
 import { validatePurchaseCycleStockEvidence } from "@/lib/purchaseCycleStockEvidence";
 
 async function resolved() {
+  const supplementalResetEvents =
+    await loadProductMasterVerifiedZeroResetEvents();
   const localSeeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
-    await loadInventoryStockControlReport(),
+    await loadInventoryStockControlReport({ supplementalResetEvents }),
   );
-  const seeded = await overlayProductMasterVerifiedZeroBaselines(localSeeded);
-  const tailed = await overlayInventoryStockControlReportWithTail(seeded);
+  const tailed = await overlayInventoryStockControlReportWithTail(localSeeded);
   const corrected = await overlayInventoryStockControlReportWithResetCorrections(tailed);
   return normalizeRetryableShoplingSyncReportWithEvidence(
     await overlayInventoryStockControlReportWithStocktakeBaselines(corrected),
