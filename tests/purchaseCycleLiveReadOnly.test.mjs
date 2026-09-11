@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { allowedLiveRequest, safeCycleSummary, waitForProduction } from "../scripts/verify-purchase-cycle-live-readonly.mjs";
 
 const month = "2026-09";
@@ -111,4 +112,30 @@ test("live readiness rejects duplicated, malformed, cross-month and quantity-inc
   valid.report.followups.push({ ...valid.report.followups[0], receiptId: "00000000-0000-4000-8000-000000000002" });
   valid.report.verifiedReceiptCount = 2; valid.report.receivedQuantity = 14;
   assert.equal(safeCycleSummary(200, valid, month).businessCycleReady, true);
+});
+
+
+test("no-order closure rejects an inconsistent next action or nonzero inventory baseline obligation", () => {
+  const empty = fixture();
+  Object.assign(empty.report, {
+    state: "NO_ORDER_CLOSED", nextAction: "OPEN_NEXT_CALCULATION", receivedQuantity: 0,
+    verifiedReceiptCount: 0, pendingReceiptCount: 0, missingBaselineCount: 0, warnings: [], followups: [],
+  });
+  empty.report.stages.forEach((stage) => { stage.state = stage.id === "order" ? "VERIFIED" : "NOT_STARTED"; });
+  for (const nextAction of ["RECHECK", "OPEN_WORKSPACE", "RETRY_RECEIPT_FOLLOWUP", "REFRESH_STOCK_EVIDENCE", "OPEN_STOCK_CONTROL", "OPEN_PRICE_REVIEW"]) {
+    empty.report.nextAction = nextAction;
+    assert.throws(() => safeCycleSummary(200, empty, month), /LIVE_FALSE_NO_ORDER/);
+  }
+  empty.report.nextAction = "OPEN_NEXT_CALCULATION";
+  empty.report.missingBaselineCount = 1;
+  assert.throws(() => safeCycleSummary(200, empty, month), /LIVE_FALSE_NO_ORDER/);
+});
+
+test("production proof is retriggered for report libraries, route, bootstrap and dependency changes", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/purchase-cycle-live-readonly.yml", import.meta.url), "utf8");
+  const trigger = workflow.split("  workflow_dispatch:")[0];
+  for (const path of ["src/lib/**", "src/app/api/china-order-manager/cycle-status/**", "public/shopling-stock-state-sync/README.txt", "package.json", "package-lock.json", "next.config.*", "vercel.json"]) {
+    assert.ok(trigger.includes(`- '${path}'`), `live verification must track ${path}`);
+  }
+  assert.match(trigger, /branches: \[main\]/);
 });

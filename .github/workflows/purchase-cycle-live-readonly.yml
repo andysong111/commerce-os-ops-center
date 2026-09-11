@@ -3,7 +3,18 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/lib/internalChinaReceiptFollowup.ts'
+      # Follow transitive server-library changes, not just the original patch.
+      - 'src/lib/**'
+      - 'src/app/api/china-order-manager/cycle-status/**'
+      - 'public/shopling-stock-state-sync/README.txt'
+      - 'src/middleware.*'
+      - 'src/proxy.*'
+      - 'middleware.*'
+      - 'proxy.*'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'next.config.*'
+      - 'vercel.json'
       - 'scripts/verify-purchase-cycle-live-readonly.mjs'
       - 'tests/purchaseCycleLiveReadOnly.test.mjs'
       - '.github/workflows/purchase-cycle-live-readonly.yml'

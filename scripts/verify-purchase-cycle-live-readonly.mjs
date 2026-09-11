@@ -44,7 +44,7 @@ export function safeCycleSummary(status, body, month) {
     requireProof(evidencedQuantity === report.receivedQuantity, "LIVE_RECEIPT_EVIDENCE_INVALID");
   }
   if (report.state === "NO_ORDER_CLOSED") {
-    requireProof(report.receivedQuantity === 0 && report.openQuantity === 0 && report.followups.length === 0 && report.warnings.length === 0 && stages.order === "VERIFIED" && STAGES.filter((id) => id !== "order").every((id) => stages[id] === "NOT_STARTED"), "LIVE_FALSE_NO_ORDER");
+    requireProof(report.nextAction === "OPEN_NEXT_CALCULATION" && report.missingBaselineCount === 0 && report.receivedQuantity === 0 && report.openQuantity === 0 && report.followups.length === 0 && report.warnings.length === 0 && stages.order === "VERIFIED" && STAGES.filter((id) => id !== "order").every((id) => stages[id] === "NOT_STARTED"), "LIVE_FALSE_NO_ORDER");
   }
   // Public CI logs receive enums/booleans only: never receipt IDs, B codes,
   // quantities, costs, customer details, arbitrary messages or raw responses.
