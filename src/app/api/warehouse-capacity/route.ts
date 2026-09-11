@@ -1,3 +1,4 @@
+import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import {
   WarehouseCapacityBridgeError,
   getWarehouseCapacitySnapshot,
@@ -8,6 +9,21 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function unauthorized() {
+  return Response.json(
+    {
+      ok: false,
+      configured: warehouseCapacityBridgeConfigured(),
+      error: "WAREHOUSE_CAPACITY_UNAUTHORIZED",
+      message: "창고 위치·수용능력을 관리할 권한이 필요합니다.",
+    },
+    {
+      status: 401,
+      headers: { "cache-control": "no-store, max-age=0" },
+    },
+  );
+}
 
 function bridgeErrorResponse(error: unknown) {
   if (error instanceof WarehouseCapacityBridgeError) {
@@ -39,7 +55,9 @@ function bridgeErrorResponse(error: unknown) {
   );
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!isSameOriginOpsRequest(request)) return unauthorized();
+
   try {
     const snapshot = await getWarehouseCapacitySnapshot();
     return Response.json(
@@ -56,6 +74,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!isSameOriginOpsRequest(request)) return unauthorized();
+
   let body: Record<string, unknown>;
   try {
     const parsed = await request.json();
@@ -71,7 +91,7 @@ export async function POST(request: Request) {
         error: "INVALID_REQUEST_BODY",
         message: "요청 형식이 올바르지 않습니다.",
       },
-      { status: 400 },
+      { status: 400, headers: { "cache-control": "no-store, max-age=0" } },
     );
   }
 
@@ -83,7 +103,7 @@ export async function POST(request: Request) {
         error: "WAREHOUSE_CAPACITY_ACTION_INVALID",
         message: "허용되지 않은 창고 수용능력 작업입니다.",
       },
-      { status: 400 },
+      { status: 400, headers: { "cache-control": "no-store, max-age=0" } },
     );
   }
 
