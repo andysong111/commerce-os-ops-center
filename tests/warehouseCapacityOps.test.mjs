@@ -60,6 +60,38 @@ test("warehouse UI never turns an incomplete registry into a numeric occupancy o
   assert.doesNotMatch(ui, /maxBay|maxSlot|parseInt\([^)]*location|BBA\d\+.*capacity/i);
 });
 
+test("lifecycle readiness panel exposes missing, shadow, and baseline blockers without auto-promoting them", async () => {
+  const bridge = await readFile(
+    new URL("../src/lib/warehouseCapacityBridge.ts", import.meta.url),
+    "utf8",
+  );
+  const panel = await readFile(
+    new URL(
+      "../src/app/warehouse-capacity/LifecycleReadinessPanel.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const page = await readFile(
+    new URL("../src/app/warehouse-capacity/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  for (const field of [
+    "lifecycleAuthoritativeSkuCount",
+    "lifecycleMissingSkuCount",
+    "lifecycleShadowSkuCount",
+    "lifecycleWaitingBaselineSkuCount",
+  ]) {
+    assert.match(bridge, new RegExp(`${field}: number`));
+    assert.match(panel, new RegExp(`snapshot\\.${field}`));
+  }
+  assert.match(panel, /FAIL-CLOSED/);
+  assert.match(panel, /그림자 모드와 기준선 대기는 실제 단종 결정을 실행하지 않는 안전 단계/);
+  assert.doesNotMatch(panel, /set_registry_status|shadowMode:\s*false|WAITING_BASELINE.*HOLD/);
+  assert.match(page, /<LifecycleReadinessPanel \/>/);
+});
+
 test("failed warehouse mutations preserve operator input for correction and retry", async () => {
   const ui = await readFile(
     new URL(
