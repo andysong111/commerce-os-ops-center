@@ -133,7 +133,7 @@ test("only strict numeric Product Master VERIFIED sold-out zero becomes reusable
   }
 });
 
-test("zero-reset loader performs one authenticated GET and returns reset events only", async () => {
+test("required zero-reset loader performs one authenticated GET and returns reset events only", async () => {
   const calls = [];
   const service = moduleWith(async (url, options = {}) => {
     calls.push({ url, options });
@@ -143,7 +143,7 @@ test("zero-reset loader performs one authenticated GET and returns reset events 
     assert.equal(options.cache, "no-store");
     return Response.json(payload);
   });
-  const resets = await service.loadProductMasterVerifiedZeroResetEvents();
+  const resets = await service.loadRequiredProductMasterVerifiedZeroResetEvents();
   assert.equal(calls.length, 1);
   assert.equal(resets.length, 1);
   assert.equal(resets[0].eventId, `product-master-sold-out-reset:BAB3-1:${baselineAt}`);
@@ -154,9 +154,13 @@ test("zero-reset loader performs one authenticated GET and returns reset events 
   assert.equal(resets[0].note, "Product Master VERIFIED SOLD_OUT_RESET 기준점");
 });
 
-test("Product Master read failure contributes no supplemental reset and cannot manufacture completion", async () => {
+test("Product Master outage is fail-closed for purchase-cycle reads but fail-soft for the operational queue", async () => {
   const service = moduleWith(async () =>
     Response.json({ ok: false }, { status: 503 }),
+  );
+  await assert.rejects(
+    service.loadRequiredProductMasterVerifiedZeroResetEvents(),
+    /PRODUCT_MASTER_INVENTORY_BASELINE_HTTP_503/,
   );
   const resets = await service.loadProductMasterVerifiedZeroResetEvents();
   assert.equal(resets.length, 0);
