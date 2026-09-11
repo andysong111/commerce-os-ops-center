@@ -31,7 +31,17 @@ export function safeCycleSummary(status, body, month) {
   requireProof(report.verifiedReceiptCount === report.followups.filter((row) => row.state === "VERIFIED").length && report.pendingReceiptCount === report.followups.filter((row) => row.state !== "VERIFIED").length, "LIVE_FOLLOWUPS_INVALID");
   if (report.state === "READY_FOR_NEXT_CALCULATION") {
     requireProof(STAGES.filter((id) => id !== "next").every((id) => stages[id] === "VERIFIED") && stages.next === "NOT_STARTED" && report.nextAction === "OPEN_NEXT_CALCULATION" && report.receivedQuantity > 0 && report.openQuantity === 0 && report.pendingReceiptCount === 0 && report.missingBaselineCount === 0 && report.warnings.length === 0 && report.followups.length > 0, "LIVE_FALSE_COMPLETION");
-    requireProof(report.followups.every((row) => row.cycleMonth === month && row.state === "VERIFIED" && /^sha256:[a-f0-9]{64}$/.test(row.fingerprint) && Number.isFinite(Date.parse(row.verifiedAt))), "LIVE_FALSE_COMPLETION");
+    const receiptIds = new Set();
+    let evidencedQuantity = 0;
+    for (const row of report.followups) {
+      requireProof(typeof row.receiptId === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(row.receiptId) && !receiptIds.has(row.receiptId), "LIVE_RECEIPT_EVIDENCE_INVALID");
+      requireProof(typeof row.draftId === "string" && /^fast-purchase-draft:[a-f0-9]{20}$/.test(row.draftId) && row.cycleMonth === month && row.state === "VERIFIED" && row.canRetry === false && row.errorCode === null, "LIVE_RECEIPT_EVIDENCE_INVALID");
+      requireProof(Number.isSafeInteger(row.lineCount) && row.lineCount > 0 && row.lineCount <= 100 && Array.isArray(row.barcodes) && row.barcodes.length === row.lineCount && new Set(row.barcodes).size === row.lineCount && row.barcodes.every((code) => typeof code === "string" && /^B[A-Z]{1,2}\d+-\d+$/.test(code)), "LIVE_RECEIPT_EVIDENCE_INVALID");
+      requireProof(Number.isSafeInteger(row.receivedQuantity) && row.receivedQuantity >= row.lineCount && typeof row.fingerprint === "string" && /^sha256:[a-f0-9]{64}$/.test(row.fingerprint) && typeof row.verifiedAt === "string" && Number.isFinite(Date.parse(row.verifiedAt)), "LIVE_RECEIPT_EVIDENCE_INVALID");
+      receiptIds.add(row.receiptId); evidencedQuantity += row.receivedQuantity;
+      requireProof(Number.isSafeInteger(evidencedQuantity), "LIVE_RECEIPT_EVIDENCE_INVALID");
+    }
+    requireProof(evidencedQuantity === report.receivedQuantity, "LIVE_RECEIPT_EVIDENCE_INVALID");
   }
   if (report.state === "NO_ORDER_CLOSED") {
     requireProof(report.receivedQuantity === 0 && report.openQuantity === 0 && report.followups.length === 0 && report.warnings.length === 0 && stages.order === "VERIFIED" && STAGES.filter((id) => id !== "order").every((id) => stages[id] === "NOT_STARTED"), "LIVE_FALSE_NO_ORDER");

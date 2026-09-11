@@ -60,13 +60,7 @@ test("deployment waiter uses exact SHA, a fixed read endpoint and waits for succ
 });
 
 test("ready-for-next-calculation must not certify the next calculation itself as started or completed", () => {
-  const ready = fixture();
-  Object.assign(ready.report, {
-    state: "READY_FOR_NEXT_CALCULATION", nextAction: "OPEN_NEXT_CALCULATION",
-    verifiedReceiptCount: 1, pendingReceiptCount: 0, missingBaselineCount: 0, warnings: [],
-    followups: [{ state: "VERIFIED", cycleMonth: month, fingerprint: `sha256:${"a".repeat(64)}`, verifiedAt: "2026-09-11T12:00:00.000Z" }],
-  });
-  ready.report.stages.forEach((stage) => { stage.state = stage.id === "next" ? "NOT_STARTED" : "VERIFIED"; });
+  const ready = readyFixture();
   assert.equal(safeCycleSummary(200, ready, month).businessCycleReady, true);
   for (const invalidState of ["PENDING", "VERIFIED"]) {
     ready.report.stages.find((stage) => stage.id === "next").state = invalidState;
@@ -84,4 +78,37 @@ test("a genuine no-order close remains distinct from an executed receipt cycle",
   const summary = safeCycleSummary(200, empty, month);
   assert.equal(summary.readbackVerified, true); assert.equal(summary.businessCycleReady, false);
   assert.equal(summary.actualPurchaseExecuted, false);
+});
+
+function readyFixture() {
+  const ready = fixture();
+  Object.assign(ready.report, {
+    state: "READY_FOR_NEXT_CALCULATION", nextAction: "OPEN_NEXT_CALCULATION",
+    verifiedReceiptCount: 1, pendingReceiptCount: 0, missingBaselineCount: 0, warnings: [],
+    followups: [{ receiptId: "00000000-0000-4000-8000-000000000001", draftId: "fast-purchase-draft:1234567890abcdef1234", state: "VERIFIED", cycleMonth: month, lineCount: 1, barcodes: ["BBA1-1"], receivedQuantity: 7, canRetry: false, errorCode: null, fingerprint: `sha256:${"a".repeat(64)}`, verifiedAt: "2026-09-11T12:00:00.000Z" }],
+  });
+  ready.report.stages.forEach((stage) => { stage.state = stage.id === "next" ? "NOT_STARTED" : "VERIFIED"; });
+  return ready;
+}
+
+test("live readiness rejects duplicated, malformed, cross-month and quantity-inconsistent receipt proof", () => {
+  for (const patch of [
+    { receiptId: undefined }, { receiptId: "malformed" }, { draftId: "other-source" },
+    { cycleMonth: "2026-08" }, { receivedQuantity: undefined }, { receivedQuantity: 0 },
+    { receivedQuantity: -1 }, { receivedQuantity: 1.5 }, { receivedQuantity: 8 },
+    { lineCount: 0 }, { lineCount: 2 }, { barcodes: [] }, { barcodes: ["invalid"] },
+    { lineCount: 2, barcodes: ["BBA1-1", "BBA1-1"] }, { canRetry: true },
+    { errorCode: "UNVERIFIED" }, { fingerprint: null }, { verifiedAt: "invalid" },
+  ]) {
+    const body = readyFixture(); Object.assign(body.report.followups[0], patch);
+    assert.throws(() => safeCycleSummary(200, body, month), /LIVE_RECEIPT_EVIDENCE_INVALID/);
+  }
+  const duplicate = readyFixture();
+  duplicate.report.followups.push({ ...duplicate.report.followups[0] });
+  duplicate.report.verifiedReceiptCount = 2; duplicate.report.receivedQuantity = 14;
+  assert.throws(() => safeCycleSummary(200, duplicate, month), /LIVE_RECEIPT_EVIDENCE_INVALID/);
+  const valid = readyFixture();
+  valid.report.followups.push({ ...valid.report.followups[0], receiptId: "00000000-0000-4000-8000-000000000002" });
+  valid.report.verifiedReceiptCount = 2; valid.report.receivedQuantity = 14;
+  assert.equal(safeCycleSummary(200, valid, month).businessCycleReady, true);
 });
