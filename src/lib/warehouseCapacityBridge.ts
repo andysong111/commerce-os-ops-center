@@ -52,6 +52,10 @@ export type WarehouseCapacitySnapshot = {
   lifecycleReady: boolean;
   lifecycleCoveredSkuCount: number;
   lifecycleRequiredSkuCount: number;
+  lifecycleAuthoritativeSkuCount: number;
+  lifecycleMissingSkuCount: number;
+  lifecycleShadowSkuCount: number;
+  lifecycleWaitingBaselineSkuCount: number;
   exitCandidateLocationCount: number;
   exitCandidateCountTrusted: boolean;
   safeImmediateNewSkuCapacity: number | null;
