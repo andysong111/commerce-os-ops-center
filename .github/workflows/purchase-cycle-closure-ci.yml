@@ -4,6 +4,7 @@ on:
     paths:
       - 'src/lib/internalChinaReceipt*'
       - 'src/lib/purchaseCycle*'
+      - 'src/lib/productMasterVerifiedInventoryBaselines.ts'
       - 'src/lib/fastPurchaseCashEnvelope.ts'
       - 'src/app/api/china-order-manager/**'
       - 'src/app/china-order-manager/layout.tsx'
@@ -37,6 +38,7 @@ jobs:
           src/lib/purchaseCycleClosure.ts src/lib/purchaseCycleClosureCore.ts
           src/lib/purchaseCycleHistoricalOrderClose.ts
           src/lib/purchaseCycleStockReport.ts src/lib/purchaseCycleStockEvidence.ts
+          src/lib/productMasterVerifiedInventoryBaselines.ts
           src/lib/fastPurchaseCashEnvelope.ts
           src/app/api/china-order-manager/receipts/followup/route.ts
           src/app/api/china-order-manager/cycle-status/route.ts
