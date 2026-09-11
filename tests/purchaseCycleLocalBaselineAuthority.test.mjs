@@ -15,7 +15,7 @@ function row(snapshot) {
   };
 }
 
-function adminFor({ resets = [], stocktakes = [], errorType = null } = {}) {
+function adminFor({ resets = [], stocktakes = [], errorType = null, nullDataType = null } = {}) {
   return {
     from(table) {
       assert.equal(table, "commerce_operation_runs");
@@ -30,6 +30,9 @@ function adminFor({ resets = [], stocktakes = [], errorType = null } = {}) {
         limit() {
           if (errorType === operationType) {
             return Promise.resolve({ data: null, error: { message: "fixture read failed" } });
+          }
+          if (nullDataType === operationType) {
+            return Promise.resolve({ data: null, error: null });
           }
           return Promise.resolve({
             data: operationType === "INVENTORY_STOCKOUT_RESET_EVENT" ? resets : stocktakes,
@@ -105,11 +108,16 @@ test("malformed SUCCEEDED stocktake cannot disappear from exact inventory author
   }
 });
 
-test("local baseline authority database read failure fails closed", async () => {
+test("local baseline authority database error or null data fails closed", async () => {
   await assert.rejects(
     service(adminFor({ errorType: "INVENTORY_STOCKOUT_RESET_EVENT" }))
       .assertPurchaseCycleLocalBaselineAuthorityReadable(),
     /PURCHASE_CYCLE_LOCAL_BASELINE_READ_FAILED:INVENTORY_STOCKOUT_RESET_EVENT/,
+  );
+  await assert.rejects(
+    service(adminFor({ nullDataType: "INVENTORY_STOCKTAKE_BASELINE_EVENT" }))
+      .assertPurchaseCycleLocalBaselineAuthorityReadable(),
+    /PURCHASE_CYCLE_LOCAL_BASELINE_READ_FAILED:INVENTORY_STOCKTAKE_BASELINE_EVENT/,
   );
 });
 
