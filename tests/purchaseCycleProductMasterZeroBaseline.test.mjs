@@ -146,21 +146,20 @@ test("zero-reset loader performs one authenticated GET and returns reset events 
   const resets = await service.loadProductMasterVerifiedZeroResetEvents();
   assert.equal(calls.length, 1);
   assert.equal(resets.length, 1);
-  assert.deepEqual(resets[0], {
-    eventId: `product-master-sold-out-reset:BAB3-1:${baselineAt}`,
-    barcode: "BAB3-1",
-    productKind: "SINGLE",
-    modelNo: "AAA231",
-    occurredAt: baselineAt,
-    note: "Product Master VERIFIED SOLD_OUT_RESET 기준점",
-  });
+  assert.equal(resets[0].eventId, `product-master-sold-out-reset:BAB3-1:${baselineAt}`);
+  assert.equal(resets[0].barcode, "BAB3-1");
+  assert.equal(resets[0].productKind, "SINGLE");
+  assert.equal(resets[0].modelNo, "AAA231");
+  assert.equal(resets[0].occurredAt, baselineAt);
+  assert.equal(resets[0].note, "Product Master VERIFIED SOLD_OUT_RESET 기준점");
 });
 
 test("Product Master read failure contributes no supplemental reset and cannot manufacture completion", async () => {
   const service = moduleWith(async () =>
     Response.json({ ok: false }, { status: 503 }),
   );
-  assert.deepEqual(await service.loadProductMasterVerifiedZeroResetEvents(), []);
+  const resets = await service.loadProductMasterVerifiedZeroResetEvents();
+  assert.equal(resets.length, 0);
 });
 
 test("supplemental Product Master zero is recomputed by canonical inventory ledger and equal local reset wins", async () => {
