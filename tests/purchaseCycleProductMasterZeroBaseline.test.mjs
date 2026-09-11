@@ -57,23 +57,6 @@ const payload = {
   ],
 };
 
-function baseReport(rows = []) {
-  return {
-    generatedAt: "2026-09-12T00:00:00.000Z",
-    state: "READY",
-    message: "fixture",
-    fingerprint: "before",
-    resetCount: rows.length,
-    exactCount: rows.filter((row) => row.salesCoverageReady).length,
-    soldOutCount: 0,
-    onSaleCount: 0,
-    pendingSyncCount: 0,
-    uncertainSyncCount: 0,
-    rows,
-    blockers: [],
-  };
-}
-
 function moduleWith(fetcher) {
   return load(
     "src/lib/productMasterVerifiedInventoryBaselines.ts",
@@ -94,7 +77,35 @@ function moduleWith(fetcher) {
   );
 }
 
-test("only Product Master VERIFIED sold-out zero becomes reusable physical baseline", () => {
+function operationAdmin(rowsForType) {
+  return {
+    from(table) {
+      assert.equal(table, "commerce_operation_runs");
+      const filters = {};
+      const chain = {
+        select() {
+          return chain;
+        },
+        eq(field, value) {
+          filters[field] = value;
+          return chain;
+        },
+        order() {
+          return chain;
+        },
+        limit() {
+          return Promise.resolve({
+            data: rowsForType(filters.operation_type) ?? [],
+            error: null,
+          });
+        },
+      };
+      return chain;
+    },
+  };
+}
+
+test("only strict numeric Product Master VERIFIED sold-out zero becomes reusable physical baseline", () => {
   const service = moduleWith(async () => {
     throw new Error("network not expected");
   });
@@ -108,9 +119,21 @@ test("only Product Master VERIFIED sold-out zero becomes reusable physical basel
   assert.equal(row.productKind, "SINGLE");
   assert.equal(row.modelNo, "AAA231");
   assert.equal(row.occurredAt, baselineAt);
+
+  for (const invalidZero of [null, "", false, "0"]) {
+    const invalid = structuredClone(payload);
+    invalid.inventories = [{ ...invalid.inventories[0], baselineQuantity: invalidZero }];
+    assert.equal(
+      service.parseProductMasterVerifiedInventoryBaselines(
+        invalid,
+        planning.products,
+      ).size,
+      0,
+    );
+  }
 });
 
-test("actual overlay performs one authenticated GET, never writes, and seeds zero as unverified-until-sales-tail", async () => {
+test("zero-reset loader performs one authenticated GET and returns reset events only", async () => {
   const calls = [];
   const service = moduleWith(async (url, options = {}) => {
     calls.push({ url, options });
@@ -120,55 +143,89 @@ test("actual overlay performs one authenticated GET, never writes, and seeds zer
     assert.equal(options.cache, "no-store");
     return Response.json(payload);
   });
-  const original = baseReport();
-  const result = await service.overlayProductMasterVerifiedZeroBaselines(original);
+  const resets = await service.loadProductMasterVerifiedZeroResetEvents();
   assert.equal(calls.length, 1);
-  assert.equal(original.rows.length, 0);
-  assert.equal(result.rows.length, 1);
-  const row = result.rows[0];
-  assert.equal(row.barcode, "BAB3-1");
-  assert.equal(row.exactInventoryQuantity, 0);
-  assert.equal(row.desiredStatus, "SOLD_OUT");
-  assert.equal(row.salesCoverageReady, false);
-  assert.equal(row.syncBlocked, true);
-  assert.equal(row.goodsKeys[0], "123456");
-  assert.match(row.resetEventId, /^product-master-sold-out-reset:BAB3-1:/);
+  assert.equal(resets.length, 1);
+  assert.deepEqual(resets[0], {
+    eventId: `product-master-sold-out-reset:BAB3-1:${baselineAt}`,
+    barcode: "BAB3-1",
+    productKind: "SINGLE",
+    modelNo: "AAA231",
+    occurredAt: baselineAt,
+    note: "Product Master VERIFIED SOLD_OUT_RESET 기준점",
+  });
 });
 
-test("newer local baseline wins and Product Master read failure cannot manufacture completion", async () => {
-  const existing = {
-    barcode: "BAB3-1",
-    productName: "local",
-    optionName: "단품",
-    modelNo: "AAA231",
-    goodsKeys: ["123456"],
-    productKind: "SINGLE",
-    resetAt: "2026-09-11T00:00:00.000Z",
-    resetEventId: "local-newer",
-    receivedSinceReset: 0,
-    soldSinceReset: 0,
-    exactInventoryQuantity: 3,
-    recent30StockoutDays: 0,
-    desiredStatus: "ON_SALE",
-    desiredSince: "2026-09-11T00:00:00.000Z",
-    salesCoverageReady: true,
-    receiptEvidenceCount: 0,
-    salesEvidenceCount: 0,
-    latestSyncOutcome: "SUCCEEDED",
-    latestSyncAt: "2026-09-11T00:00:01.000Z",
-    syncNeeded: false,
-    syncBlocked: false,
-    syncBlockReason: null,
-  };
-  const good = moduleWith(async () => Response.json(payload));
-  const preserved = await good.overlayProductMasterVerifiedZeroBaselines(
-    baseReport([existing]),
+test("Product Master read failure contributes no supplemental reset and cannot manufacture completion", async () => {
+  const service = moduleWith(async () =>
+    Response.json({ ok: false }, { status: 503 }),
   );
-  assert.equal(preserved.rows[0].resetEventId, "local-newer");
-  assert.equal(preserved.rows[0].exactInventoryQuantity, 3);
+  assert.deepEqual(await service.loadProductMasterVerifiedZeroResetEvents(), []);
+});
 
-  const failed = moduleWith(async () => Response.json({ ok: false }, { status: 503 }));
-  const unchanged = baseReport();
-  const afterFailure = await failed.overlayProductMasterVerifiedZeroBaselines(unchanged);
-  assert.deepEqual(afterFailure, unchanged);
+test("supplemental Product Master zero is recomputed by canonical inventory ledger and equal local reset wins", async () => {
+  let localResetRows = [];
+  const service = load("src/lib/inventoryStockControl.ts", {
+    "@/lib/chinaOrderLedger": {
+      CHINA_ORDER_EVENT_OPERATION_TYPE: "CHINA_ORDER_EVENT",
+    },
+    "@/lib/productDecisionLiveRefresh": {
+      loadProductPlanningSnapshot: async () => planning,
+    },
+    "@/lib/stage8CanonicalSalesEventSnapshot": {
+      loadStage8CanonicalSalesEventSnapshot: async () => ({
+        state: "READY_READ_ONLY",
+        coverageStartAt: "2026-09-01T00:00:00.000Z",
+        coverageEndAt: "2026-09-12T00:00:00.000Z",
+        events: [],
+      }),
+    },
+    "@/lib/supabase/admin": {
+      createSupabaseAdminClient: async () =>
+        operationAdmin((operationType) =>
+          operationType === "INVENTORY_STOCKOUT_RESET_EVENT"
+            ? localResetRows
+            : [],
+        ),
+    },
+  });
+  const supplementalReset = {
+    eventId: `product-master-sold-out-reset:BAB3-1:${baselineAt}`,
+    barcode: "BAB3-1",
+    productKind: "SINGLE",
+    modelNo: "AAA231",
+    occurredAt: baselineAt,
+    note: "Product Master VERIFIED SOLD_OUT_RESET 기준점",
+  };
+
+  const fromProductMaster = await service.loadInventoryStockControlReport({
+    supplementalResetEvents: [supplementalReset],
+  });
+  assert.equal(fromProductMaster.state, "READY");
+  assert.equal(fromProductMaster.rows.length, 1);
+  assert.equal(fromProductMaster.rows[0].resetEventId, supplementalReset.eventId);
+  assert.equal(fromProductMaster.rows[0].salesCoverageReady, true);
+  assert.equal(fromProductMaster.rows[0].exactInventoryQuantity, 0);
+  assert.equal(fromProductMaster.rows[0].syncBlocked, false);
+
+  localResetRows = [
+    {
+      source_event_id: "local-equal-reset",
+      input_snapshot: {
+        eventId: "local-equal-reset",
+        barcode: "BAB3-1",
+        productKind: "SINGLE",
+        modelNo: "AAA231",
+        occurredAt: baselineAt,
+        note: "local OPS reset wins tie",
+      },
+      started_at: baselineAt,
+      status: "SUCCEEDED",
+    },
+  ];
+  const localWins = await service.loadInventoryStockControlReport({
+    supplementalResetEvents: [supplementalReset],
+  });
+  assert.equal(localWins.rows[0].resetEventId, "local-equal-reset");
+  assert.equal(localWins.rows[0].salesCoverageReady, true);
 });
