@@ -12,7 +12,7 @@ const links = {
   OPEN_NEXT_CALCULATION: "/china-order-manager/cash-envelope",
 } as const;
 type View = { month: string; report: PurchaseCycleClosureReport | null; error: string };
-export function PurchaseCycleClosurePanel({ refreshKey }: { refreshKey: number }) {
+export function PurchaseCycleClosurePanel({ refreshKey }: { refreshKey: string | number }) {
   const active = usePathname() === "/china-order-manager";
   const month = useSearchParams().get("month") || "";
   const [view, setView] = useState<View | null>(null);
@@ -23,6 +23,12 @@ export function PurchaseCycleClosurePanel({ refreshKey }: { refreshKey: number }
   const current = view?.month === month ? view : null;
   const report = current?.report ?? null;
   const error = current?.error ?? "";
+
+  const cancelActive = useCallback(() => {
+    ++generationRef.current;
+    controllerRef.current?.abort();
+    busyRef.current = false;
+  }, []);
 
   const load = useCallback(async (signal: AbortSignal, generation: number) => {
     const response = await fetch(`/api/china-order-manager/cycle-status${month ? `?month=${encodeURIComponent(month)}` : ""}`, { cache: "no-store", signal });
@@ -49,8 +55,8 @@ export function PurchaseCycleClosurePanel({ refreshKey }: { refreshKey: number }
     if (!active) return;
     let mounted = true;
     void Promise.resolve().then(() => { if (mounted) return recheck(); });
-    return () => { mounted = false; ++generationRef.current; controllerRef.current?.abort(); busyRef.current = false; };
-  }, [active, recheck, refreshKey]);
+    return () => { mounted = false; cancelActive(); };
+  }, [active, recheck, refreshKey, cancelActive]);
 
   async function act() {
     if (busyRef.current) return;
