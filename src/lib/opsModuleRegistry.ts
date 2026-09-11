@@ -31,21 +31,21 @@ const inventoryStockOperationsModule: CommerceModule = {
 
 const warehouseCapacityModule: CommerceModule = {
   id: "warehouse-capacity",
-  title: "창고 위치·수용능력",
-  navigationLabel: "창고 위치·수용능력",
+  title: "창고 지도·위치코드 관리",
+  navigationLabel: "창고 지도·위치코드 관리",
   description:
-    "전체 물리 위치코드와 현재 점유를 분리 관리하고, 빈 위치·정리 후보·신규 SKU 수용 가능량을 안전하게 계산합니다.",
+    "실제 창고 지도로 1,164개 물리 수납칸의 대·소 바구니, 상품 점유·미확인·빈자리, 판매상태와 실사 진행률을 확인하고 신규 입고 수용량을 관리합니다.",
   status: "available",
-  route: "/warehouse-capacity",
+  route: "https://storage-organization.vercel.app/warehouse-map/index.html",
   category: "창고 운영",
-  inputType: "전체 물리 위치코드, 현재 SKU 위치, 생애주기 상태, 예약 버퍼",
-  outputType: "점유·빈 위치, 수용률, 정리 후보, 즉시·예상 신규 SKU 수용량",
+  inputType: "실제 물리 수납칸, 옵션별 대표 B코드와 점유구간, 대·소 규격, 실사·예약 상태",
+  outputType: "창고 지도, 대·소별 수용률, 실사 진행률, 정리 후보, 신규상품 배정 가능 공간",
   historySupport: true,
-  externalProject: false,
-  note: "현재 SKU 코드 패턴으로 빈 위치를 추정하지 않습니다. 전체 물리 위치 목록과 생애주기 기준이 확정되기 전에는 수용률과 신규 소싱 상한을 잠급니다.",
-  helperNote: "물리 위치 원장 · fail-closed",
-  actionLabel: "창고 수용능력 열기",
-  safetyBadge: "미확정 수치 사용 금지",
+  externalProject: true,
+  note: "Storage Organization의 실제 물리 슬롯 지도를 창고 수용능력의 공식 기준으로 사용합니다. 미확인·점유추정 칸은 실물 확인 전 빈자리로 계산하지 않으며, 실제 위치 이동과 Shopling 쓰기는 canary 검증 전까지 차단합니다.",
+  helperNote: "52개 선반 · 1,164칸 · 물리지도 기준",
+  actionLabel: "창고 지도 열기",
+  safetyBadge: "미실사 공간 자동배정 금지",
 };
 
 const isolatedBaseModules: readonly CommerceModule[] = extendedModuleRegistry.map(
