@@ -133,27 +133,41 @@ export async function loadProductMasterVerifiedInventoryBaselines(
   );
 }
 
-// Product Master VERIFIED zero resets are already user-backed physical facts.
-// Convert only those zero facts into optional read-only reset events. They are
-// fed into the normal inventory engine, which recomputes receipts + canonical
-// sales after the reset. Any Product Master read failure simply contributes no
-// supplemental evidence and can never manufacture stock readiness.
+function resetEventsFromBaselines(
+  baselines: Map<string, ProductMasterVerifiedInventoryBaseline>,
+): InventoryStockoutResetEvent[] {
+  return [...baselines.values()].map((baseline) => ({
+    eventId: baseline.eventId,
+    barcode: baseline.barcode,
+    productKind: baseline.productKind,
+    modelNo: baseline.modelNo,
+    occurredAt: baseline.occurredAt,
+    note: baseline.note,
+  }));
+}
+
+// Purchase-cycle closure uses this strict reader. An unavailable Product Master
+// cannot be interpreted as "this SKU never had a baseline", because doing so
+// could erase an existing zero reset and bypass its sales/sync obligations.
+export async function loadRequiredProductMasterVerifiedZeroResetEvents(): Promise<
+  InventoryStockoutResetEvent[]
+> {
+  const planning = await loadProductPlanningSnapshot();
+  const baselines = await loadProductMasterVerifiedInventoryBaselines(
+    planning.products ?? [],
+  );
+  return resetEventsFromBaselines(baselines);
+}
+
+// The operational stock-control queue remains fail-soft: if Product Master is
+// temporarily unavailable it simply receives no supplemental reset and therefore
+// cannot create a new actionable exact-stock row from missing data. Purchase-cycle
+// readiness must use the strict loader above instead.
 export async function loadProductMasterVerifiedZeroResetEvents(): Promise<
   InventoryStockoutResetEvent[]
 > {
   try {
-    const planning = await loadProductPlanningSnapshot();
-    const baselines = await loadProductMasterVerifiedInventoryBaselines(
-      planning.products ?? [],
-    );
-    return [...baselines.values()].map((baseline) => ({
-      eventId: baseline.eventId,
-      barcode: baseline.barcode,
-      productKind: baseline.productKind,
-      modelNo: baseline.modelNo,
-      occurredAt: baseline.occurredAt,
-      note: baseline.note,
-    }));
+    return await loadRequiredProductMasterVerifiedZeroResetEvents();
   } catch {
     return [];
   }
