@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { loadPurchaseCycleModule as load } from "./helpers/purchaseCycleHarness.mjs";
 
@@ -110,4 +111,10 @@ test("local baseline authority database read failure fails closed", async () => 
       .assertPurchaseCycleLocalBaselineAuthorityReadable(),
     /PURCHASE_CYCLE_LOCAL_BASELINE_READ_FAILED:INVENTORY_STOCKOUT_RESET_EVENT/,
   );
+});
+
+test("purchase-cycle stock report invokes local authority preflight before natural accumulation", async () => {
+  const source = await readFile("src/lib/purchaseCycleStockReport.ts", "utf8");
+  assert.match(source, /assertPurchaseCycleLocalBaselineAuthorityReadable/);
+  assert.match(source, /Promise\.all\(\[\s*assertPurchaseCycleLocalBaselineAuthorityReadable\(\),\s*loadRequiredProductMasterVerifiedZeroResetEvents\(\)/s);
 });
