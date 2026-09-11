@@ -16,12 +16,12 @@ function fixture() {
 test("production browser allowlist admits only the bootstrap and exact read-only monthly status route", () => {
   const base = "https://commerce-os-ops-center.vercel.app";
   for (const method of ["GET", "HEAD"]) {
-    assert.equal(allowedLiveRequest(`${base}/robots.txt`, method), true);
+    assert.equal(allowedLiveRequest(`${base}/shopling-stock-state-sync/README.txt`, method), true);
     assert.equal(allowedLiveRequest(`${base}/api/china-order-manager/cycle-status?month=${month}`, method), true);
   }
   for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) assert.equal(allowedLiveRequest(`${base}/api/china-order-manager/cycle-status?month=${month}`, method), false);
-  for (const path of ["/api/china-order-manager/receipts/followup", "/api/inventory-stock-control", "/api/china-order-manager/cycle-status", "/api/china-order-manager/cycle-status?month=2026-13", "/api/china-order-manager/cycle-status?month=2026-09&month=2026-08", "/api/china-order-manager/cycle-status?month=2026-09&action=REFRESH_STOCK_EVIDENCE", "/robots.txt?redirect=elsewhere"]) assert.equal(allowedLiveRequest(base + path, "GET"), false);
-  assert.equal(allowedLiveRequest("https://elsewhere.example/robots.txt", "GET"), false);
+  for (const path of ["/robots.txt", "/api/china-order-manager/receipts/followup", "/api/inventory-stock-control", "/api/china-order-manager/cycle-status", "/api/china-order-manager/cycle-status?month=2026-13", "/api/china-order-manager/cycle-status?month=2026-09&month=2026-08", "/api/china-order-manager/cycle-status?month=2026-09&action=REFRESH_STOCK_EVIDENCE", "/shopling-stock-state-sync/README.txt?redirect=elsewhere"]) assert.equal(allowedLiveRequest(base + path, "GET"), false);
+  assert.equal(allowedLiveRequest("https://elsewhere.example/shopling-stock-state-sync/README.txt", "GET"), false);
   assert.equal(allowedLiveRequest("not-a-url", "GET"), false);
 });
 

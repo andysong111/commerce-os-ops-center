@@ -53,7 +53,7 @@ export function allowedLiveRequest(url, method) {
   let target;
   try { target = new URL(url); } catch { return false; }
   if (target.origin !== ORIGIN || target.username || target.password || target.hash) return false;
-  if (target.pathname === "/robots.txt") return !target.search;
+  if (target.pathname === "/shopling-stock-state-sync/README.txt") return !target.search;
   return target.pathname === "/api/china-order-manager/cycle-status" && [...target.searchParams.keys()].length === 1 && MONTH.test(target.searchParams.get("month") || "");
 }
 
@@ -107,8 +107,10 @@ async function main() {
       await route.continue();
     });
     const page = await context.newPage();
-    const bootstrap = await page.goto(`${ORIGIN}/robots.txt`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    requireProof(bootstrap && [200, 404].includes(bootstrap.status()) && new URL(page.url()).origin === ORIGIN, "LIVE_BROWSER_ORIGIN_UNAVAILABLE");
+    // Use the existing inert text resource, not a Next 404 shell that mounts
+    // application workers. A changed/missing bootstrap fails closed.
+    const bootstrap = await page.goto(`${ORIGIN}/shopling-stock-state-sync/README.txt`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    requireProof(bootstrap && bootstrap.status() === 200 && /^text\/plain\b/i.test(bootstrap.headers()["content-type"] || "") && new URL(page.url()).origin === ORIGIN, "LIVE_BROWSER_ORIGIN_UNAVAILABLE");
     // A real browser performs normal same-origin reads. No fabricated auth
     // header, login override, credential injection, POST or UI click is used.
     for (const month of monthsToCheck()) {
