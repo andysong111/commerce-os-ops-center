@@ -6,6 +6,7 @@ import {
 } from "@/lib/legacySeoRegistrationPolicy";
 import { recoverLegacySeoShoplingAssets } from "@/lib/legacySeoShoplingAssetRecovery";
 import { syncLegacySeoShoplingOptions } from "@/lib/legacySeoShoplingOptionSync";
+import { legacySeoShoplingSyncConfirmed } from "@/lib/legacySeoShoplingSyncState";
 import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
 import type {
   ProductLaunchAdminConfig,
@@ -83,22 +84,7 @@ function canonicalPriceConfirmed(option: UnknownRecord) {
 }
 
 function syncedFromCurrentShopling(item: UnknownRecord) {
-  const itemSync = record(item.shoplingOptionSync);
-  if (
-    text(itemSync.source) === "shopling_live_grouped_option_sync" &&
-    text(itemSync.status) === "synced"
-  ) {
-    return true;
-  }
-  const options = array(item.orderOptions).map(record);
-  return (
-    options.length > 0 &&
-    options.every(
-      (option) =>
-        text(record(option.shoplingOptionSync).source) ===
-        "shopling_live_grouped_option_sync",
-    )
-  );
+  return legacySeoShoplingSyncConfirmed(item);
 }
 
 function validateItem(item: UnknownRecord): LegacySeoPreflightIssue[] {

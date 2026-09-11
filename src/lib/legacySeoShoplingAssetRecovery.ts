@@ -4,6 +4,7 @@ import {
   type LegacySeoShoplingEvidence,
   type LegacySeoShoplingOptionGroup,
 } from "@/lib/legacySeoShoplingEvidence";
+import { legacySeoCanonicalOptionGroupMismatch } from "@/lib/legacySeoShoplingSyncState";
 import {
   readProductLaunchStorageJson,
   type ProductLaunchAdminConfig,
@@ -89,6 +90,15 @@ function recentlyConfirmedNoManagedOptions(item: UnknownRecord) {
     Number.isFinite(syncedAt) &&
     syncedAt <= Date.now() &&
     Date.now() - syncedAt <= RECENT_NO_OPTION_PROOF_MS
+  );
+}
+
+function detailAssetReady(item: UnknownRecord) {
+  const current = record(item.detailPageAsset);
+  return (
+    Boolean(text(current.html)) &&
+    Boolean(text(current.mainImageUrl)) &&
+    uniqueUrls(array(current.additionalImageUrls)).length > 0
   );
 }
 
@@ -245,14 +255,15 @@ export async function recoverLegacySeoShoplingAssets(input: {
   identity: ProductLaunchIdentity;
   items: UnknownRecord[];
 }) {
-  // Option synchronization runs immediately before this stage. When that fresh,
-  // corrected live discovery has just proved there are no managed Shopling
-  // options/B-codes, preflight will exclude the item. Repeating the same years-long
-  // Shopling discovery solely for assets is redundant and was the dominant source
-  // of near-300s recovery calls.
+  // Option synchronization runs immediately before this stage. Only items that
+  // still need assets should trigger a second live Shopling discovery. Items
+  // whose canonical option structure was not found are also skipped so asset
+  // recovery cannot silently select a different Shopling product group.
   const items = input.items
     .slice(0, MAX_ITEMS)
-    .filter((item) => !recentlyConfirmedNoManagedOptions(item));
+    .filter((item) => !recentlyConfirmedNoManagedOptions(item))
+    .filter((item) => !legacySeoCanonicalOptionGroupMismatch(item))
+    .filter((item) => !detailAssetReady(item));
   const models = [...new Set(items.map((item) => modelKey(item.modelNumber)).filter(Boolean))];
   const evidenceByModel = models.length
     ? await loadLegacySeoShoplingEvidence(models)
@@ -263,12 +274,6 @@ export async function recoverLegacySeoShoplingAssets(input: {
   for (const item of items) {
     const itemId = text(item.id);
     const modelNumber = modelKey(item.modelNumber);
-    const current = record(item.detailPageAsset);
-    const alreadyReady =
-      Boolean(text(current.html)) &&
-      Boolean(text(current.mainImageUrl)) &&
-      uniqueUrls(array(current.additionalImageUrls)).length > 0;
-    if (alreadyReady) continue;
     const group = chooseLegacySeoShoplingAssetGroup(
       item,
       evidenceByModel.get(modelNumber),
