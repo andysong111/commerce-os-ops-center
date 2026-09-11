@@ -15,6 +15,9 @@ export function loadPurchaseCycleModule(path, imports = {}, globals = {}) {
     fetch: async () => { throw new Error("UNMOCKED_NETWORK_FORBIDDEN"); },
     require: (name) => {
       if (Object.hasOwn(imports, name)) return imports[name];
+      if (name === "@/lib/purchaseCycleLocalBaselineAuthority") {
+        return { assertPurchaseCycleLocalBaselineAuthorityReadable: async () => ({ resetCount: 0, stocktakeCount: 0 }) };
+      }
       if (name === "node:crypto") return builtinRequire(name);
       throw new Error(`UNMOCKED_IMPORT_FORBIDDEN:${name}`);
     }, ...globals,

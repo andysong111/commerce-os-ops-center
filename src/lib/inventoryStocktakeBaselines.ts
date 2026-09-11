@@ -111,15 +111,16 @@ function baselineFrom(
   row: StoredOperationRow,
 ): InventoryStocktakeBaselineEvent | null {
   const source = snapshot(row);
+  const eventId = text(source.eventId) || text(row.source_event_id);
   const normalizedBarcode = barcode(source.barcode);
   const kind = productKind(source.productKind);
   const baselineQuantity = positiveQuantity(source.baselineQuantity);
   const occurredAt = iso(source.occurredAt) || iso(row.started_at);
-  if (!normalizedBarcode || !kind || !baselineQuantity || !occurredAt) {
+  if (!eventId || !normalizedBarcode || !kind || !baselineQuantity || !occurredAt) {
     return null;
   }
   return {
-    eventId: text(source.eventId) || text(row.source_event_id),
+    eventId,
     barcode: normalizedBarcode,
     productKind: kind,
     modelNo: text(source.modelNo) || null,
@@ -154,12 +155,15 @@ async function readRows(operationType: string) {
     .eq("status", "SUCCEEDED")
     .order("started_at", { ascending: true })
     .limit(READ_LIMIT);
-  if (result.error) {
+  if (result.error || !Array.isArray(result.data)) {
     throw new Error(
-      `INVENTORY_STOCKTAKE_READ_FAILED:${operationType}:${result.error.message}`,
+      `INVENTORY_STOCKTAKE_READ_FAILED:${operationType}:${result.error?.message ?? "NON_ARRAY_DATA"}`,
     );
   }
-  return (result.data ?? []) as StoredOperationRow[];
+  if (result.data.length >= READ_LIMIT) {
+    throw new Error(`INVENTORY_STOCKTAKE_TRUNCATED:${operationType}`);
+  }
+  return result.data as StoredOperationRow[];
 }
 
 export async function loadLatestInventoryStocktakeBaselines() {
@@ -167,7 +171,9 @@ export async function loadLatestInventoryStocktakeBaselines() {
   const latest = new Map<string, InventoryStocktakeBaselineEvent>();
   for (const row of rows) {
     const event = baselineFrom(row);
-    if (!event) continue;
+    if (!event) {
+      throw new Error("INVENTORY_STOCKTAKE_AUTHORITY_INCOMPLETE");
+    }
     const current = latest.get(event.barcode);
     if (
       !current ||

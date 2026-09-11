@@ -4,13 +4,20 @@ import { overlayInventoryStockControlReportWithTail, loadLatestInventoryStockSal
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
-import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
+import { assertPurchaseCycleLocalBaselineAuthorityReadable } from "@/lib/purchaseCycleLocalBaselineAuthority";
+import { loadRequiredProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
 import { loadStage8CanonicalSalesEventSnapshot } from "@/lib/stage8CanonicalSalesEventSnapshot";
 import { validatePurchaseCycleStockEvidence } from "@/lib/purchaseCycleStockEvidence";
 
 async function resolved() {
-  const supplementalResetEvents =
-    await loadProductMasterVerifiedZeroResetEvents();
+  // Natural accumulation is safe only when both baseline authorities were read
+  // completely. Product Master uses its strict reader, while local OPS reset /
+  // stocktake rows are preflighted so a malformed SUCCEEDED row cannot silently
+  // disappear and masquerade as "no baseline yet".
+  const [, supplementalResetEvents] = await Promise.all([
+    assertPurchaseCycleLocalBaselineAuthorityReadable(),
+    loadRequiredProductMasterVerifiedZeroResetEvents(),
+  ]);
   const localSeeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
     await loadInventoryStockControlReport({ supplementalResetEvents }),
   );

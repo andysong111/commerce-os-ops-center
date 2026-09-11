@@ -40,9 +40,15 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
   if (!scopedReceipts || evidencedQuantity !== input.receivedQuantity) warnings.push("입고 원장 합계와 후속 반영 검증 범위가 일치하지 않습니다.");
   const codes = [...new Set(input.followups.flatMap((row) => row.barcodes))];
   const stockRows = codes.map((code) => input.stock.rows.filter((row) => row.barcode === code));
-  const missingBaselineCount = stockRows.filter((rows) => rows.length !== 1).length;
-  const quantitiesVerified = codes.length > 0 && missingBaselineCount === 0 && input.stock.state === "READY" && stockRows.every(([row]) => row.salesCoverageReady && Number.isSafeInteger(row.exactInventoryQuantity) && row.exactInventoryQuantity >= 0);
-  const saleVerified = quantitiesVerified && stockRows.every(([row]) => !row.syncNeeded && !row.syncBlocked && row.latestSyncOutcome === "SUCCEEDED");
+  // 운영 정책: 전수 실사로 기준점을 강제하지 않는다. SKU가 실제 품절되는 순간
+  // SOLD_OUT_RESET=0을 기준점으로 축적하고, 그 전까지는 발주 V2의 추정재고 경로를 사용한다.
+  // 따라서 0개의 매칭 행은 정보성 "축적 대기"이고, 2개 이상은 모순이므로 계속 fail-closed 한다.
+  const missingBaselineCount = stockRows.filter((rows) => rows.length === 0).length;
+  const duplicateBaselineCount = stockRows.filter((rows) => rows.length > 1).length;
+  if (duplicateBaselineCount > 0) warnings.push("동일 B코드의 재고 기준점이 중복되어 정확재고를 확정하지 않았습니다.");
+  const exactStockRows = stockRows.flatMap((rows) => rows.length === 1 ? rows : []);
+  const quantitiesVerified = codes.length > 0 && duplicateBaselineCount === 0 && input.stock.state === "READY" && exactStockRows.every((row) => row.salesCoverageReady && Number.isSafeInteger(row.exactInventoryQuantity) && row.exactInventoryQuantity >= 0);
+  const saleVerified = quantitiesVerified && exactStockRows.every((row) => !row.syncNeeded && !row.syncBlocked && row.latestSyncOutcome === "SUCCEEDED");
   const verifiedReceiptCount = input.followups.filter((row) => row.state === "VERIFIED").length;
   const pending = input.followups.filter((row) => row.state !== "VERIFIED");
   const receiptVerified = input.receiptState === "COMPLETE" && input.orderedQuantity > 0 && input.openQuantity === 0 && input.receivedQuantity >= input.orderedQuantity;
@@ -51,8 +57,8 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
     { id: "order", label: "주문·발주마감", state: input.orderClosed ? "VERIFIED" : "PENDING" },
     { id: "receipt", label: "입고확정", state: receiptVerified ? "VERIFIED" : input.receivedQuantity > 0 ? "PENDING" : "NOT_STARTED" },
     { id: "master", label: "상품마스터 원가 반영", state: masterVerified ? "VERIFIED" : "PENDING" },
-    { id: "inventory", label: "현재 정확재고", state: quantitiesVerified ? "VERIFIED" : "PENDING" },
-    { id: "sale", label: "품절·판매재개 반영", state: saleVerified ? "VERIFIED" : "PENDING" },
+    { id: "inventory", label: "재고 기준점 축적·검증", state: quantitiesVerified ? "VERIFIED" : "PENDING" },
+    { id: "sale", label: "확정재고 판매상태 반영", state: saleVerified ? "VERIFIED" : "PENDING" },
     { id: "cost", label: "최종 원가 마감", state: input.landedCostState === "COMPLETE" ? "VERIFIED" : "PENDING" },
     { id: "funding", label: "자금 마감", state: input.fundingState === "COMPLETE" ? "VERIFIED" : "PENDING" },
     { id: "next", label: "다음 발주계산", state: "NOT_STARTED" },
@@ -79,11 +85,13 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
     const retry = pending.find((row) => row.canRetry);
     return { ...report, nextAction: retry ? "RETRY_RECEIPT_FOLLOWUP" : "OPEN_WORKSPACE", actionLabel: retry ? "입고 후속 반영만 재시도" : "입고 원가·상품 연결 확인", receiptId: retry?.receiptId ?? null, message: "입고수량은 다시 추가하지 않습니다. 상품마스터에 실제 저장된 원가를 확인한 뒤 다음 단계로 넘어갑니다." };
   }
-  if (missingBaselineCount) return { ...report, nextAction: "OPEN_STOCK_CONTROL", actionLabel: "재고 기준점 확인", message: `${missingBaselineCount}개 품목은 확인된 재고 기준점이 없습니다. 입고수량을 전체 실재고로 임의 대체하지 않습니다.` };
-  if (!quantitiesVerified) return { ...report, nextAction: "REFRESH_STOCK_EVIDENCE", actionLabel: "판매범위 최신화 후 재확인", message: "기준점 이후 최신 판매범위를 확인해야 정확재고를 다음 발주계산에 사용할 수 있습니다." };
-  if (!saleVerified) return { ...report, nextAction: "OPEN_STOCK_CONTROL", actionLabel: "품절·판매재개 반영 확인", message: "계산된 판매상태와 실제 전송 성공 기록을 확인하세요. 요청 접수만으로 전송 완료 처리하지 않습니다." };
+  if (!quantitiesVerified) return { ...report, nextAction: "REFRESH_STOCK_EVIDENCE", actionLabel: "확보된 기준점 판매범위 재확인", message: "이미 확보된 품절 0 기준점의 최신 판매범위를 확인해야 정확재고를 사용할 수 있습니다. 아직 기준점이 없는 품목은 전수 실사하지 않습니다." };
+  if (!saleVerified) return { ...report, nextAction: "OPEN_STOCK_CONTROL", actionLabel: "확정재고 판매상태 반영 확인", message: "기준점이 확보된 품목의 계산된 판매상태와 실제 전송 성공 기록만 확인합니다. 기준점이 없는 품목에는 상태변경을 추측해 보내지 않습니다." };
   if (input.landedCostState !== "COMPLETE") return { ...report, message: "모든 발주 묶음의 배송대행 실제비용·최종 원가를 마감하세요." };
   if (input.approvedPriceCheckPending) return { ...report, nextAction: "OPEN_PRICE_REVIEW", actionLabel: "승인된 가격 반영 검증", message: "이미 승인한 가격변경에 대한 실제 반영 확인이 남아 있습니다. 새 가격변경은 실행하지 않습니다." };
   if (input.fundingState !== "COMPLETE") return { ...report, message: "실제 지출과 남은 자금을 확인해 월 자금 마감을 진행하세요." };
-  return { ...report, state: "READY_FOR_NEXT_CALCULATION", nextAction: "OPEN_NEXT_CALCULATION", actionLabel: "최신 재고로 다음 발주계산", message: "이번 사이클의 후속 반영을 확인했습니다. 다음 발주계산은 최신 재고·미입고·실제 투입현금으로 새로 실행합니다. 계산만으로 주문·결제되지 않습니다." };
+  const accumulation = missingBaselineCount > 0
+    ? ` ${missingBaselineCount}개 품목은 전수 실사하지 않고 실제 품절 시 재고 0 기준점을 축적하며, 그 전에는 다음 발주계산의 추정재고·검토 경로를 사용합니다.`
+    : "";
+  return { ...report, state: "READY_FOR_NEXT_CALCULATION", nextAction: "OPEN_NEXT_CALCULATION", actionLabel: "최신 재고로 다음 발주계산", message: `이번 사이클의 후속 반영을 확인했습니다.${accumulation} 다음 발주계산은 최신 재고·미입고·실제 투입현금으로 새로 실행합니다. 계산만으로 주문·결제되지 않습니다.` };
 }

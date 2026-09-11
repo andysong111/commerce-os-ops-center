@@ -22,15 +22,31 @@ test("partial proof, wrong month, duplicated receipt and invalid aggregates cann
   value = input(); value.warnings.push("database read unavailable"); values.push(value);
   for (const item of values) assert.equal(core.buildPurchaseCycleClosureReport(item).state, "BLOCKED");
 });
-test("next action distinguishes receipt retry, actual partial receipt, baseline and sale-status obligations", () => {
+test("next action distinguishes receipt retry, actual partial receipt, natural baseline accumulation and sale-status obligations", () => {
   let value = input(); value.followups[0].state = "PENDING"; value.followups[0].canRetry = true;
   const pending = core.buildPurchaseCycleClosureReport(value);
   assert.equal(pending.nextAction, "RETRY_RECEIPT_FOLLOWUP"); assert.equal(pending.receiptId, receiptId);
   value = input(); value.openQuantity = 3; value.orderedQuantity = 10; value.receiptState = "NEEDS_CHECK";
   assert.equal(core.buildPurchaseCycleClosureReport(value).nextAction, "OPEN_WORKSPACE");
+
+  // Historical regression: a SKU without a physical baseline must not trigger a
+  // 41-SKU/full-warehouse stocktake. It waits for a real sold-out event to create
+  // SOLD_OUT_RESET=0, while the next calculation keeps that SKU on estimated/review inventory.
   value = input(); value.stock.rows = [];
-  assert.equal(core.buildPurchaseCycleClosureReport(value).missingBaselineCount, 1);
-  assert.equal(core.buildPurchaseCycleClosureReport(value).nextAction, "OPEN_STOCK_CONTROL");
+  const accumulating = core.buildPurchaseCycleClosureReport(value);
+  assert.equal(accumulating.missingBaselineCount, 1);
+  assert.equal(accumulating.state, "READY_FOR_NEXT_CALCULATION");
+  assert.equal(accumulating.nextAction, "OPEN_NEXT_CALCULATION");
+  assert.equal(accumulating.stages.find((stage) => stage.id === "inventory").state, "VERIFIED");
+  assert.equal(accumulating.stages.find((stage) => stage.id === "sale").state, "VERIFIED");
+  assert.match(accumulating.message, /전수 실사하지 않고 실제 품절 시 재고 0 기준점/);
+
+  // A duplicated exact baseline is contradictory evidence, not accumulation.
+  value = input(); value.stock.rows.push({ ...value.stock.rows[0] });
+  const duplicatedBaseline = core.buildPurchaseCycleClosureReport(value);
+  assert.equal(duplicatedBaseline.state, "BLOCKED");
+  assert.equal(duplicatedBaseline.nextAction, "RECHECK");
+
   value = input(); value.stock.rows[0].salesCoverageReady = false;
   assert.equal(core.buildPurchaseCycleClosureReport(value).nextAction, "REFRESH_STOCK_EVIDENCE");
   for (const outcome of ["STARTED", "UNCERTAIN", "FAILED"]) {
@@ -76,7 +92,7 @@ test("duplicate inventory identity, future baseline, invalid quantity and a sile
     assert.equal(result.state, "BLOCKED"); assert.ok(result.blockers.length > 0);
   }
 });
-test("resolved purchase stock passes Product Master zero reset into the canonical inventory engine before stocktake and tail overlays", async () => {
+test("resolved purchase stock passes required Product Master zero reset into the canonical inventory engine before stocktake and tail overlays", async () => {
   const steps = []; const report = stockFixture();
   const supplemental = [{ eventId: "pm-zero", barcode: "BAB3-1", productKind: "SINGLE", modelNo: "AAA231", occurredAt: at, note: "fixture" }];
   const service = load("src/lib/purchaseCycleStockReport.ts", {
@@ -85,7 +101,7 @@ test("resolved purchase stock passes Product Master zero reset into the canonica
     "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: async (value) => { steps.push("tail"); return value; }, loadLatestInventoryStockSalesTailSnapshots: async () => new Map() },
     "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => { steps.push("refresh"); return { refreshed: false }; } },
     "@/lib/inventoryStocktakeBaselines": { overlayInventoryStockControlReportWithStocktakeBaselines: async (value) => { steps.push("stocktake"); return value; } },
-    "@/lib/productMasterVerifiedInventoryBaselines": { loadProductMasterVerifiedZeroResetEvents: async () => { steps.push("product-master-zero"); return supplemental; } },
+    "@/lib/productMasterVerifiedInventoryBaselines": { loadRequiredProductMasterVerifiedZeroResetEvents: async () => { steps.push("product-master-zero"); return supplemental; } },
     "@/lib/inventoryStockSyncResolution": { normalizeRetryableShoplingSyncReportWithEvidence: async (value) => { steps.push("resolution"); return value; } },
     "@/lib/stage8CanonicalSalesEventSnapshot": { loadStage8CanonicalSalesEventSnapshot: async () => ({ state: "READY_READ_ONLY" }) },
     "@/lib/purchaseCycleStockEvidence": { validatePurchaseCycleStockEvidence: (value) => { steps.push("validate"); return value; } },
@@ -97,6 +113,22 @@ test("resolved purchase stock passes Product Master zero reset into the canonica
   const cash = await readFile("src/lib/fastPurchaseCashEnvelope.ts", "utf8");
   assert.ok(cash.includes("loadPurchaseCycleStockReport({ refreshSales: true })"));
   assert.equal(cash.includes("loadInventoryStockControlReport()"), false);
+});
+test("purchase-cycle stock report does not reinterpret Product Master read failure as a missing baseline", async () => {
+  let inventoryReads = 0;
+  const service = load("src/lib/purchaseCycleStockReport.ts", {
+    "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async () => { inventoryReads++; return stockFixture(); } },
+    "@/lib/inventoryStockResetCorrections": { overlayInventoryStockControlReportWithResetCorrections: async (value) => value },
+    "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: async (value) => value, loadLatestInventoryStockSalesTailSnapshots: async () => new Map() },
+    "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => ({ refreshed: false }) },
+    "@/lib/inventoryStocktakeBaselines": { overlayInventoryStockControlReportWithStocktakeBaselines: async (value) => value },
+    "@/lib/productMasterVerifiedInventoryBaselines": { loadRequiredProductMasterVerifiedZeroResetEvents: async () => { throw new Error("PRODUCT_MASTER_UNAVAILABLE"); } },
+    "@/lib/inventoryStockSyncResolution": { normalizeRetryableShoplingSyncReportWithEvidence: async (value) => value },
+    "@/lib/stage8CanonicalSalesEventSnapshot": { loadStage8CanonicalSalesEventSnapshot: async () => ({ state: "READY_READ_ONLY" }) },
+    "@/lib/purchaseCycleStockEvidence": { validatePurchaseCycleStockEvidence: (value) => value },
+  });
+  await assert.rejects(service.loadPurchaseCycleStockReport(), /PRODUCT_MASTER_UNAVAILABLE/);
+  assert.equal(inventoryReads, 0);
 });
 test("actual cycle GET stays read-only while POST only opts into evidence refresh with strict input", async () => {
   const calls = [];
