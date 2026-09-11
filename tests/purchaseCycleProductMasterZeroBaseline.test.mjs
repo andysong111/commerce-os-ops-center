@@ -133,6 +133,31 @@ test("only strict numeric Product Master VERIFIED sold-out zero becomes reusable
   }
 });
 
+test("required parser rejects every incomplete authoritative zero reset instead of converting it to baseline absence", () => {
+  const service = moduleWith(async () => {
+    throw new Error("network not expected");
+  });
+  for (const patch of [
+    { baselineQuantity: null },
+    { baselineQuantity: "0" },
+    { baselineAt: null },
+    { baselineAt: "not-a-date" },
+    { barcode: "" },
+    { barcode: "BZZ999-1" },
+  ]) {
+    const invalid = structuredClone(payload);
+    invalid.inventories = [{ ...invalid.inventories[0], ...patch }];
+    assert.throws(
+      () => service.parseProductMasterVerifiedInventoryBaselines(
+        invalid,
+        planning.products,
+        { requireCompleteVerifiedResets: true },
+      ),
+      /PRODUCT_MASTER_VERIFIED_ZERO_RESET_INCOMPLETE/,
+    );
+  }
+});
+
 test("required zero-reset loader performs one authenticated GET and returns reset events only", async () => {
   const calls = [];
   const service = moduleWith(async (url, options = {}) => {
