@@ -4,14 +4,20 @@ import { overlayInventoryStockControlReportWithTail, loadLatestInventoryStockSal
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
+import { overlayProductMasterVerifiedZeroBaselines } from "@/lib/productMasterVerifiedInventoryBaselines";
 import { loadStage8CanonicalSalesEventSnapshot } from "@/lib/stage8CanonicalSalesEventSnapshot";
 import { validatePurchaseCycleStockEvidence } from "@/lib/purchaseCycleStockEvidence";
 
 async function resolved() {
-  const seeded = await overlayInventoryStockControlReportWithStocktakeBaselines(await loadInventoryStockControlReport());
+  const localSeeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
+    await loadInventoryStockControlReport(),
+  );
+  const seeded = await overlayProductMasterVerifiedZeroBaselines(localSeeded);
   const tailed = await overlayInventoryStockControlReportWithTail(seeded);
   const corrected = await overlayInventoryStockControlReportWithResetCorrections(tailed);
-  return normalizeRetryableShoplingSyncReportWithEvidence(await overlayInventoryStockControlReportWithStocktakeBaselines(corrected));
+  return normalizeRetryableShoplingSyncReportWithEvidence(
+    await overlayInventoryStockControlReportWithStocktakeBaselines(corrected),
+  );
 }
 
 export async function loadPurchaseCycleStockReport(options: { refreshSales?: boolean } = {}) {
@@ -26,5 +32,9 @@ export async function loadPurchaseCycleStockReport(options: { refreshSales?: boo
     loadLatestInventoryStockSalesTailSnapshots(),
     loadStage8CanonicalSalesEventSnapshot(),
   ]);
-  return validatePurchaseCycleStockEvidence(report, tails, canonical.state === "READY_READ_ONLY" ? canonical : undefined);
+  return validatePurchaseCycleStockEvidence(
+    report,
+    tails,
+    canonical.state === "READY_READ_ONLY" ? canonical : undefined,
+  );
 }
