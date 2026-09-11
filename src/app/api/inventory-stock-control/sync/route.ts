@@ -10,6 +10,7 @@ import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStock
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
 import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
+import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -113,8 +114,15 @@ async function loadPreparedGoodsKeysByBarcode() {
 }
 
 async function loadCorrectedReport() {
+  // The purchase-cycle status and the operational Shopling queue must consume
+  // the same user-backed physical-zero evidence. Product Master contributes
+  // only strict VERIFIED SOLD_OUT_RESET=0 events, and its helper fails soft to
+  // an empty list. The canonical inventory ledger then recomputes receipts and
+  // sales from that reset before any Shopling job can become executable.
+  const supplementalResetEvents =
+    await loadProductMasterVerifiedZeroResetEvents();
   const seeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
-    await loadInventoryStockControlReport(),
+    await loadInventoryStockControlReport({ supplementalResetEvents }),
   );
   const tailed = await overlayInventoryStockControlReportWithTail(seeded);
   const corrected =
