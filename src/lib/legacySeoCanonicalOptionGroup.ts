@@ -7,20 +7,20 @@ export function legacySeoCanonicalOptionKey(value: unknown) {
     .replace(/[\s,，/|:：()\[\]{}._-]+/g, "");
 }
 
+function normalizedUniqueKeys(values: unknown[]) {
+  return [...new Set(values.map(legacySeoCanonicalOptionKey).filter(Boolean))].sort();
+}
+
 export function legacySeoCanonicalOptionSignature(values: unknown[]) {
-  return values
-    .map(legacySeoCanonicalOptionKey)
-    .filter(Boolean)
-    .sort()
-    .join("|");
+  return normalizedUniqueKeys(values).join("|");
 }
 
 export function legacySeoOptionGroupMatchesCanonical(
   groupSaleOptions: unknown[],
   canonicalSaleOptions: unknown[],
 ) {
-  const groupKeys = groupSaleOptions.map(legacySeoCanonicalOptionKey).filter(Boolean);
-  const canonicalKeys = canonicalSaleOptions.map(legacySeoCanonicalOptionKey).filter(Boolean);
+  const groupKeys = normalizedUniqueKeys(groupSaleOptions);
+  const canonicalKeys = normalizedUniqueKeys(canonicalSaleOptions);
   if (!canonicalKeys.length || groupKeys.length !== canonicalKeys.length) return false;
-  return legacySeoCanonicalOptionSignature(groupKeys) === legacySeoCanonicalOptionSignature(canonicalKeys);
+  return groupKeys.join("|") === canonicalKeys.join("|");
 }
