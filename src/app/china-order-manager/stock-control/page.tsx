@@ -18,12 +18,20 @@ export default function InventoryStockControlPage() {
         title="재고·품절·판매재개"
         description="창고에서 확인한 사실만 입력하면 됩니다. 품절은 B코드로 확정하고, 재입고·실사 후에는 현재 수량을 확정합니다. 이후 입고와 판매를 반영해 현재 재고와 판매상태를 자동 판단합니다."
         actions={
-          <Link
-            href="/api/shopling-stock-state-sync/download-hf28"
-            className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800"
-          >
-            재고상태 자동화 확장 v0.5.5 다운로드
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/warehouse-capacity"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50"
+            >
+              창고 위치·수용능력
+            </Link>
+            <Link
+              href="/api/shopling-stock-state-sync/download-hf28"
+              className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800"
+            >
+              재고상태 자동화 확장 v0.5.5 다운로드
+            </Link>
+          </div>
         }
       />
 
