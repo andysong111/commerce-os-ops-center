@@ -345,7 +345,9 @@ async function readRows(operationType: string) {
   return (result.data ?? []) as StoredOperationRow[];
 }
 
-export async function loadInventoryStockControlReport(): Promise<InventoryStockControlReport> {
+export async function loadInventoryStockControlReport(
+  options: { supplementalResetEvents?: readonly InventoryStockoutResetEvent[] } = {},
+): Promise<InventoryStockControlReport> {
   const generatedAt = new Date().toISOString();
   const blockers: string[] = [];
   const [resetRows, syncRows, receiptRows, sales, planning] = await Promise.all([
@@ -371,9 +373,22 @@ export async function loadInventoryStockControlReport(): Promise<InventoryStockC
     }),
   ]);
 
-  const resetEvents = resetRows
+  const supplementalResetEvents = (options.supplementalResetEvents ?? [])
+    .map((event) =>
+      resetEventFrom({
+        source_event_id: event.eventId,
+        input_snapshot: event,
+        started_at: event.occurredAt,
+        status: "SUCCEEDED",
+      }),
+    )
+    .filter((event): event is InventoryStockoutResetEvent => Boolean(event));
+  const localResetEvents = resetRows
     .map(resetEventFrom)
     .filter((event): event is InventoryStockoutResetEvent => Boolean(event));
+  // Supplemental evidence is evaluated first. A local OPS reset at the same or
+  // later timestamp is processed after it and therefore always remains authoritative.
+  const resetEvents = [...supplementalResetEvents, ...localResetEvents];
   const syncEvents = syncRows
     .map(syncEventFrom)
     .filter((event): event is ShoplingStockSyncEvent => Boolean(event));
