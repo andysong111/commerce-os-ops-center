@@ -1,0 +1,98 @@
+name: Warehouse Capacity Preflight CI
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/warehouse*.ts"
+      - "src/lib/opsLoginBypass.ts"
+      - "src/app/warehouse-capacity/**"
+      - "src/app/api/warehouse-capacity/**"
+      - "tests/warehouse*.test.mjs"
+      - "scripts/warehouse-intake-browser-smoke.mjs"
+      - ".github/workflows/warehouse-capacity-preflight-ci.yml"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Fixture regression or strictly read-only production verification (main only)"
+        type: choice
+        options: [fixture, live]
+        default: fixture
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warehouse-preflight-${{ github.event.pull_request.number || github.ref }}-${{ inputs.mode || 'fixture' }}
+  cancel-in-progress: true
+
+jobs:
+  focused-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      WAREHOUSE_SMOKE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'live' && 'live' || 'fixture' }}
+      PLAYWRIGHT_MODULE_PATH: file:///tmp/warehouse-browser/node_modules/playwright/index.mjs
+      NEXT_PUBLIC_SUPABASE_URL: https://warehouse-fixture.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_warehouse_fixture
+      OPS_LOGIN_DISABLED: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Restrict production smoke to reviewed main branch
+        if: env.WAREHOUSE_SMOKE_MODE == 'live'
+        run: test "$GITHUB_REF" = "refs/heads/main"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Lint all warehouse entry points
+        run: >-
+          npx eslint
+          src/lib/warehouseCapacityBridge.ts
+          src/lib/warehouseIntakePreflight.ts
+          src/app/api/warehouse-capacity/route.ts
+          src/app/api/warehouse-capacity/intake-preflight/route.ts
+          src/app/warehouse-capacity
+          tests/warehouseCapacityOps.test.mjs
+          tests/warehouseIntakePreflight.test.mjs
+          scripts/warehouse-intake-browser-smoke.mjs
+      - name: Deterministic capacity, input and actual GET route regressions
+        run: >-
+          node --experimental-strip-types --test
+          tests/warehouseCapacityOps.test.mjs
+          tests/warehouseIntakePreflight.test.mjs
+          tests/opsLoginBypass.test.mjs
+      - name: Install isolated browser tooling without changing application dependencies
+        run: |
+          npm install --prefix /tmp/warehouse-browser --no-audit --no-fund playwright@1.58.0
+          /tmp/warehouse-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Chromium fixture regression against local application
+        if: env.WAREHOUSE_SMOKE_MODE == 'fixture'
+        shell: bash
+        run: |
+          npm run dev -- --hostname 127.0.0.1 --port 3017 > /tmp/warehouse-next.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail --max-time 20 http://127.0.0.1:3017/warehouse-capacity > /dev/null; then break; fi
+            sleep 2
+          done
+          node --experimental-strip-types scripts/warehouse-intake-browser-smoke.mjs
+      - name: Read-only Chromium production verification
+        if: env.WAREHOUSE_SMOKE_MODE == 'live'
+        run: node --experimental-strip-types scripts/warehouse-intake-browser-smoke.mjs
+      - name: Print local server diagnostics on fixture failure
+        if: failure() && env.WAREHOUSE_SMOKE_MODE == 'fixture'
+        run: tail -n 100 /tmp/warehouse-next.log || true
+      - name: Retain verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: warehouse-preflight-${{ env.WAREHOUSE_SMOKE_MODE }}-${{ github.run_id }}
+          path: artifacts/warehouse/
+          if-no-files-found: ignore
+          retention-days: 7
