@@ -10,6 +10,16 @@ on:
       - "tests/warehouse*.test.mjs"
       - "scripts/warehouse-intake-browser-smoke.mjs"
       - ".github/workflows/warehouse-capacity-preflight-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/warehouse*.ts"
+      - "src/lib/opsLoginBypass.ts"
+      - "src/app/warehouse-capacity/**"
+      - "src/app/api/warehouse-capacity/**"
+      - "tests/warehouse*.test.mjs"
+      - "scripts/warehouse-intake-browser-smoke.mjs"
+      - ".github/workflows/warehouse-capacity-preflight-ci.yml"
   workflow_dispatch:
     inputs:
       mode:
@@ -21,9 +31,10 @@ on:
 
 permissions:
   contents: read
+  statuses: read
 
 concurrency:
-  group: warehouse-preflight-${{ github.event.pull_request.number || github.ref }}-${{ inputs.mode || 'fixture' }}
+  group: warehouse-preflight-${{ github.event.pull_request.number || github.ref }}-${{ inputs.mode || github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -31,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      WAREHOUSE_SMOKE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'live' && 'live' || 'fixture' }}
+      WAREHOUSE_SMOKE_MODE: ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) && 'live' || 'fixture' }}
       PLAYWRIGHT_MODULE_PATH: file:///tmp/warehouse-browser/node_modules/playwright/index.mjs
       NEXT_PUBLIC_SUPABASE_URL: https://warehouse-fixture.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_warehouse_fixture
@@ -82,6 +93,29 @@ jobs:
             sleep 2
           done
           node --experimental-strip-types scripts/warehouse-intake-browser-smoke.mjs
+      - name: Wait for Vercel status on this exact reviewed main commit
+        if: env.WAREHOUSE_SMOKE_MODE == 'live'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          const { GITHUB_REPOSITORY: repo, GITHUB_SHA: sha, GH_TOKEN: token } = process.env;
+          if (repo !== 'andysong111/commerce-os-ops-center' || !/^[0-9a-f]{40}$/.test(sha)) throw new Error('Unexpected repository/commit');
+          let ready = false;
+          for (let attempt = 0; attempt < 72; attempt += 1) {
+            const response = await fetch(`https://api.github.com/repos/${repo}/commits/${sha}/status`, {
+              headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
+            });
+            if (!response.ok) throw new Error(`Commit status read failed: ${response.status}`);
+            const data = await response.json();
+            const vercel = (data.statuses || []).find((status) => status.context === 'Vercel');
+            if (vercel?.state === 'success') { ready = true; break; }
+            if (vercel && ['error', 'failure'].includes(vercel.state)) throw new Error('Vercel deployment failed for current commit');
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+          }
+          if (!ready) throw new Error('Vercel success was not confirmed within six minutes');
+          console.log(JSON.stringify({ commit: sha, vercelStatus: 'success', writes: 0 }));
+          NODE
       - name: Read-only Chromium production verification
         if: env.WAREHOUSE_SMOKE_MODE == 'live'
         run: node --experimental-strip-types scripts/warehouse-intake-browser-smoke.mjs
