@@ -172,12 +172,13 @@ function snapshot(row: StoredOperationRow) {
 
 function resetEventFrom(row: StoredOperationRow): InventoryStockoutResetEvent | null {
   const source = snapshot(row);
+  const eventId = text(source.eventId) || text(row.source_event_id);
   const normalizedBarcode = barcode(source.barcode);
   const kind = productKind(source.productKind);
   const occurredAt = iso(source.occurredAt) || iso(row.started_at);
-  if (!normalizedBarcode || !kind || !occurredAt) return null;
+  if (!eventId || !normalizedBarcode || !kind || !occurredAt) return null;
   return {
-    eventId: text(source.eventId) || text(row.source_event_id),
+    eventId,
     barcode: normalizedBarcode,
     productKind: kind,
     modelNo: text(source.modelNo) || null,
@@ -337,12 +338,15 @@ async function readRows(operationType: string) {
     .eq("status", "SUCCEEDED")
     .order("started_at", { ascending: true })
     .limit(READ_LIMIT);
-  if (result.error) {
+  if (result.error || !Array.isArray(result.data)) {
     throw new Error(
-      `INVENTORY_STOCK_CONTROL_READ_FAILED:${operationType}:${result.error.message}`,
+      `INVENTORY_STOCK_CONTROL_READ_FAILED:${operationType}:${result.error?.message ?? "NON_ARRAY_DATA"}`,
     );
   }
-  return (result.data ?? []) as StoredOperationRow[];
+  if (result.data.length >= READ_LIMIT) {
+    throw new Error(`INVENTORY_STOCK_CONTROL_TRUNCATED:${operationType}`);
+  }
+  return result.data as StoredOperationRow[];
 }
 
 export async function loadInventoryStockControlReport(
@@ -383,9 +387,13 @@ export async function loadInventoryStockControlReport(
       }),
     )
     .filter((event): event is InventoryStockoutResetEvent => Boolean(event));
-  const localResetEvents = resetRows
-    .map(resetEventFrom)
-    .filter((event): event is InventoryStockoutResetEvent => Boolean(event));
+  const parsedLocalResetEvents = resetRows.map(resetEventFrom);
+  if (parsedLocalResetEvents.some((event) => !event)) {
+    blockers.push("INVENTORY_STOCKOUT_RESET_AUTHORITY_INCOMPLETE");
+  }
+  const localResetEvents = parsedLocalResetEvents.filter(
+    (event): event is InventoryStockoutResetEvent => Boolean(event),
+  );
   // Supplemental evidence is evaluated first. A local OPS reset at the same or
   // later timestamp is processed after it and therefore always remains authoritative.
   const resetEvents = [...supplementalResetEvents, ...localResetEvents];
