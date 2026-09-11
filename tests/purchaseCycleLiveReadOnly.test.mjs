@@ -30,6 +30,7 @@ test("valid blocked business state is reported honestly without publishing raw o
   const summary = safeCycleSummary(200, fixture(), month);
   assert.equal(summary.readbackVerified, true); assert.equal(summary.businessCycleReady, false);
   assert.equal(summary.hasPendingReceipts, true); assert.equal(summary.hasMissingInventoryBaseline, true);
+  assert.equal(summary.baselineAccumulationInProgress, true);
   assert.doesNotMatch(JSON.stringify(summary), /private|12345|receivedQuantity|receiptId/);
 });
 
@@ -67,6 +68,17 @@ test("ready-for-next-calculation must not certify the next calculation itself as
     ready.report.stages.find((stage) => stage.id === "next").state = invalidState;
     assert.throws(() => safeCycleSummary(200, ready, month), /LIVE_FALSE_COMPLETION/);
   }
+});
+
+test("ready cycle may keep baseline-less SKUs in natural stockout accumulation without forcing stocktake", () => {
+  const ready = readyFixture();
+  ready.report.missingBaselineCount = 41;
+  const summary = safeCycleSummary(200, ready, month);
+  assert.equal(summary.businessCycleReady, true);
+  assert.equal(summary.hasMissingInventoryBaseline, true);
+  assert.equal(summary.baselineAccumulationInProgress, true);
+  assert.equal(summary.stages.inventory, "VERIFIED");
+  assert.equal(summary.stages.sale, "VERIFIED");
 });
 
 test("a genuine no-order close remains distinct from an executed receipt cycle", () => {
