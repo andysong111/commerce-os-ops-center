@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
+import { LifecycleReadinessPanel } from "./LifecycleReadinessPanel";
 import { WarehouseCapacityClient } from "./WarehouseCapacityClient";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export default function WarehouseCapacityPage() {
           </Link>
         }
       />
+      <LifecycleReadinessPanel />
       <WarehouseCapacityClient />
     </div>
   );
