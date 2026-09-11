@@ -77,10 +77,10 @@ async function readAuthorityRows(operationType: string) {
     .eq("status", "SUCCEEDED")
     .order("started_at", { ascending: true })
     .limit(READ_LIMIT);
-  if (result.error) {
+  if (result.error || !Array.isArray(result.data)) {
     throw new Error(`PURCHASE_CYCLE_LOCAL_BASELINE_READ_FAILED:${operationType}`);
   }
-  const rows = (result.data ?? []) as StoredOperationRow[];
+  const rows = result.data as StoredOperationRow[];
   if (rows.length >= READ_LIMIT) {
     throw new Error(`PURCHASE_CYCLE_LOCAL_BASELINE_TRUNCATED:${operationType}`);
   }
