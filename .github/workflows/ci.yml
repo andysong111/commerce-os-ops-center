@@ -65,6 +65,10 @@ jobs:
           src/lib/confirmedReceiptBatchSource.ts
           src/lib/receiptLivePriceProposal.ts
           src/lib/receiptLivePriceProposalWorker.ts
+          src/lib/warehouseCapacityBridge.ts
+          src/app/api/warehouse-capacity/route.ts
+          src/app/warehouse-capacity/WarehouseCapacityClient.tsx
+          src/app/warehouse-capacity/page.tsx
           src/app/api/cron/product-master-shopling-sales-backfill/route.ts
           src/app/api/cron/product-master-shopling-sales-events/route.ts
           src/app/api/cron/stage8-canonical-demand-parity/route.ts
@@ -97,6 +101,7 @@ jobs:
         run: >-
           node --experimental-strip-types --test
           tests/opsLoginBypass.test.mjs
+          tests/warehouseCapacityOps.test.mjs
           tests/shoplingPriceAdjustmentAuth.test.mjs
           tests/shoplingPriceAdjustmentBatchCanary.test.mjs
           tests/shoplingPriceAdjustmentIdentity.test.mjs
