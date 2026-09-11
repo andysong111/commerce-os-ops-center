@@ -1,0 +1,60 @@
+name: Purchase Cycle Closure CI
+on:
+  pull_request:
+    paths:
+      - 'src/lib/internalChinaReceipt*'
+      - 'src/lib/purchaseCycle*'
+      - 'src/lib/fastPurchaseCashEnvelope.ts'
+      - 'src/app/api/china-order-manager/**'
+      - 'src/app/china-order-manager/layout.tsx'
+      - 'src/components/china-order-manager/PurchaseCycleClosurePanel.tsx'
+      - 'tests/internalChinaReceipt*.test.mjs'
+      - 'tests/purchaseCycle*.test.mjs'
+      - 'tests/helpers/purchaseCycleHarness.mjs'
+      - 'scripts/verify-purchase-cycle-browser.mjs'
+      - '.github/workflows/purchase-cycle-closure-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: purchase-cycle-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  receipt-cycle-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Lint every changed runtime file
+        run: >-
+          npx eslint src/lib/internalChinaReceipt.ts src/lib/internalChinaReceiptFollowup.ts
+          src/lib/internalChinaReceiptFollowupCore.ts src/lib/internalChinaReceiptFollowupRepair.ts
+          src/lib/purchaseCycleClosure.ts src/lib/purchaseCycleClosureCore.ts
+          src/lib/purchaseCycleStockReport.ts src/lib/purchaseCycleStockEvidence.ts
+          src/lib/fastPurchaseCashEnvelope.ts
+          src/app/api/china-order-manager/receipts/followup/route.ts
+          src/app/api/china-order-manager/cycle-status/route.ts
+          src/app/china-order-manager/layout.tsx
+          src/components/china-order-manager/PurchaseCycleClosurePanel.tsx
+      - name: Permanent receipt persistence, retry, cycle and stock evidence regressions
+        run: node --experimental-strip-types --test tests/internalChinaReceipt*.test.mjs tests/purchaseCycle*.test.mjs
+      - name: Build production application
+        run: npm run build
+      - name: Install isolated browser fixture tools without changing dependency manifests
+        run: npm install --no-save --package-lock=false esbuild playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Verify real component in Chromium with no external writes
+        run: node scripts/verify-purchase-cycle-browser.mjs
+      - name: Retain browser proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: purchase-cycle-browser-${{ github.sha }}
+          path: artifacts/purchase-cycle-browser
+          if-no-files-found: ignore
