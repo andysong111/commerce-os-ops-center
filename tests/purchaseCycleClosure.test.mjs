@@ -76,7 +76,7 @@ test("duplicate inventory identity, future baseline, invalid quantity and a sile
     assert.equal(result.state, "BLOCKED"); assert.ok(result.blockers.length > 0);
   }
 });
-test("resolved purchase stock applies stocktake, tail, corrections and current source coverage without GET writes", async () => {
+test("resolved purchase stock applies stocktake, Product Master zero reset, tail, corrections and current source coverage without GET writes", async () => {
   const steps = []; const report = stockFixture();
   const service = load("src/lib/purchaseCycleStockReport.ts", {
     "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async () => { steps.push("base"); return report; } },
@@ -84,12 +84,13 @@ test("resolved purchase stock applies stocktake, tail, corrections and current s
     "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: async (value) => { steps.push("tail"); return value; }, loadLatestInventoryStockSalesTailSnapshots: async () => new Map() },
     "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => { steps.push("refresh"); return { refreshed: false }; } },
     "@/lib/inventoryStocktakeBaselines": { overlayInventoryStockControlReportWithStocktakeBaselines: async (value) => { steps.push("stocktake"); return value; } },
+    "@/lib/productMasterVerifiedInventoryBaselines": { overlayProductMasterVerifiedZeroBaselines: async (value) => { steps.push("product-master-zero"); return value; } },
     "@/lib/inventoryStockSyncResolution": { normalizeRetryableShoplingSyncReportWithEvidence: async (value) => { steps.push("resolution"); return value; } },
     "@/lib/stage8CanonicalSalesEventSnapshot": { loadStage8CanonicalSalesEventSnapshot: async () => ({ state: "READY_READ_ONLY" }) },
     "@/lib/purchaseCycleStockEvidence": { validatePurchaseCycleStockEvidence: (value) => { steps.push("validate"); return value; } },
   });
   await service.loadPurchaseCycleStockReport();
-  assert.deepEqual(steps, ["base", "stocktake", "tail", "corrections", "stocktake", "resolution", "validate"]);
+  assert.deepEqual(steps, ["base", "stocktake", "product-master-zero", "tail", "corrections", "stocktake", "resolution", "validate"]);
   steps.length = 0; await service.loadPurchaseCycleStockReport({ refreshSales: true });
   assert.equal(steps.filter((step) => step === "refresh").length, 1);
   const cash = await readFile("src/lib/fastPurchaseCashEnvelope.ts", "utf8");
