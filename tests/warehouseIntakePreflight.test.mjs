@@ -81,7 +81,8 @@ test("stale, invalid and far-future snapshots are blocked; freshness boundary is
 });
 
 test("all assumptions are explicit; missing pending commitments cannot silently become zero", () => {
-  const { committedSlots: _committed, ...missing } = input;
+  const missing = { ...input };
+  delete missing.committedSlots;
   assert.throws(() => core.parseWarehouseIntakeInput(missing), /INVALID_COMMITTED_SLOTS/);
   for (const key of Object.keys(input)) {
     for (const bad of [null, true, false, "", " ", -1, 1.5, NaN, Infinity, {}, [], "1e3", 100001]) {
@@ -134,7 +135,9 @@ async function routeFixture(upstreamError) {
   };
   const exported = {};
   runInNewContext(compiled, {
-    exports: exported, Request, Response, URL,
+    // Real Next modules share the Error constructor. A fresh VM Error realm
+    // otherwise misclassifies imported-core validation errors as unknown 500s.
+    exports: exported, Request, Response, URL, Error,
     require: (name) => {
       if (name === "@/lib/opsLoginBypass") return guard;
       if (name === "@/lib/warehouseCapacityBridge") return bridge;
