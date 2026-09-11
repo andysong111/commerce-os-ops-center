@@ -33,14 +33,15 @@ export const OPS_WORKSPACE_GROUPS: readonly OpsWorkspaceGroup[] = [
     label: "입고·창고",
     shortLabel: "입고·창고",
     iconLabel: "창",
-    description: "배대지 바코드, 입고 확인, 위치코드와 창고 라벨을 한 흐름으로 처리합니다.",
+    description: "배대지 바코드, 입고 확인, 창고 지도·위치코드와 창고 라벨을 한 흐름으로 처리합니다.",
     moduleIds: [
       "freight-barcode-pdf",
+      "warehouse-capacity",
       "warehouse-location-sync",
       "warehouse-label-generator",
       "shopling-option-barcode-sync",
     ],
-    searchTerms: ["배대지", "입고", "누락", "창고", "위치코드", "바코드", "라벨"],
+    searchTerms: ["배대지", "입고", "누락", "창고", "지도", "수용률", "위치코드", "바코드", "라벨"],
   },
   {
     id: "product-launch",
@@ -188,8 +189,8 @@ const COMMAND_INTENTS: readonly (OpsCommandIntent & { patterns: readonly RegExp[
   {
     label: "창고 작업",
     reason: "위치코드·바코드·라벨·창고 관련 표현을 인식했습니다.",
-    moduleIds: ["warehouse-location-sync", "warehouse-label-generator", "shopling-option-barcode-sync"],
-    patterns: [/위치코드/, /바코드/, /라벨/, /창고/],
+    moduleIds: ["warehouse-capacity", "warehouse-location-sync", "warehouse-label-generator", "shopling-option-barcode-sync"],
+    patterns: [/위치코드/, /바코드/, /라벨/, /창고/, /창고지도/, /수용률/],
   },
   {
     label: "입고 작업",
