@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   WarehouseCapacityLocation,
   WarehouseCapacitySnapshot,
@@ -17,7 +17,7 @@ type ApiPayload = {
 type LocationFilter = "all" | "occupied" | "free" | "exit" | "attention";
 
 const gateLabels: Record<WarehouseCapacitySnapshot["sourcingIntakeGate"], string> = {
-  READY: "소싱 수용량 계산 가능",
+  READY: "현재 위치 수 기준 계산 가능 · 발주 승인 아님",
   WAITING_PHYSICAL_REGISTRY_CONFIRMATION: "전체 물리 위치 목록 확인 필요",
   WAITING_LIFECYCLE_BASELINE: "단종·정리 기준선 확정 대기",
   CAPACITY_DATA_CONFLICT: "위치 데이터 충돌 확인 필요",
@@ -32,10 +32,7 @@ function formatNumber(value: number | null | undefined) {
 function parseCodes(value: string) {
   return [
     ...new Set(
-      value
-        .split(/[\n,;\t]+/)
-        .map((row) => row.trim())
-        .filter(Boolean),
+      value.split(/[\n,;\t]+/).map((row) => row.trim()).filter(Boolean),
     ),
   ];
 }
@@ -70,45 +67,27 @@ function LocationRow({ location }: { location: WarehouseCapacityLocation }) {
   const occupant = location.occupants[0];
   return (
     <tr className="border-t border-slate-100 align-top">
-      <td className="px-3 py-3 font-mono text-xs font-black text-slate-900">
-        {location.locationCode}
-      </td>
+      <td className="px-3 py-3 font-mono text-xs font-black text-slate-900">{location.locationCode}</td>
       <td className="px-3 py-3 text-xs text-slate-700">
         {location.occupied ? "사용 중" : "비어 있음"}
-        {!location.registered ? (
-          <span className="ml-1 rounded bg-rose-50 px-1.5 py-0.5 font-bold text-rose-700">미등록</span>
-        ) : null}
-        {location.registered && !location.allocatable ? (
-          <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 font-bold text-amber-700">
-            신규배정 금지
-          </span>
-        ) : null}
+        {!location.registered ? <span className="ml-1 rounded bg-rose-50 px-1.5 py-0.5 font-bold text-rose-700">미등록</span> : null}
+        {location.registered && !location.allocatable ? <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 font-bold text-amber-700">신규배정 금지</span> : null}
       </td>
       <td className="px-3 py-3 text-xs text-slate-700">
         {occupant ? (
           <>
             <span className="font-black">{occupant.modelNo || "모델번호 없음"}</span>
             <span className="ml-1 text-slate-500">{occupant.productName || occupant.optionName}</span>
-            {location.occupants.length > 1 ? (
-              <span className="ml-1 font-bold text-rose-700">+{location.occupants.length - 1} 충돌</span>
-            ) : null}
+            {location.occupants.length > 1 ? <span className="ml-1 font-bold text-rose-700">+{location.occupants.length - 1} 충돌</span> : null}
           </>
-        ) : (
-          <span className="text-slate-400">-</span>
-        )}
+        ) : <span className="text-slate-400">-</span>}
       </td>
       <td className="px-3 py-3 text-xs text-slate-700">
         {location.exitCandidate ? (
-          <span className="font-black text-amber-700">정리 후보</span>
-        ) : occupant ? (
-          occupant.lifecycleStatus || "상태 확인 중"
-        ) : (
-          <span className="text-slate-400">-</span>
-        )}
+          <span className="font-black text-amber-700">{location.trustedExitCandidate ? "기준선 확인 정리 후보" : "정리 후보 · 검증 필요"}</span>
+        ) : occupant ? occupant.lifecycleStatus || "상태 확인 중" : <span className="text-slate-400">-</span>}
       </td>
-      <td className="px-3 py-3 text-xs text-slate-500">
-        {location.zone || location.note || location.source || "-"}
-      </td>
+      <td className="px-3 py-3 text-xs text-slate-500">{location.zone || location.note || location.source || "-"}</td>
     </tr>
   );
 }
@@ -119,6 +98,7 @@ export function WarehouseCapacityClient() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<LocationFilter>("all");
   const [slotCodes, setSlotCodes] = useState("");
@@ -128,15 +108,12 @@ export function WarehouseCapacityClient() {
   const [message, setMessage] = useState("");
 
   const parsedSlotCodes = useMemo(() => parseCodes(slotCodes), [slotCodes]);
-  const parsedAllocationCodes = useMemo(
-    () => parseCodes(allocationCodes),
-    [allocationCodes],
-  );
+  const parsedAllocationCodes = useMemo(() => parseCodes(allocationCodes), [allocationCodes]);
+  const validReserve = /^\d+$/.test(reserveSlots.trim()) && Number.isSafeInteger(Number(reserveSlots)) && Number(reserveSlots) <= 100_000;
 
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
-
     void fetchCapacity(controller.signal)
       .then((payload) => {
         if (!active || !payload.snapshot) return;
@@ -152,38 +129,31 @@ export function WarehouseCapacityClient() {
         setSnapshot(null);
         setError(failure.message || "조회에 실패했습니다.");
       })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    return () => {
-      active = false;
-      controller.abort();
-    };
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; controller.abort(); };
   }, []);
 
   const load = useCallback(async () => {
+    if (savingRef.current) return;
     setLoading(true);
     setError("");
     try {
       const payload = await fetchCapacity();
       setConfigured(payload.configured ?? true);
       setSnapshot(payload.snapshot ?? null);
-      if (payload.snapshot) {
-        setReserveSlots(String(payload.snapshot.reserveSlotCount ?? 0));
-      }
+      if (payload.snapshot) setReserveSlots(String(payload.snapshot.reserveSlotCount ?? 0));
     } catch (loadError) {
       const failure = loadError as Error & { configured?: boolean };
       setConfigured(failure.configured ?? null);
       setSnapshot(null);
       setError(failure.message || "조회에 실패했습니다.");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }, []);
 
   const mutate = useCallback(
     async (body: Record<string, unknown>, successMessage: string) => {
+      if (savingRef.current) return false;
+      savingRef.current = true;
       setSaving(true);
       setError("");
       setMessage("");
@@ -194,19 +164,19 @@ export function WarehouseCapacityClient() {
           body: JSON.stringify(body),
         });
         const payload = (await response.json()) as ApiPayload;
-        if (!response.ok || !payload.ok) {
-          throw new Error(payload.message || "저장에 실패했습니다.");
+        if (!response.ok || !payload.ok || !payload.snapshot) {
+          throw new Error(payload.message || "저장 결과를 확인하지 못했습니다. 입력을 유지한 상태로 다시 확인해 주세요.");
         }
         setConfigured(true);
-        if (payload.snapshot) setSnapshot(payload.snapshot);
+        setSnapshot(payload.snapshot);
+        setReserveSlots(String(payload.snapshot.reserveSlotCount));
         setMessage(successMessage);
         return true;
       } catch (mutationError) {
-        setError(
-          mutationError instanceof Error ? mutationError.message : "저장에 실패했습니다.",
-        );
+        setError(mutationError instanceof Error ? mutationError.message : "저장에 실패했습니다.");
         return false;
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
@@ -217,59 +187,29 @@ export function WarehouseCapacityClient() {
     if (!snapshot) return [];
     const needle = search.trim().toLowerCase();
     return snapshot.locations.filter((location) => {
-      const haystack = [
-        location.locationCode,
-        location.zone,
-        location.note,
-        ...location.occupants.flatMap((row) => [row.modelNo, row.productName, row.optionName]),
-      ]
-        .join(" ")
-        .toLowerCase();
+      const haystack = [location.locationCode, location.zone, location.note, ...location.occupants.flatMap((row) => [row.modelNo, row.productName, row.optionName])].join(" ").toLowerCase();
       if (needle && !haystack.includes(needle)) return false;
       if (filter === "occupied" && !location.occupied) return false;
       if (filter === "free" && (location.occupied || !location.registered)) return false;
       if (filter === "exit" && !location.exitCandidate) return false;
-      if (
-        filter === "attention" &&
-        location.registered &&
-        location.allocatable &&
-        location.occupants.length <= 1
-      ) {
-        return false;
-      }
+      if (filter === "attention" && location.registered && location.allocatable && location.occupants.length <= 1) return false;
       return true;
     });
   }, [filter, search, snapshot]);
 
-  if (loading) {
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-sm font-bold text-slate-600 shadow-sm">
-        창고 위치 원장을 불러오는 중입니다…
-      </div>
-    );
-  }
+  if (loading) return <div className="rounded-2xl border border-slate-200 bg-white p-8 text-sm font-bold text-slate-600 shadow-sm">창고 위치 원장을 불러오는 중입니다…</div>;
 
-  if (!snapshot) {
-    return (
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
-        <p className="font-black text-amber-950">
-          {configured === false ? "상품마스터 연동 설정이 필요합니다." : "창고 위치 원장을 불러오지 못했습니다."}
-        </p>
-        <p className="mt-2 text-sm leading-6 text-amber-800">{error}</p>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="mt-4 rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white"
-        >
-          다시 확인
-        </button>
-      </div>
-    );
-  }
+  if (!snapshot) return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
+      <p className="font-black text-amber-950">{configured === false ? "상품마스터 연동 설정이 필요합니다." : "창고 위치 원장을 불러오지 못했습니다."}</p>
+      <p className="mt-2 text-sm leading-6 text-amber-800">{error}</p>
+      <button type="button" onClick={() => void load()} className="mt-4 rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white">다시 확인</button>
+    </div>
+  );
 
-  const trustedExitText = snapshot.exitCandidateCountTrusted
-    ? formatNumber(snapshot.exitCandidateLocationCount)
-    : `참고 ${formatNumber(snapshot.exitCandidateLocationCount)}`;
+  const trustedExitText = snapshot.trustedExitCandidateLocationCount === undefined
+    ? `참고 ${formatNumber(snapshot.exitCandidateLocationCount)}`
+    : `${formatNumber(snapshot.trustedExitCandidateLocationCount)} / 후보 ${formatNumber(snapshot.exitCandidateLocationCount)}`;
 
   return (
     <div className="space-y-5">
@@ -277,275 +217,104 @@ export function WarehouseCapacityClient() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-black text-slate-500">현재 판단 게이트</p>
-            <h2 className="mt-1 text-lg font-black text-slate-950">
-              {gateLabels[snapshot.sourcingIntakeGate]}
-            </h2>
+            <h2 className="mt-1 text-lg font-black text-slate-950">{gateLabels[snapshot.sourcingIntakeGate]}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              전체 물리 위치 목록과 상품 생애주기 원장이 확정된 뒤에만 이번 달 신규 SKU 수용 상한을 숫자로 사용합니다.
+              즉시 수용량은 전체 물리 위치 목록 확정 후 계산합니다. 정리 후보는 6개월 기준선을 별도로 확인하며,
+              실제 비워지기 전에는 즉시 수용량에 더하지 않습니다. 이번 달 입고 가능량이나 발주 승인과는 다릅니다.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
-          >
-            새로고침
-          </button>
+          <button type="button" disabled={saving} onClick={() => void load()} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-40">새로고침</button>
         </div>
-        {snapshot.warnings.length ? (
-          <div className="mt-4 space-y-2">
-            {snapshot.warnings.map((warning) => (
-              <p key={warning} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-800">
-                {warning}
-              </p>
-            ))}
-          </div>
-        ) : null}
+        {snapshot.warnings.length ? <div className="mt-4 space-y-2">{snapshot.warnings.map((warning) => <p key={warning} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-800">{warning}</p>)}</div> : null}
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="등록 위치코드"
-          value={formatNumber(snapshot.registeredSlotCount)}
-          helper={snapshot.registryComplete ? "전체 물리 위치 목록 확정" : "현재 등록된 범위 · 전체 목록 미확정"}
-        />
-        <MetricCard
-          label="현재 사용 중 위치"
-          value={formatNumber(snapshot.occupiedLocationCount)}
-          helper={`레지스트리 커버리지 ${snapshot.registryCoverageRate}%`}
-        />
-        <MetricCard
-          label="등록 범위 내 빈 위치"
-          value={formatNumber(snapshot.freeRegisteredSlotCount)}
-          helper="전체 목록 확정 전에는 실제 남은 수용량으로 간주하지 않음"
-        />
-        <MetricCard
-          label="창고 수용률"
-          value={snapshot.occupancyRate === null ? "미확정" : `${snapshot.occupancyRate}%`}
-          helper="전체 물리 위치 목록 확정 후에만 계산"
-        />
-        <MetricCard
-          label="단종·정리 후보 위치"
-          value={trustedExitText}
-          helper={snapshot.exitCandidateCountTrusted ? "확정된 생애주기 원장 기준" : "현재 lifecycle 기준선 미확정 · 의사결정 사용 금지"}
-        />
-        <MetricCard
-          label="즉시 신규 SKU 수용"
-          value={formatNumber(snapshot.safeImmediateNewSkuCapacity)}
-          helper="빈 위치 - 예약 버퍼 · 확정 조건 충족 시만 숫자 제공"
-        />
-        <MetricCard
-          label="예상 신규 SKU 수용"
-          value={formatNumber(snapshot.forecastNewSkuCapacity)}
-          helper="즉시 수용 + 신뢰 가능한 정리 예정 위치"
-        />
-        <MetricCard
-          label="예약 버퍼"
-          value={formatNumber(snapshot.reserveSlotCount)}
-          helper="항상 남겨둘 빈 위치 수"
-        />
+        <MetricCard label="등록 위치코드" value={formatNumber(snapshot.registeredSlotCount)} helper={snapshot.registryComplete ? "전체 물리 위치 목록 확정" : "현재 등록된 범위 · 전체 목록 미확정"} />
+        <MetricCard label="현재 사용 중 위치" value={formatNumber(snapshot.occupiedLocationCount)} helper={`레지스트리 커버리지 ${snapshot.registryCoverageRate}%`} />
+        <MetricCard label="등록 범위 내 빈 위치" value={formatNumber(snapshot.freeRegisteredSlotCount)} helper="전체 목록 확정 전에는 실제 남은 수용량으로 간주하지 않음" />
+        <MetricCard label="창고 수용률" value={snapshot.occupancyRate === null ? "미확정" : `${snapshot.occupancyRate}%`} helper="전체 물리 위치 목록 확정 후에만 계산 · 부피 비율 아님" />
+        <MetricCard label="기준선 확인 / 전체 정리 후보" value={trustedExitText} helper="분석 기준을 충족한 후보 수 · 실제 공간 해제 완료와 다름" />
+        <MetricCard label="즉시 신규 SKU 수용" value={formatNumber(snapshot.safeImmediateNewSkuCapacity)} helper="빈 위치 - 예약 버퍼 · 옵션당 1위치 가정 · 입고 선점 별도" />
+        <MetricCard label="정리 완료 가정 수용량" value={formatNumber(snapshot.forecastNewSkuCapacity)} helper="빈 위치 + 검증 후보 - 예약 버퍼 · 실제 해제 전 사용 금지" />
+        <MetricCard label="예약 버퍼" value={formatNumber(snapshot.reserveSlotCount)} helper="항상 남겨둘 빈 위치 수" />
       </section>
-
-      {message ? (
-        <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{message}</p>
-      ) : null}
-      {error ? (
-        <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">{error}</p>
-      ) : null}
+      <p className="text-xs leading-5 text-slate-500">
+        {snapshot.forecastIsLowerBound ? "일부 생애주기 데이터가 없어 미검증 후보는 제외되었습니다. " : ""}
+        정리 완료 가정 수용량은 후보 위치가 실제 비워진다는 조건부 계산이며, 확보가 보장된 공간이 아닙니다.
+      </p>
+      {message ? <p role="status" className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{message}</p> : null}
+      {error ? <p role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">{error}</p> : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 p-4">
-          <div>
-            <h2 className="font-black text-slate-950">전체 위치코드</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              검색 결과 {filteredLocations.length}개 · 한 위치에 여러 활성 SKU가 있으면 충돌로 표시합니다.
-            </p>
-          </div>
+          <div><h2 className="font-black text-slate-950">전체 위치코드</h2><p className="mt-1 text-xs text-slate-500">검색 결과 {filteredLocations.length}개 · 한 위치에 여러 활성 SKU가 있으면 충돌로 표시합니다.</p></div>
           <div className="flex flex-wrap gap-2">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="위치코드·모델번호 검색"
-              className="w-56 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-500"
-            />
-            <select
-              value={filter}
-              onChange={(event) => setFilter(event.target.value as LocationFilter)}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700"
-            >
-              <option value="all">전체</option>
-              <option value="occupied">사용 중</option>
-              <option value="free">빈 위치</option>
-              <option value="exit">정리 후보</option>
-              <option value="attention">확인 필요</option>
+            <input aria-label="위치코드·모델번호 검색" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="위치코드·모델번호 검색" className="w-56 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-500" />
+            <select aria-label="위치 목록 필터" value={filter} onChange={(event) => setFilter(event.target.value as LocationFilter)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
+              <option value="all">전체</option><option value="occupied">사용 중</option><option value="free">빈 위치</option><option value="exit">정리 후보</option><option value="attention">확인 필요</option>
             </select>
           </div>
         </div>
         <div className="max-h-[620px] overflow-auto">
           <table className="w-full min-w-[900px] text-left">
-            <thead className="sticky top-0 bg-slate-50 text-xs font-black text-slate-600">
-              <tr>
-                <th className="px-3 py-3">위치코드</th>
-                <th className="px-3 py-3">점유</th>
-                <th className="px-3 py-3">상품</th>
-                <th className="px-3 py-3">생애주기</th>
-                <th className="px-3 py-3">구역·메모</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredLocations.slice(0, 500).map((location) => (
-                <LocationRow key={location.locationCode} location={location} />
-              ))}
-            </tbody>
+            <thead className="sticky top-0 bg-slate-50 text-xs font-black text-slate-600"><tr><th className="px-3 py-3">위치코드</th><th className="px-3 py-3">점유</th><th className="px-3 py-3">상품</th><th className="px-3 py-3">생애주기</th><th className="px-3 py-3">구역·메모</th></tr></thead>
+            <tbody>{filteredLocations.slice(0, 500).map((location) => <LocationRow key={location.locationCode} location={location} />)}</tbody>
           </table>
         </div>
-        {filteredLocations.length > 500 ? (
-          <p className="border-t border-slate-100 p-3 text-xs font-bold text-slate-500">
-            화면 성능을 위해 첫 500개만 표시합니다. 검색으로 범위를 좁히세요.
-          </p>
-        ) : null}
+        {filteredLocations.length > 500 ? <p className="border-t border-slate-100 p-3 text-xs font-bold text-slate-500">화면 성능을 위해 첫 500개만 표시합니다. 검색으로 범위를 좁히세요.</p> : null}
       </section>
 
       <details className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-        <summary className="cursor-pointer select-none font-black text-slate-900">
-          위치코드 레지스트리 관리 · 고급
-        </summary>
-        <p className="mt-2 text-xs leading-5 text-slate-500">
-          위치코드 형식은 임의로 제한하지 않습니다. 현재 사용 중 코드만으로 빈 위치를 추정하지 않고, 실제 창고에 존재하는 전체 위치 목록을 등록해야 수용률이 확정됩니다.
-        </p>
-
+        <summary className="cursor-pointer select-none font-black text-slate-900">위치코드 레지스트리 관리 · 고급</summary>
+        <p className="mt-2 text-xs leading-5 text-slate-500">위치코드 형식은 임의로 제한하지 않습니다. 현재 사용 중 코드만으로 빈 위치를 추정하지 않고, 실제 창고에 존재하는 전체 위치 목록을 등록해야 수용률이 확정됩니다.</p>
         <div className="mt-5 grid gap-4 xl:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="text-sm font-black text-slate-900">물리 위치코드 일괄 추가</h3>
-            <textarea
-              value={slotCodes}
-              onChange={(event) => setSlotCodes(event.target.value)}
-              placeholder={"BBA1-1\nBBA1-2\nA구역-선반#3"}
-              className="mt-3 min-h-32 w-full rounded-xl border border-slate-200 p-3 font-mono text-xs outline-none focus:border-slate-500"
-            />
-            <button
-              type="button"
-              disabled={saving || parsedSlotCodes.length === 0}
-              onClick={() => {
-                const codes = parsedSlotCodes;
-                void (async () => {
-                  const ok = await mutate(
-                    { action: "register_slots", locationCodes: codes },
-                    `${codes.length}개 위치코드 등록 요청을 반영했습니다.`,
-                  );
-                  if (ok) setSlotCodes("");
-                })();
-              }}
-              className="mt-3 rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              위치코드 추가
-            </button>
+            <textarea aria-label="추가할 물리 위치코드" disabled={saving} value={slotCodes} onChange={(event) => setSlotCodes(event.target.value)} placeholder={"BBA1-1\nBBA1-2\nA구역-선반#3"} className="mt-3 min-h-32 w-full rounded-xl border border-slate-200 p-3 font-mono text-xs outline-none focus:border-slate-500" />
+            <button type="button" disabled={saving || parsedSlotCodes.length === 0} onClick={() => {
+              const codes = parsedSlotCodes;
+              void (async () => {
+                const ok = await mutate({ action: "register_slots", locationCodes: codes }, `${codes.length}개 위치코드 등록 요청을 반영했습니다.`);
+                if (ok) setSlotCodes("");
+              })();
+            }} className="mt-3 rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40">위치코드 추가</button>
           </div>
-
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="text-sm font-black text-slate-900">신규 배정 가능/금지</h3>
-            <textarea
-              value={allocationCodes}
-              onChange={(event) => setAllocationCodes(event.target.value)}
-              placeholder="변경할 위치코드를 줄바꿈으로 입력"
-              className="mt-3 min-h-32 w-full rounded-xl border border-slate-200 p-3 font-mono text-xs outline-none focus:border-slate-500"
-            />
-            <div className="mt-3 flex gap-2">
-              {[false, true].map((allocatable) => (
-                <button
-                  key={String(allocatable)}
-                  type="button"
-                  disabled={saving || parsedAllocationCodes.length === 0}
-                  onClick={() => {
-                    const codes = parsedAllocationCodes;
-                    void (async () => {
-                      const ok = await mutate(
-                        {
-                          action: "set_slot_allocatable",
-                          locationCodes: codes,
-                          allocatable,
-                        },
-                        allocatable
-                          ? "선택 위치를 신규 배정 가능으로 변경했습니다."
-                          : "선택 위치를 신규 배정 금지로 변경했습니다.",
-                      );
-                      if (ok) setAllocationCodes("");
-                    })();
-                  }}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
-                >
-                  {allocatable ? "신규배정 가능" : "신규배정 금지"}
-                </button>
-              ))}
-            </div>
+            <textarea aria-label="배정 상태를 변경할 위치코드" disabled={saving} value={allocationCodes} onChange={(event) => setAllocationCodes(event.target.value)} placeholder="변경할 위치코드를 줄바꿈으로 입력" className="mt-3 min-h-32 w-full rounded-xl border border-slate-200 p-3 font-mono text-xs outline-none focus:border-slate-500" />
+            <div className="mt-3 flex gap-2">{[false, true].map((allocatable) => (
+              <button key={String(allocatable)} type="button" disabled={saving || parsedAllocationCodes.length === 0} onClick={() => {
+                const codes = parsedAllocationCodes;
+                void (async () => {
+                  const ok = await mutate({ action: "set_slot_allocatable", locationCodes: codes, allocatable }, allocatable ? "선택 위치를 신규 배정 가능으로 변경했습니다." : "선택 위치를 신규 배정 금지로 변경했습니다.");
+                  if (ok) setAllocationCodes("");
+                })();
+              }} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40">{allocatable ? "신규배정 가능" : "신규배정 금지"}</button>
+            ))}</div>
           </div>
         </div>
 
         <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
           <h3 className="text-sm font-black text-rose-950">전체 물리 위치 목록 확정</h3>
-          <p className="mt-1 text-xs leading-5 text-rose-800">
-            실제 창고의 모든 사용 가능 위치코드가 등록된 뒤에만 확정하세요. 확정 전에는 수용률과 신규 소싱 상한이 잠깁니다.
-          </p>
+          <p className="mt-1 text-xs leading-5 text-rose-800">실제 창고의 모든 사용 가능 위치코드가 등록된 뒤에만 확정하세요. 확정 전에는 수용률과 신규 소싱 상한이 잠깁니다.</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <label className="text-xs font-bold text-slate-700">
-              예약 버퍼
-              <input
-                type="number"
-                min={0}
-                value={reserveSlots}
-                onChange={(event) => setReserveSlots(event.target.value)}
-                className="ml-2 w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5"
-              />
-            </label>
+            <label className="text-xs font-bold text-slate-700">예약 버퍼<input type="number" min={0} max={100_000} step={1} disabled={saving} value={reserveSlots} onChange={(event) => setReserveSlots(event.target.value)} className="ml-2 w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5" /></label>
+            <button type="button" disabled={saving || !validReserve || Number(reserveSlots) === snapshot.reserveSlotCount} onClick={() => void mutate({ action: "set_registry_status", registryComplete: snapshot.registryComplete, reserveSlots: Number(reserveSlots) }, "예약 버퍼를 저장했습니다. 전체 목록 확정 여부는 변경하지 않았습니다.")} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-800 disabled:opacity-40">버퍼만 저장</button>
             {!snapshot.registryComplete ? (
               <>
-                <input
-                  value={registryConfirmation}
-                  onChange={(event) => setRegistryConfirmation(event.target.value)}
-                  placeholder="확정 입력"
-                  className="w-32 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs"
-                />
-                <button
-                  type="button"
-                  disabled={saving || registryConfirmation !== "확정"}
-                  onClick={() => {
-                    void (async () => {
-                      const ok = await mutate(
-                        {
-                          action: "set_registry_status",
-                          registryComplete: true,
-                          reserveSlots: Number(reserveSlots || 0),
-                        },
-                        "전체 물리 위치 목록을 확정했습니다.",
-                      );
-                      if (ok) setRegistryConfirmation("");
-                    })();
-                  }}
-                  className="rounded-lg bg-rose-700 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
-                >
-                  전체 목록 확정
-                </button>
+                <input aria-label="전체 목록 확정 입력" disabled={saving} value={registryConfirmation} onChange={(event) => setRegistryConfirmation(event.target.value)} placeholder="확정 입력" className="w-32 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs" />
+                <button type="button" disabled={saving || !validReserve || registryConfirmation !== "확정"} onClick={() => {
+                  void (async () => {
+                    const ok = await mutate({ action: "set_registry_status", registryComplete: true, reserveSlots: Number(reserveSlots) }, "전체 물리 위치 목록을 확정했습니다.");
+                    if (ok) setRegistryConfirmation("");
+                  })();
+                }} className="rounded-lg bg-rose-700 px-3 py-2 text-xs font-black text-white disabled:opacity-40">전체 목록 확정</button>
               </>
             ) : (
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() =>
-                  void mutate(
-                    {
-                      action: "set_registry_status",
-                      registryComplete: false,
-                      reserveSlots: Number(reserveSlots || 0),
-                    },
-                    "전체 목록 확정을 해제했습니다. 수용량 계산은 다시 잠겼습니다.",
-                  )
-                }
-                className="rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-800 disabled:opacity-40"
-              >
-                확정 해제
-              </button>
+              <button type="button" disabled={saving} onClick={() => void mutate({ action: "set_registry_status", registryComplete: false }, "전체 목록 확정을 해제했습니다. 수용량 계산은 다시 잠겼습니다.")} className="rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-800 disabled:opacity-40">확정 해제</button>
             )}
           </div>
+          {!validReserve ? <p className="mt-2 text-xs font-bold text-rose-800">예약 버퍼는 0~100,000 사이의 정수로 입력하세요. 빈칸은 0으로 저장하지 않습니다.</p> : null}
         </div>
       </details>
     </div>
