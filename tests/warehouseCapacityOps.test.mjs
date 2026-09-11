@@ -52,12 +52,29 @@ test("warehouse UI never turns an incomplete registry into a numeric occupancy o
     "utf8",
   );
 
-  assert.match(ui, /snapshot\.occupancyRate === null \? "미확정"/);
+  assert.match(ui, /snapshot\.occupancyRate === null\s*\? "미확정"/);
   assert.match(ui, /formatNumber\(snapshot\.safeImmediateNewSkuCapacity\)/);
   assert.match(ui, /formatNumber\(snapshot\.forecastNewSkuCapacity\)/);
-  assert.match(ui, /전체 위치 목록과 생애주기 기준이 확정된 뒤에만/);
+  assert.match(ui, /전체 물리 위치 목록과 상품 생애주기 원장이 확정된 뒤에만/);
   assert.match(ui, /현재 사용 중 코드만으로 빈 위치를 추정하지 않고/);
   assert.doesNotMatch(ui, /maxBay|maxSlot|parseInt\([^)]*location|BBA\d\+.*capacity/i);
+});
+
+test("failed warehouse mutations preserve operator input for correction and retry", async () => {
+  const ui = await readFile(
+    new URL(
+      "../src/app/warehouse-capacity/WarehouseCapacityClient.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(ui, /setMessage\(successMessage\);\s*return true;/);
+  assert.match(ui, /setError\([\s\S]*?return false;/);
+  assert.match(ui, /if \(ok\) setSlotCodes\(""\)/);
+  assert.match(ui, /if \(ok\) setAllocationCodes\(""\)/);
+  assert.match(ui, /if \(ok\) setRegistryConfirmation\(""\)/);
+  assert.doesNotMatch(ui, /\.then\(\(\) => setSlotCodes\(""\)\)/);
 });
 
 test("capacity proxy keeps the Product Master secret server-side", async () => {
