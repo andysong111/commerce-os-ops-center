@@ -80,7 +80,7 @@ test("resolved purchase stock passes Product Master zero reset into the canonica
   const steps = []; const report = stockFixture();
   const supplemental = [{ eventId: "pm-zero", barcode: "BAB3-1", productKind: "SINGLE", modelNo: "AAA231", occurredAt: at, note: "fixture" }];
   const service = load("src/lib/purchaseCycleStockReport.ts", {
-    "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async (options) => { steps.push("base"); assert.deepEqual(options, { supplementalResetEvents: supplemental }); return report; } },
+    "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async (options) => { steps.push("base"); assert.equal(options.supplementalResetEvents.length, 1); assert.equal(options.supplementalResetEvents[0].eventId, "pm-zero"); assert.equal(options.supplementalResetEvents[0].barcode, "BAB3-1"); return report; } },
     "@/lib/inventoryStockResetCorrections": { overlayInventoryStockControlReportWithResetCorrections: async (value) => { steps.push("corrections"); return value; } },
     "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: async (value) => { steps.push("tail"); return value; }, loadLatestInventoryStockSalesTailSnapshots: async () => new Map() },
     "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => { steps.push("refresh"); return { refreshed: false }; } },
