@@ -17,9 +17,9 @@ type ApiPayload = {
 type LocationFilter = "all" | "occupied" | "free" | "exit" | "attention";
 
 const gateLabels: Record<WarehouseCapacitySnapshot["sourcingIntakeGate"], string> = {
-  READY: "소싱 수용량 계산 가능",
+  READY: "물리 수용량 계산 가능",
   WAITING_PHYSICAL_REGISTRY_CONFIRMATION: "전체 물리 위치 목록 확인 필요",
-  WAITING_LIFECYCLE_BASELINE: "단종·정리 기준선 확정 대기",
+  WAITING_LIFECYCLE_BASELINE: "생애주기 기준선 대기 · 이전 응답",
   CAPACITY_DATA_CONFLICT: "위치 데이터 충돌 확인 필요",
 };
 
@@ -98,10 +98,17 @@ function LocationRow({ location }: { location: WarehouseCapacityLocation }) {
         )}
       </td>
       <td className="px-3 py-3 text-xs text-slate-700">
-        {location.exitCandidate ? (
-          <span className="font-black text-amber-700">정리 후보</span>
+        {location.trustedExitCandidate ? (
+          <span className="font-black text-emerald-700">정리 후보 · 예측 포함</span>
+        ) : location.exitCandidate ? (
+          <span className="font-black text-amber-700">정리 후보 · 기준선 대기</span>
         ) : occupant ? (
-          occupant.lifecycleStatus || "상태 확인 중"
+          <>
+            <span>{occupant.lifecycleStatus || "상태 확인 중"}</span>
+            {occupant.shadowMode ? (
+              <span className="ml-1 text-slate-400">· 그림자</span>
+            ) : null}
+          </>
         ) : (
           <span className="text-slate-400">-</span>
         )}
@@ -267,9 +274,11 @@ export function WarehouseCapacityClient() {
     );
   }
 
-  const trustedExitText = snapshot.exitCandidateCountTrusted
-    ? formatNumber(snapshot.exitCandidateLocationCount)
-    : `참고 ${formatNumber(snapshot.exitCandidateLocationCount)}`;
+  const trustedExitCount = snapshot.trustedExitCandidateLocationCount ?? 0;
+  const totalExitCount = snapshot.exitCandidateLocationCount ?? 0;
+  const forecastHelper = snapshot.forecastIsLowerBound
+    ? "즉시 수용 + 6개월 기준선이 확인된 정리 후보만 반영한 보수적 하한값"
+    : "즉시 수용 + 6개월 기준선이 확인된 정리 예정 위치";
 
   return (
     <div className="space-y-5">
@@ -281,7 +290,7 @@ export function WarehouseCapacityClient() {
               {gateLabels[snapshot.sourcingIntakeGate]}
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              전체 물리 위치 목록과 상품 생애주기 원장이 확정된 뒤에만 이번 달 신규 SKU 수용 상한을 숫자로 사용합니다.
+              전체 물리 위치 목록이 확정되고 위치 충돌이 없어야 실제 빈 공간을 신규 SKU 수용량으로 사용합니다. 생애주기 데이터가 덜 쌓인 상품은 실제 빈 공간을 막지 않고, 정리 예정 공간 예측에서만 제외합니다.
             </p>
           </div>
           <button
@@ -326,18 +335,18 @@ export function WarehouseCapacityClient() {
         />
         <MetricCard
           label="단종·정리 후보 위치"
-          value={trustedExitText}
-          helper={snapshot.exitCandidateCountTrusted ? "확정된 생애주기 원장 기준" : "현재 lifecycle 기준선 미확정 · 의사결정 사용 금지"}
+          value={`${formatNumber(trustedExitCount)} / ${formatNumber(totalExitCount)}`}
+          helper="앞 숫자만 6개월 기준선이 확인되어 예상 수용량에 포함"
         />
         <MetricCard
           label="즉시 신규 SKU 수용"
           value={formatNumber(snapshot.safeImmediateNewSkuCapacity)}
-          helper="빈 위치 - 예약 버퍼 · 확정 조건 충족 시만 숫자 제공"
+          helper="실제로 비어 있는 위치 - 예약 버퍼 · 정리 예정 공간 미포함"
         />
         <MetricCard
           label="예상 신규 SKU 수용"
           value={formatNumber(snapshot.forecastNewSkuCapacity)}
-          helper="즉시 수용 + 신뢰 가능한 정리 예정 위치"
+          helper={forecastHelper}
         />
         <MetricCard
           label="예약 버퍼"
