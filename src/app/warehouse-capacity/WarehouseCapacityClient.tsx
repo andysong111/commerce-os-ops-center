@@ -40,15 +40,23 @@ function parseCodes(value: string) {
   ];
 }
 
-function MetricCard({
-  label,
-  value,
-  helper,
-}: {
-  label: string;
-  value: string;
-  helper: string;
-}) {
+async function fetchCapacity(signal?: AbortSignal) {
+  const response = await fetch("/api/warehouse-capacity", {
+    cache: "no-store",
+    signal,
+  });
+  const payload = (await response.json()) as ApiPayload;
+  if (!response.ok || !payload.ok || !payload.snapshot) {
+    const error = new Error(
+      payload.message || "창고 수용능력 정보를 불러오지 못했습니다.",
+    ) as Error & { configured?: boolean };
+    error.configured = payload.configured;
+    throw error;
+  }
+  return payload;
+}
+
+function MetricCard({ label, value, helper }: { label: string; value: string; helper: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs font-bold text-slate-500">{label}</p>
@@ -68,9 +76,7 @@ function LocationRow({ location }: { location: WarehouseCapacityLocation }) {
       <td className="px-3 py-3 text-xs text-slate-700">
         {location.occupied ? "사용 중" : "비어 있음"}
         {!location.registered ? (
-          <span className="ml-1 rounded bg-rose-50 px-1.5 py-0.5 font-bold text-rose-700">
-            미등록
-          </span>
+          <span className="ml-1 rounded bg-rose-50 px-1.5 py-0.5 font-bold text-rose-700">미등록</span>
         ) : null}
         {location.registered && !location.allocatable ? (
           <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 font-bold text-amber-700">
@@ -82,13 +88,9 @@ function LocationRow({ location }: { location: WarehouseCapacityLocation }) {
         {occupant ? (
           <>
             <span className="font-black">{occupant.modelNo || "모델번호 없음"}</span>
-            <span className="ml-1 text-slate-500">
-              {occupant.productName || occupant.optionName}
-            </span>
+            <span className="ml-1 text-slate-500">{occupant.productName || occupant.optionName}</span>
             {location.occupants.length > 1 ? (
-              <span className="ml-1 font-bold text-rose-700">
-                +{location.occupants.length - 1} 충돌
-              </span>
+              <span className="ml-1 font-bold text-rose-700">+{location.occupants.length - 1} 충돌</span>
             ) : null}
           </>
         ) : (
@@ -131,29 +133,54 @@ export function WarehouseCapacityClient() {
     [allocationCodes],
   );
 
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+
+    void fetchCapacity(controller.signal)
+      .then((payload) => {
+        if (!active || !payload.snapshot) return;
+        setConfigured(payload.configured ?? true);
+        setSnapshot(payload.snapshot);
+        setReserveSlots(String(payload.snapshot.reserveSlotCount ?? 0));
+        setError("");
+      })
+      .catch((loadError: unknown) => {
+        if (!active || controller.signal.aborted) return;
+        const failure = loadError as Error & { configured?: boolean };
+        setConfigured(failure.configured ?? null);
+        setSnapshot(null);
+        setError(failure.message || "조회에 실패했습니다.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/warehouse-capacity", { cache: "no-store" });
-      const payload = (await response.json()) as ApiPayload;
-      setConfigured(payload.configured ?? null);
-      if (!response.ok || !payload.ok || !payload.snapshot) {
-        throw new Error(payload.message || "창고 수용능력 정보를 불러오지 못했습니다.");
+      const payload = await fetchCapacity();
+      setConfigured(payload.configured ?? true);
+      setSnapshot(payload.snapshot ?? null);
+      if (payload.snapshot) {
+        setReserveSlots(String(payload.snapshot.reserveSlotCount ?? 0));
       }
-      setSnapshot(payload.snapshot);
-      setReserveSlots(String(payload.snapshot.reserveSlotCount ?? 0));
     } catch (loadError) {
+      const failure = loadError as Error & { configured?: boolean };
+      setConfigured(failure.configured ?? null);
       setSnapshot(null);
-      setError(loadError instanceof Error ? loadError.message : "조회에 실패했습니다.");
+      setError(failure.message || "조회에 실패했습니다.");
     } finally {
       setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const mutate = useCallback(
     async (body: Record<string, unknown>, successMessage: string) => {
@@ -190,19 +217,15 @@ export function WarehouseCapacityClient() {
     if (!snapshot) return [];
     const needle = search.trim().toLowerCase();
     return snapshot.locations.filter((location) => {
-      const text = [
+      const haystack = [
         location.locationCode,
         location.zone,
         location.note,
-        ...location.occupants.flatMap((row) => [
-          row.modelNo,
-          row.productName,
-          row.optionName,
-        ]),
+        ...location.occupants.flatMap((row) => [row.modelNo, row.productName, row.optionName]),
       ]
         .join(" ")
         .toLowerCase();
-      if (needle && !text.includes(needle)) return false;
+      if (needle && !haystack.includes(needle)) return false;
       if (filter === "occupied" && !location.occupied) return false;
       if (filter === "free" && (location.occupied || !location.registered)) return false;
       if (filter === "exit" && !location.exitCandidate) return false;
@@ -230,9 +253,7 @@ export function WarehouseCapacityClient() {
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
         <p className="font-black text-amber-950">
-          {configured === false
-            ? "상품마스터 연동 설정이 필요합니다."
-            : "창고 위치 원장을 불러오지 못했습니다."}
+          {configured === false ? "상품마스터 연동 설정이 필요합니다." : "창고 위치 원장을 불러오지 못했습니다."}
         </p>
         <p className="mt-2 text-sm leading-6 text-amber-800">{error}</p>
         <button
@@ -274,10 +295,7 @@ export function WarehouseCapacityClient() {
         {snapshot.warnings.length ? (
           <div className="mt-4 space-y-2">
             {snapshot.warnings.map((warning) => (
-              <p
-                key={warning}
-                className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-800"
-              >
+              <p key={warning} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-800">
                 {warning}
               </p>
             ))}
@@ -289,11 +307,7 @@ export function WarehouseCapacityClient() {
         <MetricCard
           label="등록 위치코드"
           value={formatNumber(snapshot.registeredSlotCount)}
-          helper={
-            snapshot.registryComplete
-              ? "전체 물리 위치 목록 확정"
-              : "현재 등록된 범위 · 전체 목록 미확정"
-          }
+          helper={snapshot.registryComplete ? "전체 물리 위치 목록 확정" : "현재 등록된 범위 · 전체 목록 미확정"}
         />
         <MetricCard
           label="현재 사용 중 위치"
@@ -307,21 +321,13 @@ export function WarehouseCapacityClient() {
         />
         <MetricCard
           label="창고 수용률"
-          value={
-            snapshot.occupancyRate === null
-              ? "미확정"
-              : `${snapshot.occupancyRate}%`
-          }
+          value={snapshot.occupancyRate === null ? "미확정" : `${snapshot.occupancyRate}%`}
           helper="전체 물리 위치 목록 확정 후에만 계산"
         />
         <MetricCard
           label="단종·정리 후보 위치"
           value={trustedExitText}
-          helper={
-            snapshot.exitCandidateCountTrusted
-              ? "확정된 생애주기 원장 기준"
-              : "현재 lifecycle 기준선 미확정 · 의사결정 사용 금지"
-          }
+          helper={snapshot.exitCandidateCountTrusted ? "확정된 생애주기 원장 기준" : "현재 lifecycle 기준선 미확정 · 의사결정 사용 금지"}
         />
         <MetricCard
           label="즉시 신규 SKU 수용"
@@ -341,14 +347,10 @@ export function WarehouseCapacityClient() {
       </section>
 
       {message ? (
-        <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
-          {message}
-        </p>
+        <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{message}</p>
       ) : null}
       {error ? (
-        <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
-          {error}
-        </p>
+        <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">{error}</p>
       ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -449,48 +451,32 @@ export function WarehouseCapacityClient() {
               className="mt-3 min-h-32 w-full rounded-xl border border-slate-200 p-3 font-mono text-xs outline-none focus:border-slate-500"
             />
             <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                disabled={saving || parsedAllocationCodes.length === 0}
-                onClick={() => {
-                  const codes = parsedAllocationCodes;
-                  void (async () => {
-                    const ok = await mutate(
-                      {
-                        action: "set_slot_allocatable",
-                        locationCodes: codes,
-                        allocatable: false,
-                      },
-                      "선택 위치를 신규 배정 금지로 변경했습니다.",
-                    );
-                    if (ok) setAllocationCodes("");
-                  })();
-                }}
-                className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 disabled:opacity-40"
-              >
-                신규배정 금지
-              </button>
-              <button
-                type="button"
-                disabled={saving || parsedAllocationCodes.length === 0}
-                onClick={() => {
-                  const codes = parsedAllocationCodes;
-                  void (async () => {
-                    const ok = await mutate(
-                      {
-                        action: "set_slot_allocatable",
-                        locationCodes: codes,
-                        allocatable: true,
-                      },
-                      "선택 위치를 신규 배정 가능으로 변경했습니다.",
-                    );
-                    if (ok) setAllocationCodes("");
-                  })();
-                }}
-                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
-              >
-                신규배정 가능
-              </button>
+              {[false, true].map((allocatable) => (
+                <button
+                  key={String(allocatable)}
+                  type="button"
+                  disabled={saving || parsedAllocationCodes.length === 0}
+                  onClick={() => {
+                    const codes = parsedAllocationCodes;
+                    void (async () => {
+                      const ok = await mutate(
+                        {
+                          action: "set_slot_allocatable",
+                          locationCodes: codes,
+                          allocatable,
+                        },
+                        allocatable
+                          ? "선택 위치를 신규 배정 가능으로 변경했습니다."
+                          : "선택 위치를 신규 배정 금지로 변경했습니다.",
+                      );
+                      if (ok) setAllocationCodes("");
+                    })();
+                  }}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
+                >
+                  {allocatable ? "신규배정 가능" : "신규배정 금지"}
+                </button>
+              ))}
             </div>
           </div>
         </div>
