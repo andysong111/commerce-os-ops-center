@@ -99,16 +99,18 @@ test("v0.5.5 preserves A21 stage-race retry and marketplace advisory policy", as
   assert.match(background, /return continueNextGoodsKey\(active, sender, normalizedEvidence\)/);
 });
 
-test("v0.5.5 package verify declares readonly A6 then per-goods-key API then proven-list serial A21", async () => {
+test("v0.5.5 package verify declares readonly A6 then per-goods-key API then canonical cross-frame serial A21", async () => {
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
   assert.match(route, /const VERSION = "0\.5\.5"/);
   assert.match(route, /background-v052\.js/);
-  assert.match(route, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_PROVEN_LIST_V055/);
+  assert.match(route, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_CANONICAL_CROSS_FRAME_HF3/);
+  assert.match(route, /hotfix: "HF3_CANONICAL_A21_CROSS_FRAME"/);
   assert.match(route, /a6RowBinding: "TEXT_CONTENT_PLUS_INPUT_SELECT_VALUES"/);
   assert.match(route, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
   assert.match(route, /a6Checkbox: "NOT_TOUCHED"/);
   assert.match(route, /optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY"/);
   assert.match(route, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
   assert.match(route, /a21ListClick: "PROVEN_PRICE_OPTION_RESEND_DIRECT_NO_VISIBILITY_FILTER"/);
+  assert.match(route, /a21ListFrameStrategy: "CURRENT_FRAME_THEN_ALL_ACCESSIBLE_SHOPLING_FRAMES"/);
   assert.match(route, /optionBrowserStages: \["A6", "A21_LIST", "A21_POPUP"\]/);
 });

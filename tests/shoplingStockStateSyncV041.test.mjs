@@ -16,7 +16,8 @@ test("v0.5.5 A21 list worker keeps local search binding and exact multirow selec
   assert.match(worker, /labels\.includes\("검색항목"\)/);
   assert.match(worker, /function searchInputV041\(field\)/);
   assert.match(worker, /function setA21PageSize200V042\(\)/);
-  assert.match(worker, /A21_EXACT_BATCH_SELECTION_FAILED/);
+  assert.match(worker, /A21_EXACT_ROW_BINDING_MISMATCH/);
+  assert.match(worker, /A21_PRICE_ROW_CHECKBOX_VERIFY_FAILED/);
   assert.match(worker, /A21_RESULT_OVER_200_BATCH_LIMIT/);
   assert.match(worker, /selected\.count !== totalResultCount/);
   assert.match(worker, /EXACT_BOUND_ROWS/);
@@ -34,7 +35,7 @@ test("v0.5.5 keeps the one-click search policy while using the maximum Shopling 
   assert.match(policy, /submitted: true/);
 });
 
-test("v0.5.5 package reads A6 goods keys without checking rows, applies API per key, then uses proven A21 list click and serial price core", async () => {
+test("v0.5.5 package reads A6 goods keys without checking rows, applies API per key, then uses canonical cross-frame A21 list click and serial price core", async () => {
   const [manifestSource, downloadSource, pageSource, popupSource, adapterSource, liveA6Source, opsSource, template, policy, copiedContent, copiedMain, canonicalContent, canonicalMain] = await Promise.all([
     file("public/shopling-stock-state-sync/manifest.json"),
     file("src/app/api/shopling-stock-state-sync/download/route.ts"),
@@ -62,14 +63,16 @@ test("v0.5.5 package reads A6 goods keys without checking rows, applies API per 
   assert.match(canonicalMain, /goods_mallMdfy_submit_sp/);
   assert.match(downloadSource, /const VERSION = "0\.5\.5"/);
   assert.match(downloadSource, /priceCoreLiteralCopyVerified: true/);
-  assert.match(downloadSource, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_PROVEN_LIST_V055/);
+  assert.match(downloadSource, /A6_READ_ONLY_BCODE_GOODSKEYS_THEN_API_STATUS_THEN_A21_CANONICAL_CROSS_FRAME_HF3/);
+  assert.match(downloadSource, /hotfix: "HF3_CANONICAL_A21_CROSS_FRAME"/);
   assert.match(downloadSource, /a6Mutation: "NONE_READ_ONLY_RESOLVER"/);
   assert.match(downloadSource, /a6Checkbox: "NOT_TOUCHED"/);
   assert.match(downloadSource, /optionLocalMutation: "SHOPLING_API_PER_DISCOVERED_GOODSKEY"/);
   assert.match(downloadSource, /patchA6ReadOnlyResolverV054/);
   assert.match(downloadSource, /patchA21ProvenListClickV055/);
-  assert.match(downloadSource, /PROVEN_A21_LIST_DIRECT_CLICK/);
+  assert.match(downloadSource, /PROVEN_A21_LIST_DIRECT_CLICK_CANONICAL_CROSS_FRAME/);
   assert.match(downloadSource, /a21ListClick: "PROVEN_PRICE_OPTION_RESEND_DIRECT_NO_VISIBILITY_FILTER"/);
+  assert.match(downloadSource, /a21ListFrameStrategy: "CURRENT_FRAME_THEN_ALL_ACCESSIBLE_SHOPLING_FRAMES"/);
   assert.match(downloadSource, /checkboxTouched: false/);
   assert.match(downloadSource, /optionGoodsKeySource: "A6_LIVE_OPTION_BARCODE"/);
   assert.match(downloadSource, /ALL_DISCOVERED_DEDUP_SERIAL_COMPLETE_REQUIRED/);
