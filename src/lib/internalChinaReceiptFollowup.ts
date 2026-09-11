@@ -9,7 +9,7 @@ import { receiptFollowupBundle, selectReceiptFollowupCosts, compareReceiptFollow
 import { missingReceiptCostRows, receiptCostOnlyPayload, validateReceiptReadbackIdentity } from "@/lib/internalChinaReceiptFollowupRepair";
 
 export type InternalChinaReceiptFollowupStatus = {
-  receiptId: string; draftId: string; cycleMonth: string; lineCount: number; barcodes: string[];
+  receiptId: string; draftId: string; cycleMonth: string; lineCount: number; barcodes: string[]; receivedQuantity: number;
   state: "VERIFIED" | "PENDING"; canRetry: boolean; errorCode: string | null;
   verifiedAt: string | null; fingerprint: string | null;
 };
@@ -32,7 +32,7 @@ function code(error: unknown) {
 }
 async function pmRead(path: string) {
   const { base, secret } = connection();
-  const response = await fetch(`${base}${path}`, { headers: { "x-commerce-os-integration-secret": secret }, cache: "no-store", signal: AbortSignal.timeout(20_000) });
+  const response = await fetch(`${base}${path}`, { headers: { "x-commerce-os-integration-secret": secret }, cache: "no-store", signal: AbortSignal.timeout(8_000) });
   if (!response.ok) throw new Error(`RECEIPT_FOLLOWUP_READBACK_HTTP_${response.status}`);
   return response.json();
 }
@@ -51,12 +51,13 @@ function cachedCosts(cache: Awaited<ReturnType<typeof readPriceAdjustmentReceipt
 }
 async function verifyRows(receiptId: string, rows: ReceiptStoredRow[], cache: Awaited<ReturnType<typeof readPriceAdjustmentReceiptCache>>): Promise<InternalChinaReceiptFollowupStatus> {
   const bundle = receiptFollowupBundle(receiptId, rows);
-  const common = { receiptId, draftId: bundle.draftId, cycleMonth: bundle.cycleMonth, lineCount: bundle.lines.length, barcodes: bundle.lines.map((line) => line.barcode) };
+  const common = { receiptId, draftId: bundle.draftId, cycleMonth: bundle.cycleMonth, lineCount: bundle.lines.length, barcodes: bundle.lines.map((line) => line.barcode), receivedQuantity: bundle.lines.reduce((total, line) => total + line.quantity, 0) };
   let canRetry = false;
   try {
     const chosen = selectReceiptFollowupCosts(bundle, cachedCosts(cache));
-    canRetry = true;
     const payload = await readback(receiptId);
+    const absent = missingReceiptCostRows(chosen.costs, payload);
+    canRetry = absent.length > 0;
     const fingerprint = compareReceiptFollowupReadback(chosen.costs, payload);
     validateReceiptReadbackIdentity(chosen.costs, payload);
     return { ...common, state: "VERIFIED", canRetry: false, errorCode: null, verifiedAt: new Date().toISOString(), fingerprint };
@@ -103,10 +104,9 @@ async function pushOnlyReceiptCosts(costs: PriceAdjustmentReceipt[]) {
   for (const cost of costs) (byBarcode[cost.barcode] ??= []).push(cost);
   const built = buildCanonicalProductMasterSnapshot({ ...receiptRecord(stored.state_payload), priceAdjustmentReceiptCache: { receiptsByBarcode: byBarcode } });
   if (built.skipped.receiptWithoutSku || built.payload.receiptCosts.length !== costs.length) throw new Error("RECEIPT_FOLLOWUP_SKU_IDENTITY_REQUIRED");
-  const catalog = await pmRead("/api/integrations/inventory-catalog");
-  const body = receiptCostOnlyPayload(costs, built.payload.receiptCosts, catalog);
+  const body = receiptCostOnlyPayload(costs, built.payload.receiptCosts, await pmRead("/api/integrations/inventory-catalog"));
   const { base, secret } = connection();
-  const response = await fetch(`${base}/api/integrations/canonical-snapshot`, {
+  const response = await fetch(`${base}/api/integrations/internal-receipt-repair`, {
     method: "POST", headers: { "content-type": "application/json", "x-commerce-os-integration-secret": secret },
     body: JSON.stringify(body), cache: "no-store", signal: AbortSignal.timeout(30_000),
   });
@@ -120,15 +120,16 @@ export async function retryInternalChinaReceiptFollowup(receiptId: string) {
   const already = await verifyRows(receiptId, rows, currentCache);
   if (already.state === "VERIFIED") return already;
   const selected = selectReceiptFollowupCosts(bundle, cachedCosts(currentCache));
+  // Re-read before modifying the local cache. Never manufacture source costs
+  // from today's draft when historical receipt evidence is missing.
+  const absent = missingReceiptCostRows(selected.costs, await readback(receiptId));
   if (selected.missing.length) {
-    // Do not resurrect pre-landed-cost snapshots after final cost closure.
     if (await loadStoredInternalChinaForwarderClose(bundle.draftId)) throw new Error("RECEIPT_FOLLOWUP_FINAL_COST_SOURCE_REQUIRED");
     await mergePriceAdjustmentReceiptCachePage({ snapshotId: currentCache?.snapshotId || "ops-confirmed-receipts-live-v1", generatedAt: new Date().toISOString(), complete: currentCache?.complete ?? true, receipts: selected.missing });
   }
-  const latest = await readPriceAdjustmentReceiptCache();
-  const effective = selectReceiptFollowupCosts(bundle, cachedCosts(latest));
-  const absent = missingReceiptCostRows(effective.costs, await readback(receiptId));
-  await pushOnlyReceiptCosts(absent);
+  const latest = selectReceiptFollowupCosts(bundle, cachedCosts(await readPriceAdjustmentReceiptCache()));
+  const absentIds = new Set(absent.map((row) => row.id));
+  await pushOnlyReceiptCosts(latest.costs.filter((row) => absentIds.has(row.id)));
   const status = await verifyRows(receiptId, rows, await readPriceAdjustmentReceiptCache());
   if (status.state !== "VERIFIED") throw new Error(status.errorCode || "RECEIPT_FOLLOWUP_NOT_VERIFIED");
   return status;

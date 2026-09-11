@@ -34,6 +34,10 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
   for (const count of [input.orderCount, input.unassignedLineCount, input.orderedQuantity, input.receivedQuantity, input.openQuantity]) {
     if (!Number.isSafeInteger(count) || count < 0) warnings.push("발주·입고 수량 원장을 확인하지 못했습니다.");
   }
+  const receiptIds = new Set(input.followups.map((row) => row.receiptId));
+  const scopedReceipts = receiptIds.size === input.followups.length && input.followups.every((row) => row.cycleMonth === input.cycleMonth && Number.isSafeInteger(row.receivedQuantity) && row.receivedQuantity > 0 && row.lineCount === row.barcodes.length && row.lineCount > 0);
+  const evidencedQuantity = input.followups.reduce((total, row) => total + row.receivedQuantity, 0);
+  if (!scopedReceipts || evidencedQuantity !== input.receivedQuantity) warnings.push("입고 원장 합계와 후속 반영 검증 범위가 일치하지 않습니다.");
   const codes = [...new Set(input.followups.flatMap((row) => row.barcodes))];
   const stockRows = codes.map((code) => input.stock.rows.filter((row) => row.barcode === code));
   const missingBaselineCount = stockRows.filter((rows) => rows.length !== 1).length;
@@ -42,7 +46,7 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
   const verifiedReceiptCount = input.followups.filter((row) => row.state === "VERIFIED").length;
   const pending = input.followups.filter((row) => row.state !== "VERIFIED");
   const receiptVerified = input.receiptState === "COMPLETE" && input.orderedQuantity > 0 && input.openQuantity === 0 && input.receivedQuantity >= input.orderedQuantity;
-  const masterVerified = input.followups.length > 0 && pending.length === 0;
+  const masterVerified = input.followups.length > 0 && pending.length === 0 && scopedReceipts && evidencedQuantity === input.receivedQuantity;
   const stages: PurchaseCycleClosureReport["stages"] = [
     { id: "order", label: "주문·발주마감", state: input.orderClosed ? "VERIFIED" : "PENDING" },
     { id: "receipt", label: "입고확정", state: receiptVerified ? "VERIFIED" : input.receivedQuantity > 0 ? "PENDING" : "NOT_STARTED" },
