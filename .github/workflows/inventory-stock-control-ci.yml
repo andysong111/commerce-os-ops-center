@@ -5,19 +5,27 @@ on:
     branches: [main]
     paths:
       - "src/lib/inventoryStockControl.ts"
+      - "src/lib/productMasterVerifiedInventoryBaselines.ts"
+      - "src/app/api/inventory-stock-control/sync/route.ts"
       - "src/lib/supabase/admin.ts"
       - "src/lib/shopling/shoplingOptionStatus.ts"
       - "public/shopling-stock-state-sync/**"
       - "tests/inventoryStockControlReentry.test.mjs"
+      - "tests/inventoryStockProductMasterBridge.test.mjs"
+      - "tests/helpers/purchaseCycleHarness.mjs"
       - "tests/supabaseAdminReadRetry.test.mjs"
       - ".github/workflows/inventory-stock-control-ci.yml"
   pull_request:
     paths:
       - "src/lib/inventoryStockControl.ts"
+      - "src/lib/productMasterVerifiedInventoryBaselines.ts"
+      - "src/app/api/inventory-stock-control/sync/route.ts"
       - "src/lib/supabase/admin.ts"
       - "src/lib/shopling/shoplingOptionStatus.ts"
       - "public/shopling-stock-state-sync/**"
       - "tests/inventoryStockControlReentry.test.mjs"
+      - "tests/inventoryStockProductMasterBridge.test.mjs"
+      - "tests/helpers/purchaseCycleHarness.mjs"
       - "tests/supabaseAdminReadRetry.test.mjs"
       - ".github/workflows/inventory-stock-control-ci.yml"
   workflow_dispatch:
@@ -40,5 +48,5 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - run: npm ci
-      - name: Run restock / ON_SALE and Supabase read-retry regression tests
-        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/supabaseAdminReadRetry.test.mjs
+      - name: Run restock / ON_SALE, Product Master bridge and Supabase read-retry regression tests
+        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/supabaseAdminReadRetry.test.mjs

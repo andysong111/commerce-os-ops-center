@@ -3,7 +3,9 @@ on:
   pull_request:
     paths:
       - 'src/lib/internalChinaReceipt*'
+      - 'src/lib/inventoryStockControl.ts'
       - 'src/lib/purchaseCycle*'
+      - 'src/lib/productMasterVerifiedInventoryBaselines.ts'
       - 'src/lib/fastPurchaseCashEnvelope.ts'
       - 'src/app/api/china-order-manager/**'
       - 'src/app/china-order-manager/layout.tsx'
@@ -34,9 +36,11 @@ jobs:
         run: >-
           npx eslint src/lib/internalChinaReceipt.ts src/lib/internalChinaReceiptFollowup.ts
           src/lib/internalChinaReceiptFollowupCore.ts src/lib/internalChinaReceiptFollowupRepair.ts
+          src/lib/inventoryStockControl.ts
           src/lib/purchaseCycleClosure.ts src/lib/purchaseCycleClosureCore.ts
           src/lib/purchaseCycleHistoricalOrderClose.ts
           src/lib/purchaseCycleStockReport.ts src/lib/purchaseCycleStockEvidence.ts
+          src/lib/productMasterVerifiedInventoryBaselines.ts
           src/lib/fastPurchaseCashEnvelope.ts
           src/app/api/china-order-manager/receipts/followup/route.ts
           src/app/api/china-order-manager/cycle-status/route.ts
