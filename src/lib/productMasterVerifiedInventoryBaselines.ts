@@ -25,6 +25,10 @@ type PlanningProduct = {
   skuActive?: unknown;
 };
 
+type ParseOptions = {
+  requireCompleteVerifiedResets?: boolean;
+};
+
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -56,6 +60,7 @@ function productKind(optionName: unknown): ShoplingStockProductKind {
 export function parseProductMasterVerifiedInventoryBaselines(
   payload: unknown,
   planningProducts: PlanningProduct[],
+  options: ParseOptions = {},
 ) {
   const root = object(payload);
   if (root.ok !== true || !Array.isArray(root.inventories)) {
@@ -70,19 +75,27 @@ export function parseProductMasterVerifiedInventoryBaselines(
   const latest = new Map<string, ProductMasterVerifiedInventoryBaseline>();
   for (const raw of root.inventories) {
     const row = object(raw);
-    if (
-      row.confirmed !== true ||
-      row.verified !== true ||
-      row.requiresReview === true ||
-      text(row.baselineKind).toUpperCase() !== "SOLD_OUT_RESET" ||
-      row.baselineQuantity !== 0
-    ) {
-      continue;
-    }
+    const authoritativeReset =
+      row.confirmed === true &&
+      row.verified === true &&
+      row.requiresReview !== true &&
+      text(row.baselineKind).toUpperCase() === "SOLD_OUT_RESET";
+    if (!authoritativeReset) continue;
+
     const code = barcode(row.barcode);
     const occurredAt = iso(row.baselineAt);
     const profile = planningByBarcode.get(code);
-    if (!code || !profile || !occurredAt) continue;
+    if (options.requireCompleteVerifiedResets === true) {
+      // A successful HTTP/root payload is not enough. If Product Master claims
+      // an authoritative zero reset, every field needed to preserve that
+      // physical fact must be complete. Otherwise purchase-cycle closure cannot
+      // safely reinterpret the row as "no baseline yet".
+      if (row.baselineQuantity !== 0 || !code || !occurredAt || !profile) {
+        throw new Error("PRODUCT_MASTER_VERIFIED_ZERO_RESET_INCOMPLETE");
+      }
+    }
+    if (row.baselineQuantity !== 0 || !code || !profile || !occurredAt) continue;
+
     const event: ProductMasterVerifiedInventoryBaseline = {
       eventId: `product-master-sold-out-reset:${code}:${occurredAt}`,
       barcode: code,
@@ -113,6 +126,7 @@ function connection() {
 
 export async function loadProductMasterVerifiedInventoryBaselines(
   planningProducts: PlanningProduct[],
+  options: ParseOptions = {},
 ) {
   const { base, secret } = connection();
   const response = await fetch(`${base}/api/integrations/inventory-snapshot`, {
@@ -130,6 +144,7 @@ export async function loadProductMasterVerifiedInventoryBaselines(
   return parseProductMasterVerifiedInventoryBaselines(
     await response.json(),
     planningProducts,
+    options,
   );
 }
 
@@ -146,23 +161,24 @@ function resetEventsFromBaselines(
   }));
 }
 
-// Purchase-cycle closure uses this strict reader. An unavailable Product Master
-// cannot be interpreted as "this SKU never had a baseline", because doing so
-// could erase an existing zero reset and bypass its sales/sync obligations.
+// Purchase-cycle closure uses this strict reader. An unavailable or incomplete
+// Product Master cannot be interpreted as "this SKU never had a baseline",
+// because doing so could erase an existing zero reset and bypass its sales/sync obligations.
 export async function loadRequiredProductMasterVerifiedZeroResetEvents(): Promise<
   InventoryStockoutResetEvent[]
 > {
   const planning = await loadProductPlanningSnapshot();
   const baselines = await loadProductMasterVerifiedInventoryBaselines(
     planning.products ?? [],
+    { requireCompleteVerifiedResets: true },
   );
   return resetEventsFromBaselines(baselines);
 }
 
 // The operational stock-control queue remains fail-soft: if Product Master is
-// temporarily unavailable it simply receives no supplemental reset and therefore
-// cannot create a new actionable exact-stock row from missing data. Purchase-cycle
-// readiness must use the strict loader above instead.
+// temporarily unavailable or incomplete it simply receives no supplemental reset
+// and therefore cannot create a new actionable exact-stock row from missing data.
+// Purchase-cycle readiness must use the strict loader above instead.
 export async function loadProductMasterVerifiedZeroResetEvents(): Promise<
   InventoryStockoutResetEvent[]
 > {
