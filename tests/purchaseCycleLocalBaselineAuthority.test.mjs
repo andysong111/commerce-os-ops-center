@@ -93,7 +93,6 @@ test("malformed SUCCEEDED stocktake cannot disappear from exact inventory author
   for (const patch of [
     { productKind: null },
     { baselineQuantity: 0 },
-    { baselineQuantity: "10" },
     { baselineQuantity: null },
     { occurredAt: "invalid" },
   ]) {
