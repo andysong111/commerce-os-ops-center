@@ -30,7 +30,10 @@ export function safeCycleSummary(status, body, month) {
   requireProof(report.followups.every((row) => ["VERIFIED", "PENDING"].includes(row?.state)), "LIVE_FOLLOWUPS_INVALID");
   requireProof(report.verifiedReceiptCount === report.followups.filter((row) => row.state === "VERIFIED").length && report.pendingReceiptCount === report.followups.filter((row) => row.state !== "VERIFIED").length, "LIVE_FOLLOWUPS_INVALID");
   if (report.state === "READY_FOR_NEXT_CALCULATION") {
-    requireProof(STAGES.filter((id) => id !== "next").every((id) => stages[id] === "VERIFIED") && stages.next === "NOT_STARTED" && report.nextAction === "OPEN_NEXT_CALCULATION" && report.receivedQuantity > 0 && report.openQuantity === 0 && report.pendingReceiptCount === 0 && report.missingBaselineCount === 0 && report.warnings.length === 0 && report.followups.length > 0, "LIVE_FALSE_COMPLETION");
+    // A missing stockout baseline is an allowed accumulation state: that SKU stays
+    // off the exact-inventory path until a real SOLD_OUT_RESET=0 is observed.
+    // Readiness still requires every existing exact baseline and sale-status obligation to be VERIFIED.
+    requireProof(STAGES.filter((id) => id !== "next").every((id) => stages[id] === "VERIFIED") && stages.next === "NOT_STARTED" && report.nextAction === "OPEN_NEXT_CALCULATION" && report.receivedQuantity > 0 && report.openQuantity === 0 && report.pendingReceiptCount === 0 && report.warnings.length === 0 && report.followups.length > 0, "LIVE_FALSE_COMPLETION");
     const receiptIds = new Set();
     let evidencedQuantity = 0;
     for (const row of report.followups) {
@@ -53,6 +56,7 @@ export function safeCycleSummary(status, body, month) {
     businessCycleReady: report.state === "READY_FOR_NEXT_CALCULATION",
     hasPendingReceipts: report.pendingReceiptCount > 0,
     hasMissingInventoryBaseline: report.missingBaselineCount > 0,
+    baselineAccumulationInProgress: report.missingBaselineCount > 0,
     hasWarnings: report.warnings.length > 0,
     actualPurchaseExecuted: false,
   };
