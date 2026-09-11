@@ -18,6 +18,7 @@ export type WarehouseCapacityLocation = {
   source: string;
   note: string;
   exitCandidate: boolean;
+  trustedExitCandidate?: boolean;
   occupants: Array<{
     skuId: string;
     modelNo: string;
@@ -27,8 +28,10 @@ export type WarehouseCapacityLocation = {
     reorderingAllowed: boolean | null;
     discontinued: boolean | null;
     clearanceStage: number | null;
+    historyMonths?: number | null;
     lastAction: string;
     shadowMode: boolean | null;
+    baselineReady?: boolean;
   }>;
 };
 
@@ -56,10 +59,16 @@ export type WarehouseCapacitySnapshot = {
   lifecycleMissingSkuCount: number;
   lifecycleShadowSkuCount: number;
   lifecycleWaitingBaselineSkuCount: number;
+  // Optional for safe rolling deployments against an older Product Master.
+  lifecycleInsufficientHistorySkuCount?: number;
   exitCandidateLocationCount: number;
+  trustedExitCandidateLocationCount?: number;
+  untrustedExitCandidateLocationCount?: number;
   exitCandidateCountTrusted: boolean;
   safeImmediateNewSkuCapacity: number | null;
   forecastNewSkuCapacity: number | null;
+  forecastIsLowerBound?: boolean;
+  forecastRequiresPhysicalRelease?: boolean;
   sourcingIntakeGate: WarehouseCapacityGate;
   settingsNote: string;
   warnings: string[];
