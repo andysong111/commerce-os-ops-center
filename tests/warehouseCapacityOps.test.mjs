@@ -136,7 +136,7 @@ test("capacity proxy keeps the Product Master secret server-side and same-origin
   assert.match(route, /configured: warehouseCapacityBridgeConfigured\(\)/);
 });
 
-test("OPS dashboard and stock page expose the warehouse capacity workflow", async () => {
+test("OPS dashboard uses the physical warehouse map as the official entry while preserving the legacy diagnostic route", async () => {
   const registry = await readFile(
     new URL("../src/lib/opsModuleRegistry.ts", import.meta.url),
     "utf8",
@@ -150,7 +150,14 @@ test("OPS dashboard and stock page expose the warehouse capacity workflow", asyn
   );
 
   assert.match(registry, /id: "warehouse-capacity"/);
-  assert.match(registry, /route: "\/warehouse-capacity"/);
-  assert.match(registry, /미확정 수치 사용 금지/);
+  assert.match(registry, /title: "창고 지도·위치코드 관리"/);
+  assert.match(
+    registry,
+    /route: "https:\/\/storage-organization\.vercel\.app\/warehouse-map\/index\.html"/,
+  );
+  assert.match(registry, /externalProject: true/);
+  assert.match(registry, /1,164개 물리 수납칸/);
+  assert.match(registry, /미실사 공간 자동배정 금지/);
+  assert.match(registry, /미확인·점유추정 칸은 실물 확인 전 빈자리로 계산하지 않으며/);
   assert.match(stockPage, /href="\/warehouse-capacity"/);
 });
