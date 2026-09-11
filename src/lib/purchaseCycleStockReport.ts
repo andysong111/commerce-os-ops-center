@@ -4,13 +4,17 @@ import { overlayInventoryStockControlReportWithTail, loadLatestInventoryStockSal
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
-import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
+import { loadRequiredProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
 import { loadStage8CanonicalSalesEventSnapshot } from "@/lib/stage8CanonicalSalesEventSnapshot";
 import { validatePurchaseCycleStockEvidence } from "@/lib/purchaseCycleStockEvidence";
 
 async function resolved() {
+  // Purchase-cycle readiness must distinguish "no baseline exists" from
+  // "baseline authority could not be read". The required loader throws on
+  // Product Master unavailability; the API then fails closed instead of treating
+  // an existing zero reset as if it never existed.
   const supplementalResetEvents =
-    await loadProductMasterVerifiedZeroResetEvents();
+    await loadRequiredProductMasterVerifiedZeroResetEvents();
   const localSeeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
     await loadInventoryStockControlReport({ supplementalResetEvents }),
   );
