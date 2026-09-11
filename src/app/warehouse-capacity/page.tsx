@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { LifecycleReadinessPanel } from "./LifecycleReadinessPanel";
 import { WarehouseCapacityClient } from "./WarehouseCapacityClient";
+import { WarehouseIntakePreflightPanel } from "./WarehouseIntakePreflightPanel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,7 +13,7 @@ export default function WarehouseCapacityPage() {
       <PageHeader
         eyebrow="COMMERCE OS · 창고 운영"
         title="창고 위치·수용능력"
-        description="전체 물리 위치코드, 현재 점유, 빈 위치, 단종·정리 후보를 하나의 원장으로 관리합니다. 전체 위치 목록과 생애주기 기준이 확정되기 전에는 수용률과 신규 소싱 가능 수량을 숫자로 확정하지 않습니다."
+        description="전체 물리 위치코드, 현재 점유, 빈 위치, 단종·정리 후보를 관리합니다. 실제 빈 공간과 정리 완료를 가정한 공간을 구분하며, 신규 상품·옵션의 위치 수를 실제 발주 없이 사전점검합니다. 전체 위치 목록 미확정 시 수용량 판단은 보류합니다."
         actions={
           <Link
             href="/china-order-manager/stock-control"
@@ -22,6 +23,7 @@ export default function WarehouseCapacityPage() {
           </Link>
         }
       />
+      <WarehouseIntakePreflightPanel />
       <LifecycleReadinessPanel />
       <WarehouseCapacityClient />
     </div>
