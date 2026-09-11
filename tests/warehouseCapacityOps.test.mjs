@@ -1,104 +1,112 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-
 import {
-  warehouseCapacityBridgeConfigured,
+  WAREHOUSE_CAPACITY_ALLOWED_ACTIONS,
+  WarehouseCapacityBridgeError,
+  getWarehouseCapacitySnapshot,
   isWarehouseCapacityWriteAction,
+  warehouseCapacityBridgeConfigured,
 } from "../src/lib/warehouseCapacityBridge.ts";
 
-const originalFetch = global.fetch;
-
-function withEnv(patch, fn) {
-  const before = {};
-  for (const [key, value] of Object.entries(patch)) {
-    before[key] = process.env[key];
-    if (value == null) delete process.env[key];
-    else process.env[key] = value;
-  }
-  return Promise.resolve(fn()).finally(() => {
-    for (const [key, value] of Object.entries(before)) {
-      if (value == null) delete process.env[key];
-      else process.env[key] = value;
-    }
-  });
-}
-
-test.afterEach(() => {
-  global.fetch = originalFetch;
-});
-
 test("OPS capacity bridge fails closed when the server integration secret is absent", async () => {
-  const { getWarehouseCapacitySnapshot } = await import(
-    "../src/lib/warehouseCapacityBridge.ts"
-  );
-  await withEnv(
-    {
-      PRODUCT_MASTER_BASE_URL: "https://product-master.example.com",
-      PRODUCT_MASTER_INTEGRATION_SECRET: null,
-    },
-    async () => {
-      assert.equal(warehouseCapacityBridgeConfigured(), false);
-      await assert.rejects(
-        () => getWarehouseCapacitySnapshot(),
-        (error) => error?.code === "WAREHOUSE_CAPACITY_NOT_CONFIGURED",
-      );
-    },
-  );
+  const previous = process.env.PRODUCT_MASTER_INTEGRATION_SECRET;
+  delete process.env.PRODUCT_MASTER_INTEGRATION_SECRET;
+  try {
+    assert.equal(warehouseCapacityBridgeConfigured(), false);
+    await assert.rejects(
+      () => getWarehouseCapacitySnapshot(),
+      (error) => {
+        assert.equal(error instanceof WarehouseCapacityBridgeError, true);
+        assert.equal(error.code, "PRODUCT_MASTER_INTEGRATION_NOT_CONFIGURED");
+        assert.equal(error.status, 503);
+        return true;
+      },
+    );
+  } finally {
+    if (previous === undefined) delete process.env.PRODUCT_MASTER_INTEGRATION_SECRET;
+    else process.env.PRODUCT_MASTER_INTEGRATION_SECRET = previous;
+  }
 });
 
 test("OPS capacity proxy exposes only the three metadata actions", () => {
-  assert.equal(isWarehouseCapacityWriteAction("register_locations"), true);
-  assert.equal(isWarehouseCapacityWriteAction("update_settings"), true);
-  assert.equal(isWarehouseCapacityWriteAction("register_active_location_codes"), true);
-  assert.equal(isWarehouseCapacityWriteAction("delete_locations"), false);
-  assert.equal(isWarehouseCapacityWriteAction("reserve"), false);
+  assert.deepEqual(WAREHOUSE_CAPACITY_ALLOWED_ACTIONS, [
+    "register_slots",
+    "set_slot_allocatable",
+    "set_registry_status",
+  ]);
+  assert.equal(isWarehouseCapacityWriteAction("register_slots"), true);
+  assert.equal(isWarehouseCapacityWriteAction("set_slot_allocatable"), true);
+  assert.equal(isWarehouseCapacityWriteAction("set_registry_status"), true);
+  assert.equal(isWarehouseCapacityWriteAction("confirm_stock_quantity"), false);
+  assert.equal(isWarehouseCapacityWriteAction("sync_shopling"), false);
+  assert.equal(isWarehouseCapacityWriteAction("delete_slot"), false);
 });
 
 test("warehouse UI never turns an incomplete registry into a numeric occupancy or sourcing capacity", async () => {
-  const source = await readFile(
+  const ui = await readFile(
     new URL(
       "../src/app/warehouse-capacity/WarehouseCapacityClient.tsx",
       import.meta.url,
     ),
     "utf8",
   );
-  assert.match(source, /registryComplete/);
-  assert.match(source, /기준 위치 원장 미확정/);
-  assert.match(source, /확정 전에는 사용률·여유칸·신규 소싱 가능 칸을 숫자로 표시하지 않습니다/);
-  assert.doesNotMatch(source, /\?\?\s*0/);
+
+  assert.match(ui, /snapshot\.occupancyRate === null\s*\? "미확정"/);
+  assert.match(ui, /formatNumber\(snapshot\.safeImmediateNewSkuCapacity\)/);
+  assert.match(ui, /formatNumber\(snapshot\.forecastNewSkuCapacity\)/);
+  assert.match(ui, /전체 물리 위치 목록과 상품 생애주기 원장이 확정된 뒤에만/);
+  assert.match(ui, /현재 사용 중 코드만으로 빈 위치를 추정하지 않고/);
+  assert.doesNotMatch(ui, /maxBay|maxSlot|parseInt\([^)]*location|BBA\d\+.*capacity/i);
 });
 
 test("lifecycle readiness panel exposes missing, shadow, and baseline blockers without auto-promoting them", async () => {
-  const source = await readFile(
+  const bridge = await readFile(
+    new URL("../src/lib/warehouseCapacityBridge.ts", import.meta.url),
+    "utf8",
+  );
+  const panel = await readFile(
     new URL(
-      "../src/app/warehouse-capacity/WarehouseCapacityClient.tsx",
+      "../src/app/warehouse-capacity/LifecycleReadinessPanel.tsx",
       import.meta.url,
     ),
     "utf8",
   );
-  assert.match(source, /lifecycleMissing/);
-  assert.match(source, /lifecycleShadow/);
-  assert.match(source, /lifecyclePendingBaseline/);
-  assert.match(source, /등급 미연결/);
-  assert.match(source, /Shadow 등급/);
-  assert.match(source, /Baseline 대기/);
+  const page = await readFile(
+    new URL("../src/app/warehouse-capacity/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  for (const field of [
+    "lifecycleAuthoritativeSkuCount",
+    "lifecycleMissingSkuCount",
+    "lifecycleShadowSkuCount",
+    "lifecycleWaitingBaselineSkuCount",
+  ]) {
+    assert.match(bridge, new RegExp(`${field}: number`));
+    assert.match(panel, new RegExp(`snapshot\\.${field}`));
+  }
+  assert.match(panel, /FAIL-CLOSED/);
+  assert.match(panel, /그림자 모드와 기준선 대기는 실제 단종 결정을 실행하지 않는 안전 단계/);
+  assert.doesNotMatch(panel, /set_registry_status|shadowMode:\s*false|WAITING_BASELINE.*HOLD/);
+  assert.match(page, /<LifecycleReadinessPanel \/>/);
 });
 
 test("failed warehouse mutations preserve operator input for correction and retry", async () => {
-  const source = await readFile(
+  const ui = await readFile(
     new URL(
       "../src/app/warehouse-capacity/WarehouseCapacityClient.tsx",
       import.meta.url,
     ),
     "utf8",
   );
-  assert.match(source, /catch \(error\)/);
-  assert.match(source, /setErrorMessage/);
-  assert.doesNotMatch(
-    source,
-    /catch \(error\)[\s\S]{0,220}(?:setRegisterText\(""\)|setReplaceText\(""\))/,
-  );
+
+  assert.match(ui, /setMessage\(successMessage\);\s*return true;/);
+  assert.match(ui, /setError\([\s\S]*?return false;/);
+  assert.match(ui, /if \(ok\) setSlotCodes\(""\)/);
+  assert.match(ui, /if \(ok\) setAllocationCodes\(""\)/);
+  assert.match(ui, /if \(ok\) setRegistryConfirmation\(""\)/);
+  assert.doesNotMatch(ui, /\.then\(\(\) => setSlotCodes\(""\)\)/);
 });
 
 test("capacity proxy keeps the Product Master secret server-side and same-origin guarded", async () => {
