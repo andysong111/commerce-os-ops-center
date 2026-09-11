@@ -35,6 +35,7 @@ jobs:
           npx eslint src/lib/internalChinaReceipt.ts src/lib/internalChinaReceiptFollowup.ts
           src/lib/internalChinaReceiptFollowupCore.ts src/lib/internalChinaReceiptFollowupRepair.ts
           src/lib/purchaseCycleClosure.ts src/lib/purchaseCycleClosureCore.ts
+          src/lib/purchaseCycleHistoricalOrderClose.ts
           src/lib/purchaseCycleStockReport.ts src/lib/purchaseCycleStockEvidence.ts
           src/lib/fastPurchaseCashEnvelope.ts
           src/app/api/china-order-manager/receipts/followup/route.ts
