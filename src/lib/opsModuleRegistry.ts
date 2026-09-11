@@ -29,6 +29,25 @@ const inventoryStockOperationsModule: CommerceModule = {
   safetyBadge: "실물확인 기준",
 };
 
+const warehouseCapacityModule: CommerceModule = {
+  id: "warehouse-capacity",
+  title: "창고 위치·수용능력",
+  navigationLabel: "창고 위치·수용능력",
+  description:
+    "전체 물리 위치코드와 현재 점유를 분리 관리하고, 빈 위치·정리 후보·신규 SKU 수용 가능량을 안전하게 계산합니다.",
+  status: "available",
+  route: "/warehouse-capacity",
+  category: "창고 운영",
+  inputType: "전체 물리 위치코드, 현재 SKU 위치, 생애주기 상태, 예약 버퍼",
+  outputType: "점유·빈 위치, 수용률, 정리 후보, 즉시·예상 신규 SKU 수용량",
+  historySupport: true,
+  externalProject: false,
+  note: "현재 SKU 코드 패턴으로 빈 위치를 추정하지 않습니다. 전체 물리 위치 목록과 생애주기 기준이 확정되기 전에는 수용률과 신규 소싱 상한을 잠급니다.",
+  helperNote: "물리 위치 원장 · fail-closed",
+  actionLabel: "창고 수용능력 열기",
+  safetyBadge: "미확정 수치 사용 금지",
+};
+
 const isolatedBaseModules: readonly CommerceModule[] = extendedModuleRegistry.map(
   (module) => {
     if (module.id === "sourcing-engine") {
@@ -73,6 +92,7 @@ const isolatedBaseModules: readonly CommerceModule[] = extendedModuleRegistry.ma
 export const opsModuleRegistry: readonly CommerceModule[] = [
   reliabilityLearningModule,
   inventoryStockOperationsModule,
+  warehouseCapacityModule,
   ...isolatedBaseModules,
   legacySeoBulkCloudModule,
   keywordEngineElonLabModule,
