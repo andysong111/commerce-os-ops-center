@@ -1,7 +1,5 @@
-import { createHash } from "node:crypto";
 import type {
-  ExactInventoryAfterReset,
-  InventoryStockControlReport,
+  InventoryStockoutResetEvent,
   ShoplingStockProductKind,
 } from "@/lib/inventoryStockControl";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
@@ -24,9 +22,7 @@ type PlanningProduct = {
   barcode?: unknown;
   modelNo?: unknown;
   optionName?: unknown;
-  productName?: unknown;
   skuActive?: unknown;
-  listings?: Array<{ goodsKey?: unknown; active?: unknown }>;
 };
 
 function object(value: unknown): Record<string, unknown> {
@@ -79,7 +75,7 @@ export function parseProductMasterVerifiedInventoryBaselines(
       row.verified !== true ||
       row.requiresReview === true ||
       text(row.baselineKind).toUpperCase() !== "SOLD_OUT_RESET" ||
-      Number(row.baselineQuantity) !== 0
+      row.baselineQuantity !== 0
     ) {
       continue;
     }
@@ -137,116 +133,28 @@ export async function loadProductMasterVerifiedInventoryBaselines(
   );
 }
 
-function fingerprint(rows: ExactInventoryAfterReset[]) {
-  return `sha256:${createHash("sha256")
-    .update(
-      JSON.stringify(
-        rows.map((row) => [
-          row.barcode,
-          row.resetEventId,
-          row.resetAt,
-          row.exactInventoryQuantity,
-          row.salesCoverageReady,
-        ]),
-      ),
-    )
-    .digest("hex")}`;
-}
-
 // Product Master VERIFIED zero resets are already user-backed physical facts.
-// Reuse them as read-only baselines so the operator is not asked to reconfirm
-// the same zero stock. Positive stocktakes are intentionally excluded here:
-// the local OPS stocktake path remains authoritative for non-zero quantities.
-export async function overlayProductMasterVerifiedZeroBaselines(
-  report: InventoryStockControlReport,
-): Promise<InventoryStockControlReport> {
-  let planning: Awaited<ReturnType<typeof loadProductPlanningSnapshot>>;
+// Convert only those zero facts into optional read-only reset events. They are
+// fed into the normal inventory engine, which recomputes receipts + canonical
+// sales after the reset. Any Product Master read failure simply contributes no
+// supplemental evidence and can never manufacture stock readiness.
+export async function loadProductMasterVerifiedZeroResetEvents(): Promise<
+  InventoryStockoutResetEvent[]
+> {
   try {
-    planning = await loadProductPlanningSnapshot();
-  } catch {
-    return report;
-  }
-  let baselines: Map<string, ProductMasterVerifiedInventoryBaseline>;
-  try {
-    baselines = await loadProductMasterVerifiedInventoryBaselines(
+    const planning = await loadProductPlanningSnapshot();
+    const baselines = await loadProductMasterVerifiedInventoryBaselines(
       planning.products ?? [],
     );
-  } catch {
-    return report;
-  }
-  if (!baselines.size) return report;
-
-  const planningByBarcode = new Map(
-    (planning.products ?? [])
-      .filter((row) => row.skuActive !== false)
-      .map((row) => [barcode(row.barcode), row] as const)
-      .filter(([code]) => Boolean(code)),
-  );
-  const rowsByBarcode = new Map(report.rows.map((row) => [row.barcode, row]));
-
-  for (const baseline of baselines.values()) {
-    const current = rowsByBarcode.get(baseline.barcode) ?? null;
-    if (
-      current &&
-      Date.parse(current.resetAt) >= Date.parse(baseline.occurredAt)
-    ) {
-      continue;
-    }
-    const profile = planningByBarcode.get(baseline.barcode);
-    if (!profile) continue;
-    const goodsKeys = [
-      ...new Set(
-        (profile.listings ?? [])
-          .filter((listing) => listing.active !== false)
-          .map((listing) => text(listing.goodsKey))
-          .filter((value) => /^\d+$/.test(value)),
-      ),
-    ].sort((left, right) => Number(left) - Number(right));
-
-    rowsByBarcode.set(baseline.barcode, {
+    return [...baselines.values()].map((baseline) => ({
+      eventId: baseline.eventId,
       barcode: baseline.barcode,
-      productName: text(profile.productName) || baseline.barcode,
-      optionName: text(profile.optionName) || null,
-      modelNo: baseline.modelNo,
-      goodsKeys,
       productKind: baseline.productKind,
-      resetAt: baseline.occurredAt,
-      resetEventId: baseline.eventId,
-      receivedSinceReset: 0,
-      soldSinceReset: 0,
-      exactInventoryQuantity: 0,
-      recent30StockoutDays: 0,
-      desiredStatus: "SOLD_OUT",
-      desiredSince: baseline.occurredAt,
-      salesCoverageReady: false,
-      receiptEvidenceCount: 0,
-      salesEvidenceCount: 0,
-      latestSyncOutcome: null,
-      latestSyncAt: null,
-      syncNeeded: true,
-      syncBlocked: true,
-      syncBlockReason:
-        "Product Master의 확인된 재고 0 기준점 이후 판매범위를 최신화해야 합니다.",
-    });
+      modelNo: baseline.modelNo,
+      occurredAt: baseline.occurredAt,
+      note: baseline.note,
+    }));
+  } catch {
+    return [];
   }
-
-  const rows = [...rowsByBarcode.values()].sort((left, right) =>
-    left.barcode.localeCompare(right.barcode, "ko"),
-  );
-  return {
-    ...report,
-    rows,
-    resetCount: rows.length,
-    exactCount: rows.filter((row) => row.salesCoverageReady).length,
-    soldOutCount: rows.filter(
-      (row) => row.salesCoverageReady && row.desiredStatus === "SOLD_OUT",
-    ).length,
-    onSaleCount: rows.filter(
-      (row) => row.salesCoverageReady && row.desiredStatus === "ON_SALE",
-    ).length,
-    pendingSyncCount: rows.filter(
-      (row) => row.salesCoverageReady && row.syncNeeded && !row.syncBlocked,
-    ).length,
-    fingerprint: fingerprint(rows),
-  };
 }
