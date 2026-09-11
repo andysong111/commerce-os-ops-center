@@ -43,7 +43,7 @@ test("OPS capacity proxy exposes only the three metadata actions", () => {
   assert.equal(isWarehouseCapacityWriteAction("delete_slot"), false);
 });
 
-test("warehouse UI never turns an incomplete registry into a numeric occupancy or sourcing capacity", async () => {
+test("warehouse UI never turns an incomplete physical registry into numeric capacity", async () => {
   const ui = await readFile(
     new URL(
       "../src/app/warehouse-capacity/WarehouseCapacityClient.tsx",
@@ -55,12 +55,12 @@ test("warehouse UI never turns an incomplete registry into a numeric occupancy o
   assert.match(ui, /snapshot\.occupancyRate === null\s*\? "미확정"/);
   assert.match(ui, /formatNumber\(snapshot\.safeImmediateNewSkuCapacity\)/);
   assert.match(ui, /formatNumber\(snapshot\.forecastNewSkuCapacity\)/);
-  assert.match(ui, /전체 물리 위치 목록과 상품 생애주기 원장이 확정된 뒤에만/);
+  assert.match(ui, /전체 물리 위치 목록이 확정되고 위치 충돌이 없어야/);
   assert.match(ui, /현재 사용 중 코드만으로 빈 위치를 추정하지 않고/);
   assert.doesNotMatch(ui, /maxBay|maxSlot|parseInt\([^)]*location|BBA\d\+.*capacity/i);
 });
 
-test("lifecycle readiness panel exposes missing, shadow, and baseline blockers without auto-promoting them", async () => {
+test("lifecycle readiness separates six-month analytical baseline from shadow execution", async () => {
   const bridge = await readFile(
     new URL("../src/lib/warehouseCapacityBridge.ts", import.meta.url),
     "utf8",
@@ -82,14 +82,36 @@ test("lifecycle readiness panel exposes missing, shadow, and baseline blockers w
     "lifecycleMissingSkuCount",
     "lifecycleShadowSkuCount",
     "lifecycleWaitingBaselineSkuCount",
+    "lifecycleInsufficientHistorySkuCount",
+    "trustedExitCandidateLocationCount",
+    "untrustedExitCandidateLocationCount",
   ]) {
     assert.match(bridge, new RegExp(`${field}: number`));
     assert.match(panel, new RegExp(`snapshot\\.${field}`));
   }
-  assert.match(panel, /FAIL-CLOSED/);
-  assert.match(panel, /그림자 모드와 기준선 대기는 실제 단종 결정을 실행하지 않는 안전 단계/);
+  assert.match(bridge, /forecastIsLowerBound: boolean/);
+  assert.match(panel, /6개월 기준선 충족/);
+  assert.match(panel, /그림자 모드는 가격·발주 자동실행을 막는 별도 안전장치/);
+  assert.match(panel, /보수적 하한값/);
   assert.doesNotMatch(panel, /set_registry_status|shadowMode:\s*false|WAITING_BASELINE.*HOLD/);
   assert.match(page, /<LifecycleReadinessPanel \/>/);
+});
+
+test("capacity UI includes only trusted exits in forecast and labels incomplete lifecycle as a lower bound", async () => {
+  const ui = await readFile(
+    new URL(
+      "../src/app/warehouse-capacity/WarehouseCapacityClient.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(ui, /snapshot\.trustedExitCandidateLocationCount/);
+  assert.match(ui, /snapshot\.forecastIsLowerBound/);
+  assert.match(ui, /보수적 하한값/);
+  assert.match(ui, /정리 후보 · 예측 포함/);
+  assert.match(ui, /정리 후보 · 기준선 대기/);
+  assert.match(ui, /실제로 비어 있는 위치 - 예약 버퍼 · 정리 예정 공간 미포함/);
 });
 
 test("failed warehouse mutations preserve operator input for correction and retry", async () => {
