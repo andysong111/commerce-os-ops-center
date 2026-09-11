@@ -1,0 +1,35 @@
+name: AAA169 Production Preflight Probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/aaa169-production-preflight-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Invoke production AAA169 preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          response_file="$(mktemp)"
+          status="$(curl --silent --show-error --max-time 300 \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request POST \
+            'https://commerce-os-ops-center.vercel.app/api/legacy-seo-preflight' \
+            --header 'Content-Type: application/json' \
+            --header 'Origin: https://commerce-os-ops-center.vercel.app' \
+            --header 'Sec-Fetch-Site: same-origin' \
+            --data '{"itemIds":["044cf0ea-70eb-4904-9cc6-2756a48f8662"]}')"
+          echo "HTTP_STATUS=$status"
+          cat "$response_file"
+          echo
+          if [[ "$status" != "200" && "$status" != "422" ]]; then
+            exit 1
+          fi
