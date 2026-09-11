@@ -30,7 +30,7 @@ export function safeCycleSummary(status, body, month) {
   requireProof(report.followups.every((row) => ["VERIFIED", "PENDING"].includes(row?.state)), "LIVE_FOLLOWUPS_INVALID");
   requireProof(report.verifiedReceiptCount === report.followups.filter((row) => row.state === "VERIFIED").length && report.pendingReceiptCount === report.followups.filter((row) => row.state !== "VERIFIED").length, "LIVE_FOLLOWUPS_INVALID");
   if (report.state === "READY_FOR_NEXT_CALCULATION") {
-    requireProof(STAGES.filter((id) => id !== "next").every((id) => stages[id] === "VERIFIED") && report.nextAction === "OPEN_NEXT_CALCULATION" && report.receivedQuantity > 0 && report.openQuantity === 0 && report.pendingReceiptCount === 0 && report.missingBaselineCount === 0 && report.warnings.length === 0 && report.followups.length > 0, "LIVE_FALSE_COMPLETION");
+    requireProof(STAGES.filter((id) => id !== "next").every((id) => stages[id] === "VERIFIED") && stages.next === "NOT_STARTED" && report.nextAction === "OPEN_NEXT_CALCULATION" && report.receivedQuantity > 0 && report.openQuantity === 0 && report.pendingReceiptCount === 0 && report.missingBaselineCount === 0 && report.warnings.length === 0 && report.followups.length > 0, "LIVE_FALSE_COMPLETION");
     requireProof(report.followups.every((row) => row.cycleMonth === month && row.state === "VERIFIED" && /^sha256:[a-f0-9]{64}$/.test(row.fingerprint) && Number.isFinite(Date.parse(row.verifiedAt))), "LIVE_FALSE_COMPLETION");
   }
   if (report.state === "NO_ORDER_CLOSED") {

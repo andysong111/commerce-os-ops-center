@@ -58,3 +58,30 @@ test("deployment waiter uses exact SHA, a fixed read endpoint and waits for succ
   await assert.rejects(waitForProduction("bad", "fixture-token", async () => { throw new Error("must not fetch"); }), /LIVE_DEPLOYMENT_CONTEXT_REQUIRED/);
   await assert.rejects(waitForProduction(sha, "fixture-token", async () => Response.json({ statuses: [{ context: "Vercel", state: "failure" }] })), /LIVE_DEPLOYMENT_FAILED/);
 });
+
+test("ready-for-next-calculation must not certify the next calculation itself as started or completed", () => {
+  const ready = fixture();
+  Object.assign(ready.report, {
+    state: "READY_FOR_NEXT_CALCULATION", nextAction: "OPEN_NEXT_CALCULATION",
+    verifiedReceiptCount: 1, pendingReceiptCount: 0, missingBaselineCount: 0, warnings: [],
+    followups: [{ state: "VERIFIED", cycleMonth: month, fingerprint: `sha256:${"a".repeat(64)}`, verifiedAt: "2026-09-11T12:00:00.000Z" }],
+  });
+  ready.report.stages.forEach((stage) => { stage.state = stage.id === "next" ? "NOT_STARTED" : "VERIFIED"; });
+  assert.equal(safeCycleSummary(200, ready, month).businessCycleReady, true);
+  for (const invalidState of ["PENDING", "VERIFIED"]) {
+    ready.report.stages.find((stage) => stage.id === "next").state = invalidState;
+    assert.throws(() => safeCycleSummary(200, ready, month), /LIVE_FALSE_COMPLETION/);
+  }
+});
+
+test("a genuine no-order close remains distinct from an executed receipt cycle", () => {
+  const empty = fixture();
+  Object.assign(empty.report, {
+    state: "NO_ORDER_CLOSED", nextAction: "OPEN_NEXT_CALCULATION", receivedQuantity: 0,
+    verifiedReceiptCount: 0, pendingReceiptCount: 0, missingBaselineCount: 0, warnings: [], followups: [],
+  });
+  empty.report.stages.forEach((stage) => { stage.state = stage.id === "order" ? "VERIFIED" : "NOT_STARTED"; });
+  const summary = safeCycleSummary(200, empty, month);
+  assert.equal(summary.readbackVerified, true); assert.equal(summary.businessCycleReady, false);
+  assert.equal(summary.actualPurchaseExecuted, false);
+});
