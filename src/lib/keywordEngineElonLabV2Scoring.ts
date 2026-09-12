@@ -140,6 +140,11 @@ async function callScoreOpenAi(input: {
       body: JSON.stringify({
         model,
         store: false,
+        // Bound GPT-5 reasoning latency for small structured scoring batches.
+        // Unknown/custom models keep their existing request parameters.
+        ...(/^gpt-5(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2})?$/.test(model)
+          ? { reasoning: { effort: "low" } }
+          : {}),
         max_output_tokens: 3_000,
         input: [
           {
