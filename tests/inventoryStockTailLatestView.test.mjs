@@ -145,28 +145,60 @@ test("latest Tail projection failure is fail-closed and never falls back to a fu
   assert.deepEqual(calls.tables, ["commerce_inventory_latest_tail_snapshots"]);
 });
 
-test("Tail projection normalizes analysisAsOf before winner selection, keeps the append-only ledger and restricts reads", () => {
-  const initial = readFileSync(
-    "supabase/migrations/202609130001_inventory_tail_latest_view.sql",
-    "utf8",
-  );
-  const correction = readFileSync(
-    "supabase/migrations/202609130002_inventory_tail_latest_normalized_time.sql",
-    "utf8",
-  );
+function readMigration(name) {
+  return readFileSync(`supabase/migrations/${name}`, "utf8");
+}
 
-  for (const migration of [initial, correction]) {
-    assert.match(migration, /commerce_inventory_try_iso_timestamptz/);
-    assert.match(migration, /returns timestamptz/i);
-    assert.match(migration, /value::timestamptz/i);
-    assert.match(migration, /exception when others[\s\S]*return null/i);
-    assert.match(migration, /commerce_operation_runs_tail_reset_analysis_ts_idx/);
-    assert.match(migration, /INVENTORY_STOCK_SALES_TAIL_EVENT/);
-    assert.match(migration, /create or replace view public\.commerce_inventory_latest_tail_snapshots/i);
-    assert.match(migration, /distinct on \(reset_event_id\)/i);
-    assert.match(migration, /analysis_at desc[\s\S]*started_at desc/i);
-    assert.match(migration, /revoke all[\s\S]*from public, anon, authenticated/i);
-    assert.match(migration, /grant select[\s\S]*to service_role/i);
-    assert.doesNotMatch(migration, /delete\s+from\s+public\.commerce_operation_runs/i);
+function assertFinalProjectionValidation(migration) {
+  assert.match(migration, /commerce_inventory_try_iso_timestamptz/);
+  assert.match(migration, /returns timestamptz/i);
+  assert.match(migration, /value::timestamptz/i);
+  assert.match(migration, /exception when others[\s\S]*return null/i);
+  assert.match(migration, /create or replace view public\.commerce_inventory_latest_tail_snapshots/i);
+  assert.match(migration, /distinct on \(reset_event_id\)/i);
+  assert.match(migration, /jsonb_typeof\(result_snapshot->'snapshot'\) = 'object'/i);
+  assert.match(migration, /btrim\(normalize\(snapshot_payload->>'resetEventId', NFKC\)\)/i);
+  assert.match(migration, /normalize\(snapshot_payload->>'barcode', NFKC\)/i);
+  assert.match(migration, /normalized_barcode ~ '\^B\[A-Z\]\{1,2\}\[0-9\]\+-\[0-9\]\+\$'/i);
+  assert.match(migration, /snapshot_payload->>'resetAt'[\s\S]*as reset_at/i);
+  assert.match(migration, /snapshot_payload->>'analysisAsOf'[\s\S]*as analysis_at/i);
+  assert.match(migration, /reset_at is not null[\s\S]*analysis_at is not null[\s\S]*order by reset_event_id, analysis_at desc/i);
+  assert.match(migration, /revoke all[\s\S]*from public, anon, authenticated/i);
+  assert.match(migration, /grant select[\s\S]*to service_role/i);
+  assert.doesNotMatch(migration, /delete\s+from\s+public\.commerce_operation_runs/i);
+}
+
+test("every Tail projection definition validates reset identity, barcode, resetAt and analysisAsOf before choosing a winner", () => {
+  const migrations = [
+    "202609130001_inventory_tail_latest_view.sql",
+    "202609130002_inventory_tail_latest_normalized_time.sql",
+    "202609130003_inventory_tail_latest_snapshot_validation.sql",
+  ].map(readMigration);
+
+  for (const migration of migrations) assertFinalProjectionValidation(migration);
+});
+
+test("Tail convergence migrations remove every stale rollout index before recreating the canonical index", () => {
+  for (const name of [
+    "202609130002_inventory_tail_latest_normalized_time.sql",
+    "202609130003_inventory_tail_latest_snapshot_validation.sql",
+  ]) {
+    const migration = readMigration(name);
+    assert.match(
+      migration,
+      /drop index if exists public\.commerce_operation_runs_tail_reset_started_idx/i,
+    );
+    assert.match(
+      migration,
+      /drop index if exists public\.commerce_operation_runs_tail_reset_analysis_idx/i,
+    );
+    assert.match(
+      migration,
+      /drop index if exists public\.commerce_operation_runs_tail_reset_analysis_ts_idx/i,
+    );
+    assert.match(
+      migration,
+      /create index commerce_operation_runs_tail_reset_analysis_ts_idx/i,
+    );
   }
 });
