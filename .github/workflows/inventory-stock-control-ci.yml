@@ -14,6 +14,7 @@ on:
       - "supabase/migrations/202609130001_inventory_tail_latest_view.sql"
       - "supabase/migrations/202609130002_inventory_tail_latest_normalized_time.sql"
       - "supabase/migrations/202609130003_inventory_tail_latest_snapshot_validation.sql"
+      - "supabase/migrations/202609130004_inventory_tail_latest_snapshot_cache.sql"
       - "public/shopling-stock-state-sync/**"
       - "tests/inventoryStockControlReentry.test.mjs"
       - "tests/inventoryStockProductMasterBridge.test.mjs"
@@ -34,6 +35,7 @@ on:
       - "supabase/migrations/202609130001_inventory_tail_latest_view.sql"
       - "supabase/migrations/202609130002_inventory_tail_latest_normalized_time.sql"
       - "supabase/migrations/202609130003_inventory_tail_latest_snapshot_validation.sql"
+      - "supabase/migrations/202609130004_inventory_tail_latest_snapshot_cache.sql"
       - "public/shopling-stock-state-sync/**"
       - "tests/inventoryStockControlReentry.test.mjs"
       - "tests/inventoryStockProductMasterBridge.test.mjs"
@@ -94,7 +96,8 @@ jobs:
           for migration in \
             supabase/migrations/202609130001_inventory_tail_latest_view.sql \
             supabase/migrations/202609130002_inventory_tail_latest_normalized_time.sql \
-            supabase/migrations/202609130003_inventory_tail_latest_snapshot_validation.sql
+            supabase/migrations/202609130003_inventory_tail_latest_snapshot_validation.sql \
+            supabase/migrations/202609130004_inventory_tail_latest_snapshot_cache.sql
           do
             docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 \
               psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "/workspace/$migration"
