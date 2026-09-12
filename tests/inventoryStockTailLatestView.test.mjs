@@ -145,18 +145,28 @@ test("latest Tail projection failure is fail-closed and never falls back to a fu
   assert.deepEqual(calls.tables, ["commerce_inventory_latest_tail_snapshots"]);
 });
 
-test("Tail projection migration preserves analysisAsOf winner semantics, keeps the append-only ledger and restricts reads", () => {
-  const migration = readFileSync(
+test("Tail projection normalizes analysisAsOf before winner selection, keeps the append-only ledger and restricts reads", () => {
+  const initial = readFileSync(
     "supabase/migrations/202609130001_inventory_tail_latest_view.sql",
     "utf8",
   );
+  const correction = readFileSync(
+    "supabase/migrations/202609130002_inventory_tail_latest_normalized_time.sql",
+    "utf8",
+  );
 
-  assert.match(migration, /commerce_operation_runs_tail_reset_analysis_idx/);
-  assert.match(migration, /INVENTORY_STOCK_SALES_TAIL_EVENT/);
-  assert.match(migration, /create or replace view public\.commerce_inventory_latest_tail_snapshots/i);
-  assert.match(migration, /distinct on \(reset_event_id\)/i);
-  assert.match(migration, /analysis_as_of desc[\s\S]*started_at desc/i);
-  assert.match(migration, /revoke all[\s\S]*from public, anon, authenticated/i);
-  assert.match(migration, /grant select[\s\S]*to service_role/i);
-  assert.doesNotMatch(migration, /delete\s+from\s+public\.commerce_operation_runs/i);
+  for (const migration of [initial, correction]) {
+    assert.match(migration, /commerce_inventory_try_iso_timestamptz/);
+    assert.match(migration, /returns timestamptz/i);
+    assert.match(migration, /value::timestamptz/i);
+    assert.match(migration, /exception when others[\s\S]*return null/i);
+    assert.match(migration, /commerce_operation_runs_tail_reset_analysis_ts_idx/);
+    assert.match(migration, /INVENTORY_STOCK_SALES_TAIL_EVENT/);
+    assert.match(migration, /create or replace view public\.commerce_inventory_latest_tail_snapshots/i);
+    assert.match(migration, /distinct on \(reset_event_id\)/i);
+    assert.match(migration, /analysis_at desc[\s\S]*started_at desc/i);
+    assert.match(migration, /revoke all[\s\S]*from public, anon, authenticated/i);
+    assert.match(migration, /grant select[\s\S]*to service_role/i);
+    assert.doesNotMatch(migration, /delete\s+from\s+public\.commerce_operation_runs/i);
+  }
 });
