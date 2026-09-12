@@ -1,0 +1,27 @@
+name: Inventory Stock Connection Smoke
+on:
+  workflow_dispatch:
+    inputs:
+      refresh_evidence:
+        description: 'Refresh existing Tail sales evidence once before read-only queue checks (no stock/status POST)'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: inventory-stock-connection-smoke
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: Verify canonical production inventory response
+        env:
+          REFRESH_EVIDENCE: ${{ inputs.refresh_evidence }}
+        run: node scripts/inventory-stock-connection-smoke.mjs
