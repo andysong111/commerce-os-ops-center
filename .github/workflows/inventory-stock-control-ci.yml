@@ -6,6 +6,7 @@ on:
     paths:
       - "src/lib/inventoryStockControl.ts"
       - "src/lib/productMasterVerifiedInventoryBaselines.ts"
+      - "src/app/api/inventory-stock-control/route.ts"
       - "src/app/api/inventory-stock-control/sync/route.ts"
       - "src/lib/supabase/admin.ts"
       - "src/lib/shopling/shoplingOptionStatus.ts"
@@ -19,6 +20,7 @@ on:
     paths:
       - "src/lib/inventoryStockControl.ts"
       - "src/lib/productMasterVerifiedInventoryBaselines.ts"
+      - "src/app/api/inventory-stock-control/route.ts"
       - "src/app/api/inventory-stock-control/sync/route.ts"
       - "src/lib/supabase/admin.ts"
       - "src/lib/shopling/shoplingOptionStatus.ts"
