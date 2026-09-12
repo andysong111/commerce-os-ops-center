@@ -166,7 +166,7 @@ export async function discoverKeywordElonCandidatesResilient(
   source: KeywordElonSourceDraft,
   identity: KeywordElonIdentity,
 ): Promise<KeywordElonDiscovery> {
-  const seeds = uniqueKeywordElonCanonical([...identity.primarySeeds, ...identity.conditionalSeeds], 8);
+  const seeds = uniqueKeywordElonCanonical([identity.coreProduct, ...identity.primarySeeds, identity.identityAnchor, ...identity.conditionalSeeds], 8);
   if (!seeds.length) throw new Error("DISCOVERY_NO_SEED: STEP 1 Seed가 없습니다.");
 
   const marketSettled = await Promise.allSettled([buildKeywordElonMarketRecall(source, identity)]);
@@ -180,6 +180,7 @@ export async function discoverKeywordElonCandidatesResilient(
     : { keywords: [] as string[], model: openAiModel(), warning: `AI_DISCOVERY_FAILED: ${aiSettled[0].reason instanceof Error ? aiSettled[0].reason.message : String(aiSettled[0].reason)}` };
 
   const searchAdSeeds = uniqueKeywordElonCanonical([
+    ...seeds,
     ...market.marketTerms,
     ...market.searchSeeds,
     ...market.bridgeSeeds,
@@ -200,11 +201,11 @@ export async function discoverKeywordElonCandidatesResilient(
 
   const relatedKeywords = searchAd.rows.map((row) => row.keyword);
   const candidates = uniqueKeywordElonCanonical([
-    ...market.marketTerms,
-    ...relatedKeywords,
-    ...market.bridgeSeeds,
-    ...ai.keywords,
     ...seeds,
+    ...market.bridgeSeeds,
+    ...market.marketTerms,
+    ...ai.keywords,
+    ...relatedKeywords,
   ], 500);
 
   const sourceTagsByKeyword: Record<string, string[]> = {};
