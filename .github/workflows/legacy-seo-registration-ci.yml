@@ -18,7 +18,9 @@ on:
       - 'src/lib/keywordEngineElonSelectionRecovery.ts'
       - 'src/lib/keywordEngineElonLabV2Discovery.ts'
       - 'src/lib/keywordEngineElonLabV2Scoring.ts'
+      - 'src/lib/keywordEngineElonLabV2Merge.ts'
       - 'tests/keywordEngineElonSelectionRecovery.test.mjs'
+      - 'tests/keywordEngineElonMergeScoringState.test.mjs'
       - 'src/lib/legacySeoShoplingPayload.ts'
       - 'src/lib/legacySeoShoplingPriceMath.ts'
       - 'src/lib/legacySeoShoplingPriceRecovery.ts'
@@ -62,6 +64,7 @@ jobs:
           node --experimental-strip-types --test
           tests/legacySeoRegistrationPolicy.test.mjs
           tests/keywordEngineElonSelectionRecovery.test.mjs
+          tests/keywordEngineElonMergeScoringState.test.mjs
           tests/legacySeoShoplingOptionSyncSafety.test.mjs
           tests/legacySeoShoplingSyncState.test.mjs
           tests/legacySeoShoplingEvidenceStaleFallback.test.mjs
