@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { createInventoryReadClient, startInventoryPolling, INVENTORY_QUEUE_PATH as Q, INVENTORY_REFRESH_PATH as R } from '../src/lib/inventoryStockConnection.ts';
-import { createInventoryReadGuard } from '../src/lib/inventoryStockReadGuard.ts';
+import { createInventoryReadGuard, inventoryReadFailureDiagnostic } from '../src/lib/inventoryStockReadGuard.ts';
 const ok = () => Response.json({ok:true,report:{state:'READY',rows:[]},jobs:[]});
 test('passive reads share one request but completed jobs are not cached', async () => {
  let calls=0, release;
@@ -58,4 +58,20 @@ test('both panels use bounded visible-only polling and explicit actions stay fre
  assert.match(queue,/setReport\(null\)/);assert.match(queue,/setJobs\(\[\]\)/);
  const overview=readFileSync('src/components/china-order-manager/InventoryStockOverviewPanel.tsx','utf8');
  assert.match(overview,/재고가 없다는 뜻이 아닙니다/);assert.match(overview,/마지막 정상 조회/);
+});
+test('diagnostics classify plain-object timeouts without instanceof dependency',async()=>{
+ const logs=[];const guard=createInventoryReadGuard({log:x=>logs.push(x)});
+ const response=await guard('queue',async()=>{throw {name:'TimeoutError',message:'slow request'};});
+ assert.equal((await response.json()).code,'INVENTORY_STOCK_READ_TIMEOUT');
+ assert.equal(logs[0].diagnostic.category,'TIMEOUT');
+});
+test('diagnostics preserve safe codes and compiled frame coordinates only',()=>{
+ const diagnostic=inventoryReadFailureDiagnostic({name:'Error',message:'INVENTORY_STOCKTAKE_BASELINE_READ_FAILED:private user alice@example.com status=503 https://host/private?key=SECRET sb_secret_ABC',cause:{code:'ECONNRESET'},stack:'Error: secret\n at x (.next/server/chunks/example.js:1:42)\n at https://secret.example/key=SECRET'});
+ assert.equal(diagnostic.internalCode,'INVENTORY_STOCKTAKE_BASELINE_READ_FAILED');assert.equal(diagnostic.httpStatus,503);assert.equal(diagnostic.code,'ECONNRESET');assert.equal(diagnostic.frames.length,1);
+ assert.doesNotMatch(JSON.stringify(diagnostic),/SECRET|alice|https|sb_secret/);
+});
+test('diagnostics distinguish client-shape errors from connection failures',()=>{
+ assert.equal(inventoryReadFailureDiagnostic(new TypeError('rows is not iterable')).category,'NOT_ITERABLE');
+ assert.equal(inventoryReadFailureDiagnostic(new TypeError('Cannot read properties of undefined')).category,'MISSING_PROPERTY');
+ assert.equal(inventoryReadFailureDiagnostic(new Error('permission denied for relation private')).category,'PERMISSION');
 });
