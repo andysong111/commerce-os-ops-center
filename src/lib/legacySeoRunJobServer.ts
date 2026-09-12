@@ -50,6 +50,31 @@ const LIST_SELECT = [
   "updated_at",
 ].join(",");
 
+const WORKER_PATCH_SELECT = [
+  "run_id",
+  "status",
+  "stage",
+  "stage_index",
+  "progress_percent",
+  "message",
+  "error_message",
+  "attempt_count",
+  "max_attempts",
+  "not_before",
+  "lease_owner",
+  "lease_until",
+  "registration_status",
+  "registration_job_id",
+  "registration_request_id",
+  "started_at",
+  "completed_at",
+  "archived_at",
+  "created_at",
+  "updated_at",
+].join(",");
+
+const claimedJobSnapshots = new Map<string, SeoRunJobRow>();
+
 type UnknownRecord = Record<string, unknown>;
 export type LegacySeoRunJobContext = {
   config: ProductLaunchAdminConfig;
@@ -99,9 +124,6 @@ export async function insertLegacySeoRunJobs(
 ) {
   if (!rows.length) return [];
 
-  // RUN 생성은 되돌리기 쉬운 SEO 작업처럼 보이지만, 이후 자동 등록까지 이어지는
-  // 시작점이다. 따라서 Shopling 현재 옵션/B코드, 중국주문 최종확정 원가·판매가,
-  // 상세/대표/부가이미지가 모두 검증되기 전에는 DB 큐 자체에 넣지 않는다.
   const itemIds = [...new Set(rows.map((row) => text(row.launch_item_id)).filter(Boolean))];
   const preflight = await prepareLegacySeoPreflight({
     config: context.config,
@@ -241,7 +263,9 @@ export async function claimNextLegacySeoRunJob(
   );
   if (body.claimed !== true) return null;
   const job = record(body.job) as SeoRunJobRow;
-  return text(job.run_id) ? job : null;
+  if (!text(job.run_id)) return null;
+  claimedJobSnapshots.set(job.run_id, job);
+  return job;
 }
 
 export async function patchClaimedLegacySeoRunJob(
@@ -250,8 +274,10 @@ export async function patchClaimedLegacySeoRunJob(
   workerId: string,
   patch: UnknownRecord,
 ) {
+  const snapshot = claimedJobSnapshots.get(runId) ?? null;
+  const updatedAt = new Date().toISOString();
   const params = new URLSearchParams({
-    select: "*",
+    select: snapshot ? WORKER_PATCH_SELECT : LIST_SELECT,
     run_id: `eq.${runId}`,
     lease_owner: `eq.${workerId}`,
   });
@@ -261,12 +287,25 @@ export async function patchClaimedLegacySeoRunJob(
     {
       method: "PATCH",
       headers: { Prefer: "return=representation" },
-      body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+      body: JSON.stringify({ ...patch, updated_at: updatedAt }),
     },
   );
   const saved = Array.isArray(rows) ? rows[0] ?? null : null;
   if (!saved) throw new Error(`LEGACY_SEO_RUN_LEASE_LOST:${runId}`);
-  return saved;
+  if (!snapshot) return saved;
+
+  const merged = {
+    ...snapshot,
+    ...patch,
+    ...saved,
+    updated_at: text(saved.updated_at) || updatedAt,
+  } as SeoRunJobRow;
+  if (merged.status === "running" && text(merged.lease_owner) === workerId) {
+    claimedJobSnapshots.set(runId, merged);
+  } else {
+    claimedJobSnapshots.delete(runId);
+  }
+  return merged;
 }
 
 export async function readLegacySeoRunJobById(

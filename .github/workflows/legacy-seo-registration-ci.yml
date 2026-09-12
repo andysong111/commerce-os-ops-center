@@ -18,6 +18,7 @@ on:
       - 'src/lib/legacySeoShoplingPriceMath.ts'
       - 'src/lib/legacySeoShoplingPriceRecovery.ts'
       - 'src/lib/legacySeoShoplingRegistration.ts'
+      - 'src/lib/legacySeoRunJobServer.ts'
       - 'src/app/api/cron/legacy-shopling-image-repair/route.ts'
       - 'src/app/api/legacy-seo-source-recovery/route.ts'
       - 'src/app/api/legacy-seo-preflight/route.ts'
@@ -35,6 +36,7 @@ on:
       - 'tests/legacySeoBulkRunAll.test.mjs'
       - 'tests/legacySeoBulkLoading.test.mjs'
       - 'tests/legacySeoListFailure.test.mjs'
+      - 'tests/legacySeoCheckpointIo.test.mjs'
       - 'tests/legacySeoStockRecovery.test.mjs'
       - 'tests/legacySeoShoplingPayload.test.mjs'
       - 'tests/legacySeoShoplingPriceRecovery.test.mjs'
@@ -64,6 +66,7 @@ jobs:
           tests/legacySeoBulkRunAll.test.mjs
           tests/legacySeoBulkLoading.test.mjs
           tests/legacySeoListFailure.test.mjs
+          tests/legacySeoCheckpointIo.test.mjs
           tests/legacySeoStockRecovery.test.mjs
           tests/legacySeoShoplingPayload.test.mjs
           tests/legacySeoShoplingPriceRecovery.test.mjs
