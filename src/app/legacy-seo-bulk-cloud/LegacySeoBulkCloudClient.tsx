@@ -197,7 +197,7 @@ export default function LegacySeoBulkCloudClient() {
   const [error, setError] = useState("");
   const loadingRef = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (includeItems = false) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     try {
@@ -205,8 +205,8 @@ export default function LegacySeoBulkCloudClient() {
         ok?: boolean;
         items?: LegacyItem[];
         jobs?: Job[];
-      }>(API);
-      setItems(Array.isArray(body.items) ? body.items : []);
+      }>(`${API}?items=${includeItems ? "true" : "false"}`);
+      if (includeItems) setItems(Array.isArray(body.items) ? body.items : []);
       setJobs(Array.isArray(body.jobs) ? body.jobs : []);
       setError("");
     } catch (loadError) {
@@ -218,8 +218,8 @@ export default function LegacySeoBulkCloudClient() {
   }, []);
 
   useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => void load(), POLL_MS);
+    void load(true);
+    const timer = window.setInterval(() => void load(false), POLL_MS);
     return () => window.clearInterval(timer);
   }, [load]);
 
@@ -503,7 +503,7 @@ export default function LegacySeoBulkCloudClient() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void load()}
+            onClick={() => void load(true)}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium disabled:opacity-40"
           >
             새로고침

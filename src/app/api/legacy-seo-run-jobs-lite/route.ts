@@ -46,7 +46,6 @@ async function listCompactJobs(
       "stage",
       "progress_percent",
       "message",
-      "input_payload",
       "result_payload",
       "error_message",
       "registration_status",
@@ -79,7 +78,7 @@ async function listCompactJobs(
       stage: text(row.stage),
       progress_percent: Math.max(0, Number(row.progress_percent) || 0),
       message: text(row.message),
-      input_payload: record(row.input_payload),
+      input_payload: {},
       // Never dereference checkpoint_payload in this list endpoint. Completed SEO runs
       // keep hundreds of scored candidates/search-ad rows there and PostgreSQL must
       // detoast that entire JSON value even for a single nested field. The client can
@@ -112,7 +111,6 @@ async function listLegacyItems(
       "overall_status",
       "option_labels",
       "updated_at",
-      "exclusion_policy:item_payload->legacySeoRegistrationPolicy",
     ].join(","),
     owner_id: `eq.${ownerId}`,
     shopling_upload_status: "eq.완료",
@@ -129,7 +127,6 @@ async function listLegacyItems(
   );
   return (Array.isArray(body) ? body : [])
     .map(record)
-    .filter((row) => !isExcluded(row.exclusion_policy))
     .map((row) => ({
       id: text(row.item_id),
       trackerRowNumber: Number(row.tracker_row_number) || null,
@@ -148,17 +145,26 @@ export async function GET(request: NextRequest) {
   const authenticated = await requireSeoTitleLedgerContext(request);
   if (!authenticated.ok) return authenticated.response;
   const context = authenticated.value;
+  const includeJobs = request.nextUrl.searchParams.get("jobs") !== "false";
   const includeItems = request.nextUrl.searchParams.get("items") !== "false";
 
-  const [jobs, items] = await Promise.all([
-    listCompactJobs(context.config, context.identity.userId),
+  const [jobsResult, itemsResult] = await Promise.allSettled([
+    includeJobs
+      ? listCompactJobs(context.config, context.identity.userId)
+      : Promise.resolve([]),
     includeItems
       ? listLegacyItems(context.config, context.identity.userId)
       : Promise.resolve([]),
   ]);
+  if (includeJobs && jobsResult.status === "rejected") throw jobsResult.reason;
+  const jobs = jobsResult.status === "fulfilled" ? jobsResult.value : [];
+  const items = itemsResult.status === "fulfilled" ? itemsResult.value : [];
+  const warnings = itemsResult.status === "rejected"
+    ? ["이전상품 선택 목록 조회가 지연되어 SEO 작업원장만 표시합니다."]
+    : [];
 
   return Response.json(
-    { ok: true, jobs, items },
+    { ok: true, jobs, items, warnings },
     {
       headers: {
         "Cache-Control": "no-store, max-age=0",
