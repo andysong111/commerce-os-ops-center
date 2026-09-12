@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API = "/api/legacy-seo-run-jobs";
-const POLL_MS = 5_000;
+const POLL_MS = 60_000;
 const REGISTRATION_BATCH_SIZE = 8;
 const REGISTRATION_BATCH_DELAY_MS = 750;
 const CUSTOM_BLOCKED_STORAGE_KEY =
@@ -196,32 +196,47 @@ export default function LegacySeoBulkCloudClient() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const loadingRef = useRef(false);
+  const itemsLoadingRef = useRef(false);
 
-  const load = useCallback(async (includeItems = false) => {
+  const load = useCallback(async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     try {
-      const body = await requestJson<{
-        ok?: boolean;
-        items?: LegacyItem[];
-        jobs?: Job[];
-      }>(`${API}?items=${includeItems ? "true" : "false"}`);
-      if (includeItems) setItems(Array.isArray(body.items) ? body.items : []);
+      const body = await requestJson<{ ok?: boolean; jobs?: Job[] }>(`${API}?items=false`);
       setJobs(Array.isArray(body.jobs) ? body.jobs : []);
       setError("");
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "목록을 불러오지 못했습니다.");
+      setError(loadError instanceof Error ? loadError.message : "SEO 작업원장을 불러오지 못했습니다.");
     } finally {
       loadingRef.current = false;
       setLoading(false);
     }
   }, []);
 
+  const loadItems = useCallback(async () => {
+    if (itemsLoadingRef.current) return;
+    itemsLoadingRef.current = true;
+    try {
+      const body = await requestJson<{ ok?: boolean; items?: LegacyItem[] }>(
+        `${API}?jobs=false&items=true`,
+      );
+      setItems(Array.isArray(body.items) ? body.items : []);
+    } catch {
+      // The selection catalog is optional for FINAL registration. A transient
+      // catalog timeout must never blank or disable the SEO RUN ledger.
+    } finally {
+      itemsLoadingRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
-    void load(true);
-    const timer = window.setInterval(() => void load(false), POLL_MS);
+    void load();
+    void loadItems();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, loadItems]);
 
   const filteredItems = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -503,7 +518,10 @@ export default function LegacySeoBulkCloudClient() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void load(true)}
+            onClick={() => {
+              void load();
+              void loadItems();
+            }}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium disabled:opacity-40"
           >
             새로고침

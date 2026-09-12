@@ -64,7 +64,7 @@ test("Shopling 근거가 Product Master에 없으면 확인 모델만 등록일 
   assert.match(evidence, /\.\.\.SHOPLING_PRODUCT_IMAGE_FIELDS/);
 });
 
-test("이전상품 SEO 화면은 누락 46개를 자동 복구하고 실패 시 재시도만 노출한다", async () => {
+test("누락 이전상품 복구기는 유지하되 운영 화면에서 자동 실행하지 않는다", async () => {
   const enhancer = await source(
     "src/app/legacy-seo-bulk-cloud/LegacySeoSourceRecoveryEnhancer.tsx",
   );
@@ -73,5 +73,5 @@ test("이전상품 SEO 화면은 누락 46개를 자동 복구하고 실패 시 
   assert.match(enhancer, /legacy-seo-source-recovery\?apply=1/);
   assert.match(enhancer, /window\.location\.reload\(\)/);
   assert.doesNotMatch(enhancer, /MutationObserver/);
-  assert.match(page, /LegacySeoSourceRecoveryEnhancer/);
+  assert.doesNotMatch(page, /LegacySeoSourceRecoveryEnhancer/);
 });

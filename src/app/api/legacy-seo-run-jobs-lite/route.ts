@@ -64,6 +64,7 @@ async function listCompactJobs(
       headers: createSupabaseAdminHeaders(config.secretKey),
       cache: "no-store",
     },
+    { attempts: 3, timeoutMs: 4_500, retryDelaysMs: [250, 750] },
   );
   return (Array.isArray(body) ? body : []).map((value) => {
     const row = record(value);
@@ -124,6 +125,7 @@ async function listLegacyItems(
       headers: createSupabaseAdminHeaders(config.secretKey),
       cache: "no-store",
     },
+    { attempts: 2, timeoutMs: 4_500, retryDelaysMs: [500] },
   );
   return (Array.isArray(body) ? body : [])
     .map(record)
