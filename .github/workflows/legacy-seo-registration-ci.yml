@@ -23,6 +23,7 @@ on:
       - 'src/app/api/legacy-seo-preflight/route.ts'
       - 'src/app/api/legacy-seo-run-jobs/route.ts'
       - 'src/app/api/legacy-seo-run-jobs-lite/route.ts'
+      - 'src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx'
       - 'src/app/legacy-seo-bulk-cloud/LegacySeoSourceRecoveryEnhancer.tsx'
       - 'src/app/legacy-seo-bulk-cloud/LegacySeoBulkListFetchShim.tsx'
       - 'src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx'
@@ -33,6 +34,7 @@ on:
       - 'tests/legacySeoShoplingEvidenceStaleFallback.test.mjs'
       - 'tests/legacySeoBulkRunAll.test.mjs'
       - 'tests/legacySeoBulkLoading.test.mjs'
+      - 'tests/legacySeoListFailure.test.mjs'
       - 'tests/legacySeoStockRecovery.test.mjs'
       - 'tests/legacySeoShoplingPayload.test.mjs'
       - 'tests/legacySeoShoplingPriceRecovery.test.mjs'
@@ -61,6 +63,7 @@ jobs:
           tests/legacySeoShoplingEvidenceStaleFallback.test.mjs
           tests/legacySeoBulkRunAll.test.mjs
           tests/legacySeoBulkLoading.test.mjs
+          tests/legacySeoListFailure.test.mjs
           tests/legacySeoStockRecovery.test.mjs
           tests/legacySeoShoplingPayload.test.mjs
           tests/legacySeoShoplingPriceRecovery.test.mjs
