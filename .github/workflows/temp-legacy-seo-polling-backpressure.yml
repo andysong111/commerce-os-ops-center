@@ -1,0 +1,68 @@
+name: Temporary Legacy SEO Polling Backpressure Fix
+on:
+  push:
+    branches: ['fix/legacy-seo-polling-backpressure-20260913']
+    paths: ['.github/workflows/temp-legacy-seo-polling-backpressure.yml']
+permissions:
+  contents: write
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - name: Apply polling backpressure patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          def replace(path, old, new):
+              p=Path(path); value=p.read_text(encoding='utf-8'); count=value.count(old)
+              assert count==1, f'{path}: expected one match, got {count}'
+              p.write_text(value.replace(old,new,1),encoding='utf-8')
+
+          route='src/app/api/legacy-seo-run-jobs-lite/route.ts'
+          old='''  const { body } = await readProductLaunchStorageJson(\n    `${config.supabaseUrl}/rest/v1/legacy_seo_run_jobs?${params.toString()}`,\n    {\n      headers: createSupabaseAdminHeaders(config.secretKey),\n      cache: "no-store",\n    },\n  );'''
+          new='''  const { body } = await readProductLaunchStorageJson(\n    `${config.supabaseUrl}/rest/v1/legacy_seo_run_jobs?${params.toString()}`,\n    {\n      headers: createSupabaseAdminHeaders(config.secretKey),\n      cache: "no-store",\n    },\n    { attempts: 3, timeoutMs: 4_500, retryDelaysMs: [250, 750] },\n  );'''
+          replace(route,old,new)
+          old2='''  const { body } = await readProductLaunchStorageJson(\n    `${config.supabaseUrl}/rest/v1/product_launch_items?${params.toString()}`,\n    {\n      headers: createSupabaseAdminHeaders(config.secretKey),\n      cache: "no-store",\n    },\n  );'''
+          new2='''  const { body } = await readProductLaunchStorageJson(\n    `${config.supabaseUrl}/rest/v1/product_launch_items?${params.toString()}`,\n    {\n      headers: createSupabaseAdminHeaders(config.secretKey),\n      cache: "no-store",\n    },\n    { attempts: 2, timeoutMs: 4_500, retryDelaysMs: [500] },\n  );'''
+          replace(route,old2,new2)
+
+          client='src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx'
+          replace(client,'const POLL_MS = 5_000;','const POLL_MS = 60_000;')
+          old3='''  const [error, setError] = useState("");\n  const loadingRef = useRef(false);\n\n  const load = useCallback(async (includeItems = false) => {\n    if (loadingRef.current) return;\n    loadingRef.current = true;\n    try {\n      const body = await requestJson<{\n        ok?: boolean;\n        items?: LegacyItem[];\n        jobs?: Job[];\n      }>(`${API}?items=${includeItems ? "true" : "false"}`);\n      if (includeItems) setItems(Array.isArray(body.items) ? body.items : []);\n      setJobs(Array.isArray(body.jobs) ? body.jobs : []);\n      setError("");\n    } catch (loadError) {\n      setError(loadError instanceof Error ? loadError.message : "목록을 불러오지 못했습니다.");\n    } finally {\n      loadingRef.current = false;\n      setLoading(false);\n    }\n  }, []);\n\n  useEffect(() => {\n    void load(true);\n    const timer = window.setInterval(() => void load(false), POLL_MS);\n    return () => window.clearInterval(timer);\n  }, [load]);'''
+          new3='''  const [error, setError] = useState("");\n  const loadingRef = useRef(false);\n  const itemsLoadingRef = useRef(false);\n\n  const load = useCallback(async () => {\n    if (loadingRef.current) return;\n    loadingRef.current = true;\n    try {\n      const body = await requestJson<{ ok?: boolean; jobs?: Job[] }>(`${API}?items=false`);\n      setJobs(Array.isArray(body.jobs) ? body.jobs : []);\n      setError("");\n    } catch (loadError) {\n      setError(loadError instanceof Error ? loadError.message : "SEO 작업원장을 불러오지 못했습니다.");\n    } finally {\n      loadingRef.current = false;\n      setLoading(false);\n    }\n  }, []);\n\n  const loadItems = useCallback(async () => {\n    if (itemsLoadingRef.current) return;\n    itemsLoadingRef.current = true;\n    try {\n      const body = await requestJson<{ ok?: boolean; items?: LegacyItem[] }>(\n        `${API}?jobs=false&items=true`,\n      );\n      setItems(Array.isArray(body.items) ? body.items : []);\n    } catch {\n      // The selection catalog is optional for FINAL registration. A transient\n      // catalog timeout must never blank or disable the SEO RUN ledger.\n    } finally {\n      itemsLoadingRef.current = false;\n    }\n  }, []);\n\n  useEffect(() => {\n    void load();\n    void loadItems();\n    const timer = window.setInterval(() => {\n      if (document.visibilityState === "visible") void load();\n    }, POLL_MS);\n    return () => window.clearInterval(timer);\n  }, [load, loadItems]);'''
+          replace(client,old3,new3)
+          replace(client,'            onClick={() => void load(true)}\n','            onClick={() => {\n              void load();\n              void loadItems();\n            }}\n')
+
+          test=Path('tests/legacySeoPollingBackpressure.test.mjs')
+          assert not test.exists()
+          test.write_text('''import assert from "node:assert/strict";\nimport { readFile } from "node:fs/promises";\nimport test from "node:test";\nasync function source(path){return readFile(new URL(`../${path}`,import.meta.url),"utf8");}\ntest("legacy SEO ledger polling is split, bounded and backpressured",async()=>{\n const route=await source("src/app/api/legacy-seo-run-jobs-lite/route.ts");\n const client=await source("src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx");\n assert.match(route,/attempts: 3, timeoutMs: 4_500/);\n assert.match(route,/attempts: 2, timeoutMs: 4_500/);\n assert.match(client,/const POLL_MS = 60_000/);\n assert.match(client,/\\?items=false/);\n assert.match(client,/\\?jobs=false&items=true/);\n assert.match(client,/itemsLoadingRef/);\n assert.match(client,/document\\.visibilityState === "visible"/);\n assert.doesNotMatch(client,/load\\(true\\)/);\n});\n''',encoding='utf-8')
+          PY
+      - run: npm ci
+      - name: Focused regression
+        run: >-
+          node --experimental-strip-types --test
+          tests/legacySeoPollingBackpressure.test.mjs
+          tests/legacySeoBulkLoading.test.mjs
+          tests/legacySeoListLoadIsolation.test.mjs
+          tests/legacySeoShoplingPayload.test.mjs
+          tests/legacySeoShoplingPriceRecovery.test.mjs
+      - name: Typecheck
+        run: npx --no-install tsc --noEmit
+      - name: Commit tested source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add src/app/api/legacy-seo-run-jobs-lite/route.ts src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx tests/legacySeoPollingBackpressure.test.mjs
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: backpressure legacy SEO polling under Supabase connection flaps'
+          git push origin HEAD:refs/heads/fix/legacy-seo-polling-backpressure-20260913
