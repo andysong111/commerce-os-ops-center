@@ -18,6 +18,7 @@ on:
       - "tests/inventoryStockControlReentry.test.mjs"
       - "tests/inventoryStockProductMasterBridge.test.mjs"
       - "tests/inventoryStockTailLatestView.test.mjs"
+      - "tests/inventoryStockTailProjection.sql"
       - "tests/helpers/purchaseCycleHarness.mjs"
       - "tests/supabaseAdminReadRetry.test.mjs"
       - ".github/workflows/inventory-stock-control-ci.yml"
@@ -37,6 +38,7 @@ on:
       - "tests/inventoryStockControlReentry.test.mjs"
       - "tests/inventoryStockProductMasterBridge.test.mjs"
       - "tests/inventoryStockTailLatestView.test.mjs"
+      - "tests/inventoryStockTailProjection.sql"
       - "tests/helpers/purchaseCycleHarness.mjs"
       - "tests/supabaseAdminReadRetry.test.mjs"
       - ".github/workflows/inventory-stock-control-ci.yml"
@@ -52,7 +54,19 @@ concurrency:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -60,5 +74,32 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - run: npm ci
+      - name: Execute latest-Tail projection semantics in PostgreSQL
+        env:
+          PGPASSWORD: postgres
+        run: |
+          docker run --rm --network host -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          create role anon nologin;
+          create role authenticated nologin;
+          create role service_role nologin;
+          create table public.commerce_operation_runs (
+            operation_type text not null,
+            status text not null,
+            source_event_id text not null,
+            result_snapshot jsonb,
+            started_at timestamptz not null
+          );
+          SQL
+          for migration in \
+            supabase/migrations/202609130001_inventory_tail_latest_view.sql \
+            supabase/migrations/202609130002_inventory_tail_latest_normalized_time.sql \
+            supabase/migrations/202609130003_inventory_tail_latest_snapshot_validation.sql
+          do
+            docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+              psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "/workspace/$migration"
+          done
+          docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /workspace/tests/inventoryStockTailProjection.sql
       - name: Run stock-control, Product Master, bounded Tail and Supabase read regression tests
         run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockTailLatestView.test.mjs tests/supabaseAdminReadRetry.test.mjs
