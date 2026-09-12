@@ -12,10 +12,12 @@ import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { withInventoryReadGuard } from "@/lib/inventoryStockReadGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 const SHOPLING_STOCK_CANARY_PREPARATION_OPERATION_TYPE =
   "SHOPLING_STOCK_CANARY_PREPARATION";
@@ -158,45 +160,47 @@ async function loadRetryableReport({
 
 export async function GET(request: Request) {
   if (!isSameOriginOpsRequest(request)) return unauthorized();
-  const [{ report, tailSalesRefresh }, preparedGoodsKeysByBarcode] =
-    await Promise.all([loadRetryableReport(), loadPreparedGoodsKeysByBarcode()]);
-  return Response.json(
-    {
-      ok: report.state === "READY",
-      report,
-      tailSalesRefresh,
-      jobs: report.rows
-        .filter((row) => row.syncNeeded && !row.syncBlocked)
-        .map((row) => {
-          const goodsKeys = [
-            ...new Set([
-              ...row.goodsKeys,
-              ...(preparedGoodsKeysByBarcode.get(row.barcode) ?? []),
-            ]),
-          ].sort((left, right) => Number(left) - Number(right));
-          return {
-            jobId: `stock-sync:${row.barcode}:${row.desiredStatus}:${row.desiredSince}`,
-            barcode: row.barcode,
-            productName: row.productName,
-            productKind: row.productKind,
-            modelNo: row.modelNo,
-            goodsKeys,
-            desiredStatus: row.desiredStatus,
-            desiredSince: row.desiredSince,
-            exactInventoryQuantity: row.exactInventoryQuantity,
-            resetAt: row.resetAt,
-            route:
-              row.productKind === "OPTION"
-                ? ["SHOPLING_API_OPTION_STATUS", "A21_GOODS_KEY_OPTION_SEND"]
-                : ["A4_PRODUCT_STATUS", "A21_GOODS_KEY_PRODUCT_SALE_STATUS"],
-          };
-        }),
-    },
-    {
-      status: report.state === "READY" ? 200 : 503,
-      headers: { "cache-control": "no-store" },
-    },
-  );
+  return withInventoryReadGuard("queue", async () => {
+    const [{ report, tailSalesRefresh }, preparedGoodsKeysByBarcode] =
+      await Promise.all([loadRetryableReport(), loadPreparedGoodsKeysByBarcode()]);
+    return Response.json(
+      {
+        ok: report.state === "READY",
+        report,
+        tailSalesRefresh,
+        jobs: report.rows
+          .filter((row) => row.syncNeeded && !row.syncBlocked)
+          .map((row) => {
+            const goodsKeys = [
+              ...new Set([
+                ...row.goodsKeys,
+                ...(preparedGoodsKeysByBarcode.get(row.barcode) ?? []),
+              ]),
+            ].sort((left, right) => Number(left) - Number(right));
+            return {
+              jobId: `stock-sync:${row.barcode}:${row.desiredStatus}:${row.desiredSince}`,
+              barcode: row.barcode,
+              productName: row.productName,
+              productKind: row.productKind,
+              modelNo: row.modelNo,
+              goodsKeys,
+              desiredStatus: row.desiredStatus,
+              desiredSince: row.desiredSince,
+              exactInventoryQuantity: row.exactInventoryQuantity,
+              resetAt: row.resetAt,
+              route:
+                row.productKind === "OPTION"
+                  ? ["SHOPLING_API_OPTION_STATUS", "A21_GOODS_KEY_OPTION_SEND"]
+                  : ["A4_PRODUCT_STATUS", "A21_GOODS_KEY_PRODUCT_SALE_STATUS"],
+            };
+          }),
+      },
+      {
+        status: report.state === "READY" ? 200 : 503,
+        headers: { "cache-control": "no-store" },
+      },
+    );
+  });
 }
 
 export async function POST(request: Request) {

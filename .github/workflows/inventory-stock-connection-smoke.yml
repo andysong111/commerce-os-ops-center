@@ -1,9 +1,16 @@
 name: Inventory Stock Connection Smoke
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/202609130004_inventory_tail_latest_snapshot_cache.sql'
+      - 'src/lib/inventoryStockReadGuard.ts'
+      - 'scripts/inventory-stock-connection-smoke.mjs'
+      - '.github/workflows/inventory-stock-connection-smoke.yml'
   workflow_dispatch:
     inputs:
       refresh_evidence:
-        description: 'Refresh existing Tail sales evidence once before read-only queue checks (no stock/status POST)'
+        description: 'Refresh existing Tail sales evidence once (no stock/status POST)'
         type: boolean
         required: true
         default: false
@@ -21,7 +28,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
+      - name: Allow production rollout to finish
+        if: github.event_name == 'push'
+        run: sleep 100
       - name: Verify canonical production inventory response
         env:
-          REFRESH_EVIDENCE: ${{ inputs.refresh_evidence }}
+          REFRESH_EVIDENCE: ${{ github.event_name == 'push' || inputs.refresh_evidence }}
         run: node scripts/inventory-stock-connection-smoke.mjs

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 const builtinRequire = createRequire(import.meta.url);
@@ -15,6 +16,13 @@ export function loadPurchaseCycleModule(path, imports = {}, globals = {}) {
     fetch: async () => { throw new Error("UNMOCKED_NETWORK_FORBIDDEN"); },
     require: (name) => {
       if (Object.hasOwn(imports, name)) return imports[name];
+      // Load the real read guard and unchanged handlers; never bypass their logic.
+      if (name === "@/lib/inventoryStockReadGuard") {
+        return loadPurchaseCycleModule("src/lib/inventoryStockReadGuard.ts", imports, globals);
+      }
+      if (name === "./handler" && /^src\/app\/api\/inventory-stock-control\/(sync\/)?route\.ts$/.test(path)) {
+        return loadPurchaseCycleModule(join(dirname(path), "handler.ts"), imports, globals);
+      }
       if (name === "@/lib/purchaseCycleLocalBaselineAuthority") {
         return { assertPurchaseCycleLocalBaselineAuthorityReadable: async () => ({ resetCount: 0, stocktakeCount: 0 }) };
       }

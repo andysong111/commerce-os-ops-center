@@ -12,6 +12,7 @@ import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventor
 import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
+import { withInventoryReadGuard } from "@/lib/inventoryStockReadGuard";
 import {
   createProductMasterShoplingSalesEventSyncRequest,
   loadProductMasterShoplingSalesEventSyncStatus,
@@ -21,6 +22,7 @@ import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVer
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 const ACTIVE_SALES_EVENT_STATES = new Set([
   "QUEUED",
@@ -165,34 +167,25 @@ async function ensureCanonicalSalesCoverageAfterReset(resetAt: string) {
 
 export async function GET(request: Request) {
   if (!isSameOriginOpsRequest(request)) return unauthorized();
-
-  let report = await loadStableInventoryStockControlReport();
-  const tailSalesRefresh =
-    report.state === "READY"
-      ? await ensureExactInventoryStockSalesTailCoverage(report)
+  return withInventoryReadGuard("overview", async () => {
+    let report = await loadStableInventoryStockControlReport();
+    const tailSalesRefresh =
+      report.state === "READY"
+        ? await ensureExactInventoryStockSalesTailCoverage(report)
+        : null;
+    if (tailSalesRefresh?.refreshed) {
+      report = await loadStableInventoryStockControlReport();
+    }
+    const coverageGapResetAt =
+      report.state === "READY" ? latestCanonicalCoverageGapResetAt(report) : null;
+    const canonicalSalesRefresh = coverageGapResetAt
+      ? await ensureCanonicalSalesCoverageAfterReset(coverageGapResetAt)
       : null;
-  if (tailSalesRefresh?.refreshed) {
-    report = await loadStableInventoryStockControlReport();
-  }
-
-  const coverageGapResetAt =
-    report.state === "READY" ? latestCanonicalCoverageGapResetAt(report) : null;
-  const canonicalSalesRefresh = coverageGapResetAt
-    ? await ensureCanonicalSalesCoverageAfterReset(coverageGapResetAt)
-    : null;
-
-  return Response.json(
-    {
-      ok: report.state === "READY",
-      report,
-      tailSalesRefresh,
-      canonicalSalesRefresh,
-    },
-    {
-      status: report.state === "READY" ? 200 : 503,
-      headers: { "cache-control": "no-store" },
-    },
-  );
+    return Response.json(
+      { ok: report.state === "READY", report, tailSalesRefresh, canonicalSalesRefresh },
+      { status: report.state === "READY" ? 200 : 503, headers: { "cache-control": "no-store" } },
+    );
+  });
 }
 
 export async function POST(request: Request) {
