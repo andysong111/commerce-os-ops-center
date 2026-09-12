@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const API = "/api/legacy-seo-run-jobs";
 const POLL_MS = 5_000;
 const REGISTRATION_BATCH_SIZE = 8;
+const REGISTRATION_BATCH_DELAY_MS = 750;
 const CUSTOM_BLOCKED_STORAGE_KEY =
   "keywordEngineElonLab.step4.customBlockedTerms.v1";
 
@@ -303,6 +304,50 @@ export default function LegacySeoBulkCloudClient() {
     });
   };
 
+  const registerAll = useCallback(async () => {
+    const runIds = registerableJobs.map((job) => job.run_id);
+    if (!runIds.length || busy) return;
+    setBusy(true);
+    setError("");
+    let started = 0;
+    let failed = 0;
+    try {
+      const totalBatches = Math.ceil(runIds.length / REGISTRATION_BATCH_SIZE);
+      for (let index = 0; index < runIds.length; index += REGISTRATION_BATCH_SIZE) {
+        const batchNumber = Math.floor(index / REGISTRATION_BATCH_SIZE) + 1;
+        const batch = runIds.slice(index, index + REGISTRATION_BATCH_SIZE);
+        setMessage(
+          `Shopling 일괄 신규등록 ${batchNumber}/${totalBatches} 묶음 처리 중 · ${Math.min(index, runIds.length)}/${runIds.length}건 요청 완료`,
+        );
+        const body = await requestJson(API, {
+          method: "POST",
+          body: JSON.stringify({ action: "register", runIds: batch }),
+        });
+        const results = array(body.results).map(record);
+        started += results.filter((row) => row.started === true).length;
+        failed += results.filter((row) => text(row.error)).length;
+        setMessage(
+          `Shopling 일괄 신규등록 진행 중 · ${Math.min(index + batch.length, runIds.length)}/${runIds.length}건 요청 완료 · 시작 ${started}건${failed ? ` · 준비실패 ${failed}건` : ""}`,
+        );
+        if (index + REGISTRATION_BATCH_SIZE < runIds.length) {
+          await new Promise((resolve) => window.setTimeout(resolve, REGISTRATION_BATCH_DELAY_MS));
+        }
+      }
+      setMessage(
+        `Shopling 일괄 신규등록 요청 완료 · 대상 ${runIds.length}건 · 시작 ${started}건${failed ? ` · 준비실패 ${failed}건` : ""}. 실제 Shopling 처리상태는 아래 카드에서 계속 갱신됩니다.`,
+      );
+    } catch (registerError) {
+      setError(
+        `Shopling 일괄 신규등록이 ${started}/${runIds.length}건 시작 후 중단됐습니다. 이미 시작된 건은 중복 방지되므로 다시 누르면 남은 등록대기 건만 이어서 처리합니다. · ${
+          registerError instanceof Error ? registerError.message : "요청 실패"
+        }`,
+      );
+    } finally {
+      await load();
+      setBusy(false);
+    }
+  }, [busy, load, registerableJobs]);
+
   if (loading) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
@@ -448,14 +493,12 @@ export default function LegacySeoBulkCloudClient() {
           <button
             type="button"
             disabled={busy || registerableJobs.length === 0}
-            onClick={() =>
-              void runAction("register", {
-                runIds: registerableJobs.slice(0, REGISTRATION_BATCH_SIZE).map((job) => job.run_id),
-              })
-            }
+            onClick={() => void registerAll()}
             className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
           >
-            FINAL Shopling 신규등록 (8건씩)
+            {busy
+              ? "Shopling 일괄 신규등록 진행 중"
+              : `FINAL 전체 Shopling 신규등록 (${registerableJobs.length}건)`}
           </button>
           <button
             type="button"

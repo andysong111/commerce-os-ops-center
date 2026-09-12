@@ -53,8 +53,11 @@ test("Shopling 등록은 checkpoint 없는 전용 조회와 8건 제한을 사�
   assert.match(store, /LEGACY_SEO_REGISTRATION_PATCH_MISMATCH/);
 
   assert.match(client, /const REGISTRATION_BATCH_SIZE = 8/);
-  assert.match(client, /slice\(0, REGISTRATION_BATCH_SIZE\)/);
-  assert.match(client, /FINAL Shopling 신규등록 \(8건씩\)/);
+  assert.match(client, /const REGISTRATION_BATCH_DELAY_MS = 750/);
+  assert.match(client, /for \(let index = 0; index < runIds.length; index \+= REGISTRATION_BATCH_SIZE\)/);
+  assert.match(client, /runIds.slice\(index, index \+ REGISTRATION_BATCH_SIZE\)/);
+  assert.match(client, /action: "register", runIds: batch/);
+  assert.match(client, /FINAL 전체 Shopling 신규등록/);
 });
 
 test("전체 RUN enhancer는 MutationObserver 안에서 DOM을 재작성하지 않는다", async () => {
