@@ -145,16 +145,17 @@ test("latest Tail projection failure is fail-closed and never falls back to a fu
   assert.deepEqual(calls.tables, ["commerce_inventory_latest_tail_snapshots"]);
 });
 
-test("Tail projection migration keeps the append-only ledger and restricts the projection to service-role reads", () => {
+test("Tail projection migration preserves analysisAsOf winner semantics, keeps the append-only ledger and restricts reads", () => {
   const migration = readFileSync(
     "supabase/migrations/202609130001_inventory_tail_latest_view.sql",
     "utf8",
   );
 
-  assert.match(migration, /commerce_operation_runs_tail_reset_started_idx/);
+  assert.match(migration, /commerce_operation_runs_tail_reset_analysis_idx/);
   assert.match(migration, /INVENTORY_STOCK_SALES_TAIL_EVENT/);
   assert.match(migration, /create or replace view public\.commerce_inventory_latest_tail_snapshots/i);
   assert.match(migration, /distinct on \(reset_event_id\)/i);
+  assert.match(migration, /analysis_as_of desc[\s\S]*started_at desc/i);
   assert.match(migration, /revoke all[\s\S]*from public, anon, authenticated/i);
   assert.match(migration, /grant select[\s\S]*to service_role/i);
   assert.doesNotMatch(migration, /delete\s+from\s+public\.commerce_operation_runs/i);
