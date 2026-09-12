@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { authorizeReliabilityIngest } from "@/lib/reliability/reliabilityIngestAuth";
-import { ingestReliabilityEvent } from "@/lib/reliability/reliabilityStore";
+import { ingestReliabilityEvents } from "@/lib/reliability/reliabilityStore";
 import type { ReliabilityEventInput } from "@/lib/reliability/reliabilityEvent";
 
 export const runtime = "nodejs";
@@ -60,16 +60,13 @@ export async function POST(request: Request) {
 
   try {
     const events = asEvents(payload);
-    const results = [];
-    for (const event of events) {
-      results.push(await ingestReliabilityEvent(event));
-    }
+    const batch = await ingestReliabilityEvents(events);
     return NextResponse.json(
       {
         ok: true,
-        accepted: results.length,
-        duplicates: results.filter((result) => result.duplicate).length,
-        results,
+        accepted: batch.accepted,
+        duplicates: batch.duplicates,
+        results: batch.results,
       },
       { status: 202, headers: { "Cache-Control": "no-store" } },
     );
