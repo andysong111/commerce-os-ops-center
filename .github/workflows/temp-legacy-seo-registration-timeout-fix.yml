@@ -1,0 +1,150 @@
+name: Temporary Legacy SEO Registration Timeout Fix
+on:
+  push:
+    branches: ['fix/legacy-seo-lite-checkpoint-timeout-20260913']
+    paths: ['.github/workflows/temp-legacy-seo-registration-timeout-fix.yml']
+permissions:
+  contents: write
+concurrency:
+  group: temp-legacy-seo-registration-timeout-fix
+  cancel-in-progress: false
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - name: Apply narrow registration-path patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              value = p.read_text(encoding='utf-8')
+              count = value.count(old)
+              assert count == 1, f'{path}: expected one match, got {count}'
+              p.write_text(value.replace(old, new, 1), encoding='utf-8')
+
+          registration = 'src/lib/legacySeoShoplingRegistration.ts'
+          replace(
+              registration,
+              '''import {\n  patchOwnedLegacySeoRunJobs,\n  type LegacySeoRunJobContext,\n} from "@/lib/legacySeoRunJobServer";''',
+              '''import type { LegacySeoRunJobContext } from "@/lib/legacySeoRunJobServer";\nimport { patchLegacySeoRegistrationStatus } from "@/lib/legacySeoRegistrationRunStore";''',
+          )
+          p = Path(registration)
+          value = p.read_text(encoding='utf-8')
+          assert value.count('patchOwnedLegacySeoRunJobs(') == 4
+          p.write_text(value.replace('patchOwnedLegacySeoRunJobs(', 'patchLegacySeoRegistrationStatus('), encoding='utf-8')
+
+          route = 'src/app/api/legacy-seo-run-jobs/route.ts'
+          replace(
+              route,
+              'import { processLegacySeoRunQueue } from "@/lib/legacySeoRunWorker";',
+              'import { processLegacySeoRunQueue } from "@/lib/legacySeoRunWorker";\nimport { listLegacySeoRegistrationJobs } from "@/lib/legacySeoRegistrationRunStore";',
+          )
+          replace(
+              route,
+              'const MAX_TRACKER_GOODS_KEYS_PER_MODEL = 120;',
+              'const MAX_TRACKER_GOODS_KEYS_PER_MODEL = 120;\nconst REGISTRATION_BATCH_LIMIT = 8;',
+          )
+          replace(
+              route,
+              '''  if (action === "register") {\n    const runIds = uniqueStrings(body.runIds, 30);\n    const jobs = await listLegacySeoRunJobs(context, {\n      runIds,\n      includeArchived: false,\n      limit: runIds.length || 1,\n    });''',
+              '''  if (action === "register") {\n    // Registration preparation rewrites the legacy tracker state per item. Keep each\n    // request bounded so one click cannot exceed the serverless/DB timeout budget.\n    const runIds = uniqueStrings(body.runIds, REGISTRATION_BATCH_LIMIT);\n    const jobs = await listLegacySeoRegistrationJobs(context, runIds);''',
+          )
+
+          client = 'src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx'
+          replace(client, 'const POLL_MS = 5_000;', 'const POLL_MS = 5_000;\nconst REGISTRATION_BATCH_SIZE = 8;')
+          replace(
+              client,
+              'runIds: registerableJobs.slice(0, 30).map((job) => job.run_id),',
+              'runIds: registerableJobs.slice(0, REGISTRATION_BATCH_SIZE).map((job) => job.run_id),',
+          )
+          replace(
+              client,
+              'FINAL 전체 Shopling 신규등록',
+              'FINAL Shopling 신규등록 (8건씩)',
+          )
+
+          test_path = Path('tests/legacySeoRegistrationLightweight.test.mjs')
+          assert not test_path.exists()
+          test_path.write_text(r'''import assert from "node:assert/strict";
+          import { readFile } from "node:fs/promises";
+          import test from "node:test";
+
+          async function source(path) {
+            return readFile(new URL(`../${path}`, import.meta.url), "utf8");
+          }
+
+          test("Shopling 등록 전용 RUN 조회는 checkpoint를 절대 읽지 않는다", async () => {
+            const store = await source("src/lib/legacySeoRegistrationRunStore.ts");
+            const selectStart = store.indexOf("const REGISTRATION_SELECT");
+            const patchStart = store.indexOf("const REGISTRATION_PATCH_SELECT", selectStart);
+            const selectSource = store.slice(selectStart, patchStart);
+            assert.match(selectSource, /input_payload/);
+            assert.match(selectSource, /result_payload/);
+            assert.match(selectSource, /registration_payload/);
+            assert.doesNotMatch(selectSource, /checkpoint_payload/);
+            assert.match(store, /LEGACY_SEO_REGISTRATION_PATCH_MISMATCH/);
+          });
+
+          test("register POST는 대형 범용 RUN 조회 대신 전용 compact 조회를 사용한다", async () => {
+            const route = await source("src/app/api/legacy-seo-run-jobs/route.ts");
+            assert.match(route, /const REGISTRATION_BATCH_LIMIT = 8/);
+            const start = route.indexOf('if (action === "register")');
+            const end = route.indexOf('if (action === "pulse")', start);
+            const register = route.slice(start, end);
+            assert.match(register, /listLegacySeoRegistrationJobs\(context, runIds\)/);
+            assert.doesNotMatch(register, /listLegacySeoRunJobs\(/);
+          });
+
+          test("등록 상태 PATCH는 multi-MB checkpoint를 반환하지 않는다", async () => {
+            const registration = await source("src/lib/legacySeoShoplingRegistration.ts");
+            assert.match(registration, /patchLegacySeoRegistrationStatus/);
+            assert.doesNotMatch(registration, /patchOwnedLegacySeoRunJobs/);
+            const store = await source("src/lib/legacySeoRegistrationRunStore.ts");
+            const patchStart = store.indexOf("const REGISTRATION_PATCH_SELECT");
+            const typeStart = store.indexOf("type UnknownRecord", patchStart);
+            const patchSelect = store.slice(patchStart, typeStart);
+            assert.match(patchSelect, /run_id/);
+            assert.match(patchSelect, /registration_status/);
+            assert.doesNotMatch(patchSelect, /checkpoint_payload|input_payload|result_payload/);
+          });
+
+          test("전체 등록 UI는 한 요청당 8건으로 제한해 반복 클릭이 안전하다", async () => {
+            const client = await source("src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx");
+            assert.match(client, /const REGISTRATION_BATCH_SIZE = 8/);
+            assert.match(client, /slice\(0, REGISTRATION_BATCH_SIZE\)/);
+            assert.match(client, /FINAL Shopling 신규등록 \(8건씩\)/);
+          });
+          '''.replace(/^          /gm, ''), encoding='utf-8')
+          PY
+      - run: npm ci
+      - name: Focused regression
+        run: >-
+          node --experimental-strip-types --test
+          tests/legacySeoRegistrationLightweight.test.mjs
+          tests/legacySeoBulkLoading.test.mjs
+          tests/legacySeoShoplingPayload.test.mjs
+          tests/legacySeoShoplingPriceRecovery.test.mjs
+      - name: Typecheck
+        run: npx --no-install tsc --noEmit
+      - name: Commit tested non-workflow changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add src/lib/legacySeoShoplingRegistration.ts src/app/api/legacy-seo-run-jobs/route.ts src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx tests/legacySeoRegistrationLightweight.test.mjs
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: bound legacy SEO Shopling registration reads and batches'
+          git push origin HEAD:refs/heads/fix/legacy-seo-lite-checkpoint-timeout-20260913
