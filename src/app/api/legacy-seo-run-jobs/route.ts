@@ -8,6 +8,7 @@ import {
   retryLegacySeoRunJobs,
 } from "@/lib/legacySeoRunJobServer";
 import { processLegacySeoRunQueue } from "@/lib/legacySeoRunWorker";
+import { listLegacySeoRegistrationJobs } from "@/lib/legacySeoRegistrationRunStore";
 import {
   buildLegacySeoSupportingText,
   loadLegacySeoShoplingEvidence,
@@ -36,6 +37,7 @@ export const maxDuration = 300;
 const MAX_ENQUEUE_ITEMS = 100;
 const CUSTOM_BLOCKED_LIMIT = 200;
 const MAX_TRACKER_GOODS_KEYS_PER_MODEL = 120;
+const REGISTRATION_BATCH_LIMIT = 8;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -436,12 +438,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "register") {
-    const runIds = uniqueStrings(body.runIds, 30);
-    const jobs = await listLegacySeoRunJobs(context, {
-      runIds,
-      includeArchived: false,
-      limit: runIds.length || 1,
-    });
+    // Registration preparation rewrites the legacy tracker state per item. Keep each
+    // request bounded so one click cannot exceed the serverless/DB timeout budget.
+    const runIds = uniqueStrings(body.runIds, REGISTRATION_BATCH_LIMIT);
+    const jobs = await listLegacySeoRegistrationJobs(context, runIds);
     const normalizedItems = await readProductLaunchNormalizedItems(
       context.config,
       context.identity.userId,

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API = "/api/legacy-seo-run-jobs";
 const POLL_MS = 5_000;
+const REGISTRATION_BATCH_SIZE = 8;
 const CUSTOM_BLOCKED_STORAGE_KEY =
   "keywordEngineElonLab.step4.customBlockedTerms.v1";
 
@@ -449,12 +450,12 @@ export default function LegacySeoBulkCloudClient() {
             disabled={busy || registerableJobs.length === 0}
             onClick={() =>
               void runAction("register", {
-                runIds: registerableJobs.slice(0, 30).map((job) => job.run_id),
+                runIds: registerableJobs.slice(0, REGISTRATION_BATCH_SIZE).map((job) => job.run_id),
               })
             }
             className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
           >
-            FINAL 전체 Shopling 신규등록
+            FINAL Shopling 신규등록 (8건씩)
           </button>
           <button
             type="button"
