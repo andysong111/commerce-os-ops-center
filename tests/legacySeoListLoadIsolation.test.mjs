@@ -14,8 +14,10 @@ test("legacy SEO polling isolates FINAL ledger from heavy catalog reads", async 
   assert.doesNotMatch(lite, /item_payload->legacySeoRegistrationPolicy/);
   assert.match(lite, /Promise\.allSettled/);
   assert.match(lite, /includeJobs/);
-  assert.match(client, /load\(true\)/);
-  assert.match(client, /setInterval\(\(\) => void load\(false\), POLL_MS\)/);
-  assert.match(client, /\?items=\$\{includeItems/);
+  assert.match(client, /\?items=false/);
+  assert.match(client, /\?jobs=false&items=true/);
+  assert.match(client, /const POLL_MS = 60_000/);
+  assert.match(client, /document\.visibilityState === "visible"/);
+  assert.doesNotMatch(client, /load\(true\)/);
   assert.doesNotMatch(page, /LegacySeoSourceRecoveryEnhancer/);
 });
