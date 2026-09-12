@@ -53,7 +53,6 @@ async function listCompactJobs(
       "registration_job_id",
       "run_created_at",
       "updated_at",
-      "legacy_source_mode:checkpoint_payload->legacySourceMode",
     ].join(","),
     owner_id: `eq.${ownerId}`,
     archived_at: "is.null",
@@ -81,9 +80,11 @@ async function listCompactJobs(
       progress_percent: Math.max(0, Number(row.progress_percent) || 0),
       message: text(row.message),
       input_payload: record(row.input_payload),
-      checkpoint_payload: {
-        legacySourceMode: text(row.legacy_source_mode),
-      },
+      // Never dereference checkpoint_payload in this list endpoint. Completed SEO runs
+      // keep hundreds of scored candidates/search-ad rows there and PostgreSQL must
+      // detoast that entire JSON value even for a single nested field. The client can
+      // derive the display source mode from input_payload.legacyShoplingEvidence.
+      checkpoint_payload: {},
       result_payload: record(row.result_payload),
       error_message: text(row.error_message),
       registration_status: text(row.registration_status) || "idle",
