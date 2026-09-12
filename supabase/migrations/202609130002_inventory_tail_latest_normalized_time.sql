@@ -1,7 +1,7 @@
 -- Production correction for the initial latest-Tail projection rollout.
--- Fresh databases already receive the normalized definition in 202609130001;
--- this migration is intentionally idempotent so environments that applied the
--- first rollout before review converge to the same final definition.
+-- Fresh databases already receive the final definition in 202609130001; this
+-- migration is intentionally idempotent so environments that applied an earlier
+-- rollout converge without keeping stale indexes or winner-selection semantics.
 
 create or replace function public.commerce_inventory_try_iso_timestamptz(value text)
 returns timestamptz
@@ -28,22 +28,46 @@ from public, anon, authenticated;
 grant execute on function public.commerce_inventory_try_iso_timestamptz(text)
 to service_role;
 
-create index if not exists commerce_operation_runs_tail_reset_analysis_ts_idx
+-- Older rollout variants used these names. Remove all of them before recreating
+-- the one canonical expression index so every environment converges identically.
+drop index if exists public.commerce_operation_runs_tail_reset_started_idx;
+drop index if exists public.commerce_operation_runs_tail_reset_analysis_idx;
+drop index if exists public.commerce_operation_runs_tail_reset_analysis_ts_idx;
+
+create index commerce_operation_runs_tail_reset_analysis_ts_idx
 on public.commerce_operation_runs (
-  (coalesce(result_snapshot->'snapshot'->>'resetEventId', result_snapshot->>'resetEventId')),
-  (public.commerce_inventory_try_iso_timestamptz(
-    coalesce(result_snapshot->'snapshot'->>'analysisAsOf', result_snapshot->>'analysisAsOf')
-  )) desc,
+  (
+    btrim(
+      normalize(
+        (
+          case
+            when jsonb_typeof(result_snapshot->'snapshot') = 'object'
+              and result_snapshot->'snapshot' <> '{}'::jsonb
+              then result_snapshot->'snapshot'
+            else result_snapshot
+          end
+        )->>'resetEventId',
+        NFKC
+      )
+    )
+  ),
+  (
+    public.commerce_inventory_try_iso_timestamptz(
+      (
+        case
+          when jsonb_typeof(result_snapshot->'snapshot') = 'object'
+            and result_snapshot->'snapshot' <> '{}'::jsonb
+            then result_snapshot->'snapshot'
+          else result_snapshot
+        end
+      )->>'analysisAsOf'
+    )
+  ) desc,
   started_at desc,
   source_event_id desc
 )
 where operation_type = 'INVENTORY_STOCK_SALES_TAIL_EVENT'
-  and status = 'SUCCEEDED'
-  and public.commerce_inventory_try_iso_timestamptz(
-    coalesce(result_snapshot->'snapshot'->>'analysisAsOf', result_snapshot->>'analysisAsOf')
-  ) is not null;
-
-drop index if exists public.commerce_operation_runs_tail_reset_analysis_idx;
+  and status = 'SUCCEEDED';
 
 create or replace view public.commerce_inventory_latest_tail_snapshots as
 select distinct on (reset_event_id)
@@ -54,20 +78,50 @@ select distinct on (reset_event_id)
   status
 from (
   select
-    coalesce(result_snapshot->'snapshot'->>'resetEventId', result_snapshot->>'resetEventId') as reset_event_id,
+    btrim(normalize(snapshot_payload->>'resetEventId', NFKC)) as reset_event_id,
+    upper(
+      regexp_replace(
+        translate(
+          normalize(snapshot_payload->>'barcode', NFKC),
+          '‐‑‒–—−',
+          '------'
+        ),
+        '[[:space:]]+',
+        '',
+        'g'
+      )
+    ) as normalized_barcode,
     public.commerce_inventory_try_iso_timestamptz(
-      coalesce(result_snapshot->'snapshot'->>'analysisAsOf', result_snapshot->>'analysisAsOf')
+      snapshot_payload->>'resetAt'
+    ) as reset_at,
+    public.commerce_inventory_try_iso_timestamptz(
+      snapshot_payload->>'analysisAsOf'
     ) as analysis_at,
     source_event_id,
     result_snapshot,
     started_at,
     status
-  from public.commerce_operation_runs
-  where operation_type = 'INVENTORY_STOCK_SALES_TAIL_EVENT'
-    and status = 'SUCCEEDED'
-) as tail_rows
+  from (
+    select
+      case
+        when jsonb_typeof(result_snapshot->'snapshot') = 'object'
+          and result_snapshot->'snapshot' <> '{}'::jsonb
+          then result_snapshot->'snapshot'
+        else result_snapshot
+      end as snapshot_payload,
+      source_event_id,
+      result_snapshot,
+      started_at,
+      status
+    from public.commerce_operation_runs
+    where operation_type = 'INVENTORY_STOCK_SALES_TAIL_EVENT'
+      and status = 'SUCCEEDED'
+  ) as successful_tail_rows
+) as validatable_tail_rows
 where reset_event_id is not null
   and reset_event_id <> ''
+  and normalized_barcode ~ '^B[A-Z]{1,2}[0-9]+-[0-9]+$'
+  and reset_at is not null
   and analysis_at is not null
 order by reset_event_id, analysis_at desc, started_at desc, source_event_id desc;
 
