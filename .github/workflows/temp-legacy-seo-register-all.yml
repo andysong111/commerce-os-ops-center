@@ -1,0 +1,64 @@
+name: Temporary Legacy SEO Register All
+on:
+  push:
+    branches: ['fix/legacy-seo-register-all-20260913']
+    paths: ['.github/workflows/temp-legacy-seo-register-all.yml']
+permissions:
+  contents: write
+concurrency:
+  group: temp-legacy-seo-register-all
+  cancel-in-progress: false
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - name: Apply one-click register-all patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              value = p.read_text(encoding='utf-8')
+              count = value.count(old)
+              assert count == 1, f'{path}: expected one match, got {count}'
+              p.write_text(value.replace(old, new, 1), encoding='utf-8')
+
+          client = 'src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx'
+          replace(client, 'const REGISTRATION_BATCH_SIZE = 8;', 'const REGISTRATION_BATCH_SIZE = 8;\nconst REGISTRATION_BATCH_DELAY_MS = 750;')
+          replace(client, '''  const enqueue = () => {\n    if (!selected.size) {\n      setError("이전상품을 1개 이상 선택하세요.");\n      return;\n    }\n    void runAction("enqueue", {\n      itemIds: [...selected],\n      customBlockedTerms: readCustomBlockedTerms(),\n    });\n  };''', '''  const enqueue = () => {\n    if (!selected.size) {\n      setError("이전상품을 1개 이상 선택하세요.");\n      return;\n    }\n    void runAction("enqueue", {\n      itemIds: [...selected],\n      customBlockedTerms: readCustomBlockedTerms(),\n    });\n  };\n\n  const registerAll = useCallback(async () => {\n    const runIds = registerableJobs.map((job) => job.run_id);\n    if (!runIds.length || busy) return;\n    setBusy(true);\n    setError("");\n    let started = 0;\n    let failed = 0;\n    try {\n      const totalBatches = Math.ceil(runIds.length / REGISTRATION_BATCH_SIZE);\n      for (let index = 0; index < runIds.length; index += REGISTRATION_BATCH_SIZE) {\n        const batchNumber = Math.floor(index / REGISTRATION_BATCH_SIZE) + 1;\n        const batch = runIds.slice(index, index + REGISTRATION_BATCH_SIZE);\n        setMessage(\n          `Shopling 일괄 신규등록 ${batchNumber}/${totalBatches} 묶음 처리 중 · ${Math.min(index, runIds.length)}/${runIds.length}건 요청 완료`,\n        );\n        const body = await requestJson(API, {\n          method: "POST",\n          body: JSON.stringify({ action: "register", runIds: batch }),\n        });\n        const results = array(body.results).map(record);\n        started += results.filter((row) => row.started === true).length;\n        failed += results.filter((row) => text(row.error)).length;\n        setMessage(\n          `Shopling 일괄 신규등록 진행 중 · ${Math.min(index + batch.length, runIds.length)}/${runIds.length}건 요청 완료 · 시작 ${started}건${failed ? ` · 준비실패 ${failed}건` : ""}`,\n        );\n        if (index + REGISTRATION_BATCH_SIZE < runIds.length) {\n          await new Promise((resolve) => window.setTimeout(resolve, REGISTRATION_BATCH_DELAY_MS));\n        }\n      }\n      setMessage(\n        `Shopling 일괄 신규등록 요청 완료 · 대상 ${runIds.length}건 · 시작 ${started}건${failed ? ` · 준비실패 ${failed}건` : ""}. 실제 Shopling 처리상태는 아래 카드에서 계속 갱신됩니다.`,\n      );\n    } catch (registerError) {\n      setError(\n        `Shopling 일괄 신규등록이 ${started}/${runIds.length}건 시작 후 중단됐습니다. 이미 시작된 건은 중복 방지되므로 다시 누르면 남은 등록대기 건만 이어서 처리합니다. · ${\n          registerError instanceof Error ? registerError.message : "요청 실패"\n        }`,\n      );\n    } finally {\n      await load();\n      setBusy(false);\n    }\n  }, [busy, load, registerableJobs]);''')
+          replace(client, '''          <button\n            type="button"\n            disabled={busy || registerableJobs.length === 0}\n            onClick={() =>\n              void runAction("register", {\n                runIds: registerableJobs.slice(0, REGISTRATION_BATCH_SIZE).map((job) => job.run_id),\n              })\n            }\n            className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"\n          >\n            FINAL Shopling 신규등록 (8건씩)\n          </button>''', '''          <button\n            type="button"\n            disabled={busy || registerableJobs.length === 0}\n            onClick={() => void registerAll()}\n            className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"\n          >\n            {busy\n              ? "Shopling 일괄 신규등록 진행 중"\n              : `FINAL 전체 Shopling 신규등록 (${registerableJobs.length}건)`}\n          </button>''')
+
+          test = 'tests/legacySeoBulkLoading.test.mjs'
+          replace(test, '''  assert.match(client, /const REGISTRATION_BATCH_SIZE = 8/);\n  assert.match(client, /slice\\(0, REGISTRATION_BATCH_SIZE\\)/);\n  assert.match(client, /FINAL Shopling 신규등록 \\(8건씩\\)/);''', '''  assert.match(client, /const REGISTRATION_BATCH_SIZE = 8/);\n  assert.match(client, /const REGISTRATION_BATCH_DELAY_MS = 750/);\n  assert.match(client, /for \\(let index = 0; index < runIds.length; index \\+= REGISTRATION_BATCH_SIZE\\)/);\n  assert.match(client, /runIds.slice\\(index, index \\+ REGISTRATION_BATCH_SIZE\\)/);\n  assert.match(client, /action: "register", runIds: batch/);\n  assert.match(client, /FINAL 전체 Shopling 신규등록/);''')
+          PY
+      - run: npm ci
+      - name: Focused regression
+        run: >-
+          node --experimental-strip-types --test
+          tests/legacySeoBulkLoading.test.mjs
+          tests/legacySeoShoplingPayload.test.mjs
+          tests/legacySeoShoplingPriceRecovery.test.mjs
+      - name: Typecheck
+        run: npx --no-install tsc --noEmit
+      - name: Commit tested patch and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/temp-legacy-seo-register-all.yml
+          git add src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx tests/legacySeoBulkLoading.test.mjs
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: one-click all legacy SEO Shopling registration'
+          git push origin HEAD:refs/heads/fix/legacy-seo-register-all-20260913
