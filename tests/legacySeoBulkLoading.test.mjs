@@ -35,6 +35,12 @@ test("Shopling 등록은 checkpoint 없는 전용 조회와 8건 제한을 사�
   assert.match(selectSource, /registration_payload/);
   assert.doesNotMatch(selectSource, /checkpoint_payload/);
 
+  const patchTypeStart = store.indexOf("type UnknownRecord", patchStart);
+  const patchSelect = store.slice(patchStart, patchTypeStart);
+  assert.match(patchSelect, /run_id/);
+  assert.match(patchSelect, /registration_status/);
+  assert.doesNotMatch(patchSelect, /checkpoint_payload|input_payload|result_payload|registration_payload/);
+
   const registerStart = route.indexOf('if (action === "register")');
   const registerEnd = route.indexOf('if (action === "pulse")', registerStart);
   const registerSource = route.slice(registerStart, registerEnd);
