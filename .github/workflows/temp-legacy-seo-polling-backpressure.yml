@@ -41,6 +41,9 @@ jobs:
           replace(client,old3,new3)
           replace(client,'            onClick={() => void load(true)}\n','            onClick={() => {\n              void load();\n              void loadItems();\n            }}\n')
 
+          isolation='tests/legacySeoListLoadIsolation.test.mjs'
+          replace(isolation,'  assert.match(client, /load\\(true\\)/);\n  assert.match(client, /setInterval\\(\\(\\) => void load\\(false\\), POLL_MS\\)/);\n  assert.match(client, /\\?items=\\$\\{includeItems/);','  assert.match(client, /\\?items=false/);\n  assert.match(client, /\\?jobs=false&items=true/);\n  assert.match(client, /const POLL_MS = 60_000/);\n  assert.match(client, /document\\.visibilityState === "visible"/);\n  assert.doesNotMatch(client, /load\\(true\\)/);')
+
           test=Path('tests/legacySeoPollingBackpressure.test.mjs')
           assert not test.exists()
           test.write_text('''import assert from "node:assert/strict";\nimport { readFile } from "node:fs/promises";\nimport test from "node:test";\nasync function source(path){return readFile(new URL(`../${path}`,import.meta.url),"utf8");}\ntest("legacy SEO ledger polling is split, bounded and backpressured",async()=>{\n const route=await source("src/app/api/legacy-seo-run-jobs-lite/route.ts");\n const client=await source("src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx");\n assert.match(route,/attempts: 3, timeoutMs: 4_500/);\n assert.match(route,/attempts: 2, timeoutMs: 4_500/);\n assert.match(client,/const POLL_MS = 60_000/);\n assert.match(client,/\\?items=false/);\n assert.match(client,/\\?jobs=false&items=true/);\n assert.match(client,/itemsLoadingRef/);\n assert.match(client,/document\\.visibilityState === "visible"/);\n assert.doesNotMatch(client,/load\\(true\\)/);\n});\n''',encoding='utf-8')
@@ -60,7 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add src/app/api/legacy-seo-run-jobs-lite/route.ts src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx tests/legacySeoPollingBackpressure.test.mjs
+          git add src/app/api/legacy-seo-run-jobs-lite/route.ts src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx tests/legacySeoListLoadIsolation.test.mjs tests/legacySeoPollingBackpressure.test.mjs
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
