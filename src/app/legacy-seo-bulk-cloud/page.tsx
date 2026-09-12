@@ -4,7 +4,6 @@ import LegacySeoBulkListFetchShim from "./LegacySeoBulkListFetchShim";
 import LegacySeoBulkOptionSyncEnhancer from "./LegacySeoBulkOptionSyncEnhancer";
 import LegacySeoBulkRunAllEnhancer from "./LegacySeoBulkRunAllEnhancer";
 import LegacySeoBulkSelectEnhancer from "./LegacySeoBulkSelectEnhancer";
-import LegacySeoSourceRecoveryEnhancer from "./LegacySeoSourceRecoveryEnhancer";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +71,6 @@ export default function LegacySeoBulkCloudPage() {
           </div>
         </div>
 
-        <LegacySeoSourceRecoveryEnhancer />
         <LegacySeoBulkListFetchShim />
         <LegacySeoBulkSelectEnhancer />
         <LegacySeoBulkOptionSyncEnhancer />
