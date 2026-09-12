@@ -15,6 +15,15 @@ const supplementalReset = {
   note: "Product Master VERIFIED SOLD_OUT_RESET 기준점",
 };
 
+function productMasterBaselineMock(calls) {
+  return {
+    loadProductMasterVerifiedZeroResetEvents: async () => {
+      calls.productMaster += 1;
+      return [supplementalReset];
+    },
+  };
+}
+
 function loadRoute(calls) {
   return load("src/app/api/inventory-stock-control/sync/route.ts", {
     "@/lib/inventoryStockControl": {
@@ -58,15 +67,72 @@ function loadRoute(calls) {
     "@/lib/opsLoginBypass": {
       isSameOriginOpsRequest: () => true,
     },
-    "@/lib/productMasterVerifiedInventoryBaselines": {
-      loadProductMasterVerifiedZeroResetEvents: async () => {
-        calls.productMaster += 1;
-        return [supplementalReset];
-      },
-    },
+    "@/lib/productMasterVerifiedInventoryBaselines": productMasterBaselineMock(calls),
     "@/lib/supabase/admin": {
       createSupabaseAdminClient: async () => null,
     },
+  });
+}
+
+function loadOverviewRoute(calls) {
+  return load("src/app/api/inventory-stock-control/route.ts", {
+    "@/lib/inventoryStockControl": {
+      INVENTORY_STOCKOUT_RESET_OPERATION_TYPE: "INVENTORY_STOCKOUT_RESET_EVENT",
+      loadInventoryStockControlReport: async (options) => {
+        calls.inventory.push(options);
+        return stockFixture();
+      },
+      normalizeStockoutResetInput: (input) => input,
+      storeInventoryOperation: async () => {
+        calls.stores += 1;
+        return { duplicate: false, rows: [] };
+      },
+    },
+    "@/lib/inventoryStockResetCorrections": {
+      overlayInventoryStockControlReportWithResetCorrections: async (value) => value,
+    },
+    "@/lib/inventoryStockResetIdentity": {
+      validateInventoryStockoutResetIdentity: async (value) => value,
+    },
+    "@/lib/inventoryStockSalesTail": {
+      overlayInventoryStockControlReportWithTail: async (value) => value,
+    },
+    "@/lib/inventoryStockSalesTailCoverage": {
+      ensureExactInventoryStockSalesTailCoverage: async (report) => {
+        calls.tailRefresh.push(report);
+        return {
+          ok: true,
+          refreshed: false,
+          reused: true,
+          targetCount: 0,
+          message: "fixture",
+        };
+      },
+    },
+    "@/lib/inventoryStockSyncResolution": {
+      normalizeRetryableShoplingSyncReportWithEvidence: async (value) => value,
+    },
+    "@/lib/inventoryStocktakeBaselines": {
+      overlayInventoryStockControlReportWithStocktakeBaselines: async (value) => value,
+    },
+    "@/lib/opsLoginBypass": {
+      isSameOriginOpsRequest: () => true,
+    },
+    "@/lib/opsAdaptiveDispatcher": {
+      wakeOpsDispatchTask: async () => false,
+    },
+    "@/lib/productMasterShoplingSalesEventSync": {
+      createProductMasterShoplingSalesEventSyncRequest: async () => ({
+        requestId: "unused",
+        analysisAsOf: at,
+      }),
+      loadProductMasterShoplingSalesEventSyncStatus: async () => ({
+        state: "COMPLETED",
+        requestId: "unused",
+        analysisAsOf: at,
+      }),
+    },
+    "@/lib/productMasterVerifiedInventoryBaselines": productMasterBaselineMock(calls),
   });
 }
 
@@ -120,4 +186,25 @@ test("operational Shopling result POST rebuilds the queue with Product Master ze
   assert.equal(calls.productMaster, 1);
   assert.equal(calls.inventory.length, 1);
   assertSupplementalOptions(calls.inventory[0]);
+});
+
+test("overview refresh includes Product Master zero-reset evidence before refreshing Tail coverage", async () => {
+  const calls = {
+    inventory: [],
+    productMaster: 0,
+    stores: 0,
+    tailRefresh: [],
+  };
+  const route = loadOverviewRoute(calls);
+  const response = await route.GET(
+    new Request("https://ops.example/api/inventory-stock-control", {
+      headers: { origin: "https://ops.example" },
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(calls.productMaster, 1);
+  assert.equal(calls.inventory.length, 1);
+  assertSupplementalOptions(calls.inventory[0]);
+  assert.equal(calls.tailRefresh.length, 1);
+  assert.equal(calls.stores, 0);
 });
