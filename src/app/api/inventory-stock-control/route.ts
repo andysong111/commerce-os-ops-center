@@ -16,6 +16,7 @@ import {
   createProductMasterShoplingSalesEventSyncRequest,
   loadProductMasterShoplingSalesEventSyncStatus,
 } from "@/lib/productMasterShoplingSalesEventSync";
+import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,8 +43,14 @@ function unauthorized() {
 }
 
 async function loadResolvedInventoryStockControlReport() {
+  // The overview refresh and the operational Shopling queue must start from the
+  // same physical-zero authority. Otherwise a Product Master-only zero reset can
+  // appear in the queue but be omitted from the Tail refresh that is supposed to
+  // unblock it, leaving the row permanently stuck behind stale Canonical coverage.
+  const supplementalResetEvents =
+    await loadProductMasterVerifiedZeroResetEvents();
   const seeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
-    await loadInventoryStockControlReport(),
+    await loadInventoryStockControlReport({ supplementalResetEvents }),
   );
   const tailed = await overlayInventoryStockControlReportWithTail(seeded);
   const corrected =
