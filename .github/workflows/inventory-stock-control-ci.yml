@@ -1,58 +1,42 @@
 name: Inventory Stock Control CI
-
 on:
   push:
     branches: [main]
     paths:
-      - "src/lib/inventoryStockControl.ts"
-      - "src/lib/inventoryStockSalesTail.ts"
-      - "src/lib/productMasterVerifiedInventoryBaselines.ts"
-      - "src/app/api/inventory-stock-control/route.ts"
-      - "src/app/api/inventory-stock-control/sync/route.ts"
-      - "src/lib/supabase/admin.ts"
-      - "src/lib/shopling/shoplingOptionStatus.ts"
-      - "supabase/migrations/202609130001_inventory_tail_latest_view.sql"
-      - "supabase/migrations/202609130002_inventory_tail_latest_normalized_time.sql"
-      - "supabase/migrations/202609130003_inventory_tail_latest_snapshot_validation.sql"
-      - "supabase/migrations/202609130004_inventory_tail_latest_snapshot_cache.sql"
-      - "public/shopling-stock-state-sync/**"
-      - "tests/inventoryStockControlReentry.test.mjs"
-      - "tests/inventoryStockProductMasterBridge.test.mjs"
-      - "tests/inventoryStockTailLatestView.test.mjs"
-      - "tests/inventoryStockTailProjection.sql"
-      - "tests/helpers/purchaseCycleHarness.mjs"
-      - "tests/supabaseAdminReadRetry.test.mjs"
-      - ".github/workflows/inventory-stock-control-ci.yml"
+      - 'src/lib/inventoryStock*.ts'
+      - 'src/lib/productMasterVerifiedInventoryBaselines.ts'
+      - 'src/app/api/inventory-stock-control/**'
+      - 'src/components/china-order-manager/InventoryStockOverviewPanel.tsx'
+      - 'src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx'
+      - 'src/lib/supabase/admin.ts'
+      - 'src/lib/shopling/shoplingOptionStatus.ts'
+      - 'supabase/migrations/*inventory_tail*.sql'
+      - 'public/shopling-stock-state-sync/**'
+      - 'tests/inventoryStock*'
+      - 'tests/helpers/purchaseCycleHarness.mjs'
+      - 'tests/supabaseAdminReadRetry.test.mjs'
+      - '.github/workflows/inventory-stock-control-ci.yml'
   pull_request:
     paths:
-      - "src/lib/inventoryStockControl.ts"
-      - "src/lib/inventoryStockSalesTail.ts"
-      - "src/lib/productMasterVerifiedInventoryBaselines.ts"
-      - "src/app/api/inventory-stock-control/route.ts"
-      - "src/app/api/inventory-stock-control/sync/route.ts"
-      - "src/lib/supabase/admin.ts"
-      - "src/lib/shopling/shoplingOptionStatus.ts"
-      - "supabase/migrations/202609130001_inventory_tail_latest_view.sql"
-      - "supabase/migrations/202609130002_inventory_tail_latest_normalized_time.sql"
-      - "supabase/migrations/202609130003_inventory_tail_latest_snapshot_validation.sql"
-      - "supabase/migrations/202609130004_inventory_tail_latest_snapshot_cache.sql"
-      - "public/shopling-stock-state-sync/**"
-      - "tests/inventoryStockControlReentry.test.mjs"
-      - "tests/inventoryStockProductMasterBridge.test.mjs"
-      - "tests/inventoryStockTailLatestView.test.mjs"
-      - "tests/inventoryStockTailProjection.sql"
-      - "tests/helpers/purchaseCycleHarness.mjs"
-      - "tests/supabaseAdminReadRetry.test.mjs"
-      - ".github/workflows/inventory-stock-control-ci.yml"
+      - 'src/lib/inventoryStock*.ts'
+      - 'src/lib/productMasterVerifiedInventoryBaselines.ts'
+      - 'src/app/api/inventory-stock-control/**'
+      - 'src/components/china-order-manager/InventoryStockOverviewPanel.tsx'
+      - 'src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx'
+      - 'src/lib/supabase/admin.ts'
+      - 'src/lib/shopling/shoplingOptionStatus.ts'
+      - 'supabase/migrations/*inventory_tail*.sql'
+      - 'public/shopling-stock-state-sync/**'
+      - 'tests/inventoryStock*'
+      - 'tests/helpers/purchaseCycleHarness.mjs'
+      - 'tests/supabaseAdminReadRetry.test.mjs'
+      - '.github/workflows/inventory-stock-control-ci.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: inventory-stock-control-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   regression:
     runs-on: ubuntu-latest
@@ -62,13 +46,10 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
+        ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd 'pg_isready -U postgres'
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -80,17 +61,13 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          docker run --rm -i --network host -e PGPASSWORD="$PGPASSWORD" postgres:16 \
-            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          docker run --rm -i --network host -e PGPASSWORD="$PGPASSWORD" postgres:16 psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
           create role anon nologin;
           create role authenticated nologin;
           create role service_role nologin;
           create table public.commerce_operation_runs (
-            operation_type text not null,
-            status text not null,
-            source_event_id text not null,
-            result_snapshot jsonb,
-            started_at timestamptz not null
+            operation_type text not null, status text not null, source_event_id text not null,
+            result_snapshot jsonb, started_at timestamptz not null
           );
           SQL
           for migration in \
@@ -99,10 +76,8 @@ jobs:
             supabase/migrations/202609130003_inventory_tail_latest_snapshot_validation.sql \
             supabase/migrations/202609130004_inventory_tail_latest_snapshot_cache.sql
           do
-            docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 \
-              psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "/workspace/$migration"
+            docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "/workspace/$migration"
           done
-          docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 \
-            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /workspace/tests/inventoryStockTailProjection.sql
-      - name: Run stock-control, Product Master, bounded Tail and Supabase read regression tests
-        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockTailLatestView.test.mjs tests/supabaseAdminReadRetry.test.mjs
+          docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /workspace/tests/inventoryStockTailProjection.sql
+      - name: Test stock control and connection recovery
+        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockTailLatestView.test.mjs tests/inventoryStockConnection.test.mjs tests/supabaseAdminReadRetry.test.mjs
