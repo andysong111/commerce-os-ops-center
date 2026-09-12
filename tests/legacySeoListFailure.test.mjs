@@ -16,8 +16,8 @@ function harness({ jobs = [], items = [], authStatus, authError } = {}) {
   const exports = {};
   const dependencies = {
     "@/lib/productLaunchTrackerServer": {
-      async readProductLaunchStorageJson(url, init) {
-        calls.push({ url, init });
+      async readProductLaunchStorageJson(url, init, options) {
+        calls.push({ url, init, options });
         const value = url.includes("/legacy_seo_run_jobs?") ? jobs : items;
         if (value instanceof Error || value?.reject === true) throw value;
         return { body: value };
@@ -39,6 +39,8 @@ function harness({ jobs = [], items = [], authStatus, authError } = {}) {
     },
     URLSearchParams, Response, crypto: { randomUUID },
     console: { warn: (...args) => warnings.push(args) },
+    Date,
+    Math,
   });
   return { calls, warnings, get: (query = "") => exports.GET({ nextUrl: new URL(`https://ops.invalid/api/legacy-seo-run-jobs-lite${query}`) }) };
 }
@@ -60,6 +62,7 @@ test("normal ledger preserves FINAL payload and owner filters without reading ca
   assert.equal(url.searchParams.get("archived_at"), "is.null");
   assert.doesNotMatch(url.searchParams.get("select"), /checkpoint_payload|registration_payload/);
   assert.equal(h.calls[0].init.method, undefined);
+  assert.equal(h.calls[0].options.attempts, 1);
 });
 
 test("true empty success remains distinct from unavailable data", async () => {
@@ -83,7 +86,7 @@ for (const [name, failure] of [
     const response = await h.get("?items=false");
     const body = await response.json();
     assert.equal(response.status, 503);
-    assert.equal(response.headers.get("retry-after"), "60");
+    assert.ok(Number(response.headers.get("retry-after")) >= 299);
     assert.match(response.headers.get("cache-control"), /no-store/);
     assert.equal(body.ok, false);
     assert.equal(body.canRegister, false);
@@ -95,6 +98,21 @@ for (const [name, failure] of [
   });
 }
 
+test("first transient failure opens a server circuit so repeated GET does not hit storage again", async () => {
+  const h = harness({ jobs: new Error("PGRST002: schema cache") });
+  const first = await h.get("?items=false");
+  assert.equal(first.status, 503);
+  assert.equal(h.calls.length, 1);
+
+  const second = await h.get("?items=false");
+  const body = await second.json();
+  assert.equal(second.status, 503);
+  assert.equal(second.headers.get("x-ops-storage-circuit"), "open");
+  assert.equal(body.code, "LEGACY_SEO_STORAGE_UNAVAILABLE");
+  assert.equal(body.dependencyCode, "PGRST002");
+  assert.equal(h.calls.length, 1, "open circuit must absorb repeated polling without storage access");
+});
+
 test("catalog-only failure no longer returns HTTP 200 with empty items", async () => {
   const h = harness({ items: new Error("PGRST002: schema cache") });
   const response = await h.get("?jobs=false&items=true");
@@ -104,6 +122,7 @@ test("catalog-only failure no longer returns HTTP 200 with empty items", async (
   assert.equal("items" in body, false);
   assert.equal(h.calls.length, 1);
   assert.match(h.calls[0].url, /product_launch_items/);
+  assert.equal(h.calls[0].options.attempts, 1);
 });
 
 test("combined read retains successful ledger but marks catalog as unknown, not empty", async () => {
@@ -146,7 +165,7 @@ test("unexpected context rejection is contained without exposing exception text"
   assert.equal(h.calls.length, 0);
 });
 
-test("recovery returns live results instead of persisting a failed response", async () => {
+test("successful live reads are not persisted as a server cache", async () => {
   const jobs = [];
   const h = harness({ jobs });
   assert.equal((await (await h.get("?items=false")).json()).jobs.length, 0);

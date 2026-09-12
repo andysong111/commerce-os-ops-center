@@ -8,7 +8,11 @@ export const runtime = "nodejs";
 
 const JOB_LIMIT = 800;
 const ITEM_LIMIT = 1000;
+const OUTAGE_CIRCUIT_MS = 5 * 60_000;
 const READ_HEADERS = { "Cache-Control": "private, no-store, max-age=0" };
+
+let storageCircuitUntil = 0;
+let storageCircuitDependencyCode: string | null = null;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -27,6 +31,33 @@ function list(value: unknown, limit = 100) {
   return [...new Set(value.map(text).filter(Boolean))].slice(0, limit);
 }
 
+function retryAfterSeconds() {
+  return Math.max(1, Math.ceil((storageCircuitUntil - Date.now()) / 1000));
+}
+
+function circuitUnavailable() {
+  const requestId = crypto.randomUUID();
+  return Response.json(
+    {
+      ok: false,
+      code: "LEGACY_SEO_STORAGE_UNAVAILABLE",
+      dependencyCode: storageCircuitDependencyCode,
+      requestId,
+      canRegister: false,
+      message:
+        "서버 저장소 연결 보호가 작동 중입니다. 이전 실패 뒤 반복 조회를 잠시 차단해 DB 부하를 낮추고 있습니다. 화면의 0건은 실제 상품 수가 아닙니다.",
+    },
+    {
+      status: 503,
+      headers: {
+        ...READ_HEADERS,
+        "Retry-After": String(retryAfterSeconds()),
+        "X-Ops-Storage-Circuit": "open",
+      },
+    },
+  );
+}
+
 function unavailable(error: unknown) {
   // Never expose a raw provider response, URL, key, SQL statement or payload.
   const details = record(error);
@@ -35,6 +66,10 @@ function unavailable(error: unknown) {
   const transient = Boolean(dependencyCode) || /abort|timeout|timed out|fetch failed|network|econn|schema cache|connection|HTTP (408|429|50[0234])/i.test(diagnostic);
   const requestId = crypto.randomUUID();
   const code = transient ? "LEGACY_SEO_STORAGE_UNAVAILABLE" : "LEGACY_SEO_LIST_FAILED";
+  if (transient) {
+    storageCircuitUntil = Date.now() + OUTAGE_CIRCUIT_MS;
+    storageCircuitDependencyCode = dependencyCode;
+  }
   console.warn("[legacy-seo-list-unavailable]", { requestId, code, dependencyCode });
   return Response.json(
     {
@@ -49,7 +84,10 @@ function unavailable(error: unknown) {
     },
     {
       status: transient ? 503 : 500,
-      headers: { ...READ_HEADERS, ...(transient ? { "Retry-After": "60" } : {}) },
+      headers: {
+        ...READ_HEADERS,
+        ...(transient ? { "Retry-After": String(retryAfterSeconds()) } : {}),
+      },
     },
   );
 }
@@ -88,7 +126,9 @@ async function listCompactJobs(
       headers: createSupabaseAdminHeaders(config.secretKey),
       cache: "no-store",
     },
-    { attempts: 3, timeoutMs: 4_500, retryDelaysMs: [250, 750] },
+    // Passive UI reads must not amplify an already-unhealthy storage dependency.
+    // A later request can retry after the endpoint circuit cools down.
+    { attempts: 1, timeoutMs: 4_500, retryDelaysMs: [] },
   );
   if (!Array.isArray(body)) throw new Error("LEGACY_SEO_LIST_INVALID_PAYLOAD");
   return body.map((value) => {
@@ -147,7 +187,7 @@ async function listLegacyItems(
       headers: createSupabaseAdminHeaders(config.secretKey),
       cache: "no-store",
     },
-    { attempts: 2, timeoutMs: 4_500, retryDelaysMs: [500] },
+    { attempts: 1, timeoutMs: 4_500, retryDelaysMs: [] },
   );
   if (!Array.isArray(body)) throw new Error("LEGACY_SEO_LIST_INVALID_PAYLOAD");
   return body.map(record).map((row) => ({
@@ -168,6 +208,8 @@ export async function GET(request: NextRequest) {
   try {
     const authenticated = await requireSeoTitleLedgerContext(request);
     if (!authenticated.ok) return authenticated.response;
+    if (storageCircuitUntil > Date.now()) return circuitUnavailable();
+
     const context = authenticated.value;
     const includeJobs = request.nextUrl.searchParams.get("jobs") !== "false";
     const includeItems = request.nextUrl.searchParams.get("items") !== "false";
@@ -192,6 +234,9 @@ export async function GET(request: NextRequest) {
       ? ["이전상품 선택 목록을 확인하지 못했습니다. 상품 수는 미확인 상태이며 SEO 작업원장만 표시합니다."]
       : [];
 
+    // A real successful storage read is the only signal that closes an expired circuit.
+    storageCircuitUntil = 0;
+    storageCircuitDependencyCode = null;
     return Response.json(
       {
         ok: true,

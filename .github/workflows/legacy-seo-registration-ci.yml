@@ -37,6 +37,7 @@ on:
       - 'tests/legacySeoBulkLoading.test.mjs'
       - 'tests/legacySeoListFailure.test.mjs'
       - 'tests/legacySeoCheckpointIo.test.mjs'
+      - 'tests/legacySeoPollingGuard.test.mjs'
       - 'tests/legacySeoStockRecovery.test.mjs'
       - 'tests/legacySeoShoplingPayload.test.mjs'
       - 'tests/legacySeoShoplingPriceRecovery.test.mjs'
@@ -67,6 +68,7 @@ jobs:
           tests/legacySeoBulkLoading.test.mjs
           tests/legacySeoListFailure.test.mjs
           tests/legacySeoCheckpointIo.test.mjs
+          tests/legacySeoPollingGuard.test.mjs
           tests/legacySeoStockRecovery.test.mjs
           tests/legacySeoShoplingPayload.test.mjs
           tests/legacySeoShoplingPriceRecovery.test.mjs
