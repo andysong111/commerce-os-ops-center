@@ -1,0 +1,79 @@
+name: Legacy SEO Read-only Readiness
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/legacy-seo-api-readiness-20260913]
+    paths: ['.github/workflows/legacy-seo-readonly-readiness.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-seo-readonly-readiness
+  cancel-in-progress: false
+
+jobs:
+  production-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: Read actual production ledger and catalog without writes
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, writeFileSync } from 'node:fs';
+          const base = 'https://commerce-os-ops-center.vercel.app';
+          const probes = [
+            ['ledger-1', '/api/legacy-seo-run-jobs-lite?items=false'],
+            ['catalog', '/api/legacy-seo-run-jobs-lite?jobs=false&items=true'],
+            ['ledger-2', '/api/legacy-seo-run-jobs-lite?items=false'],
+          ];
+          const results = [];
+          for (const [name, path] of probes) {
+            const start = Date.now();
+            let result;
+            try {
+              const response = await fetch(base + path, {
+                method: 'GET', redirect: 'error',
+                headers: { Accept: 'application/json', Origin: base, Referer: base + '/legacy-seo-bulk-cloud' },
+                signal: AbortSignal.timeout(20000),
+              });
+              const raw = await response.text();
+              let body = {};
+              try { body = JSON.parse(raw); } catch { /* Classified by content type and status. */ }
+              const jobs = Array.isArray(body.jobs) ? body.jobs : null;
+              const items = Array.isArray(body.items) ? body.items : null;
+              result = {
+                name, checkedAt: new Date().toISOString(), status: response.status,
+                durationMs: Date.now() - start, ok: body.ok === true,
+                requestId: response.headers.get('x-vercel-id'),
+                code: typeof body.code === 'string' && /^[A-Z0-9_-]{1,80}$/.test(body.code) ? body.code : null,
+                jobs: jobs?.length ?? null,
+                final: jobs?.filter(j => j.status === 'ready').length ?? null,
+                pending: jobs?.filter(j => j.status === 'ready' && j.registration_status === 'idle').length ?? null,
+                success: jobs?.filter(j => j.registration_status === 'success').length ?? null,
+                items: items?.length ?? null,
+                warnings: Array.isArray(body.warnings) ? body.warnings.length : 0,
+              };
+              result.healthy = response.ok && result.ok && (name === 'catalog' ? items !== null && result.warnings === 0 : jobs !== null);
+            } catch (error) {
+              result = { name, checkedAt: new Date().toISOString(), durationMs: Date.now() - start, healthy: false, errorType: error?.name || 'Error' };
+            }
+            results.push(result);
+            console.log('::notice::' + JSON.stringify(result));
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+          writeFileSync('legacy-seo-readiness.json', JSON.stringify(results, null, 2));
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, '## Production GET-only readiness\n\n```json\n' + JSON.stringify(results, null, 2) + '\n```\n\nNo registrations, retries, pulses, or business-data writes were performed.\n');
+          if (results.some(result => !result.healthy)) process.exitCode = 1;
+          NODE
+      - name: Preserve sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-seo-readiness
+          path: legacy-seo-readiness.json
+          retention-days: 7
