@@ -78,7 +78,7 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          docker run --rm --network host -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+          docker run --rm -i --network host -e PGPASSWORD="$PGPASSWORD" postgres:16 \
             psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
           create role anon nologin;
           create role authenticated nologin;
