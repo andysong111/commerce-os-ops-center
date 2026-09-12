@@ -3,6 +3,7 @@ import {
   authorizeReliabilityAdminRead,
 } from "@/lib/reliability/reliabilityAdminReadAuth";
 import { loadAiSaurusReliabilityAdminSummary } from "@/lib/reliability/aiSaurusAdminSummary";
+import { loadAiSaurusReliabilityExactSummaryCounts } from "@/lib/reliability/aiSaurusAdminSummaryCounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,14 @@ export async function GET(request: Request) {
   }
 
   try {
-    const summary = await loadAiSaurusReliabilityAdminSummary();
+    const [detailSummary, exactSummary] = await Promise.all([
+      loadAiSaurusReliabilityAdminSummary(),
+      loadAiSaurusReliabilityExactSummaryCounts(),
+    ]);
+    const summary = {
+      ...detailSummary,
+      summary: exactSummary,
+    };
     return NextResponse.json(
       { ok: true, summary },
       { headers: { "Cache-Control": "private, no-store, max-age=0" } },
