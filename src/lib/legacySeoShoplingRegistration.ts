@@ -10,10 +10,8 @@ import {
   writeProductLaunchState,
   type ProductLaunchAdminConfig,
 } from "@/lib/productLaunchTrackerServer";
-import {
-  patchOwnedLegacySeoRunJobs,
-  type LegacySeoRunJobContext,
-} from "@/lib/legacySeoRunJobServer";
+import type { LegacySeoRunJobContext } from "@/lib/legacySeoRunJobServer";
+import { patchLegacySeoRegistrationStatus } from "@/lib/legacySeoRegistrationRunStore";
 import type { SeoRunJobRow } from "@/lib/seoRunJobServer";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 
@@ -170,7 +168,7 @@ export async function startLegacySeoShoplingRegistration(
     throw new Error(`${run.model_number}: FINAL RESULT 10개/29개가 완성되지 않았습니다.`);
   }
 
-  await patchOwnedLegacySeoRunJobs(context, [run.run_id], {
+  await patchLegacySeoRegistrationStatus(context, [run.run_id], {
     registration_status: "submitting",
     registration_payload: {
       ...record(run.registration_payload),
@@ -291,7 +289,7 @@ export async function startLegacySeoShoplingRegistration(
       updated_at: now,
     });
 
-    await patchOwnedLegacySeoRunJobs(context, [run.run_id], {
+    await patchLegacySeoRegistrationStatus(context, [run.run_id], {
       registration_status: "queued",
       registration_job_id: jobId,
       registration_request_id: requestId,
@@ -313,7 +311,7 @@ export async function startLegacySeoShoplingRegistration(
     return { started: true, jobId, requestId, newSelfCodeBase };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Shopling 등록 준비 실패";
-    await patchOwnedLegacySeoRunJobs(context, [run.run_id], {
+    await patchLegacySeoRegistrationStatus(context, [run.run_id], {
       registration_status: "failed",
       registration_payload: {
         ...record(run.registration_payload),
@@ -370,7 +368,7 @@ export async function refreshLegacySeoRegistrationStatuses(
           text(record(job.result).error_message) ||
           `Shopling 등록 ${status}`
         : "";
-    await patchOwnedLegacySeoRunJobs(context, [run.run_id], {
+    await patchLegacySeoRegistrationStatus(context, [run.run_id], {
       registration_status: nextStatus,
       registration_payload: {
         ...record(run.registration_payload),
