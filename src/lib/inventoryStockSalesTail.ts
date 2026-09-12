@@ -19,6 +19,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 export const INVENTORY_STOCK_SALES_TAIL_OPERATION_TYPE =
   "INVENTORY_STOCK_SALES_TAIL_EVENT";
 
+const LATEST_TAIL_SNAPSHOT_VIEW =
+  "commerce_inventory_latest_tail_snapshots";
 const BARCODE_PATTERN = /^B[A-Z]{1,2}\d+-\d+$/;
 const TAIL_CHUNK_DAYS = 7;
 const TAIL_MAX_WINDOW_DAYS = 31;
@@ -254,6 +256,31 @@ async function readOperationRows(operationType: string) {
   return (result.data ?? []) as StoredOperationRow[];
 }
 
+async function readLatestTailOperationRows() {
+  const admin = await createSupabaseAdminClient();
+  if (!admin) throw new Error("SUPABASE_ADMIN_NOT_CONFIGURED");
+
+  // The Tail ledger is append-only and can contain hundreds of historical
+  // snapshots for only a handful of reset events. Pulling the entire history on
+  // every 30-second queue poll amplified PostgREST latency enough to cross the
+  // bounded admin timeout. The database projection returns exactly the latest
+  // successful row per reset event while preserving the underlying ledger.
+  const result = await admin
+    .from(LATEST_TAIL_SNAPSHOT_VIEW)
+    .select("source_event_id,result_snapshot,started_at,status")
+    .order("started_at", { ascending: true })
+    .limit(READ_LIMIT);
+  if (result.error || !Array.isArray(result.data)) {
+    throw new Error(
+      `INVENTORY_STOCK_TAIL_LATEST_VIEW_READ_FAILED:${result.error?.message ?? "NON_ARRAY_DATA"}`,
+    );
+  }
+  if (result.data.length >= READ_LIMIT) {
+    throw new Error("INVENTORY_STOCK_TAIL_LATEST_VIEW_TRUNCATED");
+  }
+  return result.data as StoredOperationRow[];
+}
+
 function tailSnapshotFrom(row: StoredOperationRow) {
   const root = object(row.result_snapshot);
   const source = Object.keys(object(root.snapshot)).length
@@ -294,9 +321,7 @@ function tailSnapshotFrom(row: StoredOperationRow) {
 
 export async function loadLatestInventoryStockSalesTailSnapshots() {
   const latest = new Map<string, InventoryStockSalesTailSnapshot>();
-  for (const row of await readOperationRows(
-    INVENTORY_STOCK_SALES_TAIL_OPERATION_TYPE,
-  )) {
+  for (const row of await readLatestTailOperationRows()) {
     const snapshot = tailSnapshotFrom(row);
     if (!snapshot) continue;
     const current = latest.get(snapshot.resetEventId);
