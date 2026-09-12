@@ -74,13 +74,48 @@ function loadRoute(calls) {
   });
 }
 
+function overviewFixture(options) {
+  const base = stockFixture();
+  const resets = options?.supplementalResetEvents ?? [];
+  const supplementalRows = resets.map((reset) => ({
+    barcode: reset.barcode,
+    productName: "Product Master fixture",
+    optionName: null,
+    modelNo: reset.modelNo,
+    goodsKeys: ["14717973"],
+    productKind: reset.productKind,
+    resetAt: reset.occurredAt,
+    resetEventId: reset.eventId,
+    receivedSinceReset: 0,
+    soldSinceReset: 0,
+    exactInventoryQuantity: 0,
+    recent30StockoutDays: 1,
+    desiredStatus: "SOLD_OUT",
+    desiredSince: reset.occurredAt,
+    salesCoverageReady: false,
+    receiptEvidenceCount: 0,
+    salesEvidenceCount: 0,
+    latestSyncOutcome: null,
+    latestSyncAt: null,
+    syncNeeded: true,
+    syncBlocked: true,
+    syncBlockReason: "Canonical coverage pending",
+  }));
+  return {
+    ...base,
+    resetCount: base.resetCount + supplementalRows.length,
+    pendingSyncCount: 0,
+    rows: [...base.rows, ...supplementalRows],
+  };
+}
+
 function loadOverviewRoute(calls) {
   return load("src/app/api/inventory-stock-control/route.ts", {
     "@/lib/inventoryStockControl": {
       INVENTORY_STOCKOUT_RESET_OPERATION_TYPE: "INVENTORY_STOCKOUT_RESET_EVENT",
       loadInventoryStockControlReport: async (options) => {
         calls.inventory.push(options);
-        return stockFixture();
+        return overviewFixture(options);
       },
       normalizeStockoutResetInput: (input) => input,
       storeInventoryOperation: async () => {
@@ -188,7 +223,7 @@ test("operational Shopling result POST rebuilds the queue with Product Master ze
   assertSupplementalOptions(calls.inventory[0]);
 });
 
-test("overview refresh includes Product Master zero-reset evidence before refreshing Tail coverage", async () => {
+test("overview refresh materializes Product Master zero-reset evidence into Tail coverage input", async () => {
   const calls = {
     inventory: [],
     productMaster: 0,
@@ -206,5 +241,11 @@ test("overview refresh includes Product Master zero-reset evidence before refres
   assert.equal(calls.inventory.length, 1);
   assertSupplementalOptions(calls.inventory[0]);
   assert.equal(calls.tailRefresh.length, 1);
+  const tailRow = calls.tailRefresh[0].rows.find(
+    (row) => row.barcode === supplementalReset.barcode,
+  );
+  assert.ok(tailRow, "Product Master zero reset must reach Tail refresh input");
+  assert.equal(tailRow.resetEventId, supplementalReset.eventId);
+  assert.equal(tailRow.resetAt, supplementalReset.occurredAt);
   assert.equal(calls.stores, 0);
 });
