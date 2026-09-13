@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API = "/api/legacy-seo-run-jobs";
 const POLL_MS = 60_000;
-const REGISTRATION_BATCH_SIZE = 8;
-const REGISTRATION_BATCH_DELAY_MS = 750;
+const REGISTRATION_BATCH_SIZE = 4;
+const REGISTRATION_BATCH_DELAY_MS = 60_000;
 const CUSTOM_BLOCKED_STORAGE_KEY =
   "keywordEngineElonLab.step4.customBlockedTerms.v1";
 

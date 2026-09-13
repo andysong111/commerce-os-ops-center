@@ -21,7 +21,7 @@ test("이전상품 SEO 목록 조회는 대형 checkpoint를 읽거나 nested �
   assert.match(page, /<LegacySeoBulkListFetchShim \/>/);
 });
 
-test("Shopling 등록은 checkpoint 없는 전용 조회와 8건 제한을 사용한다", async () => {
+test("Shopling 등록은 checkpoint 없는 전용 조회와 4건/60초 paced wave를 사용한다", async () => {
   const store = await source("src/lib/legacySeoRegistrationRunStore.ts");
   const route = await source("src/app/api/legacy-seo-run-jobs/route.ts");
   const registration = await source("src/lib/legacySeoShoplingRegistration.ts");
@@ -52,11 +52,12 @@ test("Shopling 등록은 checkpoint 없는 전용 조회와 8건 제한을 사�
   assert.doesNotMatch(registration, /patchOwnedLegacySeoRunJobs/);
   assert.match(store, /LEGACY_SEO_REGISTRATION_PATCH_MISMATCH/);
 
-  assert.match(client, /const REGISTRATION_BATCH_SIZE = 8/);
-  assert.match(client, /const REGISTRATION_BATCH_DELAY_MS = 750/);
+  assert.match(client, /const REGISTRATION_BATCH_SIZE = 4/);
+  assert.match(client, /const REGISTRATION_BATCH_DELAY_MS = 60_000/);
   assert.match(client, /for \(let index = 0; index < runIds.length; index \+= REGISTRATION_BATCH_SIZE\)/);
   assert.match(client, /runIds.slice\(index, index \+ REGISTRATION_BATCH_SIZE\)/);
   assert.match(client, /action: "register", runIds: batch/);
+  assert.match(client, /window\.setTimeout\(resolve, REGISTRATION_BATCH_DELAY_MS\)/);
   assert.match(client, /FINAL 전체 Shopling 신규등록/);
 });
 
