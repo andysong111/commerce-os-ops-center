@@ -1,0 +1,37 @@
+name: Legacy SEO Two-Product Generation Canary
+on:
+  push:
+    branches: ['verify/legacy-seo-generation-only-20260914']
+    paths: ['.github/workflows/legacy-seo-generation-canary-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: legacy-seo-two-product-generation-canary-20260914
+  cancel-in-progress: false
+jobs:
+  generation-only:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - name: Install repository's existing isolated browser tool version
+        run: |
+          mkdir -p /tmp/legacy-seo-browser
+          npm install --prefix /tmp/legacy-seo-browser --no-save --package-lock=false playwright@1.55.1
+          /tmp/legacy-seo-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Run one normal-browser generation retry for AAA106 and AAA109 only
+        run: |
+          cp scripts/legacy-seo-generation-canary-20260914.mjs /tmp/legacy-seo-browser/check.mjs
+          node --check /tmp/legacy-seo-browser/check.mjs
+          node /tmp/legacy-seo-browser/check.mjs
+      - name: Preserve compact outcome without credentials or full product payloads
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-seo-two-product-generation-outcome
+          path: artifacts/legacy-seo-canary
+          retention-days: 3
