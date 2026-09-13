@@ -45,6 +45,7 @@ export function normalizeProductLaunchOptionNames<T extends Row>(
   if (!Array.isArray(item.orderOptions) || !item.orderOptions.length) return item;
   if (item.orderOptions.some(v => v === null || typeof v !== "object" || Array.isArray(v))) return item;
   const entries = item.orderOptions.map(row);
+  if (new Set(entries.map(option => text(option.optionName) || "옵션")).size > 1) return item;
   const inferable = entries.every(option => {
     const title = text(option.optionName);
     const audit = row(option.optionNameNormalization);

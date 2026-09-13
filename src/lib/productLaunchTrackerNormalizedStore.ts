@@ -1,3 +1,4 @@
+import { normalizeProductLaunchOptionNames } from "@/lib/productLaunchOptionNames";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   buildProductLaunchTrackerIndex,
@@ -66,7 +67,7 @@ export function prepareProductLaunchNormalizedSnapshot(
   const optionRows: UnknownRecord[] = [];
 
   for (const summary of index.summaries) {
-    const item = itemsById.get(summary.id) ?? {};
+    const item = normalizeProductLaunchOptionNames(itemsById.get(summary.id) ?? {}, { preserveRegistered: true });
     const summaryPayload = stripSearchText(summary);
     const itemPayload = cloneRecord(item);
     delete itemPayload.orderOptions;

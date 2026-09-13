@@ -1,3 +1,4 @@
+import { normalizeNewProductLaunchState } from "@/lib/productLaunchOptionNames";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -239,7 +240,7 @@ export async function writeProductLaunchState(
   state: Record<string, unknown>,
 ) {
   const persistedState = withProductLaunchListSnapshot(
-    state as ProductLaunchTrackerState,
+    normalizeNewProductLaunchState(state) as ProductLaunchTrackerState,
   );
   const schemaVersion = Math.max(
     1,

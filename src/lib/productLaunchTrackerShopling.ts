@@ -1,3 +1,4 @@
+import { normalizeProductLaunchOptionNames } from "@/lib/productLaunchOptionNames";
 import { randomUUID } from "node:crypto";
 
 export const PRODUCT_LAUNCH_CHANNELS = [
@@ -117,7 +118,7 @@ export function buildProductLaunchShoplingPayload(
   policyInput: unknown,
   requestId = `product-launch-${randomUUID()}`,
 ): ProductLaunchShoplingPayload {
-  const item = asRecord(itemInput);
+  const item = normalizeProductLaunchOptionNames(asRecord(itemInput));
   const policy = asRecord(policyInput);
   const modelNumber = text(item.modelNumber);
   const modelName = text(item.productName);

@@ -1,3 +1,4 @@
+import { normalizeProductLaunchOptionNames } from "@/lib/productLaunchOptionNames";
 import { randomUUID } from "node:crypto";
 import {
   buildProductLaunchShoplingPayload,
@@ -38,7 +39,7 @@ export function buildLegacySeoShoplingPayload(
   policyInput: unknown,
   requestId = `legacy-product-launch-${randomUUID()}`,
 ): ProductLaunchShoplingPayload {
-  const item = record(itemInput);
+  const item = normalizeProductLaunchOptionNames(record(itemInput));
   const rawOptions = Array.isArray(item.orderOptions)
     ? item.orderOptions.map(record)
     : [];
