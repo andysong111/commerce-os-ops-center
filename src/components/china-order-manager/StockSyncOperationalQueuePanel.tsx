@@ -18,7 +18,7 @@ type StockRow = {
   latestSyncAt: string | null; syncNeeded: boolean; syncBlocked: boolean; syncBlockReason: string | null;
 };
 type StockReport = { state: "READY" | "BLOCKED"; pendingSyncCount: number; uncertainSyncCount: number; rows: StockRow[] };
-type QueuePayload = { ok?: boolean; jobs?: SyncJob[]; report: StockReport; message?: string };
+export type QueuePayload = { ok?: boolean; jobs?: SyncJob[]; report: StockReport; message?: string };
 type ResultMessage = {
   type: "COMMERCE_OS_SHOPLING_STOCK_SYNC_RESULT"; jobId: string; job?: SyncJob | null;
   outcome: Exclude<SyncOutcome, "STARTED">; message?: string; evidence?: unknown; finishedAt?: number;
@@ -48,9 +48,20 @@ function operationalJob(job: SyncJob, batchId: string, lane: number): SyncJob {
   return { ...job, operationalQueue: true, parallelBatchId: batchId, parallelLane: lane, ignoreWindowClose: true };
 }
 
-export function StockSyncOperationalQueuePanel() {
-  const [jobs, setJobs] = useState<SyncJob[]>([]);
-  const [report, setReport] = useState<StockReport | null>(null);
+export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayload?: QueuePayload | null } = {}) {
+  // The parent already awaited a validated explicit Q response. Paint it during
+  // the first render, not through a visibility-gated passive effect or timed cache.
+  // It is display state only: launchNext still performs a fresh authoritative read.
+  const [jobs, setJobs] = useState<SyncJob[]>(() =>
+    initialPayload?.ok === true && initialPayload.report?.state === "READY" && Array.isArray(initialPayload.jobs)
+      ? [...initialPayload.jobs].sort(prioritySort)
+      : [],
+  );
+  const [report, setReport] = useState<StockReport | null>(() =>
+    initialPayload?.ok === true && initialPayload.report?.state === "READY" && Array.isArray(initialPayload.report.rows)
+      ? initialPayload.report
+      : null,
+  );
   const [extensionReady, setExtensionReady] = useState(false);
   const [draining, setDraining] = useState(false);
   const [phase, setPhase] = useState("IDLE");

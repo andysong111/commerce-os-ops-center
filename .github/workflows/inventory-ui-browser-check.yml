@@ -1,0 +1,33 @@
+name: Inventory UI Browser Check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: inventory-ui-browser-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - name: Install isolated browser tools
+        run: |
+          mkdir -p /tmp/inventory-ui-tools
+          npm install --prefix /tmp/inventory-ui-tools --no-save playwright@1.55.1
+          /tmp/inventory-ui-tools/node_modules/.bin/playwright install --with-deps chromium
+      - name: Verify real production browser rendering (no stock/status writes)
+        run: |
+          cp scripts/inventory-ui-browser-check.mjs /tmp/inventory-ui-tools/check.mjs
+          node /tmp/inventory-ui-tools/check.mjs
+      - name: Keep read-only diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventory-ui-browser-evidence
+          path: artifacts/inventory-ui
+          retention-days: 3
