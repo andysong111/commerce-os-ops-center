@@ -1,11 +1,20 @@
 import { buildChinaOrderLedgerSummary, CHINA_ORDER_EVENT_OPERATION_TYPE, normalizeChinaOrderCommitmentEvent } from "@/lib/chinaOrderLedger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
+export const REENTRY_IDENTITY_RECONCILIATION_OPERATION_TYPE =
+  "CHINA_ORDER_IDENTITY_RECONCILIATION_EVENT";
+
 const PAGE_SIZE = 500;
 const MAX_ROWS = 5_000;
 const OWNER_CONFIRMATION_METHOD = "OWNER_EXPLICIT_CONFIRMATION";
 const UNASSIGNED_BARCODE_PATTERN = /^UNASSIGNED-[A-Z0-9._:-]+$/;
-type StoredRow = { source_event_id: string; input_snapshot: Record<string, unknown>; started_at: string };
+const MANAGED_BARCODE_PATTERN = /^[A-Z]{3}\d+-\d+$/;
+type StoredRow = {
+  operation_type?: string;
+  source_event_id: string;
+  input_snapshot: Record<string, unknown>;
+  started_at: string;
+};
 type IdentityReconciliation = { fromBarcode: string; toBarcode: string };
 
 function text(value: unknown) {
@@ -31,53 +40,89 @@ function normalizedStoredEvent(row: StoredRow) {
   });
 }
 
-// Historical order rows are immutable. An explicit correction is represented as a
-// later valid commitment event on the same source line with payload.identityReconciliation.
-// Only that confirmed marker can remap the old UNASSIGNED barcode in memory.
+function hasIdentityReconciliationMarker(value: Record<string, unknown>) {
+  const payload = record(value.payload);
+  return Boolean(payload && "identityReconciliation" in payload);
+}
+
+function parseIdentityReconciliationRow(row: StoredRow, now: number) {
+  const value = record(row?.input_snapshot);
+  if (!row?.source_event_id || !value) throw new Error("REENTRY_COMMITMENT_ROW_INVALID");
+  if (row.operation_type !== REENTRY_IDENTITY_RECONCILIATION_OPERATION_TYPE) {
+    throw new Error("REENTRY_COMMITMENT_RECONCILIATION_OPERATION_INVALID");
+  }
+  const payload = record(value.payload);
+  const marker = record(payload?.identityReconciliation);
+  if (!payload || !marker) throw new Error("REENTRY_COMMITMENT_RECONCILIATION_INVALID");
+
+  // Identity corrections are deliberately not lifecycle events. Reject any field
+  // that could alter committed/open/received/cancelled/manual-added quantities.
+  for (const key of ["status", "requestedQuantity", "orderedQuantity", "receivedQuantity", "cancelledQuantity"]) {
+    if (value[key] !== undefined && value[key] !== null && value[key] !== "") {
+      throw new Error("REENTRY_COMMITMENT_RECONCILIATION_LIFECYCLE_FORBIDDEN");
+    }
+  }
+  if (payload.manualAddition !== undefined || payload.addedQuantity !== undefined) {
+    throw new Error("REENTRY_COMMITMENT_RECONCILIATION_LIFECYCLE_FORBIDDEN");
+  }
+
+  const sourceSystem = text(value.sourceSystem);
+  const sourceLineId = text(value.sourceLineId);
+  const sourceEventId = text(value.sourceEventId || row.source_event_id);
+  const toBarcode = normalizeBarcode(value.barcode);
+  const occurredAt = text(value.occurredAt || row.started_at);
+  const occurredAtMs = Date.parse(occurredAt);
+  const fromBarcode = normalizeBarcode(marker.fromBarcode);
+  const markerToBarcode = normalizeBarcode(marker.toBarcode);
+  const confirmedAt = text(marker.confirmedAt);
+  const confirmedAtMs = Date.parse(confirmedAt);
+  if (!sourceSystem || !sourceLineId || !sourceEventId || !MANAGED_BARCODE_PATTERN.test(toBarcode) ||
+      !Number.isFinite(occurredAtMs) || occurredAtMs > now + 30_000 ||
+      marker.confirmed !== true || text(marker.confirmationMethod) !== OWNER_CONFIRMATION_METHOD ||
+      !UNASSIGNED_BARCODE_PATTERN.test(fromBarcode) || fromBarcode === toBarcode ||
+      markerToBarcode !== toBarcode || !Number.isFinite(confirmedAtMs) || confirmedAtMs > now + 30_000) {
+    throw new Error("REENTRY_COMMITMENT_RECONCILIATION_INVALID");
+  }
+  return { sourceSystem, sourceLineId, sourceEventId, fromBarcode, toBarcode };
+}
+
+// Historical commitment rows are immutable. Reconciliation records live under a
+// separate operation type and are consumed only as identity evidence. They never
+// enter the commitment reducer, so they cannot change lifecycle quantities/status.
 function applyIdentityReconciliations(rows: StoredRow[], now: number) {
   const mappings = new Map<string, IdentityReconciliation>();
+  const reconciliationEventIds = new Set<string>();
   for (const row of rows) {
     const value = record(row?.input_snapshot);
     if (!row?.source_event_id || !value) throw new Error("REENTRY_COMMITMENT_ROW_INVALID");
-    const payload = value.payload;
-    if (payload === null || payload === undefined) continue;
-    const payloadRecord = record(payload);
-    if (!payloadRecord) continue;
-    if (!("identityReconciliation" in payloadRecord)) continue;
-    const marker = record(payloadRecord.identityReconciliation);
-    if (!marker) throw new Error("REENTRY_COMMITMENT_RECONCILIATION_INVALID");
-
-    let correction: ReturnType<typeof normalizeChinaOrderCommitmentEvent>;
-    try { correction = normalizedStoredEvent(row); }
-    catch { throw new Error("REENTRY_COMMITMENT_RECONCILIATION_INVALID"); }
-
-    const fromBarcode = normalizeBarcode(marker.fromBarcode);
-    const toBarcode = normalizeBarcode(marker.toBarcode);
-    const confirmedAt = text(marker.confirmedAt);
-    const confirmedAtMs = Date.parse(confirmedAt);
-    if (marker.confirmed !== true || text(marker.confirmationMethod) !== OWNER_CONFIRMATION_METHOD ||
-        !UNASSIGNED_BARCODE_PATTERN.test(fromBarcode) || fromBarcode === toBarcode ||
-        toBarcode !== normalizeBarcode(correction.barcode) || !Number.isFinite(confirmedAtMs) ||
-        confirmedAtMs > now + 30_000) {
-      throw new Error("REENTRY_COMMITMENT_RECONCILIATION_INVALID");
+    const isReconciliation = row.operation_type === REENTRY_IDENTITY_RECONCILIATION_OPERATION_TYPE;
+    const hasMarker = hasIdentityReconciliationMarker(value);
+    if (!isReconciliation && hasMarker) {
+      throw new Error("REENTRY_COMMITMENT_RECONCILIATION_OPERATION_INVALID");
     }
-
+    if (!isReconciliation) continue;
+    const correction = parseIdentityReconciliationRow(row, now);
+    if (reconciliationEventIds.has(correction.sourceEventId)) {
+      throw new Error("REENTRY_COMMITMENT_RECONCILIATION_EVENT_COLLISION");
+    }
+    reconciliationEventIds.add(correction.sourceEventId);
     const key = `${correction.sourceSystem}\u0000${correction.sourceLineId}`;
     const previous = mappings.get(key);
-    if (previous && (previous.fromBarcode !== fromBarcode || previous.toBarcode !== toBarcode)) {
+    if (previous && (previous.fromBarcode !== correction.fromBarcode || previous.toBarcode !== correction.toBarcode)) {
       throw new Error("REENTRY_COMMITMENT_RECONCILIATION_CONFLICT");
     }
-    mappings.set(key, { fromBarcode, toBarcode });
+    mappings.set(key, { fromBarcode: correction.fromBarcode, toBarcode: correction.toBarcode });
   }
-  if (!mappings.size) return rows;
 
-  return rows.map((row) => {
-    const value = row.input_snapshot;
-    const key = `${text(value.sourceSystem)}\u0000${text(value.sourceLineId)}`;
-    const mapping = mappings.get(key);
-    if (!mapping || normalizeBarcode(value.barcode) !== mapping.fromBarcode) return row;
-    return { ...row, input_snapshot: { ...value, barcode: mapping.toBarcode } };
-  });
+  return rows
+    .filter((row) => row.operation_type !== REENTRY_IDENTITY_RECONCILIATION_OPERATION_TYPE)
+    .map((row) => {
+      const value = row.input_snapshot;
+      const key = `${text(value.sourceSystem)}\u0000${text(value.sourceLineId)}`;
+      const mapping = mappings.get(key);
+      if (!mapping || normalizeBarcode(value.barcode) !== mapping.fromBarcode) return row;
+      return { ...row, input_snapshot: { ...value, barcode: mapping.toBarcode } };
+    });
 }
 
 // Unlike a bounded newest-N lookup, ordering decisions must prove completeness.
@@ -122,8 +167,9 @@ export async function loadPurchaseCycleReentryCommitments() {
   let expected: number | null = null;
   for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
     const result = await admin.from("commerce_operation_runs")
-      .select("source_event_id,input_snapshot,started_at", { count: "exact" })
-      .eq("operation_type", CHINA_ORDER_EVENT_OPERATION_TYPE).eq("status", "SUCCEEDED")
+      .select("operation_type,source_event_id,input_snapshot,started_at", { count: "exact" })
+      .in("operation_type", [CHINA_ORDER_EVENT_OPERATION_TYPE, REENTRY_IDENTITY_RECONCILIATION_OPERATION_TYPE])
+      .eq("status", "SUCCEEDED")
       .order("source_event_id", { ascending: true }).range(offset, offset + PAGE_SIZE - 1);
     if (result.error || !Array.isArray(result.data) || !Number.isSafeInteger(result.count) || Number(result.count) < 0) throw new Error("REENTRY_COMMITMENT_READ_UNVERIFIED");
     if (Number(result.count) > MAX_ROWS) throw new Error("REENTRY_COMMITMENT_READ_LIMIT");
