@@ -125,6 +125,11 @@ function applyIdentityReconciliations(rows: StoredRow[], now: number) {
     if (base.invalidEventCount > 0 || base.commitments.length !== 1) {
       throw new Error("REENTRY_COMMITMENT_RECONCILIATION_BASE_INVALID");
     }
+    const latestBaseOccurredAt = Math.max(...baseRows.map((row) => Date.parse(text(row.input_snapshot.occurredAt || row.started_at))));
+    const markerOccurredAt = Date.parse(correction.normalized.occurredAt);
+    if (!Number.isFinite(latestBaseOccurredAt) || !Number.isFinite(markerOccurredAt) || markerOccurredAt <= latestBaseOccurredAt) {
+      throw new Error("REENTRY_COMMITMENT_RECONCILIATION_STALE");
+    }
     const lifecycle = base.commitments[0];
     const event = correction.normalized;
     if (lifecycle.barcode !== correction.toBarcode || event.status !== lifecycle.status ||
