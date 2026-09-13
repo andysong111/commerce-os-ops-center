@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { INVENTORY_QUEUE_PATH, inventoryStockReadClient } from "@/lib/inventoryStockConnection";
+import { INVENTORY_REFRESH_PATH, inventoryStockReadClient } from "@/lib/inventoryStockConnection";
 import { StockSyncOperationalQueuePanel } from "@/components/china-order-manager/StockSyncOperationalQueuePanel";
 
 type RefreshState = "IDLE" | "REFRESHING" | "READY" | "ERROR";
@@ -16,17 +16,19 @@ export function InventoryStockOperationalDetails() {
   const refreshBeforeQueue = useCallback(async () => {
     if (refreshBusy.current) return;
     refreshBusy.current = true;
+    setHasFreshEvidence(false);
     setRefreshState("REFRESHING");
     setRefreshMessage("판매·재고 증거를 최신화한 뒤 운영 큐를 엽니다. 잠시만 기다려 주세요.");
     try {
-      await inventoryStockReadClient.read<Record<string, unknown>>(INVENTORY_QUEUE_PATH, true);
+      // Refresh evidence exactly once here. The queue panel performs the single
+      // authoritative Q read after it mounts, so opening this section no longer
+      // does R→Q and then immediately repeats Q a second time.
+      await inventoryStockReadClient.read<Record<string, unknown>>(INVENTORY_REFRESH_PATH, false);
       setHasFreshEvidence(true);
       setRefreshState("READY");
-      setRefreshMessage("판매·재고 증거 최신화 완료 · 최신 운영 큐를 불러옵니다.");
-      // Existing inventory panels already wake on the online event. Reuse that
-      // read-only wake signal so the overview and a previously mounted queue
-      // immediately re-read the freshly projected Tail without adding another
-      // state-changing path.
+      setRefreshMessage("판매·재고 증거 최신화 완료 · 최신 운영 큐를 한 번 조회합니다.");
+      // Wake the overview. The newly mounted queue shares/coalesces the same
+      // read-only queue request through inventoryStockReadClient.
       window.dispatchEvent(new Event("online"));
     } catch (error) {
       setRefreshState("ERROR");
