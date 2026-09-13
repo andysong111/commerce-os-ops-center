@@ -12,6 +12,7 @@ const BUSY_MARKET = new Set(["submit_armed"]);
 const CONFIRM_MARKET = new Set(["confirm_needed"]);
 const LEGACY_UNKNOWN = new Set(["legacy_ignored"]);
 const STALE_BUSY_MS = 3 * 60 * 1000;
+const SAFE_PRE_SUBMIT_STALE_MS = 15 * 60 * 1000;
 const DATE_FILTER_LIMIT = 1000;
 const LOOKUP_CHUNK = 200;
 
@@ -62,11 +63,22 @@ function isoParam(value: string | null) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
+function ageMs(raw: unknown) {
+  const timestamp = new Date(text(raw)).getTime();
+  return Number.isFinite(timestamp) ? Date.now() - timestamp : -1;
+}
+
 function isStaleBusy(ledger: Record<string, unknown>) {
-  const raw = text(ledger.submit_armed_at || ledger.updated_at || ledger.claimed_at);
-  if (!raw) return false;
-  const timestamp = new Date(raw).getTime();
-  return Number.isFinite(timestamp) && Date.now() - timestamp >= STALE_BUSY_MS;
+  const raw = ledger.submit_armed_at || ledger.updated_at || ledger.claimed_at;
+  const age = ageMs(raw);
+  return age >= STALE_BUSY_MS;
+}
+
+function isSafeStalePreSubmitClaim(ledger: Record<string, unknown>) {
+  if (text(ledger.status) !== "claimed" || text(ledger.market_status) !== "pending") return false;
+  if (text(ledger.submit_armed_at)) return false;
+  const age = ageMs(ledger.claimed_at || ledger.updated_at);
+  return age >= SAFE_PRE_SUBMIT_STALE_MS;
 }
 
 export async function GET(request: Request) {
@@ -172,6 +184,7 @@ export async function GET(request: Request) {
     let staleBusyCount = 0;
     let pendingCount = 0;
     let registrationUnknownCount = 0;
+    let recoverablePreSubmitCount = 0;
 
     for (const row of successfulRows) {
       const ledger = ledgerByGoodsKey.get(row.goodsKey);
@@ -181,6 +194,12 @@ export async function GET(request: Request) {
         marketDoneCount += 1;
       } else if (CONFIRM_MARKET.has(status) || CONFIRM_MARKET.has(marketStatus)) {
         confirmNeededCount += 1;
+      } else if (ledger && isSafeStalePreSubmitClaim(ledger)) {
+        // The browser stopped before the durable submit boundary. claim-all already
+        // releases this exact state after 15 minutes, so it is safe to present as
+        // a pending channel rather than hiding the product forever after a reboot.
+        pendingCount += 1;
+        recoverablePreSubmitCount += 1;
       } else if (BUSY_STATUS.has(status) || BUSY_MARKET.has(marketStatus)) {
         if (ledger && isStaleBusy(ledger)) staleBusyCount += 1;
         else activeBusyCount += 1;
@@ -238,6 +257,7 @@ export async function GET(request: Request) {
       uploadTotalCount: uploadRows.length,
       marketDoneCount,
       marketPendingCount: pendingCount,
+      recoverablePreSubmitCount,
       registrationUnknownCount,
       confirmNeededCount,
       activeBusyCount,
@@ -250,6 +270,7 @@ export async function GET(request: Request) {
     };
   });
 
+  const selectableItems = items.filter((item) => item.selectable);
   return Response.json(
     {
       ok: true,
@@ -262,7 +283,10 @@ export async function GET(request: Request) {
       },
       items,
       count: items.length,
-      selectableCount: items.filter((item) => item.selectable).length,
+      channelCount: items.reduce((sum, item) => sum + item.uploadSuccessCount, 0),
+      selectableCount: selectableItems.length,
+      selectableChannelCount: selectableItems.reduce((sum, item) => sum + item.marketPendingCount, 0),
+      recoverablePreSubmitCount: items.reduce((sum, item) => sum + item.recoverablePreSubmitCount, 0),
       completedCount: items.filter((item) => item.marketDoneCount >= 6).length,
       reviewCount: items.filter((item) => ["stale_work_requires_review", "confirm_needed_requires_review", "legacy_unknown_requires_review", "active_market_work"].includes(item.selectionReason)).length,
     },
