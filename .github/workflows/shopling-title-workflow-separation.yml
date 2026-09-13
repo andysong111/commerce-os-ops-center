@@ -1,0 +1,48 @@
+name: Shopling Title Workflow Separation
+
+on:
+  pull_request:
+    paths:
+      - 'public/shopling-account-title-bridge/**'
+      - 'src/app/api/shopling-account-title-bridge/download/**'
+      - 'src/lib/shoplingTitleWorkflowSeparation.ts'
+      - 'tests/shoplingTitleWorkflowSeparation.test.mjs'
+      - '.github/workflows/shopling-title-workflow-separation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'public/shopling-account-title-bridge/**'
+      - 'src/app/api/shopling-account-title-bridge/download/**'
+      - 'src/lib/shoplingTitleWorkflowSeparation.ts'
+      - 'tests/shoplingTitleWorkflowSeparation.test.mjs'
+      - '.github/workflows/shopling-title-workflow-separation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shopling-title-separation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Check existing contracts and the actual downloadable ZIP
+        env:
+          SHOPLING_SEPARATED_ARTIFACT_DIR: artifacts/shopling-title-v064
+        run: node --experimental-strip-types --test tests/shoplingAccountTitleBridge.test.mjs tests/shoplingTitleWorkflowSeparation.test.mjs
+      - name: Retain verified extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: shopling-optional-title-v064
+          path: artifacts/shopling-title-v064/*.zip
+          if-no-files-found: error
+          retention-days: 7
