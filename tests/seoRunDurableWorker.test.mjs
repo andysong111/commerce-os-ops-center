@@ -130,12 +130,12 @@ test("durable worker도 검색어가 10개 미만이면 기존 STEP4 안전복�
 test("희소 상품 복구는 사실 토큰과 핵심상품어 조합을 충분히 만든 뒤 STEP4를 다시 통과한다", async () => {
   const recovery = await source("src/lib/keywordEngineElonBulkKeywordRecovery.ts");
   assert.match(recovery, /TARGET_CANDIDATES = 24/);
-  assert.match(recovery, /factualTokens/);
+  assert.match(recovery, /modifierTokens/);
   assert.match(recovery, /buildDeterministicBulkKeywordRecoverySeeds/);
-  assert.match(recovery, /seeds\.push\(`\$\{token\}\$\{core\}`\)/);
+  assert.match(recovery, /seeds\.push\(`\$\{modifier\}\$\{core\.noun\}`\)/);
   assert.match(
     recovery,
-    /seeds\.push\(`\$\{modifiers\[left\]\}\$\{modifiers\[right\]\}\$\{core\}`\)/,
+    /seeds\.push\(`\$\{modifiers\[left\]\}\$\{modifiers\[right\]\}\$\{core\.noun\}`\)/,
   );
   assert.match(recovery, /deterministic\.length >= TARGET_CANDIDATES/);
   assert.match(recovery, /filterKeywordElonProhibitedKeywords/);
@@ -227,4 +227,40 @@ test("SEO 클라우드는 서버 원장을 polling하고 인계 완료 후 local
   assert.match(client, /저장된 서버 체크포인트/);
   assert.match(client, /Shopling 일괄 대량등록/);
   assert.match(client, /registration_job_id/);
+});
+
+test("자연어 복구 실제 코드는 메타데이터·숫자를 제외하고 STEP4 허용 결과만 반환한다", async () => {
+  const { stripTypeScriptTypes } = await import("node:module");
+  const { compactKeywordElonKey, keywordElonUtf8Bytes, normalizeKeywordElonText } = await import("../src/lib/keywordEngineElonLabV2.ts");
+  const raw = await source("src/lib/keywordEngineElonBulkKeywordRecovery.ts");
+  const code = stripTypeScriptTypes(raw.replace(/^import[\s\S]*?;\n/gm, "").replace(/\bexport /g, ""), { mode: "strip" });
+  const calls = [];
+  const blocked = ["원형받침대"];
+  const filter = async input => {
+    calls.push(input);
+    return { allowedKeys: ["세탁기받침대"], removedKeys: blocked };
+  };
+  const run = new Function("compactKeywordElonKey", "keywordElonUtf8Bytes", "normalizeKeywordElonText", "filterKeywordElonProhibitedKeywords", "process", "fetch",
+    code + "; return { seeds: buildDeterministicBulkKeywordRecoverySeeds, generate: generateSafeBulkKeywordSupplements };")(
+      compactKeywordElonKey, keywordElonUtf8Bytes, normalizeKeywordElonText, filter, { env: {} }, () => { throw new Error("No external network allowed"); });
+  const input = {
+    productName: "형태 원형 세탁기 받침대",
+    identity: { coreProduct: "세탁기 받침대", identityAnchor: "세탁기받침대", primarySeeds: ["세탁기받침대"],
+      conditionalSeeds: ["원형받침대"], koreanProductIdentity: "세탁기 받침대", functionModifiers: ["세탁기 지지"],
+      designShapeModifiers: ["형태 원형"], specAttributes: ["지름15cm", "재질 철제"] },
+    source: { chineseTitle: "", optionText: "" }, customBlockedTerms: blocked,
+  };
+  const seeds = run.seeds(input);
+  assert.ok(seeds.includes("세탁기받침대"));
+  assert.ok(seeds.length > 1 && seeds.length <= 60);
+  assert.equal(new Set(seeds).size, seeds.length);
+  for (const key of seeds) {
+    assert.ok(key.includes("받침대"));
+    assert.ok(keywordElonUtf8Bytes(key) <= 30);
+    assert.doesNotMatch(key, /형태|재질|용도|있는|옵션|모델번호|\d/);
+  }
+  assert.deepEqual(await run.generate(input), ["세탁기받침대"]);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].customBlockedTerms, blocked);
+  assert.ok(calls[0].candidates.every(row => row.totalSearch === null));
 });

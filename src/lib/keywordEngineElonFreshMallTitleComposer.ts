@@ -236,12 +236,17 @@ export function composeFreshKeywordElonMallTitles(input: {
   let selected = best;
   let portfolioWarning = "SEO_RUN_INTENT_PORTFOLIO_V7:enabled";
   try {
-    selected = composeKeywordElonIntentPortfolioV7({
+    const proposed = composeKeywordElonIntentPortfolioV7({
       attempts: attemptResults,
       finalKeywords: finals,
       expansionPool: expansion,
       excludedTitles,
     });
+    if (preservesKeywordElonHistoricalFreshness(selected, proposed, excludedTitles)) {
+      selected = proposed;
+    } else {
+      portfolioWarning = "SEO_RUN_INTENT_PORTFOLIO_V7:kept_history_preference";
+    }
   } catch (error) {
     portfolioWarning = `SEO_RUN_INTENT_PORTFOLIO_V7_FALLBACK:${safeWarning(
       error instanceof Error ? error.message : error,
@@ -250,12 +255,17 @@ export function composeFreshKeywordElonMallTitles(input: {
 
   let diversityWarning = "SEO_RUN_MALL_TITLE_DIVERSITY_V8:enabled";
   try {
-    selected = rebalanceKeywordElonMallTitleDiversityV8({
+    const proposed = rebalanceKeywordElonMallTitleDiversityV8({
       attempts: attemptResults,
       selected,
       finalKeywords: finals,
       excludedTitles,
     });
+    if (preservesKeywordElonHistoricalFreshness(selected, proposed, excludedTitles)) {
+      selected = proposed;
+    } else {
+      diversityWarning = "SEO_RUN_MALL_TITLE_DIVERSITY_V8:kept_history_preference";
+    }
   } catch (error) {
     diversityWarning = `SEO_RUN_MALL_TITLE_DIVERSITY_V8_FALLBACK:${safeWarning(
       error instanceof Error ? error.message : error,

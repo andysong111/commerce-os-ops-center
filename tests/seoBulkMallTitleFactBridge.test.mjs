@@ -6,7 +6,7 @@ async function source(path) {
   return readFile(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-test("SEO bulk 상품명은 FACT 브리지 없이 FINAL10 + 검증 확장재료로 긴 제목만 조립한다", async () => {
+test("SEO bulk 상품명은 FACT 브리지 없이 검증 상품명 재료를 먼저 조립하고 검색어로 보완한다", async () => {
   const page = await source("src/app/seo-bulk-cloud/page.tsx");
   const bulk = await source("src/lib/keywordEngineElonBulkFinal.ts");
   const composer = await source(
@@ -18,11 +18,20 @@ test("SEO bulk 상품명은 FACT 브리지 없이 FINAL10 + 검증 확장재료�
   );
 
   assert.doesNotMatch(page, /SeoBulkMallTitleFactBridge/);
-  assert.match(bulk, /const searchKeywords = recoveredSearchKeywords/);
+  assert.match(bulk, /const fallbackSearchKeywords = recoveredSearchKeywords/);
   assert.match(bulk, /buildKeywordElonTitleExpansionPool/);
-  assert.match(bulk, /finalKeywords: searchKeywords/);
+  assert.match(bulk, /finalKeywords: titleKeywords/);
   assert.match(bulk, /titleExpansionPool/);
-  assert.match(bulk, /TITLE_MALL_NAME_POLICY:LONG_TITLE_PRIORITY_V6/);
+  assert.match(bulk, /buildKeywordElonTitleKeywordReservoirV8/);
+  assert.match(bulk, /selectKeywordElonComplementSearchKeywordsV8/);
+  assert.match(bulk, /const searchKeywords = searchSelection.searchKeywords/);
+  assert.match(bulk, /SEO_KEYWORD_POLICY:TITLE_FIRST_SEARCH_COMPLEMENT_V8/);
+  assert.match(bulk, /titleKeywords.length < 2/);
+  assert.match(bulk, /searchKeywords.length !== 10/);
+  assert.match(bulk, /mallTitles.length !== 29/);
+  assert.match(bulk, /blockedKeys: input.blockedKeys/);
+  assert.ok(bulk.indexOf("const mallComposition =") < bulk.indexOf("const searchSelection ="));
+  assert.match(bulk, /TITLE_MALL_NAME_POLICY:INTENT_PORTFOLIO_V7/);
   assert.doesNotMatch(bulk, /diversifyKeywordElonMallTitles/);
 
   assert.match(composer, /long-title-priority-v6/);

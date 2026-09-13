@@ -6,7 +6,7 @@ async function source(path) {
   return readFile(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-test("v6 SEO title inventory keeps FINAL generation intact and upgrades only 30~50B mall-title assembly", async () => {
+test("V8 title-first generation preserves V6 ledger compatibility and 30~50B title limits", async () => {
   const sync = await source("src/lib/seoTitleBulkInventorySync.ts");
   const generator = await source(
     "src/lib/seoTitleFinalKeywordInventoryGenerator.ts",
@@ -32,7 +32,7 @@ test("v6 SEO title inventory keeps FINAL generation intact and upgrades only 30~
 
   assert.match(
     bulk,
-    /SEO_FINAL_SOURCE_V6 = "seo-bulk-cloud-long-title-priority-v6"/,
+    /SEO_FINAL_SOURCE_V8 = "seo-bulk-cloud-title-first-search-complement-v8"/,
   );
   assert.match(
     bulk,
@@ -42,8 +42,8 @@ test("v6 SEO title inventory keeps FINAL generation intact and upgrades only 30~
     bulk,
     /groupProductNames\[SEO_TITLE_EXPANSION_META_GROUP_KEY\] = JSON\.stringify/,
   );
-  assert.match(bulk, /source: SEO_FINAL_SOURCE_V6/);
-  assert.match(bulk, /const searchKeywords = recoveredSearchKeywords/);
+  assert.match(bulk, /source: SEO_FINAL_SOURCE_V8/);
+  assert.match(bulk, /const searchKeywords = searchSelection.searchKeywords/);
   assert.match(bulk, /titleMaterialPolicy: titleExpansionPool\.length/);
 
   assert.match(policy, /KEYWORD_ELON_LONG_TITLE_HARD_MIN_BYTES = 30/);
