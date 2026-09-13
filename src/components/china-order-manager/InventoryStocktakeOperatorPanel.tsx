@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-
-type ProductKind = "OPTION" | "SINGLE";
+import { useMemo, useState } from "react";
+import { parseInventoryStocktakeBulkText } from "@/lib/inventoryStockBulkInput";
 
 function randomId(prefix: string) {
   const random =
@@ -12,69 +11,50 @@ function randomId(prefix: string) {
   return `${prefix}:${random}`;
 }
 
-function normalizeBarcode(value: string) {
-  return value
-    .normalize("NFKC")
-    .toUpperCase()
-    .replace(/[‐‑‒–—−]/g, "-")
-    .replace(/\s+/g, "");
-}
-
 export function InventoryStocktakeOperatorPanel() {
-  const [barcode, setBarcode] = useState("");
-  const [productKind, setProductKind] = useState<ProductKind>("OPTION");
-  const [modelNo, setModelNo] = useState("");
-  const [quantity, setQuantity] = useState("");
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
+  const parsed = useMemo(() => parseInventoryStocktakeBulkText(input), [input]);
 
   const save = async () => {
     setNotice("");
-    const code = normalizeBarcode(barcode);
-    const parsedQuantity = Number(quantity);
-    if (!/^B[A-Z]{1,2}\d+-\d+$/.test(code)) {
-      setNotice("B코드를 확인해 주세요. 예: BBB8-1");
+    if (!parsed.items.length) {
+      setNotice("재고를 확정할 B코드와 현재 수량을 1건 이상 입력해 주세요.");
       return;
     }
-    if (!Number.isInteger(parsedQuantity) || parsedQuantity < 1 || parsedQuantity > 1_000_000) {
-      setNotice("창고에서 확인한 현재 수량을 1개 이상의 정수로 입력해 주세요.");
-      return;
-    }
-    if (productKind === "SINGLE" && !modelNo.trim()) {
-      setNotice("단품은 모델번호도 입력해 주세요.");
+    if (parsed.errors.length) {
+      setNotice(parsed.errors.join(" · "));
       return;
     }
 
     setLoading(true);
     try {
-      const response = await fetch("/api/inventory-stock-control/stocktake", {
+      const response = await fetch("/api/inventory-stock-control/stocktake/batch", {
         method: "POST",
         headers: {
           "content-type": "application/json",
           accept: "application/json",
         },
         body: JSON.stringify({
-          eventId: randomId("stocktake-baseline"),
-          barcode: code,
-          productKind,
-          modelNo: modelNo.trim() || null,
-          baselineQuantity: parsedQuantity,
-          note: "창고 실물수량 재확인",
+          batchId: randomId("stocktake-batch"),
+          items: parsed.items,
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
+        savedCount?: number;
         message?: string;
       };
       if (!response.ok || !payload.ok) {
         throw new Error(payload.message || "재고 수량을 저장하지 못했습니다.");
       }
 
-      setNotice(`현재 재고 ${parsedQuantity}개로 확정했습니다.`);
-      setBarcode("");
-      setQuantity("");
-      setModelNo("");
-      window.setTimeout(() => window.location.reload(), 450);
+      setNotice(
+        `현재 재고 ${payload.savedCount ?? parsed.items.length}건 확정 완료. Product Master가 모델번호와 상품형태를 자동 판별했습니다.`,
+      );
+      setInput("");
+      window.setTimeout(() => window.location.reload(), 650);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "재고 확정 실패");
     } finally {
@@ -90,64 +70,42 @@ export function InventoryStocktakeOperatorPanel() {
         </span>
         <h2 className="mt-1 text-xl font-black text-slate-950">재고 수량 확정</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-          재입고 직후 또는 실제 수량을 다시 센 경우에만 사용합니다. 저장한 수량을 새 기준으로 삼고 그 이후 입고와 판매를 자동 반영합니다.
+          한 줄에 B코드와 현재 실물수량만 입력합니다. Product Master가 모델번호와 단품·옵션 여부를 자동 판별하고,
+          저장한 수량을 새 기준점으로 삼아 이후 입고와 판매를 자동 반영합니다.
         </p>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_220px_220px]">
-        <label className="text-sm font-bold text-slate-700">
-          B코드
-          <input
-            value={barcode}
-            onChange={(event) => setBarcode(event.target.value)}
-            placeholder="예: BBB8-1"
-            className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-3 font-mono text-sm outline-none focus:border-emerald-500"
-          />
-        </label>
-        <label className="text-sm font-bold text-slate-700">
-          상품 형태
-          <select
-            value={productKind}
-            onChange={(event) => setProductKind(event.target.value as ProductKind)}
-            className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-500"
-          >
-            <option value="OPTION">옵션이 있는 상품</option>
-            <option value="SINGLE">옵션 없는 단품</option>
-          </select>
-        </label>
-        <label className="text-sm font-bold text-slate-700">
-          현재 수량
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-            placeholder="예: 10"
-            className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-emerald-500"
-          />
-        </label>
-      </div>
+      <label className="mt-4 block text-sm font-bold text-slate-700">
+        B코드 + 현재 수량 · 한 줄에 한 상품
+        <textarea
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder={"예:\nBCB2-1 50\nBBB8-1 10\nBAB3-1 200\n\n쉼표 형식도 가능: BCB2-1,50"}
+          rows={6}
+          className="mt-1 block w-full resize-y rounded-xl border border-slate-300 px-3 py-3 font-mono text-sm outline-none focus:border-emerald-500"
+        />
+      </label>
 
-      {productKind === "SINGLE" ? (
-        <label className="mt-3 block max-w-md text-sm font-bold text-slate-700">
-          모델번호
-          <input
-            value={modelNo}
-            onChange={(event) => setModelNo(event.target.value)}
-            placeholder="예: AAA339"
-            className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-emerald-500"
-          />
-        </label>
-      ) : null}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
+        <span>인식 {parsed.items.length}건</span>
+        <span>·</span>
+        <span>최대 50건</span>
+        {parsed.errors.length ? (
+          <span className="text-rose-700">· 확인 필요 {parsed.errors.length}건</span>
+        ) : null}
+      </div>
 
       <button
         type="button"
         onClick={() => void save()}
-        disabled={loading}
+        disabled={loading || !parsed.items.length}
         className="mt-4 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white hover:bg-emerald-800 disabled:bg-slate-400"
       >
-        {loading ? "저장 중..." : "현재 재고 확정"}
+        {loading
+          ? "저장 중..."
+          : parsed.items.length > 1
+            ? `현재 재고 ${parsed.items.length}건 일괄 확정`
+            : "현재 재고 확정"}
       </button>
 
       {notice ? (
