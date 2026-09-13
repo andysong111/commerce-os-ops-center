@@ -7,6 +7,7 @@ const items = [
   { href: "/china-order-manager", label: "월별 발주·입고" },
   { href: "/china-order-manager/cash-envelope", label: "현금 제약 발주 V2" },
   { href: "/china-order-manager/stock-control", label: "재고·품절·재입고" },
+  { href: "/china-order-manager/reentry-shadow", label: "다음 발주 사전 점검" },
 ] as const;
 
 export function ChinaOrderManagerNav() {
