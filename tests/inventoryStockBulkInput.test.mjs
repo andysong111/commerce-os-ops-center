@@ -43,14 +43,14 @@ test("B코드 정규화가 단품/옵션 공통 identity가 된다", () => {
   assert.equal(normalizeInventoryBarcode("AAA001"), "");
 });
 
-test("operator UI no longer asks for product kind or model number", async () => {
+test("operator UI no longer asks operators to type product kind or model number", async () => {
   const [stockout, stocktake] = await Promise.all([
     readFile("src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx", "utf8"),
     readFile("src/components/china-order-manager/InventoryStocktakeOperatorPanel.tsx", "utf8"),
   ]);
   for (const source of [stockout, stocktake]) {
-    assert.doesNotMatch(source, /상품 형태/);
-    assert.doesNotMatch(source, /모델번호/);
+    assert.doesNotMatch(source, /setProductKind|productKind\s*,\s*setProductKind|<select/);
+    assert.doesNotMatch(source, /setModelNo|modelNo\s*,\s*setModelNo|name=["']modelNo/);
     assert.match(source, /Product Master/);
   }
   assert.match(stockout, /\/api\/inventory-stock-control\/batch/);
