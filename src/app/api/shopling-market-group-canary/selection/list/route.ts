@@ -13,6 +13,7 @@ const CONFIRM_MARKET = new Set(["confirm_needed"]);
 const LEGACY_UNKNOWN = new Set(["legacy_ignored"]);
 const STALE_BUSY_MS = 3 * 60 * 1000;
 const DATE_FILTER_LIMIT = 1000;
+const LOOKUP_CHUNK = 200;
 
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
@@ -26,6 +27,14 @@ function record(value: unknown): Record<string, unknown> {
 
 function rows(value: unknown) {
   return Array.isArray(value) ? value.map(record) : [];
+}
+
+function chunks<T>(values: T[], size = LOOKUP_CHUNK) {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size));
+  }
+  return result;
 }
 
 function resultRows(job: Record<string, unknown>) {
@@ -106,14 +115,14 @@ export async function GET(request: Request) {
 
   const launchItemIds = [...new Set(jobs.map((job) => text(job.launch_item_id)).filter(Boolean))];
   const latestBatchByLaunch = new Map<string, string>();
-  if (launchItemIds.length > 0) {
+  for (const launchChunk of chunks(launchItemIds)) {
     const latestResult = await supabase
       .from(JOB_TABLE)
       .select("id,launch_item_id,status,payload,completed_at,created_at")
-      .in("launch_item_id", launchItemIds)
+      .in("launch_item_id", launchChunk)
       .in("status", ["success", "partial_failure"])
       .order("completed_at", { ascending: false })
-      .limit(DATE_FILTER_LIMIT);
+      .limit(Math.min(1000, Math.max(launchChunk.length * 8, launchChunk.length)));
     if (latestResult.error) {
       return Response.json(
         { ok: false, error: "shopling_market_selection_latest_batch_failed", message: latestResult.error.message },
@@ -133,12 +142,12 @@ export async function GET(request: Request) {
 
   const allGoodsKeys = [...new Set(jobs.flatMap((job) => resultRows(job).map((row) => row.goodsKey)))];
   const ledgerByGoodsKey = new Map<string, Record<string, unknown>>();
-  if (allGoodsKeys.length > 0) {
+  for (const goodsChunk of chunks(allGoodsKeys)) {
     const ledgerResult = await supabase
       .from(LEDGER_TABLE)
       .select("goods_key,status,market_status,reason_code,message,claimed_at,submit_armed_at,updated_at")
-      .in("goods_key", allGoodsKeys)
-      .limit(Math.min(7000, Math.max(150, allGoodsKeys.length + 20)));
+      .in("goods_key", goodsChunk)
+      .limit(goodsChunk.length);
     if (ledgerResult.error) {
       return Response.json(
         { ok: false, error: "shopling_market_selection_ledger_failed", message: ledgerResult.error.message },
