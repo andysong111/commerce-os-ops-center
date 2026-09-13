@@ -76,6 +76,16 @@ test('both panels use bounded visible-only polling and explicit actions stay fre
  assert.match(connection,/path === INVENTORY_QUEUE_PATH[\s\S]*fresh[\s\S]*EVIDENCE_REFRESH_REUSE_MS/);
  assert.match(connection,/read<Record<string, unknown>>\(INVENTORY_REFRESH_PATH, false\)/);
 });
+test('operational details first open waits for a fresh evidence read before mounting queue',()=>{
+ const source=readFileSync('src/components/china-order-manager/InventoryStockOperationalDetails.tsx','utf8');
+ assert.match(source,/INVENTORY_QUEUE_PATH, true/);
+ assert.match(source,/if \(!detailsRef\.current\?\.open\) return/);
+ assert.match(source,/hasFreshEvidence \? \([\s\S]*<StockSyncOperationalQueuePanel/);
+ assert.match(source,/setHasFreshEvidence\(true\)/);
+ const page=readFileSync('src/app/china-order-manager/stock-control/page.tsx','utf8');
+ assert.match(page,/InventoryStockOperationalDetails/);
+ assert.doesNotMatch(page,/<StockSyncOperationalQueuePanel \/>/);
+});
 test('diagnostics classify plain-object timeouts without instanceof dependency',async()=>{
  const logs=[];const guard=createInventoryReadGuard({log:x=>logs.push(x)});
  const response=await guard('queue',async()=>{throw {name:'TimeoutError',message:'slow request'};});

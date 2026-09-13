@@ -1,9 +1,9 @@
 import Link from "next/link";
+import { InventoryStockOperationalDetails } from "@/components/china-order-manager/InventoryStockOperationalDetails";
 import { InventoryStockoutOperatorPanel } from "@/components/china-order-manager/InventoryStockoutOperatorPanel";
 import { InventoryStockOverviewPanel } from "@/components/china-order-manager/InventoryStockOverviewPanel";
 import { InventoryStocktakeOperatorPanel } from "@/components/china-order-manager/InventoryStocktakeOperatorPanel";
 import { StockSyncHF15Bridge } from "@/components/china-order-manager/StockSyncHF15Bridge";
-import { StockSyncOperationalQueuePanel } from "@/components/china-order-manager/StockSyncOperationalQueuePanel";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -42,17 +42,7 @@ export default function InventoryStockControlPage() {
         <InventoryStocktakeOperatorPanel />
       </div>
 
-      <details className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
-        <summary className="cursor-pointer select-none text-sm font-black text-slate-800">
-          자동 처리 실행 · 현재는 승인 1회 필요
-        </summary>
-        <p className="mt-2 text-xs leading-5 text-slate-500">
-          평소에는 위 화면만 확인하면 됩니다. 실제 판매상태 변경을 실행하거나 예외 원인을 확인할 때만 이 영역을 엽니다.
-        </p>
-        <div className="mt-4">
-          <StockSyncOperationalQueuePanel />
-        </div>
-      </details>
+      <InventoryStockOperationalDetails />
     </div>
   );
 }
