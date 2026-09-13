@@ -35,7 +35,7 @@ Rollback only this PR; do not reset unrelated parallel main work.
 1. Commitment normalization errors now preserve safe actionable codes for missing
    barcode/identity/status/time instead of becoming COMMITMENTS_READ_FAILED.
    The source remains unavailable, never empty; no business row is mutated.
-2. Only explicit TMP placeholders are separated from managed demand scope. They
+2. Only the seven observed TMP1-1 through TMP1-7 placeholders are separated from managed demand scope. They
    remain visible DATA_HOLD rows. Unknown malformed codes still globally block.
    Cross-source duplicate SKU identities remain blocked. Any open TMP/unknown
    commitment still globally blocks; catalogue quarantine never hides inbound.
@@ -53,9 +53,11 @@ Rollback only this PR; do not reset unrelated parallel main work.
 
 ## Verification assets
 
-- `tests/purchaseCycleReentryShadowSourceRecovery.test.mjs`: 10 cases; reproduces
-  6 failures against the original core/commitment source, 10 pass after changes.
-- All 36 reentry unit/adapter/API regressions pass locally, 0 skipped.
+- `tests/purchaseCycleReentryShadowSourceRecovery.test.mjs`: 12 cases; the first 10 reproduce
+  6 failures against the original core/commitment source. Two review cases fail
+  on PR head 4c4f666 and pass after narrowing the observed placeholder set and
+  reflecting row-level failures in sales/catalogue recovery states.
+- All 38 reentry unit/adapter/API regressions pass locally, 0 skipped.
 - `Purchase Reentry Shadow CI` explicitly runs the new suite and focused lint.
   Existing actual React/StrictMode browser fixture now checks recovery display
   and stale labelling. This remains mocked-data browser proof, not real purchases.

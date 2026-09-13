@@ -78,3 +78,34 @@ test("October 1 and later never change the read-only preparation into automatic 
   const report = build(x); assert.equal(report.actualPurchaseExecuted, false); assert.equal(report.approvalGranted, false); assert.equal(report.writesEnabled, false);
   assert.equal(report.cashBudgetKrw, null); assert.equal(report.rows[0].allocatedQuantity, 0); assert.equal(report.recovery.at(-1).state, "DEFERRED");
 });
+test("review regression: TMP-looking codes outside the seven verified legacy placeholders remain global blockers", () => {
+  for (const code of ["TMP2-99", "TMP1-8", "TMP1-0", "TMP01-1", "TMP1-01"]) {
+    const x = fixture(); x.planning.products.push({ skuId: "unknown-temp", barcode: code, skuActive: true });
+    const report = build(x);
+    assert.equal(report.state, "BLOCKED", code); assert.ok(pending(report, "CATALOG_INVALID_BARCODE"), code);
+    assert.equal(report.summary.candidateCount, 0); assert.equal(report.quarantinedSkuCount, 0);
+    assert.ok(!issue(report.rows.find((row) => row.barcode === code), "CATALOG_PLACEHOLDER"));
+  }
+});
+test("review regression: row demand and identity errors demote corresponding recovery evidence", () => {
+  for (const mutate of [
+    (x) => { x.audit.snapshot.rows[0].skuId = "different-sku"; },
+    (x) => { x.audit.snapshot.rows[0].monthlyUnits = [1]; },
+    (x) => { x.audit.snapshot.rows[0].monthlyRevenue = [-1, ...Array(11).fill(1)]; },
+  ]) {
+    const x = fixture(); mutate(x); const report = build(x);
+    assert.equal(report.summary.candidateCount, 0);
+    assert.equal(report.recovery.find((row) => row.id === "sales").state, "REVIEW");
+    assert.doesNotMatch(report.recovery.find((row) => row.id === "sales").message, /통과했습니다/);
+  }
+  const x = fixture(); x.planning.products[0].skuId = "";
+  const invalidId = build(x); assert.equal(invalidId.recovery.find((row) => row.id === "catalog_cost").state, "REVIEW");
+  const y = fixture(); y.planning.products.push({ ...y.planning.products[0], barcode: "BGF1-3" });
+  y.audit.snapshot.managedActiveSkuCount = 2; y.audit.snapshot.rows.push({ ...y.audit.snapshot.rows[0], barcode: "BGF1-3" });
+  const alias = build(y); assert.equal(alias.summary.candidateCount, 0);
+  assert.equal(alias.recovery.find((row) => row.id === "sales").state, "REVIEW");
+  assert.equal(alias.recovery.find((row) => row.id === "catalog_cost").state, "REVIEW");
+  const healthy = build(fixture());
+  assert.equal(healthy.recovery.find((row) => row.id === "sales").state, "VERIFIED");
+  assert.equal(healthy.recovery.find((row) => row.id === "catalog_cost").state, "VERIFIED");
+});
