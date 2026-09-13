@@ -18,21 +18,24 @@ const build = (x) => core.buildPurchaseCycleReentryShadow(x);
 const issue = (x, code) => x.issues.some((row) => row.code === code);
 const pending = (x, code) => x.blockers.some((row) => row.code === code);
 function stored(changes = {}) {
-  return { source_event_id: "private-persisted-id", started_at: earlier, input_snapshot: { sourceSystem: "EXTERNAL_ORDER_IMPORT", sourceLineId: "private-line", barcode, sourceEventId: "private-event", status: "ORDERED", requestedQuantity: 200, orderedQuantity: 200, occurredAt: earlier, ...changes } };
+  return { operation_type: china.CHINA_ORDER_EVENT_OPERATION_TYPE, source_event_id: "private-persisted-id", started_at: earlier, input_snapshot: { sourceSystem: "EXTERNAL_ORDER_IMPORT", sourceLineId: "private-line", barcode, sourceEventId: "private-event", status: "ORDERED", requestedQuantity: 200, orderedQuantity: 200, occurredAt: earlier, ...changes } };
 }
 function reconciliation({ sourceEventId, sourceLineId = "private-line", fromBarcode = "UNASSIGNED-202609-001", toBarcode = "BGF1-3", confirmed = true, confirmationMethod = "OWNER_EXPLICIT_CONFIRMATION", confirmedAt = "2026-09-14T00:02:00.000Z" } = {}) {
-  const row = stored({
-    sourceEventId: sourceEventId ?? `reconcile-${toBarcode}`,
-    sourceLineId,
-    barcode: toBarcode,
-    status: "ORDERED",
-    requestedQuantity: 200,
-    orderedQuantity: 200,
-    occurredAt: confirmedAt,
-    payload: { identityReconciliation: { confirmed, confirmationMethod, fromBarcode, toBarcode, modelNo: "AAA309", confirmedAt } },
-  });
-  row.source_event_id = `persisted-${sourceEventId ?? toBarcode}`;
-  return row;
+  const id = sourceEventId ?? `reconcile-${toBarcode}`;
+  return {
+    operation_type: commitments.REENTRY_IDENTITY_RECONCILIATION_OPERATION_TYPE,
+    source_event_id: `persisted-${id}`,
+    started_at: confirmedAt,
+    input_snapshot: {
+      sourceSystem: "EXTERNAL_ORDER_IMPORT",
+      sourceLineId,
+      sourceEventId: id,
+      barcode: toBarcode,
+      occurredAt: confirmedAt,
+      note: "owner-confirmed identity only",
+      payload: { identityReconciliation: { confirmed, confirmationMethod, fromBarcode, toBarcode, modelNo: "AAA309", confirmedAt } },
+    },
+  };
 }
 test("production regression: seven TMP placeholders remain visible without poisoning the managed B-code scope", () => {
   const x = fixture();
@@ -143,7 +146,7 @@ test("owner-confirmed reconciliation resolves the exact unassigned line without 
   assert.equal(result.totalOpenQuantity, 200);
   assert.equal(result.commitments[0].barcode, "BGF1-3");
   assert.equal(result.commitments[0].orderedQuantity, 200);
-  assert.equal(result.commitments[0].eventCount, 3);
+  assert.equal(result.commitments[0].eventCount, 2);
 });
 test("identity reconciliation conflicts fail closed instead of picking an arbitrary B-code", () => {
   assert.throws(() => commitments.validateReentryCommitmentRows([
@@ -185,5 +188,22 @@ test("repeating the exact confirmed mapping is quantity-idempotent", () => {
   assert.equal(result.totalCommitments, 1);
   assert.equal(result.totalOpenQuantity, 200);
   assert.equal(result.commitments[0].orderedQuantity, 200);
-  assert.equal(result.commitments[0].eventCount, 3);
+  assert.equal(result.commitments[0].eventCount, 1);
+});
+test("identity-only markers reject lifecycle quantities, statuses and manual additions", () => {
+  for (const mutate of [
+    (row) => { row.input_snapshot.orderedQuantity = 999; },
+    (row) => { row.input_snapshot.status = "CANCELLED"; },
+    (row) => { row.input_snapshot.status = "RECEIVED"; row.input_snapshot.receivedQuantity = 200; },
+    (row) => { row.input_snapshot.payload.manualAddition = true; row.input_snapshot.payload.addedQuantity = 999; },
+  ]) {
+    const row = reconciliation({ sourceEventId: `lifecycle-${Math.random()}` });
+    mutate(row);
+    assert.throws(() => commitments.validateReentryCommitmentRows([row], Date.parse(now)), (error) => error.message === "REENTRY_COMMITMENT_RECONCILIATION_LIFECYCLE_FORBIDDEN");
+  }
+});
+test("a reconciliation marker under the commitment lifecycle operation type is rejected", () => {
+  const row = reconciliation({ sourceEventId: "wrong-operation" });
+  row.operation_type = china.CHINA_ORDER_EVENT_OPERATION_TYPE;
+  assert.throws(() => commitments.validateReentryCommitmentRows([row], Date.parse(now)), (error) => error.message === "REENTRY_COMMITMENT_RECONCILIATION_OPERATION_INVALID");
 });
