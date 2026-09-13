@@ -1,4 +1,14 @@
-import { normalizeInventoryBarcode } from "@/lib/productMasterInventoryIdentity";
+const BARCODE_PATTERN = /^B[A-Z]{1,2}\d+-\d+$/;
+
+function normalizeBarcode(value: unknown) {
+  const normalized = String(value ?? "")
+    .normalize("NFKC")
+    .trim()
+    .toUpperCase()
+    .replace(/[‐‑‒–—−]/g, "-")
+    .replace(/\s+/g, "");
+  return BARCODE_PATTERN.test(normalized) ? normalized : "";
+}
 
 export type InventoryStockoutBulkInput = {
   barcodes: string[];
@@ -24,7 +34,7 @@ export function parseInventoryStockoutBulkText(raw: string): InventoryStockoutBu
   const errors: string[] = [];
   const seen = new Set<string>();
   for (const token of tokens) {
-    const barcode = normalizeInventoryBarcode(token);
+    const barcode = normalizeBarcode(token);
     if (!barcode) {
       errors.push(`잘못된 B코드: ${token}`);
       continue;
@@ -52,7 +62,7 @@ export function parseInventoryStocktakeBulkText(raw: string): InventoryStocktake
       errors.push(`${index + 1}행 형식 오류: B코드와 수량을 입력해 주세요.`);
       return;
     }
-    const barcode = normalizeInventoryBarcode(parts[0]);
+    const barcode = normalizeBarcode(parts[0]);
     const baselineQuantity = Number(parts[1]);
     if (!barcode) {
       errors.push(`${index + 1}행 잘못된 B코드: ${parts[0]}`);
