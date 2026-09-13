@@ -36,6 +36,31 @@ function once(source: string, before: string, after: string, label: string): str
   return source.slice(0, at) + after + source.slice(at + before.length);
 }
 
+// Keep the existing lifecycle and price-readback files byte-identical, while
+// extending their busy checks to include the new isolated manual title key.
+const MANUAL_BUSY_GUARD = String.raw`
+async function shoplingManualTitleBusyV064() {
+  try {
+    const stored = await chrome.storage.session.get("commerceOsShoplingTitleBatchRunV064");
+    return stored?.commerceOsShoplingTitleBatchRunV064?.status === "running";
+  } catch {
+    return true;
+  }
+}
+if (typeof lifecycleOtherShoplingWorkerBusy === "function") {
+  const originalLifecycleBusyV064 = lifecycleOtherShoplingWorkerBusy;
+  lifecycleOtherShoplingWorkerBusy = async function () {
+    return await shoplingManualTitleBusyV064() || await originalLifecycleBusyV064();
+  };
+}
+if (typeof priceReadbackOtherWorkerBusy === "function") {
+  const originalPriceReadbackBusyV064 = priceReadbackOtherWorkerBusy;
+  priceReadbackOtherWorkerBusy = async function () {
+    return await shoplingManualTitleBusyV064() || await originalPriceReadbackBusyV064();
+  };
+}
+`;
+
 // This listener grants no marketplace permission and performs no network request.
 // Old one-button tabs cannot authorize themselves against the new manual run.
 const AUTHORIZE_MANUAL_PAGE = String.raw`
@@ -86,7 +111,7 @@ export function separateShoplingTitleWorkflow(input: ExtensionEntries): Extensio
   for (const file of ["background-shopling-pipeline.js", "background-shopling-title-registry.js"]) {
     root = once(root, `  "${file}",\n`, "", file);
   }
-  entries[ROOT] = encoder.encode(root + "\n" + AUTHORIZE_MANUAL_PAGE);
+  entries[ROOT] = encoder.encode(root + "\n" + MANUAL_BUSY_GUARD + AUTHORIZE_MANUAL_PAGE);
 
   // Isolate manual jobs from the old combined pipeline, including an upgrade
   // while old batch tabs or local completion snapshots are still present.
