@@ -40,8 +40,10 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - run: npm ci
+      - name: Lint purchase recovery boundaries
+        run: npx eslint src/lib/purchaseCycleReentryCommitments.ts src/lib/purchaseCycleReentryShadowCore.ts src/components/china-order-manager/PurchaseCycleReentryShadowPanel.tsx
       - name: Verify real V2, stock evidence, commitment reducer, read adapter and API boundaries
-        run: node --experimental-strip-types --test tests/purchaseCycleReentryShadow.test.mjs tests/purchaseCycleReentryShadowIdentity.test.mjs
+        run: node --experimental-strip-types --test tests/purchaseCycleReentryShadow.test.mjs tests/purchaseCycleReentryShadowIdentity.test.mjs tests/purchaseCycleReentryShadowSourceRecovery.test.mjs
       - name: Install isolated browser test tools only
         run: npm install --prefix "$RUNNER_TEMP/reentry-browser-tools" --no-package-lock --no-audit --no-fund esbuild@0.25.9 playwright@1.55.1
       - run: '"$RUNNER_TEMP/reentry-browser-tools/node_modules/.bin/playwright" install --with-deps chromium'

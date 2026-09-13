@@ -43,7 +43,11 @@ export type ReentryShadowReport = {
   writesEnabled: false; actualPurchaseExecuted: false; approvalGranted: false;
   cashBudgetKrw: null; budgetAllocationState: "AWAITING_PURCHASE_DAY_CASH_AND_CLOSED_REVENUE";
   sourceFingerprint: string; demandAsOf: string | null; stockReadAt: string | null;
-  sourceReadStartedAt: string; commitmentPolicy: "ALL_OPEN_INCLUDING_MANUAL_ADDITIONS";
+  sourceReadStartedAt: string;
+  // Additive readback fields: an unavailable source is not proof of bad SKU data.
+  demandSourceState?: string; managedSkuCount?: number | null; quarantinedSkuCount?: number;
+  recovery?: Array<{ id: string; state: "BLOCKED" | "REVIEW" | "VERIFIED" | "DEFERRED"; message: string }>;
+  commitmentPolicy: "ALL_OPEN_INCLUDING_MANUAL_ADDITIONS";
   summary: { activeSkuCount: number | null; exactCount: number; estimatedReferenceCount: number;
     candidateCount: number; candidateQuantity: number; reviewCount: number; accumulatingCount: number };
   blockers: ReentryShadowIssue[]; warnings: string[]; rows: ReentryShadowRow[];
@@ -53,6 +57,7 @@ function code(value: unknown) {
   return String(value ?? "").normalize("NFKC").toUpperCase().replace(/[‐‑‒–—−]/g, "-").replace(/\s+/g, "");
 }
 function validCode(value: string) { return /^B[A-Z]{1,2}\d+-\d+$/.test(value); }
+function temporaryCode(value: string) { return /^TMP\d+-\d+$/.test(value); }
 function quantity(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) >= 0; }
 function finiteNonnegative(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value) && value >= 0; }
 function fresh(value: string | null | undefined, now: number, maxAge: number) {
@@ -103,9 +108,21 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
   const target = validateReentryTargetMonth(input.targetCycleMonth, input.now);
   const [year, month] = target.split("-").map(Number);
   const budgetMonth = new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 7);
-  const blockers = (input.sourceErrors ?? []).map((value) => issue(value, "필수 원본을 읽지 못했습니다. 읽기 전용 재확인이 필요합니다."));
+  const sourceMessages: Record<string, string> = {
+    REENTRY_COMMITMENT_BARCODE_UNRESOLVED: "기존 발주에 정식 B코드가 연결되지 않은 품목이 있습니다. 실주문·옵션을 대조해 연결해야 하며 미입고를 0으로 처리하거나 자동 재발주하지 않습니다.",
+    REENTRY_COMMITMENT_IDENTITY_REQUIRED: "기존 발주의 원본 시스템·주문행 식별정보가 누락됐습니다. 같은 주문의 중복 계산을 막기 위해 원본 연결을 확인해야 합니다.",
+    REENTRY_COMMITMENT_STATUS_INVALID: "기존 발주 원장에 해석할 수 없는 상태가 있습니다. 주문·입고 내역 대조 전에는 진행하지 않습니다.",
+    REENTRY_COMMITMENT_TIME_INVALID: "기존 발주 원장의 기록 시점을 확인하지 못했습니다. 최신 사건의 순서를 추측하지 않습니다.",
+    REENTRY_COMMITMENT_READ_UNVERIFIED: "발주 원장의 전체 건수·조회 성공을 확인하지 못했습니다. 누락된 미입고를 0으로 간주하지 않고 다음 조회에서 재확인합니다.",
+  };
+  const blockers = (input.sourceErrors ?? []).map((value) => issue(value, sourceMessages[value] ?? "필수 원본을 읽지 못했습니다. 읽기 전용 재확인이 필요합니다."));
   const warnings = [...(input.warnings ?? [])];
   const profiles = input.planning?.products.filter((row) => row.skuActive !== false) ?? [];
+  // TMP codes are explicitly unassigned launch placeholders, not canonical
+  // managed B-code SKUs. Retain them visibly in quarantine; never auto-map them.
+  // Unknown malformed codes still block the entire source, as before.
+  const managedProfiles = profiles.filter((row) => !temporaryCode(code(row.barcode)));
+  const quarantinedSkuCount = profiles.length - managedProfiles.length;
   const stocks = input.stock?.rows ?? [];
   const auditRows = input.audit?.snapshot?.rows ?? [];
   const byProfile = groups(profiles), byStock = groups(stocks), byDemand = groups(auditRows);
@@ -119,13 +136,16 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
       input.audit.snapshot.bucketCount !== 12 || input.audit.snapshot.bucketDays !== 30 ||
       input.audit.snapshot.orphanEventCount !== 0 ||
       input.audit.snapshot.rows.length !== input.audit.snapshot.managedActiveSkuCount) {
-    blockers.push(issue("DEMAND_NOT_READY", "12×30일 판매 원장의 정합성을 확인하지 못했습니다."));
+    const publicationPending = ["READY_CANARY", "READY_FULL"].includes(input.audit?.state ?? "");
+    blockers.push(issue(publicationPending ? "DEMAND_PUBLICATION_PENDING" : "DEMAND_NOT_READY", publicationPending
+      ? "주문행 수집은 끝났지만 공식 판매원장 반영 검증이 남았습니다. 기존 수집 결과의 대조·적재 검증을 먼저 완료해야 합니다. 월별 집계 갱신으로 이 단계를 대신하지 않습니다."
+      : "12×30일 판매 원장의 정합성을 확인하지 못했습니다."));
   }
   if (!fresh(input.audit?.analysisAsOf, nowMs, REENTRY_DEMAND_MAX_AGE_MS) ||
       input.audit?.snapshot?.analysisAsOf !== input.audit?.analysisAsOf) {
     blockers.push(issue("DEMAND_STALE", "판매 수요 자료가 24시간 기준을 넘었거나 분석시점이 일치하지 않습니다."));
   }
-  if (input.audit?.snapshot && input.planning && input.audit.snapshot.managedActiveSkuCount !== profiles.length) blockers.push(issue("CATALOG_DEMAND_SCOPE_MISMATCH", "상품 기준정보와 판매 원장의 활성 SKU 범위가 다릅니다."));
+  if (input.audit?.snapshot && input.planning && input.audit.snapshot.managedActiveSkuCount !== managedProfiles.length) blockers.push(issue("CATALOG_DEMAND_SCOPE_MISMATCH", "상품 기준정보와 판매 원장의 활성 SKU 범위가 다릅니다."));
   if (!input.stock || !fresh(input.stock.generatedAt, nowMs, MAX_SOURCE_READ_AGE_MS)) blockers.push(issue("STOCK_UNAVAILABLE", "현재 재고 근거를 읽지 못했습니다."));
   // Existing validator reports individual expired baselines as BLOCKED. Keep
   // unrelated verified rows useful, but never ignore a true upstream read error.
@@ -136,7 +156,7 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
     }
   }
   if (!input.ledger || input.ledger.invalidEventCount > 0) blockers.push(issue("COMMITMENTS_UNAVAILABLE", "기존 발주·입고대기 원장을 완전히 확인하지 못했습니다."));
-  if (profiles.some((row) => !validCode(code(row.barcode)))) blockers.push(issue("CATALOG_INVALID_BARCODE", "상품 기준정보에 잘못된 B코드가 있습니다."));
+  if (profiles.some((row) => !validCode(code(row.barcode)) && !temporaryCode(code(row.barcode)))) blockers.push(issue("CATALOG_INVALID_BARCODE", "상품 기준정보에 잘못된 B코드가 있습니다."));
   const openByCode = new Map<string, number>();
   const manualGapByCode = new Map<string, number>();
   for (const row of input.ledger?.commitments ?? []) {
@@ -168,9 +188,18 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
       forecast30Quantity: null, target44Quantity: null, referenceNeedQuantity: null, candidateQuantity: null,
       allocatedQuantity: 0, stage: "DATA_HOLD", engineDecision: null, reasons: [], issues: [],
     };
+    if (temporaryCode(key)) {
+      row.issues.push(issue("CATALOG_PLACEHOLDER", "정식 B코드 배정 전 임시 상품입니다. 실제 옵션과 원본을 확인할 때까지 별도 보류하며 자동 발주하지 않습니다.", key));
+      if (matches.length !== 1 || !skuId(profile.skuId) || conflictingSkuIds.has(skuId(profile.skuId))) {
+        row.issues.push(issue("SKU_IDENTITY_CONFLICT", "임시 코드의 SKU 연결이 중복되거나 비어 있습니다. 정상 B코드와의 중복 여부를 확인해야 합니다.", key));
+      }
+      rows.push(row); continue;
+    }
     if (matches.length !== 1 || !validCode(key) || !skuId(profile.skuId)) row.issues.push(issue("BARCODE_IDENTITY_CONFLICT", "B코드가 하나의 활성 SKU로 식별되지 않습니다.", key));
     if (conflictingSkuIds.has(skuId(profile.skuId)) || conflictingSkuIds.has(skuId(demand?.skuId))) row.issues.push(issue("SKU_IDENTITY_CONFLICT", "하나의 SKU ID에 서로 다른 B코드가 연결되어 중복 발주 후보를 차단했습니다.", key));
-    if (demandMatches.length !== 1 || skuId(demand?.skuId) !== skuId(profile.skuId) ||
+    if (!input.audit?.snapshot) {
+      row.issues.push(issue("DEMAND_SOURCE_UNAVAILABLE", "공식 판매원장을 아직 읽지 못했습니다. 이 상품의 판매 연결이 잘못됐다고 확정한 것은 아닙니다.", key));
+    } else if (demandMatches.length !== 1 || skuId(demand?.skuId) !== skuId(profile.skuId) ||
         (!Array.isArray(demand?.monthlyUnits) || demand.monthlyUnits.length !== 12 || !demand.monthlyUnits.every(quantity)) ||
         (!Array.isArray(demand?.monthlyRevenue) || demand.monthlyRevenue.length !== 12 || !demand.monthlyRevenue.every(finiteNonnegative))) {
       row.issues.push(issue("DEMAND_IDENTITY_OR_BUCKETS_INVALID", "판매 SKU 연결 또는 12개 수요 구간을 확인할 수 없습니다.", key));
@@ -233,6 +262,20 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
   }
   const reviewCount = rows.filter((row) => ["DATA_HOLD", "REVIEW"].includes(row.stage)).length;
   const accumulatingCount = rows.filter((row) => row.stage === "BASELINE_ACCUMULATING").length;
+  const costMissingCount = rows.filter((row) => row.issues.some((value) => value.code === "COST_MISSING")).length;
+  const stockReviewCount = rows.filter((row) => row.issues.some((value) => ["BASELINE_EVIDENCE_NOT_READY", "SALE_STATUS_RECONCILIATION", "BASELINE_CONFLICT"].includes(value.code))).length;
+  const baselineWaitingCount = rows.filter((row) => row.issues.some((value) => value.code === "BASELINE_ACCUMULATING")).length;
+  const catalogBlocked = !input.planning || blockers.some((row) => row.code.startsWith("CATALOG_") || row.code === "PLANNING_UNAVAILABLE");
+  const stockSourceBlocked = !input.stock || blockers.some((row) => row.code.startsWith("STOCK_"));
+  const salesBlocked = blockers.some((row) => row.code.startsWith("DEMAND_") || row.code === "CATALOG_DEMAND_SCOPE_MISMATCH");
+  const commitmentBlocked = blockers.some((row) => row.code.includes("COMMITMENT"));
+  const recovery: NonNullable<ReentryShadowReport["recovery"]> = [
+    { id: "sales", state: salesBlocked ? "BLOCKED" : "VERIFIED", message: salesBlocked ? "판매 원장의 수집·반영 단계와 실제 분석시점을 먼저 복구·검증합니다. 화면 새로고침은 원본 수집이 아닙니다." : "현재 사전 점검의 판매 자료·분석시점 검증을 통과했습니다." },
+    { id: "commitments", state: commitmentBlocked ? "BLOCKED" : "VERIFIED", message: commitmentBlocked ? "기존 발주·미입고 원장과 미연결 주문행을 확인합니다. 실제 수량을 다시 입력하거나 주문하지 않습니다." : "전체 발주 원장을 읽고 수동 추가분을 포함한 미입고를 대조했습니다." },
+    { id: "catalog_cost", state: catalogBlocked ? "BLOCKED" : quarantinedSkuCount || costMissingCount ? "REVIEW" : "VERIFIED", message: `상품 기준정보 ${catalogBlocked ? "조회·범위 확인 필요" : "조회됨"} · 임시 코드 ${quarantinedSkuCount}개 · 원가 미확인 ${costMissingCount}개. 기존 원본과 일치하는 근거만 사용하며 판매가로 원가를 만들어 넣지 않습니다.` },
+    { id: "stock_sale", state: stockSourceBlocked ? "BLOCKED" : stockReviewCount || baselineWaitingCount ? "REVIEW" : "VERIFIED", message: `재고 원본 ${stockSourceBlocked ? "조회·범위 확인 필요" : "조회됨"} · 기존 근거 재확인 ${stockReviewCount}개 · 기준점 자연 축적 ${baselineWaitingCount}개. 전수 실사를 요구하지 않습니다.` },
+    { id: "purchase_day", state: "DEFERRED", message: "발주일 최신 자료·마감매출·실제 투입현금으로 정상 V2를 다시 계산하고 수동 추가 미입고·추정원가 정책 차이를 대조한 뒤 사람이 소량 승인합니다. 날짜가 바뀌어도 이 화면에서 주문·결제는 실행되지 않습니다." },
+  ];
   const state = blockers.length ? "BLOCKED" : reviewCount || accumulatingCount ? "REVIEW_SHADOW" : "READY_SHADOW";
   const sourceFingerprint = hash({
     version: REENTRY_SHADOW_VERSION, engine: PURCHASE_V2_RULE_VERSION, target,
@@ -249,7 +292,10 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
     writesEnabled: false, actualPurchaseExecuted: false, approvalGranted: false, cashBudgetKrw: null,
     budgetAllocationState: "AWAITING_PURCHASE_DAY_CASH_AND_CLOSED_REVENUE", sourceFingerprint,
     demandAsOf: input.audit?.analysisAsOf ?? null, stockReadAt: input.stock?.generatedAt ?? null,
-    sourceReadStartedAt: input.readStartedAt, commitmentPolicy: "ALL_OPEN_INCLUDING_MANUAL_ADDITIONS",
+    sourceReadStartedAt: input.readStartedAt,
+    demandSourceState: input.audit?.state ?? (input.audit?.snapshot ? "UNKNOWN" : "UNAVAILABLE"),
+    managedSkuCount: input.planning ? managedProfiles.length : null, quarantinedSkuCount, recovery,
+    commitmentPolicy: "ALL_OPEN_INCLUDING_MANUAL_ADDITIONS",
     summary: { activeSkuCount: input.planning ? profiles.length : null,
       exactCount: rows.filter((row) => row.inventoryBasis === "EXACT").length,
       estimatedReferenceCount: rows.filter((row) => row.inventoryBasis === "ESTIMATED_REFERENCE").length,

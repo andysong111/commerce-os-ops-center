@@ -124,6 +124,11 @@ export function PurchaseCycleReentryShadowPanel({ targetMonth }: { targetMonth: 
       </div>
       {(report?.blockers.length ?? 0) > 0 ? <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm"><strong>원본 확인 전에는 발주 후보로 확정하지 않습니다.</strong>{report!.blockers.map((value, i) => <p className="mt-2" key={`${value.code}-${i}`}>{value.barcode ? `${value.barcode} · ` : ""}{value.message} <code>{value.code}</code></p>)}</div> : null}
       {report?.warnings.map((value) => <p key={value} className="text-xs text-amber-800">{value}</p>)}
+      {report?.recovery ? <div className="rounded-xl border bg-white p-4 text-sm" aria-label="발주 준비 복구 순서">
+        <strong>{stale ? "이전 기록 · 현재 복구 상태 미확인" : "발주 준비 복구 순서 · 실제 승인과 분리"}</strong>
+        <p className="mt-2 text-xs text-slate-600">정식 관리 대상 {amount(report.managedSkuCount ?? null)}개 · 임시 코드 보류 {amount(report.quarantinedSkuCount ?? null)}개 · 판매 원장 단계 {report.demandSourceState ?? "미확인"}</p>
+        {report.recovery.map((check, index) => <p key={check.id} className="mt-3 leading-6"><strong>{index + 1}. {stale ? "이전 기록" : check.state === "VERIFIED" ? "확인됨" : check.state === "DEFERRED" ? "발주일 사람 승인" : check.state === "REVIEW" ? "근거 대조" : "복구 필요"}</strong> · {check.message}</p>)}
+      </div> : null}
       <div className="rounded-xl border bg-white p-4 text-sm leading-6 text-slate-700">
         <strong>발주일 확인사항</strong> · {report?.budgetMonth ?? "전월"} 매출 마감 후의 예산 상한, 실제 투입현금, 최신 재고·미입고를 정상 V2 화면에서 다시 계산하고 승인합니다. 이 사전 점검은 기존 확정안이나 Draft를 덮어쓰지 않습니다.
       </div>

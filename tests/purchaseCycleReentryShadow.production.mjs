@@ -19,6 +19,8 @@ assert.ok(report.rows.every((row) => row.candidateQuantity === null || (row.inve
 // Log the distinction and aggregates only; never dump the user's full product data.
 console.log(JSON.stringify({ contractVerified: true, operationalReadiness: report.state, httpStatus: response.status,
   generatedAt: report.generatedAt, targetCycleMonth: report.targetCycleMonth, demandAsOf: report.demandAsOf,
+  managedSkuCount: report.managedSkuCount, quarantinedSkuCount: report.quarantinedSkuCount, demandSourceState: report.demandSourceState,
+  recovery: report.recovery?.map(({ id, state }) => ({ id, state })),
   summary: report.summary, sourceFingerprint: report.sourceFingerprint, blockerCodes: report.blockers.map((value) => value.code),
   rowIssueCounts: report.rows.flatMap((row) => row.issues).reduce((counts, row) => { counts[row.code] = (counts[row.code] ?? 0) + 1; return counts; }, {}),
   writeRequests: 0, actualPurchaseExecuted: false }, null, 2));
