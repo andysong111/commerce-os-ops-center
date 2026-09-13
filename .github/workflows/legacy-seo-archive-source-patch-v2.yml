@@ -1,0 +1,34 @@
+name: Legacy SEO archive source patch v2
+on:
+  push:
+    branches:
+      - feat/legacy-seo-archive-20260913
+    paths:
+      - .github/workflows/legacy-seo-archive-source-patch-v2.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/legacy-seo-archive-20260913
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: python tools/apply_legacy_seo_archive_patch_20260913.py
+      - run: npm ci
+      - name: Focused archive regressions
+        run: node --experimental-strip-types --test tests/legacySeoArchive.test.mjs tests/legacySeoBulkRunAll.test.mjs tests/legacySeoBulkLoading.test.mjs tests/legacySeoPollingGuard.test.mjs
+      - name: Lint changed source
+        run: npx eslint src/lib/legacySeoRunJobServer.ts src/app/api/legacy-seo-run-jobs/route.ts src/app/api/legacy-seo-run-jobs-lite/route.ts src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx
+      - name: Commit tested source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/legacySeoRunJobServer.ts src/app/api/legacy-seo-run-jobs/route.ts src/app/api/legacy-seo-run-jobs-lite/route.ts src/app/legacy-seo-bulk-cloud/LegacySeoBulkCloudClient.tsx src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx
+          git commit -m 'feat(legacy-seo): archive completed registrations without blocking intentional reruns'
+          git push origin HEAD:feat/legacy-seo-archive-20260913
