@@ -1,0 +1,1 @@
+v0.3.40 invariant: operator A18 control tab is never automatically reloaded; bulk start must target exactly one detected A18 product-list frame.
