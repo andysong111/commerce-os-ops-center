@@ -1,0 +1,60 @@
+name: Archive completed legacy SEO once
+on:
+  push:
+    branches:
+      - ops/archive-completed-legacy-seo-20260913
+    paths:
+      - .github/workflows/archive-completed-legacy-seo-20260913.yml
+permissions:
+  contents: read
+concurrency:
+  group: archive-completed-legacy-seo-20260913
+  cancel-in-progress: false
+jobs:
+  archive-and-verify:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: One bounded archive action and readback
+        run: |
+          node --input-type=module <<'NODE'
+          const base='https://commerce-os-ops-center.vercel.app';
+          const headers={Accept:'application/json','Content-Type':'application/json',Origin:base,Referer:base+'/legacy-seo-bulk-cloud'};
+          async function json(url, init={}) {
+            const response=await fetch(base+url,{...init,headers:{...headers,...(init.headers||{})},redirect:'error',signal:AbortSignal.timeout(60000)});
+            const text=await response.text();
+            let body={}; try{body=JSON.parse(text)}catch{}
+            if(!response.ok || body.ok!==true) throw new Error(`${url} HTTP ${response.status} ${String(body.message||body.code||'').slice(0,160)}`);
+            return body;
+          }
+          const beforeActive=await json('/api/legacy-seo-run-jobs-lite?items=false');
+          const beforeArchived=await json('/api/legacy-seo-run-jobs-lite?scope=archived&items=false');
+          const beforeItems=await json('/api/legacy-seo-run-jobs-lite?jobs=false&items=true');
+          const readySuccess=beforeActive.jobs.filter(j=>j.status==='ready'&&j.registration_status==='success').length;
+          const generationFailed=beforeActive.jobs.filter(j=>j.status==='failed').length;
+          if(readySuccess!==82) throw new Error(`PRECONDITION_READY_SUCCESS_${readySuccess}`);
+          if(beforeItems.items.length!==316) throw new Error(`PRECONDITION_ITEMS_${beforeItems.items.length}`);
+          const archive=await json('/api/legacy-seo-run-jobs',{method:'POST',body:JSON.stringify({action:'archive_completed'})});
+          if(Number(archive.archivedCount)!==82) throw new Error(`ARCHIVED_COUNT_${archive.archivedCount}`);
+          const afterActive=await json('/api/legacy-seo-run-jobs-lite?items=false');
+          const afterArchived=await json('/api/legacy-seo-run-jobs-lite?scope=archived&items=false');
+          const afterItems=await json('/api/legacy-seo-run-jobs-lite?jobs=false&items=true');
+          const activeReadySuccess=afterActive.jobs.filter(j=>j.status==='ready'&&j.registration_status==='success').length;
+          const activeGenerationFailed=afterActive.jobs.filter(j=>j.status==='failed').length;
+          const archivedReadySuccess=afterArchived.jobs.filter(j=>j.status==='ready'&&j.registration_status==='success').length;
+          const proof={
+            checkedAt:new Date().toISOString(),
+            before:{readySuccess,generationFailed,archived:beforeArchived.jobs.length,items:beforeItems.items.length},
+            archive:{archivedCount:Number(archive.archivedCount)},
+            after:{activeReadySuccess,activeGenerationFailed,archived:afterArchived.jobs.length,archivedReadySuccess,items:afterItems.items.length}
+          };
+          console.log(JSON.stringify(proof,null,2));
+          if(activeReadySuccess!==0) throw new Error(`ACTIVE_READY_SUCCESS_${activeReadySuccess}`);
+          if(activeGenerationFailed!==generationFailed) throw new Error(`GENERATION_FAILURE_COUNT_CHANGED_${activeGenerationFailed}`);
+          if(afterArchived.jobs.length!==beforeArchived.jobs.length+82) throw new Error(`ARCHIVE_TOTAL_${afterArchived.jobs.length}`);
+          if(afterItems.items.length!==316) throw new Error(`SOURCE_ITEMS_CHANGED_${afterItems.items.length}`);
+          NODE
