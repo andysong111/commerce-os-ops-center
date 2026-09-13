@@ -107,13 +107,22 @@ export function mergeKeywordElonCandidates(
       map.set(key, normalized);
       continue;
     }
-    const chosen = normalized.qualityScore > existing.qualityScore
-      ? normalized
-      : normalized.qualityScore < existing.qualityScore
-        ? existing
-        : (normalized.totalSearch ?? -1) > (existing.totalSearch ?? -1)
-          ? normalized
-          : existing;
+    // A real zero-score rejection is evidence; an API timeout is not. Preserve
+    // successful evaluation even when both quality scores are zero so bounded
+    // recovery never repeatedly re-scores a rejection seeking a lucky pass.
+    const unavailable = (candidate: KeywordElonCandidate) =>
+      /^(AI 점수화 실패|AI 점수 응답 누락)/.test(candidate.rationale ?? "");
+    const existingUnavailable = unavailable(existing);
+    const addedUnavailable = unavailable(normalized);
+    const chosen = existingUnavailable !== addedUnavailable
+      ? existingUnavailable ? normalized : existing
+      : normalized.qualityScore > existing.qualityScore
+        ? normalized
+        : normalized.qualityScore < existing.qualityScore
+          ? existing
+          : (normalized.totalSearch ?? -1) > (existing.totalSearch ?? -1)
+            ? normalized
+            : existing;
     map.set(key, {
       ...chosen,
       sourceTags: [...new Set([...(existing.sourceTags ?? []), ...(normalized.sourceTags ?? [])])],
