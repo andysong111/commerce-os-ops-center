@@ -1,0 +1,66 @@
+  async function drivePreProd(state) {
+    const task = state.task;
+    if (!task || !["id_choice_submitted", "pre_profile_selected", "pre_mapping_ready"].includes(state.stage)) return;
+    const recovery = globalThis.ShoplingRecoveryV0337;
+    const stopping = (await storageGet(recovery.constants.stop))[recovery.constants.stop];
+    if (stopping) return;
+    const select = savedProfileSelect(task.profile);
+    const age = Date.now() - Number(state.stepAt || state.startedAt || 0);
+    if (!select) {
+      if (age < 10000) return;
+      await failTask(state, "preprod_saved_profile_missing", task.profile + " 저장검색이 없습니다. 기본정보/배송정보를 임의 선택하거나 송신하지 않습니다.");
+      return;
+    }
+    if (state.stage === "id_choice_submitted") {
+      const before = recovery.inspectBasics(document);
+      await patchWorkerState(state, { stage: "pre_profile_selected", stepAt: Date.now(),
+        preprodBefore: before, message: task.profile + " 연동정보 저장검색 적용 · 필수 기본정보 검증 대기" });
+      if (!forceSelect(select, new RegExp("^" + escapeRegex(task.profile) + "$"))) {
+        await failTask(state, "preprod_saved_profile_apply_failed", task.profile + " 저장검색 적용 실패 · 송신하지 않습니다.");
+      }
+      return;
+    }
+    if (age < 1000) return;
+    const basics = recovery.inspectBasics(document);
+    if (optionText(select) !== task.profile || !basics.ok) {
+      if (age < 10000) return;
+      await patchWorkerState(state, { preprodEvidence: basics });
+      await failTask(state, "preprod_required_basics_missing", task.profile + " 필수 기본정보 미확정: " + basics.missing.join(" / ") + " · 저장검색을 확인하세요. 첫 항목/무료배송을 임의 선택하지 않습니다.");
+      return;
+    }
+    const signature = JSON.stringify(basics.groups.map((group) => [group.key, group.selectedValue]));
+    if (state.preprodSignature !== signature) {
+      await patchWorkerState(state, { preprodSignature: signature, preprodEvidence: basics, message: task.profile + " 기본정보 선택 안정성 재확인" });
+      return;
+    }
+    const mapping = applyPreProdMapping();
+    if (!mapping.ok) {
+      await failTask(state, "mapping_controls_missing", task.profile + " 전송설정 누락: " + mapping.missing.join(", "));
+      return;
+    }
+    const readback = recovery.inspectBasics(document);
+    if (!readback.ok || JSON.stringify(readback.groups.map((group) => [group.key, group.selectedValue])) !== signature) {
+      await failTask(state, "preprod_basics_changed", "전송설정 적용 후 필수 기본정보가 바뀌어 송신하지 않습니다.");
+      return;
+    }
+    await patchWorkerState(state, { preprodEvidence: readback });
+    if (recovery.isDiagnostic(state.runId)) {
+      await completeTask(state, "diagnostic_ready", "saved_profile_and_basics_verified_no_submit",
+        task.profile + " · 기본정보 " + readback.groupCount + "개와 7개 전송설정 검사 완료 · 실제 송신하지 않음");
+      return;
+    }
+    const sendButton = buttons(/^상품등록송신$/i)[0] || buttons(/상품\s*등록\s*송신/i)[0];
+    if (!sendButton) { await failTask(state, "submit_button_missing", "상품등록송신 버튼 식별 실패"); return; }
+    const current = await getWorkerState(state.runId, task.goodsKey);
+    if (!current || current.status !== "running" || (await storageGet(recovery.constants.stop))[recovery.constants.stop]) return;
+    await patchWorkerState(current, { stage: "arming", message: "필수 기본정보 검증 완료 · 송신 잠금 확인" });
+    const arm = await sendMessage({ type: ARM_MESSAGE, runId: state.runId, goodsKey: task.goodsKey });
+    if (!arm?.ok) { await failTask(current, "submit_lock_failed", "송신 잠금 실패: " + text(arm?.message || arm?.error)); return; }
+    const latest = await getWorkerState(state.runId, task.goodsKey);
+    if (!latest || latest.status !== "running" || (await storageGet(recovery.constants.stop))[recovery.constants.stop]) return;
+    const armed = await patchWorkerState(latest, { stage: "submit_armed", submitArmedAt: Date.now(), stepAt: Date.now() });
+    if (!armed) return;
+    await patchWorkerState(armed, { stage: "submit_clicked", submitClickedAt: Date.now(), stepAt: Date.now() });
+    click(sendButton);
+  }
+

@@ -1,0 +1,65 @@
+
+// Recovery diagnostics never claim, arm, release, or report a server market task.
+let recoveryMutation = Promise.resolve();
+async function startRecoveryDiagnostic(message, sender) {
+  const r = globalThis.ShoplingRecoveryV0337;
+  if (sender.url !== chrome.runtime.getURL("popup.html")) return { ok: false, error: "diagnostic_popup_required" };
+  const stored = await marketAutoStorageGet([r.constants.queue, r.constants.diagnostic]);
+  if (stored[r.constants.queue]?.status === "running" || stored[r.constants.diagnostic]?.status === "running") return { ok: false, error: "기존 작업을 먼저 중단·정리하세요." };
+  const item = message.item;
+  const tasks = r.diagnosticTasks(item).map(normalizeTask);
+  if (tasks.some((task) => !task)) return { ok: false, error: "diagnostic_identity_invalid" };
+  const control = await chrome.tabs.get(message.controlTabId).catch(() => null);
+  if (!control || !isAdminControlUrl(control.url)) return { ok: false, error: "A18 관리자 탭을 열어주세요." };
+  const now = Date.now();
+  const runId = "canary-group-v030-diagnostic-" + now + "-" + Math.random().toString(36).slice(2, 9);
+  const writes = { [r.constants.stop]: false, [r.constants.diagnostic]: { version: r.constants.version, runId, jobId: item.jobId,
+    modelNumber: item.modelNumber, tasks, status: "running", startedAt: now, updatedAt: now, marketSubmissions: 0 } };
+  for (const task of tasks) writes[r.constants.workerPrefix + runId + ":" + task.goodsKey] = { version: r.constants.version,
+    runId, task, status: "running", stage: "worker_opening", startedAt: now, stepAt: now, updatedAt: now,
+    submitArmedAt: 0, submitClickedAt: 0, diagnosticOnly: true, message: "송신 없는 설정 검사" };
+  await marketAutoStorageSet(writes);
+  const opened = await openParallelWorkers(runId, tasks, { tab: control });
+  if (!opened?.ok) await marketAutoStorageSet({ [r.constants.diagnostic]: { ...writes[r.constants.diagnostic], status: "failed", error: text(opened?.error) } });
+  return opened;
+}
+async function stopRecoveryRun(sender) {
+  const r = globalThis.ShoplingRecoveryV0337;
+  if (sender.url !== chrome.runtime.getURL("popup.html")) return { ok: false, error: "stop_popup_required" };
+  await marketAutoStorageSet({ [r.constants.stop]: true });
+  const all = await marketAutoStorageGet(null);
+  const queue = all[r.constants.queue];
+  const diagnostic = all[r.constants.diagnostic];
+  const now = Date.now();
+  const archive = {};
+  const writes = {};
+  for (const [key, value] of Object.entries(all)) {
+    if (key === r.constants.queue || key === r.constants.intent || key === r.constants.diagnostic || key.startsWith(r.constants.workerPrefix)) {
+      archive[key] = value;
+      if (value && typeof value === "object") writes[key] = { ...value, status: "stopped", finishedAt: now, updatedAt: now };
+    }
+  }
+  writes["commerceOsShoplingRecoveryArchiveV0337:" + now] = archive;
+  await marketAutoStorageSet(writes);
+  const meta = await getWorkerMeta();
+  const windowIds = new Set(assignmentArray(meta).flatMap((assignment) => assignment.windowIds || []));
+  if (meta && (meta.runId === queue?.batchRunId || meta.runId === diagnostic?.runId)) {
+    for (const windowId of windowIds) if (Number.isInteger(windowId) && windowId !== meta.controlWindowId) {
+      const live = await chrome.windows.get(windowId, { populate: true }).catch(() => null);
+      if (live && live.tabs?.length && live.tabs.every((tab) => /^https?:\/\/(?:[^/]+\.)?(?:shopling|cassnet)\.co\.kr\//i.test(tab.url || ""))) {
+        await chrome.windows.remove(windowId).catch(() => null);
+      }
+    }
+    await setWorkerMeta({ ...meta, stoppedAt: now, assignments: Object.fromEntries(assignmentArray(meta).map((a) => [a.goodsKey, { ...a, status: "stopped" }])) });
+  }
+  // Intentionally leave server sent/armed/confirm-needed records untouched.
+  return { ok: true, serverRecordsChanged: 0, archivedAt: now };
+}
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const r = globalThis.ShoplingRecoveryV0337;
+  if (message?.type !== r.constants.startMessage && message?.type !== r.constants.stopMessage) return false;
+  recoveryMutation = recoveryMutation.then(() => message.type === r.constants.startMessage ? startRecoveryDiagnostic(message, sender) : stopRecoveryRun(sender));
+  recoveryMutation.then(sendResponse, (error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+  recoveryMutation = recoveryMutation.catch(() => null);
+  return true;
+});
