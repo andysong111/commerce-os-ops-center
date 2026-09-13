@@ -1,0 +1,67 @@
+name: Shopling Market Recovery v0.3.37
+on:
+  pull_request:
+    paths:
+      - 'public/shopling-market-sender-v0337/**'
+      - 'src/lib/shoplingMarketRecoveryV0337.ts'
+      - 'src/lib/shoplingMarketSafety.ts'
+      - 'src/app/api/shopling-market-group-canary/**'
+      - 'tests/shoplingMarketRecoveryV0337.*'
+      - '.github/workflows/shopling-market-period-v0337.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shopling-recovery-v0337-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Execute actual safe-claim handler with held and pending fixtures
+        run: node --experimental-strip-types --test tests/shoplingMarketRecoveryV0337.test.mjs
+      - name: Build production app
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Generate and inspect actual extension ZIP
+        run: |
+          npm run start -- --port 3100 > /tmp/shopling-v0337-next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/api/shopling-market-group-canary/v0337/download -o /tmp/commerce-os-shopling-market-sender-v0.3.37.zip; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive=pathlib.Path('/tmp/commerce-os-shopling-market-sender-v0.3.37.zip')
+          assert archive.is_file()
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              m=json.loads(z.read('manifest.json'))
+              assert m['version']=='0.3.37'
+              assert m['content_scripts'][0]['js'][0]=='recovery.mjs'
+              assert len(m['content_scripts'])==1
+              assert not any('title-divers' in n for n in z.namelist())
+              z.extractall('/tmp/shopling-v0337')
+          PY
+          for file in /tmp/shopling-v0337/*.js /tmp/shopling-v0337/*.mjs; do node --check "$file"; done
+      - name: Install isolated browser-test tooling
+        run: |
+          python -m pip install --disable-pip-version-check -q playwright==1.57.0
+          command -v google-chrome || python -m playwright install --with-deps chromium
+      - name: Execute generated driver and popup in real Chromium with synthetic Shopling DOM
+        run: python tests/shoplingMarketRecoveryV0337.browser.py --directory /tmp/shopling-v0337 --report /tmp/shopling-v0337-browser-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopling-market-sender-v0337
+          path: |
+            /tmp/commerce-os-shopling-market-sender-v0.3.37.zip
+            /tmp/shopling-v0337-browser-report.json
+          retention-days: 7

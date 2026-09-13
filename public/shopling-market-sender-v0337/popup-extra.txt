@@ -1,0 +1,73 @@
+const recovery = globalThis.ShoplingRecoveryV0337;
+const modeNode = document.getElementById("mode");
+const diagnosticButton = document.getElementById("diagnosticStart");
+const diagnosticNode = document.getElementById("diagnosticStatus");
+const stopButton = document.getElementById("stopRun");
+const exportButton = document.getElementById("exportDiagnostic");
+let diagnosticRunning = false;
+let lastDiagnosticReport = null;
+function diagnosticMode() { return modeNode.value === "diagnostic"; }
+function selectionAllowed(item) {
+  return diagnosticMode()
+    ? item.isLatestBatch && item.uploadSuccessCount === 6 && Number(item.activeBusyCount || 0) === 0
+    : item.selectable;
+}
+async function refreshDiagnostics() {
+  const stored = await chrome.storage.local.get(null);
+  const run = stored[recovery.constants.diagnostic];
+  if (!run) { diagnosticRunning = false; diagnosticNode.textContent = "설정 검사에서는 마켓 송신·서버 전송기록 변경을 하지 않습니다."; updateStartButton(); return; }
+  const states = (run.tasks || []).map((task) => stored[recovery.constants.workerPrefix + run.runId + ":" + task.goodsKey]).filter(Boolean);
+  const active = states.filter((state) => state.status === "running");
+  const ready = states.filter((state) => state.outcome === "diagnostic_ready");
+  diagnosticRunning = run.status === "running" && active.length > 0;
+  diagnosticNode.replaceChildren();
+  const summary = document.createElement("div");
+  summary.textContent = (diagnosticRunning ? "설정 검사 중" : "설정 검사 종료") + " · " + ready.length + "/6 설정확인 · 실제 송신 0건";
+  diagnosticNode.append(summary);
+  for (const state of states) {
+    const line = document.createElement("div");
+    line.textContent = state.task.profile + " · " + (state.message || state.stage);
+    diagnosticNode.append(line);
+  }
+  lastDiagnosticReport = { run, states, exportedAt: new Date().toISOString(),
+    limitation: "This diagnostic does not verify per-account marketplace registration history, does not prove a past run submitted nothing, and never releases server holds." };
+  exportButton.disabled = !states.length;
+  if (run.status === "running" && !active.length) await chrome.storage.local.set({ [recovery.constants.diagnostic]: { ...run, status: "completed", finishedAt: Date.now() } });
+  renderItems();
+}
+modeNode.addEventListener("change", renderItems);
+diagnosticButton.addEventListener("click", async function () {
+  const ids = selectedJobIds();
+  if (ids.length !== 1 || queueRunning || diagnosticRunning) return;
+  const item = items.find((row) => row.jobId === ids[0]);
+  const tab = await activeA18Tab();
+  if (!tab) { diagnosticNode.textContent = "A18 관리자 탭에서 실행하세요."; return; }
+  try {
+    recovery.diagnosticTasks(item);
+    diagnosticRunning = true; renderItems();
+    const result = await chrome.runtime.sendMessage({ type: recovery.constants.startMessage, item, controlTabId: tab.id });
+    if (!result?.ok) throw new Error(result?.error || "설정 검사 시작 실패");
+    await refreshDiagnostics();
+  } catch (error) { diagnosticRunning = false; diagnosticNode.textContent = String(error?.message || error); renderItems(); }
+});
+stopButton.addEventListener("click", async function () {
+  stopButton.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: recovery.constants.stopMessage });
+    if (!result?.ok) throw new Error(result?.error || "중단 실패");
+    diagnosticRunning = false; queueRunning = false;
+    await loadItems(); await refreshDiagnostics();
+    statusNode.textContent = "브라우저 실행 중단·보관 완료 · 서버 전송기록/확인필요 잠금은 유지했습니다.";
+  } catch (error) { statusNode.textContent = String(error?.message || error); }
+  finally { stopButton.disabled = false; }
+});
+exportButton.addEventListener("click", function () {
+  if (!lastDiagnosticReport) return;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(lastDiagnosticReport, null, 2)], { type: "application/json" }));
+  const anchor = document.createElement("a"); anchor.href = url; anchor.download = "shopling-diagnostic-v0337.json";
+  anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1500);
+});
+chrome.storage.onChanged.addListener(function (changes, area) {
+  if (area === "local" && (changes[recovery.constants.diagnostic] || Object.keys(changes).some((key) => key.startsWith(recovery.constants.workerPrefix)))) void refreshDiagnostics();
+});
+void refreshDiagnostics();
