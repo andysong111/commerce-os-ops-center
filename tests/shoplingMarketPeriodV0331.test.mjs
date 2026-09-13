@@ -5,6 +5,7 @@ import test from "node:test";
 const packageRoute = new URL("../src/app/api/shopling-market-group-canary/v0331/download/route.ts", import.meta.url);
 const listRoute = new URL("../src/app/api/shopling-market-group-canary/selection/list/route.ts", import.meta.url);
 const claimAllRoute = new URL("../src/app/api/shopling-market-group-canary/selection/claim-all/route.ts", import.meta.url);
+const statusRoute = new URL("../src/app/api/shopling-market-group-canary/selection/status/route.ts", import.meta.url);
 const v0330Route = new URL("../src/app/api/shopling-market-group-canary/v0330/download/route.ts", import.meta.url);
 
 const read = (url) => readFile(url, "utf8");
@@ -47,6 +48,17 @@ test("strict list mode excludes ambiguous states but recovers old claims that ne
   assert.match(claim, /stale_selected_claim_released/);
   assert.match(claim, /\.eq\("market_status", "pending"\)/);
   assert.match(claim, /\.is\("submit_armed_at", null\)/);
+});
+
+test("status watchdog releases a dead browser worker only before the submit boundary", async () => {
+  const source = await read(statusRoute);
+  assert.match(source, /STALE_PRE_SUBMIT_MS = 2 \* 60 \* 1000/);
+  assert.match(source, /auto_stale_pre_submit_released_v0331/);
+  assert.match(source, /\.eq\("status", "claimed"\)/);
+  assert.match(source, /\.eq\("market_status", "pending"\)/);
+  assert.match(source, /\.is\("submit_armed_at", null\)/);
+  assert.match(source, /stalePreSubmitRecoveredCount/);
+  assert.match(source, /STALE_SUBMIT_MS = 3 \* 60 \* 1000/);
 });
 
 test("large date ranges chunk identity and ledger lookups instead of one giant URL", async () => {
