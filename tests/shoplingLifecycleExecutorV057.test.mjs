@@ -157,9 +157,14 @@ test("server bridge claims only non-shadow pending work and never releases DELET
   assert.match(source, /deleteExecutionEnabled: allowDelete/);
 });
 
-test("download package upgrades baseline manifest to v0.6.2 with current-status guard, scripting and recurring keeper", async () => {
+test("download package preserves the lifecycle base while applying the v0.6.4 separation boundary", async () => {
   const source = await readFile(downloadRoutePath, "utf8");
-  assert.match(source, /manifest\.version = "0\.6\.2"/);
+  const separation = await readFile(new URL("../src/lib/shoplingTitleWorkflowSeparation.ts", import.meta.url), "utf8");
+  const root = await readFile(backgroundRootPath, "utf8");
+  assert.match(source, /manifest\.version = "0\.6\.3"/);
+  assert.match(source, /separateShoplingTitleWorkflow\(entries\)/);
+  assert.match(source, /zipSync\(separatedEntries/);
+  assert.match(separation, /SEPARATED_TITLE_VERSION = "0\.6\.4"/);
   assert.match(source, /"alarms", "scripting"/);
   assert.match(source, /background-shopling-lifecycle-main-exec\.js/);
   assert.match(
@@ -167,9 +172,9 @@ test("download package upgrades baseline manifest to v0.6.2 with current-status 
     /js: \[[\s\S]{0,120}"content-shopling-lifecycle-current-status-v062\.js"[\s\S]{0,120}"content-shopling-lifecycle-executor\.js"[\s\S]{0,120}\],[\s\S]{0,120}all_frames: false/,
   );
   assert.doesNotMatch(source, /world: "MAIN"/);
-  assert.match(source, /recurring keeper/);
-  assert.match(source, /commerce-os-shopling-account-title-bridge-v0\.6\.2\.zip/);
-  assert.match(source, /Commerce OS Shopling Account Title Bridge v0\.6\.2/);
+  assert.match(root, /SHOPLING_LIFECYCLE_RECURRING_KEEPER_ALARM/);
+  // The final ZIP and byte-preservation contracts are exercised by
+  // shoplingTitleWorkflowSeparation.test.mjs, not historical version comments.
 });
 
 test("download package rewrites legacy event invokeMutation into background scripting message transport", async () => {
