@@ -78,12 +78,14 @@ test('both panels use bounded visible-only polling and explicit actions stay fre
  assert.match(connection,/INVENTORY_QUEUE_TIMEOUT_MS = 45_000/);
  assert.match(connection,/INVENTORY_REFRESH_TIMEOUT_MS = 60_000/);
 });
-test('operational details first open waits for a fresh evidence read before mounting queue',()=>{
+test('operational details refresh evidence before mounting the single queue reader',()=>{
  const source=readFileSync('src/components/china-order-manager/InventoryStockOperationalDetails.tsx','utf8');
- assert.match(source,/INVENTORY_QUEUE_PATH, true/);
+ assert.match(source,/INVENTORY_REFRESH_PATH, false/);
+ assert.doesNotMatch(source,/INVENTORY_QUEUE_PATH, true/);
  assert.match(source,/if \(!detailsRef\.current\?\.open\) return/);
  assert.match(source,/hasFreshEvidence \? \([\s\S]*<StockSyncOperationalQueuePanel/);
  assert.match(source,/setHasFreshEvidence\(true\)/);
+ assert.match(source,/최신 운영 큐를 한 번 조회합니다/);
  const page=readFileSync('src/app/china-order-manager/stock-control/page.tsx','utf8');
  assert.match(page,/InventoryStockOperationalDetails/);
  assert.doesNotMatch(page,/<StockSyncOperationalQueuePanel \/>/);
