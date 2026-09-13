@@ -30,7 +30,8 @@ test("v0.3.24 exposes upload-date filtering and batch identity", async () => {
     'isLatestBatch,',
     'batchState: isLatestBatch ? "latest" : "superseded"',
     'const selectable = isLatestBatch',
-    '.slice(0, dateFiltered ? 100 : 50)',
+    'const DATE_FILTER_LIMIT = 1000',
+    '.slice(0, dateFiltered ? DATE_FILTER_LIMIT : 50)',
   ]) {
     assert.equal(list.includes(needle), true, `missing list marker: ${needle}`);
   }
