@@ -1,0 +1,159 @@
+name: SEO Contract Regression Refresh Once
+on:
+  push:
+    branches: ['fix/legacy-seo-recovery-20260914']
+    paths: ['.github/workflows/seo-contract-regression-refresh-once.yml']
+permissions:
+  contents: write
+jobs:
+  update-tested-contracts:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Update only obsolete source syntax assertions; preserve safety and no-reuse assertions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          def once(s, old, new):
+              assert s.count(old)==1, f'Unexpected contract anchor: {old}'
+              return s.replace(old,new,1)
+          p=Path('tests/seoBulkMallTitleFactBridge.test.mjs')
+          s=p.read_text()
+          s=once(s,'FINAL10 + 검증 확장재료로 긴 제목만 조립한다','검증 상품명 재료를 먼저 조립하고 검색어로 보완한다')
+          s=once(s,'/const searchKeywords = recoveredSearchKeywords/','/const fallbackSearchKeywords = recoveredSearchKeywords/')
+          s=once(s,'/finalKeywords: searchKeywords/','/finalKeywords: titleKeywords/')
+          s=once(s,'/TITLE_MALL_NAME_POLICY:LONG_TITLE_PRIORITY_V6/','/TITLE_MALL_NAME_POLICY:INTENT_PORTFOLIO_V7/')
+          s=once(s,'  assert.match(bulk, /titleExpansionPool/);','''  assert.match(bulk, /titleExpansionPool/);
+            assert.match(bulk, /buildKeywordElonTitleKeywordReservoirV8/);
+            assert.match(bulk, /selectKeywordElonComplementSearchKeywordsV8/);
+            assert.match(bulk, /const searchKeywords = searchSelection.searchKeywords/);
+            assert.match(bulk, /SEO_KEYWORD_POLICY:TITLE_FIRST_SEARCH_COMPLEMENT_V8/);
+            assert.match(bulk, /titleKeywords.length < 2/);
+            assert.match(bulk, /searchKeywords.length !== 10/);
+            assert.match(bulk, /mallTitles.length !== 29/);
+            assert.match(bulk, /blockedKeys: input.blockedKeys/);
+            assert.ok(bulk.indexOf("const mallComposition =") < bulk.indexOf("const searchSelection ="));''')
+          p.write_text(s)
+          p=Path('tests/seoTitleV4MinLengthContract.test.mjs')
+          s=p.read_text()
+          s=once(s,'v6 SEO title inventory keeps FINAL generation intact and upgrades only 30~50B mall-title assembly','V8 title-first generation preserves V6 ledger compatibility and 30~50B title limits')
+          s=once(s,'/SEO_FINAL_SOURCE_V6 = "seo-bulk-cloud-long-title-priority-v6"/','/SEO_FINAL_SOURCE_V8 = "seo-bulk-cloud-title-first-search-complement-v8"/')
+          s=once(s,'/source: SEO_FINAL_SOURCE_V6/','/source: SEO_FINAL_SOURCE_V8/')
+          s=once(s,'/const searchKeywords = recoveredSearchKeywords/','/const searchKeywords = searchSelection.searchKeywords/')
+          p.write_text(s)
+          p=Path('tests/seoCategoryIntentExpansionV5.test.mjs')
+          s=p.read_text()
+          s=once(s,'import { composeFreshKeywordElonMallTitles }','import { composeFreshKeywordElonMallTitles, preservesKeywordElonHistoricalFreshness }')
+          s=once(s,'/TITLE_MALL_NAME_POLICY:LONG_TITLE_PRIORITY_V6/','/TITLE_MALL_NAME_POLICY:INTENT_PORTFOLIO_V7/')
+          s+='''
+          function historyResult(...titles) {
+            return { rows: titles.map(title => ({ title })) };
+          }
+          test("마지막 정리는 이미 피한 과거 완성 상품명을 다시 도입하지 않는다", () => {
+            const history = ["냉장고 자석 선반"];
+            assert.equal(preservesKeywordElonHistoricalFreshness(
+              historyResult("냉장고 선반 수납"), historyResult("냉장고 자석 선반"), history), false);
+          });
+          test("과거 사용 핵심 단어 재사용은 허용하고 완성 문구만 비교한다", () => {
+            const history = ["냉장고 자석 선반"];
+            assert.equal(preservesKeywordElonHistoricalFreshness(
+              historyResult("냉장고 자석 수납"), historyResult("냉장고 자석 정리"), history), true);
+          });
+          test("유효 재료가 부족하면 동일한 재사용 수준을 허용해 생성을 막지 않는다", () => {
+            const current = historyResult("냉장고 자석 선반");
+            const before = JSON.stringify(current);
+            assert.equal(preservesKeywordElonHistoricalFreshness(current, current, ["냉장고 자석 선반"]), true);
+            assert.equal(JSON.stringify(current), before);
+          });
+          test("새로운 조합을 과거 문구의 단순 어순 변경으로 악화시키지 않는다", () => {
+            assert.equal(preservesKeywordElonHistoricalFreshness(
+              historyResult("냉장고 선반 수납"), historyResult("선반 냉장고 자석"), ["냉장고 자석 선반"]), false);
+          });
+          test("과거 이력이 없을 때 기존 쇼핑몰 다양화 경로는 그대로 허용된다", () => {
+            assert.equal(preservesKeywordElonHistoricalFreshness(
+              historyResult("냉장고 자석 선반"), historyResult("선반 자석 냉장고"), []), true);
+          });
+          test("공백과 NFKC 표기 차이를 이용한 과거 완성 문구 재도입도 감지한다", () => {
+            assert.equal(preservesKeywordElonHistoricalFreshness(
+              historyResult("수납 선반"), historyResult("ABC 자석 선반"), ["ＡＢＣ   자석 선반"]), false);
+          });
+          '''
+          p.write_text(s)
+          p=Path('tests/seoRunDurableWorker.test.mjs')
+          s=p.read_text()
+          s=once(s,'/factualTokens/','/modifierTokens/')
+          s=once(s,r'/seeds\.push\(`\$\{token\}\$\{core\}`\)/',r'/seeds\.push\(`\$\{modifier\}\$\{core\.noun\}`\)/')
+          s=once(s,r'/seeds\.push\(`\$\{modifiers\[left\]\}\$\{modifiers\[right\]\}\$\{core\}`\)/',r'/seeds\.push\(`\$\{modifiers\[left\]\}\$\{modifiers\[right\]\}\$\{core\.noun\}`\)/')
+          s+='''
+          test("자연어 복구 실제 코드는 메타데이터·숫자를 제외하고 STEP4 허용 결과만 반환한다", async () => {
+            const { stripTypeScriptTypes } = await import("node:module");
+            const { compactKeywordElonKey, keywordElonUtf8Bytes, normalizeKeywordElonText } = await import("../src/lib/keywordEngineElonLabV2.ts");
+            const raw = await source("src/lib/keywordEngineElonBulkKeywordRecovery.ts");
+            const code = stripTypeScriptTypes(raw.replace(/^import[\\s\\S]*?;\\n/gm, "").replace(/\\bexport /g, ""), { mode: "strip" });
+            const calls = [];
+            const blocked = ["원형받침대"];
+            const filter = async input => {
+              calls.push(input);
+              return { allowedKeys: ["세탁기받침대"], removedKeys: blocked };
+            };
+            const run = new Function("compactKeywordElonKey", "keywordElonUtf8Bytes", "normalizeKeywordElonText", "filterKeywordElonProhibitedKeywords", "process", "fetch",
+              code + "; return { seeds: buildDeterministicBulkKeywordRecoverySeeds, generate: generateSafeBulkKeywordSupplements };")(
+                compactKeywordElonKey, keywordElonUtf8Bytes, normalizeKeywordElonText, filter, { env: {} }, () => { throw new Error("No external network allowed"); });
+            const input = {
+              productName: "형태 원형 세탁기 받침대",
+              identity: { coreProduct: "세탁기 받침대", identityAnchor: "세탁기받침대", primarySeeds: ["세탁기받침대"],
+                conditionalSeeds: ["원형받침대"], koreanProductIdentity: "세탁기 받침대", functionModifiers: ["세탁기 지지"],
+                designShapeModifiers: ["형태 원형"], specAttributes: ["지름15cm", "재질 철제"] },
+              source: { chineseTitle: "", optionText: "" }, customBlockedTerms: blocked,
+            };
+            const seeds = run.seeds(input);
+            assert.ok(seeds.includes("세탁기받침대"));
+            assert.ok(seeds.length > 1 && seeds.length <= 60);
+            assert.equal(new Set(seeds).size, seeds.length);
+            for (const key of seeds) {
+              assert.ok(key.includes("받침대"));
+              assert.ok(keywordElonUtf8Bytes(key) <= 30);
+              assert.doesNotMatch(key, /형태|재질|용도|있는|옵션|모델번호|\\d/);
+            }
+            assert.deepEqual(await run.generate(input), ["세탁기받침대"]);
+            assert.equal(calls.length, 1);
+            assert.deepEqual(calls[0].customBlockedTerms, blocked);
+            assert.ok(calls[0].candidates.every(row => row.totalSearch === null));
+          });
+          '''
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Execute whole previously failing ledger suite without skips or relaxed reuse assertions
+        run: >-
+          node --experimental-strip-types --test
+          tests/seoTitleInventoryLedger.test.mjs
+          tests/seoTitleFinalKeywordInventoryGenerator.test.mjs
+          tests/seoTitleV4MinLengthContract.test.mjs
+          tests/keywordEngineElonLabSeoOutput.test.mjs
+          tests/keywordEngineElonMallTitleSafeComposer.test.mjs
+          tests/seoCategoryIntentExpansionV5.test.mjs
+          tests/seoBulkMallTitleFactBridge.test.mjs
+          tests/seoBulkCloudParallel.test.mjs
+          tests/seoBulkLongTitleV6UpgradeBridge.test.mjs
+          tests/seoRunDurableWorker.test.mjs
+          tests/seoRunClaimLoadShedding.test.mjs
+          tests/seoCloudPerformance.test.mjs
+      - name: Check changed code and new test style
+        run: npx eslint src/lib/keywordEngineElonFreshMallTitleComposer.ts tests/seoBulkMallTitleFactBridge.test.mjs tests/seoTitleV4MinLengthContract.test.mjs tests/seoCategoryIntentExpansionV5.test.mjs tests/seoRunDurableWorker.test.mjs
+      - name: Commit only verified regression tests to isolated branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/seoBulkMallTitleFactBridge.test.mjs tests/seoTitleV4MinLengthContract.test.mjs tests/seoCategoryIntentExpansionV5.test.mjs tests/seoRunDurableWorker.test.mjs
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          git commit -m 'test: retain V8 safety contracts and prevent historical title regression'
+          git push origin HEAD:refs/heads/fix/legacy-seo-recovery-20260914
