@@ -27,7 +27,7 @@ const errors = [], methods = [];
 page.on("pageerror", (error) => errors.push(error.message));
 let reads = 0, failure = false, fingerprint = "sha256:first";
 function report() {
-  return { targetCycleMonth: "2026-10", budgetMonth: "2026-09", mode: "SHADOW_READ_ONLY", state: "READY_SHADOW", writesEnabled: false, approvalGranted: false, actualPurchaseExecuted: false, generatedAt: "2026-09-14T00:00:00Z", demandAsOf: "2026-09-13T23:00:00Z", sourceFingerprint: fingerprint, summary: { exactCount: 1, candidateCount: 1, reviewCount: 0 }, blockers: [], warnings: [], rows: [{ barcode: "BAB3-1", productName: "브라우저 검증용 가상 상품", inventoryBasis: "EXACT", inventoryLowQuantity: 20, inventoryHighQuantity: 20, stockQuantity: fingerprint.endsWith("first") ? 20 : 10, openCommitmentQuantity: 30, target44Quantity: 100, candidateQuantity: fingerprint.endsWith("first") ? 50 : 60, allocatedQuantity: 0, stage: "PURCHASE_CANDIDATE", issues: [], manualOpenDifferenceQuantity: 0 }] };
+  return { targetCycleMonth: "2026-10", budgetMonth: "2026-09", mode: "SHADOW_READ_ONLY", state: "READY_SHADOW", writesEnabled: false, approvalGranted: false, actualPurchaseExecuted: false, generatedAt: "2026-09-14T00:00:00Z", demandAsOf: "2026-09-13T23:00:00Z", sourceFingerprint: fingerprint, summary: { exactCount: 1, candidateCount: 1, reviewCount: 0 }, managedSkuCount: 1, quarantinedSkuCount: 0, demandSourceState: "READY", recovery: [{ id: "sales", state: "VERIFIED", message: "판매 근거 확인 fixture" }, { id: "purchase_day", state: "DEFERRED", message: "사람 승인 fixture" }], blockers: [], warnings: [], rows: [{ barcode: "BAB3-1", productName: "브라우저 검증용 가상 상품", inventoryBasis: "EXACT", inventoryLowQuantity: 20, inventoryHighQuantity: 20, stockQuantity: fingerprint.endsWith("first") ? 20 : 10, openCommitmentQuantity: 30, target44Quantity: 100, candidateQuantity: fingerprint.endsWith("first") ? 50 : 60, allocatedQuantity: 0, stage: "PURCHASE_CANDIDATE", issues: [], manualOpenDifferenceQuantity: 0 }] };
 }
 await context.route("**/api/**", async (route) => {
   methods.push(route.request().method());
@@ -40,6 +40,8 @@ try {
   await page.clock.install();
   await page.goto(origin);
   await page.getByText("최초 사전 점검 완료", { exact: true }).waitFor();
+  assert.ok(await page.getByText("발주 준비 복구 순서 · 실제 승인과 분리", { exact: true }).isVisible());
+  assert.ok(await page.getByText(/발주일 사람 승인/, { exact: false }).isVisible());
   assert.equal(reads, 1, "StrictMode remount must not lose initial result or double-fetch");
   assert.ok(await page.getByText("BAB3-1", { exact: true }).isVisible());
   assert.equal(await page.getByRole("button", { name: /예산확정|2-Lane|주문 실행/ }).count(), 0);
@@ -59,6 +61,7 @@ try {
   await page.getByRole("alert").filter({ hasText: "최신 조회에 실패" }).waitFor();
   assert.ok(await page.getByText("이전 기록 · 현재 판단 보류", { exact: true }).isVisible());
   assert.ok(await page.getByRole("cell", { name: "판단 보류", exact: true }).isVisible());
+  assert.ok(await page.getByText("이전 기록 · 현재 복구 상태 미확인", { exact: true }).isVisible());
   await page.screenshot({ path: `${artifacts}/failed-safe.png`, fullPage: true });
   failure = false;
   await page.getByRole("button", { name: "읽기 전용 다시 계산", exact: true }).click();

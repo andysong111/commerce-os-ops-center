@@ -16,13 +16,23 @@ export function validateReentryCommitmentRows(rows: StoredRow[], now = Date.now(
       const amount = value[key];
       if (amount !== null && amount !== undefined && (!Number.isSafeInteger(amount) || Number(amount) < 0)) throw new Error("REENTRY_COMMITMENT_QUANTITY_INVALID");
     }
-    const normalized = normalizeChinaOrderCommitmentEvent({
+    let normalized: ReturnType<typeof normalizeChinaOrderCommitmentEvent>;
+    try { normalized = normalizeChinaOrderCommitmentEvent({
       ...value,
       sourceSystem: String(value.sourceSystem ?? ""), sourceLineId: String(value.sourceLineId ?? ""),
       sourceEventId: String(value.sourceEventId || row.source_event_id), barcode: String(value.barcode ?? ""),
       status: value.status as Parameters<typeof normalizeChinaOrderCommitmentEvent>[0]["status"],
       occurredAt: String(value.occurredAt || row.started_at),
-    });
+    }); } catch (error) {
+      // A real unassigned order is a business identity hold, not a transient
+      // network failure. Never omit it or turn its open quantity into zero.
+      const cause = error instanceof Error ? error.message : "";
+      if (cause.startsWith("CHINA_ORDER_BARCODE_INVALID:")) throw new Error("REENTRY_COMMITMENT_BARCODE_UNRESOLVED");
+      if (cause === "CHINA_ORDER_EVENT_IDENTITY_REQUIRED") throw new Error("REENTRY_COMMITMENT_IDENTITY_REQUIRED");
+      if (cause === "CHINA_ORDER_STATUS_INVALID") throw new Error("REENTRY_COMMITMENT_STATUS_INVALID");
+      if (cause === "CHINA_ORDER_OCCURRED_AT_INVALID") throw new Error("REENTRY_COMMITMENT_TIME_INVALID");
+      throw new Error("REENTRY_COMMITMENT_EVENT_INVALID");
+    }
     if (Date.parse(normalized.occurredAt) > now + 30_000) throw new Error("REENTRY_COMMITMENT_FUTURE_EVENT");
     const signature = JSON.stringify(normalized);
     const previous = seen.get(normalized.sourceEventId);
