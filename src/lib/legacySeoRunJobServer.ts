@@ -73,6 +73,19 @@ const WORKER_PATCH_SELECT = [
   "updated_at",
 ].join(",");
 
+const ARCHIVE_SELECT = [
+  "run_id",
+  "launch_item_id",
+  "model_number",
+  "product_name",
+  "status",
+  "registration_status",
+  "registration_job_id",
+  "run_created_at",
+  "archived_at",
+  "updated_at",
+].join(",");
+
 const claimedJobSnapshots = new Map<string, SeoRunJobRow>();
 
 type UnknownRecord = Record<string, unknown>;
@@ -243,6 +256,29 @@ export async function archiveLegacySeoRunJobs(
   return patchOwnedLegacySeoRunJobs(context, runIds, {
     archived_at: new Date().toISOString(),
   });
+}
+
+export async function archiveCompletedLegacySeoRunJobs(
+  context: LegacySeoRunJobContext,
+) {
+  const archivedAt = new Date().toISOString();
+  const params = new URLSearchParams({
+    select: ARCHIVE_SELECT,
+    owner_id: `eq.${context.identity.userId}`,
+    archived_at: "is.null",
+    status: "eq.ready",
+    registration_status: "eq.success",
+  });
+  const rows = await storage<SeoRunJobRow[]>(
+    context.config,
+    `${LEGACY_SEO_RUN_JOB_TABLE}?${params.toString()}`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ archived_at: archivedAt, updated_at: archivedAt }),
+    },
+  );
+  return Array.isArray(rows) ? rows : [];
 }
 
 export async function claimNextLegacySeoRunJob(

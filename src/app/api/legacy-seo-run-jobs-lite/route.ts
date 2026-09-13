@@ -10,6 +10,38 @@ const JOB_LIMIT = 800;
 const ITEM_LIMIT = 1000;
 const OUTAGE_CIRCUIT_MS = 5 * 60_000;
 const READ_HEADERS = { "Cache-Control": "private, no-store, max-age=0" };
+const ACTIVE_JOB_SELECT = [
+  "run_id",
+  "launch_item_id",
+  "tracker_row_number",
+  "model_number",
+  "product_name",
+  "source_url",
+  "status",
+  "stage",
+  "progress_percent",
+  "message",
+  "result_payload",
+  "error_message",
+  "registration_status",
+  "registration_job_id",
+  "run_created_at",
+  "archived_at",
+  "updated_at",
+].join(",");
+const ARCHIVED_JOB_SELECT = [
+  "run_id",
+  "launch_item_id",
+  "tracker_row_number",
+  "model_number",
+  "product_name",
+  "status",
+  "registration_status",
+  "registration_job_id",
+  "run_created_at",
+  "archived_at",
+  "updated_at",
+].join(",");
 
 let storageCircuitUntil = 0;
 let storageCircuitDependencyCode: string | null = null;
@@ -95,29 +127,14 @@ function unavailable(error: unknown) {
 async function listCompactJobs(
   config: { supabaseUrl: string; secretKey: string },
   ownerId: string,
+  scope: "active" | "archived",
 ) {
+  const archivedOnly = scope === "archived";
   const params = new URLSearchParams({
-    select: [
-      "run_id",
-      "launch_item_id",
-      "tracker_row_number",
-      "model_number",
-      "product_name",
-      "source_url",
-      "status",
-      "stage",
-      "progress_percent",
-      "message",
-      "result_payload",
-      "error_message",
-      "registration_status",
-      "registration_job_id",
-      "run_created_at",
-      "updated_at",
-    ].join(","),
+    select: archivedOnly ? ARCHIVED_JOB_SELECT : ACTIVE_JOB_SELECT,
     owner_id: `eq.${ownerId}`,
-    archived_at: "is.null",
-    order: "run_created_at.desc",
+    archived_at: archivedOnly ? "not.is.null" : "is.null",
+    order: archivedOnly ? "archived_at.desc" : "run_created_at.desc",
     limit: String(JOB_LIMIT),
   });
   const { body } = await readProductLaunchStorageJson(
@@ -139,20 +156,21 @@ async function listCompactJobs(
       tracker_row_number: Number(row.tracker_row_number) || null,
       model_number: text(row.model_number),
       product_name: text(row.product_name),
-      source_url: text(row.source_url),
+      source_url: archivedOnly ? "" : text(row.source_url),
       status: text(row.status),
-      stage: text(row.stage),
-      progress_percent: Math.max(0, Number(row.progress_percent) || 0),
-      message: text(row.message),
+      stage: archivedOnly ? "" : text(row.stage),
+      progress_percent: archivedOnly ? 100 : Math.max(0, Number(row.progress_percent) || 0),
+      message: archivedOnly ? "보관된 이전상품 SEO RUN" : text(row.message),
       input_payload: {},
       // Keep large checkpoints out of list reads, including nested extraction.
       checkpoint_payload: {},
-      result_payload: record(row.result_payload),
-      error_message: text(row.error_message),
+      result_payload: archivedOnly ? {} : record(row.result_payload),
+      error_message: archivedOnly ? "" : text(row.error_message),
       registration_status: text(row.registration_status) || "idle",
       registration_job_id: text(row.registration_job_id),
       registration_payload: {},
       run_created_at: text(row.run_created_at),
+      archived_at: text(row.archived_at),
       updated_at: text(row.updated_at),
     };
   });
@@ -213,10 +231,11 @@ export async function GET(request: NextRequest) {
     const context = authenticated.value;
     const includeJobs = request.nextUrl.searchParams.get("jobs") !== "false";
     const includeItems = request.nextUrl.searchParams.get("items") !== "false";
+    const scope = request.nextUrl.searchParams.get("scope") === "archived" ? "archived" : "active";
 
     const [jobsResult, itemsResult] = await Promise.allSettled([
       includeJobs
-        ? listCompactJobs(context.config, context.identity.userId)
+        ? listCompactJobs(context.config, context.identity.userId, scope)
         : Promise.resolve([]),
       includeItems
         ? listLegacyItems(context.config, context.identity.userId)
@@ -243,6 +262,7 @@ export async function GET(request: NextRequest) {
         jobs,
         items,
         warnings,
+        scope,
         jobsAvailable: includeJobs && jobsResult.status === "fulfilled",
         itemsAvailable: includeItems && itemsResult.status === "fulfilled",
       },
