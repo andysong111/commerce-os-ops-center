@@ -75,6 +75,8 @@ test('both panels use bounded visible-only polling and explicit actions stay fre
  const connection=readFileSync('src/lib/inventoryStockConnection.ts','utf8');
  assert.match(connection,/path === INVENTORY_QUEUE_PATH[\s\S]*fresh[\s\S]*EVIDENCE_REFRESH_REUSE_MS/);
  assert.match(connection,/read<Record<string, unknown>>\(INVENTORY_REFRESH_PATH, false\)/);
+ assert.match(connection,/INVENTORY_QUEUE_TIMEOUT_MS = 45_000/);
+ assert.match(connection,/INVENTORY_REFRESH_TIMEOUT_MS = 60_000/);
 });
 test('operational details first open waits for a fresh evidence read before mounting queue',()=>{
  const source=readFileSync('src/components/china-order-manager/InventoryStockOperationalDetails.tsx','utf8');
