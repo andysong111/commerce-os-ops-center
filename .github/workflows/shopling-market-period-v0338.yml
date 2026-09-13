@@ -1,0 +1,64 @@
+name: Shopling Market Direct Safe Start v0.3.38
+on:
+  pull_request:
+    paths:
+      - 'src/lib/shoplingMarketDirectStartV0338.ts'
+      - 'src/app/api/shopling-market-group-canary/v0338/**'
+      - 'tests/shoplingMarketDirectStartV0338.test.mjs'
+      - '.github/workflows/shopling-market-period-v0338.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shopling-direct-safe-start-v0338-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Verify direct safe-start contracts
+        run: node --experimental-strip-types --test tests/shoplingMarketDirectStartV0338.test.mjs
+      - name: Build production app
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Generate and inspect actual extension ZIP
+        run: |
+          npm run start -- --port 3100 > /tmp/shopling-v0338-next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/api/shopling-market-group-canary/v0338/download -o /tmp/commerce-os-shopling-market-sender-v0.3.38.zip; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive=pathlib.Path('/tmp/commerce-os-shopling-market-sender-v0.3.38.zip')
+          assert archive.is_file() and archive.stat().st_size > 1000
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              manifest=json.loads(z.read('manifest.json'))
+              assert manifest['version']=='0.3.38'
+              popup=z.read('popup.js').decode()
+              bg=z.read('background-root.mjs').decode()
+              recovery=z.read('recovery.mjs').decode()
+              assert 'safeSendStartMessage' in recovery
+              assert 'commerce-os-shopling-safe-send-start-v0338' in recovery
+              assert 'startSafeRealSendV0338' in bg
+              assert '/api/shopling-market-group-canary/v0337/claim' in bg
+              assert '/api/shopling-market-group-canary/v0338/claim' not in bg
+              assert 'jobIds.length !== 1' in popup
+              assert 'safeSendStartMessage' in popup
+              z.extractall('/tmp/shopling-v0338')
+          PY
+          for file in /tmp/shopling-v0338/*.js /tmp/shopling-v0338/*.mjs; do node --check "$file"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopling-market-sender-v0338
+          path: /tmp/commerce-os-shopling-market-sender-v0.3.38.zip
+          retention-days: 7
