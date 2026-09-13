@@ -249,14 +249,16 @@ export async function POST(request: Request) {
 
     if (runId.startsWith(CANARY_RUN_PREFIX) && outcome === "failed") {
       const releasedAt = new Date().toISOString();
+      const failureReasonCode = text(payload.reasonCode).slice(0, 120) || "pre_submit_failed";
+      const failureMessage = text(payload.message).slice(0, 1000) || "Shopling Worker가 송신경계 이전에서 실패해 안전하게 대기열로 원복했습니다.";
       const released = await supabase
         .from("shopling_market_pipeline_ledger")
         .update({
           status: "queued",
           claim_run_id: "",
           claimed_at: null,
-          reason_code: "",
-          message: "",
+          reason_code: failureReasonCode,
+          message: failureMessage,
           updated_at: releasedAt,
         })
         .eq("claim_run_id", runId)
@@ -276,7 +278,7 @@ export async function POST(request: Request) {
           message: "송신 경계를 지났을 가능성이 있어 자동 원복하지 않았습니다. 확인필요로 보존합니다.",
         }, 409);
       }
-      return json({ ok: true, recorded: true, released: true, goodsKey, outcome: "canary_released" });
+      return json({ ok: true, recorded: true, released: true, goodsKey, outcome: "canary_released", reasonCode: failureReasonCode, message: failureMessage });
     }
 
     const result = await supabase.rpc("report_shopling_market_pipeline_task", {

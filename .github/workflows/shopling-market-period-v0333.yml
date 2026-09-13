@@ -1,0 +1,98 @@
+name: Shopling Market Period Sender v0.3.33
+
+on:
+  pull_request:
+    paths:
+      - 'src/app/api/shopling-account-title-bridge/pipeline/route.ts'
+      - 'src/app/api/shopling-market-group-canary/v0333/**'
+      - 'tests/shoplingMarketV0333.test.mjs'
+      - '.github/workflows/shopling-market-period-v0333.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/app/api/shopling-account-title-bridge/pipeline/route.ts'
+      - 'src/app/api/shopling-market-group-canary/v0333/**'
+      - 'tests/shoplingMarketV0333.test.mjs'
+      - '.github/workflows/shopling-market-period-v0333.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shopling-market-period-v0333-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+      - run: npm ci
+      - name: Verify A18 identity and durable diagnostic contracts
+        run: node --experimental-strip-types --test tests/shoplingMarketV0333.test.mjs
+      - name: Build production app
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://price-auth-build-check.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_price_auth_build_check
+          PRICE_ADJUSTMENT_ENGINE_INTEGRATION_SECRET: ci-price-adjustment-secret
+          PRICE_ADJUSTMENT_AUTOMATION_OWNER_ID: 0c23a96b-1cda-44b6-9c08-1fa1c1b45a36
+      - name: Generate and inspect actual extension ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/shopling-market-v0333
+          npm run start -- -p 3011 >/tmp/shopling-v0333-next.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3011/api/shopling-market-group-canary/v0333/download -o artifacts/shopling-market-v0333/commerce-os-shopling-market-sender-v0.3.33.zip; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ok" != "1" ]; then
+            cat /tmp/shopling-v0333-next.log
+            exit 1
+          fi
+          unzip -t artifacts/shopling-market-v0333/commerce-os-shopling-market-sender-v0.3.33.zip
+          unzip -p artifacts/shopling-market-v0333/commerce-os-shopling-market-sender-v0.3.33.zip manifest.json > /tmp/v0333-manifest.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('/tmp/v0333-manifest.json','utf8'));
+          if (manifest.version !== '0.3.33') throw new Error('version_mismatch');
+          if (!String(manifest.name || '').includes('Market Sender')) throw new Error('market_only_name_missing');
+          NODE
+          unzip -p artifacts/shopling-market-v0333/commerce-os-shopling-market-sender-v0.3.33.zip popup.js > /tmp/v0333-popup.js
+          unzip -p artifacts/shopling-market-v0333/commerce-os-shopling-market-sender-v0.3.33.zip content-group-canary.mjs > /tmp/v0333-content.mjs
+          unzip -p artifacts/shopling-market-v0333/commerce-os-shopling-market-sender-v0.3.33.zip background-root.mjs > /tmp/v0333-background.mjs
+          node --check /tmp/v0333-popup.js
+          node --check /tmp/v0333-content.mjs
+          node --check /tmp/v0333-background.mjs
+          grep -q 'commerceOsShoplingMarketSelectionQueueV0333' /tmp/v0333-popup.js
+          grep -q 'commerceOsShoplingMarketSelectionQueueV0333' /tmp/v0333-content.mjs
+          grep -q 'commerceOsShoplingParallelWorkerMetaV0333' /tmp/v0333-background.mjs
+          grep -q 'rowHasGoodsKeyEvidence' /tmp/v0333-content.mjs
+          grep -q 'single_result_exact_code' /tmp/v0333-content.mjs
+          grep -q 'resultCount === 1 && codeRows.length === 1' /tmp/v0333-content.mjs
+          unzip -l artifacts/shopling-market-v0333/commerce-os-shopling-market-sender-v0.3.33.zip > /tmp/v0333-files.txt
+          grep -q 'commerce-os-market-auto-bridge.mjs' /tmp/v0333-files.txt
+          grep -q 'shopling-market-auto-agent.mjs' /tmp/v0333-files.txt
+          if grep -q 'content-shopling-account-titles.js' /tmp/v0333-files.txt; then
+            echo 'Title diversification file unexpectedly present' >&2
+            exit 1
+          fi
+      - name: Upload verified market-only extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: shopling-market-sender-v0333
+          path: artifacts/shopling-market-v0333/commerce-os-shopling-market-sender-v0.3.33.zip
+          if-no-files-found: error
+          retention-days: 7
