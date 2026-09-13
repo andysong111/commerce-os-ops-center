@@ -19,9 +19,9 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - run: npm ci
-      - name: Lint bridge and cron route
-        run: npx eslint src/lib/storageSourcingBudgetSync.ts src/app/api/cron/sourcing-budget-sync/route.ts
-      - name: Revenue-source, authentication, exact receipt and schedule regression
+      - name: Lint bridge and existing maintenance route
+        run: npx eslint src/lib/storageSourcingBudgetSync.ts src/app/api/cron/ops-storage-maintenance/route.ts
+      - name: Revenue-source, authentication, exact receipt and dispatcher regression
         run: node --experimental-strip-types --test tests/storageSourcingBudgetSync.test.mjs
       - name: Production build regression
         run: npm run build
