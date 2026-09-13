@@ -42,6 +42,7 @@ type Dependencies = {
   revenueLoader?: RevenueLoader;
   transport?: typeof fetch;
   env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
 };
 
 export class StorageSourcingBudgetSyncError extends Error {
@@ -142,6 +143,7 @@ export async function syncPreviousMonthRevenueToStorage({
   revenueLoader = rawRevenueLoader,
   transport = fetch,
   env = process.env,
+  timeoutMs = TIMEOUT_MS,
 }: Dependencies = {}): Promise<StorageSourcingBudgetSyncReceipt> {
   const secret = integrationSecret(env);
   if (secret.length < 24) {
@@ -184,7 +186,7 @@ export async function syncPreviousMonthRevenueToStorage({
   const requestId = deterministicUuid(`storage-sourcing-budget:${sourceEventId}`);
   const body = { ...stable, requestId };
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
   let response: Response;
   let result: unknown;
   try {
