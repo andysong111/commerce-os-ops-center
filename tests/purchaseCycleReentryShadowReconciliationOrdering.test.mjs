@@ -101,3 +101,21 @@ test("a later lifecycle-parity reconciliation remains quantity neutral", () => {
   assert.equal(result.commitments[0].barcode, "BGF1-3");
   assert.equal(result.commitments[0].orderedQuantity, 200);
 });
+
+test("opaque source identities use the ledger's trim-only semantics", () => {
+  const base = stored({
+    id: "fullwidth-source-line",
+    occurredAt: "2026-09-14T00:02:00.000Z",
+    status: "ORDERED",
+    requestedQuantity: 200,
+    orderedQuantity: 200,
+  });
+  base.input_snapshot.sourceLineId = "Ａ";
+  const marker = reconciliation("2026-09-14T00:03:00.000Z");
+  marker.input_snapshot.sourceLineId = "A";
+
+  assert.throws(
+    () => commitments.validateReentryCommitmentRows([base, marker], now),
+    (error) => error.message === "REENTRY_COMMITMENT_RECONCILIATION_SOURCE_MISSING",
+  );
+});
