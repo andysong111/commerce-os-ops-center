@@ -109,3 +109,11 @@ test("review regression: row demand and identity errors demote corresponding rec
   assert.equal(healthy.recovery.find((row) => row.id === "sales").state, "VERIFIED");
   assert.equal(healthy.recovery.find((row) => row.id === "catalog_cost").state, "VERIFIED");
 });
+test("review regression: publication phase changes update the fingerprint even without a canonical snapshot", () => {
+  const x = fixture(); x.audit = { ready: false, state: "READY_CANARY", analysisAsOf: earlier, snapshot: null };
+  const before = build(x); x.audit.state = "READY_FULL"; const after = build(x);
+  assert.notEqual(before.sourceFingerprint, after.sourceFingerprint);
+  assert.equal(after.demandSourceState, "READY_FULL"); assert.equal(after.state, "BLOCKED");
+  assert.ok(pending(after, "DEMAND_PUBLICATION_PENDING")); assert.equal(after.summary.candidateCount, 0);
+  assert.equal(build(x).sourceFingerprint, after.sourceFingerprint);
+});

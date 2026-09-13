@@ -284,6 +284,7 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
   const state = blockers.length ? "BLOCKED" : reviewCount || accumulatingCount ? "REVIEW_SHADOW" : "READY_SHADOW";
   const sourceFingerprint = hash({
     version: REENTRY_SHADOW_VERSION, engine: PURCHASE_V2_RULE_VERSION, target,
+    demandSourceState: input.audit?.state ?? null,
     demandAsOf: input.audit?.analysisAsOf, demandFingerprint: input.audit?.snapshot?.contentFingerprint,
     feedbackFingerprint: input.feedback?.fingerprint ?? null,
     planningEvidence: profiles.map((row) => [row.skuId, code(row.barcode), row.latestCostKrw, row.protectedCostKrw]).sort(),
