@@ -1,0 +1,65 @@
+name: Shopling Market Reliable Readback Bulk v0.3.39
+on:
+  pull_request:
+    paths:
+      - 'src/lib/shoplingMarketReliableReadbackBulkV0339.ts'
+      - 'src/app/api/shopling-market-group-canary/v0339/**'
+      - 'tests/shoplingMarketReliableReadbackBulkV0339.test.mjs'
+      - '.github/workflows/shopling-market-period-v0339.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shopling-reliable-readback-bulk-v0339-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Verify v0.3.39 safety contracts
+        run: node --experimental-strip-types --test tests/shoplingMarketReliableReadbackBulkV0339.test.mjs
+      - name: Build production app
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Generate and inspect actual extension ZIP
+        run: |
+          npm run start -- --port 3100 > /tmp/shopling-v0339-next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/api/shopling-market-group-canary/v0339/download -o /tmp/commerce-os-shopling-market-sender-v0.3.39.zip; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive=pathlib.Path('/tmp/commerce-os-shopling-market-sender-v0.3.39.zip')
+          assert archive.is_file() and archive.stat().st_size > 1000
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              manifest=json.loads(z.read('manifest.json'))
+              assert manifest['version']=='0.3.39'
+              popup=z.read('popup.js').decode()
+              bg=z.read('background-root.mjs').decode()
+              content=z.read('content-group-canary.mjs').decode()
+              assert '/api/shopling-market-group-canary/v0339/status' in bg
+              assert 'reconcilePositivePushedEvidenceV0339' in bg
+              assert 'shopling_result_frame_push_success_v0339' in bg
+              assert 'DIRECT_RESULT_MAX_ATTEMPTS = 240' in bg
+              assert 'slice(0, 100)' in content
+              assert 'startWithA18Recovery(tab, jobIds)' in popup
+              assert '안전 대량전송 시작' in popup
+              assert 'jobIds.length !== 1' not in popup
+              z.extractall('/tmp/shopling-v0339')
+          PY
+          for file in /tmp/shopling-v0339/*.js /tmp/shopling-v0339/*.mjs; do node --check "$file"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopling-market-sender-v0339
+          path: /tmp/commerce-os-shopling-market-sender-v0.3.39.zip
+          retention-days: 7
