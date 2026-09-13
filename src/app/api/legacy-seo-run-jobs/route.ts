@@ -1,6 +1,7 @@
 import { after, NextRequest } from "next/server";
 import { validate1688Url } from "@/lib/keywordEngineElonLabV2";
 import {
+  archiveCompletedLegacySeoRunJobs,
   archiveLegacySeoRunJobs,
   insertLegacySeoRunJobs,
   listLegacySeoRunJobs,
@@ -427,6 +428,11 @@ export async function POST(request: NextRequest) {
     const jobs = await retryLegacySeoRunJobs(context, runIds);
     scheduleWorker(context.identity.userId, Math.max(1, runIds.length));
     return Response.json({ ok: true, jobs });
+  }
+
+  if (action === "archive_completed") {
+    const jobs = await archiveCompletedLegacySeoRunJobs(context);
+    return Response.json({ ok: true, archivedCount: jobs.length, jobs });
   }
 
   if (action === "archive") {

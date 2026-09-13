@@ -47,6 +47,7 @@ type Job = {
   registration_job_id: string;
   registration_payload: UnknownRecord;
   run_created_at: string;
+  archived_at?: string;
   updated_at: string;
 };
 
@@ -189,6 +190,10 @@ function sourceTone(mode: string) {
 export default function LegacySeoBulkCloudClient() {
   const [items, setItems] = useState<LegacyItem[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [archivedJobs, setArchivedJobs] = useState<Job[]>([]);
+  const [showArchive, setShowArchive] = useState(false);
+  const [archiveLoaded, setArchiveLoaded] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -213,6 +218,24 @@ export default function LegacySeoBulkCloudClient() {
     }
   }, []);
 
+  const loadArchive = useCallback(async () => {
+    if (archiveLoading) return;
+    setArchiveLoading(true);
+    try {
+      const body = await requestJson<{ ok?: boolean; jobs?: Job[] }>(
+        "/api/legacy-seo-run-jobs-lite?scope=archived&items=false",
+      );
+      setArchivedJobs(Array.isArray(body.jobs) ? body.jobs : []);
+      setArchiveLoaded(true);
+    } catch (archiveError) {
+      setError(
+        archiveError instanceof Error ? archiveError.message : "보관함을 불러오지 못했습니다.",
+      );
+    } finally {
+      setArchiveLoading(false);
+    }
+  }, [archiveLoading]);
+
   const loadItems = useCallback(async () => {
     if (itemsLoadingRef.current) return;
     itemsLoadingRef.current = true;
@@ -230,12 +253,17 @@ export default function LegacySeoBulkCloudClient() {
   }, []);
 
   useEffect(() => {
-    void load();
-    void loadItems();
+    const initialLoadTimer = window.setTimeout(() => {
+      void load();
+      void loadItems();
+    }, 0);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
     }, POLL_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialLoadTimer);
+      window.clearInterval(timer);
+    };
   }, [load, loadItems]);
 
   const filteredItems = useMemo(() => {
@@ -257,6 +285,10 @@ export default function LegacySeoBulkCloudClient() {
   const failedJobs = useMemo(() => jobs.filter((job) => job.status === "failed"), [jobs]);
   const registerableJobs = useMemo(
     () => readyJobs.filter((job) => ["idle", "failed"].includes(job.registration_status)),
+    [readyJobs],
+  );
+  const completedJobs = useMemo(
+    () => readyJobs.filter((job) => job.registration_status === "success"),
     [readyJobs],
   );
 
@@ -295,17 +327,26 @@ export default function LegacySeoBulkCloudClient() {
           const started = results.filter((row) => row.started === true).length;
           const failed = results.filter((row) => text(row.error)).length;
           setMessage(`Shopling 신규등록 ${started}건 시작${failed ? ` · 준비실패 ${failed}건` : ""}`);
+        } else if (action === "archive_completed") {
+          setMessage(`Shopling 등록완료 ${Number(body.archivedCount) || 0}건을 보관함으로 이동했습니다.`);
+          setShowArchive(true);
+        } else if (action === "archive") {
+          setMessage("선택한 SEO RUN을 보관함으로 이동했습니다.");
         } else {
           setMessage("요청을 반영했습니다.");
         }
         await load();
+        if (action === "archive" || action === "archive_completed") {
+          await loadArchive();
+          window.dispatchEvent(new Event("commerce-os:legacy-seo-archive-changed"));
+        }
       } catch (actionError) {
         setError(actionError instanceof Error ? actionError.message : "요청에 실패했습니다.");
       } finally {
         setBusy(false);
       }
     },
-    [load],
+    [load, loadArchive],
   );
 
   const enqueue = () => {
@@ -390,7 +431,7 @@ export default function LegacySeoBulkCloudClient() {
           <div>
             <h2 className="text-lg font-bold">1. 이전상품 선택</h2>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              상품출시 진행관리의 `등록완료건` 중 Shopling 등록완료 상품만 표시합니다. 실행 시 Product Master의 모델번호 연결을 통해 실제 goods_key가 있는지 다시 검증합니다.
+              상품출시 진행관리의 `등록완료건` 중 Shopling 등록완료 상품만 표시합니다. 실행 시 Product Master의 모델번호 연결을 통해 실제 goods_key가 있는지 다시 검증합니다. 보관된 상품도 여기서 다시 선택하면 새 SEO RUN을 만들고 새 상품명·검색어로 Shopling에 추가등록할 수 있습니다.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-sm">
@@ -517,16 +558,74 @@ export default function LegacySeoBulkCloudClient() {
           </button>
           <button
             type="button"
+            disabled={busy || completedJobs.length === 0}
+            onClick={() => void runAction("archive_completed", {})}
+            className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-40"
+          >
+            Shopling 완료 전체 보관 ({completedJobs.length}건)
+          </button>
+          <button
+            type="button"
+            disabled={busy || archiveLoading}
+            onClick={() => {
+              const next = !showArchive;
+              setShowArchive(next);
+              if (next && !archiveLoaded) void loadArchive();
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40"
+          >
+            {showArchive ? "보관함 닫기" : `보관함${archiveLoaded ? ` (${archivedJobs.length})` : ""}`}
+          </button>
+          <button
+            type="button"
             disabled={busy}
             onClick={() => {
               void load();
               void loadItems();
+              if (showArchive) void loadArchive();
             }}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium disabled:opacity-40"
           >
             새로고침
           </button>
         </div>
+
+        {showArchive && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-slate-800">완료 보관함</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  작업원장만 보관됩니다. 원본 이전상품은 그대로 남아 언제든 다시 선택해 새 SEO RUN을 만들 수 있습니다.
+                </p>
+              </div>
+              <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                {archiveLoading ? "불러오는 중" : `${archivedJobs.length}건`}
+              </span>
+            </div>
+            <div className="mt-3 max-h-[360px] overflow-auto rounded-lg border border-slate-200 bg-white">
+              {archivedJobs.map((job) => (
+                <div key={`archive-${job.run_id}`} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
+                  <div>
+                    <div className="font-semibold text-slate-800">{job.model_number || job.product_name}</div>
+                    <div className="mt-1 text-xs text-slate-500">{job.product_name || "-"} · {job.archived_at ? new Date(job.archived_at).toLocaleString("ko-KR") : "보관일시 없음"}</div>
+                  </div>
+                  <div className="flex gap-2 text-xs">
+                    <span className={`rounded-full px-2 py-1 font-semibold ${jobTone(job.status)}`}>
+                      {job.status === "ready" ? "FINAL 완료" : job.status}
+                    </span>
+                    <span className={`rounded-full px-2 py-1 font-semibold ${registrationTone(job.registration_status)}`}>
+                      Shopling {job.registration_status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {!archiveLoading && archiveLoaded && archivedJobs.length === 0 && (
+                <div className="px-4 py-8 text-center text-sm text-slate-500">보관된 SEO RUN이 없습니다.</div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mt-4 space-y-3">
           {[...jobs]

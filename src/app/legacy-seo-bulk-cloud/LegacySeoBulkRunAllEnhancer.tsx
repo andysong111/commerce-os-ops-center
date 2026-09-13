@@ -5,7 +5,12 @@ import { createPortal } from "react-dom";
 
 const API = "/api/legacy-seo-run-jobs";
 const PREFLIGHT_API = "/api/legacy-seo-preflight";
+const ARCHIVED_HISTORY_API = "/api/legacy-seo-run-jobs-lite?scope=archived&items=false";
+const ARCHIVED_HISTORY_CACHE_MS = 5 * 60_000;
+const ARCHIVE_CHANGED_EVENT = "commerce-os:legacy-seo-archive-changed";
 const CHUNK_SIZE = 50;
+let archivedReadyItemIdsCache = new Set<string>();
+let archivedReadyLoadedAt = 0;
 const CUSTOM_BLOCKED_STORAGE_KEY =
   "keywordEngineElonLab.step4.customBlockedTerms.v1";
 
@@ -89,7 +94,33 @@ function preflightIssueSummary(value: unknown) {
   return text(first?.message) || "사전점검 미통과";
 }
 
-async function loadTargets() {
+async function loadArchivedReadyItemIds(force = false) {
+  const now = Date.now();
+  if (!force && archivedReadyLoadedAt > 0 && now - archivedReadyLoadedAt < ARCHIVED_HISTORY_CACHE_MS) {
+    return new Set(archivedReadyItemIdsCache);
+  }
+  const response = await fetch(ARCHIVED_HISTORY_API, {
+    headers: { Accept: "application/json" },
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  const body = await readBody(response);
+  if (!response.ok || body.ok !== true) {
+    throw new Error(text(body.message) || `보관 이력 HTTP ${response.status}`);
+  }
+  archivedReadyItemIdsCache = new Set(
+    (Array.isArray(body.jobs) ? body.jobs : [])
+      .map(record)
+      .filter((job) => text(job.status) === "ready")
+      .map((job) => text(job.launch_item_id))
+      .filter(Boolean),
+  );
+  archivedReadyLoadedAt = now;
+  return new Set(archivedReadyItemIdsCache);
+}
+
+async function loadTargets(forceArchiveHistory = false) {
+  const archivedReadyIds = await loadArchivedReadyItemIds(forceArchiveHistory);
   const response = await fetch(API, {
     headers: { Accept: "application/json" },
     credentials: "same-origin",
@@ -105,12 +136,13 @@ async function loadTargets() {
   const jobs = (Array.isArray(body.jobs) ? body.jobs : []).map(
     (value) => record(value) as Job,
   );
-  const blocked = new Set(
-    jobs
+  const blocked = new Set([
+    ...jobs
       .filter((job) => ["queued", "running", "ready"].includes(text(job.status)))
       .map((job) => text(job.launch_item_id))
       .filter(Boolean),
-  );
+    ...archivedReadyIds,
+  ]);
   const allIds = items.map((item) => text(item.id)).filter(Boolean);
   return {
     candidateCount: allIds.length,
@@ -206,11 +238,25 @@ export default function LegacySeoBulkRunAllEnhancer() {
     const refreshTimer = window.setInterval(() => {
       if (!busy) void refresh();
     }, 5_000);
+    const archiveChanged = () => {
+      archivedReadyLoadedAt = 0;
+      if (!busy) {
+        void loadTargets(true)
+          .then((result) => {
+            if (cancelled) return;
+            setCandidateCount(result.candidateCount);
+            setTargetIds(result.targetIds);
+          })
+          .catch(() => {});
+      }
+    };
+    window.addEventListener(ARCHIVE_CHANGED_EVENT, archiveChanged);
 
     return () => {
       cancelled = true;
       window.clearInterval(domTimer);
       window.clearInterval(refreshTimer);
+      window.removeEventListener(ARCHIVE_CHANGED_EVENT, archiveChanged);
     };
   }, [busy]);
 
