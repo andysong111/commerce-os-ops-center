@@ -2,6 +2,8 @@ export const INVENTORY_QUEUE_PATH = "/api/inventory-stock-control/sync";
 export const INVENTORY_REFRESH_PATH = "/api/inventory-stock-control";
 type ReadPath = typeof INVENTORY_QUEUE_PATH | typeof INVENTORY_REFRESH_PATH;
 const EVIDENCE_REFRESH_REUSE_MS = 2 * 60 * 1000;
+const INVENTORY_QUEUE_TIMEOUT_MS = 45_000;
+const INVENTORY_REFRESH_TIMEOUT_MS = 60_000;
 export class InventoryConnectionError extends Error {
   retryAfterMs: number;
   code: string;
@@ -51,7 +53,10 @@ export function createInventoryReadClient(options: { fetcher?: typeof fetch; now
     }
     const promise = (async () => {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), path === INVENTORY_REFRESH_PATH ? 60_000 : 25_000);
+      const timeoutMs = path === INVENTORY_REFRESH_PATH
+        ? INVENTORY_REFRESH_TIMEOUT_MS
+        : INVENTORY_QUEUE_TIMEOUT_MS;
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetcher(path, {
           method: "GET", cache: "no-store", headers: { accept: "application/json" }, signal: controller.signal,
