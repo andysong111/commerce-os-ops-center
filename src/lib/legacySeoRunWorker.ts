@@ -1,3 +1,4 @@
+import { PRODUCT_GROUP_MARKET_REGISTRY } from "@/lib/productGroupMarketRegistry";
 import {
   KEYWORD_ELON_V2_DEFAULT_CUTOFF,
   compactKeywordElonKey,
@@ -229,7 +230,18 @@ async function composeFinalWithRecovery(input: KeywordElonBulkComposeInput) {
     return composeKeywordElonBulkFinal(input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (!/FINAL 검색어가 10개가 아닙니다/.test(message)) throw error;
+    if (!/FINAL 검색어가 10개가 아닙니다/.test(message)) {
+      console.error("[legacy-seo-final-compose]", {
+        revision: "validated-material-reuse-v10",
+        modelNumber: input.modelNumber,
+        marketCount: PRODUCT_GROUP_MARKET_REGISTRY.length,
+        allowedCount: input.allowedKeys.length,
+        candidateCount: input.candidates.length,
+        error: message,
+        stack: error instanceof Error ? error.stack?.split("\n").slice(0, 6).join("\n") : "",
+      });
+      throw error;
+    }
     const supplementalSearchKeywords = await generateSafeBulkKeywordSupplements({
       identity: input.identity,
       source: input.source,
