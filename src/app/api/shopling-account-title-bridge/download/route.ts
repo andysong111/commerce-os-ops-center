@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { strToU8, zipSync } from "fflate";
+import { separateShoplingTitleWorkflow, SEPARATED_TITLE_FILENAME } from "@/lib/shoplingTitleWorkflowSeparation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
 // manifest.version = "0.5.6"
 // commerce-os-shopling-account-title-bridge-v0.6.2.zip
 // Commerce OS Shopling Account Title Bridge v0.6.2
+// commerce-os-shopling-account-title-bridge-v0.6.3.zip
 // 상품 생애주기 판매상태 자동화
 
 const FILES = [
@@ -234,12 +236,15 @@ export async function GET() {
   }
 
   entries["VERSION.txt"] = strToU8("Commerce OS Shopling Account Title Bridge v0.6.3\n");
-  const archive = zipSync(entries, { level: 6 });
+  // Strip the legacy combined workflow at the final packaging boundary.
+  // Lifecycle and price-readback transformations above remain unchanged.
+  const separatedEntries = separateShoplingTitleWorkflow(entries);
+  const archive = zipSync(separatedEntries, { level: 6 });
   return new Response(Buffer.from(archive), {
     status: 200,
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": "attachment; filename=commerce-os-shopling-account-title-bridge-v0.6.3.zip",
+      "Content-Disposition": `attachment; filename=${SEPARATED_TITLE_FILENAME}`,
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     },
