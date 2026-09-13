@@ -12,6 +12,7 @@ const BUSY_MARKET = new Set(["submit_armed"]);
 const CONFIRM_MARKET = new Set(["confirm_needed"]);
 const LEGACY_UNKNOWN = new Set(["legacy_ignored"]);
 const STALE_BUSY_MS = 3 * 60 * 1000;
+const DATE_FILTER_LIMIT = 1000;
 
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
@@ -73,6 +74,7 @@ export async function GET(request: Request) {
     return Response.json({ ok: false, error: "invalid_shopling_upload_date_range" }, { status: 400 });
   }
   const dateFiltered = Boolean(fromIso || toIso);
+  const strictPending = text(url.searchParams.get("strict_pending")) === "1";
   const fromExclusiveIso = fromIso
     ? new Date(new Date(fromIso).getTime() - 1).toISOString()
     : "";
@@ -89,7 +91,7 @@ export async function GET(request: Request) {
     .order("completed_at", { ascending: false });
   if (fromExclusiveIso) jobsQuery = jobsQuery.gt("completed_at", fromExclusiveIso);
   if (toIso) jobsQuery = jobsQuery.lt("completed_at", toIso);
-  const jobsResult = await jobsQuery.limit(dateFiltered ? 240 : 120);
+  const jobsResult = await jobsQuery.limit(dateFiltered ? DATE_FILTER_LIMIT : 120);
   if (jobsResult.error) {
     return Response.json(
       { ok: false, error: "shopling_market_selection_jobs_failed", message: jobsResult.error.message },
@@ -100,7 +102,7 @@ export async function GET(request: Request) {
   const jobs = (Array.isArray(jobsResult.data) ? jobsResult.data : [])
     .map(record)
     .filter(isSeoBulkJob)
-    .slice(0, dateFiltered ? 100 : 50);
+    .slice(0, dateFiltered ? DATE_FILTER_LIMIT : 50);
 
   const launchItemIds = [...new Set(jobs.map((job) => text(job.launch_item_id)).filter(Boolean))];
   const latestBatchByLaunch = new Map<string, string>();
@@ -111,7 +113,7 @@ export async function GET(request: Request) {
       .in("launch_item_id", launchItemIds)
       .in("status", ["success", "partial_failure"])
       .order("completed_at", { ascending: false })
-      .limit(Math.min(500, Math.max(80, launchItemIds.length * 8)));
+      .limit(DATE_FILTER_LIMIT);
     if (latestResult.error) {
       return Response.json(
         { ok: false, error: "shopling_market_selection_latest_batch_failed", message: latestResult.error.message },
@@ -136,7 +138,7 @@ export async function GET(request: Request) {
       .from(LEDGER_TABLE)
       .select("goods_key,status,market_status,reason_code,message,claimed_at,submit_armed_at,updated_at")
       .in("goods_key", allGoodsKeys)
-      .limit(Math.min(700, Math.max(150, allGoodsKeys.length + 20)));
+      .limit(Math.min(7000, Math.max(150, allGoodsKeys.length + 20)));
     if (ledgerResult.error) {
       return Response.json(
         { ok: false, error: "shopling_market_selection_ledger_failed", message: ledgerResult.error.message },
@@ -186,13 +188,32 @@ export async function GET(request: Request) {
     const uploadSuccessCount = successfulRows.length;
     const uploadReady = text(job.status) === "success" && uploadSuccessCount === 6;
     const actionableCount = pendingCount + registrationUnknownCount + confirmNeededCount + staleBusyCount;
-    const selectable = isLatestBatch
+    const strictSelectable = isLatestBatch
+      && uploadReady
+      && activeBusyCount === 0
+      && staleBusyCount === 0
+      && confirmNeededCount === 0
+      && registrationUnknownCount === 0
+      && pendingCount > 0
+      && marketDoneCount < 6;
+    const recoverySelectable = isLatestBatch
       && uploadReady
       && activeBusyCount === 0
       && actionableCount > 0
       && marketDoneCount < 6;
+    const selectable = strictPending ? strictSelectable : recoverySelectable;
     const modelNumber = text(payload.modelNumber) || text(seoFinal.modelNumber);
     const modelName = text(payload.modelName) || text(seoFinal.productName) || modelNumber;
+
+    let selectionReason = "ready";
+    if (!isLatestBatch) selectionReason = "superseded_batch";
+    else if (!uploadReady) selectionReason = "shopling_upload_incomplete";
+    else if (activeBusyCount > 0) selectionReason = "active_market_work";
+    else if (strictPending && staleBusyCount > 0) selectionReason = "stale_work_requires_review";
+    else if (strictPending && confirmNeededCount > 0) selectionReason = "confirm_needed_requires_review";
+    else if (strictPending && registrationUnknownCount > 0) selectionReason = "legacy_unknown_requires_review";
+    else if (marketDoneCount >= 6) selectionReason = "market_completed";
+    else if (pendingCount <= 0) selectionReason = "no_fresh_pending_channel";
 
     return {
       jobId,
@@ -215,6 +236,7 @@ export async function GET(request: Request) {
       busyCount: activeBusyCount + staleBusyCount,
       actionableCount,
       selectable,
+      selectionReason,
       channels: successfulRows,
     };
   });
@@ -223,10 +245,17 @@ export async function GET(request: Request) {
     {
       ok: true,
       bridge: BRIDGE,
-      filter: { from: fromIso, to: toIso },
+      filter: {
+        from: fromIso,
+        to: toIso,
+        strictPending,
+        basis: "shopling_upload_completed_at",
+      },
       items,
       count: items.length,
       selectableCount: items.filter((item) => item.selectable).length,
+      completedCount: items.filter((item) => item.marketDoneCount >= 6).length,
+      reviewCount: items.filter((item) => ["stale_work_requires_review", "confirm_needed_requires_review", "legacy_unknown_requires_review", "active_market_work"].includes(item.selectionReason)).length,
     },
     {
       headers: {
