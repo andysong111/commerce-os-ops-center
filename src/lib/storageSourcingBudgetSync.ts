@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { previousCalendarMonth, seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
-import { loadCalendarMonthNormalRevenue } from "@/lib/shopling/calendarMonthRevenue";
+import { previousCalendarMonth, seoulCalendarMonth } from "./monthlyPurchasePolicy.ts";
+import { loadCalendarMonthNormalRevenue } from "./shopling/calendarMonthRevenue.ts";
 
 const DEFAULT_STORAGE_BASE_URL = "https://storage-organization.vercel.app";
 const STORAGE_PATH = "/api/sourcing-intake";
