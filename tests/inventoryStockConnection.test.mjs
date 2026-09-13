@@ -23,6 +23,27 @@ test('fresh queue reads reuse a recent evidence refresh for two minutes but neve
  await client.read(Q,true); assert.deepEqual(calls,[R,Q,Q]);
  now=120001; await client.read(Q,true); assert.deepEqual(calls,[R,Q,Q,R,Q]);
 });
+test('explicit queue handoff paints multiple passive consumers without another network read', async () => {
+ let now=1000,calls=0;
+ const seeded={ok:true,report:{state:'READY',rows:[{barcode:'BAB3-1'}]},jobs:[{jobId:'stock-sync:BAB3-1'}]};
+ const client=createInventoryReadClient({now:()=>now,fetcher:async()=>{calls++;return ok();}});
+ client.publishQueueHandoff(seeded);
+ assert.equal((await client.read(Q)).jobs[0].jobId,'stock-sync:BAB3-1');
+ assert.equal((await client.read(Q)).report.rows[0].barcode,'BAB3-1');
+ assert.equal(calls,0);
+ now=7001;
+ await client.read(Q);
+ assert.equal(calls,1);
+});
+test('fresh execution reads bypass and clear any queue render handoff', async () => {
+ let now=0;const calls=[];
+ const client=createInventoryReadClient({now:()=>now,fetcher:async(path)=>{calls.push(path);return ok();}});
+ await client.read(R);
+ client.publishQueueHandoff({ok:true,report:{state:'READY',rows:[]},jobs:[{jobId:'stale-render-only'}]});
+ const fresh=await client.read(Q,true);
+ assert.deepEqual(calls,[R,Q]);
+ assert.deepEqual(fresh.jobs,[]);
+});
 test('an explicit overview refresh prevents an immediate duplicate evidence refresh before queue read', async () => {
  const calls=[];
  const client=createInventoryReadClient({fetcher:async(path)=>{calls.push(path);return ok();}});
@@ -77,15 +98,18 @@ test('both panels use bounded visible-only polling and explicit actions stay fre
  assert.match(connection,/read<Record<string, unknown>>\(INVENTORY_REFRESH_PATH, false\)/);
  assert.match(connection,/INVENTORY_QUEUE_TIMEOUT_MS = 45_000/);
  assert.match(connection,/INVENTORY_REFRESH_TIMEOUT_MS = 60_000/);
+ assert.match(connection,/INVENTORY_QUEUE_HANDOFF_TTL_MS = 5_000/);
+ assert.match(connection,/publishQueueHandoff/);
 });
-test('operational details refresh evidence before mounting the single queue reader',()=>{
+test('operational details completes R then Q and publishes the exact queue result before mounting the queue panel',()=>{
  const source=readFileSync('src/components/china-order-manager/InventoryStockOperationalDetails.tsx','utf8');
  assert.match(source,/INVENTORY_REFRESH_PATH, false/);
- assert.doesNotMatch(source,/INVENTORY_QUEUE_PATH, true/);
+ assert.match(source,/INVENTORY_QUEUE_PATH,[\s\S]*true/);
+ assert.match(source,/publishQueueHandoff\(queuePayload\)/);
  assert.match(source,/if \(!detailsRef\.current\?\.open\) return/);
  assert.match(source,/hasFreshEvidence \? \([\s\S]*<StockSyncOperationalQueuePanel/);
  assert.match(source,/setHasFreshEvidence\(true\)/);
- assert.match(source,/최신 운영 큐를 한 번 조회합니다/);
+ assert.match(source,/운영 큐 확인 완료/);
  const page=readFileSync('src/app/china-order-manager/stock-control/page.tsx','utf8');
  assert.match(page,/InventoryStockOperationalDetails/);
  assert.doesNotMatch(page,/<StockSyncOperationalQueuePanel \/>/);
