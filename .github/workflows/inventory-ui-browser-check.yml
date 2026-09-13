@@ -1,0 +1,38 @@
+name: Inventory UI Browser Check
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/inventory-ui-owned-state-20260913]
+    paths:
+      - scripts/inventory-ui-browser-check.mjs
+      - .github/workflows/inventory-ui-browser-check.yml
+      - src/components/china-order-manager/InventoryStockOperationalDetails.tsx
+      - src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx
+      - src/lib/inventoryStockConnection.ts
+permissions:
+  contents: read
+concurrency:
+  group: inventory-ui-browser-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false playwright@1.55.1
+      - run: npx playwright install --with-deps chromium
+      - name: Verify real production browser rendering (no writes)
+        run: node scripts/inventory-ui-browser-check.mjs
+      - name: Keep read-only diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventory-ui-browser-evidence
+          path: artifacts/inventory-ui
+          retention-days: 3
