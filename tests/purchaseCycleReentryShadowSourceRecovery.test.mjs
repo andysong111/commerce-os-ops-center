@@ -117,3 +117,27 @@ test("review regression: publication phase changes update the fingerprint even w
   assert.ok(pending(after, "DEMAND_PUBLICATION_PENDING")); assert.equal(after.summary.candidateCount, 0);
   assert.equal(build(x).sourceFingerprint, after.sourceFingerprint);
 });
+test("owner-confirmed reconciliation resolves the exact unassigned line without changing its 200-unit open quantity", () => {
+  const unresolved = "UNASSIGNED-202609-001";
+  const reserved = stored({ sourceEventId: "unassigned-reserved", barcode: unresolved, status: "RESERVED", requestedQuantity: 200, orderedQuantity: undefined });
+  reserved.source_event_id = "persisted-reserved";
+  const ordered = stored({ sourceEventId: "unassigned-ordered", barcode: unresolved, status: "ORDERED", requestedQuantity: 200, orderedQuantity: 200, occurredAt: "2026-09-14T00:01:00.000Z" });
+  ordered.source_event_id = "persisted-ordered";
+  const reconciliation = stored({
+    sourceEventId: "identity-reconciliation",
+    barcode: "BGF1-3",
+    status: "ORDERED",
+    requestedQuantity: 200,
+    orderedQuantity: 200,
+    occurredAt: "2026-09-14T00:02:00.000Z",
+    payload: { identityReconciliation: { confirmed: true, confirmationMethod: "OWNER_EXPLICIT_CONFIRMATION", fromBarcode: unresolved, toBarcode: "BGF1-3", modelNo: "AAA309", confirmedAt: "2026-09-14T00:02:00.000Z" } },
+  });
+  reconciliation.source_event_id = "persisted-reconciliation";
+  const result = commitments.validateReentryCommitmentRows([reserved, ordered, reconciliation], Date.parse(now));
+  assert.equal(result.invalidEventCount, 0);
+  assert.equal(result.totalCommitments, 1);
+  assert.equal(result.totalOpenQuantity, 200);
+  assert.equal(result.commitments[0].barcode, "BGF1-3");
+  assert.equal(result.commitments[0].orderedQuantity, 200);
+  assert.equal(result.commitments[0].eventCount, 3);
+});
