@@ -17,11 +17,15 @@ type ReconciliationEvidence = {
 };
 
 function text(value: unknown) {
-  return String(value ?? "").normalize("NFKC").trim();
+  return String(value ?? "").trim();
 }
 
 function normalizeBarcode(value: unknown) {
-  return text(value).toUpperCase().replace(/[‐‑‒–—−]/g, "-").replace(/\s+/g, "");
+  return text(value)
+    .normalize("NFKC")
+    .toUpperCase()
+    .replace(/[‐‑‒–—−]/g, "-")
+    .replace(/\s+/g, "");
 }
 
 function record(value: unknown): Record<string, unknown> | null {
