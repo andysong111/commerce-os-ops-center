@@ -18,6 +18,11 @@ on:
       - "src/lib/seoRun*"
       - "src/lib/keywordEngineElonBulkFinal.ts"
       - "src/lib/keywordEngineElonLabV2Scoring.ts"
+      - "src/lib/keywordEngineElonFreshMallTitleComposer.ts"
+      - "src/lib/keywordEngineElonMallTitleIntentPortfolioV7.ts"
+      - "src/lib/keywordEngineElonMallTitleDiversityV8.ts"
+      - "src/lib/keywordEngineElonSameMallTitleDiversityV9.ts"
+      - "src/lib/keywordEngineElonBulkKeywordRecovery.ts"
       - "src/lib/keywordEngineElonTitleExpansion.ts"
       - "src/lib/keywordEngineElonLongTitlePriority.ts"
       - "src/lib/keywordEngineElonMallTitleSafeComposer.ts"
@@ -89,6 +94,7 @@ jobs:
           src/lib/seoRunWorkerControl.ts
           src/lib/keywordEngineElonBulkFinal.ts
           src/lib/keywordEngineElonLabV2Scoring.ts
+          src/lib/keywordEngineElonFreshMallTitleComposer.ts
           src/lib/keywordEngineElonTitleExpansion.ts
           src/lib/keywordEngineElonLongTitlePriority.ts
           src/lib/keywordEngineElonMallTitleSafeComposer.ts
@@ -100,6 +106,8 @@ jobs:
           src/lib/keywordEngineElonLabModule.ts
           src/lib/opsModuleRegistry.ts
           tests/seoRunClaimLoadShedding.test.mjs
+          tests/seoCategoryIntentExpansionV5.test.mjs
+          tests/seoRunDurableWorker.test.mjs
       - name: Test title inventory, durable RUN, no-reuse and performance contracts
         run: >-
           node --experimental-strip-types --test
