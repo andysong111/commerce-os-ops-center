@@ -20,6 +20,7 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - run: python tools/apply_legacy_seo_archive_patch_20260913.py
+      - run: python tools/fix_legacy_seo_archive_effect_20260913.py
       - run: npm ci
       - name: Focused archive regressions
         run: node --experimental-strip-types --test tests/legacySeoArchive.test.mjs tests/legacySeoBulkRunAll.test.mjs tests/legacySeoBulkLoading.test.mjs tests/legacySeoPollingGuard.test.mjs
