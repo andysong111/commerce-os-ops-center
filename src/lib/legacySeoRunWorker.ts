@@ -22,6 +22,10 @@ import {
 } from "@/lib/keywordEngineElonLabV2Merge";
 import { scoreKeywordElonCandidatesBatched } from "@/lib/keywordEngineElonLabV2Scoring";
 import {
+  prioritizeKeywordElonCandidatePool,
+  planKeywordElonSelectionRecovery,
+} from "@/lib/keywordEngineElonSelectionRecovery";
+import {
   analyzeKeywordElonIdentity,
   generateKeywordElonTitle,
 } from "@/lib/keywordEngineElonLabV2Server";
@@ -318,10 +322,14 @@ async function executeStage(
   const discovery = requireObject<KeywordElonDiscovery>(state.discovery, "STEP 2 시장어");
 
   if (job.stage === "score_keywords") {
+    const scoringDiscovery = {
+      ...discovery,
+      candidates: prioritizeKeywordElonCandidatePool(identity, discovery.candidates),
+    };
     const scored = await scoreKeywordElonCandidatesBatched({
       source,
       identity,
-      discovery,
+      discovery: scoringDiscovery,
       shoplingCategory: text(input.mallTitleCategory),
     });
     return checkpoint(config, job, workerId, {
@@ -331,7 +339,13 @@ async function executeStage(
       message: `STEP 2 후보 ${scored.candidates.length}개 점수화 완료 · 확장 round 1 대기`,
       checkpoint_payload: {
         ...state,
+        discovery: scoringDiscovery,
         candidates: scored.candidates,
+        scoringDiagnostics: {
+          chunks: scored.scoringChunkCount,
+          successfulChunks: scored.scoringSuccessfulChunks,
+          warnings: scored.scoringWarnings,
+        },
         expansionRound: 1,
       },
     });
@@ -401,7 +415,56 @@ async function executeStage(
       normalizeKeywordElonSelectionThresholds(),
     );
     if (!finalCandidates.length) {
-      throw new Error("STEP 4에 전달할 월검색량/정확성 통과 후보가 없습니다.");
+      const recovery = planKeywordElonSelectionRecovery({
+        identity,
+        discovery,
+        candidates,
+        previous: record(state.selectionRecovery),
+      });
+      if (recovery) {
+        // Reserve the paid attempt before external work. Crashes and API errors
+        // cannot reset the recovery budget or cause repeated full discovery.
+        await checkpoint(config, job, workerId, {
+          message: `누락/미평가 핵심 후보 ${recovery.keywords.length}개 복구 점수화 · ${recovery.attempts}/2`,
+          checkpoint_payload: {
+            ...state,
+            selectionRecovery: { ...recovery, status: "scoring", startedAt: new Date().toISOString() },
+          },
+        });
+        const scored = await scoreKeywordElonCandidatesBatched({
+          source,
+          identity,
+          discovery: { ...discovery, candidates: recovery.keywords },
+          shoplingCategory: text(input.mallTitleCategory),
+        });
+        const recoveredCandidates = mergeKeywordElonCandidates(candidates, scored.candidates);
+        // Yield after persisting results. The next invocation must use the
+        // unchanged union AND prohibited filter before any title is generated.
+        return patchClaimedLegacySeoRunJob(config, job.run_id, workerId, {
+          status: "queued",
+          stage: "filter_keywords",
+          stage_index: 5,
+          progress_percent: 70,
+          message: "핵심 후보 복구 점수화 저장 완료 · 동일 기준/금지어 재검사 대기",
+          checkpoint_payload: {
+            ...state,
+            candidates: recoveredCandidates,
+            selectionRecovery: {
+              ...recovery,
+              status: "scored",
+              successfulChunks: scored.scoringSuccessfulChunks,
+              scoringWarnings: scored.scoringWarnings,
+              completedAt: new Date().toISOString(),
+            },
+          },
+          error_message: "",
+          not_before: new Date().toISOString(),
+          lease_owner: null,
+          lease_until: null,
+        });
+      }
+      const attempts = Number(record(state.selectionRecovery).attempts) || 0;
+      throw new Error(`STEP 4에 전달할 월검색량/정확성 통과 후보가 없습니다. · 제한 복구 ${attempts}회 이후 기준 미충족/미평가 상태 보존`);
     }
     const filterResult = await filterKeywordElonProhibitedKeywords({
       identity,

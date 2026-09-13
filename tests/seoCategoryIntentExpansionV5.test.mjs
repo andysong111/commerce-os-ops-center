@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { buildKeywordElonTitleExpansionPool } from "../src/lib/keywordEngineElonTitleExpansion.ts";
 import { composeKeywordElonSafeMallTitles } from "../src/lib/keywordEngineElonMallTitleSafeComposer.ts";
-import { composeFreshKeywordElonMallTitles } from "../src/lib/keywordEngineElonFreshMallTitleComposer.ts";
+import { composeFreshKeywordElonMallTitles, preservesKeywordElonHistoricalFreshness } from "../src/lib/keywordEngineElonFreshMallTitleComposer.ts";
 import {
   classifyKeywordElonLongTitleExpansion,
   keywordElonLongTitleLengthPenalty,
@@ -281,5 +281,37 @@ test("segmented SEO API는 Product Launch 카테고리와 run freshness 입력�
   assert.match(bulk, /buildKeywordElonTitleExpansionPool/);
   assert.match(bulk, /composeFreshKeywordElonMallTitles/);
   assert.match(bulk, /TITLE_EXPANSION_POOL_COUNT/);
-  assert.match(bulk, /TITLE_MALL_NAME_POLICY:LONG_TITLE_PRIORITY_V6/);
+  assert.match(bulk, /TITLE_MALL_NAME_POLICY:INTENT_PORTFOLIO_V7/);
+});
+
+function historyResult(...titles) {
+  return { rows: titles.map(title => ({ title })) };
+}
+test("마지막 정리는 이미 피한 과거 완성 상품명을 다시 도입하지 않는다", () => {
+  const history = ["냉장고 자석 선반"];
+  assert.equal(preservesKeywordElonHistoricalFreshness(
+    historyResult("냉장고 선반 수납"), historyResult("냉장고 자석 선반"), history), false);
+});
+test("과거 사용 핵심 단어 재사용은 허용하고 완성 문구만 비교한다", () => {
+  const history = ["냉장고 자석 선반"];
+  assert.equal(preservesKeywordElonHistoricalFreshness(
+    historyResult("냉장고 자석 수납"), historyResult("냉장고 자석 정리"), history), true);
+});
+test("유효 재료가 부족하면 동일한 재사용 수준을 허용해 생성을 막지 않는다", () => {
+  const current = historyResult("냉장고 자석 선반");
+  const before = JSON.stringify(current);
+  assert.equal(preservesKeywordElonHistoricalFreshness(current, current, ["냉장고 자석 선반"]), true);
+  assert.equal(JSON.stringify(current), before);
+});
+test("새로운 조합을 과거 문구의 단순 어순 변경으로 악화시키지 않는다", () => {
+  assert.equal(preservesKeywordElonHistoricalFreshness(
+    historyResult("냉장고 선반 수납"), historyResult("선반 냉장고 자석"), ["냉장고 자석 선반"]), false);
+});
+test("과거 이력이 없을 때 기존 쇼핑몰 다양화 경로는 그대로 허용된다", () => {
+  assert.equal(preservesKeywordElonHistoricalFreshness(
+    historyResult("냉장고 자석 선반"), historyResult("선반 자석 냉장고"), []), true);
+});
+test("공백과 NFKC 표기 차이를 이용한 과거 완성 문구 재도입도 감지한다", () => {
+  assert.equal(preservesKeywordElonHistoricalFreshness(
+    historyResult("수납 선반"), historyResult("ABC 자석 선반"), ["ＡＢＣ   자석 선반"]), false);
 });

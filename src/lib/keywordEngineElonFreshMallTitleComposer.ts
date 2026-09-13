@@ -79,6 +79,22 @@ function freshnessScore(
   return exact * 100_000 + reorderOnly * 20_000 + similarity * 100;
 }
 
+/** History is a preference, not a blacklist of previously used words. */
+export function preservesKeywordElonHistoricalFreshness(
+  current: KeywordElonMallTitleSafeComposerResult,
+  proposed: KeywordElonMallTitleSafeComposerResult,
+  excludedTitles: string[],
+) {
+  if (!excludedTitles.length) return true;
+  const excluded = new Set(excludedTitles.map(canonical).filter(Boolean));
+  const exactCount = (result: KeywordElonMallTitleSafeComposerResult) =>
+    result.rows.filter(row => excluded.has(canonical(row.title))).length;
+  // Never sacrifice already-achieved full-title non-reuse for a later local
+  // mall rebalance. Limited material is still usable: equal reuse is allowed.
+  return exactCount(proposed) <= exactCount(current) &&
+    freshnessScore(proposed, excludedTitles) <= freshnessScore(current, excludedTitles) + 0.001;
+}
+
 function safeWarning(value: unknown) {
   return text(value).replace(/[\r\n]+/g, " ").slice(0, 300);
 }
@@ -107,11 +123,7 @@ function verifiedModelFragments(modelName: string) {
     phrases.push(phrase);
   };
 
-  // The entire verified model name is preferred when it already fits.
   add(normalized);
-
-  // If it is too long, keep only contiguous phrases from the verified model name.
-  // This broadens the combinatorial title pool without inventing any new meaning.
   const maxWindow = Math.min(3, words.length);
   for (let width = maxWindow; width >= 2; width -= 1) {
     for (let start = 0; start + width <= words.length; start += 1) {
@@ -219,19 +231,22 @@ export function composeFreshKeywordElonMallTitles(input: {
     }
   }
 
-  if (!best) {
-    throw new Error("SEO 회차 상품명 후보를 만들지 못했습니다.");
-  }
+  if (!best) throw new Error("SEO 회차 상품명 후보를 만들지 못했습니다.");
 
   let selected = best;
   let portfolioWarning = "SEO_RUN_INTENT_PORTFOLIO_V7:enabled";
   try {
-    selected = composeKeywordElonIntentPortfolioV7({
+    const proposed = composeKeywordElonIntentPortfolioV7({
       attempts: attemptResults,
       finalKeywords: finals,
       expansionPool: expansion,
       excludedTitles,
     });
+    if (preservesKeywordElonHistoricalFreshness(selected, proposed, excludedTitles)) {
+      selected = proposed;
+    } else {
+      portfolioWarning = "SEO_RUN_INTENT_PORTFOLIO_V7:kept_history_preference";
+    }
   } catch (error) {
     portfolioWarning = `SEO_RUN_INTENT_PORTFOLIO_V7_FALLBACK:${safeWarning(
       error instanceof Error ? error.message : error,
@@ -240,12 +255,17 @@ export function composeFreshKeywordElonMallTitles(input: {
 
   let diversityWarning = "SEO_RUN_MALL_TITLE_DIVERSITY_V8:enabled";
   try {
-    selected = rebalanceKeywordElonMallTitleDiversityV8({
+    const proposed = rebalanceKeywordElonMallTitleDiversityV8({
       attempts: attemptResults,
       selected,
       finalKeywords: finals,
       excludedTitles,
     });
+    if (preservesKeywordElonHistoricalFreshness(selected, proposed, excludedTitles)) {
+      selected = proposed;
+    } else {
+      diversityWarning = "SEO_RUN_MALL_TITLE_DIVERSITY_V8:kept_history_preference";
+    }
   } catch (error) {
     diversityWarning = `SEO_RUN_MALL_TITLE_DIVERSITY_V8_FALLBACK:${safeWarning(
       error instanceof Error ? error.message : error,
@@ -254,31 +274,30 @@ export function composeFreshKeywordElonMallTitles(input: {
 
   let sameMallDiversityWarning = "SEO_RUN_SAME_MALL_DIVERSITY_V9:enabled";
   try {
-    selected = rebalanceKeywordElonSameMallTitleDiversityV9({
+    const proposed = rebalanceKeywordElonSameMallTitleDiversityV9({
       attempts: attemptResults,
       selected,
       finalKeywords: finals,
     });
+    if (preservesKeywordElonHistoricalFreshness(selected, proposed, excludedTitles)) {
+      selected = proposed;
+    } else {
+      sameMallDiversityWarning = "SEO_RUN_SAME_MALL_DIVERSITY_V9:kept_history_preference";
+    }
   } catch (error) {
     sameMallDiversityWarning = `SEO_RUN_SAME_MALL_DIVERSITY_V9_FALLBACK:${safeWarning(
       error instanceof Error ? error.message : error,
     )}`;
   }
 
-  const excludedCanonical = new Set(
-    excludedTitles.map(canonical).filter(Boolean),
-  );
+  const excludedCanonical = new Set(excludedTitles.map(canonical).filter(Boolean));
   const exactReuse = selected.rows.filter((row) =>
     excludedCanonical.has(canonical(row.title)),
   ).length;
   let reorderOnly = 0;
   for (const row of selected.rows) {
     if (excludedCanonical.has(canonical(row.title))) continue;
-    if (
-      excludedTitles.some(
-        (previous) => jaccard(row.title, previous) >= 0.999,
-      )
-    ) {
+    if (excludedTitles.some(previous => jaccard(row.title, previous) >= 0.999)) {
       reorderOnly += 1;
     }
   }
