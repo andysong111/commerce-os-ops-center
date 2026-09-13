@@ -2,6 +2,7 @@ import {
   compactKeywordElonKey,
   type KeywordElonCandidate,
 } from "@/lib/keywordEngineElonLabV2";
+import { isOpsExactProhibitedKeyword } from "@/lib/keywordExactProhibitedTerms";
 
 // Fixed production standard selected from the 10-product × 64-combination threshold experiment.
 export const KEYWORD_ELON_SELECTION_STORAGE_KEY = "keywordEngineElonLab.selectionThresholds.v1";
@@ -39,8 +40,16 @@ export function writeKeywordElonSelectionThresholds(_value: KeywordElonSelection
   window.dispatchEvent(new CustomEvent("keyword-elon-selection-thresholds-updated"));
 }
 
+function candidateText(row: KeywordElonCandidate) {
+  return row.searchKeyword || row.searchKey || row.keyword;
+}
+
 function candidateKey(row: KeywordElonCandidate) {
-  return compactKeywordElonKey(row.searchKeyword || row.searchKey || row.keyword);
+  return compactKeywordElonKey(candidateText(row));
+}
+
+function allowedByPermanentExactPolicy(row: KeywordElonCandidate) {
+  return !isOpsExactProhibitedKeyword(candidateText(row));
 }
 
 export function keywordElonDemandQualified(
@@ -48,7 +57,8 @@ export function keywordElonDemandQualified(
   thresholds: KeywordElonSelectionThresholds,
 ) {
   return Boolean(
-    row.safetyPass
+    allowedByPermanentExactPolicy(row)
+    && row.safetyPass
     && row.titleEligible
     && row.totalSearch !== null
     && row.qualityScore >= thresholds.demandQuality,
@@ -60,7 +70,8 @@ export function keywordElonAccuracyQualified(
   thresholds: KeywordElonSelectionThresholds,
 ) {
   return Boolean(
-    row.safetyPass
+    allowedByPermanentExactPolicy(row)
+    && row.safetyPass
     && row.titleEligible
     && row.relevance >= thresholds.accuracyRelevance,
   );
