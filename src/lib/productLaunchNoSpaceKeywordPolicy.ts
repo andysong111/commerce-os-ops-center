@@ -2,6 +2,7 @@ import type {
   KeywordRecommendationGroup,
   KeywordRecommendationItem,
 } from "./productLaunchKeywordRecommendations";
+import { isOpsExactProhibitedKeyword } from "./keywordExactProhibitedTerms";
 
 export type NoSpacePlanValidation =
   | { ok: true; rowCount: number }
@@ -26,6 +27,7 @@ function dedupeNoSpaceKeywords(values: unknown[], limit = 30) {
   for (const value of values) {
     const keyword = text(value);
     if (!isNoSpaceSearchKeyword(keyword)) continue;
+    if (isOpsExactProhibitedKeyword(keyword)) continue;
     const identity = exactIdentity(keyword);
     if (seen.has(identity)) continue;
     seen.add(identity);
@@ -39,10 +41,15 @@ function sanitizeItems(items: KeywordRecommendationItem[]) {
   const seen = new Set<string>();
   const result: KeywordRecommendationItem[] = [];
   let excludedSpacingCount = 0;
+  let excludedProhibitedCount = 0;
   for (const item of items ?? []) {
     const keyword = text(item.keyword);
     if (!isNoSpaceSearchKeyword(keyword)) {
       excludedSpacingCount += 1;
+      continue;
+    }
+    if (isOpsExactProhibitedKeyword(keyword)) {
+      excludedProhibitedCount += 1;
       continue;
     }
     const identity = exactIdentity(keyword);
@@ -50,7 +57,7 @@ function sanitizeItems(items: KeywordRecommendationItem[]) {
     seen.add(identity);
     result.push({ ...item, keyword });
   }
-  return { items: result, excludedSpacingCount };
+  return { items: result, excludedSpacingCount, excludedProhibitedCount };
 }
 
 export function sanitizeNoSpaceRecommendationGroup(
@@ -71,6 +78,11 @@ export function sanitizeNoSpaceRecommendationGroup(
   if (sanitized.excludedSpacingCount > 0) {
     warnings.push(
       `띄어쓰기 포함 후보 ${sanitized.excludedSpacingCount}개는 붙여쓰기 SearchAd 지표가 아니므로 제외했습니다.`,
+    );
+  }
+  if (sanitized.excludedProhibitedCount > 0) {
+    warnings.push(
+      `OPS 고정 사용금지 키워드 ${sanitized.excludedProhibitedCount}개는 정확 일치 기준으로 제외했습니다.`,
     );
   }
   if (optimizedKeywords.length < 10) {
@@ -149,6 +161,14 @@ export function validateNoSpaceExecutionPlan(
       };
     }
     for (const keyword of keywords) {
+      if (isOpsExactProhibitedKeyword(keyword)) {
+        return {
+          ok: false,
+          goodsKey,
+          keyword,
+          message: `${goodsKey || "상품번호 없음"}: OPS 고정 사용금지 키워드 '${keyword}'는 전송할 수 없습니다.`,
+        };
+      }
       if (!isNoSpaceSearchKeyword(keyword)) {
         return {
           ok: false,
