@@ -30,12 +30,11 @@ export async function GET() {
           options: group.options.map((option) => ({
             optionId: option.optionId,
             optionName: option.optionName,
-            barcode: option.barcode,
             bCode: option.bCode,
-            optionBarcodeNo: option.optionBarcodeNo,
-            optAmt: option.optAmt,
-            optionGb: option.optionGb,
-            optionGbNm: option.optionGbNm,
+            optionBarcode: option.optionBarcode,
+            status: option.status,
+            quantity: option.quantity,
+            amount: option.amount,
           })),
         })),
       };
