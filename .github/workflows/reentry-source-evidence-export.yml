@@ -1,0 +1,25 @@
+name: Reentry Source Evidence Export
+on:
+  push:
+    branches: [fix/purchase-reentry-source-readiness-20260914]
+    paths: [.github/workflows/reentry-source-evidence-export.yml]
+permissions:
+  contents: read
+jobs:
+  export-tracked-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export committed source only, never environment or runner credentials
+        run: |
+          mkdir -p "$RUNNER_TEMP/reentry-source"
+          git archive --format=tar.gz HEAD AGENTS.md src tests scripts docs package.json package-lock.json tsconfig.json .github/workflows/purchase-reentry-shadow-ci.yml > "$RUNNER_TEMP/reentry-source/tracked-source.tar.gz"
+          git rev-parse HEAD > "$RUNNER_TEMP/reentry-source/commit.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reentry-tracked-source
+          path: ${{ runner.temp }}/reentry-source
+          retention-days: 1
