@@ -1,11 +1,11 @@
-import { normalizeProductLaunchOptionNames } from "@/lib/productLaunchOptionNames";
+import { normalizeProductLaunchOptionNames } from "./productLaunchOptionNames.ts";
 import { randomUUID } from "node:crypto";
 import {
   buildProductLaunchShoplingPayload,
   resolveProductLaunchBasePurchasePriceKrw,
   roundUpShoplingPriceKrw,
   type ProductLaunchShoplingPayload,
-} from "@/lib/productLaunchTrackerShopling";
+} from "./productLaunchTrackerShopling.ts";
 
 type UnknownRecord = Record<string, unknown>;
 

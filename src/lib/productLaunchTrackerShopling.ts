@@ -1,4 +1,4 @@
-import { normalizeProductLaunchOptionNames } from "@/lib/productLaunchOptionNames";
+import { normalizeProductLaunchOptionNames } from "./productLaunchOptionNames.ts";
 import { randomUUID } from "node:crypto";
 
 export const PRODUCT_LAUNCH_CHANNELS = [
