@@ -1,0 +1,92 @@
+name: Legacy SEO Sparse Title Patch Once
+on:
+  push:
+    branches: ['fix/legacy-seo-sparse-title-20260914']
+    paths: ['.github/workflows/legacy-seo-sparse-title-patch-once.yml']
+permissions:
+  contents: write
+jobs:
+  validated-title-material:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Apply explicit material-reuse option and numerical-only final diagnostics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          def once(s,old,new):
+              assert s.count(old)==1, f'Unexpected source anchor: {old}'
+              return s.replace(old,new,1)
+          p=Path('src/lib/keywordEngineElonMallTitleSafeComposer.ts')
+          s=p.read_text()
+          offset=s.index('export function composeKeywordElonSafeMallTitles(')
+          a,b=s[:offset],s[offset:]
+          b=once(b,'  blockedTerms?: string[];','  blockedTerms?: string[];\n  allowValidatedTitleReuse?: boolean;')
+          b=once(b,'  if (candidates.length < input.markets.length) {','''  const allowValidatedTitleReuse = input.allowValidatedTitleReuse === true;
+            if (!candidates.length || (!allowValidatedTitleReuse && candidates.length < input.markets.length)) {''')
+          b=once(b,'현재 ${candidates.length}개`,','현재 ${candidates.length}개 · SEO_TITLE_POOL_V10:markets=${input.markets.length},materials=${materials.length},reuse=${allowValidatedTitleReuse}`,')
+          b=once(b,'      usedCanonical,','''      // Exhaust every distinct valid candidate before reusing any full title.
+                usedCanonical: allowValidatedTitleReuse && usedCanonical.size === candidates.length
+                  ? new Set<string>()
+                  : usedCanonical,''')
+          b=once(b,'  if (uniqueTitleCount !== rows.length) {','  if (!allowValidatedTitleReuse && uniqueTitleCount !== rows.length) {')
+          b=once(b,'    warnings: [','''    warnings: [
+                `SEO_MALL_TITLE_VALID_CANDIDATE_COUNT:${candidates.length}`,
+                ...(rows.length > uniqueTitleCount
+                  ? [`SEO_MALL_TITLE_VALIDATED_REUSE:${rows.length - uniqueTitleCount}`]
+                  : []),''')
+          p.write_text(a+b)
+          p=Path('src/lib/keywordEngineElonFreshMallTitleComposer.ts')
+          s=p.read_text()
+          s=once(s,'    const result = composeKeywordElonSafeMallTitles({','''    const result = composeKeywordElonSafeMallTitles({
+                // Best-effort diversity: never invent material solely to force 29 unique strings.
+                allowValidatedTitleReuse: true,''')
+          p.write_text(s)
+          p=Path('src/lib/legacySeoRunWorker.ts')
+          s=p.read_text()
+          s='import { PRODUCT_GROUP_MARKET_REGISTRY } from "@/lib/productGroupMarketRegistry";\n'+s
+          marker='    if (!/FINAL 검색어가 10개가 아닙니다/.test(message)) throw error;'
+          replacement='''    if (!/FINAL 검색어가 10개가 아닙니다/.test(message)) {
+                console.error("[legacy-seo-final-compose]", {
+                  revision: "validated-material-reuse-v10",
+                  modelNumber: input.modelNumber,
+                  marketCount: PRODUCT_GROUP_MARKET_REGISTRY.length,
+                  allowedCount: input.allowedKeys.length,
+                  candidateCount: input.candidates.length,
+                  error: message,
+                  stack: error instanceof Error ? error.stack?.split("\\n").slice(0, 6).join("\\n") : "",
+                });
+                throw error;
+              }'''
+          s=once(s,marker,replacement)
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Validate new scarce-material and existing strict, history, safety contracts
+        run: >-
+          node --experimental-strip-types --test
+          tests/keywordEngineElonValidatedTitleReuse.test.mjs
+          tests/keywordEngineElonMallTitleSafeComposer.test.mjs
+          tests/seoCategoryIntentExpansionV5.test.mjs
+          tests/seoBulkMallTitleFactBridge.test.mjs
+          tests/seoRunDurableWorker.test.mjs
+          tests/keywordEngineElonSelectionRecovery.test.mjs
+          tests/keywordEngineElonDiscoveryIdentityPriority.test.mjs
+      - name: Lint changed source and test
+        run: npx eslint src/lib/keywordEngineElonMallTitleSafeComposer.ts src/lib/keywordEngineElonFreshMallTitleComposer.ts src/lib/legacySeoRunWorker.ts tests/keywordEngineElonValidatedTitleReuse.test.mjs
+      - name: Commit only passing source changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/keywordEngineElonMallTitleSafeComposer.ts src/lib/keywordEngineElonFreshMallTitleComposer.ts src/lib/legacySeoRunWorker.ts
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          git commit -m 'fix: prefer all valid title variants before unavoidable reuse'
+          git push origin HEAD:refs/heads/fix/legacy-seo-sparse-title-20260914
