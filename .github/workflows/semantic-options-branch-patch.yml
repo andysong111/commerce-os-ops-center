@@ -1,0 +1,54 @@
+name: Apply semantic option source patch
+on:
+  push:
+    branches: [fix/semantic-option-names-20260913]
+    paths: [.github/workflows/semantic-options-branch-patch.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.ref == 'refs/heads/fix/semantic-option-names-20260913'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/semantic-option-names-20260913
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - name: Apply exact guarded source changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          def replace(path,old,new):
+              p=Path(path); s=p.read_text()
+              assert s.count(old)==1,(path,old,s.count(old))
+              p.write_text(s.replace(old,new))
+          def add_import(path,name):
+              p=Path('src/lib/'+path); s=p.read_text()
+              assert 'from "@/lib/productLaunchOptionNames"' not in s
+              p.write_text('import { '+name+' } from "@/lib/productLaunchOptionNames";\n'+s)
+          add_import('productLaunchTrackerShopling.ts','normalizeProductLaunchOptionNames')
+          replace('src/lib/productLaunchTrackerShopling.ts','  const item = asRecord(itemInput);','  const item = normalizeProductLaunchOptionNames(asRecord(itemInput));')
+          add_import('legacySeoShoplingPayload.ts','normalizeProductLaunchOptionNames')
+          replace('src/lib/legacySeoShoplingPayload.ts','  const item = record(itemInput);','  const item = normalizeProductLaunchOptionNames(record(itemInput));')
+          add_import('productLaunchTrackerServer.ts','normalizeNewProductLaunchState')
+          replace('src/lib/productLaunchTrackerServer.ts','    state as ProductLaunchTrackerState,','    normalizeNewProductLaunchState(state) as ProductLaunchTrackerState,')
+          add_import('productLaunchTrackerNormalizedStore.ts','normalizeProductLaunchOptionNames')
+          replace('src/lib/productLaunchTrackerNormalizedStore.ts','    const item = itemsById.get(summary.id) ?? {};','    const item = normalizeProductLaunchOptionNames(itemsById.get(summary.id) ?? {}, { preserveRegistered: true });')
+          add_import('legacySeoShoplingRegistration.ts','normalizeProductLaunchOptionNames')
+          replace('src/lib/legacySeoShoplingRegistration.ts','    item.updatedAt = now;','    item = normalizeProductLaunchOptionNames(item);\n    item.updatedAt = now;')
+          replace('src/lib/productLaunchOptionNames.ts','  const entries = item.orderOptions.map(row);','  const entries = item.orderOptions.map(row);\n  if (new Set(entries.map(option => text(option.optionName) || "옵션")).size > 1) return item;')
+          PY
+      - run: npm ci
+      - run: node --experimental-strip-types --test tests/productLaunchOptionNames.test.mjs tests/legacySeoShoplingPayload.test.mjs
+      - name: Commit source changes and remove this one-shot workflow
+        run: |
+          rm .github/workflows/semantic-options-branch-patch.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/productLaunchOptionNames.ts src/lib/productLaunchTrackerServer.ts src/lib/productLaunchTrackerNormalizedStore.ts src/lib/productLaunchTrackerShopling.ts src/lib/legacySeoShoplingPayload.ts src/lib/legacySeoShoplingRegistration.ts .github/workflows/semantic-options-branch-patch.yml
+          git commit -m 'fix(options): normalize new drafts and registration payloads without changing live listings'
+          git push origin HEAD:fix/semantic-option-names-20260913
