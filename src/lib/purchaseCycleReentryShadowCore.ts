@@ -64,6 +64,20 @@ function groups<T extends { barcode: string }>(rows: readonly T[]) {
   for (const row of rows) { const key = code(row.barcode); result.set(key, [...(result.get(key) ?? []), row]); }
   return result;
 }
+function skuId(value: unknown) {
+  return typeof value === "string" ? value.normalize("NFKC").trim() : "";
+}
+function ambiguousSkuIds(rows: readonly { skuId?: unknown; barcode: string }[]) {
+  const barcodesBySku = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const id = skuId(row.skuId);
+    if (!id) continue;
+    const barcodes = barcodesBySku.get(id) ?? new Set<string>();
+    barcodes.add(code(row.barcode));
+    barcodesBySku.set(id, barcodes);
+  }
+  return new Set([...barcodesBySku].filter(([, barcodes]) => barcodes.size > 1).map(([id]) => id));
+}
 function issue(codeValue: string, message: string, barcode: string | null = null): ReentryShadowIssue {
   return { code: codeValue, message, barcode };
 }
@@ -96,6 +110,7 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
   const auditRows = input.audit?.snapshot?.rows ?? [];
   const byProfile = groups(profiles), byStock = groups(stocks), byDemand = groups(auditRows);
   const byDiagnostic = groups(input.diagnostics?.rows ?? []);
+  const conflictingSkuIds = ambiguousSkuIds([...profiles, ...auditRows]);
   if (!input.planning || !profiles.length || !fresh(input.planning.generatedAt, nowMs, MAX_SOURCE_READ_AGE_MS)) {
     blockers.push(issue("PLANNING_UNAVAILABLE", "상품 기준정보를 최신 상태로 확인하지 못했습니다."));
   }
@@ -153,8 +168,9 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
       forecast30Quantity: null, target44Quantity: null, referenceNeedQuantity: null, candidateQuantity: null,
       allocatedQuantity: 0, stage: "DATA_HOLD", engineDecision: null, reasons: [], issues: [],
     };
-    if (matches.length !== 1 || !validCode(key) || !profile.skuId) row.issues.push(issue("BARCODE_IDENTITY_CONFLICT", "B코드가 하나의 활성 SKU로 식별되지 않습니다.", key));
-    if (demandMatches.length !== 1 || demand?.skuId !== profile.skuId ||
+    if (matches.length !== 1 || !validCode(key) || !skuId(profile.skuId)) row.issues.push(issue("BARCODE_IDENTITY_CONFLICT", "B코드가 하나의 활성 SKU로 식별되지 않습니다.", key));
+    if (conflictingSkuIds.has(skuId(profile.skuId)) || conflictingSkuIds.has(skuId(demand?.skuId))) row.issues.push(issue("SKU_IDENTITY_CONFLICT", "하나의 SKU ID에 서로 다른 B코드가 연결되어 중복 발주 후보를 차단했습니다.", key));
+    if (demandMatches.length !== 1 || skuId(demand?.skuId) !== skuId(profile.skuId) ||
         (!Array.isArray(demand?.monthlyUnits) || demand.monthlyUnits.length !== 12 || !demand.monthlyUnits.every(quantity)) ||
         (!Array.isArray(demand?.monthlyRevenue) || demand.monthlyRevenue.length !== 12 || !demand.monthlyRevenue.every(finiteNonnegative))) {
       row.issues.push(issue("DEMAND_IDENTITY_OR_BUCKETS_INVALID", "판매 SKU 연결 또는 12개 수요 구간을 확인할 수 없습니다.", key));
