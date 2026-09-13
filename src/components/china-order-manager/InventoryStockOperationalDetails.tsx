@@ -6,7 +6,7 @@ import {
   INVENTORY_REFRESH_PATH,
   inventoryStockReadClient,
 } from "@/lib/inventoryStockConnection";
-import { StockSyncOperationalQueuePanel } from "@/components/china-order-manager/StockSyncOperationalQueuePanel";
+import { StockSyncOperationalQueuePanel, type QueuePayload } from "@/components/china-order-manager/StockSyncOperationalQueuePanel";
 
 type RefreshState = "IDLE" | "REFRESHING" | "READY" | "ERROR";
 
@@ -14,6 +14,7 @@ export function InventoryStockOperationalDetails() {
   const detailsRef = useRef<HTMLDetailsElement | null>(null);
   const refreshBusy = useRef(false);
   const [hasFreshEvidence, setHasFreshEvidence] = useState(false);
+  const [initialQueuePayload, setInitialQueuePayload] = useState<QueuePayload | null>(null);
   const [refreshState, setRefreshState] = useState<RefreshState>("IDLE");
   const [refreshMessage, setRefreshMessage] = useState("");
 
@@ -21,25 +22,26 @@ export function InventoryStockOperationalDetails() {
     if (refreshBusy.current) return;
     refreshBusy.current = true;
     setHasFreshEvidence(false);
+    setInitialQueuePayload(null);
     setRefreshState("REFRESHING");
     setRefreshMessage("판매·재고 증거를 최신화한 뒤 운영 큐까지 확인합니다. 잠시만 기다려 주세요.");
     try {
-      // First refresh the evidence/Tail. Then fetch the authoritative queue here,
-      // before mounting the queue panel. The exact Q payload is published only as
-      // a short render handoff so both the overview and newly mounted queue can
-      // paint the same successful response without racing another network request.
       await inventoryStockReadClient.read<Record<string, unknown>>(INVENTORY_REFRESH_PATH, false);
       setRefreshMessage("판매·재고 증거 최신화 완료 · 최신 운영 큐를 확인하고 있습니다.");
-      const queuePayload = await inventoryStockReadClient.read<Record<string, unknown>>(
+      const queuePayload = await inventoryStockReadClient.read<QueuePayload>(
         INVENTORY_QUEUE_PATH,
         true,
       );
+      // Initial rendering must not depend on the child's passive polling effect.
+      // That effect intentionally does no work while the tab is hidden/offline.
+      // Keep the accepted Q response in React state and pass it directly as data.
+      setInitialQueuePayload(queuePayload);
       inventoryStockReadClient.publishQueueHandoff(queuePayload);
       setHasFreshEvidence(true);
       setRefreshState("READY");
-      setRefreshMessage("판매·재고 증거와 운영 큐 확인 완료 · 현재 결과를 화면에 반영했습니다.");
-      // Wake the overview after the handoff has been published. Both consumers
-      // receive the same bounded payload; execution reads still bypass it.
+      setRefreshMessage("판매·재고 증거와 운영 큐 확인 완료 · 최초 조회 결과를 아래 목록에 전달했습니다.");
+      // The bounded handoff remains only an optional overview/read optimization;
+      // the child already has its response through props, even if polling is gated.
       window.dispatchEvent(new Event("online"));
     } catch (error) {
       setRefreshState("ERROR");
@@ -76,7 +78,7 @@ export function InventoryStockOperationalDetails() {
       ) : null}
       <div className="mt-4">
         {hasFreshEvidence ? (
-          <StockSyncOperationalQueuePanel />
+          <StockSyncOperationalQueuePanel initialPayload={initialQueuePayload} />
         ) : refreshState === "ERROR" ? (
           <button
             type="button"

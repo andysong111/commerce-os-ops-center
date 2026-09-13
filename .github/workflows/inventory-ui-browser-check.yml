@@ -1,14 +1,6 @@
 name: Inventory UI Browser Check
 on:
   workflow_dispatch:
-  push:
-    branches: [fix/inventory-ui-owned-state-20260913]
-    paths:
-      - scripts/inventory-ui-browser-check.mjs
-      - .github/workflows/inventory-ui-browser-check.yml
-      - src/components/china-order-manager/InventoryStockOperationalDetails.tsx
-      - src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx
-      - src/lib/inventoryStockConnection.ts
 permissions:
   contents: read
 concurrency:
@@ -23,12 +15,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.13.0'
-          cache: npm
-      - run: npm ci
-      - run: npm install --no-save --package-lock=false playwright@1.55.1
-      - run: npx playwright install --with-deps chromium
-      - name: Verify real production browser rendering (no writes)
-        run: node scripts/inventory-ui-browser-check.mjs
+      - name: Install isolated browser tools
+        run: |
+          mkdir -p /tmp/inventory-ui-tools
+          npm install --prefix /tmp/inventory-ui-tools --no-save playwright@1.55.1
+          /tmp/inventory-ui-tools/node_modules/.bin/playwright install --with-deps chromium
+      - name: Verify real production browser rendering (no stock/status writes)
+        run: |
+          cp scripts/inventory-ui-browser-check.mjs /tmp/inventory-ui-tools/check.mjs
+          node /tmp/inventory-ui-tools/check.mjs
       - name: Keep read-only diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
