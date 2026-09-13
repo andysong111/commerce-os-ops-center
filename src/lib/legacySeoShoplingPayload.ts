@@ -1,10 +1,11 @@
+import { normalizeProductLaunchOptionNames } from "./productLaunchOptionNames.ts";
 import { randomUUID } from "node:crypto";
 import {
   buildProductLaunchShoplingPayload,
   resolveProductLaunchBasePurchasePriceKrw,
   roundUpShoplingPriceKrw,
   type ProductLaunchShoplingPayload,
-} from "@/lib/productLaunchTrackerShopling";
+} from "./productLaunchTrackerShopling.ts";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -38,7 +39,7 @@ export function buildLegacySeoShoplingPayload(
   policyInput: unknown,
   requestId = `legacy-product-launch-${randomUUID()}`,
 ): ProductLaunchShoplingPayload {
-  const item = record(itemInput);
+  const item = normalizeProductLaunchOptionNames(record(itemInput));
   const rawOptions = Array.isArray(item.orderOptions)
     ? item.orderOptions.map(record)
     : [];

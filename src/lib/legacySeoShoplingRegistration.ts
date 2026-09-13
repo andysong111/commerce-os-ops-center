@@ -1,3 +1,4 @@
+import { normalizeProductLaunchOptionNames } from "@/lib/productLaunchOptionNames";
 import { randomUUID } from "node:crypto";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { reconcileProductLaunchNormalizedAfterLegacyItems } from "@/lib/productLaunchTrackerNormalizedLegacyReconcile";
@@ -259,6 +260,7 @@ export async function startLegacySeoShoplingRegistration(
       );
     }
 
+    item = normalizeProductLaunchOptionNames(item);
     item.updatedAt = now;
     item.updatedBy = "이전상품 상품등록SEO 클라우드";
     items[itemIndex] = item;

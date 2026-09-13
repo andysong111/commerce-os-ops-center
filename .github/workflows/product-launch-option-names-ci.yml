@@ -1,0 +1,28 @@
+name: Product Launch Option Names CI
+on:
+  pull_request:
+    paths:
+      - 'src/lib/productLaunchOptionNames.ts'
+      - 'src/lib/productLaunchTrackerServer.ts'
+      - 'src/lib/productLaunchTrackerNormalizedStore.ts'
+      - 'src/lib/productLaunchTrackerShopling.ts'
+      - 'src/lib/legacySeoShoplingPayload.ts'
+      - 'src/lib/legacySeoShoplingRegistration.ts'
+      - 'tests/productLaunchOptionNames.test.mjs'
+      - 'tests/productLaunchOptionPayload.test.mjs'
+      - '.github/workflows/product-launch-option-names-ci.yml'
+permissions:
+  contents: read
+jobs:
+  semantic-invariants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - run: node --experimental-strip-types --test tests/productLaunchOptionNames.test.mjs tests/productLaunchOptionPayload.test.mjs tests/legacySeoShoplingPayload.test.mjs tests/productLaunchTrackerBarcodeMapping.test.mjs
+      - run: npx eslint src/lib/productLaunchOptionNames.ts src/lib/productLaunchTrackerServer.ts src/lib/productLaunchTrackerNormalizedStore.ts src/lib/productLaunchTrackerShopling.ts src/lib/legacySeoShoplingPayload.ts src/lib/legacySeoShoplingRegistration.ts
