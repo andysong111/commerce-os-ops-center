@@ -1,0 +1,63 @@
+name: Shopling Market Result Readback v0.3.41
+on:
+  pull_request:
+    paths:
+      - 'src/lib/shoplingMarketResultTrsmtV0341.ts'
+      - 'src/app/api/shopling-market-group-canary/v0341/**'
+      - 'tests/shoplingMarketResultTrsmtV0341.test.mjs'
+      - '.github/workflows/shopling-market-result-trsmt-v0341.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shopling-result-trsmt-v0341-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Verify v0.3.41 result readback contracts
+        run: node --experimental-strip-types --test tests/shoplingMarketResultTrsmtV0341.test.mjs tests/shoplingMarketA18FrameStartV0340.test.mjs tests/shoplingMarketReliableReadbackBulkV0339.test.mjs
+      - name: Build production app
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Generate and inspect actual extension ZIP
+        run: |
+          npm run start -- --port 3100 > /tmp/shopling-v0341-next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/api/shopling-market-group-canary/v0341/download -o /tmp/commerce-os-shopling-market-sender-v0.3.41.zip; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive=pathlib.Path('/tmp/commerce-os-shopling-market-sender-v0.3.41.zip')
+          assert archive.is_file() and archive.stat().st_size > 1000
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              manifest=json.loads(z.read('manifest.json'))
+              assert manifest['version']=='0.3.41'
+              popup=z.read('popup.js').decode()
+              content=z.read('content-group-canary.mjs').decode()
+              bg=z.read('background-root.mjs').decode()
+              assert '(?:rspt|trsmt|tsrmt)' in popup
+              assert '(?:rspt|trsmt|tsrmt)' in content
+              assert '(?:rspt|trsmt|tsrmt)' in bg
+              assert 'chrome.tabs.reload(' not in popup
+              assert '/api/shopling-market-group-canary/v0339/status' in bg
+              assert 'DIRECT_RESULT_MAX_ATTEMPTS = 240' in bg
+              z.extractall('/tmp/shopling-v0341')
+          PY
+          for file in /tmp/shopling-v0341/*.js /tmp/shopling-v0341/*.mjs; do node --check "$file"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopling-market-sender-v0341
+          path: /tmp/commerce-os-shopling-market-sender-v0.3.41.zip
+          retention-days: 7
