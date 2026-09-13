@@ -18,6 +18,8 @@ type RevenueSnapshot = {
   cached: boolean;
 };
 
+type RevenueLoader = (month: string) => Promise<RevenueSnapshot>;
+
 export type StorageSourcingBudgetSyncReceipt = {
   ok: true;
   action: "sync_previous_month_revenue";
@@ -37,7 +39,7 @@ export type StorageSourcingBudgetSyncReceipt = {
 
 type Dependencies = {
   now?: Date;
-  revenueLoader?: (month: string) => Promise<RevenueSnapshot>;
+  revenueLoader?: RevenueLoader;
   transport?: typeof fetch;
   env?: NodeJS.ProcessEnv;
 };
@@ -104,14 +106,40 @@ function parseFrozen(value: string | null) {
   return new Date(parsed).toISOString();
 }
 
-async function defaultRevenueLoader(month: string): Promise<RevenueSnapshot> {
+async function rawRevenueLoader(month: string): Promise<RevenueSnapshot> {
   const { loadCalendarMonthNormalRevenue } = await import("./shopling/calendarMonthRevenue.ts");
   return loadCalendarMonthNormalRevenue(month);
 }
 
+/**
+ * A newly computed Shopling value is not authoritative until the OPS ledger can read it back.
+ * The first loader call may compute and attempt persistence; the second call must return cached=true.
+ * If persistence/admin access failed, no Storage budget is allowed to be created from that value.
+ */
+export async function loadDurablyFrozenRevenue(
+  month: string,
+  loader: RevenueLoader = rawRevenueLoader,
+): Promise<RevenueSnapshot> {
+  const first = await loader(month);
+  if (first.cached === true) return first;
+  const persisted = await loader(month);
+  if (persisted.cached !== true) {
+    throw new StorageSourcingBudgetSyncError(
+      "SHOPLING_CLOSED_MONTH_NOT_DURABLY_FROZEN",
+      "전월 샵플링 매출이 OPS 원장에 저장되었는지 확인할 수 없어 소싱예산 동기화를 중지했습니다.",
+      503,
+    );
+  }
+  return persisted;
+}
+
+function isAbort(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 export async function syncPreviousMonthRevenueToStorage({
   now = new Date(),
-  revenueLoader = defaultRevenueLoader,
+  revenueLoader = rawRevenueLoader,
   transport = fetch,
   env = process.env,
 }: Dependencies = {}): Promise<StorageSourcingBudgetSyncReceipt> {
@@ -125,8 +153,13 @@ export async function syncPreviousMonthRevenueToStorage({
   }
   const budgetMonth = seoulCalendarMonth(now);
   const sourceMonth = previousCalendarMonth(budgetMonth);
-  const revenue = await revenueLoader(sourceMonth);
-  if (revenue.month !== sourceMonth || !Number.isSafeInteger(revenue.revenueKrw) || revenue.revenueKrw < 0) {
+  const revenue = await loadDurablyFrozenRevenue(sourceMonth, revenueLoader);
+  if (
+    revenue.cached !== true ||
+    revenue.month !== sourceMonth ||
+    !Number.isSafeInteger(revenue.revenueKrw) ||
+    revenue.revenueKrw < 0
+  ) {
     throw new StorageSourcingBudgetSyncError(
       "SHOPLING_CLOSED_MONTH_REVENUE_INVALID",
       "전월 샵플링 매출 스냅샷이 현재 예산 기준월과 일치하지 않습니다.",
@@ -144,13 +177,16 @@ export async function syncPreviousMonthRevenueToStorage({
     sourceFrozenAt: frozenAt,
     sourceFetchedRows: revenue.fetchedRows,
     sourceChunkCount: revenue.chunkCount,
-    sourceCached: revenue.cached,
+    sourceCached: true,
   } as const;
-  const requestId = deterministicUuid(JSON.stringify(stable));
+  // Retry identity is based only on the immutable canonical source event. Access-state metadata
+  // (fresh/cached, fetch time) must never create a second request after a timeout-after-commit.
+  const requestId = deterministicUuid(`storage-sourcing-budget:${sourceEventId}`);
   const body = { ...stable, requestId };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let response: Response;
+  let result: unknown;
   try {
     response = await transport(`${safeBaseUrl(env)}${STORAGE_PATH}`, {
       method: "POST",
@@ -163,8 +199,25 @@ export async function syncPreviousMonthRevenueToStorage({
       cache: "no-store",
       signal: controller.signal,
     });
+    try {
+      result = await response.json();
+    } catch (error) {
+      if (isAbort(error) || controller.signal.aborted) {
+        throw new StorageSourcingBudgetSyncError(
+          "STORAGE_SOURCING_SYNC_TIMEOUT",
+          "창고 소싱예산 동기화 응답 시간이 초과되었습니다.",
+          504,
+        );
+      }
+      throw new StorageSourcingBudgetSyncError(
+        "STORAGE_SOURCING_SYNC_INVALID_RESPONSE",
+        "창고 소싱예산 응답 형식을 확인할 수 없습니다.",
+        502,
+      );
+    }
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof StorageSourcingBudgetSyncError) throw error;
+    if (isAbort(error) || controller.signal.aborted) {
       throw new StorageSourcingBudgetSyncError(
         "STORAGE_SOURCING_SYNC_TIMEOUT",
         "창고 소싱예산 동기화 응답 시간이 초과되었습니다.",
@@ -177,17 +230,8 @@ export async function syncPreviousMonthRevenueToStorage({
       502,
     );
   } finally {
+    // Keep the deadline active through response.json(), not just response headers.
     clearTimeout(timeout);
-  }
-  let result: unknown;
-  try {
-    result = await response.json();
-  } catch {
-    throw new StorageSourcingBudgetSyncError(
-      "STORAGE_SOURCING_SYNC_INVALID_RESPONSE",
-      "창고 소싱예산 응답 형식을 확인할 수 없습니다.",
-      502,
-    );
   }
   if (!response.ok || !result || typeof result !== "object") {
     const value = result as { error?: unknown; message?: unknown } | null;
