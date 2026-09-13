@@ -195,9 +195,6 @@ export async function GET(request: Request) {
       } else if (CONFIRM_MARKET.has(status) || CONFIRM_MARKET.has(marketStatus)) {
         confirmNeededCount += 1;
       } else if (ledger && isSafeStalePreSubmitClaim(ledger)) {
-        // The browser stopped before the durable submit boundary. claim-all already
-        // releases this exact state after 15 minutes, so it is safe to present as
-        // a pending channel rather than hiding the product forever after a reboot.
         pendingCount += 1;
         recoverablePreSubmitCount += 1;
       } else if (BUSY_STATUS.has(status) || BUSY_MARKET.has(marketStatus)) {
@@ -216,20 +213,16 @@ export async function GET(request: Request) {
     const uploadSuccessCount = successfulRows.length;
     const uploadReady = text(job.status) === "success" && uploadSuccessCount === 6;
     const actionableCount = pendingCount + registrationUnknownCount + confirmNeededCount + staleBusyCount;
-    const strictSelectable = isLatestBatch
+    const selectable = isLatestBatch
       && uploadReady
       && activeBusyCount === 0
-      && staleBusyCount === 0
-      && confirmNeededCount === 0
-      && registrationUnknownCount === 0
-      && pendingCount > 0
-      && marketDoneCount < 6;
-    const recoverySelectable = isLatestBatch
-      && uploadReady
-      && activeBusyCount === 0
-      && actionableCount > 0
-      && marketDoneCount < 6;
-    const selectable = strictPending ? strictSelectable : recoverySelectable;
+      && marketDoneCount < 6
+      && (strictPending
+        ? staleBusyCount === 0
+          && confirmNeededCount === 0
+          && registrationUnknownCount === 0
+          && pendingCount > 0
+        : actionableCount > 0);
     const modelNumber = text(payload.modelNumber) || text(seoFinal.modelNumber);
     const modelName = text(payload.modelName) || text(seoFinal.productName) || modelNumber;
 
