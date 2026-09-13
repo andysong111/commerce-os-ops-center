@@ -89,7 +89,7 @@ test("bridge reads the previous Seoul calendar month and sends only frozen Shopl
   assert.equal("monthlyItemCap" in seen[0].body, false);
 });
 
-test("same frozen evidence generates the same exact request ID for safe cron retries", async () => {
+test("same frozen evidence generates the same exact request ID for safe dispatcher retries", async () => {
   const ids = [];
   const transport = async (_url, init) => {
     const body = JSON.parse(String(init.body));
@@ -208,21 +208,19 @@ test("Storage application errors remain explicit and are not accepted as success
   );
 });
 
-test("cron is production-only, CRON_SECRET guarded, daily self-healing and never contains a real order action", async () => {
+test("budget sync reuses the existing dispatcher maintenance task and never adds a second Vercel heartbeat", async () => {
   const route = await readFile(
-    new URL("../src/app/api/cron/sourcing-budget-sync/route.ts", import.meta.url),
+    new URL("../src/app/api/cron/ops-storage-maintenance/route.ts", import.meta.url),
     "utf8",
   );
   const vercel = JSON.parse(
     await readFile(new URL("../vercel.json", import.meta.url), "utf8"),
   );
-  assert.match(route, /process\.env\.VERCEL_ENV !== "production"/);
-  assert.match(route, /timingSafeEqual/);
-  assert.match(route, /process\.env\.CRON_SECRET/);
   assert.match(route, /syncPreviousMonthRevenueToStorage/);
+  assert.match(route, /sourcing budget sync failed/);
+  assert.match(route, /sourcingBudget/);
   assert.doesNotMatch(route, /ORDERED|payment|1688.*order/i);
-  assert.deepEqual(
-    vercel.crons.find((row) => row.path === "/api/cron/sourcing-budget-sync"),
-    { path: "/api/cron/sourcing-budget-sync", schedule: "17 0 * * *" },
-  );
+  assert.deepEqual(vercel.crons, [
+    { path: "/api/cron/ops-dispatcher", schedule: "* * * * *" },
+  ]);
 });
