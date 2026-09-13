@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/ops-dispatcher",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/sourcing-budget-sync",
+      "schedule": "17 0 * * *"
     }
   ]
 }
