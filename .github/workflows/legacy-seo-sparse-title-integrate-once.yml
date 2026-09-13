@@ -1,0 +1,48 @@
+name: Legacy SEO Sparse Title Integration Once
+on:
+  push:
+    branches: ['fix/legacy-seo-sparse-title-20260914']
+    paths: ['.github/workflows/legacy-seo-sparse-title-integrate-once.yml']
+permissions:
+  contents: write
+jobs:
+  integrate-verified-source:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Apply the exact reviewed source-only patch on the latest branch head
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          source=Path('.github/workflows/legacy-seo-sparse-title-patch-once.yml').read_text()
+          script=source.split("          python3 - <<'PY'\n",1)[1].split('\n          PY',1)[0]
+          exec(compile(textwrap.dedent(script),'reviewed-validated-title-patch','exec'))
+          PY
+          git diff --check
+      - name: Repeat material validity and existing history, safety, recovery regressions
+        run: >-
+          node --experimental-strip-types --test
+          tests/keywordEngineElonValidatedTitleReuse.test.mjs
+          tests/keywordEngineElonMallTitleSafeComposer.test.mjs
+          tests/seoCategoryIntentExpansionV5.test.mjs
+          tests/seoBulkMallTitleFactBridge.test.mjs
+          tests/seoRunDurableWorker.test.mjs
+          tests/keywordEngineElonSelectionRecovery.test.mjs
+          tests/keywordEngineElonDiscoveryIdentityPriority.test.mjs
+      - run: npx eslint src/lib/keywordEngineElonMallTitleSafeComposer.ts src/lib/keywordEngineElonFreshMallTitleComposer.ts src/lib/legacySeoRunWorker.ts tests/keywordEngineElonValidatedTitleReuse.test.mjs
+      - name: Commit source only without changing protected runtime data
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/keywordEngineElonMallTitleSafeComposer.ts src/lib/keywordEngineElonFreshMallTitleComposer.ts src/lib/legacySeoRunWorker.ts
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          git commit -m 'fix: prefer all valid title variants before unavoidable reuse'
+          git push origin HEAD:refs/heads/fix/legacy-seo-sparse-title-20260914
