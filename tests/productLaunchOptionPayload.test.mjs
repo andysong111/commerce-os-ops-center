@@ -35,3 +35,43 @@ for(const [name,build] of [['normal',buildProductLaunchShoplingPayload],['legacy
     assert.deepEqual(partial.channels[0].options.map(o=>o.saleOption),['진핑크 6핀','스카이 3핀']);
   });
 }
+
+test('legacy: explicit wholesale1 surcharge is preserved and conservatively scaled per channel',()=>{
+  const item=fixture(['3핀','6핀'],'종류');
+  item.orderOptions=item.orderOptions.map((option,index)=>({
+    ...option,
+    baseSalePriceKrw:1000,
+    legacySeoWholesale1AdditionalAmountKrw:index===0?0:360,
+  }));
+  const policy={channelMultipliers:{wholesale1:1.1,wholesale2:1.15,wholesale3:1,wholesale4:1.3,retail1:1.3,retail2:1.4}};
+  const payload=buildLegacySeoShoplingPayload(item,policy,'surcharge-test');
+  assert.deepEqual(
+    Object.fromEntries(payload.channels.map(channel=>[channel.key,channel.options.map(option=>option.additionalAmountKrw)])),
+    {
+      wholesale1:[0,360],
+      wholesale2:[0,380],
+      wholesale3:[0,330],
+      wholesale4:[0,430],
+      retail1:[0,430],
+      retail2:[0,460],
+    },
+  );
+  for(const channel of payload.channels) {
+    assert.equal(channel.options[0].finalSalePriceKrw,channel.salePrice);
+    assert.equal(
+      channel.options[1].finalSalePriceKrw,
+      channel.salePrice+channel.options[1].additionalAmountKrw,
+    );
+  }
+  const normal=buildProductLaunchShoplingPayload(item,policy,'normal-ignores-legacy-surcharge');
+  assert.deepEqual(normal.channels.flatMap(channel=>channel.options.map(option=>option.additionalAmountKrw)),Array(12).fill(0));
+});
+
+test('legacy: invalid explicit wholesale1 surcharge fails closed',()=>{
+  const item=fixture(['기본','추가'],'종류');
+  item.orderOptions[1].legacySeoWholesale1AdditionalAmountKrw=-1;
+  assert.throws(
+    ()=>buildLegacySeoShoplingPayload(item,{},'invalid-surcharge'),
+    /도매1 추가금이 올바르지 않습니다/,
+  );
+});
