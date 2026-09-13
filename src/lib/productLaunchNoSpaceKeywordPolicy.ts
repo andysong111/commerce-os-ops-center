@@ -82,7 +82,7 @@ export function sanitizeNoSpaceRecommendationGroup(
   }
   if (sanitized.excludedProhibitedCount > 0) {
     warnings.push(
-      `OPS 고정 사용금지 키워드 ${sanitized.excludedProhibitedCount}개는 정확 일치 기준으로 제외했습니다.`,
+      `OPS 고정 사용금지 문구가 포함된 후보 ${sanitized.excludedProhibitedCount}개를 제외했습니다.`,
     );
   }
   if (optimizedKeywords.length < 10) {
@@ -152,6 +152,15 @@ export function validateNoSpaceExecutionPlan(
     }
     const row = value as Record<string, unknown>;
     const goodsKey = text(row.goods_key);
+    const finalTitle = text(row.final_title);
+    if (isOpsExactProhibitedKeyword(finalTitle)) {
+      return {
+        ok: false,
+        goodsKey,
+        keyword: finalTitle,
+        message: `${goodsKey || "상품번호 없음"}: 상품명에 OPS 고정 사용금지 문구가 포함되어 전송할 수 없습니다.`,
+      };
+    }
     const keywords = splitFinalSiteSrch(row.final_site_srch);
     if (keywords.length !== 10) {
       return {
@@ -166,7 +175,7 @@ export function validateNoSpaceExecutionPlan(
           ok: false,
           goodsKey,
           keyword,
-          message: `${goodsKey || "상품번호 없음"}: OPS 고정 사용금지 키워드 '${keyword}'는 전송할 수 없습니다.`,
+          message: `${goodsKey || "상품번호 없음"}: OPS 고정 사용금지 문구가 포함된 검색어 '${keyword}'는 전송할 수 없습니다.`,
         };
       }
       if (!isNoSpaceSearchKeyword(keyword)) {
