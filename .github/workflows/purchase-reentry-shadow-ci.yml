@@ -43,9 +43,11 @@ jobs:
       - name: Verify real V2, stock evidence, commitment reducer, read adapter and API boundaries
         run: node --experimental-strip-types --test tests/purchaseCycleReentryShadow.test.mjs
       - name: Install isolated browser test tools only
-        run: npm install --no-save --package-lock=false esbuild@0.25.9 playwright@1.55.1
-      - run: npx playwright install --with-deps chromium
+        run: npm install --prefix "$RUNNER_TEMP/reentry-browser-tools" --no-package-lock --no-audit --no-fund esbuild@0.25.9 playwright@1.55.1
+      - run: '"$RUNNER_TEMP/reentry-browser-tools/node_modules/.bin/playwright" install --with-deps chromium'
       - name: Real UI with mocked read-only API (no production writes)
+        env:
+          REENTRY_TEST_TOOLS_DIR: ${{ runner.temp }}/reentry-browser-tools
         run: node tests/purchaseCycleReentryShadow.browser.mjs
       - uses: actions/upload-artifact@v4
         if: always()

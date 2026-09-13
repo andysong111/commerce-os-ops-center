@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { build } from "esbuild";
-import { chromium } from "playwright";
+import { createRequire } from "node:module";
+// Browser tools live outside the project; React and app dependencies remain
+// exactly those installed by the checked-in package-lock and npm ci.
+const toolRequire = createRequire(process.env.REENTRY_TEST_TOOLS_DIR
+  ? `${process.env.REENTRY_TEST_TOOLS_DIR}/package.json` : import.meta.url);
+const { build } = toolRequire("esbuild");
+const { chromium } = toolRequire("playwright");
 
 const artifacts = "artifacts/reentry-shadow-ui";
 await mkdir(artifacts, { recursive: true });
