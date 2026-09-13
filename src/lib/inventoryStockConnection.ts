@@ -1,6 +1,7 @@
 export const INVENTORY_QUEUE_PATH = "/api/inventory-stock-control/sync";
 export const INVENTORY_REFRESH_PATH = "/api/inventory-stock-control";
 type ReadPath = typeof INVENTORY_QUEUE_PATH | typeof INVENTORY_REFRESH_PATH;
+const EVIDENCE_REFRESH_REUSE_MS = 2 * 60 * 1000;
 export class InventoryConnectionError extends Error {
   retryAfterMs: number;
   code: string;
@@ -13,7 +14,10 @@ export class InventoryConnectionError extends Error {
 }
 
 // One in-flight read per browser module. Never cache successful execution jobs.
-// Fresh reads wait for any old read, then re-fetch. This helper cannot issue writes.
+// Passive queue reads stay read-only. An explicit/fresh queue read first refreshes
+// sales/inventory evidence when the last explicit evidence refresh is older than
+// two minutes, then re-reads the queue. This prevents a 10-minute Tail expiry
+// from deadlocking the manual queue while keeping 30-second polling side-effect free.
 export function createInventoryReadClient(options: { fetcher?: typeof fetch; now?: () => number } = {}) {
   const fetcher = options.fetcher ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const now = options.now ?? Date.now;
@@ -21,9 +25,22 @@ export function createInventoryReadClient(options: { fetcher?: typeof fetch; now
   let failures = 0;
   let retryAt = 0;
   let lastMessage = "재고 연결을 잠시 쉬고 다시 확인합니다.";
+  let lastEvidenceRefreshAt = Number.NEGATIVE_INFINITY;
   function read<T>(path: ReadPath, fresh = false): Promise<T> {
     if (path !== INVENTORY_QUEUE_PATH && path !== INVENTORY_REFRESH_PATH) {
       return Promise.reject(new Error("INVENTORY_READ_PATH_NOT_ALLOWED"));
+    }
+    if (
+      path === INVENTORY_QUEUE_PATH &&
+      fresh &&
+      now() - lastEvidenceRefreshAt >= EVIDENCE_REFRESH_REUSE_MS
+    ) {
+      // Share an in-flight explicit evidence refresh, but never reuse a completed
+      // queue response. A successful refresh records its timestamp below, so the
+      // recursive fresh queue read skips this preflight and performs the real read.
+      return read<Record<string, unknown>>(INVENTORY_REFRESH_PATH, false).then(() =>
+        read<T>(INVENTORY_QUEUE_PATH, true),
+      );
     }
     if (pending) {
       if (!fresh && pending.path === path) return pending.promise as Promise<T>;
@@ -53,6 +70,7 @@ export function createInventoryReadClient(options: { fetcher?: typeof fetch; now
         }
         failures = 0;
         retryAt = 0;
+        if (path === INVENTORY_REFRESH_PATH) lastEvidenceRefreshAt = now();
         return payload;
       } catch (error) {
         failures += 1;
