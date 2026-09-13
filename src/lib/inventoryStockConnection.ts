@@ -4,6 +4,7 @@ type ReadPath = typeof INVENTORY_QUEUE_PATH | typeof INVENTORY_REFRESH_PATH;
 const EVIDENCE_REFRESH_REUSE_MS = 2 * 60 * 1000;
 const INVENTORY_QUEUE_TIMEOUT_MS = 45_000;
 const INVENTORY_REFRESH_TIMEOUT_MS = 60_000;
+const INVENTORY_QUEUE_HANDOFF_TTL_MS = 5_000;
 export class InventoryConnectionError extends Error {
   retryAfterMs: number;
   code: string;
@@ -20,6 +21,9 @@ export class InventoryConnectionError extends Error {
 // sales/inventory evidence when the last explicit evidence refresh is older than
 // two minutes, then re-reads the queue. This prevents a 10-minute Tail expiry
 // from deadlocking the manual queue while keeping 30-second polling side-effect free.
+// A parent may explicitly publish one freshly fetched queue payload as a very short
+// render handoff. This is not a transport cache: it is bounded to a few seconds,
+// is never populated by normal polling, and fresh/execution reads always bypass it.
 export function createInventoryReadClient(options: { fetcher?: typeof fetch; now?: () => number } = {}) {
   const fetcher = options.fetcher ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const now = options.now ?? Date.now;
@@ -28,9 +32,25 @@ export function createInventoryReadClient(options: { fetcher?: typeof fetch; now
   let retryAt = 0;
   let lastMessage = "재고 연결을 잠시 쉬고 다시 확인합니다.";
   let lastEvidenceRefreshAt = Number.NEGATIVE_INFINITY;
+  let queueHandoff: { payload: unknown; expiresAt: number } | null = null;
+
+  function publishQueueHandoff<T>(payload: T, ttlMs = INVENTORY_QUEUE_HANDOFF_TTL_MS) {
+    const boundedTtl = Math.min(10_000, Math.max(250, Math.round(Number(ttlMs) || INVENTORY_QUEUE_HANDOFF_TTL_MS)));
+    queueHandoff = { payload, expiresAt: now() + boundedTtl };
+  }
+
   function read<T>(path: ReadPath, fresh = false): Promise<T> {
     if (path !== INVENTORY_QUEUE_PATH && path !== INVENTORY_REFRESH_PATH) {
       return Promise.reject(new Error("INVENTORY_READ_PATH_NOT_ALLOWED"));
+    }
+    if (path === INVENTORY_QUEUE_PATH && fresh) {
+      // A button/execution read must never inherit a render handoff.
+      queueHandoff = null;
+    } else if (path === INVENTORY_QUEUE_PATH && queueHandoff) {
+      if (queueHandoff.expiresAt > now()) {
+        return Promise.resolve(queueHandoff.payload as T);
+      }
+      queueHandoff = null;
     }
     if (
       path === INVENTORY_QUEUE_PATH &&
@@ -96,7 +116,7 @@ export function createInventoryReadClient(options: { fetcher?: typeof fetch; now
     void promise.then(clear, clear);
     return promise as Promise<T>;
   }
-  return { read };
+  return { read, publishQueueHandoff };
 }
 export const inventoryStockReadClient = createInventoryReadClient();
 

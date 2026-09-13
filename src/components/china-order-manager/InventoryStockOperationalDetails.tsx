@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { INVENTORY_REFRESH_PATH, inventoryStockReadClient } from "@/lib/inventoryStockConnection";
+import {
+  INVENTORY_QUEUE_PATH,
+  INVENTORY_REFRESH_PATH,
+  inventoryStockReadClient,
+} from "@/lib/inventoryStockConnection";
 import { StockSyncOperationalQueuePanel } from "@/components/china-order-manager/StockSyncOperationalQueuePanel";
 
 type RefreshState = "IDLE" | "REFRESHING" | "READY" | "ERROR";
@@ -18,21 +22,28 @@ export function InventoryStockOperationalDetails() {
     refreshBusy.current = true;
     setHasFreshEvidence(false);
     setRefreshState("REFRESHING");
-    setRefreshMessage("판매·재고 증거를 최신화한 뒤 운영 큐를 엽니다. 잠시만 기다려 주세요.");
+    setRefreshMessage("판매·재고 증거를 최신화한 뒤 운영 큐까지 확인합니다. 잠시만 기다려 주세요.");
     try {
-      // Refresh evidence exactly once here. The queue panel performs the single
-      // authoritative Q read after it mounts, so opening this section no longer
-      // does R→Q and then immediately repeats Q a second time.
+      // First refresh the evidence/Tail. Then fetch the authoritative queue here,
+      // before mounting the queue panel. The exact Q payload is published only as
+      // a short render handoff so both the overview and newly mounted queue can
+      // paint the same successful response without racing another network request.
       await inventoryStockReadClient.read<Record<string, unknown>>(INVENTORY_REFRESH_PATH, false);
+      setRefreshMessage("판매·재고 증거 최신화 완료 · 최신 운영 큐를 확인하고 있습니다.");
+      const queuePayload = await inventoryStockReadClient.read<Record<string, unknown>>(
+        INVENTORY_QUEUE_PATH,
+        true,
+      );
+      inventoryStockReadClient.publishQueueHandoff(queuePayload);
       setHasFreshEvidence(true);
       setRefreshState("READY");
-      setRefreshMessage("판매·재고 증거 최신화 완료 · 최신 운영 큐를 한 번 조회합니다.");
-      // Wake the overview. The newly mounted queue shares/coalesces the same
-      // read-only queue request through inventoryStockReadClient.
+      setRefreshMessage("판매·재고 증거와 운영 큐 확인 완료 · 현재 결과를 화면에 반영했습니다.");
+      // Wake the overview after the handoff has been published. Both consumers
+      // receive the same bounded payload; execution reads still bypass it.
       window.dispatchEvent(new Event("online"));
     } catch (error) {
       setRefreshState("ERROR");
-      setRefreshMessage(error instanceof Error ? error.message : "판매·재고 증거 최신화에 실패했습니다.");
+      setRefreshMessage(error instanceof Error ? error.message : "판매·재고 증거 또는 운영 큐 확인에 실패했습니다.");
     } finally {
       refreshBusy.current = false;
     }
@@ -76,7 +87,7 @@ export function InventoryStockOperationalDetails() {
           </button>
         ) : (
           <div className="rounded-xl border border-sky-200 bg-white px-4 py-6 text-center text-sm font-bold text-slate-600">
-            {refreshState === "REFRESHING" ? "최신 판매·재고 증거 확인 중..." : "영역을 열면 최신 판매·재고 증거를 먼저 확인합니다."}
+            {refreshState === "REFRESHING" ? "최신 판매·재고 증거와 운영 큐 확인 중..." : "영역을 열면 최신 판매·재고 증거와 운영 큐를 먼저 확인합니다."}
           </div>
         )}
       </div>
