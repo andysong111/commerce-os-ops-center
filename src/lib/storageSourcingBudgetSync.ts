@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { previousCalendarMonth, seoulCalendarMonth } from "./monthlyPurchasePolicy.ts";
-import { loadCalendarMonthNormalRevenue } from "./shopling/calendarMonthRevenue.ts";
 
 const DEFAULT_STORAGE_BASE_URL = "https://storage-organization.vercel.app";
 const STORAGE_PATH = "/api/sourcing-intake";
@@ -9,6 +8,15 @@ const BUDGET_POLICY_VERSION = "spending-ratio-auto-revenue-v2";
 const RATE_BPS = 1200;
 const MAX_BPS = 1500;
 const ITEM_CAP = 20;
+
+type RevenueSnapshot = {
+  month: string;
+  revenueKrw: number;
+  frozenAt: string | null;
+  fetchedRows: number;
+  chunkCount: number;
+  cached: boolean;
+};
 
 export type StorageSourcingBudgetSyncReceipt = {
   ok: true;
@@ -26,8 +34,6 @@ export type StorageSourcingBudgetSyncReceipt = {
   budgetPolicyVersion: string;
   changed: boolean;
 };
-
-type RevenueSnapshot = Awaited<ReturnType<typeof loadCalendarMonthNormalRevenue>>;
 
 type Dependencies = {
   now?: Date;
@@ -98,9 +104,14 @@ function parseFrozen(value: string | null) {
   return new Date(parsed).toISOString();
 }
 
+async function defaultRevenueLoader(month: string): Promise<RevenueSnapshot> {
+  const { loadCalendarMonthNormalRevenue } = await import("./shopling/calendarMonthRevenue.ts");
+  return loadCalendarMonthNormalRevenue(month);
+}
+
 export async function syncPreviousMonthRevenueToStorage({
   now = new Date(),
-  revenueLoader = loadCalendarMonthNormalRevenue,
+  revenueLoader = defaultRevenueLoader,
   transport = fetch,
   env = process.env,
 }: Dependencies = {}): Promise<StorageSourcingBudgetSyncReceipt> {
