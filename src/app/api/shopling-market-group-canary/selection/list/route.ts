@@ -12,6 +12,9 @@ const BUSY_MARKET = new Set(["submit_armed"]);
 const CONFIRM_MARKET = new Set(["confirm_needed"]);
 const LEGACY_UNKNOWN = new Set(["legacy_ignored"]);
 const STALE_BUSY_MS = 3 * 60 * 1000;
+const SAFE_PRE_SUBMIT_STALE_MS = 15 * 60 * 1000;
+const DATE_FILTER_LIMIT = 1000;
+const LOOKUP_CHUNK = 200;
 
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
@@ -25,6 +28,14 @@ function record(value: unknown): Record<string, unknown> {
 
 function rows(value: unknown) {
   return Array.isArray(value) ? value.map(record) : [];
+}
+
+function chunks<T>(values: T[], size = LOOKUP_CHUNK) {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size));
+  }
+  return result;
 }
 
 function resultRows(job: Record<string, unknown>) {
@@ -52,11 +63,22 @@ function isoParam(value: string | null) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
+function ageMs(raw: unknown) {
+  const timestamp = new Date(text(raw)).getTime();
+  return Number.isFinite(timestamp) ? Date.now() - timestamp : -1;
+}
+
 function isStaleBusy(ledger: Record<string, unknown>) {
-  const raw = text(ledger.submit_armed_at || ledger.updated_at || ledger.claimed_at);
-  if (!raw) return false;
-  const timestamp = new Date(raw).getTime();
-  return Number.isFinite(timestamp) && Date.now() - timestamp >= STALE_BUSY_MS;
+  const raw = ledger.submit_armed_at || ledger.updated_at || ledger.claimed_at;
+  const age = ageMs(raw);
+  return age >= STALE_BUSY_MS;
+}
+
+function isSafeStalePreSubmitClaim(ledger: Record<string, unknown>) {
+  if (text(ledger.status) !== "claimed" || text(ledger.market_status) !== "pending") return false;
+  if (text(ledger.submit_armed_at)) return false;
+  const age = ageMs(ledger.claimed_at || ledger.updated_at);
+  return age >= SAFE_PRE_SUBMIT_STALE_MS;
 }
 
 export async function GET(request: Request) {
@@ -73,6 +95,7 @@ export async function GET(request: Request) {
     return Response.json({ ok: false, error: "invalid_shopling_upload_date_range" }, { status: 400 });
   }
   const dateFiltered = Boolean(fromIso || toIso);
+  const strictPending = text(url.searchParams.get("strict_pending")) === "1";
   const fromExclusiveIso = fromIso
     ? new Date(new Date(fromIso).getTime() - 1).toISOString()
     : "";
@@ -89,7 +112,7 @@ export async function GET(request: Request) {
     .order("completed_at", { ascending: false });
   if (fromExclusiveIso) jobsQuery = jobsQuery.gt("completed_at", fromExclusiveIso);
   if (toIso) jobsQuery = jobsQuery.lt("completed_at", toIso);
-  const jobsResult = await jobsQuery.limit(dateFiltered ? 240 : 120);
+  const jobsResult = await jobsQuery.limit(dateFiltered ? DATE_FILTER_LIMIT : 120);
   if (jobsResult.error) {
     return Response.json(
       { ok: false, error: "shopling_market_selection_jobs_failed", message: jobsResult.error.message },
@@ -100,18 +123,18 @@ export async function GET(request: Request) {
   const jobs = (Array.isArray(jobsResult.data) ? jobsResult.data : [])
     .map(record)
     .filter(isSeoBulkJob)
-    .slice(0, dateFiltered ? 100 : 50);
+    .slice(0, dateFiltered ? DATE_FILTER_LIMIT : 50);
 
   const launchItemIds = [...new Set(jobs.map((job) => text(job.launch_item_id)).filter(Boolean))];
   const latestBatchByLaunch = new Map<string, string>();
-  if (launchItemIds.length > 0) {
+  for (const launchChunk of chunks(launchItemIds)) {
     const latestResult = await supabase
       .from(JOB_TABLE)
       .select("id,launch_item_id,status,payload,completed_at,created_at")
-      .in("launch_item_id", launchItemIds)
+      .in("launch_item_id", launchChunk)
       .in("status", ["success", "partial_failure"])
       .order("completed_at", { ascending: false })
-      .limit(Math.min(500, Math.max(80, launchItemIds.length * 8)));
+      .limit(Math.min(1000, Math.max(launchChunk.length * 8, launchChunk.length)));
     if (latestResult.error) {
       return Response.json(
         { ok: false, error: "shopling_market_selection_latest_batch_failed", message: latestResult.error.message },
@@ -131,12 +154,12 @@ export async function GET(request: Request) {
 
   const allGoodsKeys = [...new Set(jobs.flatMap((job) => resultRows(job).map((row) => row.goodsKey)))];
   const ledgerByGoodsKey = new Map<string, Record<string, unknown>>();
-  if (allGoodsKeys.length > 0) {
+  for (const goodsChunk of chunks(allGoodsKeys)) {
     const ledgerResult = await supabase
       .from(LEDGER_TABLE)
       .select("goods_key,status,market_status,reason_code,message,claimed_at,submit_armed_at,updated_at")
-      .in("goods_key", allGoodsKeys)
-      .limit(Math.min(700, Math.max(150, allGoodsKeys.length + 20)));
+      .in("goods_key", goodsChunk)
+      .limit(goodsChunk.length);
     if (ledgerResult.error) {
       return Response.json(
         { ok: false, error: "shopling_market_selection_ledger_failed", message: ledgerResult.error.message },
@@ -161,6 +184,7 @@ export async function GET(request: Request) {
     let staleBusyCount = 0;
     let pendingCount = 0;
     let registrationUnknownCount = 0;
+    let recoverablePreSubmitCount = 0;
 
     for (const row of successfulRows) {
       const ledger = ledgerByGoodsKey.get(row.goodsKey);
@@ -170,6 +194,9 @@ export async function GET(request: Request) {
         marketDoneCount += 1;
       } else if (CONFIRM_MARKET.has(status) || CONFIRM_MARKET.has(marketStatus)) {
         confirmNeededCount += 1;
+      } else if (ledger && isSafeStalePreSubmitClaim(ledger)) {
+        pendingCount += 1;
+        recoverablePreSubmitCount += 1;
       } else if (BUSY_STATUS.has(status) || BUSY_MARKET.has(marketStatus)) {
         if (ledger && isStaleBusy(ledger)) staleBusyCount += 1;
         else activeBusyCount += 1;
@@ -189,10 +216,25 @@ export async function GET(request: Request) {
     const selectable = isLatestBatch
       && uploadReady
       && activeBusyCount === 0
-      && actionableCount > 0
-      && marketDoneCount < 6;
+      && marketDoneCount < 6
+      && (strictPending
+        ? staleBusyCount === 0
+          && confirmNeededCount === 0
+          && registrationUnknownCount === 0
+          && pendingCount > 0
+        : actionableCount > 0);
     const modelNumber = text(payload.modelNumber) || text(seoFinal.modelNumber);
     const modelName = text(payload.modelName) || text(seoFinal.productName) || modelNumber;
+
+    let selectionReason = "ready";
+    if (!isLatestBatch) selectionReason = "superseded_batch";
+    else if (!uploadReady) selectionReason = "shopling_upload_incomplete";
+    else if (activeBusyCount > 0) selectionReason = "active_market_work";
+    else if (strictPending && staleBusyCount > 0) selectionReason = "stale_work_requires_review";
+    else if (strictPending && confirmNeededCount > 0) selectionReason = "confirm_needed_requires_review";
+    else if (strictPending && registrationUnknownCount > 0) selectionReason = "legacy_unknown_requires_review";
+    else if (marketDoneCount >= 6) selectionReason = "market_completed";
+    else if (pendingCount <= 0) selectionReason = "no_fresh_pending_channel";
 
     return {
       jobId,
@@ -208,6 +250,7 @@ export async function GET(request: Request) {
       uploadTotalCount: uploadRows.length,
       marketDoneCount,
       marketPendingCount: pendingCount,
+      recoverablePreSubmitCount,
       registrationUnknownCount,
       confirmNeededCount,
       activeBusyCount,
@@ -215,18 +258,30 @@ export async function GET(request: Request) {
       busyCount: activeBusyCount + staleBusyCount,
       actionableCount,
       selectable,
+      selectionReason,
       channels: successfulRows,
     };
   });
 
+  const selectableItems = items.filter((item) => item.selectable);
   return Response.json(
     {
       ok: true,
       bridge: BRIDGE,
-      filter: { from: fromIso, to: toIso },
+      filter: {
+        from: fromIso,
+        to: toIso,
+        strictPending,
+        basis: "shopling_upload_completed_at",
+      },
       items,
       count: items.length,
-      selectableCount: items.filter((item) => item.selectable).length,
+      channelCount: items.reduce((sum, item) => sum + item.uploadSuccessCount, 0),
+      selectableCount: selectableItems.length,
+      selectableChannelCount: selectableItems.reduce((sum, item) => sum + item.marketPendingCount, 0),
+      recoverablePreSubmitCount: items.reduce((sum, item) => sum + item.recoverablePreSubmitCount, 0),
+      completedCount: items.filter((item) => item.marketDoneCount >= 6).length,
+      reviewCount: items.filter((item) => ["stale_work_requires_review", "confirm_needed_requires_review", "legacy_unknown_requires_review", "active_market_work"].includes(item.selectionReason)).length,
     },
     {
       headers: {
