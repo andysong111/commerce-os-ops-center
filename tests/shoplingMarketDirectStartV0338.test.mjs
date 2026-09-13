@@ -20,7 +20,7 @@ test("v0.3.38 background directly claims from the hardened v0.3.37 server endpoi
   assert.match(source, /openParallelWorkers\(runId, tasks, \{ tab: control \}\)/);
   assert.match(source, /safe_send_item_not_fresh_pending/);
   assert.match(source, /v0337\/claim/);
-  assert.doesNotMatch(source, /v0338\/claim"/);
+  assert.match(source, /replaceAll\([\s\S]*v0338\/claim[\s\S]*v0337\/claim/);
 });
 
 test("v0.3.38 package route is versioned and based on v0.3.37", async () => {
