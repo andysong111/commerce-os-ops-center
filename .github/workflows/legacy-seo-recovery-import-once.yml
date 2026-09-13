@@ -1,0 +1,63 @@
+name: Legacy SEO Recovery Import Once
+on:
+  push:
+    branches: ['fix/legacy-seo-recovery-20260914']
+    paths: ['.github/workflows/legacy-seo-recovery-import-once.yml']
+permissions:
+  contents: write
+jobs:
+  import-reviewed-code:
+    if: github.ref == 'refs/heads/fix/legacy-seo-recovery-20260914'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Port only reviewed source and regressions from PR 1154
+        shell: bash
+        run: |
+          set -euo pipefail
+          prior=23be1249163ed7d8868d240afcce4f44a0e528be
+          git fetch origin "$prior"
+          base=$(git merge-base HEAD "$prior")
+          git diff "$base" "$prior" -- \
+            src/lib/keywordEngineElonLabV2Discovery.ts \
+            src/lib/keywordEngineElonLabV2Merge.ts \
+            src/lib/keywordEngineElonLabV2Scoring.ts \
+            src/lib/keywordEngineElonSelectionRecovery.ts \
+            src/lib/legacySeoRunWorker.ts \
+            tests/keywordEngineElonSelectionRecovery.test.mjs \
+            tests/keywordEngineElonMergeScoringState.test.mjs > /tmp/reviewed-seo.patch
+          test -s /tmp/reviewed-seo.patch
+          git apply --3way /tmp/reviewed-seo.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/legacy-seo-registration-ci.yml')
+          s=p.read_text()
+          paths=['src/lib/legacySeoRunWorker.ts','src/lib/keywordEngineElonSelectionRecovery.ts','src/lib/keywordEngineElonLabV2Discovery.ts','src/lib/keywordEngineElonLabV2Scoring.ts','src/lib/keywordEngineElonLabV2Merge.ts','tests/keywordEngineElonSelectionRecovery.test.mjs','tests/keywordEngineElonMergeScoringState.test.mjs']
+          anchor="      - 'src/lib/legacySeoPreflight.ts'\n"
+          assert s.count(anchor)==1
+          s=s.replace(anchor,anchor+''.join(f"      - '{v}'\n" for v in paths if f"      - '{v}'\n" not in s))
+          anchor='          tests/legacySeoRegistrationPolicy.test.mjs\n'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,anchor+'          tests/keywordEngineElonSelectionRecovery.test.mjs\n          tests/keywordEngineElonMergeScoringState.test.mjs\n')
+          p.write_text(s)
+          PY
+          git diff --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Run imported regression behavior
+        run: node --experimental-strip-types --test tests/keywordEngineElonSelectionRecovery.test.mjs tests/keywordEngineElonMergeScoringState.test.mjs
+      - name: Commit to isolated branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/keywordEngineElonLabV2Discovery.ts src/lib/keywordEngineElonLabV2Merge.ts src/lib/keywordEngineElonLabV2Scoring.ts src/lib/keywordEngineElonSelectionRecovery.ts src/lib/legacySeoRunWorker.ts tests/keywordEngineElonSelectionRecovery.test.mjs tests/keywordEngineElonMergeScoringState.test.mjs .github/workflows/legacy-seo-registration-ci.yml
+          git commit -m 'fix: restore reviewed bounded SEO recovery from PR 1154'
+          git push origin HEAD:refs/heads/fix/legacy-seo-recovery-20260914
