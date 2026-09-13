@@ -44,6 +44,7 @@ on:
       - "tests/seoTitleV4MinLengthContract.test.mjs"
       - "tests/keywordEngineElonLabSeoOutput.test.mjs"
       - "tests/keywordEngineElonMallTitleSafeComposer.test.mjs"
+      - "tests/keywordEngineElonValidatedTitleReuse.test.mjs"
       - "tests/seoCategoryIntentExpansionV5.test.mjs"
       - "tests/seoBulkMallTitleFactBridge.test.mjs"
       - "tests/seoBulkCloudParallel.test.mjs"
@@ -108,6 +109,7 @@ jobs:
           tests/seoRunClaimLoadShedding.test.mjs
           tests/seoCategoryIntentExpansionV5.test.mjs
           tests/seoRunDurableWorker.test.mjs
+          tests/keywordEngineElonValidatedTitleReuse.test.mjs
       - name: Test title inventory, durable RUN, no-reuse and performance contracts
         run: >-
           node --experimental-strip-types --test
@@ -116,6 +118,7 @@ jobs:
           tests/seoTitleV4MinLengthContract.test.mjs
           tests/keywordEngineElonLabSeoOutput.test.mjs
           tests/keywordEngineElonMallTitleSafeComposer.test.mjs
+          tests/keywordEngineElonValidatedTitleReuse.test.mjs
           tests/seoCategoryIntentExpansionV5.test.mjs
           tests/seoBulkMallTitleFactBridge.test.mjs
           tests/seoBulkCloudParallel.test.mjs
