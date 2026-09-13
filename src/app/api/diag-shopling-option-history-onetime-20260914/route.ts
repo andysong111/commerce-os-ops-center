@@ -8,6 +8,11 @@ export const maxDuration = 300;
 
 const EXPECTED_TOKEN_SHA256 = "95d0cd6edeefbed4cd9bff95472e06a3f1aa56743e801ecb4c15d8a142061acb";
 const MODELS = ["AAA129", "AAA369", "AAA378"] as const;
+const AAA129_HISTORICAL_GOODS_KEYS = [
+  "116328", "116329", "116330", "116331", "116332", "116333", "116334",
+  "116335", "116336", "116425", "116426", "116427", "116428", "116429",
+  "116430", "116431", "116432", "116433", "116434", "116435", "116436",
+] as const;
 
 function authorized(token: string) {
   const actual = createHash("sha256").update(token).digest();
@@ -22,7 +27,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const evidence = await loadLegacySeoShoplingEvidence([...MODELS]);
+    const evidence = await loadLegacySeoShoplingEvidence(
+      [...MODELS],
+      new Map([["AAA129", [...AAA129_HISTORICAL_GOODS_KEYS]]]),
+    );
     const rows = MODELS.map((modelNumber) => {
       const item = evidence.get(modelNumber);
       return {
