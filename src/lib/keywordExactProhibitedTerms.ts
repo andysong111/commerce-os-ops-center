@@ -1,4 +1,4 @@
-export const OPS_EXACT_PROHIBITED_KEYWORDS = [
+export const OPS_PROHIBITED_KEYWORD_TERMS = [
   "한샘",
   "한샘시스템행거",
   "동행복권",
@@ -7,18 +7,27 @@ export const OPS_EXACT_PROHIBITED_KEYWORDS = [
   "동행복권로또",
 ] as const;
 
-function exactKeywordIdentity(value: unknown) {
+function keywordIdentity(value: unknown) {
   return String(value ?? "")
     .normalize("NFKC")
     .trim()
     .toLocaleLowerCase("ko-KR");
 }
 
-const OPS_EXACT_PROHIBITED_KEYWORD_SET = new Set(
-  OPS_EXACT_PROHIBITED_KEYWORDS.map(exactKeywordIdentity),
-);
+const NORMALIZED_PROHIBITED_TERMS = OPS_PROHIBITED_KEYWORD_TERMS.map(keywordIdentity);
 
+export function findOpsProhibitedKeywordTerm(value: unknown) {
+  const identity = keywordIdentity(value);
+  if (!identity) return "";
+  return NORMALIZED_PROHIBITED_TERMS.find((term) => identity.includes(term)) ?? "";
+}
+
+export function containsOpsProhibitedKeyword(value: unknown) {
+  return Boolean(findOpsProhibitedKeywordTerm(value));
+}
+
+// Backward-compatible export for existing imports. Policy is now substring-based.
+export const OPS_EXACT_PROHIBITED_KEYWORDS = OPS_PROHIBITED_KEYWORD_TERMS;
 export function isOpsExactProhibitedKeyword(value: unknown) {
-  const identity = exactKeywordIdentity(value);
-  return Boolean(identity) && OPS_EXACT_PROHIBITED_KEYWORD_SET.has(identity);
+  return containsOpsProhibitedKeyword(value);
 }
