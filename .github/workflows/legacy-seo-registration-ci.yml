@@ -14,6 +14,11 @@ on:
       - 'src/lib/legacySeoCanonicalPrice.ts'
       - 'src/lib/legacySeoDuplicateModelGuard.ts'
       - 'src/lib/legacySeoPreflight.ts'
+      - 'src/lib/legacySeoRunWorker.ts'
+      - 'src/lib/keywordEngineElonSelectionRecovery.ts'
+      - 'src/lib/keywordEngineElonLabV2Discovery.ts'
+      - 'src/lib/keywordEngineElonLabV2Scoring.ts'
+      - 'src/lib/keywordEngineElonLabV2Merge.ts'
       - 'src/lib/legacySeoShoplingPayload.ts'
       - 'src/lib/legacySeoShoplingPriceMath.ts'
       - 'src/lib/legacySeoShoplingPriceRecovery.ts'
@@ -29,6 +34,9 @@ on:
       - 'src/app/legacy-seo-bulk-cloud/LegacySeoBulkListFetchShim.tsx'
       - 'src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx'
       - 'src/app/legacy-seo-bulk-cloud/page.tsx'
+      - 'tests/keywordEngineElonSelectionRecovery.test.mjs'
+      - 'tests/keywordEngineElonMergeScoringState.test.mjs'
+      - 'tests/keywordEngineElonDiscoveryIdentityPriority.test.mjs'
       - 'tests/legacySeoRegistrationPolicy.test.mjs'
       - 'tests/legacySeoShoplingOptionSyncSafety.test.mjs'
       - 'tests/legacySeoShoplingSyncState.test.mjs'
@@ -61,6 +69,9 @@ jobs:
       - name: Test legacy SEO registration safety
         run: >-
           node --experimental-strip-types --test
+          tests/keywordEngineElonSelectionRecovery.test.mjs
+          tests/keywordEngineElonMergeScoringState.test.mjs
+          tests/keywordEngineElonDiscoveryIdentityPriority.test.mjs
           tests/legacySeoRegistrationPolicy.test.mjs
           tests/legacySeoShoplingOptionSyncSafety.test.mjs
           tests/legacySeoShoplingSyncState.test.mjs
