@@ -4,9 +4,12 @@ on:
     branches: [main]
     paths:
       - 'src/lib/inventoryStock*.ts'
+      - 'src/lib/productMasterInventoryIdentity.ts'
       - 'src/lib/productMasterVerifiedInventoryBaselines.ts'
       - 'src/app/api/inventory-stock-control/**'
       - 'src/components/china-order-manager/InventoryStockOverviewPanel.tsx'
+      - 'src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx'
+      - 'src/components/china-order-manager/InventoryStocktakeOperatorPanel.tsx'
       - 'src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx'
       - 'src/lib/supabase/admin.ts'
       - 'src/lib/shopling/shoplingOptionStatus.ts'
@@ -19,9 +22,12 @@ on:
   pull_request:
     paths:
       - 'src/lib/inventoryStock*.ts'
+      - 'src/lib/productMasterInventoryIdentity.ts'
       - 'src/lib/productMasterVerifiedInventoryBaselines.ts'
       - 'src/app/api/inventory-stock-control/**'
       - 'src/components/china-order-manager/InventoryStockOverviewPanel.tsx'
+      - 'src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx'
+      - 'src/components/china-order-manager/InventoryStocktakeOperatorPanel.tsx'
       - 'src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx'
       - 'src/lib/supabase/admin.ts'
       - 'src/lib/shopling/shoplingOptionStatus.ts'
@@ -80,4 +86,4 @@ jobs:
           done
           docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /workspace/tests/inventoryStockTailProjection.sql
       - name: Test stock control and connection recovery
-        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockTailLatestView.test.mjs tests/inventoryStockConnection.test.mjs tests/supabaseAdminReadRetry.test.mjs
+        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockBulkInput.test.mjs tests/inventoryStockTailLatestView.test.mjs tests/inventoryStockConnection.test.mjs tests/supabaseAdminReadRetry.test.mjs
