@@ -10,10 +10,24 @@ test('passive reads share one request but completed jobs are not cached', async 
  const a=client.read(Q), b=client.read(Q); assert.equal(calls,1); release(); await Promise.all([a,b]);
  const c=client.read(Q); assert.equal(calls,2); release(); await c;
 });
-test('execution reads never reuse a pre-existing passive result', async () => {
- let calls=0, release;
- const client=createInventoryReadClient({fetcher:async () => { calls++; if(calls===1)await new Promise(r=>release=r); return ok(); }});
- const a=client.read(Q), b=client.read(Q,true); assert.equal(calls,1); release(); await Promise.all([a,b]);assert.equal(calls,2);
+test('execution reads wait for passive work, refresh evidence, then re-read the queue', async () => {
+ const calls=[]; let release;
+ const client=createInventoryReadClient({fetcher:async (path) => { calls.push(path); if(calls.length===1) await new Promise(r=>release=r); return ok(); }});
+ const passive=client.read(Q), execution=client.read(Q,true); assert.deepEqual(calls,[Q]); release(); await Promise.all([passive,execution]);
+ assert.deepEqual(calls,[Q,R,Q]);
+});
+test('fresh queue reads reuse a recent evidence refresh for two minutes but never cache queue jobs', async () => {
+ let now=0; const calls=[];
+ const client=createInventoryReadClient({now:()=>now,fetcher:async(path)=>{calls.push(path);return ok();}});
+ await client.read(Q,true); assert.deepEqual(calls,[R,Q]);
+ await client.read(Q,true); assert.deepEqual(calls,[R,Q,Q]);
+ now=120001; await client.read(Q,true); assert.deepEqual(calls,[R,Q,Q,R,Q]);
+});
+test('an explicit overview refresh prevents an immediate duplicate evidence refresh before queue read', async () => {
+ const calls=[];
+ const client=createInventoryReadClient({fetcher:async(path)=>{calls.push(path);return ok();}});
+ await client.read(R); await client.read(Q,true);
+ assert.deepEqual(calls,[R,Q]);
 });
 test('cooldown blocks repeated clicks across both paths and recovers', async () => {
  let now=0,calls=0;
@@ -58,6 +72,9 @@ test('both panels use bounded visible-only polling and explicit actions stay fre
  assert.match(queue,/setReport\(null\)/);assert.match(queue,/setJobs\(\[\]\)/);
  const overview=readFileSync('src/components/china-order-manager/InventoryStockOverviewPanel.tsx','utf8');
  assert.match(overview,/재고가 없다는 뜻이 아닙니다/);assert.match(overview,/마지막 정상 조회/);
+ const connection=readFileSync('src/lib/inventoryStockConnection.ts','utf8');
+ assert.match(connection,/path === INVENTORY_QUEUE_PATH[\s\S]*fresh[\s\S]*EVIDENCE_REFRESH_REUSE_MS/);
+ assert.match(connection,/read<Record<string, unknown>>\(INVENTORY_REFRESH_PATH, false\)/);
 });
 test('diagnostics classify plain-object timeouts without instanceof dependency',async()=>{
  const logs=[];const guard=createInventoryReadGuard({log:x=>logs.push(x)});
