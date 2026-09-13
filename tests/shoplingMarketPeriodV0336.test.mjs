@@ -10,7 +10,8 @@ test("v0.3.36 removes the obsolete pre-product saved-profile gate", async () => 
   assert.match(source, /async function drivePreProd\(state\)/);
   assert.match(source, /const mapping = applyPreProdMapping\(\)/);
   assert.match(source, /과거 실전검증된 연동정보 7개 항목 적용 완료/);
-  assert.doesNotMatch(source, /preprod_saved_profile_missing/);
+  assert.match(source, /v0336_preprod_saved_profile_guard_still_present/);
+  assert.doesNotMatch(source, /savedProfileSelect\(task\.profile\)/);
   assert.doesNotMatch(source, /쇼핑몰 연동 정보 화면에서 검색관리/);
 });
 
