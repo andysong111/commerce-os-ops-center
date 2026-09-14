@@ -3,9 +3,14 @@ import {
   loadInventoryStockControlReport,
   normalizeShoplingStockSyncInput,
   storeInventoryOperation,
+  type ExactInventoryAfterReset,
+  type InventoryStockControlReport,
 } from "@/lib/inventoryStockControl";
 import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/inventoryStockResetCorrections";
-import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
+import {
+  loadLatestInventoryStockSalesTailSnapshots,
+  overlayInventoryStockControlReportWithTail,
+} from "@/lib/inventoryStockSalesTail";
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
 import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
 import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
@@ -21,6 +26,10 @@ export const maxDuration = 60;
 
 const SHOPLING_STOCK_CANARY_PREPARATION_OPERATION_TYPE =
   "SHOPLING_STOCK_CANARY_PREPARATION";
+const CANONICAL_COVERAGE_BLOCK_REASON =
+  "품절 초기화 이후의 Canonical 판매 범위를 완전히 확인하지 못했습니다.";
+
+type QueueMode = "observe" | "execute";
 
 function unauthorized() {
   return Response.json(
@@ -57,6 +66,12 @@ function numericGoodsKey(value: unknown) {
 
 function truthy(value: unknown) {
   return value === true || text(value).toLowerCase() === "true";
+}
+
+function queueMode(request: Request): QueueMode {
+  return new URL(request.url).searchParams.get("mode") === "observe"
+    ? "observe"
+    : "execute";
 }
 
 function confirmedPreparationEvidence(
@@ -144,7 +159,8 @@ async function loadRetryableReport({
 
   // The operational queue polls this GET endpoint every 30 seconds. Polling must
   // remain read-only; otherwise every stale check appends a Tail snapshot to the
-  // operation ledger. Refresh Tail coverage only after a real state-changing POST.
+  // operation ledger. Refresh Tail coverage only after a real state-changing POST
+  // or through the explicit overview preflight used by an execution read.
   if (refreshTail) {
     tailSalesRefresh = await ensureExactInventoryStockSalesTailCoverage(report);
     if (tailSalesRefresh.refreshed) {
@@ -158,42 +174,150 @@ async function loadRetryableReport({
   };
 }
 
+async function loadObserveRevalidationBarcodes(
+  report: InventoryStockControlReport,
+) {
+  const candidates = report.rows.filter(
+    (row) =>
+      row.syncNeeded &&
+      row.syncBlocked &&
+      row.syncBlockReason === CANONICAL_COVERAGE_BLOCK_REASON,
+  );
+  if (!candidates.length) return new Set<string>();
+
+  // Observe mode may keep a previously verified approval candidate visible after
+  // the short Tail presentation TTL expires. This evidence is NEVER executable:
+  // the browser uses a separate fresh execute read immediately before Shopling send.
+  const snapshots = await loadLatestInventoryStockSalesTailSnapshots().catch(
+    () => new Map(),
+  );
+  const eligible = new Set<string>();
+  for (const row of candidates) {
+    const snapshot = snapshots.get(row.resetEventId);
+    if (
+      !snapshot ||
+      snapshot.barcode !== row.barcode ||
+      snapshot.resetAt !== row.resetAt
+    ) {
+      continue;
+    }
+    const resetMs = Date.parse(row.resetAt);
+    const startMs = Date.parse(snapshot.coverageStartAt);
+    const endMs = Date.parse(snapshot.coverageEndAt);
+    if (
+      Number.isFinite(resetMs) &&
+      Number.isFinite(startMs) &&
+      Number.isFinite(endMs) &&
+      startMs <= resetMs &&
+      endMs >= resetMs
+    ) {
+      eligible.add(row.barcode);
+    }
+  }
+  return eligible;
+}
+
+function observePresentationReport(
+  report: InventoryStockControlReport,
+  revalidationBarcodes: Set<string>,
+): InventoryStockControlReport {
+  if (!revalidationBarcodes.size) return report;
+  const rows = report.rows.map((row) => {
+    const visibleForApproval =
+      revalidationBarcodes.has(row.barcode) &&
+      row.syncNeeded &&
+      row.syncBlocked &&
+      row.syncBlockReason === CANONICAL_COVERAGE_BLOCK_REASON;
+    return visibleForApproval
+      ? { ...row, syncBlocked: false, syncBlockReason: null }
+      : row;
+  });
+  return {
+    ...report,
+    rows,
+    pendingSyncCount: rows.filter(
+      (row) => row.syncNeeded && !row.syncBlocked,
+    ).length,
+    uncertainSyncCount: rows.filter(
+      (row) =>
+        row.syncNeeded &&
+        row.syncBlocked &&
+        row.latestSyncOutcome === "UNCERTAIN",
+    ).length,
+  };
+}
+
+function queueJob(
+  row: ExactInventoryAfterReset,
+  preparedGoodsKeysByBarcode: Map<string, Set<string>>,
+) {
+  const goodsKeys = [
+    ...new Set([
+      ...row.goodsKeys,
+      ...(preparedGoodsKeysByBarcode.get(row.barcode) ?? []),
+    ]),
+  ].sort((left, right) => Number(left) - Number(right));
+  return {
+    jobId: `stock-sync:${row.barcode}:${row.desiredStatus}:${row.desiredSince}`,
+    barcode: row.barcode,
+    productName: row.productName,
+    productKind: row.productKind,
+    modelNo: row.modelNo,
+    goodsKeys,
+    desiredStatus: row.desiredStatus,
+    desiredSince: row.desiredSince,
+    exactInventoryQuantity: row.exactInventoryQuantity,
+    resetAt: row.resetAt,
+    route:
+      row.productKind === "OPTION"
+        ? ["SHOPLING_API_OPTION_STATUS", "A21_GOODS_KEY_OPTION_SEND"]
+        : ["A4_PRODUCT_STATUS", "A21_GOODS_KEY_PRODUCT_SALE_STATUS"],
+  };
+}
+
 export async function GET(request: Request) {
   if (!isSameOriginOpsRequest(request)) return unauthorized();
   return withInventoryReadGuard("queue", async () => {
-    const [{ report, tailSalesRefresh }, preparedGoodsKeysByBarcode] =
+    const mode = queueMode(request);
+    const [{ report: authoritativeReport, tailSalesRefresh }, preparedGoodsKeysByBarcode] =
       await Promise.all([loadRetryableReport(), loadPreparedGoodsKeysByBarcode()]);
+    const revalidationBarcodes =
+      mode === "observe" && authoritativeReport.state === "READY"
+        ? await loadObserveRevalidationBarcodes(authoritativeReport)
+        : new Set<string>();
+    const report =
+      mode === "observe"
+        ? observePresentationReport(authoritativeReport, revalidationBarcodes)
+        : authoritativeReport;
+
+    // Execute mode is fail-closed and only returns currently authoritative jobs.
+    // Observe mode may additionally show a stale-Tail approval candidate, but the
+    // client never sends it directly: pressing auto-process performs a fresh
+    // overview/Tail preflight and then calls this endpoint in execute mode again.
+    const queueRows = authoritativeReport.rows.filter(
+      (row) =>
+        row.syncNeeded &&
+        (!row.syncBlocked ||
+          (mode === "observe" && revalidationBarcodes.has(row.barcode))),
+    );
+    const jobs = [
+      ...new Map(
+        queueRows.map((row) => {
+          const job = queueJob(row, preparedGoodsKeysByBarcode);
+          return [job.jobId, job] as const;
+        }),
+      ).values(),
+    ];
+
     return Response.json(
       {
         ok: report.state === "READY",
         report,
         tailSalesRefresh,
-        jobs: report.rows
-          .filter((row) => row.syncNeeded && !row.syncBlocked)
-          .map((row) => {
-            const goodsKeys = [
-              ...new Set([
-                ...row.goodsKeys,
-                ...(preparedGoodsKeysByBarcode.get(row.barcode) ?? []),
-              ]),
-            ].sort((left, right) => Number(left) - Number(right));
-            return {
-              jobId: `stock-sync:${row.barcode}:${row.desiredStatus}:${row.desiredSince}`,
-              barcode: row.barcode,
-              productName: row.productName,
-              productKind: row.productKind,
-              modelNo: row.modelNo,
-              goodsKeys,
-              desiredStatus: row.desiredStatus,
-              desiredSince: row.desiredSince,
-              exactInventoryQuantity: row.exactInventoryQuantity,
-              resetAt: row.resetAt,
-              route:
-                row.productKind === "OPTION"
-                  ? ["SHOPLING_API_OPTION_STATUS", "A21_GOODS_KEY_OPTION_SEND"]
-                  : ["A4_PRODUCT_STATUS", "A21_GOODS_KEY_PRODUCT_SALE_STATUS"],
-            };
-          }),
+        jobs,
+        queueMode: mode,
+        executionRevalidationRequiredCount:
+          mode === "observe" ? revalidationBarcodes.size : 0,
       },
       {
         status: report.state === "READY" ? 200 : 503,
