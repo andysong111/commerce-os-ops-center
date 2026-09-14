@@ -1,3 +1,5 @@
+import { withSalesEventMutationGuard } from "@/lib/salesEventMutationGuard";
+import { assertSalesEventRefreshAllowed, SalesEventActionError, type SalesEventRefreshInput } from "@/lib/salesEventRefreshPolicy";
 import { createHash } from "node:crypto";
 import {
   aggregateProductMasterShoplingSalesEventChunk,
@@ -337,23 +339,46 @@ export function createSalesEventSyncRequestPlan(
   };
 }
 
-export async function createProductMasterShoplingSalesEventSyncRequest() {
-  shoplingReadConfigFromEnv(shoplingEnvironment());
-  const planning = await loadProductPlanningSnapshot();
-  const request = createSalesEventSyncRequestPlan(crypto.randomUUID(), planning);
-  await storeOperation({
-    operationType: SALES_EVENT_REQUEST,
-    sourceEventId: `sales-event-request:${request.requestId}`,
-    correlationId: requestCorrelationId(request.requestId),
-    inputSnapshot: request,
-    resultSnapshot: {
-      accepted: true,
-      state: "QUEUED",
-      message: "최근 360일 Shopling 주문행을 정확한 timestamp 판매 이벤트로 읽습니다.",
-    },
-    occurredAt: request.createdAt,
+export async function createProductMasterShoplingSalesEventSyncRequest(refresh?: SalesEventRefreshInput) {
+  return withSalesEventMutationGuard(async () => {
+    // Re-read after acquiring the persistent lock: stale tabs and double clicks
+    // must not create a second request or replace an in-flight publication.
+    const current = await loadProductMasterShoplingSalesEventSyncStatus();
+    if (refresh) {
+      assertSalesEventRefreshAllowed(current, refresh);
+    } else if (["QUEUED", "RUNNING", "READY_CANARY", "READY_FULL", "STORAGE_NOT_READY"].includes(current.state)) {
+      throw new SalesEventActionError("SALES_EVENT_REQUEST_ALREADY_ACTIVE", 409, "기존 판매 후보가 진행 중입니다. 화면을 새로고침하세요.");
+    }
+    shoplingReadConfigFromEnv(shoplingEnvironment());
+    const planning = await loadProductPlanningSnapshot();
+    const request = createSalesEventSyncRequestPlan(crypto.randomUUID(), planning);
+    await storeOperation({
+      operationType: SALES_EVENT_REQUEST,
+      sourceEventId: `sales-event-request:${request.requestId}`,
+      correlationId: requestCorrelationId(request.requestId),
+      inputSnapshot: {
+        ...request,
+        ...(refresh ? {
+          refreshesRequestId: refresh.expectedRequestId,
+          previousPlanFingerprint: refresh.expectedPlanFingerprint,
+          refreshReason: "EXPLICIT_LATEST_CANDIDATE",
+        } : {}),
+      },
+      resultSnapshot: {
+        accepted: true,
+        state: "QUEUED",
+        canonicalWritesEnabled: false,
+        sourceWritesEnabled: false,
+        message: "최근 360일 Shopling 주문행을 정확한 timestamp 판매 이벤트로 읽습니다.",
+      },
+      occurredAt: request.createdAt,
+    });
+    const persisted = await latestRequest();
+    if (persisted?.requestId !== request.requestId || persisted.analysisAsOf !== request.analysisAsOf) {
+      throw new SalesEventActionError("SALES_EVENT_REQUEST_READBACK_FAILED", 503, "재수집 저장 결과가 확인되지 않았습니다. 재접수하지 말고 상태를 다시 조회하세요.");
+    }
+    return persisted;
   });
-  return request;
 }
 
 async function verifiedPlanning(request: SalesEventSyncRequest) {

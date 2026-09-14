@@ -1,3 +1,4 @@
+import { withSalesEventMutationGuard } from "@/lib/salesEventMutationGuard";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { splitShoplingDateRange } from "@/lib/shopling/shoplingReadClient";
 import {
@@ -355,6 +356,10 @@ export async function hydrateProductMasterShoplingSalesEventRecovery() {
 }
 
 export async function recoverProductMasterShoplingSalesEventRequest() {
+  return withSalesEventMutationGuard(recoverSalesEventRequestUnderLock);
+}
+
+async function recoverSalesEventRequestUnderLock() {
   const requests = await latestRequests();
   const latest = requests[0];
   if (!latest) return { recovered: false as const, reason: "NO_REQUEST" as const };

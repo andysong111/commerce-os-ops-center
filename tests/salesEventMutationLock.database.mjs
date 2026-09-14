@@ -1,0 +1,27 @@
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
+const exec = promisify(execFile);
+const url = process.env.SALES_EVENT_TEST_DATABASE_URL;
+assert.ok(url && ["localhost", "127.0.0.1"].includes(new URL(url).hostname), "ephemeral local test DB only");
+const sql = async (query) => (await exec("psql", [url, "-v", "ON_ERROR_STOP=1", "-Atc", query])).stdout.trim();
+await sql("create role anon; create role authenticated; create role service_role;");
+await exec("psql", [url, "-v", "ON_ERROR_STOP=1", "-f", "supabase/migrations/202609140010_sales_event_mutation_lock.sql"]);
+assert.equal(await sql("select has_function_privilege('anon','public.claim_sales_event_mutation_lock(uuid)','execute') or has_function_privilege('authenticated','public.release_sales_event_mutation_lock(uuid)','execute')"), "f");
+assert.equal(await sql("select has_function_privilege('service_role','public.claim_sales_event_mutation_lock(uuid)','execute') and relrowsecurity from pg_class where oid='public.ops_sales_event_mutation_lock'::regclass"), "t");
+assert.equal(await sql("select public.claim_sales_event_mutation_lock(null)"), "f");
+const tokens = Array.from({ length: 12 }, () => randomUUID());
+const claims = await Promise.all(tokens.map((token) => sql(`select public.claim_sales_event_mutation_lock('${token}')`)));
+assert.equal(claims.filter((value) => value === "t").length, 1, "12 concurrent connections must have exactly one winner");
+const winner = tokens[claims.indexOf("t")], loser = tokens[claims.indexOf("f")];
+assert.equal(await sql(`select public.release_sales_event_mutation_lock('${loser}')`), "f");
+assert.equal(await sql(`select public.claim_sales_event_mutation_lock('${winner}')`), "f", "token replay must not extend active lease");
+assert.equal(await sql(`select public.release_sales_event_mutation_lock('${winner}')`), "t");
+assert.equal(await sql(`select public.claim_sales_event_mutation_lock('${loser}')`), "t");
+// Expiration manipulation is confined to this disposable CI database.
+await sql("update public.ops_sales_event_mutation_lock set leased_until=clock_timestamp()-interval '1 second'");
+assert.equal(await sql(`select public.claim_sales_event_mutation_lock('${winner}')`), "t");
+assert.equal(await sql(`select public.release_sales_event_mutation_lock('${loser}')`), "f", "late owner cannot release successor");
+assert.equal(await sql(`select public.release_sales_event_mutation_lock('${winner}')`), "t");
+console.log("SALES_EVENT_LOCK_DATABASE_PASS: privileges, RLS, null, 12-way concurrency, token ownership, TTL recovery");
