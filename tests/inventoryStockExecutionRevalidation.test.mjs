@@ -10,8 +10,12 @@ const routeSource = await readFile(
   new URL("../src/app/api/inventory-stock-control/sync/route.ts", import.meta.url),
   "utf8",
 );
+const detailsSource = await readFile(
+  new URL("../src/components/china-order-manager/InventoryStockOperationalDetails.tsx", import.meta.url),
+  "utf8",
+);
 
-test("passive stock queue observes candidates while execution revalidates", () => {
+test("display queue observes candidates while execution revalidates", () => {
   assert.match(
     connectionSource,
     /\?mode=\$\{fresh \? "execute" : "observe"\}/,
@@ -19,6 +23,10 @@ test("passive stock queue observes candidates while execution revalidates", () =
   assert.match(
     connectionSource,
     /read<Record<string, unknown>>\(INVENTORY_REFRESH_PATH, false\)\.then\(\(\) =>\s*read<T>\(INVENTORY_QUEUE_PATH, true\)/s,
+  );
+  assert.match(
+    detailsSource,
+    /INVENTORY_QUEUE_PATH,\s*false,/s,
   );
   assert.match(routeSource, /searchParams\.get\("mode"\) === "observe"/);
   assert.match(routeSource, /: "execute";/);
