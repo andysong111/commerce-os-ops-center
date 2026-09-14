@@ -6,6 +6,14 @@ on:
       - 'src/lib/productMasterShoplingSalesEvent*'
       - 'src/app/api/product-master/shopling-sales-events/**'
       - 'src/app/stage8-sales-events/**'
+      - 'src/app/api/inventory-stock-control/route.ts'
+      - 'tests/inventoryStockControlCanonicalCoverage.test.mjs'
+      - 'tests/inventoryStockProductMasterBridge.test.mjs'
+      - 'tests/shoplingStockStateRouteGuard.test.mjs'
+      - 'tests/inventoryStockControlReentry.test.mjs'
+      - 'tests/inventoryStockSalesTail.test.mjs'
+      - 'tests/shoplingOptionStatusUnmanagedQuantity.test.mjs'
+      - 'tests/helpers/purchaseCycleHarness.mjs'
       - 'supabase/migrations/202609140010_sales_event_mutation_lock.sql'
       - 'tests/salesEvent*'
       - '.github/workflows/sales-event-refresh-ci.yml'
@@ -16,6 +24,14 @@ on:
       - 'src/lib/productMasterShoplingSalesEvent*'
       - 'src/app/api/product-master/shopling-sales-events/**'
       - 'src/app/stage8-sales-events/**'
+      - 'src/app/api/inventory-stock-control/route.ts'
+      - 'tests/inventoryStockControlCanonicalCoverage.test.mjs'
+      - 'tests/inventoryStockProductMasterBridge.test.mjs'
+      - 'tests/shoplingStockStateRouteGuard.test.mjs'
+      - 'tests/inventoryStockControlReentry.test.mjs'
+      - 'tests/inventoryStockSalesTail.test.mjs'
+      - 'tests/shoplingOptionStatusUnmanagedQuantity.test.mjs'
+      - 'tests/helpers/purchaseCycleHarness.mjs'
       - 'supabase/migrations/202609140010_sales_event_mutation_lock.sql'
       - 'tests/salesEvent*'
       - '.github/workflows/sales-event-refresh-ci.yml'
@@ -36,7 +52,7 @@ jobs:
           POSTGRES_PASSWORD: isolated-test-only
         ports: ['5432:5432']
         options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,9 +61,9 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Real creator, route, guards, recovery and promotion regressions
-        run: node --experimental-strip-types --test tests/salesEventRefresh.test.mjs tests/productMasterShoplingSalesEventSync.test.mjs tests/productMasterShoplingSalesEventRecovery.test.mjs tests/stage8CandidatePromotionGate.test.mjs tests/productMasterShoplingSalesEventEngine.test.mjs tests/stage8CandidateDemandParity.test.mjs
+        run: node --experimental-strip-types --test tests/salesEventRefresh.test.mjs tests/productMasterShoplingSalesEventSync.test.mjs tests/productMasterShoplingSalesEventRecovery.test.mjs tests/stage8CandidatePromotionGate.test.mjs tests/productMasterShoplingSalesEventEngine.test.mjs tests/stage8CandidateDemandParity.test.mjs tests/salesEventInventoryCoverage.test.mjs tests/inventoryStockControlCanonicalCoverage.test.mjs tests/shoplingStockStateRouteGuard.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockControlReentry.test.mjs tests/inventoryStockSalesTail.test.mjs tests/shoplingOptionStatusUnmanagedQuantity.test.mjs
       - name: Changed runtime lint
-        run: npx eslint src/lib/salesEventRefreshPolicy.ts src/lib/salesEventMutationGuard.ts src/lib/productMasterShoplingSalesEventSync.ts src/lib/productMasterShoplingSalesEventRecovery.ts src/app/api/product-master/shopling-sales-events/route.ts src/app/stage8-sales-events
+        run: npx eslint src/lib/salesEventRefreshPolicy.ts src/lib/salesEventMutationGuard.ts src/lib/productMasterShoplingSalesEventSync.ts src/lib/productMasterShoplingSalesEventRecovery.ts src/app/api/product-master/shopling-sales-events/route.ts src/app/stage8-sales-events src/app/api/inventory-stock-control/route.ts
       - name: Real PostgreSQL privileges and concurrent ownership test (isolated database)
         env:
           SALES_EVENT_TEST_DATABASE_URL: postgresql://postgres:isolated-test-only@127.0.0.1:5432/postgres

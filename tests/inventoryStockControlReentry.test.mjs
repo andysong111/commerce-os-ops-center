@@ -94,7 +94,11 @@ test("Shopling ON_SALE API maps to status B and preserves the existing option qu
   const source = await readFile("src/lib/shopling/shoplingOptionStatus.ts", "utf8");
   assert.match(source, /return desired === "SOLD_OUT" \? "C" : "B"/);
   assert.match(source, /<optStatus>\$\{target\}<\/optStatus>/);
-  assert.match(source, /<optQty>\$\{variant\.optionQuantity\}<\/optQty>/);
+  // Main already emits numeric quantities through cdata and deliberately omits
+  // unmanaged quantities. Preserve the round-trip invariant, not obsolete syntax.
+  assert.match(source, /const quantityField = \/\^\\d\+\$\/\.test\(variant\.optionQuantity\)/);
+  assert.match(source, /<optQty>\$\{cdata\(variant\.optionQuantity\)\}<\/optQty>/);
+  assert.match(source, /\.\.\.quantityField/);
   assert.match(source, /after\.optionQuantity !== before\.optionQuantity/);
   assert.match(source, /SHOPLING_OPTION_READBACK_QTY_MISMATCH/);
 });
