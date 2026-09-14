@@ -20,6 +20,25 @@ const pending = (x, code) => x.blockers.some((row) => row.code === code);
 function stored(changes = {}) {
   return { source_event_id: "private-persisted-id", started_at: earlier, input_snapshot: { sourceSystem: "EXTERNAL_ORDER_IMPORT", sourceLineId: "private-line", barcode, sourceEventId: "private-event", status: "ORDERED", requestedQuantity: 200, orderedQuantity: 200, occurredAt: earlier, ...changes } };
 }
+function reconciliation({ sourceEventId, sourceLineId = "private-line", fromBarcode = "UNASSIGNED-202609-001", toBarcode = "BGF1-3", confirmed = true, confirmationMethod = "OWNER_EXPLICIT_CONFIRMATION", confirmedAt = "2026-09-14T00:02:00.000Z" } = {}) {
+  const id = sourceEventId ?? `reconcile-${toBarcode}`;
+  const row = stored({
+    sourceLineId,
+    sourceEventId: id,
+    barcode: toBarcode,
+    status: "ORDERED",
+    requestedQuantity: 200,
+    orderedQuantity: 200,
+    receivedQuantity: 0,
+    cancelledQuantity: 0,
+    occurredAt: confirmedAt,
+    note: "owner-confirmed identity with lifecycle parity",
+    payload: { identityReconciliation: { confirmed, confirmationMethod, fromBarcode, toBarcode, modelNo: "AAA309", confirmedAt } },
+  });
+  row.source_event_id = `persisted-${id}`;
+  row.started_at = confirmedAt;
+  return row;
+}
 test("production regression: seven TMP placeholders remain visible without poisoning the managed B-code scope", () => {
   const x = fixture();
   for (let i = 1; i <= 7; i++) x.planning.products.push({ skuId: `temporary-${i}`, barcode: `TMP1-${i}`, productName: "awaiting mapping", skuActive: true });
@@ -116,4 +135,82 @@ test("review regression: publication phase changes update the fingerprint even w
   assert.equal(after.demandSourceState, "READY_FULL"); assert.equal(after.state, "BLOCKED");
   assert.ok(pending(after, "DEMAND_PUBLICATION_PENDING")); assert.equal(after.summary.candidateCount, 0);
   assert.equal(build(x).sourceFingerprint, after.sourceFingerprint);
+});
+test("owner-confirmed reconciliation resolves the exact unassigned line without changing its 200-unit open quantity", () => {
+  const unresolved = "UNASSIGNED-202609-001";
+  const reserved = stored({ sourceEventId: "unassigned-reserved", barcode: unresolved, status: "RESERVED", requestedQuantity: 200, orderedQuantity: undefined });
+  reserved.source_event_id = "persisted-reserved";
+  const ordered = stored({ sourceEventId: "unassigned-ordered", barcode: unresolved, status: "ORDERED", requestedQuantity: 200, orderedQuantity: 200, occurredAt: "2026-09-14T00:01:00.000Z" });
+  ordered.source_event_id = "persisted-ordered";
+  const result = commitments.validateReentryCommitmentRows([reserved, ordered, reconciliation()], Date.parse(now));
+  assert.equal(result.invalidEventCount, 0);
+  assert.equal(result.totalCommitments, 1);
+  assert.equal(result.totalOpenQuantity, 200);
+  assert.equal(result.commitments[0].barcode, "BGF1-3");
+  assert.equal(result.commitments[0].orderedQuantity, 200);
+  assert.equal(result.commitments[0].eventCount, 3);
+});
+test("identity reconciliation conflicts fail closed instead of picking an arbitrary B-code", () => {
+  assert.throws(() => commitments.validateReentryCommitmentRows([
+    reconciliation({ sourceEventId: "first", toBarcode: "BGF1-3" }),
+    reconciliation({ sourceEventId: "second", toBarcode: "BAA1-1" }),
+  ], Date.parse(now)), (error) => error.message === "REENTRY_COMMITMENT_RECONCILIATION_CONFLICT");
+});
+test("unconfirmed, mismatched, malformed or future reconciliation markers fail closed", () => {
+  const invalidRows = [
+    reconciliation({ sourceEventId: "unconfirmed", confirmed: false }),
+    reconciliation({ sourceEventId: "method", confirmationMethod: "NAME_MATCH_ONLY" }),
+    reconciliation({ sourceEventId: "from", fromBarcode: "BAD" }),
+    reconciliation({ sourceEventId: "future", confirmedAt: "2026-09-14T02:00:00.000Z" }),
+  ];
+  const mismatched = reconciliation({ sourceEventId: "mismatch" });
+  mismatched.input_snapshot.payload.identityReconciliation.toBarcode = "BAA1-1";
+  invalidRows.push(mismatched);
+  for (const row of invalidRows) {
+    assert.throws(() => commitments.validateReentryCommitmentRows([row], Date.parse(now)), (error) => error.message === "REENTRY_COMMITMENT_RECONCILIATION_INVALID");
+  }
+});
+test("a correction on another source line cannot resolve an unrelated unassigned order", () => {
+  const unresolved = stored({ sourceEventId: "unresolved", barcode: "UNASSIGNED-202609-001" });
+  unresolved.source_event_id = "persisted-unresolved";
+  assert.throws(() => commitments.validateReentryCommitmentRows([
+    unresolved,
+    reconciliation({ sourceEventId: "other-line", sourceLineId: "different-line" }),
+  ], Date.parse(now)), (error) => error.message === "REENTRY_COMMITMENT_RECONCILIATION_SOURCE_MISSING");
+});
+test("repeating the exact confirmed mapping is quantity-idempotent", () => {
+  const unresolved = "UNASSIGNED-202609-001";
+  const ordered = stored({ sourceEventId: "unassigned-ordered", barcode: unresolved, orderedQuantity: 200 });
+  ordered.source_event_id = "persisted-unassigned";
+  const result = commitments.validateReentryCommitmentRows([
+    ordered,
+    reconciliation({ sourceEventId: "repeat-1" }),
+    reconciliation({ sourceEventId: "repeat-2", confirmedAt: "2026-09-14T00:03:00.000Z" }),
+  ], Date.parse(now));
+  assert.equal(result.totalCommitments, 1);
+  assert.equal(result.totalOpenQuantity, 200);
+  assert.equal(result.commitments[0].orderedQuantity, 200);
+  assert.equal(result.commitments[0].eventCount, 3);
+});
+test("reconciliation markers cannot alter lifecycle quantity or status", () => {
+  const unresolved = stored({ sourceEventId: "base", barcode: "UNASSIGNED-202609-001", status: "ORDERED", requestedQuantity: 200, orderedQuantity: 200 });
+  unresolved.source_event_id = "persisted-base";
+  const mutations = [
+    (row) => { row.input_snapshot.orderedQuantity = 999; },
+    (row) => { row.input_snapshot.status = "CANCELLED"; },
+    (row) => { row.input_snapshot.status = "RECEIVED"; row.input_snapshot.receivedQuantity = 200; },
+  ];
+  for (let index = 0; index < mutations.length; index += 1) {
+    const row = reconciliation({ sourceEventId: `lifecycle-${index}` });
+    mutations[index](row);
+    assert.throws(() => commitments.validateReentryCommitmentRows([unresolved, row], Date.parse(now)), (error) => error.message === "REENTRY_COMMITMENT_RECONCILIATION_LIFECYCLE_MISMATCH");
+  }
+});
+test("reconciliation markers cannot carry manual-addition semantics", () => {
+  const unresolved = stored({ sourceEventId: "base", barcode: "UNASSIGNED-202609-001", status: "ORDERED", requestedQuantity: 200, orderedQuantity: 200 });
+  unresolved.source_event_id = "persisted-base";
+  const row = reconciliation({ sourceEventId: "manual-addition" });
+  row.input_snapshot.payload.manualAddition = true;
+  row.input_snapshot.payload.addedQuantity = 999;
+  assert.throws(() => commitments.validateReentryCommitmentRows([unresolved, row], Date.parse(now)), (error) => error.message === "REENTRY_COMMITMENT_RECONCILIATION_LIFECYCLE_FORBIDDEN");
 });
