@@ -5,6 +5,7 @@ const EVIDENCE_REFRESH_REUSE_MS = 2 * 60 * 1000;
 const INVENTORY_QUEUE_TIMEOUT_MS = 45_000;
 const INVENTORY_REFRESH_TIMEOUT_MS = 60_000;
 const INVENTORY_QUEUE_HANDOFF_TTL_MS = 5_000;
+const INVENTORY_QUEUE_MODE_HEADER = "x-commerce-os-inventory-queue-mode";
 export class InventoryConnectionError extends Error {
   retryAfterMs: number;
   code: string;
@@ -17,10 +18,12 @@ export class InventoryConnectionError extends Error {
 }
 
 // One in-flight read per browser module. Never cache successful execution jobs.
-// Passive queue reads stay read-only. An explicit/fresh queue read first refreshes
-// sales/inventory evidence when the last explicit evidence refresh is older than
-// two minutes, then re-reads the queue. This prevents a 10-minute Tail expiry
-// from deadlocking the manual queue while keeping 30-second polling side-effect free.
+// Passive queue reads stay read-only and use observe mode so a previously verified
+// candidate does not disappear merely because its Tail display TTL elapsed.
+// An explicit/fresh queue read uses execute mode and first refreshes sales/inventory
+// evidence when the last explicit evidence refresh is older than two minutes.
+// Therefore approval can remain visible, while the actual Shopling send always
+// depends on a fresh authoritative queue response immediately before execution.
 // A parent may explicitly publish one freshly fetched queue payload as a very short
 // render handoff. This is not a transport cache: it is bounded to a few seconds,
 // is never populated by normal polling, and fresh/execution reads always bypass it.
@@ -78,8 +81,12 @@ export function createInventoryReadClient(options: { fetcher?: typeof fetch; now
         : INVENTORY_QUEUE_TIMEOUT_MS;
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
+        const headers: Record<string, string> = { accept: "application/json" };
+        if (path === INVENTORY_QUEUE_PATH) {
+          headers[INVENTORY_QUEUE_MODE_HEADER] = fresh ? "execute" : "observe";
+        }
         const response = await fetcher(path, {
-          method: "GET", cache: "no-store", headers: { accept: "application/json" }, signal: controller.signal,
+          method: "GET", cache: "no-store", headers, signal: controller.signal,
         });
         const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
         const report = payload?.report as { state?: string; message?: string; rows?: unknown[] } | undefined;

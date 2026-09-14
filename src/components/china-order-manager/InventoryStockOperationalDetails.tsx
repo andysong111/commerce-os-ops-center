@@ -30,11 +30,12 @@ export function InventoryStockOperationalDetails() {
       setRefreshMessage("판매·재고 증거 최신화 완료 · 최신 운영 큐를 확인하고 있습니다.");
       const queuePayload = await inventoryStockReadClient.read<QueuePayload>(
         INVENTORY_QUEUE_PATH,
-        true,
+        false,
       );
-      // Initial rendering must not depend on the child's passive polling effect.
-      // That effect intentionally does no work while the tab is hidden/offline.
-      // Keep the accepted Q response in React state and pass it directly as data.
+      // This is display state only. Observe mode may keep a previously verified
+      // candidate visible after the short Tail presentation TTL. The child never
+      // executes this payload directly: launchNext performs a separate fresh
+      // execute-mode read immediately before any Shopling state change.
       setInitialQueuePayload(queuePayload);
       inventoryStockReadClient.publishQueueHandoff(queuePayload);
       setHasFreshEvidence(true);
