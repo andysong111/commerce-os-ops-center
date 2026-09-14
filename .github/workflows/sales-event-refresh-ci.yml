@@ -1,0 +1,85 @@
+name: Sales Event Refresh CI
+on:
+  pull_request:
+    paths:
+      - 'src/lib/salesEvent*'
+      - 'src/lib/productMasterShoplingSalesEvent*'
+      - 'src/app/api/product-master/shopling-sales-events/**'
+      - 'src/app/stage8-sales-events/**'
+      - 'src/app/api/inventory-stock-control/route.ts'
+      - 'tests/inventoryStockControlCanonicalCoverage.test.mjs'
+      - 'tests/inventoryStockProductMasterBridge.test.mjs'
+      - 'tests/shoplingStockStateRouteGuard.test.mjs'
+      - 'tests/inventoryStockControlReentry.test.mjs'
+      - 'tests/inventoryStockSalesTail.test.mjs'
+      - 'tests/inventoryStockExecutionRevalidation.test.mjs'
+      - 'tests/shoplingOptionStatusUnmanagedQuantity.test.mjs'
+      - 'tests/helpers/purchaseCycleHarness.mjs'
+      - 'supabase/migrations/202609140010_sales_event_mutation_lock.sql'
+      - 'tests/salesEvent*'
+      - '.github/workflows/sales-event-refresh-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/lib/salesEvent*'
+      - 'src/lib/productMasterShoplingSalesEvent*'
+      - 'src/app/api/product-master/shopling-sales-events/**'
+      - 'src/app/stage8-sales-events/**'
+      - 'src/app/api/inventory-stock-control/route.ts'
+      - 'tests/inventoryStockControlCanonicalCoverage.test.mjs'
+      - 'tests/inventoryStockProductMasterBridge.test.mjs'
+      - 'tests/shoplingStockStateRouteGuard.test.mjs'
+      - 'tests/inventoryStockControlReentry.test.mjs'
+      - 'tests/inventoryStockSalesTail.test.mjs'
+      - 'tests/inventoryStockExecutionRevalidation.test.mjs'
+      - 'tests/shoplingOptionStatusUnmanagedQuantity.test.mjs'
+      - 'tests/helpers/purchaseCycleHarness.mjs'
+      - 'supabase/migrations/202609140010_sales_event_mutation_lock.sql'
+      - 'tests/salesEvent*'
+      - '.github/workflows/sales-event-refresh-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sales-event-refresh-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: isolated-test-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Real creator, route, guards, recovery and promotion regressions
+        run: node --experimental-strip-types --test tests/salesEventRefresh.test.mjs tests/productMasterShoplingSalesEventSync.test.mjs tests/productMasterShoplingSalesEventRecovery.test.mjs tests/stage8CandidatePromotionGate.test.mjs tests/productMasterShoplingSalesEventEngine.test.mjs tests/stage8CandidateDemandParity.test.mjs tests/salesEventInventoryCoverage.test.mjs tests/inventoryStockControlCanonicalCoverage.test.mjs tests/shoplingStockStateRouteGuard.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockControlReentry.test.mjs tests/inventoryStockSalesTail.test.mjs tests/shoplingOptionStatusUnmanagedQuantity.test.mjs tests/inventoryStockExecutionRevalidation.test.mjs
+      - name: Changed runtime lint
+        run: npx eslint src/lib/salesEventRefreshPolicy.ts src/lib/salesEventMutationGuard.ts src/lib/productMasterShoplingSalesEventSync.ts src/lib/productMasterShoplingSalesEventRecovery.ts src/app/api/product-master/shopling-sales-events/route.ts src/app/stage8-sales-events src/app/api/inventory-stock-control/route.ts
+      - name: Real PostgreSQL privileges and concurrent ownership test (isolated database)
+        env:
+          SALES_EVENT_TEST_DATABASE_URL: postgresql://postgres:isolated-test-only@127.0.0.1:5432/postgres
+        run: node tests/salesEventMutationLock.database.mjs
+      - name: Install isolated browser tools
+        run: npm install --prefix "$RUNNER_TEMP/sales-event-browser" --no-package-lock --no-audit --no-fund esbuild@0.25.9 playwright@1.55.1
+      - run: '"$RUNNER_TEMP/sales-event-browser/node_modules/.bin/playwright" install --with-deps chromium'
+      - name: Real controls with mock API; never contact production
+        env:
+          SALES_EVENT_TEST_TOOLS_DIR: ${{ runner.temp }}/sales-event-browser
+        run: node tests/salesEventRefresh.browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sales-event-refresh-ui
+          path: artifacts/sales-event-refresh-ui
+          if-no-files-found: ignore

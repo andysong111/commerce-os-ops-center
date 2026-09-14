@@ -1,3 +1,5 @@
+import { withSalesEventMutationGuard } from "@/lib/salesEventMutationGuard";
+import { parseSalesEventRefreshInput, SalesEventActionError } from "@/lib/salesEventRefreshPolicy";
 import {
   applyProductMasterShoplingSalesEvents,
   createProductMasterShoplingSalesEventSyncRequest,
@@ -76,12 +78,37 @@ export async function POST(request: Request) {
     );
   }
   try {
-    const body = (await request.json().catch(() => ({}))) as {
+    const rawBody: unknown = await request.json().catch(() => null);
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+      return Response.json({ ok: false, code: "SALES_EVENT_BODY_INVALID" }, { status: 400, headers: { "cache-control": "no-store" } });
+    }
+    const body = rawBody as {
       action?: unknown;
       planFingerprint?: unknown;
       confirmation?: unknown;
+      expectedRequestId?: unknown;
+      expectedPlanFingerprint?: unknown;
     };
     const action = String(body.action ?? "start").trim();
+    if (!["start", "refresh", "run-next", "run-burst", "canary", "full"].includes(action)) {
+      return Response.json({ ok: false, code: "SALES_EVENT_ACTION_INVALID" }, { status: 400, headers: { "cache-control": "no-store" } });
+    }
+    if (action === "refresh") {
+      const input = parseSalesEventRefreshInput(body);
+      const created = await createProductMasterShoplingSalesEventSyncRequest(input);
+      // The request is already durable. A failed wake is not a failed enqueue;
+      // the existing dispatcher can pick it up without another refresh request.
+      const wakeRequested = await wakeOpsDispatchTask("product-master-shopling-sales-events", 0).catch(() => false);
+      return Response.json({
+        ok: true, accepted: true, requestId: created.requestId,
+        previousRequestId: input.expectedRequestId, analysisAsOf: created.analysisAsOf,
+        totalRanges: created.ranges.length, wakeRequested,
+        canonicalWritesEnabled: false, sourceWritesEnabled: false, approvalGranted: false,
+        message: wakeRequested
+          ? "최신 판매 후보 재수집을 접수했습니다. 기존 기록은 보존되며, 새 후보는 비교·근거 검증을 다시 통과해야 원장에 반영됩니다."
+          : "재수집은 저장됐습니다. 즉시 worker 호출은 확인되지 않아 기존 worker 대기 중입니다. 재접수하지 말고 화면을 새로고침하세요.",
+      }, { status: 202, headers: { "cache-control": "no-store" } });
+    }
     if (action === "run-next") {
       return Response.json(
         { ok: true, result: await runProductMasterShoplingSalesEventSyncStep() },
@@ -114,44 +141,46 @@ export async function POST(request: Request) {
         );
       }
 
-      const promotionGate = await loadCandidatePromotionGate();
-      if (
-        !promotionGate.safeToApply ||
-        promotionGate.candidatePlanFingerprint !== planFingerprint ||
-        !promotionGate.promotionFingerprint
-      ) {
+      return await withSalesEventMutationGuard(async () => {
+        const promotionGate = await loadCandidatePromotionGate();
+        if (
+          !promotionGate.safeToApply ||
+          promotionGate.candidatePlanFingerprint !== planFingerprint ||
+          !promotionGate.promotionFingerprint
+        ) {
+          return Response.json(
+            {
+              ok: false,
+              code: "SALES_EVENT_PREWRITE_PROMOTION_GATE_BLOCKED",
+              message: promotionGate.message,
+              promotionGate,
+            },
+            { status: 409, headers: { "cache-control": "no-store" } },
+          );
+        }
+  
+        const result = await applyProductMasterShoplingSalesEvents(
+          action,
+          planFingerprint,
+        );
         return Response.json(
           {
-            ok: false,
-            code: "SALES_EVENT_PREWRITE_PROMOTION_GATE_BLOCKED",
-            message: promotionGate.message,
-            promotionGate,
+            ok: result.ok,
+            result,
+            promotionGate: {
+              state: promotionGate.state,
+              promotionFingerprint: promotionGate.promotionFingerprint,
+              candidateParityFingerprint:
+                promotionGate.candidateParityFingerprint,
+              evidenceFingerprint: promotionGate.evidenceFingerprint,
+            },
           },
-          { status: 409, headers: { "cache-control": "no-store" } },
+          {
+            status: result.ok ? 200 : 409,
+            headers: { "cache-control": "no-store" },
+          },
         );
-      }
-
-      const result = await applyProductMasterShoplingSalesEvents(
-        action,
-        planFingerprint,
-      );
-      return Response.json(
-        {
-          ok: result.ok,
-          result,
-          promotionGate: {
-            state: promotionGate.state,
-            promotionFingerprint: promotionGate.promotionFingerprint,
-            candidateParityFingerprint:
-              promotionGate.candidateParityFingerprint,
-            evidenceFingerprint: promotionGate.evidenceFingerprint,
-          },
-        },
-        {
-          status: result.ok ? 200 : 409,
-          headers: { "cache-control": "no-store" },
-        },
-      );
+      });
     }
 
     const current = await loadProductMasterShoplingSalesEventSyncStatus();
@@ -218,6 +247,9 @@ export async function POST(request: Request) {
       { status: 202, headers: { "cache-control": "no-store" } },
     );
   } catch (error) {
+    if (error instanceof SalesEventActionError) {
+      return Response.json({ ok: false, code: error.code, message: error.message }, { status: error.status, headers: { "cache-control": "no-store" } });
+    }
     return Response.json(
       {
         ok: false,

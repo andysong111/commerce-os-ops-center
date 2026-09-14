@@ -157,11 +157,9 @@ function loadOverviewRoute(calls) {
       wakeOpsDispatchTask: async () => false,
     },
     "@/lib/productMasterShoplingSalesEventSync": {
-      createProductMasterShoplingSalesEventSyncRequest: async () => ({
-        requestId: "unused",
-        analysisAsOf: at,
-      }),
-      loadProductMasterShoplingSalesEventSyncStatus: async () => ({
+      ensureProductMasterShoplingSalesEventCoverageRequest: async () => ({
+        accepted: false,
+        alreadyCovered: true,
         state: "COMPLETED",
         requestId: "unused",
         analysisAsOf: at,

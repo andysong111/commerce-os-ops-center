@@ -35,7 +35,16 @@ export default async function Stage8SalesEventsPage() {
             <h2 className="text-lg font-black text-slate-950">{status.stage}</h2>
             <p className="mt-1 max-w-4xl text-sm leading-6 text-slate-600">{status.message}</p>
           </div>
-          <SalesEventSyncControls state={status.state} planFingerprint={report?.planFingerprint ?? null} />
+          <SalesEventSyncControls state={status.state} requestId={status.requestId} planFingerprint={report?.planFingerprint ?? null} />
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
+          후보 분석시점: {status.analysisAsOf ? new Date(status.analysisAsOf).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : "아직 없음"} (한국시간).
+          재수집 접수는 공식 판매원장 반영 완료가 아닙니다. 새 후보의 비교·근거 검증과 정상 반영 게이트를 다시 확인해야 합니다.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-4 text-sm font-semibold text-slate-700">
+          <Link href="/stage8-candidate-demand-parity">후보 비교 검증</Link>
+          <Link href="/stage8-candidate-promotion-gate">공식 반영 게이트</Link>
+          <Link href="/china-order-manager/reentry-shadow">다음 발주 사전 점검</Link>
         </div>
         {status.state === "STORAGE_NOT_READY" ? (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">

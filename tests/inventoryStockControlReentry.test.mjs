@@ -90,11 +90,14 @@ test("cumulative China receipt events produce only incremental stock deltas", ()
   assert.equal(points.reduce((sum, row) => sum + row.delta, 0), 10);
 });
 
-test("Shopling ON_SALE API maps to status B, preserves managed quantity, and omits unmanaged quantity", async () => {
+test("Shopling ON_SALE API maps to status B and preserves the existing option quantity", async () => {
   const source = await readFile("src/lib/shopling/shoplingOptionStatus.ts", "utf8");
   assert.match(source, /return desired === "SOLD_OUT" \? "C" : "B"/);
   assert.match(source, /<optStatus>\$\{target\}<\/optStatus>/);
+  // Main already emits numeric quantities through cdata and deliberately omits
+  // unmanaged quantities. Preserve the round-trip invariant, not obsolete syntax.
   assert.match(source, /const quantityField = \/\^\\d\+\$\/\.test\(variant\.optionQuantity\)/);
+  assert.match(source, /<optQty>\$\{cdata\(variant\.optionQuantity\)\}<\/optQty>/);
   assert.match(source, /\.\.\.quantityField/);
   assert.match(source, /after\.optionQuantity !== before\.optionQuantity/);
   assert.match(source, /SHOPLING_OPTION_READBACK_QTY_MISMATCH/);

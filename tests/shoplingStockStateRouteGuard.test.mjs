@@ -155,9 +155,11 @@ test("inventory stock control self-heals stale canonical sales coverage", async 
   const route = await readFile("src/app/api/inventory-stock-control/route.ts", "utf8");
   assert.match(route, /latestCanonicalCoverageGapResetAt/);
   assert.match(route, /\.filter\(\(row\) => !row\.salesCoverageReady\)/);
-  assert.match(route, /createCanonicalSalesCoverageRequest\(resetMs\)/);
-  assert.match(route, /createdAnalysisMs < resetMs/);
-  assert.match(route, /supersededStaleRequest: staleRequestWasActive/);
+  const sync = await readFile("src/lib/productMasterShoplingSalesEventSync.ts", "utf8");
+  assert.match(route, /ensureProductMasterShoplingSalesEventCoverageRequest\(resetAt\)/);
+  assert.match(sync, /ensureProductMasterShoplingSalesEventCoverageRequest[\s\S]*withSalesEventMutationGuard/);
+  assert.match(sync, /createdAnalysisMs < resetMs/);
+  assert.match(sync, /supersededStaleRequest: staleRequestWasActive/);
   assert.match(route, /canonicalSalesRefresh = coverageGapResetAt/);
   assert.match(route, /ensureCanonicalSalesCoverageAfterReset\(coverageGapResetAt\)/);
 });
