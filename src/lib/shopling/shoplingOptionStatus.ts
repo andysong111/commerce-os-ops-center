@@ -212,9 +212,15 @@ function buildModifyXml(
   if (!variant.selection.length) {
     throw new Error("SHOPLING_OPTION_SELECTION_REQUIRED");
   }
-  if (!/^\d+$/.test(variant.optionQuantity)) {
-    throw new Error("SHOPLING_OPTION_QUANTITY_INVALID");
-  }
+
+  // Shopling may expose an empty/non-numeric optQty for options whose quantity is
+  // not managed by this field. Stock-state sync owns only optStatus. When a valid
+  // numeric quantity exists we round-trip it unchanged; otherwise omit optQty so
+  // a status-only transition cannot invent or overwrite inventory.
+  const quantityField = /^\d+$/.test(variant.optionQuantity)
+    ? [`<optQty>${cdata(variant.optionQuantity)}</optQty>`]
+    : [];
+
   return compactXml([
     "<reqst><apiProdMdy>",
     `<login_id>${cdata(config.loginId)}</login_id>`,
@@ -228,7 +234,7 @@ function buildModifyXml(
         `<optList><title>${cdata(selection.title)}</title><value>${cdata(selection.value)}</value></optList>`,
     ),
     `<optStatus>${target}</optStatus>`,
-    `<optQty>${variant.optionQuantity}</optQty>`,
+    ...quantityField,
     "</options>",
     "</goodsInfo>",
     "</apiProdMdy></reqst>",
@@ -334,9 +340,6 @@ export async function applyShoplingOptionStatus(input: {
     throw new Error(
       `SHOPLING_OPTION_STATUS_TRANSITION_BLOCKED:${before.optionStatus || "EMPTY"}`,
     );
-  }
-  if (!/^\d+$/.test(before.optionQuantity)) {
-    throw new Error("SHOPLING_OPTION_QUANTITY_INVALID");
   }
 
   if (before.optionStatus === target) {
