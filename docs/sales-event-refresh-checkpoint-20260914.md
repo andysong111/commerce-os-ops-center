@@ -24,3 +24,36 @@ October 1 does not auto-unlock ordering. Only a user-approved small batch, after
 
 ## Rollback
 Revert only this change, not parallel main work. The additive lock table/RPC can remain unused. Never delete operation history or reset production data as a rollback.
+
+
+## PR #1201 inventory compatibility repair — 2026-09-15
+
+P1 review 4003576437 reproduced through the actual inventory GET -> actual sales
+creator -> actual shared guard: all five stale active states (QUEUED, RUNNING,
+READY_CANARY, READY_FULL, STORAGE_NOT_READY) rejected the required newer analysis.
+
+The inventory caller now uses a server-only, reset-time-bounded ensure operation.
+It rechecks current coverage under the existing shared DB lease and reuses a
+concurrently created covering request. Only a persisted inventory coverage gap
+can take this path; ordinary start and explicit UI refresh keep their duplicate
+and confirmation policies. New requests pin real current time/planning and retain
+INVENTORY_RESET_COVERAGE provenance without inheriting same-time recovery chunks.
+Invalid/future reset times, regressed clocks, unavailable lock/config/source,
+missing readback and publication overlap fail closed. A lost dispatcher wake
+cannot relabel a persisted request as an enqueue failure. Covering FAILED requests
+remain visibly recovery-required rather than claiming verified sales evidence.
+
+Permanent test: tests/salesEventInventoryCoverage.test.mjs (23 cases). Five P1
+cases fail against original head 1598c95; after repair they pass. Together with
+existing creator/recovery/promotion, inventory bridge and route-boundary checks:
+94 passed locally, 0 failed/skipped, on the exact pinned PR source. The original
+structural coverage assertions now follow the same safety checks into the shared
+creator, and behavioral tests exercise both sides rather than mocking the creator.
+Sales Event Refresh CI explicitly runs this suite plus lint, PostgreSQL ownership
+and permission tests, and real controls against a mocked API. Exact-head CI,
+review and Vercel production readback are required before reporting deployment.
+
+This fixes code compatibility, not the entire October 1 operational data gate.
+Latest real collection/parity/evidence/promotion, verified costs and inventory,
+and final purchase Shadow remain independent checks. No order/payment, inventory
+baseline mutation or canonical sales publication is performed by this repair.

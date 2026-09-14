@@ -14,8 +14,7 @@ import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 import { withInventoryReadGuard } from "@/lib/inventoryStockReadGuard";
 import {
-  createProductMasterShoplingSalesEventSyncRequest,
-  loadProductMasterShoplingSalesEventSyncStatus,
+  ensureProductMasterShoplingSalesEventCoverageRequest,
 } from "@/lib/productMasterShoplingSalesEventSync";
 import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
 
@@ -24,13 +23,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 60;
 
-const ACTIVE_SALES_EVENT_STATES = new Set([
-  "QUEUED",
-  "RUNNING",
-  "READY_CANARY",
-  "READY_FULL",
-  "STORAGE_NOT_READY",
-]);
 const WORKER_RUNNABLE_SALES_EVENT_STATES = new Set(["QUEUED", "RUNNING"]);
 
 function unauthorized() {
@@ -80,70 +72,21 @@ function latestCanonicalCoverageGapResetAt(
   return candidates.at(-1) ?? null;
 }
 
-async function createCanonicalSalesCoverageRequest(resetMs: number) {
-  const created = await createProductMasterShoplingSalesEventSyncRequest();
-  const createdAnalysisMs = Date.parse(created.analysisAsOf);
-  if (!Number.isFinite(createdAnalysisMs) || createdAnalysisMs < resetMs) {
-    throw new Error(
-      "CANONICAL_SALES_REFRESH_ANALYSIS_BEFORE_RESET: 새 판매 이벤트 분석시점이 재고 기준시점보다 이릅니다.",
-    );
-  }
-  const wakeRequested = await wakeOpsDispatchTask(
-    "product-master-shopling-sales-events",
-    0,
-  );
-  return { created, wakeRequested };
-}
-
 async function ensureCanonicalSalesCoverageAfterReset(resetAt: string) {
   try {
-    const current = await loadProductMasterShoplingSalesEventSyncStatus();
-    const resetMs = Date.parse(resetAt);
-    if (!Number.isFinite(resetMs)) {
-      throw new Error("CANONICAL_SALES_REFRESH_RESET_AT_INVALID");
-    }
-    const analysisMs = current.analysisAsOf
-      ? Date.parse(current.analysisAsOf)
-      : Number.NaN;
-    const coversReset = Number.isFinite(analysisMs) && analysisMs >= resetMs;
-
-    if (coversReset) {
-      const wakeRequested = WORKER_RUNNABLE_SALES_EVENT_STATES.has(current.state)
-        ? await wakeOpsDispatchTask("product-master-shopling-sales-events", 0)
-        : false;
-      return {
-        accepted: false,
-        alreadyCovered: true,
-        alreadyActive: ACTIVE_SALES_EVENT_STATES.has(current.state),
-        supersededStaleRequest: false,
-        previousRequestId: null,
-        requestId: current.requestId,
-        analysisAsOf: current.analysisAsOf,
-        state: current.state,
-        wakeRequested,
-        followupRequired: false,
-        message: "Canonical 판매 이벤트 범위가 재고 기준시점을 이미 포함합니다.",
-      };
-    }
-
-    const previousRequestId = current.requestId;
-    const staleRequestWasActive = ACTIVE_SALES_EVENT_STATES.has(current.state);
-    const { created, wakeRequested } =
-      await createCanonicalSalesCoverageRequest(resetMs);
+    // Coverage and active-request supersession must be checked together under
+    // the creator's persistent lock, not from a stale status read in this route.
+    const result = await ensureProductMasterShoplingSalesEventCoverageRequest(resetAt);
+    const shouldWake = WORKER_RUNNABLE_SALES_EVENT_STATES.has(result.state);
+    const wakeRequested = shouldWake
+      ? await wakeOpsDispatchTask("product-master-shopling-sales-events", 0).catch(() => false)
+      : false;
     return {
-      accepted: true,
-      alreadyCovered: false,
-      alreadyActive: staleRequestWasActive,
-      supersededStaleRequest: staleRequestWasActive,
-      previousRequestId,
-      requestId: created.requestId,
-      analysisAsOf: created.analysisAsOf,
-      state: "QUEUED",
+      ...result,
       wakeRequested,
-      followupRequired: false,
-      message: staleRequestWasActive
-        ? "기존 Canonical 판매 이벤트 분석시점이 재고 기준시점보다 오래되어, 최신 분석시점의 새 요청으로 자동 교체했습니다."
-        : "재고 기준시점 이후까지 확인하도록 Canonical 판매 이벤트 최신화를 접수했습니다.",
+      message: shouldWake && !wakeRequested
+        ? `${result.message} 수집 요청은 저장돼 있으나 worker 즉시 호출을 확인하지 못했습니다. 재접수하지 말고 상태를 다시 확인하세요.`
+        : result.message,
     };
   } catch (error) {
     return {

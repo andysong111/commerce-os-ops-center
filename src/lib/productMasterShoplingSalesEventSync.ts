@@ -339,45 +339,104 @@ export function createSalesEventSyncRequestPlan(
   };
 }
 
+const ACTIVE_SALES_EVENT_STATES = new Set([
+  "QUEUED", "RUNNING", "READY_CANARY", "READY_FULL", "STORAGE_NOT_READY",
+]);
+
+// Called only while the shared mutation guard is held. Every new analysis gets
+// its own request/lineage; old chunks or approval evidence are never relabelled.
+async function appendSalesEventSyncRequest(
+  provenance: Record<string, unknown> = {},
+  resetMs?: number,
+) {
+  shoplingReadConfigFromEnv(shoplingEnvironment());
+  const planning = await loadProductPlanningSnapshot();
+  const request = createSalesEventSyncRequestPlan(crypto.randomUUID(), planning);
+  const createdAnalysisMs = Date.parse(request.analysisAsOf);
+  if (resetMs !== undefined && (!Number.isFinite(createdAnalysisMs) || createdAnalysisMs < resetMs)) {
+    throw new SalesEventActionError("CANONICAL_SALES_REFRESH_ANALYSIS_BEFORE_RESET", 409, "새 판매 분석시점이 재고 기준시점보다 이릅니다. 저장하지 않고 보류합니다.");
+  }
+  await storeOperation({
+    operationType: SALES_EVENT_REQUEST,
+    sourceEventId: `sales-event-request:${request.requestId}`,
+    correlationId: requestCorrelationId(request.requestId),
+    inputSnapshot: { ...request, ...provenance },
+    resultSnapshot: {
+      accepted: true,
+      state: "QUEUED",
+      canonicalWritesEnabled: false,
+      sourceWritesEnabled: false,
+      message: "최근 360일 Shopling 주문행을 정확한 timestamp 판매 이벤트로 읽습니다.",
+    },
+    occurredAt: request.createdAt,
+  });
+  const persisted = await latestRequest();
+  if (persisted?.requestId !== request.requestId || persisted.analysisAsOf !== request.analysisAsOf) {
+    throw new SalesEventActionError("SALES_EVENT_REQUEST_READBACK_FAILED", 503, "재수집 저장 결과가 확인되지 않았습니다. 재접수하지 말고 상태를 다시 조회하세요.");
+  }
+  return persisted;
+}
+
 export async function createProductMasterShoplingSalesEventSyncRequest(refresh?: SalesEventRefreshInput) {
   return withSalesEventMutationGuard(async () => {
-    // Re-read after acquiring the persistent lock: stale tabs and double clicks
-    // must not create a second request or replace an in-flight publication.
+    // Ordinary starts never supersede an active candidate. Explicit UI refresh
+    // retains its exact candidate/confirmation checks and cannot act as a reset.
     const current = await loadProductMasterShoplingSalesEventSyncStatus();
     if (refresh) {
       assertSalesEventRefreshAllowed(current, refresh);
-    } else if (["QUEUED", "RUNNING", "READY_CANARY", "READY_FULL", "STORAGE_NOT_READY"].includes(current.state)) {
+    } else if (ACTIVE_SALES_EVENT_STATES.has(current.state)) {
       throw new SalesEventActionError("SALES_EVENT_REQUEST_ALREADY_ACTIVE", 409, "기존 판매 후보가 진행 중입니다. 화면을 새로고침하세요.");
     }
-    shoplingReadConfigFromEnv(shoplingEnvironment());
-    const planning = await loadProductPlanningSnapshot();
-    const request = createSalesEventSyncRequestPlan(crypto.randomUUID(), planning);
-    await storeOperation({
-      operationType: SALES_EVENT_REQUEST,
-      sourceEventId: `sales-event-request:${request.requestId}`,
-      correlationId: requestCorrelationId(request.requestId),
-      inputSnapshot: {
-        ...request,
-        ...(refresh ? {
-          refreshesRequestId: refresh.expectedRequestId,
-          previousPlanFingerprint: refresh.expectedPlanFingerprint,
-          refreshReason: "EXPLICIT_LATEST_CANDIDATE",
-        } : {}),
-      },
-      resultSnapshot: {
-        accepted: true,
-        state: "QUEUED",
-        canonicalWritesEnabled: false,
-        sourceWritesEnabled: false,
-        message: "최근 360일 Shopling 주문행을 정확한 timestamp 판매 이벤트로 읽습니다.",
-      },
-      occurredAt: request.createdAt,
-    });
-    const persisted = await latestRequest();
-    if (persisted?.requestId !== request.requestId || persisted.analysisAsOf !== request.analysisAsOf) {
-      throw new SalesEventActionError("SALES_EVENT_REQUEST_READBACK_FAILED", 503, "재수집 저장 결과가 확인되지 않았습니다. 재접수하지 말고 상태를 다시 조회하세요.");
+    return appendSalesEventSyncRequest(refresh ? {
+      refreshesRequestId: refresh.expectedRequestId,
+      previousPlanFingerprint: refresh.expectedPlanFingerprint,
+      refreshReason: "EXPLICIT_LATEST_CANDIDATE",
+    } : {});
+  });
+}
+
+// Server-only inventory caller supplies a persisted reset/stocktake gap, not an
+// arbitrary client refresh flag. Re-read coverage UNDER the same lock used by
+// creators, recovery and gate-through-publication. A concurrent newer candidate
+// is reused rather than overwritten or reported as a newly accepted request.
+export async function ensureProductMasterShoplingSalesEventCoverageRequest(resetAt: string) {
+  return withSalesEventMutationGuard(async () => {
+    const resetMs = typeof resetAt === "string" ? Date.parse(resetAt) : Number.NaN;
+    if (!Number.isFinite(resetMs) || resetMs > Date.now()) {
+      throw new SalesEventActionError("CANONICAL_SALES_REFRESH_RESET_AT_INVALID", 400, "현재 시점까지의 유효한 재고 기준시점이 필요합니다.");
     }
-    return persisted;
+    const current = await loadProductMasterShoplingSalesEventSyncStatus();
+    if (!current.configured) {
+      throw new SalesEventActionError("SALES_EVENT_REFRESH_NOT_CONFIGURED", 503, "판매 수집 연결 설정을 먼저 확인해야 합니다.");
+    }
+    const analysisMs = Date.parse(current.analysisAsOf ?? "");
+    const staleRequestWasActive = ACTIVE_SALES_EVENT_STATES.has(current.state);
+    if (current.requestId && Number.isFinite(analysisMs) && analysisMs >= resetMs) {
+      return {
+        accepted: false, alreadyCovered: true, alreadyActive: staleRequestWasActive,
+        supersededStaleRequest: false, previousRequestId: null,
+        requestId: current.requestId, analysisAsOf: current.analysisAsOf,
+        state: current.state, followupRequired: current.state === "FAILED",
+        message: current.state === "FAILED"
+          ? "수집 요청의 분석시점은 기준점을 포함하지만 실패한 작업의 복구가 필요합니다. 판매근거 확인 완료가 아닙니다."
+          : "기존 수집 요청의 분석시점이 재고 기준시점을 포함하므로 중복 접수하지 않습니다. 판매근거 확인 완료 여부는 별도 검증합니다.",
+      };
+    }
+    const created = await appendSalesEventSyncRequest({
+      refreshReason: "INVENTORY_RESET_COVERAGE",
+      coverageResetAt: new Date(resetMs).toISOString(),
+      refreshesRequestId: current.requestId,
+      previousPlanFingerprint: current.report?.planFingerprint ?? null,
+    }, resetMs);
+    return {
+      accepted: true, alreadyCovered: false, alreadyActive: staleRequestWasActive,
+      supersededStaleRequest: staleRequestWasActive, previousRequestId: current.requestId,
+      requestId: created.requestId, analysisAsOf: created.analysisAsOf,
+      state: "QUEUED" as const, followupRequired: false,
+      message: staleRequestWasActive
+        ? "기존 분석시점이 재고 기준점보다 오래되어 최신 시점의 새 수집 요청을 접수했습니다. 이전 기록은 보존하고 공식 반영 검증은 새로 진행합니다."
+        : "재고 기준시점 이후까지 확인하도록 판매 이벤트 최신화를 접수했습니다. 공식 반영·발주·결제는 실행하지 않았습니다.",
+    };
   });
 }
 
