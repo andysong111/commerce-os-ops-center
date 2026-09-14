@@ -28,6 +28,7 @@ const SHOPLING_STOCK_CANARY_PREPARATION_OPERATION_TYPE =
   "SHOPLING_STOCK_CANARY_PREPARATION";
 const CANONICAL_COVERAGE_BLOCK_REASON =
   "품절 초기화 이후의 Canonical 판매 범위를 완전히 확인하지 못했습니다.";
+const INVENTORY_QUEUE_MODE_HEADER = "x-commerce-os-inventory-queue-mode";
 
 type QueueMode = "observe" | "execute";
 
@@ -69,9 +70,11 @@ function truthy(value: unknown) {
 }
 
 function queueMode(request: Request): QueueMode {
-  return new URL(request.url).searchParams.get("mode") === "observe"
-    ? "observe"
-    : "execute";
+  const requested = text(
+    request.headers.get(INVENTORY_QUEUE_MODE_HEADER) ||
+      new URL(request.url).searchParams.get("mode"),
+  ).toLowerCase();
+  return requested === "observe" ? "observe" : "execute";
 }
 
 function confirmedPreparationEvidence(
@@ -366,7 +369,6 @@ export async function POST(request: Request) {
       {
         status: stored.duplicate ? 200 : 201,
         headers: { "cache-control": "no-store" },
-      },
     );
   } catch (error) {
     return Response.json(
