@@ -5,6 +5,7 @@ const EVIDENCE_REFRESH_REUSE_MS = 2 * 60 * 1000;
 const INVENTORY_QUEUE_TIMEOUT_MS = 45_000;
 const INVENTORY_REFRESH_TIMEOUT_MS = 60_000;
 const INVENTORY_QUEUE_HANDOFF_TTL_MS = 5_000;
+const INVENTORY_QUEUE_MODE_HEADER = "x-commerce-os-inventory-queue-mode";
 export class InventoryConnectionError extends Error {
   retryAfterMs: number;
   code: string;
@@ -80,11 +81,12 @@ export function createInventoryReadClient(options: { fetcher?: typeof fetch; now
         : INVENTORY_QUEUE_TIMEOUT_MS;
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const requestPath = path === INVENTORY_QUEUE_PATH
-          ? `${INVENTORY_QUEUE_PATH}?mode=${fresh ? "execute" : "observe"}`
-          : path;
-        const response = await fetcher(requestPath, {
-          method: "GET", cache: "no-store", headers: { accept: "application/json" }, signal: controller.signal,
+        const headers: Record<string, string> = { accept: "application/json" };
+        if (path === INVENTORY_QUEUE_PATH) {
+          headers[INVENTORY_QUEUE_MODE_HEADER] = fresh ? "execute" : "observe";
+        }
+        const response = await fetcher(path, {
+          method: "GET", cache: "no-store", headers, signal: controller.signal,
         });
         const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
         const report = payload?.report as { state?: string; message?: string; rows?: unknown[] } | undefined;
