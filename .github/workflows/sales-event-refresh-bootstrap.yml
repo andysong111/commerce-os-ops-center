@@ -1,0 +1,68 @@
+name: Sales refresh branch bootstrap
+on:
+  push:
+    branches: [fix/sales-event-refresh-20260914]
+permissions:
+  contents: write
+jobs:
+  apply-reviewed-patch:
+    if: contains(github.event.head_commit.message, '[sales-refresh-bootstrap]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+      - name: Verify exact source and unpack scoped change
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,subprocess,zlib
+          assert os.environ['GITHUB_REF_NAME']=='fix/sales-event-refresh-20260914'
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['GITHUB_SHA']
+          raw=pathlib.Path('scripts/sales-event-refresh-bootstrap.zlib').read_bytes()
+          assert hashlib.sha256(raw).hexdigest()=='8cbdc21a0b78080d21815920f8350ec3fe8935005262a6fdb0b6ec929b4ae6ab'
+          bundle=json.loads(zlib.decompress(raw))
+          old={
+            'src/lib/productMasterShoplingSalesEventSync.ts':'d0c4260f6fcf89f83d2c608ef05eae1f0e8d806b',
+            'src/lib/productMasterShoplingSalesEventRecovery.ts':'9bdf989fe0f76aa7f8a485b3f44872b61b3000c2',
+            'src/app/api/product-master/shopling-sales-events/route.ts':'20447c20d4ddad93f31219169102fcc7e2a0e4e1',
+            'src/app/stage8-sales-events/SalesEventSyncControls.tsx':'3424d47c62a934c98b60f5b1f6a0b3a7019f0971',
+            'src/app/stage8-sales-events/page.tsx':'ef15a45a1b704f67eb7f4594d295e47b1a1220d0',
+          }
+          new={'src/lib/salesEventRefreshPolicy.ts','src/lib/salesEventMutationGuard.ts','supabase/migrations/202609140010_sales_event_mutation_lock.sql','tests/salesEventRefresh.test.mjs','tests/salesEventMutationLock.database.mjs','tests/salesEventRefresh.browser.mjs','docs/sales-event-refresh-checkpoint-20260914.md'}
+          assert set(bundle['files'])==new
+          for name,sha in old.items():
+            assert subprocess.check_output(['git','hash-object',name],text=True).strip()==sha, name
+          for name,content in bundle['files'].items():
+            p=pathlib.Path(name)
+            assert not p.exists(),name
+            p.parent.mkdir(parents=True,exist_ok=True)
+            p.write_text(content,encoding='utf-8')
+          patch=bundle['patch'].encode()
+          subprocess.run(['git','apply','--check','-'],input=patch,check=True)
+          subprocess.run(['git','apply','-'],input=patch,check=True)
+          subprocess.run(['git','add','--',*sorted(new|set(old))],check=True)
+          staged=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert staged==new|set(old),staged
+          subprocess.run(['git','diff','--cached','--stat'],check=True)
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Run real runtime and gate regressions
+        run: node --experimental-strip-types --test tests/salesEventRefresh.test.mjs tests/productMasterShoplingSalesEventSync.test.mjs tests/productMasterShoplingSalesEventRecovery.test.mjs tests/stage8CandidatePromotionGate.test.mjs tests/productMasterShoplingSalesEventEngine.test.mjs tests/stage8CandidateDemandParity.test.mjs
+      - name: Commit scoped source changes to this branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'fix/sales-event-refresh-20260914'
+          remote=$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | cut -f1)
+          test "$remote" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(sales): explicit fresh candidate collection with durable guards'
+          git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
