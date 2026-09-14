@@ -18,7 +18,7 @@ const detailsSource = await readFile(
 test("display queue observes candidates while execution revalidates", () => {
   assert.match(
     connectionSource,
-    /\?mode=\$\{fresh \? "execute" : "observe"\}/,
+    /headers\[INVENTORY_QUEUE_MODE_HEADER\] = fresh \? "execute" : "observe"/,
   );
   assert.match(
     connectionSource,
@@ -28,8 +28,8 @@ test("display queue observes candidates while execution revalidates", () => {
     detailsSource,
     /INVENTORY_QUEUE_PATH,\s*false,/s,
   );
-  assert.match(routeSource, /searchParams\.get\("mode"\) === "observe"/);
-  assert.match(routeSource, /: "execute";/);
+  assert.match(routeSource, /request\.headers\.get\(INVENTORY_QUEUE_MODE_HEADER\)/);
+  assert.match(routeSource, /requested === "observe" \? "observe" : "execute"/);
   assert.match(routeSource, /loadLatestInventoryStockSalesTailSnapshots/);
   assert.match(routeSource, /snapshot\.barcode !== row\.barcode/);
   assert.match(routeSource, /snapshot\.resetAt !== row\.resetAt/);
