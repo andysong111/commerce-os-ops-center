@@ -369,6 +369,7 @@ export async function POST(request: Request) {
       {
         status: stored.duplicate ? 200 : 201,
         headers: { "cache-control": "no-store" },
+      },
     );
   } catch (error) {
     return Response.json(
