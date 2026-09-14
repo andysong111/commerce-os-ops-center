@@ -1,0 +1,25 @@
+name: PR1201 Source Verification Fixture
+on:
+  push:
+    branches: [verify/pr1201-inventory-source-20260915]
+    paths: [.github/workflows/pr1201-source-verification.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Export only pinned tracked public source without Git credentials
+        run: |
+          test "$(git rev-parse HEAD^)" = '1598c95fe81ee3167d0300aeda75a24fc208cfd7'
+          git archive --format=tar.gz --output="$RUNNER_TEMP/pr1201-source.tgz" HEAD^
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr1201-source
+          path: ${{ runner.temp }}/pr1201-source.tgz
+          retention-days: 1
