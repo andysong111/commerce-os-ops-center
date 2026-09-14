@@ -1,0 +1,65 @@
+name: PR1201 Pinned Inventory Fix
+on:
+  push:
+    branches: [verify/pr1201-inventory-source-20260915]
+    paths: [.github/workflows/pr1201-apply-inventory-fix.yml]
+permissions:
+  contents: write
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify immutable patch, exact target head and scoped final blobs
+        run: |
+          python3 - <<'PY'
+          import hashlib,os,pathlib,subprocess,zlib
+          assert os.environ['GITHUB_REF_NAME']=='verify/pr1201-inventory-source-20260915'
+          raw=b''.join(pathlib.Path(f'scripts/pr1201-patch-part-{i}.bin').read_bytes() for i in range(4))
+          assert hashlib.sha256(raw).hexdigest()=='e497f9d9d6efc499a7809b0d4678963a4f89c198a4f893c276fce0f94fad9f14'
+          patch=zlib.decompress(raw)
+          assert hashlib.sha256(patch).hexdigest()=='73390d8bdf4fcc09ea26f554886c987a91b3e769bebe4f9dbddadc6240220233'
+          target='fix/sales-event-refresh-20260914'
+          subprocess.run(['git','fetch','origin',target],check=True)
+          head=subprocess.check_output(['git','rev-parse','FETCH_HEAD'],text=True).strip()
+          assert head=='1598c95fe81ee3167d0300aeda75a24fc208cfd7',head
+          subprocess.run(['git','checkout','--detach',head],check=True)
+          subprocess.run(['git','apply','--check','-'],input=patch,check=True)
+          subprocess.run(['git','apply','--index','-'],input=patch,check=True)
+          expected={
+            'docs/sales-event-refresh-checkpoint-20260914.md':'5c2221ac8374f12a13fb7a2b248b3a79d4766290',
+            'src/app/api/inventory-stock-control/route.ts':'1d2cc56e2b106f89e1e1cf4bfd646af55b6329d4',
+            'src/lib/productMasterShoplingSalesEventSync.ts':'88f8e53490085188509bfd08e5654e588feddf8b',
+            'tests/inventoryStockControlCanonicalCoverage.test.mjs':'dde80eb106bd323f5d24c102fafe83c7355a7946',
+            'tests/inventoryStockProductMasterBridge.test.mjs':'71e32e1df81de9268787bc5d1a39e1c5289f8db0',
+            'tests/salesEventInventoryCoverage.test.mjs':'d5fe3f51dc50e1cb6805aba8d278f35cf1d254ba',
+            'tests/shoplingStockStateRouteGuard.test.mjs':'bab31f8951f5dd12b4a7933887c51e91971db46a',
+          }
+          changed=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert changed==set(expected),changed
+          for name,sha in expected.items():
+            assert subprocess.check_output(['git','hash-object',name],text=True).strip()==sha,name
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','diff','--cached','--stat'],check=True)
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Verify reproduced inventory compatibility and all affected regressions
+        run: node --experimental-strip-types --test tests/salesEventInventoryCoverage.test.mjs tests/salesEventRefresh.test.mjs tests/productMasterShoplingSalesEventSync.test.mjs tests/productMasterShoplingSalesEventRecovery.test.mjs tests/stage8CandidatePromotionGate.test.mjs tests/productMasterShoplingSalesEventEngine.test.mjs tests/stage8CandidateDemandParity.test.mjs tests/inventoryStockControlCanonicalCoverage.test.mjs tests/shoplingStockStateRouteGuard.test.mjs tests/inventoryStockProductMasterBridge.test.mjs
+      - name: Push the verified source to the PR branch only, never main
+        run: |
+          set -euo pipefail
+          target='fix/sales-event-refresh-20260914'
+          remote=$(git ls-remote origin "refs/heads/$target" | cut -f1)
+          test "$remote" = '1598c95fe81ee3167d0300aeda75a24fc208cfd7'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(sales): preserve inventory reset coverage under shared mutation guard'
+          git push origin "HEAD:refs/heads/$target"
