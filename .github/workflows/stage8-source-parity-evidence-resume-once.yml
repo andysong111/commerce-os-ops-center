@@ -1,0 +1,41 @@
+name: Stage8 Source Parity Evidence Resume Once
+on:
+  push:
+    branches: [ops/rerun-stage8-evidence-20260915]
+    paths:
+      - '.github/workflows/stage8-source-parity-evidence-resume-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: stage8-source-parity-evidence-resume-20260915
+  cancel-in-progress: false
+jobs:
+  production-read-only-verification:
+    if: github.repository == 'andysong111/commerce-os-ops-center'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: Prove read-only network and action boundary
+        run: node scripts/ops/resume-stage8-source-parity-evidence-20260915.mjs --self-test
+      - name: Install isolated Playwright browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/sales-browser" --no-package-lock --no-audit --no-fund playwright@1.55.1
+          "$RUNNER_TEMP/sales-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Resume current source then verify parity and evidence
+        env:
+          SALES_BROWSER_TOOLS: ${{ runner.temp }}/sales-browser
+          EVIDENCE_RERUN_AUTHORIZATION: OWNER_AUTHORIZED_READ_ONLY_EVIDENCE_RERUN
+        run: node scripts/ops/resume-stage8-source-parity-evidence-20260915.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage8-source-parity-evidence-resume-20260915
+          path: artifacts/stage8-evidence-resume-20260915/result.json
+          retention-days: 7
+          if-no-files-found: warn
