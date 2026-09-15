@@ -1,0 +1,37 @@
+name: Owner Sales Candidate Verification Once
+on:
+  push:
+    branches: [ops/sales-candidate-collect-20260915]
+    paths: [.github/workflows/sales-candidate-verify-once.yml]
+permissions:
+  contents: read
+concurrency:
+  group: owner-sales-candidate-collection-20260915
+  cancel-in-progress: false
+jobs:
+  compare-before-promotion:
+    if: github.repository == 'andysong111/commerce-os-ops-center'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - run: node scripts/ops/sales-candidate-verify-20260915.mjs --self-test
+      - run: npm install --prefix "$RUNNER_TEMP/sales-browser" --no-package-lock --no-audit --no-fund playwright@1.55.1
+      - run: '"$RUNNER_TEMP/sales-browser/node_modules/.bin/playwright" install --with-deps chromium'
+      - name: Current-context parity and mismatch evidence only; canonical and purchase writes blocked
+        env:
+          SALES_BROWSER_TOOLS: ${{ runner.temp }}/sales-browser
+          SALES_VERIFY_AUTHORIZATION: OWNER_AUTHORIZED_CURRENT_CANDIDATE_COMPARISON
+        run: node scripts/ops/sales-candidate-verify-20260915.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sales-candidate-prewrite-verification
+          path: artifacts/sales-candidate-verify-20260915/result.json
+          retention-days: 7
+          if-no-files-found: warn
