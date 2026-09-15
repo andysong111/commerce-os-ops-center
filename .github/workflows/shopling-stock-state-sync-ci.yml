@@ -15,6 +15,7 @@ on:
       - "tests/shoplingStockStateRouteGuard.test.mjs"
       - "tests/shoplingStockStateExtension.test.mjs"
       - "tests/shoplingStockStateSyncV041.test.mjs"
+      - "tests/shoplingStockWatchdogHeartbeat.test.mjs"
       - "tests/inventoryStockSalesTail.test.mjs"
       - "tests/inventoryStockSyncTimeoutRetry.test.mjs"
       - ".github/workflows/shopling-stock-state-sync-ci.yml"
@@ -44,11 +45,15 @@ jobs:
           && node --check public/shopling-stock-state-sync/search-policy-v023.js
           && node --check public/shopling-stock-state-sync/background-v040.js
           && node --check public/shopling-stock-state-sync/content-ops-v021.js
+          && node --check public/shopling-stock-state-sync/background-v070.js
+          && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
           && node --check public/shopling-stock-state-sync/popup.js
       - name: Regression - route guard
         run: node --test tests/shoplingStockStateRouteGuard.test.mjs
       - name: Regression - extension package
         run: node --test tests/shoplingStockStateExtension.test.mjs
+      - name: Regression - heartbeat watchdog
+        run: node --test tests/shoplingStockWatchdogHeartbeat.test.mjs
       - name: Regression - v0.4.1 sync
         run: node --test tests/shoplingStockStateSyncV041.test.mjs
       - name: Regression - reset-tail coverage
