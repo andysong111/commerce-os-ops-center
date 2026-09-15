@@ -80,7 +80,8 @@ test("v0.5.5 package reads A6 goods keys without checking rows, applies API per 
   assert.match(downloadSource, /stock_price_core_not_option_popup_stage/);
   assert.match(downloadSource, /attempt < 16/);
   assert.match(downloadSource, /CANONICAL_PRICE_CORE_MODIFY_TP_GOODS_STOCK_AND_TRSMT_ENV_MODY_OPT_1/);
-  assert.match(pageSource, /v0\.5\.5 다운로드/);
+  assert.match(pageSource, /href="\/api\/shopling-stock-state-sync\/download-hf29"/);
+  assert.match(pageSource, /v0\.5\.7 다운로드/);
   assert.match(popupSource, /chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(adapterSource, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
   assert.match(adapterSource, /continueNextGoodsKey/);

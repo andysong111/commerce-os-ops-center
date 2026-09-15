@@ -26,10 +26,10 @@ export default function InventoryStockControlPage() {
               창고 위치·수용능력
             </Link>
             <Link
-              href="/api/shopling-stock-state-sync/download-hf28"
+              href="/api/shopling-stock-state-sync/download-hf29"
               className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800"
             >
-              재고상태 자동화 확장 v0.5.5 다운로드
+              재고상태 자동화 확장 v0.5.7 다운로드
             </Link>
           </div>
         }
