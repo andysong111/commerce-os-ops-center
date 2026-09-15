@@ -8,11 +8,10 @@ const SALES = '/api/product-master/shopling-sales-events';
 const PARITY = '/api/stage8/candidate-demand-parity';
 const EVIDENCE = '/api/stage8/candidate-mismatch-evidence';
 const EXPECTED_SOURCE_REQUEST = '83a71972-4d53-4b4a-b599-7a6f76667e09';
-const EXPECTED_PARITY_REQUEST = '80227668-508b-4fa9-8f1d-d1c8025eaf61';
 const EXPECTED_ASOF = '2026-09-15T01:09:10.473Z';
 const EXPECTED_PLAN = 'sha256:6918e783e02feb644d188843c83b3130116b906738e5c4f5a58cdb99bfd2f390';
-const EXPECTED_PARITY = 'sha256:4fe61e7d1ae1be54ca46847cac590ed67d21d078f70665f365cfc6d1fb687157';
 const GET_APIS = new Set([SALES, PARITY, EVIDENCE]);
+const WRITE_APIS = new Set([PARITY, EVIDENCE]);
 
 function allow(url, method, topFrame, body, armed) {
   const u = new URL(url);
@@ -20,20 +19,22 @@ function allow(url, method, topFrame, body, armed) {
   if (method === 'GET') {
     return u.pathname === PAGE || u.pathname.startsWith('/_next/static/') || (GET_APIS.has(u.pathname) && !u.search);
   }
-  return method === 'POST' && !u.search && u.pathname === EVIDENCE && armed?.path === EVIDENCE &&
+  return method === 'POST' && !u.search && WRITE_APIS.has(u.pathname) && armed?.path === u.pathname &&
     ['start', 'run-next'].includes(armed?.action) && body && Object.keys(body).length === 1 && body.action === armed.action;
 }
 
-for (const path of [SALES, PARITY, '/api/china-order-manager', '/api/inventory-stock-control']) {
+for (const path of [SALES, '/api/china-order-manager', '/api/inventory-stock-control']) {
   assert.equal(allow(ORIGIN + path, 'POST', true, { action: 'start' }, { path, action: 'start' }), false);
 }
-for (const action of ['canary', 'full', 'approve', 'refresh', 'publish']) {
-  assert.equal(allow(ORIGIN + EVIDENCE, 'POST', true, { action }, { path: EVIDENCE, action }), false);
+for (const path of [PARITY, EVIDENCE]) {
+  for (const action of ['canary', 'full', 'approve', 'refresh', 'publish']) {
+    assert.equal(allow(ORIGIN + path, 'POST', true, { action }, { path, action }), false);
+  }
+  assert.ok(allow(ORIGIN + path, 'POST', true, { action: 'start' }, { path, action: 'start' }));
+  assert.ok(allow(ORIGIN + path, 'POST', true, { action: 'run-next' }, { path, action: 'run-next' }));
 }
-assert.ok(allow(ORIGIN + EVIDENCE, 'POST', true, { action: 'start' }, { path: EVIDENCE, action: 'start' }));
-assert.ok(allow(ORIGIN + EVIDENCE, 'POST', true, { action: 'run-next' }, { path: EVIDENCE, action: 'run-next' }));
-assert.equal(allow(ORIGIN + EVIDENCE, 'POST', false, { action: 'start' }, { path: EVIDENCE, action: 'start' }), false);
-console.log('STAGE8_EVIDENCE_RERUN_READ_ONLY_BOUNDARY_PASS');
+assert.equal(allow(ORIGIN + PARITY, 'POST', false, { action: 'start' }, { path: PARITY, action: 'start' }), false);
+console.log('STAGE8_PARITY_EVIDENCE_READ_ONLY_BOUNDARY_PASS');
 if (process.argv.includes('--self-test')) process.exit(0);
 
 assert.equal(process.env.GITHUB_REF_NAME, 'ops/rerun-stage8-evidence-20260915');
@@ -44,10 +45,9 @@ const { chromium } = tools('playwright');
 const dir = 'artifacts/stage8-evidence-rerun-20260915';
 await mkdir(dir, { recursive: true });
 const log = {
-  mode: 'REAL_PRODUCTION_READ_ONLY_MISMATCH_EVIDENCE_RERUN',
+  mode: 'REAL_PRODUCTION_READ_ONLY_CURRENT_CONTEXT_PARITY_EVIDENCE',
   startedAt: new Date().toISOString(),
   expectedSourceRequestId: EXPECTED_SOURCE_REQUEST,
-  expectedParityRequestId: EXPECTED_PARITY_REQUEST,
   analysisAsOf: EXPECTED_ASOF,
   productMasterWrites: 0,
   inventoryWrites: 0,
@@ -80,6 +80,10 @@ await context.route('**/*', async route => {
 });
 page.on('dialog', dialog => dialog.dismiss());
 
+async function save() {
+  await writeFile(`${dir}/result.json`, JSON.stringify(log, null, 2));
+}
+
 async function request(path, action = null) {
   assert.equal(armed, null);
   if (action) armed = { path, action };
@@ -104,28 +108,95 @@ async function status(path) {
   return response.data.status;
 }
 
+async function verifySource() {
+  const source = await status(SALES);
+  assert.equal(source.requestId, EXPECTED_SOURCE_REQUEST, 'SALES_SOURCE_CHANGED');
+  assert.equal(source.analysisAsOf, EXPECTED_ASOF, 'SALES_SOURCE_TIME_CHANGED');
+  assert.equal(source.report?.planFingerprint, EXPECTED_PLAN, 'SALES_PLAN_CHANGED');
+  assert.equal(source.report?.unmappedRows, 0, 'SALES_UNMAPPED_ROWS_PRESENT');
+  assert.equal(source.report?.identityConflictCount, 0, 'SALES_IDENTITY_CONFLICT_PRESENT');
+  return source;
+}
+
+function summarizeParity(statusValue) {
+  const report = statusValue?.report ?? null;
+  return {
+    requestId: statusValue?.requestId ?? null,
+    state: statusValue?.state ?? null,
+    completedRanges: statusValue?.completedRanges ?? null,
+    totalRanges: statusValue?.totalRanges ?? null,
+    ...(report ? {
+      candidateSalesRequestId: report.candidateSalesRequestId,
+      analysisAsOf: report.analysisAsOf,
+      planningContentFingerprint: report.planningContentFingerprint,
+      candidatePlanFingerprint: report.candidatePlanFingerprint,
+      parityFingerprint: report.parityFingerprint,
+      candidateRowCount: report.candidateRowCount,
+      exactRowCount: report.exactRowCount,
+      unitMismatchCount: report.unitMismatchCount,
+      revenueMismatchCount: report.revenueMismatchCount,
+      missingDirectCount: report.missingDirectCount,
+      directOnlyManagedCount: report.directOnlyManagedCount,
+      blockerCount: report.blockerCount,
+      candidateMinusDirectUnits: report.candidateMinusDirectUnits,
+      candidateMinusDirectRevenue: report.candidateMinusDirectRevenue,
+      mismatchSamples: report.mismatchSamples,
+      missingDirectBarcodes: report.missingDirectBarcodes,
+      directOnlyManagedBarcodes: report.directOnlyManagedBarcodes,
+    } : {}),
+  };
+}
+
 function summarizeEvidence(statusValue) {
   const report = statusValue?.report ?? null;
-  if (!report) return null;
   return {
-    requestId: statusValue.requestId,
-    state: statusValue.state,
-    candidateSalesRequestId: report.candidateSalesRequestId,
-    candidateParityRequestId: report.candidateParityRequestId,
-    analysisAsOf: report.analysisAsOf,
-    evidenceRows: report.evidenceRows,
-    candidateRows: report.candidateRows,
-    truncatedEvidenceRows: report.truncatedEvidenceRows,
-    affectedBarcodes: report.affectedBarcodes,
-    categoryCounts: report.categoryCounts,
-    categoryUnitDelta: report.categoryUnitDelta,
-    categoryRevenueDelta: report.categoryRevenueDelta,
-    reasonCounts: report.reasonCounts,
-    reasonUnitDelta: report.reasonUnitDelta,
-    reasonRevenueDelta: report.reasonRevenueDelta,
-    evidenceFingerprint: report.evidenceFingerprint,
-    topEvidence: report.topEvidence,
+    requestId: statusValue?.requestId ?? null,
+    state: statusValue?.state ?? null,
+    completedRanges: statusValue?.completedRanges ?? null,
+    totalRanges: statusValue?.totalRanges ?? null,
+    ...(report ? {
+      candidateSalesRequestId: report.candidateSalesRequestId,
+      candidateParityRequestId: report.candidateParityRequestId,
+      analysisAsOf: report.analysisAsOf,
+      evidenceRows: report.evidenceRows,
+      candidateRows: report.candidateRows,
+      truncatedEvidenceRows: report.truncatedEvidenceRows,
+      affectedBarcodes: report.affectedBarcodes,
+      categoryCounts: report.categoryCounts,
+      categoryUnitDelta: report.categoryUnitDelta,
+      categoryRevenueDelta: report.categoryRevenueDelta,
+      reasonCounts: report.reasonCounts,
+      reasonUnitDelta: report.reasonUnitDelta,
+      reasonRevenueDelta: report.reasonRevenueDelta,
+      evidenceFingerprint: report.evidenceFingerprint,
+      topEvidence: report.topEvidence,
+    } : {}),
   };
+}
+
+async function runUntilTerminal(path, requestId, kind, terminalStates, maxSteps, maxMs) {
+  const deadline = Date.now() + maxMs;
+  let current = await status(path);
+  for (let i = 0; i < maxSteps && Date.now() < deadline && ['QUEUED', 'RUNNING'].includes(current.state); i += 1) {
+    assert.equal(current.requestId, requestId, `${kind.toUpperCase()}_REQUEST_CHANGED_DURING_RUN`);
+    if ((i + 1) % 8 === 1) await verifySource();
+    const step = await request(path, 'run-next');
+    assert.equal(step.http, 200, `${kind.toUpperCase()}_STEP_HTTP_FAILED:${step.http}`);
+    assert.equal(step.data.ok, true, `${kind.toUpperCase()}_STEP_NOT_OK`);
+    if (step.data.result?.requestId) assert.equal(step.data.result.requestId, requestId, `${kind.toUpperCase()}_STEP_REQUEST_CHANGED`);
+    log.steps.push({ kind, index: i + 1, state: step.data.result?.state ?? null, processed: step.data.result?.processed ?? null });
+    current = await status(path);
+    if ((i + 1) % 10 === 0) console.log(JSON.stringify({ kind, step: i + 1, state: current.state, completedRanges: current.completedRanges, totalRanges: current.totalRanges }));
+  }
+  current = await status(path);
+  assert.equal(current.requestId, requestId, `${kind.toUpperCase()}_FINAL_REQUEST_CHANGED`);
+  assert.ok(terminalStates.includes(current.state), `${kind.toUpperCase()}_NOT_TERMINAL:${current.state}`);
+  await verifySource();
+  return current;
+}
+
+function sumRecord(record) {
+  return Object.values(record ?? {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
 }
 
 try {
@@ -133,74 +204,108 @@ try {
   assert.equal(nav?.status(), 200, 'PRODUCTION_PAGE_HTTP_FAILED');
   assert.equal(new URL(page.url()).pathname, PAGE, 'LOGIN_REQUIRED');
 
-  const source = await status(SALES);
-  assert.equal(source.requestId, EXPECTED_SOURCE_REQUEST, 'SALES_SOURCE_CHANGED');
-  assert.equal(source.analysisAsOf, EXPECTED_ASOF, 'SALES_SOURCE_TIME_CHANGED');
-  assert.equal(source.report?.planFingerprint, EXPECTED_PLAN, 'SALES_PLAN_CHANGED');
-  assert.equal(source.report?.unmappedRows, 0, 'SALES_UNMAPPED_ROWS_PRESENT');
-  assert.equal(source.report?.identityConflictCount, 0, 'SALES_IDENTITY_CONFLICT_PRESENT');
+  const source = await verifySource();
+  log.source = {
+    requestId: source.requestId,
+    analysisAsOf: source.analysisAsOf,
+    planFingerprint: source.report?.planFingerprint,
+    eventFingerprint: source.report?.eventFingerprint,
+    sourceEventCount: source.report?.sourceEventCount,
+  };
 
-  const parity = await status(PARITY);
-  assert.equal(parity.requestId, EXPECTED_PARITY_REQUEST, 'PARITY_REQUEST_CHANGED');
-  assert.equal(parity.state, 'MISMATCH', 'PARITY_NO_LONGER_MISMATCH');
-  assert.equal(parity.report?.candidateSalesRequestId, EXPECTED_SOURCE_REQUEST, 'PARITY_SOURCE_CHANGED');
-  assert.equal(parity.report?.analysisAsOf, EXPECTED_ASOF, 'PARITY_TIME_CHANGED');
-  assert.equal(parity.report?.candidatePlanFingerprint, EXPECTED_PLAN, 'PARITY_PLAN_CHANGED');
-  assert.equal(parity.report?.parityFingerprint, EXPECTED_PARITY, 'PARITY_FINGERPRINT_CHANGED');
+  const priorParity = await status(PARITY);
+  assert.ok(!['QUEUED', 'RUNNING'].includes(priorParity.state), 'OTHER_PARITY_RUN_ACTIVE');
+  log.beforeParity = summarizeParity(priorParity);
 
-  const before = await status(EVIDENCE);
-  assert.ok(!['QUEUED', 'RUNNING'].includes(before.state), 'OTHER_EVIDENCE_RUN_ACTIVE');
-  log.before = summarizeEvidence(before);
+  const parityStart = await request(PARITY, 'start');
+  log.parityStart = parityStart;
+  await save();
+  if (parityStart.http !== 202 || parityStart.data?.ok !== true || parityStart.data?.accepted !== true) {
+    log.outcome = 'PARITY_START_BLOCKED';
+    throw new Error(`PARITY_START_BLOCKED:${parityStart.http}:${parityStart.data?.code ?? ''}:${parityStart.data?.message ?? ''}`);
+  }
+  assert.equal(parityStart.data.candidateSalesRequestId, EXPECTED_SOURCE_REQUEST, 'NEW_PARITY_SOURCE_CHANGED');
+  assert.equal(parityStart.data.analysisAsOf, EXPECTED_ASOF, 'NEW_PARITY_TIME_CHANGED');
+  assert.equal(parityStart.data.candidatePlanFingerprint, EXPECTED_PLAN, 'NEW_PARITY_PLAN_CHANGED');
+  const parityRequestId = parityStart.data.requestId;
+  log.parityRequestId = parityRequestId;
 
-  const created = await request(EVIDENCE, 'start');
-  assert.equal(created.http, 202, 'EVIDENCE_START_NOT_ACCEPTED');
-  assert.equal(created.data.ok, true, 'EVIDENCE_START_NOT_OK');
-  assert.equal(created.data.accepted, true, 'EVIDENCE_START_REJECTED');
-  assert.notEqual(created.data.requestId, before.requestId, 'EVIDENCE_REQUEST_NOT_RECREATED');
-  assert.equal(created.data.candidateSalesRequestId, EXPECTED_SOURCE_REQUEST, 'EVIDENCE_SOURCE_CHANGED');
-  assert.equal(created.data.candidateParityRequestId, EXPECTED_PARITY_REQUEST, 'EVIDENCE_PARITY_REQUEST_CHANGED');
-  assert.equal(created.data.analysisAsOf, EXPECTED_ASOF, 'EVIDENCE_TIME_CHANGED');
-  assert.equal(created.data.candidateParityFingerprint, EXPECTED_PARITY, 'EVIDENCE_PARITY_FINGERPRINT_CHANGED');
-  log.requestId = created.data.requestId;
-  log.targetBarcodes = created.data.targetBarcodes;
-  log.totalRanges = created.data.totalRanges;
+  const parity = await runUntilTerminal(PARITY, parityRequestId, 'parity', ['MATCH', 'MISMATCH', 'FAILED'], 80, 10 * 60_000);
+  log.afterParity = summarizeParity(parity);
+  await save();
+  assert.notEqual(parity.state, 'FAILED', `PARITY_FAILED:${parity.error ?? parity.message ?? ''}`);
 
-  const deadline = Date.now() + 12 * 60_000;
-  let current = await status(EVIDENCE);
-  for (let i = 0; i < 80 && Date.now() < deadline && ['QUEUED', 'RUNNING'].includes(current.state); i += 1) {
-    assert.equal(current.requestId, log.requestId, 'EVIDENCE_REQUEST_CHANGED_DURING_RUN');
-    const step = await request(EVIDENCE, 'run-next');
-    assert.equal(step.http, 200, 'EVIDENCE_STEP_HTTP_FAILED');
-    assert.equal(step.data.ok, true, 'EVIDENCE_STEP_NOT_OK');
-    if (step.data.result?.requestId) assert.equal(step.data.result.requestId, log.requestId, 'EVIDENCE_STEP_REQUEST_CHANGED');
-    log.steps.push({
-      index: i + 1,
-      state: step.data.result?.state ?? null,
-      processed: step.data.result?.processed ?? null,
-      completedRanges: step.data.result?.completedRanges ?? null,
-    });
-    current = await status(EVIDENCE);
-    if ((i + 1) % 10 === 0) console.log(JSON.stringify({ step: i + 1, state: current.state, completedRanges: current.completedRanges, totalRanges: current.totalRanges }));
+  if (parity.state === 'MATCH') {
+    log.outcome = 'CURRENT_CONTEXT_PARITY_MATCH';
+    console.log('STAGE8_CURRENT_CONTEXT_PARITY_MATCH');
+  } else {
+    assert.equal(parity.report?.candidateSalesRequestId, EXPECTED_SOURCE_REQUEST, 'FINAL_PARITY_SOURCE_CHANGED');
+    assert.equal(parity.report?.analysisAsOf, EXPECTED_ASOF, 'FINAL_PARITY_TIME_CHANGED');
+    assert.equal(parity.report?.candidatePlanFingerprint, EXPECTED_PLAN, 'FINAL_PARITY_PLAN_CHANGED');
+    assert.ok(/^sha256:[a-f0-9]{64}$/.test(parity.report?.parityFingerprint ?? ''), 'FINAL_PARITY_FINGERPRINT_INVALID');
+
+    const priorEvidence = await status(EVIDENCE);
+    assert.ok(!['QUEUED', 'RUNNING'].includes(priorEvidence.state), 'OTHER_EVIDENCE_RUN_ACTIVE');
+    log.beforeEvidence = summarizeEvidence(priorEvidence);
+
+    const evidenceStart = await request(EVIDENCE, 'start');
+    log.evidenceStart = evidenceStart;
+    await save();
+    if (evidenceStart.http !== 202 || evidenceStart.data?.ok !== true || evidenceStart.data?.accepted !== true) {
+      log.outcome = 'EVIDENCE_START_BLOCKED';
+      throw new Error(`EVIDENCE_START_BLOCKED:${evidenceStart.http}:${evidenceStart.data?.code ?? ''}:${evidenceStart.data?.message ?? ''}`);
+    }
+    assert.equal(evidenceStart.data.candidateSalesRequestId, EXPECTED_SOURCE_REQUEST, 'NEW_EVIDENCE_SOURCE_CHANGED');
+    assert.equal(evidenceStart.data.candidateParityRequestId, parityRequestId, 'NEW_EVIDENCE_PARITY_REQUEST_CHANGED');
+    assert.equal(evidenceStart.data.analysisAsOf, EXPECTED_ASOF, 'NEW_EVIDENCE_TIME_CHANGED');
+    assert.equal(evidenceStart.data.candidateParityFingerprint, parity.report.parityFingerprint, 'NEW_EVIDENCE_PARITY_FINGERPRINT_CHANGED');
+    const evidenceRequestId = evidenceStart.data.requestId;
+    log.evidenceRequestId = evidenceRequestId;
+
+    const evidence = await runUntilTerminal(EVIDENCE, evidenceRequestId, 'evidence', ['COMPLETE', 'FAILED'], 80, 12 * 60_000);
+    log.afterEvidence = summarizeEvidence(evidence);
+    await save();
+    assert.notEqual(evidence.state, 'FAILED', `EVIDENCE_FAILED:${evidence.error ?? evidence.message ?? ''}`);
+    assert.equal(evidence.report?.candidateSalesRequestId, EXPECTED_SOURCE_REQUEST, 'FINAL_EVIDENCE_SOURCE_CHANGED');
+    assert.equal(evidence.report?.candidateParityRequestId, parityRequestId, 'FINAL_EVIDENCE_PARITY_CHANGED');
+    assert.equal(evidence.report?.analysisAsOf, EXPECTED_ASOF, 'FINAL_EVIDENCE_TIME_CHANGED');
+    assert.equal(evidence.report?.candidateParityFingerprint, parity.report.parityFingerprint, 'FINAL_EVIDENCE_FINGERPRINT_CHANGED');
+    assert.equal(evidence.report?.truncatedEvidenceRows ?? 0, 0, 'EVIDENCE_TRUNCATED');
+
+    const expectedTargets = new Set([
+      ...(parity.report?.mismatchSamples ?? []).map(row => row.barcode),
+      ...(parity.report?.missingDirectBarcodes ?? []),
+      ...(parity.report?.directOnlyManagedBarcodes ?? []),
+    ]);
+    const affected = new Set(evidence.report?.affectedBarcodes ?? []);
+    const missingEvidenceTargets = [...expectedTargets].filter(barcode => !affected.has(barcode));
+    const evidenceUnits = sumRecord(evidence.report?.categoryUnitDelta);
+    const evidenceRevenue = sumRecord(evidence.report?.categoryRevenueDelta);
+    const parityUnits = Number(parity.report?.candidateMinusDirectUnits ?? 0);
+    const parityRevenue = Number(parity.report?.candidateMinusDirectRevenue ?? 0);
+    log.reconciliation = {
+      parityCandidateMinusDirectUnits: parityUnits,
+      parityCandidateMinusDirectRevenue: parityRevenue,
+      evidenceLegacyMinusCanonicalUnits: evidenceUnits,
+      evidenceLegacyMinusCanonicalRevenue: evidenceRevenue,
+      missingEvidenceTargets,
+      exactAggregateReconciliation: evidenceUnits === -parityUnits && evidenceRevenue === -parityRevenue && missingEvidenceTargets.length === 0,
+    };
+    assert.deepEqual(missingEvidenceTargets, [], `EVIDENCE_TARGETS_MISSING:${missingEvidenceTargets.join(',')}`);
+    assert.equal(evidenceUnits, -parityUnits, 'EVIDENCE_UNIT_DELTA_DOES_NOT_RECONCILE');
+    assert.equal(evidenceRevenue, -parityRevenue, 'EVIDENCE_REVENUE_DELTA_DOES_NOT_RECONCILE');
+    log.outcome = 'CURRENT_CONTEXT_MISMATCH_FULLY_EVIDENCED';
+    console.log('STAGE8_CURRENT_CONTEXT_MISMATCH_FULLY_EVIDENCED');
   }
 
-  current = await status(EVIDENCE);
-  assert.equal(current.requestId, log.requestId, 'FINAL_EVIDENCE_REQUEST_CHANGED');
-  assert.equal(current.state, 'COMPLETE', `EVIDENCE_NOT_COMPLETE:${current.state}`);
-  assert.equal(current.report?.candidateSalesRequestId, EXPECTED_SOURCE_REQUEST, 'FINAL_EVIDENCE_SOURCE_CHANGED');
-  assert.equal(current.report?.candidateParityRequestId, EXPECTED_PARITY_REQUEST, 'FINAL_EVIDENCE_PARITY_CHANGED');
-  assert.equal(current.report?.analysisAsOf, EXPECTED_ASOF, 'FINAL_EVIDENCE_TIME_CHANGED');
-  assert.equal(current.report?.candidateParityFingerprint, EXPECTED_PARITY, 'FINAL_EVIDENCE_FINGERPRINT_CHANGED');
-  log.after = summarizeEvidence(current);
-  log.outcome = 'COMPLETE_READ_ONLY_EVIDENCE_RERUN';
-  console.log('STAGE8_EVIDENCE_RERUN_COMPLETE');
-  console.log(JSON.stringify(log.after));
+  console.log(JSON.stringify({ outcome: log.outcome, parity: log.afterParity, evidence: log.afterEvidence ?? null, reconciliation: log.reconciliation ?? null }));
 } catch (error) {
-  log.outcome = 'STOPPED_FOR_INSPECTION';
-  log.failure = String(error?.message ?? error).split('\n')[0].slice(0, 300);
-  console.error('STAGE8_EVIDENCE_RERUN_STOPPED', log.failure);
+  if (log.outcome === 'STARTING') log.outcome = 'STOPPED_FOR_INSPECTION';
+  log.failure = String(error?.message ?? error).split('\n')[0].slice(0, 500);
+  console.error('STAGE8_CURRENT_CONTEXT_VERIFY_STOPPED', log.failure);
   process.exitCode = 1;
 } finally {
   log.finishedAt = new Date().toISOString();
-  await writeFile(`${dir}/result.json`, JSON.stringify(log, null, 2));
+  await save();
   await browser.close();
 }
