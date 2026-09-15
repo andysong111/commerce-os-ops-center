@@ -1,0 +1,37 @@
+name: Owner Sales Candidate Recovery Once
+on:
+  push:
+    branches: [ops/sales-candidate-collect-20260915]
+    paths: [.github/workflows/sales-candidate-recover-once.yml]
+permissions:
+  contents: read
+concurrency:
+  group: owner-sales-candidate-collection-20260915
+  cancel-in-progress: false
+jobs:
+  recover-and-collect:
+    if: github.repository == 'andysong111/commerce-os-ops-center'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - run: node scripts/ops/sales-candidate-recover-20260915.mjs --self-test
+      - run: npm install --prefix "$RUNNER_TEMP/sales-browser" --no-package-lock --no-audit --no-fund playwright@1.55.1
+      - run: '"$RUNNER_TEMP/sales-browser/node_modules/.bin/playwright" install --with-deps chromium'
+      - name: Resume only the pinned analysis through deployed recovery, never promote
+        env:
+          SALES_BROWSER_TOOLS: ${{ runner.temp }}/sales-browser
+          SALES_COLLECTION_AUTHORIZATION: OWNER_AUTHORIZED_CURRENT_SALES_COLLECTION
+        run: node scripts/ops/sales-candidate-recover-20260915.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sales-candidate-recovery-result
+          path: artifacts/sales-candidate-recover-20260915/result.json
+          retention-days: 7
+          if-no-files-found: warn
