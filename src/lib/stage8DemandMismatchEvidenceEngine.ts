@@ -483,6 +483,19 @@ export function compileDemandMismatchEvidenceChunk(
   targetBarcodes: string[],
 ): DemandMismatchEvidenceChunk {
   const targets = buildTargetIndex(planning, targetBarcodes);
+  // The fast raw-identity prefilter is intentionally incomplete: historical or
+  // otherwise canonical-only identities may not exist in the current Product
+  // Master lookup keys. Build a bounded canonical backstop once per Shopling
+  // chunk so a row that the canonical collector actually assigns to a mismatch
+  // target can never disappear from evidence before the resolvers are compared.
+  const canonicalTargetExternalIds = new Set(
+    aggregateProductMasterShoplingSalesEventChunk(rows, planning, range, {
+      syncedAt: analysisAsOf,
+      analysisAsOf,
+    }).events
+      .filter((event) => targets.barcodes.has(event.barcode))
+      .map((event) => event.externalId),
+  );
   const scopeIndex = buildCanonicalScopeIndex(planning);
   const inactiveBarcodes = inactiveManagedBarcodes(planning);
   const evidence: DemandMismatchEvidenceRow[] = [];
@@ -492,9 +505,14 @@ export function compileDemandMismatchEvidenceChunk(
   let truncatedEvidenceRows = 0;
 
   for (const raw of rows) {
-    if (!candidateRow(raw, targets)) continue;
-    candidateRows += 1;
     const order = normalizeShoplingOrder(raw);
+    if (
+      !candidateRow(raw, targets) &&
+      !canonicalTargetExternalIds.has(order.id)
+    ) {
+      continue;
+    }
+    candidateRows += 1;
     const canonicalOrderedAt = validIso(order.orderedAt);
     const orderedLocalDate = localDate(order.orderedAt);
     const canonicalUtcOrderedDate = canonicalOrderedAt?.slice(0, 10) ?? null;
