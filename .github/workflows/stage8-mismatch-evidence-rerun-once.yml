@@ -1,4 +1,4 @@
-name: Stage8 Current Context Parity Evidence Once
+name: Stage8 Fresh Source Parity Evidence Once
 on:
   push:
     branches: [ops/rerun-stage8-evidence-20260915]
@@ -6,13 +6,13 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: stage8-current-context-parity-evidence-20260915
+  group: stage8-fresh-source-parity-evidence-20260915
   cancel-in-progress: false
 jobs:
   production-read-only-verification:
     if: github.repository == 'andysong111/commerce-os-ops-center'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +26,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/sales-browser" --no-package-lock --no-audit --no-fund playwright@1.55.1
           "$RUNNER_TEMP/sales-browser/node_modules/.bin/playwright" install --with-deps chromium
-      - name: Rerun current-context parity and evidence only
+      - name: Refresh source then rerun parity and evidence only
         env:
           SALES_BROWSER_TOOLS: ${{ runner.temp }}/sales-browser
           EVIDENCE_RERUN_AUTHORIZATION: OWNER_AUTHORIZED_READ_ONLY_EVIDENCE_RERUN
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: stage8-current-context-parity-evidence-20260915
+          name: stage8-fresh-source-parity-evidence-20260915
           path: artifacts/stage8-evidence-rerun-20260915/result.json
           retention-days: 7
           if-no-files-found: warn
