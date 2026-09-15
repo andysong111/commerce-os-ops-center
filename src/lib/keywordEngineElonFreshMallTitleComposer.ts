@@ -215,6 +215,8 @@ export function composeFreshKeywordElonMallTitles(input: {
       ? (seed * 7 + attempt * 5) % expansion.length
       : 0;
     const result = composeKeywordElonSafeMallTitles({
+      // Best-effort diversity: never invent material solely to force 29 unique strings.
+      allowValidatedTitleReuse: true,
       markets: input.markets,
       finalKeywords: rotate(finals, finalOffset),
       titleExpansionPool: rotate(expansion, expansionOffset),

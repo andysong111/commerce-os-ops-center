@@ -381,6 +381,7 @@ export function composeKeywordElonSafeMallTitles(input: {
   modelName: string;
   context: KeywordElonMallTitleFactContext;
   blockedTerms?: string[];
+  allowValidatedTitleReuse?: boolean;
 }): KeywordElonMallTitleSafeComposerResult {
   const { finals, materials } = buildMaterials({
     finalKeywords: input.finalKeywords,
@@ -399,9 +400,10 @@ export function composeKeywordElonSafeMallTitles(input: {
     (row) => row.priorityTier === "supporting",
   );
   const candidates = buildCandidatePool(materials, finalKeys);
-  if (candidates.length < input.markets.length) {
+  const allowValidatedTitleReuse = input.allowValidatedTitleReuse === true;
+  if (!candidates.length || (!allowValidatedTitleReuse && candidates.length < input.markets.length)) {
     throw new Error(
-      `검증 키워드만으로 ${KEYWORD_ELON_LONG_TITLE_HARD_MIN_BYTES}~${KEYWORD_ELON_SEO_TITLE_BYTE_LIMIT}bytes 고유 쇼핑몰별 상품명 ${input.markets.length}개를 만들 수 없습니다. 현재 ${candidates.length}개`,
+      `검증 키워드만으로 ${KEYWORD_ELON_LONG_TITLE_HARD_MIN_BYTES}~${KEYWORD_ELON_SEO_TITLE_BYTE_LIMIT}bytes 고유 쇼핑몰별 상품명 ${input.markets.length}개를 만들 수 없습니다. 현재 ${candidates.length}개 · SEO_TITLE_POOL_V10:markets=${input.markets.length},materials=${materials.length},reuse=${allowValidatedTitleReuse}`,
     );
   }
 
@@ -416,7 +418,10 @@ export function composeKeywordElonSafeMallTitles(input: {
     const primary = finals[index % finals.length];
     const selected = selectCandidate({
       candidates,
-      usedCanonical,
+      // Exhaust every distinct valid candidate before reusing any full title.
+      usedCanonical: allowValidatedTitleReuse && usedCanonical.size === candidates.length
+        ? new Set<string>()
+        : usedCanonical,
       primary,
       rowIndex: index,
       keywordUsage,
@@ -491,7 +496,7 @@ export function composeKeywordElonSafeMallTitles(input: {
   const uniqueTitleCount = new Set(
     rows.map((row) => keywordElonSeoCanonical(row.title)),
   ).size;
-  if (uniqueTitleCount !== rows.length) {
+  if (!allowValidatedTitleReuse && uniqueTitleCount !== rows.length) {
     throw new Error("쇼핑몰별 상품명에 중복이 발생했습니다.");
   }
   const nearDuplicates = nearDuplicateCount(rows.map((row) => row.title));
@@ -528,6 +533,10 @@ export function composeKeywordElonSafeMallTitles(input: {
     uniqueTitleCount,
     nearDuplicateCount: nearDuplicates,
     warnings: [
+      `SEO_MALL_TITLE_VALID_CANDIDATE_COUNT:${candidates.length}`,
+      ...(rows.length > uniqueTitleCount
+        ? [`SEO_MALL_TITLE_VALIDATED_REUSE:${rows.length - uniqueTitleCount}`]
+        : []),
       expansionAvailable
         ? "SEO_MALL_TITLE_SOURCE:LONG_TITLE_PRIORITY_V6"
         : "SEO_MALL_TITLE_SOURCE:LONG_TITLE_PRIORITY_V6_FINAL_FALLBACK",
