@@ -21,6 +21,19 @@ test("evidence compiler sends the same raw Shopling row through canonical and le
   assert.match(engine, /revenueDeltaLegacyMinusCanonical/);
 });
 
+test("canonical target rows cannot be dropped by the fast raw-identity prefilter", () => {
+  assert.match(engine, /const canonicalTargetExternalIds = new Set\(/);
+  assert.match(
+    engine,
+    /aggregateProductMasterShoplingSalesEventChunk\(rows, planning, range,[\s\S]*targets\.barcodes\.has\(event\.barcode\)/,
+  );
+  assert.match(engine, /\.map\(\(event\) => event\.externalId\)/);
+  assert.match(
+    engine,
+    /!candidateRow\(raw, targets\) &&[\s\S]*!canonicalTargetExternalIds\.has\(order\.id\)/,
+  );
+});
+
 test("evidence preserves the unfiltered actual option barcode and raw identity fields", () => {
   assert.match(engine, /rawOptionBarcodeText/);
   assert.match(engine, /rawOptionBarcodeStructured/);
