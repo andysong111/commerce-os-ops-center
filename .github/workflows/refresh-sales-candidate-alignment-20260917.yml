@@ -1,0 +1,87 @@
+name: Refresh Sales Candidate Alignment 20260917
+
+on:
+  push:
+    branches: [ops/approved-sales-publication-20260917]
+    paths:
+      - '.github/workflows/refresh-sales-candidate-alignment-20260917.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-current-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: Refresh pinned candidate and finish read-only Shopling collection
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const origin='https://commerce-os-ops-center.vercel.app';
+          const endpoint='/api/product-master/shopling-sales-events';
+          const old={
+            requestId:'0cc0f92b-b8c3-44b2-88e5-166ab630be44',
+            analysisAsOf:'2026-09-15T09:38:27.096Z',
+            planFingerprint:'sha256:d8ab2c397196471f315786529ccc90c0ced5f85c7b9dde795201707b439ce321'
+          };
+          const headers={Accept:'application/json',Origin:origin,Referer:origin+'/stage8-candidate-promotion-gate'};
+          async function call(body){
+            const r=await fetch(origin+endpoint,{
+              method:body?'POST':'GET',
+              headers:{...headers,...(body?{'Content-Type':'application/json'}:{})},
+              body:body?JSON.stringify(body):undefined,
+              redirect:'error',signal:AbortSignal.timeout(body?.action==='run-burst'?290000:90000)
+            });
+            const p=await r.json().catch(()=>null);
+            console.log(JSON.stringify({action:body?.action??'status',http:r.status,ok:p?.ok,state:p?.status?.state??p?.result?.state??null,requestId:p?.requestId??p?.status?.requestId??p?.result?.requestId??null,code:p?.code??null}));
+            assert.ok(r.status>=200&&r.status<300,`HTTP_${r.status}_${body?.action??'GET'}`);
+            assert.equal(p?.ok,true,`API_NOT_OK_${body?.action??'GET'}`);
+            return p;
+          }
+          const before=(await call()).status;
+          assert.equal(before.state,'COMPLETED','OLD_SOURCE_NOT_COMPLETED');
+          assert.equal(before.requestId,old.requestId,'OLD_REQUEST_CHANGED');
+          assert.equal(before.analysisAsOf,old.analysisAsOf,'OLD_ANALYSIS_CHANGED');
+          assert.equal(before.report?.planFingerprint,old.planFingerprint,'OLD_PLAN_CHANGED');
+
+          const created=await call({
+            action:'refresh',
+            expectedRequestId:old.requestId,
+            expectedPlanFingerprint:old.planFingerprint,
+            confirmation:'REFRESH_CANDIDATE'
+          });
+          assert.equal(created.accepted,true,'REFRESH_NOT_ACCEPTED');
+          assert.ok(created.requestId&&created.requestId!==old.requestId,'NEW_REQUEST_REQUIRED');
+          assert.ok(Date.parse(created.analysisAsOf)>Date.parse(old.analysisAsOf),'NEW_ANALYSIS_NOT_NEWER');
+          const newRequestId=created.requestId;
+
+          let final=null;
+          for(let i=0;i<4;i++){
+            const status=(await call()).status;
+            if(['READY_CANARY','BLOCKED','FAILED'].includes(status.state)){final=status;break;}
+            if(['QUEUED','RUNNING'].includes(status.state)) await call({action:'run-burst'});
+            const after=(await call()).status;
+            if(['READY_CANARY','BLOCKED','FAILED'].includes(after.state)){final=after;break;}
+          }
+          assert.ok(final,'COLLECTION_DID_NOT_REACH_TERMINAL_CANDIDATE_STATE');
+          assert.equal(final.requestId,newRequestId,'LATEST_REQUEST_DRIFTED');
+          assert.notEqual(final.state,'FAILED','LATEST_COLLECTION_FAILED');
+          assert.equal(final.report?.unmappedRows,0,'LATEST_UNMAPPED_ROWS');
+          assert.equal(final.report?.identityConflictCount,0,'LATEST_IDENTITY_CONFLICTS');
+          console.log(JSON.stringify({
+            kind:'LATEST_CANDIDATE_READY',
+            requestId:final.requestId,analysisAsOf:final.analysisAsOf,state:final.state,
+            sourceEventCount:final.report?.sourceEventCount,
+            validEventCount:final.report?.validEventCount,
+            tombstoneCount:final.report?.tombstoneCount,
+            planFingerprint:final.report?.planFingerprint,
+            eventFingerprint:final.report?.eventFingerprint,
+            unmappedRows:final.report?.unmappedRows,
+            identityConflictCount:final.report?.identityConflictCount,
+            productMasterWrites:false,purchase:false,payment:false
+          }));
+          NODE
