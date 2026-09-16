@@ -16,6 +16,7 @@ on:
       - "src/app/seo-bulk-cloud/**"
       - "src/lib/seoTitle*"
       - "src/lib/seoRun*"
+      - "src/lib/seoBulk*"
       - "src/lib/keywordEngineElonBulkFinal.ts"
       - "src/lib/keywordEngineElonLabV2Scoring.ts"
       - "src/lib/keywordEngineElonFreshMallTitleComposer.ts"
@@ -30,6 +31,7 @@ on:
       - "src/lib/keywordEngineElonLabModule.ts"
       - "src/lib/opsModuleRegistry.ts"
       - "public/product-launch-tracker-app/seo-title-ledger-handoff.js"
+      - "public/product-launch-tracker-app/seo-fallback-cache-selection.js"
       - "public/product-launch-tracker-app/app.js"
       - "supabase/migrations/202608220001_seo_title_inventory_ledger.sql"
       - "supabase/migrations/202608220002_fix_seo_title_inventory_trigger.sql"
@@ -49,6 +51,7 @@ on:
       - "tests/seoBulkCloudParallel.test.mjs"
       - "tests/seoBulkLongTitleV6UpgradeBridge.test.mjs"
       - "tests/seoRunDurableWorker.test.mjs"
+      - "tests/seoBulkSourceFallback.test.mjs"
       - "tests/seoRunClaimLoadShedding.test.mjs"
       - "tests/seoCloudPerformance.test.mjs"
       - "vercel.json"
@@ -91,6 +94,8 @@ jobs:
           src/lib/seoRunJobServer.ts
           src/lib/seoRunJobHistory.ts
           src/lib/seoRunWorker.ts
+          src/lib/seoBulkSourceFallback.ts
+          src/lib/seoBulkShoplingSource.ts
           src/lib/seoRunWorkerControl.ts
           src/lib/keywordEngineElonBulkFinal.ts
           src/lib/keywordEngineElonLabV2Scoring.ts
@@ -108,6 +113,7 @@ jobs:
           tests/seoRunClaimLoadShedding.test.mjs
           tests/seoCategoryIntentExpansionV5.test.mjs
           tests/seoRunDurableWorker.test.mjs
+          tests/seoBulkSourceFallback.test.mjs
       - name: Test title inventory, durable RUN, no-reuse and performance contracts
         run: >-
           node --experimental-strip-types --test
@@ -121,6 +127,7 @@ jobs:
           tests/seoBulkCloudParallel.test.mjs
           tests/seoBulkLongTitleV6UpgradeBridge.test.mjs
           tests/seoRunDurableWorker.test.mjs
+          tests/seoBulkSourceFallback.test.mjs
           tests/seoRunClaimLoadShedding.test.mjs
           tests/seoCloudPerformance.test.mjs
       - name: Build
