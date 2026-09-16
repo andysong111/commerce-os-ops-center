@@ -1,0 +1,88 @@
+name: Approved Sales Publication 20260917
+on:
+  push:
+    branches: ['ops/approved-sales-publication-20260917']
+    paths: ['.github/workflows/approved-sales-publication-20260917.yml']
+permissions:
+  contents: read
+concurrency:
+  group: approved-sales-publication-0cc0f92b
+  cancel-in-progress: false
+jobs:
+  approved-canary:
+    if: github.repository == 'andysong111/commerce-os-ops-center' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.13.0
+      - name: Apply exactly one approved canonical sales event and re-read status
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { appendFileSync } from 'node:fs';
+          const origin = 'https://commerce-os-ops-center.vercel.app';
+          const path = '/api/product-master/shopling-sales-events';
+          const pin = {
+            requestId: '0cc0f92b-b8c3-44b2-88e5-166ab630be44',
+            analysisAsOf: '2026-09-15T09:38:27.096Z',
+            planFingerprint: 'sha256:d8ab2c397196471f315786529ccc90c0ced5f85c7b9dde795201707b439ce321',
+            eventFingerprint: 'sha256:c4d23bcd7bda581b898b158183d29ad2a446f9724a1541afc71309e4c0f2fd3d',
+            sourceEventCount: 12977,
+          };
+          assert.ok(Date.now() < Date.parse('2026-09-18T00:00:00Z'), 'APPROVAL_EXECUTION_WINDOW_EXPIRED');
+          const emit = (kind, value) => {
+            const line = JSON.stringify({kind,at:new Date().toISOString(),...value});
+            console.log(line);
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\n```json\n' + line + '\n```\n');
+          };
+          async function request(body) {
+            // Existing owner-operated same-origin API contract. Do not alter
+            // authorization or call Product Master directly; the server retains
+            // the production secret, mutation lock and promotion/readback gates.
+            const response = await fetch(origin + path, {
+              method: body ? 'POST' : 'GET',
+              headers: {Accept:'application/json',Origin:origin,Referer:origin+'/stage8-candidate-promotion-gate',...(body?{'Content-Type':'application/json'}:{})},
+              body: body ? JSON.stringify(body) : undefined,
+              redirect:'error',signal:AbortSignal.timeout(body ? 300000 : 90000),
+            });
+            const payload = await response.json().catch(()=>null);
+            emit(body ? 'canary_http' : 'status_http', {http:response.status,ok:payload?.ok,code:payload?.code??null});
+            // POST is never automatically retried. Any timeout/error is an
+            // uncertain write until independently checked against the ledgers.
+            assert.equal(response.status,200,'HTTP_FAILED_OR_UNCERTAIN_WRITE');
+            assert.equal(payload?.ok,true,'API_NOT_OK');
+            return payload;
+          }
+          function checkStatus(value, state) {
+            assert.equal(value.requestId,pin.requestId,'CANDIDATE_CHANGED');
+            assert.equal(value.analysisAsOf,pin.analysisAsOf,'ANALYSIS_CHANGED');
+            assert.equal(value.report?.planFingerprint,pin.planFingerprint,'PLAN_CHANGED');
+            assert.equal(value.report?.eventFingerprint,pin.eventFingerprint,'EVENTS_CHANGED');
+            assert.equal(value.report?.sourceEventCount,pin.sourceEventCount,'COUNT_CHANGED');
+            assert.equal(value.report?.unmappedRows,0,'UNMAPPED_SOURCE');
+            assert.equal(value.report?.identityConflictCount,0,'IDENTITY_CONFLICT');
+            assert.equal(value.state,state,'STATE_NOT_EXPECTED');
+          }
+          const before=(await request()).status;
+          checkStatus(before,'READY_CANARY');
+          assert.equal(before.canaryVerified,false,'CANARY_ALREADY_DONE_DO_NOT_REPEAT');
+          emit('before',{...pin,state:before.state,canaryVerified:before.canaryVerified});
+          const applied=await request({action:'canary',confirmation:'CANARY',planFingerprint:pin.planFingerprint});
+          assert.equal(applied.result?.ok,true);
+          assert.equal(applied.result?.storageReady,true);
+          assert.equal(applied.result?.mode,'canary');
+          assert.equal(applied.result?.selected,1);
+          assert.equal(applied.result?.written,1);
+          assert.equal(applied.result?.planFingerprint,pin.planFingerprint);
+          assert.equal(applied.result?.snapshot?.ok,true);
+          assert.equal(applied.result?.snapshot?.analysisAsOf,pin.analysisAsOf);
+          assert.ok(['EXACT_MATCH','SAFE_CANONICAL_SUPERSET'].includes(applied.promotionGate?.state));
+          emit('canary_verified_response',{selected:1,written:1,planFingerprint:pin.planFingerprint,promotionGate:applied.promotionGate,snapshotFingerprint:applied.result.snapshot.contentFingerprint,sourceEventCount:applied.result.snapshot.sourceEventCount});
+          const after=(await request()).status;
+          checkStatus(after,'READY_FULL');
+          assert.equal(after.canaryVerified,true);
+          emit('CANARY_COMPLETE_FULL_NOT_EXECUTED',{state:after.state,canaryVerified:after.canaryVerified,fullExecuted:false,sourceWritesEnabled:false,scope:'sku_sales_events only',next:'Independent persisted canary comparison before any FULL request'});
+          NODE
