@@ -1,0 +1,58 @@
+name: Recover Refresh Sales Candidate 20260917
+
+on:
+  push:
+    branches: [ops/approved-sales-publication-20260917]
+    paths:
+      - '.github/workflows/recover-refresh-sales-candidate-20260917.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recover-current-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: Use existing fail-closed recovery and finish collection
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const origin='https://commerce-os-ops-center.vercel.app';
+          const endpoint='/api/product-master/shopling-sales-events';
+          const failedRequest='fcf1f231-4fda-496a-a132-e9045fda2eba';
+          const failedPlanning='sha256:ba2914a8e0375e51e5424060d2195b4e772001ae33964585db96513bd6a7a4c9';
+          const headers={Accept:'application/json',Origin:origin,Referer:origin+'/stage8-candidate-promotion-gate'};
+          async function call(body){
+            const r=await fetch(origin+endpoint,{method:body?'POST':'GET',headers:{...headers,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,redirect:'error',signal:AbortSignal.timeout(body?.action==='run-burst'?290000:90000)});
+            const p=await r.json().catch(()=>null);
+            console.log(JSON.stringify({action:body?.action??'status',http:r.status,ok:p?.ok,state:p?.status?.state??p?.result?.state??null,requestId:p?.requestId??p?.status?.requestId??p?.result?.requestId??null,recovered:p?.recovered??null,code:p?.code??null,message:p?.message??null}));
+            assert.ok(r.status>=200&&r.status<300,`HTTP_${r.status}_${body?.action??'GET'}`);return p;
+          }
+          const before=(await call()).status;
+          assert.equal(before.requestId,failedRequest,'FAILED_REQUEST_CHANGED');
+          assert.equal(before.state,'FAILED','FAILED_STATE_REQUIRED');
+          const recovered=await call({action:'start'});
+          assert.equal(recovered.ok,true,'RECOVERY_NOT_OK');
+          assert.equal(recovered.recovered,true,'RECOVERY_NOT_CREATED');
+          let final=null;
+          for(let i=0;i<5;i++){
+            const status=(await call()).status;
+            if(['READY_CANARY','BLOCKED','FAILED'].includes(status.state)){final=status;break;}
+            if(['QUEUED','RUNNING'].includes(status.state)) {
+              const burst=await call({action:'run-burst'});
+              assert.equal(burst.ok,true,'BURST_NOT_OK');
+            }
+            const after=(await call()).status;
+            if(['READY_CANARY','BLOCKED','FAILED'].includes(after.state)){final=after;break;}
+          }
+          assert.ok(final,'RECOVERED_COLLECTION_NOT_TERMINAL');
+          assert.notEqual(final.requestId,failedRequest,'RECOVERY_MUST_USE_NEW_REQUEST');
+          assert.equal(final.report?.unmappedRows??0,0,'LATEST_UNMAPPED_ROWS');
+          assert.equal(final.report?.identityConflictCount??0,0,'LATEST_IDENTITY_CONFLICTS');
+          assert.equal(final.state,'READY_CANARY','LATEST_CANDIDATE_NOT_READY_CANARY');
+          console.log(JSON.stringify({kind:'RECOVERED_LATEST_CANDIDATE_READY',requestId:final.requestId,analysisAsOf:final.analysisAsOf,state:final.state,sourceEventCount:final.report?.sourceEventCount,validEventCount:final.report?.validEventCount,tombstoneCount:final.report?.tombstoneCount,planFingerprint:final.report?.planFingerprint,eventFingerprint:final.report?.eventFingerprint,expectedPlanningContext:failedPlanning,productMasterWrites:false,purchase:false,payment:false}));
+          NODE
