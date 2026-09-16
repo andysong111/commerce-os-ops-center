@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { loadInternalChinaMonthlyPurchaseSummary } from "@/lib/internalChinaMonthlyPurchaseSummary";
+import { loadVerifiedPurchaseCycleSpend } from "@/lib/purchaseCyclePreflightSpend";
 import { loadLatestCandidateSalesSnapshot } from "@/lib/stage8CandidateDemandParity";
 import { loadCandidatePromotionGate } from "@/lib/stage8CandidatePromotionGate";
 import { loadPostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
@@ -23,16 +22,6 @@ export async function loadPurchaseCyclePreflight(options: PurchasePreflightOptio
     // The source metadata is reused from this ONE existing shadow/priority
     // load, not fetched again via nested cost-recovery or shadow loaders.
     priority: loadInventoryVerificationPriority,
-    monthlySpend: async (cycleMonth) => {
-      // A successful empty read means no recorded purchase. A read error must
-      // propagate to the core; it is never silently converted into zero spend.
-      const summary = await loadInternalChinaMonthlyPurchaseSummary(cycleMonth);
-      return {
-        cycleMonth: summary?.cycleMonth ?? cycleMonth,
-        readAt: new Date().toISOString(),
-        recordedSpendKrw: summary?.actualOrderPaidKrwAtInternalFx ?? 0,
-        contentFingerprint: `sha256:${createHash("sha256").update(JSON.stringify({ cycleMonth, summary })).digest("hex")}`,
-      };
-    },
+    monthlySpend: loadVerifiedPurchaseCycleSpend,
   }, () => new Date().toISOString());
 }
