@@ -1,3 +1,4 @@
+import { collectSeoBulkSourceChain, type SeoBulkShoplingSourceLoader, type SeoBulkCollectedSource, type SeoBulkCollectionMode } from "./seoBulkSourceFallback.ts";
 import {
   KEYWORD_ELON_V2_DEFAULT_CUTOFF,
   compactKeywordElonKey,
@@ -55,6 +56,7 @@ export type KeywordElonBulkFinalInput = {
   modelNumber: string;
   productName: string;
   sourceUrl: string;
+  shoplingGoodsKeys?: string[];
   optionText?: string;
   supportingText?: string;
   mallTitleCategory?: string;
@@ -71,7 +73,7 @@ export type KeywordElonBulkFinalResult = {
   modelNumber: string;
   productName: string;
   sourceUrl: string;
-  collectionMode: "1688_server" | "tracker_fallback";
+  collectionMode: SeoBulkCollectionMode;
   sourceWarnings: string[];
   identity: KeywordElonIdentity;
   candidateCount: number;
@@ -101,7 +103,7 @@ export type KeywordElonBulkFinalResult = {
 
 export type KeywordElonBulkComposeInput = KeywordElonBulkFinalInput & {
   source: KeywordElonSourceDraft;
-  collectionMode: "1688_server" | "tracker_fallback";
+  collectionMode: SeoBulkCollectionMode;
   identity: KeywordElonIdentity;
   candidates: KeywordElonCandidate[];
   allowedKeys: string[];
@@ -188,27 +190,23 @@ function trackerFallbackSource(
   };
 }
 
-async function collectSource(input: KeywordElonBulkFinalInput) {
-  try {
-    const source = await collectKeywordElon1688Source(input.sourceUrl);
-    if (source.chineseTitle.trim() || source.optionText.trim()) {
-      return { source, mode: "1688_server" as const };
-    }
-  } catch {
-    // Product Launch Tracker data is the deterministic fallback for cloud-blocked 1688 fetches.
-  }
-  return {
-    source: trackerFallbackSource(input),
-    mode: "tracker_fallback" as const,
-  };
-}
-
+// The no-loader overload preserves the legacy pipeline's two-mode contract.
+export function collectKeywordElonBulkSource(
+  input: KeywordElonBulkFinalInput,
+): Promise<{ source: KeywordElonSourceDraft; mode: "1688_server" | "tracker_fallback" }>;
+export function collectKeywordElonBulkSource(
+  input: KeywordElonBulkFinalInput,
+  collectShopling: SeoBulkShoplingSourceLoader,
+): Promise<SeoBulkCollectedSource>;
 export async function collectKeywordElonBulkSource(
   input: KeywordElonBulkFinalInput,
-) {
-  if (!text(input.launchItemId)) throw new Error("출시 상품 ID가 없습니다.");
-  if (!text(input.sourceUrl)) throw new Error("1688 상품 링크가 없습니다.");
-  return collectSource(input);
+  collectShopling?: SeoBulkShoplingSourceLoader,
+): Promise<SeoBulkCollectedSource> {
+  return collectSeoBulkSourceChain(input, {
+    collect1688: collectKeywordElon1688Source,
+    collectShopling,
+    trackerFallback: trackerFallbackSource,
+  });
 }
 
 function recoveredSearchKeywords(
@@ -232,7 +230,6 @@ export function composeKeywordElonBulkFinal(
   input: KeywordElonBulkComposeInput,
 ): KeywordElonBulkFinalResult {
   if (!text(input.launchItemId)) throw new Error("출시 상품 ID가 없습니다.");
-  if (!text(input.sourceUrl)) throw new Error("1688 상품 링크가 없습니다.");
   if (!input.candidates.length) {
     throw new Error("FINAL RESULT를 만들 후보 키워드가 없습니다.");
   }

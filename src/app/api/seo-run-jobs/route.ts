@@ -1,3 +1,4 @@
+import { seoBulkShoplingGoodsKeys } from "@/lib/seoBulkShoplingSource";
 import { after, NextRequest } from "next/server";
 import { validate1688Url } from "@/lib/keywordEngineElonLabV2";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
@@ -255,10 +256,6 @@ export async function POST(request: NextRequest) {
         continue;
       }
       const url = sourceUrl(item);
-      if (!url) {
-        missing.push(`${text(item.modelNumber) || run.itemId}:1688링크`);
-        continue;
-      }
       const category = text(item.shoplingCategory);
       const exclusions = [
         ...historicalMallTitles(item),
@@ -278,6 +275,7 @@ export async function POST(request: NextRequest) {
           modelNumber: text(item.modelNumber),
           productName: text(item.productName),
           sourceUrl: url,
+          shoplingGoodsKeys: seoBulkShoplingGoodsKeys(item),
           optionText: optionText(item),
           supportingText: [category, text(item.productName), text(item.modelNumber)]
             .filter(Boolean)

@@ -1,3 +1,5 @@
+import { loadSeoBulkShoplingSource } from "@/lib/seoBulkShoplingSource";
+import { normalizeSeoBulkCollectionMode, seoBulkSourceLabel } from "@/lib/seoBulkSourceFallback";
 import {
   KEYWORD_ELON_V2_DEFAULT_CUTOFF,
   compactKeywordElonKey,
@@ -107,6 +109,7 @@ function inputFromJob(job: SeoRunJobRow) {
     modelNumber: text(input.modelNumber) || job.model_number,
     productName: text(input.productName) || job.product_name,
     sourceUrl: text(input.sourceUrl) || job.source_url,
+    shoplingGoodsKeys: stringList(input.shoplingGoodsKeys, 40),
     optionText: text(input.optionText),
     supportingText: text(input.supportingText),
     mallTitleCategory: text(input.mallTitleCategory),
@@ -114,8 +117,8 @@ function inputFromJob(job: SeoRunJobRow) {
     variationSeed: text(input.variationSeed) || job.run_id,
     excludedMallTitles: stringList(input.excludedMallTitles, 1200),
   };
-  if (!result.launchItemId || !result.sourceUrl) {
-    throw new Error("SEO RUN 입력에 상품 ID 또는 1688 링크가 없습니다.");
+  if (!result.launchItemId) {
+    throw new Error("SEO RUN 입력에 상품 ID가 없습니다.");
   }
   return result;
 }
@@ -176,7 +179,7 @@ function retryDelayMs(attemptCount: number) {
 
 function minimumStageStartBudgetMs(stage: SeoRunJobRow["stage"]) {
   return {
-    collect_source: 50_000,
+    collect_source: 110_000,
     analyze_identity: 70_000,
     discover_keywords: 130_000,
     score_keywords: 190_000,
@@ -233,12 +236,12 @@ async function executeStage(
   const state = record(job.checkpoint_payload);
 
   if (job.stage === "collect_source") {
-    const collected = await collectKeywordElonBulkSource(input);
+    const collected = await collectKeywordElonBulkSource(input, loadSeoBulkShoplingSource);
     return checkpoint(config, job, workerId, {
       stage: "analyze_identity",
       stage_index: 1,
       progress_percent: 10,
-      message: "원본 수집 완료 · 상품 정체성 분석 대기",
+      message: `${seoBulkSourceLabel(collected.mode)} 수집 완료 · 상품 정체성 분석 대기`,
       checkpoint_payload: {
         ...state,
         source: collected.source,
@@ -248,10 +251,7 @@ async function executeStage(
   }
 
   const source = requireObject<KeywordElonSourceDraft>(state.source, "원본 수집");
-  const collectionMode =
-    text(state.collectionMode) === "1688_server"
-      ? "1688_server"
-      : "tracker_fallback";
+  const collectionMode = normalizeSeoBulkCollectionMode(state.collectionMode);
 
   if (job.stage === "analyze_identity") {
     const identity = await analyzeKeywordElonIdentity(source);

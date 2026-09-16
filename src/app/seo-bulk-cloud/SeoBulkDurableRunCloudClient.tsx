@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { seoBulkSourceLabel } from "@/lib/seoBulkSourceFallback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const BATCH_STORAGE_KEY = "commerceOs.seoBulkCloud.batch.v1";
@@ -941,6 +942,11 @@ export default function SeoBulkDurableRunCloudClient() {
                   <p className="mt-2 text-xs font-semibold text-slate-500">
                     {job.message || job.stage}
                   </p>
+                  {seoBulkSourceLabel(record(job.result_payload).collectionMode) ? (
+                    <p className="mt-1 text-xs font-semibold text-slate-600">
+                      씨드 출처: {seoBulkSourceLabel(record(job.result_payload).collectionMode)}
+                    </p>
+                  ) : null}
                   {job.status === "queued" || job.status === "running" ? (
                     <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
                       <div

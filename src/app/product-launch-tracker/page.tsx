@@ -1,7 +1,7 @@
 import { ProductMasterSyncButton } from "@/components/product-launch-flow/ProductMasterSyncButton";
 
 const PRODUCT_LAUNCH_ASSET_VERSION =
-  "20260815-bidirectional-purchase-metadata-v1-20260824-option-barcode-no-registry-v1-seo-bulk-cloud-v3-perf-seo-bulk-parallel-v1-detail-stability-v1-numeric-option-barcode-v1-two-stage-workflow-v1-manual-option-authority-v1-manual-price-verify-v1-workflow-snapshot-recovery-v1-seo-cache-fallback-v1";
+  "20260815-bidirectional-purchase-metadata-v1-20260824-option-barcode-no-registry-v1-seo-bulk-cloud-v3-perf-seo-bulk-parallel-v1-detail-stability-v1-numeric-option-barcode-v1-two-stage-workflow-v1-manual-option-authority-v1-manual-price-verify-v1-workflow-snapshot-recovery-v1-seo-cache-fallback-v1-source-chain-20260916-v1";
 
 export default async function ProductLaunchTrackerPage({
   searchParams,

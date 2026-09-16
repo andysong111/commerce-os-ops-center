@@ -254,16 +254,7 @@ async function openBulkCloud(button) {
   button.textContent = `${selectedIds.length}개 새 등록회차 생성 중…`;
   try {
     const masters = await mapLimit(selectedIds, 8, readSelectedItem);
-    const missingLinks = masters.filter((item) => !item.sourceUrl);
-    if (missingLinks.length) {
-      const labels = missingLinks
-        .slice(0, 5)
-        .map((item) => item.modelNumber || item.productName || item.id)
-        .join(", ");
-      throw new Error(
-        `${missingLinks.length}개 상품에 1688 링크가 없습니다: ${labels}${missingLinks.length > 5 ? " 외" : ""}`,
-      );
-    }
+    // Linkless products are resolved server-side: 1688 → Shopling → launch tracker.
 
     const now = new Date().toISOString();
     const runItems = masters.map((item, index) => ({
