@@ -1,0 +1,52 @@
+name: Approved Sales Followup Read Only 20260917
+on:
+  push:
+    branches: ['ops/approved-sales-publication-20260917']
+    paths: ['.github/workflows/approved-sales-followup-20260917.yml']
+permissions:
+  contents: read
+concurrency:
+  group: approved-sales-publication-0cc0f92b
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: github.repository == 'andysong111/commerce-os-ops-center'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.13.0
+      - name: Read original reconciliation, costs, inventory, shadow and October preflight
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { appendFileSync } from 'node:fs';
+          const origin='https://commerce-os-ops-center.vercel.app';
+          const headers={Origin:origin,Referer:origin+'/purchase-cycle-preflight',Accept:'application/json'};
+          const r=await fetch(origin+'/api/product-master/shopling-sales-events',{headers,redirect:'error',signal:AbortSignal.timeout(90000)});
+          const p=await r.json();assert.equal(r.status,200);assert.equal(p.ok,true);assert.equal(p.status?.requestId,'0cc0f92b-b8c3-44b2-88e5-166ab630be44');assert.equal(p.status?.state,'COMPLETED','FULL_NOT_COMPLETE_NO_DOWNSTREAM_CLAIM');
+          const clean=s=>s.replace(/<script[\s\S]*?<\/script>/g,'').replace(/<style[\s\S]*?<\/style>/g,'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+          const paths=[
+            '/stage8-postapply-canonical-reconciliation',
+            '/stage8-receipt-cost-recovery-readiness',
+            '/stage8-inventory-verification-priority',
+            '/stage8-canonical-purchase-shadow',
+            '/purchase-cycle-preflight?check=1&date=2026-10-01&budget=&skus=1&units=10'
+          ];
+          for(const path of paths){
+            const begin=Date.now();
+            try{
+              const response=await fetch(origin+path,{headers:{...headers,Accept:'text/html'},redirect:'error',signal:AbortSignal.timeout(180000)});
+              const html=await response.text();const main=html.match(/<main[\s\S]*?<\/main>/)?.[0]??'';
+              const cards=[...main.matchAll(/<article\b[\s\S]*?<\/article>/g)].map(m=>clean(m[0])).slice(0,40);
+              const headings=[...main.matchAll(/<h[12]\b[^>]*>[\s\S]*?<\/h[12]>/g)].map(m=>clean(m[0]));
+              // Diagnostic text only. Do not print raw scripts/session data,
+              // environment values, customer orders or full commercial tables.
+              const record={path,http:response.status,ms:Date.now()-begin,deploymentId:html.match(/data-dpl-id="([^"]+)"/)?.[1]??null,headings,cards,overview:clean(main).slice(0,path.startsWith('/purchase-cycle-preflight')?6500:2100)};
+              const line=JSON.stringify(record);console.log(line);appendFileSync(process.env.GITHUB_STEP_SUMMARY,'\n```json\n'+line+'\n```\n');
+            }catch{console.log(JSON.stringify({path,readFailed:true}));process.exitCode=1;}
+          }
+          console.log('READ_ONLY_FOLLOWUP_FINISHED; no POST, no approval, no purchase, no payment');
+          NODE
