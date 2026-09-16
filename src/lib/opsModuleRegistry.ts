@@ -2,6 +2,7 @@ import { detailPageSaasTest260807Module } from "@/lib/detailPageSaasTest260807Mo
 import { detailPageSaasTestModule } from "@/lib/detailPageSaasTestModule";
 import { DETAIL_PAGE_V3_BASELINE_NOTE } from "@/lib/detailPageV3ProductionBaseline";
 import { extendedModuleRegistry } from "@/lib/extendedModuleRegistry";
+import { purchaseCyclePreflightModule } from "@/lib/purchaseCyclePreflightModule";
 import { fastPurchaseMvpModule } from "@/lib/fastPurchaseMvpModule";
 import { keywordEngineElonLabModule } from "@/lib/keywordEngineElonLabModule";
 import { legacySeoBulkCloudModule } from "@/lib/legacySeoBulkCloudModule";
@@ -99,6 +100,7 @@ export const opsModuleRegistry: readonly CommerceModule[] = [
   seoTitleCloudShoplingRunnerModule,
   shoplingSeoDispatchModule,
   fastPurchaseMvpModule,
+  purchaseCyclePreflightModule,
   detailPageSaasTestModule,
   detailPageSaasTest260807Module,
 ];

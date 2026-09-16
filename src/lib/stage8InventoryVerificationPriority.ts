@@ -66,6 +66,21 @@ export type InventoryVerificationPriority = {
   blockedExpectedSpend: number;
   stocktakeRequiredCount: 0;
   writesEnabled: false;
+  // Optional for old stored reports; the preflight fails closed when absent.
+  // Carries the existing shadow provenance without another expensive load.
+  source?: {
+    analysisAsOf: string | null;
+    planningContentFingerprint: string;
+    shadowPlanningContentFingerprint: string | null;
+    canonicalContentFingerprint: string | null;
+    reconciliationFingerprint: string | null;
+    cycleMonth: string;
+    budgetMonth: string;
+    budgetKrw: number | null;
+    comparisonAvailable: boolean;
+    sameAnalysisAsOf: boolean;
+    blockerKeys: string[];
+  };
   rows: InventoryVerificationPriorityRow[];
 };
 
@@ -295,6 +310,19 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
     blockedExpectedSpend,
     stocktakeRequiredCount: 0,
     writesEnabled: false,
+    source: {
+      analysisAsOf: purchaseShadow.analysisAsOf,
+      planningContentFingerprint: planning.contentFingerprint,
+      shadowPlanningContentFingerprint: purchaseShadow.planningContentFingerprint,
+      canonicalContentFingerprint: purchaseShadow.canonicalContentFingerprint,
+      reconciliationFingerprint: purchaseShadow.persistedReconciliationFingerprint,
+      cycleMonth: purchaseShadow.purchaseCycleMonth,
+      budgetMonth: purchaseShadow.purchaseBudgetMonth,
+      budgetKrw: purchaseShadow.snapshot?.budget ?? null,
+      comparisonAvailable: purchaseShadow.legacyReference.comparison !== null,
+      sameAnalysisAsOf: purchaseShadow.legacyReference.sameAnalysisAsOf,
+      blockerKeys: purchaseShadow.blockers.map((row) => row.key),
+    },
     rows,
   };
 }
