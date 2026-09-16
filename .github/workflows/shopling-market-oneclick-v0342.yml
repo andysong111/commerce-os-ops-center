@@ -1,0 +1,65 @@
+name: Shopling Market One Click v0.3.42
+on:
+  pull_request:
+    paths:
+      - 'src/lib/shoplingMarketOneClickIntentV0342.ts'
+      - 'src/app/api/shopling-market-group-canary/v0342/**'
+      - 'tests/shoplingMarketOneClickIntentV0342.test.mjs'
+      - '.github/workflows/shopling-market-oneclick-v0342.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shopling-oneclick-v0342-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Verify one-click current-intent regression
+        run: node --experimental-strip-types --test tests/shoplingMarketOneClickIntentV0342.test.mjs tests/shoplingMarketA18FrameStartV0340.test.mjs tests/shoplingMarketReliableReadbackBulkV0339.test.mjs
+      - name: Build production app
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Generate and inspect actual extension ZIP
+        run: |
+          npm run start -- --port 3100 > /tmp/shopling-v0342-next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/api/shopling-market-group-canary/v0342/download -o /tmp/commerce-os-shopling-market-sender-v0.3.42.zip; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive=pathlib.Path('/tmp/commerce-os-shopling-market-sender-v0.3.42.zip')
+          assert archive.is_file() and archive.stat().st_size > 1000
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              manifest=json.loads(z.read('manifest.json'))
+              assert manifest['version']=='0.3.42'
+              agent=z.read('shopling-market-auto-agent.mjs').decode()
+              content=z.read('content-group-canary.mjs').decode()
+              bg=z.read('background-root.mjs').decode()
+              assert 'commerceOsShoplingMarketSelectionQueueV0342' in agent
+              assert 'commerceOsShoplingMarketSelectionQueueV0342' in content
+              assert 'commerceOsShoplingMarketSelectionIntentV0342' in agent
+              assert 'commerceOsShoplingMarketSelectionIntentV0342' in content
+              assert 'commerceOsShoplingMarketSelectionQueueV0330' not in agent
+              assert 'commerceOsShoplingMarketSelectionIntentV0330' not in agent
+              assert 'commerce-os-shopling-market-auto-bg-tick-v0330' in agent
+              assert 'DIRECT_RESULT_MAX_ATTEMPTS = 240' in bg
+              z.extractall('/tmp/shopling-v0342')
+          PY
+          for file in /tmp/shopling-v0342/*.js /tmp/shopling-v0342/*.mjs; do node --check "$file"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopling-market-sender-v0342
+          path: /tmp/commerce-os-shopling-market-sender-v0.3.42.zip
+          retention-days: 7
