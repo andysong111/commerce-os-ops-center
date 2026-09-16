@@ -1,0 +1,22 @@
+name: SEO source baseline export
+on:
+  push:
+    branches: [fix/general-seo-source-chain-20260916]
+    paths: [.github/workflows/seo-source-baseline-export.yml]
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export tracked source only
+        run: git archive --format=tar HEAD -o /tmp/seo-source-baseline.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seo-source-baseline
+          path: /tmp/seo-source-baseline.tar
+          retention-days: 1
