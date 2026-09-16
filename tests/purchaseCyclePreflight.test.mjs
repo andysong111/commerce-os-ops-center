@@ -11,12 +11,14 @@ const fixture = () => {
   const before = { requestId: "sales-test-1", analysisAsOf: "2026-10-01T01:00:00.000Z", planFingerprint: fp("a"), eventFingerprint: fp("b"), planningContentFingerprint: fp("c") };
   return {
     now: "2026-10-01T02:00:00.000Z", before, after: { ...before }, sourceErrors: [],
+    spendBefore: { cycleMonth: "2026-10", readAt: "2026-10-01T01:59:00Z", recordedSpendKrw: 0, contentFingerprint: fp("1") },
+    spendAfter: { cycleMonth: "2026-10", readAt: "2026-10-01T01:59:00Z", recordedSpendKrw: 0, contentFingerprint: fp("1") },
     options: { targetDate: "2026-10-01", cashLimitKrw: 50000, maxSkus: 1, maxUnitsPerSku: 10 },
     gate: { generatedAt: "2026-10-01T01:59:00.000Z", state: "EXACT_MATCH", safeToApply: true, candidateSalesRequestId: before.requestId, candidatePlanFingerprint: before.planFingerprint, candidateEventFingerprint: before.eventFingerprint, promotionFingerprint: fp("d"), checks: [{ key: "context", passed: true, message: "same" }], message: "checked" },
     reconciliation: { generatedAt: "2026-10-01T01:59:00.000Z", state: "READY", ready: true, fullApplyVerified: true, candidateSalesRequestId: before.requestId, analysisAsOf: before.analysisAsOf, candidatePlanFingerprint: before.planFingerprint, candidateEventFingerprint: before.eventFingerprint, reconciliationFingerprint: fp("e"), persistedContentFingerprint: fp("f"), checks: [{ key: "full-readback", passed: true, message: "verified" }], message: "readback verified" },
     priority: { generatedAt: "2026-10-01T01:59:00.000Z", state: "READY", writesEnabled: false, purchaseShadowReady: true,
-      source: { analysisAsOf: before.analysisAsOf, planningContentFingerprint: before.planningContentFingerprint, shadowPlanningContentFingerprint: before.planningContentFingerprint, canonicalContentFingerprint: fp("f"), reconciliationFingerprint: fp("e"), cycleMonth: "2026-10", budgetMonth: "2026-09", budgetKrw: 100000, comparisonAvailable: true, sameAnalysisAsOf: true, blockerKeys: [] },
-      rows: [{ barcode: "BAA1-1", name: "SIMULATION ONLY", purchaseStatus: "발주 추천", recommendedQty: 5, expectedCost: 25000, priorityScore: 90, inventoryMode: "VERIFIED", inventoryVerified: true, executionInventoryEligible: true, inventoryCalculationUsable: true, inventoryRequiresReview: false, initialZeroUnverified: false, advisoryOnly: false, inventoryQuantity: 2, openCommitment: 3, hasConfirmedReceiptCost: true, latestConfirmedReceiptAt: "2026-09-01T00:00:00Z", latestConfirmedReceiptCostKrw: 4000, protectedCostKrw: 4000, action: "NONE", operationallyReady: true }],
+      source: { analysisAsOf: before.analysisAsOf, planningContentFingerprint: before.planningContentFingerprint, shadowPlanningContentFingerprint: before.planningContentFingerprint, canonicalContentFingerprint: fp("f"), reconciliationFingerprint: fp("e"), cycleMonth: "2026-10", budgetMonth: "2026-09", budgetKrw: 100000, grossBudgetKrw: 145000, purchaseCostMultiplier: 1.45, inventoryGeneratedAt: "2026-10-01T01:59:00Z", inventoryContentFingerprint: fp("2"), comparisonAvailable: true, sameAnalysisAsOf: true, blockerKeys: [] },
+      rows: [{ barcode: "BAA1-1", name: "SIMULATION ONLY", purchaseStatus: "발주 추천", recommendedQty: 5, expectedCost: 25000, priorityScore: 90, inventoryMode: "VERIFIED", inventoryVerified: true, executionInventoryEligible: true, inventoryCalculationUsable: true, inventoryRequiresReview: false, initialZeroUnverified: false, advisoryOnly: false, inventoryQuantity: 2, openCommitment: 3, hasConfirmedReceiptCost: true, latestConfirmedReceiptAt: "2026-09-01T00:00:00Z", latestConfirmedReceiptCostKrw: 5000, protectedCostKrw: 4000, action: "NONE", operationallyReady: true }],
     },
   };
 };
@@ -96,7 +98,7 @@ for (const patch of [
   { inventoryMode: "PROVISIONAL" }, { inventoryMode: "REVIEW" }, { inventoryVerified: false },
   { initialZeroUnverified: true }, { advisoryOnly: true }, { inventoryRequiresReview: true },
   { executionInventoryEligible: false }, { inventoryQuantity: -1 }, { openCommitment: -1 },
-  { hasConfirmedReceiptCost: false }, { latestConfirmedReceiptCostKrw: 0 }, { expectedCost: 0 },
+  { hasConfirmedReceiptCost: false }, { latestConfirmedReceiptCostKrw: 0 },
   { latestConfirmedReceiptAt: "2026-10-02T00:00:00Z" }, { recommendedQty: 1.5 },
   { recommendedQty: NaN }, { priorityScore: Infinity }, { barcode: "AAA001" },
   { action: "COST_CONFIRMATION_REQUIRED" }, { operationallyReady: false },
@@ -128,7 +130,7 @@ test("quantity cap excludes the whole line rather than breaking carton/MOQ", () 
 });
 test("selection is deterministic, bounded, and does not mutate source arrays", () => {
   const input = fixture(); input.options.maxSkus = 2; input.options.cashLimitKrw = 50000;
-  input.priority.rows.push({ ...input.priority.rows[0], barcode: "BAA2-1", expectedCost: 10000 }, { ...input.priority.rows[0], barcode: "BAA3-1", expectedCost: 15000, priorityScore: 95 });
+  input.priority.rows.push({ ...input.priority.rows[0], barcode: "BAA2-1", expectedCost: 10000, latestConfirmedReceiptCostKrw: 2000, protectedCostKrw: 2000 }, { ...input.priority.rows[0], barcode: "BAA3-1", expectedCost: 15000, latestConfirmedReceiptCostKrw: 3000, protectedCostKrw: 3000, priorityScore: 95 });
   const original = structuredClone(input); const a = buildPurchaseCyclePreflight(input);
   assert.deepEqual(input, original); assert.deepEqual(a.selected.map(row => row.barcode), ["BAA3-1", "BAA2-1"]);
   input.priority.rows.reverse(); const b = buildPurchaseCyclePreflight(input);
@@ -182,25 +184,25 @@ test("empty purchase universe is waiting, not 0/0 verified", () => {
   blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
 });
 test("reader adapter brackets the source and loads the expensive priority only once", async () => {
-  const input = fixture(); const counts = { candidate: 0, gate: 0, reconciliation: 0, priority: 0 };
-  const readers = Object.fromEntries(Object.keys(counts).map(key => [key, async () => { counts[key]++; return key === "candidate" ? input.before : input[key]; }]));
+  const input = fixture(); const counts = { candidate: 0, gate: 0, reconciliation: 0, priority: 0, monthlySpend: 0 };
+  const readers = Object.fromEntries(Object.keys(counts).map(key => [key, async () => { counts[key]++; return key === "candidate" ? input.before : key === "monthlySpend" ? input.spendBefore : input[key]; }]));
   const report = await readPurchaseCyclePreflight(input.options, readers, () => input.now);
-  assert.equal(report.previewReady, true); assert.deepEqual(counts, { candidate: 2, gate: 1, reconciliation: 1, priority: 1 }); locked(report);
+  assert.equal(report.previewReady, true); assert.deepEqual(counts, { candidate: 2, gate: 1, reconciliation: 1, priority: 1, monthlySpend: 2 }); locked(report);
 });
 test("reader failure preserves a diagnostic report without leaking raw errors or using a stale fallback", async () => {
   const input = fixture(); const secret = "do-not-expose-raw-db-url-secret";
-  const report = await readPurchaseCyclePreflight(input.options, { candidate: async () => input.before, gate: async () => { throw new Error(secret); }, reconciliation: async () => input.reconciliation, priority: async () => input.priority }, () => input.now);
+  const report = await readPurchaseCyclePreflight(input.options, { candidate: async () => input.before, gate: async () => { throw new Error(secret); }, reconciliation: async () => input.reconciliation, priority: async () => input.priority, monthlySpend: async () => input.spendBefore }, () => input.now);
   blocked(report, "PROMOTION_GATE_READ_FAILED"); assert.ok(!JSON.stringify(report).includes(secret));
 });
 test("reader catches a candidate superseded during downstream reads", async () => {
   const input = fixture(); let called = 0;
-  const report = await readPurchaseCyclePreflight(input.options, { candidate: async () => called++ ? { ...input.before, requestId: "new" } : input.before, gate: async () => input.gate, reconciliation: async () => input.reconciliation, priority: async () => input.priority }, () => input.now);
+  const report = await readPurchaseCyclePreflight(input.options, { candidate: async () => called++ ? { ...input.before, requestId: "new" } : input.before, gate: async () => input.gate, reconciliation: async () => input.reconciliation, priority: async () => input.priority, monthlySpend: async () => input.spendBefore }, () => input.now);
   blocked(report, "SOURCE_CHANGED_OR_MISSING");
 });
 test("invalid request is rejected before any source reader is called", async () => {
   const input = fixture(); input.options.cashLimitKrw = -1; let calls = 0;
   const read = async () => { calls++; throw new Error("must not run"); };
-  await assert.rejects(readPurchaseCyclePreflight(input.options, { candidate: read, gate: read, reconciliation: read, priority: read }, () => input.now)); assert.equal(calls, 0);
+  await assert.rejects(readPurchaseCyclePreflight(input.options, { candidate: read, gate: read, reconciliation: read, priority: read, monthlySpend: read }, () => input.now)); assert.equal(calls, 0);
 });
 test("preflight source has no write executor, credentials, background timer, or synthetic evidence pin", () => {
   for (const name of ["purchaseCyclePreflightCore.ts", "purchaseCyclePreflight.ts"]) {
@@ -210,4 +212,80 @@ test("preflight source has no write executor, credentials, background timer, or 
   }
   const service = readFileSync(new URL("../src/lib/purchaseCyclePreflight.ts", import.meta.url), "utf8");
   assert.doesNotMatch(service, /loadCanonicalPurchaseShadow|loadReceiptCostRecoveryReadiness/);
+});
+
+
+test("confirmed cost, not cheap planning fallback, determines line amount", () => {
+  const input = fixture(); input.priority.rows[0].expectedCost = 1;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.estimatedSpendKrw, 25000);
+  assert.equal(report.selected[0].confirmedUnitCostKrw, 5000);
+  assert.equal(report.estimatedAllInSpendKrw, 36250);
+  assert.ok(report.estimatedAllInSpendKrw <= report.effectiveCashKrw);
+});
+test("high confirmed cost cannot fit using an unrelated cheaper expectedCost", () => {
+  const input = fixture(); input.priority.rows[0].expectedCost = 1;
+  input.priority.rows[0].latestConfirmedReceiptCostKrw = 20000;
+  blocked(buildPurchaseCyclePreflight(input), "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+});
+test("protected cost greater than receipt cost stays conservative", () => {
+  const input = fixture(); input.priority.rows[0].protectedCostKrw = 6000;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.estimatedSpendKrw, 30000); assert.equal(report.estimatedAllInSpendKrw, 43500);
+});
+for (const patch of [{ latestConfirmedReceiptCostKrw: Number.MAX_SAFE_INTEGER }, { protectedCostKrw: Infinity }, { protectedCostKrw: -1 }]) {
+  test(`unsafe confirmed-cost arithmetic fails closed: ${Object.keys(patch)[0]}:${String(Object.values(patch)[0])}`, () => {
+    const input = fixture(); Object.assign(input.priority.rows[0], patch);
+    blocked(buildPurchaseCyclePreflight(input), "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+  });
+}
+for (const inventoryGeneratedAt of ["2026-09-30T01:59:00Z", "2026-10-02T01:59:00Z", "", undefined]) {
+  test(`fresh wrapper does not launder stale/missing inventory timestamp: ${inventoryGeneratedAt}`, () => {
+    const input = fixture(); input.priority.source.inventoryGeneratedAt = inventoryGeneratedAt;
+    const report = buildPurchaseCyclePreflight(input);
+    blocked(report, "INVENTORY_EVIDENCE_STALE_OR_UNPINNED");
+    assert.equal(report.stages.find(row => row.number === 8).state, "BLOCKED");
+  });
+}
+test("missing inventory content fingerprint blocks", () => {
+  const input = fixture(); delete input.priority.source.inventoryContentFingerprint;
+  blocked(buildPurchaseCyclePreflight(input), "INVENTORY_EVIDENCE_STALE_OR_UNPINNED");
+});
+test("a changed stock snapshot fingerprint invalidates the preparation", () => {
+  const input = fixture(); const a = buildPurchaseCyclePreflight(input);
+  input.priority.source.inventoryContentFingerprint = fp("3");
+  assert.notEqual(buildPurchaseCyclePreflight(input).planFingerprint, a.planFingerprint);
+});
+test("recorded cycle spend is removed before freight reserve and cash clamp", () => {
+  const input = fixture(); input.spendBefore.recordedSpendKrw = 120000; input.spendAfter.recordedSpendKrw = 120000;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.remainingMonthlyCashKrw, 25000); assert.equal(report.effectiveCashKrw, 25000);
+  assert.equal(report.effectiveBudgetKrw, Math.floor(25000 / 1.45));
+  blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+});
+test("fully spent monthly budget cannot generate another purchase preview", () => {
+  const input = fixture(); input.spendBefore.recordedSpendKrw = 145000; input.spendAfter.recordedSpendKrw = 145000;
+  const report = buildPurchaseCyclePreflight(input); assert.equal(report.effectiveCashKrw, 0);
+  blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+});
+for (const patch of [null, { recordedSpendKrw: -1 }, { cycleMonth: "2026-09" }, { contentFingerprint: "" }, { readAt: "2026-09-01T00:00:00Z" }, { recordedSpendKrw: 1 }]) {
+  test(`unreadable or changed cycle spend is never silently zero: ${JSON.stringify(patch)}`, () => {
+    const input = fixture(); input.spendAfter = patch === null ? null : { ...input.spendAfter, ...patch };
+    blocked(buildPurchaseCyclePreflight(input), "CYCLE_SPEND_CHANGED_OR_UNVERIFIED");
+  });
+}
+for (const patch of [{ grossBudgetKrw: undefined }, { purchaseCostMultiplier: undefined }, { purchaseCostMultiplier: 0.5 }]) {
+  test(`missing/invalid gross funding basis blocks: ${Object.keys(patch)[0]}`, () => {
+    const input = fixture(); Object.assign(input.priority.source, patch);
+    blocked(buildPurchaseCyclePreflight(input), "GROSS_FUNDING_BASIS_UNVERIFIED");
+  });
+}
+test("a spend reader failure propagates without zero-spend fallback", async () => {
+  const input = fixture();
+  const report = await readPurchaseCyclePreflight(input.options, {
+    candidate: async () => input.before, gate: async () => input.gate,
+    reconciliation: async () => input.reconciliation, priority: async () => input.priority,
+    monthlySpend: async () => { throw new Error("sensitive diagnostic"); },
+  }, () => input.now);
+  blocked(report, "CYCLE_SPEND_READ_FAILED"); assert.equal(report.recordedCycleSpendKrw, null);
 });
