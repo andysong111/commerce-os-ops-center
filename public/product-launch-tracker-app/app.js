@@ -128,7 +128,7 @@ if (detailPageMode === "worker") {
   await import("./shopling-upload-ui.js");
   await import("./product-launch-flow-handoff.js");
   await import("./seo-fallback-cache-selection.js");
-  await import("./seo-title-ledger-handoff.js");
+  await import("./seo-title-ledger-handoff.js?v=20260916-source-chain-v1");
 
   installLazyDetailPageIntegrations();
   scheduleIdleIntegrations();

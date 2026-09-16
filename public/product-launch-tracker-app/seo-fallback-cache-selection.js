@@ -36,37 +36,6 @@ function readJson(key) {
   }
 }
 
-function sourceUrlFromItem(item) {
-  if (!item || typeof item !== "object") return "";
-  const source = item.source && typeof item.source === "object" ? item.source : {};
-  const itemPayload = item.item_payload && typeof item.item_payload === "object"
-    ? item.item_payload
-    : item.itemPayload && typeof item.itemPayload === "object"
-      ? item.itemPayload
-      : {};
-  const payloadSource = itemPayload.source && typeof itemPayload.source === "object"
-    ? itemPayload.source
-    : {};
-  const lists = [
-    item.chinaProductLinks,
-    itemPayload.chinaProductLinks,
-    source.chinaProductLinks,
-    payloadSource.chinaProductLinks,
-  ];
-  const candidates = [
-    item.primaryChinaProductLink,
-    itemPayload.primaryChinaProductLink,
-    source.primaryChinaProductLink,
-    payloadSource.primaryChinaProductLink,
-    ...lists.flatMap((value) => (Array.isArray(value) ? value : [])),
-    item.chinaOrderLink,
-    itemPayload.chinaOrderLink,
-  ]
-    .map(text)
-    .filter(Boolean);
-  return candidates.find((value) => /^https?:\/\/(?:[^/]+\.)?1688\.com\//i.test(value)) || "";
-}
-
 function cacheTimestamp(payload) {
   return Math.max(
     timestamp(payload?.savedAt),
@@ -91,7 +60,7 @@ function refreshCacheIndex() {
       if (!raw || typeof raw !== "object") continue;
       const id = text(raw.id || raw.item_id || raw.itemId);
       const model = normalizeModelNumber(raw.modelNumber || raw.model_number);
-      if (!id || !model || !sourceUrlFromItem(raw)) continue;
+      if (!id || !model) continue;
       const item = { ...raw, __commerceCachedAt: cachedAt };
       if (!byId.has(id)) byId.set(id, item);
       if (!byModel.has(model)) byModel.set(model, item);
