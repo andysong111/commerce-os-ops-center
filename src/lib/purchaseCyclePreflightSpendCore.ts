@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { PurchaseMonthlySpendPin } from "./purchaseCyclePreflightCore";
 
 type MonthlySpendRow = {
+  id?: unknown;
   source_event_id?: unknown;
   input_snapshot?: unknown;
   result_snapshot?: unknown;
@@ -11,10 +12,12 @@ type MonthlySpendRow = {
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.normalize("NFKC").trim() : "";
 
+export const purchaseCycleSpendMonthColumns = ["result_snapshot->snapshot->>cycleMonth", "result_snapshot->>cycleMonth", "input_snapshot->>cycleMonth"] as const;
+
 export function purchaseCycleSpendMonthFilter(cycleMonth: string) {
   if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(cycleMonth)) throw new Error("CYCLE_SPEND_MONTH_INVALID");
   // All three historical storage shapes are queried BEFORE any row limit.
-  return [`result_snapshot->snapshot->>cycleMonth.eq.${cycleMonth}`, `result_snapshot->>cycleMonth.eq.${cycleMonth}`, `input_snapshot->>cycleMonth.eq.${cycleMonth}`].join(",");
+  return purchaseCycleSpendMonthColumns.map(column => `${column}.eq.${cycleMonth}`).join(",");
 }
 
 export function verifiedPurchaseCycleSpend(
@@ -60,4 +63,28 @@ export function verifiedPurchaseCycleSpend(
     cycleMonth, readAt, recordedSpendKrw,
     contentFingerprint: `sha256:${createHash("sha256").update(JSON.stringify({ cycleMonth, matchedCount, rows })).digest("hex")}`,
   };
+}
+
+export function verifiedPurchaseCycleSpendPages(
+  cycleMonth: string,
+  pages: Array<{ rows: unknown; matchedCount: number | null }>,
+  readAt: string,
+): PurchaseMonthlySpendPin {
+  if (pages.length !== purchaseCycleSpendMonthColumns.length) throw new Error("CYCLE_SPEND_SHAPE_MISSING");
+  const byId = new Map<string, MonthlySpendRow>();
+  for (const page of pages) {
+    if (!Array.isArray(page.rows) || !Number.isSafeInteger(page.matchedCount) || page.matchedCount !== page.rows.length) throw new Error("CYCLE_SPEND_SCAN_INCOMPLETE");
+    for (const value of page.rows) {
+      const row = object(value) as MonthlySpendRow;
+      const id = text(row.id);
+      if (!id || !Number.isFinite(Date.parse(text(row.started_at)))) throw new Error("CYCLE_SPEND_ROW_IDENTITY_UNVERIFIED");
+      const previous = byId.get(id);
+      if (previous && JSON.stringify(previous) !== JSON.stringify(row)) throw new Error("CYCLE_SPEND_ROW_CHANGED_DURING_READ");
+      byId.set(id, row);
+    }
+  }
+  // Deduplicate overlapping storage-shape reads and sort once; the project's
+  // REST adapter overwrites repeated order() calls instead of appending them.
+  const rows = [...byId.values()].sort((a, b) => Date.parse(text(b.started_at)) - Date.parse(text(a.started_at)) || text(b.id).localeCompare(text(a.id)));
+  return verifiedPurchaseCycleSpend(cycleMonth, rows, rows.length, readAt);
 }

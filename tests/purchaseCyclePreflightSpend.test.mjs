@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { purchaseCycleSpendMonthFilter, verifiedPurchaseCycleSpend } from "../src/lib/purchaseCyclePreflightSpendCore.ts";
+import { purchaseCycleSpendMonthFilter, verifiedPurchaseCycleSpend, verifiedPurchaseCycleSpendPages } from "../src/lib/purchaseCyclePreflightSpendCore.ts";
 const month = "2026-10";
 const time = "2026-10-01T01:00:00Z";
 const row = (id = "d1", amount = 30000) => ({ source_event_id: id, result_snapshot: { cycleMonth: month, draftId: id, actualOrderPaidKrwAtInternalFx: amount } });
@@ -64,9 +64,37 @@ test("only validated month is placed in all three PostgREST target filters", () 
 test("production adapter uses scoped exact-count read and never the global recent-summary null fallback", () => {
   const loader = readFileSync(new URL("../src/lib/purchaseCyclePreflightSpend.ts", import.meta.url), "utf8");
   const service = readFileSync(new URL("../src/lib/purchaseCyclePreflight.ts", import.meta.url), "utf8");
-  assert.match(loader, /count: "exact"/); assert.match(loader, /\.or\(filter\)/);
-  assert.match(loader, /verifiedPurchaseCycleSpend\(cycleMonth, result\.data, result\.count,/);
+  assert.match(loader, /count: "exact"/); assert.match(loader, /\.eq\(column, cycleMonth\)/);
+  assert.match(loader, /verifiedPurchaseCycleSpendPages\(cycleMonth,/);
+  assert.match(loader, /matchedCount: result\.count/);
+  assert.doesNotMatch(loader, /\.or\(/);
   assert.match(service, /monthlySpend: loadVerifiedPurchaseCycleSpend/);
   assert.doesNotMatch(service, /loadInternalChinaMonthlyPurchaseSummary|summary\?\./);
   assert.doesNotMatch(loader, /\.insert\(|\.upsert\(|\.update\(|\.delete\(|\.rpc\(/);
+});
+
+const stored = (id = "row1", draft = "draft1", paid = 20000, date = time) => ({ ...row(draft, paid), id, started_at: date });
+const page = (rows = []) => ({ rows, matchedCount: rows.length });
+const pages = (values) => verifiedPurchaseCycleSpendPages(month, values, time);
+test("three complete shape queries prove a zero-spend month", () => assert.equal(pages([page(), page(), page()]).recordedSpendKrw, 0));
+test("overlapping shape results count each record only once", () => {
+  const value = stored();
+  assert.equal(pages([page([value]), page([value]), page([value])]).recordedSpendKrw, 20000);
+});
+test("different snapshots of one record across shape reads block", () => {
+  assert.throws(() => pages([page([stored()]), page([stored("row1", "draft1", 21000)]), page()]), /CHANGED_DURING_READ/);
+});
+test("all shape queries must prove completeness individually", () => {
+  assert.throws(() => pages([page(), page()]), /SHAPE_MISSING/);
+  assert.throws(() => pages([page(), { rows: [], matchedCount: 1 }, page()]), /SCAN_INCOMPLETE/);
+});
+test("missing record identity or sort timestamp blocks", () => {
+  assert.throws(() => pages([page([row()]), page(), page()]), /ROW_IDENTITY_UNVERIFIED/);
+});
+test("query merge preserves latest-per-draft order without mutating inputs", () => {
+  const input = [page([stored("r1", "d1", 10000, "2026-09-30T23:00:00Z")]), page([stored("r2", "d1", 22000)]), page()];
+  const previous = structuredClone(input);
+  assert.equal(pages(input).recordedSpendKrw, 22000);
+  assert.deepEqual(input, previous);
+  assert.equal(pages([input[1], input[2], input[0]]).contentFingerprint, pages(input).contentFingerprint);
 });
