@@ -1,3 +1,4 @@
+import { loadVerifiedPurchaseCycleSpend } from "@/lib/purchaseCyclePreflightSpend";
 import { loadLatestCandidateSalesSnapshot } from "@/lib/stage8CandidateDemandParity";
 import { loadCandidatePromotionGate } from "@/lib/stage8CandidatePromotionGate";
 import { loadPostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
@@ -21,5 +22,6 @@ export async function loadPurchaseCyclePreflight(options: PurchasePreflightOptio
     // The source metadata is reused from this ONE existing shadow/priority
     // load, not fetched again via nested cost-recovery or shadow loaders.
     priority: loadInventoryVerificationPriority,
+    monthlySpend: loadVerifiedPurchaseCycleSpend,
   }, () => new Date().toISOString());
 }

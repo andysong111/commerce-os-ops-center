@@ -1,3 +1,4 @@
+import { DEFAULT_PURCHASE_COST_MULTIPLIER } from "@/lib/productDecisionEngine/portfolio";
 import { loadCanonicalPurchaseShadow } from "@/lib/stage8CanonicalPurchaseShadow";
 import {
   loadProductMasterInventoryCostReadiness,
@@ -77,6 +78,10 @@ export type InventoryVerificationPriority = {
     cycleMonth: string;
     budgetMonth: string;
     budgetKrw: number | null;
+    inventoryGeneratedAt?: string;
+    inventoryContentFingerprint?: string;
+    grossBudgetKrw?: number;
+    purchaseCostMultiplier?: number;
     comparisonAvailable: boolean;
     sameAnalysisAsOf: boolean;
     blockerKeys: string[];
@@ -319,6 +324,10 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
       cycleMonth: purchaseShadow.purchaseCycleMonth,
       budgetMonth: purchaseShadow.purchaseBudgetMonth,
       budgetKrw: purchaseShadow.snapshot?.budget ?? null,
+      inventoryGeneratedAt: inventoryReadiness.generatedAt,
+      inventoryContentFingerprint: inventoryReadiness.contentFingerprint,
+      grossBudgetKrw: Math.round(purchaseShadow.purchaseBudgetMonthRevenue / 2),
+      purchaseCostMultiplier: DEFAULT_PURCHASE_COST_MULTIPLIER,
       comparisonAvailable: purchaseShadow.legacyReference.comparison !== null,
       sameAnalysisAsOf: purchaseShadow.legacyReference.sameAnalysisAsOf,
       blockerKeys: purchaseShadow.blockers.map((row) => row.key),

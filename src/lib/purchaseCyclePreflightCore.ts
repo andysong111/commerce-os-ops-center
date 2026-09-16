@@ -17,6 +17,12 @@ export type PurchasePreflightOptions = {
   maxSkus: number;
   maxUnitsPerSku: number;
 };
+export type PurchaseMonthlySpendPin = {
+  cycleMonth: string;
+  readAt: string;
+  recordedSpendKrw: number;
+  contentFingerprint: string;
+};
 export type PurchasePreflightInput = {
   now: string;
   options: PurchasePreflightOptions;
@@ -26,6 +32,8 @@ export type PurchasePreflightInput = {
   reconciliation: PostApplyCanonicalReconciliation | null;
   priority: InventoryVerificationPriority | null;
   sourceErrors: string[];
+  spendBefore: PurchaseMonthlySpendPin | null;
+  spendAfter: PurchaseMonthlySpendPin | null;
 };
 export type PurchasePreflightStage = {
   number: number;
@@ -39,6 +47,7 @@ export type PurchasePreflightLine = {
   name: string;
   quantity: number;
   estimatedCostKrw: number;
+  confirmedUnitCostKrw: number;
   inventoryQuantity: number;
   openCommitment: number;
   costEvidenceAt: string | null;
@@ -59,6 +68,11 @@ export type PurchaseCyclePreflightReport = {
   sourceBudgetMonth: string | null;
   cashLimitKrw: number | null;
   effectiveBudgetKrw: number;
+  recordedCycleSpendKrw: number | null;
+  remainingMonthlyCashKrw: number;
+  effectiveCashKrw: number;
+  purchaseCostMultiplier: number | null;
+  estimatedAllInSpendKrw: number;
   estimatedSpendKrw: number;
   remainingPreviewBudgetKrw: number;
   previewReady: boolean;
@@ -110,10 +124,18 @@ function fresh(value: string | null | undefined, now: number, maxAge: number) {
   const time = value ? Date.parse(value) : NaN;
   return Number.isFinite(time) && time <= now && now - time <= maxAge;
 }
+function confirmedUnitCost(row: InventoryVerificationPriorityRow) {
+  if (!positive(row.latestConfirmedReceiptCostKrw) || !nonnegative(row.protectedCostKrw)) return 0;
+  return Math.max(row.latestConfirmedReceiptCostKrw, row.protectedCostKrw);
+}
+function confirmedLineCost(row: InventoryVerificationPriorityRow) {
+  const value = confirmedUnitCost(row) * row.recommendedQty;
+  return positive(value) ? value : 0;
+}
 function costReady(row: InventoryVerificationPriorityRow, now: number) {
   const time = row.latestConfirmedReceiptAt ? Date.parse(row.latestConfirmedReceiptAt) : NaN;
   return row.hasConfirmedReceiptCost === true && positive(row.latestConfirmedReceiptCostKrw) &&
-    Number.isFinite(time) && time <= now && positive(row.expectedCost);
+    Number.isFinite(time) && time <= now && positive(confirmedLineCost(row));
 }
 function inventoryReady(row: InventoryVerificationPriorityRow) {
   return row.inventoryMode === "VERIFIED" && row.inventoryVerified === true &&
@@ -124,7 +146,7 @@ function inventoryReady(row: InventoryVerificationPriorityRow) {
 function projectedLine(row: InventoryVerificationPriorityRow): PurchasePreflightLine {
   return {
     barcode: row.barcode, name: row.name, quantity: row.recommendedQty,
-    estimatedCostKrw: row.expectedCost, inventoryQuantity: row.inventoryQuantity,
+    estimatedCostKrw: confirmedLineCost(row), confirmedUnitCostKrw: confirmedUnitCost(row), inventoryQuantity: row.inventoryQuantity,
     openCommitment: row.openCommitment, costEvidenceAt: row.latestConfirmedReceiptAt,
   };
 }
@@ -178,6 +200,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const shadowReady = input.priority?.state === "READY" && input.priority.purchaseShadowReady === true &&
     input.priority.writesEnabled === false && fresh(input.priority.generatedAt, now, REPORT_MAX_AGE_MS);
   if (!shadowReady) blockers.push("PURCHASE_SHADOW_NOT_READY");
+  const inventoryFresh = fresh(source?.inventoryGeneratedAt, now, REPORT_MAX_AGE_MS) &&
+    fingerprint(source?.inventoryContentFingerprint);
+  if (!inventoryFresh) blockers.push("INVENTORY_EVIDENCE_STALE_OR_UNPINNED");
   if (source?.cycleMonth !== targetCycleMonth || source?.budgetMonth !== requiredBudgetMonth) {
     blockers.push("TARGET_CYCLE_RECALCULATION_REQUIRED");
   }
@@ -185,8 +210,26 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (todaySeoul.slice(0, 7) <= requiredBudgetMonth) blockers.push("BUDGET_MONTH_NOT_CLOSED");
   if (cashLimitKrw === null) blockers.push("OWNER_CASH_LIMIT_REQUIRED");
   if (!positive(source?.budgetKrw)) blockers.push("MONTHLY_BUDGET_NOT_VERIFIED");
-  const effectiveBudgetKrw = positive(cashLimitKrw) && positive(source?.budgetKrw)
-    ? Math.min(cashLimitKrw, source.budgetKrw) : 0;
+  const spendValid = (value: PurchaseMonthlySpendPin | null): value is PurchaseMonthlySpendPin => Boolean(
+    value && value.cycleMonth === targetCycleMonth && nonnegative(value.recordedSpendKrw) &&
+    fingerprint(value.contentFingerprint) && fresh(value.readAt, now, REPORT_MAX_AGE_MS),
+  );
+  const spendStable = spendValid(input.spendBefore) && spendValid(input.spendAfter) &&
+    input.spendBefore.recordedSpendKrw === input.spendAfter.recordedSpendKrw &&
+    input.spendBefore.contentFingerprint === input.spendAfter.contentFingerprint;
+  if (!spendStable) blockers.push("CYCLE_SPEND_CHANGED_OR_UNVERIFIED");
+  const recordedCycleSpendKrw = spendStable && input.spendAfter ? input.spendAfter.recordedSpendKrw : null;
+  const multiplier = source?.purchaseCostMultiplier;
+  const multiplierValid = typeof multiplier === "number" && Number.isFinite(multiplier) && multiplier >= 1 && multiplier <= 3;
+  const fundingValid = positive(source?.grossBudgetKrw) && multiplierValid;
+  if (!fundingValid) blockers.push("GROSS_FUNDING_BASIS_UNVERIFIED");
+  const remainingMonthlyCashKrw = fundingValid && recordedCycleSpendKrw !== null
+    ? Math.max(0, source.grossBudgetKrw! - recordedCycleSpendKrw) : 0;
+  const effectiveCashKrw = positive(cashLimitKrw) ? Math.min(cashLimitKrw, remainingMonthlyCashKrw) : 0;
+  // The cash ceiling includes freight reserve; line amounts are product costs.
+  // Subtract recorded spend first, then reserve the existing policy multiplier.
+  const effectiveBudgetKrw = fundingValid && positive(source?.budgetKrw)
+    ? Math.min(source.budgetKrw, Math.floor(effectiveCashKrw / multiplier!)) : 0;
   const comparable = source?.comparisonAvailable === true && source.sameAnalysisAsOf === true;
   if (!comparable) reviewBlockers.push("SAME_TIME_LEGACY_COMPARISON_REQUIRED");
   for (const key of source?.blockerKeys ?? []) reviewBlockers.push(`UPSTREAM:${key}`);
@@ -208,7 +251,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     if (row.action !== "NONE" || row.operationallyReady !== true) reasons.push("ROW_EXECUTION_BLOCKED");
     if (reasons.length) excluded.push({ barcode: row.barcode, reasons }); else eligible.push(row);
   }
-  eligible.sort((a, b) => b.priorityScore - a.priorityScore || a.expectedCost - b.expectedCost || a.barcode.localeCompare(b.barcode));
+  eligible.sort((a, b) => b.priorityScore - a.priorityScore || confirmedLineCost(a) - confirmedLineCost(b) || a.barcode.localeCompare(b.barcode));
   const selected: PurchasePreflightLine[] = [];
   let estimatedSpendKrw = 0;
   // Never scale or round the engine's MOQ/carton-aware quantity to squeeze it
@@ -216,16 +259,17 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (blockers.length === 0) {
     for (const row of eligible) {
       if (selected.length >= maxSkus) { excluded.push({ barcode: row.barcode, reasons: ["CANARY_SKU_LIMIT"] }); continue; }
-      if (row.expectedCost > effectiveBudgetKrw - estimatedSpendKrw) {
+      if (confirmedLineCost(row) > effectiveBudgetKrw - estimatedSpendKrw) {
         excluded.push({ barcode: row.barcode, reasons: ["CASH_BUDGET_LIMIT"] }); continue;
       }
-      selected.push(projectedLine(row)); estimatedSpendKrw += row.expectedCost;
+      selected.push(projectedLine(row)); estimatedSpendKrw += confirmedLineCost(row);
     }
     if (selected.length === 0) blockers.push("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
   }
   const sourceFingerprint = hash({
     before: pin, after: input.after, stable,
-    validity: { sourceFresh, shadowReady, contextMatch, fullReadback, salesVerified },
+    validity: { sourceFresh, shadowReady, contextMatch, fullReadback, salesVerified, inventoryFresh, spendStable },
+    spend: input.spendAfter ? { cycleMonth: input.spendAfter.cycleMonth, amount: input.spendAfter.recordedSpendKrw, fingerprint: input.spendAfter.contentFingerprint } : null,
     gate: gate ? { state: gate.state, safe: gate.safeToApply, checks: gate.checks, fingerprint: gate.promotionFingerprint } : null,
     reconciliation: rec ? { state: rec.state, ready: rec.ready, full: rec.fullApplyVerified, checks: rec.checks, fingerprint: rec.reconciliationFingerprint } : null,
     source: source ?? null,
@@ -242,9 +286,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const stages = [
     stage(5, "공식 판매원장 게이트", salesVerified ? "VERIFIED" : "BLOCKED", fullReadback ? "동일 후보의 검증된 공식 반영 이력이 있습니다. 새 쓰기 권한은 발급하지 않습니다." : gate?.message ?? "후보 승인 검증을 기다립니다.", "/stage8-candidate-promotion-gate"),
     stage(6, "Product Master 반영·재조회", fullReadback && stable ? "VERIFIED" : "WAITING", rec?.message ?? "1건 카나리·전수 반영 후 재조회 검증이 필요합니다.", "/stage8-postapply-canonical-reconciliation"),
-    stage(7, "발주 후보 원가 근거", coverage(candidates.filter(row => costReady(row, now)).length), `확정원가 ${candidates.filter(row => costReady(row, now)).length}/${candidates.length}개. 캐시·추정값을 확정원가로 승격하지 않습니다.`, "/stage8-receipt-cost-recovery-readiness"),
-    stage(8, "발주 후보 재고 근거", coverage(candidates.filter(inventoryReady).length), `확인재고 ${candidates.filter(inventoryReady).length}/${candidates.length}개. 미확인·초기 0 재고는 제외하며 전수 실사를 요구하지 않습니다.`, "/stage8-inventory-verification-priority"),
-    stage(9, "발주 Shadow·원본 일치", shadowReady && contextMatch && stable && fullReadback && sourceFresh ? "VERIFIED" : "BLOCKED", "판매·재고·미입고가 연결된 읽기 전용 계산입니다. 보조신호 등 남은 조건은 승인 검토 차단 사유로 별도 표시합니다.", "/stage8-canonical-purchase-shadow"),
+    stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costReady(row, now)).length) : "BLOCKED", `확정원가 ${candidates.filter(row => costReady(row, now)).length}/${candidates.length}개. 캐시·추정값을 확정원가로 승격하지 않습니다.`, "/stage8-receipt-cost-recovery-readiness"),
+    stage(8, "발주 후보 재고 근거", inventoryFresh ? coverage(candidates.filter(inventoryReady).length) : "BLOCKED", `확인재고 ${candidates.filter(inventoryReady).length}/${candidates.length}개. 미확인·초기 0 재고는 제외하며 전수 실사를 요구하지 않습니다.`, "/stage8-inventory-verification-priority"),
+    stage(9, "발주 Shadow·원본 일치", shadowReady && contextMatch && stable && fullReadback && sourceFresh && inventoryFresh ? "VERIFIED" : "BLOCKED", "판매·재고·미입고가 연결된 읽기 전용 계산입니다. 보조신호 등 남은 조건은 승인 검토 차단 사유로 별도 표시합니다.", "/stage8-canonical-purchase-shadow"),
     stage(10, "예산 내 소량 발주안", previewReady ? "VERIFIED" : "WAITING", previewReady ? "금액·품목·수량이 고정된 미리보기입니다. 승인·예약·주문은 생성되지 않았습니다." : "목표 월의 최신 데이터와 현금 상한을 확인한 뒤 계산합니다.", "/purchase-cycle-preflight"),
     stage(11, "실제 주문→입고 검증", "LOCKED", "지정일에도 자동으로 열리지 않습니다. 별도 최종 승인과 기존 실행 경로의 재검증 후 실제 입고까지 확인해야 합니다.", "/fast-purchase-mvp"),
   ];
@@ -257,6 +301,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     candidateRequestId: pin?.requestId ?? null, sourceAnalysisAsOf: pin?.analysisAsOf ?? null,
     sourceCycleMonth: source?.cycleMonth ?? null, sourceBudgetMonth: source?.budgetMonth ?? null,
     cashLimitKrw, effectiveBudgetKrw, estimatedSpendKrw, remainingPreviewBudgetKrw: effectiveBudgetKrw - estimatedSpendKrw,
+    recordedCycleSpendKrw, remainingMonthlyCashKrw, effectiveCashKrw,
+    purchaseCostMultiplier: multiplierValid ? multiplier! : null,
+    estimatedAllInSpendKrw: multiplierValid ? Math.ceil(estimatedSpendKrw * multiplier!) : 0,
     previewReady, comparisonAvailable: source?.comparisonAvailable === true, comparable,
     comparisonMessage: comparable ? "동일 분석시점의 기존 방식 비교가 있습니다. 실제 승인 전 차이를 검토하세요." : "기존 비교가 없거나 분석시점이 달라 동일 조건 비교로 인정하지 않습니다.",
     stages, blockers: uniqueBlockers, reviewBlockers: uniqueReview, excluded, eligibleCount: eligible.length, selected,
@@ -269,6 +316,7 @@ export type PurchasePreflightReaders = {
   gate: () => Promise<CandidatePromotionGate>;
   reconciliation: () => Promise<PostApplyCanonicalReconciliation>;
   priority: () => Promise<InventoryVerificationPriority>;
+  monthlySpend: (cycleMonth: string) => Promise<PurchaseMonthlySpendPin>;
 };
 
 // The actual orchestration is injectable so CI exercises failure/drift and
@@ -283,12 +331,18 @@ export async function readPurchaseCyclePreflight(
   const capture = async <T>(code: string, read: () => Promise<T>): Promise<T | null> => {
     try { return await read(); } catch { sourceErrors.push(code); return null; }
   };
-  const before = await capture("CANDIDATE_READ_FAILED", readers.candidate);
+  const [before, spendBefore] = await Promise.all([
+    capture("CANDIDATE_READ_FAILED", readers.candidate),
+    capture("CYCLE_SPEND_READ_FAILED", () => readers.monthlySpend(options.targetDate.slice(0, 7))),
+  ]);
   const [gate, reconciliation, priority] = await Promise.all([
     capture("PROMOTION_GATE_READ_FAILED", readers.gate),
     capture("MASTER_READBACK_READ_FAILED", readers.reconciliation),
     capture("INVENTORY_PRIORITY_READ_FAILED", readers.priority),
   ]);
-  const after = await capture("CANDIDATE_RECHECK_FAILED", readers.candidate);
-  return buildPurchaseCyclePreflight({ now: clock(), options, before, after, gate, reconciliation, priority, sourceErrors });
+  const [after, spendAfter] = await Promise.all([
+    capture("CANDIDATE_RECHECK_FAILED", readers.candidate),
+    capture("CYCLE_SPEND_RECHECK_FAILED", () => readers.monthlySpend(options.targetDate.slice(0, 7))),
+  ]);
+  return buildPurchaseCyclePreflight({ now: clock(), options, before, after, gate, reconciliation, priority, sourceErrors, spendBefore, spendAfter });
 }
