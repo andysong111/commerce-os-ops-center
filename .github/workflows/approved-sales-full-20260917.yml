@@ -1,0 +1,63 @@
+name: Approved Sales FULL 20260917
+on:
+  push:
+    branches: ['ops/approved-sales-publication-20260917']
+    paths: ['.github/workflows/approved-sales-full-20260917.yml']
+permissions:
+  contents: read
+concurrency:
+  group: approved-sales-publication-0cc0f92b
+  cancel-in-progress: false
+jobs:
+  approved-full:
+    if: github.repository == 'andysong111/commerce-os-ops-center' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.13.0
+      - name: Publish pinned historical sales and verify persisted reconciliation
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { appendFileSync } from 'node:fs';
+          const origin='https://commerce-os-ops-center.vercel.app';
+          const endpoint='/api/product-master/shopling-sales-events';
+          const pin={requestId:'0cc0f92b-b8c3-44b2-88e5-166ab630be44',analysisAsOf:'2026-09-15T09:38:27.096Z',planFingerprint:'sha256:d8ab2c397196471f315786529ccc90c0ced5f85c7b9dde795201707b439ce321',eventFingerprint:'sha256:c4d23bcd7bda581b898b158183d29ad2a446f9724a1541afc71309e4c0f2fd3d',sourceEventCount:12977};
+          assert.ok(Date.now()<Date.parse('2026-09-18T00:00:00Z'),'APPROVAL_EXECUTION_WINDOW_EXPIRED');
+          // Separate database read after canary: BBC5-1 / event
+          // 2834646:27080819:1 / sku legacy-sku:25155653 / qty1 / KRW2100 /
+          // validSale true / occurred 2025-12-30T15:00:00Z matched the source.
+          // Exactly one sales row changed. Inventory, receipt-cost and SKU
+          // signatures remained equal to the before-publication snapshot.
+          const emit=(kind,value)=>{const line=JSON.stringify({kind,at:new Date().toISOString(),...value});console.log(line);appendFileSync(process.env.GITHUB_STEP_SUMMARY,'\n```json\n'+line+'\n```\n');};
+          const headers={Accept:'application/json',Origin:origin,Referer:origin+'/stage8-candidate-promotion-gate'};
+          async function api(body){
+            const r=await fetch(origin+endpoint,{method:body?'POST':'GET',headers:{...headers,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,redirect:'error',signal:AbortSignal.timeout(body?300000:90000)});
+            const p=await r.json().catch(()=>null);
+            emit(body?'full_http':'status_http',{http:r.status,ok:p?.ok,code:p?.code??null});
+            assert.equal(r.status,200,'HTTP_FAILED_OR_UNCERTAIN_WRITE_DO_NOT_RETRY');assert.equal(p?.ok,true,'API_NOT_OK');return p;
+          }
+          function pinned(s,state){
+            assert.equal(s.requestId,pin.requestId,'CANDIDATE_CHANGED');assert.equal(s.analysisAsOf,pin.analysisAsOf,'ANALYSIS_CHANGED');assert.equal(s.report?.planFingerprint,pin.planFingerprint,'PLAN_CHANGED');assert.equal(s.report?.eventFingerprint,pin.eventFingerprint,'EVENTS_CHANGED');assert.equal(s.report?.sourceEventCount,pin.sourceEventCount,'COUNT_CHANGED');assert.equal(s.report?.unmappedRows,0);assert.equal(s.report?.identityConflictCount,0);assert.equal(s.state,state,'STATE_NOT_EXPECTED');assert.equal(s.canaryVerified,true,'CANARY_READBACK_REQUIRED');
+          }
+          const before=(await api()).status;pinned(before,'READY_FULL');emit('before_full',{...pin,state:before.state,canaryVerified:true});
+          // Exactly one FULL API request, with the existing production gate and
+          // mutation lock. No automatic retry, no direct SQL write, no new
+          // source collection, no price/stock/draft/purchase/payment endpoint.
+          const applied=await api({action:'full',confirmation:'FULL',planFingerprint:pin.planFingerprint});
+          const r=applied.result;assert.equal(r?.ok,true);assert.equal(r?.mode,'full');assert.equal(r?.storageReady,true);assert.equal(r?.selected,12977);assert.equal(r?.written,12977);assert.equal(r?.planFingerprint,pin.planFingerprint);assert.equal(r?.snapshot?.ok,true);assert.equal(r?.snapshot?.analysisAsOf,pin.analysisAsOf);assert.equal(r?.snapshot?.classificationComplete,true);assert.equal(r?.snapshot?.orphanEventCount,0);
+          emit('FULL_RESPONSE_VERIFIED',{selected:r.selected,written:r.written,planFingerprint:r.planFingerprint,promotionGate:applied.promotionGate,snapshot:{analysisAsOf:r.snapshot.analysisAsOf,contentFingerprint:r.snapshot.contentFingerprint,sourceEventCount:r.snapshot.sourceEventCount,validEventCount:r.snapshot.validEventCount,tombstoneCount:r.snapshot.tombstoneCount,inactiveHistorical:r.snapshot.inactiveManagedHistoricalEventCount,managedActiveSkuCount:r.snapshot.managedActiveSkuCount,orphanEventCount:r.snapshot.orphanEventCount}});
+          const after=(await api()).status;pinned(after,'COMPLETED');emit('FULL_OPERATION_COMPLETED',{state:after.state,requestId:after.requestId});
+          const reconcile=await fetch(origin+'/stage8-postapply-canonical-reconciliation?verification=approved-full-20260917',{headers:{...headers,Accept:'text/html'},redirect:'error',signal:AbortSignal.timeout(180000)});
+          const html=await reconcile.text();
+          const main=(html.match(/<main[\s\S]*?<\/main>/)?.[0]??'').replace(/<script[\s\S]*?<\/script>/g,'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+          const blocked=/>(?:BLOCK|BLOCKED|WAITING)<\//.test(html.match(/<main[\s\S]*?<\/main>/)?.[0]??'');
+          emit('persisted_reconciliation',{http:reconcile.status,blocked,summary:main.slice(0,10000)});
+          assert.equal(reconcile.status,200,'PERSISTED_RECONCILIATION_HTTP_FAILED');
+          assert.equal(blocked,false,'PERSISTED_RECONCILIATION_BLOCKED');
+          assert.match(main,/READY/,'PERSISTED_RECONCILIATION_READY_REQUIRED');
+          emit('FULL_AND_PERSISTED_RECONCILIATION_PASSED',{scope:'approved historical canonical sales only',analysisAsOf:pin.analysisAsOf,purchaseExecuted:false,paymentExecuted:false,stockWrites:false,priceWrites:false,next:'Independent complete row-content digest and unchanged inventory/cost/SKU verification'});
+          NODE
