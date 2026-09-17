@@ -40,9 +40,10 @@ export async function GET(request: Request) {
   const groups = new Map<string, { mallKey: string; loginHash: string; rowCount: number; orderNos: Set<string>; ablyHint: boolean }>();
   for (const chunk of chunks) {
     const rows = await client.read("orders", chunk);
-    for (const row of rows) {
-      const mallKey = text(row.mall_key);
-      const loginId = text(row.mall_login_id);
+    for (const value of rows) {
+      const row = value as Record<string, unknown>;
+      const mallKey = text(row["mall_key"]);
+      const loginId = text(row["mall_login_id"]);
       const key = `${mallKey}\u0000${loginId}`;
       const current = groups.get(key) ?? {
         mallKey,
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
         ablyHint: hint(`${mallKey} ${loginId}`),
       };
       current.rowCount += 1;
-      const orderNo = text(row.ord_no);
+      const orderNo = text(row["ord_no"]);
       if (orderNo) current.orderNos.add(orderNo);
       groups.set(key, current);
     }
