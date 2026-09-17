@@ -1,12 +1,17 @@
 import {
-  calendarMonthNormalRevenue,
+  ABLY_FREE_SHIPPING_DEDUCTION_KRW,
+  PURCHASE_BUDGET_REVENUE_POLICY_VERSION,
+  calendarMonthPurchaseBudgetRevenue,
   calendarMonthRange,
+  purchaseBudgetRevenuePolicyApplies,
+  seoulCalendarMonth,
 } from "@/lib/monthlyPurchasePolicy";
 import {
   ShoplingReadClient,
   shoplingReadConfigFromEnv,
   splitShoplingDateRange,
 } from "@/lib/shopling/shoplingReadClient";
+import type { ShoplingRawRow } from "@/lib/shopling/shoplingNormalize";
 import {
   createSupabaseAdminClient,
   createSupabaseAdminHeaders,
@@ -26,8 +31,10 @@ function shoplingEnvironment() {
   };
 }
 
-function sourceEventId(month: string) {
-  return `shopling-calendar-month-revenue:${month}`;
+export function calendarMonthRevenueSourceEventId(month: string) {
+  return purchaseBudgetRevenuePolicyApplies(month)
+    ? `shopling-calendar-month-revenue:${PURCHASE_BUDGET_REVENUE_POLICY_VERSION}:${month}`
+    : `shopling-calendar-month-revenue:${month}`;
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -41,14 +48,21 @@ function nonnegativeInteger(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
 }
 
+function closedCalendarMonth(month: string) {
+  return month < seoulCalendarMonth();
+}
+
 async function readCached(month: string) {
+  // Current/future months must remain live. Only a completed calendar month may
+  // become the immutable funding basis for the next purchase cycle.
+  if (!closedCalendarMonth(month)) return null;
   const admin = await createSupabaseAdminClient();
   if (!admin) return null;
   const result = await admin
     .from("commerce_operation_runs")
     .select("result_snapshot,started_at")
     .eq("operation_type", SHOPLING_CALENDAR_MONTH_REVENUE_OPERATION)
-    .eq("source_event_id", sourceEventId(month))
+    .eq("source_event_id", calendarMonthRevenueSourceEventId(month))
     .eq("status", "SUCCEEDED")
     .maybeSingle();
   if (result.error || !result.data || typeof result.data !== "object") {
@@ -60,12 +74,40 @@ async function readCached(month: string) {
   };
   const snapshot = object(row.result_snapshot);
   if (String(snapshot.month ?? "") !== month) return null;
+
+  const policyApplied = purchaseBudgetRevenuePolicyApplies(month);
+  if (
+    policyApplied &&
+    (snapshot.policyApplied !== true ||
+      String(snapshot.budgetRevenuePolicyVersion ?? "") !==
+        PURCHASE_BUDGET_REVENUE_POLICY_VERSION ||
+      nonnegativeInteger(snapshot.shippingReservePerAblyOrderKrw) !==
+        ABLY_FREE_SHIPPING_DEDUCTION_KRW)
+  ) {
+    return null;
+  }
+
   const revenueKrw = nonnegativeInteger(snapshot.revenueKrw);
   const range = calendarMonthRange(month);
   return {
     month,
     range,
+    grossRevenueKrw: policyApplied
+      ? nonnegativeInteger(snapshot.grossRevenueKrw)
+      : revenueKrw,
     revenueKrw,
+    ablyGrossRevenueKrw: nonnegativeInteger(snapshot.ablyGrossRevenueKrw),
+    ablyOrderCount: nonnegativeInteger(snapshot.ablyOrderCount),
+    ablyShippingDeductionKrw: nonnegativeInteger(
+      snapshot.ablyShippingDeductionKrw,
+    ),
+    shippingReservePerAblyOrderKrw: policyApplied
+      ? ABLY_FREE_SHIPPING_DEDUCTION_KRW
+      : 0,
+    policyApplied,
+    budgetRevenuePolicyVersion: policyApplied
+      ? PURCHASE_BUDGET_REVENUE_POLICY_VERSION
+      : "legacy-gross-normal-revenue",
     fetchedRows: nonnegativeInteger(snapshot.fetchedRows),
     chunkCount: nonnegativeInteger(snapshot.chunkCount),
     cached: true,
@@ -76,15 +118,23 @@ async function readCached(month: string) {
 async function storeCached(input: {
   month: string;
   range: { start: string; end: string };
+  grossRevenueKrw: number;
   revenueKrw: number;
+  ablyGrossRevenueKrw: number;
+  ablyOrderCount: number;
+  ablyShippingDeductionKrw: number;
+  shippingReservePerAblyOrderKrw: number;
+  policyApplied: boolean;
+  budgetRevenuePolicyVersion: string;
   fetchedRows: number;
   chunkCount: number;
 }) {
+  if (!closedCalendarMonth(input.month)) return null;
   const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/$/, "");
   const secret = (
     process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
   )?.trim();
-  if (!baseUrl || !secret) return;
+  if (!baseUrl || !secret) return null;
   const now = new Date().toISOString();
   await fetch(
     `${baseUrl}/rest/v1/commerce_operation_runs?on_conflict=source_event_id&select=source_event_id`,
@@ -99,12 +149,13 @@ async function storeCached(input: {
           operation_type: SHOPLING_CALENDAR_MONTH_REVENUE_OPERATION,
           status: "SUCCEEDED",
           source: "shopling-read-api",
-          source_event_id: sourceEventId(input.month),
+          source_event_id: calendarMonthRevenueSourceEventId(input.month),
           correlation_id: `monthly-purchase-budget:${input.month}`,
           actor_type: "OPS_WORKER",
           input_snapshot: {
             month: input.month,
             range: input.range,
+            budgetRevenuePolicyVersion: input.budgetRevenuePolicyVersion,
           },
           result_snapshot: {
             ...input,
@@ -120,12 +171,14 @@ async function storeCached(input: {
       cache: "no-store",
     },
   ).catch(() => null);
+  return now;
 }
 
 /**
- * A closed calendar month is read once from Shopling and then frozen in the
- * Ops ledger. This prevents the same purchase cycle from drifting because of
- * later current-month sales or repeated page refreshes.
+ * Closed calendar-month revenue is frozen once for the next purchase cycle.
+ * Starting with September 2026, ABLY free-shipping reserve is removed before
+ * the existing revenue / 2 purchase budget is calculated. Open months remain
+ * live and are never cached as final funding evidence.
  */
 export async function loadCalendarMonthNormalRevenue(month: string) {
   const cached = await readCached(month);
@@ -135,22 +188,29 @@ export async function loadCalendarMonthNormalRevenue(month: string) {
   const config = shoplingReadConfigFromEnv(shoplingEnvironment());
   const client = new ShoplingReadClient(config);
   const chunks = splitShoplingDateRange(range.start, range.end, 7);
-  let revenueKrw = 0;
-  let fetchedRows = 0;
+  const allRows: ShoplingRawRow[] = [];
   for (const chunk of chunks) {
     const rows = await client.read("orders", chunk);
-    fetchedRows += rows.length;
-    revenueKrw += calendarMonthNormalRevenue(rows, month);
+    allRows.push(...(rows as ShoplingRawRow[]));
   }
+  const budgetRevenue = calendarMonthPurchaseBudgetRevenue(allRows, month);
   const result = {
     month,
     range,
-    revenueKrw: Math.max(0, Math.round(revenueKrw)),
-    fetchedRows,
+    grossRevenueKrw: budgetRevenue.grossRevenueKrw,
+    revenueKrw: budgetRevenue.revenueKrw,
+    ablyGrossRevenueKrw: budgetRevenue.ablyGrossRevenueKrw,
+    ablyOrderCount: budgetRevenue.ablyOrderCount,
+    ablyShippingDeductionKrw: budgetRevenue.ablyShippingDeductionKrw,
+    shippingReservePerAblyOrderKrw:
+      budgetRevenue.shippingReservePerAblyOrderKrw,
+    policyApplied: budgetRevenue.policyApplied,
+    budgetRevenuePolicyVersion: budgetRevenue.policyVersion,
+    fetchedRows: allRows.length,
     chunkCount: chunks.length,
     cached: false,
-    frozenAt: new Date().toISOString(),
+    frozenAt: null as string | null,
   };
-  await storeCached(result);
+  result.frozenAt = await storeCached(result);
   return result;
 }
