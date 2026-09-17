@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { InternalChinaForwarderCostSummary } from "@/lib/internalChinaForwarderCost";
+import { runInboundReceiptOnSaleSync } from "@/lib/inboundReceiptOnSaleSync";
 
 export type InternalChinaReceiptPanelLine = {
   barcode: string;
@@ -176,8 +177,8 @@ export function InternalChinaReceiptPanel({
       ? `${monthLabel(cycleMonth)} 발주 건의 남은 ${number.format(remainingTotal)}개를 전량 입고확정하고 배송대행지 실제비용 ${number.format(actualForwarderCostKrw)}원으로 실제 원가배수까지 확정할까요?`
       : `${monthLabel(cycleMonth)} 발주 건에서 ${number.format(selected.length)} SKU · ${number.format(selectedQuantity)}개를 부분입고로 확정할까요?`;
     const detail = fullReceipt
-      ? "입고수량을 원장과 Product Master에 반영한 뒤 실제 원가배수를 계산합니다. SKU 최종 매입원가는 (상품원가 × 실제 원가배수) + 중국내운임으로 확정되고 이후 가격조정 판단의 원가로 이어집니다."
-      : "확정 즉시 중국 발주·입고 원장의 미입고 수량이 차감됩니다. 실제 원가배수는 최종 전량 입고 시 배송대행 비용으로 확정합니다.";
+      ? "입고수량을 원장과 Product Master에 반영한 뒤 실제 원가배수를 계산합니다. 정확재고가 1개 이상이고 Shopling 매핑이 정상인 입고 품목은 곧바로 판매중 자동전환까지 이어집니다. SKU 최종 매입원가는 (상품원가 × 실제 원가배수) + 중국내운임으로 확정되고 이후 가격조정 판단의 원가로 이어집니다."
+      : "확정 즉시 중국 발주·입고 원장의 미입고 수량이 차감됩니다. 정확재고가 1개 이상이고 Shopling 매핑이 정상인 품목은 판매중 자동전환까지 이어집니다. 실제 원가배수는 최종 전량 입고 시 배송대행 비용으로 확정합니다.";
     if (!window.confirm(`${prompt}\n\n${detail}`)) return;
 
     setSaving(true);
@@ -205,6 +206,20 @@ export function InternalChinaReceiptPanel({
         throw new Error(body.message || `입고확정 실패 (${response.status})`);
       }
 
+      const receiptMessage = body.message || "입고확정을 완료했습니다.";
+      let onSaleMessage = "";
+      try {
+        const onSale = await runInboundReceiptOnSaleSync(
+          selected.map((line) => line.barcode),
+          setNotice,
+        );
+        onSaleMessage = onSale.message;
+      } catch (error) {
+        onSaleMessage = `입고확정은 완료됐습니다. 다만 Shopling 판매중 자동전환 확인 과정은 실패했습니다. 재고·품절·판매재개 큐에서 다시 확인하세요: ${
+          error instanceof Error ? error.message : "재시도 필요"
+        }`;
+      }
+
       if (
         fullReceipt &&
         (existingForwarderCostKrw <= 0 ||
@@ -213,11 +228,11 @@ export function InternalChinaReceiptPanel({
         try {
           const costBody = await persistForwarderCost();
           setNotice(
-            `${body.message || "입고확정을 완료했습니다."} ${costBody.message || "배송대행 비용과 실제 원가배수도 마감했습니다."}`,
+            `${receiptMessage} ${costBody.message || "배송대행 비용과 실제 원가배수도 마감했습니다."} ${onSaleMessage}`,
           );
         } catch (error) {
           setNotice(
-            `${body.message || "입고확정을 완료했습니다."} 다만 배송대행 비용·실제 원가 마감은 실패했습니다. 아래 입력값을 확인해 다시 저장하세요: ${
+            `${receiptMessage} ${onSaleMessage} 다만 배송대행 비용·실제 원가 마감은 실패했습니다. 아래 입력값을 확인해 다시 저장하세요: ${
               error instanceof Error ? error.message : "재시도 필요"
             }`,
           );
@@ -226,7 +241,7 @@ export function InternalChinaReceiptPanel({
           return;
         }
       } else {
-        setNotice(body.message || "입고확정을 완료했습니다.");
+        setNotice(`${receiptMessage} ${onSaleMessage}`);
       }
       setExpanded(false);
       router.refresh();
@@ -261,7 +276,7 @@ export function InternalChinaReceiptPanel({
           </h2>
           <p className="mt-1 text-sm text-slate-600">
             {openLines.length
-              ? `${openLines.length.toLocaleString("ko-KR")} SKU · 남은 미입고 ${number.format(remainingTotal)}개. 전량 도착했다면 배송대행지 실제 청구 총액을 입력해 실제 원가배수까지 함께 마감하고, 일부만 왔다면 실제 도착수량만 수정하세요.`
+              ? `${openLines.length.toLocaleString("ko-KR")} SKU · 남은 미입고 ${number.format(remainingTotal)}개. 전량 도착했다면 배송대행지 실제 청구 총액을 입력해 실제 원가배수까지 함께 마감하고, 일부만 왔다면 실제 도착수량만 수정하세요. 입고확정 후 재고가 생긴 품절상품은 Shopling 판매중 전환까지 자동으로 이어집니다.`
               : `입고수량은 모두 마감됐습니다. 배송대행지 실제 청구 총액으로 기존 임시 ${forwarderCost.estimatedMultiplier.toFixed(2)} 대신 실제 원가배수를 확정하세요.`}
           </p>
           <p className="mt-1 font-mono text-[11px] text-slate-400">{draftId}</p>
@@ -456,7 +471,7 @@ export function InternalChinaReceiptPanel({
 
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                 <p className="text-xs leading-5 text-emerald-950">
-                  일부만 입력하면 PARTIALLY_RECEIVED, 남은 수량까지 모두 입고되면 RECEIVED로 자동 전환합니다. 전량 입고 시 배송대행지 실제비용으로 원가배수를 확정하고, 최종 SKU 매입원가는 (상품원가 × 실제 원가배수) + 중국내운임으로 Product Master에 연결합니다.
+                  일부만 입력하면 PARTIALLY_RECEIVED, 남은 수량까지 모두 입고되면 RECEIVED로 자동 전환합니다. 입고확정 직후 정확재고가 1개 이상이고 Shopling 매핑이 정상인 품절상품은 판매중으로 자동 전환합니다. 차단·불확실 건은 억지로 재시도하지 않고 재고상태 예외 큐에 남깁니다. 전량 입고 시 배송대행지 실제비용으로 원가배수를 확정하고, 최종 SKU 매입원가는 (상품원가 × 실제 원가배수) + 중국내운임으로 Product Master에 연결합니다.
                 </p>
                 <button
                   type="button"
@@ -470,7 +485,7 @@ export function InternalChinaReceiptPanel({
                   className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {saving
-                    ? "입고확정 중…"
+                    ? "입고확정·판매재개 처리 중…"
                     : `입고확정 · ${number.format(selectedQuantity)}개`}
                 </button>
               </div>
