@@ -88,12 +88,13 @@ test("calendar-month normal revenue excludes other months, cancelled rows and du
   assert.equal(calendarMonthNormalRevenue(rows, "2026-07"), 20_000);
 });
 
-test("ABLY free-shipping reserve starts with September 2026 funding basis", () => {
+test("ABLY free-shipping reserve applies to every funding-basis month", () => {
   assert.equal(ABLY_SHOPLING_MALL_KEY, "SMALL_00112");
   assert.equal(ABLY_FREE_SHIPPING_DEDUCTION_KRW, 3_000);
   assert.equal(PURCHASE_BUDGET_REVENUE_POLICY_VERSION, "ably-free-shipping-v1");
-  assert.equal(purchaseBudgetRevenuePolicyApplies("2026-08"), false);
+  assert.equal(purchaseBudgetRevenuePolicyApplies("2026-08"), true);
   assert.equal(purchaseBudgetRevenuePolicyApplies("2026-09"), true);
+  assert.throws(() => purchaseBudgetRevenuePolicyApplies("2026-13"));
 });
 
 test("ABLY multi-line order deducts shipping once while keeping all normal line revenue", () => {
@@ -149,17 +150,17 @@ test("ABLY reserve counts unique normal orders and ignores cancelled/refunded ro
   assert.equal(result.revenueKrw, 24_000);
 });
 
-test("pre-policy ABLY revenue remains unchanged", () => {
+test("August ABLY shipping is deducted because August funds the September cycle", () => {
   const rows = [{
     ord_no: "ABLY-AUG", opt_id: "A", mall_ord_seq: "1",
     mall_ord_dt: "20260805120000", ord_status: "배송완료",
     mall_ord_cnt: "1", mall_unit_price: "10000", mall_key: ABLY_SHOPLING_MALL_KEY,
   }];
   const result = calendarMonthPurchaseBudgetRevenue(rows, "2026-08");
-  assert.equal(result.policyApplied, false);
-  assert.equal(result.ablyOrderCount, 0);
-  assert.equal(result.ablyShippingDeductionKrw, 0);
-  assert.equal(result.revenueKrw, 10_000);
+  assert.equal(result.policyApplied, true);
+  assert.equal(result.ablyOrderCount, 1);
+  assert.equal(result.ablyShippingDeductionKrw, 3_000);
+  assert.equal(result.revenueKrw, 7_000);
 });
 
 test("ABLY shipping deduction can reduce the whole funding basis but never below zero", () => {
