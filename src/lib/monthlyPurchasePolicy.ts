@@ -10,7 +10,7 @@ export const PRICE_GRADE_CADENCE = "DAILY" as const;
 export const ABLY_SHOPLING_MALL_KEY = "SMALL_00112" as const;
 export const ABLY_FREE_SHIPPING_DEDUCTION_KRW = 3_000;
 export const PURCHASE_BUDGET_REVENUE_POLICY_VERSION =
-  "ably-free-shipping-v1" as const;
+  "ably-free-shipping-v2-frozen-gross" as const;
 
 export type CalendarMonthPurchaseBudgetRevenue = {
   month: string;
@@ -95,6 +95,28 @@ export function purchaseBudgetRevenuePolicyApplies(month: string) {
   return true;
 }
 
+export function applyAblyShippingDeductionToGrossRevenue(
+  grossRevenueKrwInput: unknown,
+  ablyOrderCountInput: unknown,
+) {
+  const grossRevenueKrw = Math.max(
+    0,
+    Math.round(Number(grossRevenueKrwInput) || 0),
+  );
+  const ablyOrderCount = Math.max(
+    0,
+    Math.round(Number(ablyOrderCountInput) || 0),
+  );
+  const ablyShippingDeductionKrw =
+    ablyOrderCount * ABLY_FREE_SHIPPING_DEDUCTION_KRW;
+  return {
+    grossRevenueKrw,
+    ablyOrderCount,
+    ablyShippingDeductionKrw,
+    revenueKrw: Math.max(0, grossRevenueKrw - ablyShippingDeductionKrw),
+  };
+}
+
 function rawMallKey(raw: ShoplingRawRow) {
   const direct = raw.mall_key ?? raw.mallKey;
   if (direct !== undefined && direct !== null && direct !== "") {
@@ -144,21 +166,18 @@ export function calendarMonthPurchaseBudgetRevenue(
 
   grossRevenueKrw = Math.max(0, Math.round(grossRevenueKrw));
   ablyGrossRevenueKrw = Math.max(0, Math.round(ablyGrossRevenueKrw));
-  const ablyOrderCount = policyApplied ? ablyOrders.size : 0;
-  const ablyShippingDeductionKrw =
-    ablyOrderCount * ABLY_FREE_SHIPPING_DEDUCTION_KRW;
-  const revenueKrw = Math.max(
-    0,
-    grossRevenueKrw - ablyShippingDeductionKrw,
+  const adjustment = applyAblyShippingDeductionToGrossRevenue(
+    grossRevenueKrw,
+    policyApplied ? ablyOrders.size : 0,
   );
 
   return {
     month,
-    grossRevenueKrw,
-    revenueKrw,
+    grossRevenueKrw: adjustment.grossRevenueKrw,
+    revenueKrw: adjustment.revenueKrw,
     ablyGrossRevenueKrw,
-    ablyOrderCount,
-    ablyShippingDeductionKrw,
+    ablyOrderCount: adjustment.ablyOrderCount,
+    ablyShippingDeductionKrw: adjustment.ablyShippingDeductionKrw,
     shippingReservePerAblyOrderKrw: ABLY_FREE_SHIPPING_DEDUCTION_KRW,
     policyApplied,
     policyVersion: policyApplied

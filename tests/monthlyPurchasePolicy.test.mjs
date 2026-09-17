@@ -7,6 +7,7 @@ import {
   PRICE_GRADE_CADENCE,
   PURCHASE_BUDGET_REVENUE_POLICY_VERSION,
   PURCHASE_RECOMMENDATION_CADENCE,
+  applyAblyShippingDeductionToGrossRevenue,
   calendarMonthNormalRevenue,
   calendarMonthPurchaseBudgetRevenue,
   calendarMonthRange,
@@ -14,7 +15,7 @@ import {
   purchaseBudgetRevenuePolicyApplies,
 } from "../src/lib/monthlyPurchasePolicy.ts";
 
-const [liveRoute, liveControl, fastDraft, canonicalShadow, scheduler] =
+const [liveRoute, liveControl, fastDraft, canonicalShadow, scheduler, monthRevenueSource] =
   await Promise.all([
     readFile("src/app/api/product-decision-agent/live-refresh/route.ts", "utf8"),
     readFile(
@@ -27,6 +28,7 @@ const [liveRoute, liveControl, fastDraft, canonicalShadow, scheduler] =
       "supabase/migrations/202608280009_ops_adaptive_dispatcher.sql",
       "utf8",
     ),
+    readFile("src/lib/shopling/calendarMonthRevenue.ts", "utf8"),
   ]);
 
 test("purchase cycle follows Seoul calendar month and budgets from the prior full month", () => {
@@ -91,7 +93,7 @@ test("calendar-month normal revenue excludes other months, cancelled rows and du
 test("ABLY free-shipping reserve applies to every funding-basis month", () => {
   assert.equal(ABLY_SHOPLING_MALL_KEY, "SMALL_00112");
   assert.equal(ABLY_FREE_SHIPPING_DEDUCTION_KRW, 3_000);
-  assert.equal(PURCHASE_BUDGET_REVENUE_POLICY_VERSION, "ably-free-shipping-v1");
+  assert.equal(PURCHASE_BUDGET_REVENUE_POLICY_VERSION, "ably-free-shipping-v2-frozen-gross");
   assert.equal(purchaseBudgetRevenuePolicyApplies("2026-08"), true);
   assert.equal(purchaseBudgetRevenuePolicyApplies("2026-09"), true);
   assert.throws(() => purchaseBudgetRevenuePolicyApplies("2026-13"));
@@ -172,6 +174,18 @@ test("ABLY shipping deduction can reduce the whole funding basis but never below
   const result = calendarMonthPurchaseBudgetRevenue(rows, "2026-09");
   assert.equal(result.ablyShippingDeductionKrw, 3_000);
   assert.equal(result.revenueKrw, 0);
+});
+
+test("policy migration subtracts ABLY shipping from the already-frozen gross instead of replacing that gross", () => {
+  const frozenGross = 9_286_447;
+  const currentApiGross = 9_185_357;
+  const result = applyAblyShippingDeductionToGrossRevenue(frozenGross, 189);
+  assert.equal(result.ablyShippingDeductionKrw, 567_000);
+  assert.equal(result.revenueKrw, 8_719_447);
+  assert.notEqual(result.grossRevenueKrw, currentApiGross);
+  assert.match(monthRevenueSource, /readLegacyFrozenGrossRevenue/);
+  assert.match(monthRevenueSource, /grossRevenueSource = legacyFrozen/);
+  assert.match(monthRevenueSource, /"legacy-frozen-cache"/);
 });
 
 test("purchase recommendation is monthly while grade and price cadence remains daily", () => {
