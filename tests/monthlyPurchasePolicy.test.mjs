@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  ABLY_FREE_SHIPPING_DEDUCTION_KRW,
+  ABLY_SHOPLING_MALL_KEY,
   PRICE_GRADE_CADENCE,
+  PURCHASE_BUDGET_REVENUE_POLICY_VERSION,
   PURCHASE_RECOMMENDATION_CADENCE,
   calendarMonthNormalRevenue,
+  calendarMonthPurchaseBudgetRevenue,
   calendarMonthRange,
   monthlyPurchaseCycleFor,
+  purchaseBudgetRevenuePolicyApplies,
 } from "../src/lib/monthlyPurchasePolicy.ts";
 
 const [liveRoute, liveControl, fastDraft, canonicalShadow, scheduler] =
@@ -81,6 +86,91 @@ test("calendar-month normal revenue excludes other months, cancelled rows and du
     },
   ];
   assert.equal(calendarMonthNormalRevenue(rows, "2026-07"), 20_000);
+});
+
+test("ABLY free-shipping reserve starts with September 2026 funding basis", () => {
+  assert.equal(ABLY_SHOPLING_MALL_KEY, "SMALL_00112");
+  assert.equal(ABLY_FREE_SHIPPING_DEDUCTION_KRW, 3_000);
+  assert.equal(PURCHASE_BUDGET_REVENUE_POLICY_VERSION, "ably-free-shipping-v1");
+  assert.equal(purchaseBudgetRevenuePolicyApplies("2026-08"), false);
+  assert.equal(purchaseBudgetRevenuePolicyApplies("2026-09"), true);
+});
+
+test("ABLY multi-line order deducts shipping once while keeping all normal line revenue", () => {
+  const rows = [
+    {
+      ord_no: "ABLY-1", opt_id: "A", mall_ord_seq: "1",
+      mall_ord_dt: "20260905120000", ord_status: "배송완료",
+      mall_ord_cnt: "1", mall_unit_price: "10000", mall_key: ABLY_SHOPLING_MALL_KEY,
+    },
+    {
+      ord_no: "ABLY-1", opt_id: "B", mall_ord_seq: "2",
+      mall_ord_dt: "20260905120000", ord_status: "배송완료",
+      mall_ord_cnt: "2", mall_unit_price: "5000", mall_key: ABLY_SHOPLING_MALL_KEY,
+    },
+  ];
+  const result = calendarMonthPurchaseBudgetRevenue(rows, "2026-09");
+  assert.equal(result.grossRevenueKrw, 20_000);
+  assert.equal(result.ablyGrossRevenueKrw, 20_000);
+  assert.equal(result.ablyOrderCount, 1);
+  assert.equal(result.ablyShippingDeductionKrw, 3_000);
+  assert.equal(result.revenueKrw, 17_000);
+  assert.equal(calendarMonthNormalRevenue(rows, "2026-09"), 17_000);
+});
+
+test("ABLY reserve counts unique normal orders and ignores cancelled/refunded rows", () => {
+  const rows = [
+    {
+      ord_no: "ABLY-1", opt_id: "A", mall_ord_seq: "1",
+      mall_ord_dt: "20260905120000", ord_status: "배송완료",
+      mall_ord_cnt: "1", mall_unit_price: "12000", mall_key: ABLY_SHOPLING_MALL_KEY,
+    },
+    {
+      ord_no: "ABLY-2", opt_id: "B", mall_ord_seq: "1",
+      mall_ord_dt: "20260906120000", ord_status: "배송완료",
+      mall_ord_cnt: "1", mall_unit_price: "8000", mall_key: ABLY_SHOPLING_MALL_KEY,
+    },
+    {
+      ord_no: "ABLY-CANCEL", opt_id: "C", mall_ord_seq: "1",
+      mall_ord_dt: "20260907120000", ord_status: "주문취소",
+      mall_ord_cnt: "1", mall_unit_price: "9000", mall_key: ABLY_SHOPLING_MALL_KEY,
+    },
+    {
+      ord_no: "OTHER-1", opt_id: "D", mall_ord_seq: "1",
+      mall_ord_dt: "20260908120000", ord_status: "배송완료",
+      mall_ord_cnt: "1", mall_unit_price: "10000", mall_key: "SMALL_00012",
+    },
+  ];
+  const result = calendarMonthPurchaseBudgetRevenue(rows, "2026-09");
+  assert.equal(result.grossRevenueKrw, 30_000);
+  assert.equal(result.ablyGrossRevenueKrw, 20_000);
+  assert.equal(result.ablyOrderCount, 2);
+  assert.equal(result.ablyShippingDeductionKrw, 6_000);
+  assert.equal(result.revenueKrw, 24_000);
+});
+
+test("pre-policy ABLY revenue remains unchanged", () => {
+  const rows = [{
+    ord_no: "ABLY-AUG", opt_id: "A", mall_ord_seq: "1",
+    mall_ord_dt: "20260805120000", ord_status: "배송완료",
+    mall_ord_cnt: "1", mall_unit_price: "10000", mall_key: ABLY_SHOPLING_MALL_KEY,
+  }];
+  const result = calendarMonthPurchaseBudgetRevenue(rows, "2026-08");
+  assert.equal(result.policyApplied, false);
+  assert.equal(result.ablyOrderCount, 0);
+  assert.equal(result.ablyShippingDeductionKrw, 0);
+  assert.equal(result.revenueKrw, 10_000);
+});
+
+test("ABLY shipping deduction can reduce the whole funding basis but never below zero", () => {
+  const rows = [{
+    ord_no: "ABLY-LOW", opt_id: "A", mall_ord_seq: "1",
+    mall_ord_dt: "20260905120000", ord_status: "배송완료",
+    mall_ord_cnt: "1", mall_unit_price: "2000", mall_key: ABLY_SHOPLING_MALL_KEY,
+  }];
+  const result = calendarMonthPurchaseBudgetRevenue(rows, "2026-09");
+  assert.equal(result.ablyShippingDeductionKrw, 3_000);
+  assert.equal(result.revenueKrw, 0);
 });
 
 test("purchase recommendation is monthly while grade and price cadence remains daily", () => {
