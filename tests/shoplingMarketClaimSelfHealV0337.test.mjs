@@ -87,6 +87,7 @@ test("정확히 검증된 Shopling registry 6행에서 누락 ledger 6행을 만
   assert.deepEqual(result.rows.map((row) => row.search_prefix), ["DM1", "DM2", "DM3", "DM4", "SM1", "SM2"]);
   assert.ok(result.rows.every((row) => row.status === "queued" && row.market_status === "pending" && row.title_status === "ok"));
   assert.ok(result.rows.every((row) => row.submit_armed_at === null));
+  assert.ok(result.rows.every((row) => row.reason_code === "auto_ledger_backfill_from_registry_v0337"));
 });
 
 test("이미 ledger에 있는 goods_key는 건드리지 않고 실제 누락분만 만든다", () => {
@@ -155,7 +156,7 @@ test("실제 v0337 claim route는 review 보호 뒤 stale release, registry back
   const source = fs.readFileSync("src/app/api/shopling-market-group-canary/v0337/claim/route.ts", "utf8");
   assert.match(source, /buildMissingLedgerRowsV0337/);
   assert.match(source, /shopling_product_group_registry/);
-  assert.match(source, /auto_ledger_backfill_from_registry_v0337/);
+  assert.match(source, /safe_claim_ledger_backfill_blocked/);
   assert.match(source, /isSafeStalePreSubmitClaimV0337/);
   assert.match(source, /auto_stale_pre_submit_released_v0337/);
   assert.match(source, /\.eq\("claim_run_id", oldRunId\)/);
