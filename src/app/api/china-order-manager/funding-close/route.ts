@@ -30,7 +30,10 @@ function errorResponse(error: unknown) {
     message = "선택한 발주월과 실제 원가 마감 원장의 월이 다릅니다. 새로고침 후 다시 시도하세요.";
   } else if (code === "CHINA_FUNDING_CLOSE_BUDGET_UNAVAILABLE") {
     message = "직전 달 정상매출을 불러오지 못해 전체 지출가능금액을 확정할 수 없습니다.";
-  } else if (code === "CHINA_FUNDING_CLOSE_AMOUNT_EXCEEDED" || code === "CHINA_FUNDING_CLOSE_BALANCE_EXCEEDED") {
+  } else if (
+    code === "CHINA_FUNDING_CLOSE_AMOUNT_EXCEEDED" ||
+    code === "CHINA_FUNDING_CLOSE_BALANCE_EXCEEDED"
+  ) {
     message = "입력 금액 범위를 확인하세요.";
   }
 
@@ -56,11 +59,15 @@ export async function POST(request: Request) {
     const result = await recordInternalChinaFundingClose(
       await request.json().catch(() => ({})),
     );
+    const message =
+      result.trackingMode === "SIMPLIFIED_NO_WORLDFIRST"
+        ? `월 자금 마감을 완료했습니다. WorldFirst 송금액·기말잔고·지갑별 잔액은 현재 운영에서 제외하고, 입고·실제 원가 마감 완료 상태만 기록했습니다.`
+        : `월 자금 마감을 저장했습니다. 전체 지출가능금액 ${result.totalSpendingBudgetKrw.toLocaleString("ko-KR")}원 중 WorldFirst ${result.worldFirstTransferKrw.toLocaleString("ko-KR")}원 배정, 한국계좌 ${result.koreaAccountSpentKrw.toLocaleString("ko-KR")}원 지출, 비상금 ${result.emergencyReserveTransferKrw.toLocaleString("ko-KR")}원 적립으로 마감했습니다. WorldFirst 기말잔액은 USD ${result.worldFirstEndingUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} / CNH ${result.worldFirstEndingCnh.toLocaleString("en-US", { maximumFractionDigits: 2 })}로 기록했습니다.`;
     return Response.json(
       {
         ok: true,
         result,
-        message: `월 자금 마감을 저장했습니다. 전체 지출가능금액 ${result.totalSpendingBudgetKrw.toLocaleString("ko-KR")}원 중 WorldFirst ${result.worldFirstTransferKrw.toLocaleString("ko-KR")}원 배정, 한국계좌 ${result.koreaAccountSpentKrw.toLocaleString("ko-KR")}원 지출, 비상금 ${result.emergencyReserveTransferKrw.toLocaleString("ko-KR")}원 적립으로 마감했습니다. WorldFirst 기말잔액은 USD ${result.worldFirstEndingUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} / CNH ${result.worldFirstEndingCnh.toLocaleString("en-US", { maximumFractionDigits: 2 })}로 기록했습니다.`,
+        message,
       },
       { headers: { "cache-control": "no-store" } },
     );
