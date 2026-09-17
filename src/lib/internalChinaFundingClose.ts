@@ -16,6 +16,7 @@ const RECENT_CLOSE_LIMIT = 12;
 export type InternalChinaFundingCloseInput = {
   draftId?: unknown;
   cycleMonth?: unknown;
+  simplified?: unknown;
   worldFirstTransferKrw?: unknown;
   worldFirstEndingUsd?: unknown;
   worldFirstEndingCnh?: unknown;
@@ -28,6 +29,7 @@ export type InternalChinaFundingCloseSummary = {
   budgetMonth: string;
   budgetMonthRevenueKrw: number;
   totalSpendingBudgetKrw: number;
+  trackingMode: "LEGACY_WALLET" | "SIMPLIFIED_NO_WORLDFIRST";
   worldFirstTransferKrw: number;
   worldFirstEndingUsd: number;
   worldFirstEndingCnh: number;
@@ -52,6 +54,10 @@ function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function truthy(value: unknown) {
+  return value === true || text(value).toLowerCase() === "true";
 }
 
 function integer(value: unknown) {
@@ -140,12 +146,18 @@ export function parseInternalChinaFundingClose(
   ) {
     return null;
   }
+  const rawMode = text(row.trackingMode).toUpperCase();
+  const trackingMode =
+    rawMode === "SIMPLIFIED_NO_WORLDFIRST"
+      ? "SIMPLIFIED_NO_WORLDFIRST"
+      : "LEGACY_WALLET";
   return {
     draftId,
     cycleMonth,
     budgetMonth,
     budgetMonthRevenueKrw: integer(row.budgetMonthRevenueKrw),
     totalSpendingBudgetKrw,
+    trackingMode,
     worldFirstTransferKrw: integer(row.worldFirstTransferKrw),
     worldFirstEndingUsd: validCurrencyBalance(row.worldFirstEndingUsd),
     worldFirstEndingCnh: validCurrencyBalance(row.worldFirstEndingCnh),
@@ -202,6 +214,7 @@ async function storeFundingClose(
           input_snapshot: {
             draftId: fundingClose.draftId,
             cycleMonth: fundingClose.cycleMonth,
+            trackingMode: fundingClose.trackingMode,
             worldFirstTransferKrw: fundingClose.worldFirstTransferKrw,
             worldFirstEndingUsd: fundingClose.worldFirstEndingUsd,
             worldFirstEndingCnh: fundingClose.worldFirstEndingCnh,
@@ -289,10 +302,7 @@ export async function recordInternalChinaFundingClose(
 ): Promise<InternalChinaFundingCloseSummary> {
   const draftId = validDraftId(input.draftId);
   const cycleMonth = validCycleMonth(input.cycleMonth);
-  const worldFirstTransferKrw = validTransferKrw(input.worldFirstTransferKrw);
-  const worldFirstEndingUsd = validCurrencyBalance(input.worldFirstEndingUsd);
-  const worldFirstEndingCnh = validCurrencyBalance(input.worldFirstEndingCnh);
-  const koreaAccountSpentKrw = validKoreaSpentKrw(input.koreaAccountSpentKrw);
+  const simplified = truthy(input.simplified);
 
   const snapshot = await readForwarderClose(draftId);
   if (text(snapshot.draftId) !== draftId || text(snapshot.cycleMonth) !== cycleMonth) {
@@ -302,11 +312,6 @@ export async function recordInternalChinaFundingClose(
   if (actualForwarderCostKrw <= 0) {
     throw new Error("CHINA_FUNDING_CLOSE_FORWARDER_REQUIRED");
   }
-  if (koreaAccountSpentKrw < actualForwarderCostKrw) {
-    throw new Error(
-      `CHINA_FUNDING_CLOSE_KOREA_SPEND_BELOW_FORWARDER:${actualForwarderCostKrw}`,
-    );
-  }
 
   const budgetMonth = previousCalendarMonth(cycleMonth);
   const revenue = await loadCalendarMonthNormalRevenue(budgetMonth);
@@ -315,32 +320,64 @@ export async function recordInternalChinaFundingClose(
   if (totalSpendingBudgetKrw <= 0) {
     throw new Error("CHINA_FUNDING_CLOSE_BUDGET_UNAVAILABLE");
   }
-  if (worldFirstTransferKrw > totalSpendingBudgetKrw) {
-    throw new Error("CHINA_FUNDING_CLOSE_WORLDFIRST_TRANSFER_EXCEEDED");
-  }
 
-  const koreaAccountAvailableKrw = totalSpendingBudgetKrw - worldFirstTransferKrw;
-  if (koreaAccountSpentKrw > koreaAccountAvailableKrw) {
-    throw new Error("CHINA_FUNDING_CLOSE_KOREA_SPEND_EXCEEDED");
-  }
-  const koreaAccountRemainingKrw =
-    koreaAccountAvailableKrw - koreaAccountSpentKrw;
   const now = new Date().toISOString();
-  const fundingClose: InternalChinaFundingCloseSummary = {
-    draftId,
-    cycleMonth,
-    budgetMonth,
-    budgetMonthRevenueKrw,
-    totalSpendingBudgetKrw,
-    worldFirstTransferKrw,
-    worldFirstEndingUsd,
-    worldFirstEndingCnh,
-    koreaAccountAvailableKrw,
-    koreaAccountSpentKrw,
-    koreaAccountRemainingKrw,
-    emergencyReserveTransferKrw: koreaAccountRemainingKrw,
-    closedAt: now,
-  };
+  let fundingClose: InternalChinaFundingCloseSummary;
+
+  if (simplified) {
+    fundingClose = {
+      draftId,
+      cycleMonth,
+      budgetMonth,
+      budgetMonthRevenueKrw,
+      totalSpendingBudgetKrw,
+      trackingMode: "SIMPLIFIED_NO_WORLDFIRST",
+      worldFirstTransferKrw: 0,
+      worldFirstEndingUsd: 0,
+      worldFirstEndingCnh: 0,
+      koreaAccountAvailableKrw: 0,
+      koreaAccountSpentKrw: actualForwarderCostKrw,
+      koreaAccountRemainingKrw: 0,
+      emergencyReserveTransferKrw: 0,
+      closedAt: now,
+    };
+  } else {
+    const worldFirstTransferKrw = validTransferKrw(input.worldFirstTransferKrw);
+    const worldFirstEndingUsd = validCurrencyBalance(input.worldFirstEndingUsd);
+    const worldFirstEndingCnh = validCurrencyBalance(input.worldFirstEndingCnh);
+    const koreaAccountSpentKrw = validKoreaSpentKrw(input.koreaAccountSpentKrw);
+    if (koreaAccountSpentKrw < actualForwarderCostKrw) {
+      throw new Error(
+        `CHINA_FUNDING_CLOSE_KOREA_SPEND_BELOW_FORWARDER:${actualForwarderCostKrw}`,
+      );
+    }
+    if (worldFirstTransferKrw > totalSpendingBudgetKrw) {
+      throw new Error("CHINA_FUNDING_CLOSE_WORLDFIRST_TRANSFER_EXCEEDED");
+    }
+
+    const koreaAccountAvailableKrw = totalSpendingBudgetKrw - worldFirstTransferKrw;
+    if (koreaAccountSpentKrw > koreaAccountAvailableKrw) {
+      throw new Error("CHINA_FUNDING_CLOSE_KOREA_SPEND_EXCEEDED");
+    }
+    const koreaAccountRemainingKrw =
+      koreaAccountAvailableKrw - koreaAccountSpentKrw;
+    fundingClose = {
+      draftId,
+      cycleMonth,
+      budgetMonth,
+      budgetMonthRevenueKrw,
+      totalSpendingBudgetKrw,
+      trackingMode: "LEGACY_WALLET",
+      worldFirstTransferKrw,
+      worldFirstEndingUsd,
+      worldFirstEndingCnh,
+      koreaAccountAvailableKrw,
+      koreaAccountSpentKrw,
+      koreaAccountRemainingKrw,
+      emergencyReserveTransferKrw: koreaAccountRemainingKrw,
+      closedAt: now,
+    };
+  }
 
   await storeFundingClose(fundingClose);
   return fundingClose;
