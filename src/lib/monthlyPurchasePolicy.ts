@@ -9,7 +9,6 @@ export const PURCHASE_RECOMMENDATION_CADENCE = "MONTHLY" as const;
 export const PRICE_GRADE_CADENCE = "DAILY" as const;
 export const ABLY_SHOPLING_MALL_KEY = "SMALL_00112" as const;
 export const ABLY_FREE_SHIPPING_DEDUCTION_KRW = 3_000;
-export const ABLY_BUDGET_POLICY_EFFECTIVE_MONTH = "2026-09" as const;
 export const PURCHASE_BUDGET_REVENUE_POLICY_VERSION =
   "ably-free-shipping-v1" as const;
 
@@ -89,7 +88,11 @@ export function purchaseBudgetRevenuePolicyApplies(month: string) {
   if (!/^\d{4}-\d{2}$/.test(month)) {
     throw new Error("MONTHLY_PURCHASE_MONTH_INVALID");
   }
-  return month >= ABLY_BUDGET_POLICY_EFFECTIVE_MONTH;
+  // ABLY's 3,000 KRW embedded free-shipping reserve is a channel economics
+  // rule, not a policy that started today. Apply it whenever a budget month
+  // contains ABLY orders, including the already-closed August 2026 month that
+  // funds the September cycle.
+  return true;
 }
 
 function rawMallKey(raw: ShoplingRawRow) {
@@ -108,8 +111,8 @@ function rawMallKey(raw: ShoplingRawRow) {
 /**
  * Purchase-budget revenue is normal Shopling merchandise revenue with one
  * operating correction: ABLY is sold as free shipping with the shipping charge
- * embedded in the product price. From 2026-09 onward, reserve 3,000 KRW once per
- * unique normal ABLY order before applying the existing 50% purchase budget.
+ * embedded in the product price. Reserve 3,000 KRW once per unique normal ABLY
+ * order before applying the existing 50% purchase budget.
  *
  * Revenue remains line-deduplicated exactly as before. Shipping is order-level,
  * so multiple item rows sharing one ord_no reserve shipping only once.
