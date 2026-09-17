@@ -77,8 +77,9 @@ export async function POST(request: Request) {
   if (!db) {
     return Response.json({ ok: false, error: "supabase_admin_unavailable" }, { status: 503 });
   }
+  const admin = db;
 
-  const jobResult = await db
+  const jobResult = await admin
     .from("product_launch_upload_jobs")
     .select("id,owner_id,launch_item_id,status,payload,result")
     .eq("id", jobId)
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
   const owner = text(job.owner_id);
   const launchItemId = text(job.launch_item_id);
   const modelNumber = text(payload.modelNumber || seoFinal.modelNumber);
-  const latestResult = await db
+  const latestResult = await admin
     .from("product_launch_upload_jobs")
     .select("id,payload")
     .eq("owner_id", owner)
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
   }
 
   async function readLedger() {
-    return db
+    return admin
       .from(TABLE)
       .select(LEDGER_SELECTION)
       .eq("owner_id", owner)
@@ -152,7 +153,7 @@ export async function POST(request: Request) {
 
   let ledgerBackfilledCount = 0;
   if (ledger.length !== 6) {
-    const registryResult = await db
+    const registryResult = await admin
       .from(REGISTRY_TABLE)
       .select("goods_key,launch_item_id,model_number,product_group_key,ptn_goods_cd,search_prefix,shopling_status,registered_at")
       .eq("owner_id", owner)
@@ -178,7 +179,7 @@ export async function POST(request: Request) {
     }
 
     if (repair.rows.length) {
-      const inserted = await db.from(TABLE).insert(repair.rows).select("goods_key");
+      const inserted = await admin.from(TABLE).insert(repair.rows).select("goods_key");
       if (!inserted.error) ledgerBackfilledCount = records(inserted.data).length;
       // A concurrent safe claimant may have inserted the same exact rows first.
       // Re-read instead of treating a duplicate insert as permission to widen identity.
@@ -224,7 +225,7 @@ export async function POST(request: Request) {
       const goodsKey = text(row.goods_key);
       const oldRunId = text(row.claim_run_id);
       if (!goodsKey || !oldRunId) continue;
-      const released = await db
+      const released = await admin
         .from(TABLE)
         .update({
           status: "queued",
@@ -276,7 +277,7 @@ export async function POST(request: Request) {
   let claimed: Record<string, unknown>[] = [];
   if (candidates.length) {
     const now = new Date().toISOString();
-    const result = await db
+    const result = await admin
       .from(TABLE)
       .update({
         status: "claimed",
