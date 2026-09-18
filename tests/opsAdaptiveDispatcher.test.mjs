@@ -11,6 +11,7 @@ const [
   fairnessMigration,
   stage8SalesDrainMigration,
   stage8CandidatePrewriteMigration,
+  stage8PostapplyReadinessMigration,
   registry,
   route,
   pulse,
@@ -21,6 +22,7 @@ const [
   read("supabase/migrations/20260918084500_stage8_dispatcher_maintenance_priority_guard.sql"),
   read("supabase/migrations/20260918085500_stage8_sales_event_drain_cadence.sql"),
   read("supabase/migrations/20260918094000_stage8_candidate_prewrite_evidence_worker.sql"),
+  read("supabase/migrations/20260918095500_stage8_postapply_purchase_readiness_worker.sql"),
   read("src/lib/opsAdaptiveDispatcher.ts"),
   read("src/app/api/cron/ops-dispatcher/route.ts"),
   read("src/lib/seoRunWorkerPulse.ts"),
@@ -160,4 +162,19 @@ test("current candidate prewrite evidence is an additive diagnostic dispatcher t
   assert.match(stage8CandidatePrewriteMigration, /\n  205,/);
   assert.match(stage8CandidatePrewriteMigration, /\n  300,\n  60,/);
   assert.match(registry, /"stage8-candidate-prewrite-evidence"/);
+});
+
+
+test("post-apply purchase readiness is an additive read-only diagnostic task", () => {
+  assert.match(
+    stage8PostapplyReadinessMigration,
+    /'stage8-postapply-purchase-readiness'/,
+  );
+  assert.match(
+    stage8PostapplyReadinessMigration,
+    /'\/api\/cron\/stage8-postapply-purchase-readiness'/,
+  );
+  assert.match(stage8PostapplyReadinessMigration, /'diagnostic'/);
+  assert.match(stage8PostapplyReadinessMigration, /\n  206,/);
+  assert.match(registry, /"stage8-postapply-purchase-readiness"/);
 });
