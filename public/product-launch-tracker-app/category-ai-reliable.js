@@ -75,7 +75,7 @@ async function runReliableAiCategoryAssignment(button) {
   analysisActive = true;
   activeController = new AbortController();
   setBusyUi(button, selected.length, true);
-  setRunStatus("running", `1/4 · ${selected.length}건의 기본 의미분석을 먼저 확보한 뒤 웹 검색 근거로 보강하고 있습니다.`);
+  setRunStatus("running", `1/4 · ${selected.length}건을 네이버 쇼핑에서 모델명으로 검색해 실제 카테고리를 확인하고 있습니다.`);
 
   const requestItems = selected.map(categoryRequestItem);
   const savedResultById = new Map();
@@ -112,7 +112,7 @@ async function runReliableAiCategoryAssignment(button) {
       const retryDelayMs = categoryRetryDelayMs(firstResponse.failures);
       setRunStatus(
         "running",
-        `3/4 · ${savedCount}건은 보존했습니다. 실패한 ${retryItems.length}건만 요청 속도를 낮춰 자동 재시도하고 있습니다.`,
+        `3/4 · ${savedCount}건은 보존했습니다. 네이버 검색에 실패한 ${retryItems.length}건만 자동 재시도하고 있습니다.`,
       );
       try {
         await delay(retryDelayMs);
