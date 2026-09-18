@@ -267,44 +267,54 @@ function delay(ms) {
 }
 
 async function persistCategoryResults(previousState, response) {
-  const latestState = (await readServerState().catch(() => null)) || previousState;
   const resultById = new Map(
     response.results.map((result) => [String(result.itemId), result]),
   );
   const now = new Date().toISOString();
+  const changedItems = [];
+  const nextItems = previousState.items.map((item) => {
+    const result = resultById.get(String(item?.id ?? ""));
+    if (!result) return item;
+    const nextItem = {
+      ...item,
+      shoplingCategory: item.shoplingCategory,
+      categoryAiSuggestion: result.selectedPath,
+      categoryAiConfidence: result.confidence,
+      categoryAiReason: result.reason,
+      categoryAiAlternatives: result.alternatives,
+      categoryAiCandidateChoices: Array.isArray(result.candidateChoices)
+        ? result.candidateChoices
+        : [],
+      categoryAiCandidatePaths: Array.isArray(result.candidatePaths)
+        ? result.candidatePaths
+        : [],
+      categoryAiMarketEvidence:
+        result.marketEvidence && typeof result.marketEvidence === "object"
+          ? result.marketEvidence
+          : null,
+      categoryAiStatus: "review_required",
+      categoryAiSnapshotHash:
+        response.snapshot?.hash || item.categoryAiSnapshotHash || "",
+      categoryAiUpdatedAt: now,
+      updatedAt: now,
+      updatedBy: item.updatedBy,
+    };
+    changedItems.push(nextItem);
+    return nextItem;
+  });
+
+  for (let offset = 0; offset < changedItems.length; offset += PARTIAL_SAVE_BATCH_SIZE) {
+    await saveServerPartialState(
+      changedItems.slice(offset, offset + PARTIAL_SAVE_BATCH_SIZE),
+      now,
+    );
+  }
+
   const nextState = {
-    ...latestState,
+    ...previousState,
     savedAt: now,
-    items: latestState.items.map((item) => {
-      const result = resultById.get(String(item?.id ?? ""));
-      if (!result) return item;
-      return {
-        ...item,
-        shoplingCategory: item.shoplingCategory,
-        categoryAiSuggestion: result.selectedPath,
-        categoryAiConfidence: result.confidence,
-        categoryAiReason: result.reason,
-        categoryAiAlternatives: result.alternatives,
-        categoryAiCandidateChoices: Array.isArray(result.candidateChoices)
-          ? result.candidateChoices
-          : [],
-        categoryAiCandidatePaths: Array.isArray(result.candidatePaths)
-          ? result.candidatePaths
-          : [],
-        categoryAiMarketEvidence:
-          result.marketEvidence && typeof result.marketEvidence === "object"
-            ? result.marketEvidence
-            : null,
-        categoryAiStatus: "review_required",
-        categoryAiSnapshotHash:
-          response.snapshot?.hash || item.categoryAiSnapshotHash || "",
-        categoryAiUpdatedAt: now,
-        updatedAt: now,
-        updatedBy: item.updatedBy,
-      };
-    }),
+    items: nextItems,
   };
-  await saveServerState(nextState);
   writeLocalState(nextState);
   updateReviewLinkCount(nextState);
   return nextState;
@@ -338,25 +348,12 @@ function readLocalState() {
   }
 }
 
-async function readServerState() {
-  const body = await fetchJsonWithTimeout(
-    STATE_ENDPOINT,
-    {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-      credentials: "same-origin",
-    },
-    STATE_TIMEOUT_MS,
-    "최신 진행관리 데이터를 불러오는 시간이 초과됐습니다.",
-  );
-  if (body?.ok !== true || !body.state || !Array.isArray(body.state.items)) {
-    throw new Error(body?.message || "최신 진행관리 데이터를 불러오지 못했습니다.");
-  }
-  return body.state;
-}
+async function saveServerPartialState(items, savedAt) {
+  const partialItemIds = items
+    .map((item) => String(item?.id ?? "").trim())
+    .filter(Boolean);
+  if (!partialItemIds.length) return;
 
-async function saveServerState(state) {
   const body = await fetchJsonWithTimeout(
     STATE_ENDPOINT,
     {
@@ -366,13 +363,20 @@ async function saveServerState(state) {
         "Content-Type": "application/json",
       },
       credentials: "same-origin",
-      body: JSON.stringify({ state }),
+      body: JSON.stringify({
+        state: {
+          savedAt,
+          partialPage: true,
+          partialItemIds,
+          items,
+        },
+      }),
     },
     STATE_TIMEOUT_MS,
-    "AI 결과를 서버에 저장하는 시간이 초과됐습니다.",
+    "AI 결과를 서버에 부분 저장하는 시간이 초과됐습니다.",
   );
-  if (body?.ok !== true) {
-    throw new Error(body?.message || "AI 카테고리 결과를 서버에 저장하지 못했습니다.");
+  if (body?.ok !== true || body?.partialMerged !== true) {
+    throw new Error(body?.message || "AI 카테고리 결과를 서버에 부분 저장하지 못했습니다.");
   }
 }
 
