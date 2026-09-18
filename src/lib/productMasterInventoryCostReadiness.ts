@@ -39,6 +39,16 @@ export type ProductMasterInventoryCostRow = {
   hasConfirmedReceiptCost: boolean;
   latestConfirmedReceiptAt: string | null;
   latestConfirmedReceiptCostKrw: number;
+  purchaseCostEvidenceCount: number;
+  hasVerifiedPurchaseCost: boolean;
+  purchaseCostTrustSource:
+    | "CONFIRMED_RECEIPT"
+    | "LEGACY_VERIFIED_COST_EVIDENCE"
+    | "SOURCE_ORDER_VERIFIED_COST_EVIDENCE"
+    | "UNVERIFIED";
+  verifiedPurchaseUnitCostKrw: number;
+  verifiedPurchaseCostAt: string | null;
+  purchaseProtectedCostKrw: number;
   latestCostKrw: number;
   protectedCostKrw: number;
 };
@@ -50,6 +60,9 @@ export type ProductMasterInventoryCostSummary = {
   initialZeroUnverifiedCount: number;
   confirmedReceiptCostSkuCount: number;
   missingConfirmedReceiptCostSkuCount: number;
+  verifiedPurchaseCostSkuCount?: number;
+  missingVerifiedPurchaseCostSkuCount?: number;
+  purchaseCostEvidenceRowCount?: number;
   inventoryMovementRowCount: number;
   receiptCostRowCount: number;
   salesMonthlyRowCount?: number;
