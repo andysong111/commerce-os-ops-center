@@ -131,26 +131,56 @@ function fresh(value: string | null | undefined, now: number, maxAge: number) {
   const time = value ? Date.parse(value) : NaN;
   return Number.isFinite(time) && time <= now && now - time <= maxAge;
 }
+const VERIFIED_PURCHASE_COST_SOURCES = new Set([
+  "CONFIRMED_RECEIPT",
+  "LEGACY_VERIFIED_COST_EVIDENCE",
+  "SOURCE_ORDER_VERIFIED_COST_EVIDENCE",
+]);
+
+function usesCanonicalPurchaseCostContract(row: InventoryVerificationPriorityRow) {
+  return (
+    row.hasVerifiedPurchaseCost !== undefined ||
+    row.purchaseCostTrustSource !== undefined ||
+    row.verifiedPurchaseUnitCostKrw !== undefined ||
+    row.purchaseProtectedCostKrw !== undefined ||
+    row.verifiedPurchaseCostAt !== undefined
+  );
+}
 function purchaseCostSource(row: InventoryVerificationPriorityRow) {
-  return row.purchaseCostTrustSource ??
-    (row.hasConfirmedReceiptCost ? "CONFIRMED_RECEIPT" : "UNVERIFIED");
+  if (usesCanonicalPurchaseCostContract(row)) {
+    return typeof row.purchaseCostTrustSource === "string"
+      ? row.purchaseCostTrustSource
+      : "UNVERIFIED";
+  }
+  return row.hasConfirmedReceiptCost ? "CONFIRMED_RECEIPT" : "UNVERIFIED";
 }
 function purchaseCostAt(row: InventoryVerificationPriorityRow) {
-  return row.verifiedPurchaseCostAt ?? row.latestConfirmedReceiptAt;
+  return usesCanonicalPurchaseCostContract(row)
+    ? row.verifiedPurchaseCostAt
+    : row.latestConfirmedReceiptAt;
 }
 function verifiedUnitCost(row: InventoryVerificationPriorityRow) {
-  const unit = positive(row.verifiedPurchaseUnitCostKrw)
-    ? row.verifiedPurchaseUnitCostKrw
-    : row.hasConfirmedReceiptCost && positive(row.latestConfirmedReceiptCostKrw)
-      ? row.latestConfirmedReceiptCostKrw
-      : 0;
-  const protectedCost = nonnegative(row.purchaseProtectedCostKrw)
-    ? row.purchaseProtectedCostKrw
-    : nonnegative(row.protectedCostKrw)
-      ? row.protectedCostKrw
-      : 0;
-  if (!positive(unit)) return 0;
-  return Math.max(unit, protectedCost);
+  if (usesCanonicalPurchaseCostContract(row)) {
+    if (
+      row.hasVerifiedPurchaseCost !== true ||
+      !positive(row.verifiedPurchaseUnitCostKrw) ||
+      !nonnegative(row.purchaseProtectedCostKrw)
+    ) {
+      return 0;
+    }
+    return Math.max(
+      row.verifiedPurchaseUnitCostKrw,
+      row.purchaseProtectedCostKrw,
+    );
+  }
+  if (
+    row.hasConfirmedReceiptCost !== true ||
+    !positive(row.latestConfirmedReceiptCostKrw) ||
+    !nonnegative(row.protectedCostKrw)
+  ) {
+    return 0;
+  }
+  return Math.max(row.latestConfirmedReceiptCostKrw, row.protectedCostKrw);
 }
 function verifiedLineCost(row: InventoryVerificationPriorityRow) {
   const value = verifiedUnitCost(row) * row.recommendedQty;
@@ -159,14 +189,13 @@ function verifiedLineCost(row: InventoryVerificationPriorityRow) {
 function costReady(row: InventoryVerificationPriorityRow, now: number) {
   const at = purchaseCostAt(row);
   const time = at ? Date.parse(at) : NaN;
-  const verified =
-    row.hasVerifiedPurchaseCost === true ||
-    (row.hasVerifiedPurchaseCost === undefined &&
-      row.hasConfirmedReceiptCost === true);
+  const verified = usesCanonicalPurchaseCostContract(row)
+    ? row.hasVerifiedPurchaseCost === true
+    : row.hasConfirmedReceiptCost === true;
   const source = purchaseCostSource(row);
   return (
     verified &&
-    source !== "UNVERIFIED" &&
+    VERIFIED_PURCHASE_COST_SOURCES.has(source) &&
     positive(verifiedUnitCost(row)) &&
     Number.isFinite(time) &&
     time <= now &&
