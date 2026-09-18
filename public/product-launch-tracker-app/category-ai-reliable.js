@@ -86,7 +86,7 @@ async function runReliableAiCategoryAssignment(button) {
       requestItems,
       false,
     );
-    let latestState = (await readServerState().catch(() => null)) || displayedState;
+    let latestState = displayedState;
 
     if (firstResponse.results.length) {
       setRunStatus(
@@ -369,38 +369,6 @@ function readLocalState() {
     return value && Array.isArray(value.items) ? value : null;
   } catch {
     return null;
-  }
-}
-
-async function saveServerPartialState(items, savedAt) {
-  const partialItemIds = items
-    .map((item) => String(item?.id ?? "").trim())
-    .filter(Boolean);
-  if (!partialItemIds.length) return;
-
-  const body = await fetchJsonWithTimeout(
-    STATE_ENDPOINT,
-    {
-      method: "PUT",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      credentials: "same-origin",
-      body: JSON.stringify({
-        state: {
-          savedAt,
-          partialPage: true,
-          partialItemIds,
-          items,
-        },
-      }),
-    },
-    STATE_TIMEOUT_MS,
-    "AI 결과를 서버에 부분 저장하는 시간이 초과됐습니다.",
-  );
-  if (body?.ok !== true || body?.partialMerged !== true) {
-    throw new Error(body?.message || "AI 카테고리 결과를 서버에 부분 저장하지 못했습니다.");
   }
 }
 
