@@ -7,8 +7,8 @@ import { parseOpenAiStructuredOutput } from "./openAiStructuredOutput.ts";
 import type { ProductCategoryInput } from "./shoplingCategoryScoring.ts";
 
 const SEARCH_CONCURRENCY = 4;
-const SEARCH_TIMEOUT_MS = 22_000;
-const MIN_SIMILARITY = 42;
+const SEARCH_TIMEOUT_MS = 30_000;
+const MIN_SIMILARITY = 58;
 
 type OpenAiResponse = {
   status?: unknown;
@@ -298,7 +298,7 @@ async function searchNaverShoppingCategory(
         tools: [
           {
             type: "web_search",
-            search_context_size: "low",
+            search_context_size: "medium",
           },
         ],
         tool_choice: "required",
@@ -310,12 +310,14 @@ async function searchNaverShoppingCategory(
               type: "input_text",
               text: [
                 "당신은 네이버 쇼핑 카테고리 확인 담당자다.",
-                "주어진 모델명을 그대로 네이버에서 검색하고 쇼핑 영역/네이버 쇼핑 결과에서 동일하거나 가장 동일한 상품을 찾는다.",
-                "웹 검색 쿼리는 site:naver.com, site:shopping.naver.com 또는 site:search.shopping.naver.com 제한어를 사용해 네이버 결과를 우선 확인한다.",
-                "그 상품에서 실제 확인되는 카테고리 경로만 기록한다.",
-                "네이버 쇼핑 이외의 쇼핑몰 카테고리나 일반 상식으로 카테고리를 추론하지 않는다.",
-                "색상·수량·규격 차이는 무시해도 되지만 제품 종류와 용도가 다른 상품은 근거로 쓰지 않는다.",
-                "카테고리를 확인할 수 없으면 categoryPaths를 빈 배열로 둔다.",
+                "주어진 모델명을 그대로 네이버 쇼핑에서 검색한다. 먼저 모델명 전체 문구를 사용하고, 결과가 부족할 때만 색상·수량·규격 같은 끝 속성을 제거한 검색을 추가한다.",
+                "네이버 쇼핑 검색 결과 상단의 같은 제품군을 최대 5개까지 확인한다.",
+                "각 결과에서 네이버가 실제 표시한 쇼핑 카테고리 경로만 읽는다. 제품명이나 상식으로 카테고리를 새로 추론하지 않는다.",
+                "같은 제품군에서 반복되는 카테고리 경로가 있으면 그 경로를 categoryPaths 첫 번째에 둔다.",
+                "웹 검색 쿼리는 site:shopping.naver.com, site:search.shopping.naver.com, site:naver.com 순으로 네이버 결과를 우선 확인한다.",
+                "네이버 쇼핑 이외의 쇼핑몰 카테고리는 근거로 사용하지 않는다.",
+                "색상·수량·규격 차이는 무시해도 되지만 제품 종류·용도·사용 대상이 다른 상품은 제외한다.",
+                "실제 네이버 쇼핑 카테고리를 확인할 수 없으면 억지 후보를 만들지 말고 categoryPaths를 빈 배열로 둔다.",
               ].join("\n"),
             }],
           },

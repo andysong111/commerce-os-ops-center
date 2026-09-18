@@ -1,28 +1,15 @@
 import { NextRequest } from "next/server";
-import { enhanceShoplingCategoryRecommendations } from "@/lib/shoplingCategoryAccuracyV2";
-import {
-  buildShoplingCategoryApprovalExamples,
-  computeShoplingCategoryAccuracyMetrics,
-  SHOPLING_CATEGORY_ENGINE_VERSION,
-} from "@/lib/shoplingCategoryLearning";
 import {
   generateReliableShoplingCategoryRecommendations,
   isRetryableCategoryOutputError,
-  type ReliableCategoryRecommendationResult,
 } from "@/lib/shoplingCategoryRecommendationRunner";
 import { generateNaverFirstShoplingCategoryRecommendations } from "@/lib/shoplingCategoryNaverFirst";
-import { generateShoplingFirstCategoryRecommendations } from "@/lib/shoplingCategoryShoplingFirst";
 import { parseProductCategoryInputs } from "@/lib/shoplingCategoryScoring";
-import {
-  getProductLaunchAdminConfig,
-  readProductLaunchState,
-  resolveProductLaunchIdentity,
-} from "@/lib/productLaunchTrackerServer";
+import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-
-type RecordLike = Record<string, unknown>;
+const CATEGORY_ENGINE_VERSION = "naver-direct-v1";
 
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
@@ -30,6 +17,7 @@ export async function POST(request: NextRequest) {
   if (!identity.ok) {
     return Response.json(identity.body, { status: identity.status });
   }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -39,6 +27,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+
   try {
     const inputs = parseProductCategoryInputs(body);
     const retryFailedIndividually = Boolean(
@@ -47,69 +36,36 @@ export async function POST(request: NextRequest) {
         !Array.isArray(body) &&
         (body as Record<string, unknown>).retryFailedIndividually,
     );
+
     const requestedCategoryMode = String(
-      process.env.SHOPLING_CATEGORY_MODE || "shopling_first",
+      process.env.SHOPLING_CATEGORY_MODE || "naver_first",
     )
       .trim()
       .toLocaleLowerCase("en-US");
-    const categoryMode =
-      requestedCategoryMode === "legacy" || requestedCategoryMode === "naver_first"
-        ? requestedCategoryMode
-        : "shopling_first";
+
+    // 운영 기본은 의도적으로 단순하게 고정한다.
+    // 모델명 그대로 네이버 쇼핑 검색 -> 실제 네이버 쇼핑 카테고리 확인
+    // -> 저장된 샵플링 표준 카테고리에서 가장 가까운 경로만 제시.
+    // legacy만 긴급 롤백용으로 남기고, shopling_first 같은 과거 값은 모두 naver_first로 수렴한다.
+    const categoryMode = requestedCategoryMode === "legacy" ? "legacy" : "naver_first";
     const naverModel =
       process.env.OPENAI_NAVER_CATEGORY_MODEL || "gpt-4.1-mini";
-    const shoplingFirstModel =
-      process.env.OPENAI_SHOPLING_FIRST_CATEGORY_MODEL ||
-      process.env.OPENAI_CATEGORY_MODEL ||
-      "gpt-4.1-mini";
 
-    const learningState = await readLearningState(identity.value.userId).catch(
-      () => null,
-    );
-    const approvalExamples = buildShoplingCategoryApprovalExamples(learningState);
-    const accuracyMetrics = computeShoplingCategoryAccuracyMetrics(learningState);
-    const enrichedInputs = inputs.map((input) => ({
-      ...input,
-      imageUrl: resolveTrackerImageUrl(learningState, input.itemId),
-    }));
-
-    const generatedBase =
+    const generated =
       categoryMode === "legacy"
         ? await generateReliableShoplingCategoryRecommendations(inputs, {
             timeoutMs: 60_000,
             retryFailedIndividually,
           })
-        : categoryMode === "naver_first"
-          ? await generateNaverFirstShoplingCategoryRecommendations(inputs, {
-              timeoutMs: 22_000,
-              model: naverModel,
-            })
-          : await generateShoplingFirstCategoryRecommendations(inputs, {
-              timeoutMs: 45_000,
-              validationTimeoutMs: 14_000,
-              retryFailedIndividually,
-              model: shoplingFirstModel,
-              naverModel,
-              // 네이버는 아래 정확도 파이프라인에서 후보 1·2·3 재랭킹 용도로 사용합니다.
-              validateWithNaver: false,
-            });
-
-    const generated =
-      categoryMode === "shopling_first"
-        ? await enhanceShoplingCategoryRecommendations(
-            enrichedInputs,
-            generatedBase as ReliableCategoryRecommendationResult,
-            {
-              approvalExamples,
-              model: shoplingFirstModel,
-              naverModel,
-            },
-          )
-        : generatedBase;
+        : await generateNaverFirstShoplingCategoryRecommendations(inputs, {
+            timeoutMs: 30_000,
+            model: naverModel,
+          });
 
     const generatedById = new Map(
       generated.results.map((row) => [row.itemId, row]),
     );
+
     const results = inputs.flatMap((input) => {
       const row = generatedById.get(input.itemId);
       if (!row) return [];
@@ -125,7 +81,7 @@ export async function POST(request: NextRequest) {
           reason: normalizeModelNameTerminology(row.reason),
           alternatives: candidateChoices.slice(1, 3),
           candidateChoices,
-          engineVersion: SHOPLING_CATEGORY_ENGINE_VERSION,
+          engineVersion: CATEGORY_ENGINE_VERSION,
         },
       ];
     });
@@ -140,11 +96,7 @@ export async function POST(request: NextRequest) {
         event: "shopling_category_batch_complete",
         categoryMode,
         requestedCategoryMode,
-        engineVersion: SHOPLING_CATEGORY_ENGINE_VERSION,
-        approvalLearningExamples: approvalExamples.length,
-        historicalApprovedCount: accuracyMetrics.approvedCount,
-        historicalTop1Rate: accuracyMetrics.top1Rate,
-        historicalTop3Rate: accuracyMetrics.top3Rate,
+        engineVersion: CATEGORY_ENGINE_VERSION,
         inputCount: inputs.length,
         resultCount: results.length,
         failureCount: failures.length,
@@ -159,6 +111,7 @@ export async function POST(request: NextRequest) {
         ),
       }),
     );
+
     for (const failure of failures) {
       console.warn(
         JSON.stringify({
@@ -179,9 +132,7 @@ export async function POST(request: NextRequest) {
         ok: true,
         ...generated,
         categoryMode,
-        engineVersion: SHOPLING_CATEGORY_ENGINE_VERSION,
-        accuracyMetrics,
-        approvalLearningCount: approvalExamples.length,
+        engineVersion: CATEGORY_ENGINE_VERSION,
         complete: failures.length === 0,
         results,
         failures,
@@ -202,6 +153,7 @@ export async function POST(request: NextRequest) {
       : /시간[이가을]? .*초과|AbortError|aborted/i.test(message)
         ? 504
         : 400;
+
     console.error(
       JSON.stringify({
         event: "shopling_category_batch_failed",
@@ -211,53 +163,12 @@ export async function POST(request: NextRequest) {
         message: rawMessage.slice(0, 240),
       }),
     );
+
     return Response.json(
       { ok: false, message },
       { status, headers: { "Cache-Control": "no-store" } },
     );
   }
-}
-
-async function readLearningState(userId: string) {
-  const config = getProductLaunchAdminConfig();
-  if (!config.ok) return null;
-  const row = (await readProductLaunchState(config.value, userId)) as
-    | { state_payload?: unknown }
-    | null;
-  return row?.state_payload ?? null;
-}
-
-function record(value: unknown): RecordLike | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as RecordLike)
-    : null;
-}
-
-function resolveTrackerImageUrl(state: unknown, itemId: string) {
-  const source = record(state);
-  const items = Array.isArray(source?.items) ? source!.items : [];
-  const item = items
-    .map(record)
-    .find((candidate) => String(candidate?.id ?? "").trim() === itemId);
-  if (!item) return "";
-  const asset = record(item.detailPageAsset);
-  const direct = [
-    asset?.mainImageUrl,
-    item.mainImageUrl,
-    item.imageUrl,
-    item.representativeImageUrl,
-  ]
-    .map((value) => String(value ?? "").trim())
-    .find((value) => /^https:\/\/[^\s]+$/i.test(value));
-  if (direct) return direct;
-  const additional = Array.isArray(asset?.additionalImageUrls)
-    ? asset!.additionalImageUrls
-    : [];
-  return (
-    additional
-      .map((value) => String(value ?? "").trim())
-      .find((value) => /^https:\/\/[^\s]+$/i.test(value)) || ""
-  );
 }
 
 function buildCandidateChoices(
