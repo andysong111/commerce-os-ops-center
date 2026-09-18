@@ -31,7 +31,8 @@ export const SALES_EVENT_FAILED = "PRODUCT_MASTER_SHOPLING_SALES_EVENT_FAILED";
 
 const DEFAULT_PRODUCT_MASTER_URL = "https://commerce-os-product-master.vercel.app";
 const ANALYSIS_DAYS = PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS;
-const RANGE_DAYS = 30;
+export const SALES_EVENT_SOURCE_RANGE_DAYS = 7;
+const LEGACY_SALES_EVENT_SOURCE_RANGE_DAYS = 30;
 const OPERATION_LIMIT = 500;
 const APPLY_BATCH_SIZE = 2_000;
 
@@ -62,6 +63,7 @@ export type SalesEventSyncRequest = {
   analysisAsOf: string;
   analysisStartDate: string;
   analysisEndDate: string;
+  chunkDays: number;
   planningGeneratedAt: string;
   planningContentFingerprint: string;
   ranges: ShoplingDateRange[];
@@ -255,6 +257,12 @@ function requestFromRow(row: OperationRow): SalesEventSyncRequest | null {
   const analysisAsOf = iso(value.analysisAsOf);
   const planningGeneratedAt = iso(value.planningGeneratedAt);
   const planningContentFingerprint = text(value.planningContentFingerprint);
+  const storedChunkDays = Math.round(number(value.chunkDays));
+  const chunkDays = [2, SALES_EVENT_SOURCE_RANGE_DAYS, LEGACY_SALES_EVENT_SOURCE_RANGE_DAYS].includes(
+    storedChunkDays,
+  )
+    ? storedChunkDays
+    : LEGACY_SALES_EVENT_SOURCE_RANGE_DAYS;
   const ranges = Array.isArray(value.ranges)
     ? value.ranges
         .map(object)
@@ -275,6 +283,7 @@ function requestFromRow(row: OperationRow): SalesEventSyncRequest | null {
     analysisAsOf,
     analysisStartDate: text(value.analysisStartDate),
     analysisEndDate: text(value.analysisEndDate),
+    chunkDays,
     planningGeneratedAt,
     planningContentFingerprint,
     ranges,
@@ -332,9 +341,14 @@ export function createSalesEventSyncRequestPlan(
     analysisAsOf: asOf.toISOString(),
     analysisStartDate,
     analysisEndDate,
+    chunkDays: SALES_EVENT_SOURCE_RANGE_DAYS,
     planningGeneratedAt: planning.generatedAt,
     planningContentFingerprint: planning.contentFingerprint,
-    ranges: splitShoplingDateRange(analysisStartDate, analysisEndDate, RANGE_DAYS),
+    ranges: splitShoplingDateRange(
+      analysisStartDate,
+      analysisEndDate,
+      SALES_EVENT_SOURCE_RANGE_DAYS,
+    ),
     createdAt: new Date().toISOString(),
   };
 }
