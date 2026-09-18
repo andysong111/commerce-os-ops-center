@@ -2,7 +2,7 @@ const AI_BUTTON_ID = "shopling-category-ai-button";
 const REVIEW_LINK_ID = "shopling-category-review-queue-link";
 const STATUS_ID = "shopling-category-ai-run-status";
 const STORAGE_KEY = "commerce-os-product-launch-tracker:v2";
-const STATE_ENDPOINT = "/api/product-launch-tracker/state";
+const OPTIMIZED_API_PATH = "/api/product-launch-tracker/optimized";
 const AI_ENDPOINT = "/api/product-launch-tracker/ai-category";
 const AI_TIMEOUT_MS = 285_000;
 const STATE_TIMEOUT_MS = 20_000;
@@ -271,13 +271,12 @@ async function persistCategoryResults(previousState, response) {
     response.results.map((result) => [String(result.itemId), result]),
   );
   const now = new Date().toISOString();
-  const changedItems = [];
+  const patches = [];
   const nextItems = previousState.items.map((item) => {
     const result = resultById.get(String(item?.id ?? ""));
     if (!result) return item;
-    const nextItem = {
-      ...item,
-      shoplingCategory: item.shoplingCategory,
+
+    const patch = {
       categoryAiSuggestion: result.selectedPath,
       categoryAiConfidence: result.confidence,
       categoryAiReason: result.reason,
@@ -295,19 +294,20 @@ async function persistCategoryResults(previousState, response) {
       categoryAiStatus: "review_required",
       categoryAiSnapshotHash:
         response.snapshot?.hash || item.categoryAiSnapshotHash || "",
+      categoryAiEngineVersion:
+        result.engineVersion || item.categoryAiEngineVersion || "",
       categoryAiUpdatedAt: now,
-      updatedAt: now,
-      updatedBy: item.updatedBy,
     };
-    changedItems.push(nextItem);
-    return nextItem;
+    patches.push({ itemId: String(item.id), patch });
+    return {
+      ...item,
+      ...patch,
+      updatedAt: now,
+    };
   });
 
-  for (let offset = 0; offset < changedItems.length; offset += PARTIAL_SAVE_BATCH_SIZE) {
-    await saveServerPartialState(
-      changedItems.slice(offset, offset + PARTIAL_SAVE_BATCH_SIZE),
-      now,
-    );
+  if (patches.length) {
+    await saveServerCategoryPatches(patches);
   }
 
   const nextState = {
@@ -318,6 +318,30 @@ async function persistCategoryResults(previousState, response) {
   writeLocalState(nextState);
   updateReviewLinkCount(nextState);
   return nextState;
+}
+
+async function saveServerCategoryPatches(patches) {
+  const body = await fetchJsonWithTimeout(
+    OPTIMIZED_API_PATH,
+    {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        operation: "bulk_patch_items",
+        patches,
+        updatedBy: "승준 · AI 카테고리 후보 생성",
+      }),
+    },
+    STATE_TIMEOUT_MS,
+    "AI 결과를 서버에 저장하는 시간이 초과됐습니다.",
+  );
+  if (body?.ok !== true) {
+    throw new Error(body?.message || "AI 카테고리 결과를 서버에 저장하지 못했습니다.");
+  }
 }
 
 function writeLocalState(state) {
