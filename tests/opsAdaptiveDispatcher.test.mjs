@@ -4,15 +4,23 @@ import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-const [vercelText, migration, storageMigration, registry, route, pulse] =
-  await Promise.all([
-    read("vercel.json"),
-    read("supabase/migrations/202608280009_ops_adaptive_dispatcher.sql"),
-    read("supabase/migrations/202608280011_ops_storage_maintenance.sql"),
-    read("src/lib/opsAdaptiveDispatcher.ts"),
-    read("src/app/api/cron/ops-dispatcher/route.ts"),
-    read("src/lib/seoRunWorkerPulse.ts"),
-  ]);
+const [
+  vercelText,
+  migration,
+  storageMigration,
+  fairnessMigration,
+  registry,
+  route,
+  pulse,
+] = await Promise.all([
+  read("vercel.json"),
+  read("supabase/migrations/202608280009_ops_adaptive_dispatcher.sql"),
+  read("supabase/migrations/202608280011_ops_storage_maintenance.sql"),
+  read("supabase/migrations/20260918084500_stage8_dispatcher_maintenance_priority_guard.sql"),
+  read("src/lib/opsAdaptiveDispatcher.ts"),
+  read("src/app/api/cron/ops-dispatcher/route.ts"),
+  read("src/lib/seoRunWorkerPulse.ts"),
+]);
 
 const vercel = JSON.parse(vercelText);
 
@@ -92,4 +100,24 @@ test("hot storage stays bounded without deleting business evidence", () => {
   assert.match(storageMigration, /net\._http_response/);
   assert.doesNotMatch(storageMigration, /delete from public\.commerce_operation_runs/i);
   assert.doesNotMatch(storageMigration, /delete from public\.seo_run_jobs/i);
+});
+
+
+test("maintenance work cannot starve critical or Stage 8 operational workers", () => {
+  assert.match(
+    fairnessMigration,
+    /when 'legacy-shopling-image-repair' then 850/,
+  );
+  assert.match(
+    fairnessMigration,
+    /where workload_class = 'maintenance'[\s\S]*priority < 800/,
+  );
+  assert.match(
+    fairnessMigration,
+    /check \(workload_class <> 'maintenance' or priority >= 800\)/,
+  );
+  assert.match(
+    fairnessMigration,
+    /ops_dispatch_tasks_maintenance_priority_guard/,
+  );
 });
