@@ -5,10 +5,14 @@ on:
     paths:
       - 'src/lib/purchaseCyclePreflight*.ts'
       - 'src/lib/stage8InventoryVerificationPriority.ts'
+      - 'src/lib/stage7PurchaseCostEvidenceReadiness.ts'
+      - 'src/lib/verifiedPurchaseCostEvidence.ts'
       - 'src/lib/purchaseCycleClosureCore.ts'
       - 'src/lib/opsModuleRegistry.ts'
       - 'src/app/purchase-cycle-preflight/**'
+      - 'src/app/stage7-purchase-cost-evidence/**'
       - 'tests/purchaseCyclePreflight*.test.mjs'
+      - 'tests/stage7PurchaseCostEvidence.test.mjs'
       - '.github/workflows/purchase-cycle-preflight-ci.yml'
   workflow_dispatch:
 
@@ -27,9 +31,9 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Behavioral preflight and existing order-receipt closure tests
-        run: node --experimental-strip-types --test tests/purchaseCyclePreflight.test.mjs tests/purchaseCyclePreflightClosure.test.mjs tests/purchaseCyclePreflightSpend.test.mjs
+        run: node --experimental-strip-types --test tests/purchaseCyclePreflight.test.mjs tests/purchaseCyclePreflightClosure.test.mjs tests/purchaseCyclePreflightSpend.test.mjs tests/stage7PurchaseCostEvidence.test.mjs
       - name: Lint changed runtime and tests
-        run: npx eslint src/lib/purchaseCyclePreflight*.ts src/lib/stage8InventoryVerificationPriority.ts src/lib/opsModuleRegistry.ts src/app/purchase-cycle-preflight/page.tsx tests/purchaseCyclePreflight*.test.mjs
+        run: npx eslint src/lib/purchaseCyclePreflight*.ts src/lib/stage8InventoryVerificationPriority.ts src/lib/stage7PurchaseCostEvidenceReadiness.ts src/lib/verifiedPurchaseCostEvidence.ts src/lib/opsModuleRegistry.ts src/app/purchase-cycle-preflight/page.tsx src/app/stage7-purchase-cost-evidence/page.tsx tests/purchaseCyclePreflight*.test.mjs tests/stage7PurchaseCostEvidence.test.mjs
       - name: Full application build
         run: npm run build
         env:
