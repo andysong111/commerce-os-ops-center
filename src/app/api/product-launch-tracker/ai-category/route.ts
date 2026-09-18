@@ -31,7 +31,6 @@ export async function GET() {
   const openAiRerankerConfigured = Boolean(
     String(
       process.env.SHOPLING_CATEGORY_OPENAI_API_KEY ??
-        process.env.OPENAI_API_KEY ??
         "",
     ).trim(),
   );
