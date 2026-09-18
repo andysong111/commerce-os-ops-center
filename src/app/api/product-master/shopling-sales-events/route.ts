@@ -163,10 +163,18 @@ export async function POST(request: Request) {
           action,
           planFingerprint,
         );
+        const downstreamWakeRequested =
+          action === "full" && result.ok
+            ? await wakeOpsDispatchTask(
+                "stage8-postapply-purchase-readiness",
+                0,
+              ).catch(() => false)
+            : false;
         return Response.json(
           {
             ok: result.ok,
             result,
+            downstreamWakeRequested,
             promotionGate: {
               state: promotionGate.state,
               promotionFingerprint: promotionGate.promotionFingerprint,
