@@ -176,6 +176,8 @@ async function runReliableAiCategoryAssignment(button) {
         `AI 카테고리 후보 생성이 완료됐습니다.\n${savedCount}건 모두 검토함에 저장했습니다.`,
       );
     }
+    analysisActive = false;
+    activeController = null;
     window.location.reload();
   } catch (error) {
     const rawMessage = readableError(error);
