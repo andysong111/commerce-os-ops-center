@@ -328,13 +328,16 @@ async function buildBaseDraft(
       const trackerRow = tracker?.byBarcode.get(barcode);
       const live = liveByBarcode.get(barcode);
       const trackerUsable = trackerRow && !trackerRow.conflict ? trackerRow : null;
+      const sourcePayload = object(commitment.latestPayload);
       const modelNo =
         normalizedModelNo(trackerUsable?.modelNumber, "") ||
         normalizedModelNo(profile?.modelNo, "") ||
+        normalizedModelNo(sourcePayload.modelNo, "") ||
         normalizedModelNo(live?.modelNo, barcode);
       const modelName =
         text(trackerUsable?.productName) ||
         text(profile?.productName) ||
+        text(sourcePayload.productName) ||
         text(live?.modelName) ||
         barcode;
       return {
@@ -343,14 +346,18 @@ async function buildBaseDraft(
         modelName,
         productName: modelName,
         saleOption:
-          text(trackerUsable?.saleOption) || text(profile?.optionName) || "",
-        chinaOption: text(trackerUsable?.chinaOption),
-        supplierLink: text(trackerUsable?.supplierLink),
+          text(trackerUsable?.saleOption) ||
+          text(profile?.optionName) ||
+          text(sourcePayload.saleOption),
+        chinaOption:
+          text(trackerUsable?.chinaOption) || text(sourcePayload.chinaOption),
+        supplierLink:
+          text(trackerUsable?.supplierLink) || text(sourcePayload.supplierLink),
         quantity: Math.min(
           MANUAL_QUANTITY_MAX,
           commitment.openQuantity || commitment.committedQuantity,
         ),
-        unitPriceCny: 0,
+        unitPriceCny: Math.min(1_000_000, decimal(sourcePayload.unitPriceCny)),
         freightGroupId: "",
         domesticChinaFreightCny: 0,
         orderNumber: "",
