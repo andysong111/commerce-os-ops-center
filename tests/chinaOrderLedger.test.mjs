@@ -234,11 +234,16 @@ test("latest source payload survives ledger reduction for pre-inbound sourcing m
       requestedQuantity: 120,
       occurredAt: "2026-08-05T02:00:00.000Z",
       payload: {
-        sourcingConfirmed: true,
-        sourcingIntakeId: "11111111-1111-4111-8111-111111111111",
-        modelNo: "AAA493",
-        productName: "검증 신규상품",
         unitPriceCny: 8.7,
+      },
+    }),
+    event({
+      sourceEventId: "event-payload-3",
+      status: "ORDERED",
+      orderedQuantity: 120,
+      occurredAt: "2026-08-05T03:00:00.000Z",
+      payload: {
+        orderNumber: "fixture-order",
       },
     }),
   ]);
