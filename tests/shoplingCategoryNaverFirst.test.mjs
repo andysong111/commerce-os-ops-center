@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildNaverCategoryEvidence,
+  extractNaverCategoryPathsFromHtml,
   matchNaverCategoryPathsToShopling,
   scoreNaverToShoplingCategory,
 } from "../src/lib/shoplingCategoryNaverFirst.ts";
@@ -146,4 +147,29 @@ test("네이버 쇼핑 API 결과가 없으면 카테고리를 추론하지 않�
   const evidence = buildNaverCategoryEvidence("알 수 없는 상품", []);
   assert.deepEqual(evidence.categoryPaths, []);
   assert.equal(evidence.confidence, 0);
+});
+
+
+test("네이버 쇼핑 HTML의 category1~4 JSON을 실제 카테고리 경로로 복구한다", () => {
+  const html = `
+    <script>
+      {"title":"세안 브러시","category1":"화장품/미용","category2":"클렌징","category3":"클렌징도구","category4":"세안브러시"}
+      {"title":"세안 브러시 2","category1":"화장품/미용","category2":"클렌징","category3":"클렌징도구","category4":"세안브러시"}
+    </script>
+  `;
+
+  const paths = extractNaverCategoryPathsFromHtml(html);
+  assert.deepEqual(paths, [
+    "화장품/미용 > 클렌징 > 클렌징도구 > 세안브러시",
+  ]);
+});
+
+test("네이버 쇼핑 HTML에 화살표 breadcrumb가 있으면 카테고리 경로로 복구한다", () => {
+  const html = `
+    <div>화장품/미용 &gt; 클렌징 &gt; 클렌징도구 &gt; 세안브러시</div>
+  `;
+  const paths = extractNaverCategoryPathsFromHtml(html);
+  assert.ok(
+    paths.includes("화장품/미용 > 클렌징 > 클렌징도구 > 세안브러시"),
+  );
 });
