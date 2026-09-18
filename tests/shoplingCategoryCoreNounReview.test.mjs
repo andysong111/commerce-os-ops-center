@@ -177,10 +177,13 @@ test("카테고리 API는 일반 운영에서 모델명을 네이버 쇼핑에 �
     "utf8",
   );
 
-  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-shopping-grounded-v2"/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-openai-constrained-v3"/);
   assert.match(route, /SHOPLING_CATEGORY_MODE \|\| "naver_first"/);
   assert.match(route, /requestedCategoryMode === "legacy" \? "legacy" : "naver_first"/);
   assert.match(route, /generateNaverFirstShoplingCategoryRecommendations/);
+  assert.match(route, /rerankNaverGroundedShoplingRecommendations/);
+  assert.match(route, /const generatedBase/);
+  assert.match(route, /timeoutMs: 45_000/);
   assert.match(route, /timeoutMs: 30_000/);
   assert.doesNotMatch(route, /enhanceShoplingCategoryRecommendations/);
   assert.doesNotMatch(route, /generateShoplingFirstCategoryRecommendations/);
