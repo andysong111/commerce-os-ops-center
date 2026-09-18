@@ -44,11 +44,18 @@ test("negative or review inventory still fails closed", () => {
   assert.match(page, /원장 음수·identity 충돌은 REVIEW로 차단/);
 });
 
-test("verified purchase cost remains a separate execution cost gate", () => {
-  assert.match(engine, /!row\?\.hasVerifiedPurchaseCost/);
-  assert.match(engine, /purchaseCostTrustSource/);
-  assert.match(engine, /verifiedPurchaseUnitCostKrw/);
+test("verified purchase cost requires a complete source cost date invariant", () => {
+  assert.match(engine, /verifiedPurchaseCostReady/);
+  assert.match(engine, /VERIFIED_PURCHASE_COST_SOURCES/);
+  assert.match(engine, /row\.hasVerifiedPurchaseCost !== true/);
+  assert.match(engine, /row\.verifiedPurchaseUnitCostKrw <= 0/);
+  assert.match(engine, /row\.purchaseProtectedCostKrw < row\.verifiedPurchaseUnitCostKrw/);
+  assert.match(engine, /Date\.parse\(row\.verifiedPurchaseCostAt\)/);
+  assert.match(engine, /evidenceTime > now/);
   assert.match(engine, /COST_CONFIRMATION_REQUIRED/);
+  assert.match(page, /row\.verifiedPurchaseUnitCostKrw/);
+  assert.match(page, /row\.purchaseProtectedCostKrw/);
+  assert.match(page, /row\.purchaseCostTrustSource/);
 });
 
 test("sold out reset is the normal path from provisional to verified inventory", () => {
