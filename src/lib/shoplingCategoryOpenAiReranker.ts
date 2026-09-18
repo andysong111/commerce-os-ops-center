@@ -3,8 +3,9 @@ import {
   type ProductCategoryRecommendation,
   type ShoplingCategoryEntry,
 } from "./shoplingCategoryCatalog.ts";
-import {
-  type ReliableCategoryRecommendationResult,
+import type {
+  CategoryRecommendationFailure,
+  ReliableCategoryRecommendationResult,
 } from "./shoplingCategoryRecommendationRunner.ts";
 import { parseOpenAiStructuredOutput } from "./openAiStructuredOutput.ts";
 import { scoreNaverToShoplingCategory } from "./shoplingCategoryNaverFirst.ts";
@@ -93,6 +94,19 @@ export function buildNaverGroundedShoplingCandidatePool(
     .map(({ path, score, sourcePath }) => ({ path, score, sourcePath }));
 }
 
+export function sanitizeConstrainedOrderedPaths(
+  orderedPaths: unknown[],
+  pool: readonly Candidate[],
+  limit = 3,
+) {
+  const allowed = new Set(pool.map((candidate) => candidate.path));
+  return orderedPaths
+    .map(text)
+    .filter((path) => allowed.has(path))
+    .filter((path, index, array) => array.indexOf(path) === index)
+    .slice(0, Math.max(1, Math.min(3, limit)));
+}
+
 export async function rerankNaverGroundedShoplingRecommendations(
   inputs: ProductCategoryInput[],
   generated: ReliableCategoryRecommendationResult,
@@ -166,7 +180,7 @@ export async function rerankNaverGroundedShoplingRecommendations(
 
   const decisionById = new Map(decisions.map((decision) => [decision.itemId, decision]));
   const results: ProductCategoryRecommendation[] = [];
-  const extraFailures = [];
+  const extraFailures: CategoryRecommendationFailure[] = [];
 
   for (const recommendation of generated.results) {
     const pool = pools.get(recommendation.itemId);
@@ -176,12 +190,11 @@ export async function rerankNaverGroundedShoplingRecommendations(
       continue;
     }
 
-    const allowed = new Set(pool.map((candidate) => candidate.path));
-    const orderedPaths = decision.orderedPaths
-      .map(text)
-      .filter((path) => allowed.has(path))
-      .filter((path, index, array) => array.indexOf(path) === index)
-      .slice(0, 3);
+    const orderedPaths = sanitizeConstrainedOrderedPaths(
+      decision.orderedPaths,
+      pool,
+      3,
+    );
 
     if (!orderedPaths.length) {
       const source = inputById.get(recommendation.itemId);
