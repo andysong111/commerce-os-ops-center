@@ -32,7 +32,7 @@ test("검토 패널은 후보가 없어도 상품과 재분석 버튼을 유지�
   assert.doesNotMatch(page, /ShoplingCategoryCandidateQuickApprove/);
 });
 
-test("상품출시관리 AI 카테고리 결과는 전체 state 재전송 없이 5건 단위 부분 저장한다", async () => {
+test("상품출시관리 AI 카테고리 결과는 전체 state 재전송 없이 scoped bulk patch로 저장한다", async () => {
   const runner = await readFile(
     new URL(
       "../public/product-launch-tracker-app/category-ai-reliable.js",
@@ -41,13 +41,13 @@ test("상품출시관리 AI 카테고리 결과는 전체 state 재전송 없이
     "utf8",
   );
 
-  assert.match(runner, /const PARTIAL_SAVE_BATCH_SIZE = 5/);
-  assert.match(runner, /offset \+= PARTIAL_SAVE_BATCH_SIZE/);
-  assert.match(runner, /saveServerPartialState/);
-  assert.match(runner, /partialPage: true/);
-  assert.match(runner, /partialItemIds/);
-  assert.match(runner, /changedItems\.slice\(/);
+  assert.match(runner, /OPTIMIZED_API_PATH = "\/api\/product-launch-tracker\/optimized"/);
+  assert.match(runner, /operation: "bulk_patch_items"/);
+  assert.match(runner, /saveServerCategoryPatches/);
+  assert.match(runner, /categoryAiEngineVersion/);
+  assert.match(runner, /patches\.push\(\{ itemId:/);
   assert.doesNotMatch(runner, /async function readServerState/);
+  assert.doesNotMatch(runner, /partialPage: true/);
   assert.doesNotMatch(runner, /body: JSON\.stringify\(\{ state \}\)/);
 });
 
