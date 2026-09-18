@@ -27,21 +27,23 @@ test("AI 카테고리 실행은 기존 화면 핸들러보다 먼저 가로채�
     /document\.addEventListener\("click", interceptAiClick, true\)/,
   );
   assert.match(runner, /stopImmediatePropagation/);
-  assert.match(runner, /readServerState/);
-  assert.match(runner, /saveServerState\(nextState\)/);
+  assert.doesNotMatch(runner, /readServerState/);
+  assert.match(runner, /OPTIMIZED_API_PATH/);
+  assert.match(runner, /operation: "bulk_patch_items"/);
+  assert.match(runner, /saveServerCategoryPatches/);
   assert.match(runner, /categoryAiStatus: "review_required"/);
   assert.match(runner, /categoryAiMarketEvidence/);
   assert.match(runner, /기본 의미분석을 먼저 확보한 뒤 웹 검색 근거/);
   assert.match(runner, /요청 속도를 낮춰 자동 재시도/);
   assert.match(runner, /categoryRetryDelayMs/);
   assert.match(runner, /실패 상세/);
-  assert.match(runner, /shoplingCategory: item\.shoplingCategory/);
+  assert.match(runner, /const nextItems = previousState\.items\.map/);
   assert.match(runner, /persistCategoryResults/);
   assert.match(runner, /retryFailedIndividually/);
   assert.match(runner, /성공한 결과는 사라지지 않았습니다/);
   assert.match(runner, /updateReviewLinkCount\(nextState\)/);
   assert.match(runner, /AI_TIMEOUT_MS = 285_000/);
-  assert.match(runner, /STATE_TIMEOUT_MS = 20_000/);
+  assert.match(runner, /STATE_TIMEOUT_MS = 60_000/);
   assert.match(runner, /guardReviewNavigation/);
   assert.doesNotMatch(runner, /고신뢰도 빈 카테고리는 자동입력하고, 나머지는 추천 이력으로 저장할까요/);
 });

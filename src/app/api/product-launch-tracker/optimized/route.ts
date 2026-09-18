@@ -33,8 +33,11 @@ import {
 } from "@/lib/productLaunchTrackerNormalizedStore";
 
 const TABLE_NAME = "product_launch_tracker_states";
+export const maxDuration = 90;
+
 const HUMAN_READ_TIMEOUT_MS = 4_000;
-const HUMAN_WRITE_TIMEOUT_MS = 5_000;
+const MUTATION_READ_TIMEOUT_MS = 15_000;
+const MUTATION_WRITE_TIMEOUT_MS = 20_000;
 const mutationQueues = new Map<string, Promise<unknown>>();
 
 type StoredRow = {
@@ -247,9 +250,22 @@ export async function PATCH(request: NextRequest) {
     return Response.json({ ok: true, ...result });
   } catch (error) {
     const message =
-      error instanceof Error
-        ? error.message
-        : "진행관리 데이터를 저장하지 못했습니다.";
+      error instanceof DOMException && error.name === "AbortError"
+        ? "진행관리 저장소 응답 제한시간을 초과했습니다. 잠시 후 다시 시도하세요."
+        : error instanceof Error
+          ? error.message
+          : "진행관리 데이터를 저장하지 못했습니다.";
+    console.error(
+      JSON.stringify({
+        event: "product_launch_tracker_mutation_failed",
+        operation: isRecord(input) ? String(input.operation ?? "").trim() : "",
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        message:
+          error instanceof Error
+            ? error.message.slice(0, 240)
+            : String(error ?? "").slice(0, 240),
+      }),
+    );
     const status = message.includes("찾지 못")
       ? 404
       : message.includes("동시에")
@@ -501,7 +517,11 @@ async function readLegacyListSnapshotFast(config: Config, ownerId: string) {
   return Array.isArray(body) ? (body[0] as ListStoredRow | undefined) ?? null : null;
 }
 
-async function readLegacyStateFast(config: Config, ownerId: string) {
+async function readLegacyStateFast(
+  config: Config,
+  ownerId: string,
+  timeoutMs = HUMAN_READ_TIMEOUT_MS,
+) {
   const params = new URLSearchParams({
     select: "state_payload,updated_at,schema_version,owner_email",
     owner_id: `eq.${ownerId}`,
@@ -513,7 +533,7 @@ async function readLegacyStateFast(config: Config, ownerId: string) {
       headers: createSupabaseAdminHeaders(config.secretKey),
       cache: "no-store",
     },
-    { attempts: 1, timeoutMs: HUMAN_READ_TIMEOUT_MS, retryDelaysMs: [] },
+    { attempts: 1, timeoutMs, retryDelaysMs: [] },
   );
   return Array.isArray(body) ? (body[0] as StoredRow | undefined) ?? null : null;
 }
@@ -524,7 +544,11 @@ async function mutateStateWithRetry(
   input: unknown,
 ) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const row = await readLegacyStateFast(config, identity.userId);
+    const row = await readLegacyStateFast(
+      config,
+      identity.userId,
+      MUTATION_READ_TIMEOUT_MS,
+    );
     if (!row || !isRecord(row.state_payload)) {
       throw new Error("저장된 진행관리 상태를 찾지 못했습니다.");
     }
@@ -609,11 +633,12 @@ async function conditionalWriteState(
   const now = new Date().toISOString();
   const schemaVersion = Math.max(3, Math.floor(Number(state.schemaVersion) || 3));
   const params = new URLSearchParams({
+    select: "updated_at,schema_version",
     owner_id: `eq.${identity.userId}`,
     updated_at: `eq.${previousUpdatedAt}`,
   });
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), HUMAN_WRITE_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), MUTATION_WRITE_TIMEOUT_MS);
   try {
     const response = await fetch(
       `${config.supabaseUrl}/rest/v1/${TABLE_NAME}?${params.toString()}`,

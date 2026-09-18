@@ -32,6 +32,30 @@ test("검토 패널은 후보가 없어도 상품과 재분석 버튼을 유지�
   assert.doesNotMatch(page, /ShoplingCategoryCandidateQuickApprove/);
 });
 
+test("optimized tracker mutation은 대용량 state 저장 시 별도 긴 제한시간과 축소 응답을 사용한다", async () => {
+  const route = await readFile(
+    new URL(
+      "../src/app/api/product-launch-tracker/optimized/route.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const runner = await readFile(
+    new URL(
+      "../public/product-launch-tracker-app/category-ai-reliable.js",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(route, /const MUTATION_READ_TIMEOUT_MS = 15_000/);
+  assert.match(route, /const MUTATION_WRITE_TIMEOUT_MS = 20_000/);
+  assert.match(route, /select: "updated_at,schema_version"/);
+  assert.match(route, /MUTATION_READ_TIMEOUT_MS/);
+  assert.match(route, /product_launch_tracker_mutation_failed/);
+  assert.match(runner, /const STATE_TIMEOUT_MS = 60_000/);
+});
+
 test("상품출시관리 AI 카테고리 결과는 전체 state 재전송 없이 scoped bulk patch로 저장한다", async () => {
   const runner = await readFile(
     new URL(
