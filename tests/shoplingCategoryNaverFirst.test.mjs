@@ -44,3 +44,17 @@ test("상위 분류만 같고 실제 상품 카테고리가 다르면 억지 매
 
   assert.deepEqual(matches, []);
 });
+
+
+test("네이버 카테고리와 leaf가 약하게만 겹치는 후보는 제시하지 않는다", () => {
+  const matches = matchNaverCategoryPathsToShopling(
+    ["생활/건강 > 욕실용품 > 세안브러시"],
+    [
+      { path: "스포츠/레저 > 자동차용품 > 세차용품 > 세차브러시" },
+      { path: "화장품/미용 > 클렌징용품 > 세안브러시" },
+    ],
+  );
+
+  assert.equal(matches[0]?.path, "화장품/미용 > 클렌징용품 > 세안브러시");
+  assert.ok(matches.every((entry) => !entry.path.includes("세차브러시")));
+});
