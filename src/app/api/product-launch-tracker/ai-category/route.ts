@@ -11,6 +11,33 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 const CATEGORY_ENGINE_VERSION = "naver-official-search-v1";
 
+
+export async function GET() {
+  const hasClientId = Boolean(
+    String(
+      process.env.NAVER_CLIENT_ID ??
+        process.env.NAVER_SEARCH_CLIENT_ID ??
+        "",
+    ).trim(),
+  );
+  const hasClientSecret = Boolean(
+    String(
+      process.env.NAVER_CLIENT_SECRET ??
+        process.env.NAVER_SEARCH_CLIENT_SECRET ??
+        "",
+    ).trim(),
+  );
+  return Response.json(
+    {
+      ok: true,
+      engineVersion: CATEGORY_ENGINE_VERSION,
+      provider: "naver_shopping_search_api",
+      configured: hasClientId && hasClientSecret,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   const identity = await resolveProductLaunchIdentity(request);
