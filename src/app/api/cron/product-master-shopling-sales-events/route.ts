@@ -6,7 +6,7 @@ import {
 } from "@/lib/productMasterShoplingSalesEventSync";
 import {
   SALES_EVENT_DEFAULT_CHUNK_DAYS,
-  SALES_EVENT_FALLBACK_CHUNK_DAYS,
+  SALES_EVENT_LEGACY_CHUNK_DAYS,
   SALES_EVENT_MINIMUM_CHUNK_DAYS,
   hydrateProductMasterShoplingSalesEventRecovery,
   recoverProductMasterShoplingSalesEventRequest,
@@ -53,8 +53,8 @@ function recoveryMessage(result: {
   if (result.reason === "RETRY_SAME_TIER") {
     return `${result.chunkDays}일 Shopling 조회를 같은 분석시점으로 안전 재시도합니다. 이 구간 크기의 ${Number(result.attemptsInPreviousTier ?? 0) + 1}번째 요청입니다.${reuseNote}`;
   }
-  if (result.chunkDays === SALES_EVENT_FALLBACK_CHUNK_DAYS) {
-    return `30일 Shopling 주문 조회가 반복 실패해 같은 분석시점을 유지한 채 7일 단위로 안전 재접수했습니다.${reuseNote}`;
+  if (result.chunkDays === SALES_EVENT_DEFAULT_CHUNK_DAYS) {
+    return `${SALES_EVENT_LEGACY_CHUNK_DAYS}일 Shopling 주문 조회가 실패해 같은 분석시점을 유지한 채 ${SALES_EVENT_DEFAULT_CHUNK_DAYS}일 단위로 안전 재접수했습니다.${reuseNote}`;
   }
   if (result.chunkDays === SALES_EVENT_MINIMUM_CHUNK_DAYS) {
     return `7일 Shopling 주문 조회도 반복 실패해 같은 분석시점을 유지한 채 2일 단위로 최종 안전 재접수했습니다.${reuseNote}`;
