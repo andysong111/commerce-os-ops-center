@@ -32,6 +32,25 @@ test("검토 패널은 후보가 없어도 상품과 재분석 버튼을 유지�
   assert.doesNotMatch(page, /ShoplingCategoryCandidateQuickApprove/);
 });
 
+test("상품출시관리 AI 카테고리 결과는 전체 state 재전송 없이 5건 단위 부분 저장한다", async () => {
+  const runner = await readFile(
+    new URL(
+      "../public/product-launch-tracker-app/category-ai-reliable.js",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(runner, /const PARTIAL_SAVE_BATCH_SIZE = 5/);
+  assert.match(runner, /offset \+= PARTIAL_SAVE_BATCH_SIZE/);
+  assert.match(runner, /saveServerPartialState/);
+  assert.match(runner, /partialPage: true/);
+  assert.match(runner, /partialItemIds/);
+  assert.match(runner, /changedItems\.slice\(/);
+  assert.doesNotMatch(runner, /async function readServerState/);
+  assert.doesNotMatch(runner, /body: JSON\.stringify\(\{ state \}\)/);
+});
+
 test("검토함은 재생성 상품 선택과 승인 후보 선택을 분리해 일괄 처리한다", async () => {
   const component = await readFile(
     new URL(
