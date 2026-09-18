@@ -191,7 +191,7 @@ export async function GET(request: Request) {
       return Response.json({
         ok: result.state !== "FAILED",
         processed: result.processed,
-        busy: result.state === "QUEUED" || result.state === "RUNNING",
+        busy: result.state === "RUNNING",
         writesEnabled: false,
         approvalEnabled: false,
         state: result.state,
@@ -272,7 +272,7 @@ export async function GET(request: Request) {
       return Response.json({
         ok: result.state !== "FAILED",
         processed: result.processed,
-        busy: result.state === "QUEUED" || result.state === "RUNNING",
+        busy: result.state === "RUNNING",
         writesEnabled: false,
         approvalEnabled: false,
         state: result.state,
