@@ -58,3 +58,40 @@ test("네이버 카테고리와 leaf가 약하게만 겹치는 후보는 제시�
   assert.equal(matches[0]?.path, "화장품/미용 > 클렌징용품 > 세안브러시");
   assert.ok(matches.every((entry) => !entry.path.includes("세차브러시")));
 });
+
+
+test("여러 네이버 카테고리가 나오면 네이버 순서대로 각각 가장 가까운 샵플링 경로를 후보로 만든다", () => {
+  const matches = matchNaverCategoryPathsToShopling(
+    [
+      "생활/건강 > 욕실용품 > 샤워용품",
+      "자동차용품 > 세차용품 > 세차브러시",
+    ],
+    [
+      { path: "생활/건강 > 욕실용품 > 샤워기" },
+      { path: "자동차용품 > 세차용품 > 세차브러시" },
+      { path: "생활/건강 > 욕실용품 > 변기솔" },
+    ],
+  );
+
+  assert.equal(matches[0]?.sourcePath, "생활/건강 > 욕실용품 > 샤워용품");
+  assert.equal(matches[0]?.path, "생활/건강 > 욕실용품 > 샤워기");
+  assert.equal(matches[1]?.sourcePath, "자동차용품 > 세차용품 > 세차브러시");
+  assert.equal(matches[1]?.path, "자동차용품 > 세차용품 > 세차브러시");
+});
+
+test("네이버 대표 카테고리가 하나면 후보 2·3도 그 카테고리와 가까운 샵플링 경로로만 채운다", () => {
+  const source = "화장품/미용 > 클렌징 > 세안브러시";
+  const matches = matchNaverCategoryPathsToShopling(
+    [source],
+    [
+      { path: "화장품/미용 > 클렌징용품 > 세안브러시" },
+      { path: "화장품/미용 > 클렌징용품 > 클렌징도구" },
+      { path: "자동차용품 > 세차용품 > 세차브러시" },
+    ],
+  );
+
+  assert.equal(matches[0]?.sourcePath, source);
+  assert.equal(matches[0]?.path, "화장품/미용 > 클렌징용품 > 세안브러시");
+  assert.ok(matches.every((entry) => entry.sourcePath === source));
+  assert.ok(matches.every((entry) => !entry.path.includes("세차브러시")));
+});
