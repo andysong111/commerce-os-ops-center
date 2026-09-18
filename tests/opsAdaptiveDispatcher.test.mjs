@@ -9,6 +9,7 @@ const [
   migration,
   storageMigration,
   fairnessMigration,
+  stage8SalesDrainMigration,
   registry,
   route,
   pulse,
@@ -17,6 +18,7 @@ const [
   read("supabase/migrations/202608280009_ops_adaptive_dispatcher.sql"),
   read("supabase/migrations/202608280011_ops_storage_maintenance.sql"),
   read("supabase/migrations/20260918084500_stage8_dispatcher_maintenance_priority_guard.sql"),
+  read("supabase/migrations/20260918085500_stage8_sales_event_drain_cadence.sql"),
   read("src/lib/opsAdaptiveDispatcher.ts"),
   read("src/app/api/cron/ops-dispatcher/route.ts"),
   read("src/lib/seoRunWorkerPulse.ts"),
@@ -119,5 +121,25 @@ test("maintenance work cannot starve critical or Stage 8 operational workers", (
   assert.match(
     fairnessMigration,
     /ops_dispatch_tasks_maintenance_priority_guard/,
+  );
+});
+
+
+test("Stage 8 canonical sales collection drains bounded seven-day ranges once per dispatcher minute", () => {
+  assert.match(
+    stage8SalesDrainMigration,
+    /task_key = 'product-master-shopling-sales-events'/,
+  );
+  assert.match(
+    stage8SalesDrainMigration,
+    /busy_interval_seconds = 60/,
+  );
+  assert.match(
+    stage8SalesDrainMigration,
+    /next_run_at = least\(next_run_at, now\(\)\)/,
+  );
+  assert.match(
+    stage8SalesDrainMigration,
+    /STAGE8_SALES_EVENT_DISPATCH_TASK_MISMATCH/,
   );
 });
