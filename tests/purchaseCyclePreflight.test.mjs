@@ -233,6 +233,44 @@ test("protected cost greater than receipt cost stays conservative", () => {
   const report = buildPurchaseCyclePreflight(input);
   assert.equal(report.estimatedSpendKrw, 30000); assert.equal(report.estimatedAllInSpendKrw, 43500);
 });
+test("canonical purchase-only evidence can satisfy Stage 7 without pretending to be a receipt", () => {
+  const input = fixture();
+  Object.assign(input.priority.rows[0], {
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptAt: null,
+    latestConfirmedReceiptCostKrw: 0,
+    hasVerifiedPurchaseCost: true,
+    purchaseCostTrustSource: "LEGACY_VERIFIED_COST_EVIDENCE",
+    verifiedPurchaseUnitCostKrw: 5200,
+    purchaseProtectedCostKrw: 5400,
+    verifiedPurchaseCostAt: "2026-09-01T00:00:00.000Z",
+  });
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true);
+  assert.equal(report.estimatedSpendKrw, 27000);
+  assert.equal(report.selected[0].verifiedUnitCostKrw, 5400);
+  assert.equal(report.selected[0].costEvidenceSource, "LEGACY_VERIFIED_COST_EVIDENCE");
+});
+for (const patch of [
+  { verifiedPurchaseUnitCostKrw: 0 },
+  { verifiedPurchaseUnitCostKrw: Number.MAX_SAFE_INTEGER },
+  { purchaseProtectedCostKrw: Infinity },
+  { purchaseProtectedCostKrw: -1 },
+  { verifiedPurchaseCostAt: "invalid" },
+  { purchaseCostTrustSource: "MANUAL_FORM_VALUE" },
+]) {
+  test(`malformed canonical purchase-cost contract fails closed: ${Object.keys(patch)[0]}`, () => {
+    const input = fixture();
+    Object.assign(input.priority.rows[0], {
+      hasVerifiedPurchaseCost: true,
+      purchaseCostTrustSource: "LEGACY_VERIFIED_COST_EVIDENCE",
+      verifiedPurchaseUnitCostKrw: 5000,
+      purchaseProtectedCostKrw: 5000,
+      verifiedPurchaseCostAt: "2026-09-01T00:00:00.000Z",
+    }, patch);
+    blocked(buildPurchaseCyclePreflight(input), "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+  });
+});
 for (const patch of [{ latestConfirmedReceiptCostKrw: Number.MAX_SAFE_INTEGER }, { protectedCostKrw: Infinity }, { protectedCostKrw: -1 }]) {
   test(`unsafe confirmed-cost arithmetic fails closed: ${Object.keys(patch)[0]}:${String(Object.values(patch)[0])}`, () => {
     const input = fixture(); Object.assign(input.priority.rows[0], patch);
