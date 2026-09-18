@@ -47,7 +47,14 @@ export type PurchasePreflightLine = {
   name: string;
   quantity: number;
   estimatedCostKrw: number;
+  verifiedUnitCostKrw: number;
+  /**
+   * Backward-compatible alias for the effective verified unit cost.
+   * New consumers should use verifiedUnitCostKrw + costEvidenceSource because
+   * Stage 7 may use purchase-only evidence that is not a confirmed receipt.
+   */
   confirmedUnitCostKrw: number;
+  costEvidenceSource: string;
   inventoryQuantity: number;
   openCommitment: number;
   costEvidenceAt: string | null;
@@ -124,18 +131,47 @@ function fresh(value: string | null | undefined, now: number, maxAge: number) {
   const time = value ? Date.parse(value) : NaN;
   return Number.isFinite(time) && time <= now && now - time <= maxAge;
 }
-function confirmedUnitCost(row: InventoryVerificationPriorityRow) {
-  if (!positive(row.latestConfirmedReceiptCostKrw) || !nonnegative(row.protectedCostKrw)) return 0;
-  return Math.max(row.latestConfirmedReceiptCostKrw, row.protectedCostKrw);
+function purchaseCostSource(row: InventoryVerificationPriorityRow) {
+  return row.purchaseCostTrustSource ??
+    (row.hasConfirmedReceiptCost ? "CONFIRMED_RECEIPT" : "UNVERIFIED");
 }
-function confirmedLineCost(row: InventoryVerificationPriorityRow) {
-  const value = confirmedUnitCost(row) * row.recommendedQty;
+function purchaseCostAt(row: InventoryVerificationPriorityRow) {
+  return row.verifiedPurchaseCostAt ?? row.latestConfirmedReceiptAt;
+}
+function verifiedUnitCost(row: InventoryVerificationPriorityRow) {
+  const unit = positive(row.verifiedPurchaseUnitCostKrw)
+    ? row.verifiedPurchaseUnitCostKrw
+    : row.hasConfirmedReceiptCost && positive(row.latestConfirmedReceiptCostKrw)
+      ? row.latestConfirmedReceiptCostKrw
+      : 0;
+  const protectedCost = nonnegative(row.purchaseProtectedCostKrw)
+    ? row.purchaseProtectedCostKrw
+    : nonnegative(row.protectedCostKrw)
+      ? row.protectedCostKrw
+      : 0;
+  if (!positive(unit)) return 0;
+  return Math.max(unit, protectedCost);
+}
+function verifiedLineCost(row: InventoryVerificationPriorityRow) {
+  const value = verifiedUnitCost(row) * row.recommendedQty;
   return positive(value) ? value : 0;
 }
 function costReady(row: InventoryVerificationPriorityRow, now: number) {
-  const time = row.latestConfirmedReceiptAt ? Date.parse(row.latestConfirmedReceiptAt) : NaN;
-  return row.hasConfirmedReceiptCost === true && positive(row.latestConfirmedReceiptCostKrw) &&
-    Number.isFinite(time) && time <= now && positive(confirmedLineCost(row));
+  const at = purchaseCostAt(row);
+  const time = at ? Date.parse(at) : NaN;
+  const verified =
+    row.hasVerifiedPurchaseCost === true ||
+    (row.hasVerifiedPurchaseCost === undefined &&
+      row.hasConfirmedReceiptCost === true);
+  const source = purchaseCostSource(row);
+  return (
+    verified &&
+    source !== "UNVERIFIED" &&
+    positive(verifiedUnitCost(row)) &&
+    Number.isFinite(time) &&
+    time <= now &&
+    positive(verifiedLineCost(row))
+  );
 }
 function inventoryReady(row: InventoryVerificationPriorityRow) {
   return row.inventoryMode === "VERIFIED" && row.inventoryVerified === true &&
@@ -144,10 +180,18 @@ function inventoryReady(row: InventoryVerificationPriorityRow) {
     row.advisoryOnly === false && nonnegative(row.inventoryQuantity) && nonnegative(row.openCommitment);
 }
 function projectedLine(row: InventoryVerificationPriorityRow): PurchasePreflightLine {
+  const unitCost = verifiedUnitCost(row);
   return {
-    barcode: row.barcode, name: row.name, quantity: row.recommendedQty,
-    estimatedCostKrw: confirmedLineCost(row), confirmedUnitCostKrw: confirmedUnitCost(row), inventoryQuantity: row.inventoryQuantity,
-    openCommitment: row.openCommitment, costEvidenceAt: row.latestConfirmedReceiptAt,
+    barcode: row.barcode,
+    name: row.name,
+    quantity: row.recommendedQty,
+    estimatedCostKrw: verifiedLineCost(row),
+    verifiedUnitCostKrw: unitCost,
+    confirmedUnitCostKrw: unitCost,
+    costEvidenceSource: purchaseCostSource(row),
+    inventoryQuantity: row.inventoryQuantity,
+    openCommitment: row.openCommitment,
+    costEvidenceAt: purchaseCostAt(row),
   };
 }
 
@@ -251,7 +295,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     if (row.action !== "NONE" || row.operationallyReady !== true) reasons.push("ROW_EXECUTION_BLOCKED");
     if (reasons.length) excluded.push({ barcode: row.barcode, reasons }); else eligible.push(row);
   }
-  eligible.sort((a, b) => b.priorityScore - a.priorityScore || confirmedLineCost(a) - confirmedLineCost(b) || a.barcode.localeCompare(b.barcode));
+  eligible.sort((a, b) => b.priorityScore - a.priorityScore || verifiedLineCost(a) - verifiedLineCost(b) || a.barcode.localeCompare(b.barcode));
   const selected: PurchasePreflightLine[] = [];
   let estimatedSpendKrw = 0;
   // Never scale or round the engine's MOQ/carton-aware quantity to squeeze it
@@ -259,10 +303,10 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (blockers.length === 0) {
     for (const row of eligible) {
       if (selected.length >= maxSkus) { excluded.push({ barcode: row.barcode, reasons: ["CANARY_SKU_LIMIT"] }); continue; }
-      if (confirmedLineCost(row) > effectiveBudgetKrw - estimatedSpendKrw) {
+      if (verifiedLineCost(row) > effectiveBudgetKrw - estimatedSpendKrw) {
         excluded.push({ barcode: row.barcode, reasons: ["CASH_BUDGET_LIMIT"] }); continue;
       }
-      selected.push(projectedLine(row)); estimatedSpendKrw += confirmedLineCost(row);
+      selected.push(projectedLine(row)); estimatedSpendKrw += verifiedLineCost(row);
     }
     if (selected.length === 0) blockers.push("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
   }
@@ -286,7 +330,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const stages = [
     stage(5, "공식 판매원장 게이트", salesVerified ? "VERIFIED" : "BLOCKED", fullReadback ? "동일 후보의 검증된 공식 반영 이력이 있습니다. 새 쓰기 권한은 발급하지 않습니다." : gate?.message ?? "후보 승인 검증을 기다립니다.", "/stage8-candidate-promotion-gate"),
     stage(6, "Product Master 반영·재조회", fullReadback && stable ? "VERIFIED" : "WAITING", rec?.message ?? "1건 카나리·전수 반영 후 재조회 검증이 필요합니다.", "/stage8-postapply-canonical-reconciliation"),
-    stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costReady(row, now)).length) : "BLOCKED", `확정원가 ${candidates.filter(row => costReady(row, now)).length}/${candidates.length}개. 캐시·추정값을 확정원가로 승격하지 않습니다.`, "/stage8-receipt-cost-recovery-readiness"),
+    stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costReady(row, now)).length) : "BLOCKED", `검증원가 ${candidates.filter(row => costReady(row, now)).length}/${candidates.length}개. 확정입고 또는 A등급 구매전용 근거만 허용하며 캐시·추정값은 승격하지 않습니다.`, "/stage8-legacy-verified-cost-readiness"),
     stage(8, "발주 후보 재고 근거", inventoryFresh ? coverage(candidates.filter(inventoryReady).length) : "BLOCKED", `확인재고 ${candidates.filter(inventoryReady).length}/${candidates.length}개. 미확인·초기 0 재고는 제외하며 전수 실사를 요구하지 않습니다.`, "/stage8-inventory-verification-priority"),
     stage(9, "발주 Shadow·원본 일치", shadowReady && contextMatch && stable && fullReadback && sourceFresh && inventoryFresh ? "VERIFIED" : "BLOCKED", "판매·재고·미입고가 연결된 읽기 전용 계산입니다. 보조신호 등 남은 조건은 승인 검토 차단 사유로 별도 표시합니다.", "/stage8-canonical-purchase-shadow"),
     stage(10, "예산 내 소량 발주안", previewReady ? "VERIFIED" : "WAITING", previewReady ? "금액·품목·수량이 고정된 미리보기입니다. 승인·예약·주문은 생성되지 않았습니다." : "목표 월의 최신 데이터와 현금 상한을 확인한 뒤 계산합니다.", "/purchase-cycle-preflight"),
