@@ -33,8 +33,8 @@ test("AI 카테고리 실행은 기존 화면 핸들러보다 먼저 가로채�
   assert.match(runner, /saveServerCategoryPatches/);
   assert.match(runner, /categoryAiStatus: "review_required"/);
   assert.match(runner, /categoryAiMarketEvidence/);
-  assert.match(runner, /기본 의미분석을 먼저 확보한 뒤 웹 검색 근거/);
-  assert.match(runner, /요청 속도를 낮춰 자동 재시도/);
+  assert.match(runner, /네이버 쇼핑에서 모델명으로 검색해 실제 카테고리/);
+  assert.match(runner, /네이버 검색에 실패한 .* 자동 재시도/);
   assert.match(runner, /categoryRetryDelayMs/);
   assert.match(runner, /실패 상세/);
   assert.match(runner, /const nextItems = previousState\.items\.map/);
@@ -57,8 +57,9 @@ test("AI 카테고리 API는 서버 실행시간과 OpenAI 제한시간을 명�
     "utf8",
   );
   assert.match(route, /export const maxDuration = 300/);
-  assert.match(route, /timeoutMs: 60_000/);
+  assert.match(route, /timeoutMs: 30_000/);
   assert.match(route, /retryFailedIndividually/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-direct-v1"/);
   assert.match(route, /complete: failures\.length === 0/);
   assert.match(route, /autoApply: false/);
   assert.match(route, /완료된 상품은 보존하고 실패한 상품만 다시 실행/);
