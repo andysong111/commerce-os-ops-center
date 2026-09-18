@@ -134,8 +134,16 @@ function InventoryTable({ rows }: { rows: Row[] }) {
               <td className="px-3 py-2">{number.format(row.openCommitment)}</td>
               <td className="px-3 py-2">{row.inventoryBaselineKind ?? "없음"}</td>
               <td className="px-3 py-2">{number.format(row.movementCount)} / INBOUND {number.format(row.inboundMovementCount)}</td>
-              <td className="px-3 py-2">{row.hasConfirmedReceiptCost ? `${number.format(row.latestConfirmedReceiptCostKrw)}원` : "없음"}</td>
-              <td className="px-3 py-2">{number.format(row.protectedCostKrw)}원</td>
+              <td className="px-3 py-2">
+                {row.hasVerifiedPurchaseCost ? (
+                  <>
+                    {number.format(row.verifiedPurchaseUnitCostKrw)}원
+                    <br />
+                    <span className="text-slate-400">{row.purchaseCostTrustSource}</span>
+                  </>
+                ) : "없음"}
+              </td>
+              <td className="px-3 py-2">{number.format(row.purchaseProtectedCostKrw)}원</td>
             </tr>
           ))}
           {!rows.length ? (
