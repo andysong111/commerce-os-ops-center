@@ -287,7 +287,7 @@ export async function rerankNaverGroundedShoplingRecommendations(
 function withRerankFallbackReason(
   generated: RerankableCategoryBatch,
   message: string,
-): ReliableCategoryRecommendationResult {
+): RerankableCategoryBatch {
   return {
     ...generated,
     results: generated.results.map((recommendation) => ({
