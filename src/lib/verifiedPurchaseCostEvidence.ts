@@ -71,6 +71,10 @@ export function verifiedPurchaseCostReady(
   );
 }
 
+export type Stage7PurchaseCandidateContract = VerifiedPurchaseCostContract & {
+  purchaseStatus?: unknown;
+};
+
 export type Stage7PurchaseCostCoverage = {
   state: "READY" | "WAITING" | "BLOCKED";
   candidateCount: number;
@@ -78,11 +82,18 @@ export type Stage7PurchaseCostCoverage = {
   missingCount: number;
 };
 
+export function stage7PurchaseCostCandidates<
+  T extends Stage7PurchaseCandidateContract,
+>(rows: readonly T[]) {
+  return rows.filter((row) => row.purchaseStatus === "발주 추천");
+}
+
 export function stage7PurchaseCostCoverage(
   priorityState: "READY" | "BLOCKED",
-  candidates: readonly VerifiedPurchaseCostContract[],
+  rows: readonly Stage7PurchaseCandidateContract[],
   now: number,
 ): Stage7PurchaseCostCoverage {
+  const candidates = stage7PurchaseCostCandidates(rows);
   const verifiedCount = candidates.filter((row) =>
     verifiedPurchaseCostReady(row, now),
   ).length;
