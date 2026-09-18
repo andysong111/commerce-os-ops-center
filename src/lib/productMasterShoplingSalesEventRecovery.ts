@@ -9,10 +9,12 @@ import {
   SALES_EVENT_CHUNK,
   SALES_EVENT_FAILED,
   SALES_EVENT_REQUEST,
+  SALES_EVENT_SOURCE_RANGE_DAYS,
 } from "@/lib/productMasterShoplingSalesEventSync";
 
-export const SALES_EVENT_DEFAULT_CHUNK_DAYS = 30;
-export const SALES_EVENT_FALLBACK_CHUNK_DAYS = 7;
+export const SALES_EVENT_LEGACY_CHUNK_DAYS = 30;
+export const SALES_EVENT_DEFAULT_CHUNK_DAYS = SALES_EVENT_SOURCE_RANGE_DAYS;
+export const SALES_EVENT_FALLBACK_CHUNK_DAYS = 2;
 export const SALES_EVENT_MINIMUM_CHUNK_DAYS = 2;
 export const SALES_EVENT_MAX_REQUEST_ATTEMPTS_PER_TIER = 3;
 
@@ -87,12 +89,13 @@ function operationRangeKey(row: OperationRow) {
 function normalizeChunkDays(value: unknown) {
   const parsed = Math.round(number(value));
   return [
+    SALES_EVENT_LEGACY_CHUNK_DAYS,
     SALES_EVENT_DEFAULT_CHUNK_DAYS,
     SALES_EVENT_FALLBACK_CHUNK_DAYS,
     SALES_EVENT_MINIMUM_CHUNK_DAYS,
   ].includes(parsed)
     ? parsed
-    : SALES_EVENT_DEFAULT_CHUNK_DAYS;
+    : SALES_EVENT_LEGACY_CHUNK_DAYS;
 }
 
 function supabaseConnection() {
@@ -201,10 +204,10 @@ function tierAttemptCount(latest: ParsedRequest, requestsById: Map<string, Parse
 }
 
 function nextChunkDays(chunkDays: number) {
-  if (chunkDays === SALES_EVENT_DEFAULT_CHUNK_DAYS) {
-    return SALES_EVENT_FALLBACK_CHUNK_DAYS;
+  if (chunkDays === SALES_EVENT_LEGACY_CHUNK_DAYS) {
+    return SALES_EVENT_DEFAULT_CHUNK_DAYS;
   }
-  if (chunkDays === SALES_EVENT_FALLBACK_CHUNK_DAYS) {
+  if (chunkDays === SALES_EVENT_DEFAULT_CHUNK_DAYS) {
     return SALES_EVENT_MINIMUM_CHUNK_DAYS;
   }
   return null;
@@ -371,7 +374,15 @@ async function recoverSalesEventRequestUnderLock() {
   const attemptsInTier = tierAttemptCount(latest, requestsById);
   let chunkDays = latest.chunkDays;
   let reason: "RETRY_SAME_TIER" | "SHRINK_RANGE" = "RETRY_SAME_TIER";
-  if (attemptsInTier >= SALES_EVENT_MAX_REQUEST_ATTEMPTS_PER_TIER) {
+  // 30-day reads are legacy-only now. Production has repeatedly shown that
+  // this oversized partition can fail while smaller Shopling windows succeed,
+  // so do not spend two more retries on a tier we no longer create.
+  const legacyOversizedRange =
+    latest.chunkDays === SALES_EVENT_LEGACY_CHUNK_DAYS;
+  if (
+    legacyOversizedRange ||
+    attemptsInTier >= SALES_EVENT_MAX_REQUEST_ATTEMPTS_PER_TIER
+  ) {
     const smaller = nextChunkDays(latest.chunkDays);
     if (smaller === null) {
       return {

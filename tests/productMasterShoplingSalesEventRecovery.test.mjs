@@ -7,17 +7,19 @@ const [recovery, cron] = await Promise.all([
   readFile("src/app/api/cron/product-master-shopling-sales-events/route.ts", "utf8"),
 ]);
 
-test("failed requests are retried up to three times at each range tier", () => {
+test("supported tiers retry up to three times, while legacy 30-day requests shrink without wasting the tier", () => {
   assert.match(recovery, /SALES_EVENT_MAX_REQUEST_ATTEMPTS_PER_TIER = 3/);
   assert.match(recovery, /tierAttemptCount/);
+  assert.match(recovery, /legacyOversizedRange/);
   assert.match(recovery, /attemptsInTier >= SALES_EVENT_MAX_REQUEST_ATTEMPTS_PER_TIER/);
   assert.match(recovery, /RETRY_SAME_TIER/);
   assert.match(recovery, /SHRINK_RANGE/);
 });
 
-test("request lineage preserves the same analysis instant while shrinking 30 to 7 to 2 days", () => {
-  assert.match(recovery, /SALES_EVENT_DEFAULT_CHUNK_DAYS = 30/);
-  assert.match(recovery, /SALES_EVENT_FALLBACK_CHUNK_DAYS = 7/);
+test("request lineage preserves the same analysis instant while shrinking legacy 30 to 7 to 2 days", () => {
+  assert.match(recovery, /SALES_EVENT_LEGACY_CHUNK_DAYS = 30/);
+  assert.match(recovery, /SALES_EVENT_DEFAULT_CHUNK_DAYS = SALES_EVENT_SOURCE_RANGE_DAYS/);
+  assert.match(recovery, /SALES_EVENT_FALLBACK_CHUNK_DAYS = 2/);
   assert.match(recovery, /SALES_EVENT_MINIMUM_CHUNK_DAYS = 2/);
   assert.match(recovery, /supersedesRequestId: latest\.requestId/);
   assert.match(recovery, /analysisAsOf: latest\.analysisAsOf/);
@@ -27,7 +29,7 @@ test("request lineage preserves the same analysis instant while shrinking 30 to 
 
 test("legacy failed request without chunkDays is safely interpreted as 30 days", () => {
   assert.match(recovery, /function normalizeChunkDays/);
-  assert.match(recovery, /: SALES_EVENT_DEFAULT_CHUNK_DAYS/);
+  assert.match(recovery, /: SALES_EVENT_LEGACY_CHUNK_DAYS/);
   assert.match(recovery, /hasTerminalFailure\(latest\.requestId\)/);
 });
 
