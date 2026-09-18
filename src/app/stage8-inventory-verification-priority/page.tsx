@@ -76,7 +76,7 @@ export default async function InventoryVerificationPriorityPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-lg font-black text-slate-950">실행이 차단된 발주후보</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500">차단 사유는 원장 REVIEW, PROVISIONAL 실행증거 부족, 또는 VERIFIED 상품의 확정 입고원가 부족입니다. 전수 재고실사 부족 자체를 차단사유로 사용하지 않습니다.</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">차단 사유는 원장 REVIEW, PROVISIONAL 실행증거 부족, 또는 VERIFIED 상품의 검증 구매원가 부족입니다. 전수 재고실사 부족 자체를 차단사유로 사용하지 않습니다.</p>
           </div>
           <span className="text-xs font-bold text-slate-500">{number.format(blockedRows.length)}개 SKU</span>
         </div>
@@ -88,7 +88,7 @@ export default async function InventoryVerificationPriorityPage() {
         1. INITIAL_ZERO/UNVERIFIED는 PROVISIONAL이며 advisory 발주수량 계산에는 사용할 수 있습니다.<br />
         2. PROVISIONAL 한 점 수량만으로 실제 발주 Draft를 실행하지 않습니다. 별도 불확실성·의사결정 증거가 없으면 `PROVISIONAL_DECISION_EVIDENCE_REQUIRED`로 차단합니다.<br />
         3. 실제 품절 확인 시 SOLD_OUT_RESET=0을 기준점으로 만들고 그 이후 입고·판매부터 VERIFIED 재고로 운영합니다.<br />
-        4. VERIFIED 상품도 확정 입고원가가 없으면 비용 게이트에서 차단합니다.<br />
+        4. VERIFIED 재고라도 검증된 구매원가가 없으면 비용 게이트에서 차단합니다.<br />
         5. 원장 음수·identity 충돌은 REVIEW로 차단합니다. STOCKTAKE는 오류 교정용 선택 기능이지 필수 절차가 아닙니다.
       </section>
     </div>
@@ -115,7 +115,7 @@ function InventoryTable({ rows }: { rows: Row[] }) {
             <th className="px-3 py-2">미입고 약정</th>
             <th className="px-3 py-2">기준점</th>
             <th className="px-3 py-2">이동/입고</th>
-            <th className="px-3 py-2">확정원가</th>
+            <th className="px-3 py-2">검증원가</th>
             <th className="px-3 py-2">보호원가</th>
           </tr>
         </thead>
