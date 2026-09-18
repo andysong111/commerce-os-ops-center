@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { loadInventoryVerificationPriority } from "@/lib/stage8InventoryVerificationPriority";
 import {
+  stage7PurchaseCostCandidates,
   stage7PurchaseCostCoverage,
   verifiedPurchaseCostReady,
 } from "@/lib/verifiedPurchaseCostEvidence";
@@ -51,10 +52,8 @@ function fingerprint(value: unknown) {
 export async function loadStage7PurchaseCostEvidenceReadiness(): Promise<Stage7PurchaseCostEvidenceReadiness> {
   const priority = await loadInventoryVerificationPriority();
   const now = Date.now();
-  const candidates = priority.rows.filter(
-    (row) => row.purchaseStatus === "발주 추천",
-  );
-  const coverage = stage7PurchaseCostCoverage(priority.state, candidates, now);
+  const candidates = stage7PurchaseCostCandidates(priority.rows);
+  const coverage = stage7PurchaseCostCoverage(priority.state, priority.rows, now);
   const rows = candidates
     .map((row): Stage7PurchaseCostEvidenceRow => ({
       barcode: row.barcode,
