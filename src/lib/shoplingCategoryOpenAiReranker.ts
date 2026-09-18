@@ -116,13 +116,12 @@ export async function rerankNaverGroundedShoplingRecommendations(
 
   const apiKey = text(
     options.apiKey ??
-      process.env.SHOPLING_CATEGORY_OPENAI_API_KEY ??
-      process.env.OPENAI_API_KEY,
+      process.env.SHOPLING_CATEGORY_OPENAI_API_KEY,
   );
   if (!apiKey) {
     return withRerankFallbackReason(
       generated,
-      "OpenAI 제한 후보 재정렬 키가 없어 네이버-샵플링 기계 최근접 순서를 유지했습니다.",
+      "SHOPLING_CATEGORY_OPENAI_API_KEY가 없어 네이버-샵플링 기계 최근접 순서를 유지했습니다.",
     );
   }
 
