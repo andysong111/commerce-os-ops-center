@@ -78,10 +78,10 @@ export async function POST(request: NextRequest) {
       .trim()
       .toLocaleLowerCase("en-US");
 
-    // 운영 기본은 의도적으로 단순하게 고정한다.
-    // 모델명 그대로 네이버 쇼핑 검색 -> 실제 네이버 쇼핑 카테고리 확인
-    // -> 저장된 샵플링 표준 카테고리에서 가장 가까운 경로만 제시.
-    // legacy만 긴급 롤백용으로 남기고, shopling_first 같은 과거 값은 모두 naver_first로 수렴한다.
+    // 운영 기본:
+    // 모델명 -> 네이버 쇼핑 실제 카테고리 근거 -> 샵플링 실제 후보 shortlist
+    // -> OpenAI가 후보 안에서만 의미 재정렬 -> 사람 검토.
+    // OpenAI는 새 카테고리 경로를 만들 수 없고, legacy만 긴급 롤백용으로 남긴다.
     const categoryMode = requestedCategoryMode === "legacy" ? "legacy" : "naver_first";
     const rerankModel =
       process.env.OPENAI_CATEGORY_RERANK_MODEL ||
