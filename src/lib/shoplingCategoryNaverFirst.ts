@@ -120,27 +120,53 @@ export function matchNaverCategoryPathsToShopling(
   categories: Pick<ShoplingCategoryEntry, "path">[],
   limit = 3,
 ): CategoryMatch[] {
-  const sources = naverPaths.map(text).filter(Boolean);
+  const sources = naverPaths
+    .map(text)
+    .filter(Boolean)
+    .filter((value, index, array) => array.indexOf(value) === index);
   if (!sources.length) return [];
 
-  return categories
-    .map((category) => {
-      let score = 0;
-      let sourcePath = "";
-      for (const source of sources) {
-        const nextScore = scoreNaverToShoplingCategory(source, category.path);
-        if (nextScore <= score) continue;
-        score = nextScore;
-        sourcePath = source;
-      }
-      return { path: category.path, score, sourcePath };
-    })
-    .filter((candidate) => candidate.score >= MIN_SIMILARITY)
-    .sort(
-      (left, right) =>
-        right.score - left.score || left.path.localeCompare(right.path, "ko-KR"),
-    )
-    .slice(0, Math.max(1, Math.min(3, limit)));
+  const maxResults = Math.max(1, Math.min(3, limit));
+  const selected: CategoryMatch[] = [];
+  const usedShoplingPaths = new Set<string>();
+
+  const closestForSource = (sourcePath: string) =>
+    categories
+      .map((category) => ({
+        path: category.path,
+        score: scoreNaverToShoplingCategory(sourcePath, category.path),
+        sourcePath,
+      }))
+      .filter((candidate) => candidate.score >= MIN_SIMILARITY)
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          left.path.localeCompare(right.path, "ko-KR"),
+      );
+
+  // 네이버가 반환한 카테고리 순서를 권위 순서로 본다.
+  // 첫 경로는 네이버 상위 결과에서 가장 반복되거나 대표성이 높은 경로다.
+  // 각 네이버 경로마다 샵플링 원장에서 가장 가까운 경로 하나를 우선 채택한다.
+  for (const sourcePath of sources) {
+    const closest = closestForSource(sourcePath).find(
+      (candidate) => !usedShoplingPaths.has(candidate.path),
+    );
+    if (!closest) continue;
+    selected.push(closest);
+    usedShoplingPaths.add(closest.path);
+    if (selected.length >= maxResults) return selected;
+  }
+
+  // 네이버 경로가 하나뿐이면 검토용 후보 2·3은 그 대표 경로에서
+  // 다음으로 가까운 샵플링 경로를 채운다. 상품명 추론은 사용하지 않는다.
+  for (const candidate of closestForSource(sources[0])) {
+    if (usedShoplingPaths.has(candidate.path)) continue;
+    selected.push(candidate);
+    usedShoplingPaths.add(candidate.path);
+    if (selected.length >= maxResults) break;
+  }
+
+  return selected;
 }
 
 export async function generateNaverFirstShoplingCategoryRecommendations(
@@ -218,7 +244,7 @@ export async function generateNaverFirstShoplingCategoryRecommendations(
         0,
         Math.min(97, Math.round(Math.min(selected.score, evidence.confidence || selected.score))),
       ),
-      reason: `네이버 쇼핑에서 확인된 '${selected.sourcePath}'와 저장된 샵플링 카테고리 경로를 직접 비교해 가장 유사한 경로를 선택했습니다.`,
+      reason: `네이버 쇼핑 카테고리 '${selected.sourcePath}'를 기준으로 샵플링 표준 카테고리 원장에서 가장 가까운 경로를 선택했습니다.`,
       alternatives: candidatePaths.slice(1, 3),
       autoApply: false,
       skippedExisting: Boolean(input.currentCategory),
