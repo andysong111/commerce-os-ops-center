@@ -13,20 +13,16 @@ const CATEGORY_ENGINE_VERSION = "naver-official-search-v1";
 
 
 export async function GET() {
-  const hasClientId = Boolean(
-    String(
-      process.env.NAVER_CLIENT_ID ??
-        process.env.NAVER_SEARCH_CLIENT_ID ??
-        "",
-    ).trim(),
-  );
-  const hasClientSecret = Boolean(
-    String(
-      process.env.NAVER_CLIENT_SECRET ??
-        process.env.NAVER_SEARCH_CLIENT_SECRET ??
-        "",
-    ).trim(),
-  );
+  const clientId = String(
+    process.env.NAVER_CLIENT_ID ??
+      process.env.NAVER_SEARCH_CLIENT_ID ??
+      "",
+  ).trim();
+  const clientSecret = String(
+    process.env.NAVER_CLIENT_SECRET ??
+      process.env.NAVER_SEARCH_CLIENT_SECRET ??
+      "",
+  ).trim();
   const clientIdSource = process.env.NAVER_CLIENT_ID
     ? "NAVER_CLIENT_ID"
     : process.env.NAVER_SEARCH_CLIENT_ID
@@ -37,14 +33,52 @@ export async function GET() {
     : process.env.NAVER_SEARCH_CLIENT_SECRET
       ? "NAVER_SEARCH_CLIENT_SECRET"
       : "";
+
+  let probe: Record<string, unknown> | null = null;
+  if (clientId && clientSecret) {
+    try {
+      const url =
+        "https://openapi.naver.com/v1/search/shop.json?query=%EC%88%98%EA%B1%B4&display=1&start=1&sort=sim";
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "X-Naver-Client-Id": clientId,
+          "X-Naver-Client-Secret": clientSecret,
+        },
+        cache: "no-store",
+      });
+      const body = await response.json().catch(() => ({}));
+      probe = {
+        status: response.status,
+        ok: response.ok,
+        errorCode:
+          body && typeof body === "object" && !Array.isArray(body)
+            ? String((body as Record<string, unknown>).errorCode ?? "")
+            : "",
+        errorMessage:
+          body && typeof body === "object" && !Array.isArray(body)
+            ? String((body as Record<string, unknown>).errorMessage ?? "").slice(0, 160)
+            : "",
+      };
+    } catch (error) {
+      probe = {
+        status: 0,
+        ok: false,
+        errorMessage: error instanceof Error ? error.message.slice(0, 160) : "probe_failed",
+      };
+    }
+  }
+
   return Response.json(
     {
       ok: true,
       engineVersion: CATEGORY_ENGINE_VERSION,
       provider: "naver_shopping_search_api",
-      configured: hasClientId && hasClientSecret,
+      configured: Boolean(clientId && clientSecret),
       clientIdSource,
       clientSecretSource,
+      probe,
     },
     { headers: { "Cache-Control": "no-store" } },
   );
