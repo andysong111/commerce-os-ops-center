@@ -10,12 +10,13 @@ const [sync, recovery, route, cron, scheduler] = await Promise.all([
   readFile("supabase/migrations/202608280009_ops_adaptive_dispatcher.sql", "utf8"),
 ]);
 
-test("360-day request pins one Product Master planning fingerprint and bounded ranges", () => {
+test("360-day request pins one Product Master planning fingerprint and proven seven-day source ranges", () => {
   assert.match(sync, /const ANALYSIS_DAYS = PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS/);
-  assert.match(sync, /const RANGE_DAYS = 30/);
+  assert.match(sync, /SALES_EVENT_SOURCE_RANGE_DAYS = 7/);
   assert.match(sync, /analysisAsOf: asOf\.toISOString\(\)/);
+  assert.match(sync, /chunkDays: SALES_EVENT_SOURCE_RANGE_DAYS/);
   assert.match(sync, /planningContentFingerprint: planning\.contentFingerprint/);
-  assert.match(sync, /splitShoplingDateRange\(analysisStartDate, analysisEndDate, RANGE_DAYS\)/);
+  assert.match(sync, /splitShoplingDateRange\([\s\S]*SALES_EVENT_SOURCE_RANGE_DAYS/);
   assert.match(sync, /SALES_EVENT_PLANNING_CHANGED/);
 });
 
@@ -54,11 +55,13 @@ test("Product Master responses are checked for persisted readback rows", () => {
   assert.match(sync, /SALES_EVENT_WRITE_VERIFY_FAILED/);
 });
 
-test("failed Shopling requests retry their tier then shrink 30 to 7 to 2 days", () => {
-  assert.match(recovery, /SALES_EVENT_DEFAULT_CHUNK_DAYS = 30/);
-  assert.match(recovery, /SALES_EVENT_FALLBACK_CHUNK_DAYS = 7/);
+test("new reads start at 7 days, legacy 30-day failures shrink immediately, and 7 can fall back to 2", () => {
+  assert.match(recovery, /SALES_EVENT_LEGACY_CHUNK_DAYS = 30/);
+  assert.match(recovery, /SALES_EVENT_DEFAULT_CHUNK_DAYS = SALES_EVENT_SOURCE_RANGE_DAYS/);
+  assert.match(recovery, /SALES_EVENT_FALLBACK_CHUNK_DAYS = 2/);
   assert.match(recovery, /SALES_EVENT_MINIMUM_CHUNK_DAYS = 2/);
   assert.match(recovery, /SALES_EVENT_MAX_REQUEST_ATTEMPTS_PER_TIER = 3/);
+  assert.match(recovery, /legacyOversizedRange/);
   assert.match(recovery, /tierAttemptCount/);
   assert.match(recovery, /supersedesRequestId: latest\.requestId/);
   assert.match(recovery, /analysisAsOf: latest\.analysisAsOf/);
