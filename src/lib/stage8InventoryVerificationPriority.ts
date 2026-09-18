@@ -141,7 +141,52 @@ function inventoryMode(
   return "PROVISIONAL";
 }
 
-function actionFor(row: ProductMasterInventoryCostRow | undefined) {
+const VERIFIED_PURCHASE_COST_SOURCES = new Set([
+  "CONFIRMED_RECEIPT",
+  "LEGACY_VERIFIED_COST_EVIDENCE",
+  "SOURCE_ORDER_VERIFIED_COST_EVIDENCE",
+]);
+
+function verifiedPurchaseCostReady(
+  row: ProductMasterInventoryCostRow | undefined,
+  now: number,
+) {
+  if (!row || row.hasVerifiedPurchaseCost !== true) return false;
+  if (!VERIFIED_PURCHASE_COST_SOURCES.has(row.purchaseCostTrustSource)) {
+    return false;
+  }
+  if (
+    !Number.isSafeInteger(row.verifiedPurchaseUnitCostKrw) ||
+    row.verifiedPurchaseUnitCostKrw <= 0 ||
+    !Number.isSafeInteger(row.purchaseProtectedCostKrw) ||
+    row.purchaseProtectedCostKrw < row.verifiedPurchaseUnitCostKrw
+  ) {
+    return false;
+  }
+  const evidenceTime = row.verifiedPurchaseCostAt
+    ? Date.parse(row.verifiedPurchaseCostAt)
+    : NaN;
+  if (!Number.isFinite(evidenceTime) || evidenceTime > now) return false;
+
+  if (row.purchaseCostTrustSource === "CONFIRMED_RECEIPT") {
+    return (
+      row.hasConfirmedReceiptCost === true &&
+      Number.isSafeInteger(row.latestConfirmedReceiptCostKrw) &&
+      row.latestConfirmedReceiptCostKrw > 0 &&
+      row.latestConfirmedReceiptCostKrw === row.verifiedPurchaseUnitCostKrw
+    );
+  }
+  return (
+    row.hasConfirmedReceiptCost === false &&
+    Number.isSafeInteger(row.purchaseCostEvidenceCount) &&
+    row.purchaseCostEvidenceCount > 0
+  );
+}
+
+function actionFor(
+  row: ProductMasterInventoryCostRow | undefined,
+  now: number,
+) {
   const mode = inventoryMode(row);
   if (mode === "MISSING" || mode === "REVIEW") {
     return "LEDGER_REVIEW_REQUIRED" as const;
@@ -149,7 +194,7 @@ function actionFor(row: ProductMasterInventoryCostRow | undefined) {
   if (mode === "PROVISIONAL") {
     return "PROVISIONAL_DECISION_EVIDENCE_REQUIRED" as const;
   }
-  if (!row?.hasVerifiedPurchaseCost) {
+  if (!verifiedPurchaseCostReady(row, now)) {
     return "COST_CONFIRMATION_REQUIRED" as const;
   }
   return "NONE" as const;
@@ -185,6 +230,7 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
     loadProductMasterInventoryCostReadiness(),
     loadProductPlanningSnapshot(),
   ]);
+  const now = Date.now();
   const purchaseProducts = purchaseShadow.snapshot?.products ?? [];
   const inventoryIndex = inventoryByBarcode(inventoryReadiness.rows);
   const planningIndex = planningByBarcode(planning.products);
@@ -218,7 +264,7 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
         moq: Math.max(1, integer(profile?.moq) || 1),
         cartonQuantity: Math.max(1, integer(profile?.cartonQuantity) || 1),
       });
-      const action = actionFor(inventory);
+      const action = actionFor(inventory, now);
       const purchaseStatus = net.group;
       const recommendedQty = net.recommendedQuantity;
       const expectedCost = expectedCostForQuantity(
