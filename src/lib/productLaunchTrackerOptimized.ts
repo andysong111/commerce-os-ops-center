@@ -376,6 +376,35 @@ export function applyProductLaunchTrackerMutation(
     if (index < 0) throw new Error("수정할 상품을 찾지 못했습니다.");
     items[index] = patchItem(items[index], input, now);
     changedIds.add(itemId);
+  } else if (operation === "bulk_patch_items") {
+    const patches = Array.isArray(input.patches)
+      ? input.patches.filter(isRecord)
+      : [];
+    if (!patches.length) throw new Error("변경할 상품 패치가 필요합니다.");
+    if (patches.length > PRODUCT_LAUNCH_MUTATION_LIMIT) {
+      throw new Error(`한 번에 최대 ${PRODUCT_LAUNCH_MUTATION_LIMIT}건까지 수정할 수 있습니다.`);
+    }
+    const seenIds = new Set<string>();
+    for (const entry of patches) {
+      const itemId = requiredText(entry.itemId, "상품 ID가 필요합니다.");
+      if (seenIds.has(itemId)) {
+        throw new Error("동일 상품의 패치가 중복되었습니다.");
+      }
+      seenIds.add(itemId);
+      const patch = isRecord(entry.patch) ? entry.patch : null;
+      if (!patch) throw new Error("상품 패치 객체가 필요합니다.");
+      const index = items.findIndex((item) => text(item.id) === itemId);
+      if (index < 0) throw new Error("수정할 상품을 찾지 못했습니다.");
+      items[index] = patchItem(
+        items[index],
+        {
+          patch,
+          updatedBy: text(entry.updatedBy) || text(input.updatedBy),
+        },
+        now,
+      );
+      changedIds.add(itemId);
+    }
   } else if (operation === "replace_item") {
     const itemId = requiredText(input.itemId, "상품 ID가 필요합니다.");
     const replacement = isRecord(input.item) ? input.item : null;
