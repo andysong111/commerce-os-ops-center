@@ -164,7 +164,7 @@ test("승인 정답 이력은 유사 상품의 샵플링 경로 prior와 Top-1·
   assert.equal(prior?.path, "문구/취미>수예>재봉용품>골무");
 });
 
-test("Shopling-first 정확도 파이프라인은 승인 prior, leaf 검증, 네이버 후보 재랭킹, 저신뢰 이미지 fallback을 순차 적용한다", async () => {
+test("카테고리 API는 일반 운영에서 모델명을 네이버 쇼핑에 직접 검색하는 경로만 사용한다", async () => {
   const route = await readFile(
     new URL(
       "../src/app/api/product-launch-tracker/ai-category/route.ts",
@@ -172,26 +172,24 @@ test("Shopling-first 정확도 파이프라인은 승인 prior, leaf 검증, 네
     ),
     "utf8",
   );
-  const accuracy = await readFile(
-    new URL("../src/lib/shoplingCategoryAccuracyV2.ts", import.meta.url),
+  const naver = await readFile(
+    new URL("../src/lib/shoplingCategoryNaverFirst.ts", import.meta.url),
     "utf8",
   );
 
-  assert.match(route, /buildShoplingCategoryApprovalExamples/);
-  assert.match(route, /computeShoplingCategoryAccuracyMetrics/);
-  assert.match(route, /enhanceShoplingCategoryRecommendations/);
-  assert.match(route, /validateWithNaver: false/);
-  assert.match(route, /resolveTrackerImageUrl/);
-  assert.match(route, /engineVersion: SHOPLING_CATEGORY_ENGINE_VERSION/);
-  assert.match(accuracy, /findShoplingCategoryApprovalPrior/);
-  assert.match(accuracy, /validateLeafCandidates/);
-  assert.match(accuracy, /leaf 단계 최종 검증자/);
-  assert.match(accuracy, /rerankCandidatesWithNaver/);
-  assert.match(accuracy, /후보 3개의 네이버 기반 재랭킹 담당자/);
-  assert.match(accuracy, /rerankLowConfidenceWithImages/);
-  assert.match(accuracy, /type: "input_image"/);
-  assert.match(accuracy, /recommendation\.confidence < 55/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-direct-v1"/);
+  assert.match(route, /SHOPLING_CATEGORY_MODE \|\| "naver_first"/);
+  assert.match(route, /requestedCategoryMode === "legacy" \? "legacy" : "naver_first"/);
+  assert.match(route, /generateNaverFirstShoplingCategoryRecommendations/);
+  assert.match(route, /timeoutMs: 30_000/);
+  assert.doesNotMatch(route, /enhanceShoplingCategoryRecommendations/);
+  assert.doesNotMatch(route, /generateShoplingFirstCategoryRecommendations/);
+  assert.doesNotMatch(route, /resolveTrackerImageUrl/);
+  assert.match(naver, /네이버 쇼핑 검색 결과 상단의 같은 제품군을 최대 5개까지 확인한다/);
+  assert.match(naver, /실제 네이버 쇼핑 카테고리를 확인할 수 없으면 억지 후보를 만들지 말고/);
+  assert.match(naver, /const MIN_SIMILARITY = 58/);
 });
+
 
 test("수동 카테고리는 상품별 접이식 입력으로 최소화하고 드롭다운·검색·전체경로 복붙을 함께 지원한다", async () => {
   const page = await readFile(
