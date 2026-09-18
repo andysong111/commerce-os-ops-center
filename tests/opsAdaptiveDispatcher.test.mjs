@@ -10,6 +10,7 @@ const [
   storageMigration,
   fairnessMigration,
   stage8SalesDrainMigration,
+  stage8CandidatePrewriteMigration,
   registry,
   route,
   pulse,
@@ -19,6 +20,7 @@ const [
   read("supabase/migrations/202608280011_ops_storage_maintenance.sql"),
   read("supabase/migrations/20260918084500_stage8_dispatcher_maintenance_priority_guard.sql"),
   read("supabase/migrations/20260918085500_stage8_sales_event_drain_cadence.sql"),
+  read("supabase/migrations/20260918094000_stage8_candidate_prewrite_evidence_worker.sql"),
   read("src/lib/opsAdaptiveDispatcher.ts"),
   read("src/app/api/cron/ops-dispatcher/route.ts"),
   read("src/lib/seoRunWorkerPulse.ts"),
@@ -142,4 +144,20 @@ test("Stage 8 canonical sales collection drains bounded seven-day ranges once pe
     stage8SalesDrainMigration,
     /STAGE8_SALES_EVENT_DISPATCH_TASK_MISMATCH/,
   );
+});
+
+
+test("current candidate prewrite evidence is an additive diagnostic dispatcher task", () => {
+  assert.match(
+    stage8CandidatePrewriteMigration,
+    /'stage8-candidate-prewrite-evidence'/,
+  );
+  assert.match(
+    stage8CandidatePrewriteMigration,
+    /'\/api\/cron\/stage8-candidate-prewrite-evidence'/,
+  );
+  assert.match(stage8CandidatePrewriteMigration, /'diagnostic'/);
+  assert.match(stage8CandidatePrewriteMigration, /\n  205,/);
+  assert.match(stage8CandidatePrewriteMigration, /\n  300,\n  60,/);
+  assert.match(registry, /"stage8-candidate-prewrite-evidence"/);
 });

@@ -119,6 +119,11 @@ export type CandidateDemandParityReport = {
 export type CandidateDemandParityStatus = {
   configured: boolean;
   requestId: string | null;
+  candidateSalesRequestId?: string | null;
+  analysisAsOf?: string | null;
+  planningContentFingerprint?: string | null;
+  candidateEventFingerprint?: string | null;
+  candidatePlanFingerprint?: string | null;
   state: "IDLE" | "QUEUED" | "RUNNING" | "MATCH" | "MISMATCH" | "FAILED";
   stage: string;
   message: string;
@@ -981,6 +986,11 @@ export async function loadCandidateDemandParityStatus(): Promise<CandidateDemand
   const common = {
     ...empty,
     requestId: request.requestId,
+    candidateSalesRequestId: request.candidateSalesRequestId,
+    analysisAsOf: request.analysisAsOf,
+    planningContentFingerprint: request.planningContentFingerprint,
+    candidateEventFingerprint: request.candidateEventFingerprint,
+    candidatePlanFingerprint: request.candidatePlanFingerprint,
     completedRanges,
     totalRanges: request.ranges.length,
     progress: Math.min(100, Math.round((completedRanges / request.ranges.length) * 100)),
