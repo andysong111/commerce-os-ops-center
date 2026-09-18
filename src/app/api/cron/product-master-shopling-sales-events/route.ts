@@ -11,6 +11,7 @@ import {
   hydrateProductMasterShoplingSalesEventRecovery,
   recoverProductMasterShoplingSalesEventRequest,
 } from "@/lib/productMasterShoplingSalesEventRecovery";
+import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -117,13 +118,25 @@ export async function GET(request: Request) {
     }
     if (current.state === "QUEUED" || current.state === "RUNNING") {
       const hydrated = await hydrateProductMasterShoplingSalesEventRecovery();
+      const result = await runBoundedBurst();
+      const downstreamWakeRequested = ["READY_CANARY", "READY_FULL"].includes(
+        result.state,
+      )
+        ? await wakeOpsDispatchTask("stage8-candidate-prewrite-evidence", 0)
+        : false;
       return Response.json({
         ok: true,
         configured: true,
         hydrated,
-        ...(await runBoundedBurst()),
+        ...result,
+        downstreamWakeRequested,
       });
     }
+    const downstreamWakeRequested = ["READY_CANARY", "READY_FULL"].includes(
+      current.state,
+    )
+      ? await wakeOpsDispatchTask("stage8-candidate-prewrite-evidence", 0)
+      : false;
     return Response.json({
       ok: true,
       configured: true,
@@ -132,6 +145,7 @@ export async function GET(request: Request) {
       message: current.message,
       planFingerprint: current.report?.planFingerprint ?? null,
       blockerCount: current.blockerCount,
+      downstreamWakeRequested,
     });
   } catch (error) {
     return Response.json(
