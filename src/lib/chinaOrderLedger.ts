@@ -243,7 +243,7 @@ export function reduceChinaOrderCommitmentEvents(
   let cancelledAt: string | null = null;
   let updatedAt = first.occurredAt;
   let note = "";
-  let latestPayload: unknown = first.payload;
+  let latestPayload: unknown = payloadObject(first.payload);
   let eventCount = 0;
   let staleEventCount = 0;
 
@@ -311,7 +311,10 @@ export function reduceChinaOrderCommitmentEvents(
     }
     updatedAt = event.occurredAt;
     note = event.note || note;
-    latestPayload = event.payload ?? latestPayload;
+    latestPayload = {
+      ...payloadObject(latestPayload),
+      ...payloadObject(event.payload),
+    };
   }
 
   const committedQuantity = Math.max(requestedQuantity, orderedQuantity);
