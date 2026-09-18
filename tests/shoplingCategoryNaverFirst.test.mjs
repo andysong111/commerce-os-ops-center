@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildNaverCategoryEvidence,
   matchNaverCategoryPathsToShopling,
   scoreNaverToShoplingCategory,
 } from "../src/lib/shoplingCategoryNaverFirst.ts";
@@ -94,4 +95,55 @@ test("네이버 대표 카테고리가 하나면 후보 2·3도 그 카테고리
   assert.equal(matches[0]?.path, "화장품/미용 > 클렌징용품 > 세안브러시");
   assert.ok(matches.every((entry) => entry.sourcePath === source));
   assert.ok(matches.every((entry) => !entry.path.includes("세차브러시")));
+});
+
+
+test("공식 네이버 쇼핑 검색 API의 category1~4를 실제 카테고리 경로로 집계한다", () => {
+  const evidence = buildNaverCategoryEvidence("세안 브러시", [
+    {
+      title: "<b>세안 브러시</b> 모공 클렌징",
+      productId: "1",
+      category1: "화장품/미용",
+      category2: "클렌징",
+      category3: "클렌징도구",
+      category4: "세안브러시",
+    },
+    {
+      title: "모공 세안 브러시 클렌징",
+      productId: "2",
+      category1: "화장품/미용",
+      category2: "클렌징",
+      category3: "클렌징도구",
+      category4: "세안브러시",
+    },
+    {
+      title: "페이스 세안용 브러시",
+      productId: "3",
+      category1: "화장품/미용",
+      category2: "클렌징",
+      category3: "클렌징도구",
+      category4: "세안브러시",
+    },
+    {
+      title: "세안 클렌징 패드",
+      productId: "4",
+      category1: "화장품/미용",
+      category2: "클렌징",
+      category3: "클렌징도구",
+      category4: "클렌징패드",
+    },
+  ]);
+
+  assert.equal(
+    evidence.categoryPaths[0],
+    "화장품/미용 > 클렌징 > 클렌징도구 > 세안브러시",
+  );
+  assert.ok(evidence.confidence >= 70);
+  assert.deepEqual(evidence.sourceDomains, ["openapi.naver.com"]);
+});
+
+test("네이버 쇼핑 API 결과가 없으면 카테고리를 추론하지 않는다", () => {
+  const evidence = buildNaverCategoryEvidence("알 수 없는 상품", []);
+  assert.deepEqual(evidence.categoryPaths, []);
+  assert.equal(evidence.confidence, 0);
 });
