@@ -60,7 +60,9 @@ test("AI 카테고리 API는 서버 실행시간과 공식 네이버 쇼핑 공�
   assert.match(route, /export const maxDuration = 300/);
   assert.match(route, /timeoutMs: 30_000/);
   assert.match(route, /retryFailedIndividually/);
-  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-shopping-grounded-v2"/);
+  assert.match(route, /openAiRerankerConfigured/);
+  assert.match(route, /rerankNaverGroundedShoplingRecommendations/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-openai-constrained-v3"/);
   assert.match(route, /complete: failures\.length === 0/);
   assert.match(route, /autoApply: false/);
   assert.match(route, /완료된 상품은 보존하고 실패한 상품만 다시 실행/);
