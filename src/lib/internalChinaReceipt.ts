@@ -10,6 +10,8 @@ import { koreanMonthLabel, seoulCalendarMonth } from "@/lib/monthlyPurchasePolic
 import type { PriceAdjustmentReceipt } from "@/lib/priceAdjustmentReceiptCache";
 import { retryInternalChinaReceiptFollowup } from "@/lib/internalChinaReceiptFollowup";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
+import { confirmSourcingWarehouseReceipt } from "@/lib/sourcingReceiptBridge";
+import { materializeSourcingLaunchItem } from "@/lib/sourcingLaunchMaterialization";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const RECEIPT_SOURCE = "ops-center-internal-china-receipt";
@@ -27,6 +29,7 @@ export type InternalChinaReceiptResult = {
   receiptId: string; draftId: string; cycleMonth: string; lineCount: number;
   receivedNow: number; fullyReceivedCount: number; partiallyReceivedCount: number;
   productMasterSynced: boolean; productMasterError: string | null;
+  launchMaterializedCount: number; launchMaterializationError: string | null;
 };
 function text(value: unknown) { return String(value ?? "").normalize("NFKC").trim(); }
 function barcode(value: unknown) { return text(value).toUpperCase().replace(/\s+/g, ""); }
@@ -91,6 +94,9 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
   const baseDraft = await loadInternalChinaPurchaseDraft(draftId);
   const draft = await loadInternalChinaDraftWithQuantityOverrides(baseDraft);
   const draftByBarcode = new Map(draft.lines.map((line) => [line.barcode, line] as const));
+  for (const code of byBarcode.keys()) {
+    if (!draftByBarcode.has(code)) throw new Error(`CHINA_RECEIPT_DRAFT_LINE_MISSING:${code}`);
+  }
   const groupStats = new Map<string, { quantity: number; freight: number }>();
   for (const line of draft.lines) {
     const key = line.freightGroupId.trim() || `__${line.barcode}`;
@@ -100,14 +106,28 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     groupStats.set(key, current);
   }
   const receiptId = randomUUID();
+  const sourcingReceipts = new Map<
+    string,
+    NonNullable<Awaited<ReturnType<typeof confirmSourcingWarehouseReceipt>>>
+  >();
+  for (const code of byBarcode.keys()) {
+    const commitment = commitmentByBarcode.get(code)!;
+    const sourced = await confirmSourcingWarehouseReceipt({
+      receiptId,
+      barcode: code,
+      payload: commitment.latestPayload,
+    });
+    if (sourced) sourcingReceipts.set(code, sourced);
+  }
+
   const now = new Date().toISOString();
   const operations: Record<string, unknown>[] = [];
   const receiptCosts: PriceAdjustmentReceipt[] = [];
   let fullyReceivedCount = 0, partiallyReceivedCount = 0, receivedNowTotal = 0;
   for (const [code, receivedNow] of byBarcode) {
     const commitment = commitmentByBarcode.get(code)!;
-    const line = draftByBarcode.get(code);
-    if (!line) throw new Error(`CHINA_RECEIPT_DRAFT_LINE_MISSING:${code}`);
+    const line = draftByBarcode.get(code)!;
+    const sourcingReceipt = sourcingReceipts.get(code) ?? null;
     const cumulativeReceived = commitment.receivedQuantity + receivedNow;
     const receivableTotal = Math.max(0, commitment.committedQuantity - commitment.cancelledQuantity);
     const finished = cumulativeReceived >= receivableTotal;
@@ -146,6 +166,20 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
         // Durable recovery source is written with the quantity event, before any
         // downstream cache/network work. Replays cannot invent or re-add quantity.
         followupVersion: 1, receiptLineCount: byBarcode.size, receiptCost,
+        sourcing: sourcingReceipt
+          ? {
+              intakeId: sourcingReceipt.intakeId,
+              outboxId: sourcingReceipt.outboxId,
+              modelNumber: sourcingReceipt.modelNumber,
+              productName: sourcingReceipt.productName,
+              saleOption: sourcingReceipt.saleOption,
+              chinaOption: sourcingReceipt.chinaOption,
+              supplierLink: sourcingReceipt.supplierLink,
+              skuId: sourcingReceipt.skuId,
+              productId: sourcingReceipt.productId,
+              receivedAt: sourcingReceipt.receivedAt,
+            }
+          : null,
       },
       error_message: null, started_at: now, finished_at: now, updated_at: now,
     });
@@ -169,7 +203,34 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     const raw = error instanceof Error ? error.message.split(":", 1)[0] : "";
     productMasterError = /^[A-Z0-9_]+$/.test(raw) ? raw : "PRODUCT_MASTER_RECEIPT_SYNC_FAILED";
   }
+  let launchMaterializedCount = 0;
+  let launchMaterializationError: string | null = null;
+  try {
+    for (const [code, sourced] of sourcingReceipts) {
+      const line = draftByBarcode.get(code)!;
+      const cost = receiptCosts.find((row) => row.barcode === code);
+      await materializeSourcingLaunchItem({
+        intakeId: sourced.intakeId,
+        receiptId,
+        barcode: code,
+        modelNumber: sourced.modelNumber,
+        productName: sourced.productName,
+        saleOption: sourced.saleOption || line.saleOption,
+        chinaOption: sourced.chinaOption || line.chinaOption,
+        supplierLink: sourced.supplierLink || line.supplierLink,
+        unitCostKrw: cost?.unitCostKrw ?? 0,
+        sourceLineId: commitmentByBarcode.get(code)?.sourceLineId ?? "",
+      });
+      launchMaterializedCount += 1;
+    }
+  } catch (error) {
+    const raw = error instanceof Error ? error.message.split(":", 1)[0] : "";
+    launchMaterializationError = /^[A-Z0-9_]+$/.test(raw)
+      ? raw
+      : "SOURCING_LAUNCH_MATERIALIZATION_FAILED";
+  }
+
   return { receiptId, draftId, cycleMonth: actualCycleMonth, lineCount: byBarcode.size,
     receivedNow: receivedNowTotal, fullyReceivedCount, partiallyReceivedCount,
-    productMasterSynced, productMasterError };
+    productMasterSynced, productMasterError, launchMaterializedCount, launchMaterializationError };
 }
