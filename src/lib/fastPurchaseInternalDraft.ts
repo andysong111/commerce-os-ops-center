@@ -161,14 +161,13 @@ export async function createFastPurchaseInternalDraft(
       referenceDemandQuantity: line.referenceDemandQuantity,
     })),
   };
-  const draftId = `fast-purchase-draft:${hash(stable).slice(0, 20)}`;
+  const proposedDraftId = `fast-purchase-draft:${hash(stable).slice(0, 20)}`;
   const createdAt = new Date().toISOString();
   const cycleMonth = monthlyPurchaseCycleFor(createdAt).cycleMonth;
 
-  // Purchase recommendation is a calendar-month decision. Once any internal
-  // Draft has been committed in that month, another different Draft must not
-  // be created by a later data refresh. Exact duplicate retries remain
-  // idempotent so a double-click cannot create a second business decision.
+  // A sourcing-confirmed line may create the month's internal Draft before the
+  // replenishment recommendation runs. Keep one monthly Draft by adopting that
+  // still-RESERVED Draft instead of opening a competing second business cycle.
   const existing = await loadFastPurchaseInternalDrafts();
   if (existing.error) {
     throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_LEDGER_UNAVAILABLE:${existing.error}`);
@@ -176,12 +175,20 @@ export async function createFastPurchaseInternalDraft(
   const sameCycle = existing.drafts.filter(
     (draft) => draft.createdAt && draft.cycleMonth === cycleMonth,
   );
-  const differentDraft = sameCycle.find((draft) => draft.draftId !== draftId);
-  if (differentDraft) {
+  if (sameCycle.length > 1) {
+    throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_MULTIPLE_DRAFTS:${cycleMonth}`);
+  }
+  const currentCycleDraft = sameCycle[0] ?? null;
+  if (
+    currentCycleDraft &&
+    currentCycleDraft.draftId !== proposedDraftId &&
+    (currentCycleDraft.orderedQuantity > 0 || currentCycleDraft.receivedQuantity > 0)
+  ) {
     throw new Error(
-      `FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED:${cycleMonth}:${differentDraft.draftId}`,
+      `FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED:${cycleMonth}:${currentCycleDraft.draftId}`,
     );
   }
+  const draftId = currentCycleDraft?.draftId || proposedDraftId;
 
   const { baseUrl, secret } = supabaseConnection();
   const operations = lines.map((line) => {
