@@ -27,12 +27,24 @@ export async function GET() {
         "",
     ).trim(),
   );
+  const clientIdSource = process.env.NAVER_CLIENT_ID
+    ? "NAVER_CLIENT_ID"
+    : process.env.NAVER_SEARCH_CLIENT_ID
+      ? "NAVER_SEARCH_CLIENT_ID"
+      : "";
+  const clientSecretSource = process.env.NAVER_CLIENT_SECRET
+    ? "NAVER_CLIENT_SECRET"
+    : process.env.NAVER_SEARCH_CLIENT_SECRET
+      ? "NAVER_SEARCH_CLIENT_SECRET"
+      : "";
   return Response.json(
     {
       ok: true,
       engineVersion: CATEGORY_ENGINE_VERSION,
       provider: "naver_shopping_search_api",
       configured: hasClientId && hasClientSecret,
+      clientIdSource,
+      clientSecretSource,
     },
     { headers: { "Cache-Control": "no-store" } },
   );
