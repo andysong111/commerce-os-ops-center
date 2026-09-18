@@ -270,7 +270,7 @@ for (const patch of [
     }, patch);
     blocked(buildPurchaseCyclePreflight(input), "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
   });
-});
+}
 for (const patch of [{ latestConfirmedReceiptCostKrw: Number.MAX_SAFE_INTEGER }, { protectedCostKrw: Infinity }, { protectedCostKrw: -1 }]) {
   test(`unsafe confirmed-cost arithmetic fails closed: ${Object.keys(patch)[0]}:${String(Object.values(patch)[0])}`, () => {
     const input = fixture(); Object.assign(input.priority.rows[0], patch);
