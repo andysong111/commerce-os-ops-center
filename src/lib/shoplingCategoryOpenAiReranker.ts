@@ -3,10 +3,6 @@ import {
   type ProductCategoryRecommendation,
   type ShoplingCategoryEntry,
 } from "./shoplingCategoryCatalog.ts";
-import type {
-  CategoryRecommendationFailure,
-  ReliableCategoryRecommendationResult,
-} from "./shoplingCategoryRecommendationRunner.ts";
 import { parseOpenAiStructuredOutput } from "./openAiStructuredOutput.ts";
 import { scoreNaverToShoplingCategory } from "./shoplingCategoryNaverFirst.ts";
 import type { ProductCategoryInput } from "./shoplingCategoryScoring.ts";
@@ -33,6 +29,25 @@ type RerankDecision = {
   orderedPaths: string[];
   confidence: number;
   reason: string;
+};
+
+type CategoryFailureLike = {
+  itemId: string;
+  modelNumber: string;
+  productName: string;
+  stage: "search_profile" | "recommendation";
+  retryable: boolean;
+  code: string;
+  retryAfterMs: number;
+  message: string;
+};
+
+export type RerankableCategoryBatch = {
+  status: "success" | "partial";
+  snapshot: unknown;
+  autoApplyConfidence: number | null;
+  results: ProductCategoryRecommendation[];
+  failures: CategoryFailureLike[];
 };
 
 type OpenAiResponse = {
@@ -109,9 +124,9 @@ export function sanitizeConstrainedOrderedPaths(
 
 export async function rerankNaverGroundedShoplingRecommendations(
   inputs: ProductCategoryInput[],
-  generated: ReliableCategoryRecommendationResult,
+  generated: RerankableCategoryBatch,
   options: RerankOptions = {},
-): Promise<ReliableCategoryRecommendationResult> {
+): Promise<RerankableCategoryBatch> {
   if (!generated.results.length) return generated;
 
   const apiKey = text(
@@ -179,7 +194,7 @@ export async function rerankNaverGroundedShoplingRecommendations(
 
   const decisionById = new Map(decisions.map((decision) => [decision.itemId, decision]));
   const results: ProductCategoryRecommendation[] = [];
-  const extraFailures: CategoryRecommendationFailure[] = [];
+  const extraFailures: CategoryFailureLike[] = [];
 
   for (const recommendation of generated.results) {
     const pool = pools.get(recommendation.itemId);
@@ -270,7 +285,7 @@ export async function rerankNaverGroundedShoplingRecommendations(
 }
 
 function withRerankFallbackReason(
-  generated: ReliableCategoryRecommendationResult,
+  generated: RerankableCategoryBatch,
   message: string,
 ): ReliableCategoryRecommendationResult {
   return {
