@@ -18,12 +18,22 @@ test("stage7 reads only canonical Product Master verified purchase cost", () => 
 });
 
 test("legacy purchase-only evidence can satisfy cost gate without becoming receipt truth", () => {
-  assert.match(priority, /!row\?\.hasVerifiedPurchaseCost/);
+  assert.match(priority, /verifiedPurchaseCostReady/);
+  assert.match(priority, /row\.hasVerifiedPurchaseCost !== true/);
   assert.match(preflight, /row\.hasVerifiedPurchaseCost === true/);
   assert.match(preflight, /purchaseCostTrustSource/);
   assert.match(preflight, /verifiedPurchaseUnitCostKrw/);
   assert.match(preflight, /verifiedPurchaseCostAt/);
   assert.match(page, /확정입고원가와 별도 검증된 구매전용 원가근거/);
+});
+
+
+test("stage7 only becomes READY when every current purchase recommendation has verified cost", () => {
+  assert.match(readiness, /rows\.length === 0/);
+  assert.match(readiness, /missingVerifiedPurchaseCostCount === 0/);
+  assert.match(readiness, /\? "READY"/);
+  assert.match(readiness, /: "BLOCKED"/);
+  assert.match(readiness, /: "WAITING"/);
 });
 
 test("stage7 remains read-only and cannot mutate price inventory receipt or orders", () => {
