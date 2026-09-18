@@ -63,7 +63,7 @@ export type SalesEventSyncRequest = {
   analysisAsOf: string;
   analysisStartDate: string;
   analysisEndDate: string;
-  chunkDays: number;
+  chunkDays?: number;
   planningGeneratedAt: string;
   planningContentFingerprint: string;
   ranges: ShoplingDateRange[];
