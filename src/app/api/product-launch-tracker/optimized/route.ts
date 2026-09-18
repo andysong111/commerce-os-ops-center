@@ -512,7 +512,7 @@ async function readLegacyListSnapshotFast(config: Config, ownerId: string) {
       headers: createSupabaseAdminHeaders(config.secretKey),
       cache: "no-store",
     },
-    { attempts: 1, timeoutMs, retryDelaysMs: [] },
+    { attempts: 1, timeoutMs: HUMAN_READ_TIMEOUT_MS, retryDelaysMs: [] },
   );
   return Array.isArray(body) ? (body[0] as ListStoredRow | undefined) ?? null : null;
 }
@@ -533,7 +533,7 @@ async function readLegacyStateFast(
       headers: createSupabaseAdminHeaders(config.secretKey),
       cache: "no-store",
     },
-    { attempts: 1, timeoutMs: HUMAN_READ_TIMEOUT_MS, retryDelaysMs: [] },
+    { attempts: 1, timeoutMs, retryDelaysMs: [] },
   );
   return Array.isArray(body) ? (body[0] as StoredRow | undefined) ?? null : null;
 }
