@@ -2,7 +2,7 @@ const AI_BUTTON_ID = "shopling-category-ai-button";
 const REVIEW_LINK_ID = "shopling-category-review-queue-link";
 const STATUS_ID = "shopling-category-ai-run-status";
 const STORAGE_KEY = "commerce-os-product-launch-tracker:v2";
-const STATE_ENDPOINT = "/api/product-launch-tracker/state";
+const OPTIMIZED_API_PATH = "/api/product-launch-tracker/optimized";
 const AI_ENDPOINT = "/api/product-launch-tracker/ai-category";
 const AI_TIMEOUT_MS = 285_000;
 const STATE_TIMEOUT_MS = 20_000;
@@ -86,7 +86,7 @@ async function runReliableAiCategoryAssignment(button) {
       requestItems,
       false,
     );
-    let latestState = (await readServerState().catch(() => null)) || displayedState;
+    let latestState = displayedState;
 
     if (firstResponse.results.length) {
       setRunStatus(
@@ -267,47 +267,81 @@ function delay(ms) {
 }
 
 async function persistCategoryResults(previousState, response) {
-  const latestState = (await readServerState().catch(() => null)) || previousState;
   const resultById = new Map(
     response.results.map((result) => [String(result.itemId), result]),
   );
   const now = new Date().toISOString();
+  const patches = [];
+  const nextItems = previousState.items.map((item) => {
+    const result = resultById.get(String(item?.id ?? ""));
+    if (!result) return item;
+
+    const patch = {
+      categoryAiSuggestion: result.selectedPath,
+      categoryAiConfidence: result.confidence,
+      categoryAiReason: result.reason,
+      categoryAiAlternatives: result.alternatives,
+      categoryAiCandidateChoices: Array.isArray(result.candidateChoices)
+        ? result.candidateChoices
+        : [],
+      categoryAiCandidatePaths: Array.isArray(result.candidatePaths)
+        ? result.candidatePaths
+        : [],
+      categoryAiMarketEvidence:
+        result.marketEvidence && typeof result.marketEvidence === "object"
+          ? result.marketEvidence
+          : null,
+      categoryAiStatus: "review_required",
+      categoryAiSnapshotHash:
+        response.snapshot?.hash || item.categoryAiSnapshotHash || "",
+      categoryAiEngineVersion:
+        result.engineVersion || item.categoryAiEngineVersion || "",
+      categoryAiUpdatedAt: now,
+    };
+    patches.push({ itemId: String(item.id), patch });
+    return {
+      ...item,
+      ...patch,
+      updatedAt: now,
+    };
+  });
+
+  if (patches.length) {
+    await saveServerCategoryPatches(patches);
+  }
+
   const nextState = {
-    ...latestState,
+    ...previousState,
     savedAt: now,
-    items: latestState.items.map((item) => {
-      const result = resultById.get(String(item?.id ?? ""));
-      if (!result) return item;
-      return {
-        ...item,
-        shoplingCategory: item.shoplingCategory,
-        categoryAiSuggestion: result.selectedPath,
-        categoryAiConfidence: result.confidence,
-        categoryAiReason: result.reason,
-        categoryAiAlternatives: result.alternatives,
-        categoryAiCandidateChoices: Array.isArray(result.candidateChoices)
-          ? result.candidateChoices
-          : [],
-        categoryAiCandidatePaths: Array.isArray(result.candidatePaths)
-          ? result.candidatePaths
-          : [],
-        categoryAiMarketEvidence:
-          result.marketEvidence && typeof result.marketEvidence === "object"
-            ? result.marketEvidence
-            : null,
-        categoryAiStatus: "review_required",
-        categoryAiSnapshotHash:
-          response.snapshot?.hash || item.categoryAiSnapshotHash || "",
-        categoryAiUpdatedAt: now,
-        updatedAt: now,
-        updatedBy: item.updatedBy,
-      };
-    }),
+    items: nextItems,
   };
-  await saveServerState(nextState);
   writeLocalState(nextState);
   updateReviewLinkCount(nextState);
   return nextState;
+}
+
+async function saveServerCategoryPatches(patches) {
+  const body = await fetchJsonWithTimeout(
+    OPTIMIZED_API_PATH,
+    {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        operation: "bulk_patch_items",
+        patches,
+        updatedBy: "승준 · AI 카테고리 후보 생성",
+      }),
+    },
+    STATE_TIMEOUT_MS,
+    "AI 결과를 서버에 저장하는 시간이 초과됐습니다.",
+  );
+  if (body?.ok !== true) {
+    throw new Error(body?.message || "AI 카테고리 결과를 서버에 저장하지 못했습니다.");
+  }
 }
 
 function writeLocalState(state) {
@@ -335,44 +369,6 @@ function readLocalState() {
     return value && Array.isArray(value.items) ? value : null;
   } catch {
     return null;
-  }
-}
-
-async function readServerState() {
-  const body = await fetchJsonWithTimeout(
-    STATE_ENDPOINT,
-    {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-      credentials: "same-origin",
-    },
-    STATE_TIMEOUT_MS,
-    "최신 진행관리 데이터를 불러오는 시간이 초과됐습니다.",
-  );
-  if (body?.ok !== true || !body.state || !Array.isArray(body.state.items)) {
-    throw new Error(body?.message || "최신 진행관리 데이터를 불러오지 못했습니다.");
-  }
-  return body.state;
-}
-
-async function saveServerState(state) {
-  const body = await fetchJsonWithTimeout(
-    STATE_ENDPOINT,
-    {
-      method: "PUT",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      credentials: "same-origin",
-      body: JSON.stringify({ state }),
-    },
-    STATE_TIMEOUT_MS,
-    "AI 결과를 서버에 저장하는 시간이 초과됐습니다.",
-  );
-  if (body?.ok !== true) {
-    throw new Error(body?.message || "AI 카테고리 결과를 서버에 저장하지 못했습니다.");
   }
 }
 

@@ -135,6 +135,51 @@ test("item patch changes only the targeted item and preserves unrelated records"
   assert.deepEqual(mutation.changedIds, ["item-1"]);
 });
 
+test("bulk item patch applies multiple scoped changes in one state mutation", () => {
+  const source = state(4);
+  const untouched = structuredClone(source.items[1]);
+  const mutation = applyProductLaunchTrackerMutation(source, {
+    operation: "bulk_patch_items",
+    patches: [
+      {
+        itemId: "item-1",
+        patch: {
+          categoryAiSuggestion: "생활>욕실>샤워기",
+          categoryAiStatus: "review_required",
+        },
+      },
+      {
+        itemId: "item-3",
+        patch: {
+          categoryAiSuggestion: "생활>청소>브러시",
+          categoryAiStatus: "review_required",
+        },
+      },
+    ],
+    updatedBy: "승준 · AI 카테고리 후보 생성",
+  });
+
+  assert.equal(mutation.state.items[0].categoryAiSuggestion, "생활>욕실>샤워기");
+  assert.equal(mutation.state.items[2].categoryAiSuggestion, "생활>청소>브러시");
+  assert.deepEqual(mutation.state.items[1], untouched);
+  assert.deepEqual(mutation.changedIds, ["item-1", "item-3"]);
+  assert.equal(mutation.state.items[0].updatedBy, "승준 · AI 카테고리 후보 생성");
+});
+
+test("bulk item patch rejects duplicate item IDs before a state write", () => {
+  assert.throws(
+    () =>
+      applyProductLaunchTrackerMutation(state(2), {
+        operation: "bulk_patch_items",
+        patches: [
+          { itemId: "item-1", patch: { categoryAiStatus: "review_required" } },
+          { itemId: "item-1", patch: { categoryAiStatus: "review_approved" } },
+        ],
+      }),
+    /중복/,
+  );
+});
+
 test("option-label edits preserve option barcode and prices", () => {
   const source = state(1);
   source.items[0].orderOptions = [
