@@ -37,6 +37,16 @@ export type InventoryVerificationPriorityRow = {
   hasConfirmedReceiptCost: boolean;
   latestConfirmedReceiptAt: string | null;
   latestConfirmedReceiptCostKrw: number;
+  purchaseCostEvidenceCount: number;
+  hasVerifiedPurchaseCost: boolean;
+  purchaseCostTrustSource:
+    | "CONFIRMED_RECEIPT"
+    | "LEGACY_VERIFIED_COST_EVIDENCE"
+    | "SOURCE_ORDER_VERIFIED_COST_EVIDENCE"
+    | "UNVERIFIED";
+  verifiedPurchaseUnitCostKrw: number;
+  verifiedPurchaseCostAt: string | null;
+  purchaseProtectedCostKrw: number;
   protectedCostKrw: number;
   inventoryCalculationUsable: boolean;
   executionInventoryEligible: boolean;
@@ -139,7 +149,7 @@ function actionFor(row: ProductMasterInventoryCostRow | undefined) {
   if (mode === "PROVISIONAL") {
     return "PROVISIONAL_DECISION_EVIDENCE_REQUIRED" as const;
   }
-  if (!row?.hasConfirmedReceiptCost) {
+  if (!row?.hasVerifiedPurchaseCost) {
     return "COST_CONFIRMATION_REQUIRED" as const;
   }
   return "NONE" as const;
@@ -245,6 +255,17 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
         latestConfirmedReceiptAt: inventory?.latestConfirmedReceiptAt ?? null,
         latestConfirmedReceiptCostKrw: integer(
           inventory?.latestConfirmedReceiptCostKrw,
+        ),
+        purchaseCostEvidenceCount: integer(inventory?.purchaseCostEvidenceCount),
+        hasVerifiedPurchaseCost: inventory?.hasVerifiedPurchaseCost === true,
+        purchaseCostTrustSource:
+          inventory?.purchaseCostTrustSource ?? "UNVERIFIED",
+        verifiedPurchaseUnitCostKrw: integer(
+          inventory?.verifiedPurchaseUnitCostKrw,
+        ),
+        verifiedPurchaseCostAt: inventory?.verifiedPurchaseCostAt ?? null,
+        purchaseProtectedCostKrw: integer(
+          inventory?.purchaseProtectedCostKrw,
         ),
         protectedCostKrw: integer(inventory?.protectedCostKrw),
         inventoryCalculationUsable,
