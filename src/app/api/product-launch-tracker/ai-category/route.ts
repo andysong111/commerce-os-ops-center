@@ -9,7 +9,7 @@ import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-const CATEGORY_ENGINE_VERSION = "naver-official-search-v1";
+const CATEGORY_ENGINE_VERSION = "naver-shopping-grounded-v2";
 
 
 export async function GET() {
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
         : isRetryableCategoryOutputError(error)
           ? "AI 응답이 중간에서 잘렸습니다. 완료된 상품은 보존하고 실패한 상품만 다시 실행하세요."
           : rawMessage;
-    const status = /OPENAI_API_KEY|NAVER_CLIENT_ID|NAVER_CLIENT_SECRET|카테고리 스냅샷|GITHUB_/.test(message)
+    const status = /OPENAI_API_KEY|카테고리 스냅샷|GITHUB_/.test(message)
       ? 503
       : /시간[이가을]? .*초과|AbortError|aborted/i.test(message)
         ? 504

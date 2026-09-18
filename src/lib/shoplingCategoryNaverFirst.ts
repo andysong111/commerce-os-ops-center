@@ -5,10 +5,11 @@ import {
 } from "./shoplingCategoryCatalog.ts";
 import type { ProductCategoryInput } from "./shoplingCategoryScoring.ts";
 
-const SEARCH_CONCURRENCY = 5;
-const SEARCH_TIMEOUT_MS = 12_000;
+const SEARCH_CONCURRENCY = 4;
+const SEARCH_TIMEOUT_MS = 15_000;
 const MIN_SIMILARITY = 58;
 const NAVER_SHOPPING_ENDPOINT = "https://openapi.naver.com/v1/search/shop.json";
+const NAVER_SHOPPING_HTML_ENDPOINT = "https://search.shopping.naver.com/search/all";
 const NAVER_DISPLAY = 20;
 const MAX_EVIDENCE_ITEMS = 5;
 
@@ -58,6 +59,12 @@ type RankedShoppingItem = {
   rank: number;
 };
 
+type ProviderError = Error & {
+  status?: number;
+  retryAfterMs?: number;
+  code?: string;
+};
+
 function text(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -66,6 +73,8 @@ function stripHtml(value: unknown) {
   return text(value)
     .replace(/<[^>]*>/g, " ")
     .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&#39;/g, "'")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -214,44 +223,19 @@ export function buildNaverCategoryEvidence(
   }
 
   const evidence = ranked.slice(0, MAX_EVIDENCE_ITEMS);
-  const grouped = new Map<
-    string,
-    { score: number; count: number; bestRank: number; relevanceTotal: number }
-  >();
-
-  for (const item of evidence) {
-    const current = grouped.get(item.categoryPath) ?? {
-      score: 0,
-      count: 0,
-      bestRank: Number.MAX_SAFE_INTEGER,
-      relevanceTotal: 0,
-    };
-    const rankWeight = Math.max(1, MAX_EVIDENCE_ITEMS + 1 - item.rank);
-    current.score += rankWeight * 10 + item.relevance;
-    current.count += 1;
-    current.bestRank = Math.min(current.bestRank, item.rank);
-    current.relevanceTotal += item.relevance;
-    grouped.set(item.categoryPath, current);
-  }
-
-  const ordered = [...grouped.entries()]
-    .sort((left, right) => {
-      const a = left[1];
-      const b = right[1];
-      return (
-        b.count - a.count ||
-        b.score - a.score ||
-        a.bestRank - b.bestRank ||
-        left[0].localeCompare(right[0], "ko-KR")
-      );
-    })
-    .map(([path]) => path)
-    .slice(0, 3);
-
-  const dominant = grouped.get(ordered[0]);
-  const supportRatio = dominant ? dominant.count / evidence.length : 0;
-  const averageRelevance = evidence.reduce((sum, item) => sum + item.relevance, 0) /
-    evidence.length;
+  const ordered = rankCategoryPaths(
+    evidence.map((item) => ({
+      path: item.categoryPath,
+      relevance: item.relevance,
+      rank: item.rank,
+    })),
+  );
+  const dominantCount = evidence.filter(
+    (item) => item.categoryPath === ordered[0],
+  ).length;
+  const supportRatio = evidence.length ? dominantCount / evidence.length : 0;
+  const averageRelevance =
+    evidence.reduce((sum, item) => sum + item.relevance, 0) / evidence.length;
   const confidence = Math.max(
     55,
     Math.min(
@@ -264,9 +248,107 @@ export function buildNaverCategoryEvidence(
     categoryPaths: ordered,
     confidence,
     summary:
-      `네이버 쇼핑 검색 API 상위 ${evidence.length}개 결과에서 실제 category1~4를 수집해 ${ordered[0]} 경로를 대표 카테고리로 확인했습니다.`,
+      `네이버 쇼핑 검색 API 상위 ${evidence.length}개 결과의 실제 category1~4를 집계해 ${ordered[0]} 경로를 대표 카테고리로 확인했습니다.`,
     sourceDomains: ["openapi.naver.com"],
   };
+}
+
+export function extractNaverCategoryPathsFromHtml(html: string) {
+  if (!text(html)) return [];
+
+  const normalized = String(html)
+    .replace(/\\u003e/gi, ">")
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\\"/g, '"');
+
+  const candidates: string[] = [];
+
+  const objectPattern =
+    /"category1"\s*:\s*"([^"]*)"[\s\S]{0,1200}?"category2"\s*:\s*"([^"]*)"[\s\S]{0,1200}?"category3"\s*:\s*"([^"]*)"[\s\S]{0,1200}?"category4"\s*:\s*"([^"]*)"/g;
+  for (const match of normalized.matchAll(objectPattern)) {
+    const path = [match[1], match[2], match[3], match[4]]
+      .map(stripHtml)
+      .filter(Boolean)
+      .join(" > ");
+    if (categoryParts(path).length >= 2) candidates.push(path);
+  }
+
+  const withoutNoise = normalized
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
+  const plain = stripHtml(withoutNoise);
+
+  const breadcrumbPattern =
+    /([가-힣A-Za-z0-9/&+()\[\]\- ]{2,30}\s*>\s*){2,5}[가-힣A-Za-z0-9/&+()\[\]\- ]{2,30}/g;
+  for (const match of plain.matchAll(breadcrumbPattern)) {
+    const path = categoryParts(match[0]).join(" > ");
+    if (categoryParts(path).length >= 3) candidates.push(path);
+  }
+
+  return candidates
+    .map((path) => categoryParts(path).join(" > "))
+    .filter(Boolean)
+    .filter((path, index, array) => array.indexOf(path) === index)
+    .slice(0, 20);
+}
+
+function evidenceFromHtmlPaths(paths: string[]): NaverEvidence {
+  const ranked = rankCategoryPaths(
+    paths.map((path, index) => ({
+      path,
+      relevance: Math.max(55, 90 - index * 3),
+      rank: index + 1,
+    })),
+  );
+
+  return {
+    categoryPaths: ranked,
+    confidence: ranked.length ? Math.min(88, 68 + Math.min(20, paths.length * 4)) : 0,
+    summary: ranked.length
+      ? `네이버 쇼핑 검색 화면에서 실제 카테고리 경로를 확인해 ${ranked[0]} 경로를 대표 카테고리로 사용했습니다.`
+      : "네이버 쇼핑 검색 화면에서 카테고리 경로를 확인하지 못했습니다.",
+    sourceDomains: ["search.shopping.naver.com"],
+  };
+}
+
+function rankCategoryPaths(
+  rows: Array<{ path: string; relevance: number; rank: number }>,
+) {
+  const grouped = new Map<
+    string,
+    { count: number; score: number; bestRank: number }
+  >();
+
+  for (const row of rows) {
+    const path = categoryParts(row.path).join(" > ");
+    if (!path) continue;
+    const current = grouped.get(path) ?? {
+      count: 0,
+      score: 0,
+      bestRank: Number.MAX_SAFE_INTEGER,
+    };
+    current.count += 1;
+    current.score += Math.max(1, MAX_EVIDENCE_ITEMS + 1 - row.rank) * 10 + row.relevance;
+    current.bestRank = Math.min(current.bestRank, row.rank);
+    grouped.set(path, current);
+  }
+
+  return [...grouped.entries()]
+    .sort((left, right) => {
+      const a = left[1];
+      const b = right[1];
+      return (
+        b.count - a.count ||
+        b.score - a.score ||
+        a.bestRank - b.bestRank ||
+        left[0].localeCompare(right[0], "ko-KR")
+      );
+    })
+    .map(([path]) => path)
+    .slice(0, 3);
 }
 
 export async function generateNaverFirstShoplingCategoryRecommendations(
@@ -290,11 +372,6 @@ export async function generateNaverFirstShoplingCategoryRecommendations(
       process.env.NAVER_CLIENT_SECRET ??
       process.env.NAVER_SEARCH_CLIENT_SECRET,
   );
-  if (!naverClientId || !naverClientSecret) {
-    throw new Error(
-      "NAVER_CLIENT_ID와 NAVER_CLIENT_SECRET이 설정되지 않아 네이버 쇼핑 검색 API를 사용할 수 없습니다.",
-    );
-  }
 
   const fetcher = options.fetcher ?? fetch;
   const timeoutMs = Math.min(
@@ -341,7 +418,7 @@ export async function generateNaverFirstShoplingCategoryRecommendations(
           "search_profile",
           "NAVER_CATEGORY_NOT_FOUND",
           false,
-          "네이버 쇼핑 검색 API 결과에서 카테고리 경로를 확인하지 못했습니다.",
+          "네이버 쇼핑 검색 결과에서 카테고리 경로를 확인하지 못했습니다.",
         ),
       );
       return;
@@ -367,6 +444,9 @@ export async function generateNaverFirstShoplingCategoryRecommendations(
     }
 
     const candidatePaths = matches.map((candidate) => candidate.path);
+    const evidenceSource = evidence.sourceDomains.includes("openapi.naver.com")
+      ? "네이버 쇼핑 검색 API"
+      : "네이버 쇼핑 검색 결과";
     results.push({
       itemId: input.itemId,
       modelNumber: input.modelNumber,
@@ -378,7 +458,7 @@ export async function generateNaverFirstShoplingCategoryRecommendations(
           Math.round(Math.min(selected.score, evidence.confidence || selected.score)),
         ),
       ),
-      reason: `네이버 쇼핑 검색 API에서 확인된 카테고리 '${selected.sourcePath}'를 기준으로 샵플링 표준 카테고리 원장에서 가장 가까운 경로를 선택했습니다.`,
+      reason: `${evidenceSource}에서 확인된 카테고리 '${selected.sourcePath}'를 기준으로 샵플링 표준 카테고리 원장에서 가장 가까운 경로를 선택했습니다.`,
       alternatives: candidatePaths.slice(1, 3),
       autoApply: false,
       skippedExisting: Boolean(input.currentCategory),
@@ -418,17 +498,40 @@ async function searchNaverShoppingCategory(
 ): Promise<NaverEvidence> {
   const queries = searchQueries(input.productName);
   let combined: NaverShoppingItem[] = [];
+  let officialFailure: unknown = null;
 
-  for (const query of queries) {
-    const items = await requestNaverShoppingApi(query, options);
-    combined = dedupeShoppingItems([...combined, ...items]);
-    const evidence = buildNaverCategoryEvidence(input.productName, combined);
-    if (evidence.categoryPaths.length && combined.length >= MAX_EVIDENCE_ITEMS) {
-      return evidence;
+  if (options.naverClientId && options.naverClientSecret) {
+    try {
+      for (const query of queries) {
+        const items = await requestNaverShoppingApi(query, options);
+        combined = dedupeShoppingItems([...combined, ...items]);
+        const evidence = buildNaverCategoryEvidence(input.productName, combined);
+        if (evidence.categoryPaths.length && combined.length >= MAX_EVIDENCE_ITEMS) {
+          return evidence;
+        }
+      }
+      const evidence = buildNaverCategoryEvidence(input.productName, combined);
+      if (evidence.categoryPaths.length) return evidence;
+    } catch (error) {
+      officialFailure = error;
+      if (!shouldUseHtmlFallback(error)) throw error;
     }
   }
 
-  return buildNaverCategoryEvidence(input.productName, combined);
+  const htmlPaths: string[] = [];
+  for (const query of queries) {
+    try {
+      const html = await requestNaverShoppingHtml(query, options);
+      htmlPaths.push(...extractNaverCategoryPathsFromHtml(html));
+      const evidence = evidenceFromHtmlPaths(htmlPaths);
+      if (evidence.categoryPaths.length) return evidence;
+    } catch (error) {
+      if (!officialFailure) officialFailure = error;
+    }
+  }
+
+  if (officialFailure) throw officialFailure;
+  return evidenceFromHtmlPaths([]);
 }
 
 async function requestNaverShoppingApi(
@@ -448,7 +551,6 @@ async function requestNaverShoppingApi(
     url.searchParams.set("display", String(NAVER_DISPLAY));
     url.searchParams.set("start", "1");
     url.searchParams.set("sort", "sim");
-    url.searchParams.set("exclude", "used:rental:cbshop");
 
     const response = await options.fetcher(url, {
       method: "GET",
@@ -466,8 +568,9 @@ async function requestNaverShoppingApi(
       const error = new Error(
         text(payload.errorMessage) ||
           `네이버 쇼핑 검색 API 요청에 실패했습니다. HTTP ${response.status}`,
-      ) as Error & { status?: number; retryAfterMs?: number };
+      ) as ProviderError;
       error.status = response.status;
+      error.code = text(payload.errorCode);
       error.retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
       throw error;
     }
@@ -481,6 +584,55 @@ async function requestNaverShoppingApi(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function requestNaverShoppingHtml(
+  query: string,
+  options: {
+    fetcher: typeof fetch;
+    timeoutMs: number;
+  },
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs);
+  try {
+    const url = new URL(NAVER_SHOPPING_HTML_ENDPOINT);
+    url.searchParams.set("query", query);
+    const response = await options.fetcher(url, {
+      method: "GET",
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const error = new Error(
+        `네이버 쇼핑 검색 화면 요청에 실패했습니다. HTTP ${response.status}`,
+      ) as ProviderError;
+      error.status = response.status;
+      throw error;
+    }
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function shouldUseHtmlFallback(error: unknown) {
+  if (!error || typeof error !== "object") return true;
+  const row = error as ProviderError;
+  const message = text(row.message);
+  return (
+    row.status === 401 ||
+    row.status === 403 ||
+    row.status === 404 ||
+    row.code === "SE05" ||
+    /Invalid search api|존재하지 않는 검색 api|인증|권한/i.test(message)
+  );
 }
 
 function rankShoppingItem(
@@ -577,7 +729,13 @@ function dedupeShoppingItems(items: NaverShoppingItem[]) {
   for (const item of items) {
     const key =
       text(item.productId) ||
-      [stripHtml(item.title), text(item.category1), text(item.category2), text(item.category3), text(item.category4)].join("|");
+      [
+        stripHtml(item.title),
+        text(item.category1),
+        text(item.category2),
+        text(item.category3),
+        text(item.category4),
+      ].join("|");
     if (!key || seen.has(key)) continue;
     seen.add(key);
     result.push(item);
@@ -610,23 +768,24 @@ function failureFromError(input: ProductCategoryInput, error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "");
   const status =
     error && typeof error === "object"
-      ? Number((error as Record<string, unknown>).status) || 0
+      ? Number((error as ProviderError).status) || 0
       : 0;
+  const code =
+    error && typeof error === "object"
+      ? text((error as ProviderError).code)
+      : "";
   const retryAfterMs =
     error && typeof error === "object"
-      ? Math.max(
-          0,
-          Number((error as Record<string, unknown>).retryAfterMs) || 0,
-        )
+      ? Math.max(0, Number((error as ProviderError).retryAfterMs) || 0)
       : 0;
 
-  if (/NAVER_CLIENT_ID|NAVER_CLIENT_SECRET/.test(message)) {
+  if (code === "SE05" || /Invalid search api|존재하지 않는 검색 api/i.test(message)) {
     return failure(
       input,
       "search_profile",
-      "NAVER_API_CONFIG",
+      "NAVER_API_ROUTE",
       false,
-      message,
+      "네이버 공식 검색 API가 현재 키에서 사용할 수 없고 쇼핑 화면 대체 수집에서도 카테고리를 확인하지 못했습니다.",
     );
   }
   if (status === 401 || status === 403) {
@@ -635,7 +794,7 @@ function failureFromError(input: ProductCategoryInput, error: unknown) {
       "search_profile",
       "NAVER_API_AUTH",
       false,
-      "네이버 쇼핑 검색 API 인증에 실패했습니다. NAVER_CLIENT_ID / NAVER_CLIENT_SECRET을 확인하세요.",
+      "네이버 공식 검색 API 인증/권한이 맞지 않고 쇼핑 화면 대체 수집에서도 카테고리를 확인하지 못했습니다.",
     );
   }
   if (status === 429) {
@@ -644,7 +803,7 @@ function failureFromError(input: ProductCategoryInput, error: unknown) {
       "search_profile",
       "NAVER_API_RATE_LIMIT",
       true,
-      "네이버 쇼핑 검색 API 호출 한도에 도달했습니다.",
+      "네이버 쇼핑 검색 호출 한도에 도달했습니다.",
       retryAfterMs,
     );
   }
@@ -657,7 +816,7 @@ function failureFromError(input: ProductCategoryInput, error: unknown) {
       "search_profile",
       "NAVER_API_TIMEOUT",
       true,
-      "네이버 쇼핑 검색 API 응답 제한시간을 초과했습니다.",
+      "네이버 쇼핑 카테고리 확인 제한시간을 초과했습니다.",
       retryAfterMs,
     );
   }
@@ -667,7 +826,7 @@ function failureFromError(input: ProductCategoryInput, error: unknown) {
       "search_profile",
       "NAVER_API_UPSTREAM",
       true,
-      "네이버 쇼핑 검색 API가 일시적으로 응답하지 않았습니다.",
+      "네이버 쇼핑 검색이 일시적으로 응답하지 않았습니다.",
       retryAfterMs,
     );
   }
@@ -677,7 +836,7 @@ function failureFromError(input: ProductCategoryInput, error: unknown) {
       "search_profile",
       "NAVER_API_NETWORK",
       true,
-      "네이버 쇼핑 검색 API 연결이 일시적으로 끊겼습니다.",
+      "네이버 쇼핑 검색 연결이 일시적으로 끊겼습니다.",
       retryAfterMs,
     );
   }
@@ -686,7 +845,7 @@ function failureFromError(input: ProductCategoryInput, error: unknown) {
     "search_profile",
     "NAVER_API_UNKNOWN",
     false,
-    message.slice(0, 240) || "네이버 쇼핑 검색 API를 완료하지 못했습니다.",
+    message.slice(0, 240) || "네이버 쇼핑 카테고리 확인을 완료하지 못했습니다.",
   );
 }
 

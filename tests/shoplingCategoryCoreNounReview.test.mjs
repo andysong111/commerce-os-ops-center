@@ -177,7 +177,7 @@ test("카테고리 API는 일반 운영에서 모델명을 네이버 쇼핑에 �
     "utf8",
   );
 
-  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-official-search-v1"/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-shopping-grounded-v2"/);
   assert.match(route, /SHOPLING_CATEGORY_MODE \|\| "naver_first"/);
   assert.match(route, /requestedCategoryMode === "legacy" \? "legacy" : "naver_first"/);
   assert.match(route, /generateNaverFirstShoplingCategoryRecommendations/);
@@ -191,6 +191,8 @@ test("카테고리 API는 일반 운영에서 모델명을 네이버 쇼핑에 �
   assert.match(naver, /category1/);
   assert.match(naver, /category4/);
   assert.doesNotMatch(naver, /api\.openai\.com\/v1\/responses/);
+  assert.match(naver, /search\.shopping\.naver\.com\/search\/all/);
+  assert.match(naver, /shouldUseHtmlFallback/);
   assert.match(naver, /const MIN_SIMILARITY = 58/);
 });
 
