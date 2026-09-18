@@ -7,6 +7,7 @@ import {
 import { calculateNetRequirement } from "@/lib/productDecisionEngine/netRequirement";
 import type { SalesOrderGroup } from "@/lib/productDecisionEngine/salesOrder";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import { verifiedPurchaseCostReady } from "@/lib/verifiedPurchaseCostEvidence";
 
 export type InventoryOperatingMode =
   | "VERIFIED"
@@ -139,48 +140,6 @@ function inventoryMode(
   }
   if (row.inventoryVerified) return "VERIFIED";
   return "PROVISIONAL";
-}
-
-const VERIFIED_PURCHASE_COST_SOURCES = new Set([
-  "CONFIRMED_RECEIPT",
-  "LEGACY_VERIFIED_COST_EVIDENCE",
-  "SOURCE_ORDER_VERIFIED_COST_EVIDENCE",
-]);
-
-function verifiedPurchaseCostReady(
-  row: ProductMasterInventoryCostRow | undefined,
-  now: number,
-) {
-  if (!row || row.hasVerifiedPurchaseCost !== true) return false;
-  if (!VERIFIED_PURCHASE_COST_SOURCES.has(row.purchaseCostTrustSource)) {
-    return false;
-  }
-  if (
-    !Number.isSafeInteger(row.verifiedPurchaseUnitCostKrw) ||
-    row.verifiedPurchaseUnitCostKrw <= 0 ||
-    !Number.isSafeInteger(row.purchaseProtectedCostKrw) ||
-    row.purchaseProtectedCostKrw < row.verifiedPurchaseUnitCostKrw
-  ) {
-    return false;
-  }
-  const evidenceTime = row.verifiedPurchaseCostAt
-    ? Date.parse(row.verifiedPurchaseCostAt)
-    : NaN;
-  if (!Number.isFinite(evidenceTime) || evidenceTime > now) return false;
-
-  if (row.purchaseCostTrustSource === "CONFIRMED_RECEIPT") {
-    return (
-      row.hasConfirmedReceiptCost === true &&
-      Number.isSafeInteger(row.latestConfirmedReceiptCostKrw) &&
-      row.latestConfirmedReceiptCostKrw > 0 &&
-      row.latestConfirmedReceiptCostKrw === row.verifiedPurchaseUnitCostKrw
-    );
-  }
-  return (
-    row.hasConfirmedReceiptCost === false &&
-    Number.isSafeInteger(row.purchaseCostEvidenceCount) &&
-    row.purchaseCostEvidenceCount > 0
-  );
 }
 
 function actionFor(
