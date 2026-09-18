@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
             retryFailedIndividually,
           })
         : await generateNaverFirstShoplingCategoryRecommendations(inputs, {
-            timeoutMs: 22_000,
+            timeoutMs: 30_000,
             model: naverModel,
           });
 
