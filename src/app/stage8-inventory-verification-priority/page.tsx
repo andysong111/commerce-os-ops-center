@@ -158,7 +158,7 @@ function InventoryTable({ rows }: { rows: Row[] }) {
 function actionLabel(action: Row["action"]) {
   if (action === "LEDGER_REVIEW_REQUIRED") return "원장 검토";
   if (action === "PROVISIONAL_DECISION_EVIDENCE_REQUIRED") return "추정재고 실행증거 필요";
-  if (action === "COST_CONFIRMATION_REQUIRED") return "입고원가 확인";
+  if (action === "COST_CONFIRMATION_REQUIRED") return "검증원가 확인";
   return "준비 완료";
 }
 
