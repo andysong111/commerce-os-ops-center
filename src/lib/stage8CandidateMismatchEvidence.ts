@@ -53,6 +53,13 @@ export type CandidateMismatchEvidenceRequest = {
 export type CandidateMismatchEvidenceStatus = {
   configured: boolean;
   requestId: string | null;
+  candidateSalesRequestId?: string | null;
+  candidateParityRequestId?: string | null;
+  analysisAsOf?: string | null;
+  planningContentFingerprint?: string | null;
+  candidateEventFingerprint?: string | null;
+  candidatePlanFingerprint?: string | null;
+  candidateParityFingerprint?: string | null;
   state: "IDLE" | "QUEUED" | "RUNNING" | "COMPLETE" | "FAILED";
   stage: string;
   message: string;
@@ -575,6 +582,13 @@ export async function loadCandidateMismatchEvidenceStatus(): Promise<CandidateMi
   const common = {
     ...empty,
     requestId: request.requestId,
+    candidateSalesRequestId: request.candidateSalesRequestId,
+    candidateParityRequestId: request.candidateParityRequestId,
+    analysisAsOf: request.analysisAsOf,
+    planningContentFingerprint: request.planningContentFingerprint,
+    candidateEventFingerprint: request.candidateEventFingerprint,
+    candidatePlanFingerprint: request.candidatePlanFingerprint,
+    candidateParityFingerprint: request.candidateParityFingerprint,
     completedRanges,
     totalRanges: request.ranges.length,
     progress: Math.min(
