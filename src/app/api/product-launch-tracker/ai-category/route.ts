@@ -4,12 +4,13 @@ import {
   isRetryableCategoryOutputError,
 } from "@/lib/shoplingCategoryRecommendationRunner";
 import { generateNaverFirstShoplingCategoryRecommendations } from "@/lib/shoplingCategoryNaverFirst";
+import { rerankNaverGroundedShoplingRecommendations } from "@/lib/shoplingCategoryOpenAiReranker";
 import { parseProductCategoryInputs } from "@/lib/shoplingCategoryScoring";
 import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-const CATEGORY_ENGINE_VERSION = "naver-shopping-grounded-v2";
+const CATEGORY_ENGINE_VERSION = "naver-openai-constrained-v3";
 
 
 export async function GET() {
@@ -27,12 +28,20 @@ export async function GET() {
         "",
     ).trim(),
   );
+  const openAiRerankerConfigured = Boolean(
+    String(
+      process.env.SHOPLING_CATEGORY_OPENAI_API_KEY ??
+        process.env.OPENAI_API_KEY ??
+        "",
+    ).trim(),
+  );
   return Response.json(
     {
       ok: true,
       engineVersion: CATEGORY_ENGINE_VERSION,
-      provider: "naver_shopping_search_api",
+      provider: "naver_shopping_grounding_plus_openai_constrained_rerank",
       configured: hasClientId && hasClientSecret,
+      openAiRerankerConfigured,
     },
     { headers: { "Cache-Control": "no-store" } },
   );
@@ -75,10 +84,13 @@ export async function POST(request: NextRequest) {
     // -> 저장된 샵플링 표준 카테고리에서 가장 가까운 경로만 제시.
     // legacy만 긴급 롤백용으로 남기고, shopling_first 같은 과거 값은 모두 naver_first로 수렴한다.
     const categoryMode = requestedCategoryMode === "legacy" ? "legacy" : "naver_first";
-    const naverModel =
-      process.env.OPENAI_NAVER_CATEGORY_MODEL || "gpt-4.1-mini";
+    const rerankModel =
+      process.env.OPENAI_CATEGORY_RERANK_MODEL ||
+      process.env.OPENAI_CATEGORY_MODEL ||
+      process.env.OPENAI_MODEL ||
+      "gpt-5-mini";
 
-    const generated =
+    const generatedBase =
       categoryMode === "legacy"
         ? await generateReliableShoplingCategoryRecommendations(inputs, {
             timeoutMs: 60_000,
@@ -86,8 +98,19 @@ export async function POST(request: NextRequest) {
           })
         : await generateNaverFirstShoplingCategoryRecommendations(inputs, {
             timeoutMs: 30_000,
-            model: naverModel,
           });
+
+    const generated =
+      categoryMode === "legacy"
+        ? generatedBase
+        : await rerankNaverGroundedShoplingRecommendations(
+            inputs,
+            generatedBase,
+            {
+              model: rerankModel,
+              timeoutMs: 45_000,
+            },
+          );
 
     const generatedById = new Map(
       generated.results.map((row) => [row.itemId, row]),
@@ -129,6 +152,7 @@ export async function POST(request: NextRequest) {
         failureCount: failures.length,
         durationMs: Date.now() - startedAt,
         retryFailedIndividually,
+        constrainedOpenAiRerank: categoryMode === "naver_first",
         failureCodes: failures.reduce<Record<string, number>>(
           (counts, failure) => {
             counts[failure.code] = (counts[failure.code] ?? 0) + 1;
