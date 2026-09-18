@@ -190,7 +190,9 @@ test("카테고리 API는 일반 운영에서 모델명을 네이버 쇼핑에 �
   assert.match(naver, /"X-Naver-Client-Secret"/);
   assert.match(naver, /category1/);
   assert.match(naver, /category4/);
-  assert.doesNotMatch(naver, /api\.openai\.com\/v1\/responses/);\n  assert.match(naver, /search\.shopping\.naver\.com\/search\/all/);\n  assert.match(naver, /shouldUseHtmlFallback/);
+  assert.doesNotMatch(naver, /api\.openai\.com\/v1\/responses/);
+  assert.match(naver, /search\.shopping\.naver\.com\/search\/all/);
+  assert.match(naver, /shouldUseHtmlFallback/);
   assert.match(naver, /const MIN_SIMILARITY = 58/);
 });
 
