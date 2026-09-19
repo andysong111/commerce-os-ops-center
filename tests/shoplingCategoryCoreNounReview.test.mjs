@@ -105,6 +105,24 @@ test("검토함은 재생성 상품 선택과 승인 후보 선택을 분리해 
   assert.match(component, /실패한 \$\{failedSet\.size\}건만 선택 상태로 남겼습니다/);
 });
 
+test("카테고리 승인 시 scoped 저장 후 검토함에서 제거하고 상품원장까지 동기화한다", async () => {
+  const component = await readFile(
+    new URL(
+      "../src/components/shopling-category-review/ShoplingCategoryCoreNounReview.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(component, /operation: "approve_category_ai_reviews"/);
+  assert.match(component, /PRODUCT_MASTER_SYNC_ENDPOINT/);
+  assert.match(component, /\/api\/product-launch-tracker\/product-master-sync/);
+  assert.match(component, /const latest = await requireServerState\(\)/);
+  assert.match(component, /setState\(latest\)/);
+  assert.match(component, /상품출시 진행관리·상품원장에 저장했습니다/);
+  assert.doesNotMatch(component, /applyShoplingCategoryReviewDecisions/);
+});
+
 test("카테고리 검토함은 전체 비우기 버튼으로 AI 검토 메타데이터만 서버에서 제거한다", async () => {
   const component = await readFile(
     new URL(
