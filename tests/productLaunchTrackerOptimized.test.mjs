@@ -166,6 +166,64 @@ test("bulk item patch applies multiple scoped changes in one state mutation", ()
   assert.equal(mutation.state.items[0].updatedBy, "승준 · AI 카테고리 후보 생성");
 });
 
+test("category AI approval atomically writes Shopling category and marks review approved", () => {
+  const source = state(2);
+  source.items[0].shoplingCategory = "";
+  source.items[0].categoryAiStatus = "review_required";
+  source.items[0].categoryAiSuggestion = "문구/취미/펫>조류용품>기타 조류용품";
+  source.items[0].categoryAiCandidateChoices = [
+    "문구/취미/펫>조류용품>기타 조류용품",
+    "문구/취미/펫>소동물용품>기타 애완용품",
+  ];
+
+  const mutation = applyProductLaunchTrackerMutation(source, {
+    operation: "approve_category_ai_reviews",
+    decisions: [
+      {
+        itemId: "item-1",
+        category: "문구/취미/펫>조류용품>기타 조류용품",
+      },
+    ],
+    reviewer: "AI 카테고리 검토함",
+  });
+
+  assert.equal(
+    mutation.state.items[0].shoplingCategory,
+    "문구/취미/펫>조류용품>기타 조류용품",
+  );
+  assert.equal(mutation.state.items[0].categoryAiStatus, "review_approved");
+  assert.equal(
+    mutation.state.items[0].categoryAiApprovedValue,
+    "문구/취미/펫>조류용품>기타 조류용품",
+  );
+  assert.equal(
+    mutation.state.items[0].categoryAiReviewedBy,
+    "AI 카테고리 검토함",
+  );
+  assert.deepEqual(mutation.changedIds, ["item-1"]);
+});
+
+test("category AI approval rejects stale paths outside the latest candidate list", () => {
+  const source = state(1);
+  source.items[0].categoryAiStatus = "review_required";
+  source.items[0].categoryAiSuggestion = "생활>청소>브러시";
+  source.items[0].categoryAiCandidateChoices = ["생활>청소>브러시"];
+
+  assert.throws(
+    () =>
+      applyProductLaunchTrackerMutation(source, {
+        operation: "approve_category_ai_reviews",
+        decisions: [
+          {
+            itemId: "item-1",
+            category: "생활>욕실>샤워기",
+          },
+        ],
+      }),
+    /최신 AI 후보 목록/,
+  );
+});
+
 test("clear category AI review removes only categoryAi metadata and preserves confirmed Shopling category", () => {
   const source = state(3);
   source.items[0].categoryAiStatus = "review_required";
