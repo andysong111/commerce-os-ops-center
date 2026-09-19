@@ -446,6 +446,22 @@ export async function generateShoplingCategorySearchProfiles(
     !["0", "false", "off"].includes(
       text(process.env.OPENAI_CATEGORY_WEB_SEARCH).toLocaleLowerCase("en-US"),
     );
+
+  // OpenAI-only Shopling classification intentionally disables web search.
+  // In that path this semantic identity pass is not a short fallback: it is
+  // the primary evidence used to build the Shopling shortlist, so give it the
+  // full caller timeout instead of the legacy 15s fallback budget.
+  if (!webSearchEnabled) {
+    return requestShoplingCategorySearchProfiles({
+      normalizedInputs,
+      apiKey,
+      model,
+      fetcher,
+      timeoutMs: totalTimeoutMs,
+      useWebSearch: false,
+    });
+  }
+
   return runFallbackFirstCategoryGrounding({
     totalTimeoutMs,
     webSearchEnabled,
@@ -533,6 +549,12 @@ async function requestShoplingCategorySearchProfiles(options: {
                     ? "네이버 쇼핑·스마트스토어·네이버 통합검색에 노출된 동일 상품의 카테고리 경로를 최우선으로 사용한다. 네이버 근거가 없으면 한국 주요 쇼핑몰 여러 결과에서 공통으로 확인되는 분류만 사용한다."
                     : "marketCategoryPaths는 빈 배열로 두고 marketEvidenceConfidence는 49 이하로 제한한다.",
                   "검색 결과 제목의 우연한 단어 일치가 아니라 용도·사용 부위·대상까지 같은 제품인지 확인한다.",
+                  "모델명 전체를 하나의 상품명으로 먼저 해석한다. 합성 상품명은 마지막 단어 하나만 떼어 일반 사전 의미로 분류하지 않는다.",
+                  "특히 'X안경', 'X트레이', 'X담요', '차량용 X백'처럼 앞말이 실제 상품 정체성을 바꾸는 경우 전체 표현의 유통 의미를 우선한다.",
+                  "예: '꿩안경'은 사람용 안경이 아니라 꿩·닭 등 조류 사육에 쓰는 가림/쪼기 방지 액세서리이므로 조류·소동물 사육용품 쪽 용어를 만든다.",
+                  "예: '멀티탭 트레이'는 주방 쟁반이 아니라 멀티탭·케이블을 정리/수납하는 전선정리 액세서리로 해석한다.",
+                  "예: '은박담요'는 일반 침구 담요보다 비상·보온·응급·야외용 열반사 담요의 정체성을 우선한다.",
+                  "예: '차량용 무지 트레블백'은 '차량용'이 상위 정체성이 아니라 여행/수납 가방이 핵심 제품명사이고 차량 사용은 맥락이다.",
                   "모델명에서 실제로 판매하는 물건의 핵심 제품명사를 찾고, 샵플링 원장에서 검색할 한국어 동의어를 만든다.",
                   "동의어에는 카테고리에서 쓰는 표준 표기와 흔한 표기 차이(예: 브러시/브러쉬)를 포함한다.",
                   "색상·재질·크기·수량·형번·스타일·포장 여부는 핵심 제품명사에서 제외하고 ignoredAttributes에 넣는다.",
