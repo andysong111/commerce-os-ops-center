@@ -180,6 +180,7 @@ test("카테고리 API는 네이버 없이 OpenAI가 실제 샵플링 후보 안
   assert.match(route, /CATEGORY_ENGINE_VERSION = "openai-shopling-constrained-v4"/);
   assert.match(route, /generateReliableShoplingCategoryRecommendations/);
   assert.match(route, /useWebSearch: false/);
+  assert.match(route, /skipSearchProfiles: true/);
   assert.match(route, /categoryMode: "openai_only"/);
   assert.match(route, /naverDependency: false/);
   assert.doesNotMatch(route, /generateNaverFirstShoplingCategoryRecommendations/);
@@ -190,6 +191,22 @@ test("카테고리 API는 네이버 없이 OpenAI가 실제 샵플링 후보 안
   assert.match(catalog, /if \(!candidatePaths\.includes\(selectedPath\)\)/);
   assert.match(catalog, /후보에 없는 경로를 새로 만들거나 철자를 바꾸지 않는다/);
   assert.match(catalog, /SHOPLING_CATEGORY_OPENAI_API_KEY/);
+});
+
+
+test("OpenAI-only 경로는 중복 모델명 프로필 호출을 건너뛰고 최종 후보선택 단계만 실행한다", async () => {
+  const runner = await readFile(
+    new URL(
+      "../src/lib/shoplingCategoryRecommendationRunner.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(runner, /skipSearchProfiles\?: boolean/);
+  assert.match(runner, /if \(!options\.skipSearchProfiles\)/);
+  assert.match(runner, /options\.skipSearchProfiles\s*\? inputs/);
+  assert.match(runner, /CATEGORY_RECOMMENDATION_TIMEOUT_MS = 55_000/);
 });
 
 
