@@ -405,6 +405,22 @@ export function applyProductLaunchTrackerMutation(
       );
       changedIds.add(itemId);
     }
+  } else if (operation === "clear_category_ai_review") {
+    const updatedBy =
+      text(input.updatedBy) || "승준 · AI 카테고리 검토함 비우기";
+    items.forEach((item, index) => {
+      const reviewKeys = Object.keys(item).filter((key) =>
+        key.startsWith("categoryAi"),
+      );
+      if (!reviewKeys.length) return;
+      const next = { ...item };
+      for (const key of reviewKeys) delete next[key];
+      next.updatedAt = now;
+      next.updatedBy = updatedBy;
+      items[index] = normalizeWholeItem(next, now);
+      const id = text(item.id);
+      if (id) changedIds.add(id);
+    });
   } else if (operation === "replace_item") {
     const itemId = requiredText(input.itemId, "상품 ID가 필요합니다.");
     const replacement = isRecord(input.item) ? input.item : null;
