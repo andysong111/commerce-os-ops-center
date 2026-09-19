@@ -82,6 +82,7 @@ export type ChinaOrderCommitmentSnapshot = {
   note: string;
   eventCount: number;
   staleEventCount: number;
+  latestPayload: unknown;
 };
 
 export type ChinaOrderLedgerSummary = {
@@ -242,6 +243,7 @@ export function reduceChinaOrderCommitmentEvents(
   let cancelledAt: string | null = null;
   let updatedAt = first.occurredAt;
   let note = "";
+  let latestPayload: unknown = payloadObject(first.payload);
   let eventCount = 0;
   let staleEventCount = 0;
 
@@ -309,6 +311,10 @@ export function reduceChinaOrderCommitmentEvents(
     }
     updatedAt = event.occurredAt;
     note = event.note || note;
+    latestPayload = {
+      ...payloadObject(latestPayload),
+      ...payloadObject(event.payload),
+    };
   }
 
   const committedQuantity = Math.max(requestedQuantity, orderedQuantity);
@@ -345,6 +351,7 @@ export function reduceChinaOrderCommitmentEvents(
     note,
     eventCount,
     staleEventCount,
+    latestPayload,
   };
 }
 

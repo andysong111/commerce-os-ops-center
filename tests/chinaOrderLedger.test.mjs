@@ -216,3 +216,38 @@ test("event API is idempotent, same-origin guarded and never executes external w
   assert.doesNotMatch(route, /1688/);
   assert.doesNotMatch(route, /inventory.*update|price.*update/i);
 });
+
+
+test("latest source payload survives ledger reduction for pre-inbound sourcing metadata", () => {
+  const snapshot = reduceChinaOrderCommitmentEvents([
+    event({
+      payload: {
+        sourcingConfirmed: true,
+        sourcingIntakeId: "11111111-1111-4111-8111-111111111111",
+        modelNo: "AAA493",
+        productName: "검증 신규상품",
+        unitPriceCny: 8.5,
+      },
+    }),
+    event({
+      sourceEventId: "event-payload-2",
+      requestedQuantity: 120,
+      occurredAt: "2026-08-05T02:00:00.000Z",
+      payload: {
+        unitPriceCny: 8.7,
+      },
+    }),
+    event({
+      sourceEventId: "event-payload-3",
+      status: "ORDERED",
+      orderedQuantity: 120,
+      occurredAt: "2026-08-05T03:00:00.000Z",
+      payload: {
+        orderNumber: "fixture-order",
+      },
+    }),
+  ]);
+  assert.equal(snapshot.latestPayload.modelNo, "AAA493");
+  assert.equal(snapshot.latestPayload.productName, "검증 신규상품");
+  assert.equal(snapshot.latestPayload.unitPriceCny, 8.7);
+});
