@@ -221,6 +221,37 @@ test("category AI approval rejects a category outside the latest candidates", ()
   );
 });
 
+test("category review status changes use scoped mutation without touching Shopling category", () => {
+  const source = state(3);
+  source.items[0].categoryAiStatus = "review_required";
+  source.items[0].categoryAiSuggestion = "생활>청소>브러시";
+  source.items[0].shoplingCategory = "";
+  source.items[1].categoryAiStatus = "review_held";
+  source.items[1].categoryAiSuggestion = "생활>정리>트레이";
+  source.items[1].shoplingCategory = "생활>기존>카테고리";
+
+  const first = applyProductLaunchTrackerMutation(source, {
+    operation: "update_category_ai_review_status",
+    decisions: [
+      { itemId: "item-1", action: "hold" },
+      { itemId: "item-2", action: "exclude" },
+    ],
+    updatedBy: "AI 카테고리 검토함",
+  });
+
+  assert.equal(first.state.items[0].categoryAiStatus, "review_held");
+  assert.equal(first.state.items[1].categoryAiStatus, "review_excluded");
+  assert.equal(first.state.items[1].shoplingCategory, "생활>기존>카테고리");
+  assert.deepEqual(first.changedIds, ["item-1", "item-2"]);
+
+  const restored = applyProductLaunchTrackerMutation(first.state, {
+    operation: "update_category_ai_review_status",
+    decisions: [{ itemId: "item-1", action: "restore" }],
+  });
+  assert.equal(restored.state.items[0].categoryAiStatus, "review_required");
+  assert.equal(restored.state.items[0].categoryAiReviewedAt, "");
+});
+
 test("clear category AI review removes only categoryAi metadata and preserves confirmed Shopling category", () => {
   const source = state(3);
   source.items[0].categoryAiStatus = "review_required";
