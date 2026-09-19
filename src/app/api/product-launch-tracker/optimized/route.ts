@@ -23,6 +23,7 @@ import {
   getProductLaunchTrackerItem,
   type ProductLaunchTrackerState,
 } from "@/lib/productLaunchTrackerOptimized";
+import { pushCanonicalProductMasterSnapshotFromTrackerState } from "@/lib/productMasterCanonicalSync";
 import {
   queryProductLaunchNormalizedPage,
   readProductLaunchNormalizedItem,
@@ -603,6 +604,67 @@ async function mutateStateWithRetry(
         return safeSummary;
       });
 
+    const operation = isRecord(input)
+      ? String(input.operation ?? "").trim()
+      : "";
+    let productMasterSync: {
+      attempted: boolean;
+      synced: boolean;
+      counts?: Record<string, number>;
+      error?: string;
+    } = { attempted: false, synced: true };
+
+    if (
+      operation === "approve_category_ai_reviews" &&
+      mutation.changedIds.length
+    ) {
+      productMasterSync = { attempted: true, synced: false };
+      const approvedItems = mutation.changedIds
+        .map((id) => index.itemsById.get(id))
+        .filter(Boolean);
+      let lastError = "";
+      for (let syncAttempt = 1; syncAttempt <= 3; syncAttempt += 1) {
+        try {
+          const synced =
+            await pushCanonicalProductMasterSnapshotFromTrackerState({
+              schemaVersion,
+              savedAt: updatedAt,
+              items: approvedItems,
+            });
+          productMasterSync = {
+            attempted: true,
+            synced: true,
+            counts: synced.counts,
+          };
+          break;
+        } catch (error) {
+          lastError =
+            error instanceof Error
+              ? error.message
+              : "PRODUCT_MASTER_CATEGORY_SYNC_FAILED";
+          if (syncAttempt < 3) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, 300 * syncAttempt),
+            );
+          }
+        }
+      }
+      if (!productMasterSync.synced) {
+        productMasterSync = {
+          attempted: true,
+          synced: false,
+          error: lastError.slice(0, 300),
+        };
+        console.error(
+          JSON.stringify({
+            event: "product_launch_category_product_master_sync_failed",
+            itemIds: mutation.changedIds,
+            message: lastError.slice(0, 300),
+          }),
+        );
+      }
+    }
+
     return {
       updatedAt,
       schemaVersion,
@@ -612,6 +674,7 @@ async function mutateStateWithRetry(
       counts: index.counts,
       filterOptions: index.filterOptions,
       normalizedSynced,
+      productMasterSync,
     };
   }
 
