@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { applyShoplingCategoryReviewDecisions } from "@/lib/shoplingCategoryReview";
 
 const STATE_ENDPOINT = "/api/product-launch-tracker/state";
+const OPTIMIZED_ENDPOINT = "/api/product-launch-tracker/optimized";
 const AI_ENDPOINT = "/api/product-launch-tracker/ai-category";
 const TRACKER_STORAGE_KEY = "commerce-os-product-launch-tracker:v2";
 const AI_BATCH_SIZE = 5;
@@ -244,6 +245,54 @@ export function ShoplingCategoryCoreNounReview() {
       );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "선택 후보 일괄 승인에 실패했습니다.");
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function clearReviewQueue() {
+    if (busyKey || !reviews.length || !state) return;
+
+    const confirmed = window.confirm(
+      `카테고리 검토함 ${reviews.length}건을 모두 비웁니다.\n\nAI 후보·신뢰도·검토 이력만 삭제되고, 이미 확정된 샵플링 표준 카테고리는 유지됩니다.\n계속하시겠습니까?`,
+    );
+    if (!confirmed) return;
+
+    setBusyKey("clear:review-queue");
+    setNotice("");
+    setBulkProgress("");
+    try {
+      const response = await fetch(OPTIMIZED_ENDPOINT, {
+        method: "PATCH",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          operation: "clear_category_ai_review",
+          updatedBy: "승준 · AI 카테고리 검토함 비우기",
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body?.ok !== true) {
+        throw new Error(body?.message || "카테고리 검토함을 비우지 못했습니다.");
+      }
+
+      const next = clearCategoryAiMetadataFromState(
+        state,
+        text(body?.updatedAt) || new Date().toISOString(),
+      );
+      setState(next);
+      setSelectedIds([]);
+      setCandidateSelections({});
+      window.localStorage.setItem(TRACKER_STORAGE_KEY, JSON.stringify(next));
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "카테고리 검토함을 비우지 못했습니다.",
+      );
     } finally {
       setBusyKey("");
     }
@@ -496,6 +545,16 @@ export function ShoplingCategoryCoreNounReview() {
                 ? "선택 후보 승인 중…"
                 : `선택 후보 일괄 승인${selectedCandidateCount ? ` (${selectedCandidateCount})` : ""}`}
             </button>
+            <button
+              type="button"
+              onClick={() => void clearReviewQueue()}
+              disabled={Boolean(busyKey) || !reviews.length}
+              className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 disabled:opacity-40"
+            >
+              {busyKey === "clear:review-queue"
+                ? "검토함 비우는 중…"
+                : `검토함 모두 비우기 (${reviews.length})`}
+            </button>
           </div>
         </div>
         {bulkProgress ? (
@@ -689,6 +748,23 @@ function applyAiResultsToState(
         updatedAt: now,
         updatedBy: autoApply ? "AI 카테고리 자동설정" : candidate.updatedBy,
       };
+    }),
+  };
+}
+
+function clearCategoryAiMetadataFromState(
+  state: TrackerState,
+  savedAt: string,
+): TrackerState {
+  return {
+    ...state,
+    savedAt,
+    items: state.items.map((item) => {
+      const next: TrackerItem = { ...item };
+      for (const key of Object.keys(next)) {
+        if (key.startsWith("categoryAi")) delete next[key];
+      }
+      return next;
     }),
   };
 }
