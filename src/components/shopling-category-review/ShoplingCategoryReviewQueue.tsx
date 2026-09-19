@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
-  applyShoplingCategoryReviewDecisions,
   buildShoplingCategoryReviewRows,
   countShoplingCategoryReviews,
   isShoplingCategoryReviewStale,
@@ -14,6 +13,9 @@ import {
 } from "@/lib/shoplingCategoryReview";
 
 const STATE_ENDPOINT = "/api/product-launch-tracker/state";
+const OPTIMIZED_ENDPOINT = "/api/product-launch-tracker/optimized";
+const PRODUCT_MASTER_SYNC_ENDPOINT =
+  "/api/product-launch-tracker/product-master-sync";
 const CATEGORY_STATUS_ENDPOINT = "/api/shopling-categories/status";
 const TRACKER_STORAGE_KEY = "commerce-os-product-launch-tracker:v2";
 
@@ -246,34 +248,89 @@ export function ShoplingCategoryReviewQueue() {
     setBusy(true);
     setNotice(null);
     try {
-      const latestState = await readServerState();
-      const result = applyShoplingCategoryReviewDecisions(latestState, decisions);
-      const response = await fetch(STATE_ENDPOINT, {
-        method: "PUT",
+      const approvals = decisions.filter((decision) => decision.action === "approve");
+      const statusChanges = decisions.filter(
+        (decision) => decision.action !== "approve",
+      );
+
+      if (approvals.length && statusChanges.length) {
+        throw new Error("승인과 상태 변경은 한 번에 함께 처리할 수 없습니다.");
+      }
+
+      const requestBody = approvals.length
+        ? {
+            operation: "approve_category_ai_reviews",
+            decisions: approvals.map((decision) => ({
+              itemId: decision.itemId,
+              category: decision.category,
+            })),
+            updatedBy: "승준 · AI 카테고리 검토 승인",
+          }
+        : {
+            operation: "update_category_ai_review_status",
+            decisions: statusChanges.map((decision) => ({
+              itemId: decision.itemId,
+              action: decision.action,
+            })),
+            updatedBy: "AI 카테고리 검토함",
+          };
+
+      const response = await fetch(OPTIMIZED_ENDPOINT, {
+        method: "PATCH",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
         credentials: "same-origin",
-        body: JSON.stringify({ state: result.state }),
+        body: JSON.stringify(requestBody),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || body?.ok !== true) {
         throw new Error(body?.message || "검토 결과를 서버에 저장하지 못했습니다.");
       }
-      setTrackerState(result.state as TrackerState);
+
+      const latest = await readServerState();
+      setTrackerState(latest);
       window.localStorage.setItem(
         TRACKER_STORAGE_KEY,
-        JSON.stringify(result.state),
+        JSON.stringify(latest),
       );
       setSelected((current) => {
         const next = new Set(current);
         for (const decision of decisions) next.delete(decision.itemId);
         return next;
       });
+
+      if (approvals.length) {
+        const masterResponse = await fetch(PRODUCT_MASTER_SYNC_ENDPOINT, {
+          method: "POST",
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        const masterBody = await masterResponse.json().catch(() => ({}));
+        if (!masterResponse.ok || masterBody?.ok !== true) {
+          setNotice({
+            tone: "error",
+            message:
+              `${label}은 상품출시 진행관리에 저장되어 검토함에서 제거됐습니다. 상품원장 동기화만 다시 확인하세요: ${String(
+                masterBody?.message ||
+                  `HTTP ${masterResponse.status}`,
+              )}`,
+          });
+          return;
+        }
+        setNotice({
+          tone: "success",
+          message:
+            `${label} 처리가 완료됐습니다. 승인 항목은 검토함에서 제거됐고 상품출시 진행관리·상품원장에 저장됐습니다.`,
+        });
+        return;
+      }
+
       setNotice({
         tone: "success",
-        message: `${label} 처리가 완료됐습니다. 진행관리 카테고리에도 즉시 반영됐습니다.`,
+        message: `${label} 처리가 완료됐습니다.`,
       });
     } catch (error) {
       setNotice({
