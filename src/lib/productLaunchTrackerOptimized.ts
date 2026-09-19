@@ -492,6 +492,61 @@ export function applyProductLaunchTrackerMutation(
       items[index] = normalizeWholeItem(next, now);
       changedIds.add(itemId);
     }
+  } else if (operation === "update_category_ai_review_status") {
+    const decisions = Array.isArray(input.decisions)
+      ? input.decisions.filter(isRecord)
+      : [];
+    if (!decisions.length) {
+      throw new Error("처리할 카테고리 검토 항목을 선택하세요.");
+    }
+    if (decisions.length > PRODUCT_LAUNCH_MUTATION_LIMIT) {
+      throw new Error(
+        `한 번에 최대 ${PRODUCT_LAUNCH_MUTATION_LIMIT}건까지 처리할 수 있습니다.`,
+      );
+    }
+
+    const seenIds = new Set<string>();
+    for (const decision of decisions) {
+      const itemId = requiredText(decision.itemId, "상품 ID가 필요합니다.");
+      if (seenIds.has(itemId)) {
+        throw new Error("동일 상품의 카테고리 검토 처리가 중복되었습니다.");
+      }
+      seenIds.add(itemId);
+
+      const action = text(decision.action);
+      if (!["hold", "exclude", "restore"].includes(action)) {
+        throw new Error("지원하지 않는 카테고리 검토 상태 변경입니다.");
+      }
+
+      const index = items.findIndex((item) => text(item.id) === itemId);
+      if (index < 0) throw new Error("처리할 상품을 찾지 못했습니다.");
+
+      const next: UnknownRecord = {
+        ...items[index],
+        updatedAt: now,
+        updatedBy:
+          action === "hold"
+            ? "AI 카테고리 검토 보류"
+            : action === "exclude"
+              ? "AI 카테고리 검토 제외"
+              : "AI 카테고리 재검토 전환",
+      };
+      if (action === "hold") {
+        next.categoryAiStatus = "review_held";
+        next.categoryAiReviewedAt = now;
+        next.categoryAiReviewedBy = text(input.updatedBy) || "AI 카테고리 검토함";
+      } else if (action === "exclude") {
+        next.categoryAiStatus = "review_excluded";
+        next.categoryAiReviewedAt = now;
+        next.categoryAiReviewedBy = text(input.updatedBy) || "AI 카테고리 검토함";
+      } else {
+        next.categoryAiStatus = "review_required";
+        next.categoryAiReviewedAt = "";
+        next.categoryAiReviewedBy = "";
+      }
+      items[index] = normalizeWholeItem(next, now);
+      changedIds.add(itemId);
+    }
   } else if (operation === "replace_item") {
     const itemId = requiredText(input.itemId, "상품 ID가 필요합니다.");
     const replacement = isRecord(input.item) ? input.item : null;
