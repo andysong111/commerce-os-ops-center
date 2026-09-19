@@ -28,6 +28,8 @@ export type ShoplingCategorySearchProfile = {
   contextTerms: string[];
   ignoredAttributes: string[];
   catalogCategoryTerms?: string[];
+  productFormTerms?: string[];
+  incompatibleCategoryTerms?: string[];
   blockedCategoryTerms?: string[];
   marketCategoryPaths?: string[];
   marketEvidenceSummary?: string;
@@ -280,6 +282,18 @@ export function normalizeShoplingCategorySearchProfiles(
             catalogCategoryTerms: normalizeProfileTerms(
               row.catalogCategoryTerms,
               10,
+            ),
+          }
+        : {}),
+      ...(Array.isArray(row.productFormTerms)
+        ? {
+            productFormTerms: normalizeProfileTerms(row.productFormTerms, 8),
+          }
+        : {}),
+      ...(Array.isArray(row.incompatibleCategoryTerms)
+        ? {
+            incompatibleCategoryTerms: normalizeBlockedCategoryTerms(
+              row.incompatibleCategoryTerms,
             ),
           }
         : {}),
@@ -559,13 +573,17 @@ function profileBlockedCategoryTerms(
     ...(profile?.coreProductTerms ?? []),
     ...(profile?.contextTerms ?? []),
     ...(profile?.catalogCategoryTerms ?? []),
+    ...(profile?.productFormTerms ?? []),
     ...(profile?.marketCategoryPaths ?? []).flatMap((path) =>
       path.split(/[>›]/g),
     ),
   ]
     .map(compact)
     .filter(Boolean);
-  return (profile?.blockedCategoryTerms ?? [])
+  return [
+    ...(profile?.blockedCategoryTerms ?? []),
+    ...(profile?.incompatibleCategoryTerms ?? []),
+  ]
     .map((term) => ({ term, key: compact(term) }))
     .filter(
       ({ key }) =>
@@ -781,6 +799,7 @@ export function shortlistShoplingCategories(
     ...(profile?.coreProductTerms ?? []),
     ...(profile?.contextTerms ?? []),
     ...(profile?.catalogCategoryTerms ?? []),
+    ...(profile?.productFormTerms ?? []),
     ...(profile?.marketCategoryPaths ?? []),
   ]
     .filter(Boolean)
