@@ -8,7 +8,7 @@ import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-const CATEGORY_ENGINE_VERSION = "openai-shopling-constrained-v4";
+const CATEGORY_ENGINE_VERSION = "openai-semantic-shopling-v5";
 
 export async function GET() {
   const configured = Boolean(
@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
       "gpt-5-mini";
 
     // 운영 기본:
-    // 모델명·옵션 -> OpenAI 의미 분석(외부 웹검색 없음)
-    // -> 실제 샵플링 카탈로그에서 후보 shortlist
+    // 모델명·옵션 -> OpenAI가 상품 정체성/용도/대상/동의어를 의미 분석(외부 웹검색 없음)
+    // -> 그 의미 프로필로 실제 샵플링 카탈로그 후보를 shortlist
     // -> OpenAI가 실제 후보 안에서만 최종 1~3순위 선택
     // -> 사람 검토. 후보 밖 경로는 기존 카탈로그 검증에서 거부된다.
     const generated = await generateReliableShoplingCategoryRecommendations(
@@ -67,7 +67,6 @@ export async function POST(request: NextRequest) {
       {
         timeoutMs: 60_000,
         retryFailedIndividually,
-        skipSearchProfiles: true,
         useWebSearch: false,
         model,
       },
