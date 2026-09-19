@@ -427,25 +427,36 @@ export function inferShoplingCoreProductTerms(
   };
 
   const unique: string[] = [];
-  const addSupported = (value: string, fromProfile = false) => {
+  const addSupported = (
+    value: string,
+    fromProfile = false,
+    maxTerms = 1,
+  ) => {
     if (!(fromProfile ? isAllowedProfileTerm(value) : isAllowed(value))) {
       return false;
     }
-    const candidate = supportedCatalogTerms(
+    const candidates = supportedCatalogTerms(
       value,
       pathCompacts,
       fromProfile && PRODUCT_MATERIAL_TERMS.has(compact(value)),
-    )[0];
-    if (!candidate) return false;
-    if (!unique.includes(candidate.term)) unique.push(candidate.term);
+      false,
+      fromProfile,
+    ).slice(0, Math.max(1, maxTerms));
+    if (!candidates.length) return false;
+    for (const candidate of candidates) {
+      if (!unique.includes(candidate.term)) unique.push(candidate.term);
+      if (unique.length >= 8) break;
+    }
     return true;
   };
 
-  // AI expands the model name into retail taxonomy synonyms. Every expanded
-  // term still has to match the current Shopling catalog before it is used.
+  // AI expands the model name into retail taxonomy synonyms. Keep several
+  // catalog-supported anchors from each semantic phrase instead of only the
+  // final suffix. This preserves taxonomy words such as 조류/두피/세안/수예
+  // even when the same phrase also contains generic nouns like 안경/브러시/도구.
   for (const value of profile?.coreProductTerms ?? []) {
-    addSupported(value, true);
-    if (unique.length >= 7) break;
+    addSupported(value, true, 3);
+    if (unique.length >= 8) break;
   }
 
   // Korean product compounds normally end with the head noun. Inspect the
@@ -488,7 +499,15 @@ function inferShoplingContextTerms(
     return normalized && !ignored.has(normalized) && isMeaningfulProductToken(value);
   });
   const ranked = sources
-    .flatMap((value) => supportedCatalogTerms(value, pathCompacts).slice(0, 1))
+    .flatMap((value) =>
+      supportedCatalogTerms(
+        value,
+        pathCompacts,
+        false,
+        false,
+        true,
+      ).slice(0, 3),
+    )
     .filter((candidate) => !coreTerms.includes(candidate.term))
     .sort(
       (left, right) =>
@@ -516,14 +535,18 @@ export function inferShoplingMarketCategoryTerms(
   ];
   const unique: string[] = [];
   for (const value of sources) {
-    const candidate = supportedCatalogTerms(
+    const candidates = supportedCatalogTerms(
       value,
       pathCompacts,
       false,
       true,
-    )[0];
-    if (!candidate || unique.includes(candidate.term)) continue;
-    unique.push(candidate.term);
+      true,
+    ).slice(0, 4);
+    for (const candidate of candidates) {
+      if (unique.includes(candidate.term)) continue;
+      unique.push(candidate.term);
+      if (unique.length >= 10) break;
+    }
     if (unique.length >= 10) break;
   }
   return unique;
@@ -559,8 +582,12 @@ function supportedCatalogTerms(
   pathCompacts: Array<{ path: string; leaf: string }>,
   allowMaterialTerm = false,
   rejectGenericSuffix = false,
+  includeSemanticAnchors = false,
 ) {
-  return suffixTerms(value, allowMaterialTerm)
+  const searchTerms = includeSemanticAnchors
+    ? semanticCatalogSearchTerms(value, allowMaterialTerm)
+    : suffixTerms(value, allowMaterialTerm);
+  return searchTerms
     .filter(
       (term) => !rejectGenericSuffix || !GENERIC_CATEGORY_TERMS.has(term),
     )
@@ -600,6 +627,54 @@ function isNonProductVariant(normalized: string) {
   if (/^\d+(?:g|kg|ml|l|cm|mm|m|호|단|구|색|종|개|쌍|p|pcs?)?$/.test(normalized)) return true;
   if (/^[a-z]{0,3}\d+[a-z0-9-]*$/.test(normalized)) return true;
   return false;
+}
+
+function semanticCatalogSearchTerms(
+  value: string,
+  allowMaterialTerm = false,
+) {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string) => {
+    const key = compact(raw);
+    if (key.length < 2 || seen.has(key)) return;
+    if (
+      GENERIC_CATEGORY_TERMS.has(key) ||
+      (PRODUCT_TOKEN_STOPWORDS.has(key) &&
+        !(allowMaterialTerm && PRODUCT_MATERIAL_TERMS.has(key)))
+    ) {
+      return;
+    }
+    seen.add(key);
+    result.push(key);
+  };
+
+  // Preserve the existing exact/suffix matches first.
+  for (const term of suffixTerms(value, allowMaterialTerm)) add(term);
+
+  // Semantic profile values are often phrases ("조류 사육용품",
+  // "두피 세정 브러시"). Their important taxonomy anchor can be the first
+  // token rather than the final suffix, so retain every meaningful token.
+  for (const token of tokens(value)) {
+    add(token);
+    const key = compact(token);
+    for (const suffix of [
+      "관리용품",
+      "용품",
+      "브러쉬",
+      "브러시",
+      "도구",
+      "액세서리",
+      "소품",
+      "마사지기",
+      "관리기",
+    ]) {
+      if (!key.endsWith(suffix) || key.length <= suffix.length + 1) continue;
+      add(key.slice(0, -suffix.length));
+    }
+  }
+
+  return result;
 }
 
 function suffixTerms(value: string, allowMaterialTerm = false) {

@@ -265,6 +265,139 @@ test("모공브러쉬는 색상 블랙이 아니라 브러쉬 제품명사로 �
   assert.ok(shortlist.every((candidate) => candidate.matchKind === "core"));
 });
 
+test("의미분석 문구의 앞쪽 taxonomy anchor도 보존해 꿩안경을 조류용품 후보로 복구한다", () => {
+  const categories = [
+    {
+      depth: 3,
+      path: "문구/취미/펫>조류용품>기타 조류용품",
+      names: ["문구/취미/펫", "조류용품", "기타 조류용품"],
+      codes: ["1", "11", "111"],
+    },
+    {
+      depth: 3,
+      path: "잡화>패션잡화>안경테>안경테",
+      names: ["잡화", "패션잡화", "안경테", "안경테"],
+      codes: ["2", "22", "222"],
+    },
+    {
+      depth: 3,
+      path: "문구/취미/펫>관상어/수족관>기타 관리용품",
+      names: ["문구/취미/펫", "관상어/수족관", "기타 관리용품"],
+      codes: ["3", "33", "333"],
+    },
+  ];
+  const input = {
+    itemId: "AAA090",
+    modelNumber: "AAA090",
+    productName: "꿩안경",
+    optionLabels: ["중", "대"],
+    currentCategory: "",
+    chinaProductLinks: [],
+  };
+  const shortlist = shortlistShoplingCategories(input, categories, 18, {
+    itemId: input.itemId,
+    coreProductTerms: ["조류 보호안경", "가금류 사육 보호구"],
+    contextTerms: ["조류 사육", "꿩 닭 쪼기 방지"],
+    catalogCategoryTerms: ["조류 사육용품", "조류용품", "소동물용품"],
+    blockedCategoryTerms: ["사람용 안경", "수족관"],
+    groundingStatus: "model_fallback",
+    ignoredAttributes: ["중", "대"],
+  });
+
+  assert.ok(
+    shortlist.some(
+      (candidate) =>
+        candidate.path === "문구/취미/펫>조류용품>기타 조류용품",
+    ),
+  );
+  assert.ok(shortlist.some((candidate) => /조류용품/.test(candidate.path)));
+});
+
+test("두피브러시는 브러시 suffix만 보지 않고 두피 taxonomy anchor로 후보를 복구한다", () => {
+  const categories = [
+    {
+      depth: 3,
+      path: "생활/건강>건강관리용품>두피관리용품",
+      names: ["생활/건강", "건강관리용품", "두피관리용품"],
+      codes: ["1", "11", "111"],
+    },
+    {
+      depth: 4,
+      path: "뷰티>헤어케어>탈모/두피관리제>두피마사지기",
+      names: ["뷰티", "헤어케어", "탈모/두피관리제", "두피마사지기"],
+      codes: ["2", "22", "222", "2222"],
+    },
+    {
+      depth: 2,
+      path: "뷰티>네일케어>네일케어도구",
+      names: ["뷰티", "네일케어", "네일케어도구"],
+      codes: ["3", "33", "333"],
+    },
+  ];
+  const input = {
+    itemId: "AAA487",
+    modelNumber: "AAA487",
+    productName: "소프트 실리콘 두피브러쉬",
+    optionLabels: [],
+    currentCategory: "",
+    chinaProductLinks: [],
+  };
+  const shortlist = shortlistShoplingCategories(input, categories, 18, {
+    itemId: input.itemId,
+    coreProductTerms: ["두피브러쉬", "샴푸브러쉬"],
+    contextTerms: ["두피 세정", "두피 마사지"],
+    catalogCategoryTerms: ["두피관리용품", "두피마사지기", "헤어브러시"],
+    groundingStatus: "model_fallback",
+    ignoredAttributes: ["소프트", "실리콘"],
+  });
+
+  assert.ok(shortlist.some((candidate) => /두피관리용품/.test(candidate.path)));
+  assert.ok(shortlist.some((candidate) => /두피마사지기/.test(candidate.path)));
+  assert.ok(shortlist.every((candidate) => !/네일케어/.test(candidate.path)));
+});
+
+test("실뜯개는 도구 suffix보다 수예·재봉 taxonomy anchor를 함께 검색한다", () => {
+  const categories = [
+    {
+      depth: 4,
+      path: "가구/인테리어>홈패브릭/수예>수예용품>부자재 기타",
+      names: ["가구/인테리어", "홈패브릭/수예", "수예용품", "부자재 기타"],
+      codes: ["1", "11", "111", "1111"],
+    },
+    {
+      depth: 4,
+      path: "가전/디지털>생활가전>재봉틀>재봉틀용품",
+      names: ["가전/디지털", "생활가전", "재봉틀", "재봉틀용품"],
+      codes: ["2", "22", "222", "2222"],
+    },
+    {
+      depth: 4,
+      path: "가구/인테리어>DIY자재/용품>자재>작업도구",
+      names: ["가구/인테리어", "DIY자재/용품", "자재", "작업도구"],
+      codes: ["3", "33", "333", "3333"],
+    },
+  ];
+  const input = {
+    itemId: "AAA012",
+    modelNumber: "AAA012",
+    productName: "컬러 실뜯개",
+    optionLabels: [],
+    currentCategory: "",
+    chinaProductLinks: [],
+  };
+  const shortlist = shortlistShoplingCategories(input, categories, 18, {
+    itemId: input.itemId,
+    coreProductTerms: ["실뜯개", "재봉 수선도구"],
+    contextTerms: ["바느질 수선", "재봉"],
+    catalogCategoryTerms: ["수예용품", "수예", "재봉틀용품", "부자재"],
+    groundingStatus: "model_fallback",
+    ignoredAttributes: ["컬러"],
+  });
+
+  assert.ok(shortlist.some((candidate) => /수예용품/.test(candidate.path)));
+  assert.ok(shortlist.some((candidate) => /재봉틀용품/.test(candidate.path)));
+});
+
 test("웹 시장분류가 있으면 모공브러쉬를 세안·클렌징 후보로 제한하고 헤어·청소·반려동물 분기를 차단한다", () => {
   const categories = [
     {
@@ -735,6 +868,7 @@ test("AI 모델명 분석은 제품명사·용도·속성을 분리해 카테고
     "utf8",
   );
   assert.match(source, /generateShoplingCategorySearchProfiles/);
+  assert.match(source, /상위 분기 명사 2~3개와 세부 제품군 명사 2~4개/);
   assert.match(source, /합성어 안의 색상어/);
   assert.match(source, /브러시\/브러쉬/);
   assert.match(source, /걸이형 모공브러쉬 블랙/);
