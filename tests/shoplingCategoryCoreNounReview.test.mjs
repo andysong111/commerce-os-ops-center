@@ -26,7 +26,7 @@ test("검토 패널은 후보가 없어도 상품과 재분석 버튼을 유지�
   assert.match(component, /item\.candidates\.length \?/);
   assert.match(component, /기존 후보가 모델명의 핵심 제품명사와 맞지 않아 숨겼습니다/);
   assert.match(component, /관련 카테고리를 찾지 못해 검토 상태로 유지/);
-  assert.match(component, /웹 검색 근거/);
+  assert.match(component, /OpenAI 모델명 의미 분석/);
   assert.match(component, /categoryAiMarketEvidence/);
   assert.match(page, /ShoplingCategoryCoreNounReview/);
   assert.doesNotMatch(page, /ShoplingCategoryCandidateQuickApprove/);
