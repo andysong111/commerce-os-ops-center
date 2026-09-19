@@ -538,14 +538,14 @@ export function ShoplingCategoryCoreNounReview() {
                       <div className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-[11px] leading-5 text-cyan-950">
                         <p className="font-black">
                           {item.marketEvidence.status === "web"
-                            ? "웹 검색 근거"
-                            : "웹 검색 대체 분석"} · 근거 신뢰도 {item.marketEvidence.confidence}%
+                            ? "외부 검색 근거"
+                            : "OpenAI 모델명 의미 분석"} · 근거 신뢰도 {item.marketEvidence.confidence}%
                         </p>
                         {item.marketEvidence.summary ? (
                           <p>{item.marketEvidence.summary}</p>
                         ) : null}
                         {item.marketEvidence.categoryPaths.length ? (
-                          <p>시장 분류: {item.marketEvidence.categoryPaths.join(" / ")}</p>
+                          <p>참고 분류: {item.marketEvidence.categoryPaths.join(" / ")}</p>
                         ) : null}
                         {item.marketEvidence.sourceDomains.length ? (
                           <p>출처: {item.marketEvidence.sourceDomains.join(", ")}</p>

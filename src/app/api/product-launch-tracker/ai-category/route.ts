@@ -3,44 +3,25 @@ import {
   generateReliableShoplingCategoryRecommendations,
   isRetryableCategoryOutputError,
 } from "@/lib/shoplingCategoryRecommendationRunner";
-import { generateNaverFirstShoplingCategoryRecommendations } from "@/lib/shoplingCategoryNaverFirst";
-import { rerankNaverGroundedShoplingRecommendations } from "@/lib/shoplingCategoryOpenAiReranker";
 import { parseProductCategoryInputs } from "@/lib/shoplingCategoryScoring";
 import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-const CATEGORY_ENGINE_VERSION = "naver-openai-constrained-v3";
-
+const CATEGORY_ENGINE_VERSION = "openai-shopling-constrained-v4";
 
 export async function GET() {
-  const hasClientId = Boolean(
-    String(
-      process.env.NAVER_CLIENT_ID ??
-        process.env.NAVER_SEARCH_CLIENT_ID ??
-        "",
-    ).trim(),
-  );
-  const hasClientSecret = Boolean(
-    String(
-      process.env.NAVER_CLIENT_SECRET ??
-        process.env.NAVER_SEARCH_CLIENT_SECRET ??
-        "",
-    ).trim(),
-  );
-  const openAiRerankerConfigured = Boolean(
-    String(
-      process.env.SHOPLING_CATEGORY_OPENAI_API_KEY ??
-        "",
-    ).trim(),
+  const configured = Boolean(
+    String(process.env.SHOPLING_CATEGORY_OPENAI_API_KEY ?? "").trim(),
   );
   return Response.json(
     {
       ok: true,
       engineVersion: CATEGORY_ENGINE_VERSION,
-      provider: "naver_shopping_grounding_plus_openai_constrained_rerank",
-      configured: hasClientId && hasClientSecret,
-      openAiRerankerConfigured,
+      provider: "openai_shopling_constrained_catalog",
+      configured,
+      webSearchEnabled: false,
+      naverDependency: false,
     },
     { headers: { "Cache-Control": "no-store" } },
   );
@@ -71,45 +52,25 @@ export async function POST(request: NextRequest) {
         !Array.isArray(body) &&
         (body as Record<string, unknown>).retryFailedIndividually,
     );
-
-    const requestedCategoryMode = String(
-      process.env.SHOPLING_CATEGORY_MODE || "naver_first",
-    )
-      .trim()
-      .toLocaleLowerCase("en-US");
-
-    // 운영 기본:
-    // 모델명 -> 네이버 쇼핑 실제 카테고리 근거 -> 샵플링 실제 후보 shortlist
-    // -> OpenAI가 후보 안에서만 의미 재정렬 -> 사람 검토.
-    // OpenAI는 새 카테고리 경로를 만들 수 없고, legacy만 긴급 롤백용으로 남긴다.
-    const categoryMode = requestedCategoryMode === "legacy" ? "legacy" : "naver_first";
-    const rerankModel =
-      process.env.OPENAI_CATEGORY_RERANK_MODEL ||
+    const model =
       process.env.OPENAI_CATEGORY_MODEL ||
       process.env.OPENAI_MODEL ||
       "gpt-5-mini";
 
-    const generatedBase =
-      categoryMode === "legacy"
-        ? await generateReliableShoplingCategoryRecommendations(inputs, {
-            timeoutMs: 60_000,
-            retryFailedIndividually,
-          })
-        : await generateNaverFirstShoplingCategoryRecommendations(inputs, {
-            timeoutMs: 30_000,
-          });
-
-    const generated =
-      categoryMode === "legacy"
-        ? generatedBase
-        : await rerankNaverGroundedShoplingRecommendations(
-            inputs,
-            generatedBase,
-            {
-              model: rerankModel,
-              timeoutMs: 45_000,
-            },
-          );
+    // 운영 기본:
+    // 모델명·옵션 -> OpenAI 의미 분석(외부 웹검색 없음)
+    // -> 실제 샵플링 카탈로그에서 후보 shortlist
+    // -> OpenAI가 실제 후보 안에서만 최종 1~3순위 선택
+    // -> 사람 검토. 후보 밖 경로는 기존 카탈로그 검증에서 거부된다.
+    const generated = await generateReliableShoplingCategoryRecommendations(
+      inputs,
+      {
+        timeoutMs: 60_000,
+        retryFailedIndividually,
+        useWebSearch: false,
+        model,
+      },
+    );
 
     const generatedById = new Map(
       generated.results.map((row) => [row.itemId, row]),
@@ -143,15 +104,16 @@ export async function POST(request: NextRequest) {
     console.info(
       JSON.stringify({
         event: "shopling_category_batch_complete",
-        categoryMode,
-        requestedCategoryMode,
+        categoryMode: "openai_only",
         engineVersion: CATEGORY_ENGINE_VERSION,
+        model,
         inputCount: inputs.length,
         resultCount: results.length,
         failureCount: failures.length,
         durationMs: Date.now() - startedAt,
         retryFailedIndividually,
-        constrainedOpenAiRerank: categoryMode === "naver_first",
+        webSearchEnabled: false,
+        naverDependency: false,
         failureCodes: failures.reduce<Record<string, number>>(
           (counts, failure) => {
             counts[failure.code] = (counts[failure.code] ?? 0) + 1;
@@ -166,7 +128,7 @@ export async function POST(request: NextRequest) {
       console.warn(
         JSON.stringify({
           event: "shopling_category_item_failed",
-          categoryMode,
+          categoryMode: "openai_only",
           itemId: failure.itemId,
           modelNumber: failure.modelNumber,
           stage: failure.stage,
@@ -181,7 +143,7 @@ export async function POST(request: NextRequest) {
       {
         ok: true,
         ...generated,
-        categoryMode,
+        categoryMode: "openai_only",
         engineVersion: CATEGORY_ENGINE_VERSION,
         complete: failures.length === 0,
         results,
@@ -194,11 +156,13 @@ export async function POST(request: NextRequest) {
       error instanceof Error ? error.message : "AI 카테고리 추천에 실패했습니다.";
     const message =
       error instanceof DOMException && error.name === "AbortError"
-        ? "카테고리 검색 제한시간을 초과했습니다. 완료된 상품은 보존하고 실패한 상품만 다시 실행하세요."
+        ? "AI 카테고리 분석 제한시간을 초과했습니다. 완료된 상품은 보존하고 실패한 상품만 다시 실행하세요."
         : isRetryableCategoryOutputError(error)
           ? "AI 응답이 중간에서 잘렸습니다. 완료된 상품은 보존하고 실패한 상품만 다시 실행하세요."
           : rawMessage;
-    const status = /OPENAI_API_KEY|카테고리 스냅샷|GITHUB_/.test(message)
+    const status = /SHOPLING_CATEGORY_OPENAI_API_KEY|OPENAI_API_KEY|카테고리 스냅샷|GITHUB_/.test(
+      message,
+    )
       ? 503
       : /시간[이가을]? .*초과|AbortError|aborted/i.test(message)
         ? 504
@@ -207,6 +171,7 @@ export async function POST(request: NextRequest) {
     console.error(
       JSON.stringify({
         event: "shopling_category_batch_failed",
+        categoryMode: "openai_only",
         durationMs: Date.now() - startedAt,
         status,
         errorName: error instanceof Error ? error.name : "UnknownError",

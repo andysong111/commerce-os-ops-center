@@ -26,7 +26,7 @@ test("검토 패널은 후보가 없어도 상품과 재분석 버튼을 유지�
   assert.match(component, /item\.candidates\.length \?/);
   assert.match(component, /기존 후보가 모델명의 핵심 제품명사와 맞지 않아 숨겼습니다/);
   assert.match(component, /관련 카테고리를 찾지 못해 검토 상태로 유지/);
-  assert.match(component, /웹 검색 근거/);
+  assert.match(component, /OpenAI 모델명 의미 분석/);
   assert.match(component, /categoryAiMarketEvidence/);
   assert.match(page, /ShoplingCategoryCoreNounReview/);
   assert.doesNotMatch(page, /ShoplingCategoryCandidateQuickApprove/);
@@ -164,7 +164,7 @@ test("승인 정답 이력은 유사 상품의 샵플링 경로 prior와 Top-1·
   assert.equal(prior?.path, "문구/취미>수예>재봉용품>골무");
 });
 
-test("카테고리 API는 일반 운영에서 모델명을 네이버 쇼핑에 직접 검색하는 경로만 사용한다", async () => {
+test("카테고리 API는 네이버 없이 OpenAI가 실제 샵플링 후보 안에서만 선택한다", async () => {
   const route = await readFile(
     new URL(
       "../src/app/api/product-launch-tracker/ai-category/route.ts",
@@ -172,31 +172,24 @@ test("카테고리 API는 일반 운영에서 모델명을 네이버 쇼핑에 �
     ),
     "utf8",
   );
-  const naver = await readFile(
-    new URL("../src/lib/shoplingCategoryNaverFirst.ts", import.meta.url),
+  const catalog = await readFile(
+    new URL("../src/lib/shoplingCategoryCatalog.ts", import.meta.url),
     "utf8",
   );
 
-  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-openai-constrained-v3"/);
-  assert.match(route, /SHOPLING_CATEGORY_MODE \|\| "naver_first"/);
-  assert.match(route, /requestedCategoryMode === "legacy" \? "legacy" : "naver_first"/);
-  assert.match(route, /generateNaverFirstShoplingCategoryRecommendations/);
-  assert.match(route, /rerankNaverGroundedShoplingRecommendations/);
-  assert.match(route, /const generatedBase/);
-  assert.match(route, /timeoutMs: 45_000/);
-  assert.match(route, /timeoutMs: 30_000/);
-  assert.doesNotMatch(route, /enhanceShoplingCategoryRecommendations/);
-  assert.doesNotMatch(route, /generateShoplingFirstCategoryRecommendations/);
-  assert.doesNotMatch(route, /resolveTrackerImageUrl/);
-  assert.match(naver, /openapi\.naver\.com\/v1\/search\/shop\.json/);
-  assert.match(naver, /"X-Naver-Client-Id"/);
-  assert.match(naver, /"X-Naver-Client-Secret"/);
-  assert.match(naver, /category1/);
-  assert.match(naver, /category4/);
-  assert.doesNotMatch(naver, /api\.openai\.com\/v1\/responses/);
-  assert.match(naver, /search\.shopping\.naver\.com\/search\/all/);
-  assert.match(naver, /shouldUseHtmlFallback/);
-  assert.match(naver, /const MIN_SIMILARITY = 58/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "openai-shopling-constrained-v4"/);
+  assert.match(route, /generateReliableShoplingCategoryRecommendations/);
+  assert.match(route, /useWebSearch: false/);
+  assert.match(route, /categoryMode: "openai_only"/);
+  assert.match(route, /naverDependency: false/);
+  assert.doesNotMatch(route, /generateNaverFirstShoplingCategoryRecommendations/);
+  assert.doesNotMatch(route, /rerankNaverGroundedShoplingRecommendations/);
+  assert.doesNotMatch(route, /NAVER_CLIENT_ID|NAVER_CLIENT_SECRET/);
+  assert.match(catalog, /shortlistShoplingCategories/);
+  assert.match(catalog, /candidatePaths: candidatesByItem/);
+  assert.match(catalog, /if \(!candidatePaths\.includes\(selectedPath\)\)/);
+  assert.match(catalog, /후보에 없는 경로를 새로 만들거나 철자를 바꾸지 않는다/);
+  assert.match(catalog, /SHOPLING_CATEGORY_OPENAI_API_KEY/);
 });
 
 
