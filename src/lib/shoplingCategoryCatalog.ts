@@ -773,6 +773,8 @@ export async function generateShoplingCategoryRecommendations(
                   "후보에 없는 경로를 새로 만들거나 철자를 바꾸지 않는다.",
                   "모델명·옵션과 categorySearchProfile의 시장 검색 근거가 증명하는 상품 정체성만 사용하고 효능·구성품을 추측하지 않는다.",
                   "marketCategoryPaths와 catalogCategoryTerms는 단순 단어 겹침보다 우선한다. blockedCategoryTerms가 포함된 후보는 선택하지 않는다.",
+                  "productFormTerms는 실제 판매 물체의 종류다. 용도는 같아도 물체 종류가 다르면 선택하지 않는다.",
+                  "incompatibleCategoryTerms가 후보 경로에 포함되면 그 후보는 선택 금지다. 예: 브러시 제품에서 클렌징폼·젤·오일·크림 카테고리는 선택하지 않는다.",
                   "시장 검색 근거가 model_fallback이거나 신뢰도가 낮으면 최종 confidence도 보수적으로 책정한다.",
                   "애매하면 confidence를 낮게 주고 alternatives에 가까운 후보를 넣는다.",
                   "이미 카테고리가 있는 상품도 추천은 하되 기존값을 존중한다.",
