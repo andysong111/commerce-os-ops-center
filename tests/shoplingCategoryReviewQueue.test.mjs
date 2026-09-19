@@ -198,6 +198,12 @@ test("검토함 화면은 다건 승인·수정·보류·제외와 진행관리 
   assert.match(workspace, /AI 작업 회차/);
   assert.match(workspace, /신뢰도 낮은 순/);
   assert.match(workspace, /STATE_ENDPOINT/);
+  assert.match(workspace, /OPTIMIZED_ENDPOINT/);
+  assert.match(workspace, /approve_category_ai_reviews/);
+  assert.match(workspace, /update_category_ai_review_status/);
+  assert.match(workspace, /PRODUCT_MASTER_SYNC_ENDPOINT/);
+  assert.doesNotMatch(workspace, /body: JSON\.stringify\(\{ state: result\.state \}\)/);
+  assert.match(workspace, /검토함에서 제거됐고 상품출시 진행관리·상품원장에 저장됐습니다/);
   assert.match(domain, /categoryAiSuggestion/);
   assert.match(domain, /review_approved/);
   assert.match(domain, /explicitApprovedCategory/);
