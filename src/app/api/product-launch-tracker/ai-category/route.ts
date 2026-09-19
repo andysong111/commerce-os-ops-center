@@ -8,7 +8,7 @@ import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-const CATEGORY_ENGINE_VERSION = "openai-semantic-shopling-v5";
+const CATEGORY_ENGINE_VERSION = "openai-form-aware-shopling-v6";
 
 export async function GET() {
   const configured = Boolean(
