@@ -7,7 +7,7 @@ import { isOpenAiStructuredOutputIncompleteError } from "./openAiStructuredOutpu
 
 const CATEGORY_BATCH_SIZE = 1;
 const CATEGORY_BATCH_CONCURRENCY = 3;
-const CATEGORY_RECOMMENDATION_TIMEOUT_MS = 35_000;
+const CATEGORY_RECOMMENDATION_TIMEOUT_MS = 55_000;
 const SEARCH_PROFILE_BATCH_SIZE = 1;
 const SEARCH_PROFILE_BATCH_CONCURRENCY = 3;
 const SEARCH_PROFILE_TIMEOUT_MS = 35_000;
@@ -60,6 +60,7 @@ type RecommendationOptions = {
   timeoutMs?: number;
   useWebSearch?: boolean;
   retryFailedIndividually?: boolean;
+  skipSearchProfiles?: boolean;
   dependencies?: RecommendationDependencies;
 };
 
@@ -98,48 +99,51 @@ export async function generateReliableShoplingCategoryRecommendations(
   }
 
   const failureById = new Map<string, CategoryRecommendationFailure>();
-  const profileBatchSize = options.retryFailedIndividually
-    ? 1
-    : SEARCH_PROFILE_BATCH_SIZE;
-  const profileBatches = chunk(inputs, profileBatchSize);
-  const profileSettled = await mapWithConcurrencySettled(
-    profileBatches,
-    SEARCH_PROFILE_BATCH_CONCURRENCY,
-    (batch) => generateSearchProfilesWithRecovery(batch, options),
-  );
   const profileById = new Map<string, ShoplingCategorySearchProfile>();
 
-  profileSettled.forEach((settled, index) => {
-    const batch = profileBatches[index];
-    if (settled.status === "rejected") {
-      throwIfFatalCategoryError(settled.reason);
+  if (!options.skipSearchProfiles) {
+    const profileBatchSize = options.retryFailedIndividually
+      ? 1
+      : SEARCH_PROFILE_BATCH_SIZE;
+    const profileBatches = chunk(inputs, profileBatchSize);
+    const profileSettled = await mapWithConcurrencySettled(
+      profileBatches,
+      SEARCH_PROFILE_BATCH_CONCURRENCY,
+      (batch) => generateSearchProfilesWithRecovery(batch, options),
+    );
+
+    profileSettled.forEach((settled, index) => {
+      const batch = profileBatches[index];
+      if (settled.status === "rejected") {
+        throwIfFatalCategoryError(settled.reason);
+        for (const input of batch) {
+          failureById.set(
+            input.itemId,
+            categoryFailure(input, "search_profile", settled.reason),
+          );
+        }
+        return;
+      }
+      for (const profile of settled.value) {
+        profileById.set(String(profile.itemId ?? ""), profile);
+      }
       for (const input of batch) {
+        if (profileById.has(input.itemId)) continue;
         failureById.set(
           input.itemId,
-          categoryFailure(input, "search_profile", settled.reason),
+          categoryFailure(
+            input,
+            "search_profile",
+            new Error("모델명 핵심명사 분석 결과가 누락되었습니다."),
+          ),
         );
       }
-      return;
-    }
-    for (const profile of settled.value) {
-      profileById.set(String(profile.itemId ?? ""), profile);
-    }
-    for (const input of batch) {
-      if (profileById.has(input.itemId)) continue;
-      failureById.set(
-        input.itemId,
-        categoryFailure(
-          input,
-          "search_profile",
-          new Error("모델명 핵심명사 분석 결과가 누락되었습니다."),
-        ),
-      );
-    }
-  });
+    });
+  }
 
-  const recommendationInputs = inputs.filter((input) =>
-    profileById.has(input.itemId),
-  );
+  const recommendationInputs = options.skipSearchProfiles
+    ? inputs
+    : inputs.filter((input) => profileById.has(input.itemId));
   const recommendationBatches = chunk(
     recommendationInputs,
     CATEGORY_BATCH_SIZE,
