@@ -325,7 +325,7 @@ export function normalizeShoplingCategorySearchProfiles(
         : {}),
       ...(Array.isArray(row.incompatibleCategoryTerms)
         ? {
-            incompatibleCategoryTerms: normalizeBlockedCategoryTerms(
+            incompatibleCategoryTerms: normalizeIncompatibleCategoryTerms(
               row.incompatibleCategoryTerms,
             ),
           }
@@ -437,6 +437,13 @@ function normalizeBlockedCategoryTerms(value: unknown) {
   return normalizeProfileTerms(value, 12).filter((term) => {
     const normalized = compact(term);
     return normalized.length >= 2 && !NON_BLOCKABLE_CATEGORY_TERMS.has(normalized);
+  });
+}
+
+function normalizeIncompatibleCategoryTerms(value: unknown) {
+  return normalizeProfileTerms(value, 12).filter((term) => {
+    const normalized = compact(term);
+    return normalized.length >= 1 && !NON_BLOCKABLE_CATEGORY_TERMS.has(normalized);
   });
 }
 
