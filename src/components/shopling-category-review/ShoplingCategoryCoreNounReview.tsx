@@ -169,9 +169,10 @@ export function ShoplingCategoryCoreNounReview() {
     setBusyKey(`approve:${item.itemId}`);
     setNotice("");
     try {
-      const result = await approveReviewDecisions([
-        { itemId: item.itemId, category },
-      ]);
+      const result = await approveReviewDecisions(
+        [{ itemId: item.itemId, category }],
+        "AI 카테고리 검토함",
+      );
       clearCandidateSelectionsFor([item.itemId]);
       setSelectedIds((current) =>
         current.filter((itemId) => itemId !== item.itemId),
@@ -227,7 +228,10 @@ export function ShoplingCategoryCoreNounReview() {
       );
       if (!confirmed) return;
 
-      const result = await approveReviewDecisions(decisions);
+      const result = await approveReviewDecisions(
+        decisions,
+        "AI 카테고리 검토함 · 직접 선택 일괄 승인",
+      );
       const approvedIds = new Set(decisions.map((decision) => decision.itemId));
       setCandidateSelections(
         Object.fromEntries(
@@ -258,6 +262,7 @@ export function ShoplingCategoryCoreNounReview() {
 
   async function approveReviewDecisions(
     decisions: Array<{ itemId: string; category: string }>,
+    reviewer: string,
   ) {
     const response = await fetch(OPTIMIZED_ENDPOINT, {
       method: "PATCH",
@@ -269,7 +274,7 @@ export function ShoplingCategoryCoreNounReview() {
       body: JSON.stringify({
         operation: "approve_category_ai_reviews",
         decisions,
-        reviewer: "AI 카테고리 검토함",
+        reviewer,
       }),
     });
     const body = await response.json().catch(() => ({}));
