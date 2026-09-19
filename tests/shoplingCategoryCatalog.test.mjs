@@ -398,6 +398,74 @@ test("실뜯개는 도구 suffix보다 수예·재봉 taxonomy anchor를 함께 
   assert.ok(shortlist.some((candidate) => /재봉틀용품/.test(candidate.path)));
 });
 
+test("세안 브러시는 클렌징 용도는 유지하되 폼·젤 같은 소모성 세정제 후보를 제거한다", () => {
+  const categories = [
+    {
+      depth: 3,
+      path: "뷰티>클렌징/필링>클렌징폼",
+      names: ["뷰티", "클렌징/필링", "클렌징폼"],
+      codes: ["1", "11", "111"],
+    },
+    {
+      depth: 3,
+      path: "뷰티>클렌징/필링>클렌징젤",
+      names: ["뷰티", "클렌징/필링", "클렌징젤"],
+      codes: ["2", "22", "222"],
+    },
+    {
+      depth: 3,
+      path: "뷰티>뷰티소품>피부관리기",
+      names: ["뷰티", "뷰티소품", "피부관리기"],
+      codes: ["3", "33", "333"],
+    },
+    {
+      depth: 3,
+      path: "가전/디지털>이미용가전>피부관리기",
+      names: ["가전/디지털", "이미용가전", "피부관리기"],
+      codes: ["4", "44", "444"],
+    },
+    {
+      depth: 3,
+      path: "뷰티>헤어케어>헤어브러시",
+      names: ["뷰티", "헤어케어", "헤어브러시"],
+      codes: ["5", "55", "555"],
+    },
+  ];
+  const input = {
+    itemId: "AAA486",
+    modelNumber: "AAA486",
+    productName: "실리콘 미세세안브러쉬 색상랜덤",
+    optionLabels: [],
+    currentCategory: "",
+    chinaProductLinks: [],
+  };
+  const shortlist = shortlistShoplingCategories(input, categories, 18, {
+    itemId: input.itemId,
+    coreProductTerms: ["미세세안브러쉬", "세안브러시", "페이스브러시"],
+    contextTerms: ["얼굴", "세안", "클렌징", "피부관리"],
+    catalogCategoryTerms: ["피부관리기", "뷰티소품", "클렌징", "세안"],
+    productFormTerms: ["브러시", "수동도구"],
+    incompatibleCategoryTerms: [
+      "클렌징폼",
+      "클렌징젤",
+      "클렌징오일",
+      "클렌징크림",
+      "클렌징로션",
+      "클렌징워터",
+      "클렌징비누",
+      "클렌징티슈",
+      "리무버",
+    ],
+    blockedCategoryTerms: ["헤어", "두피", "청소", "세차"],
+    groundingStatus: "model_fallback",
+    ignoredAttributes: ["실리콘", "색상랜덤"],
+  });
+
+  assert.ok(shortlist.some((candidate) => /피부관리기/.test(candidate.path)));
+  assert.ok(shortlist.every((candidate) => !/클렌징폼|클렌징젤/.test(candidate.path)));
+  assert.ok(shortlist.every((candidate) => !/헤어브러시/.test(candidate.path)));
+});
+
 test("웹 시장분류가 있으면 모공브러쉬를 세안·클렌징 후보로 제한하고 헤어·청소·반려동물 분기를 차단한다", () => {
   const categories = [
     {
@@ -833,6 +901,8 @@ test("AI 모델명 분석은 제품명사·용도·속성을 분리해 카테고
         coreProductTerms: ["모공브러쉬", "세안브러시"],
         contextTerms: ["얼굴", "세안"],
         catalogCategoryTerms: ["세안용품", "세안용품", "클렌징소품"],
+        productFormTerms: ["브러시", "수동도구", "브러시"],
+        incompatibleCategoryTerms: ["클렌징폼", "클렌징젤"],
         blockedCategoryTerms: ["용품", "헤어", "청소", "반려동물"],
         marketCategoryPaths: ["화장품/미용 > 스킨케어 > 클렌징"],
         marketEvidenceSummary: "얼굴 세안용 클렌징 도구로 확인됩니다.",
@@ -847,6 +917,14 @@ test("AI 모델명 분석은 제품명사·용도·속성을 분리해 카테고
   assert.deepEqual(groundedProfiles[0].catalogCategoryTerms, [
     "세안용품",
     "클렌징소품",
+  ]);
+  assert.deepEqual(groundedProfiles[0].productFormTerms, [
+    "브러시",
+    "수동도구",
+  ]);
+  assert.deepEqual(groundedProfiles[0].incompatibleCategoryTerms, [
+    "클렌징폼",
+    "클렌징젤",
   ]);
   assert.deepEqual(groundedProfiles[0].blockedCategoryTerms, [
     "헤어",
@@ -869,6 +947,9 @@ test("AI 모델명 분석은 제품명사·용도·속성을 분리해 카테고
   );
   assert.match(source, /generateShoplingCategorySearchProfiles/);
   assert.match(source, /상위 분기 명사 2~3개와 세부 제품군 명사 2~4개/);
+  assert.match(source, /productFormTerms/);
+  assert.match(source, /incompatibleCategoryTerms/);
+  assert.match(source, /세안 브러시는 클렌징폼/);
   assert.match(source, /합성어 안의 색상어/);
   assert.match(source, /브러시\/브러쉬/);
   assert.match(source, /걸이형 모공브러쉬 블랙/);
