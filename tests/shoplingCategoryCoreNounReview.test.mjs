@@ -95,7 +95,8 @@ test("검토함은 재생성 상품 선택과 승인 후보 선택을 분리해 
   assert.match(component, /bulkApproveSelectedCandidates/);
   assert.doesNotMatch(component, /bulkApproveFirstCandidates/);
   assert.match(component, /직접 선택한 후보 \$\{decisions\.length\}건을 일괄 승인합니다/);
-  assert.match(component, /AI 카테고리 검토함 · 직접 선택 일괄 승인/);
+  assert.match(component, /approve_category_ai_reviews/);
+  assert.match(component, /승인된 항목은 검토함에서 사라지고 상품출시 진행관리·상품원장 카테고리에 저장됩니다/);
   assert.match(component, /review\?\.candidates\.includes\(category\)/);
   assert.match(component, /const AI_BATCH_SIZE = 5/);
   assert.match(component, /offset \+= AI_BATCH_SIZE/);
