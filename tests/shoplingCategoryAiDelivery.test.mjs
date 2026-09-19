@@ -33,8 +33,8 @@ test("AI 카테고리 실행은 기존 화면 핸들러보다 먼저 가로채�
   assert.match(runner, /saveServerCategoryPatches/);
   assert.match(runner, /categoryAiStatus: "review_required"/);
   assert.match(runner, /categoryAiMarketEvidence/);
-  assert.match(runner, /네이버 쇼핑에서 모델명으로 검색해 실제 카테고리/);
-  assert.match(runner, /네이버 검색에 실패한 .* 자동 재시도/);
+  assert.match(runner, /모델명·옵션을 OpenAI가 분석하고 실제 샵플링 카테고리 후보/);
+  assert.match(runner, /AI 분석에 실패한 .* 자동 재시도/);
   assert.match(runner, /categoryRetryDelayMs/);
   assert.match(runner, /실패 상세/);
   assert.match(runner, /const nextItems = previousState\.items\.map/);
@@ -49,7 +49,7 @@ test("AI 카테고리 실행은 기존 화면 핸들러보다 먼저 가로채�
   assert.doesNotMatch(runner, /고신뢰도 빈 카테고리는 자동입력하고, 나머지는 추천 이력으로 저장할까요/);
 });
 
-test("AI 카테고리 API는 서버 실행시간과 공식 네이버 쇼핑 공급자를 명시한다", async () => {
+test("AI 카테고리 API는 OpenAI 전용 샵플링 분류와 웹검색 비활성화를 명시한다", async () => {
   const route = await readFile(
     new URL(
       "../src/app/api/product-launch-tracker/ai-category/route.ts",
@@ -58,13 +58,16 @@ test("AI 카테고리 API는 서버 실행시간과 공식 네이버 쇼핑 공�
     "utf8",
   );
   assert.match(route, /export const maxDuration = 300/);
-  assert.match(route, /timeoutMs: 30_000/);
+  assert.match(route, /timeoutMs: 60_000/);
   assert.match(route, /retryFailedIndividually/);
-  assert.match(route, /openAiRerankerConfigured/);
-  assert.match(route, /rerankNaverGroundedShoplingRecommendations/);
-  assert.match(route, /CATEGORY_ENGINE_VERSION = "naver-openai-constrained-v3"/);
+  assert.match(route, /useWebSearch: false/);
+  assert.match(route, /provider: "openai_shopling_constrained_catalog"/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "openai-shopling-constrained-v4"/);
+  assert.match(route, /naverDependency: false/);
+  assert.doesNotMatch(route, /generateNaverFirstShoplingCategoryRecommendations/);
   assert.match(route, /complete: failures\.length === 0/);
   assert.match(route, /autoApply: false/);
   assert.match(route, /완료된 상품은 보존하고 실패한 상품만 다시 실행/);
   assert.match(route, /status, headers: \{ "Cache-Control": "no-store" \}/);
 });
+
