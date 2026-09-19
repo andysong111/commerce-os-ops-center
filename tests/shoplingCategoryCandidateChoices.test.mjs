@@ -40,8 +40,8 @@ test("검토함은 관련 후보만 표시하고 버튼 승인·후보 재생성
   assert.match(component, /기존 후보가 모델명의 핵심 제품명사와 맞지 않아 숨겼습니다/);
   assert.match(component, /positive\.some/);
   assert.match(component, /blocked\.some/);
-  assert.match(component, /applyShoplingCategoryReviewDecisions/);
-  assert.match(component, /action: "approve", category/);
+  assert.match(component, /approve_category_ai_reviews/);
+  assert.match(component, /PRODUCT_MASTER_SYNC_ENDPOINT/);
   assert.match(component, /replaceAll\("상품명", "모델명"\)/);
   assert.match(page, /ShoplingCategoryCoreNounReview/);
   assert.match(page, /모델번호, 진행관리의 모델명, 옵션정보/);
