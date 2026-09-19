@@ -55,6 +55,27 @@ export function mergeGroundedShoplingCategoryProfiles(
         fallback.contextTerms,
         6,
       ),
+      productClass: webProfile.productClass ?? fallback.productClass,
+      formTerms: mergeProfileValues(
+        webProfile.formTerms,
+        fallback.formTerms,
+        6,
+      ),
+      functionTerms: mergeProfileValues(
+        webProfile.functionTerms,
+        fallback.functionTerms,
+        6,
+      ),
+      targetTerms: mergeProfileValues(
+        webProfile.targetTerms,
+        fallback.targetTerms,
+        6,
+      ),
+      incompatibleCategoryTerms: mergeProfileValues(
+        webProfile.incompatibleCategoryTerms,
+        fallback.incompatibleCategoryTerms,
+        12,
+      ),
       catalogCategoryTerms: mergeProfileValues(
         webProfile.catalogCategoryTerms,
         fallback.catalogCategoryTerms,

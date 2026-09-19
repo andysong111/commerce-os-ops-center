@@ -27,6 +27,11 @@ export type ShoplingCategorySearchProfile = {
   coreProductTerms: string[];
   contextTerms: string[];
   ignoredAttributes: string[];
+  productClass?: ProductClass;
+  formTerms?: string[];
+  functionTerms?: string[];
+  targetTerms?: string[];
+  incompatibleCategoryTerms?: string[];
   catalogCategoryTerms?: string[];
   blockedCategoryTerms?: string[];
   marketCategoryPaths?: string[];
@@ -34,6 +39,37 @@ export type ShoplingCategorySearchProfile = {
   marketEvidenceConfidence?: number;
   sourceDomains?: string[];
   groundingStatus?: "web" | "model_fallback";
+};
+
+type ProductClass =
+  | "tool"
+  | "consumable"
+  | "wearable"
+  | "bag"
+  | "container"
+  | "device"
+  | "furniture"
+  | "textile"
+  | "food"
+  | "toy"
+  | "accessory"
+  | "part"
+  | "other";
+
+const PRODUCT_CLASS_BLOCK_TERMS: Record<ProductClass, string[]> = {
+  tool: ["폼", "젤", "크림", "오일", "로션", "비누", "샴푸", "세정제", "워터", "티슈"],
+  consumable: ["브러시", "브러쉬", "빗", "마사지기", "관리기", "도구", "트레이", "가방", "케이스"],
+  wearable: ["세정제", "오일", "크림", "로션", "폼", "젤"],
+  bag: ["세정제", "브러시", "브러쉬", "방석", "담요", "필터", "펌프", "호스"],
+  container: ["세정제", "브러시", "브러쉬", "의류", "장갑"],
+  device: ["폼", "젤", "크림", "오일", "로션", "비누", "티슈"],
+  furniture: ["세정제", "브러시", "브러쉬", "화장품", "식품"],
+  textile: ["세정제", "브러시", "브러쉬", "오일", "크림", "로션"],
+  food: ["브러시", "브러쉬", "도구", "의류", "가방", "케이스"],
+  toy: ["세정제", "오일", "크림", "로션", "브러시"],
+  accessory: [],
+  part: ["세정제", "오일", "크림", "로션", "식품"],
+  other: [],
 };
 
 export type ShoplingCategoryIntent = {
@@ -275,6 +311,25 @@ export function normalizeShoplingCategorySearchProfiles(
       coreProductTerms: normalizeProfileTerms(row.coreProductTerms, 6),
       contextTerms: normalizeProfileTerms(row.contextTerms, 6),
       ignoredAttributes: normalizeProfileTerms(row.ignoredAttributes, 10),
+      ...(isProductClass(row.productClass)
+        ? { productClass: row.productClass }
+        : {}),
+      ...(Array.isArray(row.formTerms)
+        ? { formTerms: normalizeProfileTerms(row.formTerms, 6) }
+        : {}),
+      ...(Array.isArray(row.functionTerms)
+        ? { functionTerms: normalizeProfileTerms(row.functionTerms, 6) }
+        : {}),
+      ...(Array.isArray(row.targetTerms)
+        ? { targetTerms: normalizeProfileTerms(row.targetTerms, 6) }
+        : {}),
+      ...(Array.isArray(row.incompatibleCategoryTerms)
+        ? {
+            incompatibleCategoryTerms: normalizeIncompatibleCategoryTerms(
+              row.incompatibleCategoryTerms,
+            ),
+          }
+        : {}),
       ...(Array.isArray(row.catalogCategoryTerms)
         ? {
             catalogCategoryTerms: normalizeProfileTerms(
@@ -330,6 +385,24 @@ export function normalizeShoplingCategorySearchProfiles(
   return ordered as ShoplingCategorySearchProfile[];
 }
 
+function isProductClass(value: unknown): value is ProductClass {
+  return [
+    "tool",
+    "consumable",
+    "wearable",
+    "bag",
+    "container",
+    "device",
+    "furniture",
+    "textile",
+    "food",
+    "toy",
+    "accessory",
+    "part",
+    "other",
+  ].includes(text(value));
+}
+
 function normalizeProfileTerms(value: unknown, limit: number) {
   const values = Array.isArray(value) ? value : [];
   const seen = new Set<string>();
@@ -364,6 +437,13 @@ function normalizeBlockedCategoryTerms(value: unknown) {
   return normalizeProfileTerms(value, 12).filter((term) => {
     const normalized = compact(term);
     return normalized.length >= 2 && !NON_BLOCKABLE_CATEGORY_TERMS.has(normalized);
+  });
+}
+
+function normalizeIncompatibleCategoryTerms(value: unknown) {
+  return normalizeProfileTerms(value, 12).filter((term) => {
+    const normalized = compact(term);
+    return normalized.length >= 1 && !NON_BLOCKABLE_CATEGORY_TERMS.has(normalized);
   });
 }
 
@@ -491,6 +571,9 @@ function inferShoplingContextTerms(
     (profile?.ignoredAttributes ?? []).map(compact).filter(Boolean),
   );
   const sources = [
+    ...(profile?.formTerms ?? []),
+    ...(profile?.functionTerms ?? []),
+    ...(profile?.targetTerms ?? []),
     ...(profile?.contextTerms ?? []),
     ...tokens(input.productName),
     ...input.optionLabels.flatMap((value) => tokens(value)),
@@ -557,6 +640,9 @@ function profileBlockedCategoryTerms(
 ) {
   const positiveTerms = [
     ...(profile?.coreProductTerms ?? []),
+    ...(profile?.formTerms ?? []),
+    ...(profile?.functionTerms ?? []),
+    ...(profile?.targetTerms ?? []),
     ...(profile?.contextTerms ?? []),
     ...(profile?.catalogCategoryTerms ?? []),
     ...(profile?.marketCategoryPaths ?? []).flatMap((path) =>
@@ -565,7 +651,10 @@ function profileBlockedCategoryTerms(
   ]
     .map(compact)
     .filter(Boolean);
-  return (profile?.blockedCategoryTerms ?? [])
+  return [
+    ...(profile?.blockedCategoryTerms ?? []),
+    ...(profile?.incompatibleCategoryTerms ?? []),
+  ]
     .map((term) => ({ term, key: compact(term) }))
     .filter(
       ({ key }) =>
@@ -804,6 +893,9 @@ export function shortlistShoplingCategories(
       const profileBlockedTerm = blockedCategoryTerms.find(({ key }) =>
         pathCompact.includes(key),
       );
+      const classBlockedTerm = (
+        PRODUCT_CLASS_BLOCK_TERMS[profile?.productClass ?? "other"] ?? []
+      ).find((term) => pathCompact.includes(compact(term)));
       const matchedMarketTerms = marketTerms.filter((term) =>
         pathCompact.includes(term),
       );
@@ -842,13 +934,17 @@ export function shortlistShoplingCategories(
         marketMatched,
         coreMatched,
         contextMatched,
-        blocked: intentResult.blocked || Boolean(profileBlockedTerm),
+        blocked:
+          intentResult.blocked ||
+          Boolean(profileBlockedTerm) ||
+          Boolean(classBlockedTerm),
         evidence: [
           ...intentResult.evidence,
           ...matchedMarketTerms.map((term) => `시장분류:${term}`),
           ...matchedCoreTerms,
           ...matchedContextTerms,
           ...(profileBlockedTerm ? [`차단:${profileBlockedTerm.term}`] : []),
+          ...(classBlockedTerm ? [`형태충돌:${classBlockedTerm}`] : []),
         ],
       };
     })
