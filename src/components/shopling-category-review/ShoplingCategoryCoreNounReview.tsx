@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { applyShoplingCategoryReviewDecisions } from "@/lib/shoplingCategoryReview";
 
 const STATE_ENDPOINT = "/api/product-launch-tracker/state";
 const OPTIMIZED_ENDPOINT = "/api/product-launch-tracker/optimized";
+const PRODUCT_MASTER_SYNC_ENDPOINT =
+  "/api/product-launch-tracker/product-master-sync";
 const AI_ENDPOINT = "/api/product-launch-tracker/ai-category";
 const TRACKER_STORAGE_KEY = "commerce-os-product-launch-tracker:v2";
 const AI_BATCH_SIZE = 5;
@@ -170,15 +171,18 @@ export function ShoplingCategoryCoreNounReview() {
     setBusyKey(`approve:${item.itemId}`);
     setNotice("");
     try {
-      const latest = await requireServerState();
-      const result = applyShoplingCategoryReviewDecisions(
-        latest,
-        [{ itemId: item.itemId, action: "approve", category }],
-        { reviewer: "AI 카테고리 검토함" },
-      );
-      await persistState(result.state as TrackerState);
+      const result = await approveCategoriesOnServer([
+        { itemId: item.itemId, category },
+      ]);
       clearCandidateSelectionsFor([item.itemId]);
-      setNotice(`${item.modelNumber || item.productName} · 선택한 후보를 승인했습니다.`);
+      setSelectedIds((current) =>
+        current.filter((itemId) => itemId !== item.itemId),
+      );
+      setNotice(
+        result.productMasterSynced
+          ? `${item.modelNumber || item.productName} · 카테고리를 승인했고 상품출시 진행관리와 상품원장에 저장했습니다.`
+          : `${item.modelNumber || item.productName} · 상품출시 진행관리에는 저장했습니다. 상품원장 동기화만 다시 확인하세요: ${result.productMasterMessage}`,
+      );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "후보 승인에 실패했습니다.");
     } finally {
@@ -196,11 +200,7 @@ export function ShoplingCategoryCoreNounReview() {
       const latestReviews = new Map(
         buildReviews(latest).map((item) => [item.itemId, item] as const),
       );
-      const decisions: Array<{
-        itemId: string;
-        action: "approve";
-        category: string;
-      }> = [];
+      const decisions: Array<{ itemId: string; category: string }> = [];
       const staleIds: string[] = [];
 
       for (const [itemId, category] of Object.entries(candidateSelections)) {
@@ -209,7 +209,7 @@ export function ShoplingCategoryCoreNounReview() {
           staleIds.push(itemId);
           continue;
         }
-        decisions.push({ itemId, action: "approve", category });
+        decisions.push({ itemId, category });
       }
 
       if (!decisions.length) {
@@ -221,14 +221,11 @@ export function ShoplingCategoryCoreNounReview() {
       const confirmed = window.confirm(
         `직접 선택한 후보 ${decisions.length}건을 일괄 승인합니다.${
           staleIds.length ? ` 변경된 후보 ${staleIds.length}건은 제외됩니다.` : ""
-        } 계속하시겠습니까?`,
+        } 승인된 항목은 검토함에서 사라지고 상품출시 진행관리·상품원장 카테고리에 저장됩니다. 계속하시겠습니까?`,
       );
       if (!confirmed) return;
 
-      const result = applyShoplingCategoryReviewDecisions(latest, decisions, {
-        reviewer: "AI 카테고리 검토함 · 직접 선택 일괄 승인",
-      });
-      await persistState(result.state as TrackerState);
+      const result = await approveCategoriesOnServer(decisions);
       setCandidateSelections(
         Object.fromEntries(
           Object.entries(candidateSelections).filter(([itemId]) =>
@@ -236,18 +233,64 @@ export function ShoplingCategoryCoreNounReview() {
           ),
         ),
       );
+      setSelectedIds((current) =>
+        current.filter((itemId) => staleIds.includes(itemId)),
+      );
       setNotice(
-        `직접 선택한 후보 ${decisions.length}건을 일괄 승인했습니다.${
-          staleIds.length
-            ? ` 후보가 바뀐 ${staleIds.length}건은 승인하지 않고 선택 상태로 남겼습니다.`
-            : ""
-        }`,
+        result.productMasterSynced
+          ? `직접 선택한 후보 ${decisions.length}건을 승인하고 상품출시 진행관리·상품원장에 저장했습니다.${
+              staleIds.length
+                ? ` 후보가 바뀐 ${staleIds.length}건은 승인하지 않았습니다.`
+                : ""
+            }`
+          : `승인 ${decisions.length}건은 상품출시 진행관리에 저장했습니다. 상품원장 동기화만 다시 확인하세요: ${result.productMasterMessage}`,
       );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "선택 후보 일괄 승인에 실패했습니다.");
     } finally {
       setBusyKey("");
     }
+  }
+
+  async function approveCategoriesOnServer(
+    decisions: Array<{ itemId: string; category: string }>,
+  ) {
+    const response = await fetch(OPTIMIZED_ENDPOINT, {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        operation: "approve_category_ai_reviews",
+        decisions,
+        updatedBy: "승준 · AI 카테고리 검토 승인",
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body?.ok !== true) {
+      throw new Error(body?.message || "승인 카테고리를 저장하지 못했습니다.");
+    }
+
+    const latest = await requireServerState();
+    setState(latest);
+    window.localStorage.setItem(TRACKER_STORAGE_KEY, JSON.stringify(latest));
+
+    const masterResponse = await fetch(PRODUCT_MASTER_SYNC_ENDPOINT, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const masterBody = await masterResponse.json().catch(() => ({}));
+    return {
+      productMasterSynced:
+        masterResponse.ok && masterBody?.ok === true,
+      productMasterMessage:
+        text(masterBody?.message) ||
+        `상품원장 동기화 요청 실패 HTTP ${masterResponse.status}`,
+    };
   }
 
   async function clearReviewQueue() {
