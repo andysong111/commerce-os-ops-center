@@ -166,6 +166,42 @@ test("bulk item patch applies multiple scoped changes in one state mutation", ()
   assert.equal(mutation.state.items[0].updatedBy, "승준 · AI 카테고리 후보 생성");
 });
 
+test("clear category AI review removes only categoryAi metadata and preserves confirmed Shopling category", () => {
+  const source = state(3);
+  source.items[0].categoryAiStatus = "review_required";
+  source.items[0].categoryAiSuggestion = "생활>청소>브러시";
+  source.items[0].categoryAiCandidateChoices = [
+    "생활>청소>브러시",
+    "생활>욕실>브러시",
+  ];
+  source.items[0].categoryAiReason = "AI 후보";
+  source.items[0].shoplingCategory = "생활>확정>카테고리";
+  source.items[1].categoryAiStatus = "review_approved";
+  source.items[1].categoryAiApprovedValue = "생활>정리";
+  source.items[1].shoplingCategory = "생활>정리";
+
+  const mutation = applyProductLaunchTrackerMutation(source, {
+    operation: "clear_category_ai_review",
+    updatedBy: "승준 · AI 카테고리 검토함 비우기",
+  });
+
+  assert.equal(mutation.state.items[0].shoplingCategory, "생활>확정>카테고리");
+  assert.equal(mutation.state.items[1].shoplingCategory, "생활>정리");
+  assert.equal(
+    Object.keys(mutation.state.items[0]).some((key) => key.startsWith("categoryAi")),
+    false,
+  );
+  assert.equal(
+    Object.keys(mutation.state.items[1]).some((key) => key.startsWith("categoryAi")),
+    false,
+  );
+  assert.deepEqual(mutation.changedIds, ["item-1", "item-2"]);
+  assert.equal(
+    mutation.state.items[0].updatedBy,
+    "승준 · AI 카테고리 검토함 비우기",
+  );
+});
+
 test("bulk item patch rejects duplicate item IDs before a state write", () => {
   assert.throws(
     () =>

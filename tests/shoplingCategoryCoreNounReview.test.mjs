@@ -105,6 +105,30 @@ test("검토함은 재생성 상품 선택과 승인 후보 선택을 분리해 
   assert.match(component, /실패한 \$\{failedSet\.size\}건만 선택 상태로 남겼습니다/);
 });
 
+test("카테고리 검토함은 전체 비우기 버튼으로 AI 검토 메타데이터만 서버에서 제거한다", async () => {
+  const component = await readFile(
+    new URL(
+      "../src/components/shopling-category-review/ShoplingCategoryCoreNounReview.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const optimized = await readFile(
+    new URL("../src/lib/productLaunchTrackerOptimized.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(component, /OPTIMIZED_ENDPOINT = "\/api\/product-launch-tracker\/optimized"/);
+  assert.match(component, /검토함 모두 비우기/);
+  assert.match(component, /clearReviewQueue/);
+  assert.match(component, /operation: "clear_category_ai_review"/);
+  assert.match(component, /이미 확정된 샵플링 표준 카테고리는 유지됩니다/);
+  assert.match(component, /key\.startsWith\("categoryAi"\)/);
+  assert.match(optimized, /operation === "clear_category_ai_review"/);
+  assert.match(optimized, /key\.startsWith\("categoryAi"\)/);
+  assert.doesNotMatch(component, /shoplingCategory: ""/);
+});
+
 test("승인 정답 이력은 유사 상품의 샵플링 경로 prior와 Top-1·Top-3 지표로 누적된다", () => {
   const state = {
     items: [
