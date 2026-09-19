@@ -62,7 +62,7 @@ test("AI 카테고리 API는 OpenAI 전용 샵플링 분류와 웹검색 비활�
   assert.match(route, /retryFailedIndividually/);
   assert.match(route, /useWebSearch: false/);
   assert.match(route, /provider: "openai_shopling_constrained_catalog"/);
-  assert.match(route, /CATEGORY_ENGINE_VERSION = "openai-shopling-constrained-v4"/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "openai-semantic-shopling-v5"/);
   assert.match(route, /naverDependency: false/);
   assert.doesNotMatch(route, /generateNaverFirstShoplingCategoryRecommendations/);
   assert.match(route, /complete: failures\.length === 0/);
