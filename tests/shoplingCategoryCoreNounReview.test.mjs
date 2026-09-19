@@ -229,7 +229,7 @@ test("카테고리 API는 네이버 없이 OpenAI가 실제 샵플링 후보 안
     "utf8",
   );
 
-  assert.match(route, /CATEGORY_ENGINE_VERSION = "openai-semantic-shopling-v5"/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "openai-form-aware-shopling-v6"/);
   assert.match(route, /generateReliableShoplingCategoryRecommendations/);
   assert.match(route, /useWebSearch: false/);
   assert.doesNotMatch(route, /skipSearchProfiles: true/);
