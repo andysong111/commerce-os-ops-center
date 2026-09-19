@@ -177,10 +177,10 @@ test("카테고리 API는 네이버 없이 OpenAI가 실제 샵플링 후보 안
     "utf8",
   );
 
-  assert.match(route, /CATEGORY_ENGINE_VERSION = "openai-shopling-constrained-v4"/);
+  assert.match(route, /CATEGORY_ENGINE_VERSION = "openai-semantic-shopling-v5"/);
   assert.match(route, /generateReliableShoplingCategoryRecommendations/);
   assert.match(route, /useWebSearch: false/);
-  assert.match(route, /skipSearchProfiles: true/);
+  assert.doesNotMatch(route, /skipSearchProfiles: true/);
   assert.match(route, /categoryMode: "openai_only"/);
   assert.match(route, /naverDependency: false/);
   assert.doesNotMatch(route, /generateNaverFirstShoplingCategoryRecommendations/);
@@ -194,7 +194,7 @@ test("카테고리 API는 네이버 없이 OpenAI가 실제 샵플링 후보 안
 });
 
 
-test("OpenAI-only 경로는 중복 모델명 프로필 호출을 건너뛰고 최종 후보선택 단계만 실행한다", async () => {
+test("OpenAI-only 경로는 상품 정체성 의미분석 후 샵플링 후보를 만들고 최종 후보를 선택한다", async () => {
   const runner = await readFile(
     new URL(
       "../src/lib/shoplingCategoryRecommendationRunner.ts",
@@ -202,11 +202,23 @@ test("OpenAI-only 경로는 중복 모델명 프로필 호출을 건너뛰고 �
     ),
     "utf8",
   );
+  const catalog = await readFile(
+    new URL("../src/lib/shoplingCategoryCatalog.ts", import.meta.url),
+    "utf8",
+  );
 
-  assert.match(runner, /skipSearchProfiles\?: boolean/);
-  assert.match(runner, /if \(!options\.skipSearchProfiles\)/);
-  assert.match(runner, /options\.skipSearchProfiles\s*\? inputs/);
+  assert.match(runner, /CATEGORY_BATCH_SIZE = 5/);
+  assert.match(runner, /SEARCH_PROFILE_BATCH_SIZE = 5/);
   assert.match(runner, /CATEGORY_RECOMMENDATION_TIMEOUT_MS = 55_000/);
+  assert.match(runner, /SEARCH_PROFILE_TIMEOUT_MS = 55_000/);
+  assert.match(runner, /SEARCH_PROFILE_FALLBACK_RETRY_TIMEOUT_MS = 35_000/);
+  assert.match(catalog, /if \(!webSearchEnabled\)/);
+  assert.match(catalog, /timeoutMs: totalTimeoutMs/);
+  assert.match(catalog, /모델명 전체를 하나의 상품명으로 먼저 해석한다/);
+  assert.match(catalog, /'꿩안경'은 사람용 안경이 아니라/);
+  assert.match(catalog, /'멀티탭 트레이'는 주방 쟁반이 아니라/);
+  assert.match(catalog, /'은박담요'는 일반 침구 담요보다/);
+  assert.match(catalog, /'차량용 무지 트레블백'/);
 });
 
 
