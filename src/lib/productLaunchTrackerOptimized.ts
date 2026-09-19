@@ -1,3 +1,9 @@
+import {
+  hasShoplingInventoryPseudoCategorySegment,
+  sanitizeShoplingCategoryPath,
+  sanitizeShoplingCategoryPathArray,
+} from "./shoplingCategoryPathSafety.ts";
+
 export const PRODUCT_LAUNCH_DEFAULT_PAGE_SIZE = 50;
 export const PRODUCT_LAUNCH_MAX_PAGE_SIZE = 100;
 export const PRODUCT_LAUNCH_MUTATION_LIMIT = 500;
@@ -421,6 +427,85 @@ export function applyProductLaunchTrackerMutation(
       const id = text(item.id);
       if (id) changedIds.add(id);
     });
+  } else if (operation === "approve_category_ai_reviews") {
+    const decisions = Array.isArray(input.decisions)
+      ? input.decisions.filter(isRecord)
+      : [];
+    if (!decisions.length) {
+      throw new Error("승인할 카테고리 후보를 선택하세요.");
+    }
+    if (decisions.length > PRODUCT_LAUNCH_MUTATION_LIMIT) {
+      throw new Error(
+        `한 번에 최대 ${PRODUCT_LAUNCH_MUTATION_LIMIT}건까지 승인할 수 있습니다.`,
+      );
+    }
+
+    const seenIds = new Set<string>();
+    for (const entry of decisions) {
+      const itemId = requiredText(entry.itemId, "상품 ID가 필요합니다.");
+      if (seenIds.has(itemId)) {
+        throw new Error("동일 상품의 카테고리 승인이 중복되었습니다.");
+      }
+      seenIds.add(itemId);
+
+      const index = items.findIndex((item) => text(item.id) === itemId);
+      if (index < 0) throw new Error("승인할 상품을 찾지 못했습니다.");
+      const item = items[index];
+      const category = sanitizeShoplingCategoryPath(entry.category);
+      if (!category) {
+        throw new Error(
+          `${text(item.modelNumber) || itemId}의 승인 카테고리가 비어 있습니다.`,
+        );
+      }
+      if (hasShoplingInventoryPseudoCategorySegment(category)) {
+        throw new Error(
+          `${text(item.modelNumber) || itemId}의 승인 카테고리에 재고 방식이 포함되어 있습니다.`,
+        );
+      }
+
+      const allowedCandidates = sanitizeShoplingCategoryPathArray(
+        [
+          item.categoryAiSuggestion,
+          ...(Array.isArray(item.categoryAiAlternatives)
+            ? item.categoryAiAlternatives
+            : []),
+          ...(Array.isArray(item.categoryAiCandidateChoices)
+            ? item.categoryAiCandidateChoices
+            : []),
+          ...(Array.isArray(item.categoryAiCandidatePaths)
+            ? item.categoryAiCandidatePaths
+            : []),
+        ],
+        40,
+      );
+      if (!allowedCandidates.includes(category)) {
+        throw new Error(
+          `${text(item.modelNumber) || itemId}의 승인 카테고리가 최신 AI 후보 목록에 없습니다.`,
+        );
+      }
+
+      const suggestion = sanitizeShoplingCategoryPath(item.categoryAiSuggestion);
+      const reviewer =
+        text(entry.reviewer) ||
+        text(input.reviewer) ||
+        "AI 카테고리 검토함";
+      items[index] = normalizeWholeItem(
+        {
+          ...item,
+          shoplingCategory: category,
+          categoryAiApprovedValue: category,
+          categoryAiStatus: "review_approved",
+          categoryAiDecision:
+            suggestion && suggestion === category ? "suggestion" : "edited",
+          categoryAiReviewedAt: now,
+          categoryAiReviewedBy: reviewer,
+          updatedAt: now,
+          updatedBy: "AI 카테고리 검토 승인",
+        },
+        now,
+      );
+      changedIds.add(itemId);
+    }
   } else if (operation === "replace_item") {
     const itemId = requiredText(input.itemId, "상품 ID가 필요합니다.");
     const replacement = isRecord(input.item) ? input.item : null;
