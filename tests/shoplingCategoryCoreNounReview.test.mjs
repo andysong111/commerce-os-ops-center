@@ -95,7 +95,8 @@ test("검토함은 재생성 상품 선택과 승인 후보 선택을 분리해 
   assert.match(component, /bulkApproveSelectedCandidates/);
   assert.doesNotMatch(component, /bulkApproveFirstCandidates/);
   assert.match(component, /직접 선택한 후보 \$\{decisions\.length\}건을 일괄 승인합니다/);
-  assert.match(component, /AI 카테고리 검토함 · 직접 선택 일괄 승인/);
+  assert.match(component, /approve_category_ai_reviews/);
+  assert.match(component, /승인된 항목은 검토함에서 사라지고 상품출시 진행관리·상품원장 카테고리에 저장됩니다/);
   assert.match(component, /review\?\.candidates\.includes\(category\)/);
   assert.match(component, /const AI_BATCH_SIZE = 5/);
   assert.match(component, /offset \+= AI_BATCH_SIZE/);
@@ -103,6 +104,24 @@ test("검토함은 재생성 상품 선택과 승인 후보 선택을 분리해 
   assert.match(component, /requestAiCandidates\(\[source\]\)/);
   assert.match(component, /window\.confirm/);
   assert.match(component, /실패한 \$\{failedSet\.size\}건만 선택 상태로 남겼습니다/);
+});
+
+test("카테고리 승인 시 scoped 저장 후 검토함에서 제거하고 상품원장까지 동기화한다", async () => {
+  const component = await readFile(
+    new URL(
+      "../src/components/shopling-category-review/ShoplingCategoryCoreNounReview.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(component, /operation: "approve_category_ai_reviews"/);
+  assert.match(component, /PRODUCT_MASTER_SYNC_ENDPOINT/);
+  assert.match(component, /\/api\/product-launch-tracker\/product-master-sync/);
+  assert.match(component, /const latest = await requireServerState\(\)/);
+  assert.match(component, /setState\(latest\)/);
+  assert.match(component, /상품출시 진행관리·상품원장에 저장했습니다/);
+  assert.doesNotMatch(component, /applyShoplingCategoryReviewDecisions/);
 });
 
 test("카테고리 검토함은 전체 비우기 버튼으로 AI 검토 메타데이터만 서버에서 제거한다", async () => {
