@@ -78,7 +78,7 @@ test("AI 카테고리 API는 의미 분석과 상품별 추천을 병렬화하�
 
   assert.match(runner, /CATEGORY_BATCH_SIZE = 1/);
   assert.match(runner, /CATEGORY_BATCH_CONCURRENCY = 3/);
-  assert.match(runner, /CATEGORY_RECOMMENDATION_TIMEOUT_MS = 35_000/);
+  assert.match(runner, /CATEGORY_RECOMMENDATION_TIMEOUT_MS = 55_000/);
   assert.match(runner, /SEARCH_PROFILE_BATCH_SIZE = 1/);
   assert.match(runner, /SEARCH_PROFILE_BATCH_CONCURRENCY = 3/);
   assert.match(runner, /SEARCH_PROFILE_TIMEOUT_MS = 35_000/);

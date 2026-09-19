@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
       {
         timeoutMs: 60_000,
         retryFailedIndividually,
+        skipSearchProfiles: true,
         useWebSearch: false,
         model,
       },
