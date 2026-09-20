@@ -19,8 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
-      - name: Receipt proof, partial failure and retry regression
-        run: node --experimental-strip-types --test tests/sourcingReceiptLifecycleCore.test.mjs tests/sourcing-inbound-lifecycle.test.mjs tests/sourcing-purchase-lifecycle.test.mjs
+      - name: Receipt proof, partial failure, concurrent save and retry regression
+        run: node --experimental-strip-types --test tests/sourcingReceiptLifecycleCore.test.mjs tests/sourcing-inbound-lifecycle.test.mjs tests/sourcing-purchase-lifecycle.test.mjs tests/sourcingLifecycleRuntime.test.mjs
       - run: npm ci
       - name: Lint lifecycle implementation
         run: npx eslint src/lib/sourcingReceiptLifecycleCore.ts src/lib/sourcingReceiptArtifacts.ts src/lib/sourcingLaunchMaterialization.ts src/lib/internalChinaReceipt.ts src/lib/internalChinaReceiptFollowup.ts
