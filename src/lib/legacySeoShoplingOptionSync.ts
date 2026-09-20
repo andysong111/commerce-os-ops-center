@@ -32,6 +32,8 @@ type NormalizedItem = {
   modelNumber: string;
   itemPayload: UnknownRecord;
   summaryPayload: UnknownRecord;
+  optionLabels: string[];
+  optionBarcodes: string[];
   options: UnknownRecord[];
 };
 
@@ -339,6 +341,8 @@ async function loadNormalizedItems(
     modelNumber: modelKey(row.model_number),
     itemPayload: clone(row.item_payload),
     summaryPayload: clone(row.summary_payload),
+    optionLabels: array(row.option_labels).map(text).filter(Boolean),
+    optionBarcodes: array(row.option_barcodes).map(text).filter(Boolean),
     options: optionsByItem.get(text(row.item_id)) ?? [],
   }));
 }
@@ -400,8 +404,14 @@ async function patchItem(
   metadata: UnknownRecord,
   now: string,
 ) {
-  const labels = options.map((option) => text(option.saleOption ?? option.value)).filter(Boolean);
-  const barcodes = options.map((option) => text(option.barcode)).filter(Boolean);
+  const derivedLabels = options
+    .map((option) => text(option.saleOption ?? option.value))
+    .filter(Boolean);
+  const derivedBarcodes = options.map((option) => text(option.barcode)).filter(Boolean);
+  // A no-match Shopling probe is metadata-only. Never erase launch identity arrays
+  // just because normalized option rows have not been recovered yet.
+  const labels = derivedLabels.length ? derivedLabels : item.optionLabels;
+  const barcodes = derivedBarcodes.length ? derivedBarcodes : item.optionBarcodes;
   const itemPayload = {
     ...item.itemPayload,
     optionLabels: labels,

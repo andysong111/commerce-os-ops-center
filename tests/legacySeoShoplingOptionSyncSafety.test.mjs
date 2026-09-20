@@ -100,3 +100,17 @@ test("가격 옵션명 접두·접미 자동매칭은 잔여 옵션 전체가 �
   assert.match(source, /claimedCanonicalIds\.has\(candidate\.canonical_price_id\)/);
   assert.match(source, /method: "bijective_affix_option_name"/);
 });
+
+test("Shopling 무매칭 보존 경로는 옵션 행 0개여도 기존 표시옵션과 B코드 배열을 지우지 않는다", async () => {
+  const source = await readFile(
+    new URL("../src/lib/legacySeoShoplingOptionSync.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /optionLabels: string\[\]/);
+  assert.match(source, /optionBarcodes: string\[\]/);
+  assert.match(source, /optionLabels: array\(row\.option_labels\)\.map\(text\)\.filter\(Boolean\)/);
+  assert.match(source, /optionBarcodes: array\(row\.option_barcodes\)\.map\(text\)\.filter\(Boolean\)/);
+  assert.match(source, /const labels = derivedLabels\.length \? derivedLabels : item\.optionLabels/);
+  assert.match(source, /const barcodes = derivedBarcodes\.length \? derivedBarcodes : item\.optionBarcodes/);
+});
