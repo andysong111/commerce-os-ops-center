@@ -10,8 +10,7 @@ import { koreanMonthLabel, seoulCalendarMonth } from "@/lib/monthlyPurchasePolic
 import type { PriceAdjustmentReceipt } from "@/lib/priceAdjustmentReceiptCache";
 import { retryInternalChinaReceiptFollowup } from "@/lib/internalChinaReceiptFollowup";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
-import { confirmSourcingWarehouseReceipt } from "@/lib/sourcingReceiptBridge";
-import { materializeSourcingLaunchItem } from "@/lib/sourcingLaunchMaterialization";
+import { sourcingMetadataFromCommitmentPayload } from "@/lib/sourcingReceiptBridge";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const RECEIPT_SOURCE = "ops-center-internal-china-receipt";
@@ -70,6 +69,7 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     const code = barcode(line.barcode);
     const receivedNow = quantity(line.quantity);
     if (!BARCODE.test(code) || receivedNow <= 0) continue;
+    if (byBarcode.has(code)) throw new Error("CHINA_RECEIPT_DUPLICATE_BARCODE");
     byBarcode.set(code, receivedNow);
   }
   if (!byBarcode.size) throw new Error("CHINA_RECEIPT_POSITIVE_QUANTITY_REQUIRED");
@@ -85,11 +85,17 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
   }, ""));
   if (actualCycleMonth !== requestedCycleMonth) throw new Error(`CHINA_RECEIPT_CYCLE_MONTH_CONFLICT:${requestedCycleMonth}:${actualCycleMonth}`);
   const commitmentByBarcode = new Map(commitments.map((row) => [row.barcode, row] as const));
+  const sourcedByBarcode = new Map<string, NonNullable<ReturnType<typeof sourcingMetadataFromCommitmentPayload>>>();
   for (const [code, receivedNow] of byBarcode) {
     const commitment = commitmentByBarcode.get(code);
     if (!commitment) throw new Error(`CHINA_RECEIPT_BARCODE_NOT_IN_DRAFT:${code}`);
     if (commitment.openQuantity <= 0) throw new Error(`CHINA_RECEIPT_ALREADY_CLOSED:${code}`);
     if (receivedNow > commitment.openQuantity) throw new Error(`CHINA_RECEIPT_QUANTITY_EXCEEDED:${code}:${receivedNow}:${commitment.openQuantity}`);
+    const sourced = sourcingMetadataFromCommitmentPayload(commitment.latestPayload);
+    if (sourced) {
+      if (commitment.orderedQuantity <= 0) throw new Error("SOURCING_RECEIPT_ORDER_EVIDENCE_REQUIRED");
+      sourcedByBarcode.set(code, sourced);
+    }
   }
   const baseDraft = await loadInternalChinaPurchaseDraft(draftId);
   const draft = await loadInternalChinaDraftWithQuantityOverrides(baseDraft);
@@ -106,20 +112,6 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     groupStats.set(key, current);
   }
   const receiptId = randomUUID();
-  const sourcingReceipts = new Map<
-    string,
-    NonNullable<Awaited<ReturnType<typeof confirmSourcingWarehouseReceipt>>>
-  >();
-  for (const code of byBarcode.keys()) {
-    const commitment = commitmentByBarcode.get(code)!;
-    const sourced = await confirmSourcingWarehouseReceipt({
-      receiptId,
-      barcode: code,
-      payload: commitment.latestPayload,
-    });
-    if (sourced) sourcingReceipts.set(code, sourced);
-  }
-
   const now = new Date().toISOString();
   const operations: Record<string, unknown>[] = [];
   const receiptCosts: PriceAdjustmentReceipt[] = [];
@@ -127,7 +119,10 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
   for (const [code, receivedNow] of byBarcode) {
     const commitment = commitmentByBarcode.get(code)!;
     const line = draftByBarcode.get(code)!;
-    const sourcingReceipt = sourcingReceipts.get(code) ?? null;
+    const sourcing = sourcedByBarcode.get(code) ?? null;
+    if (sourcing && (line.modelNo !== sourcing.modelNumber || !(line.unitPriceCny > 0))) {
+      throw new Error("SOURCING_RECEIPT_DRAFT_IDENTITY_OR_COST_INVALID");
+    }
     const cumulativeReceived = commitment.receivedQuantity + receivedNow;
     const receivableTotal = Math.max(0, commitment.committedQuantity - commitment.cancelledQuantity);
     const finished = cumulativeReceived >= receivableTotal;
@@ -139,7 +134,9 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
       sourceRunId: draftId, sourceEventId: lineReceiptEventId(receiptId, code), barcode: code,
       status: finished ? "RECEIVED" : "PARTIALLY_RECEIVED", receivedQuantity: cumulativeReceived,
       occurredAt: now, note: `${koreanMonthLabel(actualCycleMonth)} 입고확정 · 이번 ${receivedNow.toLocaleString("ko-KR")}개`,
-      payload: { receiptId, draftId, cycleMonth: actualCycleMonth, receivedNow, cumulativeReceived, externalOrderExecuted: false },
+      payload: { receiptId, draftId, cycleMonth: actualCycleMonth, receivedNow, cumulativeReceived,
+        ...(sourcing ? { sourcingConfirmed: true, sourcingIntakeId: sourcing.intakeId, sourcingOutboxId: sourcing.outboxId } : {}),
+        externalOrderExecuted: false },
     });
     const groupKey = line.freightGroupId.trim() || `__${line.barcode}`;
     const group = groupStats.get(groupKey) ?? { quantity: line.quantity, freight: 0 };
@@ -163,23 +160,10 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
       result_snapshot: {
         accepted: true, receiptId, draftId, cycleMonth: actualCycleMonth, barcode: code,
         receivedNow, cumulativeReceived, fullyReceived: finished,
-        // Durable recovery source is written with the quantity event, before any
-        // downstream cache/network work. Replays cannot invent or re-add quantity.
+        // Durable recovery source is written with the quantity event, BEFORE any
+        // warehouse activation, launch creation or downstream cache/network write.
         followupVersion: 1, receiptLineCount: byBarcode.size, receiptCost,
-        sourcing: sourcingReceipt
-          ? {
-              intakeId: sourcingReceipt.intakeId,
-              outboxId: sourcingReceipt.outboxId,
-              modelNumber: sourcingReceipt.modelNumber,
-              productName: sourcingReceipt.productName,
-              saleOption: sourcingReceipt.saleOption,
-              chinaOption: sourcingReceipt.chinaOption,
-              supplierLink: sourcingReceipt.supplierLink,
-              skuId: sourcingReceipt.skuId,
-              productId: sourcingReceipt.productId,
-              receivedAt: sourcingReceipt.receivedAt,
-            }
-          : null,
+        sourcing,
       },
       error_message: null, started_at: now, finished_at: now, updated_at: now,
     });
@@ -196,40 +180,19 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
 
   let productMasterSynced = false;
   let productMasterError: string | null = null;
-  try {
-    const followup = await retryInternalChinaReceiptFollowup(receiptId);
-    productMasterSynced = followup.state === "VERIFIED";
-  } catch (error) {
-    const raw = error instanceof Error ? error.message.split(":", 1)[0] : "";
-    productMasterError = /^[A-Z0-9_]+$/.test(raw) ? raw : "PRODUCT_MASTER_RECEIPT_SYNC_FAILED";
-  }
   let launchMaterializedCount = 0;
   let launchMaterializationError: string | null = null;
   try {
-    for (const [code, sourced] of sourcingReceipts) {
-      const line = draftByBarcode.get(code)!;
-      const cost = receiptCosts.find((row) => row.barcode === code);
-      await materializeSourcingLaunchItem({
-        intakeId: sourced.intakeId,
-        receiptId,
-        barcode: code,
-        modelNumber: sourced.modelNumber,
-        productName: sourced.productName,
-        saleOption: sourced.saleOption || line.saleOption,
-        chinaOption: sourced.chinaOption || line.chinaOption,
-        supplierLink: sourced.supplierLink || line.supplierLink,
-        unitCostKrw: cost?.unitCostKrw ?? 0,
-        sourceLineId: commitmentByBarcode.get(code)?.sourceLineId ?? "",
-      });
-      launchMaterializedCount += 1;
-    }
+    // This worker re-reads committed rows, activates warehouse + launch FIRST,
+    // then synchronizes cost. Retrying it never calls recordInternalChinaReceipt.
+    const followup = await retryInternalChinaReceiptFollowup(receiptId);
+    productMasterSynced = followup.state === "VERIFIED";
+    launchMaterializedCount = sourcedByBarcode.size;
   } catch (error) {
     const raw = error instanceof Error ? error.message.split(":", 1)[0] : "";
-    launchMaterializationError = /^[A-Z0-9_]+$/.test(raw)
-      ? raw
-      : "SOURCING_LAUNCH_MATERIALIZATION_FAILED";
+    productMasterError = /^[A-Z0-9_]+$/.test(raw) ? raw : "PRODUCT_MASTER_RECEIPT_SYNC_FAILED";
+    if (sourcedByBarcode.size) launchMaterializationError = productMasterError;
   }
-
   return { receiptId, draftId, cycleMonth: actualCycleMonth, lineCount: byBarcode.size,
     receivedNow: receivedNowTotal, fullyReceivedCount, partiallyReceivedCount,
     productMasterSynced, productMasterError, launchMaterializedCount, launchMaterializationError };

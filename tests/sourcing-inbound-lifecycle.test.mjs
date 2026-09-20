@@ -1,38 +1,31 @@
-import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import test from "node:test";
-
-async function source(path) {
-  return readFile(new URL(path, import.meta.url), "utf8");
-}
-
-test("sourced receipt activates warehouse identity before persisting the China receipt event", async () => {
-  const receipt = await source("../src/lib/internalChinaReceipt.ts");
-  const bridgeIndex = receipt.indexOf("confirmSourcingWarehouseReceipt({");
-  const ledgerWriteIndex = receipt.indexOf("/rest/v1/commerce_operation_runs?on_conflict=source_event_id");
-  assert.ok(bridgeIndex > 0);
-  assert.ok(ledgerWriteIndex > bridgeIndex);
-  assert.match(receipt, /commitment\.latestPayload/);
-  assert.match(receipt, /launchMaterializedCount/);
-  assert.match(receipt, /materializeSourcingLaunchItem/);
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import test from 'node:test';
+const source=p=>readFile(new URL(p,import.meta.url),'utf8');
+test('warehouse and launch activation occur only after the durable China receipt write',async()=>{
+ const r=await source('../src/lib/internalChinaReceipt.ts');
+ assert.doesNotMatch(r,/confirmSourcingWarehouseReceipt\(/);
+ assert.doesNotMatch(r,/materializeSourcingLaunchItem\(/);
+ assert.ok(r.indexOf('const followup = await retryInternalChinaReceiptFollowup(receiptId)')>r.indexOf('if (!response.ok) throw new Error(`CHINA_RECEIPT_STORE_FAILED:'));
+ assert.match(r,/sourcing,/);
+ assert.match(r,/SOURCING_RECEIPT_ORDER_EVIDENCE_REQUIRED/);
 });
-
-test("warehouse receipt bridge is source-qualified, idempotent and never marks unknown commitments", async () => {
-  const bridge = await source("../src/lib/sourcingReceiptBridge.ts");
-  assert.match(bridge, /payload\.sourcingConfirmed !== true/);
-  assert.match(bridge, /stableUuid\(/);
-  assert.match(bridge, /action: "sourcing_received"/);
-  assert.match(bridge, /PRODUCT_MASTER_INTEGRATION_SECRET/);
-  assert.match(bridge, /body\?\.status !== "RECEIVED"/);
+test('recovery re-reads persisted receipts, repairs launch before costs, and never adds receipt quantity',async()=>{
+ const f=await source('../src/lib/internalChinaReceiptFollowup.ts');
+ const start=f.indexOf('export async function retryInternalChinaReceiptFollowup');
+ const code=f.slice(start);
+ assert.ok(code.indexOf('await storedRows(receiptId)')<code.indexOf('await ensureSourcingReceiptArtifacts(receiptId, rows)'));
+ assert.ok(code.indexOf('await ensureSourcingReceiptArtifacts(receiptId, rows)')<code.indexOf('await verifyRows'));
+ assert.doesNotMatch(code,/recordInternalChinaReceipt\(/);
 });
-
-test("launch materialization uses sourcing intake as the immutable item id and rejects identity collisions", async () => {
-  const materialize = await source("../src/lib/sourcingLaunchMaterialization.ts");
-  assert.match(materialize, /id: intakeId/);
-  assert.match(materialize, /SOURCING_LAUNCH_IDEMPOTENCY_CONFLICT/);
-  assert.match(materialize, /SOURCING_LAUNCH_BCODE_ALREADY_EXISTS/);
-  assert.match(materialize, /SOURCING_LAUNCH_MODEL_ALREADY_EXISTS/);
-  assert.match(materialize, /warehouseLocation: barcode/);
-  assert.match(materialize, /workBatch: "신규소싱입고"/);
-  assert.match(materialize, /syncProductLaunchNormalizedChangedItems/);
+test('launch writes use compare-and-swap and repair normalized rows after a lost response',async()=>{
+ const f=await source('../src/lib/sourcingLaunchMaterialization.ts');
+ assert.match(f,/updated_at:`eq\.\$\{sourceUpdatedAt\}`/);
+ assert.match(f,/if \(!rows\.length\) continue/);
+ assert.match(f,/SOURCING_LAUNCH_STATE_UNAVAILABLE/);
+ assert.match(f,/if \(!normalized\)/);
+ assert.match(f,/syncProductLaunchNormalizedChangedItems/);
+ assert.doesNotMatch(f,/syncProductLaunchNormalizedFull/);
+ assert.match(f,/ensure_product_launch_item_option_barcode_nos/);
+ assert.match(f,/const canonicalItem = normalized \|\| existing/);
 });
