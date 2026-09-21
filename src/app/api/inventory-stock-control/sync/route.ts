@@ -273,6 +273,8 @@ function queueJob(
     desiredStatus: row.desiredStatus,
     desiredSince: row.desiredSince,
     exactInventoryQuantity: row.exactInventoryQuantity,
+    inventoryQuantityKnown: row.inventoryQuantityKnown !== false,
+    manualStatusOnly: row.manualStatusOnly === true,
     resetAt: row.resetAt,
     route:
       row.productKind === "OPTION"
