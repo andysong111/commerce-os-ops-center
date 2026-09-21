@@ -113,7 +113,16 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     const payload = await response.json().catch(() => ({})) as { ok?: boolean; message?: string };
     if (!response.ok || !payload.ok) throw new Error(payload.message || "운영 큐 Shopling 결과를 원장에 저장하지 못했습니다.");
   }, []);
-  const blockedRows = useMemo(() => (report?.rows ?? []).filter((row) => row.syncNeeded && row.syncBlocked), [report]);
+  const blockedRows = useMemo(
+    () =>
+      (report?.rows ?? []).filter(
+        (row) =>
+          row.syncNeeded &&
+          row.syncBlocked &&
+          !runningBarcodes.includes(row.barcode),
+      ),
+    [report, runningBarcodes],
+  );
 
   const launchNext = useCallback(async () => {
     if (!continueAfterBatch.current) {
