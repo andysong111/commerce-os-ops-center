@@ -1,0 +1,42 @@
+name: Monthly price one-click verification
+on:
+  push:
+    branches: [agent/monthly-price-one-click-20260921]
+  pull_request:
+    paths:
+      - 'src/**/monthlyPrice*'
+      - 'src/**/MonthlyPrice*'
+      - 'public/shopling-a21-price-option-resend/**'
+      - 'tests/monthly-price*'
+      - '.github/workflows/monthly-price-one-click-verification.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Monthly price regression tests
+        run: |
+          if compgen -G 'tests/monthly-price*.test.mjs' > /dev/null; then
+            node --experimental-strip-types --test tests/monthly-price*.test.mjs
+          fi
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Isolated development source snapshot
+        if: always() && github.event_name == 'push'
+        run: |
+          git archive --format=tar.gz --output=/tmp/monthly-price-source.tar.gz HEAD src public tests scripts package.json package-lock.json tsconfig.json next.config.ts eslint.config.mjs postcss.config.mjs AGENTS.md .github/workflows
+      - uses: actions/upload-artifact@v4
+        if: always() && github.event_name == 'push'
+        with:
+          name: monthly-price-source-${{ github.sha }}
+          path: /tmp/monthly-price-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
