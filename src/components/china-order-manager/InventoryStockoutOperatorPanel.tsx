@@ -95,6 +95,7 @@ export function InventoryStockoutOperatorPanel() {
   const [extensionReady, setExtensionReady] = useState(false);
   const parsed = useMemo(() => parseInventoryStockoutBulkText(input), [input]);
 
+  const extensionReadyRef = useRef(false);
   const directQueue = useRef<DirectStockoutJob[]>([]);
   const activeBatch = useRef<ActiveBatch | null>(null);
   const handledResults = useRef(new Set<string>());
@@ -158,7 +159,7 @@ export function InventoryStockoutOperatorPanel() {
   );
 
   const launchNext = useCallback(async () => {
-    if (activeBatch.current || !extensionReady) return;
+    if (activeBatch.current || !extensionReadyRef.current) return;
 
     const selected = directQueue.current.slice(0, 2);
     if (!selected.length) {
@@ -222,7 +223,7 @@ export function InventoryStockoutOperatorPanel() {
       );
       window.dispatchEvent(new Event(REFRESH_EVENT));
     }
-  }, [extensionReady, recordSync]);
+  }, [recordSync]);
 
   launchNextRef.current = launchNext;
 
@@ -257,6 +258,7 @@ export function InventoryStockoutOperatorPanel() {
       const type = String(data.type || "");
 
       if (type === "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY") {
+        extensionReadyRef.current = true;
         setExtensionReady(true);
         if (directQueue.current.length && !activeBatch.current) {
           window.setTimeout(() => {
@@ -427,7 +429,7 @@ export function InventoryStockoutOperatorPanel() {
           "즉시 전송 작업을 만들지 못해 저장된 품절 기준점을 일반 운영 큐에서 처리합니다.",
         );
         window.dispatchEvent(new Event(REFRESH_EVENT));
-      } else if (extensionReady) {
+      } else if (extensionReadyRef.current) {
         setSyncNotice(
           `Shopling 자동화 연결 확인 · 품절 ${jobs.length}건 즉시 전송을 시작합니다.`,
         );
