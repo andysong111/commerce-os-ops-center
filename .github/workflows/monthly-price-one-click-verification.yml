@@ -68,3 +68,25 @@ jobs:
           path: output/monthly-price/
           retention-days: 2
           if-no-files-found: error
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: monthly-price-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: monthly-price-ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Migration and durable lease regression
+        run: |
+          psql -v ON_ERROR_STOP=1 -c 'create role anon; create role authenticated; create role service_role;'
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260921140000_monthly_price_increase_only.sql
+          psql -v ON_ERROR_STOP=1 -f tests/monthly-price-database.sql
