@@ -154,7 +154,10 @@ test("inventory stock control accepts both one-letter and two-letter B-code pref
 test("inventory stock control self-heals stale canonical sales coverage", async () => {
   const route = await readFile("src/app/api/inventory-stock-control/route.ts", "utf8");
   assert.match(route, /latestCanonicalCoverageGapResetAt/);
-  assert.match(route, /\.filter\(\(row\) => !row\.salesCoverageReady\)/);
+  assert.match(
+    route,
+    /\.filter\(\(row\) => !row\.salesCoverageReady && row\.manualStatusOnly !== true\)/,
+  );
   const sync = await readFile("src/lib/productMasterShoplingSalesEventSync.ts", "utf8");
   assert.match(route, /ensureProductMasterShoplingSalesEventCoverageRequest\(resetAt\)/);
   assert.match(sync, /ensureProductMasterShoplingSalesEventCoverageRequest[\s\S]*withSalesEventMutationGuard/);
