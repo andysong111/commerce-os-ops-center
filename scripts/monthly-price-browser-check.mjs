@@ -53,9 +53,9 @@ try{
   assert.deepEqual(events,['start','resendClaim','resendReport']);bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.find(x=>x.command==='START').payload.newClaim,false);
   await page.goto(url+'?ready=0');assert.equal(await page.getByRole('button',{name:/가격조정 실행/}).isDisabled(),true);
   // Real DOM parser in Chromium. Never contacts or writes Shopling.
-  const shop=await browser.newPage();await shop.route('https://a.shopling.co.kr/**',r=>r.fulfill({contentType:'text/html',body:'<table><tr><th>쇼핑몰</th><th>소비자가</th><th>판매가</th><th>매입가</th></tr><tr><td>도매꾹</td><td>7,777</td><td>1,234</td><td>222</td></tr></table>'}));
+  const shop=await browser.newPage();await shop.route('https://a.shopling.co.kr/**',r=>r.fulfill({contentType:'text/html; charset=utf-8',body:'<table><tr><th>쇼핑몰</th><th>소비자가</th><th>판매가</th><th>매입가</th></tr><tr><td>도매꾹</td><td>7,777</td><td>1,234</td><td>222</td></tr></table>'}));
   await shop.goto('https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=1234567');await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
-  const observed=await shop.evaluate(()=>collectMonthlyPricePage('1234567'));assert.equal(observed.rows[0].sellPrice,1234);assert.equal(observed.rows[0].consumerPrice,7777);assert.equal(observed.rows[0].purchasePrice,222);
+  const observed=await shop.evaluate(()=>collectMonthlyPricePage('1234567'));assert.ok(observed,JSON.stringify(await shop.evaluate(()=>({charset:document.characterSet,text:document.body.innerText}))));assert.equal(observed.rows[0].sellPrice,1234);assert.equal(observed.rows[0].consumerPrice,7777);assert.equal(observed.rows[0].purchasePrice,222);
   await shop.setContent('<table><tr><td>도매꾹</td><td>999</td><td>888</td><td>777</td></tr></table>');assert.equal(await shop.evaluate(()=>collectMonthlyPricePage('1234567')),null);
   assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['one-click','repeat-click','unknown-cost-blocked','refresh-resume','receipt-prerequisite','DOM-header-mapping','ambiguous-DOM-blocked'],productionWrites:false},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
