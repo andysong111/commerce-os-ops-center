@@ -41,3 +41,21 @@ test("receipt API is same-origin protected and reports product purchase cost sep
   assert.ok(route.includes("isSameOriginOpsRequest")); assert.ok(route.includes("recordInternalChinaReceipt"));
   assert.ok(route.includes("상품 매입원가")); assert.equal(route.includes("내부기준원가"), false);
 });
+
+
+test("receipt UI persists one request identity across a lost response and clears it only after success", () => {
+  assert.ok(panel.includes("receiptRequestFingerprint"));
+  assert.ok(panel.includes("receiptRequestStorageKey"));
+  assert.ok(panel.includes("window.sessionStorage.getItem"));
+  assert.ok(panel.includes("crypto.randomUUID()"));
+  assert.ok(panel.includes("requestId: receiptRequest.requestId"));
+  assert.ok(panel.indexOf("clearPendingReceiptRequest(receiptRequest)") > panel.indexOf("if (!response.ok || body.ok !== true)"));
+});
+
+test("receipt engine checks durable request replay before reading mutable open quantities", () => {
+  assert.ok(engine.includes("readStoredReceiptReplay"));
+  assert.ok(engine.includes("validReceiptRequestId(input.requestId) ?? randomUUID()"));
+  assert.ok(engine.indexOf("const storedReplay = await readStoredReceiptReplay") < engine.indexOf("const ledger = await loadChinaOrderLedger()"));
+  assert.ok(engine.includes('params.set("result_snapshot->>receiptId", "eq." + requestId)'));
+  assert.ok(engine.includes("retryInternalChinaReceiptFollowup(receiptId)"));
+});
