@@ -4,17 +4,26 @@ on:
     branches: [agent/monthly-price-one-click-20260921]
   pull_request:
     paths:
-      - 'src/**/monthlyPrice*'
-      - 'src/**/MonthlyPrice*'
+      - 'src/lib/monthlyPrice*'
+      - 'src/lib/internalChinaMonthlyPurchaseSummary.ts'
+      - 'src/components/china-order-manager/**'
+      - 'src/app/china-order-manager/**'
+      - 'src/app/api/china-order-manager/**'
+      - 'src/app/api/shopling-a21-price-option-resend/**'
       - 'public/shopling-a21-price-option-resend/**'
+      - 'supabase/migrations/*monthly_price*'
       - 'tests/monthly-price*'
+      - 'scripts/monthly-price*'
       - '.github/workflows/monthly-price-one-click-verification.yml'
 permissions:
   contents: read
+concurrency:
+  group: monthly-price-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,21 +31,40 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Monthly price regression tests
-        run: |
-          if compgen -G 'tests/monthly-price*.test.mjs' > /dev/null; then
-            node --experimental-strip-types --test tests/monthly-price*.test.mjs
-          fi
+      - name: Mandatory monthly price regression tests
+        run: node --experimental-strip-types --test tests/monthly-price*.test.mjs tests/shoplingA21PriceOptionResend.test.mjs tests/internalChinaDirectTargetExecution.test.mjs
       - name: Type check
         run: npx tsc --noEmit
-      - name: Isolated development source snapshot
-        if: always() && github.event_name == 'push'
+      - name: Lint changed application surfaces
+        run: npx eslint src/lib/monthlyPrice*.ts src/components/china-order-manager/MonthlyPricePanel.tsx src/app/api/china-order-manager/monthly-price/route.ts src/app/api/china-order-manager/price-review/group-aware-execute/route.ts src/lib/internalChinaMonthlyPurchaseSummary.ts
+      - name: Extension syntax
+        run: for f in public/shopling-a21-price-option-resend/*.js; do node --check "$f"; done
+      - name: Production build with isolated credentials
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://monthly-price-ci.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_monthly_price_ci
+          SUPABASE_SECRET_KEY: sb_secret_monthly_price_ci
+          PRODUCT_MASTER_BASE_URL: https://example.invalid
+          PRODUCT_MASTER_INTEGRATION_SECRET: ci-only-not-production
+          SHOPLING_LOGIN_ID: ci-only
+          SHOPLING_COMPANY_ID: ci-only
+          SHOPLING_API_AUTH_KEY: ci-only
+      - name: Isolated Chromium fixture setup
         run: |
-          git archive --format=tar.gz --output=/tmp/monthly-price-source.tar.gz HEAD src public tests scripts package.json package-lock.json tsconfig.json next.config.ts eslint.config.mjs postcss.config.mjs AGENTS.md .github/workflows
+          npm install --prefix /tmp/monthly-price-browser --no-package-lock playwright@1.55.1 esbuild@0.25.9
+          /tmp/monthly-price-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Actual component browser flow and DOM mapping
+        run: node scripts/monthly-price-browser-check.mjs
+      - name: Checkpoint source and validation evidence
+        if: always()
+        run: |
+          mkdir -p output/monthly-price
+          git archive --format=tar.gz --output=output/monthly-price/source.tar.gz HEAD
       - uses: actions/upload-artifact@v4
-        if: always() && github.event_name == 'push'
+        if: always()
         with:
-          name: monthly-price-source-${{ github.sha }}
-          path: /tmp/monthly-price-source.tar.gz
-          retention-days: 1
+          name: monthly-price-verification-${{ github.sha }}
+          path: output/monthly-price/
+          retention-days: 2
           if-no-files-found: error
