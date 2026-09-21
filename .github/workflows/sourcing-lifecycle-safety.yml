@@ -4,12 +4,19 @@ on:
     paths:
       - 'src/lib/sourcing*'
       - 'src/lib/internalChinaReceipt*'
+      - 'src/domain/china-receipt-request.ts'
+      - 'src/components/china-order-manager/InternalChinaReceiptPanel.tsx'
+      - 'tests/internalChinaReceipt.test.mjs'
+      - 'tests/chinaReceiptRequest.test.mjs'
       - 'tests/sourcing*'
       - '.github/workflows/sourcing-lifecycle-safety.yml'
   push:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: sourcing-lifecycle-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   receipt-proof-and-recovery:
     runs-on: ubuntu-latest
@@ -20,9 +27,9 @@ jobs:
         with:
           node-version: 22.13.0
       - name: Receipt proof, partial failure, concurrent save and retry regression
-        run: node --experimental-strip-types --test tests/sourcingReceiptLifecycleCore.test.mjs tests/sourcing-inbound-lifecycle.test.mjs tests/sourcing-purchase-lifecycle.test.mjs tests/sourcing-purchase-replay.test.mjs tests/sourcingLifecycleRuntime.test.mjs
+        run: node --experimental-strip-types --test tests/chinaReceiptRequest.test.mjs tests/internalChinaReceipt.test.mjs tests/sourcingReceiptLifecycleCore.test.mjs tests/sourcing-inbound-lifecycle.test.mjs tests/sourcing-purchase-lifecycle.test.mjs tests/sourcing-purchase-replay.test.mjs tests/sourcingLifecycleRuntime.test.mjs
       - run: npm ci
       - name: Lint lifecycle implementation
-        run: npx eslint src/domain/sourcing-purchase-replay.ts src/lib/sourcingPurchaseIngress.ts src/lib/sourcingReceiptLifecycleCore.ts src/lib/sourcingReceiptArtifacts.ts src/lib/sourcingLaunchMaterialization.ts src/lib/internalChinaReceipt.ts src/lib/internalChinaReceiptFollowup.ts
+        run: npx eslint src/domain/china-receipt-request.ts src/domain/sourcing-purchase-replay.ts src/components/china-order-manager/InternalChinaReceiptPanel.tsx src/lib/sourcingPurchaseIngress.ts src/lib/sourcingReceiptLifecycleCore.ts src/lib/sourcingReceiptArtifacts.ts src/lib/sourcingLaunchMaterialization.ts src/lib/internalChinaReceipt.ts src/lib/internalChinaReceiptFollowup.ts
       - name: Build integrated Ops Center
         run: npm run build

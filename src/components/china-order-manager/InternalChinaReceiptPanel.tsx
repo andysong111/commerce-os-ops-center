@@ -2,6 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  receiptRequestFingerprint,
+  receiptRequestStorageKey,
+  validReceiptRequestId,
+} from "@/domain/china-receipt-request";
 import type { InternalChinaForwarderCostSummary } from "@/lib/internalChinaForwarderCost";
 import { runInboundReceiptOnSaleSync } from "@/lib/inboundReceiptOnSaleSync";
 
@@ -103,6 +108,47 @@ export function InternalChinaReceiptPanel({
     setNotice("이번 입고수량을 모두 0으로 초기화했습니다.");
   }
 
+  function pendingReceiptRequest(linesToReceive: { barcode: string; quantity: number }[]) {
+    const key = receiptRequestStorageKey(draftId, cycleMonth);
+    const fingerprint = receiptRequestFingerprint(draftId, cycleMonth, linesToReceive);
+    try {
+      const stored = JSON.parse(window.sessionStorage.getItem(key) || "null") as {
+        requestId?: unknown;
+        fingerprint?: unknown;
+      } | null;
+      const existingId = validReceiptRequestId(stored?.requestId);
+      if (existingId && stored?.fingerprint === fingerprint) {
+        return { key, requestId: existingId, fingerprint };
+      }
+    } catch {
+      // Corrupted local retry state is replaced with a new request identity.
+    }
+    const requestId = crypto.randomUUID();
+    window.sessionStorage.setItem(key, JSON.stringify({ requestId, fingerprint }));
+    return { key, requestId, fingerprint };
+  }
+
+  function clearPendingReceiptRequest(entry: {
+    key: string;
+    requestId: string;
+    fingerprint: string;
+  }) {
+    try {
+      const stored = JSON.parse(window.sessionStorage.getItem(entry.key) || "null") as {
+        requestId?: unknown;
+        fingerprint?: unknown;
+      } | null;
+      if (
+        stored?.requestId === entry.requestId &&
+        stored?.fingerprint === entry.fingerprint
+      ) {
+        window.sessionStorage.removeItem(entry.key);
+      }
+    } catch {
+      // Diagnostic retry state is best effort only.
+    }
+  }
+
   async function persistForwarderCost() {
     const response = await fetch("/api/china-order-manager/forwarder-cost", {
       method: "POST",
@@ -181,6 +227,7 @@ export function InternalChinaReceiptPanel({
       : "확정 즉시 중국 발주·입고 원장의 미입고 수량이 차감됩니다. 정확재고가 1개 이상이고 Shopling 매핑이 정상인 품목은 판매중 자동전환까지 이어집니다. 실제 원가배수는 최종 전량 입고 시 배송대행 비용으로 확정합니다.";
     if (!window.confirm(`${prompt}\n\n${detail}`)) return;
 
+    const receiptRequest = pendingReceiptRequest(selected);
     setSaving(true);
     setNotice("");
     try {
@@ -193,6 +240,7 @@ export function InternalChinaReceiptPanel({
         credentials: "same-origin",
         cache: "no-store",
         body: JSON.stringify({
+          requestId: receiptRequest.requestId,
           draftId,
           cycleMonth,
           lines: selected,
@@ -205,6 +253,7 @@ export function InternalChinaReceiptPanel({
       if (!response.ok || body.ok !== true) {
         throw new Error(body.message || `입고확정 실패 (${response.status})`);
       }
+      clearPendingReceiptRequest(receiptRequest);
 
       const receiptMessage = body.message || "입고확정을 완료했습니다.";
       let onSaleMessage = "";

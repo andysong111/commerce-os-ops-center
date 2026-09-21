@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  summarizeStoredReceiptReplay,
+  validReceiptRequestId,
+  type ReceiptRequestLine,
+} from "@/domain/china-receipt-request";
+import {
   CHINA_ORDER_EVENT_OPERATION_TYPE,
   loadChinaOrderLedger,
   normalizeChinaOrderCommitmentEvent,
@@ -20,6 +25,7 @@ const MAX_RECEIPT_LINES = 100;
 
 type ReceiptLineInput = { barcode?: unknown; quantity?: unknown };
 export type InternalChinaReceiptInput = {
+  requestId?: unknown;
   draftId?: unknown;
   cycleMonth?: unknown;
   lines?: ReceiptLineInput[];
@@ -53,6 +59,44 @@ function supabaseConnection() {
   if (!baseUrl || !secret) throw new Error("SUPABASE_ADMIN_NOT_CONFIGURED");
   return { baseUrl, secret };
 }
+async function readStoredReceiptReplay(
+  requestId: string,
+  draftId: string,
+  cycleMonth: string,
+  lines: ReceiptRequestLine[],
+) {
+  const { baseUrl, secret } = supabaseConnection();
+  const params = new URLSearchParams();
+  params.set("source", "eq." + RECEIPT_SOURCE);
+  params.set("result_snapshot->>receiptId", "eq." + requestId);
+  params.set("select", "result_snapshot");
+  params.set("limit", String(MAX_RECEIPT_LINES + 1));
+  const response = await fetch(
+    baseUrl + "/rest/v1/commerce_operation_runs?" + params.toString(),
+    {
+      headers: createSupabaseAdminHeaders(secret),
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) {
+    throw new Error("CHINA_RECEIPT_REPLAY_LOOKUP_FAILED:" + response.status);
+  }
+  const rows = (await response.json().catch(() => [])) as Array<{
+    result_snapshot?: unknown;
+  }>;
+  return summarizeStoredReceiptReplay({
+    requestId,
+    draftId,
+    cycleMonth,
+    lines,
+    snapshots: rows.map((row) => (
+      row.result_snapshot && typeof row.result_snapshot === "object" && !Array.isArray(row.result_snapshot)
+        ? row.result_snapshot
+        : {}
+    )),
+  });
+}
+
 function lineReceiptEventId(receiptId: string, code: string) { return `receipt:${receiptId}:${code}`; }
 function orderItemId(draftId: string, code: string) {
   return parseInt(createHash("sha256").update(`${draftId}:${code}`).digest("hex").slice(0, 7), 16);
@@ -73,6 +117,46 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     byBarcode.set(code, receivedNow);
   }
   if (!byBarcode.size) throw new Error("CHINA_RECEIPT_POSITIVE_QUANTITY_REQUIRED");
+
+  const receiptId = validReceiptRequestId(input.requestId) ?? randomUUID();
+  const requestLines: ReceiptRequestLine[] = [...byBarcode].map(([code, receivedNow]) => ({
+    barcode: code,
+    quantity: receivedNow,
+  }));
+  const storedReplay = await readStoredReceiptReplay(
+    receiptId,
+    draftId,
+    requestedCycleMonth,
+    requestLines,
+  );
+  if (storedReplay) {
+    let productMasterSynced = false;
+    let productMasterError: string | null = null;
+    let launchMaterializationError: string | null = null;
+    try {
+      const followup = await retryInternalChinaReceiptFollowup(receiptId);
+      productMasterSynced = followup.state === "VERIFIED";
+    } catch (error) {
+      const raw = error instanceof Error ? error.message.split(":", 1)[0] : "";
+      productMasterError = /^[A-Z0-9_]+$/.test(raw)
+        ? raw
+        : "PRODUCT_MASTER_RECEIPT_SYNC_FAILED";
+      if (storedReplay.sourcedCount) launchMaterializationError = productMasterError;
+    }
+    return {
+      receiptId,
+      draftId,
+      cycleMonth: requestedCycleMonth,
+      lineCount: storedReplay.lineCount,
+      receivedNow: storedReplay.receivedNow,
+      fullyReceivedCount: storedReplay.fullyReceivedCount,
+      partiallyReceivedCount: storedReplay.partiallyReceivedCount,
+      productMasterSynced,
+      productMasterError,
+      launchMaterializedCount: storedReplay.sourcedCount,
+      launchMaterializationError,
+    };
+  }
 
   const ledger = await loadChinaOrderLedger();
   if (ledger.error) throw new Error(`CHINA_ORDER_LEDGER_UNAVAILABLE:${ledger.error}`);
@@ -111,7 +195,6 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     current.freight += Math.max(0, Number(line.domesticChinaFreightCny) || 0);
     groupStats.set(key, current);
   }
-  const receiptId = randomUUID();
   const now = new Date().toISOString();
   const operations: Record<string, unknown>[] = [];
   const receiptCosts: PriceAdjustmentReceipt[] = [];

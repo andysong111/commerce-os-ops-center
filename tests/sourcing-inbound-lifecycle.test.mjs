@@ -6,7 +6,9 @@ test('warehouse and launch activation occur only after the durable China receipt
  const r=await source('../src/lib/internalChinaReceipt.ts');
  assert.doesNotMatch(r,/confirmSourcingWarehouseReceipt\(/);
  assert.doesNotMatch(r,/materializeSourcingLaunchItem\(/);
- assert.ok(r.indexOf('const followup = await retryInternalChinaReceiptFollowup(receiptId)')>r.indexOf('if (!response.ok) throw new Error(`CHINA_RECEIPT_STORE_FAILED:'));
+ const storeIndex=r.indexOf('if (!response.ok) throw new Error(`CHINA_RECEIPT_STORE_FAILED:');
+ assert.ok(storeIndex>0);
+ assert.ok(r.slice(storeIndex).includes('const followup = await retryInternalChinaReceiptFollowup(receiptId)'));
  assert.match(r,/sourcing,/);
  assert.match(r,/SOURCING_RECEIPT_ORDER_EVIDENCE_REQUIRED/);
 });
