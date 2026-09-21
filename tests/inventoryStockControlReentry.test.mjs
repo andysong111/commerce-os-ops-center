@@ -213,6 +213,8 @@ test("stockout operator sends returned direct jobs immediately and never reloads
   assert.match(panel, /COMMERCE_OS_SHOPLING_STOCK_SYNC_START/);
   assert.match(panel, /Shopling의 기존 판매중\/품절\s*상태를 먼저 조회하지 않고 품절 상태를 바로 전송합니다/);
   assert.match(panel, /directQueue\.current = \[/);
+  assert.match(panel, /extensionReadyRef\.current = true/);
+  assert.match(panel, /!extensionReadyRef\.current/);
   assert.doesNotMatch(panel, /window\.location\.reload/);
 });
 
