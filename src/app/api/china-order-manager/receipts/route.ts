@@ -32,7 +32,17 @@ function errorResponse(error: unknown) {
   }
   return Response.json(
     { ok: false, code, message },
-    { status: code === "CHINA_RECEIPT_DRAFT_NOT_FOUND" ? 404 : 400, headers: { "cache-control": "no-store" } },
+    {
+      status:
+        code === "CHINA_RECEIPT_DRAFT_NOT_FOUND"
+          ? 404
+          : code === "CHINA_RECEIPT_REQUEST_REPLAY_CONFLICT"
+            ? 409
+            : code === "CHINA_RECEIPT_REPLAY_LOOKUP_FAILED" || code === "CHINA_RECEIPT_STORE_FAILED"
+              ? 503
+              : 400,
+      headers: { "cache-control": "no-store" },
+    },
   );
 }
 
