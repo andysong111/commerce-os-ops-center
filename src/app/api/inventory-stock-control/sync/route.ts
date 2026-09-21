@@ -7,6 +7,7 @@ import {
   type InventoryStockControlReport,
 } from "@/lib/inventoryStockControl";
 import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/inventoryStockResetCorrections";
+import { overlayInventoryStockControlReportWithManualOnSale } from "@/lib/inventoryManualOnSale";
 import {
   loadLatestInventoryStockSalesTailSnapshots,
   overlayInventoryStockControlReportWithTail,
@@ -171,8 +172,10 @@ async function loadRetryableReport({
     }
   }
 
+  const normalized =
+    await normalizeRetryableShoplingSyncReportWithEvidence(report);
   return {
-    report: await normalizeRetryableShoplingSyncReportWithEvidence(report),
+    report: await overlayInventoryStockControlReportWithManualOnSale(normalized),
     tailSalesRefresh,
   };
 }
