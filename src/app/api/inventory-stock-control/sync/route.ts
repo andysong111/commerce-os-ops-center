@@ -174,8 +174,11 @@ async function loadRetryableReport({
 
   const normalized =
     await normalizeRetryableShoplingSyncReportWithEvidence(report);
+  const withManualOnSale =
+    await overlayInventoryStockControlReportWithManualOnSale(normalized);
   return {
-    report: await overlayInventoryStockControlReportWithManualOnSale(normalized),
+    report:
+      await normalizeRetryableShoplingSyncReportWithEvidence(withManualOnSale),
     tailSalesRefresh,
   };
 }
