@@ -2,6 +2,7 @@ import Link from "next/link";
 import { InventoryStockOperationalDetails } from "@/components/china-order-manager/InventoryStockOperationalDetails";
 import { InventoryStockoutOperatorPanel } from "@/components/china-order-manager/InventoryStockoutOperatorPanel";
 import { InventoryStockOverviewPanel } from "@/components/china-order-manager/InventoryStockOverviewPanel";
+import { InventoryManualOnSaleOperatorPanel } from "@/components/china-order-manager/InventoryManualOnSaleOperatorPanel";
 import { InventoryStocktakeOperatorPanel } from "@/components/china-order-manager/InventoryStocktakeOperatorPanel";
 import { StockSyncHF15Bridge } from "@/components/china-order-manager/StockSyncHF15Bridge";
 import { PageHeader } from "@/components/PageHeader";
@@ -37,8 +38,9 @@ export default function InventoryStockControlPage() {
 
       <InventoryStockOverviewPanel />
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-3">
         <InventoryStockoutOperatorPanel />
+        <InventoryManualOnSaleOperatorPanel />
         <InventoryStocktakeOperatorPanel />
       </div>
 
