@@ -197,3 +197,36 @@ test("HF12 patches the packaged A4 worker to trust the exact prodLst path while 
   assert.match(route, /optionA21Execution: "HF10_PRICE_EXTENSION_LITERAL_UNCHANGED"/);
   assert.match(route, /hf11SingleA21CheckpointPreserved: true/);
 });
+
+
+test("confirmed physical stockout returns direct SOLD_OUT Shopling jobs without a status pre-read", async () => {
+  const route = await readFile("src/app/api/inventory-stock-control/batch/route.ts", "utf8");
+  assert.match(route, /desiredStatus: "SOLD_OUT" as const/);
+  assert.match(route, /directOperatorCommand: true as const/);
+  assert.match(route, /goodsKeys: \[\] as string\[\]/);
+  assert.match(route, /Shopling 품절 전송 작업을 즉시 준비했습니다/);
+});
+
+test("stockout operator sends returned direct jobs immediately and never reloads the page to wait for queue discovery", async () => {
+  const panel = await readFile("src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx", "utf8");
+  assert.match(panel, /COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_START/);
+  assert.match(panel, /COMMERCE_OS_SHOPLING_STOCK_SYNC_START/);
+  assert.match(panel, /Shopling의 기존 판매중\/품절\s*상태를 먼저 조회하지 않고 품절 상태를 바로 전송합니다/);
+  assert.match(panel, /directQueue\.current = \[/);
+  assert.doesNotMatch(panel, /window\.location\.reload/);
+});
+
+test("stock sync event writes acknowledge immediately instead of refreshing Canonical Tail on every STARTED or result record", async () => {
+  const route = await readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8");
+  const post = route.slice(route.indexOf("export async function POST"));
+  assert.match(post, /storeInventoryOperation/);
+  assert.match(post, /Shopling 재고상태 동기화 결과를 저장했습니다/);
+  assert.doesNotMatch(post, /refreshTail:\s*true/);
+  assert.doesNotMatch(post, /tailSalesRefresh/);
+});
+
+test("direct stockout result messaging distinguishes marketplace advisory failures from the Shopling state result", async () => {
+  const panel = await readFile("src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx", "utf8");
+  assert.match(panel, /marketFailuresAdvisory/);
+  assert.match(panel, /Shopling 자체 품절 반영 실패가 아니라 마켓별 후속 전송 실패입니다/);
+});
