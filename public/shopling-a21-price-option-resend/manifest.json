@@ -2,15 +2,22 @@
   "manifest_version": 3,
   "name": "Commerce OS · Shopling A21 Price/Option Resend",
   "short_name": "A21 Resend",
-  "version": "0.4.4",
-  "description": "Shopling A21 판매가/옵션 직렬 전송. 각 결과창의 모든 frame DOM과 접근성 트리까지 확인해 실제 최종 완료 문구를 놓치지 않고 다음 단계로 진행합니다.",
-  "permissions": ["storage", "tabs", "windows", "scripting", "webNavigation", "debugger"],
+  "version": "0.5.0",
+  "description": "월 입고확정 가격조정 연결 · 확정원가 인상 전용 · 채널별 인하 차단 · 가격 재조회 후 해당 GOODSKEY만 수정전송",
+  "permissions": [
+    "storage",
+    "tabs",
+    "windows",
+    "scripting",
+    "webNavigation",
+    "debugger"
+  ],
   "host_permissions": [
     "https://a.shopling.co.kr/*",
     "https://commerce-os-ops-center.vercel.app/*"
   ],
   "background": {
-    "service_worker": "background-v044.js"
+    "service_worker": "background-monthly-price.js"
   },
   "action": {
     "default_title": "Shopling A21 가격·옵션 수정전송",
@@ -18,24 +25,48 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://a.shopling.co.kr/*"],
-      "exclude_matches": ["https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"],
-      "js": ["content-a21.js"],
+      "matches": [
+        "https://a.shopling.co.kr/*"
+      ],
+      "exclude_matches": [
+        "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"
+      ],
+      "js": [
+        "content-a21.js"
+      ],
       "all_frames": true,
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"],
-      "js": ["main-a21-v024.js"],
+      "matches": [
+        "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"
+      ],
+      "js": [
+        "main-a21-v024.js"
+      ],
       "world": "MAIN",
       "all_frames": true,
       "run_at": "document_start"
     },
     {
-      "matches": ["https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"],
-      "js": ["content-a21-v024.js"],
+      "matches": [
+        "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"
+      ],
+      "js": [
+        "content-a21-v024.js"
+      ],
       "all_frames": true,
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://commerce-os-ops-center.vercel.app/china-order-manager*"
+      ],
+      "js": [
+        "monthly-price-page-bridge.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ]
 }
