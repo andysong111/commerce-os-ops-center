@@ -71,55 +71,7 @@ function deterministicDraftId(cycleMonth: string) {
 function rowCycle(row: { reservedAt: string | null; updatedAt: string }) {
   return seoulCalendarMonth(row.reservedAt || row.updatedAt);
 }
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-export function resolveExistingSourcingPurchase(
-  commitments: ChinaOrderCommitmentSnapshot[],
-  normalized: ReturnType<typeof normalizeSourcingPurchaseIngress>,
-) {
-  const matches = commitments.filter((row) => {
-    if (row.sourceSystem !== SOURCE_SYSTEM) return false;
-    const payload = record(row.latestPayload);
-    return (
-      text(payload.sourcingOutboxId).toLowerCase() === normalized.outboxId ||
-      text(payload.sourcingIntakeId).toLowerCase() === normalized.intakeId
-    );
-  });
-  if (!matches.length) return null;
-  if (matches.length > 1) throw new Error("SOURCING_PURCHASE_REPLAY_AMBIGUOUS");
-
-  const row = matches[0];
-  const payload = record(row.latestPayload);
-  if (
-    text(payload.sourcingOutboxId).toLowerCase() !== normalized.outboxId ||
-    text(payload.sourcingIntakeId).toLowerCase() !== normalized.intakeId ||
-    row.barcode !== normalized.barcode ||
-    text(payload.modelNo).toUpperCase() !== normalized.modelNumber ||
-    text(payload.productName) !== normalized.productName ||
-    row.requestedQuantity !== normalized.quantity
-  ) {
-    throw new Error("SOURCING_PURCHASE_REPLAY_IDENTITY_CONFLICT");
-  }
-  if (!row.sourceRunId || !DRAFT_ID.test(row.sourceRunId)) {
-    throw new Error("SOURCING_PURCHASE_REPLAY_DRAFT_INVALID");
-  }
-  return {
-    ok: true as const,
-    draftId: row.sourceRunId,
-    cycleMonth: rowCycle(row),
-    externalLineId: row.sourceLineId,
-    barcode: normalized.barcode,
-    modelNumber: normalized.modelNumber,
-    productName: normalized.productName,
-    quantity: normalized.quantity,
-    duplicate: true as const,
-    externalOrderExecuted: false as const,
-  };
-}
+export const resolveExistingSourcingPurchase = resolveExistingSourcingPurchaseDomain;
 
 export function normalizeSourcingPurchaseIngress(input: SourcingPurchaseIngressInput) {
   const intakeId = text(input.intakeId).toLowerCase();
