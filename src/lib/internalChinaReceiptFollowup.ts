@@ -7,6 +7,7 @@ import { loadStoredInternalChinaForwarderClose } from "@/lib/internalChinaForwar
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { receiptFollowupBundle, selectReceiptFollowupCosts, compareReceiptFollowupReadback, receiptRecord, validInternalReceiptId, type ReceiptStoredRow } from "@/lib/internalChinaReceiptFollowupCore";
 import { missingReceiptCostRows, receiptCostOnlyPayload, validateReceiptReadbackIdentity } from "@/lib/internalChinaReceiptFollowupRepair";
+import { ensureSourcingReceiptArtifacts } from "@/lib/sourcingReceiptArtifacts";
 
 export type InternalChinaReceiptFollowupStatus = {
   receiptId: string; draftId: string; cycleMonth: string; lineCount: number; barcodes: string[]; receivedQuantity: number;
@@ -122,6 +123,9 @@ async function pushOnlyReceiptCosts(costs: PriceAdjustmentReceipt[]) {
 export async function retryInternalChinaReceiptFollowup(receiptId: string) {
   const rows = await storedRows(receiptId);
   const bundle = receiptFollowupBundle(receiptId, rows);
+  // Source intake identities are activated only from these durable receipt rows.
+  // The same recovery path repairs a lost warehouse/launch response before cost sync.
+  await ensureSourcingReceiptArtifacts(receiptId, rows);
   const currentCache = await readPriceAdjustmentReceiptCache();
   const already = await verifyRows(receiptId, rows, currentCache);
   if (already.state === "VERIFIED") return already;
