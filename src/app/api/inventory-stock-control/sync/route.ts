@@ -7,6 +7,7 @@ import {
   type InventoryStockControlReport,
 } from "@/lib/inventoryStockControl";
 import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/inventoryStockResetCorrections";
+import { overlayInventoryStockControlReportWithManualOnSale } from "@/lib/inventoryManualOnSale";
 import {
   loadLatestInventoryStockSalesTailSnapshots,
   overlayInventoryStockControlReportWithTail,
@@ -171,8 +172,13 @@ async function loadRetryableReport({
     }
   }
 
+  const normalized =
+    await normalizeRetryableShoplingSyncReportWithEvidence(report);
+  const withManualOnSale =
+    await overlayInventoryStockControlReportWithManualOnSale(normalized);
   return {
-    report: await normalizeRetryableShoplingSyncReportWithEvidence(report),
+    report:
+      await normalizeRetryableShoplingSyncReportWithEvidence(withManualOnSale),
     tailSalesRefresh,
   };
 }
@@ -270,6 +276,8 @@ function queueJob(
     desiredStatus: row.desiredStatus,
     desiredSince: row.desiredSince,
     exactInventoryQuantity: row.exactInventoryQuantity,
+    inventoryQuantityKnown: row.inventoryQuantityKnown !== false,
+    manualStatusOnly: row.manualStatusOnly === true,
     resetAt: row.resetAt,
     route:
       row.productKind === "OPTION"

@@ -66,6 +66,8 @@ export type ExactInventoryAfterReset = {
   syncNeeded: boolean;
   syncBlocked: boolean;
   syncBlockReason: string | null;
+  inventoryQuantityKnown?: boolean;
+  manualStatusOnly?: boolean;
 };
 
 export type InventoryStockControlReport = {

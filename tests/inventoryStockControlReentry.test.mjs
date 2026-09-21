@@ -242,3 +242,77 @@ test("currently running operational lanes are not mislabeled as STARTED/UNCERTAI
   assert.match(panel, /!runningBarcodes\.includes\(row\.barcode\)/);
   assert.match(panel, /\[report, runningBarcodes\]/);
 });
+
+
+test("manual on-sale authority keeps quantity unknown and yields to a newer physical inventory fact", async () => {
+  const source = await readFile("src/lib/inventoryManualOnSale.ts", "utf8");
+  assert.match(source, /INVENTORY_MANUAL_ON_SALE_EVENT/);
+  assert.match(source, /manualStatusOnly: true/);
+  assert.match(source, /inventoryQuantityKnown: false/);
+  assert.match(source, /return manualAt > rowAt/);
+  assert.match(source, /desiredStatus: "ON_SALE"/);
+  assert.match(source, /판매중 전환은 Shopling 판매상태만 수동으로 유지/);
+});
+
+test("quantity-free on-sale batch returns direct ON_SALE jobs without creating a stocktake quantity", async () => {
+  const route = await readFile(
+    "src/app/api/inventory-stock-control/on-sale/batch/route.ts",
+    "utf8",
+  );
+  assert.match(route, /desiredStatus: "ON_SALE" as const/);
+  assert.match(route, /inventoryQuantityKnown: false/);
+  assert.match(route, /manualStatusOnly: true/);
+  assert.match(route, /재고수량은 변경하지 않습니다/);
+  assert.doesNotMatch(route, /baselineQuantity/);
+  assert.doesNotMatch(route, /INVENTORY_STOCKTAKE_BASELINE_OPERATION_TYPE/);
+});
+
+test("manual on-sale operator accepts B-codes only and sends Shopling ON_SALE directly", async () => {
+  const panel = await readFile(
+    "src/components/china-order-manager/InventoryManualOnSaleOperatorPanel.tsx",
+    "utf8",
+  );
+  assert.match(panel, /inventory-stock-control\/on-sale\/batch/);
+  assert.match(panel, /desiredStatus: "ON_SALE"/);
+  assert.match(panel, /COMMERCE_OS_SHOPLING_STOCK_SYNC_START/);
+  assert.match(panel, /재고수량은 입력·변경하지 않으며/);
+  assert.doesNotMatch(panel, /baselineQuantity/);
+});
+
+test("inventory page exposes stockout, quantity-free on-sale, and stocktake as three separate controls", async () => {
+  const page = await readFile(
+    "src/app/china-order-manager/stock-control/page.tsx",
+    "utf8",
+  );
+  assert.match(page, /InventoryStockoutOperatorPanel/);
+  assert.match(page, /InventoryManualOnSaleOperatorPanel/);
+  assert.match(page, /InventoryStocktakeOperatorPanel/);
+  assert.match(page, /xl:grid-cols-3/);
+});
+
+test("inventory overview and operational queue label status-only ON_SALE as quantity unknown", async () => {
+  const [overview, queue] = await Promise.all([
+    readFile(
+      "src/components/china-order-manager/InventoryStockOverviewPanel.tsx",
+      "utf8",
+    ),
+    readFile(
+      "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx",
+      "utf8",
+    ),
+  ]);
+  assert.match(overview, /판매중\(수동\)/);
+  assert.match(overview, /"미확정"/);
+  assert.match(queue, /job\.manualStatusOnly \? "판매중\(수동\)"/);
+  assert.match(queue, /job\.inventoryQuantityKnown === false/);
+});
+
+
+test("manual on-sale rows pass through retry-lock normalization after the manual overlay", async () => {
+  const [syncRoute, overviewRoute] = await Promise.all([
+    readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8"),
+    readFile("src/app/api/inventory-stock-control/route.ts", "utf8"),
+  ]);
+  assert.match(syncRoute, /withManualOnSale[\s\S]*normalizeRetryableShoplingSyncReportWithEvidence\(withManualOnSale\)/);
+  assert.match(overviewRoute, /normalizeRetryableShoplingSyncReportWithEvidence\([\s\S]*overlayInventoryStockControlReportWithManualOnSale\(report\)/);
+});
