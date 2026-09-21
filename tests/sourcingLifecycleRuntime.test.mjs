@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 import { createHash } from 'node:crypto';
+import {
+  summarizeStoredReceiptReplay,
+  validReceiptRequestId,
+} from '../src/domain/china-receipt-request.ts';
 
 // Run the actual checked-in production functions with explicit, isolated I/O.
 // No application imports, real credentials, or external fetches enter these tests.
@@ -121,6 +125,7 @@ async function receiptBackend(options={}) {
   const meta={...input(),outboxId};
   const run=await load('../src/lib/internalChinaReceipt.ts','recordInternalChinaReceipt',{
     createHash,randomUUID:()=>receiptId,
+    summarizeStoredReceiptReplay,validReceiptRequestId,
     CHINA_ORDER_EVENT_OPERATION_TYPE:'CHINA_ORDER_COMMITMENT_EVENT',
     loadChinaOrderLedger:async()=>({error:null,commitments:[commitment]}),
     normalizeChinaOrderCommitmentEvent:x=>x,
@@ -131,9 +136,22 @@ async function receiptBackend(options={}) {
     createSupabaseAdminHeaders:()=>({'content-type':'application/json'}),
     process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://fixture.test',SUPABASE_SECRET_KEY:'synthetic-only'}},
     retryInternalChinaReceiptFollowup:async id=>{calls.push('followup');assert.equal(id,receiptId);assert.equal(stored.length,1);if(options.failFollowup)throw Error('SOURCING_LAUNCH_NORMALIZED_PENDING');return {state:'VERIFIED'};},
-    fetch:async(raw,init)=>{assert.ok(raw.startsWith('https://fixture.test/rest/v1/commerce_operation_runs?'));calls.push('store');if(options.failStore)return Response.json({}, {status:503});stored.push(...JSON.parse(init.body));return Response.json([{source_event_id:stored[0].source_event_id}]);},
+    fetch:async(raw,init={})=>{
+      assert.ok(raw.startsWith('https://fixture.test/rest/v1/commerce_operation_runs?'));
+      if (!init.method || init.method === 'GET') {
+        const url=new URL(raw);
+        if (url.searchParams.has('result_snapshot->>receiptId')) {
+          return Response.json(stored.map(row=>({result_snapshot:clone(row.result_snapshot)})));
+        }
+        return Response.json([]);
+      }
+      calls.push('store');
+      if(options.failStore)return Response.json({}, {status:503});
+      stored.push(...JSON.parse(init.body));
+      return Response.json([{source_event_id:stored[0].source_event_id}]);
+    },
   });
-  return{run,calls,stored,input:{draftId,cycleMonth:'2026-09',lines:[{barcode:'BBA8-1',quantity:2}]}};
+  return{run,calls,stored,input:{requestId:receiptId,draftId,cycleMonth:'2026-09',lines:[{barcode:'BBA8-1',quantity:2}]}};
 }
 test('actual receipt function never activates warehouse or launch after a failed durable write',async()=>{
   const b=await receiptBackend({failStore:true});await assert.rejects(b.run(b.input),/CHINA_RECEIPT_STORE_FAILED/);assert.deepEqual(b.calls,['store']);assert.equal(b.stored.length,0);
@@ -159,4 +177,15 @@ test('actual ordinary replenishment keeps original receipt accounting and has no
 });
 test('actual receipt function rejects duplicate B-code lines before any writes',async()=>{
   const b=await receiptBackend();b.input.lines.push({...b.input.lines[0]});await assert.rejects(b.run(b.input),/DUPLICATE_BARCODE/);assert.deepEqual(b.calls,[]);
+});
+
+
+test('actual receipt function replays a lost-response retry without inserting quantity twice',async()=>{
+  const b=await receiptBackend();
+  const first=await b.run(b.input);
+  const second=await b.run(b.input);
+  assert.equal(first.receiptId,receiptId);assert.equal(second.receiptId,receiptId);
+  assert.equal(first.receivedNow,2);assert.equal(second.receivedNow,2);
+  assert.equal(b.stored.length,1);
+  assert.deepEqual(b.calls,['store','followup','followup']);
 });
