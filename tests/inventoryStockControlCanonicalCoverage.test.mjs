@@ -9,7 +9,10 @@ test("stock control self-heals canonical sales coverage gaps without waiting on 
   );
 
   assert.match(route, /latestCanonicalCoverageGapResetAt/);
-  assert.match(route, /\.filter\(\(row\) => !row\.salesCoverageReady\)/);
+  assert.match(
+    route,
+    /\.filter\(\(row\) => !row\.salesCoverageReady && row\.manualStatusOnly !== true\)/,
+  );
   const sync = await readFile("src/lib/productMasterShoplingSalesEventSync.ts", "utf8");
   assert.match(route, /ensureProductMasterShoplingSalesEventCoverageRequest\(resetAt\)/);
   assert.match(sync, /ensureProductMasterShoplingSalesEventCoverageRequest[\s\S]*withSalesEventMutationGuard/);
