@@ -10,7 +10,13 @@ function errorResponse(error: unknown) {
   const raw = error instanceof Error ? error.message : "CHINA_RECEIPT_FAILED";
   const code = raw.split(":", 1)[0] || "CHINA_RECEIPT_FAILED";
   let message = raw;
-  if (code === "CHINA_RECEIPT_DRAFT_INVALID") {
+  if (code === "CHINA_RECEIPT_REQUEST_ID_INVALID") {
+    message = "입고확정 요청 식별자가 올바르지 않습니다. 화면을 새로고침 후 다시 시도하세요.";
+  } else if (code === "CHINA_RECEIPT_REQUEST_REPLAY_CONFLICT") {
+    message = "같은 입고확정 요청번호에 다른 품목·수량이 들어왔습니다. 중복 반영을 막기 위해 차단했습니다.";
+  } else if (code === "CHINA_RECEIPT_REPLAY_LOOKUP_FAILED") {
+    message = "기존 입고확정 원장을 확인하지 못했습니다. 수량을 다시 반영하지 않고 중단했습니다.";
+  } else if (code === "CHINA_RECEIPT_DRAFT_INVALID") {
     message = "입고 처리할 발주 Draft 번호가 올바르지 않습니다.";
   } else if (code === "CHINA_RECEIPT_CYCLE_MONTH_INVALID") {
     message = "발주·입고 사이클 월을 확인하세요.";
