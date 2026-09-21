@@ -10,12 +10,14 @@ type SyncJob = {
   jobId: string; barcode: string; productName: string; productKind: ProductKind;
   modelNo: string | null; goodsKeys: string[]; desiredStatus: DesiredStatus;
   desiredSince: string; exactInventoryQuantity: number; resetAt: string; route: string[];
+  inventoryQuantityKnown?: boolean; manualStatusOnly?: boolean;
   operationalQueue?: true; parallelBatchId?: string; parallelLane?: number; ignoreWindowClose?: true;
 };
 type StockRow = {
   barcode: string; productName: string; productKind: ProductKind; exactInventoryQuantity: number;
   desiredStatus: DesiredStatus; desiredSince: string; latestSyncOutcome: SyncOutcome | null;
   latestSyncAt: string | null; syncNeeded: boolean; syncBlocked: boolean; syncBlockReason: string | null;
+  inventoryQuantityKnown?: boolean; manualStatusOnly?: boolean;
 };
 type StockReport = { state: "READY" | "BLOCKED"; pendingSyncCount: number; uncertainSyncCount: number; rows: StockRow[] };
 export type QueuePayload = { ok?: boolean; jobs?: SyncJob[]; report: StockReport; message?: string };
@@ -107,6 +109,8 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         jobId: job.jobId, barcode: job.barcode, productKind: job.productKind, modelNo: job.modelNo,
         desiredStatus: job.desiredStatus, outcome, message,
         evidence: { operationalQueue: true, twoLaneMax: 2, windowCloseIgnored: true,
+          inventoryQuantityKnown: job.inventoryQuantityKnown !== false,
+          manualStatusOnly: job.manualStatusOnly === true,
           ...(evidence && typeof evidence === "object" && !Array.isArray(evidence) ? evidence as Record<string, unknown> : { extensionEvidence: evidence ?? null }) },
       }),
     });
@@ -144,8 +148,10 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     setRunningBarcodes(prepared.map((job) => job.barcode));
     setPhase(prepared.length === 2 ? "STARTING_2_LANE" : "STARTING_SINGLE");
     await Promise.all(prepared.map((job) => recordSync(job, "STARTED",
-      `운영 큐 ${job.parallelLane || 1}번 Lane 시작 · 현재 정확재고 ${job.exactInventoryQuantity}개 기준 Shopling ${statusLabel(job.desiredStatus)} 반영`,
-      { operationalQueue: true, operationalBatchId: batchId, operationalLane: job.parallelLane || 1, desiredSince: job.desiredSince })));
+      job.manualStatusOnly
+        ? `운영 큐 ${job.parallelLane || 1}번 Lane 시작 · 재고수량 미확정 수동 Shopling ${statusLabel(job.desiredStatus)} 반영`
+        : `운영 큐 ${job.parallelLane || 1}번 Lane 시작 · 현재 정확재고 ${job.exactInventoryQuantity}개 기준 Shopling ${statusLabel(job.desiredStatus)} 반영`,
+      { operationalQueue: true, operationalBatchId: batchId, operationalLane: job.parallelLane || 1, desiredSince: job.desiredSince, manualStatusOnly: job.manualStatusOnly === true })));
     activeBatch.current = { mode: prepared.length === 2 ? "PARALLEL" : "SINGLE", batchId, jobs: prepared, terminalJobIds: new Set<string>() };
     if (prepared.length === 2) {
       window.postMessage({ type: PARALLEL_START, batchId, jobs: prepared }, window.location.origin);
@@ -265,7 +271,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         <div>
           <span className="text-xs font-black tracking-[0.12em] text-sky-800">OPERATION QUEUE · EXACT INVENTORY → SHOPLING · MAX 2 LANES</span>
           <h2 className="mt-1 text-xl font-black text-slate-950">실제 운영 재고상태 자동 큐</h2>
-          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded만 실행 대상으로 사용합니다. 품절을 판매중보다 먼저 처리하고 최대 2건을 HF28 Lane으로 겹쳐 실행합니다. FAILED/UNCERTAIN은 같은 실행에서 자동 재시도하지 않고 예외 큐로 격리하며, 결과창 닫힘 여부는 다음 작업 진행과 성공판정 조건에서 제외합니다.</p>
+          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded와 사용자가 명시한 수량 미확정 판매중 전환을 실행 대상으로 사용합니다. 품절을 판매중보다 먼저 처리하고 최대 2건을 HF28 Lane으로 겹쳐 실행합니다. FAILED/UNCERTAIN은 같은 실행에서 자동 재시도하지 않고 예외 큐로 격리하며, 결과창 닫힘 여부는 다음 작업 진행과 성공판정 조건에서 제외합니다.</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-black">
           <span className={`rounded-full border px-3 py-1.5 ${extensionReady ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{extensionReady ? "HF28 연결됨" : "HF28 연결 대기"}</span>
@@ -290,8 +296,8 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
           <tbody className="divide-y divide-slate-100">
             {jobs.map((job, index) => <tr key={job.jobId}>
               <td className="px-3 py-3"><span className="mr-2 rounded-full bg-slate-100 px-2 py-1 font-black">{index + 1}</span><strong className="font-mono text-slate-950">{job.barcode}</strong><span className="ml-2 text-slate-500">{job.productName}</span></td>
-              <td className="px-3 py-3 font-bold">{kindLabel(job.productKind)}</td><td className="px-3 py-3 text-right font-black">{job.exactInventoryQuantity}개</td>
-              <td className={`px-3 py-3 font-black ${job.desiredStatus === "SOLD_OUT" ? "text-rose-700" : "text-emerald-700"}`}>{statusLabel(job.desiredStatus)}</td>
+              <td className="px-3 py-3 font-bold">{kindLabel(job.productKind)}</td><td className="px-3 py-3 text-right font-black">{job.inventoryQuantityKnown === false || job.manualStatusOnly ? "미확정" : `${job.exactInventoryQuantity}개`}</td>
+              <td className={`px-3 py-3 font-black ${job.desiredStatus === "SOLD_OUT" ? "text-rose-700" : "text-emerald-700"}`}>{job.manualStatusOnly ? "판매중(수동)" : statusLabel(job.desiredStatus)}</td>
               <td className="px-3 py-3 text-slate-600">{new Date(job.desiredSince).toLocaleString("ko-KR")}</td>
             </tr>)}
             {!jobs.length ? <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-500">{report ? "현재 실행 가능한 Shopling 재고상태 대기건이 없습니다." : "조회 전이거나 연결이 지연되어 대기건을 확인할 수 없습니다."}</td></tr> : null}
