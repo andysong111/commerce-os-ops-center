@@ -149,7 +149,9 @@ importScripts("background-v020.js");
     if ([job?.workerTabId, job?.popupTabId, job?.resultTabId].includes(tab.id)) return true;
     if ([job?.workerTabId, job?.popupTabId].includes(tab.openerTabId)) return true;
     const created = createdTabs.find((row) => row.tabId === tab.id && row.createdAt >= since - 5000);
-    if (created && ([job?.workerTabId, job?.popupTabId].includes(created.openerTabId) || /shopling/i.test(created.url) || /샵플링|shopling/i.test(created.title))) return true;
+    if (created && [job?.workerTabId, job?.popupTabId].includes(created.openerTabId)) return true;
+    if (job?.monthlyScope) return false;
+    if (created && (/shopling/i.test(created.url) || /샵플링|shopling/i.test(created.title))) return true;
     return false;
   }
 
@@ -345,6 +347,12 @@ importScripts("background-v020.js");
       activeWatchers.delete(jobId);
     }
   }
+
+  globalThis.commerceOsWakeA21MonthlyResult = async () => {
+    const state = await loadState();
+    const running = state?.jobs?.find((job) => job.monthlyScope && job.status === "RUNNING" && String(job.stage) === "RESULT_WAIT");
+    if (running) void watchResult(running.id);
+  };
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === "A21_STAGE" && String(message.stage || "") === "RESULT_WAIT" && message.jobId) {

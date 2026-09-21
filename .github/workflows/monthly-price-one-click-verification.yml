@@ -1,0 +1,92 @@
+name: Monthly price one-click verification
+on:
+  push:
+    branches: [agent/monthly-price-one-click-20260921]
+  pull_request:
+    paths:
+      - 'src/lib/monthlyPrice*'
+      - 'src/lib/internalChinaMonthlyPurchaseSummary.ts'
+      - 'src/components/china-order-manager/**'
+      - 'src/app/china-order-manager/**'
+      - 'src/app/api/china-order-manager/**'
+      - 'src/app/api/shopling-a21-price-option-resend/**'
+      - 'public/shopling-a21-price-option-resend/**'
+      - 'supabase/migrations/*monthly_price*'
+      - 'tests/monthly-price*'
+      - 'scripts/monthly-price*'
+      - '.github/workflows/monthly-price-one-click-verification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: monthly-price-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Mandatory monthly price regression tests
+        run: node --experimental-strip-types --test tests/monthly-price*.test.mjs tests/shoplingA21PriceOptionResend.test.mjs tests/internalChinaDirectTargetExecution.test.mjs
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Lint changed application surfaces
+        run: npx eslint src/lib/monthlyPrice*.ts src/components/china-order-manager/MonthlyPricePanel.tsx src/app/api/china-order-manager/monthly-price/route.ts src/app/api/china-order-manager/price-review/group-aware-execute/route.ts src/lib/internalChinaMonthlyPurchaseSummary.ts
+      - name: Extension syntax
+        run: for f in public/shopling-a21-price-option-resend/*.js; do node --check "$f"; done
+      - name: Production build with isolated credentials
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://monthly-price-ci.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_monthly_price_ci
+          SUPABASE_SECRET_KEY: sb_secret_monthly_price_ci
+          PRODUCT_MASTER_BASE_URL: https://example.invalid
+          PRODUCT_MASTER_INTEGRATION_SECRET: ci-only-not-production
+          SHOPLING_LOGIN_ID: ci-only
+          SHOPLING_COMPANY_ID: ci-only
+          SHOPLING_API_AUTH_KEY: ci-only
+      - name: Isolated Chromium fixture setup
+        run: |
+          npm install --prefix /tmp/monthly-price-browser --no-package-lock playwright@1.55.1 esbuild@0.25.9
+          /tmp/monthly-price-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Actual component browser flow and DOM mapping
+        run: node scripts/monthly-price-browser-check.mjs
+      - name: Checkpoint source and validation evidence
+        if: always()
+        run: |
+          mkdir -p output/monthly-price
+          git archive --format=tar.gz --output=output/monthly-price/source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monthly-price-verification-${{ github.sha }}
+          path: output/monthly-price/
+          retention-days: 2
+          if-no-files-found: error
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: monthly-price-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: monthly-price-ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Migration and durable lease regression
+        run: |
+          psql -v ON_ERROR_STOP=1 -c 'create role anon; create role authenticated; create role service_role;'
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260921140000_monthly_price_increase_only.sql
+          psql -v ON_ERROR_STOP=1 -f tests/monthly-price-database.sql

@@ -521,9 +521,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })();
 });
 
-chrome.runtime.onInstalled.addListener(() => { void chrome.storage.local.remove(STATE_KEY); });
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "install") void chrome.storage.local.remove(STATE_KEY);
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!String(message?.type || "").startsWith("A21_")) return false;
   void (async () => {
     try {
       if (message?.type === "A21_GET_PLAN") return sendResponse({ ok: true, plan: await fetchPlan() });

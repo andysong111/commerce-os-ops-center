@@ -1,0 +1,3 @@
+export const MONTHLY_PRICE_POLICY = "MONTHLY_CONFIRMED_COST_INCREASE_ONLY_V1";
+export const MONTHLY_PRICE_BRIDGE = "commerce-os-monthly-price-v1";
+export const MONTHLY_PRICE_EXTENSION_VERSION = "0.5.0";

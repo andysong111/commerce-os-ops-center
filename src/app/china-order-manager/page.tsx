@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MonthlyPricePanel } from "@/components/china-order-manager/MonthlyPricePanel";
 import type { ReactNode } from "react";
 import { InternalChinaFundingClosePanel } from "@/components/china-order-manager/InternalChinaFundingClosePanel";
 import { InternalChinaForwarderCostFallback } from "@/components/china-order-manager/InternalChinaForwarderCostFallback";
@@ -341,7 +342,7 @@ export default async function ChinaOrderManagerPage({
       <PageHeader
         eyebrow="COMMERCE OS · MONTHLY PURCHASE WORKSPACE"
         title="월별 발주·입고 관리"
-        description="월 하나를 선택해 예산 → 1688 주문 → 배송대행지 바코드 출력 → 입고 → 실제 원가 → 자금 마감 순서로 처리합니다. 바코드 단계에서는 해당 월 실제 주문정보를 온돌패스 신청서와 자동 연결합니다."
+        description="월 하나를 선택해 예산 → 1688 주문 → 배송대행지 바코드 출력 → 입고 → 실제 원가 → 가격조정 → 자금 마감 순서로 처리합니다. 바코드 단계에서는 해당 월 실제 주문정보를 온돌패스 신청서와 자동 연결합니다."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -380,7 +381,7 @@ export default async function ChinaOrderManagerPage({
               ) : receiptDone ? (
                 <Badge tone="emerald">추적 품목 입고 완료</Badge>
               ) : null}
-              {forwarderDone ? <Badge tone="emerald">실제 원가 마감</Badge> : null}
+              {forwarderDone ? <Badge tone="emerald">실제 비용 저장</Badge> : null}
               {fundingDone ? <Badge tone="emerald">자금 마감</Badge> : null}
             </div>
           </div>
@@ -638,8 +639,9 @@ export default async function ChinaOrderManagerPage({
                     : "전량 입고 후 진행"
               }
             />
+            <MonthlyPricePanel month={selectedMonth} ready={receiptDone && forwarderDone} />
             <FlowStep
-              number="6"
+              number="7"
               title="월 자금 마감"
               state={fundingDone ? "done" : forwarderDone ? "active" : "wait"}
               detail={
@@ -650,7 +652,7 @@ export default async function ChinaOrderManagerPage({
             />
           </div>
           <p className="mt-5 rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-xs leading-5 text-slate-300">
-            발주 마감 후 배송대행지 바코드 출력에서 해당 월 주문번호·B-code를 온돌패스 신청서와 연결합니다. 이후 입고·실제 원가·자금 마감을 계속 진행합니다.
+            발주 마감 후 배송대행지 바코드 출력에서 해당 월 주문번호·B-code를 온돌패스 신청서와 연결합니다. 이후 입고·실제 원가·가격조정·자금 마감을 계속 진행합니다.
           </p>
         </aside>
       </section>

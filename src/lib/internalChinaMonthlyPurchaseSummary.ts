@@ -336,3 +336,13 @@ export async function loadInternalChinaMonthlyPurchaseSummary(
   const summaries = await loadRecentInternalChinaMonthlyPurchaseSummaries(24);
   return summaries.find((summary) => summary.cycleMonth === cycleMonth) ?? null;
 }
+
+/** Complete caller-owned evidence, without the recent-dashboard read limit. */
+export function buildInternalChinaMonthlyPurchaseSummaryFromRows(rows: readonly StoredRow[], cycleMonth: string): InternalChinaMonthlyPurchaseSummary | null {
+  const byDraft = new Map<string, ParsedDraft>();
+  for (const row of rows) {
+    const parsed = parseDraft(row);
+    if (parsed?.cycleMonth === cycleMonth && !byDraft.has(parsed.draftId)) byDraft.set(parsed.draftId, parsed);
+  }
+  return byDraft.size ? aggregateDrafts(cycleMonth, [...byDraft.values()]) : null;
+}

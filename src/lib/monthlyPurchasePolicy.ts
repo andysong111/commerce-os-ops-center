@@ -39,7 +39,7 @@ export function seoulCalendarMonth(value: Date | string = new Date()) {
 }
 
 export function previousCalendarMonth(month: string) {
-  if (!/^\d{4}-\d{2}$/.test(month)) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
     throw new Error("MONTHLY_PURCHASE_MONTH_INVALID");
   }
   const [year, monthNumber] = month.split("-").map(Number);
@@ -48,7 +48,7 @@ export function previousCalendarMonth(month: string) {
 }
 
 export function calendarMonthRange(month: string) {
-  if (!/^\d{4}-\d{2}$/.test(month)) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
     throw new Error("MONTHLY_PURCHASE_MONTH_INVALID");
   }
   const [year, monthNumber] = month.split("-").map(Number);
@@ -72,7 +72,7 @@ export function monthlyPurchaseCycleFor(
 }
 
 export function koreanMonthLabel(month: string) {
-  if (!/^\d{4}-\d{2}$/.test(month)) return month;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return month;
   const [year, monthNumber] = month.split("-");
   return `${Number(year)}년 ${Number(monthNumber)}월`;
 }
@@ -85,7 +85,7 @@ export function validNormalSaleStatus(status: string) {
 }
 
 export function purchaseBudgetRevenuePolicyApplies(month: string) {
-  if (!/^\d{4}-\d{2}$/.test(month)) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
     throw new Error("MONTHLY_PURCHASE_MONTH_INVALID");
   }
   // ABLY's 3,000 KRW embedded free-shipping reserve is a channel economics

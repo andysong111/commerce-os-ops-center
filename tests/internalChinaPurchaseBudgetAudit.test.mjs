@@ -30,7 +30,10 @@ test("China order draft budgets from the previous full calendar month", () => {
 
 test("closed calendar-month Shopling revenue is frozen in the Ops ledger", () => {
   assert.match(monthlyRevenue, /SHOPLING_CALENDAR_MONTH_REVENUE/);
-  assert.match(monthlyRevenue, /calendarMonthNormalRevenue/);
+  // Versioned purchase-budget revenue replaced the old gross-only helper.
+  assert.match(monthlyRevenue, /calendarMonthPurchaseBudgetRevenue/);
+  assert.match(monthlyRevenue, /PURCHASE_BUDGET_REVENUE_POLICY_VERSION/);
+  assert.match(monthlyRevenue, /if \(!closedCalendarMonth\(input\.month\)\) return null/);
   assert.match(monthlyRevenue, /calendarMonthFrozen: true/);
   assert.match(monthlyRevenue, /resolution=ignore-duplicates/);
 });

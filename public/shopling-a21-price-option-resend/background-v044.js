@@ -188,6 +188,7 @@ importScripts("background-v041.js");
     if (known) return true;
     const created = createdTabsV044.find((row) => row.tabId === tab.id && row.createdAt >= Number(job?.createdAt || 0) - 5000);
     if (created && [job?.workerTabId, job?.popupTabId].includes(created.openerTabId)) return true;
+    if (job?.monthlyScope) return false;
     return /shopling/i.test(url) || /샵플링|shopling/i.test(title) || /^about:blank/i.test(url);
   }
 
@@ -273,6 +274,7 @@ importScripts("background-v041.js");
       return baseCompleteJobV041(jobId, priorMessage);
     }
     if (String(initialJob.stage || "") !== "RESULT_WAIT") {
+      if (initialJob.monthlyScope) return; // No early generic-success shortcut for monthly prices.
       return baseCompleteJobV041(jobId, priorMessage);
     }
 

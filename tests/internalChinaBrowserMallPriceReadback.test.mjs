@@ -40,11 +40,16 @@ test("Ops control remains same-origin and supports failed-only retry", async () 
   assert.match(source, /delayMs/);
 });
 
-test("price execution automatically queues delayed browser verification", async () => {
+test("retired unscoped execution cannot bypass synchronous monthly price readback", async () => {
   const source = await readFile(executeRoutePath, "utf8");
-  assert.match(source, /ensureInternalChinaBrowserMallPriceReadback/);
-  assert.match(source, /delayMs: 2 \* 60_000/);
-  assert.match(source, /browserReadbackQueued/);
+  assert.match(source, /isSameOriginOpsRequest/);
+  assert.match(source, /MONTHLY_PRICE_EXECUTION_REQUIRED/);
+  assert.match(source, /status: 409/);
+  assert.doesNotMatch(source, /executeInternalChinaDirectTargetPrices\(/);
+  const monthly = await readFile(new URL("../src/lib/monthlyPriceActions.ts", import.meta.url), "utf8");
+  const claim = monthly.slice(monthly.indexOf('action === "resendClaim"'));
+  assert.match(claim, /verifyMonthlyPricePlan\(item\.plan, item\.candidate, live, observed\)/);
+  assert.ok(claim.indexOf("verifyMonthlyPricePlan(") < claim.indexOf('item.state = "RESENDING"'));
 });
 
 test("browser worker never writes Shopling and serializes against other workers", async () => {
