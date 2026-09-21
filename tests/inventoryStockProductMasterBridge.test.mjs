@@ -49,9 +49,6 @@ function loadRoute(calls) {
     "@/lib/inventoryManualOnSale": {
       overlayInventoryStockControlReportWithManualOnSale: async (value) => value,
     },
-    "@/lib/inventoryManualOnSale": {
-      overlayInventoryStockControlReportWithManualOnSale: async (value) => value,
-    },
     "@/lib/inventoryStockSalesTail": {
       overlayInventoryStockControlReportWithTail: async (value) => value,
     },
@@ -134,6 +131,9 @@ function loadOverviewRoute(calls) {
     },
     "@/lib/inventoryStockResetIdentity": {
       validateInventoryStockoutResetIdentity: async (value) => value,
+    },
+    "@/lib/inventoryManualOnSale": {
+      overlayInventoryStockControlReportWithManualOnSale: async (value) => value,
     },
     "@/lib/inventoryStockSalesTail": {
       overlayInventoryStockControlReportWithTail: async (value) => value,
