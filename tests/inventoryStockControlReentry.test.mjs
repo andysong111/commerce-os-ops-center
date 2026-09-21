@@ -232,3 +232,13 @@ test("direct stockout result messaging distinguishes marketplace advisory failur
   assert.match(panel, /marketFailuresAdvisory/);
   assert.match(panel, /Shopling 자체 품절 반영 실패가 아니라 마켓별 후속 전송 실패입니다/);
 });
+
+
+test("currently running operational lanes are not mislabeled as STARTED/UNCERTAIN exceptions", async () => {
+  const panel = await readFile(
+    "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx",
+    "utf8",
+  );
+  assert.match(panel, /!runningBarcodes\.includes\(row\.barcode\)/);
+  assert.match(panel, /\[report, runningBarcodes\]/);
+});
