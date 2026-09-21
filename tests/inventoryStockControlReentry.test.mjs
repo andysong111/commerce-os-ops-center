@@ -275,7 +275,7 @@ test("manual on-sale operator accepts B-codes only and sends Shopling ON_SALE di
   assert.match(panel, /inventory-stock-control\/on-sale\/batch/);
   assert.match(panel, /desiredStatus: "ON_SALE"/);
   assert.match(panel, /COMMERCE_OS_SHOPLING_STOCK_SYNC_START/);
-  assert.match(panel, /재고수량을 입력·변경하지 않으며/);
+  assert.match(panel, /재고수량은 입력·변경하지 않으며/);
   assert.doesNotMatch(panel, /baselineQuantity/);
 });
 
