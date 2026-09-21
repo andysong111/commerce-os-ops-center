@@ -306,3 +306,13 @@ test("inventory overview and operational queue label status-only ON_SALE as quan
   assert.match(queue, /job\.manualStatusOnly \? "판매중\(수동\)"/);
   assert.match(queue, /job\.inventoryQuantityKnown === false/);
 });
+
+
+test("manual on-sale rows pass through retry-lock normalization after the manual overlay", async () => {
+  const [syncRoute, overviewRoute] = await Promise.all([
+    readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8"),
+    readFile("src/app/api/inventory-stock-control/route.ts", "utf8"),
+  ]);
+  assert.match(syncRoute, /withManualOnSale[\s\S]*normalizeRetryableShoplingSyncReportWithEvidence\(withManualOnSale\)/);
+  assert.match(overviewRoute, /normalizeRetryableShoplingSyncReportWithEvidence\([\s\S]*overlayInventoryStockControlReportWithManualOnSale\(report\)/);
+});
