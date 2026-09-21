@@ -4,8 +4,8 @@ import {
   CHINA_ORDER_EVENT_OPERATION_TYPE,
   loadChinaOrderLedger,
   normalizeChinaOrderCommitmentEvent,
-  type ChinaOrderCommitmentSnapshot,
 } from "@/lib/chinaOrderLedger";
+import { resolveExistingSourcingPurchase as resolveExistingSourcingPurchaseDomain } from "@/domain/sourcing-purchase-replay";
 import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 
