@@ -5,6 +5,7 @@ import {
   storeInventoryOperation,
 } from "@/lib/inventoryStockControl";
 import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/inventoryStockResetCorrections";
+import { overlayInventoryStockControlReportWithManualOnSale } from "@/lib/inventoryManualOnSale";
 import { validateInventoryStockoutResetIdentity } from "@/lib/inventoryStockResetIdentity";
 import { overlayInventoryStockControlReportWithTail } from "@/lib/inventoryStockSalesTail";
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
@@ -124,9 +125,19 @@ export async function GET(request: Request) {
     const canonicalSalesRefresh = coverageGapResetAt
       ? await ensureCanonicalSalesCoverageAfterReset(coverageGapResetAt)
       : null;
+    const presentedReport =
+      await overlayInventoryStockControlReportWithManualOnSale(report);
     return Response.json(
-      { ok: report.state === "READY", report, tailSalesRefresh, canonicalSalesRefresh },
-      { status: report.state === "READY" ? 200 : 503, headers: { "cache-control": "no-store" } },
+      {
+        ok: presentedReport.state === "READY",
+        report: presentedReport,
+        tailSalesRefresh,
+        canonicalSalesRefresh,
+      },
+      {
+        status: presentedReport.state === "READY" ? 200 : 503,
+        headers: { "cache-control": "no-store" },
+      },
     );
   });
 }
