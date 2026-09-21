@@ -37,11 +37,11 @@ test("stock control uses exact-identity reset-tail coverage before 360-day canon
   assert.match(syncRoute, /tailSalesRefresh/);
 });
 
-test("30-second operational queue GET stays read-only while real result POST may refresh Tail coverage", async () => {
-  const syncRoute = await readFile(
-    "src/app/api/inventory-stock-control/sync/route.ts",
-    "utf8",
-  );
+test("operational queue reads and sync-event writes do not refresh Tail; explicit overview owns evidence refresh", async () => {
+  const [syncRoute, overviewRoute] = await Promise.all([
+    readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8"),
+    readFile("src/app/api/inventory-stock-control/route.ts", "utf8"),
+  ]);
   const getSection = syncRoute
     .split("export async function GET")[1]
     .split("export async function POST")[0];
@@ -50,7 +50,11 @@ test("30-second operational queue GET stays read-only while real result POST may
   assert.match(syncRoute, /refreshTail = false/);
   assert.match(getSection, /loadRetryableReport\(\)/);
   assert.doesNotMatch(getSection, /refreshTail:\s*true/);
-  assert.match(postSection, /refreshTail:\s*true/);
+  assert.match(postSection, /storeInventoryOperation/);
+  assert.doesNotMatch(postSection, /refreshTail:\s*true/);
+  assert.doesNotMatch(postSection, /ensureExactInventoryStockSalesTailCoverage/);
+  assert.doesNotMatch(postSection, /tailSalesRefresh/);
+  assert.match(overviewRoute, /ensureExactInventoryStockSalesTailCoverage/);
   assert.match(syncRoute, /Polling must/);
   assert.match(syncRoute, /remain read-only/);
 });
