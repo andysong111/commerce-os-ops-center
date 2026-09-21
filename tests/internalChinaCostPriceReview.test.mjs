@@ -120,8 +120,9 @@ test("dispatcher orders cost snapshot then group-aware v2 before legacy receipt 
   assert.ok(dispatcherRoute.includes("shoplingPriceWritesEnabled: false"));
 });
 
-test("landed-cost close still hands off to price review without product-grade wording", () => {
-  assert.ok(receiptPanel.includes("가격조정 검토"));
-  assert.ok(receiptPanel.includes("/china-order-manager/price-review"));
+test("landed-cost close hands off to the selected month one-click flow, not the legacy execution page", () => {
+  assert.ok(receiptPanel.includes("월 가격조정으로 이동"));
+  assert.ok(receiptPanel.includes("/china-order-manager?month=${encodeURIComponent(cycleMonth)}#monthly-price"));
+  assert.equal(receiptPanel.includes("/china-order-manager/price-review"), false);
   assert.equal(receiptPanel.includes("가격조정·상품등급"), false);
 });

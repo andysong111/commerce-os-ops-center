@@ -161,7 +161,10 @@ test("normal receipt panel previews the actual multiplier and downstream cost se
   assert.ok(panel.includes("실제 원가배수 = (상품 총 매입금액 + 배송대행지 실제비용) ÷ 상품 총 매입금액"));
   assert.ok(panel.includes("최종 SKU 매입원가 = (상품원가 × 실제 원가배수) + 중국내운임"));
   assert.ok(panel.includes("실제 판매가격은 별도 승인 절차 없이 즉시 변경하지 않습니다"));
-  assert.ok(panel.includes("가격조정 검토"));
+  assert.ok(panel.includes("월 가격조정으로 이동"));
+  assert.ok(panel.includes("#monthly-price"));
+  assert.ok(page.includes("MonthlyPricePanel"));
+  assert.ok(page.includes("ready={receiptDone && forwarderDone}"));
   assert.equal(panel.includes("상품등급"), false);
 });
 

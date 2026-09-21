@@ -57,15 +57,19 @@ test("funding close API is same-origin guarded and reports both wallets", () => 
   assert.ok(route.includes("CNH"));
 });
 
-test("funding close UI stays simple: four inputs, automatic Korean allocation and automatic emergency reserve", () => {
-  assert.ok(panel.includes("WorldFirst 송금액(원)"));
-  assert.ok(panel.includes("WorldFirst 기말 USD"));
-  assert.ok(panel.includes("WorldFirst 기말 CNH"));
-  assert.ok(panel.includes("한국계좌 실제 지출액(원)"));
-  assert.ok(panel.includes("한국계좌 배정 가능액"));
-  assert.ok(panel.includes("비상금 계좌 적립액"));
-  assert.ok(panel.includes("WorldFirst 송금은 비용이 아니라 자금이동"));
-  assert.ok(panel.includes("한국계좌 남은금액은 전액 비상금 적립"));
+// The existing simplified funding UI intentionally retired wallet entry. Keep
+// legacy engine math coverage above, but do not require removed input controls.
+test("simplified funding close submits only the cycle identity and never fabricates wallet balances", () => {
+  assert.ok(panel.includes("simplified: true"));
+  assert.match(panel, /JSON\.stringify\(\{\s*draftId,\s*cycleMonth,\s*simplified: true,\s*\}\)/);
+  assert.ok(panel.includes("입고와 배송대행 실제 원가 마감을 먼저 완료하세요"));
+  assert.ok(panel.includes("disabled={saving || invalid}"));
+  assert.ok(panel.includes("전체 지출가능금액"));
+  assert.ok(panel.includes("확정 배송대행 실제비용"));
+  assert.ok(panel.includes("WorldFirst 관련 세부 원장은 지금 단계에서는 수집·계산하지 않습니다"));
+  assert.equal(/<input\b/.test(panel), false);
+  assert.equal(panel.includes("worldFirstEndingUsd:"), false);
+  assert.equal(panel.includes("worldFirstEndingCnh:"), false);
 });
 
 test("recent landed-cost history exposes the final funding close and keeps a monthly funding history", () => {
