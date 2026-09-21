@@ -66,7 +66,7 @@ function latestCanonicalCoverageGapResetAt(
   report: Awaited<ReturnType<typeof loadStableInventoryStockControlReport>>,
 ) {
   const candidates = report.rows
-    .filter((row) => !row.salesCoverageReady)
+    .filter((row) => !row.salesCoverageReady && row.manualStatusOnly !== true)
     .map((row) => row.resetAt)
     .filter((value) => Number.isFinite(Date.parse(value)))
     .sort((left, right) => Date.parse(left) - Date.parse(right));
@@ -120,13 +120,20 @@ export async function GET(request: Request) {
     if (tailSalesRefresh?.refreshed) {
       report = await loadStableInventoryStockControlReport();
     }
+    let presentedReport =
+      await overlayInventoryStockControlReportWithManualOnSale(report);
     const coverageGapResetAt =
-      report.state === "READY" ? latestCanonicalCoverageGapResetAt(report) : null;
+      presentedReport.state === "READY"
+        ? latestCanonicalCoverageGapResetAt(presentedReport)
+        : null;
     const canonicalSalesRefresh = coverageGapResetAt
       ? await ensureCanonicalSalesCoverageAfterReset(coverageGapResetAt)
       : null;
-    const presentedReport =
-      await overlayInventoryStockControlReportWithManualOnSale(report);
+    if (canonicalSalesRefresh?.accepted) {
+      report = await loadStableInventoryStockControlReport();
+      presentedReport =
+        await overlayInventoryStockControlReportWithManualOnSale(report);
+    }
     return Response.json(
       {
         ok: presentedReport.state === "READY",
