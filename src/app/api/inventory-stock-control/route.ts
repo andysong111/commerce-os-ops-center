@@ -121,7 +121,9 @@ export async function GET(request: Request) {
       report = await loadStableInventoryStockControlReport();
     }
     let presentedReport =
-      await overlayInventoryStockControlReportWithManualOnSale(report);
+      await normalizeRetryableShoplingSyncReportWithEvidence(
+        await overlayInventoryStockControlReportWithManualOnSale(report),
+      );
     const coverageGapResetAt =
       presentedReport.state === "READY"
         ? latestCanonicalCoverageGapResetAt(presentedReport)
@@ -132,7 +134,9 @@ export async function GET(request: Request) {
     if (canonicalSalesRefresh?.accepted) {
       report = await loadStableInventoryStockControlReport();
       presentedReport =
-        await overlayInventoryStockControlReportWithManualOnSale(report);
+        await normalizeRetryableShoplingSyncReportWithEvidence(
+          await overlayInventoryStockControlReportWithManualOnSale(report),
+        );
     }
     return Response.json(
       {
