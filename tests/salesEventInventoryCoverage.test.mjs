@@ -96,6 +96,7 @@ function fixture(state = "READY_CANARY", options = {}) {
     "@/lib/productMasterShoplingSalesEventSync": sync,
     "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async () => structuredClone(report), storeInventoryOperation: async () => assert.fail("inventory mutation forbidden"), normalizeStockoutResetInput: () => assert.fail("inventory mutation forbidden") },
     "@/lib/inventoryStockResetCorrections": { overlayInventoryStockControlReportWithResetCorrections: same },
+    "@/lib/inventoryManualOnSale": { overlayInventoryStockControlReportWithManualOnSale: same },
     "@/lib/inventoryStockResetIdentity": {},
     "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: same },
     "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => ({ refreshed: false, ok: false }) },
