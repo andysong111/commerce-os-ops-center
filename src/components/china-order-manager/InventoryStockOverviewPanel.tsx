@@ -62,11 +62,13 @@ export function InventoryStockOverviewPanel() {
     wake();
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("online", wake);
+    window.addEventListener("commerce-os:inventory-refresh", wake);
     return () => {
       mounted.current = false;
       polling.stop();
       document.removeEventListener("visibilitychange", wake);
       window.removeEventListener("online", wake);
+      window.removeEventListener("commerce-os:inventory-refresh", wake);
     };
   }, [failure, loadQueue]);
   const ready = report?.state === "READY" && !stale;
