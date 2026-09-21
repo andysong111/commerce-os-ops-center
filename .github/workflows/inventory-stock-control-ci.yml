@@ -4,10 +4,13 @@ on:
     branches: [main]
     paths:
       - 'src/lib/inventoryStock*.ts'
+      - 'src/lib/inventoryManualOnSale.ts'
       - 'src/lib/productMasterInventoryIdentity.ts'
       - 'src/lib/productMasterVerifiedInventoryBaselines.ts'
       - 'src/app/api/inventory-stock-control/**'
       - 'src/components/china-order-manager/InventoryStockOverviewPanel.tsx'
+      - 'src/components/china-order-manager/InventoryManualOnSaleOperatorPanel.tsx'
+      - 'src/app/china-order-manager/stock-control/page.tsx'
       - 'src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx'
       - 'src/components/china-order-manager/InventoryStocktakeOperatorPanel.tsx'
       - 'src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx'
@@ -22,10 +25,13 @@ on:
   pull_request:
     paths:
       - 'src/lib/inventoryStock*.ts'
+      - 'src/lib/inventoryManualOnSale.ts'
       - 'src/lib/productMasterInventoryIdentity.ts'
       - 'src/lib/productMasterVerifiedInventoryBaselines.ts'
       - 'src/app/api/inventory-stock-control/**'
       - 'src/components/china-order-manager/InventoryStockOverviewPanel.tsx'
+      - 'src/components/china-order-manager/InventoryManualOnSaleOperatorPanel.tsx'
+      - 'src/app/china-order-manager/stock-control/page.tsx'
       - 'src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx'
       - 'src/components/china-order-manager/InventoryStocktakeOperatorPanel.tsx'
       - 'src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx'
