@@ -26,6 +26,23 @@ export function loadPurchaseCycleModule(path, imports = {}, globals = {}) {
       if (name === "@/lib/purchaseCycleLocalBaselineAuthority") {
         return { assertPurchaseCycleLocalBaselineAuthorityReadable: async () => ({ resetCount: 0, stocktakeCount: 0 }) };
       }
+      // Receipt replay and sourcing support were added after these legacy
+      // fixtures. Execute their real guards; forbid any unmodelled side effect.
+      if (name === "@/domain/china-receipt-request") {
+        return loadPurchaseCycleModule("src/domain/china-receipt-request.ts", imports, globals);
+      }
+      if (name === "@/lib/sourcingReceiptBridge" || name === "./sourcingReceiptBridge") {
+        return loadPurchaseCycleModule("src/lib/sourcingReceiptBridge.ts", imports, globals);
+      }
+      if (name === "@/lib/sourcingReceiptArtifacts") {
+        return loadPurchaseCycleModule("src/lib/sourcingReceiptArtifacts.ts", imports, globals);
+      }
+      if (name === "./sourcingReceiptLifecycleCore") {
+        return loadPurchaseCycleModule("src/lib/sourcingReceiptLifecycleCore.ts", imports, globals);
+      }
+      if (name === "./sourcingLaunchMaterialization") {
+        return { materializeSourcingLaunchItem: async () => { throw new Error("UNMOCKED_SOURCING_WRITE_FORBIDDEN"); } };
+      }
       if (name === "node:crypto") return builtinRequire(name);
       throw new Error(`UNMOCKED_IMPORT_FORBIDDEN:${name}`);
     }, ...globals,

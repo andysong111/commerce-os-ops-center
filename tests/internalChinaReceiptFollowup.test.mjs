@@ -125,7 +125,7 @@ test("actual receipt engine captures original cost durably before downstream fai
     "@/lib/monthlyPurchasePolicy": { koreanMonthLabel: (value) => value, seoulCalendarMonth: () => "2026-09" },
     "@/lib/internalChinaReceiptFollowup": { retryInternalChinaReceiptFollowup: async () => { assert.equal(writes.length, 1); assert.equal(writes[0][0].result_snapshot.receiptCost.unitCostKrw, 690); followups++; throw new Error("RECEIPT_FOLLOWUP_READBACK_MISSING"); } },
     "@/lib/supabase/admin": { createSupabaseAdminHeaders: () => ({}) },
-  }, { process: { env: { NEXT_PUBLIC_SUPABASE_URL: "https://db.example", SUPABASE_SECRET_KEY: "fixture-only" } }, fetch: async (url, options) => { assert.match(url, /commerce_operation_runs/); writes.push(JSON.parse(options.body)); return Response.json([{ source_event_id: "stored" }]); } });
+  }, { process: { env: { NEXT_PUBLIC_SUPABASE_URL: "https://db.example", SUPABASE_SECRET_KEY: "fixture-only" } }, fetch: async (url, options) => { assert.match(url, /commerce_operation_runs/); if (!options.method || options.method === "GET") { assert.match(url, /receiptId/); assert.equal(options.body, undefined); return Response.json([]); } assert.equal(options.method, "POST"); writes.push(JSON.parse(options.body)); return Response.json([{ source_event_id: "stored" }]); } });
   const result = await engine.recordInternalChinaReceipt({ draftId, cycleMonth: "2026-09", lines: [{ barcode, quantity: 7 }] });
   assert.equal(result.receivedNow, 7); assert.equal(result.productMasterSynced, false);
   assert.equal(result.productMasterError, "RECEIPT_FOLLOWUP_READBACK_MISSING");
