@@ -352,16 +352,11 @@ export async function POST(request: Request) {
       correlationId: `shopling-stock:${event.barcode}`,
       snapshot: event,
     });
-    const { report, tailSalesRefresh } = await loadRetryableReport({
-      refreshTail: true,
-    });
     return Response.json(
       {
         ok: true,
         duplicate: stored.duplicate,
         event,
-        report,
-        tailSalesRefresh,
         message: stored.duplicate
           ? "이미 기록한 Shopling 동기화 결과입니다."
           : "Shopling 재고상태 동기화 결과를 저장했습니다.",

@@ -192,7 +192,7 @@ test("operational Shopling queue GET consumes the same Product Master zero-reset
   assert.equal(calls.stores, 0);
 });
 
-test("operational Shopling result POST rebuilds the queue with Product Master zero-reset evidence after the state write", async () => {
+test("operational Shopling result POST persists only; the next queue GET owns Product Master rebuild", async () => {
   const calls = { inventory: [], productMaster: 0, stores: 0 };
   const route = loadRoute(calls);
   const response = await route.POST(
@@ -216,6 +216,15 @@ test("operational Shopling result POST rebuilds the queue with Product Master ze
   );
   assert.equal(response.status, 201);
   assert.equal(calls.stores, 1);
+  assert.equal(calls.productMaster, 0);
+  assert.equal(calls.inventory.length, 0);
+
+  const queueResponse = await route.GET(
+    new Request("https://ops.example/api/inventory-stock-control/sync", {
+      headers: { origin: "https://ops.example" },
+    }),
+  );
+  assert.equal(queueResponse.status, 200);
   assert.equal(calls.productMaster, 1);
   assert.equal(calls.inventory.length, 1);
   assertSupplementalOptions(calls.inventory[0]);
