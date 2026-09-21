@@ -59,3 +59,13 @@ test("receipt engine checks durable request replay before reading mutable open q
   assert.ok(engine.includes('params.set("result_snapshot->>receiptId", "eq." + requestId)'));
   assert.ok(engine.includes("retryInternalChinaReceiptFollowup(receiptId)"));
 });
+
+
+test("receipt API distinguishes idempotency conflict and replay lookup outage", () => {
+  assert.ok(route.includes("CHINA_RECEIPT_REQUEST_ID_INVALID"));
+  assert.ok(route.includes("CHINA_RECEIPT_REQUEST_REPLAY_CONFLICT"));
+  assert.ok(route.includes("CHINA_RECEIPT_REPLAY_LOOKUP_FAILED"));
+  assert.ok(route.includes('code === "CHINA_RECEIPT_REQUEST_REPLAY_CONFLICT"'));
+  assert.ok(route.includes("? 409"));
+  assert.ok(route.includes("? 503"));
+});
