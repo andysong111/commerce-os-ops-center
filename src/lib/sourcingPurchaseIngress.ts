@@ -5,6 +5,7 @@ import {
   loadChinaOrderLedger,
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
+import { resolveExistingSourcingPurchase as resolveExistingSourcingPurchaseDomain } from "@/domain/sourcing-purchase-replay";
 import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 
@@ -70,6 +71,7 @@ function deterministicDraftId(cycleMonth: string) {
 function rowCycle(row: { reservedAt: string | null; updatedAt: string }) {
   return seoulCalendarMonth(row.reservedAt || row.updatedAt);
 }
+export const resolveExistingSourcingPurchase = resolveExistingSourcingPurchaseDomain;
 
 export function normalizeSourcingPurchaseIngress(input: SourcingPurchaseIngressInput) {
   const intakeId = text(input.intakeId).toLowerCase();
@@ -105,10 +107,13 @@ export function normalizeSourcingPurchaseIngress(input: SourcingPurchaseIngressI
 
 export async function ingestSourcingPurchase(input: SourcingPurchaseIngressInput) {
   const normalized = normalizeSourcingPurchaseIngress(input);
-  const cycleMonth = seoulCalendarMonth(normalized.sourceConfirmedAt);
   const ledger = await loadChinaOrderLedger();
   if (ledger.error) throw new Error("SOURCING_PURCHASE_LEDGER_UNAVAILABLE:" + ledger.error);
 
+  const replay = resolveExistingSourcingPurchase(ledger.commitments, normalized);
+  if (replay) return replay;
+
+  const cycleMonth = seoulCalendarMonth(normalized.sourceConfirmedAt);
   const cycleRows = ledger.commitments.filter(
     (row) => row.sourceSystem === SOURCE_SYSTEM && rowCycle(row) === cycleMonth,
   );
