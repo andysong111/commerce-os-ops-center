@@ -181,7 +181,7 @@ export function buildMonthlyPricePlan(candidate: MonthlyPriceCandidate, liveRows
     all.push({ mallKey: mall.mallKey, before, target: { ...before, sellPrice: Math.max(before.sellPrice, mall.targetPrice) } });
   }
   const writes = all.filter((row) => row.target.sellPrice > row.before.sellPrice);
-  const stable = { policy: MONTHLY_PRICE_POLICY, goodsKey: candidate.goodsKey, productGroup: group, optionIds: candidate.options.map((row) => row.optionId).sort(), targets: all, writes, protectedDecreaseCount };
+  const stable: Omit<MonthlyPricePlan, "fingerprint"> = { policy: MONTHLY_PRICE_POLICY, goodsKey: candidate.goodsKey, productGroup: group, optionIds: candidate.options.map((row) => row.optionId).sort(), targets: all, writes, protectedDecreaseCount };
   return { ...stable, fingerprint: monthlyHash(stable) };
 }
 export function assertMonthlyWritePreimage(write: MonthlyPriceWrite, current: PriceValues) {

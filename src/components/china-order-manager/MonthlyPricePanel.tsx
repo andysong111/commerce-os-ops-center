@@ -42,13 +42,16 @@ async function api(payload: Record<string, unknown>) {
   return data;
 }
 export function MonthlyPricePanel({ month, ready }: { month: string; ready: boolean }) {
+  return <MonthlyPricePanelForMonth key={month} month={month} ready={ready} />;
+}
+function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boolean }) {
   const [snapshot, setSnapshot] = useState<Snapshot>({ run: null, items: [] });
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [progress, setProgress] = useState("");
   const generation = useRef(0), running = useRef(false);
   useEffect(() => {
     generation.current += 1;
     const current = generation.current;
-    running.current = false; setBusy(false); setError(""); setProgress(""); setSnapshot({ run: null, items: [] });
+    running.current = false;
     void fetch(`${endpoint}?month=${encodeURIComponent(month)}`, { cache: "no-store" }).then((r) => r.json()).then((data) => {
       if (generation.current === current && data.ok) setSnapshot(data);
     }).catch(() => {});

@@ -13,8 +13,8 @@ export async function monthlyDb() {
 function fail(error: unknown) { if (error) throw new Error("MONTHLY_PRICE_STORE_FAILED"); }
 export async function loadMonthlyPriceRun(runId: string) {
   const db = await monthlyDb();
-  const result = await db.from("commerce_monthly_price_runs").select("*").eq("id", runId).single();
-  fail(result.error); return result.data as MonthlyPriceRun;
+  const result = await db.from("commerce_monthly_price_runs").select("*").eq("id", runId).maybeSingle();
+  fail(result.error); if (!result.data) throw new Error("MONTHLY_PRICE_RUN_NOT_FOUND"); return result.data as MonthlyPriceRun;
 }
 export async function loadMonthlyPriceStatus(month: string) {
   const db = await monthlyDb();
@@ -40,8 +40,9 @@ export async function createMonthlyPriceRun(source: MonthlyPriceSources) {
   const db = await monthlyDb();
   const result = await db.from("commerce_monthly_price_runs").upsert({ cycle_month: source.month, policy_version: MONTHLY_PRICE_POLICY, source_hash: source.sourceHash, source_snapshot: source }, { onConflict: "cycle_month,policy_version,source_hash", ignoreDuplicates: true });
   fail(result.error);
-  const stored = await db.from("commerce_monthly_price_runs").select("*").eq("cycle_month", source.month).eq("policy_version", MONTHLY_PRICE_POLICY).eq("source_hash", source.sourceHash).single();
+  const stored = await db.from("commerce_monthly_price_runs").select("*").eq("cycle_month", source.month).eq("policy_version", MONTHLY_PRICE_POLICY).eq("source_hash", source.sourceHash).maybeSingle();
   fail(stored.error);
+  if (!stored.data) throw new Error("MONTHLY_PRICE_RUN_NOT_FOUND");
   const run = stored.data as MonthlyPriceRun;
   const items = await db.from("commerce_monthly_price_items").upsert(source.candidates.map((candidate) => ({ run_id: run.id, goods_key: candidate.goodsKey, candidate, state: candidate.reason ? "BLOCKED" : "QUEUED", error_code: candidate.reason })), { onConflict: "run_id,goods_key", ignoreDuplicates: true });
   fail(items.error);
@@ -65,7 +66,7 @@ export async function claimMonthlyPriceItem(id: string) {
     const message = result.error.message;
     throw new Error(/MONTHLY_PRICE_[A-Z_]+/.exec(message)?.[0] || "MONTHLY_PRICE_CLAIM_FAILED");
   }
-  const item = result.data?.[0] as MonthlyPriceItem | undefined;
+  const item = (Array.isArray(result.data) ? result.data[0] : undefined) as MonthlyPriceItem | undefined;
   if (!item?.claim_token) throw new Error("MONTHLY_PRICE_CLAIM_FAILED");
   return item;
 }
@@ -74,7 +75,7 @@ export async function saveMonthlyPriceItem(item: MonthlyPriceItem, release = fal
   const now = new Date().toISOString();
   const result = await db.from("commerce_monthly_price_items").update({ state: item.state, plan: item.plan, write_index: item.write_index, error_code: item.error_code, transmission: item.transmission, claim_until: release ? null : item.claim_until, claim_token: release ? null : item.claim_token, updated_at: now }).eq("id", item.id).eq("claim_token", item.claim_token!).select("id");
   fail(result.error);
-  if (result.data?.length !== 1) throw new Error("MONTHLY_PRICE_LEASE_LOST");
+  if (!Array.isArray(result.data) || result.data.length !== 1) throw new Error("MONTHLY_PRICE_LEASE_LOST");
   item.updated_at = now;
 }
 export async function auditMonthlyPrice(item: MonthlyPriceItem, event: string, evidence: unknown) {

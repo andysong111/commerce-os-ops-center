@@ -18,8 +18,9 @@ async function allOperations(operation: string, source?: string) {
     if (source) query = query.eq("source", source);
     const result = await query;
     if (result.error) throw new Error("MONTHLY_PRICE_SOURCE_READ_FAILED");
-    rows.push(...(result.data ?? []));
-    if ((result.data ?? []).length < LIMIT) return rows;
+    if (!Array.isArray(result.data)) throw new Error("MONTHLY_PRICE_SOURCE_SHAPE_INVALID");
+    rows.push(...result.data.map(monthlyRecord));
+    if (result.data.length < LIMIT) return rows;
   }
   throw new Error("MONTHLY_PRICE_SOURCE_TRUNCATED");
 }
@@ -105,7 +106,7 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
   }
   candidates.sort((a, b) => a.goodsKey.localeCompare(b.goodsKey));
   const evidenceVersion = evidenceHash([receipts, closes, preps, overrides]);
-  return { month, evidenceVersion, sourceHash: monthlyHash({ policy: MONTHLY_PRICE_POLICY, month, candidates, sourceProofs, warnings: [...warnings].sort() }), candidates, costs: current, warnings, scope };
+  return { month, evidenceVersion, sourceHash: monthlyHash({ policy: MONTHLY_PRICE_POLICY, month, evidenceVersion, candidates, sourceProofs, warnings: [...warnings].sort() }), candidates, costs: current, warnings, scope };
 }
 
 function evidenceHash(groups: Record<string, unknown>[][]) {
