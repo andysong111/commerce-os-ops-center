@@ -91,6 +91,36 @@ export async function POST(request: Request) {
       })),
     );
 
+    const jobs = events.map((event) => {
+      const identity = identities.find((row) => row.barcode === event.barcode);
+      if (!identity || !identity.productKind) {
+        throw new Error(
+          `INVENTORY_STOCKOUT_DIRECT_JOB_IDENTITY_MISSING:${event.barcode}`,
+        );
+      }
+      return {
+        jobId: `stock-sync:${event.barcode}:SOLD_OUT:${event.occurredAt}`,
+        barcode: event.barcode,
+        productName:
+          identity.productName || identity.optionName || identity.barcode,
+        productKind: identity.productKind,
+        modelNo: identity.modelNo,
+        goodsKeys: [] as string[],
+        desiredStatus: "SOLD_OUT" as const,
+        desiredSince: event.occurredAt,
+        exactInventoryQuantity: 0,
+        resetAt: event.occurredAt,
+        route:
+          identity.productKind === "OPTION"
+            ? ["SHOPLING_API_OPTION_STATUS", "A21_GOODS_KEY_OPTION_SEND"]
+            : [
+                "A6_READ_ONLY_GOODS_KEY_RESOLVE",
+                "A21_GOODS_KEY_PRODUCT_SALE_STATUS",
+              ],
+        directOperatorCommand: true as const,
+      };
+    });
+
     return Response.json(
       {
         ok: true,
@@ -98,8 +128,9 @@ export async function POST(request: Request) {
         savedCount: events.length,
         identities,
         events,
+        jobs,
         storage,
-        message: `품절 기준점 ${events.length}건을 저장했습니다. 판매·재고 증거는 화면 갱신 시 한 번에 다시 계산합니다.`,
+        message: `품절 기준점 ${events.length}건을 저장했고 Shopling 품절 전송 작업을 즉시 준비했습니다.`,
       },
       {
         status: storage.insertedCount > 0 ? 201 : 200,
