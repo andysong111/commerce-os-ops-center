@@ -44,6 +44,7 @@ try{
   await page.goto(url);await page.getByRole('button',{name:/예상 가격 확인/}).click();
   await page.getByTestId('monthly-price-preview').waitFor({state:'attached'});
   await page.getByText('ABC1-1',{exact:true}).waitFor({state:'attached'});
+  await page.getByText('테스트 상품',{exact:true}).waitFor({state:'attached'});
   await page.getByText('1,000원',{exact:true}).waitFor({state:'attached'});
   await page.getByText('1,200원',{exact:true}).waitFor({state:'attached'});
   assert.deepEqual(events,['start','prepare']);
