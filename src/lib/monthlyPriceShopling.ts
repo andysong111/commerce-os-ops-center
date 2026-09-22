@@ -56,6 +56,8 @@ export async function readMonthlyLiveProduct(goodsKey: string): Promise<MonthlyS
 }
 function optionXml(write: MonthlyPriceWrite, snapshot?: MonthlyShoplingLiveSnapshot) {
   if (!write.optionAmounts) return "";
+  const changed = write.optionAmounts.some((row) => row.target !== row.before);
+  if (!changed) return "";
   if (!snapshot) throw new Error("MONTHLY_PRICE_OPTION_STRUCTURE_REQUIRED");
   const targetById = new Map(write.optionAmounts.map((row) => [row.optionId, row.target]));
   if (targetById.size !== write.optionAmounts.length || snapshot.optionIds.length !== write.optionAmounts.length) throw new Error("MONTHLY_PRICE_OPTION_SCOPE_CONFLICT");
@@ -64,8 +66,6 @@ function optionXml(write: MonthlyPriceWrite, snapshot?: MonthlyShoplingLiveSnaps
     if (value === undefined) throw new Error("MONTHLY_PRICE_OPTION_SCOPE_CONFLICT");
     return monthlyMoney(value, true);
   });
-  const changed = write.optionAmounts.some((row) => row.target !== row.before);
-  if (!changed) return "";
   if (!snapshot.optionLists.length) throw new Error("MONTHLY_PRICE_OPTION_STRUCTURE_REQUIRED");
   const combinationCount = snapshot.optionLists.reduce((count, list) => count * list.values.length, 1);
   if (combinationCount !== targetAmounts.length) throw new Error("MONTHLY_PRICE_OPTION_STRUCTURE_INVALID");
