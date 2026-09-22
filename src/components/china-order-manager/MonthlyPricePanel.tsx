@@ -18,7 +18,7 @@ function describe(code: string) {
   if (/BUSY/.test(code)) return "다른 창 또는 다른 월에서 같은 상품을 처리 중입니다. 중복 실행하지 않았습니다.";
   if (/PREVIEW_REQUIRED/.test(code)) return "아직 예상 변경안을 만들지 않은 상품이 있습니다. 먼저 모든 대상의 예상 가격을 확인하세요.";
   if (/READBACK|UNCERTAIN|MARKET_RESULT/.test(code)) return "실제 반영 결과를 확정하지 못했습니다. 완료 처리하거나 무조건 다시 전송하지 않습니다.";
-  if (/LOGIN|DOM|BROWSER|CURRENT_PRICE|MALL/.test(code)) return "샵플링 로그인 또는 현재 가격행을 확인하지 못했습니다. 가격 변경을 보호했습니다.";
+  if (/LOGIN|DOM|BROWSER|CURRENT_PRICE|MALL|SHOPLING_TAB/.test(code)) return "샵플링 로그인 세션 또는 현재 가격행을 확인하지 못했습니다. 가격 변경을 보호했습니다.";
   return "자동 처리를 멈췄습니다. 아래 확인 코드를 확인하세요.";
 }
 export function monthlyPriceBridge(command: string, payload: Record<string, unknown> = {}, timeoutMs = 40000): Promise<BridgeReply> {
