@@ -11,6 +11,7 @@ const [
   fallbackPanel,
   page,
   receiptEngine,
+  monthlyPriceSource,
   workflow,
 ] = await Promise.all([
   readFile("src/lib/internalChinaForwarderCost.ts", "utf8"),
@@ -21,6 +22,7 @@ const [
   readFile("src/components/china-order-manager/InternalChinaForwarderCostFallback.tsx", "utf8"),
   readFile("src/app/china-order-manager/page.tsx", "utf8"),
   readFile("src/lib/internalChinaReceipt.ts", "utf8"),
+  readFile("src/lib/monthlyPriceSource.ts", "utf8"),
   readFile(".github/workflows/china-order-ledger-ci.yml", "utf8"),
 ]);
 
@@ -123,11 +125,19 @@ test("China order manager fails fast instead of exhausting the Vercel function t
   assert.ok(page.includes("원장은 변경되지 않았습니다. 잠시 뒤 새로고침하세요"));
 });
 
-test("stored forwarder close is checked before the slower detailed summary", () => {
+test("stored forwarder close is preserved as audit evidence while current totals are rebuilt from the canonical order ledger", () => {
   const storedIndex = page.indexOf("const stored = forwarderCloses.find");
   const summaryIndex = page.indexOf("loadInternalChinaForwarderCostSummary", storedIndex);
   assert.ok(storedIndex >= 0);
   assert.ok(summaryIndex > storedIndex);
+  assert.ok(engine.includes("export function buildInternalChinaForwarderCostSummaryFromDraft"));
+  assert.ok(page.includes("effectiveForwarderByDraft"));
+  assert.ok(page.includes("selectedEffectiveForwarderCloses"));
+  assert.ok(page.includes("과거 저장 원가를 현재 확정 1688 주문원장 기준으로 재계산해 표시합니다."));
+  assert.ok(monthlyPriceSource.includes("buildInternalChinaForwarderCostSummaryFromDraft"));
+  assert.ok(monthlyPriceSource.includes("MONTHLY_PRICE_LEGACY_CLOSE_REBASED"));
+  assert.ok(monthlyPriceSource.includes("storedClose"));
+  assert.ok(monthlyPriceSource.includes("effectiveClose: close"));
   assert.ok(route.includes("loadStoredInternalChinaForwarderClose"));
   assert.ok(storedClose.includes("source_event_id=eq."));
   assert.ok(storedClose.includes("internal-china-forwarder-cost:${draftId}"));
