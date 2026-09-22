@@ -51,10 +51,10 @@
  }
 -export function monthlyLiveProduct(candidate: MonthlyPriceCandidate, rows: Record<string, unknown>[]) {
 +function optionPresentation(value: unknown, single: boolean) {
-+  const normalized = String(value ?? "").normalize("NFKC").replace(/s+/g, " ").trim();
++  const normalized = String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
 +  const source = normalized || (single ? "단품" : "");
 +  if (!source) throw new Error("MONTHLY_PRICE_OPTION_NAME_REQUIRED");
-+  const parts = source.split(/s*/s*/).filter(Boolean);
++  const parts = source.split(/\s*\/\s*/).filter(Boolean);
 +  if (parts.length !== 1) throw new Error("MONTHLY_PRICE_OPTION_MULTI_DIMENSION_REVIEW_REQUIRED");
 +  if (source === "단품") return { optionName: source, optionTitle: "단품", optionValue: "단품" };
 +  const index = source.search(/[:：]/);
@@ -117,7 +117,7 @@
 +  });
 +}
  export function buildMonthlyPricePlan(candidate: MonthlyPriceCandidate, liveRows: Record<string, unknown>[], observed: MonthlyObservation): MonthlyPricePlan {
-   if (candidate.reason || !/^d{5,9}$/.test(candidate.goodsKey) || !candidate.options.length) throw new Error(candidate.reason || "MONTHLY_PRICE_MAPPING_REQUIRED");
+   if (candidate.reason || !/^\d{5,9}$/.test(candidate.goodsKey) || !candidate.options.length) throw new Error(candidate.reason || "MONTHLY_PRICE_MAPPING_REQUIRED");
    const group = normalizeInternalPriceGroup(candidate.productGroup);
    if (!group) throw new Error("MONTHLY_PRICE_GROUP_REQUIRED");
 -  const base = monthlyLiveProduct(candidate, liveRows);
