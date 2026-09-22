@@ -17,7 +17,7 @@ export type MonthlyCost = {
   cycleMonth: string; closedAt: string; receiptIds: string[];
   provenance: "CONFIRMED_RECEIPT_AND_CLOSED_COST";
 };
-export type MonthlyPriceOption = { barcode: string; optionId: string; unitsPerOrder: number; currentCostKrw: number; protectedCostKrw: number };
+export type MonthlyPriceOption = { barcode: string; optionId: string; productName?: string; unitsPerOrder: number; currentCostKrw: number; protectedCostKrw: number };
 export type MonthlyPriceCandidate = {
   goodsKey: string; productName: string; productGroup: string;
   inventoryCostBasis: "LEGACY_MIXED_UNRESOLVED" | "UNKNOWN_COST";
