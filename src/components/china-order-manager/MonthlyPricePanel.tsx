@@ -18,7 +18,7 @@ function describe(code: string) {
   if (/BUSY/.test(code)) return "다른 창 또는 다른 월에서 같은 상품을 처리 중입니다. 중복 실행하지 않았습니다.";
   if (/PREVIEW_REQUIRED/.test(code)) return "아직 예상 변경안을 만들지 않은 상품이 있습니다. 먼저 모든 대상의 예상 가격을 확인하세요.";
   if (/READBACK|UNCERTAIN|MARKET_RESULT/.test(code)) return "실제 반영 결과를 확정하지 못했습니다. 완료 처리하거나 무조건 다시 전송하지 않습니다.";
-  if (/LOGIN|DOM|BROWSER|CURRENT_PRICE|MALL/.test(code)) return "샵플링 로그인 또는 현재 가격행을 확인하지 못했습니다. 가격 변경을 보호했습니다.";
+  if (/LOGIN|DOM|BROWSER|CURRENT_PRICE|MALL|SHOPLING_TAB/.test(code)) return "샵플링 로그인 세션 또는 현재 가격행을 확인하지 못했습니다. 가격 변경을 보호했습니다.";
   return "자동 처리를 멈췄습니다. 아래 확인 코드를 확인하세요.";
 }
 export function monthlyPriceBridge(command: string, payload: Record<string, unknown> = {}, timeoutMs = 40000): Promise<BridgeReply> {
@@ -206,13 +206,61 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   const preparedCount = count(["PREPARED"]);
   const activeExecutionCount = count(["WRITING", "VERIFY_PENDING", "VERIFIED", "RESENDING", "UNCERTAIN"]);
   const legacyResume = activeExecutionCount > 0 && queuedCount > 0;
-  const previewRows = snapshot.items.filter((item) => item.plan && ["PREPARED", "HELD", "BLOCKED"].includes(item.state));
-  const plannedWriteRows = snapshot.items.reduce((sum, item) => sum + (item.plan?.writes.length ?? 0), 0);
-  const plannedOptionChanges = snapshot.items.reduce((sum, item) => sum + (item.plan?.optionChangeCount ?? 0), 0);
-  const protectedDecreases = snapshot.items.reduce((sum, item) => sum + (item.plan?.protectedDecreaseCount ?? 0), 0);
-  const baseTarget = (item: Item) => item.plan?.targets.find((row) => row.mallKey === null) ?? null;
   const money = (value: number) => `${Math.round(value).toLocaleString("ko-KR")}원`;
-  const changeRate = (before: number, target: number) => before > 0 ? ((target / before - 1) * 100).toFixed(1) : "0.0";
+  const shortReason = (code: string | null) => {
+    if (!code) return "확인 필요";
+    if (/GROUP/.test(code)) return "가격그룹 미확인";
+    if (/MAPPING|SCOPE|OPTION/.test(code)) return "상품·옵션 연결 확인 필요";
+    if (/CONFIRMED_COST|FINAL_COST|RECEIPT|CAPTURED_COST/.test(code)) return "확정 원가 근거 부족";
+    if (/UNITS/.test(code)) return "묶음 수량 확인 필요";
+    return "자동변경 제외";
+  };
+  type BCodePreviewRow = {
+    key: string;
+    barcode: string;
+    before: number | null;
+    target: number | null;
+    basis: string;
+    tone: "change" | "hold" | "blocked";
+  };
+  const bCodeRows = snapshot.items.flatMap<BCodePreviewRow>((item) => {
+    const base = item.plan?.targets.find((row) => row.mallKey === null) ?? null;
+    if (base?.options?.length) {
+      const candidateByCode = new Map(item.candidate.options.map((option) => [option.barcode, option]));
+      return base.options.map((option) => {
+        const candidate = candidateByCode.get(option.barcode);
+        const changed = option.targetFinalSellPrice > option.beforeFinalSellPrice;
+        const protectedCost = candidate?.protectedCostKrw ?? 0;
+        const basis = changed
+          ? `보호원가 ${money(protectedCost)} · ${item.plan?.productGroup ?? item.candidate.productGroup} 기준`
+          : option.policyTargetSellPrice < option.beforeFinalSellPrice
+            ? `현재가 보호 · 기준가 ${money(option.policyTargetSellPrice)}`
+            : "변경 필요 없음";
+        return {
+          key: `${item.id}:${option.optionId}`,
+          barcode: option.barcode,
+          before: option.beforeFinalSellPrice,
+          target: option.targetFinalSellPrice,
+          basis,
+          tone: changed ? "change" : "hold",
+        };
+      });
+    }
+    if (item.state === "BLOCKED") {
+      return item.candidate.options.map((option) => ({
+        key: `${item.id}:${option.barcode}:blocked`,
+        barcode: option.barcode,
+        before: null as number | null,
+        target: null as number | null,
+        basis: shortReason(item.errorCode),
+        tone: "blocked" as const,
+      }));
+    }
+    return [];
+  });
+  const changedBCodeCount = bCodeRows.filter((row) => row.tone === "change").length;
+  const heldBCodeCount = bCodeRows.filter((row) => row.tone === "hold").length;
+  const blockedBCodeCount = bCodeRows.filter((row) => row.tone === "blocked").length;
   return <section id="monthly-price" className="rounded-xl border border-cyan-700 bg-slate-900 p-3" data-testid="monthly-price-panel">
     <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 text-xs font-black text-slate-950">6</span><h3 className="font-black text-white">입고 후 가격조정</h3></div>
     <p className="mt-2 text-xs leading-5 text-slate-300">{month} 입고상품만 처리합니다. 구재고·혼재 원가는 현재가를 보호하고, 검증된 원가 기준 인상만 실행합니다. 재고수량·과거 원가는 변경하지 않습니다. 옵션별 최종 판매가는 각 B코드의 보호원가로 재계산하며 현재 최종가격보다 낮추지 않습니다.</p>
@@ -236,31 +284,33 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     {busy && <button type="button" onClick={() => { running.current = false; setProgress("다음 작업 중지 요청 · 이미 전송한 작업은 결과 확인이 필요합니다."); }} className="mt-2 text-xs underline text-slate-300">이후 작업 중지</button>}
     <div role="status" aria-live="polite" className="mt-3 text-xs leading-5 text-cyan-100">{progress}</div>
     {snapshot.run && <p className="mt-2 text-xs leading-5 text-slate-300">대상 {snapshot.items.length} · 예상변경 준비 {preparedCount} · 대기 {queuedCount} · 샵플링 반영 확인 {count(["VERIFIED", "RESENDING", "TRANSMITTED"])} · 현재가 보호 {count(["HELD"])} · 확인 필요 {count(["BLOCKED", "UNCERTAIN", "WRITING"])} · 전송 종료 {count(["TRANSMITTED"])}</p>}
-    {previewRows.length > 0 && (
+    {bCodeRows.length > 0 && (
       <div className="mt-3 rounded-lg border border-cyan-800 bg-slate-950/70 p-2 text-xs text-slate-200" data-testid="monthly-price-preview">
-        <div className="flex flex-wrap gap-x-3 gap-y-1 font-bold text-cyan-100">
-          <span>예상 변경 상품 {preparedCount}개</span>
-          <span>가격행 {plannedWriteRows}개</span>
-          <span>옵션 변경 {plannedOptionChanges}개</span>
-          <span>인하 보호 {protectedDecreases}개</span>
+        <div className="flex flex-wrap items-center gap-2 font-bold">
+          <span className="text-cyan-100">B코드별 예상 가격</span>
+          <span className="rounded-full bg-emerald-950 px-2 py-0.5 text-emerald-300">변경 {changedBCodeCount}</span>
+          <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">유지 {heldBCodeCount}</span>
+          <span className="rounded-full bg-amber-950 px-2 py-0.5 text-amber-300">확인 {blockedBCodeCount}</span>
         </div>
-        <p className="mt-1 text-[11px] text-slate-400">아래 값은 아직 Shopling에 쓰지 않은 변경 예상안입니다. 현재가·원가 근거가 실행 직전 바뀌면 실제 반영은 차단됩니다.</p>
-        <div className="mt-2 max-h-64 space-y-2 overflow-auto">
-          {previewRows.filter((item) => item.plan).map((item) => {
-            const base = baseTarget(item);
-            const changedOptions = base?.options?.filter((option) => option.targetFinalSellPrice !== option.beforeFinalSellPrice) ?? [];
-            const changedMalls = item.plan?.writes.filter((row) => row.mallKey) ?? [];
-            return <div key={item.id} className="rounded border border-slate-700 bg-slate-900 p-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <b>{item.candidate.productName} · {item.goodsKey}</b>
-                <span className={item.state === "PREPARED" ? "text-emerald-300" : "text-slate-400"}>{STATE[item.state] || item.state}</span>
+        <p className="mt-1 text-[11px] text-slate-400">현재 최종판매가 → 예상 최종판매가 · 핵심 근거만 표시합니다. 이 단계에서는 실제 가격을 변경하지 않습니다.</p>
+        <div className="mt-2 max-h-72 overflow-auto rounded border border-slate-800">
+          {bCodeRows.map((row) => (
+            <div key={row.key} className="grid grid-cols-[82px_minmax(118px,0.9fr)_minmax(0,1.4fr)] items-center gap-2 border-b border-slate-800 px-2.5 py-2 last:border-b-0">
+              <b className={row.tone === "blocked" ? "font-mono text-amber-300" : "font-mono text-cyan-200"}>{row.barcode}</b>
+              <div className="whitespace-nowrap font-bold">
+                {row.before === null || row.target === null ? (
+                  <span className="text-amber-300">변경 제외</span>
+                ) : (
+                  <>
+                    <span className="text-slate-400">{money(row.before)}</span>
+                    <span className="mx-1.5 text-slate-500">→</span>
+                    <span className={row.target > row.before ? "text-emerald-300" : "text-slate-200"}>{money(row.target)}</span>
+                  </>
+                )}
               </div>
-              {base ? <p className="mt-1">기준 판매가 <b>{money(base.before.sellPrice)}</b> → <b className="text-emerald-300">{money(base.target.sellPrice)}</b> <span className="text-slate-400">({changeRate(base.before.sellPrice, base.target.sellPrice)}%)</span></p> : null}
-              {changedOptions.length > 0 ? <div className="mt-1 text-[11px] text-slate-300">{changedOptions.slice(0, 6).map((option) => <p key={option.optionId}>옵션 {option.optionValue}: {money(option.beforeFinalSellPrice)} → <span className="text-emerald-300">{money(option.targetFinalSellPrice)}</span></p>)}{changedOptions.length > 6 ? <p>외 {changedOptions.length - 6}개 옵션</p> : null}</div> : null}
-              {changedMalls.length > 0 ? <p className="mt-1 text-[11px] text-slate-400">연결 쇼핑몰 가격 {changedMalls.length}행도 같은 보호정책으로 조정</p> : null}
-              {item.errorCode ? <p className="mt-1 text-amber-200">{describe(item.errorCode)}</p> : null}
-            </div>;
-          })}
+              <span className={row.tone === "blocked" ? "truncate text-amber-200" : "truncate text-slate-400"} title={row.basis}>{row.basis}</span>
+            </div>
+          ))}
         </div>
       </div>
     )}
