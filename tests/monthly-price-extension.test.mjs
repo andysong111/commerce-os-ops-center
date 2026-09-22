@@ -28,7 +28,7 @@ test('extension rejects other-origin and subframe commands',async()=>{
   }assert.equal(w.log.length,0);
 });
 test('extension one product scope uses server-verified immutable run, persists token before pump, then sends PRICE and OPTION',async()=>{
-  const w=worker(),r=await w.send('MONTHLY_PRICE_START');assert.equal(r.ok,true);assert.equal(w.current.jobs.length,2);assert.deepEqual(w.current.jobs.map(x=>x.mode),['PRICE','OPTION']);assert.ok(w.current.jobs.every(x=>x.monthlyScope===true));
+  const w=worker(),r=await w.send('MONTHLY_PRICE_START');assert.equal(r.ok,true);assert.equal(w.current.jobs.length,2);assert.equal(w.current.jobs.map(x=>x.mode).join(','),'PRICE,OPTION');assert.ok(w.current.jobs.every(x=>x.monthlyScope===true));
   assert.ok(w.current.jobs.every(x=>x.goodsKeys.join(',')===goodsKey));assert.ok(w.log.find(x=>x.includes('runId='+runId)));assert.ok(w.log.indexOf('persist')<w.log.indexOf('pump'));assert.equal(w.log.includes('legacy'),false);
   w.context.addJobs(w.current,{goodsKeys:[goodsKey]});assert.ok(w.current.jobs.every(x=>['PRICE','OPTION'].includes(x.mode)&&x.monthlyScope));
 });
