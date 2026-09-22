@@ -2,6 +2,7 @@ import { loadChinaOrderLedger } from "@/lib/chinaOrderLedger";
 import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
 import {
   loadInternalChinaPurchaseDraft,
+  loadStoredInternalChinaPurchaseDraftForCost,
   type InternalChinaPurchaseDraft,
 } from "@/lib/internalChinaPurchaseDraft";
 import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
@@ -394,8 +395,10 @@ export async function loadInternalChinaForwarderCostSummary(
 ): Promise<InternalChinaForwarderCostSummary> {
   const draftId = validDraftId(draftIdInput);
   const cycleMonth = validCycleMonth(cycleMonthInput);
+  const storedDraft =
+    await loadStoredInternalChinaPurchaseDraftForCost(draftId);
   const draft = await loadInternalChinaDraftWithQuantityOverrides(
-    await loadInternalChinaPurchaseDraft(draftId),
+    storedDraft ?? await loadInternalChinaPurchaseDraft(draftId),
   );
   const stored = await readStoredCost(draftId);
   return buildInternalChinaForwarderCostSummaryFromDraft(
