@@ -118,11 +118,11 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
     else if (owners.some(({ listing }) => !Number.isSafeInteger(Number(listing.unitsPerOrder)) || Number(listing.unitsPerOrder) < 1)) reason = "MONTHLY_PRICE_UNITS_PER_ORDER_REQUIRED";
     return { goodsKey, productName: owners[0]?.product.productName || goodsKey, productGroup: groups.get(goodsKey) ?? "",
       inventoryCostBasis: reason === "MONTHLY_PRICE_CONFIRMED_COST_REQUIRED" ? "UNKNOWN_COST" : "LEGACY_MIXED_UNRESOLVED",
-      options: owners.map(({ product, listing }) => ({ barcode: product.barcode, optionId: String(listing.optionId ?? ""), unitsPerOrder: Number(listing.unitsPerOrder), currentCostKrw: costsByCode.get(product.barcode)?.unitCostKrw ?? 0, protectedCostKrw: protectedCosts.get(product.barcode) ?? 0 })), reason };
+      options: owners.map(({ product, listing }) => ({ barcode: product.barcode, optionId: String(listing.optionId ?? ""), productName: product.productName || product.barcode, unitsPerOrder: Number(listing.unitsPerOrder), currentCostKrw: costsByCode.get(product.barcode)?.unitCostKrw ?? 0, protectedCostKrw: protectedCosts.get(product.barcode) ?? 0 })), reason };
   });
   for (const code of scope) {
     if (candidates.some((row) => row.options.some((opt) => opt.barcode === code))) continue;
-    candidates.push({ goodsKey: `UNRESOLVED:${code}`, productName: code, productGroup: "", inventoryCostBasis: "UNKNOWN_COST", options: [{ barcode: code, optionId: "", unitsPerOrder: 0, currentCostKrw: costsByCode.get(code)?.unitCostKrw ?? 0, protectedCostKrw: protectedCosts.get(code) ?? 0 }], reason: "MONTHLY_PRICE_LISTING_MAPPING_REQUIRED" });
+    candidates.push({ goodsKey: `UNRESOLVED:${code}`, productName: code, productGroup: "", inventoryCostBasis: "UNKNOWN_COST", options: [{ barcode: code, optionId: "", productName: code, unitsPerOrder: 0, currentCostKrw: costsByCode.get(code)?.unitCostKrw ?? 0, protectedCostKrw: protectedCosts.get(code) ?? 0 }], reason: "MONTHLY_PRICE_LISTING_MAPPING_REQUIRED" });
   }
   candidates.sort((a, b) => a.goodsKey.localeCompare(b.goodsKey));
   const evidenceVersion = evidenceHash([receipts, closes, preps, overrides]);
