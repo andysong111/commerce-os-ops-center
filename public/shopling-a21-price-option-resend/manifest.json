@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Commerce OS · Shopling A21 Price/Option Resend",
   "short_name": "A21 Resend",
-  "version": "0.5.0",
-  "description": "월 입고확정 가격조정 연결 · 확정원가 인상 전용 · 채널별 인하 차단 · 가격 재조회 후 해당 GOODSKEY만 수정전송",
+  "version": "0.5.1",
+  "description": "월 입고확정 가격조정 연결 · 확정원가 인상 전용 · 기본가/옵션가 인하 차단 · 가격·옵션 재조회 후 해당 GOODSKEY만 수정전송",
   "permissions": [
     "storage",
     "tabs",
