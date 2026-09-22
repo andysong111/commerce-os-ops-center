@@ -164,6 +164,15 @@ function supabaseConnection() {
   return { baseUrl, secret };
 }
 
+function effectiveCommitmentQuantity(row: {
+  openQuantity: number;
+  committedQuantity: number;
+  cancelledQuantity: number;
+}) {
+  if (row.openQuantity > 0) return row.openQuantity;
+  return Math.max(0, row.committedQuantity - row.cancelledQuantity);
+}
+
 async function currentCommitments(draftId: string) {
   const ledger = await loadChinaOrderLedger();
   if (ledger.error) {
@@ -181,7 +190,9 @@ async function currentCommitments(draftId: string) {
     const progressed = ledger.commitments
       .filter(
         (row) =>
-          row.sourceSystem === SOURCE_SYSTEM && row.sourceRunId === draftId,
+          row.sourceSystem === SOURCE_SYSTEM &&
+          row.sourceRunId === draftId &&
+          effectiveCommitmentQuantity(row) > 0,
       )
       .sort((left, right) => left.barcode.localeCompare(right.barcode));
     if (progressed.length) return progressed;
@@ -355,7 +366,7 @@ async function buildBaseDraft(
           text(trackerUsable?.supplierLink) || text(sourcePayload.supplierLink),
         quantity: Math.min(
           MANUAL_QUANTITY_MAX,
-          commitment.openQuantity || commitment.committedQuantity,
+          effectiveCommitmentQuantity(commitment),
         ),
         unitPriceCny: Math.min(1_000_000, decimal(sourcePayload.unitPriceCny)),
         freightGroupId: "",

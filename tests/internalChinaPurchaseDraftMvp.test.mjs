@@ -30,6 +30,13 @@ test("internal China draft starts from the existing fast-purchase RESERVED ledge
   assert.match(engine, /FAST_PURCHASE_RESERVED/);
 });
 
+test("closed draft excludes fully cancelled quantities from cost and quantity reconstruction", () => {
+  assert.match(engine, /function effectiveCommitmentQuantity/);
+  assert.match(engine, /row\.committedQuantity - row\.cancelledQuantity/);
+  assert.match(engine, /effectiveCommitmentQuantity\(row\) > 0/);
+  assert.match(engine, /effectiveCommitmentQuantity\(commitment\)/);
+});
+
 test("B-code metadata is reused from tracker, Product Master, and live Shopling fallback", () => {
   assert.match(engine, /loadProductPlanningSnapshot/);
   assert.match(engine, /loadProductLaunchPurchaseMetadataByBarcode/);
