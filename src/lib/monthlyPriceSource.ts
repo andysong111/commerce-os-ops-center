@@ -2,6 +2,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { InternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import { applyInternalChinaActualPurchaseCosts, applyInternalChinaQuantityOverrides, type InternalChinaQuantityOverride } from "@/lib/internalChinaDraftQuantityOverride";
 import { buildInternalChinaMonthlyPurchaseSummaryFromRows } from "@/lib/internalChinaMonthlyPurchaseSummary";
+import { buildInternalChinaForwarderCostSummaryFromDraft } from "@/lib/internalChinaForwarderCost";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { loadShoplingProductGroupsByGoodsKey } from "@/lib/shopling/shoplingProductGroupRegistry";
 import { monthlyCostsFromEvidence, monthlyHash, monthlyRecord, monthlyMonth, monthlyProtectedCosts, MONTHLY_PRICE_POLICY, type MonthlyCost, type MonthlyPriceCandidate } from "@/lib/monthlyPriceCore";
@@ -55,7 +56,7 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
     if (monthOfDraft > month) continue;
     const closeRows = closes.filter((row) => monthlyRecord(row.result_snapshot).draftId === draftId);
     if (closeRows.length !== 1) { warnings.push(`${draftId}:MONTHLY_PRICE_FINAL_COST_REQUIRED`); if (monthOfDraft === month) rows.forEach((row) => invalidCurrent.add(String(monthlyRecord(row.result_snapshot).barcode))); continue; }
-    const close = monthlyRecord(closeRows[0].result_snapshot);
+    const storedClose = monthlyRecord(closeRows[0].result_snapshot);
     try {
       const saved = preps.filter((row) => monthlyRecord(monthlyRecord(row.result_snapshot).snapshot).draftId === draftId);
       if (saved.length !== 1) throw new Error("MONTHLY_PRICE_SAVED_DRAFT_REQUIRED");
@@ -66,8 +67,27 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
         if (o.draftId === draftId && !overrideMap.has(String(o.barcode))) overrideMap.set(String(o.barcode), { barcode: String(o.barcode), targetQuantity: Number(o.targetQuantity), savedAt: String(o.savedAt ?? raw.started_at) });
       }
       const draft = applyInternalChinaActualPurchaseCosts(applyInternalChinaQuantityOverrides({ ...snapshot, savedAt: String(saved[0].updated_at || snapshot.savedAt) } as InternalChinaPurchaseDraft, overrideMap), buildInternalChinaMonthlyPurchaseSummaryFromRows(preps, monthOfDraft));
+      const storedActualCostKrw = Number(storedClose.actualCostKrw);
+      const storedClosedAt = String(storedClose.closedAt ?? "");
+      if (!Number.isSafeInteger(storedActualCostKrw) || storedActualCostKrw <= 0 || !Number.isFinite(Date.parse(storedClosedAt))) {
+        throw new Error("MONTHLY_PRICE_FINAL_COST_REQUIRED");
+      }
+      const close = buildInternalChinaForwarderCostSummaryFromDraft(
+        draft,
+        monthOfDraft,
+        storedActualCostKrw,
+        storedClosedAt,
+      );
+      if (
+        Number(storedClose.productPurchaseCostKrw) !== close.productPurchaseCostKrw ||
+        Number(storedClose.domesticChinaFreightKrw) !== close.domesticChinaFreightKrw ||
+        Number(storedClose.actualTotalOutflowKrw) !== close.actualTotalOutflowKrw ||
+        Number(storedClose.actualMultiplier) !== close.actualMultiplier
+      ) {
+        warnings.push(`${draftId}:MONTHLY_PRICE_LEGACY_CLOSE_REBASED`);
+      }
       const costs = monthlyCostsFromEvidence({ draft, close, receiptRows: rows });
-      sourceProofs.push({ draftId, close, draft, receiptRows: rows.map((row) => ({ input: row.input_snapshot, result: row.result_snapshot })) });
+      sourceProofs.push({ draftId, storedClose, effectiveClose: close, draft, receiptRows: rows.map((row) => ({ input: row.input_snapshot, result: row.result_snapshot })) });
       history.push(...costs);
       if (monthOfDraft === month) currentCosts.push(...costs);
     } catch (error) {
