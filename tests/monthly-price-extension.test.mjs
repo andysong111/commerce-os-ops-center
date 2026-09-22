@@ -27,10 +27,10 @@ test('extension rejects other-origin and subframe commands',async()=>{
     assert.equal((await w.send('MONTHLY_PRICE_START',w.payload,sender)).error,'MONTHLY_PRICE_SENDER_REJECTED');
   }assert.equal(w.log.length,0);
 });
-test('extension one product scope uses server-verified immutable run, persists token before pump, PRICE only',async()=>{
-  const w=worker(),r=await w.send('MONTHLY_PRICE_START');assert.equal(r.ok,true);assert.equal(w.current.jobs.length,1);assert.equal(w.current.jobs[0].mode,'PRICE');assert.equal(w.current.jobs[0].monthlyScope,true);
-  assert.equal(w.current.jobs[0].goodsKeys.join(','),goodsKey);assert.ok(w.log.find(x=>x.includes('runId='+runId)));assert.ok(w.log.indexOf('persist')<w.log.indexOf('pump'));assert.equal(w.log.includes('legacy'),false);
-  w.context.addJobs(w.current,{goodsKeys:[goodsKey]});assert.ok(w.current.jobs.every(x=>x.mode==='PRICE'&&x.monthlyScope));
+test('extension one product scope uses server-verified immutable run, persists token before pump, then sends PRICE and OPTION',async()=>{
+  const w=worker(),r=await w.send('MONTHLY_PRICE_START');assert.equal(r.ok,true);assert.equal(w.current.jobs.length,2);assert.deepEqual(w.current.jobs.map(x=>x.mode),['PRICE','OPTION']);assert.ok(w.current.jobs.every(x=>x.monthlyScope===true));
+  assert.ok(w.current.jobs.every(x=>x.goodsKeys.join(',')===goodsKey));assert.ok(w.log.find(x=>x.includes('runId='+runId)));assert.ok(w.log.indexOf('persist')<w.log.indexOf('pump'));assert.equal(w.log.includes('legacy'),false);
+  w.context.addJobs(w.current,{goodsKeys:[goodsKey]});assert.ok(w.current.jobs.every(x=>['PRICE','OPTION'].includes(x.mode)&&x.monthlyScope));
 });
 test('duplicate and refresh preserve token and never pump twice',async()=>{
   const w=worker();await w.send('MONTHLY_PRICE_START');await w.send('MONTHLY_PRICE_START',{...w.payload,newClaim:false});assert.equal(w.log.filter(x=>x==='pump').length,1);
@@ -53,4 +53,8 @@ test('monthly result watcher refuses unrelated Shopling tabs and has refresh wak
 });
 test('DOM parser does not guess price columns by arbitrary position',()=>{
   const source=file('monthly-price-dom.js');assert.match(source,/input_name/);assert.match(source,/header/);assert.doesNotMatch(source,/source: ["']position/);
+});
+
+test('monthly report requires both PRICE and OPTION modes',async()=>{
+  const w=worker();await w.send('MONTHLY_PRICE_START');const r=await w.send('MONTHLY_PRICE_STATUS',{token,fingerprint,goodsKey});assert.equal(r.report.priceAndOption,true);assert.equal('priceOnly' in r.report,false);
 });
