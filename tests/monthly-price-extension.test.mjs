@@ -8,7 +8,7 @@ const token='44444444-4444-4444-8444-444444444444',fingerprint='a'.repeat(64);
 function worker() {
   const storage={},log=[],listeners=[];
   let current=null;
-  const item={id:itemId,goodsKey,state:'RESENDING',plan:{fingerprint,targets:[{mallKey:'SMALL_00069'}]},transmission:{token}};
+  const item={id:itemId,goodsKey,state:'RESENDING',plan:{fingerprint,targets:[{mallKey:'SMALL_00069'}],optionChangeCount:1},transmission:{token}};
   const context={console,URL,Error,setTimeout,clearTimeout,importScripts:()=>{},
     chrome:{storage:{local:{get:async key=>({[key]:storage[key]}),set:async value=>Object.assign(storage,value)},onChanged:{addListener:()=>{}}},runtime:{onMessage:{addListener:f=>listeners.push(f)}},tabs:{query:async()=>[{id:12,url:'https://a.shopling.co.kr/main.phtml'}]},scripting:{}},
     loadState:async()=>current,saveState:async s=>{log.push('persist');current=s;},publicState:s=>s,
@@ -20,17 +20,22 @@ function worker() {
   const payload={month:'2026-09',runId,itemId,token,fingerprint,newClaim:true};
   const sender={frameId:0,url:'https://commerce-os-ops-center.vercel.app/china-order-manager?month=2026-09'};
   const send=(type,p=payload,s=sender)=>new Promise(resolve=>listeners[0]({type,payload:p},s,resolve));
-  return {send,payload,sender,log,item,storage,context,get current(){return current;}};
+  return {send,payload,sender,log,item,storage,context,get current(){return current;},set current(v){current=v;}};
 }
 test('extension rejects other-origin and subframe commands',async()=>{
   const w=worker();for(const sender of [{frameId:0,url:'https://evil.invalid/china-order-manager'}, {...w.sender,frameId:9}]) {
     assert.equal((await w.send('MONTHLY_PRICE_START',w.payload,sender)).error,'MONTHLY_PRICE_SENDER_REJECTED');
   }assert.equal(w.log.length,0);
 });
-test('extension one product scope uses server-verified immutable run, persists token before pump, PRICE only',async()=>{
-  const w=worker(),r=await w.send('MONTHLY_PRICE_START');assert.equal(r.ok,true);assert.equal(w.current.jobs.length,1);assert.equal(w.current.jobs[0].mode,'PRICE');assert.equal(w.current.jobs[0].monthlyScope,true);
+test('extension one product scope uses server-verified immutable run, persists token before pump, and schedules PRICE then OPTION',async()=>{
+  const w=worker(),r=await w.send('MONTHLY_PRICE_START');assert.equal(r.ok,true);assert.equal(w.current.jobs.length,2);
+  assert.deepEqual(Array.from(w.current.jobs,x=>x.mode),['PRICE','OPTION']);assert.ok(w.current.jobs.every(x=>x.monthlyScope));
   assert.equal(w.current.jobs[0].goodsKeys.join(','),goodsKey);assert.ok(w.log.find(x=>x.includes('runId='+runId)));assert.ok(w.log.indexOf('persist')<w.log.indexOf('pump'));assert.equal(w.log.includes('legacy'),false);
-  w.context.addJobs(w.current,{goodsKeys:[goodsKey]});assert.ok(w.current.jobs.every(x=>x.mode==='PRICE'&&x.monthlyScope));
+  const before=w.current.jobs.length;w.context.addJobs(w.current,{goodsKeys:[goodsKey]});assert.equal(w.current.jobs.length,before+2);assert.ok(w.current.jobs.slice(before).every(x=>x.monthlyScope));
+});
+test('status reports success capability only when both PRICE and OPTION jobs exist',async()=>{
+  const w=worker();await w.send('MONTHLY_PRICE_START');w.current.state='SUCCEEDED';
+  const status=await w.send('MONTHLY_PRICE_STATUS',{token,fingerprint,goodsKey});assert.equal(status.ok,true);assert.equal(status.report.priceOnly,false);assert.equal(status.report.priceAndOption,true);
 });
 test('duplicate and refresh preserve token and never pump twice',async()=>{
   const w=worker();await w.send('MONTHLY_PRICE_START');await w.send('MONTHLY_PRICE_START',{...w.payload,newClaim:false});assert.equal(w.log.filter(x=>x==='pump').length,1);
