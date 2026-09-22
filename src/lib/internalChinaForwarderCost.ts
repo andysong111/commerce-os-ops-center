@@ -181,7 +181,7 @@ function productUnitCostByBarcode(
   return result;
 }
 
-function summaryFrom(
+export function buildInternalChinaForwarderCostSummaryFromDraft(
   draft: InternalChinaPurchaseDraft,
   cycleMonth: string,
   actualCostKrw: number | null,
@@ -398,7 +398,7 @@ export async function loadInternalChinaForwarderCostSummary(
     await loadInternalChinaPurchaseDraft(draftId),
   );
   const stored = await readStoredCost(draftId);
-  return summaryFrom(
+  return buildInternalChinaForwarderCostSummaryFromDraft(
     draft,
     cycleMonth,
     stored?.actualCostKrw ?? null,
@@ -462,7 +462,7 @@ export async function recordInternalChinaForwarderCost(
   }
 
   const now = new Date().toISOString();
-  const summary = summaryFrom(
+  const summary = buildInternalChinaForwarderCostSummaryFromDraft(
     draft,
     actualCycleMonth,
     actualCostKrw,
