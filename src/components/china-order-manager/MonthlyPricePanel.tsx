@@ -218,6 +218,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   type BCodePreviewRow = {
     key: string;
     barcode: string;
+    productName: string;
     before: number | null;
     target: number | null;
     basis: string;
@@ -239,6 +240,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         return {
           key: `${item.id}:${option.optionId}`,
           barcode: option.barcode,
+          productName: item.candidate.productName,
           before: option.beforeFinalSellPrice,
           target: option.targetFinalSellPrice,
           basis,
@@ -250,6 +252,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       return item.candidate.options.map((option) => ({
         key: `${item.id}:${option.barcode}:blocked`,
         barcode: option.barcode,
+        productName: item.candidate.productName,
         before: null as number | null,
         target: null as number | null,
         basis: shortReason(item.errorCode),
@@ -295,8 +298,11 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         <p className="mt-1 text-[11px] text-slate-400">현재 최종판매가 → 예상 최종판매가 · 핵심 근거만 표시합니다. 이 단계에서는 실제 가격을 변경하지 않습니다.</p>
         <div className="mt-2 max-h-72 overflow-auto rounded border border-slate-800">
           {bCodeRows.map((row) => (
-            <div key={row.key} className="grid grid-cols-[82px_minmax(118px,0.9fr)_minmax(0,1.4fr)] items-center gap-2 border-b border-slate-800 px-2.5 py-2 last:border-b-0">
-              <b className={row.tone === "blocked" ? "font-mono text-amber-300" : "font-mono text-cyan-200"}>{row.barcode}</b>
+            <div key={row.key} className="grid grid-cols-[minmax(128px,1.15fr)_minmax(118px,0.9fr)_minmax(0,1.35fr)] items-center gap-2 border-b border-slate-800 px-2.5 py-2 last:border-b-0">
+              <div className="min-w-0">
+                <b className={row.tone === "blocked" ? "block font-mono text-amber-300" : "block font-mono text-cyan-200"}>{row.barcode}</b>
+                <span className="mt-0.5 block truncate text-[11px] text-slate-400" title={row.productName}>{row.productName}</span>
+              </div>
               <div className="whitespace-nowrap font-bold">
                 {row.before === null || row.target === null ? (
                   <span className="text-amber-300">변경 제외</span>
