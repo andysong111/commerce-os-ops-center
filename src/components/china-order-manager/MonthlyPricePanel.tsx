@@ -215,14 +215,21 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     if (/UNITS/.test(code)) return "묶음 수량 확인 필요";
     return "자동변경 제외";
   };
-  const bCodeRows = snapshot.items.flatMap((item) => {
+  type BCodePreviewRow = {
+    key: string;
+    barcode: string;
+    before: number | null;
+    target: number | null;
+    basis: string;
+    tone: "change" | "hold" | "blocked";
+  };
+  const bCodeRows = snapshot.items.flatMap<BCodePreviewRow>((item) => {
     const base = item.plan?.targets.find((row) => row.mallKey === null) ?? null;
     if (base?.options?.length) {
       const candidateByCode = new Map(item.candidate.options.map((option) => [option.barcode, option]));
       return base.options.map((option) => {
         const candidate = candidateByCode.get(option.barcode);
         const changed = option.targetFinalSellPrice > option.beforeFinalSellPrice;
-        const held = option.targetFinalSellPrice === option.beforeFinalSellPrice;
         const protectedCost = candidate?.protectedCostKrw ?? 0;
         const basis = changed
           ? `보호원가 ${money(protectedCost)} · ${item.plan?.productGroup ?? item.candidate.productGroup} 기준`
@@ -235,7 +242,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
           before: option.beforeFinalSellPrice,
           target: option.targetFinalSellPrice,
           basis,
-          tone: changed ? "change" : held ? "hold" : "hold",
+          tone: changed ? "change" : "hold",
         };
       });
     }
