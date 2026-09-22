@@ -258,17 +258,26 @@ export default async function ChinaOrderManagerPage({
         const stored = forwarderCloses.find(
           (row) => row.draftId === draft.draftId,
         );
-        if (stored) return { draftId: draft.draftId, summary: stored, warning: "" };
         try {
           const summary = await timebox(
             loadInternalChinaForwarderCostSummary(draft.draftId, selectedMonth),
             FORWARDER_TIMEOUT_MS,
           );
+          const legacyRebased =
+            Boolean(stored && summary?.actualCostKrw) &&
+            (
+              stored?.productPurchaseCostKrw !== summary?.productPurchaseCostKrw ||
+              stored?.domesticChinaFreightKrw !== summary?.domesticChinaFreightKrw ||
+              stored?.actualTotalOutflowKrw !== summary?.actualTotalOutflowKrw ||
+              stored?.actualMultiplier !== summary?.actualMultiplier
+            );
           return {
             draftId: draft.draftId,
             summary,
             warning: summary
-              ? ""
+              ? legacyRebased
+                ? "과거 저장 원가를 현재 확정 1688 주문원장 기준으로 재계산해 표시합니다."
+                : ""
               : "실시간 원가요약 조회가 4.5초를 넘었습니다.",
           };
         } catch (error) {
@@ -290,14 +299,32 @@ export default async function ChinaOrderManagerPage({
   const selectedFundingCloses = fundingCloses.filter(
     (row) => row.cycleMonth === selectedMonth,
   );
+  const effectiveForwarderByDraft = new Map(
+    costRows
+      .filter((row) => row.summary?.actualCostKrw)
+      .map((row) => [row.draftId, row.summary!] as const),
+  );
+  const selectedDraftIds = new Set(selectedDrafts.map((draft) => draft.draftId));
+  const selectedEffectiveForwarderCloses = selectedForwarderCloses.flatMap((stored) => {
+    const effective = effectiveForwarderByDraft.get(stored.draftId);
+    if (effective) return [effective];
+    // Old archived months may no longer have a reconstructable draft in memory.
+    // For a currently loaded draft, never fall back to a possibly stale stored
+    // subtotal; show the reconciliation warning instead of a wrong total.
+    return selectedDraftIds.has(stored.draftId) ? [] : [stored];
+  });
   const forwarderCostKrw = total(
     selectedForwarderCloses,
     (row) => row.actualCostKrw ?? 0,
   );
-  const actualOutflowKrw = total(
-    selectedForwarderCloses,
-    (row) => row.actualTotalOutflowKrw ?? 0,
-  );
+  const actualOutflowKrw =
+    selectedForwarderCloses.length > 0 &&
+    selectedEffectiveForwarderCloses.length === selectedForwarderCloses.length
+      ? total(
+          selectedEffectiveForwarderCloses,
+          (row) => row.actualTotalOutflowKrw ?? 0,
+        )
+      : 0;
   const actual1688Krw = purchase?.actualOrderPaidKrwAtInternalFx ?? 0;
   const remainingBeforeFinalCost = Math.max(
     0,
