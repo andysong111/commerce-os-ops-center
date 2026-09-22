@@ -48,10 +48,9 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         const observed = monthlyValidateObservation(payload.observation, item.goods_key);
         const live = await readMonthlyLiveProduct(item.goods_key);
         monthlyValidateObservation(payload.observation, item.goods_key);
-        const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : monthlyLiveProduct(item.candidate, live);
-        // Always check option identity even when this step writes a mall row.
-        monthlyLiveProduct(item.candidate, live);
-        if (assertMonthlyWritePreimage(write, current) === "ALREADY_APPLIED") {
+        const liveProduct = monthlyLiveProduct(item.candidate, live);
+        const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : liveProduct.prices;
+        if (assertMonthlyWritePreimage(write, current, write.mallKey ? [] : liveProduct.options) === "ALREADY_APPLIED") {
           await auditMonthlyPrice(item, "WRITE_ALREADY_MATCHES", { writeIndex: item.write_index, current });
         } else {
           item.state = "WRITING";
@@ -100,7 +99,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       const report = monthlyRecord(payload.report);
       if (item.state === "TRANSMITTED") return response(item);
       if (item.state !== "RESENDING" || !item.transmission || report.token !== item.transmission.token || report.fingerprint !== item.transmission.fingerprint || report.goodsKey !== item.goods_key) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
-      if (report.state === "SUCCEEDED" && report.priceOnly === true) {
+      if (report.state === "SUCCEEDED" && report.priceAndOption === true) {
         item.state = "TRANSMITTED";
         item.transmission = { ...item.transmission, finishedAt: new Date().toISOString(), result: "RESULT_WINDOW_FINISHED_MARKET_CONFIRMATION_PENDING" };
         item.error_code = null;

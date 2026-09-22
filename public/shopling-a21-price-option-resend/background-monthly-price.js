@@ -13,7 +13,9 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   }
   function report(state) {
     return { token: state.monthlyToken, fingerprint: state.fingerprint, goodsKey: state.monthlyGoodsKey, state: state.state,
-      priceOnly: state.jobs.length > 0 && state.jobs.every((job) => job.mode === "PRICE"), updatedAt: state.updatedAt };
+      priceOnly: state.jobs.length > 0 && state.jobs.every((job) => job.mode === "PRICE"),
+      priceAndOption: state.jobs.some((job) => job.mode === "PRICE") && state.jobs.some((job) => job.mode === "OPTION") && state.jobs.every((job) => ["PRICE", "OPTION"].includes(job.mode)),
+      updatedAt: state.updatedAt };
   }
   async function remember(state) {
     if (!state?.monthlyToken) return;
@@ -25,8 +27,11 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   }
   const legacyAddJobs = addJobs;
   addJobs = function monthlyScopedJobs(state, batch) {
+    const before = state.jobs.length;
     legacyAddJobs(state, batch);
-    if (state.monthlyToken) state.jobs = state.jobs.filter((job) => job.mode === "PRICE").map((job) => ({ ...job, monthlyScope: true }));
+    if (state.monthlyToken) {
+      state.jobs = state.jobs.map((job, index) => index < before ? job : ({ ...job, monthlyScope: true }));
+    }
   };
   const legacyStartRun = startRun;
   startRun = async function protectedManualStart(...args) {
@@ -82,7 +87,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       if (!source) throw new Error("MONTHLY_PRICE_SHOPLING_TAB_REQUIRED");
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.0", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.1", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
         mallCheckCount: item.plan.targets.filter((row) => row.mallKey).length, sourceUrl: source.url,
         baselinePopupTabIds: await baselinePopupTabs(), batches, jobs: [], stopped: false, startedAt: Date.now(), updatedAt: Date.now() };
@@ -97,7 +102,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     await globalThis.commerceOsWakeA21MonthlyResult?.();
     const current = await loadState();
     if (current?.monthlyToken === payload.token) { await remember(current); return report(current); }
-    return (await chrome.storage.local.get(HISTORY))[HISTORY]?.[payload.token] || { token: payload.token, fingerprint: payload.fingerprint, goodsKey: payload.goodsKey, state: "MISSING", priceOnly: true };
+    return (await chrome.storage.local.get(HISTORY))[HISTORY]?.[payload.token] || { token: payload.token, fingerprint: payload.fingerprint, goodsKey: payload.goodsKey, state: "MISSING", priceOnly: false, priceAndOption: false };
   }
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!String(message?.type || "").startsWith("MONTHLY_PRICE_")) return false;
@@ -105,7 +110,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.0" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.1" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || "")) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });

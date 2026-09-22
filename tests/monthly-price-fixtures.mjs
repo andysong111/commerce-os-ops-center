@@ -12,5 +12,5 @@ export function fixture() {
   return { draft, close, receiptRows };
 }
 export function candidate(cost = 1500) { return { goodsKey, productName: 'fixture', productGroup: '도매4', inventoryCostBasis: 'LEGACY_MIXED_UNRESOLVED', options: [{ barcode: 'ABC1-1', optionId: '11', unitsPerOrder: 1, currentCostKrw: cost, protectedCostKrw: cost }], reason: null }; }
-export function live(price = 1000) { return [{ goods_key: goodsKey, optId: '11', optAmt: '0', sale_price: String(price), org_price: '321', list_price: '6543', sale_status: 'B' }]; }
+export function live(price = 1000, amount = 0) { return [{ goods_key: goodsKey, optId: '11', optAmt: String(amount), optPtnOptCd: 'ABC1-1', optBarcode: '123456789012', optionName: '단품', sale_price: String(price), org_price: '321', list_price: '6543', sale_status: 'B' }]; }
 export function observation(price = 1000) { return { goodsKey, pageUrl: `https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=${goodsKey}`, observedAt: Date.now(), rows: [{ mallKey: 'SMALL_00069', source: 'header', sellPrice: price, purchasePrice: 222, consumerPrice: 7777 }] }; }

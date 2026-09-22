@@ -9,9 +9,9 @@ const root=process.cwd(), out=path.join(root,'output/monthly-price');mkdirSync(o
 const bundle=await build({stdin:{contents:`import React from 'react';import{createRoot}from'react-dom/client';import{MonthlyPricePanel}from'./src/components/china-order-manager/MonthlyPricePanel';createRoot(document.getElementById('root')).render(<MonthlyPricePanel month="2026-09" ready={new URLSearchParams(location.search).get('ready')!=='0'}/>);`,resolveDir:root,loader:'tsx'},bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',alias:{'@':path.join(root,'src')}});
 const runId='11111111-1111-4111-8111-111111111111',itemId='22222222-2222-4222-8222-222222222222',token='44444444-4444-4444-8444-444444444444',fingerprint='a'.repeat(64);
 let scenario='happy',events=[];
-function makeItem(){return{id:itemId,goodsKey:'1234567',state:scenario==='blocked'?'BLOCKED':scenario==='resume'?'RESENDING':'QUEUED',candidate:{productName:'테스트 상품',reason:scenario==='blocked'?'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED':null},plan:{fingerprint,targets:[{mallKey:'SMALL_00069'}],writes:[{},{}],protectedDecreaseCount:1},writeIndex:0,errorCode:scenario==='blocked'?'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED':null,transmission:scenario==='resume'?{token,fingerprint}:null};}
+function makeItem(){return{id:itemId,goodsKey:'1234567',state:scenario==='blocked'?'BLOCKED':scenario==='resume'?'RESENDING':'QUEUED',candidate:{productName:'테스트 상품',reason:scenario==='blocked'?'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED':null},plan:{fingerprint,targets:[{mallKey:'SMALL_00069'}],writes:[{},{}],protectedDecreaseCount:1,optionChangeCount:1},writeIndex:0,errorCode:scenario==='blocked'?'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED':null,transmission:scenario==='resume'?{token,fingerprint}:null};}
 let item=makeItem();
-const snapshot=()=>({ok:true,run:{id:runId,month:'2026-09',policy:'MONTHLY_CONFIRMED_COST_INCREASE_ONLY_V1',warnings:[]},items:[item]});
+const snapshot=()=>({ok:true,run:{id:runId,month:'2026-09',policy:'MONTHLY_CONFIRMED_COST_OPTION_AWARE_INCREASE_ONLY_V2',warnings:[]},items:[item]});
 const server=createServer(async(req,res)=>{
   if(req.url==='/bundle.js'){res.setHeader('content-type','text/javascript');return res.end(bundle.outputFiles[0].text);}
   if(req.url.startsWith('/api/china-order-manager/monthly-price')){
@@ -36,7 +36,7 @@ await page.addInitScript(()=>{
   window.addEventListener('message',e=>{
     const m=e.data;if(m?.channel!=='commerce-os-monthly-price-v1'||m.direction!=='request')return;
     window.bridgeEvents.push({command:m.command,payload:m.payload});
-    const response={ok:true,version:'0.5.0',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:true}};
+    const response={ok:true,version:'0.5.1',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true}};
     window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response},location.origin);
   });
 });

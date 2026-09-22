@@ -37,23 +37,49 @@ test('base increase preserves independently higher channel price and display ori
   assert.equal(plan.writes.length,1); assert.equal(plan.writes[0].mallKey,null);
   assert.equal(plan.targets.find(x=>x.mallKey)?.target.sellPrice,99000);
   assert.equal(plan.writes[0].target.purchasePrice,321); assert.equal(plan.writes[0].target.consumerPrice,6543);
-  assert.equal(plan.protectedDecreaseCount,1);
+  assert.equal(plan.optionChangeCount,0); assert.equal(plan.protectedDecreaseCount,1);
 });
 test('unknown or low cost cannot produce automatic markdown', () => {
   assert.equal(buildMonthlyPricePlan(candidate(500),live(99999),observation(99999)).writes.length,0);
   assert.throws(()=>buildMonthlyPricePlan({...candidate(),reason:'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED'},live(),observation()),/CONFIRMED_COST_REQUIRED/);
   assert.throws(()=>buildMonthlyPricePlan(candidate(0),live(),observation()),/VALUE_INVALID/);
 });
-test('unknown unit count, group, nonzero surcharge and shared option scope require review', () => {
+test('known nonzero option surcharge is repriced by B-code cost without lowering any option final price', () => {
+  const c=candidate();
+  c.options.push({barcode:'ABC1-2',optionId:'12',unitsPerOrder:1,currentCostKrw:2500,protectedCostKrw:2500});
+  const rows=[
+    {...live(1000,0)[0],optionName:'색상:화이트'},
+    {...live(1000,1000)[0],optId:'12',optPtnOptCd:'ABC1-2',optBarcode:'123456789013',optionName:'색상:블랙'},
+  ];
+  const plan=buildMonthlyPricePlan(c,rows,observation(1000));
+  const base=plan.targets[0];
+  assert.equal(base.target.sellPrice,3900);
+  assert.deepEqual(base.options.map(x=>[x.optionId,x.beforeAmount,x.targetAmount,x.beforeFinalSellPrice,x.targetFinalSellPrice]),[
+    ['11',0,0,1000,3900],['12',1000,2600,2000,6500],
+  ]);
+  assert.equal(plan.optionChangeCount,1);
+  assert.ok(base.options.every(x=>x.targetFinalSellPrice>=x.beforeFinalSellPrice));
+});
+test('base increase may reduce an option surcharge only when the final option price does not decrease', () => {
+  const c=candidate(2700);
+  c.options.push({barcode:'ABC1-2',optionId:'12',unitsPerOrder:1,currentCostKrw:3100,protectedCostKrw:3100});
+  const rows=[
+    {...live(5000,0)[0],optionName:'색상:화이트'},
+    {...live(5000,3000)[0],optId:'12',optPtnOptCd:'ABC1-2',optBarcode:'123456789013',optionName:'색상:블랙'},
+  ];
+  const plan=buildMonthlyPricePlan(c,rows,observation(99999));
+  const option=plan.targets[0].options.find(x=>x.optionId==='12');
+  assert.ok(plan.targets[0].target.sellPrice>5000);
+  assert.ok(option.targetAmount<3000);
+  assert.ok(option.targetFinalSellPrice>=8000);
+});
+test('option identity, unit count, group and multidimensional option ambiguity fail closed', () => {
   const c=candidate(); c.options[0].unitsPerOrder=0;
   assert.throws(()=>buildMonthlyPricePlan(c,live(),observation()),/VALUE_INVALID/);
   assert.throws(()=>buildMonthlyPricePlan({...candidate(),productGroup:'unknown'},live(),observation()),/GROUP_REQUIRED/);
-  assert.throws(()=>buildMonthlyPricePlan(candidate(),[{...live()[0],optAmt:'-100'}],observation()),/SURCHARGE_REVIEW/);
+  assert.throws(()=>buildMonthlyPricePlan(candidate(),[{...live()[0],optPtnOptCd:'WRONG'}],observation()),/OPTION_BARCODE_CONFLICT/);
+  assert.throws(()=>buildMonthlyPricePlan(candidate(),[{...live()[0],optionName:'색상:화이트 / 사이즈:M'}],observation()),/MULTI_DIMENSION/);
   assert.throws(()=>buildMonthlyPricePlan(candidate(),[...live(),{...live()[0],optId:'99'}],observation()),/OPTION_SCOPE/);
-});
-test('different known option targets are blocked rather than rewriting cheap options', () => {
-  const c=candidate(); c.options.push({...c.options[0],barcode:'ABC1-2',optionId:'12',currentCostKrw:1700,protectedCostKrw:1700});
-  assert.throws(()=>buildMonthlyPricePlan(c,[...live(),{...live()[0],optId:'12'}],observation()),/OPTION_TARGET_CONFLICT/);
 });
 test('missing current channel or conflicting multiple accounts never guessed', () => {
   assert.throws(()=>buildMonthlyPricePlan(candidate(),live(),{...observation(),rows:[]}),/MALL_CURRENT_PRICE/);
@@ -64,16 +90,20 @@ test('observation rejects stale, wrong page identity and positional fallback', (
   for(const patch of [{observedAt:Date.now()-31000},{goodsKey:'9999999'},{pageUrl:'https://evil.invalid/'},{rows:[{...observation().rows[0],source:'position'}]}]) assert.throws(()=>monthlyValidateObservation({...observation(),...patch},'1234567'));
   assert.equal(monthlyValidateObservation(observation(),'1234567').rows.length,1);
 });
-test('absolute target + preimage makes repeat safe, external drift blocks instead of lowering', () => {
-  const p=buildMonthlyPricePlan(candidate(),live(),observation()), w=p.writes[0];
-  assert.equal(assertMonthlyWritePreimage(w,w.before),'WRITE'); assert.equal(assertMonthlyWritePreimage(w,w.target),'ALREADY_APPLIED');
-  assert.throws(()=>assertMonthlyWritePreimage(w,{...w.before,sellPrice:99999}),/CURRENT_PRICE_CHANGED/);
+test('absolute target + option preimage makes repeat safe and external option drift blocks', () => {
+  const p=buildMonthlyPricePlan(candidate(),live(),observation()), w=p.writes[0], before=monthlyLiveProduct(candidate(),live());
+  assert.equal(assertMonthlyWritePreimage(w,before.prices,before.options),'WRITE');
+  const targetLive=live(w.target.sellPrice,w.options[0].targetAmount), after=monthlyLiveProduct(candidate(),targetLive);
+  assert.equal(assertMonthlyWritePreimage(w,after.prices,after.options),'ALREADY_APPLIED');
+  const drift=monthlyLiveProduct(candidate(),live(1000,100));
+  assert.throws(()=>assertMonthlyWritePreimage(w,drift.prices,drift.options),/CURRENT_PRICE_CHANGED/);
 });
-test('positive readback requires every base and connected channel target, not an API ACK', () => {
+test('positive readback requires base, options and every connected channel target, not an API ACK', () => {
   const p=buildMonthlyPricePlan(candidate(),live(),observation());
   assert.throws(()=>verifyMonthlyPricePlan(p,candidate(),live(),observation()),/READBACK_MISMATCH/);
   const b=p.targets.find(x=>x.mallKey===null),m=p.targets.find(x=>x.mallKey);
-  assert.equal(verifyMonthlyPricePlan(p,candidate(),live(b.target.sellPrice),observation(m.target.sellPrice)),true);
+  assert.equal(verifyMonthlyPricePlan(p,candidate(),live(b.target.sellPrice,b.options[0].targetAmount),observation(m.target.sellPrice)),true);
+  assert.throws(()=>verifyMonthlyPricePlan(p,candidate(),live(b.target.sellPrice,b.options[0].targetAmount+10),observation(m.target.sellPrice)),/OPTION_READBACK_MISMATCH/);
   assert.throws(()=>monthlyLiveProduct(candidate(),[{...live()[0],sale_status:'D'}]),/INACTIVE_LISTING/);
 });
 test('boundary validation: zero, missing, booleans, decimals, infinite, malformed month', () => {
@@ -81,10 +111,12 @@ test('boundary validation: zero, missing, booleans, decimals, infinite, malforme
   assert.equal(monthlyMoney(0,true),0);
   for(const m of ['2026-00','2026-13','2026-9',null]) assert.throws(()=>monthlyMonth(m));
 });
-test('deterministic 1000-case property: no base/channel decrease and no ancillary-cost rewrite', () => {
+test('deterministic 1000-case property: no base/channel/option final decrease and no ancillary-cost rewrite', () => {
   let seed=19; const rng=()=>{seed=(seed*1664525+1013904223)>>>0;return seed;};
   for(let i=0;i<1000;i++) {
-    const p=buildMonthlyPricePlan(candidate(1+rng()%20000),live(1+rng()%50000),observation(1+rng()%70000));
+    const beforeBase=1+rng()%50000,beforeAmount=rng()%20000;
+    const p=buildMonthlyPricePlan(candidate(1+rng()%20000),live(beforeBase,beforeAmount),observation(1+rng()%70000));
     for(const t of p.targets) {assert.ok(t.target.sellPrice>=t.before.sellPrice); assert.equal(t.target.purchasePrice,t.before.purchasePrice); assert.equal(t.target.consumerPrice,t.before.consumerPrice);}
+    for(const o of p.targets[0].options) assert.ok(o.targetFinalSellPrice>=o.beforeFinalSellPrice);
   }
 });
