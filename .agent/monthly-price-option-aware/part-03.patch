@@ -1,0 +1,133 @@
+     <a href="/api/shopling-a21-price-option-resend/download" className="mt-3 inline-block text-xs text-cyan-200 underline">A21 확장프로그램 {MONTHLY_PRICE_EXTENSION_VERSION} 받기</a>
+     {snapshot.run?.warnings?.length ? <details className="mt-2 text-xs text-amber-200"><summary>원가 근거 확인 필요 ({snapshot.run.warnings.length})</summary>{snapshot.run.warnings.map((warning) => <p className="mt-1 break-all" key={warning}>{warning}</p>)}</details> : null}
+-    {snapshot.items.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer font-bold text-slate-200">상품별 결과·제외 사유</summary><div className="mt-2 max-h-80 space-y-2 overflow-auto">{snapshot.items.map((item) => <div key={item.id} className="rounded border border-slate-700 p-2"><b>{item.goodsKey} · {item.candidate.productName}</b><p>{STATE[item.state] || item.state}</p>{item.errorCode && <><p className="text-amber-200">{describe(item.errorCode)}</p><code className="break-all text-[10px] text-slate-400">{item.errorCode}</code></>}{item.plan && <p className="text-slate-400">가격 변경 {item.plan.writes.length}행 · 인하 보호 {item.plan.protectedDecreaseCount}행</p>}</div>)}</div></details>}
++    {snapshot.items.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer font-bold text-slate-200">상품별 결과·제외 사유</summary><div className="mt-2 max-h-80 space-y-2 overflow-auto">{snapshot.items.map((item) => <div key={item.id} className="rounded border border-slate-700 p-2"><b>{item.goodsKey} · {item.candidate.productName}</b><p>{STATE[item.state] || item.state}</p>{item.errorCode && <><p className="text-amber-200">{describe(item.errorCode)}</p><code className="break-all text-[10px] text-slate-400">{item.errorCode}</code></>}{item.plan && <p className="text-slate-400">가격 변경 {item.plan.writes.length}행 · 옵션 변경 {item.plan.optionChangeCount}개 · 인하 보호 {item.plan.protectedDecreaseCount}행</p>}</div>)}</div></details>}
+   </section>;
+ }
+--- a/public/shopling-a21-price-option-resend/background-monthly-price.js	2026-09-21 14:16:07.000000000 +0000
++++ b/public/shopling-a21-price-option-resend/background-monthly-price.js	2026-09-22 03:49:21.714696406 +0000
+@@ -13,7 +13,9 @@
+   }
+   function report(state) {
+     return { token: state.monthlyToken, fingerprint: state.fingerprint, goodsKey: state.monthlyGoodsKey, state: state.state,
+-      priceOnly: state.jobs.length > 0 && state.jobs.every((job) => job.mode === "PRICE"), updatedAt: state.updatedAt };
++      priceOnly: state.jobs.length > 0 && state.jobs.every((job) => job.mode === "PRICE"),
++      priceAndOption: state.jobs.some((job) => job.mode === "PRICE") && state.jobs.some((job) => job.mode === "OPTION") && state.jobs.every((job) => ["PRICE", "OPTION"].includes(job.mode)),
++      updatedAt: state.updatedAt };
+   }
+   async function remember(state) {
+     if (!state?.monthlyToken) return;
+@@ -25,8 +27,11 @@
+   }
+   const legacyAddJobs = addJobs;
+   addJobs = function monthlyScopedJobs(state, batch) {
++    const before = state.jobs.length;
+     legacyAddJobs(state, batch);
+-    if (state.monthlyToken) state.jobs = state.jobs.filter((job) => job.mode === "PRICE").map((job) => ({ ...job, monthlyScope: true }));
++    if (state.monthlyToken) {
++      state.jobs = state.jobs.map((job, index) => index < before ? job : ({ ...job, monthlyScope: true }));
++    }
+   };
+   const legacyStartRun = startRun;
+   startRun = async function protectedManualStart(...args) {
+@@ -82,7 +87,7 @@
+       if (!source) throw new Error("MONTHLY_PRICE_SHOPLING_TAB_REQUIRED");
+       if (current?.monthlyToken) await remember(current);
+       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
+-      const state = { version: "0.5.0", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
++      const state = { version: "0.5.1", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
+         mallCheckCount: item.plan.targets.filter((row) => row.mallKey).length, sourceUrl: source.url,
+         baselinePopupTabIds: await baselinePopupTabs(), batches, jobs: [], stopped: false, startedAt: Date.now(), updatedAt: Date.now() };
+@@ -97,7 +102,7 @@
+     await globalThis.commerceOsWakeA21MonthlyResult?.();
+     const current = await loadState();
+     if (current?.monthlyToken === payload.token) { await remember(current); return report(current); }
+-    return (await chrome.storage.local.get(HISTORY))[HISTORY]?.[payload.token] || { token: payload.token, fingerprint: payload.fingerprint, goodsKey: payload.goodsKey, state: "MISSING", priceOnly: true };
++    return (await chrome.storage.local.get(HISTORY))[HISTORY]?.[payload.token] || { token: payload.token, fingerprint: payload.fingerprint, goodsKey: payload.goodsKey, state: "MISSING", priceOnly: false, priceAndOption: false };
+   }
+   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+     if (!String(message?.type || "").startsWith("MONTHLY_PRICE_")) return false;
+@@ -105,7 +110,7 @@
+     void (async () => {
+       try {
+         const payload = message.payload || {};
+-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.0" });
++        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.1" });
+         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || "")) });
+         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
+         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });
+--- a/public/shopling-a21-price-option-resend/manifest.json	2026-09-21 14:16:07.000000000 +0000
++++ b/public/shopling-a21-price-option-resend/manifest.json	2026-09-22 03:49:21.714828925 +0000
+@@ -2,8 +2,8 @@
+   "manifest_version": 3,
+   "name": "Commerce OS · Shopling A21 Price/Option Resend",
+   "short_name": "A21 Resend",
+-  "version": "0.5.0",
+-  "description": "월 입고확정 가격조정 연결 · 확정원가 인상 전용 · 채널별 인하 차단 · 가격 재조회 후 해당 GOODSKEY만 수정전송",
++  "version": "0.5.1",
++  "description": "월 입고확정 가격조정 연결 · 옵션별 확정원가 인상 반영 · 구재고/채널 인하 차단 · 가격+옵션 재조회 후 해당 GOODSKEY만 수정전송",
+   "permissions": [
+     "storage",
+     "tabs",
+--- a/src/app/api/shopling-a21-price-option-resend/download/route.ts	2026-09-21 14:16:07.000000000 +0000
++++ b/src/app/api/shopling-a21-price-option-resend/download/route.ts	2026-09-22 03:49:21.714889556 +0000
+@@ -5,7 +5,7 @@
+ export const runtime = "nodejs";
+ export const dynamic = "force-dynamic";
+ 
+-const VERSION = "0.5.0";
++const VERSION = "0.5.1";
+ const ROOT = "shopling-a21-price-option-resend";
+ const FILES = [
+   "manifest.json",
+--- a/public/shopling-a21-price-option-resend/README.txt	2026-09-21 14:16:07.000000000 +0000
++++ b/public/shopling-a21-price-option-resend/README.txt	2026-09-22 03:49:21.714950918 +0000
+@@ -1,8 +1,8 @@
+-Commerce OS · 월 입고 후 가격조정 v0.5.0
++Commerce OS · 월 입고 후 가격조정 v0.5.1
+ 
+ 월 처리 단계의 [가격조정 실행]을 사용합니다. 기존 수동 팝업을 시작할 필요가 없습니다.
+ 확장프로그램을 갱신한 뒤 커머스OS 페이지와 샵플링 로그인 탭을 새로고침하세요.
+-확인된 원가에 따른 인상만 처리하며 구재고 수량·과거 원가·옵션 추가금은 변경하지 않습니다.
++확인된 원가에 따른 인상만 처리하며 구재고 수량·과거 원가는 변경하지 않습니다. 옵션별 최종 판매가는 각 B코드의 보호원가로 재계산하고, 어떤 옵션도 현재 최종가격보다 낮추지 않습니다.
+ 가격행의 매입가·소비자가를 판매가/2 등으로 재생성하지 않습니다.
+ 이번 월의 상품/옵션 연결을 모두 설명할 수 없으면 자동 변경을 제외합니다.
+ 실제 가격 반영 재조회 후 해당 GOODSKEY만 가격 수정전송합니다.
+--- a/public/shopling-a21-price-option-resend/popup-run.html	2026-09-21 14:16:07.000000000 +0000
++++ b/public/shopling-a21-price-option-resend/popup-run.html	2026-09-22 03:49:21.715003978 +0000
+@@ -10,7 +10,7 @@
+ </head>
+ <body>
+ <h1>Shopling A21 가격·옵션 수정전송</h1>
+-<p>v0.5.0 월 가격조정 연결 · v0.4.4 결과 감시 엔진 · 모든 frame + 접근성 트리 최종완료 확인 · 판매가 전체 우선 · 동시 1개</p>
++<p>v0.5.1 월 가격조정 연결 · 가격+옵션 · v0.4.4 결과 감시 엔진 · 모든 frame + 접근성 트리 최종완료 확인 · 판매가 전체 우선 · 동시 1개</p>
+ <div class="card"><b>입고 후 가격조정은 커머스OS 월 처리 단계에서 실행하세요.</b><p>해당 월 원가 검증 → 인하 차단 → 저장 가격 재조회 → 대상 GOODSKEY만 가격 수정전송합니다. 아래 전체 전송 버튼은 기존 수동 작업용입니다.</p></div>
+ <div class="card" id="planCard">대상 확인 중...</div>
+ <div class="card">
+--- a/tests/monthly-price-fixtures.mjs	2026-09-21 14:16:07.000000000 +0000
++++ b/tests/monthly-price-fixtures.mjs	2026-09-22 03:49:51.213105744 +0000
+@@ -12,5 +12,5 @@
+   return { draft, close, receiptRows };
+ }
+ export function candidate(cost = 1500) { return { goodsKey, productName: 'fixture', productGroup: '도매4', inventoryCostBasis: 'LEGACY_MIXED_UNRESOLVED', options: [{ barcode: 'ABC1-1', optionId: '11', unitsPerOrder: 1, currentCostKrw: cost, protectedCostKrw: cost }], reason: null }; }
+-export function live(price = 1000) { return [{ goods_key: goodsKey, optId: '11', optAmt: '0', sale_price: String(price), org_price: '321', list_price: '6543', sale_status: 'B' }]; }
++export function live(price = 1000, amount = 0) { return [{ goods_key: goodsKey, optId: '11', optAmt: String(amount), optPtnOptCd: 'ABC1-1', optBarcode: '123456789012', optionName: '단품', sale_price: String(price), org_price: '321', list_price: '6543', sale_status: 'B' }]; }
+ export function observation(price = 1000) { return { goodsKey, pageUrl: `https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=${goodsKey}`, observedAt: Date.now(), rows: [{ mallKey: 'SMALL_00069', source: 'header', sellPrice: price, purchasePrice: 222, consumerPrice: 7777 }] }; }
+--- a/tests/monthly-price-core.test.mjs	2026-09-21 14:16:07.000000000 +0000
++++ b/tests/monthly-price-core.test.mjs	2026-09-22 03:50:27.610277195 +0000
+@@ -37,24 +37,50 @@
+   assert.equal(plan.writes.length,1); assert.equal(plan.writes[0].mallKey,null);
+   assert.equal(plan.targets.find(x=>x.mallKey)?.target.sellPrice,99000);
+   assert.equal(plan.writes[0].target.purchasePrice,321); assert.equal(plan.writes[0].target.consumerPrice,6543);
+-  assert.equal(plan.protectedDecreaseCount,1);
++  assert.equal(plan.optionChangeCount,0); assert.equal(plan.protectedDecreaseCount,1);
+ });
+ test('unknown or low cost cannot produce automatic markdown', () => {
+   assert.equal(buildMonthlyPricePlan(candidate(500),live(99999),observation(99999)).writes.length,0);
+   assert.throws(()=>buildMonthlyPricePlan({...candidate(),reason:'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED'},live(),observation()),/CONFIRMED_COST_REQUIRED/);
+   assert.throws(()=>buildMonthlyPricePlan(candidate(0),live(),observation()),/VALUE_INVALID/);
+ });
+-test('unknown unit count, group, nonzero surcharge and shared option scope require review', () => {
++test('known nonzero option surcharge is repriced by B-code cost without lowering any option final price', () => {
++  const c=candidate();
