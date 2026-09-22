@@ -23,10 +23,17 @@ for (const [name, mutate, code] of [
   ['payload other draft', x => x.receiptRows[0].input_snapshot.payload.draftId='other', /IDENTITY_CONFLICT/],
   ['duplicate receipt', x => x.receiptRows.push(structuredClone(x.receiptRows[0])), /RECEIPT_DUPLICATE/],
   ['partially received', x => { x.receiptRows[0].result_snapshot.receivedNow=9; x.receiptRows[0].input_snapshot.payload.receivedNow=9; delete x.receiptRows[0].result_snapshot.receiptCost; }, /RECEIPT_INCOMPLETE/],
-  ['captured unit cost mismatch', x => x.receiptRows[0].result_snapshot.receiptCost.unitCostKrw=999, /CAPTURED_COST_CONFLICT/],
+  ['captured receipt identity mismatch', x => x.receiptRows[0].result_snapshot.receiptCost.barcode='ZZZ9-9', /CAPTURED_COST_CONFLICT/],
   ['unknown cost never defaults to zero', x => delete x.draft.lines[0].unitPriceCny, /COST_INPUT_MISSING/],
   ['malformed receipt UUID', x => { x.receiptRows[0].result_snapshot.receiptId='-'.repeat(36); x.receiptRows[0].input_snapshot.payload.receiptId='-'.repeat(36); }, /IDENTITY_CONFLICT/],
 ]) test(`receipt protection: ${name}`, () => { const x=fixture(); mutate(x); assert.throws(() => monthlyCostsFromEvidence(x), code); });
+test('verified paid-order + final close rebases a stale provisional receipt unit cost', () => {
+  const x=fixture();
+  x.receiptRows[0].result_snapshot.receiptCost.unitCostKrw=999;
+  const result=monthlyCostsFromEvidence(x);
+  assert.equal(result[0].unitCostKrw,1495);
+  assert.notEqual(result[0].unitCostKrw,999);
+});
 test('mixed legacy stock: high verified historical cost retained, not weighted using unknown quantities', () => {
   const c=monthlyCostsFromEvidence(fixture()); c[0].unitCostKrw=900;
   const history=[{...c[0],unitCostKrw:1200,quantity:1},{...c[0],unitCostKrw:99999,provenance:'ESTIMATED'}];
