@@ -4,6 +4,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
 
 (() => {
   const ORIGIN = "https://commerce-os-ops-center.vercel.app";
+  const SHOPLING_SOURCE_URL = "https://a.shopling.co.kr/main.phtml";
   const HISTORY = "commerceOsMonthlyPriceTransmissionHistoryV1";
   let startBusy = false;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -84,12 +85,12 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       if (current?.state === "RUNNING") throw new Error("MONTHLY_PRICE_EXTENSION_BUSY");
       const tabs = await chrome.tabs.query({ url: "https://a.shopling.co.kr/*" });
       const source = tabs.find((tab) => /shopling\.co\.kr\//.test(tab.url || "") && !/goods_mallMdfy_trsmt|prodShopInfo/.test(tab.url || ""));
-      if (!source) throw new Error("MONTHLY_PRICE_SHOPLING_TAB_REQUIRED");
+      const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.1", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.2", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
-        mallCheckCount: item.plan.targets.filter((row) => row.mallKey).length, sourceUrl: source.url,
+        mallCheckCount: item.plan.targets.filter((row) => row.mallKey).length, sourceUrl,
         baselinePopupTabIds: await baselinePopupTabs(), batches, jobs: [], stopped: false, startedAt: Date.now(), updatedAt: Date.now() };
       for (const batch of batches) addJobs(state, batch);
       // Persist the token before opening any transmitting window. Recovery never
@@ -110,7 +111,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.1" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.2" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || "")) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });
