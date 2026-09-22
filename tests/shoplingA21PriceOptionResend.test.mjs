@@ -19,7 +19,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backg
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.0");
+  assert.equal(manifest.version, "0.5.1");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));

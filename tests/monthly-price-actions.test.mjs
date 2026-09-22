@@ -13,7 +13,7 @@ function harness() {
     '@/lib/monthlyPriceSource':{assertMonthlyEvidenceUnchanged:async()=>{log.push('source');if(state.sourceError) throw new Error('MONTHLY_PRICE_SOURCE_CHANGED');}},
     '@/lib/shopling/shoplingProductGroupRegistry':{loadShoplingProductGroupsByGoodsKey:async()=>new Map([[goodsKey,state.group]])},
     '@/lib/monthlyPriceShopling':{
-      readMonthlyLiveProduct:async()=>{log.push('read');return state.raw;},
+      readMonthlyLiveProduct:async()=>{log.push('read');return {rows:state.raw,optionLists:[{title:'옵션',values:['단품']}],optionIds:state.raw.map(row=>String(row.optId))};},
       writeMonthlyShoplingPrice:async(_,write)=>{log.push('write');if(state.writeError)throw new Error('MONTHLY_PRICE_WRITE_UNCERTAIN'); if(write.mallKey)state.observed.rows[0]={...state.observed.rows[0],...write.target};else state.raw=live(write.target.sellPrice);},
     },
     '@/lib/monthlyPriceStore':{
@@ -33,7 +33,7 @@ test('actual production action happy path: prepare -> durable intent -> writes -
   await h.call('verify');assert.equal(h.item.state,'VERIFIED');
   const first=await h.call('resendClaim'),second=await h.call('resendClaim');
   assert.equal(first.duplicate,false);assert.equal(second.duplicate,true);assert.equal(first.transmission.token,second.transmission.token);
-  await h.call('resendReport',{report:{token:first.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceOnly:true}});
+  await h.call('resendReport',{report:{token:first.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceAndOption:true}});
   assert.equal(h.item.state,'TRANSMITTED');assert.equal(h.item.transmission.result,'RESULT_WINDOW_FINISHED_MARKET_CONFIRMATION_PENDING');
   assert.equal(h.log.filter(x=>x==='write').length,2);
 });
@@ -65,18 +65,18 @@ test('refresh while WRITING can only recover by full positive readback',async()=
   const h=harness();await h.call('prepare');const p=h.item.plan;h.item.state='WRITING';h.state.raw=live(p.targets[0].target.sellPrice);h.state.observed=observation(p.targets[1].target.sellPrice);
   await h.call('verify');assert.equal(h.item.state,'VERIFIED');assert.equal(h.log.includes('write'),false);
 });
-test('wrong transmission token / goods key / non-price mode cannot mark finished',async()=>{
+test('wrong transmission token / goods key / missing option mode cannot mark finished',async()=>{
   const h=harness();await h.call('prepare');await h.call('write');await h.call('write');await h.call('verify');await h.call('resendClaim');
-  const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceOnly:true};
+  const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceAndOption:true};
   await assert.rejects(()=>h.call('resendReport',{report:{...report,token:'wrong'}}),/SCOPE_INVALID/);
   await assert.rejects(()=>h.call('resendReport',{report:{...report,goodsKey:'9876543'}}),/SCOPE_INVALID/);
-  await h.call('resendReport',{report:{...report,priceOnly:false}});assert.equal(h.item.state,'RESENDING');
+  await h.call('resendReport',{report:{...report,priceAndOption:false}});assert.equal(h.item.state,'RESENDING');
   await h.call('resendReport',{report:{...report,state:'MISSING'}});assert.equal(h.item.state,'RESENDING');assert.equal(h.item.error_code,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
 });
 test('two overlapping commands are mutually excluded at item lease boundary',async()=>{
   const h=harness();const first=h.call('prepare');await assert.rejects(()=>h.call('prepare'),/ITEM_BUSY/);await first;
 });
-test('write XML preserves exact retained prices, emits no inventory/options and verifies ACK identity',()=>{
+test('write XML preserves retained columns, omits unchanged option payload and verifies ACK identity',()=>{
   const simple=loadModule('../src/lib/shopling/simpleXml.ts',{});
   const shop=loadModule('../src/lib/monthlyPriceShopling.ts',{'@/lib/shopling/shoplingReadClient':{},'@/lib/shopling/shoplingCurrentPriceResolver':{},'@/lib/shopling/shoplingTlsTransport':{},'@/lib/shopling/simpleXml':simple,'@/lib/monthlyPriceCore':core});
   const p=core.buildMonthlyPricePlan(candidate(),live(),observation()), w=p.writes[0];
@@ -85,4 +85,16 @@ test('write XML preserves exact retained prices, emits no inventory/options and 
   shop.assertMonthlyWriteAcknowledgement('<res><goodsRst><goods_key>1234567</goods_key><code>000</code></goodsRst></res>',goodsKey);
   assert.throws(()=>shop.assertMonthlyWriteAcknowledgement('<res><goodsRst><code>999</code></goodsRst></res>',goodsKey),/ACK_UNVERIFIED/);
   assert.throws(()=>shop.buildMonthlyPriceWriteXml(goodsKey,{...w,target:{...w.target,sellPrice:1}},{loginId:'TEST',companyId:'TEST',authKey:'TEST'}),/POLICY_VIOLATION/);
+});
+
+test('write XML carries verified option structure and nondecreasing option amounts when option price changes',()=>{
+  const simple=loadModule('../src/lib/shopling/simpleXml.ts',{});
+  const shop=loadModule('../src/lib/monthlyPriceShopling.ts',{'@/lib/shopling/shoplingReadClient':{},'@/lib/shopling/shoplingCurrentPriceResolver':{},'@/lib/shopling/shoplingTlsTransport':{},'@/lib/shopling/simpleXml':simple,'@/lib/monthlyPriceCore':core});
+  const c=candidate(); c.options.push({...c.options[0],barcode:'ABC1-2',optionId:'12',currentCostKrw:1700,protectedCostKrw:1700});
+  const rows=[...live(),{...live()[0],optId:'12',optAmt:'500'}];
+  const p=core.buildMonthlyPricePlan(c,rows,observation(99000)),w=p.writes[0];
+  const snapshot={rows,optionLists:[{title:'색상',values:['기본','고급']}],optionIds:['11','12']};
+  const xml=shop.buildMonthlyPriceWriteXml(goodsKey,w,{loginId:'TEST',companyId:'TEST',authKey:'TEST'},snapshot);
+  assert.match(xml,/<options>/);assert.match(xml,/<title><!\[CDATA\[색상\]\]><\/title>/);assert.match(xml,/<value><!\[CDATA\[기본,고급\]\]><\/value>/);assert.match(xml,/<optAmt>0,520<\/optAmt>/);
+  assert.doesNotMatch(xml,/optQty|optStatus|optBarcode|stock|quantity/);
 });

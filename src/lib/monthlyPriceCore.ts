@@ -23,7 +23,19 @@ export type MonthlyPriceCandidate = {
   inventoryCostBasis: "LEGACY_MIXED_UNRESOLVED" | "UNKNOWN_COST";
   options: MonthlyPriceOption[]; reason: string | null;
 };
-export type MonthlyPriceWrite = { mallKey: string | null; before: PriceValues; target: PriceValues };
+export type MonthlyOptionAmount = {
+  optionId: string;
+  before: number;
+  target: number;
+  currentEffectivePrice: number;
+  targetEffectivePrice: number;
+};
+export type MonthlyPriceWrite = {
+  mallKey: string | null;
+  before: PriceValues;
+  target: PriceValues;
+  optionAmounts?: MonthlyOptionAmount[];
+};
 export type MonthlyPricePlan = {
   policy: typeof MONTHLY_PRICE_POLICY; goodsKey: string; productGroup: string;
   optionIds: string[]; targets: MonthlyPriceWrite[]; writes: MonthlyPriceWrite[];
@@ -136,19 +148,37 @@ function priceValues(row: Record<string, unknown>): PriceValues {
 function samePrices(a: PriceValues, b: PriceValues) {
   return a.sellPrice === b.sellPrice && a.purchasePrice === b.purchasePrice && a.consumerPrice === b.consumerPrice;
 }
-export function monthlyLiveProduct(candidate: MonthlyPriceCandidate, rows: Record<string, unknown>[]) {
+function liveState(candidate: MonthlyPriceCandidate, rows: Record<string, unknown>[]) {
   if (!rows.length || rows.some((row) => String(row.goods_key) !== candidate.goodsKey)) throw new Error("MONTHLY_PRICE_LIVE_PRODUCT_REQUIRED");
   const expected = [...candidate.options.map((row) => row.optionId)].sort();
   const actual = rows.map((row) => String(row.optId ?? "")).sort();
   if (new Set(expected).size !== expected.length || JSON.stringify(expected) !== JSON.stringify(actual)) throw new Error("MONTHLY_PRICE_OPTION_SCOPE_CONFLICT");
   const base = priceValues(rows[0]);
+  const amounts = new Map<string, number>();
   for (const row of rows) {
-    // Do not silently clamp a negative surcharge or rewrite option pricing.
-    if (Number(row.optAmt || 0) !== 0) throw new Error("MONTHLY_PRICE_OPTION_SURCHARGE_REVIEW_REQUIRED");
     if (!samePrices(base, priceValues(row))) throw new Error("MONTHLY_PRICE_BASE_PRICE_CONFLICT");
     if (String(row.sale_status).trim().toUpperCase() !== "B") throw new Error("MONTHLY_PRICE_INACTIVE_LISTING");
+    const optionId = String(row.optId ?? "");
+    const amount = monthlyMoney(row.optAmt ?? 0, true);
+    if (amounts.has(optionId)) throw new Error("MONTHLY_PRICE_OPTION_SCOPE_CONFLICT");
+    amounts.set(optionId, amount);
   }
-  return base;
+  return {
+    base,
+    optionAmounts: candidate.options
+      .map((row) => ({ optionId: row.optionId, amount: amounts.get(row.optionId) }))
+      .map((row) => {
+        if (row.amount === undefined) throw new Error("MONTHLY_PRICE_OPTION_SCOPE_CONFLICT");
+        return { optionId: row.optionId, amount: row.amount };
+      })
+      .sort((a, b) => a.optionId.localeCompare(b.optionId)),
+  };
+}
+export function monthlyLiveProduct(candidate: MonthlyPriceCandidate, rows: Record<string, unknown>[]) {
+  return liveState(candidate, rows).base;
+}
+export function monthlyLiveOptionAmounts(candidate: MonthlyPriceCandidate, rows: Record<string, unknown>[]) {
+  return liveState(candidate, rows).optionAmounts;
 }
 export function monthlyMallPrices(observation: MonthlyObservation, mallKey: string): PriceValues {
   const rows = observation.rows.filter((row) => row.mallKey === mallKey);
@@ -160,19 +190,48 @@ export function buildMonthlyPricePlan(candidate: MonthlyPriceCandidate, liveRows
   if (candidate.reason || !/^\d{5,9}$/.test(candidate.goodsKey) || !candidate.options.length) throw new Error(candidate.reason || "MONTHLY_PRICE_MAPPING_REQUIRED");
   const group = normalizeInternalPriceGroup(candidate.productGroup);
   if (!group) throw new Error("MONTHLY_PRICE_GROUP_REQUIRED");
-  const base = monthlyLiveProduct(candidate, liveRows);
-  const targets = candidate.options.map((row) => {
+  const live = liveState(candidate, liveRows);
+  const base = live.base;
+  const beforeByOption = new Map(live.optionAmounts.map((row) => [row.optionId, row.amount]));
+  const costTargets = candidate.options.map((row) => {
     monthlyMoney(row.currentCostKrw); monthlyMoney(row.protectedCostKrw); monthlyMoney(row.unitsPerOrder);
     if (row.protectedCostKrw < row.currentCostKrw) throw new Error("MONTHLY_PRICE_COST_PROTECTION_INVALID");
-    return internalPriceGroupTarget({ latestCostKrw: row.protectedCostKrw, unitsPerOrder: row.unitsPerOrder, productGroup: group });
+    const target = internalPriceGroupTarget({ latestCostKrw: row.protectedCostKrw, unitsPerOrder: row.unitsPerOrder, productGroup: group });
+    return { optionId: row.optionId, target: monthlyMoney(target) };
   });
-  // Different-option targets need a separate option-price review, not a blanket
-  // product-level overwrite that changes unrelated or cheaper options.
-  if (new Set(targets).size !== 1) throw new Error("MONTHLY_PRICE_OPTION_TARGET_CONFLICT");
-  const desired = monthlyMoney(targets[0]);
-  let protectedDecreaseCount = Number(desired < base.sellPrice);
-  const all: MonthlyPriceWrite[] = [{ mallKey: null, before: base, target: { ...base, sellPrice: Math.max(base.sellPrice, desired) } }];
-  for (const mall of buildInternalMallPriceTargets({ productGroup: group, groupTargetPrice: desired })) {
+  // Shopling stores one base sale_price plus one shared option surcharge vector.
+  // Use the cheapest verified option target as the base floor, then raise each
+  // option surcharge only when its own protected-cost target requires it.
+  // Existing option surcharges are never reduced, so every option's effective
+  // price is monotonic even when legacy stock/cost is unresolved.
+  const desiredBase = Math.min(...costTargets.map((row) => row.target));
+  const targetBaseSell = Math.max(base.sellPrice, monthlyMoney(desiredBase));
+  const optionAmounts: MonthlyOptionAmount[] = costTargets
+    .map((row) => {
+      const before = beforeByOption.get(row.optionId);
+      if (before === undefined) throw new Error("MONTHLY_PRICE_OPTION_SCOPE_CONFLICT");
+      const required = Math.max(0, row.target - targetBaseSell);
+      const target = Math.max(before, required);
+      return {
+        optionId: row.optionId,
+        before,
+        target,
+        currentEffectivePrice: base.sellPrice + before,
+        targetEffectivePrice: targetBaseSell + target,
+      };
+    })
+    .sort((a, b) => a.optionId.localeCompare(b.optionId));
+  if (optionAmounts.some((row) => row.target < row.before || row.targetEffectivePrice < row.currentEffectivePrice)) throw new Error("MONTHLY_PRICE_OPTION_DECREASE_BLOCKED");
+  let protectedDecreaseCount = Number(desiredBase < base.sellPrice)
+    + costTargets.filter((row) => row.target < base.sellPrice + (beforeByOption.get(row.optionId) ?? 0)).length;
+  const productWrite: MonthlyPriceWrite = {
+    mallKey: null,
+    before: base,
+    target: { ...base, sellPrice: targetBaseSell },
+    optionAmounts,
+  };
+  const all: MonthlyPriceWrite[] = [productWrite];
+  for (const mall of buildInternalMallPriceTargets({ productGroup: group, groupTargetPrice: desiredBase })) {
     const before = monthlyMallPrices(observed, mall.mallKey);
     monthlyMoney(mall.targetPrice);
     protectedDecreaseCount += Number(mall.targetPrice < before.sellPrice);
@@ -180,20 +239,33 @@ export function buildMonthlyPricePlan(candidate: MonthlyPriceCandidate, liveRows
     // never treated as historical receipt cost and never regenerated as sale/2.
     all.push({ mallKey: mall.mallKey, before, target: { ...before, sellPrice: Math.max(before.sellPrice, mall.targetPrice) } });
   }
-  const writes = all.filter((row) => row.target.sellPrice > row.before.sellPrice);
+  const writes = all.filter((row) =>
+    row.target.sellPrice > row.before.sellPrice
+    || Boolean(row.optionAmounts?.some((option) => option.target > option.before))
+  );
   const stable: Omit<MonthlyPricePlan, "fingerprint"> = { policy: MONTHLY_PRICE_POLICY, goodsKey: candidate.goodsKey, productGroup: group, optionIds: candidate.options.map((row) => row.optionId).sort(), targets: all, writes, protectedDecreaseCount };
   return { ...stable, fingerprint: monthlyHash(stable) };
 }
-export function assertMonthlyWritePreimage(write: MonthlyPriceWrite, current: PriceValues) {
-  if (samePrices(current, write.target)) return "ALREADY_APPLIED" as const;
-  if (!samePrices(current, write.before) || write.target.sellPrice <= current.sellPrice || write.target.purchasePrice !== current.purchasePrice || write.target.consumerPrice !== current.consumerPrice) throw new Error("MONTHLY_PRICE_CURRENT_PRICE_CHANGED");
+function sameOptionAmounts(write: MonthlyPriceWrite, current: { optionId: string; amount: number }[], target = false) {
+  if (!write.optionAmounts) return true;
+  const expected = write.optionAmounts.map((row) => ({ optionId: row.optionId, amount: target ? row.target : row.before })).sort((a, b) => a.optionId.localeCompare(b.optionId));
+  const actual = [...current].sort((a, b) => a.optionId.localeCompare(b.optionId));
+  return JSON.stringify(expected) === JSON.stringify(actual);
+}
+export function assertMonthlyWritePreimage(write: MonthlyPriceWrite, current: PriceValues, currentOptions: { optionId: string; amount: number }[] = []) {
+  const optionTargetsSafe = !write.optionAmounts || write.optionAmounts.every((row) => row.target >= row.before && row.targetEffectivePrice >= row.currentEffectivePrice);
+  if (!optionTargetsSafe || write.target.sellPrice < write.before.sellPrice || write.target.purchasePrice !== write.before.purchasePrice || write.target.consumerPrice !== write.before.consumerPrice) throw new Error("MONTHLY_PRICE_WRITE_POLICY_VIOLATION");
+  if (samePrices(current, write.target) && sameOptionAmounts(write, currentOptions, true)) return "ALREADY_APPLIED" as const;
+  const hasIncrease = write.target.sellPrice > write.before.sellPrice || Boolean(write.optionAmounts?.some((row) => row.target > row.before));
+  if (!samePrices(current, write.before) || !sameOptionAmounts(write, currentOptions, false) || !hasIncrease) throw new Error("MONTHLY_PRICE_CURRENT_PRICE_CHANGED");
   return "WRITE" as const;
 }
 export function verifyMonthlyPricePlan(plan: MonthlyPricePlan, candidate: MonthlyPriceCandidate, live: Record<string, unknown>[], observed: MonthlyObservation) {
   const base = monthlyLiveProduct(candidate, live);
+  const options = monthlyLiveOptionAmounts(candidate, live);
   for (const target of plan.targets) {
     const current = target.mallKey ? monthlyMallPrices(observed, target.mallKey) : base;
-    if (!samePrices(current, target.target)) throw new Error("MONTHLY_PRICE_READBACK_MISMATCH");
+    if (!samePrices(current, target.target) || (!target.mallKey && !sameOptionAmounts(target, options, true))) throw new Error("MONTHLY_PRICE_READBACK_MISMATCH");
   }
   return true;
 }
