@@ -240,7 +240,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         return {
           key: `${item.id}:${option.optionId}`,
           barcode: option.barcode,
-          productName: item.candidate.productName,
+          productName: candidate?.productName || item.candidate.productName,
           before: option.beforeFinalSellPrice,
           target: option.targetFinalSellPrice,
           basis,
@@ -252,7 +252,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       return item.candidate.options.map((option) => ({
         key: `${item.id}:${option.barcode}:blocked`,
         barcode: option.barcode,
-        productName: item.candidate.productName,
+        productName: option.productName || item.candidate.productName,
         before: null as number | null,
         target: null as number | null,
         basis: shortReason(item.errorCode),
