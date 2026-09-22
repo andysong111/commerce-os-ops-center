@@ -125,6 +125,15 @@ test("China order manager fails fast instead of exhausting the Vercel function t
   assert.ok(page.includes("원장은 변경되지 않았습니다. 잠시 뒤 새로고침하세요"));
 });
 
+test("landed-cost summary uses the stored 1688 snapshot fast path before slow product metadata fallback", () => {
+  assert.ok(engine.includes("loadStoredInternalChinaPurchaseDraftForCost"));
+  const storedDraftIndex = engine.indexOf("loadStoredInternalChinaPurchaseDraftForCost(draftId)");
+  const slowDraftIndex = engine.indexOf("loadInternalChinaPurchaseDraft(draftId)", storedDraftIndex);
+  assert.ok(storedDraftIndex >= 0);
+  assert.ok(slowDraftIndex > storedDraftIndex);
+  assert.ok(engine.includes("storedDraft ?? await loadInternalChinaPurchaseDraft(draftId)"));
+});
+
 test("stored forwarder close is preserved as audit evidence while current totals are rebuilt from the canonical order ledger", () => {
   const storedIndex = page.indexOf("const stored = forwarderCloses.find");
   const summaryIndex = page.indexOf("loadInternalChinaForwarderCostSummary", storedIndex);

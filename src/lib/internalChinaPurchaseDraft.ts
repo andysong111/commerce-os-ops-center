@@ -474,6 +474,68 @@ function mergeSnapshot(
   } satisfies InternalChinaPurchaseDraft;
 }
 
+export async function loadStoredInternalChinaPurchaseDraftForCost(
+  draftIdInput: unknown,
+): Promise<InternalChinaPurchaseDraft | null> {
+  const draftId = validDraftId(draftIdInput);
+  const saved = await readSavedPrep(draftId);
+  if (!saved) return null;
+  const snapshot = saved.snapshot;
+  const sourceLines = Array.isArray(snapshot.lines) ? snapshot.lines : [];
+  const lines = sourceLines
+    .map((value) => object(value))
+    .map((row): InternalChinaPurchaseDraftLine | null => {
+      const barcode = normalizeBarcode(row.barcode);
+      const quantity = integer(row.quantity);
+      if (!BARCODE.test(barcode) || quantity <= 0) return null;
+      return {
+        barcode,
+        modelNo: text(row.modelNo),
+        modelName: text(row.modelName || row.productName) || barcode,
+        productName: text(row.productName || row.modelName) || barcode,
+        saleOption: text(row.saleOption),
+        chinaOption: text(row.chinaOption),
+        supplierLink: text(row.supplierLink),
+        quantity: Math.min(MANUAL_QUANTITY_MAX, quantity),
+        unitPriceCny: Math.min(1_000_000, decimal(row.unitPriceCny)),
+        freightGroupId: text(row.freightGroupId).slice(0, 100),
+        domesticChinaFreightCny: Math.min(
+          1_000_000,
+          decimal(row.domesticChinaFreightCny),
+        ),
+        orderNumber: text(row.orderNumber).slice(0, 160),
+        note: text(row.note).slice(0, 300),
+      };
+    })
+    .filter((line): line is InternalChinaPurchaseDraftLine => Boolean(line));
+  if (!lines.length) return null;
+  const savedAt = saved.savedAt || text(snapshot.savedAt) || null;
+  const sourceUpdatedAt =
+    text(snapshot.sourceUpdatedAt) ||
+    text(snapshot.savedAt) ||
+    savedAt ||
+    new Date(0).toISOString();
+  return {
+    draftId,
+    status: text(snapshot.status) === "ORDERED" ? "ORDERED" : "DRAFT",
+    exchangeRateKrwPerCny:
+      decimal(snapshot.exchangeRateKrwPerCny) || INTERNAL_CHINA_FIXED_KRW_PER_CNY,
+    internalOrderCostMultiplier:
+      decimal(snapshot.internalOrderCostMultiplier) ||
+      INTERNAL_CHINA_ORDER_COST_MULTIPLIER,
+    lineCount: lines.length,
+    totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
+    createdFrom: "FAST_PURCHASE_RESERVED",
+    sourceUpdatedAt,
+    savedAt,
+    metadataWarnings: Array.isArray(snapshot.metadataWarnings)
+      ? snapshot.metadataWarnings.map(text).filter(Boolean)
+      : [],
+    lines,
+    externalOrderExecuted: false,
+  };
+}
+
 export async function loadInternalChinaPurchaseDraft(draftIdInput: unknown) {
   const base = await buildBaseDraft(draftIdInput);
   const saved = await readSavedPrep(base.draftId);
