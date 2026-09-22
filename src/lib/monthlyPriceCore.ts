@@ -117,10 +117,19 @@ export function monthlyCostsFromEvidence(input: {
     const quantity = monthlyMoney(result.receivedNow);
     if (result.receiptCost) {
       const captured = monthlyRecord(result.receiptCost);
-      const line = lines.find((item) => item.barcode === code)!;
-      const group = groups.get(String(line.freightGroupId || `__${code}`))!;
-      const purchaseCost = Math.round((decimal(line.unitPriceCny) + group.freight / group.quantity) * rate);
-      if (captured.id !== `china-receipt:${receiptId}:${code}` || captured.receiptId !== receiptId || captured.barcode !== code || Number(captured.quantity) !== quantity || Number(captured.unitCostKrw) !== purchaseCost) throw new Error("MONTHLY_PRICE_CAPTURED_COST_CONFLICT");
+      // receiptCost is a point-in-time receipt snapshot. Older receipts can
+      // legitimately contain the provisional pre-close purchase cost (for
+      // example before the 1688 service fee was reconciled). Once the immutable
+      // paid-order draft and final forwarder close agree, that stronger evidence
+      // rebases the landed cost. Preserve/validate receipt identity and quantity,
+      // but never require its historical unitCostKrw to equal the rebased cost.
+      monthlyMoney(captured.unitCostKrw);
+      if (
+        captured.id !== `china-receipt:${receiptId}:${code}` ||
+        captured.receiptId !== receiptId ||
+        captured.barcode !== code ||
+        Number(captured.quantity) !== quantity
+      ) throw new Error("MONTHLY_PRICE_CAPTURED_COST_CONFLICT");
     }
     if (payload.receivedNow !== undefined && Number(payload.receivedNow) !== quantity) throw new Error("MONTHLY_PRICE_RECEIPT_QUANTITY_CONFLICT");
     quantities.set(code, (quantities.get(code) ?? 0) + quantity);
