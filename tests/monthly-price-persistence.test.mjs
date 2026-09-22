@@ -12,6 +12,7 @@ function sourceHarness() {
     '@/lib/supabase/admin':{createSupabaseAdminClient:async()=>db},
     '@/lib/internalChinaDraftQuantityOverride':{applyInternalChinaActualPurchaseCosts:x=>x,applyInternalChinaQuantityOverrides:x=>x},
     '@/lib/internalChinaMonthlyPurchaseSummary':{buildInternalChinaMonthlyPurchaseSummaryFromRows:()=>null},
+    '@/lib/internalChinaForwarderCost':{buildInternalChinaForwarderCostSummaryFromDraft:(draft,month,actualCostKrw,closedAt)=>({...f.close,draftId:draft.draftId,cycleMonth:month,actualCostKrw,closedAt})},
     '@/lib/productDecisionLiveRefresh':{loadProductPlanningSnapshot:async()=>({products:[]})},
     '@/lib/shopling/shoplingProductGroupRegistry':{loadShoplingProductGroupsByGoodsKey:async()=>new Map()},
     '@/lib/monthlyPriceCore':core,
