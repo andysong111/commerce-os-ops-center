@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyMallPrices, assertMonthlyWritePreimage, verifyMonthlyPricePlan, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
+import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyLiveOptionAmounts, monthlyMallPrices, assertMonthlyWritePreimage, verifyMonthlyPricePlan, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
 import { assertMonthlyEvidenceUnchanged } from "@/lib/monthlyPriceSource";
 import { loadShoplingProductGroupsByGoodsKey } from "@/lib/shopling/shoplingProductGroupRegistry";
 import { readMonthlyLiveProduct, writeMonthlyShoplingPrice } from "@/lib/monthlyPriceShopling";
@@ -28,7 +28,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         const observed = monthlyValidateObservation(payload.observation, item.goods_key);
         const live = await readMonthlyLiveProduct(item.goods_key);
         monthlyValidateObservation(payload.observation, item.goods_key);
-        item.plan = buildMonthlyPricePlan(item.candidate, live, observed);
+        item.plan = buildMonthlyPricePlan(item.candidate, live.rows, observed);
         item.state = item.plan.writes.length ? "PREPARED" : "HELD";
         item.error_code = null;
         await auditMonthlyPrice(item, "PREFLIGHT", { policy: MONTHLY_PRICE_POLICY, sourceHash: run.source_hash, plan: item.plan });
@@ -48,10 +48,11 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         const observed = monthlyValidateObservation(payload.observation, item.goods_key);
         const live = await readMonthlyLiveProduct(item.goods_key);
         monthlyValidateObservation(payload.observation, item.goods_key);
-        const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : monthlyLiveProduct(item.candidate, live);
-        // Always check option identity even when this step writes a mall row.
-        monthlyLiveProduct(item.candidate, live);
-        if (assertMonthlyWritePreimage(write, current) === "ALREADY_APPLIED") {
+        const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : monthlyLiveProduct(item.candidate, live.rows);
+        // Always check option identity and current option amounts even when this
+        // step writes only a mall row.
+        const currentOptions = monthlyLiveOptionAmounts(item.candidate, live.rows);
+        if (assertMonthlyWritePreimage(write, current, write.mallKey ? [] : currentOptions) === "ALREADY_APPLIED") {
           await auditMonthlyPrice(item, "WRITE_ALREADY_MATCHES", { writeIndex: item.write_index, current });
         } else {
           item.state = "WRITING";
@@ -59,7 +60,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
           await saveMonthlyPriceItem(item);
           await auditMonthlyPrice(item, "WRITE_INTENT", { writeIndex: item.write_index, fingerprint: item.plan.fingerprint, write });
           dispatched = true;
-          await writeMonthlyShoplingPrice(item.goods_key, write);
+          await writeMonthlyShoplingPrice(item.goods_key, write, write.mallKey ? undefined : live);
           await auditMonthlyPrice(item, "WRITE_ACK", { writeIndex: item.write_index });
         }
         item.write_index += 1;
@@ -79,7 +80,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         monthlyValidateObservation(payload.observation, item.goods_key);
         // Recover only an exact positive readback; unresolved partial writes stay
         // protected from both re-dispatch and cross-month competing jobs.
-        verifyMonthlyPricePlan(item.plan, item.candidate, live, observed);
+        verifyMonthlyPricePlan(item.plan, item.candidate, live.rows, observed);
         item.state = "VERIFIED"; item.write_index = item.plan.writes.length; item.error_code = null;
         await auditMonthlyPrice(item, "SHOPLING_READBACK_VERIFIED", { fingerprint: item.plan.fingerprint });
       } catch (error) { item.state = "UNCERTAIN"; item.error_code = code(error); }
@@ -91,7 +92,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       const observed = monthlyValidateObservation(payload.observation, item.goods_key);
       const live = await readMonthlyLiveProduct(item.goods_key);
       monthlyValidateObservation(payload.observation, item.goods_key);
-      verifyMonthlyPricePlan(item.plan, item.candidate, live, observed);
+      verifyMonthlyPricePlan(item.plan, item.candidate, live.rows, observed);
       item.transmission = { token: randomUUID(), fingerprint: item.plan.fingerprint, claimedAt: new Date().toISOString() };
       item.state = "RESENDING";
       await auditMonthlyPrice(item, "MARKET_TRANSMISSION_INTENT", item.transmission);
@@ -100,7 +101,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       const report = monthlyRecord(payload.report);
       if (item.state === "TRANSMITTED") return response(item);
       if (item.state !== "RESENDING" || !item.transmission || report.token !== item.transmission.token || report.fingerprint !== item.transmission.fingerprint || report.goodsKey !== item.goods_key) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
-      if (report.state === "SUCCEEDED" && report.priceOnly === true) {
+      if (report.state === "SUCCEEDED" && report.priceAndOption === true) {
         item.state = "TRANSMITTED";
         item.transmission = { ...item.transmission, finishedAt: new Date().toISOString(), result: "RESULT_WINDOW_FINISHED_MARKET_CONFIRMATION_PENDING" };
         item.error_code = null;
