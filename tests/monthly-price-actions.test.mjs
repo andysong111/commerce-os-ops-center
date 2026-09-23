@@ -128,6 +128,19 @@ test('sold-out transmission cannot finish without status activation evidence',as
   assert.equal(h.log.includes('TRANSMISSION_UNCERTAIN'),true);
 });
 
+test('proven market failure rollback restores original sold-out Shopling master but remains review-required',async()=>{
+  const h=harness();h.state.raw=h.state.raw.map(row=>({...row,sale_status:'C'}));
+  await h.call('prepare');await h.call('write');while(h.item.state==='PREPARED')await h.call('write');
+  await h.call('verify');await h.call('resendClaim');
+  const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'PARTIAL_FAILURE',priceOnly:false,priceAndOption:false,saleStatusActivated:true,saleStatusRestored:false,saleStatusRolledBack:true};
+  await h.call('resendReport',{report});
+  assert.equal(h.item.state,'RESENDING');
+  assert.equal(h.item.error_code,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
+  assert.equal(h.log.includes('status:C'),true);
+  assert.equal(h.state.raw[0].sale_status,'C');
+  assert.equal(h.log.includes('SALE_STATUS_FAILURE_ROLLBACK'),true);
+});
+
 test('wrong transmission token / goods key / missing option transmission cannot mark finished',async()=>{
   const h=harness();await h.call('prepare');await h.call('write');await h.call('write');await h.call('verify');await h.call('resendClaim');
   const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true};
