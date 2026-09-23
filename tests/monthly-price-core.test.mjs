@@ -46,6 +46,12 @@ test('base increase preserves independently higher channel price and display ori
   assert.equal(plan.writes[0].target.purchasePrice,321); assert.equal(plan.writes[0].target.consumerPrice,6543);
   assert.equal(plan.optionChangeCount,0); assert.equal(plan.protectedDecreaseCount,1);
 });
+test('missing current registry never treats stale candidate snapshot group as exact', () => {
+  const stale={...candidate(),productGroup:'도매4'};
+  const resolved=resolveMonthlyPriceGroup(stale,live(3900),observation(3900),null);
+  assert.deepEqual(resolved,{group:'도매1',source:'MALL_FAMILY'});
+});
+
 test('legacy product family uses channel evidence before price and falls back only outside the overlap band', () => {
   const legacy={...candidate(),productGroup:''};
   const wholesale=resolveMonthlyPriceGroup(legacy,live(3900),observation(3900),null);
