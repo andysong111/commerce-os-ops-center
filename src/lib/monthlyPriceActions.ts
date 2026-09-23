@@ -182,6 +182,14 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
           )
         )
       ) {
+        if (item.plan.saleStatusTransition && report.saleStatusRolledBack === true) {
+          const restored = await ensureMonthlyShoplingSaleStatus(item.goods_key, item.plan.saleStatusTransition.before);
+          await auditMonthlyPrice(item, "SALE_STATUS_FAILURE_ROLLBACK", {
+            before: restored.before,
+            after: restored.after,
+            changed: restored.changed,
+          });
+        }
         item.error_code = "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED";
         // Keep the token and state. Do not resend a batch whose delivery is unknown
         // or whose required status -> PRICE -> OPTION evidence is incomplete.
