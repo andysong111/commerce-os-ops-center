@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as core from '../src/lib/monthlyPriceCore.ts';
+import * as pricePolicy from '../src/lib/internalChinaPriceGroupPolicy.ts';
 import { loadModule } from './monthly-price-module.mjs';
 import { candidate, live, observation, goodsKey, runId, itemId } from './monthly-price-fixtures.mjs';
+
+const groupRecovery=loadModule('../src/lib/monthlyPriceGroupRecovery.ts',{'@/lib/internalChinaPriceGroupPolicy':pricePolicy,'@/lib/monthlyPriceCore':core});
 
 function harness() {
   const item = { id:itemId,run_id:runId,goods_key:goodsKey,state:'QUEUED',candidate:candidate(),plan:null,write_index:0,claim_token:'lease',error_code:null,transmission:null };
@@ -11,7 +14,11 @@ function harness() {
   const api=loadModule('../src/lib/monthlyPriceActions.ts',{
     '@/lib/monthlyPriceCore':core,
     '@/lib/monthlyPriceSource':{assertMonthlyEvidenceUnchanged:async()=>{log.push('source');if(state.sourceError) throw new Error('MONTHLY_PRICE_SOURCE_CHANGED');}},
-    '@/lib/shopling/shoplingProductGroupRegistry':{loadShoplingProductGroupsByGoodsKey:async()=>new Map([[goodsKey,state.group]])},
+    '@/lib/monthlyPriceGroupRecovery':groupRecovery,
+    '@/lib/shopling/shoplingProductGroupRegistry':{
+      loadShoplingProductGroupsByGoodsKey:async()=>state.group?new Map([[goodsKey,state.group]]):new Map(),
+      rememberRecoveredShoplingProductGroup:async(input)=>{log.push(`remember:${input.group}`);state.group=input.group;return{inserted:true,group:input.group};},
+    },
     '@/lib/monthlyPriceShopling':{
       readMonthlyLiveProduct:async()=>{log.push('read');return state.raw;},
       writeMonthlyShoplingPrice:async(_,write)=>{log.push('write');if(state.writeError)throw new Error('MONTHLY_PRICE_WRITE_UNCERTAIN'); if(write.mallKey)state.observed.rows[0]={...state.observed.rows[0],...write.target};else state.raw=live(write.target.sellPrice,write.options?.[0]?.targetAmount??0);},
@@ -57,6 +64,16 @@ test('externally changed current base or option price blocks even if final price
 });
 test('group changed after approval cannot write',async()=>{
   const h=harness();await h.call('prepare');h.state.group='소매1';await h.call('write');assert.equal(h.item.error_code,'MONTHLY_PRICE_GROUP_CHANGED');assert.equal(h.log.includes('write'),false);
+});
+test('missing legacy group auto-recovers wholesale family to 도매1 and persists it',async()=>{
+  const h=harness();h.state.group=null;h.item.candidate.productGroup='';await h.call('prepare');
+  assert.equal(h.item.state,'PREPARED');assert.equal(h.item.plan.productGroup,'도매1');assert.equal(h.state.group,'도매1');assert.equal(h.log.includes('remember:도매1'),true);
+  assert.deepEqual(h.item.plan.targets.filter(x=>x.mallKey).map(x=>x.mallKey),['SMALL_00069']);
+});
+test('ambiguous mixed legacy group is silently held at current price instead of asking for confirmation',async()=>{
+  const h=harness();h.state.group=null;h.item.candidate.productGroup='';h.state.raw=live(3900);
+  h.state.observed=observation(3900);h.state.observed.rows.push({...h.state.observed.rows[0],mallKey:'SMALL_00012'});
+  await h.call('prepare');assert.equal(h.item.state,'HELD');assert.equal(h.item.plan,null);assert.equal(h.item.error_code,null);assert.equal(h.log.includes('GROUP_UNRESOLVED_CURRENT_PRICE_HELD'),true);
 });
 test('ACK is insufficient for transmitting and malformed IDs are rejected',async()=>{
   const h=harness();await assert.rejects(()=>h.call('resendClaim'),/VERIFIED_REQUIRED/);await h.call('prepare');await h.call('write');await assert.rejects(()=>h.call('resendClaim'),/VERIFIED_REQUIRED/);
