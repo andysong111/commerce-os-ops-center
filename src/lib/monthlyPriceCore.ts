@@ -224,9 +224,7 @@ export function resolveMonthlyPriceGroup(
   registeredGroup?: unknown,
 ): MonthlyPriceGroupResolution {
   const registered = normalizeInternalPriceGroup(registeredGroup);
-  const candidateGroup = normalizeInternalPriceGroup(candidate.productGroup);
   if (registered) return { group: registered, source: "EXACT" };
-  if (candidateGroup) return { group: candidateGroup, source: "EXACT" };
 
   const live = monthlyLiveProduct(candidate, liveRows);
   const liveById = new Map(live.options.map((row) => [row.optionId, row]));
@@ -265,7 +263,7 @@ export function buildMonthlyPricePlan(
   candidate: MonthlyPriceCandidate,
   liveRows: Record<string, unknown>[],
   observed: MonthlyObservation,
-  options: { restrictMallKeys?: Iterable<string> } = {},
+  planOptions: { restrictMallKeys?: Iterable<string> } = {},
 ): MonthlyPricePlan {
   if (candidate.reason || !/^\d{5,9}$/.test(candidate.goodsKey) || !candidate.options.length) throw new Error(candidate.reason || "MONTHLY_PRICE_MAPPING_REQUIRED");
   const group = normalizeInternalPriceGroup(candidate.productGroup);
@@ -307,7 +305,7 @@ export function buildMonthlyPricePlan(
   };
   const all: MonthlyPriceWrite[] = [baseWrite];
   const groupTarget = monthlyMoney(Math.min(...optionPolicy.map((row) => row.policyTargetSellPrice)));
-  const restrictedMallKeys = options.restrictMallKeys ? new Set(options.restrictMallKeys) : null;
+  const restrictedMallKeys = planOptions.restrictMallKeys ? new Set(planOptions.restrictMallKeys) : null;
   for (const mall of buildInternalMallPriceTargets({ productGroup: group, groupTargetPrice: groupTarget })) {
     if (restrictedMallKeys && !restrictedMallKeys.has(mall.mallKey)) continue;
     const before = monthlyMallPrices(observed, mall.mallKey);
