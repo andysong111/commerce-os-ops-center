@@ -20,11 +20,14 @@ function monthlyCandidatePricingIdentity(candidate: MonthlyPriceCandidate) {
   });
 }
 
-export function canRetryLegacyGroupBlockedItem(
+export function canRetryMonthlyPrewriteBlockedItem(
   item: MonthlyPriceItem,
   freshCandidate: MonthlyPriceCandidate | undefined,
   sameEvidence: boolean,
 ) {
+  const retryablePrewriteError =
+    item.error_code === "MONTHLY_PRICE_GROUP_REQUIRED" ||
+    item.error_code === "MONTHLY_PRICE_INACTIVE_LISTING";
   return Boolean(
     sameEvidence &&
     freshCandidate &&
@@ -33,7 +36,7 @@ export function canRetryLegacyGroupBlockedItem(
     item.write_index === 0 &&
     item.plan === null &&
     item.transmission === null &&
-    item.error_code === "MONTHLY_PRICE_GROUP_REQUIRED" &&
+    retryablePrewriteError &&
     monthlyCandidatePricingIdentity(item.candidate) === monthlyCandidatePricingIdentity(freshCandidate),
   );
 }
@@ -73,14 +76,14 @@ export async function resumeMonthlyPriceRunPreflight(runId: string, source: Mont
   const status = await loadMonthlyPriceRunStatus(run);
   for (const item of status.items) {
     const freshCandidate = freshByGoodsKey.get(item.goods_key);
-    if (!canRetryLegacyGroupBlockedItem(item, freshCandidate, true)) continue;
+    if (!canRetryMonthlyPrewriteBlockedItem(item, freshCandidate, true)) continue;
     await withMonthlyPriceItem(item.id, run.id, async (locked) => {
-      if (!canRetryLegacyGroupBlockedItem(locked, freshCandidate, true)) return;
+      if (!canRetryMonthlyPrewriteBlockedItem(locked, freshCandidate, true)) return;
       locked.state = "QUEUED";
       locked.plan = null;
       locked.error_code = null;
-      await auditMonthlyPrice(locked, "LEGACY_GROUP_BLOCK_RETRY", {
-        previousReason: "MONTHLY_PRICE_GROUP_REQUIRED",
+      await auditMonthlyPrice(locked, "PREFLIGHT_BLOCK_RETRY", {
+        previousReason: item.error_code,
         freshSourceHash: source.sourceHash,
         explicitResume: true,
       });
