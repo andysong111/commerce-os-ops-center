@@ -14,7 +14,8 @@ function harness() {
     '@/lib/shopling/shoplingProductGroupRegistry':{loadShoplingProductGroupsByGoodsKey:async()=>new Map([[goodsKey,state.group]])},
     '@/lib/monthlyPriceShopling':{
       readMonthlyLiveProduct:async()=>{log.push('read');return state.raw;},
-      writeMonthlyShoplingPrice:async(_,write)=>{log.push('write');if(state.writeError)throw new Error('MONTHLY_PRICE_WRITE_UNCERTAIN'); if(write.mallKey)state.observed.rows[0]={...state.observed.rows[0],...write.target};else state.raw=live(write.target.sellPrice,write.options?.[0]?.targetAmount??0);},
+      writeMonthlyShoplingPrice:async(_,write)=>{log.push('write');if(state.writeError)throw new Error('MONTHLY_PRICE_WRITE_UNCERTAIN'); if(write.mallKey)state.observed.rows[0]={...state.observed.rows[0],...write.target};else state.raw=live(write.target.sellPrice,write.options?.[0]?.targetAmount??0).map(row=>({...row,sale_status:state.raw[0]?.sale_status||'B'}));},
+      writeMonthlyShoplingSaleStatus:async(_,target)=>{log.push(`status-write:${target}`);state.raw=state.raw.map(row=>({...row,sale_status:target}));},
     },
     '@/lib/monthlyPriceStore':{
       withMonthlyPriceItem:async(id,rid,work)=>{if(state.locked)throw new Error('MONTHLY_PRICE_ITEM_BUSY');assert.equal(id,itemId);assert.equal(rid,runId);state.locked=true;try{return await work(item,run);}finally{log.push(`release:${item.state}`);state.locked=false;}},
@@ -51,6 +52,44 @@ test('retried old run can clear obsolete GROUP_REQUIRED candidate reason and use
   assert.equal(h.log.includes('write'),false);
 });
 
+
+test('sold-out item must finish selling-status market transmission before any price write',async()=>{
+  const h=harness();h.state.raw=live().map(row=>({...row,sale_status:'C'}));
+  await h.call('prepare');
+  assert.equal(h.item.state,'PREPARED');assert.equal(h.item.plan.saleStatusTransition.requiredBeforePrice,true);
+  await assert.rejects(()=>h.call('write'),/SALE_STATUS_TRANSMISSION_REQUIRED/);
+  assert.equal(h.log.includes('write'),false);
+
+  const claim=await h.call('saleStatusClaim');
+  assert.equal(claim.duplicate,false);assert.ok(h.item.transmission.saleStatusToken);
+  assert.equal(h.item.transmission.saleStatusTarget,'B');
+  assert.equal(h.state.raw[0].sale_status,'B');
+  assert.equal(h.log.includes('status-write:B'),true);
+
+  const statusReport={token:h.item.transmission.saleStatusToken,fingerprint:h.item.plan.fingerprint,goodsKey,targetSaleStatus:'B',state:'SUCCEEDED',statusOnly:true};
+  await h.call('saleStatusReport',{report:statusReport});
+  assert.ok(h.item.transmission.saleStatusMarketFinishedAt);
+  await h.call('write');
+  assert.equal(h.item.write_index,1);assert.equal(h.log.includes('write'),true);
+});
+
+test('sold-out original status can be restored explicitly after transmission but is not restored by default',async()=>{
+  const h=harness();h.state.raw=live().map(row=>({...row,sale_status:'C'}));
+  await h.call('prepare');
+  assert.equal(h.item.plan.saleStatusTransition.restoreDefault,false);
+  await h.call('saleStatusClaim');
+  await h.call('saleStatusReport',{report:{token:h.item.transmission.saleStatusToken,fingerprint:h.item.plan.fingerprint,goodsKey,targetSaleStatus:'B',state:'SUCCEEDED',statusOnly:true}});
+  while(h.item.state==='PREPARED') await h.call('write');
+  await h.call('verify');
+  const priceClaim=await h.call('resendClaim');
+  await h.call('resendReport',{report:{token:priceClaim.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true}});
+  assert.equal(h.item.state,'TRANSMITTED');assert.equal(h.state.raw[0].sale_status,'B');
+
+  const restore=await h.call('restoreSaleStatusClaim');
+  assert.equal(restore.duplicate,false);assert.equal(h.state.raw[0].sale_status,'C');assert.ok(h.item.transmission.restoreToken);
+  await h.call('restoreSaleStatusReport',{report:{token:h.item.transmission.restoreToken,fingerprint:h.item.plan.fingerprint,goodsKey,targetSaleStatus:'C',state:'SUCCEEDED',statusOnly:true}});
+  assert.ok(h.item.transmission.restoreMarketFinishedAt);
+});
 
 test('legacy item with ambiguous family is silently held at current price instead of confirmation-blocked',async()=>{
   const h=harness();h.state.group=null;h.item.candidate.productGroup='';
@@ -121,6 +160,10 @@ test('base-only write preserves option structure entirely, and option writes nev
   assert.doesNotMatch(xml,/<options>/);assert.doesNotMatch(xml,/optQty|optVrtlQty|stock|quantity|margin_rate/);
   assert.doesNotMatch(xml,/optQty|optVrtlQty|stock|quantity|margin_rate/);
   const mall= p.writes.find(x=>x.mallKey); const mallXml=shop.buildMonthlyPriceWriteXml(goodsKey,mall,{loginId:'TEST',companyId:'TEST',authKey:'TEST'});assert.doesNotMatch(mallXml,/<options>/);
+  const zeroMall={...mall,before:{...mall.before,sellPrice:0},target:{...mall.target,sellPrice:5000}};
+  assert.doesNotThrow(()=>shop.buildMonthlyPriceWriteXml(goodsKey,zeroMall,{loginId:'TEST',companyId:'TEST',authKey:'TEST'}));
+  const statusXml=shop.buildMonthlySaleStatusWriteXml(goodsKey,'B',{loginId:'TEST',companyId:'TEST',authKey:'TEST'});
+  assert.match(statusXml,/<sale_status><!\[CDATA\[B\]\]><\/sale_status>/);assert.doesNotMatch(statusXml,/optQty|optAmt|sale_price/);
   shop.assertMonthlyWriteAcknowledgement('<res><goodsRst><goods_key>1234567</goods_key><code>000</code></goodsRst></res>',goodsKey);
   assert.throws(()=>shop.assertMonthlyWriteAcknowledgement('<res><goodsRst><code>999</code></goodsRst></res>',goodsKey),/ACK_UNVERIFIED/);
   assert.throws(()=>shop.buildMonthlyPriceWriteXml(goodsKey,{...w,target:{...w.target,sellPrice:1}},{loginId:'TEST',companyId:'TEST',authKey:'TEST'}),/POLICY_VIOLATION/);
