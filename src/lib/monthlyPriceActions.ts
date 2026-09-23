@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyMallPrices, assertMonthlyWritePreimage, verifyMonthlyPricePlan, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
 import { assertMonthlyEvidenceUnchanged } from "@/lib/monthlyPriceSource";
-import { loadShoplingProductGroupsByGoodsKey } from "@/lib/shopling/shoplingProductGroupRegistry";
+import { loadShoplingProductGroupsByGoodsKey, rememberRecoveredShoplingProductGroup } from "@/lib/shopling/shoplingProductGroupRegistry";
+import { recoverMonthlyPriceGroup } from "@/lib/monthlyPriceGroupRecovery";
 import { readMonthlyLiveProduct, writeMonthlyShoplingPrice } from "@/lib/monthlyPriceShopling";
 import { withMonthlyPriceItem, saveMonthlyPriceItem, auditMonthlyPrice, type MonthlyPriceItem } from "@/lib/monthlyPriceStore";
 
@@ -23,15 +24,33 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       if (item.state !== "QUEUED") return response(item);
       try {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
-        const group = (await loadShoplingProductGroupsByGoodsKey([item.goods_key])).get(item.goods_key);
-        if (!group || group !== item.candidate.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
+        if (item.candidate.reason) throw new Error(item.candidate.reason);
         const observed = monthlyValidateObservation(payload.observation, item.goods_key);
         const live = await readMonthlyLiveProduct(item.goods_key);
-        monthlyValidateObservation(payload.observation, item.goods_key);
-        item.plan = buildMonthlyPricePlan(item.candidate, live, observed);
+        const registered = (await loadShoplingProductGroupsByGoodsKey([item.goods_key])).get(item.goods_key);
+        if (item.candidate.productGroup && registered !== item.candidate.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
+        const recovery = recoverMonthlyPriceGroup({ registeredGroup: registered, candidate: item.candidate, liveRows: live, observation: observed });
+        if (!recovery.group) {
+          item.plan = null;
+          item.state = "HELD";
+          item.error_code = null;
+          await auditMonthlyPrice(item, "GROUP_UNRESOLVED_CURRENT_PRICE_HELD", { source: recovery.source, priceRatio: recovery.priceRatio });
+          return response(item);
+        }
+        let registryPersisted = Boolean(registered);
+        if (!registered) {
+          try {
+            await rememberRecoveredShoplingProductGroup({ goodsKey: item.goods_key, group: recovery.group, partnerCode: recovery.partnerCode, source: recovery.source });
+            registryPersisted = true;
+          } catch (persistError) {
+            if (code(persistError) === "MONTHLY_PRICE_GROUP_CHANGED") throw persistError;
+          }
+        }
+        const effectiveCandidate = { ...item.candidate, productGroup: recovery.group };
+        item.plan = buildMonthlyPricePlan(effectiveCandidate, live, observed, recovery.mallScopeKeys.length ? { mallScopeKeys: recovery.mallScopeKeys } : undefined);
         item.state = item.plan.writes.length ? "PREPARED" : "HELD";
         item.error_code = null;
-        await auditMonthlyPrice(item, "PREFLIGHT", { policy: MONTHLY_PRICE_POLICY, sourceHash: run.source_hash, plan: item.plan });
+        await auditMonthlyPrice(item, "PREFLIGHT", { policy: MONTHLY_PRICE_POLICY, sourceHash: run.source_hash, plan: item.plan, groupRecovery: { ...recovery, registryPersisted } });
       } catch (error) {
         item.state = "BLOCKED"; item.error_code = code(error);
       }
@@ -43,11 +62,19 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       let dispatched = false;
       try {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
-        const group = (await loadShoplingProductGroupsByGoodsKey([item.goods_key])).get(item.goods_key);
-        if (group !== item.plan.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
         const observed = monthlyValidateObservation(payload.observation, item.goods_key);
         const live = await readMonthlyLiveProduct(item.goods_key);
-        monthlyValidateObservation(payload.observation, item.goods_key);
+        const registered = (await loadShoplingProductGroupsByGoodsKey([item.goods_key])).get(item.goods_key);
+        if (registered && registered !== item.plan.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
+        if (!registered) {
+          const recovery = recoverMonthlyPriceGroup({ candidate: item.candidate, liveRows: live, observation: observed });
+          if (recovery.group !== item.plan.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
+          try {
+            await rememberRecoveredShoplingProductGroup({ goodsKey: item.goods_key, group: recovery.group, partnerCode: recovery.partnerCode, source: recovery.source });
+          } catch (persistError) {
+            if (code(persistError) === "MONTHLY_PRICE_GROUP_CHANGED") throw persistError;
+          }
+        }
         const liveProduct = monthlyLiveProduct(item.candidate, live);
         const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : liveProduct.prices;
         if (assertMonthlyWritePreimage(write, current, write.mallKey ? [] : liveProduct.options) === "ALREADY_APPLIED") {
