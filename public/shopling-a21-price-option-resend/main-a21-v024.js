@@ -23,55 +23,6 @@
     .filter((item) => item.name === name)
     .map((item) => String(item.value ?? ""));
 
-  const visible = (element) => {
-    if (!(element instanceof Element)) return false;
-    const rect = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-  };
-
-  function adjacentText(control) {
-    if (!(control instanceof Element)) return "";
-    const chunks = [];
-    if (control.id) {
-      for (const label of document.querySelectorAll("label")) if (label.htmlFor === control.id) chunks.push(label.textContent || "");
-    }
-    const closest = control.closest("label");
-    if (closest) chunks.push(closest.textContent || "");
-    for (const sibling of [control.previousSibling, control.nextSibling, control.previousElementSibling, control.nextElementSibling]) {
-      if (sibling) chunks.push(sibling.textContent || sibling.nodeValue || "");
-    }
-    const row = control.closest("tr");
-    if (row) chunks.push(row.textContent || "");
-    return norm(chunks.join(" | "));
-  }
-
-  function modeRadioByText(label) {
-    const wanted = norm(label);
-    return [...document.querySelectorAll('input[type="radio"]')]
-      .filter((radio) => visible(radio) && adjacentText(radio).includes(wanted))
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0] || null;
-  }
-
-  function saleStatusControl(label) {
-    const wanted = norm(label);
-    return [...document.querySelectorAll('input[type="radio"],input[type="checkbox"]')]
-      .filter((control) => visible(control))
-      .filter((control) => {
-        const text = adjacentText(control);
-        return text.includes(wanted) && /판매상태|상품판매상태|품절|판매중/.test(text);
-      })
-      .sort((a, b) => adjacentText(a).length - adjacentText(b).length)[0] || null;
-  }
-
-  function statusTargetLabel(mode) {
-    return mode === "STATUS_SOLD_OUT" ? "품절" : "판매중";
-  }
-
-  function verifySaleStatus(mode) {
-    return Boolean(modeRadioByText("상품판매상태송신")?.checked && saleStatusControl(statusTargetLabel(mode))?.checked);
-  }
-
   function radioEvidence(radio) {
     if (!(radio instanceof HTMLInputElement)) return "";
     const chunks = [];
@@ -184,8 +135,6 @@
     } else if (mode === "OPTION") {
       if (checkedValue("modify_tp") !== "goods_stock") return { ok: false, error: "v024_option_mode_invalid", actual: checkedValue("modify_tp") };
       if (checkedValue("trsmt_env_mody_opt") !== "1") return { ok: false, error: "v024_option_field_invalid", actual: checkedValue("trsmt_env_mody_opt") };
-    } else if (mode === "STATUS_SELLING" || mode === "STATUS_SOLD_OUT") {
-      if (!verifySaleStatus(mode)) return { ok: false, error: "v024_sale_status_invalid", target: statusTargetLabel(mode) };
     } else {
       return { ok: false, error: "v024_invalid_mode" };
     }
