@@ -210,6 +210,74 @@
     return verifyRadio("modify_tp", "goods_stock") && verifyRadio("trsmt_env_mody_opt", "1");
   }
 
+  function visible(element) {
+    if (!(element instanceof Element)) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+  }
+
+  function adjacentText(control) {
+    if (!(control instanceof Element)) return "";
+    const chunks = [];
+    if (control.id) {
+      for (const label of document.querySelectorAll("label")) {
+        if (label.htmlFor === control.id) chunks.push(label.textContent || "");
+      }
+    }
+    const closest = control.closest("label");
+    if (closest) chunks.push(closest.textContent || "");
+    for (const sibling of [control.previousSibling, control.nextSibling, control.previousElementSibling, control.nextElementSibling]) {
+      if (sibling) chunks.push(sibling.textContent || sibling.nodeValue || "");
+    }
+    const row = control.closest("tr");
+    if (row) chunks.push(row.textContent || "");
+    return norm(chunks.join(" | "));
+  }
+
+  function modeRadioByText(label) {
+    const wanted = norm(label);
+    const matches = [...document.querySelectorAll('input[type="radio"]')]
+      .filter((radio) => visible(radio) && adjacentText(radio).includes(wanted));
+    matches.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    return matches[0] || null;
+  }
+
+  function saleStatusControl(label) {
+    const wanted = norm(label);
+    const controls = [...document.querySelectorAll('input[type="radio"],input[type="checkbox"]')].filter(visible);
+    const matches = controls.filter((control) => {
+      const text = adjacentText(control);
+      return text.includes(wanted) && /판매상태|상품판매상태|품절|판매중/.test(text);
+    });
+    matches.sort((a, b) => adjacentText(a).length - adjacentText(b).length);
+    return matches[0] || null;
+  }
+
+  function statusTargetLabel(mode) {
+    return mode === "STATUS_SOLD_OUT" ? "품절" : "판매중";
+  }
+
+  function configureSaleStatus(mode) {
+    status(`상품판매상태 ${statusTargetLabel(mode)} 전송 form 설정 중`);
+    const top = modeRadioByText("상품판매상태송신");
+    if (!top || !top.checked) setControl(top, true);
+    const target = saleStatusControl(statusTargetLabel(mode));
+    if (!target || !target.checked) setControl(target, true);
+    if (!top?.checked || !target?.checked) return { ok: false, code: "V024_STATUS_SELECT", message: `상품판매상태 ${statusTargetLabel(mode)} 설정 실패` };
+    return { ok: true };
+  }
+
+  function verifySaleStatus(mode) {
+    return Boolean(modeRadioByText("상품판매상태송신")?.checked && saleStatusControl(statusTargetLabel(mode))?.checked);
+  }
+
+  function modeLabel(mode) {
+    if (mode === "PRICE") return "판매가";
+    if (mode === "OPTION") return "옵션";
+    return `판매상태 ${statusTargetLabel(mode)}`;
+  }
+
   function payloadExists() {
     const joined = [...document.querySelectorAll('input[type="hidden"]')].filter((item) => item.name === "prod_join_chk[]");
     return joined.length > 0 && joined.every((item) => /^\d+$/.test(String(item.value || "")));
@@ -253,21 +321,32 @@
     try {
       if (!isExactPopupUrl()) return sendFailure(assignment.jobId, "V024_POPUP_URL", `송신 URL 불일치: ${location.href}`);
       if (!payloadExists()) return sendFailure(assignment.jobId, "V024_PAYLOAD", "prod_join_chk[] 대상값이 없어 송신 차단");
-      status(`${assignment.mode === "PRICE" ? "판매가" : "옵션"} assignment 수신`);
-      const configured = assignment.mode === "PRICE" ? await configurePrice() : await configureOption();
+      const isStatus = ["STATUS_SELLING", "STATUS_SOLD_OUT"].includes(assignment.mode);
+      status(`${modeLabel(assignment.mode)} assignment 수신`);
+      const configured = assignment.mode === "PRICE"
+        ? await configurePrice()
+        : assignment.mode === "OPTION"
+          ? await configureOption()
+          : isStatus
+            ? configureSaleStatus(assignment.mode)
+            : { ok: false, code: "V024_MODE_INVALID", message: "지원하지 않는 월 가격조정 송신 모드입니다." };
       if (!configured.ok) return sendFailure(assignment.jobId, configured.code, configured.message);
-      const valid = assignment.mode === "PRICE" ? verifyPrice() : verifyOption();
+      const valid = assignment.mode === "PRICE"
+        ? verifyPrice()
+        : assignment.mode === "OPTION"
+          ? verifyOption()
+          : isStatus && verifySaleStatus(assignment.mode);
       if (!valid) return sendFailure(assignment.jobId, "V024_PRE_SUBMIT_VERIFY", "송신 직전 form 상태 검증 실패");
 
       const delivery = assignment.mode === "PRICE" ? verifyDeliveryUnchanged() : { ok: true, evidence: "" };
       status(
-        `${assignment.mode === "PRICE" ? "판매가" : "옵션"} 설정 완료 · 1.2초 후 MAIN world 원본송신${assignment.mode === "PRICE" ? " · 배송정보=수정안함" : ""}`,
+        `${modeLabel(assignment.mode)} 설정 완료 · 1.2초 후 MAIN world 원본송신${assignment.mode === "PRICE" ? " · 배송정보=수정안함" : ""}`,
         "ok",
       );
       await sendStage(
         assignment.jobId,
         "POPUP_CONFIG",
-        `${assignment.mode === "PRICE" ? "판매가" : "옵션"} 실제 form 값 검증 완료${assignment.mode === "PRICE" ? ` · 배송 수정안함(${delivery.evidence || "DOM"})` : ""}`,
+        `${modeLabel(assignment.mode)} 실제 form 값 검증 완료${assignment.mode === "PRICE" ? ` · 배송 수정안함(${delivery.evidence || "DOM"})` : ""}`,
       );
       await sleep(1200);
 
@@ -275,11 +354,15 @@
         const forced = forceDeliveryUnchanged();
         if (!forced.ok) return sendFailure(assignment.jobId, "V024_DELIVERY_CHANGED", "송신 직전 배송정보 수정안함 상태를 복구하지 못해 차단했습니다.");
       }
-      const stillValid = assignment.mode === "PRICE" ? verifyPrice() : verifyOption();
+      const stillValid = assignment.mode === "PRICE"
+        ? verifyPrice()
+        : assignment.mode === "OPTION"
+          ? verifyOption()
+          : isStatus && verifySaleStatus(assignment.mode);
       if (!stillValid) return sendFailure(assignment.jobId, "V024_CONFIG_CHANGED", "대기 중 form 상태가 바뀌어 송신 차단");
 
       status("MAIN world Shopling 원본 함수 호출", "warn");
-      await sendStage(assignment.jobId, "SUBMIT_CLICKED", `${assignment.mode === "PRICE" ? "판매가" : "옵션"} · MAIN world 원본 송신 호출`);
+      await sendStage(assignment.jobId, "SUBMIT_CLICKED", `${modeLabel(assignment.mode)} · MAIN world 원본 송신 호출`);
       const response = await mainSubmit(assignment.mode);
       if (!response?.ok) return sendFailure(assignment.jobId, "V024_MAIN_SUBMIT_FAILED", `MAIN world 송신 실패: ${response?.error || "응답 없음"}`);
       if (assignment.mode === "PRICE" && response.deliveryInfoUnchanged !== true) {
