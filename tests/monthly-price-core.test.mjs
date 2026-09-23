@@ -140,6 +140,7 @@ test('positive readback requires base, options and every connected channel targe
   const b=p.targets.find(x=>x.mallKey===null),m=p.targets.find(x=>x.mallKey);
   assert.equal(verifyMonthlyPricePlan(p,candidate(),live(b.target.sellPrice,b.options[0].targetAmount),observation(m.target.sellPrice)),true);
   assert.throws(()=>verifyMonthlyPricePlan(p,candidate(),live(b.target.sellPrice,b.options[0].targetAmount+10),observation(m.target.sellPrice)),/OPTION_READBACK_MISMATCH/);
+  assert.doesNotThrow(()=>monthlyLiveProduct(candidate(),[{...live()[0],sale_status:'C'}]));
   assert.throws(()=>monthlyLiveProduct(candidate(),[{...live()[0],sale_status:'D'}]),/INACTIVE_LISTING/);
 });
 test('boundary validation: zero, missing, booleans, decimals, infinite, malformed month', () => {
