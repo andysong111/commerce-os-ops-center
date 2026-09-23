@@ -2,7 +2,7 @@ import { shoplingReadConfigFromEnv, parseShoplingReadResponse } from "@/lib/shop
 import { buildShoplingProductIdLookupXml } from "@/lib/shopling/shoplingCurrentPriceResolver";
 import { postShoplingXml } from "@/lib/shopling/shoplingTlsTransport";
 import { parseSimpleXml } from "@/lib/shopling/simpleXml";
-import { monthlyRecord, monthlyMoney, type MonthlyOptionPriceTarget, type MonthlyPriceWrite } from "@/lib/monthlyPriceCore";
+import { monthlyRecord, monthlyMoney, type MonthlyOptionPriceTarget, type MonthlyPriceWrite, type MonthlySaleStatus } from "@/lib/monthlyPriceCore";
 
 const PRODUCT_WRITE_URL = "https://api.shopling.co.kr/prod/prod_modify_api.phtml?mode=2";
 const MALL_WRITE_URL = "https://api.shopling.co.kr/prod/prod_each_mall_modify_api.phtml?mode=2";
@@ -36,7 +36,12 @@ function optionXml(options: MonthlyOptionPriceTarget[]) {
 }
 export function buildMonthlyPriceWriteXml(goodsKey: string, write: MonthlyPriceWrite, auth: { loginId: string; companyId: string; authKey: string }) {
   if (!/^\d{5,9}$/.test(goodsKey) || (write.mallKey && !/^SMALL_\d{5}$/.test(write.mallKey))) throw new Error("MONTHLY_PRICE_WRITE_SCOPE_INVALID");
-  for (const values of [write.before, write.target]) { monthlyMoney(values.sellPrice); monthlyMoney(values.purchasePrice, true); monthlyMoney(values.consumerPrice, true); }
+  monthlyMoney(write.before.sellPrice, Boolean(write.mallKey));
+  monthlyMoney(write.target.sellPrice);
+  for (const values of [write.before, write.target]) {
+    monthlyMoney(values.purchasePrice, true);
+    monthlyMoney(values.consumerPrice, true);
+  }
   const optionChanged = (write.options ?? []).some((row) => row.targetAmount !== row.beforeAmount);
   const baseIncrease = write.target.sellPrice > write.before.sellPrice;
   if (write.target.sellPrice < write.before.sellPrice || (!baseIncrease && !optionChanged) || write.target.purchasePrice !== write.before.purchasePrice || write.target.consumerPrice !== write.before.consumerPrice || (write.mallKey && write.options?.length)) throw new Error("MONTHLY_PRICE_WRITE_POLICY_VIOLATION");
@@ -62,4 +67,25 @@ export async function writeMonthlyShoplingPrice(goodsKey: string, write: Monthly
   const result = await postShoplingXml(write.mallKey ? MALL_WRITE_URL : PRODUCT_WRITE_URL, xml, { headers, timeoutMs: 15_000 });
   if (!result.ok) throw new Error("MONTHLY_PRICE_WRITE_UNCERTAIN");
   assertMonthlyWriteAcknowledgement(await result.text(), goodsKey);
+}
+
+export function buildMonthlySaleStatusWriteXml(
+  goodsKey: string,
+  target: MonthlySaleStatus,
+  auth: { loginId: string; companyId: string; authKey: string },
+) {
+  if (!/^\d{5,9}$/.test(goodsKey) || !["B", "C"].includes(target)) throw new Error("MONTHLY_PRICE_SALE_STATUS_SCOPE_INVALID");
+  return `<?xml version="1.0" encoding="UTF-8"?><reqst><apiProdMdy><login_id>${cdata(auth.loginId)}</login_id><company_id>${cdata(auth.companyId)}</company_id><api_auth_key>${cdata(auth.authKey)}</api_auth_key><goodsInfo><goods_key>${goodsKey}</goods_key><sale_status>${cdata(target)}</sale_status></goodsInfo></apiProdMdy></reqst>`;
+}
+export async function writeMonthlyShoplingSaleStatus(goodsKey: string, target: MonthlySaleStatus) {
+  const cfg = config();
+  const xml = buildMonthlySaleStatusWriteXml(goodsKey, target, cfg);
+  const result = await postShoplingXml(PRODUCT_WRITE_URL, xml, { headers, timeoutMs: 15_000 });
+  if (!result.ok) throw new Error("MONTHLY_PRICE_SALE_STATUS_WRITE_UNCERTAIN");
+  assertMonthlyWriteAcknowledgement(await result.text(), goodsKey);
+  const live = await readMonthlyLiveProduct(goodsKey);
+  if (!live.length || live.some((row) => String(row.sale_status ?? "").trim().toUpperCase() !== target)) {
+    throw new Error("MONTHLY_PRICE_SALE_STATUS_READBACK_MISMATCH");
+  }
+  return true;
 }
