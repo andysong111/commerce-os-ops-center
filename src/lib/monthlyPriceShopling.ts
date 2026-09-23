@@ -17,6 +17,27 @@ export async function readMonthlyLiveProduct(goodsKey: string) {
   if (!result.ok) throw new Error("MONTHLY_PRICE_SHOPLING_READ_FAILED");
   return parseShoplingReadResponse("products", await result.text()) as Record<string, unknown>[];
 }
+export function monthlySaleStatus(rows: Record<string, unknown>[]) {
+  const statuses = [...new Set(rows.map((row) => String(row.sale_status ?? "").trim().toUpperCase()))];
+  if (statuses.length !== 1 || !["B", "C"].includes(statuses[0])) throw new Error("MONTHLY_PRICE_INACTIVE_LISTING");
+  return statuses[0] as "B" | "C";
+}
+export function buildMonthlySaleStatusWriteXml(goodsKey: string, target: "B" | "C", auth: { loginId: string; companyId: string; authKey: string }) {
+  if (!/^\d{5,9}$/.test(goodsKey) || !["B", "C"].includes(target)) throw new Error("MONTHLY_PRICE_STATUS_SCOPE_INVALID");
+  return `<?xml version="1.0" encoding="UTF-8"?><reqst><apiProdMdy><login_id>${cdata(auth.loginId)}</login_id><company_id>${cdata(auth.companyId)}</company_id><api_auth_key>${cdata(auth.authKey)}</api_auth_key><goodsInfo><goods_key>${goodsKey}</goods_key><sale_status>${target}</sale_status></goodsInfo></apiProdMdy></reqst>`;
+}
+export async function ensureMonthlyShoplingSaleStatus(goodsKey: string, target: "B" | "C") {
+  const beforeRows = await readMonthlyLiveProduct(goodsKey);
+  const before = monthlySaleStatus(beforeRows);
+  if (before === target) return { before, after: target, changed: false } as const;
+  const xml = buildMonthlySaleStatusWriteXml(goodsKey, target, config());
+  const result = await postShoplingXml(PRODUCT_WRITE_URL, xml, { headers, timeoutMs: 15_000 });
+  if (!result.ok) throw new Error("MONTHLY_PRICE_STATUS_WRITE_UNCERTAIN");
+  assertMonthlyWriteAcknowledgement(await result.text(), goodsKey);
+  const after = monthlySaleStatus(await readMonthlyLiveProduct(goodsKey));
+  if (after !== target) throw new Error("MONTHLY_PRICE_STATUS_READBACK_MISMATCH");
+  return { before, after, changed: true } as const;
+}
 function optionXml(options: MonthlyOptionPriceTarget[]) {
   if (!options.length) return "";
   const titles = [...new Set(options.map((row) => row.optionTitle))];
@@ -36,7 +57,9 @@ function optionXml(options: MonthlyOptionPriceTarget[]) {
 }
 export function buildMonthlyPriceWriteXml(goodsKey: string, write: MonthlyPriceWrite, auth: { loginId: string; companyId: string; authKey: string }) {
   if (!/^\d{5,9}$/.test(goodsKey) || (write.mallKey && !/^SMALL_\d{5}$/.test(write.mallKey))) throw new Error("MONTHLY_PRICE_WRITE_SCOPE_INVALID");
-  for (const values of [write.before, write.target]) { monthlyMoney(values.sellPrice); monthlyMoney(values.purchasePrice, true); monthlyMoney(values.consumerPrice, true); }
+  monthlyMoney(write.before.sellPrice, Boolean(write.mallKey));
+  monthlyMoney(write.target.sellPrice);
+  for (const values of [write.before, write.target]) { monthlyMoney(values.purchasePrice, true); monthlyMoney(values.consumerPrice, true); }
   const optionChanged = (write.options ?? []).some((row) => row.targetAmount !== row.beforeAmount);
   const baseIncrease = write.target.sellPrice > write.before.sellPrice;
   if (write.target.sellPrice < write.before.sellPrice || (!baseIncrease && !optionChanged) || write.target.purchasePrice !== write.before.purchasePrice || write.target.consumerPrice !== write.before.consumerPrice || (write.mallKey && write.options?.length)) throw new Error("MONTHLY_PRICE_WRITE_POLICY_VIOLATION");
