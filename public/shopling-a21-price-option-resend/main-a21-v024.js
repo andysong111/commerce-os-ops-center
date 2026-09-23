@@ -114,7 +114,7 @@
     }));
   }
 
-  function validate(mode) {
+  function validate(mode, desiredSaleStatus = "") {
     const payload = hiddenValues("prod_join_chk[]");
     if (!payload.length || payload.some((value) => !/^\d+$/.test(value))) {
       return { ok: false, error: "v024_payload_invalid", payload };
@@ -135,6 +135,11 @@
     } else if (mode === "OPTION") {
       if (checkedValue("modify_tp") !== "goods_stock") return { ok: false, error: "v024_option_mode_invalid", actual: checkedValue("modify_tp") };
       if (checkedValue("trsmt_env_mody_opt") !== "1") return { ok: false, error: "v024_option_field_invalid", actual: checkedValue("trsmt_env_mody_opt") };
+    } else if (mode === "STATUS") {
+      const expected = desiredSaleStatus === "B" ? "1" : desiredSaleStatus === "C" ? "3" : "";
+      if (!expected) return { ok: false, error: "v024_status_target_invalid", desiredSaleStatus };
+      if (checkedValue("modify_tp") !== "goods_stauts") return { ok: false, error: "v024_status_mode_invalid", actual: checkedValue("modify_tp") };
+      if (checkedValue("trsmt_env_mody_status") !== expected) return { ok: false, error: "v024_status_field_invalid", expected, actual: checkedValue("trsmt_env_mody_status") };
     } else {
       return { ok: false, error: "v024_invalid_mode" };
     }
@@ -149,9 +154,10 @@
     try { request = JSON.parse(String(event?.detail || "{}")); } catch { /* ignore */ }
     const nonce = String(request?.nonce || "");
     const mode = String(request?.mode || "");
+    const desiredSaleStatus = String(request?.desiredSaleStatus || "");
     if (!nonce) return;
 
-    const validation = validate(mode);
+    const validation = validate(mode, desiredSaleStatus);
     if (!validation.ok) return respond(nonce, validation);
 
     const originalConfirm = window.confirm;
@@ -198,6 +204,7 @@
         ok: true,
         invoked: true,
         mode,
+        desiredSaleStatus: mode === "STATUS" ? desiredSaleStatus : "",
         payloadCount: validation.payloadCount,
         sawSubmitConfirm,
         sawDeliveryNotice,
