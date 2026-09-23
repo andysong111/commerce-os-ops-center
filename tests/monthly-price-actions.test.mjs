@@ -37,6 +37,23 @@ test('actual production action happy path: prepare -> durable price+option inten
   assert.equal(h.item.state,'TRANSMITTED');assert.equal(h.item.transmission.result,'RESULT_WINDOW_FINISHED_MARKET_CONFIRMATION_PENDING');
   assert.equal(h.log.filter(x=>x==='write').length,2);
 });
+test('legacy item without exact group auto-infers wholesale and can execute without confirmation',async()=>{
+  const h=harness();h.state.group=null;h.item.candidate.productGroup='';
+  await h.call('prepare');
+  assert.equal(h.item.state,'PREPARED');assert.equal(h.item.plan.productGroup,'도매1');assert.equal(h.item.error_code,null);
+  assert.equal(h.item.plan.targets.filter(x=>x.mallKey).length,1);
+  await h.call('write');assert.equal(h.item.write_index,1);
+});
+
+test('legacy item with ambiguous family is silently held at current price instead of confirmation-blocked',async()=>{
+  const h=harness();h.state.group=null;h.item.candidate.productGroup='';
+  h.state.raw=live(3900);
+  h.state.observed={...observation(3900),rows:[{...observation(3900).rows[0],mallKey:'SMALL_00999'}]};
+  await h.call('prepare');
+  assert.equal(h.item.state,'HELD');assert.equal(h.item.plan,null);assert.equal(h.item.error_code,null);
+  assert.equal(h.log.includes('LEGACY_GROUP_UNRESOLVED_HELD'),true);assert.equal(h.log.includes('write'),false);
+});
+
 test('unknown-cost candidate and source drift do not write',async()=>{
   const h=harness();h.item.candidate.reason='MONTHLY_PRICE_CONFIRMED_COST_REQUIRED';await h.call('prepare');assert.equal(h.item.state,'BLOCKED');assert.equal(h.log.includes('write'),false);
   const b=harness();b.state.sourceError=true;await b.call('prepare');assert.equal(b.item.error_code,'MONTHLY_PRICE_SOURCE_CHANGED');assert.equal(b.log.includes('read'),false);
