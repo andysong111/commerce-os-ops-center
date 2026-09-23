@@ -8,12 +8,12 @@ const token='44444444-4444-4444-8444-444444444444',fingerprint='a'.repeat(64);
 function worker() {
   const storage={},log=[],listeners=[];
   let current=null,shoplingTabs=[{id:12,url:'https://a.shopling.co.kr/main.phtml'}];
-  const item={id:itemId,goodsKey,state:'RESENDING',plan:{fingerprint,targets:[{mallKey:'SMALL_00069'}],optionChangeCount:1},transmission:{token}};
+  const item={id:itemId,goodsKey,state:'RESENDING',plan:{fingerprint,targets:[{mallKey:'SMALL_00069'}],optionChangeCount:1,saleStatusTransition:null},transmission:{token}};
   const context={console,URL,Error,setTimeout,clearTimeout,importScripts:()=>{},
     chrome:{storage:{local:{get:async key=>({[key]:storage[key]}),set:async value=>Object.assign(storage,value)},onChanged:{addListener:()=>{}}},runtime:{onMessage:{addListener:f=>listeners.push(f)}},tabs:{query:async()=>shoplingTabs},scripting:{}},
     loadState:async()=>current,saveState:async s=>{log.push('persist');current=s;},publicState:s=>s,
     buildBatches:rows=>[{id:'batch',goodsKeys:rows.map(r=>r.goodsKey)}],addJobs:(s,b)=>s.jobs.push({mode:'PRICE',goodsKeys:b.goodsKeys},{mode:'OPTION',goodsKeys:b.goodsKeys}),
-    baselinePopupTabs:async()=>[],pump:async()=>{log.push('pump');},startRun:async()=>{log.push('legacy');},
+    baselinePopupTabs:async()=>[],launchJob:async(s,j)=>{log.push(`launch:${j.mode}`);j.status='RUNNING';},pump:async()=>{log.push('pump');},startRun:async()=>{log.push('legacy');},
     fetch:async url=>{log.push(url);return {ok:true,json:async()=>({ok:true,run:{id:runId},items:[item]})};},
   };
   vm.createContext(context);vm.runInContext(file('background-monthly-price.js'),context);
@@ -41,6 +41,40 @@ test('status reports success capability only when both PRICE and OPTION jobs exi
   const w=worker();await w.send('MONTHLY_PRICE_START');w.current.state='SUCCEEDED';
   const status=await w.send('MONTHLY_PRICE_STATUS',{token,fingerprint,goodsKey});assert.equal(status.ok,true);assert.equal(status.report.priceOnly,false);assert.equal(status.report.priceAndOption,true);
 });
+test('sold-out monthly transmission queues STATUS_SELLING -> PRICE -> OPTION and optional restore last',async()=>{
+  const w=worker();
+  w.item.plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:false};
+  let r=await w.send('MONTHLY_PRICE_START');
+  assert.equal(r.ok,true);
+  assert.deepEqual(Array.from(w.current.jobs,x=>x.mode),['STATUS_SELLING','PRICE','OPTION']);
+  let status=await w.send('MONTHLY_PRICE_STATUS',{token,fingerprint,goodsKey});
+  assert.equal(status.report.saleStatusActivated,false);
+  assert.equal(status.report.saleStatusRestored,true);
+
+  const w2=worker();
+  w2.item.plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:true};
+  r=await w2.send('MONTHLY_PRICE_START');
+  assert.equal(r.ok,true);
+  assert.deepEqual(Array.from(w2.current.jobs,x=>x.mode),['STATUS_SELLING','PRICE','OPTION','STATUS_SOLD_OUT']);
+});
+
+test('monthly extension pump never starts OPTION before PRICE succeeds',async()=>{
+  const w=worker();
+  w.item.plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:false};
+  await w.send('MONTHLY_PRICE_START');
+  assert.deepEqual(w.log.filter(x=>x.startsWith('launch:')),['launch:STATUS_SELLING']);
+  const statusJob=w.current.jobs.find(x=>x.mode==='STATUS_SELLING');
+  statusJob.status='SUCCEEDED';
+  const price=w.current.jobs.find(x=>x.mode==='PRICE');
+  const option=w.current.jobs.find(x=>x.mode==='OPTION');
+  await w.context.pump();
+  assert.equal(price.status,'RUNNING');assert.equal(option.status,'QUEUED');
+  price.status='FAILED';price.error='fixture';
+  await w.context.pump();
+  assert.equal(option.status,'STOPPED');
+  assert.equal(w.current.state,'PARTIAL_FAILURE');
+});
+
 test('duplicate and refresh preserve token and never pump twice',async()=>{
   const w=worker();await w.send('MONTHLY_PRICE_START');await w.send('MONTHLY_PRICE_START',{...w.payload,newClaim:false});assert.equal(w.log.filter(x=>x==='pump').length,1);
 });
