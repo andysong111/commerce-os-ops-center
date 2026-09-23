@@ -18,7 +18,7 @@ function harness() {
         log.push(`status:${target}`);
         const before=String(state.raw[0]?.sale_status||'');
         state.raw=state.raw.map(row=>({...row,sale_status:target}));
-        return {before,after:target,changed:before!==target};
+        return {before,after:target,changed:before!==target,rows:state.raw};
       },
       writeMonthlyShoplingPrice:async(_,write)=>{log.push('write');if(state.writeError)throw new Error('MONTHLY_PRICE_WRITE_UNCERTAIN'); if(write.mallKey)state.observed.rows[0]={...state.observed.rows[0],...write.target};else state.raw=live(write.target.sellPrice,write.options?.[0]?.targetAmount??0).map(row=>({...row,sale_status:state.raw[0]?.sale_status||'B'}));},
     },
