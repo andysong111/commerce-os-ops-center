@@ -46,6 +46,24 @@ test('base increase preserves independently higher channel price and display ori
   assert.equal(plan.writes[0].target.purchasePrice,321); assert.equal(plan.writes[0].target.consumerPrice,6543);
   assert.equal(plan.optionChangeCount,0); assert.equal(plan.protectedDecreaseCount,1);
 });
+test('legacy zero mall price bootstraps calculated mall price instead of excluding the product', () => {
+  const zero=observation(0);
+  const plan=buildMonthlyPricePlan(candidate(),live(1000),zero);
+  const mall=plan.targets.find(x=>x.mallKey==='SMALL_00069');
+  assert.equal(mall.before.sellPrice,0);
+  assert.ok(mall.target.sellPrice>0);
+  assert.ok(plan.writes.some(x=>x.mallKey==='SMALL_00069'));
+  assert.equal(assertMonthlyWritePreimage(mall,{...mall.before}),'WRITE');
+});
+
+test('sold-out product plans selling-before-price and optional restore metadata', () => {
+  const sold=live().map(row=>({...row,sale_status:'C'}));
+  const keepSelling=buildMonthlyPricePlan(candidate(),sold,observation());
+  assert.deepEqual(keepSelling.saleStatusTransition,{before:'C',target:'B',restoreAfterTransmission:false});
+  const restore=buildMonthlyPricePlan(candidate(),sold,observation(),{restoreSaleStatusAfterTransmission:true});
+  assert.deepEqual(restore.saleStatusTransition,{before:'C',target:'B',restoreAfterTransmission:true});
+  assert.equal(buildMonthlyPricePlan(candidate(),live(),observation()).saleStatusTransition,null);
+});
 test('missing current registry never treats stale candidate snapshot group as exact', () => {
   const stale={...candidate(),productGroup:'도매4'};
   const resolved=resolveMonthlyPriceGroup(stale,live(3900),observation(3900),null);
