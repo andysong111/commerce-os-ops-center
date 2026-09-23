@@ -130,7 +130,10 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     try {
       await bridgeReady();
       if (!active()) return;
-      let data = await refreshRun(snapshot.run?.id);
+      let data = allowQueuedResume && snapshot.run
+        ? await api({ action: "resumePreflight", month, runId: snapshot.run.id }) as Snapshot
+        : await refreshRun(snapshot.run?.id);
+      if (allowQueuedResume && generation.current === current) setSnapshot(data);
       if (!data.run) throw new Error("MONTHLY_PRICE_RUN_REQUIRED");
       const runId = data.run.id;
       const unpreviewed = data.items.filter((item) => item.state === "QUEUED").length;
