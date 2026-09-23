@@ -287,7 +287,7 @@
 
   function encodeAssignment(message) {
     try {
-      return OPENER_PREFIX + encodeURIComponent(JSON.stringify({ jobId: String(message.jobId), mode: String(message.mode), runId: String(message.runId || "") }));
+      return OPENER_PREFIX + encodeURIComponent(JSON.stringify({ jobId: String(message.jobId), mode: String(message.mode), runId: String(message.runId || ""), desiredSaleStatus: String(message.desiredSaleStatus || "") }));
     } catch {
       return "";
     }
@@ -303,8 +303,8 @@
     if (!raw?.startsWith(OPENER_PREFIX)) return null;
     try {
       const parsed = JSON.parse(decodeURIComponent(raw.slice(OPENER_PREFIX.length)));
-      if (!parsed?.jobId || !["PRICE", "OPTION"].includes(parsed.mode)) return null;
-      return { jobId: String(parsed.jobId), mode: String(parsed.mode), runId: String(parsed.runId || "") };
+      if (!parsed?.jobId || !["PRICE", "OPTION", "STATUS"].includes(parsed.mode)) return null;
+      return { jobId: String(parsed.jobId), mode: String(parsed.mode), runId: String(parsed.runId || ""), desiredSaleStatus: String(parsed.desiredSaleStatus || "") };
     } catch {
       return null;
     }
@@ -354,7 +354,7 @@
     }
     setPageSize500();
     if (!setSearchFieldToGoodsKey()) return fail(assignment.jobId, "A21_GOODSKEY_SEARCH_SELECT_NOT_FOUND", "검색항목의 샵플링상품코드 선택을 찾지 못했습니다.");
-    if (!selectMallSpecificPriceSource()) return fail(assignment.jobId, "A21_MALL_PRICE_SOURCE_NOT_FOUND", "쇼핑몰별판매가 버튼을 찾지 못했습니다.");
+    if (assignment.mode !== "STATUS" && !selectMallSpecificPriceSource()) return fail(assignment.jobId, "A21_MALL_PRICE_SOURCE_NOT_FOUND", "쇼핑몰별판매가 버튼을 찾지 못했습니다.");
     const input = findSearchInput();
     if (!input) return fail(assignment.jobId, "A21_MULTI_SEARCH_INPUT_NOT_FOUND", "샵플링상품코드 다중검색 입력칸을 찾지 못했습니다.");
     input.value = assignment.goodsKeys.join(",");
@@ -373,7 +373,7 @@
       return;
     }
     if (total <= 0) return fail(assignment.jobId, "A21_EMPTY_RESULT", "검색 결과가 0건이어서 전송하지 않았습니다.");
-    if (!selectMallSpecificPriceSource()) return fail(assignment.jobId, "A21_MALL_PRICE_SOURCE_RESET", "검색 후 쇼핑몰별판매가 선택이 유지되지 않아 전송을 차단했습니다.");
+    if (assignment.mode !== "STATUS" && !selectMallSpecificPriceSource()) return fail(assignment.jobId, "A21_MALL_PRICE_SOURCE_RESET", "검색 후 쇼핑몰별판매가 선택이 유지되지 않아 전송을 차단했습니다.");
     const { matched, seen, target } = findResultRows(assignment.goodsKeys);
     const missing = [...target].filter((key) => !seen.has(key));
     if (missing.length) return fail(assignment.jobId, "A21_GOODSKEY_RESULT_MISSING", `검색 결과에 GOODSKEY ${missing.slice(0, 8).join(", ")}${missing.length > 8 ? " 외" : ""}가 없습니다.`);
