@@ -35,7 +35,8 @@ export type MonthlyLiveOption = {
   amount: number;
   finalSellPrice: number;
 };
-export type MonthlyLiveProduct = { prices: PriceValues; options: MonthlyLiveOption[] };
+export type MonthlySaleStatus = "B" | "C";
+export type MonthlyLiveProduct = { prices: PriceValues; options: MonthlyLiveOption[]; saleStatus: MonthlySaleStatus };
 export type MonthlyOptionPriceTarget = MonthlyLiveOption & {
   beforeAmount: number;
   beforeFinalSellPrice: number;
@@ -53,6 +54,13 @@ export type MonthlyPricePlan = {
   policy: typeof MONTHLY_PRICE_POLICY; goodsKey: string; productGroup: string;
   groupResolution: "EXACT" | "MALL_FAMILY" | "PRICE_RATIO";
   optionIds: string[]; targets: MonthlyPriceWrite[]; writes: MonthlyPriceWrite[];
+  saleStatusTransition: {
+    original: MonthlySaleStatus;
+    targetDuringPrice: "B";
+    requiredBeforePrice: boolean;
+    restoreAvailable: boolean;
+    restoreDefault: false;
+  };
   protectedDecreaseCount: number; optionChangeCount: number; fingerprint: string;
 };
 export type MonthlyPriceGroupResolution = {
@@ -196,13 +204,11 @@ export function monthlyLiveProduct(candidate: MonthlyPriceCandidate, rows: Recor
   if (new Set(expected).size !== expected.length || JSON.stringify(expected) !== JSON.stringify(actual)) throw new Error("MONTHLY_PRICE_OPTION_SCOPE_CONFLICT");
   const prices = priceValues(rows[0]);
   const candidateByOption = new Map(candidate.options.map((row) => [row.optionId, row]));
+  const saleStatuses = [...new Set(rows.map((row) => String(row.sale_status).trim().toUpperCase()))];
+  if (saleStatuses.length !== 1 || !["B", "C"].includes(saleStatuses[0])) throw new Error("MONTHLY_PRICE_INACTIVE_LISTING");
+  const saleStatus = saleStatuses[0] as MonthlySaleStatus;
   const options = rows.map((row) => {
     if (!samePrices(prices, priceValues(row))) throw new Error("MONTHLY_PRICE_BASE_PRICE_CONFLICT");
-    const saleStatus = String(row.sale_status).trim().toUpperCase();
-    // Shopling: B=판매중, C=품절. Sold-out listings still need the same
-    // protected price maintenance so that a later restock resumes at the
-    // correct price. Waiting/stopped/ended/deleted listings stay excluded.
-    if (!["B", "C"].includes(saleStatus)) throw new Error("MONTHLY_PRICE_INACTIVE_LISTING");
     const optionId = String(row.optId ?? "");
     const mapped = candidateByOption.get(optionId);
     if (!mapped) throw new Error("MONTHLY_PRICE_OPTION_SCOPE_CONFLICT");
@@ -220,7 +226,7 @@ export function monthlyLiveProduct(candidate: MonthlyPriceCandidate, rows: Recor
     };
   });
   if (new Set(options.map((row) => row.optionTitle)).size !== 1 || new Set(options.map((row) => row.optionValue)).size !== options.length) throw new Error("MONTHLY_PRICE_OPTION_NAME_AMBIGUOUS");
-  return { prices, options };
+  return { prices, options, saleStatus };
 }
 export function resolveMonthlyPriceGroup(
   candidate: MonthlyPriceCandidate,
@@ -249,7 +255,7 @@ export function resolveMonthlyPriceGroup(
 
 export function monthlyMallPrices(observation: MonthlyObservation, mallKey: string): PriceValues {
   const rows = observation.rows.filter((row) => row.mallKey === mallKey);
-  if (!rows.length || rows.some((row) => row.sellPrice <= 0)) throw new Error("MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED");
+  if (!rows.length) throw new Error("MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED");
   if (rows.some((row) => !samePrices(row, rows[0]))) throw new Error("MONTHLY_PRICE_MALL_ACCOUNT_CONFLICT");
   return { sellPrice: rows[0].sellPrice, purchasePrice: rows[0].purchasePrice, consumerPrice: rows[0].consumerPrice };
 }
@@ -333,6 +339,13 @@ export function buildMonthlyPricePlan(
     optionIds: candidate.options.map((row) => row.optionId).sort(),
     targets: all,
     writes,
+    saleStatusTransition: {
+      original: live.saleStatus,
+      targetDuringPrice: "B",
+      requiredBeforePrice: live.saleStatus === "C" && writes.length > 0,
+      restoreAvailable: live.saleStatus === "C" && writes.length > 0,
+      restoreDefault: false,
+    },
     protectedDecreaseCount,
     optionChangeCount,
   };
@@ -350,6 +363,7 @@ export function assertMonthlyWritePreimage(write: MonthlyPriceWrite, current: Pr
 }
 export function verifyMonthlyPricePlan(plan: MonthlyPricePlan, candidate: MonthlyPriceCandidate, liveRows: Record<string, unknown>[], observed: MonthlyObservation) {
   const live = monthlyLiveProduct(candidate, liveRows);
+  if (plan.saleStatusTransition?.requiredBeforePrice && live.saleStatus !== "B") throw new Error("MONTHLY_PRICE_SALE_STATUS_READBACK_MISMATCH");
   for (const target of plan.targets) {
     const current = target.mallKey ? monthlyMallPrices(observed, target.mallKey) : live.prices;
     if (!samePrices(current, target.target)) throw new Error("MONTHLY_PRICE_READBACK_MISMATCH");
