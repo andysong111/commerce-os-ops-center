@@ -49,19 +49,22 @@ test('sold-out monthly transmission queues STATUS_SELLING -> PRICE -> OPTION and
   w.item.plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:false};
   let r=await w.send('MONTHLY_PRICE_START');
   assert.equal(r.ok,true);
-  assert.deepEqual(Array.from(w.current.jobs,x=>x.mode),['STATUS_SELLING','PRICE','OPTION']);
+  assert.deepEqual(Array.from(w.current.jobs,x=>x.mode),['STATUS_SELLING','PRICE','OPTION','STATUS_SOLD_OUT']);
+  assert.equal(w.current.jobs.find(x=>x.mode==='STATUS_SOLD_OUT').status,'DORMANT');
   let status=await w.send('MONTHLY_PRICE_STATUS',{token,fingerprint,goodsKey});
   assert.equal(status.report.saleStatusActivated,false);
   assert.equal(status.report.saleStatusRestored,true);
+  assert.equal(status.report.saleStatusRolledBack,false);
 
   const w2=worker();
   w2.item.plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:true};
   r=await w2.send('MONTHLY_PRICE_START');
   assert.equal(r.ok,true);
   assert.deepEqual(Array.from(w2.current.jobs,x=>x.mode),['STATUS_SELLING','PRICE','OPTION','STATUS_SOLD_OUT']);
+  assert.equal(w2.current.jobs.find(x=>x.mode==='STATUS_SOLD_OUT').status,'QUEUED');
 });
 
-test('monthly extension pump never starts OPTION before PRICE succeeds',async()=>{
+test('monthly extension never starts OPTION before PRICE and rolls back sold-out status if PRICE fails',async()=>{
   const w=worker();
   w.item.plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:false};
   await w.send('MONTHLY_PRICE_START');
@@ -70,12 +73,19 @@ test('monthly extension pump never starts OPTION before PRICE succeeds',async()=
   statusJob.status='SUCCEEDED';
   const price=w.current.jobs.find(x=>x.mode==='PRICE');
   const option=w.current.jobs.find(x=>x.mode==='OPTION');
+  const rollback=w.current.jobs.find(x=>x.mode==='STATUS_SOLD_OUT');
   await w.context.pump();
-  assert.equal(price.status,'RUNNING');assert.equal(option.status,'QUEUED');
+  assert.equal(price.status,'RUNNING');assert.equal(option.status,'QUEUED');assert.equal(rollback.status,'DORMANT');
   price.status='FAILED';price.error='fixture';
   await w.context.pump();
   assert.equal(option.status,'STOPPED');
+  assert.equal(rollback.status,'RUNNING');
+  assert.ok(w.log.includes('launch:STATUS_SOLD_OUT'));
+  rollback.status='SUCCEEDED';
+  await w.context.pump();
   assert.equal(w.current.state,'PARTIAL_FAILURE');
+  const report=await w.send('MONTHLY_PRICE_STATUS',{token,fingerprint,goodsKey});
+  assert.equal(report.report.saleStatusRolledBack,true);
 });
 
 test('duplicate and refresh preserve token and never launch the first job twice',async()=>{
