@@ -158,7 +158,7 @@ function safeResult(value: unknown) {
 }
 
 export async function GET(request: Request) {
-  if (process.env.VERCEL_ENV !== "preview") {
+  if (!["preview", "production"].includes(process.env.VERCEL_ENV ?? "")) {
     return Response.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
   }
 
