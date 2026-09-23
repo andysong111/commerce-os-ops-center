@@ -7,9 +7,9 @@ const tools=createRequire(path.join(process.env.MONTHLY_PRICE_BROWSER_TOOLS||'/t
 const {build}=tools('esbuild'),{chromium}=tools('playwright');
 const root=process.cwd(), out=path.join(root,'output/monthly-price');mkdirSync(out,{recursive:true});
 const bundle=await build({stdin:{contents:`import React from 'react';import{createRoot}from'react-dom/client';import{MonthlyPricePanel}from'./src/components/china-order-manager/MonthlyPricePanel';createRoot(document.getElementById('root')).render(<MonthlyPricePanel month="2026-09" ready={new URLSearchParams(location.search).get('ready')!=='0'}/>);`,resolveDir:root,loader:'tsx'},bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',alias:{'@':path.join(root,'src')}});
-const runId='11111111-1111-4111-8111-111111111111',itemId='22222222-2222-4222-8222-222222222222',secondItemId='22222222-2222-4222-8222-222222222223',thirdItemId='22222222-2222-4222-8222-222222222224',token='44444444-4444-4444-8444-444444444444',fingerprint='a'.repeat(64);
+const runId='11111111-1111-4111-8111-111111111111',itemId='22222222-2222-4222-8222-222222222222',secondItemId='22222222-2222-4222-8222-222222222223',thirdItemId='22222222-2222-4222-8222-222222222224',token='44444444-4444-4444-8444-444444444444',statusToken='55555555-5555-4555-8555-555555555555',fingerprint='a'.repeat(64);
 let scenario='happy',events=[],started=false,extraItems=[];
-function makeItem(){return{id:itemId,goodsKey:'1234567',state:scenario==='blocked'?'BLOCKED':scenario==='resume'?'RESENDING':'QUEUED',candidate:{productName:'테스트 상품 A',productGroup:'도매1',options:[{barcode:'ABC1-1',optionId:'1',productName:'테스트 상품 A',protectedCostKrw:500,currentCostKrw:500,unitsPerOrder:1},{barcode:'ABC1-2',optionId:'2',productName:'테스트 상품 B',protectedCostKrw:700,currentCostKrw:700,unitsPerOrder:1}],reason:scenario==='blocked'?'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED':null},plan:{fingerprint,productGroup:'도매1',targets:[{mallKey:null,before:{sellPrice:1000},target:{sellPrice:1200},options:[{optionId:'1',barcode:'ABC1-1',optionValue:'화이트',beforeFinalSellPrice:1000,targetFinalSellPrice:1200,policyTargetSellPrice:1200},{optionId:'2',barcode:'ABC1-2',optionValue:'블랙',beforeFinalSellPrice:1500,targetFinalSellPrice:1800,policyTargetSellPrice:1800}]},{mallKey:'SMALL_00069'}],writes:[{},{}],protectedDecreaseCount:1,optionChangeCount:2},writeIndex:0,errorCode:scenario==='blocked'?'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED':null,transmission:scenario==='resume'?{token,fingerprint}:null};}
+function makeItem(){const soldOut=scenario==='soldout';return{id:itemId,goodsKey:'1234567',state:scenario==='blocked'?'BLOCKED':scenario==='resume'?'RESENDING':'QUEUED',candidate:{productName:'테스트 상품 A',productGroup:'도매1',options:[{barcode:'ABC1-1',optionId:'1',productName:'테스트 상품 A',protectedCostKrw:500,currentCostKrw:500,unitsPerOrder:1},{barcode:'ABC1-2',optionId:'2',productName:'테스트 상품 B',protectedCostKrw:700,currentCostKrw:700,unitsPerOrder:1}],reason:scenario==='blocked'?'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED':null},plan:{fingerprint,productGroup:'도매1',saleStatusTransition:{original:soldOut?'C':'B',targetDuringPrice:'B',requiredBeforePrice:soldOut,restoreAvailable:soldOut,restoreDefault:false},targets:[{mallKey:null,before:{sellPrice:1000},target:{sellPrice:1200},options:[{optionId:'1',barcode:'ABC1-1',optionValue:'화이트',beforeFinalSellPrice:1000,targetFinalSellPrice:1200,policyTargetSellPrice:1200},{optionId:'2',barcode:'ABC1-2',optionValue:'블랙',beforeFinalSellPrice:1500,targetFinalSellPrice:1800,policyTargetSellPrice:1800}]},{mallKey:'SMALL_00069'}],writes:[{},{}],protectedDecreaseCount:1,optionChangeCount:2},writeIndex:0,errorCode:scenario==='blocked'?'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED':null,transmission:scenario==='resume'?{token,fingerprint}:null};}
 let item=makeItem();
 const snapshot=()=>({ok:true,run:started?{id:runId,month:'2026-09',policy:'MONTHLY_CONFIRMED_COST_OPTION_AWARE_INCREASE_ONLY_V2',warnings:[]}:null,items:started?[item,...extraItems]:[]});
 const server=createServer(async(req,res)=>{
@@ -20,14 +20,16 @@ const server=createServer(async(req,res)=>{
     let raw='';for await(const c of req)raw+=c;const p=JSON.parse(raw);events.push(p.action);let duplicate;
     if(p.action==='start'){started=true;return res.end(JSON.stringify(snapshot()));}
     if(p.action==='resumePreflight'){
-      for(const row of [item,...extraItems])if(row.state==='BLOCKED'&&['MONTHLY_PRICE_GROUP_REQUIRED','MONTHLY_PRICE_INACTIVE_LISTING'].includes(row.errorCode)){row.state='QUEUED';row.errorCode=null;}
+      for(const row of [item,...extraItems])if(row.state==='BLOCKED'&&['MONTHLY_PRICE_GROUP_REQUIRED','MONTHLY_PRICE_INACTIVE_LISTING','MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED'].includes(row.errorCode)){row.state='QUEUED';row.errorCode=null;}
       return res.end(JSON.stringify(snapshot()));
     }
     const target=[item,...extraItems].find(row=>row.id===p.itemId)||item;
     if(p.action==='prepare')target.state='PREPARED';
+    if(p.action==='saleStatusClaim'){duplicate=Boolean(target.transmission?.saleStatusToken);target.transmission={...(target.transmission||{}),fingerprint,saleStatusToken:statusToken,saleStatusTarget:'B',originalSaleStatus:'C',saleStatusShoplingVerifiedAt:'done',saleStatusMarketClaimedAt:'done'};}
+    if(p.action==='saleStatusReport'){if(p.report?.state==='SUCCEEDED'){target.transmission.saleStatusMarketFinishedAt='done';target.errorCode=null;}else target.errorCode='MONTHLY_PRICE_SALE_STATUS_MARKET_REVIEW_REQUIRED';}
     if(p.action==='write'){target.writeIndex++;target.state=target.writeIndex===2?'VERIFY_PENDING':'PREPARED';}
     if(p.action==='verify')target.state='VERIFIED';
-    if(p.action==='resendClaim'){duplicate=target.state==='RESENDING';target.state='RESENDING';target.transmission={token,fingerprint};}
+    if(p.action==='resendClaim'){duplicate=target.state==='RESENDING';target.state='RESENDING';target.transmission={...(target.transmission||{}),token,fingerprint,claimedAt:'done'};}
     if(p.action==='resendReport'){if(p.report?.state==='MISSING'){target.state='RESENDING';target.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';}else target.state='TRANSMITTED';}
     return res.end(JSON.stringify({ok:true,item:{...target,duplicate}}));
   }
@@ -43,10 +45,11 @@ await page.addInitScript(()=>{
     const m=e.data;if(m?.channel!=='commerce-os-monthly-price-v1'||m.direction!=='request')return;
     window.bridgeEvents.push({command:m.command,payload:m.payload});
     if(m.command==='START'&&window.bridgeHistoryMissingItemId&&m.payload?.itemId===window.bridgeHistoryMissingItemId){
-      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:'0.5.2',error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:'0.5.3',error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
       return;
     }
-    const response={ok:true,version:'0.5.2',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true}};
+    const statusCommand=m.command==='SALE_STATUS_START'||m.command==='SALE_STATUS_POLL';
+    const response={ok:true,version:'0.5.3',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:!statusCommand,statusOnly:statusCommand,targetSaleStatus:statusCommand?m.payload.targetSaleStatus:''}};
     window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response},location.origin);
   });
 });
@@ -71,6 +74,15 @@ try{
   assert.equal(await page.getByRole('button',{name:'예상 변경안 계산 완료'}).isDisabled(),true);
   scenario='blocked';item=makeItem();started=false;events=[];await page.goto(url);await page.getByRole('button',{name:/예상 가격 확인/}).click();await page.waitForTimeout(100);assert.deepEqual(events,['start']);assert.equal((await page.evaluate(()=>window.bridgeEvents)).filter(x=>x.command==='START').length,0);
   await page.getByText('상품별 결과·제외 사유').click();await page.screenshot({path:path.join(out,'unknown-cost-protected.png'),fullPage:true});
+  scenario='soldout';item=makeItem();started=false;events=[];await page.goto(url);await page.getByRole('button',{name:/예상 가격 확인/}).click();
+  await page.getByRole('button',{name:/이대로 가격조정 실행/}).click();
+  await page.getByText('전송 종료 · 마켓 확인 대기',{exact:true}).waitFor({state:'attached'});
+  assert.deepEqual(events,['start','prepare','saleStatusClaim','saleStatusReport','write','write','verify','resendClaim','resendReport']);
+  bridge=await page.evaluate(()=>window.bridgeEvents);
+  const statusStartIndex=bridge.findIndex(x=>x.command==='SALE_STATUS_START');
+  const priceStartIndex=bridge.findIndex(x=>x.command==='START');
+  assert.ok(statusStartIndex>=0&&priceStartIndex>statusStartIndex);
+  assert.equal(bridge[statusStartIndex].payload.targetSaleStatus,'B');
   scenario='resume';item=makeItem();started=true;events=[];await page.goto(url);await page.getByRole('button',{name:/미완료 가격조정 이어가기/}).click();await page.getByText('전송 종료 · 마켓 확인 대기',{exact:true}).waitFor({state:'attached'});
   assert.deepEqual(events,['resumePreflight','resendClaim','resendReport']);bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.find(x=>x.command==='START').payload.newClaim,false);
   scenario='resume';item=makeItem();started=true;events=[];
@@ -105,5 +117,5 @@ try{
   await shop.goto('https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=1234567');await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
   const observed=await shop.evaluate(()=>collectMonthlyPricePage('1234567'));assert.ok(observed,JSON.stringify(await shop.evaluate(()=>({charset:document.characterSet,text:document.body.innerText}))));assert.equal(observed.rows[0].sellPrice,1234);assert.equal(observed.rows[0].consumerPrice,7777);assert.equal(observed.rows[0].purchasePrice,222);
   await shop.setContent('<table><tr><td>도매꾹</td><td>999</td><td>888</td><td>777</td></tr></table>');assert.equal(await shop.evaluate(()=>collectMonthlyPricePage('1234567')),null);
-  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','receipt-prerequisite','DOM-header-mapping','ambiguous-DOM-blocked'],productionWrites:false},null,2));
+  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','sold-out-status-before-price','receipt-prerequisite','DOM-header-mapping','ambiguous-DOM-blocked'],productionWrites:false},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
