@@ -244,17 +244,17 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   const queuedCount = count(["QUEUED"]);
   const preparedCount = count(["PREPARED"]);
   const activeExecutionCount = count(["WRITING", "VERIFY_PENDING", "VERIFIED", "RESENDING", "UNCERTAIN"]);
-  const staleLegacyGroupBlockCount = snapshot.items.filter((item) =>
+  const retryablePrewriteBlockCount = snapshot.items.filter((item) =>
     item.state === "BLOCKED" &&
-    item.errorCode === "MONTHLY_PRICE_GROUP_REQUIRED" &&
+    ["MONTHLY_PRICE_GROUP_REQUIRED", "MONTHLY_PRICE_INACTIVE_LISTING"].includes(item.errorCode ?? "") &&
     item.writeIndex === 0 &&
     item.plan === null &&
     item.transmission === null
   ).length;
   // Every explicit continuation of an old run goes through resumePreflight.
-  // This also exposes a recovery path when stale GROUP_REQUIRED rows are the
-  // only unfinished work and there is no QUEUED/active item to trigger a button.
-  const existingRunResume = Boolean(snapshot.run) && (activeExecutionCount > 0 || staleLegacyGroupBlockCount > 0);
+  // This also exposes a recovery path when stale GROUP_REQUIRED or
+  // INACTIVE_LISTING rows are the only unfinished work.
+  const existingRunResume = Boolean(snapshot.run) && (activeExecutionCount > 0 || retryablePrewriteBlockCount > 0);
   const money = (value: number) => `${Math.round(value).toLocaleString("ko-KR")}원`;
   const shortReason = (code: string | null) => {
     if (!code) return "확인 필요";
@@ -320,8 +320,8 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       <button type="button" onClick={() => void applyChanges(true)} disabled={!ready || busy} className="mt-3 w-full rounded-lg bg-amber-300 px-3 py-3 text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
         {busy
           ? "기존 가격조정 이어가는 중…"
-          : staleLegacyGroupBlockCount > 0
-            ? `이전 실행 재확인·이어가기 (${staleLegacyGroupBlockCount}건 재평가)`
+          : retryablePrewriteBlockCount > 0
+            ? `이전 실행 재확인·이어가기 (${retryablePrewriteBlockCount}건 재평가)`
             : "미완료 가격조정 이어가기"}
       </button>
     ) : (
