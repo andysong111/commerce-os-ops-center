@@ -375,6 +375,15 @@ export function buildMonthlyPricePlan(
   };
   return { ...stable, fingerprint: monthlyHash(stable) };
 }
+export function assertMonthlyPendingOptionPreimage(plan: MonthlyPricePlan, currentOptions: MonthlyLiveOption[]) {
+  const base = plan.targets.find((row) => row.kind === "BASE_PRICE" && row.mallKey === null);
+  const options = base?.options ?? [];
+  if (options.length && !sameOptionIdentityAndAmounts(currentOptions, options, "before")) {
+    throw new Error("MONTHLY_PRICE_CURRENT_PRICE_CHANGED");
+  }
+  return true;
+}
+
 export function assertMonthlyWritePreimage(write: MonthlyPriceWrite, current: PriceValues, currentOptions: MonthlyLiveOption[] = []) {
   const optionTarget = write.options ?? [];
   const targetOptionsMatch = !optionTarget.length || sameOptionIdentityAndAmounts(currentOptions, optionTarget, "target");
