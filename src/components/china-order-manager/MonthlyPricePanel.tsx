@@ -246,7 +246,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   const activeExecutionCount = count(["WRITING", "VERIFY_PENDING", "VERIFIED", "RESENDING", "UNCERTAIN"]);
   const retryablePrewriteBlockCount = snapshot.items.filter((item) =>
     item.state === "BLOCKED" &&
-    ["MONTHLY_PRICE_GROUP_REQUIRED", "MONTHLY_PRICE_INACTIVE_LISTING"].includes(item.errorCode ?? "") &&
+    ["MONTHLY_PRICE_GROUP_REQUIRED", "MONTHLY_PRICE_INACTIVE_LISTING", "MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED"].includes(item.errorCode ?? "") &&
     item.writeIndex === 0 &&
     item.plan === null &&
     item.transmission === null
