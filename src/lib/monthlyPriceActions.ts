@@ -38,7 +38,8 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       if (item.state !== "QUEUED") return response(item);
       try {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
-        const { observed, live, resolution } = await resolveCurrentGroup(item, payload.observation);
+        const { observed, live: resolvedLive, resolution } = await resolveCurrentGroup(item, payload.observation);
+        let live = resolvedLive;
         if (!resolution.group || resolution.source === "UNRESOLVED") {
           item.plan = null;
           item.state = "HELD";
@@ -92,6 +93,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         }
         if (item.plan.saleStatusTransition && item.write_index === 0) {
           const status = await ensureMonthlyShoplingSaleStatus(item.goods_key, item.plan.saleStatusTransition.target);
+          live = status.rows;
           await auditMonthlyPrice(item, "SALE_STATUS_PREPRICE_READY", {
             before: status.before,
             after: status.after,
@@ -149,7 +151,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
     } else if (action === "resendReport") {
       const report = monthlyRecord(payload.report);
       if (item.state === "TRANSMITTED") return response(item);
-      if (item.state !== "RESENDING" || !item.transmission || report.token !== item.transmission.token || report.fingerprint !== item.transmission.fingerprint || report.goodsKey !== item.goods_key) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
+      if (item.state !== "RESENDING" || !item.plan || !item.transmission || report.token !== item.transmission.token || report.fingerprint !== item.transmission.fingerprint || report.goodsKey !== item.goods_key) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
       if (
         report.state === "SUCCEEDED" &&
         report.priceAndOption === true &&
