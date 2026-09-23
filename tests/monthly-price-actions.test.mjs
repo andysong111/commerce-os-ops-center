@@ -117,6 +117,17 @@ test('refresh while WRITING can only recover by full positive base+option readba
   const h=harness();await h.call('prepare');const p=h.item.plan,b=p.targets[0],m=p.targets[1];h.item.state='WRITING';h.state.raw=live(b.target.sellPrice,b.options?.[0]?.targetAmount??0);h.state.observed=observation(m.target.sellPrice);
   await h.call('verify');assert.equal(h.item.state,'VERIFIED');assert.equal(h.log.includes('write'),false);
 });
+test('sold-out transmission cannot finish without status activation evidence',async()=>{
+  const h=harness();h.state.raw=h.state.raw.map(row=>({...row,sale_status:'C'}));
+  await h.call('prepare');await h.call('write');while(h.item.state==='PREPARED')await h.call('write');
+  await h.call('verify');await h.call('resendClaim');
+  const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:false,saleStatusRestored:true};
+  await h.call('resendReport',{report});
+  assert.equal(h.item.state,'RESENDING');
+  assert.equal(h.item.error_code,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
+  assert.equal(h.log.includes('TRANSMISSION_UNCERTAIN'),true);
+});
+
 test('wrong transmission token / goods key / missing option transmission cannot mark finished',async()=>{
   const h=harness();await h.call('prepare');await h.call('write');await h.call('write');await h.call('verify');await h.call('resendClaim');
   const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true};
@@ -141,6 +152,19 @@ test('base-only write preserves option structure entirely, and option writes nev
   assert.throws(()=>shop.assertMonthlyWriteAcknowledgement('<res><goodsRst><code>999</code></goodsRst></res>',goodsKey),/ACK_UNVERIFIED/);
   assert.throws(()=>shop.buildMonthlyPriceWriteXml(goodsKey,{...w,target:{...w.target,sellPrice:1}},{loginId:'TEST',companyId:'TEST',authKey:'TEST'}),/POLICY_VIOLATION/);
 });
+test('zero mall current price and sale-status-only XML are explicit safe writes',()=>{
+  const simple=loadModule('../src/lib/shopling/simpleXml.ts',{});
+  const shop=loadModule('../src/lib/monthlyPriceShopling.ts',{'@/lib/shopling/shoplingReadClient':{},'@/lib/shopling/shoplingCurrentPriceResolver':{},'@/lib/shopling/shoplingTlsTransport':{},'@/lib/shopling/simpleXml':simple,'@/lib/monthlyPriceCore':core});
+  const p=core.buildMonthlyPricePlan(candidate(),live(),observation(0));
+  const mall=p.writes.find(x=>x.kind==='MALL_PRICE');
+  assert.equal(mall.before.sellPrice,0);assert.ok(mall.target.sellPrice>0);
+  const mallXml=shop.buildMonthlyPriceWriteXml(goodsKey,mall,{loginId:'TEST',companyId:'TEST',authKey:'TEST'});
+  assert.match(mallXml,new RegExp(`<sale_price>${mall.target.sellPrice}</sale_price>`));
+  const statusXml=shop.buildMonthlySaleStatusWriteXml(goodsKey,'B',{loginId:'TEST',companyId:'TEST',authKey:'TEST'});
+  assert.match(statusXml,/<sale_status>B<\/sale_status>/);
+  assert.doesNotMatch(statusXml,/sale_price|org_price|list_price|<options>|optQty|stock|quantity/);
+});
+
 test('option-only Shopling write is allowed when final option price rises and base is unchanged',()=>{
   const simple=loadModule('../src/lib/shopling/simpleXml.ts',{});
   const shop=loadModule('../src/lib/monthlyPriceShopling.ts',{'@/lib/shopling/shoplingReadClient':{},'@/lib/shopling/shoplingCurrentPriceResolver':{},'@/lib/shopling/shoplingTlsTransport':{},'@/lib/shopling/simpleXml':simple,'@/lib/monthlyPriceCore':core});
