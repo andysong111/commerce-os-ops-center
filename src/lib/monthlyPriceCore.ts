@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import {
   buildInternalMallPriceTargets,
+  inferLegacyInternalPriceFamily,
   internalPriceGroupTarget,
   normalizeInternalPriceGroup,
+  type InternalPriceGroup,
 } from "./internalChinaPriceGroupPolicy.ts";
 
 /** A click authorizes increases only. A stock count never certifies historical cost. */
@@ -52,6 +54,11 @@ export type MonthlyPricePlan = {
   optionIds: string[]; targets: MonthlyPriceWrite[]; writes: MonthlyPriceWrite[];
   protectedDecreaseCount: number; optionChangeCount: number; fingerprint: string;
 };
+export type MonthlyPriceGroupResolution = {
+  group: InternalPriceGroup | null;
+  source: "EXACT" | "MALL_FAMILY" | "PRICE_RATIO" | "UNRESOLVED";
+};
+
 export function monthlyRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -210,6 +217,33 @@ export function monthlyLiveProduct(candidate: MonthlyPriceCandidate, rows: Recor
   if (new Set(options.map((row) => row.optionTitle)).size !== 1 || new Set(options.map((row) => row.optionValue)).size !== options.length) throw new Error("MONTHLY_PRICE_OPTION_NAME_AMBIGUOUS");
   return { prices, options };
 }
+export function resolveMonthlyPriceGroup(
+  candidate: MonthlyPriceCandidate,
+  liveRows: Record<string, unknown>[],
+  observed: MonthlyObservation,
+  registeredGroup?: unknown,
+): MonthlyPriceGroupResolution {
+  const registered = normalizeInternalPriceGroup(registeredGroup);
+  const candidateGroup = normalizeInternalPriceGroup(candidate.productGroup);
+  if (registered) return { group: registered, source: "EXACT" };
+  if (candidateGroup) return { group: candidateGroup, source: "EXACT" };
+
+  const live = monthlyLiveProduct(candidate, liveRows);
+  const liveById = new Map(live.options.map((row) => [row.optionId, row]));
+  const ratios = candidate.options.map((option) => {
+    const current = liveById.get(option.optionId);
+    const cost = Number(option.protectedCostKrw) * Number(option.unitsPerOrder);
+    return current && Number.isFinite(cost) && cost > 0 ? current.finalSellPrice / cost : NaN;
+  });
+  const inferred = inferLegacyInternalPriceFamily({
+    mallKeys: observed.rows.map((row) => row.mallKey),
+    priceRatios: ratios,
+  });
+  return inferred
+    ? { group: inferred.fallbackGroup, source: inferred.source }
+    : { group: null, source: "UNRESOLVED" };
+}
+
 export function monthlyMallPrices(observation: MonthlyObservation, mallKey: string): PriceValues {
   const rows = observation.rows.filter((row) => row.mallKey === mallKey);
   if (!rows.length || rows.some((row) => row.sellPrice <= 0)) throw new Error("MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED");
@@ -227,7 +261,12 @@ function sameOptionAmounts(current: MonthlyLiveOption[], target: MonthlyOptionPr
     return live.amount === amount && live.finalSellPrice === final;
   });
 }
-export function buildMonthlyPricePlan(candidate: MonthlyPriceCandidate, liveRows: Record<string, unknown>[], observed: MonthlyObservation): MonthlyPricePlan {
+export function buildMonthlyPricePlan(
+  candidate: MonthlyPriceCandidate,
+  liveRows: Record<string, unknown>[],
+  observed: MonthlyObservation,
+  options: { restrictMallKeys?: Iterable<string> } = {},
+): MonthlyPricePlan {
   if (candidate.reason || !/^\d{5,9}$/.test(candidate.goodsKey) || !candidate.options.length) throw new Error(candidate.reason || "MONTHLY_PRICE_MAPPING_REQUIRED");
   const group = normalizeInternalPriceGroup(candidate.productGroup);
   if (!group) throw new Error("MONTHLY_PRICE_GROUP_REQUIRED");
@@ -268,7 +307,9 @@ export function buildMonthlyPricePlan(candidate: MonthlyPriceCandidate, liveRows
   };
   const all: MonthlyPriceWrite[] = [baseWrite];
   const groupTarget = monthlyMoney(Math.min(...optionPolicy.map((row) => row.policyTargetSellPrice)));
+  const restrictedMallKeys = options.restrictMallKeys ? new Set(options.restrictMallKeys) : null;
   for (const mall of buildInternalMallPriceTargets({ productGroup: group, groupTargetPrice: groupTarget })) {
+    if (restrictedMallKeys && !restrictedMallKeys.has(mall.mallKey)) continue;
     const before = monthlyMallPrices(observed, mall.mallKey);
     monthlyMoney(mall.targetPrice);
     protectedDecreaseCount += Number(mall.targetPrice < before.sellPrice);
