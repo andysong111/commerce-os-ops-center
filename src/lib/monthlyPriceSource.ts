@@ -114,7 +114,6 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
     let reason: string | null = null;
     if (owners.some(({ product }) => !scopeSet.has(product.barcode))) reason = "MONTHLY_PRICE_SHARED_GOODSKEY_OUTSIDE_MONTH";
     else if (owners.some(({ product }) => !costsByCode.has(product.barcode))) reason = "MONTHLY_PRICE_CONFIRMED_COST_REQUIRED";
-    else if (!groups.has(goodsKey)) reason = "MONTHLY_PRICE_GROUP_REQUIRED";
     else if (owners.some(({ listing }) => !Number.isSafeInteger(Number(listing.unitsPerOrder)) || Number(listing.unitsPerOrder) < 1)) reason = "MONTHLY_PRICE_UNITS_PER_ORDER_REQUIRED";
     return { goodsKey, productName: owners[0]?.product.productName || goodsKey, productGroup: groups.get(goodsKey) ?? "",
       inventoryCostBasis: reason === "MONTHLY_PRICE_CONFIRMED_COST_REQUIRED" ? "UNKNOWN_COST" : "LEGACY_MIXED_UNRESOLVED",
