@@ -50,3 +50,108 @@ test('claim and CAS require an actual single-row array response',async()=>{
   h.state.patchRows={id:itemId};await assert.rejects(h.api.saveMonthlyPriceItem(item),/LEASE_LOST/);
   h.state.patchRows=[];await assert.rejects(h.api.saveMonthlyPriceItem(item),/LEASE_LOST/);
 });
+
+test('legacy group blocker retry is allowed only before any write and with matching fresh pricing identity',()=>{
+  const h=storeHarness();
+  const oldCandidate={...candidate(),productGroup:'',reason:'MONTHLY_PRICE_GROUP_REQUIRED'};
+  const freshCandidate={...candidate(),productGroup:'',reason:null};
+  const item={id:itemId,state:'BLOCKED',write_index:0,plan:null,transmission:null,error_code:'MONTHLY_PRICE_GROUP_REQUIRED',candidate:oldCandidate};
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem(item,freshCandidate,true),true);
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem({...item,write_index:1},freshCandidate,true),false);
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem({...item,plan:{fingerprint:'x'}},freshCandidate,true),false);
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem(item,{...freshCandidate,reason:'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED'},true),false);
+  const changed={...freshCandidate,options:[{...freshCandidate.options[0],protectedCostKrw:freshCandidate.options[0].protectedCostKrw+1}]};
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem(item,changed,true),false);
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem(item,freshCandidate,false),false);
+});
+
+
+function resumeStoreHarness() {
+  const oldCandidate={...candidate(),productGroup:'',reason:'MONTHLY_PRICE_GROUP_REQUIRED'};
+  const freshCandidate={...candidate(),productGroup:'',reason:null};
+  const run={
+    id:runId,cycle_month:'2026-09',source_hash:'old-hash',policy_version:core.MONTHLY_PRICE_POLICY,
+    source_snapshot:{evidenceVersion:'evidence-v1'},created_at:'2026-09-22T00:00:00Z'
+  };
+  const item={
+    id:itemId,run_id:runId,goods_key:oldCandidate.goodsKey,state:'BLOCKED',candidate:oldCandidate,
+    plan:null,write_index:0,claim_token:null,claim_until:null,error_code:'MONTHLY_PRICE_GROUP_REQUIRED',
+    transmission:null,updated_at:'2026-09-22T00:00:00Z'
+  };
+  const state={run,item,audit:[],rpcCount:0};
+  const db={
+    rpc:async(name,args)=>{
+      assert.equal(name,'claim_monthly_price_item');assert.equal(args.p_item_id,itemId);
+      state.rpcCount+=1;
+      return {data:[{...structuredClone(state.item),claim_token:'lease',claim_until:'2099-01-01T00:00:00Z'}],error:null};
+    },
+    from(table){
+      let patch=null,filters=[];
+      const q={
+        select(){return q;},
+        eq(key,value){filters.push([key,value]);return q;},
+        order(){return q;},
+        limit(){return q;},
+        update(value){patch=value;return q;},
+        insert:async(value)=>{
+          assert.equal(table,'commerce_monthly_price_audit');
+          state.audit.push(structuredClone(value));
+          return {data:[value],error:null};
+        },
+        maybeSingle:async()=>{
+          if(table==='commerce_monthly_price_runs'){
+            const idFilter=filters.find(([key])=>key==='id');
+            return {data:!idFilter||idFilter[1]===state.run.id?structuredClone(state.run):null,error:null};
+          }
+          return {data:null,error:null};
+        },
+        then(yes,no){
+          let result;
+          if(table==='commerce_monthly_price_items'&&patch){
+            const idOk=filters.every(([key,value])=>key!=='id'||value===state.item.id);
+            const tokenOk=filters.every(([key,value])=>key!=='claim_token'||value==='lease');
+            if(idOk&&tokenOk){
+              Object.assign(state.item,structuredClone(patch));
+              result={data:[{id:state.item.id}],error:null};
+            }else result={data:[],error:null};
+          }else if(table==='commerce_monthly_price_items'){
+            const runOk=filters.every(([key,value])=>key!=='run_id'||value===state.item.run_id);
+            result={data:runOk?[structuredClone(state.item)]:[],error:null};
+          }else result={data:[],error:null};
+          return Promise.resolve(result).then(yes,no);
+        },
+      };
+      return q;
+    },
+  };
+  const api=loadModule('../src/lib/monthlyPriceStore.ts',{'@/lib/supabase/admin':{createSupabaseAdminClient:async()=>db},'@/lib/monthlyPriceCore':core});
+  const source={month:'2026-09',sourceHash:'fresh-hash',evidenceVersion:'evidence-v1',candidates:[freshCandidate],costs:[],warnings:[],scope:[]};
+  return {state,api,source};
+}
+
+test('actual resume preflight persists stale GROUP_REQUIRED -> QUEUED and audits the transition',async()=>{
+  const h=resumeStoreHarness();
+  const status=await h.api.resumeMonthlyPriceRunPreflight(runId,h.source);
+  assert.equal(h.state.rpcCount,1);
+  assert.equal(h.state.item.state,'QUEUED');
+  assert.equal(h.state.item.error_code,null);
+  assert.equal(h.state.item.plan,null);
+  assert.equal(status.items[0].state,'QUEUED');
+  assert.equal(status.items[0].error_code,null);
+  assert.deepEqual(h.state.audit.map(row=>row.event),['LEGACY_GROUP_BLOCK_RETRY']);
+});
+
+test('actual resume preflight rejects changed evidence and refuses changed pricing identity',async()=>{
+  const stale=resumeStoreHarness();
+  await assert.rejects(
+    stale.api.resumeMonthlyPriceRunPreflight(runId,{...stale.source,evidenceVersion:'evidence-v2'}),
+    /SOURCE_CHANGED/,
+  );
+  assert.equal(stale.state.item.state,'BLOCKED');assert.equal(stale.state.rpcCount,0);
+
+  const changed=resumeStoreHarness();
+  changed.source.candidates[0]={...changed.source.candidates[0],options:[{...changed.source.candidates[0].options[0],protectedCostKrw:changed.source.candidates[0].options[0].protectedCostKrw+1}]};
+  const status=await changed.api.resumeMonthlyPriceRunPreflight(runId,changed.source);
+  assert.equal(changed.state.item.state,'BLOCKED');assert.equal(changed.state.rpcCount,0);
+  assert.equal(changed.state.audit.length,0);assert.equal(status.items[0].state,'BLOCKED');
+});

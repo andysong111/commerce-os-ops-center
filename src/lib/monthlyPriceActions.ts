@@ -50,7 +50,11 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
           });
           return response(item);
         }
-        const effectiveCandidate = { ...item.candidate, productGroup: resolution.group };
+        const effectiveCandidate = {
+          ...item.candidate,
+          productGroup: resolution.group,
+          reason: item.candidate.reason === "MONTHLY_PRICE_GROUP_REQUIRED" ? null : item.candidate.reason,
+        };
         item.plan = buildMonthlyPricePlan(
           effectiveCandidate,
           live,

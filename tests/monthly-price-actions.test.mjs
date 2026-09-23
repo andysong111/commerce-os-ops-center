@@ -44,6 +44,13 @@ test('legacy item without exact group auto-infers wholesale and can execute with
   assert.equal(h.item.plan.targets.filter(x=>x.mallKey).length,1);
   await h.call('write');assert.equal(h.item.write_index,1);
 });
+test('retried old run can clear obsolete GROUP_REQUIRED candidate reason and use legacy family inference',async()=>{
+  const h=harness();h.state.group=null;h.item.candidate.productGroup='';h.item.candidate.reason='MONTHLY_PRICE_GROUP_REQUIRED';
+  await h.call('prepare');
+  assert.equal(h.item.state,'PREPARED');assert.equal(h.item.plan.productGroup,'도매1');assert.equal(h.item.error_code,null);
+  assert.equal(h.log.includes('write'),false);
+});
+
 
 test('legacy item with ambiguous family is silently held at current price instead of confirmation-blocked',async()=>{
   const h=harness();h.state.group=null;h.item.candidate.productGroup='';

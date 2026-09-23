@@ -5,6 +5,38 @@ import type { MonthlyPriceSources } from "@/lib/monthlyPriceSource";
 export type MonthlyItemState = "QUEUED" | "PREPARED" | "WRITING" | "VERIFY_PENDING" | "VERIFIED" | "RESENDING" | "TRANSMITTED" | "HELD" | "BLOCKED" | "UNCERTAIN";
 export type MonthlyPriceItem = { id: string; run_id: string; goods_key: string; state: MonthlyItemState; candidate: MonthlyPriceCandidate; plan: MonthlyPricePlan | null; write_index: number; claim_token: string | null; claim_until: string | null; error_code: string | null; transmission: { token: string; fingerprint: string; claimedAt: string; finishedAt?: string; result?: string } | null; updated_at: string };
 export type MonthlyPriceRun = { id: string; cycle_month: string; source_hash: string; policy_version: string; source_snapshot: MonthlyPriceSources; created_at: string };
+
+function monthlyCandidatePricingIdentity(candidate: MonthlyPriceCandidate) {
+  return JSON.stringify({
+    goodsKey: candidate.goodsKey,
+    inventoryCostBasis: candidate.inventoryCostBasis,
+    options: [...candidate.options].map((option) => ({
+      barcode: option.barcode,
+      optionId: option.optionId,
+      unitsPerOrder: option.unitsPerOrder,
+      currentCostKrw: option.currentCostKrw,
+      protectedCostKrw: option.protectedCostKrw,
+    })).sort((left, right) => `${left.optionId}:${left.barcode}`.localeCompare(`${right.optionId}:${right.barcode}`)),
+  });
+}
+
+export function canRetryLegacyGroupBlockedItem(
+  item: MonthlyPriceItem,
+  freshCandidate: MonthlyPriceCandidate | undefined,
+  sameEvidence: boolean,
+) {
+  return Boolean(
+    sameEvidence &&
+    freshCandidate &&
+    freshCandidate.reason === null &&
+    item.state === "BLOCKED" &&
+    item.write_index === 0 &&
+    item.plan === null &&
+    item.transmission === null &&
+    item.error_code === "MONTHLY_PRICE_GROUP_REQUIRED" &&
+    monthlyCandidatePricingIdentity(item.candidate) === monthlyCandidatePricingIdentity(freshCandidate),
+  );
+}
 export async function monthlyDb() {
   const db = await createSupabaseAdminClient();
   if (!db) throw new Error("MONTHLY_PRICE_DATABASE_REQUIRED");
@@ -31,6 +63,32 @@ export async function loadMonthlyPriceRunStatus(run: MonthlyPriceRun) {
   if (items.length > 1000) throw new Error("MONTHLY_PRICE_ITEM_LIMIT_EXCEEDED");
   return { run, items };
 }
+export async function resumeMonthlyPriceRunPreflight(runId: string, source: MonthlyPriceSources) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(runId)) throw new Error("MONTHLY_PRICE_ID_INVALID");
+  const run = await loadMonthlyPriceRun(runId);
+  if (run.cycle_month !== source.month || run.policy_version !== MONTHLY_PRICE_POLICY) throw new Error("MONTHLY_PRICE_RUN_SCOPE_INVALID");
+  if (run.source_snapshot.evidenceVersion !== source.evidenceVersion) throw new Error("MONTHLY_PRICE_SOURCE_CHANGED");
+
+  const freshByGoodsKey = new Map(source.candidates.map((candidate) => [candidate.goodsKey, candidate]));
+  const status = await loadMonthlyPriceRunStatus(run);
+  for (const item of status.items) {
+    const freshCandidate = freshByGoodsKey.get(item.goods_key);
+    if (!canRetryLegacyGroupBlockedItem(item, freshCandidate, true)) continue;
+    await withMonthlyPriceItem(item.id, run.id, async (locked) => {
+      if (!canRetryLegacyGroupBlockedItem(locked, freshCandidate, true)) return;
+      locked.state = "QUEUED";
+      locked.plan = null;
+      locked.error_code = null;
+      await auditMonthlyPrice(locked, "LEGACY_GROUP_BLOCK_RETRY", {
+        previousReason: "MONTHLY_PRICE_GROUP_REQUIRED",
+        freshSourceHash: source.sourceHash,
+        explicitResume: true,
+      });
+    });
+  }
+  return loadMonthlyPriceRunStatus(run);
+}
+
 export async function createMonthlyPriceRun(source: MonthlyPriceSources) {
   if (!source.candidates.length || source.candidates.length > 1000) throw new Error("MONTHLY_PRICE_CANDIDATE_SCOPE_INVALID");
   // Do not strand a pending transmission when a new receipt/source revision

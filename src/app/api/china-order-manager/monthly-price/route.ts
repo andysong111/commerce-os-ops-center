@@ -1,7 +1,7 @@
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { monthlyMonth, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
 import { loadMonthlyPriceSources } from "@/lib/monthlyPriceSource";
-import { createMonthlyPriceRun, loadMonthlyPriceStatus, loadMonthlyPriceRun, loadMonthlyPriceRunStatus, type MonthlyPriceItem } from "@/lib/monthlyPriceStore";
+import { createMonthlyPriceRun, resumeMonthlyPriceRunPreflight, loadMonthlyPriceStatus, loadMonthlyPriceRun, loadMonthlyPriceRunStatus, type MonthlyPriceItem } from "@/lib/monthlyPriceStore";
 import { monthlyPriceItemAction } from "@/lib/monthlyPriceActions";
 
 export const runtime = "nodejs";
@@ -49,6 +49,10 @@ export async function POST(request: Request) {
       // "latest proposal" from another month or a percentage adjustment twice.
       const sources = await loadMonthlyPriceSources(payload.month);
       return json({ ok: true, ...publicStatus(await createMonthlyPriceRun(sources)) });
+    }
+    if (payload.action === "resumePreflight") {
+      const sources = await loadMonthlyPriceSources(payload.month);
+      return json({ ok: true, ...publicStatus(await resumeMonthlyPriceRunPreflight(String(payload.runId ?? ""), sources)) });
     }
     return json({ ok: true, item: await monthlyPriceItemAction(payload) });
   } catch (error) { return errorResponse(error); }
