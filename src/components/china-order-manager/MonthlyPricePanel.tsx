@@ -138,6 +138,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       const runId = data.run.id;
       const unpreviewed = data.items.filter((item) => item.state === "QUEUED").length;
       if (unpreviewed && !resumeExistingRun) throw new Error("MONTHLY_PRICE_PREVIEW_REQUIRED");
+      let historyMissingSkipped = 0;
       for (const initial of data.items) {
         if (!active()) break;
         let item = initial;
@@ -187,6 +188,39 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
           }
         } catch (itemError) {
           const code = itemError instanceof Error ? itemError.message : "MONTHLY_PRICE_ITEM_FAILED";
+          if (
+            code === "MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING" &&
+            item.state === "RESENDING" &&
+            item.transmission
+          ) {
+            // Missing local extension history is NOT evidence that the old market
+            // transmission failed. Record it as unknown, never resend it, and let
+            // unrelated safe items continue instead of blocking the whole month.
+            try {
+              await step("resendReport", {
+                report: {
+                  token: item.transmission.token,
+                  fingerprint: item.transmission.fingerprint,
+                  goodsKey: item.goodsKey,
+                  state: "MISSING",
+                  priceOnly: false,
+                  priceAndOption: false,
+                },
+              }, false);
+              historyMissingSkipped += 1;
+              if (generation.current === current) {
+                setProgress(`${item.goodsKey} · 이전 전송기록 없음 · 재전송하지 않고 다음 상품 계속`);
+              }
+              continue;
+            } catch (reportError) {
+              const reportCode = reportError instanceof Error ? reportError.message : "MONTHLY_PRICE_ITEM_FAILED";
+              if (generation.current === current) {
+                setError(reportCode);
+                setProgress(`${item.goodsKey} · ${describe(reportCode)}`);
+              }
+              break;
+            }
+          }
           if (generation.current === current) {
             setError(code);
             setProgress(`${item.goodsKey} · ${describe(code)}`);
@@ -196,7 +230,9 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       }
       if (active()) {
         data = await refreshRun(runId);
-        setProgress("자동 처리 종료 · 보호·확인 필요 항목과 마켓 반영 대기를 확인하세요.");
+        setProgress(historyMissingSkipped
+          ? `자동 처리 종료 · 이전 전송기록 없음 ${historyMissingSkipped}건은 재전송하지 않고 보류 · 나머지 상품 처리 완료`
+          : "자동 처리 종료 · 보호·확인 필요 항목과 마켓 반영 대기를 확인하세요.");
       }
     } catch (cause) {
       if (generation.current === current) setError(cause instanceof Error ? cause.message : "MONTHLY_PRICE_FAILED");
