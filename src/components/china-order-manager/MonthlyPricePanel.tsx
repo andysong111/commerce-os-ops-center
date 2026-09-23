@@ -4,7 +4,22 @@ import { useEffect, useRef, useState } from "react";
 import { MONTHLY_PRICE_BRIDGE, MONTHLY_PRICE_POLICY, MONTHLY_PRICE_EXTENSION_VERSION } from "@/lib/monthlyPriceContract";
 import type { MonthlyPriceCandidate, MonthlyPricePlan } from "@/lib/monthlyPriceCore";
 
-type Transmission = { token: string; fingerprint: string; claimedAt: string; result?: string };
+type Transmission = {
+  fingerprint: string;
+  token?: string;
+  claimedAt?: string;
+  result?: string;
+  saleStatusToken?: string;
+  saleStatusTarget?: "B" | "C";
+  originalSaleStatus?: "B" | "C";
+  saleStatusShoplingVerifiedAt?: string;
+  saleStatusMarketClaimedAt?: string;
+  saleStatusMarketFinishedAt?: string;
+  saleStatusResult?: string;
+  restoreToken?: string;
+  restoreTarget?: "C";
+  restoreMarketFinishedAt?: string;
+};
 type Item = { id: string; goodsKey: string; state: string; candidate: MonthlyPriceCandidate; plan: MonthlyPricePlan | null; writeIndex: number; errorCode: string | null; transmission: Transmission | null };
 type Snapshot = { run: { id: string; month: string; policy: string; warnings: string[] } | null; items: Item[] };
 type BridgeReply = { ok: boolean; error?: string; version?: string; observation?: unknown; report?: Record<string, unknown> };
@@ -17,6 +32,7 @@ function describe(code: string) {
   if (/GROUP|MAPPING|SCOPE|UNITS|OPTION/.test(code)) return "가격그룹·상품/옵션 연결·묶음 수량을 안전하게 확정하지 못해 변경을 제외했습니다.";
   if (/BUSY/.test(code)) return "다른 창 또는 다른 월에서 같은 상품을 처리 중입니다. 중복 실행하지 않았습니다.";
   if (/PREVIEW_REQUIRED/.test(code)) return "아직 예상 변경안을 만들지 않은 상품이 있습니다. 먼저 모든 대상의 예상 가격을 확인하세요.";
+  if (/SALE_STATUS/.test(code)) return "품절 상품의 판매중 전환 또는 판매상태 수정전송을 확정하지 못했습니다. 가격 전송은 시작하지 않습니다.";
   if (/READBACK|UNCERTAIN|MARKET_RESULT/.test(code)) return "실제 반영 결과를 확정하지 못했습니다. 완료 처리하거나 무조건 다시 전송하지 않습니다.";
   if (/LOGIN|DOM|BROWSER|CURRENT_PRICE|MALL|SHOPLING_TAB/.test(code)) return "샵플링 로그인 세션 또는 현재 가격행을 확인하지 못했습니다. 가격 변경을 보호했습니다.";
   return "자동 처리를 멈췄습니다. 아래 확인 코드를 확인하세요.";
@@ -159,6 +175,64 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
             if (!resumeExistingRun) continue;
             await step("prepare");
           }
+          if (
+            item.state === "PREPARED" &&
+            item.plan?.saleStatusTransition?.requiredBeforePrice &&
+            !item.transmission?.saleStatusMarketFinishedAt
+          ) {
+            setProgress(`${item.candidate.productName} · 품절→판매중 전환 후 쇼핑몰 판매상태 전송`);
+            const claim = await step("saleStatusClaim", {}, false);
+            if (!active() || !item.transmission?.saleStatusToken) throw new Error("MONTHLY_PRICE_SALE_STATUS_TOKEN_REQUIRED");
+            const statusTransmission = item.transmission;
+            try {
+              let reply = await monthlyPriceBridge("SALE_STATUS_START", {
+                month,
+                runId,
+                itemId: item.id,
+                token: statusTransmission.saleStatusToken,
+                fingerprint: statusTransmission.fingerprint,
+                goodsKey: item.goodsKey,
+                targetSaleStatus: "B",
+                newClaim: claim.duplicate === false,
+              });
+              for (let polls = 0; active() && polls < 1000; polls += 1) {
+                const report = reply.report;
+                if (!report) throw new Error("MONTHLY_PRICE_EXTENSION_REPORT_REQUIRED");
+                if (report.state !== "RUNNING" && report.state !== "STARTING") {
+                  await step("saleStatusReport", { report }, false);
+                  break;
+                }
+                setProgress(`${item.candidate.productName} · 판매중 상태 쇼핑몰 전송 완료 대기`);
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+                if (!active()) break;
+                reply = await monthlyPriceBridge("SALE_STATUS_POLL", {
+                  token: statusTransmission.saleStatusToken,
+                  fingerprint: statusTransmission.fingerprint,
+                  goodsKey: item.goodsKey,
+                  targetSaleStatus: "B",
+                });
+              }
+            } catch (statusError) {
+              const statusCode = statusError instanceof Error ? statusError.message : "MONTHLY_PRICE_SALE_STATUS_EXTENSION_FAILED";
+              if (statusCode === "MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING") {
+                await step("saleStatusReport", {
+                  report: {
+                    token: statusTransmission.saleStatusToken,
+                    fingerprint: statusTransmission.fingerprint,
+                    goodsKey: item.goodsKey,
+                    targetSaleStatus: "B",
+                    state: "MISSING",
+                    statusOnly: true,
+                  },
+                }, false);
+              }
+              throw statusError;
+            }
+            if (!item.transmission?.saleStatusMarketFinishedAt) {
+              throw new Error(item.errorCode || "MONTHLY_PRICE_SALE_STATUS_MARKET_REVIEW_REQUIRED");
+            }
+            setProgress(`${item.candidate.productName} · 판매중 전송 확인 · 가격 반영 시작`);
+          }
           while (active() && item.state === "PREPARED") await step("write");
           if (!active()) break;
           if (["VERIFY_PENDING", "UNCERTAIN", "WRITING"].includes(item.state)) await step("verify");
@@ -246,7 +320,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   const activeExecutionCount = count(["WRITING", "VERIFY_PENDING", "VERIFIED", "RESENDING", "UNCERTAIN"]);
   const retryablePrewriteBlockCount = snapshot.items.filter((item) =>
     item.state === "BLOCKED" &&
-    ["MONTHLY_PRICE_GROUP_REQUIRED", "MONTHLY_PRICE_INACTIVE_LISTING"].includes(item.errorCode ?? "") &&
+    ["MONTHLY_PRICE_GROUP_REQUIRED", "MONTHLY_PRICE_INACTIVE_LISTING", "MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED"].includes(item.errorCode ?? "") &&
     item.writeIndex === 0 &&
     item.plan === null &&
     item.transmission === null
