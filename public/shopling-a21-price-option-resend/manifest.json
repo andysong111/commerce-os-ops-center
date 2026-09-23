@@ -42,7 +42,8 @@
         "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"
       ],
       "js": [
-        "main-a21-v024.js"
+        "main-a21-v024.js",
+        "monthly-status-main-v053.js"
       ],
       "world": "MAIN",
       "all_frames": true,
@@ -53,7 +54,8 @@
         "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"
       ],
       "js": [
-        "content-a21-v024.js"
+        "content-a21-v024.js",
+        "monthly-status-popup-v053.js"
       ],
       "all_frames": true,
       "run_at": "document_idle"
