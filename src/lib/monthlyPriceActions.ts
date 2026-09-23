@@ -38,8 +38,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       if (item.state !== "QUEUED") return response(item);
       try {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
-        const { observed, live: resolvedLive, resolution } = await resolveCurrentGroup(item, payload.observation);
-        let live = resolvedLive;
+        const { observed, live, resolution } = await resolveCurrentGroup(item, payload.observation);
         if (!resolution.group || resolution.source === "UNRESOLVED") {
           item.plan = null;
           item.state = "HELD";
@@ -86,7 +85,8 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       let dispatched = false;
       try {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
-        const { observed, live, resolution } = await resolveCurrentGroup(item, payload.observation);
+        const { observed, live: resolvedLive, resolution } = await resolveCurrentGroup(item, payload.observation);
+        let live = resolvedLive;
         if (!resolution.group || resolution.group !== item.plan.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
         if (item.plan.groupResolution === "EXACT" && resolution.source !== "EXACT") {
           throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
@@ -102,6 +102,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
           });
         }
         const liveProduct = monthlyLiveProduct(item.candidate, live);
+        if (write.kind !== "OPTION_PRICE") assertMonthlyPendingOptionPreimage(item.plan, liveProduct.options);
         const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : liveProduct.prices;
         if (assertMonthlyWritePreimage(write, current, write.mallKey ? [] : liveProduct.options) === "ALREADY_APPLIED") {
           await auditMonthlyPrice(item, "WRITE_ALREADY_MATCHES", { writeIndex: item.write_index, current });
