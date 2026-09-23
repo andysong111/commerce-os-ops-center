@@ -50,3 +50,17 @@ test('claim and CAS require an actual single-row array response',async()=>{
   h.state.patchRows={id:itemId};await assert.rejects(h.api.saveMonthlyPriceItem(item),/LEASE_LOST/);
   h.state.patchRows=[];await assert.rejects(h.api.saveMonthlyPriceItem(item),/LEASE_LOST/);
 });
+
+test('legacy group blocker retry is allowed only before any write and with matching fresh pricing identity',()=>{
+  const h=storeHarness();
+  const oldCandidate={...candidate(),productGroup:'',reason:'MONTHLY_PRICE_GROUP_REQUIRED'};
+  const freshCandidate={...candidate(),productGroup:'',reason:null};
+  const item={id:itemId,state:'BLOCKED',write_index:0,plan:null,transmission:null,error_code:'MONTHLY_PRICE_GROUP_REQUIRED',candidate:oldCandidate};
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem(item,freshCandidate,true),true);
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem({...item,write_index:1},freshCandidate,true),false);
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem({...item,plan:{fingerprint:'x'}},freshCandidate,true),false);
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem(item,{...freshCandidate,reason:'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED'},true),false);
+  const changed={...freshCandidate,options:[{...freshCandidate.options[0],protectedCostKrw:freshCandidate.options[0].protectedCostKrw+1}]};
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem(item,changed,true),false);
+  assert.equal(h.api.canRetryLegacyGroupBlockedItem(item,freshCandidate,false),false);
+});
