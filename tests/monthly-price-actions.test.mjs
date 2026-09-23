@@ -14,7 +14,13 @@ function harness() {
     '@/lib/shopling/shoplingProductGroupRegistry':{loadShoplingProductGroupsByGoodsKey:async()=>new Map([[goodsKey,state.group]])},
     '@/lib/monthlyPriceShopling':{
       readMonthlyLiveProduct:async()=>{log.push('read');return state.raw;},
-      writeMonthlyShoplingPrice:async(_,write)=>{log.push('write');if(state.writeError)throw new Error('MONTHLY_PRICE_WRITE_UNCERTAIN'); if(write.mallKey)state.observed.rows[0]={...state.observed.rows[0],...write.target};else state.raw=live(write.target.sellPrice,write.options?.[0]?.targetAmount??0);},
+      ensureMonthlyShoplingSaleStatus:async(_,target)=>{
+        log.push(`status:${target}`);
+        const before=String(state.raw[0]?.sale_status||'');
+        state.raw=state.raw.map(row=>({...row,sale_status:target}));
+        return {before,after:target,changed:before!==target};
+      },
+      writeMonthlyShoplingPrice:async(_,write)=>{log.push('write');if(state.writeError)throw new Error('MONTHLY_PRICE_WRITE_UNCERTAIN'); if(write.mallKey)state.observed.rows[0]={...state.observed.rows[0],...write.target};else state.raw=live(write.target.sellPrice,write.options?.[0]?.targetAmount??0).map(row=>({...row,sale_status:state.raw[0]?.sale_status||'B'}));},
     },
     '@/lib/monthlyPriceStore':{
       withMonthlyPriceItem:async(id,rid,work)=>{if(state.locked)throw new Error('MONTHLY_PRICE_ITEM_BUSY');assert.equal(id,itemId);assert.equal(rid,runId);state.locked=true;try{return await work(item,run);}finally{log.push(`release:${item.state}`);state.locked=false;}},
@@ -33,10 +39,20 @@ test('actual production action happy path: prepare -> durable price+option inten
   await h.call('verify');assert.equal(h.item.state,'VERIFIED');
   const first=await h.call('resendClaim'),second=await h.call('resendClaim');
   assert.equal(first.duplicate,false);assert.equal(second.duplicate,true);assert.equal(first.transmission.token,second.transmission.token);
-  await h.call('resendReport',{report:{token:first.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true}});
+  await h.call('resendReport',{report:{token:first.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true}});
   assert.equal(h.item.state,'TRANSMITTED');assert.equal(h.item.transmission.result,'RESULT_WINDOW_FINISHED_MARKET_CONFIRMATION_PENDING');
   assert.equal(h.log.filter(x=>x==='write').length,2);
 });
+test('sold-out item switches Shopling master to selling before any price write',async()=>{
+  const h=harness();h.state.raw=h.state.raw.map(row=>({...row,sale_status:'C'}));
+  await h.call('prepare');
+  assert.equal(h.item.plan.saleStatusTransition.target,'B');
+  await h.call('write');
+  assert.equal(h.log.includes('status:B'),true);
+  assert.ok(h.log.indexOf('status:B')<h.log.indexOf('write'));
+  assert.equal(h.state.raw[0].sale_status,'B');
+});
+
 test('legacy item without exact group auto-infers wholesale and can execute without confirmation',async()=>{
   const h=harness();h.state.group=null;h.item.candidate.productGroup='';
   await h.call('prepare');
