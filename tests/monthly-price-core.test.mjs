@@ -74,6 +74,26 @@ test('inferred family scopes mall writes to observed connected channels only', (
   assert.equal(plan.targets.filter(row=>row.mallKey).length,1);
   assert.equal(plan.targets.find(row=>row.mallKey)?.mallKey,'SMALL_00069');
 });
+test('legacy zero mall price is initialized to the calculated target instead of excluding the product', () => {
+  const observed=observation(0);
+  const plan=buildMonthlyPricePlan(candidate(),live(1000),observed);
+  const mall=plan.targets.find(row=>row.mallKey==='SMALL_00074');
+  assert.equal(mall.before.sellPrice,0);
+  assert.ok(mall.target.sellPrice>0);
+  assert.ok(plan.writes.some(row=>row.mallKey==='SMALL_00074'));
+});
+
+test('sold-out plan requires selling activation before price while retaining optional restore metadata', () => {
+  const soldOut=live().map(row=>({...row,sale_status:'C'}));
+  const plan=buildMonthlyPricePlan(candidate(),soldOut,observation());
+  assert.deepEqual(plan.saleStatusTransition,{original:'C',targetDuringPrice:'B',requiredBeforePrice:true,restoreAvailable:true,restoreDefault:false});
+  assert.equal(monthlyLiveProduct(candidate(),soldOut).saleStatus,'C');
+  const base=plan.targets.find(row=>row.mallKey===null);
+  const mall=plan.targets.find(row=>row.mallKey);
+  assert.throws(()=>verifyMonthlyPricePlan(plan,candidate(),soldOut,observation(mall.target.sellPrice)),/SALE_STATUS_READBACK_MISMATCH/);
+  const selling=live(base.target.sellPrice,base.options[0].targetAmount);
+  assert.doesNotThrow(()=>verifyMonthlyPricePlan(plan,candidate(),selling,observation(mall.target.sellPrice)));
+});
 
 test('unknown or low cost cannot produce automatic markdown', () => {
   assert.equal(buildMonthlyPricePlan(candidate(500),live(99999),observation(99999)).writes.length,0);
@@ -140,7 +160,7 @@ test('positive readback requires base, options and every connected channel targe
   const b=p.targets.find(x=>x.mallKey===null),m=p.targets.find(x=>x.mallKey);
   assert.equal(verifyMonthlyPricePlan(p,candidate(),live(b.target.sellPrice,b.options[0].targetAmount),observation(m.target.sellPrice)),true);
   assert.throws(()=>verifyMonthlyPricePlan(p,candidate(),live(b.target.sellPrice,b.options[0].targetAmount+10),observation(m.target.sellPrice)),/OPTION_READBACK_MISMATCH/);
-  assert.doesNotThrow(()=>monthlyLiveProduct(candidate(),[{...live()[0],sale_status:'C'}]));
+  assert.equal(monthlyLiveProduct(candidate(),[{...live()[0],sale_status:'C'}]).saleStatus,'C');
   assert.throws(()=>monthlyLiveProduct(candidate(),[{...live()[0],sale_status:'D'}]),/INACTIVE_LISTING/);
 });
 test('boundary validation: zero, missing, booleans, decimals, infinite, malformed month', () => {
