@@ -55,7 +55,12 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
           effectiveCandidate,
           live,
           observed,
-          resolution.source === "EXACT" ? {} : { restrictMallKeys: observed.rows.map((row) => row.mallKey) },
+          resolution.source === "EXACT"
+            ? { groupResolution: "EXACT" }
+            : {
+                groupResolution: resolution.source,
+                restrictMallKeys: observed.rows.map((row) => row.mallKey),
+              },
         );
         item.state = item.plan.writes.length ? "PREPARED" : "HELD";
         item.error_code = null;
@@ -78,6 +83,9 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
         const { observed, live, resolution } = await resolveCurrentGroup(item, payload.observation);
         if (!resolution.group || resolution.group !== item.plan.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
+        if (item.plan.groupResolution === "EXACT" && resolution.source !== "EXACT") {
+          throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
+        }
         const liveProduct = monthlyLiveProduct(item.candidate, live);
         const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : liveProduct.prices;
         if (assertMonthlyWritePreimage(write, current, write.mallKey ? [] : liveProduct.options) === "ALREADY_APPLIED") {
