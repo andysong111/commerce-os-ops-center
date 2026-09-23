@@ -3,6 +3,7 @@
 importScripts("background-v044.js", "monthly-price-dom.js");
 
 (() => {
+  const VERSION = "0.5.3";
   const ORIGIN = "https://commerce-os-ops-center.vercel.app";
   const SHOPLING_SOURCE_URL = "https://a.shopling.co.kr/main.phtml";
   const HISTORY = "commerceOsMonthlyPriceTransmissionHistoryV1";
@@ -13,9 +14,12 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     catch { return false; }
   }
   function report(state) {
+    const statusOnly = state.jobs.length > 0 && state.jobs.every((job) => job.mode === "STATUS");
     return { token: state.monthlyToken, fingerprint: state.fingerprint, goodsKey: state.monthlyGoodsKey, state: state.state,
       priceOnly: state.jobs.length > 0 && state.jobs.every((job) => job.mode === "PRICE"),
       priceAndOption: state.jobs.some((job) => job.mode === "PRICE") && state.jobs.some((job) => job.mode === "OPTION") && state.jobs.every((job) => ["PRICE", "OPTION"].includes(job.mode)),
+      statusOnly,
+      targetSaleStatus: statusOnly ? String(state.monthlySaleStatusTarget || "") : "",
       updatedAt: state.updatedAt };
   }
   async function remember(state) {
@@ -72,6 +76,100 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     if (!response.ok || !body.ok || body.run?.id !== payload.runId || !item || item.state !== "RESENDING" || item.plan?.fingerprint !== payload.fingerprint || !/^\d{5,9}$/.test(item.goodsKey)) throw new Error("MONTHLY_PRICE_SERVER_SCOPE_NOT_VERIFIED");
     return item;
   }
+  async function canonicalSaleStatusTransmission(payload) {
+    if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(payload.month) || !/^[0-9a-f-]{36}$/.test(payload.token) || !/^[0-9a-f-]{36}$/.test(payload.runId) || !["B", "C"].includes(payload.targetSaleStatus)) {
+      throw new Error("MONTHLY_PRICE_SALE_STATUS_SCOPE_INVALID");
+    }
+    const response = await fetch(`${ORIGIN}/api/china-order-manager/monthly-price?month=${payload.month}&runId=${encodeURIComponent(payload.runId)}`, { cache: "no-store", credentials: "omit" });
+    const body = await response.json();
+    const item = body?.items?.find((row) => row.id === payload.itemId);
+    const tx = item?.transmission || {};
+    const activation = payload.targetSaleStatus === "B" &&
+      item?.state === "PREPARED" &&
+      tx.saleStatusToken === payload.token &&
+      tx.saleStatusTarget === "B" &&
+      Boolean(tx.saleStatusShoplingVerifiedAt);
+    const restore = payload.targetSaleStatus === "C" &&
+      item?.state === "TRANSMITTED" &&
+      tx.restoreToken === payload.token &&
+      tx.restoreTarget === "C" &&
+      Boolean(tx.restoreShoplingVerifiedAt);
+    if (!response.ok || !body.ok || body.run?.id !== payload.runId || (!activation && !restore) || item.plan?.fingerprint !== payload.fingerprint || !/^\d{5,9}$/.test(item.goodsKey)) {
+      throw new Error("MONTHLY_PRICE_SERVER_SCOPE_NOT_VERIFIED");
+    }
+    return item;
+  }
+
+  function addSaleStatusJob(state, batch, targetSaleStatus) {
+    state.jobs.push({
+      id: `job-status-${crypto.randomUUID()}`,
+      batchId: batch.id,
+      batchIndex: batch.index,
+      mode: "STATUS",
+      desiredSaleStatus: targetSaleStatus,
+      goodsKeys: [...batch.goodsKeys],
+      status: "QUEUED",
+      stage: "OPENING",
+      workerWindowId: null,
+      workerTabId: null,
+      workerFrameId: null,
+      popupWindowId: null,
+      popupTabId: null,
+      popupFrameId: null,
+      selectedRowCount: 0,
+      totalResultCount: 0,
+      message: "판매상태 전송 대기",
+      error: "",
+      monthlyScope: true,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
+
+  async function startMonthlySaleStatus(payload) {
+    if (startBusy) throw new Error("MONTHLY_PRICE_EXTENSION_BUSY");
+    startBusy = true;
+    try {
+      const item = await canonicalSaleStatusTransmission(payload);
+      const history = (await chrome.storage.local.get(HISTORY))[HISTORY] || {};
+      const current = await loadState();
+      if (current?.monthlyToken === payload.token) { await remember(current); return report(current); }
+      if (history[payload.token]) return history[payload.token];
+      if (payload.newClaim !== true) throw new Error("MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING");
+      if (current?.state === "RUNNING") throw new Error("MONTHLY_PRICE_EXTENSION_BUSY");
+      const tabs = await chrome.tabs.query({ url: "https://a.shopling.co.kr/*" });
+      const source = tabs.find((tab) => /shopling\.co\.kr\//.test(tab.url || "") && !/goods_mallMdfy_trsmt|prodShopInfo/.test(tab.url || ""));
+      const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
+      if (current?.monthlyToken) await remember(current);
+      const batches = buildBatches([{ goodsKey: item.goodsKey }]);
+      const state = {
+        version: VERSION,
+        runId: `monthly-status-${payload.token}`,
+        monthlyToken: payload.token,
+        monthlyGoodsKey: item.goodsKey,
+        monthlySaleStatusTarget: payload.targetSaleStatus,
+        state: "RUNNING",
+        testMode: false,
+        fingerprint: payload.fingerprint,
+        goodsKeyCount: 1,
+        fullGoodsKeyCount: 1,
+        mallCheckCount: 0,
+        sourceUrl,
+        baselinePopupTabIds: await baselinePopupTabs(),
+        batches,
+        jobs: [],
+        stopped: false,
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      for (const batch of batches) addSaleStatusJob(state, batch, payload.targetSaleStatus);
+      await saveState(state);
+      await remember(state);
+      await pump();
+      return report(await loadState());
+    } finally { startBusy = false; }
+  }
+
   async function startMonthly(payload) {
     if (startBusy) throw new Error("MONTHLY_PRICE_EXTENSION_BUSY");
     startBusy = true;
@@ -88,7 +186,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.2", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: VERSION, runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
         mallCheckCount: item.plan.targets.filter((row) => row.mallKey).length, sourceUrl,
         baselinePopupTabIds: await baselinePopupTabs(), batches, jobs: [], stopped: false, startedAt: Date.now(), updatedAt: Date.now() };
@@ -103,7 +201,16 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     await globalThis.commerceOsWakeA21MonthlyResult?.();
     const current = await loadState();
     if (current?.monthlyToken === payload.token) { await remember(current); return report(current); }
-    return (await chrome.storage.local.get(HISTORY))[HISTORY]?.[payload.token] || { token: payload.token, fingerprint: payload.fingerprint, goodsKey: payload.goodsKey, state: "MISSING", priceOnly: false, priceAndOption: false };
+    return (await chrome.storage.local.get(HISTORY))[HISTORY]?.[payload.token] || {
+      token: payload.token,
+      fingerprint: payload.fingerprint,
+      goodsKey: payload.goodsKey,
+      state: "MISSING",
+      priceOnly: false,
+      priceAndOption: false,
+      statusOnly: Boolean(payload.targetSaleStatus),
+      targetSaleStatus: String(payload.targetSaleStatus || ""),
+    };
   }
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!String(message?.type || "").startsWith("MONTHLY_PRICE_")) return false;
@@ -111,10 +218,12 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.2" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: VERSION });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || "")) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });
+        if (message.type === "MONTHLY_PRICE_SALE_STATUS_START") return sendResponse({ ok: true, report: await startMonthlySaleStatus(payload) });
+        if (message.type === "MONTHLY_PRICE_SALE_STATUS_POLL") return sendResponse({ ok: true, report: await status(payload) });
         throw new Error("MONTHLY_PRICE_COMMAND_INVALID");
       } catch (error) { sendResponse({ ok: false, error: String(error?.message || "MONTHLY_PRICE_EXTENSION_FAILED") }); }
     })();
