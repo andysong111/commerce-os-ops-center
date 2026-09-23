@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyMallPrices, assertMonthlyWritePreimage, verifyMonthlyPricePlan, resolveMonthlyPriceGroup, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
+import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyMallPrices, assertMonthlyWritePreimage, assertMonthlyPendingOptionPreimage, verifyMonthlyPricePlan, resolveMonthlyPriceGroup, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
 import { assertMonthlyEvidenceUnchanged } from "@/lib/monthlyPriceSource";
 import { loadShoplingProductGroupsByGoodsKey } from "@/lib/shopling/shoplingProductGroupRegistry";
 import { ensureMonthlyShoplingSaleStatus, readMonthlyLiveProduct, writeMonthlyShoplingPrice } from "@/lib/monthlyPriceShopling";
