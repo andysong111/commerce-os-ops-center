@@ -122,7 +122,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       if (generation.current === current) { running.current = false; setBusy(false); }
     }
   }
-  async function applyChanges(allowQueuedResume = false) {
+  async function applyChanges(resumeExistingRun = false) {
     if (running.current) return;
     running.current = true; setBusy(true); setError(""); setProgress("");
     const current = generation.current;
@@ -130,14 +130,14 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     try {
       await bridgeReady();
       if (!active()) return;
-      let data = allowQueuedResume && snapshot.run
+      let data = resumeExistingRun && snapshot.run
         ? await api({ action: "resumePreflight", month, runId: snapshot.run.id }) as Snapshot
         : await refreshRun(snapshot.run?.id);
-      if (allowQueuedResume && generation.current === current) setSnapshot(data);
+      if (resumeExistingRun && generation.current === current) setSnapshot(data);
       if (!data.run) throw new Error("MONTHLY_PRICE_RUN_REQUIRED");
       const runId = data.run.id;
       const unpreviewed = data.items.filter((item) => item.state === "QUEUED").length;
-      if (unpreviewed && !allowQueuedResume) throw new Error("MONTHLY_PRICE_PREVIEW_REQUIRED");
+      if (unpreviewed && !resumeExistingRun) throw new Error("MONTHLY_PRICE_PREVIEW_REQUIRED");
       for (const initial of data.items) {
         if (!active()) break;
         let item = initial;
@@ -155,7 +155,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
           // Only a run that was already executing before the preview/confirm UI
           // may consume leftover QUEUED rows. New runs must preview every row first.
           if (item.state === "QUEUED") {
-            if (!allowQueuedResume) continue;
+            if (!resumeExistingRun) continue;
             await step("prepare");
           }
           while (active() && item.state === "PREPARED") await step("write");
@@ -208,7 +208,17 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   const queuedCount = count(["QUEUED"]);
   const preparedCount = count(["PREPARED"]);
   const activeExecutionCount = count(["WRITING", "VERIFY_PENDING", "VERIFIED", "RESENDING", "UNCERTAIN"]);
-  const legacyResume = activeExecutionCount > 0 && queuedCount > 0;
+  const staleLegacyGroupBlockCount = snapshot.items.filter((item) =>
+    item.state === "BLOCKED" &&
+    item.errorCode === "MONTHLY_PRICE_GROUP_REQUIRED" &&
+    item.writeIndex === 0 &&
+    item.plan === null &&
+    item.transmission === null
+  ).length;
+  // Every explicit continuation of an old run goes through resumePreflight.
+  // This also exposes a recovery path when stale GROUP_REQUIRED rows are the
+  // only unfinished work and there is no QUEUED/active item to trigger a button.
+  const existingRunResume = Boolean(snapshot.run) && (activeExecutionCount > 0 || staleLegacyGroupBlockCount > 0);
   const money = (value: number) => `${Math.round(value).toLocaleString("ko-KR")}원`;
   const shortReason = (code: string | null) => {
     if (!code) return "확인 필요";
@@ -270,18 +280,22 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   return <section id="monthly-price" className="rounded-xl border border-cyan-700 bg-slate-900 p-3" data-testid="monthly-price-panel">
     <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 text-xs font-black text-slate-950">6</span><h3 className="font-black text-white">입고 후 가격조정</h3></div>
     <p className="mt-2 text-xs leading-5 text-slate-300">{month} 입고상품만 처리합니다. 구재고·혼재 원가는 현재가를 보호하고, 검증된 원가 기준 인상만 실행합니다. 재고수량·과거 원가는 변경하지 않습니다. 옵션별 최종 판매가는 각 B코드의 보호원가로 재계산하며 현재 최종가격보다 낮추지 않습니다.</p>
-    {legacyResume ? (
+    {existingRunResume ? (
       <button type="button" onClick={() => void applyChanges(true)} disabled={!ready || busy} className="mt-3 w-full rounded-lg bg-amber-300 px-3 py-3 text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
-        {busy ? "기존 가격조정 이어가는 중…" : "이전 실행 이어가기"}
+        {busy
+          ? "기존 가격조정 이어가는 중…"
+          : staleLegacyGroupBlockCount > 0
+            ? `이전 실행 재확인·이어가기 (${staleLegacyGroupBlockCount}건 재평가)`
+            : "미완료 가격조정 이어가기"}
       </button>
     ) : (
       <>
         <button type="button" onClick={() => void preparePreview()} disabled={!ready || busy || (snapshot.run !== null && queuedCount === 0)} className="mt-3 w-full rounded-lg bg-cyan-300 px-3 py-3 text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
           {busy ? "예상 가격 계산 중…" : snapshot.run && queuedCount > 0 ? `예상 가격 계산 계속 (${queuedCount}상품)` : snapshot.run ? "예상 변경안 계산 완료" : "예상 가격 확인"}
         </button>
-        {(preparedCount > 0 || activeExecutionCount > 0) && (
+        {preparedCount > 0 && (
           <button type="button" onClick={() => void applyChanges(false)} disabled={!ready || busy || queuedCount > 0} className="mt-2 w-full rounded-lg bg-emerald-400 px-3 py-3 text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
-            {busy ? "가격 반영 중…" : activeExecutionCount > 0 ? "미완료 가격조정 이어가기" : `이대로 가격조정 실행 (${preparedCount}상품)`}
+            {busy ? "가격 반영 중…" : `이대로 가격조정 실행 (${preparedCount}상품)`}
           </button>
         )}
       </>
