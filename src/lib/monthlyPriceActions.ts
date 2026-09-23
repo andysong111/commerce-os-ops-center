@@ -150,7 +150,12 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       const report = monthlyRecord(payload.report);
       if (item.state === "TRANSMITTED") return response(item);
       if (item.state !== "RESENDING" || !item.transmission || report.token !== item.transmission.token || report.fingerprint !== item.transmission.fingerprint || report.goodsKey !== item.goods_key) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
-      if (report.state === "SUCCEEDED" && report.priceAndOption === true) {
+      if (
+        report.state === "SUCCEEDED" &&
+        report.priceAndOption === true &&
+        (!item.plan.saleStatusTransition || report.saleStatusActivated === true) &&
+        (!item.plan.saleStatusTransition?.restoreAfterTransmission || report.saleStatusRestored === true)
+      ) {
         if (item.plan.saleStatusTransition?.restoreAfterTransmission) {
           const restored = await ensureMonthlyShoplingSaleStatus(item.goods_key, item.plan.saleStatusTransition.before);
           await auditMonthlyPrice(item, "SALE_STATUS_RESTORED", {
