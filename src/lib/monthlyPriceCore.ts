@@ -198,7 +198,11 @@ export function monthlyLiveProduct(candidate: MonthlyPriceCandidate, rows: Recor
   const candidateByOption = new Map(candidate.options.map((row) => [row.optionId, row]));
   const options = rows.map((row) => {
     if (!samePrices(prices, priceValues(row))) throw new Error("MONTHLY_PRICE_BASE_PRICE_CONFLICT");
-    if (String(row.sale_status).trim().toUpperCase() !== "B") throw new Error("MONTHLY_PRICE_INACTIVE_LISTING");
+    const saleStatus = String(row.sale_status).trim().toUpperCase();
+    // Shopling: B=판매중, C=품절. Sold-out listings still need the same
+    // protected price maintenance so that a later restock resumes at the
+    // correct price. Waiting/stopped/ended/deleted listings stay excluded.
+    if (!["B", "C"].includes(saleStatus)) throw new Error("MONTHLY_PRICE_INACTIVE_LISTING");
     const optionId = String(row.optId ?? "");
     const mapped = candidateByOption.get(optionId);
     if (!mapped) throw new Error("MONTHLY_PRICE_OPTION_SCOPE_CONFLICT");
