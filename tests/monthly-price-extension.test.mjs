@@ -12,8 +12,11 @@ function worker() {
   const context={console,URL,Error,setTimeout,clearTimeout,importScripts:()=>{},
     chrome:{storage:{local:{get:async key=>({[key]:storage[key]}),set:async value=>Object.assign(storage,value)},onChanged:{addListener:()=>{}}},runtime:{onMessage:{addListener:f=>listeners.push(f)}},tabs:{query:async()=>shoplingTabs},scripting:{}},
     loadState:async()=>current,saveState:async s=>{log.push('persist');current=s;},publicState:s=>s,
-    buildBatches:rows=>[{id:'batch',goodsKeys:rows.map(r=>r.goodsKey)}],addJobs:(s,b)=>s.jobs.push({mode:'PRICE',goodsKeys:b.goodsKeys},{mode:'OPTION',goodsKeys:b.goodsKeys}),
-    baselinePopupTabs:async()=>[],launchJob:async(s,j)=>{log.push(`launch:${j.mode}`);j.status='RUNNING';},pump:async()=>{log.push('pump');},startRun:async()=>{log.push('legacy');},
+    buildBatches:rows=>[{id:'batch',goodsKeys:rows.map(r=>r.goodsKey)}],addJobs:(s,b)=>s.jobs.push(
+      {id:'price',mode:'PRICE',goodsKeys:b.goodsKeys,status:'QUEUED',stage:'OPENING'},
+      {id:'option',mode:'OPTION',goodsKeys:b.goodsKeys,status:'QUEUED',stage:'OPENING'}
+    ),
+    baselinePopupTabs:async()=>[],launchJob:async(s,j)=>{log.push(`launch:${j.mode}`);j.status='RUNNING';},pump:async()=>{log.push('legacy-pump');},startRun:async()=>{log.push('legacy');},
     fetch:async url=>{log.push(url);return {ok:true,json:async()=>({ok:true,run:{id:runId},items:[item]})};},
   };
   vm.createContext(context);vm.runInContext(file('background-monthly-price.js'),context);
@@ -30,12 +33,12 @@ test('extension rejects other-origin and subframe commands',async()=>{
 test('extension one product scope uses server-verified immutable run, persists token before pump, and schedules PRICE then OPTION',async()=>{
   const w=worker(),r=await w.send('MONTHLY_PRICE_START');assert.equal(r.ok,true);assert.equal(w.current.jobs.length,2);
   assert.deepEqual(Array.from(w.current.jobs,x=>x.mode),['PRICE','OPTION']);assert.ok(w.current.jobs.every(x=>x.monthlyScope));
-  assert.equal(w.current.jobs[0].goodsKeys.join(','),goodsKey);assert.ok(w.log.find(x=>x.includes('runId='+runId)));assert.ok(w.log.indexOf('persist')<w.log.indexOf('pump'));assert.equal(w.log.includes('legacy'),false);
+  assert.equal(w.current.jobs[0].goodsKeys.join(','),goodsKey);assert.ok(w.log.find(x=>x.includes('runId='+runId)));assert.ok(w.log.indexOf('persist')<w.log.findIndex(x=>x.startsWith('launch:')));assert.equal(w.log.includes('legacy'),false);
   const before=w.current.jobs.length;w.context.addJobs(w.current,{goodsKeys:[goodsKey]});assert.equal(w.current.jobs.length,before+2);assert.ok(w.current.jobs.slice(before).every(x=>x.monthlyScope));
 });
 test('monthly start falls back to Shopling main when no source tab is open',async()=>{
   const w=worker();w.shoplingTabs=[];const r=await w.send('MONTHLY_PRICE_START');
-  assert.equal(r.ok,true);assert.equal(w.current.sourceUrl,'https://a.shopling.co.kr/main.phtml');assert.equal(w.log.includes('pump'),true);
+  assert.equal(r.ok,true);assert.equal(w.current.sourceUrl,'https://a.shopling.co.kr/main.phtml');assert.equal(w.log.some(x=>x.startsWith('launch:')),true);
 });
 test('status reports success capability only when both PRICE and OPTION jobs exist',async()=>{
   const w=worker();await w.send('MONTHLY_PRICE_START');w.current.state='SUCCEEDED';
@@ -75,8 +78,8 @@ test('monthly extension pump never starts OPTION before PRICE succeeds',async()=
   assert.equal(w.current.state,'PARTIAL_FAILURE');
 });
 
-test('duplicate and refresh preserve token and never pump twice',async()=>{
-  const w=worker();await w.send('MONTHLY_PRICE_START');await w.send('MONTHLY_PRICE_START',{...w.payload,newClaim:false});assert.equal(w.log.filter(x=>x==='pump').length,1);
+test('duplicate and refresh preserve token and never launch the first job twice',async()=>{
+  const w=worker();await w.send('MONTHLY_PRICE_START');await w.send('MONTHLY_PRICE_START',{...w.payload,newClaim:false});assert.equal(w.log.filter(x=>x==='launch:PRICE').length,1);
 });
 test('missing local transmission history is not interpreted as safe-to-resend',async()=>{
   const w=worker(),r=await w.send('MONTHLY_PRICE_START',{...w.payload,newClaim:false});assert.equal(r.ok,false);assert.equal(r.error,'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING');assert.equal(w.log.includes('pump'),false);
