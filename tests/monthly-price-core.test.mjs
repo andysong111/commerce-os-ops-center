@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture, candidate, live, observation } from './monthly-price-fixtures.mjs';
-import { monthlyCostsFromEvidence, monthlyProtectedCosts, monthlyValidateObservation, monthlyMoney, monthlyMonth, buildMonthlyPricePlan, assertMonthlyWritePreimage, verifyMonthlyPricePlan, monthlyLiveProduct } from '../src/lib/monthlyPriceCore.ts';
+import { monthlyCostsFromEvidence, monthlyProtectedCosts, monthlyValidateObservation, monthlyMoney, monthlyMonth, buildMonthlyPricePlan, assertMonthlyWritePreimage, verifyMonthlyPricePlan, monthlyLiveProduct, resolveMonthlyPriceGroup } from '../src/lib/monthlyPriceCore.ts';
 
 test('September missing cache: durable receipt plus matching freight close reconstructs only arrival cost', () => {
   const input = fixture(), before = structuredClone(input);
@@ -46,6 +46,35 @@ test('base increase preserves independently higher channel price and display ori
   assert.equal(plan.writes[0].target.purchasePrice,321); assert.equal(plan.writes[0].target.consumerPrice,6543);
   assert.equal(plan.optionChangeCount,0); assert.equal(plan.protectedDecreaseCount,1);
 });
+test('missing current registry never treats stale candidate snapshot group as exact', () => {
+  const stale={...candidate(),productGroup:'도매4'};
+  const resolved=resolveMonthlyPriceGroup(stale,live(3900),observation(3900),null);
+  assert.deepEqual(resolved,{group:'도매1',source:'MALL_FAMILY'});
+});
+
+test('legacy product family uses channel evidence before price and falls back only outside the overlap band', () => {
+  const legacy={...candidate(),productGroup:''};
+  const wholesale=resolveMonthlyPriceGroup(legacy,live(3900),observation(3900),null);
+  assert.deepEqual(wholesale,{group:'도매1',source:'MALL_FAMILY'});
+
+  const retailObservation={...observation(3900),rows:[{...observation(3900).rows[0],mallKey:'SMALL_00012'}]};
+  const retail=resolveMonthlyPriceGroup(legacy,live(3900),retailObservation,null);
+  assert.deepEqual(retail,{group:'소매1',source:'MALL_FAMILY'});
+
+  const unknownMall={...observation(3000),rows:[{...observation(3000).rows[0],mallKey:'SMALL_00999'}]};
+  assert.deepEqual(resolveMonthlyPriceGroup(legacy,live(3000),unknownMall,null),{group:'도매1',source:'PRICE_RATIO'});
+  assert.deepEqual(resolveMonthlyPriceGroup(legacy,live(4200),unknownMall,null),{group:'소매1',source:'PRICE_RATIO'});
+  assert.deepEqual(resolveMonthlyPriceGroup(legacy,live(3900),unknownMall,null),{group:null,source:'UNRESOLVED'});
+});
+
+test('inferred family scopes mall writes to observed connected channels only', () => {
+  const legacy={...candidate(),productGroup:'도매1'};
+  const observed=observation(1000);
+  const plan=buildMonthlyPricePlan(legacy,live(1000),observed,{restrictMallKeys:observed.rows.map(row=>row.mallKey)});
+  assert.equal(plan.targets.filter(row=>row.mallKey).length,1);
+  assert.equal(plan.targets.find(row=>row.mallKey)?.mallKey,'SMALL_00069');
+});
+
 test('unknown or low cost cannot produce automatic markdown', () => {
   assert.equal(buildMonthlyPricePlan(candidate(500),live(99999),observation(99999)).writes.length,0);
   assert.throws(()=>buildMonthlyPricePlan({...candidate(),reason:'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED'},live(),observation()),/CONFIRMED_COST_REQUIRED/);

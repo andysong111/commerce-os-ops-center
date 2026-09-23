@@ -78,6 +78,13 @@ const MALL = {
   TOSS: { mallKey: "SMALL_00194", mallName: "토스쇼핑" },
 } satisfies Record<string, InternalMallPricePolicy>;
 
+export type InternalPriceFamily = "WHOLESALE" | "RETAIL";
+export type InternalPriceFamilyInference = {
+  family: InternalPriceFamily;
+  fallbackGroup: "도매1" | "소매1";
+  source: "MALL_FAMILY" | "PRICE_RATIO";
+};
+
 export const INTERNAL_PRICE_GROUP_MALLS: Record<
   InternalPriceGroup,
   readonly InternalMallPricePolicy[]
@@ -113,6 +120,41 @@ export const INTERNAL_PRICE_GROUP_MALLS: Record<
   ],
   소매2: [MALL.AUCTION, MALL.GMARKET, MALL.ELEVEN, MALL.COUPANG, MALL.TOSS],
 };
+
+const WHOLESALE_MALL_KEYS = new Set(
+  (["도매1", "도매2", "도매3", "도매4"] as InternalPriceGroup[])
+    .flatMap((group) => INTERNAL_PRICE_GROUP_MALLS[group].map((row) => row.mallKey)),
+);
+const RETAIL_MALL_KEYS = new Set(
+  (["소매1", "소매2"] as InternalPriceGroup[])
+    .flatMap((group) => INTERNAL_PRICE_GROUP_MALLS[group].map((row) => row.mallKey)),
+);
+
+/**
+ * Legacy products may predate DM/SM self-code prefixes. Infer only the broad
+ * wholesale/retail family. Channel membership is stronger evidence than price.
+ * Price is a last fallback and intentionally leaves the 2.4~2.7 overlap band
+ * unresolved because wholesale4 and retail1 can share similar markups.
+ */
+export function inferLegacyInternalPriceFamily(input: {
+  mallKeys?: Iterable<unknown>;
+  priceRatios?: Iterable<unknown>;
+}): InternalPriceFamilyInference | null {
+  const keys = [...new Set([...(input.mallKeys ?? [])].map((value) => String(value ?? "").trim()).filter(Boolean))];
+  const wholesale = keys.filter((key) => WHOLESALE_MALL_KEYS.has(key)).length;
+  const retail = keys.filter((key) => RETAIL_MALL_KEYS.has(key)).length;
+  if (wholesale > 0 && retail === 0) return { family: "WHOLESALE", fallbackGroup: "도매1", source: "MALL_FAMILY" };
+  if (retail > 0 && wholesale === 0) return { family: "RETAIL", fallbackGroup: "소매1", source: "MALL_FAMILY" };
+
+  const ratios = [...(input.priceRatios ?? [])].map(Number).filter((value) => Number.isFinite(value) && value > 0);
+  if (ratios.length && ratios.every((value) => value <= 2.4)) {
+    return { family: "WHOLESALE", fallbackGroup: "도매1", source: "PRICE_RATIO" };
+  }
+  if (ratios.length && ratios.every((value) => value >= 2.7)) {
+    return { family: "RETAIL", fallbackGroup: "소매1", source: "PRICE_RATIO" };
+  }
+  return null;
+}
 
 function integer(value: unknown) {
   const parsed = Number(value);
