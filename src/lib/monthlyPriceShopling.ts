@@ -29,14 +29,15 @@ export function buildMonthlySaleStatusWriteXml(goodsKey: string, target: "B" | "
 export async function ensureMonthlyShoplingSaleStatus(goodsKey: string, target: "B" | "C") {
   const beforeRows = await readMonthlyLiveProduct(goodsKey);
   const before = monthlySaleStatus(beforeRows);
-  if (before === target) return { before, after: target, changed: false } as const;
+  if (before === target) return { before, after: target, changed: false, rows: beforeRows } as const;
   const xml = buildMonthlySaleStatusWriteXml(goodsKey, target, config());
   const result = await postShoplingXml(PRODUCT_WRITE_URL, xml, { headers, timeoutMs: 15_000 });
   if (!result.ok) throw new Error("MONTHLY_PRICE_STATUS_WRITE_UNCERTAIN");
   assertMonthlyWriteAcknowledgement(await result.text(), goodsKey);
-  const after = monthlySaleStatus(await readMonthlyLiveProduct(goodsKey));
+  const afterRows = await readMonthlyLiveProduct(goodsKey);
+  const after = monthlySaleStatus(afterRows);
   if (after !== target) throw new Error("MONTHLY_PRICE_STATUS_READBACK_MISMATCH");
-  return { before, after, changed: true } as const;
+  return { before, after, changed: true, rows: afterRows } as const;
 }
 function optionXml(options: MonthlyOptionPriceTarget[]) {
   if (!options.length) return "";
