@@ -5,7 +5,7 @@ import {loadModule} from './monthly-price-module.mjs';
 import {fixture,runId,itemId,candidate} from './monthly-price-fixtures.mjs';
 
 function sourceHarness() {
-  const f=fixture();
+  const f=fixture(), planningProducts=[];
   const groups={CHINA_ORDER_COMMITMENT_EVENT:f.receiptRows, INTERNAL_CHINA_FORWARDER_COST_CLOSE:[{result_snapshot:f.close}], INTERNAL_CHINA_PURCHASE_PREP:[{result_snapshot:{snapshot:f.draft}}], INTERNAL_CHINA_PURCHASE_QUANTITY_OVERRIDE:[]};
   const db={from(){let op; const q={select(){return q;},eq(k,v){if(k==='operation_type')op=v;return q;},order(){return q;},range(){return q;},then(yes,no){return Promise.resolve({data:groups[op],error:null}).then(yes,no);}};return q;}};
   const api=loadModule('../src/lib/monthlyPriceSource.ts',{
@@ -13,12 +13,17 @@ function sourceHarness() {
     '@/lib/internalChinaDraftQuantityOverride':{applyInternalChinaActualPurchaseCosts:x=>x,applyInternalChinaQuantityOverrides:x=>x},
     '@/lib/internalChinaMonthlyPurchaseSummary':{buildInternalChinaMonthlyPurchaseSummaryFromRows:()=>null},
     '@/lib/internalChinaForwarderCost':{buildInternalChinaForwarderCostSummaryFromDraft:(draft,month,actualCostKrw,closedAt)=>({...f.close,draftId:draft.draftId,cycleMonth:month,actualCostKrw,closedAt})},
-    '@/lib/productDecisionLiveRefresh':{loadProductPlanningSnapshot:async()=>({products:[]})},
+    '@/lib/productDecisionLiveRefresh':{loadProductPlanningSnapshot:async()=>({products:planningProducts})},
     '@/lib/shopling/shoplingProductGroupRegistry':{loadShoplingProductGroupsByGoodsKey:async()=>new Map()},
     '@/lib/monthlyPriceCore':core,
   });
-  return {groups,api};
+  return {groups,planningProducts,api};
 }
+test('missing legacy registry group reaches automatic recovery instead of becoming confirmation-required',async()=>{
+  const h=sourceHarness();h.planningProducts.push({skuId:'sku:ABC1-1',barcode:'ABC1-1',productName:'legacy item',skuActive:true,listings:[{goodsKey:'1234567',optionId:'11',unitsPerOrder:1,active:true}]});
+  const source=await h.api.loadMonthlyPriceSources('2026-09'),item=source.candidates.find(row=>row.goodsKey==='1234567');
+  assert.ok(item);assert.equal(item.productGroup,'');assert.equal(item.reason,null);
+});
 test('source revision changes immutable run key even when affected candidates are identical',async()=>{
   const h=sourceHarness(),a=await h.api.loadMonthlyPriceSources('2026-09');
   h.groups.INTERNAL_CHINA_PURCHASE_QUANTITY_OVERRIDE.push({source_event_id:'unrelated-change',input_snapshot:{draftId:'unrelated'}});
