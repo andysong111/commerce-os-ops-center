@@ -227,7 +227,7 @@ function sameOptionAmounts(current: MonthlyLiveOption[], target: MonthlyOptionPr
     return live.amount === amount && live.finalSellPrice === final;
   });
 }
-export function buildMonthlyPricePlan(candidate: MonthlyPriceCandidate, liveRows: Record<string, unknown>[], observed: MonthlyObservation): MonthlyPricePlan {
+export function buildMonthlyPricePlan(candidate: MonthlyPriceCandidate, liveRows: Record<string, unknown>[], observed: MonthlyObservation, options: { mallScopeKeys?: readonly string[] } = {}): MonthlyPricePlan {
   if (candidate.reason || !/^\d{5,9}$/.test(candidate.goodsKey) || !candidate.options.length) throw new Error(candidate.reason || "MONTHLY_PRICE_MAPPING_REQUIRED");
   const group = normalizeInternalPriceGroup(candidate.productGroup);
   if (!group) throw new Error("MONTHLY_PRICE_GROUP_REQUIRED");
@@ -268,7 +268,9 @@ export function buildMonthlyPricePlan(candidate: MonthlyPriceCandidate, liveRows
   };
   const all: MonthlyPriceWrite[] = [baseWrite];
   const groupTarget = monthlyMoney(Math.min(...optionPolicy.map((row) => row.policyTargetSellPrice)));
+  const mallScope = options.mallScopeKeys ? new Set(options.mallScopeKeys) : null;
   for (const mall of buildInternalMallPriceTargets({ productGroup: group, groupTargetPrice: groupTarget })) {
+    if (mallScope && !mallScope.has(mall.mallKey)) continue;
     const before = monthlyMallPrices(observed, mall.mallKey);
     monthlyMoney(mall.targetPrice);
     protectedDecreaseCount += Number(mall.targetPrice < before.sellPrice);
