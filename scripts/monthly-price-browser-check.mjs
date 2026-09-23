@@ -72,7 +72,7 @@ try{
   const queued={...makeItem(),id:secondItemId,goodsKey:'1234568',state:'QUEUED',writeIndex:0,transmission:null};
   const staleBlocked={...makeItem(),id:thirdItemId,goodsKey:'1234569',state:'BLOCKED',candidate:{...makeItem().candidate,productGroup:'',reason:'MONTHLY_PRICE_GROUP_REQUIRED'},plan:null,writeIndex:0,errorCode:'MONTHLY_PRICE_GROUP_REQUIRED',transmission:null};
   extraItems=[queued,staleBlocked];
-  await page.goto(url);await page.getByRole('button',{name:/이전 실행 이어가기/}).click();await page.waitForTimeout(250);
+  await page.goto(url);await page.getByRole('button',{name:/이전 실행 재확인·이어가기/}).click();await page.waitForTimeout(250);
   assert.equal(events[0],'resumePreflight');assert.equal(staleBlocked.errorCode,null);assert.ok(events.filter(x=>x==='prepare').length>=2);
   extraItems=[];
   scenario='happy';item=makeItem();started=false;events=[];await page.goto(url+'?ready=0');assert.equal(await page.getByRole('button',{name:/예상 가격 확인/}).isDisabled(),true);
