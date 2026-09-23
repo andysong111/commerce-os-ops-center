@@ -303,7 +303,7 @@
     if (!raw?.startsWith(OPENER_PREFIX)) return null;
     try {
       const parsed = JSON.parse(decodeURIComponent(raw.slice(OPENER_PREFIX.length)));
-      if (!parsed?.jobId || !["PRICE", "OPTION"].includes(parsed.mode)) return null;
+      if (!parsed?.jobId || !["PRICE", "OPTION", "STATUS_SELLING", "STATUS_SOLD_OUT"].includes(parsed.mode)) return null;
       return { jobId: String(parsed.jobId), mode: String(parsed.mode), runId: String(parsed.runId || "") };
     } catch {
       return null;
@@ -339,7 +339,7 @@
         return fail(assignment.jobId, "A21_SHOPLING_RESULT_FAILURE", `Shopling 결과에서 실패 ${evidence.failure || 1}건을 확인했습니다.`);
       }
       if (evidence.success > 0 || evidence.explicitSuccess) {
-        await chrome.runtime.sendMessage({ type: "A21_JOB_SUCCESS", jobId: assignment.jobId, message: `${assignment.mode === "PRICE" ? "판매가" : "옵션"} 수정전송 성공 확인` }).catch(() => null);
+        await chrome.runtime.sendMessage({ type: "A21_JOB_SUCCESS", jobId: assignment.jobId, message: `${assignment.mode === "PRICE" ? "판매가" : assignment.mode === "OPTION" ? "옵션" : assignment.mode === "STATUS_SOLD_OUT" ? "판매상태 품절" : "판매상태 판매중"} 수정전송 성공 확인` }).catch(() => null);
         return;
       }
       await sleep(1000);
@@ -401,7 +401,7 @@
       const diagnostic = [...document.querySelectorAll('button,input,a,[onclick],img')].map(controlText).filter(Boolean).filter((text) => /송신|수정/.test(text)).slice(0, 12).join(" | ");
       return fail(assignment.jobId, "A21_SUBMIT_BUTTON_NOT_FOUND_V014", `상품수정 송신 버튼을 찾지 못했습니다.${diagnostic ? ` 후보: ${diagnostic}` : ""}`);
     }
-    await stage(assignment.jobId, "SUBMIT_CLICKED", { message: `${assignment.mode === "PRICE" ? "판매가" : "옵션"} 단독 설정 검증 완료 · 상품수정 송신 클릭` });
+    await stage(assignment.jobId, "SUBMIT_CLICKED", { message: `${assignment.mode === "PRICE" ? "판매가" : assignment.mode === "OPTION" ? "옵션" : assignment.mode === "STATUS_SOLD_OUT" ? "판매상태 품절" : "판매상태 판매중"} 단독 설정 검증 완료 · 상품수정 송신 클릭` });
     if (!clickSubmitButton(button)) return fail(assignment.jobId, "A21_SUBMIT_CLICK_FAILED_V014", "상품수정 송신 버튼 클릭 실행에 실패했습니다.");
     await stage(assignment.jobId, "RESULT_WAIT", { message: "Shopling 수정전송 결과 확인 중" });
     await sleep(800);
