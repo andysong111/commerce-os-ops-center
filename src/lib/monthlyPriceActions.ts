@@ -168,10 +168,27 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         item.transmission = { ...item.transmission, finishedAt: new Date().toISOString(), result: "RESULT_WINDOW_FINISHED_MARKET_CONFIRMATION_PENDING" };
         item.error_code = null;
         await auditMonthlyPrice(item, "TRANSMISSION_WINDOW_FINISHED", { ...item.transmission, marketVerified: false });
-      } else if (["PARTIAL_FAILURE", "STOPPED", "MISSING"].includes(String(report.state))) {
+      } else if (
+        ["PARTIAL_FAILURE", "STOPPED", "MISSING"].includes(String(report.state)) ||
+        (
+          report.state === "SUCCEEDED" &&
+          (
+            report.priceAndOption !== true ||
+            (item.plan.saleStatusTransition && report.saleStatusActivated !== true) ||
+            (item.plan.saleStatusTransition?.restoreAfterTransmission && report.saleStatusRestored !== true)
+          )
+        )
+      ) {
         item.error_code = "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED";
-        // Keep the token and state. Do not resend a batch whose delivery is unknown.
-        await auditMonthlyPrice(item, "TRANSMISSION_UNCERTAIN", { token: item.transmission.token, state: report.state });
+        // Keep the token and state. Do not resend a batch whose delivery is unknown
+        // or whose required status -> PRICE -> OPTION evidence is incomplete.
+        await auditMonthlyPrice(item, "TRANSMISSION_UNCERTAIN", {
+          token: item.transmission.token,
+          state: report.state,
+          priceAndOption: report.priceAndOption === true,
+          saleStatusActivated: report.saleStatusActivated === true,
+          saleStatusRestored: report.saleStatusRestored === true,
+        });
       }
     } else throw new Error("MONTHLY_PRICE_ACTION_INVALID");
     return response(item);
