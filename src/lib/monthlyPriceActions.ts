@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyMallPrices, assertMonthlyWritePreimage, verifyMonthlyPricePlan, resolveMonthlyPriceGroup, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
 import { assertMonthlyEvidenceUnchanged } from "@/lib/monthlyPriceSource";
 import { loadShoplingProductGroupsByGoodsKey } from "@/lib/shopling/shoplingProductGroupRegistry";
-import { readMonthlyLiveProduct, writeMonthlyShoplingPrice } from "@/lib/monthlyPriceShopling";
+import { ensureMonthlyShoplingSaleStatus, readMonthlyLiveProduct, writeMonthlyShoplingPrice } from "@/lib/monthlyPriceShopling";
 import { withMonthlyPriceItem, saveMonthlyPriceItem, auditMonthlyPrice, type MonthlyPriceItem } from "@/lib/monthlyPriceStore";
 
 function code(error: unknown) {
@@ -90,6 +90,15 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         if (item.plan.groupResolution === "EXACT" && resolution.source !== "EXACT") {
           throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
         }
+        if (item.plan.saleStatusTransition && item.write_index === 0) {
+          const status = await ensureMonthlyShoplingSaleStatus(item.goods_key, item.plan.saleStatusTransition.target);
+          await auditMonthlyPrice(item, "SALE_STATUS_PREPRICE_READY", {
+            before: status.before,
+            after: status.after,
+            changed: status.changed,
+            restoreAfterTransmission: item.plan.saleStatusTransition.restoreAfterTransmission,
+          });
+        }
         const liveProduct = monthlyLiveProduct(item.candidate, live);
         const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : liveProduct.prices;
         if (assertMonthlyWritePreimage(write, current, write.mallKey ? [] : liveProduct.options) === "ALREADY_APPLIED") {
@@ -142,6 +151,14 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       if (item.state === "TRANSMITTED") return response(item);
       if (item.state !== "RESENDING" || !item.transmission || report.token !== item.transmission.token || report.fingerprint !== item.transmission.fingerprint || report.goodsKey !== item.goods_key) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
       if (report.state === "SUCCEEDED" && report.priceAndOption === true) {
+        if (item.plan.saleStatusTransition?.restoreAfterTransmission) {
+          const restored = await ensureMonthlyShoplingSaleStatus(item.goods_key, item.plan.saleStatusTransition.before);
+          await auditMonthlyPrice(item, "SALE_STATUS_RESTORED", {
+            before: restored.before,
+            after: restored.after,
+            changed: restored.changed,
+          });
+        }
         item.state = "TRANSMITTED";
         item.transmission = { ...item.transmission, finishedAt: new Date().toISOString(), result: "RESULT_WINDOW_FINISHED_MARKET_CONFIRMATION_PENDING" };
         item.error_code = null;
