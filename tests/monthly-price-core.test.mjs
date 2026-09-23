@@ -77,10 +77,10 @@ test('inferred family scopes mall writes to observed connected channels only', (
 test('legacy zero mall price is initialized to the calculated target instead of excluding the product', () => {
   const observed=observation(0);
   const plan=buildMonthlyPricePlan(candidate(),live(1000),observed);
-  const mall=plan.targets.find(row=>row.mallKey==='SMALL_00074');
+  const mall=plan.targets.find(row=>row.mallKey==='SMALL_00069');
   assert.equal(mall.before.sellPrice,0);
   assert.ok(mall.target.sellPrice>0);
-  assert.ok(plan.writes.some(row=>row.mallKey==='SMALL_00074'));
+  assert.ok(plan.writes.some(row=>row.mallKey==='SMALL_00069'));
 });
 
 test('sold-out plan requires selling activation before price while retaining optional restore metadata', () => {
