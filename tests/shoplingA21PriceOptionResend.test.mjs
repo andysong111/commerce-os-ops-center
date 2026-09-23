@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const root = new URL("../public/shopling-a21-price-option-resend/", import.meta.url);
-const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backgroundBase, backgroundV041, backgroundV044, planRoute, downloadRoute] = await Promise.all([
+const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backgroundBase, backgroundV041, backgroundV044, monthlyBackground, planRoute, downloadRoute] = await Promise.all([
   readFile(new URL("manifest.json", root), "utf8"),
   readFile(new URL("popup-run.js", root), "utf8"),
   readFile(new URL("popup-run.html", root), "utf8"),
@@ -12,6 +12,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backg
   readFile(new URL("background-v020.js", root), "utf8"),
   readFile(new URL("background-v041.js", root), "utf8"),
   readFile(new URL("background-v044.js", root), "utf8"),
+  readFile(new URL("background-monthly-price.js", root), "utf8"),
   readFile(new URL("../src/app/api/shopling-a21-price-option-resend/plan/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../src/app/api/shopling-a21-price-option-resend/download/route.ts", import.meta.url), "utf8"),
 ]);
@@ -19,7 +20,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backg
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.2");
+  assert.equal(manifest.version, "0.5.3");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -66,6 +67,26 @@ test("A21 v0.4.4 preserves price-first serial queue from v0.4.1", () => {
   assert.match(backgroundV041, /job\.status === "QUEUED" && job\.mode === "OPTION"/);
   assert.match(backgroundV041, /sortJobsPricesFirst/);
   assert.match(backgroundV041, /state\.jobs\.some\(\(job\) => job\.status === "RUNNING"\)/);
+});
+
+test("monthly A21 sequence is status-selling -> PRICE -> OPTION -> optional status-restore", () => {
+  assert.match(monthlyBackground, /STATUS_SELLING/);
+  assert.match(monthlyBackground, /STATUS_SOLD_OUT/);
+  assert.match(monthlyBackground, /mode === "STATUS_SELLING" \? 0 : mode === "PRICE" \? 1 : mode === "OPTION" \? 2/);
+  assert.match(monthlyBackground, /BLOCKED_BY_PRIOR_STAGE/);
+  assert.match(monthlyBackground, /prior\.status === "SUCCEEDED"/);
+  assert.match(monthlyBackground, /saleStatusActivated/);
+  assert.match(monthlyBackground, /saleStatusRestored/);
+});
+
+test("A21 popup and MAIN bridge verify exact sale-status mode before status transmission", () => {
+  for (const source of [exactPopup, mainSubmitBridge]) {
+    assert.match(source, /STATUS_SELLING/);
+    assert.match(source, /STATUS_SOLD_OUT/);
+    assert.match(source, /상품판매상태송신/);
+    assert.match(source, /판매중/);
+    assert.match(source, /품절/);
+  }
 });
 
 test("A21 v0.4.4 preserves delivery and form safety before submit", () => {
