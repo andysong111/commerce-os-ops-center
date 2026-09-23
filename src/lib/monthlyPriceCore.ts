@@ -35,7 +35,7 @@ export type MonthlyLiveOption = {
   amount: number;
   finalSellPrice: number;
 };
-export type MonthlyLiveProduct = { prices: PriceValues; options: MonthlyLiveOption[] };
+export type MonthlyLiveProduct = { prices: PriceValues; options: MonthlyLiveOption[]; saleStatus: "B" | "C" };
 export type MonthlyOptionPriceTarget = MonthlyLiveOption & {
   beforeAmount: number;
   beforeFinalSellPrice: number;
@@ -52,6 +52,7 @@ export type MonthlyPriceWrite = {
 export type MonthlyPricePlan = {
   policy: typeof MONTHLY_PRICE_POLICY; goodsKey: string; productGroup: string;
   groupResolution: "EXACT" | "MALL_FAMILY" | "PRICE_RATIO";
+  saleStatusTransition: { before: "C"; target: "B"; restoreAfterTransmission: boolean } | null;
   optionIds: string[]; targets: MonthlyPriceWrite[]; writes: MonthlyPriceWrite[];
   protectedDecreaseCount: number; optionChangeCount: number; fingerprint: string;
 };
@@ -220,7 +221,9 @@ export function monthlyLiveProduct(candidate: MonthlyPriceCandidate, rows: Recor
     };
   });
   if (new Set(options.map((row) => row.optionTitle)).size !== 1 || new Set(options.map((row) => row.optionValue)).size !== options.length) throw new Error("MONTHLY_PRICE_OPTION_NAME_AMBIGUOUS");
-  return { prices, options };
+  const saleStatuses = [...new Set(rows.map((row) => String(row.sale_status).trim().toUpperCase()))];
+  if (saleStatuses.length !== 1 || !["B", "C"].includes(saleStatuses[0])) throw new Error("MONTHLY_PRICE_INACTIVE_LISTING");
+  return { prices, options, saleStatus: saleStatuses[0] as "B" | "C" };
 }
 export function resolveMonthlyPriceGroup(
   candidate: MonthlyPriceCandidate,
@@ -249,7 +252,8 @@ export function resolveMonthlyPriceGroup(
 
 export function monthlyMallPrices(observation: MonthlyObservation, mallKey: string): PriceValues {
   const rows = observation.rows.filter((row) => row.mallKey === mallKey);
-  if (!rows.length || rows.some((row) => row.sellPrice <= 0)) throw new Error("MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED");
+  if (!rows.length) throw new Error("MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED");
+  if (rows.some((row) => row.sellPrice < 0)) throw new Error("MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED");
   if (rows.some((row) => !samePrices(row, rows[0]))) throw new Error("MONTHLY_PRICE_MALL_ACCOUNT_CONFLICT");
   return { sellPrice: rows[0].sellPrice, purchasePrice: rows[0].purchasePrice, consumerPrice: rows[0].consumerPrice };
 }
@@ -271,6 +275,7 @@ export function buildMonthlyPricePlan(
   planOptions: {
     restrictMallKeys?: Iterable<string>;
     groupResolution?: "EXACT" | "MALL_FAMILY" | "PRICE_RATIO";
+    restoreSaleStatusAfterTransmission?: boolean;
   } = {},
 ): MonthlyPricePlan {
   if (candidate.reason || !/^\d{5,9}$/.test(candidate.goodsKey) || !candidate.options.length) throw new Error(candidate.reason || "MONTHLY_PRICE_MAPPING_REQUIRED");
@@ -330,6 +335,9 @@ export function buildMonthlyPricePlan(
     goodsKey: candidate.goodsKey,
     productGroup: group,
     groupResolution: planOptions.groupResolution ?? "EXACT",
+    saleStatusTransition: live.saleStatus === "C"
+      ? { before: "C", target: "B", restoreAfterTransmission: planOptions.restoreSaleStatusAfterTransmission === true }
+      : null,
     optionIds: candidate.options.map((row) => row.optionId).sort(),
     targets: all,
     writes,
