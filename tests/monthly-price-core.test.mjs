@@ -51,6 +51,11 @@ test('unknown or low cost cannot produce automatic markdown', () => {
   assert.throws(()=>buildMonthlyPricePlan({...candidate(),reason:'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED'},live(),observation()),/CONFIRMED_COST_REQUIRED/);
   assert.throws(()=>buildMonthlyPricePlan(candidate(0),live(),observation()),/VALUE_INVALID/);
 });
+test('recovered family plan touches only currently observed malls',()=>{
+  const c={...candidate(),productGroup:'도매1'};
+  const plan=buildMonthlyPricePlan(c,live(),observation(),{mallScopeKeys:['SMALL_00069']});
+  assert.deepEqual(plan.targets.filter(x=>x.mallKey).map(x=>x.mallKey),['SMALL_00069']);
+});
 test('known nonzero option surcharge is repriced by B-code cost without lowering any option final price', () => {
   const c=candidate();
   c.options.push({barcode:'ABC1-2',optionId:'12',unitsPerOrder:1,currentCostKrw:2500,protectedCostKrw:2500});
