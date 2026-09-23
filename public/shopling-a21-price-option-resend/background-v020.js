@@ -51,6 +51,7 @@ function publicState(state) {
       batchId: job.batchId,
       batchIndex: job.batchIndex,
       mode: job.mode,
+      desiredSaleStatus: job.desiredSaleStatus || null,
       goodsKeyCount: job.goodsKeys.length,
       status: job.status,
       stage: job.stage,
@@ -266,13 +267,14 @@ async function assignWorker(jobId) {
     current.workerFrameId = frameId;
     current.assignmentBusy = false;
     if (["OPENING", "A21_BOOTSTRAP", "SEARCH_CONFIG"].includes(current.stage)) current.stage = "SEARCH_CONFIG";
-    current.message = `${current.mode === "PRICE" ? "판매가" : "옵션"} A21 목록 준비 완료`;
+    current.message = `${current.mode === "PRICE" ? "판매가" : current.mode === "OPTION" ? "옵션" : "판매상태"} A21 목록 준비 완료`;
     await saveState(latest);
     await sendToFrame(current.workerTabId, frameId, {
       type: "A21_LIST_ASSIGNMENT",
       runId: latest.runId,
       jobId: current.id,
       mode: current.mode,
+      desiredSaleStatus: current.desiredSaleStatus || null,
       goodsKeys: current.goodsKeys,
       stage: current.stage,
     }, "content-a21.js");
@@ -316,7 +318,7 @@ async function bindPopup(jobId) {
       current.popupWindowId = tab.windowId;
       current.popupFrameId = 0;
       current.stage = "POPUP_CONFIG";
-      current.message = `${current.mode === "PRICE" ? "판매가" : "옵션"} 송신창 연결 완료 · 실제 form 설정 중`;
+      current.message = `${current.mode === "PRICE" ? "판매가" : current.mode === "OPTION" ? "옵션" : "판매상태"} 송신창 연결 완료 · 실제 form 설정 중`;
       await saveState(latest);
       try {
         await sendToFrame(tab.id, 0, {
@@ -324,6 +326,7 @@ async function bindPopup(jobId) {
           runId: latest.runId,
           jobId: current.id,
           mode: current.mode,
+          desiredSaleStatus: current.desiredSaleStatus || null,
         }, "content-a21-v020.js");
       } catch (error) {
         await failJob(current.id, "V020_POPUP_CONTENT", error instanceof Error ? error.message : String(error));
@@ -573,9 +576,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         job.popupWindowId = sender?.tab?.windowId ?? null;
         job.popupFrameId = sender?.frameId ?? 0;
         job.stage = "POPUP_CONFIG";
-        job.message = `${job.mode === "PRICE" ? "판매가" : "옵션"} 송신창 self-claim 완료`;
+        job.message = `${job.mode === "PRICE" ? "판매가" : job.mode === "OPTION" ? "옵션" : "판매상태"} 송신창 self-claim 완료`;
         await saveState(state);
-        return sendResponse({ ok: true, assignment: { runId: state.runId, jobId: job.id, mode: job.mode } });
+        return sendResponse({ ok: true, assignment: { runId: state.runId, jobId: job.id, mode: job.mode, desiredSaleStatus: job.desiredSaleStatus || null } });
       }
       return sendResponse({ ok: false, error: "unsupported_message" });
     } catch (error) {
