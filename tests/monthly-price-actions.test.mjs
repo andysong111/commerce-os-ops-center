@@ -72,6 +72,17 @@ test('externally changed current base or option price blocks even if final price
   const h=harness();await h.call('prepare');h.state.raw=live(99999);await h.call('write');assert.equal(h.item.state,'BLOCKED');assert.equal(h.item.error_code,'MONTHLY_PRICE_CURRENT_PRICE_CHANGED');assert.equal(h.log.includes('write'),false);
   const o=harness();await o.call('prepare');o.state.raw=live(1000,100);await o.call('write');assert.equal(o.item.error_code,'MONTHLY_PRICE_CURRENT_PRICE_CHANGED');assert.equal(o.log.includes('write'),false);
 });
+test('exact registry disappearing after prepare cannot silently reuse stale unrestricted plan',async()=>{
+  const h=harness();
+  await h.call('prepare');
+  assert.equal(h.item.plan.groupResolution,'EXACT');
+  h.state.group=null;
+  await h.call('write');
+  assert.equal(h.item.state,'BLOCKED');
+  assert.equal(h.item.error_code,'MONTHLY_PRICE_GROUP_CHANGED');
+  assert.equal(h.log.includes('write'),false);
+});
+
 test('group changed after approval cannot write',async()=>{
   const h=harness();await h.call('prepare');h.state.group='소매1';await h.call('write');assert.equal(h.item.error_code,'MONTHLY_PRICE_GROUP_CHANGED');assert.equal(h.log.includes('write'),false);
 });
