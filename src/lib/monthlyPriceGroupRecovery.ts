@@ -79,10 +79,13 @@ export function recoverMonthlyPriceGroup(input: {
   const registered = normalizeInternalPriceGroup(input.registeredGroup);
   if (registered) return { group: registered, source: "OPS_REGISTRY", mallScopeKeys: [], partnerCode: "", priceRatio: null };
 
-  const partner = exactGroupFromPartnerCodes(input.liveRows);
-  if (partner.group) return { group: partner.group, source: "SELF_CODE_PREFIX", mallScopeKeys: [], partnerCode: partner.partnerCode, priceRatio: null };
-
   const observed = [...new Set(input.observation.rows.map((row) => row.mallKey))];
+  const partner = exactGroupFromPartnerCodes(input.liveRows);
+  if (partner.group) {
+    const allowed = new Set(INTERNAL_PRICE_GROUP_MALLS[partner.group].map((row) => row.mallKey));
+    return { group: partner.group, source: "SELF_CODE_PREFIX", mallScopeKeys: observed.filter((key) => allowed.has(key)), partnerCode: partner.partnerCode, priceRatio: null };
+  }
+
   const wholesale = observed.filter((key) => WHOLESALE_MALLS.has(key));
   const retail = observed.filter((key) => RETAIL_MALLS.has(key));
   if (wholesale.length && !retail.length) {
