@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const root = new URL("../public/shopling-a21-price-option-resend/", import.meta.url);
-const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backgroundBase, backgroundV041, backgroundV044, monthlyBackground, planRoute, downloadRoute] = await Promise.all([
+const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statusPopup, statusMain, backgroundBase, backgroundV041, backgroundV044, monthlyBackground, planRoute, downloadRoute] = await Promise.all([
   readFile(new URL("manifest.json", root), "utf8"),
   readFile(new URL("popup-run.js", root), "utf8"),
   readFile(new URL("popup-run.html", root), "utf8"),
   readFile(new URL("content-a21-v024.js", root), "utf8"),
   readFile(new URL("main-a21-v024.js", root), "utf8"),
+  readFile(new URL("monthly-status-popup-v053.js", root), "utf8"),
+  readFile(new URL("monthly-status-main-v053.js", root), "utf8"),
   readFile(new URL("background-v020.js", root), "utf8"),
   readFile(new URL("background-v041.js", root), "utf8"),
   readFile(new URL("background-v044.js", root), "utf8"),
@@ -79,14 +81,17 @@ test("monthly A21 sequence is status-selling -> PRICE -> OPTION -> optional stat
   assert.match(monthlyBackground, /saleStatusRestored/);
 });
 
-test("A21 popup and MAIN bridge verify exact sale-status mode before status transmission", () => {
-  for (const source of [exactPopup, mainSubmitBridge]) {
+test("monthly status overlays verify exact sale-status mode without mutating shared price core", () => {
+  for (const source of [statusPopup, statusMain]) {
     assert.match(source, /STATUS_SELLING/);
     assert.match(source, /STATUS_SOLD_OUT/);
     assert.match(source, /상품판매상태송신/);
     assert.match(source, /판매중/);
     assert.match(source, /품절/);
   }
+  assert.match(statusMain, /window\.goods_mallMdfy_submit_sp\(\)/);
+  assert.match(exactPopup, /!\["PRICE", "OPTION"\]\.includes/);
+  assert.doesNotMatch(mainSubmitBridge, /STATUS_SELLING|STATUS_SOLD_OUT/);
 });
 
 test("A21 v0.4.4 preserves delivery and form safety before submit", () => {
@@ -120,6 +125,8 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
+  assert.match(downloadRoute, /monthly-status-main-v053\.js/);
+  assert.match(downloadRoute, /monthly-status-popup-v053\.js/);
 });
 
 test("A21 v0.4.4 keeps base worker serial safety", () => {
