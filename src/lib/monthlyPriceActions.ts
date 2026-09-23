@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyMallPrices, assertMonthlyWritePreimage, verifyMonthlyPricePlan, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
+import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyMallPrices, assertMonthlyWritePreimage, verifyMonthlyPricePlan, resolveMonthlyPriceGroup, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
 import { assertMonthlyEvidenceUnchanged } from "@/lib/monthlyPriceSource";
 import { loadShoplingProductGroupsByGoodsKey } from "@/lib/shopling/shoplingProductGroupRegistry";
 import { readMonthlyLiveProduct, writeMonthlyShoplingPrice } from "@/lib/monthlyPriceShopling";
@@ -16,6 +16,21 @@ function validId(value: unknown): string {
 function response(item: MonthlyPriceItem) {
   return { id: item.id, state: item.state, errorCode: item.error_code, writeIndex: item.write_index, transmission: item.transmission, plan: item.plan };
 }
+async function resolveCurrentGroup(item: MonthlyPriceItem, observation: unknown) {
+  const registered = (await loadShoplingProductGroupsByGoodsKey([item.goods_key])).get(item.goods_key) ?? null;
+  const observed = monthlyValidateObservation(observation, item.goods_key);
+  const live = await readMonthlyLiveProduct(item.goods_key);
+  const candidateGroup = item.candidate.productGroup;
+  if (registered && candidateGroup && registered !== candidateGroup) {
+    throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
+  }
+  return {
+    observed,
+    live,
+    registered,
+    resolution: resolveMonthlyPriceGroup(item.candidate, live, observed, registered),
+  };
+}
 export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
   const itemId = validId(payload.itemId), runId = validId(payload.runId), action = String(payload.action);
   return withMonthlyPriceItem(itemId, runId, async (item, run) => {
@@ -23,15 +38,33 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       if (item.state !== "QUEUED") return response(item);
       try {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
-        const group = (await loadShoplingProductGroupsByGoodsKey([item.goods_key])).get(item.goods_key);
-        if (!group || group !== item.candidate.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
-        const observed = monthlyValidateObservation(payload.observation, item.goods_key);
-        const live = await readMonthlyLiveProduct(item.goods_key);
-        monthlyValidateObservation(payload.observation, item.goods_key);
-        item.plan = buildMonthlyPricePlan(item.candidate, live, observed);
+        const { observed, live, resolution } = await resolveCurrentGroup(item, payload.observation);
+        if (!resolution.group) {
+          item.plan = null;
+          item.state = "HELD";
+          item.error_code = null;
+          await auditMonthlyPrice(item, "LEGACY_GROUP_UNRESOLVED_HELD", {
+            policy: MONTHLY_PRICE_POLICY,
+            sourceHash: run.source_hash,
+            action: "KEEP_CURRENT_PRICE",
+          });
+          return response(item);
+        }
+        const effectiveCandidate = { ...item.candidate, productGroup: resolution.group };
+        item.plan = buildMonthlyPricePlan(
+          effectiveCandidate,
+          live,
+          observed,
+          resolution.source === "EXACT" ? {} : { restrictMallKeys: observed.rows.map((row) => row.mallKey) },
+        );
         item.state = item.plan.writes.length ? "PREPARED" : "HELD";
         item.error_code = null;
-        await auditMonthlyPrice(item, "PREFLIGHT", { policy: MONTHLY_PRICE_POLICY, sourceHash: run.source_hash, plan: item.plan });
+        await auditMonthlyPrice(item, "PREFLIGHT", {
+          policy: MONTHLY_PRICE_POLICY,
+          sourceHash: run.source_hash,
+          groupResolution: resolution.source,
+          plan: item.plan,
+        });
       } catch (error) {
         item.state = "BLOCKED"; item.error_code = code(error);
       }
@@ -43,11 +76,8 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       let dispatched = false;
       try {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
-        const group = (await loadShoplingProductGroupsByGoodsKey([item.goods_key])).get(item.goods_key);
-        if (group !== item.plan.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
-        const observed = monthlyValidateObservation(payload.observation, item.goods_key);
-        const live = await readMonthlyLiveProduct(item.goods_key);
-        monthlyValidateObservation(payload.observation, item.goods_key);
+        const { observed, live, resolution } = await resolveCurrentGroup(item, payload.observation);
+        if (!resolution.group || resolution.group !== item.plan.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
         const liveProduct = monthlyLiveProduct(item.candidate, live);
         const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : liveProduct.prices;
         if (assertMonthlyWritePreimage(write, current, write.mallKey ? [] : liveProduct.options) === "ALREADY_APPLIED") {
