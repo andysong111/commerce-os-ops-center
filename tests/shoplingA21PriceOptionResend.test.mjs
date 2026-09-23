@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const root = new URL("../public/shopling-a21-price-option-resend/", import.meta.url);
-const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backgroundBase, backgroundV041, backgroundV044, planRoute, downloadRoute] = await Promise.all([
+const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backgroundBase, backgroundV041, backgroundV044, monthlyBackground, planRoute, downloadRoute] = await Promise.all([
   readFile(new URL("manifest.json", root), "utf8"),
   readFile(new URL("popup-run.js", root), "utf8"),
   readFile(new URL("popup-run.html", root), "utf8"),
@@ -12,6 +12,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backg
   readFile(new URL("background-v020.js", root), "utf8"),
   readFile(new URL("background-v041.js", root), "utf8"),
   readFile(new URL("background-v044.js", root), "utf8"),
+  readFile(new URL("background-monthly-price.js", root), "utf8"),
   readFile(new URL("../src/app/api/shopling-a21-price-option-resend/plan/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../src/app/api/shopling-a21-price-option-resend/download/route.ts", import.meta.url), "utf8"),
 ]);
@@ -19,7 +20,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, backg
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.2");
+  assert.equal(manifest.version, "0.5.3");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -68,6 +69,23 @@ test("A21 v0.4.4 preserves price-first serial queue from v0.4.1", () => {
   assert.match(backgroundV041, /state\.jobs\.some\(\(job\) => job\.status === "RUNNING"\)/);
 });
 
+test("monthly sold-out flow has a separate status-only A21 phase before the existing PRICE -> OPTION queue", () => {
+  assert.match(monthlyBackground, /MONTHLY_PRICE_SALE_STATUS_START/);
+  assert.match(monthlyBackground, /MONTHLY_PRICE_SALE_STATUS_POLL/);
+  assert.match(monthlyBackground, /mode:\s*"STATUS"/);
+  assert.match(monthlyBackground, /desiredSaleStatus:\s*targetSaleStatus/);
+  assert.match(monthlyBackground, /statusOnly/);
+  assert.match(exactPopup, /goods_stauts/);
+  assert.match(exactPopup, /trsmt_env_mody_status/);
+  assert.match(exactPopup, /saleStatusValue/);
+  assert.match(mainSubmitBridge, /goods_stauts/);
+  assert.match(mainSubmitBridge, /trsmt_env_mody_status/);
+  assert.match(mainSubmitBridge, /desiredSaleStatus/);
+  const priceIndex = backgroundV041.indexOf('job.status === "QUEUED" && job.mode === "PRICE"');
+  const optionIndex = backgroundV041.indexOf('job.status === "QUEUED" && job.mode === "OPTION"');
+  assert.ok(priceIndex >= 0 && optionIndex > priceIndex);
+});
+
 test("A21 v0.4.4 preserves delivery and form safety before submit", () => {
   for (const source of [exactPopup, mainSubmitBridge]) {
     assert.match(source, /trsmt_env_mody_dlvyinfo/);
@@ -95,7 +113,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.2"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.3"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
