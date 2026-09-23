@@ -51,6 +51,7 @@ export type MonthlyPriceWrite = {
 };
 export type MonthlyPricePlan = {
   policy: typeof MONTHLY_PRICE_POLICY; goodsKey: string; productGroup: string;
+  groupResolution: "EXACT" | "MALL_FAMILY" | "PRICE_RATIO";
   optionIds: string[]; targets: MonthlyPriceWrite[]; writes: MonthlyPriceWrite[];
   protectedDecreaseCount: number; optionChangeCount: number; fingerprint: string;
 };
@@ -263,7 +264,10 @@ export function buildMonthlyPricePlan(
   candidate: MonthlyPriceCandidate,
   liveRows: Record<string, unknown>[],
   observed: MonthlyObservation,
-  planOptions: { restrictMallKeys?: Iterable<string> } = {},
+  planOptions: {
+    restrictMallKeys?: Iterable<string>;
+    groupResolution?: "EXACT" | "MALL_FAMILY" | "PRICE_RATIO";
+  } = {},
 ): MonthlyPricePlan {
   if (candidate.reason || !/^\d{5,9}$/.test(candidate.goodsKey) || !candidate.options.length) throw new Error(candidate.reason || "MONTHLY_PRICE_MAPPING_REQUIRED");
   const group = normalizeInternalPriceGroup(candidate.productGroup);
@@ -321,6 +325,7 @@ export function buildMonthlyPricePlan(
     policy: MONTHLY_PRICE_POLICY,
     goodsKey: candidate.goodsKey,
     productGroup: group,
+    groupResolution: planOptions.groupResolution ?? "EXACT",
     optionIds: candidate.options.map((row) => row.optionId).sort(),
     targets: all,
     writes,
