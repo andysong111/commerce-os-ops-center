@@ -39,7 +39,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       try {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
         const { observed, live, resolution } = await resolveCurrentGroup(item, payload.observation);
-        if (!resolution.group) {
+        if (!resolution.group || resolution.source === "UNRESOLVED") {
           item.plan = null;
           item.state = "HELD";
           item.error_code = null;
