@@ -27,7 +27,7 @@ const server=createServer(async(req,res)=>{
     if(p.action==='prepare')target.state='PREPARED';
     if(p.action==='write'){target.writeIndex++;target.state=target.writeIndex===2?'VERIFY_PENDING':'PREPARED';}
     if(p.action==='verify')target.state='VERIFIED';
-    if(p.action==='resendClaim'){duplicate=target.state==='RESENDING';target.state='RESENDING';target.transmission={token,fingerprint};}
+    if(p.action==='resendClaim'){duplicate=target.state==='RESENDING';target.state='RESENDING';target.transmission={token,fingerprint,...(p.batchId?{batchId:p.batchId}:{})};}
     if(p.action==='resendReport'){if(p.report?.state==='MISSING'){target.state='RESENDING';target.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';}else target.state='TRANSMITTED';}
     return res.end(JSON.stringify({ok:true,item:{...target,duplicate}}));
   }
@@ -39,14 +39,24 @@ const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await page.addInitScript(()=>{
   window.bridgeEvents=[];
   window.bridgeHistoryMissingItemId=null;
+  window.bridgeBatches={};
   window.addEventListener('message',e=>{
     const m=e.data;if(m?.channel!=='commerce-os-monthly-price-v1'||m.direction!=='request')return;
     window.bridgeEvents.push({command:m.command,payload:m.payload});
     if(m.command==='START'&&window.bridgeHistoryMissingItemId&&m.payload?.itemId===window.bridgeHistoryMissingItemId){
-      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:'0.5.3',error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:'0.5.4',error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
       return;
     }
-    const response={ok:true,version:'0.5.3',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true}};
+    if(m.command==='BATCH_START'){
+      window.bridgeBatches[m.payload.batchId]=m.payload.items||[];
+    }
+    if(m.command==='BATCH_START'||m.command==='BATCH_STATUS'){
+      const rows=window.bridgeBatches[m.payload.batchId]||[];
+      const report={batchId:m.payload.batchId,state:'SUCCEEDED',phase:'DONE',activeWindows:0,itemCount:rows.length,items:rows.map(row=>({itemId:row.itemId,token:row.token,fingerprint:row.fingerprint,goodsKey:row.goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true,saleStatusRolledBack:false}))};
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:true,version:'0.5.4',report}},location.origin);
+      return;
+    }
+    const response={ok:true,version:'0.5.4',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true}};
     window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response},location.origin);
   });
 });
@@ -66,7 +76,7 @@ try{
   await page.getByRole('button',{name:/이대로 가격조정 실행/}).click();
   await page.getByText('전송 종료 · 마켓 확인 대기',{exact:true}).waitFor({state:'attached'});
   assert.deepEqual(events,['start','prepare','write','write','verify','resendClaim','resendReport']);
-  bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.filter(x=>x.command==='START').length,1);assert.equal(bridge.find(x=>x.command==='START').payload.runId,runId);assert.equal(bridge.find(x=>x.command==='START').payload.newClaim,true);
+  bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.filter(x=>x.command==='START').length,0);assert.equal(bridge.filter(x=>x.command==='BATCH_START').length,1);assert.equal(bridge.find(x=>x.command==='BATCH_START').payload.runId,runId);assert.equal(bridge.find(x=>x.command==='BATCH_START').payload.newClaim,true);assert.equal(bridge.find(x=>x.command==='BATCH_START').payload.items.length,1);
   await page.getByText('상품별 결과·제외 사유').click();await page.screenshot({path:path.join(out,'preview-confirm-happy-path.png'),fullPage:true});
   assert.equal(await page.getByRole('button',{name:'예상 변경안 계산 완료'}).isDisabled(),true);
   scenario='blocked';item=makeItem();started=false;events=[];await page.goto(url);await page.getByRole('button',{name:/예상 가격 확인/}).click();await page.waitForTimeout(100);assert.deepEqual(events,['start']);assert.equal((await page.evaluate(()=>window.bridgeEvents)).filter(x=>x.command==='START').length,0);
@@ -114,5 +124,5 @@ try{
   await shop.goto('https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=1234567');await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
   const observed=await shop.evaluate(()=>collectMonthlyPricePage('1234567'));assert.ok(observed,JSON.stringify(await shop.evaluate(()=>({charset:document.characterSet,text:document.body.innerText}))));assert.equal(observed.rows[0].sellPrice,1234);assert.equal(observed.rows[0].consumerPrice,7777);assert.equal(observed.rows[0].purchasePrice,222);
   await shop.setContent('<table><tr><td>도매꾹</td><td>999</td><td>888</td><td>777</td></tr></table>');assert.equal(await shop.evaluate(()=>collectMonthlyPricePage('1234567')),null);
-  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','receipt-prerequisite','DOM-header-mapping','ambiguous-DOM-blocked'],productionWrites:false},null,2));
+  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','receipt-prerequisite','DOM-header-mapping','ambiguous-DOM-blocked'],productionWrites:false},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
