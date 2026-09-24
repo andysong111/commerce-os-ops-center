@@ -225,6 +225,28 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   function phaseJobs(state, mode, predicate = () => true) {
     return activeMonthlyJobs(state).filter((job) => job.mode === mode && predicate(job));
   }
+  function terminalPhaseStatus(status) {
+    return ["SUCCEEDED", "RELIST_REQUIRED", "UNCERTAIN"].includes(status);
+  }
+  function badGoodsForMode(state, mode) {
+    const out = new Set();
+    for (const job of state.jobs.filter((row) => row.monthlyScope && row.mode === mode && ["RELIST_REQUIRED", "UNCERTAIN"].includes(row.status))) {
+      for (const key of job.goodsKeys || []) out.add(key);
+    }
+    return out;
+  }
+  function pruneOptionJobsAfterPrice(state) {
+    const blocked = badGoodsForMode(state, "PRICE");
+    if (!blocked.size) return;
+    for (const job of state.jobs.filter((row) => row.monthlyScope && row.mode === "OPTION" && row.status === "QUEUED")) {
+      job.goodsKeys = (job.goodsKeys || []).filter((key) => !blocked.has(key));
+      if (!job.goodsKeys.length) {
+        job.status = "SUPERSEDED";
+        job.stage = "PRICE_TERMINAL_EXCLUDED";
+        job.message = "PRICE 3단계 실패/결과불명 상품 제외";
+      }
+    }
+  }
   async function launchQueued(state, jobs) {
     let slots = Math.max(0, MAX_MONTHLY_PARALLEL - activeMonthlyJobs(state).filter((job) => job.status === "RUNNING").length);
     for (const job of jobs.filter((row) => row.status === "QUEUED")) {
@@ -251,7 +273,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
         if (job.status === "QUEUED" && job.monthlyFailureRollback !== true) {
           job.status = "STOPPED";
           job.stage = "BLOCKED_BY_PRIOR_PHASE";
-          job.message = "이전 단계 실패로 후속 전송 중단";
+          job.message = "인프라/창 제어 실패로 후속 전송 중단";
         }
       }
       const rollback = jobs.filter((job) => job.mode === "STATUS_SOLD_OUT" && job.monthlyFailureRollback === true);
@@ -279,16 +301,19 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       phaseJobs(state, "STATUS_SOLD_OUT", (job) => job.monthlyFailureRollback !== true),
     ].filter((rows) => rows.length);
     for (const phase of phases) {
-      if (phase.every((job) => job.status === "SUCCEEDED")) continue;
-      if (phase.some((job) => job.status === "FAILED")) return;
+      const mode = phase[0]?.mode;
+      if (phase.every((job) => terminalPhaseStatus(job.status))) {
+        if (mode === "PRICE") pruneOptionJobsAfterPrice(state);
+        continue;
+      }
       await launchQueued(state, phase);
       return;
     }
-    state.state = "SUCCEEDED";
+    const finalItems = (state.monthlyItems || []).map((meta) => itemReport(state, meta));
+    state.state = finalItems.some((row) => row.state !== "SUCCEEDED") ? "PARTIAL_FAILURE" : "SUCCEEDED";
     await saveState(state);
     await remember(state);
   };
-
   const legacySplitBatch = splitBatch;
   splitBatch = async function monthlySplitBatch(jobId, totalResultCount) {
     const state = await loadState();
