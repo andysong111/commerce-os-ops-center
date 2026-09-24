@@ -13,7 +13,21 @@ export { MONTHLY_PRICE_POLICY, MONTHLY_PRICE_BRIDGE, MONTHLY_PRICE_EXTENSION_VER
 export const MONTHLY_PRICE_MAX = 100_000_000;
 export type PriceValues = { sellPrice: number; purchasePrice: number; consumerPrice: number };
 export type MonthlyObservedPrice = PriceValues & { mallKey: string; source: string };
-export type MonthlyObservation = { goodsKey: string; pageUrl: string; observedAt: number; rows: MonthlyObservedPrice[] };
+export type MonthlyLinkedMarketRow = {
+  mallKey: string;
+  status: string;
+  mallProductCode: string;
+  mallProductName: string;
+  sellPrice: number;
+  source: "linked_market_table";
+};
+export type MonthlyObservation = {
+  goodsKey: string;
+  pageUrl: string;
+  observedAt: number;
+  rows: MonthlyObservedPrice[];
+  marketRows?: MonthlyLinkedMarketRow[];
+};
 export type MonthlyCost = {
   barcode: string; unitCostKrw: number; quantity: number; draftId: string;
   cycleMonth: string; closedAt: string; receiptIds: string[];
@@ -170,7 +184,25 @@ export function monthlyValidateObservation(value: unknown, goodsKey: string, now
     if (!/^SMALL_\d{5}$/.test(mallKey) || !["header", "input_name"].includes(source)) throw new Error("MONTHLY_PRICE_BROWSER_MAPPING_AMBIGUOUS");
     return { mallKey, source, sellPrice: monthlyMoney(row.sellPrice, true), purchasePrice: monthlyMoney(row.purchasePrice, true), consumerPrice: monthlyMoney(row.consumerPrice, true) };
   });
-  return { goodsKey, pageUrl: url.href, observedAt: time, rows };
+  const rawMarketRows = input.marketRows === undefined ? [] : input.marketRows;
+  if (!Array.isArray(rawMarketRows) || rawMarketRows.length > 1000) throw new Error("MONTHLY_PRICE_MARKET_ROWS_INVALID");
+  const marketRows = rawMarketRows.map((raw) => {
+    const row = monthlyRecord(raw), mallKey = String(row.mallKey ?? ""), source = String(row.source ?? "");
+    const status = String(row.status ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+    const mallProductCode = String(row.mallProductCode ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+    const mallProductName = String(row.mallProductName ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+    if (
+      !/^SMALL_\d{5}$/.test(mallKey) ||
+      source !== "linked_market_table" ||
+      !status ||
+      status.length > 40 ||
+      !mallProductCode ||
+      mallProductCode.length > 120 ||
+      mallProductName.length > 500
+    ) throw new Error("MONTHLY_PRICE_MARKET_ROWS_INVALID");
+    return { mallKey, status, mallProductCode, mallProductName, sellPrice: monthlyMoney(row.sellPrice, true), source: "linked_market_table" as const };
+  });
+  return { goodsKey, pageUrl: url.href, observedAt: time, rows, marketRows };
 }
 function priceValues(row: Record<string, unknown>): PriceValues {
   return { sellPrice: monthlyMoney(row.sale_price), purchasePrice: monthlyMoney(row.org_price, true), consumerPrice: monthlyMoney(row.list_price, true) };
@@ -249,6 +281,76 @@ export function resolveMonthlyPriceGroup(
   return inferred
     ? { group: inferred.fallbackGroup, source: inferred.source }
     : { group: null, source: "UNRESOLVED" };
+}
+
+export type MonthlyLinkedMarketReview = {
+  state: "MATCHED" | "MISMATCH" | "UNCERTAIN";
+  expectedMallCount: number;
+  sellingMallCount: number;
+  matchedMallKeys: string[];
+  inactiveMallKeys: string[];
+  mismatchMallKeys: string[];
+  unresolvedMallKeys: string[];
+  mismatches: Array<{ mallKey: string; targetSellPrice: number; currentSellPrices: number[]; mallProductCodes: string[] }>;
+};
+
+function monthlyLinkedMarketStatus(value: string) {
+  const status = value.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+  if (status === "판매중") return "SELLING" as const;
+  if (/삭제/.test(status)) return "DELETED" as const;
+  if (/품절|판매중지|판매정지|판매종료|중지|종료/.test(status)) return "INACTIVE" as const;
+  return "UNKNOWN" as const;
+}
+
+export function reviewMonthlyLinkedMarketPrices(plan: MonthlyPricePlan, observation: MonthlyObservation): MonthlyLinkedMarketReview {
+  const targets = plan.targets.filter((target) => target.mallKey !== null);
+  const matchedMallKeys: string[] = [], inactiveMallKeys: string[] = [], mismatchMallKeys: string[] = [], unresolvedMallKeys: string[] = [];
+  const mismatches: MonthlyLinkedMarketReview["mismatches"] = [];
+  let sellingMallCount = 0;
+
+  for (const target of targets) {
+    const mallKey = String(target.mallKey);
+    const rows = (observation.marketRows ?? []).filter((row) => row.mallKey === mallKey);
+    if (!rows.length) {
+      unresolvedMallKeys.push(mallKey);
+      continue;
+    }
+    const classified = rows.map((row) => ({ row, status: monthlyLinkedMarketStatus(row.status) }));
+    const selling = classified.filter((entry) => entry.status === "SELLING").map((entry) => entry.row);
+    if (selling.length) {
+      sellingMallCount += 1;
+      const currentSellPrices = [...new Set(selling.map((row) => row.sellPrice))].sort((a, b) => a - b);
+      if (currentSellPrices.every((price) => price === target.target.sellPrice)) {
+        matchedMallKeys.push(mallKey);
+      } else {
+        mismatchMallKeys.push(mallKey);
+        mismatches.push({
+          mallKey,
+          targetSellPrice: target.target.sellPrice,
+          currentSellPrices,
+          mallProductCodes: [...new Set(selling.map((row) => row.mallProductCode))].sort(),
+        });
+      }
+      continue;
+    }
+    if (classified.every((entry) => ["DELETED", "INACTIVE"].includes(entry.status))) {
+      inactiveMallKeys.push(mallKey);
+      continue;
+    }
+    unresolvedMallKeys.push(mallKey);
+  }
+
+  const state = mismatchMallKeys.length ? "MISMATCH" : unresolvedMallKeys.length || targets.length === 0 ? "UNCERTAIN" : "MATCHED";
+  return {
+    state,
+    expectedMallCount: targets.length,
+    sellingMallCount,
+    matchedMallKeys: matchedMallKeys.sort(),
+    inactiveMallKeys: inactiveMallKeys.sort(),
+    mismatchMallKeys: mismatchMallKeys.sort(),
+    unresolvedMallKeys: unresolvedMallKeys.sort(),
+    mismatches,
+  };
 }
 
 export function monthlyMallPrices(observation: MonthlyObservation, mallKey: string): PriceValues {

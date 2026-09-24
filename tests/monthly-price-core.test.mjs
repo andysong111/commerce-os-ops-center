@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture, candidate, live, observation } from './monthly-price-fixtures.mjs';
-import { monthlyCostsFromEvidence, monthlyProtectedCosts, monthlyValidateObservation, monthlyMoney, monthlyMonth, buildMonthlyPricePlan, assertMonthlyWritePreimage, verifyMonthlyPricePlan, monthlyLiveProduct, resolveMonthlyPriceGroup } from '../src/lib/monthlyPriceCore.ts';
+import { monthlyCostsFromEvidence, monthlyProtectedCosts, monthlyValidateObservation, monthlyMoney, monthlyMonth, buildMonthlyPricePlan, assertMonthlyWritePreimage, verifyMonthlyPricePlan, monthlyLiveProduct, resolveMonthlyPriceGroup, reviewMonthlyLinkedMarketPrices } from '../src/lib/monthlyPriceCore.ts';
 
 test('September missing cache: durable receipt plus matching freight close reconstructs only arrival cost', () => {
   const input = fixture(), before = structuredClone(input);
@@ -203,4 +203,44 @@ test('deterministic 1000-case property: no base/channel/option final decrease an
     for(const t of p.targets) {assert.ok(t.target.sellPrice>=t.before.sellPrice); assert.equal(t.target.purchasePrice,t.before.purchasePrice); assert.equal(t.target.consumerPrice,t.before.consumerPrice);}
     for(const o of p.targets[0].options) assert.ok(o.targetFinalSellPrice>=o.beforeFinalSellPrice);
   }
+});
+
+
+test('linked-market review verifies selling prices, ignores deleted duplicates, and isolates mismatches', () => {
+  const p=buildMonthlyPricePlan(candidate(),live(1000),observation(1000));
+  const mall=p.targets.find(row=>row.mallKey==='SMALL_00069');
+  assert.ok(mall);
+  const market=(status,sellPrice,code)=>({mallKey:'SMALL_00069',status,mallProductCode:code,mallProductName:'fixture mall',sellPrice,source:'linked_market_table'});
+  const matched=monthlyValidateObservation({...observation(mall.target.sellPrice),marketRows:[
+    market('삭제',99999,'OLD-1'),
+    market('판매중',mall.target.sellPrice,'LIVE-1'),
+  ],observedAt:Date.now()},'1234567');
+  const ok=reviewMonthlyLinkedMarketPrices(p,matched);
+  assert.equal(ok.state,'MATCHED');
+  assert.deepEqual(ok.matchedMallKeys,['SMALL_00069']);
+  assert.equal(ok.sellingMallCount,1);
+
+  const mismatch=monthlyValidateObservation({...observation(mall.target.sellPrice),marketRows:[
+    market('판매중',mall.target.sellPrice-100,'LIVE-1'),
+  ],observedAt:Date.now()},'1234567');
+  const bad=reviewMonthlyLinkedMarketPrices(p,mismatch);
+  assert.equal(bad.state,'MISMATCH');
+  assert.deepEqual(bad.mismatchMallKeys,['SMALL_00069']);
+  assert.equal(bad.mismatches[0].targetSellPrice,mall.target.sellPrice);
+  assert.deepEqual(bad.mismatches[0].currentSellPrices,[mall.target.sellPrice-100]);
+});
+
+test('linked-market review treats confirmed inactive listings as non-resend and missing evidence as uncertain', () => {
+  const p=buildMonthlyPricePlan(candidate(),live(1000),observation(1000));
+  const deleted=monthlyValidateObservation({...observation(),marketRows:[{
+    mallKey:'SMALL_00069',status:'삭제',mallProductCode:'OLD-1',mallProductName:'fixture mall',sellPrice:1000,source:'linked_market_table',
+  }],observedAt:Date.now()},'1234567');
+  const inactive=reviewMonthlyLinkedMarketPrices(p,deleted);
+  assert.equal(inactive.state,'MATCHED');
+  assert.deepEqual(inactive.inactiveMallKeys,['SMALL_00069']);
+
+  const missing=monthlyValidateObservation({...observation(),marketRows:[],observedAt:Date.now()},'1234567');
+  const uncertain=reviewMonthlyLinkedMarketPrices(p,missing);
+  assert.equal(uncertain.state,'UNCERTAIN');
+  assert.deepEqual(uncertain.unresolvedMallKeys,['SMALL_00069']);
 });

@@ -3,6 +3,7 @@ import { monthlyMonth, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthly
 import { loadMonthlyPriceSources } from "@/lib/monthlyPriceSource";
 import { createMonthlyPriceRun, resumeMonthlyPriceRunPreflight, loadMonthlyPriceStatus, loadMonthlyPriceRun, loadMonthlyPriceRunStatus, type MonthlyPriceItem } from "@/lib/monthlyPriceStore";
 import { monthlyPriceItemAction } from "@/lib/monthlyPriceActions";
+import { reviewLegacyMonthlyTransmission } from "@/lib/monthlyPriceLegacyReview";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,6 +54,9 @@ export async function POST(request: Request) {
     if (payload.action === "resumePreflight") {
       const sources = await loadMonthlyPriceSources(payload.month);
       return json({ ok: true, ...publicStatus(await resumeMonthlyPriceRunPreflight(String(payload.runId ?? ""), sources)) });
+    }
+    if (payload.action === "reviewLegacyTransmission") {
+      return json({ ok: true, item: await reviewLegacyMonthlyTransmission(payload) });
     }
     return json({ ok: true, item: await monthlyPriceItemAction(payload) });
   } catch (error) { return errorResponse(error); }

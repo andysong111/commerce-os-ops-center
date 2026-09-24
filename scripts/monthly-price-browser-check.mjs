@@ -24,6 +24,10 @@ const server=createServer(async(req,res)=>{
       return res.end(JSON.stringify(snapshot()));
     }
     const target=[item,...extraItems].find(row=>row.id===p.itemId)||item;
+    if(p.action==='reviewLegacyTransmission'){
+      target.state='RESENDING';target.errorCode=null;target.transmission={token:'77777777-7777-4777-8777-777777777777',fingerprint,batchId:p.nextBatchId};
+      return res.end(JSON.stringify({ok:true,item:{...target,requeued:true,marketReview:{state:'MISMATCH'}}}));
+    }
     if(p.action==='prepare')target.state='PREPARED';
     if(p.action==='write'){target.writeIndex++;target.state=target.writeIndex===2?'VERIFY_PENDING':'PREPARED';}
     if(p.action==='verify')target.state='VERIFIED';
@@ -128,15 +132,25 @@ try{
   assert.notEqual(item.state,'BLOCKED');
   assert.ok(events.includes('prepare'));
   scenario='happy';item=makeItem();started=true;events=[];
+  item.state='RESENDING';item.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';item.transmission={token,fingerprint};
+  await page.goto(url);
+  await page.getByRole('button',{name:/과거 1건 실제 가격 확인 · 미반영만 재전송/}).click();
+  await page.getByText(/과거 전송결과 정리 완료 · 이미 정상 0건 · 실제 미반영 재전송 1건/).waitFor({state:'attached'});
+  assert.deepEqual(events,['reviewLegacyTransmission','resendReport']);
+  bridge=await page.evaluate(()=>window.bridgeEvents);
+  assert.equal(bridge.filter(x=>x.command==='BATCH_START').length,1);
+  assert.equal(item.state,'TRANSMITTED');
+  scenario='happy';item=makeItem();started=true;events=[];
   item.state='RESENDING';item.errorCode='MONTHLY_PRICE_RELIST_REQUIRED';item.transmission={token,fingerprint};
   await page.goto(url);
   assert.equal(await page.getByRole('button',{name:/미완료 가격조정 이어가기|이전 실행 재확인·이어가기/}).count(),0);
   await page.getByText(/3단계 재전송까지 실패한 1건은 삭제 후 재등록 대상으로 분리했습니다/).waitFor({state:'attached'});
   scenario='happy';item=makeItem();started=false;events=[];await page.goto(url+'?ready=0');assert.equal(await page.getByRole('button',{name:/예상 가격 확인/}).isDisabled(),true);
   // Real DOM parser in Chromium. Never contacts or writes Shopling.
-  const shop=await browser.newPage();await shop.route('https://a.shopling.co.kr/**',r=>r.fulfill({contentType:'text/html; charset=utf-8',body:'<table><tr><th>쇼핑몰</th><th>소비자가</th><th>판매가</th><th>매입가</th></tr><tr><td>도매꾹</td><td>7,777</td><td>1,234</td><td>222</td></tr></table>'}));
+  const shop=await browser.newPage();await shop.route('https://a.shopling.co.kr/**',r=>r.fulfill({contentType:'text/html; charset=utf-8',body:'<table><tr><th>쇼핑몰</th><th>소비자가</th><th>판매가</th><th>매입가</th></tr><tr><td>도매꾹</td><td>7,777</td><td>1,234</td><td>222</td></tr></table><table><tr><th>상태</th><th>사이트ID</th><th>몰상품코드</th><th>몰상품명</th><th>몰판매가</th></tr><tr><td>삭제</td><td>도매꾹</td><td>OLD-1</td><td>fixture old</td><td>18,700</td></tr><tr><td>판매중</td><td>도매꾹</td><td>LIVE-1</td><td>fixture live</td><td>12,900</td></tr></table>'}));
   await shop.goto('https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=1234567');await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
   const observed=await shop.evaluate(()=>collectMonthlyPricePage('1234567'));assert.ok(observed,JSON.stringify(await shop.evaluate(()=>({charset:document.characterSet,text:document.body.innerText}))));assert.equal(observed.rows[0].sellPrice,1234);assert.equal(observed.rows[0].consumerPrice,7777);assert.equal(observed.rows[0].purchasePrice,222);
+  assert.equal(observed.marketRows.length,2);assert.equal(observed.marketRows.find(x=>x.status==='판매중').sellPrice,12900);assert.equal(observed.marketRows.find(x=>x.status==='판매중').mallProductCode,'LIVE-1');
   await shop.setContent('<table><tr><td>도매꾹</td><td>999</td><td>888</td><td>777</td></tr></table>');assert.equal(await shop.evaluate(()=>collectMonthlyPricePage('1234567')),null);
-  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','ambiguous-DOM-blocked'],productionWrites:false},null,2));
+  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','legacy-market-review-resends-only-mismatch','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','linked-market-table-readonly','ambiguous-DOM-blocked'],productionWrites:false},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}

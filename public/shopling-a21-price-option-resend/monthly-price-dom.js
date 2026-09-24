@@ -9,7 +9,7 @@ function collectMonthlyPricePage(goodsKey) {
     SMALL_00005: ["GS SHOP", "GS샵"], SMALL_00012: ["쿠팡"], SMALL_00014: ["카페24", "Cafe24"], SMALL_00019: ["신세계몰"],
     SMALL_00069: ["도매꾹"], SMALL_00071: ["도매창고"], SMALL_00101: ["카카오톡스토어"], SMALL_00107: ["오너클랜", "오늘클렌"],
     SMALL_00112: ["에이블리"], SMALL_00116: ["셀파"], SMALL_00130: ["롯데ON", "롯데온"], SMALL_00165: ["셀링콕"],
-    SMALL_00168: ["인터파크"], SMALL_00179: ["투비즈온"], SMALL_00180: ["도매아토즈"], SMALL_00188: ["셀러어스"],
+    SMALL_00168: ["인터파크"], SMALL_00179: ["투비즈온"], SMALL_00180: ["도매아토즈"], SMALL_00188: ["셀러어스", "셀리어스"],
     SMALL_00190: ["도매의신"], SMALL_00194: ["토스쇼핑"],
   };
   const text = (value) => String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
@@ -24,6 +24,7 @@ function collectMonthlyPricePage(goodsKey) {
     return number(control ? control.value : el.textContent);
   };
   const rows = [];
+  const marketRows = [];
   for (const table of document.querySelectorAll("table")) {
     const trs = [...table.querySelectorAll("tr")].filter((row) => row.closest("table") === table);
     let mapping = null;
@@ -65,5 +66,40 @@ function collectMonthlyPricePage(goodsKey) {
       rows.push({ mallKey, sellPrice, purchasePrice, consumerPrice, source });
     }
   }
-  return rows.length ? { goodsKey, pageUrl: url.href, observedAt: Date.now(), rows } : null;
+  // The same Shopling price page also renders the "등록된 쇼핑몰" table.
+  // Read it only; never click marketplace links or infer columns by position.
+  for (const table of document.querySelectorAll("table")) {
+    const trs = [...table.querySelectorAll("tr")].filter((row) => row.closest("table") === table);
+    let mapping = null;
+    for (const row of trs) {
+      const cells = [...row.querySelectorAll(":scope > th, :scope > td")];
+      const labels = cells.map((cell) => compact(cell.textContent));
+      const status = labels.findIndex((s) => /^(상태|판매상태)$/.test(s));
+      const site = labels.findIndex((s) => /^(사이트id|사이트|쇼핑몰|몰)$/.test(s));
+      const code = labels.findIndex((s) => /^(몰상품코드|쇼핑몰상품코드)$/.test(s));
+      const name = labels.findIndex((s) => /^(몰상품명|쇼핑몰상품명)$/.test(s));
+      const price = labels.findIndex((s) => /^(몰판매가|쇼핑몰판매가|판매가)$/.test(s));
+      if (status >= 0 && site >= 0 && code >= 0 && price >= 0) { mapping = { row, status, site, code, name, price }; break; }
+    }
+    if (!mapping) continue;
+    for (const row of trs) {
+      if (row === mapping.row) continue;
+      const cells = [...row.querySelectorAll(":scope > td")];
+      if (cells.length <= Math.max(mapping.status, mapping.site, mapping.code, mapping.price, mapping.name)) continue;
+      const siteLabel = compact(cells[mapping.site]?.textContent);
+      const matches = Object.entries(names).filter(([, aliases]) => aliases.some((alias) => siteLabel.includes(compact(alias))));
+      if (matches.length !== 1) continue;
+      const sellPrice = number(cells[mapping.price]?.textContent);
+      if (sellPrice === null) continue;
+      marketRows.push({
+        mallKey: matches[0][0],
+        status: text(cells[mapping.status]?.textContent),
+        mallProductCode: text(cells[mapping.code]?.textContent),
+        mallProductName: mapping.name >= 0 ? text(cells[mapping.name]?.textContent) : "",
+        sellPrice,
+        source: "linked_market_table",
+      });
+    }
+  }
+  return rows.length ? { goodsKey, pageUrl: url.href, observedAt: Date.now(), rows, marketRows } : null;
 }
