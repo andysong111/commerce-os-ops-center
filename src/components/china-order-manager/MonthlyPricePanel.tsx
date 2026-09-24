@@ -324,6 +324,129 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       if (generation.current === current) { running.current = false; setBusy(false); }
     }
   }
+  async function reviewLegacyTransmissions() {
+    if (running.current) return;
+    running.current = true; setBusy(true); setError(""); setProgress("");
+    const current = generation.current;
+    const active = () => running.current && generation.current === current;
+    try {
+      await bridgeReady();
+      if (!active()) return;
+      let data = await refreshRun(snapshot.run?.id);
+      if (!data.run) throw new Error("MONTHLY_PRICE_RUN_REQUIRED");
+      const runId = data.run.id;
+      const targets = data.items.filter((item) =>
+        item.state === "RESENDING" &&
+        item.errorCode === "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED" &&
+        item.transmission &&
+        !item.transmission.batchId
+      );
+      if (!targets.length) {
+        setProgress("과거 전송결과 확인 대상이 없습니다.");
+        return;
+      }
+
+      const batchId = crypto.randomUUID();
+      const retryItems: Item[] = [];
+      let matched = 0;
+      let uncertain = 0;
+
+      for (let index = 0; active() && index < targets.length; index += 1) {
+        const initial = targets[index];
+        setProgress(`과거 전송결과 확인 ${index + 1}/${targets.length} · ${initial.candidate.productName} · 실제 등록 쇼핑몰 판매가 조회`);
+        const observation = (await monthlyPriceBridge("READ", { goodsKey: initial.goodsKey })).observation;
+        if (!active()) break;
+        const result = await api({
+          action: "reviewLegacyTransmission",
+          itemId: initial.id,
+          runId,
+          nextBatchId: batchId,
+          observation,
+        });
+        const next = { ...initial, ...(result.item ?? {}) } as Item;
+        if (generation.current === current) update(next);
+        if (next.state === "TRANSMITTED") matched += 1;
+        else if (result.item?.requeued === true && next.transmission?.batchId === batchId) retryItems.push(next);
+        else uncertain += 1;
+      }
+
+      if (active() && retryItems.length) {
+        setProgress(`실제 미반영 ${retryItems.length}개 GOODSKEY만 재전송 · 200 → 20 → 개별 3단계 안전 재시도`);
+        let reply = await monthlyPriceBridge("BATCH_START", {
+          month,
+          runId,
+          batchId,
+          newClaim: true,
+          items: retryItems.map((item) => ({
+            itemId: item.id,
+            token: item.transmission?.token,
+            fingerprint: item.transmission?.fingerprint,
+            goodsKey: item.goodsKey,
+          })),
+        }, 65000);
+
+        for (let polls = 0; active() && polls < 1200; polls += 1) {
+          const report = reply.report;
+          if (!report) throw new Error("MONTHLY_PRICE_EXTENSION_REPORT_REQUIRED");
+          if (report.state === "MISSING") {
+            for (const item of retryItems) {
+              if (!item.transmission) continue;
+              const missingReport = {
+                token: item.transmission.token,
+                fingerprint: item.transmission.fingerprint,
+                goodsKey: item.goodsKey,
+                itemId: item.id,
+                batchId,
+                state: "MISSING",
+                priceOnly: false,
+                priceAndOption: false,
+                saleStatusActivated: false,
+                saleStatusRestored: false,
+                saleStatusRolledBack: false,
+              };
+              const result = await api({ action: "resendReport", itemId: item.id, runId, report: missingReport });
+              const next = { ...item, ...(result.item ?? {}) } as Item;
+              if (generation.current === current) update(next);
+            }
+            break;
+          }
+          if (report.state !== "RUNNING" && report.state !== "STARTING") {
+            const rows = Array.isArray(report.items) ? report.items as Record<string, unknown>[] : [];
+            const byId = new Map(retryItems.map((item) => [item.id, item]));
+            for (const row of rows) {
+              const itemId = String(row.itemId ?? "");
+              const local = byId.get(itemId);
+              if (!local) continue;
+              const result = await api({ action: "resendReport", itemId, runId, report: row });
+              const next = { ...local, ...(result.item ?? {}) } as Item;
+              if (generation.current === current) update(next);
+            }
+            break;
+          }
+          const phase = String(report.phase ?? "");
+          const activeWindows = Number(report.activeWindows ?? 0);
+          const retryingCount = Number(report.retryingCount ?? 0);
+          const phaseText = phase === "PRICE" ? "판매가" : phase === "OPTION" ? "옵션" : phase === "STATUS_SELLING" ? "품절→판매중" : phase === "STATUS_SOLD_OUT" ? "상태 복구" : "마켓 수정전송";
+          setProgress(`미반영 ${retryItems.length}개 재전송 · ${phaseText} 단계 · 작업창 ${activeWindows}개 · 재시도 작업 ${retryingCount}개`);
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          if (!active()) return;
+          reply = await monthlyPriceBridge("BATCH_STATUS", { batchId }, 10000);
+        }
+      }
+
+      if (active()) {
+        data = await refreshRun(runId);
+        const remaining = data.items.filter((item) => item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED").length;
+        const relist = data.items.filter((item) => item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_RELIST_REQUIRED").length;
+        setProgress(`과거 전송결과 정리 완료 · 이미 정상 ${matched}건 · 실제 미반영 재전송 ${retryItems.length}건 · 확인 보류 ${remaining}건 · 재등록 필요 ${relist}건`);
+      }
+    } catch (cause) {
+      if (generation.current === current) setError(cause instanceof Error ? cause.message : "MONTHLY_PRICE_FAILED");
+    } finally {
+      if (generation.current === current) { running.current = false; setBusy(false); }
+    }
+  }
+
   const count = (states: string[]) => snapshot.items.filter((item) => states.includes(item.state)).length;
   const queuedCount = count(["QUEUED"]);
   const preparedCount = count(["PREPARED"]);
@@ -419,7 +542,12 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       </button>
     ) : transmissionReviewCount > 0 || relistRequiredCount > 0 ? (
       <div className="mt-3 space-y-1.5 rounded-lg border border-amber-700 bg-amber-950/70 px-3 py-2.5 text-xs leading-5 text-amber-100">
-        {transmissionReviewCount > 0 && <p>가격조정 실행은 끝났지만 이전 전송결과 확인 필요 {transmissionReviewCount}건은 자동 재전송하지 않고 보류 중입니다.</p>}
+        {transmissionReviewCount > 0 && <>
+          <p>이전 전송결과 확인 필요 {transmissionReviewCount}건은 실제 등록 쇼핑몰 판매가를 다시 읽어 목표가와 다른 GOODSKEY만 재전송할 수 있습니다.</p>
+          <button type="button" onClick={() => void reviewLegacyTransmissions()} disabled={!ready || busy} className="w-full rounded-md bg-amber-300 px-3 py-2 text-xs font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
+            {busy ? "실제 마켓가격 확인 중…" : `과거 ${transmissionReviewCount}건 실제 가격 확인 · 미반영만 재전송`}
+          </button>
+        </>}
         {relistRequiredCount > 0 && <p>3단계 재전송까지 실패한 {relistRequiredCount}건은 삭제 후 재등록 대상으로 분리했습니다.</p>}
       </div>
     ) : (
