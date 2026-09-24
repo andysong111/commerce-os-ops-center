@@ -65,6 +65,14 @@ test("A21 v0.4.4 can rediscover the current result target instead of pinning one
   assert.match(backgroundV044, /createdTabsV044/);
 });
 
+test("parallel monthly result watchers detach only their own Shopling result window", () => {
+  assert.match(backgroundV041, /job\.monthlyParallelBatch/);
+  assert.match(backgroundV041, /await detach\(resultTabId\)/);
+  assert.match(backgroundV041, /for \(const job of running\) void watchResult\(job\.id\)/);
+  assert.match(backgroundV044, /detachJobV044/);
+  assert.match(backgroundV044, /job\.monthlyParallelBatch/);
+});
+
 test("A21 v0.4.4 preserves price-first serial queue from v0.4.1", () => {
   assert.match(backgroundV041, /job\.status === "QUEUED" && job\.mode === "PRICE"/);
   assert.match(backgroundV041, /job\.status === "QUEUED" && job\.mode === "OPTION"/);
