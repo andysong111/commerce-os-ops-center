@@ -431,8 +431,13 @@ async function splitBatch(jobId, totalResultCount) {
     await closeManaged(item);
   }
   const mid = Math.ceil(batch.goodsKeys.length / 2);
-  const left = { id: uid("batch"), goodsKeys: batch.goodsKeys.slice(0, mid) };
-  const right = { id: uid("batch"), goodsKeys: batch.goodsKeys.slice(mid) };
+  const carry = {
+    ...(Array.isArray(batch.monthlyModes) ? { monthlyModes: [...batch.monthlyModes] } : {}),
+    ...(batch.monthlyFailureRollback === true ? { monthlyFailureRollback: true } : {}),
+    ...(batch.monthlyFailureRollback === false ? { monthlyFailureRollback: false } : {}),
+  };
+  const left = { id: uid("batch"), goodsKeys: batch.goodsKeys.slice(0, mid), ...carry };
+  const right = { id: uid("batch"), goodsKeys: batch.goodsKeys.slice(mid), ...carry };
   const index = state.batches.findIndex((item) => item.id === batch.id);
   state.batches.splice(index, 1, left, right);
   addJobs(state, left);
