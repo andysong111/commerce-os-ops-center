@@ -99,6 +99,11 @@ importScripts("background-v041.js");
     await Promise.all([...attachedTabsV044].map((tabId) => detachV044(tabId)));
   }
 
+  async function detachJobV044(job) {
+    const ids = [...new Set([job?.resultTabId, job?.popupTabId].filter(Number.isInteger))];
+    await Promise.all(ids.map((tabId) => detachV044(tabId)));
+  }
+
   const FRAME_EXPRESSION = `(() => {
     try {
       const norm = (v) => String(v ?? '').normalize('NFKC').replace(/\\s+/g, ' ').trim();
@@ -285,7 +290,8 @@ importScripts("background-v041.js");
       const state = await loadStateV044();
       const job = state?.jobs?.find((item) => item.id === jobId);
       if (!state || state.state !== "RUNNING" || state.stopped || !job || job.status !== "RUNNING") {
-        await detachAllV044();
+        if (initialJob.monthlyParallelBatch) await detachJobV044(initialJob);
+        else await detachAllV044();
         return;
       }
 
@@ -324,7 +330,8 @@ importScripts("background-v041.js");
       await saveStateV044(state);
 
       if (stableMs >= STABLE_MS) {
-        await detachAllV044();
+        if (job.monthlyParallelBatch) await detachJobV044(job);
+        else await detachAllV044();
         return baseCompleteJobV041(
           jobId,
           `${job.mode === "PRICE" ? "판매가" : "옵션"} 수정전송 완료 · Shopling 작업별 최종 footer를 모든 frame/Accessibility에서 확인 후 다음 큐 진행 v${VERSION}`,
@@ -333,7 +340,8 @@ importScripts("background-v041.js");
       await sleep(POLL_MS);
     }
 
-    await detachAllV044();
+    if (initialJob.monthlyParallelBatch) await detachJobV044(initialJob);
+    else await detachAllV044();
     if (typeof failJob === "function") {
       return failJob(jobId, "V044_FRAME_AX_COMPLETION_TIMEOUT", "Shopling 결과창의 작업별 최종 완료 footer를 모든 frame/접근성 트리에서 30분 동안 확인하지 못했습니다.");
     }
