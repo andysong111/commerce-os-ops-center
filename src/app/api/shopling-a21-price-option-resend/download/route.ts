@@ -10,6 +10,7 @@ const ROOT = "shopling-a21-price-option-resend";
 const FILES = [
   "manifest.json",
   "background-monthly-price.js",
+  "background-monthly-batch-v054.js",
   "monthly-price-dom.js",
   "monthly-price-page-bridge.js",
   "background-v020.js",
