@@ -150,6 +150,13 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     }
   };
 
+  const legacyFinalizeOrPump = finalizeOrPump;
+  finalizeOrPump = async function monthlyFinalizeOrPump() {
+    const state = await loadState();
+    if (state?.monthlyToken || state?.monthlyBatchId) return pump();
+    return legacyFinalizeOrPump();
+  };
+
   const legacyPump = pump;
   function activeMonthlyJobs(state) {
     return state.jobs.filter((job) => job.monthlyScope && job.status !== "SUPERSEDED");
