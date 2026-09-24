@@ -20,7 +20,7 @@ const server=createServer(async(req,res)=>{
     let raw='';for await(const c of req)raw+=c;const p=JSON.parse(raw);events.push(p.action);let duplicate;
     if(p.action==='start'){started=true;return res.end(JSON.stringify(snapshot()));}
     if(p.action==='resumePreflight'){
-      for(const row of [item,...extraItems])if(row.state==='BLOCKED'&&['MONTHLY_PRICE_GROUP_REQUIRED','MONTHLY_PRICE_INACTIVE_LISTING','MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED'].includes(row.errorCode)){row.state='QUEUED';row.errorCode=null;}
+      for(const row of [item,...extraItems])if(row.state==='BLOCKED'&&['MONTHLY_PRICE_GROUP_REQUIRED','MONTHLY_PRICE_INACTIVE_LISTING','MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED','MONTHLY_PRICE_OPTION_BARCODE_CONFLICT'].includes(row.errorCode)){row.state='QUEUED';row.errorCode=null;}
       return res.end(JSON.stringify(snapshot()));
     }
     const target=[item,...extraItems].find(row=>row.id===p.itemId)||item;
@@ -118,11 +118,20 @@ try{
   assert.equal(item.errorCode,null);
   assert.notEqual(item.state,'BLOCKED');
   assert.ok(events.includes('prepare'));
+  scenario='happy';item=makeItem();started=true;events=[];
+  item.state='BLOCKED';item.plan=null;item.writeIndex=0;item.errorCode='MONTHLY_PRICE_OPTION_BARCODE_CONFLICT';item.transmission=null;
+  await page.goto(url);
+  await page.getByRole('button',{name:/이전 실행 재확인·이어가기/}).click();
+  await page.waitForTimeout(250);
+  assert.equal(events[0],'resumePreflight');
+  assert.equal(item.errorCode,null);
+  assert.notEqual(item.state,'BLOCKED');
+  assert.ok(events.includes('prepare'));
   scenario='happy';item=makeItem();started=false;events=[];await page.goto(url+'?ready=0');assert.equal(await page.getByRole('button',{name:/예상 가격 확인/}).isDisabled(),true);
   // Real DOM parser in Chromium. Never contacts or writes Shopling.
   const shop=await browser.newPage();await shop.route('https://a.shopling.co.kr/**',r=>r.fulfill({contentType:'text/html; charset=utf-8',body:'<table><tr><th>쇼핑몰</th><th>소비자가</th><th>판매가</th><th>매입가</th></tr><tr><td>도매꾹</td><td>7,777</td><td>1,234</td><td>222</td></tr></table>'}));
   await shop.goto('https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=1234567');await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
   const observed=await shop.evaluate(()=>collectMonthlyPricePage('1234567'));assert.ok(observed,JSON.stringify(await shop.evaluate(()=>({charset:document.characterSet,text:document.body.innerText}))));assert.equal(observed.rows[0].sellPrice,1234);assert.equal(observed.rows[0].consumerPrice,7777);assert.equal(observed.rows[0].purchasePrice,222);
   await shop.setContent('<table><tr><td>도매꾹</td><td>999</td><td>888</td><td>777</td></tr></table>');assert.equal(await shop.evaluate(()=>collectMonthlyPricePage('1234567')),null);
-  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','receipt-prerequisite','DOM-header-mapping','ambiguous-DOM-blocked'],productionWrites:false},null,2));
+  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','receipt-prerequisite','DOM-header-mapping','ambiguous-DOM-blocked'],productionWrites:false},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}

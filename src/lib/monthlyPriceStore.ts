@@ -28,7 +28,8 @@ export function canRetryMonthlyPrewriteBlockedItem(
   const retryablePrewriteError =
     item.error_code === "MONTHLY_PRICE_GROUP_REQUIRED" ||
     item.error_code === "MONTHLY_PRICE_INACTIVE_LISTING" ||
-    item.error_code === "MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED";
+    item.error_code === "MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED" ||
+    item.error_code === "MONTHLY_PRICE_OPTION_BARCODE_CONFLICT";
   return Boolean(
     sameEvidence &&
     freshCandidate &&
