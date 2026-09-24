@@ -7,6 +7,7 @@ import {
 import { calculateNetRequirement } from "@/lib/productDecisionEngine/netRequirement";
 import type { SalesOrderGroup } from "@/lib/productDecisionEngine/salesOrder";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import { verifiedPurchaseCostReady } from "@/lib/verifiedPurchaseCostEvidence";
 
 export type InventoryOperatingMode =
   | "VERIFIED"
@@ -37,6 +38,16 @@ export type InventoryVerificationPriorityRow = {
   hasConfirmedReceiptCost: boolean;
   latestConfirmedReceiptAt: string | null;
   latestConfirmedReceiptCostKrw: number;
+  purchaseCostEvidenceCount: number;
+  hasVerifiedPurchaseCost: boolean;
+  purchaseCostTrustSource:
+    | "CONFIRMED_RECEIPT"
+    | "LEGACY_VERIFIED_COST_EVIDENCE"
+    | "SOURCE_ORDER_VERIFIED_COST_EVIDENCE"
+    | "UNVERIFIED";
+  verifiedPurchaseUnitCostKrw: number;
+  verifiedPurchaseCostAt: string | null;
+  purchaseProtectedCostKrw: number;
   protectedCostKrw: number;
   inventoryCalculationUsable: boolean;
   executionInventoryEligible: boolean;
@@ -131,7 +142,10 @@ function inventoryMode(
   return "PROVISIONAL";
 }
 
-function actionFor(row: ProductMasterInventoryCostRow | undefined) {
+function actionFor(
+  row: ProductMasterInventoryCostRow | undefined,
+  now: number,
+) {
   const mode = inventoryMode(row);
   if (mode === "MISSING" || mode === "REVIEW") {
     return "LEDGER_REVIEW_REQUIRED" as const;
@@ -139,7 +153,7 @@ function actionFor(row: ProductMasterInventoryCostRow | undefined) {
   if (mode === "PROVISIONAL") {
     return "PROVISIONAL_DECISION_EVIDENCE_REQUIRED" as const;
   }
-  if (!row?.hasConfirmedReceiptCost) {
+  if (!verifiedPurchaseCostReady(row, now)) {
     return "COST_CONFIRMATION_REQUIRED" as const;
   }
   return "NONE" as const;
@@ -175,6 +189,7 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
     loadProductMasterInventoryCostReadiness(),
     loadProductPlanningSnapshot(),
   ]);
+  const now = Date.now();
   const purchaseProducts = purchaseShadow.snapshot?.products ?? [];
   const inventoryIndex = inventoryByBarcode(inventoryReadiness.rows);
   const planningIndex = planningByBarcode(planning.products);
@@ -208,7 +223,7 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
         moq: Math.max(1, integer(profile?.moq) || 1),
         cartonQuantity: Math.max(1, integer(profile?.cartonQuantity) || 1),
       });
-      const action = actionFor(inventory);
+      const action = actionFor(inventory, now);
       const purchaseStatus = net.group;
       const recommendedQty = net.recommendedQuantity;
       const expectedCost = expectedCostForQuantity(
@@ -245,6 +260,17 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
         latestConfirmedReceiptAt: inventory?.latestConfirmedReceiptAt ?? null,
         latestConfirmedReceiptCostKrw: integer(
           inventory?.latestConfirmedReceiptCostKrw,
+        ),
+        purchaseCostEvidenceCount: integer(inventory?.purchaseCostEvidenceCount),
+        hasVerifiedPurchaseCost: inventory?.hasVerifiedPurchaseCost === true,
+        purchaseCostTrustSource:
+          inventory?.purchaseCostTrustSource ?? "UNVERIFIED",
+        verifiedPurchaseUnitCostKrw: integer(
+          inventory?.verifiedPurchaseUnitCostKrw,
+        ),
+        verifiedPurchaseCostAt: inventory?.verifiedPurchaseCostAt ?? null,
+        purchaseProtectedCostKrw: integer(
+          inventory?.purchaseProtectedCostKrw,
         ),
         protectedCostKrw: integer(inventory?.protectedCostKrw),
         inventoryCalculationUsable,

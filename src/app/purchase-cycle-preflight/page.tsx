@@ -29,7 +29,7 @@ const reasonLabels: Record<string, string> = {
   TARGET_DATE_RECONFIRM_REQUIRED: "발주 예정일이 지났습니다. 새 일정을 확인해야 합니다.",
   DUPLICATE_BARCODE: "중복 B코드가 있어 품목 식별을 확인해야 합니다.",
   NO_VERIFIED_CANDIDATE_WITHIN_LIMITS: "원가·재고·현금·수량 제한을 모두 충족하는 품목이 없습니다.",
-  IDENTITY_REVIEW: "B코드 확인 필요", CONFIRMED_COST_REQUIRED: "확정원가 필요",
+  IDENTITY_REVIEW: "B코드 확인 필요", CONFIRMED_COST_REQUIRED: "검증원가 필요",
   VERIFIED_INVENTORY_REQUIRED: "재고 근거 필요", INVALID_RECOMMENDATION: "추천수량·점수 확인 필요",
   CANARY_QUANTITY_LIMIT: "소량 검증 수량 상한 초과", ROW_EXECUTION_BLOCKED: "품목별 조건 미충족",
   CANARY_SKU_LIMIT: "소량 검증 SKU 수 제한", CASH_BUDGET_LIMIT: "현금 상한 초과",
@@ -100,7 +100,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         </section>
         <section className="rounded-2xl border bg-white p-5">
           <h2 className="font-bold">소량 발주 미리보기 · 주문서 아님</h2>
-          <p className="mt-2 text-sm">상품대금 상한 {money(report.effectiveBudgetKrw)} · 확정원가 기준 상품대금 {money(report.estimatedSpendKrw)} · 상품대금 잔여한도 {money(report.remainingPreviewBudgetKrw)}</p>
+          <p className="mt-2 text-sm">상품대금 상한 {money(report.effectiveBudgetKrw)} · 검증원가 기준 상품대금 {money(report.estimatedSpendKrw)} · 상품대금 잔여한도 {money(report.remainingPreviewBudgetKrw)}</p>
           <p className="mt-2 text-sm">이번 달 기록된 발주 지출 {report.recordedCycleSpendKrw === null ? "미확인" : money(report.recordedCycleSpendKrw)} · 이번 검증 현금 한도 {money(report.effectiveCashKrw)} · 배송비 여유분 포함 예상 지출 {money(report.estimatedAllInSpendKrw)}</p>
           <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead><tr><th className="p-2">B코드·상품</th><th className="p-2">수량</th><th className="p-2">예상금액</th><th className="p-2">확인재고</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode} · {row.name}</td><td className="p-2">{row.quantity}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{row.inventoryQuantity}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
           {!report.selected.length ? <p className="mt-3 text-sm">확정 가능한 미리보기 품목이 없습니다. 차단을 우회하거나 재고를 0으로 가정하지 않습니다.</p> : null}
