@@ -59,6 +59,7 @@ test('retryable prewrite blockers are allowed only before any write and with mat
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem(item,freshCandidate,true),true);
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,error_code:'MONTHLY_PRICE_INACTIVE_LISTING',candidate:freshCandidate},freshCandidate,true),true);
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,error_code:'MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED',candidate:freshCandidate},freshCandidate,true),true);
+  assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,error_code:'MONTHLY_PRICE_OPTION_BARCODE_CONFLICT',candidate:freshCandidate},freshCandidate,true),true);
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,error_code:'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED'},freshCandidate,true),false);
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,write_index:1},freshCandidate,true),false);
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,plan:{fingerprint:'x'}},freshCandidate,true),false);
@@ -141,6 +142,18 @@ test('actual resume preflight persists stale GROUP_REQUIRED -> QUEUED and audits
   assert.equal(h.state.item.plan,null);
   assert.equal(status.items[0].state,'QUEUED');
   assert.equal(status.items[0].error_code,null);
+  assert.deepEqual(h.state.audit.map(row=>row.event),['PREFLIGHT_BLOCK_RETRY']);
+});
+
+test('actual resume preflight requeues a corrected option-barcode conflict only before any write',async()=>{
+  const h=resumeStoreHarness();
+  h.state.item.candidate={...h.state.item.candidate,reason:null};
+  h.state.item.error_code='MONTHLY_PRICE_OPTION_BARCODE_CONFLICT';
+  h.source.candidates[0]={...h.source.candidates[0],reason:null};
+  const status=await h.api.resumeMonthlyPriceRunPreflight(runId,h.source);
+  assert.equal(h.state.rpcCount,1);
+  assert.equal(h.state.item.state,'QUEUED');assert.equal(h.state.item.error_code,null);
+  assert.equal(status.items[0].state,'QUEUED');
   assert.deepEqual(h.state.audit.map(row=>row.event),['PREFLIGHT_BLOCK_RETRY']);
 });
 
