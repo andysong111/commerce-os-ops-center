@@ -13,9 +13,16 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     catch { return false; }
   }
   function report(state) {
+    const scoped = state.jobs.filter((job) => job.monthlyScope);
+    const priceOption = scoped.filter((job) => ["PRICE", "OPTION"].includes(job.mode));
+    const activated = scoped.find((job) => job.mode === "STATUS_SELLING");
+    const restored = scoped.find((job) => job.mode === "STATUS_SOLD_OUT");
     return { token: state.monthlyToken, fingerprint: state.fingerprint, goodsKey: state.monthlyGoodsKey, state: state.state,
-      priceOnly: state.jobs.length > 0 && state.jobs.every((job) => job.mode === "PRICE"),
-      priceAndOption: state.jobs.some((job) => job.mode === "PRICE") && state.jobs.some((job) => job.mode === "OPTION") && state.jobs.every((job) => ["PRICE", "OPTION"].includes(job.mode)),
+      priceOnly: priceOption.length > 0 && priceOption.every((job) => job.mode === "PRICE"),
+      priceAndOption: priceOption.some((job) => job.mode === "PRICE") && priceOption.some((job) => job.mode === "OPTION") && priceOption.every((job) => ["PRICE", "OPTION"].includes(job.mode)),
+      saleStatusActivated: !state.monthlyNeedsSellingStatus || activated?.status === "SUCCEEDED",
+      saleStatusRestored: !state.monthlyRestoreSoldOut || restored?.status === "SUCCEEDED",
+      saleStatusRolledBack: restored?.monthlyFailureRollback === true && restored?.status === "SUCCEEDED",
       updatedAt: state.updatedAt };
   }
   async function remember(state) {
@@ -30,8 +37,101 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   addJobs = function monthlyScopedJobs(state, batch) {
     const before = state.jobs.length;
     legacyAddJobs(state, batch);
-    if (state.monthlyToken) {
-      state.jobs = state.jobs.map((job, index) => index < before ? job : ({ ...job, monthlyScope: true }));
+    if (!state.monthlyToken) return;
+    const added = state.jobs.splice(before).map((job) => ({ ...job, monthlyScope: true }));
+    const price = added.find((job) => job.mode === "PRICE");
+    const option = added.find((job) => job.mode === "OPTION");
+    const statusJob = (mode) => ({
+      ...(price || option),
+      id: `job-${mode.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      mode,
+      status: "QUEUED",
+      stage: "OPENING",
+      workerWindowId: null,
+      workerTabId: null,
+      workerFrameId: null,
+      popupWindowId: null,
+      popupTabId: null,
+      popupFrameId: null,
+      selectedRowCount: 0,
+      totalResultCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      message: "대기 중",
+      error: "",
+      monthlyScope: true,
+    });
+    if (state.monthlyNeedsSellingStatus) state.jobs.push(statusJob("STATUS_SELLING"));
+    if (price) state.jobs.push(price);
+    if (option) state.jobs.push(option);
+    if (state.monthlyNeedsSellingStatus) {
+      const restore = statusJob("STATUS_SOLD_OUT");
+      restore.monthlyFailureRollback = !state.monthlyRestoreSoldOut;
+      if (!state.monthlyRestoreSoldOut) {
+        restore.status = "DORMANT";
+        restore.stage = "FAILURE_ROLLBACK_DORMANT";
+        restore.message = "PRICE/OPTION 실패 시에만 원래 품절상태로 안전 복구";
+      }
+      state.jobs.push(restore);
+    }
+  };
+
+  const legacyPump = pump;
+  pump = async function monthlySerialPump() {
+    const state = await loadState();
+    if (!state?.monthlyToken) return legacyPump();
+    if (state.state !== "RUNNING" || state.stopped) return;
+    if (state.jobs.some((job) => job.status === "RUNNING")) return;
+    const rank = (mode) => mode === "STATUS_SELLING" ? 0 : mode === "PRICE" ? 1 : mode === "OPTION" ? 2 : mode === "STATUS_SOLD_OUT" ? 3 : 99;
+    const scoped = state.jobs.filter((job) => job.monthlyScope).sort((a, b) => rank(a.mode) - rank(b.mode));
+    const failed = scoped.find((job) => ["FAILED", "STOPPED"].includes(job.status) && job.monthlyFailureRollback !== true);
+    if (failed) {
+      const activated = scoped.find((job) => job.mode === "STATUS_SELLING");
+      const rollback = scoped.find((job) => job.mode === "STATUS_SOLD_OUT" && job.monthlyFailureRollback === true);
+      for (const job of scoped) if (job.status === "QUEUED" && job !== rollback && rank(job.mode) > rank(failed.mode)) {
+        job.status = "STOPPED";
+        job.stage = "BLOCKED_BY_PRIOR_STAGE";
+        job.message = `${job.mode} 전 단계 실패로 송신하지 않음`;
+      }
+      if (activated?.status === "SUCCEEDED" && rollback?.status === "DORMANT") {
+        rollback.status = "QUEUED";
+        rollback.stage = "FAILURE_ROLLBACK_PENDING";
+        rollback.message = "가격/옵션 전송 실패 · 판매중 노출 방지를 위해 원래 품절상태로 복구";
+        await saveState(state);
+      }
+      if (rollback?.status === "QUEUED") {
+        try { await launchJob(state, rollback); }
+        catch (error) {
+          rollback.status = "FAILED";
+          rollback.stage = "FAILURE_ROLLBACK_FAILED";
+          rollback.error = "MONTHLY_A21_ROLLBACK_WINDOW_CREATE_FAILED";
+          rollback.message = error instanceof Error ? error.message : String(error);
+          state.state = "PARTIAL_FAILURE";
+          await saveState(state);
+        }
+        return;
+      }
+      state.state = "PARTIAL_FAILURE";
+      await saveState(state);
+      return;
+    }
+    const next = scoped.find((job) => job.status === "QUEUED" && scoped.filter((prior) => rank(prior.mode) < rank(job.mode) && prior.status !== "DORMANT").every((prior) => prior.status === "SUCCEEDED"));
+    if (next) {
+      try { await launchJob(state, next); }
+      catch (error) {
+        next.status = "FAILED";
+        next.stage = "FAILED";
+        next.error = "MONTHLY_A21_WINDOW_CREATE_FAILED";
+        next.message = error instanceof Error ? error.message : String(error);
+        await saveState(state);
+        await pump();
+      }
+      return;
+    }
+    const required = scoped.filter((job) => job.status !== "DORMANT");
+    if (required.length && required.every((job) => job.status === "SUCCEEDED")) {
+      state.state = "SUCCEEDED";
+      await saveState(state);
     }
   };
   const legacyStartRun = startRun;
@@ -88,7 +188,9 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.2", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.3", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+        monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
+        monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
         mallCheckCount: item.plan.targets.filter((row) => row.mallKey).length, sourceUrl,
         baselinePopupTabIds: await baselinePopupTabs(), batches, jobs: [], stopped: false, startedAt: Date.now(), updatedAt: Date.now() };
@@ -111,7 +213,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.2" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.3" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || "")) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });

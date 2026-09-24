@@ -46,6 +46,35 @@ test('base increase preserves independently higher channel price and display ori
   assert.equal(plan.writes[0].target.purchasePrice,321); assert.equal(plan.writes[0].target.consumerPrice,6543);
   assert.equal(plan.optionChangeCount,0); assert.equal(plan.protectedDecreaseCount,1);
 });
+test('legacy zero mall price bootstraps calculated mall price instead of excluding the product', () => {
+  const zero=observation(0);
+  const plan=buildMonthlyPricePlan(candidate(),live(1000),zero);
+  const mall=plan.targets.find(x=>x.mallKey==='SMALL_00069');
+  assert.equal(mall.before.sellPrice,0);
+  assert.ok(mall.target.sellPrice>0);
+  assert.ok(plan.writes.some(x=>x.mallKey==='SMALL_00069'));
+  assert.equal(assertMonthlyWritePreimage(mall,{...mall.before}),'WRITE');
+});
+
+test('source writes are always base then mall then option when all three are needed', () => {
+  const c=candidate();
+  c.options.push({barcode:'ABC1-2',optionId:'12',unitsPerOrder:1,currentCostKrw:2500,protectedCostKrw:2500});
+  const rows=[
+    {...live(1000,0)[0],optionName:'색상:화이트'},
+    {...live(1000,1000)[0],optId:'12',optPtnOptCd:'ABC1-2',optBarcode:'123456789013',optionName:'색상:블랙'},
+  ];
+  const plan=buildMonthlyPricePlan(c,rows,observation(0));
+  assert.deepEqual(plan.writes.map(row=>row.kind),['BASE_PRICE','MALL_PRICE','OPTION_PRICE']);
+});
+
+test('sold-out product plans selling-before-price and optional restore metadata', () => {
+  const sold=live().map(row=>({...row,sale_status:'C'}));
+  const keepSelling=buildMonthlyPricePlan(candidate(),sold,observation());
+  assert.deepEqual(keepSelling.saleStatusTransition,{before:'C',target:'B',restoreAfterTransmission:false});
+  const restore=buildMonthlyPricePlan(candidate(),sold,observation(),{restoreSaleStatusAfterTransmission:true});
+  assert.deepEqual(restore.saleStatusTransition,{before:'C',target:'B',restoreAfterTransmission:true});
+  assert.equal(buildMonthlyPricePlan(candidate(),live(),observation()).saleStatusTransition,null);
+});
 test('missing current registry never treats stale candidate snapshot group as exact', () => {
   const stale={...candidate(),productGroup:'도매4'};
   const resolved=resolveMonthlyPriceGroup(stale,live(3900),observation(3900),null);
@@ -126,12 +155,30 @@ test('observation rejects stale, wrong page identity and positional fallback', (
   for(const patch of [{observedAt:Date.now()-31000},{goodsKey:'9999999'},{pageUrl:'https://evil.invalid/'},{rows:[{...observation().rows[0],source:'position'}]}]) assert.throws(()=>monthlyValidateObservation({...observation(),...patch},'1234567'));
   assert.equal(monthlyValidateObservation(observation(),'1234567').rows.length,1);
 });
-test('absolute target + option preimage makes repeat safe and external option drift blocks', () => {
-  const p=buildMonthlyPricePlan(candidate(),live(),observation()), w=p.writes[0], before=monthlyLiveProduct(candidate(),live());
+test('absolute option target is repeat-safe and external option drift blocks after price stages', () => {
+  const c=candidate();
+  c.options.push({barcode:'ABC1-2',optionId:'12',unitsPerOrder:1,currentCostKrw:2500,protectedCostKrw:2500});
+  const rows=[
+    {...live(1000,0)[0],optionName:'색상:화이트'},
+    {...live(1000,1000)[0],optId:'12',optPtnOptCd:'ABC1-2',optBarcode:'123456789013',optionName:'색상:블랙'},
+  ];
+  const p=buildMonthlyPricePlan(c,rows,observation());
+  const w=p.writes.find(row=>row.kind==='OPTION_PRICE');
+  assert.ok(w);
+  const beforeRows=[
+    {...rows[0],sale_price:String(w.before.sellPrice),optAmt:String(w.options[0].beforeAmount)},
+    {...rows[1],sale_price:String(w.before.sellPrice),optAmt:String(w.options[1].beforeAmount)},
+  ];
+  const before=monthlyLiveProduct(c,beforeRows);
   assert.equal(assertMonthlyWritePreimage(w,before.prices,before.options),'WRITE');
-  const targetLive=live(w.target.sellPrice,w.options[0].targetAmount), after=monthlyLiveProduct(candidate(),targetLive);
+  const targetRows=[
+    {...beforeRows[0],optAmt:String(w.options[0].targetAmount)},
+    {...beforeRows[1],optAmt:String(w.options[1].targetAmount)},
+  ];
+  const after=monthlyLiveProduct(c,targetRows);
   assert.equal(assertMonthlyWritePreimage(w,after.prices,after.options),'ALREADY_APPLIED');
-  const drift=monthlyLiveProduct(candidate(),live(1000,100));
+  const driftRows=[...beforeRows.map(row=>({...row}))];driftRows[1].optAmt=String(Number(driftRows[1].optAmt)+100);
+  const drift=monthlyLiveProduct(c,driftRows);
   assert.throws(()=>assertMonthlyWritePreimage(w,drift.prices,drift.options),/CURRENT_PRICE_CHANGED/);
 });
 test('positive readback requires base, options and every connected channel target, not an API ACK', () => {

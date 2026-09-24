@@ -248,6 +248,7 @@
   }
 
   async function configureAndSubmit(assignment) {
+    if (!["PRICE", "OPTION"].includes(String(assignment?.mode || ""))) return;
     if (busy) return;
     busy = true;
     try {

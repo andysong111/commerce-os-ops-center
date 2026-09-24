@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyMallPrices, assertMonthlyWritePreimage, verifyMonthlyPricePlan, resolveMonthlyPriceGroup, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
+import { buildMonthlyPricePlan, monthlyValidateObservation, monthlyLiveProduct, monthlyMallPrices, assertMonthlyWritePreimage, assertMonthlyPendingOptionPreimage, verifyMonthlyPricePlan, resolveMonthlyPriceGroup, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
 import { assertMonthlyEvidenceUnchanged } from "@/lib/monthlyPriceSource";
 import { loadShoplingProductGroupsByGoodsKey } from "@/lib/shopling/shoplingProductGroupRegistry";
-import { readMonthlyLiveProduct, writeMonthlyShoplingPrice } from "@/lib/monthlyPriceShopling";
+import { ensureMonthlyShoplingSaleStatus, readMonthlyLiveProduct, writeMonthlyShoplingPrice } from "@/lib/monthlyPriceShopling";
 import { withMonthlyPriceItem, saveMonthlyPriceItem, auditMonthlyPrice, type MonthlyPriceItem } from "@/lib/monthlyPriceStore";
 
 function code(error: unknown) {
@@ -85,12 +85,24 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       let dispatched = false;
       try {
         await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
-        const { observed, live, resolution } = await resolveCurrentGroup(item, payload.observation);
+        const { observed, live: resolvedLive, resolution } = await resolveCurrentGroup(item, payload.observation);
+        let live = resolvedLive;
         if (!resolution.group || resolution.group !== item.plan.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
         if (item.plan.groupResolution === "EXACT" && resolution.source !== "EXACT") {
           throw new Error("MONTHLY_PRICE_GROUP_CHANGED");
         }
+        if (item.plan.saleStatusTransition && item.write_index === 0) {
+          const status = await ensureMonthlyShoplingSaleStatus(item.goods_key, item.plan.saleStatusTransition.target);
+          live = status.rows;
+          await auditMonthlyPrice(item, "SALE_STATUS_PREPRICE_READY", {
+            before: status.before,
+            after: status.after,
+            changed: status.changed,
+            restoreAfterTransmission: item.plan.saleStatusTransition.restoreAfterTransmission,
+          });
+        }
         const liveProduct = monthlyLiveProduct(item.candidate, live);
+        if (write.kind !== "OPTION_PRICE") assertMonthlyPendingOptionPreimage(item.plan, liveProduct.options);
         const current = write.mallKey ? monthlyMallPrices(observed, write.mallKey) : liveProduct.prices;
         if (assertMonthlyWritePreimage(write, current, write.mallKey ? [] : liveProduct.options) === "ALREADY_APPLIED") {
           await auditMonthlyPrice(item, "WRITE_ALREADY_MATCHES", { writeIndex: item.write_index, current });
@@ -140,16 +152,54 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
     } else if (action === "resendReport") {
       const report = monthlyRecord(payload.report);
       if (item.state === "TRANSMITTED") return response(item);
-      if (item.state !== "RESENDING" || !item.transmission || report.token !== item.transmission.token || report.fingerprint !== item.transmission.fingerprint || report.goodsKey !== item.goods_key) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
-      if (report.state === "SUCCEEDED" && report.priceAndOption === true) {
+      if (item.state !== "RESENDING" || !item.plan || !item.transmission || report.token !== item.transmission.token || report.fingerprint !== item.transmission.fingerprint || report.goodsKey !== item.goods_key) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
+      if (
+        report.state === "SUCCEEDED" &&
+        report.priceAndOption === true &&
+        (!item.plan.saleStatusTransition || report.saleStatusActivated === true) &&
+        (!item.plan.saleStatusTransition?.restoreAfterTransmission || report.saleStatusRestored === true)
+      ) {
+        if (item.plan.saleStatusTransition?.restoreAfterTransmission) {
+          const restored = await ensureMonthlyShoplingSaleStatus(item.goods_key, item.plan.saleStatusTransition.before);
+          await auditMonthlyPrice(item, "SALE_STATUS_RESTORED", {
+            before: restored.before,
+            after: restored.after,
+            changed: restored.changed,
+          });
+        }
         item.state = "TRANSMITTED";
         item.transmission = { ...item.transmission, finishedAt: new Date().toISOString(), result: "RESULT_WINDOW_FINISHED_MARKET_CONFIRMATION_PENDING" };
         item.error_code = null;
         await auditMonthlyPrice(item, "TRANSMISSION_WINDOW_FINISHED", { ...item.transmission, marketVerified: false });
-      } else if (["PARTIAL_FAILURE", "STOPPED", "MISSING"].includes(String(report.state))) {
+      } else if (
+        ["PARTIAL_FAILURE", "STOPPED", "MISSING"].includes(String(report.state)) ||
+        (
+          report.state === "SUCCEEDED" &&
+          (
+            report.priceAndOption !== true ||
+            (item.plan.saleStatusTransition && report.saleStatusActivated !== true) ||
+            (item.plan.saleStatusTransition?.restoreAfterTransmission && report.saleStatusRestored !== true)
+          )
+        )
+      ) {
+        if (item.plan.saleStatusTransition && report.saleStatusRolledBack === true) {
+          const restored = await ensureMonthlyShoplingSaleStatus(item.goods_key, item.plan.saleStatusTransition.before);
+          await auditMonthlyPrice(item, "SALE_STATUS_FAILURE_ROLLBACK", {
+            before: restored.before,
+            after: restored.after,
+            changed: restored.changed,
+          });
+        }
         item.error_code = "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED";
-        // Keep the token and state. Do not resend a batch whose delivery is unknown.
-        await auditMonthlyPrice(item, "TRANSMISSION_UNCERTAIN", { token: item.transmission.token, state: report.state });
+        // Keep the token and state. Do not resend a batch whose delivery is unknown
+        // or whose required status -> PRICE -> OPTION evidence is incomplete.
+        await auditMonthlyPrice(item, "TRANSMISSION_UNCERTAIN", {
+          token: item.transmission.token,
+          state: report.state,
+          priceAndOption: report.priceAndOption === true,
+          saleStatusActivated: report.saleStatusActivated === true,
+          saleStatusRestored: report.saleStatusRestored === true,
+        });
       }
     } else throw new Error("MONTHLY_PRICE_ACTION_INVALID");
     return response(item);

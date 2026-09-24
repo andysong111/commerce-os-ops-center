@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Commerce OS · Shopling A21 Price/Option Resend",
   "short_name": "A21 Resend",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "월 입고확정 가격조정 연결 · 옵션별 확정원가 인상 반영 · 구재고/채널 인하 차단 · 가격+옵션 재조회 후 해당 GOODSKEY만 수정전송",
   "permissions": [
     "storage",
@@ -42,7 +42,8 @@
         "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"
       ],
       "js": [
-        "main-a21-v024.js"
+        "main-a21-v024.js",
+        "monthly-status-main-v053.js"
       ],
       "world": "MAIN",
       "all_frames": true,
@@ -53,7 +54,8 @@
         "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml*"
       ],
       "js": [
-        "content-a21-v024.js"
+        "content-a21-v024.js",
+        "monthly-status-popup-v053.js"
       ],
       "all_frames": true,
       "run_at": "document_idle"

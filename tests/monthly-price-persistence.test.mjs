@@ -58,6 +58,7 @@ test('retryable prewrite blockers are allowed only before any write and with mat
   const item={id:itemId,state:'BLOCKED',write_index:0,plan:null,transmission:null,error_code:'MONTHLY_PRICE_GROUP_REQUIRED',candidate:oldCandidate};
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem(item,freshCandidate,true),true);
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,error_code:'MONTHLY_PRICE_INACTIVE_LISTING',candidate:freshCandidate},freshCandidate,true),true);
+  assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,error_code:'MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED',candidate:freshCandidate},freshCandidate,true),true);
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,error_code:'MONTHLY_PRICE_CONFIRMED_COST_REQUIRED'},freshCandidate,true),false);
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,write_index:1},freshCandidate,true),false);
   assert.equal(h.api.canRetryMonthlyPrewriteBlockedItem({...item,plan:{fingerprint:'x'}},freshCandidate,true),false);

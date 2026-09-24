@@ -5,7 +5,7 @@ import { strToU8, zipSync } from "fflate";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VERSION = "0.5.2";
+const VERSION = "0.5.3";
 const ROOT = "shopling-a21-price-option-resend";
 const FILES = [
   "manifest.json",
@@ -20,6 +20,8 @@ const FILES = [
   "content-a21.js",
   "main-a21-v024.js",
   "content-a21-v024.js",
+  "monthly-status-main-v053.js",
+  "monthly-status-popup-v053.js",
   "popup-run.html",
   "popup-run.js",
   "README.txt",
@@ -59,6 +61,9 @@ export async function GET() {
       }
       const mainRuntime = manifest.content_scripts?.find((item) => item.js?.includes("main-a21-v024.js") && item.world === "MAIN");
       if (!mainRuntime) throw new Error("shopling_a21_resend_v044_native_submit_required");
+      if (!mainRuntime.js?.includes("monthly-status-main-v053.js")) throw new Error("shopling_a21_resend_monthly_status_main_missing");
+      const statusRuntime = manifest.content_scripts?.find((item) => item.js?.includes("content-a21-v024.js") && item.js?.includes("monthly-status-popup-v053.js"));
+      if (!statusRuntime) throw new Error("shopling_a21_resend_monthly_status_popup_missing");
       if (manifest.content_scripts?.some((item) => item.js?.some((name) => name.includes("result-watch")))) {
         throw new Error("shopling_a21_resend_v044_static_result_observer_forbidden");
       }
