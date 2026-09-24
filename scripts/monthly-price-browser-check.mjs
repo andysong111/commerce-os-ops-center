@@ -82,7 +82,7 @@ try{
   scenario='blocked';item=makeItem();started=false;events=[];await page.goto(url);await page.getByRole('button',{name:/예상 가격 확인/}).click();await page.waitForTimeout(100);assert.deepEqual(events,['start']);assert.equal((await page.evaluate(()=>window.bridgeEvents)).filter(x=>x.command==='START').length,0);
   await page.getByText('상품별 결과·제외 사유').click();await page.screenshot({path:path.join(out,'unknown-cost-protected.png'),fullPage:true});
   scenario='resume';item=makeItem();started=true;events=[];await page.goto(url);await page.getByRole('button',{name:/미완료 가격조정 이어가기/}).click();await page.getByText('전송 종료 · 마켓 확인 대기',{exact:true}).waitFor({state:'attached'});
-  assert.deepEqual(events,['resumePreflight','resendClaim','resendReport']);bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.find(x=>x.command==='START').payload.newClaim,false);
+  assert.deepEqual(events,['resumePreflight','resendReport']);bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.find(x=>x.command==='START').payload.newClaim,false);
   scenario='resume';item=makeItem();started=true;events=[];
   const queuedAfterMissing={...makeItem(),id:secondItemId,goodsKey:'1234568',state:'QUEUED',writeIndex:0,transmission:null,errorCode:null};
   extraItems=[queuedAfterMissing];
@@ -91,7 +91,7 @@ try{
   await page.getByText('자동 처리 종료 · 이전 전송기록 없음 1건은 재전송하지 않고 보류 · 나머지 상품 처리 완료',{exact:true}).waitFor({state:'attached'});
   assert.equal(item.state,'RESENDING');assert.equal(item.errorCode,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
   assert.equal(queuedAfterMissing.state,'TRANSMITTED');
-  assert.deepEqual(events,['resumePreflight','resendClaim','resendReport','prepare','write','write','verify','resendClaim','resendReport']);
+  assert.deepEqual(events,['resumePreflight','prepare','write','write','verify','resendClaim','resendReport','resendReport']);
   extraItems=[];
   scenario='legacyResume';item=makeItem();item.state='RESENDING';item.transmission={token,fingerprint};started=true;events=[];
   const queued={...makeItem(),id:secondItemId,goodsKey:'1234568',state:'QUEUED',writeIndex:0,transmission:null};
