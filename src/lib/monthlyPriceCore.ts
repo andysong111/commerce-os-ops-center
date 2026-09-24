@@ -26,7 +26,7 @@ export type MonthlyObservation = {
   pageUrl: string;
   observedAt: number;
   rows: MonthlyObservedPrice[];
-  marketRows: MonthlyLinkedMarketRow[];
+  marketRows?: MonthlyLinkedMarketRow[];
 };
 export type MonthlyCost = {
   barcode: string; unitCostKrw: number; quantity: number; draftId: string;
@@ -310,7 +310,7 @@ export function reviewMonthlyLinkedMarketPrices(plan: MonthlyPricePlan, observat
 
   for (const target of targets) {
     const mallKey = String(target.mallKey);
-    const rows = observation.marketRows.filter((row) => row.mallKey === mallKey);
+    const rows = (observation.marketRows ?? []).filter((row) => row.mallKey === mallKey);
     if (!rows.length) {
       unresolvedMallKeys.push(mallKey);
       continue;
