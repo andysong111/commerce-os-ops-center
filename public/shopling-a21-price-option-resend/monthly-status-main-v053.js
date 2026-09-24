@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.5.3";
+  const VERSION = "0.5.4";
   const REQUEST_EVENT = "commerce-os-monthly-status-main-submit-request";
   const RESPONSE_EVENT = "commerce-os-monthly-status-main-submit-response";
   const STATUS_MODES = new Set(["STATUS_SELLING", "STATUS_SOLD_OUT"]);
