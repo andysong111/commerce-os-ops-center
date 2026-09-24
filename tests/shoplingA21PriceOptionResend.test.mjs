@@ -73,6 +73,7 @@ test("A21 v0.4.4 preserves price-first serial queue from v0.4.1", () => {
 
 test("monthly v0.5.4 batches up to 200 GOODSKEY and parallelizes only within the current phase", () => {
   assert.match(monthlyBackground, /MAX_MONTHLY_PARALLEL = 4/);
+  assert.match(backgroundBase, /MAX_SEARCH_CODES = 200/);
   assert.match(monthlyBackground, /buildBatches\(items\)/);
   assert.match(monthlyBackground, /monthlyModes: \["PRICE", "OPTION"\]/);
   assert.match(monthlyBackground, /phaseJobs\(state, "PRICE"\)/);
@@ -138,6 +139,12 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
   assert.match(downloadRoute, /monthly-status-main-v053\.js/);
   assert.match(downloadRoute, /monthly-status-popup-v053\.js/);
+});
+
+test("page bridge exposes batch start and batch status commands", async () => {
+  const bridge = await readFile(new URL("monthly-price-page-bridge.js", root), "utf8");
+  assert.match(bridge, /BATCH_START/);
+  assert.match(bridge, /BATCH_STATUS/);
 });
 
 test("A21 v0.4.4 keeps base worker serial safety", () => {
