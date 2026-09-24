@@ -154,7 +154,24 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       const report = monthlyRecord(payload.report);
       if (item.state === "TRANSMITTED") return response(item);
       if (item.state !== "RESENDING" || !item.plan || !item.transmission || report.token !== item.transmission.token || report.fingerprint !== item.transmission.fingerprint || report.goodsKey !== item.goods_key) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
-      if (
+      if (report.relistRequired === true || report.state === "RELIST_REQUIRED") {
+        if (item.plan.saleStatusTransition && report.saleStatusRolledBack === true) {
+          const restored = await ensureMonthlyShoplingSaleStatus(item.goods_key, item.plan.saleStatusTransition.before);
+          await auditMonthlyPrice(item, "SALE_STATUS_FAILURE_ROLLBACK", {
+            before: restored.before,
+            after: restored.after,
+            changed: restored.changed,
+          });
+        }
+        item.error_code = "MONTHLY_PRICE_RELIST_REQUIRED";
+        await auditMonthlyPrice(item, "MARKET_RELIST_REQUIRED", {
+          token: item.transmission.token,
+          priceOutcome: String(report.priceOutcome ?? ""),
+          optionOutcome: String(report.optionOutcome ?? ""),
+          saleStatusRolledBack: report.saleStatusRolledBack === true,
+          reason: "A21_THREE_STAGE_RETRY_EXHAUSTED",
+        });
+      } else if (
         report.state === "SUCCEEDED" &&
         report.priceAndOption === true &&
         (!item.plan.saleStatusTransition || report.saleStatusActivated === true) &&
