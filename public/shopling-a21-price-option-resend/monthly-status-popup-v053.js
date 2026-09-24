@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.5.3";
+  const VERSION = "0.5.4";
   const TARGET_PATH = "/prodlinkage/goods_mallMdfy_trsmt.phtml";
   const REQUEST_EVENT = "commerce-os-monthly-status-main-submit-request";
   const RESPONSE_EVENT = "commerce-os-monthly-status-main-submit-response";

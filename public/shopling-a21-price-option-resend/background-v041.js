@@ -325,7 +325,8 @@ importScripts("background-v020.js");
 
         if (stableMs >= STABLE_MS) {
           const resultTabId = job.resultTabId;
-          await detachAll();
+          if (job.monthlyParallelBatch && Number.isInteger(resultTabId)) await detach(resultTabId);
+          else await detachAll();
           await completeJob(
             job.id,
             `${job.mode === "PRICE" ? "판매가" : "옵션"} 수정전송 완료 · Chrome CDP로 실제 Shopling 결과문서 로딩 종료 확인 · 마켓별 결과 검증 없음 v${VERSION}`,
@@ -340,7 +341,8 @@ importScripts("background-v020.js");
       const state = await loadState();
       const job = state?.jobs?.find((item) => item.id === jobId);
       if (state && job && job.status === "RUNNING") {
-        await detachAll();
+        if (job.monthlyParallelBatch && Number.isInteger(job.resultTabId)) await detach(job.resultTabId);
+        else await detachAll();
         await failJob(job.id, "V041_CDP_RESULT_TIMEOUT", "Chrome CDP로 실제 Shopling 결과문서의 완료 상태를 30분 동안 확인하지 못했습니다.");
       }
     } finally {
@@ -350,8 +352,8 @@ importScripts("background-v020.js");
 
   globalThis.commerceOsWakeA21MonthlyResult = async () => {
     const state = await loadState();
-    const running = state?.jobs?.find((job) => job.monthlyScope && job.status === "RUNNING" && String(job.stage) === "RESULT_WAIT");
-    if (running) void watchResult(running.id);
+    const running = state?.jobs?.filter((job) => job.monthlyScope && job.status === "RUNNING" && String(job.stage) === "RESULT_WAIT") || [];
+    for (const job of running) void watchResult(job.id);
   };
 
   chrome.runtime.onMessage.addListener((message) => {
@@ -361,8 +363,8 @@ importScripts("background-v020.js");
     if (message?.type === "A21_GET_STATE") {
       setTimeout(async () => {
         const state = await loadState();
-        const running = state?.jobs?.find((job) => job.status === "RUNNING" && String(job.stage || "") === "RESULT_WAIT");
-        if (running) void watchResult(running.id);
+        const running = state?.jobs?.filter((job) => job.status === "RUNNING" && String(job.stage || "") === "RESULT_WAIT") || [];
+        for (const job of running) void watchResult(job.id);
       }, 0);
     }
     if (message?.type === "A21_STOP") setTimeout(() => void detachAll(), 0);

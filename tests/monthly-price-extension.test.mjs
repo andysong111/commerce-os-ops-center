@@ -110,3 +110,94 @@ test('monthly result watcher refuses unrelated Shopling tabs and has refresh wak
 test('DOM parser does not guess price columns by arbitrary position',()=>{
   const source=file('monthly-price-dom.js');assert.match(source,/input_name/);assert.match(source,/header/);assert.doesNotMatch(source,/source: ["']position/);
 });
+
+
+function batchToken(index) {
+  const tail=String(index+1).padStart(12,'0');
+  return `44444444-4444-4444-8444-${tail}`;
+}
+function batchItemId(index) {
+  const tail=String(index+1).padStart(12,'0');
+  return `22222222-2222-4222-8222-${tail}`;
+}
+function batchWorker(count=450,{soldOutIndexes=[],restoreIndexes=[]}={}) {
+  const listeners=[],log=[],storage={}; let current=null;
+  const run='11111111-1111-4111-8111-111111111111';
+  const entries=Array.from({length:count},(_,index)=>({
+    itemId:batchItemId(index),token:batchToken(index),fingerprint:'a'.repeat(64),newClaim:true,
+  }));
+  const serverItems=entries.map((entry,index)=>({
+    id:entry.itemId,goodsKey:String(1000000+index),state:'RESENDING',
+    transmission:{token:entry.token},
+    plan:{fingerprint:entry.fingerprint,saleStatusTransition:soldOutIndexes.includes(index)?{before:'C',target:'B',restoreAfterTransmission:restoreIndexes.includes(index)}:null},
+  }));
+  const context={
+    console,URL,Error,setTimeout,clearTimeout,
+    chrome:{
+      storage:{local:{get:async key=>({[key]:storage[key]}),set:async value=>Object.assign(storage,value)},onChanged:{addListener:()=>{}}},
+      runtime:{onMessage:{addListener:f=>listeners.push(f)}},
+      tabs:{query:async()=>[]},
+    },
+    loadState:async()=>current,
+    saveState:async s=>{current=s;s.updatedAt=Date.now();return s;},
+    baselinePopupTabs:async()=>[],
+    buildBatches:rows=>{
+      const batches=[];for(let i=0;i<rows.length;i+=200)batches.push({id:`b${batches.length+1}`,index:batches.length+1,goodsKeys:rows.slice(i,i+200).map(r=>String(r.goodsKey))});
+      return batches;
+    },
+    addJobs:(s,b)=>{for(const mode of ['PRICE','OPTION'])s.jobs.push({id:`${mode}-${b.id}`,batchId:b.id,batchIndex:b.index,mode,goodsKeys:[...b.goodsKeys],status:'QUEUED',stage:'OPENING'});},
+    pump:async()=>{},
+    launchJob:async(s,j)=>{log.push(`launch:${j.mode}:${j.goodsKeys.length}`);j.status='RUNNING';j.stage='A21_BOOTSTRAP';await context.saveState(s);},
+    fetch:async()=>({ok:true,json:async()=>({ok:true,run:{id:run},items:serverItems})}),
+    globalThis:null,
+  };
+  context.globalThis=context;
+  vm.createContext(context);vm.runInContext(file('background-monthly-batch-v054.js'),context);
+  const sender={frameId:0,url:'https://commerce-os-ops-center.vercel.app/china-order-manager?month=2026-09'};
+  const payload={month:'2026-09',runId:run,batchId:'55555555-5555-4555-8555-555555555555',entries};
+  const send=(type,p=payload)=>new Promise(resolve=>listeners[0]({type,payload:p},sender,resolve));
+  return {send,payload,entries,serverItems,log,context,get current(){return current;},set current(v){current=v;}};
+}
+
+test('monthly batch engine chunks GOODSKEYs at 200 and opens same-phase windows in parallel',async()=>{
+  const w=batchWorker(450);
+  const started=await w.send('MONTHLY_PRICE_START_BATCH');
+  assert.equal(started.ok,true);
+  const prices=w.current.jobs.filter(j=>j.mode==='PRICE');
+  const options=w.current.jobs.filter(j=>j.mode==='OPTION');
+  assert.deepEqual(Array.from(prices,j=>j.goodsKeys.length),[200,200,50]);
+  assert.deepEqual(Array.from(options,j=>j.goodsKeys.length),[200,200,50]);
+  assert.equal(prices.filter(j=>j.status==='RUNNING').length,3);
+  assert.equal(options.filter(j=>j.status==='RUNNING').length,0);
+  assert.deepEqual(w.log,['launch:PRICE:200','launch:PRICE:200','launch:PRICE:50']);
+});
+
+test('monthly batch engine caps parallel Shopling windows at four and never starts OPTION until every PRICE batch succeeds',async()=>{
+  const w=batchWorker(1000);
+  await w.send('MONTHLY_PRICE_START_BATCH');
+  const prices=w.current.jobs.filter(j=>j.mode==='PRICE');
+  const options=w.current.jobs.filter(j=>j.mode==='OPTION');
+  assert.equal(prices.filter(j=>j.status==='RUNNING').length,4);
+  assert.equal(prices.filter(j=>j.status==='QUEUED').length,1);
+  assert.equal(options.filter(j=>j.status==='RUNNING').length,0);
+  prices[0].status='SUCCEEDED';await w.context.pump();
+  assert.equal(prices.filter(j=>j.status==='RUNNING').length,4);
+  assert.equal(options.filter(j=>j.status==='RUNNING').length,0);
+  for(const job of prices)job.status='SUCCEEDED';
+  await w.context.pump();
+  assert.equal(options.filter(j=>j.status==='RUNNING').length,4);
+});
+
+test('sold-out status phase completes before PRICE and failed PRICE prevents OPTION while activating rollback',async()=>{
+  const w=batchWorker(2,{soldOutIndexes:[0,1]});
+  await w.send('MONTHLY_PRICE_START_BATCH');
+  const selling=w.current.jobs.filter(j=>j.mode==='STATUS_SELLING');
+  const prices=w.current.jobs.filter(j=>j.mode==='PRICE');
+  const options=w.current.jobs.filter(j=>j.mode==='OPTION');
+  const rollback=w.current.jobs.filter(j=>j.mode==='STATUS_SOLD_OUT');
+  assert.equal(selling[0].status,'RUNNING');assert.equal(prices[0].status,'QUEUED');assert.equal(options[0].status,'QUEUED');
+  selling[0].status='SUCCEEDED';await w.context.pump();assert.equal(prices[0].status,'RUNNING');
+  prices[0].status='FAILED';await w.context.pump();
+  assert.equal(options[0].status,'STOPPED');
+  assert.equal(rollback[0].status,'RUNNING');
+});

@@ -43,10 +43,16 @@ await page.addInitScript(()=>{
     const m=e.data;if(m?.channel!=='commerce-os-monthly-price-v1'||m.direction!=='request')return;
     window.bridgeEvents.push({command:m.command,payload:m.payload});
     if(m.command==='START'&&window.bridgeHistoryMissingItemId&&m.payload?.itemId===window.bridgeHistoryMissingItemId){
-      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:'0.5.3',error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:'0.5.4',error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
       return;
     }
-    const response={ok:true,version:'0.5.3',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true}};
+    if(m.command==='START_BATCH'||m.command==='STATUS_BATCH'){
+      const entries=Array.isArray(m.payload?.entries)?m.payload.entries:[];
+      const response={ok:true,version:'0.5.4',report:{batchId:m.payload?.batchId||'batch-fixture',state:'SUCCEEDED',phase:null,maxGoodsKeysPerWindow:200,maxParallelWindows:4,items:entries.map((entry,index)=>({itemId:entry.itemId,token:entry.token,fingerprint:entry.fingerprint,goodsKey:String(1234567+index),state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true,saleStatusRolledBack:false,updatedAt:Date.now()}))}};
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response},location.origin);
+      return;
+    }
+    const response={ok:true,version:'0.5.4',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true}};
     window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response},location.origin);
   });
 });
@@ -66,7 +72,7 @@ try{
   await page.getByRole('button',{name:/이대로 가격조정 실행/}).click();
   await page.getByText('전송 종료 · 마켓 확인 대기',{exact:true}).waitFor({state:'attached'});
   assert.deepEqual(events,['start','prepare','write','write','verify','resendClaim','resendReport']);
-  bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.filter(x=>x.command==='START').length,1);assert.equal(bridge.find(x=>x.command==='START').payload.runId,runId);assert.equal(bridge.find(x=>x.command==='START').payload.newClaim,true);
+  bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.filter(x=>x.command==='START_BATCH').length,1);const batchStart=bridge.find(x=>x.command==='START_BATCH');assert.equal(batchStart.payload.runId,runId);assert.equal(batchStart.payload.entries.length,1);assert.equal(batchStart.payload.entries[0].newClaim,true);
   await page.getByText('상품별 결과·제외 사유').click();await page.screenshot({path:path.join(out,'preview-confirm-happy-path.png'),fullPage:true});
   assert.equal(await page.getByRole('button',{name:'예상 변경안 계산 완료'}).isDisabled(),true);
   scenario='blocked';item=makeItem();started=false;events=[];await page.goto(url);await page.getByRole('button',{name:/예상 가격 확인/}).click();await page.waitForTimeout(100);assert.deepEqual(events,['start']);assert.equal((await page.evaluate(()=>window.bridgeEvents)).filter(x=>x.command==='START').length,0);

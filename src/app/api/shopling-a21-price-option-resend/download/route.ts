@@ -5,11 +5,12 @@ import { strToU8, zipSync } from "fflate";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VERSION = "0.5.3";
+const VERSION = "0.5.4";
 const ROOT = "shopling-a21-price-option-resend";
 const FILES = [
   "manifest.json",
   "background-monthly-price.js",
+  "background-monthly-batch-v054.js",
   "monthly-price-dom.js",
   "monthly-price-page-bridge.js",
   "background-v020.js",
