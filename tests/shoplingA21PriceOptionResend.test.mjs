@@ -22,7 +22,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statu
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.3");
+  assert.equal(manifest.version, "0.5.4");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -71,12 +71,27 @@ test("A21 v0.4.4 preserves price-first serial queue from v0.4.1", () => {
   assert.match(backgroundV041, /state\.jobs\.some\(\(job\) => job\.status === "RUNNING"\)/);
 });
 
+test("monthly v0.5.4 batches up to 200 GOODSKEY and parallelizes only within the current phase", () => {
+  assert.match(monthlyBackground, /MAX_MONTHLY_PARALLEL = 4/);
+  assert.match(backgroundBase, /MAX_SEARCH_CODES = 200/);
+  assert.match(monthlyBackground, /buildBatches\(items\)/);
+  assert.match(monthlyBackground, /monthlyModes: \["PRICE", "OPTION"\]/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "PRICE"\)/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "OPTION"\)/);
+  assert.match(monthlyBackground, /MAX_MONTHLY_PARALLEL - activeMonthlyJobs/);
+  assert.match(monthlyBackground, /MONTHLY_PRICE_BATCH_START/);
+  assert.match(monthlyBackground, /MONTHLY_PRICE_BATCH_STATUS/);
+});
+
 test("monthly A21 sequence is status-selling -> PRICE -> OPTION -> optional status-restore", () => {
   assert.match(monthlyBackground, /STATUS_SELLING/);
   assert.match(monthlyBackground, /STATUS_SOLD_OUT/);
-  assert.match(monthlyBackground, /mode === "STATUS_SELLING" \? 0 : mode === "PRICE" \? 1 : mode === "OPTION" \? 2/);
-  assert.match(monthlyBackground, /BLOCKED_BY_PRIOR_STAGE/);
-  assert.match(monthlyBackground, /prior\.status === "SUCCEEDED"/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "STATUS_SELLING"\)/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "PRICE"\)/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "OPTION"\)/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "STATUS_SOLD_OUT"/);
+  assert.match(monthlyBackground, /BLOCKED_BY_PRIOR_PHASE/);
+  assert.match(monthlyBackground, /phase\.every\(\(job\) => job\.status === "SUCCEEDED"\)/);
   assert.match(monthlyBackground, /saleStatusActivated/);
   assert.match(monthlyBackground, /saleStatusRestored/);
 });
@@ -121,12 +136,18 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.3"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.4"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
   assert.match(downloadRoute, /monthly-status-main-v053\.js/);
   assert.match(downloadRoute, /monthly-status-popup-v053\.js/);
+});
+
+test("page bridge exposes batch start and batch status commands", async () => {
+  const bridge = await readFile(new URL("monthly-price-page-bridge.js", root), "utf8");
+  assert.match(bridge, /BATCH_START/);
+  assert.match(bridge, /BATCH_STATUS/);
 });
 
 test("A21 v0.4.4 keeps base worker serial safety", () => {
