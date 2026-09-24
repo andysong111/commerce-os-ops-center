@@ -122,6 +122,13 @@ test("A21 v0.4.4 preserves delivery and form safety before submit", () => {
   assert.match(mainSubmitBridge, /window\.goods_mallMdfy_submit_sp\(\)/);
 });
 
+test("monthly result pages defer generic aggregate success/failure to the per-GOODSKEY CDP controller", async () => {
+  const listContent = await readFile(new URL("content-a21.js", root), "utf8");
+  assert.match(listContent, /\^monthly-/);
+  assert.match(listContent, /background CDP verifier/);
+  assert.match(listContent, /return;/);
+});
+
 test("monthly v0.5.6 captures Shopling result counts and rows before closing the result window", () => {
   assert.doesNotMatch(backgroundV044, /finalSendBaseline|최종전송일/);
   assert.match(backgroundV044, /successCount/);
