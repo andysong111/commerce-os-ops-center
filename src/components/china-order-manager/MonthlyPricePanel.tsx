@@ -349,7 +349,6 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       const batchId = crypto.randomUUID();
       const retryItems: Item[] = [];
       let matched = 0;
-      let uncertain = 0;
 
       for (let index = 0; active() && index < targets.length; index += 1) {
         const initial = targets[index];
@@ -367,7 +366,6 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         if (generation.current === current) update(next);
         if (next.state === "TRANSMITTED") matched += 1;
         else if (result.item?.requeued === true && next.transmission?.batchId === batchId) retryItems.push(next);
-        else uncertain += 1;
       }
 
       if (active() && retryItems.length) {
