@@ -178,6 +178,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       monthlyFailedGoodsKeys: [],
       monthlyOutcomeEvidence: null,
       monthlyFailureRollback: extra.monthlyFailureRollback === true,
+      monthlyTargetedRollback: extra.monthlyTargetedRollback === true,
       monthlyNormalRestore: extra.monthlyNormalRestore === true,
     };
   }
@@ -247,6 +248,32 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       }
     }
   }
+  function scheduleTargetedRollback(state, badGoods) {
+    if (!badGoods.size || !Array.isArray(state.monthlyItems)) return;
+    const soldOut = new Set(state.monthlyItems.filter((item) => item.needsSellingStatus).map((item) => item.goodsKey));
+    const scheduled = new Set(state.monthlyRollbackScheduledKeys || []);
+    const keys = [...badGoods].filter((key) => soldOut.has(key) && !scheduled.has(key));
+    if (!keys.length) return;
+    for (let i = 0; i < keys.length; i += 200) {
+      const part = keys.slice(i, i + 200);
+      const batch = {
+        id: "targeted-rollback-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+        index: state.batches.length + 1,
+        goodsKeys: part,
+        monthlyModes: ["STATUS_SOLD_OUT"],
+      };
+      state.batches.push(batch);
+      state.jobs.push(monthlyJob(state, batch, "STATUS_SOLD_OUT", {
+        status: "QUEUED",
+        stage: "FAILURE_ROLLBACK_PENDING",
+        message: "PRICE/OPTION 최종 실패 상품만 원래 품절상태로 복구",
+        monthlyFailureRollback: true,
+        monthlyTargetedRollback: true,
+      }));
+      for (const key of part) scheduled.add(key);
+    }
+    state.monthlyRollbackScheduledKeys = [...scheduled];
+  }
   async function launchQueued(state, jobs) {
     let slots = Math.max(0, MAX_MONTHLY_PARALLEL - activeMonthlyJobs(state).filter((job) => job.status === "RUNNING").length);
     for (const job of jobs.filter((row) => row.status === "QUEUED")) {
@@ -303,7 +330,24 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     for (const phase of phases) {
       const mode = phase[0]?.mode;
       if (phase.every((job) => terminalPhaseStatus(job.status))) {
-        if (mode === "PRICE") pruneOptionJobsAfterPrice(state);
+        if (mode === "PRICE") {
+          const bad = badGoodsForMode(state, "PRICE");
+          pruneOptionJobsAfterPrice(state);
+          scheduleTargetedRollback(state, bad);
+        }
+        if (mode === "OPTION") scheduleTargetedRollback(state, badGoodsForMode(state, "OPTION"));
+        const targetedRollback = phaseJobs(state, "STATUS_SOLD_OUT", (job) => job.monthlyFailureRollback === true && job.monthlyTargetedRollback === true);
+        if (targetedRollback.some((job) => ["FAILED", "STOPPED"].includes(job.status))) {
+          state.state = "PARTIAL_FAILURE";
+          await saveState(state);
+          await remember(state);
+          return;
+        }
+        if (targetedRollback.some((job) => ["QUEUED", "RUNNING"].includes(job.status))) {
+          await saveState(state);
+          await launchQueued(state, targetedRollback);
+          return;
+        }
         continue;
       }
       await launchQueued(state, phase);
