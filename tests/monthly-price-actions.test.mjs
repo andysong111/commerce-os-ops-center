@@ -43,6 +43,17 @@ test('actual production action happy path: prepare -> durable price+option inten
   assert.equal(h.item.state,'TRANSMITTED');assert.equal(h.item.transmission.result,'RESULT_WINDOW_FINISHED_MARKET_CONFIRMATION_PENDING');
   assert.equal(h.log.filter(x=>x==='write').length,2);
 });
+test('resend claim persists a validated batch id for refresh-safe grouped transmission',async()=>{
+  const h=harness();await h.call('prepare');while(h.item.state==='PREPARED')await h.call('write');await h.call('verify');
+  const batchId='55555555-5555-4555-8555-555555555555';
+  const claimed=await h.call('resendClaim',{batchId});
+  assert.equal(claimed.duplicate,false);
+  assert.equal(h.item.transmission.batchId,batchId);
+  const duplicate=await h.call('resendClaim',{batchId:'66666666-6666-4666-8666-666666666666'});
+  assert.equal(duplicate.duplicate,true);
+  assert.equal(h.item.transmission.batchId,batchId);
+});
+
 test('sold-out item switches Shopling master to selling before any price write',async()=>{
   const h=harness();h.state.raw=h.state.raw.map(row=>({...row,sale_status:'C'}));
   await h.call('prepare');
