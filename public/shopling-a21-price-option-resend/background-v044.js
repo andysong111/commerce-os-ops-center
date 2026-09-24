@@ -113,12 +113,22 @@ importScripts("background-v041.js");
       const priceFooter = /상품\\s*수정\\s*전송이\\s*완료되었습니다/i.test(text) || /상품\\s*수정\\s*전송\\s*완료/i.test(text);
       const optionFooter = /상품\\s*옵션\\s*수정\\s*전송이\\s*완료되었습니다/i.test(text) || /상품\\s*옵션\\s*수정\\s*전송\\s*완료/i.test(text);
       const resultHeading = /쇼핑몰\\s*상품(?:\\s*옵션)?\\s*수정\\s*전송\\s*결과/i.test(text) || /상품(?:\\s*옵션)?\\s*수정\\s*전송\\s*결과/i.test(text);
+      const successMatches = [...text.matchAll(/성공건수\\s*[:：]?\\s*([\\d,]+)/gi)].map((m) => Number(String(m[1] || '0').replace(/,/g, '')));
+      const failureMatches = [...text.matchAll(/실패건수\\s*[:：]?\\s*([\\d,]+)/gi)].map((m) => Number(String(m[1] || '0').replace(/,/g, '')));
+      const resultRows = [...document.querySelectorAll('tr')]
+        .map((row) => norm(row.innerText || row.textContent || ''))
+        .filter((row) => /성공|실패|오류|에러/i.test(row))
+        .slice(0, 1200);
       return {
         ok: true,
         processing,
         priceFooter,
         optionFooter,
         resultHeading,
+        successCount: successMatches.length ? Math.max(...successMatches) : null,
+        failureCount: failureMatches.length ? Math.max(...failureMatches) : null,
+        outcomeSummaryFound: successMatches.length > 0 || failureMatches.length > 0,
+        resultRows,
         readyState: String(document.readyState || ''),
         href: String(location.href || ''),
         title: String(document.title || ''),
@@ -235,6 +245,9 @@ importScripts("background-v041.js");
       });
       const documentComplete = matchingContextReady || (expectedInAx && topReady);
       const resultHeading = contexts.some((row) => row.resultHeading) || /쇼핑몰\s*상품(?:\s*옵션)?\s*수정\s*전송\s*결과|상품(?:\s*옵션)?\s*수정\s*전송\s*결과/i.test(axText);
+      const successCounts = contexts.map((row) => row.successCount).filter((value) => Number.isFinite(value));
+      const failureCounts = contexts.map((row) => row.failureCount).filter((value) => Number.isFinite(value));
+      const resultRows = [...new Set(contexts.flatMap((row) => Array.isArray(row.resultRows) ? row.resultRows : []))].slice(0, 1200);
       const info = {
         tabId: tab.id,
         processing,
@@ -243,6 +256,10 @@ importScripts("background-v041.js");
         expectedInAx,
         documentComplete,
         resultHeading,
+        successCount: successCounts.length ? Math.max(...successCounts) : null,
+        failureCount: failureCounts.length ? Math.max(...failureCounts) : null,
+        outcomeSummaryFound: contexts.some((row) => row.outcomeSummaryFound === true),
+        resultRows,
         contextCount: contexts.length,
         diagnostic: `tab ${tab.id} ctx ${contexts.length} footer ${expectedInRuntime ? "runtime" : expectedInAx ? "ax" : "none"}`,
       };
@@ -260,6 +277,10 @@ importScripts("background-v041.js");
       expectedInAx: false,
       documentComplete: false,
       resultHeading: false,
+      successCount: null,
+      failureCount: null,
+      outcomeSummaryFound: false,
+      resultRows: [],
       contextCount: 0,
       diagnostic: diagnostics.slice(0, 5).join(" | ") || "result target not found",
     };
@@ -325,6 +346,16 @@ importScripts("background-v041.js");
 
       if (stableMs >= STABLE_MS) {
         await detachAllV044();
+        if (job.monthlyScope && typeof globalThis.commerceOsMonthlyHandleDefinitiveResult === "function") {
+          const handled = await globalThis.commerceOsMonthlyHandleDefinitiveResult(jobId, {
+            successCount: probe.successCount,
+            failureCount: probe.failureCount,
+            outcomeSummaryFound: probe.outcomeSummaryFound === true,
+            resultRows: probe.resultRows || [],
+            evidenceSource: source,
+          });
+          if (handled) return;
+        }
         return baseCompleteJobV041(
           jobId,
           `${job.mode === "PRICE" ? "판매가" : "옵션"} 수정전송 완료 · Shopling 작업별 최종 footer를 모든 frame/Accessibility에서 확인 후 다음 큐 진행 v${VERSION}`,
