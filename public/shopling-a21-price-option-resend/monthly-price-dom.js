@@ -9,7 +9,7 @@ function collectMonthlyPricePage(goodsKey) {
     SMALL_00005: ["GS SHOP", "GS샵"], SMALL_00012: ["쿠팡"], SMALL_00014: ["카페24", "Cafe24"], SMALL_00019: ["신세계몰"],
     SMALL_00069: ["도매꾹"], SMALL_00071: ["도매창고"], SMALL_00101: ["카카오톡스토어"], SMALL_00107: ["오너클랜", "오늘클렌"],
     SMALL_00112: ["에이블리"], SMALL_00116: ["셀파"], SMALL_00130: ["롯데ON", "롯데온"], SMALL_00165: ["셀링콕"],
-    SMALL_00168: ["인터파크"], SMALL_00179: ["투비즈온"], SMALL_00180: ["도매아토즈"], SMALL_00188: ["셀러어스"],
+    SMALL_00168: ["인터파크"], SMALL_00179: ["투비즈온"], SMALL_00180: ["도매아토즈"], SMALL_00188: ["셀러어스", "셀리어스"],
     SMALL_00190: ["도매의신"], SMALL_00194: ["토스쇼핑"],
   };
   const text = (value) => String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
