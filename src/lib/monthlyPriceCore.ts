@@ -340,7 +340,7 @@ export function reviewMonthlyLinkedMarketPrices(plan: MonthlyPricePlan, observat
     unresolvedMallKeys.push(mallKey);
   }
 
-  const state = mismatchMallKeys.length ? "MISMATCH" : unresolvedMallKeys.length ? "UNCERTAIN" : "MATCHED";
+  const state = mismatchMallKeys.length ? "MISMATCH" : unresolvedMallKeys.length || targets.length === 0 ? "UNCERTAIN" : "MATCHED";
   return {
     state,
     expectedMallCount: targets.length,
