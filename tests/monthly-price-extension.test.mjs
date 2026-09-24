@@ -110,3 +110,52 @@ test('monthly result watcher refuses unrelated Shopling tabs and has refresh wak
 test('DOM parser does not guess price columns by arbitrary position',()=>{
   const source=file('monthly-price-dom.js');assert.match(source,/input_name/);assert.match(source,/header/);assert.doesNotMatch(source,/source: ["']position/);
 });
+
+
+function batchWorker(count=450) {
+  const storage={},log=[],listeners=[];
+  let current=null;
+  const batchId='55555555-5555-4555-8555-555555555555';
+  const makeUuid=(n)=>`aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12,'0')}`;
+  const items=Array.from({length:count},(_,i)=>{
+    const id=makeUuid(i+1),token=`bbbbbbbb-bbbb-4bbb-8bbb-${String(i+1).padStart(12,'0')}`,goodsKey=String(2000000+i);
+    return {id,goodsKey,state:'RESENDING',plan:{fingerprint:'c'.repeat(64),targets:[{mallKey:'SMALL_00069'}],optionChangeCount:1,saleStatusTransition:null},transmission:{token,batchId}};
+  });
+  const context={console,URL,Error,setTimeout,clearTimeout,importScripts:()=>{},
+    chrome:{storage:{local:{get:async key=>({[key]:storage[key]}),set:async value=>Object.assign(storage,value)},onChanged:{addListener:()=>{}}},runtime:{onMessage:{addListener:f=>listeners.push(f)}},tabs:{query:async()=>[]},scripting:{}},
+    loadState:async()=>current,saveState:async s=>{current=s;},publicState:s=>s,
+    buildBatches:rows=>{const out=[];for(let i=0;i<rows.length;i+=200)out.push({id:`batch-${i}`,index:out.length+1,goodsKeys:rows.slice(i,i+200).map(r=>String(r.goodsKey))});return out;},
+    addJobs:(s,b)=>s.jobs.push({id:`p-${b.id}`,batchId:b.id,batchIndex:b.index,mode:'PRICE',goodsKeys:b.goodsKeys,status:'QUEUED',stage:'OPENING'},{id:`o-${b.id}`,batchId:b.id,batchIndex:b.index,mode:'OPTION',goodsKeys:b.goodsKeys,status:'QUEUED',stage:'OPENING'}),
+    baselinePopupTabs:async()=>[],launchJob:async(_s,j)=>{log.push(`launch:${j.mode}:${j.goodsKeys.length}`);j.status='RUNNING';},pump:async()=>{},startRun:async()=>{},
+    splitBatch:async()=>{},failJob:async()=>{},closeManaged:async()=>{},
+    fetch:async()=>({ok:true,json:async()=>({ok:true,run:{id:runId},items})}),
+  };
+  vm.createContext(context);vm.runInContext(file('background-monthly-price.js'),context);
+  const payload={month:'2026-09',runId,batchId,newClaim:true,items:items.map(row=>({itemId:row.id,token:row.transmission.token,fingerprint:row.plan.fingerprint}))};
+  const sender={frameId:0,url:'https://commerce-os-ops-center.vercel.app/china-order-manager?month=2026-09'};
+  const send=(type,p=payload)=>new Promise(resolve=>listeners[0]({type,payload:p},sender,resolve));
+  return {send,payload,batchId,items,log,context,get current(){return current;}};
+}
+
+test('v0.5.4 batch mode chunks GOODSKEY by 200, opens same-phase windows in parallel, and gates OPTION until every PRICE batch succeeds',async()=>{
+  const w=batchWorker(450);
+  const started=await w.send('MONTHLY_PRICE_BATCH_START');
+  assert.equal(started.ok,true);
+  assert.equal(w.current.jobs.filter(x=>x.mode==='PRICE').length,3);
+  assert.equal(w.current.jobs.filter(x=>x.mode==='OPTION').length,3);
+  assert.deepEqual(w.current.jobs.filter(x=>x.mode==='PRICE').map(x=>x.goodsKeys.length),[200,200,50]);
+  assert.deepEqual(w.log,['launch:PRICE:200','launch:PRICE:200','launch:PRICE:50']);
+  assert.equal(w.current.jobs.some(x=>x.mode==='OPTION'&&x.status==='RUNNING'),false);
+  for(const job of w.current.jobs.filter(x=>x.mode==='PRICE'))job.status='SUCCEEDED';
+  await w.context.pump();
+  assert.deepEqual(w.log.slice(3),['launch:OPTION:200','launch:OPTION:200','launch:OPTION:50']);
+  assert.equal(w.current.jobs.filter(x=>x.mode==='OPTION'&&x.status==='RUNNING').length,3);
+});
+
+test('v0.5.4 batch mode caps concurrent Shopling windows at four for a phase',async()=>{
+  const w=batchWorker(1000);
+  await w.send('MONTHLY_PRICE_BATCH_START');
+  assert.equal(w.current.jobs.filter(x=>x.mode==='PRICE'&&x.status==='RUNNING').length,4);
+  assert.equal(w.current.jobs.filter(x=>x.mode==='PRICE'&&x.status==='QUEUED').length,1);
+  assert.equal(w.current.jobs.some(x=>x.mode==='OPTION'&&x.status==='RUNNING'),false);
+});
