@@ -90,8 +90,8 @@ test("monthly A21 sequence is status-selling -> PRICE -> OPTION -> optional stat
   assert.match(monthlyBackground, /phaseJobs\(state, "PRICE"\)/);
   assert.match(monthlyBackground, /phaseJobs\(state, "OPTION"\)/);
   assert.match(monthlyBackground, /phaseJobs\(state, "STATUS_SOLD_OUT"/);
-  assert.match(monthlyBackground, /BLOCKED_BY_PRIOR_STAGE/);
-  assert.match(monthlyBackground, /prior\.status === "SUCCEEDED"/);
+  assert.match(monthlyBackground, /BLOCKED_BY_PRIOR_PHASE/);
+  assert.match(monthlyBackground, /phase\.every\(\(job\) => job\.status === "SUCCEEDED"\)/);
   assert.match(monthlyBackground, /saleStatusActivated/);
   assert.match(monthlyBackground, /saleStatusRestored/);
 });
