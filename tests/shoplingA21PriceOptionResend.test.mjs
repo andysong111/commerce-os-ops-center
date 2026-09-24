@@ -22,7 +22,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statu
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.5");
+  assert.equal(manifest.version, "0.5.6");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -71,7 +71,7 @@ test("A21 v0.4.4 preserves price-first serial queue from v0.4.1", () => {
   assert.match(backgroundV041, /state\.jobs\.some\(\(job\) => job\.status === "RUNNING"\)/);
 });
 
-test("monthly v0.5.5 batches up to 200 GOODSKEY and parallelizes only within the current phase", () => {
+test("monthly v0.5.6 batches up to 200 GOODSKEY and parallelizes only within the current phase", () => {
   assert.match(monthlyBackground, /MAX_MONTHLY_PARALLEL = 4/);
   assert.match(backgroundBase, /MAX_SEARCH_CODES = 200/);
   assert.match(monthlyBackground, /buildBatches\(items\)/);
@@ -91,7 +91,7 @@ test("monthly A21 sequence is status-selling -> PRICE -> OPTION -> optional stat
   assert.match(monthlyBackground, /phaseJobs\(state, "OPTION"\)/);
   assert.match(monthlyBackground, /phaseJobs\(state, "STATUS_SOLD_OUT"/);
   assert.match(monthlyBackground, /BLOCKED_BY_PRIOR_PHASE/);
-  assert.match(monthlyBackground, /phase\.every\(\(job\) => job\.status === "SUCCEEDED"\)/);
+  assert.match(monthlyBackground, /terminalPhaseStatus/);
   assert.match(monthlyBackground, /saleStatusActivated/);
   assert.match(monthlyBackground, /saleStatusRestored/);
 });
@@ -122,9 +122,24 @@ test("A21 v0.4.4 preserves delivery and form safety before submit", () => {
   assert.match(mainSubmitBridge, /window\.goods_mallMdfy_submit_sp\(\)/);
 });
 
-test("A21 v0.4.4 does not gate progress on per-market success or A21 final-send date", () => {
+test("monthly result pages defer generic aggregate success/failure to the per-GOODSKEY CDP controller", async () => {
+  const listContent = await readFile(new URL("content-a21.js", root), "utf8");
+  assert.match(listContent, /\^monthly-/);
+  assert.match(listContent, /background CDP verifier/);
+  assert.match(listContent, /return;/);
+});
+
+test("monthly v0.5.6 captures Shopling result counts and rows before closing the result window", () => {
   assert.doesNotMatch(backgroundV044, /finalSendBaseline|최종전송일/);
-  assert.doesNotMatch(backgroundV044, /failure > 0|성공여부.*FAILED/);
+  assert.match(backgroundV044, /successCount/);
+  assert.match(backgroundV044, /failureCount/);
+  assert.match(backgroundV044, /resultRows/);
+  assert.match(backgroundV044, /commerceOsMonthlyHandleDefinitiveResult/);
+  assert.match(monthlyBackground, /MONTHLY_RETRY_GROUP_SIZE = 20/);
+  assert.match(monthlyBackground, /MONTHLY_MAX_ATTEMPTS = 3/);
+  assert.match(monthlyBackground, /ROW_EXPLICIT/);
+  assert.match(monthlyBackground, /FAILED_GROUP_FALLBACK/);
+  assert.match(monthlyBackground, /RELIST_REQUIRED/);
 });
 
 test("A21 resend plan still requires verified Shopling stored prices before transmission", () => {
@@ -136,7 +151,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.5"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.6"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
@@ -144,7 +159,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
   assert.match(downloadRoute, /monthly-status-popup-v053\.js/);
 });
 
-test("v0.5.5 self-heals invalidated Commerce OS page bridge contexts", async () => {
+test("v0.5.6 self-heals invalidated Commerce OS page bridge contexts", async () => {
   const bridge = await readFile(new URL("monthly-price-page-bridge.js", root), "utf8");
   assert.match(monthlyBackground, /repairMonthlyPageBridges/);
   assert.match(monthlyBackground, /injectMonthlyPageBridge/);

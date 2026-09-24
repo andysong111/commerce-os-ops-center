@@ -152,6 +152,16 @@ test('proven market failure rollback restores original sold-out Shopling master 
   assert.equal(h.log.includes('SALE_STATUS_FAILURE_ROLLBACK'),true);
 });
 
+test('third-stage A21 failure is terminal relist-required and is never marked transmitted',async()=>{
+  const h=harness();await h.call('prepare');await h.call('write');await h.call('write');await h.call('verify');await h.call('resendClaim');
+  const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'RELIST_REQUIRED',priceOnly:false,priceAndOption:false,relistRequired:true,priceOutcome:'RELIST_REQUIRED',optionOutcome:'MISSING',saleStatusActivated:true,saleStatusRestored:true,saleStatusRolledBack:false};
+  await h.call('resendReport',{report});
+  assert.equal(h.item.state,'RESENDING');
+  assert.equal(h.item.error_code,'MONTHLY_PRICE_RELIST_REQUIRED');
+  assert.equal(h.log.includes('MARKET_RELIST_REQUIRED'),true);
+  assert.equal(h.item.transmission.finishedAt,undefined);
+});
+
 test('wrong transmission token / goods key / missing option transmission cannot mark finished',async()=>{
   const h=harness();await h.call('prepare');await h.call('write');await h.call('write');await h.call('verify');await h.call('resendClaim');
   const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true};
