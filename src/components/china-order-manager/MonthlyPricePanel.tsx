@@ -236,6 +236,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
                 itemId: item.id,
                 token: item.transmission?.token,
                 fingerprint: item.transmission?.fingerprint,
+                goodsKey: item.goodsKey,
               })),
             }, 65000)
           : await monthlyPriceBridge("BATCH_STATUS", { batchId }, 10000);
