@@ -314,6 +314,103 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     await saveState(state);
     await remember(state);
   };
+  function rowContainsGoodsKey(row, goodsKey) {
+    const key = String(goodsKey);
+    return String(row || "").split(/\D+/).includes(key);
+  }
+  function rowOutcomeForGoods(goodsKey, rows) {
+    const matches = (rows || []).filter((row) => rowContainsGoodsKey(row, goodsKey));
+    if (!matches.length) return "UNKNOWN";
+    if (matches.some((row) => /실패|오류|에러/i.test(row))) return "FAILED";
+    if (matches.some((row) => /성공|정상/i.test(row))) return "SUCCEEDED";
+    return "UNKNOWN";
+  }
+  function retryChunkSize(attempt) {
+    return attempt <= 1 ? MONTHLY_RETRY_GROUP_SIZE : 1;
+  }
+  async function scheduleMonthlyResultRetry(state, job, retryKeys, evidenceSource) {
+    const attempt = Number(job.monthlyAttempt || 1);
+    await closeManaged(job);
+    if (attempt >= MONTHLY_MAX_ATTEMPTS) {
+      job.status = "RELIST_REQUIRED";
+      job.stage = "RELIST_REQUIRED";
+      job.error = "MONTHLY_A21_RETRY_EXHAUSTED";
+      job.message = job.mode + " 3단계 재전송까지 실패 · 삭제 후 재등록 필요";
+      job.monthlyFailedGoodsKeys = [...retryKeys];
+      await saveState(state);
+      await pump();
+      return;
+    }
+    job.status = "SUPERSEDED";
+    job.stage = "RETRY_SPLIT";
+    job.message = job.mode + " " + attempt + "단계 실패 · 실패 대상만 " + (attempt + 1) + "단계 재전송";
+    const size = retryChunkSize(attempt);
+    for (let i = 0; i < retryKeys.length; i += size) {
+      const keys = retryKeys.slice(i, i + size);
+      const batch = {
+        id: "retry-" + job.mode.toLowerCase() + "-" + (attempt + 1) + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+        index: state.batches.length + 1,
+        goodsKeys: keys,
+        monthlyModes: [job.mode],
+        monthlyAttempt: attempt + 1,
+        monthlyRetrySource: evidenceSource,
+      };
+      state.batches.push(batch);
+      addJobs(state, batch);
+    }
+    await saveState(state);
+    await pump();
+  }
+
+  globalThis.commerceOsMonthlyHandleDefinitiveResult = async (jobId, evidence = {}) => {
+    const state = await loadState();
+    const job = state?.jobs?.find((row) => row.id === jobId);
+    if (!state || !job?.monthlyScope || !["PRICE", "OPTION"].includes(job.mode) || job.status !== "RUNNING") return false;
+
+    const rows = Array.isArray(evidence.resultRows) ? evidence.resultRows : [];
+    const outcomes = new Map(job.goodsKeys.map((key) => [key, rowOutcomeForGoods(key, rows)]));
+    const fullCoverage = job.goodsKeys.every((key) => outcomes.get(key) !== "UNKNOWN");
+    const explicitFailed = job.goodsKeys.filter((key) => outcomes.get(key) === "FAILED");
+    const explicitSucceeded = job.goodsKeys.filter((key) => outcomes.get(key) === "SUCCEEDED");
+    const failureCount = Number.isFinite(evidence.failureCount) ? Number(evidence.failureCount) : null;
+    const summaryFound = evidence.outcomeSummaryFound === true;
+
+    job.monthlyOutcomeEvidence = {
+      attempt: Number(job.monthlyAttempt || 1),
+      failureCount,
+      successCount: Number.isFinite(evidence.successCount) ? Number(evidence.successCount) : null,
+      summaryFound,
+      fullCoverage,
+      evidenceSource: String(evidence.evidenceSource || ""),
+    };
+
+    if ((failureCount ?? 0) <= 0 && (summaryFound || fullCoverage)) {
+      job.monthlySucceededGoodsKeys = [...job.goodsKeys];
+      await saveState(state);
+      return false;
+    }
+
+    if ((failureCount ?? 0) > 0 || explicitFailed.length > 0) {
+      if (fullCoverage && explicitFailed.length > 0) {
+        job.monthlySucceededGoodsKeys = explicitSucceeded;
+        job.monthlyFailedGoodsKeys = explicitFailed;
+        await scheduleMonthlyResultRetry(state, job, explicitFailed, "ROW_EXPLICIT");
+      } else {
+        job.monthlyFailedGoodsKeys = [...job.goodsKeys];
+        await scheduleMonthlyResultRetry(state, job, [...job.goodsKeys], "FAILED_GROUP_FALLBACK");
+      }
+      return true;
+    }
+
+    await closeManaged(job);
+    job.status = "UNCERTAIN";
+    job.stage = "RESULT_UNCERTAIN";
+    job.error = "MONTHLY_A21_RESULT_UNCERTAIN";
+    job.message = job.mode + " 결과창 완료는 확인했지만 GOODSKEY별 성공/실패를 확정하지 못해 자동 재전송하지 않음";
+    await saveState(state);
+    await pump();
+    return true;
+  };
   const legacySplitBatch = splitBatch;
   splitBatch = async function monthlySplitBatch(jobId, totalResultCount) {
     const state = await loadState();
@@ -425,7 +522,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken || current?.monthlyBatchId) await remember(current);
       const state = {
-        version: "0.5.5",
+        version: "0.5.6",
         runId: `monthly-batch-${payload.batchId}`,
         monthlyBatchId: payload.batchId,
         monthlyItems: items,
@@ -444,7 +541,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
         updatedAt: Date.now(),
       };
       for (const batch of buildBatches(items)) {
-        const scoped = { ...batch, monthlyModes: ["PRICE", "OPTION"] };
+        const scoped = { ...batch, monthlyModes: ["PRICE", "OPTION"], monthlyAttempt: 1 };
         state.batches.push(scoped); addJobs(state, scoped);
       }
       const soldOut = items.filter((item) => item.needsSellingStatus);
@@ -486,7 +583,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.5", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.6", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
         monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
@@ -511,7 +608,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.5" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.6" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || "")) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });
