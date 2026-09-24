@@ -17,6 +17,7 @@ function worker() {
       {id:'option',mode:'OPTION',goodsKeys:b.goodsKeys,status:'QUEUED',stage:'OPENING'}
     ),
     baselinePopupTabs:async()=>[],launchJob:async(s,j)=>{log.push(`launch:${j.mode}`);j.status='RUNNING';},finalizeOrPump:async()=>{},pump:async()=>{log.push('legacy-pump');},startRun:async()=>{log.push('legacy');},
+    splitBatch:async()=>{},failJob:async()=>{},closeManaged:async()=>{},
     fetch:async url=>{log.push(url);return {ok:true,json:async()=>({ok:true,run:{id:runId},items:[item]})};},
   };
   vm.createContext(context);vm.runInContext(file('background-monthly-price.js'),context);
@@ -143,7 +144,7 @@ test('v0.5.4 batch mode chunks GOODSKEY by 200, opens same-phase windows in para
   assert.equal(started.ok,true);
   assert.equal(w.current.jobs.filter(x=>x.mode==='PRICE').length,3);
   assert.equal(w.current.jobs.filter(x=>x.mode==='OPTION').length,3);
-  assert.deepEqual(w.current.jobs.filter(x=>x.mode==='PRICE').map(x=>x.goodsKeys.length),[200,200,50]);
+  assert.deepEqual(Array.from(w.current.jobs.filter(x=>x.mode==='PRICE'),x=>x.goodsKeys.length),[200,200,50]);
   assert.deepEqual(w.log,['launch:PRICE:200','launch:PRICE:200','launch:PRICE:50']);
   assert.equal(w.current.jobs.some(x=>x.mode==='OPTION'&&x.status==='RUNNING'),false);
   for(const job of w.current.jobs.filter(x=>x.mode==='PRICE'))job.status='SUCCEEDED';
