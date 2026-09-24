@@ -101,6 +101,13 @@ test("monthly batch engine uses 200-key batches, four parallel windows, and a ha
   assert.match(monthlyBatch, /await launchPhase\(state, "OPTION"\)/);
 });
 
+test("oversized batch split preserves monthly phase and rollback metadata", () => {
+  assert.match(backgroundBase, /monthlyModes/);
+  assert.match(backgroundBase, /monthlyFailureRollback/);
+  assert.match(monthlyBatch, /failureActive/);
+  assert.match(monthlyBatch, /dormantRollback/);
+});
+
 test("monthly status overlays verify exact sale-status mode without mutating shared price core", () => {
   for (const source of [statusPopup, statusMain]) {
     assert.match(source, /STATUS_SELLING/);
