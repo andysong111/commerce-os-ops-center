@@ -91,7 +91,7 @@ test("monthly A21 sequence is status-selling -> PRICE -> OPTION -> optional stat
   assert.match(monthlyBackground, /phaseJobs\(state, "OPTION"\)/);
   assert.match(monthlyBackground, /phaseJobs\(state, "STATUS_SOLD_OUT"/);
   assert.match(monthlyBackground, /BLOCKED_BY_PRIOR_PHASE/);
-  assert.match(monthlyBackground, /phase\.every\(\(job\) => job\.status === "SUCCEEDED"\)/);
+  assert.match(monthlyBackground, /terminalPhaseStatus/);
   assert.match(monthlyBackground, /saleStatusActivated/);
   assert.match(monthlyBackground, /saleStatusRestored/);
 });
@@ -122,9 +122,17 @@ test("A21 v0.4.4 preserves delivery and form safety before submit", () => {
   assert.match(mainSubmitBridge, /window\.goods_mallMdfy_submit_sp\(\)/);
 });
 
-test("A21 v0.4.4 does not gate progress on per-market success or A21 final-send date", () => {
+test("monthly v0.5.6 captures Shopling result counts and rows before closing the result window", () => {
   assert.doesNotMatch(backgroundV044, /finalSendBaseline|최종전송일/);
-  assert.doesNotMatch(backgroundV044, /failure > 0|성공여부.*FAILED/);
+  assert.match(backgroundV044, /successCount/);
+  assert.match(backgroundV044, /failureCount/);
+  assert.match(backgroundV044, /resultRows/);
+  assert.match(backgroundV044, /commerceOsMonthlyHandleDefinitiveResult/);
+  assert.match(monthlyBackground, /MONTHLY_RETRY_GROUP_SIZE = 20/);
+  assert.match(monthlyBackground, /MONTHLY_MAX_ATTEMPTS = 3/);
+  assert.match(monthlyBackground, /ROW_EXPLICIT/);
+  assert.match(monthlyBackground, /FAILED_GROUP_FALLBACK/);
+  assert.match(monthlyBackground, /RELIST_REQUIRED/);
 });
 
 test("A21 resend plan still requires verified Shopling stored prices before transmission", () => {
