@@ -448,7 +448,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         </div>
       </div>
     )}
-    <p className="mt-2 text-[11px] leading-4 text-slate-400">전송창 종료와 각 쇼핑몰의 최종 반영 확인은 다릅니다. 전송 종료 항목은 ‘마켓 확인 대기’로 남습니다. 창을 닫으면 자동 진행이 멈추며, 다시 클릭하면 저장된 단계부터 확인합니다.</p>
+    <p className="mt-2 text-[11px] leading-4 text-slate-400">마켓 수정전송은 GOODSKEY 최대 200개/창, 같은 단계 최대 4개 Shopling 창으로 병렬 처리합니다. 모든 판매가 전송이 끝난 뒤 옵션가격 전송을 시작합니다. 전송창 종료와 각 쇼핑몰의 최종 반영 확인은 다르며, 전송 종료 항목은 ‘마켓 확인 대기’로 남습니다.</p>
     {error && <div role="alert" className="mt-3 rounded-lg border border-amber-700 bg-amber-950 p-2 text-xs text-amber-100">{describe(error)}<code className="mt-1 block break-all text-[10px]">{error}</code></div>}
     <a href="/api/shopling-a21-price-option-resend/download" className="mt-3 inline-block text-xs text-cyan-200 underline">A21 확장프로그램 {MONTHLY_PRICE_EXTENSION_VERSION} 받기</a>
     {snapshot.run?.warnings?.length ? <details className="mt-2 text-xs text-amber-200"><summary>원가 근거 확인 필요 ({snapshot.run.warnings.length})</summary>{snapshot.run.warnings.map((warning) => <p className="mt-1 break-all" key={warning}>{warning}</p>)}</details> : null}
