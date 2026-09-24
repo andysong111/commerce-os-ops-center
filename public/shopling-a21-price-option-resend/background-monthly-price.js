@@ -417,18 +417,21 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     const explicitFailed = job.goodsKeys.filter((key) => outcomes.get(key) === "FAILED");
     const explicitSucceeded = job.goodsKeys.filter((key) => outcomes.get(key) === "SUCCEEDED");
     const failureCount = Number.isFinite(evidence.failureCount) ? Number(evidence.failureCount) : null;
+    const successCount = Number.isFinite(evidence.successCount) ? Number(evidence.successCount) : null;
     const summaryFound = evidence.outcomeSummaryFound === true;
+    const explicitSummarySuccess = failureCount === 0 && successCount !== null && successCount > 0;
+    const fullRowSuccess = fullCoverage && explicitFailed.length === 0 && explicitSucceeded.length === job.goodsKeys.length;
 
     job.monthlyOutcomeEvidence = {
       attempt: Number(job.monthlyAttempt || 1),
       failureCount,
-      successCount: Number.isFinite(evidence.successCount) ? Number(evidence.successCount) : null,
+      successCount,
       summaryFound,
       fullCoverage,
       evidenceSource: String(evidence.evidenceSource || ""),
     };
 
-    if ((failureCount ?? 0) <= 0 && (summaryFound || fullCoverage)) {
+    if (explicitSummarySuccess || fullRowSuccess) {
       job.monthlySucceededGoodsKeys = [...job.goodsKeys];
       await saveState(state);
       return false;
