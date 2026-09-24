@@ -86,7 +86,10 @@ test("monthly v0.5.4 batches up to 200 GOODSKEY and parallelizes only within the
 test("monthly A21 sequence is status-selling -> PRICE -> OPTION -> optional status-restore", () => {
   assert.match(monthlyBackground, /STATUS_SELLING/);
   assert.match(monthlyBackground, /STATUS_SOLD_OUT/);
-  assert.match(monthlyBackground, /mode === "STATUS_SELLING" \? 0 : mode === "PRICE" \? 1 : mode === "OPTION" \? 2/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "STATUS_SELLING"\)/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "PRICE"\)/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "OPTION"\)/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "STATUS_SOLD_OUT"/);
   assert.match(monthlyBackground, /BLOCKED_BY_PRIOR_STAGE/);
   assert.match(monthlyBackground, /prior\.status === "SUCCEEDED"/);
   assert.match(monthlyBackground, /saleStatusActivated/);
@@ -133,7 +136,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.3"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.4"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
