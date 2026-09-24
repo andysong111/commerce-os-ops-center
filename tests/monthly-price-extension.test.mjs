@@ -16,7 +16,7 @@ function worker() {
       {id:'price',mode:'PRICE',goodsKeys:b.goodsKeys,status:'QUEUED',stage:'OPENING'},
       {id:'option',mode:'OPTION',goodsKeys:b.goodsKeys,status:'QUEUED',stage:'OPENING'}
     ),
-    baselinePopupTabs:async()=>[],launchJob:async(s,j)=>{log.push(`launch:${j.mode}`);j.status='RUNNING';},pump:async()=>{log.push('legacy-pump');},startRun:async()=>{log.push('legacy');},
+    baselinePopupTabs:async()=>[],launchJob:async(s,j)=>{log.push(`launch:${j.mode}`);j.status='RUNNING';},finalizeOrPump:async()=>{},pump:async()=>{log.push('legacy-pump');},startRun:async()=>{log.push('legacy');},
     fetch:async url=>{log.push(url);return {ok:true,json:async()=>({ok:true,run:{id:runId},items:[item]})};},
   };
   vm.createContext(context);vm.runInContext(file('background-monthly-price.js'),context);
@@ -126,7 +126,7 @@ function batchWorker(count=450) {
     loadState:async()=>current,saveState:async s=>{current=s;},publicState:s=>s,
     buildBatches:rows=>{const out=[];for(let i=0;i<rows.length;i+=200)out.push({id:`batch-${i}`,index:out.length+1,goodsKeys:rows.slice(i,i+200).map(r=>String(r.goodsKey))});return out;},
     addJobs:(s,b)=>s.jobs.push({id:`p-${b.id}`,batchId:b.id,batchIndex:b.index,mode:'PRICE',goodsKeys:b.goodsKeys,status:'QUEUED',stage:'OPENING'},{id:`o-${b.id}`,batchId:b.id,batchIndex:b.index,mode:'OPTION',goodsKeys:b.goodsKeys,status:'QUEUED',stage:'OPENING'}),
-    baselinePopupTabs:async()=>[],launchJob:async(_s,j)=>{log.push(`launch:${j.mode}:${j.goodsKeys.length}`);j.status='RUNNING';},pump:async()=>{},startRun:async()=>{},
+    baselinePopupTabs:async()=>[],launchJob:async(_s,j)=>{log.push(`launch:${j.mode}:${j.goodsKeys.length}`);j.status='RUNNING';},finalizeOrPump:async()=>{},pump:async()=>{},startRun:async()=>{},
     splitBatch:async()=>{},failJob:async()=>{},closeManaged:async()=>{},
     fetch:async()=>({ok:true,json:async()=>({ok:true,run:{id:runId},items})}),
   };
@@ -150,6 +150,26 @@ test('v0.5.4 batch mode chunks GOODSKEY by 200, opens same-phase windows in para
   await w.context.pump();
   assert.deepEqual(w.log.slice(3),['launch:OPTION:200','launch:OPTION:200','launch:OPTION:50']);
   assert.equal(w.current.jobs.filter(x=>x.mode==='OPTION'&&x.status==='RUNNING').length,3);
+});
+
+test('v0.5.4 option-phase failure activates sold-out rollback instead of terminalizing early',async()=>{
+  const w=batchWorker(2);
+  w.items[0].plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:false};
+  w.payload.items=w.items.map(row=>({itemId:row.id,token:row.transmission.token,fingerprint:row.plan.fingerprint}));
+  await w.send('MONTHLY_PRICE_BATCH_START');
+  const selling=w.current.jobs.filter(x=>x.mode==='STATUS_SELLING');
+  assert.equal(selling.length,1);
+  selling.forEach(x=>x.status='SUCCEEDED');
+  await w.context.pump();
+  w.current.jobs.filter(x=>x.mode==='PRICE').forEach(x=>x.status='SUCCEEDED');
+  await w.context.pump();
+  const options=w.current.jobs.filter(x=>x.mode==='OPTION');
+  assert.equal(options.length,1);
+  options[0].status='FAILED';
+  await w.context.finalizeOrPump();
+  const rollback=w.current.jobs.find(x=>x.mode==='STATUS_SOLD_OUT'&&x.monthlyFailureRollback===true);
+  assert.equal(rollback.status,'RUNNING');
+  assert.ok(w.log.some(x=>x.startsWith('launch:STATUS_SOLD_OUT:')));
 });
 
 test('v0.5.4 batch mode caps concurrent Shopling windows at four for a phase',async()=>{
