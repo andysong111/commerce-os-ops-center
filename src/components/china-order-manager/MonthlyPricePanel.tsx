@@ -17,6 +17,7 @@ function describe(code: string) {
   if (/GROUP|MAPPING|SCOPE|UNITS|OPTION/.test(code)) return "가격그룹·상품/옵션 연결·묶음 수량을 안전하게 확정하지 못해 변경을 제외했습니다.";
   if (/BUSY/.test(code)) return "다른 창 또는 다른 월에서 같은 상품을 처리 중입니다. 중복 실행하지 않았습니다.";
   if (/PREVIEW_REQUIRED/.test(code)) return "아직 예상 변경안을 만들지 않은 상품이 있습니다. 먼저 모든 대상의 예상 가격을 확인하세요.";
+  if (/RELIST_REQUIRED/.test(code)) return "A21 판매가/옵션 전송이 200개 묶음 → 소묶음 → 개별 3단계까지 실패했습니다. 이 상품은 삭제 후 재등록 대상으로 분리했습니다.";
   if (/READBACK|UNCERTAIN|MARKET_RESULT/.test(code)) return "실제 반영 결과를 확정하지 못했습니다. 완료 처리하거나 무조건 다시 전송하지 않습니다.";
   if (/LOGIN|DOM|BROWSER|CURRENT_PRICE|MALL|SHOPLING_TAB/.test(code)) return "샵플링 로그인 세션 또는 현재 가격행을 확인하지 못했습니다. 가격 변경을 보호했습니다.";
   return "자동 처리를 멈췄습니다. 아래 확인 코드를 확인하세요.";
@@ -326,7 +327,16 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   const count = (states: string[]) => snapshot.items.filter((item) => states.includes(item.state)).length;
   const queuedCount = count(["QUEUED"]);
   const preparedCount = count(["PREPARED"]);
-  const activeExecutionCount = count(["WRITING", "VERIFY_PENDING", "VERIFIED", "RESENDING", "UNCERTAIN"]);
+  const transmissionReviewCount = snapshot.items.filter((item) =>
+    item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED"
+  ).length;
+  const relistRequiredCount = snapshot.items.filter((item) =>
+    item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_RELIST_REQUIRED"
+  ).length;
+  const activeExecutionCount = snapshot.items.filter((item) =>
+    ["WRITING", "VERIFY_PENDING", "VERIFIED", "UNCERTAIN"].includes(item.state) ||
+    (item.state === "RESENDING" && !["MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED", "MONTHLY_PRICE_RELIST_REQUIRED"].includes(item.errorCode ?? ""))
+  ).length;
   const retryablePrewriteBlockCount = snapshot.items.filter((item) =>
     item.state === "BLOCKED" &&
     ["MONTHLY_PRICE_GROUP_REQUIRED", "MONTHLY_PRICE_INACTIVE_LISTING", "MONTHLY_PRICE_MALL_CURRENT_PRICE_REQUIRED", "MONTHLY_PRICE_OPTION_BARCODE_CONFLICT"].includes(item.errorCode ?? "") &&
@@ -407,6 +417,11 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
             ? `이전 실행 재확인·이어가기 (${retryablePrewriteBlockCount}건 재평가)`
             : "미완료 가격조정 이어가기"}
       </button>
+    ) : transmissionReviewCount > 0 || relistRequiredCount > 0 ? (
+      <div className="mt-3 space-y-1.5 rounded-lg border border-amber-700 bg-amber-950/70 px-3 py-2.5 text-xs leading-5 text-amber-100">
+        {transmissionReviewCount > 0 && <p>가격조정 실행은 끝났지만 이전 전송결과 확인 필요 {transmissionReviewCount}건은 자동 재전송하지 않고 보류 중입니다.</p>}
+        {relistRequiredCount > 0 && <p>3단계 재전송까지 실패한 {relistRequiredCount}건은 삭제 후 재등록 대상으로 분리했습니다.</p>}
+      </div>
     ) : (
       <>
         <button type="button" onClick={() => void preparePreview()} disabled={!ready || busy || (snapshot.run !== null && queuedCount === 0)} className="mt-3 w-full rounded-lg bg-cyan-300 px-3 py-3 text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
@@ -422,7 +437,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     {!ready && <p className="mt-2 text-xs text-amber-200">입고확정과 배송대행 실제비용 저장 후 실행할 수 있습니다. 실제 원가 근거는 실행 시 다시 검증합니다.</p>}
     {busy && <button type="button" onClick={() => { running.current = false; setProgress("다음 작업 중지 요청 · 이미 전송한 작업은 결과 확인이 필요합니다."); }} className="mt-2 text-xs underline text-slate-300">이후 작업 중지</button>}
     <div role="status" aria-live="polite" className="mt-3 text-xs leading-5 text-cyan-100">{progress}</div>
-    {snapshot.run && <p className="mt-2 text-xs leading-5 text-slate-300">대상 {snapshot.items.length} · 예상변경 준비 {preparedCount} · 대기 {queuedCount} · 샵플링 반영 확인 {count(["VERIFIED", "RESENDING", "TRANSMITTED"])} · 현재가 보호 {count(["HELD"])} · 확인 필요 {count(["BLOCKED", "UNCERTAIN", "WRITING"])} · 전송 종료 {count(["TRANSMITTED"])}</p>}
+    {snapshot.run && <p className="mt-2 text-xs leading-5 text-slate-300">대상 {snapshot.items.length} · 예상변경 준비 {preparedCount} · 대기 {queuedCount} · 샵플링 반영 확인 {count(["VERIFIED", "RESENDING", "TRANSMITTED"])} · 현재가 보호 {count(["HELD"])} · 확인 필요 {count(["BLOCKED", "UNCERTAIN", "WRITING"])} · 전송결과 확인 {transmissionReviewCount} · 재등록 필요 {relistRequiredCount} · 전송 종료 {count(["TRANSMITTED"])}</p>}
     {bCodeRows.length > 0 && (
       <div className="mt-3 rounded-lg border border-cyan-800 bg-slate-950/70 p-2 text-xs text-slate-200" data-testid="monthly-price-preview">
         <div className="flex flex-wrap items-center gap-2 font-bold">
