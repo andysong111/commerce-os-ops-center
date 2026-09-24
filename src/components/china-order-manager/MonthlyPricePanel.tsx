@@ -145,7 +145,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       const existingBatchIds = new Set<string>();
       const legacyResending: Item[] = [];
 
-      const updateFromApi = (result: { item?: Partial<Item> & { id?: string } }, fallback: Item) => {
+      const updateFromApi = (result: { item?: Partial<Item> & { id?: string; duplicate?: boolean } }, fallback: Item) => {
         const next = { ...fallback, ...(result.item ?? {}) } as Item;
         if (generation.current === current) update(next);
         return next;
