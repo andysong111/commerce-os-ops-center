@@ -27,14 +27,16 @@
 
   function makeJob(state, batch, mode) {
     const rollback = mode === "STATUS_SOLD_OUT" && batch.monthlyFailureRollback === true;
+    const failureActive = state.jobs?.some((job) => job.monthlyScope && job.monthlyFailureRollback !== true && job.status === "FAILED");
+    const dormantRollback = rollback && !failureActive;
     const job = {
       id: `job-${mode.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       batchId: batch.id,
       batchIndex: batch.index,
       mode,
       goodsKeys: [...batch.goodsKeys],
-      status: rollback ? "DORMANT" : "QUEUED",
-      stage: rollback ? "FAILURE_ROLLBACK_DORMANT" : "OPENING",
+      status: dormantRollback ? "DORMANT" : "QUEUED",
+      stage: dormantRollback ? "FAILURE_ROLLBACK_DORMANT" : rollback ? "FAILURE_ROLLBACK_PENDING" : "OPENING",
       workerWindowId: null,
       workerTabId: null,
       workerFrameId: null,
@@ -43,7 +45,7 @@
       popupFrameId: null,
       selectedRowCount: 0,
       totalResultCount: 0,
-      message: rollback ? "PRICE/OPTION 실패 시에만 원래 품절상태로 복구" : "대기 중",
+      message: dormantRollback ? "PRICE/OPTION 실패 시에만 원래 품절상태로 복구" : rollback ? "가격/옵션 전송 실패 · 원래 품절상태로 복구 대기" : "대기 중",
       error: "",
       createdAt: Date.now(),
       updatedAt: Date.now(),
