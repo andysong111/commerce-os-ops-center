@@ -431,12 +431,6 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       evidenceSource: String(evidence.evidenceSource || ""),
     };
 
-    if (explicitSummarySuccess || fullRowSuccess) {
-      job.monthlySucceededGoodsKeys = [...job.goodsKeys];
-      await saveState(state);
-      return false;
-    }
-
     if ((failureCount ?? 0) > 0 || explicitFailed.length > 0) {
       if (fullCoverage && explicitFailed.length > 0) {
         job.monthlySucceededGoodsKeys = explicitSucceeded;
@@ -447,6 +441,12 @@ importScripts("background-v044.js", "monthly-price-dom.js");
         await scheduleMonthlyResultRetry(state, job, [...job.goodsKeys], "FAILED_GROUP_FALLBACK");
       }
       return true;
+    }
+
+    if (explicitSummarySuccess || fullRowSuccess) {
+      job.monthlySucceededGoodsKeys = [...job.goodsKeys];
+      await saveState(state);
+      return false;
     }
 
     await closeManaged(job);
