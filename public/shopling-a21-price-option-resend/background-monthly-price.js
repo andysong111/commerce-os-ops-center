@@ -188,7 +188,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.3", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.4", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
         monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
@@ -208,12 +208,12 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     return (await chrome.storage.local.get(HISTORY))[HISTORY]?.[payload.token] || { token: payload.token, fingerprint: payload.fingerprint, goodsKey: payload.goodsKey, state: "MISSING", priceOnly: false, priceAndOption: false };
   }
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!String(message?.type || "").startsWith("MONTHLY_PRICE_")) return false;
+    if (!["MONTHLY_PRICE_PING","MONTHLY_PRICE_READ","MONTHLY_PRICE_START","MONTHLY_PRICE_STATUS"].includes(String(message?.type || ""))) return false;
     if (!trusted(sender)) { sendResponse({ ok: false, error: "MONTHLY_PRICE_SENDER_REJECTED" }); return false; }
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.3" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.4" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || "")) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });
@@ -223,3 +223,5 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     return true;
   });
 })();
+
+importScripts("background-monthly-batch-v054.js");
