@@ -3,7 +3,7 @@ import { MONTHLY_PRICE_POLICY, type MonthlyPriceCandidate, type MonthlyPricePlan
 import type { MonthlyPriceSources } from "@/lib/monthlyPriceSource";
 
 export type MonthlyItemState = "QUEUED" | "PREPARED" | "WRITING" | "VERIFY_PENDING" | "VERIFIED" | "RESENDING" | "TRANSMITTED" | "HELD" | "BLOCKED" | "UNCERTAIN";
-export type MonthlyPriceItem = { id: string; run_id: string; goods_key: string; state: MonthlyItemState; candidate: MonthlyPriceCandidate; plan: MonthlyPricePlan | null; write_index: number; claim_token: string | null; claim_until: string | null; error_code: string | null; transmission: { token: string; fingerprint: string; claimedAt: string; finishedAt?: string; result?: string } | null; updated_at: string };
+export type MonthlyPriceItem = { id: string; run_id: string; goods_key: string; state: MonthlyItemState; candidate: MonthlyPriceCandidate; plan: MonthlyPricePlan | null; write_index: number; claim_token: string | null; claim_until: string | null; error_code: string | null; transmission: { token: string; fingerprint: string; claimedAt: string; batchId?: string; finishedAt?: string; result?: string } | null; updated_at: string };
 export type MonthlyPriceRun = { id: string; cycle_month: string; source_hash: string; policy_version: string; source_snapshot: MonthlyPriceSources; created_at: string };
 
 function monthlyCandidatePricingIdentity(candidate: MonthlyPriceCandidate) {
