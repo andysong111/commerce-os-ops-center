@@ -225,6 +225,7 @@
         job.error = "MONTHLY_A21_BATCH_WINDOW_CREATE_FAILED";
         job.message = error instanceof Error ? error.message : String(error);
         await saveState(state);
+        setTimeout(() => void pump(), 0);
         break;
       }
       slots -= 1;
