@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const root = new URL("../public/shopling-a21-price-option-resend/", import.meta.url);
-const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statusPopup, statusMain, backgroundBase, backgroundV041, backgroundV044, monthlyBackground, planRoute, downloadRoute] = await Promise.all([
+const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statusPopup, statusMain, backgroundBase, backgroundV041, backgroundV044, monthlyBackground, monthlyBatch, planRoute, downloadRoute] = await Promise.all([
   readFile(new URL("manifest.json", root), "utf8"),
   readFile(new URL("popup-run.js", root), "utf8"),
   readFile(new URL("popup-run.html", root), "utf8"),
@@ -15,6 +15,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statu
   readFile(new URL("background-v041.js", root), "utf8"),
   readFile(new URL("background-v044.js", root), "utf8"),
   readFile(new URL("background-monthly-price.js", root), "utf8"),
+  readFile(new URL("background-monthly-batch-v054.js", root), "utf8"),
   readFile(new URL("../src/app/api/shopling-a21-price-option-resend/plan/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../src/app/api/shopling-a21-price-option-resend/download/route.ts", import.meta.url), "utf8"),
 ]);
@@ -22,7 +23,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statu
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.3");
+  assert.equal(manifest.version, "0.5.4");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -81,6 +82,17 @@ test("monthly A21 sequence is status-selling -> PRICE -> OPTION -> optional stat
   assert.match(monthlyBackground, /saleStatusRestored/);
 });
 
+test("monthly batch engine uses 200-key batches, four parallel windows, and a hard PRICE-before-OPTION phase barrier", () => {
+  assert.match(monthlyBatch, /MAX_PARALLEL_WINDOWS = 4/);
+  assert.match(monthlyBatch, /maxGoodsKeysPerWindow: 200/);
+  assert.match(monthlyBatch, /buildBatches\(batchRows\(entries\)\)/);
+  assert.match(monthlyBatch, /phaseJobs\(state, "PRICE"\)/);
+  assert.match(monthlyBatch, /phaseJobs\(state, "OPTION"\)/);
+  assert.match(monthlyBatch, /!priceJobs\.every\(\(job\) => job\.status === "SUCCEEDED"\)/);
+  assert.match(monthlyBatch, /await launchPhase\(state, "PRICE"\)/);
+  assert.match(monthlyBatch, /await launchPhase\(state, "OPTION"\)/);
+});
+
 test("monthly status overlays verify exact sale-status mode without mutating shared price core", () => {
   for (const source of [statusPopup, statusMain]) {
     assert.match(source, /STATUS_SELLING/);
@@ -127,6 +139,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
   assert.match(downloadRoute, /monthly-status-main-v053\.js/);
   assert.match(downloadRoute, /monthly-status-popup-v053\.js/);
+  assert.match(downloadRoute, /background-monthly-batch-v054\.js/);
 });
 
 test("A21 v0.4.4 keeps base worker serial safety", () => {
