@@ -41,8 +41,10 @@ test('monthly start falls back to Shopling main when no source tab is open',asyn
   const w=worker();w.shoplingTabs=[];const r=await w.send('MONTHLY_PRICE_START');
   assert.equal(r.ok,true);assert.equal(w.current.sourceUrl,'https://a.shopling.co.kr/main.phtml');assert.equal(w.log.some(x=>x.startsWith('launch:')),true);
 });
-test('status reports success capability only when both PRICE and OPTION jobs exist',async()=>{
-  const w=worker();await w.send('MONTHLY_PRICE_START');w.current.state='SUCCEEDED';
+test('status reports success capability only when both PRICE and OPTION jobs succeeded',async()=>{
+  const w=worker();await w.send('MONTHLY_PRICE_START');
+  for(const job of w.current.jobs)job.status='SUCCEEDED';
+  w.current.state='SUCCEEDED';
   const status=await w.send('MONTHLY_PRICE_STATUS',{token,fingerprint,goodsKey});assert.equal(status.ok,true);assert.equal(status.report.priceOnly,false);assert.equal(status.report.priceAndOption,true);
 });
 test('sold-out monthly transmission queues STATUS_SELLING -> PRICE -> OPTION and optional restore last',async()=>{
