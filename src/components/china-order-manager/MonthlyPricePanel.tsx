@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { MONTHLY_PRICE_BRIDGE, MONTHLY_PRICE_POLICY, MONTHLY_PRICE_EXTENSION_VERSION } from "@/lib/monthlyPriceContract";
 import type { MonthlyPriceCandidate, MonthlyPricePlan } from "@/lib/monthlyPriceCore";
 
-type Transmission = { token: string; fingerprint: string; claimedAt: string; result?: string };
+type Transmission = { token: string; fingerprint: string; claimedAt: string; batchId?: string; result?: string };
 type Item = { id: string; goodsKey: string; state: string; candidate: MonthlyPriceCandidate; plan: MonthlyPricePlan | null; writeIndex: number; errorCode: string | null; transmission: Transmission | null };
 type Snapshot = { run: { id: string; month: string; policy: string; warnings: string[] } | null; items: Item[] };
 type BridgeReply = { ok: boolean; error?: string; version?: string; observation?: unknown; report?: Record<string, unknown> };
@@ -138,7 +138,19 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       const runId = data.run.id;
       const unpreviewed = data.items.filter((item) => item.state === "QUEUED").length;
       if (unpreviewed && !resumeExistingRun) throw new Error("MONTHLY_PRICE_PREVIEW_REQUIRED");
+
       let historyMissingSkipped = 0;
+      const newBatchId = crypto.randomUUID();
+      const newBatchItems: Item[] = [];
+      const existingBatchIds = new Set<string>();
+      const legacyResending: Item[] = [];
+
+      const updateFromApi = (result: { item?: Partial<Item> & { id?: string } }, fallback: Item) => {
+        const next = { ...fallback, ...(result.item ?? {}) } as Item;
+        if (generation.current === current) update(next);
+        return next;
+      };
+
       for (const initial of data.items) {
         if (!active()) break;
         let item = initial;
@@ -146,15 +158,13 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
           const observation = read ? (await monthlyPriceBridge("READ", { goodsKey: item.goodsKey })).observation : undefined;
           if (!active()) return { ...item, duplicate: undefined as boolean | undefined };
           const result = await api({ action, itemId: item.id, runId, observation, ...extra });
-          item = { ...item, ...result.item };
-          if (generation.current === current) update(item);
-          return { ...item, duplicate: result.item.duplicate };
+          item = updateFromApi(result, item);
+          return { ...item, duplicate: result.item?.duplicate as boolean | undefined };
         };
+
         if (item.state === "BLOCKED" || item.state === "HELD" || item.state === "TRANSMITTED") continue;
-        setProgress(`${item.candidate.productName} · ${item.goodsKey}`);
+        setProgress(`${item.candidate.productName} · ${item.goodsKey} · 샵플링 원장 가격 반영`);
         try {
-          // Only a run that was already executing before the preview/confirm UI
-          // may consume leftover QUEUED rows. New runs must preview every row first.
           if (item.state === "QUEUED") {
             if (!resumeExistingRun) continue;
             await step("prepare");
@@ -163,64 +173,16 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
           if (!active()) break;
           if (["VERIFY_PENDING", "UNCERTAIN", "WRITING"].includes(item.state)) await step("verify");
           if (!active()) break;
-          if (item.state === "VERIFIED" || item.state === "RESENDING") {
-            const claim = await step("resendClaim", {}, item.state === "VERIFIED");
-            if (!active() || !item.transmission) break;
-            const transmission = item.transmission;
-            let reply = await monthlyPriceBridge("START", {
-              month, runId, itemId: item.id, token: transmission.token,
-              fingerprint: transmission.fingerprint, newClaim: claim.duplicate === false,
-            });
-            for (let polls = 0; active() && polls < 1000; polls += 1) {
-              const report = reply.report;
-              if (!report) throw new Error("MONTHLY_PRICE_EXTENSION_REPORT_REQUIRED");
-              if (report.state !== "RUNNING" && report.state !== "STARTING") {
-                await step("resendReport", { report }, false);
-                break;
-              }
-              setProgress(`${item.candidate.productName} · 쇼핑몰 PRICE→OPTION 수정전송 결과 대기`);
-              await new Promise((resolve) => setTimeout(resolve, 2000));
-              if (!active()) break;
-              reply = await monthlyPriceBridge("STATUS", {
-                token: transmission.token, fingerprint: transmission.fingerprint, goodsKey: item.goodsKey,
-              });
-            }
+
+          if (item.state === "VERIFIED") {
+            const claim = await step("resendClaim", { batchId: newBatchId }, true);
+            if (claim.duplicate === false && item.transmission?.batchId === newBatchId) newBatchItems.push(item);
+          } else if (item.state === "RESENDING" && item.transmission) {
+            if (item.transmission.batchId) existingBatchIds.add(item.transmission.batchId);
+            else legacyResending.push(item);
           }
         } catch (itemError) {
           const code = itemError instanceof Error ? itemError.message : "MONTHLY_PRICE_ITEM_FAILED";
-          if (
-            code === "MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING" &&
-            item.state === "RESENDING" &&
-            item.transmission
-          ) {
-            // Missing local extension history is NOT evidence that the old market
-            // transmission failed. Record it as unknown, never resend it, and let
-            // unrelated safe items continue instead of blocking the whole month.
-            try {
-              await step("resendReport", {
-                report: {
-                  token: item.transmission.token,
-                  fingerprint: item.transmission.fingerprint,
-                  goodsKey: item.goodsKey,
-                  state: "MISSING",
-                  priceOnly: false,
-                  priceAndOption: false,
-                },
-              }, false);
-              historyMissingSkipped += 1;
-              if (generation.current === current) {
-                setProgress(`${item.goodsKey} · 이전 전송기록 없음 · 재전송하지 않고 다음 상품 계속`);
-              }
-              continue;
-            } catch (reportError) {
-              const reportCode = reportError instanceof Error ? reportError.message : "MONTHLY_PRICE_ITEM_FAILED";
-              if (generation.current === current) {
-                setError(reportCode);
-                setProgress(`${item.goodsKey} · ${describe(reportCode)}`);
-              }
-              break;
-            }
-          }
           if (generation.current === current) {
             setError(code);
             setProgress(`${item.goodsKey} · ${describe(code)}`);
@@ -228,11 +190,131 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
           break;
         }
       }
+
+      const applyTerminalBatchReport = async (report: Record<string, unknown>, batchItems: Item[]) => {
+        const rows = Array.isArray(report.items) ? report.items as Record<string, unknown>[] : [];
+        const byId = new Map(batchItems.map((item) => [item.id, item]));
+        for (const row of rows) {
+          const itemId = String(row.itemId ?? "");
+          const local = byId.get(itemId);
+          if (!local) continue;
+          const result = await api({ action: "resendReport", itemId, runId, report: row });
+          updateFromApi(result, local);
+        }
+      };
+
+      const markBatchMissing = async (batchItems: Item[]) => {
+        for (const item of batchItems) {
+          if (!item.transmission) continue;
+          const report = {
+            token: item.transmission.token,
+            fingerprint: item.transmission.fingerprint,
+            goodsKey: item.goodsKey,
+            itemId: item.id,
+            batchId: item.transmission.batchId,
+            state: "MISSING",
+            priceOnly: false,
+            priceAndOption: false,
+            saleStatusActivated: false,
+            saleStatusRestored: false,
+            saleStatusRolledBack: false,
+          };
+          const result = await api({ action: "resendReport", itemId: item.id, runId, report });
+          updateFromApi(result, item);
+          historyMissingSkipped += 1;
+        }
+      };
+
+      const runBatch = async (batchId: string, batchItems: Item[], startNew: boolean) => {
+        let reply = startNew
+          ? await monthlyPriceBridge("BATCH_START", {
+              month,
+              runId,
+              batchId,
+              newClaim: true,
+              items: batchItems.map((item) => ({
+                itemId: item.id,
+                token: item.transmission?.token,
+                fingerprint: item.transmission?.fingerprint,
+              })),
+            }, 65000)
+          : await monthlyPriceBridge("BATCH_STATUS", { batchId }, 10000);
+
+        for (let polls = 0; active() && polls < 1200; polls += 1) {
+          const report = reply.report;
+          if (!report) throw new Error("MONTHLY_PRICE_EXTENSION_REPORT_REQUIRED");
+          if (report.state === "MISSING") {
+            await markBatchMissing(batchItems);
+            return;
+          }
+          if (report.state !== "RUNNING" && report.state !== "STARTING") {
+            await applyTerminalBatchReport(report, batchItems);
+            return;
+          }
+          const phase = String(report.phase ?? "");
+          const activeWindows = Number(report.activeWindows ?? 0);
+          const total = Number(report.itemCount ?? batchItems.length);
+          const phaseText = phase === "PRICE" ? "판매가" : phase === "OPTION" ? "옵션" : phase === "STATUS_SELLING" ? "품절→판매중" : phase === "STATUS_SOLD_OUT" ? "상태 복구" : "마켓 수정전송";
+          setProgress(`마켓 일괄전송 ${total}개 · ${phaseText} 단계 · 작업창 ${activeWindows}개 병렬 · 판매가 전체 완료 후 옵션 진행`);
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          if (!active()) return;
+          reply = await monthlyPriceBridge("BATCH_STATUS", { batchId }, 10000);
+        }
+        throw new Error("MONTHLY_PRICE_BATCH_STATUS_TIMEOUT");
+      };
+
+      if (active() && newBatchItems.length) {
+        setProgress(`마켓 수정전송 준비 · ${newBatchItems.length}개 GOODSKEY · 200개 단위 · 최대 4개 창 병렬`);
+        await runBatch(newBatchId, newBatchItems, true);
+      }
+
+      if (active() && existingBatchIds.size) {
+        const refreshed = await refreshRun(runId);
+        for (const batchId of existingBatchIds) {
+          if (!active()) break;
+          const batchItems = refreshed.items.filter((item) => item.state === "RESENDING" && item.transmission?.batchId === batchId);
+          if (batchItems.length) await runBatch(batchId, batchItems, false);
+        }
+      }
+
+      // Backward compatibility for old single-item transmissions created before v0.5.4.
+      for (let item of legacyResending) {
+        if (!active() || !item.transmission) break;
+        const transmission = item.transmission;
+        try {
+          let reply = await monthlyPriceBridge("START", {
+            month, runId, itemId: item.id, token: transmission.token,
+            fingerprint: transmission.fingerprint, newClaim: false,
+          });
+          for (let polls = 0; active() && polls < 1000; polls += 1) {
+            const report = reply.report;
+            if (!report) throw new Error("MONTHLY_PRICE_EXTENSION_REPORT_REQUIRED");
+            if (report.state !== "RUNNING" && report.state !== "STARTING") {
+              const result = await api({ action: "resendReport", itemId: item.id, runId, report });
+              item = updateFromApi(result, item);
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            if (!active()) break;
+            reply = await monthlyPriceBridge("STATUS", {
+              token: transmission.token, fingerprint: transmission.fingerprint, goodsKey: item.goodsKey,
+            });
+          }
+        } catch (itemError) {
+          const code = itemError instanceof Error ? itemError.message : "MONTHLY_PRICE_ITEM_FAILED";
+          if (code === "MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING") {
+            await markBatchMissing([item]);
+            continue;
+          }
+          throw itemError;
+        }
+      }
+
       if (active()) {
         data = await refreshRun(runId);
         setProgress(historyMissingSkipped
           ? `자동 처리 종료 · 이전 전송기록 없음 ${historyMissingSkipped}건은 재전송하지 않고 보류 · 나머지 상품 처리 완료`
-          : "자동 처리 종료 · 보호·확인 필요 항목과 마켓 반영 대기를 확인하세요.");
+          : "자동 처리 종료 · 판매가→옵션 단계 일괄전송 완료 · 보호·확인 필요 항목을 확인하세요.");
       }
     } catch (cause) {
       if (generation.current === current) setError(cause instanceof Error ? cause.message : "MONTHLY_PRICE_FAILED");
