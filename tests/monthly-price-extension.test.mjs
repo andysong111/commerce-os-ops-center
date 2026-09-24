@@ -261,3 +261,31 @@ test('v0.5.6 unknown completed result is held uncertain and is never auto-resent
   const report=await w.send('MONTHLY_PRICE_BATCH_STATUS',{batchId:w.batchId});
   assert.equal(report.report.items[0].reviewRequired,true);
 });
+
+
+test('v0.5.6 sold-out goods that exhaust PRICE retries are rolled back before terminal relist report',async()=>{
+  const w=batchWorker(1);
+  w.items[0].plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:false};
+  w.payload.items=w.items.map(row=>({itemId:row.id,token:row.transmission.token,fingerprint:row.plan.fingerprint}));
+  await w.send('MONTHLY_PRICE_BATCH_START');
+  const selling=w.current.jobs.find(x=>x.mode==='STATUS_SELLING');
+  assert.equal(selling.status,'RUNNING');
+  selling.status='SUCCEEDED';
+  await w.context.pump();
+  let price=w.current.jobs.find(x=>x.mode==='PRICE'&&x.status==='RUNNING');
+  for(let attempt=1;attempt<=3;attempt++){
+    await w.context.commerceOsMonthlyHandleDefinitiveResult(price.id,{
+      failureCount:1,successCount:0,outcomeSummaryFound:true,
+      resultRows:[price.goodsKeys[0]+' 실패'],evidenceSource:'fixture'
+    });
+    if(attempt<3) price=w.current.jobs.find(x=>x.mode==='PRICE'&&x.monthlyAttempt===attempt+1&&x.status==='RUNNING');
+  }
+  const targeted=w.current.jobs.find(x=>x.mode==='STATUS_SOLD_OUT'&&x.monthlyTargetedRollback===true);
+  assert.ok(targeted);
+  assert.equal(targeted.status,'RUNNING');
+  targeted.status='SUCCEEDED';
+  await w.context.pump();
+  const report=await w.send('MONTHLY_PRICE_BATCH_STATUS',{batchId:w.batchId});
+  assert.equal(report.report.items[0].relistRequired,true);
+  assert.equal(report.report.items[0].saleStatusRolledBack,true);
+});
