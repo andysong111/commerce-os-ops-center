@@ -170,6 +170,13 @@ test('v0.5.4 option-phase failure activates sold-out rollback instead of termina
   const rollback=w.current.jobs.find(x=>x.mode==='STATUS_SOLD_OUT'&&x.monthlyFailureRollback===true);
   assert.equal(rollback.status,'RUNNING');
   assert.ok(w.log.some(x=>x.startsWith('launch:STATUS_SOLD_OUT:')));
+  let status=await w.send('MONTHLY_PRICE_BATCH_STATUS',{batchId:w.batchId});
+  assert.equal(status.report.state,'RUNNING');
+  rollback.status='SUCCEEDED';
+  await w.context.finalizeOrPump();
+  status=await w.send('MONTHLY_PRICE_BATCH_STATUS',{batchId:w.batchId});
+  assert.equal(status.report.state,'PARTIAL_FAILURE');
+  assert.equal(status.report.items[0].saleStatusRolledBack,true);
 });
 
 test('v0.5.4 batch mode caps concurrent Shopling windows at four for a phase',async()=>{
