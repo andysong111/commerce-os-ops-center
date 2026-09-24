@@ -10,6 +10,40 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   const MAX_MONTHLY_PARALLEL = 4;
   let startBusy = false;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const OPS_PAGE_PATTERN = `${ORIGIN}/china-order-manager*`;
+
+  async function injectMonthlyPageBridge(tabId) {
+    if (!Number.isInteger(tabId) || !chrome.scripting?.executeScript) return false;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["monthly-price-page-bridge.js"],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function repairMonthlyPageBridges() {
+    const tabs = await chrome.tabs.query({ url: OPS_PAGE_PATTERN }).catch(() => []);
+    await Promise.all(tabs.filter((tab) => Number.isInteger(tab.id)).map((tab) => injectMonthlyPageBridge(tab.id)));
+  }
+
+  chrome.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status !== "complete") return;
+    try {
+      const url = new URL(String(tab?.url || ""));
+      if (url.origin === ORIGIN && url.pathname.startsWith("/china-order-manager")) {
+        setTimeout(() => void injectMonthlyPageBridge(tabId), 50);
+      }
+    } catch { /* ignore non-http tabs */ }
+  });
+
+  // Extension reloads invalidate the old isolated-world context in already-open
+  // OPS tabs. Re-inject immediately when the service worker starts so the user
+  // does not need to guess which tab needs to be reopened.
+  setTimeout(() => void repairMonthlyPageBridges(), 0);
   function trusted(sender) {
     try { return sender.frameId === 0 && new URL(sender.url).origin === ORIGIN && new URL(sender.url).pathname.startsWith("/china-order-manager"); }
     catch { return false; }
@@ -340,7 +374,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken || current?.monthlyBatchId) await remember(current);
       const state = {
-        version: "0.5.4",
+        version: "0.5.5",
         runId: `monthly-batch-${payload.batchId}`,
         monthlyBatchId: payload.batchId,
         monthlyItems: items,
@@ -401,7 +435,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.4", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.5", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
         monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
@@ -426,7 +460,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.4" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.5" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || "")) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });
