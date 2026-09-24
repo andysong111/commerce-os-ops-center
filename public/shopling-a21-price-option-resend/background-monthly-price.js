@@ -8,6 +8,8 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   const HISTORY = "commerceOsMonthlyPriceTransmissionHistoryV1";
   const BATCH_HISTORY = "commerceOsMonthlyPriceBatchHistoryV054";
   const MAX_MONTHLY_PARALLEL = 4;
+  const MONTHLY_RETRY_GROUP_SIZE = 20;
+  const MONTHLY_MAX_ATTEMPTS = 3;
   let startBusy = false;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const OPS_PAGE_PATTERN = `${ORIGIN}/china-order-manager*`;
@@ -48,21 +50,34 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     try { return sender.frameId === 0 && new URL(sender.url).origin === ORIGIN && new URL(sender.url).pathname.startsWith("/china-order-manager"); }
     catch { return false; }
   }
+  function jobCovers(job, goodsKey) {
+    return Array.isArray(job.goodsKeys) && job.goodsKeys.includes(goodsKey);
+  }
+  function modeOutcome(state, mode, goodsKey) {
+    const jobs = state.jobs.filter((job) => job.monthlyScope && job.mode === mode && jobCovers(job, goodsKey));
+    if (jobs.some((job) => job.status === "RELIST_REQUIRED")) return "RELIST_REQUIRED";
+    if (jobs.some((job) => job.status === "UNCERTAIN")) return "UNCERTAIN";
+    if (jobs.some((job) => Array.isArray(job.monthlySucceededGoodsKeys) && job.monthlySucceededGoodsKeys.includes(goodsKey))) return "SUCCEEDED";
+    if (jobs.some((job) => job.status === "SUCCEEDED" && jobCovers(job, goodsKey))) return "SUCCEEDED";
+    if (jobs.some((job) => ["QUEUED", "RUNNING"].includes(job.status))) return "RUNNING";
+    return "MISSING";
+  }
   function itemReport(state, meta) {
-    const scoped = state.jobs.filter((job) => job.monthlyScope && job.goodsKeys?.includes(meta.goodsKey) && job.status !== "SUPERSEDED");
-    const price = scoped.filter((job) => job.mode === "PRICE");
-    const option = scoped.filter((job) => job.mode === "OPTION");
-    const selling = scoped.filter((job) => job.mode === "STATUS_SELLING");
-    const restore = scoped.filter((job) => job.mode === "STATUS_SOLD_OUT" && job.monthlyFailureRollback !== true);
-    const rollback = scoped.filter((job) => job.mode === "STATUS_SOLD_OUT" && job.monthlyFailureRollback === true);
+    const scoped = state.jobs.filter((job) => job.monthlyScope && jobCovers(job, meta.goodsKey));
+    const priceOutcome = modeOutcome(state, "PRICE", meta.goodsKey);
+    const optionOutcome = modeOutcome(state, "OPTION", meta.goodsKey);
+    const selling = scoped.filter((job) => job.mode === "STATUS_SELLING" && job.status !== "SUPERSEDED");
+    const restore = scoped.filter((job) => job.mode === "STATUS_SOLD_OUT" && job.monthlyFailureRollback !== true && job.status !== "SUPERSEDED");
+    const rollback = scoped.filter((job) => job.mode === "STATUS_SOLD_OUT" && job.monthlyFailureRollback === true && job.status !== "SUPERSEDED");
     const allSucceeded = (rows) => rows.length > 0 && rows.every((job) => job.status === "SUCCEEDED");
-    const failed = scoped.some((job) => ["FAILED", "STOPPED"].includes(job.status));
-    const priceOk = allSucceeded(price);
-    const optionOk = allSucceeded(option);
     const sellingOk = !meta.needsSellingStatus || allSucceeded(selling);
     const restoreOk = !meta.restoreSoldOut || allSucceeded(restore);
     const rolledBack = rollback.some((job) => job.status === "SUCCEEDED");
     const rollbackPending = rollback.some((job) => ["QUEUED", "RUNNING"].includes(job.status));
+    const relistRequired = priceOutcome === "RELIST_REQUIRED" || optionOutcome === "RELIST_REQUIRED";
+    const reviewRequired = priceOutcome === "UNCERTAIN" || optionOutcome === "UNCERTAIN";
+    const priceOk = priceOutcome === "SUCCEEDED";
+    const optionOk = optionOutcome === "SUCCEEDED";
     const done = priceOk && optionOk && sellingOk && restoreOk;
     return {
       token: meta.token,
@@ -70,12 +85,16 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       goodsKey: meta.goodsKey,
       itemId: meta.itemId,
       batchId: state.monthlyBatchId || meta.batchId || null,
-      state: rollbackPending ? "RUNNING" : done ? "SUCCEEDED" : failed || state.state === "PARTIAL_FAILURE" ? "PARTIAL_FAILURE" : state.state === "STOPPED" ? "STOPPED" : "RUNNING",
+      state: rollbackPending ? "RUNNING" : relistRequired ? "RELIST_REQUIRED" : reviewRequired ? "PARTIAL_FAILURE" : done ? "SUCCEEDED" : state.state === "STOPPED" ? "STOPPED" : "RUNNING",
       priceOnly: priceOk && !optionOk,
       priceAndOption: priceOk && optionOk,
       saleStatusActivated: sellingOk,
       saleStatusRestored: restoreOk,
       saleStatusRolledBack: rolledBack,
+      relistRequired,
+      reviewRequired,
+      priceOutcome,
+      optionOutcome,
       updatedAt: state.updatedAt,
     };
   }
@@ -91,6 +110,8 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       state: terminal ? (items.every((row) => row.state === "SUCCEEDED") ? "SUCCEEDED" : "PARTIAL_FAILURE") : state.state,
       phase,
       activeWindows: scoped.filter((job) => job.status === "RUNNING").length,
+      retryingCount: scoped.filter((job) => ["PRICE", "OPTION"].includes(job.mode) && Number(job.monthlyAttempt || 1) > 1 && ["QUEUED", "RUNNING"].includes(job.status)).length,
+      relistRequiredCount: items.filter((row) => row.relistRequired === true).length,
       itemCount: items.length,
       items,
       updatedAt: state.updatedAt,
@@ -151,6 +172,11 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       message: extra.message || "대기 중",
       error: "",
       monthlyScope: true,
+      monthlyAttempt: Number(extra.monthlyAttempt || batch.monthlyAttempt || 1),
+      monthlyRetrySource: extra.monthlyRetrySource || batch.monthlyRetrySource || null,
+      monthlySucceededGoodsKeys: [],
+      monthlyFailedGoodsKeys: [],
+      monthlyOutcomeEvidence: null,
       monthlyFailureRollback: extra.monthlyFailureRollback === true,
       monthlyNormalRestore: extra.monthlyNormalRestore === true,
     };
