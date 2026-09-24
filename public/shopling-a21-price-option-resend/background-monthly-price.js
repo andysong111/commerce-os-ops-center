@@ -47,9 +47,15 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   function batchReport(state) {
     const items = (state.monthlyItems || []).map((meta) => itemReport(state, meta));
     const terminal = items.length > 0 && items.every((row) => !["RUNNING", "STARTING"].includes(row.state));
+    const scoped = state.jobs.filter((job) => job.monthlyScope && job.status !== "SUPERSEDED");
+    const phase = ["STATUS_SELLING", "PRICE", "OPTION", "STATUS_SOLD_OUT"].find((mode) =>
+      scoped.some((job) => job.mode === mode && ["QUEUED", "RUNNING"].includes(job.status)),
+    ) || (state.state === "SUCCEEDED" ? "DONE" : "");
     return {
       batchId: state.monthlyBatchId,
       state: terminal ? (items.every((row) => row.state === "SUCCEEDED") ? "SUCCEEDED" : "PARTIAL_FAILURE") : state.state,
+      phase,
+      activeWindows: scoped.filter((job) => job.status === "RUNNING").length,
       itemCount: items.length,
       items,
       updatedAt: state.updatedAt,
