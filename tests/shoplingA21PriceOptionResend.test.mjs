@@ -22,7 +22,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statu
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.3");
+  assert.equal(manifest.version, "0.5.4");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -69,6 +69,17 @@ test("A21 v0.4.4 preserves price-first serial queue from v0.4.1", () => {
   assert.match(backgroundV041, /job\.status === "QUEUED" && job\.mode === "OPTION"/);
   assert.match(backgroundV041, /sortJobsPricesFirst/);
   assert.match(backgroundV041, /state\.jobs\.some\(\(job\) => job\.status === "RUNNING"\)/);
+});
+
+test("monthly v0.5.4 batches up to 200 GOODSKEY and parallelizes only within the current phase", () => {
+  assert.match(monthlyBackground, /MAX_MONTHLY_PARALLEL = 4/);
+  assert.match(monthlyBackground, /buildBatches\(items\)/);
+  assert.match(monthlyBackground, /monthlyModes: \["PRICE", "OPTION"\]/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "PRICE"\)/);
+  assert.match(monthlyBackground, /phaseJobs\(state, "OPTION"\)/);
+  assert.match(monthlyBackground, /MAX_MONTHLY_PARALLEL - activeMonthlyJobs/);
+  assert.match(monthlyBackground, /MONTHLY_PRICE_BATCH_START/);
+  assert.match(monthlyBackground, /MONTHLY_PRICE_BATCH_STATUS/);
 });
 
 test("monthly A21 sequence is status-selling -> PRICE -> OPTION -> optional status-restore", () => {
