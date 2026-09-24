@@ -140,7 +140,7 @@ function batchWorker(count=450) {
   return {send,payload,batchId,items,log,context,get current(){return current;}};
 }
 
-test('v0.5.5 batch mode chunks GOODSKEY by 200, opens same-phase windows in parallel, and gates OPTION until every PRICE batch succeeds',async()=>{
+test('v0.5.6 batch mode chunks GOODSKEY by 200, opens same-phase windows in parallel, and gates OPTION until every PRICE batch succeeds',async()=>{
   const w=batchWorker(450);
   const started=await w.send('MONTHLY_PRICE_BATCH_START');
   assert.equal(started.ok,true);
@@ -155,7 +155,7 @@ test('v0.5.5 batch mode chunks GOODSKEY by 200, opens same-phase windows in para
   assert.equal(w.current.jobs.filter(x=>x.mode==='OPTION'&&x.status==='RUNNING').length,3);
 });
 
-test('v0.5.5 option-phase failure activates sold-out rollback instead of terminalizing early',async()=>{
+test('v0.5.6 option-phase failure activates sold-out rollback instead of terminalizing early',async()=>{
   const w=batchWorker(2);
   w.items[0].plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:false};
   w.payload.items=w.items.map(row=>({itemId:row.id,token:row.transmission.token,fingerprint:row.plan.fingerprint}));
@@ -182,7 +182,7 @@ test('v0.5.5 option-phase failure activates sold-out rollback instead of termina
   assert.equal(status.report.items[0].saleStatusRolledBack,true);
 });
 
-test('v0.5.5 batch mode caps concurrent Shopling windows at four for a phase',async()=>{
+test('v0.5.6 batch mode caps concurrent Shopling windows at four for a phase',async()=>{
   const w=batchWorker(1000);
   await w.send('MONTHLY_PRICE_BATCH_START');
   assert.equal(w.current.jobs.filter(x=>x.mode==='PRICE'&&x.status==='RUNNING').length,4);
