@@ -51,3 +51,19 @@ test("duplicate DB wakeup stays removed and the optimized worker is a critical d
     { path: "/api/cron/ops-dispatcher", schedule: "* * * * *" },
   ]);
 });
+
+test("scored SEO checkpoints discard redundant discovery fanout before storage", async () => {
+  const sql = await read(
+    "supabase/migrations/202608280012_compact_seo_run_checkpoint_payload.sql",
+  );
+
+  assert.match(sql, /compact_seo_run_checkpoint_payload/);
+  assert.match(sql, /jsonb_typeof\(new\.checkpoint_payload -> 'candidates'\) = 'array'/);
+  assert.match(sql, /\{discovery,searchAdStats\}[\s\S]*?'\[\]'::jsonb/);
+  assert.match(sql, /\{discovery,sourceTagsByKeyword\}[\s\S]*?'\{\}'::jsonb/);
+  assert.match(sql, /\{discovery,candidates\}[\s\S]*?'\[\]'::jsonb/);
+  assert.match(sql, /before insert or update of checkpoint_payload/);
+  assert.match(sql, /status in \('queued', 'running'\)/);
+  assert.doesNotMatch(sql, /delete from public\.seo_run_jobs/i);
+  assert.doesNotMatch(sql, /result_payload\s*=/i);
+});
