@@ -332,6 +332,10 @@
   }
 
   async function waitForResult(assignment) {
+    // Monthly runs require the background CDP verifier to parse per-GOODSKEY
+    // result evidence before deciding success/retry. Never let the generic
+    // aggregate success/failure shortcut preempt that controller.
+    if (/^monthly-/.test(String(assignment?.runId || ""))) return;
     const deadline = Date.now() + 180000;
     while (Date.now() < deadline) {
       const evidence = resultEvidence();
