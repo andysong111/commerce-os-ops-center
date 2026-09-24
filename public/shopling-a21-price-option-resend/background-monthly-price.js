@@ -28,6 +28,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     const sellingOk = !meta.needsSellingStatus || allSucceeded(selling);
     const restoreOk = !meta.restoreSoldOut || allSucceeded(restore);
     const rolledBack = rollback.some((job) => job.status === "SUCCEEDED");
+    const rollbackPending = rollback.some((job) => ["QUEUED", "RUNNING"].includes(job.status));
     const done = priceOk && optionOk && sellingOk && restoreOk;
     return {
       token: meta.token,
@@ -35,7 +36,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       goodsKey: meta.goodsKey,
       itemId: meta.itemId,
       batchId: state.monthlyBatchId || meta.batchId || null,
-      state: done ? "SUCCEEDED" : failed || state.state === "PARTIAL_FAILURE" ? "PARTIAL_FAILURE" : state.state === "STOPPED" ? "STOPPED" : "RUNNING",
+      state: rollbackPending ? "RUNNING" : done ? "SUCCEEDED" : failed || state.state === "PARTIAL_FAILURE" ? "PARTIAL_FAILURE" : state.state === "STOPPED" ? "STOPPED" : "RUNNING",
       priceOnly: priceOk && !optionOk,
       priceAndOption: priceOk && optionOk,
       saleStatusActivated: sellingOk,
