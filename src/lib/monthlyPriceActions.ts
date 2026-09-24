@@ -145,7 +145,8 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       const live = await readMonthlyLiveProduct(item.goods_key);
       monthlyValidateObservation(payload.observation, item.goods_key);
       verifyMonthlyPricePlan(item.plan, item.candidate, live, observed);
-      item.transmission = { token: randomUUID(), fingerprint: item.plan.fingerprint, claimedAt: new Date().toISOString() };
+      const batchId = payload.batchId === undefined || payload.batchId === null || payload.batchId === "" ? undefined : validId(payload.batchId);
+      item.transmission = { token: randomUUID(), fingerprint: item.plan.fingerprint, claimedAt: new Date().toISOString(), ...(batchId ? { batchId } : {}) };
       item.state = "RESENDING";
       await auditMonthlyPrice(item, "MARKET_TRANSMISSION_INTENT", item.transmission);
       return { ...response(item), duplicate: false };
