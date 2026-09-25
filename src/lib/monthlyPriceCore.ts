@@ -19,13 +19,16 @@ export type MonthlyLinkedMarketRow = {
   mallProductCode: string;
   mallProductName: string;
   sellPrice: number;
-  source: "linked_market_table";
+  source: "registered_shop_table";
 };
 export type MonthlyObservation = {
   goodsKey: string;
   pageUrl: string;
   observedAt: number;
   rows: MonthlyObservedPrice[];
+  marketPageUrl?: string;
+  marketObservedAt?: number;
+  marketEvidence?: "REGISTERED_SHOP_TABLE";
   marketRows?: MonthlyLinkedMarketRow[];
 };
 export type MonthlyCost = {
@@ -184,25 +187,55 @@ export function monthlyValidateObservation(value: unknown, goodsKey: string, now
     if (!/^SMALL_\d{5}$/.test(mallKey) || !["header", "input_name"].includes(source)) throw new Error("MONTHLY_PRICE_BROWSER_MAPPING_AMBIGUOUS");
     return { mallKey, source, sellPrice: monthlyMoney(row.sellPrice, true), purchasePrice: monthlyMoney(row.purchasePrice, true), consumerPrice: monthlyMoney(row.consumerPrice, true) };
   });
-  const rawMarketRows = input.marketRows === undefined ? [] : input.marketRows;
-  if (!Array.isArray(rawMarketRows) || rawMarketRows.length > 1000) throw new Error("MONTHLY_PRICE_MARKET_ROWS_INVALID");
-  const marketRows = rawMarketRows.map((raw) => {
-    const row = monthlyRecord(raw), mallKey = String(row.mallKey ?? ""), source = String(row.source ?? "");
-    const status = String(row.status ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
-    const mallProductCode = String(row.mallProductCode ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
-    const mallProductName = String(row.mallProductName ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+  let marketRows: MonthlyLinkedMarketRow[] | undefined;
+  let marketPageUrl: string | undefined;
+  let marketObservedAt: number | undefined;
+  let marketEvidence: "REGISTERED_SHOP_TABLE" | undefined;
+  if (input.marketRows !== undefined) {
+    if (!Array.isArray(input.marketRows) || input.marketRows.length > 1000) throw new Error("MONTHLY_PRICE_MARKET_ROWS_INVALID");
+    const marketTime = Number(input.marketObservedAt);
+    let marketUrl: URL;
+    try { marketUrl = new URL(String(input.marketPageUrl)); } catch { throw new Error("MONTHLY_PRICE_MARKET_BROWSER_IDENTITY_INVALID"); }
     if (
-      !/^SMALL_\d{5}$/.test(mallKey) ||
-      source !== "linked_market_table" ||
-      !status ||
-      status.length > 40 ||
-      !mallProductCode ||
-      mallProductCode.length > 120 ||
-      mallProductName.length > 500
-    ) throw new Error("MONTHLY_PRICE_MARKET_ROWS_INVALID");
-    return { mallKey, status, mallProductCode, mallProductName, sellPrice: monthlyMoney(row.sellPrice, true), source: "linked_market_table" as const };
-  });
-  return { goodsKey, pageUrl: url.href, observedAt: time, rows, marketRows };
+      input.marketEvidence !== "REGISTERED_SHOP_TABLE" ||
+      marketUrl.origin !== "https://a.shopling.co.kr" ||
+      marketUrl.href === url.href ||
+      (
+        marketUrl.pathname === "/prod/prodShopInfo.phtml" &&
+        marketUrl.searchParams.get("mode") === "price_chg" &&
+        marketUrl.searchParams.get("prod_id") === goodsKey
+      ) ||
+      !Number.isFinite(marketTime) ||
+      marketTime > now + 5000 ||
+      now - marketTime > 30_000
+    ) throw new Error("MONTHLY_PRICE_MARKET_BROWSER_EVIDENCE_STALE");
+    marketRows = input.marketRows.map((raw) => {
+      const row = monthlyRecord(raw), mallKey = String(row.mallKey ?? ""), source = String(row.source ?? "");
+      const status = String(row.status ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+      const mallProductCode = String(row.mallProductCode ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+      const mallProductName = String(row.mallProductName ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+      if (
+        !/^SMALL_\d{5}$/.test(mallKey) ||
+        source !== "registered_shop_table" ||
+        !status ||
+        status.length > 40 ||
+        !mallProductCode ||
+        mallProductCode.length > 120 ||
+        mallProductName.length > 500
+      ) throw new Error("MONTHLY_PRICE_MARKET_ROWS_INVALID");
+      return { mallKey, status, mallProductCode, mallProductName, sellPrice: monthlyMoney(row.sellPrice, true), source: "registered_shop_table" as const };
+    });
+    marketPageUrl = marketUrl.href;
+    marketObservedAt = marketTime;
+    marketEvidence = "REGISTERED_SHOP_TABLE";
+  }
+  return {
+    goodsKey,
+    pageUrl: url.href,
+    observedAt: time,
+    rows,
+    ...(marketRows !== undefined ? { marketRows, marketPageUrl, marketObservedAt, marketEvidence } : {}),
+  };
 }
 function priceValues(row: Record<string, unknown>): PriceValues {
   return { sellPrice: monthlyMoney(row.sale_price), purchasePrice: monthlyMoney(row.org_price, true), consumerPrice: monthlyMoney(row.list_price, true) };

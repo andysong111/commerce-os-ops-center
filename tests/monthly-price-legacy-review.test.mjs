@@ -34,11 +34,11 @@ function harness() {
   });
   const market=(status,sellPrice,code='LIVE-1')=>({
     mallKey:'SMALL_00069',status,mallProductCode:code,mallProductName:'fixture mall',
-    sellPrice,source:'linked_market_table',
+    sellPrice,source:'registered_shop_table',
   });
   const call=(marketRows)=>api.reviewLegacyMonthlyTransmission({
     itemId,runId,nextBatchId,
-    observation:{...appliedObservation,observedAt:Date.now(),marketRows},
+    observation:{...appliedObservation,observedAt:Date.now(),marketPageUrl:'https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=modify&prod_id=1234567',marketObservedAt:Date.now(),marketEvidence:'REGISTERED_SHOP_TABLE',marketRows},
   });
   return {item,plan,mall,token,log,market,call,set liveRows(value){liveRows=value;}};
 }

@@ -210,8 +210,8 @@ test('linked-market review verifies selling prices, ignores deleted duplicates, 
   const p=buildMonthlyPricePlan(candidate(),live(1000),observation(1000));
   const mall=p.targets.find(row=>row.mallKey==='SMALL_00069');
   assert.ok(mall);
-  const market=(status,sellPrice,code)=>({mallKey:'SMALL_00069',status,mallProductCode:code,mallProductName:'fixture mall',sellPrice,source:'linked_market_table'});
-  const matched=monthlyValidateObservation({...observation(mall.target.sellPrice),marketRows:[
+  const market=(status,sellPrice,code)=>({mallKey:'SMALL_00069',status,mallProductCode:code,mallProductName:'fixture mall',sellPrice,source:'registered_shop_table'});
+  const matched=monthlyValidateObservation({...observation(mall.target.sellPrice),marketPageUrl:'https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=modify&prod_id=1234567',marketObservedAt:Date.now(),marketEvidence:'REGISTERED_SHOP_TABLE',marketRows:[
     market('삭제',99999,'OLD-1'),
     market('판매중',mall.target.sellPrice,'LIVE-1'),
   ],observedAt:Date.now()},'1234567');
@@ -220,7 +220,7 @@ test('linked-market review verifies selling prices, ignores deleted duplicates, 
   assert.deepEqual(ok.matchedMallKeys,['SMALL_00069']);
   assert.equal(ok.sellingMallCount,1);
 
-  const mismatch=monthlyValidateObservation({...observation(mall.target.sellPrice),marketRows:[
+  const mismatch=monthlyValidateObservation({...observation(mall.target.sellPrice),marketPageUrl:'https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=modify&prod_id=1234567',marketObservedAt:Date.now(),marketEvidence:'REGISTERED_SHOP_TABLE',marketRows:[
     market('판매중',mall.target.sellPrice-100,'LIVE-1'),
   ],observedAt:Date.now()},'1234567');
   const bad=reviewMonthlyLinkedMarketPrices(p,mismatch);
@@ -232,15 +232,28 @@ test('linked-market review verifies selling prices, ignores deleted duplicates, 
 
 test('linked-market review treats confirmed inactive listings as non-resend and missing evidence as uncertain', () => {
   const p=buildMonthlyPricePlan(candidate(),live(1000),observation(1000));
-  const deleted=monthlyValidateObservation({...observation(),marketRows:[{
-    mallKey:'SMALL_00069',status:'삭제',mallProductCode:'OLD-1',mallProductName:'fixture mall',sellPrice:1000,source:'linked_market_table',
+  const deleted=monthlyValidateObservation({...observation(),marketPageUrl:'https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=modify&prod_id=1234567',marketObservedAt:Date.now(),marketEvidence:'REGISTERED_SHOP_TABLE',marketRows:[{
+    mallKey:'SMALL_00069',status:'삭제',mallProductCode:'OLD-1',mallProductName:'fixture mall',sellPrice:1000,source:'registered_shop_table',
   }],observedAt:Date.now()},'1234567');
   const inactive=reviewMonthlyLinkedMarketPrices(p,deleted);
   assert.equal(inactive.state,'MATCHED');
   assert.deepEqual(inactive.inactiveMallKeys,['SMALL_00069']);
 
-  const missing=monthlyValidateObservation({...observation(),marketRows:[],observedAt:Date.now()},'1234567');
+  const missing=monthlyValidateObservation({...observation(),marketPageUrl:'https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=modify&prod_id=1234567',marketObservedAt:Date.now(),marketEvidence:'REGISTERED_SHOP_TABLE',marketRows:[],observedAt:Date.now()},'1234567');
   const uncertain=reviewMonthlyLinkedMarketPrices(p,missing);
   assert.equal(uncertain.state,'UNCERTAIN');
   assert.deepEqual(uncertain.unresolvedMallKeys,['SMALL_00069']);
+});
+
+
+test('registered-market evidence must come from a separate Shopling view, never the price-setting page', () => {
+  const base=observation();
+  assert.throws(()=>monthlyValidateObservation({
+    ...base,
+    observedAt:Date.now(),
+    marketPageUrl:base.pageUrl,
+    marketObservedAt:Date.now(),
+    marketEvidence:'REGISTERED_SHOP_TABLE',
+    marketRows:[{mallKey:'SMALL_00069',status:'판매중',mallProductCode:'LIVE-1',mallProductName:'fixture',sellPrice:1000,source:'registered_shop_table'}],
+  },'1234567'),/MONTHLY_PRICE_MARKET_BROWSER_EVIDENCE_STALE/);
 });
