@@ -239,7 +239,7 @@ test('linked-market review treats confirmed inactive listings as non-resend and 
   assert.equal(inactive.state,'MATCHED');
   assert.deepEqual(inactive.inactiveMallKeys,['SMALL_00069']);
 
-  const missing=monthlyValidateObservation({...observation(),marketPageUrl:'https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=modify&prod_id=1234567',marketObservedAt:Date.now(),marketEvidence:'REGISTERED_SHOP_TABLE',marketPageUrl:'https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=modify&prod_id=1234567',marketObservedAt:Date.now(),marketEvidence:'REGISTERED_SHOP_TABLE',marketRows:[],observedAt:Date.now()},'1234567');
+  const missing=monthlyValidateObservation({...observation(),marketPageUrl:'https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=modify&prod_id=1234567',marketObservedAt:Date.now(),marketEvidence:'REGISTERED_SHOP_TABLE',marketRows:[],observedAt:Date.now()},'1234567');
   const uncertain=reviewMonthlyLinkedMarketPrices(p,missing);
   assert.equal(uncertain.state,'UNCERTAIN');
   assert.deepEqual(uncertain.unresolvedMallKeys,['SMALL_00069']);
