@@ -151,7 +151,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.6"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.7"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
@@ -165,7 +165,7 @@ test("v0.5.7 self-heals invalidated Commerce OS page bridge contexts", async () 
   assert.match(monthlyBackground, /injectMonthlyPageBridge/);
   assert.match(monthlyBackground, /chrome\.scripting\.executeScript/);
   assert.match(monthlyBackground, /china-order-manager\*/);
-  assert.match(bridge, /__commerceOsMonthlyPriceBridgeV055/);
+  assert.match(bridge, /__commerceOsMonthlyPriceBridgeV057/);
   assert.match(bridge, /MONTHLY_PRICE_EXTENSION_RELOAD_REQUIRED/);
   assert.match(bridge, /try \{/);
 });
