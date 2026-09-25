@@ -289,3 +289,19 @@ test('v0.5.7 sold-out goods that exhaust PRICE retries are rolled back before te
   assert.equal(report.report.items[0].relistRequired,true);
   assert.equal(report.report.items[0].saleStatusRolledBack,true);
 });
+
+
+test('v0.5.7 registered-mall readback uses a dedicated command and never reuses price-setting evidence',()=>{
+  const background=file('background-monthly-price.js');
+  const dom=file('monthly-price-dom.js');
+  const bridge=file('monthly-price-page-bridge.js');
+  assert.match(bridge,/MARKET_READ/);
+  assert.match(background,/MONTHLY_PRICE_MARKET_READ/);
+  assert.match(background,/prodLst\.phtml/);
+  assert.match(background,/readRegisteredMarketPrices/);
+  assert.match(dom,/collectMonthlyRegisteredMarketPage/);
+  assert.match(dom,/advanceMonthlyRegisteredMarketPage/);
+  assert.match(dom,/REGISTERED_SHOP_TABLE/);
+  assert.match(dom,/registered_shop_table/);
+  assert.match(dom,/mode\) === "price_chg"/);
+});
