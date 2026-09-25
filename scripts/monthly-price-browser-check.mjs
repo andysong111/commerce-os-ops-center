@@ -48,7 +48,7 @@ await page.addInitScript(()=>{
     const m=e.data;if(m?.channel!=='commerce-os-monthly-price-v1'||m.direction!=='request')return;
     window.bridgeEvents.push({command:m.command,payload:m.payload});
     if(m.command==='START'&&window.bridgeHistoryMissingItemId&&m.payload?.itemId===window.bridgeHistoryMissingItemId){
-      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:'0.5.6',error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:'0.5.7',error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
       return;
     }
     if(m.command==='BATCH_START'){
@@ -57,10 +57,10 @@ await page.addInitScript(()=>{
     if(m.command==='BATCH_START'||m.command==='BATCH_STATUS'){
       const rows=window.bridgeBatches[m.payload.batchId]||[];
       const report={batchId:m.payload.batchId,state:'SUCCEEDED',phase:'DONE',activeWindows:0,itemCount:rows.length,items:rows.map(row=>({itemId:row.itemId,token:row.token,fingerprint:row.fingerprint,goodsKey:row.goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true,saleStatusRolledBack:false}))};
-      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:true,version:'0.5.6',report}},location.origin);
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:true,version:'0.5.7',report}},location.origin);
       return;
     }
-    const response={ok:true,version:'0.5.6',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true}};
+    const response={ok:true,version:'0.5.7',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true}};
     window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response},location.origin);
   });
 });
@@ -138,6 +138,8 @@ try{
   await page.getByText(/과거 전송결과 정리 완료 · 이미 정상 0건 · 실제 미반영 재전송 1건/).waitFor({state:'attached'});
   assert.deepEqual(events,['reviewLegacyTransmission','resendReport']);
   bridge=await page.evaluate(()=>window.bridgeEvents);
+  assert.equal(bridge.filter(x=>x.command==='READ').length,1);
+  assert.equal(bridge.find(x=>x.command==='READ').payload.requireLinkedMarketRows,true);
   assert.equal(bridge.filter(x=>x.command==='BATCH_START').length,1);
   assert.equal(item.state,'TRANSMITTED');
   scenario='happy';item=makeItem();started=true;events=[];

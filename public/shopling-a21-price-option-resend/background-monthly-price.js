@@ -513,10 +513,12 @@ importScripts("background-v044.js", "monthly-price-dom.js");
         const results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: collectMonthlyPricePage, args: [goodsKey] }).catch(() => []);
         const value = results[0]?.result;
         if (!value) continue;
-        const next = JSON.stringify(value.rows);
-        if (next === signature && previous) return value;
+        const next = JSON.stringify({ rows: value.rows, marketRows: value.marketRows || [] });
+        const linkedReady = !requireLinkedMarketRows || (Array.isArray(value.marketRows) && value.marketRows.length > 0);
+        if (linkedReady && next === signature && previous) return value;
         signature = next; previous = value;
       }
+      if (requireLinkedMarketRows) throw new Error("MONTHLY_PRICE_LINKED_MARKET_TABLE_REQUIRED");
       throw new Error("MONTHLY_PRICE_SHOPLING_LOGIN_OR_DOM_REQUIRED");
     } finally { await chrome.tabs.remove(tab.id).catch(() => null); }
   }
@@ -569,7 +571,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken || current?.monthlyBatchId) await remember(current);
       const state = {
-        version: "0.5.6",
+        version: "0.5.7",
         runId: `monthly-batch-${payload.batchId}`,
         monthlyBatchId: payload.batchId,
         monthlyItems: items,
@@ -630,7 +632,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.6", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.7", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
         monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
@@ -655,8 +657,8 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.6" });
-        if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || "")) });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.7" });
+        if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), payload.requireLinkedMarketRows === true) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });
         if (message.type === "MONTHLY_PRICE_BATCH_START") return sendResponse({ ok: true, report: await startMonthlyBatch(payload) });
