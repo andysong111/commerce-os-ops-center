@@ -140,7 +140,7 @@ function batchWorker(count=450) {
   return {send,payload,batchId,items,log,context,get current(){return current;}};
 }
 
-test('v0.5.6 batch mode chunks GOODSKEY by 200, opens same-phase windows in parallel, and gates OPTION until every PRICE batch succeeds',async()=>{
+test('v0.5.7 batch mode chunks GOODSKEY by 200, opens same-phase windows in parallel, and gates OPTION until every PRICE batch succeeds',async()=>{
   const w=batchWorker(450);
   const started=await w.send('MONTHLY_PRICE_BATCH_START');
   assert.equal(started.ok,true);
@@ -155,7 +155,7 @@ test('v0.5.6 batch mode chunks GOODSKEY by 200, opens same-phase windows in para
   assert.equal(w.current.jobs.filter(x=>x.mode==='OPTION'&&x.status==='RUNNING').length,3);
 });
 
-test('v0.5.6 option-phase failure activates sold-out rollback instead of terminalizing early',async()=>{
+test('v0.5.7 option-phase failure activates sold-out rollback instead of terminalizing early',async()=>{
   const w=batchWorker(2);
   w.items[0].plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:false};
   w.payload.items=w.items.map(row=>({itemId:row.id,token:row.transmission.token,fingerprint:row.plan.fingerprint}));
@@ -182,7 +182,7 @@ test('v0.5.6 option-phase failure activates sold-out rollback instead of termina
   assert.equal(status.report.items[0].saleStatusRolledBack,true);
 });
 
-test('v0.5.6 batch mode caps concurrent Shopling windows at four for a phase',async()=>{
+test('v0.5.7 batch mode caps concurrent Shopling windows at four for a phase',async()=>{
   const w=batchWorker(1000);
   await w.send('MONTHLY_PRICE_BATCH_START');
   assert.equal(w.current.jobs.filter(x=>x.mode==='PRICE'&&x.status==='RUNNING').length,4);
@@ -191,7 +191,7 @@ test('v0.5.6 batch mode caps concurrent Shopling windows at four for a phase',as
 });
 
 
-test('v0.5.6 explicit result rows retry only failed GOODSKEY at stage 2',async()=>{
+test('v0.5.7 explicit result rows retry only failed GOODSKEY at stage 2',async()=>{
   const w=batchWorker(3);
   await w.send('MONTHLY_PRICE_BATCH_START');
   const price=w.current.jobs.find(x=>x.mode==='PRICE'&&x.status==='RUNNING');
@@ -211,7 +211,7 @@ test('v0.5.6 explicit result rows retry only failed GOODSKEY at stage 2',async()
   assert.equal(w.current.jobs.some(x=>x.mode==='OPTION'&&x.status==='RUNNING'),false);
 });
 
-test('v0.5.6 aggregate failure without row identity narrows failed group 200 -> 20 -> individual',async()=>{
+test('v0.5.7 aggregate failure without row identity narrows failed group 200 -> 20 -> individual',async()=>{
   const w=batchWorker(45);
   await w.send('MONTHLY_PRICE_BATCH_START');
   const first=w.current.jobs.find(x=>x.mode==='PRICE'&&x.status==='RUNNING');
@@ -229,7 +229,7 @@ test('v0.5.6 aggregate failure without row identity narrows failed group 200 -> 
   assert.equal(stage3.length,20);
 });
 
-test('v0.5.6 third explicit failure becomes relist-required and never enters OPTION',async()=>{
+test('v0.5.7 third explicit failure becomes relist-required and never enters OPTION',async()=>{
   const w=batchWorker(1);
   await w.send('MONTHLY_PRICE_BATCH_START');
   let price=w.current.jobs.find(x=>x.mode==='PRICE'&&x.status==='RUNNING');
@@ -249,7 +249,7 @@ test('v0.5.6 third explicit failure becomes relist-required and never enters OPT
   assert.equal(report.report.items[0].priceOutcome,'RELIST_REQUIRED');
 });
 
-test('v0.5.6 unknown completed result is held uncertain and is never auto-resent',async()=>{
+test('v0.5.7 unknown completed result is held uncertain and is never auto-resent',async()=>{
   const w=batchWorker(1);
   await w.send('MONTHLY_PRICE_BATCH_START');
   const price=w.current.jobs.find(x=>x.mode==='PRICE'&&x.status==='RUNNING');
@@ -263,7 +263,7 @@ test('v0.5.6 unknown completed result is held uncertain and is never auto-resent
 });
 
 
-test('v0.5.6 sold-out goods that exhaust PRICE retries are rolled back before terminal relist report',async()=>{
+test('v0.5.7 sold-out goods that exhaust PRICE retries are rolled back before terminal relist report',async()=>{
   const w=batchWorker(1);
   w.items[0].plan.saleStatusTransition={before:'C',target:'B',restoreAfterTransmission:false};
   w.payload.items=w.items.map(row=>({itemId:row.id,token:row.transmission.token,fingerprint:row.plan.fingerprint}));
