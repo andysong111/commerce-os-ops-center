@@ -303,5 +303,5 @@ test('v0.5.7 registered-mall readback uses a dedicated command and never reuses 
   assert.match(dom,/advanceMonthlyRegisteredMarketPage/);
   assert.match(dom,/REGISTERED_SHOP_TABLE/);
   assert.match(dom,/registered_shop_table/);
-  assert.match(dom,/mode\) === "price_chg"/);
+  assert.match(dom,/searchParams\.get\("mode"\) === "price_chg"/);
 });
