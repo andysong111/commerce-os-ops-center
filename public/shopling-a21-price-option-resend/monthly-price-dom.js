@@ -378,6 +378,8 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
           || (/prodShopInfo\.phtml/i.test(raw) && new RegExp(`(?:prod_id|goods_key)[^0-9]*${goodsKey}(?:\\D|$)`, "i").test(raw));
       });
       if (strong && safeNavigateOrClick(strong)) return { state: "DETAIL_OPENED" };
+      const fallback = controls.find((el) => /^(?:수정|상품\s*수정)$/.test(controlText(el)));
+      if (fallback && safeNavigateOrClick(fallback)) return { state: "DETAIL_OPENED" };
     }
     return { state: "DETAIL_LINK_MISSING" };
   }
