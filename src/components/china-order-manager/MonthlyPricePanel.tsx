@@ -353,7 +353,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       for (let index = 0; active() && index < targets.length; index += 1) {
         const initial = targets[index];
         setProgress(`과거 전송결과 확인 ${index + 1}/${targets.length} · ${initial.candidate.productName} · 실제 등록 쇼핑몰 판매가 조회`);
-        const observation = (await monthlyPriceBridge("READ", { goodsKey: initial.goodsKey })).observation;
+        const observation = (await monthlyPriceBridge("MARKET_READ", { goodsKey: initial.goodsKey })).observation;
         if (!active()) break;
         const result = await api({
           action: "reviewLegacyTransmission",
