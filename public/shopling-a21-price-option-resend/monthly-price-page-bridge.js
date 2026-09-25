@@ -1,6 +1,6 @@
 (() => {
   const channel = "commerce-os-monthly-price-v1";
-  const marker = "__commerceOsMonthlyPriceBridgeV055";
+  const marker = "__commerceOsMonthlyPriceBridgeV057";
   if (window.top !== window || location.origin !== "https://commerce-os-ops-center.vercel.app") return;
   if (globalThis[marker]) return;
   globalThis[marker] = true;
@@ -12,7 +12,7 @@
   window.addEventListener("message", (event) => {
     const message = event.data;
     if (event.source !== window || event.origin !== location.origin || message?.channel !== channel || message.direction !== "request" || typeof message.requestId !== "string" || message.requestId.length > 100) return;
-    if (!["PING", "READ", "START", "STATUS", "BATCH_START", "BATCH_STATUS"].includes(message.command)) return;
+    if (!["PING", "READ", "MARKET_READ", "START", "STATUS", "BATCH_START", "BATCH_STATUS"].includes(message.command)) return;
     try {
       chrome.runtime.sendMessage({ type: `MONTHLY_PRICE_${message.command}`, payload: message.payload || {} }, (response) => {
         try {

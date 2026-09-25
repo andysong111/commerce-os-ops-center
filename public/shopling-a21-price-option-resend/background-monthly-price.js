@@ -1,5 +1,5 @@
-/* global chrome, collectMonthlyPricePage, loadState, saveState, publicState,
- buildBatches, addJobs, baselinePopupTabs, pump, startRun */
+/* global chrome, collectMonthlyPricePage, collectMonthlyRegisteredMarketPage, advanceMonthlyRegisteredMarketPage,
+ loadState, saveState, publicState, buildBatches, addJobs, baselinePopupTabs, pump, startRun */
 importScripts("background-v044.js", "monthly-price-dom.js");
 
 (() => {
@@ -502,7 +502,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && (changes.commerceOsShoplingA21PriceOptionResendV020?.newValue?.monthlyToken || changes.commerceOsShoplingA21PriceOptionResendV020?.newValue?.monthlyBatchId)) void remember(changes.commerceOsShoplingA21PriceOptionResendV020.newValue);
   });
-  async function readPrices(goodsKey) {
+  async function readPriceSettings(goodsKey) {
     if (!/^\d{5,9}$/.test(goodsKey)) throw new Error("MONTHLY_PRICE_GOODSKEY_INVALID");
     const url = `https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=${goodsKey}`;
     const tab = await chrome.tabs.create({ url, active: false });
@@ -510,18 +510,117 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     try {
       for (let attempt = 0; attempt < 35; attempt += 1) {
         await sleep(650);
-        const results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: collectMonthlyPricePage, args: [goodsKey] }).catch(() => []);
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: collectMonthlyPricePage,
+          args: [goodsKey],
+        }).catch(() => []);
         const value = results[0]?.result;
         if (!value) continue;
-        const next = JSON.stringify({ rows: value.rows, marketRows: value.marketRows || [] });
-        const linkedReady = !requireLinkedMarketRows || (Array.isArray(value.marketRows) && value.marketRows.length > 0);
-        if (linkedReady && next === signature && previous) return value;
-        signature = next; previous = value;
+        const next = JSON.stringify(value.rows);
+        if (next === signature && previous) return value;
+        signature = next;
+        previous = value;
       }
-      if (requireLinkedMarketRows) throw new Error("MONTHLY_PRICE_LINKED_MARKET_TABLE_REQUIRED");
       throw new Error("MONTHLY_PRICE_SHOPLING_LOGIN_OR_DOM_REQUIRED");
-    } finally { await chrome.tabs.remove(tab.id).catch(() => null); }
+    } finally {
+      if (Number.isInteger(tab?.id)) await chrome.tabs.remove(tab.id).catch(() => null);
+    }
   }
+
+  async function readRegisteredMarketPrices(goodsKey) {
+    if (!/^\d{5,9}$/.test(goodsKey)) throw new Error("MONTHLY_PRICE_GOODSKEY_INVALID");
+    const beforeTabs = await chrome.tabs.query({}).catch(() => []);
+    const preexisting = new Set(beforeTabs.map((tab) => tab.id).filter(Number.isInteger));
+    const root = await chrome.tabs.create({
+      url: `https://a.shopling.co.kr/prod/prodLst.phtml?commerce_os_monthly_market_read=1&commerce_os_monthly_market_goods=${goodsKey}`,
+      active: false,
+    });
+    if (!Number.isInteger(root?.id)) throw new Error("MONTHLY_PRICE_REGISTERED_MALL_TAB_REQUIRED");
+
+    const owned = new Set([root.id]);
+    let activeTabId = root.id;
+    let signature = "";
+    let previous = null;
+    let lastState = "";
+    let repeatedTerminal = 0;
+
+    const discoverChildren = async () => {
+      const tabs = await chrome.tabs.query({}).catch(() => []);
+      for (const tab of tabs) {
+        if (!Number.isInteger(tab.id) || preexisting.has(tab.id) || owned.has(tab.id)) continue;
+        if (Number.isInteger(tab.openerTabId) && owned.has(tab.openerTabId)) owned.add(tab.id);
+      }
+      const candidates = tabs
+        .filter((tab) => Number.isInteger(tab.id) && owned.has(tab.id) && String(tab.url || "").startsWith("https://a.shopling.co.kr/"))
+        .sort((a, b) => Number(b.id) - Number(a.id));
+      const child = candidates.find((tab) => tab.id !== root.id);
+      if (Number.isInteger(child?.id)) activeTabId = child.id;
+    };
+
+    try {
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        await sleep(attempt < 3 ? 650 : 450);
+        await discoverChildren();
+
+        const candidates = [activeTabId, ...[...owned].reverse()]
+          .filter((id, index, list) => Number.isInteger(id) && list.indexOf(id) === index);
+
+        for (const tabId of candidates) {
+          const parsed = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: collectMonthlyRegisteredMarketPage,
+            args: [goodsKey],
+          }).catch(() => []);
+          const value = parsed[0]?.result;
+          if (!value?.marketRows?.length) continue;
+          activeTabId = tabId;
+          const next = JSON.stringify(value.marketRows);
+          if (next === signature && previous) return value;
+          signature = next;
+          previous = value;
+        }
+
+        const advanced = await chrome.scripting.executeScript({
+          target: { tabId: activeTabId },
+          func: advanceMonthlyRegisteredMarketPage,
+          args: [goodsKey],
+        }).catch(() => []);
+        const state = String(advanced[0]?.result?.state || "");
+        if (state === "LOGIN_REQUIRED") throw new Error("MONTHLY_PRICE_SHOPLING_LOGIN_OR_DOM_REQUIRED");
+
+        const terminal = [
+          "SEARCH_FIELD_MISSING",
+          "SEARCH_INPUT_MISSING",
+          "SEARCH_BUTTON_MISSING",
+          "DETAIL_LINK_MISSING",
+          "REGISTERED_VIEW_CONTROL_MISSING",
+          "INVALID_PAGE",
+        ].includes(state);
+        if (terminal && state === lastState) repeatedTerminal += 1;
+        else repeatedTerminal = terminal ? 1 : 0;
+        lastState = state;
+        if (repeatedTerminal >= 4) {
+          throw new Error(`MONTHLY_PRICE_REGISTERED_MALL_VIEW_REQUIRED:${state}`);
+        }
+
+        await discoverChildren();
+      }
+      throw new Error("MONTHLY_PRICE_REGISTERED_MALL_VIEW_TIMEOUT");
+    } finally {
+      for (const tabId of [...owned]) {
+        if (Number.isInteger(tabId)) await chrome.tabs.remove(tabId).catch(() => null);
+      }
+    }
+  }
+
+  async function readPrices(goodsKey, includeRegisteredMarket = false) {
+    const price = await readPriceSettings(goodsKey);
+    if (!includeRegisteredMarket) return price;
+    const market = await readRegisteredMarketPrices(goodsKey);
+    return { ...price, ...market, goodsKey };
+  }
+
   async function canonicalTransmission(payload) {
     if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(payload.month) || !/^[0-9a-f-]{36}$/.test(payload.token) || !/^[0-9a-f-]{36}$/.test(payload.runId)) throw new Error("MONTHLY_PRICE_TRANSMISSION_SCOPE_INVALID");
     const response = await fetch(`${ORIGIN}/api/china-order-manager/monthly-price?month=${payload.month}&runId=${encodeURIComponent(payload.runId)}`, { cache: "no-store", credentials: "omit" });
@@ -658,7 +757,8 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       try {
         const payload = message.payload || {};
         if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.7" });
-        if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), payload.requireLinkedMarketRows === true) });
+        if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), false) });
+        if (message.type === "MONTHLY_PRICE_MARKET_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), true) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
         if (message.type === "MONTHLY_PRICE_STATUS") return sendResponse({ ok: true, report: await status(payload) });
         if (message.type === "MONTHLY_PRICE_BATCH_START") return sendResponse({ ok: true, report: await startMonthlyBatch(payload) });
