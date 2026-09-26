@@ -21,7 +21,11 @@ importScripts("background-v044.js", "monthly-price-dom.js");
         target: { tabId },
         files: ["monthly-price-page-bridge.js"],
       });
-      return true;
+      const probe = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => typeof globalThis.chrome?.runtime?.sendMessage === "function",
+      }).catch(() => []);
+      return probe[0]?.result === true;
     } catch {
       return false;
     }
@@ -670,7 +674,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken || current?.monthlyBatchId) await remember(current);
       const state = {
-        version: "0.5.7",
+        version: "0.5.8",
         runId: `monthly-batch-${payload.batchId}`,
         monthlyBatchId: payload.batchId,
         monthlyItems: items,
@@ -731,7 +735,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.7", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.8", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
         monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
@@ -756,7 +760,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.7" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.8" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), false) });
         if (message.type === "MONTHLY_PRICE_MARKET_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), true) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
