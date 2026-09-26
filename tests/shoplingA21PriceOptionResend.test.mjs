@@ -151,7 +151,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.12"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.13"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
@@ -167,7 +167,7 @@ test("v0.5.13 self-heals invalidated Commerce OS page bridge contexts", async ()
   assert.match(monthlyBackground, /china-order-manager\*/);
   assert.match(bridge, /__commerceOsMonthlyPriceBridge/);
   assert.match(bridge, /removeEventListener\("message", previous\.listener\)/);
-  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.12", listener \}/);
+  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.13", listener \}/);
   assert.match(bridge, /typeof runtime\.sendMessage !== "function"/);
   assert.match(monthlyBackground, /probe\[0\]\?\.result === true/);
   assert.match(bridge, /MONTHLY_PRICE_EXTENSION_RELOAD_REQUIRED/);
@@ -201,12 +201,14 @@ test("v0.5.13 registered-mall search expands old-product date range and does not
   assert.match(monthlyBackground, /SEARCH_RESULT_NOT_FOUND/);
 });
 
-test("v0.5.13 exact GOODSKEY row falls back to canonical read-only detail URL when Shopling hides the detail control", async () => {
+test("v0.5.13 follows the live Shopling registered-mall checkbox flow", async () => {
   const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
-  assert.match(dom, /DETAIL_OPENED_DIRECT/);
-  assert.match(dom, /directDetail\.searchParams\.set\("mode", "modify"\)/);
-  assert.match(dom, /directDetail\.searchParams\.set\("prod_id", goodsKey\)/);
-  assert.doesNotMatch(dom, /return \{ state: "DETAIL_LINK_MISSING" \}/);
+  assert.match(dom, /상품이\\s\*등록된\\s\*쇼핑몰\\s\*보기/);
+  assert.match(dom, /commerceOsMonthlyRegisteredViewSearchV0513/);
+  assert.match(dom, /REGISTERED_VIEW_SEARCH_SUBMITTED/);
+  assert.match(dom, /WAITING_FOR_REGISTERED_TABLE/);
+  assert.match(dom, /REGISTERED_VIEW_RESULT_NOT_FOUND/);
+  assert.doesNotMatch(dom, /DETAIL_OPENED_DIRECT/);
 });
 
 test("page bridge exposes batch start and batch status commands", async () => {
