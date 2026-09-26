@@ -151,7 +151,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.10"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.11"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
@@ -167,7 +167,7 @@ test("v0.5.11 self-heals invalidated Commerce OS page bridge contexts", async ()
   assert.match(monthlyBackground, /china-order-manager\*/);
   assert.match(bridge, /__commerceOsMonthlyPriceBridge/);
   assert.match(bridge, /removeEventListener\("message", previous\.listener\)/);
-  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.10", listener \}/);
+  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.11", listener \}/);
   assert.match(bridge, /typeof runtime\.sendMessage !== "function"/);
   assert.match(monthlyBackground, /probe\[0\]\?\.result === true/);
   assert.match(bridge, /MONTHLY_PRICE_EXTENSION_RELOAD_REQUIRED/);
@@ -187,6 +187,18 @@ test("v0.5.11 registered-mall readback targets the actionable Shopling child fra
   assert.match(monthlyBackground, /frameIds:\s*\[target\.frameId\]/);
   assert.match(monthlyBackground, /FRAME_NOT_FOUND/);
   assert.match(monthlyBackground, /MONTHLY_PRICE_REGISTERED_MALL_VIEW_TIMEOUT:/);
+});
+
+test("v0.5.11 registered-mall search expands old-product date range and does not hammer Search", async () => {
+  const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
+  assert.match(dom, /20130912/);
+  assert.match(dom, /Asia\/Seoul/);
+  assert.match(dom, /commerceOsMonthlyRegisteredSearchV0511/);
+  assert.match(dom, /SEARCH_WAITING/);
+  assert.match(dom, /SEARCH_RESULT_NOT_FOUND/);
+  assert.match(dom, /상품등록번호/);
+  assert.match(dom, /상품검색용코드/);
+  assert.match(monthlyBackground, /SEARCH_RESULT_NOT_FOUND/);
 });
 
 test("page bridge exposes batch start and batch status commands", async () => {
