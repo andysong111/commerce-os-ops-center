@@ -167,7 +167,7 @@ test("v0.5.12 self-heals invalidated Commerce OS page bridge contexts", async ()
   assert.match(monthlyBackground, /china-order-manager\*/);
   assert.match(bridge, /__commerceOsMonthlyPriceBridge/);
   assert.match(bridge, /removeEventListener\("message", previous\.listener\)/);
-  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.11", listener \}/);
+  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.12", listener \}/);
   assert.match(bridge, /typeof runtime\.sendMessage !== "function"/);
   assert.match(monthlyBackground, /probe\[0\]\?\.result === true/);
   assert.match(bridge, /MONTHLY_PRICE_EXTENSION_RELOAD_REQUIRED/);
@@ -199,6 +199,14 @@ test("v0.5.12 registered-mall search expands old-product date range and does not
   assert.match(dom, /상품등록번호/);
   assert.match(dom, /상품검색용코드/);
   assert.match(monthlyBackground, /SEARCH_RESULT_NOT_FOUND/);
+});
+
+test("v0.5.12 exact GOODSKEY row falls back to canonical read-only detail URL when Shopling hides the detail control", async () => {
+  const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
+  assert.match(dom, /DETAIL_OPENED_DIRECT/);
+  assert.match(dom, /directDetail\.searchParams\.set\("mode", "modify"\)/);
+  assert.match(dom, /directDetail\.searchParams\.set\("prod_id", goodsKey\)/);
+  assert.doesNotMatch(dom, /return \{ state: "DETAIL_LINK_MISSING" \}/);
 });
 
 test("page bridge exposes batch start and batch status commands", async () => {
