@@ -22,7 +22,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statu
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.8");
+  assert.equal(manifest.version, "0.5.9");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -71,7 +71,7 @@ test("A21 v0.4.4 preserves price-first serial queue from v0.4.1", () => {
   assert.match(backgroundV041, /state\.jobs\.some\(\(job\) => job\.status === "RUNNING"\)/);
 });
 
-test("monthly v0.5.8 batches up to 200 GOODSKEY and parallelizes only within the current phase", () => {
+test("monthly v0.5.9 batches up to 200 GOODSKEY and parallelizes only within the current phase", () => {
   assert.match(monthlyBackground, /MAX_MONTHLY_PARALLEL = 4/);
   assert.match(backgroundBase, /MAX_SEARCH_CODES = 200/);
   assert.match(monthlyBackground, /buildBatches\(items\)/);
@@ -129,7 +129,7 @@ test("monthly result pages defer generic aggregate success/failure to the per-GO
   assert.match(listContent, /return;/);
 });
 
-test("monthly v0.5.8 captures Shopling result counts and rows before closing the result window", () => {
+test("monthly v0.5.9 captures Shopling result counts and rows before closing the result window", () => {
   assert.doesNotMatch(backgroundV044, /finalSendBaseline|최종전송일/);
   assert.match(backgroundV044, /successCount/);
   assert.match(backgroundV044, /failureCount/);
@@ -159,7 +159,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
   assert.match(downloadRoute, /monthly-status-popup-v053\.js/);
 });
 
-test("v0.5.8 self-heals invalidated Commerce OS page bridge contexts", async () => {
+test("v0.5.9 self-heals invalidated Commerce OS page bridge contexts", async () => {
   const bridge = await readFile(new URL("monthly-price-page-bridge.js", root), "utf8");
   assert.match(monthlyBackground, /repairMonthlyPageBridges/);
   assert.match(monthlyBackground, /injectMonthlyPageBridge/);
