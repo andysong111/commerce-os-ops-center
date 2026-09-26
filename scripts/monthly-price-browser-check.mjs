@@ -182,6 +182,8 @@ try{
 
   await shop.goto('https://a.shopling.co.kr/prod/prodLst.phtml');
   await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
+  const frameProbe=await shop.evaluate(()=>inspectMonthlyRegisteredMarketFrame('1234567'));
+  assert.equal(frameProbe.state,'PRODUCT_LIST_WITH_GOODS');
   const navState=await shop.evaluate(()=>advanceMonthlyRegisteredMarketPage('1234567'));
   assert.equal(navState.state,'DETAIL_OPENED');
   await shop.waitForURL(/mode=modify&prod_id=1234567/);
@@ -189,5 +191,5 @@ try{
   await shop.goto('https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=1234567');
   await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
   assert.equal(await shop.evaluate(()=>collectMonthlyRegisteredMarketPage('1234567')),null);
-  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','legacy-market-review-resends-only-mismatch','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','registered-shop-table-readonly','ambiguous-DOM-blocked'],productionWrites:false},null,2));
+  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','legacy-market-review-resends-only-mismatch','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','registered-shop-table-readonly','registered-shop-action-frame-probe','ambiguous-DOM-blocked'],productionWrites:false},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
