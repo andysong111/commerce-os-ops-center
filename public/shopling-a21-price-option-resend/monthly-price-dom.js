@@ -1,4 +1,4 @@
-/* global collectMonthlyPricePage: false, collectMonthlyRegisteredMarketPage: false, advanceMonthlyRegisteredMarketPage: false */
+/* global collectMonthlyPricePage: false, collectMonthlyRegisteredMarketPage: false, inspectMonthlyRegisteredMarketFrame: false, advanceMonthlyRegisteredMarketPage: false */
 // These functions are deliberately self-contained. Chrome serializes each
 // function into an isolated world, so do not depend on helpers outside the
 // function body.
@@ -217,6 +217,57 @@ function collectMonthlyRegisteredMarketPage(goodsKey) {
   };
 }
 
+/**
+ * Find the one Shopling frame that actually owns the product-list/detail UI.
+ * Shopling often renders the working page inside a child frame, so the
+ * background worker must not assume the top document is the actionable page.
+ */
+function inspectMonthlyRegisteredMarketFrame(goodsKey) {
+  if (location.origin !== "https://a.shopling.co.kr" || !/^\\d{5,9}$/.test(String(goodsKey || ""))) {
+    return { state: "INVALID_FRAME", score: -1, pageUrl: String(location.href || "") };
+  }
+
+  const text = (value) => String(value ?? "").normalize("NFKC").replace(/\\s+/g, " ").trim();
+  const compact = (value) => text(value).replace(/\\s+/g, "").toLowerCase();
+  const controlText = (el) => text([
+    el?.textContent, el?.innerText, el?.getAttribute?.("value"), el?.getAttribute?.("title"),
+    el?.getAttribute?.("alt"), el?.querySelector?.("img")?.getAttribute?.("alt"),
+    el?.querySelector?.("img")?.getAttribute?.("title"),
+  ].filter(Boolean).join(" "));
+
+  const registeredTable = [...document.querySelectorAll("table")].some((table) =>
+    [...table.querySelectorAll("tr")].slice(0, 10).some((row) => {
+      const labels = [...row.querySelectorAll(":scope > th, :scope > td")].map((cell) => compact(cell.textContent));
+      return labels.some((label) => /^(상태|판매상태|상품상태)$/.test(label))
+        && labels.some((label) => /^(몰상품코드|쇼핑몰상품코드|마켓상품코드|상품코드)$/.test(label))
+        && labels.some((label) => /^(몰판매가|쇼핑몰판매가|마켓판매가|현재판매가|판매가)(\\(원\\))?$/.test(label));
+    }),
+  );
+  if (registeredTable) return { state: "REGISTERED_TABLE", score: 100, pageUrl: location.href };
+
+  const controls = [...document.querySelectorAll('a,button,input[type="button"],input[type="submit"],[onclick],img[alt],img[title]')];
+  if (controls.some((el) => /등록된\\s*쇼핑몰(?:\\s*보기)?/i.test(controlText(el)))) {
+    return { state: "REGISTERED_CONTROL", score: 95, pageUrl: location.href };
+  }
+
+  const body = text(document.body?.innerText || document.body?.textContent || "");
+  const hasGoodsKey = body.includes(String(goodsKey)) || [...document.querySelectorAll("a[href],[onclick],form[action],input[name],input[value],button[value]")]
+    .slice(0, 3000)
+    .some((node) => [node.getAttribute("href"), node.getAttribute("onclick"), node.getAttribute("action"), node.getAttribute("name"), node.getAttribute("value")].filter(Boolean).join("=").includes(String(goodsKey)));
+  const productList = /\\/prod\\/prodLst\\.phtml$/i.test(location.pathname)
+    || (/총\\s*조회수/.test(body) && /상품조회|상품수정|검색관리/.test(body));
+  if (productList && hasGoodsKey) return { state: "PRODUCT_LIST_WITH_GOODS", score: 90, pageUrl: location.href };
+  if (productList) return { state: "PRODUCT_LIST", score: 80, pageUrl: location.href };
+
+  if (/\\/prod\\/prodShopInfo\\.phtml$/i.test(location.pathname) && new URLSearchParams(location.search).get("mode") !== "price_chg") {
+    return { state: "PRODUCT_DETAIL", score: 70, pageUrl: location.href };
+  }
+
+  if (/로그인|login|아이디\\s*[:：]?|비밀번호\\s*[:：]?/i.test(body.slice(0, 2200)) && !/총\\s*조회수|상품조회|상품수정/.test(body)) {
+    return { state: "LOGIN_REQUIRED", score: 60, pageUrl: location.href };
+  }
+  return { state: "SHOPLING_OTHER", score: 10, pageUrl: location.href };
+}
 /**
  * Read-only navigator for GOODSKEY -> 상품조회/수정 -> 등록된 쇼핑몰 보기.
  * It may submit a search form or click a view/navigation control, but never
