@@ -642,8 +642,15 @@ importScripts("background-v044.js", "monthly-price-dom.js");
 
         const terminal = [
           "SEARCH_FIELD_MISSING",
+          "SEARCH_FIELD_SET_FAILED",
           "SEARCH_INPUT_MISSING",
+          "SEARCH_INPUT_SET_FAILED",
+          "SEARCH_DATE_SET_FAILED",
+          "SEARCH_DATE_VERIFY_FAILED",
           "SEARCH_BUTTON_MISSING",
+          "SEARCH_CLICK_FAILED",
+          "SEARCH_CONTINUATION_STORAGE_FAILED",
+          "SEARCH_RESULT_NOT_FOUND",
           "DETAIL_LINK_MISSING",
           "REGISTERED_VIEW_CONTROL_MISSING",
           "INVALID_PAGE",
@@ -721,7 +728,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken || current?.monthlyBatchId) await remember(current);
       const state = {
-        version: "0.5.10",
+        version: "0.5.11",
         runId: `monthly-batch-${payload.batchId}`,
         monthlyBatchId: payload.batchId,
         monthlyItems: items,
@@ -782,7 +789,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.10", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.11", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
         monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
@@ -807,7 +814,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.10" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.11" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), false) });
         if (message.type === "MONTHLY_PRICE_MARKET_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), true) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
