@@ -174,6 +174,11 @@ test("v0.5.10 self-heals invalidated Commerce OS page bridge contexts", async ()
   assert.match(bridge, /try \{/);
 });
 
+test("v0.5.10 registered-mall GOODSKEY validation accepts normal numeric keys", () => {
+  assert.match(monthlyBackground, /if \(!\/\^\\d\{5,9\}\$\/\.test\(goodsKey\)\)/);
+  assert.doesNotMatch(monthlyBackground, /\^\\\\d\{5,9\}\$/);
+});
+
 test("v0.5.10 registered-mall readback targets the actionable Shopling child frame", async () => {
   const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
   assert.match(dom, /inspectMonthlyRegisteredMarketFrame/);
