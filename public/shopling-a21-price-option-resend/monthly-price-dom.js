@@ -555,8 +555,10 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     }
 
     const searchRoot = registeredCheckbox.form || registeredCheckbox.closest("form") || document;
-    const searchButtons = [...searchRoot.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]')]
+    const findSearchButtons = (root) => [...root.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]')]
       .filter((element) => visible(element) && /^(검색|조회)$/.test(controlText(element)));
+    let searchButtons = findSearchButtons(searchRoot);
+    if (!searchButtons.length && searchRoot !== document) searchButtons = findSearchButtons(document);
     if (!searchButtons.length) return { state: "SEARCH_BUTTON_MISSING", pageUrl: location.href };
 
     try {
