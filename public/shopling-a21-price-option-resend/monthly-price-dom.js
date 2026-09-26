@@ -505,36 +505,76 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       return { state: "SEARCH_BUTTON_MISSING", fieldLabel: selectedLabel, pageUrl: location.href };
     }
 
-    // Some Shopling layouts expose the registered-mall viewer directly in the
-    // list row. Prefer it before opening the product detail.
-    for (const row of exactRows) {
-      const controls = [...row.querySelectorAll('a,button,input[type="button"],input[type="submit"],[onclick],img[alt],img[title]')];
-      const registered = controls.find((el) => /등록된\s*쇼핑몰(?:\s*보기)?/i.test(controlText(el)));
-      if (registered && safeNavigateOrClick(registered)) return { state: "REGISTERED_VIEW_OPENED" };
+    // Real Shopling flow (confirmed from the live A4 screen):
+    // exact GOODSKEY result -> check "상품이 등록된 쇼핑몰 보기" -> Search again.
+    // The registered marketplace rows then render inline under the product row;
+    // there is no separate "등록된 쇼핑몰 보기" button/detail page to open.
+    const checkboxText = (input) => {
+      const chunks = [];
+      const id = input.getAttribute("id");
+      if (id) {
+        const escapedId = globalThis.CSS?.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
+        const label = document.querySelector(`label[for="${escapedId}"]`);
+        if (label) chunks.push(label.textContent || "");
+      }
+      const wrapping = input.closest("label");
+      if (wrapping) chunks.push(wrapping.textContent || "");
+      let node = input.nextSibling;
+      for (let index = 0; node && index < 5; index += 1, node = node.nextSibling) {
+        chunks.push(node.textContent || "");
+      }
+      chunks.push(input.getAttribute("name") || "", input.getAttribute("value") || "");
+      return text(chunks.join(" "));
+    };
+    const registeredCheckbox = [...document.querySelectorAll('input[type="checkbox"]')]
+      .filter(visible)
+      .find((input) => /상품이\s*등록된\s*쇼핑몰\s*보기/i.test(checkboxText(input)));
+
+    if (!(registeredCheckbox instanceof HTMLInputElement)) {
+      return { state: "REGISTERED_VIEW_CHECKBOX_MISSING", pageUrl: location.href };
+    }
+    if (!registeredCheckbox.checked) {
+      registeredCheckbox.click();
+      registeredCheckbox.checked = true;
+      registeredCheckbox.dispatchEvent(new Event("input", { bubbles: true }));
+      registeredCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    if (!registeredCheckbox.checked) {
+      return { state: "REGISTERED_VIEW_CHECKBOX_SET_FAILED", pageUrl: location.href };
     }
 
-    for (const row of exactRows) {
-      const controls = [...row.querySelectorAll('a,button,input[type="button"],[onclick],img[alt],img[title]')];
-      const strong = controls.find((el) => {
-        const label = controlText(el);
-        const raw = `${el.getAttribute?.("href") || ""} ${el.getAttribute?.("onclick") || ""}`;
-        return /상품\s*조회\s*\/\s*수정|조회\s*\/\s*수정/i.test(label)
-          || (/prodShopInfo\.phtml/i.test(raw) && new RegExp(`(?:prod_id|goods_key)[^0-9]*${goodsKey}(?:\\D|$)`, "i").test(raw));
-      });
-      if (strong && safeNavigateOrClick(strong)) return { state: "DETAIL_OPENED" };
-      const fallback = controls.find((el) => /^(?:수정|상품\s*수정)$/.test(controlText(el)));
-      if (fallback && safeNavigateOrClick(fallback)) return { state: "DETAIL_OPENED" };
+    const ticketKey = `commerceOsMonthlyRegisteredViewSearchV0513:${goodsKey}`;
+    let ticket = null;
+    try { ticket = JSON.parse(sessionStorage.getItem(ticketKey) || "null"); } catch { ticket = null; }
+    const ticketAge = ticket ? Date.now() - Number(ticket.at || 0) : Number.POSITIVE_INFINITY;
+    if (ticket && ticket.goodsKey === goodsKey && ticketAge < 30_000) {
+      return { state: "WAITING_FOR_REGISTERED_TABLE", ageMs: ticketAge, pageUrl: location.href };
+    }
+    if (ticket && ticket.goodsKey === goodsKey && ticketAge >= 30_000 && ticketAge < 90_000) {
+      return { state: "REGISTERED_VIEW_RESULT_NOT_FOUND", ageMs: ticketAge, pageUrl: location.href };
     }
 
-    // The exact GOODSKEY row is already proven above. Some Shopling layouts
-    // hide the detail action behind an image/JS handler whose label cannot be
-    // read reliably. In that case use the canonical read-only product detail
-    // URL instead of failing on a presentation-only control.
-    const directDetail = new URL("/prod/prodShopInfo.phtml", location.origin);
-    directDetail.searchParams.set("mode", "modify");
-    directDetail.searchParams.set("prod_id", goodsKey);
-    location.href = directDetail.href;
-    return { state: "DETAIL_OPENED_DIRECT", pageUrl: directDetail.href };
+    const searchRoot = registeredCheckbox.form || registeredCheckbox.closest("form") || document;
+    const findSearchButtons = (root) => [...root.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]')]
+      .filter((element) => visible(element) && /^(검색|조회)$/.test(controlText(element)));
+    let searchButtons = findSearchButtons(searchRoot);
+    if (!searchButtons.length && searchRoot !== document) searchButtons = findSearchButtons(document);
+    if (!searchButtons.length) return { state: "SEARCH_BUTTON_MISSING", pageUrl: location.href };
+
+    try {
+      sessionStorage.setItem(ticketKey, JSON.stringify({ at: Date.now(), goodsKey }));
+    } catch {
+      return { state: "SEARCH_CONTINUATION_STORAGE_FAILED", pageUrl: location.href };
+    }
+    const button = searchButtons[0];
+    try {
+      button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      button.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      button.click();
+      return { state: "REGISTERED_VIEW_SEARCH_SUBMITTED", pageUrl: location.href };
+    } catch {
+      return { state: "SEARCH_CLICK_FAILED", pageUrl: location.href };
+    }
   }
 
   const controls = [...document.querySelectorAll('a,button,input[type="button"],input[type="submit"],[onclick],img[alt],img[title]')];

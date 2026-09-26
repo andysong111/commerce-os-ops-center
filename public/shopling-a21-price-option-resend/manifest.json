@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Commerce OS · Shopling A21 Price/Option Resend",
   "short_name": "A21 Resend",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "description": "월 입고확정 가격조정 연결 · 등록된 쇼핑몰 실제 몰판매가 최종검증 · 3단계 가격/옵션 재전송",
   "permissions": [
     "storage",
