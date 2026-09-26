@@ -525,7 +525,16 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       const fallback = controls.find((el) => /^(?:수정|상품\s*수정)$/.test(controlText(el)));
       if (fallback && safeNavigateOrClick(fallback)) return { state: "DETAIL_OPENED" };
     }
-    return { state: "DETAIL_LINK_MISSING" };
+
+    // The exact GOODSKEY row is already proven above. Some Shopling layouts
+    // hide the detail action behind an image/JS handler whose label cannot be
+    // read reliably. In that case use the canonical read-only product detail
+    // URL instead of failing on a presentation-only control.
+    const directDetail = new URL("/prod/prodShopInfo.phtml", location.origin);
+    directDetail.searchParams.set("mode", "modify");
+    directDetail.searchParams.set("prod_id", goodsKey);
+    location.href = directDetail.href;
+    return { state: "DETAIL_OPENED_DIRECT", pageUrl: directDetail.href };
   }
 
   const controls = [...document.querySelectorAll('a,button,input[type="button"],input[type="submit"],[onclick],img[alt],img[title]')];
