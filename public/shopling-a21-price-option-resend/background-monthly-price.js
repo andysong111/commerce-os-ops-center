@@ -1,4 +1,4 @@
-/* global chrome, collectMonthlyPricePage, collectMonthlyRegisteredMarketPage, advanceMonthlyRegisteredMarketPage,
+/* global chrome, collectMonthlyPricePage, collectMonthlyRegisteredMarketPage, inspectMonthlyRegisteredMarketFrame, advanceMonthlyRegisteredMarketPage,
  loadState, saveState, publicState, buildBatches, addJobs, baselinePopupTabs, pump, startRun */
 importScripts("background-v044.js", "monthly-price-dom.js");
 
@@ -533,7 +533,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   }
 
   async function readRegisteredMarketPrices(goodsKey) {
-    if (!/^\d{5,9}$/.test(goodsKey)) throw new Error("MONTHLY_PRICE_GOODSKEY_INVALID");
+    if (!/^\\d{5,9}$/.test(goodsKey)) throw new Error("MONTHLY_PRICE_GOODSKEY_INVALID");
     const beforeTabs = await chrome.tabs.query({}).catch(() => []);
     const preexisting = new Set(beforeTabs.map((tab) => tab.id).filter(Number.isInteger));
     const root = await chrome.tabs.create({
@@ -548,6 +548,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     let previous = null;
     let lastState = "";
     let repeatedTerminal = 0;
+    let lastDiagnostic = "INIT";
 
     const discoverChildren = async () => {
       const tabs = await chrome.tabs.query({}).catch(() => []);
@@ -562,35 +563,81 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       if (Number.isInteger(child?.id)) activeTabId = child.id;
     };
 
+    const candidateIds = () => [activeTabId, ...[...owned].reverse()]
+      .filter((id, index, list) => Number.isInteger(id) && list.indexOf(id) === index);
+
+    async function seedIdentity(tabId) {
+      await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: (key) => {
+          try { sessionStorage.setItem("commerceOsMonthlyRegisteredMallGoodsKey", key); return true; } catch { return false; }
+        },
+        args: [goodsKey],
+      }).catch(() => []);
+    }
+
+    async function collectFromAllFrames(tabId) {
+      await seedIdentity(tabId);
+      const parsed = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: collectMonthlyRegisteredMarketPage,
+        args: [goodsKey],
+      }).catch(() => []);
+      return parsed.map((entry) => ({ frameId: entry.frameId, value: entry.result })).filter((entry) => entry.value?.marketRows?.length);
+    }
+
+    async function bestActionFrame() {
+      let best = null;
+      for (const tabId of candidateIds()) {
+        await seedIdentity(tabId);
+        const probes = await chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: inspectMonthlyRegisteredMarketFrame,
+          args: [goodsKey],
+        }).catch(() => []);
+        for (const entry of probes) {
+          const value = entry?.result;
+          if (!value || !Number.isFinite(Number(value.score))) continue;
+          const candidate = { tabId, frameId: entry.frameId, ...value };
+          if (!best || Number(candidate.score) > Number(best.score)) best = candidate;
+        }
+      }
+      return best;
+    }
+
     try {
-      for (let attempt = 0; attempt < 80; attempt += 1) {
-        await sleep(attempt < 3 ? 650 : 450);
+      for (let attempt = 0; attempt < 90; attempt += 1) {
+        await sleep(attempt < 4 ? 650 : 450);
         await discoverChildren();
 
-        const candidates = [activeTabId, ...[...owned].reverse()]
-          .filter((id, index, list) => Number.isInteger(id) && list.indexOf(id) === index);
-
-        for (const tabId of candidates) {
-          const parsed = await chrome.scripting.executeScript({
-            target: { tabId },
-            func: collectMonthlyRegisteredMarketPage,
-            args: [goodsKey],
-          }).catch(() => []);
-          const value = parsed[0]?.result;
-          if (!value?.marketRows?.length) continue;
-          activeTabId = tabId;
-          const next = JSON.stringify(value.marketRows);
-          if (next === signature && previous) return value;
-          signature = next;
-          previous = value;
+        for (const tabId of candidateIds()) {
+          const matches = await collectFromAllFrames(tabId);
+          for (const match of matches) {
+            const value = match.value;
+            activeTabId = tabId;
+            const next = JSON.stringify(value.marketRows);
+            if (next === signature && previous) return value;
+            signature = next;
+            previous = value;
+          }
         }
 
+        const target = await bestActionFrame();
+        if (!target) {
+          lastDiagnostic = "FRAME_NOT_FOUND";
+          continue;
+        }
+        activeTabId = target.tabId;
+        lastDiagnostic = `${target.state}@${target.pageUrl || ""}`;
+        if (target.state === "LOGIN_REQUIRED") throw new Error("MONTHLY_PRICE_SHOPLING_LOGIN_OR_DOM_REQUIRED");
+
         const advanced = await chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: Number.isInteger(target.frameId) ? { tabId: target.tabId, frameIds: [target.frameId] } : { tabId: target.tabId },
           func: advanceMonthlyRegisteredMarketPage,
           args: [goodsKey],
         }).catch(() => []);
-        const state = String(advanced[0]?.result?.state || "");
+        const state = String(advanced[0]?.result?.state || target.state || "FRAME_ACTION_EMPTY");
+        lastDiagnostic = `${state}@${advanced[0]?.result?.pageUrl || target.pageUrl || ""}`;
         if (state === "LOGIN_REQUIRED") throw new Error("MONTHLY_PRICE_SHOPLING_LOGIN_OR_DOM_REQUIRED");
 
         const terminal = [
@@ -600,6 +647,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
           "DETAIL_LINK_MISSING",
           "REGISTERED_VIEW_CONTROL_MISSING",
           "INVALID_PAGE",
+          "INVALID_FRAME",
         ].includes(state);
         if (terminal && state === lastState) repeatedTerminal += 1;
         else repeatedTerminal = terminal ? 1 : 0;
@@ -610,14 +658,13 @@ importScripts("background-v044.js", "monthly-price-dom.js");
 
         await discoverChildren();
       }
-      throw new Error("MONTHLY_PRICE_REGISTERED_MALL_VIEW_TIMEOUT");
+      throw new Error(`MONTHLY_PRICE_REGISTERED_MALL_VIEW_TIMEOUT:${lastDiagnostic}`);
     } finally {
       for (const tabId of [...owned]) {
         if (Number.isInteger(tabId)) await chrome.tabs.remove(tabId).catch(() => null);
       }
     }
   }
-
   async function readPrices(goodsKey, includeRegisteredMarket = false) {
     const price = await readPriceSettings(goodsKey);
     if (!includeRegisteredMarket) return price;
@@ -674,7 +721,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken || current?.monthlyBatchId) await remember(current);
       const state = {
-        version: "0.5.8",
+        version: "0.5.9",
         runId: `monthly-batch-${payload.batchId}`,
         monthlyBatchId: payload.batchId,
         monthlyItems: items,
@@ -735,7 +782,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.8", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.9", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
         monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
@@ -760,7 +807,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.8" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.9" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), false) });
         if (message.type === "MONTHLY_PRICE_MARKET_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), true) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });
