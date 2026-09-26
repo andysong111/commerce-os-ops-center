@@ -364,52 +364,145 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     const rows = [...document.querySelectorAll("tr")].filter((row) => row.querySelectorAll(":scope > td").length >= 3);
     const exactRows = rows.filter(rowHasGoodsKey);
     if (!exactRows.length) {
+      const searchLabels = ["샵플링상품코드", "상품등록번호", "상품검색용코드", "상품번호", "상품키", "Goods Key", "goods key"];
       let select = null;
       let option = null;
+      let selectedLabel = "";
       let best = -1;
-      for (const candidate of document.querySelectorAll("select")) {
+      for (const candidate of [...document.querySelectorAll("select")].filter(visible)) {
         for (const opt of candidate.options) {
-          const label = compact(opt.textContent);
+          const label = text(opt.textContent);
+          const normalized = compact(label);
           let score = -1;
-          if (/^샵플링상품코드$/.test(label)) score = 100;
-          else if (/샵플링.*상품코드/.test(label)) score = 90;
-          else if (/^상품코드$/.test(label)) score = 40;
-          if (score > best) { best = score; select = candidate; option = opt; }
+          const exactIndex = searchLabels.findIndex((wanted) => compact(wanted) === normalized);
+          if (exactIndex >= 0) score = 120 - exactIndex * 5;
+          else if (/샵플링.*상품코드/.test(normalized)) score = 90;
+          else if (/^(?:상품코드|goodskey)$/.test(normalized)) score = 40;
+          if (score > best) { best = score; select = candidate; option = opt; selectedLabel = label; }
         }
       }
       if (!(select instanceof HTMLSelectElement) || !(option instanceof HTMLOptionElement) || best < 40) {
-        return { state: "SEARCH_FIELD_MISSING" };
+        return { state: "SEARCH_FIELD_MISSING", pageUrl: location.href };
       }
+
+      const setControlValue = (control, value) => {
+        if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement)) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), "value");
+        if (descriptor?.set) descriptor.set.call(control, value);
+        else control.value = value;
+        control.dispatchEvent(new Event("input", { bubbles: true }));
+        control.dispatchEvent(new Event("change", { bubbles: true }));
+        return text(control.value) === text(value);
+      };
+
       if (select.value !== option.value) {
         select.value = option.value;
         select.dispatchEvent(new Event("input", { bubbles: true }));
         select.dispatchEvent(new Event("change", { bubbles: true }));
       }
-      const form = select.closest("form") || document;
-      const inputs = [...form.querySelectorAll('input[type="text"]:not([disabled]):not([readonly]),textarea:not([disabled]):not([readonly])')]
-        .filter(visible);
-      let input = inputs.find((node) => /검색|상품|코드|다중/.test(text(node.closest("tr")?.textContent || node.parentElement?.textContent || ""))) || inputs[0];
-      if (!input) return { state: "SEARCH_INPUT_MISSING" };
-      const current = text(input.value);
-      if (current !== goodsKey) {
-        input.value = goodsKey;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
+      if (select.value !== option.value) return { state: "SEARCH_FIELD_SET_FAILED", fieldLabel: selectedLabel, pageUrl: location.href };
+
+      const form = select.form || select.closest("form") || document;
+      const editable = (root) => [...root.querySelectorAll("input,textarea")].filter((input) => {
+        if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) return false;
+        if (!visible(input) || input.disabled || input.readOnly) return false;
+        if (input instanceof HTMLTextAreaElement) return true;
+        const type = text(input.getAttribute("type") || input.type || "text").toLowerCase();
+        return !["hidden","button","submit","reset","image","checkbox","radio","file","date","month","week","time","datetime-local","color","range","number"].includes(type);
+      });
+      const candidates = [
+        ...editable(select.closest("tr") || document),
+        ...editable(form),
+        ...editable(document),
+      ].filter((input, index, all) => all.indexOf(input) === index);
+      const fieldRect = select.getBoundingClientRect();
+      let input = null;
+      let inputScore = -999;
+      for (const candidate of candidates) {
+        const rect = candidate.getBoundingClientRect();
+        const context = text(candidate.closest("tr")?.textContent || candidate.parentElement?.textContent || "");
+        let score = 0;
+        if (candidate.closest("tr") === select.closest("tr")) score += 40;
+        if (candidate.form && select.form && candidate.form === select.form) score += 8;
+        if (/검색항목|다중검색|자사상품코드|옵션자체관리코드|모델번호|상품등록번호|샵플링상품코드|상품검색용코드|상품번호|상품키|goods key/i.test(context)) score += 18;
+        if (/search|find|query|keyword|sch/i.test(`${candidate.name || ""} ${candidate.id || ""}`)) score += 8;
+        if (/가격검색|일자|날짜/i.test(context)) score -= 25;
+        if (/^20\d{6}$/.test(text(candidate.value).replace(/\D/g, ""))) score -= 30;
+        const vertical = Math.abs(fieldRect.top - rect.top);
+        if (vertical <= 18) score += 25; else score -= Math.min(25, vertical / 12);
+        if (rect.left >= fieldRect.left) score += 6;
+        score -= Math.min(12, Math.abs(rect.left - fieldRect.right) / 45);
+        if (score > inputScore) { input = candidate; inputScore = score; }
       }
-      const candidates = [...form.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a')]
-        .filter(visible)
-        .filter((el) => /^(검색|조회)$/.test(controlText(el)));
-      const button = candidates[0];
-      if (!button) {
-        if (form instanceof HTMLFormElement) {
-          if (typeof form.requestSubmit === "function") form.requestSubmit();
-          else form.submit();
-          return { state: "SEARCH_SUBMITTED" };
-        }
-        return { state: "SEARCH_BUTTON_MISSING" };
+      if (!input || inputScore < 0) return { state: "SEARCH_INPUT_MISSING", fieldLabel: selectedLabel, pageUrl: location.href };
+      if (!setControlValue(input, goodsKey)) return { state: "SEARCH_INPUT_SET_FAILED", fieldLabel: selectedLabel, pageUrl: location.href };
+
+      const digits = (value) => String(value ?? "").replace(/\D/g, "");
+      const todayKst = () => {
+        const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+        return ["year", "month", "day"].map((type) => parts.find((part) => part.type === type)?.value || "").join("");
+      };
+      const dateValue = (control, value) => {
+        const old = String(control.value || "");
+        const separator = control.type === "date" || old.includes("-") ? "-" : old.includes("/") ? "/" : old.includes(".") ? "." : "";
+        return [value.slice(0,4), value.slice(4,6), value.slice(6)].join(separator);
+      };
+      const dateInputs = [...form.querySelectorAll("input")].filter((control) => {
+        const type = String(control.type || "text").toLowerCase();
+        if (!["text","date","search"].includes(type) || !visible(control) || control.disabled || control.readOnly) return false;
+        const context = text(control.closest("tr")?.textContent || control.parentElement?.textContent || "");
+        return /일자|날짜|기간|등록일|date/i.test(`${context} ${control.name || ""} ${control.id || ""}`) && /^20\d{6}$|^201\d{5}$/.test(digits(control.value));
+      });
+      let datePair = null;
+      const pairs = [];
+      for (let left = 0; left < dateInputs.length; left += 1) for (let right = left + 1; right < dateInputs.length; right += 1) {
+        const a = dateInputs[left], b = dateInputs[right], ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
+        if (Math.abs(ar.top - br.top) <= 18 && (a.closest("tr") === b.closest("tr") || Math.abs(ar.left - br.left) < 240)) pairs.push(ar.left <= br.left ? [a,b] : [b,a]);
       }
-      safeNavigateOrClick(button);
-      return { state: "SEARCH_SUBMITTED" };
+      if (pairs.length === 1) datePair = pairs[0];
+      const searchPeriod = { start: "", end: "" };
+      if (datePair) {
+        const startDate = "20130912";
+        const endDate = todayKst();
+        if (digits(datePair[0].value) !== startDate && !setControlValue(datePair[0], dateValue(datePair[0], startDate))) return { state: "SEARCH_DATE_SET_FAILED", pageUrl: location.href };
+        if (digits(datePair[1].value) !== endDate && !setControlValue(datePair[1], dateValue(datePair[1], endDate))) return { state: "SEARCH_DATE_SET_FAILED", pageUrl: location.href };
+        searchPeriod.start = digits(datePair[0].value);
+        searchPeriod.end = digits(datePair[1].value);
+        if (searchPeriod.start !== startDate || searchPeriod.end !== endDate) return { state: "SEARCH_DATE_VERIFY_FAILED", period: searchPeriod, pageUrl: location.href };
+      }
+
+      const ticketKey = `commerceOsMonthlyRegisteredSearchV0511:${goodsKey}`;
+      let ticket = null;
+      try { ticket = JSON.parse(sessionStorage.getItem(ticketKey) || "null"); } catch { ticket = null; }
+      const ticketAge = ticket ? Date.now() - Number(ticket.at || 0) : Number.POSITIVE_INFINITY;
+      if (ticket && ticket.goodsKey === goodsKey && ticketAge < 30_000) {
+        return { state: "SEARCH_WAITING", ageMs: ticketAge, fieldLabel: selectedLabel, period: searchPeriod, pageUrl: location.href };
+      }
+      if (ticket && ticket.goodsKey === goodsKey && ticketAge >= 30_000 && ticketAge < 90_000) {
+        return { state: "SEARCH_RESULT_NOT_FOUND", ageMs: ticketAge, fieldLabel: selectedLabel, period: searchPeriod, pageUrl: location.href };
+      }
+
+      const root = input.form || input.closest("table") || document;
+      const buttons = [...root.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]')]
+        .filter((element) => visible(element) && /^(검색|조회)$/.test(controlText(element)));
+      const inputRect = input.getBoundingClientRect();
+      buttons.sort((left, right) => Math.abs(left.getBoundingClientRect().top - inputRect.top) - Math.abs(right.getBoundingClientRect().top - inputRect.top));
+      try { sessionStorage.setItem(ticketKey, JSON.stringify({ at: Date.now(), goodsKey, fieldLabel: selectedLabel, period: searchPeriod })); } catch { return { state: "SEARCH_CONTINUATION_STORAGE_FAILED", pageUrl: location.href }; }
+      const button = buttons[0] || null;
+      if (button) {
+        try {
+          button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+          button.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+          button.click();
+          return { state: "SEARCH_SUBMITTED", fieldLabel: selectedLabel, period: searchPeriod, pageUrl: location.href };
+        } catch { return { state: "SEARCH_CLICK_FAILED", pageUrl: location.href }; }
+      }
+      if (form instanceof HTMLFormElement) {
+        if (typeof form.requestSubmit === "function") form.requestSubmit();
+        else form.submit();
+        return { state: "SEARCH_SUBMITTED", fieldLabel: selectedLabel, period: searchPeriod, pageUrl: location.href };
+      }
+      return { state: "SEARCH_BUTTON_MISSING", fieldLabel: selectedLabel, pageUrl: location.href };
     }
 
     // Some Shopling layouts expose the registered-mall viewer directly in the
