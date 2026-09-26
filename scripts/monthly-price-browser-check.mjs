@@ -158,7 +158,7 @@ try{
     }else if(requestUrl.pathname==='/prod/prodShopInfo.phtml'&&requestUrl.searchParams.get('mode')==='modify'){
       body='<button>등록된 쇼핑몰 보기</button><table><tr><th>상태</th><th>쇼핑몰명</th><th>몰상품코드</th><th>몰상품명</th><th>몰판매가</th></tr><tr><td>삭제</td><td>도매꾹</td><td>OLD-1</td><td>fixture old</td><td>18,700</td></tr><tr><td>판매중</td><td>도매꾹</td><td>LIVE-1</td><td>fixture live</td><td>12,900</td></tr></table>';
     }else{
-      body='<div>총 조회수 : 1건</div><form><select><option>샵플링상품코드</option></select><input type="text" value="1234567"><label><input id="registered-view" type="checkbox">상품이 등록된 쇼핑몰 보기</label><button id="fixture-search" type="button">검색</button></form><table><tr><td>1234567</td><td>fixture</td><td>상품행</td></tr></table>';
+      body='<div>총 조회수 : 1건</div><form><select><option>샵플링상품코드</option></select><input type="text" value="1234567"><label><input id="registered-view" type="checkbox">상품이 등록된 쇼핑몰 보기</label><input id="fixture-search" type="button" value="검색"></form><table><tr><td>1234567</td><td>fixture</td><td>상품행</td></tr></table>';
     }
     return route.fulfill({contentType:'text/html; charset=utf-8',body});
   });
