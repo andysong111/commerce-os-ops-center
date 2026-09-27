@@ -287,7 +287,6 @@ function inspectMonthlyRegisteredMarketFrame(goodsKey) {
   const escapedGoodsKey = String(goodsKey).replace(/[.*+?^$\{\}()|[\]\\]/g, "\\$&");
   const goodsPattern = new RegExp("(?:^|\\D)" + escapedGoodsKey + "(?:\\D|$)");
   const hasGoodsKey = [...document.querySelectorAll("tr")]
-    .filter((row) => row.querySelectorAll(":scope > td").length >= 5)
     .some((row) => goodsPattern.test(text(row.textContent || "")));
 
   if (registeredCheckbox && hasGoodsKey) return { state: "A4_WITH_GOODS", score: 110, pageUrl: location.href };
