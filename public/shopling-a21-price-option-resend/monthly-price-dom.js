@@ -385,8 +385,12 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
         && labels.some((label) => /^(몰판매가|쇼핑몰판매가|마켓판매가|현재판매가|판매가)(\(원\))?$/.test(label));
     });
   });
-  const findSearchButtons = (root = document) => [...root.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]')]
-    .filter((element) => visible(element) && /^(검색|조회)$/.test(controlText(element)));
+  const findSearchButtons = (root = document) => {
+    const exact = [...root.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]')]
+      .filter((element) => /^(검색|조회)$/.test(controlText(element)));
+    const shown = exact.filter(visible);
+    return shown.length ? shown : exact;
+  };
 
   try { sessionStorage.setItem("commerceOsMonthlyRegisteredMallGoodsKey", goodsKey); } catch {}
   if (tableLooksRegistered()) return { state: "READY", pageUrl: location.href };
