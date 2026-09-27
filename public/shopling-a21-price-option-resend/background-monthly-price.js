@@ -537,7 +537,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     const beforeTabs = await chrome.tabs.query({}).catch(() => []);
     const preexisting = new Set(beforeTabs.map((tab) => tab.id).filter(Number.isInteger));
     const root = await chrome.tabs.create({
-      url: `https://a.shopling.co.kr/prod/prodLst.phtml?commerce_os_monthly_market_read=1&commerce_os_monthly_market_goods=${goodsKey}`,
+      url: `https://a.shopling.co.kr/main.phtml?commerce_os_monthly_market_read=1&commerce_os_monthly_market_goods=${goodsKey}`,
       active: false,
     });
     if (!Number.isInteger(root?.id)) throw new Error("MONTHLY_PRICE_REGISTERED_MALL_TAB_REQUIRED");
@@ -656,6 +656,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
           "REGISTERED_VIEW_CHECKBOX_MISSING",
           "REGISTERED_VIEW_CHECKBOX_SET_FAILED",
           "REGISTERED_VIEW_RESULT_NOT_FOUND",
+          "A4_MENU_MISSING",
           "INVALID_PAGE",
           "INVALID_FRAME",
         ].includes(state);
@@ -731,7 +732,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken || current?.monthlyBatchId) await remember(current);
       const state = {
-        version: "0.5.13",
+        version: "0.5.14",
         runId: `monthly-batch-${payload.batchId}`,
         monthlyBatchId: payload.batchId,
         monthlyItems: items,
@@ -792,7 +793,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.13", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.14", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
         monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
@@ -817,7 +818,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.13" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.14" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), false) });
         if (message.type === "MONTHLY_PRICE_MARKET_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), true) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });

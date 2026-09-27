@@ -37,6 +37,6 @@
     }
   };
 
-  globalThis[slot] = { version: "0.5.13", listener };
+  globalThis[slot] = { version: "0.5.14", listener };
   window.addEventListener("message", listener);
 })();
