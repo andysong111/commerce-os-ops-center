@@ -460,16 +460,30 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     let select = null;
     let option = null;
     let selectedLabel = "";
-    let best = -1;
+    let best = -999;
     for (const candidate of [...document.querySelectorAll("select")].filter(visible)) {
+      const row = candidate.closest("tr");
+      const rowContext = text(row?.textContent || candidate.parentElement?.textContent || "");
+      const rowInputs = row ? [...row.querySelectorAll("input,textarea")] : [];
+      const placeholderContext = rowInputs.map((input) => [
+        input.getAttribute?.("placeholder"),
+        input.getAttribute?.("title"),
+        input.getAttribute?.("name"),
+        input.getAttribute?.("id"),
+      ].filter(Boolean).join(" ")).join(" ");
       for (const opt of candidate.options) {
         const label = text(opt.textContent);
         const normalized = compact(label);
-        let score = -1;
+        let score = -999;
         const exactIndex = searchLabels.findIndex((wanted) => compact(wanted) === normalized);
         if (exactIndex >= 0) score = 120 - exactIndex * 5;
         else if (/샵플링.*상품코드/.test(normalized)) score = 90;
         else if (/^(?:상품코드|goodskey)$/.test(normalized)) score = 40;
+        else continue;
+        if (/검색항목/.test(rowContext)) score += 300;
+        if (/샵플링상품코드|자사상품코드|쇼핑몰상품코드|다중검색|콤마/i.test(placeholderContext)) score += 140;
+        if (/화면출력|내림차순|오름차순|정렬/.test(rowContext)) score -= 350;
+        if (row && findSearchButtons(row).length) score += 40;
         if (score > best) { best = score; select = candidate; option = opt; selectedLabel = label; }
       }
     }
