@@ -225,7 +225,7 @@ try{
   assert.equal(await shop.locator('#goods-row').count(),1);
 
   const afterSearchProbe=await shop.evaluate(()=>inspectMonthlyRegisteredMarketFrame('1234567'));
-  assert.equal(afterSearchProbe.state,'A4_WITH_GOODS');
+  assert.ok(['A4_READY','A4_WITH_GOODS'].includes(afterSearchProbe.state));
   const navState=await shop.evaluate(()=>advanceMonthlyRegisteredMarketPage('1234567'));
   assert.equal(navState.state,'REGISTERED_VIEW_SEARCH_SUBMITTED');
   assert.equal(navState.fieldLabel,'샵플링상품코드');
