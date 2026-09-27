@@ -387,7 +387,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
   });
   const findSearchButtons = (root = document) => {
     const exact = [...root.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a,[onclick]')]
-      .filter((element) => /^(검색|조회)$/.test(controlText(element)));
+      .filter((element) => /^(검색|조회)(?:\s|$)/.test(controlText(element)));
     const shown = exact.filter(visible);
     return shown.length ? shown : exact;
   };
