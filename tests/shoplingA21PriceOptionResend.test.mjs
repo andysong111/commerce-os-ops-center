@@ -182,7 +182,7 @@ test("v0.5.14 registered-mall GOODSKEY validation accepts normal numeric keys", 
 test("v0.5.14 registered-mall readback targets the actionable Shopling child frame", async () => {
   const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
   assert.match(dom, /inspectMonthlyRegisteredMarketFrame/);
-  assert.match(dom, /PRODUCT_LIST_WITH_GOODS/);
+  assert.match(dom, /A4_WITH_GOODS/);
   assert.match(monthlyBackground, /allFrames:\s*true/);
   assert.match(monthlyBackground, /frameIds:\s*\[target\.frameId\]/);
   assert.match(monthlyBackground, /FRAME_NOT_FOUND/);
@@ -209,6 +209,16 @@ test("v0.5.14 follows the live Shopling registered-mall checkbox flow", async ()
   assert.match(dom, /WAITING_FOR_REGISTERED_TABLE/);
   assert.match(dom, /REGISTERED_VIEW_RESULT_NOT_FOUND/);
   assert.doesNotMatch(dom, /DETAIL_OPENED_DIRECT/);
+});
+
+test("v0.5.14 enters A4 상품조회수정 from the Shopling shell before market readback", async () => {
+  const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
+  assert.match(monthlyBackground, /main\.phtml\?commerce_os_monthly_market_read=1/);
+  assert.match(dom, /A4_MENU_AVAILABLE/);
+  assert.match(dom, /A4_MENU_OPENED/);
+  assert.match(dom, /A4_MENU_MISSING/);
+  assert.match(dom, /상품조회수정/);
+  assert.match(dom, /A4_WITH_GOODS/);
 });
 
 test("page bridge exposes batch start and batch status commands", async () => {
