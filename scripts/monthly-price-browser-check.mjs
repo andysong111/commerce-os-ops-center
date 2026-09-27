@@ -157,6 +157,8 @@ try{
       body='<table><tr><th>쇼핑몰</th><th>소비자가</th><th>판매가</th><th>매입가</th></tr><tr><td>도매꾹</td><td>7,777</td><td>1,234</td><td>222</td></tr></table>';
     }else if(requestUrl.pathname==='/prod/prodShopInfo.phtml'&&requestUrl.searchParams.get('mode')==='modify'){
       body='<button>등록된 쇼핑몰 보기</button><table><tr><th>상태</th><th>쇼핑몰명</th><th>몰상품코드</th><th>몰상품명</th><th>몰판매가</th></tr><tr><td>삭제</td><td>도매꾹</td><td>OLD-1</td><td>fixture old</td><td>18,700</td></tr><tr><td>판매중</td><td>도매꾹</td><td>LIVE-1</td><td>fixture live</td><td>12,900</td></tr></table>';
+    }else if(requestUrl.pathname==='/main.phtml'){
+      body='<div>[A21] 쇼핑몰상품수정</div><a id="a4-menu" href="/prod/prodLst.phtml">[A4] 상품조회수정</a>';
     }else{
       body='<div>총 조회수 : 1건</div><form><select><option>샵플링상품코드</option></select><input type="text" value="1234567"><label><input id="registered-view" type="checkbox">상품이 등록된 쇼핑몰 보기</label><input id="fixture-search" type="button" value="검색"></form><table><tr><td>1234567</td><td>fixture</td><td>상품행</td></tr></table>';
     }
@@ -180,10 +182,16 @@ try{
   assert.equal(registered.marketRows.find(x=>x.status==='판매중').mallProductCode,'LIVE-1');
   assert.equal(registered.marketRows[0].source,'registered_shop_table');
 
-  await shop.goto('https://a.shopling.co.kr/prod/prodLst.phtml');
+  await shop.goto('https://a.shopling.co.kr/main.phtml');
+  await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
+  const shellProbe=await shop.evaluate(()=>inspectMonthlyRegisteredMarketFrame('1234567'));
+  assert.equal(shellProbe.state,'A4_MENU_AVAILABLE');
+  const shellNav=await shop.evaluate(()=>advanceMonthlyRegisteredMarketPage('1234567'));
+  assert.equal(shellNav.state,'A4_MENU_OPENED');
+  await shop.waitForURL(/\/prod\/prodLst\.phtml/);
   await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
   const frameProbe=await shop.evaluate(()=>inspectMonthlyRegisteredMarketFrame('1234567'));
-  assert.equal(frameProbe.state,'PRODUCT_LIST_WITH_GOODS');
+  assert.equal(frameProbe.state,'A4_WITH_GOODS');
   await shop.evaluate(()=>{
     document.getElementById('fixture-search').addEventListener('click',()=>{
       if(!document.getElementById('registered-view').checked)return;
@@ -204,5 +212,5 @@ try{
   await shop.goto('https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=1234567');
   await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
   assert.equal(await shop.evaluate(()=>collectMonthlyRegisteredMarketPage('1234567')),null);
-  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','legacy-market-review-resends-only-mismatch','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','registered-shop-table-readonly','registered-shop-action-frame-probe','registered-shop-checkbox-second-search','ambiguous-DOM-blocked'],productionWrites:false},null,2));
+  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','legacy-market-review-resends-only-mismatch','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','registered-shop-table-readonly','registered-shop-a4-menu-navigation','registered-shop-action-frame-probe','registered-shop-checkbox-second-search','ambiguous-DOM-blocked'],productionWrites:false},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
