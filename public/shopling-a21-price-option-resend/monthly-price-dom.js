@@ -505,8 +505,10 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       const type = text(input.getAttribute("type") || input.type || "text").toLowerCase();
       return !["hidden","button","submit","reset","image","checkbox","radio","file","date","month","week","time","datetime-local","color","range","number"].includes(type);
     });
+    const searchRow = select.closest("tr");
+    const sameRowInputs = searchRow ? editable(searchRow) : [];
     const candidates = [
-      ...editable(select.closest("tr") || document),
+      ...sameRowInputs,
       ...editable(form),
       ...editable(document),
     ].filter((input, index, all) => all.indexOf(input) === index);
@@ -516,15 +518,22 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     for (const candidate of candidates) {
       const rect = candidate.getBoundingClientRect();
       const context = text(candidate.closest("tr")?.textContent || candidate.parentElement?.textContent || "");
+      const metadata = text([
+        candidate.getAttribute?.("placeholder"),
+        candidate.getAttribute?.("title"),
+        candidate.getAttribute?.("name"),
+        candidate.getAttribute?.("id"),
+      ].filter(Boolean).join(" "));
       let score = 0;
-      if (candidate.closest("tr") === select.closest("tr")) score += 40;
+      if (searchRow && candidate.closest("tr") === searchRow) score += 140;
       if (candidate.form && select.form && candidate.form === select.form) score += 8;
-      if (/검색항목|다중검색|자사상품코드|옵션자체관리코드|모델번호|상품등록번호|샵플링상품코드|상품검색용코드|상품번호|상품키|goods key/i.test(context)) score += 18;
-      if (/search|find|query|keyword|sch/i.test(String(candidate.name || "") + " " + String(candidate.id || ""))) score += 8;
-      if (/가격검색|일자|날짜/i.test(context)) score -= 25;
-      if (/^20\d{6}$/.test(text(candidate.value).replace(/\D/g, ""))) score -= 30;
+      if (/검색항목/.test(context)) score += 60;
+      if (/샵플링상품코드|자사상품코드|쇼핑몰상품코드|상품검색용코드|다중검색|콤마/i.test(metadata)) score += 160;
+      if (/search|find|query|keyword|sch/i.test(metadata)) score += 20;
+      if (/가격검색|일자|날짜/i.test(context + " " + metadata)) score -= 120;
+      if (/^20\d{6}$/.test(text(candidate.value).replace(/\D/g, ""))) score -= 120;
       const vertical = Math.abs(fieldRect.top - rect.top);
-      if (vertical <= 18) score += 25; else score -= Math.min(25, vertical / 12);
+      if (vertical <= 18) score += 30; else score -= Math.min(25, vertical / 12);
       if (rect.left >= fieldRect.left) score += 6;
       score -= Math.min(12, Math.abs(rect.left - fieldRect.right) / 45);
       if (score > inputScore) { input = candidate; inputScore = score; }
