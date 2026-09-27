@@ -241,7 +241,7 @@ function inspectMonthlyRegisteredMarketFrame(goodsKey) {
     el?.getAttribute?.("alt"), el?.getAttribute?.("name"), el?.getAttribute?.("id"),
     el?.querySelector?.("img")?.getAttribute?.("alt"), el?.querySelector?.("img")?.getAttribute?.("title"),
   ].filter(Boolean).join(" "));
-  const checkboxText = (input) => {
+  const checkboxOwnText = (input) => {
     const chunks = [];
     const id = input.getAttribute("id");
     if (id) {
@@ -251,9 +251,22 @@ function inspectMonthlyRegisteredMarketFrame(goodsKey) {
     }
     const wrapping = input.closest("label");
     if (wrapping) chunks.push(wrapping.textContent || "");
-    let node = input.nextSibling;
-    for (let index = 0; node && index < 5; index += 1, node = node.nextSibling) chunks.push(node.textContent || "");
-    chunks.push(input.getAttribute("name") || "", input.getAttribute("value") || "");
+    if (!chunks.length) {
+      let node = input.nextSibling;
+      for (let index = 0; node && index < 4; index += 1, node = node.nextSibling) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const own = text(node.textContent || "");
+          if (own) chunks.push(own);
+          continue;
+        }
+        if (node instanceof HTMLInputElement || node instanceof HTMLLabelElement || node instanceof HTMLBRElement) break;
+        if (node instanceof Element) {
+          const own = text(node.textContent || "");
+          if (own) chunks.push(own);
+          break;
+        }
+      }
+    }
     return text(chunks.join(" "));
   };
 
@@ -269,11 +282,14 @@ function inspectMonthlyRegisteredMarketFrame(goodsKey) {
 
   const registeredCheckbox = [...document.querySelectorAll('input[type="checkbox"]')]
     .filter(visible)
-    .find((input) => /상품이\s*등록된\s*쇼핑몰\s*보기/i.test(checkboxText(input)));
+    .find((input) => compact(checkboxOwnText(input)) === "상품이등록된쇼핑몰보기");
   const body = text(document.body?.innerText || document.body?.textContent || "");
-  const hasGoodsKey = body.includes(String(goodsKey)) || [...document.querySelectorAll("a[href],[onclick],form[action],input[name],input[value],button[value]")]
-    .slice(0, 3000)
-    .some((node) => [node.getAttribute("href"), node.getAttribute("onclick"), node.getAttribute("action"), node.getAttribute("name"), node.getAttribute("value")].filter(Boolean).join("=").includes(String(goodsKey)));
+  const hasGoodsKey = [...document.querySelectorAll("tr")].some((row) =>
+    [...row.querySelectorAll(":scope > td")].some((cell) => {
+      const tokens = text(cell.textContent || "").match(/\d{5,9}/g) || [];
+      return tokens.includes(String(goodsKey));
+    }),
+  );
 
   if (registeredCheckbox && hasGoodsKey) return { state: "A4_WITH_GOODS", score: 110, pageUrl: location.href };
   if (registeredCheckbox) return { state: "A4_READY", score: 100, pageUrl: location.href };
@@ -358,7 +374,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     }
     return false;
   };
-  const checkboxText = (input) => {
+  const checkboxOwnText = (input) => {
     const chunks = [];
     const id = input.getAttribute("id");
     if (id) {
@@ -368,14 +384,27 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     }
     const wrapping = input.closest("label");
     if (wrapping) chunks.push(wrapping.textContent || "");
-    let node = input.nextSibling;
-    for (let index = 0; node && index < 6; index += 1, node = node.nextSibling) chunks.push(node.textContent || "");
-    chunks.push(input.getAttribute("name") || "", input.getAttribute("value") || "");
+    if (!chunks.length) {
+      let node = input.nextSibling;
+      for (let index = 0; node && index < 4; index += 1, node = node.nextSibling) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const own = text(node.textContent || "");
+          if (own) chunks.push(own);
+          continue;
+        }
+        if (node instanceof HTMLInputElement || node instanceof HTMLLabelElement || node instanceof HTMLBRElement) break;
+        if (node instanceof Element) {
+          const own = text(node.textContent || "");
+          if (own) chunks.push(own);
+          break;
+        }
+      }
+    }
     return text(chunks.join(" "));
   };
   const findRegisteredCheckbox = () => [...document.querySelectorAll('input[type="checkbox"]')]
     .filter(visible)
-    .find((input) => /상품이\s*등록된\s*쇼핑몰\s*보기/i.test(checkboxText(input))) || null;
+    .find((input) => compact(checkboxOwnText(input)) === "상품이등록된쇼핑몰보기") || null;
   const tableLooksRegistered = () => [...document.querySelectorAll("table")].some((table) => {
     const rows = [...table.querySelectorAll("tr")].slice(0, 12);
     return rows.some((row) => {
@@ -418,22 +447,12 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     return { state: "A4_MENU_MISSING", pageUrl: location.href };
   }
 
-  const rowHasGoodsKey = (row) => {
-    const escaped = String(goodsKey).replace(/[.*+?^$\{\}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp("(?:^|\\D)" + escaped + "(?:\\D|$)");
-    if (pattern.test(text(row.textContent || ""))) return true;
-    const raw = [...row.querySelectorAll("a[href],[onclick],input[name],input[value],button[value]")]
-      .map((node) => [
-        node.getAttribute("href"),
-        node.getAttribute("onclick"),
-        node.getAttribute("name"),
-        node.getAttribute("value"),
-      ].filter(Boolean).join("="))
-      .join(" ");
-    return pattern.test(raw);
-  };
+  const rowHasGoodsKey = (row) => [...row.querySelectorAll(":scope > td")].some((cell) => {
+    const tokens = text(cell.textContent || "").match(/\d{5,9}/g) || [];
+    return tokens.includes(String(goodsKey));
+  });
 
-  const rows = [...document.querySelectorAll("tr")].filter((row) => row.querySelectorAll(":scope > td").length >= 3);
+  const rows = [...document.querySelectorAll("tr")];
   const exactRows = rows.filter(rowHasGoodsKey);
 
   if (!exactRows.length) {
@@ -441,16 +460,30 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     let select = null;
     let option = null;
     let selectedLabel = "";
-    let best = -1;
+    let best = -999;
     for (const candidate of [...document.querySelectorAll("select")].filter(visible)) {
+      const row = candidate.closest("tr");
+      const rowContext = text(row?.textContent || candidate.parentElement?.textContent || "");
+      const rowInputs = row ? [...row.querySelectorAll("input,textarea")] : [];
+      const placeholderContext = rowInputs.map((input) => [
+        input.getAttribute?.("placeholder"),
+        input.getAttribute?.("title"),
+        input.getAttribute?.("name"),
+        input.getAttribute?.("id"),
+      ].filter(Boolean).join(" ")).join(" ");
       for (const opt of candidate.options) {
         const label = text(opt.textContent);
         const normalized = compact(label);
-        let score = -1;
+        let score = -999;
         const exactIndex = searchLabels.findIndex((wanted) => compact(wanted) === normalized);
         if (exactIndex >= 0) score = 120 - exactIndex * 5;
         else if (/샵플링.*상품코드/.test(normalized)) score = 90;
         else if (/^(?:상품코드|goodskey)$/.test(normalized)) score = 40;
+        else continue;
+        if (/검색항목/.test(rowContext)) score += 300;
+        if (/샵플링상품코드|자사상품코드|쇼핑몰상품코드|다중검색|콤마/i.test(placeholderContext)) score += 140;
+        if (/화면출력|내림차순|오름차순|정렬/.test(rowContext)) score -= 350;
+        if (row && findSearchButtons(row).length) score += 40;
         if (score > best) { best = score; select = candidate; option = opt; selectedLabel = label; }
       }
     }
@@ -472,8 +505,10 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       const type = text(input.getAttribute("type") || input.type || "text").toLowerCase();
       return !["hidden","button","submit","reset","image","checkbox","radio","file","date","month","week","time","datetime-local","color","range","number"].includes(type);
     });
+    const searchRow = select.closest("tr");
+    const sameRowInputs = searchRow ? editable(searchRow) : [];
     const candidates = [
-      ...editable(select.closest("tr") || document),
+      ...sameRowInputs,
       ...editable(form),
       ...editable(document),
     ].filter((input, index, all) => all.indexOf(input) === index);
@@ -483,15 +518,22 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     for (const candidate of candidates) {
       const rect = candidate.getBoundingClientRect();
       const context = text(candidate.closest("tr")?.textContent || candidate.parentElement?.textContent || "");
+      const metadata = text([
+        candidate.getAttribute?.("placeholder"),
+        candidate.getAttribute?.("title"),
+        candidate.getAttribute?.("name"),
+        candidate.getAttribute?.("id"),
+      ].filter(Boolean).join(" "));
       let score = 0;
-      if (candidate.closest("tr") === select.closest("tr")) score += 40;
+      if (searchRow && candidate.closest("tr") === searchRow) score += 140;
       if (candidate.form && select.form && candidate.form === select.form) score += 8;
-      if (/검색항목|다중검색|자사상품코드|옵션자체관리코드|모델번호|상품등록번호|샵플링상품코드|상품검색용코드|상품번호|상품키|goods key/i.test(context)) score += 18;
-      if (/search|find|query|keyword|sch/i.test(String(candidate.name || "") + " " + String(candidate.id || ""))) score += 8;
-      if (/가격검색|일자|날짜/i.test(context)) score -= 25;
-      if (/^20\d{6}$/.test(text(candidate.value).replace(/\D/g, ""))) score -= 30;
+      if (/검색항목/.test(context)) score += 60;
+      if (/샵플링상품코드|자사상품코드|쇼핑몰상품코드|상품검색용코드|다중검색|콤마/i.test(metadata)) score += 160;
+      if (/search|find|query|keyword|sch/i.test(metadata)) score += 20;
+      if (/가격검색|일자|날짜/i.test(context + " " + metadata)) score -= 120;
+      if (/^20\d{6}$/.test(text(candidate.value).replace(/\D/g, ""))) score -= 120;
       const vertical = Math.abs(fieldRect.top - rect.top);
-      if (vertical <= 18) score += 25; else score -= Math.min(25, vertical / 12);
+      if (vertical <= 18) score += 30; else score -= Math.min(25, vertical / 12);
       if (rect.left >= fieldRect.left) score += 6;
       score -= Math.min(12, Math.abs(rect.left - fieldRect.right) / 45);
       if (score > inputScore) { input = candidate; inputScore = score; }
@@ -535,7 +577,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       if (digits(pair[0].value) !== startDate || digits(pair[1].value) !== endDate) return { state: "SEARCH_DATE_VERIFY_FAILED", pageUrl: location.href };
     }
 
-    const ticketKey = "commerceOsMonthlyRegisteredSearchV0514:" + goodsKey;
+    const ticketKey = "commerceOsMonthlyRegisteredSearchV0515:" + goodsKey;
     let ticket = null;
     try { ticket = JSON.parse(sessionStorage.getItem(ticketKey) || "null"); } catch { ticket = null; }
     const ticketAge = ticket ? Date.now() - Number(ticket.at || 0) : Number.POSITIVE_INFINITY;
@@ -546,7 +588,8 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       return { state: "SEARCH_RESULT_NOT_FOUND", ageMs: ticketAge, fieldLabel: selectedLabel, pageUrl: location.href };
     }
 
-    let buttons = findSearchButtons(input.form || input.closest("table") || document);
+    let buttons = searchRow ? findSearchButtons(searchRow) : [];
+    if (!buttons.length) buttons = findSearchButtons(input.form || input.closest("table") || document);
     if (!buttons.length) buttons = findSearchButtons(document);
     const inputRect = input.getBoundingClientRect();
     buttons.sort((left, right) => Math.abs(left.getBoundingClientRect().top - inputRect.top) - Math.abs(right.getBoundingClientRect().top - inputRect.top));
@@ -569,7 +612,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
   }
   if (!registeredCheckbox.checked) return { state: "REGISTERED_VIEW_CHECKBOX_SET_FAILED", pageUrl: location.href };
 
-  const ticketKey = "commerceOsMonthlyRegisteredViewSearchV0514:" + goodsKey;
+  const ticketKey = "commerceOsMonthlyRegisteredViewSearchV0515:" + goodsKey;
   let ticket = null;
   try { ticket = JSON.parse(sessionStorage.getItem(ticketKey) || "null"); } catch { ticket = null; }
   const ticketAge = ticket ? Date.now() - Number(ticket.at || 0) : Number.POSITIVE_INFINITY;
@@ -580,14 +623,73 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     return { state: "REGISTERED_VIEW_RESULT_NOT_FOUND", ageMs: ticketAge, pageUrl: location.href };
   }
 
-  let searchButtons = findSearchButtons(registeredCheckbox.form || registeredCheckbox.closest("form") || document);
+  // Re-bind the exact GOODSKEY search row before the second Search.
+  // Shopling also has a "샵플링상품코드" sort selector, so never reuse it.
+  const goodsSearchRows = [...document.querySelectorAll("tr")].filter((row) => {
+    const context = text(row.textContent || "");
+    if (!/검색항목/.test(context)) return false;
+    return [...row.querySelectorAll("select")].some((candidate) =>
+      [...candidate.options].some((opt) => compact(opt.textContent) === "샵플링상품코드"),
+    );
+  });
+  const goodsSearchRow = goodsSearchRows[0] || null;
+  if (!goodsSearchRow) return { state: "SEARCH_FIELD_MISSING", pageUrl: location.href };
+
+  const goodsSearchSelect = [...goodsSearchRow.querySelectorAll("select")].find((candidate) =>
+    [...candidate.options].some((opt) => compact(opt.textContent) === "샵플링상품코드"),
+  ) || null;
+  const goodsSearchOption = goodsSearchSelect
+    ? [...goodsSearchSelect.options].find((opt) => compact(opt.textContent) === "샵플링상품코드") || null
+    : null;
+  if (!(goodsSearchSelect instanceof HTMLSelectElement) || !(goodsSearchOption instanceof HTMLOptionElement)) {
+    return { state: "SEARCH_FIELD_MISSING", pageUrl: location.href };
+  }
+  if (goodsSearchSelect.value !== goodsSearchOption.value) {
+    goodsSearchSelect.value = goodsSearchOption.value;
+    goodsSearchSelect.dispatchEvent(new Event("input", { bubbles: true }));
+    goodsSearchSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  if (goodsSearchSelect.value !== goodsSearchOption.value) {
+    return { state: "SEARCH_FIELD_SET_FAILED", fieldLabel: "샵플링상품코드", pageUrl: location.href };
+  }
+
+  const secondInputs = [...goodsSearchRow.querySelectorAll("input,textarea")].filter((candidate) => {
+    if (!(candidate instanceof HTMLInputElement || candidate instanceof HTMLTextAreaElement)) return false;
+    if (!visible(candidate) || candidate.disabled || candidate.readOnly) return false;
+    if (candidate instanceof HTMLTextAreaElement) return true;
+    const type = text(candidate.getAttribute("type") || candidate.type || "text").toLowerCase();
+    return !["hidden","button","submit","reset","image","checkbox","radio","file","date","month","week","time","datetime-local","color","range","number"].includes(type);
+  });
+  secondInputs.sort((left, right) => {
+    const score = (candidate) => {
+      const metadata = text([
+        candidate.getAttribute?.("placeholder"),
+        candidate.getAttribute?.("title"),
+        candidate.getAttribute?.("name"),
+        candidate.getAttribute?.("id"),
+      ].filter(Boolean).join(" "));
+      let value = 0;
+      if (/샵플링상품코드|자사상품코드|쇼핑몰상품코드|상품검색용코드|다중검색|콤마/i.test(metadata)) value += 100;
+      if (/search|find|query|keyword|sch/i.test(metadata)) value += 20;
+      return value;
+    };
+    return score(right) - score(left);
+  });
+  const goodsSearchInput = secondInputs[0] || null;
+  if (!goodsSearchInput) return { state: "SEARCH_INPUT_MISSING", fieldLabel: "샵플링상품코드", pageUrl: location.href };
+  if (text(goodsSearchInput.value) !== goodsKey && !setControlValue(goodsSearchInput, goodsKey)) {
+    return { state: "SEARCH_INPUT_SET_FAILED", fieldLabel: "샵플링상품코드", pageUrl: location.href };
+  }
+
+  let searchButtons = findSearchButtons(goodsSearchRow);
+  if (!searchButtons.length) searchButtons = findSearchButtons(registeredCheckbox.form || registeredCheckbox.closest("form") || document);
   if (!searchButtons.length) searchButtons = findSearchButtons(document);
   if (!searchButtons.length) return { state: "SEARCH_BUTTON_MISSING", pageUrl: location.href };
   try { sessionStorage.setItem(ticketKey, JSON.stringify({ at: Date.now(), goodsKey })); }
   catch { return { state: "SEARCH_CONTINUATION_STORAGE_FAILED", pageUrl: location.href }; }
 
   return clickControl(searchButtons[0])
-    ? { state: "REGISTERED_VIEW_SEARCH_SUBMITTED", pageUrl: location.href }
+    ? { state: "REGISTERED_VIEW_SEARCH_SUBMITTED", fieldLabel: "샵플링상품코드", pageUrl: location.href }
     : { state: "SEARCH_CLICK_FAILED", pageUrl: location.href };
 }
 
