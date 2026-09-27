@@ -297,7 +297,7 @@ test('v0.5.14 registered-mall readback uses a dedicated command and never reuses
   const bridge=file('monthly-price-page-bridge.js');
   assert.match(bridge,/MARKET_READ/);
   assert.match(background,/MONTHLY_PRICE_MARKET_READ/);
-  assert.match(background,/prodLst\.phtml/);
+  assert.match(background,/main\\.phtml/);
   assert.match(background,/readRegisteredMarketPrices/);
   assert.match(dom,/collectMonthlyRegisteredMarketPage/);
   assert.match(dom,/advanceMonthlyRegisteredMarketPage/);
