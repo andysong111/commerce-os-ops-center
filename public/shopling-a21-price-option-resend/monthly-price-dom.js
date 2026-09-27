@@ -229,42 +229,70 @@ function inspectMonthlyRegisteredMarketFrame(goodsKey) {
 
   const text = (value) => String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
   const compact = (value) => text(value).replace(/\s+/g, "").toLowerCase();
+  const visible = (el) => {
+    if (!(el instanceof Element)) return false;
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
   const controlText = (el) => text([
     el?.textContent, el?.innerText, el?.getAttribute?.("value"), el?.getAttribute?.("title"),
-    el?.getAttribute?.("alt"), el?.querySelector?.("img")?.getAttribute?.("alt"),
-    el?.querySelector?.("img")?.getAttribute?.("title"),
+    el?.getAttribute?.("alt"), el?.getAttribute?.("name"), el?.getAttribute?.("id"),
+    el?.querySelector?.("img")?.getAttribute?.("alt"), el?.querySelector?.("img")?.getAttribute?.("title"),
   ].filter(Boolean).join(" "));
+  const checkboxText = (input) => {
+    const chunks = [];
+    const id = input.getAttribute("id");
+    if (id) {
+      const escapedId = globalThis.CSS?.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
+      const label = document.querySelector(`label[for="${escapedId}"]`);
+      if (label) chunks.push(label.textContent || "");
+    }
+    const wrapping = input.closest("label");
+    if (wrapping) chunks.push(wrapping.textContent || "");
+    let node = input.nextSibling;
+    for (let index = 0; node && index < 5; index += 1, node = node.nextSibling) chunks.push(node.textContent || "");
+    chunks.push(input.getAttribute("name") || "", input.getAttribute("value") || "");
+    return text(chunks.join(" "));
+  };
 
   const registeredTable = [...document.querySelectorAll("table")].some((table) =>
-    [...table.querySelectorAll("tr")].slice(0, 10).some((row) => {
+    [...table.querySelectorAll("tr")].slice(0, 12).some((row) => {
       const labels = [...row.querySelectorAll(":scope > th, :scope > td")].map((cell) => compact(cell.textContent));
       return labels.some((label) => /^(상태|판매상태|상품상태)$/.test(label))
         && labels.some((label) => /^(몰상품코드|쇼핑몰상품코드|마켓상품코드|상품코드)$/.test(label))
         && labels.some((label) => /^(몰판매가|쇼핑몰판매가|마켓판매가|현재판매가|판매가)(\(원\))?$/.test(label));
     }),
   );
-  if (registeredTable) return { state: "REGISTERED_TABLE", score: 100, pageUrl: location.href };
+  if (registeredTable) return { state: "REGISTERED_TABLE", score: 120, pageUrl: location.href };
 
-  const controls = [...document.querySelectorAll('a,button,input[type="button"],input[type="submit"],[onclick],img[alt],img[title]')];
-  if (controls.some((el) => /등록된\s*쇼핑몰(?:\s*보기)?/i.test(controlText(el)))) {
-    return { state: "REGISTERED_CONTROL", score: 95, pageUrl: location.href };
-  }
-
+  const registeredCheckbox = [...document.querySelectorAll('input[type="checkbox"]')]
+    .filter(visible)
+    .find((input) => /상품이\s*등록된\s*쇼핑몰\s*보기/i.test(checkboxText(input)));
   const body = text(document.body?.innerText || document.body?.textContent || "");
   const hasGoodsKey = body.includes(String(goodsKey)) || [...document.querySelectorAll("a[href],[onclick],form[action],input[name],input[value],button[value]")]
     .slice(0, 3000)
     .some((node) => [node.getAttribute("href"), node.getAttribute("onclick"), node.getAttribute("action"), node.getAttribute("name"), node.getAttribute("value")].filter(Boolean).join("=").includes(String(goodsKey)));
-  const productList = /\/prod\/prodLst\.phtml$/i.test(location.pathname)
-    || (/총\s*조회수/.test(body) && /상품조회|상품수정|검색관리/.test(body));
-  if (productList && hasGoodsKey) return { state: "PRODUCT_LIST_WITH_GOODS", score: 90, pageUrl: location.href };
-  if (productList) return { state: "PRODUCT_LIST", score: 80, pageUrl: location.href };
 
-  if (/\/prod\/prodShopInfo\.phtml$/i.test(location.pathname) && new URLSearchParams(location.search).get("mode") !== "price_chg") {
-    return { state: "PRODUCT_DETAIL", score: 70, pageUrl: location.href };
-  }
+  if (registeredCheckbox && hasGoodsKey) return { state: "A4_WITH_GOODS", score: 110, pageUrl: location.href };
+  if (registeredCheckbox) return { state: "A4_READY", score: 100, pageUrl: location.href };
 
-  if (/로그인|login|아이디\s*[:：]?|비밀번호\s*[:：]?/i.test(body.slice(0, 2200)) && !/총\s*조회수|상품조회|상품수정/.test(body)) {
-    return { state: "LOGIN_REQUIRED", score: 60, pageUrl: location.href };
+  const menuCandidates = [...document.querySelectorAll("a,[onclick],li,td,span,div")]
+    .filter(visible)
+    .filter((element) => {
+      const value = text(element.textContent);
+      return value && value.length <= 80 && /(?:\[?A?4\]?[:.\-]?\s*)?상품조회수정/i.test(value);
+    });
+  menuCandidates.sort((left, right) => {
+    const leftAction = left.matches("a,[onclick]") ? 0 : 1;
+    const rightAction = right.matches("a,[onclick]") ? 0 : 1;
+    return leftAction - rightAction || text(left.textContent).length - text(right.textContent).length;
+  });
+  if (menuCandidates.length) return { state: "A4_MENU_AVAILABLE", score: 80, pageUrl: location.href };
+
+  if (/로그인|login|아이디\s*[:：]?|비밀번호\s*[:：]?/i.test(body.slice(0, 2200)) && !/상품조회수정|쇼핑몰상품수정/.test(body)) {
+    return { state: "LOGIN_REQUIRED", score: 70, pageUrl: location.href };
   }
   return { state: "SHOPLING_OTHER", score: 10, pageUrl: location.href };
 }
@@ -315,6 +343,25 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     return { state: "LOGIN_REQUIRED" };
   }
 
+  const checkboxText = (input) => {
+    const chunks = [];
+    const id = input.getAttribute("id");
+    if (id) {
+      const escapedId = globalThis.CSS?.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\  const rowHasGoodsKey = (row) => {");
+      const label = document.querySelector(`label[for="${escapedId}"]`);
+      if (label) chunks.push(label.textContent || "");
+    }
+    const wrapping = input.closest("label");
+    if (wrapping) chunks.push(wrapping.textContent || "");
+    let node = input.nextSibling;
+    for (let index = 0; node && index < 5; index += 1, node = node.nextSibling) chunks.push(node.textContent || "");
+    chunks.push(input.getAttribute("name") || "", input.getAttribute("value") || "");
+    return text(chunks.join(" "));
+  };
+  const registeredCheckboxCandidate = [...document.querySelectorAll('input[type="checkbox"]')]
+    .filter(visible)
+    .find((input) => /상품이\s*등록된\s*쇼핑몰\s*보기/i.test(checkboxText(input))) || null;
+
   const rowHasGoodsKey = (row) => {
     const escaped = goodsKey.replace(/[.*+?^${\}()|[\]\\]/g, "\\$&");
     const pattern = new RegExp(`(?:^|\\D)${escaped}(?:\\D|$)`);
@@ -360,7 +407,24 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     return false;
   };
 
-  if (/\/prod\/prodLst\.phtml$/i.test(location.pathname)) {
+  if (!registeredCheckboxCandidate) {
+    const menuCandidates = [...document.querySelectorAll("a,[onclick],li,td,span,div")]
+      .filter(visible)
+      .filter((element) => {
+        const value = text(element.textContent);
+        return value && value.length <= 80 && /(?:\[?A?4\]?[:.\-]?\s*)?상품조회수정/i.test(value);
+      });
+    menuCandidates.sort((left, right) => {
+      const leftAction = left.matches("a,[onclick]") ? 0 : 1;
+      const rightAction = right.matches("a,[onclick]") ? 0 : 1;
+      return leftAction - rightAction || text(left.textContent).length - text(right.textContent).length;
+    });
+    const menu = menuCandidates[0]?.closest("a,[onclick]") || menuCandidates[0] || null;
+    if (menu && safeNavigateOrClick(menu)) return { state: "A4_MENU_OPENED", pageUrl: location.href };
+    return { state: "A4_MENU_MISSING", pageUrl: location.href };
+  }
+
+  if (registeredCheckboxCandidate) {
     const rows = [...document.querySelectorAll("tr")].filter((row) => row.querySelectorAll(":scope > td").length >= 3);
     const exactRows = rows.filter(rowHasGoodsKey);
     if (!exactRows.length) {
@@ -509,26 +573,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     // exact GOODSKEY result -> check "상품이 등록된 쇼핑몰 보기" -> Search again.
     // The registered marketplace rows then render inline under the product row;
     // there is no separate "등록된 쇼핑몰 보기" button/detail page to open.
-    const checkboxText = (input) => {
-      const chunks = [];
-      const id = input.getAttribute("id");
-      if (id) {
-        const escapedId = globalThis.CSS?.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
-        const label = document.querySelector(`label[for="${escapedId}"]`);
-        if (label) chunks.push(label.textContent || "");
-      }
-      const wrapping = input.closest("label");
-      if (wrapping) chunks.push(wrapping.textContent || "");
-      let node = input.nextSibling;
-      for (let index = 0; node && index < 5; index += 1, node = node.nextSibling) {
-        chunks.push(node.textContent || "");
-      }
-      chunks.push(input.getAttribute("name") || "", input.getAttribute("value") || "");
-      return text(chunks.join(" "));
-    };
-    const registeredCheckbox = [...document.querySelectorAll('input[type="checkbox"]')]
-      .filter(visible)
-      .find((input) => /상품이\s*등록된\s*쇼핑몰\s*보기/i.test(checkboxText(input)));
+    const registeredCheckbox = registeredCheckboxCandidate;
 
     if (!(registeredCheckbox instanceof HTMLInputElement)) {
       return { state: "REGISTERED_VIEW_CHECKBOX_MISSING", pageUrl: location.href };
