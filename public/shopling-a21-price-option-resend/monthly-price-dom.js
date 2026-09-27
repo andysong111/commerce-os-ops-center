@@ -451,7 +451,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     return pattern.test(text(row.textContent || ""));
   };
 
-  const rows = [...document.querySelectorAll("tr")].filter((row) => row.querySelectorAll(":scope > td").length >= 5);
+  const rows = [...document.querySelectorAll("tr")];
   const exactRows = rows.filter(rowHasGoodsKey);
 
   if (!exactRows.length) {
