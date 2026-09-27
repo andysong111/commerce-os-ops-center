@@ -675,14 +675,73 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     return { state: "REGISTERED_VIEW_RESULT_NOT_FOUND", ageMs: ticketAge, pageUrl: location.href };
   }
 
-  let searchButtons = findSearchButtons(registeredCheckbox.form || registeredCheckbox.closest("form") || document);
+  // Before the second Search, re-bind the exact A4 GOODSKEY search controls.
+  // Do not reuse another Search button or the 화면출력/정렬 "샵플링상품코드" select.
+  const goodsSearchRows = [...document.querySelectorAll("tr")].filter((row) => {
+    const context = text(row.textContent || "");
+    if (!/검색항목/.test(context)) return false;
+    return [...row.querySelectorAll("select")].some((candidate) =>
+      [...candidate.options].some((opt) => compact(opt.textContent) === "샵플링상품코드"),
+    );
+  });
+  const goodsSearchRow = goodsSearchRows[0] || null;
+  if (!goodsSearchRow) return { state: "SEARCH_FIELD_MISSING", pageUrl: location.href };
+
+  const goodsSearchSelect = [...goodsSearchRow.querySelectorAll("select")].find((candidate) =>
+    [...candidate.options].some((opt) => compact(opt.textContent) === "샵플링상품코드"),
+  ) || null;
+  const goodsSearchOption = goodsSearchSelect
+    ? [...goodsSearchSelect.options].find((opt) => compact(opt.textContent) === "샵플링상품코드") || null
+    : null;
+  if (!(goodsSearchSelect instanceof HTMLSelectElement) || !(goodsSearchOption instanceof HTMLOptionElement)) {
+    return { state: "SEARCH_FIELD_MISSING", pageUrl: location.href };
+  }
+  if (goodsSearchSelect.value !== goodsSearchOption.value) {
+    goodsSearchSelect.value = goodsSearchOption.value;
+    goodsSearchSelect.dispatchEvent(new Event("input", { bubbles: true }));
+    goodsSearchSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  if (goodsSearchSelect.value !== goodsSearchOption.value) {
+    return { state: "SEARCH_FIELD_SET_FAILED", fieldLabel: "샵플링상품코드", pageUrl: location.href };
+  }
+
+  const secondInputs = [...goodsSearchRow.querySelectorAll("input,textarea")].filter((candidate) => {
+    if (!(candidate instanceof HTMLInputElement || candidate instanceof HTMLTextAreaElement)) return false;
+    if (!visible(candidate) || candidate.disabled || candidate.readOnly) return false;
+    if (candidate instanceof HTMLTextAreaElement) return true;
+    const type = text(candidate.getAttribute("type") || candidate.type || "text").toLowerCase();
+    return !["hidden","button","submit","reset","image","checkbox","radio","file","date","month","week","time","datetime-local","color","range","number"].includes(type);
+  });
+  secondInputs.sort((left, right) => {
+    const score = (candidate) => {
+      const metadata = text([
+        candidate.getAttribute?.("placeholder"),
+        candidate.getAttribute?.("title"),
+        candidate.getAttribute?.("name"),
+        candidate.getAttribute?.("id"),
+      ].filter(Boolean).join(" "));
+      let value = 0;
+      if (/샵플링상품코드|자사상품코드|쇼핑몰상품코드|상품검색용코드|다중검색|콤마/i.test(metadata)) value += 100;
+      if (/search|find|query|keyword|sch/i.test(metadata)) value += 20;
+      return value;
+    };
+    return score(right) - score(left);
+  });
+  const goodsSearchInput = secondInputs[0] || null;
+  if (!goodsSearchInput) return { state: "SEARCH_INPUT_MISSING", fieldLabel: "샵플링상품코드", pageUrl: location.href };
+  if (text(goodsSearchInput.value) !== goodsKey && !setControlValue(goodsSearchInput, goodsKey)) {
+    return { state: "SEARCH_INPUT_SET_FAILED", fieldLabel: "샵플링상품코드", pageUrl: location.href };
+  }
+
+  let searchButtons = findSearchButtons(goodsSearchRow);
+  if (!searchButtons.length) searchButtons = findSearchButtons(registeredCheckbox.form || registeredCheckbox.closest("form") || document);
   if (!searchButtons.length) searchButtons = findSearchButtons(document);
   if (!searchButtons.length) return { state: "SEARCH_BUTTON_MISSING", pageUrl: location.href };
   try { sessionStorage.setItem(ticketKey, JSON.stringify({ at: Date.now(), goodsKey })); }
   catch { return { state: "SEARCH_CONTINUATION_STORAGE_FAILED", pageUrl: location.href }; }
 
   return clickControl(searchButtons[0])
-    ? { state: "REGISTERED_VIEW_SEARCH_SUBMITTED", pageUrl: location.href }
+    ? { state: "REGISTERED_VIEW_SEARCH_SUBMITTED", fieldLabel: "샵플링상품코드", pageUrl: location.href }
     : { state: "SEARCH_CLICK_FAILED", pageUrl: location.href };
 }
 
