@@ -193,7 +193,7 @@ test("v0.5.14 registered-mall search expands old-product date range and does not
   const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
   assert.match(dom, /20130912/);
   assert.match(dom, /Asia\/Seoul/);
-  assert.match(dom, /commerceOsMonthlyRegisteredSearchV0511/);
+  assert.match(dom, /commerceOsMonthlyRegisteredSearchV0514/);
   assert.match(dom, /SEARCH_WAITING/);
   assert.match(dom, /SEARCH_RESULT_NOT_FOUND/);
   assert.match(dom, /상품등록번호/);
@@ -204,7 +204,7 @@ test("v0.5.14 registered-mall search expands old-product date range and does not
 test("v0.5.14 follows the live Shopling registered-mall checkbox flow", async () => {
   const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
   assert.match(dom, /상품이\\s\*등록된\\s\*쇼핑몰\\s\*보기/);
-  assert.match(dom, /commerceOsMonthlyRegisteredViewSearchV0513/);
+  assert.match(dom, /commerceOsMonthlyRegisteredViewSearchV0514/);
   assert.match(dom, /REGISTERED_VIEW_SEARCH_SUBMITTED/);
   assert.match(dom, /WAITING_FOR_REGISTERED_TABLE/);
   assert.match(dom, /REGISTERED_VIEW_RESULT_NOT_FOUND/);
