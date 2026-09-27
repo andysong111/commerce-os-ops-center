@@ -393,7 +393,11 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     }
     return false;
   };
-  const checkboxText = (input) => {
+  const checkboxOwnText = (input) => {
+    const chunks = [];
+    const id = input.getAttribute("id");
+    if (id) {
+      const escapedId = globalThis.CSS?.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\  const checkboxText = (input) => {
     const chunks = [];
     const id = input.getAttribute("id");
     if (id) {
@@ -410,7 +414,33 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
   };
   const findRegisteredCheckbox = () => [...document.querySelectorAll('input[type="checkbox"]')]
     .filter(visible)
-    .find((input) => /상품이\s*등록된\s*쇼핑몰\s*보기/i.test(checkboxText(input))) || null;
+    .find((input) => /상품이\s*등록된\s*쇼핑몰\s*보기/i.test(checkboxText(input))) || null;");
+      const label = document.querySelector('label[for="' + escapedId + '"]');
+      if (label) chunks.push(label.textContent || "");
+    }
+    const wrapping = input.closest("label");
+    if (wrapping) chunks.push(wrapping.textContent || "");
+    if (!chunks.length) {
+      let node = input.nextSibling;
+      for (let index = 0; node && index < 4; index += 1, node = node.nextSibling) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const own = text(node.textContent || "");
+          if (own) chunks.push(own);
+          continue;
+        }
+        if (node instanceof HTMLInputElement || node instanceof HTMLLabelElement || node instanceof HTMLBRElement) break;
+        if (node instanceof Element) {
+          const own = text(node.textContent || "");
+          if (own) chunks.push(own);
+          break;
+        }
+      }
+    }
+    return text(chunks.join(" "));
+  };
+  const findRegisteredCheckbox = () => [...document.querySelectorAll('input[type="checkbox"]')]
+    .filter(visible)
+    .find((input) => compact(checkboxOwnText(input)) === "상품이등록된쇼핑몰보기") || null;
   const tableLooksRegistered = () => [...document.querySelectorAll("table")].some((table) => {
     const rows = [...table.querySelectorAll("tr")].slice(0, 12);
     return rows.some((row) => {
@@ -454,6 +484,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
   }
 
   const rowHasGoodsKey = (row) => {
+    const escaped = String(goodsKey).replace(/[.*+?^$\{\}()|[\]\\]/g, "\\  const rowHasGoodsKey = (row) => {
     const escaped = String(goodsKey).replace(/[.*+?^$\{\}()|[\]\\]/g, "\\$&");
     const pattern = new RegExp("(?:^|\\D)" + escaped + "(?:\\D|$)");
     if (pattern.test(text(row.textContent || ""))) return true;
@@ -468,7 +499,12 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     return pattern.test(raw);
   };
 
-  const rows = [...document.querySelectorAll("tr")].filter((row) => row.querySelectorAll(":scope > td").length >= 3);
+  const rows = [...document.querySelectorAll("tr")].filter((row) => row.querySelectorAll(":scope > td").length >= 3);");
+    const pattern = new RegExp("(?:^|\\D)" + escaped + "(?:\\D|$)");
+    return pattern.test(text(row.textContent || ""));
+  };
+
+  const rows = [...document.querySelectorAll("tr")].filter((row) => row.querySelectorAll(":scope > td").length >= 5);
   const exactRows = rows.filter(rowHasGoodsKey);
 
   if (!exactRows.length) {
