@@ -284,10 +284,12 @@ function inspectMonthlyRegisteredMarketFrame(goodsKey) {
     .filter(visible)
     .find((input) => compact(checkboxOwnText(input)) === "상품이등록된쇼핑몰보기");
   const body = text(document.body?.innerText || document.body?.textContent || "");
-  const hasGoodsKey = [...document.querySelectorAll("tr")].some((row) => {
-    const tokens = text(row.textContent || "").match(/\d{5,9}/g) || [];
-    return tokens.includes(String(goodsKey));
-  });
+  const hasGoodsKey = [...document.querySelectorAll("tr")].some((row) =>
+    [...row.querySelectorAll(":scope > td")].some((cell) => {
+      const tokens = text(cell.textContent || "").match(/\d{5,9}/g) || [];
+      return tokens.includes(String(goodsKey));
+    }),
+  );
 
   if (registeredCheckbox && hasGoodsKey) return { state: "A4_WITH_GOODS", score: 110, pageUrl: location.href };
   if (registeredCheckbox) return { state: "A4_READY", score: 100, pageUrl: location.href };
@@ -445,10 +447,10 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
     return { state: "A4_MENU_MISSING", pageUrl: location.href };
   }
 
-  const rowHasGoodsKey = (row) => {
-    const tokens = text(row.textContent || "").match(/\d{5,9}/g) || [];
+  const rowHasGoodsKey = (row) => [...row.querySelectorAll(":scope > td")].some((cell) => {
+    const tokens = text(cell.textContent || "").match(/\d{5,9}/g) || [];
     return tokens.includes(String(goodsKey));
-  };
+  });
 
   const rows = [...document.querySelectorAll("tr")];
   const exactRows = rows.filter(rowHasGoodsKey);
