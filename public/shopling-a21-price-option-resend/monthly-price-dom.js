@@ -577,7 +577,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       if (digits(pair[0].value) !== startDate || digits(pair[1].value) !== endDate) return { state: "SEARCH_DATE_VERIFY_FAILED", pageUrl: location.href };
     }
 
-    const ticketKey = "commerceOsMonthlyRegisteredSearchV0514:" + goodsKey;
+    const ticketKey = "commerceOsMonthlyRegisteredSearchV0515:" + goodsKey;
     let ticket = null;
     try { ticket = JSON.parse(sessionStorage.getItem(ticketKey) || "null"); } catch { ticket = null; }
     const ticketAge = ticket ? Date.now() - Number(ticket.at || 0) : Number.POSITIVE_INFINITY;
@@ -588,7 +588,8 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       return { state: "SEARCH_RESULT_NOT_FOUND", ageMs: ticketAge, fieldLabel: selectedLabel, pageUrl: location.href };
     }
 
-    let buttons = findSearchButtons(input.form || input.closest("table") || document);
+    let buttons = searchRow ? findSearchButtons(searchRow) : [];
+    if (!buttons.length) buttons = findSearchButtons(input.form || input.closest("table") || document);
     if (!buttons.length) buttons = findSearchButtons(document);
     const inputRect = input.getBoundingClientRect();
     buttons.sort((left, right) => Math.abs(left.getBoundingClientRect().top - inputRect.top) - Math.abs(right.getBoundingClientRect().top - inputRect.top));
@@ -611,7 +612,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
   }
   if (!registeredCheckbox.checked) return { state: "REGISTERED_VIEW_CHECKBOX_SET_FAILED", pageUrl: location.href };
 
-  const ticketKey = "commerceOsMonthlyRegisteredViewSearchV0514:" + goodsKey;
+  const ticketKey = "commerceOsMonthlyRegisteredViewSearchV0515:" + goodsKey;
   let ticket = null;
   try { ticket = JSON.parse(sessionStorage.getItem(ticketKey) || "null"); } catch { ticket = null; }
   const ticketAge = ticket ? Date.now() - Number(ticket.at || 0) : Number.POSITIVE_INFINITY;
