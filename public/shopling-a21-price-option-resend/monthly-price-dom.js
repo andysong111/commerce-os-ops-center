@@ -241,7 +241,11 @@ function inspectMonthlyRegisteredMarketFrame(goodsKey) {
     el?.getAttribute?.("alt"), el?.getAttribute?.("name"), el?.getAttribute?.("id"),
     el?.querySelector?.("img")?.getAttribute?.("alt"), el?.querySelector?.("img")?.getAttribute?.("title"),
   ].filter(Boolean).join(" "));
-  const checkboxText = (input) => {
+  const checkboxOwnText = (input) => {
+    const chunks = [];
+    const id = input.getAttribute("id");
+    if (id) {
+      const escapedId = globalThis.CSS?.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\  const checkboxText = (input) => {
     const chunks = [];
     const id = input.getAttribute("id");
     if (id) {
@@ -254,6 +258,29 @@ function inspectMonthlyRegisteredMarketFrame(goodsKey) {
     let node = input.nextSibling;
     for (let index = 0; node && index < 5; index += 1, node = node.nextSibling) chunks.push(node.textContent || "");
     chunks.push(input.getAttribute("name") || "", input.getAttribute("value") || "");
+    return text(chunks.join(" "));
+  };");
+      const label = document.querySelector(`label[for="${escapedId}"]`);
+      if (label) chunks.push(label.textContent || "");
+    }
+    const wrapping = input.closest("label");
+    if (wrapping) chunks.push(wrapping.textContent || "");
+    if (!chunks.length) {
+      let node = input.nextSibling;
+      for (let index = 0; node && index < 4; index += 1, node = node.nextSibling) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const own = text(node.textContent || "");
+          if (own) chunks.push(own);
+          continue;
+        }
+        if (node instanceof HTMLInputElement || node instanceof HTMLLabelElement || node instanceof HTMLBRElement) break;
+        if (node instanceof Element) {
+          const own = text(node.textContent || "");
+          if (own) chunks.push(own);
+          break;
+        }
+      }
+    }
     return text(chunks.join(" "));
   };
 
@@ -269,11 +296,19 @@ function inspectMonthlyRegisteredMarketFrame(goodsKey) {
 
   const registeredCheckbox = [...document.querySelectorAll('input[type="checkbox"]')]
     .filter(visible)
+    .find((input) => compact(checkboxOwnText(input)) === "상품이등록된쇼핑몰보기");
+  const body = text(document.body?.innerText || document.body?.textContent || "");
+  const escapedGoodsKey = String(goodsKey).replace(/[.*+?^$\{\}()|[\]\\]/g, "\\  const registeredCheckbox = [...document.querySelectorAll('input[type="checkbox"]')]
+    .filter(visible)
     .find((input) => /상품이\s*등록된\s*쇼핑몰\s*보기/i.test(checkboxText(input)));
   const body = text(document.body?.innerText || document.body?.textContent || "");
   const hasGoodsKey = body.includes(String(goodsKey)) || [...document.querySelectorAll("a[href],[onclick],form[action],input[name],input[value],button[value]")]
     .slice(0, 3000)
-    .some((node) => [node.getAttribute("href"), node.getAttribute("onclick"), node.getAttribute("action"), node.getAttribute("name"), node.getAttribute("value")].filter(Boolean).join("=").includes(String(goodsKey)));
+    .some((node) => [node.getAttribute("href"), node.getAttribute("onclick"), node.getAttribute("action"), node.getAttribute("name"), node.getAttribute("value")].filter(Boolean).join("=").includes(String(goodsKey)));");
+  const goodsPattern = new RegExp("(?:^|\\D)" + escapedGoodsKey + "(?:\\D|$)");
+  const hasGoodsKey = [...document.querySelectorAll("tr")]
+    .filter((row) => row.querySelectorAll(":scope > td").length >= 5)
+    .some((row) => goodsPattern.test(text(row.textContent || "")));
 
   if (registeredCheckbox && hasGoodsKey) return { state: "A4_WITH_GOODS", score: 110, pageUrl: location.href };
   if (registeredCheckbox) return { state: "A4_READY", score: 100, pageUrl: location.href };
