@@ -151,7 +151,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.14"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.15"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
@@ -167,7 +167,7 @@ test("v0.5.15 self-heals invalidated Commerce OS page bridge contexts", async ()
   assert.match(monthlyBackground, /china-order-manager\*/);
   assert.match(bridge, /__commerceOsMonthlyPriceBridge/);
   assert.match(bridge, /removeEventListener\("message", previous\.listener\)/);
-  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.14", listener \}/);
+  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.15", listener \}/);
   assert.match(bridge, /typeof runtime\.sendMessage !== "function"/);
   assert.match(monthlyBackground, /probe\[0\]\?\.result === true/);
   assert.match(bridge, /MONTHLY_PRICE_EXTENSION_RELOAD_REQUIRED/);
@@ -203,7 +203,7 @@ test("v0.5.15 registered-mall search expands old-product date range and does not
 
 test("v0.5.15 follows the live Shopling registered-mall checkbox flow", async () => {
   const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
-  assert.match(dom, /상품이\\s\*등록된\\s\*쇼핑몰\\s\*보기/);
+  assert.match(dom, /상품이등록된쇼핑몰보기/);
   assert.match(dom, /commerceOsMonthlyRegisteredViewSearchV0515/);
   assert.match(dom, /REGISTERED_VIEW_SEARCH_SUBMITTED/);
   assert.match(dom, /WAITING_FOR_REGISTERED_TABLE/);
