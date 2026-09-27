@@ -211,6 +211,16 @@ test("v0.5.15 follows the live Shopling registered-mall checkbox flow", async ()
   assert.doesNotMatch(dom, /DETAIL_OPENED_DIRECT/);
 });
 
+test("v0.5.15 binds the exact registered-mall checkbox and real GOODSKEY search row", async () => {
+  const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
+  assert.match(dom, /compact\(checkboxOwnText\(input\)\) === "상품이등록된쇼핑몰보기"/);
+  assert.match(dom, /if \(\/검색항목\/\.test\(rowContext\)\) score \+= 300/);
+  assert.match(dom, /if \(\/화면출력\|내림차순\|오름차순\|정렬\/\.test\(rowContext\)\) score -= 350/);
+  assert.match(dom, /const searchRow = select\.closest\("tr"\)/);
+  assert.match(dom, /fieldLabel: "샵플링상품코드"/);
+  assert.match(dom, /commerceOsMonthlyRegisteredViewSearchV0515/);
+});
+
 test("v0.5.15 enters A4 상품조회수정 from the Shopling shell before market readback", async () => {
   const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
   assert.match(monthlyBackground, /main\.phtml\?commerce_os_monthly_market_read=1/);
