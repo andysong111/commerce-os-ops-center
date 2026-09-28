@@ -9,6 +9,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "local-agent": "node local-agent/bin/commerce-os-local-agent.mjs",
+    "local-agent:status": "node local-agent/bin/commerce-os-local-agent.mjs status",
+    "local-agent:daemon": "node local-agent/bin/commerce-os-local-agent.mjs daemon",
+    "local-agent:diagnose": "node local-agent/bin/commerce-os-local-agent.mjs diagnose",
     "test": "node --experimental-strip-types --test tests/*.test.mjs"
   },
   "dependencies": {

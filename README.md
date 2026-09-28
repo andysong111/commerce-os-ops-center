@@ -11,6 +11,7 @@ Commerce OS OPS CENTER is the operational UI for product sourcing, review, appro
 - Detail Page Studio: opens the current production image-upload engine for eight-section generation, AI quality review, automatic panel correction, multilingual output, and final JPG download.
 - China Purchase & Receiving Manager: imports the existing China order workbook, allocates landed costs, saves purchase batches, and records normal, defective, and missing receipt quantities without changing Ops Center, Shopling, or sales-channel inventory.
 - Product Decision Agent: combines Shopling products by barcode and opens the monthly purchase, hold, and discontinuation recommendation workspace.
+- Local Agent: Windows-resident heartbeat and read-only Shopling/A21 diagnostic collector. See `local-agent/README.md`.
 
 ## Repository role
 
@@ -50,5 +51,15 @@ Open `http://localhost:3000` in a browser.
 ```bash
 npm test
 npm run lint
+npm run typecheck
 npm run build
 ```
+
+## Windows Local Agent
+
+```powershell
+npm run local-agent:status
+powershell -ExecutionPolicy Bypass -File .\local-agent\scripts\install-startup-task.ps1 -StartNow
+```
+
+The agent writes local status to `local-agent/data/latest-status.json` and diagnostics to `local-agent/data/diagnostics/`. Supabase upload is opt-in and documented in `local-agent/README.md`.
