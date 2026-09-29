@@ -41,7 +41,7 @@ test("explicit canary/full route has bounded time for persisted verification", (
 
 test("Product Master storage migration gate is preserved before any event write", () => {
   const storageCheck = sync.indexOf("const storage = await productMasterSnapshot(request)");
-  const eventPost = sync.indexOf("await postProductMasterEvents(batch)");
+  const eventPost = sync.indexOf("await postProductMasterEvents(");
   assert.ok(storageCheck >= 0);
   assert.ok(eventPost > storageCheck);
   assert.match(sync, /storageReady: false/);
@@ -108,4 +108,14 @@ test("full apply keeps Product Master writes in bounded verified batches", () =>
   assert.match(sync, /APPLY_BATCH_SIZE = 2_000/);
   assert.match(sync, /AbortSignal\.timeout\(120_000\)/);
   assert.doesNotMatch(sync, /1688|price change|Shopling write/i);
+});
+
+test("full apply finalizes one exact snapshot and records repair-safe evidence", () => {
+  assert.match(sync, /salesEventSnapshotToken/);
+  assert.match(sync, /expectedRows: selected\.length/);
+  assert.match(sync, /finalize = mode === "full"/);
+  assert.match(sync, /snapshotFinalized === true/);
+  assert.match(sync, /snapshotActiveRows/);
+  assert.match(sync, /sales-event-full-snapshot:/);
+  assert.match(sync, /snapshotDeactivatedRows/);
 });

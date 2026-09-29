@@ -46,6 +46,8 @@ test("the exact FULL operation evidence must prove all candidate rows were writt
   assert.match(engine, /output\.verified === true/);
   assert.match(engine, /selected === expectedRows/);
   assert.match(engine, /written === expectedRows/);
+  assert.match(engine, /output\.snapshotFinalized === true/);
+  assert.match(engine, /snapshotActiveRows === expectedRows/);
   assert.match(engine, /fullApply\.verified/);
   assert.match(page, /FULL 검증 write/);
 });
