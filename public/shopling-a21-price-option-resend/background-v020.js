@@ -521,6 +521,43 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })();
 });
 
+function isShoplingNavigationUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" && url.hostname === "a.shopling.co.kr";
+  } catch {
+    return false;
+  }
+}
+
+function isA21ListNavigationUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:"
+      && url.hostname === "a.shopling.co.kr"
+      && url.pathname.toLowerCase() === "/prodlinkage/goods_prod_join_list.phtml";
+  } catch {
+    return false;
+  }
+}
+
+async function resumeWorkerAfterShoplingNavigation(details) {
+  if (!Number.isInteger(details?.tabId) || !isShoplingNavigationUrl(details?.url)) return;
+  const state = await loadState();
+  if (!state || state.state !== "RUNNING" || state.stopped) return;
+  const worker = state.jobs.find((job) => job.workerTabId === details.tabId && job.status === "RUNNING");
+  if (!worker) return;
+  if (worker.stage === "SEARCH_SUBMITTED" && !isA21ListNavigationUrl(details.url)) return;
+  await assignWorker(worker.id);
+}
+
+// Shopling keeps the top-level tab on `/` and POSTs A21 searches inside a child
+// frame. tabs.onUpdated does not report that child-frame completion, so resume
+// only after webNavigation confirms the new Shopling document is ready.
+chrome.webNavigation?.onCompleted.addListener((details) => {
+  void resumeWorkerAfterShoplingNavigation(details);
+});
+
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === "install") void chrome.storage.local.remove(STATE_KEY);
 });
@@ -544,7 +581,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           job.assignmentBusy = false;
           job.updatedAt = now();
           await saveState(state);
-          if (job.stage === "SEARCH_SUBMITTED") setTimeout(() => void assignWorker(job.id), 650);
           if (job.stage === "POPUP_OPENING") setTimeout(() => void bindPopup(job.id), 120);
           if (job.stage === "RESULT_WAIT") setTimeout(() => void monitorResult(job.id), 300);
         }
