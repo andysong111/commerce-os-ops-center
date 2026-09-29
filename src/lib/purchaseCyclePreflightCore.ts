@@ -22,6 +22,7 @@ export type PurchasePreflightOptions = {
   cashLimitKrw: number | null;
   maxSkus: number;
   maxUnitsPerSku: number;
+  allowOpenBudgetPreview?: boolean;
 };
 export type PurchaseMonthlySpendPin = {
   cycleMonth: string;
@@ -78,6 +79,7 @@ export type PurchaseCyclePreflightReport = {
   sourceCycleMonth: string | null;
   sourceBudgetMonth: string | null;
   cashLimitKrw: number | null;
+  automaticGrossBudgetKrw: number | null;
   effectiveBudgetKrw: number;
   recordedCycleSpendKrw: number | null;
   remainingMonthlyCashKrw: number;
@@ -233,9 +235,16 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (source?.cycleMonth !== targetCycleMonth || source?.budgetMonth !== requiredBudgetMonth) {
     blockers.push("TARGET_CYCLE_RECALCULATION_REQUIRED");
   }
-  // A future (not closed) calendar month must never be treated as final funding.
-  if (todaySeoul.slice(0, 7) <= requiredBudgetMonth) blockers.push("BUDGET_MONTH_NOT_CLOSED");
-  if (cashLimitKrw === null) blockers.push("OWNER_CASH_LIMIT_REQUIRED");
+  // An owner-authorized early preview can inspect the current month-to-date
+  // basis, but it remains non-binding and must be refreshed after month close.
+  const budgetMonthClosed = todaySeoul.slice(0, 7) > requiredBudgetMonth;
+  if (!budgetMonthClosed) {
+    if (input.options.allowOpenBudgetPreview === true) {
+      reviewBlockers.push("OPEN_BUDGET_EARLY_PREVIEW_RECHECK_REQUIRED");
+    } else {
+      blockers.push("BUDGET_MONTH_NOT_CLOSED");
+    }
+  }
   if (!positive(source?.budgetKrw)) blockers.push("MONTHLY_BUDGET_NOT_VERIFIED");
   const spendValid = (value: PurchaseMonthlySpendPin | null): value is PurchaseMonthlySpendPin => Boolean(
     value && value.cycleMonth === targetCycleMonth && nonnegative(value.recordedSpendKrw) &&
@@ -252,7 +261,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (!fundingValid) blockers.push("GROSS_FUNDING_BASIS_UNVERIFIED");
   const remainingMonthlyCashKrw = fundingValid && recordedCycleSpendKrw !== null
     ? Math.max(0, source.grossBudgetKrw! - recordedCycleSpendKrw) : 0;
-  const effectiveCashKrw = positive(cashLimitKrw) ? Math.min(cashLimitKrw, remainingMonthlyCashKrw) : 0;
+  const effectiveCashKrw = positive(cashLimitKrw)
+    ? Math.min(cashLimitKrw, remainingMonthlyCashKrw)
+    : remainingMonthlyCashKrw;
   // The cash ceiling includes freight reserve; line amounts are product costs.
   // Subtract recorded spend first, then reserve the existing policy multiplier.
   const effectiveBudgetKrw = fundingValid && positive(source?.budgetKrw)
@@ -322,7 +333,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costReady(row, now)).length) : "BLOCKED", `검증원가 ${candidates.filter(row => costReady(row, now)).length}/${candidates.length}개. 확정입고 또는 A등급 구매전용 근거만 허용하며 캐시·추정값은 승격하지 않습니다.`, "/stage7-purchase-cost-evidence"),
     stage(8, "발주 후보 재고 근거", inventoryFresh ? coverage(candidates.filter(inventoryPreviewReady).length) : "BLOCKED", `계획재고 ${candidates.filter(inventoryPreviewReady).length}/${candidates.length}개 · VERIFIED ${candidates.filter(verifiedInventoryReady).length}개 · PROVISIONAL ${candidates.filter(provisionalInventoryReady).length}개. 전수 실사는 요구하지 않으며, 실제 품절 시 SOLD_OUT_RESET=0 이후 중국 확정입고와 판매를 누적합니다.`, "/stage8-inventory-verification-priority"),
     stage(9, "발주 Shadow·원본 일치", shadowReady && contextMatch && stable && fullReadback && sourceFresh && inventoryFresh ? "VERIFIED" : "BLOCKED", "판매·재고·미입고가 연결된 읽기 전용 계산입니다. 보조신호 등 남은 조건은 승인 검토 차단 사유로 별도 표시합니다.", "/stage8-canonical-purchase-shadow"),
-    stage(10, "예산 내 소량 발주안", previewReady ? "VERIFIED" : "WAITING", previewReady ? "금액·품목·수량이 고정된 미리보기입니다. 승인·예약·주문은 생성되지 않았습니다." : "목표 월의 최신 데이터와 현금 상한을 확인한 뒤 계산합니다.", "/purchase-cycle-preflight"),
+    stage(10, "예산 내 소량 발주안", previewReady ? "VERIFIED" : "WAITING", previewReady ? budgetMonthClosed ? "전월 판매원가 자동 한도로 계산한 미리보기입니다. 승인·예약·주문은 생성되지 않았습니다." : "월 마감 전 조기 미리보기입니다. 실제 주문 전에 마감 자료로 다시 계산해야 하며 승인·예약·주문은 생성되지 않았습니다." : "목표 월의 최신 데이터와 전월 판매원가 자동 한도를 확인한 뒤 계산합니다.", "/purchase-cycle-preflight"),
     stage(11, "실제 주문→입고 검증", "LOCKED", "지정일에도 자동으로 열리지 않습니다. 별도 최종 승인과 기존 실행 경로의 재검증 후 실제 입고까지 확인해야 합니다.", "/fast-purchase-mvp"),
   ];
   const uniqueBlockers = [...new Set(blockers)];
@@ -333,7 +344,8 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     sourceFingerprint, planFingerprint: hash({ sourceFingerprint, options: input.options, selected }),
     candidateRequestId: pin?.requestId ?? null, sourceAnalysisAsOf: pin?.analysisAsOf ?? null,
     sourceCycleMonth: source?.cycleMonth ?? null, sourceBudgetMonth: source?.budgetMonth ?? null,
-    cashLimitKrw, effectiveBudgetKrw, estimatedSpendKrw, remainingPreviewBudgetKrw: effectiveBudgetKrw - estimatedSpendKrw,
+    cashLimitKrw, automaticGrossBudgetKrw: fundingValid ? source!.grossBudgetKrw! : null,
+    effectiveBudgetKrw, estimatedSpendKrw, remainingPreviewBudgetKrw: effectiveBudgetKrw - estimatedSpendKrw,
     recordedCycleSpendKrw, remainingMonthlyCashKrw, effectiveCashKrw,
     purchaseCostMultiplier: multiplierValid ? multiplier! : null,
     estimatedAllInSpendKrw: multiplierValid ? Math.ceil(estimatedSpendKrw * multiplier!) : 0,

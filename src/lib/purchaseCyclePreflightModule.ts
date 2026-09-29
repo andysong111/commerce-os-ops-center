@@ -8,7 +8,7 @@ export const purchaseCyclePreflightModule: CommerceModule = {
   status: "available",
   route: "/purchase-cycle-preflight",
   category: "발주·입고 관리",
-  inputType: "발주 예정일, 이번 소량 검증에 쓸 현금 상한, SKU·수량 제한",
+  inputType: "발주 예정일, 전월 판매원가 자동 한도, SKU·수량 제한",
   outputType: "구간별 실제 검증상태, 차단 사유, 원본 지문이 고정된 소량 발주 미리보기",
   historySupport: false,
   externalProject: false,
