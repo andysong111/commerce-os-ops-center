@@ -209,6 +209,11 @@ test("v0.5.16 keeps a stable empty A4 registered-mall result uncertain without b
   assert.match(monthlyBackground, /marketRows: \[\]/);
 });
 
+test("v0.5.16 reads the slower registered-mall evidence before the short-lived price evidence", () => {
+  const readPrices = monthlyBackground.match(/async function readPrices[\s\S]*?\n  }/)?.[0] ?? "";
+  assert.match(readPrices, /const market = await readRegisteredMarketPrices\(goodsKey\);\s+const price = await readPriceSettings\(goodsKey\);/);
+});
+
 test("v0.5.15 follows the live Shopling registered-mall checkbox flow", async () => {
   const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
   assert.match(dom, /상품이등록된쇼핑몰보기/);

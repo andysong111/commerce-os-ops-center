@@ -147,6 +147,7 @@ test('proven market failure rollback restores original sold-out Shopling master 
   await h.call('resendReport',{report});
   assert.equal(h.item.state,'RESENDING');
   assert.equal(h.item.error_code,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
+  assert.equal(h.item.transmission.result,'BATCH_TERMINAL_REVIEW_REQUIRED');
   assert.equal(h.log.includes('status:C'),true);
   assert.equal(h.state.raw[0].sale_status,'C');
   assert.equal(h.log.includes('SALE_STATUS_FAILURE_ROLLBACK'),true);

@@ -102,6 +102,20 @@ test('legacy market review never takes over a modern batch transmission',async()
   assert.equal(h.log.length,0);
 });
 
+test('legacy market review can recover a terminal modern batch after fresh market evidence',async()=>{
+  const h=harness();
+  const terminalBatchId='66666666-6666-4666-8666-666666666666';
+  h.item.transmission={...h.item.transmission,batchId:terminalBatchId,result:'BATCH_TERMINAL_REVIEW_REQUIRED'};
+  const result=await h.call([h.market('판매중',h.mall.target.sellPrice-100)]);
+  assert.equal(result.marketReview.state,'MISMATCH');
+  assert.equal(result.requeued,true);
+  assert.equal(h.item.error_code,null);
+  assert.equal(h.item.transmission.batchId,nextBatchId);
+  assert.notEqual(h.item.transmission.token,h.token);
+  assert.notEqual(h.item.transmission.batchId,terminalBatchId);
+  assert.equal(h.log.at(-1).event,'LEGACY_MARKET_PRICE_MISMATCH_REQUEUE');
+});
+
 test('legacy market review can recover a proven missing batch only after fresh market evidence',async()=>{
   const h=harness();
   const missingBatchId='66666666-6666-4666-8666-666666666666';

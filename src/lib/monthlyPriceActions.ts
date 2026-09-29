@@ -208,8 +208,11 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
             changed: restored.changed,
           });
         }
-        if (String(report.state) === "MISSING") {
+        const reportState = String(report.state);
+        if (reportState === "MISSING") {
           item.transmission = { ...item.transmission, result: "BATCH_HISTORY_MISSING" };
+        } else if (["PARTIAL_FAILURE", "STOPPED"].includes(reportState)) {
+          item.transmission = { ...item.transmission, result: "BATCH_TERMINAL_REVIEW_REQUIRED" };
         }
         item.error_code = "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED";
         // Keep the token and state. Do not resend a batch whose delivery is unknown
