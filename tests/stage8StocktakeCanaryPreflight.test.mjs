@@ -20,7 +20,16 @@ test("preflight rechecks Product Master exact inventory guard read-only", () => 
   assert.match(engine, /x-commerce-os-integration-secret/);
   assert.match(engine, /inventoryBaselineKind === "INITIAL_ZERO"/);
   assert.match(engine, /preview\.inventoryVerified === false/);
-  assert.match(engine, /preview\.writeEnabled !== true/);
+  assert.doesNotMatch(engine, /preview\.writeEnabled !== true/);
+  assert.match(engine, /productMasterWriteEnabled: preview\.writeEnabled === true/);
+});
+
+test("signed one-row write availability does not block the read-only preflight", () => {
+  assert.match(
+    engine,
+    /plan\.state === "READY_FOR_OPERATOR_COUNT" &&\s*exactIdentity &&\s*safeInventory/,
+  );
+  assert.match(engine, /preview\.writeEnabled\s*\?\s*"Product Master 현재 재고 guard와 서명된 1건 write 경로/);
 });
 
 test("operator is asked for one physical quantity only after all gates pass", () => {
