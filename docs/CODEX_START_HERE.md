@@ -71,7 +71,7 @@ As of 2026-09-29:
 - Windows Commerce OS Local Agent phase 1 is merged to `main` via PR #1285.
 - The agent is intended to become the permanent diagnostic/observability bridge for this Windows PC.
 - Live A4 evidence identified the v0.5.15 `SEARCH_RESULT_NOT_FOUND` cause: A4 defaults to the last seven days, while its date inputs are read-only, so the old range-expansion code never included older products.
-- A21 extension v0.5.16 is merged through PR #1291, installed, and has completed the saved five-item production readback. The run did not halt, and all five items stayed `MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED` without receiving a fresh resend because planned-mall evidence was incomplete. The current continuation hardens one additional case: if a terminal batch still contains a `RUNNING`/`STARTING` item row, the UI converts that row to review-required instead of recording a false success.
+- A21 extension v0.5.17 is merged through PR #1300 and reports terminal batch failures without leaving false `RUNNING` rows. A 2026-09-30 live recovery then proved that `A21_EMPTY_RESULT` could be false: GOODSKEY `100091` returned 4 rows manually while the content script had treated a missing count marker after 500 ms as zero. The v0.5.18 continuation submits the search form directly and waits for an authoritative `총 조회수` marker before any empty-result decision. After deploy/reload, recover status first and request fresh action-time confirmation before a new scoped resend.
 - Product Master / B-code / warehouse reconciliation now has a dedicated persistent handoff. Its first live continuation check is the AAA030 멀티탭 트레이 / AAA038 실리콘 악력볼 Product Master and warehouse-map sync after the 2026-09-28 physical correction.
 
 ## Handoff discipline
