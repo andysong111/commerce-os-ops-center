@@ -35,13 +35,13 @@ export default function Stage8StocktakeCanaryPage() {
   const [failed, setFailed] = useState(false);
 
   async function refresh() {
-    setFailed(false);
     try {
       const response = await fetch("/api/stage8/stocktake-canary", { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as ApiBody;
       if (!response.ok || body.ok !== true || !body.readiness) {
         throw new Error(body.message || body.error || "STOCKTAKE_CANARY_READINESS_FAILED");
       }
+      setFailed(false);
       setReadiness(body.readiness);
       setMessage(body.readiness.message);
     } catch (error) {
@@ -51,7 +51,8 @@ export default function Stage8StocktakeCanaryPage() {
   }
 
   useEffect(() => {
-    void refresh();
+    const timer = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   async function apply() {
@@ -104,16 +105,16 @@ export default function Stage8StocktakeCanaryPage() {
             <p className="text-xs font-black tracking-[0.16em] text-emerald-700">
               COMMERCE OS · STAGE 8 · ONE ROW STOCKTAKE CANARY
             </p>
-            <h1 className="mt-2 text-2xl font-black text-slate-950">첫 재고실사 1건 적용</h1>
+            <h1 className="mt-2 text-2xl font-black text-slate-950">선택형 재고보정 1건 적용</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              시스템이 선택한 비용신뢰 발주후보 1개만 실제로 세어 입력합니다. 현재 plan fingerprint와 Product Master inventory guard가 모두 그대로일 때만 정확히 1개 STOCKTAKE를 저장합니다. 발주·가격·입고원가 write는 열리지 않습니다.
+              일반 발주사이클은 실사 없이 추정재고로 진행합니다. 이 화면은 재고 불일치를 교정해야 할 때만 실제 수량 1개를 입력하며, 현재 plan fingerprint와 Product Master inventory guard가 그대로일 때만 정확히 1개 STOCKTAKE를 저장합니다. 발주·가격·입고원가 write는 열리지 않습니다.
             </p>
           </div>
           <Link
             href="/stage8-stocktake-intervention-plan"
             className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
           >
-            최소 실사 계획
+            선택형 보정 후보
           </Link>
         </div>
       </header>

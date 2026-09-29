@@ -136,7 +136,7 @@ export async function loadStocktakeInterventionPlan(): Promise<StocktakeInterven
     state,
     message:
       state === "READY_FOR_OPERATOR_COUNT"
-        ? "실제 발주로 이어질 수 있는 비용신뢰 SKU만 남겼습니다. 우선 1건 canary 수량을 확인한 뒤 persisted STOCKTAKE readback을 검증하고, 그 다음에만 나머지 최소 묶음을 요청합니다."
+        ? "발주사이클의 필수 단계가 아닌 선택형 오류 교정 후보입니다. 기본 운영은 PROVISIONAL 추정재고로 계속 진행하고, 실제 품절 시 SOLD_OUT_RESET=0 이후 중국 확정입고와 판매를 누적합니다."
         : state === "NO_SAFE_CANDIDATE"
           ? "현재 비용신뢰와 재고조건을 동시에 만족하는 실사 후보가 없습니다."
           : "상위 비용신뢰 게이트가 BLOCKED라 실사 요청을 만들지 않습니다.",

@@ -41,6 +41,8 @@ test("POST is same-origin and requires explicit one-row confirmation", () => {
 });
 
 test("operator page asks only for physical quantity and keeps fail-closed state visible", () => {
+  assert.match(page, /일반 발주사이클은 실사 없이 추정재고로 진행/);
+  assert.match(page, /재고 불일치를 교정해야 할 때만/);
   assert.match(page, /창고에서 직접 센 실물 수량/);
   assert.match(page, /physicalQuantity/);
   assert.match(page, /WRITE_GATE_OFF/);

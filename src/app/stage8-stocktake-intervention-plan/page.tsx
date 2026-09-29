@@ -20,8 +20,8 @@ export default async function StocktakeInterventionPlanPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="COMMERCE OS · STAGE 8 · MINIMUM HUMAN INTERVENTION"
-        title="최소 재고실사 개입 계획"
-        description="전체 상품을 세지 않습니다. Canonical 발주후보 중 발주비용까지 검증된 SKU만 남기고, 먼저 단 1개의 실사 canary를 요청합니다. 이 화면은 수량을 저장하지 않으며 실제 재고·발주 write는 모두 차단합니다."
+        title="선택형 재고보정 후보"
+        description="발주사이클은 PROVISIONAL 추정재고로 계속 진행하며 재고실사를 요구하지 않습니다. 이 화면은 재고 불일치가 생겼을 때만 사용할 선택형 STOCKTAKE 후보를 보여주고, 실제 재고·발주는 변경하지 않습니다."
         actions={
           <Link
             href="/stage8-legacy-verified-cost-readiness"
@@ -42,7 +42,7 @@ export default async function StocktakeInterventionPlanPage() {
             <Metric label="상태" value={plan.state} />
             <Metric label="전체 발주후보" value={plan.purchaseCandidateCount} />
             <Metric label="비용신뢰 후보" value={plan.costTrustedCandidateCount} good />
-            <Metric label="실사 가치 SKU" value={plan.eligibleStocktakeCount} good />
+            <Metric label="보정 후보 SKU" value={plan.eligibleStocktakeCount} good />
             <Metric
               label="80% 최소묶음"
               value={plan.minimalPriorityCountFor80PctTrustedSpend}
@@ -60,12 +60,12 @@ export default async function StocktakeInterventionPlanPage() {
               label="80% 최소묶음 보수금액"
               value={plan.minimalPrioritySpendCoverage}
             />
-            <Metric label="요청 입력" value="실물 수량만" />
+            <Metric label="선택 입력" value="오류 교정 시 수량" />
           </section>
 
           <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
             <h2 className="text-lg font-black text-emerald-950">
-              사람에게 요청하는 순서도 1건부터 시작합니다
+              발주사이클의 필수 단계가 아닙니다
             </h2>
             <p className="mt-2 text-sm leading-6 text-emerald-900">{plan.message}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-emerald-900">
@@ -76,7 +76,7 @@ export default async function StocktakeInterventionPlanPage() {
                 PURCHASE write {String(plan.purchaseWritesEnabled)}
               </span>
               <span className="rounded-full bg-white px-3 py-1">
-                입력 필드 physicalQuantity 1개
+                선택형 입력 physicalQuantity 1개
               </span>
             </div>
           </section>
@@ -84,9 +84,9 @@ export default async function StocktakeInterventionPlanPage() {
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="text-lg font-black text-slate-950">실사 요청 후보</h2>
+                <h2 className="text-lg font-black text-slate-950">선택형 보정 후보</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  CANARY가 가장 먼저 확인할 1건입니다. 나머지는 canary persisted readback이 통과하기 전까지 요청하지 않습니다.
+                  실제 품절은 SOLD_OUT_RESET=0으로 기준을 만들고 이후 중국 확정입고와 판매를 누적합니다. 아래 순서는 예외적으로 실사가 필요한 경우에만 사용합니다.
                 </p>
               </div>
               <span className="break-all text-xs text-slate-400">{plan.planFingerprint}</span>
@@ -117,14 +117,14 @@ export default async function StocktakeInterventionPlanPage() {
                         <div className="text-xs text-slate-400">{row.modelNo ?? "-"}</div>
                       </td>
                       <td className="px-3 py-3 text-xs font-black text-emerald-800">
-                        {row.canary ? "CANARY 1건" : "CANARY 통과 후"}
+                        {row.canary ? "선택형 CANARY" : "예외 보정"}
                       </td>
                       <td className="px-3 py-3 text-xs">{row.purchaseCostTrustSource}</td>
                       <td className="px-3 py-3">{number.format(row.purchaseUnitCostKrw)}원</td>
                       <td className="px-3 py-3">{number.format(row.recommendedQty)}</td>
                       <td className="px-3 py-3">{number.format(row.conservativeExpectedCost)}원</td>
                       <td className="px-3 py-3 text-xs">{row.inventoryState}</td>
-                      <td className="px-3 py-3 text-xs font-bold">실물 수량</td>
+                      <td className="px-3 py-3 text-xs font-bold">선택 입력</td>
                     </tr>
                   ))}
                   {!plan.rows.length ? (

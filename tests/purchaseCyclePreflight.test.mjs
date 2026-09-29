@@ -43,6 +43,30 @@ test("real stage shapes compose a budget-limited preview, never an approval", ()
   assert.deepEqual(report.stages.map(row => row.number), [5, 6, 7, 8, 9, 10, 11]);
   locked(report);
 });
+test("coherent provisional inventory is included only in the read-only owner-review preview", () => {
+  const input = fixture();
+  Object.assign(input.priority.rows[0], {
+    inventoryMode: "PROVISIONAL",
+    inventoryVerified: false,
+    executionInventoryEligible: false,
+    inventoryCalculationUsable: true,
+    inventoryRequiresReview: false,
+    initialZeroUnverified: true,
+    advisoryOnly: true,
+    action: "PROVISIONAL_DECISION_EVIDENCE_REQUIRED",
+    operationallyReady: false,
+  });
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true);
+  assert.equal(report.state, "PREVIEW_ONLY");
+  assert.equal(report.selected[0].inventoryMode, "PROVISIONAL");
+  assert.equal(report.selected[0].inventoryVerified, false);
+  assert.equal(report.selected[0].advisoryOnly, true);
+  assert.ok(report.reviewBlockers.includes("PROVISIONAL_INVENTORY_OWNER_REVIEW_REQUIRED"));
+  assert.match(report.stages.find(row => row.number === 8).message, /SOLD_OUT_RESET=0/);
+  assert.match(report.stages.find(row => row.number === 8).message, /중국 확정입고와 판매/);
+  locked(report);
+});
 for (const field of ["requestId", "analysisAsOf", "planFingerprint", "eventFingerprint", "planningContentFingerprint"]) {
   test(`source drift blocks at ${field}`, () => {
     const input = fixture(); input.after[field] = field === "analysisAsOf" ? "2026-10-01T01:01:00Z" : "changed";
@@ -86,7 +110,7 @@ for (const which of ["gate", "reconciliation"]) {
     assert.equal(buildPurchaseCyclePreflight(input).previewReady, false);
   });
 }
-test("a partial verified SKU can be isolated without requiring all stocktakes", () => {
+test("an incoherent provisional SKU is isolated without blocking another valid SKU", () => {
   const input = fixture(); const bad = { ...input.priority.rows[0], barcode: "BAA2-1", inventoryMode: "PROVISIONAL", inventoryVerified: false, hasConfirmedReceiptCost: false };
   input.priority.rows.push(bad);
   const report = buildPurchaseCyclePreflight(input);

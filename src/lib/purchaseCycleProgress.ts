@@ -241,7 +241,7 @@ export async function loadPurchaseCycleProgress(): Promise<PurchaseCycleProgress
             5,
             "확정원가·재고·발주 Shadow",
             "DONE",
-            `발주후보 ${purchase.purchaseRecommendationCount} · 실행근거 준비 ${purchase.operationallyReadyPurchaseCount}`,
+            `발주후보 ${purchase.purchaseRecommendationCount} · 추정재고 계획 반영 · 실사 필수 아님 · 실제 품절 후 SOLD_OUT_RESET=0과 중국 확정입고·판매를 누적`,
             "/stage8-inventory-verification-priority",
           );
           currentStage = 6;

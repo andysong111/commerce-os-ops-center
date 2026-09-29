@@ -29,14 +29,16 @@ test("signed one-row write availability does not block the read-only preflight",
     engine,
     /plan\.state === "READY_FOR_OPERATOR_COUNT" &&\s*exactIdentity &&\s*safeInventory/,
   );
-  assert.match(engine, /preview\.writeEnabled\s*\?\s*"Product Master 현재 재고 guard와 서명된 1건 write 경로/);
+  assert.match(engine, /preview\.writeEnabled\s*\?\s*"선택형 재고보정 경로의 Product Master guard와 서명된 1건 write 경로/);
 });
 
-test("operator is asked for one physical quantity only after all gates pass", () => {
+test("physical quantity is optional and reserved for inventory correction", () => {
   assert.match(engine, /READY_FOR_PHYSICAL_COUNT/);
   assert.match(engine, /requestedOperatorInput: ready \? "PHYSICAL_QUANTITY" : null/);
-  assert.match(page, /입력할 값: 현재 창고에 실제로 있는 개수/);
-  assert.match(page, /실제 수량 1개뿐입니다/);
+  assert.match(page, /오류 교정이 필요하다고 판단한 경우에만 실제 수량을 입력/);
+  assert.match(page, /재고실사 필수 아님/);
+  assert.match(page, /SOLD_OUT_RESET=0/);
+  assert.match(page, /중국 확정입고와 판매를 누적/);
 });
 
 test("preflight never writes stocktake or purchase data", () => {
