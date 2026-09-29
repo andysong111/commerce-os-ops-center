@@ -233,6 +233,41 @@ test("protected cost greater than receipt cost stays conservative", () => {
   const report = buildPurchaseCyclePreflight(input);
   assert.equal(report.estimatedSpendKrw, 30000); assert.equal(report.estimatedAllInSpendKrw, 43500);
 });
+test("canonical purchase-only verified cost can satisfy Stage 7 without becoming receipt truth", () => {
+  const input = fixture();
+  Object.assign(input.priority.rows[0], {
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptCostKrw: 0,
+    hasVerifiedPurchaseCost: true,
+    verifiedPurchaseCostReady: true,
+    purchaseCostTrustSource: "LEGACY_VERIFIED_COST_EVIDENCE",
+    verifiedPurchaseUnitCostKrw: 5200,
+    purchaseProtectedCostKrw: 5400,
+    verifiedPurchaseCostAt: "2026-09-01T00:00:00Z",
+    purchaseCostEvidenceCount: 1,
+  });
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true);
+  assert.equal(report.selected[0].verifiedUnitCostKrw, 5400);
+  assert.equal(report.selected[0].confirmedUnitCostKrw, 5400);
+  assert.equal(report.selected[0].costEvidenceSource, "LEGACY_VERIFIED_COST_EVIDENCE");
+  assert.equal(report.estimatedSpendKrw, 27000);
+});
+test("canonical cost contract rejected by Stage 8 stays blocked after numeric normalization", () => {
+  const input = fixture();
+  Object.assign(input.priority.rows[0], {
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptCostKrw: 0,
+    hasVerifiedPurchaseCost: true,
+    verifiedPurchaseCostReady: false,
+    purchaseCostTrustSource: "LEGACY_VERIFIED_COST_EVIDENCE",
+    verifiedPurchaseUnitCostKrw: 5200,
+    purchaseProtectedCostKrw: 5400,
+    verifiedPurchaseCostAt: "2026-09-01T00:00:00Z",
+    purchaseCostEvidenceCount: 1,
+  });
+  blocked(buildPurchaseCyclePreflight(input), "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+});
 for (const patch of [{ latestConfirmedReceiptCostKrw: Number.MAX_SAFE_INTEGER }, { protectedCostKrw: Infinity }, { protectedCostKrw: -1 }]) {
   test(`unsafe confirmed-cost arithmetic fails closed: ${Object.keys(patch)[0]}:${String(Object.values(patch)[0])}`, () => {
     const input = fixture(); Object.assign(input.priority.rows[0], patch);

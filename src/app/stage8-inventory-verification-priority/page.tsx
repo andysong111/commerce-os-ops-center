@@ -115,7 +115,8 @@ function InventoryTable({ rows }: { rows: Row[] }) {
             <th className="px-3 py-2">미입고 약정</th>
             <th className="px-3 py-2">기준점</th>
             <th className="px-3 py-2">이동/입고</th>
-            <th className="px-3 py-2">확정원가</th>
+            <th className="px-3 py-2">검증원가</th>
+            <th className="px-3 py-2">원가근거</th>
             <th className="px-3 py-2">보호원가</th>
           </tr>
         </thead>
@@ -134,12 +135,13 @@ function InventoryTable({ rows }: { rows: Row[] }) {
               <td className="px-3 py-2">{number.format(row.openCommitment)}</td>
               <td className="px-3 py-2">{row.inventoryBaselineKind ?? "없음"}</td>
               <td className="px-3 py-2">{number.format(row.movementCount)} / INBOUND {number.format(row.inboundMovementCount)}</td>
-              <td className="px-3 py-2">{row.hasConfirmedReceiptCost ? `${number.format(row.latestConfirmedReceiptCostKrw)}원` : "없음"}</td>
-              <td className="px-3 py-2">{number.format(row.protectedCostKrw)}원</td>
+              <td className="px-3 py-2">{row.verifiedPurchaseCostReady ? `${number.format(row.verifiedPurchaseUnitCostKrw)}원` : "없음"}</td>
+              <td className="px-3 py-2">{row.purchaseCostTrustSource}</td>
+              <td className="px-3 py-2">{number.format(row.purchaseProtectedCostKrw)}원</td>
             </tr>
           ))}
           {!rows.length ? (
-            <tr><td colSpan={14} className="px-3 py-10 text-center font-bold text-emerald-700">현재 해당 대상이 없습니다.</td></tr>
+            <tr><td colSpan={15} className="px-3 py-10 text-center font-bold text-emerald-700">현재 해당 대상이 없습니다.</td></tr>
           ) : null}
         </tbody>
       </table>

@@ -39,6 +39,12 @@ export type ProductMasterInventoryCostRow = {
   hasConfirmedReceiptCost: boolean;
   latestConfirmedReceiptAt: string | null;
   latestConfirmedReceiptCostKrw: number;
+  hasVerifiedPurchaseCost?: unknown;
+  purchaseCostTrustSource?: unknown;
+  verifiedPurchaseUnitCostKrw?: unknown;
+  verifiedPurchaseCostAt?: unknown;
+  purchaseProtectedCostKrw?: unknown;
+  purchaseCostEvidenceCount?: unknown;
   latestCostKrw: number;
   protectedCostKrw: number;
 };

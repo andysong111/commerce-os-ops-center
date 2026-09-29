@@ -26,4 +26,8 @@ test("readiness page keeps unverified zero distinct from confirmed inventory and
   assert.match(page, /confirmedReceiptCostSkuCount/);
   assert.match(page, /missingConfirmedReceiptCostSkuCount/);
   assert.match(page, /protectedCostKrw/);
+  assert.match(loader, /hasVerifiedPurchaseCost\?: unknown/);
+  assert.match(loader, /purchaseCostTrustSource\?: unknown/);
+  assert.match(loader, /verifiedPurchaseUnitCostKrw\?: unknown/);
+  assert.match(loader, /purchaseCostEvidenceCount\?: unknown/);
 });
