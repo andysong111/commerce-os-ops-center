@@ -45,8 +45,8 @@ Prefer minimal, reversible changes. Preserve existing working behavior unless th
 
 ## Persistent project context
 
-For Commerce OS work that touches Shopling, purchase-cycle, monthly pricing, stock-state, or the Windows Local Agent, read `docs/CODEX_START_HERE.md` before editing code.
+For Commerce OS work that touches Shopling, purchase-cycle, monthly pricing, stock-state, Product Master, B-code, warehouse-location reconciliation, or the Windows Local Agent, read `docs/CODEX_START_HERE.md` before editing code.
 
-That file points to `docs/commerce-os-master-context-20260929.md`, which persists important owner decisions and live-operating lessons that were established across prior ChatGPT/Codex conversations.
+That file points to `docs/commerce-os-master-context-20260929.md`, which persists important owner decisions and live-operating lessons that were established across prior ChatGPT/Codex conversations. For Product Master / B-code / warehouse work it also points to `docs/product-master-bcode-warehouse-handoff-20260929.md`, which contains the detailed physical-location reconciliation state and safety rules.
 
 Do not ask the owner to restate context already documented there. When the persistent context conflicts with current code, tests, direct live evidence, or the owner's latest explicit instruction, prefer the newer evidence and update the context after the change.
