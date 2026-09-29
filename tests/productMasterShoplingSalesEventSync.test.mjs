@@ -118,4 +118,7 @@ test("full apply finalizes one exact snapshot and records repair-safe evidence",
   assert.match(sync, /snapshotActiveRows/);
   assert.match(sync, /sales-event-full-snapshot:/);
   assert.match(sync, /snapshotDeactivatedRows/);
+  assert.match(sync, /operations\.fulls\.some\(\(row\) => verifiedSnapshotFull\(row, report\)\)/);
+  assert.match(sync, /output\.snapshotFinalized === true/);
+  assert.doesNotMatch(sync, /if \(operations\.fulls\.length\)/);
 });

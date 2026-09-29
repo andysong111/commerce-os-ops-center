@@ -25,7 +25,17 @@ function fixture(state = "READY_CANARY", options = {}) {
   if (!["IDLE", "QUEUED", "RUNNING", "FAILED"].includes(state)) add("REPORT", { planFingerprint: fp, sourceEventCount: 1, unmappedRows: state === "BLOCKED" ? 1 : 0, identityConflictCount: 0 });
   if (state === "RUNNING") add("CHUNK", { events: [], range: request.ranges[0] }, { range: request.ranges[0] });
   if (state === "READY_FULL") add("CANARY", { verified: true });
-  if (state === "COMPLETED") add("FULL", { verified: true });
+  if (state === "COMPLETED") add(
+    "FULL",
+    {
+      verified: true,
+      written: 1,
+      snapshotFinalized: true,
+      snapshotActiveRows: 1,
+      planFingerprint: fp,
+    },
+    { selected: 1, planFingerprint: fp },
+  );
   if (state === "FAILED") add("FAILED", { message: "fixture failure" });
   const historical = structuredClone(rows), writes = [], wakes = [], transports = [];
   let owner = null, clockReads = 0, wall = now;
