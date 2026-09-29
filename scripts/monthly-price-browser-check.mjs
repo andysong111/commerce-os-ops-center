@@ -41,13 +41,14 @@ const server=createServer(async(req,res)=>{
   res.setHeader('content-type','text/html;charset=utf-8');res.end('<html><body><div id="root"></div><script src="/bundle.js"></script></body></html>');
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://127.0.0.1:${server.address().port}`;
-const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1200,height:1000}});
+const browser=await chromium.launch({headless:true,...(process.env.MONTHLY_PRICE_BROWSER_EXECUTABLE?{executablePath:process.env.MONTHLY_PRICE_BROWSER_EXECUTABLE}:{})});const page=await browser.newPage({viewport:{width:1200,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await page.addInitScript((extensionVersion)=>{
   window.bridgeEvents=[];
   window.bridgeHistoryMissingItemId=null;
   window.bridgeMarketReadFailures={};
   window.bridgeTerminalRowState=null;
+  window.bridgeFailureCodes=[];
   window.bridgeBatches={};
   window.addEventListener('message',e=>{
     const m=e.data;if(m?.channel!=='commerce-os-monthly-price-v1'||m.direction!=='request')return;
@@ -66,7 +67,7 @@ await page.addInitScript((extensionVersion)=>{
     }
     if(m.command==='BATCH_START'||m.command==='BATCH_STATUS'){
       const rows=window.bridgeBatches[m.payload.batchId]||[];
-      const report={batchId:m.payload.batchId,state:window.bridgeTerminalRowState?'PARTIAL_FAILURE':'SUCCEEDED',phase:'DONE',activeWindows:0,itemCount:rows.length,items:rows.map(row=>({itemId:row.itemId,token:row.token,fingerprint:row.fingerprint,goodsKey:row.goodsKey,state:window.bridgeTerminalRowState||'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true,saleStatusRolledBack:false}))};
+      const report={batchId:m.payload.batchId,state:window.bridgeTerminalRowState?'PARTIAL_FAILURE':'SUCCEEDED',phase:'DONE',activeWindows:0,itemCount:rows.length,failureCodes:window.bridgeFailureCodes,items:rows.map(row=>({itemId:row.itemId,token:row.token,fingerprint:row.fingerprint,goodsKey:row.goodsKey,state:window.bridgeTerminalRowState||'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true,saleStatusRolledBack:false,failureCodes:window.bridgeFailureCodes}))};
       window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:true,version:extensionVersion,report}},location.origin);
       return;
     }
@@ -106,7 +107,15 @@ try{
   assert.equal(item.state,'RESENDING');assert.equal(item.errorCode,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
   assert.equal(item.transmission.result,'BATCH_TERMINAL_REVIEW_REQUIRED');
   assert.deepEqual(events,['resumePreflight','resendReport']);bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.filter(x=>x.command==='BATCH_STATUS').length,1);
-  await page.evaluate(()=>{window.bridgeTerminalRowState=null;window.bridgeBatches={};});
+  await page.evaluate(()=>{window.bridgeTerminalRowState=null;window.bridgeFailureCodes=[];window.bridgeBatches={};});
+  scenario='resume';item=makeItem();started=true;events=[];
+  const failedBatchId='99999999-9999-4999-8999-999999999998';
+  item.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';item.transmission={token,fingerprint,batchId:failedBatchId};
+  await page.goto(url);await page.evaluate(({batchId,itemId,token,fingerprint})=>{window.bridgeTerminalRowState='PARTIAL_FAILURE';window.bridgeFailureCodes=['V020_WORKER_FAILED'];window.bridgeBatches[batchId]=[{itemId,token,fingerprint,goodsKey:'1234567'}];},{batchId:failedBatchId,itemId,token,fingerprint});
+  await page.getByRole('button',{name:'미완료 배치 결과 복구 (1건)',exact:true}).click();
+  await page.getByText('V020_WORKER_FAILED',{exact:true}).waitFor({state:'attached'});
+  assert.equal(item.state,'RESENDING');assert.equal(item.transmission.result,'BATCH_TERMINAL_REVIEW_REQUIRED');
+  await page.evaluate(()=>{window.bridgeTerminalRowState=null;window.bridgeFailureCodes=[];window.bridgeBatches={};});
   scenario='resume';item=makeItem();started=true;events=[];
   const queuedAfterMissing={...makeItem(),id:secondItemId,goodsKey:'1234568',state:'QUEUED',writeIndex:0,transmission:null,errorCode:null};
   extraItems=[queuedAfterMissing];

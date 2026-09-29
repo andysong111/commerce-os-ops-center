@@ -179,7 +179,28 @@ test('v0.5.15 option-phase failure activates sold-out rollback instead of termin
   await w.context.finalizeOrPump();
   status=await w.send('MONTHLY_PRICE_BATCH_STATUS',{batchId:w.batchId});
   assert.equal(status.report.state,'PARTIAL_FAILURE');
+  assert.equal(status.report.items[0].state,'PARTIAL_FAILURE');
+  assert.equal(status.report.items[0].optionOutcome,'FAILED');
+  assert.deepEqual(Array.from(status.report.items[0].failureCodes),['MONTHLY_A21_JOB_FAILED']);
   assert.equal(status.report.items[0].saleStatusRolledBack,true);
+});
+
+test('v0.5.17 terminal infrastructure failures never report affected items as RUNNING and expose only safe error codes',async()=>{
+  const w=batchWorker(2);
+  await w.send('MONTHLY_PRICE_BATCH_START');
+  const price=w.current.jobs.find(x=>x.mode==='PRICE'&&x.status==='RUNNING');
+  price.status='FAILED';
+  price.error='V020_WORKER_FAILED';
+  const option=w.current.jobs.find(x=>x.mode==='OPTION');
+  option.status='STOPPED';
+  option.error='secret value must not cross the bridge';
+  await w.context.pump();
+  const status=await w.send('MONTHLY_PRICE_BATCH_STATUS',{batchId:w.batchId});
+  assert.equal(status.report.state,'PARTIAL_FAILURE');
+  assert.ok(status.report.items.every(item=>item.state==='PARTIAL_FAILURE'));
+  assert.ok(status.report.items.every(item=>item.priceOutcome==='FAILED'&&item.optionOutcome==='STOPPED'));
+  assert.deepEqual(Array.from(status.report.failureCodes),['V020_WORKER_FAILED','MONTHLY_A21_JOB_FAILED']);
+  assert.ok(status.report.items.every(item=>JSON.stringify(item).includes('secret value')===false));
 });
 
 test('v0.5.15 batch mode caps concurrent Shopling windows at four for a phase',async()=>{

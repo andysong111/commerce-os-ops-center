@@ -57,12 +57,18 @@ importScripts("background-v044.js", "monthly-price-dom.js");
   function jobCovers(job, goodsKey) {
     return Array.isArray(job.goodsKeys) && job.goodsKeys.includes(goodsKey);
   }
+  function safeJobErrorCode(value) {
+    const code = String(value || "").trim();
+    return /^[A-Z][A-Z0-9_:-]{2,80}$/.test(code) ? code : "MONTHLY_A21_JOB_FAILED";
+  }
   function modeOutcome(state, mode, goodsKey) {
     const jobs = state.jobs.filter((job) => job.monthlyScope && job.mode === mode && jobCovers(job, goodsKey));
     if (jobs.some((job) => job.status === "RELIST_REQUIRED")) return "RELIST_REQUIRED";
     if (jobs.some((job) => job.status === "UNCERTAIN")) return "UNCERTAIN";
     if (jobs.some((job) => Array.isArray(job.monthlySucceededGoodsKeys) && job.monthlySucceededGoodsKeys.includes(goodsKey))) return "SUCCEEDED";
     if (jobs.some((job) => job.status === "SUCCEEDED" && jobCovers(job, goodsKey))) return "SUCCEEDED";
+    if (jobs.some((job) => job.status === "FAILED")) return "FAILED";
+    if (jobs.some((job) => job.status === "STOPPED")) return "STOPPED";
     if (jobs.some((job) => ["QUEUED", "RUNNING"].includes(job.status))) return "RUNNING";
     return "MISSING";
   }
@@ -80,6 +86,8 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     const rollbackPending = rollback.some((job) => ["QUEUED", "RUNNING"].includes(job.status));
     const relistRequired = priceOutcome === "RELIST_REQUIRED" || optionOutcome === "RELIST_REQUIRED";
     const reviewRequired = priceOutcome === "UNCERTAIN" || optionOutcome === "UNCERTAIN";
+    const failedJobs = scoped.filter((job) => ["FAILED", "STOPPED"].includes(job.status));
+    const failureCodes = [...new Set(failedJobs.map((job) => safeJobErrorCode(job.error)))];
     const priceOk = priceOutcome === "SUCCEEDED";
     const optionOk = optionOutcome === "SUCCEEDED";
     const done = priceOk && optionOk && sellingOk && restoreOk;
@@ -89,7 +97,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       goodsKey: meta.goodsKey,
       itemId: meta.itemId,
       batchId: state.monthlyBatchId || meta.batchId || null,
-      state: rollbackPending ? "RUNNING" : relistRequired ? "RELIST_REQUIRED" : reviewRequired ? "PARTIAL_FAILURE" : done ? "SUCCEEDED" : state.state === "STOPPED" ? "STOPPED" : "RUNNING",
+      state: rollbackPending ? "RUNNING" : relistRequired ? "RELIST_REQUIRED" : reviewRequired ? "PARTIAL_FAILURE" : done ? "SUCCEEDED" : state.state === "STOPPED" ? "STOPPED" : failureCodes.length || state.state === "PARTIAL_FAILURE" ? "PARTIAL_FAILURE" : "RUNNING",
       priceOnly: priceOk && !optionOk,
       priceAndOption: priceOk && optionOk,
       saleStatusActivated: sellingOk,
@@ -97,6 +105,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       saleStatusRolledBack: rolledBack,
       relistRequired,
       reviewRequired,
+      failureCodes,
       priceOutcome,
       optionOutcome,
       updatedAt: state.updatedAt,
@@ -106,6 +115,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     const items = (state.monthlyItems || []).map((meta) => itemReport(state, meta));
     const terminal = items.length > 0 && items.every((row) => !["RUNNING", "STARTING"].includes(row.state));
     const scoped = state.jobs.filter((job) => job.monthlyScope && job.status !== "SUPERSEDED");
+    const failureCodes = [...new Set(scoped.filter((job) => ["FAILED", "STOPPED"].includes(job.status)).map((job) => safeJobErrorCode(job.error)))];
     const phase = ["STATUS_SELLING", "PRICE", "OPTION", "STATUS_SOLD_OUT"].find((mode) =>
       scoped.some((job) => job.mode === mode && ["QUEUED", "RUNNING"].includes(job.status)),
     ) || (state.state === "SUCCEEDED" ? "DONE" : "");
@@ -116,6 +126,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       activeWindows: scoped.filter((job) => job.status === "RUNNING").length,
       retryingCount: scoped.filter((job) => ["PRICE", "OPTION"].includes(job.mode) && Number(job.monthlyAttempt || 1) > 1 && ["QUEUED", "RUNNING"].includes(job.status)).length,
       relistRequiredCount: items.filter((row) => row.relistRequired === true).length,
+      failureCodes,
       itemCount: items.length,
       items,
       updatedAt: state.updatedAt,
@@ -741,7 +752,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken || current?.monthlyBatchId) await remember(current);
       const state = {
-        version: "0.5.16",
+        version: "0.5.17",
         runId: `monthly-batch-${payload.batchId}`,
         monthlyBatchId: payload.batchId,
         monthlyItems: items,
@@ -802,7 +813,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
       const sourceUrl = source?.url || SHOPLING_SOURCE_URL;
       if (current?.monthlyToken) await remember(current);
       const batches = buildBatches([{ goodsKey: item.goodsKey }]);
-      const state = { version: "0.5.16", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
+      const state = { version: "0.5.17", runId: `monthly-${payload.token}`, monthlyToken: payload.token, monthlyGoodsKey: item.goodsKey,
         monthlyNeedsSellingStatus: item.plan.saleStatusTransition?.target === "B",
         monthlyRestoreSoldOut: item.plan.saleStatusTransition?.restoreAfterTransmission === true,
         state: "RUNNING", testMode: false, fingerprint: payload.fingerprint, goodsKeyCount: 1, fullGoodsKeyCount: 1,
@@ -827,7 +838,7 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     void (async () => {
       try {
         const payload = message.payload || {};
-        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.16" });
+        if (message.type === "MONTHLY_PRICE_PING") return sendResponse({ ok: true, version: "0.5.17" });
         if (message.type === "MONTHLY_PRICE_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), false) });
         if (message.type === "MONTHLY_PRICE_MARKET_READ") return sendResponse({ ok: true, observation: await readPrices(String(payload.goodsKey || ""), true) });
         if (message.type === "MONTHLY_PRICE_START") return sendResponse({ ok: true, report: await startMonthly(payload) });

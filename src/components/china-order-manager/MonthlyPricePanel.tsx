@@ -22,6 +22,11 @@ function describe(code: string) {
   if (/LOGIN|DOM|BROWSER|CURRENT_PRICE|MALL|SHOPLING_TAB/.test(code)) return "샵플링 로그인 세션 또는 현재 가격행을 확인하지 못했습니다. 가격 변경을 보호했습니다.";
   return "자동 처리를 멈췄습니다. 아래 확인 코드를 확인하세요.";
 }
+function collectFailureCodes(report: Record<string, unknown>) {
+  const rows = Array.isArray(report.items) ? report.items as Record<string, unknown>[] : [];
+  const values = [report, ...rows].flatMap((row) => Array.isArray(row.failureCodes) ? row.failureCodes : []);
+  return [...new Set(values.map(String).filter((code) => /^[A-Z][A-Z0-9_:-]{2,80}$/.test(code)))];
+}
 export function monthlyPriceBridge(command: string, payload: Record<string, unknown> = {}, timeoutMs = 40000): Promise<BridgeReply> {
   const requestId = crypto.randomUUID();
   return new Promise((resolve, reject) => {
@@ -145,6 +150,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       const newBatchItems: Item[] = [];
       const existingBatchIds = new Set<string>();
       const legacyResending: Item[] = [];
+      const terminalFailureCodes = new Set<string>();
       let inconsistentTerminalRows = 0;
 
       const updateFromApi = (result: { item?: Partial<Item> & { id?: string; duplicate?: boolean } }, fallback: Item) => {
@@ -194,6 +200,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       }
 
       const applyTerminalBatchReport = async (report: Record<string, unknown>, batchItems: Item[]) => {
+        for (const code of collectFailureCodes(report)) terminalFailureCodes.add(code);
         const rows = Array.isArray(report.items) ? report.items as Record<string, unknown>[] : [];
         const batchState = String(report.state ?? "");
         const byId = new Map(batchItems.map((item) => [item.id, item]));
@@ -321,6 +328,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
 
       if (active()) {
         data = await refreshRun(runId);
+        if (terminalFailureCodes.size) setError([...terminalFailureCodes].join(", "));
         setProgress(historyMissingSkipped
           ? `자동 처리 종료 · 이전 전송기록 없음 ${historyMissingSkipped}건은 재전송하지 않고 보류 · 나머지 상품 처리 완료`
           : inconsistentTerminalRows
@@ -363,6 +371,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       let matched = 0;
       let readFailed = 0;
       let lastReadError = "";
+      const terminalFailureCodes = new Set<string>();
 
       for (let index = 0; active() && index < targets.length; index += 1) {
         const initial = targets[index];
@@ -428,6 +437,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
             break;
           }
           if (report.state !== "RUNNING" && report.state !== "STARTING") {
+            for (const code of collectFailureCodes(report)) terminalFailureCodes.add(code);
             const rows = Array.isArray(report.items) ? report.items as Record<string, unknown>[] : [];
             const byId = new Map(retryItems.map((item) => [item.id, item]));
             for (const row of rows) {
@@ -455,7 +465,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         data = await refreshRun(runId);
         const remaining = data.items.filter((item) => item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED").length;
         const relist = data.items.filter((item) => item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_RELIST_REQUIRED").length;
-        setError(lastReadError);
+        setError([...terminalFailureCodes, ...(lastReadError ? [lastReadError] : [])].join(", "));
         setProgress(`과거 전송결과 정리 완료 · 이미 정상 ${matched}건 · 실제 미반영 재전송 ${retryItems.length}건 · 확인 보류 ${remaining}건${readFailed ? ` · 조회 실패 ${readFailed}건` : ""} · 재등록 필요 ${relist}건`);
       }
     } catch (cause) {
