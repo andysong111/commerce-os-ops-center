@@ -551,6 +551,14 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       const separator = control.type === "date" || old.includes("-") ? "-" : old.includes("/") ? "/" : old.includes(".") ? "." : "";
       return [value.slice(0,4), value.slice(4,6), value.slice(6)].join(separator);
     };
+    const noTermCheckbox = form.querySelector('#all_srch_no_term_btn, input[name="all_srch_no_term_btn"]');
+    let allDatesSelected = false;
+    if (noTermCheckbox instanceof HTMLInputElement && noTermCheckbox.type === "checkbox" && visible(noTermCheckbox)) {
+      if (!noTermCheckbox.checked) noTermCheckbox.click();
+      allDatesSelected = noTermCheckbox.checked;
+      if (!allDatesSelected) return { state: "SEARCH_DATE_SET_FAILED", pageUrl: location.href };
+    }
+
     const dateInputs = [...form.querySelectorAll("input")].filter((control) => {
       const type = String(control.type || "text").toLowerCase();
       if (!["text","date","search"].includes(type) || !visible(control) || control.disabled || control.readOnly) return false;
@@ -568,7 +576,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
         }
       }
     }
-    if (pairs.length === 1) {
+    if (!allDatesSelected && pairs.length === 1) {
       const pair = pairs[0];
       const startDate = "20130912";
       const endDate = todayKst();
@@ -577,7 +585,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
       if (digits(pair[0].value) !== startDate || digits(pair[1].value) !== endDate) return { state: "SEARCH_DATE_VERIFY_FAILED", pageUrl: location.href };
     }
 
-    const ticketKey = "commerceOsMonthlyRegisteredSearchV0515:" + goodsKey;
+    const ticketKey = "commerceOsMonthlyRegisteredSearchV0516:" + goodsKey;
     let ticket = null;
     try { ticket = JSON.parse(sessionStorage.getItem(ticketKey) || "null"); } catch { ticket = null; }
     const ticketAge = ticket ? Date.now() - Number(ticket.at || 0) : Number.POSITIVE_INFINITY;
@@ -612,7 +620,7 @@ function advanceMonthlyRegisteredMarketPage(goodsKey) {
   }
   if (!registeredCheckbox.checked) return { state: "REGISTERED_VIEW_CHECKBOX_SET_FAILED", pageUrl: location.href };
 
-  const ticketKey = "commerceOsMonthlyRegisteredViewSearchV0515:" + goodsKey;
+  const ticketKey = "commerceOsMonthlyRegisteredViewSearchV0516:" + goodsKey;
   let ticket = null;
   try { ticket = JSON.parse(sessionStorage.getItem(ticketKey) || "null"); } catch { ticket = null; }
   const ticketAge = ticket ? Date.now() - Number(ticket.at || 0) : Number.POSITIVE_INFINITY;
