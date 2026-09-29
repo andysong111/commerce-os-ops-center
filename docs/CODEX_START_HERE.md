@@ -19,12 +19,16 @@ Never preserve an old plan merely because it is documented if current code or di
 
 ## Mandatory reading by task
 
-Before changing Shopling, purchase-cycle, monthly pricing, stock-state, or Local Agent code, read:
+Before changing Shopling, purchase-cycle, monthly pricing, stock-state, Product Master, B-code, warehouse-location, or Local Agent code, read:
 
 - `AGENTS.md`
 - `docs/commerce-os-master-context-20260929.md`
 - the closest current runbook/plan for the affected subsystem
 - the actual code and regression tests on current `main`
+
+For Product Master / B-code / warehouse-location work also read:
+
+- `docs/product-master-bcode-warehouse-handoff-20260929.md`
 
 For Shopling monthly price work also read:
 
@@ -65,6 +69,7 @@ As of 2026-09-29:
 - The agent is intended to become the permanent diagnostic/observability bridge for this Windows PC.
 - Shopling monthly price final verification still has a live unresolved incident: `MONTHLY_PRICE_REGISTERED_MALL_VIEW_REQUIRED:SEARCH_RESULT_NOT_FOUND` after A21 extension v0.5.15.
 - Do not keep guessing from that coarse error. Use the Local Agent and live A4 DOM evidence to capture the exact dropdown/input/checkbox/result state before the next fix.
+- Product Master / B-code / warehouse reconciliation now has a dedicated persistent handoff. Its first live continuation check is the AAA030 멀티탭 트레이 / AAA038 실리콘 악력볼 Product Master and warehouse-map sync after the 2026-09-28 physical correction.
 
 ## Handoff discipline
 
