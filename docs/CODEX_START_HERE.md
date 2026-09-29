@@ -1,0 +1,82 @@
+# Codex Start Here — Commerce OS persistent context
+
+This repository is used for a long-running Commerce OS project that has been developed across ChatGPT conversations, Codex sessions, browser tests, production incidents, and GitHub work.
+
+This file exists so a fresh Codex session can continue naturally without asking the owner to repeat the whole history.
+
+## Source priority
+
+When sources conflict, use this order:
+
+1. The owner's latest explicit instruction in the current session.
+2. Current production behavior and direct evidence from the real Shopling/Commerce OS UI.
+3. Current `main` code, migrations, tests, CI, and deployed configuration.
+4. `AGENTS.md` safety and verification rules.
+5. `docs/commerce-os-master-context-20260929.md`.
+6. Older plans, handoff notes, screenshots, and historical chat summaries.
+
+Never preserve an old plan merely because it is documented if current code or direct live evidence disproves it.
+
+## Mandatory reading by task
+
+Before changing Shopling, purchase-cycle, monthly pricing, stock-state, or Local Agent code, read:
+
+- `AGENTS.md`
+- `docs/commerce-os-master-context-20260929.md`
+- the closest current runbook/plan for the affected subsystem
+- the actual code and regression tests on current `main`
+
+For Shopling monthly price work also read:
+
+- `docs/shopling-price-bulk-operations-runbook.md`
+- `docs/shopling-price-simple-one-click-auto-plan.md`
+- `docs/shopling-price-bulk-roadmap.md`
+- `local-agent/README.md`
+
+For purchase-cycle work also read:
+
+- `docs/purchase-cycle-2026-10-01-predevelopment.md`
+- `docs/purchase-cycle-2026-10-01-review-hardening.md`
+- `docs/purchase-cycle-preflight-complete-month-read.md`
+
+## Owner interaction rule
+
+The owner wants intervention minimized.
+
+Proceed through reversible engineering work, tests, branch creation, PR creation, and ordinary merge work without repeatedly asking for confirmation when no business judgment is required and the repository safety rules are satisfied.
+
+Stop and ask only at a real owner decision boundary, especially:
+
+- destructive production data operations
+- production schema changes not already explicitly approved
+- actual purchase/payment/order execution
+- authentication/security weakening
+- firewall or external network exposure
+- a policy choice with business consequences
+- a change that cannot be safely reversed
+
+Do not ask the owner to repeat project history that is already persisted in this repository.
+
+## Current hot path
+
+As of 2026-09-29:
+
+- Windows Commerce OS Local Agent phase 1 is merged to `main` via PR #1285.
+- The agent is intended to become the permanent diagnostic/observability bridge for this Windows PC.
+- Shopling monthly price final verification still has a live unresolved incident: `MONTHLY_PRICE_REGISTERED_MALL_VIEW_REQUIRED:SEARCH_RESULT_NOT_FOUND` after A21 extension v0.5.15.
+- Do not keep guessing from that coarse error. Use the Local Agent and live A4 DOM evidence to capture the exact dropdown/input/checkbox/result state before the next fix.
+
+## Handoff discipline
+
+After any major subsystem change, update the relevant persistent context instead of leaving the key decision only in chat.
+
+At minimum record:
+
+- what behavior is now authoritative
+- what evidence proved it
+- current version/PR if relevant
+- unresolved blocker
+- next safe action
+- any owner decision still required
+
+The goal is that a new Codex session can start from repository context and continue without a separate ChatGPT reconstruction.
