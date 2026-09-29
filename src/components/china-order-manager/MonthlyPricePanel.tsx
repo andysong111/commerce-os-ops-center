@@ -474,6 +474,12 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   const relistRequiredCount = snapshot.items.filter((item) =>
     item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_RELIST_REQUIRED"
   ).length;
+  const terminalBatchRecoveryCount = snapshot.items.filter((item) =>
+    item.state === "RESENDING" &&
+    item.errorCode === "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED" &&
+    Boolean(item.transmission?.batchId) &&
+    !["BATCH_HISTORY_MISSING", "BATCH_TERMINAL_REVIEW_REQUIRED"].includes(String(item.transmission?.result ?? ""))
+  ).length;
   const activeExecutionCount = snapshot.items.filter((item) =>
     ["WRITING", "VERIFY_PENDING", "VERIFIED", "UNCERTAIN"].includes(item.state) ||
     (item.state === "RESENDING" && !["MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED", "MONTHLY_PRICE_RELIST_REQUIRED"].includes(item.errorCode ?? ""))
@@ -488,7 +494,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   // Every explicit continuation of an old run goes through resumePreflight.
   // This also exposes a recovery path when stale GROUP_REQUIRED or
   // INACTIVE_LISTING rows are the only unfinished work.
-  const existingRunResume = Boolean(snapshot.run) && (activeExecutionCount > 0 || retryablePrewriteBlockCount > 0);
+  const existingRunResume = Boolean(snapshot.run) && (activeExecutionCount > 0 || retryablePrewriteBlockCount > 0 || terminalBatchRecoveryCount > 0);
   const money = (value: number) => `${Math.round(value).toLocaleString("ko-KR")}원`;
   const shortReason = (code: string | null) => {
     if (!code) return "확인 필요";
@@ -556,6 +562,8 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
           ? "기존 가격조정 이어가는 중…"
           : retryablePrewriteBlockCount > 0
             ? `이전 실행 재확인·이어가기 (${retryablePrewriteBlockCount}건 재평가)`
+            : terminalBatchRecoveryCount > 0
+              ? `미완료 배치 결과 복구 (${terminalBatchRecoveryCount}건)`
             : "미완료 가격조정 이어가기"}
       </button>
     ) : transmissionReviewCount > 0 || relistRequiredCount > 0 ? (

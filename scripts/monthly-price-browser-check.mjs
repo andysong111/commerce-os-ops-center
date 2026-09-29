@@ -99,9 +99,9 @@ try{
   assert.deepEqual(events,['resumePreflight','resendReport']);bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.find(x=>x.command==='START').payload.newClaim,false);
   scenario='resume';item=makeItem();started=true;events=[];
   const inconsistentBatchId='99999999-9999-4999-8999-999999999999';
-  item.transmission={token,fingerprint,batchId:inconsistentBatchId};
+  item.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';item.transmission={token,fingerprint,batchId:inconsistentBatchId};
   await page.goto(url);await page.evaluate(({batchId,itemId,token,fingerprint})=>{window.bridgeTerminalRowState='RUNNING';window.bridgeBatches[batchId]=[{itemId,token,fingerprint,goodsKey:'1234567'}];},{batchId:inconsistentBatchId,itemId,token,fingerprint});
-  await page.getByRole('button',{name:/미완료 가격조정 이어가기/}).click();
+  await page.getByRole('button',{name:'미완료 배치 결과 복구 (1건)',exact:true}).click();
   await page.getByText('자동 처리 종료 · 배치 전체와 개별 결과가 다른 1건은 완료 처리하지 않고 실제 마켓가격 확인 대상으로 보류',{exact:true}).waitFor({state:'attached'});
   assert.equal(item.state,'RESENDING');assert.equal(item.errorCode,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
   assert.equal(item.transmission.result,'BATCH_TERMINAL_REVIEW_REQUIRED');
