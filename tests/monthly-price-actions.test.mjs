@@ -168,7 +168,7 @@ test('wrong transmission token / goods key / missing option transmission cannot 
   await assert.rejects(()=>h.call('resendReport',{report:{...report,token:'wrong'}}),/SCOPE_INVALID/);
   await assert.rejects(()=>h.call('resendReport',{report:{...report,goodsKey:'9876543'}}),/SCOPE_INVALID/);
   await h.call('resendReport',{report:{...report,priceAndOption:false}});assert.equal(h.item.state,'RESENDING');
-  await h.call('resendReport',{report:{...report,state:'MISSING'}});assert.equal(h.item.state,'RESENDING');assert.equal(h.item.error_code,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
+  await h.call('resendReport',{report:{...report,state:'MISSING'}});assert.equal(h.item.state,'RESENDING');assert.equal(h.item.error_code,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');assert.equal(h.item.transmission.result,'BATCH_HISTORY_MISSING');
 });
 test('two overlapping commands are mutually excluded at item lease boundary',async()=>{
   const h=harness();const first=h.call('prepare');await assert.rejects(()=>h.call('prepare'),/ITEM_BUSY/);await first;

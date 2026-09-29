@@ -46,12 +46,18 @@ const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await page.addInitScript((extensionVersion)=>{
   window.bridgeEvents=[];
   window.bridgeHistoryMissingItemId=null;
+  window.bridgeMarketReadFailures={};
   window.bridgeBatches={};
   window.addEventListener('message',e=>{
     const m=e.data;if(m?.channel!=='commerce-os-monthly-price-v1'||m.direction!=='request')return;
     window.bridgeEvents.push({command:m.command,payload:m.payload});
     if(m.command==='START'&&window.bridgeHistoryMissingItemId&&m.payload?.itemId===window.bridgeHistoryMissingItemId){
       window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:extensionVersion,error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
+      return;
+    }
+    if(m.command==='MARKET_READ'&&Number(window.bridgeMarketReadFailures[m.payload?.goodsKey]||0)>0){
+      window.bridgeMarketReadFailures[m.payload.goodsKey]-=1;
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:extensionVersion,error:'MONTHLY_PRICE_REGISTERED_MALL_VIEW_REQUIRED:REGISTERED_VIEW_RESULT_NOT_FOUND'}},location.origin);
       return;
     }
     if(m.command==='BATCH_START'){
@@ -144,6 +150,19 @@ try{
   assert.equal(bridge.filter(x=>x.command==='MARKET_READ').length,1);
   assert.equal(bridge.filter(x=>x.command==='BATCH_START').length,1);
   assert.equal(item.state,'TRANSMITTED');
+  scenario='happy';item=makeItem();started=true;events=[];
+  item.state='RESENDING';item.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';item.transmission={token,fingerprint};
+  const reviewAfterFailure={...makeItem(),id:secondItemId,goodsKey:'1234568',state:'RESENDING',errorCode:'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED',transmission:{token:'88888888-8888-4888-8888-888888888888',fingerprint}};
+  extraItems=[reviewAfterFailure];
+  await page.goto(url);await page.evaluate(goodsKey=>{window.bridgeMarketReadFailures[goodsKey]=1;},item.goodsKey);
+  await page.getByRole('button',{name:/과거 2건 실제 가격 확인 · 미반영만 재전송/}).click();
+  await page.getByText(/과거 전송결과 정리 완료 · 이미 정상 0건 · 실제 미반영 재전송 1건 · 확인 보류 1건 · 조회 실패 1건/).waitFor({state:'attached'});
+  assert.equal(item.errorCode,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
+  assert.equal(reviewAfterFailure.state,'TRANSMITTED');
+  bridge=await page.evaluate(()=>window.bridgeEvents);
+  assert.equal(bridge.filter(x=>x.command==='MARKET_READ').length,2);
+  assert.equal(bridge.filter(x=>x.command==='BATCH_START').length,1);
+  extraItems=[];
   scenario='happy';item=makeItem();started=true;events=[];
   item.state='RESENDING';item.errorCode='MONTHLY_PRICE_RELIST_REQUIRED';item.transmission={token,fingerprint};
   await page.goto(url);
@@ -244,5 +263,5 @@ try{
   await shop.goto('https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=1234567');
   await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
   assert.equal(await shop.evaluate(()=>collectMonthlyRegisteredMarketPage('1234567')),null);
-  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','legacy-market-review-resends-only-mismatch','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','registered-shop-table-readonly','registered-shop-a4-menu-navigation','registered-shop-action-frame-probe','registered-shop-checkbox-second-search','registered-shop-exact-search-row-and-checkbox','ambiguous-DOM-blocked'],productionWrites:false},null,2));
+  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','legacy-market-review-resends-only-mismatch','legacy-market-review-continues-after-read-failure','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','registered-shop-table-readonly','registered-shop-a4-menu-navigation','registered-shop-action-frame-probe','registered-shop-checkbox-second-search','registered-shop-exact-search-row-and-checkbox','ambiguous-DOM-blocked'],productionWrites:false},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}

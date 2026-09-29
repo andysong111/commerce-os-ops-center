@@ -339,7 +339,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         item.state === "RESENDING" &&
         item.errorCode === "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED" &&
         item.transmission &&
-        !item.transmission.batchId
+        (!item.transmission.batchId || item.transmission.result === "BATCH_HISTORY_MISSING")
       );
       if (!targets.length) {
         setProgress("과거 전송결과 확인 대상이 없습니다.");
@@ -349,23 +349,30 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       const batchId = crypto.randomUUID();
       const retryItems: Item[] = [];
       let matched = 0;
+      let readFailed = 0;
+      let lastReadError = "";
 
       for (let index = 0; active() && index < targets.length; index += 1) {
         const initial = targets[index];
         setProgress(`과거 전송결과 확인 ${index + 1}/${targets.length} · ${initial.candidate.productName} · 실제 등록 쇼핑몰 판매가 조회`);
-        const observation = (await monthlyPriceBridge("MARKET_READ", { goodsKey: initial.goodsKey }, 65000)).observation;
-        if (!active()) break;
-        const result = await api({
-          action: "reviewLegacyTransmission",
-          itemId: initial.id,
-          runId,
-          nextBatchId: batchId,
-          observation,
-        });
-        const next = { ...initial, ...(result.item ?? {}) } as Item;
-        if (generation.current === current) update(next);
-        if (next.state === "TRANSMITTED") matched += 1;
-        else if (result.item?.requeued === true && next.transmission?.batchId === batchId) retryItems.push(next);
+        try {
+          const observation = (await monthlyPriceBridge("MARKET_READ", { goodsKey: initial.goodsKey }, 65000)).observation;
+          if (!active()) break;
+          const result = await api({
+            action: "reviewLegacyTransmission",
+            itemId: initial.id,
+            runId,
+            nextBatchId: batchId,
+            observation,
+          });
+          const next = { ...initial, ...(result.item ?? {}) } as Item;
+          if (generation.current === current) update(next);
+          if (next.state === "TRANSMITTED") matched += 1;
+          else if (result.item?.requeued === true && next.transmission?.batchId === batchId) retryItems.push(next);
+        } catch (itemError) {
+          readFailed += 1;
+          lastReadError = itemError instanceof Error ? itemError.message : "MONTHLY_PRICE_MARKET_READ_FAILED";
+        }
       }
 
       if (active() && retryItems.length) {
@@ -436,7 +443,8 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         data = await refreshRun(runId);
         const remaining = data.items.filter((item) => item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED").length;
         const relist = data.items.filter((item) => item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_RELIST_REQUIRED").length;
-        setProgress(`과거 전송결과 정리 완료 · 이미 정상 ${matched}건 · 실제 미반영 재전송 ${retryItems.length}건 · 확인 보류 ${remaining}건 · 재등록 필요 ${relist}건`);
+        setError(lastReadError);
+        setProgress(`과거 전송결과 정리 완료 · 이미 정상 ${matched}건 · 실제 미반영 재전송 ${retryItems.length}건 · 확인 보류 ${remaining}건${readFailed ? ` · 조회 실패 ${readFailed}건` : ""} · 재등록 필요 ${relist}건`);
       }
     } catch (cause) {
       if (generation.current === current) setError(cause instanceof Error ? cause.message : "MONTHLY_PRICE_FAILED");

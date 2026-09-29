@@ -208,6 +208,9 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
             changed: restored.changed,
           });
         }
+        if (String(report.state) === "MISSING") {
+          item.transmission = { ...item.transmission, result: "BATCH_HISTORY_MISSING" };
+        }
         item.error_code = "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED";
         // Keep the token and state. Do not resend a batch whose delivery is unknown
         // or whose required status -> PRICE -> OPTION evidence is incomplete.
