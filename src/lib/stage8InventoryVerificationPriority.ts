@@ -7,6 +7,8 @@ import {
 import { calculateNetRequirement } from "@/lib/productDecisionEngine/netRequirement";
 import type { SalesOrderGroup } from "@/lib/productDecisionEngine/salesOrder";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import { completedChinaOrderReceiptsByBarcode } from "@/lib/chinaOrderLedger";
+import { monthlyPurchaseCycleFor } from "@/lib/monthlyPurchasePolicy";
 import {
   purchaseCostReadyForExecution,
   purchaseCostEvidenceSource,
@@ -41,6 +43,9 @@ export type InventoryVerificationPriorityRow = {
   movementCount: number;
   inboundMovementCount: number;
   openCommitment: number;
+  recentCycleReceivedQuantity: number;
+  recentCycleReceivedAt: string | null;
+  recentReceiptCoverageApplied: boolean;
   hasConfirmedReceiptCost: boolean;
   latestConfirmedReceiptAt: string | null;
   latestConfirmedReceiptCostKrw: number;
@@ -59,6 +64,7 @@ export type InventoryVerificationPriorityRow = {
     | "NONE"
     | "LEDGER_REVIEW_REQUIRED"
     | "PROVISIONAL_DECISION_EVIDENCE_REQUIRED"
+    | "RECENT_RECEIPT_COVERED"
     | "COST_CONFIRMATION_REQUIRED";
   operationallyReady: boolean;
 };
@@ -186,10 +192,12 @@ function expectedCostForQuantity(
 export async function loadInventoryVerificationPriority(
   cycleAsOf: Date | string = new Date(),
 ): Promise<InventoryVerificationPriority> {
-  const [purchaseShadow, inventoryReadiness, planning] = await Promise.all([
+  const cycle = monthlyPurchaseCycleFor(cycleAsOf);
+  const [purchaseShadow, inventoryReadiness, planning, recentReceipts] = await Promise.all([
     loadCanonicalPurchaseShadow(cycleAsOf),
     loadProductMasterInventoryCostReadiness(),
     loadProductPlanningSnapshot(),
+    completedChinaOrderReceiptsByBarcode(cycle.budgetMonth),
   ]);
   const now = Date.now();
   const purchaseProducts = purchaseShadow.snapshot?.products ?? [];
@@ -212,6 +220,17 @@ export async function loadInventoryVerificationPriority(
         product.rawRecommendedQty ?? product.recommendedQty,
       );
       const openCommitment = integer(product.openCommitment);
+      const recentReceipt = recentReceipts.receipts.get(key);
+      const recentCycleReceivedQuantity = integer(recentReceipt?.quantity);
+      const latestInventoryInboundAt = inventory?.lastInboundAt ?? null;
+      const recentReceiptCoverageApplied = Boolean(
+        inventoryCalculationUsable &&
+        recentCycleReceivedQuantity > 0 &&
+        recentReceipt?.latestReceivedAt &&
+        (!latestInventoryInboundAt ||
+          Date.parse(recentReceipt.latestReceivedAt) >
+            Date.parse(latestInventoryInboundAt)),
+      );
       const net = calculateNetRequirement({
         demandTarget,
         originalGroup,
@@ -221,12 +240,19 @@ export async function loadInventoryVerificationPriority(
           : 0,
         reservedQuantity: 0,
         incomingQuantity: 0,
-        ledgerCommitment: openCommitment,
+        ledgerCommitment:
+          openCommitment +
+          (recentReceiptCoverageApplied ? recentCycleReceivedQuantity : 0),
         moq: Math.max(1, integer(profile?.moq) || 1),
         cartonQuantity: Math.max(1, integer(profile?.cartonQuantity) || 1),
       });
-      const action = actionFor(inventory, now);
       const purchaseStatus = net.group;
+      const action =
+        recentReceiptCoverageApplied &&
+        originalGroup === "발주 추천" &&
+        purchaseStatus !== "발주 추천"
+          ? ("RECENT_RECEIPT_COVERED" as const)
+          : actionFor(inventory, now);
       const recommendedQty = net.recommendedQuantity;
       const expectedCost = expectedCostForQuantity(
         product.expectedCost,
@@ -258,6 +284,9 @@ export async function loadInventoryVerificationPriority(
         movementCount: integer(inventory?.movementCount),
         inboundMovementCount: integer(inventory?.inboundMovementCount),
         openCommitment,
+        recentCycleReceivedQuantity,
+        recentCycleReceivedAt: recentReceipt?.latestReceivedAt ?? null,
+        recentReceiptCoverageApplied,
         hasConfirmedReceiptCost: inventory?.hasConfirmedReceiptCost === true,
         latestConfirmedReceiptAt: inventory?.latestConfirmedReceiptAt ?? null,
         latestConfirmedReceiptCostKrw: integer(inventory?.latestConfirmedReceiptCostKrw),
@@ -309,6 +338,7 @@ export async function loadInventoryVerificationPriority(
   );
   const structuralReady =
     purchaseShadow.shadowReady &&
+    !recentReceipts.error &&
     purchaseProducts.length === inventoryReadiness.summary.managedActiveSkuCount &&
     rows.every(
       (row) => inventoryIndex.has(row.barcode) && planningIndex.has(row.barcode),

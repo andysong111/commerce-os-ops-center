@@ -17,6 +17,7 @@ const STATUS_RANK: Record<string, number> = {
   RECEIVED: 5,
 };
 const BARCODE_PATTERN = /^[A-Z]{3}\d+-\d+$/;
+const SEOUL_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 export type ChinaOrderCommitmentStatus =
   | "RESERVED"
@@ -490,4 +491,56 @@ export async function openChinaOrderCommitmentsByBarcode() {
     );
   }
   return { commitments: result, error: ledger.error };
+}
+
+function seoulCalendarMonth(value: string) {
+  return new Date(Date.parse(value) + SEOUL_OFFSET_MS).toISOString().slice(0, 7);
+}
+
+export type ChinaOrderReceiptCoverage = {
+  quantity: number;
+  latestReceivedAt: string | null;
+};
+
+export function completedChinaOrderReceiptsByBarcodeForMonth(
+  commitments: ChinaOrderCommitmentSnapshot[],
+  orderMonth: string,
+) {
+  const result = new Map<string, ChinaOrderReceiptCoverage>();
+  for (const row of commitments) {
+    const orderedAt = row.orderedAt ?? row.reservedAt;
+    if (
+      row.status !== "RECEIVED" ||
+      row.receivedQuantity <= 0 ||
+      !orderedAt ||
+      seoulCalendarMonth(orderedAt) !== orderMonth
+    ) {
+      continue;
+    }
+    const current = result.get(row.barcode) ?? {
+      quantity: 0,
+      latestReceivedAt: null,
+    };
+    result.set(row.barcode, {
+      quantity: current.quantity + row.receivedQuantity,
+      latestReceivedAt:
+        !current.latestReceivedAt ||
+        (row.receivedAt &&
+          Date.parse(row.receivedAt) > Date.parse(current.latestReceivedAt))
+          ? row.receivedAt
+          : current.latestReceivedAt,
+    });
+  }
+  return result;
+}
+
+export async function completedChinaOrderReceiptsByBarcode(orderMonth: string) {
+  const ledger = await loadChinaOrderLedger();
+  return {
+    receipts: completedChinaOrderReceiptsByBarcodeForMonth(
+      ledger.commitments,
+      orderMonth,
+    ),
+    error: ledger.error,
+  };
 }

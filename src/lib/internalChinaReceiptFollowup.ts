@@ -4,6 +4,9 @@ import { buildCanonicalProductMasterSnapshot } from "@/lib/productMasterCanonica
 import { temporaryOpsIdentity } from "@/lib/opsLoginBypass";
 import { getProductLaunchAdminConfig, readProductLaunchState } from "@/lib/productLaunchTrackerServer";
 import { loadStoredInternalChinaForwarderClose } from "@/lib/internalChinaForwarderStoredClose";
+import { productUnitCostByBarcode } from "@/lib/internalChinaForwarderCost";
+import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
+import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { receiptFollowupBundle, selectReceiptFollowupCosts, compareReceiptFollowupReadback, receiptRecord, validInternalReceiptId, type ReceiptStoredRow } from "@/lib/internalChinaReceiptFollowupCore";
 import { missingReceiptCostRows, receiptCostOnlyPayload, validateReceiptReadbackIdentity } from "@/lib/internalChinaReceiptFollowupRepair";
@@ -50,6 +53,22 @@ async function storedRows(receiptId: string) {
 }
 function cachedCosts(cache: Awaited<ReturnType<typeof readPriceAdjustmentReceiptCache>>) {
   return Object.values(cache?.receiptsByBarcode ?? {}).flat();
+}
+async function finalizedMissingCosts(
+  bundle: ReturnType<typeof receiptFollowupBundle>,
+  costs: PriceAdjustmentReceipt[],
+) {
+  const close = await loadStoredInternalChinaForwarderClose(bundle.draftId);
+  if (!close?.actualMultiplier) return costs;
+  const draft = await loadInternalChinaDraftWithQuantityOverrides(
+    await loadInternalChinaPurchaseDraft(bundle.draftId),
+  );
+  const unitCosts = productUnitCostByBarcode(draft, close.actualMultiplier);
+  return costs.map((row) => {
+    const unitCostKrw = unitCosts.get(row.barcode);
+    if (!unitCostKrw) throw new Error("RECEIPT_FOLLOWUP_FINAL_COST_SOURCE_REQUIRED");
+    return { ...row, unitCostKrw };
+  });
 }
 async function verifyRows(receiptId: string, rows: ReceiptStoredRow[], cache: Awaited<ReturnType<typeof readPriceAdjustmentReceiptCache>>): Promise<InternalChinaReceiptFollowupStatus> {
   const bundle = receiptFollowupBundle(receiptId, rows);
@@ -130,12 +149,18 @@ export async function retryInternalChinaReceiptFollowup(receiptId: string) {
   const already = await verifyRows(receiptId, rows, currentCache);
   if (already.state === "VERIFIED") return already;
   const selected = selectReceiptFollowupCosts(bundle, cachedCosts(currentCache));
+  const missing = selected.missing.length
+    ? await finalizedMissingCosts(bundle, selected.missing)
+    : [];
+  const finalizedById = new Map(missing.map((row) => [row.id, row]));
+  const selectedCosts = selected.costs.map(
+    (row) => finalizedById.get(row.id) ?? row,
+  );
   // Re-read before modifying the local cache. Never manufacture source costs
   // from today's draft when historical receipt evidence is missing.
-  const absent = missingReceiptCostRows(selected.costs, await readback(receiptId));
-  if (selected.missing.length) {
-    if (await loadStoredInternalChinaForwarderClose(bundle.draftId)) throw new Error("RECEIPT_FOLLOWUP_FINAL_COST_SOURCE_REQUIRED");
-    await mergePriceAdjustmentReceiptCachePage({ snapshotId: currentCache?.snapshotId || "ops-confirmed-receipts-live-v1", generatedAt: new Date().toISOString(), complete: currentCache?.complete ?? true, receipts: selected.missing });
+  const absent = missingReceiptCostRows(selectedCosts, await readback(receiptId));
+  if (missing.length) {
+    await mergePriceAdjustmentReceiptCachePage({ snapshotId: currentCache?.snapshotId || "ops-confirmed-receipts-live-v1", generatedAt: new Date().toISOString(), complete: currentCache?.complete ?? true, receipts: missing });
   }
   const latest = selectReceiptFollowupCosts(bundle, cachedCosts(await readPriceAdjustmentReceiptCache()));
   const absentIds = new Set(absent.map((row) => row.id));

@@ -161,7 +161,7 @@ function landedCostMultiplier(
     : 1;
 }
 
-function productUnitCostByBarcode(
+export function productUnitCostByBarcode(
   draft: InternalChinaPurchaseDraft,
   multiplier: number,
 ) {
