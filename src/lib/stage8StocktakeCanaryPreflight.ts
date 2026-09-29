@@ -120,17 +120,17 @@ export async function loadStocktakeCanaryPreflight(): Promise<StocktakeCanaryPre
     preview.inventoryBaselineKind === "INITIAL_ZERO" &&
     preview.inventoryRequiresReview === false &&
     FINGERPRINT.test(guard);
-  const writeStillOff = preview.writeEnabled !== true;
   const ready =
     plan.state === "READY_FOR_OPERATOR_COUNT" &&
     exactIdentity &&
-    safeInventory &&
-    writeStillOff;
+    safeInventory;
   return {
     generatedAt: new Date().toISOString(),
     state: ready ? "READY_FOR_PHYSICAL_COUNT" : "BLOCKED",
     message: ready
-      ? "Product Master 현재 재고 guard까지 다시 고정했습니다. 이제 필요한 사람 입력은 이 B-code의 실제 창고 수량 1개뿐이며, write gate는 아직 꺼져 있습니다."
+      ? preview.writeEnabled
+        ? "Product Master 현재 재고 guard와 서명된 1건 write 경로를 확인했습니다. 이 사전점검은 아무것도 쓰지 않으며, 이제 필요한 사람 입력은 이 B-code의 실제 창고 수량 1개뿐입니다."
+        : "Product Master 현재 재고 guard를 다시 고정했습니다. 이 사전점검은 아무것도 쓰지 않으며, 이제 필요한 사람 입력은 이 B-code의 실제 창고 수량 1개뿐입니다."
       : "Stage 8 계획과 Product Master 현재 재고상태가 동시에 안전조건을 만족하지 않아 실물 수량을 요청하지 않습니다.",
     barcode: canary.barcode,
     name: canary.name,
