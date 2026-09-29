@@ -35,7 +35,7 @@ const server=createServer(async(req,res)=>{
     if(p.action==='write'){target.writeIndex++;target.state=target.writeIndex===2?'VERIFY_PENDING':'PREPARED';}
     if(p.action==='verify')target.state='VERIFIED';
     if(p.action==='resendClaim'){duplicate=target.state==='RESENDING';target.state='RESENDING';target.transmission={token,fingerprint,...(p.batchId?{batchId:p.batchId}:{})};}
-    if(p.action==='resendReport'){if(p.report?.state==='MISSING'){target.state='RESENDING';target.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';}else target.state='TRANSMITTED';}
+    if(p.action==='resendReport'){if(['MISSING','PARTIAL_FAILURE','STOPPED'].includes(p.report?.state)){target.state='RESENDING';target.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';}else target.state='TRANSMITTED';}
     return res.end(JSON.stringify({ok:true,item:{...target,duplicate}}));
   }
   res.setHeader('content-type','text/html;charset=utf-8');res.end('<html><body><div id="root"></div><script src="/bundle.js"></script></body></html>');
@@ -47,6 +47,7 @@ await page.addInitScript((extensionVersion)=>{
   window.bridgeEvents=[];
   window.bridgeHistoryMissingItemId=null;
   window.bridgeMarketReadFailures={};
+  window.bridgeTerminalRowState=null;
   window.bridgeBatches={};
   window.addEventListener('message',e=>{
     const m=e.data;if(m?.channel!=='commerce-os-monthly-price-v1'||m.direction!=='request')return;
@@ -65,7 +66,7 @@ await page.addInitScript((extensionVersion)=>{
     }
     if(m.command==='BATCH_START'||m.command==='BATCH_STATUS'){
       const rows=window.bridgeBatches[m.payload.batchId]||[];
-      const report={batchId:m.payload.batchId,state:'SUCCEEDED',phase:'DONE',activeWindows:0,itemCount:rows.length,items:rows.map(row=>({itemId:row.itemId,token:row.token,fingerprint:row.fingerprint,goodsKey:row.goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true,saleStatusRolledBack:false}))};
+      const report={batchId:m.payload.batchId,state:window.bridgeTerminalRowState?'PARTIAL_FAILURE':'SUCCEEDED',phase:'DONE',activeWindows:0,itemCount:rows.length,items:rows.map(row=>({itemId:row.itemId,token:row.token,fingerprint:row.fingerprint,goodsKey:row.goodsKey,state:window.bridgeTerminalRowState||'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true,saleStatusRolledBack:false}))};
       window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:true,version:extensionVersion,report}},location.origin);
       return;
     }
@@ -96,6 +97,15 @@ try{
   await page.getByText('상품별 결과·제외 사유').click();await page.screenshot({path:path.join(out,'unknown-cost-protected.png'),fullPage:true});
   scenario='resume';item=makeItem();started=true;events=[];await page.goto(url);await page.getByRole('button',{name:/미완료 가격조정 이어가기/}).click();await page.getByText('전송 종료 · 마켓 확인 대기',{exact:true}).waitFor({state:'attached'});
   assert.deepEqual(events,['resumePreflight','resendReport']);bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.find(x=>x.command==='START').payload.newClaim,false);
+  scenario='resume';item=makeItem();started=true;events=[];
+  const inconsistentBatchId='99999999-9999-4999-8999-999999999999';
+  item.transmission={token,fingerprint,batchId:inconsistentBatchId};
+  await page.goto(url);await page.evaluate(({batchId,itemId,token,fingerprint})=>{window.bridgeTerminalRowState='RUNNING';window.bridgeBatches[batchId]=[{itemId,token,fingerprint,goodsKey:'1234567'}];},{batchId:inconsistentBatchId,itemId,token,fingerprint});
+  await page.getByRole('button',{name:/미완료 가격조정 이어가기/}).click();
+  await page.getByText('자동 처리 종료 · 배치 전체와 개별 결과가 다른 1건은 완료 처리하지 않고 실제 마켓가격 확인 대상으로 보류',{exact:true}).waitFor({state:'attached'});
+  assert.equal(item.state,'RESENDING');assert.equal(item.errorCode,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
+  assert.deepEqual(events,['resumePreflight','resendReport']);bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.filter(x=>x.command==='BATCH_STATUS').length,1);
+  await page.evaluate(()=>{window.bridgeTerminalRowState=null;window.bridgeBatches={};});
   scenario='resume';item=makeItem();started=true;events=[];
   const queuedAfterMissing={...makeItem(),id:secondItemId,goodsKey:'1234568',state:'QUEUED',writeIndex:0,transmission:null,errorCode:null};
   extraItems=[queuedAfterMissing];
@@ -263,5 +273,5 @@ try{
   await shop.goto('https://a.shopling.co.kr/prod/prodShopInfo.phtml?mode=price_chg&prod_id=1234567');
   await shop.addScriptTag({content:readFileSync('public/shopling-a21-price-option-resend/monthly-price-dom.js','utf8')});
   assert.equal(await shop.evaluate(()=>collectMonthlyRegisteredMarketPage('1234567')),null);
-  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','legacy-market-review-resends-only-mismatch','legacy-market-review-continues-after-read-failure','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','registered-shop-table-readonly','registered-shop-a4-menu-navigation','registered-shop-action-frame-probe','registered-shop-checkbox-second-search','registered-shop-exact-search-row-and-checkbox','ambiguous-DOM-blocked'],productionWrites:false},null,2));
+  assert.deepEqual(errors,[]);writeFileSync(path.join(out,'browser-result.json'),JSON.stringify({ok:true,scenarios:['preview-before-write','batched-market-send','explicit-confirm','unknown-cost-blocked','refresh-resume','terminal-batch-running-row-held-for-review','history-missing-does-not-block-remaining-items','legacy-group-block-resume','inactive-only-resume','zero-mall-block-resume','option-barcode-conflict-resume','legacy-market-review-resends-only-mismatch','legacy-market-review-continues-after-read-failure','relist-terminal-hides-resume','receipt-prerequisite','DOM-header-mapping','registered-shop-table-readonly','registered-shop-a4-menu-navigation','registered-shop-action-frame-probe','registered-shop-checkbox-second-search','registered-shop-exact-search-row-and-checkbox','ambiguous-DOM-blocked'],productionWrites:false},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
