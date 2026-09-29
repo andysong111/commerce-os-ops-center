@@ -348,7 +348,10 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         item.state === "RESENDING" &&
         item.errorCode === "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED" &&
         item.transmission &&
-        (!item.transmission.batchId || item.transmission.result === "BATCH_HISTORY_MISSING")
+        (
+          !item.transmission.batchId ||
+          ["BATCH_HISTORY_MISSING", "BATCH_TERMINAL_REVIEW_REQUIRED"].includes(String(item.transmission.result ?? ""))
+        )
       );
       if (!targets.length) {
         setProgress("과거 전송결과 확인 대상이 없습니다.");

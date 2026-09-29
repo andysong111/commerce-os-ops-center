@@ -686,9 +686,9 @@ importScripts("background-v044.js", "monthly-price-dom.js");
     }
   }
   async function readPrices(goodsKey, includeRegisteredMarket = false) {
-    const price = await readPriceSettings(goodsKey);
-    if (!includeRegisteredMarket) return price;
+    if (!includeRegisteredMarket) return readPriceSettings(goodsKey);
     const market = await readRegisteredMarketPrices(goodsKey);
+    const price = await readPriceSettings(goodsKey);
     return { ...price, ...market, goodsKey };
   }
 

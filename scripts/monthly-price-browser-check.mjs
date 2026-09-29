@@ -35,7 +35,7 @@ const server=createServer(async(req,res)=>{
     if(p.action==='write'){target.writeIndex++;target.state=target.writeIndex===2?'VERIFY_PENDING':'PREPARED';}
     if(p.action==='verify')target.state='VERIFIED';
     if(p.action==='resendClaim'){duplicate=target.state==='RESENDING';target.state='RESENDING';target.transmission={token,fingerprint,...(p.batchId?{batchId:p.batchId}:{})};}
-    if(p.action==='resendReport'){if(['MISSING','PARTIAL_FAILURE','STOPPED'].includes(p.report?.state)){target.state='RESENDING';target.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';}else target.state='TRANSMITTED';}
+    if(p.action==='resendReport'){if(['MISSING','PARTIAL_FAILURE','STOPPED'].includes(p.report?.state)){target.state='RESENDING';target.errorCode='MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED';target.transmission={...target.transmission,result:p.report?.state==='MISSING'?'BATCH_HISTORY_MISSING':'BATCH_TERMINAL_REVIEW_REQUIRED'};}else target.state='TRANSMITTED';}
     return res.end(JSON.stringify({ok:true,item:{...target,duplicate}}));
   }
   res.setHeader('content-type','text/html;charset=utf-8');res.end('<html><body><div id="root"></div><script src="/bundle.js"></script></body></html>');
@@ -104,6 +104,7 @@ try{
   await page.getByRole('button',{name:/미완료 가격조정 이어가기/}).click();
   await page.getByText('자동 처리 종료 · 배치 전체와 개별 결과가 다른 1건은 완료 처리하지 않고 실제 마켓가격 확인 대상으로 보류',{exact:true}).waitFor({state:'attached'});
   assert.equal(item.state,'RESENDING');assert.equal(item.errorCode,'MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED');
+  assert.equal(item.transmission.result,'BATCH_TERMINAL_REVIEW_REQUIRED');
   assert.deepEqual(events,['resumePreflight','resendReport']);bridge=await page.evaluate(()=>window.bridgeEvents);assert.equal(bridge.filter(x=>x.command==='BATCH_STATUS').length,1);
   await page.evaluate(()=>{window.bridgeTerminalRowState=null;window.bridgeBatches={};});
   scenario='resume';item=makeItem();started=true;events=[];

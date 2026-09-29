@@ -34,13 +34,14 @@ export async function reviewLegacyMonthlyTransmission(payload: Record<string, un
   const nextBatchId = validId(payload.nextBatchId);
 
   return withMonthlyPriceItem(itemId, runId, async (item) => {
-    const recoverableMissingBatch = item.transmission?.result === "BATCH_HISTORY_MISSING";
+    const recoverableBatchResult = ["BATCH_HISTORY_MISSING", "BATCH_TERMINAL_REVIEW_REQUIRED"]
+      .includes(String(item.transmission?.result ?? ""));
     if (
       item.state !== "RESENDING" ||
       item.error_code !== "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED" ||
       !item.plan ||
       !item.transmission ||
-      (item.transmission.batchId && !recoverableMissingBatch)
+      (item.transmission.batchId && !recoverableBatchResult)
     ) {
       return { ...response(item), marketReview: null, requeued: false };
     }
