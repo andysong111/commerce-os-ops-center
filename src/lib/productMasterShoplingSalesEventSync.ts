@@ -638,7 +638,17 @@ async function productMasterSnapshot(request: SalesEventSyncRequest) {
   return { ready: true as const, payload };
 }
 
-async function postProductMasterEvents(events: ProductMasterSalesEventRow[]) {
+type ProductMasterSalesEventSnapshotWrite = {
+  token: string;
+  analysisAsOf: string;
+  expectedRows: number;
+  finalize: boolean;
+};
+
+async function postProductMasterEvents(
+  events: ProductMasterSalesEventRow[],
+  snapshot?: ProductMasterSalesEventSnapshotWrite,
+) {
   const { baseUrl, secret } = productMasterConnection();
   const response = await fetch(`${baseUrl}/api/integrations/sales-events`, {
     method: "POST",
@@ -651,6 +661,7 @@ async function postProductMasterEvents(events: ProductMasterSalesEventRow[]) {
       format: PRODUCT_MASTER_SALES_EVENT_FORMAT,
       source: PRODUCT_MASTER_SALES_EVENT_SOURCE,
       rows: events,
+      ...(snapshot ? { snapshot } : {}),
     }),
     cache: "no-store",
     signal: AbortSignal.timeout(120_000),
@@ -662,10 +673,26 @@ async function postProductMasterEvents(events: ProductMasterSalesEventRow[]) {
   return payload;
 }
 
-function verifiedWriteResult(payload: Record<string, unknown>, expected: number) {
+function verifiedWriteResult(
+  payload: Record<string, unknown>,
+  expected: number,
+  finalizedExpectedRows?: number,
+) {
   const rows = Math.round(number(payload.rows));
   const verifiedRows = Math.round(number(payload.verifiedRows));
-  return rows === expected && verifiedRows === expected;
+  const persistedBatchVerified = rows === expected && verifiedRows === expected;
+  if (!persistedBatchVerified) return false;
+  if (finalizedExpectedRows === undefined) return true;
+  const finalization = object(payload.snapshotFinalization);
+  return (
+    payload.snapshotFinalized === true &&
+    Math.round(number(finalization.activeRows)) === finalizedExpectedRows &&
+    Math.round(number(finalization.expectedRows)) === finalizedExpectedRows
+  );
+}
+
+function salesEventSnapshotToken(requestId: string, planFingerprint: string) {
+  return `ops:${requestId}:${planFingerprint.replace(/^sha256:/, "")}`;
 }
 
 export async function applyProductMasterShoplingSalesEvents(
@@ -702,31 +729,55 @@ export async function applyProductMasterShoplingSalesEvents(
   }
 
   const selected = mode === "canary" ? rebuilt.events.slice(0, 1) : rebuilt.events;
+  const snapshotToken =
+    mode === "full"
+      ? salesEventSnapshotToken(request.requestId, expectedPlanFingerprint)
+      : null;
   let written = 0;
+  let snapshotFinalization: Record<string, unknown> | null = null;
   for (let index = 0; index < selected.length; index += APPLY_BATCH_SIZE) {
     const batch = selected.slice(index, index + APPLY_BATCH_SIZE);
-    const result = await postProductMasterEvents(batch);
-    if (!verifiedWriteResult(result, batch.length)) {
+    const finalize = mode === "full" && index + batch.length >= selected.length;
+    const result = await postProductMasterEvents(
+      batch,
+      snapshotToken
+        ? {
+            token: snapshotToken,
+            analysisAsOf: request.analysisAsOf,
+            expectedRows: selected.length,
+            finalize,
+          }
+        : undefined,
+    );
+    if (!verifiedWriteResult(result, batch.length, finalize ? selected.length : undefined)) {
       throw new Error(`SALES_EVENT_WRITE_VERIFY_FAILED:${index}:${batch.length}`);
     }
+    if (finalize) snapshotFinalization = object(result.snapshotFinalization);
     written += batch.length;
   }
 
   const operationType = mode === "canary" ? SALES_EVENT_CANARY : SALES_EVENT_FULL;
   await storeOperation({
     operationType,
-    sourceEventId: `sales-event-${mode}:${request.requestId}:${expectedPlanFingerprint}`,
+    sourceEventId:
+      mode === "full"
+        ? `sales-event-full-snapshot:${request.requestId}:${expectedPlanFingerprint}`
+        : `sales-event-canary:${request.requestId}:${expectedPlanFingerprint}`,
     correlationId: requestCorrelationId(request.requestId),
     inputSnapshot: {
       requestId: request.requestId,
       mode,
       selected: selected.length,
       planFingerprint: expectedPlanFingerprint,
+      snapshotToken,
     },
     resultSnapshot: {
       verified: written === selected.length,
       written,
       planFingerprint: expectedPlanFingerprint,
+      snapshotFinalized: mode === "full" && snapshotFinalization !== null,
+      snapshotActiveRows: number(snapshotFinalization?.activeRows),
+      snapshotDeactivatedRows: number(snapshotFinalization?.deactivatedRows),
       sourceWritesEnabled: false,
       businessWritesEnabled: true,
     },
@@ -739,6 +790,8 @@ export async function applyProductMasterShoplingSalesEvents(
     selected: selected.length,
     written,
     planFingerprint: expectedPlanFingerprint,
+    snapshotFinalized: mode === "full" && snapshotFinalization !== null,
+    snapshotFinalization,
     snapshot: snapshot.ready ? snapshot.payload : null,
   };
 }

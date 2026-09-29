@@ -181,11 +181,14 @@ async function loadVerifiedFullApply(
     const written = integer(output.written);
     const inputPlan = text(input.planFingerprint);
     const outputPlan = text(output.planFingerprint);
+    const snapshotActiveRows = integer(output.snapshotActiveRows);
     if (
       text(row.status) === "SUCCEEDED" &&
       output.verified === true &&
+      output.snapshotFinalized === true &&
       selected === expectedRows &&
       written === expectedRows &&
+      snapshotActiveRows === expectedRows &&
       inputPlan === planFingerprint &&
       outputPlan === planFingerprint
     ) {
