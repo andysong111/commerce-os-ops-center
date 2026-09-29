@@ -465,9 +465,12 @@ Known CI caveat from later project work:
 ### Stage 10 done
 
 - target-month preview uses closed funding basis and fresh source data
-- owner cash cap and existing spend are applied
+- the funding cap is calculated automatically from the prior month's normal-sales cost basis; do not ask the owner for a duplicate cash cap
+- existing cycle spend and the established freight/fee multiplier are applied
 - item/quantity/money preview is stable and auditable
 - preview remains non-binding
+
+Owner clarification on 2026-09-30: an explicitly authorized pre-close run may be shown as an early read-only preview, but it must remain non-binding and be recalculated from closed data before a real order.
 
 ### Stage 11 done
 

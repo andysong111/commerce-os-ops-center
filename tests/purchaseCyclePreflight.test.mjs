@@ -57,7 +57,7 @@ test("coherent provisional inventory is included only in the read-only owner-rev
     operationallyReady: false,
   });
   const report = buildPurchaseCyclePreflight(input);
-  assert.equal(report.previewReady, true);
+  assert.equal(report.previewReady, true, JSON.stringify({ blockers: report.blockers, reviewBlockers: report.reviewBlockers }));
   assert.equal(report.state, "PREVIEW_ONLY");
   assert.equal(report.selected[0].inventoryMode, "PROVISIONAL");
   assert.equal(report.selected[0].inventoryVerified, false);
@@ -136,9 +136,14 @@ test("duplicate barcode blocks even if only one duplicate is a purchase recommen
   const input = fixture(); input.priority.rows.push({ ...input.priority.rows[0], purchaseStatus: "발주 보류" });
   blocked(buildPurchaseCyclePreflight(input), "DUPLICATE_BARCODE");
 });
-test("missing budget is not zero nor an inferred permission", () => {
+test("omitted duplicate cash cap uses the automatic previous-month cost envelope", () => {
   const input = fixture(); input.options.cashLimitKrw = null;
-  blocked(buildPurchaseCyclePreflight(input), "OWNER_CASH_LIMIT_REQUIRED");
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true);
+  assert.equal(report.automaticGrossBudgetKrw, 145000);
+  assert.equal(report.effectiveCashKrw, 145000);
+  assert.equal(report.effectiveBudgetKrw, 100000);
+  locked(report);
 });
 test("cash and monthly budgets cap the selection; MOQ quantity is never resized", () => {
   const input = fixture(); input.priority.source.budgetKrw = 20000;
@@ -174,6 +179,31 @@ test("future September totals remain provisional before October 1 in Seoul", () 
   const input = fixture(); input.now = "2026-09-30T14:59:59Z";
   const report = buildPurchaseCyclePreflight(input); assert.equal(report.dateState, "BEFORE_TARGET");
   assert.ok(report.blockers.includes("BUDGET_MONTH_NOT_CLOSED")); locked(report);
+});
+test("owner-authorized early preview uses the automatic budget but requires closed-data recalculation", () => {
+  const input = fixture();
+  const analysisAsOf = "2026-09-30T14:00:00.000Z";
+  input.now = "2026-09-30T14:59:59.000Z";
+  input.before.analysisAsOf = analysisAsOf;
+  input.after.analysisAsOf = analysisAsOf;
+  input.reconciliation.analysisAsOf = analysisAsOf;
+  input.priority.source.analysisAsOf = analysisAsOf;
+  input.priority.generatedAt = "2026-09-30T14:55:00.000Z";
+  input.priority.source.inventoryGeneratedAt = "2026-09-30T14:55:00.000Z";
+  input.gate.generatedAt = "2026-09-30T14:55:00.000Z";
+  input.reconciliation.generatedAt = "2026-09-30T14:55:00.000Z";
+  input.spendBefore.readAt = "2026-09-30T14:55:00.000Z";
+  input.spendAfter.readAt = "2026-09-30T14:55:00.000Z";
+  input.options.cashLimitKrw = null;
+  input.options.allowOpenBudgetPreview = true;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true, JSON.stringify({ blockers: report.blockers, reviewBlockers: report.reviewBlockers }));
+  assert.equal(report.state, "PREVIEW_ONLY");
+  assert.equal(report.automaticGrossBudgetKrw, 145000);
+  assert.ok(report.reviewBlockers.includes("OPEN_BUDGET_EARLY_PREVIEW_RECHECK_REQUIRED"));
+  assert.ok(!report.blockers.includes("BUDGET_MONTH_NOT_CLOSED"));
+  assert.match(report.stages.find(row => row.number === 10).message, /월 마감 전 조기 미리보기/);
+  locked(report);
 });
 test("Seoul October 1 boundary is not UTC October 1 and never auto-approves", () => {
   const input = fixture(); input.now = "2026-09-30T15:00:00Z";
@@ -236,6 +266,13 @@ test("preflight source has no write executor, credentials, background timer, or 
   }
   const service = readFileSync(new URL("../src/lib/purchaseCyclePreflight.ts", import.meta.url), "utf8");
   assert.doesNotMatch(service, /loadCanonicalPurchaseShadow|loadReceiptCostRecoveryReadiness/);
+});
+test("operator page uses the automatic prior-month cost envelope without a duplicate cash input", () => {
+  const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(page, /name="budget"/);
+  assert.match(page, /전월 정상매출의 추정원가/);
+  assert.match(page, /name="early"/);
+  assert.match(page, /월 마감 전 조기 미리보기/);
 });
 
 

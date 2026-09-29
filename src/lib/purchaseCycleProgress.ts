@@ -106,7 +106,7 @@ export async function loadPurchaseCycleProgress(): Promise<PurchaseCycleProgress
     stage(3, "Product Master CANARY → FULL", "WAITING", "쓰기 전 게이트 통과 후 소유자 승인 필요", "/stage8-sales-events"),
     stage(4, "Persisted canonical 최종 대사", "WAITING", "FULL 반영 후 자동 재조회", "/stage8-postapply-canonical-reconciliation"),
     stage(5, "확정원가·재고·발주 Shadow", "WAITING", "최종 대사 완료 후 자동 점검", "/stage8-inventory-verification-priority"),
-    stage(6, "10월 발주 소량 미리보기", "WAITING", "9월 마감·현금 상한 확인 후 읽기 전용 계산", "/purchase-cycle-preflight"),
+    stage(6, "10월 발주 소량 미리보기", "WAITING", "9월 판매원가 자동 한도로 읽기 전용 계산", "/purchase-cycle-preflight"),
     stage(7, "실제 주문·입고 검증", "WAITING", "최종 승인 전 실행 잠금", "/fast-purchase-mvp"),
   ];
 
@@ -249,7 +249,7 @@ export async function loadPurchaseCycleProgress(): Promise<PurchaseCycleProgress
             6,
             "10월 발주 소량 미리보기",
             "OWNER_ACTION",
-            "예정일의 최신 현금 상한과 9월 마감 예산을 입력해 읽기 전용 미리보기를 확정합니다.",
+            "9월 정상매출의 추정원가를 자동 한도로 적용해 읽기 전용 미리보기를 확정합니다.",
             "/purchase-cycle-preflight",
           );
           state = "READ_ONLY_READY";
