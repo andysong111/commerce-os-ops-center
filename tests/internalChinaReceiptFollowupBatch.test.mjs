@@ -32,6 +32,9 @@ function monthlyHarness(count, { missingAt = -1, failureAt = -1, pageErrorAt = -
     "@/lib/opsLoginBypass": { temporaryOpsIdentity: forbidden },
     "@/lib/productLaunchTrackerServer": { getProductLaunchAdminConfig: forbidden, readProductLaunchState: forbidden },
     "@/lib/internalChinaForwarderStoredClose": { loadStoredInternalChinaForwarderClose: forbidden },
+    "@/lib/internalChinaForwarderCost": { productUnitCostByBarcode: forbidden },
+    "@/lib/internalChinaDraftQuantityOverride": { loadInternalChinaDraftWithQuantityOverrides: forbidden },
+    "@/lib/internalChinaPurchaseDraft": { loadInternalChinaPurchaseDraft: forbidden },
     "@/lib/internalChinaReceiptFollowupCore": core,
     "@/lib/internalChinaReceiptFollowupRepair": repair,
     "@/lib/supabase/admin": { createSupabaseAdminClient: async () => ({
