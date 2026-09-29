@@ -17,7 +17,9 @@ test("canonical purchase shadow uses persisted Product Master rolling sales as t
 });
 
 test("purchase funding is frozen to previous calendar month while rolling history remains the demand source", () => {
-  assert.match(engine, /monthlyPurchaseCycleFor\(generatedAt\)/);
+  assert.match(engine, /cycleAsOf: Date \| string = new Date\(\)/);
+  assert.match(engine, /const generatedAt = new Date\(\)\.toISOString\(\)/);
+  assert.match(engine, /monthlyPurchaseCycleFor\(cycleAsOf\)/);
   assert.match(engine, /loadCalendarMonthNormalRevenue\(cycle\.budgetMonth\)/);
   assert.match(engine, /recent30Revenue: purchaseBudgetMonthRevenue/);
   assert.match(engine, /1일~말일 정상매출/);

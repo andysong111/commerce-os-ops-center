@@ -183,9 +183,11 @@ function expectedCostForQuantity(
   return Math.round((cost / quantity) * nextQuantity);
 }
 
-export async function loadInventoryVerificationPriority(): Promise<InventoryVerificationPriority> {
+export async function loadInventoryVerificationPriority(
+  cycleAsOf: Date | string = new Date(),
+): Promise<InventoryVerificationPriority> {
   const [purchaseShadow, inventoryReadiness, planning] = await Promise.all([
-    loadCanonicalPurchaseShadow(),
+    loadCanonicalPurchaseShadow(cycleAsOf),
     loadProductMasterInventoryCostReadiness(),
     loadProductPlanningSnapshot(),
   ]);
