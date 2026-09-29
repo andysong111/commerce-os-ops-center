@@ -52,8 +52,9 @@ test("manual quantities may exceed the demand reference but never 9999", () => {
 });
 
 test("a calendar month can commit only one different internal purchase Draft", () => {
-  assert.match(draft, /monthlyPurchaseCycleFor\(createdAt\)/);
+  assert.match(draft, /monthlyPurchaseCycleFor\(new Date\(\)\.toISOString\(\)\)/);
   assert.match(draft, /draft\.cycleMonth === cycleMonth/);
+  assert.match(draft, /object\(line\.latestPayload\)\.cycleMonth/);
   assert.match(draft, /FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED/);
   assert.match(route, /FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED/);
   assert.match(actions, /monthlyLocked/);

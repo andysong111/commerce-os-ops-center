@@ -17,6 +17,10 @@ const MANUAL_QUANTITY_MAX = 9_999;
 const BARCODE = /^B[A-Z]{2}\d+-\d+$/;
 
 export type FastPurchaseDraftStockSense = "LOW" | "OUT";
+export type PurchaseDraftDataMode =
+  | "LIVE"
+  | "LAST_KNOWN_MANUAL_FALLBACK"
+  | "PURCHASE_PREFLIGHT";
 
 export type FastPurchaseInternalDraftLineInput = {
   barcode: string;
@@ -45,7 +49,7 @@ export type FastPurchaseInternalDraftLine = {
 export type FastPurchaseInternalDraft = {
   draftId: string;
   sourceFingerprint: string;
-  dataMode: "LIVE" | "LAST_KNOWN_MANUAL_FALLBACK";
+  dataMode: PurchaseDraftDataMode;
   createdAt: string;
   cycleMonth: string;
   lineCount: number;
@@ -57,6 +61,12 @@ export type FastPurchaseInternalDraft = {
 
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
+}
+
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function barcode(value: unknown) {
@@ -147,6 +157,51 @@ export async function createFastPurchaseInternalDraft(
     };
   });
 
+  return storeValidatedMonthlyPurchaseDraft({
+    sourceFingerprint: input.sourceFingerprint,
+    dataMode: input.dataMode,
+    cycleMonth: monthlyPurchaseCycleFor(new Date().toISOString()).cycleMonth,
+    lines,
+    allowAdoptExistingReservedDraft: true,
+  });
+}
+
+export async function storeValidatedMonthlyPurchaseDraft(input: {
+  sourceFingerprint: string;
+  dataMode: PurchaseDraftDataMode;
+  cycleMonth: string;
+  lines: FastPurchaseInternalDraftLine[];
+  allowAdoptExistingReservedDraft?: boolean;
+}): Promise<FastPurchaseInternalDraft> {
+  if (!/^sha256:[a-f0-9]{64}$/.test(text(input.sourceFingerprint))) {
+    throw new Error("FAST_PURCHASE_DRAFT_FINGERPRINT_INVALID");
+  }
+  if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(input.cycleMonth)) {
+    throw new Error("FAST_PURCHASE_DRAFT_CYCLE_INVALID");
+  }
+  if (!Array.isArray(input.lines) || input.lines.length < 1 || input.lines.length > MAX_LINES) {
+    throw new Error("FAST_PURCHASE_DRAFT_LINES_INVALID");
+  }
+  const seen = new Set<string>();
+  const lines = input.lines.map((line) => {
+    const key = barcode(line.barcode);
+    if (!BARCODE.test(key) || seen.has(key)) {
+      throw new Error(`FAST_PURCHASE_DRAFT_BARCODE_INVALID:${key}`);
+    }
+    seen.add(key);
+    const plannedQuantity = quantity(line.plannedQuantity);
+    if (plannedQuantity <= 0 || plannedQuantity > MANUAL_QUANTITY_MAX) {
+      throw new Error(`FAST_PURCHASE_DRAFT_QUANTITY_INVALID:${key}`);
+    }
+    return {
+      ...line,
+      barcode: key,
+      plannedQuantity,
+      referenceDemandQuantity: quantity(line.referenceDemandQuantity),
+      note: text(line.note).slice(0, 300),
+    };
+  });
+
   const totalQuantity = lines.reduce(
     (sum, line) => sum + line.plannedQuantity,
     0,
@@ -154,6 +209,7 @@ export async function createFastPurchaseInternalDraft(
   const stable = {
     sourceFingerprint: input.sourceFingerprint,
     dataMode: input.dataMode,
+    cycleMonth: input.cycleMonth,
     lines: lines.map((line) => ({
       barcode: line.barcode,
       plannedQuantity: line.plannedQuantity,
@@ -163,7 +219,7 @@ export async function createFastPurchaseInternalDraft(
   };
   const proposedDraftId = `fast-purchase-draft:${hash(stable).slice(0, 20)}`;
   const createdAt = new Date().toISOString();
-  const cycleMonth = monthlyPurchaseCycleFor(createdAt).cycleMonth;
+  const cycleMonth = input.cycleMonth;
 
   // A sourcing-confirmed line may create the month's internal Draft before the
   // replenishment recommendation runs. Keep one monthly Draft by adopting that
@@ -182,7 +238,9 @@ export async function createFastPurchaseInternalDraft(
   if (
     currentCycleDraft &&
     currentCycleDraft.draftId !== proposedDraftId &&
-    (currentCycleDraft.orderedQuantity > 0 || currentCycleDraft.receivedQuantity > 0)
+    (input.allowAdoptExistingReservedDraft !== true ||
+      currentCycleDraft.orderedQuantity > 0 ||
+      currentCycleDraft.receivedQuantity > 0)
   ) {
     throw new Error(
       `FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED:${cycleMonth}:${currentCycleDraft.draftId}`,
@@ -201,7 +259,7 @@ export async function createFastPurchaseInternalDraft(
       status: "RESERVED",
       requestedQuantity: line.plannedQuantity,
       occurredAt: createdAt,
-      note: `빠른 발주안 내부 Draft · ${
+      note: `${input.dataMode === "PURCHASE_PREFLIGHT" ? "발주 사전점검" : "빠른 발주안"} 내부 Draft · ${
         line.stockSense === "OUT" ? "품절" : "부족"
       }`,
       payload: {
@@ -296,9 +354,21 @@ export async function loadFastPurchaseInternalDrafts() {
         if (!earliest) return candidate;
         return Date.parse(candidate) < Date.parse(earliest) ? candidate : earliest;
       }, "");
+      const payloadMonths = [
+        ...new Set(
+          lines
+            .map((line) => text(object(line.latestPayload).cycleMonth))
+            .filter((value) => /^20\d{2}-(0[1-9]|1[0-2])$/.test(value)),
+        ),
+      ];
       return {
         draftId,
-        cycleMonth: createdAt ? seoulCalendarMonth(createdAt) : "",
+        cycleMonth:
+          payloadMonths.length === 1
+            ? payloadMonths[0]
+            : createdAt
+              ? seoulCalendarMonth(createdAt)
+              : "",
         createdAt,
         lineCount: lines.length,
         requestedQuantity: lines.reduce(
