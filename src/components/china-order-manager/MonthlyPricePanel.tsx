@@ -145,6 +145,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
       const newBatchItems: Item[] = [];
       const existingBatchIds = new Set<string>();
       const legacyResending: Item[] = [];
+      let inconsistentTerminalRows = 0;
 
       const updateFromApi = (result: { item?: Partial<Item> & { id?: string; duplicate?: boolean } }, fallback: Item) => {
         const next = { ...fallback, ...(result.item ?? {}) } as Item;
@@ -194,12 +195,18 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
 
       const applyTerminalBatchReport = async (report: Record<string, unknown>, batchItems: Item[]) => {
         const rows = Array.isArray(report.items) ? report.items as Record<string, unknown>[] : [];
+        const batchState = String(report.state ?? "");
         const byId = new Map(batchItems.map((item) => [item.id, item]));
         for (const row of rows) {
           const itemId = String(row.itemId ?? "");
           const local = byId.get(itemId);
           if (!local) continue;
-          const result = await api({ action: "resendReport", itemId, runId, report: row });
+          const rowState = String(row.state ?? "");
+          const normalized = !["RUNNING", "STARTING"].includes(batchState) && ["RUNNING", "STARTING"].includes(rowState)
+            ? { ...row, state: "PARTIAL_FAILURE", reviewRequired: true }
+            : row;
+          if (normalized !== row) inconsistentTerminalRows += 1;
+          const result = await api({ action: "resendReport", itemId, runId, report: normalized });
           updateFromApi(result, local);
         }
       };
@@ -316,6 +323,8 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
         data = await refreshRun(runId);
         setProgress(historyMissingSkipped
           ? `자동 처리 종료 · 이전 전송기록 없음 ${historyMissingSkipped}건은 재전송하지 않고 보류 · 나머지 상품 처리 완료`
+          : inconsistentTerminalRows
+            ? `자동 처리 종료 · 배치 전체와 개별 결과가 다른 ${inconsistentTerminalRows}건은 완료 처리하지 않고 실제 마켓가격 확인 대상으로 보류`
           : "자동 처리 종료 · 판매가→옵션 단계 일괄전송 완료 · 보호·확인 필요 항목을 확인하세요.");
       }
     } catch (cause) {
