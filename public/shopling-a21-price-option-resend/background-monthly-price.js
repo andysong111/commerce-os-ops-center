@@ -664,6 +664,15 @@ importScripts("background-v044.js", "monthly-price-dom.js");
         else repeatedTerminal = terminal ? 1 : 0;
         lastState = state;
         if (repeatedTerminal >= 4) {
+          if (state === "REGISTERED_VIEW_RESULT_NOT_FOUND") {
+            return {
+              goodsKey,
+              marketPageUrl: String(advanced[0]?.result?.pageUrl || target.pageUrl || ""),
+              marketObservedAt: Date.now(),
+              marketEvidence: "REGISTERED_SHOP_TABLE",
+              marketRows: [],
+            };
+          }
           throw new Error(`MONTHLY_PRICE_REGISTERED_MALL_VIEW_REQUIRED:${state}`);
         }
 
