@@ -62,12 +62,11 @@ function serviceHarness({ drop = false, conflict = false, sourceMissing = false,
       readPriceAdjustmentReceiptCache: async () => cache,
       mergePriceAdjustmentReceiptCachePage: async (input) => { merges.push(input); cache = { ...cache, receiptsByBarcode: { [barcode]: input.receipts } }; },
     },
-    "@/lib/productMasterCanonicalSync": { buildCanonicalProductMasterSnapshot: (state) => {
+    "@/lib/productMasterSync": { buildProductMasterSnapshotFromTrackerState: (state) => {
       const receipt = Object.values(state.priceAdjustmentReceiptCache?.receiptsByBarcode ?? {}).flat()[0] ?? cost;
+      assert.equal(state.items.map((item) => item.modelNumber).join(","), cost.modelNumber);
       return { skipped: { receiptWithoutSku: 0 }, payload: { receiptCosts: [{ ...canonical, quantity: receipt.quantity, unitCostKrw: receipt.unitCostKrw, receivedAt: receipt.receivedAt }] } };
     } },
-    "@/lib/opsLoginBypass": { temporaryOpsIdentity: () => ({ userId: "fixture-operator" }) },
-    "@/lib/productLaunchTrackerServer": { getProductLaunchAdminConfig: () => ({ ok: true, value: {} }), readProductLaunchState: async () => ({ state_payload: { items: [] } }) },
     "@/lib/internalChinaForwarderStoredClose": { loadStoredInternalChinaForwarderClose: async () => finalClosed ? { actualCostKrw: 999, actualMultiplier: 2 } : null },
     "@/lib/internalChinaForwarderCost": { productUnitCostByBarcode: () => new Map([[barcode, 999]]) },
     "@/lib/internalChinaDraftQuantityOverride": { loadInternalChinaDraftWithQuantityOverrides: async (value) => value },
@@ -101,6 +100,11 @@ test("actual follow-up service retries only missing persisted costs; repeated ca
   assert.equal(h.posts.length, 1); assert.equal(h.persisted()[0].quantity, 7);
   assert.equal(h.operation.result_snapshot.receivedNow, 7);
   assert.equal(h.queries.some(([method]) => ["upsert", "insert", "update", "delete"].includes(method)), false);
+});
+test("receipt cost repair is scoped to its receipt lines instead of unrelated tracker rows", async () => {
+  const h = serviceHarness();
+  assert.equal((await h.service.retryInternalChinaReceiptFollowup(receiptId)).state, "VERIFIED");
+  assert.equal(h.posts.length, 1);
 });
 test("actual follow-up rejects delivery without persistence and preserves existing final-cost conflict", async () => {
   const dropped = serviceHarness({ drop: true });

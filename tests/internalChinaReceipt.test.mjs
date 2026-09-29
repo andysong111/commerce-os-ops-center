@@ -31,7 +31,8 @@ test("receipt engine writes ledger status and product purchase cost without the 
   // in internalChinaReceiptFollowup.test.mjs, not replaced by weaker string checks.
   assert.ok(engine.includes("retryInternalChinaReceiptFollowup"));
   assert.ok(followup.includes("mergePriceAdjustmentReceiptCachePage"));
-  assert.ok(followup.includes("buildCanonicalProductMasterSnapshot"));
+  assert.ok(followup.includes("buildProductMasterSnapshotFromTrackerState"));
+  assert.ok(followup.includes("items: costs.map"));
   assert.ok(followup.includes("/api/integrations/internal-receipt-repair"));
   assert.ok(engine.includes("actualUnitCny * draft.exchangeRateKrwPerCny"));
   assert.equal(engine.includes("draft.internalOrderCostMultiplier"), false);
