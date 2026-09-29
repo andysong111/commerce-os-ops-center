@@ -121,7 +121,7 @@ export function validPurchaseTargetDate(value: unknown): value is string {
 export function validatePurchasePreflightOptions(options: PurchasePreflightOptions) {
   if (!validPurchaseTargetDate(options.targetDate)) throw new Error("TARGET_DATE_INVALID");
   if (options.cashLimitKrw !== null && !positive(options.cashLimitKrw)) throw new Error("CASH_LIMIT_INVALID");
-  if (!positive(options.maxSkus) || options.maxSkus > 10) throw new Error("CANARY_SKU_LIMIT_INVALID");
+  if (!positive(options.maxSkus) || options.maxSkus > 100) throw new Error("PURCHASE_SKU_LIMIT_INVALID");
   if (!positive(options.maxUnitsPerSku) || options.maxUnitsPerSku > 9999) throw new Error("CANARY_UNIT_LIMIT_INVALID");
 }
 function validPin(pin: PurchaseCandidatePin | null): pin is PurchaseCandidatePin {

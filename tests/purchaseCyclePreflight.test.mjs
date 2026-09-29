@@ -219,7 +219,7 @@ test("January purchase uses the previous December budget", () => {
   const input = fixture(); input.options.targetDate = "2027-01-01";
   assert.equal(buildPurchaseCyclePreflight(input).requiredBudgetMonth, "2026-12");
 });
-for (const options of [{ targetDate: "2026-02-30" }, { targetDate: "2026-13-01" }, { cashLimitKrw: 0 }, { cashLimitKrw: -1 }, { cashLimitKrw: "50000" }, { cashLimitKrw: Number.MAX_SAFE_INTEGER + 1 }, { maxSkus: 0 }, { maxSkus: 11 }, { maxUnitsPerSku: 0 }]) {
+for (const options of [{ targetDate: "2026-02-30" }, { targetDate: "2026-13-01" }, { cashLimitKrw: 0 }, { cashLimitKrw: -1 }, { cashLimitKrw: "50000" }, { cashLimitKrw: Number.MAX_SAFE_INTEGER + 1 }, { maxSkus: 0 }, { maxSkus: 101 }, { maxUnitsPerSku: 0 }]) {
   test(`invalid options rejected: ${JSON.stringify(options)}`, () => {
     const input = fixture(); Object.assign(input.options, options); assert.throws(() => buildPurchaseCyclePreflight(input));
   });
