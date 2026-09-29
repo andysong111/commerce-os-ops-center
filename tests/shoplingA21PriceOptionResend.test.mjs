@@ -203,6 +203,12 @@ test("v0.5.16 registered-mall search enables A4's all-date filter and does not h
   assert.match(monthlyBackground, /SEARCH_RESULT_NOT_FOUND/);
 });
 
+test("v0.5.16 keeps a stable empty A4 registered-mall result uncertain without blocking later goods", () => {
+  assert.match(monthlyBackground, /state === "REGISTERED_VIEW_RESULT_NOT_FOUND"/);
+  assert.match(monthlyBackground, /marketEvidence: "REGISTERED_SHOP_TABLE"/);
+  assert.match(monthlyBackground, /marketRows: \[\]/);
+});
+
 test("v0.5.15 follows the live Shopling registered-mall checkbox flow", async () => {
   const dom = await readFile(new URL("monthly-price-dom.js", root), "utf8");
   assert.match(dom, /상품이등록된쇼핑몰보기/);

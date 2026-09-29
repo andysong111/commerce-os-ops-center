@@ -71,7 +71,7 @@ As of 2026-09-29:
 - Windows Commerce OS Local Agent phase 1 is merged to `main` via PR #1285.
 - The agent is intended to become the permanent diagnostic/observability bridge for this Windows PC.
 - Live A4 evidence identified the v0.5.15 `SEARCH_RESULT_NOT_FOUND` cause: A4 defaults to the last seven days, while its date inputs are read-only, so the old range-expansion code never included older products.
-- A21 extension v0.5.16 now selects A4's `전체` period checkbox before GOODSKEY search. Live read-only verification found GOODSKEY `116245`, its exact result row, and the inline registered-mall table with three `판매중` rows plus one `삭제` row. The next gate is to deploy/install v0.5.16 and run the Ops Center historical 12-item readback so only proven mismatches can be resent.
+- A21 extension v0.5.16 now selects A4's `전체` period checkbox before GOODSKEY search. A live read-only audit of the five remaining September review items found registered-mall tables for `100091`, `116282`, `116855`, and `118734`; every visible `판매중` row matched its applicable target price. GOODSKEY `121055` had the correct `13,420원` base price but no registered-mall detail table. v0.5.16 now records that stable empty result as unresolved evidence and continues to later goods without granting a resend. The next gate is to deploy/install v0.5.16 and run the saved five-item readback.
 - Product Master / B-code / warehouse reconciliation now has a dedicated persistent handoff. Its first live continuation check is the AAA030 멀티탭 트레이 / AAA038 실리콘 악력볼 Product Master and warehouse-map sync after the 2026-09-28 physical correction.
 
 ## Handoff discipline
