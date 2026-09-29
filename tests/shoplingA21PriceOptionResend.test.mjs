@@ -22,7 +22,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statu
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.16");
+  assert.equal(manifest.version, "0.5.17");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -151,7 +151,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.16"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.17"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
@@ -159,7 +159,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
   assert.match(downloadRoute, /monthly-status-popup-v053\.js/);
 });
 
-test("v0.5.16 self-heals invalidated Commerce OS page bridge contexts", async () => {
+test("v0.5.17 self-heals invalidated Commerce OS page bridge contexts", async () => {
   const bridge = await readFile(new URL("monthly-price-page-bridge.js", root), "utf8");
   assert.match(monthlyBackground, /repairMonthlyPageBridges/);
   assert.match(monthlyBackground, /injectMonthlyPageBridge/);
@@ -167,7 +167,7 @@ test("v0.5.16 self-heals invalidated Commerce OS page bridge contexts", async ()
   assert.match(monthlyBackground, /china-order-manager\*/);
   assert.match(bridge, /__commerceOsMonthlyPriceBridge/);
   assert.match(bridge, /removeEventListener\("message", previous\.listener\)/);
-  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.16", listener \}/);
+  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.17", listener \}/);
   assert.match(bridge, /typeof runtime\.sendMessage !== "function"/);
   assert.match(monthlyBackground, /probe\[0\]\?\.result === true/);
   assert.match(bridge, /MONTHLY_PRICE_EXTENSION_RELOAD_REQUIRED/);
