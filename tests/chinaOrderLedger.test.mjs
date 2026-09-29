@@ -10,9 +10,6 @@ async function loadLedgerModule() {
   const source = (await readFile(sourcePath, "utf8")).replace(
     /^import \{ createSupabaseAdminClient \} from "@\/lib\/supabase\/admin";\s*/,
     "",
-  ).replace(
-    /^import \{ seoulCalendarMonth \} from "@\/lib\/monthlyPurchasePolicy";\s*/,
-    'const seoulCalendarMonth = (value) => new Date(new Date(value).valueOf() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7);\n',
   );
   const output = ts.transpileModule(source, {
     compilerOptions: {

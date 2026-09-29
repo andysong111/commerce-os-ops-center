@@ -1,5 +1,4 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 
 export const CHINA_ORDER_EVENT_OPERATION_TYPE =
   "CHINA_ORDER_COMMITMENT_EVENT";
@@ -18,6 +17,7 @@ const STATUS_RANK: Record<string, number> = {
   RECEIVED: 5,
 };
 const BARCODE_PATTERN = /^[A-Z]{3}\d+-\d+$/;
+const SEOUL_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 export type ChinaOrderCommitmentStatus =
   | "RESERVED"
@@ -491,6 +491,10 @@ export async function openChinaOrderCommitmentsByBarcode() {
     );
   }
   return { commitments: result, error: ledger.error };
+}
+
+function seoulCalendarMonth(value: string) {
+  return new Date(Date.parse(value) + SEOUL_OFFSET_MS).toISOString().slice(0, 7);
 }
 
 export type ChinaOrderReceiptCoverage = {
