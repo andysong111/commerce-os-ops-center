@@ -217,24 +217,26 @@ This supersedes the previous assumed mapping:
 
 Commerce OS launch state was successfully corrected to the new mapping.
 
-Important unresolved sync check: while applying the corresponding Product Master / warehouse-map correction on 2026-09-28, the Product Master Supabase connection repeatedly timed out. Do not assume that side completed.
+Product Master / warehouse-map reconciliation completed on 2026-09-29 after a fresh read proved that the earlier timed-out write had not applied.
 
-The first continuation check should query:
+Verified final state:
 - BDE1-1
 - BDE1-2
 - BDE1-3
 - BDE2-1
 - AAA030 SKUs
 - AAA038 SKUs
+- BDE1-1 -> AAA030 멀티탭 트레이 / 블랙40cm, direct physical confirmation
+- BDE1-2 -> AAA030 멀티탭 트레이 / 화이트 40cm primary, direct physical confirmation
+- BDE1-3 -> same AAA030 화이트 40cm SKU as additional slot, direct physical confirmation
+- AAA038 실리콘 악력볼 / 블루 -> `미배정`, no warehouse occupant; logical option barcode identity `000000000763` preserved
+- AAA038 실리콘 악력볼 / 레드 -> BDE2-1 remains operator-assumed, not upgraded to direct confirmation
 
-Expected final physical truth:
-- BDE1-1 -> AAA030 멀티탭 트레이 / 블랙40cm
-- BDE1-2 -> AAA030 멀티탭 트레이 / 화이트 40cm primary
-- BDE1-3 -> same AAA030 화이트 40cm SKU as additional slot
-- AAA038 실리콘 악력볼 / 블루 -> no verified location
-- AAA038 실리콘 악력볼 / 레드 -> BDE2-1 remains the current assumed location unless newer direct evidence exists
-
-Inspect current state first. Never replay the failed write blindly.
+Audit request:
+- `6c6ce247-90a1-4620-a951-8aada24c60dc`
+- action `reconcile_physical_location_confirmation`
+- three `sku_barcode_history` rows record white, black, and blue changes
+- no Shopling write, marketplace write, inventory-quantity write, or external-sync outbox row was created
 
 ---
 
@@ -272,7 +274,7 @@ These do not need to be re-asked unless new warehouse evidence conflicts:
 |---|---|
 | AAA251 스틱형 눈마사지기 | BDG1-3, BDG2-1, BDG2-2 |
 | AAA240 그레이닝툴 패드 | BDG2-3, BDG3-1 |
-| AAA030 멀티탭 트레이 | black BDE1-1; white BDE1-2 + BDE1-3 — launch side confirmed; Product Master/map sync still needs verification |
+| AAA030 멀티탭 트레이 | black BDE1-1; white BDE1-2 + BDE1-3 — launch and Product Master/map verified 2026-09-29 |
 
 AAA213 엄지발가락 보호대 A형 at BDB6-1 had prior actual-stock evidence and shared-location owner confirmation.
 
@@ -455,8 +457,8 @@ When a fresh Codex session continues this subsystem:
 4. read this document
 5. inspect current main
 6. inspect current live Supabase state before any mutation
-7. first resolve the AAA030 / AAA038 Product Master warehouse-map sync status
-8. then process new owner physical confirmations one by one
+7. treat the AAA030 / AAA038 Product Master warehouse-map sync as completed under audit request `6c6ce247-90a1-4620-a951-8aada24c60dc`
+8. process new owner physical confirmations one by one
 9. for direct physical confirmations:
    - update launch option B-code/payload
    - preserve canonical option-barcode behavior
