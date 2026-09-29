@@ -39,6 +39,7 @@ For Shopling monthly price work also read:
 
 For purchase-cycle work also read:
 
+- `docs/handoffs/purchase-cycle-stage7-11-codex-handoff-20260929.md`
 - `docs/purchase-cycle-2026-10-01-predevelopment.md`
 - `docs/purchase-cycle-2026-10-01-review-hardening.md`
 - `docs/purchase-cycle-preflight-complete-month-read.md`
@@ -60,6 +61,8 @@ Stop and ask only at a real owner decision boundary, especially:
 - a change that cannot be safely reversed
 
 Do not ask the owner to repeat project history that is already persisted in this repository.
+
+When owner intervention is genuinely required, explain it at roughly Korean high-school freshman level. Lead with the current stage, why automation must stop, the owner's exact 1~3 actions, and the observable completion signal. Keep internal technical details secondary unless they are needed for the action.
 
 ## Current hot path
 
