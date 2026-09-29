@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 
 export const CHINA_ORDER_EVENT_OPERATION_TYPE =
   "CHINA_ORDER_COMMITMENT_EVENT";
@@ -490,4 +491,52 @@ export async function openChinaOrderCommitmentsByBarcode() {
     );
   }
   return { commitments: result, error: ledger.error };
+}
+
+export type ChinaOrderReceiptCoverage = {
+  quantity: number;
+  latestReceivedAt: string | null;
+};
+
+export function completedChinaOrderReceiptsByBarcodeForMonth(
+  commitments: ChinaOrderCommitmentSnapshot[],
+  orderMonth: string,
+) {
+  const result = new Map<string, ChinaOrderReceiptCoverage>();
+  for (const row of commitments) {
+    const orderedAt = row.orderedAt ?? row.reservedAt;
+    if (
+      row.status !== "RECEIVED" ||
+      row.receivedQuantity <= 0 ||
+      !orderedAt ||
+      seoulCalendarMonth(orderedAt) !== orderMonth
+    ) {
+      continue;
+    }
+    const current = result.get(row.barcode) ?? {
+      quantity: 0,
+      latestReceivedAt: null,
+    };
+    result.set(row.barcode, {
+      quantity: current.quantity + row.receivedQuantity,
+      latestReceivedAt:
+        !current.latestReceivedAt ||
+        (row.receivedAt &&
+          Date.parse(row.receivedAt) > Date.parse(current.latestReceivedAt))
+          ? row.receivedAt
+          : current.latestReceivedAt,
+    });
+  }
+  return result;
+}
+
+export async function completedChinaOrderReceiptsByBarcode(orderMonth: string) {
+  const ledger = await loadChinaOrderLedger();
+  return {
+    receipts: completedChinaOrderReceiptsByBarcodeForMonth(
+      ledger.commitments,
+      orderMonth,
+    ),
+    error: ledger.error,
+  };
 }

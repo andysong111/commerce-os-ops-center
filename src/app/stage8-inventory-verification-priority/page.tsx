@@ -14,6 +14,12 @@ export default async function InventoryVerificationPriorityPage() {
   const provisionalRows = purchaseRows.filter(
     (row) => row.inventoryMode === "PROVISIONAL",
   );
+  const recentCoveredRows = report.rows.filter(
+    (row) =>
+      row.recentReceiptCoverageApplied &&
+      row.originalPurchaseStatus === "발주 추천" &&
+      row.purchaseStatus !== "발주 추천",
+  );
 
   return (
     <div className="space-y-6">
@@ -83,13 +89,25 @@ export default async function InventoryVerificationPriorityPage() {
         <InventoryTable rows={blockedRows} />
       </section>
 
+      <section className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-slate-950">직전 발주 입고분으로 제외</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">직전 달 중국 주문이 입고 완료됐지만 현재 재고원장 기준점보다 늦게 들어온 수량입니다. 같은 물량을 다음 달에 다시 주문하지 않도록 권장수량에서 먼저 차감합니다.</p>
+          </div>
+          <span className="text-xs font-bold text-slate-500">{number.format(recentCoveredRows.length)}개 SKU</span>
+        </div>
+        <InventoryTable rows={recentCoveredRows} />
+      </section>
+
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-700">
         <strong>운영 규칙</strong><br />
         1. INITIAL_ZERO/UNVERIFIED는 PROVISIONAL이며 advisory 발주수량 계산에는 사용할 수 있습니다.<br />
         2. PROVISIONAL 한 점 수량만으로 실제 발주 Draft를 실행하지 않습니다. 별도 불확실성·의사결정 증거가 없으면 `PROVISIONAL_DECISION_EVIDENCE_REQUIRED`로 차단합니다.<br />
         3. 실제 품절 확인 시 SOLD_OUT_RESET=0을 기준점으로 만들고 그 이후 입고·판매부터 VERIFIED 재고로 운영합니다.<br />
         4. VERIFIED 상품도 확정 입고원가가 없으면 비용 게이트에서 차단합니다.<br />
-        5. 원장 음수·identity 충돌은 REVIEW로 차단합니다. STOCKTAKE는 오류 교정용 선택 기능이지 필수 절차가 아닙니다.
+        5. 원장 음수·identity 충돌은 REVIEW로 차단합니다. STOCKTAKE는 오류 교정용 선택 기능이지 필수 절차가 아닙니다.<br />
+        6. 직전 달 중국 주문의 완료 입고가 현재 재고 기준점보다 늦으면 다음 달 확보수량으로 먼저 차감합니다.
       </section>
     </div>
   );
@@ -113,6 +131,7 @@ function InventoryTable({ rows }: { rows: Row[] }) {
             <th className="px-3 py-2">예상발주금액</th>
             <th className="px-3 py-2">추정/실재고</th>
             <th className="px-3 py-2">미입고 약정</th>
+            <th className="px-3 py-2">직전월 입고</th>
             <th className="px-3 py-2">기준점</th>
             <th className="px-3 py-2">이동/입고</th>
             <th className="px-3 py-2">검증원가</th>
@@ -133,6 +152,7 @@ function InventoryTable({ rows }: { rows: Row[] }) {
               <td className="px-3 py-2 font-black">{number.format(row.expectedCost)}원</td>
               <td className="px-3 py-2">{number.format(row.inventoryQuantity)}</td>
               <td className="px-3 py-2">{number.format(row.openCommitment)}</td>
+              <td className="px-3 py-2">{row.recentReceiptCoverageApplied ? `${number.format(row.recentCycleReceivedQuantity)} 반영` : number.format(row.recentCycleReceivedQuantity)}</td>
               <td className="px-3 py-2">{row.inventoryBaselineKind ?? "없음"}</td>
               <td className="px-3 py-2">{number.format(row.movementCount)} / INBOUND {number.format(row.inboundMovementCount)}</td>
               <td className="px-3 py-2">{row.verifiedPurchaseCostReady ? `${number.format(row.verifiedPurchaseUnitCostKrw)}원` : "없음"}</td>
@@ -141,7 +161,7 @@ function InventoryTable({ rows }: { rows: Row[] }) {
             </tr>
           ))}
           {!rows.length ? (
-            <tr><td colSpan={15} className="px-3 py-10 text-center font-bold text-emerald-700">현재 해당 대상이 없습니다.</td></tr>
+            <tr><td colSpan={16} className="px-3 py-10 text-center font-bold text-emerald-700">현재 해당 대상이 없습니다.</td></tr>
           ) : null}
         </tbody>
       </table>
@@ -152,6 +172,7 @@ function InventoryTable({ rows }: { rows: Row[] }) {
 function actionLabel(action: Row["action"]) {
   if (action === "LEDGER_REVIEW_REQUIRED") return "원장 검토";
   if (action === "PROVISIONAL_DECISION_EVIDENCE_REQUIRED") return "추정재고 실행증거 필요";
+  if (action === "RECENT_RECEIPT_COVERED") return "직전월 입고로 충족";
   if (action === "COST_CONFIRMATION_REQUIRED") return "입고원가 확인";
   return "준비 완료";
 }

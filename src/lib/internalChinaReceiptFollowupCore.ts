@@ -47,7 +47,14 @@ export function selectReceiptFollowupCosts(bundle: ReceiptFollowupBundle, curren
     if (matches.length > 1) throw new Error("RECEIPT_FOLLOWUP_CACHE_CONFLICT");
     // A later landed-cost adjustment in the cache wins. Never replay an older
     // captured purchase cost over a subsequently confirmed final cost.
-    const selected = matches[0] ?? line.captured;
+    const selected = matches[0] ?? (line.captured ? {
+      ...line.captured,
+      id,
+      receiptId: bundle.receiptId,
+      barcode: line.barcode,
+      quantity: line.quantity,
+      receivedAt: line.receivedAt,
+    } : null);
     if (!selected) throw new Error("RECEIPT_FOLLOWUP_SOURCE_COST_REQUIRED");
     validateCost(selected, bundle, line);
     costs.push(selected);

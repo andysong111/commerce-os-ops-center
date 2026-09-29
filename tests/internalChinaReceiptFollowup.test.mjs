@@ -12,6 +12,15 @@ test("receipt follow-up uses original quantity evidence and preserves later fina
   const legacy = receiptOperation(); delete legacy.result_snapshot.receiptCost;
   assert.throws(() => core.selectReceiptFollowupCosts(core.receiptFollowupBundle(receiptId, [legacy]), []), /SOURCE_COST_REQUIRED/);
 });
+test("receipt follow-up repairs captured structural identity from the durable receipt event", () => {
+  const operation = receiptOperation();
+  operation.result_snapshot.receiptCost = { ...cost, receiptId: "legacy-missing", quantity: 999, receivedAt: "2020-01-01T00:00:00.000Z" };
+  const selected = core.selectReceiptFollowupCosts(core.receiptFollowupBundle(receiptId, [operation]), []);
+  assert.equal(selected.costs[0].receiptId, receiptId);
+  assert.equal(selected.costs[0].quantity, 7);
+  assert.equal(selected.costs[0].receivedAt, at);
+  assert.equal(selected.costs[0].unitCostKrw, cost.unitCostKrw);
+});
 test("partial source, duplicate receipt lines and cross-scope data cannot become recovery evidence", () => {
   const partial = receiptOperation(); partial.result_snapshot.receiptLineCount = 2;
   assert.throws(() => core.receiptFollowupBundle(receiptId, [partial]), /INCOMPLETE/);
@@ -53,10 +62,16 @@ function serviceHarness({ drop = false, conflict = false, sourceMissing = false,
       readPriceAdjustmentReceiptCache: async () => cache,
       mergePriceAdjustmentReceiptCachePage: async (input) => { merges.push(input); cache = { ...cache, receiptsByBarcode: { [barcode]: input.receipts } }; },
     },
-    "@/lib/productMasterCanonicalSync": { buildCanonicalProductMasterSnapshot: () => ({ skipped: { receiptWithoutSku: 0 }, payload: { receiptCosts: [canonical] } }) },
+    "@/lib/productMasterCanonicalSync": { buildCanonicalProductMasterSnapshot: (state) => {
+      const receipt = Object.values(state.priceAdjustmentReceiptCache?.receiptsByBarcode ?? {}).flat()[0] ?? cost;
+      return { skipped: { receiptWithoutSku: 0 }, payload: { receiptCosts: [{ ...canonical, quantity: receipt.quantity, unitCostKrw: receipt.unitCostKrw, receivedAt: receipt.receivedAt }] } };
+    } },
     "@/lib/opsLoginBypass": { temporaryOpsIdentity: () => ({ userId: "fixture-operator" }) },
     "@/lib/productLaunchTrackerServer": { getProductLaunchAdminConfig: () => ({ ok: true, value: {} }), readProductLaunchState: async () => ({ state_payload: { items: [] } }) },
-    "@/lib/internalChinaForwarderStoredClose": { loadStoredInternalChinaForwarderClose: async () => finalClosed ? { actualCostKrw: 999 } : null },
+    "@/lib/internalChinaForwarderStoredClose": { loadStoredInternalChinaForwarderClose: async () => finalClosed ? { actualCostKrw: 999, actualMultiplier: 2 } : null },
+    "@/lib/internalChinaForwarderCost": { productUnitCostByBarcode: () => new Map([[barcode, 999]]) },
+    "@/lib/internalChinaDraftQuantityOverride": { loadInternalChinaDraftWithQuantityOverrides: async (value) => value },
+    "@/lib/internalChinaPurchaseDraft": { loadInternalChinaPurchaseDraft: async () => ({ draftId, lines: [{ barcode }] }) },
     "@/lib/supabase/admin": { createSupabaseAdminClient: async () => ({ from: (table) => { assert.equal(table, "commerce_operation_runs"); return query; } }) },
     "@/lib/internalChinaReceiptFollowupCore": core,
     "@/lib/internalChinaReceiptFollowupRepair": repair,
@@ -94,13 +109,14 @@ test("actual follow-up rejects delivery without persistence and preserves existi
   await assert.rejects(conflict.service.retryInternalChinaReceiptFollowup(receiptId), /EXISTING_COST_CONFLICT/);
   assert.equal(conflict.posts.length, 0); assert.equal(conflict.persisted()[0].unitCostKrw, 999);
 });
-test("captured purchase cost can repair missing cache only before final cost closure", async () => {
+test("captured purchase cost repairs a missing cache and replays finalized cost after closure", async () => {
   const h = serviceHarness({ sourceMissing: true });
   assert.equal((await h.service.retryInternalChinaReceiptFollowup(receiptId)).state, "VERIFIED");
   assert.equal(h.merges.length, 1);
   const closed = serviceHarness({ sourceMissing: true, finalClosed: true });
-  await assert.rejects(closed.service.retryInternalChinaReceiptFollowup(receiptId), /FINAL_COST_SOURCE_REQUIRED/);
-  assert.equal(closed.posts.length, 0); assert.equal(closed.merges.length, 0);
+  assert.equal((await closed.service.retryInternalChinaReceiptFollowup(receiptId)).state, "VERIFIED");
+  assert.equal(closed.posts[0].receiptCosts[0].unitCostKrw, 999);
+  assert.equal(closed.merges[0].receipts[0].unitCostKrw, 999);
 });
 test("actual follow-up API authenticates first, rejects quantity input, and only accepts stored receiptId", async () => {
   let calls = 0;

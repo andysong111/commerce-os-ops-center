@@ -29,12 +29,14 @@ test("initial zero unverified inventory remains provisional advisory evidence in
   assert.match(page, /STOCKTAKE는 오류 교정용 선택 기능이지 필수 절차가 아닙니다/);
 });
 
-test("provisional quantity and open commitment are subtracted from gross demand for advisory math only", () => {
+test("provisional quantity, open commitment and unreflected prior-cycle receipts are subtracted from gross demand for advisory math only", () => {
   assert.match(engine, /calculateNetRequirement/);
   assert.match(engine, /inventoryCalculationUsable/);
   assert.match(engine, /availableQuantity: inventoryCalculationUsable/);
   assert.match(engine, /inventory\?\.inventoryQuantity/);
-  assert.match(engine, /ledgerCommitment: openCommitment/);
+  assert.match(engine, /completedChinaOrderReceiptsByBarcode/);
+  assert.match(engine, /recentReceiptCoverageApplied/);
+  assert.match(engine, /openCommitment \+/);
   assert.match(engine, /moq:/);
   assert.match(engine, /cartonQuantity:/);
   assert.match(page, /기존 gross 권장수량에서 현재 PROVISIONAL 수량과 중국 미입고 약정을 반영해 참고용 권장수량은 계산/);

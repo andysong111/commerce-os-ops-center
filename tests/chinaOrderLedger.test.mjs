@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
@@ -10,6 +10,9 @@ async function loadLedgerModule() {
   const source = (await readFile(sourcePath, "utf8")).replace(
     /^import \{ createSupabaseAdminClient \} from "@\/lib\/supabase\/admin";\s*/,
     "",
+  ).replace(
+    /^import \{ seoulCalendarMonth \} from "@\/lib\/monthlyPurchasePolicy";\s*/,
+    'const seoulCalendarMonth = (value) => new Date(new Date(value).valueOf() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7);\n',
   );
   const output = ts.transpileModule(source, {
     compilerOptions: {
@@ -17,7 +20,7 @@ async function loadLedgerModule() {
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  const directory = await mkdtemp(join(dirname(sourcePath.pathname), ".ledger-test-"));
+  const directory = await mkdtemp(join(dirname(fileURLToPath(sourcePath)), ".ledger-test-"));
   const file = join(directory, "chinaOrderLedger.mjs");
   await writeFile(file, output);
   try {
@@ -33,6 +36,7 @@ const {
   normalizeChinaOrderCommitmentEvent,
   reduceChinaOrderCommitmentEvents,
   buildChinaOrderLedgerSummary,
+  completedChinaOrderReceiptsByBarcodeForMonth,
 } = ledger;
 
 function event(overrides = {}) {
@@ -168,6 +172,18 @@ test("final receipt closes the open commitment without double-counting", () => {
   assert.equal(snapshot.cancelledQuantity, 5);
   assert.equal(snapshot.openQuantity, 0);
   assert.equal(snapshot.recommendationOpenQuantity, 0);
+});
+
+test("completed prior-month receipts can cover the next purchase recommendation", () => {
+  const received = reduceChinaOrderCommitmentEvents([
+    event({ occurredAt: "2026-09-02T01:00:00.000Z" }),
+    event({ sourceEventId: "event-2", status: "ORDERED", orderedQuantity: 1800, occurredAt: "2026-09-02T02:00:00.000Z" }),
+    event({ sourceEventId: "event-3", status: "RECEIVED", receivedQuantity: 1800, occurredAt: "2026-09-17T02:00:00.000Z" }),
+  ]);
+  const coverage = completedChinaOrderReceiptsByBarcodeForMonth([received], "2026-09");
+  assert.equal(coverage.get("BAA1-1").quantity, 1800);
+  assert.equal(coverage.get("BAA1-1").latestReceivedAt, "2026-09-17T02:00:00.000Z");
+  assert.equal(completedChinaOrderReceiptsByBarcodeForMonth([received], "2026-08").size, 0);
 });
 
 test("ledger summary ignores duplicate event identities", () => {
