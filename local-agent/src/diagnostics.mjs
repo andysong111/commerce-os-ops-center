@@ -1,6 +1,13 @@
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { captureTargetScreenshot, listChromeTargets, shoplingTargets, withCdpTarget } from "./chrome-cdp.mjs";
+import {
+  captureTargetScreenshot,
+  evaluateCdpExpressionAcrossFrames,
+  listChromeTargets,
+  selectBestShoplingFrameResult,
+  shoplingTargets,
+  withCdpTarget,
+} from "./chrome-cdp.mjs";
 import { writeDiagnosticFiles } from "./files.mjs";
 import { compactString, redactStructuredData, redactUrl, sanitizeError } from "./safe-json.mjs";
 
@@ -17,16 +24,18 @@ function shoplingDiagnosticProbe(goodsKeyInput) {
     const cell = element.closest("td,th,div,li");
     return cleanText(cell?.innerText || cell?.textContent, 160);
   };
+  const pageScope = document.querySelector('form[name="frm"]') || document.querySelector("main") || document.body;
   const selectedOptionText = (select) => cleanText(select.selectedOptions?.[0]?.textContent || "");
-  const selects = [...document.querySelectorAll("select")].map((select) => ({
+  const selects = [...pageScope.querySelectorAll("select")].map((select) => ({
     name: select.name || "",
     id: select.id || "",
     value: select.value || "",
     selectedText: selectedOptionText(select),
     label: labelFor(select),
     optionsCount: select.options?.length || 0,
+    optionTexts: [...(select.options || [])].slice(0, 30).map((option) => cleanText(option.textContent, 80)),
   }));
-  const inputs = [...document.querySelectorAll("input,textarea")].map((input) => {
+  const inputs = [...pageScope.querySelectorAll("input,textarea")].map((input) => {
     const type = input.getAttribute("type") || "";
     const name = input.getAttribute("name") || "";
     const id = input.id || "";
@@ -43,15 +52,18 @@ function shoplingDiagnosticProbe(goodsKeyInput) {
     };
   });
   const searchDropdown =
+    selects.find((select) => [select.name, select.id].some((value) => /^(?:srch_tp|search_type|searchType|search_kind|searchKey)$/i.test(value))) ||
+    selects.find((select) => select.optionTexts.some((option) => /샵플링상품코드|Goods\s*Key/i.test(option)) && /검색항목/i.test(select.label)) ||
     selects.find((select) => /검색|search|상품코드|샵플링상품코드|goods/i.test(`${select.name} ${select.id} ${select.label} ${select.selectedText}`)) ||
     selects[0] ||
     null;
   const searchInput =
     inputs.find((input) => goodsKey && input.value.includes(goodsKey)) ||
+    inputs.find((input) => [input.name, input.id].some((value) => /^(?:srch_txt|search_text|searchText|search_keyword|keyword)$/i.test(value))) ||
     inputs.find((input) => /검색|search|keyword|goods|상품/i.test(`${input.name} ${input.id} ${input.label}`) && !/hidden|checkbox|radio|password/i.test(input.type)) ||
     inputs.find((input) => !/hidden|checkbox|radio|password/i.test(input.type)) ||
     null;
-  const checkboxes = [...document.querySelectorAll('input[type="checkbox"]')].map((checkbox) => ({
+  const checkboxes = [...pageScope.querySelectorAll('input[type="checkbox"]')].map((checkbox) => ({
     name: checkbox.name || "",
     id: checkbox.id || "",
     value: checkbox.value || "",
@@ -59,11 +71,11 @@ function shoplingDiagnosticProbe(goodsKeyInput) {
     label: labelFor(checkbox),
     disabled: Boolean(checkbox.disabled),
   }));
-  const bodyText = cleanText(document.body?.innerText || "", 5_000);
+  const bodyText = cleanText(pageScope?.innerText || "", 5_000);
   const resultCountMatch =
     bodyText.match(/(?:총\s*건수|총\s*검색\s*결과|검색\s*결과|조회\s*결과|Total)[^\d]{0,20}([0-9,]+)/i) ||
     bodyText.match(/([0-9,]+)\s*(?:건|개)\s*(?:검색|조회|결과)/);
-  const tables = [...document.querySelectorAll("table")].slice(0, 8).map((table) => ({
+  const tables = [...pageScope.querySelectorAll("table")].slice(0, 12).map((table) => ({
     caption: cleanText(table.caption?.innerText || ""),
     headers: [...table.querySelectorAll("th")].slice(0, 20).map((th) => cleanText(th.innerText || th.textContent, 80)),
     rowCount: table.querySelectorAll("tbody tr, tr").length,
@@ -71,7 +83,7 @@ function shoplingDiagnosticProbe(goodsKeyInput) {
       [...row.children].slice(0, 8).map((cell) => cleanText(cell.innerText || cell.textContent, 120)),
     ),
   }));
-  const headings = [...document.querySelectorAll("h1,h2,h3,.title,.tit")].slice(0, 20).map((node) => cleanText(node.innerText || node.textContent, 120));
+  const headings = [...pageScope.querySelectorAll("h1,h2,h3,.title,.tit")].slice(0, 20).map((node) => cleanText(node.innerText || node.textContent, 120));
   const forms = [...document.querySelectorAll("form")].slice(0, 6).map((form) => ({
     id: form.id || "",
     name: form.getAttribute("name") || "",
@@ -80,10 +92,10 @@ function shoplingDiagnosticProbe(goodsKeyInput) {
     fieldCount: form.querySelectorAll("input,select,textarea,button").length,
   }));
   let pageRole = "SHOPLING_PAGE";
-  if (/상품\s*수정전송|goods_mallMdfy_trsmt/i.test(`${bodyText} ${location.href}`)) pageRole = "A21_POPUP";
-  else if (/쇼핑몰상품수정|검색항목/i.test(bodyText)) pageRole = "A21_LIST";
-  else if (/옵션대량수정/i.test(bodyText)) pageRole = "A6";
-  else if (/상품조회수정/i.test(bodyText)) pageRole = "A4";
+  if (/goods_mallMdfy_trsmt/i.test(location.href) || /상품\s*수정전송/i.test(bodyText)) pageRole = "A21_POPUP";
+  else if (/goods_mallMdfy/i.test(location.href)) pageRole = "A21_LIST";
+  else if (/prodBulk[^/]*(?:Opt|Option)/i.test(location.href) || /\[A6\]\s*옵션대량수정/i.test(bodyText)) pageRole = "A6";
+  else if (/\/prod\/prodLst\.phtml/i.test(location.href) || /\[A4\]\s*상품조회수정/i.test(bodyText)) pageRole = "A4";
 
   return {
     url: location.href,
@@ -113,12 +125,14 @@ export function buildDiagnosticExpression(goodsKey) {
 
 export async function evaluateShoplingDiagnostic(target, goodsKey, options = {}) {
   return withCdpTarget(target, async (session) => {
-    const result = await session.send("Runtime.evaluate", {
-      expression: buildDiagnosticExpression(goodsKey),
-      returnByValue: true,
-      awaitPromise: true,
-    }, options.timeoutMs || 5_000);
-    return result.result?.value || null;
+    const results = await evaluateCdpExpressionAcrossFrames(session, buildDiagnosticExpression(goodsKey), {
+      ...options,
+      timeoutMs: options.timeoutMs || 5_000,
+    });
+    const selected = selectBestShoplingFrameResult(results, goodsKey);
+    return selected
+      ? { ...selected.value, frame: selected.frame, inspectedFrameCount: results.length }
+      : null;
   }, options);
 }
 
@@ -172,6 +186,8 @@ export async function createDiagnosticPackage(config, args = {}, deps = {}) {
     checkboxes: safePage?.checkboxes || [],
     resultCount: safePage?.resultCount ?? null,
     pageRole: safePage?.pageRole || (target ? "SHOPLING_PAGE" : "UNKNOWN"),
+    pageFrame: safePage?.frame || null,
+    inspectedFrameCount: safePage?.inspectedFrameCount || 0,
     domCore: safePage?.domCore || null,
     target: target
       ? {

@@ -164,6 +164,90 @@ export async function withCdpTarget(target, handler, options = {}) {
   }
 }
 
+export function flattenCdpFrameTree(frameTree, depth = 0, output = []) {
+  if (!frameTree?.frame?.id) return output;
+  output.push({
+    id: String(frameTree.frame.id),
+    parentId: String(frameTree.frame.parentId || ""),
+    name: compactString(frameTree.frame.name || "", 120),
+    url: redactUrl(frameTree.frame.url || ""),
+    depth,
+  });
+  for (const child of frameTree.childFrames || []) flattenCdpFrameTree(child, depth + 1, output);
+  return output;
+}
+
+export async function evaluateCdpExpressionAcrossFrames(session, expression, options = {}) {
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const evaluateTopDocument = async () => {
+    const result = await session.send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    }, timeoutMs);
+    return result.result?.value == null
+      ? []
+      : [{ frame: { id: "", parentId: "", name: "", url: "", depth: 0 }, value: result.result.value }];
+  };
+  let frames = [];
+  try {
+    await session.send("Page.enable", {}, timeoutMs);
+    const tree = await session.send("Page.getFrameTree", {}, timeoutMs);
+    frames = flattenCdpFrameTree(tree.frameTree);
+  } catch {
+    // Runtime.evaluate below still gives us a useful top-document fallback.
+  }
+
+  if (!frames.length) return evaluateTopDocument();
+
+  const evaluated = [];
+  for (const frame of frames) {
+    try {
+      const world = await session.send("Page.createIsolatedWorld", {
+        frameId: frame.id,
+        worldName: "commerce-os-local-agent",
+        grantUniveralAccess: false,
+      }, timeoutMs);
+      const result = await session.send("Runtime.evaluate", {
+        expression,
+        contextId: world.executionContextId,
+        returnByValue: true,
+        awaitPromise: true,
+      }, timeoutMs);
+      if (result.result?.value != null) evaluated.push({ frame, value: result.result.value });
+    } catch {
+      // One inaccessible frame must not suppress evidence from the remaining frames.
+    }
+  }
+  return evaluated.length ? evaluated : evaluateTopDocument();
+}
+
+const SHOPLING_ROLE_PRIORITY = {
+  A21_POPUP: 60,
+  A21_LIST: 50,
+  A6: 40,
+  A4: 30,
+  SHOPLING_MAIN: 20,
+  SHOPLING_PAGE: 10,
+  UNKNOWN: 0,
+};
+
+export function selectBestShoplingFrameResult(results, goodsKey = "") {
+  const expectedGoodsKey = String(goodsKey || "");
+  return [...(results || [])].sort((left, right) => {
+    const score = (entry) => {
+      const value = entry?.value || {};
+      const role = value.pageRole || value.role || "UNKNOWN";
+      const searchable = String(value.searchInputValue || "");
+      return (SHOPLING_ROLE_PRIORITY[role] || 0) * 100
+        + (expectedGoodsKey && searchable.includes(expectedGoodsKey) ? 10_000 : 0)
+        + (value.textSample || value.domCore?.bodyTextSample ? 20 : 0)
+        + Number(entry?.frame?.depth || 0);
+    };
+    return score(right) - score(left);
+  })[0] || null;
+}
+
 function shoplingStatusProbe() {
   const text = document.body?.innerText || "";
   const url = location.href;
@@ -182,10 +266,14 @@ function shoplingStatusProbe() {
     }
   } catch {}
   let role = "SHOPLING_PAGE";
-  if (/상품\s*수정전송|goods_mallMdfy_trsmt/i.test(`${text} ${url}`)) role = "A21_POPUP";
-  else if (/쇼핑몰상품수정|검색항목/i.test(text)) role = "A21_LIST";
-  else if (/옵션대량수정/i.test(text)) role = "A6";
-  else if (/상품조회수정/i.test(text)) role = "A4";
+  if (/goods_mallMdfy_trsmt/i.test(url) || /상품\s*수정전송/i.test(text)) role = "A21_POPUP";
+  else if (/goods_mallMdfy/i.test(url)) role = "A21_LIST";
+  else if (/prodBulk[^/]*(?:Opt|Option)|옵션대량수정/i.test(url)) role = "A6";
+  else if (/\/prod\/prodLst\.phtml/i.test(url)) role = "A4";
+  else if (/\/main\.phtml(?:[?#]|$)/i.test(url)) role = "SHOPLING_MAIN";
+  else if (/§\s*상품\s*>\s*\[A4\]\s*상품조회수정/i.test(text)) role = "A4";
+  else if (/§\s*상품\s*>\s*\[A6\]\s*옵션대량수정/i.test(text)) role = "A6";
+  else if (/§\s*상품\s*>\s*\[A21\]\s*쇼핑몰상품수정/i.test(text)) role = "A21_LIST";
   return {
     url,
     title,
@@ -200,12 +288,22 @@ export const SHOPLING_STATUS_EXPRESSION = `(${shoplingStatusProbe.toString()})()
 
 export async function probeShoplingTarget(target, options = {}) {
   return withCdpTarget(target, async (session) => {
-    const result = await session.send("Runtime.evaluate", {
+    const mainWorld = await session.send("Runtime.evaluate", {
       expression: SHOPLING_STATUS_EXPRESSION,
       returnByValue: true,
       awaitPromise: true,
-    }, options.timeoutMs || DEFAULT_TIMEOUT_MS);
-    return result.result?.value || null;
+    }, options.timeoutMs || DEFAULT_TIMEOUT_MS).then((result) => result.result?.value || null).catch(() => null);
+    const results = await evaluateCdpExpressionAcrossFrames(session, SHOPLING_STATUS_EXPRESSION, options);
+    const selected = selectBestShoplingFrameResult(results);
+    if (!selected) return null;
+    const signalValues = [...results.map((entry) => entry.value), ...(mainWorld ? [mainWorld] : [])];
+    return {
+      ...selected.value,
+      a21Globals: [...new Set(signalValues.flatMap((value) => value?.a21Globals || []))],
+      localStorageKeyHints: [...new Set(signalValues.flatMap((value) => value?.localStorageKeyHints || []))].slice(0, 20),
+      frame: selected.frame,
+      inspectedFrameCount: results.length,
+    };
   }, options);
 }
 

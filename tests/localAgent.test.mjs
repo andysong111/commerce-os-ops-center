@@ -3,6 +3,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import {
+  evaluateCdpExpressionAcrossFrames,
+  flattenCdpFrameTree,
+  selectBestShoplingFrameResult,
+} from "../local-agent/src/chrome-cdp.mjs";
 import { buildDiagnosticExpression, createDiagnosticPackage } from "../local-agent/src/diagnostics.mjs";
 import { redactStructuredData, redactUrl } from "../local-agent/src/safe-json.mjs";
 import { buildStatusSnapshot } from "../local-agent/src/status.mjs";
@@ -69,6 +74,7 @@ test("status heartbeat reports Chrome, Shopling tab, stage and partial A21 signa
       ],
     }),
     probeShoplingTarget: async () => ({
+      url: "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy.phtml",
       title: "쇼핑몰상품수정",
       role: "A21_LIST",
       a21Globals: ["commerceOsWakeA21MonthlyResult"],
@@ -81,6 +87,7 @@ test("status heartbeat reports Chrome, Shopling tab, stage and partial A21 signa
   assert.equal(snapshot.chrome.running, true);
   assert.equal(snapshot.shopling.tabsPresent, true);
   assert.equal(snapshot.agent.currentAutomationStage, "A21_LIST");
+  assert.match(snapshot.shopling.url, /goods_mallMdfy\.phtml/);
   assert.equal(snapshot.shopling.url.includes("secret"), false);
   assert.deepEqual(snapshot.a21Extension.signals, ["A21_MAIN_WORLD_GLOBAL_PRESENT", "SHOPLING_A21_PAGE_ROLE"]);
 });
@@ -128,9 +135,75 @@ test("diagnostic page probe contains read-only DOM collection and no mutation ve
   assert.match(expression, /resultCount/);
   assert.match(expression, /type === "hidden"/);
   assert.match(expression, /sensitiveField/);
+  assert.match(expression, /srch_tp/);
+  assert.match(expression, /srch_txt/);
+  assert.match(expression, /form\[name=/);
   assert.doesNotMatch(expression, /\.click\s*\(/);
   assert.doesNotMatch(expression, /\.submit\s*\(/);
   assert.doesNotMatch(expression, /fetch\s*\(/);
+});
+
+test("CDP frame traversal evaluates the active Shopling child frame and selects A4 evidence", async () => {
+  const frames = flattenCdpFrameTree({
+    frame: { id: "root", url: "https://a.shopling.co.kr/" },
+    childFrames: [{ frame: { id: "main", parentId: "root", name: "main", url: "https://a.shopling.co.kr/prod/prodLst.phtml" } }],
+  });
+  assert.deepEqual(frames.map((frame) => [frame.id, frame.depth]), [["root", 0], ["main", 1]]);
+
+  const calls = [];
+  const session = {
+    send: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "Page.enable") return {};
+      if (method === "Page.getFrameTree") return {
+        frameTree: {
+          frame: { id: "root", url: "https://a.shopling.co.kr/" },
+          childFrames: [{ frame: { id: "main", parentId: "root", name: "main", url: "https://a.shopling.co.kr/prod/prodLst.phtml" } }],
+        },
+      };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: params.frameId === "root" ? 10 : 20 };
+      if (method === "Runtime.evaluate") return params.contextId === 20
+        ? { result: { value: { pageRole: "A4", searchInputValue: "123456", domCore: { bodyTextSample: "[A4] 상품조회수정" } } } }
+        : { result: { value: { pageRole: "SHOPLING_PAGE", searchInputValue: "", domCore: { bodyTextSample: "" } } } };
+      throw new Error(`Unexpected CDP method: ${method}`);
+    },
+  };
+
+  const evaluated = await evaluateCdpExpressionAcrossFrames(session, "(() => ({}))()", { timeoutMs: 100 });
+  const selected = selectBestShoplingFrameResult(evaluated, "123456");
+  assert.equal(selected.frame.id, "main");
+  assert.equal(selected.value.pageRole, "A4");
+  assert.deepEqual(calls.filter((call) => call.method === "Runtime.evaluate").map((call) => call.params.contextId), [10, 20]);
+});
+
+test("CDP frame traversal falls back to the top document when isolated worlds are blocked", async () => {
+  const session = {
+    send: async (method, params) => {
+      if (method === "Page.enable") return {};
+      if (method === "Page.getFrameTree") return {
+        frameTree: {
+          frame: { id: "root", url: "https://a.shopling.co.kr/main.phtml" },
+          childFrames: [{ frame: { id: "main", parentId: "root", name: "main", url: "https://a.shopling.co.kr/prod/prodLst.phtml" } }],
+        },
+      };
+      if (method === "Page.createIsolatedWorld") throw new Error(`Blocked frame ${params.frameId}`);
+      if (method === "Runtime.evaluate") return {
+        result: {
+          value: {
+            pageRole: "SHOPLING_MAIN",
+            searchInputValue: "",
+            domCore: { bodyTextSample: "Shopling main page" },
+          },
+        },
+      };
+      throw new Error(`Unexpected CDP method: ${method}`);
+    },
+  };
+
+  const evaluated = await evaluateCdpExpressionAcrossFrames(session, "(() => ({}))()", { timeoutMs: 100 });
+  assert.equal(evaluated.length, 1);
+  assert.equal(evaluated[0].frame.id, "");
+  assert.equal(evaluated[0].value.pageRole, "SHOPLING_MAIN");
 });
 
 test("Supabase upload is opt-in and new secret keys are not sent as bearer tokens", async () => {

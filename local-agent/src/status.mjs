@@ -112,9 +112,9 @@ export async function buildStatusSnapshot(config, deps = {}) {
     shopling: {
       tabsPresent: shopling.length > 0,
       tabCount: shopling.length,
-      url: primaryTarget ? redactUrl(primaryTarget.url) : null,
+      url: pageProbe?.url ? redactUrl(pageProbe.url) : primaryTarget ? redactUrl(primaryTarget.url) : null,
       urls: shopling.map((target) => redactUrl(target.url)).slice(0, 20),
-      primaryTitle: primaryTarget?.title || null,
+      primaryTitle: pageProbe?.title || primaryTarget?.title || null,
       pageProbe: pageProbe
         ? {
             title: pageProbe.title || "",
@@ -122,6 +122,8 @@ export async function buildStatusSnapshot(config, deps = {}) {
             a21Globals: pageProbe.a21Globals || [],
             localStorageKeyHints: pageProbe.localStorageKeyHints || [],
             textSample: pageProbe.textSample || "",
+            frame: pageProbe.frame || null,
+            inspectedFrameCount: pageProbe.inspectedFrameCount || 0,
           }
         : null,
       probeError,
