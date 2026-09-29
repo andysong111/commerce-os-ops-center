@@ -14,6 +14,7 @@ Windows PC에서 ChatGPT Work/Codex와 독립적으로 실행되는 1단계 로�
   - URL, GOODSKEY, 검색 드롭다운 값, 검색 입력값
   - 체크박스 이름/checked 상태 전체
   - 검색 결과 건수, 핵심 DOM 구조
+  - Shopling의 중첩 `main` frame에서 실제 작업 화면 자동 선택
   - 가능하면 스크린샷 PNG
   - timestamp, agent version
 
