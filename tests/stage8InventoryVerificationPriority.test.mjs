@@ -10,6 +10,8 @@ const [engine, page, verifiedCost] = await Promise.all([
 
 test("provisional inventory readiness is read only and joins canonical demand to Product Master inventory and planning", () => {
   assert.match(engine, /loadCanonicalPurchaseShadow/);
+  assert.match(engine, /cycleAsOf: Date \| string = new Date\(\)/);
+  assert.match(engine, /loadCanonicalPurchaseShadow\(cycleAsOf\)/);
   assert.match(engine, /loadProductMasterInventoryCostReadiness/);
   assert.match(engine, /loadProductPlanningSnapshot/);
   assert.match(engine, /writesEnabled: false/);

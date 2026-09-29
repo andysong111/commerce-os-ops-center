@@ -21,7 +21,7 @@ export async function loadPurchaseCyclePreflight(options: PurchasePreflightOptio
     reconciliation: loadPostApplyCanonicalReconciliation,
     // The source metadata is reused from this ONE existing shadow/priority
     // load, not fetched again via nested cost-recovery or shadow loaders.
-    priority: loadInventoryVerificationPriority,
+    priority: () => loadInventoryVerificationPriority(options.targetDate),
     monthlySpend: loadVerifiedPurchaseCycleSpend,
   }, () => new Date().toISOString());
 }

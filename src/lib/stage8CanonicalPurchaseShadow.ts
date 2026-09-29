@@ -151,10 +151,12 @@ function canonicalAggregate(
   };
 }
 
-export async function loadCanonicalPurchaseShadow(): Promise<CanonicalPurchaseShadow> {
+export async function loadCanonicalPurchaseShadow(
+  cycleAsOf: Date | string = new Date(),
+): Promise<CanonicalPurchaseShadow> {
   const generatedAt = new Date().toISOString();
   const blockers: CanonicalPurchaseShadowBlocker[] = [];
-  const cycle = monthlyPurchaseCycleFor(generatedAt);
+  const cycle = monthlyPurchaseCycleFor(cycleAsOf);
 
   const [reconciliation, audit, planning, legacy, budgetRevenueResult] =
     await Promise.all([
