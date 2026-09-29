@@ -6,6 +6,9 @@ import path from 'node:path';
 const tools=createRequire(path.join(process.env.MONTHLY_PRICE_BROWSER_TOOLS||'/tmp/monthly-price-browser','package.json'));
 const {build}=tools('esbuild'),{chromium}=tools('playwright');
 const root=process.cwd(), out=path.join(root,'output/monthly-price');mkdirSync(out,{recursive:true});
+const contractSource=readFileSync(path.join(root,'src/lib/monthlyPriceContract.ts'),'utf8');
+const fixtureExtensionVersion=contractSource.match(/MONTHLY_PRICE_EXTENSION_VERSION\s*=\s*"([^"]+)"/)?.[1];
+assert.ok(fixtureExtensionVersion,'monthly price extension version is missing from the contract');
 const bundle=await build({stdin:{contents:`import React from 'react';import{createRoot}from'react-dom/client';import{MonthlyPricePanel}from'./src/components/china-order-manager/MonthlyPricePanel';createRoot(document.getElementById('root')).render(<MonthlyPricePanel month="2026-09" ready={new URLSearchParams(location.search).get('ready')!=='0'}/>);`,resolveDir:root,loader:'tsx'},bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',alias:{'@':path.join(root,'src')}});
 const runId='11111111-1111-4111-8111-111111111111',itemId='22222222-2222-4222-8222-222222222222',secondItemId='22222222-2222-4222-8222-222222222223',thirdItemId='22222222-2222-4222-8222-222222222224',token='44444444-4444-4444-8444-444444444444',fingerprint='a'.repeat(64);
 let scenario='happy',events=[],started=false,extraItems=[];
@@ -40,7 +43,7 @@ const server=createServer(async(req,res)=>{
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://127.0.0.1:${server.address().port}`;
 const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1200,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
-await page.addInitScript(()=>{
+await page.addInitScript((extensionVersion)=>{
   window.bridgeEvents=[];
   window.bridgeHistoryMissingItemId=null;
   window.bridgeBatches={};
@@ -48,7 +51,7 @@ await page.addInitScript(()=>{
     const m=e.data;if(m?.channel!=='commerce-os-monthly-price-v1'||m.direction!=='request')return;
     window.bridgeEvents.push({command:m.command,payload:m.payload});
     if(m.command==='START'&&window.bridgeHistoryMissingItemId&&m.payload?.itemId===window.bridgeHistoryMissingItemId){
-      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:'0.5.15',error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:false,version:extensionVersion,error:'MONTHLY_PRICE_TRANSMISSION_HISTORY_MISSING'}},location.origin);
       return;
     }
     if(m.command==='BATCH_START'){
@@ -57,13 +60,13 @@ await page.addInitScript(()=>{
     if(m.command==='BATCH_START'||m.command==='BATCH_STATUS'){
       const rows=window.bridgeBatches[m.payload.batchId]||[];
       const report={batchId:m.payload.batchId,state:'SUCCEEDED',phase:'DONE',activeWindows:0,itemCount:rows.length,items:rows.map(row=>({itemId:row.itemId,token:row.token,fingerprint:row.fingerprint,goodsKey:row.goodsKey,state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true,saleStatusRolledBack:false}))};
-      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:true,version:'0.5.15',report}},location.origin);
+      window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response:{ok:true,version:extensionVersion,report}},location.origin);
       return;
     }
-    const response={ok:true,version:'0.5.15',observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true}};
+    const response={ok:true,version:extensionVersion,observation:{fakeReadOnlyFixture:true},report:{token:m.payload.token,fingerprint:m.payload.fingerprint,goodsKey:'1234567',state:'SUCCEEDED',priceOnly:false,priceAndOption:true,saleStatusActivated:true,saleStatusRestored:true}};
     window.postMessage({channel:m.channel,direction:'response',requestId:m.requestId,response},location.origin);
   });
-});
+},fixtureExtensionVersion);
 try{
   await page.goto(url);await page.getByRole('button',{name:/예상 가격 확인/}).click();
   await page.getByTestId('monthly-price-preview').waitFor({state:'attached'});

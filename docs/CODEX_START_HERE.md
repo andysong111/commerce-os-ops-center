@@ -70,8 +70,8 @@ As of 2026-09-29:
 
 - Windows Commerce OS Local Agent phase 1 is merged to `main` via PR #1285.
 - The agent is intended to become the permanent diagnostic/observability bridge for this Windows PC.
-- Shopling monthly price final verification still has a live unresolved incident: `MONTHLY_PRICE_REGISTERED_MALL_VIEW_REQUIRED:SEARCH_RESULT_NOT_FOUND` after A21 extension v0.5.15.
-- Do not keep guessing from that coarse error. Use the Local Agent and live A4 DOM evidence to capture the exact dropdown/input/checkbox/result state before the next fix.
+- Live A4 evidence identified the v0.5.15 `SEARCH_RESULT_NOT_FOUND` cause: A4 defaults to the last seven days, while its date inputs are read-only, so the old range-expansion code never included older products.
+- A21 extension v0.5.16 now selects A4's `전체` period checkbox before GOODSKEY search. Live read-only verification found GOODSKEY `116245`, its exact result row, and the inline registered-mall table with three `판매중` rows plus one `삭제` row. The next gate is to deploy/install v0.5.16 and run the Ops Center historical 12-item readback so only proven mismatches can be resent.
 - Product Master / B-code / warehouse reconciliation now has a dedicated persistent handoff. Its first live continuation check is the AAA030 멀티탭 트레이 / AAA038 실리콘 악력볼 Product Master and warehouse-map sync after the 2026-09-28 physical correction.
 
 ## Handoff discipline
