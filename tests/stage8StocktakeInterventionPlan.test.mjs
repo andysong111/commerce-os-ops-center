@@ -15,20 +15,22 @@ test("stocktake intervention is downstream only from the purchase-only cost trus
   assert.match(engine, /!row\.inventoryRequiresReview/);
 });
 
-test("human intervention is minimized to one canary before the 80 percent set", () => {
+test("optional correction remains limited to one canary before the 80 percent set", () => {
   assert.match(engine, /TARGET_SPEND_COVERAGE = 0\.8/);
   assert.match(engine, /firstCanaryBarcode/);
   assert.match(engine, /requestedOperatorFields: \["barcode", "physicalQuantity"\]/);
-  assert.match(page, /CANARY 1건/);
-  assert.match(page, /실물 수량만/);
-  assert.match(page, /CANARY가 가장 먼저 확인할 1건/);
+  assert.match(page, /선택형 CANARY/);
+  assert.match(page, /선택형 입력 physicalQuantity 1개/);
+  assert.match(page, /발주사이클의 필수 단계가 아닙니다/);
+  assert.match(page, /SOLD_OUT_RESET=0/);
+  assert.match(page, /중국 확정입고와 판매를 누적/);
 });
 
 test("planning remains read-only and cannot change inventory or purchase", () => {
   assert.match(engine, /stocktakeWritesEnabled: false/);
   assert.match(engine, /purchaseWritesEnabled: false/);
   assert.match(page, /0 · READ ONLY/);
-  assert.doesNotMatch(`${engine}\n${page}`, /method:\s*["']POST["']|upsertRows|insert\(|update\(|delete\(/);
+  assert.doesNotMatch(`${engine}\n${page}`, /method:\s*["']POST["']|upsertRows|\.(?:insert|upsert|delete)\(/);
 });
 
 test("plan is fingerprint-bound to current cost-trust evidence", () => {

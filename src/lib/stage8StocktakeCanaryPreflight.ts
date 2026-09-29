@@ -129,8 +129,8 @@ export async function loadStocktakeCanaryPreflight(): Promise<StocktakeCanaryPre
     state: ready ? "READY_FOR_PHYSICAL_COUNT" : "BLOCKED",
     message: ready
       ? preview.writeEnabled
-        ? "Product Master 현재 재고 guard와 서명된 1건 write 경로를 확인했습니다. 이 사전점검은 아무것도 쓰지 않으며, 이제 필요한 사람 입력은 이 B-code의 실제 창고 수량 1개뿐입니다."
-        : "Product Master 현재 재고 guard를 다시 고정했습니다. 이 사전점검은 아무것도 쓰지 않으며, 이제 필요한 사람 입력은 이 B-code의 실제 창고 수량 1개뿐입니다."
+        ? "선택형 재고보정 경로의 Product Master guard와 서명된 1건 write 경로를 확인했습니다. 발주사이클은 실사 없이 추정재고로 계속 진행하며, 이 입력은 오류 교정이 필요할 때만 사용합니다."
+        : "선택형 재고보정 경로의 Product Master guard를 확인했습니다. 발주사이클은 실사 없이 추정재고로 계속 진행하며, 이 입력은 오류 교정이 필요할 때만 사용합니다."
       : "Stage 8 계획과 Product Master 현재 재고상태가 동시에 안전조건을 만족하지 않아 실물 수량을 요청하지 않습니다.",
     barcode: canary.barcode,
     name: canary.name,

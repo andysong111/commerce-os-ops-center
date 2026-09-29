@@ -57,6 +57,9 @@ export type PurchasePreflightLine = {
   confirmedUnitCostKrw: number;
   costEvidenceSource: string;
   inventoryQuantity: number;
+  inventoryMode: "VERIFIED" | "PROVISIONAL";
+  inventoryVerified: boolean;
+  advisoryOnly: boolean;
   openCommitment: number;
   costEvidenceAt: string | null;
 };
@@ -142,11 +145,21 @@ function verifiedLineCost(row: InventoryVerificationPriorityRow, now: number) {
 function costReady(row: InventoryVerificationPriorityRow, now: number) {
   return purchaseCostReadyForExecution(row, now) && positive(verifiedLineCost(row, now));
 }
-function inventoryReady(row: InventoryVerificationPriorityRow) {
+function verifiedInventoryReady(row: InventoryVerificationPriorityRow) {
   return row.inventoryMode === "VERIFIED" && row.inventoryVerified === true &&
     row.executionInventoryEligible === true && row.inventoryCalculationUsable === true &&
     row.inventoryRequiresReview === false && row.initialZeroUnverified === false &&
     row.advisoryOnly === false && nonnegative(row.inventoryQuantity) && nonnegative(row.openCommitment);
+}
+function provisionalInventoryReady(row: InventoryVerificationPriorityRow) {
+  return row.inventoryMode === "PROVISIONAL" && row.inventoryVerified === false &&
+    row.executionInventoryEligible === false && row.inventoryCalculationUsable === true &&
+    row.inventoryRequiresReview === false && row.advisoryOnly === true &&
+    row.action === "PROVISIONAL_DECISION_EVIDENCE_REQUIRED" &&
+    nonnegative(row.inventoryQuantity) && nonnegative(row.openCommitment);
+}
+function inventoryPreviewReady(row: InventoryVerificationPriorityRow) {
+  return verifiedInventoryReady(row) || provisionalInventoryReady(row);
 }
 function projectedLine(row: InventoryVerificationPriorityRow, now: number): PurchasePreflightLine {
   const unitCost = verifiedUnitCost(row, now);
@@ -157,6 +170,9 @@ function projectedLine(row: InventoryVerificationPriorityRow, now: number): Purc
     confirmedUnitCostKrw: unitCost,
     costEvidenceSource: purchaseCostEvidenceSource(row),
     inventoryQuantity: row.inventoryQuantity,
+    inventoryMode: row.inventoryMode === "VERIFIED" ? "VERIFIED" : "PROVISIONAL",
+    inventoryVerified: row.inventoryVerified,
+    advisoryOnly: row.advisoryOnly,
     openCommitment: row.openCommitment,
     costEvidenceAt: purchaseCostEvidenceAt(row),
   };
@@ -256,10 +272,13 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     const reasons: string[] = [];
     if (!CODE.test(row.barcode) || duplicates.has(row.barcode)) reasons.push("IDENTITY_REVIEW");
     if (!costReady(row, now)) reasons.push("CONFIRMED_COST_REQUIRED");
-    if (!inventoryReady(row)) reasons.push("VERIFIED_INVENTORY_REQUIRED");
+    if (!inventoryPreviewReady(row)) reasons.push("VERIFIED_INVENTORY_REQUIRED");
     if (!positive(row.recommendedQty) || !nonnegative(row.priorityScore)) reasons.push("INVALID_RECOMMENDATION");
     if (row.recommendedQty > maxUnitsPerSku) reasons.push("CANARY_QUANTITY_LIMIT");
-    if (row.action !== "NONE" || row.operationallyReady !== true) reasons.push("ROW_EXECUTION_BLOCKED");
+    const previewPolicyReady = verifiedInventoryReady(row)
+      ? row.action === "NONE" && row.operationallyReady === true
+      : provisionalInventoryReady(row) && row.operationallyReady === false;
+    if (!previewPolicyReady) reasons.push("ROW_EXECUTION_BLOCKED");
     if (reasons.length) excluded.push({ barcode: row.barcode, reasons }); else eligible.push(row);
   }
   eligible.sort((a, b) => b.priorityScore - a.priorityScore || verifiedLineCost(a, now) - verifiedLineCost(b, now) || a.barcode.localeCompare(b.barcode));
@@ -276,6 +295,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       selected.push(projectedLine(row, now)); estimatedSpendKrw += verifiedLineCost(row, now);
     }
     if (selected.length === 0) blockers.push("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+  }
+  if (selected.some((row) => row.inventoryMode === "PROVISIONAL")) {
+    reviewBlockers.push("PROVISIONAL_INVENTORY_OWNER_REVIEW_REQUIRED");
   }
   const sourceFingerprint = hash({
     before: pin, after: input.after, stable,
@@ -298,7 +320,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     stage(5, "공식 판매원장 게이트", salesVerified ? "VERIFIED" : "BLOCKED", fullReadback ? "동일 후보의 검증된 공식 반영 이력이 있습니다. 새 쓰기 권한은 발급하지 않습니다." : gate?.message ?? "후보 승인 검증을 기다립니다.", "/stage8-candidate-promotion-gate"),
     stage(6, "Product Master 반영·재조회", fullReadback && stable ? "VERIFIED" : "WAITING", rec?.message ?? "1건 카나리·전수 반영 후 재조회 검증이 필요합니다.", "/stage8-postapply-canonical-reconciliation"),
     stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costReady(row, now)).length) : "BLOCKED", `검증원가 ${candidates.filter(row => costReady(row, now)).length}/${candidates.length}개. 확정입고 또는 A등급 구매전용 근거만 허용하며 캐시·추정값은 승격하지 않습니다.`, "/stage7-purchase-cost-evidence"),
-    stage(8, "발주 후보 재고 근거", inventoryFresh ? coverage(candidates.filter(inventoryReady).length) : "BLOCKED", `확인재고 ${candidates.filter(inventoryReady).length}/${candidates.length}개. 미확인·초기 0 재고는 제외하며 전수 실사를 요구하지 않습니다.`, "/stage8-inventory-verification-priority"),
+    stage(8, "발주 후보 재고 근거", inventoryFresh ? coverage(candidates.filter(inventoryPreviewReady).length) : "BLOCKED", `계획재고 ${candidates.filter(inventoryPreviewReady).length}/${candidates.length}개 · VERIFIED ${candidates.filter(verifiedInventoryReady).length}개 · PROVISIONAL ${candidates.filter(provisionalInventoryReady).length}개. 전수 실사는 요구하지 않으며, 실제 품절 시 SOLD_OUT_RESET=0 이후 중국 확정입고와 판매를 누적합니다.`, "/stage8-inventory-verification-priority"),
     stage(9, "발주 Shadow·원본 일치", shadowReady && contextMatch && stable && fullReadback && sourceFresh && inventoryFresh ? "VERIFIED" : "BLOCKED", "판매·재고·미입고가 연결된 읽기 전용 계산입니다. 보조신호 등 남은 조건은 승인 검토 차단 사유로 별도 표시합니다.", "/stage8-canonical-purchase-shadow"),
     stage(10, "예산 내 소량 발주안", previewReady ? "VERIFIED" : "WAITING", previewReady ? "금액·품목·수량이 고정된 미리보기입니다. 승인·예약·주문은 생성되지 않았습니다." : "목표 월의 최신 데이터와 현금 상한을 확인한 뒤 계산합니다.", "/purchase-cycle-preflight"),
     stage(11, "실제 주문→입고 검증", "LOCKED", "지정일에도 자동으로 열리지 않습니다. 별도 최종 승인과 기존 실행 경로의 재검증 후 실제 입고까지 확인해야 합니다.", "/fast-purchase-mvp"),
