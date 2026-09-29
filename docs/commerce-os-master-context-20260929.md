@@ -286,6 +286,7 @@ This protects against double writes.
 - The confirmed failure was a timing error: the list content script converted a missing `총 조회수` marker into zero after a fixed 500 ms delay.
 - Extension v0.5.18 submits the legacy search form directly and waits up to 15 seconds for an authoritative `총 조회수` marker. A missing marker is now `A21_SEARCH_RESULT_TIMEOUT`; only an explicit `총 조회수 : 0 건` is empty.
 - The v0.5.18 live retry then proved that the A21 POST completes inside Shopling's child frame while the top-level tab remains on `/`. The old 600 ms reassignment could target the pre-navigation document, and `tabs.onUpdated` did not observe the child-frame completion. Extension v0.5.19 removes that timer and resumes the worker from `webNavigation.onCompleted` for the actual Shopling frame document.
+- The v0.5.19 live retry found seven true price mismatches but A21 searched only the recent registration-date window and returned no rows. Extension v0.5.20 now enables and verifies A21's all-date filter before every resend search, failing closed before row selection if that filter cannot be confirmed.
 - After deployment and extension reload, recover status first. A fresh live resend still requires the normal action-time confirmation and must remain limited to the proven mismatched GOODSKEY.
 
 ---

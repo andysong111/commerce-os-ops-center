@@ -22,7 +22,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statu
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.19");
+  assert.equal(manifest.version, "0.5.20");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -151,7 +151,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.19"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.20"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
@@ -167,7 +167,7 @@ test("v0.5.19 self-heals invalidated Commerce OS page bridge contexts", async ()
   assert.match(monthlyBackground, /china-order-manager\*/);
   assert.match(bridge, /__commerceOsMonthlyPriceBridge/);
   assert.match(bridge, /removeEventListener\("message", previous\.listener\)/);
-  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.19", listener \}/);
+  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.20", listener \}/);
   assert.match(bridge, /typeof runtime\.sendMessage !== "function"/);
   assert.match(monthlyBackground, /probe\[0\]\?\.result === true/);
   assert.match(bridge, /MONTHLY_PRICE_EXTENSION_RELOAD_REQUIRED/);
@@ -209,6 +209,15 @@ test("v0.5.19 resumes A21 only after Shopling child-frame navigation completes",
   assert.match(backgroundBase, /\/prodlinkage\/goods_prod_join_list\.phtml/);
   assert.match(backgroundBase, /await assignWorker\(worker\.id\)/);
   assert.doesNotMatch(backgroundBase, /job\.stage === "SEARCH_SUBMITTED"[\s\S]{0,160}setTimeout\(\(\) => void assignWorker/);
+});
+
+test("v0.5.20 searches all registration dates before selecting resend rows", async () => {
+  const listContent = await readFile(new URL("content-a21.js", root), "utf8");
+  assert.match(listContent, /function enableAllDateSearch\(\)/);
+  assert.match(listContent, /all_srch_no_term_btn/);
+  assert.match(listContent, /return setControl\(checkbox, true\)/);
+  assert.match(listContent, /if \(!enableAllDateSearch\(\)\) return fail\(assignment\.jobId, "A21_ALL_DATE_FILTER_NOT_FOUND"/);
+  assert.match(listContent, /async function configureAndSearch[\s\S]+setPageSize500\(\);[\s\S]+enableAllDateSearch\(\)[\s\S]+setSearchFieldToGoodsKey\(\)/);
 });
 
 test("v0.5.15 registered-mall GOODSKEY validation accepts normal numeric keys", () => {

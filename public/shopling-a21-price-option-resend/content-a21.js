@@ -191,6 +191,12 @@
     return candidate ? selectOptionByText(candidate, "500") : false;
   }
 
+  function enableAllDateSearch() {
+    const checkbox = document.querySelector('#all_srch_no_term_btn, input[name="all_srch_no_term_btn"]');
+    if (!(checkbox instanceof HTMLInputElement) || checkbox.type !== "checkbox" || !visible(checkbox)) return false;
+    return setControl(checkbox, true);
+  }
+
   function findSearchInput() {
     const inputs = [...document.querySelectorAll('input[type="text"], textarea')].filter((input) => !input.disabled && visible(input));
     let best = null;
@@ -379,6 +385,7 @@
       return fail(assignment.jobId, "A21_GOODSKEY_BATCH_INVALID", "검색 GOODSKEY 묶음이 1~200개 범위를 벗어났습니다.");
     }
     setPageSize500();
+    if (!enableAllDateSearch()) return fail(assignment.jobId, "A21_ALL_DATE_FILTER_NOT_FOUND", "검색 기간을 전체로 설정하지 못해 전송하지 않았습니다.");
     if (!setSearchFieldToGoodsKey()) return fail(assignment.jobId, "A21_GOODSKEY_SEARCH_SELECT_NOT_FOUND", "검색항목의 샵플링상품코드 선택을 찾지 못했습니다.");
     if (!selectMallSpecificPriceSource()) return fail(assignment.jobId, "A21_MALL_PRICE_SOURCE_NOT_FOUND", "쇼핑몰별판매가 버튼을 찾지 못했습니다.");
     const input = findSearchInput();
