@@ -1,8 +1,6 @@
 import { CHINA_ORDER_EVENT_OPERATION_TYPE } from "@/lib/chinaOrderLedger";
 import { readPriceAdjustmentReceiptCache, mergePriceAdjustmentReceiptCachePage, type PriceAdjustmentReceipt } from "@/lib/priceAdjustmentReceiptCache";
-import { buildCanonicalProductMasterSnapshot } from "@/lib/productMasterCanonicalSync";
-import { temporaryOpsIdentity } from "@/lib/opsLoginBypass";
-import { getProductLaunchAdminConfig, readProductLaunchState } from "@/lib/productLaunchTrackerServer";
+import { buildProductMasterSnapshotFromTrackerState } from "@/lib/productMasterSync";
 import { loadStoredInternalChinaForwarderClose } from "@/lib/internalChinaForwarderStoredClose";
 import { productUnitCostByBarcode } from "@/lib/internalChinaForwarderCost";
 import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
@@ -122,13 +120,21 @@ export async function loadInternalChinaReceiptFollowups(cycleMonth: string) {
 }
 async function pushOnlyReceiptCosts(costs: PriceAdjustmentReceipt[]) {
   if (!costs.length) return;
-  const config = getProductLaunchAdminConfig();
-  if (!config.ok) throw new Error("RECEIPT_FOLLOWUP_TRACKER_CONFIG_REQUIRED");
-  const stored = await readProductLaunchState(config.value, temporaryOpsIdentity().userId);
-  if (!stored?.state_payload) throw new Error("RECEIPT_FOLLOWUP_TRACKER_REQUIRED");
   const byBarcode: Record<string, PriceAdjustmentReceipt[]> = {};
   for (const cost of costs) (byBarcode[cost.barcode] ??= []).push(cost);
-  const built = buildCanonicalProductMasterSnapshot({ ...receiptRecord(stored.state_payload), priceAdjustmentReceiptCache: { receiptsByBarcode: byBarcode } });
+  const built = buildProductMasterSnapshotFromTrackerState({
+    items: costs.map((cost) => ({
+      id: `receipt-cost:${cost.barcode}`,
+      modelNumber: cost.modelNumber,
+      productName: cost.modelNumber,
+      orderOptions: [{
+        id: `receipt-cost:${cost.barcode}`,
+        barcode: cost.barcode,
+        saleOption: cost.optionName || cost.barcode,
+      }],
+    })),
+    priceAdjustmentReceiptCache: { receiptsByBarcode: byBarcode },
+  });
   if (built.skipped.receiptWithoutSku || built.payload.receiptCosts.length !== costs.length) throw new Error("RECEIPT_FOLLOWUP_SKU_IDENTITY_REQUIRED");
   const body = receiptCostOnlyPayload(costs, built.payload.receiptCosts, await pmRead("/api/integrations/inventory-catalog"));
   const { base, secret } = connection();
