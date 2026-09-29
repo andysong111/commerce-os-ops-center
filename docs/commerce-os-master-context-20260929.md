@@ -554,3 +554,43 @@ Persist only decisions that a future session would otherwise have to rediscover:
 - system architecture
 - final UI path learned from real operation
 - current unresolved blocker and the next evidence required
+
+
+---
+
+## 17. Product Master / B-code / warehouse reconciliation
+
+A separate persistent operational handoff now exists at:
+
+- docs/product-master-bcode-warehouse-handoff-20260929.md
+
+Read that document before changing Product Master option identity, B-codes, warehouse slots, or physical-stock confirmation.
+
+Project-level rules learned from the recovery work:
+
+- direct owner warehouse confirmation outranks assumed allocation and stale spreadsheets
+- operator_assumed_stocked must not be treated as physical proof
+- discontinued product state does not automatically prove that its warehouse slot is physically empty
+- held locations are placeholders, not physical truth
+- one logical SKU may occupy multiple physical slots while keeping one primary B-code
+- B-code mutation can change the canonical 12-digit option barcode identity; preserve trigger semantics and verify the resolved identity
+- product_launch_options changes must be reflected through item/tracker/workspace mirrors and Product Master/warehouse state as applicable
+- categories are owner-controlled and must not be altered in B-code recovery
+- no Shopling or marketplace write is implied by internal warehouse reconciliation
+
+Direct physical confirmations already established include:
+
+- AAA251 스틱형 눈마사지기: BDG1-3 / BDG2-1 / BDG2-2
+- AAA240 그레이닝툴 패드: BDG2-3 / BDG3-1
+- AAA030 멀티탭 트레이: black BDE1-1; white BDE1-2 + BDE1-3
+
+The AAA030 correction is an important current checkpoint: Commerce OS launch state was corrected, but the Product Master / warehouse-map write could not be verified because the Product Master Supabase connection repeatedly timed out. A fresh session must inspect live state first and must not blindly replay the write.
+
+The dedicated handoff also contains:
+
+- operator-assumed location assignments still awaiting physical confirmation
+- unresolved warehouse-search models
+- historical B-code conflicts
+- sold-out / held cleanup state
+- recently discontinued products that must not be resurrected
+- shared-B-code exceptions and deferred conflicts
