@@ -305,6 +305,24 @@ function reportFromRow(row: OperationRow): SalesEventSyncReport | null {
     : null;
 }
 
+function verifiedSnapshotFull(
+  row: OperationRow,
+  report: SalesEventSyncReport,
+) {
+  const input = object(row.input_snapshot);
+  const output = object(row.result_snapshot);
+  return (
+    text(row.status) === "SUCCEEDED" &&
+    output.verified === true &&
+    output.snapshotFinalized === true &&
+    Math.round(number(input.selected)) === report.sourceEventCount &&
+    Math.round(number(output.written)) === report.sourceEventCount &&
+    Math.round(number(output.snapshotActiveRows)) === report.sourceEventCount &&
+    text(input.planFingerprint) === report.planFingerprint &&
+    text(output.planFingerprint) === report.planFingerprint
+  );
+}
+
 async function latestRequest() {
   const rows = await readOperations(SALES_EVENT_REQUEST, undefined, 20);
   for (const row of rows) {
@@ -543,7 +561,17 @@ export async function runProductMasterShoplingSalesEventSyncStep() {
   const request = await latestRequest();
   if (!request) return { processed: false, state: "IDLE" as const };
   const operations = await requestOperations(request);
-  if (operations.fulls.length) return { processed: false, state: "COMPLETED" as const, requestId: request.requestId };
+  const storedReport = operations.reports.map(reportFromRow).find(Boolean) ?? null;
+  if (
+    storedReport &&
+    operations.fulls.some((row) => verifiedSnapshotFull(row, storedReport))
+  ) {
+    return {
+      processed: false,
+      state: "COMPLETED" as const,
+      requestId: request.requestId,
+    };
+  }
   if (operations.failures.length) return { processed: false, state: "FAILED" as const, requestId: request.requestId };
   if (operations.reports.length) return { processed: false, state: "READY" as const, requestId: request.requestId };
 
@@ -832,7 +860,10 @@ export async function loadProductMasterShoplingSalesEventSyncStatus(): Promise<S
     const error = safeMessage(operations.failures[0].error_message || object(operations.failures[0].result_snapshot).message);
     return { ...common, state: "FAILED", stage: "수집 실패", message: error, error };
   }
-  if (operations.fulls.length) {
+  if (
+    report &&
+    operations.fulls.some((row) => verifiedSnapshotFull(row, report))
+  ) {
     return { ...common, state: "COMPLETED", stage: "판매 이벤트 원장 완료", message: "최근 360일 주문행 판매 이벤트가 Product Master에 적재·검증되었습니다.", progress: 100 };
   }
   if (!report) {
