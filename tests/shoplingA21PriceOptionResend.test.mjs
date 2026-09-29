@@ -22,7 +22,7 @@ const [manifestText, popupRun, popupRunHtml, exactPopup, mainSubmitBridge, statu
 test("A21 v0.4.4 keeps CDP and scans all runtime frames plus accessibility tree", () => {
   const manifest = JSON.parse(manifestText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.17");
+  assert.equal(manifest.version, "0.5.18");
   assert.equal(manifest.background.service_worker, "background-monthly-price.js");
   assert.ok(manifest.permissions.includes("debugger"));
   assert.ok(!manifest.content_scripts.some((row) => row.js?.some((name) => name.includes("result-watch"))));
@@ -151,7 +151,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
     "readback.mallMissingCount === 0",
     "readback.mallMatchCount === readback.mallCheckCount",
   ]) assert.ok(planRoute.includes(needle), `missing ${needle}`);
-  assert.match(downloadRoute, /const VERSION = "0\.5\.17"/);
+  assert.match(downloadRoute, /const VERSION = "0\.5\.18"/);
   assert.match(downloadRoute, /background-v044\.js/);
   assert.match(downloadRoute, /debugger/);
   assert.match(downloadRoute, /shopling_a21_resend_manifest_version_mismatch/);
@@ -159,7 +159,7 @@ test("A21 resend plan still requires verified Shopling stored prices before tran
   assert.match(downloadRoute, /monthly-status-popup-v053\.js/);
 });
 
-test("v0.5.17 self-heals invalidated Commerce OS page bridge contexts", async () => {
+test("v0.5.18 self-heals invalidated Commerce OS page bridge contexts", async () => {
   const bridge = await readFile(new URL("monthly-price-page-bridge.js", root), "utf8");
   assert.match(monthlyBackground, /repairMonthlyPageBridges/);
   assert.match(monthlyBackground, /injectMonthlyPageBridge/);
@@ -167,11 +167,37 @@ test("v0.5.17 self-heals invalidated Commerce OS page bridge contexts", async ()
   assert.match(monthlyBackground, /china-order-manager\*/);
   assert.match(bridge, /__commerceOsMonthlyPriceBridge/);
   assert.match(bridge, /removeEventListener\("message", previous\.listener\)/);
-  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.17", listener \}/);
+  assert.match(bridge, /globalThis\[slot\] = \{ version: "0\.5\.18", listener \}/);
   assert.match(bridge, /typeof runtime\.sendMessage !== "function"/);
   assert.match(monthlyBackground, /probe\[0\]\?\.result === true/);
   assert.match(bridge, /MONTHLY_PRICE_EXTENSION_RELOAD_REQUIRED/);
   assert.match(bridge, /try \{/);
+});
+
+test("v0.5.18 waits for authoritative A21 result evidence before deciding empty", async () => {
+  const listContent = await readFile(new URL("content-a21.js", root), "utf8");
+  const constants = listContent.match(/const SEARCH_RESULT_WAIT_ATTEMPTS = \d+;\s+const SEARCH_RESULT_WAIT_MS = \d+;/)?.[0];
+  const helpers = listContent.match(/function searchResultEvidence\(\) \{[\s\S]*?\n  \}\s+async function waitForSearchResultEvidence\(\) \{[\s\S]*?\n  \}/)?.[0];
+  assert.ok(constants && helpers, "search result wait helpers must remain testable");
+
+  const makeHarness = new Function("bodyText", "sleep", `${constants}\n${helpers}\nreturn { searchResultEvidence, waitForSearchResultEvidence };`);
+  const delayedTexts = ["검색 버튼을 누르세요", "검색 중", "1 페이지 [ 총 조회수 : 4 건 ]"];
+  let sleeps = 0;
+  const delayed = makeHarness(() => delayedTexts.shift() ?? "", async () => { sleeps += 1; });
+  assert.deepEqual(await delayed.waitForSearchResultEvidence(), { ready: true, total: 4 });
+  assert.equal(sleeps, 2);
+
+  const empty = makeHarness(() => "1 페이지 [ 총 조회수 : 0 건 ]", async () => { throw new Error("must not sleep"); });
+  assert.deepEqual(await empty.waitForSearchResultEvidence(), { ready: true, total: 0 });
+
+  let timeoutSleeps = 0;
+  const missing = makeHarness(() => "검색 버튼을 누르세요", async () => { timeoutSleeps += 1; });
+  assert.deepEqual(await missing.waitForSearchResultEvidence(), { ready: false, total: null });
+  assert.equal(timeoutSleeps, 60);
+  assert.match(listContent, /A21_SEARCH_RESULT_TIMEOUT/);
+  assert.match(listContent, /HTMLFormElement\.prototype\.submit\.call\(form\)/);
+  assert.match(listContent, /if \(!evidence\.ready\)/);
+  assert.match(listContent, /if \(total <= 0\)/);
 });
 
 test("v0.5.15 registered-mall GOODSKEY validation accepts normal numeric keys", () => {

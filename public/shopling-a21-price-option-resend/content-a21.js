@@ -1,7 +1,9 @@
 (() => {
-  const VERSION = "0.1.4";
+  const VERSION = "0.1.5";
   const MAX_VISIBLE_RESULTS = 500;
-  const OPENER_PREFIX = "commerce-os-a21-v014:";
+  const SEARCH_RESULT_WAIT_ATTEMPTS = 60;
+  const SEARCH_RESULT_WAIT_MS = 250;
+  const OPENER_PREFIX = "commerce-os-a21-v015:";
   const READY_MESSAGE = "A21_POPUP_READY_V013";
   const GENERAL_ROWS = ["상품명", "판매가", "카테고리", "상품이미지", "수수료", "상세설명", "키워드", "유료서비스", "쇼핑몰배송정보"];
   const normalize = (value) => String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
@@ -209,14 +211,23 @@
   }
 
   function clickSearchNear(input) {
-    const form = input?.form || input?.closest("form") || document;
-    const candidates = [...form.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a')]
+    const form = input?.form || input?.closest("form") || null;
+    const root = form || document;
+    const candidates = [...root.querySelectorAll('button,input[type="button"],input[type="submit"],input[type="image"],a')]
       .filter((element) => clickableText(element) === "검색");
     if (!candidates.length) return false;
     const inputRect = input.getBoundingClientRect();
     candidates.sort((a, b) => Math.abs(a.getBoundingClientRect().top - inputRect.top) - Math.abs(b.getBoundingClientRect().top - inputRect.top));
-    candidates[0].click();
-    return true;
+    try {
+      if (form instanceof HTMLFormElement) {
+        HTMLFormElement.prototype.submit.call(form);
+      } else {
+        candidates[0].click();
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function selectMallSpecificPriceSource() {
@@ -225,9 +236,20 @@
     return setControl(candidate, true);
   }
 
-  function parseTotalCount() {
+  function searchResultEvidence() {
     const match = bodyText().match(/총\s*조회수\s*[:：]?\s*([\d,]+)\s*건/i);
-    return match ? Number(match[1].replace(/,/g, "")) : 0;
+    return match
+      ? { ready: true, total: Number(match[1].replace(/,/g, "")) }
+      : { ready: false, total: null };
+  }
+
+  async function waitForSearchResultEvidence() {
+    for (let attempt = 0; attempt < SEARCH_RESULT_WAIT_ATTEMPTS; attempt += 1) {
+      const evidence = searchResultEvidence();
+      if (evidence.ready) return evidence;
+      await sleep(SEARCH_RESULT_WAIT_MS);
+    }
+    return { ready: false, total: null };
   }
 
   function findResultRows(goodsKeys) {
@@ -370,8 +392,11 @@
 
   async function selectRowsAndOpenPopup(assignment) {
     if (role() !== "A21_LIST") return;
-    await sleep(500);
-    const total = parseTotalCount();
+    const evidence = await waitForSearchResultEvidence();
+    if (!evidence.ready) {
+      return fail(assignment.jobId, "A21_SEARCH_RESULT_TIMEOUT", "검색 결과 조회수가 15초 안에 나타나지 않아 전송하지 않았습니다.");
+    }
+    const total = evidence.total;
     if (total > MAX_VISIBLE_RESULTS) {
       await chrome.runtime.sendMessage({ type: "A21_SPLIT_REQUIRED", jobId: assignment.jobId, totalResultCount: total }).catch(() => null);
       return;
