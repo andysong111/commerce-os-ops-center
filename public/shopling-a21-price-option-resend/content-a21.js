@@ -1,9 +1,9 @@
 (() => {
-  const VERSION = "0.1.5";
+  const VERSION = "0.1.6";
   const MAX_VISIBLE_RESULTS = 500;
   const SEARCH_RESULT_WAIT_ATTEMPTS = 60;
   const SEARCH_RESULT_WAIT_MS = 250;
-  const OPENER_PREFIX = "commerce-os-a21-v015:";
+  const OPENER_PREFIX = "commerce-os-a21-v016:";
   const READY_MESSAGE = "A21_POPUP_READY_V013";
   const GENERAL_ROWS = ["상품명", "판매가", "카테고리", "상품이미지", "수수료", "상세설명", "키워드", "유료서비스", "쇼핑몰배송정보"];
   const normalize = (value) => String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();

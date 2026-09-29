@@ -285,6 +285,7 @@ This protects against double writes.
 - A21 then reported `A21_EMPTY_RESULT`, but a direct read-only search for GOODSKEY `100091` on the real A21 list returned 4 rows and `총 조회수 : 4 건`.
 - The confirmed failure was a timing error: the list content script converted a missing `총 조회수` marker into zero after a fixed 500 ms delay.
 - Extension v0.5.18 submits the legacy search form directly and waits up to 15 seconds for an authoritative `총 조회수` marker. A missing marker is now `A21_SEARCH_RESULT_TIMEOUT`; only an explicit `총 조회수 : 0 건` is empty.
+- The v0.5.18 live retry then proved that the A21 POST completes inside Shopling's child frame while the top-level tab remains on `/`. The old 600 ms reassignment could target the pre-navigation document, and `tabs.onUpdated` did not observe the child-frame completion. Extension v0.5.19 removes that timer and resumes the worker from `webNavigation.onCompleted` for the actual Shopling frame document.
 - After deployment and extension reload, recover status first. A fresh live resend still requires the normal action-time confirmation and must remain limited to the proven mismatched GOODSKEY.
 
 ---
