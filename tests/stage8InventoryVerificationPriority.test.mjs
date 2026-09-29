@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [engine, page] = await Promise.all([
+const [engine, page, verifiedCost] = await Promise.all([
   readFile("src/lib/stage8InventoryVerificationPriority.ts", "utf8"),
   readFile("src/app/stage8-inventory-verification-priority/page.tsx", "utf8"),
+  readFile("src/lib/verifiedPurchaseCostEvidence.ts", "utf8"),
 ]);
 
 test("provisional inventory readiness is read only and joins canonical demand to Product Master inventory and planning", () => {
@@ -44,10 +45,16 @@ test("negative or review inventory still fails closed", () => {
   assert.match(page, /원장 음수·identity 충돌은 REVIEW로 차단/);
 });
 
-test("confirmed receipt cost remains a separate execution cost gate", () => {
-  assert.match(engine, /!row\?\.hasConfirmedReceiptCost/);
+test("verified purchase cost remains a separate execution cost gate", () => {
+  assert.match(engine, /purchaseCostReadyForExecution/);
+  assert.match(engine, /verifiedPurchaseCostReady/);
+  assert.match(verifiedCost, /VERIFIED_PURCHASE_COST_SOURCES/);
+  assert.match(verifiedCost, /purchaseCostEvidenceCount/);
+  assert.match(verifiedCost, /legacyConfirmedReceiptPurchaseCostReady/);
   assert.match(engine, /COST_CONFIRMATION_REQUIRED/);
   assert.match(page, /VERIFIED 상품도 확정 입고원가가 없으면 비용 게이트에서 차단/);
+  assert.match(page, /검증원가/);
+  assert.match(page, /purchaseCostTrustSource/);
 });
 
 test("sold out reset is the normal path from provisional to verified inventory", () => {

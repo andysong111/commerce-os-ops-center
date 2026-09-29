@@ -7,6 +7,13 @@ import {
 import { calculateNetRequirement } from "@/lib/productDecisionEngine/netRequirement";
 import type { SalesOrderGroup } from "@/lib/productDecisionEngine/salesOrder";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import {
+  purchaseCostReadyForExecution,
+  purchaseCostEvidenceSource,
+  purchaseCostEvidenceAt,
+  effectivePurchaseUnitCostKrw,
+  usesCanonicalPurchaseCostContract,
+} from "@/lib/verifiedPurchaseCostEvidence";
 
 export type InventoryOperatingMode =
   | "VERIFIED"
@@ -37,6 +44,13 @@ export type InventoryVerificationPriorityRow = {
   hasConfirmedReceiptCost: boolean;
   latestConfirmedReceiptAt: string | null;
   latestConfirmedReceiptCostKrw: number;
+  purchaseCostEvidenceCount: number;
+  hasVerifiedPurchaseCost: boolean;
+  verifiedPurchaseCostReady: boolean;
+  purchaseCostTrustSource: string;
+  verifiedPurchaseUnitCostKrw: number;
+  verifiedPurchaseCostAt: string | null;
+  purchaseProtectedCostKrw: number;
   protectedCostKrw: number;
   inventoryCalculationUsable: boolean;
   executionInventoryEligible: boolean;
@@ -131,7 +145,7 @@ function inventoryMode(
   return "PROVISIONAL";
 }
 
-function actionFor(row: ProductMasterInventoryCostRow | undefined) {
+function actionFor(row: ProductMasterInventoryCostRow | undefined, now: number) {
   const mode = inventoryMode(row);
   if (mode === "MISSING" || mode === "REVIEW") {
     return "LEDGER_REVIEW_REQUIRED" as const;
@@ -139,7 +153,7 @@ function actionFor(row: ProductMasterInventoryCostRow | undefined) {
   if (mode === "PROVISIONAL") {
     return "PROVISIONAL_DECISION_EVIDENCE_REQUIRED" as const;
   }
-  if (!row?.hasConfirmedReceiptCost) {
+  if (!purchaseCostReadyForExecution(row, now)) {
     return "COST_CONFIRMATION_REQUIRED" as const;
   }
   return "NONE" as const;
@@ -175,6 +189,7 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
     loadProductMasterInventoryCostReadiness(),
     loadProductPlanningSnapshot(),
   ]);
+  const now = Date.now();
   const purchaseProducts = purchaseShadow.snapshot?.products ?? [];
   const inventoryIndex = inventoryByBarcode(inventoryReadiness.rows);
   const planningIndex = planningByBarcode(planning.products);
@@ -208,7 +223,7 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
         moq: Math.max(1, integer(profile?.moq) || 1),
         cartonQuantity: Math.max(1, integer(profile?.cartonQuantity) || 1),
       });
-      const action = actionFor(inventory);
+      const action = actionFor(inventory, now);
       const purchaseStatus = net.group;
       const recommendedQty = net.recommendedQuantity;
       const expectedCost = expectedCostForQuantity(
@@ -243,15 +258,27 @@ export async function loadInventoryVerificationPriority(): Promise<InventoryVeri
         openCommitment,
         hasConfirmedReceiptCost: inventory?.hasConfirmedReceiptCost === true,
         latestConfirmedReceiptAt: inventory?.latestConfirmedReceiptAt ?? null,
-        latestConfirmedReceiptCostKrw: integer(
-          inventory?.latestConfirmedReceiptCostKrw,
-        ),
+        latestConfirmedReceiptCostKrw: integer(inventory?.latestConfirmedReceiptCostKrw),
+        purchaseCostEvidenceCount: integer(inventory?.purchaseCostEvidenceCount),
+        hasVerifiedPurchaseCost: inventory?.hasVerifiedPurchaseCost === true,
+        verifiedPurchaseCostReady: purchaseCostReadyForExecution(inventory, now),
+        purchaseCostTrustSource: purchaseCostEvidenceSource(inventory),
+        verifiedPurchaseUnitCostKrw: usesCanonicalPurchaseCostContract(inventory)
+          ? integer(inventory?.verifiedPurchaseUnitCostKrw)
+          : integer(inventory?.latestConfirmedReceiptCostKrw),
+        verifiedPurchaseCostAt: purchaseCostEvidenceAt(inventory),
+        purchaseProtectedCostKrw: usesCanonicalPurchaseCostContract(inventory)
+          ? integer(inventory?.purchaseProtectedCostKrw)
+          : integer(inventory?.protectedCostKrw),
         protectedCostKrw: integer(inventory?.protectedCostKrw),
         inventoryCalculationUsable,
         executionInventoryEligible,
         advisoryOnly,
         action,
-        operationallyReady,
+        operationallyReady:
+          operationallyReady &&
+          purchaseCostReadyForExecution(inventory, now) &&
+          effectivePurchaseUnitCostKrw(inventory, now) > 0,
       };
     })
     .sort(
