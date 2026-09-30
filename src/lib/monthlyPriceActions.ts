@@ -13,6 +13,8 @@ function validId(value: unknown): string {
   if (typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) throw new Error("MONTHLY_PRICE_ID_INVALID");
   return value;
 }
+const RETIRE_RELIST_CONFIRMATION = "CONFIRM_DELETED_LEGACY_LISTING_RETIREMENT";
+const RETIRED_RELIST_RESULT = "LEGACY_RELIST_RETIRED_AFTER_DELETION";
 function response(item: MonthlyPriceItem) {
   return { id: item.id, state: item.state, errorCode: item.error_code, writeIndex: item.write_index, transmission: item.transmission, plan: item.plan };
 }
@@ -225,6 +227,42 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
           saleStatusRestored: report.saleStatusRestored === true,
         });
       }
+    } else if (action === "retireDeletedRelist") {
+      if (item.state === "TRANSMITTED" && item.transmission?.result === RETIRED_RELIST_RESULT) {
+        return response(item);
+      }
+      if (
+        item.state !== "RESENDING" ||
+        item.error_code !== "MONTHLY_PRICE_RELIST_REQUIRED" ||
+        !item.plan ||
+        !item.transmission
+      ) {
+        throw new Error("MONTHLY_PRICE_RELIST_RETIRE_SCOPE_INVALID");
+      }
+      if (payload.confirmation !== RETIRE_RELIST_CONFIRMATION) {
+        throw new Error("MONTHLY_PRICE_RELIST_RETIRE_CONFIRMATION_REQUIRED");
+      }
+      const live = await readMonthlyLiveProduct(item.goods_key);
+      if (live.length !== 0) {
+        throw new Error("MONTHLY_PRICE_RELIST_PRODUCT_STILL_EXISTS");
+      }
+      const finishedAt = new Date().toISOString();
+      await auditMonthlyPrice(item, "RELIST_LEGACY_LISTING_RETIRE_CONFIRMED", {
+        goodsKey: item.goods_key,
+        productName: item.candidate.productName,
+        barcodes: item.candidate.options.map((option) => option.barcode),
+        previousErrorCode: item.error_code,
+        shoplingReadbackCount: live.length,
+        confirmation: RETIRE_RELIST_CONFIRMATION,
+        finishedAt,
+      });
+      item.state = "TRANSMITTED";
+      item.error_code = null;
+      item.transmission = {
+        ...item.transmission,
+        finishedAt,
+        result: RETIRED_RELIST_RESULT,
+      };
     } else throw new Error("MONTHLY_PRICE_ACTION_INVALID");
     return response(item);
   });
