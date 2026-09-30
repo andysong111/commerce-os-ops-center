@@ -9,8 +9,10 @@ import {
   calculateProductOrderBudget,
 } from "@/lib/productDecisionEngine/portfolio";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import { loadProductMasterInventoryCostReadiness } from "@/lib/productMasterInventoryCostReadiness";
 import { loadCalendarMonthNormalRevenue } from "@/lib/shopling/calendarMonthRevenue";
 import { loadCanonicalPurchaseShadow } from "@/lib/stage8CanonicalPurchaseShadow";
+import { effectivePurchaseUnitCostKrw } from "@/lib/verifiedPurchaseCostEvidence";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 
@@ -99,9 +101,10 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const draft = await loadInternalChinaPurchaseDraft(draftId);
   const cycle = monthlyPurchaseCycleForMonth(draft.cycleMonth);
 
-  const [shadow, planning, ledger, calendarRevenue] = await Promise.all([
+  const [shadow, planning, inventoryCost, ledger, calendarRevenue] = await Promise.all([
     loadCanonicalPurchaseShadow(),
     loadProductPlanningSnapshot(),
+    loadProductMasterInventoryCostReadiness().catch(() => null),
     loadChinaOrderLedger(),
     loadCalendarMonthNormalRevenue(cycle.budgetMonth)
       .then((value) => ({ value, error: null as string | null }))
@@ -129,6 +132,11 @@ export async function loadInternalChinaPurchaseBudgetAudit(
       .filter((row) => row.skuActive !== false)
       .map((row) => [barcode(row.barcode), row] as const),
   );
+  const inventoryCostByBarcode = new Map(
+    (inventoryCost?.rows ?? [])
+      .map((row) => [barcode(row.barcode), row] as const)
+      .filter(([key]) => Boolean(key)),
+  );
   const engineByBarcode = new Map(
     (snapshot?.products ?? [])
       .map((row) => [barcode(row.barcode), row] as const)
@@ -136,6 +144,11 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   );
 
   function referenceUnitCostKrw(key: string) {
+    const verifiedPurchaseCost = effectivePurchaseUnitCostKrw(
+      inventoryCostByBarcode.get(key),
+      Date.now(),
+    );
+    if (verifiedPurchaseCost > 0) return verifiedPurchaseCost;
     const profile = planningByBarcode.get(key);
     const stored = money(profile?.latestCostKrw);
     if (stored > 0) return stored;

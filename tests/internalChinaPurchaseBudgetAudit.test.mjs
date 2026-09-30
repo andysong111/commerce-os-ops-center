@@ -44,6 +44,10 @@ test("closed calendar-month Shopling revenue is frozen in the Ops ledger", () =>
 });
 
 test("saved actual 1688 CNY price has priority over Product Master reference cost", () => {
+  assert.match(audit, /loadProductMasterInventoryCostReadiness/);
+  assert.match(audit, /effectivePurchaseUnitCostKrw/);
+  assert.match(audit, /inventoryCostByBarcode\.get\(key\)/);
+  assert.match(audit, /if \(verifiedPurchaseCost > 0\) return verifiedPurchaseCost/);
   assert.match(audit, /actualUnitPriceCny = decimal\(line\.unitPriceCny\)/);
   assert.match(
     audit,
