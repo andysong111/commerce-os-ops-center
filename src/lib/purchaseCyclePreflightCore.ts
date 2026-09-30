@@ -310,13 +310,31 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (selected.some((row) => row.inventoryMode === "PROVISIONAL")) {
     reviewBlockers.push("PROVISIONAL_INVENTORY_OWNER_REVIEW_REQUIRED");
   }
+  const sourceEvidence = source ? {
+    analysisAsOf: source.analysisAsOf,
+    planningContentFingerprint: source.planningContentFingerprint,
+    shadowPlanningContentFingerprint: source.shadowPlanningContentFingerprint,
+    canonicalContentFingerprint: source.canonicalContentFingerprint,
+    reconciliationFingerprint: source.reconciliationFingerprint,
+    cycleMonth: source.cycleMonth,
+    budgetMonth: source.budgetMonth,
+    budgetKrw: source.budgetKrw,
+    inventoryContentFingerprint: source.inventoryContentFingerprint,
+    grossBudgetKrw: source.grossBudgetKrw,
+    purchaseCostMultiplier: source.purchaseCostMultiplier,
+    comparisonAvailable: source.comparisonAvailable,
+    sameAnalysisAsOf: source.sameAnalysisAsOf,
+    blockerKeys: source.blockerKeys,
+  } : null;
   const sourceFingerprint = hash({
     before: pin, after: input.after, stable,
     validity: { sourceFresh, shadowReady, contextMatch, fullReadback, salesVerified, inventoryFresh, spendStable },
     spend: input.spendAfter ? { cycleMonth: input.spendAfter.cycleMonth, amount: input.spendAfter.recordedSpendKrw, fingerprint: input.spendAfter.contentFingerprint } : null,
     gate: gate ? { state: gate.state, safe: gate.safeToApply, checks: gate.checks, fingerprint: gate.promotionFingerprint } : null,
     reconciliation: rec ? { state: rec.state, ready: rec.ready, full: rec.fullApplyVerified, checks: rec.checks, fingerprint: rec.reconciliationFingerprint } : null,
-    source: source ?? null,
+    // Freshness still uses inventoryGeneratedAt above. The content pin must stay
+    // stable when only the observation time changes between preview and write.
+    source: sourceEvidence,
     priorityState: input.priority?.state ?? null,
     // Include every eligibility input, not only selected quantities. A new cost,
     // commitment, baseline, or blocked row must invalidate the preparation.
