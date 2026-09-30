@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [audit, page, card, monthlyRevenue, workspace] = await Promise.all([
+const [audit, draftEngine, page, card, monthlyRevenue, workspace] = await Promise.all([
   readFile("src/lib/internalChinaPurchaseBudgetAudit.ts", "utf8"),
+  readFile("src/lib/internalChinaPurchaseDraft.ts", "utf8"),
   readFile("src/app/china-order-manager/drafts/[draftId]/page.tsx", "utf8"),
   readFile(
     "src/components/china-order-manager/InternalChinaPurchaseBudgetAudit.tsx",
@@ -17,7 +18,11 @@ const [audit, page, card, monthlyRevenue, workspace] = await Promise.all([
 ]);
 
 test("China order draft budgets from the previous full calendar month", () => {
-  assert.match(audit, /monthlyPurchaseCycleFor\(draft\.sourceUpdatedAt\)/);
+  assert.match(audit, /monthlyPurchaseCycleForMonth\(draft\.cycleMonth\)/);
+  assert.doesNotMatch(audit, /monthlyPurchaseCycleFor\(draft\.sourceUpdatedAt\)/);
+  assert.match(draftEngine, /object\(row\.latestPayload\)\.cycleMonth/);
+  assert.match(draftEngine, /INTERNAL_CHINA_DRAFT_CYCLE_CONFLICT/);
+  assert.match(draftEngine, /cycleMonth,/);
   assert.match(audit, /loadCalendarMonthNormalRevenue\(cycle\.budgetMonth\)/);
   assert.match(audit, /budgetMonthRevenueKrw \/ 2/);
   assert.match(audit, /DEFAULT_PURCHASE_COST_MULTIPLIER/);
