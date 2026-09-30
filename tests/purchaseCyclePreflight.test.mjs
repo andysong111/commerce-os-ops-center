@@ -353,6 +353,14 @@ test("a changed stock snapshot fingerprint invalidates the preparation", () => {
   input.priority.source.inventoryContentFingerprint = fp("3");
   assert.notEqual(buildPurchaseCyclePreflight(input).planFingerprint, a.planFingerprint);
 });
+test("a fresh inventory observation time does not invalidate unchanged content", () => {
+  const first = fixture(); first.priority.source.inventoryGeneratedAt = "2026-10-01T01:58:00.000Z";
+  const second = fixture(); second.priority.source.inventoryGeneratedAt = "2026-10-01T01:59:00.000Z";
+  const a = buildPurchaseCyclePreflight(first); const b = buildPurchaseCyclePreflight(second);
+  assert.equal(a.previewReady, true); assert.equal(b.previewReady, true);
+  assert.equal(a.sourceFingerprint, b.sourceFingerprint);
+  assert.equal(a.planFingerprint, b.planFingerprint);
+});
 test("recorded cycle spend is removed before freight reserve and cash clamp", () => {
   const input = fixture(); input.spendBefore.recordedSpendKrw = 120000; input.spendAfter.recordedSpendKrw = 120000;
   const report = buildPurchaseCyclePreflight(input);
