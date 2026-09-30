@@ -181,6 +181,20 @@ test('deleted legacy relist can retire only after an exact zero-row Shopling rea
   assert.equal(h.log.filter(x=>x==='RELIST_LEGACY_LISTING_RETIRE_CONFIRMED').length,1);
 });
 
+test('deleted legacy relist accepts only an exact Shopling Z tombstone',async()=>{
+  const h=harness();await h.call('prepare');await h.call('write');await h.call('write');await h.call('verify');await h.call('resendClaim');
+  const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'RELIST_REQUIRED',relistRequired:true,priceOutcome:'RELIST_REQUIRED',optionOutcome:'MISSING',saleStatusActivated:true,saleStatusRestored:true};
+  await h.call('resendReport',{report});
+  h.state.raw=h.state.raw.map((row)=>({...row,goods_key:goodsKey,sale_status:'Z'}));
+  const writesBeforeRetirement=h.log.filter(x=>x==='write').length;
+  await h.call('retireDeletedRelist',{confirmation:'CONFIRM_DELETED_LEGACY_LISTING_RETIREMENT'});
+  assert.equal(h.item.state,'TRANSMITTED');
+  assert.equal(h.item.error_code,null);
+  assert.equal(h.item.transmission.result,'LEGACY_RELIST_RETIRED_AFTER_DELETION');
+  assert.equal(h.log.filter(x=>x==='write').length,writesBeforeRetirement);
+  assert.equal(h.log.filter(x=>x==='RELIST_LEGACY_LISTING_RETIRE_CONFIRMED').length,1);
+});
+
 test('legacy relist retirement fails closed while the Shopling product still exists or confirmation is missing',async()=>{
   const h=harness();await h.call('prepare');await h.call('write');await h.call('write');await h.call('verify');await h.call('resendClaim');
   const report={token:h.item.transmission.token,fingerprint:h.item.plan.fingerprint,goodsKey,state:'RELIST_REQUIRED',relistRequired:true,priceOutcome:'RELIST_REQUIRED',optionOutcome:'MISSING',saleStatusActivated:true,saleStatusRestored:true};
