@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   CHINA_ORDER_EVENT_OPERATION_TYPE,
+  chinaOrderCommitmentCycleMonth,
   loadChinaOrderLedger,
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
@@ -58,10 +59,6 @@ function supabaseConnection() {
   )?.trim();
   if (!baseUrl || !secret) throw new Error("SUPABASE_ADMIN_NOT_CONFIGURED");
   return { baseUrl, secret };
-}
-
-function cycleOf(row: { reservedAt: string | null; updatedAt: string }) {
-  return seoulCalendarMonth(row.reservedAt || row.updatedAt);
 }
 
 function operationRow(event: ReturnType<typeof normalizeChinaOrderCommitmentEvent>, result: Record<string, unknown>) {
@@ -123,7 +120,9 @@ export async function consolidateMonthlyPurchaseDrafts(
     throw new Error(`MONTHLY_PURCHASE_FINAL_LEDGER_UNAVAILABLE:${ledger.error}`);
   }
   const cycleRows = ledger.commitments.filter(
-    (row) => row.sourceSystem === SOURCE_SYSTEM && cycleOf(row) === cycleMonth,
+    (row) =>
+      row.sourceSystem === SOURCE_SYSTEM &&
+      chinaOrderCommitmentCycleMonth(row) === cycleMonth,
   );
   const activeRows = cycleRows.filter((row) => row.openQuantity > 0);
   const activeDraftIds = [
