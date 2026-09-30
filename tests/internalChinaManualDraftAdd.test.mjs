@@ -64,6 +64,8 @@ test("manual addition API is same-origin only and exposes search plus add", () =
   assert.match(route, /export async function POST/);
   assert.match(route, /searchInternalChinaManualDraftCandidates/);
   assert.match(route, /addInternalChinaManualDraftLine/);
+  assert.match(route, /assertInternalChinaMonthlyPurchaseOpen\(draft\.cycleMonth\)/);
+  assert.doesNotMatch(route, /seoulCalendarMonth\(draft\.sourceUpdatedAt\)/);
 });
 
 test("draft page exposes searchable B-code manual addition with open commitment warning", () => {

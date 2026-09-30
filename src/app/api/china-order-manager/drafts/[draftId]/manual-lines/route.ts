@@ -4,7 +4,6 @@ import {
 } from "@/lib/internalChinaPurchaseDraftManualAdd";
 import { assertInternalChinaMonthlyPurchaseOpen } from "@/lib/internalChinaMonthlyPurchaseClose";
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
-import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 
 export const runtime = "nodejs";
@@ -111,9 +110,7 @@ export async function POST(request: Request, context: RouteContext) {
   const decodedDraftId = decodeURIComponent(draftId);
   try {
     const draft = await loadInternalChinaPurchaseDraft(decodedDraftId);
-    await assertInternalChinaMonthlyPurchaseOpen(
-      seoulCalendarMonth(draft.sourceUpdatedAt),
-    );
+    await assertInternalChinaMonthlyPurchaseOpen(draft.cycleMonth);
     const body = (await request.json().catch(() => ({}))) as {
       barcode?: unknown;
       addQuantity?: unknown;
