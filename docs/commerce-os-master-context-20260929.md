@@ -267,6 +267,8 @@ The A21 monthly path has evolved toward:
 
 Never re-send already proven-successful goods just because some other goods in the original batch failed.
 
+For the 2026-09 cycle, GOODSKEY `114981`, `114983`, `115087`, and `115115` were confirmed as obsolete refrigerator-tray duplicates superseded by canonical GOODSKEY `122218`-`122223`. GOODSKEY `119120` was a misidentified legacy listing unrelated to the current `BBC5-3` product master. After sold-out transmission, deletion transmission, internal deletion, and a zero-row Shopling readback, these five rows may be retired from the monthly ledger without re-registration. This resolution must not be applied to the protected review-hold GOODSKEY `100091`, `116282`, `116855`, `118734`, or `121055`.
+
 ### 6.5 Uncertain results
 
 If a transmission response is lost, a popup disappears, or the write acknowledgment is ambiguous:

@@ -17,6 +17,8 @@ function describe(code: string) {
   if (/GROUP|MAPPING|SCOPE|UNITS|OPTION/.test(code)) return "가격그룹·상품/옵션 연결·묶음 수량을 안전하게 확정하지 못해 변경을 제외했습니다.";
   if (/BUSY/.test(code)) return "다른 창 또는 다른 월에서 같은 상품을 처리 중입니다. 중복 실행하지 않았습니다.";
   if (/PREVIEW_REQUIRED/.test(code)) return "아직 예상 변경안을 만들지 않은 상품이 있습니다. 먼저 모든 대상의 예상 가격을 확인하세요.";
+  if (/RELIST_PRODUCT_STILL_EXISTS/.test(code)) return "Shopling에 상품이 아직 남아 있어 구형 중복 종료를 차단했습니다. 먼저 품절·삭제 결과를 확인하세요.";
+  if (/RELIST_RETIRE/.test(code)) return "구형 중복 종료 조건을 확인하지 못했습니다. 재등록 필요 상태와 삭제 완료 여부를 다시 확인하세요.";
   if (/RELIST_REQUIRED/.test(code)) return "A21 판매가/옵션 전송이 200개 묶음 → 소묶음 → 개별 3단계까지 실패했습니다. 이 상품은 삭제 후 재등록 대상으로 분리했습니다.";
   if (/READBACK|UNCERTAIN|MARKET_RESULT/.test(code)) return "실제 반영 결과를 확정하지 못했습니다. 완료 처리하거나 무조건 다시 전송하지 않습니다.";
   if (/LOGIN|DOM|BROWSER|CURRENT_PRICE|MALL|SHOPLING_TAB/.test(code)) return "샵플링 로그인 세션 또는 현재 가격행을 확인하지 못했습니다. 가격 변경을 보호했습니다.";
@@ -54,6 +56,7 @@ export function MonthlyPricePanel({ month, ready }: { month: string; ready: bool
 function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boolean }) {
   const [snapshot, setSnapshot] = useState<Snapshot>({ run: null, items: [] });
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [progress, setProgress] = useState("");
+  const [retireConfirmId, setRetireConfirmId] = useState("");
   const generation = useRef(0), running = useRef(false);
   useEffect(() => {
     generation.current += 1;
@@ -79,6 +82,27 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     if (!result.ok || !data.ok) throw new Error(data.code || "MONTHLY_PRICE_REQUEST_FAILED");
     setSnapshot(data);
     return data as Snapshot;
+  }
+  async function retireDeletedRelist(item: Item) {
+    if (!snapshot.run || busy) return;
+    setBusy(true); setError(""); setProgress(`${item.goodsKey} · Shopling 삭제 상태를 확인합니다.`);
+    try {
+      const result = await api({
+        action: "retireDeletedRelist",
+        itemId: item.id,
+        runId: snapshot.run.id,
+        confirmation: "CONFIRM_DELETED_LEGACY_LISTING_RETIREMENT",
+      });
+      update({ ...item, ...result.item });
+      setRetireConfirmId("");
+      setProgress(`${item.goodsKey} · Shopling 조회 0건 확인 · 구형 중복상품으로 월 원장에서 종료했습니다.`);
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : "MONTHLY_PRICE_RELIST_RETIRE_FAILED";
+      setError(code);
+      setProgress(`${item.goodsKey} · ${describe(code)}`);
+    } finally {
+      setBusy(false);
+    }
   }
   async function preparePreview() {
     if (running.current) return;
@@ -484,6 +508,9 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   const relistRequiredCount = snapshot.items.filter((item) =>
     item.state === "RESENDING" && item.errorCode === "MONTHLY_PRICE_RELIST_REQUIRED"
   ).length;
+  const retiredLegacyCount = snapshot.items.filter((item) =>
+    item.state === "TRANSMITTED" && item.transmission?.result === "LEGACY_RELIST_RETIRED_AFTER_DELETION"
+  ).length;
   const terminalBatchRecoveryCount = snapshot.items.filter((item) =>
     item.state === "RESENDING" &&
     item.errorCode === "MONTHLY_PRICE_MARKET_RESULT_REVIEW_REQUIRED" &&
@@ -584,7 +611,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
             {busy ? "실제 마켓가격 확인 중…" : `과거 ${transmissionReviewCount}건 실제 가격 확인 · 미반영만 재전송`}
           </button>
         </>}
-        {relistRequiredCount > 0 && <p>3단계 재전송까지 실패한 {relistRequiredCount}건은 삭제 후 재등록 대상으로 분리했습니다.</p>}
+        {relistRequiredCount > 0 && <p>3단계 재전송까지 실패한 {relistRequiredCount}건은 삭제 후 재등록 대상으로 분리했습니다. 이미 대체상품이 있거나 잘못 연결된 구형 중복이라면 상품별 결과에서 삭제 여부를 다시 확인한 뒤 종료할 수 있습니다.</p>}
       </div>
     ) : (
       <>
@@ -601,7 +628,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     {!ready && <p className="mt-2 text-xs text-amber-200">입고확정과 배송대행 실제비용 저장 후 실행할 수 있습니다. 실제 원가 근거는 실행 시 다시 검증합니다.</p>}
     {busy && <button type="button" onClick={() => { running.current = false; setProgress("다음 작업 중지 요청 · 이미 전송한 작업은 결과 확인이 필요합니다."); }} className="mt-2 text-xs underline text-slate-300">이후 작업 중지</button>}
     <div role="status" aria-live="polite" className="mt-3 text-xs leading-5 text-cyan-100">{progress}</div>
-    {snapshot.run && <p className="mt-2 text-xs leading-5 text-slate-300">대상 {snapshot.items.length} · 예상변경 준비 {preparedCount} · 대기 {queuedCount} · 샵플링 반영 확인 {count(["VERIFIED", "RESENDING", "TRANSMITTED"])} · 현재가 보호 {count(["HELD"])} · 확인 필요 {count(["BLOCKED", "UNCERTAIN", "WRITING"])} · 전송결과 확인 {transmissionReviewCount} · 재등록 필요 {relistRequiredCount} · 전송 종료 {count(["TRANSMITTED"])}</p>}
+    {snapshot.run && <p className="mt-2 text-xs leading-5 text-slate-300">대상 {snapshot.items.length} · 예상변경 준비 {preparedCount} · 대기 {queuedCount} · 샵플링 반영 확인 {count(["VERIFIED", "RESENDING", "TRANSMITTED"])} · 현재가 보호 {count(["HELD"])} · 확인 필요 {count(["BLOCKED", "UNCERTAIN", "WRITING"])} · 전송결과 확인 {transmissionReviewCount} · 재등록 필요 {relistRequiredCount} · 구형 중복 종료 {retiredLegacyCount} · 전송 종료 {count(["TRANSMITTED"])}</p>}
     {bCodeRows.length > 0 && (
       <div className="mt-3 rounded-lg border border-cyan-800 bg-slate-950/70 p-2 text-xs text-slate-200" data-testid="monthly-price-preview">
         <div className="flex flex-wrap items-center gap-2 font-bold">
@@ -639,6 +666,6 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     {error && <div role="alert" className="mt-3 rounded-lg border border-amber-700 bg-amber-950 p-2 text-xs text-amber-100">{describe(error)}<code className="mt-1 block break-all text-[10px]">{error}</code></div>}
     <a href="/api/shopling-a21-price-option-resend/download" className="mt-3 inline-block text-xs text-cyan-200 underline">A21 확장프로그램 {MONTHLY_PRICE_EXTENSION_VERSION} 받기</a>
     {snapshot.run?.warnings?.length ? <details className="mt-2 text-xs text-amber-200"><summary>원가 근거 확인 필요 ({snapshot.run.warnings.length})</summary>{snapshot.run.warnings.map((warning) => <p className="mt-1 break-all" key={warning}>{warning}</p>)}</details> : null}
-    {snapshot.items.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer font-bold text-slate-200">상품별 결과·제외 사유</summary><div className="mt-2 max-h-80 space-y-2 overflow-auto">{snapshot.items.map((item) => <div key={item.id} className="rounded border border-slate-700 p-2"><b>{item.goodsKey} · {item.candidate.productName}</b><p>{STATE[item.state] || item.state}</p>{item.errorCode && <><p className="text-amber-200">{describe(item.errorCode)}</p><code className="break-all text-[10px] text-slate-400">{item.errorCode}</code></>}{item.plan && <p className="text-slate-400">가격 변경 {item.plan.writes.length}행 · 옵션 변경 {item.plan.optionChangeCount}개 · 인하 보호 {item.plan.protectedDecreaseCount}행</p>}</div>)}</div></details>}
+    {snapshot.items.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer font-bold text-slate-200">상품별 결과·제외 사유</summary><div className="mt-2 max-h-80 space-y-2 overflow-auto">{snapshot.items.map((item) => <div key={item.id} className="rounded border border-slate-700 p-2"><b>{item.goodsKey} · {item.candidate.productName}</b><p>{item.transmission?.result === "LEGACY_RELIST_RETIRED_AFTER_DELETION" ? "구형 중복 종료 · Shopling 삭제 확인" : STATE[item.state] || item.state}</p>{item.errorCode && <><p className="text-amber-200">{describe(item.errorCode)}</p><code className="break-all text-[10px] text-slate-400">{item.errorCode}</code></>}{item.errorCode === "MONTHLY_PRICE_RELIST_REQUIRED" && (retireConfirmId === item.id ? <div className="mt-2 rounded border border-amber-600 bg-amber-950/70 p-2 text-amber-100"><p>이 상품은 다시 등록하지 않습니다. Shopling API 조회가 0건일 때만 구형 중복상품으로 종료됩니다.</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void retireDeletedRelist(item)} disabled={busy} className="rounded bg-amber-300 px-2 py-1 font-black text-slate-950 disabled:opacity-40">삭제 확인 · 재등록 안 함</button><button type="button" onClick={() => setRetireConfirmId("")} disabled={busy} className="rounded border border-slate-500 px-2 py-1 text-slate-200 disabled:opacity-40">취소</button></div></div> : <button type="button" onClick={() => setRetireConfirmId(item.id)} disabled={busy} className="mt-2 rounded border border-amber-500 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">구형 중복 종료 검토</button>)}{item.plan && <p className="text-slate-400">가격 변경 {item.plan.writes.length}행 · 옵션 변경 {item.plan.optionChangeCount}개 · 인하 보호 {item.plan.protectedDecreaseCount}행</p>}</div>)}</div></details>}
   </section>;
 }
