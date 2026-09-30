@@ -47,6 +47,15 @@ test("draft page overlays operator quantities while normal metadata save strips 
   assert.match(draftRoute, /loadInternalChinaDraftWithQuantityOverrides/);
 });
 
+test("draft mutations and purchase-cost overlays honor the explicit cycle month", () => {
+  assert.match(draftRoute, /assertInternalChinaMonthlyPurchaseOpen\(draft\.cycleMonth\)/);
+  assert.match(route, /assertInternalChinaMonthlyPurchaseOpen\(base\.cycleMonth\)/);
+  assert.match(helper, /loadInternalChinaMonthlyPurchaseSummary\(draft\.cycleMonth\)/);
+  assert.doesNotMatch(draftRoute, /seoulCalendarMonth\(draft\.sourceUpdatedAt\)/);
+  assert.doesNotMatch(route, /seoulCalendarMonth\(base\.sourceUpdatedAt\)/);
+  assert.doesNotMatch(helper, /seoulCalendarMonth\(draft\.sourceUpdatedAt\)/);
+});
+
 test("quantity editor is existing-B-code only and reloads after a successful save", () => {
   assert.match(route, /INTERNAL_CHINA_QUANTITY_BARCODE_NOT_IN_DRAFT/);
   assert.match(route, /base\.lines\.some/);

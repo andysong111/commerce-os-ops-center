@@ -12,7 +12,6 @@ import type {
   InternalChinaPurchaseDraft,
   InternalChinaPurchaseDraftInput,
 } from "@/lib/internalChinaPurchaseDraft";
-import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import {
   createSupabaseAdminClient,
   createSupabaseAdminHeaders,
@@ -210,10 +209,9 @@ export function applyInternalChinaActualPurchaseCosts(
 export async function loadInternalChinaDraftWithQuantityOverrides(
   draft: InternalChinaPurchaseDraft,
 ) {
-  const cycleMonth = seoulCalendarMonth(draft.sourceUpdatedAt);
   const [overrides, monthly] = await Promise.all([
     loadInternalChinaQuantityOverrides(draft.draftId),
-    loadInternalChinaMonthlyPurchaseSummary(cycleMonth).catch(() => null),
+    loadInternalChinaMonthlyPurchaseSummary(draft.cycleMonth).catch(() => null),
   ]);
   return applyInternalChinaActualPurchaseCosts(
     applyInternalChinaQuantityOverrides(draft, overrides),

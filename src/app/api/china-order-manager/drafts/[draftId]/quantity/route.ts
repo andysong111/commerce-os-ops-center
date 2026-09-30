@@ -5,7 +5,6 @@ import {
 } from "@/lib/internalChinaDraftQuantityOverride";
 import { assertInternalChinaMonthlyPurchaseOpen } from "@/lib/internalChinaMonthlyPurchaseClose";
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
-import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 
 export const runtime = "nodejs";
@@ -98,9 +97,7 @@ export async function POST(request: Request, context: RouteContext) {
   const decodedDraftId = decodeURIComponent(draftId);
   try {
     const base = await loadInternalChinaPurchaseDraft(decodedDraftId);
-    await assertInternalChinaMonthlyPurchaseOpen(
-      seoulCalendarMonth(base.sourceUpdatedAt),
-    );
+    await assertInternalChinaMonthlyPurchaseOpen(base.cycleMonth);
     if (base.status !== "DRAFT") {
       throw new Error("INTERNAL_CHINA_DRAFT_ALREADY_ORDERED");
     }

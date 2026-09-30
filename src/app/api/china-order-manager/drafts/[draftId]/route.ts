@@ -10,7 +10,6 @@ import {
   saveInternalChinaPurchaseDraft,
   type InternalChinaPurchaseDraftInput,
 } from "@/lib/internalChinaPurchaseDraft";
-import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 import { updateModelFixedSupplierLink } from "@/lib/productLaunchPurchaseMetadataWrite";
@@ -97,9 +96,7 @@ function errorResponse(error: unknown) {
 
 async function assertDraftPurchaseCycleOpen(draftId: string) {
   const draft = await loadInternalChinaPurchaseDraft(draftId);
-  await assertInternalChinaMonthlyPurchaseOpen(
-    seoulCalendarMonth(draft.sourceUpdatedAt),
-  );
+  await assertInternalChinaMonthlyPurchaseOpen(draft.cycleMonth);
   return draft;
 }
 
