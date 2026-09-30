@@ -15,6 +15,19 @@ function validId(value: unknown): string {
 }
 const RETIRE_RELIST_CONFIRMATION = "CONFIRM_DELETED_LEGACY_LISTING_RETIREMENT";
 const RETIRED_RELIST_RESULT = "LEGACY_RELIST_RETIRED_AFTER_DELETION";
+function deletedRelistEvidence(rows: Record<string, unknown>[], goodsKey: string) {
+  if (rows.length === 0) {
+    return { kind: "ZERO_ROWS", rowCount: 0, saleStatuses: [] as string[] };
+  }
+  const saleStatuses = [...new Set(rows.map((row) => String(row.sale_status ?? "").normalize("NFKC").trim().toUpperCase()))];
+  const exactDeletedTombstone = rows.every((row) =>
+    String(row.goods_key ?? "").trim() === goodsKey &&
+    ["Z", "DELETE", "DELETED", "삭제"].includes(String(row.sale_status ?? "").normalize("NFKC").trim().toUpperCase())
+  );
+  return exactDeletedTombstone
+    ? { kind: "API_TOMBSTONE_Z", rowCount: rows.length, saleStatuses }
+    : null;
+}
 function response(item: MonthlyPriceItem) {
   return { id: item.id, state: item.state, errorCode: item.error_code, writeIndex: item.write_index, transmission: item.transmission, plan: item.plan };
 }
@@ -243,7 +256,8 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         throw new Error("MONTHLY_PRICE_RELIST_RETIRE_CONFIRMATION_REQUIRED");
       }
       const live = await readMonthlyLiveProduct(item.goods_key);
-      if (live.length !== 0) {
+      const deletionEvidence = deletedRelistEvidence(live, item.goods_key);
+      if (!deletionEvidence) {
         throw new Error("MONTHLY_PRICE_RELIST_PRODUCT_STILL_EXISTS");
       }
       const finishedAt = new Date().toISOString();
@@ -252,7 +266,9 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
         productName: item.candidate.productName,
         barcodes: item.candidate.options.map((option) => option.barcode),
         previousErrorCode: item.error_code,
-        shoplingReadbackCount: live.length,
+        shoplingDeletionEvidence: deletionEvidence.kind,
+        shoplingReadbackCount: deletionEvidence.rowCount,
+        shoplingSaleStatuses: deletionEvidence.saleStatuses,
         confirmation: RETIRE_RELIST_CONFIRMATION,
         finishedAt,
       });
