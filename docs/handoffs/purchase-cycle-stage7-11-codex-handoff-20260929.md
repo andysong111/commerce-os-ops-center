@@ -1,6 +1,6 @@
 # Commerce OS · 발주사이클 7~11구간 · Codex handoff
 
-Updated: 2026-09-29
+Updated: 2026-09-30
 
 ## 0. Purpose
 
@@ -517,3 +517,48 @@ Chat title:
 **Commerce OS · 발주사이클 7~11 · 개발·검증**
 
 This scope is deliberately narrower than all of Commerce OS, so monthly-price, sourcing-engine, detail-page generation, and unrelated Shopling work should stay in their own project/chat unless they directly block this purchase cycle.
+
+---
+
+## 17. Live October Draft checkpoint (2026-09-30)
+
+This checkpoint supersedes the older Stage 7 integration warning in section 4.
+
+### Current authoritative Draft
+
+- Draft ID: `fast-purchase-draft:68b2aa56a8a0ac018141`
+- cycle month: `2026-10`
+- state: `RESERVED` / actual order and payment not executed
+- 25 SKU / 2,998 units
+- `BGB1-1` is excluded because 1,800 units were already ordered in early September
+- approved current Draft product amount: 1,096,655 KRW
+- September normal-sales funding basis: 7,833,827 KRW
+- gross cost budget: 3,916,914 KRW
+- product payment cap after the 1.45 internal order multiplier: 2,701,320 KRW
+- remaining product budget: 1,604,665 KRW
+
+Production verification showed the Draft at 40.6% of the product-payment cap and all 25 SKUs covered by a budget verification cost. The 1,096,655 KRW value currently comes from canonical verified/reference purchase costs. It is not a claim that current 1688 prices were read.
+
+### Merged fixes that support this state
+
+- PR #1313 / `b359174f`: use the explicit Draft `cycleMonth` for the budget audit
+- PR #1314 / `115d66bd`: use the explicit Draft `cycleMonth` for save, quantity, manual-line, and Product Launch sync paths
+- PR #1315 / `fb3a591e`: load Product Master inventory-cost readiness and prefer canonical `effectivePurchaseUnitCostKrw` in the Draft budget audit
+
+The stale Stage 7 PR #1223 was closed on 2026-09-30 after confirming that current `main` already contains its behavior through later integration commit `315b823d` and subsequent production verification. Do not reopen or merge #1223.
+
+### Current Stage 11 boundary
+
+The production Draft has 29 required checks left:
+
+- current 1688 unit price: 25 SKU
+- exact Chinese option label: `BAC1-1`, `BAC1-3`, `BAC2-1`
+- current 1688 product link: `BAB5-1`
+
+The exact row-by-row work list is in `docs/handoffs/purchase-cycle-stage11-october-draft-input-checklist-20260930.md`.
+
+Historical or reference prices must not be copied into the current-price fields merely to unlock the button. China domestic freight may be entered only from the actual cart/checkout grouping. Actual 1688 order placement and payment still require a fresh action-time owner confirmation.
+
+### Non-blocking warning
+
+The Product Launch reverse sync succeeded. Product Master sync reported a duplicate tracker barcode conflict for `BAB5-1` between Shopling variant IDs `26207749` and `26207750`. Do not delete or reassign either variant by assumption. This warning does not change the approved Draft quantity or amount, but the duplicate identity should be reconciled separately before treating Product Master reverse sync as clean.
