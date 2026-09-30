@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import {
   CHINA_ORDER_EVENT_OPERATION_TYPE,
+  chinaOrderCommitmentCycleMonth,
   loadChinaOrderLedger,
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
@@ -68,9 +69,6 @@ function deterministicDraftId(cycleMonth: string) {
     .slice(0, 20);
   return "fast-purchase-draft:" + digest;
 }
-function rowCycle(row: { reservedAt: string | null; updatedAt: string }) {
-  return seoulCalendarMonth(row.reservedAt || row.updatedAt);
-}
 export const resolveExistingSourcingPurchase = resolveExistingSourcingPurchaseDomain;
 
 export function normalizeSourcingPurchaseIngress(input: SourcingPurchaseIngressInput) {
@@ -115,7 +113,9 @@ export async function ingestSourcingPurchase(input: SourcingPurchaseIngressInput
 
   const cycleMonth = seoulCalendarMonth(normalized.sourceConfirmedAt);
   const cycleRows = ledger.commitments.filter(
-    (row) => row.sourceSystem === SOURCE_SYSTEM && rowCycle(row) === cycleMonth,
+    (row) =>
+      row.sourceSystem === SOURCE_SYSTEM &&
+      chinaOrderCommitmentCycleMonth(row) === cycleMonth,
   );
   const draftIds = [
     ...new Set(

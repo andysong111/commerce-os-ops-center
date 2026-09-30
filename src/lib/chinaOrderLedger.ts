@@ -497,6 +497,18 @@ function seoulCalendarMonth(value: string) {
   return new Date(Date.parse(value) + SEOUL_OFFSET_MS).toISOString().slice(0, 7);
 }
 
+export function chinaOrderCommitmentCycleMonth(
+  row: Pick<
+    ChinaOrderCommitmentSnapshot,
+    "latestPayload" | "reservedAt" | "updatedAt"
+  >,
+) {
+  const explicitCycleMonth = text(payloadObject(row.latestPayload).cycleMonth);
+  return /^20\d{2}-(0[1-9]|1[0-2])$/.test(explicitCycleMonth)
+    ? explicitCycleMonth
+    : seoulCalendarMonth(row.reservedAt || row.updatedAt);
+}
+
 export type ChinaOrderReceiptCoverage = {
   quantity: number;
   latestReceivedAt: string | null;
@@ -508,12 +520,10 @@ export function completedChinaOrderReceiptsByBarcodeForMonth(
 ) {
   const result = new Map<string, ChinaOrderReceiptCoverage>();
   for (const row of commitments) {
-    const orderedAt = row.orderedAt ?? row.reservedAt;
     if (
       row.status !== "RECEIVED" ||
       row.receivedQuantity <= 0 ||
-      !orderedAt ||
-      seoulCalendarMonth(orderedAt) !== orderMonth
+      chinaOrderCommitmentCycleMonth(row) !== orderMonth
     ) {
       continue;
     }

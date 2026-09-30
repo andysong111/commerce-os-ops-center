@@ -1,5 +1,6 @@
 import {
   CHINA_ORDER_EVENT_OPERATION_TYPE,
+  chinaOrderCommitmentCycleMonth,
   loadChinaOrderLedger,
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
@@ -142,10 +143,6 @@ function genericSourceEventId(cycleMonth: string) {
 
 function correlationId(cycleMonth: string) {
   return `internal-china-monthly-purchase:${cycleMonth}`;
-}
-
-function cycleOf(row: { reservedAt: string | null; updatedAt: string }) {
-  return seoulCalendarMonth(row.reservedAt || row.updatedAt);
 }
 
 function parseGeneric(row: StoredRow | undefined) {
@@ -494,7 +491,9 @@ export async function recordInternalChinaMonthlyPurchaseClose(
   }
 
   const cycleRows = ledger.commitments.filter(
-    (row) => row.sourceSystem === SOURCE_SYSTEM && cycleOf(row) === cycleMonth,
+    (row) =>
+      row.sourceSystem === SOURCE_SYSTEM &&
+      chinaOrderCommitmentCycleMonth(row) === cycleMonth,
   );
   const releasableRows = cycleRows.filter(
     (row) =>

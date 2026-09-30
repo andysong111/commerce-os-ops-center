@@ -33,6 +33,7 @@ const {
   normalizeChinaOrderCommitmentEvent,
   reduceChinaOrderCommitmentEvents,
   buildChinaOrderLedgerSummary,
+  chinaOrderCommitmentCycleMonth,
   completedChinaOrderReceiptsByBarcodeForMonth,
 } = ledger;
 
@@ -181,6 +182,72 @@ test("completed prior-month receipts can cover the next purchase recommendation"
   assert.equal(coverage.get("BAA1-1").quantity, 1800);
   assert.equal(coverage.get("BAA1-1").latestReceivedAt, "2026-09-17T02:00:00.000Z");
   assert.equal(completedChinaOrderReceiptsByBarcodeForMonth([received], "2026-08").size, 0);
+});
+
+test("explicit purchase cycle prevents month-end events from leaking into the wrong month", () => {
+  const received = reduceChinaOrderCommitmentEvents([
+    event({
+      occurredAt: "2026-09-30T05:00:00.000Z",
+      payload: { cycleMonth: "2026-10" },
+    }),
+    event({
+      sourceEventId: "event-2",
+      status: "ORDERED",
+      orderedQuantity: 100,
+      occurredAt: "2026-09-30T05:05:00.000Z",
+    }),
+    event({
+      sourceEventId: "event-3",
+      status: "RECEIVED",
+      receivedQuantity: 100,
+      occurredAt: "2026-09-30T05:10:00.000Z",
+    }),
+  ]);
+
+  assert.equal(chinaOrderCommitmentCycleMonth(received), "2026-10");
+  assert.equal(
+    completedChinaOrderReceiptsByBarcodeForMonth([received], "2026-09").size,
+    0,
+  );
+  assert.equal(
+    completedChinaOrderReceiptsByBarcodeForMonth([received], "2026-10").get(
+      "BAA1-1",
+    ).quantity,
+    100,
+  );
+});
+
+test("legacy commitments without an explicit cycle keep the Seoul calendar fallback", () => {
+  const received = reduceChinaOrderCommitmentEvents([
+    event({ occurredAt: "2026-09-30T16:00:00.000Z" }),
+    event({
+      sourceEventId: "event-2",
+      status: "RECEIVED",
+      receivedQuantity: 100,
+      occurredAt: "2026-09-30T16:05:00.000Z",
+    }),
+  ]);
+
+  assert.equal(chinaOrderCommitmentCycleMonth(received), "2026-10");
+});
+
+test("monthly purchase consumers use the explicit-cycle ledger resolver", async () => {
+  const consumers = await Promise.all(
+    [
+      "src/app/china-order-manager/page.tsx",
+      "src/lib/internalChinaMonthlyPurchaseClose.ts",
+      "src/lib/monthlyPurchaseDraftConsolidation.ts",
+      "src/lib/sourcingPurchaseIngress.ts",
+    ].map((path) => readFile(path, "utf8")),
+  );
+
+  for (const source of consumers) {
+    assert.match(source, /chinaOrderCommitmentCycleMonth\(row\)/);
+    assert.doesNotMatch(
+      source,
+      /seoulCalendarMonth\(row\.reservedAt \|\| row\.updatedAt\)/,
+    );
+  }
 });
 
 test("ledger summary ignores duplicate event identities", () => {

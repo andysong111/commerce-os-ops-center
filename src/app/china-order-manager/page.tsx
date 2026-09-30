@@ -7,8 +7,8 @@ import { InternalChinaMonthlyClosePanel } from "@/components/china-order-manager
 import { InternalChinaReceiptPanel } from "@/components/china-order-manager/InternalChinaReceiptPanel";
 import { PageHeader } from "@/components/PageHeader";
 import {
+  chinaOrderCommitmentCycleMonth,
   loadChinaOrderLedger,
-  type ChinaOrderCommitmentSnapshot,
 } from "@/lib/chinaOrderLedger";
 import { loadFastPurchaseInternalDrafts } from "@/lib/fastPurchaseInternalDraft";
 import {
@@ -72,10 +72,6 @@ function firstParam(value: string | string[] | undefined) {
 
 function isMonth(value: string) {
   return /^\d{4}-\d{2}$/.test(value);
-}
-
-function cycleOf(row: ChinaOrderCommitmentSnapshot) {
-  return seoulCalendarMonth(row.reservedAt || row.updatedAt);
 }
 
 function total<T>(rows: T[], select: (row: T) => number) {
@@ -215,7 +211,8 @@ export default async function ChinaOrderManagerPage({
   const selectedRows = ledger.commitments
     .filter(
       (row) =>
-        row.sourceSystem === SOURCE_SYSTEM && cycleOf(row) === selectedMonth,
+        row.sourceSystem === SOURCE_SYSTEM &&
+        chinaOrderCommitmentCycleMonth(row) === selectedMonth,
     )
     .sort((left, right) => {
       const active = Number(right.openQuantity > 0) - Number(left.openQuantity > 0);
@@ -825,7 +822,8 @@ export default async function ChinaOrderManagerPage({
                   const monthClose = closeByMonth.get(month);
                   const monthRows = ledger.commitments.filter(
                     (row) =>
-                      row.sourceSystem === SOURCE_SYSTEM && cycleOf(row) === month,
+                      row.sourceSystem === SOURCE_SYSTEM &&
+                      chinaOrderCommitmentCycleMonth(row) === month,
                   );
                   const monthOrdered = total(monthRows, (row) => row.orderedQuantity);
                   const monthReceived = total(monthRows, (row) => row.receivedQuantity);
