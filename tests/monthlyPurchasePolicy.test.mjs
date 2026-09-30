@@ -12,6 +12,7 @@ import {
   calendarMonthPurchaseBudgetRevenue,
   calendarMonthRange,
   monthlyPurchaseCycleFor,
+  monthlyPurchaseCycleForMonth,
   purchaseBudgetRevenuePolicyApplies,
 } from "../src/lib/monthlyPurchasePolicy.ts";
 
@@ -45,6 +46,14 @@ test("purchase cycle follows Seoul calendar month and budgets from the prior ful
   assert.deepEqual(calendarMonthRange("2026-02"), {
     start: "2026-02-01",
     end: "2026-02-28",
+  });
+});
+
+test("an early-created October draft still uses September as its budget month", () => {
+  assert.deepEqual(monthlyPurchaseCycleForMonth("2026-10"), {
+    cycleMonth: "2026-10",
+    budgetMonth: "2026-09",
+    budgetRange: { start: "2026-09-01", end: "2026-09-30" },
   });
 });
 

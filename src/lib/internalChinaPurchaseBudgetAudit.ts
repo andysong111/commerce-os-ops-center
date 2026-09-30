@@ -2,7 +2,7 @@ import { loadChinaOrderLedger } from "@/lib/chinaOrderLedger";
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import {
   koreanMonthLabel,
-  monthlyPurchaseCycleFor,
+  monthlyPurchaseCycleForMonth,
 } from "@/lib/monthlyPurchasePolicy";
 import {
   DEFAULT_PURCHASE_COST_MULTIPLIER,
@@ -94,11 +94,10 @@ function quantity(value: unknown) {
 export async function loadInternalChinaPurchaseBudgetAudit(
   draftId: string,
 ): Promise<InternalChinaPurchaseBudgetAudit> {
-  // The budget month belongs to the Draft's own purchase cycle, not the day on
-  // which somebody happens to reopen this screen later. An August Draft must
-  // keep July's frozen budget even when reviewed again in September.
+  // The budget month belongs to the Draft's explicit purchase cycle. A Draft
+  // created early for October must still use September, even on September 30.
   const draft = await loadInternalChinaPurchaseDraft(draftId);
-  const cycle = monthlyPurchaseCycleFor(draft.sourceUpdatedAt);
+  const cycle = monthlyPurchaseCycleForMonth(draft.cycleMonth);
 
   const [shadow, planning, ledger, calendarRevenue] = await Promise.all([
     loadCanonicalPurchaseShadow(),

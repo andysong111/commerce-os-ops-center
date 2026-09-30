@@ -8,6 +8,7 @@ import { DEFAULT_PURCHASE_COST_MULTIPLIER } from "@/lib/productDecisionEngine/po
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
 import { loadShoplingCurrentModelSnapshot } from "@/lib/shopling/shoplingCurrentModelIdentity";
+import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import {
   createSupabaseAdminClient,
   createSupabaseAdminHeaders,
@@ -45,6 +46,7 @@ export type InternalChinaPurchaseDraftLine = {
 
 export type InternalChinaPurchaseDraft = {
   draftId: string;
+  cycleMonth: string;
   status: InternalChinaPurchaseDraftStatus;
   exchangeRateKrwPerCny: number;
   internalOrderCostMultiplier: number;
@@ -387,9 +389,22 @@ async function buildBaseDraft(
       Date.parse(row.updatedAt) > Date.parse(latest) ? row.updatedAt : latest,
     commitments[0]?.updatedAt ?? new Date(0).toISOString(),
   );
+  const sourceCycleMonths = [
+    ...new Set(
+      commitments
+        .map((row) => text(object(row.latestPayload).cycleMonth))
+        .filter((value) => /^20\d{2}-(0[1-9]|1[0-2])$/.test(value)),
+    ),
+  ];
+  if (sourceCycleMonths.length > 1) {
+    throw new Error("INTERNAL_CHINA_DRAFT_CYCLE_CONFLICT");
+  }
+  const cycleMonth =
+    sourceCycleMonths[0] ?? seoulCalendarMonth(sourceUpdatedAt);
 
   return {
     draftId,
+    cycleMonth,
     status: ordered ? "ORDERED" : "DRAFT",
     exchangeRateKrwPerCny: INTERNAL_CHINA_FIXED_KRW_PER_CNY,
     internalOrderCostMultiplier: INTERNAL_CHINA_ORDER_COST_MULTIPLIER,
@@ -515,8 +530,13 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
     text(snapshot.savedAt) ||
     savedAt ||
     new Date(0).toISOString();
+  const storedCycleMonth = text(snapshot.cycleMonth);
+  const cycleMonth = /^20\d{2}-(0[1-9]|1[0-2])$/.test(storedCycleMonth)
+    ? storedCycleMonth
+    : seoulCalendarMonth(sourceUpdatedAt);
   return {
     draftId,
+    cycleMonth,
     status: text(snapshot.status) === "ORDERED" ? "ORDERED" : "DRAFT",
     exchangeRateKrwPerCny:
       decimal(snapshot.exchangeRateKrwPerCny) || INTERNAL_CHINA_FIXED_KRW_PER_CNY,

@@ -62,7 +62,10 @@ export function calendarMonthRange(month: string) {
 export function monthlyPurchaseCycleFor(
   value: Date | string = new Date(),
 ) {
-  const cycleMonth = seoulCalendarMonth(value);
+  return monthlyPurchaseCycleForMonth(seoulCalendarMonth(value));
+}
+
+export function monthlyPurchaseCycleForMonth(cycleMonth: string) {
   const budgetMonth = previousCalendarMonth(cycleMonth);
   return {
     cycleMonth,
