@@ -585,6 +585,9 @@ export default async function ChinaOrderManagerPage({
                 cycleMonth={selectedMonth}
                 totalSpendingBudgetKrw={budget.totalSpendingBudgetKrw}
                 actualForwarderCostKrw={currentFundingTarget.summary.actualCostKrw}
+                actualTotalOutflowKrw={
+                  currentFundingTarget.summary.actualTotalOutflowKrw ?? 0
+                }
                 stored={currentFundingStored}
               />
             ) : null}

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
 import {
   CHINA_ORDER_EVENT_OPERATION_TYPE,
   loadChinaOrderLedger,
@@ -656,15 +657,6 @@ export async function saveInternalChinaPurchaseDraft(
   return { ...next, savedAt: stored.savedAt };
 }
 
-function blockingOrderIssues(draft: InternalChinaPurchaseDraft) {
-  const issues: string[] = [];
-  for (const line of draft.lines) {
-    if (line.unitPriceCny <= 0) issues.push(`${line.barcode} 위안단가`);
-    if (!line.supplierLink) issues.push(`${line.barcode} 1688 링크`);
-  }
-  return issues;
-}
-
 function orderedSourceEventId(draftId: string, barcode: string) {
   const digest = createHash("sha256")
     .update(`${draftId}:${barcode}:ordered-v1`)
@@ -766,7 +758,7 @@ export async function markInternalChinaPurchaseDraftOrdered(
     return { draft, duplicate: true, externalOrderExecuted: false as const };
   }
   draft = mergeInput(draft, input);
-  const issues = blockingOrderIssues(draft);
+  const issues = internalChinaOrderEvidenceIssues(draft.lines);
   if (issues.length) {
     throw new Error(
       `INTERNAL_CHINA_ORDER_REQUIRED:${issues.slice(0, 12).join(", ")}`,

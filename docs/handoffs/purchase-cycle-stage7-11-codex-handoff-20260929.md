@@ -562,3 +562,25 @@ Historical or reference prices must not be copied into the current-price fields 
 ### Non-blocking warning
 
 The Product Launch reverse sync succeeded. Product Master sync reported a duplicate tracker barcode conflict for `BAB5-1` between Shopling variant IDs `26207749` and `26207750`. Do not delete or reassign either variant by assumption. This warning does not change the approved Draft quantity or amount, but the duplicate identity should be reconciled separately before treating Product Master reverse sync as clean.
+
+---
+
+## 18. Stage 11 development-complete checkpoint (2026-10-02)
+
+Stage 11 implementation and the real operational proof are deliberately tracked separately.
+
+### Development complete
+
+- server and both Draft workspaces now use one shared ORDERED-evidence validator
+- ORDERED requires a positive current CNY unit price, an HTTP(S) 1688 link, an exact nonblank China option, and a nonblank 1688 order number
+- the simplified funding close still requires no WorldFirst wallet entry, but it automatically carries the already-closed actual total outflow
+- a funding close completes the prior-cycle handoff only when its cycle month and Draft ID match the single ordered Draft
+- ordered quantity must reconcile with received, explicitly cancelled, and still-open quantities; cancelled units never become inbound stock
+- missing physical baselines still follow the owner policy: no compulsory full count, estimated/review inventory until a real sold-out event establishes `SOLD_OUT_RESET=0`
+- actual 1688 ordering, payment, or production data mutation was not performed by this development checkpoint
+
+Local proof on the exact branch included 320 purchase-cycle regression tests, focused ESLint, TypeScript typecheck, and a successful Next.js production build. GitHub CI, merge, deployment, and production read-only verification remain the final delivery proof for the associated PR.
+
+### Operational proof still pending by design
+
+The October Draft remains a Draft until the owner later chooses to place a real order. Stage 11 is operationally proven only after that real order proceeds through receipt, Product Master cost write/readback, inventory and sale-state handling, landed-cost close, funding close, and next-cycle handoff. Do not manufacture this evidence and do not copy reference prices into current 1688 fields to unlock the workflow.

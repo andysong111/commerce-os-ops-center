@@ -158,10 +158,9 @@ test("product name column is removed and B-code model and sale option share one 
 });
 
 test("actual ORDERED ledger transition requires operator confirmation and mandatory order evidence", () => {
-  assert.match(engine, /blockingOrderIssues/);
-  assert.match(engine, /위안단가/);
-  assert.match(engine, /1688 링크/);
-  assert.match(workspace, /중국옵션/);
+  assert.match(engine, /internalChinaOrderEvidenceIssues\(draft\.lines\)/);
+  assert.match(workspace, /internalChinaOrderEvidenceIssues\(draft\.lines\)/);
+  assert.match(workspace, /1688 주문번호/);
   assert.match(engine, /status: "ORDERED"/);
   assert.match(engine, /orderedQuantity: line\.quantity/);
   assert.match(workspace, /window\.confirm/);

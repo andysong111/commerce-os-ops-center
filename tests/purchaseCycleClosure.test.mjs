@@ -23,6 +23,7 @@ test("explicitly cancelled order quantity closes the receipt stage without inven
   assert.equal(report.cancelledQuantity, 2);
   assert.equal(report.stages.find((stage) => stage.id === "receipt").state, "VERIFIED");
 
+  value.orderedQuantity = 10;
   value.openQuantity = 1;
   assert.equal(core.buildPurchaseCycleClosureReport(value).state, "NEEDS_ACTION");
 });
@@ -32,6 +33,9 @@ test("partial proof, wrong month, duplicated receipt and invalid aggregates cann
   value = input(); value.followups[0].cycleMonth = "2026-08"; values.push(value);
   value = input(); value.followups.push(value.followups[0]); values.push(value);
   value = input(); value.receivedQuantity = NaN; values.push(value);
+  value = input(); value.receivedQuantity = 8; values.push(value);
+  value = input(); value.cancelledQuantity = 1; values.push(value);
+  value = input(); value.openQuantity = 1; values.push(value);
   value = input(); value.warnings.push("database read unavailable"); values.push(value);
   for (const item of values) assert.equal(core.buildPurchaseCycleClosureReport(item).state, "BLOCKED");
 });

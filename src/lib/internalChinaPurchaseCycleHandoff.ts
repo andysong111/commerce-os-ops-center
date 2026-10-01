@@ -265,7 +265,7 @@ export async function loadInternalChinaPurchaseCycleHandoff(
     previousDrafts.length === 0
       ? "NOT_AVAILABLE"
       : openQuantity === 0 &&
-          receivedQuantity + cancelledQuantity >= orderedQuantity
+          receivedQuantity + cancelledQuantity === orderedQuantity
         ? "COMPLETE"
         : "NEEDS_CHECK";
 
@@ -305,7 +305,15 @@ export async function loadInternalChinaPurchaseCycleHandoff(
         ? "COMPLETE"
         : "NEEDS_CHECK";
 
-  const fundingState: StageState = fundingClose ? "COMPLETE" : "NOT_AVAILABLE";
+  const fundingState: StageState =
+    previousDrafts.length === 0
+      ? "NOT_AVAILABLE"
+      : previousDrafts.length === 1 &&
+          fundingClose?.draftId === previousDrafts[0].draftId &&
+          fundingClose.cycleMonth === previousCycleMonth &&
+          fundingClose.actualTotalOutflowKrw > 0
+        ? "COMPLETE"
+        : "NEEDS_CHECK";
   const quantityImpactReady = receiptState === "COMPLETE" && !draftState.error;
 
   return {
