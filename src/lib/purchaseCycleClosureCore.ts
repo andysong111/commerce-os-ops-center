@@ -47,7 +47,19 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
   const duplicateBaselineCount = stockRows.filter((rows) => rows.length > 1).length;
   if (duplicateBaselineCount > 0) warnings.push("동일 B코드의 재고 기준점이 중복되어 정확재고를 확정하지 않았습니다.");
   const exactStockRows = stockRows.flatMap((rows) => rows.length === 1 ? rows : []);
-  const quantitiesVerified = codes.length > 0 && duplicateBaselineCount === 0 && input.stock.state === "READY" && exactStockRows.every((row) => row.salesCoverageReady && Number.isSafeInteger(row.exactInventoryQuantity) && row.exactInventoryQuantity >= 0);
+  const stockBlockers = Array.isArray(input.stock.blockers)
+    ? input.stock.blockers
+    : input.stock.state === "READY" ? [] : ["PURCHASE_STOCK_REPORT_BLOCKED"];
+  const evidenceOnlyBlockers = stockBlockers.length > 0 && stockBlockers.every((blocker) =>
+    /^PURCHASE_STOCK_EVIDENCE_REQUIRED:B[A-Z]{1,2}\d+-\d+$/.test(blocker));
+  // The shared stock report may be BLOCKED because an unrelated historical
+  // baseline lacks fresh sales coverage. Monthly closure scopes that evidence
+  // gate to this cycle's receipt B-codes, while every source/read blocker still
+  // fails closed.
+  const stockReadable = input.stock.state === "READY"
+    ? stockBlockers.length === 0
+    : evidenceOnlyBlockers;
+  const quantitiesVerified = codes.length > 0 && duplicateBaselineCount === 0 && stockReadable && exactStockRows.every((row) => row.salesCoverageReady && Number.isSafeInteger(row.exactInventoryQuantity) && row.exactInventoryQuantity >= 0);
   const saleVerified = quantitiesVerified && exactStockRows.every((row) => !row.syncNeeded && !row.syncBlocked && row.latestSyncOutcome === "SUCCEEDED");
   const verifiedReceiptCount = input.followups.filter((row) => row.state === "VERIFIED").length;
   const pending = input.followups.filter((row) => row.state !== "VERIFIED");

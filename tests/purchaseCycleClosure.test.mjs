@@ -62,6 +62,19 @@ test("next action distinguishes receipt retry, actual partial receipt, natural b
 
   value = input(); value.stock.rows[0].salesCoverageReady = false;
   assert.equal(core.buildPurchaseCycleClosureReport(value).nextAction, "REFRESH_STOCK_EVIDENCE");
+
+  // An unrelated historical baseline can remain fail-closed in stock control
+  // without preventing this month's fully evidenced receipt B-codes from closing.
+  value = input();
+  value.stock.rows.push({ ...value.stock.rows[0], barcode: "BCC6-2", resetEventId: "reset-unrelated", salesCoverageReady: false, syncBlocked: true });
+  value.stock.state = "BLOCKED";
+  value.stock.blockers = ["PURCHASE_STOCK_EVIDENCE_REQUIRED:BCC6-2"];
+  assert.equal(core.buildPurchaseCycleClosureReport(value).state, "READY_FOR_NEXT_CALCULATION");
+
+  // A real source/read blocker is global and must never be treated as an
+  // unrelated row-level coverage gap.
+  value.stock.blockers.push("PURCHASE_STOCK_REPORT_BLOCKED");
+  assert.equal(core.buildPurchaseCycleClosureReport(value).nextAction, "REFRESH_STOCK_EVIDENCE");
   for (const outcome of ["STARTED", "UNCERTAIN", "FAILED"]) {
     value = input(); value.stock.rows[0].latestSyncOutcome = outcome;
     assert.equal(core.buildPurchaseCycleClosureReport(value).nextAction, "OPEN_STOCK_CONTROL");
