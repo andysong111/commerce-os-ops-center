@@ -121,7 +121,9 @@ export function InternalChinaMonthlyClosePanel({
             </p>
           </div>
           <span className="text-xs font-semibold text-slate-500">
-            {new Date(stored.closedAt).toLocaleString("ko-KR")}
+            {new Date(stored.closedAt).toLocaleString("ko-KR", {
+              timeZone: "Asia/Seoul",
+            })}
           </span>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-3">
