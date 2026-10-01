@@ -20,7 +20,7 @@ test("prior-cycle handoff derives the previous month and only counts actually or
 });
 
 test("received plus explicitly cancelled prior orders are complete only when outstanding quantity is zero", () => {
-  assert.ok(handoff.includes("receivedQuantity + cancelledQuantity >= orderedQuantity"));
+  assert.ok(handoff.includes("receivedQuantity + cancelledQuantity === orderedQuantity"));
   assert.ok(handoff.includes('receiptState: StageState'));
   assert.ok(handoff.includes("quantityImpactReady"));
 });

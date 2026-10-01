@@ -34,6 +34,12 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
   for (const count of [input.orderCount, input.unassignedLineCount, input.orderedQuantity, input.receivedQuantity, input.cancelledQuantity, input.openQuantity]) {
     if (!Number.isSafeInteger(count) || count < 0) warnings.push("발주·입고 수량 원장을 확인하지 못했습니다.");
   }
+  if (
+    input.receivedQuantity + input.cancelledQuantity + input.openQuantity !==
+    input.orderedQuantity
+  ) {
+    warnings.push("발주수량과 입고·취소·미입고 수량 합계가 일치하지 않습니다.");
+  }
   const receiptIds = new Set(input.followups.map((row) => row.receiptId));
   const scopedReceipts = receiptIds.size === input.followups.length && input.followups.every((row) => row.cycleMonth === input.cycleMonth && Number.isSafeInteger(row.receivedQuantity) && row.receivedQuantity > 0 && row.lineCount === row.barcodes.length && row.lineCount > 0);
   const evidencedQuantity = input.followups.reduce((total, row) => total + row.receivedQuantity, 0);

@@ -265,7 +265,7 @@ export async function loadInternalChinaPurchaseCycleHandoff(
     previousDrafts.length === 0
       ? "NOT_AVAILABLE"
       : openQuantity === 0 &&
-          receivedQuantity + cancelledQuantity >= orderedQuantity
+          receivedQuantity + cancelledQuantity === orderedQuantity
         ? "COMPLETE"
         : "NEEDS_CHECK";
 
