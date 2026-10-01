@@ -29,6 +29,7 @@ export type PurchasePreflightOptions = {
   maxSkus: number;
   maxUnitsPerSku: number;
   allowOpenBudgetPreview?: boolean;
+  replaceDraftId?: string | null;
 };
 export type PurchaseMonthlySpendPin = {
   cycleMonth: string;
@@ -82,6 +83,7 @@ export type PurchaseCyclePreflightReport = {
   mode: "LIVE_READ_ONLY";
   generatedAt: string;
   targetDate: string;
+  replacementDraftId: string | null;
   targetCycleMonth: string;
   requiredBudgetMonth: string;
   dateState: "BEFORE_TARGET" | "ON_TARGET" | "TARGET_PASSED";
@@ -137,6 +139,12 @@ export function validPurchaseTargetDate(value: unknown): value is string {
 }
 export function validatePurchasePreflightOptions(options: PurchasePreflightOptions) {
   if (!validPurchaseTargetDate(options.targetDate)) throw new Error("TARGET_DATE_INVALID");
+  if (
+    options.replaceDraftId &&
+    !/^fast-purchase-draft:[a-f0-9]{20}$/.test(options.replaceDraftId)
+  ) {
+    throw new Error("REPLACEMENT_DRAFT_ID_INVALID");
+  }
   if (options.cashLimitKrw !== null && !positive(options.cashLimitKrw)) throw new Error("CASH_LIMIT_INVALID");
   if (!positive(options.maxSkus) || options.maxSkus > 100) throw new Error("PURCHASE_SKU_LIMIT_INVALID");
   if (!positive(options.maxUnitsPerSku) || options.maxUnitsPerSku > 9999) throw new Error("CANARY_UNIT_LIMIT_INVALID");
@@ -489,7 +497,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const uniqueBlockers = [...new Set(blockers)];
   const uniqueReview = [...new Set(reviewBlockers)];
   return {
-    mode: "LIVE_READ_ONLY", generatedAt: input.now, targetDate, targetCycleMonth, requiredBudgetMonth, dateState,
+    mode: "LIVE_READ_ONLY", generatedAt: input.now, targetDate,
+    replacementDraftId: input.options.replaceDraftId ?? null,
+    targetCycleMonth, requiredBudgetMonth, dateState,
     state: !previewReady ? "BLOCKED" : uniqueReview.length ? "PREVIEW_ONLY" : "AWAITING_OWNER_REVIEW",
     sourceFingerprint, planFingerprint: hash({ sourceFingerprint, options: input.options, selected }),
     candidateRequestId: pin?.requestId ?? null, sourceAnalysisAsOf: pin?.analysisAsOf ?? null,

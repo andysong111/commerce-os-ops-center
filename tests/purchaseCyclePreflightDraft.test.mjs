@@ -5,12 +5,14 @@ import {
   preparePurchaseCycleDraft,
   purchaseCycleDraftConfirmation,
 } from "../src/lib/purchaseCyclePreflightDraftCore.ts";
+import { assertDraftCanBeRegenerated } from "../src/lib/purchaseCycleDraftRegenerationCore.ts";
 
 const fp = (digit) => `sha256:${digit.repeat(64)}`;
 
 function report() {
   return {
     targetDate: "2026-10-01",
+    replacementDraftId: null,
     targetCycleMonth: "2026-10",
     sourceFingerprint: fp("a"),
     planFingerprint: fp("b"),
@@ -86,6 +88,55 @@ test("exact line count and amount confirmation is mandatory", () => {
   );
 });
 
+test("replacement preview is pinned to the exact existing draft", () => {
+  const value = report();
+  value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  const input = request(value);
+  input.replaceDraftId = value.replacementDraftId;
+  input.confirmation = purchaseCycleDraftConfirmation(value);
+  assert.match(input.confirmation, /REGENERATE_PURCHASE_DRAFT/);
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
+  input.replaceDraftId = "fast-purchase-draft:11111111111111111111";
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input),
+    /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
+  );
+});
+
+const commitment = (patch = {}) => ({
+  sourceRunId: "fast-purchase-draft:68b2aa56a8a0ac018141",
+  barcode: "BAC1-1",
+  openQuantity: 38,
+  status: "RESERVED",
+  orderedQuantity: 0,
+  receivedQuantity: 0,
+  ...patch,
+});
+
+test("only one unchanged RESERVED draft can be regenerated", () => {
+  const expected = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  assert.equal(
+    assertDraftCanBeRegenerated([commitment()], expected).length,
+    1,
+  );
+  assert.throws(
+    () =>
+      assertDraftCanBeRegenerated(
+        [commitment({ orderedQuantity: 1, status: "ORDERED" })],
+        expected,
+      ),
+    /PURCHASE_DRAFT_REGENERATION_ALREADY_PROGRESSING/,
+  );
+  assert.throws(
+    () =>
+      assertDraftCanBeRegenerated(
+        [commitment(), commitment({ sourceRunId: "fast-purchase-draft:11111111111111111111", barcode: "BAC1-2" })],
+        expected,
+      ),
+    /PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED/,
+  );
+});
+
 for (const mutate of [
   (value) => { value.previewReady = false; },
   (value) => { value.blockers = ["SOURCE_CHANGED_OR_MISSING"]; },
@@ -103,10 +154,11 @@ for (const mutate of [
 }
 
 test("route is same-origin, fingerprint-pinned, and never executes an external order", async () => {
-  const [route, service, storage, actions] = await Promise.all([
+  const [route, service, storage, regeneration, actions] = await Promise.all([
     readFile("src/app/api/purchase-cycle/preflight-draft/route.ts", "utf8"),
     readFile("src/lib/purchaseCyclePreflightDraft.ts", "utf8"),
     readFile("src/lib/fastPurchaseInternalDraft.ts", "utf8"),
+    readFile("src/lib/purchaseCycleDraftRegeneration.ts", "utf8"),
     readFile(
       "src/components/purchase-cycle-preflight/PurchaseCycleDraftActions.tsx",
       "utf8",
@@ -119,6 +171,12 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(storage, /status: "RESERVED"/);
   assert.match(storage, /externalOrderExecuted: false/);
   assert.match(storage, /object\(line\.latestPayload\)\.cycleMonth/);
+  assert.match(regeneration, /status: "CANCELLED"/);
+  assert.match(regeneration, /status: "RESERVED"/);
+  assert.match(regeneration, /externalOrderExecuted: false/);
+  assert.doesNotMatch(regeneration, /status: "ORDERED"/);
+  assert.doesNotMatch(regeneration, /resolution=ignore-duplicates/);
+  assert.match(regeneration, /inserted\.length !== operations\.length/);
   assert.doesNotMatch(service, /ORDERED|1688|payment/i);
   assert.match(actions, /window\.confirm/);
   assert.match(actions, /1688 주문·결제는 실행하지 않습니다/);

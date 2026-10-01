@@ -43,6 +43,16 @@ test("provisional quantity, open commitment and unreflected prior-cycle receipts
   assert.match(page, /별도 안전증거 없이는 실제 Draft 실행대상이 아닙니다/);
 });
 
+test("draft regeneration subtracts only the exact safe RESERVED draft before recalculation", () => {
+  assert.match(engine, /excludeCommitmentDraftId/);
+  assert.match(engine, /row\.sourceRunId === options\.excludeCommitmentDraftId/);
+  assert.match(engine, /row\.status !== "RESERVED"/);
+  assert.match(engine, /row\.orderedQuantity > 0/);
+  assert.match(engine, /row\.receivedQuantity > 0/);
+  assert.match(engine, /integer\(product\.openCommitment\) -/);
+  assert.match(engine, /PURCHASE_REPLACEMENT_DRAFT_NOT_ACTIVE/);
+});
+
 test("negative or review inventory still fails closed", () => {
   assert.match(engine, /row\.inventoryRequiresReview \|\| row\.inventoryVerification === "REVIEW"/);
   assert.match(engine, /LEDGER_REVIEW_REQUIRED/);

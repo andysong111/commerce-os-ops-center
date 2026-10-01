@@ -4,6 +4,7 @@ import { PurchaseCycleDraftActions } from "@/components/purchase-cycle-preflight
 import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import { purchaseCycleDraftConfirmation } from "@/lib/purchaseCyclePreflightDraftCore";
+import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -66,19 +67,21 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
 }) {
   const query = await searchParams;
   const single = (key: string, fallback: string) => typeof query[key] === "string" ? query[key] : fallback;
-  const targetDate = single("date", "2026-10-01");
+  const todaySeoul = seoulCalendarDate();
+  const targetDate = single("date", todaySeoul);
   const skus = single("skus", "100");
   const units = single("units", "9999");
   const early = single("early", "") === "1";
+  const replaceDraftId = single("replace", "") || null;
   let report: PurchaseCyclePreflightReport | null = null;
   let inputError = "";
   // Opening a card or link never starts the expensive data reads. Only an
   // explicit read-only form submission does. No polling, cron or write action.
   if (query.check === "1") {
     try {
-      if (["date", "skus", "units", "early", "check"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
+      if (["date", "skus", "units", "early", "check", "replace"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
       if (![skus, units].every(value => /^\d+$/.test(value))) throw new Error("NUMERIC_INPUT_INVALID");
-      const options = { targetDate, cashLimitKrw: null, maxSkus: Number(skus), maxUnitsPerSku: Number(units), allowOpenBudgetPreview: early };
+      const options = { targetDate, cashLimitKrw: null, maxSkus: Number(skus), maxUnitsPerSku: Number(units), allowOpenBudgetPreview: early, replaceDraftId };
       validatePurchasePreflightOptions(options);
       report = await loadPurchaseCyclePreflight(options);
     } catch {
@@ -96,6 +99,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       </section>
       <form method="get" action="/purchase-cycle-preflight" className="grid gap-4 rounded-2xl border bg-white p-5 sm:grid-cols-2 xl:grid-cols-3">
         <input type="hidden" name="check" value="1" />
+        {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
         <label className="text-sm font-bold">발주 예정일<input className="mt-2 block w-full rounded-lg border p-2" name="date" type="date" defaultValue={targetDate} required /></label>
         <label className="text-sm font-bold">최대 SKU 수<input className="mt-2 block w-full rounded-lg border p-2" name="skus" type="number" min="1" max="100" step="1" defaultValue={skus} required /></label>
         <label className="text-sm font-bold">품목별 최대 수량<input className="mt-2 block w-full rounded-lg border p-2" name="units" type="number" min="1" max="9999" step="1" defaultValue={units} required /></label>
@@ -105,6 +109,11 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       </form>
       {inputError ? <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}
       {!report ? <p className="text-sm text-slate-600">점검 버튼을 누르면 운영 자료를 한 번 조회합니다. 자동 재조회·발주 예약은 만들지 않습니다.</p> : <>
+        {report.replacementDraftId ? (
+          <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+            <strong>기존 Draft 재생성 점검</strong> · <span className="font-mono">{report.replacementDraftId}</span>의 RESERVED 수량을 계산에서 제외하고 처음부터 다시 산출했습니다. 주문·입고가 시작됐으면 저장 단계에서 자동 중단합니다.
+          </section>
+        ) : null}
         <section className="rounded-2xl border bg-white p-5">
           <h2 className="text-xl font-bold">{report.state === "BLOCKED" ? "발주안 확정 전 확인이 필요합니다" : report.state === "PREVIEW_ONLY" ? "미리보기 생성 · 실행 판단은 대기" : "미리보기 생성 · 별도 최종 검토 필요"}</h2>
           <p className="mt-2 text-sm">조회 시각 {new Date(report.generatedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 판매 분석시점 {report.sourceAnalysisAsOf ?? "미확인"}</p>
@@ -139,6 +148,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             totalQuantity={report.selected.reduce((sum, row) => sum + row.quantity, 0)}
             estimatedSpendKrw={report.estimatedSpendKrw}
             ready={report.previewReady && report.blockers.length === 0}
+            replaceDraftId={report.replacementDraftId}
           />
         ) : null}
         <details className="rounded-2xl border p-5 text-xs"><summary className="font-bold">채팅 인계·원본 추적 지문</summary><p className="mt-3 break-all">후보 요청 {report.candidateRequestId ?? "없음"}</p><p className="mt-2 break-all">원본 {report.sourceFingerprint}</p><p className="mt-2 break-all">발주 미리보기 {report.planFingerprint}</p><p className="mt-3">같은 화면·지문이라도 승인 토큰이 아닙니다. 데이터·예산·수량 제한이 바뀌면 다시 점검합니다.</p></details>

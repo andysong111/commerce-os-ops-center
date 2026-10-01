@@ -8,11 +8,15 @@ export type PurchaseCycleDraftRequest = {
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
   confirmation: string;
+  replaceDraftId?: string | null;
 };
 
 export function purchaseCycleDraftConfirmation(
   report: PurchaseCyclePreflightReport,
 ) {
+  if (report.replacementDraftId) {
+    return `REGENERATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_${report.replacementDraftId}`;
+  }
   return `CREATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW`;
 }
 
@@ -28,6 +32,7 @@ export function preparePurchaseCycleDraft(
     request.targetDate !== report.targetDate ||
     request.expectedSourceFingerprint !== report.sourceFingerprint ||
     request.expectedPlanFingerprint !== report.planFingerprint ||
+    (request.replaceDraftId ?? null) !== (report.replacementDraftId ?? null) ||
     !FINGERPRINT.test(request.expectedSourceFingerprint) ||
     !FINGERPRINT.test(request.expectedPlanFingerprint)
   ) {

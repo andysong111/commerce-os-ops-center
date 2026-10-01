@@ -22,7 +22,11 @@ export async function POST(request: Request) {
         ok: true,
         ...result,
         message: result.draft.duplicate
-          ? "같은 10월 월간 Draft가 이미 있어 중복 저장하지 않았습니다."
+          ? result.regenerated
+            ? "최신 계산과 같은 월간 Draft가 이미 적용되어 중복 저장하지 않았습니다."
+            : "같은 10월 월간 Draft가 이미 있어 중복 저장하지 않았습니다."
+          : result.regenerated
+            ? "기존 RESERVED Draft를 감사 기록으로 종료하고 최신 계산 Draft로 교체했습니다. 실제 중국 주문·결제는 실행하지 않았습니다."
           : "10월 월간 Draft를 RESERVED로 저장했습니다. 실제 중국 주문·결제는 실행하지 않았습니다.",
       },
       {
@@ -38,6 +42,8 @@ export async function POST(request: Request) {
       "PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED",
       "FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED",
       "FAST_PURCHASE_MONTHLY_CYCLE_CLOSED",
+      "PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED",
+      "PURCHASE_DRAFT_REGENERATION_ALREADY_PROGRESSING",
     ].includes(code);
     return Response.json(
       {
@@ -52,6 +58,10 @@ export async function POST(request: Request) {
                 ? "10월 발주차시가 이미 주문 또는 입고 단계로 진행됐습니다."
                 : code === "FAST_PURCHASE_MONTHLY_CYCLE_CLOSED"
                   ? "10월 발주 사이클이 이미 마감됐습니다."
+                  : code === "PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED"
+                    ? "기존 Draft 상태가 바뀌었습니다. 최신 화면에서 다시 점검하세요."
+                    : code === "PURCHASE_DRAFT_REGENERATION_ALREADY_PROGRESSING"
+                      ? "기존 Draft의 주문 또는 입고가 시작되어 자동 재생성을 중단했습니다."
                   : "월간 발주 Draft 저장 조건을 확인하지 못했습니다.",
       },
       {

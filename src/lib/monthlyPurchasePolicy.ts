@@ -38,6 +38,12 @@ export function seoulCalendarMonth(value: Date | string = new Date()) {
     .slice(0, 7);
 }
 
+export function seoulCalendarDate(value: Date | string = new Date()) {
+  return new Date(asDate(value).valueOf() + SEOUL_OFFSET_MS)
+    .toISOString()
+    .slice(0, 10);
+}
+
 export function previousCalendarMonth(month: string) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
     throw new Error("MONTHLY_PURCHASE_MONTH_INVALID");
