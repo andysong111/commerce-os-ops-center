@@ -54,9 +54,8 @@ test("price verification joins approval to the prior ordered draft and matches t
 test("funding and price evidence never write or change current purchase quantities", () => {
   assert.ok(handoff.includes("loadInternalChinaFundingCloseByCycleMonth"));
   assert.ok(handoff.includes("previousDrafts.length === 1"));
-  assert.ok(handoff.includes("fundingClose?.draftId === previousDrafts[0].draftId"));
-  assert.ok(handoff.includes("fundingClose.cycleMonth === previousCycleMonth"));
-  assert.ok(handoff.includes("fundingClose.actualTotalOutflowKrw > 0"));
+  assert.ok(handoff.includes("internalChinaFundingCloseMatchesForwarder"));
+  assert.ok(handoff.includes("landedCostCloses[0] ?? null"));
   assert.equal(handoff.includes('method: "POST"'), false);
   assert.equal(handoff.includes('method: "PATCH"'), false);
   assert.ok(panel.includes("이번 월 발주예산이나 권장수량을 자동으로 더하거나 빼지 않습니다"));

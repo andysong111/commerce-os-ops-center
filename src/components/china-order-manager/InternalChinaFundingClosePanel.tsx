@@ -13,6 +13,7 @@ export function InternalChinaFundingClosePanel({
   actualForwarderCostKrw,
   actualTotalOutflowKrw,
   stored,
+  fundingEvidenceComplete,
 }: {
   draftId: string;
   cycleMonth: string;
@@ -20,6 +21,7 @@ export function InternalChinaFundingClosePanel({
   actualForwarderCostKrw: number;
   actualTotalOutflowKrw: number;
   stored: InternalChinaFundingCloseSummary | null;
+  fundingEvidenceComplete: boolean;
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -28,12 +30,7 @@ export function InternalChinaFundingClosePanel({
     totalSpendingBudgetKrw <= 0 ||
     actualForwarderCostKrw <= 0 ||
     actualTotalOutflowKrw <= 0;
-  const fundingComplete = Boolean(
-    stored &&
-      stored.draftId === draftId &&
-      stored.cycleMonth === cycleMonth &&
-      stored.actualTotalOutflowKrw > 0,
-  );
+  const fundingComplete = Boolean(stored && fundingEvidenceComplete);
 
   async function save() {
     if (invalid) {

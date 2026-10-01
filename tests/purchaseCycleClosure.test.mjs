@@ -140,6 +140,8 @@ test("resolved purchase stock passes required Product Master zero reset into the
     "@/lib/inventoryStockSyncResolution": { normalizeRetryableShoplingSyncReportWithEvidence: async (value) => { steps.push("resolution"); return value; } },
     "@/lib/stage8CanonicalSalesEventSnapshot": { loadStage8CanonicalSalesEventSnapshot: async () => ({ state: "READY_READ_ONLY" }) },
     "@/lib/purchaseCycleStockEvidence": { validatePurchaseCycleStockEvidence: (value) => { steps.push("validate"); return value; } },
+    "@/lib/productMasterShoplingSalesEventSync": { ensureProductMasterShoplingSalesEventCoverageRequest: async () => { steps.push("canonical-refresh"); return { accepted: false, alreadyActive: false }; } },
+    "@/lib/opsAdaptiveDispatcher": { wakeOpsDispatchTask: async () => false },
   });
   await service.loadPurchaseCycleStockReport();
   assert.deepEqual(steps, ["product-master-zero", "base", "stocktake", "tail", "corrections", "stocktake", "resolution", "validate"]);
@@ -161,9 +163,36 @@ test("purchase-cycle stock report does not reinterpret Product Master read failu
     "@/lib/inventoryStockSyncResolution": { normalizeRetryableShoplingSyncReportWithEvidence: async (value) => value },
     "@/lib/stage8CanonicalSalesEventSnapshot": { loadStage8CanonicalSalesEventSnapshot: async () => ({ state: "READY_READ_ONLY" }) },
     "@/lib/purchaseCycleStockEvidence": { validatePurchaseCycleStockEvidence: (value) => value },
+    "@/lib/productMasterShoplingSalesEventSync": { ensureProductMasterShoplingSalesEventCoverageRequest: async () => ({ accepted: false, alreadyActive: false }) },
+    "@/lib/opsAdaptiveDispatcher": { wakeOpsDispatchTask: async () => false },
   });
   await assert.rejects(service.loadPurchaseCycleStockReport(), /PRODUCT_MASTER_UNAVAILABLE/);
   assert.equal(inventoryReads, 0);
+});
+test("explicit stock evidence refresh queues one fresh canonical read without changing stock", async () => {
+  const report = stockFixture();
+  const refreshCalls = [];
+  const wakes = [];
+  const service = load("src/lib/purchaseCycleStockReport.ts", {
+    "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async () => report },
+    "@/lib/inventoryStockResetCorrections": { overlayInventoryStockControlReportWithResetCorrections: async (value) => value },
+    "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: async (value) => value, loadLatestInventoryStockSalesTailSnapshots: async () => new Map() },
+    "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => ({ refreshed: false }) },
+    "@/lib/inventoryStocktakeBaselines": { overlayInventoryStockControlReportWithStocktakeBaselines: async (value) => value },
+    "@/lib/productMasterVerifiedInventoryBaselines": { loadRequiredProductMasterVerifiedZeroResetEvents: async () => [] },
+    "@/lib/inventoryStockSyncResolution": { normalizeRetryableShoplingSyncReportWithEvidence: async (value) => value },
+    "@/lib/stage8CanonicalSalesEventSnapshot": { loadStage8CanonicalSalesEventSnapshot: async () => ({ state: "READY_READ_ONLY", coverageStartAt: at, coverageEndAt: at }) },
+    "@/lib/purchaseCycleStockEvidence": evidence,
+    "@/lib/productMasterShoplingSalesEventSync": { ensureProductMasterShoplingSalesEventCoverageRequest: async (...args) => { refreshCalls.push(args); return { accepted: true, alreadyActive: false }; } },
+    "@/lib/opsAdaptiveDispatcher": { wakeOpsDispatchTask: async (...args) => { wakes.push(args); return true; } },
+  });
+  const result = await service.loadPurchaseCycleStockReport({ refreshSales: true });
+  assert.equal(result.state, "BLOCKED");
+  assert.equal(refreshCalls.length, 1);
+  assert.equal(refreshCalls[0][0], at);
+  assert.equal(refreshCalls[0][1].maxAgeMs, 600_000);
+  assert.deepEqual(wakes, [["product-master-shopling-sales-events", 0]]);
+  assert.equal(report.rows[0].exactInventoryQuantity, 2);
 });
 test("actual cycle GET stays read-only while POST only opts into evidence refresh with strict input", async () => {
   const calls = [];

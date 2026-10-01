@@ -173,6 +173,28 @@ test("equal or newer analysis is reused under the guard, including an in-flight 
     }
   }
 });
+test("strict monthly freshness replaces old completed coverage and reuses the fresh request", async () => {
+  const f = fixture("COMPLETED", { analysisAsOf: resetAt });
+  const first = await f.sync.ensureProductMasterShoplingSalesEventCoverageRequest(
+    resetAt,
+    { maxAgeMs: 10 * 60_000 },
+  );
+  assert.equal(first.accepted, true);
+  assert.equal(first.previousRequestId, oldId);
+  assert.equal(f.writes.length, 1);
+  assert.equal(
+    f.writes[0].input_snapshot.refreshReason,
+    "INVENTORY_RESET_FRESH_COVERAGE",
+  );
+  const second = await f.sync.ensureProductMasterShoplingSalesEventCoverageRequest(
+    resetAt,
+    { maxAgeMs: 10 * 60_000 },
+  );
+  assert.equal(second.accepted, false);
+  assert.equal(second.alreadyCovered, true);
+  assert.equal(second.requestId, first.requestId);
+  assert.equal(f.writes.length, 1);
+});
 test("invalid and future reset times cannot append or advance an analysis timestamp", async () => {
   for (const invalid of ["", "not-a-time", null, 1, "2026-09-15T00:00:00.001Z"]) {
     const f = fixture();

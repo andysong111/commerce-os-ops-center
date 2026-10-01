@@ -3,13 +3,13 @@ import type { InventoryStockControlReport } from "./inventoryStockControl";
 
 export type PurchaseCycleCoverage = { coverageStartAt: string | null; coverageEndAt: string | null };
 export type PurchaseCycleTailCoverage = PurchaseCycleCoverage & { barcode: string; resetAt: string; resetEventId: string };
-const MAX_AGE_MS = 10 * 60_000;
+export const PURCHASE_CYCLE_MAX_SALES_EVIDENCE_AGE_MS = 10 * 60_000;
 function covers(coverage: PurchaseCycleCoverage | undefined, baseline: string, now: number) {
   const start = Date.parse(coverage?.coverageStartAt ?? "");
   const end = Date.parse(coverage?.coverageEndAt ?? "");
   const at = Date.parse(baseline);
   return Number.isFinite(now) && Number.isFinite(start) && Number.isFinite(end) && Number.isFinite(at) &&
-    at <= now && start <= at && end >= at && end <= now + 30_000 && now - end <= MAX_AGE_MS;
+    at <= now && start <= at && end >= at && end <= now + 30_000 && now - end <= PURCHASE_CYCLE_MAX_SALES_EVIDENCE_AGE_MS;
 }
 // A newly rendered report is not evidence that its sales source is current.
 export function validatePurchaseCycleStockEvidence(

@@ -1,6 +1,7 @@
 import { InternalChinaFundingClosePanel } from "@/components/china-order-manager/InternalChinaFundingClosePanel";
 import type { InternalChinaForwarderCostSummary } from "@/lib/internalChinaForwarderCost";
 import {
+  internalChinaFundingCloseMatchesForwarder,
   loadInternalChinaFundingClose,
   type InternalChinaFundingCloseSummary,
 } from "@/lib/internalChinaFundingClose";
@@ -235,6 +236,10 @@ export async function InternalChinaForwarderCloseHistory({
           actualForwarderCostKrw={latestSummary.actualCostKrw ?? 0}
           actualTotalOutflowKrw={latestSummary.actualTotalOutflowKrw ?? 0}
           stored={latestFundingClose}
+          fundingEvidenceComplete={internalChinaFundingCloseMatchesForwarder(
+            latestFundingClose,
+            latestSummary,
+          )}
         />
       ) : null}
 

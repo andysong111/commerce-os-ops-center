@@ -16,7 +16,10 @@ import {
   type InternalChinaForwarderCostSummary,
 } from "@/lib/internalChinaForwarderCost";
 import { loadRecentStoredInternalChinaForwarderCloses } from "@/lib/internalChinaForwarderStoredClose";
-import { loadRecentInternalChinaFundingCloses } from "@/lib/internalChinaFundingClose";
+import {
+  internalChinaFundingCloseMatchesForwarder,
+  loadRecentInternalChinaFundingCloses,
+} from "@/lib/internalChinaFundingClose";
 import {
   loadInternalChinaMonthlyPurchaseClose,
   loadRecentInternalChinaMonthlyPurchaseCloses,
@@ -589,6 +592,10 @@ export default async function ChinaOrderManagerPage({
                   currentFundingTarget.summary.actualTotalOutflowKrw ?? 0
                 }
                 stored={currentFundingStored}
+                fundingEvidenceComplete={internalChinaFundingCloseMatchesForwarder(
+                  currentFundingStored,
+                  currentFundingTarget.summary,
+                )}
               />
             ) : null}
 
