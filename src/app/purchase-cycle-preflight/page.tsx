@@ -39,6 +39,9 @@ const reasonLabels: Record<string, string> = {
   WHOLESALE_COST_ESTIMATE_READ_FAILED: "샵플링 도매 판매가 조회에 실패했습니다. 확정원가가 없는 품목은 제외됩니다.",
   WHOLESALE_COST_ESTIMATE_STALE_OR_UNPINNED: "도매 판매가 추정 자료가 오래됐거나 Product Master 원본과 일치하지 않습니다.",
   WHOLESALE_COST_ESTIMATE_OWNER_REVIEW_REQUIRED: "도매 판매가를 역산한 추정 원가가 포함되어 있습니다. 실제 주문 전 1688 단가를 입력하고 다시 확인해야 합니다.",
+  OWNER_COST_ESTIMATE_INVALID: "사용자 제공 추정 원가의 품목·금액·추적 지문이 올바르지 않아 사용하지 않았습니다.",
+  OWNER_COST_ESTIMATE_READ_FAILED: "사용자 제공 추정 원가를 읽지 못해 해당 품목을 제외했습니다.",
+  OWNER_COST_ESTIMATE_REVIEW_REQUIRED: "사용자 제공 대략 원가 또는 유사상품 참고 원가가 포함되어 있습니다. 실제 주문 전 현재 1688 단가를 입력하고 다시 확인해야 합니다.",
   VERIFIED_INVENTORY_REQUIRED: "재고 근거 필요", INVALID_RECOMMENDATION: "추천수량·점수 확인 필요",
   PROVISIONAL_INVENTORY_OWNER_REVIEW_REQUIRED: "추정재고를 사용한 미리보기입니다. 실제 주문 전에 최신 품절·입고·판매 상태를 확인해야 합니다.",
   CANARY_QUANTITY_LIMIT: "품목별 수량 상한 초과", ROW_EXECUTION_BLOCKED: "품목별 조건 미충족",
@@ -49,6 +52,14 @@ const reasonLabels: Record<string, string> = {
   "UPSTREAM:claim-auxiliary": "클레임·배송 보조신호 연결이 남아 있어 실제 실행 판단으로 승격하지 않습니다.",
 };
 const explain = (code: string) => reasonLabels[code] ?? `상위 검증에서 남은 조건: ${code}`;
+const costBasisLabel = (row: PurchaseCyclePreflightReport["selected"][number]) => {
+  if (row.costBasis === "VERIFIED_PURCHASE_COST") return "확정원가";
+  if (row.costBasis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE") return `도매 판매가 추정 ${money(row.estimatedUnitCostKrw)}/개`;
+  if (row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE") {
+    return `유사상품 ${row.costReferenceModelNo ?? "미확인"} 참고 추정 ${money(row.estimatedUnitCostKrw)}/개`;
+  }
+  return `사용자 제공 추정 ${money(row.estimatedUnitCostKrw)}/개`;
+};
 
 export default async function PurchaseCyclePreflightPage({ searchParams }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -111,9 +122,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         <section className="rounded-2xl border bg-white p-5">
           <h2 className="font-bold">전체 발주 미리보기 · 주문서 아님</h2>
           <p className="mt-2 text-sm">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 상품대금 상한 {money(report.effectiveBudgetKrw)} · 확정·추정원가 기준 상품대금 {money(report.estimatedSpendKrw)} · 상품대금 잔여한도 {money(report.remainingPreviewBudgetKrw)}</p>
-          <p className="mt-2 text-sm">도매 판매가 추정 원가 사용 {report.wholesaleEstimatedSelectedCount}개 · 원가 근거 미확인 {report.missingCostCount}개</p>
+          <p className="mt-2 text-sm">도매 판매가 추정 {report.wholesaleEstimatedSelectedCount}개 · 사용자 제공 추정 {report.ownerEstimatedSelectedCount}개 · 원가 근거 미확인 {report.missingCostCount}개</p>
           <p className="mt-2 text-sm">이번 달 기록된 발주 지출 {report.recordedCycleSpendKrw === null ? "미확인" : money(report.recordedCycleSpendKrw)} · 자동 적용 현금 한도 {money(report.effectiveCashKrw)} · 배송비 여유분 포함 예상 지출 {money(report.estimatedAllInSpendKrw)}</p>
-          <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead><tr><th className="p-2">B코드·상품</th><th className="p-2">수량</th><th className="p-2">예상금액</th><th className="p-2">원가 근거</th><th className="p-2">계획재고</th><th className="p-2">재고 근거</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode} · {row.name}</td><td className="p-2">{row.quantity}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{row.executionCostVerified ? "확정원가" : `도매 판매가 추정 ${money(row.estimatedUnitCostKrw)}/개`}</td><td className="p-2">{row.inventoryQuantity}</td><td className="p-2">{row.inventoryMode === "VERIFIED" ? "확인재고" : "추정재고"}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
+          <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead><tr><th className="p-2">B코드·모델·상품</th><th className="p-2">수량</th><th className="p-2">예상금액</th><th className="p-2">원가 근거</th><th className="p-2">계획재고</th><th className="p-2">재고 근거</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode}{row.costModelNo ? ` · ${row.costModelNo}` : ""} · {row.name}</td><td className="p-2">{row.quantity}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{costBasisLabel(row)}</td><td className="p-2">{row.inventoryQuantity}</td><td className="p-2">{row.inventoryMode === "VERIFIED" ? "확인재고" : "추정재고"}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
           {!report.selected.length ? <p className="mt-3 text-sm">확정 가능한 미리보기 품목이 없습니다. 차단을 우회하거나 재고를 0으로 가정하지 않습니다.</p> : null}
           <details className="mt-4 text-sm"><summary>제외 품목 {report.excluded.length}개 확인</summary>{report.excluded.slice(0, 100).map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.reasons.map(explain).join(" / ")}</p>)}{report.excluded.length > 100 ? <p className="mt-2">앞의 100개를 표시했습니다. 구간별 상세 화면에서 전체 자료를 확인하세요.</p> : null}</details>
         </section>

@@ -5,6 +5,12 @@ import {
   buildPurchaseCyclePreflight, readPurchaseCyclePreflight,
   validPurchaseTargetDate, samePurchaseCandidatePin,
 } from "../src/lib/purchaseCyclePreflightCore.ts";
+import {
+  buildPurchaseOwnerCostEstimateSnapshot,
+  OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE,
+  OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE,
+  PURCHASE_OWNER_COST_ESTIMATES,
+} from "../src/lib/purchaseCycleOwnerCostEstimate.ts";
 
 const fp = value => `sha256:${value.repeat(64)}`;
 const fixture = () => {
@@ -368,6 +374,93 @@ test("active wholesale sale-price estimate can enter the draft preview without b
   assert.equal(report.wholesaleEstimatedSelectedCount, 1);
   assert.ok(report.reviewBlockers.includes("WHOLESALE_COST_ESTIMATE_OWNER_REVIEW_REQUIRED"));
   locked(report);
+});
+test("owner-provided approximate cost fills only a missing preview cost and keeps execution locked", () => {
+  const input = fixture();
+  Object.assign(input.priority.rows[0], {
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptCostKrw: 0,
+    hasVerifiedPurchaseCost: false,
+    verifiedPurchaseCostReady: false,
+    purchaseCostTrustSource: "NONE",
+    verifiedPurchaseUnitCostKrw: 0,
+    purchaseProtectedCostKrw: 0,
+    protectedCostKrw: 0,
+    action: "COST_CONFIRMATION_REQUIRED",
+    operationallyReady: false,
+  });
+  input.ownerCosts = buildPurchaseOwnerCostEstimateSnapshot([{
+    barcode: "BAA1-1", modelNo: "AAA001", productName: "SIMULATION ONLY",
+    estimatedUnitCostKrw: 700, evidenceAt: "2026-10-02T00:00:00+09:00",
+    source: OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE, referenceModelNo: null,
+  }]);
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true);
+  assert.equal(report.estimatedSpendKrw, 3500);
+  assert.equal(report.selected[0].costBasis, OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE);
+  assert.equal(report.selected[0].costModelNo, "AAA001");
+  assert.equal(report.selected[0].verifiedUnitCostKrw, 0);
+  assert.equal(report.selected[0].confirmedUnitCostKrw, 0);
+  assert.equal(report.selected[0].executionCostVerified, false);
+  assert.equal(report.wholesaleEstimatedSelectedCount, 0);
+  assert.equal(report.ownerEstimatedSelectedCount, 1);
+  assert.ok(report.reviewBlockers.includes("OWNER_COST_ESTIMATE_REVIEW_REQUIRED"));
+  locked(report);
+});
+test("verified cost and active wholesale estimate both outrank an owner estimate", () => {
+  const verified = fixture();
+  verified.ownerCosts = buildPurchaseOwnerCostEstimateSnapshot([{
+    barcode: "BAA1-1", modelNo: "AAA001", productName: "SIMULATION ONLY",
+    estimatedUnitCostKrw: 700, evidenceAt: "2026-10-02T00:00:00+09:00",
+    source: OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE, referenceModelNo: null,
+  }]);
+  assert.equal(buildPurchaseCyclePreflight(verified).selected[0].costBasis, "VERIFIED_PURCHASE_COST");
+
+  const wholesale = fixture();
+  Object.assign(wholesale.priority.rows[0], {
+    hasConfirmedReceiptCost: false, latestConfirmedReceiptCostKrw: 0,
+    action: "COST_CONFIRMATION_REQUIRED", operationallyReady: false,
+  });
+  wholesale.wholesaleCosts = {
+    generatedAt: "2026-10-01T01:59:00.000Z",
+    planningContentFingerprint: wholesale.before.planningContentFingerprint,
+    contentFingerprint: fp("7"), state: "PARTIAL", estimatedCount: 1,
+    missingCount: 0, writesEnabled: false,
+    rows: [{ barcode: "BAA1-1", state: "ESTIMATED", estimatedUnitCostKrw: 6000, source: "SHOPLING_ACTIVE_WHOLESALE_SALE_PRICE_ESTIMATE", reason: null, evidence: [] }],
+  };
+  wholesale.ownerCosts = verified.ownerCosts;
+  const report = buildPurchaseCyclePreflight(wholesale);
+  assert.equal(report.selected[0].costBasis, "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE");
+  assert.equal(report.selected[0].estimatedUnitCostKrw, 6000);
+  assert.equal(report.ownerEstimatedSelectedCount, 0);
+});
+test("the nine owner estimates retain exact model numbers and similar-product provenance", () => {
+  assert.equal(PURCHASE_OWNER_COST_ESTIMATES.rows.length, 9);
+  const bge = PURCHASE_OWNER_COST_ESTIMATES.rows.find((row) => row.barcode === "BGE4-1");
+  assert.deepEqual(bge, {
+    barcode: "BGE4-1", modelNo: "LEGACY-BGE4-1",
+    productName: "정글모 사하라캡 뒷목가리개 성인플랩캡", estimatedUnitCostKrw: 2251,
+    evidenceAt: "2026-10-02T00:00:00+09:00",
+    source: OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE, referenceModelNo: "AAA128",
+  });
+  assert.equal(PURCHASE_OWNER_COST_ESTIMATES.rows.find((row) => row.barcode === "BGF3-1").modelNo, "AAA048");
+  assert.equal(PURCHASE_OWNER_COST_ESTIMATES.rows.find((row) => row.barcode === "BGF4-1").modelNo, "AAA048");
+});
+test("tampered owner estimate fingerprint is rejected", () => {
+  const input = fixture();
+  Object.assign(input.priority.rows[0], {
+    hasConfirmedReceiptCost: false, latestConfirmedReceiptCostKrw: 0,
+    action: "COST_CONFIRMATION_REQUIRED", operationallyReady: false,
+  });
+  input.ownerCosts = buildPurchaseOwnerCostEstimateSnapshot([{
+    barcode: "BAA1-1", modelNo: "AAA001", productName: "SIMULATION ONLY",
+    estimatedUnitCostKrw: 700, evidenceAt: "2026-10-02T00:00:00+09:00",
+    source: OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE, referenceModelNo: null,
+  }]);
+  input.ownerCosts.rows[0].estimatedUnitCostKrw = 1;
+  const report = buildPurchaseCyclePreflight(input);
+  blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+  assert.ok(report.reviewBlockers.includes("OWNER_COST_ESTIMATE_INVALID"));
 });
 test("stale wholesale estimate cannot bypass confirmed cost", () => {
   const input = fixture();

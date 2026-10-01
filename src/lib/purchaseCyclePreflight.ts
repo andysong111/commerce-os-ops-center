@@ -6,6 +6,7 @@ import { loadInventoryVerificationPriority } from "@/lib/stage8InventoryVerifica
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { loadShoplingCurrentPriceSnapshot } from "@/lib/shopling/shoplingCurrentPrice";
 import { buildPurchaseWholesaleCostEstimates } from "@/lib/purchaseWholesaleCostEstimate";
+import { PURCHASE_OWNER_COST_ESTIMATES } from "@/lib/purchaseCycleOwnerCostEstimate";
 import { readPurchaseCyclePreflight, type PurchasePreflightOptions } from "@/lib/purchaseCyclePreflightCore";
 
 // Only read loaders. evidence.report has no candidateSalesRequestId: use the
@@ -35,5 +36,6 @@ export async function loadPurchaseCyclePreflight(options: PurchasePreflightOptio
         currentPrices,
       });
     },
+    ownerCosts: async () => PURCHASE_OWNER_COST_ESTIMATES,
   }, () => new Date().toISOString());
 }
