@@ -36,6 +36,7 @@ import {
   seoulCalendarMonth,
 } from "@/lib/monthlyPurchasePolicy";
 import { loadMonthlyDraftDisplayMetadata } from "@/lib/monthlyPurchaseDraftDisplayMetadata";
+import { summarizeMonthlyPurchaseProgress } from "@/lib/purchaseCycleMonthlyFlow";
 import { loadCalendarMonthNormalRevenue } from "@/lib/shopling/calendarMonthRevenue";
 import styles from "./monthly-workspace.module.css";
 
@@ -224,9 +225,14 @@ export default async function ChinaOrderManagerPage({
   const selectedDrafts = draftState.drafts.filter(
     (draft) => draft.cycleMonth === selectedMonth,
   );
-  const orderedQuantity = total(selectedRows, (row) => row.orderedQuantity);
-  const receivedQuantity = total(selectedRows, (row) => row.receivedQuantity);
-  const openQuantity = total(selectedRows, (row) => row.openQuantity);
+  const {
+    orderedQuantity,
+    receivedQuantity,
+    inboundOpenQuantity,
+    displayedOrderQuantity,
+    displayedOrderLineCount,
+    hasOrder,
+  } = summarizeMonthlyPurchaseProgress(selectedRows, purchase);
   const releasableRows = selectedRows.filter(
     (row) =>
       row.openQuantity > 0 &&
@@ -339,9 +345,7 @@ export default async function ChinaOrderManagerPage({
           ) / 10,
         )
       : 0;
-  const displayedOrderQuantity = purchase?.totalQuantity || orderedQuantity;
-  const hasOrder = (purchase?.orderCount ?? 0) > 0 || orderedQuantity > 0;
-  const receiptDone = orderedQuantity > 0 && openQuantity === 0;
+  const receiptDone = orderedQuantity > 0 && inboundOpenQuantity === 0;
   const forwarderDone = selectedForwarderCloses.length > 0;
   const fundingDone = selectedFundingCloses.length > 0;
   const currentFundingTarget = costRows.find(
@@ -354,7 +358,7 @@ export default async function ChinaOrderManagerPage({
     : null;
   const actionNeeded =
     (!monthlyClose && selectedMonth === currentCycleMonth) ||
-    openQuantity > 0 ||
+    releasableQuantity > 0 ||
     (receiptDone && !forwarderDone) ||
     (forwarderDone && !fundingDone);
   const warnings = [
@@ -403,7 +407,7 @@ export default async function ChinaOrderManagerPage({
               <Badge tone={monthlyClose ? "emerald" : "amber"}>
                 {monthlyClose ? "발주 마감" : "발주 열림"}
               </Badge>
-              {openQuantity > 0 ? (
+              {inboundOpenQuantity > 0 ? (
                 <Badge tone="blue">입고 진행 중</Badge>
               ) : receiptDone ? (
                 <Badge tone="emerald">추적 품목 입고 완료</Badge>
@@ -457,12 +461,16 @@ export default async function ChinaOrderManagerPage({
           <SummaryCard
             label="1688 주문"
             value={`${money.format(purchase?.orderCount ?? 0)}건 · ${money.format(displayedOrderQuantity)}개`}
-            note={`${money.format(purchase?.lineCount ?? selectedRows.length)}개 품목 줄`}
+            note={
+              releasableQuantity > 0
+                ? `실주문 ${money.format(displayedOrderLineCount)}개 품목 줄 · 주문초안 예약 ${money.format(releasableQuantity)}개 (${money.format(releasableRows.length)}개 줄)`
+                : `${money.format(displayedOrderLineCount)}개 품목 줄`
+            }
           />
           <SummaryCard
             label="입고 추적"
             value={`${money.format(receivedQuantity)} / ${money.format(orderedQuantity)}개`}
-            note={`남은 미입고 ${money.format(openQuantity)}개`}
+            note={`남은 미입고 ${money.format(inboundOpenQuantity)}개`}
           />
           <SummaryCard
             label="최종 실제지출"
@@ -652,10 +660,10 @@ export default async function ChinaOrderManagerPage({
             <FlowStep
               number="4"
               title="입고"
-              state={openQuantity ? "active" : receiptDone ? "done" : "wait"}
+              state={inboundOpenQuantity ? "active" : receiptDone ? "done" : "wait"}
               detail={
-                openQuantity
-                  ? `남은 미입고 ${money.format(openQuantity)}개`
+                inboundOpenQuantity
+                  ? `남은 미입고 ${money.format(inboundOpenQuantity)}개`
                   : receiptDone
                     ? "추적 품목 입고 완료"
                     : "실주문 후 진행"
@@ -835,9 +843,11 @@ export default async function ChinaOrderManagerPage({
                       row.sourceSystem === SOURCE_SYSTEM &&
                       chinaOrderCommitmentCycleMonth(row) === month,
                   );
-                  const monthOrdered = total(monthRows, (row) => row.orderedQuantity);
-                  const monthReceived = total(monthRows, (row) => row.receivedQuantity);
-                  const monthOpen = total(monthRows, (row) => row.openQuantity);
+                  const {
+                    orderedQuantity: monthOrdered,
+                    receivedQuantity: monthReceived,
+                    inboundOpenQuantity: monthOpen,
+                  } = summarizeMonthlyPurchaseProgress(monthRows, monthPurchase);
                   const monthForwarder = forwarderCloses.filter(
                     (row) => row.cycleMonth === month,
                   );
@@ -940,7 +950,7 @@ export default async function ChinaOrderManagerPage({
                   <th className="px-3 py-3 text-right">실주문</th>
                   <th className="px-3 py-3 text-right">정상입고</th>
                   <th className="px-3 py-3 text-right">취소·해제</th>
-                  <th className="px-3 py-3 text-right">남은 미입고</th>
+                  <th className="px-3 py-3 text-right">미입고 / 예약</th>
                   <th className="px-3 py-3">최근 갱신</th>
                 </tr>
               </thead>
@@ -976,7 +986,11 @@ export default async function ChinaOrderManagerPage({
                         {money.format(row.cancelledQuantity)}
                       </td>
                       <td className="px-3 py-3 text-right font-black text-blue-700">
-                        {money.format(row.openQuantity)}
+                        {row.orderedQuantity > 0
+                          ? money.format(row.openQuantity)
+                          : row.openQuantity > 0
+                            ? `예약 ${money.format(row.openQuantity)}`
+                            : "0"}
                       </td>
                       <td className="px-3 py-3 text-slate-500">
                         {new Date(row.updatedAt).toLocaleString("ko-KR")}
