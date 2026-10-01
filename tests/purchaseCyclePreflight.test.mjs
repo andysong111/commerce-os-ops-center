@@ -272,7 +272,8 @@ test("preflight source has no write executor, credentials, background timer, or 
   }
   const service = readFileSync(new URL("../src/lib/purchaseCyclePreflight.ts", import.meta.url), "utf8");
   assert.doesNotMatch(service, /loadCanonicalPurchaseShadow|loadReceiptCostRecoveryReadiness/);
-  assert.match(service, /loadInventoryVerificationPriority\(options\.targetDate\)/);
+  assert.match(service, /loadInventoryVerificationPriority\(options\.targetDate/);
+  assert.match(service, /excludeCommitmentDraftId: options\.replaceDraftId/);
 });
 test("operator page uses the automatic prior-month cost envelope without a duplicate cash input", () => {
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");

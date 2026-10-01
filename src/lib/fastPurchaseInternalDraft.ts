@@ -229,7 +229,10 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
     throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_LEDGER_UNAVAILABLE:${existing.error}`);
   }
   const sameCycle = existing.drafts.filter(
-    (draft) => draft.createdAt && draft.cycleMonth === cycleMonth,
+    (draft) =>
+      draft.createdAt &&
+      draft.cycleMonth === cycleMonth &&
+      draft.openQuantity > 0,
   );
   if (sameCycle.length > 1) {
     throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_MULTIPLE_DRAFTS:${cycleMonth}`);
@@ -409,8 +412,9 @@ export async function loadFastPurchaseInternalDrafts() {
         })),
       };
     })
-    .sort(
-      (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
-    );
+    .sort((left, right) => {
+      const active = Number(right.openQuantity > 0) - Number(left.openQuantity > 0);
+      return active || Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+    });
   return { drafts, error: ledger.error };
 }

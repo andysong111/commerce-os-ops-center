@@ -8,6 +8,7 @@ import {
   preparePurchaseCycleDraft,
   type PurchaseCycleDraftRequest,
 } from "@/lib/purchaseCyclePreflightDraftCore";
+import { regenerateValidatedMonthlyPurchaseDraft } from "@/lib/purchaseCycleDraftRegeneration";
 
 export async function createPurchaseCyclePreflightDraft(
   request: PurchaseCycleDraftRequest,
@@ -16,6 +17,9 @@ export async function createPurchaseCyclePreflightDraft(
   selectedCount: number;
   estimatedSpendKrw: number;
   estimatedAllInSpendKrw: number;
+  regenerated: boolean;
+  previousDraftId: string | null;
+  supersededLineCount: number;
   externalOrderExecuted: false;
 }> {
   const report = await loadPurchaseCyclePreflight({
@@ -24,21 +28,33 @@ export async function createPurchaseCyclePreflightDraft(
     maxSkus: 100,
     maxUnitsPerSku: 9_999,
     allowOpenBudgetPreview: true,
+    replaceDraftId: request.replaceDraftId ?? null,
   });
   const prepared = preparePurchaseCycleDraft(report, request);
   if (await loadInternalChinaMonthlyPurchaseClose(prepared.cycleMonth)) {
     throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_CLOSED:${prepared.cycleMonth}`);
   }
-  const draft = await storeValidatedMonthlyPurchaseDraft({
-    ...prepared,
-    dataMode: "PURCHASE_PREFLIGHT",
-    allowAdoptExistingReservedDraft: false,
-  });
+  const replacement = request.replaceDraftId
+    ? await regenerateValidatedMonthlyPurchaseDraft({
+        ...prepared,
+        expectedDraftId: request.replaceDraftId,
+      })
+    : null;
+  const draft = replacement
+    ? replacement.draft
+    : await storeValidatedMonthlyPurchaseDraft({
+        ...prepared,
+        dataMode: "PURCHASE_PREFLIGHT",
+        allowAdoptExistingReservedDraft: false,
+      });
   return {
     draft,
     selectedCount: report.selected.length,
     estimatedSpendKrw: report.estimatedSpendKrw,
     estimatedAllInSpendKrw: report.estimatedAllInSpendKrw,
+    regenerated: Boolean(replacement),
+    previousDraftId: replacement?.previousDraftId ?? null,
+    supersededLineCount: replacement?.supersededLineCount ?? 0,
     externalOrderExecuted: false,
   };
 }

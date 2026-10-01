@@ -24,6 +24,7 @@ export function PurchaseCycleDraftActions({
   totalQuantity,
   estimatedSpendKrw,
   ready,
+  replaceDraftId,
 }: {
   targetDate: string;
   targetCycleMonth: string;
@@ -34,6 +35,7 @@ export function PurchaseCycleDraftActions({
   totalQuantity: number;
   estimatedSpendKrw: number;
   ready: boolean;
+  replaceDraftId?: string | null;
 }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -41,7 +43,9 @@ export function PurchaseCycleDraftActions({
   const save = async () => {
     setNotice("");
     if (!ready) return;
-    const summary = `${targetCycleMonth} 월간 발주 Draft를 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 저장할까요?\n\n미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
+    const summary = replaceDraftId
+      ? `${targetCycleMonth} 기존 Draft를 최신 계산 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 교체할까요?\n\n기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
+      : `${targetCycleMonth} 월간 발주 Draft를 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 저장할까요?\n\n미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
     if (!window.confirm(summary)) return;
     setSaving(true);
     try {
@@ -53,6 +57,7 @@ export function PurchaseCycleDraftActions({
           expectedSourceFingerprint,
           expectedPlanFingerprint,
           confirmation,
+          replaceDraftId: replaceDraftId ?? null,
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as DraftResponse;
@@ -85,7 +90,13 @@ export function PurchaseCycleDraftActions({
           disabled={!ready || saving}
           className="bg-blue-700 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
         >
-          {saving ? "Draft 저장 중..." : `${targetCycleMonth} Draft 저장`}
+          {saving
+            ? replaceDraftId
+              ? "Draft 재생성 중..."
+              : "Draft 저장 중..."
+            : replaceDraftId
+              ? `${targetCycleMonth} 최신 로직으로 재생성`
+              : `${targetCycleMonth} Draft 저장`}
         </button>
       </div>
       {notice ? <p className="mt-4 border border-blue-300 bg-white p-3 text-sm font-bold">{notice}</p> : null}
