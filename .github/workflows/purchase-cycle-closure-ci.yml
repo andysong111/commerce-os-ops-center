@@ -10,6 +10,7 @@ on:
       - 'src/lib/fastPurchaseCashEnvelope.ts'
       - 'src/app/api/china-order-manager/**'
       - 'src/app/china-order-manager/layout.tsx'
+      - 'src/app/china-order-manager/page.tsx'
       - 'src/components/china-order-manager/PurchaseCycleClosurePanel.tsx'
       - 'tests/internalChinaReceipt*.test.mjs'
       - 'tests/purchaseCycle*.test.mjs'
@@ -42,11 +43,12 @@ jobs:
           src/lib/purchaseCycleHistoricalOrderClose.ts
           src/lib/purchaseCycleLocalBaselineAuthority.ts
           src/lib/purchaseCycleStockReport.ts src/lib/purchaseCycleStockEvidence.ts
+          src/lib/purchaseCycleMonthlyFlow.ts
           src/lib/productMasterVerifiedInventoryBaselines.ts
           src/lib/fastPurchaseCashEnvelope.ts
           src/app/api/china-order-manager/receipts/followup/route.ts
           src/app/api/china-order-manager/cycle-status/route.ts
-          src/app/china-order-manager/layout.tsx
+          src/app/china-order-manager/layout.tsx src/app/china-order-manager/page.tsx
           src/components/china-order-manager/PurchaseCycleClosurePanel.tsx
       - name: Permanent receipt persistence, retry, cycle and stock evidence regressions
         run: node --experimental-strip-types --test tests/internalChinaReceipt*.test.mjs tests/purchaseCycle*.test.mjs

@@ -167,6 +167,10 @@ Code-only or mocked success must not be reported as a real operating pass.
 
 The monthly closure reader must distinguish received, explicitly cancelled/released, and still-open quantities. An explicitly cancelled quantity never becomes inbound stock, but it does close that part of the order commitment. Therefore a receipt stage may close only when open quantity is zero and `received + cancelled >= ordered`; requiring `received >= ordered` alone incorrectly reopens a safely cancelled commitment.
 
+### 4.3.2 Draft reservations do not start inbound processing (2026-10-02)
+
+A `RESERVED` or `EXPORTED` purchase-draft commitment may carry an open quantity before any real 1688 order exists. That quantity remains visible as a draft reservation, but it must not count as an actual ordered quantity, an inbound outstanding quantity, or a reason to activate monthly stage 4. The monthly flow advances to barcode and inbound stages only after durable order evidence exists (`orderCount > 0` or a ledger row with `orderedQuantity > 0`).
+
 ---
 
 ### 4.4 Stage 7~11 detailed handoff
