@@ -5,13 +5,26 @@ import { loadPurchaseCycleModule as load, receiptId, draftId, barcode, at, stock
 const core = load("src/lib/purchaseCycleClosureCore.ts");
 const evidence = load("src/lib/purchaseCycleStockEvidence.ts");
 function input() {
-  return { cycleMonth: "2026-09", orderClosed: true, orderCount: 1, unassignedLineCount: 0, orderedQuantity: 7, receivedQuantity: 7, openQuantity: 0, receiptState: "COMPLETE", landedCostState: "COMPLETE", fundingState: "COMPLETE", approvedPriceCheckPending: false, followups: [{ receiptId, draftId, cycleMonth: "2026-09", lineCount: 1, barcodes: [barcode], receivedQuantity: 7, state: "VERIFIED", canRetry: false, errorCode: null, verifiedAt: at, fingerprint: "fixture" }], stock: stockFixture(), warnings: [] };
+  return { cycleMonth: "2026-09", orderClosed: true, orderCount: 1, unassignedLineCount: 0, orderedQuantity: 7, receivedQuantity: 7, cancelledQuantity: 0, openQuantity: 0, receiptState: "COMPLETE", landedCostState: "COMPLETE", fundingState: "COMPLETE", approvedPriceCheckPending: false, followups: [{ receiptId, draftId, cycleMonth: "2026-09", lineCount: 1, barcodes: [barcode], receivedQuantity: 7, state: "VERIFIED", canRetry: false, errorCode: null, verifiedAt: at, fingerprint: "fixture" }], stock: stockFixture(), warnings: [] };
 }
 test("complete receipt, cost, current stock and sale evidence permits next calculation but never executes it", () => {
   const report = core.buildPurchaseCycleClosureReport(input());
   assert.equal(report.state, "READY_FOR_NEXT_CALCULATION");
   assert.equal(report.actualPurchaseExecuted, false);
   assert.equal(report.stages.find((stage) => stage.id === "next").state, "NOT_STARTED");
+});
+test("explicitly cancelled order quantity closes the receipt stage without inventing inbound stock", () => {
+  const value = input();
+  value.orderedQuantity = 9;
+  value.receivedQuantity = 7;
+  value.cancelledQuantity = 2;
+  const report = core.buildPurchaseCycleClosureReport(value);
+  assert.equal(report.state, "READY_FOR_NEXT_CALCULATION");
+  assert.equal(report.cancelledQuantity, 2);
+  assert.equal(report.stages.find((stage) => stage.id === "receipt").state, "VERIFIED");
+
+  value.openQuantity = 1;
+  assert.equal(core.buildPurchaseCycleClosureReport(value).state, "NEEDS_ACTION");
 });
 test("partial proof, wrong month, duplicated receipt and invalid aggregates cannot falsely close a cycle", () => {
   const values = [];

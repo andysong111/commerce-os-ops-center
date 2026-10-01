@@ -163,6 +163,10 @@ Operational completion requires evidence across the real loop:
 
 Code-only or mocked success must not be reported as a real operating pass.
 
+### 4.3.1 Cancelled quantity at cycle close (2026-10-02)
+
+The monthly closure reader must distinguish received, explicitly cancelled/released, and still-open quantities. An explicitly cancelled quantity never becomes inbound stock, but it does close that part of the order commitment. Therefore a receipt stage may close only when open quantity is zero and `received + cancelled >= ordered`; requiring `received >= ordered` alone incorrectly reopens a safely cancelled commitment.
+
 ---
 
 ### 4.4 Stage 7~11 detailed handoff

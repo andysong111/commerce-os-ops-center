@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [handoff, panel, fastPurchase] = await Promise.all([
+const [handoff, draftReader, panel, fastPurchase] = await Promise.all([
   readFile("src/lib/internalChinaPurchaseCycleHandoff.ts", "utf8"),
+  readFile("src/lib/fastPurchaseInternalDraft.ts", "utf8"),
   readFile("src/components/fast-purchase-mvp/PreviousPurchaseCycleHandoff.tsx", "utf8"),
   readFile("src/app/fast-purchase-mvp/page.tsx", "utf8"),
 ]);
@@ -13,11 +14,13 @@ test("prior-cycle handoff derives the previous month and only counts actually or
   assert.ok(handoff.includes("draft.cycleMonth === previousCycleMonth && draft.orderedQuantity > 0"));
   assert.ok(handoff.includes("orderedQuantity"));
   assert.ok(handoff.includes("receivedQuantity"));
+  assert.ok(handoff.includes("cancelledQuantity"));
+  assert.ok(draftReader.includes("sum + line.cancelledQuantity"));
   assert.ok(handoff.includes("openQuantity"));
 });
 
-test("fully received prior orders are complete only when outstanding quantity is zero", () => {
-  assert.ok(handoff.includes("openQuantity === 0 && receivedQuantity >= orderedQuantity"));
+test("received plus explicitly cancelled prior orders are complete only when outstanding quantity is zero", () => {
+  assert.ok(handoff.includes("receivedQuantity + cancelledQuantity >= orderedQuantity"));
   assert.ok(handoff.includes('receiptState: StageState'));
   assert.ok(handoff.includes("quantityImpactReady"));
 });

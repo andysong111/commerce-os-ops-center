@@ -4,7 +4,7 @@ import type { InternalChinaReceiptFollowupStatus } from "./internalChinaReceiptF
 export type CycleStageState = "VERIFIED" | "PENDING" | "NOT_STARTED";
 export type PurchaseCycleClosureInput = {
   cycleMonth: string; orderClosed: boolean; orderCount: number; unassignedLineCount: number;
-  orderedQuantity: number; receivedQuantity: number; openQuantity: number;
+  orderedQuantity: number; receivedQuantity: number; cancelledQuantity: number; openQuantity: number;
   receiptState: string; landedCostState: string; fundingState: string;
   approvedPriceCheckPending: boolean; followups: InternalChinaReceiptFollowupStatus[];
   stock: InventoryStockControlReport; warnings: string[];
@@ -14,7 +14,7 @@ export type PurchaseCycleClosureReport = {
   state: "BLOCKED" | "NEEDS_ACTION" | "READY_FOR_NEXT_CALCULATION" | "NO_ORDER_CLOSED";
   nextAction: "RECHECK" | "OPEN_WORKSPACE" | "RETRY_RECEIPT_FOLLOWUP" | "REFRESH_STOCK_EVIDENCE" | "OPEN_STOCK_CONTROL" | "OPEN_PRICE_REVIEW" | "OPEN_NEXT_CALCULATION";
   actionLabel: string; message: string; receiptId: string | null;
-  receivedQuantity: number; openQuantity: number; affectedSkuCount: number;
+  receivedQuantity: number; cancelledQuantity: number; openQuantity: number; affectedSkuCount: number;
   verifiedReceiptCount: number; pendingReceiptCount: number; missingBaselineCount: number;
   stages: Array<{ id: string; label: string; state: CycleStageState }>;
   warnings: string[]; followups: InternalChinaReceiptFollowupStatus[];
@@ -31,7 +31,7 @@ export function followingPurchaseCycleMonth(value: string) {
 export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput): PurchaseCycleClosureReport {
   if (!validPurchaseCycleMonth(input.cycleMonth)) throw new Error("PURCHASE_CYCLE_MONTH_INVALID");
   const warnings = [...input.warnings];
-  for (const count of [input.orderCount, input.unassignedLineCount, input.orderedQuantity, input.receivedQuantity, input.openQuantity]) {
+  for (const count of [input.orderCount, input.unassignedLineCount, input.orderedQuantity, input.receivedQuantity, input.cancelledQuantity, input.openQuantity]) {
     if (!Number.isSafeInteger(count) || count < 0) warnings.push("발주·입고 수량 원장을 확인하지 못했습니다.");
   }
   const receiptIds = new Set(input.followups.map((row) => row.receiptId));
@@ -51,7 +51,7 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
   const saleVerified = quantitiesVerified && exactStockRows.every((row) => !row.syncNeeded && !row.syncBlocked && row.latestSyncOutcome === "SUCCEEDED");
   const verifiedReceiptCount = input.followups.filter((row) => row.state === "VERIFIED").length;
   const pending = input.followups.filter((row) => row.state !== "VERIFIED");
-  const receiptVerified = input.receiptState === "COMPLETE" && input.orderedQuantity > 0 && input.openQuantity === 0 && input.receivedQuantity >= input.orderedQuantity;
+  const receiptVerified = input.receiptState === "COMPLETE" && input.orderedQuantity > 0 && input.openQuantity === 0 && input.receivedQuantity + input.cancelledQuantity >= input.orderedQuantity;
   const masterVerified = input.followups.length > 0 && pending.length === 0 && scopedReceipts && evidencedQuantity === input.receivedQuantity;
   const stages: PurchaseCycleClosureReport["stages"] = [
     { id: "order", label: "주문·발주마감", state: input.orderClosed ? "VERIFIED" : "PENDING" },
@@ -67,7 +67,7 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
     generatedAt: new Date().toISOString(), cycleMonth: input.cycleMonth,
     state: "NEEDS_ACTION", nextAction: "OPEN_WORKSPACE", actionLabel: "아래 발주·입고 단계 확인",
     message: "저장된 입고와 실제 후속 반영을 구분해 확인합니다.", receiptId: null,
-    receivedQuantity: input.receivedQuantity, openQuantity: input.openQuantity,
+    receivedQuantity: input.receivedQuantity, cancelledQuantity: input.cancelledQuantity, openQuantity: input.openQuantity,
     affectedSkuCount: codes.length, verifiedReceiptCount, pendingReceiptCount: pending.length,
     missingBaselineCount, stages, warnings: [...new Set(warnings)], followups: input.followups,
     actualPurchaseExecuted: false,
