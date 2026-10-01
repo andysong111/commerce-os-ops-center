@@ -431,7 +431,10 @@ export async function createProductMasterShoplingSalesEventSyncRequest(refresh?:
 // arbitrary client refresh flag. Re-read coverage UNDER the same lock used by
 // creators, recovery and gate-through-publication. A concurrent newer candidate
 // is reused rather than overwritten or reported as a newly accepted request.
-export async function ensureProductMasterShoplingSalesEventCoverageRequest(resetAt: string) {
+export async function ensureProductMasterShoplingSalesEventCoverageRequest(
+  resetAt: string,
+  options: { maxAgeMs?: number } = {},
+) {
   return withSalesEventMutationGuard(async () => {
     const resetMs = typeof resetAt === "string" ? Date.parse(resetAt) : Number.NaN;
     if (!Number.isFinite(resetMs) || resetMs > Date.now()) {
@@ -442,8 +445,20 @@ export async function ensureProductMasterShoplingSalesEventCoverageRequest(reset
       throw new SalesEventActionError("SALES_EVENT_REFRESH_NOT_CONFIGURED", 503, "판매 수집 연결 설정을 먼저 확인해야 합니다.");
     }
     const analysisMs = Date.parse(current.analysisAsOf ?? "");
+    const nowMs = Date.now();
+    const maxAgeMs = Number(options.maxAgeMs);
+    const requiresFreshCoverage =
+      Number.isFinite(maxAgeMs) && maxAgeMs >= 0;
+    const coverageIsFresh =
+      !requiresFreshCoverage ||
+      (analysisMs <= nowMs + 30_000 && nowMs - analysisMs <= maxAgeMs);
     const staleRequestWasActive = ACTIVE_SALES_EVENT_STATES.has(current.state);
-    if (current.requestId && Number.isFinite(analysisMs) && analysisMs >= resetMs) {
+    if (
+      current.requestId &&
+      Number.isFinite(analysisMs) &&
+      analysisMs >= resetMs &&
+      coverageIsFresh
+    ) {
       return {
         accepted: false, alreadyCovered: true, alreadyActive: staleRequestWasActive,
         supersededStaleRequest: false, previousRequestId: null,
@@ -455,7 +470,9 @@ export async function ensureProductMasterShoplingSalesEventCoverageRequest(reset
       };
     }
     const created = await appendSalesEventSyncRequest({
-      refreshReason: "INVENTORY_RESET_COVERAGE",
+      refreshReason: requiresFreshCoverage
+        ? "INVENTORY_RESET_FRESH_COVERAGE"
+        : "INVENTORY_RESET_COVERAGE",
       coverageResetAt: new Date(resetMs).toISOString(),
       refreshesRequestId: current.requestId,
       previousPlanFingerprint: current.report?.planFingerprint ?? null,

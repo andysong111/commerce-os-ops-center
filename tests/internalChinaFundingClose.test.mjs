@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { loadPurchaseCycleModule as load, draftId } from "./helpers/purchaseCycleHarness.mjs";
 
 const [
   engine,
@@ -50,6 +51,68 @@ test("funding close is only allowed after final landed cost and cannot understat
   assert.ok(engine.includes("CHINA_FUNDING_CLOSE_KOREA_SPEND_EXCEEDED"));
 });
 
+test("legacy funding close remains complete only when later matching landed-cost evidence proves the same cycle", () => {
+  const funding = load("src/lib/internalChinaFundingClose.ts", {
+    "@/lib/monthlyPurchasePolicy": { previousCalendarMonth: () => "2026-08" },
+    "@/lib/shopling/calendarMonthRevenue": { loadCalendarMonthNormalRevenue: async () => ({ revenueKrw: 0 }) },
+    "@/lib/supabase/admin": { createSupabaseAdminHeaders: () => ({}) },
+  });
+  const fundingClose = {
+    draftId,
+    cycleMonth: "2026-09",
+    budgetMonth: "2026-08",
+    budgetMonthRevenueKrw: 8_719_448,
+    totalSpendingBudgetKrw: 4_359_724,
+    trackingMode: "SIMPLIFIED_NO_WORLDFIRST",
+    worldFirstTransferKrw: 0,
+    worldFirstEndingUsd: 0,
+    worldFirstEndingCnh: 0,
+    koreaAccountAvailableKrw: 0,
+    koreaAccountSpentKrw: 659_550,
+    koreaAccountRemainingKrw: 0,
+    emergencyReserveTransferKrw: 0,
+    actualTotalOutflowKrw: 0,
+    closedAt: "2026-09-30T10:05:00.000Z",
+  };
+  const forwarderClose = {
+    draftId,
+    cycleMonth: "2026-09",
+    productPurchaseCostKrw: 1_119_848,
+    domesticChinaFreightKrw: 0,
+    actualCostKrw: 659_550,
+    actualTotalOutflowKrw: 1_779_398,
+    closedAt: "2026-09-30T10:00:00.000Z",
+  };
+  assert.equal(
+    funding.internalChinaFundingCloseMatchesForwarder(
+      fundingClose,
+      forwarderClose,
+    ),
+    true,
+  );
+  assert.equal(
+    funding.internalChinaFundingCloseMatchesForwarder(
+      { ...fundingClose, closedAt: "2026-09-30T09:59:59.999Z" },
+      forwarderClose,
+    ),
+    false,
+  );
+  assert.equal(
+    funding.internalChinaFundingCloseMatchesForwarder(
+      { ...fundingClose, koreaAccountSpentKrw: 659_549 },
+      forwarderClose,
+    ),
+    false,
+  );
+  assert.equal(
+    funding.internalChinaFundingCloseMatchesForwarder(
+      { ...fundingClose, actualTotalOutflowKrw: 1_779_397 },
+      forwarderClose,
+    ),
+    false,
+  );
+});
+
 test("funding close API is same-origin guarded and reports both wallets", () => {
   assert.ok(route.includes("isSameOriginOpsRequest"));
   assert.ok(route.includes("recordInternalChinaFundingClose"));
@@ -70,7 +133,7 @@ test("simplified funding close submits only the cycle identity and never fabrica
   assert.ok(panel.includes("전체 지출가능금액"));
   assert.ok(panel.includes("확정 배송대행 실제비용"));
   assert.ok(panel.includes("확정 실제 총지출"));
-  assert.ok(panel.includes("stored.actualTotalOutflowKrw > 0"));
+  assert.ok(panel.includes("fundingEvidenceComplete"));
   assert.ok(panel.includes("총지출 재확인 필요"));
   assert.ok(panel.includes("!fundingComplete"));
   assert.ok(panel.includes("WorldFirst 관련 세부 원장은 지금 단계에서는 수집·계산하지 않습니다"));

@@ -7,7 +7,12 @@ import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventor
 import { assertPurchaseCycleLocalBaselineAuthorityReadable } from "@/lib/purchaseCycleLocalBaselineAuthority";
 import { loadRequiredProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
 import { loadStage8CanonicalSalesEventSnapshot } from "@/lib/stage8CanonicalSalesEventSnapshot";
-import { validatePurchaseCycleStockEvidence } from "@/lib/purchaseCycleStockEvidence";
+import {
+  PURCHASE_CYCLE_MAX_SALES_EVIDENCE_AGE_MS,
+  validatePurchaseCycleStockEvidence,
+} from "@/lib/purchaseCycleStockEvidence";
+import { ensureProductMasterShoplingSalesEventCoverageRequest } from "@/lib/productMasterShoplingSalesEventSync";
+import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 
 async function resolved() {
   // Natural accumulation is safe only when both baseline authorities were read
@@ -40,9 +45,33 @@ export async function loadPurchaseCycleStockReport(options: { refreshSales?: boo
     loadLatestInventoryStockSalesTailSnapshots(),
     loadStage8CanonicalSalesEventSnapshot(),
   ]);
-  return validatePurchaseCycleStockEvidence(
+  const validated = validatePurchaseCycleStockEvidence(
     report,
     tails,
     canonical.state === "READY_READ_ONLY" ? canonical : undefined,
   );
+  if (options.refreshSales === true) {
+    const oldestInvalidResetAt = validated.rows
+      .filter((row) => !row.salesCoverageReady)
+      .map((row) => row.resetAt)
+      .filter((value) => Number.isFinite(Date.parse(value)))
+      .sort((left, right) => Date.parse(left) - Date.parse(right))[0];
+    if (oldestInvalidResetAt) {
+      const canonicalRefresh =
+        await ensureProductMasterShoplingSalesEventCoverageRequest(
+          oldestInvalidResetAt,
+          { maxAgeMs: PURCHASE_CYCLE_MAX_SALES_EVIDENCE_AGE_MS },
+        );
+      if (
+        canonicalRefresh.accepted ||
+        canonicalRefresh.alreadyActive
+      ) {
+        await wakeOpsDispatchTask(
+          "product-master-shopling-sales-events",
+          0,
+        ).catch(() => false);
+      }
+    }
+  }
+  return validated;
 }

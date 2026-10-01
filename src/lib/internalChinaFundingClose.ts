@@ -41,6 +41,16 @@ export type InternalChinaFundingCloseSummary = {
   closedAt: string;
 };
 
+export type InternalChinaForwarderFundingEvidence = {
+  draftId: string;
+  cycleMonth: string;
+  productPurchaseCostKrw: number;
+  domesticChinaFreightKrw: number;
+  actualCostKrw: number | null;
+  actualTotalOutflowKrw: number | null;
+  closedAt: string | null;
+};
+
 type StoredRow = {
   result_snapshot?: unknown;
   started_at?: unknown;
@@ -169,6 +179,59 @@ export function parseInternalChinaFundingClose(
     actualTotalOutflowKrw: integer(row.actualTotalOutflowKrw),
     closedAt,
   };
+}
+
+export function internalChinaFundingCloseMatchesForwarder(
+  fundingClose: InternalChinaFundingCloseSummary | null,
+  forwarderClose: InternalChinaForwarderFundingEvidence | null,
+) {
+  if (!fundingClose || !forwarderClose) return false;
+  if (
+    fundingClose.draftId !== forwarderClose.draftId ||
+    fundingClose.cycleMonth !== forwarderClose.cycleMonth
+  ) {
+    return false;
+  }
+
+  const productPurchaseCostKrw = integer(
+    forwarderClose.productPurchaseCostKrw,
+  );
+  const domesticChinaFreightKrw = integer(
+    forwarderClose.domesticChinaFreightKrw,
+  );
+  const actualForwarderCostKrw = integer(forwarderClose.actualCostKrw);
+  const actualTotalOutflowKrw = integer(
+    forwarderClose.actualTotalOutflowKrw,
+  );
+  const calculatedTotal =
+    productPurchaseCostKrw + domesticChinaFreightKrw + actualForwarderCostKrw;
+  if (
+    productPurchaseCostKrw <= 0 ||
+    actualForwarderCostKrw <= 0 ||
+    actualTotalOutflowKrw !== calculatedTotal
+  ) {
+    return false;
+  }
+
+  const fundingClosedMs = Date.parse(fundingClose.closedAt);
+  const forwarderClosedMs = Date.parse(forwarderClose.closedAt ?? "");
+  if (
+    !Number.isFinite(fundingClosedMs) ||
+    !Number.isFinite(forwarderClosedMs) ||
+    fundingClosedMs < forwarderClosedMs
+  ) {
+    return false;
+  }
+
+  if (fundingClose.actualTotalOutflowKrw > 0) {
+    return fundingClose.actualTotalOutflowKrw === actualTotalOutflowKrw;
+  }
+
+  // Before actualTotalOutflowKrw was added, a successful funding close still
+  // read the same landed-cost close and persisted its forwarder spend. Preserve
+  // that evidence only when the funding close is later than the authoritative
+  // landed-cost close and its recorded spend covers that exact forwarder cost.
+  return fundingClose.koreaAccountSpentKrw >= actualForwarderCostKrw;
 }
 
 function validatedForwarderOutflow(snapshot: Record<string, unknown>) {

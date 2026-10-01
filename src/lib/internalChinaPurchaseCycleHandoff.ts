@@ -1,6 +1,7 @@
 import { loadFastPurchaseInternalDrafts } from "@/lib/fastPurchaseInternalDraft";
 import { loadStoredInternalChinaForwarderClose } from "@/lib/internalChinaForwarderStoredClose";
 import {
+  internalChinaFundingCloseMatchesForwarder,
   loadInternalChinaFundingCloseByCycleMonth,
   type InternalChinaFundingCloseSummary,
 } from "@/lib/internalChinaFundingClose";
@@ -309,9 +310,10 @@ export async function loadInternalChinaPurchaseCycleHandoff(
     previousDrafts.length === 0
       ? "NOT_AVAILABLE"
       : previousDrafts.length === 1 &&
-          fundingClose?.draftId === previousDrafts[0].draftId &&
-          fundingClose.cycleMonth === previousCycleMonth &&
-          fundingClose.actualTotalOutflowKrw > 0
+          internalChinaFundingCloseMatchesForwarder(
+            fundingClose,
+            landedCostCloses[0] ?? null,
+          )
         ? "COMPLETE"
         : "NEEDS_CHECK";
   const quantityImpactReady = receiptState === "COMPLETE" && !draftState.error;
