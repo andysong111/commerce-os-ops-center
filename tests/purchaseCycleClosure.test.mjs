@@ -11,6 +11,7 @@ test("complete receipt, cost, current stock and sale evidence permits next calcu
   const report = core.buildPurchaseCycleClosureReport(input());
   assert.equal(report.state, "READY_FOR_NEXT_CALCULATION");
   assert.equal(report.actualPurchaseExecuted, false);
+  assert.equal(JSON.stringify(report.stockDiagnostics), JSON.stringify({ reportState: "READY", matchedBaselineCount: 1, invalidBaselineCount: 0, evidenceBlockerCount: 0, sourceBlockerCount: 0 }));
   assert.equal(report.stages.find((stage) => stage.id === "next").state, "NOT_STARTED");
 });
 test("explicitly cancelled order quantity closes the receipt stage without inventing inbound stock", () => {
@@ -73,12 +74,16 @@ test("next action distinguishes receipt retry, actual partial receipt, natural b
   value.stock.rows.push({ ...value.stock.rows[0], barcode: "BCC6-2", resetEventId: "reset-unrelated", salesCoverageReady: false, syncBlocked: true });
   value.stock.state = "BLOCKED";
   value.stock.blockers = ["PURCHASE_STOCK_EVIDENCE_REQUIRED:BCC6-2"];
-  assert.equal(core.buildPurchaseCycleClosureReport(value).state, "READY_FOR_NEXT_CALCULATION");
+  const unrelatedEvidence = core.buildPurchaseCycleClosureReport(value);
+  assert.equal(unrelatedEvidence.state, "READY_FOR_NEXT_CALCULATION");
+  assert.equal(JSON.stringify(unrelatedEvidence.stockDiagnostics), JSON.stringify({ reportState: "BLOCKED", matchedBaselineCount: 1, invalidBaselineCount: 0, evidenceBlockerCount: 1, sourceBlockerCount: 0 }));
 
   // A real source/read blocker is global and must never be treated as an
   // unrelated row-level coverage gap.
   value.stock.blockers.push("PURCHASE_STOCK_REPORT_BLOCKED");
-  assert.equal(core.buildPurchaseCycleClosureReport(value).nextAction, "REFRESH_STOCK_EVIDENCE");
+  const sourceBlocked = core.buildPurchaseCycleClosureReport(value);
+  assert.equal(sourceBlocked.nextAction, "REFRESH_STOCK_EVIDENCE");
+  assert.equal(sourceBlocked.stockDiagnostics.sourceBlockerCount, 1);
   for (const outcome of ["STARTED", "UNCERTAIN", "FAILED"]) {
     value = input(); value.stock.rows[0].latestSyncOutcome = outcome;
     assert.equal(core.buildPurchaseCycleClosureReport(value).nextAction, "OPEN_STOCK_CONTROL");

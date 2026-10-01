@@ -102,6 +102,7 @@ export function PurchaseCycleClosurePanel({ refreshKey }: { refreshKey: string |
           </div>
         ))}</div>
         <p className="mt-3 text-xs leading-5 text-slate-500">입고확정 {report.receivedQuantity.toLocaleString("ko-KR")}개 · 취소·해제 {report.cancelledQuantity.toLocaleString("ko-KR")}개 · 미입고 {report.openQuantity.toLocaleString("ko-KR")}개 · 상품마스터 검증 {report.verifiedReceiptCount}건 / 재확인 {report.pendingReceiptCount}건</p>
+        {report.stages.find((stage) => stage.id === "inventory")?.state !== "VERIFIED" ? <p className="mt-1 text-xs leading-5 text-amber-800">재고 진단: 기준점 연결 {report.stockDiagnostics.matchedBaselineCount}개 · 최신 증빙 재확인 {report.stockDiagnostics.invalidBaselineCount}개 · 공통 원천 오류 {report.stockDiagnostics.sourceBlockerCount}건</p> : null}
         <div className="mt-4">{href ? <Link prefetch={false} href={href} className="inline-block rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white">{report.actionLabel}</Link> : <button type="button" disabled={busy} onClick={() => void act()} className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-40">{busy ? "확인 중…" : report.actionLabel}</button>}</div>
         <p className="mt-2 text-xs leading-5 text-slate-500">입고 후속 재시도는 저장된 입고번호만 사용합니다. 수량을 재입력하거나 중복 입고하지 않습니다. 다음 발주계산도 실제 주문·결제와 별도입니다.</p>
         {report.warnings.length ? <details className="mt-3 text-xs text-amber-800"><summary className="cursor-pointer font-bold">확인 필요 사유</summary>{report.warnings.map((warning, i) => <p key={i} className="mt-1">{warning}</p>)}</details> : null}

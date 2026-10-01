@@ -24,8 +24,12 @@ export function safeCycleSummary(status, body, month) {
     stages[id] = matches[0].state;
   }
   requireProof(Array.isArray(report.followups) && Array.isArray(report.warnings), "LIVE_EVIDENCE_INVALID");
+  requireProof(report.stockDiagnostics && ["READY", "BLOCKED"].includes(report.stockDiagnostics.reportState), "LIVE_STOCK_DIAGNOSTICS_INVALID");
   for (const value of [report.receivedQuantity, report.openQuantity, report.verifiedReceiptCount, report.pendingReceiptCount, report.missingBaselineCount]) {
     requireProof(Number.isSafeInteger(value) && value >= 0, "LIVE_COUNTS_INVALID");
+  }
+  for (const value of [report.stockDiagnostics.matchedBaselineCount, report.stockDiagnostics.invalidBaselineCount, report.stockDiagnostics.evidenceBlockerCount, report.stockDiagnostics.sourceBlockerCount]) {
+    requireProof(Number.isSafeInteger(value) && value >= 0, "LIVE_STOCK_DIAGNOSTICS_INVALID");
   }
   requireProof(report.followups.every((row) => ["VERIFIED", "PENDING"].includes(row?.state)), "LIVE_FOLLOWUPS_INVALID");
   requireProof(report.verifiedReceiptCount === report.followups.filter((row) => row.state === "VERIFIED").length && report.pendingReceiptCount === report.followups.filter((row) => row.state !== "VERIFIED").length, "LIVE_FOLLOWUPS_INVALID");
@@ -57,6 +61,9 @@ export function safeCycleSummary(status, body, month) {
     hasPendingReceipts: report.pendingReceiptCount > 0,
     hasMissingInventoryBaseline: report.missingBaselineCount > 0,
     baselineAccumulationInProgress: report.missingBaselineCount > 0,
+    hasAffectedInvalidStockEvidence: report.stockDiagnostics.invalidBaselineCount > 0,
+    hasStockEvidenceBlocker: report.stockDiagnostics.evidenceBlockerCount > 0,
+    hasStockSourceBlocker: report.stockDiagnostics.sourceBlockerCount > 0,
     hasWarnings: report.warnings.length > 0,
     actualPurchaseExecuted: false,
   };
