@@ -330,6 +330,62 @@ test("canonical cost contract rejected by Stage 8 stays blocked after numeric no
   });
   blocked(buildPurchaseCyclePreflight(input), "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
 });
+test("active wholesale sale-price estimate can enter the draft preview without becoming verified purchase cost", () => {
+  const input = fixture();
+  Object.assign(input.priority.rows[0], {
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptCostKrw: 0,
+    hasVerifiedPurchaseCost: false,
+    verifiedPurchaseCostReady: false,
+    purchaseCostTrustSource: "NONE",
+    verifiedPurchaseUnitCostKrw: 0,
+    purchaseProtectedCostKrw: 0,
+    protectedCostKrw: 0,
+    action: "COST_CONFIRMATION_REQUIRED",
+    operationallyReady: false,
+  });
+  input.wholesaleCosts = {
+    generatedAt: "2026-10-01T01:59:00.000Z",
+    planningContentFingerprint: input.before.planningContentFingerprint,
+    contentFingerprint: fp("9"),
+    state: "PARTIAL",
+    estimatedCount: 1,
+    missingCount: 0,
+    writesEnabled: false,
+    rows: [{
+      barcode: "BAA1-1", state: "ESTIMATED", estimatedUnitCostKrw: 6000,
+      source: "SHOPLING_ACTIVE_WHOLESALE_SALE_PRICE_ESTIMATE", reason: null, evidence: [],
+    }],
+  };
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true);
+  assert.equal(report.estimatedSpendKrw, 30000);
+  assert.equal(report.selected[0].estimatedUnitCostKrw, 6000);
+  assert.equal(report.selected[0].verifiedUnitCostKrw, 0);
+  assert.equal(report.selected[0].confirmedUnitCostKrw, 0);
+  assert.equal(report.selected[0].executionCostVerified, false);
+  assert.equal(report.selected[0].costBasis, "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE");
+  assert.equal(report.wholesaleEstimatedSelectedCount, 1);
+  assert.ok(report.reviewBlockers.includes("WHOLESALE_COST_ESTIMATE_OWNER_REVIEW_REQUIRED"));
+  locked(report);
+});
+test("stale wholesale estimate cannot bypass confirmed cost", () => {
+  const input = fixture();
+  Object.assign(input.priority.rows[0], {
+    hasConfirmedReceiptCost: false, latestConfirmedReceiptCostKrw: 0,
+    action: "COST_CONFIRMATION_REQUIRED", operationallyReady: false,
+  });
+  input.wholesaleCosts = {
+    generatedAt: "2026-09-01T00:00:00.000Z",
+    planningContentFingerprint: input.before.planningContentFingerprint,
+    contentFingerprint: fp("8"), state: "PARTIAL", estimatedCount: 1,
+    missingCount: 0, writesEnabled: false,
+    rows: [{ barcode: "BAA1-1", state: "ESTIMATED", estimatedUnitCostKrw: 6000, source: "SHOPLING_ACTIVE_WHOLESALE_SALE_PRICE_ESTIMATE", reason: null, evidence: [] }],
+  };
+  const report = buildPurchaseCyclePreflight(input);
+  blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+  assert.ok(report.reviewBlockers.includes("WHOLESALE_COST_ESTIMATE_STALE_OR_UNPINNED"));
+});
 for (const patch of [{ latestConfirmedReceiptCostKrw: Number.MAX_SAFE_INTEGER }, { protectedCostKrw: Infinity }, { protectedCostKrw: -1 }]) {
   test(`unsafe confirmed-cost arithmetic fails closed: ${Object.keys(patch)[0]}:${String(Object.values(patch)[0])}`, () => {
     const input = fixture(); Object.assign(input.priority.rows[0], patch);
