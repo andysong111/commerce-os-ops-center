@@ -6,7 +6,7 @@ import { buildPurchaseCycleClosureReport } from "../src/lib/purchaseCycleClosure
 
 const fixture = () => ({
   cycleMonth: "2026-10", orderClosed: true, orderCount: 1, unassignedLineCount: 0,
-  orderedQuantity: 5, receivedQuantity: 5, openQuantity: 0,
+  orderedQuantity: 5, receivedQuantity: 5, cancelledQuantity: 0, openQuantity: 0,
   receiptState: "COMPLETE", landedCostState: "COMPLETE", fundingState: "COMPLETE",
   approvedPriceCheckPending: false, warnings: [],
   followups: [{ receiptId: "simulation-receipt-1", cycleMonth: "2026-10", receivedQuantity: 5,

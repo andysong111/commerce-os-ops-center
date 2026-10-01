@@ -383,6 +383,10 @@ export async function loadFastPurchaseInternalDrafts() {
           (sum, line) => sum + line.receivedQuantity,
           0,
         ),
+        cancelledQuantity: lines.reduce(
+          (sum, line) => sum + line.cancelledQuantity,
+          0,
+        ),
         openQuantity: lines.reduce(
           (sum, line) => sum + line.openQuantity,
           0,
@@ -399,6 +403,7 @@ export async function loadFastPurchaseInternalDrafts() {
           requestedQuantity: line.requestedQuantity,
           orderedQuantity: line.orderedQuantity,
           receivedQuantity: line.receivedQuantity,
+          cancelledQuantity: line.cancelledQuantity,
           openQuantity: line.openQuantity,
           status: line.status,
         })),

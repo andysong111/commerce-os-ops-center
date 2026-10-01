@@ -40,6 +40,7 @@ export type InternalChinaPurchaseCycleHandoff = {
   draftCount: number;
   orderedQuantity: number;
   receivedQuantity: number;
+  cancelledQuantity: number;
   openQuantity: number;
   receiptState: StageState;
   landedCostState: StageState;
@@ -251,6 +252,10 @@ export async function loadInternalChinaPurchaseCycleHandoff(
     (sum, draft) => sum + draft.receivedQuantity,
     0,
   );
+  const cancelledQuantity = previousDrafts.reduce(
+    (sum, draft) => sum + draft.cancelledQuantity,
+    0,
+  );
   const openQuantity = previousDrafts.reduce(
     (sum, draft) => sum + draft.openQuantity,
     0,
@@ -259,7 +264,8 @@ export async function loadInternalChinaPurchaseCycleHandoff(
   const receiptState: StageState =
     previousDrafts.length === 0
       ? "NOT_AVAILABLE"
-      : openQuantity === 0 && receivedQuantity >= orderedQuantity
+      : openQuantity === 0 &&
+          receivedQuantity + cancelledQuantity >= orderedQuantity
         ? "COMPLETE"
         : "NEEDS_CHECK";
 
@@ -308,6 +314,7 @@ export async function loadInternalChinaPurchaseCycleHandoff(
     draftCount: previousDrafts.length,
     orderedQuantity,
     receivedQuantity,
+    cancelledQuantity,
     openQuantity,
     receiptState,
     landedCostState,
