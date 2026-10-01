@@ -413,7 +413,9 @@ export function InternalChinaReceiptPanel({
             </p>
             {forwarderCost.closedAt ? (
               <p className="mt-2 text-xs text-blue-800">
-                최근 마감 · {new Date(forwarderCost.closedAt).toLocaleString("ko-KR")}
+                최근 마감 · {new Date(forwarderCost.closedAt).toLocaleString("ko-KR", {
+                  timeZone: "Asia/Seoul",
+                })}
               </p>
             ) : null}
             {!openLines.length ? (
