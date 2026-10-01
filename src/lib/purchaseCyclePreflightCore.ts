@@ -4,6 +4,11 @@ import type { PostApplyCanonicalReconciliation } from "./stage8PostApplyCanonica
 import type { InventoryVerificationPriority, InventoryVerificationPriorityRow } from "./stage8InventoryVerificationPriority";
 import type { PurchaseWholesaleCostEstimateSnapshot } from "./purchaseWholesaleCostEstimate";
 import {
+  validPurchaseOwnerCostEstimateSnapshot,
+  type PurchaseOwnerCostEstimateSnapshot,
+  type PurchaseOwnerCostEstimateSource,
+} from "./purchaseCycleOwnerCostEstimate.ts";
+import {
   effectivePurchaseUnitCostKrw,
   purchaseCostEvidenceAt,
   purchaseCostEvidenceSource,
@@ -40,6 +45,7 @@ export type PurchasePreflightInput = {
   reconciliation: PostApplyCanonicalReconciliation | null;
   priority: InventoryVerificationPriority | null;
   wholesaleCosts?: PurchaseWholesaleCostEstimateSnapshot | null;
+  ownerCosts?: PurchaseOwnerCostEstimateSnapshot | null;
   costEstimateErrors?: string[];
   sourceErrors: string[];
   spendBefore: PurchaseMonthlySpendPin | null;
@@ -60,7 +66,9 @@ export type PurchasePreflightLine = {
   verifiedUnitCostKrw: number;
   confirmedUnitCostKrw: number;
   estimatedUnitCostKrw: number;
-  costBasis: "VERIFIED_PURCHASE_COST" | "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE";
+  costBasis: "VERIFIED_PURCHASE_COST" | "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE" | PurchaseOwnerCostEstimateSource;
+  costModelNo: string | null;
+  costReferenceModelNo: string | null;
   executionCostVerified: boolean;
   costEvidenceSource: string;
   inventoryQuantity: number;
@@ -94,6 +102,7 @@ export type PurchaseCyclePreflightReport = {
   estimatedAllInSpendKrw: number;
   estimatedSpendKrw: number;
   wholesaleEstimatedSelectedCount: number;
+  ownerEstimatedSelectedCount: number;
   missingCostCount: number;
   remainingPreviewBudgetKrw: number;
   previewReady: boolean;
@@ -150,28 +159,35 @@ function verifiedUnitCost(row: InventoryVerificationPriorityRow, now: number) {
 }
 type PurchaseCostBasis = {
   unitCostKrw: number;
+  basis: PurchasePreflightLine["costBasis"];
   source: string;
   evidenceAt: string | null;
   executionVerified: boolean;
+  modelNo: string | null;
+  referenceModelNo: string | null;
 };
 
 function purchaseCostBasis(
   row: InventoryVerificationPriorityRow,
   now: number,
   wholesaleByBarcode: Map<string, PurchaseCostBasis>,
+  ownerByBarcode: Map<string, PurchaseCostBasis>,
 ): PurchaseCostBasis | null {
   if (purchaseCostReadyForExecution(row, now)) {
     const unitCostKrw = verifiedUnitCost(row, now);
     if (positive(unitCostKrw)) {
       return {
         unitCostKrw,
+        basis: "VERIFIED_PURCHASE_COST",
         source: purchaseCostEvidenceSource(row),
         evidenceAt: purchaseCostEvidenceAt(row),
         executionVerified: true,
+        modelNo: null,
+        referenceModelNo: null,
       };
     }
   }
-  return wholesaleByBarcode.get(row.barcode) ?? null;
+  return wholesaleByBarcode.get(row.barcode) ?? ownerByBarcode.get(row.barcode) ?? null;
 }
 
 function lineCost(row: InventoryVerificationPriorityRow, basis: PurchaseCostBasis | null) {
@@ -202,7 +218,9 @@ function projectedLine(row: InventoryVerificationPriorityRow, basis: PurchaseCos
     verifiedUnitCostKrw: basis.executionVerified ? unitCost : 0,
     confirmedUnitCostKrw: basis.executionVerified ? unitCost : 0,
     estimatedUnitCostKrw: unitCost,
-    costBasis: basis.executionVerified ? "VERIFIED_PURCHASE_COST" : "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE",
+    costBasis: basis.basis,
+    costModelNo: basis.modelNo,
+    costReferenceModelNo: basis.referenceModelNo,
     executionCostVerified: basis.executionVerified,
     costEvidenceSource: basis.source,
     inventoryQuantity: row.inventoryQuantity,
@@ -321,9 +339,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       if (row.state !== "ESTIMATED" || !positive(row.estimatedUnitCostKrw)) continue;
       wholesaleByBarcode.set(row.barcode, {
         unitCostKrw: row.estimatedUnitCostKrw,
+        basis: "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE",
         source: row.source,
         evidenceAt: wholesaleSnapshot.generatedAt,
         executionVerified: false,
+        modelNo: null,
+        referenceModelNo: null,
       });
     }
   }
@@ -332,12 +353,30 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   }
   for (const error of input.costEstimateErrors ?? []) reviewBlockers.push(error);
 
+  const ownerSnapshot = input.ownerCosts ?? null;
+  const ownerSnapshotUsable = validPurchaseOwnerCostEstimateSnapshot(ownerSnapshot);
+  const ownerByBarcode = new Map<string, PurchaseCostBasis>();
+  if (ownerSnapshotUsable && ownerSnapshot) {
+    for (const row of ownerSnapshot.rows) {
+      ownerByBarcode.set(row.barcode, {
+        unitCostKrw: row.estimatedUnitCostKrw,
+        basis: row.source,
+        source: row.source,
+        evidenceAt: row.evidenceAt,
+        executionVerified: false,
+        modelNo: row.modelNo,
+        referenceModelNo: row.referenceModelNo,
+      });
+    }
+  }
+  if (ownerSnapshot && !ownerSnapshotUsable) reviewBlockers.push("OWNER_COST_ESTIMATE_INVALID");
+
   const rows = [...(input.priority?.rows ?? [])].sort((a, b) => a.barcode.localeCompare(b.barcode));
   const duplicates = new Set(rows.filter((row, i) => i > 0 && rows[i - 1].barcode === row.barcode).map(row => row.barcode));
   if (duplicates.size) blockers.push("DUPLICATE_BARCODE");
   const candidates = rows.filter(row => row.purchaseStatus === "발주 추천");
   const costBasisByBarcode = new Map(
-    candidates.map((row) => [row.barcode, purchaseCostBasis(row, now, wholesaleByBarcode)] as const),
+    candidates.map((row) => [row.barcode, purchaseCostBasis(row, now, wholesaleByBarcode, ownerByBarcode)] as const),
   );
   const excluded: PurchaseCyclePreflightReport["excluded"] = [];
   const eligible: InventoryVerificationPriorityRow[] = [];
@@ -386,8 +425,11 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (selected.some((row) => row.inventoryMode === "PROVISIONAL")) {
     reviewBlockers.push("PROVISIONAL_INVENTORY_OWNER_REVIEW_REQUIRED");
   }
-  if (selected.some((row) => row.executionCostVerified === false)) {
+  if (selected.some((row) => row.costBasis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE")) {
     reviewBlockers.push("WHOLESALE_COST_ESTIMATE_OWNER_REVIEW_REQUIRED");
+  }
+  if (selected.some((row) => row.costBasis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE")) {
+    reviewBlockers.push("OWNER_COST_ESTIMATE_REVIEW_REQUIRED");
   }
   const sourceEvidence = source ? {
     analysisAsOf: source.analysisAsOf,
@@ -424,6 +466,10 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       state: wholesaleSnapshot.state,
       rows: wholesaleSnapshot.rows,
     } : null,
+    ownerCosts: ownerSnapshotUsable && ownerSnapshot ? {
+      contentFingerprint: ownerSnapshot.contentFingerprint,
+      rows: ownerSnapshot.rows,
+    } : null,
     costEstimateErrors: [...(input.costEstimateErrors ?? [])].sort(),
     sourceErrors: [...input.sourceErrors].sort(),
   });
@@ -434,7 +480,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const stages = [
     stage(5, "공식 판매원장 게이트", salesVerified ? "VERIFIED" : "BLOCKED", fullReadback ? "동일 후보의 검증된 공식 반영 이력이 있습니다. 새 쓰기 권한은 발급하지 않습니다." : gate?.message ?? "후보 승인 검증을 기다립니다.", "/stage8-candidate-promotion-gate"),
     stage(6, "Product Master 반영·재조회", fullReadback && stable ? "VERIFIED" : "WAITING", rec?.message ?? "1건 카나리·전수 반영 후 재조회 검증이 필요합니다.", "/stage8-postapply-canonical-reconciliation"),
-    stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costBasisByBarcode.get(row.barcode)).length) : "BLOCKED", `확정원가 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.executionVerified).length}개 · 활성 도매 판매가 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.executionVerified === false).length}개 · 미확인 ${candidates.filter(row => !costBasisByBarcode.get(row.barcode)).length}개. 추정값은 초안 예산에만 쓰며 실제 주문 원가로 승격하지 않습니다.`, "/stage7-purchase-cost-evidence"),
+    stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costBasisByBarcode.get(row.barcode)).length) : "BLOCKED", `확정원가 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "VERIFIED_PURCHASE_COST").length}개 · 활성 도매 판매가 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE").length}개 · 사용자 제공 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || costBasisByBarcode.get(row.barcode)?.basis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE").length}개 · 미확인 ${candidates.filter(row => !costBasisByBarcode.get(row.barcode)).length}개. 추정값은 초안 예산에만 쓰며 실제 주문 원가로 승격하지 않습니다.`, "/stage7-purchase-cost-evidence"),
     stage(8, "발주 후보 재고 근거", inventoryFresh ? coverage(candidates.filter(inventoryPreviewReady).length) : "BLOCKED", `계획재고 ${candidates.filter(inventoryPreviewReady).length}/${candidates.length}개 · VERIFIED ${candidates.filter(verifiedInventoryReady).length}개 · PROVISIONAL ${candidates.filter(provisionalInventoryReady).length}개. 전수 실사는 요구하지 않으며, 실제 품절 시 SOLD_OUT_RESET=0 이후 중국 확정입고와 판매를 누적합니다.`, "/stage8-inventory-verification-priority"),
     stage(9, "발주 Shadow·원본 일치", shadowReady && contextMatch && stable && fullReadback && sourceFresh && inventoryFresh ? "VERIFIED" : "BLOCKED", "판매·재고·미입고가 연결된 읽기 전용 계산입니다. 보조신호 등 남은 조건은 승인 검토 차단 사유로 별도 표시합니다.", "/stage8-canonical-purchase-shadow"),
     stage(10, "예산 내 소량 발주안", previewReady ? "VERIFIED" : "WAITING", previewReady ? budgetMonthClosed ? "전월 판매원가 자동 한도로 계산한 미리보기입니다. 승인·예약·주문은 생성되지 않았습니다." : "월 마감 전 조기 미리보기입니다. 실제 주문 전에 마감 자료로 다시 계산해야 하며 승인·예약·주문은 생성되지 않았습니다." : "목표 월의 최신 데이터와 전월 판매원가 자동 한도를 확인한 뒤 계산합니다.", "/purchase-cycle-preflight"),
@@ -450,7 +496,8 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     sourceCycleMonth: source?.cycleMonth ?? null, sourceBudgetMonth: source?.budgetMonth ?? null,
     cashLimitKrw, automaticGrossBudgetKrw: fundingValid ? source!.grossBudgetKrw! : null,
     effectiveBudgetKrw, estimatedSpendKrw, remainingPreviewBudgetKrw: effectiveBudgetKrw - estimatedSpendKrw,
-    wholesaleEstimatedSelectedCount: selected.filter((row) => !row.executionCostVerified).length,
+    wholesaleEstimatedSelectedCount: selected.filter((row) => row.costBasis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE").length,
+    ownerEstimatedSelectedCount: selected.filter((row) => row.costBasis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE").length,
     missingCostCount: candidates.filter((row) => !costBasisByBarcode.get(row.barcode)).length,
     recordedCycleSpendKrw, remainingMonthlyCashKrw, effectiveCashKrw,
     purchaseCostMultiplier: multiplierValid ? multiplier! : null,
@@ -469,6 +516,7 @@ export type PurchasePreflightReaders = {
   priority: () => Promise<InventoryVerificationPriority>;
   monthlySpend: (cycleMonth: string) => Promise<PurchaseMonthlySpendPin>;
   wholesaleCosts?: () => Promise<PurchaseWholesaleCostEstimateSnapshot>;
+  ownerCosts?: () => Promise<PurchaseOwnerCostEstimateSnapshot>;
 };
 
 // The actual orchestration is injectable so CI exercises failure/drift and
@@ -501,9 +549,17 @@ export async function readPurchaseCyclePreflight(
       costEstimateErrors.push("WHOLESALE_COST_ESTIMATE_READ_FAILED");
     }
   }
+  let ownerCosts: PurchaseOwnerCostEstimateSnapshot | null = null;
+  if (readers.ownerCosts) {
+    try {
+      ownerCosts = await readers.ownerCosts();
+    } catch {
+      costEstimateErrors.push("OWNER_COST_ESTIMATE_READ_FAILED");
+    }
+  }
   const [after, spendAfter] = await Promise.all([
     capture("CANDIDATE_RECHECK_FAILED", readers.candidate),
     capture("CYCLE_SPEND_RECHECK_FAILED", () => readers.monthlySpend(options.targetDate.slice(0, 7))),
   ]);
-  return buildPurchaseCyclePreflight({ now: clock(), options, before, after, gate, reconciliation, priority, wholesaleCosts, costEstimateErrors, sourceErrors, spendBefore, spendAfter });
+  return buildPurchaseCyclePreflight({ now: clock(), options, before, after, gate, reconciliation, priority, wholesaleCosts, ownerCosts, costEstimateErrors, sourceErrors, spendBefore, spendAfter });
 }
