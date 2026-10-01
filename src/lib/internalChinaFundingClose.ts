@@ -37,6 +37,7 @@ export type InternalChinaFundingCloseSummary = {
   koreaAccountSpentKrw: number;
   koreaAccountRemainingKrw: number;
   emergencyReserveTransferKrw: number;
+  actualTotalOutflowKrw: number;
   closedAt: string;
 };
 
@@ -165,8 +166,28 @@ export function parseInternalChinaFundingClose(
     koreaAccountSpentKrw: integer(row.koreaAccountSpentKrw),
     koreaAccountRemainingKrw: integer(row.koreaAccountRemainingKrw),
     emergencyReserveTransferKrw: integer(row.emergencyReserveTransferKrw),
+    actualTotalOutflowKrw: integer(row.actualTotalOutflowKrw),
     closedAt,
   };
+}
+
+function validatedForwarderOutflow(snapshot: Record<string, unknown>) {
+  const productPurchaseCostKrw = integer(snapshot.productPurchaseCostKrw);
+  const domesticChinaFreightKrw = integer(snapshot.domesticChinaFreightKrw);
+  const actualForwarderCostKrw = integer(snapshot.actualCostKrw);
+  const actualTotalOutflowKrw = integer(snapshot.actualTotalOutflowKrw);
+  const calculatedTotal =
+    productPurchaseCostKrw + domesticChinaFreightKrw + actualForwarderCostKrw;
+  if (
+    productPurchaseCostKrw <= 0 ||
+    actualForwarderCostKrw <= 0 ||
+    !Number.isSafeInteger(calculatedTotal) ||
+    calculatedTotal > MAX_KRW ||
+    actualTotalOutflowKrw !== calculatedTotal
+  ) {
+    throw new Error("CHINA_FUNDING_CLOSE_FORWARDER_OUTFLOW_INVALID");
+  }
+  return { actualForwarderCostKrw, actualTotalOutflowKrw };
 }
 
 async function readForwarderClose(draftId: string) {
@@ -308,10 +329,8 @@ export async function recordInternalChinaFundingClose(
   if (text(snapshot.draftId) !== draftId || text(snapshot.cycleMonth) !== cycleMonth) {
     throw new Error("CHINA_FUNDING_CLOSE_FORWARDER_CONFLICT");
   }
-  const actualForwarderCostKrw = integer(snapshot.actualCostKrw);
-  if (actualForwarderCostKrw <= 0) {
-    throw new Error("CHINA_FUNDING_CLOSE_FORWARDER_REQUIRED");
-  }
+  const { actualForwarderCostKrw, actualTotalOutflowKrw } =
+    validatedForwarderOutflow(snapshot);
 
   const budgetMonth = previousCalendarMonth(cycleMonth);
   const revenue = await loadCalendarMonthNormalRevenue(budgetMonth);
@@ -339,6 +358,7 @@ export async function recordInternalChinaFundingClose(
       koreaAccountSpentKrw: actualForwarderCostKrw,
       koreaAccountRemainingKrw: 0,
       emergencyReserveTransferKrw: 0,
+      actualTotalOutflowKrw,
       closedAt: now,
     };
   } else {
@@ -375,6 +395,7 @@ export async function recordInternalChinaFundingClose(
       koreaAccountSpentKrw,
       koreaAccountRemainingKrw,
       emergencyReserveTransferKrw: koreaAccountRemainingKrw,
+      actualTotalOutflowKrw,
       closedAt: now,
     };
   }

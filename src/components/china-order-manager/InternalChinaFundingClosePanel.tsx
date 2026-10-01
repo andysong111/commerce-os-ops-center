@@ -11,18 +11,29 @@ export function InternalChinaFundingClosePanel({
   cycleMonth,
   totalSpendingBudgetKrw,
   actualForwarderCostKrw,
+  actualTotalOutflowKrw,
   stored,
 }: {
   draftId: string;
   cycleMonth: string;
   totalSpendingBudgetKrw: number;
   actualForwarderCostKrw: number;
+  actualTotalOutflowKrw: number;
   stored: InternalChinaFundingCloseSummary | null;
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
-  const invalid = totalSpendingBudgetKrw <= 0 || actualForwarderCostKrw <= 0;
+  const invalid =
+    totalSpendingBudgetKrw <= 0 ||
+    actualForwarderCostKrw <= 0 ||
+    actualTotalOutflowKrw <= 0;
+  const fundingComplete = Boolean(
+    stored &&
+      stored.draftId === draftId &&
+      stored.cycleMonth === cycleMonth &&
+      stored.actualTotalOutflowKrw > 0,
+  );
 
   async function save() {
     if (invalid) {
@@ -31,7 +42,7 @@ export function InternalChinaFundingClosePanel({
     }
     if (
       !window.confirm(
-        `이번 달 발주 사이클의 자금 단계까지 마감할까요?\n\n현재는 WorldFirst 송금액·USD/CNH 기말잔고·지갑별 잔액을 입력하지 않습니다. 확인된 배송대행 실제비용 ${number.format(actualForwarderCostKrw)}원과 월 마감 완료 상태만 기록합니다.`,
+        `이번 달 발주 사이클의 자금 단계까지 마감할까요?\n\n현재는 WorldFirst 송금액·USD/CNH 기말잔고·지갑별 잔액을 입력하지 않습니다. 이미 확정된 실제 총지출 ${number.format(actualTotalOutflowKrw)}원을 자동으로 기록합니다.`,
       )
     ) {
       return;
@@ -80,9 +91,13 @@ export function InternalChinaFundingClosePanel({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-black text-emerald-950">월 자금 마감</h3>
-            {stored ? (
+            {fundingComplete ? (
               <span className="rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-black text-emerald-800">
                 자금 마감 완료
+              </span>
+            ) : stored ? (
+              <span className="rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-black text-amber-800">
+                총지출 재확인 필요
               </span>
             ) : null}
           </div>
@@ -92,7 +107,7 @@ export function InternalChinaFundingClosePanel({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
         <FundingMetric
           label="전체 지출가능금액"
           value={`${number.format(totalSpendingBudgetKrw)}원`}
@@ -100,6 +115,10 @@ export function InternalChinaFundingClosePanel({
         <FundingMetric
           label="확정 배송대행 실제비용"
           value={`${number.format(actualForwarderCostKrw)}원`}
+        />
+        <FundingMetric
+          label="확정 실제 총지출"
+          value={`${number.format(actualTotalOutflowKrw)}원`}
           emphasized
         />
       </div>
@@ -108,7 +127,7 @@ export function InternalChinaFundingClosePanel({
         WorldFirst 관련 세부 원장은 지금 단계에서는 수집·계산하지 않습니다. 나중에 필요성이 확인되면 별도 자금관리 기능으로 분리해 다시 붙일 수 있습니다.
       </p>
 
-      {!stored ? (
+      {!fundingComplete ? (
         <div className="mt-3 flex justify-end">
           <button
             type="button"

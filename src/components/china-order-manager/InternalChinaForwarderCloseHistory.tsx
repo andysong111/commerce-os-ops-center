@@ -233,6 +233,7 @@ export async function InternalChinaForwarderCloseHistory({
           cycleMonth={latestSummary.cycleMonth}
           totalSpendingBudgetKrw={latestBudget.totalSpendingBudgetKrw}
           actualForwarderCostKrw={latestSummary.actualCostKrw ?? 0}
+          actualTotalOutflowKrw={latestSummary.actualTotalOutflowKrw ?? 0}
           stored={latestFundingClose}
         />
       ) : null}
@@ -250,6 +251,7 @@ export async function InternalChinaForwarderCloseHistory({
               <tr>
                 <th className="px-3 py-3">발주월</th>
                 <th className="px-3 py-3 text-right">전체 지출가능</th>
+                <th className="px-3 py-3 text-right">실제 총지출</th>
                 <th className="px-3 py-3 text-right">WorldFirst 송금</th>
                 <th className="px-3 py-3 text-right">WF 기말 USD</th>
                 <th className="px-3 py-3 text-right">WF 기말 CNH</th>
@@ -267,6 +269,9 @@ export async function InternalChinaForwarderCloseHistory({
                   </td>
                   <td className="px-3 py-3 text-right font-bold">
                     {number.format(row.totalSpendingBudgetKrw)}원
+                  </td>
+                  <td className="px-3 py-3 text-right font-bold">
+                    {number.format(row.actualTotalOutflowKrw)}원
                   </td>
                   <td className="px-3 py-3 text-right">
                     {number.format(row.worldFirstTransferKrw)}원

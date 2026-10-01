@@ -42,6 +42,9 @@ test("monthly funding close treats WorldFirst transfer as allocation and calcula
 
 test("funding close is only allowed after final landed cost and cannot understate Korean-account forwarder spending", () => {
   assert.ok(engine.includes("CHINA_FUNDING_CLOSE_FORWARDER_REQUIRED"));
+  assert.ok(engine.includes("CHINA_FUNDING_CLOSE_FORWARDER_OUTFLOW_INVALID"));
+  assert.ok(engine.includes("actualTotalOutflowKrw !== calculatedTotal"));
+  assert.ok(engine.includes("actualTotalOutflowKrw,"));
   assert.ok(engine.includes("CHINA_FUNDING_CLOSE_KOREA_SPEND_BELOW_FORWARDER"));
   assert.ok(engine.includes("koreaAccountSpentKrw < actualForwarderCostKrw"));
   assert.ok(engine.includes("CHINA_FUNDING_CLOSE_KOREA_SPEND_EXCEEDED"));
@@ -66,6 +69,10 @@ test("simplified funding close submits only the cycle identity and never fabrica
   assert.ok(panel.includes("disabled={saving || invalid}"));
   assert.ok(panel.includes("전체 지출가능금액"));
   assert.ok(panel.includes("확정 배송대행 실제비용"));
+  assert.ok(panel.includes("확정 실제 총지출"));
+  assert.ok(panel.includes("stored.actualTotalOutflowKrw > 0"));
+  assert.ok(panel.includes("총지출 재확인 필요"));
+  assert.ok(panel.includes("!fundingComplete"));
   assert.ok(panel.includes("WorldFirst 관련 세부 원장은 지금 단계에서는 수집·계산하지 않습니다"));
   assert.equal(/<input\b/.test(panel), false);
   assert.equal(panel.includes("worldFirstEndingUsd:"), false);

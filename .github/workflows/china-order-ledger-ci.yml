@@ -5,6 +5,7 @@ on:
     paths:
       - "src/lib/chinaOrderLedger.ts"
       - "src/lib/internalChinaPurchaseDraft.ts"
+      - "src/lib/internalChinaOrderEvidence.ts"
       - "src/lib/internalChinaPurchaseBudgetAudit.ts"
       - "src/lib/internalChinaReceipt.ts"
       - "src/lib/internalChinaForwarderCost.ts"
@@ -36,6 +37,7 @@ on:
       - "src/components/fast-purchase-mvp/PreviousPurchaseCycleHandoff.tsx"
       - "tests/chinaOrderLedger.test.mjs"
       - "tests/internalChinaPurchaseDraftMvp.test.mjs"
+      - "tests/internalChinaOrderEvidence.test.mjs"
       - "tests/internalChinaPurchaseBudgetAudit.test.mjs"
       - "tests/internalChinaReceipt.test.mjs"
       - "tests/internalChinaForwarderCost.test.mjs"
@@ -72,6 +74,7 @@ jobs:
           npx eslint
           src/lib/chinaOrderLedger.ts
           src/lib/internalChinaPurchaseDraft.ts
+          src/lib/internalChinaOrderEvidence.ts
           src/lib/internalChinaPurchaseBudgetAudit.ts
           src/lib/internalChinaReceipt.ts
           src/lib/internalChinaForwarderCost.ts
@@ -109,6 +112,7 @@ jobs:
           "src/app/china-order-manager/drafts/[draftId]/page.tsx"
           src/app/fast-purchase-mvp/page.tsx
           src/components/china-order-manager/InternalChinaPurchaseDraftWorkspace.tsx
+          src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx
           src/components/china-order-manager/InternalChinaPurchaseBudgetAudit.tsx
           src/components/china-order-manager/InternalChinaReceiptPanel.tsx
           src/components/china-order-manager/InternalChinaForwarderCloseHistory.tsx
@@ -122,6 +126,7 @@ jobs:
           src/components/fast-purchase-mvp/PreviousPurchaseCycleHandoff.tsx
           tests/chinaOrderLedger.test.mjs
           tests/internalChinaPurchaseDraftMvp.test.mjs
+          tests/internalChinaOrderEvidence.test.mjs
           tests/internalChinaPurchaseBudgetAudit.test.mjs
           tests/internalChinaReceipt.test.mjs
           tests/internalChinaForwarderCost.test.mjs
@@ -137,6 +142,7 @@ jobs:
           node --experimental-strip-types --test
           tests/chinaOrderLedger.test.mjs
           tests/internalChinaPurchaseDraftMvp.test.mjs
+          tests/internalChinaOrderEvidence.test.mjs
           tests/internalChinaPurchaseBudgetAudit.test.mjs
           tests/internalChinaReceipt.test.mjs
           tests/internalChinaForwarderCost.test.mjs

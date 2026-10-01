@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
 import type { InternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
 import type {
   InternalChinaPurchaseDraft,
@@ -246,15 +247,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     };
   }, [budgetAudit.productOrderBudgetKrw, draft]);
 
-  const requiredIssues = useMemo(() => {
-    const issues: string[] = [];
-    for (const line of draft.lines) {
-      if (line.unitPriceCny <= 0) issues.push(`${line.barcode} 위안단가`);
-      if (!validHttpUrl(line.supplierLink)) issues.push(`${line.barcode} 모델 1번 1688 링크`);
-      if (!line.chinaOption.trim()) issues.push(`${line.barcode} 중국옵션`);
-    }
-    return issues;
-  }, [draft.lines]);
+  const requiredIssues = useMemo(
+    () => internalChinaOrderEvidenceIssues(draft.lines),
+    [draft.lines],
+  );
 
   const optionReviewCount = useMemo(
     () => draft.lines.filter((line) => !line.chinaOption.trim()).length,
