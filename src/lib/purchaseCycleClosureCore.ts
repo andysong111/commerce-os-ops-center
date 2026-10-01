@@ -16,6 +16,13 @@ export type PurchaseCycleClosureReport = {
   actionLabel: string; message: string; receiptId: string | null;
   receivedQuantity: number; cancelledQuantity: number; openQuantity: number; affectedSkuCount: number;
   verifiedReceiptCount: number; pendingReceiptCount: number; missingBaselineCount: number;
+  stockDiagnostics: {
+    reportState: InventoryStockControlReport["state"];
+    matchedBaselineCount: number;
+    invalidBaselineCount: number;
+    evidenceBlockerCount: number;
+    sourceBlockerCount: number;
+  };
   stages: Array<{ id: string; label: string; state: CycleStageState }>;
   warnings: string[]; followups: InternalChinaReceiptFollowupStatus[];
   actualPurchaseExecuted: false;
@@ -56,8 +63,10 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
   const stockBlockers = Array.isArray(input.stock.blockers)
     ? input.stock.blockers
     : input.stock.state === "READY" ? [] : ["PURCHASE_STOCK_REPORT_BLOCKED"];
-  const evidenceOnlyBlockers = stockBlockers.length > 0 && stockBlockers.every((blocker) =>
+  const evidenceBlockers = stockBlockers.filter((blocker) =>
     /^PURCHASE_STOCK_EVIDENCE_REQUIRED:B[A-Z]{1,2}\d+-\d+$/.test(blocker));
+  const sourceBlockers = stockBlockers.filter((blocker) => !evidenceBlockers.includes(blocker));
+  const evidenceOnlyBlockers = stockBlockers.length > 0 && sourceBlockers.length === 0;
   // The shared stock report may be BLOCKED because an unrelated historical
   // baseline lacks fresh sales coverage. Monthly closure scopes that evidence
   // gate to this cycle's receipt B-codes, while every source/read blocker still
@@ -65,7 +74,8 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
   const stockReadable = input.stock.state === "READY"
     ? stockBlockers.length === 0
     : evidenceOnlyBlockers;
-  const quantitiesVerified = codes.length > 0 && duplicateBaselineCount === 0 && stockReadable && exactStockRows.every((row) => row.salesCoverageReady && Number.isSafeInteger(row.exactInventoryQuantity) && row.exactInventoryQuantity >= 0);
+  const invalidStockRows = exactStockRows.filter((row) => !row.salesCoverageReady || !Number.isSafeInteger(row.exactInventoryQuantity) || row.exactInventoryQuantity < 0);
+  const quantitiesVerified = codes.length > 0 && duplicateBaselineCount === 0 && stockReadable && invalidStockRows.length === 0;
   const saleVerified = quantitiesVerified && exactStockRows.every((row) => !row.syncNeeded && !row.syncBlocked && row.latestSyncOutcome === "SUCCEEDED");
   const verifiedReceiptCount = input.followups.filter((row) => row.state === "VERIFIED").length;
   const pending = input.followups.filter((row) => row.state !== "VERIFIED");
@@ -87,7 +97,15 @@ export function buildPurchaseCycleClosureReport(input: PurchaseCycleClosureInput
     message: "저장된 입고와 실제 후속 반영을 구분해 확인합니다.", receiptId: null,
     receivedQuantity: input.receivedQuantity, cancelledQuantity: input.cancelledQuantity, openQuantity: input.openQuantity,
     affectedSkuCount: codes.length, verifiedReceiptCount, pendingReceiptCount: pending.length,
-    missingBaselineCount, stages, warnings: [...new Set(warnings)], followups: input.followups,
+    missingBaselineCount,
+    stockDiagnostics: {
+      reportState: input.stock.state,
+      matchedBaselineCount: exactStockRows.length,
+      invalidBaselineCount: invalidStockRows.length,
+      evidenceBlockerCount: evidenceBlockers.length,
+      sourceBlockerCount: sourceBlockers.length,
+    },
+    stages, warnings: [...new Set(warnings)], followups: input.followups,
     actualPurchaseExecuted: false,
   };
   if (warnings.length) return { ...report, state: "BLOCKED", nextAction: "RECHECK", actionLabel: "원장 다시 확인", message: "일부 근거를 읽지 못해 완료로 표시하지 않았습니다." };

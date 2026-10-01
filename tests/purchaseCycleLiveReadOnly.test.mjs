@@ -9,6 +9,7 @@ function fixture() {
     cycleMonth: month, actualPurchaseExecuted: false, state: "NEEDS_ACTION", nextAction: "OPEN_STOCK_CONTROL",
     stages: ["order", "receipt", "master", "inventory", "sale", "cost", "funding", "next"].map((id) => ({ id, state: "PENDING" })),
     receivedQuantity: 7, openQuantity: 0, verifiedReceiptCount: 0, pendingReceiptCount: 1, missingBaselineCount: 1,
+    stockDiagnostics: { reportState: "BLOCKED", matchedBaselineCount: 1, invalidBaselineCount: 1, evidenceBlockerCount: 1, sourceBlockerCount: 0 },
     followups: [{ state: "PENDING", receiptId: "private-receipt-id", barcode: "private-barcode", unitCost: 12345 }],
     warnings: ["private upstream message"], message: "private operator data",
   } };
@@ -31,6 +32,9 @@ test("valid blocked business state is reported honestly without publishing raw o
   assert.equal(summary.readbackVerified, true); assert.equal(summary.businessCycleReady, false);
   assert.equal(summary.hasPendingReceipts, true); assert.equal(summary.hasMissingInventoryBaseline, true);
   assert.equal(summary.baselineAccumulationInProgress, true);
+  assert.equal(summary.hasAffectedInvalidStockEvidence, true);
+  assert.equal(summary.hasStockEvidenceBlocker, true);
+  assert.equal(summary.hasStockSourceBlocker, false);
   assert.doesNotMatch(JSON.stringify(summary), /private|12345|receivedQuantity|receiptId/);
 });
 
@@ -43,6 +47,8 @@ test("401, wrong month, malformed stages and false completion never pass the liv
   assert.throws(() => safeCycleSummary(200, falseReady, month), /LIVE_FALSE_COMPLETION/);
   const falseEmpty = fixture(); falseEmpty.report.state = "NO_ORDER_CLOSED";
   assert.throws(() => safeCycleSummary(200, falseEmpty, month), /LIVE_FALSE_NO_ORDER/);
+  const invalidDiagnostics = fixture(); invalidDiagnostics.report.stockDiagnostics.invalidBaselineCount = -1;
+  assert.throws(() => safeCycleSummary(200, invalidDiagnostics, month), /LIVE_STOCK_DIAGNOSTICS_INVALID/);
 });
 
 test("deployment waiter uses exact SHA, a fixed read endpoint and waits for successful Vercel status", async () => {
@@ -98,6 +104,7 @@ function readyFixture() {
   Object.assign(ready.report, {
     state: "READY_FOR_NEXT_CALCULATION", nextAction: "OPEN_NEXT_CALCULATION",
     verifiedReceiptCount: 1, pendingReceiptCount: 0, missingBaselineCount: 0, warnings: [],
+    stockDiagnostics: { reportState: "READY", matchedBaselineCount: 1, invalidBaselineCount: 0, evidenceBlockerCount: 0, sourceBlockerCount: 0 },
     followups: [{ receiptId: "00000000-0000-4000-8000-000000000001", draftId: "fast-purchase-draft:1234567890abcdef1234", state: "VERIFIED", cycleMonth: month, lineCount: 1, barcodes: ["BBA1-1"], receivedQuantity: 7, canRetry: false, errorCode: null, fingerprint: `sha256:${"a".repeat(64)}`, verifiedAt: "2026-09-11T12:00:00.000Z" }],
   });
   ready.report.stages.forEach((stage) => { stage.state = stage.id === "next" ? "NOT_STARTED" : "VERIFIED"; });
