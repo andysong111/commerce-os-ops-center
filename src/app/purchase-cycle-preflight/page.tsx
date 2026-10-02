@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 180;
 const money = (value: number) => `${value.toLocaleString("ko-KR")}원`;
+const ENGINE_MAX_SKUS = 100;
+const ENGINE_MAX_UNITS_PER_SKU = 9_999;
 const statusLabels = { VERIFIED: "근거 확인", PARTIAL: "일부 확인", WAITING: "확인 대기", BLOCKED: "차단", LOCKED: "실행 잠금" };
 const reasonLabels: Record<string, string> = {
   INVENTORY_EVIDENCE_STALE_OR_UNPINNED: "재고·원가 원본이 15분 신선도 기준을 넘었거나 원본 지문을 확인하지 못했습니다.",
@@ -77,8 +79,6 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const targetDate = single("date", todaySeoul);
   const cash = single("cash", "");
   const cashLimitKrw = cash === "" ? null : Number(cash);
-  const skus = single("skus", "100");
-  const units = single("units", "9999");
   const early = single("early", "") === "1";
   const replaceDraftId = single("replace", "") || null;
   let report: PurchaseCyclePreflightReport | null = null;
@@ -87,13 +87,13 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   // explicit read-only form submission does. No polling, cron or write action.
   if (query.check === "1") {
     try {
-      if (["date", "cash", "skus", "units", "early", "check", "replace"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
-      if (![skus, units].every(value => /^\d+$/.test(value)) || (cash !== "" && !/^\d+$/.test(cash))) throw new Error("NUMERIC_INPUT_INVALID");
-      const options = { targetDate, cashLimitKrw, maxSkus: Number(skus), maxUnitsPerSku: Number(units), allowOpenBudgetPreview: early, replaceDraftId };
+      if (["date", "cash", "early", "check", "replace"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
+      if (cash !== "" && !/^\d+$/.test(cash)) throw new Error("NUMERIC_INPUT_INVALID");
+      const options = { targetDate, cashLimitKrw, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId };
       validatePurchasePreflightOptions(options);
       report = await loadPurchaseCyclePreflight(options);
     } catch {
-      inputError = "점검을 완료하지 못했습니다. 날짜와 정수 금액·수량을 확인하세요. SKU는 1~100개, 품목별 수량 상한은 1~9,999개입니다. 입력이 맞다면 자료를 다시 조회하세요.";
+      inputError = "점검을 완료하지 못했습니다. 날짜와 정수 금액을 확인하세요. 입력이 맞다면 자료를 다시 조회하세요.";
     }
   }
   return (
@@ -110,8 +110,6 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
         <label className="text-sm font-bold">발주 예정일<input className="mt-2 block w-full rounded-lg border p-2" name="date" type="date" defaultValue={targetDate} required /></label>
         <label className="text-sm font-bold">이번 달 발주에 쓸 총 현금<input className="mt-2 block w-full rounded-lg border p-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 자동 한도" /><span className="mt-1 block text-xs font-normal text-slate-500">상품대금과 배송비·수수료 예비금을 모두 포함한 금액</span></label>
-        <label className="text-sm font-bold">최대 SKU 수<input className="mt-2 block w-full rounded-lg border p-2" name="skus" type="number" min="1" max="100" step="1" defaultValue={skus} required /></label>
-        <label className="text-sm font-bold">품목별 최대 수량<input className="mt-2 block w-full rounded-lg border p-2" name="units" type="number" min="1" max="9999" step="1" defaultValue={units} required /></label>
         <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2 xl:col-span-3"><input name="early" type="checkbox" value="1" defaultChecked={early} />월 마감 전 조기 미리보기</label>
         <p className="text-xs leading-5 text-slate-600 sm:col-span-2 xl:col-span-3">입력 현금과 전월 정상매출 기준 자동 한도 중 작은 금액을 사용합니다. 현금이 부족하면 우선순위 상위 25%는 권장수량을 먼저 보호하고, 다음 50%는 60% 수량, 나머지는 MOQ·박스단위 최소수량부터 배분한 뒤 남은 현금을 우선순위대로 추가합니다.</p>
         <button type="submit" className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white">읽기 전용 사전 점검</button>
@@ -178,8 +176,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           {!report.selected.length ? <p className="mt-3 text-sm">확정 가능한 미리보기 품목이 없습니다. 차단을 우회하거나 재고를 0으로 가정하지 않습니다.</p> : null}
           <details className="mt-4 text-sm"><summary>제외 품목 {report.excluded.length}개 확인</summary>{report.excluded.slice(0, 100).map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.reasons.map(explain).join(" / ")}</p>)}{report.excluded.length > 100 ? <p className="mt-2">앞의 100개를 표시했습니다. 구간별 상세 화면에서 전체 자료를 확인하세요.</p> : null}</details>
         </section>
-        {Number(skus) === 100 && Number(units) === 9999 ? (
-          <PurchaseCycleDraftActions
+        <PurchaseCycleDraftActions
             targetDate={report.targetDate}
             targetCycleMonth={report.targetCycleMonth}
             cashLimitKrw={report.cashLimitKrw}
@@ -196,7 +193,6 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             replacementRemovedCount={report.replacementAudit?.removed.length ?? 0}
             replacementChangedCount={report.replacementAudit?.quantityChanged.length ?? 0}
           />
-        ) : null}
         <details className="rounded-2xl border p-5 text-xs"><summary className="font-bold">채팅 인계·원본 추적 지문</summary><p className="mt-3 break-all">후보 요청 {report.candidateRequestId ?? "없음"}</p><p className="mt-2 break-all">원본 {report.sourceFingerprint}</p><p className="mt-2 break-all">발주 미리보기 {report.planFingerprint}</p><p className="mt-3">같은 화면·지문이라도 승인 토큰이 아닙니다. 데이터·예산·수량 제한이 바뀌면 다시 점검합니다.</p></details>
       </>}
     </div>

@@ -129,6 +129,7 @@ Recurring rules discussed for the real import operation include:
 - owner clarification on 2026-10-03: the purchase preview accepts an optional all-in cash amount that includes product payment plus the freight/fee reserve; the smaller of this amount and the automatic prior-month funding envelope is authoritative
 - when the owner supplies that amount, allocate it deterministically by priority: protect the top 25% at the engine target, start the next 50% at 60%, start the final 25% at MOQ/carton minimum, then top up in priority order without exceeding the engine target
 - a cash-adjusted quantity must still honor MOQ/carton units and remain visible as original recommendation -> adjusted quantity; leaving the amount blank preserves automatic-envelope behavior
+- owner clarification on 2026-10-03: SKU-count and per-item quantity limits are engine safety ceilings, not operator planning inputs. Keep 100 SKU / 9,999 units as hidden fail-safe bounds and let demand, inventory, commitments, MOQ/carton, priority, and cash determine the visible Draft.
 
 These are operating heuristics, not permission to bypass the canonical purchase-cycle engine.
 
