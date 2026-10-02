@@ -17,6 +17,7 @@ type DraftResponse = {
 export function PurchaseCycleDraftActions({
   targetDate,
   targetCycleMonth,
+  allowOpenBudgetPreview,
   expectedSourceFingerprint,
   expectedPlanFingerprint,
   confirmation,
@@ -28,6 +29,7 @@ export function PurchaseCycleDraftActions({
 }: {
   targetDate: string;
   targetCycleMonth: string;
+  allowOpenBudgetPreview: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
   confirmation: string;
@@ -54,6 +56,7 @@ export function PurchaseCycleDraftActions({
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
           targetDate,
+          allowOpenBudgetPreview,
           expectedSourceFingerprint,
           expectedPlanFingerprint,
           confirmation,

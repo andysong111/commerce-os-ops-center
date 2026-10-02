@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   preparePurchaseCycleDraft,
   purchaseCycleDraftConfirmation,
+  purchaseCycleDraftPreflightOptions,
 } from "../src/lib/purchaseCyclePreflightDraftCore.ts";
 import { assertDraftCanBeRegenerated } from "../src/lib/purchaseCycleDraftRegenerationCore.ts";
 
@@ -41,11 +42,25 @@ function report() {
 function request(value = report()) {
   return {
     targetDate: value.targetDate,
+    allowOpenBudgetPreview: false,
     expectedSourceFingerprint: value.sourceFingerprint,
     expectedPlanFingerprint: value.planFingerprint,
     confirmation: purchaseCycleDraftConfirmation(value),
   };
 }
+
+test("draft recheck preserves the preview early-budget option", () => {
+  const regular = purchaseCycleDraftPreflightOptions(request());
+  assert.equal(regular.allowOpenBudgetPreview, false);
+  assert.equal(regular.maxSkus, 100);
+  assert.equal(regular.maxUnitsPerSku, 9_999);
+
+  const early = purchaseCycleDraftPreflightOptions({
+    ...request(),
+    allowOpenBudgetPreview: true,
+  });
+  assert.equal(early.allowOpenBudgetPreview, true);
+});
 
 test("exact preflight pins become one RESERVED draft line without claiming stockout", () => {
   const value = report();
@@ -154,9 +169,10 @@ for (const mutate of [
 }
 
 test("route is same-origin, fingerprint-pinned, and never executes an external order", async () => {
-  const [route, service, storage, regeneration, actions] = await Promise.all([
+  const [route, service, core, storage, regeneration, actions] = await Promise.all([
     readFile("src/app/api/purchase-cycle/preflight-draft/route.ts", "utf8"),
     readFile("src/lib/purchaseCyclePreflightDraft.ts", "utf8"),
+    readFile("src/lib/purchaseCyclePreflightDraftCore.ts", "utf8"),
     readFile("src/lib/fastPurchaseInternalDraft.ts", "utf8"),
     readFile("src/lib/purchaseCycleDraftRegeneration.ts", "utf8"),
     readFile(
@@ -165,8 +181,9 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
     ),
   ]);
   assert.match(route, /isSameOriginOpsRequest/);
-  assert.match(service, /maxSkus: 100/);
-  assert.match(service, /maxUnitsPerSku: 9_999/);
+  assert.match(core, /maxSkus: 100/);
+  assert.match(core, /maxUnitsPerSku: 9_999/);
+  assert.match(service, /purchaseCycleDraftPreflightOptions\(request\)/);
   assert.match(service, /allowAdoptExistingReservedDraft: false/);
   assert.match(storage, /status: "RESERVED"/);
   assert.match(storage, /externalOrderExecuted: false/);
@@ -179,5 +196,6 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(regeneration, /inserted\.length !== operations\.length/);
   assert.doesNotMatch(service, /ORDERED|1688|payment/i);
   assert.match(actions, /window\.confirm/);
+  assert.match(actions, /allowOpenBudgetPreview/);
   assert.match(actions, /1688 주문·결제는 실행하지 않습니다/);
 });
