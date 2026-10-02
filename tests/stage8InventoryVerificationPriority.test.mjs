@@ -11,7 +11,7 @@ const [engine, page, verifiedCost] = await Promise.all([
 test("provisional inventory readiness is read only and joins canonical demand to Product Master inventory and planning", () => {
   assert.match(engine, /loadCanonicalPurchaseShadow/);
   assert.match(engine, /cycleAsOf: Date \| string = new Date\(\)/);
-  assert.match(engine, /loadCanonicalPurchaseShadow\(cycleAsOf\)/);
+  assert.match(engine, /loadCanonicalPurchaseShadow\(\s*cycleAsOf,/);
   assert.match(engine, /loadProductMasterInventoryCostReadiness/);
   assert.match(engine, /loadProductPlanningSnapshot/);
   assert.match(engine, /writesEnabled: false/);
@@ -43,14 +43,12 @@ test("provisional quantity, open commitment and unreflected prior-cycle receipts
   assert.match(page, /별도 안전증거 없이는 실제 Draft 실행대상이 아닙니다/);
 });
 
-test("draft regeneration subtracts only the exact safe RESERVED draft before recalculation", () => {
+test("draft regeneration excludes only the exact safe RESERVED draft before portfolio allocation", () => {
   assert.match(engine, /excludeCommitmentDraftId/);
-  assert.match(engine, /row\.sourceRunId === options\.excludeCommitmentDraftId/);
-  assert.match(engine, /row\.status !== "RESERVED"/);
-  assert.match(engine, /row\.orderedQuantity > 0/);
-  assert.match(engine, /row\.receivedQuantity > 0/);
-  assert.match(engine, /integer\(product\.openCommitment\) -/);
-  assert.match(engine, /PURCHASE_REPLACEMENT_DRAFT_NOT_ACTIVE/);
+  assert.match(engine, /safeReplacementDraftCommitments/);
+  assert.match(engine, /recommendationCommitmentsByBarcode/);
+  assert.match(engine, /commitmentOverride: commitments/);
+  assert.doesNotMatch(engine, /integer\(product\.openCommitment\) -/);
 });
 
 test("negative or review inventory still fails closed", () => {

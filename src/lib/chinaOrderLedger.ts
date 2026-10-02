@@ -480,17 +480,70 @@ export async function loadChinaOrderLedger() {
   };
 }
 
-export async function openChinaOrderCommitmentsByBarcode() {
-  const ledger = await loadChinaOrderLedger();
+export function safeReplacementDraftCommitments(
+  commitments: ChinaOrderCommitmentSnapshot[],
+  draftId: string,
+) {
+  const rows = commitments.filter(
+    (row) =>
+      row.sourceSystem === "fast-purchase-mvp" &&
+      row.sourceRunId === draftId &&
+      row.openQuantity > 0,
+  );
+  if (!rows.length) {
+    throw new Error("PURCHASE_REPLACEMENT_DRAFT_NOT_ACTIVE");
+  }
+  const unsafe = rows.find(
+    (row) =>
+      row.status !== "RESERVED" ||
+      row.orderedQuantity > 0 ||
+      row.receivedQuantity > 0,
+  );
+  if (unsafe) {
+    throw new Error(
+      `PURCHASE_REPLACEMENT_DRAFT_ALREADY_PROGRESSING:${unsafe.barcode}`,
+    );
+  }
+
   const result = new Map<string, number>();
-  for (const row of ledger.commitments) {
+  for (const row of rows) {
+    result.set(
+      row.barcode,
+      (result.get(row.barcode) ?? 0) + row.recommendationOpenQuantity,
+    );
+  }
+  return result;
+}
+
+export function recommendationCommitmentsByBarcode(
+  commitments: ChinaOrderCommitmentSnapshot[],
+  exclusions: ReadonlyMap<string, number> = new Map(),
+) {
+  const result = new Map<string, number>();
+  for (const row of commitments) {
     if (row.recommendationOpenQuantity <= 0) continue;
     result.set(
       row.barcode,
       (result.get(row.barcode) ?? 0) + row.recommendationOpenQuantity,
     );
   }
-  return { commitments: result, error: ledger.error };
+  for (const [barcode, excludedQuantity] of exclusions) {
+    const remaining = Math.max(
+      0,
+      (result.get(barcode) ?? 0) - Math.max(0, excludedQuantity),
+    );
+    if (remaining > 0) result.set(barcode, remaining);
+    else result.delete(barcode);
+  }
+  return result;
+}
+
+export async function openChinaOrderCommitmentsByBarcode() {
+  const ledger = await loadChinaOrderLedger();
+  return {
+    commitments: recommendationCommitmentsByBarcode(ledger.commitments),
+    error: ledger.error,
+  };
 }
 
 function seoulCalendarMonth(value: string) {

@@ -153,6 +153,7 @@ function canonicalAggregate(
 
 export async function loadCanonicalPurchaseShadow(
   cycleAsOf: Date | string = new Date(),
+  options: { commitmentOverride?: ReadonlyMap<string, number> } = {},
 ): Promise<CanonicalPurchaseShadow> {
   const generatedAt = new Date().toISOString();
   const blockers: CanonicalPurchaseShadowBlocker[] = [];
@@ -263,7 +264,12 @@ export async function loadCanonicalPurchaseShadow(
       });
     }
 
-    const commitments = await openChinaOrderCommitmentsByBarcode();
+    const commitments = options.commitmentOverride
+      ? {
+          commitments: new Map(options.commitmentOverride),
+          error: null,
+        }
+      : await openChinaOrderCommitmentsByBarcode();
     if (commitments.error) {
       blockers.push({
         key: "china-order-commitments",
