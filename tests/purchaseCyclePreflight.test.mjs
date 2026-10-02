@@ -376,6 +376,45 @@ test("active wholesale sale-price estimate can enter the draft preview without b
   assert.ok(report.reviewBlockers.includes("WHOLESALE_COST_ESTIMATE_OWNER_REVIEW_REQUIRED"));
   locked(report);
 });
+test("a fresh wholesale observation time does not invalidate an unchanged draft preview", () => {
+  const first = fixture();
+  Object.assign(first.priority.rows[0], {
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptCostKrw: 0,
+    hasVerifiedPurchaseCost: false,
+    verifiedPurchaseCostReady: false,
+    purchaseCostTrustSource: "NONE",
+    verifiedPurchaseUnitCostKrw: 0,
+    purchaseProtectedCostKrw: 0,
+    protectedCostKrw: 0,
+    action: "COST_CONFIRMATION_REQUIRED",
+    operationallyReady: false,
+  });
+  first.wholesaleCosts = {
+    generatedAt: "2026-10-01T01:58:00.000Z",
+    planningContentFingerprint: first.before.planningContentFingerprint,
+    contentFingerprint: fp("9"),
+    state: "PARTIAL",
+    estimatedCount: 1,
+    missingCount: 0,
+    writesEnabled: false,
+    rows: [{
+      barcode: "BAA1-1", state: "ESTIMATED", estimatedUnitCostKrw: 6000,
+      source: "SHOPLING_ACTIVE_WHOLESALE_SALE_PRICE_ESTIMATE", reason: null, evidence: [],
+    }],
+  };
+  const second = structuredClone(first);
+  second.wholesaleCosts.generatedAt = "2026-10-01T01:59:00.000Z";
+
+  const a = buildPurchaseCyclePreflight(first);
+  const b = buildPurchaseCyclePreflight(second);
+
+  assert.equal(a.previewReady, true);
+  assert.equal(b.previewReady, true);
+  assert.notEqual(a.selected[0].costEvidenceAt, b.selected[0].costEvidenceAt);
+  assert.equal(a.sourceFingerprint, b.sourceFingerprint);
+  assert.equal(a.planFingerprint, b.planFingerprint);
+});
 test("owner-provided approximate cost fills only a missing preview cost and keeps execution locked", () => {
   const input = fixture();
   Object.assign(input.priority.rows[0], {

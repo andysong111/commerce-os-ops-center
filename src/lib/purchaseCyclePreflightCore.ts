@@ -240,6 +240,11 @@ function projectedLine(row: InventoryVerificationPriorityRow, basis: PurchaseCos
   };
 }
 
+function stablePlanLine({ costEvidenceAt, ...line }: PurchasePreflightLine) {
+  void costEvidenceAt;
+  return line;
+}
+
 export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): PurchaseCyclePreflightReport {
   validatePurchasePreflightOptions(input.options);
   const now = Date.parse(input.now);
@@ -501,7 +506,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     replacementDraftId: input.options.replaceDraftId ?? null,
     targetCycleMonth, requiredBudgetMonth, dateState,
     state: !previewReady ? "BLOCKED" : uniqueReview.length ? "PREVIEW_ONLY" : "AWAITING_OWNER_REVIEW",
-    sourceFingerprint, planFingerprint: hash({ sourceFingerprint, options: input.options, selected }),
+    sourceFingerprint,
+    planFingerprint: hash({
+      sourceFingerprint,
+      options: input.options,
+      selected: selected.map(stablePlanLine),
+    }),
     candidateRequestId: pin?.requestId ?? null, sourceAnalysisAsOf: pin?.analysisAsOf ?? null,
     sourceCycleMonth: source?.cycleMonth ?? null, sourceBudgetMonth: source?.budgetMonth ?? null,
     cashLimitKrw, automaticGrossBudgetKrw: fundingValid ? source!.grossBudgetKrw! : null,
