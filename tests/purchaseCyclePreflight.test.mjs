@@ -311,6 +311,10 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(page, /name="cash"/);
   assert.match(page, /이번 달 발주에 쓸 총 현금/);
   assert.match(page, /입력 현금과 전월 정상매출 기준 자동 한도 중 작은 금액/);
+  assert.doesNotMatch(page, /name="skus"/);
+  assert.doesNotMatch(page, /name="units"/);
+  assert.match(page, /maxSkus: ENGINE_MAX_SKUS/);
+  assert.match(page, /maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU/);
   assert.match(page, /cashLimitKrw/);
   assert.match(page, /권장 → 현금반영/);
   assert.match(page, /name="early"/);
