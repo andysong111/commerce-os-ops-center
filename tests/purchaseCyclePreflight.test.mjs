@@ -151,11 +151,16 @@ test("omitted duplicate cash cap uses the automatic previous-month cost envelope
   assert.equal(report.effectiveBudgetKrw, 100000);
   locked(report);
 });
-test("cash and monthly budgets cap the selection; MOQ quantity is never resized", () => {
+test("explicit cash cap reduces a line without exceeding the product budget", () => {
   const input = fixture(); input.priority.source.budgetKrw = 20000;
   const report = buildPurchaseCyclePreflight(input);
-  blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS"); assert.equal(report.effectiveBudgetKrw, 20000);
-  assert.deepEqual(report.excluded[0].reasons, ["CASH_BUDGET_LIMIT"]);
+  assert.equal(report.previewReady, true);
+  assert.equal(report.effectiveBudgetKrw, 20000);
+  assert.equal(report.selected[0].originalRecommendedQuantity, 5);
+  assert.equal(report.selected[0].quantity, 4);
+  assert.equal(report.selected[0].cashAdjusted, true);
+  assert.equal(report.cashAdjustedCount, 1);
+  assert.equal(report.estimatedSpendKrw, 20000);
   assert.equal(input.priority.rows[0].recommendedQty, 5);
 });
 test("quantity cap excludes the whole line rather than breaking carton/MOQ", () => {
@@ -301,10 +306,13 @@ test("preflight source has no write executor, credentials, background timer, or 
   assert.match(service, /loadInventoryVerificationPriority\(options\.targetDate/);
   assert.match(service, /excludeCommitmentDraftId: options\.replaceDraftId/);
 });
-test("operator page uses the automatic prior-month cost envelope without a duplicate cash input", () => {
+test("operator page accepts an all-in cash cap while preserving the automatic envelope", () => {
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(page, /name="budget"/);
-  assert.match(page, /전월 정상매출의 추정원가/);
+  assert.match(page, /name="cash"/);
+  assert.match(page, /이번 달 발주에 쓸 총 현금/);
+  assert.match(page, /입력 현금과 전월 정상매출 기준 자동 한도 중 작은 금액/);
+  assert.match(page, /cashLimitKrw/);
+  assert.match(page, /권장 → 현금반영/);
   assert.match(page, /name="early"/);
   assert.match(page, /월 마감 전 조기 미리보기/);
   assert.match(page, /기존 Draft와 새 계산 전체 대조/);
@@ -322,7 +330,7 @@ test("confirmed cost, not cheap planning fallback, determines line amount", () =
 });
 test("high confirmed cost cannot fit using an unrelated cheaper expectedCost", () => {
   const input = fixture(); input.priority.rows[0].expectedCost = 1;
-  input.priority.rows[0].latestConfirmedReceiptCostKrw = 20000;
+  input.priority.rows[0].latestConfirmedReceiptCostKrw = 40000;
   blocked(buildPurchaseCyclePreflight(input), "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
 });
 test("protected cost greater than receipt cost stays conservative", () => {
@@ -637,7 +645,12 @@ test("recorded cycle spend is removed before freight reserve and cash clamp", ()
   const report = buildPurchaseCyclePreflight(input);
   assert.equal(report.remainingMonthlyCashKrw, 25000); assert.equal(report.effectiveCashKrw, 25000);
   assert.equal(report.effectiveBudgetKrw, Math.floor(25000 / 1.45));
-  blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+  assert.equal(report.previewReady, true);
+  assert.equal(report.selected[0].originalRecommendedQuantity, 5);
+  assert.equal(report.selected[0].quantity, 3);
+  assert.equal(report.selected[0].cashAdjusted, true);
+  assert.equal(report.estimatedSpendKrw, 15000);
+  locked(report);
 });
 test("fully spent monthly budget cannot generate another purchase preview", () => {
   const input = fixture(); input.spendBefore.recordedSpendKrw = 145000; input.spendAfter.recordedSpendKrw = 145000;

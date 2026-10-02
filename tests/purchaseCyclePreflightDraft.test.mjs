@@ -16,6 +16,7 @@ function report() {
     replacementDraftId: null,
     replacementAudit: null,
     targetCycleMonth: "2026-10",
+    cashLimitKrw: null,
     sourceFingerprint: fp("a"),
     planFingerprint: fp("b"),
     previewReady: true,
@@ -28,6 +29,10 @@ function report() {
         barcode: "BAC1-1",
         name: "토끼 발세척매트",
         quantity: 38,
+        originalRecommendedQuantity: 38,
+        cashAdjusted: false,
+        cashflowTier: "AUTOMATIC",
+        priorityScore: 90,
         costEvidenceSource: "SOURCE_ORDER_VERIFIED_COST_EVIDENCE",
         inventoryQuantity: 0,
         openCommitment: 0,
@@ -46,6 +51,7 @@ function report() {
 function request(value = report()) {
   return {
     targetDate: value.targetDate,
+    cashLimitKrw: value.cashLimitKrw,
     allowOpenBudgetPreview: false,
     expectedSourceFingerprint: value.sourceFingerprint,
     expectedPlanFingerprint: value.planFingerprint,
@@ -56,6 +62,7 @@ function request(value = report()) {
 test("draft recheck preserves the preview early-budget option", () => {
   const regular = purchaseCycleDraftPreflightOptions(request());
   assert.equal(regular.allowOpenBudgetPreview, false);
+  assert.equal(regular.cashLimitKrw, null);
   assert.equal(regular.maxSkus, 100);
   assert.equal(regular.maxUnitsPerSku, 9_999);
 
@@ -64,6 +71,20 @@ test("draft recheck preserves the preview early-budget option", () => {
     allowOpenBudgetPreview: true,
   });
   assert.equal(early.allowOpenBudgetPreview, true);
+});
+
+test("draft recheck preserves and pins the operator cash cap", () => {
+  const value = report();
+  value.cashLimitKrw = 800_000;
+  const input = request(value);
+  assert.equal(purchaseCycleDraftPreflightOptions(input).cashLimitKrw, 800_000);
+  assert.match(input.confirmation, /CASH800000/);
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
+  input.cashLimitKrw = 700_000;
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input),
+    /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
+  );
 });
 
 test("exact preflight pins become one RESERVED draft line without claiming stockout", () => {
@@ -233,5 +254,6 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.doesNotMatch(service, /ORDERED|1688|payment/i);
   assert.match(actions, /window\.confirm/);
   assert.match(actions, /allowOpenBudgetPreview/);
+  assert.match(actions, /cashLimitKrw/);
   assert.match(actions, /1688 주문·결제는 실행하지 않습니다/);
 });
