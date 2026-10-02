@@ -10,6 +10,8 @@ import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import {
   completedChinaOrderReceiptsByBarcode,
   loadChinaOrderLedger,
+  recommendationCommitmentsByBarcode,
+  safeReplacementDraftCommitments,
 } from "@/lib/chinaOrderLedger";
 import { monthlyPurchaseCycleFor } from "@/lib/monthlyPurchasePolicy";
 import {
@@ -197,43 +199,34 @@ export async function loadInventoryVerificationPriority(
   options: { excludeCommitmentDraftId?: string | null } = {},
 ): Promise<InventoryVerificationPriority> {
   const cycle = monthlyPurchaseCycleFor(cycleAsOf);
-  const [purchaseShadow, inventoryReadiness, planning, recentReceipts, ledger] = await Promise.all([
-    loadCanonicalPurchaseShadow(cycleAsOf),
+  const replacementCommitments = options.excludeCommitmentDraftId
+    ? loadChinaOrderLedger().then((ledger) => {
+        if (ledger.error) {
+          throw new Error("PURCHASE_REPLACEMENT_DRAFT_LEDGER_UNAVAILABLE");
+        }
+        const exclusions = safeReplacementDraftCommitments(
+          ledger.commitments,
+          options.excludeCommitmentDraftId!,
+        );
+        return recommendationCommitmentsByBarcode(
+          ledger.commitments,
+          exclusions,
+        );
+      })
+    : Promise.resolve(null);
+  const purchaseShadowPromise = replacementCommitments.then((commitments) =>
+    loadCanonicalPurchaseShadow(
+      cycleAsOf,
+      commitments ? { commitmentOverride: commitments } : {},
+    ),
+  );
+  const [resolvedPurchaseShadow, inventoryReadiness, planning, recentReceipts] = await Promise.all([
+    purchaseShadowPromise,
     loadProductMasterInventoryCostReadiness(),
     loadProductPlanningSnapshot(),
     completedChinaOrderReceiptsByBarcode(cycle.budgetMonth),
-    options.excludeCommitmentDraftId ? loadChinaOrderLedger() : Promise.resolve(null),
   ]);
-  const excludedCommitments = new Map<string, number>();
-  if (options.excludeCommitmentDraftId) {
-    if (!ledger || ledger.error) {
-      throw new Error("PURCHASE_REPLACEMENT_DRAFT_LEDGER_UNAVAILABLE");
-    }
-    const rows = ledger.commitments.filter(
-      (row) =>
-        row.sourceSystem === "fast-purchase-mvp" &&
-        row.sourceRunId === options.excludeCommitmentDraftId &&
-        row.openQuantity > 0,
-    );
-    if (!rows.length) {
-      throw new Error("PURCHASE_REPLACEMENT_DRAFT_NOT_ACTIVE");
-    }
-    const unsafe = rows.find(
-      (row) =>
-        row.status !== "RESERVED" ||
-        row.orderedQuantity > 0 ||
-        row.receivedQuantity > 0,
-    );
-    if (unsafe) {
-      throw new Error(`PURCHASE_REPLACEMENT_DRAFT_ALREADY_PROGRESSING:${unsafe.barcode}`);
-    }
-    for (const row of rows) {
-      excludedCommitments.set(
-        row.barcode,
-        (excludedCommitments.get(row.barcode) ?? 0) + row.openQuantity,
-      );
-    }
-  }
+  const purchaseShadow = resolvedPurchaseShadow;
   const now = Date.now();
   const purchaseProducts = purchaseShadow.snapshot?.products ?? [];
   const inventoryIndex = inventoryByBarcode(inventoryReadiness.rows);
@@ -254,11 +247,7 @@ export async function loadInventoryVerificationPriority(
       const demandTarget = integer(
         product.rawRecommendedQty ?? product.recommendedQty,
       );
-      const openCommitment = Math.max(
-        0,
-        integer(product.openCommitment) -
-          integer(excludedCommitments.get(key)),
-      );
+      const openCommitment = integer(product.openCommitment);
       const recentReceipt = recentReceipts.receipts.get(key);
       const recentCycleReceivedQuantity = integer(recentReceipt?.quantity);
       const latestInventoryInboundAt = inventory?.lastInboundAt ?? null;

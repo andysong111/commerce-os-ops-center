@@ -35,6 +35,8 @@ const {
   buildChinaOrderLedgerSummary,
   chinaOrderCommitmentCycleMonth,
   completedChinaOrderReceiptsByBarcodeForMonth,
+  recommendationCommitmentsByBarcode,
+  safeReplacementDraftCommitments,
 } = ledger;
 
 function event(overrides = {}) {
@@ -50,6 +52,58 @@ function event(overrides = {}) {
     ...overrides,
   });
 }
+
+test("safe draft replacement removes its recommendation commitments before recalculation", () => {
+  const replacement = {
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: "draft-1",
+    barcode: "BAA1-1",
+    openQuantity: 100,
+    recommendationOpenQuantity: 100,
+    status: "RESERVED",
+    orderedQuantity: 0,
+    receivedQuantity: 0,
+  };
+  const other = {
+    ...replacement,
+    sourceRunId: "draft-2",
+    recommendationOpenQuantity: 40,
+    openQuantity: 40,
+  };
+  const exclusions = safeReplacementDraftCommitments(
+    [replacement, other],
+    "draft-1",
+  );
+  const result = recommendationCommitmentsByBarcode(
+    [replacement, other],
+    exclusions,
+  );
+
+  assert.equal(exclusions.get("BAA1-1"), 100);
+  assert.equal(result.get("BAA1-1"), 40);
+});
+
+test("draft replacement rejects a commitment after ordering has started", () => {
+  assert.throws(
+    () =>
+      safeReplacementDraftCommitments(
+        [
+          {
+            sourceSystem: "fast-purchase-mvp",
+            sourceRunId: "draft-1",
+            barcode: "BAA1-1",
+            openQuantity: 90,
+            recommendationOpenQuantity: 90,
+            status: "ORDERED",
+            orderedQuantity: 100,
+            receivedQuantity: 10,
+          },
+        ],
+        "draft-1",
+      ),
+    /PURCHASE_REPLACEMENT_DRAFT_ALREADY_PROGRESSING:BAA1-1/,
+  );
+});
 
 test("order, partial receipt and damage release produce one open commitment", () => {
   const snapshot = reduceChinaOrderCommitmentEvents([

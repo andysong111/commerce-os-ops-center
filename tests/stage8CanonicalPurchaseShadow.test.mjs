@@ -53,6 +53,12 @@ test("canonical shadow still consumes planning inventory cost MOQ and open China
   assert.match(page, /중국 미입고 코드/);
 });
 
+test("replacement draft commitments are excluded before product portfolio allocation", () => {
+  assert.match(engine, /commitmentOverride/);
+  assert.match(engine, /new Map\(options\.commitmentOverride\)/);
+  assert.match(engine, /buildLiveProductDecisionSnapshot/);
+});
+
 test("planning and canonical active SKU coverage must be exact before shadow is ready", () => {
   assert.match(engine, /matches\.length !== 1/);
   assert.match(engine, /planningMismatchBarcodes/);
