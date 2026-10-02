@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { purchaseCycleSpendMonthFilter, verifiedPurchaseCycleSpend, verifiedPurchaseCycleSpendPages } from "../src/lib/purchaseCyclePreflightSpendCore.ts";
+import { combineCompletePurchaseCycleSpendScanPages, purchaseCycleSpendMonthFilter, verifiedPurchaseCycleSpend, verifiedPurchaseCycleSpendPages } from "../src/lib/purchaseCyclePreflightSpendCore.ts";
 const month = "2026-10";
 const time = "2026-10-01T01:00:00Z";
 const row = (id = "d1", amount = 30000) => ({ source_event_id: id, result_snapshot: { cycleMonth: month, draftId: id, actualOrderPaidKrwAtInternalFx: amount } });
@@ -64,13 +64,39 @@ test("only validated month is placed in all three PostgREST target filters", () 
 test("production adapter uses scoped exact-count read and never the global recent-summary null fallback", () => {
   const loader = readFileSync(new URL("../src/lib/purchaseCyclePreflightSpend.ts", import.meta.url), "utf8");
   const service = readFileSync(new URL("../src/lib/purchaseCyclePreflight.ts", import.meta.url), "utf8");
-  assert.match(loader, /count: "exact"/); assert.match(loader, /\.eq\(column, cycleMonth\)/);
-  assert.match(loader, /verifiedPurchaseCycleSpendPages\(cycleMonth,/);
-  assert.match(loader, /matchedCount: result\.count/);
+  assert.match(loader, /count: "exact"/); assert.match(loader, /\.range\(from, from \+ PAGE_SIZE - 1\)/);
+  assert.match(loader, /combineCompletePurchaseCycleSpendScanPages\(pages, MAXIMUM_ROWS\)/);
+  assert.doesNotMatch(loader, /\.eq\([^\n]*cycleMonth\)/);
   assert.doesNotMatch(loader, /\.or\(/);
   assert.match(service, /monthlySpend: loadVerifiedPurchaseCycleSpend/);
   assert.doesNotMatch(service, /loadInternalChinaMonthlyPurchaseSummary|summary\?\./);
   assert.doesNotMatch(loader, /\.insert\(|\.upsert\(|\.update\(|\.delete\(|\.rpc\(/);
+});
+
+test("complete paged scan accepts a stable exact count", () => {
+  const values = [stored("r1"), stored("r2", "draft2")];
+  assert.deepEqual(combineCompletePurchaseCycleSpendScanPages([
+    { rows: values.slice(0, 1), matchedCount: 2 },
+    { rows: values.slice(1), matchedCount: 2 },
+  ]), values);
+});
+test("paged scan fails closed when count changes, rows overlap, or the scan is short", () => {
+  assert.throws(() => combineCompletePurchaseCycleSpendScanPages([
+    { rows: [stored("r1")], matchedCount: 2 },
+    { rows: [stored("r2")], matchedCount: 3 },
+  ]), /CHANGED_DURING_READ/);
+  assert.throws(() => combineCompletePurchaseCycleSpendScanPages([
+    { rows: [stored("r1")], matchedCount: 2 },
+    { rows: [stored("r1")], matchedCount: 2 },
+  ]), /CHANGED_DURING_READ/);
+  assert.throws(() => combineCompletePurchaseCycleSpendScanPages([
+    { rows: [stored("r1")], matchedCount: 2 },
+  ]), /SCAN_INCOMPLETE/);
+});
+test("paged scan has a hard safety ceiling", () => {
+  assert.throws(() => combineCompletePurchaseCycleSpendScanPages([
+    { rows: [], matchedCount: 21 },
+  ], 20), /SCAN_INCOMPLETE/);
 });
 
 const stored = (id = "row1", draft = "draft1", paid = 20000, date = time) => ({ ...row(draft, paid), id, started_at: date });
