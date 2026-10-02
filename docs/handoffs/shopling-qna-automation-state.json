@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-10-03",
+  "timezone": "Asia/Seoul",
+  "handoff": "docs/handoffs/shopling-qna-automation-handoff-20261003.md",
+  "objective": "Minimize manual QnA approvals while preserving fresh evidence, exact identity, and verified Shopling readback.",
+  "currentCapabilities": {
+    "qnaOnlyRead": true,
+    "draftGeneration": true,
+    "evidenceGating": true,
+    "b13DraftSave": true,
+    "b13DraftReadback": true,
+    "marketplaceTransmission": true,
+    "marketplaceTransmissionReadback": true,
+    "approvalSidePanel": false,
+    "learningEventStore": false,
+    "automaticDraftOrchestrator": false
+  },
+  "policy": {
+    "autoSaveRequiresExactRule": true,
+    "autoSaveRequiresFreshEvidence": true,
+    "approvalRequiredIsNotSavedToShopling": true,
+    "blockedNeedsEvidenceIsNotSavedToShopling": true,
+    "marketplaceTransmissionIsSeparate": true,
+    "rawCustomerIdentityMayBePersisted": false,
+    "credentialsMayBePersisted": false
+  },
+  "states": [
+    "DRAFT_GENERATED",
+    "WAITING_FOR_APPROVAL",
+    "BLOCKED_NEEDS_EVIDENCE",
+    "B13_DRAFT_SAVED",
+    "TRANSMITTED_AND_VERIFIED"
+  ],
+  "next": [
+    "Separate AUTO_SAVE_DRAFT from AUTO_TRANSMIT",
+    "Add the local approval side panel",
+    "Persist redacted approval and edit learning events",
+    "Implement versioned promotion and demotion rules",
+    "Connect Commerce OS stock and replenishment evidence"
+  ],
+  "verifiedExample": {
+    "date": "2026-10-02",
+    "result": "B13_DRAFT_SAVED",
+    "marketplaceTransmissionPerformed": false,
+    "containsCustomerData": false
+  }
+}

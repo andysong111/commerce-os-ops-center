@@ -14,6 +14,12 @@
     "local-agent:status": "node local-agent/bin/commerce-os-local-agent.mjs status",
     "local-agent:daemon": "node local-agent/bin/commerce-os-local-agent.mjs daemon",
     "local-agent:diagnose": "node local-agent/bin/commerce-os-local-agent.mjs diagnose",
+    "local-agent:customer-service-review": "node local-agent/scripts/prepare-shopling-customer-service-review.mjs",
+    "local-agent:qna-inspect": "node local-agent/scripts/inspect-shopling-qna-structure.mjs",
+    "local-agent:qna-reply-inspect": "node local-agent/scripts/inspect-shopling-qna-reply-popup.mjs",
+    "local-agent:qna-reply-draft": "node local-agent/scripts/save-shopling-qna-reply-draft.mjs",
+    "local-agent:qna-reply-transmit": "node local-agent/scripts/transmit-shopling-qna-reply.mjs",
+    "local-agent:qna-history-drafts": "node local-agent/scripts/analyze-shopling-qna-history.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.mjs"
   },
   "dependencies": {
