@@ -15,6 +15,16 @@ type MonthlySpendScanPage = {
 };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.normalize("NFKC").trim() : "";
+const seoulMonth = (value: unknown) => {
+  const parsed = Date.parse(text(value));
+  if (!Number.isFinite(parsed)) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit",
+  }).formatToParts(new Date(parsed));
+  const year = parts.find(part => part.type === "year")?.value ?? "";
+  const month = parts.find(part => part.type === "month")?.value ?? "";
+  return year && month ? `${year}-${month}` : "";
+};
 
 export const purchaseCycleSpendMonthColumns = ["result_snapshot->snapshot->>cycleMonth", "result_snapshot->>cycleMonth", "input_snapshot->>cycleMonth"] as const;
 
@@ -45,12 +55,21 @@ export function verifiedPurchaseCycleSpend(
     const rowMonth = text(snapshot.cycleMonth);
     // The OR query can also match a superseded input snapshot; only the same
     // authoritative snapshot precedence as the existing summary is consumed.
-    if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(rowMonth)) throw new Error("CYCLE_SPEND_ROW_MONTH_UNVERIFIED");
+    if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(rowMonth)) {
+      const observedMonths = [seoulMonth(row.started_at), seoulMonth(row.updated_at)].filter(Boolean);
+      if (observedMonths.length === 0 || observedMonths.includes(cycleMonth)) {
+        throw new Error("CYCLE_SPEND_ROW_MONTH_UNVERIFIED");
+      }
+      continue;
+    }
     if (rowMonth !== cycleMonth) continue;
     const draftId = text(snapshot.draftId) || text(row.source_event_id);
     if (!draftId) throw new Error("CYCLE_SPEND_DRAFT_ID_MISSING");
     if (drafts.has(draftId)) continue;
-    const amount = snapshot.actualOrderPaidKrwAtInternalFx;
+    const storedAmount = snapshot.actualOrderPaidKrwAtInternalFx;
+    const amount = storedAmount === undefined && text(snapshot.status) === "DRAFT" && snapshot.externalOrderExecuted === false
+      ? 0
+      : storedAmount;
     if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) {
       // Do not guess from quantity, selling prices, implicit FX or a malformed
       // snapshot. A verified recorded amount is needed, including explicit 0.
