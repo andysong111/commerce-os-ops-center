@@ -71,3 +71,30 @@ test("missing or inactive wholesale evidence stays explicit instead of inventing
   assert.equal(report.rows[0].estimatedUnitCostKrw, 0);
   assert.equal(report.rows[0].reason, "ACTIVE_WHOLESALE_PRICE_UNAVAILABLE");
 });
+
+test("an unchanged wholesale price snapshot keeps the same content fingerprint across read times", () => {
+  const products = [{
+    skuId: "sku-3", barcode: "BAA3-1", productName: "fixture", skuActive: true,
+    listings: [{ goodsKey: "301", optionId: "A", unitsPerOrder: 1, active: true }],
+  }];
+  const rows = [{
+    barcode: "BAA3-1", state: "READY", priceMode: "UNIFORM", currentSalePrice: 12000,
+    goodsKeys: ["301"], mappedListingCount: 1, unresolvedListingCount: 0,
+    conflictListingCount: 0, distinctPrices: [12000],
+    listings: [{ goodsKey: "301", optionId: "A", ptnGoodsCd: "BAA3-1a", productGroup: "도매1", baseSalePrice: 12000, optionAmount: 0, effectiveSalePrice: 12000, originalCost: 0, listPrice: 0, saleStatus: "B" }],
+  }];
+  const firstPrices = currentPrices(rows);
+  const secondPrices = currentPrices(rows);
+  secondPrices.generatedAt = "2026-10-02T00:05:00.000Z";
+  const options = {
+    products,
+    planningContentFingerprint: `sha256:${"c".repeat(64)}`,
+  };
+
+  const first = buildPurchaseWholesaleCostEstimates({ ...options, currentPrices: firstPrices });
+  const second = buildPurchaseWholesaleCostEstimates({ ...options, currentPrices: secondPrices });
+
+  assert.notEqual(first.generatedAt, second.generatedAt);
+  assert.equal(first.contentFingerprint, second.contentFingerprint);
+  assert.deepEqual(first.rows, second.rows);
+});

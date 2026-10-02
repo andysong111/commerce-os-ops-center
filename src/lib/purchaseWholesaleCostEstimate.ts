@@ -174,7 +174,6 @@ export function buildPurchaseWholesaleCostEstimates(input: {
   const missingCount = rows.length - estimatedCount;
   const content = {
     planningContentFingerprint: input.planningContentFingerprint,
-    currentPriceGeneratedAt: input.currentPrices.generatedAt,
     rows,
   };
   return {
