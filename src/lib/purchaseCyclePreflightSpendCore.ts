@@ -9,6 +9,10 @@ type MonthlySpendRow = {
   started_at?: unknown;
   updated_at?: unknown;
 };
+type MonthlySpendScanPage = {
+  rows: unknown;
+  matchedCount: number | null;
+};
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.normalize("NFKC").trim() : "";
 
@@ -63,6 +67,38 @@ export function verifiedPurchaseCycleSpend(
     cycleMonth, readAt, recordedSpendKrw,
     contentFingerprint: `sha256:${createHash("sha256").update(JSON.stringify({ cycleMonth, matchedCount, rows })).digest("hex")}`,
   };
+}
+
+export function combineCompletePurchaseCycleSpendScanPages(
+  pages: MonthlySpendScanPage[],
+  maximumRows = 20_000,
+) {
+  if (!Number.isSafeInteger(maximumRows) || maximumRows < 1) {
+    throw new Error("CYCLE_SPEND_SCAN_LIMIT_INVALID");
+  }
+  if (!Array.isArray(pages) || pages.length === 0) {
+    throw new Error("CYCLE_SPEND_SCAN_INCOMPLETE");
+  }
+  const expectedCount = pages[0]?.matchedCount;
+  if (!Number.isSafeInteger(expectedCount) || expectedCount! < 0 || expectedCount! > maximumRows) {
+    throw new Error("CYCLE_SPEND_SCAN_INCOMPLETE");
+  }
+  const rows: MonthlySpendRow[] = [];
+  const ids = new Set<string>();
+  for (const page of pages) {
+    if (page.matchedCount !== expectedCount || !Array.isArray(page.rows)) {
+      throw new Error("CYCLE_SPEND_SCAN_CHANGED_DURING_READ");
+    }
+    for (const value of page.rows) {
+      const row = object(value) as MonthlySpendRow;
+      const id = text(row.id);
+      if (!id || ids.has(id)) throw new Error("CYCLE_SPEND_SCAN_CHANGED_DURING_READ");
+      ids.add(id);
+      rows.push(row);
+    }
+  }
+  if (rows.length !== expectedCount) throw new Error("CYCLE_SPEND_SCAN_INCOMPLETE");
+  return rows;
 }
 
 export function verifiedPurchaseCycleSpendPages(
