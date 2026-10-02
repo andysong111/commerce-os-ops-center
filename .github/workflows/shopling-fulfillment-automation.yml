@@ -1,0 +1,82 @@
+name: Shopling Fulfillment Automation CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fulfillment-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Lint fulfillment automation
+        run: >-
+          npx eslint
+          local-agent/src/chrome-cdp.mjs
+          local-agent/src/shopling-api-identity-source.mjs
+          local-agent/src/shopling-b12-browser-adapter.mjs
+          local-agent/src/shopling-b12-invoice-deletion.mjs
+          local-agent/src/shopling-browser-dialog.mjs
+          local-agent/src/shopling-bcode-resolution.mjs
+          local-agent/src/shopling-customer-service-source.mjs
+          local-agent/src/shopling-daily-browser-adapter.mjs
+          local-agent/src/shopling-daily-fulfillment.mjs
+          local-agent/src/shopling-fulfillment-preflight.mjs
+          local-agent/src/shopling-label-export.mjs
+          local-agent/src/shopling-label-ocr.mjs
+          local-agent/src/shopling-label-print.mjs
+          local-agent/src/shopling-order-preflight.mjs
+          local-agent/src/shopling-post-packing-plan.mjs
+          local-agent/src/shopling-qna-automation-policy.mjs
+          local-agent/src/shopling-qna-browser-adapter.mjs
+          local-agent/src/shopling-qna-reply-draft.mjs
+          local-agent/src/shopling-qna-reply-plan.mjs
+          local-agent/src/shopling-qna-reply-transmission.mjs
+          local-agent/src/shopling-shipment-manifest.mjs
+          local-agent/src/shopling-unshipped-reconciliation.mjs
+          local-agent/src/shopling-unshipped-review.mjs
+          local-agent/src/windows-pdf-printer.mjs
+          local-agent/bin/commerce-os-local-agent.mjs
+          local-agent/scripts/analyze-unshipped-label-photos.mjs
+          local-agent/scripts/capture-shopling-resolved-manifest.mjs
+          local-agent/scripts/capture-shopling-shipment-manifest.mjs
+          local-agent/scripts/delete-shopling-b12-invoice.mjs
+          local-agent/scripts/prepare-shopling-customer-service-review.mjs
+          local-agent/scripts/reconcile-unshipped-labels.mjs
+          local-agent/scripts/resolve-shopling-manifest-bcodes.mjs
+          local-agent/scripts/review-unshipped-label-photos.mjs
+          local-agent/scripts/run-shopling-daily-fulfillment.mjs
+          local-agent/scripts/shopling-fulfillment-preflight.mjs
+          local-agent/scripts/shopling-label-run.mjs
+          local-agent/scripts/transmit-shopling-qna-reply.mjs
+      - name: Test fulfillment safety
+        run: >-
+          node --test
+          tests/localAgent.test.mjs
+          tests/shoplingApiIdentitySource.test.mjs
+          tests/shoplingB12BrowserAdapter.test.mjs
+          tests/shoplingB12InvoiceDeletion.test.mjs
+          tests/shoplingBcodeResolution.test.mjs
+          tests/shoplingBrowserDialog.test.mjs
+          tests/shoplingCustomerServiceSource.test.mjs
+          tests/shoplingDailyFulfillment.test.mjs
+          tests/shoplingFulfillmentPreflight.test.mjs
+          tests/shoplingLabelOcr.test.mjs
+          tests/shoplingPostPackingPlan.test.mjs
+          tests/shoplingQnaAutomationPolicy.test.mjs
+          tests/shoplingQnaBrowserAdapter.test.mjs
+          tests/shoplingQnaReplyDraft.test.mjs
+          tests/shoplingQnaReplyPlan.test.mjs
+          tests/shoplingQnaReplyTransmission.test.mjs
+          tests/shoplingShipmentManifest.test.mjs
+          tests/shoplingUnshippedReconciliation.test.mjs
+          tests/shoplingUnshippedReview.test.mjs

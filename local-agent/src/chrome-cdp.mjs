@@ -74,6 +74,7 @@ export class CdpSession {
     this.WebSocketImpl = options.WebSocketImpl || globalThis.WebSocket;
     this.nextId = 1;
     this.pending = new Map();
+    this.eventListeners = new Map();
     this.socket = null;
   }
 
@@ -106,7 +107,13 @@ export class CdpSession {
     } catch {
       return;
     }
-    if (!message.id || !this.pending.has(message.id)) return;
+    if (!message.id) {
+      const listeners = this.eventListeners.get(message.method);
+      if (!listeners) return;
+      for (const listener of [...listeners]) listener(message.params || {}, message);
+      return;
+    }
+    if (!this.pending.has(message.id)) return;
     const pending = this.pending.get(message.id);
     this.pending.delete(message.id);
     clearTimeout(pending.timer);
@@ -127,9 +134,19 @@ export class CdpSession {
     }
   }
 
-  send(method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  on(method, listener) {
+    const listeners = this.eventListeners.get(method) || new Set();
+    listeners.add(listener);
+    this.eventListeners.set(method, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (!listeners.size) this.eventListeners.delete(method);
+    };
+  }
+
+  send(method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, sessionId = "") {
     const id = this.nextId++;
-    const payload = JSON.stringify({ id, method, params });
+    const payload = JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) });
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -146,6 +163,48 @@ export class CdpSession {
     } catch {
       // Nothing useful to do during shutdown.
     }
+  }
+}
+
+export async function withBrowserCdpTarget(config, target, handler, options = {}) {
+  if (!target?.id) {
+    const error = new Error("Target does not expose a target id.");
+    error.code = "CDP_TARGET_ID_MISSING";
+    throw error;
+  }
+
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const version = await fetchJson(`${config.chromeDebugBaseUrl}/json/version`, timeoutMs, options.fetchImpl || fetch);
+  if (!version.webSocketDebuggerUrl) {
+    const error = new Error("Chrome does not expose a browser WebSocket debugger URL.");
+    error.code = "CDP_BROWSER_WEBSOCKET_MISSING";
+    throw error;
+  }
+  const browserSession = new CdpSession(version.webSocketDebuggerUrl, options);
+  await browserSession.connect(timeoutMs);
+  let attachedSessionId = "";
+  try {
+    const attached = await browserSession.send("Target.attachToTarget", {
+      targetId: target.id,
+      flatten: true,
+    }, timeoutMs);
+    attachedSessionId = attached.sessionId;
+    const targetSession = {
+      send(method, params = {}, commandTimeoutMs = timeoutMs) {
+        return browserSession.send(method, params, commandTimeoutMs, attachedSessionId);
+      },
+      on(method, listener) {
+        return browserSession.on(method, (params, message) => {
+          if (message.sessionId === attachedSessionId) listener(params, message);
+        });
+      },
+    };
+    return await handler(targetSession);
+  } finally {
+    if (attachedSessionId) {
+      await browserSession.send("Target.detachFromTarget", { sessionId: attachedSessionId }, timeoutMs).catch(() => null);
+    }
+    browserSession.close();
   }
 }
 

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-10-03T00:00:00+09:00",
+  "account": "andy801",
+  "workflow": {
+    "collectionOrderClaimQna": "implemented",
+    "parallelCollection": "implemented",
+    "qnaUnsupportedMallContinuation": "implemented",
+    "b5ZeroGate": "implemented",
+    "b5AutomaticExceptionResolution": "partial",
+    "b7ReadyToShip": "implemented",
+    "b12AutomaticPackaging": "implemented",
+    "b12CourierTransmission": "implemented",
+    "bCodeThenQuantitySort": "implemented",
+    "exactBatchLabelSelection": "implemented",
+    "labelPdfCapture": "implemented",
+    "xprinterPhysicalOutput": "implemented",
+    "checkpointResume": "implemented",
+    "postPackingReconciliation": "implemented",
+    "b12InvoiceDeletion": "implemented",
+    "weekday1231Schedule": "not_enabled"
+  },
+  "mappingRules": {
+    "lookupPriority": [
+      "verified_b_code",
+      "model_number",
+      "shopping_mall_product_code"
+    ],
+    "forbiddenAsBCode": [
+      "site_self_code"
+    ],
+    "defaultMappingQuantity": 1,
+    "stopOnAmbiguity": true
+  },
+  "printProfile": {
+    "printer": "Xprinter XP-DT108B LABEL",
+    "form": "대한통운 송장",
+    "widthMm": 109,
+    "heightMm": 127,
+    "dpi": 203,
+    "requirePageCountMatch": true,
+    "requireSpoolJobId": true
+  },
+  "operatorBoundaries": [
+    "login",
+    "captcha",
+    "unknown_mapping_exception",
+    "schedule_enablement"
+  ],
+  "verification": {
+    "supervisedEndToEnd": true,
+    "verifiedOrderCount": 33,
+    "verifiedLabelCount": 31,
+    "physicalPrintVerified": true
+  }
+}

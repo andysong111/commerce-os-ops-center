@@ -4,8 +4,11 @@ import { loadConfig } from "../src/config.mjs";
 import { createDiagnosticPackage } from "../src/diagnostics.mjs";
 import { ensureDataDirs, writeAgentState, writeLatestStatus } from "../src/files.mjs";
 import { buildStatusSnapshot } from "../src/status.mjs";
+import { createShoplingOrderPreflight } from "../src/shopling-order-preflight.mjs";
+import { createShoplingLabelPdfFromSettings } from "../src/shopling-label-export.mjs";
 import { uploadDiagnostic, uploadHeartbeat } from "../src/supabase-upload.mjs";
 import { sanitizeError } from "../src/safe-json.mjs";
+import { runWindowsPdfPrint } from "../src/windows-pdf-printer.mjs";
 
 function parseArgs(argv) {
   const [command = "daemon", ...rest] = argv;
@@ -67,6 +70,39 @@ async function runDiagnostic(config, flags) {
   }));
 }
 
+async function runOrderPreflight(config) {
+  const preflight = await createShoplingOrderPreflight(config);
+  console.log(JSON.stringify(preflight, null, 2));
+}
+
+async function runLabelPrint(config, flags) {
+  const expectedPages = Number(flags.expectedPages);
+  const expectedOrders = Number(flags.expectedOrders);
+  if (!Number.isInteger(expectedPages) || expectedPages <= 0 || !Number.isInteger(expectedOrders) || expectedOrders <= 0) {
+    const error = new Error("label-print requires positive --expected-orders and --expected-pages values.");
+    error.code = "LABEL_PRINT_EXPECTED_COUNTS_REQUIRED";
+    throw error;
+  }
+  const captured = await createShoplingLabelPdfFromSettings(config, {
+    expectedOrders,
+    expectedPages,
+    outputPath: flags.output,
+  });
+  const printed = await runWindowsPdfPrint({
+    pdfPath: captured.outputPath,
+    expectedPages,
+    execute: flags.execute === true,
+    printerName: flags.printer,
+    formName: flags.form,
+  });
+  console.log(JSON.stringify({
+    event: "shopling_label_print",
+    mode: flags.execute === true ? "execute" : "dry-run",
+    captured,
+    printed,
+  }, null, 2));
+}
+
 async function runDaemon(config) {
   console.log(JSON.stringify({
     event: "agent_started",
@@ -111,9 +147,11 @@ async function main() {
   const { command, flags } = parseArgs(process.argv.slice(2));
   if (command === "status") return runStatus(config);
   if (command === "diagnose" || command === "diagnostic") return runDiagnostic(config, flags);
+  if (command === "order-preflight" || command === "shopling-order-preflight") return runOrderPreflight(config);
+  if (command === "label-print" || command === "shopling-label-print") return runLabelPrint(config, flags);
   if (command === "daemon" || command === "run") return runDaemon(config);
   if (command === "help" || command === "--help" || command === "-h") {
-    console.log("Usage: node local-agent/bin/commerce-os-local-agent.mjs [daemon|status|diagnose --goods-key GOODSKEY --url URL]");
+    console.log("Usage: node local-agent/bin/commerce-os-local-agent.mjs [daemon|status|diagnose --goods-key GOODSKEY --url URL|order-preflight|label-print --expected-orders N --expected-pages N [--execute]]");
     return;
   }
   throw new Error(`Unknown local-agent command: ${command}`);

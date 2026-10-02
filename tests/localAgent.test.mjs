@@ -11,7 +11,27 @@ import {
 import { buildDiagnosticExpression, createDiagnosticPackage } from "../local-agent/src/diagnostics.mjs";
 import { redactStructuredData, redactUrl } from "../local-agent/src/safe-json.mjs";
 import { buildStatusSnapshot } from "../local-agent/src/status.mjs";
+import {
+  createShoplingOrderPreflight,
+  inferShoplingOrderStage,
+  SHOPLING_ORDER_PREFLIGHT_EXPRESSION,
+} from "../local-agent/src/shopling-order-preflight.mjs";
+import {
+  buildShoplingLabelPdfOptions,
+  captureShoplingLabelPdf,
+  extractLabelPageCount,
+  selectShoplingLabelTarget,
+} from "../local-agent/src/shopling-label-print.mjs";
+import {
+  buildStandaloneLabelHtml,
+  validateShoplingLabelHtmlPageCount,
+} from "../local-agent/src/shopling-label-export.mjs";
 import { createSupabaseRestHeaders, uploadHeartbeat } from "../local-agent/src/supabase-upload.mjs";
+import {
+  buildWindowsPdfPrintArgs,
+  runWindowsPdfPrint,
+  validateWindowsPdfPrintResult,
+} from "../local-agent/src/windows-pdf-printer.mjs";
 
 function config(overrides = {}) {
   return {
@@ -234,4 +254,184 @@ test("Supabase upload is opt-in and new secret keys are not sent as bearer token
   assert.equal(request.init.headers.Authorization, undefined);
   assert.equal(request.init.headers.apikey, "sb_secret_example");
   assert.equal(request.url.includes("sb_secret_example"), false);
+});
+
+test("Shopling order stages are inferred from known B5, B7, B12 and label URLs", () => {
+  assert.equal(inferShoplingOrderStage("https://a.shopling.co.kr/order/mapping2/order_mapping_1n_Lst.phtml"), "B5_MAPPING");
+  assert.equal(inferShoplingOrderStage("https://a.shopling.co.kr/order/order_list.phtml"), "B7_ORDER_PROCESSING");
+  assert.equal(inferShoplingOrderStage("https://a.shopling.co.kr/order/dlvy_list.phtml"), "B12_COURIER");
+  assert.equal(inferShoplingOrderStage("https://a.shopling.co.kr/order/dlvy_print/018_003_chrome.phtml"), "LABEL_DOCUMENT");
+});
+
+test("Shopling order preflight is read-only and excludes recipient field collection", () => {
+  assert.match(SHOPLING_ORDER_PREFLIGHT_EXPRESSION, /querySelectorAll/);
+  assert.match(SHOPLING_ORDER_PREFLIGHT_EXPRESSION, /selectedOptions/);
+  assert.doesNotMatch(SHOPLING_ORDER_PREFLIGHT_EXPRESSION, /\.click\s*\(/);
+  assert.doesNotMatch(SHOPLING_ORDER_PREFLIGHT_EXPRESSION, /\.submit\s*\(/);
+  assert.doesNotMatch(SHOPLING_ORDER_PREFLIGHT_EXPRESSION, /fetch\s*\(/);
+  assert.doesNotMatch(SHOPLING_ORDER_PREFLIGHT_EXPRESSION, /수취인명|주소|전화번호/);
+});
+
+test("Shopling order preflight reports the furthest active stage without mutations", async () => {
+  const preflight = await createShoplingOrderPreflight(config(), {
+    listChromeTargets: async () => ({
+      available: true,
+      error: null,
+      targets: [
+        { id: "b12", type: "page", title: "B12", url: "https://a.shopling.co.kr/order/dlvy_list.phtml", webSocketDebuggerUrl: "ws://b12" },
+        { id: "label", type: "page", title: "Shopling label", url: "https://a.shopling.co.kr/order/dlvy_print/018_003_chrome.phtml", webSocketDebuggerUrl: "ws://label" },
+      ],
+    }),
+    probeShoplingOrderTarget: async (target) => ({
+      stage: target.id === "label" ? "LABEL_DOCUMENT" : "B12_COURIER",
+      resultCount: target.id === "b12" ? 33 : null,
+      labelPageCount: target.id === "label" ? 31 : null,
+    }),
+  });
+  assert.equal(preflight.activeStage, "LABEL_DOCUMENT");
+  assert.equal(preflight.shoplingTabCount, 2);
+  assert.equal(preflight.safeguards.triggersPrint, false);
+});
+
+test("Shopling label PDF profile matches the verified 109x127 mm Chrome settings", () => {
+  const options = buildShoplingLabelPdfOptions();
+  assert.equal(options.transferMode, "ReturnAsStream");
+  assert.equal(options.landscape, false);
+  assert.equal(options.printBackground, false);
+  assert.equal(options.scale, 1);
+  assert.equal(options.paperWidth, 109 / 25.4);
+  assert.equal(options.paperHeight, 127 / 25.4);
+  assert.equal(options.marginTop, 0);
+  assert.equal(options.marginBottom, 0);
+  assert.equal(options.marginLeft, 11 / 72);
+  assert.equal(options.marginRight, 11 / 72);
+});
+
+test("Shopling label page count is extracted and the target must be unique", () => {
+  const nodes = [
+    { name: { value: "[1/31]" } },
+    { value: { value: "[31 / 31]" } },
+  ];
+  assert.equal(extractLabelPageCount(nodes), 31);
+  const target = selectShoplingLabelTarget([
+    { id: "label", url: "https://a.shopling.co.kr/order/dlvy_print/018_003_chrome.phtml" },
+  ]);
+  assert.equal(target.id, "label");
+  assert.throws(() => selectShoplingLabelTarget([]), { code: "SHOPLING_LABEL_TARGET_COUNT_INVALID" });
+  assert.throws(() => selectShoplingLabelTarget([
+    { url: "https://a.shopling.co.kr/order/dlvy_print/018_003_chrome.phtml" },
+    { url: "https://a.shopling.co.kr/order/dlvy_print/018_003_chrome.phtml" },
+  ]), { code: "SHOPLING_LABEL_TARGET_COUNT_INVALID" });
+});
+
+test("Shopling label capture validates page count and writes the streamed PDF", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "commerce-os-label-pdf-"));
+  const outputPath = join(directory, "labels.pdf");
+  const calls = [];
+  const session = {
+    send: async (method, params) => {
+      calls.push({ method, params });
+      if (["Page.enable", "Accessibility.enable", "Page.handleJavaScriptDialog", "IO.close"].includes(method)) return {};
+      if (method === "Runtime.evaluate") return { result: { value: "[1/2] [2/2]" } };
+      if (method === "Page.printToPDF") return { stream: "stream-1" };
+      if (method === "IO.read") return { data: Buffer.from("%PDF-test").toString("base64"), base64Encoded: true, eof: true };
+      throw new Error(`Unexpected CDP method: ${method}`);
+    },
+  };
+  try {
+    const result = await captureShoplingLabelPdf(config({ dataDir: directory }), {
+      expectedPages: 2,
+      outputPath,
+    }, {
+      listChromeTargets: async () => ({
+        available: true,
+        targets: [{
+          id: "label",
+          url: "https://a.shopling.co.kr/order/dlvy_print/018_003_chrome.phtml",
+          webSocketDebuggerUrl: "ws://label",
+        }],
+      }),
+      withCdpTarget: async (_target, handler) => handler(session),
+    });
+    assert.equal(result.pageCount, 2);
+    assert.equal(result.pdfBytes, 9);
+    assert.equal((await readFile(outputPath, "utf8")), "%PDF-test");
+    assert.equal(calls.find((call) => call.method === "Page.printToPDF").params.transferMode, "ReturnAsStream");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Windows label printer stays in dry-run unless execute is explicit", async () => {
+  const base = {
+    pdfPath: "C:/tmp/labels.pdf",
+    expectedPages: 31,
+    pdftoppm: "C:/tools/pdftoppm.exe",
+  };
+  assert.equal(buildWindowsPdfPrintArgs(base).includes("--execute"), false);
+  assert.equal(buildWindowsPdfPrintArgs({ ...base, execute: true }).includes("--execute"), true);
+
+  let invoked;
+  const result = await runWindowsPdfPrint({
+    pdfPath: base.pdfPath,
+    expectedPages: 31,
+    execute: false,
+  }, {
+    allowNonWindows: true,
+    runtime: { python: "python.exe", pdftoppm: base.pdftoppm },
+    execFile: async (executable, args) => {
+      invoked = { executable, args };
+      return { stdout: JSON.stringify({
+        executed: false,
+        printer: "Xprinter XP-DT108B LABEL",
+        form: { name: "대한통운 송장", widthMm: 109, heightMm: 127 },
+        pageCount: 31,
+        printerCaps: { physicalWidthMm: 109.1, physicalHeightMm: 127 },
+        jobId: null,
+      }) };
+    },
+  });
+  assert.equal(invoked.executable, "python.exe");
+  assert.equal(invoked.args.includes("--execute"), false);
+  assert.equal(result.pageCount, 31);
+});
+
+test("Windows label printer rejects mismatched output and missing spool job ids", () => {
+  const valid = {
+    executed: true,
+    printer: "Xprinter XP-DT108B LABEL",
+    form: { name: "대한통운 송장", widthMm: 109, heightMm: 127 },
+    pageCount: 14,
+    printerCaps: { physicalWidthMm: 109.1, physicalHeightMm: 127 },
+    jobId: 42,
+  };
+  assert.equal(validateWindowsPdfPrintResult(valid, { expectedPages: 14, execute: true }).jobId, 42);
+  assert.throws(
+    () => validateWindowsPdfPrintResult({ ...valid, pageCount: 13 }, { expectedPages: 14, execute: true }),
+    { code: "LABEL_PRINT_PAGE_COUNT_INVALID" },
+  );
+  assert.throws(
+    () => validateWindowsPdfPrintResult({ ...valid, jobId: null }, { expectedPages: 14, execute: true }),
+    { code: "LABEL_PRINT_JOB_ID_INVALID" },
+  );
+});
+
+test("standalone Shopling label HTML removes active scripts and the loading overlay", () => {
+  const html = '<div id="loading"><img src="loading.gif"></div><script>alert(1)</script><div class="page"><img src="barcode.png"></div>';
+  const standalone = buildStandaloneLabelHtml(html, new Map([["barcode.png", "assets/barcode.png"]]));
+  assert.match(standalone, /@page \{ size: 109mm 127mm; margin: 0 11pt; \}/);
+  assert.match(standalone, /break-after: page/);
+  assert.match(standalone, /assets\/barcode\.png/);
+  assert.doesNotMatch(standalone, /id="loading"/);
+  assert.doesNotMatch(standalone, /<script/);
+});
+
+test("Shopling label HTML can strictly auto-detect its page count", () => {
+  const html = '<div class="page">[1/2]</div><div class="page">[2 / 2]</div>';
+  assert.equal(validateShoplingLabelHtmlPageCount(html, { autoDetectPages: true }), 2);
+  assert.equal(validateShoplingLabelHtmlPageCount(html, { expectedPages: 2 }), 2);
+  assert.throws(
+    () => validateShoplingLabelHtmlPageCount(html, { expectedPages: 3 }),
+    { code: "SHOPLING_LABEL_HTML_PAGE_COUNT_MISMATCH" },
+  );
 });

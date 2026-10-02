@@ -1,7 +1,8 @@
 param(
   [int]$DebugPort = 9222,
   [string]$UserDataDir = "$env:LOCALAPPDATA\CommerceOS\ChromeDebugProfile",
-  [string]$Url = "https://a.shopling.co.kr/main.phtml"
+  [string]$Url = "https://a.shopling.co.kr/main.phtml",
+  [switch]$KioskPrinting
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +18,7 @@ if (-not $Chrome) {
 
 New-Item -ItemType Directory -Force -Path $UserDataDir | Out-Null
 $Args = @(
+  "--enable-automation",
   "--remote-debugging-port=$DebugPort",
   "--remote-debugging-address=127.0.0.1",
   "--user-data-dir=$UserDataDir",
@@ -24,5 +26,10 @@ $Args = @(
   $Url
 )
 
+if ($KioskPrinting) {
+  $Args = @("--kiosk-printing") + $Args
+}
+
 Start-Process -FilePath $Chrome -ArgumentList $Args
 Write-Host "Started Chrome with DevTools on http://127.0.0.1:$DebugPort"
+Write-Host "Kiosk printing: $($KioskPrinting.IsPresent)"
