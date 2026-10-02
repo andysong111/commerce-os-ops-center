@@ -36,6 +36,8 @@ export type InventoryVerificationPriorityRow = {
   originalPurchaseStatus: string;
   recommendedQty: number;
   originalRecommendedQty: number;
+  moq: number;
+  cartonQuantity: number;
   expectedCost: number;
   priorityScore: number;
   inventoryQuantity: number;
@@ -257,7 +259,12 @@ export async function loadInventoryVerificationPriority(
         recentReceipt?.latestReceivedAt &&
         (!latestInventoryInboundAt ||
           Date.parse(recentReceipt.latestReceivedAt) >
-            Date.parse(latestInventoryInboundAt)),
+          Date.parse(latestInventoryInboundAt)),
+      );
+      const moq = Math.max(1, integer(profile?.moq) || 1);
+      const cartonQuantity = Math.max(
+        1,
+        integer(profile?.cartonQuantity) || 1,
       );
       const net = calculateNetRequirement({
         demandTarget,
@@ -271,8 +278,8 @@ export async function loadInventoryVerificationPriority(
         ledgerCommitment:
           openCommitment +
           (recentReceiptCoverageApplied ? recentCycleReceivedQuantity : 0),
-        moq: Math.max(1, integer(profile?.moq) || 1),
-        cartonQuantity: Math.max(1, integer(profile?.cartonQuantity) || 1),
+        moq,
+        cartonQuantity,
       });
       const purchaseStatus = net.group;
       const action =
@@ -300,6 +307,8 @@ export async function loadInventoryVerificationPriority(
         originalPurchaseStatus: text(product.status),
         recommendedQty,
         originalRecommendedQty,
+        moq,
+        cartonQuantity,
         expectedCost,
         priorityScore: integer(product.score?.total),
         inventoryQuantity: inventory ? integer(inventory.inventoryQuantity) : 0,

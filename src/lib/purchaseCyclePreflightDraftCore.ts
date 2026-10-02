@@ -5,6 +5,7 @@ const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
 
 export type PurchaseCycleDraftRequest = {
   targetDate: string;
+  cashLimitKrw?: number | null;
   allowOpenBudgetPreview?: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
@@ -17,7 +18,7 @@ export function purchaseCycleDraftPreflightOptions(
 ) {
   return {
     targetDate: request.targetDate,
-    cashLimitKrw: null,
+    cashLimitKrw: request.cashLimitKrw ?? null,
     maxSkus: 100,
     maxUnitsPerSku: 9_999,
     allowOpenBudgetPreview: request.allowOpenBudgetPreview === true,
@@ -31,9 +32,9 @@ export function purchaseCycleDraftConfirmation(
   if (report.replacementDraftId) {
     const audit = report.replacementAudit;
     if (!audit?.complete) throw new Error("PURCHASE_DRAFT_REPLACEMENT_AUDIT_REQUIRED");
-    return `REGENERATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_ADD${audit.added.length}_REMOVE${audit.removed.length}_CHANGE${audit.quantityChanged.length}_${report.replacementDraftId}`;
+    return `REGENERATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}_ADD${audit.added.length}_REMOVE${audit.removed.length}_CHANGE${audit.quantityChanged.length}_${report.replacementDraftId}`;
   }
-  return `CREATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW`;
+  return `CREATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}`;
 }
 
 export function preparePurchaseCycleDraft(
@@ -46,6 +47,7 @@ export function preparePurchaseCycleDraft(
 } {
   if (
     request.targetDate !== report.targetDate ||
+    (request.cashLimitKrw ?? null) !== report.cashLimitKrw ||
     request.expectedSourceFingerprint !== report.sourceFingerprint ||
     request.expectedPlanFingerprint !== report.planFingerprint ||
     (request.replaceDraftId ?? null) !== (report.replacementDraftId ?? null) ||
@@ -91,8 +93,8 @@ export function preparePurchaseCycleDraft(
       plannedQuantity: row.quantity,
       // Provisional zero is not a physical stockout confirmation.
       stockSense: "LOW",
-      referenceDemandQuantity: row.quantity,
-      note: `발주 사전점검 · ${row.costEvidenceSource} · 계획재고 ${row.inventoryQuantity} · 미입고 ${row.openCommitment}`,
+      referenceDemandQuantity: row.originalRecommendedQuantity,
+      note: `발주 사전점검 · ${row.costEvidenceSource} · 권장 ${row.originalRecommendedQuantity} → 현금반영 ${row.quantity} · ${row.cashflowTier} · 계획재고 ${row.inventoryQuantity} · 미입고 ${row.openCommitment}`,
     })),
   };
 }

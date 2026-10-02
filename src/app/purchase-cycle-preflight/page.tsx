@@ -75,6 +75,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const single = (key: string, fallback: string) => typeof query[key] === "string" ? query[key] : fallback;
   const todaySeoul = seoulCalendarDate();
   const targetDate = single("date", todaySeoul);
+  const cash = single("cash", "");
+  const cashLimitKrw = cash === "" ? null : Number(cash);
   const skus = single("skus", "100");
   const units = single("units", "9999");
   const early = single("early", "") === "1";
@@ -85,9 +87,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   // explicit read-only form submission does. No polling, cron or write action.
   if (query.check === "1") {
     try {
-      if (["date", "skus", "units", "early", "check", "replace"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
-      if (![skus, units].every(value => /^\d+$/.test(value))) throw new Error("NUMERIC_INPUT_INVALID");
-      const options = { targetDate, cashLimitKrw: null, maxSkus: Number(skus), maxUnitsPerSku: Number(units), allowOpenBudgetPreview: early, replaceDraftId };
+      if (["date", "cash", "skus", "units", "early", "check", "replace"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
+      if (![skus, units].every(value => /^\d+$/.test(value)) || (cash !== "" && !/^\d+$/.test(cash))) throw new Error("NUMERIC_INPUT_INVALID");
+      const options = { targetDate, cashLimitKrw, maxSkus: Number(skus), maxUnitsPerSku: Number(units), allowOpenBudgetPreview: early, replaceDraftId };
       validatePurchasePreflightOptions(options);
       report = await loadPurchaseCyclePreflight(options);
     } catch {
@@ -107,10 +109,11 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         <input type="hidden" name="check" value="1" />
         {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
         <label className="text-sm font-bold">발주 예정일<input className="mt-2 block w-full rounded-lg border p-2" name="date" type="date" defaultValue={targetDate} required /></label>
+        <label className="text-sm font-bold">이번 달 발주에 쓸 총 현금<input className="mt-2 block w-full rounded-lg border p-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 자동 한도" /><span className="mt-1 block text-xs font-normal text-slate-500">상품대금과 배송비·수수료 예비금을 모두 포함한 금액</span></label>
         <label className="text-sm font-bold">최대 SKU 수<input className="mt-2 block w-full rounded-lg border p-2" name="skus" type="number" min="1" max="100" step="1" defaultValue={skus} required /></label>
         <label className="text-sm font-bold">품목별 최대 수량<input className="mt-2 block w-full rounded-lg border p-2" name="units" type="number" min="1" max="9999" step="1" defaultValue={units} required /></label>
         <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2 xl:col-span-3"><input name="early" type="checkbox" value="1" defaultChecked={early} />월 마감 전 조기 미리보기</label>
-        <p className="text-xs leading-5 text-slate-600 sm:col-span-2 xl:col-span-3">총한도는 전월 정상매출의 추정원가(매출 ÷ 2)로 자동 계산하고, 이미 기록된 이번 달 발주와 배송비·수수료 여유분을 차감합니다. 추천수량과 최소주문·박스단위는 임의로 쪼개지 않습니다.</p>
+        <p className="text-xs leading-5 text-slate-600 sm:col-span-2 xl:col-span-3">입력 현금과 전월 정상매출 기준 자동 한도 중 작은 금액을 사용합니다. 현금이 부족하면 우선순위 상위 25%는 권장수량을 먼저 보호하고, 다음 50%는 60% 수량, 나머지는 MOQ·박스단위 최소수량부터 배분한 뒤 남은 현금을 우선순위대로 추가합니다.</p>
         <button type="submit" className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white">읽기 전용 사전 점검</button>
       </form>
       {inputError ? <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}
@@ -166,11 +169,12 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         </section>
         <section className="rounded-2xl border bg-white p-5">
           <h2 className="font-bold">전체 발주 미리보기 · 주문서 아님</h2>
-          <p className="mt-2 text-sm">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 상품대금 상한 {money(report.effectiveBudgetKrw)} · 확정·추정원가 기준 상품대금 {money(report.estimatedSpendKrw)} · 상품대금 잔여한도 {money(report.remainingPreviewBudgetKrw)}</p>
+          <p className="mt-2 text-sm">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 운영자 입력 총현금 {report.cashLimitKrw === null ? "자동 한도 사용" : money(report.cashLimitKrw)} · 최종 적용 총현금 {money(report.effectiveCashKrw)} · 상품대금 상한 {money(report.effectiveBudgetKrw)}</p>
+          <p className="mt-2 text-sm">확정·추정원가 기준 상품대금 {money(report.estimatedSpendKrw)} · 상품대금 잔여한도 {money(report.remainingPreviewBudgetKrw)} · 현금에 맞춰 수량 감축 {report.cashAdjustedCount}종 · 현금 한도로 제외 {report.cashExcludedCount}종</p>
           <p className="mt-2 text-sm">도매 판매가 추정 {report.wholesaleEstimatedSelectedCount}개 · 사용자 제공 추정 {report.ownerEstimatedSelectedCount}개 · 원가 근거 미확인 {report.missingCostCount}개</p>
           <p className="mt-2 text-sm font-bold">전체 후보 {report.candidateCount}종 · 선정·제외로 설명된 후보 {report.accountedCandidateCount}종 · {report.candidateCoverageComplete ? "누락 없음" : "설명되지 않은 누락 있음"}</p>
           <p className="mt-2 text-sm">이번 달 기록된 발주 지출 {report.recordedCycleSpendKrw === null ? "미확인" : money(report.recordedCycleSpendKrw)} · 자동 적용 현금 한도 {money(report.effectiveCashKrw)} · 배송비 여유분 포함 예상 지출 {money(report.estimatedAllInSpendKrw)}</p>
-          <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead><tr><th className="p-2">B코드·모델·상품</th><th className="p-2">수량</th><th className="p-2">예상금액</th><th className="p-2">원가 근거</th><th className="p-2">계획재고</th><th className="p-2">재고 근거</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode}{row.costModelNo ? ` · ${row.costModelNo}` : ""} · {row.name}</td><td className="p-2">{row.quantity}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{costBasisLabel(row)}</td><td className="p-2">{row.inventoryQuantity}</td><td className="p-2">{row.inventoryMode === "VERIFIED" ? "확인재고" : "추정재고"}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
+          <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1000px] text-left text-sm"><thead><tr><th className="p-2">B코드·모델·상품</th><th className="p-2">우선순위</th><th className="p-2">권장 → 현금반영</th><th className="p-2">예상금액</th><th className="p-2">원가 근거</th><th className="p-2">계획재고</th><th className="p-2">재고 근거</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode}{row.costModelNo ? ` · ${row.costModelNo}` : ""} · {row.name}</td><td className="p-2">{row.cashflowTier === "CORE" ? "핵심" : row.cashflowTier === "SUPPORT" ? "안정" : row.cashflowTier === "CANARY" ? "최소" : "자동"} · {row.priorityScore}점</td><td className="p-2 font-bold">{row.originalRecommendedQuantity} → {row.quantity}{row.cashAdjusted ? " (감축)" : ""}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{costBasisLabel(row)}</td><td className="p-2">{row.inventoryQuantity}</td><td className="p-2">{row.inventoryMode === "VERIFIED" ? "확인재고" : "추정재고"}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
           {!report.selected.length ? <p className="mt-3 text-sm">확정 가능한 미리보기 품목이 없습니다. 차단을 우회하거나 재고를 0으로 가정하지 않습니다.</p> : null}
           <details className="mt-4 text-sm"><summary>제외 품목 {report.excluded.length}개 확인</summary>{report.excluded.slice(0, 100).map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.reasons.map(explain).join(" / ")}</p>)}{report.excluded.length > 100 ? <p className="mt-2">앞의 100개를 표시했습니다. 구간별 상세 화면에서 전체 자료를 확인하세요.</p> : null}</details>
         </section>
@@ -178,6 +182,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <PurchaseCycleDraftActions
             targetDate={report.targetDate}
             targetCycleMonth={report.targetCycleMonth}
+            cashLimitKrw={report.cashLimitKrw}
             allowOpenBudgetPreview={early}
             expectedSourceFingerprint={report.sourceFingerprint}
             expectedPlanFingerprint={report.planFingerprint}

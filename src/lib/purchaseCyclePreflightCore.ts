@@ -14,6 +14,10 @@ import {
   purchaseCostEvidenceSource,
   purchaseCostReadyForExecution,
 } from "./verifiedPurchaseCostEvidence.ts";
+import {
+  allocatePurchaseCashflow,
+  type PurchaseCashflowTier,
+} from "./purchaseCashflowAllocation.ts";
 
 // This module is a calculator, NOT an approval token, draft writer or executor.
 export type PurchaseCandidatePin = {
@@ -90,6 +94,10 @@ export type PurchasePreflightLine = {
   barcode: string;
   name: string;
   quantity: number;
+  originalRecommendedQuantity: number;
+  cashAdjusted: boolean;
+  cashflowTier: "AUTOMATIC" | PurchaseCashflowTier;
+  priorityScore: number;
   estimatedCostKrw: number;
   verifiedUnitCostKrw: number;
   confirmedUnitCostKrw: number;
@@ -130,6 +138,8 @@ export type PurchaseCyclePreflightReport = {
   purchaseCostMultiplier: number | null;
   estimatedAllInSpendKrw: number;
   estimatedSpendKrw: number;
+  cashAdjustedCount: number;
+  cashExcludedCount: number;
   wholesaleEstimatedSelectedCount: number;
   ownerEstimatedSelectedCount: number;
   missingCostCount: number;
@@ -286,11 +296,20 @@ function provisionalInventoryReady(row: InventoryVerificationPriorityRow) {
 function inventoryPreviewReady(row: InventoryVerificationPriorityRow) {
   return verifiedInventoryReady(row) || provisionalInventoryReady(row);
 }
-function projectedLine(row: InventoryVerificationPriorityRow, basis: PurchaseCostBasis): PurchasePreflightLine {
+function projectedLine(
+  row: InventoryVerificationPriorityRow,
+  basis: PurchaseCostBasis,
+  allocatedQuantity = row.recommendedQty,
+  cashflowTier: PurchasePreflightLine["cashflowTier"] = "AUTOMATIC",
+): PurchasePreflightLine {
   const unitCost = basis.unitCostKrw;
   return {
-    barcode: row.barcode, name: row.name, quantity: row.recommendedQty,
-    estimatedCostKrw: lineCost(row, basis),
+    barcode: row.barcode, name: row.name, quantity: allocatedQuantity,
+    originalRecommendedQuantity: row.recommendedQty,
+    cashAdjusted: allocatedQuantity < row.recommendedQty,
+    cashflowTier,
+    priorityScore: row.priorityScore,
+    estimatedCostKrw: unitCost * allocatedQuantity,
     verifiedUnitCostKrw: basis.executionVerified ? unitCost : 0,
     confirmedUnitCostKrw: basis.executionVerified ? unitCost : 0,
     estimatedUnitCostKrw: unitCost,
@@ -497,17 +516,55 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const selected: PurchasePreflightLine[] = [];
   let estimatedSpendKrw = 0;
   const calculationUnblocked = blockers.length === 0;
-  // Never scale or round the engine's MOQ/carton-aware quantity to squeeze it
-  // into a canary budget; skip whole lines that exceed the explicit limits.
   if (blockers.length === 0) {
-    for (const row of eligible) {
-      const basis = costBasisByBarcode.get(row.barcode);
-      if (!basis) continue;
-      if (selected.length >= maxSkus) { excluded.push({ barcode: row.barcode, reasons: ["CANARY_SKU_LIMIT"] }); continue; }
-      if (lineCost(row, basis) > effectiveBudgetKrw - estimatedSpendKrw) {
-        excluded.push({ barcode: row.barcode, reasons: ["CASH_BUDGET_LIMIT"] }); continue;
+    const withinSkuLimit = eligible.slice(0, maxSkus);
+    for (const row of eligible.slice(maxSkus)) {
+      excluded.push({ barcode: row.barcode, reasons: ["CANARY_SKU_LIMIT"] });
+    }
+    if (cashLimitKrw !== null) {
+      const allocations = allocatePurchaseCashflow(
+        withinSkuLimit.map((row) => ({
+          barcode: row.barcode,
+          priorityScore: row.priorityScore,
+          targetQuantity: row.recommendedQty,
+          unitCostKrw:
+            costBasisByBarcode.get(row.barcode)?.unitCostKrw ?? 0,
+          moq: row.moq,
+          cartonQuantity: row.cartonQuantity,
+        })),
+        effectiveBudgetKrw,
+      );
+      const allocationByBarcode = new Map(
+        allocations.map((row) => [row.barcode, row] as const),
+      );
+      for (const row of withinSkuLimit) {
+        const basis = costBasisByBarcode.get(row.barcode);
+        const allocation = allocationByBarcode.get(row.barcode);
+        if (!basis || !allocation || allocation.allocatedQuantity <= 0) {
+          excluded.push({ barcode: row.barcode, reasons: ["CASH_BUDGET_LIMIT"] });
+          continue;
+        }
+        selected.push(
+          projectedLine(
+            row,
+            basis,
+            allocation.allocatedQuantity,
+            allocation.tier,
+          ),
+        );
+        estimatedSpendKrw += allocation.estimatedCostKrw;
       }
-      selected.push(projectedLine(row, basis)); estimatedSpendKrw += lineCost(row, basis);
+    } else {
+      for (const row of withinSkuLimit) {
+        const basis = costBasisByBarcode.get(row.barcode);
+        if (!basis) continue;
+        if (lineCost(row, basis) > effectiveBudgetKrw - estimatedSpendKrw) {
+          excluded.push({ barcode: row.barcode, reasons: ["CASH_BUDGET_LIMIT"] });
+          continue;
+        }
+        selected.push(projectedLine(row, basis));
+        estimatedSpendKrw += lineCost(row, basis);
+      }
     }
     if (selected.length === 0) blockers.push("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
   }
@@ -644,7 +701,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     candidateRequestId: pin?.requestId ?? null, sourceAnalysisAsOf: pin?.analysisAsOf ?? null,
     sourceCycleMonth: source?.cycleMonth ?? null, sourceBudgetMonth: source?.budgetMonth ?? null,
     cashLimitKrw, automaticGrossBudgetKrw: fundingValid ? source!.grossBudgetKrw! : null,
-    effectiveBudgetKrw, estimatedSpendKrw, remainingPreviewBudgetKrw: effectiveBudgetKrw - estimatedSpendKrw,
+    effectiveBudgetKrw, estimatedSpendKrw,
+    cashAdjustedCount: selected.filter((row) => row.cashAdjusted).length,
+    cashExcludedCount: excluded.filter((row) =>
+      row.reasons.includes("CASH_BUDGET_LIMIT"),
+    ).length,
+    remainingPreviewBudgetKrw: effectiveBudgetKrw - estimatedSpendKrw,
     wholesaleEstimatedSelectedCount: selected.filter((row) => row.costBasis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE").length,
     ownerEstimatedSelectedCount: selected.filter((row) => row.costBasis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE").length,
     missingCostCount: candidates.filter((row) => !costBasisByBarcode.get(row.barcode)).length,

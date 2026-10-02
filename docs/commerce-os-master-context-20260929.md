@@ -126,6 +126,9 @@ Recurring rules discussed for the real import operation include:
 - logistics/order coefficient has historically been around 1.4-1.5 where applicable
 - small test orders are preferred before scaling uncertain SKUs
 - cash-only purchasing is preferred when cashflow is constrained
+- owner clarification on 2026-10-03: the purchase preview accepts an optional all-in cash amount that includes product payment plus the freight/fee reserve; the smaller of this amount and the automatic prior-month funding envelope is authoritative
+- when the owner supplies that amount, allocate it deterministically by priority: protect the top 25% at the engine target, start the next 50% at 60%, start the final 25% at MOQ/carton minimum, then top up in priority order without exceeding the engine target
+- a cash-adjusted quantity must still honor MOQ/carton units and remain visible as original recommendation -> adjusted quantity; leaving the amount blank preserves automatic-envelope behavior
 
 These are operating heuristics, not permission to bypass the canonical purchase-cycle engine.
 
@@ -185,6 +188,7 @@ That handoff preserves several decisions that must not be lost when chat session
 - Stage 8 must not require a whole-warehouse stocktake. A real sold-out reset at 0 can create the trusted baseline; verified inbound and canonical sales then maintain the balance. STOCKTAKE is an exception/correction tool.
 - Stage 9 purchase Shadow must subtract open/in-transit commitments to prevent duplicate ordering and must remain read-only.
 - Stage 10 on/around 2026-10-01 must recalculate from the closed prior month plus fresh sales/inventory/open-commitment evidence and an owner cash cap; a prior preview is not an order.
+- Stage 10 cash-cap allocation follows the 2026-10-03 hybrid priority rule above. Preview/Draft creation remains separate from actual 1688 order or payment.
 - Stage 11 is complete only after a real owner-approved small order, real receiving, confirmed landed cost, inventory update, and close/readback evidence.
 - CANARY/FULL Product Master writes and actual order/payment remain explicit owner-action boundaries.
 - When owner intervention is required, explain the action simply at roughly Korean high-school freshman level and give exact 1~3 actions plus a completion signal.

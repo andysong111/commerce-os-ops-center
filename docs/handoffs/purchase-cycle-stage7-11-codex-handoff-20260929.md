@@ -197,7 +197,9 @@ Rules:
 - subtract already-recorded purchase spend
 - apply the owner cash cap
 - keep shipping/logistics reserve logic distinct from product cost
-- do not arbitrarily shrink an engine quantity simply to fit the preview; if MOQ/carton-aware quantity violates the explicit cap, exclude the row
+- when an owner cash cap is entered, treat it as all-in cash including product payment and the freight/fee reserve, and use the smaller of it and the automatic prior-month envelope
+- allocate explicit cash caps by the 2026-10-03 owner rule: top 25% at the engine target, next 50% at 60%, final 25% at MOQ/carton minimum, then top up by priority
+- every reduced quantity must retain MOQ/carton alignment, never exceed the engine target, and be shown as original recommendation -> cash-adjusted quantity; rows that cannot afford their minimum are excluded explicitly
 - preview is not an order, reservation, approval token, or scheduled purchase
 
 Historical operating shorthand was previous-month sales / 2 as the purchase budget reference. Current code/policy is authoritative where it has refined that rule.
@@ -465,9 +467,9 @@ Known CI caveat from later project work:
 ### Stage 10 done
 
 - target-month preview uses closed funding basis and fresh source data
-- the funding cap is calculated automatically from the prior month's normal-sales cost basis; do not ask the owner for a duplicate cash cap
+- the automatic funding cap is calculated from the prior month's normal-sales cost basis; the owner may optionally enter a smaller all-in cash cap for the current Draft
 - existing cycle spend and the established freight/fee multiplier are applied
-- item/quantity/money preview is stable and auditable
+- item/quantity/money preview is stable and auditable, including original and cash-adjusted quantities
 - preview remains non-binding
 
 Owner clarification on 2026-09-30: an explicitly authorized pre-close run may be shown as an early read-only preview, but it must remain non-binding and be recalculated from closed data before a real order.
