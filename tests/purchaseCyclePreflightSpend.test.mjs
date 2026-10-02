@@ -44,6 +44,29 @@ for (const amount of [undefined, "30000", -1, 0.5, Infinity]) {
   });
 }
 test("explicit stored zero is valid only with a complete read", () => assert.equal(build([row("d1", 0)]).recordedSpendKrw, 0));
+test("an explicitly unexecuted Draft contributes zero spend", () => {
+  const value = row();
+  delete value.result_snapshot.actualOrderPaidKrwAtInternalFx;
+  value.result_snapshot.status = "DRAFT";
+  value.result_snapshot.externalOrderExecuted = false;
+  assert.equal(build([value]).recordedSpendKrw, 0);
+});
+test("missing paid amount still blocks ordered or ambiguously executed rows", () => {
+  for (const snapshot of [
+    { status: "ORDERED", externalOrderExecuted: false },
+    { status: "DRAFT", externalOrderExecuted: true },
+    { status: "DRAFT" },
+  ]) {
+    const value = row();
+    value.result_snapshot = { cycleMonth: month, draftId: "d1", ...snapshot };
+    assert.throws(() => build([value]), /AMOUNT_UNVERIFIED/);
+  }
+});
+test("legacy rows without a cycle month are ignored only when both timestamps are outside the target month", () => {
+  const legacy = { id: "legacy", source_event_id: "legacy-draft", started_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-02T00:00:00Z", result_snapshot: { snapshot: { draftId: "legacy-draft", status: "ORDERED", externalOrderExecuted: false } } };
+  assert.equal(build([legacy]).recordedSpendKrw, 0);
+  assert.throws(() => build([{ ...legacy, updated_at: "2026-10-01T00:00:00Z" }]), /ROW_MONTH_UNVERIFIED/);
+});
 test("overflow in sum fails closed", () => assert.throws(() => build([row("d1", Number.MAX_SAFE_INTEGER), row("d2", 1)]), /OVERFLOW/));
 test("missing identity or malformed month fails closed", () => {
   const value = row(); delete value.source_event_id; delete value.result_snapshot.draftId;
