@@ -5,11 +5,25 @@ const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
 
 export type PurchaseCycleDraftRequest = {
   targetDate: string;
+  allowOpenBudgetPreview?: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
   confirmation: string;
   replaceDraftId?: string | null;
 };
+
+export function purchaseCycleDraftPreflightOptions(
+  request: PurchaseCycleDraftRequest,
+) {
+  return {
+    targetDate: request.targetDate,
+    cashLimitKrw: null,
+    maxSkus: 100,
+    maxUnitsPerSku: 9_999,
+    allowOpenBudgetPreview: request.allowOpenBudgetPreview === true,
+    replaceDraftId: request.replaceDraftId ?? null,
+  };
+}
 
 export function purchaseCycleDraftConfirmation(
   report: PurchaseCyclePreflightReport,

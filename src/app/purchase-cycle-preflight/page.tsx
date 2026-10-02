@@ -141,6 +141,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <PurchaseCycleDraftActions
             targetDate={report.targetDate}
             targetCycleMonth={report.targetCycleMonth}
+            allowOpenBudgetPreview={early}
             expectedSourceFingerprint={report.sourceFingerprint}
             expectedPlanFingerprint={report.planFingerprint}
             confirmation={purchaseCycleDraftConfirmation(report)}
