@@ -14,11 +14,15 @@ function report() {
   return {
     targetDate: "2026-10-01",
     replacementDraftId: null,
+    replacementAudit: null,
     targetCycleMonth: "2026-10",
     sourceFingerprint: fp("a"),
     planFingerprint: fp("b"),
     previewReady: true,
     blockers: [],
+    candidateCount: 1,
+    accountedCandidateCount: 1,
+    candidateCoverageComplete: true,
     selected: [
       {
         barcode: "BAC1-1",
@@ -106,15 +110,46 @@ test("exact line count and amount confirmation is mandatory", () => {
 test("replacement preview is pinned to the exact existing draft", () => {
   const value = report();
   value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  value.replacementAudit = {
+    previousLineCount: 2,
+    selectedLineCount: 1,
+    matchedCount: 1,
+    added: [],
+    removed: [{ barcode: "BAA2-1", name: "이전 상품", quantity: 2, reasons: ["CURRENT_ENGINE_NOT_RECOMMENDED"] }],
+    quantityChanged: [{ barcode: "BAC1-1", name: "토끼 발세척매트", previousQuantity: 30, selectedQuantity: 38 }],
+    complete: true,
+  };
   const input = request(value);
   input.replaceDraftId = value.replacementDraftId;
   input.confirmation = purchaseCycleDraftConfirmation(value);
   assert.match(input.confirmation, /REGENERATE_PURCHASE_DRAFT/);
+  assert.match(input.confirmation, /ADD0_REMOVE1_CHANGE1/);
   assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
   input.replaceDraftId = "fast-purchase-draft:11111111111111111111";
   assert.throws(
     () => preparePurchaseCycleDraft(value, input),
     /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
+  );
+});
+
+test("replacement cannot be saved without a complete old-to-new coverage audit", () => {
+  const value = report();
+  value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  assert.throws(
+    () => purchaseCycleDraftConfirmation(value),
+    /PURCHASE_DRAFT_REPLACEMENT_AUDIT_REQUIRED/,
+  );
+  const input = {
+    targetDate: value.targetDate,
+    allowOpenBudgetPreview: false,
+    expectedSourceFingerprint: value.sourceFingerprint,
+    expectedPlanFingerprint: value.planFingerprint,
+    replaceDraftId: value.replacementDraftId,
+    confirmation: "REGENERATE_PURCHASE_DRAFT",
+  };
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input),
+    /PURCHASE_DRAFT_REPLACEMENT_AUDIT_REQUIRED/,
   );
 });
 
@@ -155,6 +190,7 @@ test("only one unchanged RESERVED draft can be regenerated", () => {
 for (const mutate of [
   (value) => { value.previewReady = false; },
   (value) => { value.blockers = ["SOURCE_CHANGED_OR_MISSING"]; },
+  (value) => { value.candidateCoverageComplete = false; value.accountedCandidateCount = 0; },
   (value) => { value.selected = []; },
   (value) => { value.estimatedSpendKrw = value.effectiveBudgetKrw + 1; },
 ]) {

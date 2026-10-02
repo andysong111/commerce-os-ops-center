@@ -29,7 +29,9 @@ export function purchaseCycleDraftConfirmation(
   report: PurchaseCyclePreflightReport,
 ) {
   if (report.replacementDraftId) {
-    return `REGENERATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_${report.replacementDraftId}`;
+    const audit = report.replacementAudit;
+    if (!audit?.complete) throw new Error("PURCHASE_DRAFT_REPLACEMENT_AUDIT_REQUIRED");
+    return `REGENERATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_ADD${audit.added.length}_REMOVE${audit.removed.length}_CHANGE${audit.quantityChanged.length}_${report.replacementDraftId}`;
   }
   return `CREATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW`;
 }
@@ -55,12 +57,17 @@ export function preparePurchaseCycleDraft(
   if (
     report.previewReady !== true ||
     report.blockers.length > 0 ||
+    report.candidateCoverageComplete !== true ||
+    report.accountedCandidateCount !== report.candidateCount ||
     report.selected.length < 1 ||
     report.selected.length > 100 ||
     report.estimatedSpendKrw <= 0 ||
     report.estimatedSpendKrw > report.effectiveBudgetKrw
   ) {
     throw new Error("PURCHASE_CYCLE_DRAFT_NOT_READY");
+  }
+  if (report.replacementDraftId && report.replacementAudit?.complete !== true) {
+    throw new Error("PURCHASE_DRAFT_REPLACEMENT_AUDIT_REQUIRED");
   }
   if (
     report.businessWritesEnabled !== false ||
