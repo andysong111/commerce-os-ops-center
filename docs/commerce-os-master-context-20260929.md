@@ -644,3 +644,22 @@ The dedicated handoff also contains:
 - sold-out / held cleanup state
 - recently discontinued products that must not be resurrected
 - shared-B-code exceptions and deferred conflicts
+
+---
+
+## 18. October Draft replacement recalculation incident (2026-10-03)
+
+The first replacement calculation for Draft `fast-purchase-draft:53d26f59e549704c643b` incorrectly subtracted that Draft's own RESERVED commitments before the recommendation and portfolio-allocation stage. The old lines were removed only after allocation, so 20 valid recommended products were displaced by a different tranche. This was a calculation-order bug, not missing cost or inventory evidence.
+
+The corrected production read-only result contained 37 selected products, 3,222 units, estimated product spend 1,437,258 KRW, missing cost 0, and usable inventory evidence 37/37. It overlapped the existing 47-line Draft by 17 products; 20 products were newly included and 30 old Draft products were no longer recommended by the corrected current engine. Do not add the 20 to the old 47 as a 67-line order. A replacement must use the complete newly calculated set.
+
+Replacement preflight must preserve these invariants:
+
+- read and fingerprint the exact active RESERVED Draft before and after calculation
+- account for every old and new B-code as matched, added, or removed
+- show every quantity change explicitly
+- account for every current purchase candidate as either selected or excluded with a reason
+- block Draft saving if either coverage equation is incomplete or the Draft changes during calculation
+- include added, removed, and quantity-changed counts in the exact regeneration confirmation
+
+Actual 1688 ordering and payment remain outside this replacement calculation and still require the normal owner decision boundary.

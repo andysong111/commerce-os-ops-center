@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  buildPurchaseCyclePreflight, readPurchaseCyclePreflight,
+  buildPurchaseCyclePreflight, buildPurchaseReplacementDraftSnapshot, readPurchaseCyclePreflight,
   validPurchaseTargetDate, samePurchaseCandidatePin,
 } from "../src/lib/purchaseCyclePreflightCore.ts";
 import {
@@ -249,6 +249,32 @@ test("reader adapter brackets the source and loads the expensive priority only o
   const report = await readPurchaseCyclePreflight(input.options, readers, () => input.now);
   assert.equal(report.previewReady, true); assert.deepEqual(counts, { candidate: 2, gate: 1, reconciliation: 1, priority: 1, monthlySpend: 2 }); locked(report);
 });
+test("replacement reader brackets the exact active draft and carries its audit into the report", async () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "기존 상품", quantity: 3 }],
+  );
+  let replacementReads = 0;
+  const report = await readPurchaseCyclePreflight(input.options, {
+    candidate: async () => input.before,
+    gate: async () => input.gate,
+    reconciliation: async () => input.reconciliation,
+    priority: async () => input.priority,
+    monthlySpend: async () => input.spendBefore,
+    replacementDraft: async () => {
+      replacementReads++;
+      return { ...snapshot, readAt: new Date(Date.parse(input.now) + replacementReads * 1000).toISOString() };
+    },
+  }, () => input.now);
+  assert.equal(replacementReads, 2);
+  assert.equal(report.previewReady, true);
+  assert.equal(report.replacementAudit.complete, true);
+  assert.equal(report.replacementAudit.quantityChanged.length, 1);
+});
 test("reader failure preserves a diagnostic report without leaking raw errors or using a stale fallback", async () => {
   const input = fixture(); const secret = "do-not-expose-raw-db-url-secret";
   const report = await readPurchaseCyclePreflight(input.options, { candidate: async () => input.before, gate: async () => { throw new Error(secret); }, reconciliation: async () => input.reconciliation, priority: async () => input.priority, monthlySpend: async () => input.spendBefore }, () => input.now);
@@ -281,6 +307,8 @@ test("operator page uses the automatic prior-month cost envelope without a dupli
   assert.match(page, /전월 정상매출의 추정원가/);
   assert.match(page, /name="early"/);
   assert.match(page, /월 마감 전 조기 미리보기/);
+  assert.match(page, /기존 Draft와 새 계산 전체 대조/);
+  assert.match(page, /replacementAudit\.added/);
 });
 
 
@@ -375,6 +403,60 @@ test("active wholesale sale-price estimate can enter the draft preview without b
   assert.equal(report.wholesaleEstimatedSelectedCount, 1);
   assert.ok(report.reviewBlockers.includes("WHOLESALE_COST_ESTIMATE_OWNER_REVIEW_REQUIRED"));
   locked(report);
+});
+
+test("replacement audit accounts for every old and new line and explains the delta", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "기존 공통 상품", quantity: 3 },
+      { barcode: "BAA2-1", name: "현재 비추천 상품", quantity: 7 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = { ...snapshot, readAt: "2026-10-01T02:00:01.000Z" };
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true);
+  assert.deepEqual(
+    {
+      previous: report.replacementAudit.previousLineCount,
+      selected: report.replacementAudit.selectedLineCount,
+      matched: report.replacementAudit.matchedCount,
+      added: report.replacementAudit.added.length,
+      removed: report.replacementAudit.removed.length,
+      changed: report.replacementAudit.quantityChanged.length,
+      complete: report.replacementAudit.complete,
+    },
+    { previous: 2, selected: 1, matched: 1, added: 0, removed: 1, changed: 1, complete: true },
+  );
+  assert.deepEqual(report.replacementAudit.removed[0].reasons, ["CURRENT_ENGINE_NOT_RECOMMENDED"]);
+  assert.deepEqual(report.replacementAudit.quantityChanged[0], {
+    barcode: "BAA1-1",
+    name: "SIMULATION ONLY",
+    previousQuantity: 3,
+    selectedQuantity: 5,
+  });
+});
+
+test("replacement draft drift during calculation fails closed", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.replacementBefore = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "상품", quantity: 3 }],
+  );
+  input.replacementAfter = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "상품", quantity: 4 }],
+  );
+  blocked(buildPurchaseCyclePreflight(input), "REPLACEMENT_DRAFT_CHANGED_OR_UNVERIFIED");
 });
 test("a fresh wholesale observation time does not invalidate an unchanged draft preview", () => {
   const first = fixture();

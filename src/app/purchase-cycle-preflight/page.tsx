@@ -50,6 +50,12 @@ const reasonLabels: Record<string, string> = {
   CANDIDATE_READ_FAILED: "판매 후보 조회 실패", CANDIDATE_RECHECK_FAILED: "판매 후보 재확인 실패",
   PROMOTION_GATE_READ_FAILED: "판매원장 게이트 조회 실패", MASTER_READBACK_READ_FAILED: "상품마스터 대사 조회 실패",
   INVENTORY_PRIORITY_READ_FAILED: "재고·발주 우선순위 조회 실패",
+  REPLACEMENT_DRAFT_READ_FAILED: "기존 Draft를 읽지 못했습니다.",
+  REPLACEMENT_DRAFT_RECHECK_FAILED: "계산 뒤 기존 Draft를 다시 확인하지 못했습니다.",
+  REPLACEMENT_DRAFT_CHANGED_OR_UNVERIFIED: "계산 중 기존 Draft가 바뀌었거나 전체 품목을 고정하지 못해 재생성을 차단했습니다.",
+  REPLACEMENT_DRAFT_COVERAGE_MISMATCH: "기존 Draft와 새 계산의 품목 대조 합계가 맞지 않아 재생성을 차단했습니다.",
+  CANDIDATE_COVERAGE_MISMATCH: "전체 발주 후보 중 선정 또는 제외 사유로 설명되지 않은 품목이 있어 Draft 저장을 차단했습니다.",
+  CURRENT_ENGINE_NOT_RECOMMENDED: "현재 판매·재고·미입고 계산에서는 발주 추천 대상이 아닙니다.",
   "UPSTREAM:claim-auxiliary": "클레임·배송 보조신호 연결이 남아 있어 실제 실행 판단으로 승격하지 않습니다.",
 };
 const explain = (code: string) => reasonLabels[code] ?? `상위 검증에서 남은 조건: ${code}`;
@@ -114,6 +120,36 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             <strong>기존 Draft 재생성 점검</strong> · <span className="font-mono">{report.replacementDraftId}</span>의 RESERVED 수량을 계산에서 제외하고 처음부터 다시 산출했습니다. 주문·입고가 시작됐으면 저장 단계에서 자동 중단합니다.
           </section>
         ) : null}
+        {report.replacementAudit ? (
+          <section className="rounded-2xl border border-sky-300 bg-white p-5">
+            <h2 className="font-bold">기존 Draft와 새 계산 전체 대조</h2>
+            <p className="mt-2 text-sm leading-6">
+              기존 {report.replacementAudit.previousLineCount}종 · 새 계산 {report.replacementAudit.selectedLineCount}종 ·
+              공통 {report.replacementAudit.matchedCount}종 · 추가 {report.replacementAudit.added.length}종 ·
+              제거 {report.replacementAudit.removed.length}종 · 수량변경 {report.replacementAudit.quantityChanged.length}종
+            </p>
+            <p className="mt-2 text-sm font-bold text-emerald-800">
+              {report.replacementAudit.complete
+                ? "기존 품목과 새 계산 품목이 모두 한 번씩 대조되었습니다."
+                : "대조 합계가 맞지 않아 Draft 저장이 차단됩니다."}
+            </p>
+            <details className="mt-4 text-sm" open>
+              <summary className="font-bold">새로 포함되는 품목 {report.replacementAudit.added.length}종</summary>
+              {report.replacementAudit.added.map((row) => <p key={row.barcode} className="mt-2">{row.barcode} · {row.name || "상품명 미확인"} · {row.quantity}개</p>)}
+              {!report.replacementAudit.added.length ? <p className="mt-2">없음</p> : null}
+            </details>
+            <details className="mt-4 text-sm">
+              <summary className="font-bold">기존 Draft에서 빠지는 품목 {report.replacementAudit.removed.length}종</summary>
+              {report.replacementAudit.removed.map((row) => <p key={row.barcode} className="mt-2">{row.barcode} · {row.name || "상품명 미확인"} · 기존 {row.quantity}개 · {row.reasons.map(explain).join(" / ")}</p>)}
+              {!report.replacementAudit.removed.length ? <p className="mt-2">없음</p> : null}
+            </details>
+            <details className="mt-4 text-sm">
+              <summary className="font-bold">수량이 바뀌는 공통 품목 {report.replacementAudit.quantityChanged.length}종</summary>
+              {report.replacementAudit.quantityChanged.map((row) => <p key={row.barcode} className="mt-2">{row.barcode} · {row.name || "상품명 미확인"} · {row.previousQuantity}개 → {row.selectedQuantity}개</p>)}
+              {!report.replacementAudit.quantityChanged.length ? <p className="mt-2">없음</p> : null}
+            </details>
+          </section>
+        ) : null}
         <section className="rounded-2xl border bg-white p-5">
           <h2 className="text-xl font-bold">{report.state === "BLOCKED" ? "발주안 확정 전 확인이 필요합니다" : report.state === "PREVIEW_ONLY" ? "미리보기 생성 · 실행 판단은 대기" : "미리보기 생성 · 별도 최종 검토 필요"}</h2>
           <p className="mt-2 text-sm">조회 시각 {new Date(report.generatedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 판매 분석시점 {report.sourceAnalysisAsOf ?? "미확인"}</p>
@@ -132,6 +168,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <h2 className="font-bold">전체 발주 미리보기 · 주문서 아님</h2>
           <p className="mt-2 text-sm">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 상품대금 상한 {money(report.effectiveBudgetKrw)} · 확정·추정원가 기준 상품대금 {money(report.estimatedSpendKrw)} · 상품대금 잔여한도 {money(report.remainingPreviewBudgetKrw)}</p>
           <p className="mt-2 text-sm">도매 판매가 추정 {report.wholesaleEstimatedSelectedCount}개 · 사용자 제공 추정 {report.ownerEstimatedSelectedCount}개 · 원가 근거 미확인 {report.missingCostCount}개</p>
+          <p className="mt-2 text-sm font-bold">전체 후보 {report.candidateCount}종 · 선정·제외로 설명된 후보 {report.accountedCandidateCount}종 · {report.candidateCoverageComplete ? "누락 없음" : "설명되지 않은 누락 있음"}</p>
           <p className="mt-2 text-sm">이번 달 기록된 발주 지출 {report.recordedCycleSpendKrw === null ? "미확인" : money(report.recordedCycleSpendKrw)} · 자동 적용 현금 한도 {money(report.effectiveCashKrw)} · 배송비 여유분 포함 예상 지출 {money(report.estimatedAllInSpendKrw)}</p>
           <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead><tr><th className="p-2">B코드·모델·상품</th><th className="p-2">수량</th><th className="p-2">예상금액</th><th className="p-2">원가 근거</th><th className="p-2">계획재고</th><th className="p-2">재고 근거</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode}{row.costModelNo ? ` · ${row.costModelNo}` : ""} · {row.name}</td><td className="p-2">{row.quantity}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{costBasisLabel(row)}</td><td className="p-2">{row.inventoryQuantity}</td><td className="p-2">{row.inventoryMode === "VERIFIED" ? "확인재고" : "추정재고"}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
           {!report.selected.length ? <p className="mt-3 text-sm">확정 가능한 미리보기 품목이 없습니다. 차단을 우회하거나 재고를 0으로 가정하지 않습니다.</p> : null}
@@ -150,6 +187,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             estimatedSpendKrw={report.estimatedSpendKrw}
             ready={report.previewReady && report.blockers.length === 0}
             replaceDraftId={report.replacementDraftId}
+            replacementAddedCount={report.replacementAudit?.added.length ?? 0}
+            replacementRemovedCount={report.replacementAudit?.removed.length ?? 0}
+            replacementChangedCount={report.replacementAudit?.quantityChanged.length ?? 0}
           />
         ) : null}
         <details className="rounded-2xl border p-5 text-xs"><summary className="font-bold">채팅 인계·원본 추적 지문</summary><p className="mt-3 break-all">후보 요청 {report.candidateRequestId ?? "없음"}</p><p className="mt-2 break-all">원본 {report.sourceFingerprint}</p><p className="mt-2 break-all">발주 미리보기 {report.planFingerprint}</p><p className="mt-3">같은 화면·지문이라도 승인 토큰이 아닙니다. 데이터·예산·수량 제한이 바뀌면 다시 점검합니다.</p></details>

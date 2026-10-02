@@ -37,6 +37,31 @@ export type PurchaseMonthlySpendPin = {
   recordedSpendKrw: number;
   contentFingerprint: string;
 };
+export type PurchaseReplacementDraftLine = {
+  barcode: string;
+  name: string;
+  quantity: number;
+};
+export type PurchaseReplacementDraftSnapshot = {
+  draftId: string;
+  readAt: string;
+  contentFingerprint: string;
+  lines: PurchaseReplacementDraftLine[];
+};
+export type PurchaseReplacementDraftAudit = {
+  previousLineCount: number;
+  selectedLineCount: number;
+  matchedCount: number;
+  added: PurchaseReplacementDraftLine[];
+  removed: Array<PurchaseReplacementDraftLine & { reasons: string[] }>;
+  quantityChanged: Array<{
+    barcode: string;
+    name: string;
+    previousQuantity: number;
+    selectedQuantity: number;
+  }>;
+  complete: boolean;
+};
 export type PurchasePreflightInput = {
   now: string;
   options: PurchasePreflightOptions;
@@ -51,6 +76,8 @@ export type PurchasePreflightInput = {
   sourceErrors: string[];
   spendBefore: PurchaseMonthlySpendPin | null;
   spendAfter: PurchaseMonthlySpendPin | null;
+  replacementBefore?: PurchaseReplacementDraftSnapshot | null;
+  replacementAfter?: PurchaseReplacementDraftSnapshot | null;
 };
 export type PurchasePreflightStage = {
   number: number;
@@ -115,8 +142,12 @@ export type PurchaseCyclePreflightReport = {
   blockers: string[];
   reviewBlockers: string[];
   excluded: Array<{ barcode: string; reasons: string[] }>;
+  candidateCount: number;
+  accountedCandidateCount: number;
+  candidateCoverageComplete: boolean;
   eligibleCount: number;
   selected: PurchasePreflightLine[];
+  replacementAudit: PurchaseReplacementDraftAudit | null;
   businessWritesEnabled: false;
   approvalEnabled: false;
   actualPurchaseExecuted: false;
@@ -131,6 +162,43 @@ const positive = (v: unknown): v is number => typeof v === "number" && Number.is
 const nonnegative = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
 const hash = (v: unknown) => `sha256:${createHash("sha256").update(JSON.stringify(v)).digest("hex")}`;
 const fingerprint = (v: unknown): v is string => typeof v === "string" && FP.test(v);
+
+export function buildPurchaseReplacementDraftSnapshot(
+  draftId: string,
+  readAt: string,
+  lines: PurchaseReplacementDraftLine[],
+): PurchaseReplacementDraftSnapshot {
+  if (!/^fast-purchase-draft:[a-f0-9]{20}$/.test(draftId) || !Number.isFinite(Date.parse(readAt))) {
+    throw new Error("REPLACEMENT_DRAFT_SNAPSHOT_INVALID");
+  }
+  const normalized = lines
+    .map((line) => ({ barcode: line.barcode.trim().toUpperCase(), name: line.name.trim(), quantity: line.quantity }))
+    .sort((a, b) => a.barcode.localeCompare(b.barcode));
+  if (
+    normalized.length === 0 ||
+    normalized.some((line, index) => !CODE.test(line.barcode) || !positive(line.quantity) || (index > 0 && normalized[index - 1].barcode === line.barcode))
+  ) {
+    throw new Error("REPLACEMENT_DRAFT_SNAPSHOT_INVALID");
+  }
+  return {
+    draftId,
+    readAt,
+    contentFingerprint: hash({ draftId, lines: normalized }),
+    lines: normalized,
+  };
+}
+
+function validReplacementDraftSnapshot(
+  value: PurchaseReplacementDraftSnapshot | null | undefined,
+  draftId: string,
+) {
+  if (!value || value.draftId !== draftId || !fingerprint(value.contentFingerprint) || !Number.isFinite(Date.parse(value.readAt))) return false;
+  try {
+    return buildPurchaseReplacementDraftSnapshot(value.draftId, value.readAt, value.lines).contentFingerprint === value.contentFingerprint;
+  } catch {
+    return false;
+  }
+}
 
 export function validPurchaseTargetDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^20\d{2}-\d{2}-\d{2}$/.test(value)) return false;
@@ -261,6 +329,13 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const rec = input.reconciliation;
   const blockers = [...input.sourceErrors];
   const reviewBlockers: string[] = [];
+  const replacementDraftId = input.options.replaceDraftId ?? null;
+  const replacementStable = replacementDraftId === null || (
+    validReplacementDraftSnapshot(input.replacementBefore, replacementDraftId) &&
+    validReplacementDraftSnapshot(input.replacementAfter, replacementDraftId) &&
+    input.replacementBefore!.contentFingerprint === input.replacementAfter!.contentFingerprint
+  );
+  if (!replacementStable) blockers.push("REPLACEMENT_DRAFT_CHANGED_OR_UNVERIFIED");
   const stable = samePurchaseCandidatePin(pin, input.after);
   if (!stable) blockers.push("SOURCE_CHANGED_OR_MISSING");
   const sourceFresh = validPin(pin) && fresh(pin.analysisAsOf, now, MAX_AGE_MS);
@@ -421,6 +496,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   eligible.sort((a, b) => b.priorityScore - a.priorityScore || lineCost(a, costBasisByBarcode.get(a.barcode) ?? null) - lineCost(b, costBasisByBarcode.get(b.barcode) ?? null) || a.barcode.localeCompare(b.barcode));
   const selected: PurchasePreflightLine[] = [];
   let estimatedSpendKrw = 0;
+  const calculationUnblocked = blockers.length === 0;
   // Never scale or round the engine's MOQ/carton-aware quantity to squeeze it
   // into a canary budget; skip whole lines that exceed the explicit limits.
   if (blockers.length === 0) {
@@ -435,6 +511,14 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     }
     if (selected.length === 0) blockers.push("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
   }
+  const accountedCandidateBarcodes = new Set([
+    ...selected.map((row) => row.barcode),
+    ...excluded.map((row) => row.barcode),
+  ]);
+  const candidateCoverageComplete =
+    accountedCandidateBarcodes.size === candidates.length &&
+    selected.length + excluded.length === candidates.length;
+  if (calculationUnblocked && !candidateCoverageComplete) blockers.push("CANDIDATE_COVERAGE_MISMATCH");
   if (selected.some((row) => row.inventoryMode === "PROVISIONAL")) {
     reviewBlockers.push("PROVISIONAL_INVENTORY_OWNER_REVIEW_REQUIRED");
   }
@@ -443,6 +527,46 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   }
   if (selected.some((row) => row.costBasis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE")) {
     reviewBlockers.push("OWNER_COST_ESTIMATE_REVIEW_REQUIRED");
+  }
+  let replacementAudit: PurchaseReplacementDraftAudit | null = null;
+  if (replacementDraftId && replacementStable && input.replacementAfter) {
+    const previousByBarcode = new Map(input.replacementAfter.lines.map((line) => [line.barcode, line]));
+    const selectedByBarcode = new Map(selected.map((line) => [line.barcode, line]));
+    const matchedBarcodes = [...previousByBarcode.keys()].filter((barcode) => selectedByBarcode.has(barcode));
+    const added = selected
+      .filter((line) => !previousByBarcode.has(line.barcode))
+      .map((line) => ({ barcode: line.barcode, name: line.name, quantity: line.quantity }));
+    const removed = input.replacementAfter.lines
+      .filter((line) => !selectedByBarcode.has(line.barcode))
+      .map((line) => ({
+        ...line,
+        reasons: excluded.find((item) => item.barcode === line.barcode)?.reasons ?? ["CURRENT_ENGINE_NOT_RECOMMENDED"],
+      }));
+    const quantityChanged = matchedBarcodes.flatMap((barcode) => {
+      const previous = previousByBarcode.get(barcode)!;
+      const next = selectedByBarcode.get(barcode)!;
+      return previous.quantity === next.quantity ? [] : [{
+        barcode,
+        name: next.name || previous.name,
+        previousQuantity: previous.quantity,
+        selectedQuantity: next.quantity,
+      }];
+    });
+    const complete =
+      matchedBarcodes.length + removed.length === input.replacementAfter.lines.length &&
+      matchedBarcodes.length + added.length === selected.length &&
+      new Set([...matchedBarcodes, ...removed.map((line) => line.barcode)]).size === input.replacementAfter.lines.length &&
+      new Set([...matchedBarcodes, ...added.map((line) => line.barcode)]).size === selected.length;
+    replacementAudit = {
+      previousLineCount: input.replacementAfter.lines.length,
+      selectedLineCount: selected.length,
+      matchedCount: matchedBarcodes.length,
+      added,
+      removed,
+      quantityChanged,
+      complete,
+    };
+    if (!complete) blockers.push("REPLACEMENT_DRAFT_COVERAGE_MISMATCH");
   }
   const sourceEvidence = source ? {
     analysisAsOf: source.analysisAsOf,
@@ -462,7 +586,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   } : null;
   const sourceFingerprint = hash({
     before: pin, after: input.after, stable,
-    validity: { sourceFresh, shadowReady, contextMatch, fullReadback, salesVerified, inventoryFresh, spendStable },
+    validity: { sourceFresh, shadowReady, contextMatch, fullReadback, salesVerified, inventoryFresh, spendStable, replacementStable },
     spend: input.spendAfter ? { cycleMonth: input.spendAfter.cycleMonth, amount: input.spendAfter.recordedSpendKrw, fingerprint: input.spendAfter.contentFingerprint } : null,
     gate: gate ? { state: gate.state, safe: gate.safeToApply, checks: gate.checks, fingerprint: gate.promotionFingerprint } : null,
     reconciliation: rec ? { state: rec.state, ready: rec.ready, full: rec.fullApplyVerified, checks: rec.checks, fingerprint: rec.reconciliationFingerprint } : null,
@@ -482,6 +606,11 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     ownerCosts: ownerSnapshotUsable && ownerSnapshot ? {
       contentFingerprint: ownerSnapshot.contentFingerprint,
       rows: ownerSnapshot.rows,
+    } : null,
+    replacementDraft: input.replacementAfter ? {
+      draftId: input.replacementAfter.draftId,
+      contentFingerprint: input.replacementAfter.contentFingerprint,
+      lines: input.replacementAfter.lines,
     } : null,
     costEstimateErrors: [...(input.costEstimateErrors ?? [])].sort(),
     sourceErrors: [...input.sourceErrors].sort(),
@@ -503,7 +632,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const uniqueReview = [...new Set(reviewBlockers)];
   return {
     mode: "LIVE_READ_ONLY", generatedAt: input.now, targetDate,
-    replacementDraftId: input.options.replaceDraftId ?? null,
+    replacementDraftId,
     targetCycleMonth, requiredBudgetMonth, dateState,
     state: !previewReady ? "BLOCKED" : uniqueReview.length ? "PREVIEW_ONLY" : "AWAITING_OWNER_REVIEW",
     sourceFingerprint,
@@ -524,7 +653,11 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     estimatedAllInSpendKrw: multiplierValid ? Math.ceil(estimatedSpendKrw * multiplier!) : 0,
     previewReady, comparisonAvailable: source?.comparisonAvailable === true, comparable,
     comparisonMessage: comparable ? "동일 분석시점의 기존 방식 비교가 있습니다. 실제 승인 전 차이를 검토하세요." : "기존 비교가 없거나 분석시점이 달라 동일 조건 비교로 인정하지 않습니다.",
-    stages, blockers: uniqueBlockers, reviewBlockers: uniqueReview, excluded, eligibleCount: eligible.length, selected,
+    stages, blockers: uniqueBlockers, reviewBlockers: uniqueReview, excluded,
+    candidateCount: candidates.length,
+    accountedCandidateCount: accountedCandidateBarcodes.size,
+    candidateCoverageComplete,
+    eligibleCount: eligible.length, selected, replacementAudit,
     businessWritesEnabled: false, approvalEnabled: false, actualPurchaseExecuted: false, scheduledExecution: false,
   };
 }
@@ -537,6 +670,7 @@ export type PurchasePreflightReaders = {
   monthlySpend: (cycleMonth: string) => Promise<PurchaseMonthlySpendPin>;
   wholesaleCosts?: () => Promise<PurchaseWholesaleCostEstimateSnapshot>;
   ownerCosts?: () => Promise<PurchaseOwnerCostEstimateSnapshot>;
+  replacementDraft?: (draftId: string) => Promise<PurchaseReplacementDraftSnapshot>;
 };
 
 // The actual orchestration is injectable so CI exercises failure/drift and
@@ -552,10 +686,17 @@ export async function readPurchaseCyclePreflight(
   const capture = async <T>(code: string, read: () => Promise<T>): Promise<T | null> => {
     try { return await read(); } catch { sourceErrors.push(code); return null; }
   };
-  const [before, spendBefore] = await Promise.all([
+  const replacementRead = options.replaceDraftId && readers.replacementDraft
+    ? () => readers.replacementDraft!(options.replaceDraftId!)
+    : null;
+  const [before, spendBefore, replacementBefore] = await Promise.all([
     capture("CANDIDATE_READ_FAILED", readers.candidate),
     capture("CYCLE_SPEND_READ_FAILED", () => readers.monthlySpend(options.targetDate.slice(0, 7))),
+    replacementRead
+      ? capture("REPLACEMENT_DRAFT_READ_FAILED", replacementRead)
+      : Promise.resolve(null),
   ]);
+  if (options.replaceDraftId && !replacementRead) sourceErrors.push("REPLACEMENT_DRAFT_READ_FAILED");
   const [gate, reconciliation, priority] = await Promise.all([
     capture("PROMOTION_GATE_READ_FAILED", readers.gate),
     capture("MASTER_READBACK_READ_FAILED", readers.reconciliation),
@@ -577,9 +718,12 @@ export async function readPurchaseCyclePreflight(
       costEstimateErrors.push("OWNER_COST_ESTIMATE_READ_FAILED");
     }
   }
-  const [after, spendAfter] = await Promise.all([
+  const [after, spendAfter, replacementAfter] = await Promise.all([
     capture("CANDIDATE_RECHECK_FAILED", readers.candidate),
     capture("CYCLE_SPEND_RECHECK_FAILED", () => readers.monthlySpend(options.targetDate.slice(0, 7))),
+    replacementRead
+      ? capture("REPLACEMENT_DRAFT_RECHECK_FAILED", replacementRead)
+      : Promise.resolve(null),
   ]);
-  return buildPurchaseCyclePreflight({ now: clock(), options, before, after, gate, reconciliation, priority, wholesaleCosts, ownerCosts, costEstimateErrors, sourceErrors, spendBefore, spendAfter });
+  return buildPurchaseCyclePreflight({ now: clock(), options, before, after, gate, reconciliation, priority, wholesaleCosts, ownerCosts, costEstimateErrors, sourceErrors, spendBefore, spendAfter, replacementBefore, replacementAfter });
 }
