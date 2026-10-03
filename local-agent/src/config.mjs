@@ -55,10 +55,19 @@ export function loadConfig(env = process.env) {
     agentRoot,
     repoRoot,
     dataDir,
+    cjLoisCredentialPath: resolve(
+      env.COMMERCE_OS_CJ_LOIS_CREDENTIAL_PATH
+        || resolve(dataDir, "secrets", "cj-lois-credential.json"),
+    ),
     diagnosticsDir: resolve(dataDir, "diagnostics"),
     heartbeatIntervalMs: parseInteger(env.COMMERCE_OS_LOCAL_AGENT_INTERVAL_MS, 30_000),
     chromeDebugBaseUrl,
     shoplingOrigins: parseList(env.COMMERCE_OS_SHOPLING_ORIGINS, ["https://a.shopling.co.kr/"]),
+    cjLoisOrigins: parseList(env.COMMERCE_OS_CJ_LOIS_ORIGINS, ["https://loisparcelp.cjlogistics.com/"]),
+    naverMailOrigins: parseList(env.COMMERCE_OS_NAVER_MAIL_ORIGINS, [
+      "https://mail.naver.com/",
+      "https://nid.naver.com/",
+    ]),
     opsOrigin: env.COMMERCE_OS_OPS_ORIGIN || "https://commerce-os-ops-center.vercel.app",
     probeShoplingPage: parseBoolean(env.COMMERCE_OS_LOCAL_AGENT_PROBE_PAGE, true),
     screenshotsEnabled: parseBoolean(env.COMMERCE_OS_LOCAL_AGENT_SCREENSHOTS, true),

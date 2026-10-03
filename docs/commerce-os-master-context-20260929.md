@@ -634,3 +634,36 @@ The dedicated handoff also contains:
 - sold-out / held cleanup state
 - recently discontinued products that must not be resurrected
 - shared-B-code exceptions and deferred conflicts
+
+---
+
+## 18. Shopling fulfillment and post-packing automation
+
+The persistent implementation plan is `docs/shopling-fulfillment-automation-plan.md`.
+
+Current durable decisions:
+
+- The Shopling daily flow has already completed a real end-to-end run: order, claim, and inquiry collection; B5 mapping; B7 shipping preparation; B12 automatic packaging and courier transfer; B-code and quantity ascending sort; and verified Xprinter paper output. Do not restart this validation merely to prove the route exists.
+- normal Chrome with the dedicated work profile is authoritative for Shopling automation; the embedded browser does not reliably surface Shopling JavaScript dialogs
+- leftover label photos mean orders that were not packed, never successfully packed orders
+- invoice deletion is performed only in B12 because the available Shopling API does not prove deletion semantics
+- deletion identity is the exact 12-digit invoice plus the complete set of linked Shopling order numbers; combined-package subsets must never execute
+- the browser adapter reads only order/status, invoice, product identity, and quantity fields; recipient name, phone, and address are excluded
+- every real deletion requires the exact action key `b12-delete-invoice:<invoice>` and validates the full confirmation meaning before accepting it
+- success requires the invoice to disappear from courier-transfer-complete and every linked order to appear exactly once in courier-transfer-pending
+- retries are idempotent: a previously deleted invoice is verified in pending state and is not clicked again
+- stockout mutation and marketplace invoice transmission remain separately locked
+
+One normal-Chrome B12 deletion was manually authorized and verified live. The reusable executor and regression coverage are implemented; the next production order should first run through its dry-run preflight before any approved execution.
+
+The customer-service continuation now has a read-only predevelopment layer:
+
+- B13 inquiry, claim, and order reads are limited to 31 inclusive days and explicitly exclude recipient contact fields, claim free-text memos, and questioner identity.
+- Saved inquiry plans contain only the inquiry key, product/type metadata, and a content fingerprint; raw inquiry title and question text are not persisted in the plan.
+- The B13 reply popup structure is learned. An exactly approved reply can now be saved through `qna_submit`, followed by an API readback requiring the same inquiry content, the exact answer, and status `전송대기`. Final marketplace transmission remains a separate confirmation-gated action.
+- The B13 final-send structure is now learned as well: one exact `chk[]` row with `status=답변저장` or `답변송신실패`, `qnasend_submit_sp()`, and the exact confirmation `선택된 문의를 쇼핑몰로 전송하시겠습니까?`. The executor validates one-row identity, handles only that exact dialog, and requires API readback of the unchanged answer in a completed status. Retries are idempotent.
+- QnA automation decisions are split into `AUTO_TRANSMIT`, `APPROVAL_REQUIRED`, and `BLOCKED_NEEDS_EVIDENCE`. The default approved-rule set is empty. Automatic transmission can open only for an exact enabled rule plus fresh required evidence; manual-only answers can never auto-transmit.
+- B7 simple-change return candidates require exact delivered-state, domestic CJ courier code `018`, and original-invoice agreement across every order row.
+- Pickup value is an explicit owner decision. The CJ LOIS individual-reservation form and immediate save evidence were demonstrated live: the confirmation closes, the original-invoice field resets, and a reservation row is appended. The exact duplicate-reservation notice is also accepted as idempotent evidence and never creates a second pickup.
+- The supervised 2026-10-04 run verified one existing CJ pickup, persisted the staged audit, resumed without repeating CJ authentication or reservation, and read back Shopling B7 as `R01`.
+- A return tracking number is not available immediately and must be checked on the next business day. Automatic delayed readback and exchange replacement shipment remain disabled until their screens and matching rules are demonstrated.

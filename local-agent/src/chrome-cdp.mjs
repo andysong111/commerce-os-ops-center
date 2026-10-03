@@ -157,12 +157,24 @@ export class CdpSession {
     });
   }
 
-  close() {
-    try {
-      this.socket?.close();
-    } catch {
-      // Nothing useful to do during shutdown.
-    }
+  async close(timeoutMs = 500) {
+    const socket = this.socket;
+    this.socket = null;
+    if (!socket || socket.readyState === 3) return;
+
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs);
+      const finish = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      socket.addEventListener("close", finish, { once: true });
+      try {
+        socket.close();
+      } catch {
+        finish();
+      }
+    });
   }
 }
 
@@ -204,7 +216,7 @@ export async function withBrowserCdpTarget(config, target, handler, options = {}
     if (attachedSessionId) {
       await browserSession.send("Target.detachFromTarget", { sessionId: attachedSessionId }, timeoutMs).catch(() => null);
     }
-    browserSession.close();
+    await browserSession.close();
   }
 }
 
@@ -219,7 +231,7 @@ export async function withCdpTarget(target, handler, options = {}) {
   try {
     return await handler(session);
   } finally {
-    session.close();
+    await session.close();
   }
 }
 
