@@ -126,7 +126,7 @@ Recurring rules discussed for the real import operation include:
 - logistics/order coefficient has historically been around 1.4-1.5 where applicable
 - small test orders are preferred before scaling uncertain SKUs
 - cash-only purchasing is preferred when cashflow is constrained
-- owner clarification on 2026-10-03: the purchase preview accepts an optional all-in cash amount that includes product payment plus the freight/fee reserve; the smaller of this amount and the automatic prior-month funding envelope is authoritative
+- 2026-10-04 owner decision, superseding the 2026-10-03 smaller-cap rule: leaving the purchase cash field blank keeps the prior-month cost-based automatic envelope. Entering cash makes that amount the current all-in cash available for this purchase run; it is not clamped back down to the automatic envelope. A larger amount may restore engine-recommended quantities but must never increase a SKU beyond the engine target.
 - when the owner supplies that amount, allocate it deterministically by priority: protect the top 25% at the engine target, start the next 50% at 60%, start the final 25% at MOQ/carton minimum, then top up in priority order without exceeding the engine target
 - a cash-adjusted quantity must still honor MOQ/carton units and remain visible as original recommendation -> adjusted quantity; leaving the amount blank preserves automatic-envelope behavior
 - owner clarification on 2026-10-03: SKU-count and per-item quantity limits are engine safety ceilings, not operator planning inputs. Keep 100 SKU / 9,999 units as hidden fail-safe bounds and let demand, inventory, commitments, MOQ/carton, priority, and cash determine the visible Draft.

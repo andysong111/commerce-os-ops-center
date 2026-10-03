@@ -197,7 +197,7 @@ Rules:
 - subtract already-recorded purchase spend
 - apply the owner cash cap
 - keep shipping/logistics reserve logic distinct from product cost
-- when an owner cash cap is entered, treat it as all-in cash including product payment and the freight/fee reserve, and use the smaller of it and the automatic prior-month envelope
+- under the 2026-10-04 owner rule, a blank cash field uses the automatic prior-month envelope; an entered amount is current all-in cash for this purchase run, including product payment and the freight/fee reserve, and is not clamped by the automatic envelope
 - allocate explicit cash caps by the 2026-10-03 owner rule: top 25% at the engine target, next 50% at 60%, final 25% at MOQ/carton minimum, then top up by priority
 - every reduced quantity must retain MOQ/carton alignment, never exceed the engine target, and be shown as original recommendation -> cash-adjusted quantity; rows that cannot afford their minimum are excluded explicitly
 - preview is not an order, reservation, approval token, or scheduled purchase
@@ -467,7 +467,7 @@ Known CI caveat from later project work:
 ### Stage 10 done
 
 - target-month preview uses closed funding basis and fresh source data
-- the automatic funding cap is calculated from the prior month's normal-sales cost basis; the owner may optionally enter a smaller all-in cash cap for the current Draft
+- the automatic funding cap is calculated from the prior month's normal-sales cost basis when the cash field is blank; the owner may instead enter the current all-in cash available for the Draft, whether lower or higher than the automatic envelope
 - existing cycle spend and the established freight/fee multiplier are applied
 - item/quantity/money preview is stable and auditable, including original and cash-adjusted quantities
 - preview remains non-binding
