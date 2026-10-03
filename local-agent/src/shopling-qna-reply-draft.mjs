@@ -4,6 +4,10 @@ import {
   shoplingQnaContentFingerprint,
   shoplingQnaQuestionFingerprint,
 } from "./shopling-qna-reply-plan.mjs";
+import {
+  markShoplingQnaReviewDraft,
+  stripShoplingQnaDraftPrefix,
+} from "./shopling-qna-draft-marker.mjs";
 
 const UNANSWERED_STATUSES = new Set(["미답변", "신규"]);
 const DRAFTED_STATUS = "전송대기";
@@ -50,16 +54,31 @@ function exactQna(qnas, qnaKey, code) {
 export function verifyShoplingQnaBeforeDraft(step, qnas = []) {
   const expected = normalizeShoplingQnaReplyStep(step);
   const current = exactQna(qnas, expected.qnaKey, "QNA_REPLY_CURRENT_IDENTITY_INVALID");
-  if (!UNANSWERED_STATUSES.has(clean(current.status))) {
-    fail("QNA_REPLY_STATUS_CHANGED", "The inquiry is no longer unanswered.", { status: clean(current.status) });
-  }
-  if (shoplingQnaQuestionFingerprint(current) !== expected.questionFingerprint) {
+  const currentStatus = clean(current.status);
+  const questionMatches = shoplingQnaQuestionFingerprint(current) === expected.questionFingerprint
+    || [...UNANSWERED_STATUSES].some((status) => shoplingQnaQuestionFingerprint({ ...current, status }) === expected.questionFingerprint);
+  if (!questionMatches) {
     fail("QNA_REPLY_QUESTION_CHANGED", "The inquiry changed after the reply was reviewed.");
+  }
+  if (currentStatus === DRAFTED_STATUS) {
+    if (clean(current.answer) !== expected.reply) {
+      fail("QNA_REPLY_EXISTING_DRAFT_CONFLICT", "Shopling already contains a different saved answer for this inquiry.");
+    }
+    return {
+      ...expected,
+      contentFingerprint: shoplingQnaContentFingerprint(current),
+      review: assessShoplingQnaReply(current, stripShoplingQnaDraftPrefix(expected.reply)),
+      alreadySaved: true,
+    };
+  }
+  if (!UNANSWERED_STATUSES.has(currentStatus)) {
+    fail("QNA_REPLY_STATUS_CHANGED", "The inquiry is no longer unanswered.", { status: clean(current.status) });
   }
   return {
     ...expected,
     contentFingerprint: shoplingQnaContentFingerprint(current),
-    review: assessShoplingQnaReply(current, expected.reply),
+    review: assessShoplingQnaReply(current, stripShoplingQnaDraftPrefix(expected.reply)),
+    alreadySaved: false,
   };
 }
 
@@ -85,8 +104,11 @@ export async function runShoplingQnaReplyDraft(step, options = {}, dependencies 
     fail("QNA_REPLY_DRAFT_DEPENDENCIES_INVALID", "Current QnA reads and a B13 browser adapter are required.");
   }
 
+  const preparedStep = options.markAsReviewDraft === true
+    ? { ...step, reply: markShoplingQnaReviewDraft(step.reply) }
+    : step;
   const before = await dependencies.readCurrentQnas();
-  const expected = verifyShoplingQnaBeforeDraft(step, before);
+  const expected = verifyShoplingQnaBeforeDraft(preparedStep, before);
   const base = {
     schemaVersion: 1,
     qnaKey: expected.qnaKey,
@@ -95,7 +117,20 @@ export async function runShoplingQnaReplyDraft(step, options = {}, dependencies 
     contentFingerprint: expected.contentFingerprint,
     replyHash: expected.replyHash,
     review: expected.review,
+    reviewDraftMarked: options.markAsReviewDraft === true,
   };
+
+  if (expected.alreadySaved) {
+    const readback = verifyShoplingQnaDraftReadback(expected, before);
+    return {
+      ...base,
+      mode: "VERIFY_ONLY",
+      status: "ALREADY_DRAFTED_AND_VERIFIED",
+      b13Status: readback.status,
+      externalWritePerformed: false,
+      customerTransmissionPerformed: false,
+    };
+  }
 
   if (options.execute !== true) {
     return {
@@ -105,7 +140,14 @@ export async function runShoplingQnaReplyDraft(step, options = {}, dependencies 
       externalWritePerformed: false,
     };
   }
-  if (clean(options.approvalKey) !== expected.actionKey) {
+  const automaticDraftApproved = options.markAsReviewDraft === true
+    && options.allowAutomaticDraft === true
+    && clean(options.decision?.decision) === "APPROVAL_REQUIRED"
+    && clean(options.decision?.qnaKey) === expected.qnaKey
+    && clean(options.decision?.actionKey) === expected.actionKey
+    && (options.decision?.missingEvidence || []).length === 0
+    && /^[a-f0-9]{64}$/iu.test(clean(options.decision?.policyFingerprint));
+  if (clean(options.approvalKey) !== expected.actionKey && !automaticDraftApproved) {
     fail("QNA_REPLY_DRAFT_APPROVAL_REQUIRED", "Execution requires the exact reviewed QnA action key.");
   }
 

@@ -161,6 +161,13 @@ npm run local-agent:qna-reply-draft -- --review .\local-agent\data\qna-review.js
 npm run local-agent:customer-service-review -- --scope qna --reply-file .\local-agent\data\qna-proposals.json --rule-file .\local-agent\data\qna-approved-rules.json --evidence-file .\local-agent\data\qna-evidence.json --output .\local-agent\data\qna-review.json
 ```
 
+승인이 필요한 답변은 별도 승인 화면으로 보내지 않고 답변 맨 앞에 `[초안]`을 붙여 B13에 일괄 저장할 수 있습니다. 이 명령은 기존 평일 12시 31분 통합 작업에서 수집된 문의를 사용하며 문의 수집을 다시 실행하지 않습니다. `BLOCKED_NEEDS_EVIDENCE` 건은 저장하지 않고, 동일한 `[초안]`이 이미 저장된 건은 다시 쓰지 않습니다. `[초안]` 표지가 남은 답변은 최종 전송 실행기에서도 강제로 차단됩니다.
+
+```powershell
+npm run local-agent:qna-stage-review-drafts -- --review .\local-agent\data\qna-review.json
+npm run local-agent:qna-stage-review-drafts -- --review .\local-agent\data\qna-review.json --execute --output .\local-agent\data\qna-draft-staging-audit.json
+```
+
 초안이 `전송대기`로 저장된 뒤 최종 전송 전 검사를 실행하면 정확한 `qna-transmit:...` 승인키가 나옵니다. `--execute` 없이 실행하면 읽기 전용입니다. 실제 전송은 정확한 한 행만 선택하고 샵플링 확인 문구가 완전히 일치할 때만 승인하며, API에서 동일 답변과 `답변완료` 상태를 재확인합니다. 재실행 시 이미 완료된 동일 답변은 다시 전송하지 않습니다.
 
 ```powershell

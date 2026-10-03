@@ -97,3 +97,17 @@ test("changed reply, duplicate identity, and incomplete readback fail closed", (
     { code: "QNA_TRANSMISSION_NOT_CONFIRMED" },
   );
 });
+
+test("a Shopling answer marked [초안] can never be transmitted", async () => {
+  const draft = qna({ answer: "[초안] 현재 구매 가능합니다." });
+  await assert.rejects(
+    runShoplingQnaReplyTransmission({ ...step(draft), reply: draft.answer }, {
+      execute: true,
+      approvalKey: "any-key",
+    }, {
+      readCurrentQnas: async () => [draft],
+      adapter: { transmitReply: async () => assert.fail("draft transmission must stay blocked") },
+    }),
+    { code: "QNA_TRANSMISSION_REVIEW_DRAFT_BLOCKED" },
+  );
+});

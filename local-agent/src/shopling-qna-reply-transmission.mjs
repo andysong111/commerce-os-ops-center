@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { shoplingQnaContentFingerprint } from "./shopling-qna-reply-plan.mjs";
+import { isShoplingQnaReviewDraft } from "./shopling-qna-draft-marker.mjs";
 
 const QUEUED_STATUS = "전송대기";
 
@@ -37,6 +38,9 @@ export function normalizeShoplingQnaTransmissionStep(step = {}, currentQna = {})
   const reply = clean(step.reply);
   if (!qnaKey || !reply || clean(currentQna?.qnaKey) !== qnaKey) {
     fail("QNA_TRANSMISSION_STEP_INVALID", "A transmission requires one exact inquiry and reply.");
+  }
+  if (isShoplingQnaReviewDraft(reply) || isShoplingQnaReviewDraft(currentQna?.answer)) {
+    fail("QNA_TRANSMISSION_REVIEW_DRAFT_BLOCKED", "A reply marked [초안] cannot be transmitted to the marketplace.");
   }
   const replyHash = sha256(reply);
   const contentFingerprint = shoplingQnaContentFingerprint(currentQna);

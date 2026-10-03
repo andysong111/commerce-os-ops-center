@@ -1,6 +1,6 @@
 # 샵플링 문의답변 자동화 인수인계
 
-기준일: 2026-10-03 (Asia/Seoul)
+기준일: 2026-10-04 (Asia/Seoul)
 
 이 문서는 다른 Codex 채팅이 샵플링 B13 문의답변 업무를 이어받기 위한 단일 진입점이다.
 
@@ -8,8 +8,8 @@
 
 - 매일 수집된 문의를 읽고 답변 초안을 생성한다.
 - 검증된 반복 문의는 사용자 승인 없이 샵플링 B13에 `답변저장`한다.
-- 판단, 최신 근거, 표현 수정이 필요한 문의만 사용자에게 보여준다.
-- 승인 필요 건은 샵플링에 먼저 저장하지 않고 채팅 옆 승인 화면에 남긴다.
+- 판단, 최신 근거, 표현 수정이 필요한 문의는 답변 앞에 `[초안]`을 붙여 샵플링 B13에 저장한다.
+- 사용자는 별도 승인 화면이 아니라 샵플링 B13에서 초안을 바로 확인한다.
 - 사용자가 수정하고 승인한 최종 답변을 학습 기록으로 축적한다.
 - 반복 승인으로 안정된 유형은 단계적으로 자동 저장 대상으로 승격한다.
 - 장기적으로는 충분히 검증된 유형만 승인 없이 자동전송한다.
@@ -40,15 +40,7 @@
 
 ### 승인 필요
 
-샵플링에는 저장하지 않는다. 채팅 옆 승인 목록에 다음 항목을 표시한다.
-
-- 문의 키와 문의 유형
-- 상품 ID, 모델번호, B코드, 옵션
-- 개인정보를 제외한 문의 요약
-- 사용한 근거와 확인 시각
-- 제안 답변
-- 승인 필요 이유
-- `승인`, `수정 후 승인`, `보류` 작업
+답변 맨 앞에 `[초안]`을 정확히 한 번 붙여 샵플링 B13에 저장한다. 동일 초안이 이미 저장되어 있으면 다시 쓰지 않는다. 사용자는 B13에서 내용을 수정·확정하며, `[초안]` 표지가 남아 있는 동안에는 최종 쇼핑몰 전송을 허용하지 않는다.
 
 ### 근거 부족
 
@@ -98,12 +90,12 @@
 답변 생성, B13 저장, 쇼핑몰 전송은 서로 다른 작업이다.
 
 - `DRAFT_GENERATED`: 로컬 초안만 존재
-- `WAITING_FOR_APPROVAL`: 사용자 승인 필요
+- `WAITING_FOR_APPROVAL`: `[초안]`으로 B13 저장 후 사용자 확인 필요
 - `BLOCKED_NEEDS_EVIDENCE`: 근거 부족
 - `B13_DRAFT_SAVED`: 샵플링에 저장됐지만 쇼핑몰 전송 전
 - `TRANSMITTED_AND_VERIFIED`: 쇼핑몰 전송 후 API 재확인 완료
 
-현재 `AUTO_TRANSMIT` 판정은 최종 전송 권한까지 의미한다. 사용자 요구에 맞춰 다음 개발에서는 `AUTO_SAVE_DRAFT`와 `AUTO_TRANSMIT`을 명시적으로 분리해야 한다.
+현재 `AUTO_TRANSMIT` 판정은 최종 전송 권한까지 의미한다. `APPROVAL_REQUIRED`는 자동전송과 분리되어 `[초안]` B13 저장만 허용한다. 다음 개발에서는 승인·수정 이력을 기반으로 `AUTO_SAVE_ELIGIBLE` 규칙 승격을 구현한다.
 
 ## 6. 코드 지도
 
@@ -122,6 +114,8 @@
 B13 저장과 전송:
 
 - `local-agent/src/shopling-qna-browser-adapter.mjs`
+- `local-agent/src/shopling-qna-draft-marker.mjs`
+- `local-agent/src/shopling-qna-draft-staging.mjs`
 - `local-agent/src/shopling-qna-reply-draft.mjs`
 - `local-agent/src/shopling-qna-reply-transmission.mjs`
 - `local-agent/src/shopling-browser-dialog.mjs`
@@ -130,6 +124,7 @@ B13 저장과 전송:
 
 - `local-agent/scripts/prepare-shopling-customer-service-review.mjs`
 - `local-agent/scripts/save-shopling-qna-reply-draft.mjs`
+- `local-agent/scripts/stage-shopling-qna-review-drafts.mjs`
 - `local-agent/scripts/transmit-shopling-qna-reply.mjs`
 - `local-agent/scripts/analyze-shopling-qna-history.mjs`
 - `local-agent/scripts/inspect-shopling-qna-structure.mjs`
@@ -166,6 +161,12 @@ npm run local-agent:qna-reply-draft -- --review .\local-agent\data\qna-review.js
 npm run local-agent:qna-reply-draft -- --review .\local-agent\data\qna-review.json --qna QNA_KEY --execute --approval-key EXACT_ACTION_KEY
 ```
 
+승인 필요 건 전체를 `[초안]`으로 B13 저장:
+
+```powershell
+npm run local-agent:qna-stage-review-drafts -- --review .\local-agent\data\qna-review.json --execute --output .\local-agent\data\qna-draft-staging-audit.json
+```
+
 최종 전송은 별도 명령이며 정확한 승인 키 또는 검증된 자동 정책 판정 없이는 실행하지 않는다.
 
 ```powershell
@@ -180,19 +181,17 @@ npm run local-agent:qna-reply-transmit -- --review .\local-agent\data\qna-review
 4. 문의수집 완료 여부를 사용자에게 받은 정보 또는 Shopling API로 확인한다.
 5. 미답변 문의만 읽고 분류한다.
 6. Commerce OS 최신 근거를 우선 사용한다.
-7. 승인 필요·근거 부족 건만 채팅 옆 목록에 표시한다.
+7. 승인 필요 건은 `[초안]`으로 B13에 저장하고, 근거 부족 건은 쓰지 않고 예외로 보고한다.
 8. 실제 저장 전 현재 질문 지문과 상태를 다시 확인한다.
 9. 저장 후 API로 정확한 답변과 상태를 재확인한다.
 10. 최종 쇼핑몰 전송은 저장과 분리한다.
 
 ## 9. 다음 개발 우선순위
 
-1. `AUTO_SAVE_DRAFT`와 `AUTO_TRANSMIT` 정책 분리
-2. 승인 대기 목록을 채팅 옆 Commerce OS 화면으로 제공
-3. 승인·수정 차이를 비식별 학습 이벤트로 저장
-4. 규칙 승격·강등 엔진과 버전 관리
-5. Commerce OS 재고·입고 예정 근거 연결
-6. 예약 실행에서 자동 저장과 예외 보고 연결
+1. 승인·수정 차이를 비식별 학습 이벤트로 저장
+2. 규칙 승격·강등 엔진과 버전 관리
+3. Commerce OS 재고·입고 예정 근거 연결
+4. 평일 12시 31분 통합 수집 뒤 초안 생성·저장과 예외 보고 연결
 
 ## 10. 안전 불변조건
 

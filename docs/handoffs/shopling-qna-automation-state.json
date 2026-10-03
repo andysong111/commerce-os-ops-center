@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-10-03",
+  "asOf": "2026-10-04",
   "timezone": "Asia/Seoul",
   "handoff": "docs/handoffs/shopling-qna-automation-handoff-20261003.md",
   "objective": "Minimize manual QnA approvals while preserving fresh evidence, exact identity, and verified Shopling readback.",
@@ -14,13 +14,16 @@
     "marketplaceTransmissionReadback": true,
     "approvalSidePanel": false,
     "learningEventStore": false,
-    "automaticDraftOrchestrator": false
+    "automaticDraftOrchestrator": true,
+    "shoplingReviewDraftMarker": "[초안]"
   },
   "policy": {
     "autoSaveRequiresExactRule": true,
     "autoSaveRequiresFreshEvidence": true,
-    "approvalRequiredIsNotSavedToShopling": true,
+    "approvalRequiredIsSavedToShoplingWithDraftMarker": true,
     "blockedNeedsEvidenceIsNotSavedToShopling": true,
+    "draftMarkerBlocksMarketplaceTransmission": true,
+    "qnaCollectionUsesExistingWeekday1231Flow": true,
     "marketplaceTransmissionIsSeparate": true,
     "rawCustomerIdentityMayBePersisted": false,
     "credentialsMayBePersisted": false
@@ -33,11 +36,10 @@
     "TRANSMITTED_AND_VERIFIED"
   ],
   "next": [
-    "Separate AUTO_SAVE_DRAFT from AUTO_TRANSMIT",
-    "Add the local approval side panel",
     "Persist redacted approval and edit learning events",
     "Implement versioned promotion and demotion rules",
-    "Connect Commerce OS stock and replenishment evidence"
+    "Connect Commerce OS stock and replenishment evidence",
+    "Invoke draft staging after the existing weekday 12:31 integrated collection"
   ],
   "verifiedExample": {
     "date": "2026-10-02",

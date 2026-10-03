@@ -38,6 +38,8 @@ jobs:
           local-agent/src/shopling-post-packing-plan.mjs
           local-agent/src/shopling-qna-automation-policy.mjs
           local-agent/src/shopling-qna-browser-adapter.mjs
+          local-agent/src/shopling-qna-draft-marker.mjs
+          local-agent/src/shopling-qna-draft-staging.mjs
           local-agent/src/shopling-qna-reply-draft.mjs
           local-agent/src/shopling-qna-reply-plan.mjs
           local-agent/src/shopling-qna-reply-transmission.mjs
@@ -55,6 +57,7 @@ jobs:
           local-agent/scripts/resolve-shopling-manifest-bcodes.mjs
           local-agent/scripts/review-unshipped-label-photos.mjs
           local-agent/scripts/run-shopling-daily-fulfillment.mjs
+          local-agent/scripts/stage-shopling-qna-review-drafts.mjs
           local-agent/scripts/shopling-fulfillment-preflight.mjs
           local-agent/scripts/shopling-label-run.mjs
           local-agent/scripts/transmit-shopling-qna-reply.mjs
@@ -74,6 +77,7 @@ jobs:
           tests/shoplingPostPackingPlan.test.mjs
           tests/shoplingQnaAutomationPolicy.test.mjs
           tests/shoplingQnaBrowserAdapter.test.mjs
+          tests/shoplingQnaDraftStaging.test.mjs
           tests/shoplingQnaReplyDraft.test.mjs
           tests/shoplingQnaReplyPlan.test.mjs
           tests/shoplingQnaReplyTransmission.test.mjs
