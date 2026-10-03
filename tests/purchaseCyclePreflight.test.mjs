@@ -151,8 +151,8 @@ test("omitted duplicate cash cap uses the automatic previous-month cost envelope
   assert.equal(report.effectiveBudgetKrw, 100000);
   locked(report);
 });
-test("explicit cash cap reduces a line without exceeding the product budget", () => {
-  const input = fixture(); input.priority.source.budgetKrw = 20000;
+test("explicit cash cap reduces a line without exceeding the entered all-in cash", () => {
+  const input = fixture(); input.options.cashLimitKrw = 29000;
   const report = buildPurchaseCyclePreflight(input);
   assert.equal(report.previewReady, true);
   assert.equal(report.effectiveBudgetKrw, 20000);
@@ -162,6 +162,20 @@ test("explicit cash cap reduces a line without exceeding the product budget", ()
   assert.equal(report.cashAdjustedCount, 1);
   assert.equal(report.estimatedSpendKrw, 20000);
   assert.equal(input.priority.rows[0].recommendedQty, 5);
+});
+test("explicit cash replaces a smaller automatic envelope and remains safe for a large amount", () => {
+  const input = fixture();
+  input.options.cashLimitKrw = 10_000_000_000;
+  input.priority.source.budgetKrw = 20000;
+  input.priority.source.grossBudgetKrw = 29000;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true);
+  assert.equal(report.effectiveCashKrw, 10_000_000_000);
+  assert.equal(report.effectiveBudgetKrw, Math.floor(10_000_000_000 / 1.45));
+  assert.equal(report.selected[0].quantity, report.selected[0].originalRecommendedQuantity);
+  assert.equal(report.estimatedSpendKrw, 25000);
+  assert.equal(report.estimatedAllInSpendKrw, 36250);
+  assert.ok(report.estimatedAllInSpendKrw <= report.effectiveCashKrw);
 });
 test("quantity cap excludes the whole line rather than breaking carton/MOQ", () => {
   const input = fixture(); input.options.maxUnitsPerSku = 4;
@@ -309,8 +323,10 @@ test("preflight source has no write executor, credentials, background timer, or 
 test("operator page accepts an all-in cash cap while preserving the automatic envelope", () => {
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
   assert.match(page, /name="cash"/);
-  assert.match(page, /이번 달 발주에 쓸 총 현금/);
-  assert.match(page, /입력 현금과 전월 정상매출 기준 자동 한도 중 작은 금액/);
+  assert.match(page, /이번 발주에 쓸 총 현금/);
+  assert.match(page, /비우면 전월 매출원가 기준 자동 예산/);
+  assert.match(page, /입력하면 그 총현금에 맞춰 다시 계산/);
+  assert.match(page, /현금이 충분해도 엔진 권장수량을 초과하지 않습니다/);
   assert.doesNotMatch(page, /name="skus"/);
   assert.doesNotMatch(page, /name="units"/);
   assert.match(page, /maxSkus: ENGINE_MAX_SKUS/);
@@ -644,20 +660,28 @@ test("a fresh inventory observation time does not invalidate unchanged content",
   assert.equal(a.sourceFingerprint, b.sourceFingerprint);
   assert.equal(a.planFingerprint, b.planFingerprint);
 });
-test("recorded cycle spend is removed before freight reserve and cash clamp", () => {
-  const input = fixture(); input.spendBefore.recordedSpendKrw = 120000; input.spendAfter.recordedSpendKrw = 120000;
+test("automatic budget removes recorded cycle spend before freight reserve", () => {
+  const input = fixture(); input.options.cashLimitKrw = null; input.spendBefore.recordedSpendKrw = 120000; input.spendAfter.recordedSpendKrw = 120000;
   const report = buildPurchaseCyclePreflight(input);
   assert.equal(report.remainingMonthlyCashKrw, 25000); assert.equal(report.effectiveCashKrw, 25000);
   assert.equal(report.effectiveBudgetKrw, Math.floor(25000 / 1.45));
-  assert.equal(report.previewReady, true);
-  assert.equal(report.selected[0].originalRecommendedQuantity, 5);
-  assert.equal(report.selected[0].quantity, 3);
-  assert.equal(report.selected[0].cashAdjusted, true);
-  assert.equal(report.estimatedSpendKrw, 15000);
+  assert.equal(report.previewReady, false);
+  assert.equal(report.selected.length, 0);
+  assert.ok(report.excluded[0].reasons.includes("CASH_BUDGET_LIMIT"));
+  blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
   locked(report);
 });
+test("explicit cash is current available cash and is not reduced by recorded cycle spend", () => {
+  const input = fixture(); input.spendBefore.recordedSpendKrw = 120000; input.spendAfter.recordedSpendKrw = 120000;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.remainingMonthlyCashKrw, 25000);
+  assert.equal(report.effectiveCashKrw, 50000);
+  assert.equal(report.effectiveBudgetKrw, Math.floor(50000 / 1.45));
+  assert.equal(report.selected[0].quantity, 5);
+  assert.equal(report.estimatedSpendKrw, 25000);
+});
 test("fully spent monthly budget cannot generate another purchase preview", () => {
-  const input = fixture(); input.spendBefore.recordedSpendKrw = 145000; input.spendAfter.recordedSpendKrw = 145000;
+  const input = fixture(); input.options.cashLimitKrw = null; input.spendBefore.recordedSpendKrw = 145000; input.spendAfter.recordedSpendKrw = 145000;
   const report = buildPurchaseCyclePreflight(input); assert.equal(report.effectiveCashKrw, 0);
   blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
 });
