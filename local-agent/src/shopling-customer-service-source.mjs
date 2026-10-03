@@ -42,6 +42,7 @@ const CLAIM_FIELDS = [
 
 const QNA_FIELDS = [
   "qna_key",
+  "ord_no",
   "prod_id",
   "qna_tp",
   "qna_title",
@@ -203,6 +204,7 @@ export function parseShoplingCustomerServiceResponse(resource, body) {
     if (!Object.keys(container).length) throw new Error("SHOPLING_QNA_RESPONSE_ERROR");
     return objects(container.qnaListRst).map((row) => ({
       qnaKey: clean(row.qna_key),
+      orderNo: clean(row.ord_no),
       productId: clean(row.prod_id),
       qnaType: clean(row.qna_tp),
       title: clean(row.qna_title),

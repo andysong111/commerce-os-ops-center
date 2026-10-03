@@ -31,6 +31,7 @@ test("audit store persists and reads an exact staged receipt", async () => {
   };
   await store.writeAudit(actionKey, audit);
   assert.deepEqual(await store.readAudit(actionKey), audit);
+  assert.deepEqual(await store.listAudits(), [audit]);
 });
 
 test("audit store refuses a mismatched action identity", async () => {

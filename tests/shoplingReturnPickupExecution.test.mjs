@@ -181,6 +181,19 @@ test("completed audits are idempotent and perform no browser work", async () => 
   assert.deepEqual(calls, []);
 });
 
+test("return-invoice terminal audits cannot restart pickup or B7 registration", async () => {
+  const calls = [];
+  const deps = dependencies({
+    calls,
+    readAudit: async () => ({ ...step, stage: "SHOPLING_RETURN_INVOICE_RECORDED" }),
+  });
+  const result = await runShoplingReturnPickupExecution({
+    step, execute: true, approvalKey: step.actionKey,
+  }, deps);
+  assert.equal(result.status, "ALREADY_COMPLETED");
+  assert.deepEqual(calls, []);
+});
+
 test("R01 without a matching CJ audit fails closed", async () => {
   const calls = [];
   const deps = dependencies({ calls, b7Adapter: b7("R01", calls) });

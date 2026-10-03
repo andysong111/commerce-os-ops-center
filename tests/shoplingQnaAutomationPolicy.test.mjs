@@ -10,6 +10,7 @@ const NOW = new Date("2026-10-02T03:00:00.000Z");
 function qna(overrides = {}) {
   return {
     qnaKey: "Q-1",
+    orderNo: "3493809",
     qnaType: "상품문의",
     title: "재고 문의",
     question: "재고가 있나요?",
@@ -131,4 +132,26 @@ test("automation plan reports each decision without customer text", () => {
   assert.equal(plan.counts.APPROVAL_REQUIRED, 1);
   assert.equal(plan.counts.AUTO_TRANSMIT, 0);
   assert.doesNotMatch(JSON.stringify(plan), /재고가 있나요|현재 구매 가능합니다/);
+});
+
+test("order-scoped return tracking evidence can satisfy the matching QnA only", () => {
+  const reviewed = step({
+    review: {
+      reviewTier: "EVIDENCE_REQUIRED",
+      riskCodes: ["RETURN_PICKUP_STATUS_CLAIM"],
+      requiredEvidence: ["CURRENT_CLAIM_AND_PICKUP_STATUS"],
+    },
+  });
+  const plan = buildShoplingQnaAutomationPlan([qna()], { replySteps: [reviewed] }, {
+    now: NOW,
+    evidence: [{
+      orderNo: "3493809",
+      code: "CURRENT_CLAIM_AND_PICKUP_STATUS",
+      status: "VERIFIED",
+      verifiedAt: NOW.toISOString(),
+      maxAgeMinutes: 60,
+    }],
+  });
+  assert.equal(plan.decisions[0].decision, "APPROVAL_REQUIRED");
+  assert.deepEqual(plan.decisions[0].verifiedEvidence, ["CURRENT_CLAIM_AND_PICKUP_STATUS"]);
 });

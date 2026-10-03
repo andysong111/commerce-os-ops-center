@@ -295,6 +295,46 @@ test("CJ adapter rejects malformed original invoices before browser writes", asy
   });
 });
 
+test("CJ adapter reads the exact return invoice without saving", async () => {
+  const outboundInvoiceNo = "587625375225";
+  const adapter = createCjLoisReturnPickupBrowserAdapter({}, { pollMs: 0 }, {
+    evaluateAcrossFrames: async () => [{ frame: { id: "frame" }, value: { isReservationPage: true } }],
+    evaluateInFrame: async (_session, _frame, expression) => {
+      assert.equal(expression, CJ_LOIS_SAFE_SNAPSHOT_EXPRESSION);
+      return {
+        isReservationPage: true,
+        returnInvoiceRows: [{
+          outboundInvoiceNo,
+          returnInvoiceNo: "844764751234",
+          reservationType: "02",
+        }],
+      };
+    },
+  });
+  const result = await adapter.lookupReturnInvoice({ outboundInvoiceNo });
+  assert.equal(result.status, "FOUND");
+  assert.equal(result.returnInvoiceNo, "844764751234");
+  assert.deepEqual(result.evidence, [
+    "CJ_ORIGINAL_INVOICE_MATCHED",
+    "CJ_RETURN_INVOICE_READBACK_VERIFIED",
+  ]);
+  assert.equal(result.externalWritesPerformed, false);
+});
+
+test("CJ adapter reports a matched original invoice as pending while return invoice is blank", async () => {
+  const outboundInvoiceNo = "587625375225";
+  const adapter = createCjLoisReturnPickupBrowserAdapter({}, {}, {
+    evaluateAcrossFrames: async () => [{ frame: { id: "frame" }, value: { isReservationPage: true } }],
+    evaluateInFrame: async () => ({
+      isReservationPage: true,
+      returnInvoiceRows: [{ outboundInvoiceNo, returnInvoiceNo: "", reservationType: "02" }],
+    }),
+  });
+  const result = await adapter.lookupReturnInvoice({ outboundInvoiceNo });
+  assert.equal(result.status, "PENDING");
+  assert.equal(result.returnInvoiceNo, "");
+});
+
 test("CJ rules preserve the demonstrated form and delayed readback contract", () => {
   assert.equal(CJ_LOIS_RETURN_PICKUP_RULES.pageId, "DCRVAP1003M");
   assert.equal(CJ_LOIS_RETURN_PICKUP_RULES.reservationType, "반품");

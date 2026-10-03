@@ -109,7 +109,7 @@ let cjAuthentication = {
   skipped: true,
 };
 let result;
-if (existingAudit?.stage === "SHOPLING_RETURN_REGISTERED") {
+if (["SHOPLING_RETURN_REGISTERED", "SHOPLING_RETURN_INVOICE_RECORDED"].includes(existingAudit?.stage)) {
   result = await executeWithAdapters(null, null);
 } else if (existingAudit?.stage === "CJ_RESERVATION_VERIFIED") {
   result = await withShoplingReturnB7BrowserAdapter(

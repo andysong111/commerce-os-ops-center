@@ -34,7 +34,7 @@ const claimResponse = `<rspns><apiClaimGatherRst><claimListRst>
 </claimListRst></apiClaimGatherRst></rspns>`;
 
 const qnaResponse = `<rspns><apiQnaGatherRst><qnaListRst>
-  <qna_key>Q-1</qna_key><prod_id>116501</prod_id><qna_tp>상품문의</qna_tp>
+  <qna_key>Q-1</qna_key><ord_no>3493809</ord_no><prod_id>116501</prod_id><qna_tp>상품문의</qna_tp>
   <qna_title>배송 문의</qna_title><qna_q>언제 오나요?</qna_q><qna_a></qna_a><qna_status>미답변</qna_status>
   <qna_wid>PII-QNA-ID</qna_wid><qna_wnm>PII-QNA-NAME</qna_wnm>
 </qnaListRst></apiQnaGatherRst></rspns>`;
@@ -48,7 +48,7 @@ test("customer-service reads request only the bounded operational fields", () =>
   assert.doesNotMatch(orders, /mall_rcv|mall_user|addr|tel/i);
   assert.match(claims, /claim_key,mall_claim_tp,ord_status,ord_no/);
   assert.doesNotMatch(claims, /claim_cont|memo|mall_user|addr|tel/i);
-  assert.match(qna, /qna_key,prod_id,qna_tp,qna_title,qna_q,qna_a,qna_status/);
+  assert.match(qna, /qna_key,ord_no,prod_id,qna_tp,qna_title,qna_q,qna_a,qna_status/);
   assert.doesNotMatch(qna, /qna_wid|qna_wnm|mall_user|addr|tel/i);
 });
 
@@ -96,6 +96,7 @@ test("response parsers discard recipient, claim memo, and questioner identity fi
     invoiceNo: "587625375225",
     orderedAt: "",
   });
+  assert.equal(parsed.qnas[0].orderNo, "3493809");
 });
 
 test("snapshot reader performs three reads and never returns API credentials", async () => {

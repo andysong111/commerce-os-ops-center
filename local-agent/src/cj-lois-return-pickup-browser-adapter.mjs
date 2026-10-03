@@ -141,6 +141,11 @@ function captureCjLoisSafeSnapshot() {
   }
   const completedRows = rows.filter((row) => String(row.rsvtNo || "").trim().length > 0);
   const draftRows = rows.filter((row) => String(row.rsvtNo || "").trim().length === 0);
+  const returnInvoiceRows = rows.map((row) => ({
+    outboundInvoiceNo: String(row.ognWblNo || "").replace(/\D/g, ""),
+    returnInvoiceNo: String(row.wblNo || "").replace(/\D/g, ""),
+    reservationType: String(row.rsvtDcd || "").trim(),
+  })).filter((row) => row.outboundInvoiceNo || row.returnInvoiceNo);
   const originalInvoiceDigits = String(invoice?.value || "").replace(/\D/g, "");
   const requiredLookupControls = [
     "sndrCustNm",
@@ -196,6 +201,7 @@ function captureCjLoisSafeSnapshot() {
     totalGridRowCount: rows.length,
     draftReservationRowCount: draftRows.length,
     completedReservationRowCount: completedRows.length,
+    returnInvoiceRows,
     originalInvoiceFieldReset: originalInvoiceDigits.length === 0,
   };
 }
@@ -885,6 +891,59 @@ export function createCjLoisReturnPickupBrowserAdapter(session, options = {}, de
         formReady: prepared.snapshot.formReady,
         saveButtonCount: prepared.snapshot.saveButtonCount,
         completedReservationRowCount: prepared.snapshot.completedReservationRowCount,
+        externalWritesPerformed: false,
+      };
+    },
+
+    async lookupReturnInvoice(step = {}) {
+      const outboundInvoiceNo = digits(step.outboundInvoiceNo);
+      if (!/^\d{10,14}$/.test(outboundInvoiceNo)) {
+        fail("CJ_ORIGINAL_INVOICE_INVALID", "A 10-14 digit original invoice number is required.");
+      }
+      const frame = await findReservationFrame(session, dependencies, timeoutMs);
+      let snapshot = await readSnapshot(session, frame, dependencies, timeoutMs);
+      let matching = (snapshot.returnInvoiceRows || [])
+        .filter((row) => row.outboundInvoiceNo === outboundInvoiceNo);
+      if (!matching.length) {
+        const prepared = await evaluateFrame(
+          session,
+          frame.frame,
+          `(${CJ_LOIS_PREPARE_INVOICE_SOURCE})(${JSON.stringify(outboundInvoiceNo)})`,
+          timeoutMs,
+        );
+        if (prepared?.error || !prepared?.prepared) {
+          fail(prepared?.error || "CJ_ORIGINAL_INVOICE_LOOKUP_FAILED", "CJ original-invoice lookup could not be requested.");
+        }
+        await waitForOriginalInfoState(session, frame, dependencies, { ...options, timeoutMs });
+        snapshot = await readSnapshot(session, frame, dependencies, timeoutMs);
+        matching = (snapshot.returnInvoiceRows || [])
+          .filter((row) => row.outboundInvoiceNo === outboundInvoiceNo);
+      }
+      if (!matching.length) {
+        fail("CJ_ORIGINAL_INVOICE_NOT_FOUND", "CJ did not return a row for the exact original invoice.");
+      }
+      const returnInvoices = [...new Set(matching
+        .map((row) => digits(row.returnInvoiceNo))
+        .filter((value) => /^\d{10,14}$/.test(value) && value !== outboundInvoiceNo))];
+      if (returnInvoices.length > 1) {
+        fail("CJ_RETURN_INVOICE_AMBIGUOUS", "CJ returned multiple return invoices for one original invoice.", {
+          matchCount: returnInvoices.length,
+        });
+      }
+      if (!returnInvoices.length) {
+        return {
+          status: "PENDING",
+          outboundInvoiceNo,
+          returnInvoiceNo: "",
+          evidence: ["CJ_ORIGINAL_INVOICE_MATCHED"],
+          externalWritesPerformed: false,
+        };
+      }
+      return {
+        status: "FOUND",
+        outboundInvoiceNo,
+        returnInvoiceNo: returnInvoices[0],
+        evidence: ["CJ_ORIGINAL_INVOICE_MATCHED", "CJ_RETURN_INVOICE_READBACK_VERIFIED"],
         externalWritesPerformed: false,
       };
     },

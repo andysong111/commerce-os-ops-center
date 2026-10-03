@@ -34,6 +34,7 @@
     "local-agent:return-pickup": "node local-agent/scripts/run-shopling-return-pickup.mjs",
     "local-agent:return-pickup-cj-lookup": "node local-agent/scripts/verify-cj-return-pickup-lookup.mjs",
     "local-agent:return-pickup-cj-stage": "node local-agent/scripts/run-cj-return-pickup-stage.mjs",
+    "local-agent:return-invoice-readback": "node local-agent/scripts/run-shopling-return-invoice-readback.mjs",
     "local-agent:customer-service-review": "node local-agent/scripts/prepare-shopling-customer-service-review.mjs",
     "local-agent:qna-inspect": "node local-agent/scripts/inspect-shopling-qna-structure.mjs",
     "local-agent:qna-reply-inspect": "node local-agent/scripts/inspect-shopling-qna-reply-popup.mjs",

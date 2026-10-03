@@ -180,10 +180,16 @@ export function buildShoplingQnaDraftCandidate(qna = {}, evidence = []) {
 
 export function analyzeShoplingQnaHistory(qnas = [], options = {}) {
   const evidenceByQnaKey = options.evidenceByQnaKey || {};
+  const evidenceByOrderNo = options.evidenceByOrderNo || {};
   const cases = qnas.map((qna) => {
-    const candidate = buildShoplingQnaDraftCandidate(qna, evidenceByQnaKey[clean(qna.qnaKey)] || []);
+    const evidence = [
+      ...(evidenceByQnaKey[clean(qna.qnaKey)] || []),
+      ...(evidenceByOrderNo[clean(qna.orderNo)] || []),
+    ];
+    const candidate = buildShoplingQnaDraftCandidate(qna, evidence);
     return {
       qnaKey: clean(qna.qnaKey),
+      orderNo: clean(qna.orderNo),
       productId: clean(qna.productId),
       qnaType: clean(qna.qnaType),
       askedAt: clean(qna.askedAt),

@@ -9,6 +9,7 @@ const CJ_EXISTING_RESERVATION_EVIDENCE = Object.freeze([
 
 const AUDIT_CJ_VERIFIED = "CJ_RESERVATION_VERIFIED";
 const AUDIT_COMPLETE = "SHOPLING_RETURN_REGISTERED";
+const AUDIT_RETURN_INVOICE_RECORDED = "SHOPLING_RETURN_INVOICE_RECORDED";
 
 function clean(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -106,10 +107,10 @@ export async function runCjReturnPickupStage(input = {}, dependencies = {}) {
   const audit = await readAudit(step.actionKey);
   assertAuditIdentity(audit, step);
 
-  if (audit?.stage === AUDIT_COMPLETE || audit?.stage === AUDIT_CJ_VERIFIED) {
+  if ([AUDIT_COMPLETE, AUDIT_CJ_VERIFIED, AUDIT_RETURN_INVOICE_RECORDED].includes(audit?.stage)) {
     if (audit?.cjReceipt) verifyCjReceipt(audit.cjReceipt, step);
     return publicResult(step, {
-      status: audit.stage === AUDIT_COMPLETE
+      status: [AUDIT_COMPLETE, AUDIT_RETURN_INVOICE_RECORDED].includes(audit.stage)
         ? "ALREADY_COMPLETED"
         : "CJ_ALREADY_RESERVED_PENDING_SHOPLING_RETURN_REGISTRATION",
       externalWritesPerformed: false,
@@ -159,7 +160,7 @@ export async function runShoplingReturnPickupExecution(input = {}, dependencies 
   const audit = await readAudit(step.actionKey);
   assertAuditIdentity(audit, step);
 
-  if (audit?.stage === AUDIT_COMPLETE) {
+  if ([AUDIT_COMPLETE, AUDIT_RETURN_INVOICE_RECORDED].includes(audit?.stage)) {
     return publicResult(step, {
       status: "ALREADY_COMPLETED",
       externalWritesPerformed: false,
@@ -247,6 +248,7 @@ export const SHOPLING_RETURN_PICKUP_EXECUTION_RULES = Object.freeze({
   cjExistingReservationEvidence: CJ_EXISTING_RESERVATION_EVIDENCE,
   cjVerifiedAuditStage: AUDIT_CJ_VERIFIED,
   completeAuditStage: AUDIT_COMPLETE,
+  returnInvoiceRecordedAuditStage: AUDIT_RETURN_INVOICE_RECORDED,
   shoplingSourceStatus: "A05",
   shoplingNextStatus: "R01",
   exactApprovalRequired: true,

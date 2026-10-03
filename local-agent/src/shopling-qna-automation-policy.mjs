@@ -110,7 +110,8 @@ export function buildShoplingQnaAutomationPlan(qnas = [], replyPlan = {}, option
     const qna = current.get(clean(step.qnaKey));
     const decision = decideShoplingQnaAutomation(step, qna, {
       approvedRules: options.approvedRules,
-      evidence: (options.evidence || []).filter((item) => clean(item?.qnaKey) === clean(step.qnaKey)),
+      evidence: (options.evidence || []).filter((item) => clean(item?.qnaKey) === clean(step.qnaKey)
+        || (clean(qna?.orderNo) && clean(item?.orderNo) === clean(qna.orderNo))),
       now: options.now,
     });
     return {
