@@ -24,6 +24,9 @@
     "blockedNeedsEvidenceIsNotSavedToShopling": true,
     "draftMarkerBlocksMarketplaceTransmission": true,
     "qnaCollectionUsesExistingWeekday1231Flow": true,
+    "qnaAnswerExecutionMode": "MANUAL_BATCH_FROM_CODEX_CHAT",
+    "separateQnaScheduleEnabled": false,
+    "vercelQnaServiceRequired": false,
     "marketplaceTransmissionIsSeparate": true,
     "rawCustomerIdentityMayBePersisted": false,
     "credentialsMayBePersisted": false
@@ -39,7 +42,7 @@
     "Persist redacted approval and edit learning events",
     "Implement versioned promotion and demotion rules",
     "Connect Commerce OS stock and replenishment evidence",
-    "Invoke draft staging after the existing weekday 12:31 integrated collection"
+    "Verify draft staging from the current Codex chat when the owner requests inquiry processing"
   ],
   "verifiedExample": {
     "date": "2026-10-02",
