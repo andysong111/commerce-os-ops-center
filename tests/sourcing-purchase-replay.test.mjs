@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveExistingSourcingPurchase } from "../src/domain/sourcing-purchase-replay.ts";
+import {
+  resolveActiveSourcingPurchaseDraftId,
+  resolveExistingSourcingPurchase,
+} from "../src/domain/sourcing-purchase-replay.ts";
 
 const identity = {
   intakeId: "11111111-1111-4111-8111-111111111111",
@@ -108,5 +111,37 @@ test("corrupted original draft identity fails closed instead of opening a new mo
       commitment({ sourceRunId: "not-a-draft" }),
     ], identity),
     /SOURCING_PURCHASE_REPLAY_DRAFT_INVALID/,
+  );
+});
+
+test("superseded closed drafts do not block adding sourcing lines to the one active draft", () => {
+  assert.equal(
+    resolveActiveSourcingPurchaseDraftId([
+      {
+        sourceRunId: "fast-purchase-draft:11111111111111111111",
+        openQuantity: 0,
+      },
+      {
+        sourceRunId: "fast-purchase-draft:22222222222222222222",
+        openQuantity: 15,
+      },
+    ]),
+    "fast-purchase-draft:22222222222222222222",
+  );
+});
+
+test("two active monthly drafts remain fail-closed", () => {
+  assert.throws(
+    () => resolveActiveSourcingPurchaseDraftId([
+      {
+        sourceRunId: "fast-purchase-draft:11111111111111111111",
+        openQuantity: 1,
+      },
+      {
+        sourceRunId: "fast-purchase-draft:22222222222222222222",
+        openQuantity: 1,
+      },
+    ]),
+    /SOURCING_PURCHASE_MULTIPLE_MONTH_DRAFTS/,
   );
 });

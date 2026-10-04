@@ -6,7 +6,10 @@ import {
   loadChinaOrderLedger,
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
-import { resolveExistingSourcingPurchase as resolveExistingSourcingPurchaseDomain } from "@/domain/sourcing-purchase-replay";
+import {
+  resolveActiveSourcingPurchaseDraftId,
+  resolveExistingSourcingPurchase as resolveExistingSourcingPurchaseDomain,
+} from "@/domain/sourcing-purchase-replay";
 import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 
@@ -15,7 +18,6 @@ const SOURCE = "sourcing-confirmed-auto-ingress";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const BARCODE = /^[A-Z]{3}\d+-\d+$/;
 const MODEL_NO = /^AAA\d{3,}(?:-\d+)?$/i;
-const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
 
 export type SourcingPurchaseIngressInput = {
   intakeId?: unknown;
@@ -117,14 +119,6 @@ export async function ingestSourcingPurchase(input: SourcingPurchaseIngressInput
       row.sourceSystem === SOURCE_SYSTEM &&
       chinaOrderCommitmentCycleMonth(row) === cycleMonth,
   );
-  const draftIds = [
-    ...new Set(
-      cycleRows
-        .map((row) => row.sourceRunId)
-        .filter((value): value is string => Boolean(value && DRAFT_ID.test(value))),
-    ),
-  ];
-  if (draftIds.length > 1) throw new Error("SOURCING_PURCHASE_MULTIPLE_MONTH_DRAFTS");
   if (
     cycleRows.some(
       (row) =>
@@ -136,7 +130,8 @@ export async function ingestSourcingPurchase(input: SourcingPurchaseIngressInput
     throw new Error("SOURCING_PURCHASE_MONTH_ALREADY_PROGRESSING");
   }
 
-  const draftId = draftIds[0] || deterministicDraftId(cycleMonth);
+  const draftId =
+    resolveActiveSourcingPurchaseDraftId(cycleRows) || deterministicDraftId(cycleMonth);
   const sourceLineId = draftId + ":" + normalized.barcode;
   const sourceEventId =
     draftId + ":" + normalized.barcode + ":sourcing:" + normalized.outboxId;

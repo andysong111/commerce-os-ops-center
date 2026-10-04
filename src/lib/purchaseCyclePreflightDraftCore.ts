@@ -1,5 +1,6 @@
 import type { FastPurchaseInternalDraftLine } from "@/lib/fastPurchaseInternalDraft";
 import type { PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
+import type { SourcingBudgetPlan } from "@/lib/sourcingBudgetPlan";
 
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
 
@@ -10,6 +11,8 @@ export type PurchaseCycleDraftRequest = {
   allowOpenBudgetPreview?: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
+  expectedSourcingSourceFingerprint?: string | null;
+  expectedSourcingPlanFingerprint?: string | null;
   confirmation: string;
   replaceDraftId?: string | null;
 };
@@ -30,18 +33,23 @@ export function purchaseCycleDraftPreflightOptions(
 
 export function purchaseCycleDraftConfirmation(
   report: PurchaseCyclePreflightReport,
+  sourcingPlan: SourcingBudgetPlan | null = null,
 ) {
+  const sourcingSuffix = report.sourcingBudgetPercent > 0 && sourcingPlan
+    ? `_NEWSOURCE${sourcingPlan.allocation.selected.length}SKU_${sourcingPlan.allocation.estimatedSpendKrw}KRW_${sourcingPlan.planFingerprint.slice(-12)}`
+    : "";
   if (report.replacementDraftId) {
     const audit = report.replacementAudit;
     if (!audit?.complete) throw new Error("PURCHASE_DRAFT_REPLACEMENT_AUDIT_REQUIRED");
-    return `REGENERATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}_SOURCING${report.sourcingBudgetPercent}PCT_ADD${audit.added.length}_REMOVE${audit.removed.length}_CHANGE${audit.quantityChanged.length}_${report.replacementDraftId}`;
+    return `REGENERATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}_SOURCING${report.sourcingBudgetPercent}PCT_ADD${audit.added.length}_REMOVE${audit.removed.length}_CHANGE${audit.quantityChanged.length}_${report.replacementDraftId}${sourcingSuffix}`;
   }
-  return `CREATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}_SOURCING${report.sourcingBudgetPercent}PCT`;
+  return `CREATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}_SOURCING${report.sourcingBudgetPercent}PCT${sourcingSuffix}`;
 }
 
 export function preparePurchaseCycleDraft(
   report: PurchaseCyclePreflightReport,
   request: PurchaseCycleDraftRequest,
+  sourcingPlan: SourcingBudgetPlan | null = null,
 ): {
   cycleMonth: string;
   sourceFingerprint: string;
@@ -58,6 +66,28 @@ export function preparePurchaseCycleDraft(
     !FINGERPRINT.test(request.expectedPlanFingerprint)
   ) {
     throw new Error("PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED");
+  }
+  if (report.sourcingBudgetPercent > 0) {
+    if (
+      !sourcingPlan ||
+      sourcingPlan.readyForConfirmation !== true ||
+      sourcingPlan.targetCycleMonth !== report.targetCycleMonth ||
+      sourcingPlan.totalCashKrw !== report.effectiveCashKrw ||
+      sourcingPlan.sourcingBudgetPercent !== report.sourcingBudgetPercent ||
+      sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw ||
+      sourcingPlan.allocation.selected.length < 1 ||
+      request.expectedSourcingSourceFingerprint !== sourcingPlan.sourceFingerprint ||
+      request.expectedSourcingPlanFingerprint !== sourcingPlan.planFingerprint ||
+      !FINGERPRINT.test(request.expectedSourcingSourceFingerprint ?? "") ||
+      !FINGERPRINT.test(request.expectedSourcingPlanFingerprint ?? "")
+    ) {
+      throw new Error("PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY");
+    }
+  } else if (
+    request.expectedSourcingSourceFingerprint ||
+    request.expectedSourcingPlanFingerprint
+  ) {
+    throw new Error("PURCHASE_CYCLE_SOURCING_PLAN_UNEXPECTED");
   }
   if (
     report.previewReady !== true ||
@@ -82,7 +112,7 @@ export function preparePurchaseCycleDraft(
   ) {
     throw new Error("PURCHASE_CYCLE_DRAFT_EXECUTION_BOUNDARY_CHANGED");
   }
-  if (request.confirmation !== purchaseCycleDraftConfirmation(report)) {
+  if (request.confirmation !== purchaseCycleDraftConfirmation(report, sourcingPlan)) {
     throw new Error("PURCHASE_CYCLE_DRAFT_CONFIRMATION_REQUIRED");
   }
 

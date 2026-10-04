@@ -377,6 +377,12 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(page, /신규상품 소싱 예산 비율/);
   assert.match(page, /신규상품 소싱 예산을 먼저 분리/);
   assert.match(page, /report\.sourcingBudgetKrw/);
+  assert.match(page, /loadSourcingBudgetPlan/);
+  assert.match(page, /신규상품 소싱 \{report\.sourcingBudgetPercent\}% 배정 미리보기/);
+  assert.match(page, /Product Master에는 LAUNCHING/);
+  assert.match(page, /실제 입고확정 뒤 자동 생성/);
+  assert.match(page, /expectedSourcingSourceFingerprint/);
+  assert.match(page, /sourcingPlan\?\.readyForConfirmation === true/);
   assert.doesNotMatch(page, /name="skus"/);
   assert.doesNotMatch(page, /name="units"/);
   assert.match(page, /maxSkus: ENGINE_MAX_SKUS/);

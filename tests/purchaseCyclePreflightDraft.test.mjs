@@ -42,6 +42,7 @@ function report() {
     ],
     estimatedSpendKrw: 86_678,
     estimatedAllInSpendKrw: 125_684,
+    effectiveCashKrw: 1_000_000,
     effectiveBudgetKrw: 2_667_268,
     businessWritesEnabled: false,
     approvalEnabled: false,
@@ -50,7 +51,21 @@ function report() {
   };
 }
 
-function request(value = report()) {
+function sourcingPlan(value) {
+  return {
+    targetCycleMonth: value.targetCycleMonth,
+    totalCashKrw: value.effectiveCashKrw,
+    sourcingBudgetPercent: value.sourcingBudgetPercent,
+    sourcingBudgetKrw: value.sourcingBudgetKrw,
+    readyForConfirmation: true,
+    blockers: [],
+    sourceFingerprint: fp("c"),
+    planFingerprint: fp("d"),
+    allocation: { selected: [{ conceptId: "new-1" }], estimatedSpendKrw: 150_000 },
+  };
+}
+
+function request(value = report(), plan = null) {
   return {
     targetDate: value.targetDate,
     cashLimitKrw: value.cashLimitKrw,
@@ -58,7 +73,9 @@ function request(value = report()) {
     allowOpenBudgetPreview: false,
     expectedSourceFingerprint: value.sourceFingerprint,
     expectedPlanFingerprint: value.planFingerprint,
-    confirmation: purchaseCycleDraftConfirmation(value),
+    expectedSourcingSourceFingerprint: plan?.sourceFingerprint ?? null,
+    expectedSourcingPlanFingerprint: plan?.planFingerprint ?? null,
+    confirmation: purchaseCycleDraftConfirmation(value, plan),
   };
 }
 
@@ -95,14 +112,34 @@ test("draft recheck preserves and pins the sourcing budget share", () => {
   const value = report();
   value.sourcingBudgetPercent = 20;
   value.sourcingBudgetKrw = 200_000;
-  const input = request(value);
+  const plan = sourcingPlan(value);
+  const input = request(value, plan);
   assert.equal(purchaseCycleDraftPreflightOptions(input).sourcingBudgetPercent, 20);
   assert.match(input.confirmation, /SOURCING20PCT/);
-  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
+  assert.match(input.confirmation, /NEWSOURCE1SKU_150000KRW/);
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
   input.sourcingBudgetPercent = 15;
   assert.throws(
-    () => preparePurchaseCycleDraft(value, input),
+    () => preparePurchaseCycleDraft(value, input, plan),
     /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
+  );
+});
+
+test("a positive sourcing share cannot save without the exact ready sourcing plan", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 20;
+  value.sourcingBudgetKrw = 200_000;
+  const plan = sourcingPlan(value);
+  const input = request(value, plan);
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, null),
+    /PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
+  );
+  plan.blockers = ["SOURCING_PERCENT_POLICY_MISMATCH"];
+  plan.readyForConfirmation = false;
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, plan),
+    /PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
   );
 });
 
@@ -260,6 +297,9 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(core, /maxSkus: 100/);
   assert.match(core, /maxUnitsPerSku: 9_999/);
   assert.match(service, /purchaseCycleDraftPreflightOptions\(request\)/);
+  assert.match(service, /loadSourcingBudgetPlan/);
+  assert.match(service, /confirmSourcingBudgetPlan/);
+  assert.match(service, /complete: sourcing\?\.ok !== false/);
   assert.match(service, /allowAdoptExistingReservedDraft: false/);
   assert.match(storage, /status: "RESERVED"/);
   assert.match(storage, /externalOrderExecuted: false/);
@@ -276,5 +316,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(actions, /cashLimitKrw/);
   assert.match(actions, /sourcingBudgetPercent/);
   assert.match(actions, /신규상품 소싱/);
+  assert.match(actions, /expectedSourcingSourceFingerprint/);
+  assert.match(route, /status: result\.complete \? result\.draft\.duplicate \? 200 : 201 : 207/);
   assert.match(actions, /1688 주문·결제는 실행하지 않습니다/);
 });
