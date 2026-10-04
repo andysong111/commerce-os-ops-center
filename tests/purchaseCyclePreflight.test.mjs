@@ -367,6 +367,7 @@ test("preflight source has no write executor, credentials, background timer, or 
 });
 test("operator page accepts an all-in cash cap while preserving the automatic envelope", () => {
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
+  const form = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchasePreflightForm.tsx", import.meta.url), "utf8");
   assert.match(page, /name="cash"/);
   assert.match(page, /이번 발주에 쓸 총 현금/);
   assert.match(page, /비우면 전월 매출원가 기준 자동 예산/);
@@ -386,6 +387,16 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(page, /월 마감 전 조기 미리보기/);
   assert.match(page, /기존 Draft와 새 계산 전체 대조/);
   assert.match(page, /replacementAudit\.added/);
+  assert.match(page, /<PurchasePreflightForm>/);
+  assert.match(form, /event\.preventDefault\(\)/);
+  assert.match(form, /useTransition\(\)/);
+  assert.match(form, /startTransition\(\(\) =>/);
+  assert.match(form, /router\.push\(`\/purchase-cycle-preflight\?\$\{params\.toString\(\)\}`\)/);
+  assert.match(form, /onSubmit=\{submit\}/);
+  assert.match(form, /disabled=\{pending\}/);
+  assert.match(form, /aria-busy=\{pending\}/);
+  assert.match(form, /계산·점검 중\.\.\./);
+  assert.match(form, /role="status"/);
 });
 
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { PurchaseCycleDraftActions } from "@/components/purchase-cycle-preflight/PurchaseCycleDraftActions";
+import { PurchasePreflightForm } from "@/components/purchase-cycle-preflight/PurchasePreflightForm";
 import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import { purchaseCycleDraftConfirmation } from "@/lib/purchaseCyclePreflightDraftCore";
@@ -107,7 +108,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         <strong>예정일이 되어도 자동으로 주문하지 않습니다.</strong>
         <p>10월 1일 발주는 9월 최종 매출예산과 당일 최신 판매·재고·미입고 근거로 다시 확인해야 합니다. 최종 승인과 실제 주문은 별도입니다. 미리보기의 통과 표시는 실행 권한이 아닙니다.</p>
       </section>
-      <form method="get" action="/purchase-cycle-preflight" className="grid gap-4 rounded-2xl border bg-white p-5 sm:grid-cols-2 xl:grid-cols-3">
+      <PurchasePreflightForm>
         <input type="hidden" name="check" value="1" />
         {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
         <label className="text-sm font-bold">발주 예정일<input className="mt-2 block w-full rounded-lg border p-2" name="date" type="date" defaultValue={targetDate} required /></label>
@@ -115,8 +116,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         <label className="text-sm font-bold">신규상품 소싱 예산 비율 (%)<input className="mt-2 block w-full rounded-lg border p-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">총현금에서 먼저 따로 확보할 비율 · 0%는 전액 기존상품 발주</span></label>
         <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2 xl:col-span-3"><input name="early" type="checkbox" value="1" defaultChecked={early} />월 마감 전 조기 미리보기</label>
         <p className="text-xs leading-5 text-slate-600 sm:col-span-2 xl:col-span-3">현금을 비우면 전월 매출원가 기준 자동 예산을 사용하고, 입력하면 그 총현금에 맞춰 다시 계산합니다. 신규상품 소싱 예산을 먼저 분리한 뒤 남은 총현금에서 배송비·수수료 예비금을 확보하고 기존상품 발주안을 계산합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
-        <button type="submit" className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white">읽기 전용 사전 점검</button>
-      </form>
+      </PurchasePreflightForm>
       {inputError ? <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}
       {!report ? <p className="text-sm text-slate-600">점검 버튼을 누르면 운영 자료를 한 번 조회합니다. 자동 재조회·발주 예약은 만들지 않습니다.</p> : <>
         {report.replacementDraftId ? (
