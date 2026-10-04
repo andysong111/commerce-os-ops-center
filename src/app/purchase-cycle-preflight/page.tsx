@@ -79,6 +79,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const targetDate = single("date", todaySeoul);
   const cash = single("cash", "");
   const cashLimitKrw = cash === "" ? null : Number(cash);
+  const sourcing = single("sourcing", "0");
+  const sourcingBudgetPercent = sourcing === "" ? 0 : Number(sourcing);
   const early = single("early", "") === "1";
   const replaceDraftId = single("replace", "") || null;
   let report: PurchaseCyclePreflightReport | null = null;
@@ -87,13 +89,13 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   // explicit read-only form submission does. No polling, cron or write action.
   if (query.check === "1") {
     try {
-      if (["date", "cash", "early", "check", "replace"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
-      if (cash !== "" && !/^\d+$/.test(cash)) throw new Error("NUMERIC_INPUT_INVALID");
-      const options = { targetDate, cashLimitKrw, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId };
+      if (["date", "cash", "sourcing", "early", "check", "replace"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
+      if ((cash !== "" && !/^\d+$/.test(cash)) || (sourcing !== "" && !/^\d+$/.test(sourcing))) throw new Error("NUMERIC_INPUT_INVALID");
+      const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId };
       validatePurchasePreflightOptions(options);
       report = await loadPurchaseCyclePreflight(options);
     } catch {
-      inputError = "점검을 완료하지 못했습니다. 날짜와 정수 금액을 확인하세요. 입력이 맞다면 자료를 다시 조회하세요.";
+      inputError = "점검을 완료하지 못했습니다. 날짜·정수 금액·0~100% 소싱 비율을 확인하세요. 입력이 맞다면 자료를 다시 조회하세요.";
     }
   }
   return (
@@ -110,8 +112,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
         <label className="text-sm font-bold">발주 예정일<input className="mt-2 block w-full rounded-lg border p-2" name="date" type="date" defaultValue={targetDate} required /></label>
         <label className="text-sm font-bold">이번 발주에 쓸 총 현금<input className="mt-2 block w-full rounded-lg border p-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 매출원가 자동 예산" /><span className="mt-1 block text-xs font-normal text-slate-500">현재 사용 가능한 상품대금과 배송비·수수료 예비금을 모두 포함한 금액</span></label>
+        <label className="text-sm font-bold">신규상품 소싱 예산 비율 (%)<input className="mt-2 block w-full rounded-lg border p-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">총현금에서 먼저 따로 확보할 비율 · 0%는 전액 기존상품 발주</span></label>
         <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2 xl:col-span-3"><input name="early" type="checkbox" value="1" defaultChecked={early} />월 마감 전 조기 미리보기</label>
-        <p className="text-xs leading-5 text-slate-600 sm:col-span-2 xl:col-span-3">비우면 전월 매출원가 기준 자동 예산을 사용하고, 입력하면 그 총현금에 맞춰 다시 계산합니다. 현금이 부족하면 우선순위 상위 25%는 권장수량을 먼저 보호하고, 다음 50%는 60% 수량, 나머지는 MOQ·박스단위 최소수량부터 배분한 뒤 남은 현금을 우선순위대로 추가합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
+        <p className="text-xs leading-5 text-slate-600 sm:col-span-2 xl:col-span-3">현금을 비우면 전월 매출원가 기준 자동 예산을 사용하고, 입력하면 그 총현금에 맞춰 다시 계산합니다. 신규상품 소싱 예산을 먼저 분리한 뒤 남은 총현금에서 배송비·수수료 예비금을 확보하고 기존상품 발주안을 계산합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
         <button type="submit" className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white">읽기 전용 사전 점검</button>
       </form>
       {inputError ? <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}
@@ -167,7 +170,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         </section>
         <section className="rounded-2xl border bg-white p-5">
           <h2 className="font-bold">전체 발주 미리보기 · 주문서 아님</h2>
-          <p className="mt-2 text-sm">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 운영자 입력 총현금 {report.cashLimitKrw === null ? "입력 없음" : money(report.cashLimitKrw)} · 적용 방식 {report.cashLimitKrw === null ? "매출원가 자동 예산" : "입력 현금 우선"} · 최종 적용 총현금 {money(report.effectiveCashKrw)} · 상품대금 상한 {money(report.effectiveBudgetKrw)}</p>
+          <p className="mt-2 text-sm">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 운영자 입력 총현금 {report.cashLimitKrw === null ? "입력 없음" : money(report.cashLimitKrw)} · 적용 방식 {report.cashLimitKrw === null ? "매출원가 자동 예산" : "입력 현금 우선"} · 최종 적용 총현금 {money(report.effectiveCashKrw)}</p>
+          <p className="mt-2 text-sm font-bold">신규상품 소싱 예약 {report.sourcingBudgetPercent}% · {money(report.sourcingBudgetKrw)} · 기존상품 발주 가용 총현금 {money(report.reorderCashKrw)} · 기존상품 상품대금 상한 {money(report.effectiveBudgetKrw)}</p>
           <p className="mt-2 text-sm">확정·추정원가 기준 상품대금 {money(report.estimatedSpendKrw)} · 상품대금 잔여한도 {money(report.remainingPreviewBudgetKrw)} · 현금에 맞춰 수량 감축 {report.cashAdjustedCount}종 · 현금 한도로 제외 {report.cashExcludedCount}종</p>
           <p className="mt-2 text-sm">도매 판매가 추정 {report.wholesaleEstimatedSelectedCount}개 · 사용자 제공 추정 {report.ownerEstimatedSelectedCount}개 · 원가 근거 미확인 {report.missingCostCount}개</p>
           <p className="mt-2 text-sm font-bold">전체 후보 {report.candidateCount}종 · 선정·제외로 설명된 후보 {report.accountedCandidateCount}종 · {report.candidateCoverageComplete ? "누락 없음" : "설명되지 않은 누락 있음"}</p>
@@ -180,6 +184,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             targetDate={report.targetDate}
             targetCycleMonth={report.targetCycleMonth}
             cashLimitKrw={report.cashLimitKrw}
+            sourcingBudgetPercent={report.sourcingBudgetPercent}
+            sourcingBudgetKrw={report.sourcingBudgetKrw}
             allowOpenBudgetPreview={early}
             expectedSourceFingerprint={report.sourceFingerprint}
             expectedPlanFingerprint={report.planFingerprint}

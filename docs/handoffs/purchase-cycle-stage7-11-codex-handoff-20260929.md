@@ -586,3 +586,15 @@ Local proof on the exact branch included 320 purchase-cycle regression tests, fo
 ### Operational proof still pending by design
 
 The October Draft remains a Draft until the owner later chooses to place a real order. Stage 11 is operationally proven only after that real order proceeds through receipt, Product Master cost write/readback, inventory and sale-state handling, landed-cost close, funding close, and next-cycle handoff. Do not manufacture this evidence and do not copy reference prices into current 1688 fields to unlock the workflow.
+
+---
+
+## 19. Sourcing budget reservation (2026-10-04)
+
+- The purchase preflight accepts an integer `0~100%` new-product sourcing share.
+- It reserves that share from the all-in cash envelope before freight/fee reserve and existing-product reorder allocation.
+- `0%` preserves the previous calculation. `100%` produces no existing-product Draft budget.
+- Blank cash still uses the prior-month COGS automatic envelope; explicit cash still replaces that envelope for the current run.
+- Large cash inputs use safe-integer quotient/remainder percentage arithmetic, while selected quantities remain capped at the engine recommendation.
+- The sourcing percentage is part of the plan fingerprint, Draft confirmation, and save-time recheck. A changed percentage cannot silently reuse an earlier preview.
+- This reservation only partitions the budget. It does not create sourcing purchases, external orders, payments, or approvals.

@@ -17,6 +17,8 @@ function report() {
     replacementAudit: null,
     targetCycleMonth: "2026-10",
     cashLimitKrw: null,
+    sourcingBudgetPercent: 0,
+    sourcingBudgetKrw: 0,
     sourceFingerprint: fp("a"),
     planFingerprint: fp("b"),
     previewReady: true,
@@ -52,6 +54,7 @@ function request(value = report()) {
   return {
     targetDate: value.targetDate,
     cashLimitKrw: value.cashLimitKrw,
+    sourcingBudgetPercent: value.sourcingBudgetPercent,
     allowOpenBudgetPreview: false,
     expectedSourceFingerprint: value.sourceFingerprint,
     expectedPlanFingerprint: value.planFingerprint,
@@ -63,6 +66,7 @@ test("draft recheck preserves the preview early-budget option", () => {
   const regular = purchaseCycleDraftPreflightOptions(request());
   assert.equal(regular.allowOpenBudgetPreview, false);
   assert.equal(regular.cashLimitKrw, null);
+  assert.equal(regular.sourcingBudgetPercent, 0);
   assert.equal(regular.maxSkus, 100);
   assert.equal(regular.maxUnitsPerSku, 9_999);
 
@@ -81,6 +85,21 @@ test("draft recheck preserves and pins the operator cash cap", () => {
   assert.match(input.confirmation, /CASH800000/);
   assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
   input.cashLimitKrw = 700_000;
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input),
+    /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
+  );
+});
+
+test("draft recheck preserves and pins the sourcing budget share", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 20;
+  value.sourcingBudgetKrw = 200_000;
+  const input = request(value);
+  assert.equal(purchaseCycleDraftPreflightOptions(input).sourcingBudgetPercent, 20);
+  assert.match(input.confirmation, /SOURCING20PCT/);
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
+  input.sourcingBudgetPercent = 15;
   assert.throws(
     () => preparePurchaseCycleDraft(value, input),
     /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
@@ -255,5 +274,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(actions, /window\.confirm/);
   assert.match(actions, /allowOpenBudgetPreview/);
   assert.match(actions, /cashLimitKrw/);
+  assert.match(actions, /sourcingBudgetPercent/);
+  assert.match(actions, /신규상품 소싱/);
   assert.match(actions, /1688 주문·결제는 실행하지 않습니다/);
 });
