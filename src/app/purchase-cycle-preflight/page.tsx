@@ -6,10 +6,11 @@ import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import { purchaseCycleDraftConfirmation } from "@/lib/purchaseCyclePreflightDraftCore";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
+import { loadSourcingBudgetPlan, type SourcingBudgetPlan } from "@/lib/sourcingBudgetPlan";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 180;
+export const maxDuration = 600;
 const money = (value: number) => `${value.toLocaleString("ko-KR")}원`;
 const ENGINE_MAX_SKUS = 100;
 const ENGINE_MAX_UNITS_PER_SKU = 9_999;
@@ -61,6 +62,24 @@ const reasonLabels: Record<string, string> = {
   CURRENT_ENGINE_NOT_RECOMMENDED: "현재 판매·재고·미입고 계산에서는 발주 추천 대상이 아닙니다.",
   "UPSTREAM:claim-auxiliary": "클레임·배송 보조신호 연결이 남아 있어 실제 실행 판단으로 승격하지 않습니다.",
 };
+const sourcingReasonLabels: Record<string, string> = {
+  SOURCING_CONTEXT_UNAVAILABLE: "소싱 월 예산·창고 원장을 읽지 못했습니다.",
+  WAREHOUSE_GATE_NOT_READY: "실사 완료된 빈 창고 자리와 창고 정책 확인이 필요합니다.",
+  MONTHLY_SPENDING_BASIS_REQUIRED: "이번 달 신규소싱에 사용할 총현금 기준이 아직 확정되지 않았습니다.",
+  STALE_MONTHLY_SPENDING_BASIS: "소싱 예산 기준월이 이번 발주월과 다릅니다.",
+  SOURCING_PERCENT_ABOVE_POLICY_MAX: "입력한 소싱 비율이 현재 소싱 안전상한보다 큽니다.",
+  SOURCING_PERCENT_POLICY_MISMATCH: "화면의 소싱 비율과 창고 소싱 정책 비율이 다릅니다.",
+  SOURCING_BUDGET_MISMATCH: "계산한 20% 금액과 창고 소싱 월 한도가 일치하지 않습니다.",
+  SOURCING_BUDGET_ALREADY_EXCEEDED: "이미 예약된 신규상품 금액이 이번 소싱 예산보다 큽니다.",
+  NO_TEST_READY_CANDIDATE: "모든 품질·원가·공급 근거를 통과한 TEST_READY 후보가 없습니다.",
+};
+const sourcingExclusionLabels: Record<string, string> = {
+  ALREADY_CONFIRMED: "이미 소싱 생명주기에 등록됨",
+  TEST_PLAN_NOT_READY: "TEST_READY 조건 미충족",
+  COST_OR_MOQ_INVALID: "원가·MOQ·테스트수량 근거 부족",
+  MONTHLY_ITEM_CAP_REACHED: "월 신규품목 상한 도달",
+  BUDGET_BELOW_MOQ: "남은 예산으로 MOQ 충족 불가",
+};
 const explain = (code: string) => reasonLabels[code] ?? `상위 검증에서 남은 조건: ${code}`;
 const costBasisLabel = (row: PurchaseCyclePreflightReport["selected"][number]) => {
   if (row.costBasis === "VERIFIED_PURCHASE_COST") return "확정원가";
@@ -85,6 +104,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const early = single("early", "") === "1";
   const replaceDraftId = single("replace", "") || null;
   let report: PurchaseCyclePreflightReport | null = null;
+  let sourcingPlan: SourcingBudgetPlan | null = null;
+  let sourcingPlanError = "";
   let inputError = "";
   // Opening a card or link never starts the expensive data reads. Only an
   // explicit read-only form submission does. No polling, cron or write action.
@@ -95,6 +116,19 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId };
       validatePurchasePreflightOptions(options);
       report = await loadPurchaseCyclePreflight(options);
+      if (report.sourcingBudgetPercent > 0) {
+        try {
+          sourcingPlan = await loadSourcingBudgetPlan({
+            targetCycleMonth: report.targetCycleMonth,
+            totalCashKrw: report.effectiveCashKrw,
+            sourcingBudgetPercent: report.sourcingBudgetPercent,
+            sourcingBudgetKrw: report.sourcingBudgetKrw,
+          });
+        } catch (error) {
+          const raw = error instanceof Error ? error.message : "SOURCING_BUDGET_PLAN_FAILED";
+          sourcingPlanError = `신규상품 소싱 후보 계산을 읽지 못했습니다: ${raw.split(":", 1)[0]}`;
+        }
+      }
     } catch {
       inputError = "점검을 완료하지 못했습니다. 날짜·정수 금액·0~100% 소싱 비율을 확인하세요. 입력이 맞다면 자료를 다시 조회하세요.";
     }
@@ -180,6 +214,41 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           {!report.selected.length ? <p className="mt-3 text-sm">확정 가능한 미리보기 품목이 없습니다. 차단을 우회하거나 재고를 0으로 가정하지 않습니다.</p> : null}
           <details className="mt-4 text-sm"><summary>제외 품목 {report.excluded.length}개 확인</summary>{report.excluded.slice(0, 100).map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.reasons.map(explain).join(" / ")}</p>)}{report.excluded.length > 100 ? <p className="mt-2">앞의 100개를 표시했습니다. 구간별 상세 화면에서 전체 자료를 확인하세요.</p> : null}</details>
         </section>
+        {report.sourcingBudgetPercent > 0 ? (
+          <section className="rounded-2xl border border-emerald-300 bg-white p-5">
+            <h2 className="font-bold">신규상품 소싱 {report.sourcingBudgetPercent}% 배정 미리보기</h2>
+            <p className="mt-2 text-sm leading-6">
+              읽기 전용 점검에서는 후보·수량·예상금액만 계산합니다. B코드와 모델번호는 최종 Draft 저장 때 실제 빈 창고 자리를 확인한 뒤 배정하며, 1688 주문·결제는 실행하지 않습니다.
+            </p>
+            {sourcingPlanError ? <p role="alert" className="mt-4 border border-rose-300 bg-rose-50 p-3 text-sm font-bold">{sourcingPlanError}</p> : null}
+            {sourcingPlan ? <>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="border p-3"><p className="text-xs text-slate-500">분리한 소싱 예산</p><p className="mt-1 font-bold">{money(sourcingPlan.sourcingBudgetKrw)}</p></div>
+                <div className="border p-3"><p className="text-xs text-slate-500">새로 선택</p><p className="mt-1 font-bold">{sourcingPlan.allocation.selected.length}종</p></div>
+                <div className="border p-3"><p className="text-xs text-slate-500">예상 상품대금</p><p className="mt-1 font-bold">{money(sourcingPlan.allocation.estimatedSpendKrw)}</p></div>
+                <div className="border p-3"><p className="text-xs text-slate-500">남은 소싱 예산</p><p className="mt-1 font-bold">{money(sourcingPlan.allocation.remainingBudgetKrw)}</p></div>
+              </div>
+              <p className="mt-4 text-sm">
+                현재 창고 정책 {sourcingPlan.policy.configuredPercent ?? "미확인"}% · 안전상한 {sourcingPlan.policy.maximumPercent ?? "미확인"}% · 월 기준 {sourcingPlan.policy.confirmed ? "확정" : "미확정"} · {sourcingPlan.warehouse.message}
+              </p>
+              {sourcingPlan.blockers.length ? (
+                <div className="mt-4 border border-amber-300 bg-amber-50 p-4 text-sm">
+                  <p className="font-bold">최종 저장 전 해결할 조건</p>
+                  {sourcingPlan.blockers.map(code => <p key={code} className="mt-2">{sourcingReasonLabels[code] ?? code}</p>)}
+                </div>
+              ) : <p className="mt-4 font-bold text-emerald-800">최종 저장 시 신규상품 코드 배정과 월간 Draft 추가를 진행할 수 있습니다.</p>}
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead><tr><th className="p-2">후보 상품</th><th className="p-2">품질점수</th><th className="p-2">배정 방식</th><th className="p-2">MOQ / 최대 / 배정</th><th className="p-2">예상금액</th><th className="p-2">코드</th></tr></thead>
+                  <tbody>{sourcingPlan.allocation.selected.map(row => <tr key={row.conceptId} className="border-t"><td className="p-2">{row.canonicalNameKo}</td><td className="p-2">{row.finalQualityScore ?? "미확인"}</td><td className="p-2">{row.tier === "CORE" ? "핵심" : row.tier === "SUPPORT" ? "안정" : "최소 테스트"}</td><td className="p-2">{row.moq} / {row.recommendedUnits} / <strong>{row.quantity}</strong></td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">최종 저장 시 실제 빈 자리에서 배정</td></tr>)}</tbody>
+                </table>
+              </div>
+              {!sourcingPlan.allocation.selected.length ? <p className="mt-3 text-sm">현재 예산과 안전조건 안에서 선택할 TEST_READY 신규상품이 없습니다.</p> : null}
+              <details className="mt-4 text-sm"><summary>소싱 제외 후보 {sourcingPlan.allocation.excluded.length}종 확인</summary>{sourcingPlan.allocation.excluded.slice(0, 100).map(row => <p key={`${row.conceptId}:${row.reason}`} className="mt-2">{row.canonicalNameKo} · {sourcingExclusionLabels[row.reason] ?? row.reason}</p>)}</details>
+              <p className="mt-4 text-xs leading-5 text-slate-600">최종 확정 시 Product Master에는 LAUNCHING으로 생성됩니다. Commerce OS 상품출시 진행관리 카드는 실제 입고확정 뒤 자동 생성되어, 아직 입고되지 않은 상품을 입고완료처럼 보이게 만들지 않습니다.</p>
+            </> : null}
+          </section>
+        ) : null}
         <PurchaseCycleDraftActions
             targetDate={report.targetDate}
             targetCycleMonth={report.targetCycleMonth}
@@ -189,11 +258,15 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             allowOpenBudgetPreview={early}
             expectedSourceFingerprint={report.sourceFingerprint}
             expectedPlanFingerprint={report.planFingerprint}
-            confirmation={purchaseCycleDraftConfirmation(report)}
+            expectedSourcingSourceFingerprint={sourcingPlan?.sourceFingerprint ?? null}
+            expectedSourcingPlanFingerprint={sourcingPlan?.planFingerprint ?? null}
+            sourcingSelectedCount={sourcingPlan?.allocation.selected.length ?? 0}
+            sourcingEstimatedSpendKrw={sourcingPlan?.allocation.estimatedSpendKrw ?? 0}
+            confirmation={purchaseCycleDraftConfirmation(report, sourcingPlan)}
             selectedCount={report.selected.length}
             totalQuantity={report.selected.reduce((sum, row) => sum + row.quantity, 0)}
             estimatedSpendKrw={report.estimatedSpendKrw}
-            ready={report.previewReady && report.blockers.length === 0}
+            ready={report.previewReady && report.blockers.length === 0 && (report.sourcingBudgetPercent === 0 || sourcingPlan?.readyForConfirmation === true)}
             replaceDraftId={report.replacementDraftId}
             replacementAddedCount={report.replacementAudit?.added.length ?? 0}
             replacementRemovedCount={report.replacementAudit?.removed.length ?? 0}

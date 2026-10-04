@@ -21,6 +21,11 @@ export type SourcingPurchaseCommitmentLike = {
   latestPayload: unknown;
 };
 
+export type SourcingPurchaseCycleCommitmentLike = {
+  sourceRunId: string | null;
+  openQuantity: number;
+};
+
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
 }
@@ -87,4 +92,23 @@ export function resolveExistingSourcingPurchase(
     duplicate: true as const,
     externalOrderExecuted: false as const,
   };
+}
+
+export function resolveActiveSourcingPurchaseDraftId(
+  commitments: SourcingPurchaseCycleCommitmentLike[],
+) {
+  const activeRows = commitments.filter((row) => row.openQuantity > 0);
+  const invalidActiveDraft = activeRows.some(
+    (row) => !row.sourceRunId || !DRAFT_ID.test(row.sourceRunId),
+  );
+  if (invalidActiveDraft) {
+    throw new Error("SOURCING_PURCHASE_ACTIVE_DRAFT_INVALID");
+  }
+  const draftIds = [
+    ...new Set(activeRows.map((row) => row.sourceRunId as string)),
+  ];
+  if (draftIds.length > 1) {
+    throw new Error("SOURCING_PURCHASE_MULTIPLE_MONTH_DRAFTS");
+  }
+  return draftIds[0] ?? null;
 }
