@@ -668,3 +668,4 @@ Replacement preflight must preserve these invariants:
 - include added, removed, and quantity-changed counts in the exact regeneration confirmation
 
 Actual 1688 ordering and payment remain outside this replacement calculation and still require the normal owner decision boundary.
+- 2026-10-04 발주 예산 결정: 현금 입력을 비우면 전월 매출원가 자동 예산, 입력하면 해당 총현금을 우선 사용한다. 별도 0~100% 신규상품 소싱 비율을 총현금에서 먼저 예약하며, 남은 총현금만 기존상품 재발주 초안에 사용한다. 큰 금액을 입력해도 엔진 권장수량을 초과하지 않는다.

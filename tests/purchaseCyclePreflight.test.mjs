@@ -177,6 +177,51 @@ test("explicit cash replaces a smaller automatic envelope and remains safe for a
   assert.equal(report.estimatedAllInSpendKrw, 36250);
   assert.ok(report.estimatedAllInSpendKrw <= report.effectiveCashKrw);
 });
+test("automatic budget reserves sourcing cash before calculating the reorder product budget", () => {
+  const input = fixture();
+  input.options.cashLimitKrw = null;
+  input.options.sourcingBudgetPercent = 20;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.effectiveCashKrw, 145000);
+  assert.equal(report.sourcingBudgetPercent, 20);
+  assert.equal(report.sourcingBudgetKrw, 29000);
+  assert.equal(report.reorderCashKrw, 116000);
+  assert.equal(report.effectiveBudgetKrw, 80000);
+  assert.equal(report.selected[0].quantity, 5);
+  assert.match(report.stages.find(row => row.number === 10).message, /신규상품 소싱 20%/);
+});
+test("explicit cash applies sourcing reserve before cashflow quantity allocation", () => {
+  const input = fixture();
+  input.options.cashLimitKrw = 29000;
+  input.options.sourcingBudgetPercent = 20;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.sourcingBudgetKrw, 5800);
+  assert.equal(report.reorderCashKrw, 23200);
+  assert.equal(report.effectiveBudgetKrw, 16000);
+  assert.equal(report.selected[0].quantity, 3);
+  assert.equal(report.estimatedSpendKrw, 15000);
+  assert.ok(report.estimatedAllInSpendKrw <= report.reorderCashKrw);
+});
+test("large explicit cash calculates an exact sourcing reserve without over-ordering", () => {
+  const input = fixture();
+  input.options.cashLimitKrw = Number.MAX_SAFE_INTEGER;
+  input.options.sourcingBudgetPercent = 37;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.sourcingBudgetKrw, 3_332_663_724_254_166);
+  assert.equal(report.reorderCashKrw, 5_674_535_530_486_825);
+  assert.equal(report.selected[0].quantity, report.selected[0].originalRecommendedQuantity);
+  assert.ok(Number.isSafeInteger(report.sourcingBudgetKrw));
+  assert.ok(report.estimatedAllInSpendKrw <= report.reorderCashKrw);
+});
+test("one hundred percent sourcing reserve leaves no reorder draft budget", () => {
+  const input = fixture();
+  input.options.sourcingBudgetPercent = 100;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.sourcingBudgetKrw, report.effectiveCashKrw);
+  assert.equal(report.reorderCashKrw, 0);
+  assert.equal(report.effectiveBudgetKrw, 0);
+  blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+});
 test("quantity cap excludes the whole line rather than breaking carton/MOQ", () => {
   const input = fixture(); input.options.maxUnitsPerSku = 4;
   const report = buildPurchaseCyclePreflight(input);
@@ -190,7 +235,7 @@ test("selection is deterministic, bounded, and does not mutate source arrays", (
   input.priority.rows.reverse(); const b = buildPurchaseCyclePreflight(input);
   assert.deepEqual(a.selected, b.selected); assert.equal(a.planFingerprint, b.planFingerprint); assert.equal(a.estimatedSpendKrw, 25000);
 });
-for (const mutate of [i => i.options.cashLimitKrw++, i => i.options.maxSkus++, i => i.priority.rows[0].openCommitment++, i => i.priority.rows[0].expectedCost++, i => i.priority.rows[0].inventoryQuantity++, i => i.priority.rows[0].latestConfirmedReceiptCostKrw++]) {
+for (const mutate of [i => i.options.cashLimitKrw++, i => { i.options.sourcingBudgetPercent = 10; }, i => i.options.maxSkus++, i => i.priority.rows[0].openCommitment++, i => i.priority.rows[0].expectedCost++, i => i.priority.rows[0].inventoryQuantity++, i => i.priority.rows[0].latestConfirmedReceiptCostKrw++]) {
   test("material evidence or limits change the pinned preview fingerprint", () => {
     const input = fixture(); const previous = buildPurchaseCyclePreflight(input); mutate(input);
     assert.notEqual(buildPurchaseCyclePreflight(input).planFingerprint, previous.planFingerprint);
@@ -244,7 +289,7 @@ test("January purchase uses the previous December budget", () => {
   const input = fixture(); input.options.targetDate = "2027-01-01";
   assert.equal(buildPurchaseCyclePreflight(input).requiredBudgetMonth, "2026-12");
 });
-for (const options of [{ targetDate: "2026-02-30" }, { targetDate: "2026-13-01" }, { cashLimitKrw: 0 }, { cashLimitKrw: -1 }, { cashLimitKrw: "50000" }, { cashLimitKrw: Number.MAX_SAFE_INTEGER + 1 }, { maxSkus: 0 }, { maxSkus: 101 }, { maxUnitsPerSku: 0 }]) {
+for (const options of [{ targetDate: "2026-02-30" }, { targetDate: "2026-13-01" }, { cashLimitKrw: 0 }, { cashLimitKrw: -1 }, { cashLimitKrw: "50000" }, { cashLimitKrw: Number.MAX_SAFE_INTEGER + 1 }, { sourcingBudgetPercent: -1 }, { sourcingBudgetPercent: 101 }, { sourcingBudgetPercent: 1.5 }, { sourcingBudgetPercent: "10" }, { maxSkus: 0 }, { maxSkus: 101 }, { maxUnitsPerSku: 0 }]) {
   test(`invalid options rejected: ${JSON.stringify(options)}`, () => {
     const input = fixture(); Object.assign(input.options, options); assert.throws(() => buildPurchaseCyclePreflight(input));
   });
@@ -327,6 +372,10 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(page, /비우면 전월 매출원가 기준 자동 예산/);
   assert.match(page, /입력하면 그 총현금에 맞춰 다시 계산/);
   assert.match(page, /현금이 충분해도 엔진 권장수량을 초과하지 않습니다/);
+  assert.match(page, /name="sourcing"/);
+  assert.match(page, /신규상품 소싱 예산 비율/);
+  assert.match(page, /신규상품 소싱 예산을 먼저 분리/);
+  assert.match(page, /report\.sourcingBudgetKrw/);
   assert.doesNotMatch(page, /name="skus"/);
   assert.doesNotMatch(page, /name="units"/);
   assert.match(page, /maxSkus: ENGINE_MAX_SKUS/);

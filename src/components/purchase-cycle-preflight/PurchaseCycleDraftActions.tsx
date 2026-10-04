@@ -18,6 +18,8 @@ export function PurchaseCycleDraftActions({
   targetDate,
   targetCycleMonth,
   cashLimitKrw,
+  sourcingBudgetPercent,
+  sourcingBudgetKrw,
   allowOpenBudgetPreview,
   expectedSourceFingerprint,
   expectedPlanFingerprint,
@@ -34,6 +36,8 @@ export function PurchaseCycleDraftActions({
   targetDate: string;
   targetCycleMonth: string;
   cashLimitKrw: number | null;
+  sourcingBudgetPercent: number;
+  sourcingBudgetKrw: number;
   allowOpenBudgetPreview: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
@@ -56,9 +60,10 @@ export function PurchaseCycleDraftActions({
     const cashSummary = cashLimitKrw === null
       ? "자동 현금 한도"
       : `입력 총현금 ${cashLimitKrw.toLocaleString("ko-KR")}원`;
+    const sourcingSummary = `신규상품 소싱 ${sourcingBudgetPercent}% · ${sourcingBudgetKrw.toLocaleString("ko-KR")}원 별도 확보`;
     const summary = replaceDraftId
-      ? `${targetCycleMonth} 기존 Draft를 최신 계산 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 교체할까요?\n\n${cashSummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
-      : `${targetCycleMonth} 월간 발주 Draft를 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 저장할까요?\n\n${cashSummary}을 적용했습니다. 미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
+      ? `${targetCycleMonth} 기존 Draft를 최신 계산 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 교체할까요?\n\n${cashSummary} · ${sourcingSummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
+      : `${targetCycleMonth} 월간 발주 Draft를 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 저장할까요?\n\n${cashSummary} · ${sourcingSummary}을 적용했습니다. 미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
     if (!window.confirm(summary)) return;
     setSaving(true);
     try {
@@ -68,6 +73,7 @@ export function PurchaseCycleDraftActions({
         body: JSON.stringify({
           targetDate,
           cashLimitKrw,
+          sourcingBudgetPercent,
           allowOpenBudgetPreview,
           expectedSourceFingerprint,
           expectedPlanFingerprint,
