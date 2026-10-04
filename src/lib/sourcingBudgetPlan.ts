@@ -87,10 +87,24 @@ function config(env: Readonly<Record<string, string | undefined>> = process.env)
     env.PRODUCT_MASTER_INTEGRATION_SECRET
   )?.trim();
   if (!secret) throw new Error("SOURCING_BUDGET_INTEGRATION_SECRET_REQUIRED");
+  const protectionBypass = env.SOURCING_ENGINE_PROTECTION_BYPASS?.trim() || null;
+  if (protectionBypass && /[\r\n]/.test(protectionBypass)) {
+    throw new Error("SOURCING_BUDGET_PROTECTION_BYPASS_INVALID");
+  }
   const raw = env.SOURCING_ENGINE_PUBLIC_URL?.trim() || DEFAULT_SOURCING_ENGINE_URL;
   const url = new URL(raw);
   if (url.protocol !== "https:") throw new Error("SOURCING_BUDGET_ENGINE_URL_INVALID");
-  return { secret, baseUrl: url.origin };
+  return { secret, protectionBypass, baseUrl: url.origin };
+}
+
+function requestHeaders(secret: string, protectionBypass: string | null) {
+  return {
+    "x-commerce-os-integration-secret": secret,
+    ...(protectionBypass
+      ? { "x-vercel-protection-bypass": protectionBypass }
+      : {}),
+    accept: "application/json",
+  };
 }
 
 function assertPlan(value: unknown): asserts value is SourcingBudgetPlan {
@@ -124,7 +138,7 @@ export async function loadSourcingBudgetPlan(
   input: SourcingBudgetPlanInput,
   options: { env?: Readonly<Record<string, string | undefined>> } = {},
 ): Promise<SourcingBudgetPlan> {
-  const { secret, baseUrl } = config(options.env);
+  const { secret, protectionBypass, baseUrl } = config(options.env);
   const params = new URLSearchParams({
     month: input.targetCycleMonth,
     totalCashKrw: String(input.totalCashKrw),
@@ -134,7 +148,7 @@ export async function loadSourcingBudgetPlan(
   const response = await fetch(
     `${baseUrl}/api/integrations/sourcing-budget-plan?${params.toString()}`,
     {
-      headers: { "x-commerce-os-integration-secret": secret, accept: "application/json" },
+      headers: requestHeaders(secret, protectionBypass),
       cache: "no-store",
       signal: AbortSignal.timeout(240_000),
     },
@@ -148,13 +162,12 @@ export async function confirmSourcingBudgetPlan(input: SourcingBudgetPlanInput &
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
 }, options: { env?: Readonly<Record<string, string | undefined>> } = {}): Promise<SourcingBudgetConfirmationResult> {
-  const { secret, baseUrl } = config(options.env);
+  const { secret, protectionBypass, baseUrl } = config(options.env);
   const response = await fetch(`${baseUrl}/api/integrations/sourcing-budget-plan/confirm`, {
     method: "POST",
     headers: {
+      ...requestHeaders(secret, protectionBypass),
       "content-type": "application/json",
-      "x-commerce-os-integration-secret": secret,
-      accept: "application/json",
     },
     body: JSON.stringify(input),
     cache: "no-store",
