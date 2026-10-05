@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { PageHeader } from "@/components/PageHeader";
+import { ManualProductIntakeForm } from "@/components/sourcing-center/ManualProductIntakeForm";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -244,6 +245,8 @@ export default async function SourcingCenterPage() {
           </Link>
         }
       />
+
+      <ManualProductIntakeForm />
 
       <section className="rounded-2xl bg-slate-950 p-5 text-white shadow-sm sm:p-6">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-300">한 줄로 이해하기</p>

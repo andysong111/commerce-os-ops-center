@@ -9,6 +9,7 @@ export type PurchaseCycleDraftRequest = {
   cashLimitKrw?: number | null;
   sourcingBudgetPercent?: number;
   preferredSourcingConceptIds?: string[];
+  sourcingStorageSizeByConceptId?: Record<string, "S" | "L">;
   allowOpenBudgetPreview?: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
@@ -77,6 +78,7 @@ export function preparePurchaseCycleDraft(
       sourcingPlan.sourcingBudgetPercent !== report.sourcingBudgetPercent ||
       sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw ||
       JSON.stringify(sourcingPlan.preferredConceptIds ?? []) !== JSON.stringify(request.preferredSourcingConceptIds ?? []) ||
+      JSON.stringify(sourcingPlan.storageSizeByConceptId ?? {}) !== JSON.stringify(request.sourcingStorageSizeByConceptId ?? {}) ||
       sourcingPlan.allocation.selected.length < 1 ||
       request.expectedSourcingSourceFingerprint !== sourcingPlan.sourceFingerprint ||
       request.expectedSourcingPlanFingerprint !== sourcingPlan.planFingerprint ||
