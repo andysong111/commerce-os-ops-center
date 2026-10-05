@@ -125,6 +125,21 @@ test("draft recheck preserves and pins the sourcing budget share", () => {
   );
 });
 
+test("manual sourcing preference is pinned and cannot change between preview and save", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 20;
+  value.sourcingBudgetKrw = 200_000;
+  const plan = sourcingPlan(value);
+  plan.preferredConceptIds = ["concept-2"];
+  const input = { ...request(value, plan), preferredSourcingConceptIds: ["concept-2"] };
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
+  input.preferredSourcingConceptIds = ["concept-3"];
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, plan),
+    /PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
+  );
+});
+
 test("a positive sourcing share cannot save without the exact ready sourcing plan", () => {
   const value = report();
   value.sourcingBudgetPercent = 20;
@@ -315,6 +330,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(actions, /allowOpenBudgetPreview/);
   assert.match(actions, /cashLimitKrw/);
   assert.match(actions, /sourcingBudgetPercent/);
+  assert.match(actions, /preferredSourcingConceptIds/);
   assert.match(actions, /신규상품 소싱/);
   assert.match(actions, /expectedSourcingSourceFingerprint/);
   assert.match(route, /status: result\.complete \? result\.draft\.duplicate \? 200 : 201 : 207/);

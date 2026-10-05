@@ -22,6 +22,7 @@ export type SourcingBudgetPlan = {
   totalCashKrw: number;
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
+  preferredConceptIds: string[];
   state: "READY" | "BLOCKED" | "EMPTY";
   readyForConfirmation: boolean;
   blockers: string[];
@@ -51,6 +52,15 @@ export type SourcingBudgetPlan = {
     estimatedSpendKrw: number;
     remainingBudgetKrw: number;
     itemCapacity: number;
+    availableCandidates: Array<{
+      conceptId: string;
+      canonicalNameKo: string;
+      finalQualityScore: number | null;
+      plannedCostKrw: number | null;
+      moq: number | null;
+      recommendedUnits: number;
+      testPlanReady: boolean;
+    }>;
     selected: SourcingBudgetPlanSelection[];
     excluded: Array<{ conceptId: string; canonicalNameKo: string; reason: string }>;
   };
@@ -65,6 +75,7 @@ export type SourcingBudgetPlanInput = {
   totalCashKrw: number;
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
+  preferredConceptIds?: string[];
 };
 
 export type SourcingBudgetConfirmationResult = {
@@ -145,6 +156,9 @@ export async function loadSourcingBudgetPlan(
     sourcingBudgetPercent: String(input.sourcingBudgetPercent),
     sourcingBudgetKrw: String(input.sourcingBudgetKrw),
   });
+  for (const conceptId of input.preferredConceptIds ?? []) {
+    params.append("preferredConceptId", conceptId);
+  }
   const response = await fetch(
     `${baseUrl}/api/integrations/sourcing-budget-plan?${params.toString()}`,
     {
