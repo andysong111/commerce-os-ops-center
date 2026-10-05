@@ -28,6 +28,13 @@ test("preview and final confirmation use separate GET and POST boundaries", asyn
   assert.match(source, /externalOrderExecuted !== false/);
 });
 
+test("operator candidate preferences stay server-side and are sent to both preview and confirmation", async () => {
+  const source = await readFile("src/lib/sourcingBudgetPlan.ts", "utf8");
+  assert.match(source, /params\.append\("preferredConceptId", conceptId\)/);
+  assert.match(source, /preferredConceptIds\?: string\[\]/);
+  assert.doesNotMatch(source, /NEXT_PUBLIC_.*preferred/i);
+});
+
 test("invalid sourcing fingerprints are rejected before being trusted", async () => {
   const source = await readFile("src/lib/sourcingBudgetPlan.ts", "utf8");
   assert.match(source, /FINGERPRINT\.test/);

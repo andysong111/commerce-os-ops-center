@@ -101,6 +101,13 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const cashLimitKrw = cash === "" ? null : Number(cash);
   const sourcing = single("sourcing", "0");
   const sourcingBudgetPercent = sourcing === "" ? 0 : Number(sourcing);
+  const preferredSourcingConceptIds = (Array.isArray(query.source)
+    ? query.source
+    : typeof query.source === "string"
+      ? [query.source]
+      : [])
+    .map((value) => value.trim())
+    .filter(Boolean);
   const early = single("early", "") === "1";
   const replaceDraftId = single("replace", "") || null;
   let report: PurchaseCyclePreflightReport | null = null;
@@ -113,6 +120,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     try {
       if (["date", "cash", "sourcing", "early", "check", "replace"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
       if ((cash !== "" && !/^\d+$/.test(cash)) || (sourcing !== "" && !/^\d+$/.test(sourcing))) throw new Error("NUMERIC_INPUT_INVALID");
+      if (preferredSourcingConceptIds.length > 20 || new Set(preferredSourcingConceptIds).size !== preferredSourcingConceptIds.length) throw new Error("SOURCING_SELECTION_INVALID");
       const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId };
       validatePurchasePreflightOptions(options);
       report = await loadPurchaseCyclePreflight(options);
@@ -123,6 +131,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             totalCashKrw: report.effectiveCashKrw,
             sourcingBudgetPercent: report.sourcingBudgetPercent,
             sourcingBudgetKrw: report.sourcingBudgetKrw,
+            preferredConceptIds: preferredSourcingConceptIds,
           });
         } catch (error) {
           const raw = error instanceof Error ? error.message : "SOURCING_BUDGET_PLAN_FAILED";
@@ -213,9 +222,12 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                   <span className={`size-3 shrink-0 rounded-full ${visibleIssues.length ? "bg-amber-500" : "bg-emerald-500"}`} aria-hidden="true" />
                 </div>
                 {visibleIssues.length ? (
+                  <>
+                  <p className="mt-4 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-sm font-bold leading-6 text-sky-950">시스템이 최신 판매·재고·창고 자료를 다시 확인해야 합니다. 실제 주문이나 결제는 진행되지 않았습니다.</p>
                   <ol className="mt-4 divide-y divide-slate-100 border-y border-slate-100">
                     {visibleIssues.slice(0, 4).map((message, index) => <li key={`${index}:${message}`} className="flex gap-3 py-3 text-sm leading-6"><span className="font-black text-amber-700">{index + 1}</span><span>{message}</span></li>)}
                   </ol>
+                  </>
                 ) : <p className="mt-4 text-sm leading-6 text-emerald-800">품목과 금액을 검토한 뒤 아래에서 월간 Draft를 저장하세요.</p>}
                 {visibleIssues.length > 4 ? <details className="mt-3 min-w-0 text-sm"><summary className="cursor-pointer font-bold text-slate-700">나머지 {visibleIssues.length - 4}개 확인</summary>{visibleIssues.slice(4).map((message, index) => <p key={`${index}:${message}`} className="mt-2 break-all pl-4 text-slate-600">{message}</p>)}</details> : null}
               </section>
@@ -282,6 +294,28 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               {sourcingPlan ? <>
                 <details className="mt-4 text-sm"><summary className="cursor-pointer font-bold text-emerald-800">소싱 후보 {sourcingPlan.allocation.selected.length}종 보기</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">후보 상품</th><th className="p-2">품질점수</th><th className="p-2">배정 방식</th><th className="p-2">MOQ / 최대 / 배정</th><th className="p-2">예상금액</th><th className="p-2">코드</th></tr></thead><tbody>{sourcingPlan.allocation.selected.map(row => <tr key={row.conceptId} className="border-t"><td className="p-2">{row.canonicalNameKo}</td><td className="p-2">{row.finalQualityScore ?? "미확인"}</td><td className="p-2">{row.tier === "CORE" ? "핵심" : row.tier === "SUPPORT" ? "안정" : "최소 테스트"}</td><td className="p-2">{row.moq} / {row.recommendedUnits} / <strong>{row.quantity}</strong></td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">Draft 저장 시 빈 자리 배정</td></tr>)}</tbody></table></div>{!sourcingPlan.allocation.selected.length ? <p className="mt-3">현재 예산과 안전조건 안에서 선택할 TEST_READY 신규상품이 없습니다.</p> : null}</details>
                 <details className="mt-3 text-sm"><summary className="cursor-pointer font-bold text-slate-700">소싱 제외 후보 {sourcingPlan.allocation.excluded.length}종 확인</summary>{sourcingPlan.allocation.excluded.slice(0, 100).map(row => <p key={`${row.conceptId}:${row.reason}`} className="mt-2">{row.canonicalNameKo} · {sourcingExclusionLabels[row.reason] ?? row.reason}</p>)}</details>
+                {sourcingPlan.allocation.availableCandidates.length ? <form method="get" action="/purchase-cycle-preflight" className="mt-4 border-t border-slate-200 pt-4">
+                  <input type="hidden" name="check" value="1" />
+                  <input type="hidden" name="date" value={report.targetDate} />
+                  <input type="hidden" name="cash" value={cash} />
+                  <input type="hidden" name="sourcing" value={String(report.sourcingBudgetPercent)} />
+                  {early ? <input type="hidden" name="early" value="1" /> : null}
+                  {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
+                  <fieldset>
+                    <legend className="font-black text-slate-900">신규상품 직접 우선선택</legend>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">체크한 후보를 먼저 배정합니다. 안전검증·MOQ·창고·예산 조건은 그대로 적용됩니다.</p>
+                    <div className="mt-3 grid gap-2">
+                      {sourcingPlan.allocation.availableCandidates.map(candidate => <label key={candidate.conceptId} className="flex items-start gap-3 border-y border-slate-100 px-1 py-2">
+                        <input className="mt-1 size-4" type="checkbox" name="source" value={candidate.conceptId} defaultChecked={preferredSourcingConceptIds.includes(candidate.conceptId)} />
+                        <span><strong>{candidate.canonicalNameKo}</strong><span className="mt-1 block text-xs text-slate-500">품질 {candidate.finalQualityScore ?? "미확인"} · MOQ {candidate.moq ?? "미확인"} · 최대 {candidate.recommendedUnits}개</span></span>
+                      </label>)}
+                    </div>
+                  </fieldset>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <button type="submit" className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-black text-white hover:bg-emerald-800">선택 반영해 다시 계산</button>
+                    <Link prefetch={false} href="/sourcing-center" className="text-sm font-bold text-slate-700 underline">다른 신규상품을 소싱 후보로 추가</Link>
+                  </div>
+                </form> : null}
                 <p className="mt-4 text-xs leading-5 text-slate-500">상품출시 진행관리 카드는 실제 입고확정 뒤 자동 생성됩니다. 아직 입고되지 않은 상품을 입고완료처럼 표시하지 않습니다.</p>
               </> : null}
             </article>
@@ -293,6 +327,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             cashLimitKrw={report.cashLimitKrw}
             sourcingBudgetPercent={report.sourcingBudgetPercent}
             sourcingBudgetKrw={report.sourcingBudgetKrw}
+            preferredSourcingConceptIds={preferredSourcingConceptIds}
             allowOpenBudgetPreview={early}
             expectedSourceFingerprint={report.sourceFingerprint}
             expectedPlanFingerprint={report.planFingerprint}

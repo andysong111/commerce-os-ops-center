@@ -26,6 +26,7 @@ export function PurchaseCycleDraftActions({
   cashLimitKrw,
   sourcingBudgetPercent,
   sourcingBudgetKrw,
+  preferredSourcingConceptIds,
   allowOpenBudgetPreview,
   expectedSourceFingerprint,
   expectedPlanFingerprint,
@@ -48,6 +49,7 @@ export function PurchaseCycleDraftActions({
   cashLimitKrw: number | null;
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
+  preferredSourcingConceptIds: string[];
   allowOpenBudgetPreview: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
@@ -90,6 +92,7 @@ export function PurchaseCycleDraftActions({
           targetDate,
           cashLimitKrw,
           sourcingBudgetPercent,
+          preferredSourcingConceptIds,
           allowOpenBudgetPreview,
           expectedSourceFingerprint,
           expectedPlanFingerprint,
