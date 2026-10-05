@@ -118,19 +118,23 @@ export function PurchaseCycleDraftActions({
   };
 
   return (
-    <section className="border border-blue-200 bg-blue-50 p-5">
+    <section className="border-y border-slate-200 bg-white py-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="font-bold">월간 발주 Draft로 고정</h2>
+        <div className="max-w-3xl">
+          <p className="text-xs font-black text-blue-700">4단계 · 내부 기록</p>
+          <h2 className="mt-1 text-lg font-black text-slate-950">월간 발주 Draft로 저장</h2>
           <p className="mt-2 text-sm leading-6 text-slate-700">
-            화면의 전체 후보·수량·상품대금 지문을 다시 확인한 뒤 미입고 약정만 저장합니다. 이후 같은 달 중복발주 계산에서 차감되며 실제 중국 주문과 결제는 별도입니다.
+            검토한 품목·수량·금액과 미입고 약정만 기록합니다. 이후 같은 달 중복발주 계산에서 차감되며 실제 중국 주문과 결제는 별도입니다.
+          </p>
+          <p className={`mt-3 text-sm font-bold ${ready ? "text-emerald-800" : "text-amber-800"}`}>
+            {ready ? "저장 준비 완료 · 버튼을 누르면 마지막 확인창이 열립니다." : "저장 대기 · 위 확인 항목을 먼저 해결하세요."}
           </p>
         </div>
         <button
           type="button"
           onClick={save}
           disabled={!ready || saving}
-          className="bg-blue-700 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="min-h-11 rounded-lg bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
         >
           {saving
             ? replaceDraftId
@@ -141,7 +145,7 @@ export function PurchaseCycleDraftActions({
               : `${targetCycleMonth} Draft 저장`}
         </button>
       </div>
-      {notice ? <p className="mt-4 border border-blue-300 bg-white p-3 text-sm font-bold">{notice}</p> : null}
+      {notice ? <p className="mt-4 border-l-4 border-blue-500 bg-blue-50 px-3 py-2 text-sm font-bold">{notice}</p> : null}
     </section>
   );
 }

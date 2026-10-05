@@ -133,123 +133,161 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       inputError = "점검을 완료하지 못했습니다. 날짜·정수 금액·0~100% 소싱 비율을 확인하세요. 입력이 맞다면 자료를 다시 조회하세요.";
     }
   }
+  const sourcingEnabled = Boolean(report && report.sourcingBudgetPercent > 0);
+  const sourcingReady = !sourcingEnabled || sourcingPlan?.readyForConfirmation === true;
+  const draftReady = Boolean(report && report.previewReady && report.blockers.length === 0 && sourcingReady);
+  const sourcingIssues = sourcingPlan?.blockers.map(code => sourcingReasonLabels[code] ?? code) ?? [];
+  const visibleIssues = report
+    ? [
+        ...report.blockers.map(explain),
+        ...(sourcingPlanError ? [sourcingPlanError] : []),
+        ...sourcingIssues,
+      ]
+    : [];
   return (
-    <div className="space-y-6">
-      <PageHeader eyebrow="COMMERCE OS · PURCHASE PREFLIGHT" title="발주 사전점검 · 전체 후보 준비"
-        description="5~10구간을 먼저 읽기 전용으로 점검합니다. 전체 결과를 확인한 뒤 별도 버튼으로 내부 월간 Draft만 저장할 수 있으며 주문·결제·승인은 실행하지 않습니다."
-        actions={<Link prefetch={false} href="/fast-purchase-mvp" className="rounded-xl border px-4 py-2 text-sm font-bold">기존 빠른 발주안</Link>} />
-      <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm leading-6 text-amber-950">
-        <strong>예정일이 되어도 자동으로 주문하지 않습니다.</strong>
-        <p>10월 1일 발주는 9월 최종 매출예산과 당일 최신 판매·재고·미입고 근거로 다시 확인해야 합니다. 최종 승인과 실제 주문은 별도입니다. 미리보기의 통과 표시는 실행 권한이 아닙니다.</p>
+    <div className="space-y-5">
+      <PageHeader eyebrow="COMMERCE OS · PURCHASE PREFLIGHT" title="다음 발주 준비"
+        description="사용할 현금과 신규상품 비율을 정하면 기존상품 재발주와 신규소싱 예산을 한 번에 계산합니다."
+        actions={<Link prefetch={false} href="/fast-purchase-mvp" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold">기존 빠른 발주안</Link>} />
+      <section className="border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+        <strong>이 화면은 계산과 내부 Draft 준비까지만 합니다.</strong>
+        <span className="ml-2">자동 주문·결제는 없으며, 실제 발주는 별도 확인 뒤 진행합니다.</span>
       </section>
-      <PurchasePreflightForm>
-        <input type="hidden" name="check" value="1" />
-        {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
-        <label className="text-sm font-bold">발주 예정일<input className="mt-2 block w-full rounded-lg border p-2" name="date" type="date" defaultValue={targetDate} required /></label>
-        <label className="text-sm font-bold">이번 발주에 쓸 총 현금<input className="mt-2 block w-full rounded-lg border p-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 매출원가 자동 예산" /><span className="mt-1 block text-xs font-normal text-slate-500">현재 사용 가능한 상품대금과 배송비·수수료 예비금을 모두 포함한 금액</span></label>
-        <label className="text-sm font-bold">신규상품 소싱 예산 비율 (%)<input className="mt-2 block w-full rounded-lg border p-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">총현금에서 먼저 따로 확보할 비율 · 0%는 전액 기존상품 발주</span></label>
-        <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2 xl:col-span-3"><input name="early" type="checkbox" value="1" defaultChecked={early} />월 마감 전 조기 미리보기</label>
-        <p className="text-xs leading-5 text-slate-600 sm:col-span-2 xl:col-span-3">현금을 비우면 전월 매출원가 기준 자동 예산을 사용하고, 입력하면 그 총현금에 맞춰 다시 계산합니다. 신규상품 소싱 예산을 먼저 분리한 뒤 남은 총현금에서 배송비·수수료 예비금을 확보하고 기존상품 발주안을 계산합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
-      </PurchasePreflightForm>
-      {inputError ? <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}
-      {!report ? <p className="text-sm text-slate-600">점검 버튼을 누르면 운영 자료를 한 번 조회합니다. 자동 재조회·발주 예약은 만들지 않습니다.</p> : <>
-        {report.replacementDraftId ? (
-          <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-            <strong>기존 Draft 재생성 점검</strong> · <span className="font-mono">{report.replacementDraftId}</span>의 RESERVED 수량을 계산에서 제외하고 처음부터 다시 산출했습니다. 주문·입고가 시작됐으면 저장 단계에서 자동 중단합니다.
-          </section>
-        ) : null}
-        {report.replacementAudit ? (
-          <section className="rounded-2xl border border-sky-300 bg-white p-5">
-            <h2 className="font-bold">기존 Draft와 새 계산 전체 대조</h2>
-            <p className="mt-2 text-sm leading-6">
-              기존 {report.replacementAudit.previousLineCount}종 · 새 계산 {report.replacementAudit.selectedLineCount}종 ·
-              공통 {report.replacementAudit.matchedCount}종 · 추가 {report.replacementAudit.added.length}종 ·
-              제거 {report.replacementAudit.removed.length}종 · 수량변경 {report.replacementAudit.quantityChanged.length}종
-            </p>
-            <p className="mt-2 text-sm font-bold text-emerald-800">
-              {report.replacementAudit.complete
-                ? "기존 품목과 새 계산 품목이 모두 한 번씩 대조되었습니다."
-                : "대조 합계가 맞지 않아 Draft 저장이 차단됩니다."}
-            </p>
-            <details className="mt-4 text-sm" open>
-              <summary className="font-bold">새로 포함되는 품목 {report.replacementAudit.added.length}종</summary>
-              {report.replacementAudit.added.map((row) => <p key={row.barcode} className="mt-2">{row.barcode} · {row.name || "상품명 미확인"} · {row.quantity}개</p>)}
-              {!report.replacementAudit.added.length ? <p className="mt-2">없음</p> : null}
-            </details>
-            <details className="mt-4 text-sm">
-              <summary className="font-bold">기존 Draft에서 빠지는 품목 {report.replacementAudit.removed.length}종</summary>
-              {report.replacementAudit.removed.map((row) => <p key={row.barcode} className="mt-2">{row.barcode} · {row.name || "상품명 미확인"} · 기존 {row.quantity}개 · {row.reasons.map(explain).join(" / ")}</p>)}
-              {!report.replacementAudit.removed.length ? <p className="mt-2">없음</p> : null}
-            </details>
-            <details className="mt-4 text-sm">
-              <summary className="font-bold">수량이 바뀌는 공통 품목 {report.replacementAudit.quantityChanged.length}종</summary>
-              {report.replacementAudit.quantityChanged.map((row) => <p key={row.barcode} className="mt-2">{row.barcode} · {row.name || "상품명 미확인"} · {row.previousQuantity}개 → {row.selectedQuantity}개</p>)}
-              {!report.replacementAudit.quantityChanged.length ? <p className="mt-2">없음</p> : null}
-            </details>
-          </section>
-        ) : null}
-        <section className="rounded-2xl border bg-white p-5">
-          <h2 className="text-xl font-bold">{report.state === "BLOCKED" ? "발주안 확정 전 확인이 필요합니다" : report.state === "PREVIEW_ONLY" ? "미리보기 생성 · 실행 판단은 대기" : "미리보기 생성 · 별도 최종 검토 필요"}</h2>
-          <p className="mt-2 text-sm">조회 시각 {new Date(report.generatedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 판매 분석시점 {report.sourceAnalysisAsOf ?? "미확인"}</p>
-          <p className="mt-1 text-sm">목표 발주월 {report.targetCycleMonth} / 예산 기준월 {report.requiredBudgetMonth} · 읽은 자료의 발주월 {report.sourceCycleMonth ?? "미확인"} / 예산월 {report.sourceBudgetMonth ?? "미확인"}</p>
-        </section>
-        <section className="overflow-x-auto rounded-2xl border bg-white p-5">
-          <table className="w-full min-w-[700px] text-left text-sm"><caption className="mb-4 text-left text-lg font-bold">구간별 실제 근거 상태</caption><thead><tr><th className="p-2">구간</th><th className="p-2">상태</th><th className="p-2">확인 내용</th></tr></thead><tbody>
-            {report.stages.map(row => <tr key={row.number} className="border-t"><td className="p-2 font-bold"><Link prefetch={false} href={row.href} className="underline">{row.number}. {row.label}</Link></td><td className="whitespace-nowrap p-2">{statusLabels[row.state]}</td><td className="p-2 leading-6">{row.message}</td></tr>)}
-          </tbody></table>
-        </section>
-        <section className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border bg-white p-5"><h2 className="font-bold">자료·예산 차단 사유</h2>{report.blockers.length ? report.blockers.map(code => <p key={code} className="mt-2 text-sm">{explain(code)}</p>) : <p className="mt-2 text-sm">미리보기 계산 조건을 확인했습니다.</p>}</div>
-          <div className="rounded-2xl border bg-white p-5"><h2 className="font-bold">실제 승인 전 남은 조건</h2>{report.reviewBlockers.map(code => <p key={code} className="mt-2 text-sm">{explain(code)}</p>)}<p className="mt-2 text-sm">{report.comparisonMessage}</p><p className="mt-2 text-sm font-bold">최종 승인·실행 시 최신 근거를 다시 확인해야 합니다.</p></div>
-        </section>
-        <section className="rounded-2xl border bg-white p-5">
-          <h2 className="font-bold">전체 발주 미리보기 · 주문서 아님</h2>
-          <p className="mt-2 text-sm">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 운영자 입력 총현금 {report.cashLimitKrw === null ? "입력 없음" : money(report.cashLimitKrw)} · 적용 방식 {report.cashLimitKrw === null ? "매출원가 자동 예산" : "입력 현금 우선"} · 최종 적용 총현금 {money(report.effectiveCashKrw)}</p>
-          <p className="mt-2 text-sm font-bold">신규상품 소싱 예약 {report.sourcingBudgetPercent}% · {money(report.sourcingBudgetKrw)} · 기존상품 발주 가용 총현금 {money(report.reorderCashKrw)} · 기존상품 상품대금 상한 {money(report.effectiveBudgetKrw)}</p>
-          <p className="mt-2 text-sm">확정·추정원가 기준 상품대금 {money(report.estimatedSpendKrw)} · 상품대금 잔여한도 {money(report.remainingPreviewBudgetKrw)} · 현금에 맞춰 수량 감축 {report.cashAdjustedCount}종 · 현금 한도로 제외 {report.cashExcludedCount}종</p>
-          <p className="mt-2 text-sm">도매 판매가 추정 {report.wholesaleEstimatedSelectedCount}개 · 사용자 제공 추정 {report.ownerEstimatedSelectedCount}개 · 원가 근거 미확인 {report.missingCostCount}개</p>
-          <p className="mt-2 text-sm font-bold">전체 후보 {report.candidateCount}종 · 선정·제외로 설명된 후보 {report.accountedCandidateCount}종 · {report.candidateCoverageComplete ? "누락 없음" : "설명되지 않은 누락 있음"}</p>
-          <p className="mt-2 text-sm">이번 달 기록된 발주 지출 {report.recordedCycleSpendKrw === null ? "미확인" : money(report.recordedCycleSpendKrw)} · 이번 계산 적용 현금 {money(report.effectiveCashKrw)} · 배송비 여유분 포함 예상 지출 {money(report.estimatedAllInSpendKrw)}</p>
-          <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1000px] text-left text-sm"><thead><tr><th className="p-2">B코드·모델·상품</th><th className="p-2">우선순위</th><th className="p-2">권장 → 현금반영</th><th className="p-2">예상금액</th><th className="p-2">원가 근거</th><th className="p-2">계획재고</th><th className="p-2">재고 근거</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode}{row.costModelNo ? ` · ${row.costModelNo}` : ""} · {row.name}</td><td className="p-2">{row.cashflowTier === "CORE" ? "핵심" : row.cashflowTier === "SUPPORT" ? "안정" : row.cashflowTier === "CANARY" ? "최소" : "자동"} · {row.priorityScore}점</td><td className="p-2 font-bold">{row.originalRecommendedQuantity} → {row.quantity}{row.cashAdjusted ? " (감축)" : ""}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{costBasisLabel(row)}</td><td className="p-2">{row.inventoryQuantity}</td><td className="p-2">{row.inventoryMode === "VERIFIED" ? "확인재고" : "추정재고"}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
-          {!report.selected.length ? <p className="mt-3 text-sm">확정 가능한 미리보기 품목이 없습니다. 차단을 우회하거나 재고를 0으로 가정하지 않습니다.</p> : null}
-          <details className="mt-4 text-sm"><summary>제외 품목 {report.excluded.length}개 확인</summary>{report.excluded.slice(0, 100).map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.reasons.map(explain).join(" / ")}</p>)}{report.excluded.length > 100 ? <p className="mt-2">앞의 100개를 표시했습니다. 구간별 상세 화면에서 전체 자료를 확인하세요.</p> : null}</details>
-        </section>
-        {report.sourcingBudgetPercent > 0 ? (
-          <section className="rounded-2xl border border-emerald-300 bg-white p-5">
-            <h2 className="font-bold">신규상품 소싱 {report.sourcingBudgetPercent}% 배정 미리보기</h2>
-            <p className="mt-2 text-sm leading-6">
-              읽기 전용 점검에서는 후보·수량·예상금액만 계산합니다. B코드와 모델번호는 최종 Draft 저장 때 실제 빈 창고 자리를 확인한 뒤 배정하며, 1688 주문·결제는 실행하지 않습니다.
-            </p>
-            {sourcingPlanError ? <p role="alert" className="mt-4 border border-rose-300 bg-rose-50 p-3 text-sm font-bold">{sourcingPlanError}</p> : null}
-            {sourcingPlan ? <>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="border p-3"><p className="text-xs text-slate-500">분리한 소싱 예산</p><p className="mt-1 font-bold">{money(sourcingPlan.sourcingBudgetKrw)}</p></div>
-                <div className="border p-3"><p className="text-xs text-slate-500">새로 선택</p><p className="mt-1 font-bold">{sourcingPlan.allocation.selected.length}종</p></div>
-                <div className="border p-3"><p className="text-xs text-slate-500">예상 상품대금</p><p className="mt-1 font-bold">{money(sourcingPlan.allocation.estimatedSpendKrw)}</p></div>
-                <div className="border p-3"><p className="text-xs text-slate-500">남은 소싱 예산</p><p className="mt-1 font-bold">{money(sourcingPlan.allocation.remainingBudgetKrw)}</p></div>
-              </div>
-              <p className="mt-4 text-sm">
-                현재 창고 정책 {sourcingPlan.policy.configuredPercent ?? "미확인"}% · 안전상한 {sourcingPlan.policy.maximumPercent ?? "미확인"}% · 월 기준 {sourcingPlan.policy.confirmed ? "확정" : "미확정"} · {sourcingPlan.warehouse.message}
-              </p>
-              {sourcingPlan.blockers.length ? (
-                <div className="mt-4 border border-amber-300 bg-amber-50 p-4 text-sm">
-                  <p className="font-bold">최종 저장 전 해결할 조건</p>
-                  {sourcingPlan.blockers.map(code => <p key={code} className="mt-2">{sourcingReasonLabels[code] ?? code}</p>)}
+      <section aria-labelledby="preflight-input-title">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-black text-blue-700">1단계</p>
+            <h2 id="preflight-input-title" className="mt-1 text-xl font-black text-slate-950">예산 기준 입력</h2>
+          </div>
+          <p className="text-xs font-medium text-slate-500">필수 입력은 발주일뿐입니다. 현금을 비우면 전월 매출원가 예산을 사용합니다.</p>
+        </div>
+        <PurchasePreflightForm>
+          <input type="hidden" name="check" value="1" />
+          {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
+          <label className="text-sm font-bold text-slate-900">발주 예정일<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="date" type="date" defaultValue={targetDate} required /><span className="mt-1 block text-xs font-normal text-slate-500">판매·재고를 계산할 기준일</span></label>
+          <label className="text-sm font-bold text-slate-900">이번 발주에 쓸 총 현금<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 자동 예산" /><span className="mt-1 block text-xs font-normal text-slate-500">상품대금과 배송비·수수료까지 포함</span></label>
+          <label className="text-sm font-bold text-slate-900">신규상품 소싱 예산 비율<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">총현금에서 먼저 분리 · 0~100%</span></label>
+          <label className="flex min-h-11 items-center gap-3 border-t border-slate-100 pt-3 text-sm font-bold md:col-span-2 xl:col-span-3"><input className="size-4" name="early" type="checkbox" value="1" defaultChecked={early} />월 마감 전 조기 미리보기</label>
+          <p className="text-xs leading-5 text-slate-600 md:col-span-2 xl:col-span-3">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하고, 나머지로 기존상품 수량을 우선순위에 따라 계산합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
+        </PurchasePreflightForm>
+      </section>
+      {inputError ? <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}
+      {!report ? <section className="border-y border-slate-200 py-8 text-center"><p className="text-sm font-bold text-slate-700">아직 계산 전입니다.</p><p className="mt-1 text-xs text-slate-500">위 기준을 확인한 뒤 읽기 전용 발주안 계산을 누르세요.</p></section> : <>
+        <section aria-labelledby="preflight-result-title" className="space-y-5">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="space-y-5">
+              <section className={`border-l-4 px-5 py-4 ${draftReady ? "border-emerald-500 bg-emerald-50" : "border-amber-500 bg-amber-50"}`}>
+                <p className={`text-xs font-black ${draftReady ? "text-emerald-800" : "text-amber-800"}`}>2단계 · 계산 결과</p>
+                <h2 id="preflight-result-title" className="mt-1 text-xl font-black text-slate-950">
+                  {draftReady ? "발주안 계산이 끝났습니다" : "계산은 끝났지만 확인할 내용이 있습니다"}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  {draftReady
+                    ? "기존상품과 신규상품 후보를 검토한 뒤 내부 월간 Draft로 저장할 수 있습니다."
+                    : "아래의 확인 항목을 해결하기 전에는 Draft 저장이 잠겨 있습니다."}
+                </p>
+                <p className="mt-2 text-xs text-slate-500">조회 {new Date(report.generatedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 목표 {report.targetCycleMonth} · 판매 분석 {report.sourceAnalysisAsOf ?? "미확인"}</p>
+              </section>
+
+              <section className="border-y border-slate-200 bg-white py-5">
+                <div className="flex flex-wrap items-end justify-between gap-3 px-1">
+                  <div><p className="text-xs font-black text-blue-700">예산 배분</p><h3 className="mt-1 text-lg font-black text-slate-950">총현금이 이렇게 나뉩니다</h3></div>
+                  <p className="text-xs text-slate-500">{report.cashLimitKrw === null ? "전월 매출원가 자동 예산" : "입력한 현금 우선 적용"}</p>
                 </div>
-              ) : <p className="mt-4 font-bold text-emerald-800">최종 저장 시 신규상품 코드 배정과 월간 Draft 추가를 진행할 수 있습니다.</p>}
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[760px] text-left text-sm">
-                  <thead><tr><th className="p-2">후보 상품</th><th className="p-2">품질점수</th><th className="p-2">배정 방식</th><th className="p-2">MOQ / 최대 / 배정</th><th className="p-2">예상금액</th><th className="p-2">코드</th></tr></thead>
-                  <tbody>{sourcingPlan.allocation.selected.map(row => <tr key={row.conceptId} className="border-t"><td className="p-2">{row.canonicalNameKo}</td><td className="p-2">{row.finalQualityScore ?? "미확인"}</td><td className="p-2">{row.tier === "CORE" ? "핵심" : row.tier === "SUPPORT" ? "안정" : "최소 테스트"}</td><td className="p-2">{row.moq} / {row.recommendedUnits} / <strong>{row.quantity}</strong></td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">최종 저장 시 실제 빈 자리에서 배정</td></tr>)}</tbody>
-                </table>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <SummaryMetric label="이번 발주 총현금" value={money(report.effectiveCashKrw)} tone="blue" />
+                  <SummaryMetric label={`신규상품 소싱 ${report.sourcingBudgetPercent}%`} value={money(report.sourcingBudgetKrw)} tone="emerald" />
+                  <SummaryMetric label="기존상품 가용 현금" value={money(report.reorderCashKrw)} tone="slate" />
+                  <SummaryMetric label="기존상품 상품대금 상한" value={money(report.effectiveBudgetKrw)} tone="amber" />
+                </div>
+                <div className="mt-4 flex h-3 overflow-hidden rounded-sm bg-slate-200" aria-label={`신규상품 ${report.sourcingBudgetPercent}%, 기존상품 ${100 - report.sourcingBudgetPercent}%`}>
+                  {report.sourcingBudgetPercent > 0 ? <span className="bg-emerald-500" style={{ width: `${report.sourcingBudgetPercent}%` }} /> : null}
+                  <span className="bg-blue-600" style={{ width: `${100 - report.sourcingBudgetPercent}%` }} />
+                </div>
+                <div className="mt-2 flex justify-between gap-4 text-xs font-bold text-slate-600"><span>신규소싱 {report.sourcingBudgetPercent}%</span><span>기존상품 {100 - report.sourcingBudgetPercent}%</span></div>
+              </section>
+
+              <section className="border-y border-slate-200 bg-white py-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div><p className="text-xs font-black text-amber-700">지금 확인할 내용</p><h3 className="mt-1 text-lg font-black text-slate-950">{visibleIssues.length ? `${visibleIssues.length}개 조건이 남았습니다` : "저장 전 필수 조건을 모두 확인했습니다"}</h3></div>
+                  <span className={`size-3 shrink-0 rounded-full ${visibleIssues.length ? "bg-amber-500" : "bg-emerald-500"}`} aria-hidden="true" />
+                </div>
+                {visibleIssues.length ? (
+                  <ol className="mt-4 divide-y divide-slate-100 border-y border-slate-100">
+                    {visibleIssues.slice(0, 4).map((message, index) => <li key={`${index}:${message}`} className="flex gap-3 py-3 text-sm leading-6"><span className="font-black text-amber-700">{index + 1}</span><span>{message}</span></li>)}
+                  </ol>
+                ) : <p className="mt-4 text-sm leading-6 text-emerald-800">품목과 금액을 검토한 뒤 아래에서 월간 Draft를 저장하세요.</p>}
+                {visibleIssues.length > 4 ? <details className="mt-3 min-w-0 text-sm"><summary className="cursor-pointer font-bold text-slate-700">나머지 {visibleIssues.length - 4}개 확인</summary>{visibleIssues.slice(4).map((message, index) => <p key={`${index}:${message}`} className="mt-2 break-all pl-4 text-slate-600">{message}</p>)}</details> : null}
+              </section>
+            </div>
+
+            <aside className="self-start rounded-lg border border-slate-800 bg-slate-950 p-5 text-white shadow-sm xl:sticky xl:top-5">
+              <p className="text-xs font-black text-cyan-300">PURCHASE FLOW</p>
+              <h2 className="mt-1 text-xl font-black">발주 준비 단계</h2>
+              <div className="mt-5 space-y-3">
+                <PreflightFlowStep number="1" title="예산 기준 입력" state="done" detail={`${report.targetDate} · 신규소싱 ${report.sourcingBudgetPercent}%`} />
+                <PreflightFlowStep number="2" title="최신자료 점검" state={report.blockers.length ? "blocked" : "done"} detail={report.blockers.length ? `확인 필요 ${report.blockers.length}건` : "판매·재고·미입고 확인"} />
+                <PreflightFlowStep number="3" title="발주안 검토" state={draftReady ? "done" : "active"} detail={`기존상품 ${report.selected.length}종 · 신규상품 ${sourcingPlan?.allocation.selected.length ?? 0}종`} />
+                <PreflightFlowStep number="4" title="내부 Draft 저장" state={draftReady ? "active" : "wait"} detail={draftReady ? "검토 후 저장 가능" : "남은 조건 해결 후 가능"} />
               </div>
-              {!sourcingPlan.allocation.selected.length ? <p className="mt-3 text-sm">현재 예산과 안전조건 안에서 선택할 TEST_READY 신규상품이 없습니다.</p> : null}
-              <details className="mt-4 text-sm"><summary>소싱 제외 후보 {sourcingPlan.allocation.excluded.length}종 확인</summary>{sourcingPlan.allocation.excluded.slice(0, 100).map(row => <p key={`${row.conceptId}:${row.reason}`} className="mt-2">{row.canonicalNameKo} · {sourcingExclusionLabels[row.reason] ?? row.reason}</p>)}</details>
-              <p className="mt-4 text-xs leading-5 text-slate-600">최종 확정 시 Product Master에는 LAUNCHING으로 생성됩니다. Commerce OS 상품출시 진행관리 카드는 실제 입고확정 뒤 자동 생성되어, 아직 입고되지 않은 상품을 입고완료처럼 보이게 만들지 않습니다.</p>
-            </> : null}
+              <p className="mt-5 border-t border-slate-800 pt-4 text-xs leading-5 text-slate-400">Draft 저장은 미입고 약정과 코드만 기록합니다. 실제 1688 주문·결제는 별도입니다.</p>
+            </aside>
+          </div>
+
+          {report.replacementDraftId ? (
+            <section className="border-l-4 border-sky-500 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-950">
+              <strong>기존 Draft 재생성 점검</strong> · <span className="font-mono">{report.replacementDraftId}</span>의 RESERVED 수량을 제외하고 처음부터 다시 계산했습니다. 주문·입고가 시작됐으면 저장 단계에서 자동 중단합니다.
+            </section>
+          ) : null}
+
+          {report.replacementAudit ? (
+            <section className="border-y border-slate-200 bg-white py-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><p className="text-xs font-black text-sky-700">기존 Draft와 새 계산 전체 대조</p><h3 className="mt-1 text-lg font-black">추가 {report.replacementAudit.added.length}종 · 제거 {report.replacementAudit.removed.length}종 · 수량변경 {report.replacementAudit.quantityChanged.length}종</h3></div>
+                <p className={`text-sm font-bold ${report.replacementAudit.complete ? "text-emerald-800" : "text-rose-700"}`}>{report.replacementAudit.complete ? "전체 대조 완료" : "대조 불일치 · 저장 차단"}</p>
+              </div>
+              <details className="mt-4 border-t border-slate-100 pt-3 text-sm">
+                <summary className="cursor-pointer font-bold">변경되는 품목 자세히 보기</summary>
+                <div className="mt-3 grid gap-5 lg:grid-cols-3">
+                  <div><strong>새로 포함 {report.replacementAudit.added.length}종</strong>{report.replacementAudit.added.map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.name || "상품명 미확인"} · {row.quantity}개</p>)}{!report.replacementAudit.added.length ? <p className="mt-2 text-slate-500">없음</p> : null}</div>
+                  <div><strong>제거 {report.replacementAudit.removed.length}종</strong>{report.replacementAudit.removed.map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.name || "상품명 미확인"} · 기존 {row.quantity}개 · {row.reasons.map(explain).join(" / ")}</p>)}{!report.replacementAudit.removed.length ? <p className="mt-2 text-slate-500">없음</p> : null}</div>
+                  <div><strong>수량변경 {report.replacementAudit.quantityChanged.length}종</strong>{report.replacementAudit.quantityChanged.map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.name || "상품명 미확인"} · {row.previousQuantity}개 → {row.selectedQuantity}개</p>)}{!report.replacementAudit.quantityChanged.length ? <p className="mt-2 text-slate-500">없음</p> : null}</div>
+                </div>
+              </details>
+            </section>
+          ) : null}
+
+          <section className="grid min-w-0 border-y border-slate-200 bg-white lg:grid-cols-2">
+            <article className="min-w-0 py-5 pr-0 lg:pr-6">
+              <p className="text-xs font-black text-blue-700">기존상품 재발주</p>
+              <h3 className="mt-1 text-lg font-black text-slate-950">{report.selected.length}종 · 총 {report.selected.reduce((sum, row) => sum + row.quantity, 0).toLocaleString("ko-KR")}개</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">상품대금 {money(report.estimatedSpendKrw)} · 배송비 여유분 포함 {money(report.estimatedAllInSpendKrw)}</p>
+              <p className="mt-2 text-sm font-bold text-slate-800">현금 감축 {report.cashAdjustedCount}종 · 현금 한도 제외 {report.cashExcludedCount}종 · 원가 미확인 {report.missingCostCount}종</p>
+              {!report.selected.length ? <p className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm">현재 확정 가능한 품목이 없습니다. 재고를 0으로 가정하거나 차단을 우회하지 않습니다.</p> : null}
+              <details className="mt-4 min-w-0 text-sm">
+                <summary className="cursor-pointer font-bold text-blue-800">선정 품목 {report.selected.length}종 보기</summary>
+                <div className="mt-3 max-w-full overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">B코드·모델·상품</th><th className="p-2">우선순위</th><th className="p-2">권장 → 현금반영</th><th className="p-2">예상금액</th><th className="p-2">원가 근거</th><th className="p-2">계획재고</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode}{row.costModelNo ? ` · ${row.costModelNo}` : ""} · {row.name}</td><td className="p-2">{row.cashflowTier === "CORE" ? "핵심" : row.cashflowTier === "SUPPORT" ? "안정" : row.cashflowTier === "CANARY" ? "최소" : "자동"} · {row.priorityScore}점</td><td className="p-2 font-bold">{row.originalRecommendedQuantity} → {row.quantity}{row.cashAdjusted ? " (감축)" : ""}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{costBasisLabel(row)}</td><td className="p-2">{row.inventoryQuantity} · {row.inventoryMode === "VERIFIED" ? "확인" : "추정"}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
+              </details>
+              <details className="mt-3 text-sm"><summary className="cursor-pointer font-bold text-slate-700">제외 품목 {report.excluded.length}개 확인</summary>{report.excluded.slice(0, 100).map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.reasons.map(explain).join(" / ")}</p>)}{report.excluded.length > 100 ? <p className="mt-2">앞의 100개를 표시했습니다. 상세 검증 화면에서 전체 자료를 확인하세요.</p> : null}</details>
+            </article>
+
+            <article className="min-w-0 border-t border-slate-200 py-5 lg:border-l lg:border-t-0 lg:pl-6">
+              <p className="text-xs font-black text-emerald-700">신규상품 소싱 {report.sourcingBudgetPercent}% 배정 미리보기</p>
+              <h3 className="mt-1 text-lg font-black text-slate-950">{report.sourcingBudgetPercent > 0 ? `${sourcingPlan?.allocation.selected.length ?? 0}종 후보` : "이번 발주는 신규소싱 없음"}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">분리 예산 {money(report.sourcingBudgetKrw)}{sourcingPlan ? ` · 예상 상품대금 ${money(sourcingPlan.allocation.estimatedSpendKrw)}` : ""}</p>
+              <p className="mt-3 text-sm leading-6">읽기 전용 계산에서는 후보·수량·금액만 보여줍니다. Draft 저장 시 빈 창고 자리를 확인해 B코드와 모델번호를 배정하고 Product Master에는 LAUNCHING 상태로 생성한 뒤 기존상품과 같은 월간 발주안에 추가합니다.</p>
+              {sourcingPlanError ? <p role="alert" className="mt-3 break-all border-l-4 border-rose-500 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-950">{sourcingPlanError}</p> : null}
+              {sourcingPlan?.blockers.length ? <p className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">최종 저장 전 {sourcingPlan.blockers.length}개 소싱 조건을 해결해야 합니다.</p> : null}
+              {sourcingPlan && !sourcingPlan.blockers.length ? <p className="mt-3 text-sm font-bold text-emerald-800">신규상품 코드 배정과 월간 Draft 추가 준비가 끝났습니다.</p> : null}
+              {sourcingPlan ? <>
+                <details className="mt-4 text-sm"><summary className="cursor-pointer font-bold text-emerald-800">소싱 후보 {sourcingPlan.allocation.selected.length}종 보기</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">후보 상품</th><th className="p-2">품질점수</th><th className="p-2">배정 방식</th><th className="p-2">MOQ / 최대 / 배정</th><th className="p-2">예상금액</th><th className="p-2">코드</th></tr></thead><tbody>{sourcingPlan.allocation.selected.map(row => <tr key={row.conceptId} className="border-t"><td className="p-2">{row.canonicalNameKo}</td><td className="p-2">{row.finalQualityScore ?? "미확인"}</td><td className="p-2">{row.tier === "CORE" ? "핵심" : row.tier === "SUPPORT" ? "안정" : "최소 테스트"}</td><td className="p-2">{row.moq} / {row.recommendedUnits} / <strong>{row.quantity}</strong></td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">Draft 저장 시 빈 자리 배정</td></tr>)}</tbody></table></div>{!sourcingPlan.allocation.selected.length ? <p className="mt-3">현재 예산과 안전조건 안에서 선택할 TEST_READY 신규상품이 없습니다.</p> : null}</details>
+                <details className="mt-3 text-sm"><summary className="cursor-pointer font-bold text-slate-700">소싱 제외 후보 {sourcingPlan.allocation.excluded.length}종 확인</summary>{sourcingPlan.allocation.excluded.slice(0, 100).map(row => <p key={`${row.conceptId}:${row.reason}`} className="mt-2">{row.canonicalNameKo} · {sourcingExclusionLabels[row.reason] ?? row.reason}</p>)}</details>
+                <p className="mt-4 text-xs leading-5 text-slate-500">상품출시 진행관리 카드는 실제 입고확정 뒤 자동 생성됩니다. 아직 입고되지 않은 상품을 입고완료처럼 표시하지 않습니다.</p>
+              </> : null}
+            </article>
           </section>
-        ) : null}
-        <PurchaseCycleDraftActions
+
+          <PurchaseCycleDraftActions
             targetDate={report.targetDate}
             targetCycleMonth={report.targetCycleMonth}
             cashLimitKrw={report.cashLimitKrw}
@@ -266,14 +304,76 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             selectedCount={report.selected.length}
             totalQuantity={report.selected.reduce((sum, row) => sum + row.quantity, 0)}
             estimatedSpendKrw={report.estimatedSpendKrw}
-            ready={report.previewReady && report.blockers.length === 0 && (report.sourcingBudgetPercent === 0 || sourcingPlan?.readyForConfirmation === true)}
+            ready={draftReady}
             replaceDraftId={report.replacementDraftId}
             replacementAddedCount={report.replacementAudit?.added.length ?? 0}
             replacementRemovedCount={report.replacementAudit?.removed.length ?? 0}
             replacementChangedCount={report.replacementAudit?.quantityChanged.length ?? 0}
           />
-        <details className="rounded-2xl border p-5 text-xs"><summary className="font-bold">채팅 인계·원본 추적 지문</summary><p className="mt-3 break-all">후보 요청 {report.candidateRequestId ?? "없음"}</p><p className="mt-2 break-all">원본 {report.sourceFingerprint}</p><p className="mt-2 break-all">발주 미리보기 {report.planFingerprint}</p><p className="mt-3">같은 화면·지문이라도 승인 토큰이 아닙니다. 데이터·예산·수량 제한이 바뀌면 다시 점검합니다.</p></details>
+
+          <details className="border-y border-slate-200 bg-white py-4 text-sm">
+            <summary className="cursor-pointer font-black text-slate-900">상세 검증 내역 보기</summary>
+            <div className="mt-4 space-y-6 border-t border-slate-100 pt-4">
+              <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><caption className="mb-3 text-left font-black">구간별 실제 근거 상태</caption><thead className="bg-slate-50"><tr><th className="p-2">구간</th><th className="p-2">상태</th><th className="p-2">확인 내용</th></tr></thead><tbody>{report.stages.map(row => <tr key={row.number} className="border-t"><td className="p-2 font-bold"><Link prefetch={false} href={row.href} className="underline">{row.number}. {row.label}</Link></td><td className="whitespace-nowrap p-2">{statusLabels[row.state]}</td><td className="p-2 leading-6">{row.message}</td></tr>)}</tbody></table></div>
+              <div className="grid gap-6 md:grid-cols-2">
+                <div><h3 className="font-black">자료·예산 차단 사유</h3>{report.blockers.length ? report.blockers.map(code => <p key={code} className="mt-2 leading-6">{explain(code)}</p>) : <p className="mt-2 text-emerald-800">미리보기 계산 조건을 확인했습니다.</p>}</div>
+                <div><h3 className="font-black">실제 승인 전 남은 조건</h3>{report.reviewBlockers.map(code => <p key={code} className="mt-2 leading-6">{explain(code)}</p>)}<p className="mt-2 leading-6">{report.comparisonMessage}</p></div>
+              </div>
+              <div><h3 className="font-black">전체 발주 미리보기 · 주문서 아님</h3><p className="mt-2 leading-6">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 운영자 입력 총현금 {report.cashLimitKrw === null ? "입력 없음" : money(report.cashLimitKrw)} · 이번 달 기록된 발주 지출 {report.recordedCycleSpendKrw === null ? "미확인" : money(report.recordedCycleSpendKrw)}</p><p className="mt-2 leading-6">전체 후보 {report.candidateCount}종 · 선정·제외로 설명된 후보 {report.accountedCandidateCount}종 · {report.candidateCoverageComplete ? "누락 없음" : "설명되지 않은 누락 있음"} · 도매 판매가 추정 {report.wholesaleEstimatedSelectedCount}종 · 사용자 제공 추정 {report.ownerEstimatedSelectedCount}종</p></div>
+              {sourcingPlan ? <div><h3 className="font-black">소싱 정책 근거</h3><p className="mt-2 leading-6">현재 창고 정책 {sourcingPlan.policy.configuredPercent ?? "미확인"}% · 안전상한 {sourcingPlan.policy.maximumPercent ?? "미확인"}% · 월 기준 {sourcingPlan.policy.confirmed ? "확정" : "미확정"} · {sourcingPlan.warehouse.message}</p></div> : null}
+            </div>
+          </details>
+
+          <details className="border-y border-slate-200 bg-white py-4 text-xs"><summary className="cursor-pointer font-bold">채팅 인계·원본 추적 지문</summary><p className="mt-3 break-all">후보 요청 {report.candidateRequestId ?? "없음"}</p><p className="mt-2 break-all">원본 {report.sourceFingerprint}</p><p className="mt-2 break-all">발주 미리보기 {report.planFingerprint}</p><p className="mt-3">같은 화면·지문이라도 승인 토큰이 아닙니다. 데이터·예산·수량 제한이 바뀌면 다시 점검합니다.</p></details>
+        </section>
       </>}
+    </div>
+  );
+}
+
+function SummaryMetric({ label, value, tone }: { label: string; value: string; tone: "blue" | "emerald" | "amber" | "slate" }) {
+  const toneClass = {
+    blue: "border-blue-200 bg-blue-50",
+    emerald: "border-emerald-200 bg-emerald-50",
+    amber: "border-amber-200 bg-amber-50",
+    slate: "border-slate-200 bg-slate-50",
+  }[tone];
+  return (
+    <article className={`min-w-0 rounded-lg border px-4 py-3 ${toneClass}`}>
+      <p className="text-xs font-bold text-slate-600">{label}</p>
+      <strong className="mt-1 block break-words text-lg font-black text-slate-950">{value}</strong>
+    </article>
+  );
+}
+
+function PreflightFlowStep({ number, title, state, detail }: {
+  number: string;
+  title: string;
+  state: "done" | "active" | "wait" | "blocked";
+  detail: string;
+}) {
+  const marker = state === "done"
+    ? "bg-emerald-400 text-emerald-950"
+    : state === "active"
+      ? "bg-cyan-300 text-cyan-950"
+      : state === "blocked"
+        ? "bg-amber-300 text-amber-950"
+        : "bg-slate-700 text-slate-300";
+  const border = state === "done"
+    ? "border-emerald-900/60"
+    : state === "active"
+      ? "border-cyan-800/70"
+      : state === "blocked"
+        ? "border-amber-800/70"
+        : "border-slate-800";
+  const stateLabel = state === "done" ? "완료" : state === "active" ? "현재" : state === "blocked" ? "확인 필요" : "대기";
+  return (
+    <div className={`flex gap-3 rounded-lg border bg-slate-900 p-3 ${border}`}>
+      <span className={`grid size-8 shrink-0 place-items-center rounded-md text-sm font-black ${marker}`}>{number}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2"><strong className="text-sm text-white">{title}</strong><span className="text-[11px] font-bold text-slate-400">{stateLabel}</span></div>
+        <p className="mt-1 text-xs leading-5 text-slate-400">{detail}</p>
+      </div>
     </div>
   );
 }
