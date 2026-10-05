@@ -370,8 +370,8 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   const form = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchasePreflightForm.tsx", import.meta.url), "utf8");
   assert.match(page, /name="cash"/);
   assert.match(page, /이번 발주에 쓸 총 현금/);
-  assert.match(page, /비우면 전월 매출원가 기준 자동 예산/);
-  assert.match(page, /입력하면 그 총현금에 맞춰 다시 계산/);
+  assert.match(page, /현금을 비우면 전월 매출원가 예산/);
+  assert.match(page, /입력한 현금이 있으면 그 금액을 우선 사용/);
   assert.match(page, /현금이 충분해도 엔진 권장수량을 초과하지 않습니다/);
   assert.match(page, /name="sourcing"/);
   assert.match(page, /신규상품 소싱 예산 비율/);
@@ -401,8 +401,23 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(form, /onSubmit=\{submit\}/);
   assert.match(form, /disabled=\{pending\}/);
   assert.match(form, /aria-busy=\{pending\}/);
-  assert.match(form, /계산·점검 중\.\.\./);
+  assert.match(form, /발주안 계산 중\.\.\./);
   assert.match(form, /role="status"/);
+});
+
+test("operator page presents a simple guided flow and keeps technical evidence collapsed", () => {
+  const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
+  const form = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchasePreflightForm.tsx", import.meta.url), "utf8");
+  assert.match(page, /title="다음 발주 준비"/);
+  assert.match(page, /1단계/);
+  assert.match(page, /발주 준비 단계/);
+  assert.match(page, /총현금이 이렇게 나뉩니다/);
+  assert.match(page, /지금 확인할 내용/);
+  assert.match(page, /기존상품 재발주/);
+  assert.match(page, /상세 검증 내역 보기/);
+  assert.doesNotMatch(page, /<details[^>]*\sopen(?:=|\s|>)/);
+  assert.match(form, /읽기 전용 발주안 계산/);
+  assert.match(form, /Draft 저장, 1688 주문, 결제는 실행하지 않습니다/);
 });
 
 
