@@ -69,8 +69,30 @@ async function launchBackend(options = {}) {
     },
   };
   const run=await load('../src/lib/sourcingLaunchMaterialization.ts','materializeSourcingLaunchItem',dependencies);
-  return {run,calls,normalized,get stored(){return stored;}};
+  const runReserved=await load('../src/lib/sourcingLaunchMaterialization.ts','materializeSourcingReservedLaunchItem',dependencies);
+  return {run,runReserved,calls,normalized,get stored(){return stored;}};
 }
+
+test('reserved sourcing creates one inbound-pending launch item and receipt upgrades that same item',async()=>{
+  const b=await launchBackend();
+  const reserved={...input(),receiptId:undefined,outboxId};
+  await b.runReserved(reserved);
+  const before=b.normalized.get(intakeId);
+  assert.equal(b.stored.state_payload.items.length,1);
+  assert.equal(before.source.lifecycleStatus,'RESERVED');
+  assert.equal(before.source.outboxId,outboxId);
+  assert.equal(before.notes,'신규소싱 확정 · 입고 대기');
+  assert.equal(before.workBatch,'신규소싱확정');
+
+  await b.run({...input(),outboxId,receivedAt:'2026-10-06T02:00:00.000Z'});
+  const after=b.normalized.get(intakeId);
+  assert.equal(b.stored.state_payload.items.length,1);
+  assert.equal(after.id,before.id);
+  assert.equal(after.source.lifecycleStatus,'RECEIVED');
+  assert.equal(after.source.receiptId,receiptId);
+  assert.equal(after.notes,'신규소싱 입고확정 · 출시 준비');
+  assert.equal(after.workBatch,'신규소싱입고');
+});
 
 test('actual materializer recovers an optimistic-lock collision without deleting another user edit',async()=>{
   const b=await launchBackend({concurrentEdit:true});await b.run(input());

@@ -25,7 +25,7 @@ test('launch writes use compare-and-swap and repair normalized rows after a lost
  assert.match(f,/updated_at:`eq\.\$\{sourceUpdatedAt\}`/);
  assert.match(f,/if \(!rows\.length\) continue/);
  assert.match(f,/SOURCING_LAUNCH_STATE_UNAVAILABLE/);
- assert.match(f,/if \(!normalized\)/);
+ assert.match(f,/if \(!normalized \|\| stateChanged\)/);
  assert.match(f,/syncProductLaunchNormalizedChangedItems/);
  assert.doesNotMatch(f,/syncProductLaunchNormalizedFull/);
  assert.match(f,/ensure_product_launch_item_option_barcode_nos/);

@@ -69,8 +69,11 @@ export function OpsAiHelpDesk() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    const heading = document.querySelector("main h1")?.textContent?.trim();
-    setPageTitle(heading || document.title || "OPS Center");
+    const timer = window.setTimeout(() => {
+      const heading = document.querySelector("main h1")?.textContent?.trim();
+      setPageTitle(heading || document.title || "OPS Center");
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [pathname]);
 
   useEffect(() => {
@@ -329,13 +332,13 @@ export function OpsAiHelpDesk() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="flex items-center gap-3 rounded-full border border-slate-800 bg-slate-950 px-5 py-3.5 text-sm font-black text-white shadow-xl hover:bg-slate-800"
+          className="flex h-14 w-14 items-center justify-center rounded-full border border-slate-800 bg-slate-950 text-sm font-black text-white shadow-xl hover:bg-slate-800 sm:h-auto sm:w-auto sm:gap-3 sm:px-5 sm:py-3.5"
           aria-label="AI 사용상담 열기"
         >
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-cyan-400 text-sm font-black text-slate-950">
             AI
           </span>
-          사용법 물어보기
+          <span className="hidden sm:inline">사용법 물어보기</span>
         </button>
       )}
     </div>

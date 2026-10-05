@@ -12,6 +12,7 @@ import {
 } from "@/domain/sourcing-purchase-replay";
 import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
+import { materializeSourcingReservedLaunchItem } from "@/lib/sourcingLaunchMaterialization";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const SOURCE = "sourcing-confirmed-auto-ingress";
@@ -111,7 +112,20 @@ export async function ingestSourcingPurchase(input: SourcingPurchaseIngressInput
   if (ledger.error) throw new Error("SOURCING_PURCHASE_LEDGER_UNAVAILABLE:" + ledger.error);
 
   const replay = resolveExistingSourcingPurchase(ledger.commitments, normalized);
-  if (replay) return replay;
+  if (replay) {
+    const launch = await materializeSourcingReservedLaunchItem({
+      intakeId: normalized.intakeId,
+      outboxId: normalized.outboxId,
+      barcode: normalized.barcode,
+      modelNumber: normalized.modelNumber,
+      productName: normalized.productName,
+      saleOption: normalized.saleOption,
+      chinaOption: normalized.chinaOption,
+      supplierLink: normalized.supplierLink,
+      sourceLineId: replay.externalLineId,
+    });
+    return { ...replay, launchItemId: launch.itemId, launchLifecycleStatus: launch.lifecycleStatus };
+  }
 
   const cycleMonth = seoulCalendarMonth(normalized.sourceConfirmedAt);
   const cycleRows = ledger.commitments.filter(
@@ -210,6 +224,17 @@ export async function ingestSourcingPurchase(input: SourcingPurchaseIngressInput
   }
   const inserted = body ? (JSON.parse(body) as unknown) : [];
   const duplicate = Array.isArray(inserted) && inserted.length === 0;
+  const launch = await materializeSourcingReservedLaunchItem({
+    intakeId: normalized.intakeId,
+    outboxId: normalized.outboxId,
+    barcode: normalized.barcode,
+    modelNumber: normalized.modelNumber,
+    productName: normalized.productName,
+    saleOption: normalized.saleOption,
+    chinaOption: normalized.chinaOption,
+    supplierLink: normalized.supplierLink,
+    sourceLineId,
+  });
 
   return {
     ok: true as const,
@@ -221,6 +246,8 @@ export async function ingestSourcingPurchase(input: SourcingPurchaseIngressInput
     productName: normalized.productName,
     quantity: normalized.quantity,
     duplicate,
+    launchItemId: launch.itemId,
+    launchLifecycleStatus: launch.lifecycleStatus,
     externalOrderExecuted: false as const,
   };
 }

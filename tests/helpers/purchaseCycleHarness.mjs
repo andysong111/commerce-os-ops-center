@@ -41,7 +41,11 @@ export function loadPurchaseCycleModule(path, imports = {}, globals = {}) {
         return loadPurchaseCycleModule("src/lib/sourcingReceiptLifecycleCore.ts", imports, globals);
       }
       if (name === "./sourcingLaunchMaterialization") {
-        return { materializeSourcingLaunchItem: async () => { throw new Error("UNMOCKED_SOURCING_WRITE_FORBIDDEN"); } };
+        const forbidden = async () => { throw new Error("UNMOCKED_SOURCING_WRITE_FORBIDDEN"); };
+        return {
+          materializeSourcingLaunchItem: forbidden,
+          materializeSourcingReservedLaunchItem: forbidden,
+        };
       }
       if (name === "node:crypto") return builtinRequire(name);
       throw new Error(`UNMOCKED_IMPORT_FORBIDDEN:${name}`);

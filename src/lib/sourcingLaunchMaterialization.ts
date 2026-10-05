@@ -12,9 +12,19 @@ const text = (v: unknown) => String(v ?? "").normalize("NFKC").trim();
 const record = (v: unknown): R => v !== null && typeof v === "object" && !Array.isArray(v) ? v as R : {};
 const stage = () => ({status:"미시작",assignee:"",note:"",completedAt:null});
 export type SourcingLaunchMaterializationInput = {
-  intakeId: string; receiptId: string; barcode: string; modelNumber: string; productName: string;
+  intakeId: string; receiptId?: string; outboxId?: string; phase?: "RESERVED" | "RECEIVED";
+  barcode: string; modelNumber: string; productName: string;
   saleOption?: string; chinaOption?: string; supplierLink?: string; unitCostKrw?: number; sourceLineId?: string;
+  receivedAt?: string;
 };
+
+export type SourcingReservedLaunchInput = Omit<
+  SourcingLaunchMaterializationInput,
+  "receiptId" | "phase"
+> & { outboxId: string };
+
+const RESERVED_NOTE = "신규소싱 확정 · 입고 대기";
+const RECEIVED_NOTE = "신규소싱 입고확정 · 출시 준비";
 
 function assertSameIdentity(item: R, intakeId: string, modelNumber: string) {
   if (text(item.id) !== intakeId || text(item.modelNumber) !== modelNumber ||
@@ -25,9 +35,15 @@ function assertSameIdentity(item: R, intakeId: string, modelNumber: string) {
 
 export async function materializeSourcingLaunchItem(input: SourcingLaunchMaterializationInput) {
   const intakeId = text(input.intakeId), receiptId = text(input.receiptId);
+  const outboxId = text(input.outboxId);
+  const lifecycleStatus = input.phase ?? (receiptId ? "RECEIVED" : "RESERVED");
   const barcode = text(input.barcode).toUpperCase(), modelNumber = text(input.modelNumber).toUpperCase();
   const productName = text(input.productName), saleOption = text(input.saleOption) || "단일옵션";
-  if (!UUID.test(intakeId) || !UUID.test(receiptId)) throw new Error("SOURCING_LAUNCH_IDENTITY_INVALID");
+  if (
+    !UUID.test(intakeId) ||
+    (lifecycleStatus === "RECEIVED" && !UUID.test(receiptId)) ||
+    (lifecycleStatus === "RESERVED" && !UUID.test(outboxId))
+  ) throw new Error("SOURCING_LAUNCH_IDENTITY_INVALID");
   if (!/^B[A-Z]{2}\d+-\d+$/.test(barcode)) throw new Error("SOURCING_LAUNCH_BCODE_INVALID");
   if (!/^AAA\d{3,}(?:-\d+)?$/.test(modelNumber)) throw new Error("SOURCING_LAUNCH_MODEL_INVALID");
   if (!productName || productName.length > 240) throw new Error("SOURCING_LAUNCH_PRODUCT_NAME_REQUIRED");
@@ -57,6 +73,7 @@ export async function materializeSourcingLaunchItem(input: SourcingLaunchMateria
     let item = canonicalItem;
     let state = current as ProductLaunchTrackerState;
     let sourceUpdatedAt = text(stored.updated_at);
+    let stateChanged = false;
     if (!existing) {
       if (items.some(i => text(i.modelNumber).toUpperCase() === modelNumber)) throw new Error("SOURCING_LAUNCH_MODEL_ALREADY_EXISTS");
       if (items.some(i => text(i.barcode).toUpperCase() === barcode ||
@@ -70,9 +87,17 @@ export async function materializeSourcingLaunchItem(input: SourcingLaunchMateria
       const trackerRowNumber = items.reduce((max, i) => Math.max(max, Number(i.trackerRowNumber) || 0), 0) + 1;
       item = canonicalItem || {
         id: intakeId, modelNumber, productName, barcode, warehouseLocation: barcode,
-        source: {system:"commerce-os-sourcing-engine",sourcingIntakeId:intakeId,receiptId,sourceLineId:text(input.sourceLineId),materializedAt:now},
-        notes:"신규소싱 입고확정 후 Commerce OS 자동등록", workBatch:"신규소싱입고", trackerRowNumber,
-        createdAt:now,updatedAt:now,updatedBy:"신규소싱 입고 자동등록",archivedAt:null,
+        source: {
+          system:"commerce-os-sourcing-engine",sourcingIntakeId:intakeId,outboxId,
+          receiptId:receiptId||null,sourceLineId:text(input.sourceLineId),materializedAt:now,
+          lifecycleStatus,receivedAt:lifecycleStatus==="RECEIVED"?(text(input.receivedAt)||now):null,
+        },
+        notes:lifecycleStatus==="RECEIVED"?RECEIVED_NOTE:RESERVED_NOTE,
+        workBatch:lifecycleStatus==="RECEIVED"?"신규소싱입고":"신규소싱확정",
+        trackerRowNumber,
+        createdAt:now,updatedAt:now,
+        updatedBy:lifecycleStatus==="RECEIVED"?"신규소싱 입고 자동등록":"신규소싱 확정 자동등록",
+        archivedAt:null,
         stages:{detailPage:stage(),priceKeyword:stage(),shoplingUpload:stage(),marketRegistration:stage(),orderMapping:stage(),inventoryReflection:stage()},
         options:[saleOption],optionLabels:[saleOption],
         orderOptions:[{id:"sourcing-option-"+intakeId,barcode,optionName:"옵션",saleOption,chinaOption:text(input.chinaOption),
@@ -82,6 +107,52 @@ export async function materializeSourcingLaunchItem(input: SourcingLaunchMateria
         detailPageSource:{urls:links,primaryUrl:supplierLink,pinnedIndex:links.length?0:null,source:"sourcing_inbound_auto",updatedAt:now},
       };
       state = withProductLaunchListSnapshot(normalizeNewProductLaunchState({...current,schemaVersion:3,items:[...items,item]}) as ProductLaunchTrackerState);
+      stateChanged = true;
+    } else if (lifecycleStatus === "RECEIVED") {
+      const source = record(canonicalItem?.source);
+      const previousReceiptId = text(source.receiptId);
+      if (previousReceiptId && previousReceiptId !== receiptId) {
+        throw new Error("SOURCING_LAUNCH_RECEIPT_IDEMPOTENCY_CONFLICT");
+      }
+      if (source.lifecycleStatus !== "RECEIVED" || previousReceiptId !== receiptId) {
+        const now = new Date(Math.max(Date.now(), Date.parse(sourceUpdatedAt) + 1)).toISOString();
+        const orderOptions = Array.isArray(canonicalItem?.orderOptions)
+          ? canonicalItem.orderOptions.map((value) => {
+              const option = record(value);
+              if (text(option.barcode).toUpperCase() !== barcode) return value;
+              const currentCost = Math.max(0, Math.round(Number(option.unitCostKrw) || 0));
+              return {
+                ...option,
+                unitCostKrw: currentCost || Math.max(0, Math.round(Number(input.unitCostKrw) || 0)),
+              };
+            })
+          : canonicalItem?.orderOptions;
+        item = {
+          ...canonicalItem,
+          source: {
+            ...source,
+            outboxId: text(source.outboxId) || outboxId,
+            receiptId,
+            sourceLineId: text(source.sourceLineId) || text(input.sourceLineId),
+            lifecycleStatus: "RECEIVED",
+            receivedAt: text(input.receivedAt) || now,
+          },
+          notes: text(canonicalItem?.notes) === RESERVED_NOTE ? RECEIVED_NOTE : canonicalItem?.notes,
+          workBatch: text(canonicalItem?.workBatch) === "신규소싱확정" ? "신규소싱입고" : canonicalItem?.workBatch,
+          orderOptions,
+          updatedAt: now,
+          updatedBy: "신규소싱 입고 자동등록",
+        };
+        state = withProductLaunchListSnapshot(normalizeNewProductLaunchState({
+          ...current,
+          schemaVersion: 3,
+          items: items.map((value) => text(value.id) === intakeId ? item : value),
+        }) as ProductLaunchTrackerState);
+        stateChanged = true;
+      }
+    }
+    if (stateChanged) {
+      const now = new Date(Math.max(Date.now(), Date.parse(sourceUpdatedAt) + 1)).toISOString();
       const params = new URLSearchParams({owner_id:`eq.${identity.userId}`,updated_at:`eq.${sourceUpdatedAt}`});
       const response = await fetch(`${config.value.supabaseUrl}/rest/v1/product_launch_tracker_states?${params}`,{
         method:"PATCH",headers:{...createSupabaseAdminHeaders(config.value.secretKey),Prefer:"return=representation"},
@@ -95,7 +166,7 @@ export async function materializeSourcingLaunchItem(input: SourcingLaunchMateria
       state = record(record(rows[0]).state_payload) as ProductLaunchTrackerState;
       sourceUpdatedAt = text(record(rows[0]).updated_at);
     }
-    if (!normalized) {
+    if (!normalized || stateChanged) {
       const result = await syncProductLaunchNormalizedChangedItems(config.value, identity, state, sourceUpdatedAt, [intakeId]);
       if (result.synced === false) throw new Error("SOURCING_LAUNCH_NORMALIZED_PENDING");
     }
@@ -107,7 +178,16 @@ export async function materializeSourcingLaunchItem(input: SourcingLaunchMateria
     const readback = await readProductLaunchNormalizedItem(config.value,identity.userId,intakeId);
     if (!readback) throw new Error("SOURCING_LAUNCH_NORMALIZED_PENDING");
     assertSameIdentity(readback,intakeId,modelNumber);
-    return {ok:true as const,itemId:intakeId,modelNumber,barcode:text(readback.barcode),replayed:Boolean(existing||normalized)};
+    return {
+      ok:true as const,itemId:intakeId,modelNumber,barcode:text(readback.barcode),
+      lifecycleStatus,replayed:Boolean(existing||normalized),
+    };
   }
   throw new Error("SOURCING_LAUNCH_CONCURRENT_SAVE_RETRY");
+}
+
+export async function materializeSourcingReservedLaunchItem(
+  input: SourcingReservedLaunchInput,
+) {
+  return materializeSourcingLaunchItem({ ...input, phase: "RESERVED" });
 }

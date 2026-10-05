@@ -27,6 +27,7 @@ export function PurchaseCycleDraftActions({
   sourcingBudgetPercent,
   sourcingBudgetKrw,
   preferredSourcingConceptIds,
+  sourcingStorageSizeByConceptId,
   allowOpenBudgetPreview,
   expectedSourceFingerprint,
   expectedPlanFingerprint,
@@ -50,6 +51,7 @@ export function PurchaseCycleDraftActions({
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
   preferredSourcingConceptIds: string[];
+  sourcingStorageSizeByConceptId: Record<string, "S" | "L">;
   allowOpenBudgetPreview: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
@@ -93,6 +95,7 @@ export function PurchaseCycleDraftActions({
           cashLimitKrw,
           sourcingBudgetPercent,
           preferredSourcingConceptIds,
+          sourcingStorageSizeByConceptId,
           allowOpenBudgetPreview,
           expectedSourceFingerprint,
           expectedPlanFingerprint,

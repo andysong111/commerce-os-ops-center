@@ -380,7 +380,11 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(page, /loadSourcingBudgetPlan/);
   assert.match(page, /신규상품 소싱 \{report\.sourcingBudgetPercent\}% 배정 미리보기/);
   assert.match(page, /Product Master에는 LAUNCHING/);
-  assert.match(page, /실제 입고확정 뒤 자동 생성/);
+  assert.match(page, /입고 대기.*즉시 생성/);
+  assert.match(page, /name=\{`storage\.\$\{candidate\.conceptId\}`\}/);
+  assert.match(page, /소형 수납/);
+  assert.match(page, /대형 수납/);
+  assert.match(page, /sourcingStorageSizeByConceptId/);
   assert.match(page, /expectedSourcingSourceFingerprint/);
   assert.match(page, /sourcingPlan\?\.readyForConfirmation === true/);
   assert.doesNotMatch(page, /name="skus"/);

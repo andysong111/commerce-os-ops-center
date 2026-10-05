@@ -12,9 +12,36 @@ test("sourcing ingress writes only an internal RESERVED China commitment and is 
   assert.match(ingress, /resolution=ignore-duplicates/);
   assert.match(ingress, /sourcingIntakeId/);
   assert.match(ingress, /sourcingOutboxId/);
+  assert.match(ingress, /materializeSourcingReservedLaunchItem/);
+  assert.match(ingress, /launchLifecycleStatus/);
   assert.match(ingress, /externalOrderExecuted: false/);
   assert.doesNotMatch(ingress, /orderedOn1688\s*:\s*true/);
   assert.doesNotMatch(ingress, /status: "ORDERED"/);
+});
+
+test("reserved sourcing creates an inbound-pending launch card and receipt updates the same identity", async () => {
+  const materialization = await source("../src/lib/sourcingLaunchMaterialization.ts");
+  assert.match(materialization, /RESERVED_NOTE\s*=\s*"신규소싱 확정 · 입고 대기"/);
+  assert.match(materialization, /lifecycleStatus:\s*"RECEIVED"/);
+  assert.match(materialization, /items\.map\(\(value\)\s*=>\s*text\(value\.id\)\s*===\s*intakeId/);
+  assert.match(materialization, /SOURCING_LAUNCH_RECEIPT_IDEMPOTENCY_CONFLICT/);
+});
+
+test("manual sourcing UI requires link, product name and an explicit storage choice", async () => {
+  const [form, route, proxy] = await Promise.all([
+    source("../src/components/sourcing-center/ManualProductIntakeForm.tsx"),
+    source("../src/app/api/sourcing-center/manual-product/route.ts"),
+    source("../src/lib/sourcingManualProductIntake.ts"),
+  ]);
+  assert.match(form, /name="sourceUrl"/);
+  assert.match(form, /name="productName"/);
+  assert.match(form, /name="storageSize" value="S" required/);
+  assert.match(form, /name="storageSize" value="L" required/);
+  assert.match(form, /주문·결제를 실행하지 않습니다/);
+  assert.match(route, /isSameOriginOpsRequest/);
+  assert.match(proxy, /x-commerce-os-integration-secret/);
+  assert.match(proxy, /x-vercel-protection-bypass/);
+  assert.match(proxy, /externalOrderExecuted:\s*false/);
 });
 
 test("sourcing purchase ingress is server-secret protected and fail-closed", async () => {

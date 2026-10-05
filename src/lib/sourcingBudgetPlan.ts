@@ -13,6 +13,8 @@ export type SourcingBudgetPlanSelection = {
   quantity: number;
   estimatedCostKrw: number;
   quantityReduced: boolean;
+  storageSize: "S" | "L" | null;
+  storageSizeSource: "OPERATOR" | "MANUAL_INTAKE" | null;
 };
 
 export type SourcingBudgetPlan = {
@@ -23,6 +25,7 @@ export type SourcingBudgetPlan = {
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
   preferredConceptIds: string[];
+  storageSizeByConceptId: Record<string, "S" | "L">;
   state: "READY" | "BLOCKED" | "EMPTY";
   readyForConfirmation: boolean;
   blockers: string[];
@@ -76,6 +79,7 @@ export type SourcingBudgetPlanInput = {
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
   preferredConceptIds?: string[];
+  storageSizeByConceptId?: Record<string, "S" | "L">;
 };
 
 export type SourcingBudgetConfirmationResult = {
@@ -158,6 +162,9 @@ export async function loadSourcingBudgetPlan(
   });
   for (const conceptId of input.preferredConceptIds ?? []) {
     params.append("preferredConceptId", conceptId);
+  }
+  for (const [conceptId, storageSize] of Object.entries(input.storageSizeByConceptId ?? {})) {
+    params.append("storageSize", `${conceptId}:${storageSize}`);
   }
   const response = await fetch(
     `${baseUrl}/api/integrations/sourcing-budget-plan?${params.toString()}`,

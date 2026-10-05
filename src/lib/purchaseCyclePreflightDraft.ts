@@ -48,6 +48,7 @@ export async function createPurchaseCyclePreflightDraft(
         sourcingBudgetPercent: report.sourcingBudgetPercent,
         sourcingBudgetKrw: report.sourcingBudgetKrw,
         preferredConceptIds: request.preferredSourcingConceptIds,
+        storageSizeByConceptId: request.sourcingStorageSizeByConceptId,
       })
     : null;
   const prepared = preparePurchaseCycleDraft(report, request, sourcingPlan);
@@ -84,6 +85,7 @@ export async function createPurchaseCyclePreflightDraft(
         sourcingBudgetPercent: report.sourcingBudgetPercent,
         sourcingBudgetKrw: report.sourcingBudgetKrw,
         preferredConceptIds: request.preferredSourcingConceptIds,
+        storageSizeByConceptId: request.sourcingStorageSizeByConceptId,
         expectedSourceFingerprint: sourcingPlan.sourceFingerprint,
         expectedPlanFingerprint: sourcingPlan.planFingerprint,
       });
