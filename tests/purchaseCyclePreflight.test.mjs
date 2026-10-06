@@ -368,6 +368,7 @@ test("preflight source has no write executor, credentials, background timer, or 
 test("operator page accepts an all-in cash cap while preserving the automatic envelope", () => {
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
   const form = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchasePreflightForm.tsx", import.meta.url), "utf8");
+  const sourcingForm = readFileSync(new URL("../src/components/purchase-cycle-preflight/SourcingCandidateSelectionForm.tsx", import.meta.url), "utf8");
   assert.match(page, /name="cash"/);
   assert.match(page, /이번 발주에 쓸 총 현금/);
   assert.match(page, /현금을 비우면 전월 매출원가 예산/);
@@ -381,9 +382,9 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(page, /소싱엔진에서 선택/);
   assert.match(page, /B코드 배정이 끝나면 상품출시 진행관리/);
   assert.match(page, /‘입고 대기’로 생성/);
-  assert.match(page, /name=\{`storage\.\$\{candidate\.conceptId\}`\}/);
-  assert.match(page, /소형 수납/);
-  assert.match(page, /대형 수납/);
+  assert.match(sourcingForm, /name=\{`storage\.\$\{candidate\.conceptId\}`\}/);
+  assert.match(sourcingForm, /소형 수납/);
+  assert.match(sourcingForm, /대형 수납/);
   assert.match(page, /sourcingStorageSizeByConceptId/);
   assert.match(page, /expectedSourcingSourceFingerprint/);
   assert.match(page, /sourcingPlan\?\.readyForConfirmation === true/);
@@ -405,13 +406,15 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(form, /onSubmit=\{submit\}/);
   assert.match(form, /disabled=\{pending\}/);
   assert.match(form, /aria-busy=\{pending\}/);
-  assert.match(form, /발주안 계산 중\.\.\./);
+  assert.match(form, /예산·후보 확인 중\.\.\./);
   assert.match(form, /role="status"/);
 });
 
 test("operator page presents a simple guided flow and keeps technical evidence collapsed", () => {
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
   const form = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchasePreflightForm.tsx", import.meta.url), "utf8");
+  const sourcingForm = readFileSync(new URL("../src/components/purchase-cycle-preflight/SourcingCandidateSelectionForm.tsx", import.meta.url), "utf8");
+  const finalCalculate = readFileSync(new URL("../src/components/purchase-cycle-preflight/NewProductConfigurationCalculateButton.tsx", import.meta.url), "utf8");
   assert.match(page, /title="다음 발주 준비"/);
   assert.match(page, /1단계/);
   assert.match(page, /발주 준비 단계/);
@@ -423,8 +426,10 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /신규상품 구성/);
   assert.match(page, /id="sourcing-selection"/);
   assert.match(page, /id="manual-sourcing-intake"/);
-  assert.match(page, /ManualProductIntakeForm embedded/);
-  assert.match(page, /후보·수납 반영 후 다시 계산/);
+  assert.match(page, /<ManualProductIntakeForm/);
+  assert.match(page, /calculationFormId=\{sourcingPlan \? NEW_PRODUCT_CONFIGURATION_FORM_ID : undefined\}/);
+  assert.match(page, /<NewProductConfigurationCalculateButton/);
+  assert.doesNotMatch(page, /후보·수납 반영 후 다시 계산/);
   assert.match(page, /3단계 · 계산 결과/);
   assert.match(page, /sourcingPolicyPreparationCodes/);
   assert.match(page, /오류나 사용자 할 일로 세지 않습니다/);
@@ -435,12 +440,23 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.ok(page.indexOf('id="new-product-configuration"') < page.indexOf('id="sourcing-selection"'));
   assert.ok(page.indexOf('id="sourcing-selection"') < page.indexOf('id="manual-sourcing-intake"'));
   assert.ok(page.indexOf('id="manual-sourcing-intake"') < page.indexOf("3단계 · 계산 결과"));
+  assert.ok(page.lastIndexOf("<ManualProductIntakeForm") < page.lastIndexOf("<NewProductConfigurationCalculateButton"));
   assert.equal(page.match(/id="manual-sourcing-intake"/g)?.length, 1);
   assert.doesNotMatch(page, /신규상품 소싱 \{report\.sourcingBudgetPercent\}% 배정 미리보기/);
   assert.doesNotMatch(page, /visibleIssues\.length/);
   assert.doesNotMatch(page, /<details[^>]*\sopen(?:=|\s|>)/);
-  assert.match(form, /읽기 전용 발주안 계산/);
+  assert.match(form, /예산 확인 · 후보 불러오기/);
+  assert.match(form, /예산 기준과 현재 후보를 불러옵니다/);
   assert.match(form, /Draft 저장, 1688 주문, 결제는 실행하지 않습니다/);
+  assert.match(sourcingForm, /마지막 계산은 두 입력 영역 아래에서 한 번만 실행합니다/);
+  assert.match(sourcingForm, /checked=\{checked\}/);
+  assert.match(sourcingForm, /name=\{`storage\.\$\{candidate\.conceptId\}`\}/);
+  assert.match(sourcingForm, /required/);
+  assert.doesNotMatch(sourcingForm, /type="submit"/);
+  assert.match(finalCalculate, /new FormData\(configurationForm\)/);
+  assert.match(finalCalculate, /작성 중인 수동상품이 있습니다/);
+  assert.match(finalCalculate, /신규상품 구성 완료 · 발주안 한 번 계산/);
+  assert.match(finalCalculate, /최종 발주안 계산 중/);
 });
 
 

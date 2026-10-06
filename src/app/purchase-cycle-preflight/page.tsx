@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { PurchaseCycleDraftActions } from "@/components/purchase-cycle-preflight/PurchaseCycleDraftActions";
+import { NewProductConfigurationCalculateButton } from "@/components/purchase-cycle-preflight/NewProductConfigurationCalculateButton";
 import { PurchasePreflightForm } from "@/components/purchase-cycle-preflight/PurchasePreflightForm";
+import { SourcingCandidateSelectionForm } from "@/components/purchase-cycle-preflight/SourcingCandidateSelectionForm";
 import { ManualProductIntakeForm } from "@/components/sourcing-center/ManualProductIntakeForm";
 import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
@@ -15,6 +17,8 @@ export const maxDuration = 600;
 const money = (value: number) => `${value.toLocaleString("ko-KR")}원`;
 const ENGINE_MAX_SKUS = 100;
 const ENGINE_MAX_UNITS_PER_SKU = 9_999;
+const NEW_PRODUCT_CONFIGURATION_FORM_ID = "new-product-configuration-form";
+const MANUAL_PRODUCT_FORM_ID = "manual-product-intake-form";
 const statusLabels = { VERIFIED: "근거 확인", PARTIAL: "일부 확인", WAITING: "확인 대기", BLOCKED: "차단", LOCKED: "실행 잠금" };
 const reasonLabels: Record<string, string> = {
   INVENTORY_EVIDENCE_STALE_OR_UNPINNED: "재고·원가 원본이 15분 신선도 기준을 넘었거나 원본 지문을 확인하지 못했습니다.",
@@ -209,7 +213,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   if (sourcingBlockingCodes.includes("SOURCING_STORAGE_SIZE_REQUIRED")) {
     actionItems.push({
       title: "신규상품 수납 위치 선택",
-      message: "신규상품 구성 단계에서 소형 또는 대형 수납을 고른 뒤 ‘후보·수납 반영 후 다시 계산’을 누르세요.",
+      message: "신규상품 구성 단계에서 모든 후보의 소형 또는 대형 수납을 고른 뒤 하단의 ‘신규상품 구성 완료 · 발주안 한 번 계산’을 누르세요.",
       href: "#sourcing-selection",
       hrefLabel: "수납 선택으로 이동",
     });
@@ -292,7 +296,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             ) : (
               <>
                 <p className="mt-2 text-sm leading-6 text-slate-600">분리 예산 {money(report.sourcingBudgetKrw)}{sourcingPlan ? ` · 현재 ${sourcingPlan.allocation.selected.length}종 · 예상 상품대금 ${money(sourcingPlan.allocation.estimatedSpendKrw)}` : ""}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-700">후보를 체크하고 각 상품의 소형·대형 수납을 선택하면 같은 화면에서 예산을 다시 계산합니다.</p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">후보를 체크하고 수납 위치를 정하세요. 수동 후보까지 모두 추가한 뒤 두 영역 아래의 계산 버튼을 한 번만 누릅니다.</p>
                 {sourcingPlanError ? <p role="alert" className="mt-3 break-all border-l-4 border-rose-500 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-950">{sourcingPlanError}</p> : null}
                 {sourcingPreparationCodes.length ? <p className="mt-3 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-950">예산 정책 {sourcingPreparationCodes.length}건은 저장 시 자동 준비됩니다.</p> : null}
                 {sourcingBlockingCodes.length ? <p className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">최종 저장 전 소싱 안전조건 {sourcingBlockingCodes.length}개가 남았습니다.</p> : null}
@@ -300,54 +304,40 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                 {sourcingPlan ? <>
                   <details className="mt-4 text-sm"><summary className="cursor-pointer font-bold text-emerald-800">선정 후보 {sourcingPlan.allocation.selected.length}종 상세 보기</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">후보 상품</th><th className="p-2">품질</th><th className="p-2">배정</th><th className="p-2">MOQ / 최대 / 수량</th><th className="p-2">예상금액</th></tr></thead><tbody>{sourcingPlan.allocation.selected.map(row => <tr key={row.conceptId} className="border-t"><td className="p-2">{row.canonicalNameKo}</td><td className="p-2">{row.finalQualityScore ?? "미확인"}</td><td className="p-2">{row.tier === "CORE" ? "핵심" : row.tier === "SUPPORT" ? "안정" : "최소 테스트"}</td><td className="p-2">{row.moq} / {row.recommendedUnits} / <strong>{row.quantity}</strong></td><td className="p-2">{money(row.estimatedCostKrw)}</td></tr>)}</tbody></table></div>{!sourcingPlan.allocation.selected.length ? <p className="mt-3">현재 예산과 안전조건 안에서 선택할 TEST_READY 신규상품이 없습니다.</p> : null}</details>
                   <details className="mt-3 text-sm"><summary className="cursor-pointer font-bold text-slate-700">제외 후보 {sourcingPlan.allocation.excluded.length}종 확인</summary>{sourcingPlan.allocation.excluded.slice(0, 100).map(row => <p key={`${row.conceptId}:${row.reason}`} className="mt-2">{row.canonicalNameKo} · {sourcingExclusionLabels[row.reason] ?? row.reason}</p>)}</details>
-                  {(sourcingPlan.allocation.selected.length || sourcingPlan.allocation.availableCandidates.length) ? <form method="get" action="/purchase-cycle-preflight" className="mt-4 border-t border-slate-200 pt-4">
-                    <input type="hidden" name="check" value="1" />
-                    <input type="hidden" name="date" value={report.targetDate} />
-                    <input type="hidden" name="cash" value={cash} />
-                    <input type="hidden" name="sourcing" value={String(report.sourcingBudgetPercent)} />
-                    {early ? <input type="hidden" name="early" value="1" /> : null}
-                    {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
-                    {sourcingPlan.allocation.selected.length ? <fieldset>
-                      <legend className="font-black text-slate-900">선정 상품 수납 위치</legend>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">실물 크기를 기준으로 각 상품의 소형 또는 대형 수납을 선택하세요.</p>
-                      <div className="mt-3 grid gap-3">
-                        {sourcingPlan.allocation.selected.map(candidate => <div key={`storage:${candidate.conceptId}`} className="border-y border-slate-100 py-3">
-                          <strong className="block text-slate-900">{candidate.canonicalNameKo}</strong>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 font-bold"><input type="radio" name={`storage.${candidate.conceptId}`} value="S" defaultChecked={candidate.storageSize === "S"} required />소형 수납</label>
-                            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 font-bold"><input type="radio" name={`storage.${candidate.conceptId}`} value="L" defaultChecked={candidate.storageSize === "L"} required />대형 수납</label>
-                          </div>
-                        </div>)}
-                      </div>
-                    </fieldset> : null}
-                    {sourcingPlan.allocation.availableCandidates.length ? <fieldset className={sourcingPlan.allocation.selected.length ? "mt-5 border-t border-slate-200 pt-4" : ""}>
-                      <legend className="font-black text-slate-900">이번 발주에 넣을 후보</legend>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">체크한 후보를 우선 배정합니다. 안전검증·MOQ·창고·예산 조건은 그대로 적용됩니다.</p>
-                      <div className="mt-3 grid gap-2">
-                        {sourcingPlan.allocation.availableCandidates.map(candidate => <label key={candidate.conceptId} className="flex items-start gap-3 border-y border-slate-100 px-1 py-3">
-                            <input className="mt-1 size-4" type="checkbox" name="source" value={candidate.conceptId} defaultChecked={preferredSourcingConceptIds.includes(candidate.conceptId)} />
-                            <span><strong>{candidate.canonicalNameKo}</strong><span className="mt-1 block text-xs text-slate-500">품질 {candidate.finalQualityScore ?? "미확인"} · MOQ {candidate.moq ?? "미확인"} · 최대 {candidate.recommendedUnits}개</span></span>
-                        </label>)}
-                      </div>
-                    </fieldset> : null}
-                    <div className="mt-4 flex flex-wrap items-center gap-3">
-                      <button type="submit" className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-800">후보·수납 반영 후 다시 계산</button>
-                      <Link prefetch={false} href="/sourcing-center" className="text-sm font-bold text-slate-600 underline">소싱센터 전체 보기</Link>
-                    </div>
-                  </form> : null}
+                  <SourcingCandidateSelectionForm
+                    formId={NEW_PRODUCT_CONFIGURATION_FORM_ID}
+                    targetDate={report.targetDate}
+                    cash={cash}
+                    sourcingBudgetPercent={report.sourcingBudgetPercent}
+                    early={early}
+                    replaceDraftId={replaceDraftId}
+                    selectedCandidates={sourcingPlan.allocation.selected}
+                    availableCandidates={sourcingPlan.allocation.availableCandidates}
+                    preferredConceptIds={preferredSourcingConceptIds}
+                    initialStorageSizeByConceptId={sourcingStorageSizeByConceptId}
+                  />
                 </> : null}
               </>
             )}
           </article>
 
           <section id="manual-sourcing-intake" className="min-w-0 scroll-mt-5" aria-label="신규상품 직접 추가">
-            <ManualProductIntakeForm embedded />
+            <ManualProductIntakeForm
+              embedded
+              formId={MANUAL_PRODUCT_FORM_ID}
+              calculationFormId={sourcingPlan ? NEW_PRODUCT_CONFIGURATION_FORM_ID : undefined}
+              knownCandidateIds={sourcingPlan ? [
+                ...sourcingPlan.allocation.selected.map((candidate) => candidate.conceptId),
+                ...sourcingPlan.allocation.availableCandidates.map((candidate) => candidate.conceptId),
+              ] : []}
+            />
           </section>
         </div>
+        {report && sourcingPlan ? <NewProductConfigurationCalculateButton formId={NEW_PRODUCT_CONFIGURATION_FORM_ID} manualFormId={MANUAL_PRODUCT_FORM_ID} /> : null}
         <p className="mt-4 border-t border-slate-100 pt-4 text-xs leading-5 text-slate-500">어느 경로를 사용하든 Draft 저장과 B코드 배정이 끝나면 상품출시 진행관리에는 ‘입고 대기’로 생성됩니다. 실제 입고 전에는 입고완료로 표시하지 않습니다.</p>
       </section>
       {inputError ? <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}
-      {!report ? <section className="border-y border-slate-200 py-8 text-center"><p className="text-sm font-bold text-slate-700">아직 계산 전입니다.</p><p className="mt-1 text-xs text-slate-500">위 기준을 확인한 뒤 읽기 전용 발주안 계산을 누르세요.</p></section> : <>
+      {!report ? <section className="border-y border-slate-200 py-8 text-center"><p className="text-sm font-bold text-slate-700">아직 준비 전입니다.</p><p className="mt-1 text-xs text-slate-500">위 기준을 확인한 뒤 예산과 후보를 불러오세요.</p></section> : <>
         <section aria-labelledby="preflight-result-title" className="space-y-5">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="min-w-0 space-y-5">

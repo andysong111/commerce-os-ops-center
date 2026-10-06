@@ -12,10 +12,24 @@ type Result = {
   productName?: string;
 };
 
-export function ManualProductIntakeForm({ embedded = false }: { embedded?: boolean }) {
+type StagedCandidate = {
+  conceptId: string;
+  productName: string;
+  storageSize: "S" | "L";
+};
+
+type Props = {
+  embedded?: boolean;
+  formId?: string;
+  calculationFormId?: string;
+  knownCandidateIds?: string[];
+};
+
+export function ManualProductIntakeForm({ embedded = false, formId, calculationFormId, knownCandidateIds = [] }: Props) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [failed, setFailed] = useState(false);
+  const [stagedCandidates, setStagedCandidates] = useState<StagedCandidate[]>([]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,11 +62,28 @@ export function ManualProductIntakeForm({ embedded = false }: { embedded?: boole
         setNotice(result.message || `후보 저장 실패 · ${result.code || response.status}`);
         return;
       }
-      setNotice(
-        result.duplicate
+      const conceptId = String(result.conceptId ?? "").trim();
+      const productName = result.productName || "신규상품";
+      const storageSize = String(form.get("storageSize") ?? "").toUpperCase() as "S" | "L";
+      if (calculationFormId && !conceptId) {
+        setFailed(true);
+        setNotice("후보는 저장됐지만 계산 목록 식별값을 확인하지 못했습니다. 화면을 새로고침한 뒤 후보 목록에서 선택하세요.");
+        return;
+      }
+      const alreadyListed = conceptId !== "" && knownCandidateIds.includes(conceptId);
+      if (calculationFormId && conceptId && !alreadyListed) {
+        setStagedCandidates((current) => [
+          ...current.filter((candidate) => candidate.conceptId !== conceptId),
+          { conceptId, productName, storageSize },
+        ]);
+      }
+      setNotice(calculationFormId
+        ? alreadyListed
+          ? "이미 왼쪽 후보 목록에 있는 상품입니다. 해당 후보를 선택하고 수납 위치를 정하세요."
+          : `${productName} 후보를 계산 대기 목록에 추가했습니다. 아직 발주안은 계산하지 않았습니다.`
+        : result.duplicate
           ? "이미 등록된 1688 상품입니다. 기존 후보의 최신 관찰값만 갱신했습니다."
-          : `${result.productName || "신규상품"} 후보를 저장했습니다. 자동 검증을 통과하면 다음 발주 준비 화면에 나타납니다.`,
-      );
+          : `${productName} 후보를 저장했습니다. 자동 검증을 통과하면 다음 발주 준비 화면에 나타납니다.`);
       formElement.reset();
     } catch {
       setFailed(true);
@@ -63,7 +94,7 @@ export function ManualProductIntakeForm({ embedded = false }: { embedded?: boole
   }
 
   return (
-    <form onSubmit={submit} className={embedded ? "min-w-0 bg-white py-5 xl:border-l xl:border-slate-200 xl:pl-6" : "border-y border-slate-200 bg-white py-5"}>
+    <form id={formId} onSubmit={submit} className={embedded ? "min-w-0 bg-white py-5 xl:border-l xl:border-slate-200 xl:pl-6" : "border-y border-slate-200 bg-white py-5"}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black text-emerald-700">직접 신규상품 추가</p>
@@ -74,7 +105,7 @@ export function ManualProductIntakeForm({ embedded = false }: { embedded?: boole
             링크와 상품명을 넣으면 기존 소싱 검증 흐름에 합류합니다. B코드·모델번호·상품출시 카드는 발주 Draft에 최종 포함될 때 생성되며, 여기서는 주문·결제를 실행하지 않습니다.
           </p>
         </div>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">후보 저장</span>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">계산 전 후보 추가</span>
       </div>
 
       <div className={`mt-5 grid gap-4 ${embedded ? "md:grid-cols-2" : "lg:grid-cols-2"}`}>
@@ -106,9 +137,25 @@ export function ManualProductIntakeForm({ embedded = false }: { embedded?: boole
         </div>
       </details>
 
+      {calculationFormId && stagedCandidates.length ? (
+        <section className="mt-5 border-y border-emerald-200 bg-emerald-50 px-3 py-3" aria-label="계산 대기 수동 후보">
+          <p className="text-xs font-black text-emerald-900">계산 대기 수동 후보 {stagedCandidates.length}종</p>
+          <div className="mt-2 grid gap-2">
+            {stagedCandidates.map((candidate) => (
+              <div key={candidate.conceptId} className="flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0"><strong className="block truncate">{candidate.productName}</strong><span className="text-xs text-emerald-800">{candidate.storageSize === "S" ? "소형 수납" : "대형 수납"}</span></span>
+                <button type="button" onClick={() => setStagedCandidates((current) => current.filter((item) => item.conceptId !== candidate.conceptId))} className="shrink-0 text-xs font-bold text-slate-600 underline">목록에서 제외</button>
+                <input type="hidden" name="source" value={candidate.conceptId} form={calculationFormId} />
+                <input type="hidden" name={`storage.${candidate.conceptId}`} value={candidate.storageSize} form={calculationFormId} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <div className="mt-5 flex flex-wrap items-center gap-4">
         <button type="submit" disabled={busy} className="min-h-11 rounded-lg bg-emerald-700 px-5 py-2 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-wait disabled:bg-slate-300">
-          {busy ? "후보 저장 중..." : "신규상품 후보 저장"}
+          {busy ? "후보 추가 중..." : calculationFormId ? "수동 후보 목록에 추가" : "신규상품 후보 저장"}
         </button>
         {notice ? <p role={failed ? "alert" : "status"} className={`text-sm font-bold ${failed ? "text-rose-700" : "text-emerald-800"}`}>{notice}</p> : null}
       </div>

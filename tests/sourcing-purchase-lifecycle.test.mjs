@@ -39,6 +39,12 @@ test("manual sourcing UI requires link, product name and an explicit storage cho
   assert.match(form, /name="storageSize" value="L" required/);
   assert.match(form, /embedded = false/);
   assert.match(form, /embedded\s*\?\s*<h3/);
+  assert.match(form, /calculationFormId/);
+  assert.match(form, /stagedCandidates/);
+  assert.match(form, /form=\{calculationFormId\}/);
+  assert.match(form, /계산 목록 식별값을 확인하지 못했습니다/);
+  assert.match(form, /아직 발주안은 계산하지 않았습니다/);
+  assert.match(form, /수동 후보 목록에 추가/);
   assert.match(form, /주문·결제를 실행하지 않습니다/);
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(proxy, /x-commerce-os-integration-secret/);
