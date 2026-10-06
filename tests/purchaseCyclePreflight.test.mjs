@@ -419,6 +419,16 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /지금 확인할 내용/);
   assert.match(page, /기존상품 재발주/);
   assert.match(page, /상세 검증 내역 보기/);
+  assert.match(page, /ManualProductIntakeForm/);
+  assert.match(page, /id="manual-sourcing-intake"/);
+  assert.match(page, /sourcingPolicyPreparationCodes/);
+  assert.match(page, /오류나 사용자 할 일로 세지 않습니다/);
+  assert.match(page, /기술 검증 내역/);
+  assert.match(page, /소싱엔진 연동 설정을 확인하지 못했습니다/);
+  assert.match(page, /선택 저장·다시 계산/);
+  assert.match(page, /confirmation=\{draftReady \? purchaseCycleDraftConfirmation\(report, sourcingPlan\) : ""\}/);
+  assert.match(page, /className="min-w-0 space-y-5"/);
+  assert.doesNotMatch(page, /visibleIssues\.length/);
   assert.doesNotMatch(page, /<details[^>]*\sopen(?:=|\s|>)/);
   assert.match(form, /읽기 전용 발주안 계산/);
   assert.match(form, /Draft 저장, 1688 주문, 결제는 실행하지 않습니다/);
