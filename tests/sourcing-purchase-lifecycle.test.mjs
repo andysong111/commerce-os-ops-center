@@ -37,6 +37,8 @@ test("manual sourcing UI requires link, product name and an explicit storage cho
   assert.match(form, /name="productName"/);
   assert.match(form, /name="storageSize" value="S" required/);
   assert.match(form, /name="storageSize" value="L" required/);
+  assert.match(form, /embedded = false/);
+  assert.match(form, /embedded\s*\?\s*<h3/);
   assert.match(form, /주문·결제를 실행하지 않습니다/);
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(proxy, /x-commerce-os-integration-secret/);
