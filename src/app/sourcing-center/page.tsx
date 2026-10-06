@@ -211,11 +211,30 @@ function operatorModeKo(status: PipelineStatus) {
   return "현재 단계 확인";
 }
 
+function sourcingStatusHeaders() {
+  const secret = (
+    process.env.SOURCING_ENGINE_INTEGRATION_SECRET ||
+    process.env.PRODUCT_MASTER_INTEGRATION_SECRET
+  )?.trim();
+  if (!secret) return null;
+  const protectionBypass = process.env.SOURCING_ENGINE_PROTECTION_BYPASS?.trim();
+  if (protectionBypass && /[\r\n]/.test(protectionBypass)) return null;
+  return {
+    Accept: "application/json",
+    "x-commerce-os-integration-secret": secret,
+    ...(protectionBypass
+      ? { "x-vercel-protection-bypass": protectionBypass }
+      : {}),
+  };
+}
+
 async function readPipelineStatus(): Promise<PipelineStatus | null> {
   try {
-    const response = await fetch(`${SOURCING_ENGINE_BASE}/api/pipeline-status`, {
+    const headers = sourcingStatusHeaders();
+    if (!headers) return null;
+    const response = await fetch(`${SOURCING_ENGINE_BASE}/api/integrations/pipeline-status`, {
       cache: "no-store",
-      headers: { Accept: "application/json" },
+      headers,
     });
     if (!response.ok) return null;
     const body = (await response.json()) as {

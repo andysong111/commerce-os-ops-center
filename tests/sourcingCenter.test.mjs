@@ -47,7 +47,9 @@ test("sourcing center opens the full sourcing pipeline in plain Korean", () => {
 });
 
 test("sourcing center surfaces the live next action without blocking manual navigation", () => {
-  assert.match(page, /\/api\/pipeline-status/);
+  assert.match(page, /\/api\/integrations\/pipeline-status/);
+  assert.match(page, /x-commerce-os-integration-secret/);
+  assert.match(page, /SOURCING_ENGINE_PROTECTION_BYPASS/);
   assert.match(page, /지금 할 일/);
   assert.match(page, /실시간 상태를 읽지 못했습니다/);
   assert.match(page, /각 단계 버튼은 정상적으로 열립니다/);
