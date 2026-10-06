@@ -209,7 +209,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   if (sourcingBlockingCodes.includes("SOURCING_STORAGE_SIZE_REQUIRED")) {
     actionItems.push({
       title: "신규상품 수납 위치 선택",
-      message: "아래 후보에서 소형 또는 대형 수납을 고른 뒤 ‘선택 저장·다시 계산’을 누르세요.",
+      message: "신규상품 구성 단계에서 소형 또는 대형 수납을 고른 뒤 ‘후보·수납 반영 후 다시 계산’을 누르세요.",
       href: "#sourcing-selection",
       hrefLabel: "수납 선택으로 이동",
     });
@@ -217,7 +217,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   if (sourcingBlockingCodes.includes("NO_TEST_READY_CANDIDATE")) {
     actionItems.push({
       title: "발주 가능한 신규상품 추가",
-      message: "현재 품질·원가·공급 검증을 모두 통과한 후보가 없습니다. 아래에서 1688 링크를 직접 등록할 수 있습니다.",
+      message: "현재 품질·원가·공급 검증을 모두 통과한 후보가 없습니다. 신규상품 구성 단계에서 1688 링크를 직접 등록할 수 있습니다.",
       href: "#manual-sourcing-intake",
       hrefLabel: "신규상품 직접 추가",
     });
@@ -271,8 +271,80 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <p className="text-xs leading-5 text-slate-600 md:col-span-2 xl:col-span-3">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하고, 나머지로 기존상품 수량을 우선순위에 따라 계산합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
         </PurchasePreflightForm>
       </section>
-      <section id="manual-sourcing-intake" className="scroll-mt-5" aria-label="신규상품 직접 추가">
-        <ManualProductIntakeForm />
+      <section id="new-product-configuration" className="scroll-mt-5 border-y border-slate-200 bg-white py-5" aria-labelledby="new-product-configuration-title">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-black text-emerald-700">2단계</p>
+            <h2 id="new-product-configuration-title" className="mt-1 text-xl font-black text-slate-950">신규상품 구성</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">소싱엔진 후보를 고르거나 1688 링크를 직접 등록하세요. 두 경로 모두 같은 검증을 거쳐 월간 Draft에 합류합니다.</p>
+          </div>
+          <p className="text-xs font-bold text-slate-500">신규상품 비율이 0%면 이 단계는 건너뜁니다.</p>
+        </div>
+
+        <div className="mt-5 grid min-w-0 gap-6 xl:grid-cols-2">
+          <article id="sourcing-selection" className="min-w-0 scroll-mt-5 py-5">
+            <p className="text-xs font-black text-blue-700">소싱엔진에서 선택</p>
+            <h3 className="mt-1 text-lg font-black text-slate-950">검증된 후보를 이번 발주에 추가</h3>
+            {!report ? (
+              <p className="mt-3 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-sm leading-6 text-sky-950">위에서 예산을 계산하면 현재 비율과 금액에 맞는 소싱 후보가 여기에 표시됩니다.</p>
+            ) : report.sourcingBudgetPercent === 0 ? (
+              <p className="mt-3 border-l-4 border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-700">신규상품 소싱 비율이 0%입니다. 후보를 추가하려면 비율을 입력하고 다시 계산하세요.</p>
+            ) : (
+              <>
+                <p className="mt-2 text-sm leading-6 text-slate-600">분리 예산 {money(report.sourcingBudgetKrw)}{sourcingPlan ? ` · 현재 ${sourcingPlan.allocation.selected.length}종 · 예상 상품대금 ${money(sourcingPlan.allocation.estimatedSpendKrw)}` : ""}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">후보를 체크하고 각 상품의 소형·대형 수납을 선택하면 같은 화면에서 예산을 다시 계산합니다.</p>
+                {sourcingPlanError ? <p role="alert" className="mt-3 break-all border-l-4 border-rose-500 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-950">{sourcingPlanError}</p> : null}
+                {sourcingPreparationCodes.length ? <p className="mt-3 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-950">예산 정책 {sourcingPreparationCodes.length}건은 저장 시 자동 준비됩니다.</p> : null}
+                {sourcingBlockingCodes.length ? <p className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">최종 저장 전 소싱 안전조건 {sourcingBlockingCodes.length}개가 남았습니다.</p> : null}
+                {sourcingPlan?.readyForConfirmation ? <p className="mt-3 text-sm font-bold text-emerald-800">신규상품 코드 배정과 월간 Draft 추가 준비가 끝났습니다.</p> : null}
+                {sourcingPlan ? <>
+                  <details className="mt-4 text-sm"><summary className="cursor-pointer font-bold text-emerald-800">선정 후보 {sourcingPlan.allocation.selected.length}종 상세 보기</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">후보 상품</th><th className="p-2">품질</th><th className="p-2">배정</th><th className="p-2">MOQ / 최대 / 수량</th><th className="p-2">예상금액</th></tr></thead><tbody>{sourcingPlan.allocation.selected.map(row => <tr key={row.conceptId} className="border-t"><td className="p-2">{row.canonicalNameKo}</td><td className="p-2">{row.finalQualityScore ?? "미확인"}</td><td className="p-2">{row.tier === "CORE" ? "핵심" : row.tier === "SUPPORT" ? "안정" : "최소 테스트"}</td><td className="p-2">{row.moq} / {row.recommendedUnits} / <strong>{row.quantity}</strong></td><td className="p-2">{money(row.estimatedCostKrw)}</td></tr>)}</tbody></table></div>{!sourcingPlan.allocation.selected.length ? <p className="mt-3">현재 예산과 안전조건 안에서 선택할 TEST_READY 신규상품이 없습니다.</p> : null}</details>
+                  <details className="mt-3 text-sm"><summary className="cursor-pointer font-bold text-slate-700">제외 후보 {sourcingPlan.allocation.excluded.length}종 확인</summary>{sourcingPlan.allocation.excluded.slice(0, 100).map(row => <p key={`${row.conceptId}:${row.reason}`} className="mt-2">{row.canonicalNameKo} · {sourcingExclusionLabels[row.reason] ?? row.reason}</p>)}</details>
+                  {(sourcingPlan.allocation.selected.length || sourcingPlan.allocation.availableCandidates.length) ? <form method="get" action="/purchase-cycle-preflight" className="mt-4 border-t border-slate-200 pt-4">
+                    <input type="hidden" name="check" value="1" />
+                    <input type="hidden" name="date" value={report.targetDate} />
+                    <input type="hidden" name="cash" value={cash} />
+                    <input type="hidden" name="sourcing" value={String(report.sourcingBudgetPercent)} />
+                    {early ? <input type="hidden" name="early" value="1" /> : null}
+                    {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
+                    {sourcingPlan.allocation.selected.length ? <fieldset>
+                      <legend className="font-black text-slate-900">선정 상품 수납 위치</legend>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">실물 크기를 기준으로 각 상품의 소형 또는 대형 수납을 선택하세요.</p>
+                      <div className="mt-3 grid gap-3">
+                        {sourcingPlan.allocation.selected.map(candidate => <div key={`storage:${candidate.conceptId}`} className="border-y border-slate-100 py-3">
+                          <strong className="block text-slate-900">{candidate.canonicalNameKo}</strong>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 font-bold"><input type="radio" name={`storage.${candidate.conceptId}`} value="S" defaultChecked={candidate.storageSize === "S"} required />소형 수납</label>
+                            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 font-bold"><input type="radio" name={`storage.${candidate.conceptId}`} value="L" defaultChecked={candidate.storageSize === "L"} required />대형 수납</label>
+                          </div>
+                        </div>)}
+                      </div>
+                    </fieldset> : null}
+                    {sourcingPlan.allocation.availableCandidates.length ? <fieldset className={sourcingPlan.allocation.selected.length ? "mt-5 border-t border-slate-200 pt-4" : ""}>
+                      <legend className="font-black text-slate-900">이번 발주에 넣을 후보</legend>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">체크한 후보를 우선 배정합니다. 안전검증·MOQ·창고·예산 조건은 그대로 적용됩니다.</p>
+                      <div className="mt-3 grid gap-2">
+                        {sourcingPlan.allocation.availableCandidates.map(candidate => <label key={candidate.conceptId} className="flex items-start gap-3 border-y border-slate-100 px-1 py-3">
+                            <input className="mt-1 size-4" type="checkbox" name="source" value={candidate.conceptId} defaultChecked={preferredSourcingConceptIds.includes(candidate.conceptId)} />
+                            <span><strong>{candidate.canonicalNameKo}</strong><span className="mt-1 block text-xs text-slate-500">품질 {candidate.finalQualityScore ?? "미확인"} · MOQ {candidate.moq ?? "미확인"} · 최대 {candidate.recommendedUnits}개</span></span>
+                        </label>)}
+                      </div>
+                    </fieldset> : null}
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <button type="submit" className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-800">후보·수납 반영 후 다시 계산</button>
+                      <Link prefetch={false} href="/sourcing-center" className="text-sm font-bold text-slate-600 underline">소싱센터 전체 보기</Link>
+                    </div>
+                  </form> : null}
+                </> : null}
+              </>
+            )}
+          </article>
+
+          <section id="manual-sourcing-intake" className="min-w-0 scroll-mt-5" aria-label="신규상품 직접 추가">
+            <ManualProductIntakeForm embedded />
+          </section>
+        </div>
+        <p className="mt-4 border-t border-slate-100 pt-4 text-xs leading-5 text-slate-500">어느 경로를 사용하든 Draft 저장과 B코드 배정이 끝나면 상품출시 진행관리에는 ‘입고 대기’로 생성됩니다. 실제 입고 전에는 입고완료로 표시하지 않습니다.</p>
       </section>
       {inputError ? <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}
       {!report ? <section className="border-y border-slate-200 py-8 text-center"><p className="text-sm font-bold text-slate-700">아직 계산 전입니다.</p><p className="mt-1 text-xs text-slate-500">위 기준을 확인한 뒤 읽기 전용 발주안 계산을 누르세요.</p></section> : <>
@@ -280,7 +352,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="min-w-0 space-y-5">
               <section className={`border-l-4 px-5 py-4 ${draftReady ? "border-emerald-500 bg-emerald-50" : "border-amber-500 bg-amber-50"}`}>
-                <p className={`text-xs font-black ${draftReady ? "text-emerald-800" : "text-amber-800"}`}>2단계 · 계산 결과</p>
+                <p className={`text-xs font-black ${draftReady ? "text-emerald-800" : "text-amber-800"}`}>3단계 · 계산 결과</p>
                 <h2 id="preflight-result-title" className="mt-1 text-xl font-black text-slate-950">
                   {draftReady ? "발주안 계산이 끝났습니다" : "계산은 끝났지만 확인할 내용이 있습니다"}
                 </h2>
@@ -332,8 +404,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               <h2 className="mt-1 text-xl font-black">발주 준비 단계</h2>
               <div className="mt-5 space-y-3">
                 <PreflightFlowStep number="1" title="예산 기준 입력" state="done" detail={`${report.targetDate} · 신규소싱 ${report.sourcingBudgetPercent}%`} />
-                <PreflightFlowStep number="2" title="최신자료 점검" state={report.blockers.length ? "blocked" : "done"} detail={report.blockers.length ? `확인 필요 ${report.blockers.length}건` : "판매·재고·미입고 확인"} />
-                <PreflightFlowStep number="3" title="발주안 검토" state={draftReady ? "done" : "active"} detail={`기존상품 ${report.selected.length}종 · 신규상품 ${sourcingPlan?.allocation.selected.length ?? 0}종`} />
+                <PreflightFlowStep number="2" title="신규상품 구성" state={!sourcingEnabled || sourcingReady ? "done" : "active"} detail={sourcingEnabled ? `엔진 후보 ${sourcingPlan?.allocation.selected.length ?? 0}종 · 직접입력 가능` : "신규소싱 0% · 건너뜀"} />
+                <PreflightFlowStep number="3" title="발주안·안전조건 검토" state={draftReady ? "done" : actionItems.length ? "blocked" : "active"} detail={`기존상품 ${report.selected.length}종 · 확인 ${actionItems.length}단계`} />
                 <PreflightFlowStep number="4" title="내부 Draft 저장" state={draftReady ? "active" : "wait"} detail={draftReady ? "검토 후 저장 가능" : "남은 조건 해결 후 가능"} />
               </div>
               <p className="mt-5 border-t border-slate-800 pt-4 text-xs leading-5 text-slate-400">Draft 저장은 미입고 약정과 코드만 기록합니다. 실제 1688 주문·결제는 별도입니다.</p>
@@ -363,8 +435,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             </section>
           ) : null}
 
-          <section className="grid min-w-0 border-y border-slate-200 bg-white lg:grid-cols-2">
-            <article className="min-w-0 py-5 pr-0 lg:pr-6">
+          <section className="min-w-0 border-y border-slate-200 bg-white">
+            <article className="min-w-0 py-5">
               <p className="text-xs font-black text-blue-700">기존상품 재발주</p>
               <h3 className="mt-1 text-lg font-black text-slate-950">{report.selected.length}종 · 총 {report.selected.reduce((sum, row) => sum + row.quantity, 0).toLocaleString("ko-KR")}개</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">상품대금 {money(report.estimatedSpendKrw)} · 배송비 여유분 포함 {money(report.estimatedAllInSpendKrw)}</p>
@@ -375,58 +447,6 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                 <div className="mt-3 max-w-full overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">B코드·모델·상품</th><th className="p-2">우선순위</th><th className="p-2">권장 → 현금반영</th><th className="p-2">예상금액</th><th className="p-2">원가 근거</th><th className="p-2">계획재고</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode}{row.costModelNo ? ` · ${row.costModelNo}` : ""} · {row.name}</td><td className="p-2">{row.cashflowTier === "CORE" ? "핵심" : row.cashflowTier === "SUPPORT" ? "안정" : row.cashflowTier === "CANARY" ? "최소" : "자동"} · {row.priorityScore}점</td><td className="p-2 font-bold">{row.originalRecommendedQuantity} → {row.quantity}{row.cashAdjusted ? " (감축)" : ""}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{costBasisLabel(row)}</td><td className="p-2">{row.inventoryQuantity} · {row.inventoryMode === "VERIFIED" ? "확인" : "추정"}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
               </details>
               <details className="mt-3 text-sm"><summary className="cursor-pointer font-bold text-slate-700">제외 품목 {report.excluded.length}개 확인</summary>{report.excluded.slice(0, 100).map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.reasons.map(explain).join(" / ")}</p>)}{report.excluded.length > 100 ? <p className="mt-2">앞의 100개를 표시했습니다. 상세 검증 화면에서 전체 자료를 확인하세요.</p> : null}</details>
-            </article>
-
-            <article className="min-w-0 border-t border-slate-200 py-5 lg:border-l lg:border-t-0 lg:pl-6">
-              <p className="text-xs font-black text-emerald-700">신규상품 소싱 {report.sourcingBudgetPercent}% 배정 미리보기</p>
-              <h3 className="mt-1 text-lg font-black text-slate-950">{report.sourcingBudgetPercent > 0 ? `${sourcingPlan?.allocation.selected.length ?? 0}종 후보` : "이번 발주는 신규소싱 없음"}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">분리 예산 {money(report.sourcingBudgetKrw)}{sourcingPlan ? ` · 예상 상품대금 ${money(sourcingPlan.allocation.estimatedSpendKrw)}` : ""}</p>
-              <p className="mt-3 text-sm leading-6">읽기 전용 계산에서는 후보·수량·금액만 보여줍니다. Draft 저장 시 빈 창고 자리를 확인해 B코드와 모델번호를 배정하고 Product Master에는 LAUNCHING 상태로 생성한 뒤 기존상품과 같은 월간 발주안에 추가합니다.</p>
-              {sourcingPlanError ? <p role="alert" className="mt-3 break-all border-l-4 border-rose-500 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-950">{sourcingPlanError}</p> : null}
-              {sourcingPreparationCodes.length ? <p className="mt-3 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-950">예산 정책 {sourcingPreparationCodes.length}건은 저장 시 자동 준비됩니다.</p> : null}
-              {sourcingBlockingCodes.length ? <p className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">최종 저장 전 소싱 안전조건 {sourcingBlockingCodes.length}개가 남았습니다.</p> : null}
-              {sourcingPlan?.readyForConfirmation ? <p className="mt-3 text-sm font-bold text-emerald-800">신규상품 코드 배정과 월간 Draft 추가 준비가 끝났습니다.</p> : null}
-              {sourcingPlan ? <>
-                <details className="mt-4 text-sm"><summary className="cursor-pointer font-bold text-emerald-800">소싱 후보 {sourcingPlan.allocation.selected.length}종 보기</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[780px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">후보 상품</th><th className="p-2">품질점수</th><th className="p-2">배정 방식</th><th className="p-2">MOQ / 최대 / 배정</th><th className="p-2">예상금액</th><th className="p-2">수납</th><th className="p-2">코드</th></tr></thead><tbody>{sourcingPlan.allocation.selected.map(row => <tr key={row.conceptId} className="border-t"><td className="p-2">{row.canonicalNameKo}</td><td className="p-2">{row.finalQualityScore ?? "미확인"}</td><td className="p-2">{row.tier === "CORE" ? "핵심" : row.tier === "SUPPORT" ? "안정" : "최소 테스트"}</td><td className="p-2">{row.moq} / {row.recommendedUnits} / <strong>{row.quantity}</strong></td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2 font-bold">{row.storageSize === "S" ? "소형" : row.storageSize === "L" ? "대형" : "선택 필요"}</td><td className="p-2">Draft 저장 시 빈 자리 배정</td></tr>)}</tbody></table></div>{!sourcingPlan.allocation.selected.length ? <p className="mt-3">현재 예산과 안전조건 안에서 선택할 TEST_READY 신규상품이 없습니다.</p> : null}</details>
-                <details className="mt-3 text-sm"><summary className="cursor-pointer font-bold text-slate-700">소싱 제외 후보 {sourcingPlan.allocation.excluded.length}종 확인</summary>{sourcingPlan.allocation.excluded.slice(0, 100).map(row => <p key={`${row.conceptId}:${row.reason}`} className="mt-2">{row.canonicalNameKo} · {sourcingExclusionLabels[row.reason] ?? row.reason}</p>)}</details>
-                {sourcingPlan.allocation.availableCandidates.length ? <form method="get" action="/purchase-cycle-preflight" className="mt-4 border-t border-slate-200 pt-4">
-                  <input type="hidden" name="check" value="1" />
-                  <input type="hidden" name="date" value={report.targetDate} />
-                  <input type="hidden" name="cash" value={cash} />
-                  <input type="hidden" name="sourcing" value={String(report.sourcingBudgetPercent)} />
-                  {early ? <input type="hidden" name="early" value="1" /> : null}
-                  {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
-                  {sourcingPlan.allocation.selected.length ? <fieldset id="sourcing-selection" className="mb-5 scroll-mt-5">
-                    <legend className="font-black text-slate-900">선정 상품 수납 형태</legend>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">실물 크기를 기준으로 소형 또는 대형을 직접 선택합니다. 시스템이 임의로 대형 처리하지 않습니다.</p>
-                    <div className="mt-3 grid gap-3">
-                      {sourcingPlan.allocation.selected.map(candidate => <div key={`storage:${candidate.conceptId}`} className="border-y border-slate-100 py-3">
-                        <strong className="block text-slate-900">{candidate.canonicalNameKo}</strong>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 font-bold"><input type="radio" name={`storage.${candidate.conceptId}`} value="S" defaultChecked={candidate.storageSize === "S"} required />소형 수납</label>
-                          <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 font-bold"><input type="radio" name={`storage.${candidate.conceptId}`} value="L" defaultChecked={candidate.storageSize === "L"} required />대형 수납</label>
-                        </div>
-                      </div>)}
-                    </div>
-                  </fieldset> : null}
-                  <fieldset>
-                    <legend className="font-black text-slate-900">신규상품 직접 우선선택</legend>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">체크한 후보를 먼저 배정합니다. 안전검증·MOQ·창고·예산 조건은 그대로 적용됩니다.</p>
-                    <div className="mt-3 grid gap-2">
-                      {sourcingPlan.allocation.availableCandidates.map(candidate => <label key={candidate.conceptId} className="flex items-start gap-3 border-y border-slate-100 px-1 py-2">
-                        <input className="mt-1 size-4" type="checkbox" name="source" value={candidate.conceptId} defaultChecked={preferredSourcingConceptIds.includes(candidate.conceptId)} />
-                        <span><strong>{candidate.canonicalNameKo}</strong><span className="mt-1 block text-xs text-slate-500">품질 {candidate.finalQualityScore ?? "미확인"} · MOQ {candidate.moq ?? "미확인"} · 최대 {candidate.recommendedUnits}개</span></span>
-                      </label>)}
-                    </div>
-                  </fieldset>
-                  <div className="mt-3 flex flex-wrap items-center gap-3">
-                    <button type="submit" className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-black text-white hover:bg-emerald-800">선택 저장·다시 계산</button>
-                    <Link prefetch={false} href="#manual-sourcing-intake" className="text-sm font-bold text-slate-700 underline">1688 링크로 신규상품 직접 추가</Link>
-                    <Link prefetch={false} href="/sourcing-center" className="text-sm font-bold text-slate-500 underline">소싱센터 전체 보기</Link>
-                  </div>
-                </form> : null}
-                <p className="mt-4 text-xs leading-5 text-slate-500">Draft 저장과 B코드 배정이 끝나면 상품출시 진행관리에는 ‘입고 대기’로 즉시 생성됩니다. 실제 입고확정 때 같은 카드를 갱신하며 입고 전 상품을 입고완료로 표시하지 않습니다.</p>
-              </> : null}
             </article>
           </section>
 
