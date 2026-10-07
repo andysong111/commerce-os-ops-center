@@ -74,12 +74,11 @@ function backfillItems(groups: KeywordRecommendationGroup[]) {
   return groups
     .map((group) => ({
       ...group,
-      items: group.items.filter(
-        (item) =>
-          item.selectedByEngine ||
-          item.quality === "최적" ||
-          item.quality === "추천",
-      ),
+      // Historical runs often have no final selection because SearchAd
+      // competition data was unavailable. The parser has already removed
+      // severe rejects, so retain the ten highest-ranked generated candidates
+      // and let the client label them as requiring competition re-check.
+      items: group.items.slice(0, 10),
     }))
     .filter((group) => group.items.length > 0);
 }
