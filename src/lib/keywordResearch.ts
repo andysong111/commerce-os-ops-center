@@ -99,12 +99,13 @@ function scoreOpportunity(input: {
   relevance: number;
   shoppingIntent: number;
   productCount: number | null;
+  enginePass: boolean;
 }) {
   const supplyOpportunity =
     input.productCount === null
       ? input.competitionOpportunity
       : Math.max(0, Math.min(100, 100 - Math.log10(Math.max(1, input.productCount)) * 18));
-  return Math.round(
+  const score = Math.round(
     (input.demandScore * 0.35 +
       input.competitionOpportunity * 0.25 +
       supplyOpportunity * 0.15 +
@@ -112,12 +113,14 @@ function scoreOpportunity(input: {
       input.shoppingIntent * 0.1) *
       10,
   ) / 10;
+  return input.enginePass ? score : Math.min(score, 59.9);
 }
 
 export function buildKeywordResearchRows(input: {
   seed: string;
   stats: KeywordElonSearchAdStat[];
   semanticCandidates?: KeywordElonCandidate[];
+  candidateKeywords?: string[];
   supplyByKeyword?: Record<string, number>;
 }) {
   const semanticByKeyword = new Map(
@@ -126,10 +129,12 @@ export function buildKeywordResearchRows(input: {
   const statsByKeyword = new Map(
     input.stats.map((item) => [compactKeywordElonKey(item.keyword || item.relKeyword), item]),
   );
-  const candidateKeywords = [
-    ...input.stats.map((item) => compactKeywordElonKey(item.keyword || item.relKeyword)),
-    ...(input.semanticCandidates ?? []).map((item) => compactKeywordElonKey(item.keyword)),
-  ];
+  const candidateKeywords = input.candidateKeywords?.length
+    ? input.candidateKeywords.map(compactKeywordElonKey)
+    : [
+        ...input.stats.map((item) => compactKeywordElonKey(item.keyword || item.relKeyword)),
+        ...(input.semanticCandidates ?? []).map((item) => compactKeywordElonKey(item.keyword)),
+      ];
   const seen = new Set<string>();
   const rows: KeywordResearchRow[] = [];
 
@@ -168,6 +173,7 @@ export function buildKeywordResearchRows(input: {
       relevance,
       shoppingIntent,
       productCount,
+      enginePass,
     });
     const quality: KeywordResearchQuality =
       enginePass && opportunityScore >= 78

@@ -84,6 +84,8 @@ test("research rows combine demand, competition, supply and engine semantics", (
   const broad = rows.find((row) => row.keyword === "욕실");
   assert.ok(broad);
   assert.equal(isKeywordResearchSaveable(broad), false);
+  assert.ok(broad.opportunityScore < candidate.opportunityScore);
+  assert.ok(broad.opportunityScore <= 59.9);
 });
 
 test("summary exposes the core item-scout style metrics", () => {
@@ -137,6 +139,20 @@ test("engine-generated related keywords remain visible without SearchAd demand r
   assert.equal(expanded.totalSearch, null);
   assert.equal(expanded.enginePass, true);
   assert.deepEqual(expanded.sourceTags, ["market_bridge_seed", "ai_recall_support"]);
+});
+
+test("research can restrict output to the engine-scored candidate pool", () => {
+  const rows = buildKeywordResearchRows({
+    seed: "계란펀칭기",
+    stats: [
+      stat({ keyword: "계란펀칭기", relKeyword: "계란펀칭기" }),
+      stat({ keyword: "군사", relKeyword: "군사", totalSearch: 1520 }),
+    ],
+    semanticCandidates: [],
+    candidateKeywords: ["계란펀칭기"],
+  });
+
+  assert.deepEqual(rows.map((row) => row.keyword), ["계란펀칭기"]);
 });
 
 test("keyword research is exposed in the content-keyword menu and wired end-to-end", async () => {
