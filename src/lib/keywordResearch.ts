@@ -243,6 +243,10 @@ export function keywordResearchSummary(
   };
 }
 
+export function enginePassedKeywordResearchRows(rows: KeywordResearchRow[]) {
+  return rows.filter((row) => row.enginePass).slice(0, KEYWORD_RESEARCH_RESULT_LIMIT);
+}
+
 export function isKeywordResearchSaveable(row: KeywordResearchRow) {
   return (
     row.competition === "low" &&

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState, useSyncExternalStore } from "react";
 import {
   captureKeywordOpportunities,
 } from "@/lib/keywordOpportunityLibrary";
@@ -33,18 +33,29 @@ type ResearchResponse = {
   warnings: string[];
 };
 
+type TitleResponse = {
+  ok: true;
+  action: "generate_title";
+  titleResult: {
+    title: string;
+    usedKeywords: string[];
+    byteLength: number;
+    model: string;
+    warning: string;
+  };
+};
+
 type SortKey = "opportunity" | "search" | "competition" | "products";
 type CompetitionFilter = "all" | KeywordResearchCompetition;
-type QualityFilter = "all" | "engine" | "최적" | "추천" | "검토";
 
 const HISTORY_KEY = "opsCenter.keywordResearchHistory.v1";
+const HISTORY_EVENT = "opsCenter:keywordResearchHistory";
 const SAMPLE_KEYWORDS = ["샤워기 필터", "차량용 수납함", "캠핑 파우치", "주방 선반"];
 const numberFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 
-function readHistory() {
-  if (typeof window === "undefined") return [];
+function parseHistory(snapshot: string) {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(HISTORY_KEY) ?? "[]");
+    const parsed = JSON.parse(snapshot);
     return Array.isArray(parsed)
       ? parsed.filter((value): value is string => typeof value === "string").slice(0, 8)
       : [];
@@ -53,15 +64,29 @@ function readHistory() {
   }
 }
 
+function subscribeHistory(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(HISTORY_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(HISTORY_EVENT, onChange);
+  };
+}
+
+function historySnapshot() {
+  return window.localStorage.getItem(HISTORY_KEY) ?? "[]";
+}
+
 function persistHistory(keyword: string, current: string[]) {
   const next = [keyword, ...current.filter((item) => item !== keyword)].slice(0, 8);
   window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-  return next;
+  window.dispatchEvent(new Event(HISTORY_EVENT));
 }
 
 export function KeywordResearchClient() {
   const [query, setQuery] = useState("");
-  const [history, setHistory] = useState<string[]>(readHistory);
+  const historyJson = useSyncExternalStore(subscribeHistory, historySnapshot, () => "[]");
+  const history = useMemo(() => parseHistory(historyJson), [historyJson]);
   const [result, setResult] = useState<ResearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -69,20 +94,19 @@ export function KeywordResearchClient() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [expandedKeyword, setExpandedKeyword] = useState("");
   const [competitionFilter, setCompetitionFilter] = useState<CompetitionFilter>("all");
-  const [qualityFilter, setQualityFilter] = useState<QualityFilter>("all");
   const [minimumSearch, setMinimumSearch] = useState("0");
   const [sortKey, setSortKey] = useState<SortKey>("opportunity");
+  const [titleLoading, setTitleLoading] = useState(false);
+  const [titleError, setTitleError] = useState("");
+  const [titleResult, setTitleResult] = useState<TitleResponse["titleResult"] | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
 
   const visibleRows = useMemo(() => {
     const minimum = Math.max(0, Number(minimumSearch) || 0);
     const rows = (result?.rows ?? []).filter((row) => {
+      if (!row.enginePass) return false;
       if (competitionFilter !== "all" && row.competition !== competitionFilter) return false;
-      if (qualityFilter === "engine" && !row.enginePass) return false;
-      if (
-        qualityFilter !== "all" &&
-        qualityFilter !== "engine" &&
-        row.quality !== qualityFilter
-      ) return false;
       return (row.totalSearch ?? 0) >= minimum;
     });
     return [...rows].sort((left, right) => {
@@ -93,12 +117,13 @@ export function KeywordResearchClient() {
       if (sortKey === "products") return (left.productCount ?? Infinity) - (right.productCount ?? Infinity);
       return right.opportunityScore - left.opportunityScore;
     });
-  }, [competitionFilter, minimumSearch, qualityFilter, result, sortKey]);
+  }, [competitionFilter, minimumSearch, result, sortKey]);
 
-  const saveableVisibleRows = visibleRows.filter(isKeywordResearchSaveable);
-  const allSaveableSelected =
-    saveableVisibleRows.length > 0 &&
-    saveableVisibleRows.every((row) => selected.has(row.keyword));
+  const allVisibleSelected =
+    visibleRows.length > 0 && visibleRows.every((row) => selected.has(row.keyword));
+  const selectedRows = (result?.rows ?? []).filter((row) => selected.has(row.keyword));
+  const selectedSaveableRows = selectedRows.filter(isKeywordResearchSaveable);
+  const titleSourceRows = selectedRows.length ? selectedRows : visibleRows.slice(0, 8);
 
   async function runResearch(event?: FormEvent) {
     event?.preventDefault();
@@ -112,6 +137,10 @@ export function KeywordResearchClient() {
     setSaveMessage("");
     setSelected(new Set());
     setExpandedKeyword("");
+    setTitleResult(null);
+    setDraftTitle("");
+    setTitleError("");
+    setCopyMessage("");
     try {
       const response = await fetch("/api/keyword-research", {
         method: "POST",
@@ -123,7 +152,7 @@ export function KeywordResearchClient() {
         throw new Error("message" in payload ? payload.message : "키워드 조회에 실패했습니다.");
       }
       setResult(payload);
-      setHistory((current) => persistHistory(payload.keyword, current));
+      persistHistory(payload.keyword, history);
       setExpandedKeyword(payload.rows[0]?.keyword ?? "");
     } catch (error) {
       setResult(null);
@@ -146,15 +175,49 @@ export function KeywordResearchClient() {
     });
   }
 
-  function toggleAllSaveable() {
+  function toggleAllVisible() {
     setSelected((current) => {
       const next = new Set(current);
-      for (const row of saveableVisibleRows) {
-        if (allSaveableSelected) next.delete(row.keyword);
+      for (const row of visibleRows) {
+        if (allVisibleSelected) next.delete(row.keyword);
         else next.add(row.keyword);
       }
       return next;
     });
+  }
+
+  async function generateTitle() {
+    if (!result || titleSourceRows.length === 0) return;
+    setTitleLoading(true);
+    setTitleError("");
+    setCopyMessage("");
+    try {
+      const response = await fetch("/api/keyword-research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "generate_title",
+          keyword: result.keyword,
+          rows: titleSourceRows,
+        }),
+      });
+      const payload = (await response.json()) as TitleResponse | { ok: false; message?: string };
+      if (!response.ok || !payload.ok || !("titleResult" in payload)) {
+        throw new Error("message" in payload ? payload.message : "상품명 생성에 실패했습니다.");
+      }
+      setTitleResult(payload.titleResult);
+      setDraftTitle(payload.titleResult.title);
+    } catch (error) {
+      setTitleError(error instanceof Error ? error.message : "상품명 생성에 실패했습니다.");
+    } finally {
+      setTitleLoading(false);
+    }
+  }
+
+  async function copyTitle() {
+    if (!draftTitle.trim()) return;
+    await navigator.clipboard.writeText(draftTitle.trim());
+    setCopyMessage("상품명을 복사했습니다.");
   }
 
   function saveRows(rows: KeywordResearchRow[]) {
@@ -286,11 +349,50 @@ export function KeywordResearchClient() {
             <StatCard label="최고 기회점수" value={`${result.summary.bestOpportunityScore}점`} detail="수요·경쟁·적합성 종합" tone="violet" />
           </section>
 
+          <section className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">Product name studio</p>
+                <h2 className="mt-1 text-xl font-black text-slate-950">엔진 통과 키워드로 상품명 완성</h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                  핵심 상품 정체성을 유지하고 선택 키워드만 재료로 사용해, 중복 의미와 키워드 나열을 줄인 100바이트 이하 상품명을 만듭니다.
+                </p>
+                <p className="mt-2 text-xs font-bold text-blue-700">
+                  {selectedRows.length
+                    ? `선택한 엔진 통과 키워드 ${selectedRows.length}개 사용`
+                    : `미선택 시 기회점수 상위 ${titleSourceRows.length}개 자동 사용`}
+                </p>
+              </div>
+              <button type="button" onClick={() => void generateTitle()} disabled={titleLoading || titleSourceRows.length === 0} className="shrink-0 rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:cursor-wait disabled:bg-slate-300">
+                {titleLoading ? "상품명 생성 중…" : "추천 상품명 만들기"}
+              </button>
+            </div>
+            {titleError ? <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{titleError}</p> : null}
+            {titleResult ? (
+              <div className="mt-5 rounded-xl border border-blue-100 bg-white p-4">
+                <label className="block">
+                  <span className="mb-2 block text-xs font-black text-slate-500">최종 상품명 · 직접 수정 가능</span>
+                  <textarea value={draftTitle} onChange={(event) => { setDraftTitle(event.target.value); setCopyMessage(""); }} rows={2} maxLength={100} className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-lg font-black text-slate-950 outline-none focus:border-blue-400" />
+                </label>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span className="font-black text-slate-700">{utf8Bytes(draftTitle)} / 100 bytes</span>
+                    {titleResult.usedKeywords.map((keyword) => <span key={keyword} className="rounded-full bg-blue-50 px-2.5 py-1 font-bold text-blue-700">{keyword}</span>)}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {copyMessage ? <span className="text-xs font-bold text-emerald-700">{copyMessage}</span> : null}
+                    <button type="button" onClick={() => void copyTitle()} disabled={!draftTitle.trim() || utf8Bytes(draftTitle) > 100} className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300">상품명 복사</button>
+                  </div>
+                </div>
+                {titleResult.warning ? <p className="mt-3 text-xs text-amber-700">{titleResult.warning}</p> : null}
+              </div>
+            ) : null}
+          </section>
+
           <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 border-b border-slate-200 p-4 xl:flex-row xl:items-end xl:justify-between">
-              <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid flex-1 gap-3 sm:grid-cols-3">
                 <FilterSelect label="경쟁강도" value={competitionFilter} onChange={(value) => setCompetitionFilter(value as CompetitionFilter)} options={[['all','전체'],['low','낮음'],['medium','보통'],['high','높음'],['unknown','미확인']]} />
-                <FilterSelect label="엔진 품질" value={qualityFilter} onChange={(value) => setQualityFilter(value as QualityFilter)} options={[['all','전체'],['engine','엔진 통과'],['최적','최적'],['추천','추천'],['검토','검토']]} />
                 <label className="block">
                   <span className="mb-1 block text-[11px] font-bold text-slate-500">최소 월 검색량</span>
                   <input type="number" min="0" value={minimumSearch} onChange={(event) => setMinimumSearch(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-400" />
@@ -299,8 +401,8 @@ export function KeywordResearchClient() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={exportCsv} className="rounded-lg border border-slate-200 px-3.5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">CSV</button>
-                <button type="button" disabled={selected.size === 0} onClick={() => saveRows(result.rows.filter((row) => selected.has(row.keyword) && isKeywordResearchSaveable(row)))} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-                  선택 후보 저장 {selected.size ? `${selected.size}개` : ""}
+                <button type="button" disabled={selectedSaveableRows.length === 0} onClick={() => saveRows(selectedSaveableRows)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
+                  선택 후보 저장 {selectedSaveableRows.length ? `${selectedSaveableRows.length}개` : ""}
                 </button>
                 <Link href="/keyword-opportunity-library" className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-800">소싱 후보 보관함</Link>
               </div>
@@ -313,7 +415,7 @@ export function KeywordResearchClient() {
               <table className="min-w-[1100px] w-full text-left text-sm">
                 <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="w-12 px-4 py-3"><input type="checkbox" aria-label="저장 가능한 키워드 전체 선택" checked={allSaveableSelected} onChange={toggleAllSaveable} /></th>
+                    <th className="w-12 px-4 py-3"><input type="checkbox" aria-label="현재 키워드 전체 선택" checked={allVisibleSelected} onChange={toggleAllVisible} /></th>
                     <th className="w-12 px-2 py-3">순위</th>
                     <th className="min-w-56 px-3 py-3">키워드</th>
                     <th className="px-3 py-3 text-right">월 검색량</th>
@@ -368,7 +470,7 @@ function KeywordRow({ row, rank, checked, expanded, saveable, onToggle, onExpand
   return (
     <>
       <tr className={expanded ? "bg-blue-50/40" : "hover:bg-slate-50/80"}>
-        <td className="px-4 py-3"><input type="checkbox" aria-label={`${row.keyword} 선택`} checked={checked} onChange={onToggle} disabled={!saveable} /></td>
+        <td className="px-4 py-3"><input type="checkbox" aria-label={`${row.keyword} 선택`} checked={checked} onChange={onToggle} /></td>
         <td className="px-2 py-3 font-black text-slate-400">{rank}</td>
         <td className="px-3 py-3"><button type="button" onClick={onExpand} className="text-left font-black text-slate-950 hover:text-blue-700">{row.keyword}</button><p className="mt-1 text-[11px] text-slate-400">관련성 {row.relevance.toFixed(0)} · 쇼핑의도 {row.shoppingIntent.toFixed(0)}</p></td>
         <td className="px-3 py-3 text-right font-black text-slate-900">{formatNumber(row.totalSearch)}</td>
@@ -409,4 +511,8 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function formatNumber(value: number | null) {
   return value === null ? "미확인" : numberFormatter.format(value);
+}
+
+function utf8Bytes(value: string) {
+  return new TextEncoder().encode(value).length;
 }
