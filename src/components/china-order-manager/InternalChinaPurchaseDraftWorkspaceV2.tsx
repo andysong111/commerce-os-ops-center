@@ -521,7 +521,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <span className="text-xs font-black tracking-[0.12em] text-blue-700">OPS CENTER NATIVE · BIDIRECTIONAL</span>
             <h2 className="mt-1 text-xl font-black text-slate-950">실제 1688 주문 준비</h2>
             <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
-              링크·중국옵션·단가는 이 표에서 바로 입력하고 `발주초안 저장`으로 양방향 반영합니다. 위안단가·중국내 운임은 0.01 CNY 단위로 입력하며, 옵션이 없는 상품은 중국옵션의 `단품` 버튼으로 바로 지정할 수 있습니다.
+              링크·중국옵션을 확인한 뒤 `1688 장바구니 준비`를 실행하면 권장수량을 정확히 맞추고 장바구니 이후 실제 단가와 판매자별 중국내 운임을 이 표에 기록합니다. 주문 제출과 결제는 자동 실행하지 않습니다.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -533,6 +533,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <span className="mt-0.5 block text-[11px] text-emerald-700">실주문 원가 × 내부 주문 수수료율 {draft.internalOrderCostMultiplier.toFixed(2)}</span>
             </div>
             <a href="https://commerce-os-product-master.vercel.app/purchase-metadata" target="_blank" rel="noreferrer" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-800 hover:bg-slate-50">상품마스터 최신 원장</a>
+            <a href={`http://127.0.0.1:43121/?draftId=${encodeURIComponent(draft.draftId)}`} target="_blank" rel="noreferrer" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100">1688 장바구니 준비</a>
             <button type="button" onClick={() => void saveDraft()} disabled={saving || draft.status !== "DRAFT"} className="rounded-xl border border-blue-300 bg-white px-4 py-2.5 text-sm font-black text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "양방향 저장 중..." : "발주초안 저장"}</button>
             <button type="button" onClick={() => void markOrdered()} disabled={ordering || draft.status !== "DRAFT" || requiredIssues.length > 0} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">{draft.status === "ORDERED" ? "실주문 기록완료" : ordering ? "기록 중..." : "1688 주문완료 후 기록"}</button>
           </div>
