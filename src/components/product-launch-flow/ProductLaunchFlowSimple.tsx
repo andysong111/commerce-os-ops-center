@@ -35,6 +35,7 @@ import {
   type KeywordRecommendationGroup,
   type KeywordRecommendationItem,
 } from "@/lib/productLaunchKeywordRecommendations";
+import { captureKeywordOpportunities } from "@/lib/keywordOpportunityLibrary";
 import {
   clearProductLaunchSimpleSession,
   isSuccessfulSimpleUploadResult,
@@ -223,7 +224,7 @@ export function ProductLaunchFlowSimple() {
       Array.isArray(recommendationResult?.recommendations)
         ? recommendationResult.recommendations
         : [],
-    [recommendationResult?.recommendations],
+    [recommendationResult],
   );
   const recommendationByGoodsKey = useMemo(
     () =>
@@ -354,6 +355,26 @@ export function ProductLaunchFlowSimple() {
     uploadPolls,
     uploadRequestId,
     uploadResult,
+  ]);
+
+  useEffect(() => {
+    if (
+      !hydrated ||
+      !isRecommendationReady ||
+      !recommendationRequestId ||
+      !recommendationResult?.recommendations?.length
+    ) {
+      return;
+    }
+    captureKeywordOpportunities(window.localStorage, {
+      requestId: recommendationRequestId,
+      groups: recommendationResult.recommendations,
+    });
+  }, [
+    hydrated,
+    isRecommendationReady,
+    recommendationRequestId,
+    recommendationResult?.recommendations,
   ]);
 
   const reviewedRows = useCallback(() => {
@@ -1104,6 +1125,13 @@ export function ProductLaunchFlowSimple() {
               <p className="mt-1 text-sm text-slate-600">
                 초록색은 엔진 최적 키워드, 파란색은 품질 추천 키워드, 노란색은 추가 확인 후 선택할 후보입니다.
               </p>
+              <p className="mt-2 text-xs font-semibold text-violet-700">
+                경쟁강도 낮음 + 최적/추천 후보는{" "}
+                <Link href="/keyword-opportunity-library" className="underline">
+                  키워드 소싱 후보
+                </Link>
+                에 자동 기록됩니다.
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -1221,6 +1249,9 @@ export function ProductLaunchFlowSimple() {
                               {item.quality}
                               {item.totalSearch
                                 ? ` · ${item.totalSearch.toLocaleString()}`
+                                : ""}
+                              {item.competitionIndex
+                                ? ` · 경쟁 ${item.competitionIndex}`
                                 : ""}
                             </span>
                           </button>

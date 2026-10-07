@@ -25,8 +25,13 @@ export const OPS_WORKSPACE_GROUPS: readonly OpsWorkspaceGroup[] = [
     shortLabel: "소싱·발주",
     iconLabel: "발",
     description: "상품 후보를 고르고 발주수량·단종 여부를 판단한 뒤 중국 주문을 관리합니다.",
-    moduleIds: ["sourcing-engine", "product-decision-agent", "china-order-cost"],
-    searchTerms: ["소싱", "1688", "발주", "주문", "단종", "입고원가"],
+    moduleIds: [
+      "keyword-opportunity-library",
+      "sourcing-engine",
+      "product-decision-agent",
+      "china-order-cost",
+    ],
+    searchTerms: ["소싱", "키워드 후보", "경쟁강도", "1688", "발주", "주문", "단종", "입고원가"],
   },
   {
     id: "warehouse-inbound",
@@ -201,13 +206,13 @@ const COMMAND_INTENTS: readonly (OpsCommandIntent & { patterns: readonly RegExp[
   {
     label: "발주 판단",
     reason: "발주수량·재주문·단종 판단 관련 표현을 인식했습니다.",
-    moduleIds: ["product-decision-agent", "sourcing-engine", "china-order-cost"],
+    moduleIds: ["keyword-opportunity-library", "product-decision-agent", "sourcing-engine", "china-order-cost"],
     patterns: [/발주/, /재주문/, /단종/, /소싱/, /1688/],
   },
   {
     label: "키워드·상품명",
     reason: "키워드·검색어·상품명 작업 관련 표현을 인식했습니다.",
-    moduleIds: ["keyword-engine", "keyword-review-queue", "product-launch-flow"],
+    moduleIds: ["keyword-opportunity-library", "keyword-engine", "keyword-review-queue", "product-launch-flow"],
     patterns: [/키워드/, /검색어/, /상품명/],
   },
   {

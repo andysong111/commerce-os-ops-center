@@ -143,6 +143,7 @@ jobs:
       - name: Test tracker-connected product launch flow
         run: >-
           node --experimental-strip-types --test
+          tests/keywordOpportunityLibrary.test.mjs
           tests/productLaunchTrackerRows.test.mjs
           tests/productLaunchTrackerBarcodeMapping.test.mjs
           tests/productLaunchTrackerFlowConnection.test.mjs

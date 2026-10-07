@@ -39,6 +39,8 @@ import {
   formatKeywordExecutionPreflightLabels,
   type KeywordExecutionPreflightResult,
 } from "@/lib/keywordReviewExecutionPreflight";
+import { captureKeywordOpportunities } from "@/lib/keywordOpportunityLibrary";
+import { parseKeywordRecommendationArtifact } from "@/lib/productLaunchKeywordRecommendations";
 
 const APPLY_RESULT_LABELS: Record<string, string> = {
   goods_key: "상품번호",
@@ -264,6 +266,24 @@ export function KeywordReviewWorkspace({ mode = "standalone", launchContext, onA
   const [exceptionOnly, setExceptionOnly] = useState(true);
   const [partialApplyOverride, setPartialApplyOverride] = useState(false);
   const autoEmbeddedPrepareRef = useRef("");
+
+  useEffect(() => {
+    if (!importedArtifact?.files) return;
+    const parsed = parseKeywordRecommendationArtifact(importedArtifact.files);
+    const sourceId =
+      parsed.requestId ||
+      (importedArtifact.source?.runId
+        ? `keyword-engine-run-${importedArtifact.source.runId}`
+        : importedArtifact.source?.artifactId
+          ? `keyword-engine-artifact-${importedArtifact.source.artifactId}`
+          : "");
+    if (!sourceId) return;
+    captureKeywordOpportunities(window.localStorage, {
+      requestId: sourceId,
+      groups: parsed.groups,
+    });
+  }, [importedArtifact]);
+
   function loadImportedArtifact() {
     if (!importedArtifact?.files) return;
     setApprovalCsv(
