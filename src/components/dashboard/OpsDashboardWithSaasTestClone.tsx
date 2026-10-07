@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { OpsDashboard } from "@/components/dashboard/OpsDashboard";
 import type { CommerceModule } from "@/lib/moduleRegistry";
 import { getWorkspaceGroupById } from "@/lib/opsWorkspace";
 
 const FAVORITES_KEY = "opsCenter.dashboard.favorites.v1";
+const FAVORITES_EVENT = "ops-center-dashboard-favorites-updated";
 const CONTENT_MODULE_IDS = [
+  "keyword-research",
   "detail-page-studio",
   "detail-page-studio-saas-test",
   "detail-page-studio-saas-test-260807",
@@ -16,6 +18,28 @@ const CONTENT_MODULE_IDS = [
   "keyword-review-queue",
 ] as const;
 const ENABLED = new Set(["available", "runner_scaffold", "check_mode"]);
+
+function subscribeFavorites(callback: () => void) {
+  window.addEventListener("storage", callback);
+  window.addEventListener(FAVORITES_EVENT, callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener(FAVORITES_EVENT, callback);
+  };
+}
+
+function favoritesSnapshot() {
+  return window.localStorage.getItem(FAVORITES_KEY) || "[]";
+}
+
+function parseFavorites(raw: string) {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function OpsDashboardWithSaasTestClone({
   modules,
@@ -40,25 +64,19 @@ function ContentKeywordGroup({ modules }: { modules: readonly CommerceModule[] }
   const groupModules = CONTENT_MODULE_IDS.map((id) => moduleById.get(id)).filter(
     (module): module is CommerceModule => Boolean(module),
   );
-  const [favorites, setFavorites] = useState<string[]>([]);
-
-  useEffect(() => {
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(FAVORITES_KEY) || "[]");
-      setFavorites(Array.isArray(parsed) ? parsed.map(String) : []);
-    } catch {
-      setFavorites([]);
-    }
-  }, []);
+  const favoritesRaw = useSyncExternalStore(
+    subscribeFavorites,
+    favoritesSnapshot,
+    () => "[]",
+  );
+  const favorites = useMemo(() => parseFavorites(favoritesRaw), [favoritesRaw]);
 
   function toggleFavorite(moduleId: string) {
-    setFavorites((current) => {
-      const next = current.includes(moduleId)
-        ? current.filter((id) => id !== moduleId)
-        : [moduleId, ...current];
-      window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
-      return next;
-    });
+    const next = favorites.includes(moduleId)
+      ? favorites.filter((id) => id !== moduleId)
+      : [moduleId, ...favorites];
+    window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
+    window.dispatchEvent(new Event(FAVORITES_EVENT));
   }
 
   return (
