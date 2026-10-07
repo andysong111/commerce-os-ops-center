@@ -199,6 +199,7 @@ export function KeywordResearchClient() {
           action: "generate_title",
           keyword: result.keyword,
           rows: titleSourceRows,
+          mode: selectedRows.length ? "selected" : "auto",
         }),
       });
       const payload = (await response.json()) as TitleResponse | { ok: false; message?: string };
@@ -360,7 +361,7 @@ export function KeywordResearchClient() {
                 <p className="mt-2 text-xs font-bold text-blue-700">
                   {selectedRows.length
                     ? `선택한 엔진 통과 키워드 ${selectedRows.length}개 사용`
-                    : `미선택 시 기회점수 상위 ${titleSourceRows.length}개 자동 사용`}
+                    : `미선택 시 상위 ${titleSourceRows.length}개를 분석해 비중복 재료 최대 3개 자동 반영`}
                 </p>
               </div>
               <button type="button" onClick={() => void generateTitle()} disabled={titleLoading || titleSourceRows.length === 0} className="shrink-0 rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:cursor-wait disabled:bg-slate-300">

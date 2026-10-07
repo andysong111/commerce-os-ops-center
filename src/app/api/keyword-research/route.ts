@@ -14,10 +14,11 @@ export async function POST(request: Request) {
       action?: unknown;
       keyword?: unknown;
       rows?: unknown;
+      mode?: unknown;
     };
     if (body.action === "generate_title") {
       return NextResponse.json(
-        await generateKeywordResearchTitle(body.keyword, body.rows),
+        await generateKeywordResearchTitle(body.keyword, body.rows, body.mode),
       );
     }
     const result = await researchKeyword(body.keyword);
