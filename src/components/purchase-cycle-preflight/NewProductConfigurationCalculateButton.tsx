@@ -18,11 +18,15 @@ export function NewProductConfigurationCalculateButton({ formId, manualFormId }:
 
     const manualForm = document.getElementById(manualFormId);
     if (manualForm instanceof HTMLFormElement) {
+      if (manualForm.getAttribute("aria-busy") === "true") {
+        setError("수동상품 후보를 추가하고 있습니다. 일괄 추가가 끝난 뒤 계산하세요.");
+        return;
+      }
       const manualValues = new FormData(manualForm);
       const hasUnsavedManualProduct = [...manualValues.values()].some((value) => typeof value === "string" && value.trim() !== "");
       if (hasUnsavedManualProduct) {
-        setError("작성 중인 수동상품이 있습니다. 먼저 ‘수동 후보 목록에 추가’를 누르세요.");
-        manualForm.querySelector<HTMLInputElement>("[name='sourceUrl']")?.focus();
+        setError("작성 중인 수동상품이 있습니다. 먼저 ‘입력한 상품 후보 목록에 추가’를 누르세요.");
+        manualForm.querySelector<HTMLInputElement>("[data-manual-source-url]")?.focus();
         return;
       }
     }
