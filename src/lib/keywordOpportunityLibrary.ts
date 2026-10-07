@@ -10,7 +10,7 @@ export const KEYWORD_OPPORTUNITY_UPDATED_EVENT =
   "keyword-opportunity-library-updated";
 export const KEYWORD_OPPORTUNITY_MAX_ITEMS = 500;
 export const KEYWORD_OPPORTUNITY_HISTORY_BACKFILL_KEY =
-  "opsCenter.keywordOpportunityHistoryBackfill.v1";
+  "opsCenter.keywordOpportunityHistoryBackfill.v2";
 
 export type KeywordOpportunityStatus =
   | "new"

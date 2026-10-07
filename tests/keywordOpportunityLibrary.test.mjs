@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  KEYWORD_OPPORTUNITY_HISTORY_BACKFILL_KEY,
   KEYWORD_OPPORTUNITY_STORAGE_KEY,
   captureHistoricalKeywordOpportunities,
   captureKeywordOpportunities,
@@ -53,6 +54,10 @@ function item(overrides = {}) {
 }
 
 test("only low-competition optimized or recommended engine results enter the sourcing library", () => {
+  assert.equal(
+    KEYWORD_OPPORTUNITY_HISTORY_BACKFILL_KEY,
+    "opsCenter.keywordOpportunityHistoryBackfill.v2",
+  );
   const storage = memoryStorage();
   const result = captureKeywordOpportunities(storage, {
     requestId: "keyword-run-001",
