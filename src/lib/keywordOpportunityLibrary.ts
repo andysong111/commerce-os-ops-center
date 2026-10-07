@@ -345,11 +345,7 @@ function isHistoricalOpportunityCandidate(item: KeywordRecommendationItem) {
     return item.quality === "최적" || item.quality === "추천";
   }
   if (!isMissingCompetitionIndex(item.competitionIndex)) return false;
-  return (
-    item.selectedByEngine === true ||
-    item.quality === "최적" ||
-    item.quality === "추천"
-  );
+  return true;
 }
 
 export function captureHistoricalKeywordOpportunities(

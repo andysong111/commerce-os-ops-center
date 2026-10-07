@@ -90,7 +90,7 @@ test("historical engine keywords with missing competition data are restored for 
             keyword: "여행용샤워필터",
             competitionIndex: "",
             quality: "검토",
-            selectedByEngine: true,
+            selectedByEngine: false,
             safeAutoApply: false,
             totalSearch: 0,
           }),
@@ -224,5 +224,6 @@ test("keyword opportunity library is exposed as a sourcing menu and product laun
   assert.match(backfillHelper, /listWorkflowRuns/);
   assert.match(backfillHelper, /expectedArtifactName/);
   assert.match(backfillHelper, /parseKeywordRecommendationArtifact/);
+  assert.match(backfillHelper, /items: group\.items\.slice\(0, 10\)/);
   assert.match(backfillRoute, /GITHUB_ENGINE_DISPATCH_TOKEN/);
 });
