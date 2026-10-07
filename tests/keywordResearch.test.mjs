@@ -95,6 +95,50 @@ test("summary exposes the core item-scout style metrics", () => {
   assert.ok(summary.bestOpportunityScore > 0);
 });
 
+test("engine-generated related keywords remain visible without SearchAd demand rows", () => {
+  const rows = buildKeywordResearchRows({
+    seed: "계란펀칭기",
+    stats: [stat({
+      keyword: "계란펀칭기",
+      relKeyword: "계란펀칭기",
+      totalSearch: 330,
+      pcSearch: 40,
+      mobileSearch: 290,
+    })],
+    semanticCandidates: [
+      {
+        keyword: "계란껍질깨기",
+        searchKey: "계란껍질깨기",
+        searchKeyword: "계란껍질깨기",
+        relevance: 92,
+        shoppingIntent: 88,
+        specificity: 86,
+        titleEligible: true,
+        rationale: "동일 상품군 확장 후보",
+        sourceTags: ["market_bridge_seed", "ai_recall_support"],
+        totalSearch: null,
+        pcSearch: null,
+        mobileSearch: null,
+        compIdx: null,
+        plAvgDepth: null,
+        demandScore: 40,
+        competitionOpportunity: 55,
+        qualityScore: 78,
+        safetyPass: true,
+        safetyReason: "통과",
+        dataConfidence: "medium",
+      },
+    ],
+  });
+
+  assert.equal(rows.length, 2);
+  const expanded = rows.find((row) => row.keyword === "계란껍질깨기");
+  assert.ok(expanded);
+  assert.equal(expanded.totalSearch, null);
+  assert.equal(expanded.enginePass, true);
+  assert.deepEqual(expanded.sourceTags, ["market_bridge_seed", "ai_recall_support"]);
+});
+
 test("keyword research is exposed in the content-keyword menu and wired end-to-end", async () => {
   const researchModule = moduleRegistry.find((candidate) => candidate.id === "keyword-research");
   assert.equal(researchModule?.route, "/keyword-research");
@@ -112,7 +156,8 @@ test("keyword research is exposed in the content-keyword menu and wired end-to-e
   assert.match(client, /captureKeywordOpportunities/);
   assert.match(client, /기회점수/);
   assert.match(route, /researchKeyword/);
-  assert.match(server, /discoverKeywordElonSearchAd/);
+  assert.match(server, /discoverKeywordElonCandidatesResilient/);
+  assert.match(server, /enrichKeywordElonDemand/);
   assert.match(server, /scoreKeywordElonCandidatesBatched/);
   assert.match(server, /NAVER_SHOPPING_SEARCH_URL/);
   assert.match(contentMenu, /"keyword-research"/);

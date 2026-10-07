@@ -21,6 +21,9 @@ type ResearchResponse = {
   rows: KeywordResearchRow[];
   engine: {
     searchAdConfigured: boolean;
+    discoveredCandidateCount: number;
+    aiGeneratedCount: number;
+    marketEvidenceCount: number;
     semanticModel: string;
     semanticScoringApplied: boolean;
     shoppingSupplyApplied: boolean;
@@ -263,7 +266,7 @@ export function KeywordResearchClient() {
           ))}
         </div>
         <p className="mt-4 text-xs leading-5 text-slate-400">
-          SearchAd 연관어와 수요·경쟁 데이터를 수집한 뒤 AI 의미 적합성 Gate와 상품 수를 함께 계산합니다. 분석에는 최대 약 1분이 걸릴 수 있습니다.
+          상품출시 키워드 엔진과 동일하게 Market Bridge·시장 증거어·AI 후보·다중 Seed SearchAd를 끝까지 확장한 뒤, 전체 후보를 기회점수순으로 펼칩니다. 분석에는 최대 약 3분이 걸릴 수 있습니다.
         </p>
       </section>
 
@@ -277,7 +280,7 @@ export function KeywordResearchClient() {
         <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <StatCard label="기준 키워드 검색량" value={formatNumber(result.summary.seedSearchVolume)} detail={result.keyword} />
-            <StatCard label="연관 키워드" value={`${result.summary.keywordCount}개`} detail={`탐색 ${result.engine.explorationDepth}단계`} />
+            <StatCard label="연관 키워드" value={`${result.summary.keywordCount}개`} detail={`엔진 후보 ${result.engine.discoveredCandidateCount}개 · 탐색 ${result.engine.explorationDepth}단계`} />
             <StatCard label="경쟁 낮음" value={`${result.summary.lowCompetitionCount}개`} detail="SearchAd 경쟁지수" tone="emerald" />
             <StatCard label="엔진 통과" value={`${result.summary.enginePassCount}개`} detail="의미·쇼핑의도 Gate" tone="blue" />
             <StatCard label="최고 기회점수" value={`${result.summary.bestOpportunityScore}점`} detail="수요·경쟁·적합성 종합" tone="violet" />
