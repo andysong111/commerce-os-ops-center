@@ -168,6 +168,7 @@ export async function researchKeyword(rawKeyword: unknown) {
     seed: keyword,
     stats: discovery.searchAdStats,
     semanticCandidates: semantic.candidates,
+    candidateKeywords: discovery.candidates,
   });
   const supplyTargets = firstRows
     .slice(0, KEYWORD_RESEARCH_SUPPLY_LIMIT)
@@ -177,6 +178,7 @@ export async function researchKeyword(rawKeyword: unknown) {
     seed: keyword,
     stats: discovery.searchAdStats,
     semanticCandidates: semantic.candidates,
+    candidateKeywords: discovery.candidates,
     supplyByKeyword,
   }).slice(0, KEYWORD_RESEARCH_RESULT_LIMIT);
 
