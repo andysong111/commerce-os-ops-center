@@ -20,6 +20,10 @@ import { discoverKeywordElonCandidatesResilient } from "./keywordEngineElonLabV2
 import { enrichKeywordElonDemand } from "./keywordEngineElonLabV2DemandEnrichment";
 import { scoreKeywordElonCandidatesBatched } from "./keywordEngineElonLabV2Scoring";
 import { generateKeywordElonTitle } from "./keywordEngineElonLabV2Server";
+import {
+  composeKeywordResearchTitle,
+  keywordResearchTitleCoverage,
+} from "./keywordResearchTitle";
 
 const NAVER_SHOPPING_SEARCH_URL = "https://openapi.naver.com/v1/search/shop.json";
 
@@ -225,7 +229,11 @@ function nullableNumber(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
-export async function generateKeywordResearchTitle(rawKeyword: unknown, rawRows: unknown) {
+export async function generateKeywordResearchTitle(
+  rawKeyword: unknown,
+  rawRows: unknown,
+  rawMode: unknown = "auto",
+) {
   const keyword = normalizeKeywordResearchInput(rawKeyword);
   if (keyword.length < 2) throw new Error("상품명 생성 기준 키워드가 올바르지 않습니다.");
   if (!Array.isArray(rawRows)) throw new Error("상품명에 사용할 키워드를 선택해 주세요.");
@@ -277,16 +285,44 @@ export async function generateKeywordResearchTitle(rawKeyword: unknown, rawRows:
     throw new Error("엔진 통과 키워드를 한 개 이상 선택해 주세요.");
   }
 
+  const mode = rawMode === "selected" ? "selected" : "auto";
+  const fallback = composeKeywordResearchTitle({
+    seed: keyword,
+    mode,
+    materials: candidates.map((row) => ({
+      keyword: row.keyword,
+      relevance: row.relevance,
+      shoppingIntent: row.shoppingIntent,
+      specificity: row.specificity,
+      opportunityScore: row.qualityScore,
+      enginePass: row.safetyPass,
+    })),
+  });
+
   const titleResult = await generateKeywordElonTitle({
     source: sourceFor(keyword),
     identity: identityFor(keyword),
     candidates,
     cutoff: 0,
   });
+  const requiredCoverage = fallback.usedKeywords.length;
+  const actualCoverage = keywordResearchTitleCoverage(
+    titleResult.title,
+    fallback.usedKeywords,
+  );
+  const repairedTitleResult = actualCoverage >= requiredCoverage
+    ? titleResult
+    : {
+        ...fallback,
+        model: `${titleResult.model}+keyword_coverage_repair`,
+        warning: [titleResult.warning, "상품명 재료 반영 부족을 엔진이 자동 보정했습니다."]
+          .filter(Boolean)
+          .join(" · "),
+      };
 
   return {
     ok: true as const,
     action: "generate_title" as const,
-    titleResult,
+    titleResult: repairedTitleResult,
   };
 }
