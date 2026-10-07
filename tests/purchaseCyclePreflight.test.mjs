@@ -454,7 +454,10 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(sourcingForm, /required/);
   assert.doesNotMatch(sourcingForm, /type="submit"/);
   assert.match(finalCalculate, /new FormData\(configurationForm\)/);
+  assert.match(finalCalculate, /manualForm\.getAttribute\("aria-busy"\) === "true"/);
+  assert.match(finalCalculate, /일괄 추가가 끝난 뒤 계산하세요/);
   assert.match(finalCalculate, /작성 중인 수동상품이 있습니다/);
+  assert.match(finalCalculate, /data-manual-source-url/);
   assert.match(finalCalculate, /신규상품 구성 완료 · 발주안 한 번 계산/);
   assert.match(finalCalculate, /최종 발주안 계산 중/);
 });

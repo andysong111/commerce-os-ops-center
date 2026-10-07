@@ -27,7 +27,7 @@ test("reserved sourcing creates an inbound-pending launch card and receipt updat
   assert.match(materialization, /SOURCING_LAUNCH_RECEIPT_IDEMPOTENCY_CONFLICT/);
 });
 
-test("manual sourcing UI requires link, product name and an explicit storage choice", async () => {
+test("manual sourcing UI batches repeated product rows with explicit storage choices", async () => {
   const [form, route, proxy] = await Promise.all([
     source("../src/components/sourcing-center/ManualProductIntakeForm.tsx"),
     source("../src/app/api/sourcing-center/manual-product/route.ts"),
@@ -35,8 +35,14 @@ test("manual sourcing UI requires link, product name and an explicit storage cho
   ]);
   assert.match(form, /name="sourceUrl"/);
   assert.match(form, /name="productName"/);
-  assert.match(form, /name="storageSize" value="S" required/);
-  assert.match(form, /name="storageSize" value="L" required/);
+  assert.match(form, /name=\{`storageSize\.\$\{row\.id\}`\}/);
+  assert.match(form, /value="S" checked=\{row\.storageSize === "S"\}/);
+  assert.match(form, /value="L" checked=\{row\.storageSize === "L"\}/);
+  assert.match(form, /입력항목\(상품\) 추가/);
+  assert.match(form, /aria-busy=\{busy\}/);
+  assert.match(form, /submittedRows\.length/);
+  assert.match(form, /failedRows\.length \? failedRows/);
+  assert.match(form, /실패한 입력만 남겨두었습니다/);
   assert.match(form, /embedded = false/);
   assert.match(form, /embedded\s*\?\s*<h3/);
   assert.match(form, /calculationFormId/);
@@ -44,8 +50,9 @@ test("manual sourcing UI requires link, product name and an explicit storage cho
   assert.match(form, /form=\{calculationFormId\}/);
   assert.match(form, /계산 목록 식별값을 확인하지 못했습니다/);
   assert.match(form, /아직 발주안은 계산하지 않았습니다/);
-  assert.match(form, /수동 후보 목록에 추가/);
+  assert.match(form, /입력한 상품 \$\{rows\.length\}종 후보 목록에 추가/);
   assert.match(form, /주문·결제를 실행하지 않습니다/);
+  assert.match(form, /disabled=\{busy\}/);
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(proxy, /x-commerce-os-integration-secret/);
   assert.match(proxy, /x-vercel-protection-bypass/);
