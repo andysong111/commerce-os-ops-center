@@ -33,18 +33,6 @@ type ResearchResponse = {
   warnings: string[];
 };
 
-type TitleResponse = {
-  ok: true;
-  action: "generate_title";
-  titleResult: {
-    title: string;
-    usedKeywords: string[];
-    byteLength: number;
-    model: string;
-    warning: string;
-  };
-};
-
 type SortKey = "opportunity" | "search" | "competition" | "products";
 type CompetitionFilter = "all" | KeywordResearchCompetition;
 
@@ -96,11 +84,6 @@ export function KeywordResearchClient() {
   const [competitionFilter, setCompetitionFilter] = useState<CompetitionFilter>("all");
   const [minimumSearch, setMinimumSearch] = useState("0");
   const [sortKey, setSortKey] = useState<SortKey>("opportunity");
-  const [titleLoading, setTitleLoading] = useState(false);
-  const [titleError, setTitleError] = useState("");
-  const [titleResult, setTitleResult] = useState<TitleResponse["titleResult"] | null>(null);
-  const [draftTitle, setDraftTitle] = useState("");
-  const [copyMessage, setCopyMessage] = useState("");
 
   const visibleRows = useMemo(() => {
     const minimum = Math.max(0, Number(minimumSearch) || 0);
@@ -123,7 +106,6 @@ export function KeywordResearchClient() {
     visibleRows.length > 0 && visibleRows.every((row) => selected.has(row.keyword));
   const selectedRows = (result?.rows ?? []).filter((row) => selected.has(row.keyword));
   const selectedSaveableRows = selectedRows.filter(isKeywordResearchSaveable);
-  const titleSourceRows = selectedRows.length ? selectedRows : visibleRows.slice(0, 8);
 
   async function runResearch(event?: FormEvent) {
     event?.preventDefault();
@@ -137,10 +119,6 @@ export function KeywordResearchClient() {
     setSaveMessage("");
     setSelected(new Set());
     setExpandedKeyword("");
-    setTitleResult(null);
-    setDraftTitle("");
-    setTitleError("");
-    setCopyMessage("");
     try {
       const response = await fetch("/api/keyword-research", {
         method: "POST",
@@ -184,41 +162,6 @@ export function KeywordResearchClient() {
       }
       return next;
     });
-  }
-
-  async function generateTitle() {
-    if (!result || titleSourceRows.length === 0) return;
-    setTitleLoading(true);
-    setTitleError("");
-    setCopyMessage("");
-    try {
-      const response = await fetch("/api/keyword-research", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "generate_title",
-          keyword: result.keyword,
-          rows: titleSourceRows,
-          mode: selectedRows.length ? "selected" : "auto",
-        }),
-      });
-      const payload = (await response.json()) as TitleResponse | { ok: false; message?: string };
-      if (!response.ok || !payload.ok || !("titleResult" in payload)) {
-        throw new Error("message" in payload ? payload.message : "상품명 생성에 실패했습니다.");
-      }
-      setTitleResult(payload.titleResult);
-      setDraftTitle(payload.titleResult.title);
-    } catch (error) {
-      setTitleError(error instanceof Error ? error.message : "상품명 생성에 실패했습니다.");
-    } finally {
-      setTitleLoading(false);
-    }
-  }
-
-  async function copyTitle() {
-    if (!draftTitle.trim()) return;
-    await navigator.clipboard.writeText(draftTitle.trim());
-    setCopyMessage("상품명을 복사했습니다.");
   }
 
   function saveRows(rows: KeywordResearchRow[]) {
@@ -350,46 +293,6 @@ export function KeywordResearchClient() {
             <StatCard label="최고 기회점수" value={`${result.summary.bestOpportunityScore}점`} detail="수요·경쟁·적합성 종합" tone="violet" />
           </section>
 
-          <section className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-5 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">Product name studio</p>
-                <h2 className="mt-1 text-xl font-black text-slate-950">엔진 통과 키워드로 상품명 완성</h2>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                  핵심 상품 정체성을 유지하고 선택 키워드만 재료로 사용해, 중복 의미와 키워드 나열을 줄인 100바이트 이하 상품명을 만듭니다.
-                </p>
-                <p className="mt-2 text-xs font-bold text-blue-700">
-                  {selectedRows.length
-                    ? `선택한 엔진 통과 키워드 ${selectedRows.length}개 사용`
-                    : `미선택 시 상위 ${titleSourceRows.length}개를 분석해 비중복 재료 최대 3개 자동 반영`}
-                </p>
-              </div>
-              <button type="button" onClick={() => void generateTitle()} disabled={titleLoading || titleSourceRows.length === 0} className="shrink-0 rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:cursor-wait disabled:bg-slate-300">
-                {titleLoading ? "상품명 생성 중…" : "추천 상품명 만들기"}
-              </button>
-            </div>
-            {titleError ? <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{titleError}</p> : null}
-            {titleResult ? (
-              <div className="mt-5 rounded-xl border border-blue-100 bg-white p-4">
-                <label className="block">
-                  <span className="mb-2 block text-xs font-black text-slate-500">최종 상품명 · 직접 수정 가능</span>
-                  <textarea value={draftTitle} onChange={(event) => { setDraftTitle(event.target.value); setCopyMessage(""); }} rows={2} maxLength={100} className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-lg font-black text-slate-950 outline-none focus:border-blue-400" />
-                </label>
-                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                    <span className="font-black text-slate-700">{utf8Bytes(draftTitle)} / 100 bytes</span>
-                    {titleResult.usedKeywords.map((keyword) => <span key={keyword} className="rounded-full bg-blue-50 px-2.5 py-1 font-bold text-blue-700">{keyword}</span>)}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {copyMessage ? <span className="text-xs font-bold text-emerald-700">{copyMessage}</span> : null}
-                    <button type="button" onClick={() => void copyTitle()} disabled={!draftTitle.trim() || utf8Bytes(draftTitle) > 100} className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300">상품명 복사</button>
-                  </div>
-                </div>
-                {titleResult.warning ? <p className="mt-3 text-xs text-amber-700">{titleResult.warning}</p> : null}
-              </div>
-            ) : null}
-          </section>
-
           <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 border-b border-slate-200 p-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="grid flex-1 gap-3 sm:grid-cols-3">
@@ -512,8 +415,4 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function formatNumber(value: number | null) {
   return value === null ? "미확인" : numberFormatter.format(value);
-}
-
-function utf8Bytes(value: string) {
-  return new TextEncoder().encode(value).length;
 }
