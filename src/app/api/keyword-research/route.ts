@@ -3,7 +3,7 @@ import { researchKeyword } from "@/lib/keywordResearchServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 500;
 
 export async function POST(request: Request) {
   try {

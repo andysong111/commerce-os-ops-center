@@ -7,7 +7,10 @@ import {
   type KeywordElonSearchAdStat,
 } from "./keywordEngineElonLabV2.ts";
 
-export const KEYWORD_RESEARCH_RESULT_LIMIT = 40;
+// The production keyword engine caps discovery at 500 candidates. Keep the
+// research view aligned with that ceiling so rare seeds are not reduced to a
+// short preview after the engine has already done the expansion work.
+export const KEYWORD_RESEARCH_RESULT_LIMIT = 500;
 export const KEYWORD_RESEARCH_SUPPLY_LIMIT = 12;
 
 export type KeywordResearchCompetition = "low" | "medium" | "high" | "unknown";
@@ -120,14 +123,21 @@ export function buildKeywordResearchRows(input: {
   const semanticByKeyword = new Map(
     (input.semanticCandidates ?? []).map((item) => [compactKeywordElonKey(item.keyword), item]),
   );
+  const statsByKeyword = new Map(
+    input.stats.map((item) => [compactKeywordElonKey(item.keyword || item.relKeyword), item]),
+  );
+  const candidateKeywords = [
+    ...input.stats.map((item) => compactKeywordElonKey(item.keyword || item.relKeyword)),
+    ...(input.semanticCandidates ?? []).map((item) => compactKeywordElonKey(item.keyword)),
+  ];
   const seen = new Set<string>();
   const rows: KeywordResearchRow[] = [];
 
-  for (const stat of input.stats) {
-    const keyword = compactKeywordElonKey(stat.keyword || stat.relKeyword);
+  for (const keyword of candidateKeywords) {
     if (!keyword || seen.has(keyword)) continue;
     seen.add(keyword);
     const semantic = semanticByKeyword.get(keyword);
+    const stat = statsByKeyword.get(keyword);
     const fallback = fallbackSemantic(input.seed, keyword);
     const relevance = semantic?.relevance ?? fallback.relevance;
     const shoppingIntent = semantic?.shoppingIntent ?? fallback.shoppingIntent;
@@ -136,20 +146,25 @@ export function buildKeywordResearchRows(input: {
       relevance,
       shoppingIntent,
       specificity,
-      totalSearch: stat.totalSearch,
-      compIdx: stat.compIdx,
-      plAvgDepth: stat.plAvgDepth,
+      totalSearch: stat?.totalSearch ?? semantic?.totalSearch ?? null,
+      compIdx: stat?.compIdx ?? semantic?.compIdx ?? null,
+      plAvgDepth: stat?.plAvgDepth ?? semantic?.plAvgDepth ?? null,
     });
-    const competition = keywordResearchCompetition(stat.compIdx);
+    const competition = keywordResearchCompetition(stat?.compIdx ?? semantic?.compIdx);
     const productCount = input.supplyByKeyword?.[keyword] ?? null;
     const enginePass = semantic
       ? semantic.safetyPass
       : calculated.safetyPass && fallback.titleEligible;
     const opportunityScore = scoreOpportunity({
-      demandScore: semantic?.demandScore ?? keywordElonDemandScore(stat.totalSearch),
+      demandScore:
+        semantic?.demandScore ??
+        keywordElonDemandScore(stat?.totalSearch ?? semantic?.totalSearch ?? null),
       competitionOpportunity:
         semantic?.competitionOpportunity ??
-        keywordElonCompetitionOpportunity(stat.compIdx, stat.plAvgDepth),
+        keywordElonCompetitionOpportunity(
+          stat?.compIdx ?? semantic?.compIdx ?? null,
+          stat?.plAvgDepth ?? semantic?.plAvgDepth ?? null,
+        ),
       relevance,
       shoppingIntent,
       productCount,
@@ -161,24 +176,24 @@ export function buildKeywordResearchRows(input: {
           ? "추천"
           : "검토";
     const monthlyClicks =
-      stat.monthlyAvePcClicks === null && stat.monthlyAveMobileClicks === null
+      !stat || (stat.monthlyAvePcClicks === null && stat.monthlyAveMobileClicks === null)
         ? null
         : (stat.monthlyAvePcClicks ?? 0) + (stat.monthlyAveMobileClicks ?? 0);
     const clickThroughRate =
-      stat.monthlyAvePcCtr === null && stat.monthlyAveMobileCtr === null
+      !stat || (stat.monthlyAvePcCtr === null && stat.monthlyAveMobileCtr === null)
         ? null
         : Math.round((((stat.monthlyAvePcCtr ?? 0) + (stat.monthlyAveMobileCtr ?? 0)) / 2) * 100) / 100;
 
     rows.push({
       keyword,
-      totalSearch: stat.totalSearch,
-      pcSearch: stat.pcSearch,
-      mobileSearch: stat.mobileSearch,
+      totalSearch: stat?.totalSearch ?? semantic?.totalSearch ?? null,
+      pcSearch: stat?.pcSearch ?? semantic?.pcSearch ?? null,
+      mobileSearch: stat?.mobileSearch ?? semantic?.mobileSearch ?? null,
       productCount,
       competition: competition.value,
       competitionLabel: competition.label,
       competitionIndex: competition.index,
-      averageExposureDepth: stat.plAvgDepth,
+      averageExposureDepth: stat?.plAvgDepth ?? semantic?.plAvgDepth ?? null,
       monthlyClicks,
       clickThroughRate,
       demandScore: semantic?.demandScore ?? calculated.demandScore,

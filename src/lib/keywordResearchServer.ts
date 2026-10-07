@@ -13,11 +13,11 @@ import {
   type KeywordElonIdentity,
   type KeywordElonSourceDraft,
 } from "./keywordEngineElonLabV2";
-import { discoverKeywordElonSearchAd } from "./keywordEngineElonLabV2SearchAd";
+import { discoverKeywordElonCandidatesResilient } from "./keywordEngineElonLabV2Discovery";
+import { enrichKeywordElonDemand } from "./keywordEngineElonLabV2DemandEnrichment";
 import { scoreKeywordElonCandidatesBatched } from "./keywordEngineElonLabV2Scoring";
 
 const NAVER_SHOPPING_SEARCH_URL = "https://openapi.naver.com/v1/search/shop.json";
-const AI_CANDIDATE_LIMIT = 36;
 
 function requestId() {
   return `keyword-research-${new Date().toISOString().replace(/[-:.]/g, "")}-${randomBytes(3).toString("hex")}`;
@@ -50,46 +50,6 @@ function identityFor(seed: string): KeywordElonIdentity {
     confidence: 1,
     reasoning: "운영자가 직접 입력한 키워드를 상품 정체성 기준으로 사용",
     model: "direct-keyword-research",
-  };
-}
-
-function discoveryFor(
-  seed: string,
-  searchAd: Awaited<ReturnType<typeof discoverKeywordElonSearchAd>>,
-): KeywordElonDiscovery {
-  const rankedRows = [...searchAd.rows]
-    .sort((left, right) => (right.totalSearch ?? -1) - (left.totalSearch ?? -1))
-  const seedKey = compactKeywordElonKey(seed);
-  const exactSeedRow = rankedRows.find(
-    (row) => compactKeywordElonKey(row.keyword) === seedKey,
-  );
-  const rows = [
-    ...(exactSeedRow ? [exactSeedRow] : []),
-    ...rankedRows.filter((row) => compactKeywordElonKey(row.keyword) !== seedKey),
-  ].slice(0, AI_CANDIDATE_LIMIT);
-  const candidates = rows.map((row) => compactKeywordElonKey(row.keyword));
-  const sourceTagsByKeyword = Object.fromEntries(
-    rows.map((row) => [
-      compactKeywordElonKey(row.keyword),
-      [
-        ...(compactKeywordElonKey(row.keyword) === seedKey ? ["입력 키워드"] : []),
-        "SearchAd 연관키워드",
-        ...(row.sourceSeeds.length > 1 ? ["다중 Seed 발견"] : []),
-      ],
-    ]),
-  );
-  return {
-    candidates,
-    sourceTagsByKeyword,
-    searchAdStats: rows,
-    searchAdConfigured: searchAd.configured,
-    searchAdWarnings: searchAd.warnings,
-    aiGeneratedCount: 0,
-    relatedKeywordCount: rows.length,
-    demandExpansionSeeds: searchAd.expansionSeeds,
-    demandExpansionSeedCount: searchAd.expansionSeeds.length,
-    demandExplorationDepth: searchAd.explorationDepth,
-    model: "naver-searchad-keyword-tool",
   };
 }
 
@@ -175,16 +135,35 @@ export async function researchKeyword(rawKeyword: unknown) {
   if (keyword.length < 2) throw new Error("두 글자 이상의 키워드를 입력해 주세요.");
   if (keyword.length > 40) throw new Error("키워드는 40자 이하로 입력해 주세요.");
 
-  const searchAd = await discoverKeywordElonSearchAd([keyword]);
-  if (!searchAd.configured) {
+  const source = sourceFor(keyword);
+  const identity = identityFor(keyword);
+  let discovery = await discoverKeywordElonCandidatesResilient(source, identity);
+  if (!discovery.searchAdConfigured) {
     throw new Error("네이버 SearchAd 키워드 도구가 연결되지 않았습니다.");
   }
-  if (!searchAd.rows.length) {
-    throw new Error("연관 키워드를 찾지 못했습니다. 더 구체적인 상품 키워드로 다시 조회해 주세요.");
+  if (!discovery.candidates.length) {
+    throw new Error("연관 키워드를 확장하지 못했습니다. 더 구체적인 상품 키워드로 다시 조회해 주세요.");
   }
 
-  const discovery = discoveryFor(keyword, searchAd);
-  const semantic = await scoreSemantics(keyword, discovery);
+  let semantic = await scoreSemantics(keyword, discovery);
+  const demandWarnings: string[] = [];
+  if (semantic.candidates.length) {
+    try {
+      const enriched = await enrichKeywordElonDemand({
+        candidates: semantic.candidates,
+        discovery,
+      });
+      semantic = { ...semantic, candidates: enriched.candidates };
+      discovery = enriched.discovery;
+      demandWarnings.push(...enriched.warnings);
+    } catch (error) {
+      demandWarnings.push(
+        error instanceof Error
+          ? `확장 후보 검색량 보강을 건너뛰었습니다: ${error.message}`
+          : "확장 후보 검색량 보강을 건너뛰었습니다.",
+      );
+    }
+  }
   const firstRows = buildKeywordResearchRows({
     seed: keyword,
     stats: discovery.searchAdStats,
@@ -209,13 +188,22 @@ export async function researchKeyword(rawKeyword: unknown) {
     summary: keywordResearchSummary(keyword, rows),
     rows,
     engine: {
-      searchAdConfigured: searchAd.configured,
+      searchAdConfigured: discovery.searchAdConfigured,
+      discoveredCandidateCount: discovery.candidates.length,
+      aiGeneratedCount: discovery.aiGeneratedCount,
+      marketEvidenceCount: discovery.marketTerms?.length ?? 0,
       semanticModel: semantic.model,
       semanticScoringApplied: semantic.candidates.length > 0,
       shoppingSupplyApplied: Object.keys(supplyByKeyword).length > 0,
-      explorationDepth: searchAd.explorationDepth,
-      expansionSeeds: searchAd.expansionSeeds,
+      explorationDepth: discovery.demandExplorationDepth ?? 1,
+      expansionSeeds: discovery.demandExpansionSeeds ?? [],
     },
-    warnings: [...new Set([...searchAd.warnings, ...semantic.warnings])].slice(0, 8),
+    warnings: [
+      ...new Set([
+        ...discovery.searchAdWarnings,
+        ...semantic.warnings,
+        ...demandWarnings,
+      ]),
+    ].slice(0, 12),
   };
 }
