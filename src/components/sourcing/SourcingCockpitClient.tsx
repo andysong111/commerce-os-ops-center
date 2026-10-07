@@ -81,9 +81,12 @@ shipping: 10
 option: default
 shop: 1688 supplier`;
 
-export function SourcingCockpitClient() {
+export function SourcingCockpitClient({ initialKeyword = "" }: { initialKeyword?: string }) {
   const [rawText, setRawText] = useState("");
-  const [input, setInput] = useState<SourcingInput>(DEFAULT_INPUT);
+  const [input, setInput] = useState<SourcingInput>(() => ({
+    ...DEFAULT_INPUT,
+    koreanQuery: initialKeyword.trim(),
+  }));
   const [settings, setSettings] = useState<SourcingCostSettings>(DEFAULT_SETTINGS);
   const [card, setCard] = useState<RecommendationCard | null>(null);
   const [message, setMessage] = useState("");

@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { NaverShoppingSnapshotPanel } from "@/components/sourcing/NaverShoppingSnapshotPanel";
 import { generateChineseSearchTerms } from "@/lib/sourcingEngine";
@@ -15,7 +16,18 @@ const seedKeywords = [
 ];
 
 export default function SourcingMarketSnapshotPage() {
-  const [keyword, setKeyword] = useState("차량용 틈새 수납함");
+  return (
+    <Suspense fallback={<MarketSnapshotLoading />}>
+      <SourcingMarketSnapshotContent />
+    </Suspense>
+  );
+}
+
+function SourcingMarketSnapshotContent() {
+  const searchParams = useSearchParams();
+  const [keyword, setKeyword] = useState(
+    () => searchParams.get("keyword")?.trim() || "차량용 틈새 수납함",
+  );
   const searchTerms = useMemo(() => generateChineseSearchTerms(keyword), [keyword]);
 
   async function copySearchTerms() {
@@ -108,5 +120,13 @@ export default function SourcingMarketSnapshotPage() {
         </section>
       </div>
     </>
+  );
+}
+
+function MarketSnapshotLoading() {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm font-semibold text-slate-500 shadow-sm">
+      소싱 시장 스냅샷을 준비하고 있습니다.
+    </div>
   );
 }
