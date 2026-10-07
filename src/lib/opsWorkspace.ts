@@ -83,6 +83,7 @@ export const OPS_WORKSPACE_GROUPS: readonly OpsWorkspaceGroup[] = [
     iconLabel: "콘",
     description: "상세페이지와 키워드·상품명 생성, 결과 검토를 관리합니다.",
     moduleIds: [
+      "keyword-research",
       "detail-page-studio",
       "detail-page-studio-test",
       "keyword-engine",
@@ -212,7 +213,7 @@ const COMMAND_INTENTS: readonly (OpsCommandIntent & { patterns: readonly RegExp[
   {
     label: "키워드·상품명",
     reason: "키워드·검색어·상품명 작업 관련 표현을 인식했습니다.",
-    moduleIds: ["keyword-opportunity-library", "keyword-engine", "keyword-review-queue", "product-launch-flow"],
+    moduleIds: ["keyword-research", "keyword-opportunity-library", "keyword-engine", "keyword-review-queue", "product-launch-flow"],
     patterns: [/키워드/, /검색어/, /상품명/],
   },
   {
