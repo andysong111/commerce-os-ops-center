@@ -58,7 +58,7 @@ type BackfillResponse = {
 
 export default function KeywordOpportunityLibraryPage() {
   const [records, setRecords] = useState<KeywordOpportunityRecord[]>([]);
-  const [filter, setFilter] = useState<Filter>("active");
+  const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [copiedId, setCopiedId] = useState("");
   const [backfillBusy, setBackfillBusy] = useState(false);

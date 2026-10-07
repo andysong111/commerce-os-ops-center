@@ -224,6 +224,7 @@ test("keyword opportunity library is exposed as a sourcing menu and product laun
   assert.match(page, /1688 소싱 준비/);
   assert.match(page, /이전 이력 가져오기/);
   assert.match(page, /\/api\/keyword-opportunity-library\/backfill/);
+  assert.match(page, /useState<Filter>\("all"\)/);
   assert.match(launchFlow, /captureKeywordOpportunities/);
   assert.match(reviewWorkspace, /captureKeywordOpportunities/);
   assert.match(backfillHelper, /listWorkflowRuns/);
