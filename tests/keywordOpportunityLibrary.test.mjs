@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   KEYWORD_OPPORTUNITY_STORAGE_KEY,
+  captureHistoricalKeywordOpportunities,
   captureKeywordOpportunities,
   isGoodCompetitionIndex,
   keywordOpportunityCsv,
@@ -70,10 +71,80 @@ test("only low-competition optimized or recommended engine results enter the sou
   assert.equal(result.skipped, 3);
   assert.equal(result.records.length, 1);
   assert.equal(result.records[0].keyword, "싱크대 정리 선반");
+  assert.equal(result.records[0].competitionEvidence, "verified_low");
   assert.deepEqual(result.records[0].goodsKeys, ["100001"]);
   assert.equal(isGoodCompetitionIndex("낮음"), true);
   assert.equal(isGoodCompetitionIndex("high"), false);
   assert.equal(isGoodCompetitionIndex(1), false);
+});
+
+test("historical engine keywords with missing competition data are restored for review without being labeled LOW", () => {
+  const storage = memoryStorage();
+  const restored = captureHistoricalKeywordOpportunities(storage, [
+    {
+      requestId: "keyword-rec-history-001",
+      capturedAt: "2026-07-28T13:25:09.000Z",
+      groups: [
+        group("121448", [
+          item({
+            keyword: "여행용샤워필터",
+            competitionIndex: "",
+            quality: "검토",
+            selectedByEngine: true,
+            safeAutoApply: false,
+            totalSearch: 0,
+          }),
+          item({
+            keyword: "고경쟁키워드",
+            competitionIndex: "HIGH",
+            quality: "추천",
+          }),
+        ]),
+      ],
+    },
+  ]);
+
+  assert.equal(restored.added, 1);
+  assert.equal(restored.skipped, 1);
+  assert.equal(restored.unverified, 1);
+  assert.equal(restored.records[0].keyword, "여행용샤워필터");
+  assert.equal(restored.records[0].competitionIndex, "미수집");
+  assert.equal(restored.records[0].competitionEvidence, "history_unverified");
+  assert.equal(restored.records[0].status, "reviewing");
+  assert.match(restored.records[0].note, /재확인/);
+});
+
+test("a later LOW observation upgrades restored history evidence without duplicating the keyword", () => {
+  const storage = memoryStorage();
+  captureHistoricalKeywordOpportunities(storage, [
+    {
+      requestId: "keyword-rec-history-002",
+      groups: [
+        group("121449", [
+          item({
+            keyword: "싱크대정리선반",
+            competitionIndex: "",
+            quality: "검토",
+            selectedByEngine: true,
+          }),
+        ]),
+      ],
+    },
+  ]);
+  captureKeywordOpportunities(storage, {
+    requestId: "keyword-rec-current-001",
+    groups: [
+      group("122000", [
+        item({ keyword: "싱크대정리선반", competitionIndex: "LOW" }),
+      ]),
+    ],
+  });
+
+  const [record] = readKeywordOpportunities(storage);
+  assert.equal(record.competitionEvidence, "verified_low");
+  assert.equal(record.competitionIndex, "LOW");
+  assert.equal(record.occurrenceCount, 2);
+  assert.deepEqual(record.goodsKeys, ["121449", "122000"]);
 });
 
 test("repeat polling is idempotent while a later run accumulates evidence and preserves operator fields", () => {
@@ -124,7 +195,7 @@ test("malformed storage fails closed and CSV export contains the sourcing eviden
     groups: [group("100003", [item({ keyword: "수납, 정리함" })])],
   });
   const csv = keywordOpportunityCsv(readKeywordOpportunities(storage));
-  assert.match(csv, /competition_index,monthly_search/);
+  assert.match(csv, /competition_index,competition_evidence,monthly_search/);
   assert.match(csv, /"수납, 정리함"/);
   assert.match(csv, /100003/);
 });
@@ -136,14 +207,22 @@ test("keyword opportunity library is exposed as a sourcing menu and product laun
   assert.equal(opportunityModule?.route, "/keyword-opportunity-library");
   assert.equal(getWorkspaceGroup("keyword-opportunity-library")?.id, "sourcing-order");
 
-  const [page, launchFlow, reviewWorkspace] = await Promise.all([
+  const [page, launchFlow, reviewWorkspace, backfillHelper, backfillRoute] = await Promise.all([
     readFile(new URL("../src/app/keyword-opportunity-library/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/components/product-launch-flow/ProductLaunchFlowSimple.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/components/keyword-review/KeywordReviewWorkspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/keywordOpportunityHistoryBackfill.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/keyword-opportunity-library/backfill/route.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /키워드 소싱 후보/);
   assert.match(page, /시장 확인/);
   assert.match(page, /1688 소싱 준비/);
+  assert.match(page, /이전 이력 가져오기/);
+  assert.match(page, /\/api\/keyword-opportunity-library\/backfill/);
   assert.match(launchFlow, /captureKeywordOpportunities/);
   assert.match(reviewWorkspace, /captureKeywordOpportunities/);
+  assert.match(backfillHelper, /listWorkflowRuns/);
+  assert.match(backfillHelper, /expectedArtifactName/);
+  assert.match(backfillHelper, /parseKeywordRecommendationArtifact/);
+  assert.match(backfillRoute, /GITHUB_ENGINE_DISPATCH_TOKEN/);
 });

@@ -9,6 +9,8 @@ export const KEYWORD_OPPORTUNITY_STORAGE_KEY =
 export const KEYWORD_OPPORTUNITY_UPDATED_EVENT =
   "keyword-opportunity-library-updated";
 export const KEYWORD_OPPORTUNITY_MAX_ITEMS = 500;
+export const KEYWORD_OPPORTUNITY_HISTORY_BACKFILL_KEY =
+  "opsCenter.keywordOpportunityHistoryBackfill.v1";
 
 export type KeywordOpportunityStatus =
   | "new"
@@ -16,10 +18,15 @@ export type KeywordOpportunityStatus =
   | "sourced"
   | "excluded";
 
+export type KeywordOpportunityEvidence =
+  | "verified_low"
+  | "history_unverified";
+
 export type KeywordOpportunityRecord = {
   id: string;
   keyword: string;
   competitionIndex: string;
+  competitionEvidence: KeywordOpportunityEvidence;
   totalSearch: number | null;
   quality: KeywordRecommendationQuality;
   source: string;
@@ -42,6 +49,8 @@ type CaptureInput = {
   groups: KeywordRecommendationGroup[];
   capturedAt?: string;
 };
+
+export type KeywordOpportunityHistoryObservation = CaptureInput;
 
 type KeywordOpportunityPatch = Partial<
   Pick<KeywordOpportunityRecord, "favorite" | "status" | "note">
@@ -94,6 +103,16 @@ function qualityValue(value: unknown): KeywordRecommendationQuality {
     : "추천";
 }
 
+function evidenceValue(
+  value: unknown,
+  competitionIndex: unknown,
+): KeywordOpportunityEvidence {
+  if (value === "history_unverified") return "history_unverified";
+  return isGoodCompetitionIndex(competitionIndex)
+    ? "verified_low"
+    : "history_unverified";
+}
+
 function stableId(keyword: string) {
   let hash = 2166136261;
   for (const character of keywordIdentity(keyword)) {
@@ -110,12 +129,25 @@ function normalizeRecord(
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const source = value as Partial<KeywordOpportunityRecord>;
   const keyword = text(source.keyword);
-  if (!keyword || !isGoodCompetitionIndex(source.competitionIndex)) return null;
+  const competitionEvidence = evidenceValue(
+    source.competitionEvidence,
+    source.competitionIndex,
+  );
+  if (
+    !keyword ||
+    (competitionEvidence === "verified_low" &&
+      !isGoodCompetitionIndex(source.competitionIndex))
+  ) {
+    return null;
+  }
   const observationKeys = stringList(source.observationKeys, 100);
   return {
     id: text(source.id) || stableId(keyword),
     keyword,
-    competitionIndex: text(source.competitionIndex),
+    competitionIndex:
+      text(source.competitionIndex) ||
+      (competitionEvidence === "history_unverified" ? "미수집" : ""),
+    competitionEvidence,
     totalSearch: nullableNumber(source.totalSearch),
     quality: qualityValue(source.quality),
     source: text(source.source) || "키워드 엔진",
@@ -193,6 +225,7 @@ function persistKeywordOpportunities(
 function opportunityRank(record: KeywordOpportunityRecord) {
   const quality = record.quality === "최적" ? 2 : 1;
   return (record.favorite ? 1_000_000_000 : 0) +
+    (record.competitionEvidence === "verified_low" ? 100_000_000 : 0) +
     (record.totalSearch ?? 0) * 100 +
     quality * 10 +
     record.occurrenceCount;
@@ -242,6 +275,7 @@ export function captureKeywordOpportunities(
         byKeyword.set(identity, {
           ...existing,
           competitionIndex: text(item.competitionIndex),
+          competitionEvidence: "verified_low",
           totalSearch:
             nextSearch !== null && nextSearch > existingSearch
               ? nextSearch
@@ -267,6 +301,7 @@ export function captureKeywordOpportunities(
           id: stableId(item.keyword),
           keyword: text(item.keyword),
           competitionIndex: text(item.competitionIndex),
+          competitionEvidence: "verified_low",
           totalSearch: nullableNumber(item.totalSearch),
           quality: item.quality,
           source: text(item.source) || "키워드 엔진",
@@ -292,6 +327,152 @@ export function captureKeywordOpportunities(
   );
   if (added > 0 || updated > 0) persistKeywordOpportunities(storage, records);
   return { added, updated, skipped, records };
+}
+
+function isMissingCompetitionIndex(value: unknown) {
+  const normalized = text(value).toLocaleUpperCase("ko-KR");
+  return (
+    !normalized ||
+    ["UNKNOWN", "N/A", "NA", "미수집", "미확인", "데이터없음"].includes(
+      normalized.replace(/\s+/g, ""),
+    )
+  );
+}
+
+function isHistoricalOpportunityCandidate(item: KeywordRecommendationItem) {
+  if (!keywordIdentity(item.keyword)) return false;
+  if (isGoodCompetitionIndex(item.competitionIndex)) {
+    return item.quality === "최적" || item.quality === "추천";
+  }
+  if (!isMissingCompetitionIndex(item.competitionIndex)) return false;
+  return (
+    item.selectedByEngine === true ||
+    item.quality === "최적" ||
+    item.quality === "추천"
+  );
+}
+
+export function captureHistoricalKeywordOpportunities(
+  storage: StorageLike,
+  observations: KeywordOpportunityHistoryObservation[],
+) {
+  const current = readKeywordOpportunities(storage);
+  const byKeyword = new Map(
+    current.map((record) => [keywordIdentity(record.keyword), record]),
+  );
+  let added = 0;
+  let updated = 0;
+  let skipped = 0;
+  let unverified = 0;
+
+  for (const observation of observations) {
+    const requestId = text(observation.requestId);
+    if (!requestId) {
+      skipped += observation.groups.reduce(
+        (sum, group) => sum + group.items.length,
+        0,
+      );
+      continue;
+    }
+    const capturedAt = safeDate(
+      observation.capturedAt,
+      new Date().toISOString(),
+    );
+    for (const group of observation.groups) {
+      const goodsKey = text(group.goodsKey);
+      for (const item of group.items) {
+        if (!isHistoricalOpportunityCandidate(item)) {
+          skipped += 1;
+          continue;
+        }
+        const identity = keywordIdentity(item.keyword);
+        const observationKey = `history:${requestId}:${goodsKey}:${identity}`;
+        const existing = byKeyword.get(identity);
+        if (existing?.observationKeys.includes(observationKey)) continue;
+
+        const verifiedLow =
+          isGoodCompetitionIndex(item.competitionIndex) &&
+          (item.quality === "최적" || item.quality === "추천");
+        const competitionEvidence: KeywordOpportunityEvidence = verifiedLow
+          ? "verified_low"
+          : "history_unverified";
+        if (!verifiedLow) unverified += 1;
+        const nextSearch = nullableNumber(item.totalSearch);
+
+        if (existing) {
+          const existingSearch = existing.totalSearch ?? -1;
+          byKeyword.set(identity, {
+            ...existing,
+            competitionIndex: verifiedLow
+              ? text(item.competitionIndex)
+              : existing.competitionIndex || "미수집",
+            competitionEvidence:
+              existing.competitionEvidence === "verified_low" || verifiedLow
+                ? "verified_low"
+                : "history_unverified",
+            totalSearch:
+              nextSearch !== null && nextSearch > existingSearch
+                ? nextSearch
+                : existing.totalSearch,
+            quality:
+              existing.quality === "최적" || item.quality !== "최적"
+                ? existing.quality
+                : "최적",
+            source: existing.source || `과거 이력 · ${text(item.source)}`,
+            safeAutoApply: existing.safeAutoApply || item.safeAutoApply,
+            goodsKeys: stringList([...existing.goodsKeys, goodsKey], 100),
+            requestIds: stringList([...existing.requestIds, requestId], 50),
+            observationKeys: stringList(
+              [...existing.observationKeys, observationKey],
+              100,
+            ),
+            occurrenceCount: existing.occurrenceCount + 1,
+            firstSeenAt:
+              Date.parse(capturedAt) < Date.parse(existing.firstSeenAt)
+                ? capturedAt
+                : existing.firstSeenAt,
+            lastSeenAt:
+              Date.parse(capturedAt) > Date.parse(existing.lastSeenAt)
+                ? capturedAt
+                : existing.lastSeenAt,
+          });
+          updated += 1;
+        } else {
+          byKeyword.set(identity, {
+            id: stableId(item.keyword),
+            keyword: text(item.keyword),
+            competitionIndex: verifiedLow
+              ? text(item.competitionIndex)
+              : "미수집",
+            competitionEvidence,
+            totalSearch: nextSearch,
+            quality: item.quality,
+            source: `과거 이력 · ${text(item.source) || "키워드 엔진"}`,
+            safeAutoApply: item.safeAutoApply,
+            favorite: false,
+            status: verifiedLow ? "new" : "reviewing",
+            note: verifiedLow
+              ? ""
+              : "과거 엔진 결과 복원: 당시 경쟁강도 데이터가 수집되지 않아 재확인이 필요합니다.",
+            goodsKeys: goodsKey ? [goodsKey] : [],
+            requestIds: [requestId],
+            observationKeys: [observationKey],
+            occurrenceCount: 1,
+            firstSeenAt: capturedAt,
+            lastSeenAt: capturedAt,
+          });
+          added += 1;
+        }
+      }
+    }
+  }
+
+  const records = sortKeywordOpportunities([...byKeyword.values()]).slice(
+    0,
+    KEYWORD_OPPORTUNITY_MAX_ITEMS,
+  );
+  if (added > 0 || updated > 0) persistKeywordOpportunities(storage, records);
+  return { added, updated, skipped, unverified, records };
 }
 
 export function updateKeywordOpportunity(
@@ -322,6 +503,7 @@ export function keywordOpportunityCsv(records: KeywordOpportunityRecord[]) {
   const headers = [
     "keyword",
     "competition_index",
+    "competition_evidence",
     "monthly_search",
     "quality",
     "status",
@@ -335,6 +517,7 @@ export function keywordOpportunityCsv(records: KeywordOpportunityRecord[]) {
   const rows = records.map((record) => [
     record.keyword,
     record.competitionIndex,
+    record.competitionEvidence,
     record.totalSearch ?? "",
     record.quality,
     record.status,

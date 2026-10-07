@@ -1,23 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { formatBrowserLocalDateTime } from "@/lib/browserTime";
 import {
   KEYWORD_OPPORTUNITY_UPDATED_EVENT,
+  KEYWORD_OPPORTUNITY_HISTORY_BACKFILL_KEY,
+  captureHistoricalKeywordOpportunities,
   keywordOpportunityCsv,
   readKeywordOpportunities,
   sortKeywordOpportunities,
   updateKeywordOpportunity,
   type KeywordOpportunityRecord,
   type KeywordOpportunityStatus,
+  type KeywordOpportunityHistoryObservation,
 } from "@/lib/keywordOpportunityLibrary";
 
-type Filter = "active" | "favorites" | KeywordOpportunityStatus | "all";
+type Filter =
+  | "active"
+  | "history_unverified"
+  | "favorites"
+  | KeywordOpportunityStatus
+  | "all";
 
 const FILTERS: Array<{ value: Filter; label: string }> = [
   { value: "active", label: "활용 가능" },
+  { value: "history_unverified", label: "과거·재확인" },
   { value: "favorites", label: "즐겨찾기" },
   { value: "new", label: "새 후보" },
   { value: "reviewing", label: "검토 중" },
@@ -33,30 +42,97 @@ const STATUS_LABELS: Record<KeywordOpportunityStatus, string> = {
   excluded: "제외",
 };
 
+type BackfillResponse = {
+  ok: boolean;
+  message?: string;
+  observations?: KeywordOpportunityHistoryObservation[];
+  stats?: {
+    successfulRunsChecked: number;
+    artifactsFound: number;
+    artifactsImported: number;
+    artifactsFailed: number;
+    goodsKeysRecovered: number;
+    keywordObservationsRecovered: number;
+  };
+};
+
 export default function KeywordOpportunityLibraryPage() {
   const [records, setRecords] = useState<KeywordOpportunityRecord[]>([]);
   const [filter, setFilter] = useState<Filter>("active");
   const [query, setQuery] = useState("");
   const [copiedId, setCopiedId] = useState("");
+  const [backfillBusy, setBackfillBusy] = useState(false);
+  const [backfillMessage, setBackfillMessage] = useState("");
+  const automaticBackfillStarted = useRef(false);
+
+  const backfillHistory = useCallback(async () => {
+    if (automaticBackfillStarted.current) return;
+    automaticBackfillStarted.current = true;
+    setBackfillBusy(true);
+    setBackfillMessage("과거 키워드 엔진 산출물을 확인하고 있습니다.");
+    try {
+      const response = await fetch(
+        "/api/keyword-opportunity-library/backfill",
+        { method: "POST" },
+      );
+      const payload = (await response.json()) as BackfillResponse;
+      if (!response.ok || !payload.ok || !payload.observations) {
+        throw new Error(payload.message || "과거 키워드 이력을 불러오지 못했습니다.");
+      }
+      const captured = captureHistoricalKeywordOpportunities(
+        window.localStorage,
+        payload.observations,
+      );
+      setRecords(captured.records);
+      window.localStorage.setItem(
+        KEYWORD_OPPORTUNITY_HISTORY_BACKFILL_KEY,
+        JSON.stringify({ completedAt: new Date().toISOString(), stats: payload.stats }),
+      );
+      const stats = payload.stats;
+      setBackfillMessage(
+        stats
+          ? `과거 산출물 ${stats.artifactsImported}건·상품 ${stats.goodsKeysRecovered}개의 키워드를 복원했습니다. 새 후보 ${captured.added}개, 기존 후보 보강 ${captured.updated}개입니다.`
+          : `과거 키워드 ${captured.added}개를 복원했습니다.`,
+      );
+    } catch (error) {
+      setBackfillMessage(
+        error instanceof Error
+          ? error.message
+          : "과거 키워드 이력을 불러오지 못했습니다.",
+      );
+    } finally {
+      setBackfillBusy(false);
+      automaticBackfillStarted.current = false;
+    }
+  }, []);
 
   useEffect(() => {
     const load = () =>
       setRecords(sortKeywordOpportunities(readKeywordOpportunities(window.localStorage)));
     load();
+    let backfillTimer: number | undefined;
+    if (!window.localStorage.getItem(KEYWORD_OPPORTUNITY_HISTORY_BACKFILL_KEY)) {
+      backfillTimer = window.setTimeout(() => void backfillHistory(), 0);
+    }
     window.addEventListener(KEYWORD_OPPORTUNITY_UPDATED_EVENT, load);
     window.addEventListener("storage", load);
     return () => {
+      if (backfillTimer !== undefined) window.clearTimeout(backfillTimer);
       window.removeEventListener(KEYWORD_OPPORTUNITY_UPDATED_EVENT, load);
       window.removeEventListener("storage", load);
     };
-  }, []);
+  }, [backfillHistory]);
 
   const visibleRecords = useMemo(() => {
     const normalizedQuery = query.toLocaleLowerCase("ko-KR").trim();
     return records.filter((record) => {
       const filterMatches =
         filter === "all" ||
-        (filter === "active" && record.status !== "excluded") ||
+        (filter === "active" &&
+          record.competitionEvidence === "verified_low" &&
+          record.status !== "excluded") ||
+        (filter === "history_unverified" &&
+          record.competitionEvidence === "history_unverified") ||
         (filter === "favorites" && record.favorite) ||
         record.status === filter;
       const queryMatches =
@@ -69,9 +145,16 @@ export default function KeywordOpportunityLibraryPage() {
     });
   }, [filter, query, records]);
 
-  const activeRecords = records.filter((record) => record.status !== "excluded");
+  const activeRecords = records.filter(
+    (record) =>
+      record.competitionEvidence === "verified_low" &&
+      record.status !== "excluded",
+  );
   const stats = {
     active: activeRecords.length,
+    unverified: records.filter(
+      (record) => record.competitionEvidence === "history_unverified",
+    ).length,
     favorites: records.filter((record) => record.favorite).length,
     reviewing: records.filter((record) => record.status === "reviewing").length,
     sourced: records.filter((record) => record.status === "sourced").length,
@@ -105,16 +188,26 @@ export default function KeywordOpportunityLibraryPage() {
       <PageHeader
         eyebrow="SOURCING SIGNALS"
         title="키워드 소싱 후보"
-        description="상품출시 키워드 엔진 이력에서 경쟁강도가 낮고 품질이 확인된 키워드를 자동으로 모아, 다음 소싱 후보로 관리합니다."
+        description="상품출시 키워드 엔진의 과거·현재 결과를 모아, 경쟁강도가 좋은 후보와 재확인이 필요한 후보를 함께 관리합니다."
         actions={
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={visibleRecords.length === 0}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
-          >
-            현재 목록 CSV
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void backfillHistory()}
+              disabled={backfillBusy}
+              className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-slate-800 disabled:cursor-wait disabled:bg-slate-400"
+            >
+              {backfillBusy ? "이전 이력 확인 중" : "이전 이력 가져오기"}
+            </button>
+            <button
+              type="button"
+              onClick={exportCsv}
+              disabled={visibleRecords.length === 0}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+            >
+              현재 목록 CSV
+            </button>
+          </div>
         }
       />
 
@@ -123,13 +216,23 @@ export default function KeywordOpportunityLibraryPage() {
         <p className="mt-1">
           경쟁강도 <strong>낮음(LOW)</strong>이면서 엔진 품질이 <strong>최적 또는 추천</strong>인 키워드만 저장합니다. 같은 키워드는 한 줄로 합치고 발견 횟수와 상품번호를 누적합니다.
         </p>
+        <p className="mt-1">
+          이전 상품출시 산출물도 자동 복원합니다. 당시 경쟁강도가 수집되지 않은 키워드는 버리지 않고 <strong>과거·재확인</strong>으로 분리해 표시합니다.
+        </p>
         <p className="mt-1 text-xs font-semibold text-blue-700">
           현재 보관함은 이 브라우저에 저장됩니다. 검색량과 경쟁강도는 소싱 단서이며 실제 판매량이나 수익성을 보장하지 않습니다.
         </p>
       </section>
 
-      <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="활용 가능" value={stats.active} detail="제외 후보를 뺀 전체" />
+      {backfillMessage ? (
+        <section className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+          {backfillMessage}
+        </section>
+      ) : null}
+
+      <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <Stat label="활용 가능" value={stats.active} detail="LOW 확인 후보" />
+        <Stat label="과거·재확인" value={stats.unverified} detail="경쟁강도 미수집" />
         <Stat label="즐겨찾기" value={stats.favorites} detail="우선 확인할 후보" />
         <Stat label="검토 중" value={stats.reviewing} detail="시장·공급처 확인 중" />
         <Stat label="소싱 완료" value={stats.sourced} detail="후보 탐색을 마친 키워드" />
@@ -165,7 +268,7 @@ export default function KeywordOpportunityLibraryPage() {
           <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
             <p className="font-black text-slate-800">아직 조건에 맞는 키워드가 없습니다.</p>
             <p className="mt-2 text-sm text-slate-500">
-              상품출시 진행관리에서 키워드 엔진 결과를 가져오면 경쟁강도 낮음 후보가 여기에 자동 누적됩니다.
+              이전 이력 가져오기를 누르거나 상품출시 진행관리에서 새 키워드 결과를 가져오면 후보가 누적됩니다.
             </p>
             <Link
               href="/product-launch-flow"
@@ -211,8 +314,10 @@ function OpportunityCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-black text-emerald-700">
-              경쟁 {record.competitionIndex}
+            <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${record.competitionEvidence === "verified_low" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+              {record.competitionEvidence === "verified_low"
+                ? `경쟁 ${record.competitionIndex}`
+                : "경쟁강도 재확인"}
             </span>
             <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-black text-blue-700">
               {record.quality}
