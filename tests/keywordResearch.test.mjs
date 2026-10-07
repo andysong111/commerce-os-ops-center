@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   buildKeywordResearchRows,
+  enginePassedKeywordResearchRows,
   isKeywordResearchSaveable,
   keywordResearchCompetition,
   keywordResearchSummary,
@@ -155,6 +156,21 @@ test("research can restrict output to the engine-scored candidate pool", () => {
   assert.deepEqual(rows.map((row) => row.keyword), ["계란펀칭기"]);
 });
 
+test("published keyword research output is fixed to engine-pass rows", () => {
+  const rows = buildKeywordResearchRows({
+    seed: "계란펀칭기",
+    stats: [
+      stat({ keyword: "계란펀칭기", relKeyword: "계란펀칭기" }),
+      stat({ keyword: "군사", relKeyword: "군사", totalSearch: 1520 }),
+    ],
+  });
+
+  const published = enginePassedKeywordResearchRows(rows);
+  assert.ok(published.length > 0);
+  assert.ok(published.every((row) => row.enginePass));
+  assert.deepEqual(published.map((row) => row.keyword), ["계란펀칭기"]);
+});
+
 test("keyword research is exposed in the content-keyword menu and wired end-to-end", async () => {
   const researchModule = moduleRegistry.find((candidate) => candidate.id === "keyword-research");
   assert.equal(researchModule?.route, "/keyword-research");
@@ -171,10 +187,15 @@ test("keyword research is exposed in the content-keyword menu and wired end-to-e
   assert.match(client, /\/api\/keyword-research/);
   assert.match(client, /captureKeywordOpportunities/);
   assert.match(client, /기회점수/);
+  assert.match(client, /추천 상품명 만들기/);
+  assert.doesNotMatch(client, /label="엔진 품질"/);
   assert.match(route, /researchKeyword/);
+  assert.match(route, /generateKeywordResearchTitle/);
   assert.match(server, /discoverKeywordElonCandidatesResilient/);
   assert.match(server, /enrichKeywordElonDemand/);
   assert.match(server, /scoreKeywordElonCandidatesBatched/);
+  assert.match(server, /generateKeywordElonTitle/);
+  assert.match(server, /enginePassedKeywordResearchRows/);
   assert.match(server, /NAVER_SHOPPING_SEARCH_URL/);
   assert.match(contentMenu, /"keyword-research"/);
 });

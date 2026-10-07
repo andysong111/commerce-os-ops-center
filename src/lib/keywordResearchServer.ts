@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   buildKeywordResearchRows,
+  enginePassedKeywordResearchRows,
   keywordResearchSummary,
   KEYWORD_RESEARCH_RESULT_LIMIT,
   KEYWORD_RESEARCH_SUPPLY_LIMIT,
@@ -8,6 +9,8 @@ import {
 } from "./keywordResearch";
 import {
   compactKeywordElonKey,
+  KEYWORD_ELON_V2_RELEVANCE_GATE,
+  KEYWORD_ELON_V2_SHOPPING_INTENT_GATE,
   type KeywordElonCandidate,
   type KeywordElonDiscovery,
   type KeywordElonIdentity,
@@ -16,6 +19,7 @@ import {
 import { discoverKeywordElonCandidatesResilient } from "./keywordEngineElonLabV2Discovery";
 import { enrichKeywordElonDemand } from "./keywordEngineElonLabV2DemandEnrichment";
 import { scoreKeywordElonCandidatesBatched } from "./keywordEngineElonLabV2Scoring";
+import { generateKeywordElonTitle } from "./keywordEngineElonLabV2Server";
 
 const NAVER_SHOPPING_SEARCH_URL = "https://openapi.naver.com/v1/search/shop.json";
 
@@ -164,23 +168,23 @@ export async function researchKeyword(rawKeyword: unknown) {
       );
     }
   }
-  const firstRows = buildKeywordResearchRows({
+  const firstRows = enginePassedKeywordResearchRows(buildKeywordResearchRows({
     seed: keyword,
     stats: discovery.searchAdStats,
     semanticCandidates: semantic.candidates,
     candidateKeywords: discovery.candidates,
-  });
+  }));
   const supplyTargets = firstRows
     .slice(0, KEYWORD_RESEARCH_SUPPLY_LIMIT)
     .map((row) => row.keyword);
   const supplyByKeyword = await loadSupplyCounts(supplyTargets);
-  const rows = buildKeywordResearchRows({
+  const rows = enginePassedKeywordResearchRows(buildKeywordResearchRows({
     seed: keyword,
     stats: discovery.searchAdStats,
     semanticCandidates: semantic.candidates,
     candidateKeywords: discovery.candidates,
     supplyByKeyword,
-  }).slice(0, KEYWORD_RESEARCH_RESULT_LIMIT);
+  })).slice(0, KEYWORD_RESEARCH_RESULT_LIMIT);
 
   return {
     ok: true as const,
@@ -207,5 +211,82 @@ export async function researchKeyword(rawKeyword: unknown) {
         ...demandWarnings,
       ]),
     ].slice(0, 12),
+  };
+}
+
+function finiteNumber(value: unknown, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function nullableNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+export async function generateKeywordResearchTitle(rawKeyword: unknown, rawRows: unknown) {
+  const keyword = normalizeKeywordResearchInput(rawKeyword);
+  if (keyword.length < 2) throw new Error("상품명 생성 기준 키워드가 올바르지 않습니다.");
+  if (!Array.isArray(rawRows)) throw new Error("상품명에 사용할 키워드를 선택해 주세요.");
+
+  const candidates: KeywordElonCandidate[] = rawRows
+    .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object")
+    .filter((row) => row.enginePass === true)
+    .map((row) => {
+      const candidateKeyword = normalizeKeywordResearchInput(row.keyword);
+      const relevance = Math.max(0, Math.min(100, finiteNumber(row.relevance, 80)));
+      const shoppingIntent = Math.max(0, Math.min(100, finiteNumber(row.shoppingIntent, 70)));
+      const specificity = Math.max(0, Math.min(100, finiteNumber(row.specificity, 70)));
+      const totalSearch = nullableNumber(row.totalSearch);
+      return {
+        keyword: candidateKeyword,
+        searchKey: compactKeywordElonKey(candidateKeyword),
+        searchKeyword: compactKeywordElonKey(candidateKeyword),
+        relevance,
+        shoppingIntent,
+        specificity,
+        titleEligible: true,
+        rationale: normalizeKeywordResearchInput(row.rationale) || "키워드 조회 엔진 통과 후보",
+        sourceTags: Array.isArray(row.sourceTags)
+          ? row.sourceTags.map(normalizeKeywordResearchInput).filter(Boolean).slice(0, 12)
+          : ["키워드 조회 엔진 통과"],
+        totalSearch,
+        pcSearch: nullableNumber(row.pcSearch),
+        mobileSearch: nullableNumber(row.mobileSearch),
+        compIdx: normalizeKeywordResearchInput(row.competitionIndex) || null,
+        plAvgDepth: nullableNumber(row.averageExposureDepth),
+        demandScore: finiteNumber(row.demandScore, 0),
+        competitionOpportunity: finiteNumber(row.competitionOpportunity, 0),
+        qualityScore: finiteNumber(row.opportunityScore, 0),
+        safetyPass: true,
+        safetyReason: "키워드 조회 의미·쇼핑의도 Gate 통과",
+        dataConfidence: totalSearch === null ? "medium" : "high",
+      } satisfies KeywordElonCandidate;
+    })
+    .filter(
+      (row) =>
+        row.searchKey &&
+        row.relevance >= KEYWORD_ELON_V2_RELEVANCE_GATE &&
+        row.shoppingIntent >= KEYWORD_ELON_V2_SHOPPING_INTENT_GATE,
+    )
+    .filter((row, index, rows) => rows.findIndex((item) => item.searchKey === row.searchKey) === index)
+    .slice(0, 12);
+
+  if (!candidates.length) {
+    throw new Error("엔진 통과 키워드를 한 개 이상 선택해 주세요.");
+  }
+
+  const titleResult = await generateKeywordElonTitle({
+    source: sourceFor(keyword),
+    identity: identityFor(keyword),
+    candidates,
+    cutoff: 0,
+  });
+
+  return {
+    ok: true as const,
+    action: "generate_title" as const,
+    titleResult,
   };
 }
