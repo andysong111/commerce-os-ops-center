@@ -10,9 +10,10 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       keyword?: unknown;
       sourceUrl?: unknown;
+      sourceEvidence?: unknown;
     };
     const result = body.sourceUrl
-      ? await research1688Source(body.sourceUrl)
+      ? await research1688Source(body.sourceUrl, body.sourceEvidence)
       : await researchKeyword(body.keyword);
     return NextResponse.json(result);
   } catch (error) {
