@@ -105,3 +105,17 @@ test("exhausted sourcing preview timeout is normalized to a stable error code", 
     { message: "SOURCING_BUDGET_ENGINE_TIMEOUT" },
   );
 });
+
+test("slow production sourcing reads get a visible loading state and a cold-read timeout budget", async () => {
+  const [bridgeSource, loadingSource] = await Promise.all([
+    readFile("src/lib/sourcingBudgetPlan.ts", "utf8"),
+    readFile("src/app/purchase-cycle-preflight/loading.tsx", "utf8"),
+  ]);
+
+  assert.match(bridgeSource, /PREVIEW_REQUEST_TIMEOUT_MS = 90_000/);
+  assert.match(loadingSource, /role="status"/);
+  assert.match(loadingSource, /aria-busy="true"/);
+  assert.match(loadingSource, /발주안 계산 중/);
+  assert.match(loadingSource, /신규상품 후보를 확인하고 있습니다/);
+  assert.match(loadingSource, /1688 주문, 결제를 실행하지 않습니다/);
+});

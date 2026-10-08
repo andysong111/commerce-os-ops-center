@@ -459,7 +459,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(sourcingForm, /href=\{candidate\.sourceUrl\}/);
   assert.match(page, /href=\{row\.sourceUrl\}/);
   assert.match(budgetPlan, /value == null/);
-  assert.match(budgetPlan, /PREVIEW_REQUEST_TIMEOUT_MS = 45_000/);
+  assert.match(budgetPlan, /PREVIEW_REQUEST_TIMEOUT_MS = 90_000/);
   assert.match(budgetPlan, /PREVIEW_REQUEST_MAX_ATTEMPTS = 2/);
   assert.match(budgetPlan, /SOURCING_BUDGET_ENGINE_TIMEOUT/);
   assert.match(page, /자동 재시도 후에도 후보를 불러오지 못했습니다/);

@@ -1,6 +1,7 @@
 const DEFAULT_SOURCING_ENGINE_URL = "https://commerce-os-sourcing-engine-indol.vercel.app";
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
-const PREVIEW_REQUEST_TIMEOUT_MS = 45_000;
+// Production candidate reads can take close to a minute while the sourcing data is cold.
+const PREVIEW_REQUEST_TIMEOUT_MS = 90_000;
 const PREVIEW_REQUEST_MAX_ATTEMPTS = 2;
 const PREVIEW_RETRY_DELAY_MS = 750;
 const TRANSIENT_PREVIEW_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
