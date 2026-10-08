@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { researchKeyword } from "@/lib/keywordResearchServer";
+import { research1688Source, researchKeyword } from "@/lib/keywordResearchServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,8 +9,11 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       keyword?: unknown;
+      sourceUrl?: unknown;
     };
-    const result = await researchKeyword(body.keyword);
+    const result = body.sourceUrl
+      ? await research1688Source(body.sourceUrl)
+      : await researchKeyword(body.keyword);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

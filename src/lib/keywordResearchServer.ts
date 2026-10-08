@@ -17,6 +17,11 @@ import {
 import { discoverKeywordElonCandidatesResilient } from "./keywordEngineElonLabV2Discovery";
 import { enrichKeywordElonDemand } from "./keywordEngineElonLabV2DemandEnrichment";
 import { scoreKeywordElonCandidatesBatched } from "./keywordEngineElonLabV2Scoring";
+import {
+  analyzeKeywordElonIdentity,
+  collectKeywordElon1688Source,
+  generateKeywordElonTitle,
+} from "./keywordEngineElonLabV2Server";
 
 const NAVER_SHOPPING_SEARCH_URL = "https://openapi.naver.com/v1/search/shop.json";
 
@@ -54,7 +59,11 @@ function identityFor(seed: string): KeywordElonIdentity {
   };
 }
 
-async function scoreSemantics(seed: string, discovery: KeywordElonDiscovery) {
+async function scoreSemantics(input: {
+  source: KeywordElonSourceDraft;
+  identity: KeywordElonIdentity;
+  discovery: KeywordElonDiscovery;
+}) {
   if (!process.env.KEYWORD_ENGINE_OPENAI_API_KEY?.trim()) {
     return {
       candidates: [] as KeywordElonCandidate[],
@@ -64,9 +73,9 @@ async function scoreSemantics(seed: string, discovery: KeywordElonDiscovery) {
   }
   try {
     const scored = await scoreKeywordElonCandidatesBatched({
-      source: sourceFor(seed),
-      identity: identityFor(seed),
-      discovery,
+      source: input.source,
+      identity: input.identity,
+      discovery: input.discovery,
     });
     return {
       candidates: scored.candidates,
@@ -131,13 +140,13 @@ async function loadSupplyCounts(keywords: string[]) {
   return supply;
 }
 
-export async function researchKeyword(rawKeyword: unknown) {
-  const keyword = normalizeKeywordResearchInput(rawKeyword);
-  if (keyword.length < 2) throw new Error("두 글자 이상의 키워드를 입력해 주세요.");
-  if (keyword.length > 40) throw new Error("키워드는 40자 이하로 입력해 주세요.");
-
-  const source = sourceFor(keyword);
-  const identity = identityFor(keyword);
+async function researchFromIdentity(input: {
+  keyword: string;
+  source: KeywordElonSourceDraft;
+  identity: KeywordElonIdentity;
+  sourceMode: "keyword" | "source_link";
+}) {
+  const { keyword, source, identity } = input;
   let discovery = await discoverKeywordElonCandidatesResilient(source, identity);
   if (!discovery.searchAdConfigured) {
     throw new Error("네이버 SearchAd 키워드 도구가 연결되지 않았습니다.");
@@ -146,7 +155,7 @@ export async function researchKeyword(rawKeyword: unknown) {
     throw new Error("연관 키워드를 확장하지 못했습니다. 더 구체적인 상품 키워드로 다시 조회해 주세요.");
   }
 
-  let semantic = await scoreSemantics(keyword, discovery);
+  let semantic = await scoreSemantics({ source, identity, discovery });
   const demandWarnings: string[] = [];
   if (semantic.candidates.length) {
     try {
@@ -183,10 +192,23 @@ export async function researchKeyword(rawKeyword: unknown) {
     supplyByKeyword,
   })).slice(0, KEYWORD_RESEARCH_RESULT_LIMIT);
 
+  const recommendedTitle = input.sourceMode === "source_link"
+    ? await generateKeywordElonTitle({
+        source,
+        identity,
+        candidates: [...semantic.candidates].sort(
+          (left, right) => right.qualityScore - left.qualityScore,
+        ),
+        cutoff: 0,
+      })
+    : null;
+
   return {
     ok: true as const,
     requestId: requestId(),
     keyword,
+    sourceMode: input.sourceMode,
+    recommendedTitle: recommendedTitle?.title ?? "",
     generatedAt: new Date().toISOString(),
     summary: keywordResearchSummary(keyword, rows),
     rows,
@@ -209,4 +231,36 @@ export async function researchKeyword(rawKeyword: unknown) {
       ]),
     ].slice(0, 12),
   };
+}
+
+export async function researchKeyword(rawKeyword: unknown) {
+  const keyword = normalizeKeywordResearchInput(rawKeyword);
+  if (keyword.length < 2) throw new Error("두 글자 이상의 키워드를 입력해 주세요.");
+  if (keyword.length > 40) throw new Error("키워드는 40자 이하로 입력해 주세요.");
+
+  return researchFromIdentity({
+    keyword,
+    source: sourceFor(keyword),
+    identity: identityFor(keyword),
+    sourceMode: "keyword",
+  });
+}
+
+export async function research1688Source(rawSourceUrl: unknown) {
+  const sourceUrl = normalizeKeywordResearchInput(rawSourceUrl);
+  const source = await collectKeywordElon1688Source(sourceUrl);
+  const identity = await analyzeKeywordElonIdentity(source);
+  const keyword = normalizeKeywordResearchInput(
+    identity.identityAnchor || identity.coreProduct || identity.koreanProductIdentity,
+  );
+  if (keyword.length < 2) {
+    throw new Error("1688 상품에서 한국 판매용 상품 정체성을 확인하지 못했습니다.");
+  }
+
+  return researchFromIdentity({
+    keyword,
+    source,
+    identity,
+    sourceMode: "source_link",
+  });
 }
