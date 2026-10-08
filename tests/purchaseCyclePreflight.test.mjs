@@ -459,6 +459,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(sourcingForm, /href=\{candidate\.sourceUrl\}/);
   assert.match(page, /href=\{row\.sourceUrl\}/);
   assert.match(budgetPlan, /value == null/);
+  assert.match(budgetPlan, /AbortSignal\.timeout\(15_000\)/);
   assert.match(sourcingForm, /checked=\{checked\}/);
   assert.match(sourcingForm, /name=\{`storage\.\$\{candidate\.conceptId\}`\}/);
   assert.match(sourcingForm, /required/);

@@ -198,7 +198,7 @@ export async function loadSourcingBudgetPlan(
     {
       headers: requestHeaders(secret, protectionBypass),
       cache: "no-store",
-      signal: AbortSignal.timeout(240_000),
+      signal: AbortSignal.timeout(15_000),
     },
   );
   const payload = await responseJson(response);
