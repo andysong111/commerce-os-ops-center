@@ -4,6 +4,7 @@ const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
 export type SourcingBudgetPlanSelection = {
   conceptId: string;
   canonicalNameKo: string;
+  sourceUrl?: string | null;
   finalQualityScore: number | null;
   unitPriceCny: number | null;
   plannedCostKrw: number;
@@ -58,6 +59,7 @@ export type SourcingBudgetPlan = {
     availableCandidates: Array<{
       conceptId: string;
       canonicalNameKo: string;
+      sourceUrl?: string | null;
       finalQualityScore: number | null;
       plannedCostKrw: number | null;
       moq: number | null;
@@ -122,8 +124,31 @@ function requestHeaders(secret: string, protectionBypass: string | null) {
   };
 }
 
+function validCandidateSourceUrl(value: unknown) {
+  if (value == null) return true;
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "detail.1688.com" &&
+      /^\/offer\/\d{5,}\.html$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function assertPlan(value: unknown): asserts value is SourcingBudgetPlan {
   const plan = value as Partial<SourcingBudgetPlan> | null;
+  const selected = Array.isArray(plan?.allocation?.selected) ? plan.allocation.selected : [];
+  const available = Array.isArray(plan?.allocation?.availableCandidates)
+    ? plan.allocation.availableCandidates
+    : [];
+  const candidates = [
+    ...selected,
+    ...available,
+  ];
   if (
     !plan ||
     plan.version !== "sourcing-budget-plan-v1" ||
@@ -131,7 +156,9 @@ function assertPlan(value: unknown): asserts value is SourcingBudgetPlan {
     !FINGERPRINT.test(String(plan.planFingerprint ?? "")) ||
     !Array.isArray(plan.blockers) ||
     !Array.isArray(plan.allocation?.selected) ||
+    !Array.isArray(plan.allocation?.availableCandidates) ||
     !Array.isArray(plan.allocation?.excluded) ||
+    candidates.some((candidate) => !validCandidateSourceUrl(candidate.sourceUrl)) ||
     plan.businessWritesEnabled !== false ||
     plan.externalOrderExecuted !== false
   ) {
