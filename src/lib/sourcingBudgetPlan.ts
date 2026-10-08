@@ -1,5 +1,9 @@
 const DEFAULT_SOURCING_ENGINE_URL = "https://commerce-os-sourcing-engine-indol.vercel.app";
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
+const PREVIEW_REQUEST_TIMEOUT_MS = 45_000;
+const PREVIEW_REQUEST_MAX_ATTEMPTS = 2;
+const PREVIEW_RETRY_DELAY_MS = 750;
+const TRANSIENT_PREVIEW_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 export type SourcingBudgetPlanSelection = {
   conceptId: string;
@@ -176,9 +180,82 @@ async function responseJson(response: Response) {
   return payload;
 }
 
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isPreviewTimeout(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === "TimeoutError" ||
+    error.name === "AbortError" ||
+    /(?:timed?\s*out|timeout|aborted due to timeout)/iu.test(error.message)
+  );
+}
+
+function isTransientPreviewError(error: unknown) {
+  return (
+    isPreviewTimeout(error) ||
+    error instanceof TypeError ||
+    (error instanceof Error && /(?:fetch failed|network error|connection (?:reset|refused))/iu.test(error.message))
+  );
+}
+
+function normalizedPreviewError(error: unknown) {
+  if (isPreviewTimeout(error)) return new Error("SOURCING_BUDGET_ENGINE_TIMEOUT");
+  if (isTransientPreviewError(error)) return new Error("SOURCING_BUDGET_ENGINE_UNAVAILABLE");
+  return error instanceof Error ? error : new Error("SOURCING_BUDGET_ENGINE_FAILED");
+}
+
+async function fetchSourcingBudgetPreview(
+  url: string,
+  init: RequestInit,
+  options: { requestTimeoutMs?: number; maxAttempts?: number; retryDelayMs?: number },
+) {
+  const requestTimeoutMs = Math.max(
+    100,
+    Math.min(120_000, Math.trunc(options.requestTimeoutMs ?? PREVIEW_REQUEST_TIMEOUT_MS)),
+  );
+  const maxAttempts = Math.max(
+    1,
+    Math.min(3, Math.trunc(options.maxAttempts ?? PREVIEW_REQUEST_MAX_ATTEMPTS)),
+  );
+  const retryDelayMs = Math.max(
+    0,
+    Math.min(2_000, Math.trunc(options.retryDelayMs ?? PREVIEW_RETRY_DELAY_MS)),
+  );
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      });
+      if (TRANSIENT_PREVIEW_STATUSES.has(response.status) && attempt < maxAttempts) {
+        await response.body?.cancel().catch(() => undefined);
+        if (retryDelayMs) await wait(retryDelayMs);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientPreviewError(error) || attempt >= maxAttempts) {
+        throw normalizedPreviewError(error);
+      }
+      if (retryDelayMs) await wait(retryDelayMs);
+    }
+  }
+
+  throw new Error("SOURCING_BUDGET_ENGINE_UNAVAILABLE");
+}
+
 export async function loadSourcingBudgetPlan(
   input: SourcingBudgetPlanInput,
-  options: { env?: Readonly<Record<string, string | undefined>> } = {},
+  options: {
+    env?: Readonly<Record<string, string | undefined>>;
+    requestTimeoutMs?: number;
+    maxAttempts?: number;
+    retryDelayMs?: number;
+  } = {},
 ): Promise<SourcingBudgetPlan> {
   const { secret, protectionBypass, baseUrl } = config(options.env);
   const params = new URLSearchParams({
@@ -193,13 +270,13 @@ export async function loadSourcingBudgetPlan(
   for (const [conceptId, storageSize] of Object.entries(input.storageSizeByConceptId ?? {})) {
     params.append("storageSize", `${conceptId}:${storageSize}`);
   }
-  const response = await fetch(
+  const response = await fetchSourcingBudgetPreview(
     `${baseUrl}/api/integrations/sourcing-budget-plan?${params.toString()}`,
     {
       headers: requestHeaders(secret, protectionBypass),
       cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
     },
+    options,
   );
   const payload = await responseJson(response);
   assertPlan(payload.plan);

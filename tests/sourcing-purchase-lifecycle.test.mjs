@@ -23,40 +23,44 @@ test("reserved sourcing creates an inbound-pending launch card and receipt updat
   const materialization = await source("../src/lib/sourcingLaunchMaterialization.ts");
   assert.match(materialization, /RESERVED_NOTE\s*=\s*"신규소싱 확정 · 입고 대기"/);
   assert.match(materialization, /lifecycleStatus:\s*"RECEIVED"/);
-  assert.match(materialization, /items\.map\(\(value\)\s*=>\s*text\(value\.id\)\s*===\s*intakeId/);
+  assert.match(materialization, /sourcingIntakeIds/);
+  assert.match(materialization, /items\.map\(\(value\)\s*=>\s*text\(value\.id\)\s*===\s*itemId/);
   assert.match(materialization, /SOURCING_LAUNCH_RECEIPT_IDEMPOTENCY_CONFLICT/);
 });
 
-test("manual sourcing UI batches repeated product rows with explicit storage choices", async () => {
+test("manual sourcing UI batches products with nested options and per-option storage choices", async () => {
   const [form, route, proxy] = await Promise.all([
     source("../src/components/sourcing-center/ManualProductIntakeForm.tsx"),
     source("../src/app/api/sourcing-center/manual-product/route.ts"),
     source("../src/lib/sourcingManualProductIntake.ts"),
   ]);
-  assert.match(form, /name="sourceUrl"/);
-  assert.match(form, /name="productName"/);
-  assert.match(form, /name=\{`storageSize\.\$\{row\.id\}`\}/);
-  assert.match(form, /value="S" checked=\{row\.storageSize === "S"\}/);
-  assert.match(form, /value="L" checked=\{row\.storageSize === "L"\}/);
-  assert.match(form, /입력항목\(상품\) 추가/);
+  assert.match(form, /variants:\s*\[emptyVariant\(variantId\)\]/);
+  assert.match(form, /variants:\s*\[\.\.\.product\.variants, makeVariant\(\)\]/);
+  assert.match(form, /\+ 같은 상품 옵션 추가/);
+  assert.match(form, /\+ 다른 상품 추가/);
+  assert.match(form, /판매 옵션명/);
+  assert.match(form, /1688 중국 옵션/);
+  assert.match(form, /storage\.\$\{variant\.id\}/);
+  assert.match(form, /checked=\{variant\.storageSize === "S"\}/);
+  assert.match(form, /checked=\{variant\.storageSize === "L"\}/);
   assert.match(form, /aria-busy=\{busy\}/);
-  assert.match(form, /submittedRows\.length/);
-  assert.match(form, /failedRows\.length \? failedRows/);
-  assert.match(form, /실패한 입력만 남겨두었습니다/);
+  assert.match(form, /product\.variants\.map/);
+  assert.match(form, /failedProducts\.length \? failedProducts/);
+  assert.match(form, /실패 입력만 남겼습니다/);
   assert.match(form, /embedded = false/);
   assert.match(form, /embedded\s*\?\s*<h3/);
   assert.match(form, /calculationFormId/);
   assert.match(form, /stagedCandidates/);
   assert.match(form, /form=\{calculationFormId\}/);
-  assert.match(form, /계산 목록 식별값을 확인하지 못했습니다/);
   assert.match(form, /아직 발주안은 계산하지 않았습니다/);
-  assert.match(form, /입력한 상품 \$\{rows\.length\}종 후보 목록에 추가/);
-  assert.match(form, /주문·결제를 실행하지 않습니다/);
+  assert.match(form, /상품 \$\{products\.length\}종 · 옵션 \$\{optionCount\}개 후보 목록에 추가/);
+  assert.match(form, /각 옵션에 별도 B코드와 수납공간이 배정됩니다/);
   assert.match(form, /disabled=\{busy\}/);
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(proxy, /x-commerce-os-integration-secret/);
   assert.match(proxy, /x-vercel-protection-bypass/);
   assert.match(proxy, /externalOrderExecuted:\s*false/);
+  assert.match(proxy, /candidates:\s*ManualSourcingProductCandidate\[\]/);
 });
 
 test("sourcing purchase ingress is server-secret protected and fail-closed", async () => {
