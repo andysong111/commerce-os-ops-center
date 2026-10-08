@@ -9,6 +9,9 @@ import {
 } from "./keywordResearch";
 import {
   compactKeywordElonKey,
+  normalizeKeywordElonText,
+  parse1688OfferId,
+  validate1688Url,
   type KeywordElonCandidate,
   type KeywordElonDiscovery,
   type KeywordElonIdentity,
@@ -233,6 +236,25 @@ async function researchFromIdentity(input: {
   };
 }
 
+function sourceFromEvidence(rawEvidence: unknown, sourceUrl: string): KeywordElonSourceDraft | null {
+  if (!rawEvidence || typeof rawEvidence !== "object" || Array.isArray(rawEvidence)) return null;
+  const evidence = rawEvidence as Record<string, unknown>;
+  const chineseTitle = normalizeKeywordElonText(evidence.productName).slice(0, 500);
+  const optionText = normalizeKeywordElonText(evidence.supplierOptions).slice(0, 4_000);
+  const supportingText = normalizeKeywordElonText(evidence.sourceProductInfo).slice(0, 12_000);
+  if (!chineseTitle && !optionText && !supportingText) return null;
+  return {
+    url: sourceUrl,
+    offerId: parse1688OfferId(sourceUrl),
+    autoStatus: chineseTitle && (optionText || supportingText) ? "success" : "partial",
+    chineseTitle,
+    optionText,
+    supportingText,
+    warnings: ["SERVER_COLLECTED_1688_SOURCE"],
+    collectedAt: new Date().toISOString(),
+  };
+}
+
 export async function researchKeyword(rawKeyword: unknown) {
   const keyword = normalizeKeywordResearchInput(rawKeyword);
   if (keyword.length < 2) throw new Error("두 글자 이상의 키워드를 입력해 주세요.");
@@ -246,9 +268,11 @@ export async function researchKeyword(rawKeyword: unknown) {
   });
 }
 
-export async function research1688Source(rawSourceUrl: unknown) {
+export async function research1688Source(rawSourceUrl: unknown, rawEvidence?: unknown) {
   const sourceUrl = normalizeKeywordResearchInput(rawSourceUrl);
-  const source = await collectKeywordElon1688Source(sourceUrl);
+  if (!validate1688Url(sourceUrl)) throw new Error("1688.com 상품 링크를 입력해 주세요.");
+  const source = sourceFromEvidence(rawEvidence, sourceUrl)
+    ?? await collectKeywordElon1688Source(sourceUrl);
   const identity = await analyzeKeywordElonIdentity(source);
   const keyword = normalizeKeywordResearchInput(
     identity.identityAnchor || identity.coreProduct || identity.koreanProductIdentity,
