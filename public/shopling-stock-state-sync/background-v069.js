@@ -26,6 +26,37 @@ importScripts("background-v068.js");
   const logV069 = (...args) => console.log(TAG_V069, new Date().toISOString(), ...args);
   const warnV069 = (...args) => console.warn(TAG_V069, new Date().toISOString(), ...args);
 
+  function supportsOptionFirstV069() {
+    const parts = String(VERSION_V069 || "")
+      .split(".")
+      .slice(0, 3)
+      .map((value) => Number(value) || 0);
+    const minimum = [0, 5, 8];
+    for (let index = 0; index < minimum.length; index += 1) {
+      if (parts[index] > minimum[index]) return true;
+      if (parts[index] < minimum[index]) return false;
+    }
+    return true;
+  }
+
+  function canDetachFirstV069(active) {
+    if (String(active?.job?.productKind || "").toUpperCase() !== "OPTION") return true;
+    if (!supportsOptionFirstV069() || active?.job?.optionApiApplied !== true) return false;
+    const goodsKeys = Array.isArray(active?.job?.goodsKeys) ? active.job.goodsKeys : [];
+    const currentBatch = Array.isArray(active?.optionCurrentBatchKeys)
+      ? active.optionCurrentBatchKeys
+      : [];
+    const batchStart = Math.max(
+      0,
+      Number(active?.optionCurrentBatchStart ?? active?.goodsKeyIndex ?? 0),
+    );
+    return (
+      goodsKeys.length > 0 &&
+      currentBatch.length > 0 &&
+      batchStart + currentBatch.length >= goodsKeys.length
+    );
+  }
+
   async function loadParallelV069() {
     const stored = await chrome.storage.local.get(PARALLEL_STATE_KEY).catch(() => ({}));
     return stored?.[PARALLEL_STATE_KEY] || null;
@@ -428,7 +459,7 @@ importScripts("background-v068.js");
 
         const active = await loadActive();
         if (active?.status === "RUNNING" && active.job?.jobId === state.firstJobId) {
-          if (active.stage === "WAIT_A21_RESULT") {
+          if (active.stage === "WAIT_A21_RESULT" && canDetachFirstV069(active)) {
             const detached = await detachFirstAndStartSecondV069(state, active);
             if (detached) return true;
           }
@@ -512,7 +543,10 @@ importScripts("background-v068.js");
       ignoreWindowClose: true,
       verificationOnly: true,
     }));
-    if (String(jobs[0]?.productKind || "").toUpperCase() !== "SINGLE") {
+    if (
+      String(jobs[0]?.productKind || "").toUpperCase() !== "SINGLE" &&
+      !supportsOptionFirstV069()
+    ) {
       return { ok: false, code: "HF28_FIRST_LANE_SINGLE_REQUIRED", message: "HF28 첫 병렬 Lane은 단품 결과대기 분리 방식만 지원합니다." };
     }
     if (!jobs[0]?.jobId || !jobs[1]?.jobId || jobs[0].jobId === jobs[1].jobId) {

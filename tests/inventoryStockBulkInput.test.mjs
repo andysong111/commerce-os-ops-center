@@ -47,7 +47,7 @@ test("operator UI no longer asks operators to type product kind or model number"
     assert.doesNotMatch(source, /setModelNo|modelNo\s*,\s*setModelNo|name=["']modelNo/);
     assert.match(source, /Product Master/);
   }
-  assert.match(stockout, /\/api\/inventory-stock-control\/batch/);
+  assert.match(stockout, /\/api\/inventory-stock-control\/unified-batch/);
   assert.match(stocktake, /\/api\/inventory-stock-control\/stocktake\/batch/);
 });
 

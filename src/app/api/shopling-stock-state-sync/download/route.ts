@@ -23,7 +23,10 @@ const FILES = [
 ];
 
 function namespacePriceCoreContent(source: string) {
+  // Git may materialize the literal source as CRLF on Windows. Normalize only the
+  // generated copy so the guarded canonical adapter stays byte-pattern stable.
   const namespaced = source
+    .replace(/\r\n?/g, "\n")
     .replace('const VERSION = "0.2.4";', 'const VERSION = chrome.runtime.getManifest().version;')
     .replaceAll("A21_POPUP_CLAIM_V020", "STOCK_PRICE_CORE_POPUP_CLAIM_V050")
     .replaceAll("commerce-os-a21-v024-main-submit-request", "commerce-os-stock-price-core-v050-main-submit-request")
@@ -309,8 +312,10 @@ export async function GET(request: Request) {
   entries["content-a21-price-core-v050.js"] = strToU8(priceCoreContent);
   entries["main-a21-price-core-v050.js"] = strToU8(priceCoreMain);
 
-  const template = await readFile(path.join(root, "content-shopling-v018.js"), "utf8");
-  const policy = await readFile(path.join(root, "search-policy-v023.js"), "utf8");
+  const template = (await readFile(path.join(root, "content-shopling-v018.js"), "utf8"))
+    .replace(/\r\n?/g, "\n");
+  const policy = (await readFile(path.join(root, "search-policy-v023.js"), "utf8"))
+    .replace(/\r\n?/g, "\n");
   const builtWorker = buildStockWorkerV030(template, policy);
   if (!builtWorker.includes('const VERSION = "0.4.2";')) throw new Error("shopling_stock_state_list_worker_version_template_mismatch");
   const readOnlyWorker = patchA6ReadOnlyResolverV054(builtWorker);

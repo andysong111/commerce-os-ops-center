@@ -30,7 +30,7 @@ export async function GET(request: Request) {
   const manifestBytes = entries["manifest.json"];
   if (!canonicalBytes || !manifestBytes) throw new Error("shopling_stock_hf14_required_entry_missing");
 
-  const canonicalBefore = strFromU8(canonicalBytes);
+  const canonicalBefore = strFromU8(canonicalBytes).replace(/\r\n?/g, "\n");
   const strictMissingBlock = `    const { matched, seen, target } = findResultRows(assignment.goodsKeys);\n    const missing = [...target].filter((key) => !seen.has(key));\n    if (missing.length) return fail(assignment.jobId, "A21_GOODSKEY_RESULT_MISSING", \`검색 결과에 GOODSKEY \${missing.slice(0, 8).join(", ")}\${missing.length > 8 ? " 외" : ""}가 없습니다.\`);\n    if (matched.length !== total) return fail(assignment.jobId, "A21_VISIBLE_ROW_COUNT_MISMATCH", \`조회수 \${total}건 중 안전하게 식별한 행은 \${matched.length}건이라 전송하지 않았습니다.\`);`;
   const tolerantMissingBlock = `    const { matched, seen, target } = findResultRows(assignment.goodsKeys);\n    const missing = [...target].filter((key) => !seen.has(key));\n    const singleStockBatch = /^SINGLE_(?:BATCH|SPLIT)/.test(String(assignment.stage || ""));\n    if (missing.length && !singleStockBatch) return fail(assignment.jobId, "A21_GOODSKEY_RESULT_MISSING", \`검색 결과에 GOODSKEY \${missing.slice(0, 8).join(", ")}\${missing.length > 8 ? " 외" : ""}가 없습니다.\`);\n    if (matched.length !== total) return fail(assignment.jobId, "A21_VISIBLE_ROW_COUNT_MISMATCH", \`조회수 \${total}건 중 A6 유래 GOODSKEY로 안전하게 식별한 행은 \${matched.length}건이라 다른 상품 혼입 위험 때문에 전송하지 않았습니다.\`);`;
 

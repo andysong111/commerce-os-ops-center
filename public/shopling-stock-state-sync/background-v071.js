@@ -11,12 +11,26 @@ importScripts("background-v070.js");
 (() => {
   const VERSION_V071 = chrome.runtime.getManifest().version;
   const OPTION_BATCH_MAX_V071 = 20;
+  const OPTION_BATCH_MAX_HF30 = 200;
   const CANONICAL_LIST_SCRIPT_V071 = "content-a21-canonical-v014.js";
   const CANONICAL_IDENTIFY_V071 = "A21_IDENTIFY";
   const CANONICAL_ASSIGN_V071 = "A21_LIST_ASSIGNMENT";
   const legacyDispatchToTargetV071 = dispatchToTarget;
   const legacyDispatchCurrentV071 = dispatchCurrent;
   const legacyContinueNextGoodsKeyV071 = continueNextGoodsKey;
+
+  function optionBatchHardLimitV071() {
+    const parts = String(VERSION_V071 || "")
+      .split(".")
+      .slice(0, 3)
+      .map((value) => Number(value) || 0);
+    const minimum = [0, 5, 8];
+    for (let index = 0; index < minimum.length; index += 1) {
+      if (parts[index] > minimum[index]) return OPTION_BATCH_MAX_HF30;
+      if (parts[index] < minimum[index]) return OPTION_BATCH_MAX_V071;
+    }
+    return OPTION_BATCH_MAX_HF30;
+  }
 
   function isOptionBatchA21V071(active) {
     return Boolean(
@@ -31,9 +45,10 @@ importScripts("background-v070.js");
   }
 
   function optionBatchLimitV071(active) {
-    const requested = Number(active?.optionBatchLimit || OPTION_BATCH_MAX_V071);
-    if (!Number.isFinite(requested)) return OPTION_BATCH_MAX_V071;
-    return Math.max(1, Math.min(OPTION_BATCH_MAX_V071, Math.floor(requested)));
+    const hardLimit = optionBatchHardLimitV071();
+    const requested = Number(active?.optionBatchLimit || hardLimit);
+    if (!Number.isFinite(requested)) return hardLimit;
+    return Math.max(1, Math.min(hardLimit, Math.floor(requested)));
   }
 
   function optionBatchKeysV071(active) {
@@ -122,6 +137,7 @@ importScripts("background-v070.js");
         batchMode: "A21_COMMA_MULTI_GOODS_KEY",
         searchToken,
         optionApiMutation: "ALREADY_VERIFIED_PER_GOODS_KEY",
+        popupPolicy: "NEW_A21_RESULT_WINDOW_PER_BATCH",
         extensionVersion: VERSION_V071,
       },
     );
@@ -195,6 +211,7 @@ importScripts("background-v070.js");
             totalGoodsKeys: total,
             batchLimit: optionBatchLimitV071(active),
             optionApiMutation: "UNCHANGED_PER_GOODS_KEY_EXACT_BEFORE_A21",
+            popupPolicy: "NEW_A21_RESULT_WINDOW_PER_BATCH",
             extensionVersion: VERSION_V071,
           },
         ),
@@ -219,6 +236,7 @@ importScripts("background-v070.js");
         totalGoodsKeys: total,
         batchLimit: optionBatchLimitV071(active),
         batchMode: "A21_COMMA_MULTI_GOODS_KEY",
+        popupPolicy: "NEW_A21_RESULT_WINDOW_PER_BATCH",
         extensionVersion: VERSION_V071,
       },
     );

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
@@ -14,7 +14,9 @@ async function loadAdminModule() {
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  const directory = await mkdtemp(join(dirname(sourcePath.pathname), ".supabase-admin-test-"));
+  const directory = await mkdtemp(
+    join(dirname(fileURLToPath(sourcePath)), ".supabase-admin-test-"),
+  );
   const file = join(directory, "admin.mjs");
   await writeFile(file, output);
   try {

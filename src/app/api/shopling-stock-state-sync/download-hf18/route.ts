@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     throw new Error("shopling_stock_hf18_required_entry_missing");
   }
 
-  let background = strFromU8(backgroundBytes);
+  let background = strFromU8(backgroundBytes).replace(/\r\n?/g, "\n");
   background = replaceOnce(
     background,
     `          productComplete: /상품\\s*수정\\s*전송이\\s*완료되었습니다/i.test(text) || /상품판매상태\\s*송신이\\s*완료되었습니다/i.test(text),`,
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
   new Function(background);
   entries[BACKGROUND_SINGLE] = strToU8(background);
 
-  let resultWorker = strFromU8(resultBytes);
+  let resultWorker = strFromU8(resultBytes).replace(/\r\n?/g, "\n");
   resultWorker = replaceOnce(
     resultWorker,
     `      productComplete:\n        /상품\\s*수정\\s*전송이\\s*완료되었습니다/i.test(text) ||\n        /상품판매상태\\s*송신이\\s*완료되었습니다/i.test(text),`,
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
   new Function(resultWorker);
   entries[RESULT_WORKER] = strToU8(resultWorker);
 
-  let ops = strFromU8(opsBytes);
+  let ops = strFromU8(opsBytes).replace(/\r\n?/g, "\n");
   const channelSwaps: Array<[string, string, string]> = [
     ["COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY_HF17", "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY_HF18", "ready"],
     ["COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING_HF17", "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING_HF18", "ping"],
