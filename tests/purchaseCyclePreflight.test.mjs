@@ -368,6 +368,7 @@ test("preflight source has no write executor, credentials, background timer, or 
 test("operator page accepts an all-in cash cap while preserving the automatic envelope", () => {
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
   const form = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchasePreflightForm.tsx", import.meta.url), "utf8");
+  const recalculationLink = readFileSync(new URL("../src/components/china-order-manager/PurchaseDraftRecalculationLink.tsx", import.meta.url), "utf8");
   const sourcingForm = readFileSync(new URL("../src/components/purchase-cycle-preflight/SourcingCandidateSelectionForm.tsx", import.meta.url), "utf8");
   assert.match(page, /name="cash"/);
   assert.match(page, /이번 발주에 쓸 총 현금/);
@@ -395,7 +396,8 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(page, /cashLimitKrw/);
   assert.match(page, /권장 → 현금반영/);
   assert.match(page, /name="early"/);
-  assert.match(page, /월 마감 전 조기 미리보기/);
+  assert.match(page, /전월 마감 전 임시 계산/);
+  assert.match(page, /평소에는 체크하지 마세요/);
   assert.match(page, /기존 Draft와 새 계산 전체 대조/);
   assert.match(page, /replacementAudit\.added/);
   assert.match(page, /<PurchasePreflightForm>/);
@@ -408,6 +410,9 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(form, /aria-busy=\{pending\}/);
   assert.match(form, /예산·후보 확인 중\.\.\./);
   assert.match(form, /role="status"/);
+  assert.match(recalculationLink, /aria-busy=\{pending\}/);
+  assert.match(recalculationLink, /최신 자료 계산 중\.\.\./);
+  assert.match(recalculationLink, /animate-spin/);
 });
 
 test("operator page presents a simple guided flow and keeps technical evidence collapsed", () => {
