@@ -1,6 +1,28 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { loadSourcingBudgetPlan } from "../src/lib/sourcingBudgetPlan.ts";
+
+const fingerprint = value => `sha256:${value.repeat(64)}`;
+const validPlan = () => ({
+  version: "sourcing-budget-plan-v1",
+  sourceFingerprint: fingerprint("a"),
+  planFingerprint: fingerprint("b"),
+  blockers: [],
+  allocation: { selected: [], availableCandidates: [], excluded: [] },
+  businessWritesEnabled: false,
+  externalOrderExecuted: false,
+});
+const input = {
+  targetCycleMonth: "2026-10",
+  totalCashKrw: 1_000_000,
+  sourcingBudgetPercent: 20,
+  sourcingBudgetKrw: 200_000,
+};
+const env = {
+  SOURCING_ENGINE_INTEGRATION_SECRET: "test-secret",
+  SOURCING_ENGINE_PUBLIC_URL: "https://sourcing.example.test",
+};
 
 test("Ops sourcing budget bridge uses only the protected server integration", async () => {
   const source = await readFile("src/lib/sourcingBudgetPlan.ts", "utf8");
@@ -40,4 +62,46 @@ test("invalid sourcing fingerprints are rejected before being trusted", async ()
   assert.match(source, /FINGERPRINT\.test/);
   assert.match(source, /SOURCING_BUDGET_PLAN_RESPONSE_INVALID/);
   assert.ok(!source.includes("console.log(secret"));
+});
+
+test("read-only sourcing preview retries a transient timeout and then succeeds", async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let calls = 0;
+  globalThis.fetch = async (_url, init) => {
+    calls += 1;
+    assert.ok(init.signal instanceof AbortSignal);
+    if (calls === 1) {
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    }
+    return Response.json({ ok: true, plan: validPlan() });
+  };
+
+  const plan = await loadSourcingBudgetPlan(input, {
+    env,
+    requestTimeoutMs: 100,
+    maxAttempts: 2,
+    retryDelayMs: 0,
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(plan.version, "sourcing-budget-plan-v1");
+});
+
+test("exhausted sourcing preview timeout is normalized to a stable error code", async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async () => {
+    throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+  };
+
+  await assert.rejects(
+    loadSourcingBudgetPlan(input, {
+      env,
+      requestTimeoutMs: 100,
+      maxAttempts: 2,
+      retryDelayMs: 0,
+    }),
+    { message: "SOURCING_BUDGET_ENGINE_TIMEOUT" },
+  );
 });

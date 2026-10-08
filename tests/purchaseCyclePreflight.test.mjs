@@ -440,7 +440,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /sourcingPolicyPreparationCodes/);
   assert.match(page, /오류나 사용자 할 일로 세지 않습니다/);
   assert.match(page, /기술 검증 내역/);
-  assert.match(page, /소싱엔진 연동 설정을 확인하지 못했습니다/);
+  assert.match(page, /소싱 후보 다시 불러오기/);
   assert.match(page, /confirmation=\{draftReady \? purchaseCycleDraftConfirmation\(report, sourcingPlan\) : ""\}/);
   assert.match(page, /className="min-w-0 space-y-5"/);
   assert.ok(page.indexOf('id="new-product-configuration"') < page.indexOf('id="sourcing-selection"'));
@@ -459,7 +459,11 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(sourcingForm, /href=\{candidate\.sourceUrl\}/);
   assert.match(page, /href=\{row\.sourceUrl\}/);
   assert.match(budgetPlan, /value == null/);
-  assert.match(budgetPlan, /AbortSignal\.timeout\(15_000\)/);
+  assert.match(budgetPlan, /PREVIEW_REQUEST_TIMEOUT_MS = 45_000/);
+  assert.match(budgetPlan, /PREVIEW_REQUEST_MAX_ATTEMPTS = 2/);
+  assert.match(budgetPlan, /SOURCING_BUDGET_ENGINE_TIMEOUT/);
+  assert.match(page, /자동 재시도 후에도 후보를 불러오지 못했습니다/);
+  assert.doesNotMatch(page, /The operation was aborted due to timeout/);
   assert.match(sourcingForm, /checked=\{checked\}/);
   assert.match(sourcingForm, /name=\{`storage\.\$\{candidate\.conceptId\}`\}/);
   assert.match(sourcingForm, /required/);

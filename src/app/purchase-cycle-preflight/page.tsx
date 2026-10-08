@@ -92,6 +92,15 @@ const sourcingPolicyPreparationCodes = new Set([
   "SOURCING_PERCENT_POLICY_MISMATCH",
   "SOURCING_BUDGET_MISMATCH",
 ]);
+const sourcingPlanErrorMessage = (code: string) => {
+  if (code === "SOURCING_BUDGET_ENGINE_TIMEOUT") {
+    return "소싱엔진 응답이 지연되어 자동 재시도 후에도 후보를 불러오지 못했습니다. 잠시 후 ‘예산 확인 · 후보 불러오기’를 다시 눌러주세요. Draft 저장·1688 주문·결제는 실행되지 않았습니다.";
+  }
+  if (code === "SOURCING_BUDGET_ENGINE_UNAVAILABLE") {
+    return "소싱엔진 연결이 일시적으로 불안정해 후보를 불러오지 못했습니다. 잠시 후 ‘예산 확인 · 후보 불러오기’를 다시 눌러주세요. Draft 저장·1688 주문·결제는 실행되지 않았습니다.";
+  }
+  return "신규상품 후보를 불러오지 못했습니다. 소싱센터 연결 상태를 확인한 뒤 ‘예산 확인 · 후보 불러오기’를 다시 눌러주세요. Draft 저장·1688 주문·결제는 실행되지 않았습니다.";
+};
 const explain = (code: string) => reasonLabels[code] ?? `상위 검증에서 남은 조건: ${code}`;
 const costBasisLabel = (row: PurchaseCyclePreflightReport["selected"][number]) => {
   if (row.costBasis === "VERIFIED_PURCHASE_COST") return "확정원가";
@@ -138,6 +147,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   let report: PurchaseCyclePreflightReport | null = null;
   let sourcingPlan: SourcingBudgetPlan | null = null;
   let sourcingPlanError = "";
+  let sourcingPlanErrorCode = "";
   let inputError = "";
   // Opening a card or link never starts the expensive data reads. Only an
   // explicit read-only form submission does. No polling, cron or write action.
@@ -162,7 +172,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           });
         } catch (error) {
           const raw = error instanceof Error ? error.message : "SOURCING_BUDGET_PLAN_FAILED";
-          sourcingPlanError = `신규상품 소싱 후보 계산을 읽지 못했습니다: ${raw.split(":", 1)[0]}`;
+          sourcingPlanErrorCode = raw.split(":", 1)[0] || "SOURCING_BUDGET_PLAN_FAILED";
+          sourcingPlanError = sourcingPlanErrorMessage(sourcingPlanErrorCode);
         }
       }
     } catch {
@@ -187,8 +198,12 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   }
   if (sourcingPlanError) {
     actionItems.push({
-      title: "소싱엔진 연결 다시 확인",
-      message: "소싱엔진 연동 설정을 확인하지 못했습니다. 연결 상태를 점검한 뒤 다시 계산하세요.",
+      title: sourcingPlanErrorCode === "SOURCING_BUDGET_ENGINE_TIMEOUT"
+        ? "소싱 후보 다시 불러오기"
+        : "소싱엔진 연결 다시 확인",
+      message: sourcingPlanErrorCode === "SOURCING_BUDGET_ENGINE_TIMEOUT"
+        ? "소싱엔진이 늦게 응답했습니다. 잠시 후 1단계의 ‘예산 확인 · 후보 불러오기’를 다시 누르면 자동 재시도를 포함해 다시 확인합니다."
+        : "소싱엔진 연결 상태를 점검한 뒤 1단계의 ‘예산 확인 · 후보 불러오기’를 다시 누르세요.",
       href: "/sourcing-center",
       hrefLabel: "소싱센터 상태 보기",
     });
