@@ -190,6 +190,10 @@ test("keyword research is exposed in the content-keyword menu and wired end-to-e
   assert.doesNotMatch(client, /추천 상품명 만들기|Product name studio|generate_title/);
   assert.doesNotMatch(client, /label="엔진 품질"/);
   assert.match(route, /researchKeyword/);
+  assert.match(route, /research1688Source/);
+  assert.match(server, /collectKeywordElon1688Source/);
+  assert.match(server, /analyzeKeywordElonIdentity/);
+  assert.match(server, /recommendedTitle/);
   assert.doesNotMatch(route, /generateKeywordResearchTitle|generate_title/);
   assert.match(server, /discoverKeywordElonCandidatesResilient/);
   assert.match(server, /enrichKeywordElonDemand/);
