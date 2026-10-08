@@ -38,7 +38,7 @@ export async function GET(request: Request) {
   // SEARCH_SUBMITTED, and HF11 stores that mutable stage. A retry assignment then carried
   // stage=SEARCH_SUBMITTED, so the same SINGLE batch was misclassified as strict OPTION.
   // Carry an immutable marker on every assignment instead.
-  let background = strFromU8(backgroundBytes);
+  let background = strFromU8(backgroundBytes).replace(/\r\n?/g, "\n");
   background = replaceOnce(
     background,
     "        goodsKeys: batch,\n        stage: singleCanonicalStageV057(active),",
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
   new Function(background);
   entries[BACKGROUND_BATCH_FILE] = strToU8(background);
 
-  let canonical = strFromU8(canonicalBytes);
+  let canonical = strFromU8(canonicalBytes).replace(/\r\n?/g, "\n");
   canonical = replaceOnce(
     canonical,
     '    const singleStockBatch = /^SINGLE_(?:BATCH|SPLIT)/.test(String(assignment.stage || ""));',
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
 
   // HF16 gets its own page channel. HF15 remaining installed can no longer receive HF16
   // START/PING or advertise READY/RESULT back to the current stock-control page.
-  let ops = strFromU8(opsBytes);
+  let ops = strFromU8(opsBytes).replace(/\r\n?/g, "\n");
   const channelSwaps: Array<[string, string, string]> = [
     ["COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY_HF15", "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY_HF16", "ready"],
     ["COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING_HF15", "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING_HF16", "ping"],

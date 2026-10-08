@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INVENTORY_QUEUE_PATH, inventoryStockReadClient, startInventoryPolling } from "@/lib/inventoryStockConnection";
+import { planShoplingStockLaunch } from "@/lib/shoplingStockLaunchPlan";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -65,6 +66,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       : null,
   );
   const [extensionReady, setExtensionReady] = useState(false);
+  const [extensionVersion, setExtensionVersion] = useState("");
   const [draining, setDraining] = useState(false);
   const [phase, setPhase] = useState("IDLE");
   const [notice, setNotice] = useState("");
@@ -77,6 +79,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
   const activeBatch = useRef<ActiveBatch | null>(null);
   const excludedThisRun = useRef(new Set<string>());
   const continueAfterBatch = useRef(false);
+  const extensionVersionRef = useRef("");
 
   // Execution defaults to a fresh read. Only passive polls may share an in-flight
   // overview read, and no completed job list is ever used as a transport cache.
@@ -141,24 +144,26 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         : "운영 재고상태 큐 처리 완료 · 현재 실행 가능한 Shopling 품절·판매중 대기건이 없습니다.");
       return;
     }
-    const selected = available.slice(0, 2);
+    const plan = planShoplingStockLaunch(available, extensionVersionRef.current);
     const batchId = randomId("stock-sync-ops-batch");
-    const prepared = selected.map((job, index) => operationalJob(job, batchId, index + 1));
+    const prepared = plan.jobs.map((job, index) => operationalJob(job, batchId, index + 1));
     jobsById.current.clear(); prepared.forEach((job) => jobsById.current.set(job.jobId, job));
     setRunningBarcodes(prepared.map((job) => job.barcode));
-    setPhase(prepared.length === 2 ? "STARTING_2_LANE" : "STARTING_SINGLE");
+    setPhase(plan.mode === "PARALLEL" ? "STARTING_2_LANE" : "STARTING_SINGLE");
     await Promise.all(prepared.map((job) => recordSync(job, "STARTED",
       job.manualStatusOnly
         ? `운영 큐 ${job.parallelLane || 1}번 Lane 시작 · 재고수량 미확정 수동 Shopling ${statusLabel(job.desiredStatus)} 반영`
         : `운영 큐 ${job.parallelLane || 1}번 Lane 시작 · 현재 정확재고 ${job.exactInventoryQuantity}개 기준 Shopling ${statusLabel(job.desiredStatus)} 반영`,
       { operationalQueue: true, operationalBatchId: batchId, operationalLane: job.parallelLane || 1, desiredSince: job.desiredSince, manualStatusOnly: job.manualStatusOnly === true })));
-    activeBatch.current = { mode: prepared.length === 2 ? "PARALLEL" : "SINGLE", batchId, jobs: prepared, terminalJobIds: new Set<string>() };
-    if (prepared.length === 2) {
+    activeBatch.current = { mode: plan.mode, batchId, jobs: prepared, terminalJobIds: new Set<string>() };
+    if (plan.mode === "PARALLEL") {
       window.postMessage({ type: PARALLEL_START, batchId, jobs: prepared }, window.location.origin);
       setNotice(`${prepared[0].barcode} + ${prepared[1].barcode} 운영 큐 2-Lane 시작 · 품절 우선순위로 최대 2건을 겹쳐 처리합니다.`);
     } else {
       window.postMessage({ type: SINGLE_START, job: prepared[0] }, window.location.origin);
-      setNotice(`${prepared[0].barcode} 운영 큐 마지막 1건을 단독 실행합니다.`);
+      setNotice(plan.compatibilitySerial
+        ? `${prepared[0].barcode} 옵션 B코드를 현재 확장 버전과 호환되는 단독 창에서 먼저 실행합니다.`
+        : `${prepared[0].barcode} 운영 큐 마지막 1건을 단독 실행합니다.`);
     }
   }, [blockedRows.length, loadQueue, localExceptions.length, recordSync]);
 
@@ -189,7 +194,13 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       if (event.source !== window || event.origin !== window.location.origin || !event.data || typeof event.data !== "object") return;
       const data = event.data as Record<string, unknown>;
       const type = String(data.type || "");
-      if (type === "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY") { setExtensionReady(true); return; }
+      if (type === "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY") {
+        const version = String(data.extensionVersion || "");
+        extensionVersionRef.current = version;
+        setExtensionVersion(version);
+        setExtensionReady(true);
+        return;
+      }
       if (type === PARALLEL_STATUS) {
         const batch = activeBatch.current;
         if (!batch || batch.mode !== "PARALLEL") return;
@@ -252,7 +263,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
   }, [launchNext, loadQueue, recordSync]);
   const startDrain = async () => {
     setNotice("");
-    if (!extensionReady) { setNotice("HF28 재고상태 확장프로그램이 연결되어야 운영 큐를 실행할 수 있습니다."); return; }
+    if (!extensionReady) { setNotice("재고상태 확장프로그램이 연결되어야 운영 큐를 실행할 수 있습니다."); return; }
     if (draining || activeBatch.current) { setNotice("이미 운영 재고상태 큐가 실행 중입니다."); return; }
     if (report?.state !== "READY") { setNotice("정확재고 원장이 READY가 아니므로 Shopling 자동송신을 시작하지 않습니다."); return; }
     handledResults.current.clear(); excludedThisRun.current.clear(); setLocalExceptions([]);
@@ -271,10 +282,10 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         <div>
           <span className="text-xs font-black tracking-[0.12em] text-sky-800">OPERATION QUEUE · EXACT INVENTORY → SHOPLING · MAX 2 LANES</span>
           <h2 className="mt-1 text-xl font-black text-slate-950">실제 운영 재고상태 자동 큐</h2>
-          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded와 사용자가 명시한 수량 미확정 판매중 전환을 실행 대상으로 사용합니다. 품절을 판매중보다 먼저 처리하고 최대 2건을 HF28 Lane으로 겹쳐 실행합니다. FAILED/UNCERTAIN은 같은 실행에서 자동 재시도하지 않고 예외 큐로 격리하며, 결과창 닫힘 여부는 다음 작업 진행과 성공판정 조건에서 제외합니다.</p>
+          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded와 사용자가 명시한 수량 미확정 판매중 전환을 실행 대상으로 사용합니다. 품절을 판매중보다 먼저 처리하고 설치된 확장 버전이 지원하는 범위에서 최대 2건을 겹쳐 실행합니다. 구버전에서 옵션이 첫 순서면 우선순위를 바꾸지 않고 1건씩 안전하게 처리합니다. FAILED/UNCERTAIN은 같은 실행에서 자동 재시도하지 않고 예외 큐로 격리합니다.</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-black">
-          <span className={`rounded-full border px-3 py-1.5 ${extensionReady ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{extensionReady ? "HF28 연결됨" : "HF28 연결 대기"}</span>
+          <span className={`rounded-full border px-3 py-1.5 ${extensionReady ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{extensionReady ? `확장 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}` : "확장 연결 대기"}</span>
           <span className={`rounded-full border px-3 py-1.5 ${report?.state === "READY" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-rose-300 bg-rose-50 text-rose-800"}`}>원장 {report?.state || "조회 대기"}</span>
         </div>
       </div>
@@ -286,7 +297,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">운영 단계</div><div className="mt-1 text-sm font-black text-slate-950">{phase}</div></div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" onClick={() => void startDrain()} disabled={draining || !extensionReady || report?.state !== "READY" || !jobs.length} className="rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-black text-white hover:bg-sky-800 disabled:bg-slate-400">현재 대기건 2-Lane 자동처리</button>
+        <button type="button" onClick={() => void startDrain()} disabled={draining || !extensionReady || report?.state !== "READY" || !jobs.length} className="rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-black text-white hover:bg-sky-800 disabled:bg-slate-400">현재 대기건 자동처리</button>
         <button type="button" onClick={pauseAfterCurrent} disabled={!draining} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:text-slate-400">현재 배치 후 중지</button>
         <button type="button" onClick={() => void loadQueue().catch((error) => setNotice(error instanceof Error ? error.message : "큐 새로고침 실패"))} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50">큐 새로고침</button>
       </div>

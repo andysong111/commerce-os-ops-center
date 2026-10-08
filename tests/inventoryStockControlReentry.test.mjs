@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
@@ -20,7 +20,9 @@ async function loadInventoryPureHelpers() {
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  const directory = await mkdtemp(join(dirname(sourcePath.pathname), ".inventory-reentry-test-"));
+  const directory = await mkdtemp(
+    join(dirname(fileURLToPath(sourcePath)), ".inventory-reentry-test-"),
+  );
   const file = join(directory, "inventoryStockControl.mjs");
   await writeFile(file, output);
   try {
@@ -207,11 +209,14 @@ test("confirmed physical stockout returns direct SOLD_OUT Shopling jobs without 
   assert.match(route, /Shopling 품절 전송 작업을 즉시 준비했습니다/);
 });
 
-test("stockout operator sends returned direct jobs immediately and never reloads the page to wait for queue discovery", async () => {
+test("unified operator sends returned direct jobs immediately and never reloads the page to wait for queue discovery", async () => {
   const panel = await readFile("src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx", "utf8");
   assert.match(panel, /COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_START/);
   assert.match(panel, /COMMERCE_OS_SHOPLING_STOCK_SYNC_START/);
-  assert.match(panel, /Shopling의 기존 판매중\/품절\s*상태를 먼저 조회하지 않고 품절 상태를 바로 전송합니다/);
+  assert.match(panel, /inventory-stock-control\/unified-batch/);
+  assert.match(panel, /stockoutBarcodes/);
+  assert.match(panel, /onSaleBarcodes/);
+  assert.match(panel, /stocktakeItems/);
   assert.match(panel, /directQueue\.current = \[/);
   assert.match(panel, /extensionReadyRef\.current = true/);
   assert.match(panel, /!extensionReadyRef\.current/);
@@ -227,10 +232,10 @@ test("stock sync event writes acknowledge immediately instead of refreshing Cano
   assert.doesNotMatch(post, /tailSalesRefresh/);
 });
 
-test("direct stockout result messaging distinguishes marketplace advisory failures from the Shopling state result", async () => {
+test("direct unified result messaging distinguishes marketplace advisory failures from the Shopling state result", async () => {
   const panel = await readFile("src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx", "utf8");
   assert.match(panel, /marketFailuresAdvisory/);
-  assert.match(panel, /Shopling 자체 품절 반영 실패가 아니라 마켓별 후속 전송 실패입니다/);
+  assert.match(panel, /Shopling 자체 상태 반영 실패와 구분됩니다/);
 });
 
 
@@ -279,15 +284,15 @@ test("manual on-sale operator accepts B-codes only and sends Shopling ON_SALE di
   assert.doesNotMatch(panel, /baselineQuantity/);
 });
 
-test("inventory page exposes stockout, quantity-free on-sale, and stocktake as three separate controls", async () => {
+test("inventory page exposes one unified stockout, on-sale, and stocktake control", async () => {
   const page = await readFile(
     "src/app/china-order-manager/stock-control/page.tsx",
     "utf8",
   );
   assert.match(page, /InventoryStockoutOperatorPanel/);
-  assert.match(page, /InventoryManualOnSaleOperatorPanel/);
-  assert.match(page, /InventoryStocktakeOperatorPanel/);
-  assert.match(page, /xl:grid-cols-3/);
+  assert.doesNotMatch(page, /InventoryManualOnSaleOperatorPanel/);
+  assert.doesNotMatch(page, /InventoryStocktakeOperatorPanel/);
+  assert.match(page, /chrome:\/\/extensions/);
 });
 
 test("inventory overview and operational queue label status-only ON_SALE as quantity unknown", async () => {
