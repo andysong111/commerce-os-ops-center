@@ -8,12 +8,14 @@ type StorageSize = "S" | "L";
 type SelectedCandidate = {
   conceptId: string;
   canonicalNameKo: string;
+  sourceUrl?: string | null;
   storageSize: StorageSize | null;
 };
 
 type AvailableCandidate = {
   conceptId: string;
   canonicalNameKo: string;
+  sourceUrl?: string | null;
   finalQualityScore: number | null;
   moq: number | null;
   recommendedUnits: number;
@@ -86,6 +88,7 @@ export function SourcingCandidateSelectionForm({
             {selectedCandidates.map((candidate) => (
               <div key={`storage:${candidate.conceptId}`} className="border-y border-slate-100 py-3">
                 <strong className="block text-slate-900">{candidate.canonicalNameKo}</strong>
+                {candidate.sourceUrl ? <a href={candidate.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs font-bold text-blue-700 underline">1688 상품 링크 열기</a> : <span className="mt-1 block text-xs font-bold text-amber-700">1688 링크 확인 필요</span>}
                 <div className="mt-2 flex flex-wrap gap-2">
                   <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 font-bold">
                     <input type="radio" name={`storage.${candidate.conceptId}`} value="S" checked={storageByConceptId[candidate.conceptId] === "S"} onChange={() => setStorage(candidate.conceptId, "S")} required />
@@ -118,6 +121,7 @@ export function SourcingCandidateSelectionForm({
                       <span className="mt-1 block text-xs text-slate-500">품질 {candidate.finalQualityScore ?? "미확인"} · MOQ {candidate.moq ?? "미확인"} · 최대 {candidate.recommendedUnits}개</span>
                     </span>
                   </label>
+                  {candidate.sourceUrl ? <a href={candidate.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-7 mt-2 inline-block text-xs font-bold text-blue-700 underline">1688 상품 링크 열기</a> : <span className="ml-7 mt-2 block text-xs font-bold text-amber-700">1688 링크 확인 필요</span>}
                   {checked ? (
                     <fieldset className="ml-7 mt-3">
                       <legend className="text-xs font-black text-slate-700">수납 위치</legend>

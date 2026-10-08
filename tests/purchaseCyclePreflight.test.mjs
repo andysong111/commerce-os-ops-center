@@ -419,6 +419,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
   const form = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchasePreflightForm.tsx", import.meta.url), "utf8");
   const sourcingForm = readFileSync(new URL("../src/components/purchase-cycle-preflight/SourcingCandidateSelectionForm.tsx", import.meta.url), "utf8");
+  const budgetPlan = readFileSync(new URL("../src/lib/sourcingBudgetPlan.ts", import.meta.url), "utf8");
   const finalCalculate = readFileSync(new URL("../src/components/purchase-cycle-preflight/NewProductConfigurationCalculateButton.tsx", import.meta.url), "utf8");
   assert.match(page, /title="다음 발주 준비"/);
   assert.match(page, /1단계/);
@@ -454,6 +455,10 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(form, /예산 기준과 현재 후보를 불러옵니다/);
   assert.match(form, /Draft 저장, 1688 주문, 결제는 실행하지 않습니다/);
   assert.match(sourcingForm, /마지막 계산은 두 입력 영역 아래에서 한 번만 실행합니다/);
+  assert.match(sourcingForm, /1688 상품 링크 열기/);
+  assert.match(sourcingForm, /href=\{candidate\.sourceUrl\}/);
+  assert.match(page, /href=\{row\.sourceUrl\}/);
+  assert.match(budgetPlan, /value == null/);
   assert.match(sourcingForm, /checked=\{checked\}/);
   assert.match(sourcingForm, /name=\{`storage\.\$\{candidate\.conceptId\}`\}/);
   assert.match(sourcingForm, /required/);
