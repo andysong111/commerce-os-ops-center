@@ -27,7 +27,7 @@ export async function POST(request: Request) {
         ok: false,
         code,
         message: code.includes("REQUIRED") || code.includes("INVALID")
-          ? "1688 링크, 상품명, 수납 형태를 다시 확인하세요."
+          ? "1688 링크, 상품명, 옵션명과 옵션별 수납 형태를 다시 확인하세요."
           : "신규상품 후보를 저장하지 못했습니다. 소싱엔진 연결 상태를 다시 확인하세요.",
         externalOrderExecuted: false,
       },

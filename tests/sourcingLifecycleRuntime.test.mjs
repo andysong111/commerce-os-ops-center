@@ -94,6 +94,34 @@ test('reserved sourcing creates one inbound-pending launch item and receipt upgr
   assert.equal(after.workBatch,'신규소싱입고');
 });
 
+test('same model adds distinct sourcing options to one launch item and replays without duplication',async()=>{
+  const b=await launchBackend();
+  const secondIntake='55555555-5555-4555-8555-555555555555';
+  const secondOutbox='66666666-6666-4666-8666-666666666666';
+  const secondReceipt='77777777-7777-4777-8777-777777777777';
+  await b.runReserved({...input(),receiptId:undefined,outboxId});
+  b.normalized.get(intakeId).options=['운영자 별칭'];
+  b.normalized.get(intakeId).optionLabels=['운영자 별칭'];
+  await b.runReserved({...input(),intakeId:secondIntake,receiptId:undefined,outboxId:secondOutbox,barcode:'BBA1-1',saleOption:'대형 블랙',chinaOption:'加大黑色'});
+  await b.runReserved({...input(),intakeId:secondIntake,receiptId:undefined,outboxId:secondOutbox,barcode:'BBA1-1',saleOption:'대형 블랙',chinaOption:'加大黑色'});
+
+  assert.equal(b.stored.state_payload.items.length,1);
+  const item=b.normalized.get(intakeId);
+  assert.equal(item.modelNumber,'AAA1000');
+  assert.equal(item.orderOptions.length,2);
+  assert.deepEqual(item.orderOptions.map(option=>option.barcode),['BBA8-1','BBA1-1']);
+  assert.deepEqual(item.orderOptions.map(option=>option.sourcingIntakeId),[intakeId,secondIntake]);
+  assert.deepEqual(item.source.sourcingIntakeIds,[intakeId,secondIntake]);
+  assert.deepEqual(item.options,['운영자 별칭','대형 블랙']);
+
+  const secondReceiptInput={...input(),intakeId:secondIntake,receiptId:secondReceipt,outboxId:secondOutbox,barcode:'BBA1-1',saleOption:'대형 블랙',chinaOption:'加大黑色'};
+  await b.run(secondReceiptInput);
+  const compareSwaps=b.calls.filter(call=>call==='compare-swap').length;
+  await b.run(secondReceiptInput);
+  assert.equal(b.calls.filter(call=>call==='compare-swap').length,compareSwaps);
+  assert.equal(b.normalized.get(intakeId).orderOptions[1].lifecycleStatus,'RECEIVED');
+});
+
 test('actual materializer recovers an optimistic-lock collision without deleting another user edit',async()=>{
   const b=await launchBackend({concurrentEdit:true});await b.run(input());
   assert.equal(b.stored.state_payload.items.length,2);
