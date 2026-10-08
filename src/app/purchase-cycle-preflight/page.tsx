@@ -271,7 +271,15 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <label className="text-sm font-bold text-slate-900">발주 예정일<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="date" type="date" defaultValue={targetDate} required /><span className="mt-1 block text-xs font-normal text-slate-500">판매·재고를 계산할 기준일</span></label>
           <label className="text-sm font-bold text-slate-900">이번 발주에 쓸 총 현금<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 자동 예산" /><span className="mt-1 block text-xs font-normal text-slate-500">상품대금과 배송비·수수료까지 포함</span></label>
           <label className="text-sm font-bold text-slate-900">신규상품 소싱 예산 비율<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">총현금에서 먼저 분리 · 0~100%</span></label>
-          <label className="flex min-h-11 items-center gap-3 border-t border-slate-100 pt-3 text-sm font-bold md:col-span-2 xl:col-span-3"><input className="size-4" name="early" type="checkbox" value="1" defaultChecked={early} />월 마감 전 조기 미리보기</label>
+          <div className="border-t border-slate-100 pt-3 md:col-span-2 xl:col-span-3">
+            <label className="flex min-h-11 items-center gap-3 text-sm font-bold">
+              <input className="size-4" name="early" type="checkbox" value="1" defaultChecked={early} />
+              전월 마감 전 임시 계산
+            </label>
+            <p className="ml-7 text-xs leading-5 text-slate-500">
+              다음 달 발주를 전월이 끝나기 전에 미리 검토할 때만 사용합니다. 임시 매출로 계산되므로 Draft를 확정할 수 없고, 월 마감 후 반드시 다시 계산해야 합니다. 평소에는 체크하지 마세요.
+            </p>
+          </div>
           <p className="text-xs leading-5 text-slate-600 md:col-span-2 xl:col-span-3">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하고, 나머지로 기존상품 수량을 우선순위에 따라 계산합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
         </PurchasePreflightForm>
       </section>

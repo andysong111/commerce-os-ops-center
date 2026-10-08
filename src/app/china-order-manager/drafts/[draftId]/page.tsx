@@ -3,6 +3,7 @@ import { InternalChinaDraftStickySave } from "@/components/china-order-manager/I
 import { InternalChinaPurchaseBudgetAudit } from "@/components/china-order-manager/InternalChinaPurchaseBudgetAudit";
 import { InternalChinaManualDraftLineAdder } from "@/components/china-order-manager/InternalChinaManualDraftLineAdder";
 import { InternalChinaPurchaseDraftWorkspaceV2 } from "@/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2";
+import { PurchaseDraftRecalculationLink } from "@/components/china-order-manager/PurchaseDraftRecalculationLink";
 import { PageHeader } from "@/components/PageHeader";
 import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
 import { loadInternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
@@ -69,12 +70,9 @@ export default async function InternalChinaPurchaseDraftPage({
               빠른 발주안
             </Link>
             {draft.status === "DRAFT" ? (
-              <Link
+              <PurchaseDraftRecalculationLink
                 href={`/purchase-cycle-preflight?check=1&date=${todaySeoul}&skus=100&units=9999&replace=${encodeURIComponent(draft.draftId)}`}
-                className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-950 hover:bg-amber-100"
-              >
-                최신 로직으로 재계산
-              </Link>
+              />
             ) : null}
             <Link
               href="/china-order-manager"
