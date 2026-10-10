@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { SourcingVariantSelectionInput } from "@/lib/sourcingBudgetPlan";
 
 type DraftResponse = {
   ok?: boolean;
@@ -28,6 +29,7 @@ export function PurchaseCycleDraftActions({
   sourcingBudgetKrw,
   preferredSourcingConceptIds,
   sourcingStorageSizeByConceptId,
+  sourcingVariantSelections,
   allowOpenBudgetPreview,
   expectedSourceFingerprint,
   expectedPlanFingerprint,
@@ -52,6 +54,7 @@ export function PurchaseCycleDraftActions({
   sourcingBudgetKrw: number;
   preferredSourcingConceptIds: string[];
   sourcingStorageSizeByConceptId: Record<string, "S" | "L">;
+  sourcingVariantSelections: SourcingVariantSelectionInput[];
   allowOpenBudgetPreview: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
@@ -96,6 +99,7 @@ export function PurchaseCycleDraftActions({
           sourcingBudgetPercent,
           preferredSourcingConceptIds,
           sourcingStorageSizeByConceptId,
+          sourcingVariantSelections,
           allowOpenBudgetPreview,
           expectedSourceFingerprint,
           expectedPlanFingerprint,

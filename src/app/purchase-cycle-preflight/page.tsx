@@ -9,7 +9,11 @@ import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import { purchaseCycleDraftConfirmation } from "@/lib/purchaseCyclePreflightDraftCore";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
-import { loadSourcingBudgetPlan, type SourcingBudgetPlan } from "@/lib/sourcingBudgetPlan";
+import {
+  loadSourcingBudgetPlan,
+  type SourcingBudgetPlan,
+  type SourcingVariantSelectionInput,
+} from "@/lib/sourcingBudgetPlan";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -77,6 +81,8 @@ const sourcingReasonLabels: Record<string, string> = {
   SOURCING_BUDGET_MISMATCH: "계산한 20% 금액과 창고 소싱 월 한도가 일치하지 않습니다.",
   SOURCING_BUDGET_ALREADY_EXCEEDED: "이미 예약된 신규상품 금액이 이번 소싱 예산보다 큽니다.",
   SOURCING_STORAGE_SIZE_REQUIRED: "선정된 신규상품이 소형 수납인지 대형 수납인지 선택해야 합니다.",
+  SOURCING_VARIANT_SELECTION_REQUIRED: "판매할 1688 옵션을 하나 이상 선택하고 옵션별 수납 위치를 지정해야 합니다.",
+  SOURCING_VARIANT_CAPACITY_EXCEEDED: "선택한 옵션 수가 이번 달 신규 B코드 배정 한도를 초과했습니다.",
   NO_TEST_READY_CANDIDATE: "모든 품질·원가·공급 근거를 통과한 TEST_READY 후보가 없습니다.",
 };
 const sourcingExclusionLabels: Record<string, string> = {
@@ -142,6 +148,30 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     sourcingStorageSizeByConceptId[conceptId] = size;
   }
   if (Object.keys(sourcingStorageSizeByConceptId).length > 20) sourcingStorageInputInvalid = true;
+  const rawVariantSelections = Array.isArray(query.variant)
+    ? query.variant
+    : typeof query.variant === "string"
+      ? [query.variant]
+      : [];
+  const sourcingVariantSelections: SourcingVariantSelectionInput[] = [];
+  let sourcingVariantInputInvalid = rawVariantSelections.length > 100;
+  for (const raw of rawVariantSelections.slice(0, 100)) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const conceptId = String(parsed.conceptId ?? "").trim();
+      const variantKey = String(parsed.variantKey ?? "").trim();
+      const storageSize = String(parsed.storageSize ?? "").trim().toUpperCase();
+      if (!conceptId || conceptId.length > 120 || !variantKey || variantKey.length > 160 || (storageSize !== "S" && storageSize !== "L")) {
+        sourcingVariantInputInvalid = true;
+        continue;
+      }
+      sourcingVariantSelections.push({ conceptId, variantKey, storageSize });
+    } catch {
+      sourcingVariantInputInvalid = true;
+    }
+  }
+  const variantIdentities = sourcingVariantSelections.map((row) => `${row.conceptId}\0${row.variantKey}`);
+  if (new Set(variantIdentities).size !== variantIdentities.length) sourcingVariantInputInvalid = true;
   const early = single("early", "") === "1";
   const replaceDraftId = single("replace", "") || null;
   let report: PurchaseCyclePreflightReport | null = null;
@@ -157,6 +187,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       if ((cash !== "" && !/^\d+$/.test(cash)) || (sourcing !== "" && !/^\d+$/.test(sourcing))) throw new Error("NUMERIC_INPUT_INVALID");
       if (preferredSourcingConceptIds.length > 20 || new Set(preferredSourcingConceptIds).size !== preferredSourcingConceptIds.length) throw new Error("SOURCING_SELECTION_INVALID");
       if (sourcingStorageInputInvalid) throw new Error("SOURCING_STORAGE_SELECTION_INVALID");
+      if (sourcingVariantInputInvalid) throw new Error("SOURCING_VARIANT_SELECTION_INVALID");
       const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId };
       validatePurchasePreflightOptions(options);
       report = await loadPurchaseCyclePreflight(options);
@@ -169,6 +200,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             sourcingBudgetKrw: report.sourcingBudgetKrw,
             preferredConceptIds: preferredSourcingConceptIds,
             storageSizeByConceptId: sourcingStorageSizeByConceptId,
+            variantSelections: sourcingVariantSelections,
           });
         } catch (error) {
           const raw = error instanceof Error ? error.message : "SOURCING_BUDGET_PLAN_FAILED";
@@ -182,6 +214,10 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   }
   const sourcingEnabled = Boolean(report && report.sourcingBudgetPercent > 0);
   const sourcingReady = !sourcingEnabled || sourcingPlan?.readyForConfirmation === true;
+  const sourcingSelectedVariantCount = sourcingPlan?.allocation.selected.reduce(
+    (total, candidate) => total + candidate.selectedVariants.length,
+    0,
+  ) ?? 0;
   const draftReady = Boolean(report && report.previewReady && report.blockers.length === 0 && sourcingReady);
   const sourcingPreparationCodes = sourcingPlan?.policy.operatorAllocationSupported && sourcingPlan.policy.version !== null
     ? sourcingPlan.blockers.filter(code => sourcingPolicyPreparationCodes.has(code))
@@ -318,7 +354,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               <p className="mt-3 border-l-4 border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-700">신규상품 소싱 비율이 0%입니다. 후보를 추가하려면 비율을 입력하고 다시 계산하세요.</p>
             ) : (
               <>
-                <p className="mt-2 text-sm leading-6 text-slate-600">분리 예산 {money(report.sourcingBudgetKrw)}{sourcingPlan ? ` · 현재 ${sourcingPlan.allocation.selected.length}종 · 예상 상품대금 ${money(sourcingPlan.allocation.estimatedSpendKrw)}` : ""}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">분리 예산 {money(report.sourcingBudgetKrw)}{sourcingPlan ? ` · 현재 ${sourcingSelectedVariantCount}개 옵션 · 예상 상품대금 ${money(sourcingPlan.allocation.estimatedSpendKrw)}` : ""}</p>
                 <p className="mt-2 text-sm leading-6 text-slate-700">후보를 체크하고 수납 위치를 정하세요. 수동 후보까지 모두 추가한 뒤 두 영역 아래의 계산 버튼을 한 번만 누릅니다.</p>
                 {sourcingPlanError ? <p role="alert" className="mt-3 break-all border-l-4 border-rose-500 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-950">{sourcingPlanError}</p> : null}
                 {sourcingPreparationCodes.length ? <p className="mt-3 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-950">예산 정책 {sourcingPreparationCodes.length}건은 저장 시 자동 준비됩니다.</p> : null}
@@ -337,7 +373,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                     selectedCandidates={sourcingPlan.allocation.selected}
                     availableCandidates={sourcingPlan.allocation.availableCandidates}
                     preferredConceptIds={preferredSourcingConceptIds}
-                    initialStorageSizeByConceptId={sourcingStorageSizeByConceptId}
+                    initialVariantSelections={sourcingVariantSelections}
                   />
                 </> : null}
               </>
@@ -471,12 +507,13 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             sourcingBudgetKrw={report.sourcingBudgetKrw}
             preferredSourcingConceptIds={preferredSourcingConceptIds}
             sourcingStorageSizeByConceptId={sourcingStorageSizeByConceptId}
+            sourcingVariantSelections={sourcingVariantSelections}
             allowOpenBudgetPreview={early}
             expectedSourceFingerprint={report.sourceFingerprint}
             expectedPlanFingerprint={report.planFingerprint}
             expectedSourcingSourceFingerprint={sourcingPlan?.sourceFingerprint ?? null}
             expectedSourcingPlanFingerprint={sourcingPlan?.planFingerprint ?? null}
-            sourcingSelectedCount={sourcingPlan?.allocation.selected.length ?? 0}
+            sourcingSelectedCount={sourcingSelectedVariantCount}
             sourcingEstimatedSpendKrw={sourcingPlan?.allocation.estimatedSpendKrw ?? 0}
             confirmation={draftReady ? purchaseCycleDraftConfirmation(report, sourcingPlan) : ""}
             selectedCount={report.selected.length}

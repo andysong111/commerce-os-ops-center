@@ -383,7 +383,10 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(page, /소싱엔진에서 선택/);
   assert.match(page, /B코드 배정이 끝나면 상품출시 진행관리/);
   assert.match(page, /‘입고 대기’로 생성/);
-  assert.match(sourcingForm, /name=\{`storage\.\$\{candidate\.conceptId\}`\}/);
+  assert.match(sourcingForm, /name="variant"/);
+  assert.match(sourcingForm, /value=\{JSON\.stringify\(selection\)\}/);
+  assert.match(sourcingForm, /name=\{`variant-storage\.\$\{candidate\.conceptId\}\.\$\{variant\.variantKey\}`\}/);
+  assert.match(sourcingForm, /선택한 옵션마다 B코드와 발주행이 하나씩 생성됩니다/);
   assert.match(sourcingForm, /소형 수납/);
   assert.match(sourcingForm, /대형 수납/);
   assert.match(page, /sourcingStorageSizeByConceptId/);
@@ -465,7 +468,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /자동 재시도 후에도 후보를 불러오지 못했습니다/);
   assert.doesNotMatch(page, /The operation was aborted due to timeout/);
   assert.match(sourcingForm, /checked=\{checked\}/);
-  assert.match(sourcingForm, /name=\{`storage\.\$\{candidate\.conceptId\}`\}/);
+  assert.match(sourcingForm, /name=\{`variant-storage\.\$\{candidate\.conceptId\}\.\$\{variant\.variantKey\}`\}/);
   assert.match(sourcingForm, /required/);
   assert.doesNotMatch(sourcingForm, /type="submit"/);
   assert.match(finalCalculate, /new FormData\(configurationForm\)/);
