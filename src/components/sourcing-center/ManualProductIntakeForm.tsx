@@ -18,6 +18,7 @@ type Props = { embedded?: boolean; formId?: string; calculationFormId?: string }
 
 const MAX_STORED_PRODUCTS = 30;
 const MAX_STORED_VARIANTS = 30;
+const MAX_PARALLEL_PRODUCT_SAVES = 4;
 
 const normalizeOption = (value: string) => value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLocaleLowerCase("ko-KR");
 const optionalNumber = (value: string) => value.trim() ? Number(value.trim()) : null;
@@ -268,49 +269,72 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
     const failedProducts: ProductDraft[] = [];
     const staged = new Map<string, StagedCandidate>();
     let completedProducts = 0, completedOptions = 0;
-    for (let index = 0; index < submitted.length; index += 1) {
-      const product = submitted[index];
-      setNotice(`상품 ${index + 1}/${submitted.length} · 옵션 ${product.variants.length}개 저장 중...`);
-      try {
-        const response = await fetch("/api/sourcing-center/manual-product", {
-          method: "POST",
-          headers: { "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify({
-            sourceUrl: product.sourceUrl,
-            productName: product.productName,
-            supplierName: product.supplierName,
-            variants: product.variants.map((variant) => ({
-              saleOption: variant.saleOption,
-              chinaOption: variant.chinaOption,
-              storageSize: variant.storageSize,
-              unitPriceCny: optionalNumber(variant.unitPriceCny),
-              moq: optionalNumber(variant.moq),
-            })),
-          }),
-        });
-        const result = await response.json().catch(() => ({})) as Result;
-        if (!response.ok || !result.ok || !Array.isArray(result.candidates) || result.candidates.length !== product.variants.length) {
-          failedProducts.push({ ...product, error: result.message || `후보 저장 실패 · ${result.code || response.status}` });
-          continue;
+    const outcomes = new Array<{ product: ProductDraft; result: Result | null; error: string }>(submitted.length);
+    let cursor = 0;
+    let finished = 0;
+    await Promise.all(Array.from(
+      { length: Math.min(MAX_PARALLEL_PRODUCT_SAVES, submitted.length) },
+      async () => {
+        while (cursor < submitted.length) {
+          const index = cursor++;
+          const product = submitted[index];
+          try {
+            const response = await fetch("/api/sourcing-center/manual-product", {
+              method: "POST",
+              headers: { "content-type": "application/json", accept: "application/json" },
+              body: JSON.stringify({
+                sourceUrl: product.sourceUrl,
+                productName: product.productName,
+                supplierName: product.supplierName,
+                variants: product.variants.map((variant) => ({
+                  saleOption: variant.saleOption,
+                  chinaOption: variant.chinaOption,
+                  storageSize: variant.storageSize,
+                  unitPriceCny: optionalNumber(variant.unitPriceCny),
+                  moq: optionalNumber(variant.moq),
+                })),
+              }),
+            });
+            const result = await response.json().catch(() => ({})) as Result;
+            const invalid = !response.ok || !result.ok || !Array.isArray(result.candidates) || result.candidates.length !== product.variants.length;
+            outcomes[index] = {
+              product,
+              result: invalid ? null : result,
+              error: invalid ? result.message || `후보 저장 실패 · ${result.code || response.status}` : "",
+            };
+          } catch {
+            outcomes[index] = {
+              product,
+              result: null,
+              error: "소싱엔진에 연결하지 못했습니다. 주문이나 결제는 실행되지 않았습니다.",
+            };
+          } finally {
+            finished += 1;
+            setNotice(`상품 ${finished}/${submitted.length} 저장 완료 · 나머지 처리 중...`);
+          }
         }
-        completedProducts += 1;
-        completedOptions += result.candidates.length;
-        result.candidates.forEach((candidate, candidateIndex) => {
-          const conceptId = String(candidate.conceptId ?? "").trim();
-          const variant = product.variants[candidateIndex];
-          if (!calculationFormId || !conceptId) return;
-          staged.set(conceptId, {
-            conceptId,
-            productName: result.productName || product.productName || "신규상품",
-            saleOption: candidate.saleOption || variant.saleOption,
-            chinaOption: candidate.chinaOption || variant.chinaOption,
-            storageSize: candidate.storageSize || variant.storageSize as "S" | "L",
-          });
-        });
-      } catch {
-        failedProducts.push({ ...product, error: "소싱엔진에 연결하지 못했습니다. 주문이나 결제는 실행되지 않았습니다." });
+      },
+    ));
+    outcomes.forEach(({ product, result, error }) => {
+      if (!result || !Array.isArray(result.candidates)) {
+        failedProducts.push({ ...product, error });
+        return;
       }
-    }
+      completedProducts += 1;
+      completedOptions += result.candidates.length;
+      result.candidates.forEach((candidate, candidateIndex) => {
+        const conceptId = String(candidate.conceptId ?? "").trim();
+        const variant = product.variants[candidateIndex];
+        if (!calculationFormId || !conceptId) return;
+        staged.set(conceptId, {
+          conceptId,
+          productName: result.productName || product.productName || "신규상품",
+          saleOption: candidate.saleOption || variant.saleOption,
+          chinaOption: candidate.chinaOption || variant.chinaOption,
+          storageSize: candidate.storageSize || variant.storageSize as "S" | "L",
+        });
+      });
+    });
     if (staged.size) setStagedCandidates((current) => {
       const merged = new Map(current.map((candidate) => [candidate.conceptId, candidate]));
       staged.forEach((candidate, conceptId) => merged.set(conceptId, candidate));
@@ -334,7 +358,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
         <div>
           <p className="text-xs font-black text-emerald-700">직접 신규상품 추가</p>
           {embedded ? <h3 className="mt-1 text-lg font-black text-slate-950">1688 상품·옵션 일괄 등록</h3> : <h2 className="mt-1 text-xl font-black text-slate-950">1688 상품·옵션 일괄 등록</h2>}
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">링크와 모델명은 상품별로 한 번만 입력하고, 같은 상품의 옵션은 아래에서 추가하세요. 각 옵션에 별도 B코드와 수납공간이 배정됩니다.</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">링크와 모델명은 상품별로 한 번만 입력하고, 같은 상품의 옵션은 아래에서 추가하세요. 각 옵션에 별도 B코드와 수납공간이 배정됩니다. 1688에서 한 주문옵션이 색상·포장처럼 여러 선택값으로 구성되면 중국 옵션 칸에 선택 순서대로 콤마로 구분해 입력하세요.</p>
           <p className="mt-1 text-xs font-bold text-sky-700">입력 중인 상품과 계산 대기 후보는 이 브라우저에 자동 임시저장됩니다.</p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">상품 {products.length}종 · 옵션 {optionCount}개</span>
@@ -363,7 +387,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
                     <div className="flex items-center justify-between gap-3"><p className="text-sm font-black">옵션 {variantIndex + 1}</p>{product.variants.length > 1 ? <button type="button" onClick={() => removeVariant(product.id, variant.id)} className="text-xs font-bold text-slate-600 underline hover:text-rose-700">옵션 삭제</button> : null}</div>
                     <div className="mt-3 grid gap-4 md:grid-cols-2">
                       <label className="text-sm font-bold">판매 옵션명<input value={variant.saleOption} onChange={(event) => updateVariant(product.id, variant.id, "saleOption", event.target.value)} required maxLength={200} placeholder="예: 화이트 대형" className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" /></label>
-                      <label className="text-sm font-bold">1688 중국 옵션<input value={variant.chinaOption} onChange={(event) => updateVariant(product.id, variant.id, "chinaOption", event.target.value)} required maxLength={300} placeholder="예: 白色加大款" className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" /></label>
+                      <label className="text-sm font-bold">1688 중국 옵션<input value={variant.chinaOption} onChange={(event) => updateVariant(product.id, variant.id, "chinaOption", event.target.value)} required maxLength={300} placeholder="예: 透明 精灵耳贴【硅胶】, 60贴袋装" className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" /><span className="mt-1 block text-xs font-normal text-slate-500">여러 선택값은 콤마(,)로 구분합니다.</span></label>
                     </div>
                     <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
                       <fieldset><legend className="text-sm font-black">수납 공간</legend><div className="mt-2 flex flex-wrap gap-2"><label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold"><input type="radio" name={`storage.${variant.id}`} checked={variant.storageSize === "S"} onChange={() => updateVariant(product.id, variant.id, "storageSize", "S")} required />소형</label><label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold"><input type="radio" name={`storage.${variant.id}`} checked={variant.storageSize === "L"} onChange={() => updateVariant(product.id, variant.id, "storageSize", "L")} required />대형</label></div></fieldset>
@@ -398,7 +422,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
 
       <div className="mt-5 flex flex-wrap items-center gap-4">
         <button type="submit" disabled={busy} className="min-h-11 rounded-lg bg-emerald-700 px-5 py-2 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-wait disabled:bg-slate-300">
-          {busy ? "상품·옵션 저장 중..." : calculationFormId ? `상품 ${products.length}종 · 옵션 ${optionCount}개 후보 목록에 추가` : `상품 ${products.length}종 · 옵션 ${optionCount}개 후보 저장`}
+          {busy ? "상품·옵션 저장 중..." : failed ? `실패한 상품 ${products.length}종 다시 저장` : calculationFormId ? `상품 ${products.length}종 · 옵션 ${optionCount}개 후보 목록에 추가` : `상품 ${products.length}종 · 옵션 ${optionCount}개 후보 저장`}
         </button>
         {notice ? <p role={failed ? "alert" : "status"} className={`text-sm font-bold ${failed ? "text-rose-700" : "text-emerald-800"}`}>{notice}</p> : null}
       </div>
