@@ -153,7 +153,10 @@ function canonicalAggregate(
 
 export async function loadCanonicalPurchaseShadow(
   cycleAsOf: Date | string = new Date(),
-  options: { commitmentOverride?: ReadonlyMap<string, number> } = {},
+  options: {
+    commitmentOverride?: ReadonlyMap<string, number>;
+    externalRequestTimeoutMs?: number;
+  } = {},
 ): Promise<CanonicalPurchaseShadow> {
   const generatedAt = new Date().toISOString();
   const blockers: CanonicalPurchaseShadowBlocker[] = [];
@@ -162,8 +165,12 @@ export async function loadCanonicalPurchaseShadow(
   const [reconciliation, audit, planning, legacy, budgetRevenueResult] =
     await Promise.all([
       loadPostApplyCanonicalReconciliation(),
-      loadProductMasterCanonicalSalesAudit(),
-      loadProductPlanningSnapshot(),
+      loadProductMasterCanonicalSalesAudit({
+        requestTimeoutMs: options.externalRequestTimeoutMs,
+      }),
+      loadProductPlanningSnapshot({
+        requestTimeoutMs: options.externalRequestTimeoutMs,
+      }),
       loadProductDecisionLiveStatus(),
       loadCalendarMonthNormalRevenue(cycle.budgetMonth)
         .then((value) => ({ value, error: null as string | null }))

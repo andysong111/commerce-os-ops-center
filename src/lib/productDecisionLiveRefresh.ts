@@ -205,8 +205,14 @@ function planningConnection() {
   return { baseUrl, secret };
 }
 
-export async function loadProductPlanningSnapshot(): Promise<VersionedProductPlanningSnapshot> {
+export async function loadProductPlanningSnapshot(
+  options: { requestTimeoutMs?: number } = {},
+): Promise<VersionedProductPlanningSnapshot> {
   const { baseUrl, secret } = planningConnection();
+  const requestTimeoutMs = Math.max(
+    1_000,
+    Math.min(30_000, Math.trunc(options.requestTimeoutMs ?? 30_000)),
+  );
   const response = await fetch(
     `${baseUrl}/api/integrations/planning-snapshot`,
     {
@@ -216,7 +222,7 @@ export async function loadProductPlanningSnapshot(): Promise<VersionedProductPla
         "x-commerce-os-integration-secret": secret,
       },
       cache: "no-store",
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(requestTimeoutMs),
     },
   );
   const payload = (await response.json().catch(() => ({}))) as PlanningPayload;

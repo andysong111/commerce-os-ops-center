@@ -198,7 +198,10 @@ function expectedCostForQuantity(
 
 export async function loadInventoryVerificationPriority(
   cycleAsOf: Date | string = new Date(),
-  options: { excludeCommitmentDraftId?: string | null } = {},
+  options: {
+    excludeCommitmentDraftId?: string | null;
+    externalRequestTimeoutMs?: number;
+  } = {},
 ): Promise<InventoryVerificationPriority> {
   const cycle = monthlyPurchaseCycleFor(cycleAsOf);
   const replacementCommitments = options.excludeCommitmentDraftId
@@ -219,13 +222,20 @@ export async function loadInventoryVerificationPriority(
   const purchaseShadowPromise = replacementCommitments.then((commitments) =>
     loadCanonicalPurchaseShadow(
       cycleAsOf,
-      commitments ? { commitmentOverride: commitments } : {},
+      {
+        ...(commitments ? { commitmentOverride: commitments } : {}),
+        externalRequestTimeoutMs: options.externalRequestTimeoutMs,
+      },
     ),
   );
   const [resolvedPurchaseShadow, inventoryReadiness, planning, recentReceipts] = await Promise.all([
     purchaseShadowPromise,
-    loadProductMasterInventoryCostReadiness(),
-    loadProductPlanningSnapshot(),
+    loadProductMasterInventoryCostReadiness({
+      requestTimeoutMs: options.externalRequestTimeoutMs,
+    }),
+    loadProductPlanningSnapshot({
+      requestTimeoutMs: options.externalRequestTimeoutMs,
+    }),
     completedChinaOrderReceiptsByBarcode(cycle.budgetMonth),
   ]);
   const purchaseShadow = resolvedPurchaseShadow;

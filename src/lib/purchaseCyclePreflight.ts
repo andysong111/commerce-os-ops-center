@@ -14,6 +14,8 @@ import {
   type PurchasePreflightOptions,
 } from "@/lib/purchaseCyclePreflightCore";
 
+const PREVIEW_EXTERNAL_REQUEST_TIMEOUT_MS = 12_000;
+
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -55,11 +57,17 @@ export async function loadPurchaseCyclePreflight(options: PurchasePreflightOptio
     priority: () =>
       loadInventoryVerificationPriority(options.targetDate, {
         excludeCommitmentDraftId: options.replaceDraftId ?? null,
+        externalRequestTimeoutMs: PREVIEW_EXTERNAL_REQUEST_TIMEOUT_MS,
       }),
     monthlySpend: loadVerifiedPurchaseCycleSpend,
     wholesaleCosts: async () => {
-      const planning = await loadProductPlanningSnapshot();
-      const currentPrices = await loadShoplingCurrentPriceSnapshot(planning.products);
+      const planning = await loadProductPlanningSnapshot({
+        requestTimeoutMs: PREVIEW_EXTERNAL_REQUEST_TIMEOUT_MS,
+      });
+      const currentPrices = await loadShoplingCurrentPriceSnapshot(
+        planning.products,
+        { requestTimeoutMs: PREVIEW_EXTERNAL_REQUEST_TIMEOUT_MS },
+      );
       return buildPurchaseWholesaleCostEstimates({
         products: planning.products,
         planningContentFingerprint: planning.contentFingerprint,

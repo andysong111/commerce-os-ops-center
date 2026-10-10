@@ -598,3 +598,14 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Large cash inputs use safe-integer quotient/remainder percentage arithmetic, while selected quantities remain capped at the engine recommendation.
 - The sourcing percentage is part of the plan fingerprint, Draft confirmation, and save-time recheck. A changed percentage cannot silently reuse an earlier preview.
 - This reservation only partitions the budget. It does not create sourcing purchases, external orders, payments, or approvals.
+
+---
+
+## 20. Preflight loading bound (2026-10-10)
+
+- The read-only purchase preflight uses a 12-second limit for each external Product Master, planning, Shopling-price, and sourcing-preview request.
+- The sourcing-preview read makes one attempt per explicit operator action. A timeout opens the page in a review-required state instead of keeping the whole workspace on the loading screen.
+- The optional Shopling current-price read is skipped when the inventory priority has no existing-product purchase recommendation.
+- An identical read-only preflight input may be reused for 60 seconds so an immediate browser refresh does not repeat the expensive upstream reads.
+- Draft creation does not use the preview cache. It continues to call the uncached preflight loader and rechecks the pinned source evidence immediately before writing the internal Draft.
+- These changes do not execute a Draft save, 1688 order, payment, or any other external write.

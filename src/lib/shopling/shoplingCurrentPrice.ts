@@ -58,6 +58,7 @@ function batches(values: string[]) {
 
 export async function loadShoplingCurrentPriceSnapshot(
   products: PlanningProduct[],
+  options: { requestTimeoutMs?: number } = {},
 ): Promise<ShoplingCurrentPriceSnapshot> {
   const config = shoplingReadConfigFromEnv(shoplingEnvironment());
   const goodsKeys = currentPriceGoodsKeys(products);
@@ -65,6 +66,10 @@ export async function loadShoplingCurrentPriceSnapshot(
     return resolveShoplingCurrentPrices(products, []);
   }
 
+  const requestTimeoutMs = Math.max(
+    1_000,
+    Math.min(45_000, Math.trunc(options.requestTimeoutMs ?? 45_000)),
+  );
   const sourceRows: RawRow[] = [];
   for (const batch of batches(goodsKeys)) {
     const xml = buildShoplingProductIdLookupXml(config, batch, PRODUCT_FIELDS);
@@ -74,7 +79,7 @@ export async function loadShoplingCurrentPriceSnapshot(
         "content-type": "application/xml; charset=utf-8",
         "user-agent": "commerce-os-ops-center-shopling-current-price/1.0",
       },
-      timeoutMs: 45_000,
+      timeoutMs: requestTimeoutMs,
     });
     if (!response.ok) {
       throw new Error(`SHOPLING_CURRENT_PRICE_HTTP_${response.status}`);

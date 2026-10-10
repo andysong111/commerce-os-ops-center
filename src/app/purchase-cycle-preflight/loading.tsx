@@ -17,7 +17,7 @@ export default function PurchaseCyclePreflightLoading() {
             최신 판매·재고와 신규상품 후보를 확인하고 있습니다
           </h2>
           <p className="mt-2 text-sm leading-6 text-slate-700">
-            기존상품 수량을 계산한 뒤 소싱엔진의 검증 후보와 창고 여유를 확인합니다. 자료가 많으면 잠시 걸릴 수 있습니다.
+            기존상품 수량과 소싱엔진 후보를 확인합니다. 외부 자료가 늦으면 오래 기다리지 않고 확인 필요 상태로 화면을 엽니다.
           </p>
           <p className="mt-3 text-xs font-bold leading-5 text-slate-600">
             이 단계에서는 Draft 저장, 1688 주문, 결제를 실행하지 않습니다.

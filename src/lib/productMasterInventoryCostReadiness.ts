@@ -105,8 +105,14 @@ export function productMasterInventoryCostReadinessConfigured() {
   }
 }
 
-export async function loadProductMasterInventoryCostReadiness(): Promise<ProductMasterInventoryCostReadiness> {
+export async function loadProductMasterInventoryCostReadiness(
+  options: { requestTimeoutMs?: number } = {},
+): Promise<ProductMasterInventoryCostReadiness> {
   const { baseUrl, secret } = connection();
+  const requestTimeoutMs = Math.max(
+    1_000,
+    Math.min(60_000, Math.trunc(options.requestTimeoutMs ?? 60_000)),
+  );
   const response = await fetch(
     `${baseUrl}/api/integrations/inventory-cost-ledger-snapshot`,
     {
@@ -116,7 +122,7 @@ export async function loadProductMasterInventoryCostReadiness(): Promise<Product
         "x-commerce-os-integration-secret": secret,
       },
       cache: "no-store",
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(requestTimeoutMs),
     },
   );
   const payload = (await response.json().catch(() => ({}))) as {
