@@ -56,11 +56,16 @@ test("manual sourcing UI batches products with nested options and per-option sto
   assert.match(form, /상품 \$\{products\.length\}종 · 옵션 \$\{optionCount\}개 후보 목록에 추가/);
   assert.match(form, /각 옵션에 별도 B코드와 수납공간이 배정됩니다/);
   assert.match(form, /disabled=\{busy\}/);
-  assert.match(form, /commerce-os\.manual-sourcing-intake\.v1/);
+  assert.match(form, /manualSourcingDraftStorageKey/);
+  assert.match(form, /legacyManualSourcingDraftStorageKeys/);
+  assert.match(form, /pendingLegacyStorageKeys/);
   assert.match(form, /window\.localStorage\.getItem\(key\)/);
   assert.match(form, /window\.localStorage\.setItem\(storageKey\.current/);
-  assert.match(form, /completedCandidateIdsFromLocation/);
-  assert.match(form, /completed\.has\(conceptId\)/);
+  assert.match(form, /version: 2/);
+  assert.doesNotMatch(form, /draftStorageKey\(formId, calculationFormId\)/);
+  assert.doesNotMatch(form, /completedCandidateIdsFromLocation/);
+  assert.match(form, /MANUAL_SOURCING_DRAFT_COMMITTED_EVENT/);
+  assert.match(form, /월간 Draft 저장 완료 · 임시저장을 정리했습니다/);
   assert.doesNotMatch(form, /known\.has\(conceptId\)/);
   assert.doesNotMatch(form, /knownCandidateIds/);
   assert.match(form, /자동 임시저장됩니다/);
@@ -69,6 +74,15 @@ test("manual sourcing UI batches products with nested options and per-option sto
   assert.match(proxy, /x-vercel-protection-bypass/);
   assert.match(proxy, /externalOrderExecuted:\s*false/);
   assert.match(proxy, /candidates:\s*ManualSourcingProductCandidate\[\]/);
+});
+
+test("manual sourcing draft is cleared only after the monthly draft is committed", async () => {
+  const [actions, storage] = await Promise.all([
+    source("../src/components/purchase-cycle-preflight/PurchaseCycleDraftActions.tsx"),
+    source("../src/lib/manualSourcingDraftStorage.ts"),
+  ]);
+  assert.match(storage, /MANUAL_SOURCING_DRAFT_COMMITTED_EVENT/);
+  assert.match(actions, /window\.dispatchEvent\(new Event\(MANUAL_SOURCING_DRAFT_COMMITTED_EVENT\)\)/);
 });
 
 test("sourcing purchase ingress is server-secret protected and fail-closed", async () => {

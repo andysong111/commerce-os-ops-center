@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import {
+  legacyManualSourcingDraftStorageKeys,
+  MANUAL_SOURCING_DRAFT_COMMITTED_EVENT,
+  manualSourcingDraftStorageKey,
+} from "@/lib/manualSourcingDraftStorage";
 
 type StorageSize = "" | "S" | "L";
 type ResultCandidate = { conceptId?: string; saleOption?: string; chinaOption?: string; storageSize?: "S" | "L" };
@@ -11,7 +16,6 @@ type ProductDraft = { id: string; sourceUrl: string; productName: string; suppli
 type StagedCandidate = { conceptId: string; productName: string; saleOption: string; chinaOption: string; storageSize: "S" | "L" };
 type Props = { embedded?: boolean; formId?: string; calculationFormId?: string };
 
-const DRAFT_STORAGE_PREFIX = "commerce-os.manual-sourcing-intake.v1";
 const MAX_STORED_PRODUCTS = 30;
 const MAX_STORED_VARIANTS = 30;
 
@@ -38,22 +42,6 @@ function storedText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.slice(0, maxLength) : "";
 }
 
-function draftStorageKey(formId?: string, calculationFormId?: string) {
-  const params = new URLSearchParams(window.location.search);
-  const context = params.get("replace")?.trim() || params.get("draftId")?.trim() || params.get("date")?.trim() || "default";
-  return [
-    DRAFT_STORAGE_PREFIX,
-    window.location.pathname,
-    formId || "manual",
-    calculationFormId || "standalone",
-    context,
-  ].join(":");
-}
-
-function completedCandidateIdsFromLocation() {
-  return new Set(new URLSearchParams(window.location.search).getAll("source").map((value) => value.trim()).filter(Boolean));
-}
-
 function hasManualDraftContent(products: ProductDraft[], stagedCandidates: StagedCandidate[]) {
   if (stagedCandidates.length || products.length > 1 || products.some((product) => product.variants.length > 1)) return true;
   return products.some((product) => (
@@ -68,6 +56,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
   const productSequence = useRef(1);
   const variantSequence = useRef(1);
   const storageKey = useRef("");
+  const pendingLegacyStorageKeys = useRef<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [storageReady, setStorageReady] = useState(false);
   const [notice, setNotice] = useState("");
@@ -83,13 +72,64 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
   );
 
   useEffect(() => {
-    const key = draftStorageKey(formId, calculationFormId);
+    const key = manualSourcingDraftStorageKey(window.location.pathname, window.location.search, formId);
     storageKey.current = key;
     try {
-      const raw = window.localStorage.getItem(key);
-      if (!raw) return;
-      const saved = JSON.parse(raw) as { version?: unknown; products?: unknown; stagedCandidates?: unknown };
-      if (saved.version !== 1) return;
+      const canonicalRaw = window.localStorage.getItem(key);
+      const legacyKeys = canonicalRaw
+        ? []
+        : legacyManualSourcingDraftStorageKeys(
+            window.localStorage,
+            window.location.pathname,
+            window.location.search,
+            formId,
+          );
+      const storedSnapshots = [
+        ...(canonicalRaw ? [{ key, raw: canonicalRaw, version: 2 }] : []),
+        ...legacyKeys.flatMap((legacyKey) => {
+          const raw = window.localStorage.getItem(legacyKey);
+          return raw ? [{ key: legacyKey, raw, version: 1 }] : [];
+        }),
+      ].flatMap((stored) => {
+        try {
+          const saved = JSON.parse(stored.raw) as {
+            version?: unknown;
+            products?: unknown;
+            stagedCandidates?: unknown;
+            savedAt?: unknown;
+          };
+          return saved.version === stored.version ? [{ ...stored, saved }] : [];
+        } catch {
+          return [];
+        }
+      });
+      if (!storedSnapshots.length) return;
+
+      const primary = [...storedSnapshots].sort((left, right) => {
+        const leftProducts = Array.isArray(left.saved.products) ? left.saved.products.length : 0;
+        const rightProducts = Array.isArray(right.saved.products) ? right.saved.products.length : 0;
+        const leftOptions = Array.isArray(left.saved.products)
+          ? left.saved.products.reduce((sum, product) => sum + (
+              product && typeof product === "object" && Array.isArray((product as Record<string, unknown>).variants)
+                ? ((product as Record<string, unknown>).variants as unknown[]).length
+                : 0
+            ), 0)
+          : 0;
+        const rightOptions = Array.isArray(right.saved.products)
+          ? right.saved.products.reduce((sum, product) => sum + (
+              product && typeof product === "object" && Array.isArray((product as Record<string, unknown>).variants)
+                ? ((product as Record<string, unknown>).variants as unknown[]).length
+                : 0
+            ), 0)
+          : 0;
+        const leftStaged = Array.isArray(left.saved.stagedCandidates) ? left.saved.stagedCandidates.length : 0;
+        const rightStaged = Array.isArray(right.saved.stagedCandidates) ? right.saved.stagedCandidates.length : 0;
+        const contentDifference = (rightStaged * 1_000 + rightOptions * 10 + rightProducts)
+          - (leftStaged * 1_000 + leftOptions * 10 + leftProducts);
+        if (contentDifference) return contentDifference;
+        return String(right.saved.savedAt || "").localeCompare(String(left.saved.savedAt || ""));
+      })[0];
+      const saved = primary.saved;
 
       const restoredProducts = (Array.isArray(saved.products) ? saved.products : [])
         .slice(0, MAX_STORED_PRODUCTS)
@@ -118,24 +158,28 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
             error: storedText(product.error, 500),
           } satisfies ProductDraft;
         });
-      const completed = completedCandidateIdsFromLocation();
-      const restoredStaged = (Array.isArray(saved.stagedCandidates) ? saved.stagedCandidates : [])
+      const restoredStagedById = new Map<string, StagedCandidate>();
+      storedSnapshots.flatMap((stored) => (
+        Array.isArray(stored.saved.stagedCandidates) ? stored.saved.stagedCandidates : []
+      ))
         .slice(0, MAX_STORED_PRODUCTS * MAX_STORED_VARIANTS)
-        .flatMap((rawCandidate) => {
+        .forEach((rawCandidate) => {
           const candidate = rawCandidate && typeof rawCandidate === "object" ? rawCandidate as Record<string, unknown> : {};
           const conceptId = storedText(candidate.conceptId, 100).trim();
           const rawStorageSize = storedText(candidate.storageSize, 1);
-          if (!conceptId || completed.has(conceptId) || (rawStorageSize !== "S" && rawStorageSize !== "L")) return [];
-          return [{
+          if (!conceptId || (rawStorageSize !== "S" && rawStorageSize !== "L")) return;
+          restoredStagedById.set(conceptId, {
             conceptId,
             productName: storedText(candidate.productName, 240),
             saleOption: storedText(candidate.saleOption, 200),
             chinaOption: storedText(candidate.chinaOption, 300),
             storageSize: rawStorageSize,
-          } satisfies StagedCandidate];
+          });
         });
+      const restoredStaged = [...restoredStagedById.values()];
       if (restoredProducts.length) setProducts(restoredProducts);
       if (restoredStaged.length) setStagedCandidates(restoredStaged);
+      pendingLegacyStorageKeys.current = legacyKeys;
       if (restoredProducts.length || restoredStaged.length) {
         const restoredOptionCount = restoredProducts.reduce((sum, product) => sum + product.variants.length, 0);
         setNotice(`임시저장 복원 · 상품 ${restoredProducts.length}종 · 입력 옵션 ${restoredOptionCount}개 · 계산 대기 ${restoredStaged.length}개`);
@@ -145,7 +189,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
     } finally {
       setStorageReady(true);
     }
-  }, [calculationFormId, formId]);
+  }, [formId]);
 
   useEffect(() => {
     if (!storageReady || !storageKey.current) return;
@@ -155,15 +199,31 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
         return;
       }
       window.localStorage.setItem(storageKey.current, JSON.stringify({
-        version: 1,
+        version: 2,
         products,
         stagedCandidates,
         savedAt: new Date().toISOString(),
       }));
+      pendingLegacyStorageKeys.current.forEach((key) => window.localStorage.removeItem(key));
+      pendingLegacyStorageKeys.current = [];
     } catch {
       // The form remains usable even when browser storage is unavailable or full.
     }
   }, [products, stagedCandidates, storageReady]);
+
+  useEffect(() => {
+    function clearCommittedDraft() {
+      if (storageKey.current) window.localStorage.removeItem(storageKey.current);
+      pendingLegacyStorageKeys.current.forEach((key) => window.localStorage.removeItem(key));
+      pendingLegacyStorageKeys.current = [];
+      setProducts([makeProduct()]);
+      setStagedCandidates([]);
+      setFailed(false);
+      setNotice("월간 Draft 저장 완료 · 임시저장을 정리했습니다.");
+    }
+    window.addEventListener(MANUAL_SOURCING_DRAFT_COMMITTED_EVENT, clearCommittedDraft);
+    return () => window.removeEventListener(MANUAL_SOURCING_DRAFT_COMMITTED_EVENT, clearCommittedDraft);
+  }, []);
 
   function resetNotice() { setNotice(""); setFailed(false); }
   function addProduct() { setProducts((current) => [...current, makeProduct()]); resetNotice(); }
@@ -207,8 +267,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
     setBusy(true); setNotice(""); setFailed(false);
     const failedProducts: ProductDraft[] = [];
     const staged = new Map<string, StagedCandidate>();
-    const completedCandidateIds = completedCandidateIdsFromLocation();
-    let completedProducts = 0, completedOptions = 0, alreadyCalculated = 0;
+    let completedProducts = 0, completedOptions = 0;
     for (let index = 0; index < submitted.length; index += 1) {
       const product = submitted[index];
       setNotice(`상품 ${index + 1}/${submitted.length} · 옵션 ${product.variants.length}개 저장 중...`);
@@ -240,7 +299,6 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
           const conceptId = String(candidate.conceptId ?? "").trim();
           const variant = product.variants[candidateIndex];
           if (!calculationFormId || !conceptId) return;
-          if (completedCandidateIds.has(conceptId)) { alreadyCalculated += 1; return; }
           staged.set(conceptId, {
             conceptId,
             productName: result.productName || product.productName || "신규상품",
@@ -263,7 +321,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
       setFailed(true);
       setNotice(`${completedProducts}상품·${completedOptions}옵션 추가 완료 · ${failedProducts.length}상품 실패. 실패 입력만 남겼습니다.`);
     } else if (calculationFormId) {
-      setNotice(`${completedProducts}상품·${completedOptions}옵션 후보 추가 완료${alreadyCalculated ? ` · 이미 계산된 후보 ${alreadyCalculated}옵션` : ""}. 아직 발주안은 계산하지 않았습니다.`);
+      setNotice(`${completedProducts}상품·${completedOptions}옵션 후보 추가 완료. 아직 발주안은 계산하지 않았습니다. 월간 Draft 저장 전까지 새로고침·재계산 후에도 유지됩니다.`);
     } else {
       setNotice(`${completedProducts}상품·${completedOptions}옵션 후보를 저장했습니다.`);
     }

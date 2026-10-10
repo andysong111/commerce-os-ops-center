@@ -128,13 +128,13 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const cashLimitKrw = cash === "" ? null : Number(cash);
   const sourcing = single("sourcing", "0");
   const sourcingBudgetPercent = sourcing === "" ? 0 : Number(sourcing);
-  const preferredSourcingConceptIds = (Array.isArray(query.source)
+  const preferredSourcingConceptIds = [...new Set((Array.isArray(query.source)
     ? query.source
     : typeof query.source === "string"
       ? [query.source]
       : [])
     .map((value) => value.trim())
-    .filter(Boolean);
+    .filter(Boolean))];
   const sourcingStorageSizeByConceptId: Record<string, "S" | "L"> = {};
   let sourcingStorageInputInvalid = false;
   for (const [key, value] of Object.entries(query)) {
@@ -387,7 +387,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             <ManualProductIntakeForm
               embedded
               formId={MANUAL_PRODUCT_FORM_ID}
-              calculationFormId={sourcingPlan ? NEW_PRODUCT_CONFIGURATION_FORM_ID : undefined}
+              calculationFormId={NEW_PRODUCT_CONFIGURATION_FORM_ID}
             />
           </section>
         </div>
