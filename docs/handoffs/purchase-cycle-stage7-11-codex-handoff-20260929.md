@@ -603,8 +603,9 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 
 ## 20. Preflight loading bound (2026-10-10)
 
-- The read-only purchase preflight uses a 12-second limit for each external Product Master, planning, Shopling-price, and sourcing-preview request.
+- The read-only purchase preflight uses a 6-second limit for every source reader and an 8-second sourcing-preview limit. Draft creation keeps the longer 60-second fresh-read allowance.
 - The sourcing-preview read makes one attempt per explicit operator action. A timeout opens the page in a review-required state instead of keeping the whole workspace on the loading screen.
+- If the initial candidate source is unavailable, downstream validation reads are skipped because the preview is already fail-closed. Failed first reads are not repeated in the same request.
 - The optional Shopling current-price read is skipped when the inventory priority has no existing-product purchase recommendation.
 - An identical read-only preflight input may be reused for 60 seconds so an immediate browser refresh does not repeat the expensive upstream reads.
 - Draft creation does not use the preview cache. It continues to call the uncached preflight loader and rechecks the pinned source evidence immediately before writing the internal Draft.

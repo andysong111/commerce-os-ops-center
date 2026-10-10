@@ -114,7 +114,7 @@ test("slow production sourcing reads get a visible loading state and a fail-fast
     readFile("src/app/purchase-cycle-preflight/loading.tsx", "utf8"),
   ]);
 
-  assert.match(bridgeSource, /PREVIEW_REQUEST_TIMEOUT_MS = 12_000/);
+  assert.match(bridgeSource, /PREVIEW_REQUEST_TIMEOUT_MS = 8_000/);
   assert.match(bridgeSource, /PREVIEW_REQUEST_MAX_ATTEMPTS = 1/);
   assert.match(loadingSource, /role="status"/);
   assert.match(loadingSource, /aria-busy="true"/);

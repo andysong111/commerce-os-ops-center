@@ -258,7 +258,9 @@ function waiting(
   };
 }
 
-export async function loadPostApplyCanonicalReconciliation(): Promise<PostApplyCanonicalReconciliation> {
+export async function loadPostApplyCanonicalReconciliation(
+  options: { externalRequestTimeoutMs?: number } = {},
+): Promise<PostApplyCanonicalReconciliation> {
   const checks: PostApplyCanonicalReconciliationCheck[] = [];
   const salesStatus = await loadProductMasterShoplingSalesEventSyncStatus();
   if (salesStatus.state !== "COMPLETED" || !salesStatus.requestId) {
@@ -276,8 +278,12 @@ export async function loadPostApplyCanonicalReconciliation(): Promise<PostApplyC
 
   const [candidate, planning, audit] = await Promise.all([
     loadLatestCandidateSalesSnapshot(),
-    loadProductPlanningSnapshot(),
-    loadProductMasterCanonicalSalesAudit(),
+    loadProductPlanningSnapshot({
+      requestTimeoutMs: options.externalRequestTimeoutMs,
+    }),
+    loadProductMasterCanonicalSalesAudit({
+      requestTimeoutMs: options.externalRequestTimeoutMs,
+    }),
   ]);
   const persisted = audit.snapshot;
 
