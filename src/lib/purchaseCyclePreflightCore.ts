@@ -782,11 +782,13 @@ export async function readPurchaseCyclePreflight(
       : Promise.resolve(null),
   ]);
   if (options.replaceDraftId && !replacementRead) sourceErrors.push("REPLACEMENT_DRAFT_READ_FAILED");
-  const [gate, reconciliation, priority] = await Promise.all([
-    capture("PROMOTION_GATE_READ_FAILED", readers.gate),
-    capture("MASTER_READBACK_READ_FAILED", readers.reconciliation),
-    capture("INVENTORY_PRIORITY_READ_FAILED", readers.priority),
-  ]);
+  const [gate, reconciliation, priority] = before
+    ? await Promise.all([
+        capture("PROMOTION_GATE_READ_FAILED", readers.gate),
+        capture("MASTER_READBACK_READ_FAILED", readers.reconciliation),
+        capture("INVENTORY_PRIORITY_READ_FAILED", readers.priority),
+      ])
+    : [null, null, null];
   let wholesaleCosts: PurchaseWholesaleCostEstimateSnapshot | null = null;
   const hasPurchaseRecommendations = priority?.rows.some(
     (row) => row.purchaseStatus === "발주 추천",
@@ -807,9 +809,13 @@ export async function readPurchaseCyclePreflight(
     }
   }
   const [after, spendAfter, replacementAfter] = await Promise.all([
-    capture("CANDIDATE_RECHECK_FAILED", readers.candidate),
-    capture("CYCLE_SPEND_RECHECK_FAILED", () => readers.monthlySpend(options.targetDate.slice(0, 7))),
-    replacementRead
+    before
+      ? capture("CANDIDATE_RECHECK_FAILED", readers.candidate)
+      : Promise.resolve(null),
+    before && spendBefore
+      ? capture("CYCLE_SPEND_RECHECK_FAILED", () => readers.monthlySpend(options.targetDate.slice(0, 7)))
+      : Promise.resolve(null),
+    before && replacementRead && replacementBefore
       ? capture("REPLACEMENT_DRAFT_RECHECK_FAILED", replacementRead)
       : Promise.resolve(null),
   ]);
