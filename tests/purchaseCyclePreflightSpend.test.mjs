@@ -91,7 +91,8 @@ test("production adapter uses scoped exact-count read and never the global recen
   assert.match(loader, /combineCompletePurchaseCycleSpendScanPages\(pages, MAXIMUM_ROWS\)/);
   assert.doesNotMatch(loader, /\.eq\([^\n]*cycleMonth\)/);
   assert.doesNotMatch(loader, /\.or\(/);
-  assert.match(service, /monthlySpend: loadVerifiedPurchaseCycleSpend/);
+  assert.match(service, /monthlySpend: \(cycleMonth\) => bounded\(/);
+  assert.match(service, /loadVerifiedPurchaseCycleSpend\(cycleMonth\)/);
   assert.doesNotMatch(service, /loadInternalChinaMonthlyPurchaseSummary|summary\?\./);
   assert.doesNotMatch(loader, /\.insert\(|\.upsert\(|\.update\(|\.delete\(|\.rpc\(/);
 });
