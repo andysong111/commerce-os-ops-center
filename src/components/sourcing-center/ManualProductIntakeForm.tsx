@@ -9,7 +9,7 @@ type Result = { ok?: boolean; code?: string; message?: string; productName?: str
 type VariantDraft = { id: string; saleOption: string; chinaOption: string; storageSize: StorageSize; unitPriceCny: string; moq: string };
 type ProductDraft = { id: string; sourceUrl: string; productName: string; supplierName: string; variants: VariantDraft[]; error: string };
 type StagedCandidate = { conceptId: string; productName: string; saleOption: string; chinaOption: string; storageSize: "S" | "L" };
-type Props = { embedded?: boolean; formId?: string; calculationFormId?: string; knownCandidateIds?: string[] };
+type Props = { embedded?: boolean; formId?: string; calculationFormId?: string };
 
 const DRAFT_STORAGE_PREFIX = "commerce-os.manual-sourcing-intake.v1";
 const MAX_STORED_PRODUCTS = 30;
@@ -50,6 +50,10 @@ function draftStorageKey(formId?: string, calculationFormId?: string) {
   ].join(":");
 }
 
+function completedCandidateIdsFromLocation() {
+  return new Set(new URLSearchParams(window.location.search).getAll("source").map((value) => value.trim()).filter(Boolean));
+}
+
 function hasManualDraftContent(products: ProductDraft[], stagedCandidates: StagedCandidate[]) {
   if (stagedCandidates.length || products.length > 1 || products.some((product) => product.variants.length > 1)) return true;
   return products.some((product) => (
@@ -60,11 +64,10 @@ function hasManualDraftContent(products: ProductDraft[], stagedCandidates: Stage
   ));
 }
 
-export function ManualProductIntakeForm({ embedded = false, formId, calculationFormId, knownCandidateIds = [] }: Props) {
+export function ManualProductIntakeForm({ embedded = false, formId, calculationFormId }: Props) {
   const productSequence = useRef(1);
   const variantSequence = useRef(1);
   const storageKey = useRef("");
-  const knownCandidateIdsAtMount = useRef(knownCandidateIds);
   const [busy, setBusy] = useState(false);
   const [storageReady, setStorageReady] = useState(false);
   const [notice, setNotice] = useState("");
@@ -115,14 +118,14 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
             error: storedText(product.error, 500),
           } satisfies ProductDraft;
         });
-      const known = new Set(knownCandidateIdsAtMount.current);
+      const completed = completedCandidateIdsFromLocation();
       const restoredStaged = (Array.isArray(saved.stagedCandidates) ? saved.stagedCandidates : [])
         .slice(0, MAX_STORED_PRODUCTS * MAX_STORED_VARIANTS)
         .flatMap((rawCandidate) => {
           const candidate = rawCandidate && typeof rawCandidate === "object" ? rawCandidate as Record<string, unknown> : {};
           const conceptId = storedText(candidate.conceptId, 100).trim();
           const rawStorageSize = storedText(candidate.storageSize, 1);
-          if (!conceptId || known.has(conceptId) || (rawStorageSize !== "S" && rawStorageSize !== "L")) return [];
+          if (!conceptId || completed.has(conceptId) || (rawStorageSize !== "S" && rawStorageSize !== "L")) return [];
           return [{
             conceptId,
             productName: storedText(candidate.productName, 240),
@@ -204,7 +207,8 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
     setBusy(true); setNotice(""); setFailed(false);
     const failedProducts: ProductDraft[] = [];
     const staged = new Map<string, StagedCandidate>();
-    let completedProducts = 0, completedOptions = 0, alreadyListed = 0;
+    const completedCandidateIds = completedCandidateIdsFromLocation();
+    let completedProducts = 0, completedOptions = 0, alreadyCalculated = 0;
     for (let index = 0; index < submitted.length; index += 1) {
       const product = submitted[index];
       setNotice(`상품 ${index + 1}/${submitted.length} · 옵션 ${product.variants.length}개 저장 중...`);
@@ -236,7 +240,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
           const conceptId = String(candidate.conceptId ?? "").trim();
           const variant = product.variants[candidateIndex];
           if (!calculationFormId || !conceptId) return;
-          if (knownCandidateIds.includes(conceptId)) { alreadyListed += 1; return; }
+          if (completedCandidateIds.has(conceptId)) { alreadyCalculated += 1; return; }
           staged.set(conceptId, {
             conceptId,
             productName: result.productName || product.productName || "신규상품",
@@ -259,7 +263,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
       setFailed(true);
       setNotice(`${completedProducts}상품·${completedOptions}옵션 추가 완료 · ${failedProducts.length}상품 실패. 실패 입력만 남겼습니다.`);
     } else if (calculationFormId) {
-      setNotice(`${completedProducts}상품·${completedOptions}옵션 후보 추가 완료${alreadyListed ? ` · 기존 후보 ${alreadyListed}옵션` : ""}. 아직 발주안은 계산하지 않았습니다.`);
+      setNotice(`${completedProducts}상품·${completedOptions}옵션 후보 추가 완료${alreadyCalculated ? ` · 이미 계산된 후보 ${alreadyCalculated}옵션` : ""}. 아직 발주안은 계산하지 않았습니다.`);
     } else {
       setNotice(`${completedProducts}상품·${completedOptions}옵션 후보를 저장했습니다.`);
     }

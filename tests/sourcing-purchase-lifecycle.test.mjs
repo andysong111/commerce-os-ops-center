@@ -59,7 +59,10 @@ test("manual sourcing UI batches products with nested options and per-option sto
   assert.match(form, /commerce-os\.manual-sourcing-intake\.v1/);
   assert.match(form, /window\.localStorage\.getItem\(key\)/);
   assert.match(form, /window\.localStorage\.setItem\(storageKey\.current/);
-  assert.match(form, /known\.has\(conceptId\)/);
+  assert.match(form, /completedCandidateIdsFromLocation/);
+  assert.match(form, /completed\.has\(conceptId\)/);
+  assert.doesNotMatch(form, /known\.has\(conceptId\)/);
+  assert.doesNotMatch(form, /knownCandidateIds/);
   assert.match(form, /자동 임시저장됩니다/);
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(proxy, /x-commerce-os-integration-secret/);

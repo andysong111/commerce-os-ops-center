@@ -385,10 +385,6 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               embedded
               formId={MANUAL_PRODUCT_FORM_ID}
               calculationFormId={sourcingPlan ? NEW_PRODUCT_CONFIGURATION_FORM_ID : undefined}
-              knownCandidateIds={sourcingPlan ? [
-                ...sourcingPlan.allocation.selected.map((candidate) => candidate.conceptId),
-                ...sourcingPlan.allocation.availableCandidates.map((candidate) => candidate.conceptId),
-              ] : []}
             />
           </section>
         </div>
