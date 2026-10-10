@@ -56,6 +56,11 @@ test("manual sourcing UI batches products with nested options and per-option sto
   assert.match(form, /상품 \$\{products\.length\}종 · 옵션 \$\{optionCount\}개 후보 목록에 추가/);
   assert.match(form, /각 옵션에 별도 B코드와 수납공간이 배정됩니다/);
   assert.match(form, /disabled=\{busy\}/);
+  assert.match(form, /commerce-os\.manual-sourcing-intake\.v1/);
+  assert.match(form, /window\.localStorage\.getItem\(key\)/);
+  assert.match(form, /window\.localStorage\.setItem\(storageKey\.current/);
+  assert.match(form, /known\.has\(conceptId\)/);
+  assert.match(form, /자동 임시저장됩니다/);
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(proxy, /x-commerce-os-integration-secret/);
   assert.match(proxy, /x-vercel-protection-bypass/);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 type StorageSize = "" | "S" | "L";
@@ -10,6 +10,10 @@ type VariantDraft = { id: string; saleOption: string; chinaOption: string; stora
 type ProductDraft = { id: string; sourceUrl: string; productName: string; supplierName: string; variants: VariantDraft[]; error: string };
 type StagedCandidate = { conceptId: string; productName: string; saleOption: string; chinaOption: string; storageSize: "S" | "L" };
 type Props = { embedded?: boolean; formId?: string; calculationFormId?: string; knownCandidateIds?: string[] };
+
+const DRAFT_STORAGE_PREFIX = "commerce-os.manual-sourcing-intake.v1";
+const MAX_STORED_PRODUCTS = 30;
+const MAX_STORED_VARIANTS = 30;
 
 const normalizeOption = (value: string) => value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLocaleLowerCase("ko-KR");
 const optionalNumber = (value: string) => value.trim() ? Number(value.trim()) : null;
@@ -30,10 +34,39 @@ const emptyProduct = (id: string, variantId: string): ProductDraft => ({
   error: "",
 });
 
+function storedText(value: unknown, maxLength: number) {
+  return typeof value === "string" ? value.slice(0, maxLength) : "";
+}
+
+function draftStorageKey(formId?: string, calculationFormId?: string) {
+  const params = new URLSearchParams(window.location.search);
+  const context = params.get("replace")?.trim() || params.get("draftId")?.trim() || params.get("date")?.trim() || "default";
+  return [
+    DRAFT_STORAGE_PREFIX,
+    window.location.pathname,
+    formId || "manual",
+    calculationFormId || "standalone",
+    context,
+  ].join(":");
+}
+
+function hasManualDraftContent(products: ProductDraft[], stagedCandidates: StagedCandidate[]) {
+  if (stagedCandidates.length || products.length > 1 || products.some((product) => product.variants.length > 1)) return true;
+  return products.some((product) => (
+    product.sourceUrl || product.productName || product.supplierName || product.error ||
+    product.variants.some((variant) => (
+      variant.saleOption || variant.chinaOption || variant.storageSize || variant.unitPriceCny || variant.moq
+    ))
+  ));
+}
+
 export function ManualProductIntakeForm({ embedded = false, formId, calculationFormId, knownCandidateIds = [] }: Props) {
   const productSequence = useRef(1);
   const variantSequence = useRef(1);
+  const storageKey = useRef("");
+  const knownCandidateIdsAtMount = useRef(knownCandidateIds);
   const [busy, setBusy] = useState(false);
+  const [storageReady, setStorageReady] = useState(false);
   const [notice, setNotice] = useState("");
   const [failed, setFailed] = useState(false);
   const [products, setProducts] = useState<ProductDraft[]>(() => [emptyProduct("manual-product-0", "manual-variant-0")]);
@@ -45,6 +78,89 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
     `manual-product-${productSequence.current++}`,
     `manual-variant-${variantSequence.current++}`,
   );
+
+  useEffect(() => {
+    const key = draftStorageKey(formId, calculationFormId);
+    storageKey.current = key;
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { version?: unknown; products?: unknown; stagedCandidates?: unknown };
+      if (saved.version !== 1) return;
+
+      const restoredProducts = (Array.isArray(saved.products) ? saved.products : [])
+        .slice(0, MAX_STORED_PRODUCTS)
+        .map((rawProduct) => {
+          const product = rawProduct && typeof rawProduct === "object" ? rawProduct as Record<string, unknown> : {};
+          const restoredVariants = (Array.isArray(product.variants) ? product.variants : [])
+            .slice(0, MAX_STORED_VARIANTS)
+            .map((rawVariant) => {
+              const variant = rawVariant && typeof rawVariant === "object" ? rawVariant as Record<string, unknown> : {};
+              const rawStorageSize = storedText(variant.storageSize, 1);
+              return {
+                id: `manual-variant-${variantSequence.current++}`,
+                saleOption: storedText(variant.saleOption, 200),
+                chinaOption: storedText(variant.chinaOption, 300),
+                storageSize: rawStorageSize === "S" || rawStorageSize === "L" ? rawStorageSize : "" as StorageSize,
+                unitPriceCny: storedText(variant.unitPriceCny, 30),
+                moq: storedText(variant.moq, 30),
+              } satisfies VariantDraft;
+            });
+          return {
+            id: `manual-product-${productSequence.current++}`,
+            sourceUrl: storedText(product.sourceUrl, 2_000),
+            productName: storedText(product.productName, 240),
+            supplierName: storedText(product.supplierName, 200),
+            variants: restoredVariants.length ? restoredVariants : [emptyVariant(`manual-variant-${variantSequence.current++}`)],
+            error: storedText(product.error, 500),
+          } satisfies ProductDraft;
+        });
+      const known = new Set(knownCandidateIdsAtMount.current);
+      const restoredStaged = (Array.isArray(saved.stagedCandidates) ? saved.stagedCandidates : [])
+        .slice(0, MAX_STORED_PRODUCTS * MAX_STORED_VARIANTS)
+        .flatMap((rawCandidate) => {
+          const candidate = rawCandidate && typeof rawCandidate === "object" ? rawCandidate as Record<string, unknown> : {};
+          const conceptId = storedText(candidate.conceptId, 100).trim();
+          const rawStorageSize = storedText(candidate.storageSize, 1);
+          if (!conceptId || known.has(conceptId) || (rawStorageSize !== "S" && rawStorageSize !== "L")) return [];
+          return [{
+            conceptId,
+            productName: storedText(candidate.productName, 240),
+            saleOption: storedText(candidate.saleOption, 200),
+            chinaOption: storedText(candidate.chinaOption, 300),
+            storageSize: rawStorageSize,
+          } satisfies StagedCandidate];
+        });
+      if (restoredProducts.length) setProducts(restoredProducts);
+      if (restoredStaged.length) setStagedCandidates(restoredStaged);
+      if (restoredProducts.length || restoredStaged.length) {
+        const restoredOptionCount = restoredProducts.reduce((sum, product) => sum + product.variants.length, 0);
+        setNotice(`임시저장 복원 · 상품 ${restoredProducts.length}종 · 입력 옵션 ${restoredOptionCount}개 · 계산 대기 ${restoredStaged.length}개`);
+      }
+    } catch {
+      window.localStorage.removeItem(key);
+    } finally {
+      setStorageReady(true);
+    }
+  }, [calculationFormId, formId]);
+
+  useEffect(() => {
+    if (!storageReady || !storageKey.current) return;
+    try {
+      if (!hasManualDraftContent(products, stagedCandidates)) {
+        window.localStorage.removeItem(storageKey.current);
+        return;
+      }
+      window.localStorage.setItem(storageKey.current, JSON.stringify({
+        version: 1,
+        products,
+        stagedCandidates,
+        savedAt: new Date().toISOString(),
+      }));
+    } catch {
+      // The form remains usable even when browser storage is unavailable or full.
+    }
+  }, [products, stagedCandidates, storageReady]);
 
   function resetNotice() { setNotice(""); setFailed(false); }
   function addProduct() { setProducts((current) => [...current, makeProduct()]); resetNotice(); }
@@ -157,6 +273,7 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
           <p className="text-xs font-black text-emerald-700">직접 신규상품 추가</p>
           {embedded ? <h3 className="mt-1 text-lg font-black text-slate-950">1688 상품·옵션 일괄 등록</h3> : <h2 className="mt-1 text-xl font-black text-slate-950">1688 상품·옵션 일괄 등록</h2>}
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">링크와 모델명은 상품별로 한 번만 입력하고, 같은 상품의 옵션은 아래에서 추가하세요. 각 옵션에 별도 B코드와 수납공간이 배정됩니다.</p>
+          <p className="mt-1 text-xs font-bold text-sky-700">입력 중인 상품과 계산 대기 후보는 이 브라우저에 자동 임시저장됩니다.</p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">상품 {products.length}종 · 옵션 {optionCount}개</span>
       </div>
