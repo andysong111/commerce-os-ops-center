@@ -1,4 +1,5 @@
 const DEFAULT_SOURCING_ENGINE_URL = "https://commerce-os-sourcing-engine-indol.vercel.app";
+const MANUAL_PRODUCT_ENGINE_TIMEOUT_MS = 25_000;
 
 export type ManualSourcingProductInput = {
   sourceUrl: string;
@@ -78,18 +79,29 @@ export async function registerManualSourcingProduct(
   options: { env?: Readonly<Record<string, string | undefined>> } = {},
 ) {
   const { secret, protectionBypass, baseUrl } = config(options.env);
-  const response = await fetch(`${baseUrl}/api/integrations/manual-product-intake`, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      "x-commerce-os-integration-secret": secret,
-      ...(protectionBypass ? { "x-vercel-protection-bypass": protectionBypass } : {}),
-    },
-    body: JSON.stringify(input),
-    cache: "no-store",
-    signal: AbortSignal.timeout(60_000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/integrations/manual-product-intake`, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "x-commerce-os-integration-secret": secret,
+        ...(protectionBypass ? { "x-vercel-protection-bypass": protectionBypass } : {}),
+      },
+      body: JSON.stringify(input),
+      cache: "no-store",
+      signal: AbortSignal.timeout(MANUAL_PRODUCT_ENGINE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === "TimeoutError" || /aborted due to timeout|timed?\s*out/iu.test(error.message))
+    ) {
+      throw new Error("MANUAL_PRODUCT_ENGINE_TIMEOUT");
+    }
+    throw error;
+  }
   const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
   if (!response.ok || !payload) {
     const code = String(payload?.code ?? "MANUAL_PRODUCT_ENGINE_FAILED").trim();

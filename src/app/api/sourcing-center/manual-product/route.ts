@@ -22,17 +22,20 @@ export async function POST(request: Request) {
   } catch (error) {
     const raw = error instanceof Error ? error.message : "MANUAL_PRODUCT_REGISTRATION_FAILED";
     const code = raw.split(":", 1)[0] || "MANUAL_PRODUCT_REGISTRATION_FAILED";
+    const timeout = code === "MANUAL_PRODUCT_ENGINE_TIMEOUT";
     return Response.json(
       {
         ok: false,
         code,
-        message: code.includes("REQUIRED") || code.includes("INVALID")
-          ? "1688 링크, 상품명, 옵션명과 옵션별 수납 형태를 다시 확인하세요."
-          : "신규상품 후보를 저장하지 못했습니다. 소싱엔진 연결 상태를 다시 확인하세요.",
+        message: timeout
+          ? "소싱 DB 응답이 지연되고 있습니다. 입력은 이 브라우저에 그대로 보존됐으니 잠시 후 다시 시도하세요."
+          : code.includes("REQUIRED") || code.includes("INVALID")
+            ? "1688 링크, 상품명, 옵션명과 옵션별 수납 형태를 다시 확인하세요."
+            : "신규상품 후보를 저장하지 못했습니다. 입력은 보존됐으니 소싱엔진 상태를 확인한 뒤 다시 시도하세요.",
         externalOrderExecuted: false,
       },
       {
-        status: code.includes("REQUIRED") || code.includes("INVALID") ? 400 : 502,
+        status: code.includes("REQUIRED") || code.includes("INVALID") ? 400 : timeout ? 504 : 502,
         headers: { "cache-control": "no-store" },
       },
     );

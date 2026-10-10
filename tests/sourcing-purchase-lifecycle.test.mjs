@@ -40,6 +40,10 @@ test("manual sourcing UI batches products with nested options and per-option sto
   assert.match(form, /\+ 다른 상품 추가/);
   assert.match(form, /판매 옵션명/);
   assert.match(form, /1688 중국 옵션/);
+  assert.match(form, /여러 선택값은 콤마/);
+  assert.match(form, /실패한 상품/);
+  assert.match(form, /MAX_PARALLEL_PRODUCT_SAVES = 4/);
+  assert.match(form, /Promise\.all\(Array\.from/);
   assert.match(form, /storage\.\$\{variant\.id\}/);
   assert.match(form, /checked=\{variant\.storageSize === "S"\}/);
   assert.match(form, /checked=\{variant\.storageSize === "L"\}/);
@@ -74,6 +78,10 @@ test("manual sourcing UI batches products with nested options and per-option sto
   assert.match(proxy, /x-vercel-protection-bypass/);
   assert.match(proxy, /externalOrderExecuted:\s*false/);
   assert.match(proxy, /candidates:\s*ManualSourcingProductCandidate\[\]/);
+  assert.match(proxy, /MANUAL_PRODUCT_ENGINE_TIMEOUT_MS = 25_000/);
+  assert.match(proxy, /MANUAL_PRODUCT_ENGINE_TIMEOUT/);
+  assert.match(route, /소싱 DB 응답이 지연되고 있습니다/);
+  assert.match(route, /timeout \? 504/);
 });
 
 test("manual sourcing draft is cleared only after the monthly draft is committed", async () => {
