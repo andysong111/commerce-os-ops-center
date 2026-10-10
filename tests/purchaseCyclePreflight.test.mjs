@@ -313,6 +313,24 @@ test("reader adapter brackets the source and loads the expensive priority only o
   const report = await readPurchaseCyclePreflight(input.options, readers, () => input.now);
   assert.equal(report.previewReady, true); assert.deepEqual(counts, { candidate: 2, gate: 1, reconciliation: 1, priority: 1, monthlySpend: 2 }); locked(report);
 });
+test("reader skips the optional Shopling price lookup when there are no purchase recommendations", async () => {
+  const input = fixture();
+  input.priority.rows = [];
+  let wholesaleReads = 0;
+  const report = await readPurchaseCyclePreflight(input.options, {
+    candidate: async () => input.before,
+    gate: async () => input.gate,
+    reconciliation: async () => input.reconciliation,
+    priority: async () => input.priority,
+    monthlySpend: async () => input.spendBefore,
+    wholesaleCosts: async () => {
+      wholesaleReads++;
+      throw new Error("must not run");
+    },
+  }, () => input.now);
+  assert.equal(wholesaleReads, 0);
+  blocked(report, "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+});
 test("replacement reader brackets the exact active draft and carries its audit into the report", async () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
@@ -364,6 +382,18 @@ test("preflight source has no write executor, credentials, background timer, or 
   assert.doesNotMatch(service, /loadCanonicalPurchaseShadow|loadReceiptCostRecoveryReadiness/);
   assert.match(service, /loadInventoryVerificationPriority\(options\.targetDate/);
   assert.match(service, /excludeCommitmentDraftId: options\.replaceDraftId/);
+});
+test("read-only refreshes use a short cache while Draft creation keeps a fresh recheck", () => {
+  const preview = readFileSync(new URL("../src/lib/purchaseCyclePreflightPreview.ts", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
+  const draft = readFileSync(new URL("../src/lib/purchaseCyclePreflightDraft.ts", import.meta.url), "utf8");
+  const service = readFileSync(new URL("../src/lib/purchaseCyclePreflight.ts", import.meta.url), "utf8");
+  assert.match(preview, /unstable_cache/);
+  assert.match(preview, /PREVIEW_REVALIDATE_SECONDS = 60/);
+  assert.match(page, /loadPurchaseCyclePreflightPreview\(options\)/);
+  assert.match(draft, /loadPurchaseCyclePreflight\(/);
+  assert.doesNotMatch(draft, /loadPurchaseCyclePreflightPreview/);
+  assert.match(service, /PREVIEW_EXTERNAL_REQUEST_TIMEOUT_MS = 12_000/);
 });
 test("operator page accepts an all-in cash cap while preserving the automatic envelope", () => {
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
@@ -462,10 +492,10 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(sourcingForm, /href=\{candidate\.sourceUrl\}/);
   assert.match(page, /href=\{row\.sourceUrl\}/);
   assert.match(budgetPlan, /value == null/);
-  assert.match(budgetPlan, /PREVIEW_REQUEST_TIMEOUT_MS = 90_000/);
-  assert.match(budgetPlan, /PREVIEW_REQUEST_MAX_ATTEMPTS = 2/);
+  assert.match(budgetPlan, /PREVIEW_REQUEST_TIMEOUT_MS = 12_000/);
+  assert.match(budgetPlan, /PREVIEW_REQUEST_MAX_ATTEMPTS = 1/);
   assert.match(budgetPlan, /SOURCING_BUDGET_ENGINE_TIMEOUT/);
-  assert.match(page, /자동 재시도 후에도 후보를 불러오지 못했습니다/);
+  assert.match(page, /12초 안에 응답하지 않아 화면을 먼저 열었습니다/);
   assert.doesNotMatch(page, /The operation was aborted due to timeout/);
   assert.match(sourcingForm, /checked=\{checked\}/);
   assert.match(sourcingForm, /name=\{`variant-storage\.\$\{candidate\.conceptId\}\.\$\{variant\.variantKey\}`\}/);

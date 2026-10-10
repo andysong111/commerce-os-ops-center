@@ -100,7 +100,10 @@ function normalizeSnapshot(value: Record<string, unknown>): ProductMasterCanonic
   };
 }
 
-async function loadProductMasterCanonicalSnapshot(analysisAsOf: string) {
+async function loadProductMasterCanonicalSnapshot(
+  analysisAsOf: string,
+  requestTimeoutMs: number,
+) {
   const { baseUrl, secret } = productMasterConnection();
   const response = await fetch(
     `${baseUrl}/api/integrations/sales-events?analysisAsOf=${encodeURIComponent(analysisAsOf)}`,
@@ -111,7 +114,7 @@ async function loadProductMasterCanonicalSnapshot(analysisAsOf: string) {
         "x-commerce-os-integration-secret": secret,
       },
       cache: "no-store",
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(requestTimeoutMs),
     },
   );
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -121,7 +124,13 @@ async function loadProductMasterCanonicalSnapshot(analysisAsOf: string) {
   return normalizeSnapshot(payload);
 }
 
-export async function loadProductMasterCanonicalSalesAudit(): Promise<ProductMasterCanonicalSalesAudit> {
+export async function loadProductMasterCanonicalSalesAudit(
+  options: { requestTimeoutMs?: number } = {},
+): Promise<ProductMasterCanonicalSalesAudit> {
+  const requestTimeoutMs = Math.max(
+    1_000,
+    Math.min(60_000, Math.trunc(options.requestTimeoutMs ?? 60_000)),
+  );
   const status = await loadProductMasterShoplingSalesEventSyncStatus();
   if (status.state !== "COMPLETED" || !status.analysisAsOf) {
     return {
@@ -134,7 +143,10 @@ export async function loadProductMasterCanonicalSalesAudit(): Promise<ProductMas
     };
   }
 
-  const snapshot = await loadProductMasterCanonicalSnapshot(status.analysisAsOf);
+  const snapshot = await loadProductMasterCanonicalSnapshot(
+    status.analysisAsOf,
+    requestTimeoutMs,
+  );
   const structuralBlockers = [
     snapshot.bucketDays !== 30,
     snapshot.bucketCount !== 12,

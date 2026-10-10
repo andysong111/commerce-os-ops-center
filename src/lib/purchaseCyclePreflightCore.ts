@@ -788,7 +788,10 @@ export async function readPurchaseCyclePreflight(
     capture("INVENTORY_PRIORITY_READ_FAILED", readers.priority),
   ]);
   let wholesaleCosts: PurchaseWholesaleCostEstimateSnapshot | null = null;
-  if (readers.wholesaleCosts) {
+  const hasPurchaseRecommendations = priority?.rows.some(
+    (row) => row.purchaseStatus === "발주 추천",
+  ) === true;
+  if (readers.wholesaleCosts && hasPurchaseRecommendations) {
     try {
       wholesaleCosts = await readers.wholesaleCosts();
     } catch {

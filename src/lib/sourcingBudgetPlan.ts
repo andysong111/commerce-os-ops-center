@@ -1,8 +1,9 @@
 const DEFAULT_SOURCING_ENGINE_URL = "https://commerce-os-sourcing-engine-indol.vercel.app";
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
-// Production candidate reads can take close to a minute while the sourcing data is cold.
-const PREVIEW_REQUEST_TIMEOUT_MS = 90_000;
-const PREVIEW_REQUEST_MAX_ATTEMPTS = 2;
+// The read-only page must fail closed instead of holding the whole operator UI
+// while the sourcing service is cold. A retry is an explicit operator action.
+const PREVIEW_REQUEST_TIMEOUT_MS = 12_000;
+const PREVIEW_REQUEST_MAX_ATTEMPTS = 1;
 const PREVIEW_RETRY_DELAY_MS = 750;
 const TRANSIENT_PREVIEW_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 

@@ -5,7 +5,7 @@ import { NewProductConfigurationCalculateButton } from "@/components/purchase-cy
 import { PurchasePreflightForm } from "@/components/purchase-cycle-preflight/PurchasePreflightForm";
 import { SourcingCandidateSelectionForm } from "@/components/purchase-cycle-preflight/SourcingCandidateSelectionForm";
 import { ManualProductIntakeForm } from "@/components/sourcing-center/ManualProductIntakeForm";
-import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
+import { loadPurchaseCyclePreflightPreview } from "@/lib/purchaseCyclePreflightPreview";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import { purchaseCycleDraftConfirmation } from "@/lib/purchaseCyclePreflightDraftCore";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
@@ -100,7 +100,7 @@ const sourcingPolicyPreparationCodes = new Set([
 ]);
 const sourcingPlanErrorMessage = (code: string) => {
   if (code === "SOURCING_BUDGET_ENGINE_TIMEOUT") {
-    return "소싱엔진 응답이 지연되어 자동 재시도 후에도 후보를 불러오지 못했습니다. 잠시 후 ‘예산 확인 · 후보 불러오기’를 다시 눌러주세요. Draft 저장·1688 주문·결제는 실행되지 않았습니다.";
+    return "소싱엔진이 12초 안에 응답하지 않아 화면을 먼저 열었습니다. 잠시 후 ‘예산 확인 · 후보 불러오기’를 다시 눌러주세요. Draft 저장·1688 주문·결제는 실행되지 않았습니다.";
   }
   if (code === "SOURCING_BUDGET_ENGINE_UNAVAILABLE") {
     return "소싱엔진 연결이 일시적으로 불안정해 후보를 불러오지 못했습니다. 잠시 후 ‘예산 확인 · 후보 불러오기’를 다시 눌러주세요. Draft 저장·1688 주문·결제는 실행되지 않았습니다.";
@@ -190,7 +190,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       if (sourcingVariantInputInvalid) throw new Error("SOURCING_VARIANT_SELECTION_INVALID");
       const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId };
       validatePurchasePreflightOptions(options);
-      report = await loadPurchaseCyclePreflight(options);
+      report = await loadPurchaseCyclePreflightPreview(options);
       if (report.sourcingBudgetPercent > 0) {
         try {
           sourcingPlan = await loadSourcingBudgetPlan({
@@ -201,6 +201,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             preferredConceptIds: preferredSourcingConceptIds,
             storageSizeByConceptId: sourcingStorageSizeByConceptId,
             variantSelections: sourcingVariantSelections,
+          }, {
+            requestTimeoutMs: 12_000,
+            maxAttempts: 1,
           });
         } catch (error) {
           const raw = error instanceof Error ? error.message : "SOURCING_BUDGET_PLAN_FAILED";
@@ -238,7 +241,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         ? "소싱 후보 다시 불러오기"
         : "소싱엔진 연결 다시 확인",
       message: sourcingPlanErrorCode === "SOURCING_BUDGET_ENGINE_TIMEOUT"
-        ? "소싱엔진이 늦게 응답했습니다. 잠시 후 1단계의 ‘예산 확인 · 후보 불러오기’를 다시 누르면 자동 재시도를 포함해 다시 확인합니다."
+        ? "소싱엔진이 12초 안에 응답하지 않았습니다. 화면은 계속 사용할 수 있으며, 잠시 후 1단계의 ‘예산 확인 · 후보 불러오기’를 다시 누르면 재확인합니다."
         : "소싱엔진 연결 상태를 점검한 뒤 1단계의 ‘예산 확인 · 후보 불러오기’를 다시 누르세요.",
       href: "/sourcing-center",
       hrefLabel: "소싱센터 상태 보기",
