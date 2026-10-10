@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { SourcingVariantSelectionInput } from "@/lib/sourcingBudgetPlan";
+import { MANUAL_SOURCING_DRAFT_COMMITTED_EVENT } from "@/lib/manualSourcingDraftStorage";
 
 type DraftResponse = {
   ok?: boolean;
@@ -120,6 +121,7 @@ export function PurchaseCycleDraftActions({
       setNotice(
         `${payload.message} ${payload.draft?.lineCount ?? selectedCount}개 SKU · 총 ${payload.draft?.totalQuantity ?? totalQuantity}개 · ${payload.draft?.draftId ?? ""}`,
       );
+      window.dispatchEvent(new Event(MANUAL_SOURCING_DRAFT_COMMITTED_EVENT));
     } catch {
       setNotice("월간 Draft 저장 요청이 실패했습니다. 실제 주문·결제는 실행되지 않았습니다.");
     } finally {

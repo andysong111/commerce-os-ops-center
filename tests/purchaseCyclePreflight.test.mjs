@@ -490,8 +490,10 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /신규상품 구성/);
   assert.match(page, /id="sourcing-selection"/);
   assert.match(page, /id="manual-sourcing-intake"/);
+  assert.match(page, /const preferredSourcingConceptIds = \[\.\.\.new Set\(/);
   assert.match(page, /<ManualProductIntakeForm/);
-  assert.match(page, /calculationFormId=\{sourcingPlan \? NEW_PRODUCT_CONFIGURATION_FORM_ID : undefined\}/);
+  assert.match(page, /calculationFormId=\{NEW_PRODUCT_CONFIGURATION_FORM_ID\}/);
+  assert.doesNotMatch(page, /calculationFormId=\{sourcingPlan \?/);
   assert.match(page, /<NewProductConfigurationCalculateButton/);
   assert.doesNotMatch(page, /후보·수납 반영 후 다시 계산/);
   assert.match(page, /3단계 · 계산 결과/);

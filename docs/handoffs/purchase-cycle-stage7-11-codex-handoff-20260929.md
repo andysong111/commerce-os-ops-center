@@ -610,3 +610,14 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - An identical read-only preflight input may be reused for 60 seconds so an immediate browser refresh does not repeat the expensive upstream reads.
 - Draft creation does not use the preview cache. It continues to call the uncached preflight loader and rechecks the pinned source evidence immediately before writing the internal Draft.
 - These changes do not execute a Draft save, 1688 order, payment, or any other external write.
+
+---
+
+## 21. Manual sourcing draft persistence (2026-10-10)
+
+- Manual 1688 product and option input uses one browser-local draft per replacement Draft ID, or per cycle month when there is no replacement Draft. Sourcing-preview success/failure, calculation-form visibility, a same-month date change, refresh, and recalculation must not switch storage slots or discard input. The manual calculation staging ID remains available even when the sourcing preview times out, so restored candidates stay visible while the final calculation button remains safely unavailable.
+- The v2 loader migrates and merges both historical v1 slots (`standalone` and `new-product-configuration-form`) before deleting either legacy copy. Existing staged candidates are deduplicated by `conceptId`.
+- Inclusion in a read-only calculation is not completion. Manual candidates remain staged through recalculation and are cleared only after `/api/purchase-cycle/preflight-draft` reports a successful complete monthly Draft save.
+- Repeated source IDs retained across recalculation are deduplicated before the sourcing plan is built.
+- Regression coverage lives in `tests/manualSourcingDraftStorage.test.mjs`, `tests/sourcing-purchase-lifecycle.test.mjs`, and `tests/purchaseCyclePreflight.test.mjs`, and is wired into Purchase Cycle Preflight CI.
+- This persistence is browser-local UI state only. It does not save a monthly Draft, allocate a B-code, execute a 1688 order, or make a payment by itself.
