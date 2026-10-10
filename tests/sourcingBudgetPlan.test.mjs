@@ -54,6 +54,8 @@ test("operator candidate preferences stay server-side and are sent to both previ
   const source = await readFile("src/lib/sourcingBudgetPlan.ts", "utf8");
   assert.match(source, /params\.append\("preferredConceptId", conceptId\)/);
   assert.match(source, /preferredConceptIds\?: string\[\]/);
+  assert.match(source, /params\.append\("variantSelection", JSON\.stringify\(selection\)\)/);
+  assert.match(source, /variantSelections\?: SourcingVariantSelectionInput\[\]/);
   assert.doesNotMatch(source, /NEXT_PUBLIC_.*preferred/i);
 });
 

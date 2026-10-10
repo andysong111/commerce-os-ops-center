@@ -49,6 +49,7 @@ export async function createPurchaseCyclePreflightDraft(
         sourcingBudgetKrw: report.sourcingBudgetKrw,
         preferredConceptIds: request.preferredSourcingConceptIds,
         storageSizeByConceptId: request.sourcingStorageSizeByConceptId,
+        variantSelections: request.sourcingVariantSelections,
       })
     : null;
   const prepared = preparePurchaseCycleDraft(report, request, sourcingPlan);
@@ -86,6 +87,7 @@ export async function createPurchaseCyclePreflightDraft(
         sourcingBudgetKrw: report.sourcingBudgetKrw,
         preferredConceptIds: request.preferredSourcingConceptIds,
         storageSizeByConceptId: request.sourcingStorageSizeByConceptId,
+        variantSelections: request.sourcingVariantSelections,
         expectedSourceFingerprint: sourcingPlan.sourceFingerprint,
         expectedPlanFingerprint: sourcingPlan.planFingerprint,
       });
@@ -94,7 +96,10 @@ export async function createPurchaseCyclePreflightDraft(
       sourcing = {
         ok: false,
         status: "FAILED",
-        selectedCount: sourcingPlan.allocation.selected.length,
+        selectedCount: sourcingPlan.allocation.selected.reduce(
+          (total, row) => total + row.selectedVariants.length,
+          0,
+        ),
         confirmedCount: 0,
         failure: {
           code: raw.split(":", 1)[0] || "SOURCING_BUDGET_CONFIRM_FAILED",

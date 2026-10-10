@@ -6,6 +6,21 @@ const PREVIEW_REQUEST_MAX_ATTEMPTS = 2;
 const PREVIEW_RETRY_DELAY_MS = 750;
 const TRANSIENT_PREVIEW_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
+export type SourcingVariantSelectionInput = {
+  conceptId: string;
+  variantKey: string;
+  storageSize: "S" | "L";
+};
+
+export type SourcingSaleVariant = {
+  variantKey: string;
+  saleOption: string;
+  chinaOption: string;
+  unitPriceCny: number;
+  source: "VISIBLE_1688_OPTION" | "MANUAL_INTAKE" | "LEGACY_COST_BASIS";
+  defaultStorageSize: "S" | "L" | null;
+};
+
 export type SourcingBudgetPlanSelection = {
   conceptId: string;
   canonicalNameKo: string;
@@ -21,6 +36,13 @@ export type SourcingBudgetPlanSelection = {
   quantityReduced: boolean;
   storageSize: "S" | "L" | null;
   storageSizeSource: "OPERATOR" | "MANUAL_INTAKE" | null;
+  variants: SourcingSaleVariant[];
+  selectedVariants: Array<SourcingSaleVariant & {
+    storageSize: "S" | "L";
+    storageSizeSource: "OPERATOR" | "MANUAL_INTAKE";
+    quantity: number;
+    estimatedCostKrw: number;
+  }>;
 };
 
 export type SourcingBudgetPlan = {
@@ -32,6 +54,7 @@ export type SourcingBudgetPlan = {
   sourcingBudgetKrw: number;
   preferredConceptIds: string[];
   storageSizeByConceptId: Record<string, "S" | "L">;
+  variantSelections: SourcingVariantSelectionInput[];
   state: "READY" | "BLOCKED" | "EMPTY";
   readyForConfirmation: boolean;
   blockers: string[];
@@ -70,6 +93,7 @@ export type SourcingBudgetPlan = {
       moq: number | null;
       recommendedUnits: number;
       testPlanReady: boolean;
+      variants: SourcingSaleVariant[];
     }>;
     selected: SourcingBudgetPlanSelection[];
     excluded: Array<{ conceptId: string; canonicalNameKo: string; reason: string }>;
@@ -87,6 +111,7 @@ export type SourcingBudgetPlanInput = {
   sourcingBudgetKrw: number;
   preferredConceptIds?: string[];
   storageSizeByConceptId?: Record<string, "S" | "L">;
+  variantSelections?: SourcingVariantSelectionInput[];
 };
 
 export type SourcingBudgetConfirmationResult = {
@@ -163,7 +188,17 @@ function assertPlan(value: unknown): asserts value is SourcingBudgetPlan {
     !Array.isArray(plan.allocation?.selected) ||
     !Array.isArray(plan.allocation?.availableCandidates) ||
     !Array.isArray(plan.allocation?.excluded) ||
-    candidates.some((candidate) => !validCandidateSourceUrl(candidate.sourceUrl)) ||
+    candidates.some((candidate) =>
+      !validCandidateSourceUrl(candidate.sourceUrl) ||
+      !Array.isArray(candidate.variants) ||
+      candidate.variants.some((variant) =>
+        !variant ||
+        typeof variant.variantKey !== "string" ||
+        !variant.variantKey ||
+        typeof variant.chinaOption !== "string" ||
+        !variant.chinaOption
+      )
+    ) ||
     plan.businessWritesEnabled !== false ||
     plan.externalOrderExecuted !== false
   ) {
@@ -270,6 +305,9 @@ export async function loadSourcingBudgetPlan(
   }
   for (const [conceptId, storageSize] of Object.entries(input.storageSizeByConceptId ?? {})) {
     params.append("storageSize", `${conceptId}:${storageSize}`);
+  }
+  for (const selection of input.variantSelections ?? []) {
+    params.append("variantSelection", JSON.stringify(selection));
   }
   const response = await fetchSourcingBudgetPreview(
     `${baseUrl}/api/integrations/sourcing-budget-plan?${params.toString()}`,

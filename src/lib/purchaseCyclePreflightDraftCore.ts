@@ -1,6 +1,9 @@
 import type { FastPurchaseInternalDraftLine } from "@/lib/fastPurchaseInternalDraft";
 import type { PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
-import type { SourcingBudgetPlan } from "@/lib/sourcingBudgetPlan";
+import type {
+  SourcingBudgetPlan,
+  SourcingVariantSelectionInput,
+} from "@/lib/sourcingBudgetPlan";
 
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
 
@@ -10,6 +13,7 @@ export type PurchaseCycleDraftRequest = {
   sourcingBudgetPercent?: number;
   preferredSourcingConceptIds?: string[];
   sourcingStorageSizeByConceptId?: Record<string, "S" | "L">;
+  sourcingVariantSelections?: SourcingVariantSelectionInput[];
   allowOpenBudgetPreview?: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
@@ -37,8 +41,14 @@ export function purchaseCycleDraftConfirmation(
   report: PurchaseCyclePreflightReport,
   sourcingPlan: SourcingBudgetPlan | null = null,
 ) {
+  const sourcingVariantCount = sourcingPlan?.allocation.selected.reduce(
+    (total, row) => total + (
+      Array.isArray(row.selectedVariants) ? row.selectedVariants.length : 1
+    ),
+    0,
+  ) ?? 0;
   const sourcingSuffix = report.sourcingBudgetPercent > 0 && sourcingPlan
-    ? `_NEWSOURCE${sourcingPlan.allocation.selected.length}SKU_${sourcingPlan.allocation.estimatedSpendKrw}KRW_${sourcingPlan.planFingerprint.slice(-12)}`
+    ? `_NEWSOURCE${sourcingVariantCount}SKU_${sourcingPlan.allocation.estimatedSpendKrw}KRW_${sourcingPlan.planFingerprint.slice(-12)}`
     : "";
   if (report.replacementDraftId) {
     const audit = report.replacementAudit;
@@ -79,6 +89,7 @@ export function preparePurchaseCycleDraft(
       sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw ||
       JSON.stringify(sourcingPlan.preferredConceptIds ?? []) !== JSON.stringify(request.preferredSourcingConceptIds ?? []) ||
       JSON.stringify(sourcingPlan.storageSizeByConceptId ?? {}) !== JSON.stringify(request.sourcingStorageSizeByConceptId ?? {}) ||
+      JSON.stringify(sourcingPlan.variantSelections ?? []) !== JSON.stringify(request.sourcingVariantSelections ?? []) ||
       sourcingPlan.allocation.selected.length < 1 ||
       request.expectedSourcingSourceFingerprint !== sourcingPlan.sourceFingerprint ||
       request.expectedSourcingPlanFingerprint !== sourcingPlan.planFingerprint ||
