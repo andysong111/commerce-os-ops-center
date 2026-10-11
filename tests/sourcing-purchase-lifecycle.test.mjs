@@ -93,6 +93,23 @@ test("manual sourcing draft is cleared only after the monthly draft is committed
   assert.match(actions, /window\.dispatchEvent\(new Event\(MANUAL_SOURCING_DRAFT_COMMITTED_EVENT\)\)/);
 });
 
+test("owner presets and the bulk candidate button only stage review inputs", async () => {
+  const [page, form, button, presets] = await Promise.all([
+    source("../src/app/purchase-cycle-preflight/page.tsx"),
+    source("../src/components/sourcing-center/ManualProductIntakeForm.tsx"),
+    source("../src/components/purchase-cycle-preflight/BulkSourcingCandidateButton.tsx"),
+    source("../src/lib/manualSourcingCandidatePresets.ts"),
+  ]);
+  assert.match(page, /initialProducts=\{OWNER_MANUAL_SOURCING_PRESETS\}/);
+  assert.match(page, /manualPilotCandidatesAsPresets\(manualPilotCatalog\.candidates\)/);
+  assert.match(button, /MANUAL_SOURCING_BULK_ADD_EVENT/);
+  assert.match(button, /발주안 검토목록에 담기/);
+  assert.match(form, /수납 위치와 현재 단가·MOQ를 확인/);
+  assert.match(presets, /https:\/\/detail\.1688\.com\/offer\/\$\{offerId\}\.html/);
+  assert.doesNotMatch(button, /fetch\(|POST|order|payment/);
+  assert.doesNotMatch(presets, /externalOrderExecuted:\s*true/);
+});
+
 test("sourcing purchase ingress is server-secret protected and fail-closed", async () => {
   const route = await source("../src/app/api/integrations/sourcing-purchase/route.ts");
   assert.match(route, /x-commerce-os-integration-secret/);

@@ -1,6 +1,7 @@
 export const MANUAL_SOURCING_DRAFT_STORAGE_PREFIX = "commerce-os.manual-sourcing-intake.v2";
 export const LEGACY_MANUAL_SOURCING_DRAFT_STORAGE_PREFIX = "commerce-os.manual-sourcing-intake.v1";
 export const MANUAL_SOURCING_DRAFT_COMMITTED_EVENT = "commerce-os:manual-sourcing-draft-committed";
+export const MANUAL_SOURCING_BULK_ADD_EVENT = "commerce-os:manual-sourcing-bulk-add";
 
 type StorageKeys = Pick<Storage, "key" | "length">;
 

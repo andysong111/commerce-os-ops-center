@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { PurchaseCycleDraftActions } from "@/components/purchase-cycle-preflight/PurchaseCycleDraftActions";
+import { BulkSourcingCandidateButton } from "@/components/purchase-cycle-preflight/BulkSourcingCandidateButton";
 import { NewProductConfigurationCalculateButton } from "@/components/purchase-cycle-preflight/NewProductConfigurationCalculateButton";
 import { PurchasePreflightForm } from "@/components/purchase-cycle-preflight/PurchasePreflightForm";
 import { SourcingCandidateSelectionForm } from "@/components/purchase-cycle-preflight/SourcingCandidateSelectionForm";
@@ -9,7 +10,14 @@ import { loadPurchaseCyclePreflightPreview } from "@/lib/purchaseCyclePreflightP
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import { purchaseCycleDraftConfirmation } from "@/lib/purchaseCyclePreflightDraftCore";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
-import { readManualPilotCatalogSnapshot } from "@/lib/manualPilotCatalogSnapshot";
+import {
+  applyOwnerManualPilotExclusions,
+  readManualPilotCatalogSnapshot,
+} from "@/lib/manualPilotCatalogSnapshot";
+import {
+  manualPilotCandidatesAsPresets,
+  OWNER_MANUAL_SOURCING_PRESETS,
+} from "@/lib/manualSourcingCandidatePresets";
 import {
   loadManualPilotCatalog,
   loadSourcingBudgetPlan,
@@ -202,7 +210,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       if (reportResult.status === "rejected") throw reportResult.reason;
       report = reportResult.value;
       if (manualPilotResult.status === "fulfilled") {
-        manualPilotCatalog = manualPilotResult.value;
+        manualPilotCatalog = applyOwnerManualPilotExclusions(manualPilotResult.value);
       } else {
         manualPilotCatalog = readManualPilotCatalogSnapshot();
         manualPilotCatalogError = "실시간 연결이 보호 설정에 막혀 2026년 10월 11일 소싱엔진 DB에서 확인한 선택 목록을 표시합니다.";
@@ -389,6 +397,11 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                     </article>
                   ))}
                 </div>
+                <BulkSourcingCandidateButton
+                  candidates={manualPilotCandidatesAsPresets(manualPilotCatalog.candidates)}
+                  manualFormId={MANUAL_PRODUCT_FORM_ID}
+                />
+                <p className="mt-2 text-xs leading-5 text-blue-900">이 버튼은 후보를 아래 수동 검토목록에 복사합니다. 실제 주문·결제는 실행하지 않으며, 수납 위치와 현재 단가·MOQ가 확인돼야 월간 Draft 계산에 들어갑니다.</p>
                 {manualPilotCatalog.unavailableConceptIds.length ? <p className="mt-3 text-xs font-bold text-amber-800">저장된 선택 중 현재 안전 근거가 달라져 보류된 상품 {manualPilotCatalog.unavailableConceptIds.length}건</p> : null}
               </section>
             ) : manualPilotCatalogError ? (
@@ -431,6 +444,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               embedded
               formId={MANUAL_PRODUCT_FORM_ID}
               calculationFormId={NEW_PRODUCT_CONFIGURATION_FORM_ID}
+              initialProducts={OWNER_MANUAL_SOURCING_PRESETS}
             />
           </section>
         </div>
