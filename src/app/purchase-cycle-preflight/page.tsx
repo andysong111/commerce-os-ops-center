@@ -9,6 +9,7 @@ import { loadPurchaseCyclePreflightPreview } from "@/lib/purchaseCyclePreflightP
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import { purchaseCycleDraftConfirmation } from "@/lib/purchaseCyclePreflightDraftCore";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
+import { readManualPilotCatalogSnapshot } from "@/lib/manualPilotCatalogSnapshot";
 import {
   loadManualPilotCatalog,
   loadSourcingBudgetPlan,
@@ -203,7 +204,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       if (manualPilotResult.status === "fulfilled") {
         manualPilotCatalog = manualPilotResult.value;
       } else {
-        manualPilotCatalogError = "소싱엔진 수동추가 상품목록을 불러오지 못했습니다. 잠시 후 위의 계산 버튼을 다시 눌러주세요.";
+        manualPilotCatalog = readManualPilotCatalogSnapshot();
+        manualPilotCatalogError = "실시간 연결이 보호 설정에 막혀 2026년 10월 11일 소싱엔진 DB에서 확인한 선택 목록을 표시합니다.";
       }
       if (report.sourcingBudgetPercent > 0 && report.sourcingBudgetKrw > 0) {
         try {
@@ -372,13 +374,14 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                   <span className="rounded-full bg-white px-2 py-1 text-xs font-bold text-blue-800">수동추가 · 발주 전 검수</span>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-blue-900">현재 소싱엔진에서 고른 상품입니다. 자동 주문 대상은 아니며, 1688 옵션·현재 단가·수량을 확인한 뒤 발주안에 넣습니다.</p>
+                {manualPilotCatalog.snapshotFallback ? <p role="status" className="mt-2 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-950">{manualPilotCatalogError} 자동 주문·결제에는 사용되지 않습니다.</p> : null}
                 <div className="mt-3 space-y-2">
                   {manualPilotCatalog.candidates.map((candidate, index) => (
                     <article key={candidate.conceptId} className="rounded-md border border-blue-100 bg-white p-3 text-sm">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <strong className="text-slate-950">{index + 1}. {candidate.canonicalNameKo}</strong>
-                          <p className="mt-1 text-xs leading-5 text-slate-600">{candidate.skuLabel} · MOQ {candidate.moq}개 · 예상 원가 {money(candidate.plannedCostKrw)}/개 · 최소 {money(candidate.minimumPilotCapitalKrw)}</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">{candidate.skuLabel} · 현재 단가 ¥{candidate.unitPriceCny.toLocaleString("ko-KR")} · MOQ {candidate.moq}개{candidate.plannedCostKrw != null && candidate.minimumPilotCapitalKrw != null ? ` · 예상 원가 ${money(candidate.plannedCostKrw)}/개 · 최소 ${money(candidate.minimumPilotCapitalKrw)}` : " · 원화 원가는 발주 전 재계산"}</p>
                           <p className="text-xs leading-5 text-slate-600">1688 옵션 {candidate.variants.length}개 · {candidate.strictTestReady ? "정식 검수 완료" : "추가 검수 필요"}</p>
                         </div>
                         <a href={candidate.sourceUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-blue-700 underline">1688 상품 보기</a>
