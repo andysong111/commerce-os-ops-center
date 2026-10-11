@@ -15,32 +15,83 @@ import {
 import { ensureProductMasterShoplingSalesEventCoverageRequest } from "@/lib/productMasterShoplingSalesEventSync";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 
+type PurchaseCycleStockReadSource =
+  | "local-baseline-authority"
+  | "product-planning"
+  | "canonical-sales"
+  | "product-master-zero-reset"
+  | "inventory-stock-control"
+  | "stocktake-baseline"
+  | "sales-tail"
+  | "reset-corrections"
+  | "stock-sync-resolution"
+  | "latest-sales-tail";
+
+class PurchaseCycleStockReadError extends Error {
+  constructor(source: PurchaseCycleStockReadSource, cause: unknown) {
+    super(`PURCHASE_CYCLE_STOCK_READ_FAILED:${source}`, { cause });
+    this.name = "PurchaseCycleStockReadError";
+  }
+}
+
+async function stockRead<T>(
+  source: PurchaseCycleStockReadSource,
+  pending: Promise<T>,
+) {
+  try {
+    return await pending;
+  } catch (error) {
+    throw new PurchaseCycleStockReadError(source, error);
+  }
+}
+
 async function resolved() {
   // Natural accumulation is safe only when both baseline authorities were read
   // completely. Product Master uses its strict reader, while local OPS reset /
   // stocktake rows are preflighted so a malformed SUCCEEDED row cannot silently
   // disappear and masquerade as "no baseline yet".
   const [, planning, canonical] = await Promise.all([
-    assertPurchaseCycleLocalBaselineAuthorityReadable(),
-    loadProductPlanningSnapshot(),
-    loadStage8CanonicalSalesEventSnapshot(),
+    stockRead(
+      "local-baseline-authority",
+      assertPurchaseCycleLocalBaselineAuthorityReadable(),
+    ),
+    stockRead("product-planning", loadProductPlanningSnapshot()),
+    stockRead("canonical-sales", loadStage8CanonicalSalesEventSnapshot()),
   ]);
-  const supplementalResetEvents =
-    await loadRequiredProductMasterVerifiedZeroResetEvents(
+  const supplementalResetEvents = await stockRead(
+    "product-master-zero-reset",
+    loadRequiredProductMasterVerifiedZeroResetEvents(
       planning.products ?? [],
-    );
-  const localSeeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
-    await loadInventoryStockControlReport({
+    ),
+  );
+  const inventory = await stockRead(
+    "inventory-stock-control",
+    loadInventoryStockControlReport({
       supplementalResetEvents,
       planning,
       canonicalSales: canonical,
     }),
   );
-  const tailed = await overlayInventoryStockControlReportWithTail(localSeeded);
-  const corrected = await overlayInventoryStockControlReportWithResetCorrections(tailed);
+  const localSeeded = await stockRead(
+    "stocktake-baseline",
+    overlayInventoryStockControlReportWithStocktakeBaselines(inventory),
+  );
+  const tailed = await stockRead(
+    "sales-tail",
+    overlayInventoryStockControlReportWithTail(localSeeded),
+  );
+  const corrected = await stockRead(
+    "reset-corrections",
+    overlayInventoryStockControlReportWithResetCorrections(tailed),
+  );
+  const reseeded = await stockRead(
+    "stocktake-baseline",
+    overlayInventoryStockControlReportWithStocktakeBaselines(corrected),
+  );
   return {
-    report: await normalizeRetryableShoplingSyncReportWithEvidence(
-      await overlayInventoryStockControlReportWithStocktakeBaselines(corrected),
+    report: await stockRead(
+      "stock-sync-resolution",
+      normalizeRetryableShoplingSyncReportWithEvidence(reseeded),
     ),
     canonical,
   };
@@ -54,7 +105,10 @@ export async function loadPurchaseCycleStockReport(options: { refreshSales?: boo
     const refresh = await ensureExactInventoryStockSalesTailCoverage(report);
     if (refresh.refreshed) ({ report, canonical } = await resolved());
   }
-  const tails = await loadLatestInventoryStockSalesTailSnapshots();
+  const tails = await stockRead(
+    "latest-sales-tail",
+    loadLatestInventoryStockSalesTailSnapshots(),
+  );
   const validated = validatePurchaseCycleStockEvidence(
     report,
     tails,

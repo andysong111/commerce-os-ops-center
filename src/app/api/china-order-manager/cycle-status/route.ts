@@ -9,12 +9,21 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 180;
 function json(body: unknown, status = 200) { return Response.json(body, { status, headers: { "cache-control": "no-store, max-age=0" } }); }
+function errorChain(error: unknown) {
+  const messages: string[] = [];
+  let current = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+    messages.push(current.message.slice(0, 300));
+    current = current.cause;
+  }
+  return messages;
+}
 function failure(error: unknown) {
   const source = purchaseCycleReadFailureSource(error);
   console.error("[purchase-cycle-status] ledger read failed", {
     code: "PURCHASE_CYCLE_PROOF_UNAVAILABLE",
     source,
-    message: error instanceof Error ? error.message : String(error),
+    causes: errorChain(error),
   });
   return json({ ok: false, code: "PURCHASE_CYCLE_PROOF_UNAVAILABLE", source, message: "발주사이클 확인에 필요한 원장 일부를 읽지 못했습니다. 기존 데이터를 변경하거나 완료로 간주하지 않았습니다." }, 503);
 }
