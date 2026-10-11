@@ -84,9 +84,13 @@ function productDraftsAsPresets(drafts: ProductDraft[]): ManualSourcingCandidate
     }));
 }
 
-function mergeProducts(current: ProductDraft[], additions: ManualSourcingCandidatePreset[]) {
+function mergeProducts(
+  current: ProductDraft[],
+  additions: ManualSourcingCandidatePreset[],
+  options: { preferAdditionFields?: boolean } = {},
+) {
   return productsFromPresets(
-    mergeManualSourcingCandidatePresets(productDraftsAsPresets(current), additions),
+    mergeManualSourcingCandidatePresets(productDraftsAsPresets(current), additions, options),
   );
 }
 
@@ -239,7 +243,7 @@ export function ManualProductIntakeForm({
         });
       const restoredStaged = [...restoredStagedById.values()];
       if (restoredProducts.length || initialProductsRef.current.length) {
-        setProducts(mergeProducts(restoredProducts, initialProductsRef.current));
+        setProducts(mergeProducts(restoredProducts, initialProductsRef.current, { preferAdditionFields: true }));
       }
       if (restoredStaged.length) setStagedCandidates(restoredStaged);
       pendingLegacyStorageKeys.current = legacyKeys;

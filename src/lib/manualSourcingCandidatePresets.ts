@@ -38,6 +38,7 @@ const optionIdentity = (value: string) => value
 export function mergeManualSourcingCandidatePresets(
   current: ManualSourcingCandidatePreset[],
   additions: ManualSourcingCandidatePreset[],
+  options: { preferAdditionFields?: boolean } = {},
 ) {
   const merged = new Map<string, ManualSourcingCandidatePreset>();
   for (const product of [...current, ...additions]) {
@@ -59,9 +60,16 @@ export function mergeManualSourcingCandidatePresets(
     ]));
     for (const variant of product.variants) {
       const identity = optionIdentity(variant.chinaOption || variant.saleOption);
-      if (!variantByIdentity.has(identity)) {
+      const existingVariant = variantByIdentity.get(identity);
+      if (!existingVariant) {
         existing.variants.push({ ...variant });
         variantByIdentity.set(identity, variant);
+      } else if (options.preferAdditionFields) {
+        existingVariant.saleOption = variant.saleOption || existingVariant.saleOption;
+        existingVariant.chinaOption = variant.chinaOption || existingVariant.chinaOption;
+        existingVariant.storageSize = variant.storageSize || existingVariant.storageSize;
+        existingVariant.unitPriceCny = variant.unitPriceCny ?? existingVariant.unitPriceCny;
+        existingVariant.moq = variant.moq ?? existingVariant.moq;
       }
     }
     existing.productName ||= product.productName;
@@ -78,7 +86,7 @@ export const OWNER_MANUAL_SOURCING_PRESETS: ManualSourcingCandidatePreset[] = [
     variants: [{
       saleOption: "단품 그레이",
       chinaOption: "单网灰色 大包装】10个起拍",
-      storageSize: "",
+      storageSize: "S",
       unitPriceCny: null,
       moq: null,
     }],
@@ -90,7 +98,7 @@ export const OWNER_MANUAL_SOURCING_PRESETS: ManualSourcingCandidatePreset[] = [
     variants: [{
       saleOption: "단품 그레이",
       chinaOption: "深空灰压罐器",
-      storageSize: "",
+      storageSize: "S",
       unitPriceCny: null,
       moq: null,
     }],
@@ -102,7 +110,7 @@ export const OWNER_MANUAL_SOURCING_PRESETS: ManualSourcingCandidatePreset[] = [
     variants: [{
       saleOption: "단품 그레이",
       chinaOption: "【升级双舱高密绒】白色",
-      storageSize: "",
+      storageSize: "S",
       unitPriceCny: null,
       moq: null,
     }],
@@ -115,14 +123,14 @@ export const OWNER_MANUAL_SOURCING_PRESETS: ManualSourcingCandidatePreset[] = [
       {
         saleOption: "신발 세탁망 · 색상랜덤",
         chinaOption: "白色-鞋子款",
-        storageSize: "",
+        storageSize: "S",
         unitPriceCny: null,
         moq: null,
       },
       {
         saleOption: "브라 세탁망 · 색상랜덤",
         chinaOption: "粉色-扣子款【赠洗衣球】",
-        storageSize: "",
+        storageSize: "S",
         unitPriceCny: null,
         moq: null,
       },
@@ -135,7 +143,7 @@ export const OWNER_MANUAL_SOURCING_PRESETS: ManualSourcingCandidatePreset[] = [
     variants: [{
       saleOption: "단품",
       chinaOption: "透明 精灵耳贴【硅胶】,60贴袋装",
-      storageSize: "",
+      storageSize: "S",
       unitPriceCny: null,
       moq: null,
     }],
@@ -148,14 +156,14 @@ export const OWNER_MANUAL_SOURCING_PRESETS: ManualSourcingCandidatePreset[] = [
       {
         saleOption: "남성용1쌍과 지압봉",
         chinaOption: "男袜+按摩棒",
-        storageSize: "",
+        storageSize: "S",
         unitPriceCny: null,
         moq: null,
       },
       {
         saleOption: "여성용1쌍과 지압봉",
         chinaOption: "女袜+按摩棒",
-        storageSize: "",
+        storageSize: "S",
         unitPriceCny: null,
         moq: null,
       },
