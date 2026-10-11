@@ -129,6 +129,40 @@ export type SourcingBudgetConfirmationResult = {
   externalOrderExecuted: false;
 };
 
+export type ManualPilotCatalogCandidate = {
+  conceptId: string;
+  canonicalNameKo: string;
+  sourceUrl: string;
+  rawItemId: string;
+  offerId: string;
+  skuLabel: string;
+  lane: "TEST_READY" | "NEAR_READY" | "AI_CONDITIONAL" | "EVIDENCE_GAP";
+  strictTestReady: boolean;
+  reviewRequired: boolean;
+  automaticOrderAllowed: false;
+  finalQualityScore: number | null;
+  marketDemandScore: number | null;
+  unitPriceCny: number;
+  moq: number;
+  plannedCostKrw: number;
+  minimumPilotCapitalKrw: number;
+  targetSellingPriceKrw: number | null;
+  aiDetailPreflightStatus: "PENDING" | "READY" | "CONDITIONAL" | "HOSTILE";
+  variants: SourcingSaleVariant[];
+};
+
+export type ManualPilotCatalog = {
+  version: "manual-pilot-integration-catalog-v1";
+  generatedAt: string;
+  selectedConceptCount: number;
+  availableCandidateCount: number;
+  unavailableConceptIds: string[];
+  candidates: ManualPilotCatalogCandidate[];
+  sourceFingerprint: string;
+  businessWritesEnabled: false;
+  externalOrderExecuted: false;
+};
+
 function config(env: Readonly<Record<string, string | undefined>> = process.env) {
   const secret = (
     env.SOURCING_ENGINE_INTEGRATION_SECRET ||
@@ -204,6 +238,43 @@ function assertPlan(value: unknown): asserts value is SourcingBudgetPlan {
     plan.externalOrderExecuted !== false
   ) {
     throw new Error("SOURCING_BUDGET_PLAN_RESPONSE_INVALID");
+  }
+}
+
+function assertManualPilotCatalog(value: unknown): asserts value is ManualPilotCatalog {
+  const catalog = value as Partial<ManualPilotCatalog> | null;
+  const candidates = Array.isArray(catalog?.candidates) ? catalog.candidates : [];
+  if (
+    !catalog ||
+    catalog.version !== "manual-pilot-integration-catalog-v1" ||
+    !FINGERPRINT.test(String(catalog.sourceFingerprint ?? "")) ||
+    !Number.isInteger(catalog.selectedConceptCount) ||
+    !Number.isInteger(catalog.availableCandidateCount) ||
+    catalog.availableCandidateCount !== candidates.length ||
+    !Array.isArray(catalog.unavailableConceptIds) ||
+    candidates.some((candidate) =>
+      !candidate ||
+      typeof candidate.conceptId !== "string" ||
+      !candidate.conceptId ||
+      typeof candidate.canonicalNameKo !== "string" ||
+      !candidate.canonicalNameKo ||
+      !validCandidateSourceUrl(candidate.sourceUrl) ||
+      candidate.automaticOrderAllowed !== false ||
+      typeof candidate.reviewRequired !== "boolean" ||
+      !Array.isArray(candidate.variants) ||
+      candidate.variants.length === 0 ||
+      candidate.variants.some((variant) =>
+        !variant ||
+        typeof variant.variantKey !== "string" ||
+        !variant.variantKey ||
+        typeof variant.chinaOption !== "string" ||
+        !variant.chinaOption
+      )
+    ) ||
+    catalog.businessWritesEnabled !== false ||
+    catalog.externalOrderExecuted !== false
+  ) {
+    throw new Error("MANUAL_PILOT_CATALOG_RESPONSE_INVALID");
   }
 }
 
@@ -321,6 +392,30 @@ export async function loadSourcingBudgetPlan(
   const payload = await responseJson(response);
   assertPlan(payload.plan);
   return payload.plan;
+}
+
+export async function loadManualPilotCatalog(options: {
+  env?: Readonly<Record<string, string | undefined>>;
+  requestTimeoutMs?: number;
+  maxAttempts?: number;
+  retryDelayMs?: number;
+} = {}): Promise<ManualPilotCatalog> {
+  const { secret, protectionBypass, baseUrl } = config(options.env);
+  const response = await fetchSourcingBudgetPreview(
+    `${baseUrl}/api/integrations/manual-pilot-candidates`,
+    {
+      headers: requestHeaders(secret, protectionBypass),
+      cache: "no-store",
+    },
+    {
+      requestTimeoutMs: options.requestTimeoutMs ?? 25_000,
+      maxAttempts: options.maxAttempts ?? 1,
+      retryDelayMs: options.retryDelayMs,
+    },
+  );
+  const payload = await responseJson(response);
+  assertManualPilotCatalog(payload.catalog);
+  return payload.catalog;
 }
 
 export async function confirmSourcingBudgetPlan(input: SourcingBudgetPlanInput & {

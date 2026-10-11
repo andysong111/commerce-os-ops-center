@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { loadSourcingBudgetPlan } from "../src/lib/sourcingBudgetPlan.ts";
+import { loadManualPilotCatalog, loadSourcingBudgetPlan } from "../src/lib/sourcingBudgetPlan.ts";
 
 const fingerprint = value => `sha256:${value.repeat(64)}`;
 const validPlan = () => ({
@@ -122,4 +122,67 @@ test("slow production sourcing reads get a visible loading state and a fail-fast
   assert.match(loadingSource, /신규상품 후보를 확인하고 있습니다/);
   assert.match(loadingSource, /오래 기다리지 않고 확인 필요 상태로 화면을 엽니다/);
   assert.match(loadingSource, /1688 주문, 결제를 실행하지 않습니다/);
+});
+
+test("manual pilot catalog stays a read-only server integration", async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (url, init) => {
+    assert.equal(String(url), "https://sourcing.example.test/api/integrations/manual-pilot-candidates");
+    assert.equal(init.cache, "no-store");
+    return Response.json({
+      ok: true,
+      catalog: {
+        version: "manual-pilot-integration-catalog-v1",
+        generatedAt: "2026-10-11T00:00:00.000Z",
+        selectedConceptCount: 1,
+        availableCandidateCount: 1,
+        unavailableConceptIds: [],
+        candidates: [{
+          conceptId: "concept-1",
+          canonicalNameKo: "틈새 청소 브러시",
+          sourceUrl: "https://detail.1688.com/offer/817041594793.html",
+          rawItemId: "raw-1",
+          offerId: "817041594793",
+          skuLabel: "브러시 단품",
+          lane: "AI_CONDITIONAL",
+          strictTestReady: false,
+          reviewRequired: true,
+          automaticOrderAllowed: false,
+          finalQualityScore: 74,
+          marketDemandScore: 80,
+          unitPriceCny: 3,
+          moq: 10,
+          plannedCostKrw: 1200,
+          minimumPilotCapitalKrw: 12000,
+          targetSellingPriceKrw: 7900,
+          aiDetailPreflightStatus: "CONDITIONAL",
+          variants: [{
+            variantKey: "variant-1",
+            saleOption: "단품",
+            chinaOption: "브러시 단품",
+            unitPriceCny: 3,
+            source: "VISIBLE_1688_OPTION",
+            defaultStorageSize: null,
+          }],
+        }],
+        sourceFingerprint: fingerprint("c"),
+        businessWritesEnabled: false,
+        externalOrderExecuted: false,
+      },
+    });
+  };
+
+  const catalog = await loadManualPilotCatalog({ env, requestTimeoutMs: 100 });
+  assert.equal(catalog.availableCandidateCount, 1);
+  assert.equal(catalog.candidates[0].automaticOrderAllowed, false);
+});
+
+test("purchase preflight shows selected sourcing products even when sourcing budget is zero", async () => {
+  const page = await readFile("src/app/purchase-cycle-preflight/page.tsx", "utf8");
+  assert.match(page, /loadManualPilotCatalog/);
+  assert.match(page, /소싱엔진으로 소싱한 상품/);
+  assert.match(page, /수동추가 · 발주 전 검수/);
+  assert.match(page, /Promise\.allSettled/);
+  assert.doesNotMatch(page, /automaticOrderAllowed\s*=\s*true/);
 });
