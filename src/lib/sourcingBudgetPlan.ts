@@ -144,8 +144,8 @@ export type ManualPilotCatalogCandidate = {
   marketDemandScore: number | null;
   unitPriceCny: number;
   moq: number;
-  plannedCostKrw: number;
-  minimumPilotCapitalKrw: number;
+  plannedCostKrw: number | null;
+  minimumPilotCapitalKrw: number | null;
   targetSellingPriceKrw: number | null;
   aiDetailPreflightStatus: "PENDING" | "READY" | "CONDITIONAL" | "HOSTILE";
   variants: SourcingSaleVariant[];
@@ -159,6 +159,8 @@ export type ManualPilotCatalog = {
   unavailableConceptIds: string[];
   candidates: ManualPilotCatalogCandidate[];
   sourceFingerprint: string;
+  snapshotFallback?: boolean;
+  selectionRunId?: string;
   businessWritesEnabled: false;
   externalOrderExecuted: false;
 };
