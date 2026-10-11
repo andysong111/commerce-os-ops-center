@@ -25,16 +25,37 @@ test("owner manual sourcing list contains six canonical 1688 products and eight 
     ],
   );
   assert.ok(OWNER_MANUAL_SOURCING_PRESETS.every(product => product.variants.every(variant => (
-    variant.storageSize === "S" && variant.unitPriceCny === null && variant.moq === null
+    variant.storageSize === "S" && variant.unitPriceCny > 0 && variant.moq >= 1
   ))));
+  assert.deepEqual(
+    OWNER_MANUAL_SOURCING_PRESETS.flatMap(product => product.variants.map(variant => ({
+      saleOption: variant.saleOption,
+      unitPriceCny: variant.unitPriceCny,
+      moq: variant.moq,
+    }))),
+    [
+      { saleOption: "단품 그레이", unitPriceCny: 21.5, moq: 10 },
+      { saleOption: "단품 그레이", unitPriceCny: 14.5, moq: 1 },
+      { saleOption: "단품 그레이", unitPriceCny: 9, moq: 1 },
+      { saleOption: "신발 세탁망 · 색상랜덤", unitPriceCny: 12.83, moq: 1 },
+      { saleOption: "브라 세탁망 · 색상랜덤", unitPriceCny: 6.08, moq: 1 },
+      { saleOption: "단품", unitPriceCny: 3.9, moq: 1 },
+      { saleOption: "남성용1쌍과 지압봉", unitPriceCny: 4.1, moq: 1 },
+      { saleOption: "여성용1쌍과 지압봉", unitPriceCny: 4.1, moq: 1 },
+    ],
+  );
 });
 
 test("owner small-storage decision replaces an older saved choice without overwriting it during ordinary merges", () => {
   const stored = structuredClone(OWNER_MANUAL_SOURCING_PRESETS);
   stored[0].variants[0].storageSize = "L";
+  stored[0].variants[0].unitPriceCny = null;
+  stored[0].variants[0].moq = null;
 
   const ordinaryMerge = mergeManualSourcingCandidatePresets(stored, OWNER_MANUAL_SOURCING_PRESETS);
   assert.equal(ordinaryMerge[0].variants[0].storageSize, "L");
+  assert.equal(ordinaryMerge[0].variants[0].unitPriceCny, null);
+  assert.equal(ordinaryMerge[0].variants[0].moq, null);
 
   const ownerPresetRestore = mergeManualSourcingCandidatePresets(
     stored,
@@ -42,6 +63,8 @@ test("owner small-storage decision replaces an older saved choice without overwr
     { preferAdditionFields: true },
   );
   assert.ok(ownerPresetRestore.every(product => product.variants.every(variant => variant.storageSize === "S")));
+  assert.equal(ownerPresetRestore[0].variants[0].unitPriceCny, 21.5);
+  assert.equal(ownerPresetRestore[0].variants[0].moq, 10);
 });
 
 test("tracking URLs normalize and repeated bulk additions remain idempotent by offer and option", () => {
