@@ -170,8 +170,39 @@ test("purchase-cycle stock report does not reinterpret Product Master read failu
     "@/lib/productMasterShoplingSalesEventSync": { ensureProductMasterShoplingSalesEventCoverageRequest: async () => ({ accepted: false, alreadyActive: false }) },
     "@/lib/opsAdaptiveDispatcher": { wakeOpsDispatchTask: async () => false },
   });
-  await assert.rejects(service.loadPurchaseCycleStockReport(), /PRODUCT_MASTER_UNAVAILABLE/);
+  await assert.rejects(
+    service.loadPurchaseCycleStockReport(),
+    (error) => {
+      assert.match(error.message, /PURCHASE_CYCLE_STOCK_READ_FAILED:product-master-zero-reset/);
+      assert.match(error.cause.message, /PRODUCT_MASTER_UNAVAILABLE/);
+      return true;
+    },
+  );
   assert.equal(inventoryReads, 0);
+});
+test("purchase-cycle stock report identifies planning reads while retaining the original failure", async () => {
+  const service = load("src/lib/purchaseCycleStockReport.ts", {
+    "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async () => stockFixture() },
+    "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshot: async () => { throw new Error("PLANNING_RPC_UNAVAILABLE"); } },
+    "@/lib/inventoryStockResetCorrections": { overlayInventoryStockControlReportWithResetCorrections: async (value) => value },
+    "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: async (value) => value, loadLatestInventoryStockSalesTailSnapshots: async () => new Map() },
+    "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => ({ refreshed: false }) },
+    "@/lib/inventoryStocktakeBaselines": { overlayInventoryStockControlReportWithStocktakeBaselines: async (value) => value },
+    "@/lib/productMasterVerifiedInventoryBaselines": { loadRequiredProductMasterVerifiedZeroResetEvents: async () => [] },
+    "@/lib/inventoryStockSyncResolution": { normalizeRetryableShoplingSyncReportWithEvidence: async (value) => value },
+    "@/lib/stage8CanonicalSalesEventSnapshot": { loadStage8CanonicalSalesEventSnapshot: async () => ({ state: "READY_READ_ONLY" }) },
+    "@/lib/purchaseCycleStockEvidence": { validatePurchaseCycleStockEvidence: (value) => value },
+    "@/lib/productMasterShoplingSalesEventSync": { ensureProductMasterShoplingSalesEventCoverageRequest: async () => ({ accepted: false, alreadyActive: false }) },
+    "@/lib/opsAdaptiveDispatcher": { wakeOpsDispatchTask: async () => false },
+  });
+  await assert.rejects(
+    service.loadPurchaseCycleStockReport(),
+    (error) => {
+      assert.match(error.message, /PURCHASE_CYCLE_STOCK_READ_FAILED:product-planning/);
+      assert.match(error.cause.message, /PLANNING_RPC_UNAVAILABLE/);
+      return true;
+    },
+  );
 });
 test("explicit stock evidence refresh queues one fresh canonical read without changing stock", async () => {
   const report = stockFixture();
@@ -239,19 +270,26 @@ test("actual cycle GET stays read-only while POST only opts into evidence refres
   assert.deepEqual(calls[1], ["2026-09", true]);
 });
 test("cycle status returns the failed ledger source while preserving the generic safe message", async () => {
+  const logged = [];
+  const root = new Error("PRODUCT_MASTER_TIMEOUT");
+  const nested = new Error("PURCHASE_CYCLE_STOCK_READ_FAILED:product-planning", { cause: root });
   const route = load("src/app/api/china-order-manager/cycle-status/route.ts", {
     "@/lib/opsLoginBypass": { isSameOriginOpsRequest: () => true },
     "@/lib/monthlyPurchasePolicy": { seoulCalendarMonth: () => "2026-09" },
     "@/lib/purchaseCycleClosureCore": { validPurchaseCycleMonth: () => true },
     "@/lib/purchaseCycleClosure": {
-      loadPurchaseCycleClosure: async () => { throw new Error("fixture failure"); },
+      loadPurchaseCycleClosure: async () => { throw nested; },
       purchaseCycleReadFailureSource: () => "stock",
     },
-  });
+  }, { console: { error: (...args) => logged.push(args) } });
   const response = await route.GET(new Request("https://ops.example/cycle?month=2026-09"));
   const body = await response.json();
   assert.equal(response.status, 503);
   assert.equal(body.code, "PURCHASE_CYCLE_PROOF_UNAVAILABLE");
   assert.equal(body.source, "stock");
   assert.match(body.message, /기존 데이터를 변경하거나 완료로 간주하지 않았습니다/);
+  assert.equal(JSON.stringify(logged[0][1].causes), JSON.stringify([
+    "PURCHASE_CYCLE_STOCK_READ_FAILED:product-planning",
+    "PRODUCT_MASTER_TIMEOUT",
+  ]));
 });

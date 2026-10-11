@@ -126,7 +126,7 @@ test("purchase-cycle stock report invokes local authority preflight before natur
   assert.match(source, /assertPurchaseCycleLocalBaselineAuthorityReadable/);
   assert.match(
     source,
-    /Promise\.all\(\[\s*assertPurchaseCycleLocalBaselineAuthorityReadable\(\),\s*loadProductPlanningSnapshot\(\),\s*loadStage8CanonicalSalesEventSnapshot\(\)/s,
+    /Promise\.all\(\[\s*stockRead\(\s*"local-baseline-authority",\s*assertPurchaseCycleLocalBaselineAuthorityReadable\(\),\s*\),\s*stockRead\("product-planning", loadProductPlanningSnapshot\(\)\),\s*stockRead\("canonical-sales", loadStage8CanonicalSalesEventSnapshot\(\)\)/s,
   );
   assert.match(
     source,
