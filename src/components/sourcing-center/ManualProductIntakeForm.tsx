@@ -4,9 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   legacyManualSourcingDraftStorageKeys,
+  MANUAL_SOURCING_BULK_ADD_EVENT,
   MANUAL_SOURCING_DRAFT_COMMITTED_EVENT,
   manualSourcingDraftStorageKey,
 } from "@/lib/manualSourcingDraftStorage";
+import {
+  mergeManualSourcingCandidatePresets,
+  type ManualSourcingCandidatePreset,
+} from "@/lib/manualSourcingCandidatePresets";
 
 type StorageSize = "" | "S" | "L";
 type ResultCandidate = { conceptId?: string; saleOption?: string; chinaOption?: string; storageSize?: "S" | "L" };
@@ -14,7 +19,12 @@ type Result = { ok?: boolean; code?: string; message?: string; productName?: str
 type VariantDraft = { id: string; saleOption: string; chinaOption: string; storageSize: StorageSize; unitPriceCny: string; moq: string };
 type ProductDraft = { id: string; sourceUrl: string; productName: string; supplierName: string; variants: VariantDraft[]; error: string };
 type StagedCandidate = { conceptId: string; productName: string; saleOption: string; chinaOption: string; storageSize: "S" | "L" };
-type Props = { embedded?: boolean; formId?: string; calculationFormId?: string };
+type Props = {
+  embedded?: boolean;
+  formId?: string;
+  calculationFormId?: string;
+  initialProducts?: ManualSourcingCandidatePreset[];
+};
 
 const MAX_STORED_PRODUCTS = 30;
 const MAX_STORED_VARIANTS = 30;
@@ -39,6 +49,47 @@ const emptyProduct = (id: string, variantId: string): ProductDraft => ({
   error: "",
 });
 
+function productsFromPresets(presets: ManualSourcingCandidatePreset[]): ProductDraft[] {
+  return presets.map((product, productIndex) => ({
+    id: `manual-preset-product-${productIndex}-${product.sourceUrl}`,
+    sourceUrl: product.sourceUrl,
+    productName: product.productName,
+    supplierName: product.supplierName,
+    variants: product.variants.map((variant, variantIndex) => ({
+      id: `manual-preset-variant-${productIndex}-${variantIndex}-${variant.chinaOption}`,
+      saleOption: variant.saleOption,
+      chinaOption: variant.chinaOption,
+      storageSize: variant.storageSize,
+      unitPriceCny: variant.unitPriceCny == null ? "" : String(variant.unitPriceCny),
+      moq: variant.moq == null ? "" : String(variant.moq),
+    })),
+    error: "",
+  }));
+}
+
+function productDraftsAsPresets(drafts: ProductDraft[]): ManualSourcingCandidatePreset[] {
+  return drafts
+    .filter((product) => product.sourceUrl || product.productName || product.variants.some((variant) => variant.saleOption || variant.chinaOption))
+    .map((product) => ({
+      sourceUrl: product.sourceUrl,
+      productName: product.productName,
+      supplierName: product.supplierName,
+      variants: product.variants.map((variant) => ({
+        saleOption: variant.saleOption,
+        chinaOption: variant.chinaOption,
+        storageSize: variant.storageSize,
+        unitPriceCny: optionalNumber(variant.unitPriceCny),
+        moq: optionalNumber(variant.moq),
+      })),
+    }));
+}
+
+function mergeProducts(current: ProductDraft[], additions: ManualSourcingCandidatePreset[]) {
+  return productsFromPresets(
+    mergeManualSourcingCandidatePresets(productDraftsAsPresets(current), additions),
+  );
+}
+
 function storedText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.slice(0, maxLength) : "";
 }
@@ -53,24 +104,33 @@ function hasManualDraftContent(products: ProductDraft[], stagedCandidates: Stage
   ));
 }
 
-export function ManualProductIntakeForm({ embedded = false, formId, calculationFormId }: Props) {
+export function ManualProductIntakeForm({
+  embedded = false,
+  formId,
+  calculationFormId,
+  initialProducts = [],
+}: Props) {
   const productSequence = useRef(1);
   const variantSequence = useRef(1);
   const storageKey = useRef("");
   const pendingLegacyStorageKeys = useRef<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [storageReady, setStorageReady] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [failed, setFailed] = useState(false);
-  const [products, setProducts] = useState<ProductDraft[]>(() => [emptyProduct("manual-product-0", "manual-variant-0")]);
-  const [stagedCandidates, setStagedCandidates] = useState<StagedCandidate[]>([]);
-  const optionCount = products.reduce((sum, product) => sum + product.variants.length, 0);
-
+  const initialProductsRef = useRef(initialProducts);
   const makeVariant = (): VariantDraft => emptyVariant(`manual-variant-${variantSequence.current++}`);
   const makeProduct = (): ProductDraft => emptyProduct(
     `manual-product-${productSequence.current++}`,
     `manual-variant-${variantSequence.current++}`,
   );
+
+  const [busy, setBusy] = useState(false);
+  const [storageReady, setStorageReady] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [failed, setFailed] = useState(false);
+  const [products, setProducts] = useState<ProductDraft[]>(() => {
+    const seeded = productsFromPresets(initialProducts);
+    return seeded.length ? seeded : [emptyProduct("manual-product-0", "manual-variant-0")];
+  });
+  const [stagedCandidates, setStagedCandidates] = useState<StagedCandidate[]>([]);
+  const optionCount = products.reduce((sum, product) => sum + product.variants.length, 0);
 
   useEffect(() => {
     const key = manualSourcingDraftStorageKey(window.location.pathname, window.location.search, formId);
@@ -178,7 +238,9 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
           });
         });
       const restoredStaged = [...restoredStagedById.values()];
-      if (restoredProducts.length) setProducts(restoredProducts);
+      if (restoredProducts.length || initialProductsRef.current.length) {
+        setProducts(mergeProducts(restoredProducts, initialProductsRef.current));
+      }
       if (restoredStaged.length) setStagedCandidates(restoredStaged);
       pendingLegacyStorageKeys.current = legacyKeys;
       if (restoredProducts.length || restoredStaged.length) {
@@ -191,6 +253,20 @@ export function ManualProductIntakeForm({ embedded = false, formId, calculationF
       setStorageReady(true);
     }
   }, [formId]);
+
+  useEffect(() => {
+    function addBulkCandidates(event: Event) {
+      const detail = (event as CustomEvent<{ candidates?: ManualSourcingCandidatePreset[] }>).detail;
+      const additions = Array.isArray(detail?.candidates) ? detail.candidates : [];
+      if (!additions.length) return;
+      setProducts((current) => mergeProducts(current, additions));
+      const addedOptions = additions.reduce((sum, product) => sum + product.variants.length, 0);
+      setFailed(false);
+      setNotice(`소싱 후보 ${addedOptions}개를 발주안 검토목록에 담았습니다. 수납 위치와 현재 단가·MOQ를 확인한 뒤 후보 목록에 추가하세요.`);
+    }
+    window.addEventListener(MANUAL_SOURCING_BULK_ADD_EVENT, addBulkCandidates);
+    return () => window.removeEventListener(MANUAL_SOURCING_BULK_ADD_EVENT, addBulkCandidates);
+  }, []);
 
   useEffect(() => {
     if (!storageReady || !storageKey.current) return;

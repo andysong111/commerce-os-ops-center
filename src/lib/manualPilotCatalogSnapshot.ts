@@ -1,7 +1,10 @@
 import type { ManualPilotCatalog, ManualPilotCatalogCandidate } from "./sourcingBudgetPlan";
 
-const SELECTION_RUN_ID = "92fc558e-bd75-4181-8db0-2e07276b304e";
-const GENERATED_AT = "2026-10-11T12:16:22.838Z";
+const SELECTION_RUN_ID = "5866f503-4bef-415e-84b8-0deff7fd4aa2";
+const GENERATED_AT = "2026-10-11T14:08:45.284Z";
+export const OWNER_REMOVED_MANUAL_PILOT_CONCEPT_IDS = new Set([
+  "1991190f-65c6-49b1-84bf-6ecef59b5b55",
+]);
 
 function candidate(input: {
   conceptId: string;
@@ -77,17 +80,6 @@ const candidates: ManualPilotCatalogCandidate[] = [
     moq: 1,
   }),
   candidate({
-    conceptId: "1991190f-65c6-49b1-84bf-6ecef59b5b55",
-    canonicalNameKo: "수건행거 벽걸이 선반",
-    rawItemId: "0642b8d2-aa25-4c9a-8a62-967b6eff7f78",
-    offerId: "680321187119",
-    skuLabel: "上门安装 +",
-    variantKey: "direct-variant-v1:2e656fcf4e612ed78583",
-    unitPriceCny: 150,
-    moq: 1,
-    aiDetailPreflightStatus: "READY",
-  }),
-  candidate({
     conceptId: "dba531d5-ad22-4f35-a4bf-6b4b1ffaad64",
     canonicalNameKo: "수납박스 손잡이형",
     rawItemId: "b65d409e-5be7-4698-90f3-b033aac0f24f",
@@ -139,18 +131,31 @@ const candidates: ManualPilotCatalogCandidate[] = [
   }),
 ];
 
-export function readManualPilotCatalogSnapshot(): ManualPilotCatalog {
+export function applyOwnerManualPilotExclusions(catalog: ManualPilotCatalog): ManualPilotCatalog {
+  const filtered = catalog.candidates.filter(
+    (item) => !OWNER_REMOVED_MANUAL_PILOT_CONCEPT_IDS.has(item.conceptId),
+  );
+  if (filtered.length === catalog.candidates.length) return catalog;
   return {
+    ...catalog,
+    selectedConceptCount: filtered.length,
+    availableCandidateCount: filtered.length,
+    candidates: filtered,
+  };
+}
+
+export function readManualPilotCatalogSnapshot(): ManualPilotCatalog {
+  return applyOwnerManualPilotExclusions({
     version: "manual-pilot-integration-catalog-v1",
     generatedAt: GENERATED_AT,
     selectedConceptCount: candidates.length,
     availableCandidateCount: candidates.length,
     unavailableConceptIds: [],
     candidates,
-    sourceFingerprint: "sha256:e289abe3041d46836ffa96e73f93e49a76aefd1f1fbea5bf3d0c821b6804d90a",
+    sourceFingerprint: "sha256:e397b8ef0634495e672fd073e804bc72d3951f598c9c8ea1d9f446ce09eefda0",
     snapshotFallback: true,
     selectionRunId: SELECTION_RUN_ID,
     businessWritesEnabled: false,
     externalOrderExecuted: false,
-  };
+  });
 }
