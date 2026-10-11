@@ -7,14 +7,46 @@ import { buildPurchaseCycleClosureReport, followingPurchaseCycleMonth } from "@/
 import { hasHistoricalOrderSettlementEvidence } from "@/lib/purchaseCycleHistoricalOrderClose";
 import { loadPurchaseCycleStockReport } from "@/lib/purchaseCycleStockReport";
 
+export type PurchaseCycleReadSource =
+  | "handoff"
+  | "close"
+  | "purchase"
+  | "followups"
+  | "stock";
+
+export class PurchaseCycleReadError extends Error {
+  readonly source: PurchaseCycleReadSource;
+
+  constructor(source: PurchaseCycleReadSource, cause: unknown) {
+    super(`PURCHASE_CYCLE_READ_FAILED:${source}`, { cause });
+    this.name = "PurchaseCycleReadError";
+    this.source = source;
+  }
+}
+
+async function sourceRead<T>(
+  source: PurchaseCycleReadSource,
+  pending: Promise<T>,
+) {
+  try {
+    return await pending;
+  } catch (error) {
+    throw new PurchaseCycleReadError(source, error);
+  }
+}
+
+export function purchaseCycleReadFailureSource(error: unknown) {
+  return error instanceof PurchaseCycleReadError ? error.source : "unknown";
+}
+
 export async function loadPurchaseCycleClosure(cycleMonth: string, refreshSales = false) {
   const followingMonth = followingPurchaseCycleMonth(cycleMonth);
   const [handoff, close, purchase, followups, stock] = await Promise.all([
-    loadInternalChinaPurchaseCycleHandoff(followingMonth),
-    loadInternalChinaMonthlyPurchaseClose(cycleMonth),
-    loadInternalChinaMonthlyPurchaseSummary(cycleMonth),
-    loadInternalChinaReceiptFollowups(cycleMonth),
-    loadPurchaseCycleStockReport({ refreshSales }),
+    sourceRead("handoff", loadInternalChinaPurchaseCycleHandoff(followingMonth)),
+    sourceRead("close", loadInternalChinaMonthlyPurchaseClose(cycleMonth)),
+    sourceRead("purchase", loadInternalChinaMonthlyPurchaseSummary(cycleMonth)),
+    sourceRead("followups", loadInternalChinaReceiptFollowups(cycleMonth)),
+    sourceRead("stock", loadPurchaseCycleStockReport({ refreshSales })),
   ]);
   const historicalOrderSettled = !close && hasHistoricalOrderSettlementEvidence({
     cycleMonth,

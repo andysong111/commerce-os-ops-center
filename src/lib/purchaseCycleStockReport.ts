@@ -1,4 +1,5 @@
 import { loadInventoryStockControlReport } from "@/lib/inventoryStockControl";
+import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/inventoryStockResetCorrections";
 import { overlayInventoryStockControlReportWithTail, loadLatestInventoryStockSalesTailSnapshots } from "@/lib/inventoryStockSalesTail";
 import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
@@ -19,32 +20,41 @@ async function resolved() {
   // completely. Product Master uses its strict reader, while local OPS reset /
   // stocktake rows are preflighted so a malformed SUCCEEDED row cannot silently
   // disappear and masquerade as "no baseline yet".
-  const [, supplementalResetEvents] = await Promise.all([
+  const [, planning, canonical] = await Promise.all([
     assertPurchaseCycleLocalBaselineAuthorityReadable(),
-    loadRequiredProductMasterVerifiedZeroResetEvents(),
+    loadProductPlanningSnapshot(),
+    loadStage8CanonicalSalesEventSnapshot(),
   ]);
+  const supplementalResetEvents =
+    await loadRequiredProductMasterVerifiedZeroResetEvents(
+      planning.products ?? [],
+    );
   const localSeeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
-    await loadInventoryStockControlReport({ supplementalResetEvents }),
+    await loadInventoryStockControlReport({
+      supplementalResetEvents,
+      planning,
+      canonicalSales: canonical,
+    }),
   );
   const tailed = await overlayInventoryStockControlReportWithTail(localSeeded);
   const corrected = await overlayInventoryStockControlReportWithResetCorrections(tailed);
-  return normalizeRetryableShoplingSyncReportWithEvidence(
-    await overlayInventoryStockControlReportWithStocktakeBaselines(corrected),
-  );
+  return {
+    report: await normalizeRetryableShoplingSyncReportWithEvidence(
+      await overlayInventoryStockControlReportWithStocktakeBaselines(corrected),
+    ),
+    canonical,
+  };
 }
 
 export async function loadPurchaseCycleStockReport(options: { refreshSales?: boolean } = {}) {
-  let report = await resolved();
+  let { report, canonical } = await resolved();
   // Only explicit calculation/refresh POSTs opt in. The monthly status GET does
   // not append Tail events, queue jobs, alter inventory or send Shopling status.
   if (options.refreshSales === true && report.state === "READY" && report.rows.length) {
     const refresh = await ensureExactInventoryStockSalesTailCoverage(report);
-    if (refresh.refreshed) report = await resolved();
+    if (refresh.refreshed) ({ report, canonical } = await resolved());
   }
-  const [tails, canonical] = await Promise.all([
-    loadLatestInventoryStockSalesTailSnapshots(),
-    loadStage8CanonicalSalesEventSnapshot(),
-  ]);
+  const tails = await loadLatestInventoryStockSalesTailSnapshots();
   const validated = validatePurchaseCycleStockEvidence(
     report,
     tails,

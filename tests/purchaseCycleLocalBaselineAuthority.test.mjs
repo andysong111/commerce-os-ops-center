@@ -124,5 +124,13 @@ test("local baseline authority database error or null data fails closed", async 
 test("purchase-cycle stock report invokes local authority preflight before natural accumulation", async () => {
   const source = await readFile("src/lib/purchaseCycleStockReport.ts", "utf8");
   assert.match(source, /assertPurchaseCycleLocalBaselineAuthorityReadable/);
-  assert.match(source, /Promise\.all\(\[\s*assertPurchaseCycleLocalBaselineAuthorityReadable\(\),\s*loadRequiredProductMasterVerifiedZeroResetEvents\(\)/s);
+  assert.match(
+    source,
+    /Promise\.all\(\[\s*assertPurchaseCycleLocalBaselineAuthorityReadable\(\),\s*loadProductPlanningSnapshot\(\),\s*loadStage8CanonicalSalesEventSnapshot\(\)/s,
+  );
+  assert.match(
+    source,
+    /loadRequiredProductMasterVerifiedZeroResetEvents\(\s*planning\.products \?\? \[\],\s*\)/s,
+  );
+  assert.match(source, /loadInventoryStockControlReport\(\{\s*supplementalResetEvents,\s*planning,\s*canonicalSales: canonical,/s);
 });

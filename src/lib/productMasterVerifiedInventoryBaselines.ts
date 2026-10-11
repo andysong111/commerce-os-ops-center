@@ -3,9 +3,8 @@ import type {
   ShoplingStockProductKind,
 } from "@/lib/inventoryStockControl";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import type { PlanningProduct } from "@/lib/shopling/shoplingLiveAggregation";
 
-const DEFAULT_PRODUCT_MASTER_URL =
-  "https://commerce-os-product-master.vercel.app";
 const BARCODE_PATTERN = /^B[A-Z]{1,2}\d+-\d+$/;
 
 export type ProductMasterVerifiedInventoryBaseline = {
@@ -16,13 +15,6 @@ export type ProductMasterVerifiedInventoryBaseline = {
   baselineQuantity: 0;
   occurredAt: string;
   note: string;
-};
-
-type PlanningProduct = {
-  barcode?: unknown;
-  modelNo?: unknown;
-  optionName?: unknown;
-  skuActive?: unknown;
 };
 
 type ParseOptions = {
@@ -113,36 +105,27 @@ export function parseProductMasterVerifiedInventoryBaselines(
   return latest;
 }
 
-function connection() {
-  const secret = process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim();
-  const base = (
-    process.env.PRODUCT_MASTER_BASE_URL?.trim() || DEFAULT_PRODUCT_MASTER_URL
-  ).replace(/\/$/, "");
-  if (!secret || !/^https:\/\//.test(base)) {
-    throw new Error("PRODUCT_MASTER_INVENTORY_BASELINE_CONNECTION_REQUIRED");
-  }
-  return { base, secret };
+function inventoryPayloadFromPlanning(planningProducts: PlanningProduct[]) {
+  return {
+    ok: true,
+    inventories: planningProducts.map((row) => ({
+      barcode: row.barcode,
+      confirmed: row.inventoryConfirmed,
+      verified: row.inventoryVerified,
+      requiresReview: row.inventoryRequiresReview,
+      baselineKind: row.inventoryBaselineKind,
+      baselineQuantity: row.inventoryBaselineQuantity,
+      baselineAt: row.inventoryBaselineAt,
+    })),
+  };
 }
 
-export async function loadProductMasterVerifiedInventoryBaselines(
+export function loadProductMasterVerifiedInventoryBaselines(
   planningProducts: PlanningProduct[],
   options: ParseOptions = {},
 ) {
-  const { base, secret } = connection();
-  const response = await fetch(`${base}/api/integrations/inventory-snapshot`, {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      "x-commerce-os-integration-secret": secret,
-    },
-    cache: "no-store",
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (!response.ok) {
-    throw new Error(`PRODUCT_MASTER_INVENTORY_BASELINE_HTTP_${response.status}`);
-  }
   return parseProductMasterVerifiedInventoryBaselines(
-    await response.json(),
+    inventoryPayloadFromPlanning(planningProducts),
     planningProducts,
     options,
   );
@@ -164,12 +147,15 @@ function resetEventsFromBaselines(
 // Purchase-cycle closure uses this strict reader. An unavailable or incomplete
 // Product Master cannot be interpreted as "this SKU never had a baseline",
 // because doing so could erase an existing zero reset and bypass its sales/sync obligations.
-export async function loadRequiredProductMasterVerifiedZeroResetEvents(): Promise<
+export async function loadRequiredProductMasterVerifiedZeroResetEvents(
+  planningProducts?: PlanningProduct[],
+): Promise<
   InventoryStockoutResetEvent[]
 > {
-  const planning = await loadProductPlanningSnapshot();
-  const baselines = await loadProductMasterVerifiedInventoryBaselines(
-    planning.products ?? [],
+  const products =
+    planningProducts ?? (await loadProductPlanningSnapshot()).products ?? [];
+  const baselines = loadProductMasterVerifiedInventoryBaselines(
+    products,
     { requireCompleteVerifiedResets: true },
   );
   return resetEventsFromBaselines(baselines);
@@ -179,11 +165,15 @@ export async function loadRequiredProductMasterVerifiedZeroResetEvents(): Promis
 // temporarily unavailable or incomplete it simply receives no supplemental reset
 // and therefore cannot create a new actionable exact-stock row from missing data.
 // Purchase-cycle readiness must use the strict loader above instead.
-export async function loadProductMasterVerifiedZeroResetEvents(): Promise<
+export async function loadProductMasterVerifiedZeroResetEvents(
+  planningProducts?: PlanningProduct[],
+): Promise<
   InventoryStockoutResetEvent[]
 > {
   try {
-    return await loadRequiredProductMasterVerifiedZeroResetEvents();
+    return await loadRequiredProductMasterVerifiedZeroResetEvents(
+      planningProducts,
+    );
   } catch {
     return [];
   }

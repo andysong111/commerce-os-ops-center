@@ -130,21 +130,24 @@ test("duplicate inventory identity, future baseline, invalid quantity and a sile
 test("resolved purchase stock passes required Product Master zero reset into the canonical inventory engine before stocktake and tail overlays", async () => {
   const steps = []; const report = stockFixture();
   const supplemental = [{ eventId: "pm-zero", barcode: "BAB3-1", productKind: "SINGLE", modelNo: "AAA231", occurredAt: at, note: "fixture" }];
+  const planning = { generatedAt: at, products: [{ barcode: "BAB3-1" }] };
+  const canonical = { state: "READY_READ_ONLY", coverageStartAt: at, coverageEndAt: at };
   const service = load("src/lib/purchaseCycleStockReport.ts", {
-    "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async (options) => { steps.push("base"); assert.equal(options.supplementalResetEvents.length, 1); assert.equal(options.supplementalResetEvents[0].eventId, "pm-zero"); assert.equal(options.supplementalResetEvents[0].barcode, "BAB3-1"); return report; } },
+    "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async (options) => { steps.push("base"); assert.equal(options.supplementalResetEvents.length, 1); assert.equal(options.supplementalResetEvents[0].eventId, "pm-zero"); assert.equal(options.supplementalResetEvents[0].barcode, "BAB3-1"); assert.equal(options.planning, planning); assert.equal(options.canonicalSales, canonical); return report; } },
+    "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshot: async () => { steps.push("planning"); return planning; } },
     "@/lib/inventoryStockResetCorrections": { overlayInventoryStockControlReportWithResetCorrections: async (value) => { steps.push("corrections"); return value; } },
     "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: async (value) => { steps.push("tail"); return value; }, loadLatestInventoryStockSalesTailSnapshots: async () => new Map() },
     "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => { steps.push("refresh"); return { refreshed: false }; } },
     "@/lib/inventoryStocktakeBaselines": { overlayInventoryStockControlReportWithStocktakeBaselines: async (value) => { steps.push("stocktake"); return value; } },
-    "@/lib/productMasterVerifiedInventoryBaselines": { loadRequiredProductMasterVerifiedZeroResetEvents: async () => { steps.push("product-master-zero"); return supplemental; } },
+    "@/lib/productMasterVerifiedInventoryBaselines": { loadRequiredProductMasterVerifiedZeroResetEvents: async (products) => { steps.push("product-master-zero"); assert.equal(products, planning.products); return supplemental; } },
     "@/lib/inventoryStockSyncResolution": { normalizeRetryableShoplingSyncReportWithEvidence: async (value) => { steps.push("resolution"); return value; } },
-    "@/lib/stage8CanonicalSalesEventSnapshot": { loadStage8CanonicalSalesEventSnapshot: async () => ({ state: "READY_READ_ONLY" }) },
+    "@/lib/stage8CanonicalSalesEventSnapshot": { loadStage8CanonicalSalesEventSnapshot: async () => { steps.push("canonical"); return canonical; } },
     "@/lib/purchaseCycleStockEvidence": { validatePurchaseCycleStockEvidence: (value) => { steps.push("validate"); return value; } },
     "@/lib/productMasterShoplingSalesEventSync": { ensureProductMasterShoplingSalesEventCoverageRequest: async () => { steps.push("canonical-refresh"); return { accepted: false, alreadyActive: false }; } },
     "@/lib/opsAdaptiveDispatcher": { wakeOpsDispatchTask: async () => false },
   });
   await service.loadPurchaseCycleStockReport();
-  assert.deepEqual(steps, ["product-master-zero", "base", "stocktake", "tail", "corrections", "stocktake", "resolution", "validate"]);
+  assert.deepEqual(steps, ["planning", "canonical", "product-master-zero", "base", "stocktake", "tail", "corrections", "stocktake", "resolution", "validate"]);
   steps.length = 0; await service.loadPurchaseCycleStockReport({ refreshSales: true });
   assert.equal(steps.filter((step) => step === "refresh").length, 1);
   const cash = await readFile("src/lib/fastPurchaseCashEnvelope.ts", "utf8");
@@ -155,6 +158,7 @@ test("purchase-cycle stock report does not reinterpret Product Master read failu
   let inventoryReads = 0;
   const service = load("src/lib/purchaseCycleStockReport.ts", {
     "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async () => { inventoryReads++; return stockFixture(); } },
+    "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshot: async () => ({ generatedAt: at, products: [] }) },
     "@/lib/inventoryStockResetCorrections": { overlayInventoryStockControlReportWithResetCorrections: async (value) => value },
     "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: async (value) => value, loadLatestInventoryStockSalesTailSnapshots: async () => new Map() },
     "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => ({ refreshed: false }) },
@@ -175,6 +179,7 @@ test("explicit stock evidence refresh queues one fresh canonical read without ch
   const wakes = [];
   const service = load("src/lib/purchaseCycleStockReport.ts", {
     "@/lib/inventoryStockControl": { loadInventoryStockControlReport: async () => report },
+    "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshot: async () => ({ generatedAt: at, products: [] }) },
     "@/lib/inventoryStockResetCorrections": { overlayInventoryStockControlReportWithResetCorrections: async (value) => value },
     "@/lib/inventoryStockSalesTail": { overlayInventoryStockControlReportWithTail: async (value) => value, loadLatestInventoryStockSalesTailSnapshots: async () => new Map() },
     "@/lib/inventoryStockSalesTailCoverage": { ensureExactInventoryStockSalesTailCoverage: async () => ({ refreshed: false }) },
@@ -194,13 +199,34 @@ test("explicit stock evidence refresh queues one fresh canonical read without ch
   assert.deepEqual(wakes, [["product-master-shopling-sales-events", 0]]);
   assert.equal(report.rows[0].exactInventoryQuantity, 2);
 });
+test("purchase-cycle ledger read failures retain their source without weakening fail-closed behavior", async () => {
+  const service = load("src/lib/purchaseCycleClosure.ts", {
+    "@/lib/internalChinaPurchaseCycleHandoff": { loadInternalChinaPurchaseCycleHandoff: async () => ({}) },
+    "@/lib/internalChinaMonthlyPurchaseClose": { loadInternalChinaMonthlyPurchaseClose: async () => null },
+    "@/lib/internalChinaMonthlyPurchaseSummary": { loadInternalChinaMonthlyPurchaseSummary: async () => null },
+    "@/lib/internalChinaReceiptFollowup": { loadInternalChinaReceiptFollowups: async () => [] },
+    "@/lib/monthlyPurchasePolicy": { seoulCalendarMonth: () => "2026-10" },
+    "@/lib/purchaseCycleClosureCore": { buildPurchaseCycleClosureReport: () => { throw new Error("must not build from partial ledgers"); }, followingPurchaseCycleMonth: () => "2026-10" },
+    "@/lib/purchaseCycleHistoricalOrderClose": { hasHistoricalOrderSettlementEvidence: () => false },
+    "@/lib/purchaseCycleStockReport": { loadPurchaseCycleStockReport: async () => { throw new Error("PRODUCT_MASTER_UNAVAILABLE"); } },
+  });
+  await assert.rejects(
+    service.loadPurchaseCycleClosure("2026-09"),
+    (error) => {
+      assert.equal(service.purchaseCycleReadFailureSource(error), "stock");
+      assert.match(error.message, /PURCHASE_CYCLE_READ_FAILED:stock/);
+      assert.match(error.cause.message, /PRODUCT_MASTER_UNAVAILABLE/);
+      return true;
+    },
+  );
+});
 test("actual cycle GET stays read-only while POST only opts into evidence refresh with strict input", async () => {
   const calls = [];
   const route = load("src/app/api/china-order-manager/cycle-status/route.ts", {
     "@/lib/opsLoginBypass": { isSameOriginOpsRequest: (request) => request.headers.get("origin") === "https://ops.example" },
     "@/lib/monthlyPurchasePolicy": { seoulCalendarMonth: () => "2026-09" },
     "@/lib/purchaseCycleClosureCore": core,
-    "@/lib/purchaseCycleClosure": { loadPurchaseCycleClosure: async (...args) => { calls.push(args); return core.buildPurchaseCycleClosureReport(input()); } },
+    "@/lib/purchaseCycleClosure": { loadPurchaseCycleClosure: async (...args) => { calls.push(args); return core.buildPurchaseCycleClosureReport(input()); }, purchaseCycleReadFailureSource: () => "unknown" },
   });
   const request = (method, suffix = "", body, auth = true) => new Request(`https://ops.example/cycle${suffix}`, { method, headers: auth ? { origin: "https://ops.example" } : {}, ...(method === "POST" ? { body: JSON.stringify(body) } : {}) });
   assert.equal((await route.GET(request("GET", "", null, false))).status, 401);
@@ -211,4 +237,21 @@ test("actual cycle GET stays read-only while POST only opts into evidence refres
   assert.equal((await route.POST(request("POST", "", { month: "2026-09", action: "REFRESH_STOCK_EVIDENCE", quantity: 7 }))).status, 400);
   assert.equal((await route.POST(request("POST", "", { month: "2026-09", action: "REFRESH_STOCK_EVIDENCE" }))).status, 200);
   assert.deepEqual(calls[1], ["2026-09", true]);
+});
+test("cycle status returns the failed ledger source while preserving the generic safe message", async () => {
+  const route = load("src/app/api/china-order-manager/cycle-status/route.ts", {
+    "@/lib/opsLoginBypass": { isSameOriginOpsRequest: () => true },
+    "@/lib/monthlyPurchasePolicy": { seoulCalendarMonth: () => "2026-09" },
+    "@/lib/purchaseCycleClosureCore": { validPurchaseCycleMonth: () => true },
+    "@/lib/purchaseCycleClosure": {
+      loadPurchaseCycleClosure: async () => { throw new Error("fixture failure"); },
+      purchaseCycleReadFailureSource: () => "stock",
+    },
+  });
+  const response = await route.GET(new Request("https://ops.example/cycle?month=2026-09"));
+  const body = await response.json();
+  assert.equal(response.status, 503);
+  assert.equal(body.code, "PURCHASE_CYCLE_PROOF_UNAVAILABLE");
+  assert.equal(body.source, "stock");
+  assert.match(body.message, /기존 데이터를 변경하거나 완료로 간주하지 않았습니다/);
 });

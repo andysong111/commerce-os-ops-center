@@ -11,6 +11,12 @@ const planning = {
       optionName: "단품",
       productName: "차량용 led 재떨이",
       skuActive: true,
+      inventoryConfirmed: true,
+      inventoryVerified: true,
+      inventoryRequiresReview: false,
+      inventoryBaselineKind: "SOLD_OUT_RESET",
+      inventoryBaselineQuantity: 0,
+      inventoryBaselineAt: baselineAt,
       listings: [{ goodsKey: "123456", active: true }],
     },
     {
@@ -19,6 +25,12 @@ const planning = {
       optionName: "단품",
       productName: "fixture positive stocktake",
       skuActive: true,
+      inventoryConfirmed: true,
+      inventoryVerified: true,
+      inventoryRequiresReview: false,
+      inventoryBaselineKind: "STOCKTAKE",
+      inventoryBaselineQuantity: 10,
+      inventoryBaselineAt: baselineAt,
       listings: [{ goodsKey: "654321", active: true }],
     },
   ],
@@ -57,12 +69,12 @@ const payload = {
   ],
 };
 
-function moduleWith(fetcher) {
+function moduleWith(fetcher, planningLoader = async () => planning) {
   return load(
     "src/lib/productMasterVerifiedInventoryBaselines.ts",
     {
       "@/lib/productDecisionLiveRefresh": {
-        loadProductPlanningSnapshot: async () => planning,
+        loadProductPlanningSnapshot: planningLoader,
       },
     },
     {
@@ -158,18 +170,14 @@ test("required parser rejects every incomplete authoritative zero reset instead 
   }
 });
 
-test("required zero-reset loader performs one authenticated GET and returns reset events only", async () => {
-  const calls = [];
-  const service = moduleWith(async (url, options = {}) => {
-    calls.push({ url, options });
-    assert.equal(url, "https://pm.example/api/integrations/inventory-snapshot");
-    assert.equal(options.method, "GET");
-    assert.equal(options.headers["x-commerce-os-integration-secret"], "fixture-secret");
-    assert.equal(options.cache, "no-store");
-    return Response.json(payload);
+test("required zero-reset loader reuses the planning snapshot without a second Product Master request", async () => {
+  let fetchCalls = 0;
+  const service = moduleWith(async () => {
+    fetchCalls += 1;
+    throw new Error("second Product Master request not expected");
   });
   const resets = await service.loadRequiredProductMasterVerifiedZeroResetEvents();
-  assert.equal(calls.length, 1);
+  assert.equal(fetchCalls, 0);
   assert.equal(resets.length, 1);
   assert.equal(resets[0].eventId, `product-master-sold-out-reset:BAB3-1:${baselineAt}`);
   assert.equal(resets[0].barcode, "BAB3-1");
@@ -180,12 +188,17 @@ test("required zero-reset loader performs one authenticated GET and returns rese
 });
 
 test("Product Master outage is fail-closed for purchase-cycle reads but fail-soft for the operational queue", async () => {
-  const service = moduleWith(async () =>
-    Response.json({ ok: false }, { status: 503 }),
+  const service = moduleWith(
+    async () => {
+      throw new Error("fetch not expected");
+    },
+    async () => {
+      throw new Error("PRODUCT_MASTER_UNAVAILABLE");
+    },
   );
   await assert.rejects(
     service.loadRequiredProductMasterVerifiedZeroResetEvents(),
-    /PRODUCT_MASTER_INVENTORY_BASELINE_HTTP_503/,
+    /PRODUCT_MASTER_UNAVAILABLE/,
   );
   const resets = await service.loadProductMasterVerifiedZeroResetEvents();
   assert.equal(resets.length, 0);
