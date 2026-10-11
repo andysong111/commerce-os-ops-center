@@ -10,7 +10,9 @@ import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } f
 import { purchaseCycleDraftConfirmation } from "@/lib/purchaseCyclePreflightDraftCore";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
 import {
+  loadManualPilotCatalog,
   loadSourcingBudgetPlan,
+  type ManualPilotCatalog,
   type SourcingBudgetPlan,
   type SourcingVariantSelectionInput,
 } from "@/lib/sourcingBudgetPlan";
@@ -176,6 +178,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const replaceDraftId = single("replace", "") || null;
   let report: PurchaseCyclePreflightReport | null = null;
   let sourcingPlan: SourcingBudgetPlan | null = null;
+  let manualPilotCatalog: ManualPilotCatalog | null = null;
+  let manualPilotCatalogError = "";
   let sourcingPlanError = "";
   let sourcingPlanErrorCode = "";
   let inputError = "";
@@ -190,7 +194,17 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       if (sourcingVariantInputInvalid) throw new Error("SOURCING_VARIANT_SELECTION_INVALID");
       const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId };
       validatePurchasePreflightOptions(options);
-      report = await loadPurchaseCyclePreflightPreview(options);
+      const [reportResult, manualPilotResult] = await Promise.allSettled([
+        loadPurchaseCyclePreflightPreview(options),
+        loadManualPilotCatalog({ requestTimeoutMs: 25_000, maxAttempts: 1 }),
+      ]);
+      if (reportResult.status === "rejected") throw reportResult.reason;
+      report = reportResult.value;
+      if (manualPilotResult.status === "fulfilled") {
+        manualPilotCatalog = manualPilotResult.value;
+      } else {
+        manualPilotCatalogError = "소싱엔진 수동추가 상품목록을 불러오지 못했습니다. 잠시 후 위의 계산 버튼을 다시 눌러주세요.";
+      }
       if (report.sourcingBudgetPercent > 0 && report.sourcingBudgetKrw > 0) {
         try {
           sourcingPlan = await loadSourcingBudgetPlan({
@@ -351,6 +365,32 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <article id="sourcing-selection" className="min-w-0 scroll-mt-5 py-5">
             <p className="text-xs font-black text-blue-700">소싱엔진에서 선택</p>
             <h3 className="mt-1 text-lg font-black text-slate-950">검증된 후보를 이번 발주에 추가</h3>
+            {manualPilotCatalog ? (
+              <section className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4" aria-label="소싱엔진 수동추가 상품목록">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <strong className="text-sm text-blue-950">소싱엔진으로 소싱한 상품 · {manualPilotCatalog.candidates.length}건</strong>
+                  <span className="rounded-full bg-white px-2 py-1 text-xs font-bold text-blue-800">수동추가 · 발주 전 검수</span>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-blue-900">현재 소싱엔진에서 고른 상품입니다. 자동 주문 대상은 아니며, 1688 옵션·현재 단가·수량을 확인한 뒤 발주안에 넣습니다.</p>
+                <div className="mt-3 space-y-2">
+                  {manualPilotCatalog.candidates.map((candidate, index) => (
+                    <article key={candidate.conceptId} className="rounded-md border border-blue-100 bg-white p-3 text-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <strong className="text-slate-950">{index + 1}. {candidate.canonicalNameKo}</strong>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">{candidate.skuLabel} · MOQ {candidate.moq}개 · 예상 원가 {money(candidate.plannedCostKrw)}/개 · 최소 {money(candidate.minimumPilotCapitalKrw)}</p>
+                          <p className="text-xs leading-5 text-slate-600">1688 옵션 {candidate.variants.length}개 · {candidate.strictTestReady ? "정식 검수 완료" : "추가 검수 필요"}</p>
+                        </div>
+                        <a href={candidate.sourceUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-blue-700 underline">1688 상품 보기</a>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {manualPilotCatalog.unavailableConceptIds.length ? <p className="mt-3 text-xs font-bold text-amber-800">저장된 선택 중 현재 안전 근거가 달라져 보류된 상품 {manualPilotCatalog.unavailableConceptIds.length}건</p> : null}
+              </section>
+            ) : manualPilotCatalogError ? (
+              <p role="alert" className="mt-4 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">{manualPilotCatalogError}</p>
+            ) : null}
             {!report ? (
               <p className="mt-3 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-sm leading-6 text-sky-950">위에서 예산을 계산하면 현재 비율과 금액에 맞는 소싱 후보가 여기에 표시됩니다.</p>
             ) : report.sourcingBudgetPercent === 0 ? (
