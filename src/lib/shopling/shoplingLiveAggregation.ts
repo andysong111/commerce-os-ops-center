@@ -33,6 +33,10 @@ export type PlanningProduct = {
   protectedCostKrw?: number;
   inventoryQuantity?: number;
   inventoryConfirmed?: boolean;
+  inventoryVerified?: boolean;
+  inventoryBaselineAt?: string | null;
+  inventoryBaselineKind?: string | null;
+  inventoryBaselineQuantity?: number | null;
   inventoryRequiresReview?: boolean;
   listings?: PlanningListing[];
 };

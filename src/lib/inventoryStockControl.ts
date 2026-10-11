@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { CHINA_ORDER_EVENT_OPERATION_TYPE } from "@/lib/chinaOrderLedger";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
-import { loadStage8CanonicalSalesEventSnapshot } from "@/lib/stage8CanonicalSalesEventSnapshot";
+import type { ProductPlanningSnapshot } from "@/lib/shopling/shoplingLiveAggregation";
+import {
+  loadStage8CanonicalSalesEventSnapshot,
+  type Stage8CanonicalSalesEventSnapshot,
+} from "@/lib/stage8CanonicalSalesEventSnapshot";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const INVENTORY_STOCKOUT_RESET_OPERATION_TYPE =
@@ -352,7 +356,11 @@ async function readRows(operationType: string) {
 }
 
 export async function loadInventoryStockControlReport(
-  options: { supplementalResetEvents?: readonly InventoryStockoutResetEvent[] } = {},
+  options: {
+    supplementalResetEvents?: readonly InventoryStockoutResetEvent[];
+    planning?: ProductPlanningSnapshot;
+    canonicalSales?: Stage8CanonicalSalesEventSnapshot;
+  } = {},
 ): Promise<InventoryStockControlReport> {
   const generatedAt = new Date().toISOString();
   const blockers: string[] = [];
@@ -369,11 +377,15 @@ export async function loadInventoryStockControlReport(
       blockers.push(error instanceof Error ? error.message : String(error));
       return [] as StoredOperationRow[];
     }),
-    loadStage8CanonicalSalesEventSnapshot().catch((error) => {
+    (options.canonicalSales
+      ? Promise.resolve(options.canonicalSales)
+      : loadStage8CanonicalSalesEventSnapshot()).catch((error) => {
       blockers.push(error instanceof Error ? error.message : String(error));
       return null;
     }),
-    loadProductPlanningSnapshot().catch((error) => {
+    (options.planning
+      ? Promise.resolve(options.planning)
+      : loadProductPlanningSnapshot()).catch((error) => {
       blockers.push(error instanceof Error ? error.message : String(error));
       return null;
     }),
