@@ -633,3 +633,11 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - The calculation result includes an inline ratio form. It preserves the target date, cash input, replacement Draft, selected concepts, storage choices, and 1688 variant choices while recalculating at the result anchor.
 - The result separates the sourcing ceiling, actual existing/new sourcing reservations and selected spend, returned or pending cash, and final existing-product cash.
 - Ratio changes continue to respect sourcing quality, warehouse, per-month item, per-product test-cost, and quantity limits. This remains an internal Draft workflow; it does not execute a 1688 order or payment.
+
+### Delivery and Production evidence
+
+- PR #1385 merged to `main` as `afa0a2ebf3d87438d297fd6cefb0bfa653146d2b` after all GitHub checks passed.
+- Vercel Production deployment `dpl_84XN6BQ6kGcq3K7TpHSCxKhyjm1r` reached `READY` from that exact merge commit.
+- A read-only Production request to `/purchase-cycle-preflight` returned HTTP 200 and showed the 15% default plus the result-screen ratio recalculation control.
+- A read-only calculation with 1,000,000 KRW and 15% showed 150,000 KRW as sourcing validation-pending cash and 850,000 KRW as existing-product available cash. It did not release the 150,000 KRW because the live run had two independent blockers: 11 expired or unprepared source validations and an 8-second sourcing-engine preview timeout.
+- This is the intended fail-closed state. Recalculate after the source validations are fresh and the sourcing preview responds; only then may an exactly verified unused remainder return to the existing-product envelope.
