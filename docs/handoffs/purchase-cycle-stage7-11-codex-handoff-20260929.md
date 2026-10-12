@@ -703,8 +703,11 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - The separate 360-day exact full-audit worker remains the drift/recovery mechanism. Monthly speed-up does not weaken or replace that audit.
 - The monthly aggregate synchronizer also handles a verified B-code rename by zeroing the exact old deterministic row while writing the current B-code row. Unknown row-ID formats still fail closed. This fixes the observed `BBD4-3 -> BBD4-2` double-count prevention blocker without deleting history.
 
-### Verification status
+### Delivery and Production evidence
 
-- Focused normal, fallback, active-work, renamed-B-code, invalid-ID, and exact-window regression tests pass locally.
-- TypeScript typecheck and focused ESLint pass locally.
-- GitHub CI, merge, Vercel Production deployment, natural dispatcher execution, and Production evidence remain pending until this change is delivered.
+- PR `#1394` merged to `main` as `877dd3eee05f2a24bd80ee06ab19b0c448fa609f` at `2026-10-12T18:28:43Z` after every GitHub build, test, safety, regression, and Vercel Preview check passed.
+- Local focused verification passed in two layers: 42 monthly/incremental safety tests, then 66 tests including the real creator and inventory regression harnesses. TypeScript typecheck, focused ESLint, and `git diff --check` also passed. The local Windows build could not canonicalize the Korean OneDrive path, while GitHub's Linux production build passed on the same commit.
+- Vercel Production deployment `dpl_3gVbUzH842mCcNnjPpoVV2xzYyT1` reached `READY` from that exact merge commit. A read-only request to `/purchase-cycle-preflight` returned HTTP 200 and rendered the deployed explanation that a verified 360-day baseline is retained while the latest 45 days are reread.
+- The already-running recovery candidate was not superseded or restarted. Supabase read-only evidence showed recovery request `7682b27a-9729-4f89-87b2-43e3f31f0d1f` with 23 successful source chunks and no failure at `2026-10-12T18:28:43.777Z`; it continues through the existing natural worker schedule.
+- The last renamed-B-code aggregate failure occurred before this deployment at `2026-10-12T18:16:37.739Z`. The exact deterministic-row correction is deployed, but its outcome must be confirmed from the next natural retry rather than by manually invoking a worker.
+- Normal monthly reuse will first produce runtime evidence after the current active candidate completes and the next eligible monthly request starts. No cron call, cooldown/lease bypass, duplicate request, Product Master promotion, monthly Draft save, 1688 order, payment, or supplier contact was used for verification.
