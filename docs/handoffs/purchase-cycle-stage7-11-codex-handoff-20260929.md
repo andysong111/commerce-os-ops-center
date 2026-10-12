@@ -647,6 +647,6 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 ## 23. First-step purchase-plan jump (2026-10-12)
 
 - After `예산 확인 · 후보 불러오기` produces a report, the page shows a `발주안 바로 보기` action immediately below the first-step input.
-- The action keeps the current query and scrolls to the same page's calculated purchase-plan result and remaining checks.
-- It appears only when a report exists. Invalid input or a failed first-step calculation does not show a misleading next-step action.
-- The action does not skip candidate configuration, safety gates, monthly Draft confirmation, 1688 ordering, or payment.
+- When the pinned calculation is ready, the action saves or reuses the exact monthly internal Draft and opens `/china-order-manager/drafts/{draftId}`. That workspace contains the calculated SKU quantities, 1688 link/option/CNY price inputs, and the local `1688 장바구니 준비` action.
+- When required evidence or sourcing checks remain, the button stays disabled and a `남은 확인 항목 보기` link moves to the exact blockers. It never creates an empty or partially verified Draft.
+- The action does not skip candidate configuration, safety gates, monthly Draft confirmation, 1688 ordering, or payment. Actual order submission and payment remain separate owner actions.
