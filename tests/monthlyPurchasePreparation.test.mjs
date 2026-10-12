@@ -95,6 +95,7 @@ test("automatic preparation reuses stable evidence, rereads 45 days, and stops b
   assert.match(cron, /writesEnabled: false/);
   assert.match(cron, /approvalEnabled: false/);
   assert.doesNotMatch(cron, /applyProductMasterShoplingSalesEvents|1688|payment/i);
+  assert.doesNotMatch(cron, /stage8-candidate-prewrite-evidence/);
   assert.match(sync, /refreshReason: "MONTHLY_PURCHASE_PREPARATION"/);
   assert.match(sync, /MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS = 45/);
   assert.match(sync, /buildMonthlySalesEventReusePlan/);

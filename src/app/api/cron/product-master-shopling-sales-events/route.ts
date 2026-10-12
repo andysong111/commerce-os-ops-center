@@ -6,12 +6,10 @@ import {
 } from "@/lib/productMasterShoplingSalesEventSync";
 import {
   SALES_EVENT_DEFAULT_CHUNK_DAYS,
-  SALES_EVENT_LEGACY_CHUNK_DAYS,
   SALES_EVENT_MINIMUM_CHUNK_DAYS,
   hydrateProductMasterShoplingSalesEventRecovery,
   recoverProductMasterShoplingSalesEventRequest,
 } from "@/lib/productMasterShoplingSalesEventRecovery";
-import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,24 +117,13 @@ export async function GET(request: Request) {
     if (current.state === "QUEUED" || current.state === "RUNNING") {
       const hydrated = await hydrateProductMasterShoplingSalesEventRecovery();
       const result = await runBoundedBurst();
-      const downstreamWakeRequested = ["READY_CANARY", "READY_FULL"].includes(
-        result.state,
-      )
-        ? await wakeOpsDispatchTask("stage8-candidate-prewrite-evidence", 0)
-        : false;
       return Response.json({
         ok: true,
         configured: true,
         hydrated,
         ...result,
-        downstreamWakeRequested,
       });
     }
-    const downstreamWakeRequested = ["READY_CANARY", "READY_FULL"].includes(
-      current.state,
-    )
-      ? await wakeOpsDispatchTask("stage8-candidate-prewrite-evidence", 0)
-      : false;
     return Response.json({
       ok: true,
       configured: true,
@@ -145,7 +132,6 @@ export async function GET(request: Request) {
       message: current.message,
       planFingerprint: current.report?.planFingerprint ?? null,
       blockerCount: current.blockerCount,
-      downstreamWakeRequested,
     });
   } catch (error) {
     return Response.json(

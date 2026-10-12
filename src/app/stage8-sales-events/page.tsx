@@ -25,7 +25,7 @@ export default async function Stage8SalesEventsPage() {
         <Metric label="수집 구간" value={`${status.completedRanges}/${status.totalRanges}`} />
         <Metric label="진행률" value={`${status.progress}%`} />
         <Metric label="주문 이벤트" value={report ? number.format(report.sourceEventCount) : "-"} />
-        <Metric label="취소·반품 tombstone" value={report ? number.format(report.tombstoneCount) : "-"} />
+        <Metric label="판매 제외 주문행" value={report ? number.format(report.tombstoneCount) : "-"} />
         <Metric label="차단" value={number.format(status.blockerCount)} />
       </section>
 
@@ -39,11 +39,10 @@ export default async function Stage8SalesEventsPage() {
         </div>
         <p className="mt-3 text-sm text-slate-600">
           후보 분석시점: {status.analysisAsOf ? new Date(status.analysisAsOf).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : "아직 없음"} (한국시간).
-          재수집 접수는 공식 판매원장 반영 완료가 아닙니다. 새 후보의 비교·근거 검증과 정상 반영 게이트를 다시 확인해야 합니다.
+          재수집 접수는 공식 판매원장 반영 완료가 아닙니다. 미연결·충돌 0건 확인 뒤 1건 카나리와 전체 반영을 진행합니다.
         </p>
         <div className="mt-2 flex flex-wrap gap-4 text-sm font-semibold text-slate-700">
-          <Link href="/stage8-candidate-demand-parity">후보 비교 검증</Link>
-          <Link href="/stage8-candidate-promotion-gate">공식 반영 게이트</Link>
+          <Link href="/stage8-candidate-demand-parity">선택 진단: 360일 독립 대조</Link>
           <Link href="/china-order-manager/reentry-shadow">다음 발주 사전 점검</Link>
         </div>
         {status.state === "STORAGE_NOT_READY" ? (
@@ -72,7 +71,7 @@ export default async function Stage8SalesEventsPage() {
       ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-700">
-        <strong>안전 규칙</strong> · 수집 단계는 Shopling GET만 사용합니다. Product Master 적재는 migration 적용 뒤 1건 카나리 → 같은 plan fingerprint 전수 적재 순서로만 진행합니다. 실제 발주·가격·단종·재고는 변경하지 않습니다.
+        <strong>안전 규칙</strong> · 수집 단계는 Shopling 주문 GET만 사용하며 반품·교환 접수를 별도로 조회하지 않습니다. 주문행에 표시된 취소·반품·환불은 판매량에서 제외합니다. Product Master 적재는 1건 카나리 → 같은 plan fingerprint 전수 적재 순서로만 진행합니다. 실제 발주·가격·단종·재고는 변경하지 않습니다.
       </section>
     </div>
   );

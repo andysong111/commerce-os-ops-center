@@ -4,7 +4,7 @@ import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-const [worker, parity, evidence, salesCron, dispatcher, migration] =
+const [worker, parity, evidence, salesCron, dispatcher, migration, retirement] =
   await Promise.all([
     read("src/app/api/cron/stage8-candidate-prewrite-evidence/route.ts"),
     read("src/lib/stage8CandidateDemandParity.ts"),
@@ -12,6 +12,7 @@ const [worker, parity, evidence, salesCron, dispatcher, migration] =
     read("src/app/api/cron/product-master-shopling-sales-events/route.ts"),
     read("src/lib/opsAdaptiveDispatcher.ts"),
     read("supabase/migrations/20260918094000_stage8_candidate_prewrite_evidence_worker.sql"),
+    read("supabase/migrations/20261013190000_retire_stage8_candidate_prewrite_rescan.sql"),
   ]);
 
 test("prewrite worker is current-candidate pinned and never writes Product Master", () => {
@@ -57,7 +58,7 @@ test("worker drains only bounded read-only steps and promotion remains a gate", 
   assert.match(worker, /state: gate\.safeToApply \? "READY_CANARY" : "BLOCKED"/);
 });
 
-test("dispatcher schedules the worker behind operational work with one-minute busy cadence", () => {
+test("historical diagnostic remains registered while the retirement migration disables scheduling", () => {
   assert.match(dispatcher, /"stage8-candidate-prewrite-evidence"/);
   assert.match(
     dispatcher,
@@ -65,13 +66,13 @@ test("dispatcher schedules the worker behind operational work with one-minute bu
   );
   assert.match(migration, /'stage8-candidate-prewrite-evidence'/);
   assert.match(migration, /'diagnostic'/);
-  assert.match(migration, /\n  205,/);
-  assert.match(migration, /\n  300,\n  60,/);
+  assert.match(migration, /\r?\n  205,/);
+  assert.match(migration, /\r?\n  300,\r?\n  60,/);
 });
 
-test("completed sales candidate wakes the downstream prewrite worker without approving writes", () => {
-  assert.match(salesCron, /wakeOpsDispatchTask/);
-  assert.match(salesCron, /"stage8-candidate-prewrite-evidence"/);
-  assert.match(salesCron, /\["READY_CANARY", "READY_FULL"\]/);
+test("completed sales candidate no longer wakes the duplicate 360-day rescan", () => {
+  assert.doesNotMatch(salesCron, /"stage8-candidate-prewrite-evidence"/);
   assert.doesNotMatch(salesCron, /confirmation: "CANARY"|confirmation: "FULL"/);
+  assert.match(retirement, /where task_key = 'stage8-candidate-prewrite-evidence'/);
+  assert.match(retirement, /set enabled = false/);
 });
