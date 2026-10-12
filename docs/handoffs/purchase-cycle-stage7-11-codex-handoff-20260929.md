@@ -681,4 +681,12 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Completion of the sales-event collection wakes the existing candidate prewrite evidence worker. The existing parity and readiness workers remain authoritative; the scheduler does not create a second purchase calculation path.
 - The schedule does not grant Product Master CANARY/FULL approval, save a monthly purchase Draft, alter a sourcing gate, place a 1688 order, contact a supplier, or make a payment.
 - Product Master promotion remains a separate owner approval boundary. Actual order and payment remain separate action-time owner decisions.
-- Local proof before delivery: focused monthly-preparation and sales-event regression tests, focused ESLint, TypeScript typecheck, and the Next.js production build pass. Record PR, CI, migration, deployment, and Production evidence here after delivery.
+- Local proof: 33 focused monthly-preparation and sales-event regression tests, focused ESLint, TypeScript typecheck, and the Next.js production build passed. The repository-wide local test command still has unrelated Windows path and pre-existing module-resolution failures; GitHub's authoritative scoped workflows passed.
+
+### Delivery and Production evidence
+
+- PR `#1392` merged to `main` as `d9d361d14450bccf1e703428a2e6fae05769318f` after every GitHub check passed.
+- Vercel Production deployment `dpl_CV4v9CVn5tYSNGRLDNiEtQ15UtbU` reached `READY` from that exact merge commit with no alias error.
+- Production `/purchase-cycle-preflight` returned HTTP 200. Unauthenticated requests to the schedule API and the worker route both returned HTTP 401.
+- Supabase migration `monthly_purchase_preparation_worker` applied successfully to the Commerce OS operational project. Its first natural dispatcher execution finished HTTP 200 with `last_status=success`, zero consecutive failures, and `writesEnabled=false` / `approvalEnabled=false` while the owner schedule remained disabled.
+- No manual worker invocation, Product Master promotion, monthly Draft save, 1688 order, payment, or supplier contact was used for this proof.
