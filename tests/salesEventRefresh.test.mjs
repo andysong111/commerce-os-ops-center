@@ -19,6 +19,7 @@ async function load(file, deps = {}) {
   return import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}#${key}`);
 }
 const policy = await load("src/lib/salesEventRefreshPolicy.ts");
+const monthlyRefreshCore = await load("src/lib/monthlySalesEventRefreshCore.ts");
 const fp = `sha256:${"a".repeat(64)}`, planningFp = `sha256:${"b".repeat(64)}`;
 const oldId = "95c910a4-88ff-4c05-b181-9d57ab497bc0";
 const input = { expectedRequestId: oldId, expectedPlanFingerprint: fp, confirmation: "REFRESH_CANDIDATE" };
@@ -119,24 +120,25 @@ test("real creator appends a fresh pinned request, preserves history, and reject
     assert.equal(new URL(url).hostname, "master.invalid"); return Response.json({ ok: true });
   };
   const admin = memoryAdmin(rows), guard = await guardFor(admin);
-  const module = await load("src/lib/productMasterShoplingSalesEventSync.ts", {
+  const salesEventModule = await load("src/lib/productMasterShoplingSalesEventSync.ts", {
     "@/lib/salesEventMutationGuard": guard, "@/lib/salesEventRefreshPolicy": policy,
     "node:crypto": await import("node:crypto"),
     "@/lib/productMasterShoplingSalesEventEngine": { PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS: 360 },
+    "@/lib/monthlySalesEventRefreshCore": monthlyRefreshCore,
     "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshot: async () => ({ generatedAt: "2026-09-14T00:00:00Z", contentFingerprint: planningFp }) },
     "@/lib/shopling/shoplingReadClient": { shoplingReadConfigFromEnv: () => ({}), splitShoplingDateRange: (start, end) => [{ start, end }] },
     "@/lib/supabase/admin": { createSupabaseAdminClient: async () => admin, createSupabaseAdminHeaders: () => ({}) },
   });
-  const created = await module.createProductMasterShoplingSalesEventSyncRequest(input);
+  const created = await salesEventModule.createProductMasterShoplingSalesEventSyncRequest(input);
   assert.notEqual(created.requestId, oldId); assert.ok(Date.parse(created.analysisAsOf) > Date.parse(oldTime));
   assert.equal(created.planningContentFingerprint, planningFp);
   assert.deepEqual(rows.slice(0, 2), historical); assert.equal(writes.length, 1);
   assert.equal(writes[0].input_snapshot.refreshesRequestId, oldId);
   assert.equal(writes[0].input_snapshot.previousPlanFingerprint, fp);
   assert.equal(writes[0].input_snapshot.supersedesRequestId, undefined, "refresh is NOT same-time recovery/chunk reuse");
-  const status = await module.loadProductMasterShoplingSalesEventSyncStatus();
+  const status = await salesEventModule.loadProductMasterShoplingSalesEventSyncStatus();
   assert.equal(status.state, "QUEUED"); assert.equal(status.report, null); assert.equal(status.canaryVerified, false);
-  await assert.rejects(module.createProductMasterShoplingSalesEventSyncRequest(input), { code: "SALES_EVENT_REFRESH_CONTEXT_CHANGED" });
+  await assert.rejects(salesEventModule.createProductMasterShoplingSalesEventSyncRequest(input), { code: "SALES_EVENT_REFRESH_CONTEXT_CHANGED" });
   assert.equal(writes.length, 1);
 });
 async function routeWith(overrides = {}) {
