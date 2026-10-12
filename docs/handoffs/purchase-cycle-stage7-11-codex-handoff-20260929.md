@@ -663,3 +663,10 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Owner preset rows that are already fully present in the ready list are no longer re-seeded as new input after a browser reload. Partially saved products keep their remaining input rows, so a partial API failure cannot silently discard unfinished options.
 - The former `상품 6종 · 옵션 8개 후보 목록에 추가` label now describes only meaningful unsaved input. When nothing new remains, the disabled button says `새로 저장할 입력 없음`.
 - This UI change does not place a 1688 order, make a payment, contact a supplier, or weaken any purchase safety gate.
+
+### Delivery and Production evidence
+
+- PR `#1390` merged to `main` as `a443448554dcc73241bac2011c6d4dfc939dc94b` after every GitHub check and the Vercel Preview check passed.
+- Vercel Production deployment `dpl_FLmWY61GgRjvRM24n81Z2PFLR47i` reached `READY` from that exact merge commit with no alias error.
+- A read-only Production request to `/purchase-cycle-preflight?check=1&date=2026-10-12&cash=1000000&sourcing=15` returned HTTP 200 from that deployment and rendered the new first-step label `1. 예산 · 자동후보 불러오기`.
+- The second-step control is intentionally rendered only when the server report reaches the candidate-configuration section. The live request remained fail-closed before that section, so Production verification did not create a Draft or alter candidate data.
