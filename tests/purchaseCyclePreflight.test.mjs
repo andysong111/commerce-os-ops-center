@@ -500,6 +500,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   const sourcingForm = readFileSync(new URL("../src/components/purchase-cycle-preflight/SourcingCandidateSelectionForm.tsx", import.meta.url), "utf8");
   const budgetPlan = readFileSync(new URL("../src/lib/sourcingBudgetPlan.ts", import.meta.url), "utf8");
   const finalCalculate = readFileSync(new URL("../src/components/purchase-cycle-preflight/NewProductConfigurationCalculateButton.tsx", import.meta.url), "utf8");
+  const draftActions = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchaseCycleDraftActions.tsx", import.meta.url), "utf8");
   assert.match(page, /title="다음 발주 준비"/);
   assert.match(page, /1단계/);
   assert.match(page, /발주 준비 단계/);
@@ -507,10 +508,16 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /single\("sourcing", "15"\)/);
   assert.match(page, /신규소싱 비율 다시 계산/);
   assert.match(page, /action="\/purchase-cycle-preflight#preflight-result-title"/);
-  assert.match(page, /\{report \? \(/);
-  assert.match(page, /data-testid="preflight-plan-jump"/);
-  assert.match(page, /href="#preflight-result-title"/);
-  assert.match(page, /발주안 바로 보기/);
+  assert.match(page, /variant="quick-open"/);
+  assert.match(draftActions, /data-testid="preflight-plan-jump"/);
+  assert.match(draftActions, /발주안 바로 보기/);
+  assert.match(draftActions, /원가 입력과 1688 장바구니 준비 화면을 엽니다/);
+  assert.match(draftActions, /router\.push\(`\/china-order-manager\/drafts\/\$\{encodeURIComponent\(savedDraftId\)\}`\)/);
+  assert.match(draftActions, /if \(!savedDraftId\)/);
+  assert.match(draftActions, /발주 Draft는 저장됐지만 주문 준비 화면 주소를 확인하지 못했습니다/);
+  assert.match(draftActions, /disabled=\{!ready \|\| saving\}/);
+  assert.match(draftActions, /href="#preflight-result-title"/);
+  assert.match(draftActions, /실제 주문·결제는 실행하지 않습니다/);
   assert.match(page, /기존상품으로 돌아간 금액/);
   assert.match(page, /지금 확인할 내용/);
   assert.match(page, /기존상품 재발주/);
@@ -530,7 +537,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /오류나 사용자 할 일로 세지 않습니다/);
   assert.match(page, /기술 검증 내역/);
   assert.match(page, /소싱 후보 다시 불러오기/);
-  assert.match(page, /confirmation=\{draftReady \? purchaseCycleDraftConfirmation\(report, sourcingPlan\) : ""\}/);
+  assert.match(page, /confirmation: draftReady \? purchaseCycleDraftConfirmation\(report, sourcingPlan\) : ""/);
   assert.match(page, /className="min-w-0 space-y-5"/);
   assert.ok(page.indexOf('id="new-product-configuration"') < page.indexOf('id="sourcing-selection"'));
   assert.ok(page.indexOf('id="sourcing-selection"') < page.indexOf('id="manual-sourcing-intake"'));

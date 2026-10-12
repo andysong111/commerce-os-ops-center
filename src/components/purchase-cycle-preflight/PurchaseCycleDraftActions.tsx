@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SourcingVariantSelectionInput } from "@/lib/sourcingBudgetPlan";
 import { MANUAL_SOURCING_DRAFT_COMMITTED_EVENT } from "@/lib/manualSourcingDraftStorage";
@@ -47,6 +48,7 @@ export function PurchaseCycleDraftActions({
   replacementAddedCount = 0,
   replacementRemovedCount = 0,
   replacementChangedCount = 0,
+  variant = "full",
 }: {
   targetDate: string;
   targetCycleMonth: string;
@@ -72,7 +74,9 @@ export function PurchaseCycleDraftActions({
   replacementAddedCount?: number;
   replacementRemovedCount?: number;
   replacementChangedCount?: number;
+  variant?: "full" | "quick-open";
 }) {
+  const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -88,7 +92,10 @@ export function PurchaseCycleDraftActions({
     const summary = replaceDraftId
       ? `${targetCycleMonth} 기존 Draft를 최신 계산 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 교체할까요?\n\n${cashSummary} · ${sourcingSummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
       : `${targetCycleMonth} 월간 발주 Draft를 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 저장할까요?\n\n${cashSummary} · ${sourcingSummary}을 적용했습니다. 미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
-    if (!window.confirm(summary)) return;
+    const quickOpenNotice = variant === "quick-open"
+      ? "\n\n저장 후 상품별 주문수량·1688 링크·옵션·위안단가 입력과 장바구니 준비가 있는 중국 발주초안을 엽니다. 실제 주문·결제는 실행하지 않습니다."
+      : "";
+    if (!window.confirm(summary + quickOpenNotice)) return;
     setSaving(true);
     try {
       const response = await fetch("/api/purchase-cycle/preflight-draft", {
@@ -118,16 +125,47 @@ export function PurchaseCycleDraftActions({
         setNotice((payload.message || `저장 실패 · ${payload.code || response.status}`) + sourcingProgress);
         return;
       }
-      setNotice(
-        `${payload.message} ${payload.draft?.lineCount ?? selectedCount}개 SKU · 총 ${payload.draft?.totalQuantity ?? totalQuantity}개 · ${payload.draft?.draftId ?? ""}`,
-      );
       window.dispatchEvent(new Event(MANUAL_SOURCING_DRAFT_COMMITTED_EVENT));
+      const savedDraftId = payload.draft?.draftId?.trim() ?? "";
+      if (variant === "quick-open") {
+        if (!savedDraftId) {
+          setNotice("발주 Draft는 저장됐지만 주문 준비 화면 주소를 확인하지 못했습니다. 아래 Draft 저장 결과를 확인하세요.");
+          return;
+        }
+        router.push(`/china-order-manager/drafts/${encodeURIComponent(savedDraftId)}`);
+        return;
+      }
+      setNotice(
+        `${payload.message} ${payload.draft?.lineCount ?? selectedCount}개 SKU · 총 ${payload.draft?.totalQuantity ?? totalQuantity}개 · ${savedDraftId}`,
+      );
     } catch {
       setNotice("월간 Draft 저장 요청이 실패했습니다. 실제 주문·결제는 실행되지 않았습니다.");
     } finally {
       setSaving(false);
     }
   };
+
+  if (variant === "quick-open") {
+    return (
+      <section data-testid="preflight-plan-jump" className="flex flex-wrap items-center justify-between gap-4 border-l-4 border-blue-600 bg-blue-50 px-5 py-4">
+        <div className="max-w-3xl">
+          <strong className="text-sm text-blue-950">중국 발주초안으로 이동</strong>
+          <p className="mt-1 text-xs leading-5 text-blue-900">
+            {ready
+              ? `계산된 ${selectedCount}개 SKU · 총 ${totalQuantity.toLocaleString("ko-KR")}개를 내부 Draft로 저장하고, 원가 입력과 1688 장바구니 준비 화면을 엽니다.`
+              : "계산 결과에 남은 필수 조건이 있어 아직 발주초안을 만들 수 없습니다. 아래에서 남은 조건을 확인하세요."}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {!ready ? <a href="#preflight-result-title" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-black text-blue-800 hover:bg-blue-100">남은 확인 항목 보기</a> : null}
+          <button type="button" onClick={save} disabled={!ready || saving} className="min-h-11 rounded-lg bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
+            {saving ? "발주안 여는 중..." : "발주안 바로 보기"}
+          </button>
+        </div>
+        {notice ? <p className="w-full border-l-4 border-blue-500 bg-white px-3 py-2 text-sm font-bold">{notice}</p> : null}
+      </section>
+    );
+  }
 
   return (
     <section className="border-y border-slate-200 bg-white py-5">
