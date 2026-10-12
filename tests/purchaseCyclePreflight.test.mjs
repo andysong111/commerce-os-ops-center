@@ -507,6 +507,10 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /single\("sourcing", "15"\)/);
   assert.match(page, /신규소싱 비율 다시 계산/);
   assert.match(page, /action="\/purchase-cycle-preflight#preflight-result-title"/);
+  assert.match(page, /\{report \? \(/);
+  assert.match(page, /data-testid="preflight-plan-jump"/);
+  assert.match(page, /href="#preflight-result-title"/);
+  assert.match(page, /발주안 바로 보기/);
   assert.match(page, /기존상품으로 돌아간 금액/);
   assert.match(page, /지금 확인할 내용/);
   assert.match(page, /기존상품 재발주/);
