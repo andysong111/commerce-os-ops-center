@@ -26,6 +26,9 @@ export function loadPurchaseCycleModule(path, imports = {}, globals = {}) {
       if (name === "@/lib/purchaseCycleLocalBaselineAuthority") {
         return { assertPurchaseCycleLocalBaselineAuthorityReadable: async () => ({ resetCount: 0, stocktakeCount: 0 }) };
       }
+      if (name === "@/lib/monthlySalesEventRefreshCore") {
+        return loadPurchaseCycleModule("src/lib/monthlySalesEventRefreshCore.ts", imports, globals);
+      }
       // Receipt replay and sourcing support were added after these legacy
       // fixtures. Execute their real guards; forbid any unmodelled side effect.
       if (name === "@/domain/china-receipt-request") {

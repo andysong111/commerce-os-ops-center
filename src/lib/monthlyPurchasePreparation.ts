@@ -71,6 +71,12 @@ function runFromRow(row: OperationRow | null) {
     requestId,
     analysisAsOf: iso(snapshot.analysisAsOf),
     accepted: snapshot.accepted === true,
+    reusedRangeCount: Math.max(0, Math.trunc(Number(snapshot.reusedRangeCount) || 0)),
+    sourceReadRangeCount: Math.max(0, Math.trunc(Number(snapshot.sourceReadRangeCount) || 0)),
+    correctionDays:
+      Number.isFinite(Number(snapshot.correctionDays)) && Number(snapshot.correctionDays) > 0
+        ? Math.trunc(Number(snapshot.correctionDays))
+        : null,
     startedAt,
   } satisfies MonthlyPurchasePreparationRun;
 }

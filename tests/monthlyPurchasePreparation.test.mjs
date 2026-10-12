@@ -81,7 +81,7 @@ test("disabled or missing schedules never start work", () => {
   );
 });
 
-test("automatic preparation remains read-only and stops before Product Master promotion", async () => {
+test("automatic preparation reuses stable evidence, rereads 45 days, and stops before Product Master promotion", async () => {
   const [cron, sync, route, control] = await Promise.all([
     readFile("src/app/api/cron/monthly-purchase-preparation/route.ts", "utf8"),
     readFile("src/lib/productMasterShoplingSalesEventSync.ts", "utf8"),
@@ -96,6 +96,11 @@ test("automatic preparation remains read-only and stops before Product Master pr
   assert.match(cron, /approvalEnabled: false/);
   assert.doesNotMatch(cron, /applyProductMasterShoplingSalesEvents|1688|payment/i);
   assert.match(sync, /refreshReason: "MONTHLY_PURCHASE_PREPARATION"/);
+  assert.match(sync, /MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS = 45/);
+  assert.match(sync, /buildMonthlySalesEventReusePlan/);
+  assert.match(sync, /sales-event-monthly-reuse-chunk:/);
+  assert.match(sync, /STABLE_BEFORE_45_DAY_CORRECTION_WINDOW/);
+  assert.match(sync, /alreadyActive: true/);
   assert.match(sync, /withSalesEventMutationGuard/);
   assert.doesNotMatch(
     sync.slice(
@@ -106,4 +111,5 @@ test("automatic preparation remains read-only and stops before Product Master pr
   );
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(control, /실제 원장 반영은 별도 승인 단계에서 진행/);
+  assert.match(control, /최근 45일만 다시 읽어/);
 });

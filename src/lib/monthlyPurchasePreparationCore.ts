@@ -13,6 +13,9 @@ export type MonthlyPurchasePreparationRun = {
   requestId: string;
   analysisAsOf: string | null;
   accepted: boolean;
+  reusedRangeCount?: number;
+  sourceReadRangeCount?: number;
+  correctionDays?: number | null;
   startedAt: string;
 };
 

@@ -101,7 +101,7 @@ export function PurchasePreparationScheduleControl({ targetDate }: { targetDate:
       <p className="text-xs font-black uppercase tracking-[0.14em] text-sky-700">MONTHLY AUTO PREP</p>
       <h2 className="mt-1 text-lg font-black text-slate-950">매달 발주자료 미리 준비</h2>
       <p className="mt-2 text-sm leading-6 text-slate-700">
-        정한 시각이 되면 판매자료 수집과 두 번 대조를 백그라운드에서 끝냅니다. 실제 원장 반영은 별도 승인 단계에서 진행하고, 1688 주문·결제는 계속 직접 확인합니다.
+        정한 시각이 되면 검증된 360일 판매근거는 유지하고 최근 45일만 다시 읽어 두 번 대조합니다. 최초 기준자료가 없을 때만 360일 전체를 수집합니다. 실제 원장 반영은 별도 승인 단계에서 진행하고, 1688 주문·결제는 계속 직접 확인합니다.
       </p>
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <label className="text-sm font-bold text-slate-800">
