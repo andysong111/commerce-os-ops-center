@@ -427,6 +427,92 @@ export async function createProductMasterShoplingSalesEventSyncRequest(refresh?:
   });
 }
 
+const FRESH_SALES_EVENT_STATES = new Set([
+  "QUEUED",
+  "RUNNING",
+  "READY_CANARY",
+  "READY_FULL",
+  "COMPLETED",
+]);
+
+/**
+ * Server-owned monthly purchase preparation may enqueue a fresh read-only
+ * Shopling candidate without pretending that CANARY/FULL approval was given.
+ * The shared mutation guard prevents duplicate request creation when the
+ * dispatcher and an operator action overlap.
+ */
+export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
+  cycleMonth: string;
+  maxAgeMs?: number;
+  now?: Date;
+}) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.cycleMonth)) {
+    throw new SalesEventActionError(
+      "MONTHLY_PURCHASE_PREPARATION_CYCLE_INVALID",
+      400,
+      "월간 발주 준비 기준월이 올바르지 않습니다.",
+    );
+  }
+  const maxAgeMs = input.maxAgeMs ?? 2 * 60 * 60 * 1000;
+  if (!Number.isFinite(maxAgeMs) || maxAgeMs < 0 || maxAgeMs > 12 * 60 * 60 * 1000) {
+    throw new SalesEventActionError(
+      "MONTHLY_PURCHASE_PREPARATION_MAX_AGE_INVALID",
+      400,
+      "월간 발주 준비 판매자료 신선도 기준이 올바르지 않습니다.",
+    );
+  }
+  const now = input.now ? new Date(input.now.valueOf()) : new Date();
+  if (!Number.isFinite(now.valueOf())) {
+    throw new SalesEventActionError(
+      "MONTHLY_PURCHASE_PREPARATION_NOW_INVALID",
+      400,
+      "월간 발주 준비 시각이 올바르지 않습니다.",
+    );
+  }
+
+  return withSalesEventMutationGuard(async () => {
+    const current = await loadProductMasterShoplingSalesEventSyncStatus();
+    if (!current.configured) {
+      throw new SalesEventActionError(
+        "SALES_EVENT_REFRESH_NOT_CONFIGURED",
+        503,
+        "판매 수집 연결 설정을 먼저 확인해야 합니다.",
+      );
+    }
+    const analysisMs = Date.parse(current.analysisAsOf ?? "");
+    const fresh =
+      FRESH_SALES_EVENT_STATES.has(current.state) &&
+      Number.isFinite(analysisMs) &&
+      analysisMs <= now.valueOf() + 30_000 &&
+      now.valueOf() - analysisMs <= maxAgeMs;
+    if (fresh && current.requestId) {
+      return {
+        accepted: false,
+        alreadyFresh: true,
+        requestId: current.requestId,
+        analysisAsOf: current.analysisAsOf,
+        state: current.state,
+        cycleMonth: input.cycleMonth,
+      } as const;
+    }
+
+    const created = await appendSalesEventSyncRequest({
+      refreshReason: "MONTHLY_PURCHASE_PREPARATION",
+      purchaseCycleMonth: input.cycleMonth,
+      refreshesRequestId: current.requestId,
+      previousPlanFingerprint: current.report?.planFingerprint ?? null,
+    });
+    return {
+      accepted: true,
+      alreadyFresh: false,
+      requestId: created.requestId,
+      analysisAsOf: created.analysisAsOf,
+      state: "QUEUED" as const,
+      cycleMonth: input.cycleMonth,
+    } as const;
+  });
+}
+
 // Server-only inventory caller supplies a persisted reset/stocktake gap, not an
 // arbitrary client refresh flag. Re-read coverage UNDER the same lock used by
 // creators, recovery and gate-through-publication. A concurrent newer candidate
