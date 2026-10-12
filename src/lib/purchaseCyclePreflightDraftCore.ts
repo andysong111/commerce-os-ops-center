@@ -48,7 +48,7 @@ export function purchaseCycleDraftConfirmation(
     0,
   ) ?? 0;
   const sourcingSuffix = report.sourcingBudgetPercent > 0 && sourcingPlan
-    ? `_NEWSOURCE${sourcingVariantCount}SKU_${sourcingPlan.allocation.estimatedSpendKrw}KRW_${sourcingPlan.planFingerprint.slice(-12)}`
+    ? `_NEWSOURCE${sourcingVariantCount}SKU_${sourcingPlan.allocation.estimatedSpendKrw}KRW_RETURN${report.sourcingBudgetReturnKrw}KRW_${sourcingPlan.planFingerprint.slice(-12)}`
     : "";
   if (report.replacementDraftId) {
     const audit = report.replacementAudit;
@@ -142,7 +142,7 @@ export function preparePurchaseCycleDraft(
       // Provisional zero is not a physical stockout confirmation.
       stockSense: "LOW",
       referenceDemandQuantity: row.originalRecommendedQuantity,
-      note: `발주 사전점검 · 신규소싱 ${report.sourcingBudgetPercent}% 제외 · ${row.costEvidenceSource} · 권장 ${row.originalRecommendedQuantity} → 현금반영 ${row.quantity} · ${row.cashflowTier} · 계획재고 ${row.inventoryQuantity} · 미입고 ${row.openCommitment}`,
+      note: `발주 사전점검 · 신규소싱 ${report.sourcingBudgetPercent}% 최대 · 실제 예약 ${report.sourcingBudgetKrw - report.sourcingBudgetReturnKrw}원 · ${row.costEvidenceSource} · 권장 ${row.originalRecommendedQuantity} → 현금반영 ${row.quantity} · ${row.cashflowTier} · 계획재고 ${row.inventoryQuantity} · 미입고 ${row.openCommitment}`,
     })),
   };
 }

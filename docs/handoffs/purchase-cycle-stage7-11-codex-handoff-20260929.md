@@ -621,3 +621,15 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Repeated source IDs retained across recalculation are deduplicated before the sourcing plan is built.
 - Regression coverage lives in `tests/manualSourcingDraftStorage.test.mjs`, `tests/sourcing-purchase-lifecycle.test.mjs`, and `tests/purchaseCyclePreflight.test.mjs`, and is wired into Purchase Cycle Preflight CI.
 - This persistence is browser-local UI state only. It does not save a monthly Draft, allocate a B-code, execute a 1688 order, or make a payment by itself.
+
+---
+
+## 22. Default 15% sourcing ceiling and unused-budget return (2026-10-12)
+
+- The purchase preflight now starts with a 15% new-product sourcing share when the URL does not contain an explicit value.
+- The share is a ceiling. A ready sourcing plan keeps prior sourcing reservations plus the newly selected candidate spend and returns only the exact unused remainder to the existing-product reorder envelope.
+- A blocked or incomplete sourcing plan returns zero. Its unused balance remains visibly pending so unverified sourcing money cannot silently increase an existing-product Draft.
+- The read-only preview and the authoritative Draft creation path both perform the same second preflight calculation with the pinned returned amount. That amount changes the purchase-plan fingerprint and is included in the exact Draft confirmation text.
+- The calculation result includes an inline ratio form. It preserves the target date, cash input, replacement Draft, selected concepts, storage choices, and 1688 variant choices while recalculating at the result anchor.
+- The result separates the sourcing ceiling, actual existing/new sourcing reservations and selected spend, returned or pending cash, and final existing-product cash.
+- Ratio changes continue to respect sourcing quality, warehouse, per-month item, per-product test-cost, and quantity limits. This remains an internal Draft workflow; it does not execute a 1688 order or payment.

@@ -19,6 +19,7 @@ function report() {
     cashLimitKrw: null,
     sourcingBudgetPercent: 0,
     sourcingBudgetKrw: 0,
+    sourcingBudgetReturnKrw: 0,
     sourceFingerprint: fp("a"),
     planFingerprint: fp("b"),
     previewReady: true,
@@ -112,11 +113,13 @@ test("draft recheck preserves and pins the sourcing budget share", () => {
   const value = report();
   value.sourcingBudgetPercent = 20;
   value.sourcingBudgetKrw = 200_000;
+  value.sourcingBudgetReturnKrw = 50_000;
   const plan = sourcingPlan(value);
   const input = request(value, plan);
   assert.equal(purchaseCycleDraftPreflightOptions(input).sourcingBudgetPercent, 20);
   assert.match(input.confirmation, /SOURCING20PCT/);
   assert.match(input.confirmation, /NEWSOURCE1SKU_150000KRW/);
+  assert.match(input.confirmation, /RETURN50000KRW/);
   assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
   input.sourcingBudgetPercent = 15;
   assert.throws(
@@ -313,6 +316,8 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(core, /maxUnitsPerSku: 9_999/);
   assert.match(service, /purchaseCycleDraftPreflightOptions\(request\)/);
   assert.match(service, /loadSourcingBudgetPlan/);
+  assert.match(service, /returnableSourcingBudgetKrw/);
+  assert.match(service, /sourcingBudgetReturnKrw/);
   assert.match(service, /confirmSourcingBudgetPlan/);
   assert.match(service, /complete: sourcing\?\.ok !== false/);
   assert.match(service, /allowAdoptExistingReservedDraft: false/);

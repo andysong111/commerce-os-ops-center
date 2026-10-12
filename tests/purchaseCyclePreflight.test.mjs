@@ -190,6 +190,27 @@ test("automatic budget reserves sourcing cash before calculating the reorder pro
   assert.equal(report.selected[0].quantity, 5);
   assert.match(report.stages.find(row => row.number === 10).message, /신규상품 소싱 20%/);
 });
+test("unused verified sourcing budget returns to the reorder allocation", () => {
+  const input = fixture();
+  input.options.cashLimitKrw = null;
+  input.options.sourcingBudgetPercent = 20;
+  input.options.sourcingBudgetReturnKrw = 9_000;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.sourcingBudgetKrw, 29_000);
+  assert.equal(report.sourcingBudgetReturnKrw, 9_000);
+  assert.equal(report.reorderCashKrw, 125_000);
+  assert.equal(report.effectiveBudgetKrw, Math.floor(125_000 / 1.45));
+  assert.match(report.stages.find(row => row.number === 10).message, /남은 9,000원을 기존상품 예산으로 돌려/);
+});
+test("sourcing budget return cannot exceed the reserved maximum", () => {
+  const input = fixture();
+  input.options.sourcingBudgetPercent = 20;
+  input.options.sourcingBudgetReturnKrw = 29_001;
+  assert.throws(
+    () => buildPurchaseCyclePreflight(input),
+    /SOURCING_BUDGET_RETURN_EXCEEDS_RESERVE/,
+  );
+});
 test("explicit cash applies sourcing reserve before cashflow quantity allocation", () => {
   const input = fixture();
   input.options.cashLimitKrw = 29000;
@@ -235,7 +256,7 @@ test("selection is deterministic, bounded, and does not mutate source arrays", (
   input.priority.rows.reverse(); const b = buildPurchaseCyclePreflight(input);
   assert.deepEqual(a.selected, b.selected); assert.equal(a.planFingerprint, b.planFingerprint); assert.equal(a.estimatedSpendKrw, 25000);
 });
-for (const mutate of [i => i.options.cashLimitKrw++, i => { i.options.sourcingBudgetPercent = 10; }, i => i.options.maxSkus++, i => i.priority.rows[0].openCommitment++, i => i.priority.rows[0].expectedCost++, i => i.priority.rows[0].inventoryQuantity++, i => i.priority.rows[0].latestConfirmedReceiptCostKrw++]) {
+for (const mutate of [i => i.options.cashLimitKrw++, i => { i.options.sourcingBudgetPercent = 10; }, i => { i.options.sourcingBudgetPercent = 1; i.options.sourcingBudgetReturnKrw = 1; }, i => i.options.maxSkus++, i => i.priority.rows[0].openCommitment++, i => i.priority.rows[0].expectedCost++, i => i.priority.rows[0].inventoryQuantity++, i => i.priority.rows[0].latestConfirmedReceiptCostKrw++]) {
   test("material evidence or limits change the pinned preview fingerprint", () => {
     const input = fixture(); const previous = buildPurchaseCyclePreflight(input); mutate(input);
     assert.notEqual(buildPurchaseCyclePreflight(input).planFingerprint, previous.planFingerprint);
@@ -289,7 +310,7 @@ test("January purchase uses the previous December budget", () => {
   const input = fixture(); input.options.targetDate = "2027-01-01";
   assert.equal(buildPurchaseCyclePreflight(input).requiredBudgetMonth, "2026-12");
 });
-for (const options of [{ targetDate: "2026-02-30" }, { targetDate: "2026-13-01" }, { cashLimitKrw: 0 }, { cashLimitKrw: -1 }, { cashLimitKrw: "50000" }, { cashLimitKrw: Number.MAX_SAFE_INTEGER + 1 }, { sourcingBudgetPercent: -1 }, { sourcingBudgetPercent: 101 }, { sourcingBudgetPercent: 1.5 }, { sourcingBudgetPercent: "10" }, { maxSkus: 0 }, { maxSkus: 101 }, { maxUnitsPerSku: 0 }]) {
+for (const options of [{ targetDate: "2026-02-30" }, { targetDate: "2026-13-01" }, { cashLimitKrw: 0 }, { cashLimitKrw: -1 }, { cashLimitKrw: "50000" }, { cashLimitKrw: Number.MAX_SAFE_INTEGER + 1 }, { sourcingBudgetPercent: -1 }, { sourcingBudgetPercent: 101 }, { sourcingBudgetPercent: 1.5 }, { sourcingBudgetPercent: "10" }, { sourcingBudgetReturnKrw: -1 }, { sourcingBudgetReturnKrw: 1.5 }, { maxSkus: 0 }, { maxSkus: 101 }, { maxUnitsPerSku: 0 }]) {
   test(`invalid options rejected: ${JSON.stringify(options)}`, () => {
     const input = fixture(); Object.assign(input.options, options); assert.throws(() => buildPurchaseCyclePreflight(input));
   });
@@ -483,6 +504,10 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /1단계/);
   assert.match(page, /발주 준비 단계/);
   assert.match(page, /총현금이 이렇게 나뉩니다/);
+  assert.match(page, /single\("sourcing", "15"\)/);
+  assert.match(page, /신규소싱 비율 다시 계산/);
+  assert.match(page, /action="\/purchase-cycle-preflight#preflight-result-title"/);
+  assert.match(page, /기존상품으로 돌아간 금액/);
   assert.match(page, /지금 확인할 내용/);
   assert.match(page, /기존상품 재발주/);
   assert.match(page, /상세 검증 내역 보기/);

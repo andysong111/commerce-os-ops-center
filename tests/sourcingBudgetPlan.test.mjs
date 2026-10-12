@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { loadManualPilotCatalog, loadSourcingBudgetPlan } from "../src/lib/sourcingBudgetPlan.ts";
+import {
+  loadManualPilotCatalog,
+  loadSourcingBudgetPlan,
+  returnableSourcingBudgetKrw,
+} from "../src/lib/sourcingBudgetPlan.ts";
 
 const fingerprint = value => `sha256:${value.repeat(64)}`;
 const validPlan = () => ({
@@ -64,6 +68,33 @@ test("invalid sourcing fingerprints are rejected before being trusted", async ()
   assert.match(source, /FINGERPRINT\.test/);
   assert.match(source, /SOURCING_BUDGET_PLAN_RESPONSE_INVALID/);
   assert.ok(!source.includes("console.log(secret"));
+});
+
+test("only a complete, internally consistent sourcing plan releases unused cash", () => {
+  const plan = {
+    ...validPlan(),
+    sourcingBudgetKrw: 200_000,
+    readyForConfirmation: true,
+    allocation: {
+      budgetKrw: 200_000,
+      alreadyReservedKrw: 30_000,
+      availableBudgetKrw: 170_000,
+      estimatedSpendKrw: 120_000,
+      remainingBudgetKrw: 50_000,
+      selected: [],
+      availableCandidates: [],
+      excluded: [],
+    },
+  };
+  assert.equal(returnableSourcingBudgetKrw(plan), 50_000);
+  assert.equal(returnableSourcingBudgetKrw({ ...plan, readyForConfirmation: false }), 0);
+  assert.throws(
+    () => returnableSourcingBudgetKrw({
+      ...plan,
+      allocation: { ...plan.allocation, remainingBudgetKrw: 50_001 },
+    }),
+    /SOURCING_BUDGET_PLAN_ALLOCATION_INVALID/,
+  );
 });
 
 test("read-only sourcing preview retries a transient timeout and then succeeds", async t => {

@@ -31,6 +31,7 @@ export type PurchasePreflightOptions = {
   targetDate: string;
   cashLimitKrw: number | null;
   sourcingBudgetPercent?: number;
+  sourcingBudgetReturnKrw?: number;
   maxSkus: number;
   maxUnitsPerSku: number;
   allowOpenBudgetPreview?: boolean;
@@ -133,6 +134,7 @@ export type PurchaseCyclePreflightReport = {
   cashLimitKrw: number | null;
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
+  sourcingBudgetReturnKrw: number;
   reorderCashKrw: number;
   automaticGrossBudgetKrw: number | null;
   effectiveBudgetKrw: number;
@@ -232,6 +234,7 @@ export function validatePurchasePreflightOptions(options: PurchasePreflightOptio
   }
   if (options.cashLimitKrw !== null && !positive(options.cashLimitKrw)) throw new Error("CASH_LIMIT_INVALID");
   if (!validPercent(options.sourcingBudgetPercent ?? 0)) throw new Error("SOURCING_BUDGET_PERCENT_INVALID");
+  if (!nonnegative(options.sourcingBudgetReturnKrw ?? 0)) throw new Error("SOURCING_BUDGET_RETURN_INVALID");
   if (!positive(options.maxSkus) || options.maxSkus > 100) throw new Error("PURCHASE_SKU_LIMIT_INVALID");
   if (!positive(options.maxUnitsPerSku) || options.maxUnitsPerSku > 9999) throw new Error("CANARY_UNIT_LIMIT_INVALID");
 }
@@ -440,7 +443,11 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   // reorder allocation. The quotient/remainder form avoids unsafe integer
   // multiplication when an operator enters a very large safe-integer budget.
   const sourcingBudgetKrw = percentOfFloor(effectiveCashKrw, sourcingBudgetPercent);
-  const reorderCashKrw = effectiveCashKrw - sourcingBudgetKrw;
+  const sourcingBudgetReturnKrw = input.options.sourcingBudgetReturnKrw ?? 0;
+  if (sourcingBudgetReturnKrw > sourcingBudgetKrw) {
+    throw new Error("SOURCING_BUDGET_RETURN_EXCEEDS_RESERVE");
+  }
+  const reorderCashKrw = effectiveCashKrw - sourcingBudgetKrw + sourcingBudgetReturnKrw;
   // The cash ceiling includes freight reserve; line amounts are product costs.
   // Automatic mode remains bounded by the prior-month product-cost envelope.
   // Explicit mode uses the entered all-in cash after reserving the multiplier.
@@ -704,7 +711,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costBasisByBarcode.get(row.barcode)).length) : "BLOCKED", `확정원가 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "VERIFIED_PURCHASE_COST").length}개 · 활성 도매 판매가 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE").length}개 · 사용자 제공 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || costBasisByBarcode.get(row.barcode)?.basis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE").length}개 · 미확인 ${candidates.filter(row => !costBasisByBarcode.get(row.barcode)).length}개. 추정값은 초안 예산에만 쓰며 실제 주문 원가로 승격하지 않습니다.`, "/stage7-purchase-cost-evidence"),
     stage(8, "발주 후보 재고 근거", inventoryFresh ? coverage(candidates.filter(inventoryPreviewReady).length) : "BLOCKED", `계획재고 ${candidates.filter(inventoryPreviewReady).length}/${candidates.length}개 · VERIFIED ${candidates.filter(verifiedInventoryReady).length}개 · PROVISIONAL ${candidates.filter(provisionalInventoryReady).length}개. 전수 실사는 요구하지 않으며, 실제 품절 시 SOLD_OUT_RESET=0 이후 중국 확정입고와 판매를 누적합니다.`, "/stage8-inventory-verification-priority"),
     stage(9, "발주 Shadow·원본 일치", shadowReady && contextMatch && stable && fullReadback && sourceFresh && inventoryFresh ? "VERIFIED" : "BLOCKED", "판매·재고·미입고가 연결된 읽기 전용 계산입니다. 보조신호 등 남은 조건은 승인 검토 차단 사유로 별도 표시합니다.", "/stage8-canonical-purchase-shadow"),
-    stage(10, "예산 내 소량 발주안", previewReady ? "VERIFIED" : "WAITING", previewReady ? budgetMonthClosed ? `${cashLimitKrw === null ? "전월 판매원가 자동 한도" : "운영자 입력 총현금"}에서 신규상품 소싱 ${sourcingBudgetPercent}%를 예약하고 계산한 미리보기입니다. 승인·예약·주문은 생성되지 않았습니다.` : "월 마감 전 조기 미리보기입니다. 실제 주문 전에 마감 자료로 다시 계산해야 하며 승인·예약·주문은 생성되지 않았습니다." : `목표 월의 최신 데이터와 ${cashLimitKrw === null ? "전월 판매원가 자동 한도" : "운영자 입력 총현금"}, 신규상품 소싱 비율을 확인한 뒤 계산합니다.`, "/purchase-cycle-preflight"),
+    stage(10, "예산 내 소량 발주안", previewReady ? "VERIFIED" : "WAITING", previewReady ? budgetMonthClosed ? `${cashLimitKrw === null ? "전월 판매원가 자동 한도" : "운영자 입력 총현금"}에서 신규상품 소싱 ${sourcingBudgetPercent}%를 최대한도로 예약하고, 안전후보 배정 뒤 남은 ${sourcingBudgetReturnKrw.toLocaleString("ko-KR")}원을 기존상품 예산으로 돌려 계산한 미리보기입니다. 승인·예약·주문은 생성되지 않았습니다.` : "월 마감 전 조기 미리보기입니다. 실제 주문 전에 마감 자료로 다시 계산해야 하며 승인·예약·주문은 생성되지 않았습니다." : `목표 월의 최신 데이터와 ${cashLimitKrw === null ? "전월 판매원가 자동 한도" : "운영자 입력 총현금"}, 신규상품 소싱 비율을 확인한 뒤 계산합니다.`, "/purchase-cycle-preflight"),
     stage(11, "실제 주문→입고 검증", "LOCKED", "지정일에도 자동으로 열리지 않습니다. 별도 최종 승인과 기존 실행 경로의 재검증 후 실제 입고까지 확인해야 합니다.", "/fast-purchase-mvp"),
   ];
   const uniqueBlockers = [...new Set(blockers)];
@@ -722,7 +729,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     }),
     candidateRequestId: pin?.requestId ?? null, sourceAnalysisAsOf: pin?.analysisAsOf ?? null,
     sourceCycleMonth: source?.cycleMonth ?? null, sourceBudgetMonth: source?.budgetMonth ?? null,
-    cashLimitKrw, sourcingBudgetPercent, sourcingBudgetKrw, reorderCashKrw,
+    cashLimitKrw, sourcingBudgetPercent, sourcingBudgetKrw, sourcingBudgetReturnKrw, reorderCashKrw,
     automaticGrossBudgetKrw: fundingValid ? source!.grossBudgetKrw! : null,
     effectiveBudgetKrw, estimatedSpendKrw,
     cashAdjustedCount: selected.filter((row) => row.cashAdjusted).length,
