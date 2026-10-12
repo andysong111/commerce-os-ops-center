@@ -84,6 +84,45 @@ test("existing canonical month that disappears from fresh result is zeroed", () 
   ]);
 });
 
+test("a renamed B-code zeros the prior deterministic row and writes the current row without double counting", () => {
+  const plan = buildShoplingIncrementalReconcilePlan({
+    freshRows: [sales("BAA1-1", "2026-08", 8)],
+    existingRows: [
+      {
+        ...existing("sku-a", "BAA9-9", "2026-08", 5),
+        id: "shopling-sales-v1:BAA9-9:2026-08",
+      },
+    ],
+    planningRows: planning,
+    months: ["2026-08"],
+  });
+  assert.equal(plan.blockers.length, 0);
+  assert.equal(plan.writeRows.length, 2);
+  assert.deepEqual(
+    plan.writeRows.map((row) => [row.id, row.quantity]),
+    [
+      ["shopling-sales-v1:BAA1-1:2026-08", 8],
+      ["shopling-sales-v1:BAA9-9:2026-08", 0],
+    ],
+  );
+});
+
+test("an unrecognized legacy row id still blocks automatic correction", () => {
+  const plan = buildShoplingIncrementalReconcilePlan({
+    freshRows: [],
+    existingRows: [
+      {
+        ...existing("sku-a", "BAA1-1", "2026-08", 5),
+        id: "unknown-row-id",
+      },
+    ],
+    planningRows: planning,
+    months: ["2026-08"],
+  });
+  assert.equal(plan.zeroRows.length, 0);
+  assert.equal(plan.blockers[0].code, "TARGET_ROW_CONFLICT");
+});
+
 test("does not zero rows outside the rolling months", () => {
   const plan = buildShoplingIncrementalReconcilePlan({
     freshRows: [],

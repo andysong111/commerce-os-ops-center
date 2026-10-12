@@ -284,12 +284,31 @@ export function buildShoplingIncrementalReconcilePlan(input: {
     }
     const expectedId = `shopling-sales-v1:${barcode}:${text(existing.month)}`;
     if (text(existing.id) !== expectedId) {
-      blockers.push({
-        code: "TARGET_ROW_CONFLICT",
+      const priorIdentity = /^shopling-sales-v1:(B[A-Z]{2}\d+-\d+):(\d{4}-\d{2})$/.exec(
+        text(existing.id),
+      );
+      if (!priorIdentity || priorIdentity[2] !== text(existing.month)) {
+        blockers.push({
+          code: "TARGET_ROW_CONFLICT",
+          barcode,
+          skuId: text(existing.skuId),
+          month: text(existing.month),
+          message: "기존 Shopling 판매원장 ID가 안전하게 식별할 수 없는 형식이라 자동 0 보정을 차단했습니다.",
+        });
+        continue;
+      }
+      // A B-code rename leaves the old deterministic row behind. Zero that
+      // exact row while the fresh row is written under the current B-code, so
+      // one SKU-month is never counted twice and the history remains auditable.
+      zeroRows.push({
+        id: text(existing.id),
         barcode,
         skuId: text(existing.skuId),
         month: text(existing.month),
-        message: "기존 Shopling 판매원장 ID가 현재 결정적 ID 규칙과 달라 자동 0 보정을 차단했습니다.",
+        quantity: 0,
+        revenue: 0,
+        lastSaleAt: null,
+        source: SHOPLING_CANONICAL_SALES_SOURCE,
       });
       continue;
     }

@@ -58,6 +58,9 @@ export async function GET(request: Request) {
         requestId: prepared.requestId,
         analysisAsOf: prepared.analysisAsOf,
         accepted: prepared.accepted,
+        reusedRangeCount: prepared.reusedRangeCount,
+        sourceReadRangeCount: prepared.sourceReadRangeCount,
+        correctionDays: prepared.correctionDays,
       },
       now,
     );
@@ -69,17 +72,28 @@ export async function GET(request: Request) {
       ok: true,
       processed: true,
       busy: prepared.state === "QUEUED" || prepared.state === "RUNNING",
-      state: prepared.accepted ? "QUEUED" : "REUSED_FRESH_SOURCE",
+      state: prepared.accepted
+        ? "QUEUED"
+        : prepared.alreadyActive
+          ? "REUSED_ACTIVE_SOURCE"
+          : "REUSED_FRESH_SOURCE",
       writesEnabled: false,
       approvalEnabled: false,
       cycleMonth: prepared.cycleMonth,
       requestId: prepared.requestId,
       analysisAsOf: prepared.analysisAsOf,
+      reusedRangeCount: prepared.reusedRangeCount,
+      sourceReadRangeCount: prepared.sourceReadRangeCount,
+      correctionDays: prepared.correctionDays,
       salesWakeRequested,
       evidenceWakeRequested,
       message: prepared.accepted
-        ? "월간 발주일 전에 최신 판매자료 수집과 두 번 대조를 자동 시작했습니다. Product Master 원장 반영은 사람 승인 전까지 실행하지 않습니다."
-        : "이미 신선한 판매자료가 있어 중복 수집하지 않고 비교·근거 준비를 이어갑니다.",
+        ? prepared.correctionDays
+          ? `검증된 360일 판매근거 중 ${prepared.reusedRangeCount}개 구간을 재사용하고 최근 ${prepared.correctionDays}일을 포함한 ${prepared.sourceReadRangeCount}개 구간만 다시 읽기 시작했습니다. Product Master 원장 반영은 사람 승인 전까지 실행하지 않습니다.`
+          : "재사용할 검증 기준자료가 없어 360일 최초 수집을 시작했습니다. Product Master 원장 반영은 사람 승인 전까지 실행하지 않습니다."
+        : prepared.alreadyActive
+          ? "이미 진행 중인 판매자료 작업을 그대로 이어갑니다. 중복 작업은 만들지 않았습니다."
+          : "이미 신선한 판매자료가 있어 중복 수집하지 않고 비교·근거 준비를 이어갑니다.",
     });
   } catch (error) {
     return Response.json(

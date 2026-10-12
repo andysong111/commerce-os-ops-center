@@ -690,3 +690,21 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Production `/purchase-cycle-preflight` returned HTTP 200. Unauthenticated requests to the schedule API and the worker route both returned HTTP 401.
 - Supabase migration `monthly_purchase_preparation_worker` applied successfully to the Commerce OS operational project. Its first natural dispatcher execution finished HTTP 200 with `last_status=success`, zero consecutive failures, and `writesEnabled=false` / `approvalEnabled=false` while the owner schedule remained disabled.
 - No manual worker invocation, Product Master promotion, monthly Draft save, 1688 order, payment, or supplier contact was used for this proof.
+
+---
+
+## 26. Monthly 360-day candidate incremental refresh (2026-10-13)
+
+- Monthly purchase preparation still produces one complete 360-day candidate and still uses the existing parity, promotion, and readback gates. It no longer needs to call Shopling for all 52 seven-day ranges on every normal month.
+- A clean prior candidate with the same Product Master planning fingerprint supplies its exact source chunks before the rolling 45-day correction window. The new request copies those chunks as append-only operation evidence and trims events that have fallen outside the new exact 360-day window.
+- The worker rereads every uncovered boundary day and every source range in the latest 45 days. A late cancellation or status change for an older order can therefore appear in a recent source range; chunk combination keeps the newer copy by `syncedAt`.
+- Missing baseline/report evidence, mapping drift, prior unmapped rows, prior identity conflicts, or a failed parent disables reuse and falls back to the ordinary complete 360-day read. An active candidate is continued and never superseded merely because its analysis timestamp became old.
+- Reused chunks never grant CANARY/FULL approval. The new candidate gets new request, report, event, and plan fingerprints and must pass the existing owner-controlled Product Master promotion path.
+- The separate 360-day exact full-audit worker remains the drift/recovery mechanism. Monthly speed-up does not weaken or replace that audit.
+- The monthly aggregate synchronizer also handles a verified B-code rename by zeroing the exact old deterministic row while writing the current B-code row. Unknown row-ID formats still fail closed. This fixes the observed `BBD4-3 -> BBD4-2` double-count prevention blocker without deleting history.
+
+### Verification status
+
+- Focused normal, fallback, active-work, renamed-B-code, invalid-ID, and exact-window regression tests pass locally.
+- TypeScript typecheck and focused ESLint pass locally.
+- GitHub CI, merge, Vercel Production deployment, natural dispatcher execution, and Production evidence remain pending until this change is delivered.

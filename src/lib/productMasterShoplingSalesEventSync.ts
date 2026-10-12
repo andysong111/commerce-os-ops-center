@@ -12,6 +12,10 @@ import {
 } from "@/lib/productMasterShoplingSalesEventEngine";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import {
+  buildMonthlySalesEventReusePlan,
+  trimReusedSalesEventChunk,
+} from "@/lib/monthlySalesEventRefreshCore";
+import {
   ShoplingReadClient,
   shoplingReadConfigFromEnv,
   splitShoplingDateRange,
@@ -32,6 +36,7 @@ export const SALES_EVENT_FAILED = "PRODUCT_MASTER_SHOPLING_SALES_EVENT_FAILED";
 const DEFAULT_PRODUCT_MASTER_URL = "https://commerce-os-product-master.vercel.app";
 const ANALYSIS_DAYS = PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS;
 export const SALES_EVENT_SOURCE_RANGE_DAYS = 7;
+export const MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS = 45;
 const LEGACY_SALES_EVENT_SOURCE_RANGE_DAYS = 30;
 const OPERATION_LIMIT = 500;
 const APPLY_BATCH_SIZE = 2_000;
@@ -193,8 +198,14 @@ export function productMasterShoplingSalesEventSyncConfigured() {
 }
 
 async function storeOperation(input: StoreOperationInput) {
+  const rows = await storeOperationRows([input]);
+  return { duplicate: rows.length === 0 };
+}
+
+async function storeOperationRows(inputs: StoreOperationInput[]) {
+  if (!inputs.length) return [] as unknown[];
   const { baseUrl, secret } = supabaseConnection();
-  const occurredAt = input.occurredAt || new Date().toISOString();
+  const fallbackOccurredAt = new Date().toISOString();
   const response = await fetch(
     `${baseUrl}/rest/v1/commerce_operation_runs?on_conflict=source_event_id&select=id,source_event_id,started_at`,
     {
@@ -203,8 +214,10 @@ async function storeOperation(input: StoreOperationInput) {
         ...createSupabaseAdminHeaders(secret),
         Prefer: "resolution=ignore-duplicates,return=representation",
       },
-      body: JSON.stringify([
-        {
+      body: JSON.stringify(
+        inputs.map((input) => {
+          const occurredAt = input.occurredAt || fallbackOccurredAt;
+          return {
           operation_type: input.operationType,
           status: input.status ?? "SUCCEEDED",
           source: "ops-center-canonical-sales-events",
@@ -217,8 +230,9 @@ async function storeOperation(input: StoreOperationInput) {
           started_at: occurredAt,
           finished_at: occurredAt,
           updated_at: occurredAt,
-        },
-      ]),
+          };
+        }),
+      ),
       cache: "no-store",
     },
   );
@@ -227,7 +241,7 @@ async function storeOperation(input: StoreOperationInput) {
     throw new Error(`SALES_EVENT_OPERATION_STORE_FAILED:${response.status}:${body.slice(0, 300)}`);
   }
   const rows = body ? (JSON.parse(body) as unknown) : [];
-  return { duplicate: Array.isArray(rows) && rows.length === 0 };
+  return Array.isArray(rows) ? rows : [];
 }
 
 async function readOperations(
@@ -380,10 +394,40 @@ const ACTIVE_SALES_EVENT_STATES = new Set([
 async function appendSalesEventSyncRequest(
   provenance: Record<string, unknown> = {},
   resetMs?: number,
+  options: {
+    analysisAsOf?: Date;
+    monthlyStableRangeReuse?: boolean;
+  } = {},
 ) {
   shoplingReadConfigFromEnv(shoplingEnvironment());
+  const parent = options.monthlyStableRangeReuse ? await latestRequest() : null;
   const planning = await loadProductPlanningSnapshot();
-  const request = createSalesEventSyncRequestPlan(crypto.randomUUID(), planning);
+  let request = createSalesEventSyncRequestPlan(
+    crypto.randomUUID(),
+    planning,
+    options.analysisAsOf?.toISOString(),
+  );
+  let parentOperations: Awaited<ReturnType<typeof requestOperations>> | null = null;
+  let reusePlan: ReturnType<typeof buildMonthlySalesEventReusePlan> | null = null;
+  if (parent && parent.planningContentFingerprint === planning.contentFingerprint) {
+    parentOperations = await requestOperations(parent);
+    const parentReport = parentOperations.reports.map(reportFromRow).find(Boolean) ?? null;
+    if (
+      parentReport &&
+      parentReport.unmappedRows === 0 &&
+      parentReport.identityConflictCount === 0 &&
+      parentOperations.failures.length === 0
+    ) {
+      reusePlan = buildMonthlySalesEventReusePlan({
+        analysisStartDate: request.analysisStartDate,
+        analysisEndDate: request.analysisEndDate,
+        parentRanges: parent.ranges,
+        correctionDays: MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS,
+        chunkDays: SALES_EVENT_SOURCE_RANGE_DAYS,
+      });
+      request = { ...request, ranges: reusePlan.ranges };
+    }
+  }
   const createdAnalysisMs = Date.parse(request.analysisAsOf);
   if (resetMs !== undefined && (!Number.isFinite(createdAnalysisMs) || createdAnalysisMs < resetMs)) {
     throw new SalesEventActionError("CANONICAL_SALES_REFRESH_ANALYSIS_BEFORE_RESET", 409, "새 판매 분석시점이 재고 기준시점보다 이릅니다. 저장하지 않고 보류합니다.");
@@ -392,7 +436,19 @@ async function appendSalesEventSyncRequest(
     operationType: SALES_EVENT_REQUEST,
     sourceEventId: `sales-event-request:${request.requestId}`,
     correlationId: requestCorrelationId(request.requestId),
-    inputSnapshot: { ...request, ...provenance },
+    inputSnapshot: {
+      ...request,
+      ...provenance,
+      monthlyStableRangeReuse: reusePlan
+        ? {
+            parentRequestId: parent?.requestId ?? null,
+            correctionDays: MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS,
+            correctionStartDate: reusePlan.correctionStartDate,
+            plannedReusableRanges: reusePlan.reusableRangeKeys.length,
+            plannedSourceReadRanges: reusePlan.sourceReadRangeCount,
+          }
+        : null,
+    },
     resultSnapshot: {
       accepted: true,
       state: "QUEUED",
@@ -402,11 +458,48 @@ async function appendSalesEventSyncRequest(
     },
     occurredAt: request.createdAt,
   });
+
+  let reusedRangeCount = 0;
+  if (parent && parentOperations && reusePlan?.reusableRangeKeys.length) {
+    const reusableKeys = new Set(reusePlan.reusableRangeKeys);
+    const chunksByRange = new Map<string, ProductMasterShoplingSalesEventChunk>();
+    for (const row of parentOperations.chunks) {
+      const key = operationRangeKey(row);
+      if (!reusableKeys.has(key) || chunksByRange.has(key)) continue;
+      const chunk = chunkFromRow(row);
+      if (chunk) chunksByRange.set(key, chunk);
+    }
+    const reusedAt = new Date().toISOString();
+    const reusableRows = [...chunksByRange.entries()].map(([key, chunk]) => ({
+      operationType: SALES_EVENT_CHUNK,
+      sourceEventId: `sales-event-monthly-reuse-chunk:${request.requestId}:${key}`,
+      correlationId: requestCorrelationId(request.requestId),
+      inputSnapshot: {
+        requestId: request.requestId,
+        range: chunk.range,
+        rangeKey: key,
+        planningContentFingerprint: request.planningContentFingerprint,
+        reusedFromRequestId: parent.requestId,
+        reuseReason: "STABLE_BEFORE_45_DAY_CORRECTION_WINDOW",
+      },
+      resultSnapshot: trimReusedSalesEventChunk(chunk, request.analysisAsOf),
+      occurredAt: reusedAt,
+    } satisfies StoreOperationInput));
+    await storeOperationRows(reusableRows);
+    reusedRangeCount = reusableRows.length;
+  }
   const persisted = await latestRequest();
   if (persisted?.requestId !== request.requestId || persisted.analysisAsOf !== request.analysisAsOf) {
     throw new SalesEventActionError("SALES_EVENT_REQUEST_READBACK_FAILED", 503, "재수집 저장 결과가 확인되지 않았습니다. 재접수하지 말고 상태를 다시 조회하세요.");
   }
-  return persisted;
+  return {
+    ...persisted,
+    reusedRangeCount,
+    sourceReadRangeCount: persisted.ranges.length - reusedRangeCount,
+    correctionDays: reusePlan
+      ? MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS
+      : null,
+  };
 }
 
 export async function createProductMasterShoplingSalesEventSyncRequest(refresh?: SalesEventRefreshInput) {
@@ -480,6 +573,20 @@ export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
       );
     }
     const analysisMs = Date.parse(current.analysisAsOf ?? "");
+    if (ACTIVE_SALES_EVENT_STATES.has(current.state) && current.requestId) {
+      return {
+        accepted: false,
+        alreadyFresh: false,
+        alreadyActive: true,
+        requestId: current.requestId,
+        analysisAsOf: current.analysisAsOf,
+        state: current.state,
+        cycleMonth: input.cycleMonth,
+        reusedRangeCount: 0,
+        sourceReadRangeCount: 0,
+        correctionDays: null,
+      } as const;
+    }
     const fresh =
       FRESH_SALES_EVENT_STATES.has(current.state) &&
       Number.isFinite(analysisMs) &&
@@ -489,10 +596,14 @@ export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
       return {
         accepted: false,
         alreadyFresh: true,
+        alreadyActive: false,
         requestId: current.requestId,
         analysisAsOf: current.analysisAsOf,
         state: current.state,
         cycleMonth: input.cycleMonth,
+        reusedRangeCount: 0,
+        sourceReadRangeCount: 0,
+        correctionDays: null,
       } as const;
     }
 
@@ -501,14 +612,21 @@ export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
       purchaseCycleMonth: input.cycleMonth,
       refreshesRequestId: current.requestId,
       previousPlanFingerprint: current.report?.planFingerprint ?? null,
+    }, undefined, {
+      analysisAsOf: now,
+      monthlyStableRangeReuse: true,
     });
     return {
       accepted: true,
       alreadyFresh: false,
+      alreadyActive: false,
       requestId: created.requestId,
       analysisAsOf: created.analysisAsOf,
       state: "QUEUED" as const,
       cycleMonth: input.cycleMonth,
+      reusedRangeCount: created.reusedRangeCount,
+      sourceReadRangeCount: created.sourceReadRangeCount,
+      correctionDays: created.correctionDays,
     } as const;
   });
 }
