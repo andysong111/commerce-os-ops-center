@@ -377,6 +377,17 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <p className="text-xs leading-5 text-slate-600 md:col-span-2 xl:col-span-3">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하되, 이 비율은 최대한도입니다. 안전후보 배정이 끝나고 남은 금액은 기존상품 예산으로 자동 복귀합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
         </PurchasePreflightForm>
       </section>
+      {report ? (
+        <section data-testid="preflight-plan-jump" className="flex flex-wrap items-center justify-between gap-4 border-l-4 border-blue-600 bg-blue-50 px-5 py-4">
+          <div>
+            <strong className="text-sm text-blue-950">예산과 후보를 불러왔습니다.</strong>
+            <p className="mt-1 text-xs leading-5 text-blue-900">현재 계산된 발주안과 남은 확인 항목으로 바로 이동합니다.</p>
+          </div>
+          <a href="#preflight-result-title" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800">
+            발주안 바로 보기
+          </a>
+        </section>
+      ) : null}
       <section id="new-product-configuration" className="scroll-mt-5 border-y border-slate-200 bg-white py-5" aria-labelledby="new-product-configuration-title">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

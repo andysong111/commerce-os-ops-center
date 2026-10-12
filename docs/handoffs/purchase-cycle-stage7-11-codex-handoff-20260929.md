@@ -641,3 +641,12 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - A read-only Production request to `/purchase-cycle-preflight` returned HTTP 200 and showed the 15% default plus the result-screen ratio recalculation control.
 - A read-only calculation with 1,000,000 KRW and 15% showed 150,000 KRW as sourcing validation-pending cash and 850,000 KRW as existing-product available cash. It did not release the 150,000 KRW because the live run had two independent blockers: 11 expired or unprepared source validations and an 8-second sourcing-engine preview timeout.
 - This is the intended fail-closed state. Recalculate after the source validations are fresh and the sourcing preview responds; only then may an exactly verified unused remainder return to the existing-product envelope.
+
+---
+
+## 23. First-step purchase-plan jump (2026-10-12)
+
+- After `예산 확인 · 후보 불러오기` produces a report, the page shows a `발주안 바로 보기` action immediately below the first-step input.
+- The action keeps the current query and scrolls to the same page's calculated purchase-plan result and remaining checks.
+- It appears only when a report exists. Invalid input or a failed first-step calculation does not show a misleading next-step action.
+- The action does not skip candidate configuration, safety gates, monthly Draft confirmation, 1688 ordering, or payment.
