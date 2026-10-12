@@ -13,6 +13,7 @@ import { regenerateValidatedMonthlyPurchaseDraft } from "@/lib/purchaseCycleDraf
 import {
   confirmSourcingBudgetPlan,
   loadSourcingBudgetPlan,
+  returnableSourcingBudgetKrw,
   type SourcingBudgetConfirmationResult,
 } from "@/lib/sourcingBudgetPlan";
 
@@ -38,9 +39,8 @@ export async function createPurchaseCyclePreflightDraft(
   complete: boolean;
   externalOrderExecuted: false;
 }> {
-  const report = await loadPurchaseCyclePreflight(
-    purchaseCycleDraftPreflightOptions(request),
-  );
+  const options = purchaseCycleDraftPreflightOptions(request);
+  let report = await loadPurchaseCyclePreflight(options);
   const sourcingPlan = report.sourcingBudgetPercent > 0
     ? await loadSourcingBudgetPlan({
         targetCycleMonth: report.targetCycleMonth,
@@ -52,6 +52,13 @@ export async function createPurchaseCyclePreflightDraft(
         variantSelections: request.sourcingVariantSelections,
       })
     : null;
+  const sourcingBudgetReturnKrw = sourcingPlan ? returnableSourcingBudgetKrw(sourcingPlan) : 0;
+  if (sourcingBudgetReturnKrw > 0) {
+    report = await loadPurchaseCyclePreflight({
+      ...options,
+      sourcingBudgetReturnKrw,
+    });
+  }
   const prepared = preparePurchaseCycleDraft(report, request, sourcingPlan);
   if (await loadInternalChinaMonthlyPurchaseClose(prepared.cycleMonth)) {
     throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_CLOSED:${prepared.cycleMonth}`);

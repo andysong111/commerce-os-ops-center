@@ -21,6 +21,7 @@ import {
 import {
   loadManualPilotCatalog,
   loadSourcingBudgetPlan,
+  returnableSourcingBudgetKrw,
   type ManualPilotCatalog,
   type SourcingBudgetPlan,
   type SourcingVariantSelectionInput,
@@ -137,7 +138,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const targetDate = single("date", todaySeoul);
   const cash = single("cash", "");
   const cashLimitKrw = cash === "" ? null : Number(cash);
-  const sourcing = single("sourcing", "0");
+  const sourcing = single("sourcing", "15");
   const sourcingBudgetPercent = sourcing === "" ? 0 : Number(sourcing);
   const preferredSourcingConceptIds = [...new Set((Array.isArray(query.source)
     ? query.source
@@ -235,6 +236,13 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           sourcingPlanError = sourcingPlanErrorMessage(sourcingPlanErrorCode);
         }
       }
+      const sourcingBudgetReturnKrw = sourcingPlan ? returnableSourcingBudgetKrw(sourcingPlan) : 0;
+      if (sourcingBudgetReturnKrw > 0) {
+        report = await loadPurchaseCyclePreflightPreview({
+          ...options,
+          sourcingBudgetReturnKrw,
+        });
+      }
     } catch {
       inputError = "점검을 완료하지 못했습니다. 날짜·정수 금액·0~100% 소싱 비율을 확인하세요. 입력이 맞다면 자료를 다시 조회하세요.";
     }
@@ -245,6 +253,14 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     (total, candidate) => total + candidate.selectedVariants.length,
     0,
   ) ?? 0;
+  const sourcingPlannedSpendKrw = sourcingPlan
+    ? sourcingPlan.allocation.alreadyReservedKrw + sourcingPlan.allocation.estimatedSpendKrw
+    : 0;
+  const sourcingPendingKrw = report && report.sourcingBudgetPercent > 0 && report.sourcingBudgetReturnKrw === 0
+    ? sourcingPlan
+      ? sourcingPlan.readyForConfirmation ? 0 : sourcingPlan.allocation.remainingBudgetKrw
+      : report.sourcingBudgetKrw
+    : 0;
   const draftReady = Boolean(report && report.previewReady && report.blockers.length === 0 && sourcingReady);
   const sourcingPreparationCodes = sourcingPlan?.policy.operatorAllocationSupported && sourcingPlan.policy.version !== null
     ? sourcingPlan.blockers.filter(code => sourcingPolicyPreparationCodes.has(code))
@@ -348,7 +364,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
           <label className="text-sm font-bold text-slate-900">발주 예정일<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="date" type="date" defaultValue={targetDate} required /><span className="mt-1 block text-xs font-normal text-slate-500">판매·재고를 계산할 기준일</span></label>
           <label className="text-sm font-bold text-slate-900">이번 발주에 쓸 총 현금<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 자동 예산" /><span className="mt-1 block text-xs font-normal text-slate-500">상품대금과 배송비·수수료까지 포함</span></label>
-          <label className="text-sm font-bold text-slate-900">신규상품 소싱 예산 비율<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">총현금에서 먼저 분리 · 0~100%</span></label>
+          <label className="text-sm font-bold text-slate-900">신규상품 소싱 예산 비율<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">기본 15% · 후보에 쓰고 남은 금액은 기존상품 예산으로 복귀</span></label>
           <div className="border-t border-slate-100 pt-3 md:col-span-2 xl:col-span-3">
             <label className="flex min-h-11 items-center gap-3 text-sm font-bold">
               <input className="size-4" name="early" type="checkbox" value="1" defaultChecked={early} />
@@ -358,7 +374,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               다음 달 발주를 전월이 끝나기 전에 미리 검토할 때만 사용합니다. 임시 매출로 계산되므로 Draft를 확정할 수 없고, 월 마감 후 반드시 다시 계산해야 합니다. 평소에는 체크하지 마세요.
             </p>
           </div>
-          <p className="text-xs leading-5 text-slate-600 md:col-span-2 xl:col-span-3">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하고, 나머지로 기존상품 수량을 우선순위에 따라 계산합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
+          <p className="text-xs leading-5 text-slate-600 md:col-span-2 xl:col-span-3">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하되, 이 비율은 최대한도입니다. 안전후보 배정이 끝나고 남은 금액은 기존상품 예산으로 자동 복귀합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
         </PurchasePreflightForm>
       </section>
       <section id="new-product-configuration" className="scroll-mt-5 border-y border-slate-200 bg-white py-5" aria-labelledby="new-product-configuration-title">
@@ -474,9 +490,11 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                   <div><p className="text-xs font-black text-blue-700">예산 배분</p><h3 className="mt-1 text-lg font-black text-slate-950">총현금이 이렇게 나뉩니다</h3></div>
                   <p className="text-xs text-slate-500">{report.cashLimitKrw === null ? "전월 매출원가 자동 예산" : "입력한 현금 우선 적용"}</p>
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   <SummaryMetric label="이번 발주 총현금" value={money(report.effectiveCashKrw)} tone="blue" />
-                  <SummaryMetric label={`신규상품 소싱 ${report.sourcingBudgetPercent}%`} value={money(report.sourcingBudgetKrw)} tone="emerald" />
+                  <SummaryMetric label={`신규소싱 최대 ${report.sourcingBudgetPercent}%`} value={money(report.sourcingBudgetKrw)} tone="emerald" />
+                  <SummaryMetric label={sourcingPlan ? "신규소싱 실제 사용·예약" : "신규소싱 계산 대기 한도"} value={money(sourcingPlan ? sourcingPlannedSpendKrw : report.sourcingBudgetKrw)} tone="emerald" />
+                  <SummaryMetric label={sourcingPendingKrw > 0 ? "신규소싱 검증 대기 금액" : "기존상품으로 돌아간 금액"} value={money(sourcingPendingKrw > 0 ? sourcingPendingKrw : report.sourcingBudgetReturnKrw)} tone="slate" />
                   <SummaryMetric label="기존상품 가용 현금" value={money(report.reorderCashKrw)} tone="slate" />
                   <SummaryMetric label="기존상품 상품대금 상한" value={money(report.effectiveBudgetKrw)} tone="amber" />
                 </div>
@@ -485,6 +503,23 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                   <span className="bg-blue-600" style={{ width: `${100 - report.sourcingBudgetPercent}%` }} />
                 </div>
                 <div className="mt-2 flex justify-between gap-4 text-xs font-bold text-slate-600"><span>신규소싱 {report.sourcingBudgetPercent}%</span><span>기존상품 {100 - report.sourcingBudgetPercent}%</span></div>
+                <form method="get" action="/purchase-cycle-preflight#preflight-result-title" className="mt-5 border-l-4 border-blue-500 bg-blue-50 px-4 py-4">
+                  <input type="hidden" name="check" value="1" />
+                  <input type="hidden" name="date" value={targetDate} />
+                  <input type="hidden" name="cash" value={cash} />
+                  {early ? <input type="hidden" name="early" value="1" /> : null}
+                  {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
+                  {preferredSourcingConceptIds.map((conceptId) => <input key={`ratio-source:${conceptId}`} type="hidden" name="source" value={conceptId} />)}
+                  {Object.entries(sourcingStorageSizeByConceptId).map(([conceptId, size]) => <input key={`ratio-storage:${conceptId}`} type="hidden" name={`storage.${conceptId}`} value={size} />)}
+                  {sourcingVariantSelections.map((selection) => <input key={`ratio-variant:${selection.conceptId}:${selection.variantKey}`} type="hidden" name="variant" value={JSON.stringify(selection)} />)}
+                  <div className="flex flex-wrap items-end gap-3">
+                    <label className="text-sm font-black text-blue-950">신규소싱 비율 다시 계산
+                      <span className="mt-1 block text-xs font-normal leading-5 text-blue-900">현재 후보 선택을 유지합니다. 비율을 올려도 안전후보나 창고 한도에 걸리면 상품 수는 늘지 않을 수 있습니다.</span>
+                      <input className="mt-2 block min-h-11 w-40 rounded-lg border border-blue-300 bg-white px-3 py-2" name="sourcing" type="number" min="0" max={sourcingPlan?.policy.maximumPercent ?? 100} step="1" inputMode="numeric" defaultValue={report.sourcingBudgetPercent} required />
+                    </label>
+                    <button type="submit" className="min-h-11 rounded-lg bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800">이 비율로 다시 계산</button>
+                  </div>
+                </form>
               </section>
 
               <section className="border-y border-slate-200 bg-white py-5">

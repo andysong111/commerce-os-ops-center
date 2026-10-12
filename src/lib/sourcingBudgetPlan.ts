@@ -165,6 +165,27 @@ export type ManualPilotCatalog = {
   externalOrderExecuted: false;
 };
 
+export function returnableSourcingBudgetKrw(plan: SourcingBudgetPlan): number {
+  if (!plan.readyForConfirmation) return 0;
+  const {
+    budgetKrw,
+    alreadyReservedKrw,
+    availableBudgetKrw,
+    estimatedSpendKrw,
+    remainingBudgetKrw,
+  } = plan.allocation;
+  const values = [budgetKrw, alreadyReservedKrw, availableBudgetKrw, estimatedSpendKrw, remainingBudgetKrw];
+  if (
+    values.some((value) => !Number.isSafeInteger(value) || value < 0) ||
+    budgetKrw !== plan.sourcingBudgetKrw ||
+    availableBudgetKrw !== budgetKrw - alreadyReservedKrw ||
+    remainingBudgetKrw !== availableBudgetKrw - estimatedSpendKrw
+  ) {
+    throw new Error("SOURCING_BUDGET_PLAN_ALLOCATION_INVALID");
+  }
+  return remainingBudgetKrw;
+}
+
 function config(env: Readonly<Record<string, string | undefined>> = process.env) {
   const secret = (
     env.SOURCING_ENGINE_INTEGRATION_SECRET ||
