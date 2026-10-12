@@ -116,6 +116,11 @@ const REGISTRY: Record<string, RegistryEntry> = {
     load: async () =>
       (await import("@/app/api/cron/product-master-shopling-sales-events/route")).GET as CronHandler,
   },
+  "monthly-purchase-preparation": {
+    routePath: "/api/cron/monthly-purchase-preparation",
+    load: async () =>
+      (await import("@/app/api/cron/monthly-purchase-preparation/route")).GET as CronHandler,
+  },
   "stage8-candidate-prewrite-evidence": {
     routePath: "/api/cron/stage8-candidate-prewrite-evidence",
     load: async () =>

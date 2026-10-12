@@ -5,6 +5,7 @@ import { BulkSourcingCandidateButton } from "@/components/purchase-cycle-preflig
 import { NewProductConfigurationCalculateButton } from "@/components/purchase-cycle-preflight/NewProductConfigurationCalculateButton";
 import { PurchasePreflightForm } from "@/components/purchase-cycle-preflight/PurchasePreflightForm";
 import { SourcingCandidateSelectionForm } from "@/components/purchase-cycle-preflight/SourcingCandidateSelectionForm";
+import { PurchasePreparationScheduleControl } from "@/components/purchase-cycle-preflight/PurchasePreparationScheduleControl";
 import { ManualProductIntakeForm } from "@/components/sourcing-center/ManualProductIntakeForm";
 import { loadPurchaseCyclePreflightPreview } from "@/lib/purchaseCyclePreflightPreview";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
@@ -377,6 +378,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         <strong>이 화면은 계산과 내부 Draft 준비까지만 합니다.</strong>
         <span className="ml-2">자동 주문·결제는 없으며, 실제 발주는 별도 확인 뒤 진행합니다.</span>
       </section>
+      <PurchasePreparationScheduleControl targetDate={targetDate} />
       <section aria-labelledby="preflight-input-title">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <div>

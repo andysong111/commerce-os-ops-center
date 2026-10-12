@@ -670,3 +670,15 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Vercel Production deployment `dpl_FLmWY61GgRjvRM24n81Z2PFLR47i` reached `READY` from that exact merge commit with no alias error.
 - A read-only Production request to `/purchase-cycle-preflight?check=1&date=2026-10-12&cash=1000000&sourcing=15` returned HTTP 200 from that deployment and rendered the new first-step label `1. 예산 · 자동후보 불러오기`.
 - The second-step control is intentionally rendered only when the server report reaches the candidate-configuration section. The live request remained fail-closed before that section, so Production verification did not create a Draft or alter candidate data.
+
+---
+
+## 25. Monthly purchase preparation schedule (2026-10-13)
+
+- Purchase Preflight includes an opt-in monthly day/hour schedule in `Asia/Seoul`. The execution day is limited to 1~28 so short months cannot silently skip preparation.
+- The dispatcher checks the schedule through one bounded operational task. A due month either reuses a sales-event candidate that is no more than two hours old or queues one fresh read-only 360-day Shopling sales candidate.
+- The schedule is append-only operational evidence in `commerce_operation_runs`. A separate monthly run record makes the start idempotent for one Seoul calendar month.
+- Completion of the sales-event collection wakes the existing candidate prewrite evidence worker. The existing parity and readiness workers remain authoritative; the scheduler does not create a second purchase calculation path.
+- The schedule does not grant Product Master CANARY/FULL approval, save a monthly purchase Draft, alter a sourcing gate, place a 1688 order, contact a supplier, or make a payment.
+- Product Master promotion remains a separate owner approval boundary. Actual order and payment remain separate action-time owner decisions.
+- Local proof before delivery: focused monthly-preparation and sales-event regression tests, focused ESLint, TypeScript typecheck, and the Next.js production build pass. Record PR, CI, migration, deployment, and Production evidence here after delivery.
