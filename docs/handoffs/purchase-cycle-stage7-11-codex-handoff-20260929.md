@@ -650,3 +650,5 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - When the pinned calculation is ready, the action saves or reuses the exact monthly internal Draft and opens `/china-order-manager/drafts/{draftId}`. That workspace contains the calculated SKU quantities, 1688 link/option/CNY price inputs, and the local `1688 장바구니 준비` action.
 - When required evidence or sourcing checks remain, the button stays disabled and a `남은 확인 항목 보기` link moves to the exact blockers. It never creates an empty or partially verified Draft.
 - The action does not skip candidate configuration, safety gates, monthly Draft confirmation, 1688 ordering, or payment. Actual order submission and payment remain separate owner actions.
+- PR `#1388` merged to `main` as `deb2fd896f736f3b3870690298bd7abbd1d65713`; all GitHub checks and the Vercel Preview check passed.
+- Production deployment `dpl_4XtxUGmEzTYUUtCnY4JSGMPR8A2C` is `READY` on the exact merge SHA. A read-only request to `/purchase-cycle-preflight?check=1&date=2026-10-12&cash=1000000&sourcing=15` returned HTTP 200 and rendered the quick action in its safe blocked state because required checks still remained.
