@@ -57,7 +57,14 @@ test("manual sourcing UI batches products with nested options and per-option sto
   assert.match(form, /stagedCandidates/);
   assert.match(form, /form=\{calculationFormId\}/);
   assert.match(form, /아직 발주안은 계산하지 않았습니다/);
-  assert.match(form, /상품 \$\{products\.length\}종 · 옵션 \$\{optionCount\}개 후보 목록에 추가/);
+  assert.match(form, /발주안 계산 준비 완료 · \{stagedCandidates\.length\}개 옵션/);
+  assert.match(form, /모두 계산 대상에 들어갑니다/);
+  assert.match(form, /새 입력 \$\{inputProducts\.length\}상품 · \$\{inputOptionCount\}옵션 저장/);
+  assert.match(form, /disabled=\{busy \|\| inputProducts\.length === 0\}/);
+  assert.match(form, /productDraftMatchesPreset/);
+  assert.match(form, /presetIsFullyStaged/);
+  assert.match(form, /restoredStaged\.length[\s\S]*restoredProducts\.filter/);
+  assert.match(form, /발주안 계산 준비 \$\{restoredStaged\.length\}개 옵션/);
   assert.match(form, /각 옵션에 별도 B코드와 수납공간이 배정됩니다/);
   assert.match(form, /disabled=\{busy\}/);
   assert.match(form, /manualSourcingDraftStorageKey/);

@@ -44,14 +44,14 @@ export function NewProductConfigurationCalculateButton({ formId, manualFormId }:
   return (
     <div className="mt-6 border-t border-slate-200 pt-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs font-medium leading-5 text-slate-600">소싱엔진 선택과 수동 후보를 모두 모은 뒤 이 버튼을 한 번만 누르세요.</p>
+        <p className="text-xs font-medium leading-5 text-slate-600">초록색 ‘발주안 계산 준비 완료’ 목록과 왼쪽 자동 후보 선택을 모두 반영합니다.</p>
         <button type="button" onClick={calculate} disabled={pending} aria-busy={pending} className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-slate-950 px-6 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-75">
           {pending ? (
             <>
               <span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
               최종 발주안 계산 중...
             </>
-          ) : "신규상품 구성 완료 · 발주안 한 번 계산"}
+          ) : "2. 준비된 후보로 발주안 계산"}
         </button>
       </div>
       {pending ? <p role="status" className="mt-3 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-xs font-bold leading-5 text-sky-950">저장한 후보와 수납 위치를 한 번에 반영하고 있습니다.</p> : null}

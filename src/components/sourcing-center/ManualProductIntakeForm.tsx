@@ -84,6 +84,41 @@ function productDraftsAsPresets(drafts: ProductDraft[]): ManualSourcingCandidate
     }));
 }
 
+function hasProductDraftInput(product: ProductDraft) {
+  return Boolean(
+    product.sourceUrl || product.productName || product.supplierName || product.error ||
+    product.variants.some((variant) => (
+      variant.saleOption || variant.chinaOption || variant.storageSize || variant.unitPriceCny || variant.moq
+    )),
+  );
+}
+
+function productDraftMatchesPreset(product: ProductDraft, preset: ManualSourcingCandidatePreset) {
+  if (
+    product.sourceUrl !== preset.sourceUrl ||
+    product.productName !== preset.productName ||
+    product.supplierName !== preset.supplierName ||
+    product.variants.length !== preset.variants.length
+  ) return false;
+  return product.variants.every((variant, index) => {
+    const expected = preset.variants[index];
+    return variant.saleOption === expected.saleOption &&
+      variant.chinaOption === expected.chinaOption &&
+      variant.storageSize === expected.storageSize &&
+      optionalNumber(variant.unitPriceCny) === expected.unitPriceCny &&
+      optionalNumber(variant.moq) === expected.moq;
+  });
+}
+
+function presetIsFullyStaged(preset: ManualSourcingCandidatePreset, stagedCandidates: StagedCandidate[]) {
+  return preset.variants.every((variant) => stagedCandidates.some((candidate) => (
+    normalizeOption(candidate.productName) === normalizeOption(preset.productName) &&
+    normalizeOption(candidate.saleOption) === normalizeOption(variant.saleOption) &&
+    normalizeOption(candidate.chinaOption) === normalizeOption(variant.chinaOption) &&
+    candidate.storageSize === variant.storageSize
+  )));
+}
+
 function mergeProducts(
   current: ProductDraft[],
   additions: ManualSourcingCandidatePreset[],
@@ -100,12 +135,7 @@ function storedText(value: unknown, maxLength: number) {
 
 function hasManualDraftContent(products: ProductDraft[], stagedCandidates: StagedCandidate[]) {
   if (stagedCandidates.length || products.length > 1 || products.some((product) => product.variants.length > 1)) return true;
-  return products.some((product) => (
-    product.sourceUrl || product.productName || product.supplierName || product.error ||
-    product.variants.some((variant) => (
-      variant.saleOption || variant.chinaOption || variant.storageSize || variant.unitPriceCny || variant.moq
-    ))
-  ));
+  return products.some(hasProductDraftInput);
 }
 
 export function ManualProductIntakeForm({
@@ -134,7 +164,8 @@ export function ManualProductIntakeForm({
     return seeded.length ? seeded : [emptyProduct("manual-product-0", "manual-variant-0")];
   });
   const [stagedCandidates, setStagedCandidates] = useState<StagedCandidate[]>([]);
-  const optionCount = products.reduce((sum, product) => sum + product.variants.length, 0);
+  const inputProducts = products.filter(hasProductDraftInput);
+  const inputOptionCount = inputProducts.reduce((sum, product) => sum + product.variants.length, 0);
 
   useEffect(() => {
     const key = manualSourcingDraftStorageKey(window.location.pathname, window.location.search, formId);
@@ -242,14 +273,22 @@ export function ManualProductIntakeForm({
           });
         });
       const restoredStaged = [...restoredStagedById.values()];
-      if (restoredProducts.length || initialProductsRef.current.length) {
+      const pendingRestoredProducts = restoredStaged.length
+        ? restoredProducts.filter((product) => !initialProductsRef.current.some((preset) => (
+          productDraftMatchesPreset(product, preset) && presetIsFullyStaged(preset, restoredStaged)
+        )))
+        : restoredProducts;
+      if (restoredStaged.length) {
+        setProducts(pendingRestoredProducts.some(hasProductDraftInput) ? pendingRestoredProducts : [makeProduct()]);
+      } else if (restoredProducts.length || initialProductsRef.current.length) {
         setProducts(mergeProducts(restoredProducts, initialProductsRef.current, { preferAdditionFields: true }));
       }
       if (restoredStaged.length) setStagedCandidates(restoredStaged);
       pendingLegacyStorageKeys.current = legacyKeys;
       if (restoredProducts.length || restoredStaged.length) {
-        const restoredOptionCount = restoredProducts.reduce((sum, product) => sum + product.variants.length, 0);
-        setNotice(`임시저장 복원 · 상품 ${restoredProducts.length}종 · 입력 옵션 ${restoredOptionCount}개 · 계산 대기 ${restoredStaged.length}개`);
+        const pendingOptionCount = pendingRestoredProducts.filter(hasProductDraftInput)
+          .reduce((sum, product) => sum + product.variants.length, 0);
+        setNotice(`임시저장 복원 · 발주안 계산 준비 ${restoredStaged.length}개 옵션${pendingOptionCount ? ` · 새 입력 ${pendingOptionCount}개` : ""}`);
       }
     } catch {
       window.localStorage.removeItem(key);
@@ -441,7 +480,7 @@ export function ManualProductIntakeForm({
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">링크와 모델명은 상품별로 한 번만 입력하고, 같은 상품의 옵션은 아래에서 추가하세요. 각 옵션에 별도 B코드와 수납공간이 배정됩니다. 1688에서 한 주문옵션이 색상·포장처럼 여러 선택값으로 구성되면 중국 옵션 칸에 선택 순서대로 콤마로 구분해 입력하세요.</p>
           <p className="mt-1 text-xs font-bold text-sky-700">입력 중인 상품과 계산 대기 후보는 이 브라우저에 자동 임시저장됩니다.</p>
         </div>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">상품 {products.length}종 · 옵션 {optionCount}개</span>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">새 입력 상품 {inputProducts.length}종 · 옵션 {inputOptionCount}개</span>
       </div>
 
       <div className="mt-5 grid gap-5">
@@ -488,7 +527,8 @@ export function ManualProductIntakeForm({
 
       {calculationFormId && stagedCandidates.length ? (
         <section className="mt-5 border-y border-emerald-200 bg-emerald-50 px-3 py-3" aria-label="계산 대기 수동 후보">
-          <p className="text-xs font-black text-emerald-900">계산 대기 옵션 {stagedCandidates.length}개</p>
+          <p className="text-sm font-black text-emerald-950">발주안 계산 준비 완료 · {stagedCandidates.length}개 옵션</p>
+          <p className="mt-1 text-xs font-bold leading-5 text-emerald-900">아래 마지막 ‘준비된 후보로 발주안 계산’을 누르면 모두 계산 대상에 들어갑니다. 예산·MOQ·안전조건에 따라 최종 발주 수량과 포함 옵션 수는 달라질 수 있습니다.</p>
           <div className="mt-2 grid gap-2">{stagedCandidates.map((candidate) => (
             <div key={candidate.conceptId} className="flex items-center justify-between gap-3 text-sm">
               <span className="min-w-0"><strong className="block truncate">{candidate.productName} · {candidate.saleOption}</strong><span className="text-xs text-emerald-800">1688 {candidate.chinaOption} · {candidate.storageSize === "S" ? "소형" : "대형"}</span></span>
@@ -501,8 +541,8 @@ export function ManualProductIntakeForm({
       ) : null}
 
       <div className="mt-5 flex flex-wrap items-center gap-4">
-        <button type="submit" disabled={busy} className="min-h-11 rounded-lg bg-emerald-700 px-5 py-2 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-wait disabled:bg-slate-300">
-          {busy ? "상품·옵션 저장 중..." : failed ? `실패한 상품 ${products.length}종 다시 저장` : calculationFormId ? `상품 ${products.length}종 · 옵션 ${optionCount}개 후보 목록에 추가` : `상품 ${products.length}종 · 옵션 ${optionCount}개 후보 저장`}
+        <button type="submit" disabled={busy || inputProducts.length === 0} className="min-h-11 rounded-lg bg-emerald-700 px-5 py-2 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300">
+          {busy ? "새 입력 저장 중..." : failed ? `실패한 상품 ${inputProducts.length}종 다시 저장` : inputProducts.length === 0 ? "새로 저장할 입력 없음" : calculationFormId ? `새 입력 ${inputProducts.length}상품 · ${inputOptionCount}옵션 저장` : `새 입력 ${inputProducts.length}상품 · ${inputOptionCount}옵션 저장`}
         </button>
         {notice ? <p role={failed ? "alert" : "status"} className={`text-sm font-bold ${failed ? "text-rose-700" : "text-emerald-800"}`}>{notice}</p> : null}
       </div>

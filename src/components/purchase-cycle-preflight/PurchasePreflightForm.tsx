@@ -29,7 +29,8 @@ export function PurchasePreflightForm({ children }: { children: ReactNode }) {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{children}</div>
       <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs font-medium leading-5 text-slate-500">
-          예산 기준과 현재 후보를 불러옵니다. Draft 저장, 1688 주문, 결제는 실행하지 않습니다.
+          1단계에서는 예산과 자동 후보만 불러옵니다. 아래 직접 입력 후보는 마지막 발주안 계산 버튼에서 함께 반영됩니다.
+          Draft 저장, 1688 주문, 결제는 실행하지 않습니다.
         </p>
         <button
           type="submit"
@@ -43,7 +44,7 @@ export function PurchasePreflightForm({ children }: { children: ReactNode }) {
               예산·후보 확인 중...
             </>
           ) : (
-            "예산 확인 · 후보 불러오기"
+            "1. 예산 · 자동후보 불러오기"
           )}
         </button>
       </div>

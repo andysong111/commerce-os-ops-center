@@ -652,3 +652,14 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - The action does not skip candidate configuration, safety gates, monthly Draft confirmation, 1688 ordering, or payment. Actual order submission and payment remain separate owner actions.
 - PR `#1388` merged to `main` as `deb2fd896f736f3b3870690298bd7abbd1d65713`; all GitHub checks and the Vercel Preview check passed.
 - Production deployment `dpl_4XtxUGmEzTYUUtCnY4JSGMPR8A2C` is `READY` on the exact merge SHA. A read-only request to `/purchase-cycle-preflight?check=1&date=2026-10-12&cash=1000000&sourcing=15` returned HTTP 200 and rendered the quick action in its safe blocked state because required checks still remained.
+
+---
+
+## 24. Simplified staged sourcing flow (2026-10-12)
+
+- The first button is explicitly labeled `1. 예산 · 자동후보 불러오기`. It loads the budget and automatic sourcing candidates only; it does not save the monthly Draft or submit the browser-local manual candidates.
+- Successfully saved direct-input options are shown separately as `발주안 계산 준비 완료`. Every item in that green list is submitted by `2. 준비된 후보로 발주안 계산`, together with the selected automatic candidates.
+- Being in the ready list means the option is a calculation input, not a guaranteed order line. Budget, MOQ, per-product test-cost limits, warehouse capacity, and the existing safety gates may reduce its quantity or exclude it from the final internal Draft.
+- Owner preset rows that are already fully present in the ready list are no longer re-seeded as new input after a browser reload. Partially saved products keep their remaining input rows, so a partial API failure cannot silently discard unfinished options.
+- The former `상품 6종 · 옵션 8개 후보 목록에 추가` label now describes only meaningful unsaved input. When nothing new remains, the disabled button says `새로 저장할 입력 없음`.
+- This UI change does not place a 1688 order, make a payment, contact a supplier, or weaken any purchase safety gate.
