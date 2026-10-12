@@ -547,8 +547,8 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.doesNotMatch(page, /신규상품 소싱 \{report\.sourcingBudgetPercent\}% 배정 미리보기/);
   assert.doesNotMatch(page, /visibleIssues\.length/);
   assert.doesNotMatch(page, /<details[^>]*\sopen(?:=|\s|>)/);
-  assert.match(form, /예산 확인 · 후보 불러오기/);
-  assert.match(form, /예산 기준과 현재 후보를 불러옵니다/);
+  assert.match(form, /1\. 예산 · 자동후보 불러오기/);
+  assert.match(form, /아래 직접 입력 후보는 마지막 발주안 계산 버튼에서 함께 반영됩니다/);
   assert.match(form, /Draft 저장, 1688 주문, 결제는 실행하지 않습니다/);
   assert.match(sourcingForm, /마지막 계산은 두 입력 영역 아래에서 한 번만 실행합니다/);
   assert.match(sourcingForm, /1688 상품 링크 열기/);
@@ -569,7 +569,8 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(finalCalculate, /일괄 추가가 끝난 뒤 계산하세요/);
   assert.match(finalCalculate, /작성 중인 수동상품이 있습니다/);
   assert.match(finalCalculate, /data-manual-source-url/);
-  assert.match(finalCalculate, /신규상품 구성 완료 · 발주안 한 번 계산/);
+  assert.match(finalCalculate, /2\. 준비된 후보로 발주안 계산/);
+  assert.match(finalCalculate, /초록색 ‘발주안 계산 준비 완료’ 목록과 왼쪽 자동 후보 선택을 모두 반영합니다/);
   assert.match(finalCalculate, /최종 발주안 계산 중/);
 });
 
