@@ -152,7 +152,7 @@ async function routeWith(overrides = {}) {
       runProductMasterShoplingSalesEventSyncStep: async () => { calls.push(["step"]); return { processed: false }; },
     },
     "@/lib/productMasterShoplingSalesEventRecovery": {},
-    "@/lib/stage8CandidatePromotionGate": { loadCandidatePromotionGate: async () => ({ safeToApply: false, message: "not ready" }) },
+    "@/lib/salesEventDirectPromotionGate": { loadSalesEventDirectPromotionGate: async () => ({ safeToApply: false, message: "not ready" }) },
     "@/lib/opsLoginBypass": { isSameOriginOpsRequest: (req) => req.headers.get("origin") === "https://ops.invalid" },
     "@/lib/opsAdaptiveDispatcher": { wakeOpsDispatchTask: async () => { calls.push(["wake"]); return true; } },
   };
@@ -193,10 +193,12 @@ test("actual canary/full route blocks old or missing promotion context; allows m
       { safeToApply: true, candidatePlanFingerprint: fp, promotionFingerprint: null },
       { safeToApply: true, candidatePlanFingerprint: fp, promotionFingerprint: "proof" },
     ]) {
-      const { route, calls } = await routeWith({ "@/lib/stage8CandidatePromotionGate": { loadCandidatePromotionGate: async () => gate } });
+      const seenModes = [];
+      const { route, calls } = await routeWith({ "@/lib/salesEventDirectPromotionGate": { loadSalesEventDirectPromotionGate: async (mode) => { seenModes.push(mode); return gate; } } });
       const response = await route.POST(req({ action, planFingerprint: fp, confirmation: action.toUpperCase() }));
       const allowed = gate.safeToApply && gate.candidatePlanFingerprint === fp && gate.promotionFingerprint;
       assert.equal(response.status, allowed ? 200 : 409); assert.equal(calls.filter((c) => c[0] === "apply").length, allowed ? 1 : 0);
+      assert.deepEqual(seenModes, [action]);
     }
   }
 });
@@ -206,5 +208,5 @@ test("all existing creators/recovery and publication use shared guard; refresh c
   const route = await readFile("src/app/api/product-master/shopling-sales-events/route.ts", "utf8");
   assert.match(sync, /createProductMasterShoplingSalesEventSyncRequest[\s\S]*return withSalesEventMutationGuard/);
   assert.match(recovery, /return withSalesEventMutationGuard\(recoverSalesEventRequestUnderLock\)/);
-  assert.match(route, /withSalesEventMutationGuard\(async \(\) => \{[\s\S]*loadCandidatePromotionGate\(\)[\s\S]*applyProductMasterShoplingSalesEvents/);
+  assert.match(route, /withSalesEventMutationGuard\(async \(\) => \{[\s\S]*loadSalesEventDirectPromotionGate\(action\)[\s\S]*applyProductMasterShoplingSalesEvents/);
 });

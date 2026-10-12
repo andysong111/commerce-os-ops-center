@@ -50,6 +50,7 @@ jobs:
           src/lib/stage8CandidateDemandParity.ts
           src/lib/stage8CandidateMismatchEvidence.ts
           src/lib/stage8CandidatePromotionGate.ts
+          src/lib/salesEventDirectPromotionGate.ts
           src/lib/stage8PostApplyCanonicalReconciliation.ts
           src/lib/stage8InventoryVerificationPriority.ts
           src/lib/stage8ProvisionalInventorySourceAudit.ts
@@ -128,6 +129,7 @@ jobs:
           tests/stage8CandidateDemandParity.test.mjs
           tests/stage8CandidateMismatchEvidence.test.mjs
           tests/stage8CandidatePromotionGate.test.mjs
+          tests/salesEventDirectPromotionGate.test.mjs
           tests/stage8PostApplyCanonicalReconciliation.test.mjs
           tests/stage8InventoryVerificationPriority.test.mjs
           tests/stage8ProvisionalInventorySourceAudit.test.mjs

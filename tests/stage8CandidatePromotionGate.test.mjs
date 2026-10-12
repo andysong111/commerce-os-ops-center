@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [gate, route, page, parity, evidence] = await Promise.all([
+const [gate, directGate, route, page, parity, evidence] = await Promise.all([
   readFile("src/lib/stage8CandidatePromotionGate.ts", "utf8"),
+  readFile("src/lib/salesEventDirectPromotionGate.ts", "utf8"),
   readFile("src/app/api/product-master/shopling-sales-events/route.ts", "utf8"),
   readFile("src/app/stage8-candidate-promotion-gate/page.tsx", "utf8"),
   readFile("src/lib/stage8CandidateDemandParity.ts", "utf8"),
@@ -57,14 +58,18 @@ test("evidence deltas must exactly reconcile the aggregate candidate parity delt
   assert.match(gate, /sameStrings\(evidenceRequest\.targetBarcodes, expectedMismatchTargets\(parityReport\)\)/);
 });
 
-test("sales-event canary and full routes are structurally blocked by the promotion gate", () => {
-  assert.match(route, /loadCandidatePromotionGate/);
+test("sales-event canary and full use the clean-candidate plus canary gate", () => {
+  assert.match(route, /loadSalesEventDirectPromotionGate\(action\)/);
   assert.match(route, /!promotionGate\.safeToApply/);
   assert.match(route, /promotionGate\.candidatePlanFingerprint !== planFingerprint/);
   assert.match(route, /SALES_EVENT_PREWRITE_PROMOTION_GATE_BLOCKED/);
   assert.match(route, /promotionGate\.promotionFingerprint/);
   assert.match(page, /PRODUCT MASTER WRITE 차단/);
   assert.match(page, /판매 이벤트 API가 409로 차단/);
+  assert.match(directGate, /report!\.unmappedRows === 0/);
+  assert.match(directGate, /report!\.identityConflictCount === 0/);
+  assert.match(directGate, /mode === "canary" \|\| status\.canaryVerified/);
+  assert.doesNotMatch(directGate, /loadCandidateDemandParityStatus|loadCandidateMismatchEvidenceStatus/);
 });
 
 test("candidate parity and evidence remain read-only upstream inputs", () => {

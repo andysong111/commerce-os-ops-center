@@ -7,7 +7,7 @@ import {
   runProductMasterShoplingSalesEventSyncStep,
 } from "@/lib/productMasterShoplingSalesEventSync";
 import { recoverProductMasterShoplingSalesEventRequest } from "@/lib/productMasterShoplingSalesEventRecovery";
-import { loadCandidatePromotionGate } from "@/lib/stage8CandidatePromotionGate";
+import { loadSalesEventDirectPromotionGate } from "@/lib/salesEventDirectPromotionGate";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 
@@ -142,7 +142,7 @@ export async function POST(request: Request) {
       }
 
       return await withSalesEventMutationGuard(async () => {
-        const promotionGate = await loadCandidatePromotionGate();
+        const promotionGate = await loadSalesEventDirectPromotionGate(action);
         if (
           !promotionGate.safeToApply ||
           promotionGate.candidatePlanFingerprint !== planFingerprint ||

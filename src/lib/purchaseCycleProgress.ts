@@ -1,16 +1,8 @@
 import { loadProductMasterShoplingSalesEventSyncStatus } from "@/lib/productMasterShoplingSalesEventSync";
 import {
-  loadCandidateDemandParityStatus,
-  type CandidateDemandParityStatus,
-} from "@/lib/stage8CandidateDemandParity";
-import {
-  loadCandidateMismatchEvidenceStatus,
-  type CandidateMismatchEvidenceStatus,
-} from "@/lib/stage8CandidateMismatchEvidence";
-import {
-  loadCandidatePromotionGate,
-  type CandidatePromotionGate,
-} from "@/lib/stage8CandidatePromotionGate";
+  loadSalesEventDirectPromotionGate,
+  type SalesEventDirectPromotionGate,
+} from "@/lib/salesEventDirectPromotionGate";
 import {
   loadPostApplyCanonicalReconciliation,
   type PostApplyCanonicalReconciliation,
@@ -80,30 +72,16 @@ async function safeRead<T>(reader: () => Promise<T>) {
   }
 }
 
-function prewriteAutomatic(
-  parity: CandidateDemandParityStatus | null,
-  evidence: CandidateMismatchEvidenceStatus | null,
-) {
-  return (
-    parity?.state === "QUEUED" ||
-    parity?.state === "RUNNING" ||
-    evidence?.state === "QUEUED" ||
-    evidence?.state === "RUNNING"
-  );
-}
-
 export async function loadPurchaseCycleProgress(): Promise<PurchaseCycleProgressReport> {
   const sales = await loadProductMasterShoplingSalesEventSyncStatus();
-  let parity: CandidateDemandParityStatus | null = null;
-  let evidence: CandidateMismatchEvidenceStatus | null = null;
-  let gate: CandidatePromotionGate | null = null;
+  let gate: SalesEventDirectPromotionGate | null = null;
   let reconciliation: PostApplyCanonicalReconciliation | null = null;
   let purchase: InventoryVerificationPriority | null = null;
 
   const stages: PurchaseCycleProgressStage[] = [
     stage(1, "최신 360일 판매후보 수집", "WAITING", "판매후보 수집 전", "/stage8-sales-events"),
-    stage(2, "Candidate parity·원주문행 근거", "WAITING", "판매후보 완료 후 자동 검증", "/stage8-candidate-demand-parity"),
-    stage(3, "Product Master CANARY → FULL", "WAITING", "쓰기 전 게이트 통과 후 소유자 승인 필요", "/stage8-sales-events"),
+    stage(2, "판매후보 기본검사", "WAITING", "미연결·상품 식별 충돌 자동 확인", "/stage8-sales-events"),
+    stage(3, "Product Master CANARY → FULL", "WAITING", "기본검사 후 소유자 승인 필요", "/stage8-sales-events"),
     stage(4, "Persisted canonical 최종 대사", "WAITING", "FULL 반영 후 자동 재조회", "/stage8-postapply-canonical-reconciliation"),
     stage(5, "확정원가·재고·발주 Shadow", "WAITING", "최종 대사 완료 후 자동 점검", "/stage8-inventory-verification-priority"),
     stage(6, "10월 발주 소량 미리보기", "WAITING", "9월 판매원가 자동 한도로 읽기 전용 계산", "/purchase-cycle-preflight"),
@@ -147,45 +125,34 @@ export async function loadPurchaseCycleProgress(): Promise<PurchaseCycleProgress
       "/stage8-sales-events",
     );
 
-    const [parityRead, evidenceRead, gateRead] = await Promise.all([
-      safeRead(loadCandidateDemandParityStatus),
-      safeRead(loadCandidateMismatchEvidenceStatus),
-      safeRead(loadCandidatePromotionGate),
-    ]);
-    parity = parityRead.value;
-    evidence = evidenceRead.value;
+    const gateRead = sales.state === "READY_CANARY"
+      ? await safeRead(() => loadSalesEventDirectPromotionGate("canary"))
+      : sales.state === "READY_FULL"
+        ? await safeRead(() => loadSalesEventDirectPromotionGate("full"))
+        : { value: null, error: null };
     gate = gateRead.value;
 
-    if (gate?.safeToApply) {
+    if (sales.state === "COMPLETED" || gate?.safeToApply) {
       stages[1] = stage(
         2,
-        "Candidate parity·원주문행 근거",
+        "판매후보 기본검사",
         "DONE",
-        "현재 candidate의 쓰기 전 근거 게이트 통과",
-        "/stage8-candidate-promotion-gate",
+        "미연결 주문행과 상품 식별 충돌이 없습니다.",
+        "/stage8-sales-events",
       );
-    } else if (prewriteAutomatic(parity, evidence)) {
+    } else {
       currentStage = 2;
       stages[1] = stage(
         2,
-        "Candidate parity·원주문행 근거",
-        "RUNNING",
-        `parity ${parity?.state ?? "-"} · evidence ${evidence?.state ?? "-"} · 자동 진행`,
-        "/stage8-candidate-demand-parity",
-      );
-    } else if (sales.state !== "COMPLETED") {
-      currentStage = 2;
-      stages[1] = stage(
-        2,
-        "Candidate parity·원주문행 근거",
+        "판매후보 기본검사",
         "BLOCKED",
-        gate?.message ?? parityRead.error ?? evidenceRead.error ?? gateRead.error ?? "쓰기 전 근거 확인 필요",
-        "/stage8-candidate-promotion-gate",
+        gate?.message ?? gateRead.error ?? "판매후보 기본검사 필요",
+        "/stage8-sales-events",
       );
       state = "BLOCKED_REVIEW";
       operatorActionRequired = true;
-      operatorAction = "Candidate parity·근거 차단 사유 확인";
-      operatorHref = "/stage8-candidate-promotion-gate";
+      operatorAction = "판매후보 기본검사 차단 사유 확인";
+      operatorHref = "/stage8-sales-events";
     }
 
     if (sales.state === "READY_CANARY" && gate?.safeToApply) {
@@ -307,8 +274,8 @@ export async function loadPurchaseCycleProgress(): Promise<PurchaseCycleProgress
       salesProgress: sales.progress,
       salesAnalysisAsOf: sales.analysisAsOf,
       salesPlanFingerprint: sales.report?.planFingerprint ?? null,
-      parityState: parity?.state ?? null,
-      evidenceState: evidence?.state ?? null,
+      parityState: null,
+      evidenceState: null,
       promotionState: gate?.state ?? null,
       reconciliationState: reconciliation?.state ?? null,
       purchaseEvidenceState: purchase?.state ?? null,

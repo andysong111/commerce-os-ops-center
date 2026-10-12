@@ -17,10 +17,12 @@ test("purchase cycle progress waits on automatic sales collection without granti
 });
 
 test("CANARY and FULL remain explicit owner-action boundaries", () => {
+  assert.match(engine, /loadSalesEventDirectPromotionGate\("canary"\)/);
   assert.match(engine, /sales\.state === "READY_CANARY" && gate\?\.safeToApply/);
   assert.match(engine, /operatorAction = "1건 CANARY 적재 승인"/);
   assert.match(engine, /sales\.state === "READY_FULL" && gate\?\.safeToApply/);
   assert.match(engine, /operatorAction = "검증된 FULL 적재 승인"/);
+  assert.doesNotMatch(engine, /loadCandidateDemandParityStatus|loadCandidateMismatchEvidenceStatus|loadCandidatePromotionGate/);
   assert.doesNotMatch(engine, /applyProductMasterShoplingSalesEvents/);
 });
 
