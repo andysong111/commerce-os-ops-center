@@ -5,6 +5,7 @@ import {
   allSourcingVariantsAsSmall,
   loadManualPilotCatalog,
   loadSourcingBudgetPlan,
+  manualPilotCatalogVariantsAsSmall,
   returnableSourcingBudgetKrw,
 } from "../src/lib/sourcingBudgetPlan.ts";
 
@@ -88,6 +89,28 @@ test("automatic sourcing selection includes each visible option once and assigns
   ]);
   assert.equal(allSourcingVariantsAsSmall(plan, { maxConcepts: 1, maxVariants: 10 }).length, 2);
   assert.equal(allSourcingVariantsAsSmall(plan, { maxConcepts: 20, maxVariants: 2 }).length, 2);
+});
+
+test("automatic sourcing selection includes every saved manual-pilot option as small storage", () => {
+  const candidate = (conceptId, variantKeys) => ({
+    conceptId,
+    variants: variantKeys.map(variantKey => ({ variantKey })),
+  });
+  const catalog = {
+    candidates: [
+      candidate("manual-1", ["shoe", "bra"]),
+      candidate("manual-2", ["male", "female"]),
+    ],
+  };
+
+  assert.deepEqual(manualPilotCatalogVariantsAsSmall(catalog), [
+    { conceptId: "manual-1", variantKey: "shoe", storageSize: "S" },
+    { conceptId: "manual-1", variantKey: "bra", storageSize: "S" },
+    { conceptId: "manual-2", variantKey: "male", storageSize: "S" },
+    { conceptId: "manual-2", variantKey: "female", storageSize: "S" },
+  ]);
+  assert.equal(manualPilotCatalogVariantsAsSmall(catalog, { maxConcepts: 1 }).length, 2);
+  assert.equal(manualPilotCatalogVariantsAsSmall(catalog, { maxVariants: 3 }).length, 3);
 });
 
 test("invalid sourcing fingerprints are rejected before being trusted", async () => {
