@@ -7,6 +7,42 @@ import type {
 
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
 
+function sortedStrings(values: string[] | undefined) {
+  return [...(values ?? [])].sort();
+}
+
+function sortedStorageEntries(values: Record<string, "S" | "L"> | undefined) {
+  return Object.entries(values ?? {}).sort(([left], [right]) => (
+    left < right ? -1 : left > right ? 1 : 0
+  ));
+}
+
+function sortedVariantSelections(values: SourcingVariantSelectionInput[] | undefined) {
+  return (values ?? [])
+    .map(({ conceptId, variantKey, storageSize }) => [conceptId, variantKey, storageSize] as const)
+    .sort((left, right) => {
+      for (let index = 0; index < left.length; index += 1) {
+        if (left[index] < right[index]) return -1;
+        if (left[index] > right[index]) return 1;
+      }
+      return 0;
+    });
+}
+
+function sameSourcingSelection(
+  plan: SourcingBudgetPlan,
+  request: PurchaseCycleDraftRequest,
+) {
+  return (
+    JSON.stringify(sortedStrings(plan.preferredConceptIds)) ===
+      JSON.stringify(sortedStrings(request.preferredSourcingConceptIds)) &&
+    JSON.stringify(sortedStorageEntries(plan.storageSizeByConceptId)) ===
+      JSON.stringify(sortedStorageEntries(request.sourcingStorageSizeByConceptId)) &&
+    JSON.stringify(sortedVariantSelections(plan.variantSelections)) ===
+      JSON.stringify(sortedVariantSelections(request.sourcingVariantSelections))
+  );
+}
+
 export type PurchaseCycleDraftRequest = {
   targetDate: string;
   cashLimitKrw?: number | null;
@@ -87,9 +123,7 @@ export function preparePurchaseCycleDraft(
       sourcingPlan.totalCashKrw !== report.effectiveCashKrw ||
       sourcingPlan.sourcingBudgetPercent !== report.sourcingBudgetPercent ||
       sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw ||
-      JSON.stringify(sourcingPlan.preferredConceptIds ?? []) !== JSON.stringify(request.preferredSourcingConceptIds ?? []) ||
-      JSON.stringify(sourcingPlan.storageSizeByConceptId ?? {}) !== JSON.stringify(request.sourcingStorageSizeByConceptId ?? {}) ||
-      JSON.stringify(sourcingPlan.variantSelections ?? []) !== JSON.stringify(request.sourcingVariantSelections ?? []) ||
+      !sameSourcingSelection(sourcingPlan, request) ||
       sourcingPlan.allocation.selected.length < 1 ||
       request.expectedSourcingSourceFingerprint !== sourcingPlan.sourceFingerprint ||
       request.expectedSourcingPlanFingerprint !== sourcingPlan.planFingerprint ||

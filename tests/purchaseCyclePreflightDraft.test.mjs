@@ -143,6 +143,42 @@ test("manual sourcing preference is pinned and cannot change between preview and
   );
 });
 
+test("manual sourcing pins accept response reordering but reject changed values", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 20;
+  value.sourcingBudgetKrw = 200_000;
+  const plan = sourcingPlan(value);
+  plan.preferredConceptIds = ["concept-2", "concept-1"];
+  plan.storageSizeByConceptId = { "concept-2": "L", "concept-1": "S" };
+  plan.variantSelections = [
+    { storageSize: "L", variantKey: "variant-2", conceptId: "concept-2" },
+    { storageSize: "S", variantKey: "variant-1", conceptId: "concept-1" },
+  ];
+  const input = {
+    ...request(value, plan),
+    preferredSourcingConceptIds: ["concept-1", "concept-2"],
+    sourcingStorageSizeByConceptId: { "concept-1": "S", "concept-2": "L" },
+    sourcingVariantSelections: [
+      { conceptId: "concept-1", variantKey: "variant-1", storageSize: "S" },
+      { conceptId: "concept-2", variantKey: "variant-2", storageSize: "L" },
+    ],
+  };
+
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
+
+  input.sourcingStorageSizeByConceptId["concept-2"] = "S";
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, plan),
+    /PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
+  );
+  input.sourcingStorageSizeByConceptId["concept-2"] = "L";
+  input.sourcingVariantSelections[1].variantKey = "variant-changed";
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, plan),
+    /PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
+  );
+});
+
 test("a positive sourcing share cannot save without the exact ready sourcing plan", () => {
   const value = report();
   value.sourcingBudgetPercent = 20;
