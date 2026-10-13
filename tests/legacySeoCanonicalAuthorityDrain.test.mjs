@@ -49,4 +49,6 @@ test("이전 모델번호와 확정된 옵션명 차이만 좁게 복구한다",
   assert.match(source, /AAA208: \{ "단품": \["단품옵션미기재"\] \}/);
   assert.match(source, /AAA286: \{ "중형": \["m"\] \}/);
   assert.match(source, /unique_product_name_option_affix/);
+  assert.match(source, /function canonicalCandidateSummaries/);
+  assert.match(source, /canonicalCandidates: canonicalCandidateSummaries\(activeRows\)/);
 });
