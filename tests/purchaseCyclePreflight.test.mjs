@@ -481,6 +481,22 @@ test("reader failure preserves a diagnostic report without leaking raw errors or
     console.warn = originalWarn;
   }
 });
+test("reader failure logs a nested transport code without exposing its message", async () => {
+  const input = fixture();
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...values) => warnings.push(values);
+  try {
+    const transport = Object.assign(new Error("private upstream endpoint detail"), { code: "UND_ERR_CONNECT_TIMEOUT" });
+    const outer = new Error("fetch failed", { cause: transport });
+    const report = await readPurchaseCyclePreflight(input.options, { candidate: async () => input.before, gate: async () => input.gate, reconciliation: async () => { throw outer; }, priority: async () => input.priority, monthlySpend: async () => input.spendBefore }, () => input.now);
+    blocked(report, "MASTER_READBACK_READ_FAILED");
+    assert.match(JSON.stringify(warnings), /UND_ERR_CONNECT_TIMEOUT/);
+    assert.ok(!JSON.stringify(warnings).includes("private upstream endpoint detail"));
+  } finally {
+    console.warn = originalWarn;
+  }
+});
 test("reader catches a candidate superseded during downstream reads", async () => {
   const input = fixture(); let called = 0;
   const report = await readPurchaseCyclePreflight(input.options, { candidate: async () => called++ ? { ...input.before, requestId: "new" } : input.before, gate: async () => input.gate, reconciliation: async () => input.reconciliation, priority: async () => input.priority, monthlySpend: async () => input.spendBefore }, () => input.now);
