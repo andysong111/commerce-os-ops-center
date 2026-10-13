@@ -1,6 +1,29 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { reserveUniqueLegacySeoOptionId } from "../src/lib/legacySeoUniqueOptionId.ts";
+
+test("Shopling 옵션 ID가 겹치면 기존 ID를 한 번만 쓰고 고유 대체 ID를 만든다", () => {
+  const claimedIds = new Set();
+
+  assert.equal(
+    reserveUniqueLegacySeoOptionId("legacy-option-1", "shopling-100-1", claimedIds),
+    "legacy-option-1",
+  );
+  assert.equal(
+    reserveUniqueLegacySeoOptionId("legacy-option-1", "shopling-100-2", claimedIds),
+    "shopling-100-2",
+  );
+  assert.equal(
+    reserveUniqueLegacySeoOptionId("", "shopling-100-2", claimedIds),
+    "shopling-100-2-2",
+  );
+  assert.deepEqual([...claimedIds], [
+    "legacy-option-1",
+    "shopling-100-2",
+    "shopling-100-2-2",
+  ]);
+});
 
 test("이전상품 Shopling 옵션 동기화는 B코드 없는 과거/단종 옵션을 재수입하지 않는다", async () => {
   const source = await readFile(

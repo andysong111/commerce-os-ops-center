@@ -15,6 +15,7 @@ import {
   type ProductLaunchAdminConfig,
   type ProductLaunchIdentity,
 } from "@/lib/productLaunchTrackerServer";
+import { reserveUniqueLegacySeoOptionId } from "@/lib/legacySeoUniqueOptionId";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -282,6 +283,7 @@ function mergeOptions(
 
   const shoplingOptions = activeGroupOptions(group);
   const optionName = groupOptionTitle(shoplingOptions);
+  const claimedOptionIds = new Set<string>();
   return shoplingOptions.map((shopling, index) => {
     const shoplingSaleOption = optionValue(shopling.optionName);
     const bCode = text(shopling.bCode);
@@ -294,7 +296,11 @@ function mergeOptions(
       canonicalSingleUnitDisplay(shoplingSaleOption, canonicalSaleOptions) ||
       shoplingSaleOption;
     const matchedId = text(matched.id);
-    const optionId = matchedId || `shopling-${group.goodsKey}-${text(shopling.optionId) || index + 1}`;
+    const optionId = reserveUniqueLegacySeoOptionId(
+      matchedId,
+      `shopling-${group.goodsKey}-${text(shopling.optionId) || index + 1}`,
+      claimedOptionIds,
+    );
     const optionBarcodeNo = text(matched.optionBarcodeNo) || text(shopling.optionBarcode);
     const identityKey = bCode ? `B:${bCode}` : text(matched.optionBarcodeIdentityKey);
     const identityKind = bCode ? "B_CODE" : text(matched.optionBarcodeIdentityKind) || "OPTION";
