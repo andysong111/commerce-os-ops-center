@@ -310,12 +310,8 @@ export async function loadPostApplyCanonicalReconciliation(
     ),
     "완료된 판매 이벤트 report와 candidate event/plan 지문 및 행수가 같아야 합니다.",
   );
-  check(
-    checks,
-    "planning-fingerprint-stable",
-    planning.contentFingerprint === candidate.planningContentFingerprint,
-    `현재 planning ${planning.contentFingerprint} · 후보 ${candidate.planningContentFingerprint}`,
-  );
+  const planningFingerprintStable =
+    planning.contentFingerprint === candidate.planningContentFingerprint;
   check(
     checks,
     "persisted-audit-ready",
@@ -492,6 +488,21 @@ export async function loadPostApplyCanonicalReconciliation(
     "extra-persisted-rows-zero-only",
     extraPersistedNonZeroCount === 0,
     `persisted 추가 active SKU ${extraPersistedBarcodes.length}개 · 판매값 보유 ${extraPersistedNonZeroCount}개`,
+  );
+  const planningScopeExact =
+    missingPersistedBarcodes.length === 0 &&
+    rowMismatchCount === 0 &&
+    exactActiveRowCount === candidateRows.length &&
+    extraPersistedNonZeroCount === 0;
+  check(
+    checks,
+    "planning-fingerprint-stable",
+    planningFingerprintStable || planningScopeExact,
+    planningFingerprintStable
+      ? `현재 planning ${planning.contentFingerprint} · 후보 ${candidate.planningContentFingerprint}`
+      : planningScopeExact
+        ? `planning 지문은 바뀌었지만 현재 active ${candidateRows.length}개 판매 배열이 전수 적재 결과와 정확히 일치합니다.`
+        : `현재 planning ${planning.contentFingerprint} · 후보 ${candidate.planningContentFingerprint}`,
   );
 
   const fullApply = await loadVerifiedFullApply(

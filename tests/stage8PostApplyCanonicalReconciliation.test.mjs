@@ -15,7 +15,8 @@ test("reconciliation is pinned to the completed candidate request and fingerprin
   assert.match(engine, /candidate\.salesRequestId === salesStatus\.requestId/);
   assert.match(engine, /salesStatus\.report\.planFingerprint === candidate\.planFingerprint/);
   assert.match(engine, /salesStatus\.report\.eventFingerprint === candidate\.eventFingerprint/);
-  assert.match(engine, /planning\.contentFingerprint === candidate\.planningContentFingerprint/);
+  assert.match(engine, /planningFingerprintStable/);
+  assert.match(engine, /planningFingerprintStable \|\| planningScopeExact/);
   assert.match(engine, /persisted\.analysisAsOf === candidate\.analysisAsOf/);
 });
 
@@ -33,6 +34,20 @@ test("active demand arrays must match candidate 12x30 buckets exactly", () => {
   assert.match(engine, /validEventMatch/);
   assert.match(engine, /rowMismatchCount === 0/);
   assert.match(engine, /missingPersistedBarcodes\.length === 0/);
+  assert.match(engine, /exactActiveRowCount === candidateRows\.length/);
+  assert.match(engine, /extraPersistedNonZeroCount === 0/);
+});
+
+test("unrelated planning drift is accepted only after current active sales scope reconciles exactly", () => {
+  const exactScope = engine.slice(
+    engine.indexOf("const planningScopeExact"),
+    engine.indexOf("const fullApply", engine.indexOf("const planningScopeExact")),
+  );
+  assert.match(exactScope, /missingPersistedBarcodes\.length === 0/);
+  assert.match(exactScope, /rowMismatchCount === 0/);
+  assert.match(exactScope, /exactActiveRowCount === candidateRows\.length/);
+  assert.match(exactScope, /extraPersistedNonZeroCount === 0/);
+  assert.match(exactScope, /planningFingerprintStable \|\| planningScopeExact/);
 });
 
 test("extra persisted active SKUs are allowed only when they carry no sales demand", () => {
