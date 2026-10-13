@@ -794,7 +794,16 @@ export async function readPurchaseCyclePreflight(
   const sourceErrors: string[] = [];
   const costEstimateErrors: string[] = [];
   const capture = async <T>(code: string, read: () => Promise<T>): Promise<T | null> => {
-    try { return await read(); } catch { sourceErrors.push(code); return null; }
+    try {
+      return await read();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error ?? "");
+      const cause = detail.match(/[A-Z][A-Z0-9_]{3,}/)?.[0] ??
+        (error instanceof Error ? error.name : "UNKNOWN_ERROR");
+      console.warn("[purchase-cycle-preflight] source read failed", { code, cause });
+      sourceErrors.push(code);
+      return null;
+    }
   };
   const replacementRead = options.replaceDraftId && readers.replacementDraft
     ? () => readers.replacementDraft!(options.replaceDraftId!)
