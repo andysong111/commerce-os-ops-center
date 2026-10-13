@@ -1004,7 +1004,7 @@ for (const patch of [{ latestConfirmedReceiptCostKrw: Number.MAX_SAFE_INTEGER },
     blocked(buildPurchaseCyclePreflight(input), "NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
   });
 }
-for (const inventoryGeneratedAt of ["2026-09-30T01:59:00Z", "2026-10-02T01:59:00Z", "", undefined]) {
+for (const inventoryGeneratedAt of ["2026-09-29T01:59:00Z", "2026-10-02T01:59:00Z", "", undefined]) {
   test(`fresh wrapper does not launder stale/missing inventory timestamp: ${inventoryGeneratedAt}`, () => {
     const input = fixture(); input.priority.source.inventoryGeneratedAt = inventoryGeneratedAt;
     const report = buildPurchaseCyclePreflight(input);
@@ -1012,6 +1012,27 @@ for (const inventoryGeneratedAt of ["2026-09-30T01:59:00Z", "2026-10-02T01:59:00
     assert.equal(report.stages.find(row => row.number === 8).state, "BLOCKED");
   });
 }
+test("exact inventory snapshot remains usable through the following Seoul day for internal Draft preparation", () => {
+  const input = fixture();
+  input.now = "2026-10-01T18:00:00.000Z";
+  input.priority.source.inventoryGeneratedAt = "2026-09-30T17:00:00.000Z";
+  input.priority.generatedAt = "2026-10-01T17:59:00.000Z";
+  input.spendBefore.readAt = "2026-10-01T17:59:00.000Z";
+  input.spendAfter.readAt = "2026-10-01T17:59:00.000Z";
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.ok(!report.blockers.includes("INVENTORY_EVIDENCE_STALE_OR_UNPINNED"));
+  locked(report);
+});
+test("inventory snapshot expires after the following Seoul day", () => {
+  const input = fixture();
+  input.now = "2026-10-02T15:00:00.000Z";
+  input.priority.source.inventoryGeneratedAt = "2026-09-30T14:59:00.000Z";
+  input.priority.generatedAt = "2026-10-02T14:59:00.000Z";
+  input.spendBefore.readAt = "2026-10-02T14:59:00.000Z";
+  input.spendAfter.readAt = "2026-10-02T14:59:00.000Z";
+  blocked(buildPurchaseCyclePreflight(input), "INVENTORY_EVIDENCE_STALE_OR_UNPINNED");
+});
 test("missing inventory content fingerprint blocks", () => {
   const input = fixture(); delete input.priority.source.inventoryContentFingerprint;
   blocked(buildPurchaseCyclePreflight(input), "INVENTORY_EVIDENCE_STALE_OR_UNPINNED");
