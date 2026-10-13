@@ -40,7 +40,8 @@ test("promotion remains fail closed until claim auxiliary signal is connected", 
   assert.match(engine, /businessWritesEnabled: false/);
   assert.match(engine, /key: "claim-auxiliary"/);
   assert.match(engine, /key: "calendar-month-purchase-budget"/);
-  assert.match(engine, /CANONICAL_FRESHNESS_MAX_MS = 12 \* 60 \* 60 \* 1000/);
+  assert.match(engine, /purchaseSalesSourceFresh/);
+  assert.match(engine, /fullReadbackVerified/);
   assert.match(page, /실제 발주 항상 차단/);
   assert.match(page, /claim auxiliary 연결 전까지 전환 금지/);
 });

@@ -20,6 +20,17 @@ test("candidate parity rebuilds the frozen sales-event candidate before Product 
   assert.doesNotMatch(engine, /SALES_EVENT_CANARY|SALES_EVENT_FULL|applyProductMasterShoplingSalesEvents/);
 });
 
+test("purchase preparation can read the immutable candidate pin without rebuilding 52 chunks", () => {
+  const start = engine.indexOf("export async function loadLatestCandidateSalesPin");
+  const end = engine.indexOf("export async function loadLatestCandidateSalesSnapshot", start);
+  assert.ok(start >= 0 && end > start);
+  const pinLoader = engine.slice(start, end);
+  assert.match(pinLoader, /loadLatestCandidateSalesIdentity/);
+  assert.match(pinLoader, /eventFingerprint: report\.eventFingerprint/);
+  assert.match(pinLoader, /planFingerprint: report\.planFingerprint/);
+  assert.doesNotMatch(pinLoader, /SALES_EVENT_CHUNK|combineProductMasterShoplingSalesEventChunks/);
+});
+
 test("candidate demand uses actual event timestamps in exact 12 by 30-day buckets", () => {
   assert.match(engine, /const BUCKET_DAYS = 30/);
   assert.match(engine, /const BUCKET_COUNT = 12/);

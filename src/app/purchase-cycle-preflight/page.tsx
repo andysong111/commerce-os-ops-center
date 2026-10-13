@@ -44,7 +44,7 @@ const reasonLabels: Record<string, string> = {
   CYCLE_SPEND_RECHECK_FAILED: "기존 발주 지출액 재확인 실패",
   GROSS_FUNDING_BASIS_UNVERIFIED: "배송비 여유분을 포함한 월간 지출 한도를 확인하지 못했습니다.",
   SOURCE_CHANGED_OR_MISSING: "조회 중 판매자료가 바뀌었거나 원본을 확인하지 못했습니다.",
-  SALES_SOURCE_STALE_OR_FUTURE: "판매자료가 12시간 신선도 기준을 넘었거나 분석시점이 잘못됐습니다.",
+  SALES_SOURCE_STALE_OR_FUTURE: "판매자료가 12시간 기준과 당일 전수검증 유효시간을 넘었거나 분석시점이 잘못됐습니다.",
   SALES_PROMOTION_NOT_VERIFIED: "공식 판매자료 승인 검증이 끝나지 않았습니다.",
   PRODUCT_MASTER_FULL_READBACK_REQUIRED: "상품마스터 반영 후 동일 원본 재조회 검증이 필요합니다.",
   PURCHASE_SOURCE_CONTEXT_MISMATCH: "발주안·판매·상품정보·공식원장의 원본 지문이 일치하지 않습니다.",

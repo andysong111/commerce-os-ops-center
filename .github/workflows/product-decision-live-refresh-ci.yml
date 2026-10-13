@@ -9,6 +9,7 @@ on:
       - "src/lib/monthlyPurchaseCycleGate.ts"
       - "src/lib/shopling/calendarMonthRevenue.ts"
       - "src/lib/stage8CanonicalPurchaseShadow.ts"
+      - "src/lib/purchaseSalesFreshness.ts"
       - "src/app/api/product-decision-agent/live-refresh/**"
       - "src/app/api/cron/product-decision-live-refresh/**"
       - "src/app/product-decision-agent/page.tsx"
@@ -48,6 +49,7 @@ jobs:
           src/lib/monthlyPurchaseCycleGate.ts
           src/lib/shopling/calendarMonthRevenue.ts
           src/lib/stage8CanonicalPurchaseShadow.ts
+          src/lib/purchaseSalesFreshness.ts
           src/app/api/product-decision-agent/live-refresh/route.ts
           src/app/api/cron/product-decision-live-refresh/route.ts
           src/app/product-decision-agent/page.tsx
