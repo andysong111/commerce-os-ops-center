@@ -1078,6 +1078,32 @@ test("diagnostic inventory and replacement reasons do not invalidate unchanged D
   assert.notEqual(b.sourceFingerprint, a.sourceFingerprint);
   assert.equal(b.planFingerprint, a.planFingerprint);
 });
+test("offsetting line cost estimates do not invalidate identical Draft identities, quantities, and total spend", () => {
+  const first = fixture();
+  first.options.maxSkus = 2;
+  first.options.cashLimitKrw = 100_000;
+  first.priority.rows.push({
+    ...first.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "SECOND SIMULATION ONLY",
+  });
+  const second = structuredClone(first);
+  second.priority.rows[0].latestConfirmedReceiptCostKrw += 1;
+  second.priority.rows[1].latestConfirmedReceiptCostKrw -= 1;
+  const a = buildPurchaseCyclePreflight(first);
+  const b = buildPurchaseCyclePreflight(second);
+  assert.deepEqual(
+    b.selected.map(({ barcode, quantity }) => ({ barcode, quantity })).sort((left, right) => left.barcode.localeCompare(right.barcode)),
+    a.selected.map(({ barcode, quantity }) => ({ barcode, quantity })).sort((left, right) => left.barcode.localeCompare(right.barcode)),
+  );
+  assert.equal(b.estimatedSpendKrw, a.estimatedSpendKrw);
+  assert.notDeepEqual(
+    b.selected.map(({ barcode, estimatedCostKrw }) => ({ barcode, estimatedCostKrw })),
+    a.selected.map(({ barcode, estimatedCostKrw }) => ({ barcode, estimatedCostKrw })),
+  );
+  assert.notEqual(b.sourceFingerprint, a.sourceFingerprint);
+  assert.equal(b.planFingerprint, a.planFingerprint);
+});
 test("a fresh inventory observation time does not invalidate unchanged content", () => {
   const first = fixture(); first.priority.source.inventoryGeneratedAt = "2026-10-01T01:58:00.000Z";
   const second = fixture(); second.priority.source.inventoryGeneratedAt = "2026-10-01T01:59:00.000Z";
