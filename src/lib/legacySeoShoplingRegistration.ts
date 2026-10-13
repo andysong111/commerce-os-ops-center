@@ -5,6 +5,7 @@ import { reconcileProductLaunchNormalizedAfterLegacyItems } from "@/lib/productL
 import { readProductLaunchNormalizedItem } from "@/lib/productLaunchTrackerNormalizedStore";
 import { recoverProductLaunchOrderOptionsFromSuccessfulUpload } from "@/lib/productLaunchShoplingHistoricalOptionRecovery";
 import { buildLegacySeoShoplingPayload } from "@/lib/legacySeoShoplingPayload";
+import { legacySeoShoplingSyncConfirmed } from "@/lib/legacySeoShoplingSyncState";
 import {
   readProductLaunchState,
   readProductLaunchStorageJson,
@@ -48,16 +49,7 @@ function itemGoodsKeys(item: UnknownRecord) {
 }
 
 function hasSyncedLegacyOptions(item: UnknownRecord) {
-  return (
-    text(record(item.shoplingOptionSync).source) === "shopling_live_grouped_option_sync" ||
-    array(item.orderOptions)
-      .map(record)
-      .some(
-        (option) =>
-          text(record(option.shoplingOptionSync).source) ===
-          "shopling_live_grouped_option_sync",
-      )
-  );
+  return legacySeoShoplingSyncConfirmed(item);
 }
 
 function nextSelfCode() {
