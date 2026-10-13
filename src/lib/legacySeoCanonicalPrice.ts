@@ -84,8 +84,14 @@ const CANONICAL_MODEL_SOURCE_RULES: Record<
 
 const CANONICAL_OPTION_KEY_ALIASES: Record<string, Record<string, string[]>> = {
   AAA127: { "단품": ["펀칭기"] },
+  AAA145: {
+    "색상랜덤": ["색상랜덤천1장포함"],
+    "리필천2p": ["리필천"],
+  },
   AAA208: { "단품": ["단품옵션미기재"] },
   AAA286: { "중형": ["m"] },
+  AAA281: { "20cm": ["25cm"] },
+  AAA357: { "단품": ["그레이"] },
 };
 
 function record(value: unknown): UnknownRecord {

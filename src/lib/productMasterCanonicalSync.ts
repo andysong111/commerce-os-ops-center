@@ -1,8 +1,8 @@
-import { dependentSkuContext } from "./productMasterCanonicalBatchContext";
+import { dependentSkuContext } from "./productMasterCanonicalBatchContext.ts";
 import {
   buildProductMasterSnapshotFromTrackerState,
   type ProductMasterSnapshotPayload,
-} from "./productMasterSync";
+} from "./productMasterSync.ts";
 
 type R = Record<string, unknown>;
 type StableSku = ProductMasterSnapshotPayload["skus"][number] & {
@@ -12,6 +12,17 @@ type StableSku = ProductMasterSnapshotPayload["skus"][number] & {
 
 type CanonicalPayload = Omit<ProductMasterSnapshotPayload, "skus"> & {
   skus: StableSku[];
+};
+
+type ProductMasterCatalogProduct = {
+  productId?: unknown;
+  modelNo?: unknown;
+};
+
+export type ProductMasterBarcodeConflict = {
+  barcode: string;
+  itemIds: string[];
+  sourceSkuKeys: string[];
 };
 
 const PRODUCT_MASTER_URL = "https://commerce-os-product-master.vercel.app";
@@ -77,6 +88,70 @@ function sharedBarcodeIdentityMap(state: R) {
   }
 
   return result;
+}
+
+function itemIdentity(item: R) {
+  return text(item.id) || `model:${normalized(item.modelNumber)}`;
+}
+
+export function findCanonicalProductMasterBarcodeConflicts(
+  input: unknown,
+): ProductMasterBarcodeConflict[] {
+  const state = object(input);
+  const sharedBarcodeIdentities = sharedBarcodeIdentityMap(state);
+  const assignments = new Map<
+    string,
+    Map<string, Set<string>>
+  >();
+
+  for (const rawItem of list(state.items)) {
+    const item = object(rawItem);
+    const itemId = itemIdentity(item);
+    const options = trackerOptions(item);
+    const rowBarcode = normalized(item.barcode || item.warehouseLocation);
+    for (const [index, rawOption] of options.entries()) {
+      const option = object(rawOption);
+      const barcode =
+        normalized(option.barcode) || (options.length === 1 ? rowBarcode : "");
+      if (!barcode) continue;
+      const optionId =
+        text(option.id) ||
+        fallbackOptionIdentity(option.saleOption || option.optionName, index);
+      const approvedSharedIdentity = sharedBarcodeIdentities.get(barcode);
+      const sourceSkuKey = approvedSharedIdentity
+        ? `shared-physical:${approvedSharedIdentity}`
+        : `${itemId}:${optionId}`;
+      const bySource = assignments.get(barcode) ?? new Map<string, Set<string>>();
+      const itemIds = bySource.get(sourceSkuKey) ?? new Set<string>();
+      itemIds.add(itemId);
+      bySource.set(sourceSkuKey, itemIds);
+      assignments.set(barcode, bySource);
+    }
+  }
+
+  return [...assignments.entries()]
+    .filter(([, bySource]) => bySource.size > 1)
+    .map(([barcode, bySource]) => ({
+      barcode,
+      itemIds: [...new Set([...bySource.values()].flatMap((ids) => [...ids]))],
+      sourceSkuKeys: [...bySource.keys()],
+    }));
+}
+
+function omitBarcodeConflictItems(input: unknown) {
+  const state = object(input);
+  const conflicts = findCanonicalProductMasterBarcodeConflicts(state);
+  if (!conflicts.length) return { state, conflicts };
+  const blockedItemIds = new Set(conflicts.flatMap((conflict) => conflict.itemIds));
+  return {
+    state: {
+      ...state,
+      items: list(state.items).filter(
+        (rawItem) => !blockedItemIds.has(itemIdentity(object(rawItem))),
+      ),
+    },
+    conflicts,
+  };
 }
 
 export function buildCanonicalProductMasterSnapshot(input: unknown) {
@@ -148,24 +223,84 @@ export function buildCanonicalProductMasterSnapshot(input: unknown) {
   return { payload, skipped: built.skipped };
 }
 
+export function reuseCanonicalProductIds(
+  payload: CanonicalPayload,
+  catalogProducts: ProductMasterCatalogProduct[],
+): CanonicalPayload {
+  const existingByModel = new Map<string, string>();
+  for (const row of catalogProducts) {
+    const modelNo = normalized(row.modelNo);
+    const productId = text(row.productId);
+    if (!modelNo || !productId) continue;
+    const existing = existingByModel.get(modelNo);
+    if (existing && existing !== productId) {
+      throw new Error(
+        `PRODUCT_MASTER_MODEL_IDENTITY_CONFLICT:${modelNo}:${existing}:${productId}`,
+      );
+    }
+    existingByModel.set(modelNo, productId);
+  }
+
+  const productIdMap = new Map<string, string>();
+  const products = payload.products.map((product) => {
+    const productId = existingByModel.get(normalized(product.modelNo)) || product.id;
+    productIdMap.set(product.id, productId);
+    return productId === product.id ? product : { ...product, id: productId };
+  });
+
+  return {
+    ...payload,
+    products,
+    skus: payload.skus.map((sku) => ({
+      ...sku,
+      productId: productIdMap.get(sku.productId) || sku.productId,
+    })),
+  };
+}
+
+async function loadProductMasterCatalogProducts(baseUrl: string, secret: string) {
+  const response = await fetch(`${baseUrl}/api/integrations/inventory-catalog`, {
+    headers: {
+      "x-commerce-os-integration-secret": secret,
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await read(response);
+  if (!response.ok) {
+    throw new Error(
+      `PRODUCT_MASTER_CATALOG_READ_FAILED:${response.status}:${message(body)}`,
+    );
+  }
+  return list(object(body).products).map(object);
+}
+
 export async function pushCanonicalProductMasterSnapshotFromTrackerState(
   input: unknown,
+  options: { skipBarcodeConflicts?: boolean } = {},
 ) {
   const secret = process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim();
   if (!secret) throw new Error("PRODUCT_MASTER_INTEGRATION_SECRET_MISSING");
   const baseUrl = (process.env.PRODUCT_MASTER_BASE_URL || PRODUCT_MASTER_URL)
     .trim()
     .replace(/\/$/, "");
-  const built = buildCanonicalProductMasterSnapshot(input);
+  const prepared = options.skipBarcodeConflicts
+    ? omitBarcodeConflictItems(input)
+    : { state: input, conflicts: [] as ProductMasterBarcodeConflict[] };
+  const built = buildCanonicalProductMasterSnapshot(prepared.state);
+  const payload = reuseCanonicalProductIds(
+    built.payload,
+    await loadProductMasterCatalogProducts(baseUrl, secret),
+  );
   const counts: Record<string, number> = {};
   const skuById = new Map(
-    built.payload.skus.map((sku) => [sku.id, sku] as const),
+    payload.skus.map((sku) => [sku.id, sku] as const),
   );
   const groups: Array<[keyof CanonicalPayload, unknown[]]> = [
-    ["products", built.payload.products],
-    ["skus", built.payload.skus],
-    ["listingMappings", built.payload.listingMappings],
-    ["receiptCosts", built.payload.receiptCosts],
+    ["products", payload.products],
+    ["skus", payload.skus],
+    ["listingMappings", payload.listingMappings],
+    ["receiptCosts", payload.receiptCosts],
   ];
 
   for (const [key, rows] of groups) {
@@ -214,6 +349,7 @@ export async function pushCanonicalProductMasterSnapshotFromTrackerState(
     baseUrl,
     counts,
     skipped: built.skipped,
+    skippedBarcodeConflicts: prepared.conflicts,
     total: groups.reduce((sum, [, rows]) => sum + rows.length, 0),
   };
 }

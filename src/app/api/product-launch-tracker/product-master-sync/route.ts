@@ -34,7 +34,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await pushCanonicalProductMasterSnapshotFromTrackerState(state);
+    const result = await pushCanonicalProductMasterSnapshotFromTrackerState(state, {
+      skipBarcodeConflicts: true,
+    });
+    const skippedConflictCount = result.skippedBarcodeConflicts.length;
     return Response.json({
       ok: true,
       ...result,
@@ -42,7 +45,10 @@ export async function POST(request: NextRequest) {
         `상품 ${result.counts.products ?? 0}개, SKU ${result.counts.skus ?? 0}개, ` +
         `위치코드 변경 ${result.counts.skuBarcodeChanges ?? 0}개, ` +
         `샵플링 연결 ${result.counts.listingMappings ?? 0}개, ` +
-        `확정 입고원가 ${result.counts.receiptCosts ?? 0}개를 상품마스터에 저장했습니다.`,
+        `확정 입고원가 ${result.counts.receiptCosts ?? 0}개를 상품마스터에 저장했습니다.` +
+        (skippedConflictCount
+          ? ` 위치코드가 겹친 상품 ${skippedConflictCount}개는 합치지 않고 건너뛰었습니다.`
+          : ""),
     });
   } catch (error) {
     const detail =

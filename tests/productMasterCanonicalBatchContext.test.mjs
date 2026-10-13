@@ -47,8 +47,8 @@ test("missing dependent SKU context fails closed before an orphan foreign-key wr
 });
 
 test("canonical SKU context fix protects both listing and finalized receipt-cost batches", () => {
-  assert.ok(source.includes('["listingMappings", built.payload.listingMappings]'));
-  assert.ok(source.includes('["receiptCosts", built.payload.receiptCosts]'));
+  assert.ok(source.includes('["listingMappings", payload.listingMappings]'));
+  assert.ok(source.includes('["receiptCosts", payload.receiptCosts]'));
   assert.ok(source.includes("const skuById = new Map("));
   assert.equal(source.includes("body: JSON.stringify({ [key]: batch })"), false);
 });
