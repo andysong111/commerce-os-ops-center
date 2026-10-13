@@ -264,7 +264,17 @@ export async function loadPostApplyCanonicalReconciliation(
   options: { externalRequestTimeoutMs?: number } = {},
 ): Promise<PostApplyCanonicalReconciliation> {
   const checks: PostApplyCanonicalReconciliationCheck[] = [];
-  const salesStatus = await loadProductMasterShoplingSalesEventSyncStatus();
+  const taggedRead = async <T>(code: string, read: () => Promise<T>) => {
+    try {
+      return await read();
+    } catch (error) {
+      throw new Error(code, { cause: error });
+    }
+  };
+  const salesStatus = await taggedRead(
+    "RECONCILIATION_SALES_STATUS_FAILED",
+    loadProductMasterShoplingSalesEventSyncStatus,
+  );
   if (salesStatus.state !== "COMPLETED" || !salesStatus.requestId) {
     check(
       checks,
@@ -279,13 +289,13 @@ export async function loadPostApplyCanonicalReconciliation(
   }
 
   const [candidate, planning, audit] = await Promise.all([
-    loadLatestCandidateSalesSnapshot(),
-    loadProductPlanningSnapshot({
+    taggedRead("RECONCILIATION_CANDIDATE_SNAPSHOT_FAILED", loadLatestCandidateSalesSnapshot),
+    taggedRead("RECONCILIATION_PLANNING_FAILED", () => loadProductPlanningSnapshot({
       requestTimeoutMs: options.externalRequestTimeoutMs,
-    }),
-    loadProductMasterCanonicalSalesAudit({
+    })),
+    taggedRead("RECONCILIATION_PRODUCT_MASTER_AUDIT_FAILED", () => loadProductMasterCanonicalSalesAudit({
       requestTimeoutMs: options.externalRequestTimeoutMs,
-    }),
+    })),
   ]);
   const persisted = audit.snapshot;
 
