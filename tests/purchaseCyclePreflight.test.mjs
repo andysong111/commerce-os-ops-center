@@ -644,9 +644,14 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.doesNotMatch(page, /visibleIssues\.length/);
   assert.doesNotMatch(page, /<details[^>]*\sopen(?:=|\s|>)/);
   assert.match(form, /1\. 예산 · 자동후보 불러오기/);
-  assert.match(form, /아래 직접 입력 후보는 마지막 발주안 계산 버튼에서 함께 반영됩니다/);
+  assert.match(form, /후보 전체를 소형으로 선택하고 발주 수량까지 한 번에 계산합니다/);
   assert.match(form, /Draft 저장, 1688 주문, 결제는 실행하지 않습니다/);
   assert.match(sourcingForm, /마지막 계산은 두 입력 영역 아래에서 한 번만 실행합니다/);
+  assert.match(sourcingForm, /처음 불러올 때는 후보 전체를 선택하고 모두 소형으로 배치합니다/);
+  assert.match(sourcingForm, /name="selection" value="custom"/);
+  assert.match(page, /allSourcingVariantsAsSmall/);
+  assert.match(page, /selectionMode === "automatic"/);
+  assert.match(page, /effectiveSourcingVariantSelections/);
   assert.match(sourcingForm, /1688 상품 링크 열기/);
   assert.match(sourcingForm, /href=\{candidate\.sourceUrl\}/);
   assert.match(page, /href=\{row\.sourceUrl\}/);

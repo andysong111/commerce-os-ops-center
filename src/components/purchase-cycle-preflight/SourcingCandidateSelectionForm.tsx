@@ -125,6 +125,7 @@ export function SourcingCandidateSelectionForm({
       <input type="hidden" name="date" value={targetDate} />
       <input type="hidden" name="cash" value={cash} />
       <input type="hidden" name="sourcing" value={String(sourcingBudgetPercent)} />
+      <input type="hidden" name="selection" value="custom" />
       {early ? <input type="hidden" name="early" value="1" /> : null}
       {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
       {selectedConceptIds.map((conceptId) => (
@@ -142,7 +143,7 @@ export function SourcingCandidateSelectionForm({
       <fieldset>
         <legend className="font-black text-slate-900">판매할 1688 옵션 선택</legend>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          판매할 옵션만 체크하고 옵션마다 수납 위치를 지정하세요. 선택한 옵션마다 B코드와 발주행이 하나씩 생성됩니다.
+          처음 불러올 때는 후보 전체를 선택하고 모두 소형으로 배치합니다. 제외할 옵션만 체크를 풀면 됩니다. 선택한 옵션마다 B코드와 발주행이 하나씩 생성됩니다.
           마지막 계산은 두 입력 영역 아래에서 한 번만 실행합니다.
         </p>
         <div className="mt-3 grid gap-5">

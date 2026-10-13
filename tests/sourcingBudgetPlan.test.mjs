@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  allSourcingVariantsAsSmall,
   loadManualPilotCatalog,
   loadSourcingBudgetPlan,
   returnableSourcingBudgetKrw,
@@ -61,6 +62,32 @@ test("operator candidate preferences stay server-side and are sent to both previ
   assert.match(source, /params\.append\("variantSelection", JSON\.stringify\(selection\)\)/);
   assert.match(source, /variantSelections\?: SourcingVariantSelectionInput\[\]/);
   assert.doesNotMatch(source, /NEXT_PUBLIC_.*preferred/i);
+});
+
+test("automatic sourcing selection includes each visible option once and assigns small storage", () => {
+  const candidate = (conceptId, variantKeys) => ({
+    conceptId,
+    variants: variantKeys.map(variantKey => ({ variantKey })),
+  });
+  const plan = {
+    ...validPlan(),
+    allocation: {
+      selected: [candidate("concept-1", ["v1"])],
+      availableCandidates: [
+        candidate("concept-1", ["v1", "v2"]),
+        candidate("concept-2", ["v3"]),
+      ],
+      excluded: [],
+    },
+  };
+
+  assert.deepEqual(allSourcingVariantsAsSmall(plan), [
+    { conceptId: "concept-1", variantKey: "v1", storageSize: "S" },
+    { conceptId: "concept-1", variantKey: "v2", storageSize: "S" },
+    { conceptId: "concept-2", variantKey: "v3", storageSize: "S" },
+  ]);
+  assert.equal(allSourcingVariantsAsSmall(plan, { maxConcepts: 1, maxVariants: 10 }).length, 2);
+  assert.equal(allSourcingVariantsAsSmall(plan, { maxConcepts: 20, maxVariants: 2 }).length, 2);
 });
 
 test("invalid sourcing fingerprints are rejected before being trusted", async () => {
