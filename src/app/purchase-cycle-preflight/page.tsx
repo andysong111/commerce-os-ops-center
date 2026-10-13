@@ -253,12 +253,15 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             maxAttempts: 1,
           });
           if (automaticSelectionRequested) {
+            const fallbackSelections = effectiveSourcingVariantSelections.length === 0
+              ? allSourcingVariantsAsSmall(sourcingPlan, {
+                  maxConcepts: 20,
+                  maxVariants: 100,
+                })
+              : [];
             const automaticSelections = [
               ...effectiveSourcingVariantSelections,
-              ...allSourcingVariantsAsSmall(sourcingPlan, {
-                maxConcepts: 20,
-                maxVariants: 100,
-              }),
+              ...fallbackSelections,
             ];
             const automaticByIdentity = new Map<string, SourcingVariantSelectionInput>();
             for (const selection of automaticSelections) {

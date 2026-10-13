@@ -65,7 +65,7 @@ test("operator candidate preferences stay server-side and are sent to both previ
   assert.doesNotMatch(source, /NEXT_PUBLIC_.*preferred/i);
 });
 
-test("automatic sourcing selection includes each visible option once and assigns small storage", () => {
+test("automatic sourcing selection picks one representative option per product", () => {
   const candidate = (conceptId, variantKeys) => ({
     conceptId,
     variants: variantKeys.map(variantKey => ({ variantKey })),
@@ -84,33 +84,31 @@ test("automatic sourcing selection includes each visible option once and assigns
 
   assert.deepEqual(allSourcingVariantsAsSmall(plan), [
     { conceptId: "concept-1", variantKey: "v1", storageSize: "S" },
-    { conceptId: "concept-1", variantKey: "v2", storageSize: "S" },
     { conceptId: "concept-2", variantKey: "v3", storageSize: "S" },
   ]);
-  assert.equal(allSourcingVariantsAsSmall(plan, { maxConcepts: 1, maxVariants: 10 }).length, 2);
+  assert.equal(allSourcingVariantsAsSmall(plan, { maxConcepts: 1, maxVariants: 10 }).length, 1);
   assert.equal(allSourcingVariantsAsSmall(plan, { maxConcepts: 20, maxVariants: 2 }).length, 2);
 });
 
-test("automatic sourcing selection includes every saved manual-pilot option as small storage", () => {
-  const candidate = (conceptId, variantKeys) => ({
+test("automatic manual-pilot selection uses the exact saved SKU and one B-code per product", () => {
+  const candidate = (conceptId, skuLabel, variantKeys) => ({
     conceptId,
-    variants: variantKeys.map(variantKey => ({ variantKey })),
+    skuLabel,
+    variants: variantKeys.map(([variantKey, chinaOption]) => ({ variantKey, chinaOption })),
   });
   const catalog = {
     candidates: [
-      candidate("manual-1", ["shoe", "bra"]),
-      candidate("manual-2", ["male", "female"]),
+      candidate("manual-1", "브라", [["shoe", "신발"], ["bra", "브라"]]),
+      candidate("manual-2", "여성", [["male", "남성"], ["female", "여성"]]),
     ],
   };
 
   assert.deepEqual(manualPilotCatalogVariantsAsSmall(catalog), [
-    { conceptId: "manual-1", variantKey: "shoe", storageSize: "S" },
     { conceptId: "manual-1", variantKey: "bra", storageSize: "S" },
-    { conceptId: "manual-2", variantKey: "male", storageSize: "S" },
     { conceptId: "manual-2", variantKey: "female", storageSize: "S" },
   ]);
-  assert.equal(manualPilotCatalogVariantsAsSmall(catalog, { maxConcepts: 1 }).length, 2);
-  assert.equal(manualPilotCatalogVariantsAsSmall(catalog, { maxVariants: 3 }).length, 3);
+  assert.equal(manualPilotCatalogVariantsAsSmall(catalog, { maxConcepts: 1 }).length, 1);
+  assert.equal(manualPilotCatalogVariantsAsSmall(catalog, { maxVariants: 1 }).length, 1);
 });
 
 test("invalid sourcing fingerprints are rejected before being trusted", async () => {

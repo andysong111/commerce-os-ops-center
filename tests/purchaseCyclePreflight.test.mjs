@@ -653,6 +653,8 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /manualPilotCatalogVariantsAsSmall/);
   assert.match(page, /automaticByIdentity/);
   assert.match(page, /automaticSelectionRequested/);
+  assert.match(page, /effectiveSourcingVariantSelections\.length === 0/);
+  assert.match(page, /\.\.\.fallbackSelections/);
   assert.match(page, /effectiveSourcingVariantSelections\.length > 0 \? 25_000 : 8_000/);
   assert.match(page, /discoveredAdditionalVariant/);
   assert.match(page, /selectionMode === "automatic"/);

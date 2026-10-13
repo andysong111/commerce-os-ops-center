@@ -128,17 +128,16 @@ export function allSourcingVariantsAsSmall(
   for (const candidate of [...plan.allocation.selected, ...plan.allocation.availableCandidates]) {
     if (!concepts.has(candidate.conceptId) && concepts.size >= maxConcepts) continue;
     concepts.add(candidate.conceptId);
-    for (const variant of candidate.variants) {
-      if (selections.length >= maxVariants) break;
-      const identity = `${candidate.conceptId}\0${variant.variantKey}`;
-      if (identities.has(identity)) continue;
-      identities.add(identity);
-      selections.push({
-        conceptId: candidate.conceptId,
-        variantKey: variant.variantKey,
-        storageSize: "S",
-      });
-    }
+    const variant = candidate.variants[0];
+    if (!variant || selections.length >= maxVariants) continue;
+    const identity = `${candidate.conceptId}\0${variant.variantKey}`;
+    if (identities.has(identity)) continue;
+    identities.add(identity);
+    selections.push({
+      conceptId: candidate.conceptId,
+      variantKey: variant.variantKey,
+      storageSize: "S",
+    });
     if (selections.length >= maxVariants) break;
   }
 
@@ -158,17 +157,18 @@ export function manualPilotCatalogVariantsAsSmall(
   for (const candidate of catalog.candidates) {
     if (!concepts.has(candidate.conceptId) && concepts.size >= maxConcepts) continue;
     concepts.add(candidate.conceptId);
-    for (const variant of candidate.variants) {
-      if (selections.length >= maxVariants) break;
-      const identity = `${candidate.conceptId}\0${variant.variantKey}`;
-      if (identities.has(identity)) continue;
-      identities.add(identity);
-      selections.push({
-        conceptId: candidate.conceptId,
-        variantKey: variant.variantKey,
-        storageSize: "S",
-      });
-    }
+    const variant = candidate.variants.find((row) =>
+      row.chinaOption === candidate.skuLabel || row.saleOption === candidate.skuLabel
+    ) ?? candidate.variants[0];
+    if (!variant || selections.length >= maxVariants) continue;
+    const identity = `${candidate.conceptId}\0${variant.variantKey}`;
+    if (identities.has(identity)) continue;
+    identities.add(identity);
+    selections.push({
+      conceptId: candidate.conceptId,
+      variantKey: variant.variantKey,
+      storageSize: "S",
+    });
     if (selections.length >= maxVariants) break;
   }
 
