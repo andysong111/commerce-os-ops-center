@@ -31,6 +31,16 @@ test("purchase preparation can read the immutable candidate pin without rebuildi
   assert.doesNotMatch(pinLoader, /SALES_EVENT_CHUNK|combineProductMasterShoplingSalesEventChunks/);
 });
 
+test("exact candidate rebuild pages immutable chunk payloads instead of one oversized read", () => {
+  assert.match(engine, /async function readSalesEventChunkOperations/);
+  assert.match(engine, /const pageSize = 6/);
+  assert.match(engine, /Promise\.all/);
+  assert.match(engine, /\.select\("result_snapshot"\)/);
+  assert.match(engine, /\.order\("source_event_id"/);
+  assert.match(engine, /\.range\(from, Math\.min\(expectedRangeCount, from \+ pageSize\) - 1\)/);
+  assert.match(engine, /readSalesEventChunkOperations\([\s\S]*request\.ranges\.length/);
+});
+
 test("candidate demand uses actual event timestamps in exact 12 by 30-day buckets", () => {
   assert.match(engine, /const BUCKET_DAYS = 30/);
   assert.match(engine, /const BUCKET_COUNT = 12/);

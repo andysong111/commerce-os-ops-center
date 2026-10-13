@@ -11,10 +11,11 @@ const [engine, page, candidate, audit, sales] = await Promise.all([
 ]);
 
 test("reconciliation is pinned to the completed candidate request and fingerprints", () => {
-  assert.match(engine, /salesStatus\.state !== "COMPLETED"/);
-  assert.match(engine, /candidate\.salesRequestId === salesStatus\.requestId/);
-  assert.match(engine, /salesStatus\.report\.planFingerprint === candidate\.planFingerprint/);
-  assert.match(engine, /salesStatus\.report\.eventFingerprint === candidate\.eventFingerprint/);
+  assert.match(engine, /loadLatestCandidateSalesPin/);
+  assert.match(engine, /candidate\.salesRequestId === pin\.salesRequestId/);
+  assert.match(engine, /pin\.planFingerprint === candidate\.planFingerprint/);
+  assert.match(engine, /pin\.eventFingerprint === candidate\.eventFingerprint/);
+  assert.match(engine, /fullApply\.verified/);
   assert.match(engine, /planningFingerprintStable/);
   assert.match(engine, /planningFingerprintStable \|\| planningScopeExact/);
   assert.match(engine, /persisted\.analysisAsOf === candidate\.analysisAsOf/);

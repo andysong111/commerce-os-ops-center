@@ -10,6 +10,7 @@ const [engine, page] = await Promise.all([
 test("canonical purchase shadow uses persisted Product Master rolling sales as the primary demand source", () => {
   assert.match(engine, /loadProductMasterCanonicalSalesAudit/);
   assert.match(engine, /loadPostApplyCanonicalReconciliation/);
+  assert.match(engine, /loadProductMasterCanonicalSalesAuditForVerifiedReconciliation/);
   assert.match(engine, /PRODUCT_MASTER_CANONICAL_SALES_EVENTS/);
   assert.match(engine, /units: canonical\.monthlyUnits\.map\(integer\)/);
   assert.match(engine, /revenue: canonical\.monthlyRevenue\.map\(integer\)/);

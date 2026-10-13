@@ -8,6 +8,7 @@ import {
 } from "@/lib/productDecisionEngine/portfolio";
 import {
   loadProductMasterCanonicalSalesAudit,
+  loadProductMasterCanonicalSalesAuditForVerifiedReconciliation,
   type CanonicalRollingSalesRow,
 } from "@/lib/productMasterCanonicalSalesAudit";
 import {
@@ -171,9 +172,14 @@ export async function loadCanonicalPurchaseShadow(
       options.reconciliation ?? loadPostApplyCanonicalReconciliation({
         externalRequestTimeoutMs: options.externalRequestTimeoutMs,
       }),
-      loadProductMasterCanonicalSalesAudit({
-        requestTimeoutMs: options.externalRequestTimeoutMs,
-      }),
+      options.reconciliation
+        ? loadProductMasterCanonicalSalesAuditForVerifiedReconciliation(
+            options.reconciliation,
+            { requestTimeoutMs: options.externalRequestTimeoutMs },
+          )
+        : loadProductMasterCanonicalSalesAudit({
+            requestTimeoutMs: options.externalRequestTimeoutMs,
+          }),
       loadProductPlanningSnapshot({
         requestTimeoutMs: options.externalRequestTimeoutMs,
       }),
