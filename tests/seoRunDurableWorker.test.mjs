@@ -118,13 +118,22 @@ test("Vercel worker는 STEP별 체크포인트를 저장하고 한 RUN 오류가
 
 test("durable worker도 검색어가 10개 미만이면 기존 STEP4 안전복구를 사용한다", async () => {
   const worker = await source("src/lib/seoRunWorker.ts");
+  const legacyWorker = await source("src/lib/legacySeoRunWorker.ts");
   assert.match(worker, /generateSafeBulkKeywordSupplements/);
+  assert.match(worker, /buildSafeBulkKeywordRecoveryCandidates/);
+  assert.match(worker, /저검색량 안전복구 완료/);
+  assert.match(worker, /identity_option_grounded_v1/);
   assert.match(worker, /composeFinalWithRecovery/);
   assert.match(worker, /FINAL 검색어가 10개가 아닙니다/);
+  assert.match(worker, /검증 키워드만으로 .*상품명 .*만들 수 없습니다/);
   assert.match(worker, /supplementalSearchKeywords/);
   assert.match(worker, /customBlockedTerms: input\.customBlockedTerms \?\? \[\]/);
   assert.match(worker, /compose_final: 100_000/);
   assert.match(worker, /const result = await composeFinalWithRecovery/);
+  assert.match(legacyWorker, /buildSafeBulkKeywordRecoveryCandidates/);
+  assert.match(legacyWorker, /저검색량 안전복구 완료/);
+  assert.match(legacyWorker, /identity_option_grounded_v1/);
+  assert.match(legacyWorker, /검증 키워드만으로 .*상품명 .*만들 수 없습니다/);
 });
 
 test("희소 상품 복구는 사실 토큰과 핵심상품어 조합을 충분히 만든 뒤 STEP4를 다시 통과한다", async () => {
@@ -233,7 +242,7 @@ test("자연어 복구 실제 코드는 메타데이터·숫자를 제외하고 
   const { stripTypeScriptTypes } = await import("node:module");
   const { compactKeywordElonKey, keywordElonUtf8Bytes, normalizeKeywordElonText } = await import("../src/lib/keywordEngineElonLabV2.ts");
   const raw = await source("src/lib/keywordEngineElonBulkKeywordRecovery.ts");
-  const code = stripTypeScriptTypes(raw.replace(/^import[\s\S]*?;\n/gm, "").replace(/\bexport /g, ""), { mode: "strip" });
+  const code = stripTypeScriptTypes(raw.replace(/^import[\s\S]*?;\r?\n/gm, "").replace(/\bexport /g, ""), { mode: "strip" });
   const calls = [];
   const blocked = ["원형받침대"];
   const filter = async input => {
@@ -241,7 +250,7 @@ test("자연어 복구 실제 코드는 메타데이터·숫자를 제외하고 
     return { allowedKeys: ["세탁기받침대"], removedKeys: blocked };
   };
   const run = new Function("compactKeywordElonKey", "keywordElonUtf8Bytes", "normalizeKeywordElonText", "filterKeywordElonProhibitedKeywords", "process", "fetch",
-    code + "; return { seeds: buildDeterministicBulkKeywordRecoverySeeds, generate: generateSafeBulkKeywordSupplements };")(
+    code + "; return { seeds: buildDeterministicBulkKeywordRecoverySeeds, generate: generateSafeBulkKeywordSupplements, candidates: buildSafeBulkKeywordRecoveryCandidates };")(
       compactKeywordElonKey, keywordElonUtf8Bytes, normalizeKeywordElonText, filter, { env: {} }, () => { throw new Error("No external network allowed"); });
   const input = {
     productName: "형태 원형 세탁기 받침대",
@@ -260,6 +269,22 @@ test("자연어 복구 실제 코드는 메타데이터·숫자를 제외하고 
     assert.doesNotMatch(key, /형태|재질|용도|있는|옵션|모델번호|\d/);
   }
   assert.deepEqual(await run.generate(input), ["세탁기받침대"]);
+  assert.deepEqual(
+    run.candidates(["세탁기받침대"]).map((row) => ({
+      keyword: row.searchKeyword,
+      totalSearch: row.totalSearch,
+      titleEligible: row.titleEligible,
+      safetyPass: row.safetyPass,
+      sourceTags: row.sourceTags,
+    })),
+    [{
+      keyword: "세탁기받침대",
+      totalSearch: null,
+      titleEligible: true,
+      safetyPass: true,
+      sourceTags: ["bulk_keyword_recovery_v12"],
+    }],
+  );
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].customBlockedTerms, blocked);
   assert.ok(calls[0].candidates.every(row => row.totalSearch === null));

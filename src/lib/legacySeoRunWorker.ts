@@ -14,7 +14,10 @@ import {
   type KeywordElonBulkComposeInput,
   type KeywordElonBulkFinalInput,
 } from "@/lib/keywordEngineElonBulkFinal";
-import { generateSafeBulkKeywordSupplements } from "@/lib/keywordEngineElonBulkKeywordRecovery";
+import {
+  buildSafeBulkKeywordRecoveryCandidates,
+  generateSafeBulkKeywordSupplements,
+} from "@/lib/keywordEngineElonBulkKeywordRecovery";
 import { discoverKeywordElonCandidatesResilient } from "@/lib/keywordEngineElonLabV2Discovery";
 import {
   mergeKeywordElonCandidates,
@@ -229,7 +232,13 @@ async function composeFinalWithRecovery(input: KeywordElonBulkComposeInput) {
     return composeKeywordElonBulkFinal(input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (!/FINAL 검색어가 10개가 아닙니다/.test(message)) throw error;
+    if (
+      !/FINAL 검색어가 10개가 아닙니다|상품명용 우수 키워드가 부족합니다|검증 키워드만으로 .*상품명 .*만들 수 없습니다|쇼핑몰별 상품명이 29개가 아닙니다/.test(
+        message,
+      )
+    ) {
+      throw error;
+    }
     const supplementalSearchKeywords = await generateSafeBulkKeywordSupplements({
       identity: input.identity,
       source: input.source,
@@ -410,10 +419,11 @@ async function executeStage(
   }
 
   if (job.stage === "filter_keywords") {
-    const finalCandidates = selectKeywordElonStep4Union(
+    let finalCandidates = selectKeywordElonStep4Union(
       candidates,
       normalizeKeywordElonSelectionThresholds(),
     );
+    let lowDemandFallback = false;
     if (!finalCandidates.length) {
       const recovery = planKeywordElonSelectionRecovery({
         identity,
@@ -463,15 +473,28 @@ async function executeStage(
           lease_until: null,
         });
       }
-      const attempts = Number(record(state.selectionRecovery).attempts) || 0;
-      throw new Error(`STEP 4에 전달할 월검색량/정확성 통과 후보가 없습니다. · 제한 복구 ${attempts}회 이후 기준 미충족/미평가 상태 보존`);
+      const supplements = await generateSafeBulkKeywordSupplements({
+        identity,
+        source,
+        productName: input.productName,
+        customBlockedTerms: input.customBlockedTerms ?? [],
+      });
+      finalCandidates = buildSafeBulkKeywordRecoveryCandidates(supplements);
+      lowDemandFallback = finalCandidates.length > 0;
+      if (!finalCandidates.length) {
+        const attempts = Number(record(state.selectionRecovery).attempts) || 0;
+        throw new Error(`STEP 4에 전달할 월검색량/정확성 통과 후보가 없습니다. · 제한 복구 ${attempts}회 이후 기준 미충족/미평가 상태 보존`);
+      }
+      candidates = mergeKeywordElonCandidates(candidates, finalCandidates);
     }
     const filterResult = await filterKeywordElonProhibitedKeywords({
       identity,
       candidates: finalCandidates,
       customBlockedTerms: input.customBlockedTerms ?? [],
     });
-    const allowedSet = new Set(stringList(filterResult.allowedKeys));
+    const allowedSet = new Set(
+      stringList(filterResult.allowedKeys).map(compactKeywordElonKey),
+    );
     const allowedCandidates = finalCandidates.filter((candidate) =>
       allowedSet.has(
         compactKeywordElonKey(
@@ -486,12 +509,22 @@ async function executeStage(
       stage: "generate_title",
       stage_index: 6,
       progress_percent: 78,
-      message: `STEP 4 완료 · 안전 후보 ${allowedCandidates.length}개 · FINAL 상품명 생성 대기`,
+      message: lowDemandFallback
+        ? `저검색량 안전복구 완료 · 안전 후보 ${allowedCandidates.length}개 · FINAL 상품명 생성 대기`
+        : `STEP 4 완료 · 안전 후보 ${allowedCandidates.length}개 · FINAL 상품명 생성 대기`,
       checkpoint_payload: {
         ...state,
+        candidates,
         finalCandidates,
         filterResult,
         allowedCandidates,
+        lowDemandFallback: lowDemandFallback
+          ? {
+              source: "identity_option_grounded_v1",
+              appliedAt: new Date().toISOString(),
+              candidateCount: finalCandidates.length,
+            }
+          : null,
       },
     });
   }
