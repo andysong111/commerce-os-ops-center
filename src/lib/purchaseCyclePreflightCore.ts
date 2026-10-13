@@ -386,7 +386,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     fingerprint(rec.persistedContentFingerprint) && rec.checks.length > 0 && rec.checks.every(c => c.passed === true) &&
     rec.candidateSalesRequestId === pin.requestId && rec.analysisAsOf === pin.analysisAsOf &&
     rec.candidatePlanFingerprint === pin.planFingerprint && rec.candidateEventFingerprint === pin.eventFingerprint &&
-    fresh(rec.generatedAt, now, REPORT_MAX_AGE_MS));
+    Number.isFinite(Date.parse(String(rec.generatedAt))));
   const sourceFresh = validPin(pin) && purchaseSalesSourceFresh({
     analysisAsOf: pin.analysisAsOf,
     nowMs: now,

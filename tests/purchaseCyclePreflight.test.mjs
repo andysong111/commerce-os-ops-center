@@ -144,9 +144,10 @@ test("COMPLETED source uses its verified historical readback, not a new write pe
 test("same Seoul business day keeps a verified FULL candidate usable after twelve hours", () => {
   const input = fixture();
   input.now = "2026-10-01T14:30:00.000Z";
-  for (const value of [input.gate, input.reconciliation, input.priority]) {
+  for (const value of [input.gate, input.priority]) {
     value.generatedAt = "2026-10-01T14:29:00.000Z";
   }
+  input.reconciliation.generatedAt = "2026-10-01T01:59:00.000Z";
   input.priority.source.inventoryGeneratedAt = "2026-10-01T14:29:00.000Z";
   input.spendBefore.readAt = "2026-10-01T14:29:00.000Z";
   input.spendAfter.readAt = "2026-10-01T14:29:00.000Z";
@@ -154,6 +155,15 @@ test("same Seoul business day keeps a verified FULL candidate usable after twelv
   assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
   assert.ok(!report.blockers.includes("SALES_SOURCE_STALE_OR_FUTURE"));
   locked(report);
+});
+test("persisted FULL readback still requires a valid timestamp and exact candidate fingerprints", () => {
+  const invalidTime = fixture();
+  invalidTime.reconciliation.generatedAt = "invalid";
+  blocked(buildPurchaseCyclePreflight(invalidTime), "PRODUCT_MASTER_FULL_READBACK_REQUIRED");
+
+  const mismatchedCandidate = fixture();
+  mismatchedCandidate.reconciliation.candidateEventFingerprint = fp("9");
+  blocked(buildPurchaseCyclePreflight(mismatchedCandidate), "PRODUCT_MASTER_FULL_READBACK_REQUIRED");
 });
 test("verified FULL candidate expires when the Seoul business day changes", () => {
   const input = fixture();
