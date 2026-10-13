@@ -24,6 +24,7 @@ import {
   legacySeoRegistrationExclusion,
   isLegacySeoRegistrationPolicyExcluded,
 } from "@/lib/legacySeoRegistrationPolicy";
+import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 import { recoverLegacySeoShoplingPrices } from "@/lib/legacySeoShoplingPriceRecovery";
 import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
 import { readProductLaunchStorageJson } from "@/lib/productLaunchTrackerServer";
@@ -156,7 +157,8 @@ function mapItems(items: UnknownRecord[]) {
   return result;
 }
 
-function scheduleWorker(ownerId: string, maxJobs: number) {
+async function scheduleWorker(ownerId: string, maxJobs: number) {
+  await wakeOpsDispatchTask("legacy-seo-run-worker");
   after(async () => {
     await processLegacySeoRunQueue({
       workerId: `legacy-enqueue:${ownerId.slice(0, 8)}:${crypto.randomUUID()}`,
@@ -217,7 +219,7 @@ export async function GET(request: NextRequest) {
     ? await listLegacyItems(context.config, context.identity.userId)
     : [];
   if (jobs.some((job) => ["queued", "running"].includes(job.status))) {
-    scheduleWorker(context.identity.userId, 2);
+    await scheduleWorker(context.identity.userId, 2);
   }
   return Response.json({ ok: true, jobs, items });
 }
@@ -407,7 +409,7 @@ export async function POST(request: NextRequest) {
       );
     }
     const inserted = await insertLegacySeoRunJobs(context, rows);
-    scheduleWorker(context.identity.userId, rows.length);
+    await scheduleWorker(context.identity.userId, rows.length);
     return Response.json({
       ok: true,
       batchId,
@@ -426,7 +428,7 @@ export async function POST(request: NextRequest) {
   if (action === "retry") {
     const runIds = uniqueStrings(body.runIds, 200);
     const jobs = await retryLegacySeoRunJobs(context, runIds);
-    scheduleWorker(context.identity.userId, Math.max(1, runIds.length));
+    await scheduleWorker(context.identity.userId, Math.max(1, runIds.length));
     return Response.json({ ok: true, jobs });
   }
 

@@ -13,8 +13,10 @@ const [
   stage8CandidatePrewriteMigration,
   stage8PostapplyReadinessMigration,
   monthlyPurchasePreparationMigration,
+  legacySeoRunWorkerMigration,
   registry,
   route,
+  legacySeoRoute,
   pulse,
 ] = await Promise.all([
   read("vercel.json"),
@@ -25,8 +27,10 @@ const [
   read("supabase/migrations/20260918094000_stage8_candidate_prewrite_evidence_worker.sql"),
   read("supabase/migrations/20260918095500_stage8_postapply_purchase_readiness_worker.sql"),
   read("supabase/migrations/20261012162706_monthly_purchase_preparation_worker.sql"),
+  read("supabase/migrations/20261014090000_legacy_seo_run_worker_dispatch.sql"),
   read("src/lib/opsAdaptiveDispatcher.ts"),
   read("src/app/api/cron/ops-dispatcher/route.ts"),
+  read("src/app/api/legacy-seo-run-jobs/route.ts"),
   read("src/lib/seoRunWorkerPulse.ts"),
 ]);
 
@@ -188,7 +192,21 @@ test("monthly purchase preparation is one bounded operational dispatcher task", 
     /'\/api\/cron\/monthly-purchase-preparation'/,
   );
   assert.match(monthlyPurchasePreparationMigration, /'operational'/);
-  assert.match(monthlyPurchasePreparationMigration, /\n  125,/);
-  assert.match(monthlyPurchasePreparationMigration, /\n  1800,\n  300,/);
+  assert.match(monthlyPurchasePreparationMigration, /\r?\n  125,/);
+  assert.match(monthlyPurchasePreparationMigration, /\r?\n  1800,\r?\n  300,/);
   assert.match(registry, /"monthly-purchase-preparation"/);
+});
+
+test("legacy SEO retries wake and drain through the durable dispatcher", () => {
+  assert.match(legacySeoRunWorkerMigration, /'legacy-seo-run-worker'/);
+  assert.match(
+    legacySeoRunWorkerMigration,
+    /'\/api\/cron\/legacy-seo-run-worker'/,
+  );
+  assert.match(legacySeoRunWorkerMigration, /'critical'/);
+  assert.match(legacySeoRunWorkerMigration, /\r?\n  15,/);
+  assert.match(legacySeoRunWorkerMigration, /\r?\n  300,\r?\n  60,/);
+  assert.match(registry, /"legacy-seo-run-worker"/);
+  assert.match(legacySeoRoute, /await wakeOpsDispatchTask\("legacy-seo-run-worker"\)/);
+  assert.match(legacySeoRoute, /await scheduleWorker\(context\.identity\.userId/);
 });
