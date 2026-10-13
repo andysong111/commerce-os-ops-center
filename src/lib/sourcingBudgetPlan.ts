@@ -145,6 +145,36 @@ export function allSourcingVariantsAsSmall(
   return selections;
 }
 
+export function manualPilotCatalogVariantsAsSmall(
+  catalog: ManualPilotCatalog,
+  limits: { maxConcepts?: number; maxVariants?: number } = {},
+) {
+  const maxConcepts = Math.max(0, Math.trunc(limits.maxConcepts ?? 20));
+  const maxVariants = Math.max(0, Math.trunc(limits.maxVariants ?? 100));
+  const concepts = new Set<string>();
+  const identities = new Set<string>();
+  const selections: SourcingVariantSelectionInput[] = [];
+
+  for (const candidate of catalog.candidates) {
+    if (!concepts.has(candidate.conceptId) && concepts.size >= maxConcepts) continue;
+    concepts.add(candidate.conceptId);
+    for (const variant of candidate.variants) {
+      if (selections.length >= maxVariants) break;
+      const identity = `${candidate.conceptId}\0${variant.variantKey}`;
+      if (identities.has(identity)) continue;
+      identities.add(identity);
+      selections.push({
+        conceptId: candidate.conceptId,
+        variantKey: variant.variantKey,
+        storageSize: "S",
+      });
+    }
+    if (selections.length >= maxVariants) break;
+  }
+
+  return selections;
+}
+
 export type SourcingBudgetConfirmationResult = {
   ok: boolean;
   status: "COMPLETE" | "PARTIAL";

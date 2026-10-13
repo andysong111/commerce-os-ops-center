@@ -650,6 +650,8 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(sourcingForm, /처음 불러올 때는 후보 전체를 선택하고 모두 소형으로 배치합니다/);
   assert.match(sourcingForm, /name="selection" value="custom"/);
   assert.match(page, /allSourcingVariantsAsSmall/);
+  assert.match(page, /manualPilotCatalogVariantsAsSmall/);
+  assert.match(page, /automaticByIdentity/);
   assert.match(page, /selectionMode === "automatic"/);
   assert.match(page, /effectiveSourcingVariantSelections/);
   assert.match(sourcingForm, /1688 상품 링크 열기/);
