@@ -41,19 +41,6 @@ export function legacySeoRegistrationExclusion(
   );
   if (explicit.excluded) return explicit;
 
-  // Normalized legacy items are registration-ready only when the canonical
-  // orderOptions array exists and contains at least one option. Older split
-  // listings and incomplete historical rows often have no normalized options;
-  // fail closed instead of fabricating a B-code or price for them.
-  if (Object.prototype.hasOwnProperty.call(item, "orderOptions")) {
-    if (!Array.isArray(item.orderOptions) || item.orderOptions.length === 0) {
-      return {
-        excluded: true,
-        reason: "등록용 묶음옵션/B코드 없음 · 기존 쪼개등록 또는 근거부족 자동 제외",
-      };
-    }
-  }
-
   return { excluded: false, reason: "" };
 }
 
