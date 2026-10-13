@@ -251,6 +251,18 @@ function fresh(value: string | null | undefined, now: number, maxAge: number) {
   const time = value ? Date.parse(value) : NaN;
   return Number.isFinite(time) && time <= now && now - time <= maxAge;
 }
+
+function exactPlanningScopeVerified(
+  reconciliation: PostApplyCanonicalReconciliation | null,
+  currentPlanningContentFingerprint: string,
+) {
+  return reconciliation?.state === "READY" &&
+    reconciliation.ready === true &&
+    reconciliation.planningContentFingerprint === currentPlanningContentFingerprint &&
+    reconciliation.checks.some(
+      (check) => check.key === "planning-fingerprint-stable" && check.passed,
+    );
+}
 function verifiedUnitCost(row: InventoryVerificationPriorityRow, now: number) {
   return effectivePurchaseUnitCostKrw(row, now);
 }
@@ -391,10 +403,13 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const salesVerified = stable && (gateVerified || fullReadback);
   if (!salesVerified) blockers.push("SALES_PROMOTION_NOT_VERIFIED");
   if (!fullReadback) blockers.push("PRODUCT_MASTER_FULL_READBACK_REQUIRED");
+  const planningContextMatch = Boolean(validPin(pin) && source && rec &&
+    source.planningContentFingerprint === source.shadowPlanningContentFingerprint &&
+    (source.planningContentFingerprint === pin.planningContentFingerprint ||
+      exactPlanningScopeVerified(rec, source.planningContentFingerprint)));
   const contextMatch = Boolean(validPin(pin) && source && rec &&
     source.analysisAsOf === pin.analysisAsOf &&
-    source.planningContentFingerprint === pin.planningContentFingerprint &&
-    source.shadowPlanningContentFingerprint === pin.planningContentFingerprint &&
+    planningContextMatch &&
     fingerprint(source.canonicalContentFingerprint) &&
     source.canonicalContentFingerprint === rec.persistedContentFingerprint &&
     fingerprint(source.reconciliationFingerprint) &&

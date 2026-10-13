@@ -21,7 +21,7 @@ const fixture = () => {
     spendAfter: { cycleMonth: "2026-10", readAt: "2026-10-01T01:59:00Z", recordedSpendKrw: 0, contentFingerprint: fp("1") },
     options: { targetDate: "2026-10-01", cashLimitKrw: 50000, maxSkus: 1, maxUnitsPerSku: 10 },
     gate: { generatedAt: "2026-10-01T01:59:00.000Z", state: "EXACT_MATCH", safeToApply: true, candidateSalesRequestId: before.requestId, candidatePlanFingerprint: before.planFingerprint, candidateEventFingerprint: before.eventFingerprint, promotionFingerprint: fp("d"), checks: [{ key: "context", passed: true, message: "same" }], message: "checked" },
-    reconciliation: { generatedAt: "2026-10-01T01:59:00.000Z", state: "READY", ready: true, fullApplyVerified: true, candidateSalesRequestId: before.requestId, analysisAsOf: before.analysisAsOf, candidatePlanFingerprint: before.planFingerprint, candidateEventFingerprint: before.eventFingerprint, reconciliationFingerprint: fp("e"), persistedContentFingerprint: fp("f"), checks: [{ key: "full-readback", passed: true, message: "verified" }], message: "readback verified" },
+    reconciliation: { generatedAt: "2026-10-01T01:59:00.000Z", state: "READY", ready: true, fullApplyVerified: true, candidateSalesRequestId: before.requestId, analysisAsOf: before.analysisAsOf, candidatePlanFingerprint: before.planFingerprint, candidateEventFingerprint: before.eventFingerprint, planningContentFingerprint: before.planningContentFingerprint, reconciliationFingerprint: fp("e"), persistedContentFingerprint: fp("f"), checks: [{ key: "full-readback", passed: true, message: "verified" }], message: "readback verified" },
     priority: { generatedAt: "2026-10-01T01:59:00.000Z", state: "READY", writesEnabled: false, purchaseShadowReady: true,
       source: { analysisAsOf: before.analysisAsOf, planningContentFingerprint: before.planningContentFingerprint, shadowPlanningContentFingerprint: before.planningContentFingerprint, canonicalContentFingerprint: fp("f"), reconciliationFingerprint: fp("e"), cycleMonth: "2026-10", budgetMonth: "2026-09", budgetKrw: 100000, grossBudgetKrw: 145000, purchaseCostMultiplier: 1.45, inventoryGeneratedAt: "2026-10-01T01:59:00Z", inventoryContentFingerprint: fp("2"), comparisonAvailable: true, sameAnalysisAsOf: true, blockerKeys: [] },
       rows: [{ barcode: "BAA1-1", name: "SIMULATION ONLY", purchaseStatus: "발주 추천", recommendedQty: 5, expectedCost: 25000, priorityScore: 90, inventoryMode: "VERIFIED", inventoryVerified: true, executionInventoryEligible: true, inventoryCalculationUsable: true, inventoryRequiresReview: false, initialZeroUnverified: false, advisoryOnly: false, inventoryQuantity: 2, openCommitment: 3, hasConfirmedReceiptCost: true, latestConfirmedReceiptAt: "2026-09-01T00:00:00Z", latestConfirmedReceiptCostKrw: 5000, protectedCostKrw: 4000, action: "NONE", operationallyReady: true }],
@@ -94,6 +94,38 @@ for (const key of ["canonicalContentFingerprint", "reconciliationFingerprint", "
 }
 test("old reports without provenance fail closed", () => {
   const input = fixture(); delete input.priority.source;
+  blocked(buildPurchaseCyclePreflight(input), "PURCHASE_SOURCE_CONTEXT_MISMATCH");
+});
+test("exact reconciled active sales scope accepts unrelated planning fingerprint drift", () => {
+  const input = fixture();
+  const currentPlanning = fp("9");
+  input.priority.source.planningContentFingerprint = currentPlanning;
+  input.priority.source.shadowPlanningContentFingerprint = currentPlanning;
+  input.reconciliation.planningContentFingerprint = currentPlanning;
+  input.reconciliation.checks = [
+    { key: "planning-fingerprint-stable", passed: true, message: "exact active scope" },
+  ];
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.ok(!report.blockers.includes("PURCHASE_SOURCE_CONTEXT_MISMATCH"));
+  locked(report);
+});
+test("planning drift still blocks without exact reconciled scope proof", () => {
+  const input = fixture();
+  const currentPlanning = fp("9");
+  input.priority.source.planningContentFingerprint = currentPlanning;
+  input.priority.source.shadowPlanningContentFingerprint = currentPlanning;
+  input.reconciliation.planningContentFingerprint = currentPlanning;
+  blocked(buildPurchaseCyclePreflight(input), "PURCHASE_SOURCE_CONTEXT_MISMATCH");
+});
+test("planning drift blocks when reconciliation proof belongs to another current planning snapshot", () => {
+  const input = fixture();
+  const currentPlanning = fp("9");
+  input.priority.source.planningContentFingerprint = currentPlanning;
+  input.priority.source.shadowPlanningContentFingerprint = currentPlanning;
+  input.reconciliation.checks = [
+    { key: "planning-fingerprint-stable", passed: true, message: "exact active scope" },
+  ];
   blocked(buildPurchaseCyclePreflight(input), "PURCHASE_SOURCE_CONTEXT_MISMATCH");
 });
 test("report generation SUCCEEDED is not a promotion or readback pass", () => {
@@ -458,7 +490,7 @@ test("read-only refreshes use a short cache while Draft creation keeps a fresh r
   const service = readFileSync(new URL("../src/lib/purchaseCyclePreflight.ts", import.meta.url), "utf8");
   assert.match(preview, /unstable_cache/);
   assert.match(preview, /PREVIEW_REVALIDATE_SECONDS = 60/);
-  assert.match(preview, /PREVIEW_READER_TIMEOUT_MS = 20_000/);
+  assert.match(preview, /PREVIEW_READER_TIMEOUT_MS = 50_000/);
   assert.match(preview, /readerTimeoutMs: PREVIEW_READER_TIMEOUT_MS/);
   assert.match(page, /loadPurchaseCyclePreflightPreview\(options\)/);
   assert.match(draft, /loadPurchaseCyclePreflight\(/);
