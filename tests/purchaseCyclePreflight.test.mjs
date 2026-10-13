@@ -349,7 +349,7 @@ test("selection is deterministic, bounded, and does not mutate source arrays", (
   input.priority.rows.reverse(); const b = buildPurchaseCyclePreflight(input);
   assert.deepEqual(a.selected, b.selected); assert.equal(a.planFingerprint, b.planFingerprint); assert.equal(a.estimatedSpendKrw, 25000);
 });
-for (const mutate of [i => i.options.cashLimitKrw++, i => { i.options.sourcingBudgetPercent = 10; }, i => { i.options.sourcingBudgetPercent = 1; i.options.sourcingBudgetReturnKrw = 1; }, i => i.options.maxSkus++, i => i.priority.rows[0].openCommitment++, i => i.priority.rows[0].expectedCost++, i => i.priority.rows[0].inventoryQuantity++, i => i.priority.rows[0].latestConfirmedReceiptCostKrw++]) {
+for (const mutate of [i => i.options.cashLimitKrw++, i => { i.options.sourcingBudgetPercent = 10; }, i => { i.options.sourcingBudgetPercent = 1; i.options.sourcingBudgetReturnKrw = 1; }, i => i.options.maxSkus++, i => i.priority.rows[0].openCommitment++, i => i.priority.rows[0].latestConfirmedReceiptCostKrw++]) {
   test("material evidence or limits change the pinned preview fingerprint", () => {
     const input = fixture(); const previous = buildPurchaseCyclePreflight(input); mutate(input);
     assert.notEqual(buildPurchaseCyclePreflight(input).planFingerprint, previous.planFingerprint);
@@ -1037,10 +1037,13 @@ test("missing inventory content fingerprint blocks", () => {
   const input = fixture(); delete input.priority.source.inventoryContentFingerprint;
   blocked(buildPurchaseCyclePreflight(input), "INVENTORY_EVIDENCE_STALE_OR_UNPINNED");
 });
-test("a changed stock snapshot fingerprint invalidates the preparation", () => {
+test("a changed diagnostic source fingerprint does not invalidate an unchanged purchase decision", () => {
   const input = fixture(); const a = buildPurchaseCyclePreflight(input);
   input.priority.source.inventoryContentFingerprint = fp("3");
-  assert.notEqual(buildPurchaseCyclePreflight(input).planFingerprint, a.planFingerprint);
+  const b = buildPurchaseCyclePreflight(input);
+  assert.notEqual(b.sourceFingerprint, a.sourceFingerprint);
+  assert.deepEqual(b.selected, a.selected);
+  assert.equal(b.planFingerprint, a.planFingerprint);
 });
 test("a fresh inventory observation time does not invalidate unchanged content", () => {
   const first = fixture(); first.priority.source.inventoryGeneratedAt = "2026-10-01T01:58:00.000Z";

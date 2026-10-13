@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { FastPurchaseInternalDraftLine } from "@/lib/fastPurchaseInternalDraft";
 import type { PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import type {
@@ -6,6 +7,52 @@ import type {
 } from "@/lib/sourcingBudgetPlan";
 
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
+
+const hash = (value: unknown) =>
+  `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+
+export function sourcingBudgetDecisionFingerprint(plan: SourcingBudgetPlan) {
+  type DecisionLine = {
+    conceptId: string;
+    variantKey: string | null;
+    saleOption: string | null;
+    chinaOption: string | null;
+    storageSize: "S" | "L" | null;
+    quantity: number | null;
+  };
+  const selected: DecisionLine[] = [];
+  for (const row of plan.allocation.selected) {
+    if (Array.isArray(row.selectedVariants) && row.selectedVariants.length > 0) {
+      for (const variant of row.selectedVariants) {
+        selected.push({
+          conceptId: row.conceptId,
+          variantKey: variant.variantKey,
+          saleOption: variant.saleOption,
+          chinaOption: variant.chinaOption,
+          storageSize: variant.storageSize,
+          quantity: variant.quantity,
+        });
+      }
+    } else {
+      selected.push({
+        conceptId: row.conceptId,
+        variantKey: null,
+        saleOption: null,
+        chinaOption: null,
+        storageSize: row.storageSize ?? null,
+        quantity: row.quantity ?? null,
+      });
+    }
+  }
+  selected.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  return hash({
+    targetCycleMonth: plan.targetCycleMonth,
+    totalCashKrw: plan.totalCashKrw,
+    sourcingBudgetPercent: plan.sourcingBudgetPercent,
+    sourcingBudgetKrw: plan.sourcingBudgetKrw,
+    selected,
+  });
+}
 
 function sortedStrings(values: string[] | undefined) {
   return [...(values ?? [])].sort();
@@ -55,6 +102,7 @@ export type PurchaseCycleDraftRequest = {
   expectedPlanFingerprint: string;
   expectedSourcingSourceFingerprint?: string | null;
   expectedSourcingPlanFingerprint?: string | null;
+  expectedSourcingDecisionFingerprint?: string | null;
   confirmation: string;
   replaceDraftId?: string | null;
 };
@@ -84,7 +132,7 @@ export function purchaseCycleDraftConfirmation(
     0,
   ) ?? 0;
   const sourcingSuffix = report.sourcingBudgetPercent > 0 && sourcingPlan
-    ? `_NEWSOURCE${sourcingVariantCount}SKU_${sourcingPlan.allocation.estimatedSpendKrw}KRW_RETURN${report.sourcingBudgetReturnKrw}KRW_${sourcingPlan.planFingerprint.slice(-12)}`
+    ? `_NEWSOURCE${sourcingVariantCount}SKU_LIMIT${report.sourcingBudgetKrw}KRW_${sourcingBudgetDecisionFingerprint(sourcingPlan).slice(-12)}`
     : "";
   if (report.replacementDraftId) {
     const audit = report.replacementAudit;
@@ -107,7 +155,6 @@ export function preparePurchaseCycleDraft(
     request.targetDate !== report.targetDate ||
     (request.cashLimitKrw ?? null) !== report.cashLimitKrw ||
     (request.sourcingBudgetPercent ?? 0) !== report.sourcingBudgetPercent ||
-    request.expectedSourceFingerprint !== report.sourceFingerprint ||
     request.expectedPlanFingerprint !== report.planFingerprint ||
     (request.replaceDraftId ?? null) !== (report.replacementDraftId ?? null) ||
     !FINGERPRINT.test(request.expectedSourceFingerprint) ||
@@ -125,16 +172,17 @@ export function preparePurchaseCycleDraft(
       sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw ||
       !sameSourcingSelection(sourcingPlan, request) ||
       sourcingPlan.allocation.selected.length < 1 ||
-      request.expectedSourcingSourceFingerprint !== sourcingPlan.sourceFingerprint ||
-      request.expectedSourcingPlanFingerprint !== sourcingPlan.planFingerprint ||
       !FINGERPRINT.test(request.expectedSourcingSourceFingerprint ?? "") ||
-      !FINGERPRINT.test(request.expectedSourcingPlanFingerprint ?? "")
+      !FINGERPRINT.test(request.expectedSourcingPlanFingerprint ?? "") ||
+      !FINGERPRINT.test(request.expectedSourcingDecisionFingerprint ?? "") ||
+      request.expectedSourcingDecisionFingerprint !== sourcingBudgetDecisionFingerprint(sourcingPlan)
     ) {
       throw new Error("PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY");
     }
   } else if (
     request.expectedSourcingSourceFingerprint ||
-    request.expectedSourcingPlanFingerprint
+    request.expectedSourcingPlanFingerprint ||
+    request.expectedSourcingDecisionFingerprint
   ) {
     throw new Error("PURCHASE_CYCLE_SOURCING_PLAN_UNEXPECTED");
   }

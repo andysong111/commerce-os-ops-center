@@ -744,10 +744,24 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     targetCycleMonth, requiredBudgetMonth, dateState,
     state: !previewReady ? "BLOCKED" : uniqueReview.length ? "PREVIEW_ONLY" : "AWAITING_OWNER_REVIEW",
     sourceFingerprint,
+    // Pin the operator-visible decision, not every diagnostic source row. The
+    // full source fingerprint remains in the report for audit, while this
+    // fingerprint stays stable when an unrelated source observation changes
+    // without changing the approved products, quantities, budget or replaced
+    // draft. Draft creation re-runs every readiness gate before accepting it.
     planFingerprint: hash({
-      sourceFingerprint,
       options: { ...input.options, sourcingBudgetPercent },
       selected: selected.map(stablePlanLine),
+      replacementAudit,
+      budget: {
+        cashLimitKrw,
+        sourcingBudgetKrw,
+        sourcingBudgetReturnKrw,
+        reorderCashKrw,
+        effectiveBudgetKrw,
+        estimatedSpendKrw,
+        estimatedAllInSpendKrw: multiplierValid ? Math.ceil(estimatedSpendKrw * multiplier!) : 0,
+      },
     }),
     candidateRequestId: pin?.requestId ?? null, sourceAnalysisAsOf: pin?.analysisAsOf ?? null,
     sourceCycleMonth: source?.cycleMonth ?? null, sourceBudgetMonth: source?.budgetMonth ?? null,

@@ -5,6 +5,7 @@ import {
   preparePurchaseCycleDraft,
   purchaseCycleDraftConfirmation,
   purchaseCycleDraftPreflightOptions,
+  sourcingBudgetDecisionFingerprint,
 } from "../src/lib/purchaseCyclePreflightDraftCore.ts";
 import { assertDraftCanBeRegenerated } from "../src/lib/purchaseCycleDraftRegenerationCore.ts";
 
@@ -76,6 +77,9 @@ function request(value = report(), plan = null) {
     expectedPlanFingerprint: value.planFingerprint,
     expectedSourcingSourceFingerprint: plan?.sourceFingerprint ?? null,
     expectedSourcingPlanFingerprint: plan?.planFingerprint ?? null,
+    expectedSourcingDecisionFingerprint: plan
+      ? sourcingBudgetDecisionFingerprint(plan)
+      : null,
     confirmation: purchaseCycleDraftConfirmation(value, plan),
   };
 }
@@ -118,8 +122,7 @@ test("draft recheck preserves and pins the sourcing budget share", () => {
   const input = request(value, plan);
   assert.equal(purchaseCycleDraftPreflightOptions(input).sourcingBudgetPercent, 20);
   assert.match(input.confirmation, /SOURCING20PCT/);
-  assert.match(input.confirmation, /NEWSOURCE1SKU_150000KRW/);
-  assert.match(input.confirmation, /RETURN50000KRW/);
+  assert.match(input.confirmation, /NEWSOURCE1SKU_LIMIT200000KRW/);
   assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
   input.sourcingBudgetPercent = 15;
   assert.throws(
@@ -212,12 +215,18 @@ test("exact preflight pins become one RESERVED draft line without claiming stock
   );
 });
 
+test("a refreshed diagnostic source fingerprint is accepted when the exact plan is unchanged", () => {
+  const value = report();
+  const input = request(value);
+  input.expectedSourceFingerprint = fp("c");
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
+});
+
 for (const mutate of [
-  (value) => { value.expectedSourceFingerprint = fp("c"); },
   (value) => { value.expectedPlanFingerprint = fp("c"); },
   (value) => { value.targetDate = "2026-10-02"; },
 ]) {
-  test("changed source or target date is rejected", () => {
+  test("changed purchase decision or target date is rejected", () => {
     const value = report();
     const input = request(value);
     mutate(input);
@@ -227,6 +236,49 @@ for (const mutate of [
     );
   });
 }
+
+test("sourcing approval survives FX-only cost drift but rejects product or quantity drift", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 20;
+  value.sourcingBudgetKrw = 200_000;
+  value.sourcingBudgetReturnKrw = 50_000;
+  const plan = sourcingPlan(value);
+  plan.allocation.selected = [{
+    conceptId: "new-1",
+    quantity: 10,
+    selectedVariants: [{
+      variantKey: "gray",
+      saleOption: "단품 그레이",
+      chinaOption: "深空灰",
+      storageSize: "S",
+      quantity: 10,
+      estimatedCostKrw: 31_000,
+    }],
+  }];
+  const input = request(value, plan);
+
+  const fxRefresh = structuredClone(plan);
+  fxRefresh.sourceFingerprint = fp("e");
+  fxRefresh.planFingerprint = fp("f");
+  fxRefresh.allocation.estimatedSpendKrw += 39;
+  fxRefresh.allocation.selected[0].selectedVariants[0].estimatedCostKrw += 39;
+  assert.equal(
+    sourcingBudgetDecisionFingerprint(fxRefresh),
+    sourcingBudgetDecisionFingerprint(plan),
+  );
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, fxRefresh));
+  assert.equal(
+    purchaseCycleDraftConfirmation(value, fxRefresh),
+    purchaseCycleDraftConfirmation(value, plan),
+  );
+
+  const changedQuantity = structuredClone(fxRefresh);
+  changedQuantity.allocation.selected[0].selectedVariants[0].quantity = 11;
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, changedQuantity),
+    /PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
+  );
+});
 
 test("exact line count and amount confirmation is mandatory", () => {
   const value = report();
@@ -374,6 +426,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(actions, /preferredSourcingConceptIds/);
   assert.match(actions, /신규상품 소싱/);
   assert.match(actions, /expectedSourcingSourceFingerprint/);
+  assert.match(actions, /expectedSourcingDecisionFingerprint/);
   assert.match(route, /status: result\.complete \? result\.draft\.duplicate \? 200 : 201 : 207/);
   assert.match(actions, /1688 주문·결제는 실행하지 않습니다/);
 });
