@@ -21,10 +21,13 @@ import {
   type PlanningProduct,
   type ShoplingLiveAggregate,
 } from "@/lib/shopling/shoplingLiveAggregation";
-import { loadPostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
+import {
+  loadPostApplyCanonicalReconciliation,
+  type PostApplyCanonicalReconciliation,
+} from "@/lib/stage8PostApplyCanonicalReconciliation";
+import { purchaseSalesSourceFresh } from "@/lib/purchaseSalesFreshness";
 
 const MANAGED_BARCODE = /^B[A-Z]{2}\d+-\d+$/;
-const CANONICAL_FRESHNESS_MAX_MS = 12 * 60 * 60 * 1000;
 const BUCKET_COUNT = 12;
 
 export type CanonicalPurchaseShadowBlocker = {
@@ -156,6 +159,7 @@ export async function loadCanonicalPurchaseShadow(
   options: {
     commitmentOverride?: ReadonlyMap<string, number>;
     externalRequestTimeoutMs?: number;
+    reconciliation?: PostApplyCanonicalReconciliation;
   } = {},
 ): Promise<CanonicalPurchaseShadow> {
   const generatedAt = new Date().toISOString();
@@ -164,7 +168,9 @@ export async function loadCanonicalPurchaseShadow(
 
   const [reconciliation, audit, planning, legacy, budgetRevenueResult] =
     await Promise.all([
-      loadPostApplyCanonicalReconciliation(),
+      options.reconciliation ?? loadPostApplyCanonicalReconciliation({
+        externalRequestTimeoutMs: options.externalRequestTimeoutMs,
+      }),
       loadProductMasterCanonicalSalesAudit({
         requestTimeoutMs: options.externalRequestTimeoutMs,
       }),
@@ -215,17 +221,24 @@ export async function loadCanonicalPurchaseShadow(
   const canonicalAgeMinutes = Number.isFinite(ageMs)
     ? Math.max(0, Math.round(ageMs / 60_000))
     : null;
-  const canonicalFresh =
-    canonicalAgeMinutes !== null &&
-    ageMs >= 0 &&
-    ageMs <= CANONICAL_FRESHNESS_MAX_MS;
+  const canonicalFresh = purchaseSalesSourceFresh({
+    analysisAsOf,
+    nowMs: Date.now(),
+    fullReadbackVerified: Boolean(
+      reconciliation.ready &&
+      reconciliation.state === "READY" &&
+      reconciliation.fullApplyVerified &&
+      reconciliation.checks.length > 0 &&
+      reconciliation.checks.every((check) => check.passed),
+    ),
+  });
   if (!canonicalFresh) {
     blockers.push({
       key: "canonical-freshness",
       message:
         canonicalAgeMinutes === null
           ? "Canonical 분석시점을 확인할 수 없습니다."
-          : `Canonical 판매 이벤트가 ${canonicalAgeMinutes}분 경과해 12시간 shadow 신선도 기준을 넘었습니다.`,
+          : `Canonical 판매 이벤트가 ${canonicalAgeMinutes}분 경과했고, 당일 전수검증 유효시간도 끝났습니다.`,
     });
   }
 

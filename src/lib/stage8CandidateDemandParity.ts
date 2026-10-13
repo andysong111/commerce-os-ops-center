@@ -61,6 +61,8 @@ export type CandidateSalesSnapshot = {
   events: ProductMasterSalesEventRow[];
 };
 
+export type CandidateSalesPin = Omit<CandidateSalesSnapshot, "events">;
+
 export type CandidateDemandParityRequest = {
   requestId: string;
   candidateSalesRequestId: string;
@@ -381,7 +383,10 @@ function candidatePlanFingerprint(
     .digest("hex")}`;
 }
 
-export async function loadLatestCandidateSalesSnapshot(): Promise<CandidateSalesSnapshot> {
+async function loadLatestCandidateSalesIdentity(): Promise<{
+  request: SalesEventSyncRequest;
+  report: SalesEventSyncReport;
+}> {
   const requestRows = await readOperations(SALES_EVENT_REQUEST, undefined, 20);
   let request: SalesEventSyncRequest | null = null;
   for (const row of requestRows) {
@@ -391,21 +396,49 @@ export async function loadLatestCandidateSalesSnapshot(): Promise<CandidateSales
   if (!request) throw new Error("CANDIDATE_SALES_REQUEST_REQUIRED");
 
   const correlationId = salesCorrelationId(request.requestId);
-  const [chunkRows, reportRows] = await Promise.all([
-    readOperations(SALES_EVENT_CHUNK, correlationId),
-    readOperations(SALES_EVENT_REPORT, correlationId, 10),
-  ]);
-  const chunks = chunkRows.map(salesChunkFromRow).filter(Boolean) as ProductMasterShoplingSalesEventChunk[];
-  const completed = new Set(chunks.map((chunk) => rangeKey(chunk.range))).size;
-  if (completed !== request.ranges.length) {
-    throw new Error(`CANDIDATE_SALES_COLLECTION_INCOMPLETE:${completed}:${request.ranges.length}`);
-  }
+  const reportRows = await readOperations(SALES_EVENT_REPORT, correlationId, 10);
   const storedReport = reportRows.map(salesReportFromRow).find(Boolean);
   if (!storedReport) throw new Error("CANDIDATE_SALES_REPORT_REQUIRED");
   if (storedReport.unmappedRows || storedReport.identityConflictCount) {
     throw new Error(
       `CANDIDATE_SALES_BLOCKED:${storedReport.unmappedRows}:${storedReport.identityConflictCount}`,
     );
+  }
+
+  const planFingerprint = candidatePlanFingerprint(
+    request,
+    storedReport.eventFingerprint,
+  );
+  if (planFingerprint !== storedReport.planFingerprint) {
+    throw new Error("CANDIDATE_SALES_REPORT_PLAN_MISMATCH");
+  }
+  return { request, report: storedReport };
+}
+
+// Purchase preparation only needs the immutable request/report identity. It
+// must not rebuild all 52 source chunks merely to recover five fingerprints.
+// The deeper parity and post-apply diagnostics continue to use the snapshot
+// loader below, which reconstructs and hashes every event.
+export async function loadLatestCandidateSalesPin(): Promise<CandidateSalesPin> {
+  const { request, report } = await loadLatestCandidateSalesIdentity();
+  return {
+    salesRequestId: request.requestId,
+    analysisAsOf: request.analysisAsOf,
+    planningContentFingerprint: request.planningContentFingerprint,
+    eventFingerprint: report.eventFingerprint,
+    planFingerprint: report.planFingerprint,
+    report,
+  };
+}
+
+export async function loadLatestCandidateSalesSnapshot(): Promise<CandidateSalesSnapshot> {
+  const { request, report: storedReport } = await loadLatestCandidateSalesIdentity();
+  const correlationId = salesCorrelationId(request.requestId);
+  const chunkRows = await readOperations(SALES_EVENT_CHUNK, correlationId);
+  const chunks = chunkRows.map(salesChunkFromRow).filter(Boolean) as ProductMasterShoplingSalesEventChunk[];
+  const completed = new Set(chunks.map((chunk) => rangeKey(chunk.range))).size;
+  if (completed !== request.ranges.length) {
+    throw new Error(`CANDIDATE_SALES_COLLECTION_INCOMPLETE:${completed}:${request.ranges.length}`);
   }
 
   const combined = combineProductMasterShoplingSalesEventChunks(chunks);

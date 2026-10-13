@@ -21,6 +21,7 @@ import {
   effectivePurchaseUnitCostKrw,
   usesCanonicalPurchaseCostContract,
 } from "@/lib/verifiedPurchaseCostEvidence";
+import type { PostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
 
 export type InventoryOperatingMode =
   | "VERIFIED"
@@ -201,6 +202,7 @@ export async function loadInventoryVerificationPriority(
   options: {
     excludeCommitmentDraftId?: string | null;
     externalRequestTimeoutMs?: number;
+    reconciliation?: PostApplyCanonicalReconciliation;
   } = {},
 ): Promise<InventoryVerificationPriority> {
   const cycle = monthlyPurchaseCycleFor(cycleAsOf);
@@ -225,6 +227,7 @@ export async function loadInventoryVerificationPriority(
       {
         ...(commitments ? { commitmentOverride: commitments } : {}),
         externalRequestTimeoutMs: options.externalRequestTimeoutMs,
+        reconciliation: options.reconciliation,
       },
     ),
   );

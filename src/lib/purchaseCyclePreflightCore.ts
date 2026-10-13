@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { purchaseSalesSourceFresh } from "./purchaseSalesFreshness.ts";
 import type { CandidatePromotionGate } from "./stage8CandidatePromotionGate";
 import type { PostApplyCanonicalReconciliation } from "./stage8PostApplyCanonicalReconciliation";
 import type { InventoryVerificationPriority, InventoryVerificationPriorityRow } from "./stage8InventoryVerificationPriority";
@@ -170,7 +171,6 @@ export type PurchaseCyclePreflightReport = {
   scheduledExecution: false;
 };
 
-const MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const REPORT_MAX_AGE_MS = 15 * 60 * 1000;
 const FP = /^sha256:[a-f0-9]{64}$/;
 const CODE = /^B[A-Z]{2}\d+-\d+$/;
@@ -369,15 +369,18 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (!replacementStable) blockers.push("REPLACEMENT_DRAFT_CHANGED_OR_UNVERIFIED");
   const stable = samePurchaseCandidatePin(pin, input.after);
   if (!stable) blockers.push("SOURCE_CHANGED_OR_MISSING");
-  const sourceFresh = validPin(pin) && fresh(pin.analysisAsOf, now, MAX_AGE_MS);
-  if (!sourceFresh) blockers.push("SALES_SOURCE_STALE_OR_FUTURE");
-
   const fullReadback = Boolean(validPin(pin) && rec?.state === "READY" && rec.ready === true &&
     rec.fullApplyVerified === true && fingerprint(rec.reconciliationFingerprint) &&
     fingerprint(rec.persistedContentFingerprint) && rec.checks.length > 0 && rec.checks.every(c => c.passed === true) &&
     rec.candidateSalesRequestId === pin.requestId && rec.analysisAsOf === pin.analysisAsOf &&
     rec.candidatePlanFingerprint === pin.planFingerprint && rec.candidateEventFingerprint === pin.eventFingerprint &&
     fresh(rec.generatedAt, now, REPORT_MAX_AGE_MS));
+  const sourceFresh = validPin(pin) && purchaseSalesSourceFresh({
+    analysisAsOf: pin.analysisAsOf,
+    nowMs: now,
+    fullReadbackVerified: fullReadback,
+  });
+  if (!sourceFresh) blockers.push("SALES_SOURCE_STALE_OR_FUTURE");
   const gateVerified = Boolean(validPin(pin) && gate?.safeToApply === true &&
     ["EXACT_MATCH", "SAFE_CANONICAL_SUPERSET"].includes(gate.state) && fingerprint(gate.promotionFingerprint) &&
     gate.checks.length > 0 && gate.checks.every(c => c.passed === true) &&
@@ -756,7 +759,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
 
 export type PurchasePreflightReaders = {
   candidate: () => Promise<PurchaseCandidatePin>;
-  gate: () => Promise<CandidatePromotionGate>;
+  gate?: () => Promise<CandidatePromotionGate>;
   reconciliation: () => Promise<PostApplyCanonicalReconciliation>;
   priority: () => Promise<InventoryVerificationPriority>;
   monthlySpend: (cycleMonth: string) => Promise<PurchaseMonthlySpendPin>;
@@ -791,7 +794,9 @@ export async function readPurchaseCyclePreflight(
   if (options.replaceDraftId && !replacementRead) sourceErrors.push("REPLACEMENT_DRAFT_READ_FAILED");
   const [gate, reconciliation, priority] = before
     ? await Promise.all([
-        capture("PROMOTION_GATE_READ_FAILED", readers.gate),
+        readers.gate
+          ? capture("PROMOTION_GATE_READ_FAILED", readers.gate)
+          : Promise.resolve(null),
         capture("MASTER_READBACK_READ_FAILED", readers.reconciliation),
         capture("INVENTORY_PRIORITY_READ_FAILED", readers.priority),
       ])

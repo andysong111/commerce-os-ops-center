@@ -1,6 +1,5 @@
 import { loadVerifiedPurchaseCycleSpend } from "@/lib/purchaseCyclePreflightSpend";
-import { loadLatestCandidateSalesSnapshot } from "@/lib/stage8CandidateDemandParity";
-import { loadCandidatePromotionGate } from "@/lib/stage8CandidatePromotionGate";
+import { loadLatestCandidateSalesPin } from "@/lib/stage8CandidateDemandParity";
 import { loadPostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
 import { loadInventoryVerificationPriority } from "@/lib/stage8InventoryVerificationPriority";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
@@ -72,27 +71,34 @@ export async function loadPurchaseCyclePreflight(
   const timeoutMs = readerTimeoutMs(loadOptions.readerTimeoutMs);
   const bounded = <T>(code: string, read: () => Promise<T>) =>
     withReaderTimeout(code, timeoutMs, read);
+  let reconciliationPromise: ReturnType<typeof loadPostApplyCanonicalReconciliation> | null = null;
+  const sharedReconciliation = () => {
+    reconciliationPromise ??= loadPostApplyCanonicalReconciliation({
+      externalRequestTimeoutMs: timeoutMs,
+    });
+    return reconciliationPromise;
+  };
   return readPurchaseCyclePreflight(options, {
     candidate: () => bounded("CANDIDATE_READ", async () => {
-      const value = await loadLatestCandidateSalesSnapshot();
+      const value = await loadLatestCandidateSalesPin();
       return {
         requestId: value.salesRequestId, analysisAsOf: value.analysisAsOf,
         planFingerprint: value.planFingerprint, eventFingerprint: value.eventFingerprint,
         planningContentFingerprint: value.planningContentFingerprint,
       };
     }),
-    gate: () => bounded("PROMOTION_GATE_READ", loadCandidatePromotionGate),
     reconciliation: () => bounded(
       "MASTER_READBACK_READ",
-      () => loadPostApplyCanonicalReconciliation({ externalRequestTimeoutMs: timeoutMs }),
+      sharedReconciliation,
     ),
     // The source metadata is reused from this ONE existing shadow/priority
     // load, not fetched again via nested cost-recovery or shadow loaders.
     priority: () => bounded(
       "INVENTORY_PRIORITY_READ",
-      () => loadInventoryVerificationPriority(options.targetDate, {
+      async () => loadInventoryVerificationPriority(options.targetDate, {
         excludeCommitmentDraftId: options.replaceDraftId ?? null,
         externalRequestTimeoutMs: timeoutMs,
+        reconciliation: await sharedReconciliation(),
       }),
     ),
     monthlySpend: (cycleMonth) => bounded(
