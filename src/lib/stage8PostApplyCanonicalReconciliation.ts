@@ -70,6 +70,7 @@ export type PostApplyCanonicalReconciliation = {
   analysisAsOf: string | null;
   candidatePlanFingerprint: string | null;
   candidateEventFingerprint: string | null;
+  planningContentFingerprint: string | null;
   persistedContentFingerprint: string | null;
   reconciliationFingerprint: string | null;
   candidateSourceEventCount: number;
@@ -232,6 +233,7 @@ function waiting(
     analysisAsOf: null,
     candidatePlanFingerprint: null,
     candidateEventFingerprint: null,
+    planningContentFingerprint: null,
     persistedContentFingerprint: null,
     reconciliationFingerprint: null,
     candidateSourceEventCount: 0,
@@ -327,6 +329,7 @@ export async function loadPostApplyCanonicalReconciliation(
       analysisAsOf: candidate.analysisAsOf,
       candidatePlanFingerprint: candidate.planFingerprint,
       candidateEventFingerprint: candidate.eventFingerprint,
+      planningContentFingerprint: planning.contentFingerprint,
     };
   }
 
@@ -553,6 +556,7 @@ export async function loadPostApplyCanonicalReconciliation(
     analysisAsOf: candidate.analysisAsOf,
     candidatePlanFingerprint: candidate.planFingerprint,
     candidateEventFingerprint: candidate.eventFingerprint,
+    planningContentFingerprint: planning.contentFingerprint,
     persistedContentFingerprint,
     reconciliationFingerprint,
     candidateSourceEventCount: candidate.report.sourceEventCount,

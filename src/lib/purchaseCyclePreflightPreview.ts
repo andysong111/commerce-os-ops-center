@@ -3,7 +3,7 @@ import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import type { PurchasePreflightOptions } from "@/lib/purchaseCyclePreflightCore";
 
 const PREVIEW_REVALIDATE_SECONDS = 60;
-const PREVIEW_READER_TIMEOUT_MS = 20_000;
+const PREVIEW_READER_TIMEOUT_MS = 50_000;
 
 // The preview is read-only and Draft save performs its own uncached, pinned
 // recheck. Reusing the same exact input for one minute makes browser refreshes
@@ -13,7 +13,7 @@ const loadCachedPurchaseCyclePreflightPreview = unstable_cache(
     loadPurchaseCyclePreflight(options, {
       readerTimeoutMs: PREVIEW_READER_TIMEOUT_MS,
     }),
-  ["purchase-cycle-preflight-preview-v1"],
+  ["purchase-cycle-preflight-preview-v2"],
   { revalidate: PREVIEW_REVALIDATE_SECONDS },
 );
 
