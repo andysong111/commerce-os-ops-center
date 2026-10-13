@@ -21,6 +21,10 @@ export type LegacySeoPreflightIssue = {
   modelNumber: string;
   field: string;
   message: string;
+  canonicalCandidates?: Array<{
+    productName: string;
+    saleOption: string;
+  }>;
 };
 
 export type LegacySeoPreflightItem = {
@@ -278,7 +282,19 @@ export async function prepareLegacySeoPreflight(input: {
           add("canonicalPrice", canonical.excludedReason || "중국주문 최종확정표 단종/적용제외");
         } else if (canonical && canonical.unresolved.length) {
           for (const issue of canonical.unresolved) {
-            add("canonicalPrice", `${issue.saleOption ? `${issue.saleOption}: ` : ""}${issue.reason}`);
+            issues.push({
+              itemId,
+              modelNumber,
+              field: "canonicalPrice",
+              message: `${issue.saleOption ? `${issue.saleOption}: ` : ""}${issue.reason}`,
+              canonicalCandidates:
+                "canonicalCandidates" in issue && Array.isArray(issue.canonicalCandidates)
+                  ? issue.canonicalCandidates.map((candidate) => ({
+                      productName: text(record(candidate).productName),
+                      saleOption: text(record(candidate).saleOption),
+                    }))
+                  : undefined,
+            });
           }
         } else if (!canonical) {
           add("canonicalPrice", "중국주문 최종확정표에서 모델을 찾지 못했습니다.");
