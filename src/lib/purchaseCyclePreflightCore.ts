@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { purchaseSalesSourceFresh } from "./purchaseSalesFreshness.ts";
+import { purchaseInventoryEvidenceFresh } from "./purchaseInventoryFreshness.ts";
 import type { CandidatePromotionGate } from "./stage8CandidatePromotionGate";
 import type { PostApplyCanonicalReconciliation } from "./stage8PostApplyCanonicalReconciliation";
 import type { InventoryVerificationPriority, InventoryVerificationPriorityRow } from "./stage8InventoryVerificationPriority";
@@ -418,7 +419,10 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const shadowReady = input.priority?.state === "READY" && input.priority.purchaseShadowReady === true &&
     input.priority.writesEnabled === false && fresh(input.priority.generatedAt, now, REPORT_MAX_AGE_MS);
   if (!shadowReady) blockers.push("PURCHASE_SHADOW_NOT_READY");
-  const inventoryFresh = fresh(source?.inventoryGeneratedAt, now, REPORT_MAX_AGE_MS) &&
+  const inventoryFresh = purchaseInventoryEvidenceFresh({
+    generatedAt: source?.inventoryGeneratedAt,
+    nowMs: now,
+  }) &&
     fingerprint(source?.inventoryContentFingerprint);
   if (!inventoryFresh) blockers.push("INVENTORY_EVIDENCE_STALE_OR_UNPINNED");
   if (source?.cycleMonth !== targetCycleMonth || source?.budgetMonth !== requiredBudgetMonth) {
