@@ -5,7 +5,10 @@ import {
   buildProductMasterSnapshotFromTrackerState,
   inferUnitsPerOrder,
 } from "../src/lib/productMasterSync.ts";
-import { buildCanonicalProductMasterSnapshot } from "../src/lib/productMasterCanonicalSync.ts";
+import {
+  buildCanonicalProductMasterSnapshot,
+  findCanonicalProductMasterBarcodeConflicts,
+} from "../src/lib/productMasterCanonicalSync.ts";
 
 test("converts launch tracker products, SKU barcodes and Shopling mappings", () => {
   const result = buildProductMasterSnapshotFromTrackerState({
@@ -120,6 +123,36 @@ test("allows explicitly approved shared physical B-codes and blocks unapproved c
     result.payload.skus[0].sourceSkuKey,
     "shared-physical:approved-physical-sku-1",
   );
+});
+
+test("identifies every item that must be skipped when a B-code conflicts", () => {
+  const conflicts = findCanonicalProductMasterBarcodeConflicts({
+    items: [
+      {
+        id: "same-item",
+        modelNumber: "AAA206",
+        orderOptions: [
+          { id: "beige", barcode: "BBB6-2", saleOption: "베이지" },
+          { id: "gray", barcode: "BBB6-2", saleOption: "그레이" },
+        ],
+      },
+      {
+        id: "safe-item",
+        modelNumber: "AAA426",
+        orderOptions: [
+          { id: "single", barcode: "BBA6-1", saleOption: "단품" },
+        ],
+      },
+    ],
+  });
+
+  assert.deepEqual(conflicts, [
+    {
+      barcode: "BBB6-2",
+      itemIds: ["same-item"],
+      sourceSkuKeys: ["same-item:beige", "same-item:gray"],
+    },
+  ]);
 });
 
 test("exposes a guarded canonical sync control and redirects the legacy page", async () => {
