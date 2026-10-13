@@ -194,3 +194,29 @@ test("unexpected direct PATCH caller keeps compatibility full-row return path", 
   assert.match(select, /checkpoint_payload/);
   assert.match(select, /result_payload/);
 });
+
+test("bulk retry splits long run-id filters into bounded PATCH requests", async () => {
+  const h = createHarness();
+  const context = {
+    config: { supabaseUrl: "https://example.invalid", secretKey: "secret" },
+    identity: { userId: "owner-1", email: "owner@example.com" },
+  };
+  const runIds = Array.from({ length: 45 }, (_, index) => `run-${index + 1}`);
+
+  await h.exports.retryLegacySeoRunJobs(context, runIds);
+
+  const patches = h.requests.filter((entry) => entry.init.method === "PATCH");
+  assert.equal(patches.length, 3);
+  assert.deepEqual(
+    patches.map((entry) => {
+      const filter = new URL(entry.url).searchParams.get("run_id") || "";
+      return [...filter.matchAll(/"run-/g)].length;
+    }),
+    [20, 20, 5],
+  );
+  for (const entry of patches) {
+    const body = JSON.parse(String(entry.init.body || "{}"));
+    assert.equal(body.status, "queued");
+    assert.equal(body.attempt_count, 0);
+  }
+});

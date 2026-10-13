@@ -14,6 +14,7 @@ import type {
 export const LEGACY_SEO_RUN_JOB_TABLE = "legacy_seo_run_jobs";
 const LEGACY_SEO_RUN_CLAIM_RPC = "claim_next_legacy_seo_run_job";
 const MAX_LIST = 1000;
+const PATCH_ID_BATCH_SIZE = 20;
 const LIST_SELECT = [
   "run_id",
   "owner_id",
@@ -216,21 +217,27 @@ export async function patchOwnedLegacySeoRunJobs(
 ) {
   const ids = [...new Set(runIds.map(text).filter(Boolean))].slice(0, 200);
   if (!ids.length) return [];
-  const params = new URLSearchParams({
-    select: LIST_SELECT,
-    owner_id: `eq.${context.identity.userId}`,
-    run_id: `in.(${postgrestIn(ids)})`,
-  });
-  const rows = await storage<SeoRunJobRow[]>(
-    context.config,
-    `${LEGACY_SEO_RUN_JOB_TABLE}?${params.toString()}`,
-    {
-      method: "PATCH",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
-    },
-  );
-  return Array.isArray(rows) ? rows : [];
+  const rows: SeoRunJobRow[] = [];
+  const updatedAt = new Date().toISOString();
+  for (let index = 0; index < ids.length; index += PATCH_ID_BATCH_SIZE) {
+    const batchIds = ids.slice(index, index + PATCH_ID_BATCH_SIZE);
+    const params = new URLSearchParams({
+      select: LIST_SELECT,
+      owner_id: `eq.${context.identity.userId}`,
+      run_id: `in.(${postgrestIn(batchIds)})`,
+    });
+    const saved = await storage<SeoRunJobRow[]>(
+      context.config,
+      `${LEGACY_SEO_RUN_JOB_TABLE}?${params.toString()}`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ ...patch, updated_at: updatedAt }),
+      },
+    );
+    if (Array.isArray(saved)) rows.push(...saved);
+  }
+  return rows;
 }
 
 export async function retryLegacySeoRunJobs(
