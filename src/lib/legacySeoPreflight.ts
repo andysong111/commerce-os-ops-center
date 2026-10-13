@@ -1,4 +1,7 @@
-import { applyLegacySeoCanonicalPrices } from "@/lib/legacySeoCanonicalPrice";
+import {
+  applyLegacySeoCanonicalPrices,
+  legacySeoPriceAuthorityConfirmed,
+} from "@/lib/legacySeoCanonicalPrice";
 import { readDuplicateActiveLegacySeoModels } from "@/lib/legacySeoDuplicateModelGuard";
 import {
   legacySeoRegistrationExclusion,
@@ -28,9 +31,6 @@ export type LegacySeoPreflightItem = {
   issues: LegacySeoPreflightIssue[];
 };
 
-const CANONICAL_PRICE_SOURCE = "china_order_final_confirmed_v4";
-const CANONICAL_PRICE_REVISION = "20260809_v4_option_max_uniform";
-
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as UnknownRecord)
@@ -56,29 +56,6 @@ function positiveNumber(value: unknown) {
 
 function optionBarcodeNoValid(value: unknown) {
   return /^(?:OB)?\d{12}$/.test(text(value).toUpperCase());
-}
-
-function canonicalPriceConfirmed(option: UnknownRecord) {
-  const canonical = record(option.canonicalChinaPrice);
-  if (
-    text(canonical.source) !== CANONICAL_PRICE_SOURCE ||
-    text(canonical.sourceRevision) !== CANONICAL_PRICE_REVISION
-  ) {
-    return false;
-  }
-  const currentSale = Math.round(positiveNumber(option.baseSalePriceKrw));
-  const currentCost = Math.round(positiveNumber(option.unitCostKrw));
-  const canonicalSale = Math.round(positiveNumber(canonical.finalSalePriceKrw));
-  const canonicalCost = Math.round(
-    positiveNumber(canonical.unitCostKrwMirror) ||
-      positiveNumber(canonical.unitCostKrwExact),
-  );
-  return (
-    currentSale > 0 &&
-    currentCost > 0 &&
-    currentSale === canonicalSale &&
-    currentCost === canonicalCost
-  );
 }
 
 function syncedFromCurrentShopling(item: UnknownRecord) {
@@ -117,7 +94,7 @@ function validateItem(item: UnknownRecord): LegacySeoPreflightIssue[] {
     if (positiveNumber(option.unitCostKrw) <= 0) {
       push("unitCost", `${saleOption}: 중국주문 최종확정 원가가 없습니다.`);
     }
-    if (!canonicalPriceConfirmed(option)) {
+    if (!legacySeoPriceAuthorityConfirmed(item, option)) {
       push(
         "canonicalPriceAuthority",
         `${saleOption}: 중국주문 최종확정 v4 적용근거와 현재 가격이 일치하지 않습니다.`,
