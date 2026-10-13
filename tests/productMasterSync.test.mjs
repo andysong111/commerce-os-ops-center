@@ -8,6 +8,7 @@ import {
 import {
   buildCanonicalProductMasterSnapshot,
   findCanonicalProductMasterBarcodeConflicts,
+  reuseCanonicalProductIds,
 } from "../src/lib/productMasterCanonicalSync.ts";
 
 test("converts launch tracker products, SKU barcodes and Shopling mappings", () => {
@@ -153,6 +154,52 @@ test("identifies every item that must be skipped when a B-code conflicts", () =>
       sourceSkuKeys: ["same-item:beige", "same-item:gray"],
     },
   ]);
+});
+
+test("reuses the existing Product Master product id for the same model number", () => {
+  const built = buildCanonicalProductMasterSnapshot({
+    items: [
+      {
+        id: "launch-item-a",
+        modelNumber: "AAA426",
+        productName: "해골 레진 양초받침대",
+        orderOptions: [
+          { id: "single", barcode: "BBA6-1", saleOption: "단품" },
+        ],
+      },
+    ],
+  });
+
+  const payload = reuseCanonicalProductIds(built.payload, [
+    { productId: "existing-product-id", modelNo: " aaa426 " },
+  ]);
+
+  assert.equal(payload.products[0].id, "existing-product-id");
+  assert.equal(payload.skus[0].productId, "existing-product-id");
+});
+
+test("fails closed when the Product Master catalog has duplicate model identities", () => {
+  const built = buildCanonicalProductMasterSnapshot({
+    items: [
+      {
+        id: "launch-item-a",
+        modelNumber: "AAA426",
+        productName: "해골 레진 양초받침대",
+        orderOptions: [
+          { id: "single", barcode: "BBA6-1", saleOption: "단품" },
+        ],
+      },
+    ],
+  });
+
+  assert.throws(
+    () =>
+      reuseCanonicalProductIds(built.payload, [
+        { productId: "product-a", modelNo: "AAA426" },
+        { productId: "product-b", modelNo: "AAA426" },
+      ]),
+    /PRODUCT_MASTER_MODEL_IDENTITY_CONFLICT:AAA426/,
+  );
 });
 
 test("exposes a guarded canonical sync control and redirects the legacy page", async () => {

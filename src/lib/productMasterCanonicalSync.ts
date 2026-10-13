@@ -14,6 +14,11 @@ type CanonicalPayload = Omit<ProductMasterSnapshotPayload, "skus"> & {
   skus: StableSku[];
 };
 
+type ProductMasterCatalogProduct = {
+  productId?: unknown;
+  modelNo?: unknown;
+};
+
 export type ProductMasterBarcodeConflict = {
   barcode: string;
   itemIds: string[];
@@ -218,6 +223,58 @@ export function buildCanonicalProductMasterSnapshot(input: unknown) {
   return { payload, skipped: built.skipped };
 }
 
+export function reuseCanonicalProductIds(
+  payload: CanonicalPayload,
+  catalogProducts: ProductMasterCatalogProduct[],
+): CanonicalPayload {
+  const existingByModel = new Map<string, string>();
+  for (const row of catalogProducts) {
+    const modelNo = normalized(row.modelNo);
+    const productId = text(row.productId);
+    if (!modelNo || !productId) continue;
+    const existing = existingByModel.get(modelNo);
+    if (existing && existing !== productId) {
+      throw new Error(
+        `PRODUCT_MASTER_MODEL_IDENTITY_CONFLICT:${modelNo}:${existing}:${productId}`,
+      );
+    }
+    existingByModel.set(modelNo, productId);
+  }
+
+  const productIdMap = new Map<string, string>();
+  const products = payload.products.map((product) => {
+    const productId = existingByModel.get(normalized(product.modelNo)) || product.id;
+    productIdMap.set(product.id, productId);
+    return productId === product.id ? product : { ...product, id: productId };
+  });
+
+  return {
+    ...payload,
+    products,
+    skus: payload.skus.map((sku) => ({
+      ...sku,
+      productId: productIdMap.get(sku.productId) || sku.productId,
+    })),
+  };
+}
+
+async function loadProductMasterCatalogProducts(baseUrl: string, secret: string) {
+  const response = await fetch(`${baseUrl}/api/integrations/inventory-catalog`, {
+    headers: {
+      "x-commerce-os-integration-secret": secret,
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await read(response);
+  if (!response.ok) {
+    throw new Error(
+      `PRODUCT_MASTER_CATALOG_READ_FAILED:${response.status}:${message(body)}`,
+    );
+  }
+  return list(object(body).products).map(object);
+}
+
 export async function pushCanonicalProductMasterSnapshotFromTrackerState(
   input: unknown,
   options: { skipBarcodeConflicts?: boolean } = {},
@@ -231,15 +288,19 @@ export async function pushCanonicalProductMasterSnapshotFromTrackerState(
     ? omitBarcodeConflictItems(input)
     : { state: input, conflicts: [] as ProductMasterBarcodeConflict[] };
   const built = buildCanonicalProductMasterSnapshot(prepared.state);
+  const payload = reuseCanonicalProductIds(
+    built.payload,
+    await loadProductMasterCatalogProducts(baseUrl, secret),
+  );
   const counts: Record<string, number> = {};
   const skuById = new Map(
-    built.payload.skus.map((sku) => [sku.id, sku] as const),
+    payload.skus.map((sku) => [sku.id, sku] as const),
   );
   const groups: Array<[keyof CanonicalPayload, unknown[]]> = [
-    ["products", built.payload.products],
-    ["skus", built.payload.skus],
-    ["listingMappings", built.payload.listingMappings],
-    ["receiptCosts", built.payload.receiptCosts],
+    ["products", payload.products],
+    ["skus", payload.skus],
+    ["listingMappings", payload.listingMappings],
+    ["receiptCosts", payload.receiptCosts],
   ];
 
   for (const [key, rows] of groups) {
