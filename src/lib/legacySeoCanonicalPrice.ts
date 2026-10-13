@@ -49,6 +49,10 @@ export type LegacySeoCanonicalPriceIssue = {
   modelNumber: string;
   saleOption: string;
   reason: string;
+  canonicalCandidates?: Array<{
+    productName: string;
+    saleOption: string;
+  }>;
 };
 
 export type LegacySeoCanonicalPriceItemResult = {
@@ -215,6 +219,22 @@ function optionSaleKey(option: UnknownRecord) {
 
 function canonicalRowKey(row: CanonicalPriceRow) {
   return row.option_key || legacySeoCanonicalOptionKey(row.sale_option);
+}
+
+function canonicalCandidateSummaries(rows: CanonicalPriceRow[]) {
+  const seen = new Set<string>();
+  return rows
+    .map((row) => ({
+      productName: text(row.product_name),
+      saleOption: text(row.sale_option),
+    }))
+    .filter((row) => {
+      const identity = `${row.productName}\u0000${row.saleOption}`;
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    })
+    .slice(0, 20);
 }
 
 function canonicalQueryModels(modelNumbers: string[]) {
@@ -780,6 +800,7 @@ export async function applyLegacySeoCanonicalPrices(input: {
             modelNumber,
             saleOption,
             reason: matched.reason,
+            canonicalCandidates: canonicalCandidateSummaries(activeRows),
           });
           continue;
         }
