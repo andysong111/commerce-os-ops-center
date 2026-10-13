@@ -90,6 +90,7 @@ const CANONICAL_OPTION_KEY_ALIASES: Record<string, Record<string, string[]>> = {
   },
   AAA208: { "단품": ["단품옵션미기재"] },
   AAA286: { "중형": ["m"] },
+  AAA281: { "20cm": ["25cm"] },
   AAA357: { "단품": ["그레이"] },
 };
 
