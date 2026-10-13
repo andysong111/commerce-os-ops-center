@@ -750,15 +750,20 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     // without changing the approved products, quantities, budget or replaced
     // draft. Draft creation re-runs every readiness gate before accepting it.
     planFingerprint: hash({
-      options: { ...input.options, sourcingBudgetPercent },
+      options: {
+        targetDate: input.options.targetDate,
+        cashLimitKrw: input.options.cashLimitKrw,
+        sourcingBudgetPercent,
+        maxSkus: input.options.maxSkus,
+        maxUnitsPerSku: input.options.maxUnitsPerSku,
+        allowOpenBudgetPreview: input.options.allowOpenBudgetPreview === true,
+        replaceDraftId: input.options.replaceDraftId ?? null,
+      },
       selected: selected.map(stablePlanLine),
       replacementAudit,
       budget: {
         cashLimitKrw,
         sourcingBudgetKrw,
-        sourcingBudgetReturnKrw,
-        reorderCashKrw,
-        effectiveBudgetKrw,
         estimatedSpendKrw,
         estimatedAllInSpendKrw: multiplierValid ? Math.ceil(estimatedSpendKrw * multiplier!) : 0,
       },
