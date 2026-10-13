@@ -825,6 +825,7 @@ export async function readPurchaseCyclePreflight(
       const cause = safeReadFailureCause(error);
       console.warn("[purchase-cycle-preflight] source read failed", { code, cause });
       sourceErrors.push(code);
+      sourceErrors.push(`DIAGNOSTIC_${code}_${cause}`);
       return null;
     }
   };
