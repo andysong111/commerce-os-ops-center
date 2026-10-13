@@ -351,9 +351,31 @@ function projectedLine(
   };
 }
 
-function stablePlanLine({ costEvidenceAt, ...line }: PurchasePreflightLine) {
-  void costEvidenceAt;
-  return line;
+function stablePlanLine(line: PurchasePreflightLine) {
+  return {
+    barcode: line.barcode,
+    name: line.name,
+    quantity: line.quantity,
+    estimatedUnitCostKrw: line.estimatedUnitCostKrw,
+    estimatedCostKrw: line.estimatedCostKrw,
+  };
+}
+
+function stableReplacementAudit(audit: PurchaseReplacementDraftAudit | null) {
+  if (!audit) return null;
+  return {
+    previousLineCount: audit.previousLineCount,
+    selectedLineCount: audit.selectedLineCount,
+    matchedCount: audit.matchedCount,
+    added: audit.added.map(({ barcode, quantity }) => ({ barcode, quantity })),
+    removed: audit.removed.map(({ barcode, quantity }) => ({ barcode, quantity })),
+    quantityChanged: audit.quantityChanged.map(({ barcode, previousQuantity, selectedQuantity }) => ({
+      barcode,
+      previousQuantity,
+      selectedQuantity,
+    })),
+    complete: audit.complete,
+  };
 }
 
 export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): PurchaseCyclePreflightReport {
@@ -760,7 +782,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         replaceDraftId: input.options.replaceDraftId ?? null,
       },
       selected: selected.map(stablePlanLine),
-      replacementAudit,
+      replacementAudit: stableReplacementAudit(replacementAudit),
       budget: {
         cashLimitKrw,
         sourcingBudgetKrw,

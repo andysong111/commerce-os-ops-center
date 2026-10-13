@@ -349,8 +349,8 @@ test("selection is deterministic, bounded, and does not mutate source arrays", (
   input.priority.rows.reverse(); const b = buildPurchaseCyclePreflight(input);
   assert.deepEqual(a.selected, b.selected); assert.equal(a.planFingerprint, b.planFingerprint); assert.equal(a.estimatedSpendKrw, 25000);
 });
-for (const mutate of [i => i.options.cashLimitKrw++, i => { i.options.sourcingBudgetPercent = 10; }, i => i.options.maxSkus++, i => i.priority.rows[0].openCommitment++, i => i.priority.rows[0].latestConfirmedReceiptCostKrw++]) {
-  test("material evidence or limits change the pinned preview fingerprint", () => {
+for (const mutate of [i => i.options.cashLimitKrw++, i => { i.options.sourcingBudgetPercent = 10; }, i => i.options.maxSkus++, i => i.priority.rows[0].latestConfirmedReceiptCostKrw++]) {
+  test("material purchase decision or limits change the pinned preview fingerprint", () => {
     const input = fixture(); const previous = buildPurchaseCyclePreflight(input); mutate(input);
     assert.notEqual(buildPurchaseCyclePreflight(input).planFingerprint, previous.planFingerprint);
   });
@@ -1056,6 +1056,25 @@ test("a changed diagnostic source fingerprint does not invalidate an unchanged p
   const b = buildPurchaseCyclePreflight(input);
   assert.notEqual(b.sourceFingerprint, a.sourceFingerprint);
   assert.deepEqual(b.selected, a.selected);
+  assert.equal(b.planFingerprint, a.planFingerprint);
+});
+test("diagnostic inventory and replacement reasons do not invalidate unchanged Draft lines", () => {
+  const first = fixture();
+  first.options.replaceDraftId = "fast-purchase-draft:1234567890abcdef1234";
+  first.replacementBefore = buildPurchaseReplacementDraftSnapshot(
+    first.options.replaceDraftId,
+    first.now,
+    [{ barcode: "BAA9-9", name: "이전 진단명", quantity: 2 }],
+  );
+  first.replacementAfter = structuredClone(first.replacementBefore);
+  const second = structuredClone(first);
+  second.priority.rows[0].inventoryQuantity += 10;
+  second.priority.rows[0].openCommitment += 1;
+  second.priority.rows[0].priorityScore -= 1;
+  const a = buildPurchaseCyclePreflight(first);
+  const b = buildPurchaseCyclePreflight(second);
+  assert.deepEqual(b.selected.map(({ barcode, quantity, estimatedCostKrw }) => ({ barcode, quantity, estimatedCostKrw })), a.selected.map(({ barcode, quantity, estimatedCostKrw }) => ({ barcode, quantity, estimatedCostKrw })));
+  assert.notEqual(b.sourceFingerprint, a.sourceFingerprint);
   assert.equal(b.planFingerprint, a.planFingerprint);
 });
 test("a fresh inventory observation time does not invalidate unchanged content", () => {
