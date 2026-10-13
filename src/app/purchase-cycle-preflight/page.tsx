@@ -115,7 +115,7 @@ const sourcingPolicyPreparationCodes = new Set([
 ]);
 const sourcingPlanErrorMessage = (code: string) => {
   if (code === "SOURCING_BUDGET_ENGINE_TIMEOUT") {
-    return "소싱엔진이 8초 안에 응답하지 않아 화면을 먼저 열었습니다. 잠시 후 ‘예산 확인 · 후보 불러오기’를 다시 눌러주세요. Draft 저장·1688 주문·결제는 실행되지 않았습니다.";
+    return "소싱엔진이 45초 안에 응답하지 않아 화면을 먼저 열었습니다. 잠시 후 ‘예산 확인 · 후보 불러오기’를 다시 눌러주세요. Draft 저장·1688 주문·결제는 실행되지 않았습니다.";
   }
   if (code === "SOURCING_BUDGET_ENGINE_UNAVAILABLE") {
     return "소싱엔진 연결이 일시적으로 불안정해 후보를 불러오지 못했습니다. 잠시 후 ‘예산 확인 · 후보 불러오기’를 다시 눌러주세요. Draft 저장·1688 주문·결제는 실행되지 않았습니다.";
@@ -249,7 +249,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             storageSizeByConceptId: sourcingStorageSizeByConceptId,
             variantSelections: effectiveSourcingVariantSelections,
           }, {
-            requestTimeoutMs: effectiveSourcingVariantSelections.length > 0 ? 25_000 : 8_000,
+            requestTimeoutMs: effectiveSourcingVariantSelections.length > 0 ? 45_000 : 8_000,
             maxAttempts: 1,
           });
           if (automaticSelectionRequested) {
@@ -345,7 +345,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         ? "소싱 후보 다시 불러오기"
         : "소싱엔진 연결 다시 확인",
       message: sourcingPlanErrorCode === "SOURCING_BUDGET_ENGINE_TIMEOUT"
-        ? "소싱엔진이 8초 안에 응답하지 않았습니다. 화면은 계속 사용할 수 있으며, 잠시 후 1단계의 ‘예산 확인 · 후보 불러오기’를 다시 누르면 재확인합니다."
+        ? "소싱엔진이 45초 안에 응답하지 않았습니다. 화면은 계속 사용할 수 있으며, 잠시 후 1단계의 ‘예산 확인 · 후보 불러오기’를 다시 누르면 재확인합니다."
         : "소싱엔진 연결 상태를 점검한 뒤 1단계의 ‘예산 확인 · 후보 불러오기’를 다시 누르세요.",
       href: "/sourcing-center",
       hrefLabel: "소싱센터 상태 보기",

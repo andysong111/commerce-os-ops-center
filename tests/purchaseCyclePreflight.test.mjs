@@ -681,7 +681,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /automaticSelectionRequested/);
   assert.match(page, /effectiveSourcingVariantSelections\.length === 0/);
   assert.match(page, /\.\.\.fallbackSelections/);
-  assert.match(page, /effectiveSourcingVariantSelections\.length > 0 \? 25_000 : 8_000/);
+  assert.match(page, /effectiveSourcingVariantSelections\.length > 0 \? 45_000 : 8_000/);
   assert.match(page, /discoveredAdditionalVariant/);
   assert.match(page, /selectionMode === "automatic"/);
   assert.match(page, /effectiveSourcingVariantSelections/);
@@ -692,7 +692,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(budgetPlan, /PREVIEW_REQUEST_TIMEOUT_MS = 8_000/);
   assert.match(budgetPlan, /PREVIEW_REQUEST_MAX_ATTEMPTS = 1/);
   assert.match(budgetPlan, /SOURCING_BUDGET_ENGINE_TIMEOUT/);
-  assert.match(page, /8초 안에 응답하지 않아 화면을 먼저 열었습니다/);
+  assert.match(page, /45초 안에 응답하지 않아 화면을 먼저 열었습니다/);
   assert.doesNotMatch(page, /The operation was aborted due to timeout/);
   assert.match(sourcingForm, /checked=\{checked\}/);
   assert.match(sourcingForm, /name=\{`variant-storage\.\$\{candidate\.conceptId\}\.\$\{variant\.variantKey\}`\}/);
