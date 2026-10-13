@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 const API = "/api/legacy-seo-run-jobs";
 const PREFLIGHT_API = "/api/legacy-seo-preflight";
+const ACTIVE_LIST_API = "/api/legacy-seo-run-jobs-lite?scope=active";
 const ARCHIVED_HISTORY_API = "/api/legacy-seo-run-jobs-lite?scope=archived&items=false";
 const ARCHIVED_HISTORY_CACHE_MS = 5 * 60_000;
 const ARCHIVE_CHANGED_EVENT = "commerce-os:legacy-seo-archive-changed";
@@ -135,7 +136,7 @@ async function loadArchivedReadyItemIds(force = false) {
 
 async function loadTargets(forceArchiveHistory = false) {
   const archivedReadyIds = await loadArchivedReadyItemIds(forceArchiveHistory);
-  const response = await fetch(API, {
+  const response = await fetch(ACTIVE_LIST_API, {
     headers: { Accept: "application/json" },
     credentials: "same-origin",
     cache: "no-store",
