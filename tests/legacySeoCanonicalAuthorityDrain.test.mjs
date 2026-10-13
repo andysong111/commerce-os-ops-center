@@ -46,8 +46,11 @@ test("이전 모델번호와 확정된 옵션명 차이만 좁게 복구한다",
   assert.match(source, /AAA327: \{ mode: "replace", sourceModels: \["AAA317"\] \}/);
   assert.match(source, /AAA420: \{ mode: "replace", sourceModels: \["AAA327"\] \}/);
   assert.match(source, /AAA127: \{ "단품": \["펀칭기"\] \}/);
+  assert.match(source, /AAA145:[\s\S]*"색상랜덤": \["색상랜덤천1장포함"\]/);
+  assert.match(source, /"리필천2p": \["리필천"\]/);
   assert.match(source, /AAA208: \{ "단품": \["단품옵션미기재"\] \}/);
   assert.match(source, /AAA286: \{ "중형": \["m"\] \}/);
+  assert.match(source, /AAA357: \{ "단품": \["그레이"\] \}/);
   assert.match(source, /unique_product_name_option_affix/);
   assert.match(source, /function canonicalCandidateSummaries/);
   assert.match(source, /canonicalCandidates: canonicalCandidateSummaries\(activeRows\)/);
