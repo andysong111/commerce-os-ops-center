@@ -1,16 +1,19 @@
 export const PURCHASE_SALES_ROLLING_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 const SEOUL_OFFSET_MS = 9 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-function seoulDate(timestampMs: number) {
-  return new Date(timestampMs + SEOUL_OFFSET_MS).toISOString().slice(0, 10);
+function seoulDay(timestampMs: number) {
+  return Math.floor((timestampMs + SEOUL_OFFSET_MS) / DAY_MS);
 }
 
 // A rolling candidate is ordinarily valid for 12 hours. Once its exact FULL
 // snapshot has been read back and verified, the same frozen candidate remains
-// usable until the end of that Seoul business day. This prevents a completed
-// monthly preparation from expiring while the owner is reviewing it later the
-// same day, without carrying yesterday's demand into a new operating day.
+// usable through the following Seoul business day for internal Draft
+// preparation. This lets an overnight monthly preparation feed the next day's
+// operator review without running the 360-day sales collection again. A second
+// day still requires a refresh, and actual 1688 order/payment remains outside
+// this Draft-only gate.
 export function purchaseSalesSourceFresh(input: {
   analysisAsOf: string | null | undefined;
   nowMs: number;
@@ -22,5 +25,5 @@ export function purchaseSalesSourceFresh(input: {
   if (ageMs < 0) return false;
   if (ageMs <= PURCHASE_SALES_ROLLING_MAX_AGE_MS) return true;
   return input.fullReadbackVerified &&
-    seoulDate(observedAt) === seoulDate(input.nowMs);
+    seoulDay(input.nowMs) - seoulDay(observedAt) <= 1;
 }
