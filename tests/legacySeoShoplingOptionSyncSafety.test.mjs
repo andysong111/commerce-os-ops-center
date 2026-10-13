@@ -67,7 +67,7 @@ test("옵션 누락 상품도 먼저 Shopling 복구를 시도하고 가격은 �
     "utf8",
   );
 
-  assert.match(source, /legacySeoRegistrationExclusionFromPolicy/);
+  assert.match(source, /legacySeoRegistrationExclusion/);
   assert.match(source, /Missing normalized options are recoverable/);
   assert.match(source, /priceEligibleModels/);
   assert.match(source, /syncedFromCurrentShopling\(item\)/);
@@ -80,10 +80,9 @@ test("창고 위치 확인 32건은 Shopling 옵션 자동복구부터 제외한
     "utf8",
   );
 
-  assert.match(source, /seoCatalogExclusion/);
   assert.match(
     source,
-    /!seoCatalogExclusion\(item\.modelNumber \?\? item\.model_number\)\.excluded/,
+    /!legacySeoRegistrationExclusion\(item\)\.excluded/,
   );
 });
 

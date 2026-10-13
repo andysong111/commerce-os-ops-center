@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { legacySeoRegistrationExclusion } from "@/lib/legacySeoRegistrationPolicy";
 import { readProductLaunchStorageJson } from "@/lib/productLaunchTrackerServer";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
@@ -192,6 +193,8 @@ async function listLegacyItems(
       "overall_status",
       "option_labels",
       "updated_at",
+      "exclusion_policy:item_payload->legacySeoRegistrationPolicy",
+      "discontinuation:item_payload->discontinuation",
     ].join(","),
     owner_id: `eq.${ownerId}`,
     shopling_upload_status: "eq.완료",
@@ -208,18 +211,28 @@ async function listLegacyItems(
     { attempts: 1, timeoutMs: 4_500, retryDelaysMs: [] },
   );
   if (!Array.isArray(body)) throw new Error("LEGACY_SEO_LIST_INVALID_PAYLOAD");
-  return body.map(record).map((row) => ({
-    id: text(row.item_id),
-    trackerRowNumber: Number(row.tracker_row_number) || null,
-    workBatch: text(row.work_batch),
-    modelNumber: text(row.model_number),
-    productName: text(row.product_name),
-    shoplingCategory: text(row.shopling_category),
-    shoplingUploadStatus: text(row.shopling_upload_status),
-    overallStatus: text(row.overall_status),
-    optionLabels: list(row.option_labels, 50),
-    updatedAt: text(row.updated_at),
-  }));
+  return body
+    .map(record)
+    .filter(
+      (row) =>
+        !legacySeoRegistrationExclusion({
+          modelNumber: row.model_number,
+          legacySeoRegistrationPolicy: row.exclusion_policy,
+          discontinuation: row.discontinuation,
+        }).excluded,
+    )
+    .map((row) => ({
+      id: text(row.item_id),
+      trackerRowNumber: Number(row.tracker_row_number) || null,
+      workBatch: text(row.work_batch),
+      modelNumber: text(row.model_number),
+      productName: text(row.product_name),
+      shoplingCategory: text(row.shopling_category),
+      shoplingUploadStatus: text(row.shopling_upload_status),
+      overallStatus: text(row.overall_status),
+      optionLabels: list(row.option_labels, 50),
+      updatedAt: text(row.updated_at),
+    }));
 }
 
 export async function GET(request: NextRequest) {

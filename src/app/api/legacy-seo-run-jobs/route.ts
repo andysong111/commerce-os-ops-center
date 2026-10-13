@@ -22,7 +22,6 @@ import {
 } from "@/lib/legacySeoShoplingRegistration";
 import {
   legacySeoRegistrationExclusion,
-  isLegacySeoRegistrationPolicyExcluded,
 } from "@/lib/legacySeoRegistrationPolicy";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 import { recoverLegacySeoShoplingPrices } from "@/lib/legacySeoShoplingPriceRecovery";
@@ -176,7 +175,7 @@ async function listLegacyItems(
 ) {
   const params = new URLSearchParams({
     select:
-      "item_id,tracker_row_number,work_batch,model_number,product_name,shopling_category,shopling_upload_status,overall_status,option_labels,updated_at,exclusion_policy:item_payload->legacySeoRegistrationPolicy",
+      "item_id,tracker_row_number,work_batch,model_number,product_name,shopling_category,shopling_upload_status,overall_status,option_labels,updated_at,exclusion_policy:item_payload->legacySeoRegistrationPolicy,discontinuation:item_payload->discontinuation",
     owner_id: `eq.${ownerId}`,
     shopling_upload_status: "eq.완료",
     archived_at: "is.null",
@@ -192,7 +191,14 @@ async function listLegacyItems(
   );
   return (Array.isArray(body) ? body : [])
     .map(record)
-    .filter((row) => !isLegacySeoRegistrationPolicyExcluded(row.exclusion_policy))
+    .filter(
+      (row) =>
+        !legacySeoRegistrationExclusion({
+          modelNumber: row.model_number,
+          legacySeoRegistrationPolicy: row.exclusion_policy,
+          discontinuation: row.discontinuation,
+        }).excluded,
+    )
     .map((row) => ({
       id: text(row.item_id),
       trackerRowNumber: Number(row.tracker_row_number) || null,

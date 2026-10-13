@@ -14,6 +14,14 @@ test("이전상품 후보는 작업묶음이 아니라 Shopling 등록완료 전
 
   assert.match(listSource, /shopling_upload_status: "eq\.완료"/);
   assert.doesNotMatch(listSource, /work_batch: "eq\.등록완료건"/);
+  assert.match(listSource, /discontinuation:item_payload->discontinuation/);
+  assert.match(listSource, /legacySeoRegistrationExclusion/);
+});
+
+test("경량 후보 목록도 단종 확정과 창고 확인 32건을 같은 정책으로 제외한다", async () => {
+  const route = await source("src/app/api/legacy-seo-run-jobs-lite/route.ts");
+  assert.match(route, /discontinuation:item_payload->discontinuation/);
+  assert.match(route, /legacySeoRegistrationExclusion/);
 });
 
 test("RUN 직전 옵션이 없으면 Shopling 근거로 자동 복구하고 다시 읽는다", async () => {
