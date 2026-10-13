@@ -354,9 +354,7 @@ function projectedLine(
 function stablePlanLine(line: PurchasePreflightLine) {
   return {
     barcode: line.barcode,
-    name: line.name,
     quantity: line.quantity,
-    estimatedUnitCostKrw: line.estimatedUnitCostKrw,
     estimatedCostKrw: line.estimatedCostKrw,
   };
 }

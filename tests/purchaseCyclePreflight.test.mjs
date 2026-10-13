@@ -1068,6 +1068,7 @@ test("diagnostic inventory and replacement reasons do not invalidate unchanged D
   );
   first.replacementAfter = structuredClone(first.replacementBefore);
   const second = structuredClone(first);
+  second.priority.rows[0].name = "새로 동기화된 표시명";
   second.priority.rows[0].inventoryQuantity += 10;
   second.priority.rows[0].openCommitment += 1;
   second.priority.rows[0].priorityScore -= 1;
