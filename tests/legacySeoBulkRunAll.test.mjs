@@ -53,6 +53,15 @@ test("전체 RUN 버튼은 50개 단위로 나누고 bulkMode로 중복 RUN을 �
   assert.match(client, /전체 미실행/);
 });
 
+test("전체 대상 조회는 경량 API를 쓰고 SEO RUN 생성은 쓰기 API를 유지한다", async () => {
+  const client = await source(
+    "src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx",
+  );
+  assert.match(client, /ACTIVE_LIST_API = "\/api\/legacy-seo-run-jobs-lite\?scope=active"/);
+  assert.match(client, /fetch\(ACTIVE_LIST_API/);
+  assert.match(client, /fetch\(API, \{\s*method: "POST"/);
+});
+
 test("전체 준비점검 버튼은 RUN 생성 없이 사전점검만 실행한다", async () => {
   const client = await source(
     "src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx",
