@@ -355,8 +355,13 @@ function stablePlanLine(line: PurchasePreflightLine) {
   return {
     barcode: line.barcode,
     quantity: line.quantity,
-    estimatedCostKrw: line.estimatedCostKrw,
   };
+}
+
+function stablePlanLines(lines: PurchasePreflightLine[]) {
+  return lines
+    .map(stablePlanLine)
+    .sort((left, right) => left.barcode.localeCompare(right.barcode));
 }
 
 function stableReplacementAudit(audit: PurchaseReplacementDraftAudit | null) {
@@ -779,7 +784,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         allowOpenBudgetPreview: input.options.allowOpenBudgetPreview === true,
         replaceDraftId: input.options.replaceDraftId ?? null,
       },
-      selected: selected.map(stablePlanLine),
+      selected: stablePlanLines(selected),
       replacementAudit: stableReplacementAudit(replacementAudit),
       budget: {
         cashLimitKrw,
