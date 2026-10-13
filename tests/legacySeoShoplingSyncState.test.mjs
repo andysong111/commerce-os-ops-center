@@ -18,6 +18,19 @@ test("current item-level synced marker confirms Shopling option state", () => {
   );
 });
 
+test("current Product Master option authority confirms registration option state", () => {
+  assert.equal(
+    legacySeoShoplingSyncConfirmed({
+      shoplingOptionSync: {
+        source: "product_master_inventory_catalog",
+        status: "synced",
+        selectionReason: "product_master_active_sku_set",
+      },
+    }),
+    true,
+  );
+});
+
 test("canonical mismatch stays fail-closed even when stale option metadata says live sync", () => {
   const item = {
     shoplingOptionSync: {

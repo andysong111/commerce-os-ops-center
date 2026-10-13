@@ -149,3 +149,16 @@ test("Shopling 무매칭 보존 경로는 옵션 행 0개여도 기존 표시옵
   assert.match(source, /const labels = derivedLabels\.length \? derivedLabels : item\.optionLabels/);
   assert.match(source, /const barcodes = derivedBarcodes\.length \? derivedBarcodes : item\.optionBarcodes/);
 });
+
+test("Shopling 무매칭은 완전한 상품마스터 활성 SKU만 원자적으로 대체한다", async () => {
+  const source = await readFile(
+    new URL("../src/lib/legacySeoShoplingOptionSync.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /resolveLegacySeoProductMasterOptionAuthority/);
+  assert.match(source, /source: "product_master_inventory_catalog"/);
+  assert.match(source, /selectionReason: "product_master_active_sku_set"/);
+  assert.match(source, /await replaceOptionsAtomic\(/);
+  assert.match(source, /productMasterAuthorityReason/);
+});

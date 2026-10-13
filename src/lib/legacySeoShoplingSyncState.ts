@@ -1,6 +1,7 @@
 type UnknownRecord = Record<string, unknown>;
 
 const LIVE_GROUPED_OPTION_SOURCE = "shopling_live_grouped_option_sync";
+const PRODUCT_MASTER_OPTION_SOURCE = "product_master_inventory_catalog";
 
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -34,7 +35,10 @@ export function legacySeoShoplingSyncConfirmed(itemInput: unknown) {
   // `existing_preserved` deliberately means the canonical option structure was
   // not confirmed, so stale option-level sync metadata must never upgrade it to
   // a confirmed state.
-  if (itemSyncSource === LIVE_GROUPED_OPTION_SOURCE) {
+  if (
+    itemSyncSource === LIVE_GROUPED_OPTION_SOURCE ||
+    itemSyncSource === PRODUCT_MASTER_OPTION_SOURCE
+  ) {
     return text(itemSync.status) === "synced";
   }
 

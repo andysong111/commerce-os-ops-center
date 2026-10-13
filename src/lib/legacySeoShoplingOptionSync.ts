@@ -15,6 +15,11 @@ import {
   type ProductLaunchAdminConfig,
   type ProductLaunchIdentity,
 } from "@/lib/productLaunchTrackerServer";
+import {
+  loadLegacySeoInventoryCatalog,
+  normalizeLegacyModel,
+} from "@/lib/legacySeoInventoryCatalog";
+import { resolveLegacySeoProductMasterOptionAuthority } from "@/lib/legacySeoProductMasterOptionAuthority";
 import { reserveUniqueLegacySeoOptionId } from "@/lib/legacySeoUniqueOptionId";
 
 type UnknownRecord = Record<string, unknown>;
@@ -481,13 +486,17 @@ async function patchItem(
   // just because normalized option rows have not been recovered yet.
   const labels = derivedLabels.length ? derivedLabels : item.optionLabels;
   const barcodes = derivedBarcodes.length ? derivedBarcodes : item.optionBarcodes;
+  const updatedBy =
+    text(metadata.source) === "product_master_inventory_catalog"
+      ? "이전상품 상품마스터 옵션/B코드 동기화"
+      : "이전상품 Shopling 묶음옵션/B코드 동기화";
   const itemPayload = {
     ...item.itemPayload,
     optionLabels: labels,
     options: labels,
     shoplingOptionSync: metadata,
     updatedAt: now,
-    updatedBy: "이전상품 Shopling 묶음옵션/B코드 동기화",
+    updatedBy,
   };
   const summaryPayload = { ...item.summaryPayload, optionLabels: labels };
   const params = new URLSearchParams({ owner_id: `eq.${ownerId}`, item_id: `eq.${item.itemId}` });
@@ -507,7 +516,7 @@ async function patchItem(
         item_payload: itemPayload,
         summary_payload: summaryPayload,
         updated_at: now,
-        updated_by: "이전상품 Shopling 묶음옵션/B코드 동기화",
+        updated_by: updatedBy,
       }),
       cache: "no-store",
     },
@@ -569,10 +578,22 @@ export async function syncLegacySeoShoplingOptions(input: {
   }
 
   const items = await loadNormalizedItems(input.config, input.identity.userId, requested);
-  const [evidenceByModel, canonicalOptionsByModel] = await Promise.all([
+  const [evidenceByModel, canonicalOptionsByModel, productMasterCatalogResult] = await Promise.all([
     loadLegacySeoShoplingEvidence(requested, goodsKeyOverridesFromItems(items)),
     loadCanonicalOptionHints(input.config, input.identity.userId, requested),
+    loadLegacySeoInventoryCatalog()
+      .then((products) => ({ products, error: "" }))
+      .catch((error) => ({
+        products: [],
+        error: error instanceof Error ? error.message : String(error),
+      })),
   ]);
+  const productMasterByModel = new Map(
+    productMasterCatalogResult.products.map((product) => [
+      normalizeLegacyModel(product.modelNo),
+      product,
+    ] as const),
+  );
   const now = new Date().toISOString();
   const results: SyncResult[] = [];
   let changedCount = 0;
@@ -586,6 +607,52 @@ export async function syncLegacySeoShoplingOptions(input: {
       const group = evidence ? selectGroup(evidence, current, canonicalSaleOptions) : null;
 
       if (!group) {
+        const productMaster = productMasterByModel.get(item.modelNumber);
+        const productMasterAuthority = productMaster
+          ? resolveLegacySeoProductMasterOptionAuthority({
+              currentOptions: current,
+              product: productMaster,
+              syncedAt: now,
+            })
+          : null;
+        if (productMasterAuthority?.confirmed) {
+          const options = productMasterAuthority.options;
+          const bCodeCount = options.filter((option) => text(option.barcode)).length;
+          const metadata = {
+            source: "product_master_inventory_catalog",
+            status: "synced",
+            productId: productMaster?.productId,
+            productStatus: productMaster?.status,
+            selectionReason: "product_master_active_sku_set",
+            optionCount: options.length,
+            bCodeCount,
+            shoplingSelectionReason: canonicalSaleOptions.length
+              ? "canonical_option_group_mismatch"
+              : "legacy_group_fallback_no_match",
+            syncedAt: now,
+          };
+          await replaceOptionsAtomic(
+            input.config,
+            input.identity.userId,
+            item.itemId,
+            options,
+            now,
+          );
+          await patchItem(input.config, input.identity.userId, item, options, metadata, now);
+          changedCount += 1;
+          results.push({
+            itemId: item.itemId,
+            modelNumber: item.modelNumber,
+            changed: true,
+            failed: false,
+            status: "synced",
+            sourceGoodsKey: "",
+            optionCount: options.length,
+            bCodeCount,
+            reason: productMasterAuthority.reason,
+          });
+          continue;
+        }
         const reason = evidence
           ? canonicalSaleOptions.length
             ? "중국주문 최종확정 옵션 구조와 일치하는 Shopling 상품군 없음 · 기존 옵션 유지"
@@ -604,6 +671,10 @@ export async function syncLegacySeoShoplingOptions(input: {
           bCodeCount: current.filter((option) => text(option.barcode)).length,
           canonicalSaleOptions: canonicalSaleOptions.slice(0, 24),
           candidateGroups: evidence ? diagnosticCandidateGroups(evidence) : [],
+          productMasterAuthorityReason:
+            productMasterAuthority?.reason ||
+            productMasterCatalogResult.error ||
+            "상품마스터 모델 없음",
           syncedAt: now,
         };
         await patchItem(input.config, input.identity.userId, item, current, metadata, now);
