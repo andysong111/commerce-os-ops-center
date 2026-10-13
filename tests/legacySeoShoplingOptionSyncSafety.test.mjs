@@ -51,6 +51,19 @@ test("옵션 누락 상품도 먼저 Shopling 복구를 시도하고 가격은 �
   assert.match(source, /현재 Shopling 옵션\/B코드 확정 전이라 중국주문 최종가격 적용을 차단/);
 });
 
+test("창고 위치 확인 32건은 Shopling 옵션 자동복구부터 제외한다", async () => {
+  const source = await readFile(
+    new URL("../src/lib/legacySeoPreflight.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /seoCatalogExclusion/);
+  assert.match(
+    source,
+    /!seoCatalogExclusion\(item\.modelNumber \?\? item\.model_number\)\.excluded/,
+  );
+});
+
 test("전체 복구 드레인은 Vercel 300초 한도 안에서 한 번에 한 모델만 처리한다", async () => {
   const source = await readFile(
     new URL("../src/app/api/cron/legacy-shopling-image-repair/route.ts", import.meta.url),

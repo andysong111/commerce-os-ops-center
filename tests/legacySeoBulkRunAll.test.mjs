@@ -44,3 +44,12 @@ test("전체 RUN 버튼은 50개 단위로 나누고 bulkMode로 중복 RUN을 �
   assert.match(client, /\["queued", "running", "ready"\]/);
   assert.match(client, /전체 미실행/);
 });
+
+test("전체 준비점검 버튼은 RUN 생성 없이 사전점검만 실행한다", async () => {
+  const client = await source(
+    "src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx",
+  );
+  assert.match(client, /전체 준비점검 완료/);
+  assert.match(client, /전체 미실행.*준비점검만/);
+  assert.match(client, /SEO RUN을 시작하지 않고/);
+});

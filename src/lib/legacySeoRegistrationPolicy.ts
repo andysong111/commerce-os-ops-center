@@ -1,3 +1,5 @@
+import { seoCatalogExclusion } from "./seoCatalogExclusionPolicy.ts";
+
 type UnknownRecord = Record<string, unknown>;
 
 function record(value: unknown): UnknownRecord {
@@ -30,6 +32,10 @@ export function legacySeoRegistrationExclusion(
   itemInput: unknown,
 ): LegacySeoRegistrationExclusion {
   const item = record(itemInput);
+  const catalog = seoCatalogExclusion(item.modelNumber ?? item.model_number);
+  if (catalog.excluded) {
+    return { excluded: true, reason: catalog.reason };
+  }
   const explicit = legacySeoRegistrationExclusionFromPolicy(
     item.legacySeoRegistrationPolicy,
   );
