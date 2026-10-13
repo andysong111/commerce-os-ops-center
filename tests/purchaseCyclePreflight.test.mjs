@@ -652,6 +652,9 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /allSourcingVariantsAsSmall/);
   assert.match(page, /manualPilotCatalogVariantsAsSmall/);
   assert.match(page, /automaticByIdentity/);
+  assert.match(page, /automaticSelectionRequested/);
+  assert.match(page, /effectiveSourcingVariantSelections\.length > 0 \? 25_000 : 8_000/);
+  assert.match(page, /discoveredAdditionalVariant/);
   assert.match(page, /selectionMode === "automatic"/);
   assert.match(page, /effectiveSourcingVariantSelections/);
   assert.match(sourcingForm, /1688 상품 링크 열기/);

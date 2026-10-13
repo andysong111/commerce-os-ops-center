@@ -225,28 +225,36 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       }
       if (report.sourcingBudgetPercent > 0 && report.sourcingBudgetKrw > 0) {
         try {
+          const automaticSelectionRequested = selectionMode === "automatic" &&
+            preferredSourcingConceptIds.length === 0 &&
+            sourcingVariantSelections.length === 0;
+          if (automaticSelectionRequested && manualPilotCatalog) {
+            effectiveSourcingVariantSelections = manualPilotCatalogVariantsAsSmall(manualPilotCatalog, {
+              maxConcepts: 20,
+              maxVariants: 100,
+            });
+            effectivePreferredSourcingConceptIds = [...new Set(
+              effectiveSourcingVariantSelections.map((selection) => selection.conceptId),
+            )];
+            for (const conceptId of effectivePreferredSourcingConceptIds) {
+              sourcingStorageSizeByConceptId[conceptId] = "S";
+            }
+          }
           sourcingPlan = await loadSourcingBudgetPlan({
             targetCycleMonth: report.targetCycleMonth,
             totalCashKrw: report.effectiveCashKrw,
             sourcingBudgetPercent: report.sourcingBudgetPercent,
             sourcingBudgetKrw: report.sourcingBudgetKrw,
-            preferredConceptIds: preferredSourcingConceptIds,
+            preferredConceptIds: effectivePreferredSourcingConceptIds,
             storageSizeByConceptId: sourcingStorageSizeByConceptId,
-            variantSelections: sourcingVariantSelections,
+            variantSelections: effectiveSourcingVariantSelections,
           }, {
-            requestTimeoutMs: 8_000,
+            requestTimeoutMs: effectiveSourcingVariantSelections.length > 0 ? 25_000 : 8_000,
             maxAttempts: 1,
           });
-          if (
-            selectionMode === "automatic" &&
-            preferredSourcingConceptIds.length === 0 &&
-            sourcingVariantSelections.length === 0
-          ) {
+          if (automaticSelectionRequested) {
             const automaticSelections = [
-              ...(manualPilotCatalog ? manualPilotCatalogVariantsAsSmall(manualPilotCatalog, {
-                maxConcepts: 20,
-                maxVariants: 100,
-              }) : []),
+              ...effectiveSourcingVariantSelections,
               ...allSourcingVariantsAsSmall(sourcingPlan, {
                 maxConcepts: 20,
                 maxVariants: 100,
@@ -259,11 +267,13 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                 automaticByIdentity.set(identity, selection);
               }
             }
-            effectiveSourcingVariantSelections = [...automaticByIdentity.values()];
+            const mergedAutomaticSelections = [...automaticByIdentity.values()];
+            const discoveredAdditionalVariant = mergedAutomaticSelections.length > effectiveSourcingVariantSelections.length;
+            effectiveSourcingVariantSelections = mergedAutomaticSelections;
             effectivePreferredSourcingConceptIds = [...new Set(
               effectiveSourcingVariantSelections.map((selection) => selection.conceptId),
             )];
-            if (effectiveSourcingVariantSelections.length > 0) {
+            if (discoveredAdditionalVariant) {
               for (const conceptId of effectivePreferredSourcingConceptIds) {
                 sourcingStorageSizeByConceptId[conceptId] = "S";
               }
@@ -276,7 +286,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                 storageSizeByConceptId: sourcingStorageSizeByConceptId,
                 variantSelections: effectiveSourcingVariantSelections,
               }, {
-                requestTimeoutMs: 8_000,
+                requestTimeoutMs: 25_000,
                 maxAttempts: 1,
               });
             }
