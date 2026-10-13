@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   legacySeoCanonicalOptionSignature,
+  legacySeoCompleteBCodeGroupMatches,
   legacySeoOptionGroupMatchesCanonical,
 } from "../src/lib/legacySeoCanonicalOptionGroup.ts";
 
@@ -43,6 +44,40 @@ test("complete one-to-one prefix or suffix labels match safely", () => {
       ["레드", "블루"],
     ),
     true,
+  );
+});
+
+test("display-only 1P suffix matches while 1+1 promotion remains blocked", () => {
+  assert.equal(
+    legacySeoOptionGroupMatchesCanonical(
+      ["퍼플M 1P", "하늘S 1P"],
+      ["퍼플M", "하늘S"],
+    ),
+    true,
+  );
+  assert.equal(
+    legacySeoOptionGroupMatchesCanonical(
+      ["블루 1+1", "레드 1+1"],
+      ["레드", "블루"],
+    ),
+    false,
+  );
+});
+
+test("complete unique B-code sets identify the same live option group", () => {
+  assert.equal(
+    legacySeoCompleteBCodeGroupMatches(
+      ["BBC5-2", "BBC5-1"],
+      ["BBC5-1", "BBC5-2"],
+    ),
+    true,
+  );
+  assert.equal(
+    legacySeoCompleteBCodeGroupMatches(
+      ["BDE2-1", "BDE2-1"],
+      ["", "BDE2-1"],
+    ),
+    false,
   );
 });
 

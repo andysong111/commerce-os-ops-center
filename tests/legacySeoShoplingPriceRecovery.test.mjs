@@ -61,7 +61,7 @@ test("동일 모델번호로 활성 상품이 둘 이상이면 가격 적용 전
   );
 });
 
-test("SEO RUN 큐 삽입 전에 옵션·B코드·원가·판매가·상세·대표·부가이미지 사전점검을 강제한다", async () => {
+test("SEO RUN 큐 삽입 전에 실제 SEO 입력인 옵션·B코드·원가·판매가 사전점검을 강제한다", async () => {
   const server = await readFile(
     new URL("../src/lib/legacySeoRunJobServer.ts", import.meta.url),
     "utf8",
@@ -75,12 +75,12 @@ test("SEO RUN 큐 삽입 전에 옵션·B코드·원가·판매가·상세·대�
   assert.match(preflight, /Shopling 옵션\/B코드/);
   assert.match(preflight, /중국주문 최종확정 판매가/);
   assert.match(preflight, /중국주문 최종확정 원가/);
-  assert.match(preflight, /상세페이지 HTML/);
-  assert.match(preflight, /대표이미지/);
-  assert.match(preflight, /부가이미지/);
+  assert.doesNotMatch(preflight, /상세페이지 HTML/);
+  assert.doesNotMatch(preflight, /대표이미지/);
+  assert.doesNotMatch(preflight, /부가이미지/);
 });
 
-test("사전점검은 현재 Shopling 상세·이미지를 복구하되 기존 값과 원본 item_payload를 보존한다", async () => {
+test("상세·이미지 복구기는 별도 도구로 기존 값과 원본 item_payload를 보존한다", async () => {
   const preflight = await readFile(
     new URL("../src/lib/legacySeoPreflight.ts", import.meta.url),
     "utf8",
@@ -89,7 +89,7 @@ test("사전점검은 현재 Shopling 상세·이미지를 복구하되 기존 �
     new URL("../src/lib/legacySeoShoplingAssetRecovery.ts", import.meta.url),
     "utf8",
   );
-  assert.match(preflight, /recoverLegacySeoShoplingAssets/);
+  assert.doesNotMatch(preflight, /recoverLegacySeoShoplingAssets/);
   assert.match(assets, /readRawItemPayload/);
   assert.match(assets, /item_payload: payload/);
   assert.match(assets, /text\(current\.html\) \|\| text\(group\.detailHtml\)/);
