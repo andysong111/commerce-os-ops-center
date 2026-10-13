@@ -366,7 +366,9 @@ async function aiSeeds(input: KeywordElonBulkKeywordRecoveryInput) {
   }
 }
 
-function asCandidates(keywords: string[]): KeywordElonCandidate[] {
+export function buildSafeBulkKeywordRecoveryCandidates(
+  keywords: string[],
+): KeywordElonCandidate[] {
   return keywords.map((keyword) => ({
     keyword,
     searchKey: keyword,
@@ -406,7 +408,7 @@ export async function generateSafeBulkKeywordSupplements(
 
   const filtered = await filterKeywordElonProhibitedKeywords({
     identity: input.identity,
-    candidates: asCandidates(candidates),
+    candidates: buildSafeBulkKeywordRecoveryCandidates(candidates),
     customBlockedTerms: input.customBlockedTerms,
   });
   const allowed = new Set(filtered.allowedKeys.map((value) => compactKeywordElonKey(value)));

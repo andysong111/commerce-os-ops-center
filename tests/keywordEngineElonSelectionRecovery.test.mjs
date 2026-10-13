@@ -69,6 +69,8 @@ async function harness({throwScore=false}={}) {
     selectKeywordElonStep4Union:(rows)=>rows.filter(r=>r.safetyPass&&r.titleEligible&&r.relevance>=90),
     compactKeywordElonKey:v=>String(v).replace(/[^0-9A-Za-z가-힣]/g,"").toLowerCase(),
     mergeKeywordElonCandidates:(base,added)=>[...base,...added],
+    generateSafeBulkKeywordSupplements:async()=>[],
+    buildSafeBulkKeywordRecoveryCandidates:()=>[],
     patchClaimedLegacySeoRunJob:async (_config,id,_worker,patch)=>{assert.equal(id,"test-run");calls.patch++;persisted={...persisted,...patch};return persisted;},
     scoreKeywordElonCandidatesBatched:async input=>{
       calls.score++;
@@ -82,11 +84,11 @@ async function harness({throwScore=false}={}) {
   };
   const path=new URL("../src/lib/legacySeoRunWorker.ts",import.meta.url);
   const original=await readFile(path,"utf8");
-  const strippedImports=original.replace(/import[\s\S]*?from\s+["'][^"']+["'];\n/g,"");
+  const strippedImports=original.replace(/import[\s\S]*?from\s+["'][^"']+["'];\r?\n/g,"");
   const injected=`const {${Object.keys(globalThis[globalsKey]).join(",")}}=globalThis[${JSON.stringify(globalsKey)}];\n`;
   const js=stripTypeScriptTypes(injected+strippedImports+"\nexport {executeStage};",{mode:"strip"});
-  const module=await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
-  return {calls,get:()=>persisted,run:()=>module.executeStage({},persisted,"test-worker"),set:value=>{persisted={...persisted,...value};},cleanup:()=>delete globalThis[globalsKey]};
+  const loadedModule=await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+  return {calls,get:()=>persisted,run:()=>loadedModule.executeStage({},persisted,"test-worker"),set:value=>{persisted={...persisted,...value};},cleanup:()=>delete globalThis[globalsKey]};
 }
 test("worker reserves attempt before score and yields without title/filter bypass", async()=>{
   const h=await harness();
