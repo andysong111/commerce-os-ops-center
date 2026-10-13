@@ -142,3 +142,28 @@ test("코드형 최종키워드는 쇼핑몰별 상품명에 조용히 섞지 �
     /부적합 최종키워드/,
   );
 });
+
+test("짧은 키워드는 실제 Shopling 카테고리 꼬리말로만 30바이트를 채운다", () => {
+  const result = composeKeywordElonSafeMallTitles({
+    markets: [PRODUCT_GROUP_MARKET_REGISTRY[0]],
+    finalKeywords: ["버드스파이크"],
+    modelName: "버드스파이크 A",
+    context: {
+      modelNumber: "AAA106",
+      productName: "버드스파이크 A",
+      category: "문구/취미/펫>조류용품>기타 조류용품",
+      optionText: "단품",
+    },
+  });
+
+  assert.equal(result.rows.length, 1);
+  assert.ok(keywordElonSeoUtf8Bytes(result.rows[0].title) >= 30);
+  assert.ok(keywordElonSeoUtf8Bytes(result.rows[0].title) <= 50);
+  assert.match(result.rows[0].title, /버드스파이크/);
+  assert.match(result.rows[0].title, /조류용품/);
+  assert.deepEqual(result.facts, []);
+  assert.ok(
+    result.warnings.includes("SEO_MALL_TITLE_STORED_CATEGORY_FALLBACK:1"),
+  );
+  assert.doesNotMatch(result.rows[0].title, /AAA106|단품|기타/);
+});
