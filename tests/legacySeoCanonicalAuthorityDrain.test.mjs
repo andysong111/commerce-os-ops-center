@@ -51,4 +51,16 @@ test("이전 모델번호와 확정된 옵션명 차이만 좁게 복구한다",
   assert.match(source, /unique_product_name_option_affix/);
   assert.match(source, /function canonicalCandidateSummaries/);
   assert.match(source, /canonicalCandidates: canonicalCandidateSummaries\(activeRows\)/);
+
+  const preflight = await readFile(
+    new URL("../src/lib/legacySeoPreflight.ts", import.meta.url),
+    "utf8",
+  );
+  const page = await readFile(
+    new URL("../src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(preflight, /canonicalCandidates:[\s\S]*issue\.canonicalCandidates/);
+  assert.match(page, /원본 후보:/);
+  assert.match(page, /\.slice\(0, 50\)/);
 });

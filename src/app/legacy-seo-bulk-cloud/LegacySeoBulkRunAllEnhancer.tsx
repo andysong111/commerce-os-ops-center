@@ -91,7 +91,21 @@ function preflightIssueSummary(value: unknown) {
   const row = record(value);
   const issues = Array.isArray(row.issues) ? row.issues.map(record) : [];
   const first = issues[0];
-  return text(first?.message) || "사전점검 미통과";
+  const candidates = (Array.isArray(first?.canonicalCandidates)
+    ? first.canonicalCandidates
+    : []
+  )
+    .map(record)
+    .map((candidate) => {
+      const productName = text(candidate.productName);
+      const saleOption = text(candidate.saleOption);
+      return [productName, saleOption].filter(Boolean).join(" / ");
+    })
+    .filter(Boolean);
+  const message = text(first?.message) || "사전점검 미통과";
+  return candidates.length
+    ? `${message} (원본 후보: ${candidates.join(", ")})`
+    : message;
 }
 
 async function loadArchivedReadyItemIds(force = false) {
@@ -284,7 +298,7 @@ export default function LegacySeoBulkRunAllEnhancer() {
 
             const preflight = await preflightAll(ids, setStatus);
             const summary = preflight.failed
-              .slice(0, 8)
+              .slice(0, 50)
               .map((result) =>
                 `${text(result.modelNumber) || text(result.itemId)}: ${preflightIssueSummary(result)}`,
               )
@@ -338,7 +352,7 @@ export default function LegacySeoBulkRunAllEnhancer() {
             const preflight = await preflightAll(ids, setStatus);
             if (preflight.failed.length) {
               const summary = preflight.failed
-                .slice(0, 8)
+                .slice(0, 50)
                 .map((result) =>
                   `${text(result.modelNumber) || text(result.itemId)}: ${preflightIssueSummary(result)}`,
                 )
