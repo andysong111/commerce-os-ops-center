@@ -21,6 +21,7 @@ type CanonicalPriceRow = {
   import_batch_id: string;
   source_row_index: number | null;
   model_number: string;
+  source_model_number: string;
   product_name: string;
   sale_option: string;
   option_key: string;
@@ -34,7 +35,11 @@ type CanonicalPriceRow = {
 };
 
 type CanonicalMatchAudit = {
-  method: "uniform_single_residual_name_mismatch" | "bijective_affix_option_name";
+  method:
+    | "uniform_single_residual_name_mismatch"
+    | "bijective_affix_option_name"
+    | "known_legacy_option_alias"
+    | "unique_product_name_option_affix";
   currentSaleOption: string;
   canonicalSaleOption: string;
 };
@@ -61,6 +66,23 @@ const OPTION_TABLE = "product_launch_options";
 const PRICE_TABLE = "legacy_seo_canonical_prices";
 const BATCH_TABLE = "legacy_seo_canonical_price_batches";
 const PATCH_CONCURRENCY = 10;
+const CANONICAL_PRICE_SOURCE = "china_order_final_confirmed_v4";
+const CANONICAL_PRICE_REVISION = "20260809_v4_option_max_uniform";
+
+const CANONICAL_MODEL_SOURCE_RULES: Record<
+  string,
+  { mode: "replace" | "supplement"; sourceModels: string[] }
+> = {
+  AAA086: { mode: "supplement", sourceModels: ["AAA087", "AAA088", "AAA089"] },
+  AAA327: { mode: "replace", sourceModels: ["AAA317"] },
+  AAA420: { mode: "replace", sourceModels: ["AAA327"] },
+};
+
+const CANONICAL_OPTION_KEY_ALIASES: Record<string, Record<string, string[]>> = {
+  AAA127: { "단품": ["펀칭기"] },
+  AAA208: { "단품": ["단품옵션미기재"] },
+  AAA286: { "중형": ["m"] },
+};
 
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -93,6 +115,78 @@ function positiveNumber(value: unknown) {
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
+function currentOptionSale(option: UnknownRecord) {
+  const payload = record(option.option_payload);
+  return Math.round(
+    positiveNumber(option.baseSalePriceKrw) ||
+      positiveNumber(option.base_sale_price_krw) ||
+      positiveNumber(payload.baseSalePriceKrw),
+  );
+}
+
+function currentOptionCost(option: UnknownRecord) {
+  const payload = record(option.option_payload);
+  return Math.round(
+    positiveNumber(option.unitCostKrw) ||
+      positiveNumber(option.unit_cost_krw) ||
+      positiveNumber(payload.unitCostKrw),
+  );
+}
+
+function canonicalMarkerConfirmed(option: UnknownRecord) {
+  const payload = record(option.option_payload);
+  const canonical = record(option.canonicalChinaPrice ?? payload.canonicalChinaPrice);
+  if (
+    text(canonical.source) !== CANONICAL_PRICE_SOURCE ||
+    text(canonical.sourceRevision) !== CANONICAL_PRICE_REVISION
+  ) {
+    return false;
+  }
+  const canonicalSale = Math.round(positiveNumber(canonical.finalSalePriceKrw));
+  const canonicalCost = Math.round(
+    positiveNumber(canonical.unitCostKrwMirror) ||
+      positiveNumber(canonical.unitCostKrwExact),
+  );
+  return (
+    currentOptionSale(option) > 0 &&
+    currentOptionCost(option) > 0 &&
+    currentOptionSale(option) === canonicalSale &&
+    currentOptionCost(option) === canonicalCost
+  );
+}
+
+export function legacySeoCentralPricePolicyConfirmed(item: UnknownRecord) {
+  const payload = record(item.item_payload);
+  const policy = record(item.pricePolicy ?? payload.pricePolicy);
+  return (
+    text(policy.status).toLowerCase() === "success" &&
+    policy.required !== false &&
+    positiveNumber(policy.goodsKeyCount) > 0 &&
+    Boolean(text(policy.completedAt) || text(policy.updatedAt))
+  );
+}
+
+function legacyStockPriceConfirmed(option: UnknownRecord) {
+  const payload = record(option.option_payload);
+  const optionId = text(option.optionId ?? option.option_id ?? option.id ?? payload.id);
+  return (
+    /^stock-[a-z0-9-]+-\d+$/i.test(optionId) &&
+    currentOptionSale(option) > 0 &&
+    currentOptionCost(option) > 0
+  );
+}
+
+export function legacySeoPriceAuthorityConfirmed(
+  item: UnknownRecord,
+  option: UnknownRecord,
+) {
+  if (canonicalMarkerConfirmed(option)) return true;
+  if (legacySeoCentralPricePolicyConfirmed(item)) {
+    return currentOptionSale(option) > 0 && currentOptionCost(option) > 0;
+  }
+  return legacyStockPriceConfirmed(option);
+}
+
 function activePriceRow(row: CanonicalPriceRow) {
   return text(row.price_status) === "적용대상";
 }
@@ -121,6 +215,16 @@ function optionSaleKey(option: UnknownRecord) {
 
 function canonicalRowKey(row: CanonicalPriceRow) {
   return row.option_key || legacySeoCanonicalOptionKey(row.sale_option);
+}
+
+function canonicalQueryModels(modelNumbers: string[]) {
+  const values = new Set(modelNumbers);
+  for (const modelNumber of modelNumbers) {
+    for (const sourceModel of CANONICAL_MODEL_SOURCE_RULES[modelNumber]?.sourceModels ?? []) {
+      values.add(sourceModel);
+    }
+  }
+  return [...values];
 }
 
 function uniqueUniformResidualCanonicalRow(
@@ -220,12 +324,13 @@ async function readCanonicalRows(
   modelNumbers: string[],
 ): Promise<CanonicalPriceRow[]> {
   if (!modelNumbers.length) return [];
+  const queryModels = canonicalQueryModels(modelNumbers);
   const params = new URLSearchParams({
     select:
       "canonical_price_id,import_batch_id,source_row_index,model_number,product_name,sale_option,option_key,unit_cost_krw,base_sale_price_krw,price_status,confidence,cost_basis_date,cost_source_sheet,confirmation_reason",
     owner_id: `eq.${ownerId}`,
     import_batch_id: `eq.${batchId}`,
-    model_number: `in.(${postgrestIn(modelNumbers)})`,
+    model_number: `in.(${postgrestIn(queryModels)})`,
     order: "source_row_index.asc.nullslast,created_at.asc",
     limit: "5000",
   });
@@ -236,8 +341,9 @@ async function readCanonicalRows(
       cache: "no-store",
     },
   );
-  return (Array.isArray(body) ? body : []).map((value) => {
+  const rawRows = (Array.isArray(body) ? body : []).map((value) => {
     const row = record(value);
+    const sourceModelNumber = modelKey(row.model_number);
     return {
       canonical_price_id: text(row.canonical_price_id),
       import_batch_id: text(row.import_batch_id),
@@ -245,7 +351,8 @@ async function readCanonicalRows(
         row.source_row_index === null || row.source_row_index === undefined
           ? null
           : Number(row.source_row_index),
-      model_number: modelKey(row.model_number),
+      model_number: sourceModelNumber,
+      source_model_number: sourceModelNumber,
       product_name: text(row.product_name),
       sale_option: text(row.sale_option),
       option_key: text(row.option_key) || legacySeoCanonicalOptionKey(row.sale_option),
@@ -258,6 +365,31 @@ async function readCanonicalRows(
       confirmation_reason: text(row.confirmation_reason),
     };
   });
+  const rowsBySourceModel = new Map<string, CanonicalPriceRow[]>();
+  for (const row of rawRows) {
+    const list = rowsBySourceModel.get(row.source_model_number) ?? [];
+    list.push(row);
+    rowsBySourceModel.set(row.source_model_number, list);
+  }
+
+  const rows: CanonicalPriceRow[] = [];
+  for (const modelNumber of modelNumbers) {
+    const rule = CANONICAL_MODEL_SOURCE_RULES[modelNumber];
+    const directRows = rule?.mode === "replace"
+      ? []
+      : (rowsBySourceModel.get(modelNumber) ?? []);
+    rows.push(...directRows);
+    const claimedKeys = new Set(directRows.map(canonicalRowKey).filter(Boolean));
+    for (const sourceModel of rule?.sourceModels ?? []) {
+      for (const sourceRow of rowsBySourceModel.get(sourceModel) ?? []) {
+        const key = canonicalRowKey(sourceRow);
+        if (rule?.mode === "supplement" && key && claimedKeys.has(key)) continue;
+        if (key) claimedKeys.add(key);
+        rows.push({ ...sourceRow, model_number: modelNumber });
+      }
+    }
+  }
+  return rows;
 }
 
 function matchCanonicalRow(
@@ -265,6 +397,7 @@ function matchCanonicalRow(
   activeRows: CanonicalPriceRow[],
   optionCount: number,
   itemProductName: string,
+  modelNumber: string,
 ) {
   const saleOption = text(record(option.option_payload).saleOption ?? option.sale_option);
   const key = legacySeoCanonicalOptionKey(saleOption);
@@ -281,6 +414,39 @@ function matchCanonicalRow(
     return {
       row: null,
       reason: "중국주문 최종가격 옵션이 중복되고 원가/판매가가 달라 자동 매칭할 수 없음",
+    };
+  }
+
+  const aliasKeys = CANONICAL_OPTION_KEY_ALIASES[modelNumber]?.[key] ?? [];
+  if (aliasKeys.length) {
+    const aliasMatches = activeRows.filter((row) => aliasKeys.includes(canonicalRowKey(row)));
+    if (aliasMatches.length === 1) {
+      return {
+        row: aliasMatches[0],
+        reason: "",
+        matchAudit: {
+          method: "known_legacy_option_alias" as const,
+          currentSaleOption: saleOption,
+          canonicalSaleOption: aliasMatches[0].sale_option,
+        },
+      };
+    }
+  }
+
+  const itemKey = legacySeoCanonicalOptionKey(itemProductName);
+  const productNameAffixMatches = activeRows.filter((row) => {
+    const rowProductKey = legacySeoCanonicalOptionKey(row.product_name);
+    return Boolean(itemKey && key && rowProductKey === `${itemKey}${key}`);
+  });
+  if (productNameAffixMatches.length === 1) {
+    return {
+      row: productNameAffixMatches[0],
+      reason: "",
+      matchAudit: {
+        method: "unique_product_name_option_affix" as const,
+        currentSaleOption: saleOption,
+        canonicalSaleOption: productNameAffixMatches[0].sale_option,
+      },
     };
   }
 
@@ -301,12 +467,13 @@ function bijectiveAffixResidualCanonicalRows(
   options: UnknownRecord[],
   activeRows: CanonicalPriceRow[],
   itemProductName: string,
+  modelNumber: string,
 ) {
   // Deliberately fail closed. This is not fuzzy matching: it only accepts a full
   // one-to-one residual mapping where every unmatched normalized option name is a
   // unique prefix/suffix extension of exactly one unused canonical option name.
   const directMatches = options.map((option) =>
-    matchCanonicalRow(option, activeRows, options.length, itemProductName),
+    matchCanonicalRow(option, activeRows, options.length, itemProductName, modelNumber),
   );
   const unmatchedOptions = options.filter((_, index) => !directMatches[index]?.row);
   if (!unmatchedOptions.length) return new Map<string, CanonicalPriceRow>();
@@ -379,6 +546,7 @@ async function patchOptionPrice(
       sourceSheet: batch.source_sheet,
       sourceRowIndex: canonical.source_row_index,
       canonicalPriceId: canonical.canonical_price_id,
+      canonicalModelNumber: canonical.source_model_number,
       productName: canonical.product_name,
       saleOption: canonical.sale_option,
       unitCostKrwExact: exactUnitCost,
@@ -469,7 +637,7 @@ export async function applyLegacySeoCanonicalPrices(input: {
   }
 
   const itemParams = new URLSearchParams({
-    select: "item_id,model_number,product_name",
+    select: "item_id,model_number,product_name,item_payload",
     owner_id: `eq.${input.identity.userId}`,
     shopling_upload_status: "eq.완료",
     archived_at: "is.null",
@@ -536,9 +704,16 @@ export async function applyLegacySeoCanonicalPrices(input: {
     const excluded = activeRows.length === 0 && modelRows.some(discontinuedPriceRow);
     const excludedReason = excluded ? "중국주문 최종확정표에서 단종/적용제외" : "";
     const unresolved: LegacySeoCanonicalPriceIssue[] = [];
-    let appliedCount = 0;
+    const authoritativeOptions = options.filter((option) =>
+      legacySeoPriceAuthorityConfirmed(item, option),
+    );
+    const optionsNeedingCanonical = options.filter(
+      (option) => !legacySeoPriceAuthorityConfirmed(item, option),
+    );
+    let appliedCount = authoritativeOptions.length;
+    appliedOptionCount += authoritativeOptions.length;
 
-    if (!excluded && !activeRows.length) {
+    if (!excluded && !activeRows.length && optionsNeedingCanonical.length) {
       unresolved.push({
         itemId,
         modelNumber,
@@ -555,22 +730,24 @@ export async function applyLegacySeoCanonicalPrices(input: {
       });
     }
 
-    if (!excluded && activeRows.length && options.length) {
+    if (!excluded && activeRows.length && optionsNeedingCanonical.length) {
       const affixResidualByOption = bijectiveAffixResidualCanonicalRows(
-        options,
+        optionsNeedingCanonical,
         activeRows,
         text(item.product_name),
+        modelNumber,
       );
-      for (const option of options) {
+      for (const option of optionsNeedingCanonical) {
         const saleOption = text(record(option.option_payload).saleOption ?? option.sale_option);
         const matched = matchCanonicalRow(
           option,
           activeRows,
-          options.length,
+          optionsNeedingCanonical.length,
           text(item.product_name),
+          modelNumber,
         );
         let canonical = matched.row;
-        let matchAudit: CanonicalMatchAudit | undefined;
+        let matchAudit: CanonicalMatchAudit | undefined = matched.matchAudit;
         if (!canonical) {
           const affixResidual = affixResidualByOption.get(text(option.option_id));
           if (affixResidual) {
@@ -583,7 +760,11 @@ export async function applyLegacySeoCanonicalPrices(input: {
           }
         }
         if (!canonical) {
-          const residual = uniqueUniformResidualCanonicalRow(option, options, activeRows);
+          const residual = uniqueUniformResidualCanonicalRow(
+            option,
+            optionsNeedingCanonical,
+            activeRows,
+          );
           if (residual) {
             canonical = residual;
             matchAudit = {
