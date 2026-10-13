@@ -100,7 +100,7 @@ function normalizeSnapshot(value: Record<string, unknown>): ProductMasterCanonic
   };
 }
 
-async function loadProductMasterCanonicalSnapshot(
+export async function loadProductMasterCanonicalSnapshot(
   analysisAsOf: string,
   requestTimeoutMs: number,
 ) {
@@ -122,6 +122,31 @@ async function loadProductMasterCanonicalSnapshot(
     throw new Error(text(payload.message) || `CANONICAL_SALES_AUDIT_FAILED:${response.status}`);
   }
   return normalizeSnapshot(payload);
+}
+
+function auditCanonicalSnapshot(
+  snapshot: ProductMasterCanonicalSalesSnapshot,
+  analysisAsOf: string,
+): ProductMasterCanonicalSalesAudit {
+  const structuralBlockers = [
+    snapshot.bucketDays !== 30,
+    snapshot.bucketCount !== 12,
+    snapshot.analysisAsOf !== analysisAsOf,
+    !snapshot.classificationComplete,
+    snapshot.orphanEventCount > 0,
+    snapshot.rows.length !== snapshot.managedActiveSkuCount,
+  ].filter(Boolean).length;
+  return {
+    ready: structuralBlockers === 0,
+    state: structuralBlockers === 0 ? "READY" : "BLOCKED",
+    message:
+      structuralBlockers === 0
+        ? `활성 SKU ${snapshot.managedActiveSkuCount}개와 판매 이벤트 ${snapshot.sourceEventCount}건의 12×30일 원장을 정확히 재조회했습니다.`
+        : `Canonical 판매원장 구조 검증에서 ${structuralBlockers}개 차단 조건이 발견됐습니다.`,
+    analysisAsOf,
+    snapshot,
+    blockerCount: structuralBlockers,
+  };
 }
 
 export async function loadProductMasterCanonicalSalesAudit(
@@ -147,24 +172,44 @@ export async function loadProductMasterCanonicalSalesAudit(
     status.analysisAsOf,
     requestTimeoutMs,
   );
-  const structuralBlockers = [
-    snapshot.bucketDays !== 30,
-    snapshot.bucketCount !== 12,
-    snapshot.analysisAsOf !== status.analysisAsOf,
-    !snapshot.classificationComplete,
-    snapshot.orphanEventCount > 0,
-    snapshot.rows.length !== snapshot.managedActiveSkuCount,
-  ].filter(Boolean).length;
+  return auditCanonicalSnapshot(snapshot, status.analysisAsOf);
+}
 
-  return {
-    ready: structuralBlockers === 0,
-    state: structuralBlockers === 0 ? "READY" : "BLOCKED",
-    message:
-      structuralBlockers === 0
-        ? `활성 SKU ${snapshot.managedActiveSkuCount}개와 판매 이벤트 ${snapshot.sourceEventCount}건의 12×30일 원장을 정확히 재조회했습니다.`
-        : `Canonical 판매원장 구조 검증에서 ${structuralBlockers}개 차단 조건이 발견됐습니다.`,
-    analysisAsOf: status.analysisAsOf,
-    snapshot,
-    blockerCount: structuralBlockers,
-  };
+export async function loadProductMasterCanonicalSalesAuditForVerifiedReconciliation(
+  reconciliation: {
+    ready: boolean;
+    state: string;
+    fullApplyVerified: boolean;
+    analysisAsOf: string | null;
+    checks: Array<{ passed: boolean }>;
+  },
+  options: { requestTimeoutMs?: number } = {},
+): Promise<ProductMasterCanonicalSalesAudit> {
+  const analysisAsOf = text(reconciliation.analysisAsOf);
+  if (
+    !reconciliation.ready ||
+    reconciliation.state !== "READY" ||
+    !reconciliation.fullApplyVerified ||
+    !analysisAsOf ||
+    reconciliation.checks.length === 0 ||
+    reconciliation.checks.some((row) => !row.passed)
+  ) {
+    return {
+      ready: false,
+      state: "BLOCKED",
+      message: "검증된 전수 대사 원본이 없어 Product Master 재조회를 차단합니다.",
+      analysisAsOf: analysisAsOf || null,
+      snapshot: null,
+      blockerCount: 1,
+    };
+  }
+  const requestTimeoutMs = Math.max(
+    1_000,
+    Math.min(60_000, Math.trunc(options.requestTimeoutMs ?? 60_000)),
+  );
+  const snapshot = await loadProductMasterCanonicalSnapshot(
+    analysisAsOf,
+    requestTimeoutMs,
+  );
+  return auditCanonicalSnapshot(snapshot, analysisAsOf);
 }

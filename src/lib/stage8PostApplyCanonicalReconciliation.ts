@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 import {
   buildCandidateRollingRows,
+  loadLatestCandidateSalesPin,
   loadLatestCandidateSalesSnapshot,
 } from "@/lib/stage8CandidateDemandParity";
 import {
-  loadProductMasterCanonicalSalesAudit,
+  loadProductMasterCanonicalSnapshot,
   type CanonicalRollingSalesRow,
 } from "@/lib/productMasterCanonicalSalesAudit";
 import {
   SALES_EVENT_FULL,
-  loadProductMasterShoplingSalesEventSyncStatus,
 } from "@/lib/productMasterShoplingSalesEventSync";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -220,124 +220,88 @@ function makeReconciliationFingerprint(input: {
     .digest("hex")}`;
 }
 
-function waiting(
-  checks: PostApplyCanonicalReconciliationCheck[],
-  message: string,
-): PostApplyCanonicalReconciliation {
-  return {
-    generatedAt: new Date().toISOString(),
-    state: "WAITING",
-    ready: false,
-    message,
-    candidateSalesRequestId: null,
-    analysisAsOf: null,
-    candidatePlanFingerprint: null,
-    candidateEventFingerprint: null,
-    planningContentFingerprint: null,
-    persistedContentFingerprint: null,
-    reconciliationFingerprint: null,
-    candidateSourceEventCount: 0,
-    persistedSourceEventCount: 0,
-    candidateValidEventCount: 0,
-    persistedValidEventCount: 0,
-    candidateTombstoneCount: 0,
-    persistedTombstoneCount: 0,
-    candidateActiveRowCount: 0,
-    persistedActiveRowCount: 0,
-    sharedActiveRowCount: 0,
-    exactActiveRowCount: 0,
-    rowMismatchCount: 0,
-    missingPersistedCount: 0,
-    extraPersistedCount: 0,
-    extraPersistedNonZeroCount: 0,
-    fullApplyVerified: false,
-    fullApplyWritten: 0,
-    missingPersistedBarcodes: [],
-    extraPersistedBarcodes: [],
-    extraPersistedDiagnostics: [],
-    rowMismatchSamples: [],
-    checks,
-  };
-}
-
 export async function loadPostApplyCanonicalReconciliation(
   options: { externalRequestTimeoutMs?: number } = {},
 ): Promise<PostApplyCanonicalReconciliation> {
   const checks: PostApplyCanonicalReconciliationCheck[] = [];
-  const salesStatus = await loadProductMasterShoplingSalesEventSyncStatus();
-  if (salesStatus.state !== "COMPLETED" || !salesStatus.requestId) {
-    check(
-      checks,
-      "sales-full-completed",
-      false,
-      `판매 이벤트 상태 ${salesStatus.state}`,
-    );
-    return waiting(
-      checks,
-      "검증된 Product Master 전수 적재가 완료될 때까지 persisted reconciliation을 대기합니다.",
-    );
-  }
-
-  const [candidate, planning, audit] = await Promise.all([
-    loadLatestCandidateSalesSnapshot(),
-    loadProductPlanningSnapshot({
+  const taggedRead = async <T>(code: string, read: () => Promise<T>) => {
+    try {
+      return await read();
+    } catch (error) {
+      throw new Error(code, { cause: error });
+    }
+  };
+  const pin = await taggedRead(
+    "RECONCILIATION_CANDIDATE_PIN_FAILED",
+    loadLatestCandidateSalesPin,
+  );
+  const [candidate, planning, persisted, fullApply] = await Promise.all([
+    taggedRead("RECONCILIATION_CANDIDATE_SNAPSHOT_FAILED", loadLatestCandidateSalesSnapshot),
+    taggedRead("RECONCILIATION_PLANNING_FAILED", () => loadProductPlanningSnapshot({
       requestTimeoutMs: options.externalRequestTimeoutMs,
-    }),
-    loadProductMasterCanonicalSalesAudit({
-      requestTimeoutMs: options.externalRequestTimeoutMs,
-    }),
+    })),
+    taggedRead("RECONCILIATION_PRODUCT_MASTER_AUDIT_FAILED", () =>
+      loadProductMasterCanonicalSnapshot(
+        pin.analysisAsOf,
+        Math.max(1_000, Math.min(60_000, Math.trunc(
+          options.externalRequestTimeoutMs ?? 60_000,
+        ))),
+      ),
+    ),
+    taggedRead("RECONCILIATION_FULL_APPLY_FAILED", () => loadVerifiedFullApply(
+      pin.salesRequestId,
+      pin.planFingerprint,
+      pin.report.sourceEventCount,
+    )),
   ]);
-  const persisted = audit.snapshot;
 
   check(
     checks,
     "sales-full-completed",
-    true,
-    `판매 이벤트 요청 ${salesStatus.requestId}가 COMPLETED입니다.`,
+    fullApply.verified,
+    fullApply.verified
+      ? `판매 이벤트 요청 ${pin.salesRequestId}의 FULL 전수 적재가 검증됐습니다.`
+      : `FULL operation 증거 없음: ${fullApply.reason}`,
   );
   check(
     checks,
     "candidate-request-match",
-    candidate.salesRequestId === salesStatus.requestId,
-    `후보 ${candidate.salesRequestId} · 완료 ${salesStatus.requestId}`,
+    candidate.salesRequestId === pin.salesRequestId,
+    `후보 ${candidate.salesRequestId} · 고정 ${pin.salesRequestId}`,
   );
   check(
     checks,
     "candidate-report-match",
     Boolean(
-      salesStatus.report &&
-        salesStatus.report.planFingerprint === candidate.planFingerprint &&
-        salesStatus.report.eventFingerprint === candidate.eventFingerprint &&
-        salesStatus.report.sourceEventCount === candidate.report.sourceEventCount,
+      pin.planFingerprint === candidate.planFingerprint &&
+        pin.eventFingerprint === candidate.eventFingerprint &&
+        pin.report.sourceEventCount === candidate.report.sourceEventCount,
     ),
     "완료된 판매 이벤트 report와 candidate event/plan 지문 및 행수가 같아야 합니다.",
   );
   const planningFingerprintStable =
     planning.contentFingerprint === candidate.planningContentFingerprint;
+  const persistedStructuralBlockers = [
+    persisted.bucketDays !== 30,
+    persisted.bucketCount !== 12,
+    persisted.analysisAsOf !== candidate.analysisAsOf,
+    !persisted.classificationComplete,
+    persisted.orphanEventCount > 0,
+    persisted.rows.length !== persisted.managedActiveSkuCount,
+  ].filter(Boolean).length;
   check(
     checks,
     "persisted-audit-ready",
-    audit.ready && Boolean(persisted),
-    audit.message,
+    persistedStructuralBlockers === 0,
+    persistedStructuralBlockers === 0
+      ? `활성 SKU ${persisted.managedActiveSkuCount}개와 판매 이벤트 ${persisted.sourceEventCount}건의 12×30일 원장을 정확히 재조회했습니다.`
+      : `Canonical 판매원장 구조 검증에서 ${persistedStructuralBlockers}개 차단 조건이 발견됐습니다.`,
   );
-
-  if (!persisted) {
-    return {
-      ...waiting(checks, "Product Master canonical snapshot을 읽지 못해 검증을 차단합니다."),
-      state: "BLOCKED",
-      candidateSalesRequestId: candidate.salesRequestId,
-      analysisAsOf: candidate.analysisAsOf,
-      candidatePlanFingerprint: candidate.planFingerprint,
-      candidateEventFingerprint: candidate.eventFingerprint,
-      planningContentFingerprint: planning.contentFingerprint,
-    };
-  }
 
   check(
     checks,
     "analysis-time-match",
-    persisted.analysisAsOf === candidate.analysisAsOf &&
-      salesStatus.analysisAsOf === candidate.analysisAsOf,
+    persisted.analysisAsOf === candidate.analysisAsOf,
     `persisted ${persisted.analysisAsOf} · candidate ${candidate.analysisAsOf}`,
   );
   check(
@@ -508,11 +472,6 @@ export async function loadPostApplyCanonicalReconciliation(
         : `현재 planning ${planning.contentFingerprint} · 후보 ${candidate.planningContentFingerprint}`,
   );
 
-  const fullApply = await loadVerifiedFullApply(
-    candidate.salesRequestId,
-    candidate.planFingerprint,
-    candidate.report.sourceEventCount,
-  );
   check(
     checks,
     "full-apply-evidence-verified",

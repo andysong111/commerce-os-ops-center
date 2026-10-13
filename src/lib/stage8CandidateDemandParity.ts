@@ -304,6 +304,33 @@ async function readOperations(
   );
 }
 
+async function readSalesEventChunkOperations(
+  correlationId: string,
+  expectedRangeCount: number,
+) {
+  const admin = await createSupabaseAdminClient();
+  if (!admin) throw new Error("SUPABASE_ADMIN_NOT_CONFIGURED");
+  const pageSize = 6;
+  const pageCount = Math.ceil(expectedRangeCount / pageSize);
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, async (_value, pageIndex) => {
+      const from = pageIndex * pageSize;
+      const result = await admin
+        .from("commerce_operation_runs")
+        .select("result_snapshot")
+        .eq("operation_type", SALES_EVENT_CHUNK)
+        .eq("correlation_id", correlationId)
+        .order("source_event_id", { ascending: true })
+        .range(from, Math.min(expectedRangeCount, from + pageSize) - 1);
+      if (result.error) throw new Error(result.error.message);
+      return (Array.isArray(result.data) ? result.data : []).filter(
+        (row): row is OperationRow => Boolean(row && typeof row === "object"),
+      );
+    }),
+  );
+  return pages.flat();
+}
+
 function parseRanges(value: unknown): ShoplingDateRange[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -434,7 +461,14 @@ export async function loadLatestCandidateSalesPin(): Promise<CandidateSalesPin> 
 export async function loadLatestCandidateSalesSnapshot(): Promise<CandidateSalesSnapshot> {
   const { request, report: storedReport } = await loadLatestCandidateSalesIdentity();
   const correlationId = salesCorrelationId(request.requestId);
-  const chunkRows = await readOperations(SALES_EVENT_CHUNK, correlationId);
+  // The 52 immutable source ranges currently total more than 2 MB. Reading all
+  // rows in one PostgREST response repeatedly hits the short admin GET timeout.
+  // Small concurrent pages preserve the exact rebuild while keeping each read
+  // bounded and avoiding another 52-step collection.
+  const chunkRows = await readSalesEventChunkOperations(
+    correlationId,
+    request.ranges.length,
+  );
   const chunks = chunkRows.map(salesChunkFromRow).filter(Boolean) as ProductMasterShoplingSalesEventChunk[];
   const completed = new Set(chunks.map((chunk) => rangeKey(chunk.range))).size;
   if (completed !== request.ranges.length) {

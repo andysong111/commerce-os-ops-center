@@ -13,7 +13,7 @@ const loadCachedPurchaseCyclePreflightPreview = unstable_cache(
     loadPurchaseCyclePreflight(options, {
       readerTimeoutMs: PREVIEW_READER_TIMEOUT_MS,
     }),
-  ["purchase-cycle-preflight-preview-v2"],
+  ["purchase-cycle-preflight-preview-v3"],
   { revalidate: PREVIEW_REVALIDATE_SECONDS },
 );
 

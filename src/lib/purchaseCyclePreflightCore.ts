@@ -793,8 +793,40 @@ export async function readPurchaseCyclePreflight(
   validatePurchasePreflightOptions(options);
   const sourceErrors: string[] = [];
   const costEstimateErrors: string[] = [];
+  const safeReadFailureCause = (error: unknown) => {
+    const chain: unknown[] = [error];
+    const tokens: string[] = [];
+    const details: string[] = [];
+    for (let index = 0; index < chain.length && index < 4; index += 1) {
+      const value = chain[index];
+      if (!value || typeof value !== "object") continue;
+      const row = value as { name?: unknown; code?: unknown; message?: unknown; cause?: unknown };
+      const name = String(row.name ?? "").trim();
+      const errorCode = String(row.code ?? "").trim();
+      const message = String(row.message ?? "").trim();
+      if (name && name !== "Error") tokens.push(name);
+      if (/^[A-Z][A-Z0-9_]{2,}$/.test(errorCode)) tokens.push(errorCode);
+      const messageCode = message.match(/[A-Z][A-Z0-9_]{3,}/)?.[0];
+      if (messageCode) tokens.push(messageCode);
+      details.push(message.toLowerCase());
+      if (row.cause) chain.push(row.cause);
+    }
+    if (tokens.length) return tokens[0];
+    const detail = details.join(" ");
+    if (detail.includes("timeout") || detail.includes("timed out")) return "TIMEOUT";
+    if (detail.includes("abort")) return "ABORTED";
+    if (detail.includes("fetch failed")) return "FETCH_FAILED";
+    return error instanceof Error ? error.name : "UNKNOWN_ERROR";
+  };
   const capture = async <T>(code: string, read: () => Promise<T>): Promise<T | null> => {
-    try { return await read(); } catch { sourceErrors.push(code); return null; }
+    try {
+      return await read();
+    } catch (error) {
+      const cause = safeReadFailureCause(error);
+      console.warn("[purchase-cycle-preflight] source read failed", { code, cause });
+      sourceErrors.push(code);
+      return null;
+    }
   };
   const replacementRead = options.replaceDraftId && readers.replacementDraft
     ? () => readers.replacementDraft!(options.replaceDraftId!)
