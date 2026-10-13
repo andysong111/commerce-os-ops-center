@@ -29,6 +29,26 @@ test("newer 1+1 package options cannot masquerade as canonical red/blue options"
   );
 });
 
+test("ordered size labels match the same Shopling dimensions one-to-one", () => {
+  assert.equal(
+    legacySeoOptionGroupMatchesCanonical(
+      ["12.5x12.5x5", "17x12x6.5", "15x15x7"],
+      ["1호12.5x12.5x5", "2호17x12x6.5", "3호15x15x7"],
+    ),
+    true,
+  );
+});
+
+test("ordinal stripping cannot collapse two canonical options into one", () => {
+  assert.equal(
+    legacySeoOptionGroupMatchesCanonical(
+      ["블루", "레드"],
+      ["1호블루", "2호블루"],
+    ),
+    false,
+  );
+});
+
 test("option count mismatch fails closed", () => {
   assert.equal(legacySeoOptionGroupMatchesCanonical(["단품"], ["레드", "블루"]), false);
 });

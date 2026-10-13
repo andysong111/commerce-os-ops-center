@@ -8,6 +8,7 @@ import { recoverLegacySeoShoplingAssets } from "@/lib/legacySeoShoplingAssetReco
 import { syncLegacySeoShoplingOptions } from "@/lib/legacySeoShoplingOptionSync";
 import { legacySeoShoplingSyncConfirmed } from "@/lib/legacySeoShoplingSyncState";
 import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
+import { seoCatalogExclusion } from "@/lib/seoCatalogExclusionPolicy";
 import type {
   ProductLaunchAdminConfig,
   ProductLaunchIdentity,
@@ -158,7 +159,8 @@ export async function prepareLegacySeoPreflight(input: {
       .filter((item): item is UnknownRecord => Boolean(item))
       .filter(
         (item) =>
-          !legacySeoRegistrationExclusionFromPolicy(item.legacySeoRegistrationPolicy).excluded,
+          !legacySeoRegistrationExclusionFromPolicy(item.legacySeoRegistrationPolicy).excluded &&
+          !seoCatalogExclusion(item.modelNumber ?? item.model_number).excluded,
       )
       .map((item) => modelKey(item.modelNumber))
       .filter(Boolean),

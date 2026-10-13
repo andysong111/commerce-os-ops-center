@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/legacy-seo-registration-ci.yml'
       - 'src/lib/legacySeoRegistrationPolicy.ts'
+      - 'src/lib/seoCatalogExclusionPolicy.ts'
+      - 'src/lib/legacySeoCanonicalOptionGroup.ts'
       - 'src/lib/legacySeoInventoryCatalog.ts'
       - 'src/lib/legacySeoStockRecovery.ts'
       - 'src/lib/legacySeoShoplingEvidence.ts'
@@ -38,6 +40,8 @@ on:
       - 'tests/keywordEngineElonMergeScoringState.test.mjs'
       - 'tests/keywordEngineElonDiscoveryIdentityPriority.test.mjs'
       - 'tests/legacySeoRegistrationPolicy.test.mjs'
+      - 'tests/seoCatalogExclusionPolicy.test.mjs'
+      - 'tests/legacySeoCanonicalOptionGroup.test.mjs'
       - 'tests/legacySeoShoplingOptionSyncSafety.test.mjs'
       - 'tests/legacySeoShoplingSyncState.test.mjs'
       - 'tests/legacySeoShoplingEvidenceStaleFallback.test.mjs'
@@ -73,6 +77,8 @@ jobs:
           tests/keywordEngineElonMergeScoringState.test.mjs
           tests/keywordEngineElonDiscoveryIdentityPriority.test.mjs
           tests/legacySeoRegistrationPolicy.test.mjs
+          tests/seoCatalogExclusionPolicy.test.mjs
+          tests/legacySeoCanonicalOptionGroup.test.mjs
           tests/legacySeoShoplingOptionSyncSafety.test.mjs
           tests/legacySeoShoplingSyncState.test.mjs
           tests/legacySeoShoplingEvidenceStaleFallback.test.mjs

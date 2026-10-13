@@ -203,9 +203,10 @@ export default function LegacySeoBulkRunAllEnhancer() {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [candidateCount, setCandidateCount] = useState(0);
   const [targetIds, setTargetIds] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [busyMode, setBusyMode] = useState<"" | "prepare" | "run">("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const busy = busyMode !== "";
 
   useEffect(() => {
     let cancelled = false;
@@ -268,7 +269,57 @@ export default function LegacySeoBulkRunAllEnhancer() {
         type="button"
         disabled={busy || targetIds.length === 0}
         onClick={async () => {
-          setBusy(true);
+          setBusyMode("prepare");
+          setError("");
+          setStatus("");
+          try {
+            const latest = await loadTargets();
+            setCandidateCount(latest.candidateCount);
+            setTargetIds(latest.targetIds);
+            const ids = latest.targetIds;
+            if (!ids.length) {
+              setStatus("준비점검 대상이 없습니다.");
+              return;
+            }
+
+            const preflight = await preflightAll(ids, setStatus);
+            const summary = preflight.failed
+              .slice(0, 8)
+              .map((result) =>
+                `${text(result.modelNumber) || text(result.itemId)}: ${preflightIssueSummary(result)}`,
+              )
+              .join(" · ");
+            const resultMessage =
+              `전체 준비점검 완료 · 통과 ${preflight.readyIds.length}개` +
+              ` · 적용제외 ${preflight.excluded.length}개` +
+              ` · 확인필요 ${preflight.failed.length}개`;
+            if (preflight.failed.length) {
+              setError(`${resultMessage}${summary ? ` · ${summary}` : ""}`);
+            } else {
+              setStatus(resultMessage);
+            }
+          } catch (prepareError) {
+            setError(
+              prepareError instanceof Error
+                ? prepareError.message
+                : "전체 준비점검에 실패했습니다.",
+            );
+          } finally {
+            setBusyMode("");
+          }
+        }}
+        className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 font-semibold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+        title="SEO RUN을 시작하지 않고 옵션, B코드, 원가, 판매가, 이미지만 전체 점검하고 복구합니다."
+      >
+        {busyMode === "prepare"
+          ? "전체 준비점검 처리 중…"
+          : `전체 미실행 ${targetIds.length}개 준비점검만`}
+      </button>
+      <button
+        type="button"
+        disabled={busy || targetIds.length === 0}
+        onClick={async () => {
+          setBusyMode("run");
           setError("");
           setStatus("");
           try {
@@ -347,13 +398,13 @@ export default function LegacySeoBulkRunAllEnhancer() {
               runError instanceof Error ? runError.message : "전체 SEO RUN 요청에 실패했습니다.",
             );
           } finally {
-            setBusy(false);
+            setBusyMode("");
           }
         }}
         className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 font-semibold text-violet-800 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
         title="전체 후보를 먼저 사전점검하고 모든 활성 상품이 통과한 경우에만 50개씩 SEO RUN을 시작합니다."
       >
-        {busy
+        {busyMode === "run"
           ? "전체 사전점검/SEO RUN 처리 중…"
           : `전체 미실행 ${targetIds.length}개 사전점검 후 SEO RUN`}
       </button>
