@@ -165,7 +165,7 @@ test("persisted FULL readback still requires a valid timestamp and exact candida
   mismatchedCandidate.reconciliation.candidateEventFingerprint = fp("9");
   blocked(buildPurchaseCyclePreflight(mismatchedCandidate), "PRODUCT_MASTER_FULL_READBACK_REQUIRED");
 });
-test("verified FULL candidate expires when the Seoul business day changes", () => {
+test("verified FULL candidate remains usable through the next Seoul business day", () => {
   const input = fixture();
   input.now = "2026-10-01T15:01:00.000Z";
   for (const value of [input.gate, input.reconciliation, input.priority]) {
@@ -174,6 +174,32 @@ test("verified FULL candidate expires when the Seoul business day changes", () =
   input.priority.source.inventoryGeneratedAt = "2026-10-01T15:00:00.000Z";
   input.spendBefore.readAt = "2026-10-01T15:00:00.000Z";
   input.spendAfter.readAt = "2026-10-01T15:00:00.000Z";
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.ok(!report.blockers.includes("SALES_SOURCE_STALE_OR_FUTURE"));
+  locked(report);
+});
+test("next-day candidate without exact FULL readback still expires after twelve hours", () => {
+  const input = fixture();
+  input.now = "2026-10-01T15:01:00.000Z";
+  input.reconciliation.fullApplyVerified = false;
+  for (const value of [input.gate, input.reconciliation, input.priority]) {
+    value.generatedAt = "2026-10-01T15:00:00.000Z";
+  }
+  input.priority.source.inventoryGeneratedAt = "2026-10-01T15:00:00.000Z";
+  input.spendBefore.readAt = "2026-10-01T15:00:00.000Z";
+  input.spendAfter.readAt = "2026-10-01T15:00:00.000Z";
+  blocked(buildPurchaseCyclePreflight(input), "SALES_SOURCE_STALE_OR_FUTURE");
+});
+test("verified FULL candidate expires after the next Seoul business day", () => {
+  const input = fixture();
+  input.now = "2026-10-02T15:01:00.000Z";
+  for (const value of [input.gate, input.reconciliation, input.priority]) {
+    value.generatedAt = "2026-10-02T15:00:00.000Z";
+  }
+  input.priority.source.inventoryGeneratedAt = "2026-10-02T15:00:00.000Z";
+  input.spendBefore.readAt = "2026-10-02T15:00:00.000Z";
+  input.spendAfter.readAt = "2026-10-02T15:00:00.000Z";
   blocked(buildPurchaseCyclePreflight(input), "SALES_SOURCE_STALE_OR_FUTURE");
 });
 for (const which of ["gate", "reconciliation"]) {
