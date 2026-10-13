@@ -37,6 +37,29 @@ test("정규화 옵션이 있으면 자동 제외하지 않는다", () => {
   );
 });
 
+test("사용자가 단종 확정한 상품은 별도 SEO 정책이 없어도 제외한다", () => {
+  assert.deepEqual(
+    legacySeoRegistrationExclusion({
+      modelNumber: "AAA034",
+      discontinuation: {
+        status: "confirmed",
+        reason: "사용자 단종 확인",
+      },
+    }),
+    { excluded: true, reason: "사용자 단종 확인" },
+  );
+});
+
+test("단종 검토 중인 상품은 자동 제외하지 않는다", () => {
+  assert.deepEqual(
+    legacySeoRegistrationExclusion({
+      modelNumber: "AAA001",
+      discontinuation: { status: "review" },
+    }),
+    { excluded: false, reason: "" },
+  );
+});
+
 test("창고 위치 확인 대상은 옵션이 있어도 SEO 등록에서 제외한다", () => {
   const result = legacySeoRegistrationExclusion({
     modelNumber: "AAA028",

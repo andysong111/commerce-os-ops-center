@@ -41,6 +41,14 @@ export function legacySeoRegistrationExclusion(
   );
   if (explicit.excluded) return explicit;
 
+  const discontinuation = record(item.discontinuation);
+  if (text(discontinuation.status).toLowerCase() === "confirmed") {
+    return {
+      excluded: true,
+      reason: text(discontinuation.reason) || "사용자 단종 확정",
+    };
+  }
+
   return { excluded: false, reason: "" };
 }
 

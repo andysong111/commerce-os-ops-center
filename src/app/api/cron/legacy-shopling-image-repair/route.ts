@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { prepareLegacySeoPreflight } from "@/lib/legacySeoPreflight";
-import { isLegacySeoRegistrationPolicyExcluded } from "@/lib/legacySeoRegistrationPolicy";
+import { legacySeoRegistrationExclusion } from "@/lib/legacySeoRegistrationPolicy";
 import {
   getProductLaunchAdminConfig,
   readProductLaunchStorageJson,
@@ -104,9 +104,10 @@ function currentShoplingSync(item: UnknownRecord, options: UnknownRecord[]) {
 }
 
 function policyExcluded(item: UnknownRecord) {
-  return isLegacySeoRegistrationPolicyExcluded(
-    record(item.item_payload).legacySeoRegistrationPolicy,
-  );
+  return legacySeoRegistrationExclusion({
+    ...record(item.item_payload),
+    modelNumber: item.model_number,
+  }).excluded;
 }
 
 function verifiedNoOptionExclusion(item: UnknownRecord, options: UnknownRecord[]) {

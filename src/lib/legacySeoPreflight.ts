@@ -2,12 +2,10 @@ import { applyLegacySeoCanonicalPrices } from "@/lib/legacySeoCanonicalPrice";
 import { readDuplicateActiveLegacySeoModels } from "@/lib/legacySeoDuplicateModelGuard";
 import {
   legacySeoRegistrationExclusion,
-  legacySeoRegistrationExclusionFromPolicy,
 } from "@/lib/legacySeoRegistrationPolicy";
 import { syncLegacySeoShoplingOptions } from "@/lib/legacySeoShoplingOptionSync";
 import { legacySeoShoplingSyncConfirmed } from "@/lib/legacySeoShoplingSyncState";
 import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
-import { seoCatalogExclusion } from "@/lib/seoCatalogExclusionPolicy";
 import type {
   ProductLaunchAdminConfig,
   ProductLaunchIdentity,
@@ -144,17 +142,13 @@ export async function prepareLegacySeoPreflight(input: {
   const initialById = new Map(items.map((item) => [text(item.id), item]));
 
   // Missing normalized options are recoverable and must not be excluded before
-  // Shopling synchronization. Only an explicit stored exclusion policy is allowed
-  // to prevent the recovery attempt at this stage.
+  // Shopling synchronization. Only the shared registration policy (explicit
+  // exclusion, confirmed discontinuation, or warehouse review) stops recovery.
   const models = [...new Set(
     itemIds
       .map((id) => initialById.get(id))
       .filter((item): item is UnknownRecord => Boolean(item))
-      .filter(
-        (item) =>
-          !legacySeoRegistrationExclusionFromPolicy(item.legacySeoRegistrationPolicy).excluded &&
-          !seoCatalogExclusion(item.modelNumber ?? item.model_number).excluded,
-      )
+      .filter((item) => !legacySeoRegistrationExclusion(item).excluded)
       .map((item) => modelKey(item.modelNumber))
       .filter(Boolean),
   )].slice(0, 100);
