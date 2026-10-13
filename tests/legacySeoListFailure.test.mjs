@@ -15,6 +15,9 @@ function harness({ jobs = [], items = [], authStatus, authError } = {}) {
   const warnings = [];
   const exports = {};
   const dependencies = {
+    "@/lib/legacySeoRegistrationPolicy": {
+      legacySeoRegistrationExclusion: () => ({ excluded: false, reason: "" }),
+    },
     "@/lib/productLaunchTrackerServer": {
       async readProductLaunchStorageJson(url, init, options) {
         calls.push({ url, init, options });
