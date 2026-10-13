@@ -22,6 +22,23 @@ function ordinalAffixSignature(values: string[]) {
   return [...stripped].sort().join("|");
 }
 
+function bijectiveAffixMatch(left: string[], right: string[]) {
+  if (left.length !== right.length || left.length < 2) return false;
+  const claimed = new Set<string>();
+  for (const value of left) {
+    if (value.length < 2) return false;
+    const candidates = right.filter(
+      (candidate) =>
+        candidate.length >= 2 &&
+        candidate !== value &&
+        (candidate.endsWith(value) || value.endsWith(candidate)),
+    );
+    if (candidates.length !== 1 || claimed.has(candidates[0])) return false;
+    claimed.add(candidates[0]);
+  }
+  return claimed.size === right.length;
+}
+
 export function legacySeoCanonicalOptionSignature(values: unknown[]) {
   return normalizedUniqueKeys(values).join("|");
 }
@@ -32,8 +49,20 @@ export function legacySeoOptionGroupMatchesCanonical(
 ) {
   const groupKeys = normalizedUniqueKeys(groupSaleOptions);
   const canonicalKeys = normalizedUniqueKeys(canonicalSaleOptions);
-  if (!canonicalKeys.length || groupKeys.length !== canonicalKeys.length) return false;
+  if (!canonicalKeys.length || !groupKeys.length) return false;
   if (groupKeys.join("|") === canonicalKeys.join("|")) return true;
+
+  // The canonical workbook can retain older rows for the same model. A live
+  // Shopling group is still safe when every one of its options has one exact
+  // canonical row; unused historical canonical rows do not define the live SKU.
+  if (groupKeys.every((key) => canonicalKeys.includes(key))) return true;
+
+  // A one-option Shopling product is identified by model_no and its managed
+  // B-code. Its display label commonly changed between "단품", pack wording,
+  // and the actual color name, so a one-row canonical model can match it safely.
+  if (groupKeys.length === 1 && canonicalKeys.length === 1) return true;
+
+  if (groupKeys.length !== canonicalKeys.length) return false;
 
   // Older stock sheets sometimes prefix each option with its display order
   // while Shopling stores only the dimensions. Accept only a complete,
@@ -41,8 +70,15 @@ export function legacySeoOptionGroupMatchesCanonical(
   if (groupKeys.length < 2) return false;
   const groupOrdinal = ordinalAffixSignature(groupKeys);
   const canonicalOrdinal = ordinalAffixSignature(canonicalKeys);
-  return Boolean(
+  if (
     (groupOrdinal && groupOrdinal === canonicalKeys.join("|")) ||
-      (canonicalOrdinal && canonicalOrdinal === groupKeys.join("|")),
+    (canonicalOrdinal && canonicalOrdinal === groupKeys.join("|"))
+  ) {
+    return true;
+  }
+
+  return (
+    bijectiveAffixMatch(groupKeys, canonicalKeys) ||
+    bijectiveAffixMatch(canonicalKeys, groupKeys)
   );
 }

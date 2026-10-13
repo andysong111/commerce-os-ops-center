@@ -19,13 +19,12 @@ test("명시적 등록 제외 정책을 우선한다", () => {
   );
 });
 
-test("정규화 옵션이 없는 이전상품은 B코드를 만들어내지 않고 자동 제외한다", () => {
+test("정규화 옵션이 없는 이전상품은 숨기지 않고 준비점검에서 막는다", () => {
   const result = legacySeoRegistrationExclusion({
     modelNumber: "AAA000",
     orderOptions: [],
   });
-  assert.equal(result.excluded, true);
-  assert.match(result.reason, /묶음옵션\/B코드 없음/);
+  assert.deepEqual(result, { excluded: false, reason: "" });
 });
 
 test("정규화 옵션이 있으면 자동 제외하지 않는다", () => {

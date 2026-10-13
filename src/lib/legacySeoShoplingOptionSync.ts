@@ -175,6 +175,33 @@ function selectGroup(
   return pool.length ? rankGroups(pool) : null;
 }
 
+function diagnosticCandidateGroups(evidence: LegacySeoShoplingEvidence) {
+  return rankDiagnosticGroups(evidence.optionGroups)
+    .slice(0, 12)
+    .map((group) => ({
+      goodsKey: group.goodsKey,
+      ptnGoodsCd: group.ptnGoodsCd,
+      productName: group.productName,
+      saleStatus: group.saleStatus,
+      options: activeGroupOptions(group)
+        .slice(0, 24)
+        .map((option) => ({
+          saleOption: optionValue(option.optionName),
+          bCode: text(option.bCode),
+          status: text(option.status),
+        })),
+    }));
+}
+
+function rankDiagnosticGroups(groups: LegacySeoShoplingOptionGroup[]) {
+  return [...groups].sort((left, right) => {
+    const leftCount = activeGroupOptions(left).length;
+    const rightCount = activeGroupOptions(right).length;
+    if (rightCount !== leftCount) return rightCount - leftCount;
+    return goodsKeyNumber(right) - goodsKeyNumber(left);
+  });
+}
+
 function rowToOption(row: UnknownRecord) {
   const payload = clone(row.option_payload);
   const barcode = text(payload.barcode) || text(row.barcode);
@@ -533,6 +560,8 @@ export async function syncLegacySeoShoplingOptions(input: {
             : "legacy_group_fallback_no_match",
           optionCount: current.length,
           bCodeCount: current.filter((option) => text(option.barcode)).length,
+          canonicalSaleOptions: canonicalSaleOptions.slice(0, 24),
+          candidateGroups: evidence ? diagnosticCandidateGroups(evidence) : [],
           syncedAt: now,
         };
         await patchItem(input.config, input.identity.userId, item, current, metadata, now);

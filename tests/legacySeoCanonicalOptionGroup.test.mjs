@@ -19,6 +19,33 @@ test("exact red/blue group matches canonical red/blue regardless of order", () =
   );
 });
 
+test("live exact options may use a safe subset of historical canonical rows", () => {
+  assert.equal(
+    legacySeoOptionGroupMatchesCanonical(
+      ["옐로우 1P", "오렌지 1P"],
+      ["옐로우", "옐로우 1P", "오렌지 1P"],
+    ),
+    true,
+  );
+});
+
+test("single-option model may rename the Shopling display label", () => {
+  assert.equal(
+    legacySeoOptionGroupMatchesCanonical(["한 쌍"], ["단품"]),
+    true,
+  );
+});
+
+test("complete one-to-one prefix or suffix labels match safely", () => {
+  assert.equal(
+    legacySeoOptionGroupMatchesCanonical(
+      ["색상레드", "색상블루"],
+      ["레드", "블루"],
+    ),
+    true,
+  );
+});
+
 test("newer 1+1 package options cannot masquerade as canonical red/blue options", () => {
   assert.equal(
     legacySeoOptionGroupMatchesCanonical(
