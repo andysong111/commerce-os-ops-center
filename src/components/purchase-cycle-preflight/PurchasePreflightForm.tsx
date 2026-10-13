@@ -29,7 +29,7 @@ export function PurchasePreflightForm({ children }: { children: ReactNode }) {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{children}</div>
       <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs font-medium leading-5 text-slate-500">
-          1단계에서는 예산과 자동 후보만 불러옵니다. 아래 직접 입력 후보는 마지막 발주안 계산 버튼에서 함께 반영됩니다.
+          예산과 자동 후보를 불러오면 후보 전체를 소형으로 선택하고 발주 수량까지 한 번에 계산합니다. 이후 제외할 옵션만 조정할 수 있습니다.
           Draft 저장, 1688 주문, 결제는 실행하지 않습니다.
         </p>
         <button

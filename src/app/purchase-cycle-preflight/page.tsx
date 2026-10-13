@@ -20,6 +20,7 @@ import {
   OWNER_MANUAL_SOURCING_PRESETS,
 } from "@/lib/manualSourcingCandidatePresets";
 import {
+  allSourcingVariantsAsSmall,
   loadManualPilotCatalog,
   loadSourcingBudgetPlan,
   returnableSourcingBudgetKrw,
@@ -185,6 +186,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   }
   const variantIdentities = sourcingVariantSelections.map((row) => `${row.conceptId}\0${row.variantKey}`);
   if (new Set(variantIdentities).size !== variantIdentities.length) sourcingVariantInputInvalid = true;
+  const selectionMode = single("selection", "automatic");
+  let effectivePreferredSourcingConceptIds = preferredSourcingConceptIds;
+  let effectiveSourcingVariantSelections = sourcingVariantSelections;
   const early = single("early", "") === "1";
   const replaceDraftId = single("replace", "") || null;
   let report: PurchaseCyclePreflightReport | null = null;
@@ -198,8 +202,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   // explicit read-only form submission does. No polling, cron or write action.
   if (query.check === "1") {
     try {
-      if (["date", "cash", "sourcing", "early", "check", "replace"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
+      if (["date", "cash", "sourcing", "early", "check", "replace", "selection"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
       if ((cash !== "" && !/^\d+$/.test(cash)) || (sourcing !== "" && !/^\d+$/.test(sourcing))) throw new Error("NUMERIC_INPUT_INVALID");
+      if (!["automatic", "custom"].includes(selectionMode)) throw new Error("SOURCING_SELECTION_MODE_INVALID");
       if (preferredSourcingConceptIds.length > 20 || new Set(preferredSourcingConceptIds).size !== preferredSourcingConceptIds.length) throw new Error("SOURCING_SELECTION_INVALID");
       if (sourcingStorageInputInvalid) throw new Error("SOURCING_STORAGE_SELECTION_INVALID");
       if (sourcingVariantInputInvalid) throw new Error("SOURCING_VARIANT_SELECTION_INVALID");
@@ -231,6 +236,36 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             requestTimeoutMs: 8_000,
             maxAttempts: 1,
           });
+          if (
+            selectionMode === "automatic" &&
+            preferredSourcingConceptIds.length === 0 &&
+            sourcingVariantSelections.length === 0
+          ) {
+            effectiveSourcingVariantSelections = allSourcingVariantsAsSmall(sourcingPlan, {
+              maxConcepts: 20,
+              maxVariants: 100,
+            });
+            effectivePreferredSourcingConceptIds = [...new Set(
+              effectiveSourcingVariantSelections.map((selection) => selection.conceptId),
+            )];
+            if (effectiveSourcingVariantSelections.length > 0) {
+              for (const conceptId of effectivePreferredSourcingConceptIds) {
+                sourcingStorageSizeByConceptId[conceptId] = "S";
+              }
+              sourcingPlan = await loadSourcingBudgetPlan({
+                targetCycleMonth: report.targetCycleMonth,
+                totalCashKrw: report.effectiveCashKrw,
+                sourcingBudgetPercent: report.sourcingBudgetPercent,
+                sourcingBudgetKrw: report.sourcingBudgetKrw,
+                preferredConceptIds: effectivePreferredSourcingConceptIds,
+                storageSizeByConceptId: sourcingStorageSizeByConceptId,
+                variantSelections: effectiveSourcingVariantSelections,
+              }, {
+                requestTimeoutMs: 8_000,
+                maxAttempts: 1,
+              });
+            }
+          }
         } catch (error) {
           const raw = error instanceof Error ? error.message : "SOURCING_BUDGET_PLAN_FAILED";
           sourcingPlanErrorCode = raw.split(":", 1)[0] || "SOURCING_BUDGET_PLAN_FAILED";
@@ -349,9 +384,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     cashLimitKrw: report.cashLimitKrw,
     sourcingBudgetPercent: report.sourcingBudgetPercent,
     sourcingBudgetKrw: report.sourcingBudgetKrw,
-    preferredSourcingConceptIds,
+    preferredSourcingConceptIds: effectivePreferredSourcingConceptIds,
     sourcingStorageSizeByConceptId,
-    sourcingVariantSelections,
+    sourcingVariantSelections: effectiveSourcingVariantSelections,
     allowOpenBudgetPreview: early,
     expectedSourceFingerprint: report.sourceFingerprint,
     expectedPlanFingerprint: report.planFingerprint,
@@ -476,8 +511,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                     replaceDraftId={replaceDraftId}
                     selectedCandidates={sourcingPlan.allocation.selected}
                     availableCandidates={sourcingPlan.allocation.availableCandidates}
-                    preferredConceptIds={preferredSourcingConceptIds}
-                    initialVariantSelections={sourcingVariantSelections}
+                    preferredConceptIds={effectivePreferredSourcingConceptIds}
+                    initialVariantSelections={effectiveSourcingVariantSelections}
                   />
                 </> : null}
               </>
@@ -538,9 +573,10 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                   <input type="hidden" name="cash" value={cash} />
                   {early ? <input type="hidden" name="early" value="1" /> : null}
                   {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
-                  {preferredSourcingConceptIds.map((conceptId) => <input key={`ratio-source:${conceptId}`} type="hidden" name="source" value={conceptId} />)}
+                  <input type="hidden" name="selection" value="custom" />
+                  {effectivePreferredSourcingConceptIds.map((conceptId) => <input key={`ratio-source:${conceptId}`} type="hidden" name="source" value={conceptId} />)}
                   {Object.entries(sourcingStorageSizeByConceptId).map(([conceptId, size]) => <input key={`ratio-storage:${conceptId}`} type="hidden" name={`storage.${conceptId}`} value={size} />)}
-                  {sourcingVariantSelections.map((selection) => <input key={`ratio-variant:${selection.conceptId}:${selection.variantKey}`} type="hidden" name="variant" value={JSON.stringify(selection)} />)}
+                  {effectiveSourcingVariantSelections.map((selection) => <input key={`ratio-variant:${selection.conceptId}:${selection.variantKey}`} type="hidden" name="variant" value={JSON.stringify(selection)} />)}
                   <div className="flex flex-wrap items-end gap-3">
                     <label className="text-sm font-black text-blue-950">신규소싱 비율 다시 계산
                       <span className="mt-1 block text-xs font-normal leading-5 text-blue-900">현재 후보 선택을 유지합니다. 비율을 올려도 안전후보나 창고 한도에 걸리면 상품 수는 늘지 않을 수 있습니다.</span>
