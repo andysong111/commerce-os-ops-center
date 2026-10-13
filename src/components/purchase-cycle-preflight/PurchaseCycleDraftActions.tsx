@@ -37,6 +37,7 @@ export function PurchaseCycleDraftActions({
   expectedPlanFingerprint,
   expectedSourcingSourceFingerprint,
   expectedSourcingPlanFingerprint,
+  expectedSourcingDecisionFingerprint,
   sourcingSelectedCount,
   sourcingEstimatedSpendKrw,
   confirmation,
@@ -63,6 +64,7 @@ export function PurchaseCycleDraftActions({
   expectedPlanFingerprint: string;
   expectedSourcingSourceFingerprint: string | null;
   expectedSourcingPlanFingerprint: string | null;
+  expectedSourcingDecisionFingerprint: string | null;
   sourcingSelectedCount: number;
   sourcingEstimatedSpendKrw: number;
   confirmation: string;
@@ -87,7 +89,7 @@ export function PurchaseCycleDraftActions({
       ? "자동 현금 한도"
       : `입력 총현금 ${cashLimitKrw.toLocaleString("ko-KR")}원`;
     const sourcingSummary = sourcingBudgetPercent > 0
-      ? `신규상품 소싱 ${sourcingBudgetPercent}% · 예산 ${sourcingBudgetKrw.toLocaleString("ko-KR")}원 · ${sourcingSelectedCount}종 예상 ${sourcingEstimatedSpendKrw.toLocaleString("ko-KR")}원`
+      ? `신규상품 소싱 ${sourcingBudgetPercent}% · 최대 예산 ${sourcingBudgetKrw.toLocaleString("ko-KR")}원 · ${sourcingSelectedCount}종 현재 예상 ${sourcingEstimatedSpendKrw.toLocaleString("ko-KR")}원 (저장 시 최신 환율로 한도 안에서 재계산)`
       : "신규상품 소싱 0%";
     const summary = replaceDraftId
       ? `${targetCycleMonth} 기존 Draft를 최신 계산 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 교체할까요?\n\n${cashSummary} · ${sourcingSummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
@@ -113,6 +115,7 @@ export function PurchaseCycleDraftActions({
           expectedPlanFingerprint,
           expectedSourcingSourceFingerprint,
           expectedSourcingPlanFingerprint,
+          expectedSourcingDecisionFingerprint,
           confirmation,
           replaceDraftId: replaceDraftId ?? null,
         }),

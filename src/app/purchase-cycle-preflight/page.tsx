@@ -9,7 +9,10 @@ import { PurchasePreparationScheduleControl } from "@/components/purchase-cycle-
 import { ManualProductIntakeForm } from "@/components/sourcing-center/ManualProductIntakeForm";
 import { loadPurchaseCyclePreflightPreview } from "@/lib/purchaseCyclePreflightPreview";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
-import { purchaseCycleDraftConfirmation } from "@/lib/purchaseCyclePreflightDraftCore";
+import {
+  purchaseCycleDraftConfirmation,
+  sourcingBudgetDecisionFingerprint,
+} from "@/lib/purchaseCyclePreflightDraftCore";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
 import {
   applyOwnerManualPilotExclusions,
@@ -420,6 +423,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     expectedPlanFingerprint: report.planFingerprint,
     expectedSourcingSourceFingerprint: sourcingPlan?.sourceFingerprint ?? null,
     expectedSourcingPlanFingerprint: sourcingPlan?.planFingerprint ?? null,
+    expectedSourcingDecisionFingerprint: sourcingPlan
+      ? sourcingBudgetDecisionFingerprint(sourcingPlan)
+      : null,
     sourcingSelectedCount: sourcingSelectedVariantCount,
     sourcingEstimatedSpendKrw: sourcingPlan?.allocation.estimatedSpendKrw ?? 0,
     confirmation: draftReady ? purchaseCycleDraftConfirmation(report, sourcingPlan) : "",
