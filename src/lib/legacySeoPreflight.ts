@@ -4,7 +4,6 @@ import {
   legacySeoRegistrationExclusion,
   legacySeoRegistrationExclusionFromPolicy,
 } from "@/lib/legacySeoRegistrationPolicy";
-import { recoverLegacySeoShoplingAssets } from "@/lib/legacySeoShoplingAssetRecovery";
 import { syncLegacySeoShoplingOptions } from "@/lib/legacySeoShoplingOptionSync";
 import { legacySeoShoplingSyncConfirmed } from "@/lib/legacySeoShoplingSyncState";
 import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
@@ -128,12 +127,6 @@ function validateItem(item: UnknownRecord): LegacySeoPreflightIssue[] {
     }
   }
 
-  const detail = record(item.detailPageAsset);
-  if (!text(detail.html)) push("detailHtml", "상세페이지 HTML이 없습니다.");
-  if (!text(detail.mainImageUrl)) push("mainImage", "대표이미지가 없습니다.");
-  const additional = array(detail.additionalImageUrls).map(text).filter(Boolean);
-  if (!additional.length) push("additionalImages", "부가이미지가 1장 이상 필요합니다.");
-
   return issues;
 }
 
@@ -215,26 +208,6 @@ export async function prepareLegacySeoPreflight(input: {
     itemIds,
   )).map(record);
 
-  let assetRecoveryError = "";
-  let assetRecovery: Awaited<ReturnType<typeof recoverLegacySeoShoplingAssets>> | null = null;
-  if (items.length) {
-    try {
-      assetRecovery = await recoverLegacySeoShoplingAssets({
-        config: input.config,
-        identity: input.identity,
-        items,
-      });
-    } catch (error) {
-      assetRecoveryError = error instanceof Error ? error.message : String(error);
-    }
-  }
-
-  items = (await readProductLaunchNormalizedItems(
-    input.config,
-    input.identity.userId,
-    itemIds,
-  )).map(record);
-
   // Canonical price writes are allowed only after the same model has a confirmed
   // current-Shopling option set. A single failed model can no longer block every
   // other model in the batch, while an unconfirmed model remains fail-closed.
@@ -273,13 +246,6 @@ export async function prepareLegacySeoPreflight(input: {
   const canonicalByModel = new Map(
     (canonicalPrice?.results ?? []).map((result) => [modelKey(result.modelNumber), result] as const),
   );
-  const assetIssuesByModel = new Map<string, string[]>();
-  for (const issue of assetRecovery?.unresolved ?? []) {
-    const modelNumber = modelKey(issue.modelNumber);
-    const values = assetIssuesByModel.get(modelNumber) ?? [];
-    values.push(issue.reason);
-    assetIssuesByModel.set(modelNumber, values);
-  }
   const results: LegacySeoPreflightItem[] = [];
 
   for (const itemId of itemIds) {
@@ -316,11 +282,6 @@ export async function prepareLegacySeoPreflight(input: {
         `Shopling 옵션 동기화 개별 실패: ${text(syncResult.reason) || "원인 미확인"}`,
       );
     }
-    if (assetRecoveryError) add("detailAssets", `Shopling 상세/이미지 복구 실패: ${assetRecoveryError}`);
-    for (const reason of assetIssuesByModel.get(modelNumber) ?? []) {
-      add("detailAssets", reason);
-    }
-
     if (!exclusion.excluded) {
       if (duplicateModelGuardError) {
         add(
@@ -380,8 +341,8 @@ export async function prepareLegacySeoPreflight(input: {
     optionSync,
     optionSyncError,
     priceEligibleModels: [...priceEligibleModels],
-    assetRecovery,
-    assetRecoveryError,
+    assetRecovery: null,
+    assetRecoveryError: "",
     canonicalPrice,
     canonicalPriceError,
     items,

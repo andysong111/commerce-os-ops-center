@@ -22,6 +22,14 @@ function ordinalAffixSignature(values: string[]) {
   return [...stripped].sort().join("|");
 }
 
+function singleUnitSignature(values: string[]) {
+  const stripped = values.map((value) => value.replace(/1p$/, ""));
+  if (!stripped.some((value, index) => value !== values[index])) return "";
+  if (stripped.some((value) => value.length < 2)) return "";
+  if (new Set(stripped).size !== values.length) return "";
+  return [...stripped].sort().join("|");
+}
+
 function bijectiveAffixMatch(left: string[], right: string[]) {
   if (left.length !== right.length || left.length < 2) return false;
   const claimed = new Set<string>();
@@ -41,6 +49,22 @@ function bijectiveAffixMatch(left: string[], right: string[]) {
 
 export function legacySeoCanonicalOptionSignature(values: unknown[]) {
   return normalizedUniqueKeys(values).join("|");
+}
+
+export function legacySeoCompleteBCodeGroupMatches(
+  groupBCodes: unknown[],
+  currentBCodes: unknown[],
+) {
+  const normalize = (values: unknown[]) =>
+    values.map((value) => String(value ?? "").normalize("NFKC").trim().toUpperCase());
+  const group = normalize(groupBCodes);
+  const current = normalize(currentBCodes);
+  if (!group.length || group.length !== current.length) return false;
+  if (group.some((value) => !value) || current.some((value) => !value)) return false;
+  if (new Set(group).size !== group.length || new Set(current).size !== current.length) {
+    return false;
+  }
+  return [...group].sort().join("|") === [...current].sort().join("|");
 }
 
 export function legacySeoOptionGroupMatchesCanonical(
@@ -73,6 +97,15 @@ export function legacySeoOptionGroupMatchesCanonical(
   if (
     (groupOrdinal && groupOrdinal === canonicalKeys.join("|")) ||
     (canonicalOrdinal && canonicalOrdinal === groupKeys.join("|"))
+  ) {
+    return true;
+  }
+
+  const groupSingleUnit = singleUnitSignature(groupKeys);
+  const canonicalSingleUnit = singleUnitSignature(canonicalKeys);
+  if (
+    (groupSingleUnit && groupSingleUnit === canonicalKeys.join("|")) ||
+    (canonicalSingleUnit && canonicalSingleUnit === groupKeys.join("|"))
   ) {
     return true;
   }

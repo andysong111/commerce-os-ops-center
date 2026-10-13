@@ -1,5 +1,8 @@
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
-import { legacySeoOptionGroupMatchesCanonical } from "@/lib/legacySeoCanonicalOptionGroup";
+import {
+  legacySeoCompleteBCodeGroupMatches,
+  legacySeoOptionGroupMatchesCanonical,
+} from "@/lib/legacySeoCanonicalOptionGroup";
 import {
   loadLegacySeoShoplingEvidence,
   type LegacySeoGoodsKeyOverrides,
@@ -88,6 +91,15 @@ function activeGroupOptions(group: LegacySeoShoplingOptionGroup) {
   );
 }
 
+function liveGroupOptions(group: LegacySeoShoplingOptionGroup) {
+  return group.options.filter((option) => text(option.status).toUpperCase() !== "X");
+}
+
+function completeManagedGroup(group: LegacySeoShoplingOptionGroup) {
+  const live = liveGroupOptions(group);
+  return live.length > 0 && live.length === activeGroupOptions(group).length;
+}
+
 function optionValue(optionName: string) {
   const normalized = text(optionName);
   if (!normalized || normalized === "단품") return "단품";
@@ -154,10 +166,10 @@ function rankGroups(groups: LegacySeoShoplingOptionGroup[]) {
 
 function selectGroup(
   evidence: LegacySeoShoplingEvidence,
-  currentOptionCount: number,
+  currentOptions: UnknownRecord[],
   canonicalSaleOptions: string[],
 ) {
-  const groups = evidence.optionGroups.filter((group) => activeGroupOptions(group).length > 0);
+  const groups = evidence.optionGroups.filter(completeManagedGroup);
   if (!groups.length) return null;
 
   if (canonicalSaleOptions.length) {
@@ -167,11 +179,20 @@ function selectGroup(
         canonicalSaleOptions,
       ),
     );
-    return compatible.length ? rankGroups(compatible) : null;
+    if (compatible.length) return rankGroups(compatible);
+
+    const currentBCodes = currentOptions.map((option) => option.barcode);
+    const bCodeCompatible = groups.filter((group) =>
+      legacySeoCompleteBCodeGroupMatches(
+        liveGroupOptions(group).map((option) => option.bCode),
+        currentBCodes,
+      ),
+    );
+    return bCodeCompatible.length ? rankGroups(bCodeCompatible) : null;
   }
 
   const grouped = groups.filter(isGroupedCandidate);
-  const pool = grouped.length ? grouped : currentOptionCount <= 1 ? groups : [];
+  const pool = grouped.length ? grouped : existingRealOptionCount(currentOptions) <= 1 ? groups : [];
   return pool.length ? rankGroups(pool) : null;
 }
 
@@ -238,7 +259,18 @@ function existingRealOptionCount(options: UnknownRecord[]) {
   return options.filter((option) => text(option.saleOption ?? option.value) !== "단품").length;
 }
 
-function mergeOptions(current: UnknownRecord[], group: LegacySeoShoplingOptionGroup) {
+function canonicalSingleUnitDisplay(value: string, canonicalSaleOptions: string[]) {
+  const key = valueKey(value).replace(/1p$/, "");
+  const matches = canonicalSaleOptions.filter((candidate) => valueKey(candidate) === key);
+  return matches.length === 1 ? matches[0] : "";
+}
+
+function mergeOptions(
+  current: UnknownRecord[],
+  group: LegacySeoShoplingOptionGroup,
+  canonicalSaleOptions: string[],
+  preserveMatchedSaleOption: boolean,
+) {
   const byBCode = new Map<string, UnknownRecord>();
   const byValue = new Map<string, UnknownRecord>();
   for (const option of current) {
@@ -251,12 +283,16 @@ function mergeOptions(current: UnknownRecord[], group: LegacySeoShoplingOptionGr
   const shoplingOptions = activeGroupOptions(group);
   const optionName = groupOptionTitle(shoplingOptions);
   return shoplingOptions.map((shopling, index) => {
-    const saleOption = optionValue(shopling.optionName);
+    const shoplingSaleOption = optionValue(shopling.optionName);
     const bCode = text(shopling.bCode);
     const matched =
       (bCode ? byBCode.get(valueKey(bCode)) : undefined) ??
-      byValue.get(valueKey(saleOption)) ??
+      byValue.get(valueKey(shoplingSaleOption)) ??
       {};
+    const saleOption =
+      (preserveMatchedSaleOption ? text(matched.saleOption ?? matched.value) : "") ||
+      canonicalSingleUnitDisplay(shoplingSaleOption, canonicalSaleOptions) ||
+      shoplingSaleOption;
     const matchedId = text(matched.id);
     const optionId = matchedId || `shopling-${group.goodsKey}-${text(shopling.optionId) || index + 1}`;
     const optionBarcodeNo = text(matched.optionBarcodeNo) || text(shopling.optionBarcode);
@@ -541,7 +577,7 @@ export async function syncLegacySeoShoplingOptions(input: {
       const evidence = evidenceByModel.get(item.modelNumber);
       const currentCount = existingRealOptionCount(current);
       const canonicalSaleOptions = canonicalOptionsByModel.get(item.modelNumber) ?? [];
-      const group = evidence ? selectGroup(evidence, currentCount, canonicalSaleOptions) : null;
+      const group = evidence ? selectGroup(evidence, current, canonicalSaleOptions) : null;
 
       if (!group) {
         const reason = evidence
@@ -579,10 +615,23 @@ export async function syncLegacySeoShoplingOptions(input: {
         continue;
       }
 
-      const merged = mergeOptions(current, group);
+      const canonicalNameMatched =
+        canonicalSaleOptions.length > 0 &&
+        legacySeoOptionGroupMatchesCanonical(
+          activeGroupOptions(group).map((option) => optionValue(option.optionName)),
+          canonicalSaleOptions,
+        );
+      const merged = mergeOptions(
+        current,
+        group,
+        canonicalSaleOptions,
+        canonicalSaleOptions.length > 0 && !canonicalNameMatched,
+      );
       const bCodeCount = merged.filter((option) => text(option.barcode)).length;
       const selectionReason = canonicalSaleOptions.length
-        ? "canonical_option_exact_group"
+        ? canonicalNameMatched
+          ? "canonical_option_exact_group"
+          : "canonical_option_exact_bcode_group"
         : isGroupedCandidate(group)
           ? "legacy_grouped_candidate"
           : "legacy_single_candidate";

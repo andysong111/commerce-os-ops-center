@@ -161,7 +161,7 @@ async function preflightAll(
 
   for (let index = 0; index < chunks.length; index += 1) {
     onProgress(
-      `전체 사전점검 ${index + 1}/${chunks.length} · 옵션/B코드·중국주문 원가/판매가·이미지 확인 중`,
+      `전체 사전점검 ${index + 1}/${chunks.length} · 옵션/B코드·중국주문 원가/판매가 확인 중`,
     );
     const response = await fetch(PREFLIGHT_API, {
       method: "POST",
