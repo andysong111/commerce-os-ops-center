@@ -253,6 +253,66 @@ function buildCandidatePool(
   return result;
 }
 
+function storedCategoryExpansionKeywords(
+  category: string | undefined,
+  context: KeywordElonMallTitleFactContext,
+  blocked: string[],
+) {
+  const values = text(category)
+    .split(">")
+    .map((value) => clean(value).replace(/^기타\s+|\s+기타$/g, "").trim())
+    .filter(Boolean)
+    .slice(-2)
+    .reverse();
+
+  return unique(values, 2).filter((keyword) =>
+    validateKeyword(keyword, context, blocked),
+  );
+}
+
+function appendStoredCategoryExpansionMaterials(input: {
+  materials: KeywordElonLongTitleMaterial[];
+  context: KeywordElonMallTitleFactContext;
+  blockedTerms: string[];
+}) {
+  const blocked = blockedKeys(input.blockedTerms);
+  const seen = new Set(input.materials.map((row) => row.key));
+  const keywords: string[] = [];
+
+  for (const keyword of storedCategoryExpansionKeywords(
+    input.context.category,
+    input.context,
+    blocked,
+  )) {
+    const key = keywordElonSeoCanonical(keyword);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    keywords.push(keyword);
+    input.materials.push(
+      buildKeywordElonLongTitleExpansionMaterial({
+        row: {
+          keyword,
+          intentClass: "category_tail",
+          categoryAligned: true,
+          categoryMatch: 100,
+          relevance: 100,
+          shoppingIntent: 100,
+          specificity: 80,
+          qualityScore: 100,
+          competitionOpportunity: 70,
+          totalSearch: null,
+          expansionScore: 100,
+        },
+        keyword,
+        key,
+        sourceOrder: input.materials.length,
+      }),
+    );
+  }
+
+  return keywords;
+}
+
 function tokenSet(value: string) {
   return new Set(value.split(/\s+/).map(keywordElonSeoCanonical).filter(Boolean));
 }
@@ -389,16 +449,25 @@ export function composeKeywordElonSafeMallTitles(input: {
     blockedTerms: input.blockedTerms ?? [],
   });
   const finalKeys = new Set(finals.map(keywordElonSeoCanonical));
-  const expansionAvailable = materials.some(
-    (row) => row.origin === "category_expansion",
-  );
+  let candidates = buildCandidatePool(materials, finalKeys);
+  const storedCategoryExpansions =
+    candidates.length < input.markets.length
+      ? appendStoredCategoryExpansionMaterials({
+          materials,
+          context: input.context,
+          blockedTerms: input.blockedTerms ?? [],
+        })
+      : [];
+  if (storedCategoryExpansions.length) {
+    candidates = buildCandidatePool(materials, finalKeys);
+  }
+  const expansionAvailable = materials.some((row) => row.origin === "category_expansion");
   const preferredExpansionAvailable = materials.some(
     (row) => row.priorityTier === "preferred",
   );
   const supportingExpansionAvailable = materials.some(
     (row) => row.priorityTier === "supporting",
   );
-  const candidates = buildCandidatePool(materials, finalKeys);
   if (candidates.length < input.markets.length) {
     throw new Error(
       `검증 키워드만으로 ${KEYWORD_ELON_LONG_TITLE_HARD_MIN_BYTES}~${KEYWORD_ELON_SEO_TITLE_BYTE_LIMIT}bytes 고유 쇼핑몰별 상품명 ${input.markets.length}개를 만들 수 없습니다. 현재 ${candidates.length}개`,
@@ -543,6 +612,9 @@ export function composeKeywordElonSafeMallTitles(input: {
       `SEO_MALL_TITLE_LENGTH_TARGET:${KEYWORD_ELON_LONG_TITLE_TARGET_BYTES}`,
       `SEO_MALL_TITLE_LENGTH_AVERAGE:${averageLengthBytes}`,
       `SEO_MALL_TITLE_KEYWORD_COVERAGE:${coverage.length}/${finals.length}`,
+      ...(storedCategoryExpansions.length
+        ? [`SEO_MALL_TITLE_STORED_CATEGORY_FALLBACK:${storedCategoryExpansions.length}`]
+        : []),
       ...(nearDuplicates
         ? [`SEO_MALL_TITLE_NEAR_DUPLICATES_REMAIN:${nearDuplicates}`]
         : []),
