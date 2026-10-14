@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const [
-  editor,
+  workspace,
   draftPage,
   draftRoute,
   writeBridge,
@@ -13,7 +13,7 @@ const [
   productLaunchPage,
 ] = await Promise.all([
   readFile(
-    "src/components/china-order-manager/InternalChinaSupplierLinkEditor.tsx",
+    "src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx",
     "utf8",
   ),
   readFile("src/app/china-order-manager/drafts/[draftId]/page.tsx", "utf8"),
@@ -35,12 +35,11 @@ const [
 ]);
 
 test("Draft page exposes a model-level supplier link editor without changing reserved quantity", () => {
-  assert.match(draftPage, /InternalChinaSupplierLinkEditor/);
-  assert.match(editor, /모델별 고정 1번 1688 링크 입력·역저장/);
-  assert.match(editor, /UPDATE_MODEL_SUPPLIER_LINK/);
-  assert.match(editor, /method: "PATCH"/);
-  assert.match(editor, /상품마스터 최신 원장/);
-  assert.doesNotMatch(editor, /quantity:/);
+  assert.match(draftPage, /InternalChinaDraftBatchEditor/);
+  assert.match(workspace, /updateModelSupplierLink/);
+  assert.match(workspace, /모델 고정 1번 1688 링크/);
+  assert.match(workspace, /상품마스터 최신 원장/);
+  assert.match(workspace, /supplierLink: line\.supplierLink/);
 });
 
 test("Draft link writeback updates product launch fixed first link and Product Master latest ledger", () => {
@@ -65,7 +64,7 @@ test("Product launch detail saves auto-sync purchase metadata to Product Master"
 });
 
 test("supplier metadata bridge never calls 1688 ordering or payment APIs", () => {
-  for (const source of [editor, draftRoute, writeBridge, productLaunchSyncRoute]) {
+  for (const source of [workspace, draftRoute, writeBridge, productLaunchSyncRoute]) {
     assert.doesNotMatch(source, /placeOrder|payOrder|checkout|fetch\([^)]*1688/i);
   }
   assert.match(draftRoute, /externalOrderExecuted: false/);

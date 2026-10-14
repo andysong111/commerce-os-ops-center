@@ -25,17 +25,19 @@ test("China draft quantity controls are rendered natively in every order row", (
   assert.match(workspace, /function NativeQuantityControl/);
   assert.match(workspace, /data-native-draft-quantity=\{barcode\}/);
   assert.match(workspace, /aria-label=\{`\$\{barcode\} 주문수량`\}/);
-  assert.match(workspace, /saving \? "저장" : "변경"/);
+  assert.match(workspace, /재계산 대기/);
   assert.match(workspace, /<NativeQuantityControl/);
-  assert.match(workspace, /수량 · 즉시저장/);
+  assert.match(workspace, /수량 · 계산 대기/);
   assert.doesNotMatch(workspace, /createPortal/);
   assert.doesNotMatch(workspace, /findQuantityTargets/);
 });
 
-test("native quantity change uses the lightweight quantity-only save path", () => {
-  assert.match(workspace, /\/quantity`/);
+test("native quantity changes remain local until the single recalculation action", () => {
+  assert.match(workspace, /function stageQuantity/);
+  assert.match(workspace, /setEditedQuantities/);
   assert.match(workspace, /targetQuantity/);
-  assert.match(workspace, /applySavedQuantity/);
+  assert.match(workspace, /변경사항 모아 발주안 재계산/);
+  assert.doesNotMatch(workspace, /fetch\([\s\S]{0,120}\/quantity`/);
   assert.doesNotMatch(workspace, /window\.location\.reload/);
 
   const postRoute = quantityRoute.slice(
@@ -84,9 +86,9 @@ test("optionless 1688 products can be marked as single item with one click", () 
 test("draft products can be selected in bulk and regenerated with next-priority budget refill", () => {
   assert.match(workspace, /발주초안 상품 전체 선택/);
   assert.match(workspace, /발주초안에서 제외 선택/);
-  assert.match(workspace, /초안에서 제외 후 발주안 재생성/);
-  assert.match(workspace, /url\.searchParams\.append\("exclude", barcode\)/);
-  assert.match(workspace, /남은 예산을 다음 우선순위 상품으로 다시 채울까요/);
+  assert.match(workspace, /변경사항 모아 발주안 재계산/);
+  assert.match(workspace, /buildPurchaseDraftBatchRecalculationHref/);
+  assert.match(workspace, /남은 예산은 다음 우선순위 상품에 배정/);
   assert.doesNotMatch(workspace, /targetQuantity: 0/);
   assert.match(page, /regenerationHref=/);
   assert.match(page, /regenerationParams\.set\("cash", String\(budgetAudit\.grossCogsBudgetKrw\)\)/);
@@ -95,6 +97,6 @@ test("draft products can be selected in bulk and regenerated with next-priority 
 test("draft page no longer mounts the DOM quantity bridge", () => {
   assert.doesNotMatch(page, /InternalChinaDraftInlineQuantityBridge/);
   assert.doesNotMatch(page, /InternalChinaDraftQuantityEditor/);
-  assert.match(page, /모든 B-code 행의 수량 칸에서 직접 변경/);
-  assert.match(page, /표 자체에 포함/);
+  assert.match(page, /수량 변경·상품 제외·상품 추가/);
+  assert.match(page, /변경사항 모아 발주안 재계산/);
 });

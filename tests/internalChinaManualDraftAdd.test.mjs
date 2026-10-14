@@ -24,6 +24,13 @@ const page = await readFile(
   new URL("../src/app/china-order-manager/drafts/[draftId]/page.tsx", import.meta.url),
   "utf8",
 );
+const batchEditor = await readFile(
+  new URL(
+    "../src/components/china-order-manager/InternalChinaDraftBatchEditor.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("manual addition reserves into the existing monthly draft instead of creating a new draft", () => {
   assert.match(helper, /sourceRunId: draft\.draftId/);
@@ -68,11 +75,13 @@ test("manual addition API is same-origin only and exposes search plus add", () =
   assert.doesNotMatch(route, /seoulCalendarMonth\(draft\.sourceUpdatedAt\)/);
 });
 
-test("draft page exposes searchable B-code manual addition with open commitment warning", () => {
-  assert.match(page, /InternalChinaManualDraftLineAdder/);
+test("draft page stages searchable B-code additions for the shared recalculation", () => {
+  assert.match(page, /InternalChinaDraftBatchEditor/);
+  assert.match(batchEditor, /InternalChinaManualDraftLineAdder/);
   assert.match(component, /추가할 B-code 검색/);
   assert.match(component, /다른 미입고/);
-  assert.match(component, /현재 Draft에 추가/);
-  assert.match(component, /추가수량 반영/);
-  assert.match(component, /window\.location\.reload/);
+  assert.match(component, /재계산 대기/);
+  assert.match(component, /재계산 전 원장 미변경/);
+  assert.doesNotMatch(component, /method: "POST"/);
+  assert.doesNotMatch(component, /window\.location\.reload/);
 });

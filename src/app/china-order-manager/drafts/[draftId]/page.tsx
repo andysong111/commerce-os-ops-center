@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { InternalChinaDraftStickySave } from "@/components/china-order-manager/InternalChinaDraftStickySave";
 import { InternalChinaPurchaseBudgetAudit } from "@/components/china-order-manager/InternalChinaPurchaseBudgetAudit";
-import { InternalChinaManualDraftLineAdder } from "@/components/china-order-manager/InternalChinaManualDraftLineAdder";
-import { InternalChinaPurchaseDraftWorkspaceV2 } from "@/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2";
-import { PurchaseDraftRecalculationLink } from "@/components/china-order-manager/PurchaseDraftRecalculationLink";
+import { InternalChinaDraftBatchEditor } from "@/components/china-order-manager/InternalChinaDraftBatchEditor";
 import { PageHeader } from "@/components/PageHeader";
 import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
 import { loadInternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
@@ -91,11 +89,6 @@ export default async function InternalChinaPurchaseDraftPage({
             >
               빠른 발주안
             </Link>
-            {draft.status === "DRAFT" ? (
-              <PurchaseDraftRecalculationLink
-                href={`/purchase-cycle-preflight?${regenerationParams.toString()}`}
-              />
-            ) : null}
             <Link
               href="/china-order-manager"
               className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-800"
@@ -107,17 +100,12 @@ export default async function InternalChinaPurchaseDraftPage({
       />
 
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-        <strong>현재 Draft</strong> · <span className="font-mono">{draft.draftId}</span> · {draft.lineCount.toLocaleString("ko-KR")} SKU · {draft.totalQuantity.toLocaleString("ko-KR")}개. 링크·중국옵션·위안단가는 아래 표에서 바로 입력하고, <strong>주문수량도 모든 B-code 행의 수량 칸에서 직접 변경</strong>합니다. 수량 입력·변경 버튼은 표 자체에 포함되어 새로고침이나 행 추가 후에도 누락되지 않으며 ORDERED·입고 기준 수량으로 저장됩니다. 새 B-code만 `주문품목 추가`에서 처리합니다.
+        <strong>현재 Draft</strong> · <span className="font-mono">{draft.draftId}</span> · {draft.lineCount.toLocaleString("ko-KR")} SKU · {draft.totalQuantity.toLocaleString("ko-KR")}개. 수량 변경·상품 제외·상품 추가는 먼저 계산 대기로 모은 뒤, <strong>`변경사항 모아 발주안 재계산` 버튼 한 번</strong>으로 예산과 다음 우선순위를 다시 계산합니다. 계산 결과를 확인하고 교체 저장하기 전까지 현재 Draft는 유지됩니다.
       </section>
 
       <InternalChinaPurchaseBudgetAudit audit={budgetAudit} />
 
-      <InternalChinaManualDraftLineAdder
-        draftId={draft.draftId}
-        status={draft.status}
-      />
-
-      <InternalChinaPurchaseDraftWorkspaceV2
+      <InternalChinaDraftBatchEditor
         initialDraft={draft}
         budgetAudit={budgetAudit}
         regenerationHref={`/purchase-cycle-preflight?${regenerationParams.toString()}`}

@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
+import type { StagedDraftAddition } from "@/components/china-order-manager/InternalChinaManualDraftLineAdder";
 import type { InternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
 import type {
   InternalChinaPurchaseDraft,
   InternalChinaPurchaseDraftLine,
 } from "@/lib/internalChinaPurchaseDraft";
 import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
+import { buildPurchaseDraftBatchRecalculationHref } from "@/lib/purchaseDraftBatchRecalculation";
 
 const number = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const cny = new Intl.NumberFormat("ko-KR", {
@@ -20,7 +22,7 @@ const TABLE_COLUMNS = [
   { label: "B-code / 모델 / 옵션", width: 280 },
   { label: "중국옵션 · 역저장", width: 240 },
   { label: "모델 고정 1번 1688 링크 · 역저장", width: 460 },
-  { label: "수량 · 즉시저장", width: 190 },
+  { label: "수량 · 계산 대기", width: 190 },
   { label: "위안단가", width: 130 },
   { label: "운임그룹", width: 180 },
   { label: "중국내 운임", width: 150 },
@@ -98,12 +100,6 @@ type MetadataSyncResponse = DraftSaveResponse & {
   syncedBcodes?: number;
 };
 
-type QuantityResponse = {
-  ok?: boolean;
-  message?: string;
-  saved?: { targetQuantity?: number };
-};
-
 type FreightGroupInfo = {
   key: string;
   members: InternalChinaPurchaseDraftLine[];
@@ -116,11 +112,15 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   budgetAudit,
   regenerationHref,
   initialQuantityOverrides = [],
+  stagedAdditions,
+  onStagedAdditionsChange,
 }: {
   initialDraft: InternalChinaPurchaseDraft;
   budgetAudit: InternalChinaPurchaseBudgetAudit;
   regenerationHref: string;
   initialQuantityOverrides?: PurchaseQuantityOverride[];
+  stagedAdditions: StagedDraftAddition[];
+  onStagedAdditionsChange: (rows: StagedDraftAddition[]) => void;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState(initialDraft);
@@ -128,9 +128,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [saving, setSaving] = useState(false);
   const [ordering, setOrdering] = useState(false);
   const [selectedExclusions, setSelectedExclusions] = useState<Record<string, boolean>>({});
-  const [quantityOverrides, setQuantityOverrides] = useState<Record<string, number>>(
+  const [persistedQuantityOverrides] = useState<Record<string, number>>(
     () => Object.fromEntries(initialQuantityOverrides.map((row) => [row.barcode, row.targetQuantity])),
   );
+  const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [regenerating, setRegenerating] = useState(false);
   const [cartPreparing, setCartPreparing] = useState(false);
   const [scrollWidth, setScrollWidth] = useState(TABLE_WIDTH);
@@ -278,22 +279,23 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     }));
   }
 
-  function applySavedQuantity(barcode: string, targetQuantity: number, message: string) {
-    setDraft((current) => {
-      const lines = current.lines
-        .map((line) =>
-          line.barcode === barcode ? { ...line, quantity: targetQuantity } : line,
-        )
-        .filter((line) => line.quantity > 0);
-      return {
-        ...current,
-        lines,
-        lineCount: lines.length,
-        totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
-      };
+  function stageQuantity(barcode: string, targetQuantity: number) {
+    const baseline = draft.lines.find((line) => line.barcode === barcode)?.quantity;
+    if (baseline === undefined) return;
+    const valid = Number.isFinite(targetQuantity) && targetQuantity >= 1 && targetQuantity <= 9_999;
+    setEditedQuantities((current) => {
+      const next = { ...current };
+      if (valid && targetQuantity === baseline) delete next[barcode];
+      else next[barcode] = targetQuantity;
+      return next;
     });
-    setQuantityOverrides((current) => ({ ...current, [barcode]: targetQuantity }));
-    setNotice(`${message} 예산과 다음 우선순위 상품은 아래 재계산 버튼을 눌러 새 발주안에서 확인하세요.`);
+    setNotice(
+      !valid
+        ? `${barcode} 수량을 1개 이상 9,999개 이하로 입력하세요. 올바르게 입력하기 전에는 재계산할 수 없습니다.`
+        : targetQuantity === baseline
+        ? `${barcode} 수량 변경을 취소했습니다.`
+        : `${barcode} ${targetQuantity.toLocaleString("ko-KR")}개를 재계산 대기에 넣었습니다. 아직 기존 Draft는 바뀌지 않았습니다.`,
+    );
   }
 
   function updateModelSupplierLink(
@@ -469,49 +471,59 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     .map((line) => line.barcode)
     .sort();
   const allLinesSelected = draft.lines.length > 0 && excludedBarcodes.length === draft.lines.length;
-  const activeQuantityOverrides = Object.entries(quantityOverrides)
-    .filter(([barcode]) => draft.lines.some((line) => line.barcode === barcode))
+  const changedQuantityRows = Object.entries(editedQuantities)
     .map(([barcode, targetQuantity]) => ({ barcode, targetQuantity }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
+  const invalidQuantityBarcodes = changedQuantityRows
+    .filter(
+      (row) =>
+        !Number.isFinite(row.targetQuantity) ||
+        row.targetQuantity < 1 ||
+        row.targetQuantity > 9_999,
+    )
+    .map((row) => row.barcode);
+  const activeQuantityOverrides = Object.entries({
+    ...persistedQuantityOverrides,
+    ...editedQuantities,
+    ...Object.fromEntries(
+      stagedAdditions.map((row) => [row.barcode, row.targetQuantity]),
+    ),
+  })
+    .map(([barcode, targetQuantity]) => ({ barcode, targetQuantity }))
+    .sort((left, right) => left.barcode.localeCompare(right.barcode));
+  const hasPendingRecalculation =
+    excludedBarcodes.length > 0 ||
+    changedQuantityRows.length > 0 ||
+    stagedAdditions.length > 0;
 
   function toggleExcludedBarcode(barcode: string, checked: boolean) {
     setSelectedExclusions((current) => ({ ...current, [barcode]: checked }));
   }
 
-  function regenerateWithoutSelected() {
-    if (draft.status !== "DRAFT" || regenerating || excludedBarcodes.length === 0) return;
+  function recalculateDraft() {
+    if (
+      draft.status !== "DRAFT" ||
+      regenerating ||
+      !hasPendingRecalculation ||
+      invalidQuantityBarcodes.length > 0
+    ) return;
     if (!window.confirm(
-      `선택한 ${excludedBarcodes.length.toLocaleString("ko-KR")}개 상품을 이번 발주 대상에서 제외하고, 남은 예산을 다음 우선순위 상품으로 다시 채울까요?\n\n먼저 새 발주안을 계산해 보여드립니다. 계산이 끝난 뒤 교체 저장하기 전까지 현재 초안은 바뀌지 않으며 1688 주문·결제도 실행하지 않습니다.`,
+      `대기 중인 변경을 한 번에 계산할까요?\n\n수량 변경 ${changedQuantityRows.length.toLocaleString("ko-KR")}종 · 제외 ${excludedBarcodes.length.toLocaleString("ko-KR")}종 · 추가 ${stagedAdditions.length.toLocaleString("ko-KR")}종\n\n사용자가 정한 수량과 추가 상품을 먼저 고정하고, 남은 예산은 다음 우선순위 상품에 배정합니다. 먼저 결과를 보여드리며 교체 저장 전까지 현재 Draft는 바뀌지 않습니다.`,
     )) return;
-    const url = new URL(regenerationHref, window.location.origin);
-    url.searchParams.delete("exclude");
-    url.searchParams.delete("qty");
-    for (const barcode of excludedBarcodes) url.searchParams.append("exclude", barcode);
-    for (const row of activeQuantityOverrides) {
-      if (!excludedBarcodes.includes(row.barcode)) {
-        url.searchParams.append("qty", `${row.barcode}:${row.targetQuantity}`);
-      }
-    }
     setRegenerating(true);
-    router.push(`${url.pathname}?${url.searchParams.toString()}`);
+    router.push(buildPurchaseDraftBatchRecalculationHref({
+      regenerationHref,
+      origin: window.location.origin,
+      excludedBarcodes,
+      quantityOverrides: activeQuantityOverrides,
+    }));
   }
 
-  function regenerateWithQuantityChanges() {
-    if (draft.status !== "DRAFT" || regenerating || activeQuantityOverrides.length === 0) return;
-    if (!window.confirm(
-      `저장한 수량 ${activeQuantityOverrides.length.toLocaleString("ko-KR")}개 상품을 고정하고 발주안을 다시 계산할까요?\n\n줄인 금액은 다음 우선순위 상품에 배정하고, 늘린 금액은 낮은 우선순위부터 줄입니다. 먼저 결과를 보여드리며 교체 저장 전까지 현재 초안은 유지됩니다.`,
-    )) return;
-    const url = new URL(regenerationHref, window.location.origin);
-    url.searchParams.delete("exclude");
-    url.searchParams.delete("qty");
-    for (const barcode of excludedBarcodes) url.searchParams.append("exclude", barcode);
-    for (const row of activeQuantityOverrides) {
-      if (!excludedBarcodes.includes(row.barcode)) {
-        url.searchParams.append("qty", `${row.barcode}:${row.targetQuantity}`);
-      }
-    }
-    setRegenerating(true);
-    router.push(`${url.pathname}?${url.searchParams.toString()}`);
+  function resetPendingRecalculation() {
+    setEditedQuantities({});
+    setSelectedExclusions({});
+    onStagedAdditionsChange([]);
+    setNotice("재계산 대기 변경을 모두 취소했습니다. 기존 Draft는 바뀌지 않았습니다.");
   }
 
   async function prepare1688Cart() {
@@ -640,23 +652,31 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         <div className={`mt-4 rounded-xl border px-4 py-3 text-xs leading-5 ${calculations.budgetOverKrw > 0 ? "border-rose-300 bg-rose-50 text-rose-950" : "border-blue-200 bg-blue-50 text-blue-950"}`}>
           <strong>실시간 월간 발주예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 상품대금 {number.format(Math.round(calculations.productKrw))}원 · 상품대금 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}.
         </div>
-        {activeQuantityOverrides.length > 0 ? (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-            <p className="text-xs font-bold leading-5 text-blue-950">
-              수량 변경 {activeQuantityOverrides.length}종은 현재 초안에 저장됐습니다. 재계산하면 변경 수량을 고정하고 남은 예산을 다음 우선순위 상품으로 다시 채웁니다.
-            </p>
-            <button type="button" onClick={regenerateWithQuantityChanges} disabled={draft.status !== "DRAFT" || regenerating} aria-busy={regenerating} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
-              {regenerating ? "수량 반영·재계산 중..." : `변경 수량으로 발주안 재생성 (${activeQuantityOverrides.length}종)`}
-            </button>
+        <div className={`mt-4 rounded-xl border px-4 py-4 ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <strong className="text-sm font-black text-slate-950">한 번에 발주안 재계산</strong>
+              <p className="mt-1 text-xs font-bold leading-5 text-slate-700">
+                수량 변경 {changedQuantityRows.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종을 모았습니다. 버튼을 누르기 전에는 기존 Draft와 주문·입고 원장이 바뀌지 않습니다.
+              </p>
+              {invalidQuantityBarcodes.length > 0 ? (
+                <p className="mt-1 text-xs font-black text-rose-700">
+                  수량을 다시 입력할 상품: {invalidQuantityBarcodes.join(" · ")}
+                </p>
+              ) : null}
+              <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                재계산은 고정한 상품과 수량을 먼저 반영하고 남은 예산을 다음 우선순위에 배정합니다. 계산 결과를 확인한 뒤 교체 저장할 수 있습니다.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                대기 변경 취소
+              </button>
+              <button type="button" onClick={recalculateDraft} disabled={draft.status !== "DRAFT" || !hasPendingRecalculation || invalidQuantityBarcodes.length > 0 || regenerating} aria-busy={regenerating} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
+                {regenerating ? "변경 모아 재계산 중..." : "변경사항 모아 발주안 재계산"}
+              </button>
+            </div>
           </div>
-        ) : null}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
-          <p className="text-xs font-bold leading-5 text-rose-950">
-            표에서 제외할 상품을 체크하세요. 재계산하면 선택 상품은 다시 뽑지 않고, 남은 예산으로 다음 우선순위 상품을 채운 결과를 보여줍니다.
-          </p>
-          <button type="button" onClick={regenerateWithoutSelected} disabled={draft.status !== "DRAFT" || excludedBarcodes.length === 0 || regenerating} aria-busy={regenerating} className="min-h-11 rounded-xl bg-rose-700 px-5 py-3 text-sm font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
-            {regenerating ? "제외 반영·재계산 중..." : `이 상품 초안에서 제외 후 발주안 재생성 (${excludedBarcodes.length}개)`}
-          </button>
         </div>
       </section>
 
@@ -728,7 +748,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                       <span className="mt-1 block text-[10px] font-bold text-indigo-700">같은 모델 모든 B-code에 공통 적용 · 저장 시 상품출시 1번 링크로 역저장</span>
                     </td>
                     <td className="px-2 py-2 text-right" style={stickyCellStyle(3, freezeThrough)}>
-                      <NativeQuantityControl key={`${line.barcode}:${line.quantity}`} draftId={draft.draftId} status={draft.status} barcode={line.barcode} quantity={line.quantity} onSaved={applySavedQuantity} />
+                      <NativeQuantityControl key={`${line.barcode}:${editedQuantities[line.barcode] ?? line.quantity}`} status={draft.status} barcode={line.barcode} quantity={line.quantity} stagedQuantity={editedQuantities[line.barcode]} onStage={stageQuantity} />
                     </td>
                     <td className="px-2 py-2" style={stickyCellStyle(4, freezeThrough)}><NumberInput value={line.unitPriceCny} disabled={!editable} required={line.unitPriceCny <= 0} onChange={(value) => updateLine(line.barcode, { unitPriceCny: value })} /></td>
                     <td className="px-2 py-2" style={stickyCellStyle(5, freezeThrough)}>
@@ -763,66 +783,39 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 }
 
 function NativeQuantityControl({
-  draftId,
   status,
   barcode,
   quantity,
-  onSaved,
+  stagedQuantity,
+  onStage,
 }: {
-  draftId: string;
   status: "DRAFT" | "ORDERED";
   barcode: string;
   quantity: number;
-  onSaved: (barcode: string, quantity: number, message: string) => void;
+  stagedQuantity?: number;
+  onStage: (barcode: string, quantity: number) => void;
 }) {
-  const [value, setValue] = useState(String(quantity));
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
+  const [value, setValue] = useState(String(stagedQuantity ?? quantity));
   const targetQuantity = Math.round(Number(value));
   const valid = Number.isFinite(targetQuantity) && targetQuantity >= 1 && targetQuantity <= 9_999;
   const changed = valid && targetQuantity !== quantity;
 
-  async function saveQuantity() {
-    if (status !== "DRAFT" || saving) return;
-    if (!valid) {
-      setMessage("1~9,999");
-      return;
-    }
-    if (!changed) {
-      setMessage("동일");
-      return;
-    }
-    setSaving(true);
-    setMessage("저장 중");
-    try {
-      const response = await fetch(
-        `/api/china-order-manager/drafts/${encodeURIComponent(draftId)}/quantity`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify({ barcode, targetQuantity }),
-          credentials: "same-origin",
-          cache: "no-store",
-        },
-      );
-      const body = (await response.json().catch(() => ({}))) as QuantityResponse;
-      if (!response.ok || !body.ok) throw new Error(body.message || "수량 변경 저장에 실패했습니다.");
-      const savedQuantity = Math.round(Number(body.saved?.targetQuantity ?? targetQuantity));
-      setValue(String(savedQuantity));
-      setMessage("저장됨");
-      onSaved(barcode, savedQuantity, body.message || `${barcode} 수량을 ${savedQuantity.toLocaleString("ko-KR")}개로 저장했습니다.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "저장 실패");
-    } finally {
-      setSaving(false);
+  function updateValue(nextValue: string) {
+    setValue(nextValue);
+    const parsed = Math.round(Number(nextValue));
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 9_999) {
+      onStage(barcode, parsed);
+    } else {
+      onStage(barcode, 0);
     }
   }
 
   return (
     <div className="flex items-center justify-end gap-1.5" data-native-draft-quantity={barcode}>
-      <input type="number" min={1} max={9999} step={1} value={value} disabled={status !== "DRAFT" || saving} onChange={(event) => { setValue(event.target.value); setMessage(""); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void saveQuantity(); } }} aria-label={`${barcode} 주문수량`} className={`w-20 rounded-lg border bg-white px-2 py-2 text-right text-xs font-black outline-none disabled:bg-slate-100 ${changed ? "border-blue-400 text-blue-900" : "border-slate-300 text-slate-800"}`} />
-      <button type="button" onClick={() => void saveQuantity()} disabled={status !== "DRAFT" || saving || !changed} className="rounded-lg bg-blue-700 px-2.5 py-2 text-[11px] font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300">{saving ? "저장" : "변경"}</button>
-      {message ? <span className={`max-w-[74px] truncate text-[10px] font-bold ${message === "저장됨" ? "text-emerald-700" : "text-slate-500"}`}>{message}</span> : null}
+      <input type="number" min={1} max={9999} step={1} value={value} disabled={status !== "DRAFT"} onChange={(event) => updateValue(event.target.value)} aria-label={`${barcode} 주문수량`} aria-invalid={!valid} className={`w-20 rounded-lg border bg-white px-2 py-2 text-right text-xs font-black outline-none disabled:bg-slate-100 ${!valid ? "border-rose-400 text-rose-800" : changed ? "border-blue-400 text-blue-900" : "border-slate-300 text-slate-800"}`} />
+      <span className={`max-w-[74px] truncate text-[10px] font-bold ${!valid ? "text-rose-700" : changed ? "text-blue-700" : "text-slate-400"}`}>
+        {!valid ? "1~9,999" : changed ? "재계산 대기" : "현재 수량"}
+      </span>
     </div>
   );
 }
