@@ -139,7 +139,7 @@ export function purchaseCycleDraftConfirmation(
   if (report.replacementDraftId) {
     const audit = report.replacementAudit;
     if (!audit?.complete) throw new Error("PURCHASE_DRAFT_REPLACEMENT_AUDIT_REQUIRED");
-    return `REGENERATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}_SOURCING${report.sourcingBudgetPercent}PCT_ADD${audit.added.length}_REMOVE${audit.removed.length}_CHANGE${audit.quantityChanged.length}_${report.replacementDraftId}${sourcingSuffix}`;
+    return `REGENERATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${audit.selectedLineCount}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}_SOURCING${report.sourcingBudgetPercent}PCT_ADD${audit.added.length}_REMOVE${audit.removed.length}_CHANGE${audit.quantityChanged.length}_${report.replacementDraftId}${sourcingSuffix}`;
   }
   return `CREATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}_SOURCING${report.sourcingBudgetPercent}PCT${sourcingSuffix}`;
 }
@@ -220,15 +220,26 @@ export function preparePurchaseCycleDraft(
   return {
     cycleMonth: report.targetCycleMonth,
     sourceFingerprint: report.planFingerprint,
-    lines: report.selected.map((row) => ({
+    lines: [
+      ...report.selected.map((row) => ({
       barcode: row.barcode,
       modelNo: null,
       productName: row.name,
       plannedQuantity: row.quantity,
       // Provisional zero is not a physical stockout confirmation.
-      stockSense: "LOW",
+      stockSense: "LOW" as const,
       referenceDemandQuantity: row.originalRecommendedQuantity,
       note: `발주 사전점검 · 신규소싱 ${report.sourcingBudgetPercent}% 최대 · 실제 예약 ${report.sourcingBudgetKrw - report.sourcingBudgetReturnKrw}원 · ${row.costEvidenceSource} · 권장 ${row.originalRecommendedQuantity} → 현금반영 ${row.quantity} · ${row.cashflowTier} · 계획재고 ${row.inventoryQuantity} · 미입고 ${row.openCommitment}`,
-    })),
+      })),
+      ...(report.preservedReplacementLines ?? []).map((row) => ({
+        barcode: row.barcode,
+        modelNo: null,
+        productName: row.name,
+        plannedQuantity: row.quantity,
+        stockSense: "LOW" as const,
+        referenceDemandQuantity: row.quantity,
+        note: "기존 Draft 신규소싱 확정 상품 유지 · 운영자 제외 시에만 제거",
+      })),
+    ],
   };
 }

@@ -50,6 +50,7 @@ export type PurchaseReplacementDraftLine = {
   barcode: string;
   name: string;
   quantity: number;
+  preserveOnRegeneration?: boolean;
 };
 export type PurchaseReplacementDraftSnapshot = {
   draftId: string;
@@ -168,6 +169,7 @@ export type PurchaseCyclePreflightReport = {
   candidateCoverageComplete: boolean;
   eligibleCount: number;
   selected: PurchasePreflightLine[];
+  preservedReplacementLines: PurchaseReplacementDraftLine[];
   replacementAudit: PurchaseReplacementDraftAudit | null;
   businessWritesEnabled: false;
   approvalEnabled: false;
@@ -176,6 +178,7 @@ export type PurchaseCyclePreflightReport = {
 };
 
 const REPORT_MAX_AGE_MS = 15 * 60 * 1000;
+const PURCHASE_DRAFT_LINE_LIMIT = 100;
 const FP = /^sha256:[a-f0-9]{64}$/;
 const CODE = /^B[A-Z]{2}\d+-\d+$/;
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
@@ -195,7 +198,12 @@ export function buildPurchaseReplacementDraftSnapshot(
     throw new Error("REPLACEMENT_DRAFT_SNAPSHOT_INVALID");
   }
   const normalized = lines
-    .map((line) => ({ barcode: line.barcode.trim().toUpperCase(), name: line.name.trim(), quantity: line.quantity }))
+    .map((line) => ({
+      barcode: line.barcode.trim().toUpperCase(),
+      name: line.name.trim(),
+      quantity: line.quantity,
+      preserveOnRegeneration: line.preserveOnRegeneration === true,
+    }))
     .sort((a, b) => a.barcode.localeCompare(b.barcode));
   if (
     normalized.length === 0 ||
@@ -717,15 +725,33 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     reviewBlockers.push("OWNER_COST_ESTIMATE_REVIEW_REQUIRED");
   }
   let replacementAudit: PurchaseReplacementDraftAudit | null = null;
+  let preservedReplacementLines: PurchaseReplacementDraftLine[] = [];
   if (replacementDraftId && replacementStable && input.replacementAfter) {
     const previousByBarcode = new Map(input.replacementAfter.lines.map((line) => [line.barcode, line]));
     const selectedByBarcode = new Map(selected.map((line) => [line.barcode, line]));
-    const matchedBarcodes = [...previousByBarcode.keys()].filter((barcode) => selectedByBarcode.has(barcode));
+    preservedReplacementLines = input.replacementAfter.lines.filter(
+      (line) =>
+        line.preserveOnRegeneration === true &&
+        !operatorExcludedSet.has(line.barcode) &&
+        !selectedByBarcode.has(line.barcode),
+    );
+    const finalByBarcode = new Map<string, PurchaseReplacementDraftLine>([
+      ...selected.map((line) => [line.barcode, {
+        barcode: line.barcode,
+        name: line.name,
+        quantity: line.quantity,
+      }] as const),
+      ...preservedReplacementLines.map((line) => [line.barcode, line] as const),
+    ]);
+    if (finalByBarcode.size > PURCHASE_DRAFT_LINE_LIMIT) {
+      blockers.push("PURCHASE_DRAFT_LINE_LIMIT");
+    }
+    const matchedBarcodes = [...previousByBarcode.keys()].filter((barcode) => finalByBarcode.has(barcode));
     const added = selected
       .filter((line) => !previousByBarcode.has(line.barcode))
       .map((line) => ({ barcode: line.barcode, name: line.name, quantity: line.quantity }));
     const removed = input.replacementAfter.lines
-      .filter((line) => !selectedByBarcode.has(line.barcode))
+      .filter((line) => !finalByBarcode.has(line.barcode))
       .map((line) => ({
         ...line,
         reasons: operatorExcludedSet.has(line.barcode)
@@ -734,7 +760,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       }));
     const quantityChanged = matchedBarcodes.flatMap((barcode) => {
       const previous = previousByBarcode.get(barcode)!;
-      const next = selectedByBarcode.get(barcode)!;
+      const next = finalByBarcode.get(barcode)!;
       return previous.quantity === next.quantity ? [] : [{
         barcode,
         name: next.name || previous.name,
@@ -744,12 +770,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     });
     const complete =
       matchedBarcodes.length + removed.length === input.replacementAfter.lines.length &&
-      matchedBarcodes.length + added.length === selected.length &&
+      matchedBarcodes.length + added.length === finalByBarcode.size &&
       new Set([...matchedBarcodes, ...removed.map((line) => line.barcode)]).size === input.replacementAfter.lines.length &&
-      new Set([...matchedBarcodes, ...added.map((line) => line.barcode)]).size === selected.length;
+      new Set([...matchedBarcodes, ...added.map((line) => line.barcode)]).size === finalByBarcode.size;
     replacementAudit = {
       previousLineCount: input.replacementAfter.lines.length,
-      selectedLineCount: selected.length,
+      selectedLineCount: finalByBarcode.size,
       matchedCount: matchedBarcodes.length,
       added,
       removed,
@@ -844,6 +870,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         excludedBarcodes: operatorExcludedBarcodes,
       },
       selected: stablePlanLines(selected),
+      preservedReplacementLines: preservedReplacementLines.map(({ barcode, quantity }) => ({ barcode, quantity })),
       replacementAudit: stableReplacementAudit(replacementAudit),
       budget: {
         cashLimitKrw,
@@ -875,7 +902,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     candidateCount: candidates.length,
     accountedCandidateCount: accountedCandidateBarcodes.size,
     candidateCoverageComplete,
-    eligibleCount: eligible.length, selected, replacementAudit,
+    eligibleCount: eligible.length, selected, preservedReplacementLines, replacementAudit,
     businessWritesEnabled: false, approvalEnabled: false, actualPurchaseExecuted: false, scheduledExecution: false,
   };
 }

@@ -965,6 +965,47 @@ test("replacement audit accounts for every old and new line and explains the del
   });
 });
 
+test("replacement keeps confirmed sourcing lines unless the operator explicitly excludes them", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.options.excludedBarcodes = ["BAA2-1"];
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "기존 공통 상품", quantity: 5 },
+      { barcode: "BAA2-1", name: "운영자 제외 상품", quantity: 7 },
+      {
+        barcode: "BAA3-1",
+        name: "직접 추가 신규소싱 상품",
+        quantity: 10,
+        preserveOnRegeneration: true,
+      },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(
+    report.preservedReplacementLines.map((row) => row.barcode),
+    ["BAA3-1"],
+  );
+  assert.equal(report.replacementAudit.selectedLineCount, 2);
+  assert.deepEqual(
+    report.replacementAudit.removed.map((row) => row.barcode),
+    ["BAA2-1"],
+  );
+  assert.deepEqual(
+    report.replacementAudit.removed[0].reasons,
+    ["OPERATOR_DRAFT_EXCLUSION"],
+  );
+  assert.equal(report.replacementAudit.complete, true);
+});
+
 test("replacement draft drift during calculation fails closed", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
