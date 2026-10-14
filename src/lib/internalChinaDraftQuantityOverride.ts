@@ -67,7 +67,7 @@ function validQuantity(value: unknown) {
     throw new Error("INTERNAL_CHINA_QUANTITY_INVALID");
   }
   const quantity = Math.round(parsed);
-  if (quantity < 1 || quantity > QUANTITY_MAX) {
+  if (quantity < 0 || quantity > QUANTITY_MAX) {
     throw new Error("INTERNAL_CHINA_QUANTITY_INVALID");
   }
   return quantity;
@@ -114,7 +114,7 @@ export async function loadInternalChinaQuantityOverrides(
     const targetQuantity = Number(input.targetQuantity);
     if (!Number.isFinite(targetQuantity)) continue;
     const quantity = Math.round(targetQuantity);
-    if (quantity < 1 || quantity > QUANTITY_MAX) continue;
+    if (quantity < 0 || quantity > QUANTITY_MAX) continue;
     overrides.set(barcode, {
       barcode,
       targetQuantity: quantity,
@@ -128,10 +128,12 @@ export function applyInternalChinaQuantityOverrides(
   draft: InternalChinaPurchaseDraft,
   overrides: Map<string, InternalChinaQuantityOverride>,
 ): InternalChinaPurchaseDraft {
-  const lines = draft.lines.map((line) => {
-    const override = overrides.get(normalizeBarcode(line.barcode));
-    return override ? { ...line, quantity: override.targetQuantity } : line;
-  });
+  const lines = draft.lines
+    .map((line) => {
+      const override = overrides.get(normalizeBarcode(line.barcode));
+      return override ? { ...line, quantity: override.targetQuantity } : line;
+    })
+    .filter((line) => line.quantity > 0);
   return {
     ...draft,
     lines,

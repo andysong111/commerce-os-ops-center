@@ -123,7 +123,10 @@ export async function POST(request: Request, context: RouteContext) {
       {
         ok: true,
         saved,
-        message: `${barcode} 주문수량을 ${saved.targetQuantity.toLocaleString("ko-KR")}개로 즉시 저장했습니다. 실제 주문완료 기록 시 ORDERED·입고 원장에도 이 수량을 반영합니다.`,
+        message:
+          saved.targetQuantity === 0
+            ? `${barcode}를 현재 발주초안에서 제외했습니다. 원본 후보와 변경 기록은 남아 있습니다.`
+            : `${barcode} 주문수량을 ${saved.targetQuantity.toLocaleString("ko-KR")}개로 즉시 저장했습니다. 실제 주문완료 기록 시 ORDERED·입고 원장에도 이 수량을 반영합니다.`,
         externalOrderExecuted: false,
       },
       { headers: { "cache-control": "no-store" } },

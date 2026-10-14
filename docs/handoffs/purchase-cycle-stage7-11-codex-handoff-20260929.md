@@ -613,6 +613,15 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 
 ---
 
+## 21. Draft row exclusion and verified 1688 cart handoff (2026-10-14)
+
+- Every open China purchase Draft row has an `이 상품 초안에서 제외` action. It writes an audited quantity override of `0`, removes the row from the current totals and 1688 cart scope, and preserves the source candidate and operation history.
+- `1688 장바구니 준비` now saves the current inline link/option/cost edits before opening the local control center with the exact Draft id. This prevents the local cart runner from reading stale inputs.
+- The local cart runner matches the normalized 1688 offer id and Chinese option, reconciles the exact planned quantity, then reads the post-cart checkout preview. It writes back only the actual CNY unit price and one seller-group China freight total, followed by a GET readback check.
+- A missing or ambiguous option, quantity mismatch, missing price/freight, login requirement, or security challenge fails closed. Order submission and payment controls remain outside the automation.
+
+---
+
 ## 21. Manual sourcing draft persistence (2026-10-10)
 
 - Manual 1688 product and option input uses one browser-local draft per replacement Draft ID, or per cycle month when there is no replacement Draft. Sourcing-preview success/failure, calculation-form visibility, a same-month date change, refresh, and recalculation must not switch storage slots or discard input. The manual calculation staging ID remains available even when the sourcing preview times out, so restored candidates stay visible while the final calculation button remains safely unavailable.

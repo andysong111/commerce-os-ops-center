@@ -122,6 +122,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [ordering, setOrdering] = useState(false);
+  const [excludingBarcode, setExcludingBarcode] = useState("");
+  const [cartPreparing, setCartPreparing] = useState(false);
   const [scrollWidth, setScrollWidth] = useState(TABLE_WIDTH);
   const [freezeThrough, setFreezeThrough] = useState(0);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
@@ -269,12 +271,15 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
   function applySavedQuantity(barcode: string, targetQuantity: number, message: string) {
     setDraft((current) => {
-      const lines = current.lines.map((line) =>
-        line.barcode === barcode ? { ...line, quantity: targetQuantity } : line,
-      );
+      const lines = current.lines
+        .map((line) =>
+          line.barcode === barcode ? { ...line, quantity: targetQuantity } : line,
+        )
+        .filter((line) => line.quantity > 0);
       return {
         ...current,
         lines,
+        lineCount: lines.length,
         totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
       };
     });
@@ -447,6 +452,60 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     }
   }
 
+  async function excludeLine(line: InternalChinaPurchaseDraftLine) {
+    if (draft.status !== "DRAFT" || excludingBarcode) return;
+    if (
+      !window.confirm(
+        `${line.barcode} · ${line.modelName || line.productName}\n${line.quantity.toLocaleString("ko-KR")}개를 이번 발주초안에서 제외할까요?\n\n원본 후보와 변경 기록은 남고, 현재 합계와 1688 장바구니 대상에서만 빠집니다.`,
+      )
+    ) return;
+    setExcludingBarcode(line.barcode);
+    setNotice("");
+    try {
+      const response = await fetch(
+        `/api/china-order-manager/drafts/${encodeURIComponent(draft.draftId)}/quantity`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ barcode: line.barcode, targetQuantity: 0 }),
+          credentials: "same-origin",
+          cache: "no-store",
+        },
+      );
+      const body = (await response.json().catch(() => ({}))) as QuantityResponse;
+      if (!response.ok || !body.ok) {
+        throw new Error(body.message || "초안에서 상품을 제외하지 못했습니다.");
+      }
+      applySavedQuantity(line.barcode, 0, body.message || `${line.barcode}를 초안에서 제외했습니다.`);
+      router.refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "초안에서 상품을 제외하지 못했습니다.");
+    } finally {
+      setExcludingBarcode("");
+    }
+  }
+
+  async function prepare1688Cart() {
+    if (draft.status !== "DRAFT" || saving || cartPreparing) return;
+    const localAgent = window.open("about:blank", "commerce-os-1688-cart");
+    if (!localAgent) {
+      setNotice("팝업이 차단되었습니다. 이 사이트의 팝업을 허용한 뒤 다시 눌러 주세요.");
+      return;
+    }
+    setCartPreparing(true);
+    setNotice("현재 입력값을 저장한 뒤 이 초안을 로컬 1688 자동화로 엽니다.");
+    try {
+      const savedDraft = await persistDraft({ quiet: true });
+      localAgent.location.href = `http://127.0.0.1:43121/?draftId=${encodeURIComponent(savedDraft.draftId)}`;
+      setNotice("로컬 업무센터가 열렸습니다. 5번 ‘1688 장바구니 준비’를 실행하면 중국옵션·수량을 맞추고 장바구니/결제 직전의 실제 위안단가와 판매자별 중국내 운임을 이 초안에 저장합니다.");
+    } catch (error) {
+      localAgent.close();
+      setNotice(error instanceof Error ? error.message : "1688 장바구니 준비를 시작하지 못했습니다.");
+    } finally {
+      setCartPreparing(false);
+    }
+  }
+
   async function markOrdered() {
     if (draft.status !== "DRAFT") return;
     setNotice("");
@@ -533,7 +592,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <span className="mt-0.5 block text-[11px] text-emerald-700">실주문 원가 × 내부 주문 수수료율 {draft.internalOrderCostMultiplier.toFixed(2)}</span>
             </div>
             <a href="https://commerce-os-product-master.vercel.app/purchase-metadata" target="_blank" rel="noreferrer" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-800 hover:bg-slate-50">상품마스터 최신 원장</a>
-            <a href={`http://127.0.0.1:43121/?draftId=${encodeURIComponent(draft.draftId)}`} target="_blank" rel="noreferrer" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100">1688 장바구니 준비</a>
+            <button type="button" onClick={() => void prepare1688Cart()} disabled={cartPreparing || saving || draft.status !== "DRAFT" || !draft.lines.length} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{cartPreparing ? "로컬 자동화 여는 중..." : "1688 장바구니 준비"}</button>
             <button type="button" onClick={() => void saveDraft()} disabled={saving || draft.status !== "DRAFT"} className="rounded-xl border border-blue-300 bg-white px-4 py-2.5 text-sm font-black text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "양방향 저장 중..." : "발주초안 저장"}</button>
             <button type="button" onClick={() => void markOrdered()} disabled={ordering || draft.status !== "DRAFT" || requiredIssues.length > 0} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">{draft.status === "ORDERED" ? "실주문 기록완료" : ordering ? "기록 중..." : "1688 주문완료 후 기록"}</button>
           </div>
@@ -604,6 +663,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                       <span className="mt-1 block font-semibold text-slate-700">{line.modelName || "모델명 -"}</span>
                       <span className="mt-1 block font-mono text-[11px] text-slate-400">{line.modelNo}</span>
                       <span className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-800">옵션 · {line.saleOption || "-"}</span>
+                      <button type="button" disabled={!editable || Boolean(excludingBarcode)} onClick={() => void excludeLine(line)} className="mt-2 block rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40">{excludingBarcode === line.barcode ? "제외 중..." : "이 상품 초안에서 제외"}</button>
                     </td>
                     <td className="px-2 py-2" style={stickyCellStyle(1, freezeThrough)}>
                       <div className="flex items-center gap-1.5">
