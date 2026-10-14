@@ -100,6 +100,14 @@ test("legacy writes remain authoritative and refresh normalized rows", () => {
   assert.match(source.normalized, /disableProductLaunchNormalizedRead/);
 });
 
+test("normalized state can rebuild the derived list without rewriting the source state", () => {
+  assert.match(source.state, /export async function POST\(request: NextRequest\)/);
+  assert.match(source.state, /readProductLaunchState/);
+  assert.match(source.state, /syncProductLaunchNormalizedFull/);
+  assert.match(source.state, /readEnabled: true/);
+  assert.doesNotMatch(source.state, /POST[\s\S]*?legacyPut\(request\)/);
+});
+
 test("cutover requires item and option count parity before enabling reads", () => {
   assert.match(source.cutover, /PRODUCT_LAUNCH_NORMALIZED_COUNT_MISMATCH/);
   assert.match(source.cutover, /setProductLaunchNormalizedReadEnabled/);
