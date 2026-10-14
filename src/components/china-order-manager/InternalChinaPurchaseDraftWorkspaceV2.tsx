@@ -711,7 +711,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <tr>
                 {TABLE_COLUMNS.map((column, index) => (
                   <th key={column.label} className={`px-3 py-3 ${index >= 3 && index <= 10 ? "text-right" : ""}`} style={stickyCellStyle(index, freezeThrough, true)}>
-                    {index === 0 ? <label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedExclusions(Object.fromEntries(draft.lines.map((line) => [line.barcode, event.target.checked])))} disabled={draft.status !== "DRAFT"} aria-label="발주초안 상품 전체 선택" className="size-4" /><span>{column.label}</span></label> : column.label}
+                    {index === 0 ? <div><label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedExclusions(Object.fromEntries(draft.lines.map((line) => [line.barcode, event.target.checked])))} disabled={draft.status !== "DRAFT"} aria-label="제거할 상품 전체 선택" className="size-4" /><span>제거할 상품 체크</span></label><span className="mt-1 block text-[11px] font-semibold text-slate-500">{column.label}</span></div> : column.label}
                   </th>
                 ))}
               </tr>
@@ -728,7 +728,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                 return (
                   <tr key={line.barcode} className="align-top hover:bg-slate-50/70">
                     <td className="px-3 py-3" style={stickyCellStyle(0, freezeThrough)}>
-                      <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={selectedExclusions[line.barcode] === true} onChange={(event) => toggleExcludedBarcode(line.barcode, event.target.checked)} disabled={!editable} aria-label={`${line.barcode} 발주초안에서 제외 선택`} className="size-4" /><strong className="font-mono text-sm text-slate-950">{line.barcode}</strong></label>
+                      <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={selectedExclusions[line.barcode] === true} onChange={(event) => toggleExcludedBarcode(line.barcode, event.target.checked)} disabled={!editable} aria-label={`${line.barcode} 제거할 상품 체크`} className="size-4" /><strong className="font-mono text-sm text-slate-950">{line.barcode}</strong></label>
                       <span className="mt-1 block font-semibold text-slate-700">{line.modelName || "모델명 -"}</span>
                       <span className="mt-1 block font-mono text-[11px] text-slate-400">{line.modelNo}</span>
                       <span className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-800">옵션 · {line.saleOption || "-"}</span>
