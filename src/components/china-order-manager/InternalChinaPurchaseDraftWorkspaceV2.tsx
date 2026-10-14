@@ -382,7 +382,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     };
   }
 
-  async function persistDraft(options: { quiet?: boolean } = {}) {
+  async function persistDraft(options: { quiet?: boolean; syncMetadata?: boolean } = {}) {
     const response = await fetch(
       `/api/china-order-manager/drafts/${encodeURIComponent(draft.draftId)}`,
       {
@@ -400,33 +400,35 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
     let nextDraft = body.draft;
     let metadataMessage = "";
-    try {
-      const metadataResponse = await fetch(
-        `/api/china-order-manager/drafts/${encodeURIComponent(draft.draftId)}/purchase-metadata`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify(payload(nextDraft)),
-          credentials: "same-origin",
-          cache: "no-store",
-        },
-      );
-      const metadata = (await metadataResponse.json().catch(() => ({}))) as MetadataSyncResponse;
-      if (!metadataResponse.ok || !metadata.ok) {
-        throw new Error(
-          metadata.message || "Draft는 저장됐지만 상품출시진행관리 역저장을 완료하지 못했습니다.",
+    if (options.syncMetadata !== false) {
+      try {
+        const metadataResponse = await fetch(
+          `/api/china-order-manager/drafts/${encodeURIComponent(draft.draftId)}/purchase-metadata`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify(payload(nextDraft)),
+            credentials: "same-origin",
+            cache: "no-store",
+          },
         );
+        const metadata = (await metadataResponse.json().catch(() => ({}))) as MetadataSyncResponse;
+        if (!metadataResponse.ok || !metadata.ok) {
+          throw new Error(
+            metadata.message || "Draft는 저장됐지만 상품출시진행관리 역저장을 완료하지 못했습니다.",
+          );
+        }
+        if (metadata.draft) nextDraft = metadata.draft;
+        const warnings = metadata.warnings?.filter(Boolean) ?? [];
+        metadataMessage = metadata.productMasterSynced
+          ? `상품출시진행관리와 상품마스터 최신 원장에 양방향 반영했습니다. 모델 ${metadata.syncedModels ?? 0}개 · B-code ${metadata.syncedBcodes ?? 0}개.`
+          : `상품출시진행관리에는 반영했지만 상품마스터 동기화 확인이 필요합니다: ${metadata.productMasterError || warnings.join(" · ") || "재시도 필요"}`;
+      } catch (error) {
+        metadataMessage =
+          error instanceof Error
+            ? `Draft는 저장됐지만 구매정보 역저장은 확인이 필요합니다: ${error.message}`
+            : "Draft는 저장됐지만 구매정보 역저장은 확인이 필요합니다.";
       }
-      if (metadata.draft) nextDraft = metadata.draft;
-      const warnings = metadata.warnings?.filter(Boolean) ?? [];
-      metadataMessage = metadata.productMasterSynced
-        ? `상품출시진행관리와 상품마스터 최신 원장에 양방향 반영했습니다. 모델 ${metadata.syncedModels ?? 0}개 · B-code ${metadata.syncedBcodes ?? 0}개.`
-        : `상품출시진행관리에는 반영했지만 상품마스터 동기화 확인이 필요합니다: ${metadata.productMasterError || warnings.join(" · ") || "재시도 필요"}`;
-    } catch (error) {
-      metadataMessage =
-        error instanceof Error
-          ? `Draft는 저장됐지만 구매정보 역저장은 확인이 필요합니다: ${error.message}`
-          : "Draft는 저장됐지만 구매정보 역저장은 확인이 필요합니다.";
     }
 
     setDraft(nextDraft);
@@ -495,7 +497,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     setCartPreparing(true);
     setNotice("현재 입력값을 저장한 뒤 이 초안을 로컬 1688 자동화로 엽니다.");
     try {
-      const savedDraft = await persistDraft({ quiet: true });
+      const savedDraft = await persistDraft({ quiet: true, syncMetadata: false });
       localAgent.location.href = `http://127.0.0.1:43121/?draftId=${encodeURIComponent(savedDraft.draftId)}`;
       setNotice("로컬 업무센터가 열렸습니다. 5번 ‘1688 장바구니 준비’를 실행하면 중국옵션·수량을 맞추고 장바구니/결제 직전의 실제 위안단가와 판매자별 중국내 운임을 이 초안에 저장합니다.");
     } catch (error) {
