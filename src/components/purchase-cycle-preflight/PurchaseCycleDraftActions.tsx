@@ -158,7 +158,7 @@ export function PurchaseCycleDraftActions({
         return;
       }
       setNotice(
-        `${payload.message} ${payload.draft?.lineCount ?? selectedCount}개 SKU · 총 ${payload.draft?.totalQuantity ?? totalQuantity}개 · ${savedDraftId}`,
+        `${payload.message} 최종 ${selectedCount}개 SKU · 총 ${totalQuantity.toLocaleString("ko-KR")}개 · ${savedDraftId}`,
       );
     } catch {
       setNotice("월간 Draft 저장 요청이 실패했습니다. 실제 주문·결제는 실행되지 않았습니다.");
