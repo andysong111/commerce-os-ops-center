@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [workspace, page, route, writer] = await Promise.all([
+const [workspace, batchEditor, page, route, writer] = await Promise.all([
   readFile(
     "src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx",
+    "utf8",
+  ),
+  readFile(
+    "src/components/china-order-manager/InternalChinaDraftBatchEditor.tsx",
     "utf8",
   ),
   readFile("src/app/china-order-manager/drafts/[draftId]/page.tsx", "utf8"),
@@ -16,9 +20,10 @@ const [workspace, page, route, writer] = await Promise.all([
 ]);
 
 test("draft page uses the inline bidirectional workspace", () => {
-  assert.match(page, /InternalChinaPurchaseDraftWorkspaceV2/);
+  assert.match(page, /InternalChinaDraftBatchEditor/);
+  assert.match(batchEditor, /InternalChinaPurchaseDraftWorkspaceV2/);
   assert.doesNotMatch(page, /InternalChinaSupplierLinkEditor/);
-  assert.match(page, /링크와 중국옵션은 아래 표에서 직접 입력/);
+  assert.match(workspace, /링크·중국옵션을 확인/);
 });
 
 test("wide draft table exposes synchronized top and bottom horizontal scrolling", () => {
@@ -29,7 +34,7 @@ test("wide draft table exposes synchronized top and bottom horizontal scrolling"
   assert.match(workspace, /← 왼쪽/);
   assert.match(workspace, /오른쪽 →/);
   assert.match(workspace, /overflow-x-auto overscroll-x-contain/);
-  assert.match(workspace, /min-w-\[2200px\]/);
+  assert.match(workspace, /style=\{\{ minWidth: TABLE_WIDTH, width: TABLE_WIDTH \}\}/);
 });
 
 test("supplier link and China option are editable inline and included in save payload", () => {

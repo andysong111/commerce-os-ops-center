@@ -743,3 +743,14 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - The Draft workspace keeps quantity saving separate from replacement. After one or more row saves it shows `변경 수량으로 발주안 재생성`, opens a read-only preview, and changes the active Draft only after the existing replacement confirmation.
 - Confirmed sourcing rows remain preserved. A manual quantity on such a row is carried into the replacement totals, while existing-product replenishment budget allocation remains governed by the canonical purchase engine.
 - This flow does not execute a 1688 order, payment, supplier contact, or ORDERED transition.
+
+---
+
+## 29. One-shot Draft edit and recalculation (2026-10-15)
+
+- PR `#1444` implements the single staged edit and recalculation flow.
+- The China purchase Draft now stages quantity edits, exclusions, and searched B-code additions in one client-side change set. None of those three actions writes the active Draft, order ledger, or inbound ledger while the operator is still editing.
+- `변경사항 모아 발주안 재계산` sends the combined exclusions and fixed quantities to the existing replacement preflight once. The engine reserves the operator quantities first and refills the remaining budget from the next priority rows; the current Draft changes only after the operator reviews and confirms the replacement preview.
+- Search results can be checked in bulk and retain their per-B-code requested quantities. A searched addition must still satisfy the canonical purchase candidate, cost, inventory, and budget gates; a missing gate produces a visible blocker instead of silently adding an unpriced product.
+- Invalid row quantities block the shared recalculation button and identify the B-code that must be corrected. `대기 변경 취소` clears all staged quantity, exclusion, and addition changes together.
+- Supplier link, China option, CNY price, freight, and other order-preparation metadata keep their existing explicit Draft save flow. This change does not execute a 1688 order, payment, supplier contact, or ORDERED transition.
