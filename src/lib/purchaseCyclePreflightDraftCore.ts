@@ -144,6 +144,43 @@ export function purchaseCycleDraftConfirmation(
   return `CREATE_PURCHASE_DRAFT_${report.targetCycleMonth}_${report.selected.length}SKU_${report.estimatedSpendKrw}KRW_CASH${report.cashLimitKrw ?? "AUTO"}_SOURCING${report.sourcingBudgetPercent}PCT${sourcingSuffix}`;
 }
 
+export function purchaseCycleDraftPlannedTotals(
+  report: PurchaseCyclePreflightReport,
+  sourcingPlan: SourcingBudgetPlan | null = null,
+) {
+  const existingReorderCount = report.selected.length;
+  const existingReorderQuantity = report.selected.reduce(
+    (total, row) => total + row.quantity,
+    0,
+  );
+  const preservedSourcingCount = report.preservedReplacementLines?.length ?? 0;
+  const preservedSourcingQuantity = (report.preservedReplacementLines ?? []).reduce(
+    (total, row) => total + row.quantity,
+    0,
+  );
+  const newSourcingCount = sourcingPlan?.allocation.selected.reduce(
+    (total, row) => total + (Array.isArray(row.selectedVariants) ? row.selectedVariants.length : 0),
+    0,
+  ) ?? 0;
+  const newSourcingQuantity = sourcingPlan?.allocation.selected.reduce(
+    (total, row) => total + (Array.isArray(row.selectedVariants)
+      ? row.selectedVariants.reduce((sum, variant) => sum + variant.quantity, 0)
+      : 0),
+    0,
+  ) ?? 0;
+
+  return {
+    existingReorderCount,
+    existingReorderQuantity,
+    preservedSourcingCount,
+    preservedSourcingQuantity,
+    newSourcingCount,
+    newSourcingQuantity,
+    finalLineCount: existingReorderCount + preservedSourcingCount + newSourcingCount,
+    finalQuantity: existingReorderQuantity + preservedSourcingQuantity + newSourcingQuantity,
+  };
+}
+
 export function preparePurchaseCycleDraft(
   report: PurchaseCyclePreflightReport,
   request: PurchaseCycleDraftRequest,

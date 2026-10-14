@@ -11,6 +11,7 @@ import { loadPurchaseCyclePreflightPreview } from "@/lib/purchaseCyclePreflightP
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import {
   purchaseCycleDraftConfirmation,
+  purchaseCycleDraftPlannedTotals,
   sourcingBudgetDecisionFingerprint,
 } from "@/lib/purchaseCyclePreflightDraftCore";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
@@ -333,6 +334,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const sourcingPlannedSpendKrw = sourcingPlan
     ? sourcingPlan.allocation.alreadyReservedKrw + sourcingPlan.allocation.estimatedSpendKrw
     : 0;
+  const draftPlannedTotals = report
+    ? purchaseCycleDraftPlannedTotals(report, sourcingPlan)
+    : null;
   const sourcingPendingKrw = report && report.sourcingBudgetPercent > 0 && report.sourcingBudgetReturnKrw === 0
     ? sourcingPlan
       ? sourcingPlan.readyForConfirmation ? 0 : sourcingPlan.allocation.remainingBudgetKrw
@@ -438,9 +442,15 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       : null,
     sourcingSelectedCount: sourcingSelectedVariantCount,
     sourcingEstimatedSpendKrw: sourcingPlan?.allocation.estimatedSpendKrw ?? 0,
+    sourcingAlreadyReservedKrw: sourcingPlan?.allocation.alreadyReservedKrw ?? 0,
     confirmation: draftReady ? purchaseCycleDraftConfirmation(report, sourcingPlan) : "",
-    selectedCount: report.selected.length,
-    totalQuantity: report.selected.reduce((sum, row) => sum + row.quantity, 0),
+    selectedCount: draftPlannedTotals?.finalLineCount ?? report.selected.length,
+    totalQuantity: draftPlannedTotals?.finalQuantity ?? report.selected.reduce((sum, row) => sum + row.quantity, 0),
+    existingReorderCount: draftPlannedTotals?.existingReorderCount ?? report.selected.length,
+    existingReorderQuantity: draftPlannedTotals?.existingReorderQuantity ?? 0,
+    preservedSourcingCount: draftPlannedTotals?.preservedSourcingCount ?? 0,
+    preservedSourcingQuantity: draftPlannedTotals?.preservedSourcingQuantity ?? 0,
+    newSourcingQuantity: draftPlannedTotals?.newSourcingQuantity ?? 0,
     estimatedSpendKrw: report.estimatedSpendKrw,
     ready: draftReady,
     replaceDraftId: report.replacementDraftId,

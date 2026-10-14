@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   preparePurchaseCycleDraft,
   purchaseCycleDraftConfirmation,
+  purchaseCycleDraftPlannedTotals,
   purchaseCycleDraftPreflightOptions,
   sourcingBudgetDecisionFingerprint,
 } from "../src/lib/purchaseCyclePreflightDraftCore.ts";
@@ -372,6 +373,35 @@ test("replacement preparation carries confirmed sourcing lines into the regenera
   assert.match(input.confirmation, /_2SKU_/);
 });
 
+test("replacement totals include reorder, preserved sourcing, and newly selected sourcing lines", () => {
+  const value = report();
+  value.preservedReplacementLines = [{
+    barcode: "BAA3-1",
+    name: "기존 신규소싱 상품",
+    quantity: 10,
+    preserveOnRegeneration: true,
+  }];
+  const plan = sourcingPlan(value);
+  plan.allocation.selected = [{
+    conceptId: "new-1",
+    selectedVariants: [{ variantKey: "gray", quantity: 12 }],
+  }, {
+    conceptId: "new-2",
+    selectedVariants: [{ variantKey: "small", quantity: 3 }, { variantKey: "large", quantity: 5 }],
+  }];
+
+  assert.deepEqual(purchaseCycleDraftPlannedTotals(value, plan), {
+    existingReorderCount: 1,
+    existingReorderQuantity: 38,
+    preservedSourcingCount: 1,
+    preservedSourcingQuantity: 10,
+    newSourcingCount: 3,
+    newSourcingQuantity: 20,
+    finalLineCount: 5,
+    finalQuantity: 68,
+  });
+});
+
 test("replacement cannot be saved without a complete old-to-new coverage audit", () => {
   const value = report();
   value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
@@ -485,6 +515,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(actions, /sourcingBudgetPercent/);
   assert.match(actions, /preferredSourcingConceptIds/);
   assert.match(actions, /신규상품 소싱/);
+  assert.match(actions, /기존상품.*유지 신규소싱.*새 신규소싱.*최종/);
   assert.match(actions, /expectedSourcingSourceFingerprint/);
   assert.match(actions, /expectedSourcingDecisionFingerprint/);
   assert.match(route, /status: result\.complete \? result\.draft\.duplicate \? 200 : 201 : 207/);
