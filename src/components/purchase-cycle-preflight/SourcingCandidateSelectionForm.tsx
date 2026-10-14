@@ -8,6 +8,7 @@ import type {
   SourcingSaleVariant,
   SourcingVariantSelectionInput,
 } from "@/lib/sourcingBudgetPlan";
+import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
 
 type StorageSize = "S" | "L";
 
@@ -30,6 +31,7 @@ type Props = {
   early: boolean;
   replaceDraftId: string | null;
   excludedBarcodes: string[];
+  quantityOverrides: PurchaseQuantityOverride[];
   selectedCandidates: SourcingBudgetPlanSelection[];
   availableCandidates: Candidate[];
   preferredConceptIds: string[];
@@ -48,6 +50,7 @@ export function SourcingCandidateSelectionForm({
   early,
   replaceDraftId,
   excludedBarcodes,
+  quantityOverrides,
   selectedCandidates,
   availableCandidates,
   initialVariantSelections,
@@ -131,6 +134,7 @@ export function SourcingCandidateSelectionForm({
       {early ? <input type="hidden" name="early" value="1" /> : null}
       {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
       {excludedBarcodes.map((barcode) => <input key={`exclude:${barcode}`} type="hidden" name="exclude" value={barcode} />)}
+      {quantityOverrides.map((row) => <input key={`qty:${row.barcode}`} type="hidden" name="qty" value={`${row.barcode}:${row.targetQuantity}`} />)}
       {selectedConceptIds.map((conceptId) => (
         <input key={`source:${conceptId}`} type="hidden" name="source" value={conceptId} />
       ))}

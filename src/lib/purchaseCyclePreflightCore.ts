@@ -39,6 +39,11 @@ export type PurchasePreflightOptions = {
   allowOpenBudgetPreview?: boolean;
   replaceDraftId?: string | null;
   excludedBarcodes?: string[];
+  quantityOverrides?: PurchaseQuantityOverride[];
+};
+export type PurchaseQuantityOverride = {
+  barcode: string;
+  targetQuantity: number;
 };
 export type PurchaseMonthlySpendPin = {
   cycleMonth: string;
@@ -126,6 +131,7 @@ export type PurchaseCyclePreflightReport = {
   targetDate: string;
   replacementDraftId: string | null;
   operatorExcludedBarcodes: string[];
+  operatorQuantityOverrides: PurchaseQuantityOverride[];
   targetCycleMonth: string;
   requiredBudgetMonth: string;
   dateState: "BEFORE_TARGET" | "ON_TARGET" | "TARGET_PASSED";
@@ -257,6 +263,26 @@ export function validatePurchasePreflightOptions(options: PurchasePreflightOptio
   ) {
     throw new Error("OPERATOR_EXCLUDED_BARCODES_INVALID");
   }
+  const quantityOverrides = options.quantityOverrides ?? [];
+  if (!Array.isArray(quantityOverrides) || quantityOverrides.length > 100) {
+    throw new Error("OPERATOR_QUANTITY_OVERRIDES_INVALID");
+  }
+  if (quantityOverrides.length > 0 && !options.replaceDraftId) {
+    throw new Error("OPERATOR_QUANTITY_OVERRIDES_REQUIRE_REPLACEMENT_DRAFT");
+  }
+  const quantityOverrideBarcodes = quantityOverrides.map((row) => row?.barcode);
+  if (
+    quantityOverrides.some((row) =>
+      !row || typeof row.barcode !== "string" || !CODE.test(row.barcode) ||
+      !positive(row.targetQuantity) || row.targetQuantity > options.maxUnitsPerSku
+    ) ||
+    new Set(quantityOverrideBarcodes).size !== quantityOverrideBarcodes.length
+  ) {
+    throw new Error("OPERATOR_QUANTITY_OVERRIDES_INVALID");
+  }
+  if (quantityOverrideBarcodes.some((barcode) => excludedBarcodes.includes(barcode))) {
+    throw new Error("OPERATOR_QUANTITY_OVERRIDE_EXCLUSION_CONFLICT");
+  }
   if (options.cashLimitKrw !== null && !positive(options.cashLimitKrw)) throw new Error("CASH_LIMIT_INVALID");
   if (!validPercent(options.sourcingBudgetPercent ?? 0)) throw new Error("SOURCING_BUDGET_PERCENT_INVALID");
   if (!nonnegative(options.sourcingBudgetReturnKrw ?? 0)) throw new Error("SOURCING_BUDGET_RETURN_INVALID");
@@ -375,7 +401,7 @@ function projectedLine(
   return {
     barcode: row.barcode, name: row.name, quantity: allocatedQuantity,
     originalRecommendedQuantity: row.recommendedQty,
-    cashAdjusted: allocatedQuantity < row.recommendedQty,
+    cashAdjusted: allocatedQuantity !== row.recommendedQty,
     cashflowTier,
     priorityScore: row.priorityScore,
     estimatedCostKrw: unitCost * allocatedQuantity,
@@ -446,6 +472,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const replacementDraftId = input.options.replaceDraftId ?? null;
   const operatorExcludedBarcodes = [...(input.options.excludedBarcodes ?? [])].sort();
   const operatorExcludedSet = new Set(operatorExcludedBarcodes);
+  const operatorQuantityOverrides = [...(input.options.quantityOverrides ?? [])]
+    .map((row) => ({ barcode: row.barcode, targetQuantity: row.targetQuantity }))
+    .sort((left, right) => left.barcode.localeCompare(right.barcode));
+  const operatorQuantityByBarcode = new Map(
+    operatorQuantityOverrides.map((row) => [row.barcode, row.targetQuantity] as const),
+  );
   const replacementStable = replacementDraftId === null || (
     validReplacementDraftSnapshot(input.replacementBefore, replacementDraftId) &&
     validReplacementDraftSnapshot(input.replacementAfter, replacementDraftId) &&
@@ -606,7 +638,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (duplicates.size) blockers.push("DUPLICATE_BARCODE");
   const candidates = rows.filter(row => row.purchaseStatus === "발주 추천");
   const allowShadowEstimateForRefill = Boolean(
-    replacementDraftId && operatorExcludedBarcodes.length > 0,
+    replacementDraftId && (operatorExcludedBarcodes.length > 0 || operatorQuantityOverrides.length > 0),
   );
   const costBasisByBarcode = new Map(
     candidates.map((row) => [
@@ -649,15 +681,49 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     if (reasons.length) excluded.push({ barcode: row.barcode, reasons }); else eligible.push(row);
   }
   eligible.sort((a, b) => b.priorityScore - a.priorityScore || lineCost(a, costBasisByBarcode.get(a.barcode) ?? null) - lineCost(b, costBasisByBarcode.get(b.barcode) ?? null) || a.barcode.localeCompare(b.barcode));
+  const candidateBarcodes = new Set(candidates.map((row) => row.barcode));
+  const eligibleBarcodes = new Set(eligible.map((row) => row.barcode));
+  const preservedReplacementBarcodes = new Set(
+    (input.replacementAfter?.lines ?? [])
+      .filter((line) => line.preserveOnRegeneration === true)
+      .map((line) => line.barcode),
+  );
+  for (const override of operatorQuantityOverrides) {
+    if (preservedReplacementBarcodes.has(override.barcode)) continue;
+    if (!candidateBarcodes.has(override.barcode) || !eligibleBarcodes.has(override.barcode)) {
+      blockers.push("OPERATOR_QUANTITY_TARGET_NOT_ELIGIBLE");
+    }
+  }
   const selected: PurchasePreflightLine[] = [];
   let estimatedSpendKrw = 0;
-  const calculationUnblocked = blockers.length === 0;
   if (blockers.length === 0) {
-    const withinSkuLimit = eligible.slice(0, maxSkus);
-    for (const row of eligible.slice(maxSkus)) {
+    const fixedRows = eligible.filter((row) => operatorQuantityByBarcode.has(row.barcode));
+    const flexibleRows = eligible.filter((row) => !operatorQuantityByBarcode.has(row.barcode));
+    const remainingSkuCapacity = Math.max(0, maxSkus - fixedRows.length);
+    const withinSkuLimit = flexibleRows.slice(0, remainingSkuCapacity);
+    for (const row of flexibleRows.slice(remainingSkuCapacity)) {
       excluded.push({ barcode: row.barcode, reasons: ["CANARY_SKU_LIMIT"] });
     }
-    if (cashLimitKrw !== null) {
+    const fixedSpendKrw = fixedRows.reduce((sum, row) => {
+      const basis = costBasisByBarcode.get(row.barcode);
+      const targetQuantity = operatorQuantityByBarcode.get(row.barcode) ?? 0;
+      return sum + (basis?.unitCostKrw ?? 0) * targetQuantity;
+    }, 0);
+    if (fixedRows.length > maxSkus) {
+      blockers.push("OPERATOR_QUANTITY_SKU_LIMIT_EXCEEDED");
+    } else if (fixedSpendKrw > effectiveBudgetKrw) {
+      blockers.push("OPERATOR_QUANTITY_BUDGET_EXCEEDED");
+    } else {
+      for (const row of fixedRows) {
+        const basis = costBasisByBarcode.get(row.barcode);
+        const targetQuantity = operatorQuantityByBarcode.get(row.barcode);
+        if (!basis || !targetQuantity) continue;
+        selected.push(projectedLine(row, basis, targetQuantity, "AUTOMATIC"));
+        estimatedSpendKrw += basis.unitCostKrw * targetQuantity;
+      }
+    }
+    const remainingBudgetKrw = Math.max(0, effectiveBudgetKrw - estimatedSpendKrw);
+    if (blockers.length === 0 && cashLimitKrw !== null) {
       const allocations = allocatePurchaseCashflow(
         withinSkuLimit.map((row) => ({
           barcode: row.barcode,
@@ -668,7 +734,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
           moq: row.moq,
           cartonQuantity: row.cartonQuantity,
         })),
-        effectiveBudgetKrw,
+        remainingBudgetKrw,
       );
       const allocationByBarcode = new Map(
         allocations.map((row) => [row.barcode, row] as const),
@@ -690,7 +756,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         );
         estimatedSpendKrw += allocation.estimatedCostKrw;
       }
-    } else {
+    } else if (blockers.length === 0) {
       for (const row of withinSkuLimit) {
         const basis = costBasisByBarcode.get(row.barcode);
         if (!basis) continue;
@@ -702,7 +768,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         estimatedSpendKrw += lineCost(row, basis);
       }
     }
-    if (selected.length === 0) blockers.push("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+    if (blockers.length === 0 && selected.length === 0) {
+      blockers.push("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
+    }
   }
   const accountedCandidateBarcodes = new Set([
     ...selected.map((row) => row.barcode),
@@ -711,7 +779,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const candidateCoverageComplete =
     accountedCandidateBarcodes.size === candidates.length &&
     selected.length + excluded.length === candidates.length;
-  if (calculationUnblocked && !candidateCoverageComplete) blockers.push("CANDIDATE_COVERAGE_MISMATCH");
+  if (blockers.length === 0 && !candidateCoverageComplete) blockers.push("CANDIDATE_COVERAGE_MISMATCH");
   if (selected.some((row) => row.inventoryMode === "PROVISIONAL")) {
     reviewBlockers.push("PROVISIONAL_INVENTORY_OWNER_REVIEW_REQUIRED");
   }
@@ -729,12 +797,17 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (replacementDraftId && replacementStable && input.replacementAfter) {
     const previousByBarcode = new Map(input.replacementAfter.lines.map((line) => [line.barcode, line]));
     const selectedByBarcode = new Map(selected.map((line) => [line.barcode, line]));
-    preservedReplacementLines = input.replacementAfter.lines.filter(
-      (line) =>
-        line.preserveOnRegeneration === true &&
-        !operatorExcludedSet.has(line.barcode) &&
-        !selectedByBarcode.has(line.barcode),
-    );
+    preservedReplacementLines = input.replacementAfter.lines
+      .filter(
+        (line) =>
+          line.preserveOnRegeneration === true &&
+          !operatorExcludedSet.has(line.barcode) &&
+          !selectedByBarcode.has(line.barcode),
+      )
+      .map((line) => ({
+        ...line,
+        quantity: operatorQuantityByBarcode.get(line.barcode) ?? line.quantity,
+      }));
     const finalByBarcode = new Map<string, PurchaseReplacementDraftLine>([
       ...selected.map((line) => [line.barcode, {
         barcode: line.barcode,
@@ -829,6 +902,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       lines: input.replacementAfter.lines,
     } : null,
     operatorExcludedBarcodes,
+    operatorQuantityOverrides,
     costEstimateErrors: [...(input.costEstimateErrors ?? [])].sort(),
     sourceErrors: [...input.sourceErrors].sort(),
   });
@@ -849,7 +923,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const uniqueReview = [...new Set(reviewBlockers)];
   return {
     mode: "LIVE_READ_ONLY", generatedAt: input.now, targetDate,
-    replacementDraftId, operatorExcludedBarcodes,
+    replacementDraftId, operatorExcludedBarcodes, operatorQuantityOverrides,
     targetCycleMonth, requiredBudgetMonth, dateState,
     state: !previewReady ? "BLOCKED" : uniqueReview.length ? "PREVIEW_ONLY" : "AWAITING_OWNER_REVIEW",
     sourceFingerprint,
@@ -868,6 +942,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         allowOpenBudgetPreview: input.options.allowOpenBudgetPreview === true,
         replaceDraftId: input.options.replaceDraftId ?? null,
         excludedBarcodes: operatorExcludedBarcodes,
+        quantityOverrides: operatorQuantityOverrides,
       },
       selected: stablePlanLines(selected),
       preservedReplacementLines: preservedReplacementLines.map(({ barcode, quantity }) => ({ barcode, quantity })),

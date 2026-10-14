@@ -732,3 +732,14 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - The live sourcing reservation was 429,141 KRW against a 587,537 KRW ceiling. The Production draft API returned `status=DRAFT`, `lineCount=53`, `totalQuantity=3150`, and `externalOrderExecuted=false`.
 - The full-page save notice must use the already-verified final client totals rather than the intermediate 45-row replenishment Draft response; the latter is emitted before the eight sourcing rows finish joining the same Draft.
 - No 1688 order, payment, supplier contact, or ORDERED transition was performed.
+
+---
+
+## 28. Operator quantity rebalance preview (2026-10-14)
+
+- A quantity changed in the China purchase Draft is now a pinned operator decision for the next replacement preview. The calculator reserves that exact quantity first, then uses the remaining product budget for the ordinary next-priority allocation.
+- A lower quantity can add or increase lower-priority rows. A higher quantity reduces or removes lower-priority rows. The requested row is never silently shrunk; if its fixed cost alone exceeds the product budget, the preview fails closed with an explicit budget blocker.
+- Saved quantity overrides are included in replacement snapshots, source/plan fingerprints, the save-time recheck, sourcing-selection forms, and the final replacement confirmation. Exclusion and quantity override for the same B-code are rejected as conflicting instructions.
+- The Draft workspace keeps quantity saving separate from replacement. After one or more row saves it shows `변경 수량으로 발주안 재생성`, opens a read-only preview, and changes the active Draft only after the existing replacement confirmation.
+- Confirmed sourcing rows remain preserved. A manual quantity on such a row is carried into the replacement totals, while existing-product replenishment budget allocation remains governed by the canonical purchase engine.
+- This flow does not execute a 1688 order, payment, supplier contact, or ORDERED transition.

@@ -26,12 +26,22 @@ export default async function InternalChinaPurchaseDraftPage({
   const todaySeoul = seoulCalendarDate();
   let draft;
   let budgetAudit;
+  let initialQuantityOverrides: Array<{ barcode: string; targetQuantity: number }> = [];
   try {
-    [draft, budgetAudit] = await Promise.all([
+    const [baseDraft, loadedBudgetAudit] = await Promise.all([
       loadInternalChinaPurchaseDraft(draftId),
       loadInternalChinaPurchaseBudgetAudit(draftId),
     ]);
-    draft = await loadInternalChinaDraftWithQuantityOverrides(draft);
+    draft = await loadInternalChinaDraftWithQuantityOverrides(baseDraft);
+    budgetAudit = loadedBudgetAudit;
+    const baseQuantityByBarcode = new Map(
+      baseDraft.lines.map((line) => [line.barcode, line.quantity] as const),
+    );
+    initialQuantityOverrides = draft.lines.flatMap((line) =>
+      baseQuantityByBarcode.get(line.barcode) === line.quantity
+        ? []
+        : [{ barcode: line.barcode, targetQuantity: line.quantity }],
+    );
   } catch (error) {
     return (
       <div className="space-y-6">
@@ -111,6 +121,7 @@ export default async function InternalChinaPurchaseDraftPage({
         initialDraft={draft}
         budgetAudit={budgetAudit}
         regenerationHref={`/purchase-cycle-preflight?${regenerationParams.toString()}`}
+        initialQuantityOverrides={initialQuantityOverrides}
       />
 
       <InternalChinaDraftStickySave status={draft.status} />

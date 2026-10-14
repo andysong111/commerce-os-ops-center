@@ -31,6 +31,21 @@ const component = await readFile(
   ),
   "utf8",
 );
+const workspace = await readFile(
+  new URL(
+    "../src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const preflight = await readFile(
+  new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url),
+  "utf8",
+);
+const preflightReader = await readFile(
+  new URL("../src/lib/purchaseCyclePreflight.ts", import.meta.url),
+  "utf8",
+);
 
 test("quantity override stores an absolute 0..9999 target and zero removes the line without deleting history", () => {
   assert.match(helper, /INTERNAL_CHINA_PURCHASE_QUANTITY_OVERRIDE/);
@@ -64,6 +79,17 @@ test("quantity editor is existing-B-code only and reloads after a successful sav
   assert.match(component, /수량 변경 저장/);
   assert.match(component, /window\.location\.reload/);
   assert.match(component, /1개 이상 9,999개 이하/);
+});
+
+test("saved row quantities can launch a pinned budget rebalance preview", () => {
+  assert.match(workspace, /setQuantityOverrides/);
+  assert.match(workspace, /변경 수량으로 발주안 재생성/);
+  assert.match(workspace, /url\.searchParams\.append\("qty"/);
+  assert.match(workspace, /다음 우선순위 상품/);
+  assert.match(preflight, /rawQuantityOverrides/);
+  assert.match(preflight, /quantityOverrides: report\.operatorQuantityOverrides/);
+  assert.match(preflightReader, /loadInternalChinaQuantityOverrides/);
+  assert.match(preflightReader, /quantities\.set\(barcode, override\.targetQuantity\)/);
 });
 
 test("ORDERED correction carries lower quantities into cancellation and higher quantities into ordered amount", () => {

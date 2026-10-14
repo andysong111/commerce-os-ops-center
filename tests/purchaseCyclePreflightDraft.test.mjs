@@ -17,6 +17,7 @@ function report() {
     targetDate: "2026-10-01",
     replacementDraftId: null,
     operatorExcludedBarcodes: [],
+    operatorQuantityOverrides: [],
     replacementAudit: null,
     targetCycleMonth: "2026-10",
     cashLimitKrw: null,
@@ -85,6 +86,7 @@ function request(value = report(), plan = null) {
       : null,
     confirmation: purchaseCycleDraftConfirmation(value, plan),
     excludedBarcodes: value.operatorExcludedBarcodes,
+    quantityOverrides: value.operatorQuantityOverrides,
   };
 }
 
@@ -134,6 +136,39 @@ test("draft recheck preserves operator exclusions and rejects exclusion drift", 
   assert.deepEqual(purchaseCycleDraftPreflightOptions(input).excludedBarcodes, ["BAA1-1"]);
   assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
   input.excludedBarcodes = ["BAA2-1"];
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input),
+    /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
+  );
+});
+
+test("draft recheck preserves and pins operator quantity overrides", () => {
+  const value = report();
+  value.replacementDraftId = "fast-purchase-draft:1234567890abcdef1234";
+  value.operatorQuantityOverrides = [{ barcode: "BAC1-1", targetQuantity: 20 }];
+  value.replacementAudit = {
+    previousLineCount: 1,
+    selectedLineCount: 1,
+    matchedCount: 1,
+    added: [],
+    removed: [],
+    quantityChanged: [{
+      barcode: "BAC1-1",
+      name: "토끼 발세척매트",
+      previousQuantity: 38,
+      selectedQuantity: 20,
+    }],
+    complete: true,
+  };
+  value.selected[0].quantity = 20;
+  const input = { ...request(value), replaceDraftId: value.replacementDraftId };
+
+  assert.deepEqual(
+    purchaseCycleDraftPreflightOptions(input).quantityOverrides,
+    [{ barcode: "BAC1-1", targetQuantity: 20 }],
+  );
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
+  input.quantityOverrides = [{ barcode: "BAC1-1", targetQuantity: 19 }];
   assert.throws(
     () => preparePurchaseCycleDraft(value, input),
     /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
