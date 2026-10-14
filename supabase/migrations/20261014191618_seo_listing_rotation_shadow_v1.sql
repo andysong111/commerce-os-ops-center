@@ -260,11 +260,11 @@ alter table public.seo_listing_lifecycle_records enable row level security;
 alter table public.seo_listing_lifecycle_events enable row level security;
 alter table public.seo_listing_rotation_actions enable row level security;
 
-revoke all on table public.seo_listing_rotation_policies from public, anon, authenticated;
-revoke all on table public.seo_market_account_capacities from public, anon, authenticated;
-revoke all on table public.seo_listing_lifecycle_records from public, anon, authenticated;
-revoke all on table public.seo_listing_lifecycle_events from public, anon, authenticated;
-revoke all on table public.seo_listing_rotation_actions from public, anon, authenticated;
+revoke all on table public.seo_listing_rotation_policies from public, anon, authenticated, service_role;
+revoke all on table public.seo_market_account_capacities from public, anon, authenticated, service_role;
+revoke all on table public.seo_listing_lifecycle_records from public, anon, authenticated, service_role;
+revoke all on table public.seo_listing_lifecycle_events from public, anon, authenticated, service_role;
+revoke all on table public.seo_listing_rotation_actions from public, anon, authenticated, service_role;
 
 grant select, insert, update, delete on table public.seo_listing_rotation_policies to service_role;
 grant select, insert, update, delete on table public.seo_market_account_capacities to service_role;
