@@ -29,7 +29,14 @@ export type PickingSharePayload = {
     addedOrderCount: number;
     changedOrderCount: number;
     removedOrderCount: number;
-    toPickItems: Array<{ barcode: string; quantityToPick: number; productNames: string[]; optionNames: string[] }>;
+    toPickItems: Array<{
+      barcode: string;
+      quantityToPick: number;
+      modelNames: string[];
+      modelNumbers: string[];
+      productNames: string[];
+      optionNames: string[];
+    }>;
   };
   unresolved: Array<Record<string, unknown>>;
 };
