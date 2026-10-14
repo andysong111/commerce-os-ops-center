@@ -6,9 +6,12 @@ import { loadInternalChinaMonthlyPurchaseClose } from "@/lib/internalChinaMonthl
 import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import {
   preparePurchaseCycleDraft,
+  purchaseCycleDraftConfirmation,
   purchaseCycleDraftPreflightOptions,
   type PurchaseCycleDraftRequest,
 } from "@/lib/purchaseCyclePreflightDraftCore";
+import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
+import { normalizePurchaseOrderQuantity } from "@/lib/purchaseCashflowAllocation";
 import { regenerateValidatedMonthlyPurchaseDraft } from "@/lib/purchaseCycleDraftRegeneration";
 import {
   confirmSourcingBudgetPlan,
@@ -16,6 +19,73 @@ import {
   returnableSourcingBudgetKrw,
   type SourcingBudgetConfirmationResult,
 } from "@/lib/sourcingBudgetPlan";
+
+export type InlinePurchaseCycleDraftRecalculationRequest = {
+  targetDate: string;
+  cashLimitKrw: number | null;
+  sourcingBudgetPercent: number;
+  allowOpenBudgetPreview: boolean;
+  replaceDraftId: string;
+  excludedBarcodes: string[];
+  quantityOverrides: PurchaseQuantityOverride[];
+};
+
+export async function recalculatePurchaseCycleDraftInline(
+  input: InlinePurchaseCycleDraftRecalculationRequest,
+) {
+  const requestBase: PurchaseCycleDraftRequest = {
+    targetDate: input.targetDate,
+    cashLimitKrw: input.cashLimitKrw,
+    sourcingBudgetPercent: input.sourcingBudgetPercent,
+    preferredSourcingConceptIds: [],
+    sourcingStorageSizeByConceptId: {},
+    sourcingVariantSelections: [],
+    allowOpenBudgetPreview: input.allowOpenBudgetPreview,
+    expectedSourceFingerprint: "",
+    expectedPlanFingerprint: "",
+    expectedSourcingSourceFingerprint: null,
+    expectedSourcingPlanFingerprint: null,
+    expectedSourcingDecisionFingerprint: null,
+    confirmation: "",
+    replaceDraftId: input.replaceDraftId,
+    excludedBarcodes: input.excludedBarcodes,
+    quantityOverrides: input.quantityOverrides.map((row) => ({
+      barcode: row.barcode,
+      targetQuantity: normalizePurchaseOrderQuantity(row.targetQuantity),
+    })),
+  };
+  const report = await loadPurchaseCyclePreflight(
+    purchaseCycleDraftPreflightOptions(requestBase),
+  );
+  const request: PurchaseCycleDraftRequest = {
+    ...requestBase,
+    expectedSourceFingerprint: report.sourceFingerprint,
+    expectedPlanFingerprint: report.planFingerprint,
+    confirmation: purchaseCycleDraftConfirmation(report),
+  };
+  const prepared = preparePurchaseCycleDraft(report, request, null, {
+    preserveExistingSourcingOnly: true,
+  });
+  if (await loadInternalChinaMonthlyPurchaseClose(prepared.cycleMonth)) {
+    throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_CLOSED:${prepared.cycleMonth}`);
+  }
+  const replacement = await regenerateValidatedMonthlyPurchaseDraft({
+    ...prepared,
+    expectedDraftId: input.replaceDraftId,
+  });
+  return {
+    draft: replacement.draft,
+    previousDraftId: replacement.previousDraftId,
+    supersededLineCount: replacement.supersededLineCount,
+    selectedCount: report.selected.length,
+    preservedSourcingCount: report.preservedReplacementLines.length,
+    addedCount: report.replacementAudit?.added.length ?? 0,
+    removedCount: report.replacementAudit?.removed.length ?? 0,
+    changedCount: report.replacementAudit?.quantityChanged.length ?? 0,
+    estimatedSpendKrw: report.estimatedSpendKrw,
+    externalOrderExecuted: false as const,
+  };
+}
 
 export async function createPurchaseCyclePreflightDraft(
   request: PurchaseCycleDraftRequest,

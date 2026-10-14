@@ -46,9 +46,30 @@ test("draft editor exposes one final calculation action and stages additions wit
     "src/components/china-order-manager/InternalChinaManualDraftLineAdder.tsx",
     "utf8",
   );
-  assert.match(workspace, /변경사항 모아 발주안 재계산/);
+  assert.match(workspace, /변경사항 모아 발주안 바로 재계산/);
   assert.match(workspace, /수량 변경 \{changedQuantityRows\.length\}종 · 제외 \{excludedBarcodes\.length\}종 · 추가 \{stagedAdditions\.length\}종/);
+  assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);
+  assert.match(workspace, /router\.replace\(`\/china-order-manager\/drafts\//);
+  assert.doesNotMatch(workspace, /router\.push\(buildPurchaseDraftBatchRecalculationHref/);
+  assert.match(workspace, /step=\{5\}/);
+  assert.match(workspace, /targetQuantity % 5 === 0/);
+  assert.match(workspace, /filter\(\(\[barcode\]\) => !excludedBarcodes\.includes\(barcode\)\)/);
   assert.doesNotMatch(workspace, /regenerateWithoutSelected|regenerateWithQuantityChanges/);
   assert.doesNotMatch(addition, /method: "POST"|postAdd\(/);
   assert.match(addition, /재계산 전 원장 미변경/);
+});
+
+test("inline recalculation endpoint replaces the reserved draft without rendering preflight", async () => {
+  const route = await readFile(
+    "src/app/api/purchase-cycle/preflight-draft/recalculate/route.ts",
+    "utf8",
+  );
+  const service = await readFile(
+    "src/lib/purchaseCyclePreflightDraft.ts",
+    "utf8",
+  );
+  assert.match(route, /recalculatePurchaseCycleDraftInline/);
+  assert.match(route, /externalOrderExecuted: false/);
+  assert.match(service, /preserveExistingSourcingOnly: true/);
+  assert.match(service, /regenerateValidatedMonthlyPurchaseDraft/);
 });

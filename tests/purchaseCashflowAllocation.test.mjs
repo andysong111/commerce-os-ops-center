@@ -19,17 +19,28 @@ test("enough cash preserves every engine target", () => {
 test("tight cash protects core then tapers support and canary without breaking cartons", () => {
   const result = allocatePurchaseCashflow(rows(), 24_000);
   assert.deepEqual(result.map((row) => row.tier), ["CORE", "SUPPORT", "SUPPORT", "CANARY"]);
-  assert.deepEqual(result.map((row) => row.allocatedQuantity), [10, 6, 6, 2]);
-  assert.equal(result.reduce((sum, row) => sum + row.estimatedCostKrw, 0), 24_000);
+  assert.deepEqual(result.map((row) => row.allocatedQuantity), [10, 10, 0, 0]);
+  assert.equal(result.reduce((sum, row) => sum + row.estimatedCostKrw, 0), 20_000);
   assert.ok(result.every((row) => row.allocatedQuantity % row.cartonQuantity === 0));
-  assert.ok(result.every((row) => row.allocatedQuantity >= row.minimumQuantity));
+  assert.ok(result.every((row) => row.allocatedQuantity === 0 || row.allocatedQuantity % 5 === 0));
 });
 
 test("insufficient cash excludes lower rows explicitly instead of exceeding the cap", () => {
   const result = allocatePurchaseCashflow(rows(), 12_000);
-  assert.deepEqual(result.map((row) => row.allocatedQuantity), [10, 2, 0, 0]);
-  assert.equal(result.reduce((sum, row) => sum + row.estimatedCostKrw, 0), 12_000);
+  assert.deepEqual(result.map((row) => row.allocatedQuantity), [10, 0, 0, 0]);
+  assert.equal(result.reduce((sum, row) => sum + row.estimatedCostKrw, 0), 10_000);
   assert.ok(result.every((row) => row.allocatedQuantity <= row.targetQuantity));
+});
+
+test("purchase targets are rounded to clean five-unit quantities with tens preferred", () => {
+  const result = allocatePurchaseCashflow([
+    { barcode: "BAA1-1", priorityScore: 100, targetQuantity: 38, unitCostKrw: 100, moq: 1, cartonQuantity: 1 },
+    { barcode: "BAA2-1", priorityScore: 90, targetQuantity: 31, unitCostKrw: 100, moq: 1, cartonQuantity: 1 },
+    { barcode: "BAA3-1", priorityScore: 80, targetQuantity: 3, unitCostKrw: 100, moq: 1, cartonQuantity: 1 },
+    { barcode: "BAA4-1", priorityScore: 70, targetQuantity: 20, unitCostKrw: 100, moq: 1, cartonQuantity: 1 },
+  ], 100_000);
+  assert.deepEqual(result.map((row) => row.targetQuantity), [40, 30, 5, 20]);
+  assert.deepEqual(result.map((row) => row.allocatedQuantity), [40, 30, 5, 20]);
 });
 
 test("allocation is deterministic and never mutates the source", () => {

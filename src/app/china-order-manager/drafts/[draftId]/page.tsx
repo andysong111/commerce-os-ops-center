@@ -100,7 +100,7 @@ export default async function InternalChinaPurchaseDraftPage({
       />
 
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-        <strong>현재 Draft</strong> · <span className="font-mono">{draft.draftId}</span> · {draft.lineCount.toLocaleString("ko-KR")} SKU · {draft.totalQuantity.toLocaleString("ko-KR")}개. 수량 변경·상품 제외·상품 추가는 먼저 계산 대기로 모은 뒤, <strong>`변경사항 모아 발주안 재계산` 버튼 한 번</strong>으로 예산과 다음 우선순위를 다시 계산합니다. 계산 결과를 확인하고 교체 저장하기 전까지 현재 Draft는 유지됩니다.
+        <strong>현재 Draft</strong> · <span className="font-mono">{draft.draftId}</span> · {draft.lineCount.toLocaleString("ko-KR")} SKU · {draft.totalQuantity.toLocaleString("ko-KR")}개. 수량 변경·상품 제외·상품 추가는 먼저 계산 대기로 모은 뒤, <strong>`변경사항 모아 발주안 바로 재계산` 버튼 한 번</strong>으로 이 화면에서 즉시 교체합니다. 수량은 5개 단위로 정리하고 남은 예산은 다음 우선순위에 배정합니다.
       </section>
 
       <InternalChinaPurchaseBudgetAudit audit={budgetAudit} />

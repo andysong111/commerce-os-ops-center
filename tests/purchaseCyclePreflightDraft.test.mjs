@@ -262,6 +262,42 @@ test("a positive sourcing share cannot save without the exact ready sourcing pla
   );
 });
 
+test("inline replacement may preserve already-confirmed sourcing without creating a new sourcing plan", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 15;
+  value.sourcingBudgetKrw = 150_000;
+  value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  value.replacementAudit = {
+    previousLineCount: 1,
+    selectedLineCount: 1,
+    matchedCount: 1,
+    added: [],
+    removed: [],
+    quantityChanged: [],
+    complete: true,
+  };
+  const input = {
+    ...request(value),
+    replaceDraftId: value.replacementDraftId,
+  };
+
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input),
+    /PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
+  );
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, null, {
+    preserveExistingSourcingOnly: true,
+  }));
+
+  input.replaceDraftId = null;
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, null, {
+      preserveExistingSourcingOnly: true,
+    }),
+    /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED|PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
+  );
+});
+
 test("exact preflight pins become one RESERVED draft line without claiming stockout", () => {
   const value = report();
   const prepared = preparePurchaseCycleDraft(value, request(value));

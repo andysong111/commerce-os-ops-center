@@ -196,6 +196,7 @@ export function preparePurchaseCycleDraft(
   report: PurchaseCyclePreflightReport,
   request: PurchaseCycleDraftRequest,
   sourcingPlan: SourcingBudgetPlan | null = null,
+  behavior: { preserveExistingSourcingOnly?: boolean } = {},
 ): {
   cycleMonth: string;
   sourceFingerprint: string;
@@ -216,7 +217,9 @@ export function preparePurchaseCycleDraft(
   ) {
     throw new Error("PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED");
   }
-  if (report.sourcingBudgetPercent > 0) {
+  const preserveExistingSourcingOnly =
+    behavior.preserveExistingSourcingOnly === true && Boolean(request.replaceDraftId);
+  if (report.sourcingBudgetPercent > 0 && !preserveExistingSourcingOnly) {
     if (
       !sourcingPlan ||
       sourcingPlan.readyForConfirmation !== true ||
@@ -233,11 +236,11 @@ export function preparePurchaseCycleDraft(
     ) {
       throw new Error("PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY");
     }
-  } else if (
+  } else if (!preserveExistingSourcingOnly && (
     request.expectedSourcingSourceFingerprint ||
     request.expectedSourcingPlanFingerprint ||
     request.expectedSourcingDecisionFingerprint
-  ) {
+  )) {
     throw new Error("PURCHASE_CYCLE_SOURCING_PLAN_UNEXPECTED");
   }
   if (
