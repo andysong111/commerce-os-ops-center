@@ -85,6 +85,73 @@ test("operator exclusions refill a replacement Draft from the next priority with
   assert.deepEqual(report.replacementAudit.added.map((row) => row.barcode), ["BAA2-1"]);
 });
 
+test("operator exclusion refill can budget the next priority with the current shadow estimate", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  const nextPriority = {
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "NEXT PRIORITY ESTIMATE",
+    priorityScore: 80,
+    expectedCost: 20_003,
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptCostKrw: 0,
+    hasVerifiedPurchaseCost: false,
+    verifiedPurchaseCostReady: false,
+    verifiedPurchaseUnitCostKrw: 0,
+    purchaseProtectedCostKrw: 0,
+    protectedCostKrw: 0,
+    purchaseCostTrustSource: "NONE",
+    action: "COST_CONFIRMATION_REQUIRED",
+    operationallyReady: false,
+  };
+  input.priority.rows.push(nextPriority);
+  input.options.replaceDraftId = draftId;
+  input.options.excludedBarcodes = ["BAA1-1"];
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 5 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(report.selected.map((row) => row.barcode), ["BAA2-1"]);
+  assert.equal(report.selected[0].estimatedUnitCostKrw, 4_001);
+  assert.equal(report.selected[0].costBasis, "PURCHASE_SHADOW_UNIT_COST_ESTIMATE");
+  assert.equal(report.selected[0].executionCostVerified, false);
+  assert.equal(report.shadowEstimatedSelectedCount, 1);
+  assert.equal(report.missingCostCount, 0);
+  assert.ok(report.reviewBlockers.includes("PURCHASE_SHADOW_COST_ESTIMATE_OWNER_REVIEW_REQUIRED"));
+  assert.deepEqual(report.replacementAudit.added.map((row) => row.barcode), ["BAA2-1"]);
+});
+
+test("shadow expected cost does not relax the normal monthly Draft path", () => {
+  const input = fixture();
+  Object.assign(input.priority.rows[0], {
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptCostKrw: 0,
+    hasVerifiedPurchaseCost: false,
+    verifiedPurchaseCostReady: false,
+    verifiedPurchaseUnitCostKrw: 0,
+    purchaseProtectedCostKrw: 0,
+    protectedCostKrw: 0,
+    purchaseCostTrustSource: "NONE",
+    action: "COST_CONFIRMATION_REQUIRED",
+    operationallyReady: false,
+  });
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.shadowEstimatedSelectedCount, 0);
+  assert.equal(report.missingCostCount, 1);
+  assert.deepEqual(report.selected, []);
+  assert.ok(report.excluded[0].reasons.includes("CONFIRMED_COST_REQUIRED"));
+});
+
 test("operator exclusions require one valid replacement Draft and unique canonical B-codes", () => {
   for (const excludedBarcodes of [["BAA1-1"], ["bad"], ["BAA1-1", "BAA1-1"]]) {
     const input = fixture();

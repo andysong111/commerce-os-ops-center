@@ -71,6 +71,7 @@ const reasonLabels: Record<string, string> = {
   WHOLESALE_COST_ESTIMATE_READ_FAILED: "샵플링 도매 판매가 조회에 실패했습니다. 확정원가가 없는 품목은 제외됩니다.",
   WHOLESALE_COST_ESTIMATE_STALE_OR_UNPINNED: "도매 판매가 추정 자료가 오래됐거나 Product Master 원본과 일치하지 않습니다.",
   WHOLESALE_COST_ESTIMATE_OWNER_REVIEW_REQUIRED: "도매 판매가를 역산한 추정 원가가 포함되어 있습니다. 실제 주문 전 1688 단가를 입력하고 다시 확인해야 합니다.",
+  PURCHASE_SHADOW_COST_ESTIMATE_OWNER_REVIEW_REQUIRED: "제외한 상품의 빈 예산을 다음 순위에 배정하기 위해 발주엔진 예상원가를 사용했습니다. 실제 주문 전 1688 현재 위안단가를 입력하고 다시 확인해야 합니다.",
   OWNER_COST_ESTIMATE_INVALID: "사용자 제공 추정 원가의 품목·금액·추적 지문이 올바르지 않아 사용하지 않았습니다.",
   OWNER_COST_ESTIMATE_READ_FAILED: "사용자 제공 추정 원가를 읽지 못해 해당 품목을 제외했습니다.",
   OWNER_COST_ESTIMATE_REVIEW_REQUIRED: "사용자 제공 대략 원가 또는 유사상품 참고 원가가 포함되어 있습니다. 실제 주문 전 현재 1688 단가를 입력하고 다시 확인해야 합니다.",
@@ -130,6 +131,7 @@ const explain = (code: string) => reasonLabels[code] ?? `상위 검증에서 남
 const costBasisLabel = (row: PurchaseCyclePreflightReport["selected"][number]) => {
   if (row.costBasis === "VERIFIED_PURCHASE_COST") return "확정원가";
   if (row.costBasis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE") return `도매 판매가 추정 ${money(row.estimatedUnitCostKrw)}/개`;
+  if (row.costBasis === "PURCHASE_SHADOW_UNIT_COST_ESTIMATE") return `재생성용 엔진 추정 ${money(row.estimatedUnitCostKrw)}/개 · 1688 현재가 확인 필요`;
   if (row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE") {
     return `유사상품 ${row.costReferenceModelNo ?? "미확인"} 참고 추정 ${money(row.estimatedUnitCostKrw)}/개`;
   }

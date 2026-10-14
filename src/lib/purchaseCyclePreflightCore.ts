@@ -107,7 +107,7 @@ export type PurchasePreflightLine = {
   verifiedUnitCostKrw: number;
   confirmedUnitCostKrw: number;
   estimatedUnitCostKrw: number;
-  costBasis: "VERIFIED_PURCHASE_COST" | "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE" | PurchaseOwnerCostEstimateSource;
+  costBasis: "VERIFIED_PURCHASE_COST" | "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE" | "PURCHASE_SHADOW_UNIT_COST_ESTIMATE" | PurchaseOwnerCostEstimateSource;
   costModelNo: string | null;
   costReferenceModelNo: string | null;
   executionCostVerified: boolean;
@@ -151,6 +151,7 @@ export type PurchaseCyclePreflightReport = {
   cashAdjustedCount: number;
   cashExcludedCount: number;
   wholesaleEstimatedSelectedCount: number;
+  shadowEstimatedSelectedCount: number;
   ownerEstimatedSelectedCount: number;
   missingCostCount: number;
   remainingPreviewBudgetKrw: number;
@@ -297,6 +298,7 @@ function purchaseCostBasis(
   now: number,
   wholesaleByBarcode: Map<string, PurchaseCostBasis>,
   ownerByBarcode: Map<string, PurchaseCostBasis>,
+  allowShadowEstimate = false,
 ): PurchaseCostBasis | null {
   if (purchaseCostReadyForExecution(row, now)) {
     const unitCostKrw = verifiedUnitCost(row, now);
@@ -312,7 +314,27 @@ function purchaseCostBasis(
       };
     }
   }
-  return wholesaleByBarcode.get(row.barcode) ?? ownerByBarcode.get(row.barcode) ?? null;
+  const supplied = wholesaleByBarcode.get(row.barcode) ?? ownerByBarcode.get(row.barcode);
+  if (supplied) return supplied;
+  if (
+    allowShadowEstimate &&
+    positive(row.expectedCost) &&
+    positive(row.recommendedQty)
+  ) {
+    return {
+      // This current shadow value is only a conservative Draft budgeting
+      // estimate. The downstream 1688 step must still capture the live yuan
+      // price before cart preparation or ordering.
+      unitCostKrw: Math.ceil(row.expectedCost / row.recommendedQty),
+      basis: "PURCHASE_SHADOW_UNIT_COST_ESTIMATE",
+      source: "PURCHASE_SHADOW_EXPECTED_COST_ESTIMATE",
+      evidenceAt: null,
+      executionVerified: false,
+      modelNo: row.modelNo,
+      referenceModelNo: null,
+    };
+  }
+  return null;
 }
 
 function lineCost(row: InventoryVerificationPriorityRow, basis: PurchaseCostBasis | null) {
@@ -575,8 +597,20 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const duplicates = new Set(rows.filter((row, i) => i > 0 && rows[i - 1].barcode === row.barcode).map(row => row.barcode));
   if (duplicates.size) blockers.push("DUPLICATE_BARCODE");
   const candidates = rows.filter(row => row.purchaseStatus === "발주 추천");
+  const allowShadowEstimateForRefill = Boolean(
+    replacementDraftId && operatorExcludedBarcodes.length > 0,
+  );
   const costBasisByBarcode = new Map(
-    candidates.map((row) => [row.barcode, purchaseCostBasis(row, now, wholesaleByBarcode, ownerByBarcode)] as const),
+    candidates.map((row) => [
+      row.barcode,
+      purchaseCostBasis(
+        row,
+        now,
+        wholesaleByBarcode,
+        ownerByBarcode,
+        allowShadowEstimateForRefill,
+      ),
+    ] as const),
   );
   const excluded: PurchaseCyclePreflightReport["excluded"] = [];
   const eligible: InventoryVerificationPriorityRow[] = [];
@@ -675,6 +709,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   }
   if (selected.some((row) => row.costBasis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE")) {
     reviewBlockers.push("WHOLESALE_COST_ESTIMATE_OWNER_REVIEW_REQUIRED");
+  }
+  if (selected.some((row) => row.costBasis === "PURCHASE_SHADOW_UNIT_COST_ESTIMATE")) {
+    reviewBlockers.push("PURCHASE_SHADOW_COST_ESTIMATE_OWNER_REVIEW_REQUIRED");
   }
   if (selected.some((row) => row.costBasis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE")) {
     reviewBlockers.push("OWNER_COST_ESTIMATE_REVIEW_REQUIRED");
@@ -776,7 +813,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const stages = [
     stage(5, "공식 판매원장 게이트", salesVerified ? "VERIFIED" : "BLOCKED", fullReadback ? "동일 후보의 검증된 공식 반영 이력이 있습니다. 새 쓰기 권한은 발급하지 않습니다." : gate?.message ?? "후보 승인 검증을 기다립니다.", "/stage8-candidate-promotion-gate"),
     stage(6, "Product Master 반영·재조회", fullReadback && stable ? "VERIFIED" : "WAITING", rec?.message ?? "1건 카나리·전수 반영 후 재조회 검증이 필요합니다.", "/stage8-postapply-canonical-reconciliation"),
-    stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costBasisByBarcode.get(row.barcode)).length) : "BLOCKED", `확정원가 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "VERIFIED_PURCHASE_COST").length}개 · 활성 도매 판매가 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE").length}개 · 사용자 제공 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || costBasisByBarcode.get(row.barcode)?.basis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE").length}개 · 미확인 ${candidates.filter(row => !costBasisByBarcode.get(row.barcode)).length}개. 추정값은 초안 예산에만 쓰며 실제 주문 원가로 승격하지 않습니다.`, "/stage7-purchase-cost-evidence"),
+    stage(7, "발주 후보 원가 근거", inventoryFresh ? coverage(candidates.filter(row => costBasisByBarcode.get(row.barcode)).length) : "BLOCKED", `확정원가 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "VERIFIED_PURCHASE_COST").length}개 · 활성 도매 판매가 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE").length}개 · 제외 후 재생성용 엔진 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "PURCHASE_SHADOW_UNIT_COST_ESTIMATE").length}개 · 사용자 제공 추정 ${candidates.filter(row => costBasisByBarcode.get(row.barcode)?.basis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || costBasisByBarcode.get(row.barcode)?.basis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE").length}개 · 미확인 ${candidates.filter(row => !costBasisByBarcode.get(row.barcode)).length}개. 추정값은 초안 예산에만 쓰며 실제 주문 원가로 승격하지 않습니다.`, "/stage7-purchase-cost-evidence"),
     stage(8, "발주 후보 재고 근거", inventoryFresh ? coverage(candidates.filter(inventoryPreviewReady).length) : "BLOCKED", `계획재고 ${candidates.filter(inventoryPreviewReady).length}/${candidates.length}개 · VERIFIED ${candidates.filter(verifiedInventoryReady).length}개 · PROVISIONAL ${candidates.filter(provisionalInventoryReady).length}개. 전수 실사는 요구하지 않으며, 실제 품절 시 SOLD_OUT_RESET=0 이후 중국 확정입고와 판매를 누적합니다.`, "/stage8-inventory-verification-priority"),
     stage(9, "발주 Shadow·원본 일치", shadowReady && contextMatch && stable && fullReadback && sourceFresh && inventoryFresh ? "VERIFIED" : "BLOCKED", "판매·재고·미입고가 연결된 읽기 전용 계산입니다. 보조신호 등 남은 조건은 승인 검토 차단 사유로 별도 표시합니다.", "/stage8-canonical-purchase-shadow"),
     stage(10, "예산 내 소량 발주안", previewReady ? "VERIFIED" : "WAITING", previewReady ? budgetMonthClosed ? `${cashLimitKrw === null ? "전월 판매원가 자동 한도" : "운영자 입력 총현금"}에서 신규상품 소싱 ${sourcingBudgetPercent}%를 최대한도로 예약하고, 안전후보 배정 뒤 남은 ${sourcingBudgetReturnKrw.toLocaleString("ko-KR")}원을 기존상품 예산으로 돌려 계산한 미리보기입니다. 승인·예약·주문은 생성되지 않았습니다.` : "월 마감 전 조기 미리보기입니다. 실제 주문 전에 마감 자료로 다시 계산해야 하며 승인·예약·주문은 생성되지 않았습니다." : `목표 월의 최신 데이터와 ${cashLimitKrw === null ? "전월 판매원가 자동 한도" : "운영자 입력 총현금"}, 신규상품 소싱 비율을 확인한 뒤 계산합니다.`, "/purchase-cycle-preflight"),
@@ -826,6 +863,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     ).length,
     remainingPreviewBudgetKrw: effectiveBudgetKrw - estimatedSpendKrw,
     wholesaleEstimatedSelectedCount: selected.filter((row) => row.costBasis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE").length,
+    shadowEstimatedSelectedCount: selected.filter((row) => row.costBasis === "PURCHASE_SHADOW_UNIT_COST_ESTIMATE").length,
     ownerEstimatedSelectedCount: selected.filter((row) => row.costBasis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE").length,
     missingCostCount: candidates.filter((row) => !costBasisByBarcode.get(row.barcode)).length,
     recordedCycleSpendKrw, remainingMonthlyCashKrw, effectiveCashKrw,
