@@ -40,9 +40,15 @@ export function PurchaseCycleDraftActions({
   expectedSourcingDecisionFingerprint,
   sourcingSelectedCount,
   sourcingEstimatedSpendKrw,
+  sourcingAlreadyReservedKrw,
   confirmation,
   selectedCount,
   totalQuantity,
+  existingReorderCount,
+  existingReorderQuantity,
+  preservedSourcingCount,
+  preservedSourcingQuantity,
+  newSourcingQuantity,
   estimatedSpendKrw,
   ready,
   replaceDraftId,
@@ -68,9 +74,15 @@ export function PurchaseCycleDraftActions({
   expectedSourcingDecisionFingerprint: string | null;
   sourcingSelectedCount: number;
   sourcingEstimatedSpendKrw: number;
+  sourcingAlreadyReservedKrw: number;
   confirmation: string;
   selectedCount: number;
   totalQuantity: number;
+  existingReorderCount: number;
+  existingReorderQuantity: number;
+  preservedSourcingCount: number;
+  preservedSourcingQuantity: number;
+  newSourcingQuantity: number;
   estimatedSpendKrw: number;
   ready: boolean;
   replaceDraftId?: string | null;
@@ -91,14 +103,15 @@ export function PurchaseCycleDraftActions({
       ? "자동 현금 한도"
       : `입력 총현금 ${cashLimitKrw.toLocaleString("ko-KR")}원`;
     const sourcingSummary = sourcingBudgetPercent > 0
-      ? `신규상품 소싱 ${sourcingBudgetPercent}% · 최대 예산 ${sourcingBudgetKrw.toLocaleString("ko-KR")}원 · ${sourcingSelectedCount}종 현재 예상 ${sourcingEstimatedSpendKrw.toLocaleString("ko-KR")}원 (저장 시 최신 환율로 한도 안에서 재계산)`
+      ? `신규상품 소싱 ${sourcingBudgetPercent}% · 최대 예산 ${sourcingBudgetKrw.toLocaleString("ko-KR")}원 · 기존 예약 ${preservedSourcingCount}종 ${sourcingAlreadyReservedKrw.toLocaleString("ko-KR")}원 + 새 후보 ${sourcingSelectedCount}종 ${sourcingEstimatedSpendKrw.toLocaleString("ko-KR")}원 (저장 시 최신 환율로 한도 안에서 재계산)`
       : "신규상품 소싱 0%";
+    const lineSummary = `기존상품 ${existingReorderCount}종·${existingReorderQuantity.toLocaleString("ko-KR")}개 + 유지 신규소싱 ${preservedSourcingCount}종·${preservedSourcingQuantity.toLocaleString("ko-KR")}개 + 새 신규소싱 ${sourcingSelectedCount}종·${newSourcingQuantity.toLocaleString("ko-KR")}개 = 최종 ${selectedCount}종·${totalQuantity.toLocaleString("ko-KR")}개`;
     const exclusionSummary = excludedBarcodes.length > 0
       ? ` · 사용자 제외 ${excludedBarcodes.length}종`
       : "";
     const summary = replaceDraftId
-      ? `${targetCycleMonth} 기존 Draft를 최신 계산 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 교체할까요?\n\n${cashSummary} · ${sourcingSummary}${exclusionSummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
-      : `${targetCycleMonth} 월간 발주 Draft를 ${selectedCount}개 SKU · 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원으로 저장할까요?\n\n${cashSummary} · ${sourcingSummary}을 적용했습니다. 미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
+      ? `${targetCycleMonth} 기존 Draft를 최신 계산으로 교체할까요?\n\n${lineSummary}\n기존상품 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원 · ${cashSummary} · ${sourcingSummary}${exclusionSummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
+      : `${targetCycleMonth} 월간 발주 Draft를 저장할까요?\n\n${lineSummary}\n기존상품 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원 · ${cashSummary} · ${sourcingSummary}을 적용했습니다. 미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
     const quickOpenNotice = variant === "quick-open"
       ? "\n\n저장 후 상품별 주문수량·1688 링크·옵션·위안단가 입력과 장바구니 준비가 있는 중국 발주초안을 엽니다. 실제 주문·결제는 실행하지 않습니다."
       : "";
@@ -161,7 +174,7 @@ export function PurchaseCycleDraftActions({
           <strong className="text-sm text-blue-950">중국 발주초안으로 이동</strong>
           <p className="mt-1 text-xs leading-5 text-blue-900">
             {ready
-              ? `계산된 ${selectedCount}개 SKU · 총 ${totalQuantity.toLocaleString("ko-KR")}개를 내부 Draft로 저장하고, 원가 입력과 1688 장바구니 준비 화면을 엽니다.`
+              ? `기존상품 ${existingReorderCount}종 + 유지 신규소싱 ${preservedSourcingCount}종 + 새 신규소싱 ${sourcingSelectedCount}종 = 최종 ${selectedCount}종 · 총 ${totalQuantity.toLocaleString("ko-KR")}개를 내부 Draft로 저장하고, 원가 입력과 1688 장바구니 준비 화면을 엽니다.`
               : "계산 결과에 남은 필수 조건이 있어 아직 발주초안을 만들 수 없습니다. 아래에서 남은 조건을 확인하세요."}
           </p>
         </div>
