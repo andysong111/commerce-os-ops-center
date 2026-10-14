@@ -111,6 +111,8 @@ jobs:
           tests/shoplingPriceAdjustmentRecoveryStatic.test.mjs
           tests/shoplingPriceAdjustmentWorkflowFailure.test.mjs
           tests/priceAdjustmentEngineIntegration.test.mjs
+      - name: Test public picking share token and completion safety
+        run: node --experimental-strip-types --test tests/pickingShare.test.mjs
       - name: Test managed Shopling sales scope and historical evidence safety
         run: >-
           node --experimental-strip-types --test
