@@ -105,6 +105,7 @@ export type PurchaseCycleDraftRequest = {
   expectedSourcingDecisionFingerprint?: string | null;
   confirmation: string;
   replaceDraftId?: string | null;
+  excludedBarcodes?: string[];
 };
 
 export function purchaseCycleDraftPreflightOptions(
@@ -118,6 +119,7 @@ export function purchaseCycleDraftPreflightOptions(
     maxUnitsPerSku: 9_999,
     allowOpenBudgetPreview: request.allowOpenBudgetPreview === true,
     replaceDraftId: request.replaceDraftId ?? null,
+    excludedBarcodes: request.excludedBarcodes ?? [],
   };
 }
 
@@ -157,6 +159,8 @@ export function preparePurchaseCycleDraft(
     (request.sourcingBudgetPercent ?? 0) !== report.sourcingBudgetPercent ||
     request.expectedPlanFingerprint !== report.planFingerprint ||
     (request.replaceDraftId ?? null) !== (report.replacementDraftId ?? null) ||
+    JSON.stringify(sortedStrings(request.excludedBarcodes)) !==
+      JSON.stringify(report.operatorExcludedBarcodes) ||
     !FINGERPRINT.test(request.expectedSourceFingerprint) ||
     !FINGERPRINT.test(request.expectedPlanFingerprint)
   ) {

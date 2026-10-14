@@ -113,16 +113,19 @@ type FreightGroupInfo = {
 export function InternalChinaPurchaseDraftWorkspaceV2({
   initialDraft,
   budgetAudit,
+  regenerationHref,
 }: {
   initialDraft: InternalChinaPurchaseDraft;
   budgetAudit: InternalChinaPurchaseBudgetAudit;
+  regenerationHref: string;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState(initialDraft);
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [ordering, setOrdering] = useState(false);
-  const [excludingBarcode, setExcludingBarcode] = useState("");
+  const [selectedExclusions, setSelectedExclusions] = useState<Record<string, boolean>>({});
+  const [regenerating, setRegenerating] = useState(false);
   const [cartPreparing, setCartPreparing] = useState(false);
   const [scrollWidth, setScrollWidth] = useState(TABLE_WIDTH);
   const [freezeThrough, setFreezeThrough] = useState(0);
@@ -454,37 +457,25 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     }
   }
 
-  async function excludeLine(line: InternalChinaPurchaseDraftLine) {
-    if (draft.status !== "DRAFT" || excludingBarcode) return;
-    if (
-      !window.confirm(
-        `${line.barcode} · ${line.modelName || line.productName}\n${line.quantity.toLocaleString("ko-KR")}개를 이번 발주초안에서 제외할까요?\n\n원본 후보와 변경 기록은 남고, 현재 합계와 1688 장바구니 대상에서만 빠집니다.`,
-      )
-    ) return;
-    setExcludingBarcode(line.barcode);
-    setNotice("");
-    try {
-      const response = await fetch(
-        `/api/china-order-manager/drafts/${encodeURIComponent(draft.draftId)}/quantity`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify({ barcode: line.barcode, targetQuantity: 0 }),
-          credentials: "same-origin",
-          cache: "no-store",
-        },
-      );
-      const body = (await response.json().catch(() => ({}))) as QuantityResponse;
-      if (!response.ok || !body.ok) {
-        throw new Error(body.message || "초안에서 상품을 제외하지 못했습니다.");
-      }
-      applySavedQuantity(line.barcode, 0, body.message || `${line.barcode}를 초안에서 제외했습니다.`);
-      router.refresh();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "초안에서 상품을 제외하지 못했습니다.");
-    } finally {
-      setExcludingBarcode("");
-    }
+  const excludedBarcodes = draft.lines
+    .filter((line) => selectedExclusions[line.barcode] === true)
+    .map((line) => line.barcode)
+    .sort();
+  const allLinesSelected = draft.lines.length > 0 && excludedBarcodes.length === draft.lines.length;
+
+  function toggleExcludedBarcode(barcode: string, checked: boolean) {
+    setSelectedExclusions((current) => ({ ...current, [barcode]: checked }));
+  }
+
+  function regenerateWithoutSelected() {
+    if (draft.status !== "DRAFT" || regenerating || excludedBarcodes.length === 0) return;
+    if (!window.confirm(
+      `선택한 ${excludedBarcodes.length.toLocaleString("ko-KR")}개 상품을 이번 발주 대상에서 제외하고, 남은 예산을 다음 우선순위 상품으로 다시 채울까요?\n\n먼저 새 발주안을 계산해 보여드립니다. 계산이 끝난 뒤 교체 저장하기 전까지 현재 초안은 바뀌지 않으며 1688 주문·결제도 실행하지 않습니다.`,
+    )) return;
+    const url = new URL(regenerationHref, window.location.origin);
+    for (const barcode of excludedBarcodes) url.searchParams.append("exclude", barcode);
+    setRegenerating(true);
+    router.push(`${url.pathname}?${url.searchParams.toString()}`);
   }
 
   async function prepare1688Cart() {
@@ -613,6 +604,14 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         <div className={`mt-4 rounded-xl border px-4 py-3 text-xs leading-5 ${calculations.budgetOverKrw > 0 ? "border-rose-300 bg-rose-50 text-rose-950" : "border-blue-200 bg-blue-50 text-blue-950"}`}>
           <strong>실시간 월간 발주예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 상품대금 {number.format(Math.round(calculations.productKrw))}원 · 상품대금 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}.
         </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+          <p className="text-xs font-bold leading-5 text-rose-950">
+            표에서 제외할 상품을 체크하세요. 재계산하면 선택 상품은 다시 뽑지 않고, 남은 예산으로 다음 우선순위 상품을 채운 결과를 보여줍니다.
+          </p>
+          <button type="button" onClick={regenerateWithoutSelected} disabled={draft.status !== "DRAFT" || excludedBarcodes.length === 0 || regenerating} aria-busy={regenerating} className="min-h-11 rounded-xl bg-rose-700 px-5 py-3 text-sm font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
+            {regenerating ? "제외 반영·재계산 중..." : `이 상품 초안에서 제외 후 발주안 재생성 (${excludedBarcodes.length}개)`}
+          </button>
+        </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -645,7 +644,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <thead className="border-b border-slate-200 bg-slate-50 font-bold text-slate-500">
               <tr>
                 {TABLE_COLUMNS.map((column, index) => (
-                  <th key={column.label} className={`px-3 py-3 ${index >= 3 && index <= 10 ? "text-right" : ""}`} style={stickyCellStyle(index, freezeThrough, true)}>{column.label}</th>
+                  <th key={column.label} className={`px-3 py-3 ${index >= 3 && index <= 10 ? "text-right" : ""}`} style={stickyCellStyle(index, freezeThrough, true)}>
+                    {index === 0 ? <label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedExclusions(Object.fromEntries(draft.lines.map((line) => [line.barcode, event.target.checked])))} disabled={draft.status !== "DRAFT"} aria-label="발주초안 상품 전체 선택" className="size-4" /><span>{column.label}</span></label> : column.label}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -661,11 +662,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                 return (
                   <tr key={line.barcode} className="align-top hover:bg-slate-50/70">
                     <td className="px-3 py-3" style={stickyCellStyle(0, freezeThrough)}>
-                      <strong className="font-mono text-sm text-slate-950">{line.barcode}</strong>
+                      <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={selectedExclusions[line.barcode] === true} onChange={(event) => toggleExcludedBarcode(line.barcode, event.target.checked)} disabled={!editable} aria-label={`${line.barcode} 발주초안에서 제외 선택`} className="size-4" /><strong className="font-mono text-sm text-slate-950">{line.barcode}</strong></label>
                       <span className="mt-1 block font-semibold text-slate-700">{line.modelName || "모델명 -"}</span>
                       <span className="mt-1 block font-mono text-[11px] text-slate-400">{line.modelNo}</span>
                       <span className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-800">옵션 · {line.saleOption || "-"}</span>
-                      <button type="button" disabled={!editable || Boolean(excludingBarcode)} onClick={() => void excludeLine(line)} className="mt-2 block rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40">{excludingBarcode === line.barcode ? "제외 중..." : "이 상품 초안에서 제외"}</button>
                     </td>
                     <td className="px-2 py-2" style={stickyCellStyle(1, freezeThrough)}>
                       <div className="flex items-center gap-1.5">

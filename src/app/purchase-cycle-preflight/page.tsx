@@ -78,6 +78,7 @@ const reasonLabels: Record<string, string> = {
   PROVISIONAL_INVENTORY_OWNER_REVIEW_REQUIRED: "추정재고를 사용한 미리보기입니다. 실제 주문 전에 최신 품절·입고·판매 상태를 확인해야 합니다.",
   CANARY_QUANTITY_LIMIT: "품목별 수량 상한 초과", ROW_EXECUTION_BLOCKED: "품목별 조건 미충족",
   CANARY_SKU_LIMIT: "발주안 SKU 수 제한", CASH_BUDGET_LIMIT: "현금 상한 초과",
+  OPERATOR_DRAFT_EXCLUSION: "사용자가 이번 발주초안에서 제외했습니다.",
   CANDIDATE_READ_FAILED: "판매 후보 조회 실패", CANDIDATE_RECHECK_FAILED: "판매 후보 재확인 실패",
   PROMOTION_GATE_READ_FAILED: "판매원장 게이트 조회 실패", MASTER_READBACK_READ_FAILED: "상품마스터 대사 조회 실패",
   INVENTORY_PRIORITY_READ_FAILED: "재고·발주 우선순위 조회 실패",
@@ -195,6 +196,13 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   let effectiveSourcingVariantSelections = sourcingVariantSelections;
   const early = single("early", "") === "1";
   const replaceDraftId = single("replace", "") || null;
+  const excludedBarcodes = (Array.isArray(query.exclude)
+    ? query.exclude
+    : typeof query.exclude === "string"
+      ? [query.exclude]
+      : [])
+    .map((value) => value.trim().toUpperCase())
+    .filter(Boolean);
   let report: PurchaseCyclePreflightReport | null = null;
   let sourcingPlan: SourcingBudgetPlan | null = null;
   let manualPilotCatalog: ManualPilotCatalog | null = null;
@@ -212,7 +220,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       if (preferredSourcingConceptIds.length > 20 || new Set(preferredSourcingConceptIds).size !== preferredSourcingConceptIds.length) throw new Error("SOURCING_SELECTION_INVALID");
       if (sourcingStorageInputInvalid) throw new Error("SOURCING_STORAGE_SELECTION_INVALID");
       if (sourcingVariantInputInvalid) throw new Error("SOURCING_VARIANT_SELECTION_INVALID");
-      const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId };
+      const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId, excludedBarcodes };
       validatePurchasePreflightOptions(options);
       const [reportResult, manualPilotResult] = await Promise.allSettled([
         loadPurchaseCyclePreflightPreview(options),
@@ -434,6 +442,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     estimatedSpendKrw: report.estimatedSpendKrw,
     ready: draftReady,
     replaceDraftId: report.replacementDraftId,
+    excludedBarcodes: report.operatorExcludedBarcodes,
     replacementAddedCount: report.replacementAudit?.added.length ?? 0,
     replacementRemovedCount: report.replacementAudit?.removed.length ?? 0,
     replacementChangedCount: report.replacementAudit?.quantityChanged.length ?? 0,
@@ -459,6 +468,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         <PurchasePreflightForm>
           <input type="hidden" name="check" value="1" />
           {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
+          {excludedBarcodes.map((barcode) => <input key={`exclude:${barcode}`} type="hidden" name="exclude" value={barcode} />)}
           <label className="text-sm font-bold text-slate-900">발주 예정일<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="date" type="date" defaultValue={targetDate} required /><span className="mt-1 block text-xs font-normal text-slate-500">판매·재고를 계산할 기준일</span></label>
           <label className="text-sm font-bold text-slate-900">이번 발주에 쓸 총 현금<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 자동 예산" /><span className="mt-1 block text-xs font-normal text-slate-500">상품대금과 배송비·수수료까지 포함</span></label>
           <label className="text-sm font-bold text-slate-900">신규상품 소싱 예산 비율<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">기본 15% · 후보에 쓰고 남은 금액은 기존상품 예산으로 복귀</span></label>
@@ -543,6 +553,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                     sourcingBudgetPercent={report.sourcingBudgetPercent}
                     early={early}
                     replaceDraftId={replaceDraftId}
+                    excludedBarcodes={excludedBarcodes}
                     selectedCandidates={sourcingPlan.allocation.selected}
                     availableCandidates={sourcingPlan.allocation.availableCandidates}
                     preferredConceptIds={effectivePreferredSourcingConceptIds}
@@ -607,6 +618,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                   <input type="hidden" name="cash" value={cash} />
                   {early ? <input type="hidden" name="early" value="1" /> : null}
                   {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
+                  {excludedBarcodes.map((barcode) => <input key={`ratio-exclude:${barcode}`} type="hidden" name="exclude" value={barcode} />)}
                   <input type="hidden" name="selection" value="custom" />
                   {effectivePreferredSourcingConceptIds.map((conceptId) => <input key={`ratio-source:${conceptId}`} type="hidden" name="source" value={conceptId} />)}
                   {Object.entries(sourcingStorageSizeByConceptId).map(([conceptId, size]) => <input key={`ratio-storage:${conceptId}`} type="hidden" name={`storage.${conceptId}`} value={size} />)}

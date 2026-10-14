@@ -15,6 +15,7 @@ function report() {
   return {
     targetDate: "2026-10-01",
     replacementDraftId: null,
+    operatorExcludedBarcodes: [],
     replacementAudit: null,
     targetCycleMonth: "2026-10",
     cashLimitKrw: null,
@@ -81,6 +82,7 @@ function request(value = report(), plan = null) {
       ? sourcingBudgetDecisionFingerprint(plan)
       : null,
     confirmation: purchaseCycleDraftConfirmation(value, plan),
+    excludedBarcodes: value.operatorExcludedBarcodes,
   };
 }
 
@@ -107,6 +109,29 @@ test("draft recheck preserves and pins the operator cash cap", () => {
   assert.match(input.confirmation, /CASH800000/);
   assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
   input.cashLimitKrw = 700_000;
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input),
+    /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
+  );
+});
+
+test("draft recheck preserves operator exclusions and rejects exclusion drift", () => {
+  const value = report();
+  value.replacementDraftId = "fast-purchase-draft:1234567890abcdef1234";
+  value.operatorExcludedBarcodes = ["BAA1-1"];
+  value.replacementAudit = {
+    previousLineCount: 1,
+    selectedLineCount: 1,
+    matchedCount: 0,
+    added: [{ barcode: "BAC1-1", name: "토끼 발세척매트", quantity: 38 }],
+    removed: [{ barcode: "BAA1-1", name: "제외 상품", quantity: 5, reasons: ["OPERATOR_DRAFT_EXCLUSION"] }],
+    quantityChanged: [],
+    complete: true,
+  };
+  const input = { ...request(value), replaceDraftId: value.replacementDraftId };
+  assert.deepEqual(purchaseCycleDraftPreflightOptions(input).excludedBarcodes, ["BAA1-1"]);
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input));
+  input.excludedBarcodes = ["BAA2-1"];
   assert.throws(
     () => preparePurchaseCycleDraft(value, input),
     /PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED/,
