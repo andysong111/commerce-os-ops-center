@@ -63,12 +63,38 @@ test("migration is service-only, Shadow-first and does not schedule an executor"
     "seo_listing_rotation_actions",
   ]) {
     assert.match(migration, new RegExp(`alter table public\\.${table} enable row level security`));
-    assert.match(migration, new RegExp(`revoke all on table public\\.${table} from public, anon, authenticated`));
+    assert.match(migration, new RegExp(`revoke all on table public\\.${table} from public, anon, authenticated, service_role`));
   }
   assert.match(migration, /mode text not null default 'shadow'/);
   assert.match(migration, /enabled boolean not null default false/);
   assert.match(migration, /status text not null default 'shadow'/);
   assert.doesNotMatch(migration, /insert into public\.ops_dispatch_tasks/);
+});
+
+test("ACL hardening preserves immutable events and non-deletable actions", async () => {
+  const migration = await source(
+    "supabase/migrations/20261014194449_seo_listing_rotation_shadow_v1_acl_hardening.sql",
+  );
+  assert.match(
+    migration,
+    /revoke all on table public\.seo_listing_lifecycle_events from service_role/,
+  );
+  assert.match(
+    migration,
+    /grant select, insert on table public\.seo_listing_lifecycle_events to service_role/,
+  );
+  assert.match(
+    migration,
+    /grant select, insert, update on table public\.seo_listing_rotation_actions to service_role/,
+  );
+  assert.doesNotMatch(
+    migration,
+    /grant[^;]*delete[^;]*seo_listing_lifecycle_events/i,
+  );
+  assert.doesNotMatch(
+    migration,
+    /grant[^;]*delete[^;]*seo_listing_rotation_actions/i,
+  );
 });
 
 test("capacity snapshot RPC is service-only, complete and stale-write safe", async () => {
