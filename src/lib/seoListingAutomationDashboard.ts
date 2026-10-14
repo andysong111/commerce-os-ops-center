@@ -1,0 +1,103 @@
+import type { SeoRunJobRow } from "@/lib/seoRunJobServer";
+import type { SeoListingLifecycleState } from "@/lib/seoListingLifecyclePolicy";
+
+export type SeoReadyProduct = {
+  runId: string;
+  launchItemId: string;
+  modelNumber: string;
+  productName: string;
+  runCreatedAt: string;
+};
+
+export type SeoListingLifecycleSummaryRow = {
+  state?: unknown;
+  requires_review?: unknown;
+};
+
+const STATES: SeoListingLifecycleState[] = [
+  "READY",
+  "LIVE",
+  "COOLDOWN",
+  "PROTECTED",
+  "RETIRE_CANDIDATE",
+  "EXCEPTION",
+];
+
+function text(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function instant(value: unknown) {
+  const parsed = Date.parse(text(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function jobInstant(job: { run_created_at: string; created_at: string }) {
+  return instant(job.run_created_at) || instant(job.created_at);
+}
+
+export function selectLatestSeoReadyProducts(
+  jobs: Array<
+    Pick<
+      SeoRunJobRow,
+      | "run_id"
+      | "launch_item_id"
+      | "model_number"
+      | "product_name"
+      | "status"
+      | "registration_status"
+      | "run_created_at"
+      | "created_at"
+    >
+  >,
+) {
+  const latestByProduct = new Map<string, (typeof jobs)[number]>();
+  for (const job of jobs) {
+    const launchItemId = text(job.launch_item_id);
+    if (!launchItemId) continue;
+    const current = latestByProduct.get(launchItemId);
+    const jobTime = jobInstant(job);
+    const currentTime = current ? jobInstant(current) : -1;
+    if (
+      !current ||
+      jobTime > currentTime ||
+      (jobTime === currentTime && text(job.run_id) > text(current.run_id))
+    ) {
+      latestByProduct.set(launchItemId, job);
+    }
+  }
+
+  return [...latestByProduct.values()]
+    .filter(
+      (job) => job.status === "ready" && job.registration_status === "idle",
+    )
+    .sort((left, right) => {
+      const timeDifference = jobInstant(left) - jobInstant(right);
+      return timeDifference || text(left.run_id).localeCompare(text(right.run_id));
+    })
+    .map(
+      (job): SeoReadyProduct => ({
+        runId: text(job.run_id),
+        launchItemId: text(job.launch_item_id),
+        modelNumber: text(job.model_number),
+        productName: text(job.product_name),
+        runCreatedAt: text(job.run_created_at),
+      }),
+    );
+}
+
+export function summarizeSeoListingLifecycle(
+  rows: SeoListingLifecycleSummaryRow[],
+) {
+  const counts = Object.fromEntries(STATES.map((state) => [state, 0])) as Record<
+    SeoListingLifecycleState,
+    number
+  >;
+  let requiresReviewCount = 0;
+  for (const row of rows) {
+    const state = text(row.state) as SeoListingLifecycleState;
+    if (STATES.includes(state)) counts[state] += 1;
+    if (row.requires_review === true) requiresReviewCount += 1;
+  }
+  return { counts, requiresReviewCount };
+}

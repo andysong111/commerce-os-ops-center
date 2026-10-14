@@ -1,4 +1,5 @@
 import SeoBulkArchiveSummary from "./SeoBulkArchiveSummary";
+import SeoBulkAutomationPanel from "./SeoBulkAutomationPanel";
 import SeoBulkFetchRecovery from "./SeoBulkFetchRecovery";
 import SeoBulkRunCloudClient from "./SeoBulkDurableRunCloudClient";
 import SeoBulkCustomBlockedTermsPanel from "./SeoBulkCustomBlockedTermsPanel";
@@ -13,6 +14,7 @@ import SeoBulkWindowBridge from "./SeoBulkWindowBridge";
 export default function SeoBulkCloudPage() {
   return (
     <>
+      <SeoBulkAutomationPanel />
       <SeoBulkWindowBridge />
       <SeoBulkRunMigrationBridge />
       <SeoBulkLongTitleV6UpgradeBridge />
