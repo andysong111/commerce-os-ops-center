@@ -39,6 +39,12 @@ function quantity(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
 }
 
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 function hash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -173,6 +179,12 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     cycleRows,
     input.expectedDraftId,
   );
+  const previousByBarcode = new Map(activeRows.map((row) => [row.barcode, row] as const));
+  const preservedSourcingBarcodes = new Set(
+    lines
+      .filter((line) => object(previousByBarcode.get(line.barcode)?.latestPayload).sourcingConfirmed === true)
+      .map((line) => line.barcode),
+  );
   if (draftId === input.expectedDraftId) {
     return {
       draft: {
@@ -197,7 +209,9 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
   }
 
   const createdAt = new Date().toISOString();
-  const cancelEvents = activeRows.map((row) =>
+  const cancelEvents = activeRows
+    .filter((row) => !preservedSourcingBarcodes.has(row.barcode))
+    .map((row) =>
     normalizeChinaOrderCommitmentEvent({
       sourceSystem: row.sourceSystem,
       sourceLineId: row.sourceLineId,
@@ -219,10 +233,16 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       },
     }),
   );
-  const reserveEvents = lines.map((line) =>
-    normalizeChinaOrderCommitmentEvent({
+  const reserveEvents = lines.map((line) => {
+    const previous = previousByBarcode.get(line.barcode);
+    const preservedPayload = preservedSourcingBarcodes.has(line.barcode)
+      ? object(previous?.latestPayload)
+      : {};
+    return normalizeChinaOrderCommitmentEvent({
       sourceSystem: SOURCE_SYSTEM,
-      sourceLineId: `${draftId}:${line.barcode}`,
+      sourceLineId: preservedSourcingBarcodes.has(line.barcode) && previous
+        ? previous.sourceLineId
+        : `${draftId}:${line.barcode}`,
       sourceRunId: draftId,
       sourceEventId: `${draftId}:${line.barcode}:reserved`,
       barcode: line.barcode,
@@ -233,6 +253,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         line.stockSense === "OUT" ? "품절" : "부족"
       }`,
       payload: {
+        ...preservedPayload,
         sourceFingerprint: input.sourceFingerprint,
         dataMode: "PURCHASE_PREFLIGHT",
         cycleMonth: input.cycleMonth,
@@ -245,8 +266,8 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         supersedesDraftId: input.expectedDraftId,
         externalOrderExecuted: false,
       },
-    }),
-  );
+    });
+  });
   const operations = [
     ...cancelEvents.map((event) =>
       operationRow(event, {
@@ -312,7 +333,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       externalOrderExecuted: false,
     },
     previousDraftId: input.expectedDraftId,
-    supersededLineCount: cancelEvents.length,
+    supersededLineCount: activeRows.length,
     externalOrderExecuted: false,
   };
 }

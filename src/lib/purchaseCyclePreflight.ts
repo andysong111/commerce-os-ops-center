@@ -51,13 +51,20 @@ async function loadReplacementDraftSnapshot(draftId: string) {
   if (ledger.error) throw new Error("REPLACEMENT_DRAFT_LEDGER_READ_FAILED");
   const quantities = safeReplacementDraftCommitments(ledger.commitments, draftId);
   const rows = ledger.commitments.filter((row) => row.sourceRunId === draftId);
+  const sourceByBarcode = new Map(rows.map((row) => [row.barcode, row] as const));
   return buildPurchaseReplacementDraftSnapshot(
     draftId,
     new Date().toISOString(),
     [...quantities].map(([barcode, quantity]) => {
-      const source = rows.find((row) => row.barcode === barcode);
-      const name = String(object(source?.latestPayload).productName ?? "").trim();
-      return { barcode, quantity, name };
+      const source = sourceByBarcode.get(barcode);
+      const payload = object(source?.latestPayload);
+      const name = String(payload.productName ?? "").trim();
+      return {
+        barcode,
+        quantity,
+        name,
+        preserveOnRegeneration: payload.sourcingConfirmed === true,
+      };
     }),
   );
 }

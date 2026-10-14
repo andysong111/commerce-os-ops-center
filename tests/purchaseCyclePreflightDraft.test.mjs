@@ -29,6 +29,7 @@ function report() {
     candidateCount: 1,
     accountedCandidateCount: 1,
     candidateCoverageComplete: true,
+    preservedReplacementLines: [],
     selected: [
       {
         barcode: "BAC1-1",
@@ -340,6 +341,37 @@ test("replacement preview is pinned to the exact existing draft", () => {
   );
 });
 
+test("replacement preparation carries confirmed sourcing lines into the regenerated draft", () => {
+  const value = report();
+  value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  value.preservedReplacementLines = [{
+    barcode: "BAA3-1",
+    name: "직접 추가 신규소싱 상품",
+    quantity: 10,
+    preserveOnRegeneration: true,
+  }];
+  value.replacementAudit = {
+    previousLineCount: 2,
+    selectedLineCount: 2,
+    matchedCount: 2,
+    added: [],
+    removed: [],
+    quantityChanged: [],
+    complete: true,
+  };
+  const input = request(value);
+  input.replaceDraftId = value.replacementDraftId;
+  input.confirmation = purchaseCycleDraftConfirmation(value);
+
+  const prepared = preparePurchaseCycleDraft(value, input);
+
+  assert.deepEqual(
+    prepared.lines.map((line) => [line.barcode, line.plannedQuantity]),
+    [["BAC1-1", 38], ["BAA3-1", 10]],
+  );
+  assert.match(input.confirmation, /_2SKU_/);
+});
+
 test("replacement cannot be saved without a complete old-to-new coverage audit", () => {
   const value = report();
   value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
@@ -439,6 +471,9 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(storage, /object\(line\.latestPayload\)\.cycleMonth/);
   assert.match(regeneration, /status: "CANCELLED"/);
   assert.match(regeneration, /status: "RESERVED"/);
+  assert.match(regeneration, /preservedSourcingBarcodes/);
+  assert.match(regeneration, /previous\.sourceLineId/);
+  assert.match(regeneration, /\.\.\.preservedPayload/);
   assert.match(regeneration, /externalOrderExecuted: false/);
   assert.doesNotMatch(regeneration, /status: "ORDERED"/);
   assert.doesNotMatch(regeneration, /resolution=ignore-duplicates/);
