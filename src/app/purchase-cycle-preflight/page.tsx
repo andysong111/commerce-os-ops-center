@@ -81,6 +81,9 @@ const reasonLabels: Record<string, string> = {
   CANARY_QUANTITY_LIMIT: "품목별 수량 상한 초과", ROW_EXECUTION_BLOCKED: "품목별 조건 미충족",
   CANARY_SKU_LIMIT: "발주안 SKU 수 제한", CASH_BUDGET_LIMIT: "현금 상한 초과",
   OPERATOR_DRAFT_EXCLUSION: "사용자가 이번 발주초안에서 제외했습니다.",
+  OPERATOR_QUANTITY_TARGET_NOT_ELIGIBLE: "수량을 고정한 상품이 현재 발주 후보가 아니거나 원가·재고 조건을 충족하지 못했습니다.",
+  OPERATOR_QUANTITY_SKU_LIMIT_EXCEEDED: "수량을 고정한 상품 수가 발주안 SKU 안전상한을 초과했습니다.",
+  OPERATOR_QUANTITY_BUDGET_EXCEEDED: "사용자가 고정한 수량의 상품대금만으로 현재 발주 예산을 초과합니다. 수량이나 예산을 조정해야 합니다.",
   CANDIDATE_READ_FAILED: "판매 후보 조회 실패", CANDIDATE_RECHECK_FAILED: "판매 후보 재확인 실패",
   PROMOTION_GATE_READ_FAILED: "판매원장 게이트 조회 실패", MASTER_READBACK_READ_FAILED: "상품마스터 대사 조회 실패",
   INVENTORY_PRIORITY_READ_FAILED: "재고·발주 우선순위 조회 실패",
@@ -206,6 +209,21 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       : [])
     .map((value) => value.trim().toUpperCase())
     .filter(Boolean);
+  const rawQuantityOverrides = Array.isArray(query.qty)
+    ? query.qty
+    : typeof query.qty === "string"
+      ? [query.qty]
+      : [];
+  const quantityOverrideInputInvalid = rawQuantityOverrides.some(
+    (value) => !/^B[A-Z]{2}\d+-\d+:\d+$/.test(value.trim().toUpperCase()),
+  );
+  const quantityOverrides = rawQuantityOverrides.map((value) => {
+    const [barcode = "", quantity = ""] = value.split(":");
+    return {
+      barcode: barcode.trim().toUpperCase(),
+      targetQuantity: /^\d+$/.test(quantity) ? Number(quantity) : Number.NaN,
+    };
+  });
   let report: PurchaseCyclePreflightReport | null = null;
   let sourcingPlan: SourcingBudgetPlan | null = null;
   let manualPilotCatalog: ManualPilotCatalog | null = null;
@@ -223,7 +241,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       if (preferredSourcingConceptIds.length > 20 || new Set(preferredSourcingConceptIds).size !== preferredSourcingConceptIds.length) throw new Error("SOURCING_SELECTION_INVALID");
       if (sourcingStorageInputInvalid) throw new Error("SOURCING_STORAGE_SELECTION_INVALID");
       if (sourcingVariantInputInvalid) throw new Error("SOURCING_VARIANT_SELECTION_INVALID");
-      const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId, excludedBarcodes };
+      if (quantityOverrideInputInvalid) throw new Error("OPERATOR_QUANTITY_OVERRIDES_INVALID");
+      const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId, excludedBarcodes, quantityOverrides };
       validatePurchasePreflightOptions(options);
       const [reportResult, manualPilotResult] = await Promise.allSettled([
         loadPurchaseCyclePreflightPreview(options),
@@ -455,6 +474,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     ready: draftReady,
     replaceDraftId: report.replacementDraftId,
     excludedBarcodes: report.operatorExcludedBarcodes,
+    quantityOverrides: report.operatorQuantityOverrides,
     replacementAddedCount: report.replacementAudit?.added.length ?? 0,
     replacementRemovedCount: report.replacementAudit?.removed.length ?? 0,
     replacementChangedCount: report.replacementAudit?.quantityChanged.length ?? 0,
@@ -481,6 +501,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <input type="hidden" name="check" value="1" />
           {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
           {excludedBarcodes.map((barcode) => <input key={`exclude:${barcode}`} type="hidden" name="exclude" value={barcode} />)}
+          {quantityOverrides.map((row) => <input key={`qty:${row.barcode}`} type="hidden" name="qty" value={`${row.barcode}:${row.targetQuantity}`} />)}
           <label className="text-sm font-bold text-slate-900">발주 예정일<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="date" type="date" defaultValue={targetDate} required /><span className="mt-1 block text-xs font-normal text-slate-500">판매·재고를 계산할 기준일</span></label>
           <label className="text-sm font-bold text-slate-900">이번 발주에 쓸 총 현금<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 자동 예산" /><span className="mt-1 block text-xs font-normal text-slate-500">상품대금과 배송비·수수료까지 포함</span></label>
           <label className="text-sm font-bold text-slate-900">신규상품 소싱 예산 비율<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">기본 15% · 후보에 쓰고 남은 금액은 기존상품 예산으로 복귀</span></label>
@@ -566,6 +587,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                     early={early}
                     replaceDraftId={replaceDraftId}
                     excludedBarcodes={excludedBarcodes}
+                    quantityOverrides={quantityOverrides}
                     selectedCandidates={sourcingPlan.allocation.selected}
                     availableCandidates={sourcingPlan.allocation.availableCandidates}
                     preferredConceptIds={effectivePreferredSourcingConceptIds}
@@ -631,6 +653,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                   {early ? <input type="hidden" name="early" value="1" /> : null}
                   {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
                   {excludedBarcodes.map((barcode) => <input key={`ratio-exclude:${barcode}`} type="hidden" name="exclude" value={barcode} />)}
+                  {quantityOverrides.map((row) => <input key={`ratio-qty:${row.barcode}`} type="hidden" name="qty" value={`${row.barcode}:${row.targetQuantity}`} />)}
                   <input type="hidden" name="selection" value="custom" />
                   {effectivePreferredSourcingConceptIds.map((conceptId) => <input key={`ratio-source:${conceptId}`} type="hidden" name="source" value={conceptId} />)}
                   {Object.entries(sourcingStorageSizeByConceptId).map(([conceptId, size]) => <input key={`ratio-storage:${conceptId}`} type="hidden" name={`storage.${conceptId}`} value={size} />)}
@@ -687,6 +710,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                 <div><p className="text-xs font-black text-sky-700">기존 Draft와 새 계산 전체 대조</p><h3 className="mt-1 text-lg font-black">추가 {report.replacementAudit.added.length}종 · 제거 {report.replacementAudit.removed.length}종 · 수량변경 {report.replacementAudit.quantityChanged.length}종</h3></div>
                 <p className={`text-sm font-bold ${report.replacementAudit.complete ? "text-emerald-800" : "text-rose-700"}`}>{report.replacementAudit.complete ? "전체 대조 완료" : "대조 불일치 · 저장 차단"}</p>
               </div>
+              {report.operatorQuantityOverrides.length > 0 ? <p className="mt-3 border-l-4 border-blue-500 bg-blue-50 px-3 py-2 font-bold text-blue-950">사용자 지정 수량 {report.operatorQuantityOverrides.length}종을 먼저 고정하고, 남은 예산만 다음 우선순위에 배정했습니다: {report.operatorQuantityOverrides.map((row) => `${row.barcode} ${row.targetQuantity}개`).join(" · ")}</p> : null}
               <details className="mt-4 border-t border-slate-100 pt-3 text-sm">
                 <summary className="cursor-pointer font-bold">변경되는 품목 자세히 보기</summary>
                 <div className="mt-3 grid gap-5 lg:grid-cols-3">

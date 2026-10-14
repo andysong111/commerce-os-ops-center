@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import type { FastPurchaseInternalDraftLine } from "@/lib/fastPurchaseInternalDraft";
-import type { PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
+import type {
+  PurchaseCyclePreflightReport,
+  PurchaseQuantityOverride,
+} from "@/lib/purchaseCyclePreflightCore";
 import type {
   SourcingBudgetPlan,
   SourcingVariantSelectionInput,
@@ -58,6 +61,12 @@ function sortedStrings(values: string[] | undefined) {
   return [...(values ?? [])].sort();
 }
 
+function sortedQuantityOverrides(values: PurchaseQuantityOverride[] | undefined) {
+  return [...(values ?? [])]
+    .map(({ barcode, targetQuantity }) => ({ barcode, targetQuantity }))
+    .sort((left, right) => left.barcode.localeCompare(right.barcode));
+}
+
 function sortedStorageEntries(values: Record<string, "S" | "L"> | undefined) {
   return Object.entries(values ?? {}).sort(([left], [right]) => (
     left < right ? -1 : left > right ? 1 : 0
@@ -106,6 +115,7 @@ export type PurchaseCycleDraftRequest = {
   confirmation: string;
   replaceDraftId?: string | null;
   excludedBarcodes?: string[];
+  quantityOverrides?: PurchaseQuantityOverride[];
 };
 
 export function purchaseCycleDraftPreflightOptions(
@@ -120,6 +130,7 @@ export function purchaseCycleDraftPreflightOptions(
     allowOpenBudgetPreview: request.allowOpenBudgetPreview === true,
     replaceDraftId: request.replaceDraftId ?? null,
     excludedBarcodes: request.excludedBarcodes ?? [],
+    quantityOverrides: request.quantityOverrides ?? [],
   };
 }
 
@@ -198,6 +209,8 @@ export function preparePurchaseCycleDraft(
     (request.replaceDraftId ?? null) !== (report.replacementDraftId ?? null) ||
     JSON.stringify(sortedStrings(request.excludedBarcodes)) !==
       JSON.stringify(report.operatorExcludedBarcodes) ||
+    JSON.stringify(sortedQuantityOverrides(request.quantityOverrides)) !==
+      JSON.stringify(report.operatorQuantityOverrides) ||
     !FINGERPRINT.test(request.expectedSourceFingerprint) ||
     !FINGERPRINT.test(request.expectedPlanFingerprint)
   ) {

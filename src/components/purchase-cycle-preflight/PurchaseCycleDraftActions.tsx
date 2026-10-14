@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SourcingVariantSelectionInput } from "@/lib/sourcingBudgetPlan";
+import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
 import { MANUAL_SOURCING_DRAFT_COMMITTED_EVENT } from "@/lib/manualSourcingDraftStorage";
 
 type DraftResponse = {
@@ -53,6 +54,7 @@ export function PurchaseCycleDraftActions({
   ready,
   replaceDraftId,
   excludedBarcodes = [],
+  quantityOverrides = [],
   replacementAddedCount = 0,
   replacementRemovedCount = 0,
   replacementChangedCount = 0,
@@ -87,6 +89,7 @@ export function PurchaseCycleDraftActions({
   ready: boolean;
   replaceDraftId?: string | null;
   excludedBarcodes?: string[];
+  quantityOverrides?: PurchaseQuantityOverride[];
   replacementAddedCount?: number;
   replacementRemovedCount?: number;
   replacementChangedCount?: number;
@@ -109,8 +112,11 @@ export function PurchaseCycleDraftActions({
     const exclusionSummary = excludedBarcodes.length > 0
       ? ` · 사용자 제외 ${excludedBarcodes.length}종`
       : "";
+    const quantitySummary = quantityOverrides.length > 0
+      ? ` · 사용자 수량 고정 ${quantityOverrides.length}종`
+      : "";
     const summary = replaceDraftId
-      ? `${targetCycleMonth} 기존 Draft를 최신 계산으로 교체할까요?\n\n${lineSummary}\n기존상품 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원 · ${cashSummary} · ${sourcingSummary}${exclusionSummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
+      ? `${targetCycleMonth} 기존 Draft를 최신 계산으로 교체할까요?\n\n${lineSummary}\n기존상품 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원 · ${cashSummary} · ${sourcingSummary}${exclusionSummary}${quantitySummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
       : `${targetCycleMonth} 월간 발주 Draft를 저장할까요?\n\n${lineSummary}\n기존상품 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원 · ${cashSummary} · ${sourcingSummary}을 적용했습니다. 미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
     const quickOpenNotice = variant === "quick-open"
       ? "\n\n저장 후 상품별 주문수량·1688 링크·옵션·위안단가 입력과 장바구니 준비가 있는 중국 발주초안을 엽니다. 실제 주문·결제는 실행하지 않습니다."
@@ -137,6 +143,7 @@ export function PurchaseCycleDraftActions({
           confirmation,
           replaceDraftId: replaceDraftId ?? null,
           excludedBarcodes,
+          quantityOverrides,
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as DraftResponse;

@@ -129,6 +129,98 @@ test("operator exclusion refill can budget the next priority with the current sh
   assert.deepEqual(report.replacementAudit.added.map((row) => row.barcode), ["BAA2-1"]);
 });
 
+test("operator quantity decrease is fixed and the freed budget fills the next priority", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.maxSkus = 2;
+  input.options.replaceDraftId = draftId;
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 2 }];
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "NEXT PRIORITY",
+    priorityScore: 80,
+    latestConfirmedReceiptCostKrw: 4_000,
+    protectedCostKrw: 4_000,
+  });
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 5 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(report.operatorQuantityOverrides, [{ barcode: "BAA1-1", targetQuantity: 2 }]);
+  assert.deepEqual(
+    report.selected.map((row) => [row.barcode, row.quantity]),
+    [["BAA1-1", 2], ["BAA2-1", 5]],
+  );
+  assert.equal(report.replacementAudit.added[0].barcode, "BAA2-1");
+  assert.deepEqual(report.replacementAudit.quantityChanged[0], {
+    barcode: "BAA1-1",
+    name: "SIMULATION ONLY",
+    previousQuantity: 5,
+    selectedQuantity: 2,
+  });
+});
+
+test("operator quantity increase stays exact and reduces the lower priority allocation", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.cashLimitKrw = 65_000;
+  input.options.maxSkus = 2;
+  input.options.replaceDraftId = draftId;
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 7 }];
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "LOWER PRIORITY",
+    priorityScore: 80,
+    latestConfirmedReceiptCostKrw: 4_000,
+    protectedCostKrw: 4_000,
+  });
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 5 },
+      { barcode: "BAA2-1", name: "LOWER PRIORITY", quantity: 5 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(
+    report.selected.map((row) => [row.barcode, row.quantity]),
+    [["BAA1-1", 7], ["BAA2-1", 2]],
+  );
+  assert.equal(report.estimatedSpendKrw, 43_000);
+});
+
+test("operator quantity that alone exceeds the budget blocks instead of shrinking silently", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.maxUnitsPerSku = 20;
+  input.options.replaceDraftId = draftId;
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 11 }];
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 5 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  blocked(buildPurchaseCyclePreflight(input), "OPERATOR_QUANTITY_BUDGET_EXCEEDED");
+});
+
 test("shadow expected cost does not relax the normal monthly Draft path", () => {
   const input = fixture();
   Object.assign(input.priority.rows[0], {
@@ -161,6 +253,34 @@ test("operator exclusions require one valid replacement Draft and unique canonic
     }
     assert.throws(() => buildPurchaseCyclePreflight(input), /OPERATOR_/);
   }
+});
+test("operator quantity overrides require a replacement Draft and cannot conflict with exclusions", () => {
+  const withoutReplacement = fixture();
+  withoutReplacement.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 2 }];
+  assert.throws(
+    () => buildPurchaseCyclePreflight(withoutReplacement),
+    /OPERATOR_QUANTITY_OVERRIDES_REQUIRE_REPLACEMENT_DRAFT/,
+  );
+
+  const conflict = fixture();
+  conflict.options.replaceDraftId = "fast-purchase-draft:1234567890abcdef1234";
+  conflict.options.excludedBarcodes = ["BAA1-1"];
+  conflict.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 2 }];
+  assert.throws(
+    () => buildPurchaseCyclePreflight(conflict),
+    /OPERATOR_QUANTITY_OVERRIDE_EXCLUSION_CONFLICT/,
+  );
+
+  const duplicate = fixture();
+  duplicate.options.replaceDraftId = "fast-purchase-draft:1234567890abcdef1234";
+  duplicate.options.quantityOverrides = [
+    { barcode: "BAA1-1", targetQuantity: 2 },
+    { barcode: "BAA1-1", targetQuantity: 3 },
+  ];
+  assert.throws(
+    () => buildPurchaseCyclePreflight(duplicate),
+    /OPERATOR_QUANTITY_OVERRIDES_INVALID/,
+  );
 });
 test("coherent provisional inventory is included only in the read-only owner-review preview", () => {
   const input = fixture();

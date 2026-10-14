@@ -8,6 +8,7 @@ import type {
   InternalChinaPurchaseDraft,
   InternalChinaPurchaseDraftLine,
 } from "@/lib/internalChinaPurchaseDraft";
+import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
 
 const number = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const cny = new Intl.NumberFormat("ko-KR", {
@@ -114,10 +115,12 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   initialDraft,
   budgetAudit,
   regenerationHref,
+  initialQuantityOverrides = [],
 }: {
   initialDraft: InternalChinaPurchaseDraft;
   budgetAudit: InternalChinaPurchaseBudgetAudit;
   regenerationHref: string;
+  initialQuantityOverrides?: PurchaseQuantityOverride[];
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState(initialDraft);
@@ -125,6 +128,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [saving, setSaving] = useState(false);
   const [ordering, setOrdering] = useState(false);
   const [selectedExclusions, setSelectedExclusions] = useState<Record<string, boolean>>({});
+  const [quantityOverrides, setQuantityOverrides] = useState<Record<string, number>>(
+    () => Object.fromEntries(initialQuantityOverrides.map((row) => [row.barcode, row.targetQuantity])),
+  );
   const [regenerating, setRegenerating] = useState(false);
   const [cartPreparing, setCartPreparing] = useState(false);
   const [scrollWidth, setScrollWidth] = useState(TABLE_WIDTH);
@@ -286,7 +292,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
       };
     });
-    setNotice(message);
+    setQuantityOverrides((current) => ({ ...current, [barcode]: targetQuantity }));
+    setNotice(`${message} 예산과 다음 우선순위 상품은 아래 재계산 버튼을 눌러 새 발주안에서 확인하세요.`);
   }
 
   function updateModelSupplierLink(
@@ -462,6 +469,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     .map((line) => line.barcode)
     .sort();
   const allLinesSelected = draft.lines.length > 0 && excludedBarcodes.length === draft.lines.length;
+  const activeQuantityOverrides = Object.entries(quantityOverrides)
+    .filter(([barcode]) => draft.lines.some((line) => line.barcode === barcode))
+    .map(([barcode, targetQuantity]) => ({ barcode, targetQuantity }))
+    .sort((left, right) => left.barcode.localeCompare(right.barcode));
 
   function toggleExcludedBarcode(barcode: string, checked: boolean) {
     setSelectedExclusions((current) => ({ ...current, [barcode]: checked }));
@@ -473,7 +484,32 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       `선택한 ${excludedBarcodes.length.toLocaleString("ko-KR")}개 상품을 이번 발주 대상에서 제외하고, 남은 예산을 다음 우선순위 상품으로 다시 채울까요?\n\n먼저 새 발주안을 계산해 보여드립니다. 계산이 끝난 뒤 교체 저장하기 전까지 현재 초안은 바뀌지 않으며 1688 주문·결제도 실행하지 않습니다.`,
     )) return;
     const url = new URL(regenerationHref, window.location.origin);
+    url.searchParams.delete("exclude");
+    url.searchParams.delete("qty");
     for (const barcode of excludedBarcodes) url.searchParams.append("exclude", barcode);
+    for (const row of activeQuantityOverrides) {
+      if (!excludedBarcodes.includes(row.barcode)) {
+        url.searchParams.append("qty", `${row.barcode}:${row.targetQuantity}`);
+      }
+    }
+    setRegenerating(true);
+    router.push(`${url.pathname}?${url.searchParams.toString()}`);
+  }
+
+  function regenerateWithQuantityChanges() {
+    if (draft.status !== "DRAFT" || regenerating || activeQuantityOverrides.length === 0) return;
+    if (!window.confirm(
+      `저장한 수량 ${activeQuantityOverrides.length.toLocaleString("ko-KR")}개 상품을 고정하고 발주안을 다시 계산할까요?\n\n줄인 금액은 다음 우선순위 상품에 배정하고, 늘린 금액은 낮은 우선순위부터 줄입니다. 먼저 결과를 보여드리며 교체 저장 전까지 현재 초안은 유지됩니다.`,
+    )) return;
+    const url = new URL(regenerationHref, window.location.origin);
+    url.searchParams.delete("exclude");
+    url.searchParams.delete("qty");
+    for (const barcode of excludedBarcodes) url.searchParams.append("exclude", barcode);
+    for (const row of activeQuantityOverrides) {
+      if (!excludedBarcodes.includes(row.barcode)) {
+        url.searchParams.append("qty", `${row.barcode}:${row.targetQuantity}`);
+      }
+    }
     setRegenerating(true);
     router.push(`${url.pathname}?${url.searchParams.toString()}`);
   }
@@ -604,6 +640,16 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         <div className={`mt-4 rounded-xl border px-4 py-3 text-xs leading-5 ${calculations.budgetOverKrw > 0 ? "border-rose-300 bg-rose-50 text-rose-950" : "border-blue-200 bg-blue-50 text-blue-950"}`}>
           <strong>실시간 월간 발주예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 상품대금 {number.format(Math.round(calculations.productKrw))}원 · 상품대금 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}.
         </div>
+        {activeQuantityOverrides.length > 0 ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+            <p className="text-xs font-bold leading-5 text-blue-950">
+              수량 변경 {activeQuantityOverrides.length}종은 현재 초안에 저장됐습니다. 재계산하면 변경 수량을 고정하고 남은 예산을 다음 우선순위 상품으로 다시 채웁니다.
+            </p>
+            <button type="button" onClick={regenerateWithQuantityChanges} disabled={draft.status !== "DRAFT" || regenerating} aria-busy={regenerating} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
+              {regenerating ? "수량 반영·재계산 중..." : `변경 수량으로 발주안 재생성 (${activeQuantityOverrides.length}종)`}
+            </button>
+          </div>
+        ) : null}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
           <p className="text-xs font-bold leading-5 text-rose-950">
             표에서 제외할 상품을 체크하세요. 재계산하면 선택 상품은 다시 뽑지 않고, 남은 예산으로 다음 우선순위 상품을 채운 결과를 보여줍니다.
