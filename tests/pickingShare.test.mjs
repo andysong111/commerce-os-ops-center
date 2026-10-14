@@ -159,5 +159,11 @@ test("picking snapshot migration keeps public roles out and service role in", as
   assert.match(migration, /grant select, insert, update, delete[^;]+to service_role/i);
   assert.doesNotMatch(client, /SUPABASE_SECRET_KEY|SUPABASE_SERVICE_ROLE_KEY|sb_secret_/);
   assert.match(client, /\/api\/picking\//);
+  assert.match(client, />모델명<\\/strong>/);
+  assert.match(client, />모델번호<\\/strong>/);
+  assert.match(client, />옵션명<\\/strong>/);
+  assert.match(client, /item\.modelNames/);
+  assert.match(client, /item\.modelNumbers/);
+  assert.match(client, /item\.optionNames/);
   assert.equal(tokenHash.length, 64);
 });
