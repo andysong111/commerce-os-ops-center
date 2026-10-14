@@ -675,3 +675,17 @@ Actual 1688 ordering and payment remain outside this replacement calculation and
 - 2026-10-14 내부 Draft 저장 만료 복구: 발주 계산 완료 후 검토하는 동안 Product Master 재고·원가 스냅샷의 15분 제한이 지나면, 내용은 하나도 바뀌지 않았는데 저장 직전 재검증에서 `PURCHASE_CYCLE_DRAFT_SOURCE_CHANGED`가 발생했다. 내부 Draft 준비에서는 정확한 inventory content fingerprint가 유지되는 스냅샷을 다음 서울 날짜까지 재사용한다. 내용 지문 변경·미래시각·둘째 날 경과는 계속 차단하고, 실제 1688 주문·결제 경계는 변경하지 않는다.
 - 2026-10-13 FULL 후 planning drift 판정 보완: 판매 후보 생성 뒤 Product Master planning 지문이 바뀌어도 현재 active B-code 전부의 12×30 판매 배열·이벤트 수가 persisted FULL 원장과 정확히 일치하고, 누락·불일치·판매값이 있는 추가 SKU가 0개라면 판매 원장 범위는 동일한 것으로 인정한다. 하나라도 다르면 기존처럼 차단한다. 상품·재고·원가·Draft 저장 조건은 별도 검증을 그대로 유지한다.
 - 2026-10-13 발주 화면 연결 보완: FULL 대사가 현재 active 판매 범위를 전수 일치로 증명한 경우 발주 shadow의 최신 planning 지문과 후보 생성 당시 planning 지문이 달라도 동일 판매 범위로 연결한다. Shadow 자체 planning과 발주 우선순위 planning은 여전히 서로 같아야 하며, 전수 일치 증거가 없으면 차단한다. Production 원본 조회의 일시 지연이 20초를 넘겨 정상 결과를 실패로 바꾸지 않도록 읽기 제한을 50초로 늘리고, 결과는 60초간 재사용한다.
+
+---
+
+## 19. SEO 상품 자동등록·물갈이 결정 (2026-10-15)
+
+소유자는 `/seo-bulk-cloud`를 수동 상품 업로드 도구에서 월간 성과와 예외만 확인하는 포트폴리오 자동화로 발전시키기로 결정했다. 기존 샵플링 일괄 대량등록 및 마켓전송, 등록 실패 확인, 오류 체크포인트 재실행 컨트롤은 유지한다.
+
+확정된 단순 정책은 `60일 검증 노출 → 무판매면 90일 휴지 → 새 SEO 버전 재등록`, 최대 3회다. 판매가 한 건이라도 확인되면 보호하며, 3회의 검증된 노출이 모두 무판매일 때만 단종 후보로 올린다. 기술 오류, 실제 미노출, 판매중 readback 부재는 시도 횟수를 소비하지 않는다. 상품별 계절성은 추정하지 않는다. 물갈이는 Shopling/마켓 listing을 대상으로 하며 Product Master 상품 원본을 삭제하지 않는다.
+
+초기 구현은 Shadow 전용이다. 마켓별 최대 등록수와 현재 등록수는 24시간 이내의 검증된 readback이 있어야 하고, 필수 마켓 한 곳이라도 불명확하면 전체 자동 배치를 차단한다. 여러 마켓 동시등록의 안전 수량은 남은 슬롯 합계가 아니라 가장 작은 필수 마켓 슬롯이다. Production migration, 실제 Shopling 품절·삭제·재등록, 스케줄 활성화는 readback collector와 Canary 증거를 확보한 뒤 별도 운영 경계에서 진행한다.
+
+마켓 한도 수집 계약은 상품그룹 레지스트리의 29개 계정을 allowlist로 사용한다. 일부 계정을 읽지 못하면 누락 행을 `unknown`으로 채워 전체 배치를 차단하며, owner+snapshot UUID로 29개 행을 원자 저장한 뒤 같은 식별자로 재조회해 전부 일치해야 성공이다. 저장 결과가 불명확하면 쓰기를 재시도하지 않고 `confirm_needed`로 남긴다. 이 경로는 내부 Shadow 증거만 저장하며 외부 마켓을 변경하지 않는다.
+
+상세 계획과 인수 조건은 `docs/seo-listing-auto-lifecycle-plan.md`를 기준으로 한다.

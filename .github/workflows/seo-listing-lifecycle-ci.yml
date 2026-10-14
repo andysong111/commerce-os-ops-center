@@ -1,0 +1,75 @@
+name: SEO Listing Lifecycle CI
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/seoListingLifecyclePolicy.ts"
+      - "src/lib/seoListingAutomationDashboard.ts"
+      - "src/lib/seoMarketCapacityReadback.ts"
+      - "src/app/api/seo-listing-lifecycle/**"
+      - "src/app/seo-bulk-cloud/SeoBulkAutomationPanel.tsx"
+      - "src/app/seo-bulk-cloud/page.tsx"
+      - "src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx"
+      - "src/app/seo-bulk-cloud/SeoBulkRegistrationFailurePanel.tsx"
+      - "src/app/seo-bulk-cloud/SeoBulkRegistrationRetryAllControl.tsx"
+      - "supabase/migrations/20261014191618_seo_listing_rotation_shadow_v1.sql"
+      - "tests/seoListingLifecyclePolicy.test.mjs"
+      - "tests/seoListingAutomationDashboard.test.mjs"
+      - "tests/seoListingAutomationContract.test.mjs"
+      - "tests/seoMarketCapacityReadback.test.mjs"
+      - ".github/workflows/seo-listing-lifecycle-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seo-listing-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Lint SEO listing lifecycle
+        run: >-
+          npx eslint
+          src/lib/seoListingLifecyclePolicy.ts
+          src/lib/seoListingAutomationDashboard.ts
+          src/lib/seoMarketCapacityReadback.ts
+          src/app/api/seo-listing-lifecycle/route.ts
+          src/app/api/seo-listing-lifecycle/capacity-readback/route.ts
+          src/app/seo-bulk-cloud/SeoBulkAutomationPanel.tsx
+          src/app/seo-bulk-cloud/page.tsx
+          tests/seoListingLifecyclePolicy.test.mjs
+          tests/seoListingAutomationDashboard.test.mjs
+          tests/seoListingAutomationContract.test.mjs
+          tests/seoMarketCapacityReadback.test.mjs
+      - name: Test lifecycle policy and capacity safety
+        run: >-
+          node --experimental-strip-types --test
+          tests/seoListingLifecyclePolicy.test.mjs
+          tests/seoListingAutomationDashboard.test.mjs
+          tests/seoListingAutomationContract.test.mjs
+          tests/seoMarketCapacityReadback.test.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build Ops Center
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://seo-listing-lifecycle-build-check.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_seo_listing_lifecycle_build_check
+          SUPABASE_SECRET_KEY: sb_secret_seo_listing_lifecycle_build_check
+          PRODUCT_MASTER_BASE_URL: https://commerce-os-product-master.vercel.app
+          PRODUCT_MASTER_INTEGRATION_SECRET: ci-product-master-secret
+          SHOPLING_LOGIN_ID: ci-shopling-id
+          SHOPLING_COMPANY_ID: ci-shopling-company
+          SHOPLING_API_AUTH_KEY: ci-shopling-key
+          CRON_SECRET: ci-cron-secret
