@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import * as v2 from "../src/lib/keywordEngineElonLabV2.ts";
+import * as materialReadiness from "../src/lib/productLaunchSeoMaterialReadiness.ts";
 import * as chain from "../src/lib/seoBulkSourceFallback.ts";
 import { loadPurchaseCycleModule as loadModule } from "./helpers/purchaseCycleHarness.mjs";
 
@@ -208,9 +209,19 @@ function routeFixture(authorized = true) {
   const route = loadModule("src/app/api/seo-run-jobs/route.ts", {
     "next/server": { after: () => {} },
     "@/lib/seoBulkShoplingSource": { seoBulkShoplingGoodsKeys: adapter().seoBulkShoplingGoodsKeys },
+    "@/lib/productLaunchSeoMaterialReadiness": materialReadiness,
     "@/lib/keywordEngineElonLabV2": v2,
     "@/lib/opsAdaptiveDispatcher": {},
-    "@/lib/productLaunchTrackerNormalizedStore": { readProductLaunchNormalizedItems: async () => { reads++; return [{ id: input.launchItemId, modelNumber: input.modelNumber, productName: input.productName, orderOptions: [{ saleOption: "투명형" }], shoplingProducts: { wholesale1: { goodsKey: "121455" } } }]; } },
+    "@/lib/productLaunchTrackerNormalizedStore": { readProductLaunchNormalizedItems: async () => { reads++; return [{
+      id: input.launchItemId,
+      modelNumber: input.modelNumber,
+      productName: input.productName,
+      shoplingCategory: "문구 > 정리",
+      selfCodeBase: input.modelNumber,
+      detailPageAsset: { html: "<p>상세페이지</p>", mainImageUrl: "https://example.com/main.jpg" },
+      orderOptions: [{ optionName: "옵션", saleOption: "투명형", barcode: "BZZ1-1", optionBarcodeNo: "000000009001", baseSalePriceKrw: 5000 }],
+      shoplingProducts: { wholesale1: { goodsKey: "121455" } },
+    }]; } },
     "@/lib/seoTitleLedgerServer": { requireSeoTitleLedgerContext: async () => authorized ? { ok: true, value: { config: {}, identity: { userId: "owner-fixture" } } } : { ok: false, response: Response.json({ ok: false }, { status: 401 }) } },
     "@/lib/seoRunJobServer": { listSeoRunJobs: async () => rows, insertSeoRunJobs: async (_context, inserted) => { rows.push(...inserted); return inserted; } },
     "@/lib/seoRunShoplingWorkerPulse": { runCoalescedSeoRunShoplingWorkerPulse: noCall },
@@ -247,7 +258,7 @@ test("actual tracker handoff creates a new run for linkless products without iss
   const button = { disabled: false, textContent: "열기", dataset: {} };
   const sandbox = {
     console, crypto: globalThis.crypto, URL, URLSearchParams,
-    document: {}, window: { localStorage: { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) }, location: { origin: "https://ops.invalid" } },
+    document: { querySelectorAll: () => [] }, window: { localStorage: { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) }, location: { origin: "https://ops.invalid" } },
   };
   // Evaluate the real handoff function with browser boundary functions stubbed, not its control flow.
   const cut = raw.indexOf("function installStyle");
