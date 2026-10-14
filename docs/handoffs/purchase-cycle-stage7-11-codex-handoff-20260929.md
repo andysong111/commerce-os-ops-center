@@ -720,3 +720,15 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - The already-running recovery candidate was not superseded or restarted. Supabase read-only evidence showed recovery request `7682b27a-9729-4f89-87b2-43e3f31f0d1f` with 23 successful source chunks and no failure at `2026-10-12T18:28:43.777Z`; it continues through the existing natural worker schedule.
 - The last renamed-B-code aggregate failure occurred before this deployment at `2026-10-12T18:16:37.739Z`. The exact deterministic-row correction is deployed, but its outcome must be confirmed from the next natural retry rather than by manually invoking a worker.
 - Normal monthly reuse will first produce runtime evidence after the current active candidate completes and the next eligible monthly request starts. No cron call, cooldown/lease bypass, duplicate request, Product Master promotion, monthly Draft save, 1688 order, payment, or supplier contact was used for verification.
+
+---
+
+## 27. October Draft regeneration and complete final totals (2026-10-14)
+
+- Replacement previews and confirmations now separate existing-product reorders, preserved confirmed sourcing rows, and newly selected sourcing rows, then show the complete final SKU and quantity totals.
+- PR `#1436` preserved seven already-confirmed sourcing rows during replacement. PR `#1437` merged as `5e43b74b34c8d1206d3803ee8dd40e0b4a73955e` and deployed to Vercel Production as `dpl_2PQ9Q7ozPF1vBqRwzAfBsSN1HE2M` in `READY` state.
+- The owner approved replacing `fast-purchase-draft:62f76f670872edb868ac` after excluding `BAC1-1` (토끼 발세척매트, 38 units). The authoritative replacement is `fast-purchase-draft:ea74ef8608d61226fd54`.
+- Production database readback showed 45 preserved/replenishment rows with 3,026 units plus eight newly confirmed sourcing rows with 124 units: **53 SKU and 3,150 units** in total.
+- The live sourcing reservation was 429,141 KRW against a 587,537 KRW ceiling. The Production draft API returned `status=DRAFT`, `lineCount=53`, `totalQuantity=3150`, and `externalOrderExecuted=false`.
+- The full-page save notice must use the already-verified final client totals rather than the intermediate 45-row replenishment Draft response; the latter is emitted before the eight sourcing rows finish joining the same Draft.
+- No 1688 order, payment, supplier contact, or ORDERED transition was performed.

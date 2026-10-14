@@ -516,6 +516,8 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(actions, /preferredSourcingConceptIds/);
   assert.match(actions, /신규상품 소싱/);
   assert.match(actions, /기존상품.*유지 신규소싱.*새 신규소싱.*최종/);
+  assert.match(actions, /최종 \$\{selectedCount\}개 SKU · 총 \$\{totalQuantity\.toLocaleString\("ko-KR"\)\}개/);
+  assert.doesNotMatch(actions, /payload\.draft\?\.lineCount \?\? selectedCount/);
   assert.match(actions, /expectedSourcingSourceFingerprint/);
   assert.match(actions, /expectedSourcingDecisionFingerprint/);
   assert.match(route, /status: result\.complete \? result\.draft\.duplicate \? 200 : 201 : 207/);
