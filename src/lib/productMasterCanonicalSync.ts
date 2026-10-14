@@ -3,6 +3,7 @@ import {
   buildProductMasterSnapshotFromTrackerState,
   type ProductMasterSnapshotPayload,
 } from "./productMasterSync.ts";
+import { isSourcingReceiptPending } from "./sourcingReceiptGate.ts";
 
 type R = Record<string, unknown>;
 type StableSku = ProductMasterSnapshotPayload["skus"][number] & {
@@ -106,6 +107,7 @@ export function findCanonicalProductMasterBarcodeConflicts(
 
   for (const rawItem of list(state.items)) {
     const item = object(rawItem);
+    if (isSourcingReceiptPending(item)) continue;
     const itemId = itemIdentity(item);
     const options = trackerOptions(item);
     const rowBarcode = normalized(item.barcode || item.warehouseLocation);
@@ -165,6 +167,7 @@ export function buildCanonicalProductMasterSnapshot(input: unknown) {
 
   for (const rawItem of list(state.items)) {
     const item = object(rawItem);
+    if (isSourcingReceiptPending(item)) continue;
     const itemId = text(item.id) || `model:${normalized(item.modelNumber)}`;
     const options = trackerOptions(item);
     const rowBarcode = normalized(item.barcode || item.warehouseLocation);

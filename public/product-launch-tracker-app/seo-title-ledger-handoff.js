@@ -40,6 +40,26 @@ function readSelectedItemIds() {
     .filter(Boolean);
 }
 
+function firstSelectedReadinessBlocker() {
+  for (const checkbox of document.querySelectorAll(
+    "#launch-table-body tr[data-id] .row-check:checked",
+  )) {
+    const row = checkbox.closest("tr[data-id]");
+    const badge = row?.querySelector(".readiness-badge");
+    if (!badge?.classList.contains("needs-work") &&
+        !badge?.classList.contains("receipt-pending")) {
+      continue;
+    }
+    const modelNumber = row?.querySelector(".inline-model-number-editor")?.value || "선택 상품";
+    return {
+      modelNumber: text(modelNumber),
+      status: text(badge.textContent) || "준비필요",
+      reason: text(badge.getAttribute("title")),
+    };
+  }
+  return null;
+}
+
 function sourceUrlFromItem(item) {
   const source = record(item.source);
   const itemPayload = record(item.item_payload ?? item.itemPayload);
@@ -61,6 +81,27 @@ function sourceUrlFromItem(item) {
   return candidates.find((value) => /^https?:\/\/(?:[^/]+\.)?1688\.com\//i.test(value)) || "";
 }
 
+function receiptPendingFromItem(item) {
+  const source = record(item.source);
+  const sourcingOptions = listOfRecords(item.orderOptions)
+    .filter((option) => text(option.sourcingIntakeId));
+  const isSourcingItem =
+    text(source.system) === "commerce-os-sourcing-engine" ||
+    sourcingOptions.length > 0;
+  if (!isSourcingItem) return false;
+  if (sourcingOptions.length) {
+    return sourcingOptions.some((option) => {
+      const status = text(option.lifecycleStatus).toUpperCase();
+      if (status === "RESERVED") return true;
+      return !text(option.receiptId);
+    });
+  }
+  const status = text(source.lifecycleStatus).toUpperCase();
+  if (status === "RESERVED") return true;
+  return !text(source.receiptId) &&
+    text(source.sourcingReceiptStatus).toLowerCase() !== "confirmed";
+}
+
 function normalizedItemFields(raw) {
   const item = record(raw);
   const itemPayload = record(item.item_payload ?? item.itemPayload);
@@ -75,6 +116,7 @@ function normalizedItemFields(raw) {
     modelNumber: text(item.modelNumber || item.model_number || itemPayload.modelNumber),
     productName: text(item.productName || item.product_name || itemPayload.productName),
     sourceUrl: sourceUrlFromItem({ ...itemPayload, ...item }),
+    receiptPending: receiptPendingFromItem({ ...itemPayload, ...item }),
   };
 }
 
@@ -244,6 +286,13 @@ async function openBulkCloud(button) {
     showMessage("SEO 대량등록 클라우드에서 처리할 상품을 1개 이상 선택하세요.");
     return;
   }
+  const readinessBlocker = firstSelectedReadinessBlocker();
+  if (readinessBlocker) {
+    showMessage(
+      `${readinessBlocker.modelNumber}은 ${readinessBlocker.status} 상태입니다.${readinessBlocker.reason ? ` ${readinessBlocker.reason}` : ""}`,
+    );
+    return;
+  }
   if (selectedIds.length > MAX_BATCH_ITEMS) {
     showMessage(`한 번에 최대 ${MAX_BATCH_ITEMS}개 상품을 추가합니다. 현재 ${selectedIds.length}개가 선택되었습니다.`);
     return;
@@ -254,6 +303,12 @@ async function openBulkCloud(button) {
   button.textContent = `${selectedIds.length}개 새 등록회차 생성 중…`;
   try {
     const masters = await mapLimit(selectedIds, 8, readSelectedItem);
+    const receiptPending = masters.find((item) => item.receiptPending);
+    if (receiptPending) {
+      throw new Error(
+        `${receiptPending.modelNumber || receiptPending.productName || "신규소싱 상품"}은 입고대기중입니다. 입고확정 후 SEO 대량등록을 진행하세요.`,
+      );
+    }
     // Linkless products are resolved server-side: 1688 → Shopling → launch tracker.
 
     const now = new Date().toISOString();

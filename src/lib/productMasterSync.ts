@@ -1,3 +1,5 @@
+import { isSourcingReceiptPending } from "./sourcingReceiptGate.ts";
+
 type R = Record<string, unknown>;
 
 type Product = {
@@ -74,6 +76,7 @@ export type ProductMasterSyncBuildResult = {
     missingModelNumber: number;
     missingBarcode: number;
     receiptWithoutSku: number;
+    sourcingReceiptPending: number;
   };
 };
 
@@ -100,10 +103,15 @@ export function buildProductMasterSnapshotFromTrackerState(
     missingModelNumber: 0,
     missingBarcode: 0,
     receiptWithoutSku: 0,
+    sourcingReceiptPending: 0,
   };
 
   for (const rawItem of list(state.items)) {
     const item = object(rawItem);
+    if (isSourcingReceiptPending(item)) {
+      skipped.sourcingReceiptPending += 1;
+      continue;
+    }
     const modelNo = normalized(item.modelNumber);
     const productName = text(item.productName);
     if (!modelNo) {

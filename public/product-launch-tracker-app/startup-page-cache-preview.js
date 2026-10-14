@@ -155,7 +155,9 @@ function renderRow(item) {
         .filter(Boolean)
         .join(" · ")
     : item?.barcode || optionLocations[0]?.barcode || "";
-  const readiness = item?.readiness?.ready
+  const readiness = item?.receiptPending
+    ? "입고대기중"
+    : item?.readiness?.ready
     ? "준비완료"
     : `준비필요 ${Number(item?.readiness?.errorCount || 0)}`;
 
