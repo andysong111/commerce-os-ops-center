@@ -2,14 +2,22 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Item = {
+type ItemDetails = {
+  modelNames?: string[];
+  modelNumbers?: string[];
+  productNames?: string[];
+  optionNames?: string[];
+};
+
+type Item = ItemDetails & {
   barcode: string;
   quantity: number;
-  modelNames: string[];
-  modelNumbers: string[];
-  productNames: string[];
-  optionNames: string[];
   picked: boolean;
+};
+
+type DeltaItem = ItemDetails & {
+  barcode: string;
+  quantityToPick: number;
 };
 
 type Picking = {
@@ -27,10 +35,24 @@ type Picking = {
     addedOrderCount: number;
     changedOrderCount: number;
     removedOrderCount: number;
-    toPickItems: Array<{ barcode: string; quantityToPick: number; productNames: string[]; optionNames: string[] }>;
+    toPickItems: DeltaItem[];
   };
   unresolved: Array<{ reason?: string; productName?: string; optionName?: string; quantity?: number }>;
 };
+
+function listText(values: string[] | undefined, fallback: string) {
+  return Array.isArray(values) && values.length > 0 ? values.join(", ") : fallback;
+}
+
+function ItemDetailsText({ item }: { item: ItemDetails }) {
+  return (
+    <span className="mt-2 grid gap-1 text-xs leading-5 text-slate-600 sm:grid-cols-2">
+      <span className="min-w-0"><strong className="text-slate-800">모델명</strong> {listText(item.modelNames, "미확인")}</span>
+      <span className="min-w-0"><strong className="text-slate-800">모델번호</strong> {listText(item.modelNumbers, "미확인")}</span>
+      <span className="min-w-0 sm:col-span-2"><strong className="text-slate-800">옵션명</strong> {listText(item.optionNames, "단품")}</span>
+    </span>
+  );
+}
 
 export default function PickingClient({ token }: { token: string }) {
   const [picking, setPicking] = useState<Picking | null>(null);
@@ -103,7 +125,7 @@ export default function PickingClient({ token }: { token: string }) {
             <li key={item.barcode} className={item.picked ? "bg-slate-50 p-4 text-slate-500" : "p-4"}>
               <label className="flex cursor-pointer items-start gap-3">
                 <input type="checkbox" checked={item.picked} disabled={busy === item.barcode} onChange={(event) => void toggle(item, event.target.checked)} className="mt-1 h-5 w-5 accent-emerald-700" />
-                <span className="min-w-0 flex-1"><span className="flex items-baseline justify-between gap-3"><strong className="text-base">{item.barcode}</strong><strong className="text-lg">{item.quantity}개</strong></span><span className="mt-1 block text-sm">{item.productNames.join(", ") || "상품명 미확인"}</span><span className="mt-1 block text-xs text-slate-500">{item.optionNames.join(", ") || "단품"} · {[...item.modelNumbers, ...item.modelNames].join(" · ") || "모델 미확인"}</span></span>
+                <span className="min-w-0 flex-1"><span className="flex items-baseline justify-between gap-3"><strong className="text-base">{item.barcode}</strong><strong className="text-lg">{item.quantity}개</strong></span><span className="mt-1 block text-sm">{listText(item.productNames, "상품명 미확인")}</span><ItemDetailsText item={item} /></span>
               </label>
             </li>
           ))}
@@ -114,7 +136,7 @@ export default function PickingClient({ token }: { token: string }) {
             {[["신규 주문", picking.delta.addedOrderCount], ["변경 주문", picking.delta.changedOrderCount], ["취소·제외", picking.delta.removedOrderCount], ["이번 피킹", `${picking.delta.quantityToPick}개`]].map(([label, value]) => <div key={String(label)} className="bg-white p-3"><span className="text-xs text-slate-500">{label}</span><strong className="mt-1 block">{value}</strong></div>)}
           </div>
           <ul className="mt-4 divide-y border">
-            {picking.delta.toPickItems.length ? picking.delta.toPickItems.map((item) => <li key={item.barcode} className="flex justify-between gap-4 p-3 text-sm"><span><strong>{item.barcode}</strong><span className="mt-1 block text-xs text-slate-500">{item.productNames.join(", ")}</span></span><strong>{item.quantityToPick}개</strong></li>) : <li className="p-6 text-center text-sm text-slate-500">추가 피킹 대상이 없습니다.</li>}
+            {picking.delta.toPickItems.length ? picking.delta.toPickItems.map((item) => <li key={item.barcode} className="p-3 text-sm"><span className="flex items-baseline justify-between gap-4"><strong>{item.barcode}</strong><strong>{item.quantityToPick}개</strong></span><span className="mt-1 block text-xs text-slate-500">{listText(item.productNames, "상품명 미확인")}</span><ItemDetailsText item={item} /></li>) : <li className="p-6 text-center text-sm text-slate-500">추가 피킹 대상이 없습니다.</li>}
           </ul>
         </section>
       )}
