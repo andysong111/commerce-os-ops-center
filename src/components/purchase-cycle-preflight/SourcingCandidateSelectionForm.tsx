@@ -29,6 +29,7 @@ type Props = {
   sourcingBudgetPercent: number;
   early: boolean;
   replaceDraftId: string | null;
+  excludedBarcodes: string[];
   selectedCandidates: SourcingBudgetPlanSelection[];
   availableCandidates: Candidate[];
   preferredConceptIds: string[];
@@ -46,6 +47,7 @@ export function SourcingCandidateSelectionForm({
   sourcingBudgetPercent,
   early,
   replaceDraftId,
+  excludedBarcodes,
   selectedCandidates,
   availableCandidates,
   initialVariantSelections,
@@ -128,6 +130,7 @@ export function SourcingCandidateSelectionForm({
       <input type="hidden" name="selection" value="custom" />
       {early ? <input type="hidden" name="early" value="1" /> : null}
       {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
+      {excludedBarcodes.map((barcode) => <input key={`exclude:${barcode}`} type="hidden" name="exclude" value={barcode} />)}
       {selectedConceptIds.map((conceptId) => (
         <input key={`source:${conceptId}`} type="hidden" name="source" value={conceptId} />
       ))}

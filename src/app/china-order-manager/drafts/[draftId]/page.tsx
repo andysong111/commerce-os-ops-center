@@ -55,6 +55,18 @@ export default async function InternalChinaPurchaseDraftPage({
     );
   }
 
+  const regenerationParams = new URLSearchParams({
+    check: "1",
+    date: todaySeoul,
+    sourcing: "15",
+    early: "1",
+    selection: "automatic",
+    replace: draft.draftId,
+  });
+  if (budgetAudit.grossCogsBudgetKrw > 0) {
+    regenerationParams.set("cash", String(budgetAudit.grossCogsBudgetKrw));
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -71,7 +83,7 @@ export default async function InternalChinaPurchaseDraftPage({
             </Link>
             {draft.status === "DRAFT" ? (
               <PurchaseDraftRecalculationLink
-                href={`/purchase-cycle-preflight?check=1&date=${todaySeoul}&skus=100&units=9999&replace=${encodeURIComponent(draft.draftId)}`}
+                href={`/purchase-cycle-preflight?${regenerationParams.toString()}`}
               />
             ) : null}
             <Link
@@ -98,6 +110,7 @@ export default async function InternalChinaPurchaseDraftPage({
       <InternalChinaPurchaseDraftWorkspaceV2
         initialDraft={draft}
         budgetAudit={budgetAudit}
+        regenerationHref={`/purchase-cycle-preflight?${regenerationParams.toString()}`}
       />
 
       <InternalChinaDraftStickySave status={draft.status} />

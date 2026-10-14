@@ -81,11 +81,15 @@ test("optionless 1688 products can be marked as single item with one click", () 
   assert.match(workspace, /옵션 없음은 `단품`/);
 });
 
-test("each draft row can be excluded with an audited zero-quantity override", () => {
-  assert.match(workspace, /이 상품 초안에서 제외/);
-  assert.match(workspace, /targetQuantity: 0/);
-  assert.match(workspace, /원본 후보와 변경 기록은 남고/);
-  assert.match(workspace, /\.filter\(\(line\) => line\.quantity > 0\)/);
+test("draft products can be selected in bulk and regenerated with next-priority budget refill", () => {
+  assert.match(workspace, /발주초안 상품 전체 선택/);
+  assert.match(workspace, /발주초안에서 제외 선택/);
+  assert.match(workspace, /초안에서 제외 후 발주안 재생성/);
+  assert.match(workspace, /url\.searchParams\.append\("exclude", barcode\)/);
+  assert.match(workspace, /남은 예산을 다음 우선순위 상품으로 다시 채울까요/);
+  assert.doesNotMatch(workspace, /targetQuantity: 0/);
+  assert.match(page, /regenerationHref=/);
+  assert.match(page, /regenerationParams\.set\("cash", String\(budgetAudit\.grossCogsBudgetKrw\)\)/);
 });
 
 test("draft page no longer mounts the DOM quantity bridge", () => {

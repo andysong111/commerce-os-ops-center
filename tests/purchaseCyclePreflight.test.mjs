@@ -49,6 +49,52 @@ test("real stage shapes compose a budget-limited preview, never an approval", ()
   assert.deepEqual(report.stages.map(row => row.number), [5, 6, 7, 8, 9, 10, 11]);
   locked(report);
 });
+test("operator exclusions refill a replacement Draft from the next priority within the same budget", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  const nextPriority = {
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "NEXT PRIORITY",
+    priorityScore: 80,
+    latestConfirmedReceiptCostKrw: 4_000,
+    protectedCostKrw: 4_000,
+  };
+  input.priority.rows.push(nextPriority);
+  input.options.replaceDraftId = draftId;
+  input.options.excludedBarcodes = ["BAA1-1"];
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 5 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(report.operatorExcludedBarcodes, ["BAA1-1"]);
+  assert.deepEqual(report.selected.map((row) => row.barcode), ["BAA2-1"]);
+  assert.deepEqual(
+    report.excluded.find((row) => row.barcode === "BAA1-1")?.reasons,
+    ["OPERATOR_DRAFT_EXCLUSION"],
+  );
+  assert.equal(report.replacementAudit.complete, true);
+  assert.deepEqual(report.replacementAudit.removed[0].reasons, ["OPERATOR_DRAFT_EXCLUSION"]);
+  assert.deepEqual(report.replacementAudit.added.map((row) => row.barcode), ["BAA2-1"]);
+});
+
+test("operator exclusions require one valid replacement Draft and unique canonical B-codes", () => {
+  for (const excludedBarcodes of [["BAA1-1"], ["bad"], ["BAA1-1", "BAA1-1"]]) {
+    const input = fixture();
+    input.options.excludedBarcodes = excludedBarcodes;
+    if (excludedBarcodes.length > 1 || excludedBarcodes[0] === "bad") {
+      input.options.replaceDraftId = "fast-purchase-draft:1234567890abcdef1234";
+    }
+    assert.throws(() => buildPurchaseCyclePreflight(input), /OPERATOR_/);
+  }
+});
 test("coherent provisional inventory is included only in the read-only owner-review preview", () => {
   const input = fixture();
   Object.assign(input.priority.rows[0], {

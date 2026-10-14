@@ -38,6 +38,7 @@ export type PurchasePreflightOptions = {
   maxUnitsPerSku: number;
   allowOpenBudgetPreview?: boolean;
   replaceDraftId?: string | null;
+  excludedBarcodes?: string[];
 };
 export type PurchaseMonthlySpendPin = {
   cycleMonth: string;
@@ -123,6 +124,7 @@ export type PurchaseCyclePreflightReport = {
   generatedAt: string;
   targetDate: string;
   replacementDraftId: string | null;
+  operatorExcludedBarcodes: string[];
   targetCycleMonth: string;
   requiredBudgetMonth: string;
   dateState: "BEFORE_TARGET" | "ON_TARGET" | "TARGET_PASSED";
@@ -232,6 +234,19 @@ export function validatePurchasePreflightOptions(options: PurchasePreflightOptio
     !/^fast-purchase-draft:[a-f0-9]{20}$/.test(options.replaceDraftId)
   ) {
     throw new Error("REPLACEMENT_DRAFT_ID_INVALID");
+  }
+  const excludedBarcodes = options.excludedBarcodes ?? [];
+  if (!Array.isArray(excludedBarcodes) || excludedBarcodes.length > 100) {
+    throw new Error("OPERATOR_EXCLUDED_BARCODES_INVALID");
+  }
+  if (excludedBarcodes.length > 0 && !options.replaceDraftId) {
+    throw new Error("OPERATOR_EXCLUSIONS_REQUIRE_REPLACEMENT_DRAFT");
+  }
+  if (
+    excludedBarcodes.some((value) => typeof value !== "string" || !CODE.test(value)) ||
+    new Set(excludedBarcodes).size !== excludedBarcodes.length
+  ) {
+    throw new Error("OPERATOR_EXCLUDED_BARCODES_INVALID");
   }
   if (options.cashLimitKrw !== null && !positive(options.cashLimitKrw)) throw new Error("CASH_LIMIT_INVALID");
   if (!validPercent(options.sourcingBudgetPercent ?? 0)) throw new Error("SOURCING_BUDGET_PERCENT_INVALID");
@@ -399,6 +414,8 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const blockers = [...input.sourceErrors];
   const reviewBlockers: string[] = [];
   const replacementDraftId = input.options.replaceDraftId ?? null;
+  const operatorExcludedBarcodes = [...(input.options.excludedBarcodes ?? [])].sort();
+  const operatorExcludedSet = new Set(operatorExcludedBarcodes);
   const replacementStable = replacementDraftId === null || (
     validReplacementDraftSnapshot(input.replacementBefore, replacementDraftId) &&
     validReplacementDraftSnapshot(input.replacementAfter, replacementDraftId) &&
@@ -565,6 +582,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const eligible: InventoryVerificationPriorityRow[] = [];
   for (const row of candidates) {
     const reasons: string[] = [];
+    if (operatorExcludedSet.has(row.barcode)) reasons.push("OPERATOR_DRAFT_EXCLUSION");
     if (!CODE.test(row.barcode) || duplicates.has(row.barcode)) reasons.push("IDENTITY_REVIEW");
     const basis = costBasisByBarcode.get(row.barcode) ?? null;
     if (!basis || !positive(lineCost(row, basis))) {
@@ -673,7 +691,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       .filter((line) => !selectedByBarcode.has(line.barcode))
       .map((line) => ({
         ...line,
-        reasons: excluded.find((item) => item.barcode === line.barcode)?.reasons ?? ["CURRENT_ENGINE_NOT_RECOMMENDED"],
+        reasons: operatorExcludedSet.has(line.barcode)
+          ? ["OPERATOR_DRAFT_EXCLUSION"]
+          : excluded.find((item) => item.barcode === line.barcode)?.reasons ?? ["CURRENT_ENGINE_NOT_RECOMMENDED"],
       }));
     const quantityChanged = matchedBarcodes.flatMap((barcode) => {
       const previous = previousByBarcode.get(barcode)!;
@@ -745,6 +765,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       contentFingerprint: input.replacementAfter.contentFingerprint,
       lines: input.replacementAfter.lines,
     } : null,
+    operatorExcludedBarcodes,
     costEstimateErrors: [...(input.costEstimateErrors ?? [])].sort(),
     sourceErrors: [...input.sourceErrors].sort(),
   });
@@ -765,7 +786,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const uniqueReview = [...new Set(reviewBlockers)];
   return {
     mode: "LIVE_READ_ONLY", generatedAt: input.now, targetDate,
-    replacementDraftId,
+    replacementDraftId, operatorExcludedBarcodes,
     targetCycleMonth, requiredBudgetMonth, dateState,
     state: !previewReady ? "BLOCKED" : uniqueReview.length ? "PREVIEW_ONLY" : "AWAITING_OWNER_REVIEW",
     sourceFingerprint,
@@ -783,6 +804,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         maxUnitsPerSku: input.options.maxUnitsPerSku,
         allowOpenBudgetPreview: input.options.allowOpenBudgetPreview === true,
         replaceDraftId: input.options.replaceDraftId ?? null,
+        excludedBarcodes: operatorExcludedBarcodes,
       },
       selected: stablePlanLines(selected),
       replacementAudit: stableReplacementAudit(replacementAudit),
