@@ -34,6 +34,26 @@ const roundUp = (value: number, unit: number) =>
 const roundDown = (value: number, unit: number) =>
   Math.max(0, Math.floor(value / unit) * unit);
 
+const greatestCommonDivisor = (left: number, right: number): number =>
+  right === 0 ? left : greatestCommonDivisor(right, left % right);
+
+const leastCommonMultiple = (left: number, right: number) =>
+  Math.abs(left * right) / greatestCommonDivisor(left, right);
+
+export function purchaseOrderQuantityUnit(cartonQuantity: unknown = 1) {
+  return leastCommonMultiple(5, Math.max(1, quantity(cartonQuantity) || 1));
+}
+
+export function normalizePurchaseOrderQuantity(
+  value: unknown,
+  cartonQuantity: unknown = 1,
+) {
+  const requested = quantity(value);
+  if (requested <= 0) return 0;
+  const unit = purchaseOrderQuantityUnit(cartonQuantity);
+  return Math.max(unit, Math.round(requested / unit) * unit);
+}
+
 function tierFor(index: number, count: number): PurchaseCashflowTier {
   const coreEnd = Math.max(1, Math.ceil(count * 0.25));
   const supportEnd = Math.max(coreEnd, Math.ceil(count * 0.75));
@@ -63,18 +83,22 @@ export function allocatePurchaseCashflow(
     );
 
   const prepared: PurchaseCashflowAllocation[] = sorted.map((row, index) => {
-    const targetQuantity = quantity(row.targetQuantity);
+    const targetQuantity = normalizePurchaseOrderQuantity(
+      row.targetQuantity,
+      row.cartonQuantity,
+    );
     const unitCostKrw = quantity(row.unitCostKrw);
     const cartonQuantity = Math.max(1, quantity(row.cartonQuantity) || 1);
     const moq = Math.max(1, quantity(row.moq) || 1);
+    const allocationUnit = purchaseOrderQuantityUnit(cartonQuantity);
     const minimumQuantity = Math.min(
       targetQuantity,
-      roundUp(moq, cartonQuantity),
+      roundUp(moq, allocationUnit),
     );
     const tier = tierFor(index, sorted.length);
     const supportQuantity = Math.max(
       minimumQuantity,
-      roundDown(Math.ceil(targetQuantity * 0.6), cartonQuantity),
+      roundDown(Math.ceil(targetQuantity * 0.6), allocationUnit),
     );
     const baselineQuantity =
       tier === "CORE"
@@ -117,7 +141,7 @@ export function allocatePurchaseCashflow(
     const affordable = Math.floor(remaining / row.unitCostKrw);
     const additional = Math.min(
       row.targetQuantity - row.allocatedQuantity,
-      roundDown(affordable, row.cartonQuantity),
+      roundDown(affordable, purchaseOrderQuantityUnit(row.cartonQuantity)),
     );
     if (additional <= 0) continue;
     row.allocatedQuantity += additional;

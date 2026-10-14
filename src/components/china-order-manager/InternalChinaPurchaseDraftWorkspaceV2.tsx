@@ -10,7 +10,6 @@ import type {
   InternalChinaPurchaseDraftLine,
 } from "@/lib/internalChinaPurchaseDraft";
 import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
-import { buildPurchaseDraftBatchRecalculationHref } from "@/lib/purchaseDraftBatchRecalculation";
 
 const number = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const cny = new Intl.NumberFormat("ko-KR", {
@@ -43,6 +42,12 @@ function decimal(value: unknown) {
 
 function cnyCent(value: unknown) {
   return Math.round(decimal(value) * 100) / 100;
+}
+
+function fiveUnitQuantity(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.min(9_995, Math.max(5, Math.round(parsed / 5) * 5));
 }
 
 function lineKey(line: InternalChinaPurchaseDraftLine) {
@@ -90,6 +95,14 @@ type DraftSaveResponse = {
   ok?: boolean;
   message?: string;
   draft?: InternalChinaPurchaseDraft;
+};
+
+type DraftRecalculationResponse = DraftSaveResponse & {
+  code?: string;
+  previousDraftId?: string;
+  addedCount?: number;
+  removedCount?: number;
+  changedCount?: number;
 };
 
 type MetadataSyncResponse = DraftSaveResponse & {
@@ -282,7 +295,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   function stageQuantity(barcode: string, targetQuantity: number) {
     const baseline = draft.lines.find((line) => line.barcode === barcode)?.quantity;
     if (baseline === undefined) return;
-    const valid = Number.isFinite(targetQuantity) && targetQuantity >= 1 && targetQuantity <= 9_999;
+    const valid = Number.isFinite(targetQuantity) && targetQuantity >= 5 &&
+      targetQuantity <= 9_995 && targetQuantity % 5 === 0;
     setEditedQuantities((current) => {
       const next = { ...current };
       if (valid && targetQuantity === baseline) delete next[barcode];
@@ -291,7 +305,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     });
     setNotice(
       !valid
-        ? `${barcode} 수량을 1개 이상 9,999개 이하로 입력하세요. 올바르게 입력하기 전에는 재계산할 수 없습니다.`
+        ? `${barcode} 수량을 5개 단위로 입력하세요. 입력 범위는 5~9,995개입니다.`
         : targetQuantity === baseline
         ? `${barcode} 수량 변경을 취소했습니다.`
         : `${barcode} ${targetQuantity.toLocaleString("ko-KR")}개를 재계산 대기에 넣었습니다. 아직 기존 Draft는 바뀌지 않았습니다.`,
@@ -478,8 +492,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     .filter(
       (row) =>
         !Number.isFinite(row.targetQuantity) ||
-        row.targetQuantity < 1 ||
-        row.targetQuantity > 9_999,
+        row.targetQuantity < 5 ||
+        row.targetQuantity > 9_995 ||
+        row.targetQuantity % 5 !== 0,
     )
     .map((row) => row.barcode);
   const activeQuantityOverrides = Object.entries({
@@ -489,7 +504,11 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       stagedAdditions.map((row) => [row.barcode, row.targetQuantity]),
     ),
   })
-    .map(([barcode, targetQuantity]) => ({ barcode, targetQuantity }))
+    .filter(([barcode]) => !excludedBarcodes.includes(barcode))
+    .map(([barcode, targetQuantity]) => ({
+      barcode,
+      targetQuantity: fiveUnitQuantity(targetQuantity),
+    }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
   const hasPendingRecalculation =
     excludedBarcodes.length > 0 ||
@@ -500,7 +519,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     setSelectedExclusions((current) => ({ ...current, [barcode]: checked }));
   }
 
-  function recalculateDraft() {
+  async function recalculateDraft() {
     if (
       draft.status !== "DRAFT" ||
       regenerating ||
@@ -508,15 +527,43 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       invalidQuantityBarcodes.length > 0
     ) return;
     if (!window.confirm(
-      `대기 중인 변경을 한 번에 계산할까요?\n\n수량 변경 ${changedQuantityRows.length.toLocaleString("ko-KR")}종 · 제외 ${excludedBarcodes.length.toLocaleString("ko-KR")}종 · 추가 ${stagedAdditions.length.toLocaleString("ko-KR")}종\n\n사용자가 정한 수량과 추가 상품을 먼저 고정하고, 남은 예산은 다음 우선순위 상품에 배정합니다. 먼저 결과를 보여드리며 교체 저장 전까지 현재 Draft는 바뀌지 않습니다.`,
+      `대기 중인 변경을 현재 Draft에 바로 반영할까요?\n\n수량 변경 ${changedQuantityRows.length.toLocaleString("ko-KR")}종 · 제외 ${excludedBarcodes.length.toLocaleString("ko-KR")}종 · 추가 ${stagedAdditions.length.toLocaleString("ko-KR")}종\n\n수량은 5개 단위로 맞추고 10개 단위를 우선합니다. 사용자가 정한 수량과 추가 상품을 먼저 반영하고 남은 예산은 다음 우선순위에 배정합니다.`,
     )) return;
     setRegenerating(true);
-    router.push(buildPurchaseDraftBatchRecalculationHref({
-      regenerationHref,
-      origin: window.location.origin,
-      excludedBarcodes,
-      quantityOverrides: activeQuantityOverrides,
-    }));
+    setNotice("현재 Draft에서 최신 우선순위와 예산을 다시 계산하고 있습니다. 다른 준비 화면으로 이동하지 않습니다.");
+    try {
+      await persistDraft({ quiet: true });
+      const settings = new URL(regenerationHref, window.location.origin);
+      const cash = settings.searchParams.get("cash");
+      const response = await fetch("/api/purchase-cycle/preflight-draft/recalculate", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+        body: JSON.stringify({
+          targetDate: settings.searchParams.get("date"),
+          cashLimitKrw: cash ? Number(cash) : null,
+          sourcingBudgetPercent: Number(settings.searchParams.get("sourcing") || 0),
+          allowOpenBudgetPreview: settings.searchParams.get("early") === "1",
+          replaceDraftId: draft.draftId,
+          excludedBarcodes,
+          quantityOverrides: activeQuantityOverrides,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as DraftRecalculationResponse;
+      if (!response.ok || !body.ok || !body.draft?.draftId) {
+        throw new Error(body.message || `발주안 재계산 실패 · ${body.code || response.status}`);
+      }
+      setEditedQuantities({});
+      setSelectedExclusions({});
+      onStagedAdditionsChange([]);
+      setNotice(body.message || "변경사항을 반영해 발주안을 다시 계산했습니다.");
+      router.replace(`/china-order-manager/drafts/${encodeURIComponent(body.draft.draftId)}`);
+      router.refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "발주안 재계산 요청이 실패했습니다. 현재 Draft는 그대로 유지했습니다.");
+      setRegenerating(false);
+    }
   }
 
   function resetPendingRecalculation() {
@@ -665,7 +712,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                 </p>
               ) : null}
               <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                재계산은 고정한 상품과 수량을 먼저 반영하고 남은 예산을 다음 우선순위에 배정합니다. 계산 결과를 확인한 뒤 교체 저장할 수 있습니다.
+                이 화면에서 바로 새 Draft로 교체합니다. 자동 권장수량은 5개 단위로 맞추고 10개 단위를 우선하며, 남은 예산은 다음 우선순위에 배정합니다.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -673,7 +720,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                 대기 변경 취소
               </button>
               <button type="button" onClick={recalculateDraft} disabled={draft.status !== "DRAFT" || !hasPendingRecalculation || invalidQuantityBarcodes.length > 0 || regenerating} aria-busy={regenerating} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
-                {regenerating ? "변경 모아 재계산 중..." : "변경사항 모아 발주안 재계산"}
+                {regenerating ? "현재 화면에서 재계산 중..." : "변경사항 모아 발주안 바로 재계산"}
               </button>
             </div>
           </div>
@@ -797,13 +844,15 @@ function NativeQuantityControl({
 }) {
   const [value, setValue] = useState(String(stagedQuantity ?? quantity));
   const targetQuantity = Math.round(Number(value));
-  const valid = Number.isFinite(targetQuantity) && targetQuantity >= 1 && targetQuantity <= 9_999;
+  const valid = Number.isFinite(targetQuantity) && targetQuantity >= 5 &&
+    targetQuantity <= 9_995 && targetQuantity % 5 === 0;
   const changed = valid && targetQuantity !== quantity;
+  const currentNeedsRounding = stagedQuantity === undefined && quantity % 5 !== 0;
 
   function updateValue(nextValue: string) {
     setValue(nextValue);
     const parsed = Math.round(Number(nextValue));
-    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 9_999) {
+    if (Number.isFinite(parsed) && parsed >= 5 && parsed <= 9_995 && parsed % 5 === 0) {
       onStage(barcode, parsed);
     } else {
       onStage(barcode, 0);
@@ -812,9 +861,9 @@ function NativeQuantityControl({
 
   return (
     <div className="flex items-center justify-end gap-1.5" data-native-draft-quantity={barcode}>
-      <input type="number" min={1} max={9999} step={1} value={value} disabled={status !== "DRAFT"} onChange={(event) => updateValue(event.target.value)} aria-label={`${barcode} 주문수량`} aria-invalid={!valid} className={`w-20 rounded-lg border bg-white px-2 py-2 text-right text-xs font-black outline-none disabled:bg-slate-100 ${!valid ? "border-rose-400 text-rose-800" : changed ? "border-blue-400 text-blue-900" : "border-slate-300 text-slate-800"}`} />
+      <input type="number" min={5} max={9995} step={5} value={value} disabled={status !== "DRAFT"} onChange={(event) => updateValue(event.target.value)} aria-label={`${barcode} 주문수량`} aria-invalid={!valid} className={`w-20 rounded-lg border bg-white px-2 py-2 text-right text-xs font-black outline-none disabled:bg-slate-100 ${!valid ? "border-rose-400 text-rose-800" : changed ? "border-blue-400 text-blue-900" : "border-slate-300 text-slate-800"}`} />
       <span className={`max-w-[74px] truncate text-[10px] font-bold ${!valid ? "text-rose-700" : changed ? "text-blue-700" : "text-slate-400"}`}>
-        {!valid ? "1~9,999" : changed ? "재계산 대기" : "현재 수량"}
+        {!valid ? "5개 단위" : changed ? "재계산 대기" : currentNeedsRounding ? "재계산 시 정리" : "현재 수량"}
       </span>
     </div>
   );

@@ -36,7 +36,7 @@ test("native quantity changes remain local until the single recalculation action
   assert.match(workspace, /function stageQuantity/);
   assert.match(workspace, /setEditedQuantities/);
   assert.match(workspace, /targetQuantity/);
-  assert.match(workspace, /변경사항 모아 발주안 재계산/);
+  assert.match(workspace, /변경사항 모아 발주안 바로 재계산/);
   assert.doesNotMatch(workspace, /fetch\([\s\S]{0,120}\/quantity`/);
   assert.doesNotMatch(workspace, /window\.location\.reload/);
 
@@ -86,9 +86,10 @@ test("optionless 1688 products can be marked as single item with one click", () 
 test("draft products can be selected in bulk and regenerated with next-priority budget refill", () => {
   assert.match(workspace, /제거할 상품 전체 선택/);
   assert.match(workspace, /제거할 상품 체크/);
-  assert.match(workspace, /변경사항 모아 발주안 재계산/);
-  assert.match(workspace, /buildPurchaseDraftBatchRecalculationHref/);
-  assert.match(workspace, /남은 예산은 다음 우선순위 상품에 배정/);
+  assert.match(workspace, /변경사항 모아 발주안 바로 재계산/);
+  assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);
+  assert.doesNotMatch(workspace, /buildPurchaseDraftBatchRecalculationHref/);
+  assert.match(workspace, /남은 예산은 다음 우선순위에 배정/);
   assert.doesNotMatch(workspace, /targetQuantity: 0/);
   assert.match(page, /regenerationHref=/);
   assert.match(page, /regenerationParams\.set\("cash", String\(budgetAudit\.grossCogsBudgetKrw\)\)/);
@@ -98,5 +99,5 @@ test("draft page no longer mounts the DOM quantity bridge", () => {
   assert.doesNotMatch(page, /InternalChinaDraftInlineQuantityBridge/);
   assert.doesNotMatch(page, /InternalChinaDraftQuantityEditor/);
   assert.match(page, /수량 변경·상품 제외·상품 추가/);
-  assert.match(page, /변경사항 모아 발주안 재계산/);
+  assert.match(page, /변경사항 모아 발주안 바로 재계산/);
 });

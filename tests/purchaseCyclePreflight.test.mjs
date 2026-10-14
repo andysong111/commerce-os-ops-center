@@ -168,7 +168,7 @@ test("operator quantity decrease is fixed and the freed budget fills the next pr
   });
 });
 
-test("operator quantity increase stays exact and reduces the lower priority allocation", () => {
+test("operator quantity increase stays exact and lower priority still needs a five-unit lot", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:1234567890abcdef1234";
   input.options.cashLimitKrw = 65_000;
@@ -199,9 +199,10 @@ test("operator quantity increase stays exact and reduces the lower priority allo
   assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
   assert.deepEqual(
     report.selected.map((row) => [row.barcode, row.quantity]),
-    [["BAA1-1", 7], ["BAA2-1", 2]],
+    [["BAA1-1", 7]],
   );
-  assert.equal(report.estimatedSpendKrw, 43_000);
+  assert.equal(report.estimatedSpendKrw, 35_000);
+  assert.ok(report.excluded.find((row) => row.barcode === "BAA2-1").reasons.includes("CASH_BUDGET_LIMIT"));
 });
 
 test("operator quantity that alone exceeds the budget blocks instead of shrinking silently", () => {
@@ -477,16 +478,14 @@ test("omitted duplicate cash cap uses the automatic previous-month cost envelope
   assert.equal(report.effectiveBudgetKrw, 100000);
   locked(report);
 });
-test("explicit cash cap reduces a line without exceeding the entered all-in cash", () => {
+test("explicit cash cap excludes a row when it cannot afford the five-unit minimum", () => {
   const input = fixture(); input.options.cashLimitKrw = 29000;
   const report = buildPurchaseCyclePreflight(input);
-  assert.equal(report.previewReady, true);
+  assert.equal(report.previewReady, false);
   assert.equal(report.effectiveBudgetKrw, 20000);
-  assert.equal(report.selected[0].originalRecommendedQuantity, 5);
-  assert.equal(report.selected[0].quantity, 4);
-  assert.equal(report.selected[0].cashAdjusted, true);
-  assert.equal(report.cashAdjustedCount, 1);
-  assert.equal(report.estimatedSpendKrw, 20000);
+  assert.deepEqual(report.selected, []);
+  assert.ok(report.excluded[0].reasons.includes("CASH_BUDGET_LIMIT"));
+  assert.ok(report.blockers.includes("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS"));
   assert.equal(input.priority.rows[0].recommendedQty, 5);
 });
 test("explicit cash replaces a smaller automatic envelope and remains safe for a large amount", () => {
@@ -537,7 +536,7 @@ test("sourcing budget return cannot exceed the reserved maximum", () => {
     /SOURCING_BUDGET_RETURN_EXCEEDS_RESERVE/,
   );
 });
-test("explicit cash applies sourcing reserve before cashflow quantity allocation", () => {
+test("explicit cash applies sourcing reserve before enforcing the five-unit minimum", () => {
   const input = fixture();
   input.options.cashLimitKrw = 29000;
   input.options.sourcingBudgetPercent = 20;
@@ -545,9 +544,9 @@ test("explicit cash applies sourcing reserve before cashflow quantity allocation
   assert.equal(report.sourcingBudgetKrw, 5800);
   assert.equal(report.reorderCashKrw, 23200);
   assert.equal(report.effectiveBudgetKrw, 16000);
-  assert.equal(report.selected[0].quantity, 3);
-  assert.equal(report.estimatedSpendKrw, 15000);
-  assert.ok(report.estimatedAllInSpendKrw <= report.reorderCashKrw);
+  assert.deepEqual(report.selected, []);
+  assert.ok(report.excluded[0].reasons.includes("CASH_BUDGET_LIMIT"));
+  assert.ok(report.blockers.includes("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS"));
 });
 test("large explicit cash calculates an exact sourcing reserve without over-ordering", () => {
   const input = fixture();

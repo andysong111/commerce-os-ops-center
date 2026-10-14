@@ -18,6 +18,7 @@ import {
 } from "./verifiedPurchaseCostEvidence.ts";
 import {
   allocatePurchaseCashflow,
+  normalizePurchaseOrderQuantity,
   type PurchaseCashflowTier,
 } from "./purchaseCashflowAllocation.ts";
 
@@ -372,7 +373,10 @@ function purchaseCostBasis(
 }
 
 function lineCost(row: InventoryVerificationPriorityRow, basis: PurchaseCostBasis | null) {
-  const value = (basis?.unitCostKrw ?? 0) * row.recommendedQty;
+  const value = (basis?.unitCostKrw ?? 0) * normalizePurchaseOrderQuantity(
+    row.recommendedQty,
+    row.cartonQuantity,
+  );
   return positive(value) ? value : 0;
 }
 function verifiedInventoryReady(row: InventoryVerificationPriorityRow) {
@@ -394,7 +398,10 @@ function inventoryPreviewReady(row: InventoryVerificationPriorityRow) {
 function projectedLine(
   row: InventoryVerificationPriorityRow,
   basis: PurchaseCostBasis,
-  allocatedQuantity = row.recommendedQty,
+  allocatedQuantity = normalizePurchaseOrderQuantity(
+    row.recommendedQty,
+    row.cartonQuantity,
+  ),
   cashflowTier: PurchasePreflightLine["cashflowTier"] = "AUTOMATIC",
 ): PurchasePreflightLine {
   const unitCost = basis.unitCostKrw;
@@ -806,7 +813,8 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       )
       .map((line) => ({
         ...line,
-        quantity: operatorQuantityByBarcode.get(line.barcode) ?? line.quantity,
+        quantity: operatorQuantityByBarcode.get(line.barcode) ??
+          normalizePurchaseOrderQuantity(line.quantity),
       }));
     const finalByBarcode = new Map<string, PurchaseReplacementDraftLine>([
       ...selected.map((line) => [line.barcode, {
