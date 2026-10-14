@@ -32,17 +32,19 @@ const component = await readFile(
   "utf8",
 );
 
-test("quantity override stores an absolute 1..9999 target without executing 1688", () => {
+test("quantity override stores an absolute 0..9999 target and zero removes the line without deleting history", () => {
   assert.match(helper, /INTERNAL_CHINA_PURCHASE_QUANTITY_OVERRIDE/);
   assert.match(helper, /targetQuantity/);
-  assert.match(helper, /quantity < 1 \|\| quantity > QUANTITY_MAX/);
+  assert.match(helper, /quantity < 0 \|\| quantity > QUANTITY_MAX/);
+  assert.match(helper, /filter\(\(line\) => line\.quantity > 0\)/);
   assert.match(helper, /externalOrderExecuted: false/);
   assert.doesNotMatch(helper, /placeOrder|payOrder|checkout/i);
 });
 
 test("draft page overlays operator quantities while normal metadata save strips quantity", () => {
   assert.match(page, /loadInternalChinaDraftWithQuantityOverrides/);
-  assert.match(page, /InternalChinaDraftQuantityEditor/);
+  assert.match(page, /InternalChinaPurchaseDraftWorkspaceV2/);
+  assert.doesNotMatch(page, /InternalChinaDraftQuantityEditor/);
   assert.match(draftRoute, /stripDraftInputQuantities/);
   assert.match(draftRoute, /loadInternalChinaDraftWithQuantityOverrides/);
 });
