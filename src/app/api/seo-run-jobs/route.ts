@@ -1,4 +1,5 @@
 import { seoBulkShoplingGoodsKeys } from "@/lib/seoBulkShoplingSource";
+import { productLaunchSeoMaterialReadiness } from "@/lib/productLaunchSeoMaterialReadiness";
 import { after, NextRequest } from "next/server";
 import { validate1688Url } from "@/lib/keywordEngineElonLabV2";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
@@ -249,10 +250,20 @@ export async function POST(request: NextRequest) {
     );
     const rows: SeoRunJobInsert[] = [];
     const missing: string[] = [];
+    const excluded: string[] = [];
     for (const run of requested) {
       const item = itemById.get(run.itemId);
       if (!item) {
         missing.push(run.itemId);
+        continue;
+      }
+      const materialReadiness = productLaunchSeoMaterialReadiness(item);
+      if (!materialReadiness.ready) {
+        const model = text(item.modelNumber) || run.itemId;
+        const reason = materialReadiness.receiptPending
+          ? "입고대기중"
+          : materialReadiness.errors[0] || "등록 재료 부족";
+        excluded.push(`${model}:${reason}`);
         continue;
       }
       const url = sourceUrl(item);
@@ -292,7 +303,7 @@ export async function POST(request: NextRequest) {
         {
           ok: false,
           code: "SEO_RUN_ITEMS_NOT_READY",
-          message: `등록회차를 만들 수 없습니다: ${missing.slice(0, 10).join(", ")}`,
+          message: `등록회차를 만들 수 없습니다: ${[...missing, ...excluded].slice(0, 10).join(", ")}`,
         },
         { status: 422 },
       );
@@ -314,6 +325,7 @@ export async function POST(request: NextRequest) {
       insertedCount: inserted.length,
       existingCount: Math.max(0, jobs.length - inserted.length),
       missing,
+      excluded,
       jobs,
     });
   }

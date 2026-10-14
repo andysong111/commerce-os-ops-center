@@ -19,6 +19,19 @@ test("상품출시 진행관리 SEO handoff는 최대 50개 활성 등록회차�
   assert.doesNotMatch(handoff, /merged\.set\(id/);
 });
 
+test("입고대기중 또는 재료부족 상품은 SEO 클라우드를 열기 전에 멈춘다", async () => {
+  const [handoff, route] = await Promise.all([
+    source("public/product-launch-tracker-app/seo-title-ledger-handoff.js"),
+    source("src/app/api/seo-run-jobs/route.ts"),
+  ]);
+  assert.match(handoff, /firstSelectedReadinessBlocker/);
+  assert.match(handoff, /receiptPendingFromItem/);
+  assert.match(handoff, /입고확정 후 SEO 대량등록을 진행하세요/);
+  assert.doesNotMatch(handoff, /status === "RECEIVED"\) return false/);
+  assert.match(route, /productLaunchSeoMaterialReadiness/);
+  assert.match(route, /materialReadiness\.receiptPending/);
+});
+
 test("SEO Run 클라우드는 상품간 3개 병렬, 같은 상품 회차는 순차로 기존 STEP API를 실행한다", async () => {
   const page = await source("src/app/seo-bulk-cloud/page.tsx");
   const client = await source("src/app/seo-bulk-cloud/SeoBulkRunCloudClient.tsx");

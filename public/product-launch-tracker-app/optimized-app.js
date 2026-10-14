@@ -446,15 +446,16 @@ function renderTable() {
 }
 
 function renderRow(item) {
+  const receiptPending = item.receiptPending === true;
   const selected = state.selectedIds.has(item.id);
   const optionLabels = Array.isArray(item.optionLabels) ? item.optionLabels : [];
   const optionLocations = Array.isArray(item.optionLocations) ? item.optionLocations : [];
   const multiOption = optionLocations.length >= 2;
   const stages = item.stages ?? {};
   return `
-    <tr data-id="${escapeAttribute(item.id)}" class="${selected ? "is-selected" : ""} ${item.archivedAt ? "is-archived" : ""}">
-      <td class="check-column" data-column-key="select"><input class="row-check" type="checkbox" ${selected ? "checked" : ""} aria-label="${escapeAttribute(item.modelNumber)} 선택" /></td>
-      <td class="cell-truncate" data-column-key="workBatch" title="${escapeAttribute(item.workBatch)}"><span class="optimized-row-number">#${number(item.trackerRowNumber ?? 0)}</span>${escapeHtml(item.workBatch)}</td>
+    <tr data-id="${escapeAttribute(item.id)}" class="${selected ? "is-selected" : ""} ${item.archivedAt ? "is-archived" : ""} ${receiptPending ? "is-receipt-pending" : ""}">
+      <td class="check-column" data-column-key="select"><input class="row-check" type="checkbox" ${selected ? "checked" : ""} aria-label="${escapeAttribute(`${item.modelNumber} 선택`)}" /></td>
+      <td class="cell-truncate" data-column-key="workBatch" title="${escapeAttribute(item.workBatch)}"><span class="optimized-row-number">#${number(item.trackerRowNumber ?? 0)}</span>${escapeHtml(item.workBatch)}${receiptPending ? '<span class="receipt-pending-badge">입고대기중</span>' : ""}</td>
       <td data-column-key="barcode">
         ${multiOption ? "" : `<input class="barcode-input optimized-inline-input" value="${escapeAttribute(item.barcode)}" placeholder="BAA1-1" autocomplete="off" data-last-committed="${escapeAttribute(item.barcode)}" aria-label="${escapeAttribute(item.modelNumber)} 기준 바코드" />`}
         ${multiOption ? renderOptionLocations(optionLocations) : ""}
@@ -466,7 +467,7 @@ function renderRow(item) {
         ${renderAiSuggestion(item)}
       </td>
       <td class="options-cell" data-column-key="options"><input class="inline-table-editor inline-options-editor optimized-inline-input" value="${escapeAttribute(optionLabels.join(", "))}" placeholder="단품 또는 옵션1, 옵션2" data-last-committed="${escapeAttribute(optionLabels.join(", "))}" /></td>
-      <td data-column-key="readiness"><button class="readiness-badge ${item.readiness?.ready ? "is-ready" : "needs-work"}" type="button" data-action="preview">${item.readiness?.ready ? "준비완료" : `준비필요 ${number(item.readiness?.errorCount ?? 0)}`}</button></td>
+      <td data-column-key="readiness"><button class="readiness-badge ${receiptPending ? "receipt-pending" : item.readiness?.ready ? "is-ready" : "needs-work"}" type="button" data-action="preview" title="${escapeAttribute(item.readiness?.firstError || "")}">${receiptPending ? "입고대기중" : item.readiness?.ready ? "준비완료" : `준비필요 ${number(item.readiness?.errorCount ?? 0)}`}</button></td>
       ${STAGES.map(({ key }) => statusSelect(stages[key]?.status, key, item.modelNumber)).join("")}
       <td class="next-stage" data-column-key="nextStage">${escapeHtml(item.nextStage)}<span class="progress-text">${number(item.progress?.completed ?? 0)}/${number(item.progress?.total ?? STAGES.length)} 완료</span></td>
       <td class="row-actions" data-column-key="manage"><button class="row-action" type="button" data-action="detail">${item.archivedAt ? "복구·수정" : "상품 상세"}</button></td>

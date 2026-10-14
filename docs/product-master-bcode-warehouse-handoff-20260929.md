@@ -512,3 +512,29 @@ Suggested Codex chat title:
 Short alternative:
 
 B코드 · 창고 적재 정합성
+
+---
+
+## 16. SEO bulk registration and sourcing receipt gate — 2026-10-14
+
+The Product Launch tracker now treats SEO bulk registration readiness as an
+authoritative preflight instead of a visual hint.
+
+- Required materials are: launch item ID, model number, product name, Shopling
+  category, self-code, detail HTML, main image, sale options, B-code, 12-digit
+  option barcode number, and base sale price.
+- Missing unit cost is a warning. It does not by itself block SEO preparation.
+- A sourcing item created in `RESERVED` state is shown as `입고대기중`.
+- If any sourcing option is still `RESERVED` or has no receipt ID, the whole
+  product remains pending.
+- Pending sourcing products are excluded from Product Master synchronization.
+- Both the tracker handoff and `/api/seo-run-jobs` server route block pending or
+  incomplete products, so bypassing the browser button cannot create SEO jobs.
+- Receipt materialization changes the sourcing option to `RECEIVED`; only then
+  can the normal material checks decide whether SEO registration is ready.
+
+Production read-only evidence before this change showed 363 tracker rows: 54
+archived/excluded, 309 active, and 196 marked ready by the older check. Applying
+the new checker to the same production export produced 193 ready and 116 blocked
+active products. Of the blocked products, 13 were sourcing products waiting for
+receipt confirmation. The new first-error text is the authoritative repair queue.

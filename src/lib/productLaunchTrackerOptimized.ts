@@ -1,7 +1,12 @@
 import {
   hasShoplingInventoryPseudoCategorySegment,
   sanitizeShoplingCategoryPath,
-} from "@/lib/shoplingCategoryPathSafety";
+} from "./shoplingCategoryPathSafety.ts";
+import { productLaunchSeoMaterialReadiness } from "./productLaunchSeoMaterialReadiness.ts";
+import {
+  sourcingReceiptStatus,
+  type SourcingReceiptStatus,
+} from "./sourcingReceiptGate.ts";
 
 export const PRODUCT_LAUNCH_DEFAULT_PAGE_SIZE = 50;
 export const PRODUCT_LAUNCH_MAX_PAGE_SIZE = 100;
@@ -47,7 +52,14 @@ export type ProductLaunchTrackerSummary = {
   shoplingProducts: UnknownRecord;
   chinaProductLinks: string[];
   detailPageAsset: UnknownRecord;
-  readiness: { ready: boolean; errorCount: number; warningCount: number };
+  readiness: {
+    ready: boolean;
+    errorCount: number;
+    warningCount: number;
+    firstError: string;
+  };
+  receiptStatus: SourcingReceiptStatus;
+  receiptPending: boolean;
   stages: Record<string, { status: string; assignee: string }>;
   overallStatus: string;
   nextStage: string;
@@ -261,8 +273,19 @@ export function summarizeProductLaunchTrackerItem(
     completed: STAGES.filter(({ key }) => COMPLETE_STATUSES.has(stages[key].status)).length,
     total: STAGES.length,
   };
-  const nextStage = nextStageFor(stages, archivedAt);
-  const readiness = readinessFor(item, orderOptions);
+  const receiptStatus = sourcingReceiptStatus(item);
+  const receiptPending = receiptStatus === "pending";
+  const nextStage = nextStageFor(stages, archivedAt, receiptPending);
+  const materialReadiness = productLaunchSeoMaterialReadiness({
+    ...item,
+    orderOptions,
+  });
+  const readiness = {
+    ready: materialReadiness.ready,
+    errorCount: materialReadiness.errorCount,
+    warningCount: materialReadiness.warningCount,
+    firstError: materialReadiness.errors[0] ?? "",
+  };
   const optionLabels = orderOptions.map((option) => option.saleOption).filter(Boolean);
   const optionLocations = orderOptions.map((option, index) => ({
     id: text(option.id) || `option-${index + 1}`,
@@ -346,6 +369,8 @@ export function summarizeProductLaunchTrackerItem(
     chinaProductLinks,
     detailPageAsset,
     readiness,
+    receiptStatus,
+    receiptPending,
     stages,
     overallStatus,
     nextStage,
@@ -822,30 +847,6 @@ function applyOptionLocation(currentValue: unknown, locationInput: UnknownRecord
   return current;
 }
 
-function readinessFor(item: UnknownRecord, options: UnknownRecord[]) {
-  let errorCount = 0;
-  let warningCount = 0;
-  if (!normalizeModelNumber(item.modelNumber)) errorCount += 1;
-  if (!text(item.productName)) errorCount += 1;
-  if (!text(item.shoplingCategory)) errorCount += 1;
-  if (!text(item.selfCodeBase)) errorCount += 1;
-  const detail = asRecord(item.detailPageAsset);
-  if (!text(detail.html)) errorCount += 1;
-  if (!text(detail.mainImageUrl)) errorCount += 1;
-  if (!options.length) errorCount += 1;
-  const seen = new Set<string>();
-  for (const option of options) {
-    if (!text(option.saleOption)) errorCount += 1;
-    const barcode = normalizeLocationCode(option.barcode);
-    if (!barcode) errorCount += 1;
-    if (!(Number(option.baseSalePriceKrw) > 0)) errorCount += 1;
-    if (!(Number(option.unitCostKrw) > 0)) warningCount += 1;
-    if (barcode && seen.has(barcode)) errorCount += 1;
-    if (barcode) seen.add(barcode);
-  }
-  return { ready: errorCount === 0, errorCount, warningCount };
-}
-
 function overallStatusFor(
   stages: Record<string, { status: string; assignee: string }>,
   archivedAt: string | null,
@@ -861,8 +862,10 @@ function overallStatusFor(
 function nextStageFor(
   stages: Record<string, { status: string; assignee: string }>,
   archivedAt: string | null,
+  receiptPending = false,
 ) {
   if (archivedAt) return "보관됨";
+  if (receiptPending) return "입고대기중";
   const held = STAGES.find(({ key }) => stages[key]?.status === "보류");
   if (held) return `${held.label} 보류`;
   const next = STAGES.find(({ key }) => !COMPLETE_STATUSES.has(stages[key]?.status));

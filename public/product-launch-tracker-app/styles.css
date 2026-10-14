@@ -83,6 +83,8 @@ td { max-width: 240px; border-bottom: 1px solid #edf1f6; border-right: 1px solid
 tbody tr:hover td { background: #f8fbff; }
 tbody tr.is-selected td { background: #eff6ff; }
 tbody tr.is-archived td { color: #94a3b8; background: #f8fafc; }
+tbody tr.is-receipt-pending td { background: #fffdf5; }
+tbody tr.is-receipt-pending:hover td { background: #fff9e6; }
 .check-column { width: 42px; text-align: center; }
 .model-number { color: #1d4ed8; font-weight: 800; white-space: nowrap; }
 .barcode-input { width: 92px; border: 1px solid #cfd8e5; border-radius: 7px; background: #fff; padding: 6px 7px; color: #1e40af; font-size: 10px; font-weight: 800; text-transform: uppercase; }
@@ -102,6 +104,8 @@ tbody tr.is-archived td { color: #94a3b8; background: #f8fafc; }
 .readiness-badge { min-width: 82px; border: 1px solid; border-radius: 999px; padding: 5px 8px; font-size: 10px; font-weight: 800; }
 .readiness-badge.is-ready { border-color: #86efac; background: #ecfdf5; color: #047857; }
 .readiness-badge.needs-work { border-color: #fde68a; background: #fffbeb; color: #b45309; }
+.readiness-badge.receipt-pending, .receipt-pending-badge { border: 1px solid #fbbf24; background: #fffbeb; color: #92400e; }
+.receipt-pending-badge { display: inline-flex; align-items: center; min-height: 20px; margin-left: 7px; border-radius: 999px; padding: 2px 6px; font-size: 9px; font-weight: 800; vertical-align: middle; }
 .next-stage { min-width: 105px; color: #1e40af; font-weight: 750; }
 .progress-text { display: block; margin-top: 3px; color: #94a3b8; font-size: 9px; font-weight: 650; }
 .row-actions { white-space: nowrap; }

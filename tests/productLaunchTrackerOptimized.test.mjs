@@ -55,6 +55,25 @@ function item(index, overrides = {}) {
   };
 }
 
+test("reserved sourcing rows are clearly marked as inbound pending", () => {
+  const summary = summarizeProductLaunchTrackerItem(
+    item(900, {
+      source: { system: "commerce-os-sourcing-engine" },
+      orderOptions: [
+        {
+          saleOption: "단품",
+          barcode: "BZZ1-1",
+          sourcingIntakeId: "22222222-2222-4222-8222-222222222222",
+          lifecycleStatus: "RESERVED",
+        },
+      ],
+    }),
+  );
+  assert.equal(summary.receiptPending, true);
+  assert.equal(summary.nextStage, "입고대기중");
+  assert.equal(summary.readiness.ready, false);
+});
+
 function state(count = 123) {
   return {
     schemaVersion: 3,

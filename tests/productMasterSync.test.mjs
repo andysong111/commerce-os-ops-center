@@ -82,6 +82,32 @@ test("does not mistake dimensions for bundle quantities", () => {
   assert.equal(inferUnitsPerOrder("단품"), 1);
 });
 
+test("does not activate a Product Master SKU before sourcing receipt confirmation", () => {
+  const result = buildProductMasterSnapshotFromTrackerState({
+    items: [
+      {
+        id: "pending-sourcing-item",
+        modelNumber: "AAA900",
+        productName: "입고 전 상품",
+        barcode: "BZZ1-1",
+        source: { system: "commerce-os-sourcing-engine" },
+        orderOptions: [
+          {
+            saleOption: "단품",
+            barcode: "BZZ1-1",
+            sourcingIntakeId: "22222222-2222-4222-8222-222222222222",
+            lifecycleStatus: "RESERVED",
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(result.payload.products.length, 0);
+  assert.equal(result.payload.skus.length, 0);
+  assert.equal(result.skipped.sourcingReceiptPending, 1);
+});
+
 test("allows explicitly approved shared physical B-codes and blocks unapproved conflicts", () => {
   const items = [
     {

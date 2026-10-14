@@ -151,6 +151,9 @@ jobs:
           tests/productLaunchTrackerRows.test.mjs
           tests/productLaunchTrackerBarcodeMapping.test.mjs
           tests/productLaunchTrackerFlowConnection.test.mjs
+          tests/productLaunchTrackerOptimized.test.mjs
+          tests/productLaunchSeoMaterialReadiness.test.mjs
+          tests/productMasterSync.test.mjs
           tests/seoBulkCloudParallel.test.mjs
           tests/seoGroundedReservoirV11.test.mjs
       - name: Build
