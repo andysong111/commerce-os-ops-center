@@ -84,8 +84,8 @@ test("optionless 1688 products can be marked as single item with one click", () 
 });
 
 test("draft products can be selected in bulk and regenerated with next-priority budget refill", () => {
-  assert.match(workspace, /발주초안 상품 전체 선택/);
-  assert.match(workspace, /발주초안에서 제외 선택/);
+  assert.match(workspace, /제거할 상품 전체 선택/);
+  assert.match(workspace, /제거할 상품 체크/);
   assert.match(workspace, /변경사항 모아 발주안 재계산/);
   assert.match(workspace, /buildPurchaseDraftBatchRecalculationHref/);
   assert.match(workspace, /남은 예산은 다음 우선순위 상품에 배정/);
