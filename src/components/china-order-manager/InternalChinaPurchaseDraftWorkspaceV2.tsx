@@ -575,9 +575,6 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       !hasPendingRecalculation ||
       invalidQuantityBarcodes.length > 0
     ) return;
-    if (!window.confirm(
-      `대기 중인 변경을 현재 Draft에 바로 반영할까요?\n\n수량 변경 ${changedQuantityRows.length.toLocaleString("ko-KR")}종 · 제외 ${excludedBarcodes.length.toLocaleString("ko-KR")}종 · 추가 ${stagedAdditions.length.toLocaleString("ko-KR")}종\n\n수량은 5개 단위로 맞추고 10개 단위를 우선합니다. 사용자가 정한 수량과 추가 상품을 먼저 반영하고 남은 예산은 다음 우선순위에 배정합니다.`,
-    )) return;
     setRegenerating(true);
     setNotice("현재 Draft에서 최신 우선순위와 예산을 다시 계산하고 있습니다. 다른 준비 화면으로 이동하지 않습니다.");
     try {
