@@ -37,6 +37,7 @@ const {
   completedChinaOrderReceiptsByBarcodeForMonth,
   recommendationCommitmentsByBarcode,
   safeReplacementDraftCommitments,
+  safeReplacementDraftOpenCommitments,
 } = ledger;
 
 function event(overrides = {}) {
@@ -102,6 +103,29 @@ test("draft replacement rejects a commitment after ordering has started", () => 
         "draft-1",
       ),
     /PURCHASE_REPLACEMENT_DRAFT_ALREADY_PROGRESSING:BAA1-1/,
+  );
+});
+
+test("replacement snapshot keeps manual-only lines at their actual open quantity", () => {
+  const manualOnly = {
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: "draft-1",
+    barcode: "BAA1-1",
+    openQuantity: 40,
+    manualAddedQuantity: 40,
+    recommendationOpenQuantity: 0,
+    status: "RESERVED",
+    orderedQuantity: 0,
+    receivedQuantity: 0,
+  };
+
+  assert.equal(
+    safeReplacementDraftOpenCommitments([manualOnly], "draft-1").get("BAA1-1"),
+    40,
+  );
+  assert.equal(
+    safeReplacementDraftCommitments([manualOnly], "draft-1").get("BAA1-1"),
+    0,
   );
 });
 
