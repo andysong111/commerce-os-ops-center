@@ -50,9 +50,10 @@ test("draft editor exposes one final calculation action and stages additions wit
   assert.match(workspace, /수량 변경 \{changedQuantityRows\.length\}종 · 제외 \{excludedBarcodes\.length\}종 · 추가 \{stagedAdditions\.length\}종/);
   assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);
   assert.match(workspace, /router\.replace\(`\/china-order-manager\/drafts\//);
+  assert.doesNotMatch(workspace, /대기 중인 변경을 현재 Draft에 바로 반영할까요/);
   assert.doesNotMatch(workspace, /router\.push\(buildPurchaseDraftBatchRecalculationHref/);
   assert.match(workspace, /step=\{5\}/);
-  assert.match(workspace, /targetQuantity % 5 === 0/);
+  assert.match(workspace, /isPurchaseDraftQuantityUnit\(targetQuantity\)/);
   assert.match(workspace, /filter\(\(\[barcode\]\) => !excludedBarcodes\.includes\(barcode\)\)/);
   assert.doesNotMatch(workspace, /regenerateWithoutSelected|regenerateWithQuantityChanges/);
   assert.doesNotMatch(addition, /method: "POST"|postAdd\(/);
