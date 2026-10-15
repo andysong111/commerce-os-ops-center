@@ -65,8 +65,8 @@ test("draft quantities can be staged in bulk at the nearest 5-unit boundary", ()
   assert.equal(nearestPurchaseDraftQuantity(0), 0);
   assert.equal(isPurchaseDraftQuantityUnit(40), true);
   assert.equal(isPurchaseDraftQuantityUnit(38), false);
-  assert.match(workspace, /function stageAllQuantitiesToNearestUnit/);
-  assert.match(workspace, /수량 5·10단위 일괄맞춤/);
+  assert.match(workspace, /function stageSelectedQuantitiesToNearestUnit/);
+  assert.match(workspace, /선택 수량 5·10단위 맞춤/);
   assert.match(workspace, /가장 가까운 5개 단위/);
 });
 
@@ -106,8 +106,14 @@ test("optionless 1688 products can be marked as single item with one click", () 
 });
 
 test("draft products can be selected in bulk and regenerated with next-priority budget refill", () => {
-  assert.match(workspace, /제거할 상품 전체 선택/);
-  assert.match(workspace, /제거할 상품 체크/);
+  assert.match(workspace, /const \[selectedRows, setSelectedRows\]/);
+  assert.match(workspace, /const \[stagedExclusions, setStagedExclusions\]/);
+  assert.match(workspace, /작업할 상품 전체 선택/);
+  assert.match(workspace, /작업할 상품 선택/);
+  assert.match(workspace, /선택 수량 5·10단위 맞춤/);
+  assert.match(workspace, /선택 상품 초안에서 제외/);
+  assert.match(workspace, /체크만으로는 삭제되지 않으며/);
+  assert.doesNotMatch(workspace, /제거할 상품 전체 선택/);
   assert.match(workspace, /변경사항 모아 발주안 바로 재계산/);
   assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);
   assert.doesNotMatch(workspace, /buildPurchaseDraftBatchRecalculationHref/);
