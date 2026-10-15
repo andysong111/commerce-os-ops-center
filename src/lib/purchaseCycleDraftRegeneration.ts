@@ -9,8 +9,12 @@ import type {
   FastPurchaseInternalDraft,
   FastPurchaseInternalDraftLine,
 } from "@/lib/fastPurchaseInternalDraft";
+import { loadInternalChinaMonthlyPurchaseClose } from "@/lib/internalChinaMonthlyPurchaseClose";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
-import { assertDraftCanBeRegenerated } from "@/lib/purchaseCycleDraftRegenerationCore";
+import {
+  assertDraftCanBeRegenerated,
+  buildManualDraftRevision,
+} from "@/lib/purchaseCycleDraftRegenerationCore";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
@@ -335,5 +339,67 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     previousDraftId: input.expectedDraftId,
     supersededLineCount: activeRows.length,
     externalOrderExecuted: false,
+  };
+}
+
+export async function regenerateManualMonthlyPurchaseDraft(input: {
+  expectedDraftId: string;
+  excludedBarcodes: string[];
+  quantityOverrides: Array<{ barcode: string; targetQuantity: number }>;
+}) {
+  if (!DRAFT_ID.test(text(input.expectedDraftId))) {
+    throw new Error("PURCHASE_DRAFT_REGENERATION_DRAFT_ID_INVALID");
+  }
+  const ledger = await loadChinaOrderLedger();
+  if (ledger.error) {
+    throw new Error(`PURCHASE_DRAFT_REGENERATION_LEDGER_UNAVAILABLE:${ledger.error}`);
+  }
+  const expectedRows = ledger.commitments.filter(
+    (row) =>
+      row.sourceSystem === SOURCE_SYSTEM &&
+      row.sourceRunId === input.expectedDraftId &&
+      row.openQuantity > 0,
+  );
+  const cycleMonths = [
+    ...new Set(expectedRows.map((row) => chinaOrderCommitmentCycleMonth(row))),
+  ];
+  if (cycleMonths.length !== 1) {
+    throw new Error("PURCHASE_DRAFT_REGENERATION_CYCLE_INVALID");
+  }
+  const cycleMonth = cycleMonths[0];
+  if (await loadInternalChinaMonthlyPurchaseClose(cycleMonth)) {
+    throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_CLOSED:${cycleMonth}`);
+  }
+  const cycleRows = ledger.commitments.filter(
+    (row) =>
+      row.sourceSystem === SOURCE_SYSTEM &&
+      chinaOrderCommitmentCycleMonth(row) === cycleMonth,
+  );
+  const revision = buildManualDraftRevision(
+    cycleRows,
+    input.expectedDraftId,
+    input.excludedBarcodes,
+    input.quantityOverrides,
+  );
+  const sourceFingerprint = `sha256:${hash({
+    manualRevisionOf: input.expectedDraftId,
+    cycleMonth,
+    lines: revision.lines.map((line) => ({
+      barcode: line.barcode,
+      plannedQuantity: line.plannedQuantity,
+    })),
+  })}`;
+  const replacement = await regenerateValidatedMonthlyPurchaseDraft({
+    sourceFingerprint,
+    cycleMonth,
+    lines: revision.lines,
+    expectedDraftId: input.expectedDraftId,
+  });
+  return {
+    ...replacement,
+    addedCount: 0,
+    removedCount: revision.removedCount,
+    changedCount: revision.changedCount,
+    externalOrderExecuted: false as const,
   };
 }
