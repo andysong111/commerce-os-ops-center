@@ -480,7 +480,7 @@ export async function loadChinaOrderLedger() {
   };
 }
 
-export function safeReplacementDraftCommitments(
+function safeReplacementDraftRows(
   commitments: ChinaOrderCommitmentSnapshot[],
   draftId: string,
 ) {
@@ -504,6 +504,30 @@ export function safeReplacementDraftCommitments(
       `PURCHASE_REPLACEMENT_DRAFT_ALREADY_PROGRESSING:${unsafe.barcode}`,
     );
   }
+
+  return rows;
+}
+
+export function safeReplacementDraftOpenCommitments(
+  commitments: ChinaOrderCommitmentSnapshot[],
+  draftId: string,
+) {
+  const rows = safeReplacementDraftRows(commitments, draftId);
+  const result = new Map<string, number>();
+  for (const row of rows) {
+    result.set(
+      row.barcode,
+      (result.get(row.barcode) ?? 0) + row.openQuantity,
+    );
+  }
+  return result;
+}
+
+export function safeReplacementDraftCommitments(
+  commitments: ChinaOrderCommitmentSnapshot[],
+  draftId: string,
+) {
+  const rows = safeReplacementDraftRows(commitments, draftId);
 
   const result = new Map<string, number>();
   for (const row of rows) {

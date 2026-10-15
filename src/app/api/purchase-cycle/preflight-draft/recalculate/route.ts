@@ -25,6 +25,9 @@ function errorMessage(code: string) {
   if (code === "OPERATOR_QUANTITY_OVERRIDES_INVALID") {
     return "수량은 5개 단위로, SKU당 5개 이상 9,995개 이하로 입력하세요.";
   }
+  if (code === "REPLACEMENT_DRAFT_SNAPSHOT_INVALID") {
+    return "현재 Draft의 일부 수량을 검증하지 못했습니다. 입력은 유지했으므로 잠시 후 다시 계산하세요.";
+  }
   return "발주안 재계산을 완료하지 못했습니다. 현재 Draft는 그대로 유지했습니다.";
 }
 
