@@ -10,6 +10,10 @@ import type {
   InternalChinaPurchaseDraftLine,
 } from "@/lib/internalChinaPurchaseDraft";
 import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
+import {
+  isPurchaseDraftQuantityUnit,
+  nearestPurchaseDraftQuantity,
+} from "@/lib/purchaseDraftQuantityRounding";
 
 const number = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const cny = new Intl.NumberFormat("ko-KR", {
@@ -42,12 +46,6 @@ function decimal(value: unknown) {
 
 function cnyCent(value: unknown) {
   return Math.round(decimal(value) * 100) / 100;
-}
-
-function fiveUnitQuantity(value: unknown) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
-  return Math.min(9_995, Math.max(5, Math.round(parsed / 5) * 5));
 }
 
 function lineKey(line: InternalChinaPurchaseDraftLine) {
@@ -295,8 +293,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   function stageQuantity(barcode: string, targetQuantity: number) {
     const baseline = draft.lines.find((line) => line.barcode === barcode)?.quantity;
     if (baseline === undefined) return;
-    const valid = Number.isFinite(targetQuantity) && targetQuantity >= 5 &&
-      targetQuantity <= 9_995 && targetQuantity % 5 === 0;
+    const valid = isPurchaseDraftQuantityUnit(targetQuantity);
     setEditedQuantities((current) => {
       const next = { ...current };
       if (valid && targetQuantity === baseline) delete next[barcode];
@@ -489,13 +486,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     .map(([barcode, targetQuantity]) => ({ barcode, targetQuantity }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
   const invalidQuantityBarcodes = changedQuantityRows
-    .filter(
-      (row) =>
-        !Number.isFinite(row.targetQuantity) ||
-        row.targetQuantity < 5 ||
-        row.targetQuantity > 9_995 ||
-        row.targetQuantity % 5 !== 0,
-    )
+    .filter((row) => !isPurchaseDraftQuantityUnit(row.targetQuantity))
     .map((row) => row.barcode);
   const activeQuantityOverrides = Object.entries({
     ...persistedQuantityOverrides,
@@ -507,9 +498,16 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     .filter(([barcode]) => !excludedBarcodes.includes(barcode))
     .map(([barcode, targetQuantity]) => ({
       barcode,
-      targetQuantity: fiveUnitQuantity(targetQuantity),
+      targetQuantity: nearestPurchaseDraftQuantity(targetQuantity),
     }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
+  const quantitiesNeedingUnitRounding = draft.lines.filter((line) => {
+    if (selectedExclusions[line.barcode] === true) return false;
+    const candidate = Object.hasOwn(editedQuantities, line.barcode)
+      ? editedQuantities[line.barcode]
+      : line.quantity;
+    return nearestPurchaseDraftQuantity(candidate) !== candidate;
+  });
   const hasPendingRecalculation =
     excludedBarcodes.length > 0 ||
     changedQuantityRows.length > 0 ||
@@ -517,6 +515,28 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
   function toggleExcludedBarcode(barcode: string, checked: boolean) {
     setSelectedExclusions((current) => ({ ...current, [barcode]: checked }));
+  }
+
+  function stageAllQuantitiesToNearestUnit() {
+    if (draft.status !== "DRAFT" || quantitiesNeedingUnitRounding.length === 0) return;
+    const roundedCount = quantitiesNeedingUnitRounding.length;
+    setEditedQuantities((current) => {
+      const next = { ...current };
+      for (const line of draft.lines) {
+        if (selectedExclusions[line.barcode] === true) continue;
+        const candidate = Object.hasOwn(current, line.barcode)
+          ? current[line.barcode]
+          : line.quantity;
+        const rounded = nearestPurchaseDraftQuantity(candidate);
+        if (rounded <= 0) continue;
+        if (rounded === line.quantity) delete next[line.barcode];
+        else next[line.barcode] = rounded;
+      }
+      return next;
+    });
+    setNotice(
+      `${roundedCount.toLocaleString("ko-KR")}종의 수량을 가장 가까운 5개 단위로 맞췄습니다. 끝자리는 0 또는 5가 되며, 아직 기존 Draft는 바뀌지 않았습니다.`,
+    );
   }
 
   async function recalculateDraft() {
@@ -716,6 +736,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={stageAllQuantitiesToNearestUnit} disabled={draft.status !== "DRAFT" || quantitiesNeedingUnitRounding.length === 0 || regenerating} className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40">
+                수량 5·10단위 일괄맞춤 ({quantitiesNeedingUnitRounding.length}종)
+              </button>
               <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                 대기 변경 취소
               </button>
@@ -844,8 +867,7 @@ function NativeQuantityControl({
 }) {
   const [value, setValue] = useState(String(stagedQuantity ?? quantity));
   const targetQuantity = Math.round(Number(value));
-  const valid = Number.isFinite(targetQuantity) && targetQuantity >= 5 &&
-    targetQuantity <= 9_995 && targetQuantity % 5 === 0;
+  const valid = isPurchaseDraftQuantityUnit(targetQuantity);
   const changed = valid && targetQuantity !== quantity;
   const currentNeedsRounding = stagedQuantity === undefined && quantity % 5 !== 0;
 
@@ -855,7 +877,7 @@ function NativeQuantityControl({
     if (Number.isFinite(parsed) && parsed >= 5 && parsed <= 9_995 && parsed % 5 === 0) {
       onStage(barcode, parsed);
     } else {
-      onStage(barcode, 0);
+      onStage(barcode, Number.isFinite(parsed) ? parsed : 0);
     }
   }
 
