@@ -406,7 +406,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     };
   }
 
-  async function persistDraft(options: { quiet?: boolean; syncMetadata?: boolean } = {}) {
+  async function persistDraft(
+    options: { quiet?: boolean; syncMetadata?: boolean; refresh?: boolean } = {},
+  ) {
     const response = await fetch(
       `/api/china-order-manager/drafts/${encodeURIComponent(draft.draftId)}`,
       {
@@ -457,7 +459,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
     setDraft(nextDraft);
     if (!options.quiet) setNotice(`발주초안을 저장했습니다. ${metadataMessage}`);
-    router.refresh();
+    if (options.refresh !== false) router.refresh();
     return nextDraft;
   }
 
@@ -578,7 +580,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     setRegenerating(true);
     setNotice("현재 Draft에서 최신 우선순위와 예산을 다시 계산하고 있습니다. 다른 준비 화면으로 이동하지 않습니다.");
     try {
-      await persistDraft({ quiet: true });
+      await persistDraft({ quiet: true, syncMetadata: false, refresh: false });
       const settings = new URL(regenerationHref, window.location.origin);
       const cash = settings.searchParams.get("cash");
       const response = await fetch("/api/purchase-cycle/preflight-draft/recalculate", {

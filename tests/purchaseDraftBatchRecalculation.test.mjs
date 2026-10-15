@@ -49,6 +49,10 @@ test("draft editor exposes one final calculation action and stages additions wit
   assert.match(workspace, /변경사항 모아 발주안 바로 재계산/);
   assert.match(workspace, /수량 변경 \{changedQuantityRows\.length\}종 · 제외 \{excludedBarcodes\.length\}종 · 추가 \{stagedAdditions\.length\}종/);
   assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);
+  assert.match(
+    workspace,
+    /persistDraft\(\{ quiet: true, syncMetadata: false, refresh: false \}\)/,
+  );
   assert.match(workspace, /router\.replace\(`\/china-order-manager\/drafts\//);
   assert.doesNotMatch(workspace, /대기 중인 변경을 현재 Draft에 바로 반영할까요/);
   assert.doesNotMatch(workspace, /router\.push\(buildPurchaseDraftBatchRecalculationHref/);
