@@ -15,11 +15,13 @@ export function InternalChinaDraftBatchEditor({
   budgetAudit,
   regenerationHref,
   initialQuantityOverrides = [],
+  initialNotice = "",
 }: {
   initialDraft: InternalChinaPurchaseDraft;
   budgetAudit: InternalChinaPurchaseBudgetAudit;
   regenerationHref: string;
   initialQuantityOverrides?: PurchaseQuantityOverride[];
+  initialNotice?: string;
 }) {
   const [stagedAdditions, setStagedAdditions] = useState<StagedDraftAddition[]>([]);
 
@@ -37,6 +39,7 @@ export function InternalChinaDraftBatchEditor({
         budgetAudit={budgetAudit}
         regenerationHref={regenerationHref}
         initialQuantityOverrides={initialQuantityOverrides}
+        initialNotice={initialNotice}
         stagedAdditions={stagedAdditions}
         onStagedAdditionsChange={setStagedAdditions}
       />
