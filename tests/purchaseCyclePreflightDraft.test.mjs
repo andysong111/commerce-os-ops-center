@@ -8,7 +8,10 @@ import {
   purchaseCycleDraftPreflightOptions,
   sourcingBudgetDecisionFingerprint,
 } from "../src/lib/purchaseCyclePreflightDraftCore.ts";
-import { assertDraftCanBeRegenerated } from "../src/lib/purchaseCycleDraftRegenerationCore.ts";
+import {
+  assertDraftCanBeRegenerated,
+  buildManualDraftRevision,
+} from "../src/lib/purchaseCycleDraftRegenerationCore.ts";
 
 const fp = (digit) => `sha256:${digit.repeat(64)}`;
 
@@ -525,6 +528,57 @@ test("only one unchanged RESERVED draft can be regenerated", () => {
         expected,
       ),
     /PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED/,
+  );
+});
+
+test("manual revision applies exclusions and quantity changes when no refill candidate is ready", () => {
+  const expected = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  const rows = [
+    commitment({
+      latestPayload: {
+        modelNo: "AAA318",
+        productName: "토끼 발세척매트",
+        stockSense: "LOW",
+        referenceDemandQuantity: 38,
+      },
+    }),
+    commitment({
+      barcode: "BAC2-2",
+      openQuantity: 8,
+      latestPayload: { productName: "때밀이 스펀지" },
+    }),
+    commitment({
+      barcode: "BAC3-2",
+      openQuantity: 11,
+      latestPayload: { productName: "노른자쉐이커" },
+    }),
+  ];
+  const revision = buildManualDraftRevision(
+    rows,
+    expected,
+    ["BAC2-2"],
+    [
+      { barcode: "BAC1-1", targetQuantity: 40 },
+      { barcode: "BAC3-2", targetQuantity: 10 },
+    ],
+  );
+  assert.deepEqual(
+    revision.lines.map((line) => [line.barcode, line.plannedQuantity]),
+    [["BAC1-1", 40], ["BAC3-2", 10]],
+  );
+  assert.equal(revision.removedCount, 1);
+  assert.equal(revision.changedCount, 2);
+});
+
+test("manual revision cannot add an unknown product without the verified engine", () => {
+  assert.throws(
+    () => buildManualDraftRevision(
+      [commitment({ latestPayload: {} })],
+      "fast-purchase-draft:68b2aa56a8a0ac018141",
+      [],
+      [{ barcode: "BAA2-1", targetQuantity: 10 }],
+    ),
+    /PURCHASE_DRAFT_MANUAL_REVISION_TARGET_CHANGED/,
   );
 });
 

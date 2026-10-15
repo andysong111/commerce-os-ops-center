@@ -77,4 +77,6 @@ test("inline recalculation endpoint replaces the reserved draft without renderin
   assert.match(route, /externalOrderExecuted: false/);
   assert.match(service, /preserveExistingSourcingOnly: true/);
   assert.match(service, /regenerateValidatedMonthlyPurchaseDraft/);
+  assert.match(service, /regenerateManualMonthlyPurchaseDraft/);
+  assert.match(route, /manualFallbackUsed/);
 });

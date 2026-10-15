@@ -12,7 +12,10 @@ import {
 } from "@/lib/purchaseCyclePreflightDraftCore";
 import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
 import { normalizePurchaseOrderQuantity } from "@/lib/purchaseCashflowAllocation";
-import { regenerateValidatedMonthlyPurchaseDraft } from "@/lib/purchaseCycleDraftRegeneration";
+import {
+  regenerateManualMonthlyPurchaseDraft,
+  regenerateValidatedMonthlyPurchaseDraft,
+} from "@/lib/purchaseCycleDraftRegeneration";
 import {
   confirmSourcingBudgetPlan,
   loadSourcingBudgetPlan,
@@ -33,6 +36,11 @@ export type InlinePurchaseCycleDraftRecalculationRequest = {
 export async function recalculatePurchaseCycleDraftInline(
   input: InlinePurchaseCycleDraftRecalculationRequest,
 ) {
+  const excludedBarcodes = [...input.excludedBarcodes];
+  const quantityOverrides = input.quantityOverrides.map((row) => ({
+    barcode: row.barcode,
+    targetQuantity: normalizePurchaseOrderQuantity(row.targetQuantity),
+  }));
   const requestBase: PurchaseCycleDraftRequest = {
     targetDate: input.targetDate,
     cashLimitKrw: input.cashLimitKrw,
@@ -48,11 +56,8 @@ export async function recalculatePurchaseCycleDraftInline(
     expectedSourcingDecisionFingerprint: null,
     confirmation: "",
     replaceDraftId: input.replaceDraftId,
-    excludedBarcodes: input.excludedBarcodes,
-    quantityOverrides: input.quantityOverrides.map((row) => ({
-      barcode: row.barcode,
-      targetQuantity: normalizePurchaseOrderQuantity(row.targetQuantity),
-    })),
+    excludedBarcodes,
+    quantityOverrides,
   };
   const report = await loadPurchaseCyclePreflight(
     purchaseCycleDraftPreflightOptions(requestBase),
@@ -63,9 +68,38 @@ export async function recalculatePurchaseCycleDraftInline(
     expectedPlanFingerprint: report.planFingerprint,
     confirmation: purchaseCycleDraftConfirmation(report),
   };
-  const prepared = preparePurchaseCycleDraft(report, request, null, {
-    preserveExistingSourcingOnly: true,
-  });
+  let prepared: ReturnType<typeof preparePurchaseCycleDraft>;
+  try {
+    prepared = preparePurchaseCycleDraft(report, request, null, {
+      preserveExistingSourcingOnly: true,
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message.split(":", 1)[0] : "";
+    if (
+      code !== "PURCHASE_CYCLE_DRAFT_NOT_READY" ||
+      (excludedBarcodes.length === 0 && quantityOverrides.length === 0)
+    ) {
+      throw error;
+    }
+    const fallback = await regenerateManualMonthlyPurchaseDraft({
+      expectedDraftId: input.replaceDraftId,
+      excludedBarcodes,
+      quantityOverrides,
+    });
+    return {
+      draft: fallback.draft,
+      previousDraftId: fallback.previousDraftId,
+      supersededLineCount: fallback.supersededLineCount,
+      selectedCount: fallback.draft.lineCount,
+      preservedSourcingCount: 0,
+      addedCount: fallback.addedCount,
+      removedCount: fallback.removedCount,
+      changedCount: fallback.changedCount,
+      estimatedSpendKrw: 0,
+      manualFallbackUsed: true as const,
+      externalOrderExecuted: false as const,
+    };
+  }
   if (await loadInternalChinaMonthlyPurchaseClose(prepared.cycleMonth)) {
     throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_CLOSED:${prepared.cycleMonth}`);
   }
@@ -83,6 +117,7 @@ export async function recalculatePurchaseCycleDraftInline(
     removedCount: report.replacementAudit?.removed.length ?? 0,
     changedCount: report.replacementAudit?.quantityChanged.length ?? 0,
     estimatedSpendKrw: report.estimatedSpendKrw,
+    manualFallbackUsed: false as const,
     externalOrderExecuted: false as const,
   };
 }
