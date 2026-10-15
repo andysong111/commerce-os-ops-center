@@ -138,7 +138,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [ordering, setOrdering] = useState(false);
-  const [selectedExclusions, setSelectedExclusions] = useState<Record<string, boolean>>({});
+  const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
+  const [stagedExclusions, setStagedExclusions] = useState<Record<string, boolean>>({});
   const [persistedQuantityOverrides] = useState<Record<string, number>>(
     () => Object.fromEntries(initialQuantityOverrides.map((row) => [row.barcode, row.targetQuantity])),
   );
@@ -477,11 +478,18 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     }
   }
 
-  const excludedBarcodes = draft.lines
-    .filter((line) => selectedExclusions[line.barcode] === true)
+  const selectedBarcodes = draft.lines
+    .filter((line) => selectedRows[line.barcode] === true)
     .map((line) => line.barcode)
     .sort();
-  const allLinesSelected = draft.lines.length > 0 && excludedBarcodes.length === draft.lines.length;
+  const excludedBarcodes = draft.lines
+    .filter((line) => stagedExclusions[line.barcode] === true)
+    .map((line) => line.barcode)
+    .sort();
+  const allLinesSelected = draft.lines.length > 0 && selectedBarcodes.length === draft.lines.length;
+  const selectedExclusionCandidates = selectedBarcodes.filter(
+    (barcode) => stagedExclusions[barcode] !== true,
+  );
   const changedQuantityRows = Object.entries(editedQuantities)
     .map(([barcode, targetQuantity]) => ({ barcode, targetQuantity }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
@@ -502,7 +510,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
   const quantitiesNeedingUnitRounding = draft.lines.filter((line) => {
-    if (selectedExclusions[line.barcode] === true) return false;
+    if (selectedRows[line.barcode] !== true || stagedExclusions[line.barcode] === true) return false;
     const candidate = Object.hasOwn(editedQuantities, line.barcode)
       ? editedQuantities[line.barcode]
       : line.quantity;
@@ -513,17 +521,16 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     changedQuantityRows.length > 0 ||
     stagedAdditions.length > 0;
 
-  function toggleExcludedBarcode(barcode: string, checked: boolean) {
-    setSelectedExclusions((current) => ({ ...current, [barcode]: checked }));
+  function toggleSelectedBarcode(barcode: string, checked: boolean) {
+    setSelectedRows((current) => ({ ...current, [barcode]: checked }));
   }
 
-  function stageAllQuantitiesToNearestUnit() {
+  function stageSelectedQuantitiesToNearestUnit() {
     if (draft.status !== "DRAFT" || quantitiesNeedingUnitRounding.length === 0) return;
     const roundedCount = quantitiesNeedingUnitRounding.length;
     setEditedQuantities((current) => {
       const next = { ...current };
-      for (const line of draft.lines) {
-        if (selectedExclusions[line.barcode] === true) continue;
+      for (const line of quantitiesNeedingUnitRounding) {
         const candidate = Object.hasOwn(current, line.barcode)
           ? current[line.barcode]
           : line.quantity;
@@ -535,7 +542,29 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       return next;
     });
     setNotice(
-      `${roundedCount.toLocaleString("ko-KR")}종의 수량을 가장 가까운 5개 단위로 맞췄습니다. 끝자리는 0 또는 5가 되며, 아직 기존 Draft는 바뀌지 않았습니다.`,
+      `선택한 상품 중 ${roundedCount.toLocaleString("ko-KR")}종의 수량을 가장 가까운 5개 단위로 맞췄습니다. 끝자리는 0 또는 5가 되며, 아직 기존 Draft는 바뀌지 않았습니다.`,
+    );
+  }
+
+  function stageSelectedProductsForExclusion() {
+    if (draft.status !== "DRAFT" || selectedBarcodes.length === 0) return;
+    const newlyExcludedBarcodes = selectedExclusionCandidates;
+    if (newlyExcludedBarcodes.length === 0) {
+      setNotice("선택한 상품은 이미 모두 제외 대기 중입니다.");
+      return;
+    }
+    setStagedExclusions((current) => ({
+      ...current,
+      ...Object.fromEntries(newlyExcludedBarcodes.map((barcode) => [barcode, true])),
+    }));
+    setEditedQuantities((current) => {
+      const next = { ...current };
+      for (const barcode of newlyExcludedBarcodes) delete next[barcode];
+      return next;
+    });
+    setSelectedRows({});
+    setNotice(
+      `선택한 ${newlyExcludedBarcodes.length.toLocaleString("ko-KR")}종을 초안 제외 대기에 넣었습니다. 아직 기존 Draft는 바뀌지 않았습니다.`,
     );
   }
 
@@ -575,7 +604,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         throw new Error(body.message || `발주안 재계산 실패 · ${body.code || response.status}`);
       }
       setEditedQuantities({});
-      setSelectedExclusions({});
+      setSelectedRows({});
+      setStagedExclusions({});
       onStagedAdditionsChange([]);
       setNotice(body.message || "변경사항을 반영해 발주안을 다시 계산했습니다.");
       router.replace(`/china-order-manager/drafts/${encodeURIComponent(body.draft.draftId)}`);
@@ -588,7 +618,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
   function resetPendingRecalculation() {
     setEditedQuantities({});
-    setSelectedExclusions({});
+    setSelectedRows({});
+    setStagedExclusions({});
     onStagedAdditionsChange([]);
     setNotice("재계산 대기 변경을 모두 취소했습니다. 기존 Draft는 바뀌지 않았습니다.");
   }
@@ -724,7 +755,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <div>
               <strong className="text-sm font-black text-slate-950">한 번에 발주안 재계산</strong>
               <p className="mt-1 text-xs font-bold leading-5 text-slate-700">
-                수량 변경 {changedQuantityRows.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종을 모았습니다. 버튼을 누르기 전에는 기존 Draft와 주문·입고 원장이 바뀌지 않습니다.
+                작업 선택 {selectedBarcodes.length}종 · 수량 변경 {changedQuantityRows.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종입니다. 체크만으로는 삭제되지 않으며, 재계산 버튼을 누르기 전에는 기존 Draft와 주문·입고 원장이 바뀌지 않습니다.
               </p>
               {invalidQuantityBarcodes.length > 0 ? (
                 <p className="mt-1 text-xs font-black text-rose-700">
@@ -736,8 +767,14 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={stageAllQuantitiesToNearestUnit} disabled={draft.status !== "DRAFT" || quantitiesNeedingUnitRounding.length === 0 || regenerating} className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40">
-                수량 5·10단위 일괄맞춤 ({quantitiesNeedingUnitRounding.length}종)
+              <button type="button" onClick={stageSelectedQuantitiesToNearestUnit} disabled={draft.status !== "DRAFT" || quantitiesNeedingUnitRounding.length === 0 || regenerating} className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40">
+                선택 수량 5·10단위 맞춤 ({quantitiesNeedingUnitRounding.length}종)
+              </button>
+              <button type="button" onClick={stageSelectedProductsForExclusion} disabled={draft.status !== "DRAFT" || selectedExclusionCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-black text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40">
+                선택 상품 초안에서 제외 ({selectedExclusionCandidates.length}종)
+              </button>
+              <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                선택 해제
               </button>
               <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                 대기 변경 취소
@@ -781,7 +818,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <tr>
                 {TABLE_COLUMNS.map((column, index) => (
                   <th key={column.label} className={`px-3 py-3 ${index >= 3 && index <= 10 ? "text-right" : ""}`} style={stickyCellStyle(index, freezeThrough, true)}>
-                    {index === 0 ? <div><label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedExclusions(Object.fromEntries(draft.lines.map((line) => [line.barcode, event.target.checked])))} disabled={draft.status !== "DRAFT"} aria-label="제거할 상품 전체 선택" className="size-4" /><span>제거할 상품 체크</span></label><span className="mt-1 block text-[11px] font-semibold text-slate-500">{column.label}</span></div> : column.label}
+                    {index === 0 ? <div><label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedRows(Object.fromEntries(draft.lines.map((line) => [line.barcode, event.target.checked])))} disabled={draft.status !== "DRAFT"} aria-label="작업할 상품 전체 선택" className="size-4" /><span>작업할 상품 선택</span></label><span className="mt-1 block text-[11px] font-semibold text-slate-500">{column.label}</span></div> : column.label}
                   </th>
                 ))}
               </tr>
@@ -796,9 +833,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                 const groupLeader = Boolean(sharedGroup && groupInfo?.leaderBarcode === line.barcode);
                 const sameLinkCount = supplierLinkCounts.get(supplierPageKey(line.supplierLink)) ?? 0;
                 return (
-                  <tr key={line.barcode} className="align-top hover:bg-slate-50/70">
+                  <tr key={line.barcode} className={`align-top hover:bg-slate-50/70 ${stagedExclusions[line.barcode] === true ? "bg-rose-50/70" : ""}`}>
                     <td className="px-3 py-3" style={stickyCellStyle(0, freezeThrough)}>
-                      <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={selectedExclusions[line.barcode] === true} onChange={(event) => toggleExcludedBarcode(line.barcode, event.target.checked)} disabled={!editable} aria-label={`${line.barcode} 제거할 상품 체크`} className="size-4" /><strong className="font-mono text-sm text-slate-950">{line.barcode}</strong></label>
+                      <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={selectedRows[line.barcode] === true} onChange={(event) => toggleSelectedBarcode(line.barcode, event.target.checked)} disabled={!editable} aria-label={`${line.barcode} 작업할 상품 선택`} className="size-4" /><strong className="font-mono text-sm text-slate-950">{line.barcode}</strong>{stagedExclusions[line.barcode] === true ? <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-black text-rose-700">제외 대기</span> : null}</label>
                       <span className="mt-1 block font-semibold text-slate-700">{line.modelName || "모델명 -"}</span>
                       <span className="mt-1 block font-mono text-[11px] text-slate-400">{line.modelNo}</span>
                       <span className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-800">옵션 · {line.saleOption || "-"}</span>
