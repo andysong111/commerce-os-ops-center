@@ -14,12 +14,16 @@ export const maxDuration = 180;
 
 type PageProps = {
   params: Promise<{ draftId: string }>;
+  searchParams: Promise<{ recalculationNotice?: string | string[] }>;
 };
 
 export default async function InternalChinaPurchaseDraftPage({
   params,
+  searchParams,
 }: PageProps) {
   const { draftId: rawDraftId } = await params;
+  const rawNotice = (await searchParams).recalculationNotice;
+  const initialNotice = (Array.isArray(rawNotice) ? rawNotice[0] : rawNotice || "").slice(0, 500);
   const draftId = decodeURIComponent(rawDraftId);
   const todaySeoul = seoulCalendarDate();
   let draft;
@@ -110,6 +114,7 @@ export default async function InternalChinaPurchaseDraftPage({
         budgetAudit={budgetAudit}
         regenerationHref={`/purchase-cycle-preflight?${regenerationParams.toString()}`}
         initialQuantityOverrides={initialQuantityOverrides}
+        initialNotice={initialNotice}
       />
 
       <InternalChinaDraftStickySave status={draft.status} />

@@ -123,6 +123,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   budgetAudit,
   regenerationHref,
   initialQuantityOverrides = [],
+  initialNotice = "",
   stagedAdditions,
   onStagedAdditionsChange,
 }: {
@@ -130,12 +131,13 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   budgetAudit: InternalChinaPurchaseBudgetAudit;
   regenerationHref: string;
   initialQuantityOverrides?: PurchaseQuantityOverride[];
+  initialNotice?: string;
   stagedAdditions: StagedDraftAddition[];
   onStagedAdditionsChange: (rows: StagedDraftAddition[]) => void;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState(initialDraft);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(initialNotice);
   const [saving, setSaving] = useState(false);
   const [ordering, setOrdering] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
@@ -580,7 +582,6 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     setRegenerating(true);
     setNotice("현재 Draft에서 최신 우선순위와 예산을 다시 계산하고 있습니다. 다른 준비 화면으로 이동하지 않습니다.");
     try {
-      await persistDraft({ quiet: true, syncMetadata: false, refresh: false });
       const settings = new URL(regenerationHref, window.location.origin);
       const cash = settings.searchParams.get("cash");
       const response = await fetch("/api/purchase-cycle/preflight-draft/recalculate", {
@@ -606,8 +607,14 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       setSelectedRows({});
       setStagedExclusions({});
       onStagedAdditionsChange([]);
-      setNotice(body.message || "변경사항을 반영해 발주안을 다시 계산했습니다.");
-      router.replace(`/china-order-manager/drafts/${encodeURIComponent(body.draft.draftId)}`);
+      const successMessage = body.message || "변경사항을 반영해 발주안을 다시 계산했습니다.";
+      setNotice(successMessage);
+      const destination = new URL(
+        `/china-order-manager/drafts/${encodeURIComponent(body.draft.draftId)}`,
+        window.location.origin,
+      );
+      destination.searchParams.set("recalculationNotice", successMessage);
+      router.replace(`${destination.pathname}${destination.search}`);
       router.refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "발주안 재계산 요청이 실패했습니다. 현재 Draft는 그대로 유지했습니다.");
