@@ -31,6 +31,7 @@ jobs:
           src/lib/fastPurchaseInternalDraft.ts
           src/lib/monthlyPurchasePolicy.ts
           src/lib/monthlyPurchaseCycleGate.ts
+          src/lib/purchaseDraftQuantityRounding.ts
           src/app/api/fast-purchase/drafts/route.ts
           src/components/fast-purchase-mvp/FastPurchaseDraftActions.tsx
           src/app/fast-purchase-mvp/page.tsx

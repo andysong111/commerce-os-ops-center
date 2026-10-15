@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import {
+  isPurchaseDraftQuantityUnit,
+  nearestPurchaseDraftQuantity,
+} from "../src/lib/purchaseDraftQuantityRounding.ts";
 
 const workspace = await readFile(
   new URL(
@@ -46,6 +50,24 @@ test("native quantity changes remain local until the single recalculation action
   assert.match(postRoute, /saveInternalChinaQuantityOverride/);
   assert.doesNotMatch(postRoute, /loadInternalChinaQuantityOverrides/);
   assert.doesNotMatch(postRoute, /applyInternalChinaQuantityOverrides/);
+});
+
+test("draft quantities can be staged in bulk at the nearest 5-unit boundary", () => {
+  assert.equal(nearestPurchaseDraftQuantity(38), 40);
+  assert.equal(nearestPurchaseDraftQuantity(31), 30);
+  assert.equal(nearestPurchaseDraftQuantity(8), 10);
+  assert.equal(nearestPurchaseDraftQuantity(11), 10);
+  assert.equal(nearestPurchaseDraftQuantity(61), 60);
+  assert.equal(nearestPurchaseDraftQuantity(35), 35);
+  assert.equal(nearestPurchaseDraftQuantity(7.5), 10);
+  assert.equal(nearestPurchaseDraftQuantity(12.5), 10);
+  assert.equal(nearestPurchaseDraftQuantity(9_999), 9_995);
+  assert.equal(nearestPurchaseDraftQuantity(0), 0);
+  assert.equal(isPurchaseDraftQuantityUnit(40), true);
+  assert.equal(isPurchaseDraftQuantityUnit(38), false);
+  assert.match(workspace, /function stageAllQuantitiesToNearestUnit/);
+  assert.match(workspace, /수량 5·10단위 일괄맞춤/);
+  assert.match(workspace, /가장 가까운 5개 단위/);
 });
 
 test("draft table can freeze every column through an operator-selected last column", () => {
