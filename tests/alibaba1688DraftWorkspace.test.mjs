@@ -14,3 +14,10 @@ test("purchase draft saves current edits before opening the local 1688 cart auto
   assert.match(source, /1688 장바구니 준비/);
   assert.match(source, /주문 제출과 결제는 자동 실행하지 않습니다/);
 });
+
+test("purchase draft visibly marks rows excluded from 1688 cart preparation", async () => {
+  const source = await readFile("src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx", "utf8");
+  assert.match(source, /\[1688 준비 제외\]/);
+  assert.match(source, /1688 장바구니 준비 제외 \{number\.format\(preparationExcludedLines\.length\)\} SKU/);
+  assert.match(source, /line\.note\.includes\(PREPARATION_NOTE_PREFIX\)/);
+});
