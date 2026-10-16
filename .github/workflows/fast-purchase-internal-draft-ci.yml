@@ -25,6 +25,7 @@ jobs:
           tests/monthlyPurchasePolicy.test.mjs
           tests/internalChinaInlineQuantity.test.mjs
           tests/internalChinaManualBulkAdd.test.mjs
+          tests/alibaba1688DraftWorkspace.test.mjs
       - name: Lint internal draft files
         run: >-
           npx eslint
@@ -42,6 +43,7 @@ jobs:
           tests/monthlyPurchasePolicy.test.mjs
           tests/internalChinaInlineQuantity.test.mjs
           tests/internalChinaManualBulkAdd.test.mjs
+          tests/alibaba1688DraftWorkspace.test.mjs
       - name: Build
         run: npm run build
         env:

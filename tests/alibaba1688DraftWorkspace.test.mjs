@@ -7,6 +7,10 @@ test("purchase draft saves current edits before opening the local 1688 cart auto
   assert.match(source, /persistDraft\(\{ quiet: true, syncMetadata: false \}\)/);
   assert.match(source, /if \(options\.syncMetadata !== false\) \{/);
   assert.match(source, /127\.0\.0\.1:43121\/\?draftId=/);
+  assert.match(source, /purchaseEvidenceSignature/);
+  assert.match(source, /cartRefreshDeadlineRef/);
+  assert.match(source, /visibilitychange/);
+  assert.match(source, /실제 위안단가와 중국 내 운임을 자동 반영했습니다/);
   assert.match(source, /1688 장바구니 준비/);
   assert.match(source, /주문 제출과 결제는 자동 실행하지 않습니다/);
 });
