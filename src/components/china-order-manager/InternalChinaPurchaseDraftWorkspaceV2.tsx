@@ -77,6 +77,18 @@ function supplierPageKey(value: string) {
   }
 }
 
+function purchaseEvidenceSignature(draft: InternalChinaPurchaseDraft) {
+  return draft.lines
+    .map((line) => [
+      line.barcode,
+      decimal(line.unitPriceCny),
+      line.freightGroupId.trim(),
+      decimal(line.domesticChinaFreightCny),
+    ].join("\u0000"))
+    .sort()
+    .join("\u0001");
+}
+
 function stickyCellStyle(index: number, freezeThrough: number, header = false): CSSProperties | undefined {
   if (freezeThrough < 0 || index > freezeThrough) return undefined;
   const left = TABLE_COLUMNS.slice(0, index).reduce((sum, column) => sum + column.width, 0);
@@ -152,6 +164,46 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [freezeThrough, setFreezeThrough] = useState(0);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
+  const cartRefreshDeadlineRef = useRef(0);
+  const cartEvidenceRef = useRef(purchaseEvidenceSignature(initialDraft));
+
+  useEffect(() => {
+    let disposed = false;
+    let refreshing = false;
+
+    const refreshCartEvidence = async () => {
+      if (disposed || refreshing || Date.now() > cartRefreshDeadlineRef.current) return;
+      refreshing = true;
+      try {
+        const response = await fetch(
+          `/api/china-order-manager/drafts/${encodeURIComponent(initialDraft.draftId)}`,
+          { credentials: "same-origin", cache: "no-store" },
+        );
+        const body = (await response.json().catch(() => ({}))) as DraftSaveResponse;
+        if (!response.ok || !body.ok || !body.draft) return;
+        const nextSignature = purchaseEvidenceSignature(body.draft);
+        if (nextSignature === cartEvidenceRef.current) return;
+        cartEvidenceRef.current = nextSignature;
+        setDraft(body.draft);
+        setNotice("1688 장바구니에서 확인한 실제 위안단가와 중국 내 운임을 자동 반영했습니다.");
+        router.refresh();
+      } finally {
+        refreshing = false;
+      }
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshCartEvidence();
+    };
+    const timer = window.setInterval(() => void refreshCartEvidence(), 5_000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [initialDraft.draftId, router]);
 
   useEffect(() => {
     const tableScroll = tableScrollRef.current;
@@ -285,6 +337,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
   function updateLine(barcode: string, patch: Partial<InternalChinaPurchaseDraftLine>) {
     if (draft.status !== "DRAFT") return;
+    cartRefreshDeadlineRef.current = 0;
     setDraft((current) => ({
       ...current,
       lines: current.lines.map((line) =>
@@ -641,8 +694,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     setNotice("현재 입력값을 저장한 뒤 이 초안을 로컬 1688 자동화로 엽니다.");
     try {
       const savedDraft = await persistDraft({ quiet: true, syncMetadata: false });
+      cartEvidenceRef.current = purchaseEvidenceSignature(savedDraft);
+      cartRefreshDeadlineRef.current = Date.now() + 30 * 60_000;
       localAgent.location.href = `http://127.0.0.1:43121/?draftId=${encodeURIComponent(savedDraft.draftId)}`;
-      setNotice("로컬 업무센터가 열렸습니다. 5번 ‘1688 장바구니 준비’를 실행하면 중국옵션·수량을 맞추고 장바구니/결제 직전의 실제 위안단가와 판매자별 중국내 운임을 이 초안에 저장합니다.");
+      setNotice("로컬 업무센터가 열렸습니다. 5번 ‘1688 장바구니 준비’를 실행하면 중국옵션·수량을 맞추고 장바구니/결제 직전의 실제 위안단가와 판매자별 중국내 운임을 저장하며, 이 화면의 합계도 자동 갱신됩니다.");
     } catch (error) {
       localAgent.close();
       setNotice(error instanceof Error ? error.message : "1688 장바구니 준비를 시작하지 못했습니다.");
