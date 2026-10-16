@@ -20,8 +20,8 @@ import {
 export const runtime = "nodejs";
 
 const TABLE_NAME = "product_launch_tracker_states";
-const MIGRATION_KEY = "stockSheetChinaOptionRefresh20261017V3";
-const MIGRATION_VERSION = "2026-10-17-stock-sheet-china-option-refresh-v3";
+const MIGRATION_KEY = "stockSheetChinaOptionRefresh20261017V4";
+const MIGRATION_VERSION = "2026-10-17-stock-sheet-china-option-refresh-v4";
 const CSV_URL =
   "https://docs.google.com/spreadsheets/d/13hSSgEX5SHjoshdg89GaBdOwy4xSQjvvZB7gI_IuZ4o/export?format=csv&gid=428248334";
 

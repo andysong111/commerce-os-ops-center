@@ -76,3 +76,28 @@ test("does not write when an exact key has conflicting source values", () => {
   assert.equal(result.state.items[0].orderOptions[0].chinaOption, "");
   assert.equal(result.report.ambiguousOptionCount, 1);
 });
+
+test("uses verified sale-option aliases only for reviewed model and option pairs", () => {
+  const aliasedState = {
+    schemaVersion: 3,
+    savedAt: "2026-10-17T00:00:00.000Z",
+    items: [{
+      id: "item-aaa448",
+      modelNumber: "AAA448",
+      productName: "책상정리 미니서랍 화이트",
+      orderOptions: [
+        { barcode: "alias-1", saleOption: "1단 화이트", chinaOption: "" },
+        { barcode: "alias-2", saleOption: "2단 화이트", chinaOption: "" },
+      ],
+    }],
+  };
+  const rows = [
+    { rowNumber: 1177, modelNumber: "AAA448", productName: "책상정리 미니서랍 화이트", saleOption: "1단", chinaOption: "象牙白一抽" },
+    { rowNumber: 1178, modelNumber: "AAA448", productName: "책상정리 미니서랍 화이트", saleOption: "2단", chinaOption: "象牙白二抽" },
+  ];
+
+  const result = prepareStockSheetChinaOptionRefresh(aliasedState, rows, "test");
+
+  assert.deepEqual(result.state.items[0].orderOptions.map((option) => option.chinaOption), ["象牙白一抽", "象牙白二抽"]);
+  assert.equal(result.report.changedOptions, 2);
+});

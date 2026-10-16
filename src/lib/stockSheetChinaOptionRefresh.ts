@@ -46,6 +46,15 @@ export type StockSheetChinaOptionReport = {
 const MAX_REPORT_DETAILS = 160;
 const INVALID_SOURCE_VALUES = new Set(["", "미정", "ㅁ", "상품조합", "미입력", "확인필요", "검토필요"]);
 const REPLACEABLE_EXISTING_VALUES = new Set([...INVALID_SOURCE_VALUES, "단품"]);
+const VERIFIED_SALE_OPTION_ALIASES = new Map<string, string>([
+  ["AAA138\u001f일반색상랜덤", "일반형색상랜덤"],
+  ["AAA289\u001f단품", "가위단품"],
+  ["AAA321\u001f대형", "색상랜덤대형"],
+  ["AAA321\u001f소형", "색상랜덤소형"],
+  ["AAA448\u001f1단화이트", "1단"],
+  ["AAA448\u001f2단화이트", "2단"],
+  ["AAA448\u001f3단화이트", "3단"],
+]);
 
 export function isUsableStockSheetChinaOption(value: unknown) {
   const option = text(value);
@@ -112,7 +121,7 @@ export function prepareStockSheetChinaOptionRefresh(
     const nextOptions = currentOptions.map((option) => {
       const existing = text(option.chinaOption);
       const saleOption = text(option.saleOption ?? option.value);
-      const match = findChinaOptionMatch(text(item.productName), saleOption, currentOptions.length, candidates);
+      const match = findChinaOptionMatch(modelNumber, text(item.productName), saleOption, currentOptions.length, candidates);
 
       if (match.ok === false) {
         if (!isReplaceableExisting(existing)) {
@@ -179,6 +188,7 @@ function isReplaceableExisting(value: unknown) {
 }
 
 function findChinaOptionMatch(
+  modelNumber: string,
   itemProductName: string,
   saleOption: string,
   currentOptionCount: number,
@@ -193,6 +203,13 @@ function findChinaOptionMatch(
   if (rankedExactSale) return rankedExactSale;
   const exactSaleFallback = selectUnique(exactSaleRows, "same-model-sale-option");
   if (exactSaleFallback) return exactSaleFallback;
+
+  const verifiedAlias = VERIFIED_SALE_OPTION_ALIASES.get(`${modelNumber}\u001f${normalizedSaleOption}`);
+  if (verifiedAlias) {
+    const aliasRows = candidates.filter((row) => normalizeOption(row.saleOption) === verifiedAlias);
+    const aliasMatch = selectUnique(aliasRows, "verified-sale-option-alias");
+    if (aliasMatch) return aliasMatch;
+  }
 
   if (currentOptionCount === 1) {
     const rankedSingle = selectByProductRank(candidates, itemProduct);
