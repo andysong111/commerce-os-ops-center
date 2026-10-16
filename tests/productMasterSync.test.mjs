@@ -108,6 +108,25 @@ test("does not activate a Product Master SKU before sourcing receipt confirmatio
   assert.equal(result.skipped.sourcingReceiptPending, 1);
 });
 
+test("keeps a product active while disabling only user-discontinued purchase options", () => {
+  const result = buildProductMasterSnapshotFromTrackerState({
+    items: [{
+      id: "aaa022",
+      modelNumber: "AAA022",
+      productName: "고리형 실리콘 공병 90ml",
+      orderOptions: [
+        { id: "grey", barcode: "BDE5-2", saleOption: "90ml 회색" },
+        { id: "sky", barcode: "BDE5-3", saleOption: "90ml 하늘", purchasePolicy: { status: "DISCONTINUED" } },
+      ],
+    }],
+  });
+  assert.equal(result.payload.products[0].status, "LAUNCHING");
+  assert.deepEqual(result.payload.skus.map((sku) => [sku.barcode, sku.active]), [
+    ["BDE5-2", true],
+    ["BDE5-3", false],
+  ]);
+});
+
 test("allows explicitly approved shared physical B-codes and blocks unapproved conflicts", () => {
   const items = [
     {

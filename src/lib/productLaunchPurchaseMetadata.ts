@@ -14,6 +14,9 @@ export type ProductLaunchPurchaseMetadata = {
   supplierLink: string;
   saleOption: string;
   chinaOption: string;
+  purchaseQuantityMultiplier: number;
+  purchaseComponents: Array<{ chinaOption: string; quantityMultiplier: number }>;
+  purchaseOptionSelection: "EXACT" | "ANY_AVAILABLE";
   conflict: boolean;
 };
 
@@ -85,6 +88,7 @@ export function buildMetadataMap(
         supplierLink: fixedFirstSupplierLink,
         saleOption: text(option.saleOption),
         chinaOption: text(option.chinaOption),
+        ...purchasePolicy(option),
       });
     }
 
@@ -98,6 +102,7 @@ export function buildMetadataMap(
         supplierLink: fixedFirstSupplierLink,
         saleOption: text(only?.saleOption),
         chinaOption: text(only?.chinaOption),
+        ...purchasePolicy(only),
       });
     }
   }
@@ -109,10 +114,16 @@ export function buildMetadataMap(
       const supplierLinks = uniqueNonEmpty(rows.map((row) => row.supplierLink));
       const saleOptions = uniqueNonEmpty(rows.map((row) => row.saleOption));
       const chinaOptions = uniqueNonEmpty(rows.map((row) => row.chinaOption));
+      const purchaseQuantityMultipliers = uniqueNumbers(rows.map((row) => row.purchaseQuantityMultiplier));
+      const purchaseComponents = uniqueJson(rows.map((row) => row.purchaseComponents));
+      const purchaseOptionSelections = uniqueNonEmpty(rows.map((row) => row.purchaseOptionSelection));
       const conflict =
         supplierLinks.length > 1 ||
         saleOptions.length > 1 ||
-        chinaOptions.length > 1;
+        chinaOptions.length > 1 ||
+        purchaseQuantityMultipliers.length > 1 ||
+        purchaseComponents.length > 1 ||
+        purchaseOptionSelections.length > 1;
       return [
         barcode,
         {
@@ -122,11 +133,30 @@ export function buildMetadataMap(
           supplierLink: supplierLinks.length === 1 ? supplierLinks[0] : "",
           saleOption: saleOptions.length === 1 ? saleOptions[0] : "",
           chinaOption: chinaOptions.length === 1 ? chinaOptions[0] : "",
+          purchaseQuantityMultiplier: purchaseQuantityMultipliers.length === 1 ? purchaseQuantityMultipliers[0] : 1,
+          purchaseComponents: purchaseComponents.length === 1 ? JSON.parse(purchaseComponents[0]) : [],
+          purchaseOptionSelection: purchaseOptionSelections.length === 1 && purchaseOptionSelections[0] === "ANY_AVAILABLE" ? "ANY_AVAILABLE" : "EXACT",
           conflict,
         },
       ] as const;
     }),
   );
+}
+
+function purchasePolicy(option: unknown) {
+  const policy = isRecord(option) && isRecord(option.purchasePolicy) ? option.purchasePolicy : {};
+  const quantityMultiplier = positiveInteger(policy.quantityMultiplier, 1);
+  const purchaseComponents = Array.isArray(policy.components)
+    ? policy.components.filter(isRecord).map((row) => ({
+        chinaOption: text(row.chinaOption),
+        quantityMultiplier: positiveInteger(row.quantityMultiplier, 1),
+      })).filter((row) => row.chinaOption)
+    : [];
+  return {
+    purchaseQuantityMultiplier: quantityMultiplier,
+    purchaseComponents,
+    purchaseOptionSelection: text(policy.optionSelection) === "ANY_AVAILABLE" ? "ANY_AVAILABLE" as const : "EXACT" as const,
+  };
 }
 
 function addCandidate(map: Map<string, Candidate[]>, candidate: Candidate) {
@@ -151,6 +181,10 @@ function normalizeBarcode(value: unknown) {
 function uniqueNonEmpty(values: string[]) {
   return [...new Set(values.map(text).filter(Boolean))];
 }
+
+function uniqueNumbers(values: number[]) { return [...new Set(values)]; }
+function uniqueJson(values: unknown[]) { return [...new Set(values.map((value) => JSON.stringify(value)))]; }
+function positiveInteger(value: unknown, fallback: number) { const parsed = Number(value); return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback; }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));

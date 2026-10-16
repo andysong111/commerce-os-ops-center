@@ -1,4 +1,5 @@
 import { isSourcingReceiptPending } from "./sourcingReceiptGate.ts";
+import { isPurchaseOptionDiscontinued } from "./userChinaPurchaseRules20261017.ts";
 
 type R = Record<string, unknown>;
 
@@ -171,7 +172,7 @@ export function buildProductMasterSnapshotFromTrackerState(
         leadTimeDays: nonNegative(item.leadTimeDays, 14),
         targetStockDays: nonNegative(item.targetStockDays, 30),
         memo: optional(item.notes),
-        active: !archived,
+        active: !archived && !isPurchaseOptionDiscontinued(option),
       });
 
       const shopling = object(item.shoplingProducts);
@@ -189,7 +190,7 @@ export function buildProductMasterSnapshotFromTrackerState(
           listingName: productName || modelNo,
           listingOptionName: optionName,
           unitsPerOrder: inferUnitsPerOrder(optionName),
-          active: !archived,
+          active: !archived && !isPurchaseOptionDiscontinued(option),
           syncedAt:
             iso(channel.registeredAt) || iso(item.updatedAt) || new Date().toISOString(),
         });

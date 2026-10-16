@@ -36,6 +36,9 @@ export type InternalChinaPurchaseDraftLine = {
   productName: string;
   saleOption: string;
   chinaOption: string;
+  purchaseQuantityMultiplier: number;
+  purchaseComponents: Array<{ chinaOption: string; quantityMultiplier: number }>;
+  purchaseOptionSelection: "EXACT" | "ANY_AVAILABLE";
   supplierLink: string;
   quantity: number;
   unitPriceCny: number;
@@ -112,6 +115,20 @@ function integer(value: unknown) {
 function decimal(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+function positiveInteger(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizePurchaseComponents(value: unknown) {
+  return Array.isArray(value)
+    ? value.map(object).map((row) => ({
+        chinaOption: text(row.chinaOption),
+        quantityMultiplier: positiveInteger(row.quantityMultiplier, 1),
+      })).filter((row) => row.chinaOption)
+    : [];
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -365,6 +382,17 @@ async function buildBaseDraft(
           text(sourcePayload.saleOption),
         chinaOption:
           text(trackerUsable?.chinaOption) || text(sourcePayload.chinaOption),
+        purchaseQuantityMultiplier: positiveInteger(
+          trackerUsable?.purchaseQuantityMultiplier,
+          1,
+        ),
+        purchaseComponents: normalizePurchaseComponents(
+          trackerUsable?.purchaseComponents,
+        ),
+        purchaseOptionSelection:
+          trackerUsable?.purchaseOptionSelection === "ANY_AVAILABLE"
+            ? "ANY_AVAILABLE"
+            : "EXACT",
         supplierLink:
           text(trackerUsable?.supplierLink) || text(sourcePayload.supplierLink),
         quantity: Math.min(
@@ -461,6 +489,9 @@ function mergeSavedLine(
     saleOption: baseLine.saleOption,
     chinaOption: baseLine.chinaOption || text(saved.chinaOption),
     supplierLink: baseLine.supplierLink || text(saved.supplierLink),
+    purchaseQuantityMultiplier: baseLine.purchaseQuantityMultiplier,
+    purchaseComponents: baseLine.purchaseComponents,
+    purchaseOptionSelection: baseLine.purchaseOptionSelection,
   };
 }
 
@@ -511,6 +542,9 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
         productName: text(row.productName || row.modelName) || barcode,
         saleOption: text(row.saleOption),
         chinaOption: text(row.chinaOption),
+        purchaseQuantityMultiplier: positiveInteger(row.purchaseQuantityMultiplier, 1),
+        purchaseComponents: normalizePurchaseComponents(row.purchaseComponents),
+        purchaseOptionSelection: text(row.purchaseOptionSelection) === "ANY_AVAILABLE" ? "ANY_AVAILABLE" : "EXACT",
         supplierLink: text(row.supplierLink),
         quantity: Math.min(MANUAL_QUANTITY_MAX, quantity),
         unitPriceCny: Math.min(1_000_000, decimal(row.unitPriceCny)),
