@@ -45,8 +45,8 @@ function decimal(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
-function cnyCent(value: unknown) {
-  return Math.round(decimal(value) * 100) / 100;
+function cnyUnitPrice(value: unknown) {
+  return Math.round(decimal(value) * 1_000_000) / 1_000_000;
 }
 
 function lineKey(line: InternalChinaPurchaseDraftLine) {
@@ -1016,5 +1016,5 @@ function Input({ value, onChange, disabled = false, required = false, placeholde
 }
 
 function NumberInput({ value, onChange, disabled = false, required = false, showZero = false }: { value: number; onChange: (value: number) => void; disabled?: boolean; required?: boolean; showZero?: boolean }) {
-  return <input type="number" min="0" step="0.01" inputMode="decimal" value={showZero ? value : value || ""} disabled={disabled} onChange={(event) => onChange(cnyCent(event.target.value))} className={`w-28 rounded-lg border px-3 py-2 text-right text-xs font-bold outline-none disabled:bg-slate-100 ${required ? "border-amber-400 bg-amber-50 focus:border-amber-600" : "border-slate-300 bg-white focus:border-blue-500"}`} />;
+  return <input type="number" min="0" step="0.000001" inputMode="decimal" value={showZero ? value : value || ""} disabled={disabled} onChange={(event) => onChange(cnyUnitPrice(event.target.value))} className={`w-28 rounded-lg border px-3 py-2 text-right text-xs font-bold outline-none disabled:bg-slate-100 ${required ? "border-amber-400 bg-amber-50 focus:border-amber-600" : "border-slate-300 bg-white focus:border-blue-500"}`} />;
 }

@@ -21,3 +21,9 @@ test("purchase draft visibly marks rows excluded from 1688 cart preparation", as
   assert.match(source, /1688 장바구니 준비 제외 \{number\.format\(preparationExcludedLines\.length\)\} SKU/);
   assert.match(source, /line\.note\.includes\(PREPARATION_NOTE_PREFIX\)/);
 });
+
+test("purchase draft keeps post-cart unit prices precise enough for exact line subtotals", async () => {
+  const source = await readFile("src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx", "utf8");
+  assert.match(source, /Math\.round\(decimal\(value\) \* 1_000_000\) \/ 1_000_000/);
+  assert.match(source, /step="0\.000001"/);
+});
