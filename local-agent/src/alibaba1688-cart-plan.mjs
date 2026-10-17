@@ -121,14 +121,23 @@ export function build1688CartPlan(draft, inspections = []) {
     }
     if (inspection?.blockedReason === "SECURITY_CHALLENGE") {
       const rejected = inspection?.challengeFailed === true;
+      const manualItems = components.map((component) => ({
+        chinaOption: text(component?.chinaOption) || (optionSelection === "ANY_AVAILABLE" ? "임의 주문 가능 옵션" : ""),
+        quantity: baseQuantity * (positiveInteger(component?.quantityMultiplier) || 1),
+      }));
       fail(
         rejected ? "ALIBABA1688_AUTOMATION_SESSION_REJECTED" : "ALIBABA1688_SECURITY_CHALLENGE",
         rejected
-          ? "1688가 자동화 전용 Chrome 세션의 보안 인증을 거부했습니다. 같은 창이나 새 창에서 반복하지 말고 일반 Chrome에서 수동 주문을 진행하세요."
+          ? "1688가 자동화 전용 Chrome 세션을 차단했습니다. 안내 팝업에서 이 상품 링크를 일반 Chrome으로 열면 자동 작업이 이어집니다."
           : "열린 1688 전용 Chrome에서 보안 슬라이더 인증을 완료한 후 다시 실행하세요.",
         {
           barcode,
           offerId: offer.offerId,
+          offerUrl: offer.url,
+          modelNo: text(line?.modelNo),
+          modelName: text(line?.modelName),
+          productName: text(line?.productName),
+          manualItems,
           reason: inspection.blockedReason,
           manualHandoffRequired: rejected,
         },

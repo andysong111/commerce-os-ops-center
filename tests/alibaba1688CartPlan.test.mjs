@@ -373,18 +373,23 @@ test("a rejected 1688 captcha requires a manual browser handoff", () => {
     chinaOption: "단품",
     quantity: 10,
   }]);
-  assert.throws(
-    () => build1688CartPlan(source, [{
+  let captured;
+  try {
+    build1688CartPlan(source, [{
       offerId: "732903613263",
       blockedReason: "SECURITY_CHALLENGE",
       challengeFailed: true,
       options: [],
-    }]),
-    {
-      code: "ALIBABA1688_AUTOMATION_SESSION_REJECTED",
-      message: "1688가 자동화 전용 Chrome 세션의 보안 인증을 거부했습니다. 같은 창이나 새 창에서 반복하지 말고 일반 Chrome에서 수동 주문을 진행하세요.",
-    },
-  );
+    }]);
+  } catch (error) {
+    captured = error;
+  }
+  assert.equal(captured?.code, "ALIBABA1688_AUTOMATION_SESSION_REJECTED");
+  assert.equal(captured?.details?.barcode, "BBA1-1");
+  assert.equal(captured?.details?.offerUrl, "https://detail.1688.com/offer/732903613263.html");
+  assert.deepEqual(captured?.details?.manualItems, [{ chinaOption: "단품", quantity: 10 }]);
+  assert.equal(captured?.details?.manualHandoffRequired, true);
+  assert.match(captured?.message || "", /상품 링크를 일반 Chrome으로 열면 자동 작업이 이어집니다/);
 });
 
 test("slow 1688 offer loading is retried and only explicit 404 or down markers mean offline", async () => {
