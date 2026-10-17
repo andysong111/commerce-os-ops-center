@@ -59,6 +59,7 @@ function normalizeInspection(inspection) {
     offerId: text(inspection?.offerId),
     loginRequired: inspection?.loginRequired === true,
     blockedReason: text(inspection?.blockedReason),
+    challengeFailed: inspection?.challengeFailed === true,
     singleSku: inspection?.singleSku === true,
     options: options
       .map((option) => ({
@@ -119,11 +120,19 @@ export function build1688CartPlan(draft, inspections = []) {
       fail("ALIBABA1688_LOGIN_REQUIRED", "열린 1688 전용 Chrome에서 로그인한 후 다시 실행하세요.", { offerId: offer.offerId });
     }
     if (inspection?.blockedReason === "SECURITY_CHALLENGE") {
-      fail("ALIBABA1688_SECURITY_CHALLENGE", "열린 1688 전용 Chrome에서 보안 슬라이더 인증을 완료한 후 다시 실행하세요.", {
-        barcode,
-        offerId: offer.offerId,
-        reason: inspection.blockedReason,
-      });
+      const rejected = inspection?.challengeFailed === true;
+      fail(
+        rejected ? "ALIBABA1688_AUTOMATION_SESSION_REJECTED" : "ALIBABA1688_SECURITY_CHALLENGE",
+        rejected
+          ? "1688가 자동화 전용 Chrome 세션의 보안 인증을 거부했습니다. 같은 창이나 새 창에서 반복하지 말고 일반 Chrome에서 수동 주문을 진행하세요."
+          : "열린 1688 전용 Chrome에서 보안 슬라이더 인증을 완료한 후 다시 실행하세요.",
+        {
+          barcode,
+          offerId: offer.offerId,
+          reason: inspection.blockedReason,
+          manualHandoffRequired: rejected,
+        },
+      );
     }
     if (inspection?.blockedReason) {
       fail("ALIBABA1688_OFFER_BLOCKED", `${barcode} 상품을 장바구니에 담을 수 없습니다.`, {

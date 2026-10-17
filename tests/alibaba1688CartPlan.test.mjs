@@ -349,23 +349,42 @@ test("offer inspection recognizes the Korean 1688 slider security challenge", ()
   }
 });
 
-test("task 5 replaces a rejected captcha tab and returns to the exact offer", async () => {
+test("task 5 stops after a rejected captcha instead of retrying new windows", async () => {
   const source = await readFile(
     new URL("../local-agent/src/alibaba1688-cart-browser-adapter.mjs", import.meta.url),
     "utf8",
   );
   assert.match(source, /SECURITY_CHALLENGE_WAIT_MS = 180_000/);
-  assert.match(source, /SECURITY_CHALLENGE_FRESH_TARGET_RETRIES = 2/);
   assert.match(source, /challengeFailed/);
-  assert.match(source, /freshTargetRequired/);
-  assert.match(source, /close1688Target/);
+  assert.doesNotMatch(source, /SECURITY_CHALLENGE_FRESH_TARGET_RETRIES/);
+  assert.doesNotMatch(source, /freshTargetRequired/);
   assert.doesNotMatch(source, /Page\.reload/);
   assert.match(source, /waitForOfferSecurityChallenge/);
-  assert.match(source, /create1688WindowTarget\(config, item\.offerUrl, dependencies\)/);
   assert.match(source, /Target\.createTarget/);
   assert.match(source, /newWindow:\s*true/);
   assert.match(source, /Successful verification can redirect to the 1688 home page/);
   assert.match(source, /OFFER_NAVIGATION_TIMEOUT_MS \+ SECURITY_CHALLENGE_WAIT_MS/);
+});
+
+test("a rejected 1688 captcha requires a manual browser handoff", () => {
+  const source = draft([{
+    barcode: "BBA1-1",
+    supplierLink: "https://detail.1688.com/offer/732903613263.html",
+    chinaOption: "단품",
+    quantity: 10,
+  }]);
+  assert.throws(
+    () => build1688CartPlan(source, [{
+      offerId: "732903613263",
+      blockedReason: "SECURITY_CHALLENGE",
+      challengeFailed: true,
+      options: [],
+    }]),
+    {
+      code: "ALIBABA1688_AUTOMATION_SESSION_REJECTED",
+      message: "1688가 자동화 전용 Chrome 세션의 보안 인증을 거부했습니다. 같은 창이나 새 창에서 반복하지 말고 일반 Chrome에서 수동 주문을 진행하세요.",
+    },
+  );
 });
 
 test("slow 1688 offer loading is retried and only explicit 404 or down markers mean offline", async () => {
@@ -375,7 +394,7 @@ test("slow 1688 offer loading is retried and only explicit 404 or down markers m
   );
   assert.match(source, /OFFER_NAVIGATION_TIMEOUT_MS = 60_000/);
   assert.match(source, /OFFER_RETRY_COUNT = 2/);
-  assert.match(source, /let target = await create1688WindowTarget\(config, unique\[0\]\?\.offerUrl \|\| CART_URL, dependencies\)/);
+  assert.match(source, /const target = await create1688WindowTarget\(config, unique\[0\]\?\.offerUrl \|\| CART_URL, dependencies\)/);
   assert.match(source, /const target = lastTarget \|\| await ensure1688Target/);
   assert.match(source, /ALIBABA1688_OFFER_LOAD_TIMEOUT/);
   assert.match(source, /retryable: true/);

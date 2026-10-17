@@ -13,7 +13,6 @@ const OFFER_HYDRATION_TIMEOUT_MS = 15_000;
 const OFFER_RETRY_COUNT = 2;
 const SECURITY_CHALLENGE_WAIT_MS = 180_000;
 const SECURITY_CHALLENGE_POLL_MS = 1_000;
-const SECURITY_CHALLENGE_FRESH_TARGET_RETRIES = 2;
 const FORBIDDEN_ORDER_TEXT = /提交订单|确认下单|立即下单|立即付款|确认付款|支付|pay\s*now/i;
 
 function fail(code, message, details = {}) {
@@ -58,17 +57,6 @@ async function create1688Target(config, firstUrl, dependencies = {}) {
     fail("ALIBABA1688_TARGET_CREATE_FAILED", "1688 전용 Chrome 탭을 열지 못했습니다.");
   }
   return created;
-}
-
-async function close1688Target(config, target, dependencies = {}) {
-  if (!target?.id) return false;
-  const closeTarget = dependencies.closeTarget || (async (targetId) => {
-    const response = await fetch(`${config.chromeDebugBaseUrl}/json/close/${encodeURIComponent(targetId)}`, {
-      cache: "no-store",
-    });
-    return response.ok;
-  });
-  return Boolean(await closeTarget(target.id).catch(() => false));
 }
 
 async function create1688WindowTarget(config, firstUrl, dependencies = {}) {
@@ -214,10 +202,10 @@ async function waitForOfferSecurityChallenge(session, item, initialInspection) {
 
   while (Date.now() < deadline) {
     if (inspection?.blockedReason === "SECURITY_CHALLENGE") {
-      // A rejected slider tends to keep the current renderer in the same failed
-      // verification session. Let the caller replace this tab with a fresh one
-      // that starts again from the exact offer URL.
-      if (inspection?.challengeFailed) return { ...inspection, freshTargetRequired: true };
+      // A rejected slider means 1688 has rejected this automated browser
+      // session. Reopening tabs or windows in the same profile only repeats the
+      // challenge and can increase the account's risk score, so stop promptly.
+      if (inspection?.challengeFailed) return inspection;
       await sleep(SECURITY_CHALLENGE_POLL_MS);
       inspection = await evaluate(session, ALIBABA1688_OFFER_PROBE_EXPRESSION, OFFER_NAVIGATION_TIMEOUT_MS)
         .catch(() => inspection);
@@ -1038,37 +1026,25 @@ export function createAlibaba1688CartBrowserAdapter(config, dependencies = {}) {
     // Start each task-5 run in its own window. Reusing an arbitrary old 1688 tab
     // can inherit a renderer that is stuck even though the offer opens normally
     // in a fresh window.
-    let target = await create1688WindowTarget(config, unique[0]?.offerUrl || CART_URL, dependencies);
+    const target = await create1688WindowTarget(config, unique[0]?.offerUrl || CART_URL, dependencies);
     lastTarget = target;
     const inspections = [];
     for (const item of unique) {
-      let value = null;
-      for (let freshTargetAttempt = 0; freshTargetAttempt <= SECURITY_CHALLENGE_FRESH_TARGET_RETRIES; freshTargetAttempt += 1) {
-        value = await connect(config, target, async (session) => {
-          let value = await inspectLoadedOffer(session, item);
-          if (value?.blockedReason === "SECURITY_CHALLENGE") {
-            await (dependencies.activateChromeTarget || activateChromeTarget)(config, target, {
-              timeoutMs: 5_000,
-            }).catch(() => null);
-            value = await waitForOfferSecurityChallenge(session, item, value);
-          }
-          return value;
-        }, { timeoutMs: OFFER_NAVIGATION_TIMEOUT_MS + SECURITY_CHALLENGE_WAIT_MS });
+      const value = await connect(config, target, async (session) => {
+        let inspected = await inspectLoadedOffer(session, item);
+        if (inspected?.blockedReason === "SECURITY_CHALLENGE") {
+          await (dependencies.activateChromeTarget || activateChromeTarget)(config, target, {
+            timeoutMs: 5_000,
+          }).catch(() => null);
+          inspected = await waitForOfferSecurityChallenge(session, item, inspected);
+        }
+        return inspected;
+      }, { timeoutMs: OFFER_NAVIGATION_TIMEOUT_MS + SECURITY_CHALLENGE_WAIT_MS });
 
-        if (!value?.freshTargetRequired) break;
-        if (freshTargetAttempt >= SECURITY_CHALLENGE_FRESH_TARGET_RETRIES) break;
-
-        const failedTarget = target;
-        target = await create1688WindowTarget(config, item.offerUrl, dependencies);
-        lastTarget = target;
+      if (value?.challengeFailed) {
         await (dependencies.activateChromeTarget || activateChromeTarget)(config, target, {
           timeoutMs: 5_000,
         }).catch(() => null);
-        await close1688Target(config, failedTarget, dependencies);
-      }
-
-      if (value?.freshTargetRequired) {
-        value = { ...value, freshTargetRequired: false };
       }
       inspections.push({ offerId: item.offerId, ...value });
       if (value?.loginRequired || value?.blockedReason === "SECURITY_CHALLENGE") break;
