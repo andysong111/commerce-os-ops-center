@@ -42,6 +42,15 @@ const TABLE_COLUMNS = [
 ] as const;
 
 const TABLE_WIDTH = TABLE_COLUMNS.reduce((sum, column) => sum + column.width, 0);
+const LOCAL_1688_CONTROL_CENTER_WINDOW = "commerce-os-1688-cart";
+
+function local1688ControlCenterUrl(draftId: string, continueTask5 = false) {
+  const url = new URL("http://127.0.0.1:43121/");
+  url.searchParams.set("draftId", draftId);
+  if (continueTask5) url.searchParams.set("continue", "1688-cart-staging");
+  return url.toString();
+}
+
 function decimal(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
@@ -177,6 +186,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [regenerating, setRegenerating] = useState(false);
   const [cartPreparing, setCartPreparing] = useState(false);
   const [cartRefreshRequest, setCartRefreshRequest] = useState(0);
+  const [task5ContinuationUrl, setTask5ContinuationUrl] = useState("");
   const [savedFingerprint, setSavedFingerprint] = useState(() =>
     editableDraftFingerprint(initialDraft),
   );
@@ -565,10 +575,22 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
   async function saveDraft() {
     if (draft.status !== "DRAFT") return;
+    const localAgent = window.open(
+      local1688ControlCenterUrl(draft.draftId),
+      LOCAL_1688_CONTROL_CENTER_WINDOW,
+    );
     setNotice("");
     setSaving(true);
     try {
-      await persistDraft();
+      const savedDraft = await persistDraft();
+      const continuationUrl = local1688ControlCenterUrl(savedDraft.draftId, true);
+      setTask5ContinuationUrl(continuationUrl);
+      if (localAgent && !localAgent.closed) {
+        localAgent.location.href = continuationUrl;
+        localAgent.focus();
+      } else {
+        setNotice("발주초안을 저장했습니다. 브라우저가 업무센터 창을 차단했습니다. 아래 '5번 업무 이어가기'를 눌러주세요.");
+      }
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -740,7 +762,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
   async function prepare1688Cart() {
     if (draft.status !== "DRAFT" || saving || cartPreparing) return;
-    const localAgent = window.open("about:blank", "commerce-os-1688-cart");
+    const localAgent = window.open("about:blank", LOCAL_1688_CONTROL_CENTER_WINDOW);
     if (!localAgent) {
       setNotice("팝업이 차단되었습니다. 이 사이트의 팝업을 허용한 뒤 다시 눌러 주세요.");
       return;
@@ -751,7 +773,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       const savedDraft = await persistDraft({ quiet: true, syncMetadata: false });
       cartEvidenceRef.current = purchaseEvidenceSignature(savedDraft);
       cartRefreshDeadlineRef.current = Date.now() + 30 * 60_000;
-      localAgent.location.href = `http://127.0.0.1:43121/?draftId=${encodeURIComponent(savedDraft.draftId)}`;
+      localAgent.location.href = local1688ControlCenterUrl(savedDraft.draftId);
       setNotice("로컬 업무센터가 열렸습니다. 5번 ‘1688 장바구니 준비’를 실행하면 중국옵션·수량을 맞추고 장바구니/결제 직전의 실제 위안단가와 판매자별 중국내 운임을 저장하며, 이 화면의 합계도 자동 갱신됩니다.");
     } catch (error) {
       localAgent.close();
@@ -854,6 +876,11 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         </div>
 
         {notice ? <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-950">{notice}</div> : null}
+        {task5ContinuationUrl ? (
+          <a href={task5ContinuationUrl} target={LOCAL_1688_CONTROL_CENTER_WINDOW} rel="noreferrer" className="mt-3 inline-flex rounded-xl border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-sm font-black text-white shadow-sm hover:bg-emerald-800">
+            저장한 초안으로 5번 업무 이어가기
+          </a>
+        ) : null}
         {draft.metadataWarnings.length ? <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">{draft.metadataWarnings.slice(0, 4).join(" · ")}</div> : null}
         {preparationExcludedLines.length ? (
           <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-950">

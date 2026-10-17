@@ -40,6 +40,14 @@ test("draft table keeps a visible batch save action beside the editable rows", (
   assert.match(workspace, /onClick=\{\(\) => void saveDraft\(\)\}/);
 });
 
+test("successful batch save continues task 5 with the exact saved draft id", () => {
+  assert.match(workspace, /LOCAL_1688_CONTROL_CENTER_WINDOW/);
+  assert.match(workspace, /window\.open\(/);
+  assert.match(workspace, /local1688ControlCenterUrl\(savedDraft\.draftId, true\)/);
+  assert.match(workspace, /url\.searchParams\.set\("continue", "1688-cart-staging"\)/);
+  assert.match(workspace, /저장한 초안으로 5번 업무 이어가기/);
+});
+
 test("actual-price refresh never overwrites unsaved link or option input", () => {
   assert.match(workspace, /editableDraftFingerprint\(draftRef\.current\) !== savedFingerprintRef\.current/);
   assert.match(workspace, /최신 실제금액 불러오기/);

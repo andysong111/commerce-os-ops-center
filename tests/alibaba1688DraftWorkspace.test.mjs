@@ -6,7 +6,8 @@ test("purchase draft saves current edits before opening the local 1688 cart auto
   const source = await readFile("src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx", "utf8");
   assert.match(source, /persistDraft\(\{ quiet: true, syncMetadata: false \}\)/);
   assert.match(source, /if \(options\.syncMetadata !== false\) \{/);
-  assert.match(source, /127\.0\.0\.1:43121\/\?draftId=/);
+  assert.match(source, /new URL\("http:\/\/127\.0\.0\.1:43121\/"\)/);
+  assert.match(source, /url\.searchParams\.set\("draftId", draftId\)/);
   assert.match(source, /purchaseEvidenceSignature/);
   assert.match(source, /cartRefreshDeadlineRef/);
   assert.match(source, /visibilitychange/);
