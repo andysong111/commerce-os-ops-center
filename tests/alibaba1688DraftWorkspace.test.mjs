@@ -10,9 +10,11 @@ test("purchase draft saves current edits before opening the local 1688 cart auto
   assert.match(source, /purchaseEvidenceSignature/);
   assert.match(source, /cartRefreshDeadlineRef/);
   assert.match(source, /visibilitychange/);
-  assert.match(source, /실제 위안단가와 중국 내 운임을 자동 반영했습니다/);
+  assert.match(source, /실제 위안단가·중국내 운임을 반영하고 발주금액을 다시 계산했습니다/);
   assert.match(source, /1688 장바구니 준비/);
-  assert.match(source, /주문 제출과 결제는 자동 실행하지 않습니다/);
+  assert.match(source, /결제수단 선택 화면에서 멈추며 결제는 직접 진행합니다/);
+  assert.match(source, /링크·옵션 등 일괄 저장/);
+  assert.match(source, /최신 실제금액 불러오기/);
 });
 
 test("purchase draft visibly marks rows excluded from 1688 cart preparation", async () => {

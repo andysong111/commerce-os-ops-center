@@ -90,6 +90,19 @@ function purchaseEvidenceSignature(draft: InternalChinaPurchaseDraft) {
     .join("\u0001");
 }
 
+function editableDraftFingerprint(draft: InternalChinaPurchaseDraft) {
+  return JSON.stringify(draft.lines.map((line) => ({
+    barcode: line.barcode,
+    chinaOption: line.chinaOption,
+    supplierLink: line.supplierLink,
+    unitPriceCny: line.unitPriceCny,
+    freightGroupId: line.freightGroupId,
+    domesticChinaFreightCny: line.domesticChinaFreightCny,
+    orderNumber: line.orderNumber,
+    note: line.note,
+  })));
+}
+
 function stickyCellStyle(index: number, freezeThrough: number, header = false): CSSProperties | undefined {
   if (freezeThrough < 0 || index > freezeThrough) return undefined;
   const left = TABLE_COLUMNS.slice(0, index).reduce((sum, column) => sum + column.width, 0);
@@ -161,12 +174,28 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [regenerating, setRegenerating] = useState(false);
   const [cartPreparing, setCartPreparing] = useState(false);
+  const [cartRefreshRequest, setCartRefreshRequest] = useState(0);
+  const [savedFingerprint, setSavedFingerprint] = useState(() =>
+    editableDraftFingerprint(initialDraft),
+  );
   const [scrollWidth, setScrollWidth] = useState(TABLE_WIDTH);
   const [freezeThrough, setFreezeThrough] = useState(0);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const cartRefreshDeadlineRef = useRef(0);
   const cartEvidenceRef = useRef(purchaseEvidenceSignature(initialDraft));
+  const draftRef = useRef(draft);
+  const savedFingerprintRef = useRef(savedFingerprint);
+  const currentFingerprint = editableDraftFingerprint(draft);
+  const hasUnsavedInputs = currentFingerprint !== savedFingerprint;
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
+    savedFingerprintRef.current = savedFingerprint;
+  }, [savedFingerprint]);
 
   useEffect(() => {
     let disposed = false;
@@ -174,6 +203,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
     const refreshCartEvidence = async () => {
       if (disposed || refreshing || Date.now() > cartRefreshDeadlineRef.current) return;
+      if (editableDraftFingerprint(draftRef.current) !== savedFingerprintRef.current) return;
       refreshing = true;
       try {
         const response = await fetch(
@@ -185,8 +215,11 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         const nextSignature = purchaseEvidenceSignature(body.draft);
         if (nextSignature === cartEvidenceRef.current) return;
         cartEvidenceRef.current = nextSignature;
+        const nextFingerprint = editableDraftFingerprint(body.draft);
+        savedFingerprintRef.current = nextFingerprint;
+        setSavedFingerprint(nextFingerprint);
         setDraft(body.draft);
-        setNotice("1688 장바구니에서 확인한 실제 위안단가와 중국 내 운임을 자동 반영했습니다.");
+        setNotice("업무센터가 확인한 실제 위안단가·중국내 운임을 반영하고 발주금액을 다시 계산했습니다.");
         router.refresh();
       } finally {
         refreshing = false;
@@ -195,6 +228,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") void refreshCartEvidence();
     };
+    void refreshCartEvidence();
     const timer = window.setInterval(() => void refreshCartEvidence(), 5_000);
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
@@ -204,7 +238,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [initialDraft.draftId, router]);
+  }, [cartRefreshRequest, initialDraft.draftId, router]);
 
   useEffect(() => {
     const tableScroll = tableScrollRef.current;
@@ -519,6 +553,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     }
 
     setDraft(nextDraft);
+    const nextFingerprint = editableDraftFingerprint(nextDraft);
+    savedFingerprintRef.current = nextFingerprint;
+    setSavedFingerprint(nextFingerprint);
     if (!options.quiet) setNotice(`발주초안을 저장했습니다. ${metadataMessage}`);
     if (options.refresh !== false) router.refresh();
     return nextDraft;
@@ -539,6 +576,16 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     } finally {
       setSaving(false);
     }
+  }
+
+  function refreshActualOrderAmounts() {
+    if (hasUnsavedInputs) {
+      setNotice("저장하지 않은 링크·중국옵션 입력이 있습니다. 먼저 일괄 저장한 뒤 최신 실제금액을 불러오세요.");
+      return;
+    }
+    cartRefreshDeadlineRef.current = Date.now() + 2 * 60_000;
+    setNotice("업무센터가 기록한 최신 실제 단가와 중국내 운임을 확인하고 있습니다.");
+    setCartRefreshRequest((current) => current + 1);
   }
 
   const selectedBarcodes = draft.lines
@@ -786,7 +833,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <span className="text-xs font-black tracking-[0.12em] text-blue-700">OPS CENTER NATIVE · BIDIRECTIONAL</span>
             <h2 className="mt-1 text-xl font-black text-slate-950">실제 1688 주문 준비</h2>
             <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
-              링크·중국옵션을 확인한 뒤 `1688 장바구니 준비`를 실행하면 권장수량을 정확히 맞추고 장바구니 이후 실제 단가와 판매자별 중국내 운임을 이 표에 기록합니다. 주문 제출과 결제는 자동 실행하지 않습니다.
+              링크·중국옵션을 확인한 뒤 `1688 장바구니 준비`를 실행하면 권장수량을 정확히 맞추고 실제 단가와 판매자별 중국내 운임을 이 표에 기록한 뒤 미결제 주문을 생성합니다. 결제수단 선택 화면에서 멈추며 결제는 직접 진행합니다.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -879,6 +926,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               </select>
             </label>
             <button type="button" onClick={autoGroupSameSupplierLinks} disabled={draft.status !== "DRAFT"} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">같은 1688 링크 자동 합배송</button>
+            <button type="button" onClick={() => void saveDraft()} disabled={saving || draft.status !== "DRAFT"} className="rounded-lg border border-blue-700 bg-blue-700 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "일괄 저장 중..." : "링크·옵션 등 일괄 저장"}</button>
+            <button type="button" onClick={refreshActualOrderAmounts} disabled={hasUnsavedInputs || cartPreparing} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">최신 실제금액 불러오기</button>
+            <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${hasUnsavedInputs ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>{hasUnsavedInputs ? "저장하지 않은 입력 있음" : "입력값 저장됨"}</span>
             <span className="text-[11px] font-semibold text-slate-500">선택한 열까지 왼쪽에 고정됩니다. 합배송은 그룹 첫 행의 총운임 1회 입력으로 수량 비율 배분합니다.</span>
           </div>
         </div>
