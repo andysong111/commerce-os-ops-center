@@ -5,6 +5,8 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const OFFER_NAVIGATION_TIMEOUT_MS = 60_000;
 const OFFER_HYDRATION_TIMEOUT_MS = 15_000;
 const OFFER_RETRY_COUNT = 2;
+const SECURITY_CHALLENGE_WAIT_MS = 180_000;
+const SECURITY_CHALLENGE_POLL_MS = 1_000;
 const FORBIDDEN_ORDER_TEXT = /提交订单|确认下单|立即下单|立即付款|确认付款|支付|pay\s*now/i;
 
 function fail(code, message, details = {}) {
@@ -115,6 +117,8 @@ function offerProbe() {
     : /滑块|安全验证|验证码|访问过于频繁|异常流量|슬라이더|보안 인증|인증을 완료|밀어서 확인|정상 접속/.test(bodyText.slice(0, 2500))
       ? "SECURITY_CHALLENGE"
       : "";
+  const challengeFailed = blockedReason === "SECURITY_CHALLENGE"
+    && /잘못|새로\s*고침|刷新|重试|重新验证|error\s*:/i.test(leadingBodyText);
   const selectors = [
     ".expand-view-item .item-label[title]",
     "[data-sku-id]",
@@ -151,10 +155,47 @@ function offerProbe() {
     bodyTextLength: bodyText.length,
     loginRequired,
     blockedReason: blockedReason || (!canAdd && !loginRequired ? "ADD_CONTROL_NOT_FOUND" : ""),
+    challengeFailed,
     canAdd,
     singleSku: canAdd && options.length === 0,
     options,
   };
+}
+
+async function waitForOfferSecurityChallenge(session, item, initialInspection) {
+  const deadline = Date.now() + SECURITY_CHALLENGE_WAIT_MS;
+  let inspection = initialInspection;
+  let refreshedFailedChallenge = false;
+
+  while (Date.now() < deadline) {
+    if (inspection?.blockedReason === "SECURITY_CHALLENGE") {
+      if (inspection?.challengeFailed && !refreshedFailedChallenge) {
+        // A rejected slider cannot recover in-place. Reload once to present a
+        // fresh challenge, then keep the task alive while the operator solves it.
+        refreshedFailedChallenge = true;
+        await sleep(2_000);
+        await session.send("Page.reload", { ignoreCache: false }, OFFER_NAVIGATION_TIMEOUT_MS).catch(() => null);
+      }
+      await sleep(SECURITY_CHALLENGE_POLL_MS);
+      inspection = await evaluate(session, ALIBABA1688_OFFER_PROBE_EXPRESSION, OFFER_NAVIGATION_TIMEOUT_MS)
+        .catch(() => inspection);
+      continue;
+    }
+
+    const expectedOfferLoaded = String(inspection?.href || "").includes(String(item.offerId || ""));
+    if (expectedOfferLoaded && (inspection?.canAdd || inspection?.blockedReason === "OFFER_OFFLINE" || inspection?.loginRequired)) {
+      return inspection;
+    }
+
+    // Successful verification can redirect to the 1688 home page. Return to
+    // the exact offer and continue only after its controls have hydrated.
+    await navigate(session, item.offerUrl, OFFER_NAVIGATION_TIMEOUT_MS).catch(() => null);
+    await sleep(SECURITY_CHALLENGE_POLL_MS);
+    inspection = await evaluate(session, ALIBABA1688_OFFER_PROBE_EXPRESSION, OFFER_NAVIGATION_TIMEOUT_MS)
+      .catch(() => inspection);
+  }
+
+  return inspection;
 }
 
 async function inspectLoadedOffer(session, item) {
@@ -960,12 +1001,18 @@ export function createAlibaba1688CartBrowserAdapter(config, dependencies = {}) {
     const inspections = await connect(config, target, async (session) => {
       const inspections = [];
       for (const item of unique) {
-        const value = await inspectLoadedOffer(session, item);
+        let value = await inspectLoadedOffer(session, item);
+        if (value?.blockedReason === "SECURITY_CHALLENGE") {
+          await (dependencies.activateChromeTarget || activateChromeTarget)(config, target, {
+            timeoutMs: 5_000,
+          }).catch(() => null);
+          value = await waitForOfferSecurityChallenge(session, item, value);
+        }
         inspections.push({ offerId: item.offerId, ...value });
         if (value?.loginRequired || value?.blockedReason === "SECURITY_CHALLENGE") break;
       }
       return inspections;
-    }, { timeoutMs: OFFER_NAVIGATION_TIMEOUT_MS });
+    }, { timeoutMs: OFFER_NAVIGATION_TIMEOUT_MS + SECURITY_CHALLENGE_WAIT_MS });
     if (inspections.some((inspection) => (
       inspection.loginRequired || inspection.blockedReason === "SECURITY_CHALLENGE"
     ))) {

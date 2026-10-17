@@ -349,6 +349,19 @@ test("offer inspection recognizes the Korean 1688 slider security challenge", ()
   }
 });
 
+test("task 5 waits through a manual slider retry and returns to the exact offer", async () => {
+  const source = await readFile(
+    new URL("../local-agent/src/alibaba1688-cart-browser-adapter.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /SECURITY_CHALLENGE_WAIT_MS = 180_000/);
+  assert.match(source, /challengeFailed/);
+  assert.match(source, /Page\.reload/);
+  assert.match(source, /waitForOfferSecurityChallenge/);
+  assert.match(source, /Successful verification can redirect to the 1688 home page/);
+  assert.match(source, /OFFER_NAVIGATION_TIMEOUT_MS \+ SECURITY_CHALLENGE_WAIT_MS/);
+});
+
 test("slow 1688 offer loading is retried and only explicit 404 or down markers mean offline", async () => {
   const source = await readFile(
     new URL("../local-agent/src/alibaba1688-cart-browser-adapter.mjs", import.meta.url),
