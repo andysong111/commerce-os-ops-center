@@ -349,21 +349,20 @@ test("offer inspection recognizes the Korean 1688 slider security challenge", ()
   }
 });
 
-test("task 5 stops after a rejected captcha instead of retrying new windows", async () => {
+test("task 5 hands a blocked offer to the operator immediately instead of waiting or retrying windows", async () => {
   const source = await readFile(
     new URL("../local-agent/src/alibaba1688-cart-browser-adapter.mjs", import.meta.url),
     "utf8",
   );
-  assert.match(source, /SECURITY_CHALLENGE_WAIT_MS = 180_000/);
+  assert.doesNotMatch(source, /SECURITY_CHALLENGE_WAIT_MS/);
   assert.match(source, /challengeFailed/);
   assert.doesNotMatch(source, /SECURITY_CHALLENGE_FRESH_TARGET_RETRIES/);
   assert.doesNotMatch(source, /freshTargetRequired/);
   assert.doesNotMatch(source, /Page\.reload/);
-  assert.match(source, /waitForOfferSecurityChallenge/);
+  assert.doesNotMatch(source, /waitForOfferSecurityChallenge/);
   assert.match(source, /Target\.createTarget/);
   assert.match(source, /newWindow:\s*true/);
-  assert.match(source, /Successful verification can redirect to the 1688 home page/);
-  assert.match(source, /OFFER_NAVIGATION_TIMEOUT_MS \+ SECURITY_CHALLENGE_WAIT_MS/);
+  assert.match(source, /timeoutMs: OFFER_NAVIGATION_TIMEOUT_MS/);
 });
 
 test("a rejected 1688 captcha requires a manual browser handoff", () => {
@@ -410,24 +409,27 @@ test("slow 1688 offer loading is retried and only explicit 404 or down markers m
   assert.doesNotMatch(source, /lastNavigationError[^\n]*OFFER_OFFLINE/);
 });
 
-test("a detected 1688 security challenge stops with a user-actionable error", () => {
+test("a detected 1688 security challenge includes the same one-click link handoff", () => {
   const source = draft([{
     barcode: "BBA1-1",
     supplierLink: "https://detail.1688.com/offer/732903613263.html",
     chinaOption: "단품",
     quantity: 10,
   }]);
-  assert.throws(
-    () => build1688CartPlan(source, [{
+  let captured;
+  try {
+    build1688CartPlan(source, [{
       offerId: "732903613263",
       blockedReason: "SECURITY_CHALLENGE",
       options: [],
-    }]),
-    {
-      code: "ALIBABA1688_SECURITY_CHALLENGE",
-      message: "열린 1688 전용 Chrome에서 보안 슬라이더 인증을 완료한 후 다시 실행하세요.",
-    },
-  );
+    }]);
+  } catch (error) {
+    captured = error;
+  }
+  assert.equal(captured?.code, "ALIBABA1688_SECURITY_CHALLENGE");
+  assert.equal(captured?.details?.manualHandoffRequired, true);
+  assert.equal(captured?.details?.offerUrl, "https://detail.1688.com/offer/732903613263.html");
+  assert.match(captured?.message || "", /상품 링크를 일반 Chrome으로 열면 자동 작업이 이어집니다/);
 });
 
 test("1688 navigation clears only the display-language cookie before exact option matching", async () => {

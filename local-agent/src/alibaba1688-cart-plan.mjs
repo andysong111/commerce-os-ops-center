@@ -129,7 +129,7 @@ export function build1688CartPlan(draft, inspections = []) {
         rejected ? "ALIBABA1688_AUTOMATION_SESSION_REJECTED" : "ALIBABA1688_SECURITY_CHALLENGE",
         rejected
           ? "1688가 자동화 전용 Chrome 세션을 차단했습니다. 안내 팝업에서 이 상품 링크를 일반 Chrome으로 열면 자동 작업이 이어집니다."
-          : "열린 1688 전용 Chrome에서 보안 슬라이더 인증을 완료한 후 다시 실행하세요.",
+          : "1688 보안 화면이 나타났습니다. 안내 팝업에서 이 상품 링크를 일반 Chrome으로 열면 자동 작업이 이어집니다.",
         {
           barcode,
           offerId: offer.offerId,
@@ -139,7 +139,7 @@ export function build1688CartPlan(draft, inspections = []) {
           productName: text(line?.productName),
           manualItems,
           reason: inspection.blockedReason,
-          manualHandoffRequired: rejected,
+          manualHandoffRequired: true,
         },
       );
     }

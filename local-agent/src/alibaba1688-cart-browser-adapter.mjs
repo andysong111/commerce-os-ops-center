@@ -11,8 +11,6 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const OFFER_NAVIGATION_TIMEOUT_MS = 60_000;
 const OFFER_HYDRATION_TIMEOUT_MS = 15_000;
 const OFFER_RETRY_COUNT = 2;
-const SECURITY_CHALLENGE_WAIT_MS = 180_000;
-const SECURITY_CHALLENGE_POLL_MS = 1_000;
 const FORBIDDEN_ORDER_TEXT = /提交订单|确认下单|立即下单|立即付款|确认付款|支付|pay\s*now/i;
 
 function fail(code, message, details = {}) {
@@ -194,38 +192,6 @@ function offerProbe() {
     singleSku: canAdd && options.length === 0,
     options,
   };
-}
-
-async function waitForOfferSecurityChallenge(session, item, initialInspection) {
-  const deadline = Date.now() + SECURITY_CHALLENGE_WAIT_MS;
-  let inspection = initialInspection;
-
-  while (Date.now() < deadline) {
-    if (inspection?.blockedReason === "SECURITY_CHALLENGE") {
-      // A rejected slider means 1688 has rejected this automated browser
-      // session. Reopening tabs or windows in the same profile only repeats the
-      // challenge and can increase the account's risk score, so stop promptly.
-      if (inspection?.challengeFailed) return inspection;
-      await sleep(SECURITY_CHALLENGE_POLL_MS);
-      inspection = await evaluate(session, ALIBABA1688_OFFER_PROBE_EXPRESSION, OFFER_NAVIGATION_TIMEOUT_MS)
-        .catch(() => inspection);
-      continue;
-    }
-
-    const expectedOfferLoaded = String(inspection?.href || "").includes(String(item.offerId || ""));
-    if (expectedOfferLoaded && (inspection?.canAdd || inspection?.blockedReason === "OFFER_OFFLINE" || inspection?.loginRequired)) {
-      return inspection;
-    }
-
-    // Successful verification can redirect to the 1688 home page. Return to
-    // the exact offer and continue only after its controls have hydrated.
-    await navigate(session, item.offerUrl, OFFER_NAVIGATION_TIMEOUT_MS).catch(() => null);
-    await sleep(SECURITY_CHALLENGE_POLL_MS);
-    inspection = await evaluate(session, ALIBABA1688_OFFER_PROBE_EXPRESSION, OFFER_NAVIGATION_TIMEOUT_MS)
-      .catch(() => inspection);
-  }
-
-  return inspection;
 }
 
 async function inspectLoadedOffer(session, item) {
@@ -1031,15 +997,14 @@ export function createAlibaba1688CartBrowserAdapter(config, dependencies = {}) {
     const inspections = [];
     for (const item of unique) {
       const value = await connect(config, target, async (session) => {
-        let inspected = await inspectLoadedOffer(session, item);
+        const inspected = await inspectLoadedOffer(session, item);
         if (inspected?.blockedReason === "SECURITY_CHALLENGE") {
           await (dependencies.activateChromeTarget || activateChromeTarget)(config, target, {
             timeoutMs: 5_000,
           }).catch(() => null);
-          inspected = await waitForOfferSecurityChallenge(session, item, inspected);
         }
         return inspected;
-      }, { timeoutMs: OFFER_NAVIGATION_TIMEOUT_MS + SECURITY_CHALLENGE_WAIT_MS });
+      }, { timeoutMs: OFFER_NAVIGATION_TIMEOUT_MS });
 
       if (value?.challengeFailed) {
         await (dependencies.activateChromeTarget || activateChromeTarget)(config, target, {
