@@ -80,6 +80,32 @@ function matchInspectedOption(options, normalizedRequestedOption) {
   return options.filter((option) => option.normalizedName.includes(normalizedRequestedOption));
 }
 
+function approximateCentimeterValue(value) {
+  const normalized = normalize1688OptionName(value);
+  if (!/(?:左右|约|大约)/u.test(normalized)) return null;
+  const match = normalized.match(/(\d+(?:\.\d+)?)\s*(?:cm|厘米)/iu);
+  return match ? Number(match[1]) : null;
+}
+
+function centimeterValue(value) {
+  const match = normalize1688OptionName(value).match(/(\d+(?:\.\d+)?)\s*(?:cm|厘米)/iu);
+  return match ? Number(match[1]) : null;
+}
+
+function matchApproximateCentimeterOption(options, requestedOption) {
+  const requestedCentimeters = approximateCentimeterValue(requestedOption);
+  if (!Number.isFinite(requestedCentimeters)) return [];
+  const candidates = options.flatMap((option) => {
+    const centimeters = centimeterValue(option.name);
+    if (!Number.isFinite(centimeters)) return [];
+    const distance = Math.abs(centimeters - requestedCentimeters);
+    return distance <= 2 ? [{ option, distance }] : [];
+  });
+  if (!candidates.length) return [];
+  const minimumDistance = Math.min(...candidates.map((candidate) => candidate.distance));
+  return candidates.filter((candidate) => candidate.distance === minimumDistance).map((candidate) => candidate.option);
+}
+
 export function build1688CartPlan(draft, inspections = []) {
   if (!DRAFT_ID.test(text(draft?.draftId))) {
     fail("ALIBABA1688_DRAFT_ID_INVALID", "발주초안 ID가 올바르지 않습니다.");
@@ -200,7 +226,12 @@ export function build1688CartPlan(draft, inspections = []) {
         } else {
           matchedOptionNames = requestedOptionNames.map((requestedOption, optionIndex) => {
             const normalizedOption = normalizedRequestedOptions[optionIndex];
-            const matches = matchInspectedOption(purchasableOptions, normalizedOption);
+            let matches = matchInspectedOption(purchasableOptions, normalizedOption);
+            let approximateCentimeterMatch = false;
+            if (matches.length === 0) {
+              matches = matchApproximateCentimeterOption(purchasableOptions, requestedOption);
+              approximateCentimeterMatch = matches.length > 0;
+            }
             if (matches.length !== 1) {
               fail(matches.length > 1 ? "ALIBABA1688_OPTION_AMBIGUOUS" : "ALIBABA1688_OPTION_NOT_FOUND", `${barcode}의 중국 옵션 선택값을 정확히 하나로 확정하지 못했습니다.`, {
                 barcode,
@@ -211,7 +242,18 @@ export function build1688CartPlan(draft, inspections = []) {
                 availableOptions: purchasableOptions.map((option) => option.name).slice(0, 100),
               });
             }
-            return matches[0].name;
+            if (approximateCentimeterMatch) return matches[0].name;
+            const selected = matches[0];
+            const exactMatch = selected.normalizedName === normalizedOption;
+            const containsEveryRequestedAxis = normalizedRequestedOptions.every((axis) => selected.normalizedName.includes(axis));
+            const combinedOptionLength = requestedOptionNames.join("").length + 24;
+            // Modern 1688 pages sometimes expose an entire option group as one
+            // long text node. Keep the requested leaf value in that case so
+            // the browser can target the label instead of the whole container.
+            if (!exactMatch && (!containsEveryRequestedAxis || selected.name.length > combinedOptionLength)) {
+              return requestedOption;
+            }
+            return selected.name;
           }).filter((name, optionIndex, names) => names.indexOf(name) === optionIndex);
         }
       }
@@ -379,8 +421,17 @@ export function buildDraftLinesFrom1688Checkout(draft, plan, checkout) {
     const unitPriceCny = readbacks.reduce((sum, { plannedLine, readback }) => (
       sum + readback.unitPriceCny * (positiveInteger(plannedLine.quantityMultiplier) || 1)
     ), 0);
+    const optionPatch = Array.isArray(source.purchaseComponents) && source.purchaseComponents.length
+      ? {
+          purchaseComponents: source.purchaseComponents.map((component, componentIndex) => {
+            const plannedLine = plannedLines.find((line) => line.componentIndex === componentIndex);
+            return plannedLine ? { ...component, chinaOption: plannedLine.matchedOptionName } : component;
+          }),
+        }
+      : { chinaOption: plannedLines[0]?.matchedOptionName || source.chinaOption };
     return [barcode, {
       ...source,
+      ...optionPatch,
       unitPriceCny,
       freightGroupId: safeGroupId(groupId),
       domesticChinaFreightCny: groupLeader.get(groupId) === barcode ? group.freightCny : 0,

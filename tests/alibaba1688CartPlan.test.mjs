@@ -89,6 +89,41 @@ test("multiple requested axes can resolve to one unique combined 1688 SKU label"
   assert.equal(plan.items[0].quantity, 50);
 });
 
+test("an approximate legacy size resolves to the unique current size while preserving a leaf option inside a group", () => {
+  const source = draft([{
+    barcode: "BAB2-1",
+    supplierLink: "https://detail.1688.com/offer/831228648371.html",
+    chinaOption: "水豚啪啪圈,23cm左右",
+    quantity: 50,
+  }]);
+  const plan = build1688CartPlan(source, [{
+    offerId: "831228648371",
+    options: [
+      { name: "颜色薯条背包款背乌龟款鼻涕款糖葫芦款鸭子款吐司款头顶蜜蜂款围巾款生日帽款HAPPY款汉堡款草莓帽款戴帽子汉堡款挂件款水豚背龟挂件款水豚啪啪圈水豚背龟啪啪圈好柿发生水豚哪吒水豚" },
+      { name: "25厘米【0.15kg】" },
+      { name: "30厘米【0.28kg】" },
+    ],
+  }]);
+  assert.deepEqual(plan.items[0].optionNames, ["水豚啪啪圈", "25厘米【0.15kg】"]);
+  assert.equal(plan.items[0].optionName, "水豚啪啪圈,25厘米【0.15kg】");
+});
+
+test("a precise legacy size is never silently changed to a nearby current size", () => {
+  const source = draft([{
+    barcode: "BAB2-1",
+    supplierLink: "https://detail.1688.com/offer/831228648371.html",
+    chinaOption: "水豚啪啪圈,23cm",
+    quantity: 50,
+  }]);
+  assert.throws(
+    () => build1688CartPlan(source, [{
+      offerId: "831228648371",
+      options: [{ name: "水豚啪啪圈" }, { name: "25厘米【0.15kg】" }],
+    }]),
+    (error) => error?.code === "ALIBABA1688_OPTION_NOT_FOUND" && error?.details?.requestedOption === "23cm",
+  );
+});
+
 test("contained option matching remains blocked when more than one purchasable label matches", () => {
   const source = draft([{
     barcode: "BAB2-1",
@@ -234,6 +269,34 @@ test("post-cart actual price and one seller-group freight total update every dra
   assert.deepEqual(lines.map((line) => line.freightGroupId), ["1688-cart:seller-88", "1688-cart:seller-88"]);
   assert.deepEqual(lines.map((line) => line.domesticChinaFreightCny), [12.5, 0]);
   assert.deepEqual(lines.map((line) => line.note), ["사용자 메모", "사용자 메모"]);
+});
+
+test("post-cart save records the current matched 1688 option on the draft", () => {
+  const source = draft([{
+    barcode: "BAB2-1",
+    supplierLink: "https://detail.1688.com/offer/831228648371.html",
+    chinaOption: "水豚啪啪圈,23cm左右",
+    quantity: 50,
+  }]);
+  const plan = build1688CartPlan(source, [{
+    offerId: "831228648371",
+    options: [
+      { name: "颜色薯条背包款水豚啪啪圈水豚背龟啪啪圈好柿发生水豚" },
+      { name: "25厘米【0.15kg】" },
+      { name: "30厘米【0.28kg】" },
+    ],
+  }]);
+  const lines = buildDraftLinesFrom1688Checkout(source, plan, {
+    lines: [{
+      offerId: "831228648371",
+      optionName: "水豚啪啪圈,25厘米【0.15kg】",
+      quantity: 50,
+      unitPriceCny: 2.1,
+      groupId: "seller-capybara",
+    }],
+    sellerGroups: [{ groupId: "seller-capybara", domesticFreightCny: 8 }],
+  });
+  assert.equal(lines[0].chinaOption, "水豚啪啪圈,25厘米【0.15kg】");
 });
 
 test("post-cart unit price keeps enough precision to reproduce the exact checkout subtotal", () => {
