@@ -27,8 +27,8 @@ export function activePreparationNote(line: PreparationLine) {
   if (!part) return "";
 
   const reason = part.slice(PREPARATION_NOTE_PREFIX.length).trim();
-  if (reason === "중국 옵션 없음" && String(line.chinaOption || "").trim()) return "";
-  if (reason === "1688 링크 없음" && validHttpUrl(String(line.supplierLink || "").trim())) return "";
+  if (reason === "중국 옵션 없음" && String(line.chinaOption || "").trim()) return "중국 옵션 재검증 필요";
+  if (reason === "1688 링크 없음" && validHttpUrl(String(line.supplierLink || "").trim())) return "1688 링크 재검증 필요";
   return reason || "1688 장바구니 준비 제외";
 }
 
