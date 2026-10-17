@@ -349,15 +349,21 @@ test("offer inspection recognizes the Korean 1688 slider security challenge", ()
   }
 });
 
-test("task 5 waits through a manual slider retry and returns to the exact offer", async () => {
+test("task 5 replaces a rejected captcha tab and returns to the exact offer", async () => {
   const source = await readFile(
     new URL("../local-agent/src/alibaba1688-cart-browser-adapter.mjs", import.meta.url),
     "utf8",
   );
   assert.match(source, /SECURITY_CHALLENGE_WAIT_MS = 180_000/);
+  assert.match(source, /SECURITY_CHALLENGE_FRESH_TARGET_RETRIES = 2/);
   assert.match(source, /challengeFailed/);
-  assert.match(source, /Page\.reload/);
+  assert.match(source, /freshTargetRequired/);
+  assert.match(source, /close1688Target/);
+  assert.doesNotMatch(source, /Page\.reload/);
   assert.match(source, /waitForOfferSecurityChallenge/);
+  assert.match(source, /create1688WindowTarget\(config, item\.offerUrl, dependencies\)/);
+  assert.match(source, /Target\.createTarget/);
+  assert.match(source, /newWindow:\s*true/);
   assert.match(source, /Successful verification can redirect to the 1688 home page/);
   assert.match(source, /OFFER_NAVIGATION_TIMEOUT_MS \+ SECURITY_CHALLENGE_WAIT_MS/);
 });
@@ -369,7 +375,7 @@ test("slow 1688 offer loading is retried and only explicit 404 or down markers m
   );
   assert.match(source, /OFFER_NAVIGATION_TIMEOUT_MS = 60_000/);
   assert.match(source, /OFFER_RETRY_COUNT = 2/);
-  assert.match(source, /const target = await create1688Target\(config, unique\[0\]\?\.offerUrl \|\| CART_URL, dependencies\)/);
+  assert.match(source, /let target = await create1688WindowTarget\(config, unique\[0\]\?\.offerUrl \|\| CART_URL, dependencies\)/);
   assert.match(source, /const target = lastTarget \|\| await ensure1688Target/);
   assert.match(source, /ALIBABA1688_OFFER_LOAD_TIMEOUT/);
   assert.match(source, /retryable: true/);

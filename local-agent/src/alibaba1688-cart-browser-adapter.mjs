@@ -1,4 +1,10 @@
-import { activateChromeTarget, listChromeTargets, withBrowserCdpTarget } from "./chrome-cdp.mjs";
+import {
+  activateChromeTarget,
+  CdpSession,
+  fetchJson,
+  listChromeTargets,
+  withBrowserCdpTarget,
+} from "./chrome-cdp.mjs";
 
 const CART_URL = "https://cart.1688.com/cart.htm";
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -7,6 +13,7 @@ const OFFER_HYDRATION_TIMEOUT_MS = 15_000;
 const OFFER_RETRY_COUNT = 2;
 const SECURITY_CHALLENGE_WAIT_MS = 180_000;
 const SECURITY_CHALLENGE_POLL_MS = 1_000;
+const SECURITY_CHALLENGE_FRESH_TARGET_RETRIES = 2;
 const FORBIDDEN_ORDER_TEXT = /提交订单|确认下单|立即下单|立即付款|确认付款|支付|pay\s*now/i;
 
 function fail(code, message, details = {}) {
@@ -51,6 +58,45 @@ async function create1688Target(config, firstUrl, dependencies = {}) {
     fail("ALIBABA1688_TARGET_CREATE_FAILED", "1688 전용 Chrome 탭을 열지 못했습니다.");
   }
   return created;
+}
+
+async function close1688Target(config, target, dependencies = {}) {
+  if (!target?.id) return false;
+  const closeTarget = dependencies.closeTarget || (async (targetId) => {
+    const response = await fetch(`${config.chromeDebugBaseUrl}/json/close/${encodeURIComponent(targetId)}`, {
+      cache: "no-store",
+    });
+    return response.ok;
+  });
+  return Boolean(await closeTarget(target.id).catch(() => false));
+}
+
+async function create1688WindowTarget(config, firstUrl, dependencies = {}) {
+  const createWindowTarget = dependencies.createWindowTarget;
+  if (createWindowTarget) {
+    const created = await createWindowTarget(firstUrl);
+    if (created?.id) return created;
+    fail("ALIBABA1688_TARGET_CREATE_FAILED", "1688 전용 Chrome 새 창을 열지 못했습니다.");
+  }
+
+  const version = await fetchJson(`${config.chromeDebugBaseUrl}/json/version`, 5_000);
+  if (!version?.webSocketDebuggerUrl) {
+    fail("ALIBABA1688_CHROME_UNAVAILABLE", "1688 전용 Chrome에 연결하지 못했습니다.");
+  }
+  const browserSession = new CdpSession(version.webSocketDebuggerUrl);
+  await browserSession.connect(5_000);
+  try {
+    const created = await browserSession.send("Target.createTarget", {
+      url: firstUrl,
+      newWindow: true,
+    }, 5_000);
+    if (!created?.targetId) {
+      fail("ALIBABA1688_TARGET_CREATE_FAILED", "1688 전용 Chrome 새 창을 열지 못했습니다.");
+    }
+    return { id: created.targetId, type: "page", title: "", url: firstUrl };
+  } finally {
+    await browserSession.close();
+  }
 }
 
 async function evaluate(session, expression, timeoutMs = DEFAULT_TIMEOUT_MS, userGesture = false) {
@@ -165,17 +211,13 @@ function offerProbe() {
 async function waitForOfferSecurityChallenge(session, item, initialInspection) {
   const deadline = Date.now() + SECURITY_CHALLENGE_WAIT_MS;
   let inspection = initialInspection;
-  let refreshedFailedChallenge = false;
 
   while (Date.now() < deadline) {
     if (inspection?.blockedReason === "SECURITY_CHALLENGE") {
-      if (inspection?.challengeFailed && !refreshedFailedChallenge) {
-        // A rejected slider cannot recover in-place. Reload once to present a
-        // fresh challenge, then keep the task alive while the operator solves it.
-        refreshedFailedChallenge = true;
-        await sleep(2_000);
-        await session.send("Page.reload", { ignoreCache: false }, OFFER_NAVIGATION_TIMEOUT_MS).catch(() => null);
-      }
+      // A rejected slider tends to keep the current renderer in the same failed
+      // verification session. Let the caller replace this tab with a fresh one
+      // that starts again from the exact offer URL.
+      if (inspection?.challengeFailed) return { ...inspection, freshTargetRequired: true };
       await sleep(SECURITY_CHALLENGE_POLL_MS);
       inspection = await evaluate(session, ALIBABA1688_OFFER_PROBE_EXPRESSION, OFFER_NAVIGATION_TIMEOUT_MS)
         .catch(() => inspection);
@@ -993,26 +1035,44 @@ export function createAlibaba1688CartBrowserAdapter(config, dependencies = {}) {
 
   async function inspectOffers(items) {
     const unique = [...new Map(items.map((item) => [item.offerId, item])).values()];
-    // Start each task-5 run in its own tab. Reusing an arbitrary old 1688 tab
+    // Start each task-5 run in its own window. Reusing an arbitrary old 1688 tab
     // can inherit a renderer that is stuck even though the offer opens normally
-    // in a fresh tab.
-    const target = await create1688Target(config, unique[0]?.offerUrl || CART_URL, dependencies);
+    // in a fresh window.
+    let target = await create1688WindowTarget(config, unique[0]?.offerUrl || CART_URL, dependencies);
     lastTarget = target;
-    const inspections = await connect(config, target, async (session) => {
-      const inspections = [];
-      for (const item of unique) {
-        let value = await inspectLoadedOffer(session, item);
-        if (value?.blockedReason === "SECURITY_CHALLENGE") {
-          await (dependencies.activateChromeTarget || activateChromeTarget)(config, target, {
-            timeoutMs: 5_000,
-          }).catch(() => null);
-          value = await waitForOfferSecurityChallenge(session, item, value);
-        }
-        inspections.push({ offerId: item.offerId, ...value });
-        if (value?.loginRequired || value?.blockedReason === "SECURITY_CHALLENGE") break;
+    const inspections = [];
+    for (const item of unique) {
+      let value = null;
+      for (let freshTargetAttempt = 0; freshTargetAttempt <= SECURITY_CHALLENGE_FRESH_TARGET_RETRIES; freshTargetAttempt += 1) {
+        value = await connect(config, target, async (session) => {
+          let value = await inspectLoadedOffer(session, item);
+          if (value?.blockedReason === "SECURITY_CHALLENGE") {
+            await (dependencies.activateChromeTarget || activateChromeTarget)(config, target, {
+              timeoutMs: 5_000,
+            }).catch(() => null);
+            value = await waitForOfferSecurityChallenge(session, item, value);
+          }
+          return value;
+        }, { timeoutMs: OFFER_NAVIGATION_TIMEOUT_MS + SECURITY_CHALLENGE_WAIT_MS });
+
+        if (!value?.freshTargetRequired) break;
+        if (freshTargetAttempt >= SECURITY_CHALLENGE_FRESH_TARGET_RETRIES) break;
+
+        const failedTarget = target;
+        target = await create1688WindowTarget(config, item.offerUrl, dependencies);
+        lastTarget = target;
+        await (dependencies.activateChromeTarget || activateChromeTarget)(config, target, {
+          timeoutMs: 5_000,
+        }).catch(() => null);
+        await close1688Target(config, failedTarget, dependencies);
       }
-      return inspections;
-    }, { timeoutMs: OFFER_NAVIGATION_TIMEOUT_MS + SECURITY_CHALLENGE_WAIT_MS });
+
+      if (value?.freshTargetRequired) {
+        value = { ...value, freshTargetRequired: false };
+      }
+      inspections.push({ offerId: item.offerId, ...value });
+      if (value?.loginRequired || value?.blockedReason === "SECURITY_CHALLENGE") break;
+    }
     if (inspections.some((inspection) => (
       inspection.loginRequired || inspection.blockedReason === "SECURITY_CHALLENGE"
     ))) {
