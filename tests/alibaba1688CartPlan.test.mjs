@@ -230,10 +230,16 @@ test("single-SKU marker is accepted only when the inspected offer is unambiguous
     { barcode: "BBB4-1", supplierLink: "https://detail.1688.com/offer/843297532637.html", chinaOption: "단품", quantity: 20 },
   ]);
   assert.equal(build1688CartPlan(source, [{ offerId: "843297532637", singleSku: true, options: [] }]).items[0].optionName, "단품");
-  assert.throws(
-    () => build1688CartPlan(source, [{ offerId: "843297532637", options: [{ name: "红" }, { name: "蓝" }] }]),
-    { code: "ALIBABA1688_SINGLE_OPTION_AMBIGUOUS" },
-  );
+  let captured;
+  try {
+    build1688CartPlan(source, [{ offerId: "843297532637", options: [{ name: "红" }, { name: "蓝" }] }]);
+  } catch (error) {
+    captured = error;
+  }
+  assert.equal(captured?.code, "ALIBABA1688_SINGLE_OPTION_AMBIGUOUS");
+  assert.equal(captured?.details?.offerUrl, "https://detail.1688.com/offer/843297532637.html");
+  assert.deepEqual(captured?.details?.availableOptions, ["红", "蓝"]);
+  assert.equal(captured?.details?.optionSelectionRequired, true);
 });
 
 test("cart reconciliation sets the exact quantity instead of incrementing on retry", () => {

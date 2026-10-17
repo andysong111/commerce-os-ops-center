@@ -58,8 +58,8 @@ export function createOpsCenterDraftClient(config, dependencies = {}) {
   const browserRequest = dependencies.browserRequest || requestOpsCenterJsonViaChrome;
   const origin = originFromConfig(config);
 
-  async function requestDraft(draftId, method, body = null) {
-    const url = `${origin}/api/china-order-manager/drafts/${encodeURIComponent(draftId)}`;
+  async function requestDraft(draftId, method, body = null, suffix = "") {
+    const url = `${origin}/api/china-order-manager/drafts/${encodeURIComponent(draftId)}${suffix}`;
     const headers = requestHeaders(config, draftId, body != null);
     try {
       const response = await fetchImpl(url, {
@@ -97,6 +97,19 @@ export function createOpsCenterDraftClient(config, dependencies = {}) {
     return body.draft;
   }
 
+  async function syncPurchaseMetadata(draftId, lines) {
+    const body = await requestDraft(
+      draftId,
+      "POST",
+      JSON.stringify({ lines }),
+      "/purchase-metadata",
+    );
+    if (!body.draft || body.externalOrderExecuted !== false) {
+      fail("OPS_CENTER_PURCHASE_METADATA_RESPONSE_INVALID", "중국 옵션을 상품 기준정보에 반영한 결과를 검증하지 못했습니다.");
+    }
+    return body;
+  }
+
   async function saveAndVerifyDraftLines(draftId, lines) {
     await saveDraftLines(draftId, lines);
     const verified = await loadDraft(draftId);
@@ -117,5 +130,5 @@ export function createOpsCenterDraftClient(config, dependencies = {}) {
     return verified;
   }
 
-  return { loadDraft, saveDraftLines, saveAndVerifyDraftLines };
+  return { loadDraft, saveDraftLines, saveAndVerifyDraftLines, syncPurchaseMetadata };
 }

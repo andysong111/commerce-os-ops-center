@@ -219,7 +219,15 @@ export function build1688CartPlan(draft, inspections = []) {
             fail("ALIBABA1688_SINGLE_OPTION_AMBIGUOUS", `${barcode}는 단품으로 확정할 수 없습니다.`, {
               barcode,
               offerId: offer.offerId,
+              offerUrl: offer.url,
+              modelNo: text(line?.modelNo),
+              modelName: text(line?.modelName),
+              productName: text(line?.productName),
+              requestedOption: optionName,
+              componentIndex,
               optionCount: purchasableOptions.length,
+              availableOptions: purchasableOptions.map((option) => option.name).slice(0, 100),
+              optionSelectionRequired: true,
             });
           }
           matchedOptionNames = [purchasableOptions[0]?.name || "단품"];
@@ -236,10 +244,16 @@ export function build1688CartPlan(draft, inspections = []) {
               fail(matches.length > 1 ? "ALIBABA1688_OPTION_AMBIGUOUS" : "ALIBABA1688_OPTION_NOT_FOUND", `${barcode}의 중국 옵션 선택값을 정확히 하나로 확정하지 못했습니다.`, {
                 barcode,
                 offerId: offer.offerId,
+                offerUrl: offer.url,
+                modelNo: text(line?.modelNo),
+                modelName: text(line?.modelName),
+                productName: text(line?.productName),
                 requestedOption,
                 requestedOptions: requestedOptionNames,
+                componentIndex,
                 matchCount: matches.length,
                 availableOptions: purchasableOptions.map((option) => option.name).slice(0, 100),
+                optionSelectionRequired: matches.length > 1,
               });
             }
             if (approximateCentimeterMatch) return matches[0].name;
