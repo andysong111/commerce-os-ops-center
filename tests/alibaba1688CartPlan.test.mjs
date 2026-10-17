@@ -73,6 +73,46 @@ test("comma-separated 1688 option axes are matched independently and carried to 
   );
 });
 
+test("multiple requested axes can resolve to one unique combined 1688 SKU label", () => {
+  const source = draft([{
+    barcode: "BAB2-1",
+    supplierLink: "https://detail.1688.com/offer/831228648371.html",
+    chinaOption: "水豚啪啪圈,23cm左右",
+    quantity: 50,
+  }]);
+  const plan = build1688CartPlan(source, [{
+    offerId: "831228648371",
+    options: [{ name: "水豚啪啪圈 23cm左右", purchasable: true }],
+  }]);
+  assert.deepEqual(plan.items[0].optionNames, ["水豚啪啪圈 23cm左右"]);
+  assert.equal(plan.items[0].optionName, "水豚啪啪圈 23cm左右");
+  assert.equal(plan.items[0].quantity, 50);
+});
+
+test("contained option matching remains blocked when more than one purchasable label matches", () => {
+  const source = draft([{
+    barcode: "BAB2-1",
+    supplierLink: "https://detail.1688.com/offer/831228648371.html",
+    chinaOption: "水豚啪啪圈,23cm左右",
+    quantity: 50,
+  }]);
+  let captured;
+  try {
+    build1688CartPlan(source, [{
+      offerId: "831228648371",
+      options: [
+        { name: "水豚啪啪圈 23cm左右", purchasable: true },
+        { name: "水豚啪啪圈 30cm左右", purchasable: true },
+      ],
+    }]);
+  } catch (error) {
+    captured = error;
+  }
+  assert.equal(captured?.code, "ALIBABA1688_OPTION_AMBIGUOUS");
+  assert.equal(captured?.details?.requestedOption, "水豚啪啪圈");
+  assert.deepEqual(captured?.details?.availableOptions, ["水豚啪啪圈 23cm左右", "水豚啪啪圈 30cm左右"]);
+});
+
 test("same 1688 offer and option aggregate quantities without losing B-code rows", () => {
   const source = draft([
     { barcode: "BAC3-3", supplierLink: "https://detail.1688.com/offer/660021847749.html", chinaOption: "铜芯", quantity: 18 },

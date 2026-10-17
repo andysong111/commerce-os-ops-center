@@ -71,6 +71,15 @@ function normalizeInspection(inspection) {
   };
 }
 
+function matchInspectedOption(options, normalizedRequestedOption) {
+  const exact = options.filter((option) => option.normalizedName === normalizedRequestedOption);
+  if (exact.length > 0) return exact;
+  // Some current 1688 offer pages expose multiple option axes as one visible
+  // SKU label (for example "水豚啪啪圈 23cm左右"). Accept containment only
+  // when it identifies one unique purchasable label; ambiguity still stops.
+  return options.filter((option) => option.normalizedName.includes(normalizedRequestedOption));
+}
+
 export function build1688CartPlan(draft, inspections = []) {
   if (!DRAFT_ID.test(text(draft?.draftId))) {
     fail("ALIBABA1688_DRAFT_ID_INVALID", "발주초안 ID가 올바르지 않습니다.");
@@ -191,7 +200,7 @@ export function build1688CartPlan(draft, inspections = []) {
         } else {
           matchedOptionNames = requestedOptionNames.map((requestedOption, optionIndex) => {
             const normalizedOption = normalizedRequestedOptions[optionIndex];
-            const matches = purchasableOptions.filter((option) => option.normalizedName === normalizedOption);
+            const matches = matchInspectedOption(purchasableOptions, normalizedOption);
             if (matches.length !== 1) {
               fail(matches.length > 1 ? "ALIBABA1688_OPTION_AMBIGUOUS" : "ALIBABA1688_OPTION_NOT_FOUND", `${barcode}의 중국 옵션 선택값을 정확히 하나로 확정하지 못했습니다.`, {
                 barcode,
@@ -199,10 +208,11 @@ export function build1688CartPlan(draft, inspections = []) {
                 requestedOption,
                 requestedOptions: requestedOptionNames,
                 matchCount: matches.length,
+                availableOptions: purchasableOptions.map((option) => option.name).slice(0, 100),
               });
             }
             return matches[0].name;
-          });
+          }).filter((name, optionIndex, names) => names.indexOf(name) === optionIndex);
         }
       }
       const matchedOptionName = matchedOptionNames.join(",");
