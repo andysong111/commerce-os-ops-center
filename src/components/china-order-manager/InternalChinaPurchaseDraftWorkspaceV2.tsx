@@ -14,6 +14,10 @@ import {
   isPurchaseDraftQuantityUnit,
   nearestPurchaseDraftQuantity,
 } from "@/lib/purchaseDraftQuantityRounding";
+import {
+  activePreparationNote,
+  removeResolvedPreparationNote,
+} from "@/lib/internalChinaPreparationNote";
 
 const number = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const cny = new Intl.NumberFormat("ko-KR", {
@@ -38,8 +42,6 @@ const TABLE_COLUMNS = [
 ] as const;
 
 const TABLE_WIDTH = TABLE_COLUMNS.reduce((sum, column) => sum + column.width, 0);
-const PREPARATION_NOTE_PREFIX = "[1688 준비 제외]";
-
 function decimal(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
@@ -371,7 +373,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   );
 
   const preparationExcludedLines = useMemo(
-    () => draft.lines.filter((line) => line.note.includes(PREPARATION_NOTE_PREFIX)),
+    () => draft.lines.filter((line) => activePreparationNote(line)),
     [draft.lines],
   );
 
@@ -496,7 +498,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         freightGroupId: line.freightGroupId,
         domesticChinaFreightCny: line.domesticChinaFreightCny,
         orderNumber: line.orderNumber,
-        note: line.note,
+        note: removeResolvedPreparationNote(line),
       })),
     };
   }
@@ -856,7 +858,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         {preparationExcludedLines.length ? (
           <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-950">
             <strong>1688 장바구니 준비 제외 {number.format(preparationExcludedLines.length)} SKU</strong>
-            <span className="ml-2">{preparationExcludedLines.slice(0, 10).map((line) => `${line.barcode} ${line.note.split(PREPARATION_NOTE_PREFIX)[1]?.trim() || "처리 불가"}`).join(" · ")}</span>
+            <span className="ml-2">{preparationExcludedLines.slice(0, 10).map((line) => `${line.barcode} ${activePreparationNote(line) || "처리 불가"}`).join(" · ")}</span>
             {preparationExcludedLines.length > 10 ? ` · 외 ${number.format(preparationExcludedLines.length - 10)}건` : ""}
           </div>
         ) : null}
@@ -956,6 +958,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                 const sharedGroup = Boolean(groupInfo && groupInfo.members.length > 1);
                 const groupLeader = Boolean(sharedGroup && groupInfo?.leaderBarcode === line.barcode);
                 const sameLinkCount = supplierLinkCounts.get(supplierPageKey(line.supplierLink)) ?? 0;
+                const preparationNote = activePreparationNote(line);
                 return (
                   <tr key={line.barcode} className={`align-top hover:bg-slate-50/70 ${stagedExclusions[line.barcode] === true ? "bg-rose-50/70" : ""}`}>
                     <td className="px-3 py-3" style={stickyCellStyle(0, freezeThrough)}>
@@ -963,7 +966,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                       <span className="mt-1 block font-semibold text-slate-700">{line.modelName || "모델명 -"}</span>
                       <span className="mt-1 block font-mono text-[11px] text-slate-400">{line.modelNo}</span>
                       <span className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-800">옵션 · {line.saleOption || "-"}</span>
-                      {line.note.includes(PREPARATION_NOTE_PREFIX) ? <span className="mt-2 block rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-black leading-4 text-rose-800">{line.note.split(PREPARATION_NOTE_PREFIX)[1]?.split(" · ")[0]?.trim() || "1688 장바구니 준비 제외"}</span> : null}
+                      {preparationNote ? <span className="mt-2 block rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-black leading-4 text-rose-800">{preparationNote}</span> : null}
                     </td>
                     <td className="px-2 py-2" style={stickyCellStyle(1, freezeThrough)}>
                       <div className="flex items-center gap-1.5">
