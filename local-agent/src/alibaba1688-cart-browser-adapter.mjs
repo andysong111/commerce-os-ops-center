@@ -168,7 +168,7 @@ function offerProbe() {
       .replace(/\s+/g, " ").trim();
     if (!name || name.length > 120 || seen.has(name)) continue;
     if (/加入进货单|加入购物车|立即订购|数量|起批/.test(name)) continue;
-    if (/¥|￥|库存\s*\d*\s*件|^规格$|展开已售罄/.test(name)) continue;
+    if (/¥|￥|^(?:可售)?库存\s*\d|^规格$|展开已售罄/.test(name)) continue;
     seen.add(name);
     const row = element.closest(".expand-view-item");
     const quantityInput = row?.querySelector("input[role='spinbutton'],input.ant-input-number-input");

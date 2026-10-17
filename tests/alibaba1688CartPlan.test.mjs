@@ -450,6 +450,7 @@ test("offer and add probes recognize the current 1688 procurement-cart UI", asyn
   assert.match(source, /tr\[data-cart-id\]/);
   assert.match(source, /input\[aria-valuemin\]\[aria-valuemax\]/);
   assert.match(source, /value\?\.lines\?\.length > 0/);
+  assert.match(source, /\^\(\?:可售\)\?库存/);
 });
 
 test("offer inspection recognizes the Korean 1688 slider security challenge", () => {
