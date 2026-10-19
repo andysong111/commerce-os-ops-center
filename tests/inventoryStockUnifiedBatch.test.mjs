@@ -49,15 +49,19 @@ test("unified UI has three inputs and one wait-until-complete action", async () 
   assert.match(source, /Shopling 자동 처리 중 · 기다려 주세요/);
   assert.match(source, /conflictingBarcodes/);
   assert.match(source, /planShoplingStockLaunch/);
+  assert.match(source, /supportsAllDateStockSync/);
+  assert.match(source, /enableAllDateSearch is not defined/);
+  assert.match(source, /재고 0 기준은 저장됐지만 Shopling에는 반영되지 않았습니다/);
+  assert.match(source, /Shopling 자동화 업데이트 필요/);
   assert.doesNotMatch(source, /window\.location\.reload/);
 });
 
-test("stock-control page publishes the HF30 install path and one unified operator", async () => {
+test("stock-control page publishes the HF31 install path and one unified operator", async () => {
   const source = await readFile(
     "src/app/china-order-manager/stock-control/page.tsx",
     "utf8",
   );
-  assert.match(source, /download-hf30/);
+  assert.match(source, /download-hf31/);
   assert.match(source, /chrome:\/\/extensions/);
   assert.match(source, /<InventoryStockoutOperatorPanel \/>/);
   assert.doesNotMatch(source, /InventoryManualOnSaleOperatorPanel/);

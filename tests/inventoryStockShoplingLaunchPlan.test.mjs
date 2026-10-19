@@ -3,11 +3,19 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   planShoplingStockLaunch,
+  supportsAllDateStockSync,
   supportsOptionFirstParallel,
 } from "../src/lib/shoplingStockLaunchPlan.ts";
 
 const option = { jobId: "option-1", productKind: "OPTION" };
 const single = { jobId: "single-1", productKind: "SINGLE" };
+
+test("only HF31 and later may run all-date stock status sync", () => {
+  assert.equal(supportsAllDateStockSync("0.5.8"), false);
+  assert.equal(supportsAllDateStockSync("0.5.9"), true);
+  assert.equal(supportsAllDateStockSync("0.6.0"), true);
+  assert.equal(supportsAllDateStockSync(""), false);
+});
 
 test("HF28/HF29 keep an OPTION-first queue in priority order and launch it serially", () => {
   for (const version of ["", "0.5.6", "0.5.7"]) {
@@ -83,6 +91,6 @@ test("both stock-control launch surfaces use the shared version-aware planner", 
     assert.match(source, /extensionVersionRef\.current/);
     assert.match(source, /const version = String\(data\.extensionVersion \|\| ""\)/);
   }
-  assert.match(page, /download-hf30/);
-  assert.match(page, /v0\.5\.8 다운로드/);
+  assert.match(page, /download-hf31/);
+  assert.match(page, /v0\.5\.9 다운로드/);
 });

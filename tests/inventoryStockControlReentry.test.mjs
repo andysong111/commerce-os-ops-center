@@ -218,7 +218,9 @@ test("unified operator sends returned direct jobs immediately and never reloads 
   assert.match(panel, /onSaleBarcodes/);
   assert.match(panel, /stocktakeItems/);
   assert.match(panel, /directQueue\.current = \[/);
-  assert.match(panel, /extensionReadyRef\.current = true/);
+  assert.match(panel, /const supported = supportsAllDateStockSync\(version\)/);
+  assert.match(panel, /extensionReadyRef\.current = supported/);
+  assert.match(panel, /v0\.5\.9로 업데이트해 주세요/);
   assert.match(panel, /!extensionReadyRef\.current/);
   assert.doesNotMatch(panel, /window\.location\.reload/);
 });
