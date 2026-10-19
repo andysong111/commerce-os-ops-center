@@ -5,7 +5,10 @@ import {
   parseInventoryStockoutBulkText,
   parseInventoryStocktakeBulkText,
 } from "@/lib/inventoryStockBulkInput";
-import { planShoplingStockLaunch } from "@/lib/shoplingStockLaunchPlan";
+import {
+  planShoplingStockLaunch,
+  supportsAllDateStockSync,
+} from "@/lib/shoplingStockLaunchPlan";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -92,6 +95,32 @@ function advisoryMarketFailureCount(evidence: unknown) {
     Number(root.marketFailureCount) || 0,
     Number(nested.marketFailureCount) || 0,
   );
+}
+
+export function friendlyShoplingStockSyncFailure(
+  message: string | null | undefined,
+  evidence?: unknown,
+) {
+  const raw = `${String(message || "")} ${JSON.stringify(evidence ?? {})}`;
+  if (
+    raw.includes("enableAllDateSearch is not defined") ||
+    raw.includes("A21_CONTENT_EXCEPTION")
+  ) {
+    return "Shopling 전체기간 조회 기능이 실행되지 않아 품절 반영을 중단했습니다. 재고 0 기준은 저장됐지만 Shopling에는 반영되지 않았습니다. 재고상태 자동화 확장을 v0.5.9로 업데이트한 뒤 다시 실행해 주세요.";
+  }
+  if (
+    raw.includes("A21_ALL_DATE_FILTER_NOT_FOUND") ||
+    raw.includes("A6_DATE_SCOPE_CONTROLS_NOT_FOUND") ||
+    raw.includes("A6_DATE_SCOPE_CLEAR_FAILED")
+  ) {
+    return "Shopling 상품등록 전체기간 조건을 확인하지 못해 안전하게 중단했습니다. 재고 기준은 저장됐고 Shopling에는 반영되지 않았습니다.";
+  }
+  if (raw.includes("UNCERTAIN")) {
+    return "Shopling 전송 결과를 확정하지 못했습니다. 중복 처리를 막기 위해 자동 재시도하지 않았으므로 처리 내역에서 확인해 주세요.";
+  }
+  return message
+    ? `Shopling 반영에 실패했습니다: ${message}`
+    : "Shopling 반영에 실패했습니다. 재고 기준은 저장됐으며 처리 내역에서 실패 사유를 확인해 주세요.";
 }
 
 export function InventoryStockoutOperatorPanel() {
@@ -314,11 +343,16 @@ export function InventoryStockoutOperatorPanel() {
 
       if (type === "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY") {
         const version = String(data.extensionVersion || "");
-        extensionReadyRef.current = true;
+        const supported = supportsAllDateStockSync(version);
+        extensionReadyRef.current = supported;
         extensionVersionRef.current = version;
-        setExtensionReady(true);
+        setExtensionReady(supported);
         setExtensionVersion(version);
-        if (directQueue.current.length && !activeBatch.current) {
+        if (!supported) {
+          setSyncNotice(
+            `Shopling 자동화 v${version || "확인 불가"}는 전체기간 품절 처리 오류가 있어 사용할 수 없습니다. v0.5.9로 업데이트해 주세요.`,
+          );
+        } else if (directQueue.current.length && !activeBatch.current) {
           window.setTimeout(() => {
             void launchNextRef.current();
           }, 0);
@@ -343,9 +377,10 @@ export function InventoryStockoutOperatorPanel() {
         if (data.ok !== false) return;
 
         void (async () => {
-          const message = String(
+          const rawMessage = String(
             data.message || "Shopling 즉시 2-Lane 시작에 실패했습니다.",
           );
+          const message = friendlyShoplingStockSyncFailure(rawMessage, data);
           for (const job of batch.jobs) {
             if (batch.terminalJobIds.has(job.jobId)) continue;
             await recordSync(job, "FAILED", message, {
@@ -410,9 +445,7 @@ export function InventoryStockoutOperatorPanel() {
               `${job.barcode} Shopling ${job.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 반영 완료`,
             );
           } else {
-            setSyncNotice(
-              `${job.barcode} 즉시 전송 ${result.outcome}: ${result.message || "일반 운영 큐에서 재확인 필요"}`,
-            );
+            setSyncNotice(`${job.barcode} · ${friendlyShoplingStockSyncFailure(result.message, result.evidence)}`);
           }
 
           if (batch.terminalJobIds.size >= batch.jobs.length) {
@@ -464,7 +497,7 @@ export function InventoryStockoutOperatorPanel() {
       !extensionReadyRef.current
     ) {
       setNotice(
-        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.5.8을 연결해 주세요.",
+        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.5.9를 연결해 주세요.",
       );
       return;
     }
@@ -598,6 +631,8 @@ export function InventoryStockoutOperatorPanel() {
         <span className={extensionReady ? "text-emerald-700" : "text-amber-700"}>
           {extensionReady
             ? `Shopling 자동화 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}`
+            : extensionVersion
+              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.5.9`
             : "Shopling 자동화 연결 대기"}
         </span>
         {inputErrors.length ? (

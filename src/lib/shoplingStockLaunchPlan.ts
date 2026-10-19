@@ -5,6 +5,7 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 5, 9] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
@@ -19,6 +20,17 @@ export function supportsOptionFirstParallel(
   for (let index = 0; index < OPTION_FIRST_PARALLEL_MIN_VERSION.length; index += 1) {
     if (actual[index] > OPTION_FIRST_PARALLEL_MIN_VERSION[index]) return true;
     if (actual[index] < OPTION_FIRST_PARALLEL_MIN_VERSION[index]) return false;
+  }
+  return true;
+}
+
+export function supportsAllDateStockSync(
+  extensionVersion: string | null | undefined,
+) {
+  const actual = versionParts(extensionVersion);
+  for (let index = 0; index < ALL_DATE_STOCK_SYNC_MIN_VERSION.length; index += 1) {
+    if (actual[index] > ALL_DATE_STOCK_SYNC_MIN_VERSION[index]) return true;
+    if (actual[index] < ALL_DATE_STOCK_SYNC_MIN_VERSION[index]) return false;
   }
   return true;
 }
