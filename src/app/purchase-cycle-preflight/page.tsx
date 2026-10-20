@@ -92,8 +92,19 @@ const reasonLabels: Record<string, string> = {
   REPLACEMENT_DRAFT_CHANGED_OR_UNVERIFIED: "계산 중 기존 Draft가 바뀌었거나 전체 품목을 고정하지 못해 재생성을 차단했습니다.",
   REPLACEMENT_DRAFT_COVERAGE_MISMATCH: "기존 Draft와 새 계산의 품목 대조 합계가 맞지 않아 재생성을 차단했습니다.",
   CANDIDATE_COVERAGE_MISMATCH: "전체 발주 후보 중 선정 또는 제외 사유로 설명되지 않은 품목이 있어 Draft 저장을 차단했습니다.",
+  PURCHASE_CANDIDATE_OMISSION_REVIEW_REQUIRED: "판매 이력이 있는 활성 상품이 발주후보 계산에서 빠졌거나 재고 근거와 충돌해 Draft 저장을 차단했습니다.",
+  PURCHASE_SHADOW_ROW_MISSING: "판매 이력이 있지만 발주 Shadow에 상품 행이 없습니다.",
+  SALES_ITEM_DATA_HOLD: "판매상품이 데이터 부족 상태에 머물러 발주 판단을 하지 못했습니다.",
+  SOLD_OUT_ACTIVE_SALES_NOT_RECOMMENDED: "최근 판매가 있고 재고·미입고가 0인데 발주 추천에 포함되지 않았습니다.",
+  SHOPLING_ZERO_LEDGER_POSITIVE: "샵플링 재고는 0인데 재고원장은 양수여서 실제 재고 상태가 충돌합니다.",
+  RECOMMENDATION_EVIDENCE_BLOCKED: "상품마스터는 발주 필요를 표시했지만 현재 발주후보에 반영되지 않았습니다.",
+  SUPPLIER_LINK_MISSING: "1688 공급 링크가 없어 다음 발주 실행 준비가 필요합니다.",
+  CHINA_OPTION_MISSING: "1688 중국 옵션값이 없어 다음 발주 실행 준비가 필요합니다.",
+  SOURCE_METADATA_CONFLICT: "같은 B코드의 1688 링크·옵션 근거가 서로 충돌합니다.",
   CURRENT_ENGINE_NOT_RECOMMENDED: "현재 판매·재고·미입고 계산에서는 발주 추천 대상이 아닙니다.",
   "UPSTREAM:claim-auxiliary": "클레임·배송 보조신호 연결이 남아 있어 실제 실행 판단으로 승격하지 않습니다.",
+  "UPSTREAM:purchase-candidate-omission-metadata-unavailable": "누락 검토에 필요한 1688 링크·옵션·샵플링 재고 근거를 읽지 못했습니다.",
+  "UPSTREAM:purchase-candidate-omission-review-required": "판매 이력이 있는 활성 상품의 발주 누락·재고 충돌 검토가 남았습니다.",
 };
 const sourcingReasonLabels: Record<string, string> = {
   SOURCING_CONTEXT_UNAVAILABLE: "소싱 월 예산·창고 원장을 읽지 못했습니다.",
@@ -722,6 +733,18 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             </section>
           ) : null}
 
+          {report.omissionReviewCount > 0 ? (
+            <section className={`border-y py-5 ${report.omissionBlockingCount > 0 ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}>
+              <p className={`text-xs font-black ${report.omissionBlockingCount > 0 ? "text-rose-700" : "text-amber-700"}`}>발주 누락 검토</p>
+              <h3 className="mt-1 text-lg font-black text-slate-950">차단 {report.omissionBlockingCount}종 · 다음 발주 준비 {report.omissionPreparationCount}종</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-700">이미 후보가 된 상품만 세지 않고, 판매 이력이 있는 전체 활성 B코드를 다시 대조했습니다. 이 목록은 자동 주문이나 자동 추가를 하지 않으며, 차단 항목이 남으면 Draft 저장을 멈춥니다.</p>
+              <details className="mt-4 text-sm">
+                <summary className="cursor-pointer font-bold">누락·충돌 상품 {report.omissionReviewCount}종 확인</summary>
+                <div className="mt-3 max-w-full overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="bg-white/70"><tr><th className="p-2">상태</th><th className="p-2">B코드·모델·상품</th><th className="p-2">판매 30/90/365일</th><th className="p-2">계획/원장/샵플링 재고</th><th className="p-2">현재 판단</th><th className="p-2">이유</th></tr></thead><tbody>{report.omissionReview.map(row => <tr key={row.barcode} className="border-t border-slate-200"><td className={`p-2 font-bold ${row.severity === "BLOCKING" ? "text-rose-700" : "text-amber-800"}`}>{row.severity === "BLOCKING" ? "이번 발주 차단" : "다음 발주 준비"}</td><td className="p-2">{row.barcode}{row.modelNo ? ` · ${row.modelNo}` : ""} · {row.productName}</td><td className="p-2">{row.salesQuantity30} / {row.salesQuantity90} / {row.salesQuantity365}</td><td className="p-2">{row.planningInventoryQuantity} / {row.ledgerInventoryQuantity ?? "미확인"} / {row.shoplingQuantity ?? "미확인"}</td><td className="p-2">{row.purchaseStatus ?? "Shadow 없음"} · 권장 {row.recommendedQuantity} · 미입고 {row.openCommitment}</td><td className="p-2 leading-6">{row.reasons.map(explain).join(" / ")}</td></tr>)}</tbody></table></div>
+              </details>
+            </section>
+          ) : null}
+
           <section className="min-w-0 border-y border-slate-200 bg-white">
             <article className="min-w-0 py-5">
               <p className="text-xs font-black text-blue-700">기존상품 재발주</p>
@@ -747,7 +770,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                 <div><h3 className="font-black">자료·예산 차단 사유</h3>{report.blockers.length ? report.blockers.map(code => <p key={code} className="mt-2 leading-6">{explain(code)}</p>) : <p className="mt-2 text-emerald-800">미리보기 계산 조건을 확인했습니다.</p>}</div>
                 <div><h3 className="font-black">실제 승인 전 남은 조건</h3>{report.reviewBlockers.map(code => <p key={code} className="mt-2 leading-6">{explain(code)}</p>)}<p className="mt-2 leading-6">{report.comparisonMessage}</p></div>
               </div>
-              <div><h3 className="font-black">전체 발주 미리보기 · 주문서 아님</h3><p className="mt-2 leading-6">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 운영자 입력 총현금 {report.cashLimitKrw === null ? "입력 없음" : money(report.cashLimitKrw)} · 이번 달 기록된 발주 지출 {report.recordedCycleSpendKrw === null ? "미확인" : money(report.recordedCycleSpendKrw)}</p><p className="mt-2 leading-6">전체 후보 {report.candidateCount}종 · 선정·제외로 설명된 후보 {report.accountedCandidateCount}종 · {report.candidateCoverageComplete ? "누락 없음" : "설명되지 않은 누락 있음"} · 도매 판매가 추정 {report.wholesaleEstimatedSelectedCount}종 · 사용자 제공 추정 {report.ownerEstimatedSelectedCount}종</p></div>
+              <div><h3 className="font-black">전체 발주 미리보기 · 주문서 아님</h3><p className="mt-2 leading-6">전월 판매원가 자동 총한도 {report.automaticGrossBudgetKrw === null ? "미확인" : money(report.automaticGrossBudgetKrw)} · 운영자 입력 총현금 {report.cashLimitKrw === null ? "입력 없음" : money(report.cashLimitKrw)} · 이번 달 기록된 발주 지출 {report.recordedCycleSpendKrw === null ? "미확인" : money(report.recordedCycleSpendKrw)}</p><p className="mt-2 leading-6">전체 후보 {report.candidateCount}종 · 선정·제외로 설명된 후보 {report.accountedCandidateCount}종 · 상위 누락 검토 {report.omissionReviewCount}종(차단 {report.omissionBlockingCount}종) · {report.candidateCoverageComplete ? "후보·상위 누락 대조 완료" : "설명되지 않은 누락 있음"} · 도매 판매가 추정 {report.wholesaleEstimatedSelectedCount}종 · 사용자 제공 추정 {report.ownerEstimatedSelectedCount}종</p></div>
               {sourcingPlan ? <div><h3 className="font-black">소싱 정책 근거</h3><p className="mt-2 leading-6">현재 창고 정책 {sourcingPlan.policy.configuredPercent ?? "미확인"}% · 안전상한 {sourcingPlan.policy.maximumPercent ?? "미확인"}% · 월 기준 {sourcingPlan.policy.confirmed ? "확정" : "미확정"} · {sourcingPlan.warehouse.message}</p></div> : null}
             </div>
           </details>

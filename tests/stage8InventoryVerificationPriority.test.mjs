@@ -14,6 +14,9 @@ test("provisional inventory readiness is read only and joins canonical demand to
   assert.match(engine, /loadCanonicalPurchaseShadow\(\s*cycleAsOf,/);
   assert.match(engine, /loadProductMasterInventoryCostReadiness/);
   assert.match(engine, /loadProductPlanningSnapshot/);
+  assert.match(engine, /loadProductLaunchPurchaseMetadataByBarcode/);
+  assert.match(engine, /buildPurchaseCandidateOmissionReview/);
+  assert.match(engine, /omissionBlockingCount === 0/);
   assert.match(engine, /writesEnabled: false/);
   assert.match(page, /재고실사 필수/);
 });

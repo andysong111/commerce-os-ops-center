@@ -8,6 +8,10 @@ on:
       - 'src/lib/stage7PurchaseCostEvidenceReadiness.ts'
       - 'src/lib/verifiedPurchaseCostEvidence.ts'
       - 'src/lib/stage8InventoryVerificationPriority.ts'
+      - 'src/lib/purchaseCandidateOmissionAudit.ts'
+      - 'src/lib/productLaunchPurchaseMetadata.ts'
+      - 'src/lib/productLaunchPurchaseMetadataCore.ts'
+      - 'src/lib/shopling/shoplingLiveAggregation.ts'
       - 'src/lib/purchaseCycleClosureCore.ts'
       - 'src/lib/opsModuleRegistry.ts'
       - 'src/lib/manualSourcingDraftStorage.ts'
@@ -19,6 +23,8 @@ on:
       - 'tests/manualSourcingDraftStorage.test.mjs'
       - 'tests/stage7PurchaseCostEvidence.test.mjs'
       - 'tests/stage8InventoryVerificationPriority.test.mjs'
+      - 'tests/purchaseCandidateOmissionAudit.test.mjs'
+      - 'tests/productLaunchPurchaseMetadata.test.mjs'
       - '.github/workflows/purchase-cycle-preflight-ci.yml'
   workflow_dispatch:
 
@@ -37,9 +43,9 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Behavioral preflight and existing order-receipt closure tests
-        run: node --experimental-strip-types --test tests/manualSourcingDraftStorage.test.mjs tests/purchaseCyclePreflight.test.mjs tests/purchaseCyclePreflightClosure.test.mjs tests/purchaseCyclePreflightSpend.test.mjs tests/purchaseWholesaleCostEstimate.test.mjs tests/stage7PurchaseCostEvidence.test.mjs tests/stage8InventoryVerificationPriority.test.mjs
+        run: node --experimental-strip-types --test tests/manualSourcingDraftStorage.test.mjs tests/productLaunchPurchaseMetadata.test.mjs tests/purchaseCandidateOmissionAudit.test.mjs tests/purchaseCyclePreflight.test.mjs tests/purchaseCyclePreflightClosure.test.mjs tests/purchaseCyclePreflightSpend.test.mjs tests/purchaseWholesaleCostEstimate.test.mjs tests/stage7PurchaseCostEvidence.test.mjs tests/stage8InventoryVerificationPriority.test.mjs
       - name: Lint changed runtime and tests
-        run: npx eslint src/lib/purchaseCyclePreflight*.ts src/lib/purchaseSalesFreshness.ts src/lib/manualSourcingDraftStorage.ts src/lib/purchaseWholesaleCostEstimate.ts src/lib/stage7PurchaseCostEvidenceReadiness.ts src/lib/verifiedPurchaseCostEvidence.ts src/lib/stage8InventoryVerificationPriority.ts src/lib/opsModuleRegistry.ts src/app/purchase-cycle-preflight/page.tsx src/components/purchase-cycle-preflight/*.tsx src/components/sourcing-center/ManualProductIntakeForm.tsx src/app/stage7-purchase-cost-evidence/page.tsx tests/manualSourcingDraftStorage.test.mjs tests/purchaseCyclePreflight*.test.mjs tests/purchaseWholesaleCostEstimate.test.mjs tests/stage7PurchaseCostEvidence.test.mjs tests/stage8InventoryVerificationPriority.test.mjs
+        run: npx eslint src/lib/purchaseCyclePreflight*.ts src/lib/purchaseCandidateOmissionAudit.ts src/lib/productLaunchPurchaseMetadata.ts src/lib/productLaunchPurchaseMetadataCore.ts src/lib/shopling/shoplingLiveAggregation.ts src/lib/purchaseSalesFreshness.ts src/lib/manualSourcingDraftStorage.ts src/lib/purchaseWholesaleCostEstimate.ts src/lib/stage7PurchaseCostEvidenceReadiness.ts src/lib/verifiedPurchaseCostEvidence.ts src/lib/stage8InventoryVerificationPriority.ts src/lib/opsModuleRegistry.ts src/app/purchase-cycle-preflight/page.tsx src/components/purchase-cycle-preflight/*.tsx src/components/sourcing-center/ManualProductIntakeForm.tsx src/app/stage7-purchase-cost-evidence/page.tsx tests/manualSourcingDraftStorage.test.mjs tests/productLaunchPurchaseMetadata.test.mjs tests/purchaseCandidateOmissionAudit.test.mjs tests/purchaseCyclePreflight*.test.mjs tests/purchaseWholesaleCostEstimate.test.mjs tests/stage7PurchaseCostEvidence.test.mjs tests/stage8InventoryVerificationPriority.test.mjs
       - name: Full application build
         run: npm run build
         env:

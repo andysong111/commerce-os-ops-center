@@ -38,6 +38,19 @@ export type PlanningProduct = {
   inventoryBaselineKind?: string | null;
   inventoryBaselineQuantity?: number | null;
   inventoryRequiresReview?: boolean;
+  lastSaleAt?: string | null;
+  salesMonthly?: unknown;
+  salesQuantity30?: number | null;
+  salesQuantity90?: number | null;
+  salesQuantity365?: number | null;
+  salesRevenue30?: number | null;
+  salesRevenue90?: number | null;
+  salesRevenue365?: number | null;
+  salesTrend?: string | null;
+  salesTrendRate?: number | null;
+  productStatus?: string | null;
+  orderDecision?: string | null;
+  recommendedOrderQuantity?: number | null;
   listings?: PlanningListing[];
 };
 
