@@ -59,6 +59,8 @@ type PriorityRow = {
   barcode: string;
   purchaseStatus: string;
   originalPurchaseStatus?: string;
+  demandTarget?: number;
+  entrySignals?: string[];
   recommendedQty: number;
   originalRecommendedQty?: number;
   openCommitment: number;
@@ -190,19 +192,35 @@ export function buildPurchaseCandidateOmissionReview(
     const accountedAsCandidate = Boolean(
       priority?.purchaseStatus === "발주 추천" && recommendedQuantity > 0,
     );
-    // Inventory and open purchase commitments can correctly reduce an engine
-    // recommendation to zero.  Count the pre-net recommendation as covered so
-    // demand-entry signals do not become false omission blockers.
-    const accountedByDemandEngine = Boolean(
-      priority?.originalPurchaseStatus === "발주 추천" &&
-      quantity(priority.originalRecommendedQty) > 0,
-    );
     const reasons: PurchaseCandidateOmissionReason[] = [];
     const entryReasons = demandEntryReasons(product);
+    const recordedSignals = new Set(
+      (priority?.entrySignals ?? []).map((value) => text(value).toUpperCase()),
+    );
+    const signalForReason: Partial<
+      Record<PurchaseCandidateOmissionReason, string>
+    > = {
+      STOCKOUT_DEMAND_RECOVERY_ELIGIBLE: "STOCKOUT_DEMAND_RECOVERY",
+      RECENT_RISING_ELIGIBLE: "RECENT_RISING",
+      MONTHLY_REVENUE_40000_ELIGIBLE: "MONTHLY_REVENUE_40000",
+    };
+    const missingEntryReasons = entryReasons.filter((reason) => {
+      const signal = signalForReason[reason];
+      return !signal || !recordedSignals.has(signal);
+    });
+    // A row with a positive pre-budget demand target has been evaluated even
+    // when inventory, commitments, claim risk, or the portfolio budget keeps
+    // it out of the final order. Those are explicit holds, not silent omission.
+    const accountedByDemandEngine = Boolean(
+      accountedAsCandidate ||
+      priority &&
+        (quantity(priority.demandTarget) > 0 ||
+          entryReasons.length > 0 && missingEntryReasons.length === 0),
+    );
     let blocking = false;
 
-    if (!accountedByDemandEngine && entryReasons.length > 0) {
-      reasons.push(...entryReasons);
+    if (missingEntryReasons.length > 0) {
+      reasons.push(...missingEntryReasons);
       blocking = true;
     }
 
@@ -219,7 +237,7 @@ export function buildPurchaseCandidateOmissionReview(
       reasons.push("SALES_ITEM_DATA_HOLD");
       blocking ||= recentSales;
     }
-    if (planningRecommendsOrder(product) && !accountedAsCandidate) {
+    if (planningRecommendsOrder(product) && !accountedByDemandEngine) {
       reasons.push("RECOMMENDATION_EVIDENCE_BLOCKED");
       blocking = true;
     }
@@ -227,7 +245,7 @@ export function buildPurchaseCandidateOmissionReview(
       recentSales &&
       quantity(product.inventoryQuantity) === 0 &&
       openCommitment === 0 &&
-      !accountedAsCandidate
+      !accountedByDemandEngine
     ) {
       reasons.push("SOLD_OUT_ACTIVE_SALES_NOT_RECOMMENDED");
       blocking = true;

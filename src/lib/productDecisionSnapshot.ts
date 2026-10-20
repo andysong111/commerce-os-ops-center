@@ -37,6 +37,7 @@ export type ProductDecisionRow = {
   name?: string;
   modelNo?: string | null;
   status?: string;
+  demandStatus?: string;
   trend?: string;
   recommendedQty?: number;
   rawRecommendedQty?: number;
@@ -215,6 +216,7 @@ export function buildProductDecisionSnapshot(
         name: text(product.canonical_name) || barcode,
         modelNo: profile ? text(profile.model_no) || null : null,
         status: text(item.decision_status),
+        demandStatus: text(order.group) || text(item.decision_status),
         trend: text(item.trend_label),
         recommendedQty: nonnegativeNumber(item.recommended_quantity_gross) ?? 0,
         rawRecommendedQty: demandTarget,
