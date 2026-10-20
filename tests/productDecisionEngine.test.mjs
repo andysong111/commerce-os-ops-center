@@ -70,6 +70,85 @@ test("claim risk can block an otherwise stable reorder", () => {
   assert.equal(result.group, "발주 보류");
 });
 
+test("verified stockout restores demand when zero sales hide a strong recent month", () => {
+  const result = calculateSalesOrderRecommendation({
+    monthlyUnits: [0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0],
+    monthlyRevenue: [0, 0, 0, 80_000, 0, 0, 0, 0, 0, 0, 0, 0],
+    unitCost: 500,
+    weightedClaimRate: 1,
+    salesPowerFactor: 0.4,
+    inventoryKnown: true,
+    availableQuantity: 0,
+    incomingQuantity: 0,
+    ledgerCommitment: 0,
+  });
+
+  assert.equal(result.group, "발주 추천");
+  assert.equal(result.recoveredStockoutDemandUnits, 20);
+  assert.equal(result.recommendedQuantity, 20);
+  assert.deepEqual(result.entrySignals, ["STOCKOUT_DEMAND_RECOVERY"]);
+});
+
+test("stockout recovery requires confirmed zero stock and no incoming commitment", () => {
+  const base = {
+    monthlyUnits: [0, 0, 0, 20],
+    monthlyRevenue: [0, 0, 0, 80_000],
+    unitCost: 500,
+    weightedClaimRate: 1,
+    salesPowerFactor: 0.4,
+    inventoryKnown: true,
+    availableQuantity: 0,
+  };
+  const unknown = calculateSalesOrderRecommendation({
+    ...base,
+    inventoryKnown: false,
+  });
+  const incoming = calculateSalesOrderRecommendation({
+    ...base,
+    ledgerCommitment: 10,
+  });
+
+  assert.equal(unknown.group, "발주 보류");
+  assert.equal(incoming.group, "발주 보류");
+  assert.equal(unknown.entrySignals.length, 0);
+  assert.equal(incoming.entrySignals.length, 0);
+});
+
+test("rising sales or at least 40000 won monthly revenue enters the purchase list", () => {
+  const rising = calculateSalesOrderRecommendation({
+    monthlyUnits: [8, 4, 2, 2],
+    monthlyRevenue: [20_000, 10_000, 5_000, 5_000],
+    unitCost: 300,
+    weightedClaimRate: 1,
+    salesPowerFactor: 0.3,
+  });
+  const revenue = calculateSalesOrderRecommendation({
+    monthlyUnits: [4, 3],
+    monthlyRevenue: [40_000, 30_000],
+    unitCost: 300,
+    weightedClaimRate: 1,
+    salesPowerFactor: 0.3,
+  });
+
+  assert.equal(rising.group, "발주 추천");
+  assert.ok(rising.entrySignals.includes("RECENT_RISING"));
+  assert.equal(revenue.group, "발주 추천");
+  assert.deepEqual(revenue.entrySignals, ["MONTHLY_REVENUE_40000"]);
+});
+
+test("claim safety still blocks products that meet demand entry signals", () => {
+  const result = calculateSalesOrderRecommendation({
+    monthlyUnits: [20, 10, 5],
+    monthlyRevenue: [50_000, 25_000, 12_500],
+    unitCost: 300,
+    weightedClaimRate: 25,
+    salesPowerFactor: 0.9,
+  });
+
+  assert.ok(result.entrySignals.length > 0);
+  assert.equal(result.group, "발주 보류");
+});
+
 test("net requirement subtracts confirmed stock and the larger single incoming ledger value", () => {
   const result = calculateNetRequirement({
     demandTarget: 100,

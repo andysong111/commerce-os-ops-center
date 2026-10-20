@@ -1,4 +1,14 @@
-export const SALES_ORDER_RULE_VERSION = "commerce-os-sales-order-v1.1.0-on-demand";
+export const SALES_ORDER_RULE_VERSION =
+  "commerce-os-sales-order-v1.2.0-demand-entry-signals";
+
+export const PURCHASE_MONTHLY_REVENUE_FLOOR_KRW = 40_000;
+export const PURCHASE_STOCKOUT_HISTORY_UNIT_FLOOR = 10;
+export const PURCHASE_STOCKOUT_LOOKBACK_BUCKETS = 5;
+
+export type SalesOrderEntrySignal =
+  | "STOCKOUT_DEMAND_RECOVERY"
+  | "RECENT_RISING"
+  | "MONTHLY_REVENUE_40000";
 
 export type SalesOrderGroup =
   | "발주 추천"
@@ -21,6 +31,10 @@ export interface SalesOrderInput {
   salesPowerFactor: number;
   moq?: number;
   cartonQuantity?: number;
+  inventoryKnown?: boolean;
+  availableQuantity?: number;
+  incomingQuantity?: number;
+  ledgerCommitment?: number;
 }
 
 export interface SalesOrderResult {
@@ -37,6 +51,8 @@ export interface SalesOrderResult {
   trendLabel: "급상승" | "상승" | "유지" | "하락" | "급하락";
   seasonState: SeasonState;
   confidence: number;
+  entrySignals: SalesOrderEntrySignal[];
+  recoveredStockoutDemandUnits: number;
   reasons: string[];
   missingData: string[];
 }
@@ -61,6 +77,11 @@ function growth(current: number, previous: number) {
 function round(value: number, digits = 1) {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
+}
+
+function quantity(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
 }
 
 export function roundOrderQuantity(
@@ -140,6 +161,39 @@ export function calculateSalesOrderRecommendation(
   const twoMonthGrowthRate = growth(recentTwoAverage, priorTwoAverage);
   const trend = trendLabel(oneMonthGrowthRate, twoMonthGrowthRate, recent60Units);
   const season = seasonState(units);
+  const recentHistoryUnits = units
+    .slice(1, PURCHASE_STOCKOUT_LOOKBACK_BUCKETS + 1)
+    .filter((value) => value > 0);
+  const recentHistoryRevenue = revenue.slice(
+    1,
+    PURCHASE_STOCKOUT_LOOKBACK_BUCKETS + 1,
+  );
+  const confirmedSoldOut =
+    input.inventoryKnown === true &&
+    quantity(input.availableQuantity) === 0 &&
+    quantity(input.incomingQuantity) === 0 &&
+    quantity(input.ledgerCommitment) === 0;
+  const strongRecentHistory =
+    Math.max(0, ...recentHistoryUnits) >=
+      PURCHASE_STOCKOUT_HISTORY_UNIT_FLOOR ||
+    Math.max(0, ...recentHistoryRevenue) >=
+      PURCHASE_MONTHLY_REVENUE_FLOOR_KRW;
+  const stockoutDemandRecovery =
+    confirmedSoldOut && recentOne === 0 && strongRecentHistory;
+  const recoveredStockoutDemandUnits = stockoutDemandRecovery
+    ? Math.max(1, Math.ceil(average(recentHistoryUnits)))
+    : 0;
+  const risingEntry = trend === "상승" || trend === "급상승";
+  const monthlyRevenueEntry = revenue[0] >= PURCHASE_MONTHLY_REVENUE_FLOOR_KRW;
+  const entrySignals: SalesOrderEntrySignal[] = [
+    ...(stockoutDemandRecovery
+      ? (["STOCKOUT_DEMAND_RECOVERY"] as const)
+      : []),
+    ...(risingEntry ? (["RECENT_RISING"] as const) : []),
+    ...(monthlyRevenueEntry
+      ? (["MONTHLY_REVENUE_40000"] as const)
+      : []),
+  ];
 
   const weightedBase =
     recentOne * 0.4 +
@@ -181,7 +235,7 @@ export function calculateSalesOrderRecommendation(
           : 1;
 
   const safetyMultiplier = recent90Units > 0 ? 1.1 : 1;
-  const forecast = Math.max(
+  const normalForecast = Math.max(
     0,
     weightedBase *
       trendMultiplier *
@@ -189,14 +243,22 @@ export function calculateSalesOrderRecommendation(
       claimMultiplier *
       safetyMultiplier,
   );
+  const recoveredForecast = stockoutDemandRecovery
+    ? recoveredStockoutDemandUnits * seasonMultiplier * claimMultiplier
+    : 0;
+  const forecast = Math.max(normalForecast, recoveredForecast);
 
   const rising = trend === "상승" || trend === "급상승";
   const falling = trend === "하락" || trend === "급하락";
   const cap = falling
     ? recentOne
     : recentThreeMonthAverage * (rising ? 1.5 : 1.3);
-  const capped =
-    recent90Units <= 0 ? 0 : Math.min(forecast, Math.max(0, cap));
+  const recoveredCap = recoveredStockoutDemandUnits * 1.3;
+  const capped = stockoutDemandRecovery
+    ? Math.min(forecast, Math.max(1, recoveredCap))
+    : recent90Units <= 0
+      ? 0
+      : Math.min(forecast, Math.max(0, cap));
   const rawRecommendedQuantity = Math.max(0, Math.ceil(capped));
   const recommendedQuantity = roundOrderQuantity(
     rawRecommendedQuantity,
@@ -265,11 +327,11 @@ export function calculateSalesOrderRecommendation(
 
   let group: SalesOrderGroup;
   if (annualUnits <= 0) group = "데이터 부족";
-  else if (
-    recent90Units <= 0 ||
-    recommendedQuantity <= 0 ||
-    input.weightedClaimRate >= 20
-  ) {
+  else if (recommendedQuantity <= 0 || input.weightedClaimRate >= 20) {
+    group = "발주 보류";
+  } else if (entrySignals.length > 0) {
+    group = "발주 추천";
+  } else if (recent90Units <= 0) {
     group = "발주 보류";
   } else if (
     activeSalesMonths < 3 ||
@@ -285,8 +347,10 @@ export function calculateSalesOrderRecommendation(
   reasons.push(
     `요청시점 최근 판매에 가중치를 둔 다음 30일 예상판매량은 약 ${Math.max(0, Math.round(forecast))}개입니다.`,
   );
-  if (recent60Units < 10) {
+  if (recent60Units < 10 && entrySignals.length === 0) {
     reasons.push("최근 60일 판매 표본이 적어 소량 검토로 제한했습니다.");
+  } else if (recent60Units < 10) {
+    reasons.push("최근 판매 표본은 적지만 별도 발주 진입 신호를 확인했습니다.");
   } else if (trend === "급상승" || trend === "상승") {
     reasons.push(
       `최근 판매 흐름이 ${trend}이지만 1회 증액 상한을 적용했습니다.`,
@@ -297,6 +361,16 @@ export function calculateSalesOrderRecommendation(
     );
   } else {
     reasons.push("최근 판매 흐름이 안정적이어서 10% 안전여유를 적용했습니다.");
+  }
+  if (stockoutDemandRecovery) {
+    reasons.push(
+      `확인재고 0개 상태에서 최근 판매가 0으로 눌렸지만 직전 판매 이력이 강해 월수요 ${recoveredStockoutDemandUnits}개를 복원했습니다.`,
+    );
+  }
+  if (monthlyRevenueEntry) {
+    reasons.push(
+      `최근 30일 매출이 ${PURCHASE_MONTHLY_REVENUE_FLOOR_KRW.toLocaleString("ko-KR")}원 이상이라 발주후보에 포함했습니다.`,
+    );
   }
   if (season !== "계절성 불명확") {
     reasons.push(`최근 12개 30일 구간 패턴을 ${season}으로 판단했습니다.`);
@@ -319,6 +393,8 @@ export function calculateSalesOrderRecommendation(
     trendLabel: trend,
     seasonState: season,
     confidence,
+    entrySignals,
+    recoveredStockoutDemandUnits,
     reasons: reasons.slice(0, 4),
     missingData,
   };

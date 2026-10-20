@@ -714,6 +714,8 @@ export function buildLiveProductDecisionSnapshot(
         securedQuantity: row.netRequirement.securedQuantity,
         netRequiredRaw: row.netRequirement.netRequiredRaw,
         inventoryKnown: row.netRequirement.inventoryKnown,
+        entrySignals: row.sales.entrySignals,
+        recoveredStockoutDemandUnits: row.sales.recoveredStockoutDemandUnits,
         score: { total: row.sales.priorityScore },
       }))
       .sort(

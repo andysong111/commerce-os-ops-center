@@ -1,3 +1,8 @@
+import {
+  PURCHASE_MONTHLY_REVENUE_FLOOR_KRW,
+  PURCHASE_STOCKOUT_HISTORY_UNIT_FLOOR,
+} from "./productDecisionEngine/salesOrder.ts";
+
 export type PurchaseCandidateOmissionReason =
   | "PURCHASE_SHADOW_ROW_MISSING"
   | "SALES_ITEM_DATA_HOLD"
@@ -6,7 +11,10 @@ export type PurchaseCandidateOmissionReason =
   | "RECOMMENDATION_EVIDENCE_BLOCKED"
   | "SUPPLIER_LINK_MISSING"
   | "CHINA_OPTION_MISSING"
-  | "SOURCE_METADATA_CONFLICT";
+  | "SOURCE_METADATA_CONFLICT"
+  | "STOCKOUT_DEMAND_RECOVERY_ELIGIBLE"
+  | "RECENT_RISING_ELIGIBLE"
+  | "MONTHLY_REVENUE_40000_ELIGIBLE";
 
 export type PurchaseCandidateOmissionReviewRow = {
   barcode: string;
@@ -17,6 +25,8 @@ export type PurchaseCandidateOmissionReviewRow = {
   salesQuantity30: number;
   salesQuantity90: number;
   salesQuantity365: number;
+  salesRevenue30: number;
+  salesTrend: string | null;
   planningInventoryQuantity: number;
   ledgerInventoryQuantity: number | null;
   shoplingQuantity: number | null;
@@ -35,6 +45,12 @@ type PlanningProduct = {
   salesQuantity30?: unknown;
   salesQuantity90?: unknown;
   salesQuantity365?: unknown;
+  salesRevenue30?: unknown;
+  salesRevenue90?: unknown;
+  salesRevenue365?: unknown;
+  salesMonthly?: unknown;
+  salesTrend?: unknown;
+  salesTrendRate?: unknown;
   orderDecision?: unknown;
   recommendedOrderQuantity?: unknown;
 };
@@ -92,6 +108,59 @@ function planningRecommendsOrder(product: PlanningProduct) {
   );
 }
 
+function demandEntryReasons(product: PlanningProduct) {
+  const reasons: PurchaseCandidateOmissionReason[] = [];
+  const salesQuantity30 = quantity(product.salesQuantity30);
+  const salesQuantity90 = quantity(product.salesQuantity90);
+  const salesRevenue30 = quantity(product.salesRevenue30);
+  const salesRevenue90 = quantity(product.salesRevenue90);
+  const calendarBuckets = Array.isArray(product.salesMonthly)
+    ? product.salesMonthly
+        .filter(
+          (row): row is { month?: unknown; quantity?: unknown; revenue?: unknown } =>
+            Boolean(row && typeof row === "object"),
+        )
+        .map((row) => ({
+          month: text(row.month),
+          quantity: quantity(row.quantity),
+          revenue: quantity(row.revenue),
+        }))
+        .filter((row) => /^\d{4}-\d{2}$/.test(row.month))
+        .sort((left, right) => right.month.localeCompare(left.month))
+        .slice(0, 6)
+    : [];
+  const historicalBuckets = calendarBuckets.slice(1, 6);
+  const historical90Quantity = Math.max(0, salesQuantity90 - salesQuantity30);
+  const historical90Revenue = Math.max(0, salesRevenue90 - salesRevenue30);
+  const historicalPeakQuantity = Math.max(
+    historical90Quantity,
+    ...historicalBuckets.map((row) => row.quantity),
+  );
+  const historicalPeakRevenue = Math.max(
+    historical90Revenue,
+    ...historicalBuckets.map((row) => row.revenue),
+  );
+  const soldOutHistory =
+    quantity(product.inventoryQuantity) === 0 &&
+    salesQuantity30 === 0 &&
+    (historicalPeakQuantity >= PURCHASE_STOCKOUT_HISTORY_UNIT_FLOOR ||
+      historicalPeakRevenue >= PURCHASE_MONTHLY_REVENUE_FLOOR_KRW);
+  const trend = text(product.salesTrend).toUpperCase();
+  const trendRate = Number(product.salesTrendRate);
+  const rising =
+    trend === "RISING" ||
+    trend === "상승" ||
+    trend === "급상승" ||
+    (Number.isFinite(trendRate) && trendRate >= 0.2);
+
+  if (soldOutHistory) reasons.push("STOCKOUT_DEMAND_RECOVERY_ELIGIBLE");
+  if (rising) reasons.push("RECENT_RISING_ELIGIBLE");
+  if (salesRevenue30 >= PURCHASE_MONTHLY_REVENUE_FLOOR_KRW) {
+    reasons.push("MONTHLY_REVENUE_40000_ELIGIBLE");
+  }
+  return reasons;
+}
+
 export function buildPurchaseCandidateOmissionReview(
   input: PurchaseCandidateOmissionAuditInput,
 ): PurchaseCandidateOmissionReviewRow[] {
@@ -106,6 +175,7 @@ export function buildPurchaseCandidateOmissionReview(
     const salesQuantity30 = quantity(product.salesQuantity30);
     const salesQuantity90 = quantity(product.salesQuantity90);
     const salesQuantity365 = quantity(product.salesQuantity365);
+    const salesRevenue30 = quantity(product.salesRevenue30);
     if (salesQuantity30 + salesQuantity90 + salesQuantity365 <= 0) continue;
 
     const priority = priorityByBarcode.get(key);
@@ -120,7 +190,13 @@ export function buildPurchaseCandidateOmissionReview(
       priority?.purchaseStatus === "발주 추천" && recommendedQuantity > 0,
     );
     const reasons: PurchaseCandidateOmissionReason[] = [];
+    const entryReasons = demandEntryReasons(product);
     let blocking = false;
+
+    if (!accountedAsCandidate && entryReasons.length > 0) {
+      reasons.push(...entryReasons);
+      blocking = true;
+    }
 
     if (!priority) {
       reasons.push("PURCHASE_SHADOW_ROW_MISSING");
@@ -171,6 +247,8 @@ export function buildPurchaseCandidateOmissionReview(
       salesQuantity30,
       salesQuantity90,
       salesQuantity365,
+      salesRevenue30,
+      salesTrend: text(product.salesTrend) || null,
       planningInventoryQuantity: quantity(product.inventoryQuantity),
       ledgerInventoryQuantity: inventory
         ? quantity(inventory.inventoryQuantity)

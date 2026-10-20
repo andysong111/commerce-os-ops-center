@@ -127,7 +127,7 @@ export function calculateProductDecisionPlan(
     generatedAt: input.generatedAt,
     ruleVersion:
       products[0]?.sales.ruleVersion ??
-      "commerce-os-sales-order-v1.1.0-on-demand",
+      "commerce-os-sales-order-v1.2.0-demand-entry-signals",
     grossBudget: allocation.grossBudget,
     productOrderBudget: allocation.productOrderBudget,
     purchaseCostMultiplier: allocation.purchaseCostMultiplier,
