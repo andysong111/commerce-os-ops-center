@@ -60,6 +60,7 @@ type PriorityRow = {
   purchaseStatus: string;
   originalPurchaseStatus?: string;
   recommendedQty: number;
+  originalRecommendedQty?: number;
   openCommitment: number;
 };
 
@@ -189,11 +190,18 @@ export function buildPurchaseCandidateOmissionReview(
     const accountedAsCandidate = Boolean(
       priority?.purchaseStatus === "발주 추천" && recommendedQuantity > 0,
     );
+    // Inventory and open purchase commitments can correctly reduce an engine
+    // recommendation to zero.  Count the pre-net recommendation as covered so
+    // demand-entry signals do not become false omission blockers.
+    const accountedByDemandEngine = Boolean(
+      priority?.originalPurchaseStatus === "발주 추천" &&
+      quantity(priority.originalRecommendedQty) > 0,
+    );
     const reasons: PurchaseCandidateOmissionReason[] = [];
     const entryReasons = demandEntryReasons(product);
     let blocking = false;
 
-    if (!accountedAsCandidate && entryReasons.length > 0) {
+    if (!accountedByDemandEngine && entryReasons.length > 0) {
       reasons.push(...entryReasons);
       blocking = true;
     }

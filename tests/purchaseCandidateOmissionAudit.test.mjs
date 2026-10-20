@@ -26,6 +26,7 @@ const priority = (overrides = {}) => ({
   purchaseStatus: "발주 보류",
   originalPurchaseStatus: "발주 보류",
   recommendedQty: 0,
+  originalRecommendedQty: 0,
   openCommitment: 0,
   ...overrides,
 });
@@ -180,4 +181,22 @@ test("rising and monthly revenue signals cannot disappear from purchase candidat
   assert.ok(rows.find((row) => row.barcode === "BCD8-1").reasons.includes("RECENT_RISING_ELIGIBLE"));
   assert.ok(rows.find((row) => row.barcode === "BCA5-1").reasons.includes("MONTHLY_REVENUE_40000_ELIGIBLE"));
   assert.ok(rows.every((row) => row.severity === "BLOCKING"));
+});
+
+test("a demand signal already recommended before inventory netting is not a false omission", () => {
+  const rows = audit({
+    products: [planning({
+      salesRevenue30: 40_000,
+      salesTrend: "RISING",
+    })],
+    rows: [priority({
+      purchaseStatus: "발주 보류",
+      originalPurchaseStatus: "발주 추천",
+      recommendedQty: 0,
+      originalRecommendedQty: 20,
+      openCommitment: 20,
+    })],
+  });
+
+  assert.deepEqual(rows, []);
 });
