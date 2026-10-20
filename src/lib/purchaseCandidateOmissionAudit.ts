@@ -204,17 +204,24 @@ export function buildPurchaseCandidateOmissionReview(
       RECENT_RISING_ELIGIBLE: "RECENT_RISING",
       MONTHLY_REVENUE_40000_ELIGIBLE: "MONTHLY_REVENUE_40000",
     };
-    const missingEntryReasons = entryReasons.filter((reason) => {
-      const signal = signalForReason[reason];
-      return !signal || !recordedSignals.has(signal);
-    });
+    const demandTarget = quantity(priority?.demandTarget);
+    // A positive pre-budget target proves the product entered the demand
+    // engine. Older cached/serialized priority rows can omit entrySignals, so
+    // signal provenance alone must not turn an evaluated candidate into an
+    // omission blocker.
+    const missingEntryReasons = demandTarget > 0
+      ? []
+      : entryReasons.filter((reason) => {
+          const signal = signalForReason[reason];
+          return !signal || !recordedSignals.has(signal);
+        });
     // A row with a positive pre-budget demand target has been evaluated even
     // when inventory, commitments, claim risk, or the portfolio budget keeps
     // it out of the final order. Those are explicit holds, not silent omission.
     const accountedByDemandEngine = Boolean(
       accountedAsCandidate ||
       priority &&
-        (quantity(priority.demandTarget) > 0 ||
+        (demandTarget > 0 ||
           entryReasons.length > 0 && missingEntryReasons.length === 0),
     );
     let blocking = false;
