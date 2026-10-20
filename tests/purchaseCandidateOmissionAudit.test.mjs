@@ -245,3 +245,28 @@ test("a positive demand target is sufficient when a cached row lacks entry signa
 
   assert.deepEqual(rows, []);
 });
+
+test("an evaluated zero target is not overridden by stale planning sales summaries", () => {
+  const rows = audit({
+    products: [planning({
+      inventoryQuantity: 0,
+      salesQuantity30: 0,
+      salesQuantity90: 15,
+      salesQuantity365: 1_538,
+      salesRevenue30: 0,
+      salesTrend: "DECLINING",
+    })],
+    rows: [priority({
+      purchaseStatus: "발주 보류",
+      originalPurchaseStatus: "발주 보류",
+      demandTarget: 0,
+      entrySignals: [],
+      recommendedQty: 0,
+      originalRecommendedQty: 0,
+    })],
+    inventory: [["BCA5-1", { inventoryQuantity: 0 }]],
+    sources: [["BCA5-1", metadata({ shoplingQuantity: null })]],
+  });
+
+  assert.deepEqual(rows, []);
+});

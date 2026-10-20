@@ -205,11 +205,11 @@ export function buildPurchaseCandidateOmissionReview(
       MONTHLY_REVENUE_40000_ELIGIBLE: "MONTHLY_REVENUE_40000",
     };
     const demandTarget = quantity(priority?.demandTarget);
-    // A positive pre-budget target proves the product entered the demand
-    // engine. Older cached/serialized priority rows can omit entrySignals, so
-    // signal provenance alone must not turn an evaluated candidate into an
-    // omission blocker.
-    const missingEntryReasons = demandTarget > 0
+    // A priority row proves that the exact canonical 12x30-day history reached
+    // the demand engine. Product Master summary fields can lag that history,
+    // so they may only report a missing entry signal when the engine row itself
+    // is absent.
+    const missingEntryReasons = priority
       ? []
       : entryReasons.filter((reason) => {
           const signal = signalForReason[reason];
