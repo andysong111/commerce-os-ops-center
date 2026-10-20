@@ -47,6 +47,8 @@ export type ProductDecisionRow = {
   securedQuantity?: number;
   netRequiredRaw?: number;
   inventoryKnown?: boolean;
+  entrySignals?: string[];
+  recoveredStockoutDemandUnits?: number;
   score?: ProductDecisionScore;
 };
 

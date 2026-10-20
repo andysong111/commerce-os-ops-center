@@ -11,6 +11,11 @@ const planning = (overrides = {}) => ({
   salesQuantity30: 5,
   salesQuantity90: 20,
   salesQuantity365: 80,
+  salesRevenue30: 10_000,
+  salesRevenue90: 30_000,
+  salesRevenue365: 120_000,
+  salesTrend: "STABLE",
+  salesTrendRate: 0,
   orderDecision: "발주 보류",
   recommendedOrderQuantity: 0,
   ...overrides,
@@ -123,4 +128,56 @@ test("a fully accounted recommendation with complete source evidence is omitted 
   });
 
   assert.deepEqual(rows, []);
+});
+
+test("a sold-out product with censored current sales cannot stay outside the purchase list", () => {
+  const rows = audit({
+    products: [planning({
+      barcode: "BCD8-2",
+      inventoryQuantity: 0,
+      salesQuantity30: 0,
+      salesQuantity90: 0,
+      salesQuantity365: 50,
+      salesRevenue30: 0,
+      salesRevenue90: 0,
+      salesMonthly: [
+        { month: "2026-10", quantity: 0, revenue: 0 },
+        { month: "2026-09", quantity: 0, revenue: 0 },
+        { month: "2026-08", quantity: 12, revenue: 60_000 },
+      ],
+    })],
+    rows: [],
+    inventory: [["BCD8-2", { inventoryQuantity: 0 }]],
+    sources: [["BCD8-2", metadata()]],
+  });
+
+  assert.equal(rows[0].severity, "BLOCKING");
+  assert.ok(rows[0].reasons.includes("STOCKOUT_DEMAND_RECOVERY_ELIGIBLE"));
+});
+
+test("rising and monthly revenue signals cannot disappear from purchase candidates", () => {
+  const rows = audit({
+    products: [
+      planning({ barcode: "BCD8-1", salesTrend: "RISING" }),
+      planning({
+        barcode: "BCA5-1",
+        salesRevenue30: 40_000,
+        salesTrend: "STABLE",
+      }),
+    ],
+    rows: [],
+    inventory: [
+      ["BCD8-1", { inventoryQuantity: 10 }],
+      ["BCA5-1", { inventoryQuantity: 10 }],
+    ],
+    sources: [
+      ["BCD8-1", metadata()],
+      ["BCA5-1", metadata()],
+    ],
+  });
+
+  assert.equal(rows.length, 2);
+  assert.ok(rows.find((row) => row.barcode === "BCD8-1").reasons.includes("RECENT_RISING_ELIGIBLE"));
+  assert.ok(rows.find((row) => row.barcode === "BCA5-1").reasons.includes("MONTHLY_REVENUE_40000_ELIGIBLE"));
+  assert.ok(rows.every((row) => row.severity === "BLOCKING"));
 });
