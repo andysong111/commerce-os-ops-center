@@ -12,6 +12,7 @@ const [
   registry,
   policy,
   trackerMetadata,
+  trackerMetadataCore,
   shoplingIdentity,
 ] = await Promise.all([
   readFile("src/lib/fastPurchaseMvp.ts", "utf8"),
@@ -23,6 +24,7 @@ const [
   readFile("src/lib/opsModuleRegistry.ts", "utf8"),
   readFile("docs/fast-purchase-mvp-operating-policy.md", "utf8"),
   readFile("src/lib/productLaunchPurchaseMetadata.ts", "utf8"),
+  readFile("src/lib/productLaunchPurchaseMetadataCore.ts", "utf8"),
   readFile("src/lib/shopling/shoplingCurrentModelIdentity.ts", "utf8"),
 ]);
 
@@ -140,8 +142,9 @@ test("fast purchase prefers canonical tracker and Product Master identity over l
 
 test("fast purchase keeps Shopling identity as a non-blocking final fallback only", () => {
   assert.ok(engine.includes("trackerUsable?.saleOption"));
-  assert.ok(trackerMetadata.includes("modelNumber: string"));
-  assert.ok(trackerMetadata.includes("saleOption: string"));
+  const trackerMetadataContract = `${trackerMetadata}\n${trackerMetadataCore}`;
+  assert.ok(trackerMetadataContract.includes("modelNumber: string"));
+  assert.ok(trackerMetadataContract.includes("saleOption: string"));
   assert.doesNotMatch(
     engine,
     /liveShopling\?\.modelNo\s*\|\|\s*tracker\?\.modelNumber/,

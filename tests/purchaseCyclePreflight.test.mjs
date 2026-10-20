@@ -49,6 +49,34 @@ test("real stage shapes compose a budget-limited preview, never an approval", ()
   assert.deepEqual(report.stages.map(row => row.number), [5, 6, 7, 8, 9, 10, 11]);
   locked(report);
 });
+test("an upstream sales-bearing omission blocks candidate coverage and Draft preview", () => {
+  const input = fixture();
+  input.priority.omissionReviewRows = [{
+    barcode: "BCD8-1",
+    modelNo: "AAA888",
+    productName: "OMISSION SIMULATION ONLY",
+    severity: "BLOCKING",
+    reasons: ["RECOMMENDATION_EVIDENCE_BLOCKED"],
+    salesQuantity30: 25,
+    salesQuantity90: 80,
+    salesQuantity365: 500,
+    planningInventoryQuantity: 0,
+    ledgerInventoryQuantity: 0,
+    shoplingQuantity: 0,
+    shoplingSyncedAt: "2026-10-01T01:59:00.000Z",
+    purchaseStatus: "발주 보류",
+    recommendedQuantity: 100,
+    openCommitment: 0,
+  }];
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  blocked(report, "PURCHASE_CANDIDATE_OMISSION_REVIEW_REQUIRED");
+  assert.equal(report.candidateCoverageComplete, false);
+  assert.equal(report.omissionReviewCount, 1);
+  assert.equal(report.omissionBlockingCount, 1);
+  assert.equal(report.stages.find((row) => row.number === 8).state, "BLOCKED");
+});
 test("operator exclusions refill a replacement Draft from the next priority within the same budget", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:1234567890abcdef1234";

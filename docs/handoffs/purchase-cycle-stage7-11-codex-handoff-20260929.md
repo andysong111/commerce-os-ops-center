@@ -754,3 +754,14 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Search results can be checked in bulk and retain their per-B-code requested quantities. A searched addition must still satisfy the canonical purchase candidate, cost, inventory, and budget gates; a missing gate produces a visible blocker instead of silently adding an unpriced product.
 - Invalid row quantities block the shared recalculation button and identify the B-code that must be corrected. `대기 변경 취소` clears all staged quantity, exclusion, and addition changes together.
 - Supplier link, China option, CNY price, freight, and other order-preparation metadata keep their existing explicit Draft save flow. This change does not execute a 1688 order, payment, supplier contact, or ORDERED transition.
+
+---
+
+## 30. Upstream purchase-candidate omission audit (2026-10-21)
+
+- Purchase Preflight now audits every active Product Master B-code with sales evidence before it accepts the ordinary purchase-candidate coverage total. A sold product can no longer disappear merely because its purchase-shadow row was missing or held by incomplete evidence.
+- Recent-sales omissions, Product Master order recommendations missing from the candidate set, sold-out active products excluded from recommendations, and Shopling zero inventory conflicting with a positive inventory ledger block Draft creation for operator review.
+- Missing 1688 supplier links, China options, or conflicting source metadata remain visible as preparation work. These preparation findings do not invent quantities, add products, place an order, or weaken the existing cost, inventory, and budget gates.
+- The omission review shows 30/90/365-day sales, Product Master inventory, canonical ledger inventory, Shopling option quantity, recommendation quantity, and open commitment so the operator can identify the exact evidence that needs correction.
+- Product Launch metadata is now a fail-closed dependency for this audit. If it cannot be read, Purchase Preflight blocks instead of reporting that candidate coverage is complete.
+- The current monthly Draft and the 1688 cart are not changed by this audit. It only prevents a new Draft save while a material upstream omission or contradiction remains.

@@ -22,6 +22,11 @@ import {
   usesCanonicalPurchaseCostContract,
 } from "@/lib/verifiedPurchaseCostEvidence";
 import type { PostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
+import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
+import {
+  buildPurchaseCandidateOmissionReview,
+  type PurchaseCandidateOmissionReviewRow,
+} from "@/lib/purchaseCandidateOmissionAudit";
 
 export type InventoryOperatingMode =
   | "VERIFIED"
@@ -93,6 +98,11 @@ export type InventoryVerificationPriority = {
   totalExpectedSpend: number;
   operationallyReadyExpectedSpend: number;
   blockedExpectedSpend: number;
+  omissionReviewCount: number;
+  omissionBlockingCount: number;
+  omissionPreparationCount: number;
+  omissionAuditError: string | null;
+  omissionReviewRows: PurchaseCandidateOmissionReviewRow[];
   stocktakeRequiredCount: 0;
   writesEnabled: false;
   // Optional for old stored reports; the preflight fails closed when absent.
@@ -231,7 +241,13 @@ export async function loadInventoryVerificationPriority(
       },
     ),
   );
-  const [resolvedPurchaseShadow, inventoryReadiness, planning, recentReceipts] = await Promise.all([
+  const [
+    resolvedPurchaseShadow,
+    inventoryReadiness,
+    planning,
+    recentReceipts,
+    purchaseMetadata,
+  ] = await Promise.all([
     purchaseShadowPromise,
     loadProductMasterInventoryCostReadiness({
       requestTimeoutMs: options.externalRequestTimeoutMs,
@@ -240,6 +256,7 @@ export async function loadInventoryVerificationPriority(
       requestTimeoutMs: options.externalRequestTimeoutMs,
     }),
     completedChinaOrderReceiptsByBarcode(cycle.budgetMonth),
+    loadProductLaunchPurchaseMetadataByBarcode(),
   ]);
   const purchaseShadow = resolvedPurchaseShadow;
   const now = Date.now();
@@ -386,9 +403,31 @@ export async function loadInventoryVerificationPriority(
     0,
     totalExpectedSpend - operationallyReadyExpectedSpend,
   );
+  const omissionReviewRows = buildPurchaseCandidateOmissionReview({
+    planningProducts: planning.products,
+    priorityRows: rows,
+    inventoryByBarcode: inventoryIndex,
+    sourceMetadataByBarcode: purchaseMetadata.byBarcode,
+    sourceMetadataAvailable: purchaseMetadata.error === null,
+  });
+  const omissionBlockingCount = omissionReviewRows.filter(
+    (row) => row.severity === "BLOCKING",
+  ).length;
+  const omissionPreparationCount =
+    omissionReviewRows.length - omissionBlockingCount;
+  const omissionBlockerKeys = [
+    ...(purchaseMetadata.error
+      ? ["purchase-candidate-omission-metadata-unavailable"]
+      : []),
+    ...(omissionBlockingCount > 0
+      ? ["purchase-candidate-omission-review-required"]
+      : []),
+  ];
   const structuralReady =
     purchaseShadow.shadowReady &&
     !recentReceipts.error &&
+    !purchaseMetadata.error &&
+    omissionBlockingCount === 0 &&
     purchaseProducts.length === inventoryReadiness.summary.managedActiveSkuCount &&
     rows.every(
       (row) => inventoryIndex.has(row.barcode) && planningIndex.has(row.barcode),
@@ -399,7 +438,11 @@ export async function loadInventoryVerificationPriority(
     state: structuralReady ? "READY" : "BLOCKED",
     message: structuralReady
       ? "PROVISIONAL 재고는 발주수량을 미리 계산하는 advisory 입력으로 사용할 수 있지만 실제 발주 Draft 실행가능 상태로 승격하지 않습니다. SOLD_OUT_RESET 또는 다른 신뢰 가능한 기준점으로 VERIFIED가 되거나, 별도 PROVISIONAL 의사결정 증거 게이트를 통과한 뒤에만 실행 경로를 열 수 있습니다. 재고실사는 필수조건이 아닙니다."
-      : "Canonical 발주 shadow·Product Master 재고원장·planning 연결이 완전하지 않아 발주 수량을 확정하지 않습니다.",
+      : omissionBlockingCount > 0
+        ? `판매 이력이 있는 활성 상품 ${omissionBlockingCount}종이 발주후보 계산에서 빠졌거나 재고 근거와 충돌합니다. 누락 검토가 끝날 때까지 발주 수량을 확정하지 않습니다.`
+        : purchaseMetadata.error
+          ? "발주 누락 검토에 필요한 1688 링크·옵션·샵플링 재고 근거를 읽지 못해 발주 수량을 확정하지 않습니다."
+          : "Canonical 발주 shadow·Product Master 재고원장·planning 연결이 완전하지 않아 발주 수량을 확정하지 않습니다.",
     purchaseShadowReady: purchaseShadow.shadowReady,
     managedActiveSkuCount: inventoryReadiness.summary.managedActiveSkuCount,
     purchaseRecommendationCount: purchaseRows.length,
@@ -422,6 +465,11 @@ export async function loadInventoryVerificationPriority(
     totalExpectedSpend,
     operationallyReadyExpectedSpend,
     blockedExpectedSpend,
+    omissionReviewCount: omissionReviewRows.length,
+    omissionBlockingCount,
+    omissionPreparationCount,
+    omissionAuditError: purchaseMetadata.error,
+    omissionReviewRows,
     stocktakeRequiredCount: 0,
     writesEnabled: false,
     source: {
@@ -439,7 +487,10 @@ export async function loadInventoryVerificationPriority(
       purchaseCostMultiplier: DEFAULT_PURCHASE_COST_MULTIPLIER,
       comparisonAvailable: purchaseShadow.legacyReference.comparison !== null,
       sameAnalysisAsOf: purchaseShadow.legacyReference.sameAnalysisAsOf,
-      blockerKeys: purchaseShadow.blockers.map((row) => row.key),
+      blockerKeys: [
+        ...purchaseShadow.blockers.map((row) => row.key),
+        ...omissionBlockerKeys,
+      ],
     },
     rows,
   };
