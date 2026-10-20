@@ -219,3 +219,29 @@ test("a demand signal recorded by the engine is not treated as an omission after
 
   assert.deepEqual(rows, []);
 });
+
+test("a positive demand target is sufficient when a cached row lacks entry signal provenance", () => {
+  const rows = audit({
+    products: [planning({
+      inventoryQuantity: 0,
+      salesQuantity30: 0,
+      salesQuantity90: 25,
+      salesQuantity365: 250,
+      salesRevenue30: 0,
+      salesTrend: "DECLINING",
+    })],
+    rows: [priority({
+      purchaseStatus: "발주 보류",
+      originalPurchaseStatus: "발주 추천",
+      demandTarget: 30,
+      entrySignals: [],
+      recommendedQty: 0,
+      originalRecommendedQty: 30,
+      openCommitment: 30,
+    })],
+    inventory: [["BCA5-1", { inventoryQuantity: 0 }]],
+    sources: [["BCA5-1", metadata({ shoplingQuantity: 0 })]],
+  });
+
+  assert.deepEqual(rows, []);
+});
