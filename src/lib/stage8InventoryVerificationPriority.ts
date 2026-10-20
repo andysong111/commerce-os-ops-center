@@ -40,6 +40,8 @@ export type InventoryVerificationPriorityRow = {
   modelNo: string | null;
   purchaseStatus: SalesOrderGroup;
   originalPurchaseStatus: string;
+  demandTarget: number;
+  entrySignals: string[];
   recommendedQty: number;
   originalRecommendedQty: number;
   moq: number;
@@ -274,7 +276,12 @@ export async function loadInventoryVerificationPriority(
         mode === "VERIFIED" || mode === "PROVISIONAL";
       const executionInventoryEligible = mode === "VERIFIED";
       const advisoryOnly = mode === "PROVISIONAL";
-      const originalGroup = salesOrderGroup(product.status);
+      // The canonical status may already be reduced by the legacy portfolio
+      // budget. Stage 8 must start from the demand decision and apply the
+      // current inventory/commitment/budget exactly once.
+      const originalGroup = salesOrderGroup(
+        product.demandStatus ?? product.status,
+      );
       const originalRecommendedQty = integer(product.recommendedQty);
       const demandTarget = integer(
         product.rawRecommendedQty ?? product.recommendedQty,
@@ -334,7 +341,11 @@ export async function loadInventoryVerificationPriority(
         name: text(product.name),
         modelNo: product.modelNo ? text(product.modelNo) : null,
         purchaseStatus,
-        originalPurchaseStatus: text(product.status),
+        originalPurchaseStatus: originalGroup,
+        demandTarget,
+        entrySignals: Array.isArray(product.entrySignals)
+          ? product.entrySignals.map((value) => text(value)).filter(Boolean)
+          : [],
         recommendedQty,
         originalRecommendedQty,
         moq,
@@ -427,7 +438,6 @@ export async function loadInventoryVerificationPriority(
     purchaseShadow.shadowReady &&
     !recentReceipts.error &&
     !purchaseMetadata.error &&
-    omissionBlockingCount === 0 &&
     purchaseProducts.length === inventoryReadiness.summary.managedActiveSkuCount &&
     rows.every(
       (row) => inventoryIndex.has(row.barcode) && planningIndex.has(row.barcode),

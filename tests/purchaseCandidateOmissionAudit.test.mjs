@@ -25,6 +25,8 @@ const priority = (overrides = {}) => ({
   barcode: "BCA5-1",
   purchaseStatus: "발주 보류",
   originalPurchaseStatus: "발주 보류",
+  demandTarget: 0,
+  entrySignals: [],
   recommendedQty: 0,
   originalRecommendedQty: 0,
   openCommitment: 0,
@@ -192,9 +194,26 @@ test("a demand signal already recommended before inventory netting is not a fals
     rows: [priority({
       purchaseStatus: "발주 보류",
       originalPurchaseStatus: "발주 추천",
+      demandTarget: 20,
+      entrySignals: ["RECENT_RISING", "MONTHLY_REVENUE_40000"],
       recommendedQty: 0,
       originalRecommendedQty: 20,
       openCommitment: 20,
+    })],
+  });
+
+  assert.deepEqual(rows, []);
+});
+
+test("a demand signal recorded by the engine is not treated as an omission after budget hold", () => {
+  const rows = audit({
+    products: [planning({ salesTrend: "RISING" })],
+    rows: [priority({
+      purchaseStatus: "발주 보류",
+      originalPurchaseStatus: "발주 추천",
+      demandTarget: 12,
+      entrySignals: ["RECENT_RISING"],
+      recommendedQty: 0,
     })],
   });
 

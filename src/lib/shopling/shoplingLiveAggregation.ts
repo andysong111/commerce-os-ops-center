@@ -704,6 +704,7 @@ export function buildLiveProductDecisionSnapshot(
               product.planning.barcode === row.input.barcode,
           )?.planning.modelNo ?? null,
         status: row.finalGroup,
+        demandStatus: row.sales.group,
         trend: row.sales.trendLabel,
         recommendedQty: row.finalQuantity,
         rawRecommendedQty: row.sales.rawRecommendedQuantity,

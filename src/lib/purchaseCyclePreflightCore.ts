@@ -717,7 +717,10 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   }
   const selected: PurchasePreflightLine[] = [];
   let estimatedSpendKrw = 0;
-  if (blockers.length === 0) {
+  const previewCalculationBlocked = () => blockers.some(
+    (code) => code !== "PURCHASE_CANDIDATE_OMISSION_REVIEW_REQUIRED",
+  );
+  if (!previewCalculationBlocked()) {
     const fixedRows = eligible.filter((row) => operatorQuantityByBarcode.has(row.barcode));
     const flexibleRows = eligible.filter((row) => !operatorQuantityByBarcode.has(row.barcode));
     const remainingSkuCapacity = Math.max(0, maxSkus - fixedRows.length);
@@ -744,7 +747,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       }
     }
     const remainingBudgetKrw = Math.max(0, effectiveBudgetKrw - estimatedSpendKrw);
-    if (blockers.length === 0 && cashLimitKrw !== null) {
+    if (!previewCalculationBlocked() && cashLimitKrw !== null) {
       const allocations = allocatePurchaseCashflow(
         withinSkuLimit.map((row) => ({
           barcode: row.barcode,
@@ -777,7 +780,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         );
         estimatedSpendKrw += allocation.estimatedCostKrw;
       }
-    } else if (blockers.length === 0) {
+    } else if (!previewCalculationBlocked()) {
       for (const row of withinSkuLimit) {
         const basis = costBasisByBarcode.get(row.barcode);
         if (!basis) continue;
@@ -789,7 +792,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         estimatedSpendKrw += lineCost(row, basis);
       }
     }
-    if (blockers.length === 0 && selected.length === 0) {
+    if (!previewCalculationBlocked() && selected.length === 0) {
       blockers.push("NO_VERIFIED_CANDIDATE_WITHIN_LIMITS");
     }
   }
