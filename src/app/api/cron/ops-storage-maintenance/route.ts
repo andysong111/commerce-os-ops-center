@@ -1,6 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  StorageSourcingBudgetSyncError,
+  syncPreviousMonthRevenueToStorage,
+} from "@/lib/storageSourcingBudgetSync";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -52,5 +56,38 @@ export async function GET(request: Request) {
       { status: 500 },
     );
   }
-  return NextResponse.json({ ok: true, result: result.data });
+
+  // Budget refresh is deliberately attached to the existing dispatcher task rather than
+  // adding another Vercel heartbeat. It is safe to retry because both the frozen Shopling
+  // revenue source and Storage request ID are deterministic. A bridge failure must not turn
+  // successful storage cleanup into a database-pressure failure; the next maintenance run
+  // retries it and the warning remains visible in dispatcher result/logs.
+  let sourcingBudget:
+    | { ok: true; budgetMonth: string; sourceMonth: string; changed: boolean }
+    | { ok: false; error: string };
+  try {
+    const synced = await syncPreviousMonthRevenueToStorage();
+    sourcingBudget = {
+      ok: true,
+      budgetMonth: synced.budgetMonth,
+      sourceMonth: synced.sourceMonth,
+      changed: synced.changed,
+    };
+  } catch (error) {
+    const code =
+      error instanceof StorageSourcingBudgetSyncError
+        ? error.code
+        : "SOURCING_BUDGET_SYNC_FAILED";
+    console.error("[ops-storage-maintenance] sourcing budget sync failed", {
+      code,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    sourcingBudget = { ok: false, error: code };
+  }
+
+  return NextResponse.json({
+    ok: true,
+    result: result.data,
+    sourcingBudget,
+  });
 }

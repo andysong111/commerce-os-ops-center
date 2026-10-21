@@ -1,0 +1,32 @@
+name: Storage sourcing budget sync CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Lint bridge and existing maintenance route
+        run: npx eslint src/lib/storageSourcingBudgetSync.ts src/app/api/cron/ops-storage-maintenance/route.ts
+      - name: Revenue-source, authentication, exact receipt and dispatcher regression
+        run: node --experimental-strip-types --test tests/storageSourcingBudgetSync.test.mjs
+      - name: Production build regression
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://sourcing-budget-build-check.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_sourcing_budget_build_check
+          PRODUCT_MASTER_INTEGRATION_SECRET: synthetic-storage-integration-secret-for-build-check
+          CRON_SECRET: synthetic-cron-secret-for-build-check
