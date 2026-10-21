@@ -627,7 +627,8 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(regeneration, /status: "CANCELLED"/);
   assert.match(regeneration, /status: "RESERVED"/);
   assert.match(regeneration, /preservedSourcingBarcodes/);
-  assert.match(regeneration, /previous\.sourceLineId/);
+  assert.match(regeneration, /sourceLineId: `\$\{draftId\}:\$\{line\.barcode\}`/);
+  assert.doesNotMatch(regeneration, /sourceLineId: previous\.sourceLineId/);
   assert.match(regeneration, /\.\.\.preservedPayload/);
   assert.match(regeneration, /externalOrderExecuted: false/);
   assert.doesNotMatch(regeneration, /status: "ORDERED"/);
