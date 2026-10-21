@@ -244,9 +244,12 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       : {};
     return normalizeChinaOrderCommitmentEvent({
       sourceSystem: SOURCE_SYSTEM,
-      sourceLineId: preservedSourcingBarcodes.has(line.barcode) && previous
-        ? previous.sourceLineId
-        : `${draftId}:${line.barcode}`,
+      // A regenerated Draft is a new reservation lifecycle. Reusing a prior
+      // sourceLineId makes the ledger reducer retain the highest historical
+      // requested quantity for that product, so a lower recalculated quantity
+      // can never take effect. Keep the verified sourcing payload below, but
+      // give every regenerated line an identity scoped to the new Draft.
+      sourceLineId: `${draftId}:${line.barcode}`,
       sourceRunId: draftId,
       sourceEventId: `${draftId}:${line.barcode}:reserved`,
       barcode: line.barcode,

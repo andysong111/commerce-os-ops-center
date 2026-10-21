@@ -775,3 +775,12 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Stockout-demand recovery, recent-rising demand, and monthly revenue of at least 40,000 KRW remain permanent candidate-entry signals. Confirmed internal inventory and commitments still reduce the final order quantity, including to zero.
 - Operator exclusions and fixed quantities belong to the current replacement Draft only. They are not a permanent product blacklist; the next monthly calculation reevaluates every product from fresh demand, inventory, commitment, source, cost, and budget evidence.
 - This change only unlocks an internally consistent Draft preparation flow. It does not place a 1688 order, make a payment, or contact a supplier.
+
+---
+
+## 32. Regenerated Draft reservation identity isolation (2026-10-21)
+
+- Every regenerated monthly Draft line now receives a source-line identity scoped to the new Draft, including already-confirmed sourcing rows whose supplier link, option, and cost evidence are preserved.
+- The China order ledger reduces quantity events by source-line identity and intentionally keeps the highest requested quantity within one lifecycle. Reusing an older Draft identity therefore caused two preserved rows to retain historical quantities two units above the current calculation, displaying 4,109 units instead of the newly reserved 4,105 units.
+- Payload evidence is still carried forward, but quantity history is isolated between Drafts. A lower or higher recalculated quantity can therefore take effect exactly in the new monthly Draft.
+- No 1688 order, payment, supplier contact, or ORDERED transition is performed by regeneration.
