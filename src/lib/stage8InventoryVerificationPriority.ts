@@ -161,6 +161,23 @@ function barcode(value: unknown) {
   return text(value).toUpperCase().replace(/\s+/g, "");
 }
 
+function purchaseStrategyMonthlyRevenueThreshold(
+  policySnapshot: string | null,
+) {
+  if (!policySnapshot) return undefined;
+  try {
+    const policy = JSON.parse(policySnapshot) as {
+      monthlyRevenueThresholdKrw?: unknown;
+    };
+    const threshold = Number(policy.monthlyRevenueThresholdKrw);
+    return Number.isFinite(threshold) && threshold > 0
+      ? Math.round(threshold)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function inventoryByBarcode(rows: ProductMasterInventoryCostRow[]) {
   return new Map(rows.map((row) => [barcode(row.barcode), row]));
 }
@@ -466,6 +483,9 @@ export async function loadInventoryVerificationPriority(
     inventoryByBarcode: inventoryIndex,
     sourceMetadataByBarcode: purchaseMetadata.byBarcode,
     sourceMetadataAvailable: purchaseMetadata.error === null,
+    monthlyRevenueThresholdKrw: purchaseStrategyMonthlyRevenueThreshold(
+      purchaseShadow.purchaseStrategyPolicySnapshot,
+    ),
   });
   const omissionBlockingCount = omissionReviewRows.filter(
     (row) => row.severity === "BLOCKING",

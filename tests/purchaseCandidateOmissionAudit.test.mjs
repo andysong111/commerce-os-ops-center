@@ -49,12 +49,14 @@ const audit = ({
   inventory = [["BCA5-1", { inventoryQuantity: 10 }]],
   sources = [["BCA5-1", metadata()]],
   sourceMetadataAvailable = true,
+  monthlyRevenueThresholdKrw,
 } = {}) => buildPurchaseCandidateOmissionReview({
   planningProducts: products,
   priorityRows: rows,
   inventoryByBarcode: new Map(inventory),
   sourceMetadataByBarcode: new Map(sources),
   sourceMetadataAvailable,
+  monthlyRevenueThresholdKrw,
 });
 
 test("Shopling zero still blocks when the purchase engine did not account for the positive ledger", () => {
@@ -171,6 +173,18 @@ test("a low-volume product missing from the shadow is review-only until it quali
     "PURCHASE_SHADOW_ROW_MISSING",
     "SOLD_OUT_ACTIVE_SALES_NOT_RECOMMENDED",
   ]);
+});
+
+test("the omission audit follows the operator-adjusted monthly revenue threshold", () => {
+  const rows = audit({
+    products: [planning({ salesRevenue30: 40_000 })],
+    rows: [],
+    monthlyRevenueThresholdKrw: 50_000,
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].severity, "PREPARATION");
+  assert.deepEqual(rows[0].reasons, ["PURCHASE_SHADOW_ROW_MISSING"]);
 });
 
 test("missing source preparation stays visible without inventing an order", () => {
