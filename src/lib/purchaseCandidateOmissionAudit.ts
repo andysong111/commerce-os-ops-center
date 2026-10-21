@@ -85,6 +85,7 @@ export type PurchaseCandidateOmissionAuditInput = {
   inventoryByBarcode: Map<string, InventoryRow>;
   sourceMetadataByBarcode: Map<string, SourceMetadata>;
   sourceMetadataAvailable: boolean;
+  monthlyRevenueThresholdKrw?: number;
 };
 
 const MANAGED_BARCODE = /^B[A-Z]{2}\d+-\d+$/;
@@ -112,7 +113,10 @@ function planningRecommendsOrder(product: PlanningProduct) {
   );
 }
 
-function demandEntryReasons(product: PlanningProduct) {
+function demandEntryReasons(
+  product: PlanningProduct,
+  monthlyRevenueThresholdKrw: number,
+) {
   const reasons: PurchaseCandidateOmissionReason[] = [];
   const salesQuantity30 = quantity(product.salesQuantity30);
   const salesQuantity90 = quantity(product.salesQuantity90);
@@ -159,7 +163,7 @@ function demandEntryReasons(product: PlanningProduct) {
 
   if (soldOutHistory) reasons.push("STOCKOUT_DEMAND_RECOVERY_ELIGIBLE");
   if (rising) reasons.push("RECENT_RISING_ELIGIBLE");
-  if (salesRevenue30 >= PURCHASE_MONTHLY_REVENUE_FLOOR_KRW) {
+  if (salesRevenue30 >= monthlyRevenueThresholdKrw) {
     reasons.push("MONTHLY_REVENUE_40000_ELIGIBLE");
   }
   return reasons;
@@ -168,6 +172,11 @@ function demandEntryReasons(product: PlanningProduct) {
 export function buildPurchaseCandidateOmissionReview(
   input: PurchaseCandidateOmissionAuditInput,
 ): PurchaseCandidateOmissionReviewRow[] {
+  const configuredThreshold = Number(input.monthlyRevenueThresholdKrw);
+  const monthlyRevenueThresholdKrw =
+    Number.isFinite(configuredThreshold) && configuredThreshold > 0
+      ? Math.round(configuredThreshold)
+      : PURCHASE_MONTHLY_REVENUE_FLOOR_KRW;
   const priorityByBarcode = new Map(
     input.priorityRows.map((row) => [barcode(row.barcode), row] as const),
   );
@@ -205,7 +214,10 @@ export function buildPurchaseCandidateOmissionReview(
       priority?.purchaseStatus === "발주 추천" && recommendedQuantity > 0,
     );
     const reasons: PurchaseCandidateOmissionReason[] = [];
-    const entryReasons = demandEntryReasons(product);
+    const entryReasons = demandEntryReasons(
+      product,
+      monthlyRevenueThresholdKrw,
+    );
     const recordedSignals = new Set(
       (priority?.entrySignals ?? []).map((value) => text(value).toUpperCase()),
     );
@@ -248,7 +260,13 @@ export function buildPurchaseCandidateOmissionReview(
 
     if (!priority) {
       reasons.push("PURCHASE_SHADOW_ROW_MISSING");
-      blocking ||= recentSales || planningRecommendsOrder(product);
+      // A missing engine row is material only when the product independently
+      // qualifies for purchase entry or Product Master explicitly recommends
+      // it. A single low-volume historical sale must stay visible for review,
+      // but it must not freeze the entire monthly Draft after the purchase
+      // strategy intentionally rejected the product.
+      blocking ||=
+        entryReasons.length > 0 || planningRecommendsOrder(product);
     }
     if (
       priority &&
@@ -270,7 +288,12 @@ export function buildPurchaseCandidateOmissionReview(
       !accountedByDemandEngine
     ) {
       reasons.push("SOLD_OUT_ACTIVE_SALES_NOT_RECOMMENDED");
-      blocking = true;
+      // Keep low-volume sold-out products in the preparation list, while the
+      // actual purchase-entry signals above remain fail-closed. This prevents
+      // 1-2 historical sales from overriding the configurable monthly revenue
+      // strategy and blocking every otherwise valid Draft.
+      blocking ||=
+        entryReasons.length > 0 || planningRecommendsOrder(product);
     }
     if (
       metadata?.shoplingQuantity === 0 &&
