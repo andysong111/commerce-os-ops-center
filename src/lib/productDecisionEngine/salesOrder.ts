@@ -1,5 +1,12 @@
+import {
+  evaluatePurchaseStrategy,
+  type CalendarMonthSales,
+  type PurchaseStrategyEvaluation,
+  type PurchaseStrategyPolicyInput,
+} from "./purchaseStrategyPolicy.ts";
+
 export const SALES_ORDER_RULE_VERSION =
-  "commerce-os-sales-order-v1.2.0-demand-entry-signals";
+  "commerce-os-sales-order-v2.0.0-purchase-strategy";
 
 export const PURCHASE_MONTHLY_REVENUE_FLOOR_KRW = 40_000;
 export const PURCHASE_STOCKOUT_HISTORY_UNIT_FLOOR = 10;
@@ -8,7 +15,11 @@ export const PURCHASE_STOCKOUT_LOOKBACK_BUCKETS = 5;
 export type SalesOrderEntrySignal =
   | "STOCKOUT_DEMAND_RECOVERY"
   | "RECENT_RISING"
-  | "MONTHLY_REVENUE_40000";
+  | "MONTHLY_REVENUE_40000"
+  | "HISTORICAL_REVENUE_THRESHOLD"
+  | "NEW_PRODUCT_PROTECTION"
+  | "HIGH_VALUE_CONSISTENT"
+  | "PERMANENTLY_DISCONTINUED";
 
 export type SalesOrderGroup =
   | "발주 추천"
@@ -35,6 +46,13 @@ export interface SalesOrderInput {
   availableQuantity?: number;
   incomingQuantity?: number;
   ledgerCommitment?: number;
+  calendarMonthlySales?: CalendarMonthSales[];
+  strategyAsOf?: string;
+  strategyPolicy?: PurchaseStrategyPolicyInput;
+  firstSaleAt?: string | null;
+  launchedAt?: string | null;
+  leadTimeDays?: number;
+  permanentlyDiscontinued?: boolean;
 }
 
 export interface SalesOrderResult {
@@ -53,6 +71,9 @@ export interface SalesOrderResult {
   confidence: number;
   entrySignals: SalesOrderEntrySignal[];
   recoveredStockoutDemandUnits: number;
+  weightedClaimRate: number;
+  averageSellingPriceKrw: number;
+  strategy: PurchaseStrategyEvaluation | null;
   reasons: string[];
   missingData: string[];
 }
@@ -225,7 +246,9 @@ export function calculateSalesOrderRecommendation(
             ? 0.5
             : 1;
 
-  const claimMultiplier =
+  const strategyEnabled =
+    Array.isArray(input.calendarMonthlySales) && Boolean(input.strategyAsOf);
+  const legacyClaimMultiplier =
     input.weightedClaimRate >= 20
       ? 0.5
       : input.weightedClaimRate >= 10
@@ -233,6 +256,7 @@ export function calculateSalesOrderRecommendation(
         : input.weightedClaimRate >= 5
           ? 0.85
           : 1;
+  const claimMultiplier = strategyEnabled ? 1 : legacyClaimMultiplier;
 
   const safetyMultiplier = recent90Units > 0 ? 1.1 : 1;
   const normalForecast = Math.max(
@@ -259,7 +283,35 @@ export function calculateSalesOrderRecommendation(
     : recent90Units <= 0
       ? 0
       : Math.min(forecast, Math.max(0, cap));
-  const rawRecommendedQuantity = Math.max(0, Math.ceil(capped));
+  const legacyRawRecommendedQuantity = Math.max(0, Math.ceil(capped));
+  const strategy =
+    strategyEnabled && input.strategyAsOf
+      ? evaluatePurchaseStrategy({
+          monthlySales: input.calendarMonthlySales ?? [],
+          monthlyDemandUnits: Math.max(0, Math.ceil(forecast)),
+          asOf: input.strategyAsOf,
+          policy: input.strategyPolicy,
+          firstSaleAt: input.firstSaleAt,
+          launchedAt: input.launchedAt,
+          recent60DayUnits: recent60Units,
+          weightedClaimRate: input.weightedClaimRate,
+          leadTimeDays: input.leadTimeDays,
+          permanentlyDiscontinued: input.permanentlyDiscontinued,
+        })
+      : null;
+  if (strategy?.history.qualifiedMonthCount) {
+    entrySignals.push("HISTORICAL_REVENUE_THRESHOLD");
+  }
+  if (strategy?.newProduct) entrySignals.push("NEW_PRODUCT_PROTECTION");
+  if (strategy?.highValueConsistentProduct) {
+    entrySignals.push("HIGH_VALUE_CONSISTENT");
+  }
+  if (strategy?.permanentlyDiscontinued) {
+    entrySignals.push("PERMANENTLY_DISCONTINUED");
+  }
+  const rawRecommendedQuantity = strategy
+    ? strategy.grossDemandTarget
+    : legacyRawRecommendedQuantity;
   const recommendedQuantity = roundOrderQuantity(
     rawRecommendedQuantity,
     input.moq,
@@ -305,8 +357,9 @@ export function calculateSalesOrderRecommendation(
   const consistencyScore = Math.round(
     clamp(activeSalesMonths / 12, 0, 1) * 15,
   );
-  const claimScore =
-    input.weightedClaimRate < 3
+  const claimScore = strategy
+    ? 10
+    : input.weightedClaimRate < 3
       ? 10
       : input.weightedClaimRate < 7
         ? 7
@@ -316,17 +369,33 @@ export function calculateSalesOrderRecommendation(
   const salesPowerScore = Math.round(
     clamp(input.salesPowerFactor, 0, 1) * 35,
   );
-  const priorityScore = Math.round(
+  const strategyQualificationScore = strategy
+    ? Math.min(24, strategy.history.qualifiedMonthCount * 2) +
+      (strategy.history.risingStrength === "STRONG"
+        ? 15
+        : strategy.history.risingStrength === "MODERATE"
+          ? 10
+          : strategy.history.risingStrength === "MILD"
+            ? 5
+            : 0) +
+      strategy.priorityScoreAdjustment
+    : 0;
+  const priorityScore = Math.max(0, Math.round(
     (salesPowerScore +
       trendScore +
       consistencyScore +
       claimScore +
       marginScore) *
-      confidence,
-  );
+      confidence +
+      strategyQualificationScore,
+  ));
 
   let group: SalesOrderGroup;
-  if (annualUnits <= 0) group = "데이터 부족";
+  if (strategy?.decision === "DISCONTINUED") group = "발주 보류";
+  else if (strategy && !strategy.recommended) group = "발주 보류";
+  else if (strategy?.recommended && recommendedQuantity > 0) {
+    group = "발주 추천";
+  } else if (annualUnits <= 0) group = "데이터 부족";
   else if (recommendedQuantity <= 0 || input.weightedClaimRate >= 20) {
     group = "발주 보류";
   } else if (entrySignals.length > 0) {
@@ -376,8 +445,13 @@ export function calculateSalesOrderRecommendation(
     reasons.push(`최근 12개 30일 구간 패턴을 ${season}으로 판단했습니다.`);
   }
   if (input.weightedClaimRate >= 5) {
-    reasons.push("클레임 위험을 반영해 권장수량을 감액했습니다.");
+    reasons.push(
+      strategy
+        ? "클레임 위험은 권장수량을 줄이지 않고 우선순위 감점으로만 반영했습니다."
+        : "클레임 위험을 반영해 권장수량을 감액했습니다.",
+    );
   }
+  if (strategy) reasons.push(...strategy.reasons);
 
   return {
     ruleVersion: SALES_ORDER_RULE_VERSION,
@@ -395,7 +469,10 @@ export function calculateSalesOrderRecommendation(
     confidence,
     entrySignals,
     recoveredStockoutDemandUnits,
-    reasons: reasons.slice(0, 4),
+    weightedClaimRate: round(input.weightedClaimRate, 2),
+    averageSellingPriceKrw: Math.round(averageSellPrice),
+    strategy,
+    reasons: [...new Set(reasons)].slice(0, 8),
     missingData,
   };
 }

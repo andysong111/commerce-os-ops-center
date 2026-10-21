@@ -27,6 +27,11 @@ import {
   type PostApplyCanonicalReconciliation,
 } from "@/lib/stage8PostApplyCanonicalReconciliation";
 import { purchaseSalesSourceFresh } from "@/lib/purchaseSalesFreshness";
+import { serializePurchaseStrategyPolicyForFingerprint } from "@/lib/productDecisionEngine/purchaseStrategyPolicy";
+import {
+  loadPurchaseStrategyState,
+  purchaseStrategyPolicyInput,
+} from "@/lib/purchaseStrategyState";
 
 const MANAGED_BARCODE = /^B[A-Z]{2}\d+-\d+$/;
 const BUCKET_COUNT = 12;
@@ -43,7 +48,9 @@ export type CanonicalPurchaseShadow = {
   promotionReady: false;
   businessWritesEnabled: false;
   demandSource: "PRODUCT_MASTER_CANONICAL_SALES_EVENTS";
-  claimSignalMode: "NEUTRAL_SHADOW_ONLY";
+  claimSignalMode: "LIVE_SAME_ANALYSIS" | "UNAVAILABLE_NEUTRAL";
+  purchaseStrategyConfigVersion: number | null;
+  purchaseStrategyPolicySnapshot: string | null;
   analysisAsOf: string | null;
   canonicalAgeMinutes: number | null;
   canonicalFresh: boolean;
@@ -167,7 +174,14 @@ export async function loadCanonicalPurchaseShadow(
   const blockers: CanonicalPurchaseShadowBlocker[] = [];
   const cycle = monthlyPurchaseCycleFor(cycleAsOf);
 
-  const [reconciliation, audit, planning, legacy, budgetRevenueResult] =
+  const [
+    reconciliation,
+    audit,
+    planning,
+    legacy,
+    budgetRevenueResult,
+    strategyStateResult,
+  ] =
     await Promise.all([
       options.reconciliation ?? loadPostApplyCanonicalReconciliation({
         externalRequestTimeoutMs: options.externalRequestTimeoutMs,
@@ -193,7 +207,23 @@ export async function loadCanonicalPurchaseShadow(
               ? error.message
               : "CALENDAR_MONTH_REVENUE_UNAVAILABLE",
         })),
+      loadPurchaseStrategyState()
+        .then((value) => ({ value, error: null as string | null }))
+        .catch((error) => ({
+          value: null,
+          error:
+            error instanceof Error
+              ? error.message
+              : "PURCHASE_STRATEGY_STATE_UNAVAILABLE",
+        })),
     ]);
+
+  if (strategyStateResult.error || !strategyStateResult.value) {
+    blockers.push({
+      key: "purchase-strategy-state",
+      message: `발주 정책 설정을 읽지 못했습니다: ${strategyStateResult.error ?? "UNKNOWN"}`,
+    });
+  }
 
   if (!reconciliation.ready || reconciliation.state !== "READY") {
     blockers.push({
@@ -265,6 +295,37 @@ export async function loadCanonicalPurchaseShadow(
   let planningMismatchBarcodes: string[] = [];
   let commitmentBarcodeCount = 0;
   let recent30Revenue = 0;
+  const strategyState = strategyStateResult.value;
+  const normalizedStrategyPolicy = strategyState
+    ? purchaseStrategyPolicyInput(strategyState.config)
+    : undefined;
+  const purchaseStrategyPolicySnapshot = normalizedStrategyPolicy
+    ? serializePurchaseStrategyPolicyForFingerprint(normalizedStrategyPolicy)
+    : null;
+  const discontinuedBarcodes = new Set(
+    (strategyState?.states ?? [])
+      .filter((row) => row.status === "DISCONTINUED")
+      .map((row) => row.barcode),
+  );
+  const legacySnapshot = legacy.finalSnapshot;
+  const legacyAnalysisAsOf = legacySnapshot?.generatedAt ?? null;
+  const sameAnalysisAsOf = Boolean(
+    analysisAsOf && legacyAnalysisAsOf && analysisAsOf === legacyAnalysisAsOf,
+  );
+  const weightedClaimRateByBarcode = new Map<string, number>();
+  if (sameAnalysisAsOf) {
+    for (const row of legacySnapshot?.products ?? []) {
+      const key = managedBarcode(row.barcode);
+      const rate = Number(row.weightedClaimRate);
+      if (key && Number.isFinite(rate) && rate >= 0) {
+        weightedClaimRateByBarcode.set(key, rate);
+      }
+    }
+  }
+  const claimSignalMode =
+    sameAnalysisAsOf && weightedClaimRateByBarcode.size > 0
+      ? ("LIVE_SAME_ANALYSIS" as const)
+      : ("UNAVAILABLE_NEUTRAL" as const);
 
   if (canonical && analysisAsOf) {
     const built = canonicalAggregate(
@@ -309,48 +370,69 @@ export async function loadCanonicalPurchaseShadow(
         // field. Demand units/revenue buckets remain untouched.
         recent30Revenue: purchaseBudgetMonthRevenue,
       };
-      snapshot = buildLiveProductDecisionSnapshot(
-        `canonical-purchase-shadow:${
-          reconciliation.candidateSalesRequestId ?? analysisAsOf
-        }`,
-        monthlyBudgetAggregate,
-        commitments.commitments,
-      );
-      snapshot = {
-        ...snapshot,
-        notice:
-          "판매수요는 Product Master canonical 12×30일 원장을 사용하고, 상품대금 발주예산은 직전 달력월 정상매출로 고정한 월간 발주안입니다. 클레임 보조신호는 아직 중립값이며 실제 발주 실행은 차단됩니다.",
-        budgetBasis:
-          `${koreanMonthLabel(cycle.budgetMonth)} 1일~말일 정상매출 ` +
-          `${purchaseBudgetMonthRevenue.toLocaleString("ko-KR")}원 ÷ 2 · ` +
-          `배송대행 포함 배수 ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`,
-      };
-      if ((snapshot.products ?? []).length !== exactPlanningMatchCount) {
-        blockers.push({
-          key: "engine-output-coverage",
-          message: `Engine 입력 ${exactPlanningMatchCount}개 · 출력 ${
-            (snapshot.products ?? []).length
-          }개`,
-        });
+      try {
+        snapshot = buildLiveProductDecisionSnapshot(
+          `canonical-purchase-shadow:${
+            reconciliation.candidateSalesRequestId ?? analysisAsOf
+          }`,
+          monthlyBudgetAggregate,
+          commitments.commitments,
+          {
+            policy: normalizedStrategyPolicy,
+            discontinuedBarcodes,
+            weightedClaimRateByBarcode,
+          },
+        );
+        snapshot = {
+          ...snapshot,
+          notice:
+            "판매수요는 Product Master canonical 12×30일 원장을 사용하고, 상품대금 발주예산은 직전 달력월 정상매출로 고정한 월간 발주안입니다. " +
+            (claimSignalMode === "LIVE_SAME_ANALYSIS"
+              ? "같은 분석시점의 클레임률을 우선순위에 반영했습니다."
+              : "같은 분석시점의 클레임률이 없어 중립값으로 계산했습니다."),
+          budgetBasis:
+            `${koreanMonthLabel(cycle.budgetMonth)} 1일~말일 정상매출 ` +
+            `${purchaseBudgetMonthRevenue.toLocaleString("ko-KR")}원 ÷ 2 · ` +
+            `배송대행 포함 배수 ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`,
+        };
+        if ((snapshot.products ?? []).length !== exactPlanningMatchCount) {
+          blockers.push({
+            key: "engine-output-coverage",
+            message: `Engine 입력 ${exactPlanningMatchCount}개 · 출력 ${
+              (snapshot.products ?? []).length
+            }개`,
+          });
+        }
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "PURCHASE_STRATEGY_MONTHLY_HISTORY_INCOMPLETE"
+        ) {
+          snapshot = null;
+          blockers.push({
+            key: "purchase-strategy-history-contract",
+            message:
+              "Product Master가 현재월을 제외한 완료 12개월 발주전략 매출 내역을 완전하게 제공하지 않아 발주 계산을 중단했습니다.",
+          });
+        } else {
+          throw error;
+        }
       }
     }
   }
 
-  const legacySnapshot = legacy.finalSnapshot;
-  const legacyAnalysisAsOf = legacySnapshot?.generatedAt ?? null;
-  const sameAnalysisAsOf = Boolean(
-    analysisAsOf && legacyAnalysisAsOf && analysisAsOf === legacyAnalysisAsOf,
-  );
   const comparison =
     snapshot && legacySnapshot
       ? compareLiveProductDecision(legacySnapshot, snapshot)
       : null;
 
-  blockers.push({
-    key: "claim-auxiliary",
-    message:
-      "클레임/배송건수 보조신호는 아직 canonical demand 경로에 연결하지 않았습니다. Shadow 비교만 허용합니다.",
-  });
+  if (claimSignalMode === "UNAVAILABLE_NEUTRAL") {
+    blockers.push({
+      key: "claim-auxiliary",
+      message:
+        "같은 분석시점의 클레임률을 확인하지 못해 클레임 감점은 중립값으로 계산했습니다.",
+    });
+  }
 
   const structuralBlockers = blockers.filter(
     (row) => row.key !== "claim-auxiliary",
@@ -364,7 +446,9 @@ export async function loadCanonicalPurchaseShadow(
     promotionReady: false,
     businessWritesEnabled: false,
     demandSource: "PRODUCT_MASTER_CANONICAL_SALES_EVENTS",
-    claimSignalMode: "NEUTRAL_SHADOW_ONLY",
+    claimSignalMode,
+    purchaseStrategyConfigVersion: strategyState?.config.version ?? null,
+    purchaseStrategyPolicySnapshot,
     analysisAsOf,
     canonicalAgeMinutes,
     canonicalFresh,

@@ -89,3 +89,11 @@ test("provisional inventory can never become execution-ready from the point esti
   assert.match(page, /PROVISIONAL ≠ VERIFIED/);
   assert.match(page, /PROVISIONAL 한 점 수량만으로 실제 발주 Draft를 실행하지 않습니다/);
 });
+
+test("Stage 8 carries the reversible discontinuation review flag without turning it into an action", () => {
+  assert.match(
+    engine,
+    /discontinuationReviewCandidate:\s*product\.purchaseStrategy\?\.discontinuationReviewCandidate === true/,
+  );
+  assert.doesNotMatch(engine, /discontinuationReviewCandidate[^\n]+action:/);
+});

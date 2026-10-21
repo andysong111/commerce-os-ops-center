@@ -14,6 +14,44 @@ import {
 
 const risingUnits = [120, 80, 60, 50, 40, 30, 20, 20, 20, 20, 20, 20];
 const risingRevenue = Array.from({ length: 12 }, () => 120_000);
+const strategyAsOf = "2026-10-22T00:00:00.000Z";
+const completedStrategyMonths = [
+  "2025-10",
+  "2025-11",
+  "2025-12",
+  "2026-01",
+  "2026-02",
+  "2026-03",
+  "2026-04",
+  "2026-05",
+  "2026-06",
+  "2026-07",
+  "2026-08",
+  "2026-09",
+];
+
+function strategyCalendarSales(revenues, units = 20) {
+  return completedStrategyMonths.map((month, index) => ({
+    month,
+    units: Array.isArray(units) ? units[index] ?? 0 : units,
+    revenue: revenues[index] ?? 0,
+  }));
+}
+
+function strategySalesInput(overrides = {}) {
+  return {
+    monthlyUnits: Array.from({ length: 12 }, () => 20),
+    monthlyRevenue: Array.from({ length: 12 }, () => 120_000),
+    unitCost: 300,
+    weightedClaimRate: 1,
+    salesPowerFactor: 0.8,
+    calendarMonthlySales: strategyCalendarSales(
+      Array.from({ length: 12 }, () => 50_000),
+    ),
+    strategyAsOf,
+    ...overrides,
+  };
+}
 
 test("sales engine preserves the existing on-demand rising-product calculation", () => {
   const result = calculateSalesOrderRecommendation({
@@ -147,6 +185,191 @@ test("claim safety still blocks products that meet demand entry signals", () => 
 
   assert.ok(result.entrySignals.length > 0);
   assert.equal(result.group, "발주 보류");
+});
+
+test("legacy non-strategy claim handling still lowers quantity and priority", () => {
+  const base = {
+    monthlyUnits: Array.from({ length: 12 }, () => 20),
+    monthlyRevenue: Array.from({ length: 12 }, () => 120_000),
+    unitCost: 300,
+    salesPowerFactor: 0.8,
+  };
+  const clean = calculateSalesOrderRecommendation({
+    ...base,
+    weightedClaimRate: 1,
+  });
+  const risky = calculateSalesOrderRecommendation({
+    ...base,
+    weightedClaimRate: 12,
+  });
+
+  assert.equal(clean.strategy, null);
+  assert.equal(risky.strategy, null);
+  assert.ok(risky.rawRecommendedQuantity < clean.rawRecommendedQuantity);
+  assert.ok(risky.priorityScore < clean.priorityScore);
+  assert.ok(risky.reasons.some((reason) => reason.includes("권장수량을 감액")));
+});
+
+test("new strategy turns forecast demand into coverage quantity before net stock subtraction", () => {
+  const product = {
+    barcode: "BSTRATEGY-1",
+    name: "전략 통합 테스트",
+    ...strategySalesInput({
+      calendarMonthlySales: strategyCalendarSales(
+        Array.from({ length: 12 }, () => 150_000),
+      ),
+    }),
+    inventoryKnown: true,
+    availableQuantity: 30,
+    reservedQuantity: 5,
+    incomingQuantity: 20,
+    ledgerCommitment: 30,
+    moq: 10,
+    cartonQuantity: 12,
+  };
+
+  const demand = calculateProductDemand(product);
+
+  assert.equal(demand.sales.forecastUnits, 22);
+  assert.equal(demand.sales.strategy.history.qualificationLabel, "12/12");
+  assert.equal(demand.sales.strategy.automaticCoverageMonths, 4);
+  assert.equal(demand.sales.rawRecommendedQuantity, 88);
+  assert.equal(demand.sales.recommendedQuantity, 96);
+  assert.equal(demand.netRequirement.demandTarget, 88);
+  assert.equal(demand.netRequirement.estimatedStock, 25);
+  assert.equal(demand.netRequirement.incomingSnapshot, 20);
+  assert.equal(demand.netRequirement.ledgerCommitment, 30);
+  assert.equal(demand.netRequirement.openCommitment, 30);
+  assert.equal(demand.netRequirement.securedQuantity, 55);
+  assert.equal(demand.netRequirement.netRequiredRaw, 33);
+  assert.equal(demand.netRequirement.recommendedQuantity, 36);
+  assert.equal(demand.netRequirement.group, "발주 추천");
+});
+
+test("confirmed stock and open commitment can fully cover a strategy demand target", () => {
+  const demand = calculateProductDemand({
+    barcode: "BSTRATEGY-2",
+    name: "전략 재고충족 테스트",
+    ...strategySalesInput({
+      calendarMonthlySales: strategyCalendarSales(
+        Array.from({ length: 12 }, () => 150_000),
+      ),
+    }),
+    inventoryKnown: true,
+    availableQuantity: 60,
+    reservedQuantity: 0,
+    incomingQuantity: 28,
+    ledgerCommitment: 20,
+  });
+
+  assert.equal(demand.sales.rawRecommendedQuantity, 88);
+  assert.equal(demand.netRequirement.openCommitment, 28);
+  assert.equal(demand.netRequirement.securedQuantity, 88);
+  assert.equal(demand.netRequirement.recommendedQuantity, 0);
+  assert.equal(demand.netRequirement.group, "발주 보류");
+});
+
+test("completed-month consistency, rising strength and high value raise strategy quantity and priority", () => {
+  const ordinary = calculateSalesOrderRecommendation(
+    strategySalesInput({
+      calendarMonthlySales: strategyCalendarSales([
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40_000,
+      ]),
+    }),
+  );
+  const rising = calculateSalesOrderRecommendation(
+    strategySalesInput({
+      calendarMonthlySales: strategyCalendarSales([
+        0, 0, 0, 0, 0, 0, 10_000, 10_000, 10_000, 60_000, 60_000, 60_000,
+      ]),
+    }),
+  );
+  const highValueHero = calculateSalesOrderRecommendation(
+    strategySalesInput({
+      calendarMonthlySales: strategyCalendarSales(
+        Array.from({ length: 12 }, () => 300_000),
+        10,
+      ),
+    }),
+  );
+
+  assert.equal(ordinary.strategy.history.qualificationLabel, "1/12");
+  assert.equal(ordinary.strategy.history.risingStrength, "NONE");
+  assert.equal(ordinary.strategy.automaticCoverageMonths, 1.5);
+  assert.equal(ordinary.rawRecommendedQuantity, 33);
+
+  assert.equal(rising.strategy.history.risingStrength, "STRONG");
+  assert.equal(rising.strategy.automaticCoverageMonths, 4);
+  assert.equal(rising.rawRecommendedQuantity, 88);
+  assert.ok(rising.priorityScore > ordinary.priorityScore);
+
+  assert.equal(highValueHero.strategy.history.qualificationLabel, "12/12");
+  assert.equal(highValueHero.strategy.highValueConsistentProduct, true);
+  assert.equal(highValueHero.strategy.highValueConsistentBonusPoints, 10);
+  assert.equal(highValueHero.rawRecommendedQuantity, 88);
+  assert.ok(highValueHero.priorityScore > rising.priorityScore);
+});
+
+test("claim penalty lowers only integrated strategy priority without shrinking quantity", () => {
+  const calendarMonthlySales = strategyCalendarSales(
+    Array.from({ length: 12 }, () => 300_000),
+    10,
+  );
+  const clean = calculateSalesOrderRecommendation(
+    strategySalesInput({ calendarMonthlySales, weightedClaimRate: 1 }),
+  );
+  const risky = calculateSalesOrderRecommendation(
+    strategySalesInput({ calendarMonthlySales, weightedClaimRate: 12 }),
+  );
+
+  assert.equal(clean.strategy.highValueConsistentBonusPoints, 10);
+  assert.equal(clean.strategy.claimPenaltyPoints, 0);
+  assert.equal(risky.strategy.highValueConsistentBonusPoints, 10);
+  assert.equal(risky.strategy.claimPenaltyPoints, 20);
+  assert.equal(risky.rawRecommendedQuantity, clean.rawRecommendedQuantity);
+  assert.ok(risky.priorityScore < clean.priorityScore);
+  assert.equal(clean.priorityScore - risky.priorityScore, 20);
+  assert.equal(risky.weightedClaimRate, 12);
+  assert.ok(
+    risky.reasons.some((reason) =>
+      reason.includes("우선순위 감점으로만 반영"),
+    ),
+  );
+});
+
+test("adjusted revenue threshold controls integrated strategy eligibility", () => {
+  const accepted = calculateSalesOrderRecommendation(strategySalesInput());
+  const held = calculateSalesOrderRecommendation(
+    strategySalesInput({
+      strategyPolicy: { monthlyRevenueThresholdKrw: 60_000 },
+    }),
+  );
+
+  assert.equal(accepted.strategy.history.qualificationLabel, "12/12");
+  assert.equal(accepted.group, "발주 추천");
+  assert.equal(held.strategy.history.qualificationLabel, "0/12");
+  assert.equal(held.strategy.recommended, false);
+  assert.equal(held.rawRecommendedQuantity, 0);
+  assert.equal(held.group, "발주 보류");
+});
+
+test("permanent discontinuation overrides strong sales, rising and new-product protection", () => {
+  const result = calculateSalesOrderRecommendation(
+    strategySalesInput({
+      calendarMonthlySales: strategyCalendarSales(
+        Array.from({ length: 12 }, () => 300_000),
+      ),
+      firstSaleAt: "2026-01-01T00:00:00.000Z",
+      permanentlyDiscontinued: true,
+    }),
+  );
+
+  assert.equal(result.strategy.decision, "DISCONTINUED");
+  assert.equal(result.strategy.permanentlyDiscontinued, true);
+  assert.equal(result.rawRecommendedQuantity, 0);
+  assert.equal(result.recommendedQuantity, 0);
+  assert.equal(result.group, "발주 보류");
+  assert.ok(result.entrySignals.includes("PERMANENTLY_DISCONTINUED"));
 });
 
 test("net requirement subtracts confirmed stock and the larger single incoming ledger value", () => {

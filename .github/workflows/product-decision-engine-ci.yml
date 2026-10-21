@@ -17,6 +17,7 @@ on:
       - "src/components/china-order-manager/**"
       - "public/shopling-stock-state-sync/**"
       - "tests/productDecisionEngine.test.mjs"
+      - "tests/purchaseStrategyPolicy.test.mjs"
       - "tests/productDecisionShadow*.test.mjs"
       - "tests/fastPurchaseCashEnvelope.test.mjs"
       - "tests/purchaseV2.test.mjs"
@@ -65,6 +66,7 @@ jobs:
           src/components/china-order-manager/FinalizedPurchaseRecommendationBanner.tsx
           src/components/china-order-manager/ChinaOrderManagerNav.tsx
           tests/productDecisionEngine.test.mjs
+          tests/purchaseStrategyPolicy.test.mjs
           tests/productDecisionShadow*.test.mjs
           tests/fastPurchaseCashEnvelope.test.mjs
           tests/purchaseV2.test.mjs
@@ -74,6 +76,7 @@ jobs:
         run: >-
           node --experimental-strip-types --test
           tests/productDecisionEngine.test.mjs
+          tests/purchaseStrategyPolicy.test.mjs
           tests/productDecisionShadow*.test.mjs
           tests/fastPurchaseCashEnvelope.test.mjs
           tests/purchaseV2.test.mjs

@@ -1,3 +1,5 @@
+import type { PurchaseStrategyEvaluation } from "@/lib/productDecisionEngine/purchaseStrategyPolicy";
+
 export const VERIFIED_PRODUCT_DECISION_BACKUP = {
   zipSha256: "81968ab38e3ab177c7e8cb3aff9e95554752ab4ee7257854e8feaf6a89c808ba",
   dashboardSha256: "cf7892ab0776a3de126afecccf29917f4315c8fc66240dd156ce8c9ecf697a9e",
@@ -50,6 +52,9 @@ export type ProductDecisionRow = {
   inventoryKnown?: boolean;
   entrySignals?: string[];
   recoveredStockoutDemandUnits?: number;
+  weightedClaimRate?: number;
+  averageSellingPriceKrw?: number;
+  purchaseStrategy?: PurchaseStrategyEvaluation | null;
   score?: ProductDecisionScore;
 };
 

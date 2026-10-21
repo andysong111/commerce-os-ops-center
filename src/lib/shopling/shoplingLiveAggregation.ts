@@ -1,6 +1,11 @@
 import { calculateProductDecisionPlan } from "@/lib/productDecisionEngine";
 import type { ProductDecisionSnapshot } from "@/lib/productDecisionSnapshot";
 import {
+  normalizeCompletedCalendarMonthSales,
+  type CalendarMonthSales,
+  type PurchaseStrategyPolicyInput,
+} from "@/lib/productDecisionEngine/purchaseStrategyPolicy";
+import {
   normalizeShoplingClaim,
   normalizeShoplingOrder,
   normalizeShoplingBarcode,
@@ -40,6 +45,10 @@ export type PlanningProduct = {
   inventoryRequiresReview?: boolean;
   lastSaleAt?: string | null;
   salesMonthly?: unknown;
+  purchaseStrategyMonthly?: unknown;
+  firstSalesMonth?: string | null;
+  launchedAt?: string | null;
+  leadTimeDays?: number | null;
   salesQuantity30?: number | null;
   salesQuantity90?: number | null;
   salesQuantity365?: number | null;
@@ -112,6 +121,12 @@ export type ShoplingLiveAggregate = {
   }>;
 };
 
+export type PurchaseStrategyRuntimeContext = {
+  policy?: PurchaseStrategyPolicyInput;
+  discontinuedBarcodes?: ReadonlySet<string>;
+  weightedClaimRateByBarcode?: ReadonlyMap<string, number>;
+};
+
 type ListingIdentity = {
   barcode: string;
   unitsPerOrder: number;
@@ -136,6 +151,50 @@ function text(value: unknown) {
 function quantity(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+}
+
+export function planningCalendarMonthlySales(value: unknown): CalendarMonthSales[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("PURCHASE_STRATEGY_MONTHLY_SALES_INVALID");
+    }
+    const row = item as Record<string, unknown>;
+    return {
+      month: text(row.month),
+      units: quantity(row.quantity ?? row.units),
+      revenue: quantity(row.revenue),
+    };
+  });
+}
+
+export function planningCompletedCalendarMonthlySales(
+  value: unknown,
+  asOf: string,
+) {
+  const rows = planningCalendarMonthlySales(value);
+  const expected = normalizeCompletedCalendarMonthSales(rows, asOf);
+  const suppliedMonths = new Set(rows.map((row) => row.month));
+  if (
+    rows.length !== 12 ||
+    suppliedMonths.size !== 12 ||
+    expected.some((row) => !suppliedMonths.has(row.month))
+  ) {
+    throw new Error("PURCHASE_STRATEGY_MONTHLY_HISTORY_INCOMPLETE");
+  }
+  return expected;
+}
+
+function firstSalesDate(product: PlanningProduct, rows: CalendarMonthSales[]) {
+  const explicit = text(product.firstSalesMonth);
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(explicit)) return `${explicit}-01`;
+  const launchedAt = text(product.launchedAt);
+  if (launchedAt && Number.isFinite(Date.parse(launchedAt))) return launchedAt;
+  // A rolling one-year payload cannot prove that its oldest positive month is
+  // the product's first-ever sale. Unknown launch dates therefore stay
+  // unprotected instead of incorrectly labeling established products NEW.
+  void rows;
+  return null;
 }
 
 function decimal(value: unknown) {
@@ -601,6 +660,7 @@ export function buildLiveProductDecisionSnapshot(
   requestId: string,
   aggregate: ShoplingLiveAggregate,
   commitments: Map<string, number>,
+  strategyContext: PurchaseStrategyRuntimeContext = {},
 ): ProductDecisionSnapshot {
   const quantity90 = new Map<string, number>();
   const revenue90 = new Map<string, number>();
@@ -630,12 +690,20 @@ export function buildLiveProductDecisionSnapshot(
     const rawClaimRate = shippedOrders
       ? (weightedClaims / shippedOrders) * 100
       : 0;
-    const weightedClaimRate =
+    const calculatedWeightedClaimRate =
       shippedOrders < 20
         ? ((weightedClaims + (portfolioClaimRate / 100) * 20) /
             (shippedOrders + 20)) *
           100
         : rawClaimRate;
+    const weightedClaimRate = Math.max(
+      0,
+      Number(
+        strategyContext.weightedClaimRateByBarcode?.get(
+          product.planning.barcode,
+        ) ?? calculatedWeightedClaimRate,
+      ) || 0,
+    );
     const storedCost = quantity(product.planning.latestCostKrw);
     const unitCost =
       storedCost > 0
@@ -646,6 +714,10 @@ export function buildLiveProductDecisionSnapshot(
     const inventoryKnown = Boolean(
       product.planning.inventoryConfirmed &&
         !product.planning.inventoryRequiresReview,
+    );
+    const calendarMonthlySales = planningCompletedCalendarMonthlySales(
+      product.planning.purchaseStrategyMonthly,
+      aggregate.analysisAsOf,
     );
     return {
       barcode: product.planning.barcode,
@@ -672,6 +744,16 @@ export function buildLiveProductDecisionSnapshot(
       ledgerCommitment: quantity(
         commitments.get(product.planning.barcode),
       ),
+      calendarMonthlySales,
+      strategyAsOf: aggregate.analysisAsOf,
+      strategyPolicy: strategyContext.policy,
+      firstSaleAt: firstSalesDate(product.planning, calendarMonthlySales),
+      launchedAt: product.planning.launchedAt ?? null,
+      leadTimeDays: quantity(product.planning.leadTimeDays),
+      permanentlyDiscontinued:
+        strategyContext.discontinuedBarcodes?.has(
+          product.planning.barcode,
+        ) === true,
     };
   });
 
@@ -717,6 +799,9 @@ export function buildLiveProductDecisionSnapshot(
         inventoryKnown: row.netRequirement.inventoryKnown,
         entrySignals: row.sales.entrySignals,
         recoveredStockoutDemandUnits: row.sales.recoveredStockoutDemandUnits,
+        weightedClaimRate: row.sales.weightedClaimRate,
+        averageSellingPriceKrw: row.sales.averageSellingPriceKrw,
+        purchaseStrategy: row.sales.strategy,
         score: { total: row.sales.priorityScore },
       }))
       .sort(

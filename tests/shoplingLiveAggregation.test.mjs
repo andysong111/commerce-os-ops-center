@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
 async function loadAggregation() {
-  const testDirectory = dirname(new URL(import.meta.url).pathname);
+  const testDirectory = dirname(fileURLToPath(import.meta.url));
   const directory = await mkdtemp(join(testDirectory, ".shopling-aggregation-"));
   const sourcePath = new URL(
     "../src/lib/shopling/shoplingLiveAggregation.ts",
@@ -18,6 +18,15 @@ async function loadAggregation() {
       'from "@/lib/productDecisionEngine"',
       `from ${JSON.stringify(
         new URL("../src/lib/productDecisionEngine/index.ts", import.meta.url).href,
+      )}`,
+    )
+    .replace(
+      'from "@/lib/productDecisionEngine/purchaseStrategyPolicy"',
+      `from ${JSON.stringify(
+        new URL(
+          "../src/lib/productDecisionEngine/purchaseStrategyPolicy.ts",
+          import.meta.url,
+        ).href,
       )}`,
     )
     .replace(
@@ -61,9 +70,27 @@ const {
   buildProductPlanningIndex,
   buildLiveProductDecisionSnapshot,
   combineShoplingLiveChunks,
+  planningCompletedCalendarMonthlySales,
 } = aggregation;
 
 const AS_OF = "2026-08-05T15:00:00.000Z";
+
+function completedStrategyMonthly() {
+  return [
+    "2025-08",
+    "2025-09",
+    "2025-10",
+    "2025-11",
+    "2025-12",
+    "2026-01",
+    "2026-02",
+    "2026-03",
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07",
+  ].map((month) => ({ month, quantity: 10, revenue: 50_000 }));
+}
 
 function planning() {
   return {
@@ -80,6 +107,8 @@ function planning() {
         latestCostKrw: 500,
         inventoryQuantity: 10,
         inventoryConfirmed: true,
+        firstSalesMonth: "2024-01",
+        purchaseStrategyMonthly: completedStrategyMonthly(),
         listings: [
           {
             optionId: "O1",
@@ -100,6 +129,8 @@ function planning() {
         latestCostKrw: 300,
         inventoryQuantity: 0,
         inventoryConfirmed: false,
+        firstSalesMonth: "2026-04",
+        purchaseStrategyMonthly: completedStrategyMonthly(),
         listings: [
           {
             optionId: "O2",
@@ -112,6 +143,29 @@ function planning() {
     ],
   };
 }
+
+test("purchase strategy history requires the exact 12 completed Korean calendar months", () => {
+  assert.equal(
+    planningCompletedCalendarMonthlySales(completedStrategyMonthly(), AS_OF)
+      .length,
+    12,
+  );
+  assert.throws(
+    () => planningCompletedCalendarMonthlySales(undefined, AS_OF),
+    /PURCHASE_STRATEGY_MONTHLY_HISTORY_INCOMPLETE/,
+  );
+  assert.throws(
+    () =>
+      planningCompletedCalendarMonthlySales(
+        [
+          ...completedStrategyMonthly().slice(1),
+          { month: "2026-08", quantity: 999, revenue: 9_999_000 },
+        ],
+        AS_OF,
+      ),
+    /PURCHASE_STRATEGY_MONTHLY_HISTORY_INCOMPLETE/,
+  );
+});
 
 test("order aggregation maps option IDs, expands set quantities and counts one shipped order per barcode", () => {
   const chunk = aggregateShoplingOrderChunk(
