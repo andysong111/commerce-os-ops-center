@@ -116,11 +116,61 @@ test("a Product Master recommendation missing from purchase candidates blocks th
   assert.ok(rows[0].reasons.includes("CHINA_OPTION_MISSING"));
 });
 
-test("recent sales missing from the purchase shadow cannot disappear silently", () => {
-  const rows = audit({ rows: [] });
+test("strategy-qualified recent sales missing from the purchase shadow cannot disappear silently", () => {
+  const rows = audit({
+    products: [planning({ salesRevenue30: 40_000 })],
+    rows: [],
+  });
 
   assert.equal(rows[0].severity, "BLOCKING");
   assert.ok(rows[0].reasons.includes("PURCHASE_SHADOW_ROW_MISSING"));
+  assert.ok(rows[0].reasons.includes("MONTHLY_REVENUE_40000_ELIGIBLE"));
+});
+
+test("low-volume sales with zero stock stay visible without blocking the monthly draft", () => {
+  const rows = audit({
+    products: [planning({
+      inventoryQuantity: 0,
+      salesQuantity30: 0,
+      salesQuantity90: 2,
+      salesQuantity365: 14,
+      salesRevenue30: 0,
+      salesRevenue90: 10_000,
+      salesRevenue365: 35_000,
+    })],
+    rows: [priority({ inventoryQuantity: 0 })],
+    inventory: [["BCA5-1", { inventoryQuantity: 0 }]],
+    sources: [["BCA5-1", metadata({ shoplingQuantity: 0 })]],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].severity, "PREPARATION");
+  assert.deepEqual(rows[0].reasons, ["SOLD_OUT_ACTIVE_SALES_NOT_RECOMMENDED"]);
+  assert.equal(rows[0].recommendedQuantity, 0);
+});
+
+test("a low-volume product missing from the shadow is review-only until it qualifies", () => {
+  const rows = audit({
+    products: [planning({
+      inventoryQuantity: 0,
+      salesQuantity30: 0,
+      salesQuantity90: 1,
+      salesQuantity365: 16,
+      salesRevenue30: 0,
+      salesRevenue90: 5_000,
+      salesRevenue365: 30_000,
+    })],
+    rows: [],
+    inventory: [["BCA5-1", { inventoryQuantity: 0 }]],
+    sources: [["BCA5-1", metadata({ shoplingQuantity: 25 })]],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].severity, "PREPARATION");
+  assert.deepEqual(rows[0].reasons, [
+    "PURCHASE_SHADOW_ROW_MISSING",
+    "SOLD_OUT_ACTIVE_SALES_NOT_RECOMMENDED",
+  ]);
 });
 
 test("missing source preparation stays visible without inventing an order", () => {

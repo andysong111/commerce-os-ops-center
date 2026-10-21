@@ -248,7 +248,13 @@ export function buildPurchaseCandidateOmissionReview(
 
     if (!priority) {
       reasons.push("PURCHASE_SHADOW_ROW_MISSING");
-      blocking ||= recentSales || planningRecommendsOrder(product);
+      // A missing engine row is material only when the product independently
+      // qualifies for purchase entry or Product Master explicitly recommends
+      // it. A single low-volume historical sale must stay visible for review,
+      // but it must not freeze the entire monthly Draft after the purchase
+      // strategy intentionally rejected the product.
+      blocking ||=
+        entryReasons.length > 0 || planningRecommendsOrder(product);
     }
     if (
       priority &&
@@ -270,7 +276,12 @@ export function buildPurchaseCandidateOmissionReview(
       !accountedByDemandEngine
     ) {
       reasons.push("SOLD_OUT_ACTIVE_SALES_NOT_RECOMMENDED");
-      blocking = true;
+      // Keep low-volume sold-out products in the preparation list, while the
+      // actual purchase-entry signals above remain fail-closed. This prevents
+      // 1-2 historical sales from overriding the configurable monthly revenue
+      // strategy and blocking every otherwise valid Draft.
+      blocking ||=
+        entryReasons.length > 0 || planningRecommendsOrder(product);
     }
     if (
       metadata?.shoplingQuantity === 0 &&

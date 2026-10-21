@@ -784,3 +784,12 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - The China order ledger reduces quantity events by source-line identity and intentionally keeps the highest requested quantity within one lifecycle. Reusing an older Draft identity therefore caused two preserved rows to retain historical quantities two units above the current calculation, displaying 4,109 units instead of the newly reserved 4,105 units.
 - Payload evidence is still carried forward, but quantity history is isolated between Drafts. A lower or higher recalculated quantity can therefore take effect exactly in the new monthly Draft.
 - No 1688 order, payment, supplier contact, or ORDERED transition is performed by regeneration.
+
+---
+
+## 33. Strategy-qualified omission blocking (2026-10-22)
+
+- The omission audit no longer freezes the whole monthly Draft merely because an active zero-stock SKU sold one or two units in the recent 90-day window.
+- Low-volume sold-out products remain visible as next-purchase preparation rows. They become blocking only when an independent purchase-entry signal qualifies them: stockout-demand recovery, Rising, the configured monthly-revenue strategy, a Product Master purchase recommendation, or another canonical engine signal.
+- A strategy-qualified product missing from the purchase shadow, a Product Master recommendation omitted from the engine, and an inventory quantity conflict that the engine did not account for remain fail-closed.
+- This correction aligns the audit with the owner's monthly strategy instead of allowing the older recent-sale heuristic to override it. It does not create a Draft, place a 1688 order, make a payment, or contact a supplier.
