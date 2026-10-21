@@ -148,14 +148,11 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       chinaOrderCommitmentCycleMonth(row) === input.cycleMonth,
   );
   const targetRows = cycleRows.filter((row) => row.sourceRunId === draftId);
-  const previousRows = cycleRows.filter(
-    (row) => row.sourceRunId === input.expectedDraftId,
-  );
+  const activeCycleRows = cycleRows.filter((row) => row.openQuantity > 0);
   if (
     targetRows.length > 0 &&
     targetRows.every((row) => row.openQuantity > 0) &&
-    previousRows.length > 0 &&
-    previousRows.every((row) => row.openQuantity === 0)
+    activeCycleRows.every((row) => row.sourceRunId === draftId)
   ) {
     return {
       draft: {
@@ -174,7 +171,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         externalOrderExecuted: false,
       },
       previousDraftId: input.expectedDraftId,
-      supersededLineCount: previousRows.length,
+      supersededLineCount: 0,
       externalOrderExecuted: false,
     };
   }
@@ -184,6 +181,11 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     input.expectedDraftId,
   );
   const previousByBarcode = new Map(activeRows.map((row) => [row.barcode, row] as const));
+  for (const row of activeRows) {
+    if (object(row.latestPayload).sourcingConfirmed === true) {
+      previousByBarcode.set(row.barcode, row);
+    }
+  }
   const preservedSourcingBarcodes = new Set(
     lines
       .filter((line) => object(previousByBarcode.get(line.barcode)?.latestPayload).sourcingConfirmed === true)
@@ -214,7 +216,6 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
 
   const createdAt = new Date().toISOString();
   const cancelEvents = activeRows
-    .filter((row) => !preservedSourcingBarcodes.has(row.barcode))
     .map((row) =>
     normalizeChinaOrderCommitmentEvent({
       sourceSystem: row.sourceSystem,

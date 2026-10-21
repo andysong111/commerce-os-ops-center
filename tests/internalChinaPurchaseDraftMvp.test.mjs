@@ -19,7 +19,7 @@ const [engine, workspace, route, page, manager, fastActions, trackerMetadata] =
       "src/components/fast-purchase-mvp/FastPurchaseDraftActions.tsx",
       "utf8",
     ),
-    readFile("src/lib/productLaunchPurchaseMetadata.ts", "utf8"),
+    readFile("src/lib/productLaunchPurchaseMetadataCore.ts", "utf8"),
   ]);
 
 test("internal China draft starts from the existing fast-purchase RESERVED ledger", () => {

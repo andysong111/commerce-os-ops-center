@@ -507,7 +507,7 @@ const commitment = (patch = {}) => ({
   ...patch,
 });
 
-test("only one unchanged RESERVED draft can be regenerated", () => {
+test("all unchanged same-cycle RESERVED drafts can be consolidated during regeneration", () => {
   const expected = "fast-purchase-draft:68b2aa56a8a0ac018141";
   assert.equal(
     assertDraftCanBeRegenerated([commitment()], expected).length,
@@ -521,12 +521,18 @@ test("only one unchanged RESERVED draft can be regenerated", () => {
       ),
     /PURCHASE_DRAFT_REGENERATION_ALREADY_PROGRESSING/,
   );
+  assert.equal(
+    assertDraftCanBeRegenerated(
+      [commitment(), commitment({ sourceRunId: "fast-purchase-draft:11111111111111111111", barcode: "BAC1-2" })],
+      expected,
+    ).length,
+    2,
+  );
   assert.throws(
-    () =>
-      assertDraftCanBeRegenerated(
-        [commitment(), commitment({ sourceRunId: "fast-purchase-draft:11111111111111111111", barcode: "BAC1-2" })],
-        expected,
-      ),
+    () => assertDraftCanBeRegenerated(
+      [commitment({ sourceRunId: "fast-purchase-draft:11111111111111111111" })],
+      expected,
+    ),
     /PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED/,
   );
 });
@@ -627,6 +633,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(regeneration, /status: "CANCELLED"/);
   assert.match(regeneration, /status: "RESERVED"/);
   assert.match(regeneration, /preservedSourcingBarcodes/);
+  assert.doesNotMatch(regeneration, /filter\(\(row\) => !preservedSourcingBarcodes\.has\(row\.barcode\)\)/);
   assert.match(regeneration, /sourceLineId: `\$\{draftId\}:\$\{line\.barcode\}`/);
   assert.doesNotMatch(regeneration, /sourceLineId: previous\.sourceLineId/);
   assert.match(regeneration, /\.\.\.preservedPayload/);
