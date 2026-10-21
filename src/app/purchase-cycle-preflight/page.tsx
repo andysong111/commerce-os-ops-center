@@ -6,6 +6,7 @@ import { NewProductConfigurationCalculateButton } from "@/components/purchase-cy
 import { PurchasePreflightForm } from "@/components/purchase-cycle-preflight/PurchasePreflightForm";
 import { SourcingCandidateSelectionForm } from "@/components/purchase-cycle-preflight/SourcingCandidateSelectionForm";
 import { PurchasePreparationScheduleControl } from "@/components/purchase-cycle-preflight/PurchasePreparationScheduleControl";
+import { PurchaseStrategyControls } from "@/components/purchase-cycle-preflight/PurchaseStrategyControls";
 import { ManualProductIntakeForm } from "@/components/sourcing-center/ManualProductIntakeForm";
 import { loadPurchaseCyclePreflightPreview } from "@/lib/purchaseCyclePreflightPreview";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
@@ -108,6 +109,8 @@ const reasonLabels: Record<string, string> = {
   "UPSTREAM:claim-auxiliary": "클레임·배송 보조신호 연결이 남아 있어 실제 실행 판단으로 승격하지 않습니다.",
   "UPSTREAM:purchase-candidate-omission-metadata-unavailable": "누락 검토에 필요한 1688 링크·옵션·샵플링 재고 근거를 읽지 못했습니다.",
   "UPSTREAM:purchase-candidate-omission-review-required": "판매 이력이 있는 활성 상품의 발주 누락·재고 충돌 검토가 남았습니다.",
+  "UPSTREAM:purchase-strategy-state": "발주 정책 설정 또는 영구 단종 목록을 읽지 못해 새 기준 계산을 중단했습니다.",
+  "UPSTREAM:purchase-strategy-history-contract": "Product Master의 완료 12개월 매출 이력이 아직 준비되지 않아 새 발주 기준 계산을 중단했습니다.",
 };
 const sourcingReasonLabels: Record<string, string> = {
   SOURCING_CONTEXT_UNAVAILABLE: "소싱 월 예산·창고 원장을 읽지 못했습니다.",
@@ -154,6 +157,12 @@ const costBasisLabel = (row: PurchaseCyclePreflightReport["selected"][number]) =
     return `유사상품 ${row.costReferenceModelNo ?? "미확인"} 참고 추정 ${money(row.estimatedUnitCostKrw)}/개`;
   }
   return `사용자 제공 추정 ${money(row.estimatedUnitCostKrw)}/개`;
+};
+const risingLabel = (strength: PurchaseCyclePreflightReport["selected"][number]["risingStrength"]) => {
+  if (strength === "STRONG") return "Rising 강";
+  if (strength === "MODERATE") return "Rising 중";
+  if (strength === "MILD") return "Rising 약";
+  return null;
 };
 
 export default async function PurchaseCyclePreflightPage({ searchParams }: {
@@ -502,6 +511,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         <strong>이 화면은 계산과 내부 Draft 준비까지만 합니다.</strong>
         <span className="ml-2">자동 주문·결제는 없으며, 실제 발주는 별도 확인 뒤 진행합니다.</span>
       </section>
+      <PurchaseStrategyControls />
       <PurchasePreparationScheduleControl targetDate={targetDate} />
       <section aria-labelledby="preflight-input-title">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
@@ -748,6 +758,40 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             </section>
           ) : null}
 
+          {report.discontinuationReviewCandidates.length > 0 ? (
+            <section className="border-y border-violet-200 bg-violet-50 py-5">
+              <p className="text-xs font-black text-violet-700">단종 검토 후보 · 읽기 전용</p>
+              <h3 className="mt-1 text-lg font-black text-slate-950">
+                신규 보호가 끝나고 최근 완료 12개월 매출 기준을 한 번도 넘지 못한 상품 {report.discontinuationReviewCandidates.length}종
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                Rising 신호가 없는 상품만 표시합니다. 이 표는 영구 제외나 자동 삭제를 실행하지 않고, 선정·제외 및 발주수량 계산도 바꾸지 않습니다.
+              </p>
+              <div className="mt-4 max-w-full overflow-x-auto">
+                <table className="w-full min-w-[680px] text-left text-sm">
+                  <thead className="bg-white/70">
+                    <tr>
+                      <th className="p-2">B코드</th>
+                      <th className="p-2">상품명</th>
+                      <th className="p-2">12개월 매출 기준</th>
+                      <th className="p-2">현재 재고</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.discontinuationReviewCandidates.map((row) => (
+                      <tr key={row.barcode} className="border-t border-violet-200">
+                        <td className="p-2 font-mono font-bold">{row.barcode}</td>
+                        <td className="p-2">{row.name || "상품명 미확인"}</td>
+                        <td className="p-2">{row.revenueQualificationLabel || `${row.revenueQualifiedMonthCount}/12`}</td>
+                        <td className="p-2">{row.inventoryQuantity.toLocaleString("ko-KR")}개</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
+
           <section className="min-w-0 border-y border-slate-200 bg-white">
             <article className="min-w-0 py-5">
               <p className="text-xs font-black text-blue-700">기존상품 재발주</p>
@@ -757,7 +801,100 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               {!report.selected.length ? <p className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm">현재 확정 가능한 품목이 없습니다. 재고를 0으로 가정하거나 차단을 우회하지 않습니다.</p> : null}
               <details className="mt-4 min-w-0 text-sm">
                 <summary className="cursor-pointer font-bold text-blue-800">선정 품목 {report.selected.length}종 보기</summary>
-                <div className="mt-3 max-w-full overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">B코드·모델·상품</th><th className="p-2">우선순위</th><th className="p-2">권장 → 현금반영</th><th className="p-2">예상금액</th><th className="p-2">원가 근거</th><th className="p-2">계획재고</th><th className="p-2">미입고</th></tr></thead><tbody>{report.selected.map(row => <tr key={row.barcode} className="border-t"><td className="p-2">{row.barcode}{row.costModelNo ? ` · ${row.costModelNo}` : ""} · {row.name}</td><td className="p-2">{row.cashflowTier === "CORE" ? "핵심" : row.cashflowTier === "SUPPORT" ? "안정" : row.cashflowTier === "CANARY" ? "최소" : "자동"} · {row.priorityScore}점</td><td className="p-2 font-bold">{row.originalRecommendedQuantity} → {row.quantity}{row.cashAdjusted ? " (감축)" : ""}</td><td className="p-2">{money(row.estimatedCostKrw)}</td><td className="p-2">{costBasisLabel(row)}</td><td className="p-2">{row.inventoryQuantity} · {row.inventoryMode === "VERIFIED" ? "확인" : "추정"}</td><td className="p-2">{row.openCommitment}</td></tr>)}</tbody></table></div>
+                <div className="mt-3 max-w-full overflow-x-auto">
+                  <table className="w-full min-w-[1320px] text-left text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="p-2">B코드·모델·상품</th>
+                        <th className="p-2">12개월 매출·상태</th>
+                        <th className="p-2">목표 재고</th>
+                        <th className="p-2">우선순위</th>
+                        <th className="p-2">가점·감점</th>
+                        <th className="p-2">권장 → 현금반영</th>
+                        <th className="p-2">예상금액</th>
+                        <th className="p-2">원가 근거</th>
+                        <th className="p-2">계획재고</th>
+                        <th className="p-2">미입고</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.selected.map((row) => {
+                        const rising = risingLabel(row.risingStrength);
+                        return (
+                          <tr key={row.barcode} className="border-t align-top">
+                            <td className="p-2">
+                              {row.barcode}
+                              {row.costModelNo ? ` · ${row.costModelNo}` : ""} · {row.name}
+                            </td>
+                            <td className="p-2">
+                              <div className="flex flex-wrap gap-1">
+                                <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-black text-slate-800">
+                                  {row.revenueQualificationLabel || `${row.revenueQualifiedMonthCount}/12`} 충족
+                                </span>
+                                {rising ? (
+                                  <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800">
+                                    {rising}
+                                  </span>
+                                ) : null}
+                                {row.newProduct ? (
+                                  <span
+                                    title={row.newProductProtectedUntil ? `보호 종료 ${row.newProductProtectedUntil}` : "신규상품 보호 중"}
+                                    className="rounded-full bg-sky-100 px-2 py-1 text-xs font-black text-sky-800"
+                                  >
+                                    NEW
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="p-2">
+                              <strong>{row.targetCoverageMonths.toLocaleString("ko-KR")}개월</strong>
+                              {row.manualHeroCoverageReview ? (
+                                <span className="mt-1 block text-xs font-bold text-amber-700">
+                                  효자상품 추가 확보 수동검토
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="p-2">
+                              {row.cashflowTier === "CORE"
+                                ? "핵심"
+                                : row.cashflowTier === "SUPPORT"
+                                  ? "안정"
+                                  : row.cashflowTier === "CANARY"
+                                    ? "최소"
+                                    : "자동"} · {row.priorityScore}점
+                            </td>
+                            <td className="p-2 leading-5">
+                              <span className="block">
+                                클레임 {row.weightedClaimRate.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}% · {row.claimPenaltyPoints > 0 ? (
+                                  <strong className="text-rose-700">-{row.claimPenaltyPoints}점</strong>
+                                ) : (
+                                  "감점 없음"
+                                )}
+                              </span>
+                              <span className="block">
+                                평균판매가 {row.averageSellingPriceKrw > 0 ? money(row.averageSellingPriceKrw) : "미확인"} · {row.highValueConsistentBonusPoints > 0 ? (
+                                  <strong className="text-emerald-700">+{row.highValueConsistentBonusPoints}점</strong>
+                                ) : (
+                                  "가점 없음"
+                                )}
+                              </span>
+                            </td>
+                            <td className="p-2 font-bold">
+                              {row.originalRecommendedQuantity} → {row.quantity}
+                              {row.cashAdjusted ? " (감축)" : ""}
+                            </td>
+                            <td className="p-2">{money(row.estimatedCostKrw)}</td>
+                            <td className="p-2">{costBasisLabel(row)}</td>
+                            <td className="p-2">
+                              {row.inventoryQuantity} · {row.inventoryMode === "VERIFIED" ? "확인" : "추정"}
+                            </td>
+                            <td className="p-2">{row.openCommitment}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </details>
               <details className="mt-3 text-sm"><summary className="cursor-pointer font-bold text-slate-700">제외 품목 {report.excluded.length}개 확인</summary>{report.excluded.slice(0, 100).map(row => <p key={row.barcode} className="mt-2">{row.barcode} · {row.reasons.map(explain).join(" / ")}</p>)}{report.excluded.length > 100 ? <p className="mt-2">앞의 100개를 표시했습니다. 상세 검증 화면에서 전체 자료를 확인하세요.</p> : null}</details>
             </article>

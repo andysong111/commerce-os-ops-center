@@ -33,18 +33,35 @@ test("phase one cannot silently fall back to direct Shopling order demand", () =
   assert.doesNotMatch(engine, /combineShoplingLiveChunks/);
   assert.match(engine, /shippedOrders: emptyBuckets\(\)/);
   assert.match(engine, /weightedClaims: emptyBuckets\(\)/);
-  assert.match(engine, /claimSignalMode: "NEUTRAL_SHADOW_ONLY"/);
+  assert.match(
+    engine,
+    /claimSignalMode: "LIVE_SAME_ANALYSIS" \| "UNAVAILABLE_NEUTRAL"/,
+  );
+  assert.match(engine, /claimSignalMode === "UNAVAILABLE_NEUTRAL"/);
 });
 
-test("promotion remains fail closed until claim auxiliary signal is connected", () => {
+test("promotion remains fail closed while claim evidence uses a safe fallback", () => {
   assert.match(engine, /promotionReady: false/);
   assert.match(engine, /businessWritesEnabled: false/);
   assert.match(engine, /key: "claim-auxiliary"/);
   assert.match(engine, /key: "calendar-month-purchase-budget"/);
   assert.match(engine, /purchaseSalesSourceFresh/);
   assert.match(engine, /fullReadbackVerified/);
+  assert.match(
+    engine,
+    /error\.message === "PURCHASE_STRATEGY_MONTHLY_HISTORY_INCOMPLETE"/,
+  );
+  assert.match(engine, /key: "purchase-strategy-history-contract"/);
   assert.match(page, /실제 발주 항상 차단/);
-  assert.match(page, /claim auxiliary 연결 전까지 전환 금지/);
+  assert.match(page, /읽기 전용 검증 화면에서 실제 발주 금지/);
+  assert.doesNotMatch(page, /클레임 보조신호를 중립값으로 고정/);
+  assert.doesNotMatch(page, /클레임 감액 전 shadow/);
+});
+
+test("claim notice distinguishes live same-analysis evidence from neutral fallback", () => {
+  assert.match(engine, /claimSignalMode === "LIVE_SAME_ANALYSIS"/);
+  assert.match(engine, /같은 분석시점의 클레임률을 우선순위에 반영했습니다/);
+  assert.match(engine, /같은 분석시점의 클레임률이 없어 중립값으로 계산했습니다/);
 });
 
 test("canonical shadow still consumes planning inventory cost MOQ and open China commitments", () => {

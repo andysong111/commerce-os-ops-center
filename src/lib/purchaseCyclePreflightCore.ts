@@ -111,6 +111,17 @@ export type PurchasePreflightLine = {
   cashAdjusted: boolean;
   cashflowTier: "AUTOMATIC" | PurchaseCashflowTier;
   priorityScore: number;
+  revenueQualifiedMonthCount: number;
+  revenueQualificationLabel: string;
+  risingStrength: "NONE" | "MILD" | "MODERATE" | "STRONG";
+  newProduct: boolean;
+  newProductProtectedUntil: string | null;
+  targetCoverageMonths: number;
+  manualHeroCoverageReview: boolean;
+  weightedClaimRate: number;
+  claimPenaltyPoints: number;
+  averageSellingPriceKrw: number;
+  highValueConsistentBonusPoints: number;
   estimatedCostKrw: number;
   verifiedUnitCostKrw: number;
   confirmedUnitCostKrw: number;
@@ -127,6 +138,13 @@ export type PurchasePreflightLine = {
   openCommitment: number;
   costEvidenceAt: string | null;
 };
+export type PurchaseDiscontinuationReviewCandidate = {
+  barcode: string;
+  name: string;
+  revenueQualifiedMonthCount: number;
+  revenueQualificationLabel: string;
+  inventoryQuantity: number;
+};
 export type PurchaseCyclePreflightReport = {
   mode: "LIVE_READ_ONLY";
   generatedAt: string;
@@ -140,6 +158,8 @@ export type PurchaseCyclePreflightReport = {
   state: "BLOCKED" | "PREVIEW_ONLY" | "AWAITING_OWNER_REVIEW";
   sourceFingerprint: string;
   planFingerprint: string;
+  purchaseStrategyConfigVersion: number | null;
+  purchaseStrategyPolicySnapshot: string | null;
   candidateRequestId: string | null;
   sourceAnalysisAsOf: string | null;
   sourceCycleMonth: string | null;
@@ -179,6 +199,7 @@ export type PurchaseCyclePreflightReport = {
   omissionBlockingCount: number;
   omissionPreparationCount: number;
   omissionReview: PurchaseCandidateOmissionReviewRow[];
+  discontinuationReviewCandidates: PurchaseDiscontinuationReviewCandidate[];
   eligibleCount: number;
   selected: PurchasePreflightLine[];
   preservedReplacementLines: PurchaseReplacementDraftLine[];
@@ -416,6 +437,17 @@ function projectedLine(
     cashAdjusted: allocatedQuantity !== row.recommendedQty,
     cashflowTier,
     priorityScore: row.priorityScore,
+    revenueQualifiedMonthCount: row.revenueQualifiedMonthCount,
+    revenueQualificationLabel: row.revenueQualificationLabel,
+    risingStrength: row.risingStrength,
+    newProduct: row.newProduct,
+    newProductProtectedUntil: row.newProductProtectedUntil,
+    targetCoverageMonths: row.targetCoverageMonths,
+    manualHeroCoverageReview: row.manualHeroCoverageReview,
+    weightedClaimRate: row.weightedClaimRate,
+    claimPenaltyPoints: row.claimPenaltyPoints,
+    averageSellingPriceKrw: row.averageSellingPriceKrw,
+    highValueConsistentBonusPoints: row.highValueConsistentBonusPoints,
     estimatedCostKrw: unitCost * allocatedQuantity,
     verifiedUnitCostKrw: basis.executionVerified ? unitCost : 0,
     confirmedUnitCostKrw: basis.executionVerified ? unitCost : 0,
@@ -804,6 +836,20 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     accountedCandidateBarcodes.size === candidates.length &&
     selected.length + excluded.length === candidates.length &&
     omissionBlockingCount === 0;
+  const discontinuationReviewCandidates = rows
+    .filter((row) => row.discontinuationReviewCandidate === true)
+    .map((row) => ({
+      barcode: row.barcode,
+      name: row.name,
+      revenueQualifiedMonthCount: row.revenueQualifiedMonthCount,
+      revenueQualificationLabel: row.revenueQualificationLabel,
+      inventoryQuantity: row.inventoryQuantity,
+    }))
+    .sort(
+      (left, right) =>
+        right.inventoryQuantity - left.inventoryQuantity ||
+        left.barcode.localeCompare(right.barcode),
+    );
   if (blockers.length === 0 && !candidateCoverageComplete) blockers.push("CANDIDATE_COVERAGE_MISMATCH");
   if (selected.some((row) => row.inventoryMode === "PROVISIONAL")) {
     reviewBlockers.push("PROVISIONAL_INVENTORY_OWNER_REVIEW_REQUIRED");
@@ -898,6 +944,10 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     comparisonAvailable: source.comparisonAvailable,
     sameAnalysisAsOf: source.sameAnalysisAsOf,
     blockerKeys: source.blockerKeys,
+    purchaseStrategyConfigVersion:
+      source.purchaseStrategyConfigVersion ?? null,
+    purchaseStrategyPolicySnapshot:
+      source.purchaseStrategyPolicySnapshot ?? null,
   } : null;
   const sourceFingerprint = hash({
     before: pin, after: input.after, stable,
@@ -981,7 +1031,15 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         estimatedSpendKrw,
         estimatedAllInSpendKrw: multiplierValid ? Math.ceil(estimatedSpendKrw * multiplier!) : 0,
       },
+      purchaseStrategy: {
+        configVersion: source?.purchaseStrategyConfigVersion ?? null,
+        policySnapshot: source?.purchaseStrategyPolicySnapshot ?? null,
+      },
     }),
+    purchaseStrategyConfigVersion:
+      source?.purchaseStrategyConfigVersion ?? null,
+    purchaseStrategyPolicySnapshot:
+      source?.purchaseStrategyPolicySnapshot ?? null,
     candidateRequestId: pin?.requestId ?? null, sourceAnalysisAsOf: pin?.analysisAsOf ?? null,
     sourceCycleMonth: source?.cycleMonth ?? null, sourceBudgetMonth: source?.budgetMonth ?? null,
     cashLimitKrw, sourcingBudgetPercent, sourcingBudgetKrw, sourcingBudgetReturnKrw, reorderCashKrw,
@@ -1009,6 +1067,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     omissionBlockingCount,
     omissionPreparationCount,
     omissionReview,
+    discontinuationReviewCandidates,
     eligibleCount: eligible.length, selected, preservedReplacementLines, replacementAudit,
     businessWritesEnabled: false, approvalEnabled: false, actualPurchaseExecuted: false, scheduledExecution: false,
   };

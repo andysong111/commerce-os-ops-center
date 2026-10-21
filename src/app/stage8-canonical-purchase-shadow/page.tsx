@@ -17,7 +17,7 @@ export default async function Stage8CanonicalPurchaseShadowPage() {
       <PageHeader
         eyebrow="COMMERCE OS · STAGE 8 · CANONICAL PURCHASE SHADOW"
         title="Canonical 판매수요 → 발주추천 그림자"
-        description="Shopling 주문수량·매출을 다시 계산에 넣지 않고 Product Master persisted canonical 12×30일 판매원장만 발주 엔진의 주 수요원으로 넣습니다. 현재 단계는 클레임 보조신호를 중립값으로 고정한 읽기 전용 shadow이며 실제 발주는 실행하지 않습니다."
+        description="Shopling 주문수량·매출을 다시 계산에 넣지 않고 Product Master persisted canonical 판매원장만 발주 엔진의 주 수요원으로 넣습니다. 같은 분석시점의 클레임률이 있으면 우선순위에 반영하고, 없으면 중립값으로 계산하는 읽기 전용 shadow입니다."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/stage8-postapply-canonical-reconciliation" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700">
@@ -54,13 +54,13 @@ export default async function Stage8CanonicalPurchaseShadowPage() {
           <div className="rounded-xl bg-white/70 p-3"><strong>Demand source</strong><br />{result.demandSource}</div>
           <div className="rounded-xl bg-white/70 p-3"><strong>Claim signal</strong><br />{result.claimSignalMode}</div>
           <div className="rounded-xl bg-white/70 p-3"><strong>analysisAsOf</strong><br />{result.analysisAsOf ?? "-"}</div>
-          <div className="rounded-xl bg-white/70 p-3"><strong>Promotion</strong><br />BLOCKED · claim auxiliary 연결 전까지 전환 금지</div>
+          <div className="rounded-xl bg-white/70 p-3"><strong>Promotion</strong><br />BLOCKED · 읽기 전용 검증 화면에서 실제 발주 금지</div>
         </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-black text-slate-950">Fail-closed 조건</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">클레임 보조신호는 의도적으로 blocker로 남겨둡니다. 그 외 구조 blocker가 0이면 canonical 수요 경로 자체는 통과입니다.</p>
+        <p className="mt-2 text-sm leading-6 text-slate-600">같은 분석시점의 클레임률이 없을 때만 중립 계산 blocker를 표시합니다. 그 외 구조 blocker가 0이면 canonical 수요 경로 자체는 통과합니다.</p>
         <div className="mt-4 space-y-2">
           {result.blockers.map((row) => (
             <article key={row.key} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
@@ -83,7 +83,7 @@ export default async function Stage8CanonicalPurchaseShadowPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-lg font-black text-slate-950">Canonical 발주추천 상위 40개</h2>
-            <p className="mt-1 text-xs text-slate-500">클레임 감액 전 shadow이므로 수량은 운영 실행값이 아닙니다.</p>
+            <p className="mt-1 text-xs text-slate-500">클레임률은 수량 감액 없이 우선순위 점수에만 반영하며, 이 shadow 수량은 운영 실행값이 아닙니다.</p>
           </div>
           <span className="text-xs font-bold text-slate-500">총 {number.format(result.snapshot?.products?.length ?? 0)} SKU</span>
         </div>
@@ -129,7 +129,7 @@ export default async function Stage8CanonicalPurchaseShadowPage() {
         <strong>Planning mismatch</strong> · {result.planningMismatchBarcodes.length ? result.planningMismatchBarcodes.join(", ") : "없음"}<br />
         <strong>Legacy reference</strong> · {result.legacyReference.available ? `있음 · analysisAsOf ${result.legacyReference.analysisAsOf ?? "-"} · 같은 시점 ${result.legacyReference.sameAnalysisAsOf ? "YES" : "NO"}` : "없음"}<br />
         {comparison ? <><strong>Legacy 대비 참고 차이</strong> · 상태변경 {number.format(comparison.statusChangedCount)}개 · 수량변경 {number.format(comparison.quantityChangedCount)}개 · 예상발주금액 차이 {number.format(comparison.expectedSpendDelta)}원<br /></> : null}
-        <strong>다음 단계</strong> · Shopling 직접 주문수요를 다시 넣지 않고 클레임/배송건수만 보조신호로 연결한 뒤 같은 canonical 수요 snapshot의 결과를 재검증합니다.
+        <strong>다음 단계</strong> · 같은 분석시점 클레임률 사용 여부와 완료 12개월 매출·재고·미입고 계약을 함께 확인한 뒤 발주 사전점검에서 재검증합니다.
       </section>
     </div>
   );

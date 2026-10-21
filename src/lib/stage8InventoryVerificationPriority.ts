@@ -48,6 +48,19 @@ export type InventoryVerificationPriorityRow = {
   cartonQuantity: number;
   expectedCost: number;
   priorityScore: number;
+  revenueQualifiedMonthCount: number;
+  revenueQualificationLabel: string;
+  risingStrength: "NONE" | "MILD" | "MODERATE" | "STRONG";
+  newProduct: boolean;
+  newProductProtectedUntil: string | null;
+  targetCoverageMonths: number;
+  manualHeroCoverageReview: boolean;
+  permanentlyDiscontinued: boolean;
+  discontinuationReviewCandidate: boolean;
+  weightedClaimRate: number;
+  claimPenaltyPoints: number;
+  averageSellingPriceKrw: number;
+  highValueConsistentBonusPoints: number;
   inventoryQuantity: number;
   inventoryMode: InventoryOperatingMode;
   inventoryVerified: boolean;
@@ -125,6 +138,8 @@ export type InventoryVerificationPriority = {
     comparisonAvailable: boolean;
     sameAnalysisAsOf: boolean;
     blockerKeys: string[];
+    purchaseStrategyConfigVersion?: number | null;
+    purchaseStrategyPolicySnapshot?: string | null;
   };
   rows: InventoryVerificationPriorityRow[];
 };
@@ -352,6 +367,36 @@ export async function loadInventoryVerificationPriority(
         cartonQuantity,
         expectedCost,
         priorityScore: integer(product.score?.total),
+        revenueQualifiedMonthCount: integer(
+          product.purchaseStrategy?.history.qualifiedMonthCount,
+        ),
+        revenueQualificationLabel:
+          text(product.purchaseStrategy?.history.qualificationLabel) || "0/12",
+        risingStrength:
+          product.purchaseStrategy?.history.risingStrength ?? "NONE",
+        newProduct: product.purchaseStrategy?.newProduct === true,
+        newProductProtectedUntil:
+          product.purchaseStrategy?.protectedUntil ?? null,
+        targetCoverageMonths: Number(
+          product.purchaseStrategy?.automaticCoverageMonths ?? 0,
+        ),
+        manualHeroCoverageReview:
+          product.purchaseStrategy?.manualCoverageReview.required === true,
+        permanentlyDiscontinued:
+          product.purchaseStrategy?.permanentlyDiscontinued === true,
+        discontinuationReviewCandidate:
+          product.purchaseStrategy?.discontinuationReviewCandidate === true,
+        weightedClaimRate: Number(product.weightedClaimRate ?? 0),
+        claimPenaltyPoints: integer(
+          product.purchaseStrategy?.claimPenaltyPoints,
+        ),
+        averageSellingPriceKrw: integer(
+          product.purchaseStrategy?.history.averageSellingPriceKrw ??
+            product.averageSellingPriceKrw,
+        ),
+        highValueConsistentBonusPoints: integer(
+          product.purchaseStrategy?.highValueConsistentBonusPoints,
+        ),
         inventoryQuantity: inventory ? integer(inventory.inventoryQuantity) : 0,
         inventoryMode: mode,
         inventoryVerified: inventory?.inventoryVerified === true,
@@ -395,8 +440,9 @@ export async function loadInventoryVerificationPriority(
         Number(right.purchaseStatus === "발주 추천") -
           Number(left.purchaseStatus === "발주 추천") ||
         Number(left.operationallyReady) - Number(right.operationallyReady) ||
-        right.expectedCost - left.expectedCost ||
         right.priorityScore - left.priorityScore ||
+        right.revenueQualifiedMonthCount - left.revenueQualifiedMonthCount ||
+        right.expectedCost - left.expectedCost ||
         left.barcode.localeCompare(right.barcode),
     );
 
@@ -501,6 +547,10 @@ export async function loadInventoryVerificationPriority(
         ...purchaseShadow.blockers.map((row) => row.key),
         ...omissionBlockerKeys,
       ],
+      purchaseStrategyConfigVersion:
+        purchaseShadow.purchaseStrategyConfigVersion,
+      purchaseStrategyPolicySnapshot:
+        purchaseShadow.purchaseStrategyPolicySnapshot,
     },
     rows,
   };

@@ -209,6 +209,9 @@ export function buildPurchaseCandidateOmissionReview(
     const recordedSignals = new Set(
       (priority?.entrySignals ?? []).map((value) => text(value).toUpperCase()),
     );
+    // A reversible permanent exclusion is an explicit owner decision, so it is
+    // neither a silently omitted candidate nor a reason to block the Draft.
+    if (recordedSignals.has("PERMANENTLY_DISCONTINUED")) continue;
     const signalForReason: Partial<
       Record<PurchaseCandidateOmissionReason, string>
     > = {

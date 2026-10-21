@@ -839,6 +839,11 @@ test("read-only refreshes use a short cache while Draft creation keeps a fresh r
   assert.match(service, /sharedReconciliation/);
   assert.doesNotMatch(service, /loadCandidatePromotionGate/);
 });
+test("operator page explains the incomplete 12-month strategy history blocker", () => {
+  const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /UPSTREAM:purchase-strategy-history-contract/);
+  assert.match(page, /완료 12개월 매출 이력이 아직 준비되지 않아/);
+});
 test("operator page accepts an all-in cash cap while preserving the automatic envelope", () => {
   const page = readFileSync(new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url), "utf8");
   const form = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchasePreflightForm.tsx", import.meta.url), "utf8");
@@ -1461,4 +1466,40 @@ test("a spend reader failure propagates without zero-spend fallback", async () =
     monthlySpend: async () => { throw new Error("sensitive diagnostic"); },
   }, () => input.now);
   blocked(report, "CYCLE_SPEND_READ_FAILED"); assert.equal(report.recordedCycleSpendKrw, null);
+});
+
+test("discontinuation review candidates are visible without changing selection or exclusion", () => {
+  const input = fixture();
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "REVIEW ONLY",
+    purchaseStatus: "발주 보류",
+    discontinuationReviewCandidate: true,
+    revenueQualifiedMonthCount: 0,
+    revenueQualificationLabel: "0/12",
+    inventoryQuantity: 37,
+  });
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(report.selected.map((row) => row.barcode), ["BAA1-1"]);
+  assert.deepEqual(report.excluded, []);
+  assert.deepEqual(report.discontinuationReviewCandidates, [{
+    barcode: "BAA2-1",
+    name: "REVIEW ONLY",
+    revenueQualifiedMonthCount: 0,
+    revenueQualificationLabel: "0/12",
+    inventoryQuantity: 37,
+  }]);
+});
+
+test("purchase preflight renders discontinuation review as read-only guidance", () => {
+  const page = readFileSync(
+    new URL("../src/app/purchase-cycle-preflight/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(page, /단종 검토 후보 · 읽기 전용/);
+  assert.match(page, /영구 제외나 자동 삭제를 실행하지 않고/);
+  assert.match(page, /report\.discontinuationReviewCandidates\.map/);
 });
