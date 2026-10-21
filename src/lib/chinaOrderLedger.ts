@@ -508,6 +508,39 @@ function safeReplacementDraftRows(
   return rows;
 }
 
+export function safeReplacementCycleDraftRows(
+  commitments: ChinaOrderCommitmentSnapshot[],
+  draftId: string,
+) {
+  const baseRows = safeReplacementDraftRows(commitments, draftId);
+  const cycleMonths = [
+    ...new Set(baseRows.map((row) => chinaOrderCommitmentCycleMonth(row))),
+  ];
+  if (cycleMonths.length !== 1) {
+    throw new Error("PURCHASE_REPLACEMENT_DRAFT_CYCLE_INVALID");
+  }
+
+  const rows = commitments.filter(
+    (row) =>
+      row.sourceSystem === "fast-purchase-mvp" &&
+      chinaOrderCommitmentCycleMonth(row) === cycleMonths[0] &&
+      row.openQuantity > 0,
+  );
+  const unsafe = rows.find(
+    (row) =>
+      !row.sourceRunId ||
+      row.status !== "RESERVED" ||
+      row.orderedQuantity > 0 ||
+      row.receivedQuantity > 0,
+  );
+  if (unsafe) {
+    throw new Error(
+      `PURCHASE_REPLACEMENT_DRAFT_ALREADY_PROGRESSING:${unsafe.barcode}`,
+    );
+  }
+  return rows;
+}
+
 export function safeReplacementDraftOpenCommitments(
   commitments: ChinaOrderCommitmentSnapshot[],
   draftId: string,
@@ -529,6 +562,21 @@ export function safeReplacementDraftCommitments(
 ) {
   const rows = safeReplacementDraftRows(commitments, draftId);
 
+  const result = new Map<string, number>();
+  for (const row of rows) {
+    result.set(
+      row.barcode,
+      (result.get(row.barcode) ?? 0) + row.recommendationOpenQuantity,
+    );
+  }
+  return result;
+}
+
+export function safeReplacementCycleDraftCommitments(
+  commitments: ChinaOrderCommitmentSnapshot[],
+  draftId: string,
+) {
+  const rows = safeReplacementCycleDraftRows(commitments, draftId);
   const result = new Map<string, number>();
   for (const row of rows) {
     result.set(

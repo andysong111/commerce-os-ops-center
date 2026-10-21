@@ -11,7 +11,7 @@ import {
   completedChinaOrderReceiptsByBarcode,
   loadChinaOrderLedger,
   recommendationCommitmentsByBarcode,
-  safeReplacementDraftCommitments,
+  safeReplacementCycleDraftCommitments,
 } from "@/lib/chinaOrderLedger";
 import { monthlyPurchaseCycleFor } from "@/lib/monthlyPurchasePolicy";
 import {
@@ -255,7 +255,7 @@ export async function loadInventoryVerificationPriority(
         if (ledger.error) {
           throw new Error("PURCHASE_REPLACEMENT_DRAFT_LEDGER_UNAVAILABLE");
         }
-        const exclusions = safeReplacementDraftCommitments(
+        const exclusions = safeReplacementCycleDraftCommitments(
           ledger.commitments,
           options.excludeCommitmentDraftId!,
         );

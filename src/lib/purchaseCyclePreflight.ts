@@ -8,7 +8,7 @@ import { buildPurchaseWholesaleCostEstimates } from "@/lib/purchaseWholesaleCost
 import { PURCHASE_OWNER_COST_ESTIMATES } from "@/lib/purchaseCycleOwnerCostEstimate";
 import {
   loadChinaOrderLedger,
-  safeReplacementDraftOpenCommitments,
+  safeReplacementCycleDraftRows,
 } from "@/lib/chinaOrderLedger";
 import { loadInternalChinaQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
 import {
@@ -56,17 +56,25 @@ async function loadReplacementDraftSnapshot(draftId: string) {
     loadInternalChinaQuantityOverrides(draftId),
   ]);
   if (ledger.error) throw new Error("REPLACEMENT_DRAFT_LEDGER_READ_FAILED");
-  const quantities = safeReplacementDraftOpenCommitments(
-    ledger.commitments,
-    draftId,
-  );
+  const activeRows = safeReplacementCycleDraftRows(ledger.commitments, draftId);
+  const quantities = new Map<string, number>();
+  for (const row of activeRows) {
+    const current = quantities.get(row.barcode) ?? 0;
+    quantities.set(row.barcode, Math.max(current, row.openQuantity));
+  }
   for (const [barcode, override] of overrides) {
     if (!quantities.has(barcode)) continue;
     if (override.targetQuantity > 0) quantities.set(barcode, override.targetQuantity);
     else quantities.delete(barcode);
   }
-  const rows = ledger.commitments.filter((row) => row.sourceRunId === draftId);
-  const sourceByBarcode = new Map(rows.map((row) => [row.barcode, row] as const));
+  const sourceByBarcode = new Map(
+    activeRows.map((row) => [row.barcode, row] as const),
+  );
+  for (const row of activeRows) {
+    if (object(row.latestPayload).sourcingConfirmed === true) {
+      sourceByBarcode.set(row.barcode, row);
+    }
+  }
   return buildPurchaseReplacementDraftSnapshot(
     draftId,
     new Date().toISOString(),

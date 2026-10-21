@@ -46,14 +46,13 @@ export function assertDraftCanBeRegenerated<T extends RegenerableDraftCommitment
     ),
   ];
   if (
-    activeDraftIds.length !== 1 ||
-    activeDraftIds[0] !== expectedDraftId
+    !activeDraftIds.includes(expectedDraftId)
   ) {
     throw new Error("PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED");
   }
   const unsafe = activeRows.find(
     (row) =>
-      row.sourceRunId !== expectedDraftId ||
+      !row.sourceRunId ||
       row.status !== "RESERVED" ||
       row.orderedQuantity > 0 ||
       row.receivedQuantity > 0,

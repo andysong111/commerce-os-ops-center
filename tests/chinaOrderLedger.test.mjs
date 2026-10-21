@@ -36,6 +36,8 @@ const {
   chinaOrderCommitmentCycleMonth,
   completedChinaOrderReceiptsByBarcodeForMonth,
   recommendationCommitmentsByBarcode,
+  safeReplacementCycleDraftCommitments,
+  safeReplacementCycleDraftRows,
   safeReplacementDraftCommitments,
   safeReplacementDraftOpenCommitments,
 } = ledger;
@@ -82,6 +84,43 @@ test("safe draft replacement removes its recommendation commitments before recal
 
   assert.equal(exclusions.get("BAA1-1"), 100);
   assert.equal(result.get("BAA1-1"), 40);
+});
+
+test("safe cycle replacement consolidates every untouched RESERVED draft in the month", () => {
+  const first = {
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: "draft-1",
+    barcode: "BAA1-1",
+    openQuantity: 100,
+    recommendationOpenQuantity: 100,
+    status: "RESERVED",
+    orderedQuantity: 0,
+    receivedQuantity: 0,
+    latestPayload: { cycleMonth: "2026-08" },
+  };
+  const second = {
+    ...first,
+    sourceRunId: "draft-2",
+    barcode: "BAA2-1",
+    openQuantity: 40,
+    recommendationOpenQuantity: 40,
+  };
+  const otherMonth = {
+    ...first,
+    sourceRunId: "draft-3",
+    barcode: "BAA3-1",
+    latestPayload: { cycleMonth: "2026-09" },
+  };
+
+  assert.deepEqual(
+    safeReplacementCycleDraftRows([first, second, otherMonth], "draft-1")
+      .map((row) => row.sourceRunId),
+    ["draft-1", "draft-2"],
+  );
+  assert.deepEqual(
+    [...safeReplacementCycleDraftCommitments([first, second, otherMonth], "draft-1")],
+    [["BAA1-1", 100], ["BAA2-1", 40]],
+  );
 });
 
 test("draft replacement rejects a commitment after ordering has started", () => {

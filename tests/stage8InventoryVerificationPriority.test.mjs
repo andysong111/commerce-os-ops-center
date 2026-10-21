@@ -49,9 +49,9 @@ test("provisional quantity, open commitment and unreflected prior-cycle receipts
   assert.match(page, /별도 안전증거 없이는 실제 Draft 실행대상이 아닙니다/);
 });
 
-test("draft regeneration excludes only the exact safe RESERVED draft before portfolio allocation", () => {
+test("draft regeneration excludes all safe same-cycle RESERVED drafts before portfolio allocation", () => {
   assert.match(engine, /excludeCommitmentDraftId/);
-  assert.match(engine, /safeReplacementDraftCommitments/);
+  assert.match(engine, /safeReplacementCycleDraftCommitments/);
   assert.match(engine, /recommendationCommitmentsByBarcode/);
   assert.match(engine, /commitmentOverride: commitments/);
   assert.doesNotMatch(engine, /integer\(product\.openCommitment\) -/);
