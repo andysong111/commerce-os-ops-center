@@ -63,6 +63,7 @@ type PriorityRow = {
   entrySignals?: string[];
   recommendedQty: number;
   originalRecommendedQty?: number;
+  inventoryQuantity?: number;
   openCommitment: number;
 };
 
@@ -184,6 +185,17 @@ export function buildPurchaseCandidateOmissionReview(
     const priority = priorityByBarcode.get(key);
     const inventory = input.inventoryByBarcode.get(key);
     const metadata = input.sourceMetadataByBarcode.get(key);
+    const ledgerInventoryQuantity = inventory
+      ? quantity(inventory.inventoryQuantity)
+      : null;
+    const priorityInventoryQuantity = priority
+      ? quantity(priority.inventoryQuantity)
+      : null;
+    const inventoryAccountedByPurchaseEngine = Boolean(
+      priority &&
+        ledgerInventoryQuantity !== null &&
+        priorityInventoryQuantity === ledgerInventoryQuantity,
+    );
     const recentSales = salesQuantity30 > 0 || salesQuantity90 > 0;
     const recommendedQuantity = priority
       ? quantity(priority.recommendedQty)
@@ -259,10 +271,17 @@ export function buildPurchaseCandidateOmissionReview(
     }
     if (
       metadata?.shoplingQuantity === 0 &&
-      quantity(inventory?.inventoryQuantity) > 0
+      (ledgerInventoryQuantity ?? 0) > 0
     ) {
       reasons.push("SHOPLING_ZERO_LEDGER_POSITIVE");
-      blocking = true;
+      // Shopling 0 can mean that the sales channel is intentionally sold out
+      // while the internal inventory ledger still has stock. That mismatch
+      // must stay visible for channel-state repair, but it must not freeze the
+      // monthly purchase draft when the exact same ledger quantity was already
+      // subtracted by the purchase engine. If the row is missing or the two
+      // inventory quantities differ, fail closed because the order calculation
+      // may not have accounted for the stock.
+      blocking ||= !inventoryAccountedByPurchaseEngine;
     }
     if (input.sourceMetadataAvailable) {
       if (!metadata?.supplierLink) reasons.push("SUPPLIER_LINK_MISSING");
@@ -283,9 +302,7 @@ export function buildPurchaseCandidateOmissionReview(
       salesRevenue30,
       salesTrend: text(product.salesTrend) || null,
       planningInventoryQuantity: quantity(product.inventoryQuantity),
-      ledgerInventoryQuantity: inventory
-        ? quantity(inventory.inventoryQuantity)
-        : null,
+      ledgerInventoryQuantity,
       shoplingQuantity: metadata?.shoplingQuantity ?? null,
       shoplingSyncedAt: metadata?.shoplingSyncedAt ?? null,
       purchaseStatus: priority?.purchaseStatus ?? null,

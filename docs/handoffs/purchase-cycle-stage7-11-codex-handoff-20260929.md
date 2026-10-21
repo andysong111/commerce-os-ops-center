@@ -765,3 +765,13 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - The omission review shows 30/90/365-day sales, Product Master inventory, canonical ledger inventory, Shopling option quantity, recommendation quantity, and open commitment so the operator can identify the exact evidence that needs correction.
 - Product Launch metadata is now a fail-closed dependency for this audit. If it cannot be read, Purchase Preflight blocks instead of reporting that candidate coverage is complete.
 - The current monthly Draft and the 1688 cart are not changed by this audit. It only prevents a new Draft save while a material upstream omission or contradiction remains.
+
+---
+
+## 31. Inventory-accounted channel mismatch handling (2026-10-21)
+
+- A Shopling option quantity of zero with positive internal inventory remains visible as `SHOPLING_ZERO_LEDGER_POSITIVE`, but it no longer freezes the monthly Draft when the purchase engine row used the exact same internal inventory quantity and therefore recommended zero units.
+- The mismatch remains blocking when the purchase-engine row is missing or its inventory quantity differs from the ledger. This preserves fail-closed behavior when the order calculation may not have accounted for stock.
+- Stockout-demand recovery, recent-rising demand, and monthly revenue of at least 40,000 KRW remain permanent candidate-entry signals. Confirmed internal inventory and commitments still reduce the final order quantity, including to zero.
+- Operator exclusions and fixed quantities belong to the current replacement Draft only. They are not a permanent product blacklist; the next monthly calculation reevaluates every product from fresh demand, inventory, commitment, source, cost, and budget evidence.
+- This change only unlocks an internally consistent Draft preparation flow. It does not place a 1688 order, make a payment, or contact a supplier.

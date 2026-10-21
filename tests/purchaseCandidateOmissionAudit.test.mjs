@@ -29,6 +29,7 @@ const priority = (overrides = {}) => ({
   entrySignals: [],
   recommendedQty: 0,
   originalRecommendedQty: 0,
+  inventoryQuantity: 10,
   openCommitment: 0,
   ...overrides,
 });
@@ -56,7 +57,7 @@ const audit = ({
   sourceMetadataAvailable,
 });
 
-test("Shopling sold-out evidence cannot be hidden by a positive inventory ledger", () => {
+test("Shopling zero still blocks when the purchase engine did not account for the positive ledger", () => {
   const rows = audit({
     inventory: [["BCA5-1", { inventoryQuantity: 500 }]],
     sources: [["BCA5-1", metadata({ shoplingQuantity: 0 })]],
@@ -67,6 +68,34 @@ test("Shopling sold-out evidence cannot be hidden by a positive inventory ledger
   assert.ok(rows[0].reasons.includes("SHOPLING_ZERO_LEDGER_POSITIVE"));
   assert.equal(rows[0].ledgerInventoryQuantity, 500);
   assert.equal(rows[0].shoplingQuantity, 0);
+});
+
+test("matching positive ledger inventory holds the order without freezing the monthly draft", () => {
+  const rows = audit({
+    products: [planning({ inventoryQuantity: 500 })],
+    rows: [priority({ inventoryQuantity: 500 })],
+    inventory: [["BCA5-1", { inventoryQuantity: 500 }]],
+    sources: [["BCA5-1", metadata({ shoplingQuantity: 0 })]],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].severity, "PREPARATION");
+  assert.deepEqual(rows[0].reasons, ["SHOPLING_ZERO_LEDGER_POSITIVE"]);
+  assert.equal(rows[0].recommendedQuantity, 0);
+  assert.equal(rows[0].ledgerInventoryQuantity, 500);
+});
+
+test("missing purchase-engine row keeps a Shopling-zero ledger conflict blocking", () => {
+  const rows = audit({
+    products: [planning({ inventoryQuantity: 500 })],
+    rows: [],
+    inventory: [["BCA5-1", { inventoryQuantity: 500 }]],
+    sources: [["BCA5-1", metadata({ shoplingQuantity: 0 })]],
+  });
+
+  assert.equal(rows[0].severity, "BLOCKING");
+  assert.ok(rows[0].reasons.includes("PURCHASE_SHADOW_ROW_MISSING"));
+  assert.ok(rows[0].reasons.includes("SHOPLING_ZERO_LEDGER_POSITIVE"));
 });
 
 test("a Product Master recommendation missing from purchase candidates blocks the draft", () => {
