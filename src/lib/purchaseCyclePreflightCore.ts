@@ -42,6 +42,7 @@ export type PurchasePreflightOptions = {
   replaceDraftId?: string | null;
   excludedBarcodes?: string[];
   quantityOverrides?: PurchaseQuantityOverride[];
+  releasedQuantityOverrideBarcodes?: string[];
 };
 export type PurchaseQuantityOverride = {
   barcode: string;
@@ -152,6 +153,7 @@ export type PurchaseCyclePreflightReport = {
   replacementDraftId: string | null;
   operatorExcludedBarcodes: string[];
   operatorQuantityOverrides: PurchaseQuantityOverride[];
+  operatorReleasedQuantityOverrideBarcodes: string[];
   targetCycleMonth: string;
   requiredBudgetMonth: string;
   dateState: "BEFORE_TARGET" | "ON_TARGET" | "TARGET_PASSED";
@@ -327,6 +329,23 @@ export function validatePurchasePreflightOptions(options: PurchasePreflightOptio
   }
   if (quantityOverrideBarcodes.some((barcode) => excludedBarcodes.includes(barcode))) {
     throw new Error("OPERATOR_QUANTITY_OVERRIDE_EXCLUSION_CONFLICT");
+  }
+  const releasedQuantityOverrideBarcodes = options.releasedQuantityOverrideBarcodes ?? [];
+  if (
+    !Array.isArray(releasedQuantityOverrideBarcodes) ||
+    releasedQuantityOverrideBarcodes.length > 100 ||
+    releasedQuantityOverrideBarcodes.some(
+      (value) => typeof value !== "string" || !CODE.test(value),
+    ) ||
+    new Set(releasedQuantityOverrideBarcodes).size !== releasedQuantityOverrideBarcodes.length
+  ) {
+    throw new Error("OPERATOR_RELEASED_QUANTITY_OVERRIDES_INVALID");
+  }
+  if (releasedQuantityOverrideBarcodes.length > 0 && !options.replaceDraftId) {
+    throw new Error("OPERATOR_RELEASED_QUANTITY_OVERRIDES_REQUIRE_REPLACEMENT_DRAFT");
+  }
+  if (releasedQuantityOverrideBarcodes.some((barcode) => quantityOverrideBarcodes.includes(barcode))) {
+    throw new Error("OPERATOR_RELEASED_QUANTITY_OVERRIDE_CONFLICT");
   }
   if (options.cashLimitKrw !== null && !positive(options.cashLimitKrw)) throw new Error("CASH_LIMIT_INVALID");
   if (!validPercent(options.sourcingBudgetPercent ?? 0)) throw new Error("SOURCING_BUDGET_PERCENT_INVALID");
@@ -539,6 +558,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
   const operatorQuantityByBarcode = new Map(
     operatorQuantityOverrides.map((row) => [row.barcode, row.targetQuantity] as const),
+  );
+  const operatorReleasedQuantityOverrideBarcodes = [
+    ...(input.options.releasedQuantityOverrideBarcodes ?? []),
+  ].sort();
+  const operatorReleasedQuantityOverrideSet = new Set(
+    operatorReleasedQuantityOverrideBarcodes,
   );
   const replacementStable = replacementDraftId === null || (
     validReplacementDraftSnapshot(input.replacementBefore, replacementDraftId) &&
@@ -925,6 +950,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       .filter(
         (line) =>
           !operatorExcludedSet.has(line.barcode) &&
+          !operatorReleasedQuantityOverrideSet.has(line.barcode) &&
           !selectedByBarcode.has(line.barcode) &&
           !automaticRemovalReasonByBarcode.has(line.barcode),
       )
@@ -966,6 +992,8 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         ...line,
         reasons: operatorExcludedSet.has(line.barcode)
           ? ["OPERATOR_DRAFT_EXCLUSION"]
+          : operatorReleasedQuantityOverrideSet.has(line.barcode)
+            ? ["OPERATOR_QUANTITY_OVERRIDE_RELEASED_TO_POLICY"]
           : [automaticRemovalReasonByBarcode.get(line.barcode) ?? "EXISTING_DRAFT_REMOVAL_UNVERIFIED"],
       }));
     const quantityChanged = matchedBarcodes.flatMap((barcode) => {
@@ -1046,6 +1074,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     } : null,
     operatorExcludedBarcodes,
     operatorQuantityOverrides,
+    operatorReleasedQuantityOverrideBarcodes,
     costEstimateErrors: [...(input.costEstimateErrors ?? [])].sort(),
     sourceErrors: [...input.sourceErrors].sort(),
   });
@@ -1067,6 +1096,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   return {
     mode: "LIVE_READ_ONLY", generatedAt: input.now, targetDate,
     replacementDraftId, operatorExcludedBarcodes, operatorQuantityOverrides,
+    operatorReleasedQuantityOverrideBarcodes,
     targetCycleMonth, requiredBudgetMonth, dateState,
     state: !previewReady ? "BLOCKED" : uniqueReview.length ? "PREVIEW_ONLY" : "AWAITING_OWNER_REVIEW",
     sourceFingerprint,
@@ -1086,6 +1116,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         replaceDraftId: input.options.replaceDraftId ?? null,
         excludedBarcodes: operatorExcludedBarcodes,
         quantityOverrides: operatorQuantityOverrides,
+        releasedQuantityOverrideBarcodes: operatorReleasedQuantityOverrideBarcodes,
       },
       selected: stablePlanLines(selected),
       preservedReplacementLines: preservedReplacementLines.map(({ barcode, quantity }) => ({ barcode, quantity })),

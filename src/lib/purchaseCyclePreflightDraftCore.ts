@@ -120,6 +120,7 @@ export type PurchaseCycleDraftRequest = {
   replaceDraftId?: string | null;
   excludedBarcodes?: string[];
   quantityOverrides?: PurchaseQuantityOverride[];
+  releasedQuantityOverrideBarcodes?: string[];
 };
 
 export function purchaseCycleDraftPreflightOptions(
@@ -135,6 +136,7 @@ export function purchaseCycleDraftPreflightOptions(
     replaceDraftId: request.replaceDraftId ?? null,
     excludedBarcodes: request.excludedBarcodes ?? [],
     quantityOverrides: request.quantityOverrides ?? [],
+    releasedQuantityOverrideBarcodes: request.releasedQuantityOverrideBarcodes ?? [],
   };
 }
 
@@ -238,6 +240,8 @@ export function preparePurchaseCycleDraft(
       JSON.stringify(report.operatorExcludedBarcodes) ||
     JSON.stringify(sortedQuantityOverrides(request.quantityOverrides)) !==
       JSON.stringify(report.operatorQuantityOverrides) ||
+    JSON.stringify(sortedStrings(request.releasedQuantityOverrideBarcodes)) !==
+      JSON.stringify(report.operatorReleasedQuantityOverrideBarcodes ?? []) ||
     !FINGERPRINT.test(request.expectedSourceFingerprint) ||
     !FINGERPRINT.test(request.expectedPlanFingerprint)
   ) {

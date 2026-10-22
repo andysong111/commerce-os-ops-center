@@ -68,6 +68,11 @@ supplier order, checkout, payment, or supplier contact remain outside scope.
 - Persisted quantity pins can now be explicitly released. The inline editor
   sends the complete desired pin set, so releasing `BGG1-1:3000` cannot be
   undone by the server merging the old pin back in.
-- A released pin must receive a valid automatic recommendation in the same
-  calculation. Otherwise regeneration fails closed and leaves the current
-  Draft unchanged.
+- Legacy Drafts now read quantity pins from the commitment payload as well as
+  later quantity-correction overlays, so a pin already baked into the visible
+  Draft quantity still appears as releasable.
+- Releasing a pin means returning that B-code to the ordinary purchase policy.
+  If the engine recommends it, the automatic quantity replaces the pin. If the
+  engine does not recommend it, that line leaves this Draft with the audited
+  reason `OPERATOR_QUANTITY_OVERRIDE_RELEASED_TO_POLICY`. The release is not a
+  permanent exclusion, so a later monthly calculation may recommend it again.

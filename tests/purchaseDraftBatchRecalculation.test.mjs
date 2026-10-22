@@ -51,6 +51,23 @@ test("draft recalculation can replace the full pinned quantity set", () => {
   });
 });
 
+test("legacy commitment quantity pins stay visible even when already baked into the Draft quantity", () => {
+  const persisted = {
+    excludedBarcodes: [],
+    quantityOverrides: [{ barcode: "BGG1-1", targetQuantity: 3_000 }],
+  };
+  const displayedQuantityOverrides = [];
+
+  const merged = mergePurchaseDraftOperatorAdjustments(
+    persisted,
+    { excludedBarcodes: [], quantityOverrides: displayedQuantityOverrides },
+  );
+
+  assert.deepEqual(merged.quantityOverrides, [
+    { barcode: "BGG1-1", targetQuantity: 3_000 },
+  ]);
+});
+
 test("batch recalculation carries quantity edits, exclusions, and additions in one request", () => {
   const href = buildPurchaseDraftBatchRecalculationHref({
     regenerationHref: "/purchase-cycle-preflight?check=1&replace=fast-purchase-draft%3Aabc",
@@ -112,6 +129,17 @@ test("draft editor exposes one final calculation action and stages additions wit
   assert.doesNotMatch(workspace, /regenerateWithoutSelected|regenerateWithQuantityChanges/);
   assert.doesNotMatch(addition, /method: "POST"|postAdd\(/);
   assert.match(addition, /재계산 전 원장 미변경/);
+});
+
+test("draft page loads legacy commitment pins before rendering the release control", async () => {
+  const page = await readFile(
+    "src/app/china-order-manager/drafts/[draftId]/page.tsx",
+    "utf8",
+  );
+  assert.match(page, /loadPurchaseDraftOperatorAdjustments\(draftId\)/);
+  assert.match(page, /mergePurchaseDraftOperatorAdjustments\(/);
+  assert.match(page, /persistedAdjustments/);
+  assert.match(page, /initialQuantityOverrides=\{initialQuantityOverrides\}/);
 });
 
 test("inline recalculation endpoint replaces the reserved draft without rendering preflight", async () => {

@@ -422,6 +422,23 @@ test("operator quantity overrides require a replacement Draft and cannot conflic
     /OPERATOR_QUANTITY_OVERRIDES_INVALID/,
   );
 });
+test("released quantity overrides require a replacement Draft and cannot remain pinned", () => {
+  const withoutReplacement = fixture();
+  withoutReplacement.options.releasedQuantityOverrideBarcodes = ["BAA1-1"];
+  assert.throws(
+    () => buildPurchaseCyclePreflight(withoutReplacement),
+    /OPERATOR_RELEASED_QUANTITY_OVERRIDES_REQUIRE_REPLACEMENT_DRAFT/,
+  );
+
+  const conflict = fixture();
+  conflict.options.replaceDraftId = "fast-purchase-draft:1234567890abcdef1234";
+  conflict.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 5 }];
+  conflict.options.releasedQuantityOverrideBarcodes = ["BAA1-1"];
+  assert.throws(
+    () => buildPurchaseCyclePreflight(conflict),
+    /OPERATOR_RELEASED_QUANTITY_OVERRIDE_CONFLICT/,
+  );
+});
 test("coherent provisional inventory is included only in the read-only owner-review preview", () => {
   const input = fixture();
   Object.assign(input.priority.rows[0], {
@@ -1266,6 +1283,74 @@ test("replacement removes an old line only when verified inventory covers positi
   assert.deepEqual(
     report.replacementAudit.removed.map((row) => ({ barcode: row.barcode, reasons: row.reasons })),
     [{ barcode: "BAA2-1", reasons: ["VERIFIED_STOCK_COVERS_DEMAND"] }],
+  );
+  assert.equal(report.replacementAudit.complete, true);
+});
+
+test("releasing a quantity pin returns a recommended line to the automatic quantity", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.options.releasedQuantityOverrideBarcodes = ["BAA1-1"];
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "과거 3000개 고정 상품", quantity: 10 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(report.operatorQuantityOverrides, []);
+  assert.deepEqual(report.operatorReleasedQuantityOverrideBarcodes, ["BAA1-1"]);
+  assert.deepEqual(
+    report.selected.map((row) => [row.barcode, row.quantity]),
+    [["BAA1-1", 5]],
+  );
+  assert.deepEqual(report.replacementAudit.removed, []);
+  assert.deepEqual(report.replacementAudit.quantityChanged, [{
+    barcode: "BAA1-1",
+    name: "SIMULATION ONLY",
+    previousQuantity: 10,
+    selectedQuantity: 5,
+  }]);
+});
+
+test("releasing a quantity pin removes a non-recommended line without deleting unrelated Draft lines", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.options.releasedQuantityOverrideBarcodes = ["BAA2-1"];
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "자동 추천 상품", quantity: 5 },
+      { barcode: "BAA2-1", name: "고정 해제 비추천 상품", quantity: 10 },
+      { barcode: "BAA3-1", name: "관련 없는 기존 상품", quantity: 15 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(
+    report.preservedReplacementLines.map((row) => row.barcode),
+    ["BAA3-1"],
+  );
+  assert.deepEqual(
+    report.replacementAudit.removed.map((row) => ({
+      barcode: row.barcode,
+      reasons: row.reasons,
+    })),
+    [{
+      barcode: "BAA2-1",
+      reasons: ["OPERATOR_QUANTITY_OVERRIDE_RELEASED_TO_POLICY"],
+    }],
   );
   assert.equal(report.replacementAudit.complete, true);
 });
