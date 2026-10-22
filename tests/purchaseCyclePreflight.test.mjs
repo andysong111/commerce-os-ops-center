@@ -1395,6 +1395,8 @@ test("replacement snapshot recovers the immediate predecessor but not an operato
     lines.map((line) => [line.barcode, line.quantity]),
     [["BAA1-1", 5], ["BAA2-1", 20]],
   );
+  assert.equal(lines.find((line) => line.barcode === "BAA1-1")?.recoveredFromPredecessor, false);
+  assert.equal(lines.find((line) => line.barcode === "BAA2-1")?.recoveredFromPredecessor, true);
 });
 
 test("replacement keeps confirmed sourcing lines unless the operator explicitly excludes them", () => {

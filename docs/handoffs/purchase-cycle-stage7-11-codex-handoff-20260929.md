@@ -222,6 +222,22 @@ The owner has not authorized blind automatic 1688 checkout/payment as the defaul
 
 ## 5. Purchase cost and landed-cost rules worth preserving
 
+### 2026-10-23 replacement Draft omission guard
+
+- The immediate predecessor may be read to reconsider a product that a faulty
+  recalculation dropped, but that recovered row is not an operator quantity
+  override.
+- A recovered or otherwise preserved automatic recommendation must be selected
+  again from current sales, inventory, cost, and candidate-coverage evidence.
+  If it is not, Draft replacement stays blocked with
+  `PURCHASE_DRAFT_REPLACEMENT_SOURCE_REVIEW_REQUIRED`.
+- Only explicit persisted quantity overrides may be described as operator-fixed
+  quantities. Confirmed sourcing lines keep their existing separate preservation
+  rule.
+- This guard prevents a partial source read from being saved and presented as a
+  complete latest-strategy recalculation. It does not change the 40,000 KRW
+  threshold, coverage-month policy, exclusion policy, or order/payment boundary.
+
 Do not treat one generic "원가" number as authoritative without provenance.
 
 Known landed-cost allocation rule from the import operation:

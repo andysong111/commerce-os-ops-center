@@ -22,6 +22,9 @@ function errorMessage(code: string) {
   if (code === "PURCHASE_CYCLE_DRAFT_NOT_READY") {
     return "최신 판매·재고 자료에서 발주 가능한 다음 순위를 만들지 못했습니다. 현재 Draft는 그대로 유지했습니다.";
   }
+  if (code === "PURCHASE_DRAFT_REPLACEMENT_SOURCE_REVIEW_REQUIRED") {
+    return "이전 Draft의 자동추천 품목이 최신 판매·재고 근거로 다시 판정되지 않았습니다. 불완전한 발주안은 저장하지 않았으며 현재 Draft를 그대로 유지했습니다.";
+  }
   if (code === "OPERATOR_QUANTITY_OVERRIDES_INVALID") {
     return "수량은 5개 단위로, SKU당 5개 이상 9,995개 이하로 입력하세요.";
   }

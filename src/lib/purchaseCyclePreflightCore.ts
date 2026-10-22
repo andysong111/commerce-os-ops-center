@@ -59,6 +59,7 @@ export type PurchaseReplacementDraftLine = {
   name: string;
   quantity: number;
   preserveOnRegeneration?: boolean;
+  recoveredFromPredecessor?: boolean;
 };
 export type PurchaseReplacementDraftSnapshot = {
   draftId: string;
@@ -256,6 +257,7 @@ export function buildPurchaseReplacementDraftSnapshot(
       name: line.name.trim(),
       quantity: line.quantity,
       preserveOnRegeneration: line.preserveOnRegeneration === true,
+      recoveredFromPredecessor: line.recoveredFromPredecessor === true,
     }))
     .sort((a, b) => a.barcode.localeCompare(b.barcode));
   if (
@@ -1119,7 +1121,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         releasedQuantityOverrideBarcodes: operatorReleasedQuantityOverrideBarcodes,
       },
       selected: stablePlanLines(selected),
-      preservedReplacementLines: preservedReplacementLines.map(({ barcode, quantity }) => ({ barcode, quantity })),
+      preservedReplacementLines: preservedReplacementLines.map((line) => ({
+        barcode: line.barcode,
+        quantity: line.quantity,
+        preserveOnRegeneration: line.preserveOnRegeneration === true,
+        recoveredFromPredecessor: line.recoveredFromPredecessor === true,
+      })),
       replacementAudit: stableReplacementAudit(replacementAudit),
       budget: {
         cashLimitKrw,

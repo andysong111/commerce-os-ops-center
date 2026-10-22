@@ -43,6 +43,7 @@ function report() {
     planFingerprint: fp("b"),
     previewReady: true,
     blockers: [],
+    reviewBlockers: [],
     candidateCount: 1,
     accountedCandidateCount: 1,
     candidateCoverageComplete: true,
@@ -467,6 +468,7 @@ test("replacement preparation labels a preserved operator quantity for 1688 pric
     name: "계란펀칭기",
     quantity: 3_000,
   }];
+  value.operatorQuantityOverrides = [{ barcode: "BGG1-1", targetQuantity: 3_000 }];
   value.replacementAudit = {
     previousLineCount: 2,
     selectedLineCount: 2,
@@ -486,6 +488,35 @@ test("replacement preparation labels a preserved operator quantity for 1688 pric
   assert.equal(pinned?.plannedQuantity, 3_000);
   assert.match(pinned?.note ?? "", /운영자 고정수량 유지/);
   assert.match(pinned?.note ?? "", /실제 위안단가 확인 필요/);
+});
+
+test("replacement refuses to save recovered automatic recommendations as a fresh recalculation", () => {
+  const value = report();
+  value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  value.reviewBlockers = ["EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"];
+  value.preservedReplacementLines = [{
+    barcode: "BBC1-1",
+    name: "자석 안경클립 블랙",
+    quantity: 15,
+    recoveredFromPredecessor: true,
+  }];
+  value.replacementAudit = {
+    previousLineCount: 2,
+    selectedLineCount: 2,
+    matchedCount: 2,
+    added: [],
+    removed: [],
+    quantityChanged: [],
+    complete: true,
+  };
+  const input = request(value);
+  input.replaceDraftId = value.replacementDraftId;
+  input.confirmation = purchaseCycleDraftConfirmation(value);
+
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input),
+    /PURCHASE_DRAFT_REPLACEMENT_SOURCE_REVIEW_REQUIRED/,
+  );
 });
 
 test("replacement can recalculate with preserved sourcing when no new candidate is available", () => {
