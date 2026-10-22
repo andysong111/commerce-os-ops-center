@@ -84,7 +84,7 @@ test("existing canonical month that disappears from fresh result is zeroed", () 
   ]);
 });
 
-test("a renamed B-code zeros the prior deterministic row and writes the current row without double counting", () => {
+test("a renamed B-code updates the existing natural-key row without submitting a duplicate SKU-month", () => {
   const plan = buildShoplingIncrementalReconcilePlan({
     freshRows: [sales("BAA1-1", "2026-08", 8)],
     existingRows: [
@@ -97,14 +97,29 @@ test("a renamed B-code zeros the prior deterministic row and writes the current 
     months: ["2026-08"],
   });
   assert.equal(plan.blockers.length, 0);
-  assert.equal(plan.writeRows.length, 2);
+  assert.equal(plan.writeRows.length, 1);
+  assert.equal(plan.zeroRows.length, 0);
   assert.deepEqual(
     plan.writeRows.map((row) => [row.id, row.quantity]),
-    [
-      ["shopling-sales-v1:BAA1-1:2026-08", 8],
-      ["shopling-sales-v1:BAA9-9:2026-08", 0],
-    ],
+    [["shopling-sales-v1:BAA9-9:2026-08", 8]],
   );
+});
+
+test("a renamed B-code still blocks when the preferred deterministic id belongs to another SKU", () => {
+  const plan = buildShoplingIncrementalReconcilePlan({
+    freshRows: [sales("BAA1-1", "2026-08", 8)],
+    existingRows: [
+      {
+        ...existing("sku-a", "BAA9-9", "2026-08", 5),
+        id: "shopling-sales-v1:BAA9-9:2026-08",
+      },
+      existing("sku-b", "BAA1-1", "2026-08", 3),
+    ],
+    planningRows: planning,
+    months: ["2026-08"],
+  });
+  assert.equal(plan.writeRows.length, 0);
+  assert.equal(plan.blockers[0].code, "TARGET_ROW_CONFLICT");
 });
 
 test("an unrecognized legacy row id still blocks automatic correction", () => {

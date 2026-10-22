@@ -205,10 +205,14 @@ export function buildShoplingIncrementalReconcilePlan(input: {
   const monthSet = new Set(months);
   const { skuByBarcode, barcodeBySku } = planningIndexes(input.planningRows);
   const existingById = new Map(input.existingRows.map((row) => [text(row.id), row]));
+  const canonicalBySkuMonth = new Map<string, IncrementalSalesSnapshotRow>();
   const otherBySkuMonth = new Map<string, IncrementalSalesSnapshotRow[]>();
   for (const row of input.existingRows) {
-    if (row.source === SHOPLING_CANONICAL_SALES_SOURCE) continue;
     const key = `${text(row.skuId)}\u0000${text(row.month)}`;
+    if (row.source === SHOPLING_CANONICAL_SALES_SOURCE) {
+      canonicalBySkuMonth.set(key, row);
+      continue;
+    }
     otherBySkuMonth.set(key, [...(otherBySkuMonth.get(key) ?? []), row]);
   }
 
@@ -231,7 +235,28 @@ export function buildShoplingIncrementalReconcilePlan(input: {
       });
       continue;
     }
-    const row = canonicalRow(raw, skuId);
+    const canonical = canonicalRow(raw, skuId);
+    const canonicalIdTarget = existingById.get(canonical.id);
+    const existingNaturalRow = canonicalBySkuMonth.get(`${skuId}\u0000${month}`);
+    if (canonicalIdTarget && !sameTargetIdentity(canonical, canonicalIdTarget)) {
+      freshIds.add(canonical.id);
+      if (existingNaturalRow) freshIds.add(text(existingNaturalRow.id));
+      blockers.push({
+        code: "TARGET_ROW_CONFLICT",
+        barcode,
+        skuId,
+        month,
+        message: "같은 Shopling 판매원장 ID가 다른 SKU·월·원천에 연결되어 있어 자동 갱신을 차단했습니다.",
+      });
+      continue;
+    }
+    // A B-code rename changes the preferred deterministic row ID, but the
+    // database allows only one canonical source row per SKU and month. Keep
+    // that existing row ID and update it in place so a retry cannot submit a
+    // zero row and a fresh row for the same natural key in one batch.
+    const row = existingNaturalRow
+      ? canonicalRow({ ...raw, id: text(existingNaturalRow.id) }, skuId)
+      : canonical;
     freshIds.add(row.id);
     const target = existingById.get(row.id);
     if (target && !sameTargetIdentity(row, target)) {
@@ -297,9 +322,9 @@ export function buildShoplingIncrementalReconcilePlan(input: {
         });
         continue;
       }
-      // A B-code rename leaves the old deterministic row behind. Zero that
-      // exact row while the fresh row is written under the current B-code, so
-      // one SKU-month is never counted twice and the history remains auditable.
+      // A renamed B-code may leave an older deterministic ID behind. If this
+      // natural SKU-month disappeared from the fresh result, zero that exact
+      // historical row in place while preserving its auditable identity.
       zeroRows.push({
         id: text(existing.id),
         barcode,
