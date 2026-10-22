@@ -215,11 +215,41 @@ function nextChunkDays(chunkDays: number) {
 
 function exactReuseContext(child: ParsedRequest, parent: ParsedRequest) {
   return (
-    child.chunkDays === parent.chunkDays &&
     child.analysisAsOf === parent.analysisAsOf &&
     child.analysisStartDate === parent.analysisStartDate &&
     child.analysisEndDate === parent.analysisEndDate &&
     child.planningContentFingerprint === parent.planningContentFingerprint
+  );
+}
+
+async function completedRequestRangeKeys(request: ParsedRequest) {
+  const correlationId = requestCorrelationId(request.requestId);
+  return new Set(
+    (await readOperations(SALES_EVENT_CHUNK))
+      .filter((row) => {
+        if (text(row.correlation_id) !== correlationId) return false;
+        const input = object(row.input_snapshot);
+        const result = object(row.result_snapshot);
+        return (
+          text(input.planningContentFingerprint) ===
+            request.planningContentFingerprint &&
+          Array.isArray(result.events)
+        );
+      })
+      .map(operationRangeKey)
+      .filter(Boolean),
+  );
+}
+
+export function planRecoveryRanges(
+  parentRanges: Range[],
+  completedRangeKeys: Set<string>,
+  childChunkDays: number,
+) {
+  return parentRanges.flatMap((range) =>
+    completedRangeKeys.has(rangeKey(range))
+      ? [range]
+      : splitShoplingDateRange(range.start, range.end, childChunkDays),
   );
 }
 
@@ -399,6 +429,15 @@ async function recoverSalesEventRequestUnderLock() {
 
   const planning = await loadProductPlanningSnapshot();
   const createdAt = new Date().toISOString();
+  const canReuseCompletedRanges =
+    reason === "SHRINK_RANGE" &&
+    planning.contentFingerprint === latest.planningContentFingerprint;
+  const completedRangeKeys = canReuseCompletedRanges
+    ? await completedRequestRangeKeys(latest)
+    : new Set<string>();
+  const ranges = reason === "SHRINK_RANGE"
+    ? planRecoveryRanges(latest.ranges, completedRangeKeys, chunkDays)
+    : latest.ranges;
   const request: ParsedRequest = {
     requestId: crypto.randomUUID(),
     analysisAsOf: latest.analysisAsOf,
@@ -408,11 +447,7 @@ async function recoverSalesEventRequestUnderLock() {
     planningContentFingerprint: planning.contentFingerprint,
     chunkDays,
     supersedesRequestId: latest.requestId,
-    ranges: splitShoplingDateRange(
-      latest.analysisStartDate,
-      latest.analysisEndDate,
-      chunkDays,
-    ),
+    ranges,
     createdAt,
   };
   const reusable = await reusableParentChunks(request, latest);
