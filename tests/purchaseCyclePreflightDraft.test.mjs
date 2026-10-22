@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  canRecalculateWithPreservedSourcingOnly,
   preparePurchaseCycleDraft,
   purchaseCycleDraftConfirmation,
   purchaseCycleDraftPlannedTotals,
@@ -14,6 +15,17 @@ import {
 } from "../src/lib/purchaseCycleDraftRegenerationCore.ts";
 
 const fp = (digit) => `sha256:${digit.repeat(64)}`;
+
+function emptySourcingPlan(value, blockers = ["WAREHOUSE_GATE_NOT_READY", "NO_TEST_READY_CANDIDATE"]) {
+  return {
+    targetCycleMonth: value.targetCycleMonth,
+    totalCashKrw: value.effectiveCashKrw,
+    sourcingBudgetPercent: value.sourcingBudgetPercent,
+    sourcingBudgetKrw: value.sourcingBudgetKrw,
+    blockers,
+    allocation: { selected: [] },
+  };
+}
 
 function report() {
   return {
@@ -445,6 +457,39 @@ test("replacement preparation carries confirmed sourcing lines into the regenera
     [["BAC1-1", 38], ["BAA3-1", 10]],
   );
   assert.match(input.confirmation, /_2SKU_/);
+});
+
+test("replacement can recalculate with preserved sourcing when no new candidate is available", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 15;
+  value.sourcingBudgetKrw = 150_000;
+  value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  value.preservedReplacementLines = [{
+    barcode: "BAA3-1",
+    name: "기존 신규소싱 상품",
+    quantity: 10,
+    preserveOnRegeneration: true,
+  }];
+  value.replacementAudit = {
+    previousLineCount: 2,
+    selectedLineCount: 2,
+    matchedCount: 2,
+    added: [],
+    removed: [],
+    quantityChanged: [],
+    complete: true,
+  };
+
+  assert.equal(canRecalculateWithPreservedSourcingOnly(value, emptySourcingPlan(value)), true);
+  assert.equal(
+    canRecalculateWithPreservedSourcingOnly(value, emptySourcingPlan(value, ["SOURCING_BUDGET_MISMATCH"])),
+    false,
+  );
+  const withNewCandidate = emptySourcingPlan(value);
+  withNewCandidate.allocation.selected = [{ selectedVariants: [{ variantKey: "gray" }] }];
+  assert.equal(canRecalculateWithPreservedSourcingOnly(value, withNewCandidate), false);
+  value.preservedReplacementLines = [];
+  assert.equal(canRecalculateWithPreservedSourcingOnly(value, emptySourcingPlan(value)), false);
 });
 
 test("replacement totals include reorder, preserved sourcing, and newly selected sourcing lines", () => {

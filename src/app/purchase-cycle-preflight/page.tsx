@@ -11,6 +11,7 @@ import { ManualProductIntakeForm } from "@/components/sourcing-center/ManualProd
 import { loadPurchaseCyclePreflightPreview } from "@/lib/purchaseCyclePreflightPreview";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import {
+  canRecalculateWithPreservedSourcingOnly,
   purchaseCycleDraftConfirmation,
   purchaseCycleDraftPlannedTotals,
   sourcingBudgetDecisionFingerprint,
@@ -368,7 +369,10 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     }
   }
   const sourcingEnabled = Boolean(report && report.sourcingBudgetPercent > 0);
-  const sourcingReady = !sourcingEnabled || sourcingPlan?.readyForConfirmation === true;
+  const preserveExistingSourcingOnly = Boolean(
+    report && canRecalculateWithPreservedSourcingOnly(report, sourcingPlan),
+  );
+  const sourcingReady = !sourcingEnabled || sourcingPlan?.readyForConfirmation === true || preserveExistingSourcingOnly;
   const sourcingSelectedVariantCount = sourcingPlan?.allocation.selected.reduce(
     (total, candidate) => total + candidate.selectedVariants.length,
     0,
@@ -380,7 +384,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     ? purchaseCycleDraftPlannedTotals(report, sourcingPlan)
     : null;
   const sourcingPendingKrw = report && report.sourcingBudgetPercent > 0 && report.sourcingBudgetReturnKrw === 0
-    ? sourcingPlan
+    ? preserveExistingSourcingOnly
+      ? 0
+      : sourcingPlan
       ? sourcingPlan.readyForConfirmation ? 0 : sourcingPlan.allocation.remainingBudgetKrw
       : report.sourcingBudgetKrw
     : 0;
@@ -388,7 +394,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const sourcingPreparationCodes = sourcingPlan?.policy.operatorAllocationSupported && sourcingPlan.policy.version !== null
     ? sourcingPlan.blockers.filter(code => sourcingPolicyPreparationCodes.has(code))
     : [];
-  const sourcingBlockingCodes = sourcingPlan?.blockers.filter(code => !sourcingPreparationCodes.includes(code)) ?? [];
+  const sourcingBlockingCodes = preserveExistingSourcingOnly
+    ? []
+    : sourcingPlan?.blockers.filter(code => !sourcingPreparationCodes.includes(code)) ?? [];
   const actionItems: Array<{ title: string; message: string; href?: string; hrefLabel?: string }> = [];
   if (report?.blockers.length) {
     actionItems.push({
@@ -485,7 +493,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     sourcingSelectedCount: sourcingSelectedVariantCount,
     sourcingEstimatedSpendKrw: sourcingPlan?.allocation.estimatedSpendKrw ?? 0,
     sourcingAlreadyReservedKrw: sourcingPlan?.allocation.alreadyReservedKrw ?? 0,
-    confirmation: draftReady ? purchaseCycleDraftConfirmation(report, sourcingPlan) : "",
+    confirmation: draftReady
+      ? purchaseCycleDraftConfirmation(report, preserveExistingSourcingOnly ? null : sourcingPlan)
+      : "",
     selectedCount: draftPlannedTotals?.finalLineCount ?? report.selected.length,
     totalQuantity: draftPlannedTotals?.finalQuantity ?? report.selected.reduce((sum, row) => sum + row.quantity, 0),
     existingReorderCount: draftPlannedTotals?.existingReorderCount ?? report.selected.length,
@@ -495,6 +505,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     newSourcingQuantity: draftPlannedTotals?.newSourcingQuantity ?? 0,
     estimatedSpendKrw: report.estimatedSpendKrw,
     ready: draftReady,
+    preserveExistingSourcingOnly,
     replaceDraftId: report.replacementDraftId,
     excludedBarcodes: report.operatorExcludedBarcodes,
     quantityOverrides: report.operatorQuantityOverrides,

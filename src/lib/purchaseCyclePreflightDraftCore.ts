@@ -10,6 +10,10 @@ import type {
 } from "@/lib/sourcingBudgetPlan";
 
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
+const PRESERVED_SOURCING_ONLY_BLOCKERS = new Set([
+  "WAREHOUSE_GATE_NOT_READY",
+  "NO_TEST_READY_CANDIDATE",
+]);
 
 const hash = (value: unknown) =>
   `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
@@ -190,6 +194,28 @@ export function purchaseCycleDraftPlannedTotals(
     finalLineCount: existingReorderCount + preservedSourcingCount + newSourcingCount,
     finalQuantity: existingReorderQuantity + preservedSourcingQuantity + newSourcingQuantity,
   };
+}
+
+export function canRecalculateWithPreservedSourcingOnly(
+  report: PurchaseCyclePreflightReport,
+  sourcingPlan: SourcingBudgetPlan | null,
+) {
+  if (
+    !report.replacementDraftId ||
+    report.sourcingBudgetPercent <= 0 ||
+    report.preservedReplacementLines.length === 0 ||
+    report.replacementAudit?.complete !== true ||
+    !sourcingPlan ||
+    sourcingPlan.targetCycleMonth !== report.targetCycleMonth ||
+    sourcingPlan.totalCashKrw !== report.effectiveCashKrw ||
+    sourcingPlan.sourcingBudgetPercent !== report.sourcingBudgetPercent ||
+    sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw
+  ) {
+    return false;
+  }
+  return sourcingPlan.allocation.selected.length === 0 && sourcingPlan.blockers.every(
+    (code) => PRESERVED_SOURCING_ONLY_BLOCKERS.has(code),
+  );
 }
 
 export function preparePurchaseCycleDraft(
