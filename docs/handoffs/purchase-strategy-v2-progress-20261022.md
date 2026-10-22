@@ -54,3 +54,20 @@ supplier order, checkout, payment, or supplier contact remain outside scope.
   exclusions and pinned quantities) on every RESERVED line and merges it into
   every later recalculation. A later inline recalculation therefore cannot
   re-add an excluded SKU or drop a pinned quantity such as `BGG1-1:3000`.
+
+## Recommendation-preservation correction — 2026-10-23
+
+- A missing transient `발주 추천` flag no longer deletes an existing Draft
+  line. Automatic removal now requires an explicit one-Draft exclusion,
+  permanent discontinuation, or verified stock plus open commitments that
+  cover a positive demand target.
+- One immediate predecessor Draft is included in the replacement audit so a
+  line dropped by the previous faulty recalculation can be reconsidered. The
+  recovery does not walk older history and does not restore persisted owner
+  exclusions.
+- Persisted quantity pins can now be explicitly released. The inline editor
+  sends the complete desired pin set, so releasing `BGG1-1:3000` cannot be
+  undone by the server merging the old pin back in.
+- A released pin must receive a valid automatic recommendation in the same
+  calculation. Otherwise regeneration fails closed and leaves the current
+  Draft unchanged.

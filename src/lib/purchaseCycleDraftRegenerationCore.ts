@@ -71,6 +71,7 @@ export function normalizePurchaseDraftOperatorAdjustments(
 export function mergePurchaseDraftOperatorAdjustments(
   persisted: Partial<PurchaseDraftOperatorAdjustments> | null | undefined,
   incoming: Partial<PurchaseDraftOperatorAdjustments> | null | undefined,
+  options: { replaceQuantityOverrides?: boolean } = {},
 ) {
   const previous = normalizePurchaseDraftOperatorAdjustments(persisted);
   const next = normalizePurchaseDraftOperatorAdjustments(incoming);
@@ -80,7 +81,8 @@ export function mergePurchaseDraftOperatorAdjustments(
   ])].sort();
   const excluded = new Set(excludedBarcodes);
   const quantityByBarcode = new Map(
-    previous.quantityOverrides.map((row) => [row.barcode, row.targetQuantity] as const),
+    (options.replaceQuantityOverrides ? [] : previous.quantityOverrides)
+      .map((row) => [row.barcode, row.targetQuantity] as const),
   );
   for (const row of next.quantityOverrides) quantityByBarcode.set(row.barcode, row.targetQuantity);
   return {

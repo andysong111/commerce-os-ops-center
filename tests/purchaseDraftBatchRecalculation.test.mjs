@@ -32,6 +32,25 @@ test("draft recalculation keeps prior exclusions and pinned quantities", () => {
   });
 });
 
+test("draft recalculation can replace the full pinned quantity set", () => {
+  const merged = mergePurchaseDraftOperatorAdjustments(
+    {
+      excludedBarcodes: ["BAF3-1"],
+      quantityOverrides: [{ barcode: "BGG1-1", targetQuantity: 3_000 }],
+    },
+    {
+      excludedBarcodes: [],
+      quantityOverrides: [{ barcode: "BAC1-1", targetQuantity: 50 }],
+    },
+    { replaceQuantityOverrides: true },
+  );
+
+  assert.deepEqual(merged, {
+    excludedBarcodes: ["BAF3-1"],
+    quantityOverrides: [{ barcode: "BAC1-1", targetQuantity: 50 }],
+  });
+});
+
 test("batch recalculation carries quantity edits, exclusions, and additions in one request", () => {
   const href = buildPurchaseDraftBatchRecalculationHref({
     regenerationHref: "/purchase-cycle-preflight?check=1&replace=fast-purchase-draft%3Aabc",
@@ -74,7 +93,9 @@ test("draft editor exposes one final calculation action and stages additions wit
     "utf8",
   );
   assert.match(workspace, /변경사항 모아 발주안 바로 재계산/);
-  assert.match(workspace, /수량 변경 \{changedQuantityRows\.length\}종 · 제외 \{excludedBarcodes\.length\}종 · 추가 \{stagedAdditions\.length\}종/);
+  assert.match(workspace, /수량 변경 \{changedQuantityRows\.length\}종 · 수량 고정 해제 \{releasedQuantityOverrideBarcodes\.length\}종 · 제외 \{excludedBarcodes\.length\}종/);
+  assert.match(workspace, /선택 수량 고정 해제/);
+  assert.match(workspace, /replaceQuantityOverrides: true/);
   assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);
   assert.doesNotMatch(
     workspace,

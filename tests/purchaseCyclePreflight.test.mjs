@@ -5,6 +5,7 @@ import {
   buildPurchaseCyclePreflight, buildPurchaseReplacementDraftSnapshot, readPurchaseCyclePreflight,
   validPurchaseTargetDate, samePurchaseCandidatePin,
 } from "../src/lib/purchaseCyclePreflightCore.ts";
+import { purchaseReplacementDraftSnapshotLines } from "../src/lib/purchaseReplacementDraftLineage.ts";
 import {
   buildPurchaseOwnerCostEstimateSnapshot,
   OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE,
@@ -1202,7 +1203,7 @@ test("replacement audit accounts for every old and new line and explains the del
     input.now,
     [
       { barcode: "BAA1-1", name: "기존 공통 상품", quantity: 3 },
-      { barcode: "BAA2-1", name: "현재 비추천 상품", quantity: 7 },
+      { barcode: "BAA2-1", name: "현재 비추천 상품", quantity: 10 },
     ],
   );
   input.replacementBefore = snapshot;
@@ -1219,15 +1220,96 @@ test("replacement audit accounts for every old and new line and explains the del
       changed: report.replacementAudit.quantityChanged.length,
       complete: report.replacementAudit.complete,
     },
-    { previous: 2, selected: 1, matched: 1, added: 0, removed: 1, changed: 1, complete: true },
+    { previous: 2, selected: 2, matched: 2, added: 0, removed: 0, changed: 1, complete: true },
   );
-  assert.deepEqual(report.replacementAudit.removed[0].reasons, ["CURRENT_ENGINE_NOT_RECOMMENDED"]);
+  assert.deepEqual(
+    report.preservedReplacementLines.map((row) => row.barcode),
+    ["BAA2-1"],
+  );
+  assert.ok(report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
   assert.deepEqual(report.replacementAudit.quantityChanged[0], {
     barcode: "BAA1-1",
     name: "SIMULATION ONLY",
     previousQuantity: 3,
     selectedQuantity: 5,
   });
+});
+
+test("replacement removes an old line only when verified inventory covers positive demand", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "VERIFIED COVERED PRODUCT",
+    purchaseStatus: "발주 보류",
+    demandTarget: 8,
+    recommendedQty: 0,
+    inventoryQuantity: 10,
+    openCommitment: 0,
+    permanentlyDiscontinued: false,
+  });
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "기존 공통 상품", quantity: 5 },
+      { barcode: "BAA2-1", name: "재고 충분 상품", quantity: 7 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(
+    report.replacementAudit.removed.map((row) => ({ barcode: row.barcode, reasons: row.reasons })),
+    [{ barcode: "BAA2-1", reasons: ["VERIFIED_STOCK_COVERS_DEMAND"] }],
+  );
+  assert.equal(report.replacementAudit.complete, true);
+});
+
+test("replacement snapshot recovers the immediate predecessor but not an operator exclusion", () => {
+  const currentDraftId = "fast-purchase-draft:11111111111111111111";
+  const previousDraftId = "fast-purchase-draft:22222222222222222222";
+  const current = {
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: currentDraftId,
+    barcode: "BAA1-1",
+    openQuantity: 5,
+    committedQuantity: 5,
+    latestPayload: {
+      productName: "현재 유지 상품",
+      supersedesDraftId: previousDraftId,
+      operatorExcludedBarcodes: ["BAA3-1"],
+    },
+  };
+  const recovered = {
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: previousDraftId,
+    barcode: "BAA2-1",
+    openQuantity: 0,
+    committedQuantity: 20,
+    latestPayload: { productName: "오류로 빠진 상품" },
+  };
+  const excluded = {
+    ...recovered,
+    barcode: "BAA3-1",
+    latestPayload: { productName: "사용자가 제외한 상품" },
+  };
+
+  const lines = purchaseReplacementDraftSnapshotLines(
+    [current, recovered, excluded],
+    [current],
+    currentDraftId,
+    new Map(),
+  );
+
+  assert.deepEqual(
+    lines.map((line) => [line.barcode, line.quantity]),
+    [["BAA1-1", 5], ["BAA2-1", 20]],
+  );
 });
 
 test("replacement keeps confirmed sourcing lines unless the operator explicitly excludes them", () => {
