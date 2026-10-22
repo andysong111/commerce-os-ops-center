@@ -317,11 +317,18 @@ test("operator quantity cannot add an automatically ineligible line that was not
   blocked(buildPurchaseCyclePreflight(input), "OPERATOR_QUANTITY_TARGET_NOT_ELIGIBLE");
 });
 
-test("operator quantity on an existing Draft line still requires a valid cost", () => {
+test("operator quantity preserves an existing cost-pending Draft line while new eligible rows still recalculate", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.maxSkus = 2;
   input.options.replaceDraftId = draftId;
   input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 5 }];
+  input.priority.rows.push({
+    ...structuredClone(input.priority.rows[0]),
+    barcode: "BAA2-1",
+    name: "NEXT VERIFIED PRODUCT",
+    priorityScore: 80,
+  });
   Object.assign(input.priority.rows[0], {
     purchaseStatus: "발주 보류",
     recommendedQty: 0,
@@ -338,8 +345,19 @@ test("operator quantity on an existing Draft line still requires a valid cost", 
   input.replacementBefore = snapshot;
   input.replacementAfter = snapshot;
 
-  blocked(buildPurchaseCyclePreflight(input), "OPERATOR_QUANTITY_TARGET_NOT_ELIGIBLE");
-  assert.ok(buildPurchaseCyclePreflight(input).excluded[0].reasons.includes("CONFIRMED_COST_REQUIRED"));
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.ok(!report.blockers.includes("OPERATOR_QUANTITY_TARGET_NOT_ELIGIBLE"));
+  assert.deepEqual(report.selected.map((row) => row.barcode), ["BAA2-1"]);
+  assert.deepEqual(
+    report.preservedReplacementLines.map((row) => [row.barcode, row.quantity]),
+    [["BAA1-1", 5]],
+  );
+  assert.ok(report.excluded.find((row) => row.barcode === "BAA1-1")?.reasons.includes("CONFIRMED_COST_REQUIRED"));
+  assert.ok(report.reviewBlockers.includes("OPERATOR_PINNED_EXISTING_COST_REVIEW_REQUIRED"));
+  assert.equal(report.replacementAudit.complete, true);
+  assert.deepEqual(report.replacementAudit.added.map((row) => row.barcode), ["BAA2-1"]);
 });
 
 test("shadow expected cost does not relax the normal monthly Draft path", () => {
