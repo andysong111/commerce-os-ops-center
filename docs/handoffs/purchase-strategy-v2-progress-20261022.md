@@ -18,6 +18,9 @@ internal Draft. This work must not place a 1688 order or make a payment.
   calculation stays capped at 4 months until the owner manually approves more.
 - New products are protected from automatic discontinuation for 365 days, but a
   protected item with no recent demand receives a zero reorder recommendation.
+- New-product protection guarantees eligibility and the 1.5-month base floor;
+  it never caps a rising or hero product. Protected rising products keep their
+  2/3/4-month tier, and protected hero products keep the 5-6-month manual review.
 - Confirmed inventory and open/incoming commitments are subtracted from demand.
 - Permanent purchase exclusion is B-code specific, reversible, and separately
   audited from a one-Draft exclusion.
@@ -39,3 +42,11 @@ internal Draft. This work must not place a 1688 order or make a payment.
 
 Implementation and reversible internal preview work are authorized. Actual
 supplier order, checkout, payment, or supplier contact remain outside scope.
+
+## Hardening result
+
+- Policy version `commerce-os-purchase-strategy-policy-v1.1.0` fixes the
+  new-product floor/cap ambiguity.
+- Dedicated regression coverage now runs in Purchase Cycle Preflight CI, so a
+  later change cannot silently reset protected rising or hero products to 1.5
+  months.

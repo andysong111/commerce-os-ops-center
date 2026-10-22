@@ -310,6 +310,34 @@ test("completed-month consistency, rising strength and high value raise strategy
   assert.ok(highValueHero.priorityScore > rising.priorityScore);
 });
 
+test("protected rising products keep strategy coverage through the full demand pipeline", () => {
+  const result = calculateProductDemand({
+    barcode: "BNEW-RISING-1",
+    name: "신규 상승상품 통합 테스트",
+    ...strategySalesInput({
+      calendarMonthlySales: strategyCalendarSales([
+        0, 0, 0, 0, 0, 0, 10_000, 10_000, 10_000, 60_000, 60_000, 60_000,
+      ]),
+      firstSaleAt: "2026-01-01T00:00:00.000Z",
+    }),
+    inventoryKnown: true,
+    availableQuantity: 10,
+    reservedQuantity: 0,
+    incomingQuantity: 5,
+    ledgerCommitment: 5,
+    moq: 5,
+    cartonQuantity: 5,
+  });
+
+  assert.equal(result.sales.strategy.newProduct, true);
+  assert.equal(result.sales.strategy.history.risingStrength, "STRONG");
+  assert.equal(result.sales.strategy.automaticCoverageMonths, 4);
+  assert.equal(result.sales.strategy.coverageReason, "RISING_STRONG");
+  assert.equal(result.netRequirement.demandTarget, 88);
+  assert.equal(result.netRequirement.securedQuantity, 15);
+  assert.equal(result.netRequirement.recommendedQuantity, 75);
+});
+
 test("claim penalty lowers only integrated strategy priority without shrinking quantity", () => {
   const calendarMonthlySales = strategyCalendarSales(
     Array.from({ length: 12 }, () => 300_000),

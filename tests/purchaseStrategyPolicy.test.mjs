@@ -307,6 +307,51 @@ test("protected new products can replenish 1.5 months below the revenue threshol
   assert.equal(result.grossDemandTarget, 12);
 });
 
+test("new-product protection is a 1.5-month floor and does not suppress rising tiers", () => {
+  const launchedAt = "2026-01-01T00:00:00.000Z";
+  const mild = evaluate({
+    launchedAt,
+    monthlySales: monthSales([
+      0, 0, 0, 0, 0, 0, 30_000, 40_000, 30_000, 45_000, 45_000, 30_000,
+    ]),
+  });
+  const moderate = evaluate({
+    launchedAt,
+    monthlySales: monthSales([
+      0, 0, 0, 0, 0, 0, 20_000, 40_000, 20_000, 55_000, 55_000, 20_000,
+    ]),
+  });
+  const strong = evaluate({
+    launchedAt,
+    monthlySales: monthSales([
+      0, 0, 0, 0, 0, 0, 10_000, 10_000, 10_000, 60_000, 60_000, 60_000,
+    ]),
+  });
+
+  assert.equal(mild.newProduct, true);
+  assert.equal(mild.automaticCoverageMonths, 2);
+  assert.equal(mild.coverageReason, "RISING_MILD");
+  assert.equal(moderate.automaticCoverageMonths, 3);
+  assert.equal(moderate.coverageReason, "RISING_MODERATE");
+  assert.equal(strong.automaticCoverageMonths, 4);
+  assert.equal(strong.coverageReason, "RISING_STRONG");
+});
+
+test("protected hero products keep four automatic months and five-to-six-month review", () => {
+  const result = evaluate({
+    launchedAt: "2026-01-01T00:00:00.000Z",
+    monthlySales: monthSales(Array.from({ length: 12 }, () => 150_000)),
+    monthlyDemandUnits: 25,
+  });
+
+  assert.equal(result.newProduct, true);
+  assert.equal(result.history.heroProduct, true);
+  assert.equal(result.automaticCoverageMonths, 4);
+  assert.equal(result.coverageReason, "CONSISTENT_PERFORMER");
+  assert.equal(result.manualCoverageReview.required, true);
+  assert.deepEqual(result.manualCoverageReview.availableCoverageMonths, [5, 6]);
+});
+
 test("only unprotected zero-of-twelve non-rising products become discontinuation review candidates", () => {
   const weakHistory = monthSales(Array.from({ length: 12 }, () => 10_000));
   const review = evaluate({
