@@ -13,9 +13,11 @@ import {
 import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
 import { normalizePurchaseOrderQuantity } from "@/lib/purchaseCashflowAllocation";
 import {
+  loadPurchaseDraftOperatorAdjustments,
   regenerateManualMonthlyPurchaseDraft,
   regenerateValidatedMonthlyPurchaseDraft,
 } from "@/lib/purchaseCycleDraftRegeneration";
+import { mergePurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegenerationCore";
 import {
   confirmSourcingBudgetPlan,
   loadSourcingBudgetPlan,
@@ -36,11 +38,18 @@ export type InlinePurchaseCycleDraftRecalculationRequest = {
 export async function recalculatePurchaseCycleDraftInline(
   input: InlinePurchaseCycleDraftRecalculationRequest,
 ) {
-  const excludedBarcodes = [...input.excludedBarcodes];
-  const quantityOverrides = input.quantityOverrides.map((row) => ({
+  const persistedAdjustments = await loadPurchaseDraftOperatorAdjustments(input.replaceDraftId);
+  const incomingAdjustments = {
+    excludedBarcodes: [...input.excludedBarcodes],
+    quantityOverrides: input.quantityOverrides.map((row) => ({
     barcode: row.barcode,
     targetQuantity: normalizePurchaseOrderQuantity(row.targetQuantity),
-  }));
+    })),
+  };
+  const {
+    excludedBarcodes,
+    quantityOverrides,
+  } = mergePurchaseDraftOperatorAdjustments(persistedAdjustments, incomingAdjustments);
   const requestBase: PurchaseCycleDraftRequest = {
     targetDate: input.targetDate,
     cashLimitKrw: input.cashLimitKrw,
@@ -106,6 +115,8 @@ export async function recalculatePurchaseCycleDraftInline(
   const replacement = await regenerateValidatedMonthlyPurchaseDraft({
     ...prepared,
     expectedDraftId: input.replaceDraftId,
+    operatorExcludedBarcodes: excludedBarcodes,
+    operatorQuantityOverrides: quantityOverrides,
   });
   return {
     draft: replacement.draft,
@@ -172,6 +183,8 @@ export async function createPurchaseCyclePreflightDraft(
     ? await regenerateValidatedMonthlyPurchaseDraft({
         ...prepared,
         expectedDraftId: request.replaceDraftId,
+        operatorExcludedBarcodes: request.excludedBarcodes,
+        operatorQuantityOverrides: request.quantityOverrides,
       })
     : null;
   const draft = replacement
@@ -180,6 +193,8 @@ export async function createPurchaseCyclePreflightDraft(
         ...prepared,
         dataMode: "PURCHASE_PREFLIGHT",
         allowAdoptExistingReservedDraft: false,
+        operatorExcludedBarcodes: request.excludedBarcodes,
+        operatorQuantityOverrides: request.quantityOverrides,
       });
   let sourcing: SourcingBudgetConfirmationResult | {
     ok: false;

@@ -17,6 +17,11 @@ export type ManualDraftRevisionQuantityOverride = {
   targetQuantity: number;
 };
 
+export type PurchaseDraftOperatorAdjustments = {
+  excludedBarcodes: string[];
+  quantityOverrides: ManualDraftRevisionQuantityOverride[];
+};
+
 const BARCODE = /^B[A-Z]{2}\d+-\d+$/;
 
 function text(value: unknown) {
@@ -31,6 +36,60 @@ function object(value: unknown): Record<string, unknown> {
 
 function normalizedBarcode(value: unknown) {
   return text(value).toUpperCase().replace(/\s+/g, "");
+}
+
+export function normalizePurchaseDraftOperatorAdjustments(
+  input: Partial<PurchaseDraftOperatorAdjustments> | null | undefined,
+): PurchaseDraftOperatorAdjustments {
+  const excludedBarcodes = [...new Set(
+    (input?.excludedBarcodes ?? [])
+      .map(normalizedBarcode)
+      .filter((value) => BARCODE.test(value)),
+  )].sort();
+  const excluded = new Set(excludedBarcodes);
+  const quantityByBarcode = new Map<string, number>();
+  for (const row of input?.quantityOverrides ?? []) {
+    const code = normalizedBarcode(row?.barcode);
+    const targetQuantity = Math.round(Number(row?.targetQuantity));
+    if (
+      !BARCODE.test(code) ||
+      excluded.has(code) ||
+      !Number.isFinite(targetQuantity) ||
+      targetQuantity < 1 ||
+      targetQuantity > 9_999
+    ) continue;
+    quantityByBarcode.set(code, targetQuantity);
+  }
+  return {
+    excludedBarcodes,
+    quantityOverrides: [...quantityByBarcode]
+      .map(([code, targetQuantity]) => ({ barcode: code, targetQuantity }))
+      .sort((left, right) => left.barcode.localeCompare(right.barcode)),
+  };
+}
+
+export function mergePurchaseDraftOperatorAdjustments(
+  persisted: Partial<PurchaseDraftOperatorAdjustments> | null | undefined,
+  incoming: Partial<PurchaseDraftOperatorAdjustments> | null | undefined,
+) {
+  const previous = normalizePurchaseDraftOperatorAdjustments(persisted);
+  const next = normalizePurchaseDraftOperatorAdjustments(incoming);
+  const excludedBarcodes = [...new Set([
+    ...previous.excludedBarcodes,
+    ...next.excludedBarcodes,
+  ])].sort();
+  const excluded = new Set(excludedBarcodes);
+  const quantityByBarcode = new Map(
+    previous.quantityOverrides.map((row) => [row.barcode, row.targetQuantity] as const),
+  );
+  for (const row of next.quantityOverrides) quantityByBarcode.set(row.barcode, row.targetQuantity);
+  return {
+    excludedBarcodes,
+    quantityOverrides: [...quantityByBarcode]
+      .filter(([code]) => !excluded.has(code))
+      .map(([code, targetQuantity]) => ({ barcode: code, targetQuantity }))
+      .sort((left, right) => left.barcode.localeCompare(right.barcode)),
+  } satisfies PurchaseDraftOperatorAdjustments;
 }
 
 export function assertDraftCanBeRegenerated<T extends RegenerableDraftCommitment>(

@@ -172,6 +172,8 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
   cycleMonth: string;
   lines: FastPurchaseInternalDraftLine[];
   allowAdoptExistingReservedDraft?: boolean;
+  operatorExcludedBarcodes?: string[];
+  operatorQuantityOverrides?: Array<{ barcode: string; targetQuantity: number }>;
 }): Promise<FastPurchaseInternalDraft> {
   if (!/^sha256:[a-f0-9]{64}$/.test(text(input.sourceFingerprint))) {
     throw new Error("FAST_PURCHASE_DRAFT_FINGERPRINT_INVALID");
@@ -206,6 +208,17 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
     (sum, line) => sum + line.plannedQuantity,
     0,
   );
+  const operatorExcludedBarcodes = [...new Set(
+    (input.operatorExcludedBarcodes ?? []).map(barcode).filter((value) => BARCODE.test(value)),
+  )].sort();
+  const excluded = new Set(operatorExcludedBarcodes);
+  const operatorQuantityOverrides = [...new Map(
+    (input.operatorQuantityOverrides ?? [])
+      .map((row) => [barcode(row.barcode), quantity(row.targetQuantity)] as const)
+      .filter(([code, target]) => BARCODE.test(code) && !excluded.has(code) && target > 0 && target <= MANUAL_QUANTITY_MAX),
+  )]
+    .map(([code, targetQuantity]) => ({ barcode: code, targetQuantity }))
+    .sort((left, right) => left.barcode.localeCompare(right.barcode));
   const stable = {
     sourceFingerprint: input.sourceFingerprint,
     dataMode: input.dataMode,
@@ -216,6 +229,10 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
       stockSense: line.stockSense,
       referenceDemandQuantity: line.referenceDemandQuantity,
     })),
+    operatorAdjustments: {
+      excludedBarcodes: operatorExcludedBarcodes,
+      quantityOverrides: operatorQuantityOverrides,
+    },
   };
   const proposedDraftId = `fast-purchase-draft:${hash(stable).slice(0, 20)}`;
   const createdAt = new Date().toISOString();
@@ -274,6 +291,8 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
         referenceDemandQuantity: line.referenceDemandQuantity,
         stockSense: line.stockSense,
         operatorNote: line.note,
+        operatorExcludedBarcodes,
+        operatorQuantityOverrides,
         externalOrderExecuted: false,
       },
     });
