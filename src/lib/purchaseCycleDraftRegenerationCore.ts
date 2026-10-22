@@ -136,6 +136,9 @@ export function buildManualDraftRevision(
   );
   const exclusions = excludedBarcodes.map(normalizedBarcode);
   const exclusionSet = new Set(exclusions);
+  const activeExclusionSet = new Set(
+    exclusions.filter((barcode) => activeByBarcode.has(barcode)),
+  );
   const normalizedOverrides = quantityOverrides.map((row) => ({
     barcode: normalizedBarcode(row.barcode),
     targetQuantity: Math.round(Number(row.targetQuantity)),
@@ -145,7 +148,7 @@ export function buildManualDraftRevision(
   );
   if (
     exclusions.length !== exclusionSet.size ||
-    exclusions.some((barcode) => !BARCODE.test(barcode) || !activeByBarcode.has(barcode)) ||
+    exclusions.some((barcode) => !BARCODE.test(barcode)) ||
     normalizedOverrides.length !== overrideByBarcode.size ||
     normalizedOverrides.some(
       (row) =>
@@ -161,7 +164,7 @@ export function buildManualDraftRevision(
   }
 
   const lines = activeRows
-    .filter((row) => !exclusionSet.has(normalizedBarcode(row.barcode)))
+    .filter((row) => !activeExclusionSet.has(normalizedBarcode(row.barcode)))
     .map((row) => {
       const barcode = normalizedBarcode(row.barcode);
       const payload = object(row.latestPayload);

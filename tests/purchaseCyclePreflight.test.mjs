@@ -253,6 +253,95 @@ test("operator quantity that alone exceeds the budget blocks instead of shrinkin
   blocked(buildPurchaseCyclePreflight(input), "OPERATOR_QUANTITY_BUDGET_EXCEEDED");
 });
 
+test("operator quantity keeps an existing Draft line when automatic inventory and recommendation become ineligible", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.replaceDraftId = draftId;
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 5 }];
+  Object.assign(input.priority.rows[0], {
+    purchaseStatus: "발주 보류",
+    recommendedQty: 0,
+    priorityScore: 0,
+    inventoryMode: "UNAVAILABLE",
+    inventoryVerified: false,
+    executionInventoryEligible: false,
+    inventoryCalculationUsable: false,
+    inventoryRequiresReview: true,
+    action: "INVENTORY_EVIDENCE_REQUIRED",
+    operationallyReady: false,
+  });
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 10 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(report.selected.map((row) => [row.barcode, row.quantity]), [["BAA1-1", 5]]);
+  assert.ok(!report.blockers.includes("OPERATOR_QUANTITY_TARGET_NOT_ELIGIBLE"));
+  assert.deepEqual(report.replacementAudit.quantityChanged[0], {
+    barcode: "BAA1-1",
+    name: "SIMULATION ONLY",
+    previousQuantity: 10,
+    selectedQuantity: 5,
+  });
+});
+
+test("operator quantity cannot add an automatically ineligible line that was not in the replacement Draft", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.replaceDraftId = draftId;
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 5 }];
+  Object.assign(input.priority.rows[0], {
+    recommendedQty: 0,
+    inventoryMode: "UNAVAILABLE",
+    inventoryVerified: false,
+    executionInventoryEligible: false,
+    inventoryCalculationUsable: false,
+    inventoryRequiresReview: true,
+    action: "INVENTORY_EVIDENCE_REQUIRED",
+    operationallyReady: false,
+  });
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA2-1", name: "OTHER EXISTING LINE", quantity: 5 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  blocked(buildPurchaseCyclePreflight(input), "OPERATOR_QUANTITY_TARGET_NOT_ELIGIBLE");
+});
+
+test("operator quantity on an existing Draft line still requires a valid cost", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.replaceDraftId = draftId;
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 5 }];
+  Object.assign(input.priority.rows[0], {
+    purchaseStatus: "발주 보류",
+    recommendedQty: 0,
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptCostKrw: 0,
+    protectedCostKrw: 0,
+    expectedCost: 0,
+  });
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 10 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  blocked(buildPurchaseCyclePreflight(input), "OPERATOR_QUANTITY_TARGET_NOT_ELIGIBLE");
+  assert.ok(buildPurchaseCyclePreflight(input).excluded[0].reasons.includes("CONFIRMED_COST_REQUIRED"));
+});
+
 test("shadow expected cost does not relax the normal monthly Draft path", () => {
   const input = fixture();
   Object.assign(input.priority.rows[0], {

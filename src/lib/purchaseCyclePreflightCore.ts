@@ -689,7 +689,21 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   }
   const duplicates = new Set(rows.filter((row, i) => i > 0 && rows[i - 1].barcode === row.barcode).map(row => row.barcode));
   if (duplicates.size) blockers.push("DUPLICATE_BARCODE");
-  const candidates = rows.filter(row => row.purchaseStatus === "발주 추천");
+  const replacementLineBarcodes = new Set(
+    (input.replacementAfter?.lines ?? []).map((line) => line.barcode),
+  );
+  const operatorPinnedExistingBarcodes = new Set(
+    operatorQuantityOverrides
+      .map((row) => row.barcode)
+      .filter((barcode) => replacementLineBarcodes.has(barcode) && !operatorExcludedSet.has(barcode)),
+  );
+  // An explicit quantity on the active replacement Draft is an operator
+  // decision. Keep that existing line in the calculation even when the
+  // automatic recommendation has since become ineligible. Identity, cost,
+  // quantity-limit, SKU-limit, and budget checks still apply below.
+  const candidates = rows.filter(
+    (row) => row.purchaseStatus === "발주 추천" || operatorPinnedExistingBarcodes.has(row.barcode),
+  );
   const allowShadowEstimateForRefill = Boolean(
     replacementDraftId && (operatorExcludedBarcodes.length > 0 || operatorQuantityOverrides.length > 0),
   );
@@ -709,10 +723,11 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const eligible: InventoryVerificationPriorityRow[] = [];
   for (const row of candidates) {
     const reasons: string[] = [];
+    const operatorPinnedExisting = operatorPinnedExistingBarcodes.has(row.barcode);
     if (operatorExcludedSet.has(row.barcode)) reasons.push("OPERATOR_DRAFT_EXCLUSION");
     if (!CODE.test(row.barcode) || duplicates.has(row.barcode)) reasons.push("IDENTITY_REVIEW");
     const basis = costBasisByBarcode.get(row.barcode) ?? null;
-    if (!basis || !positive(lineCost(row, basis))) {
+    if (!basis || !positive(operatorPinnedExisting ? basis.unitCostKrw : lineCost(row, basis))) {
       const estimateRow = wholesaleSnapshot?.rows.find((item) => item.barcode === row.barcode);
       reasons.push(
         wholesaleSnapshotUsable && estimateRow?.reason
@@ -722,15 +737,20 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
             : "CONFIRMED_COST_REQUIRED",
       );
     }
-    if (!inventoryPreviewReady(row)) reasons.push("VERIFIED_INVENTORY_REQUIRED");
-    if (!positive(row.recommendedQty) || !nonnegative(row.priorityScore)) reasons.push("INVALID_RECOMMENDATION");
-    if (row.recommendedQty > maxUnitsPerSku) reasons.push("CANARY_QUANTITY_LIMIT");
+    if (!operatorPinnedExisting && !inventoryPreviewReady(row)) reasons.push("VERIFIED_INVENTORY_REQUIRED");
+    if (!operatorPinnedExisting && (!positive(row.recommendedQty) || !nonnegative(row.priorityScore))) {
+      reasons.push("INVALID_RECOMMENDATION");
+    }
+    const quantityForLimit = operatorPinnedExisting
+      ? operatorQuantityByBarcode.get(row.barcode) ?? 0
+      : row.recommendedQty;
+    if (quantityForLimit > maxUnitsPerSku) reasons.push("CANARY_QUANTITY_LIMIT");
     const previewPolicyReady = verifiedInventoryReady(row)
       ? basis?.executionVerified === false
         ? row.action === "COST_CONFIRMATION_REQUIRED" && row.operationallyReady === false
         : row.action === "NONE" && row.operationallyReady === true
       : provisionalInventoryReady(row) && row.operationallyReady === false;
-    if (!previewPolicyReady) reasons.push("ROW_EXECUTION_BLOCKED");
+    if (!operatorPinnedExisting && !previewPolicyReady) reasons.push("ROW_EXECUTION_BLOCKED");
     if (reasons.length) excluded.push({ barcode: row.barcode, reasons }); else eligible.push(row);
   }
   eligible.sort((a, b) => b.priorityScore - a.priorityScore || lineCost(a, costBasisByBarcode.get(a.barcode) ?? null) - lineCost(b, costBasisByBarcode.get(b.barcode) ?? null) || a.barcode.localeCompare(b.barcode));
