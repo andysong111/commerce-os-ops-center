@@ -50,3 +50,7 @@ supplier order, checkout, payment, or supplier contact remain outside scope.
 - Dedicated regression coverage now runs in Purchase Cycle Preflight CI, so a
   later change cannot silently reset protected rising or hero products to 1.5
   months.
+- Draft regeneration now stores the full owner-adjustment lineage (one-cycle
+  exclusions and pinned quantities) on every RESERVED line and merges it into
+  every later recalculation. A later inline recalculation therefore cannot
+  re-add an excluded SKU or drop a pinned quantity such as `BGG1-1:3000`.

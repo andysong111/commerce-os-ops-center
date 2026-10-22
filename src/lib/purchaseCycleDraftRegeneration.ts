@@ -14,6 +14,8 @@ import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   assertDraftCanBeRegenerated,
   buildManualDraftRevision,
+  normalizePurchaseDraftOperatorAdjustments,
+  type PurchaseDraftOperatorAdjustments,
 } from "@/lib/purchaseCycleDraftRegenerationCore";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
@@ -51,6 +53,46 @@ function object(value: unknown): Record<string, unknown> {
 
 function hash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+export async function loadPurchaseDraftOperatorAdjustments(
+  expectedDraftId: string,
+): Promise<PurchaseDraftOperatorAdjustments> {
+  if (!DRAFT_ID.test(text(expectedDraftId))) {
+    throw new Error("PURCHASE_DRAFT_REGENERATION_DRAFT_ID_INVALID");
+  }
+  const ledger = await loadChinaOrderLedger();
+  if (ledger.error) {
+    throw new Error(`PURCHASE_DRAFT_REGENERATION_LEDGER_UNAVAILABLE:${ledger.error}`);
+  }
+  const rows = ledger.commitments.filter(
+    (row) =>
+      row.sourceSystem === SOURCE_SYSTEM &&
+      row.sourceRunId === expectedDraftId &&
+      row.openQuantity > 0,
+  );
+  if (rows.length < 1) {
+    throw new Error("PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED");
+  }
+  const snapshots = rows.map((row) => {
+    const payload = object(row.latestPayload);
+    return normalizePurchaseDraftOperatorAdjustments({
+      excludedBarcodes: Array.isArray(payload.operatorExcludedBarcodes)
+        ? payload.operatorExcludedBarcodes.map(text)
+        : [],
+      quantityOverrides: Array.isArray(payload.operatorQuantityOverrides)
+        ? payload.operatorQuantityOverrides.map((value) => {
+            const item = object(value);
+            return { barcode: text(item.barcode), targetQuantity: quantity(item.targetQuantity) };
+          })
+        : [],
+    });
+  });
+  const serialized = snapshots.map((value) => JSON.stringify(value));
+  if (new Set(serialized).size > 1) {
+    throw new Error("PURCHASE_DRAFT_OPERATOR_ADJUSTMENTS_CONFLICT");
+  }
+  return snapshots[0];
 }
 
 function supabaseConnection() {
@@ -112,6 +154,8 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
   cycleMonth: string;
   lines: FastPurchaseInternalDraftLine[];
   expectedDraftId: string;
+  operatorExcludedBarcodes?: string[];
+  operatorQuantityOverrides?: Array<{ barcode: string; targetQuantity: number }>;
 }): Promise<PurchaseCycleDraftRegenerationResult> {
   if (!FINGERPRINT.test(text(input.sourceFingerprint))) {
     throw new Error("PURCHASE_DRAFT_REGENERATION_FINGERPRINT_INVALID");
@@ -123,6 +167,10 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     throw new Error("PURCHASE_DRAFT_REGENERATION_DRAFT_ID_INVALID");
   }
   const lines = normalizeLines(input.lines);
+  const operatorAdjustments = normalizePurchaseDraftOperatorAdjustments({
+    excludedBarcodes: input.operatorExcludedBarcodes,
+    quantityOverrides: input.operatorQuantityOverrides,
+  });
   const stable = {
     regeneration: true,
     sourceFingerprint: input.sourceFingerprint,
@@ -134,6 +182,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       stockSense: line.stockSense,
       referenceDemandQuantity: line.referenceDemandQuantity,
     })),
+    operatorAdjustments,
   };
   const draftId = `fast-purchase-draft:${hash(stable).slice(0, 20)}`;
   const ledger = await loadChinaOrderLedger();
@@ -270,6 +319,8 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         referenceDemandQuantity: line.referenceDemandQuantity,
         stockSense: line.stockSense,
         operatorNote: line.note,
+        operatorExcludedBarcodes: operatorAdjustments.excludedBarcodes,
+        operatorQuantityOverrides: operatorAdjustments.quantityOverrides,
         regeneration: true,
         supersedesDraftId: input.expectedDraftId,
         externalOrderExecuted: false,
@@ -398,6 +449,8 @@ export async function regenerateManualMonthlyPurchaseDraft(input: {
     cycleMonth,
     lines: revision.lines,
     expectedDraftId: input.expectedDraftId,
+    operatorExcludedBarcodes: input.excludedBarcodes,
+    operatorQuantityOverrides: input.quantityOverrides,
   });
   return {
     ...replacement,

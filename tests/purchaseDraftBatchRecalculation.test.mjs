@@ -4,6 +4,33 @@ import test from "node:test";
 const { buildPurchaseDraftBatchRecalculationHref } = await import(
   new URL("../src/lib/purchaseDraftBatchRecalculation.ts", import.meta.url)
 );
+const { mergePurchaseDraftOperatorAdjustments } = await import(
+  new URL("../src/lib/purchaseCycleDraftRegenerationCore.ts", import.meta.url)
+);
+
+test("draft recalculation keeps prior exclusions and pinned quantities", () => {
+  const merged = mergePurchaseDraftOperatorAdjustments(
+    {
+      excludedBarcodes: ["BAF3-1", "BAB5-1"],
+      quantityOverrides: [{ barcode: "BGG1-1", targetQuantity: 3_000 }],
+    },
+    {
+      excludedBarcodes: ["BBA7-2"],
+      quantityOverrides: [
+        { barcode: "BGG1-1", targetQuantity: 3_000 },
+        { barcode: "BAC1-1", targetQuantity: 50 },
+      ],
+    },
+  );
+
+  assert.deepEqual(merged, {
+    excludedBarcodes: ["BAB5-1", "BAF3-1", "BBA7-2"],
+    quantityOverrides: [
+      { barcode: "BAC1-1", targetQuantity: 50 },
+      { barcode: "BGG1-1", targetQuantity: 3_000 },
+    ],
+  });
+});
 
 test("batch recalculation carries quantity edits, exclusions, and additions in one request", () => {
   const href = buildPurchaseDraftBatchRecalculationHref({
