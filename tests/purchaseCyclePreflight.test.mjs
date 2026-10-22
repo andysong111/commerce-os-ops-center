@@ -921,6 +921,9 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(draftActions, /disabled=\{!ready \|\| saving\}/);
   assert.match(draftActions, /href="#preflight-result-title"/);
   assert.match(draftActions, /실제 주문·결제는 실행하지 않습니다/);
+  assert.match(draftActions, /preserveExistingSourcingOnly/);
+  assert.match(draftActions, /\/api\/purchase-cycle\/preflight-draft\/recalculate/);
+  assert.match(page, /canRecalculateWithPreservedSourcingOnly/);
   assert.match(page, /기존상품으로 돌아간 금액/);
   assert.match(page, /지금 확인할 내용/);
   assert.match(page, /기존상품 재발주/);
@@ -940,7 +943,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /오류나 사용자 할 일로 세지 않습니다/);
   assert.match(page, /기술 검증 내역/);
   assert.match(page, /소싱 후보 다시 불러오기/);
-  assert.match(page, /confirmation: draftReady \? purchaseCycleDraftConfirmation\(report, sourcingPlan\) : ""/);
+  assert.match(page, /purchaseCycleDraftConfirmation\(report, preserveExistingSourcingOnly \? null : sourcingPlan\)/);
   assert.match(page, /className="min-w-0 space-y-5"/);
   assert.ok(page.indexOf('id="new-product-configuration"') < page.indexOf('id="sourcing-selection"'));
   assert.ok(page.indexOf('id="sourcing-selection"') < page.indexOf('id="manual-sourcing-intake"'));

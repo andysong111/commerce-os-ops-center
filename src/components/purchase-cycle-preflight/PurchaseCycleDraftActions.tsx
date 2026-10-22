@@ -52,6 +52,7 @@ export function PurchaseCycleDraftActions({
   newSourcingQuantity,
   estimatedSpendKrw,
   ready,
+  preserveExistingSourcingOnly = false,
   replaceDraftId,
   excludedBarcodes = [],
   quantityOverrides = [],
@@ -87,6 +88,7 @@ export function PurchaseCycleDraftActions({
   newSourcingQuantity: number;
   estimatedSpendKrw: number;
   ready: boolean;
+  preserveExistingSourcingOnly?: boolean;
   replaceDraftId?: string | null;
   excludedBarcodes?: string[];
   quantityOverrides?: PurchaseQuantityOverride[];
@@ -124,27 +126,44 @@ export function PurchaseCycleDraftActions({
     if (!window.confirm(summary + quickOpenNotice)) return;
     setSaving(true);
     try {
-      const response = await fetch("/api/purchase-cycle/preflight-draft", {
+      const recalculateExistingDraft = Boolean(replaceDraftId && preserveExistingSourcingOnly);
+      const response = await fetch(
+        recalculateExistingDraft
+          ? "/api/purchase-cycle/preflight-draft/recalculate"
+          : "/api/purchase-cycle/preflight-draft",
+        {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({
-          targetDate,
-          cashLimitKrw,
-          sourcingBudgetPercent,
-          preferredSourcingConceptIds,
-          sourcingStorageSizeByConceptId,
-          sourcingVariantSelections,
-          allowOpenBudgetPreview,
-          expectedSourceFingerprint,
-          expectedPlanFingerprint,
-          expectedSourcingSourceFingerprint,
-          expectedSourcingPlanFingerprint,
-          expectedSourcingDecisionFingerprint,
-          confirmation,
-          replaceDraftId: replaceDraftId ?? null,
-          excludedBarcodes,
-          quantityOverrides,
-        }),
+        credentials: "same-origin",
+        cache: "no-store",
+        body: JSON.stringify(recalculateExistingDraft
+          ? {
+              targetDate,
+              cashLimitKrw,
+              sourcingBudgetPercent,
+              allowOpenBudgetPreview,
+              replaceDraftId,
+              excludedBarcodes,
+              quantityOverrides,
+            }
+          : {
+              targetDate,
+              cashLimitKrw,
+              sourcingBudgetPercent,
+              preferredSourcingConceptIds,
+              sourcingStorageSizeByConceptId,
+              sourcingVariantSelections,
+              allowOpenBudgetPreview,
+              expectedSourceFingerprint,
+              expectedPlanFingerprint,
+              expectedSourcingSourceFingerprint,
+              expectedSourcingPlanFingerprint,
+              expectedSourcingDecisionFingerprint,
+              confirmation,
+              replaceDraftId: replaceDraftId ?? null,
+              excludedBarcodes,
+              quantityOverrides,
+            }),
       });
       const payload = (await response.json().catch(() => ({}))) as DraftResponse;
       if (!response.ok || !payload.ok) {
