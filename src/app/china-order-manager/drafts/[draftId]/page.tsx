@@ -7,6 +7,8 @@ import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChina
 import { loadInternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
+import { loadPurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegeneration";
+import { mergePurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegenerationCore";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,20 +32,25 @@ export default async function InternalChinaPurchaseDraftPage({
   let budgetAudit;
   let initialQuantityOverrides: Array<{ barcode: string; targetQuantity: number }> = [];
   try {
-    const [baseDraft, loadedBudgetAudit] = await Promise.all([
+    const [baseDraft, loadedBudgetAudit, persistedAdjustments] = await Promise.all([
       loadInternalChinaPurchaseDraft(draftId),
       loadInternalChinaPurchaseBudgetAudit(draftId),
+      loadPurchaseDraftOperatorAdjustments(draftId),
     ]);
     draft = await loadInternalChinaDraftWithQuantityOverrides(baseDraft);
     budgetAudit = loadedBudgetAudit;
     const baseQuantityByBarcode = new Map(
       baseDraft.lines.map((line) => [line.barcode, line.quantity] as const),
     );
-    initialQuantityOverrides = draft.lines.flatMap((line) =>
+    const displayedQuantityOverrides = draft.lines.flatMap((line) =>
       baseQuantityByBarcode.get(line.barcode) === line.quantity
         ? []
         : [{ barcode: line.barcode, targetQuantity: line.quantity }],
     );
+    initialQuantityOverrides = mergePurchaseDraftOperatorAdjustments(
+      persistedAdjustments,
+      { excludedBarcodes: [], quantityOverrides: displayedQuantityOverrides },
+    ).quantityOverrides;
   } catch (error) {
     return (
       <div className="space-y-6">

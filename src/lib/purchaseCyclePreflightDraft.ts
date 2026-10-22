@@ -80,19 +80,11 @@ export async function recalculatePurchaseCycleDraftInline(
     replaceDraftId: input.replaceDraftId,
     excludedBarcodes,
     quantityOverrides,
+    releasedQuantityOverrideBarcodes,
   };
   const report = await loadPurchaseCyclePreflight(
     purchaseCycleDraftPreflightOptions(requestBase),
   );
-  const selectedBarcodes = new Set(report.selected.map((row) => row.barcode));
-  const unresolvedReleasedBarcodes = releasedQuantityOverrideBarcodes.filter(
-    (barcode) => !selectedBarcodes.has(barcode),
-  );
-  if (unresolvedReleasedBarcodes.length > 0) {
-    throw new Error(
-      `RELEASED_QUANTITY_TARGET_NOT_RECOMMENDED:${unresolvedReleasedBarcodes.join(",")}`,
-    );
-  }
   const request: PurchaseCycleDraftRequest = {
     ...requestBase,
     expectedSourceFingerprint: report.sourceFingerprint,
@@ -108,6 +100,7 @@ export async function recalculatePurchaseCycleDraftInline(
     const code = error instanceof Error ? error.message.split(":", 1)[0] : "";
     if (
       code !== "PURCHASE_CYCLE_DRAFT_NOT_READY" ||
+      releasedQuantityOverrideBarcodes.length > 0 ||
       (excludedBarcodes.length === 0 && quantityOverrides.length === 0)
     ) {
       throw error;
