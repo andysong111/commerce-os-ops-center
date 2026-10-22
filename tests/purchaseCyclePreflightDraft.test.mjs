@@ -633,6 +633,20 @@ test("manual revision cannot add an unknown product without the verified engine"
   );
 });
 
+test("manual revision ignores a valid persisted exclusion after that line has already left the active Draft", () => {
+  const expected = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  const revision = buildManualDraftRevision(
+    [commitment({ latestPayload: { productName: "남은 상품" } })],
+    expected,
+    ["BAC2-2"],
+    [],
+  );
+
+  assert.deepEqual(revision.lines.map((line) => line.barcode), ["BAC1-1"]);
+  assert.equal(revision.removedCount, 0);
+  assert.equal(revision.changedCount, 0);
+});
+
 for (const mutate of [
   (value) => { value.previewReady = false; },
   (value) => { value.blockers = ["SOURCE_CHANGED_OR_MISSING"]; },
