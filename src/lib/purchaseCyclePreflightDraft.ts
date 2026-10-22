@@ -100,8 +100,11 @@ export async function recalculatePurchaseCycleDraftInline(
     const code = error instanceof Error ? error.message.split(":", 1)[0] : "";
     if (
       code !== "PURCHASE_CYCLE_DRAFT_NOT_READY" ||
-      releasedQuantityOverrideBarcodes.length > 0 ||
-      (excludedBarcodes.length === 0 && quantityOverrides.length === 0)
+      (
+        releasedQuantityOverrideBarcodes.length === 0 &&
+        excludedBarcodes.length === 0 &&
+        quantityOverrides.length === 0
+      )
     ) {
       throw error;
     }
@@ -109,6 +112,7 @@ export async function recalculatePurchaseCycleDraftInline(
       expectedDraftId: input.replaceDraftId,
       excludedBarcodes,
       quantityOverrides,
+      releasedQuantityOverrideBarcodes,
     });
     return {
       draft: fallback.draft,

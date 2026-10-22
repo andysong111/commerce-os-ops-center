@@ -401,6 +401,7 @@ export async function regenerateManualMonthlyPurchaseDraft(input: {
   expectedDraftId: string;
   excludedBarcodes: string[];
   quantityOverrides: Array<{ barcode: string; targetQuantity: number }>;
+  releasedQuantityOverrideBarcodes?: string[];
 }) {
   if (!DRAFT_ID.test(text(input.expectedDraftId))) {
     throw new Error("PURCHASE_DRAFT_REGENERATION_DRAFT_ID_INVALID");
@@ -433,7 +434,10 @@ export async function regenerateManualMonthlyPurchaseDraft(input: {
   const revision = buildManualDraftRevision(
     cycleRows,
     input.expectedDraftId,
-    input.excludedBarcodes,
+    [
+      ...input.excludedBarcodes,
+      ...(input.releasedQuantityOverrideBarcodes ?? []),
+    ],
     input.quantityOverrides,
   );
   const sourceFingerprint = `sha256:${hash({
