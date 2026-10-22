@@ -43,6 +43,14 @@ test("same-tier retries can hydrate exact prior successful ranges instead of rer
   assert.match(recovery, /result_snapshot: chunk\.resultSnapshot/);
 });
 
+test("shrinking a failed tier keeps completed parent ranges and splits only unfinished ranges", () => {
+  assert.match(recovery, /function completedRequestRangeKeys/);
+  assert.match(recovery, /export function planRecoveryRanges/);
+  assert.match(recovery, /completedRangeKeys\.has\(rangeKey\(range\)\)[\s\S]*\? \[range\][\s\S]*: splitShoplingDateRange\(range\.start, range\.end, childChunkDays\)/);
+  assert.match(recovery, /planning\.contentFingerprint === latest\.planningContentFingerprint/);
+  assert.doesNotMatch(recovery, /child\.chunkDays === parent\.chunkDays/);
+});
+
 test("cron can recover terminal Shopling reads but never runs Product Master canary or full", () => {
   assert.match(cron, /recoverProductMasterShoplingSalesEventRequest/);
   assert.match(cron, /hydrateProductMasterShoplingSalesEventRecovery/);

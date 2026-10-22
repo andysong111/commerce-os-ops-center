@@ -72,9 +72,9 @@ test("new reads start at 7 days, legacy 30-day failures shrink immediately, and 
   assert.match(cron, /7일[\s\S]*2일/);
 });
 
-test("same-tier retry reuses completed chunks only when the pinned source context is identical", () => {
+test("retry reuses exact completed ranges only when the pinned source context is identical", () => {
   assert.match(recovery, /function exactReuseContext/);
-  assert.match(recovery, /child\.chunkDays === parent\.chunkDays/);
+  assert.doesNotMatch(recovery, /child\.chunkDays === parent\.chunkDays/);
   assert.match(recovery, /child\.analysisAsOf === parent\.analysisAsOf/);
   assert.match(recovery, /child\.analysisStartDate === parent\.analysisStartDate/);
   assert.match(recovery, /child\.analysisEndDate === parent\.analysisEndDate/);
@@ -83,6 +83,7 @@ test("same-tier retry reuses completed chunks only when the pinned source contex
   assert.match(recovery, /sales-event-recovery-chunk:/);
   assert.match(recovery, /reusedFromRequestId/);
   assert.match(recovery, /reusedChunkCount/);
+  assert.match(recovery, /planRecoveryRanges/);
   assert.match(cron, /hydrateProductMasterShoplingSalesEventRecovery/);
 });
 
