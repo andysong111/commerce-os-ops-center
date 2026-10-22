@@ -156,5 +156,25 @@ test("inline recalculation endpoint replaces the reserved draft without renderin
   assert.match(service, /preserveExistingSourcingOnly: true/);
   assert.match(service, /regenerateValidatedMonthlyPurchaseDraft/);
   assert.match(service, /regenerateManualMonthlyPurchaseDraft/);
+  assert.match(service, /releasedQuantityOverrideBarcodes,/);
+  assert.match(
+    service,
+    /releasedQuantityOverrideBarcodes\.length === 0[\s\S]*excludedBarcodes\.length === 0/,
+  );
   assert.match(route, /manualFallbackUsed/);
+});
+
+test("manual fallback removes released legacy pins without persisting a permanent exclusion", async () => {
+  const regeneration = await readFile(
+    "src/lib/purchaseCycleDraftRegeneration.ts",
+    "utf8",
+  );
+  assert.match(
+    regeneration,
+    /\.\.\.input\.excludedBarcodes,[\s\S]*\.\.\.\(input\.releasedQuantityOverrideBarcodes \?\? \[\]\)/,
+  );
+  assert.match(
+    regeneration,
+    /operatorExcludedBarcodes: input\.excludedBarcodes/,
+  );
 });
