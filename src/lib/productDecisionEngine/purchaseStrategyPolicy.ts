@@ -1,5 +1,5 @@
 export const PURCHASE_STRATEGY_POLICY_VERSION =
-  "commerce-os-purchase-strategy-policy-v1.0.0";
+  "commerce-os-purchase-strategy-policy-v1.1.0";
 
 export const DEFAULT_MONTHLY_REVENUE_THRESHOLD_KRW = 40_000;
 export const MIN_MONTHLY_REVENUE_THRESHOLD_KRW = 10_000;
@@ -582,7 +582,14 @@ export function evaluatePurchaseStrategy(
     automaticCoverageMonths = policy.consistentPerformerCoverageMonths;
     coverageReason = "CONSISTENT_PERFORMER";
   }
-  if (newProduct.newProduct) {
+  // New-product protection is an eligibility/base-stock floor, not a ceiling.
+  // A protected product that is already rising or consistently strong keeps
+  // the stronger 2-4 month coverage selected above.
+  if (
+    newProduct.newProduct &&
+    history.risingStrength === "NONE" &&
+    !history.heroProduct
+  ) {
     automaticCoverageMonths = policy.baseCoverageMonths;
     coverageReason = "NEW_PRODUCT";
   }
@@ -634,7 +641,6 @@ export function evaluatePurchaseStrategy(
 
   const manualCoverageReviewRequired =
     !permanentlyDiscontinued &&
-    !newProduct.newProduct &&
     history.heroProduct &&
     monthlyDemandUnits > 0;
   const grossDemandTarget = recommended
