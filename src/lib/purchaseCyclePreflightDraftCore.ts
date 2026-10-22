@@ -285,6 +285,13 @@ export function preparePurchaseCycleDraft(
   ) {
     throw new Error("PURCHASE_CYCLE_DRAFT_NOT_READY");
   }
+  if (
+    report.reviewBlockers.includes(
+      "EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED",
+    )
+  ) {
+    throw new Error("PURCHASE_DRAFT_REPLACEMENT_SOURCE_REVIEW_REQUIRED");
+  }
   if (report.replacementDraftId && report.replacementAudit?.complete !== true) {
     throw new Error("PURCHASE_DRAFT_REPLACEMENT_AUDIT_REQUIRED");
   }
@@ -323,7 +330,13 @@ export function preparePurchaseCycleDraft(
         referenceDemandQuantity: row.quantity,
         note: row.preserveOnRegeneration === true
           ? "기존 Draft 신규소싱 확정 상품 유지 · 운영자 제외 시에만 제거"
-          : "기존 Draft 운영자 고정수량 유지 · 1688 장바구니 준비에서 실제 위안단가 확인 필요",
+          : report.operatorQuantityOverrides.some(
+                (override) => override.barcode === row.barcode,
+              )
+            ? "기존 Draft 운영자 고정수량 유지 · 1688 장바구니 준비에서 실제 위안단가 확인 필요"
+            : row.recoveredFromPredecessor === true
+              ? "이전 Draft 자동추천 복구 후보 · 최신 판매·재고 근거 확인 전 저장 금지"
+              : "기존 Draft 자동추천 재검증 필요 · 최신 판매·재고 근거 확인 전 저장 금지",
       })),
     ],
   };

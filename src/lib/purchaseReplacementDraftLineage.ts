@@ -77,6 +77,7 @@ export function purchaseReplacementDraftSnapshotLines(
           !excluded.has(row.barcode),
       )
     : [];
+  const predecessorBarcodes = new Set(predecessorRows.map((row) => row.barcode));
 
   const sourceByBarcode = new Map(
     [...predecessorRows, ...activeRows].map((row) => [row.barcode, row] as const),
@@ -101,6 +102,7 @@ export function purchaseReplacementDraftSnapshotLines(
       quantity,
       name: text(payload.productName),
       preserveOnRegeneration: payload.sourcingConfirmed === true,
+      recoveredFromPredecessor: predecessorBarcodes.has(barcode),
     };
   });
 }
