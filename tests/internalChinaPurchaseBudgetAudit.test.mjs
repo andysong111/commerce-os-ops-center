@@ -89,6 +89,23 @@ test("calendar-month budget and internal standard cost are visible on the China 
   assert.match(card, /예산 초과/);
 });
 
+test("optional comparison sources cannot make a saved China Draft unreadable", () => {
+  assert.match(
+    audit,
+    /loadCanonicalPurchaseShadow\(\)[\s\S]*\.catch\(\(\) => \(\{/,
+  );
+  assert.match(
+    audit,
+    /loadProductPlanningSnapshot\(\)[\s\S]*\.catch\(\(\) => \(\{/,
+  );
+  assert.match(audit, /const sourceWarnings = \[shadowRead\.warning, planningRead\.warning\]/);
+  assert.match(audit, /const snapshot = shadow\?\.snapshot/);
+  assert.match(audit, /analysisAsOf: shadow\?\.analysisAsOf \?\? null/);
+  assert.match(audit, /sourceWarnings\.length > 0 \|\|[\s\S]*\? "COST_REVIEW"/);
+  assert.match(card, /참고자료 일부 지연/);
+  assert.match(card, /audit\.sourceWarnings\.map/);
+});
+
 test("order workspace shows live budget usage before save and refreshes the server audit after save", () => {
   assert.match(workspace, /실시간 월간 발주예산 검증/);
   assert.match(workspace, /budgetAudit\.productOrderBudgetKrw/);
