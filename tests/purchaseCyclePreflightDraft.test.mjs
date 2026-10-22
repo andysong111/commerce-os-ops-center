@@ -459,6 +459,35 @@ test("replacement preparation carries confirmed sourcing lines into the regenera
   assert.match(input.confirmation, /_2SKU_/);
 });
 
+test("replacement preparation labels a preserved operator quantity for 1688 price capture", () => {
+  const value = report();
+  value.replacementDraftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  value.preservedReplacementLines = [{
+    barcode: "BGG1-1",
+    name: "계란펀칭기",
+    quantity: 3_000,
+  }];
+  value.replacementAudit = {
+    previousLineCount: 2,
+    selectedLineCount: 2,
+    matchedCount: 2,
+    added: [],
+    removed: [],
+    quantityChanged: [],
+    complete: true,
+  };
+  const input = request(value);
+  input.replaceDraftId = value.replacementDraftId;
+  input.confirmation = purchaseCycleDraftConfirmation(value);
+
+  const prepared = preparePurchaseCycleDraft(value, input);
+  const pinned = prepared.lines.find((line) => line.barcode === "BGG1-1");
+
+  assert.equal(pinned?.plannedQuantity, 3_000);
+  assert.match(pinned?.note ?? "", /운영자 고정수량 유지/);
+  assert.match(pinned?.note ?? "", /실제 위안단가 확인 필요/);
+});
+
 test("replacement can recalculate with preserved sourcing when no new candidate is available", () => {
   const value = report();
   value.sourcingBudgetPercent = 15;

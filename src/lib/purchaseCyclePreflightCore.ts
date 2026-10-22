@@ -699,8 +699,10 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   );
   // An explicit quantity on the active replacement Draft is an operator
   // decision. Keep that existing line in the calculation even when the
-  // automatic recommendation has since become ineligible. Identity, cost,
-  // quantity-limit, SKU-limit, and budget checks still apply below.
+  // automatic recommendation has since become ineligible. A missing cost
+  // keeps the line out of budget allocation, but the existing Draft row is
+  // preserved for the downstream 1688 price-capture step. New lines still
+  // need cost and inventory evidence before they can enter the Draft.
   const candidates = rows.filter(
     (row) => row.purchaseStatus === "발주 추천" || operatorPinnedExistingBarcodes.has(row.barcode),
   );
@@ -762,7 +764,10 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       .map((line) => line.barcode),
   );
   for (const override of operatorQuantityOverrides) {
-    if (preservedReplacementBarcodes.has(override.barcode)) continue;
+    if (
+      preservedReplacementBarcodes.has(override.barcode) ||
+      operatorPinnedExistingBarcodes.has(override.barcode)
+    ) continue;
     if (!candidateBarcodes.has(override.barcode) || !eligibleBarcodes.has(override.barcode)) {
       blockers.push("OPERATOR_QUANTITY_TARGET_NOT_ELIGIBLE");
     }
@@ -888,10 +893,14 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (replacementDraftId && replacementStable && input.replacementAfter) {
     const previousByBarcode = new Map(input.replacementAfter.lines.map((line) => [line.barcode, line]));
     const selectedByBarcode = new Map(selected.map((line) => [line.barcode, line]));
+    const operatorPinnedPreservedBarcodes = new Set(
+      [...operatorPinnedExistingBarcodes].filter((barcode) => !eligibleBarcodes.has(barcode)),
+    );
     preservedReplacementLines = input.replacementAfter.lines
       .filter(
         (line) =>
-          line.preserveOnRegeneration === true &&
+          (line.preserveOnRegeneration === true ||
+            operatorPinnedPreservedBarcodes.has(line.barcode)) &&
           !operatorExcludedSet.has(line.barcode) &&
           !selectedByBarcode.has(line.barcode),
       )
@@ -900,6 +909,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         quantity: operatorQuantityByBarcode.get(line.barcode) ??
           normalizePurchaseOrderQuantity(line.quantity),
       }));
+    if (operatorPinnedPreservedBarcodes.size > 0) {
+      reviewBlockers.push("OPERATOR_PINNED_EXISTING_COST_REVIEW_REQUIRED");
+    }
     const finalByBarcode = new Map<string, PurchaseReplacementDraftLine>([
       ...selected.map((line) => [line.barcode, {
         barcode: line.barcode,

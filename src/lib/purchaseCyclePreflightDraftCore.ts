@@ -317,7 +317,9 @@ export function preparePurchaseCycleDraft(
         plannedQuantity: row.quantity,
         stockSense: "LOW" as const,
         referenceDemandQuantity: row.quantity,
-        note: "기존 Draft 신규소싱 확정 상품 유지 · 운영자 제외 시에만 제거",
+        note: row.preserveOnRegeneration === true
+          ? "기존 Draft 신규소싱 확정 상품 유지 · 운영자 제외 시에만 제거"
+          : "기존 Draft 운영자 고정수량 유지 · 1688 장바구니 준비에서 실제 위안단가 확인 필요",
       })),
     ],
   };
