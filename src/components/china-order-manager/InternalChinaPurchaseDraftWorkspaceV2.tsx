@@ -157,6 +157,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [persistedQuantityOverrides] = useState<Record<string, number>>(
     () => Object.fromEntries(initialQuantityOverrides.map((row) => [row.barcode, row.targetQuantity])),
   );
+  const [releasedQuantityOverrides, setReleasedQuantityOverrides] = useState<Record<string, boolean>>({});
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [regenerating, setRegenerating] = useState(false);
   const [cartPreparing, setCartPreparing] = useState(false);
@@ -350,6 +351,12 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     const baseline = draft.lines.find((line) => line.barcode === barcode)?.quantity;
     if (baseline === undefined) return;
     const valid = isPurchaseDraftQuantityUnit(targetQuantity);
+    setReleasedQuantityOverrides((current) => {
+      if (current[barcode] !== true) return current;
+      const next = { ...current };
+      delete next[barcode];
+      return next;
+    });
     setEditedQuantities((current) => {
       const next = { ...current };
       if (valid && targetQuantity === baseline) delete next[barcode];
@@ -550,11 +557,23 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const changedQuantityRows = Object.entries(editedQuantities)
     .map(([barcode, targetQuantity]) => ({ barcode, targetQuantity }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
+  const releasedQuantityOverrideBarcodes = Object.keys(releasedQuantityOverrides)
+    .filter((barcode) => releasedQuantityOverrides[barcode] === true)
+    .sort();
+  const selectedQuantityOverrideCandidates = selectedBarcodes.filter(
+    (barcode) =>
+      Object.hasOwn(persistedQuantityOverrides, barcode) &&
+      releasedQuantityOverrides[barcode] !== true,
+  );
   const invalidQuantityBarcodes = changedQuantityRows
     .filter((row) => !isPurchaseDraftQuantityUnit(row.targetQuantity))
     .map((row) => row.barcode);
   const activeQuantityOverrides = Object.entries({
-    ...persistedQuantityOverrides,
+    ...Object.fromEntries(
+      Object.entries(persistedQuantityOverrides).filter(
+        ([barcode]) => releasedQuantityOverrides[barcode] !== true,
+      ),
+    ),
     ...editedQuantities,
     ...Object.fromEntries(
       stagedAdditions.map((row) => [row.barcode, row.targetQuantity]),
@@ -576,6 +595,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const hasPendingRecalculation =
     excludedBarcodes.length > 0 ||
     changedQuantityRows.length > 0 ||
+    releasedQuantityOverrideBarcodes.length > 0 ||
     stagedAdditions.length > 0;
 
   function toggleSelectedBarcode(barcode: string, checked: boolean) {
@@ -625,6 +645,25 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     );
   }
 
+  function releaseSelectedQuantityOverrides() {
+    if (draft.status !== "DRAFT" || selectedQuantityOverrideCandidates.length === 0) return;
+    setReleasedQuantityOverrides((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        selectedQuantityOverrideCandidates.map((barcode) => [barcode, true]),
+      ),
+    }));
+    setEditedQuantities((current) => {
+      const next = { ...current };
+      for (const barcode of selectedQuantityOverrideCandidates) delete next[barcode];
+      return next;
+    });
+    setSelectedRows({});
+    setNotice(
+      `선택한 ${selectedQuantityOverrideCandidates.length.toLocaleString("ko-KR")}종의 수량 고정을 해제 대기에 넣었습니다. 재계산하면 기존 매출·재고 전략이 수량을 다시 정합니다.`,
+    );
+  }
+
   async function recalculateDraft() {
     if (
       draft.status !== "DRAFT" ||
@@ -650,6 +689,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
           replaceDraftId: draft.draftId,
           excludedBarcodes,
           quantityOverrides: activeQuantityOverrides,
+          replaceQuantityOverrides: true,
         }),
       });
       const body = (await response.json().catch(() => ({}))) as DraftRecalculationResponse;
@@ -659,6 +699,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       setEditedQuantities({});
       setSelectedRows({});
       setStagedExclusions({});
+      setReleasedQuantityOverrides({});
       onStagedAdditionsChange([]);
       const successMessage = body.message || "변경사항을 반영해 발주안을 다시 계산했습니다.";
       setNotice(successMessage);
@@ -679,6 +720,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     setEditedQuantities({});
     setSelectedRows({});
     setStagedExclusions({});
+    setReleasedQuantityOverrides({});
     onStagedAdditionsChange([]);
     setNotice("재계산 대기 변경을 모두 취소했습니다. 기존 Draft는 바뀌지 않았습니다.");
   }
@@ -816,7 +858,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <div>
               <strong className="text-sm font-black text-slate-950">한 번에 발주안 재계산</strong>
               <p className="mt-1 text-xs font-bold leading-5 text-slate-700">
-                작업 선택 {selectedBarcodes.length}종 · 수량 변경 {changedQuantityRows.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종입니다. 체크만으로는 삭제되지 않으며, 재계산 버튼을 누르기 전에는 기존 Draft와 주문·입고 원장이 바뀌지 않습니다.
+                작업 선택 {selectedBarcodes.length}종 · 수량 변경 {changedQuantityRows.length}종 · 수량 고정 해제 {releasedQuantityOverrideBarcodes.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종입니다. 체크만으로는 삭제되지 않으며, 재계산 버튼을 누르기 전에는 기존 Draft와 주문·입고 원장이 바뀌지 않습니다.
               </p>
               {invalidQuantityBarcodes.length > 0 ? (
                 <p className="mt-1 text-xs font-black text-rose-700">
@@ -833,6 +875,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               </button>
               <button type="button" onClick={stageSelectedProductsForExclusion} disabled={draft.status !== "DRAFT" || selectedExclusionCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-black text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40">
                 선택 상품 초안에서 제외 ({selectedExclusionCandidates.length}종)
+              </button>
+              <button type="button" onClick={releaseSelectedQuantityOverrides} disabled={draft.status !== "DRAFT" || selectedQuantityOverrideCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40">
+                선택 수량 고정 해제 ({selectedQuantityOverrideCandidates.length}종)
               </button>
               <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                 선택 해제

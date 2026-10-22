@@ -11,6 +11,7 @@ import {
   safeReplacementCycleDraftRows,
 } from "@/lib/chinaOrderLedger";
 import { loadInternalChinaQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
+import { purchaseReplacementDraftSnapshotLines } from "@/lib/purchaseReplacementDraftLineage";
 import {
   buildPurchaseReplacementDraftSnapshot,
   readPurchaseCyclePreflight,
@@ -44,12 +45,6 @@ async function withReaderTimeout<T>(
   }
 }
 
-function object(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-}
-
 async function loadReplacementDraftSnapshot(draftId: string) {
   const [ledger, overrides] = await Promise.all([
     loadChinaOrderLedger(),
@@ -57,38 +52,15 @@ async function loadReplacementDraftSnapshot(draftId: string) {
   ]);
   if (ledger.error) throw new Error("REPLACEMENT_DRAFT_LEDGER_READ_FAILED");
   const activeRows = safeReplacementCycleDraftRows(ledger.commitments, draftId);
-  const quantities = new Map<string, number>();
-  for (const row of activeRows) {
-    const current = quantities.get(row.barcode) ?? 0;
-    quantities.set(row.barcode, Math.max(current, row.openQuantity));
-  }
-  for (const [barcode, override] of overrides) {
-    if (!quantities.has(barcode)) continue;
-    if (override.targetQuantity > 0) quantities.set(barcode, override.targetQuantity);
-    else quantities.delete(barcode);
-  }
-  const sourceByBarcode = new Map(
-    activeRows.map((row) => [row.barcode, row] as const),
-  );
-  for (const row of activeRows) {
-    if (object(row.latestPayload).sourcingConfirmed === true) {
-      sourceByBarcode.set(row.barcode, row);
-    }
-  }
   return buildPurchaseReplacementDraftSnapshot(
     draftId,
     new Date().toISOString(),
-    [...quantities].map(([barcode, quantity]) => {
-      const source = sourceByBarcode.get(barcode);
-      const payload = object(source?.latestPayload);
-      const name = String(payload.productName ?? "").trim();
-      return {
-        barcode,
-        quantity,
-        name,
-        preserveOnRegeneration: payload.sourcingConfirmed === true,
-      };
-    }),
+    purchaseReplacementDraftSnapshotLines(
+      ledger.commitments,
+      activeRows,
+      draftId,
+      overrides,
+    ),
   );
 }
 

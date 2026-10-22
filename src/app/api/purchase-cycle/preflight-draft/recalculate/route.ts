@@ -28,6 +28,9 @@ function errorMessage(code: string) {
   if (code === "REPLACEMENT_DRAFT_SNAPSHOT_INVALID") {
     return "현재 Draft의 일부 수량을 검증하지 못했습니다. 입력은 유지했으므로 잠시 후 다시 계산하세요.";
   }
+  if (code === "RELEASED_QUANTITY_TARGET_NOT_RECOMMENDED") {
+    return "수량 고정을 해제한 상품의 최신 자동 권장수량을 만들지 못했습니다. 기존 Draft는 그대로 유지했으므로 판매·재고 근거를 확인하세요.";
+  }
   return "발주안 재계산을 완료하지 못했습니다. 현재 Draft는 그대로 유지했습니다.";
 }
 

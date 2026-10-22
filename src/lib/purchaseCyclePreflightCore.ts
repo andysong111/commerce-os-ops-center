@@ -222,6 +222,24 @@ const percentOfFloor = (amount: number, percent: number) =>
 const hash = (v: unknown) => `sha256:${createHash("sha256").update(JSON.stringify(v)).digest("hex")}`;
 const fingerprint = (v: unknown): v is string => typeof v === "string" && FP.test(v);
 
+function verifiedAutomaticRemovalReason(
+  row: InventoryVerificationPriorityRow | undefined,
+) {
+  if (!row) return null;
+  if (row.permanentlyDiscontinued === true) return "PERMANENTLY_DISCONTINUED";
+  const securedQuantity = row.inventoryQuantity + row.openCommitment;
+  if (
+    row.inventoryMode === "VERIFIED" &&
+    row.inventoryVerified === true &&
+    positive(row.demandTarget) &&
+    securedQuantity >= row.demandTarget &&
+    row.purchaseStatus !== "발주 추천"
+  ) {
+    return "VERIFIED_STOCK_COVERS_DEMAND";
+  }
+  return null;
+}
+
 export function buildPurchaseReplacementDraftSnapshot(
   draftId: string,
   readAt: string,
@@ -893,16 +911,22 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (replacementDraftId && replacementStable && input.replacementAfter) {
     const previousByBarcode = new Map(input.replacementAfter.lines.map((line) => [line.barcode, line]));
     const selectedByBarcode = new Map(selected.map((line) => [line.barcode, line]));
+    const priorityByBarcode = new Map(rows.map((row) => [row.barcode, row] as const));
+    const automaticRemovalReasonByBarcode = new Map(
+      input.replacementAfter.lines.flatMap((line) => {
+        const reason = verifiedAutomaticRemovalReason(priorityByBarcode.get(line.barcode));
+        return reason ? [[line.barcode, reason] as const] : [];
+      }),
+    );
     const operatorPinnedPreservedBarcodes = new Set(
       [...operatorPinnedExistingBarcodes].filter((barcode) => !eligibleBarcodes.has(barcode)),
     );
     preservedReplacementLines = input.replacementAfter.lines
       .filter(
         (line) =>
-          (line.preserveOnRegeneration === true ||
-            operatorPinnedPreservedBarcodes.has(line.barcode)) &&
           !operatorExcludedSet.has(line.barcode) &&
-          !selectedByBarcode.has(line.barcode),
+          !selectedByBarcode.has(line.barcode) &&
+          !automaticRemovalReasonByBarcode.has(line.barcode),
       )
       .map((line) => ({
         ...line,
@@ -911,6 +935,15 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       }));
     if (operatorPinnedPreservedBarcodes.size > 0) {
       reviewBlockers.push("OPERATOR_PINNED_EXISTING_COST_REVIEW_REQUIRED");
+    }
+    if (
+      preservedReplacementLines.some(
+        (line) =>
+          line.preserveOnRegeneration !== true &&
+          !operatorPinnedPreservedBarcodes.has(line.barcode),
+      )
+    ) {
+      reviewBlockers.push("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED");
     }
     const finalByBarcode = new Map<string, PurchaseReplacementDraftLine>([
       ...selected.map((line) => [line.barcode, {
@@ -933,7 +966,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         ...line,
         reasons: operatorExcludedSet.has(line.barcode)
           ? ["OPERATOR_DRAFT_EXCLUSION"]
-          : excluded.find((item) => item.barcode === line.barcode)?.reasons ?? ["CURRENT_ENGINE_NOT_RECOMMENDED"],
+          : [automaticRemovalReasonByBarcode.get(line.barcode) ?? "EXISTING_DRAFT_REMOVAL_UNVERIFIED"],
       }));
     const quantityChanged = matchedBarcodes.flatMap((barcode) => {
       const previous = previousByBarcode.get(barcode)!;

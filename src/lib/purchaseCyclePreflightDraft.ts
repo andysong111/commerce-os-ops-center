@@ -33,6 +33,7 @@ export type InlinePurchaseCycleDraftRecalculationRequest = {
   replaceDraftId: string;
   excludedBarcodes: string[];
   quantityOverrides: PurchaseQuantityOverride[];
+  replaceQuantityOverrides?: boolean;
 };
 
 export async function recalculatePurchaseCycleDraftInline(
@@ -49,7 +50,19 @@ export async function recalculatePurchaseCycleDraftInline(
   const {
     excludedBarcodes,
     quantityOverrides,
-  } = mergePurchaseDraftOperatorAdjustments(persistedAdjustments, incomingAdjustments);
+  } = mergePurchaseDraftOperatorAdjustments(
+    persistedAdjustments,
+    incomingAdjustments,
+    { replaceQuantityOverrides: input.replaceQuantityOverrides === true },
+  );
+  const finalQuantityOverrideBarcodes = new Set(
+    quantityOverrides.map((row) => row.barcode),
+  );
+  const releasedQuantityOverrideBarcodes = input.replaceQuantityOverrides === true
+    ? persistedAdjustments.quantityOverrides
+        .map((row) => row.barcode)
+        .filter((barcode) => !finalQuantityOverrideBarcodes.has(barcode))
+    : [];
   const requestBase: PurchaseCycleDraftRequest = {
     targetDate: input.targetDate,
     cashLimitKrw: input.cashLimitKrw,
@@ -71,6 +84,15 @@ export async function recalculatePurchaseCycleDraftInline(
   const report = await loadPurchaseCyclePreflight(
     purchaseCycleDraftPreflightOptions(requestBase),
   );
+  const selectedBarcodes = new Set(report.selected.map((row) => row.barcode));
+  const unresolvedReleasedBarcodes = releasedQuantityOverrideBarcodes.filter(
+    (barcode) => !selectedBarcodes.has(barcode),
+  );
+  if (unresolvedReleasedBarcodes.length > 0) {
+    throw new Error(
+      `RELEASED_QUANTITY_TARGET_NOT_RECOMMENDED:${unresolvedReleasedBarcodes.join(",")}`,
+    );
+  }
   const request: PurchaseCycleDraftRequest = {
     ...requestBase,
     expectedSourceFingerprint: report.sourceFingerprint,
