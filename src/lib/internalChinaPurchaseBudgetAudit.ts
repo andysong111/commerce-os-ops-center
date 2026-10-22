@@ -44,6 +44,7 @@ export type InternalChinaPurchaseBudgetAudit = {
   budgetMonthRangeEnd: string;
   budgetMonthRevenueKrw: number;
   budgetRevenueError: string | null;
+  sourceWarnings: string[];
   basisLabel: string;
   recent30RevenueKrw: number;
   grossCogsBudgetKrw: number;
@@ -101,9 +102,21 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const draft = await loadInternalChinaPurchaseDraft(draftId);
   const cycle = monthlyPurchaseCycleForMonth(draft.cycleMonth);
 
-  const [shadow, planning, inventoryCost, ledger, calendarRevenue] = await Promise.all([
-    loadCanonicalPurchaseShadow(),
-    loadProductPlanningSnapshot(),
+  const [shadowRead, planningRead, inventoryCost, ledger, calendarRevenue] = await Promise.all([
+    loadCanonicalPurchaseShadow()
+      .then((value) => ({ value, warning: null as string | null }))
+      .catch(() => ({
+        value: null,
+        warning:
+          "최근 판매·추천 수량 참고자료를 불러오지 못했습니다. 발주초안은 열리지만 해당 비교값은 0으로 표시됩니다.",
+      })),
+    loadProductPlanningSnapshot()
+      .then((value) => ({ value, warning: null as string | null }))
+      .catch(() => ({
+        value: null,
+        warning:
+          "상품 기준원가 자료를 불러오지 못했습니다. 실제 위안단가 입력 전에는 원가 확인이 필요합니다.",
+      })),
     loadProductMasterInventoryCostReadiness().catch(() => null),
     loadChinaOrderLedger(),
     loadCalendarMonthNormalRevenue(cycle.budgetMonth)
@@ -117,8 +130,13 @@ export async function loadInternalChinaPurchaseBudgetAudit(
       })),
   ]);
 
-  const snapshot = shadow.snapshot;
-  const recent30RevenueKrw = money(shadow.recent30Revenue);
+  const shadow = shadowRead.value;
+  const planning = planningRead.value;
+  const sourceWarnings = [shadowRead.warning, planningRead.warning].filter(
+    (warning): warning is string => Boolean(warning),
+  );
+  const snapshot = shadow?.snapshot;
+  const recent30RevenueKrw = money(shadow?.recent30Revenue);
   const budgetMonthRevenueKrw = money(calendarRevenue.value?.revenueKrw);
   const grossCogsBudgetKrw = money(budgetMonthRevenueKrw / 2);
   const purchaseCostMultiplier = DEFAULT_PURCHASE_COST_MULTIPLIER;
@@ -128,7 +146,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const engineExpectedSpendKrw = money(snapshot?.expectedSpend);
 
   const planningByBarcode = new Map(
-    planning.products
+    (planning?.products ?? [])
       .filter((row) => row.skuActive !== false)
       .map((row) => [barcode(row.barcode), row] as const),
   );
@@ -269,6 +287,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   ).length;
 
   const status: InternalChinaPurchaseBudgetAuditStatus =
+    sourceWarnings.length > 0 ||
     calendarRevenue.error ||
     budgetMonthRevenueKrw <= 0 ||
     missingCostBarcodes.length > 0 ||
@@ -282,13 +301,14 @@ export async function loadInternalChinaPurchaseBudgetAudit(
 
   return {
     generatedAt: new Date().toISOString(),
-    analysisAsOf: shadow.analysisAsOf,
+    analysisAsOf: shadow?.analysisAsOf ?? null,
     cycleMonth: cycle.cycleMonth,
     budgetMonth: cycle.budgetMonth,
     budgetMonthRangeStart: budgetRange.start,
     budgetMonthRangeEnd: budgetRange.end,
     budgetMonthRevenueKrw,
     budgetRevenueError: calendarRevenue.error,
+    sourceWarnings,
     basisLabel: `${koreanMonthLabel(cycle.budgetMonth)} 1일~말일 정상매출 ${budgetMonthRevenueKrw.toLocaleString("ko-KR")}원 ÷ 2 · 내부 주문 수수료율 ${purchaseCostMultiplier.toFixed(2)}`,
     recent30RevenueKrw,
     grossCogsBudgetKrw,

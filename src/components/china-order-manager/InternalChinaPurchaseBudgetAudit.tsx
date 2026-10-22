@@ -58,6 +58,17 @@ export function InternalChinaPurchaseBudgetAudit({
         </span>
       </div>
 
+      {audit.sourceWarnings.length ? (
+        <div className="mt-4 rounded-xl border border-amber-300 bg-white/70 px-4 py-3 text-xs leading-5">
+          <strong className="block text-sm">참고자료 일부 지연</strong>
+          {audit.sourceWarnings.map((warning) => (
+            <p key={warning} className="mt-1 opacity-80">
+              {warning}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <Metric
           label={`${monthLabel(audit.budgetMonth)} 정상매출`}
