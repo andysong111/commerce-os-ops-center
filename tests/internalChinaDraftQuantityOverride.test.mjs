@@ -92,12 +92,13 @@ test("quantity editor is existing-B-code only and reloads after a successful sav
 test("saved row quantities can launch a pinned budget rebalance preview", () => {
   assert.match(workspace, /setEditedQuantities/);
   assert.match(workspace, /변경사항 모아 발주안 재계산/);
-  assert.match(workspace, /buildPurchaseDraftBatchRecalculationHref/);
-  assert.match(workspace, /다음 우선순위 상품/);
+  assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);
+  assert.match(workspace, /남은 예산은 다음 우선순위에 배정/);
   assert.match(preflight, /rawQuantityOverrides/);
   assert.match(preflight, /quantityOverrides: report\.operatorQuantityOverrides/);
   assert.match(preflightReader, /loadInternalChinaQuantityOverrides/);
-  assert.match(preflightReader, /quantities\.set\(barcode, override\.targetQuantity\)/);
+  assert.match(preflightReader, /purchaseReplacementDraftSnapshotLines\(/);
+  assert.match(preflightReader, /activeRows,[\s\S]*draftId,[\s\S]*overrides,/);
 });
 
 test("ORDERED correction carries lower quantities into cancellation and higher quantities into ordered amount", () => {

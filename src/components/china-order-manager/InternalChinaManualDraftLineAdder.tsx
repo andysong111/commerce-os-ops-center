@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { isPurchaseDraftQuantityUnit } from "@/lib/purchaseDraftQuantityRounding";
 
 export type ManualDraftCandidate = {
   barcode: string;
@@ -56,7 +57,7 @@ export function InternalChinaManualDraftLineAdder({
     selectableCandidates.every((candidate) => stagedByBarcode.has(candidate.barcode));
   const selectedTotalQuantity = selectedCandidates.reduce(
     (sum, candidate) =>
-      sum + quantity(stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? 1),
+      sum + quantity(stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? 5),
     0,
   );
 
@@ -94,7 +95,7 @@ export function InternalChinaManualDraftLineAdder({
         for (const candidate of next) {
           if (!output[candidate.barcode]) {
             output[candidate.barcode] =
-              stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? 1;
+              stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? 5;
           }
         }
         return output;
@@ -120,8 +121,8 @@ export function InternalChinaManualDraftLineAdder({
       return;
     }
     const additions = selectableCandidates.flatMap((candidate) => {
-      const targetQuantity = quantity(quantities[candidate.barcode] ?? 1);
-      return targetQuantity >= 1 && targetQuantity <= 9_999
+      const targetQuantity = quantity(quantities[candidate.barcode] ?? 5);
+      return isPurchaseDraftQuantityUnit(targetQuantity)
         ? [{ ...candidate, targetQuantity }]
         : [];
     });
@@ -136,20 +137,20 @@ export function InternalChinaManualDraftLineAdder({
       onStagedAdditionsChange(retained);
       return;
     }
-    const targetQuantity = quantity(quantities[barcode] ?? 1);
-    if (targetQuantity < 1 || targetQuantity > 9_999) {
-      setNotice("추가수량은 1개 이상 9,999개 이하로 입력하세요.");
+    const targetQuantity = quantity(quantities[barcode] ?? 5);
+    if (!isPurchaseDraftQuantityUnit(targetQuantity)) {
+      setNotice("추가수량은 5개 이상 9,995개 이하의 5개 단위로 입력하세요.");
       return;
     }
     onStagedAdditionsChange([...retained, { ...candidate, targetQuantity }]);
-    setNotice(`${barcode} ${targetQuantity.toLocaleString("ko-KR")}개를 발주안 재계산 대기에 넣었습니다.`);
+    setNotice(`${barcode} ${targetQuantity.toLocaleString("ko-KR")}개를 사용자 고정수량으로 재계산 대기에 넣었습니다.`);
   }
 
   function updateQuantity(candidate: ManualDraftCandidate, value: unknown) {
     const targetQuantity = quantity(value);
     setQuantities((current) => ({ ...current, [candidate.barcode]: targetQuantity }));
     if (!stagedByBarcode.has(candidate.barcode)) return;
-    if (targetQuantity < 1 || targetQuantity > 9_999) {
+    if (!isPurchaseDraftQuantityUnit(targetQuantity)) {
       onStagedAdditionsChange(
         stagedAdditions.filter((row) => row.barcode !== candidate.barcode),
       );
@@ -168,18 +169,18 @@ export function InternalChinaManualDraftLineAdder({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <span className="text-xs font-black tracking-[0.12em] text-amber-700">
-            MONTHLY DRAFT · MANUAL ADD
+            PURCHASE RUN · STEP 3
           </span>
           <h2 className="mt-1 text-xl font-black text-slate-950">주문품목 추가</h2>
           <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-700">
-            현재 Draft에 없는 상품을 검색해 체크하면 아래 발주안 재계산 대기에만 넣습니다. 수량 변경·상품 제외와 함께 마지막 재계산 버튼을 누르기 전까지 기존 Draft와 주문·입고 원장은 바뀌지 않습니다.
+            현재 Draft에 없는 상품을 검색해 체크하면 발주안 재계산 대기에 넣습니다. 입력한 수량은 사용자 고정수량으로 먼저 예산을 확보하며, 마지막 재계산 버튼을 누르기 전까지 기존 Draft와 주문·입고 원장은 바뀌지 않습니다.
           </p>
           <p className="mt-1 max-w-5xl text-xs font-bold leading-5 text-amber-800">
-            추가 상품도 현재 발주 후보의 원가·재고 조건을 통과해야 하며, 조건이 부족한 상품은 계산 결과에서 이유를 보여주고 초안 교체를 막습니다.
+            고정수량을 반영하고 남은 예산을 자동 추천상품에 배분합니다. 고정수량만으로 한도를 넘으면 초안 교체를 막고 초과 이유를 보여줍니다.
           </p>
         </div>
         <span className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-black text-amber-800">
-          체크만 저장 대기 · 재계산 전 원장 미변경
+          사용자 고정수량 · 재계산 전 원장 미변경
         </span>
       </div>
 
@@ -243,7 +244,7 @@ export function InternalChinaManualDraftLineAdder({
                       <th className="px-3 py-3">상품 / 옵션</th>
                       <th className="px-3 py-3 text-right">현재 Draft</th>
                       <th className="px-3 py-3 text-right">다른 미입고</th>
-                      <th className="px-3 py-3 text-right">추가수량</th>
+                      <th className="px-3 py-3 text-right">추가수량(고정)</th>
                       <th className="px-3 py-3">반영</th>
                     </tr>
                   </thead>
@@ -277,9 +278,10 @@ export function InternalChinaManualDraftLineAdder({
                         <td className="px-3 py-3 text-right">
                           <input
                             type="number"
-                            min={1}
-                            max={9999}
-                            value={stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? quantities[candidate.barcode] ?? 1}
+                            min={5}
+                            max={9995}
+                            step={5}
+                            value={stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? quantities[candidate.barcode] ?? 5}
                             disabled={candidate.inDraft}
                             onChange={(event) => updateQuantity(candidate, event.target.value)}
                             className="w-28 rounded-lg border border-amber-300 px-3 py-2 text-right font-black text-slate-900 outline-none focus:border-amber-500 disabled:bg-slate-100 disabled:text-slate-400"
@@ -290,7 +292,7 @@ export function InternalChinaManualDraftLineAdder({
                             {candidate.inDraft
                               ? "아래 주문표에서 수정"
                               : stagedByBarcode.has(candidate.barcode)
-                                ? "재계산 대기"
+                                ? "고정·재계산 대기"
                                 : "체크하면 대기"}
                           </span>
                         </td>
