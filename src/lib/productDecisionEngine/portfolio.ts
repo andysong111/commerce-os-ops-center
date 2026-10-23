@@ -1,4 +1,5 @@
 import type { SalesOrderGroup } from "./salesOrder.ts";
+import { comparePurchaseStrategyPriority, type RisingStrength } from "./purchaseStrategyPolicy.ts";
 
 export const DEFAULT_PURCHASE_COST_MULTIPLIER = 1.45;
 export const MIN_PURCHASE_COST_MULTIPLIER = 1;
@@ -16,6 +17,9 @@ export type PortfolioItemInput = {
   netRequiredQuantity: number;
   unitCost: number;
   totalScore: number;
+  revenueQualifiedMonthCount?: number;
+  averageMonthlyRevenueKrw?: number;
+  risingStrength?: RisingStrength;
   moq?: number;
   cartonQuantity?: number;
 };
@@ -189,7 +193,10 @@ export function allocatePurchasePortfolio(
     .sort((left, right) => {
       const group = groupRank(left.finalGroup) - groupRank(right.finalGroup);
       if (group !== 0) return group;
-      return right.totalScore - left.totalScore;
+      return comparePurchaseStrategyPriority(
+        { ...left, priorityScore: left.totalScore },
+        { ...right, priorityScore: right.totalScore },
+      );
     });
 
   for (const entry of candidates) {

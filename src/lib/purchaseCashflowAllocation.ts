@@ -1,8 +1,13 @@
+import { comparePurchaseStrategyPriority, type RisingStrength } from "./productDecisionEngine/purchaseStrategyPolicy.ts";
+
 export type PurchaseCashflowTier = "CORE" | "SUPPORT" | "CANARY";
 
 export type PurchaseCashflowCandidate = {
   barcode: string;
   priorityScore: number;
+  revenueQualifiedMonthCount?: number;
+  averageMonthlyRevenueKrw?: number;
+  risingStrength?: RisingStrength;
   targetQuantity: number;
   unitCostKrw: number;
   moq?: number;
@@ -76,7 +81,7 @@ export function allocatePurchaseCashflow(
     .map((row) => ({ ...row }))
     .sort(
       (left, right) =>
-        right.priorityScore - left.priorityScore ||
+        comparePurchaseStrategyPriority(left, right) ||
         left.unitCostKrw * left.targetQuantity -
           right.unitCostKrw * right.targetQuantity ||
         left.barcode.localeCompare(right.barcode),

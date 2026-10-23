@@ -25,6 +25,16 @@ export type InventoryStocktakeBulkInput = {
   errors: string[];
 };
 
+export type InventoryStockEstimateBulkItem = {
+  barcode: string;
+  estimatedQuantity: number;
+};
+
+export type InventoryStockEstimateBulkInput = {
+  items: InventoryStockEstimateBulkItem[];
+  errors: string[];
+};
+
 export function parseInventoryStockoutBulkText(raw: string): InventoryStockoutBulkInput {
   const tokens = String(raw ?? "")
     .split(/[\s,;]+/)
@@ -80,6 +90,41 @@ export function parseInventoryStocktakeBulkText(raw: string): InventoryStocktake
     items.push({ barcode, baselineQuantity });
   });
 
+  if (items.length > 50) errors.push("한 번에 최대 50개까지 처리할 수 있습니다.");
+  return { items: items.slice(0, 50), errors };
+}
+
+export function parseInventoryStockEstimateBulkText(raw: string): InventoryStockEstimateBulkInput {
+  const lines = String(raw ?? "")
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const items: InventoryStockEstimateBulkItem[] = [];
+  const errors: string[] = [];
+  const seen = new Set<string>();
+  lines.forEach((line, index) => {
+    const parts = line.split(/[\s,;:=]+/).filter(Boolean);
+    if (parts.length !== 2) {
+      errors.push(`${index + 1}행 형식 오류: B코드와 대략 수량을 입력해 주세요.`);
+      return;
+    }
+    const normalizedBarcode = normalizeBarcode(parts[0]);
+    const estimatedQuantity = Number(parts[1]);
+    if (!normalizedBarcode) {
+      errors.push(`${index + 1}행 잘못된 B코드: ${parts[0]}`);
+      return;
+    }
+    if (!Number.isInteger(estimatedQuantity) || estimatedQuantity < 0 || estimatedQuantity > 1_000_000) {
+      errors.push(`${index + 1}행 대략 수량은 0개 이상의 정수여야 합니다.`);
+      return;
+    }
+    if (seen.has(normalizedBarcode)) {
+      errors.push(`${index + 1}행 중복 B코드: ${normalizedBarcode}`);
+      return;
+    }
+    seen.add(normalizedBarcode);
+    items.push({ barcode: normalizedBarcode, estimatedQuantity });
+  });
   if (items.length > 50) errors.push("한 번에 최대 50개까지 처리할 수 있습니다.");
   return { items: items.slice(0, 50), errors };
 }

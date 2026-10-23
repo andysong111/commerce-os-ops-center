@@ -5,6 +5,7 @@ import {
   type ProductMasterInventoryCostRow,
 } from "@/lib/productMasterInventoryCostReadiness";
 import { calculateNetRequirement } from "@/lib/productDecisionEngine/netRequirement";
+import { comparePurchaseStrategyPriority } from "@/lib/productDecisionEngine/purchaseStrategyPolicy";
 import type { SalesOrderGroup } from "@/lib/productDecisionEngine/salesOrder";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import {
@@ -27,6 +28,13 @@ import {
   buildPurchaseCandidateOmissionReview,
   type PurchaseCandidateOmissionReviewRow,
 } from "@/lib/purchaseCandidateOmissionAudit";
+import {
+  loadLatestInventoryStockEstimates,
+} from "@/lib/inventoryStockEstimateBaselines";
+import {
+  loadLatestInventoryStocktakeBaselines,
+} from "@/lib/inventoryStocktakeBaselines";
+import { applyOperatorInventoryEstimate } from "@/lib/inventoryStockEstimateOverlay";
 
 export type InventoryOperatingMode =
   | "VERIFIED"
@@ -49,6 +57,7 @@ export type InventoryVerificationPriorityRow = {
   expectedCost: number;
   priorityScore: number;
   revenueQualifiedMonthCount: number;
+  averageMonthlyRevenueKrw: number;
   revenueQualificationLabel: string;
   risingStrength: "NONE" | "MILD" | "MODERATE" | "STRONG";
   newProduct: boolean;
@@ -110,6 +119,7 @@ export type InventoryVerificationPriority = {
   provisionalExecutionBlockedCount: number;
   verifiedPurchaseCount: number;
   reviewInventoryCount: number;
+  operatorEstimateCount: number;
   totalExpectedSpend: number;
   operationallyReadyExpectedSpend: number;
   blockedExpectedSpend: number;
@@ -281,6 +291,8 @@ export async function loadInventoryVerificationPriority(
     planning,
     recentReceipts,
     purchaseMetadata,
+    stockEstimates,
+    exactStocktakes,
   ] = await Promise.all([
     purchaseShadowPromise,
     loadProductMasterInventoryCostReadiness({
@@ -291,11 +303,23 @@ export async function loadInventoryVerificationPriority(
     }),
     completedChinaOrderReceiptsByBarcode(cycle.budgetMonth),
     loadProductLaunchPurchaseMetadataByBarcode(),
+    loadLatestInventoryStockEstimates(),
+    loadLatestInventoryStocktakeBaselines(),
   ]);
   const purchaseShadow = resolvedPurchaseShadow;
   const now = Date.now();
   const purchaseProducts = purchaseShadow.snapshot?.products ?? [];
-  const inventoryIndex = inventoryByBarcode(inventoryReadiness.rows);
+  const inventoryRows = inventoryReadiness.rows.map((row) =>
+    applyOperatorInventoryEstimate(
+      row,
+      stockEstimates.get(barcode(row.barcode)),
+      exactStocktakes.get(barcode(row.barcode)),
+    ),
+  );
+  const inventoryIndex = inventoryByBarcode(inventoryRows);
+  const operatorEstimateCount = inventoryRows.filter(
+    (row) => row.inventoryBaselineKind === "OPERATOR_ESTIMATE",
+  ).length;
   const planningIndex = planningByBarcode(planning.products);
 
   const rows: InventoryVerificationPriorityRow[] = purchaseProducts
@@ -387,6 +411,9 @@ export async function loadInventoryVerificationPriority(
         revenueQualifiedMonthCount: integer(
           product.purchaseStrategy?.history.qualifiedMonthCount,
         ),
+        averageMonthlyRevenueKrw: integer(
+          product.purchaseStrategy?.history.averageMonthlyRevenueKrw,
+        ),
         revenueQualificationLabel:
           text(product.purchaseStrategy?.history.qualificationLabel) || "0/12",
         risingStrength:
@@ -457,8 +484,7 @@ export async function loadInventoryVerificationPriority(
         Number(right.purchaseStatus === "발주 추천") -
           Number(left.purchaseStatus === "발주 추천") ||
         Number(left.operationallyReady) - Number(right.operationallyReady) ||
-        right.priorityScore - left.priorityScore ||
-        right.revenueQualifiedMonthCount - left.revenueQualifiedMonthCount ||
+        comparePurchaseStrategyPriority(left, right) ||
         right.expectedCost - left.expectedCost ||
         left.barcode.localeCompare(right.barcode),
     );
@@ -539,6 +565,7 @@ export async function loadInventoryVerificationPriority(
     reviewInventoryCount: rows.filter(
       (row) => row.inventoryMode === "REVIEW" || row.inventoryMode === "MISSING",
     ).length,
+    operatorEstimateCount,
     totalExpectedSpend,
     operationallyReadyExpectedSpend,
     blockedExpectedSpend,

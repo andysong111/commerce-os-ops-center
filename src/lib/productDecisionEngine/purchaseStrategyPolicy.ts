@@ -1,5 +1,5 @@
 export const PURCHASE_STRATEGY_POLICY_VERSION =
-  "commerce-os-purchase-strategy-policy-v1.1.0";
+  "commerce-os-purchase-strategy-policy-v1.2.0";
 
 export const DEFAULT_MONTHLY_REVENUE_THRESHOLD_KRW = 40_000;
 export const MIN_MONTHLY_REVENUE_THRESHOLD_KRW = 10_000;
@@ -61,6 +61,7 @@ export type PurchaseStrategyPolicy = Readonly<{
 export type PurchaseHistoryAnalysis = {
   completedMonths: CalendarMonthSales[];
   qualifiedMonthCount: number;
+  averageMonthlyRevenueKrw: number;
   qualificationLabel: string;
   latestQualifiedMonth: string | null;
   recentThreeQualifiedMonthCount: number;
@@ -73,6 +74,49 @@ export type PurchaseHistoryAnalysis = {
   consistentPerformer: boolean;
   heroProduct: boolean;
 };
+
+export type PurchaseStrategyPriority = {
+  revenueQualifiedMonthCount?: unknown;
+  averageMonthlyRevenueKrw?: unknown;
+  risingStrength?: RisingStrength | null;
+  priorityScore?: unknown;
+};
+
+const RISING_PRIORITY: Record<RisingStrength, number> = {
+  NONE: 0,
+  MILD: 1,
+  MODERATE: 2,
+  STRONG: 3,
+};
+
+/**
+ * Shared purchase ordering contract. A negative result means `left` must be
+ * shown/funded first. The revenue history is intentionally compared before
+ * the legacy composite score so every purchase surface follows the operator's
+ * strategy: qualified months, average monthly revenue, recent rise, then the
+ * remaining quality/claim/cost score.
+ */
+export function comparePurchaseStrategyPriority(
+  left: PurchaseStrategyPriority,
+  right: PurchaseStrategyPriority,
+) {
+  const qualified =
+    normalizedNonNegativeNumber(right.revenueQualifiedMonthCount) -
+    normalizedNonNegativeNumber(left.revenueQualifiedMonthCount);
+  if (qualified !== 0) return qualified;
+  const averageRevenue =
+    normalizedNonNegativeNumber(right.averageMonthlyRevenueKrw) -
+    normalizedNonNegativeNumber(left.averageMonthlyRevenueKrw);
+  if (averageRevenue !== 0) return averageRevenue;
+  const rising =
+    RISING_PRIORITY[right.risingStrength ?? "NONE"] -
+    RISING_PRIORITY[left.risingStrength ?? "NONE"];
+  if (rising !== 0) return rising;
+  return (
+    normalizedNonNegativeNumber(right.priorityScore) -
+    normalizedNonNegativeNumber(left.priorityScore)
+  );
+}
 
 export type PurchaseStrategyEvaluationInput = {
   monthlySales: CalendarMonthSales[];
@@ -437,6 +481,9 @@ export function analyzePurchaseStrategyHistory(input: {
   return {
     completedMonths,
     qualifiedMonthCount,
+    averageMonthlyRevenueKrw: Math.round(
+      average(completedMonths.map((row) => row.revenue)),
+    ),
     qualificationLabel: `${qualifiedMonthCount}/${ANALYSIS_WINDOW_MONTHS}`,
     latestQualifiedMonth,
     recentThreeQualifiedMonthCount,

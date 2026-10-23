@@ -36,3 +36,23 @@ The regression coverage uses a stale zero-valued strategy payload plus a
 canonical September value above the threshold. It verifies both the purchase
 engine's `HISTORICAL_REVENUE_THRESHOLD` signal and the omission audit's blocking
 behavior, while a high October current-month value alone does not qualify.
+
+## Purchase priority and one-time approximate inventory (2026-10-23)
+
+Purchase candidates now use one shared ordering contract across the engine,
+preflight list, cash allocation and portfolio allocation. The order is the
+number of completed months in the latest twelve that met the configured monthly
+revenue threshold, then average monthly revenue across those twelve completed
+months, then Rising strength, and finally the existing composite score. This
+keeps the adjustable threshold as the first business rule while directing a
+limited cash budget toward the larger recurring sellers when two products meet
+it equally often.
+
+The inventory control page also accepts an operator's one-time approximate
+quantity separately from an exact stocktake. It is stored as
+`OPERATOR_ESTIMATE`, can be used for draft planning math, and remains visibly
+provisional; it never becomes exact inventory or a Shopling stock update. A
+newer exact stocktake or inventory movement supersedes the estimate. This input
+exists for the current purchase recalculation when a full physical count is not
+practical, while preserving the execution review boundary before any external
+order or payment.

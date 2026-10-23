@@ -812,6 +812,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               <p className="text-xs font-black text-blue-700">기존상품 재발주</p>
               <h3 className="mt-1 text-lg font-black text-slate-950">{report.selected.length}종 · 총 {report.selected.reduce((sum, row) => sum + row.quantity, 0).toLocaleString("ko-KR")}개</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">상품대금 {money(report.estimatedSpendKrw)} · 배송비 여유분 포함 {money(report.estimatedAllInSpendKrw)}</p>
+              <p className="mt-2 text-sm font-bold text-blue-800">우선순위: 최근 완료 12개월의 매출기준 충족 개월 수 → 12개월 월평균 매출 → Rising → 기존 종합점수</p>
               <p className="mt-2 text-sm font-bold text-slate-800">현금 감축 {report.cashAdjustedCount}종 · 현금 한도 제외 {report.cashExcludedCount}종 · 원가 미확인 {report.missingCostCount}종</p>
               {!report.selected.length ? <p className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm">현재 확정 가능한 품목이 없습니다. 재고를 0으로 가정하거나 차단을 우회하지 않습니다.</p> : null}
               <details className="mt-4 min-w-0 text-sm">
@@ -845,6 +846,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                               <div className="flex flex-wrap gap-1">
                                 <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-black text-slate-800">
                                   {row.revenueQualificationLabel || `${row.revenueQualifiedMonthCount}/12`} 충족
+                                </span>
+                                <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-black text-blue-800">
+                                  월평균 {money(row.averageMonthlyRevenueKrw)}
                                 </span>
                                 {rising ? (
                                   <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-800">
@@ -901,7 +905,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                             <td className="p-2">{money(row.estimatedCostKrw)}</td>
                             <td className="p-2">{costBasisLabel(row)}</td>
                             <td className="p-2">
-                              {row.inventoryQuantity} · {row.inventoryMode === "VERIFIED" ? "확인" : "추정"}
+                              {row.inventoryQuantity} · {row.inventoryMode === "VERIFIED" ? "확인" : row.inventoryBaselineKind === "OPERATOR_ESTIMATE" ? "운영자 대략 재고" : "추정"}
                             </td>
                             <td className="p-2">{row.openCommitment}</td>
                           </tr>
