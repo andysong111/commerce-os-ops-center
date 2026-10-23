@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
 import type { StagedDraftAddition } from "@/components/china-order-manager/InternalChinaManualDraftLineAdder";
@@ -146,6 +146,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   initialNotice = "",
   stagedAdditions,
   onStagedAdditionsChange,
+  manualAddPanel,
 }: {
   initialDraft: InternalChinaPurchaseDraft;
   budgetAudit: InternalChinaPurchaseBudgetAudit;
@@ -155,6 +156,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   initialNotice?: string;
   stagedAdditions: StagedDraftAddition[];
   onStagedAdditionsChange: (rows: StagedDraftAddition[]) => void;
+  manualAddPanel?: ReactNode;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState(initialDraft);
@@ -196,7 +198,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         if (nextSignature === cartEvidenceRef.current) return;
         cartEvidenceRef.current = nextSignature;
         setDraft(body.draft);
-        setNotice("1688 장바구니에서 확인한 실제 위안단가와 중국 내 운임을 자동 반영했습니다.");
+        setNotice("1688 장바구니에서 확인한 실제 위안단가와 중국 내 운임을 자동 반영했습니다. 예산도 다시 검증했습니다.");
         router.refresh();
       } finally {
         refreshing = false;
@@ -754,6 +756,14 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
   async function prepare1688Cart() {
     if (draft.status !== "DRAFT" || saving || cartPreparing) return;
+    if (hasPendingRecalculation) {
+      setNotice("재고·수량·추가상품 변경을 먼저 한 번 재계산한 뒤 5번 업무를 실행하세요.");
+      return;
+    }
+    if (calculations.budgetOverKrw > 0) {
+      setNotice(`현재 실제 위안단가 기준으로 상품대금 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과했습니다. 수량을 조정하고 재계산한 뒤 5번 업무를 다시 실행하세요.`);
+      return;
+    }
     const localAgent = window.open("about:blank", "commerce-os-1688-cart");
     if (!localAgent) {
       setNotice("팝업이 차단되었습니다. 이 사이트의 팝업을 허용한 뒤 다시 눌러 주세요.");
@@ -778,6 +788,14 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   async function markOrdered() {
     if (draft.status !== "DRAFT") return;
     setNotice("");
+    if (hasPendingRecalculation) {
+      setNotice("재고·수량·추가상품 변경을 먼저 재계산하세요. 대기 변경이 있는 동안 주문완료를 기록하지 않습니다.");
+      return;
+    }
+    if (calculations.budgetOverKrw > 0) {
+      setNotice(`상품대금 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과해 주문완료 기록을 막았습니다. 수량을 줄이고 다시 검증하세요.`);
+      return;
+    }
     if (requiredIssues.length) {
       setNotice(
         `실제 주문완료 기록 전에 필수값 ${requiredIssues.length}개를 채우세요. ${requiredIssues
@@ -861,9 +879,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <span className="mt-0.5 block text-[11px] text-emerald-700">실주문 원가 × 내부 주문 수수료율 {draft.internalOrderCostMultiplier.toFixed(2)}</span>
             </div>
             <a href="https://commerce-os-product-master.vercel.app/purchase-metadata" target="_blank" rel="noreferrer" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-800 hover:bg-slate-50">상품마스터 최신 원장</a>
-            <button type="button" onClick={() => void prepare1688Cart()} disabled={cartPreparing || saving || draft.status !== "DRAFT" || !draft.lines.length} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{cartPreparing ? "로컬 자동화 여는 중..." : "1688 장바구니 준비"}</button>
+            <button type="button" onClick={() => void prepare1688Cart()} disabled={cartPreparing || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation || calculations.budgetOverKrw > 0} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하세요." : calculations.budgetOverKrw > 0 ? "예산 초과를 먼저 해결하세요." : undefined} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{cartPreparing ? "로컬 자동화 여는 중..." : "1688 장바구니 준비"}</button>
             <button type="button" onClick={() => void saveDraft()} disabled={saving || draft.status !== "DRAFT"} className="rounded-xl border border-blue-300 bg-white px-4 py-2.5 text-sm font-black text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "양방향 저장 중..." : "발주초안 저장"}</button>
-            <button type="button" onClick={() => void markOrdered()} disabled={ordering || draft.status !== "DRAFT" || requiredIssues.length > 0} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">{draft.status === "ORDERED" ? "실주문 기록완료" : ordering ? "기록 중..." : "1688 주문완료 후 기록"}</button>
+            <button type="button" onClick={() => void markOrdered()} disabled={ordering || draft.status !== "DRAFT" || requiredIssues.length > 0 || hasPendingRecalculation || calculations.budgetOverKrw > 0} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">{draft.status === "ORDERED" ? "실주문 기록완료" : ordering ? "기록 중..." : "1688 주문완료 후 기록"}</button>
           </div>
         </div>
 
@@ -879,44 +897,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
         <div className={`mt-4 rounded-xl border px-4 py-3 text-xs leading-5 ${calculations.budgetOverKrw > 0 ? "border-rose-300 bg-rose-50 text-rose-950" : "border-blue-200 bg-blue-50 text-blue-950"}`}>
           <strong>실시간 월간 발주예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 상품대금 {number.format(Math.round(calculations.productKrw))}원 · 상품대금 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}.
-        </div>
-        <div className={`mt-4 rounded-xl border px-4 py-4 ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <strong className="text-sm font-black text-slate-950">한 번에 발주안 재계산</strong>
-              <p className="mt-1 text-xs font-bold leading-5 text-slate-700">
-                작업 선택 {selectedBarcodes.length}종 · 대략 재고 {stockBandUpdates.length}종 · 수량 변경 {changedQuantityRows.length}종 · 수량 고정 해제 {releasedQuantityOverrideBarcodes.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종입니다. 체크만으로는 삭제되지 않으며, 재계산 버튼을 누르기 전에는 기존 Draft와 주문·입고 원장이 바뀌지 않습니다.
-              </p>
-              {invalidQuantityBarcodes.length > 0 ? (
-                <p className="mt-1 text-xs font-black text-rose-700">
-                  수량을 다시 입력할 상품: {invalidQuantityBarcodes.join(" · ")}
-                </p>
-              ) : null}
-              <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                이 화면에서 바로 새 Draft로 교체합니다. 자동 권장수량은 5개 단위로 맞추고 10개 단위를 우선하며, 남은 예산은 다음 우선순위에 배정합니다.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={stageSelectedQuantitiesToNearestUnit} disabled={draft.status !== "DRAFT" || quantitiesNeedingUnitRounding.length === 0 || regenerating} className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40">
-                선택 수량 5·10단위 맞춤 ({quantitiesNeedingUnitRounding.length}종)
-              </button>
-              <button type="button" onClick={stageSelectedProductsForExclusion} disabled={draft.status !== "DRAFT" || selectedExclusionCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-black text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40">
-                선택 상품 초안에서 제외 ({selectedExclusionCandidates.length}종)
-              </button>
-              <button type="button" onClick={releaseSelectedQuantityOverrides} disabled={draft.status !== "DRAFT" || selectedQuantityOverrideCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40">
-                선택 수량 고정 해제 ({selectedQuantityOverrideCandidates.length}종)
-              </button>
-              <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
-                선택 해제
-              </button>
-              <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
-                대기 변경 취소
-              </button>
-              <button type="button" onClick={recalculateDraft} disabled={draft.status !== "DRAFT" || !hasPendingRecalculation || invalidQuantityBarcodes.length > 0 || regenerating} aria-busy={regenerating} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
-                {regenerating ? "재고 저장·발주안 재계산 중..." : "재고상태 저장 후 발주안 재계산"}
-              </button>
-            </div>
-          </div>
+          {calculations.budgetOverKrw > 0 ? <span className="mt-1 block font-black">사용자 고정수량은 자동으로 줄이지 않습니다. 자동 추천수량을 줄이거나 고정수량을 직접 수정해 재계산한 뒤 5번 업무를 다시 실행하세요.</span> : null}
         </div>
       </section>
 
@@ -1023,6 +1004,34 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               })}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      {manualAddPanel}
+
+      <section className={`rounded-2xl border p-5 shadow-sm ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span className="text-xs font-black tracking-[0.12em] text-blue-700">PURCHASE RUN · STEP 4</span>
+            <h2 className="mt-1 text-xl font-black text-slate-950">한 번에 발주안 재계산</h2>
+            <p className="mt-2 text-xs font-bold leading-5 text-slate-700">
+              작업 선택 {selectedBarcodes.length}종 · 대략 재고 {stockBandUpdates.length}종 · 수량 변경 {changedQuantityRows.length}종 · 수량 고정 해제 {releasedQuantityOverrideBarcodes.length}종 · 제외 {excludedBarcodes.length}종 · 사용자 고정 추가 {stagedAdditions.length}종입니다. 체크만으로는 삭제되지 않으며, 재계산 버튼을 누르기 전에는 기존 Draft와 주문·입고 원장이 바뀌지 않습니다.
+            </p>
+            {invalidQuantityBarcodes.length > 0 ? (
+              <p className="mt-1 text-xs font-black text-rose-700">수량을 다시 입력할 상품: {invalidQuantityBarcodes.join(" · ")}</p>
+            ) : null}
+            <p className="mt-1 text-[11px] leading-5 text-slate-500">
+              사용자 고정수량의 예산을 먼저 확보하고 자동 권장수량은 5개 단위로 맞춥니다. 남은 예산은 다음 우선순위에 배정합니다.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={stageSelectedQuantitiesToNearestUnit} disabled={draft.status !== "DRAFT" || quantitiesNeedingUnitRounding.length === 0 || regenerating} className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40">선택 수량 5·10단위 맞춤 ({quantitiesNeedingUnitRounding.length}종)</button>
+            <button type="button" onClick={stageSelectedProductsForExclusion} disabled={draft.status !== "DRAFT" || selectedExclusionCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-black text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40">선택 상품 초안에서 제외 ({selectedExclusionCandidates.length}종)</button>
+            <button type="button" onClick={releaseSelectedQuantityOverrides} disabled={draft.status !== "DRAFT" || selectedQuantityOverrideCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40">선택 수량 고정 해제 ({selectedQuantityOverrideCandidates.length}종)</button>
+            <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">선택 해제</button>
+            <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">대기 변경 취소</button>
+            <button type="button" onClick={recalculateDraft} disabled={draft.status !== "DRAFT" || !hasPendingRecalculation || invalidQuantityBarcodes.length > 0 || regenerating} aria-busy={regenerating} aria-label="변경사항 모아 발주안 재계산" title="재고상태 저장 후 발주안 재계산" className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{regenerating ? "재고 저장·발주안 재계산 중..." : "변경사항 저장 후 발주안 재계산"}</button>
+          </div>
         </div>
       </section>
     </div>

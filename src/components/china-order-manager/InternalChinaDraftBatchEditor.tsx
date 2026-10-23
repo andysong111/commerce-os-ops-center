@@ -5,6 +5,7 @@ import {
   InternalChinaManualDraftLineAdder,
   type StagedDraftAddition,
 } from "@/components/china-order-manager/InternalChinaManualDraftLineAdder";
+import { InternalChinaPurchaseDraftGuide } from "@/components/china-order-manager/InternalChinaPurchaseDraftGuide";
 import { InternalChinaPurchaseDraftWorkspaceV2 } from "@/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2";
 import type { InternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
 import type { InternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
@@ -30,12 +31,7 @@ export function InternalChinaDraftBatchEditor({
 
   return (
     <>
-      <InternalChinaManualDraftLineAdder
-        draftId={initialDraft.draftId}
-        status={initialDraft.status}
-        stagedAdditions={stagedAdditions}
-        onStagedAdditionsChange={setStagedAdditions}
-      />
+      <InternalChinaPurchaseDraftGuide />
 
       <InternalChinaPurchaseDraftWorkspaceV2
         initialDraft={initialDraft}
@@ -46,6 +42,14 @@ export function InternalChinaDraftBatchEditor({
         initialNotice={initialNotice}
         stagedAdditions={stagedAdditions}
         onStagedAdditionsChange={setStagedAdditions}
+        manualAddPanel={
+          <InternalChinaManualDraftLineAdder
+            draftId={initialDraft.draftId}
+            status={initialDraft.status}
+            stagedAdditions={stagedAdditions}
+            onStagedAdditionsChange={setStagedAdditions}
+          />
+        }
       />
     </>
   );

@@ -137,6 +137,43 @@ test("draft editor exposes one final calculation action and stages additions wit
   assert.doesNotMatch(workspace, /regenerateWithoutSelected|regenerateWithQuantityChanges/);
   assert.doesNotMatch(addition, /method: "POST"|postAdd\(/);
   assert.match(addition, /재계산 전 원장 미변경/);
+  assert.match(addition, /사용자 고정수량/);
+  assert.match(addition, /isPurchaseDraftQuantityUnit/);
+  assert.match(addition, /min=\{5\}/);
+  assert.match(addition, /max=\{9995\}/);
+  assert.match(addition, /step=\{5\}/);
+  assert.match(workspace, /stagedAdditions\.map\(\(row\) => \[row\.barcode, row\.targetQuantity\]\)/);
+  assert.match(workspace, /사용자 고정수량의 예산을 먼저 확보/);
+  assert.match(workspace, /\{manualAddPanel\}[\s\S]*변경사항 저장 후 발주안 재계산/);
+});
+
+test("draft guide explains the operator sequence and actual-price budget gate", async () => {
+  const guide = await readFile(
+    "src/components/china-order-manager/InternalChinaPurchaseDraftGuide.tsx",
+    "utf8",
+  );
+  const editor = await readFile(
+    "src/components/china-order-manager/InternalChinaDraftBatchEditor.tsx",
+    "utf8",
+  );
+  const workspace = await readFile(
+    "src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx",
+    "utf8",
+  );
+
+  assert.match(guide, /작업 순서 보기/);
+  assert.match(guide, /대략 재고 선택/);
+  assert.match(guide, /수량 확인과 5·10단위 정리/);
+  assert.match(guide, /빠진 B코드 수동 추가/);
+  assert.match(guide, /발주안 한 번 재계산/);
+  assert.match(guide, /5번 업무 실행/);
+  assert.match(guide, /고정수량만으로 예산을 넘으면/);
+  assert.match(guide, /localStorage\.getItem\(GUIDE_STORAGE_KEY\)/);
+  assert.match(editor, /<InternalChinaPurchaseDraftGuide/);
+  assert.match(editor, /manualAddPanel=/);
+  assert.match(workspace, /hasPendingRecalculation \|\| calculations\.budgetOverKrw > 0/);
+  assert.match(workspace, /상품대금 한도를[\s\S]*주문완료 기록을 막았습니다/);
+  assert.match(workspace, /실제 위안단가와 중국 내 운임을 자동 반영했습니다\. 예산도 다시 검증/);
 });
 
 test("draft page loads legacy commitment pins before rendering the release control", async () => {

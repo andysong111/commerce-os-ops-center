@@ -20,7 +20,8 @@ test("manual China draft add supports checkbox bulk staging", () => {
 
 test("bulk staging excludes existing draft rows and preserves per-row quantities", () => {
   assert.match(source, /selectableCandidates = candidates\.filter\(\(candidate\) => !candidate\.inDraft\)/);
-  assert.match(source, /targetQuantity = quantity\(quantities\[candidate\.barcode\] \?\? 1\)/);
+  assert.match(source, /targetQuantity = quantity\(quantities\[candidate\.barcode\] \?\? 5\)/);
+  assert.match(source, /isPurchaseDraftQuantityUnit\(targetQuantity\)/);
   assert.match(source, /onStagedAdditionsChange\(\[\.\.\.retained, \.\.\.additions\]\)/);
   assert.doesNotMatch(source, /postAdd\(/);
 });
