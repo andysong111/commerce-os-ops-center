@@ -198,7 +198,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         if (nextSignature === cartEvidenceRef.current) return;
         cartEvidenceRef.current = nextSignature;
         setDraft(body.draft);
-        setNotice("1688 장바구니에서 확인한 실제 위안단가와 중국 내 운임을 자동 반영하고 예산을 다시 검증했습니다.");
+        setNotice("1688 장바구니에서 확인한 실제 위안단가와 중국 내 운임을 자동 반영했습니다. 예산도 다시 검증했습니다.");
         router.refresh();
       } finally {
         refreshing = false;
