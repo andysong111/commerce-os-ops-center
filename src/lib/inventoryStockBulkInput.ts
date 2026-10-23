@@ -27,8 +27,10 @@ export type InventoryStocktakeBulkInput = {
 
 export type InventoryStockEstimateBulkItem = {
   barcode: string;
-  estimatedQuantity: number;
+  stockBand: InventoryStockBand;
 };
+
+export type InventoryStockBand = "OUT" | "LOW" | "NORMAL" | "HIGH";
 
 export type InventoryStockEstimateBulkInput = {
   items: InventoryStockEstimateBulkItem[];
@@ -109,13 +111,13 @@ export function parseInventoryStockEstimateBulkText(raw: string): InventoryStock
       return;
     }
     const normalizedBarcode = normalizeBarcode(parts[0]);
-    const estimatedQuantity = Number(parts[1]);
+    const stockBand = normalizeInventoryStockBand(parts[1]);
     if (!normalizedBarcode) {
       errors.push(`${index + 1}행 잘못된 B코드: ${parts[0]}`);
       return;
     }
-    if (!Number.isInteger(estimatedQuantity) || estimatedQuantity < 0 || estimatedQuantity > 1_000_000) {
-      errors.push(`${index + 1}행 대략 수량은 0개 이상의 정수여야 합니다.`);
+    if (!stockBand) {
+      errors.push(`${index + 1}행 재고상태는 많음·보통·적음·품절 중 하나여야 합니다.`);
       return;
     }
     if (seen.has(normalizedBarcode)) {
@@ -123,8 +125,17 @@ export function parseInventoryStockEstimateBulkText(raw: string): InventoryStock
       return;
     }
     seen.add(normalizedBarcode);
-    items.push({ barcode: normalizedBarcode, estimatedQuantity });
+    items.push({ barcode: normalizedBarcode, stockBand });
   });
   if (items.length > 50) errors.push("한 번에 최대 50개까지 처리할 수 있습니다.");
   return { items: items.slice(0, 50), errors };
+}
+
+export function normalizeInventoryStockBand(value: unknown): InventoryStockBand | null {
+  const normalized = String(value ?? "").normalize("NFKC").trim().toUpperCase();
+  if (normalized === "품절" || normalized === "없음" || normalized === "OUT") return "OUT";
+  if (normalized === "적음" || normalized === "LOW") return "LOW";
+  if (normalized === "보통" || normalized === "NORMAL" || normalized === "MEDIUM") return "NORMAL";
+  if (normalized === "많음" || normalized === "HIGH") return "HIGH";
+  return null;
 }

@@ -34,6 +34,7 @@ type RawStocktakeItem = {
 type RawStockEstimateItem = {
   barcode?: unknown;
   estimatedQuantity?: unknown;
+  stockBand?: unknown;
 };
 
 function text(value: unknown) {
@@ -129,14 +130,19 @@ export async function POST(request: Request) {
     );
     const stockEstimateItems = rawStockEstimate.map((item) => ({
       barcode: normalizeInventoryBarcode(item?.barcode),
-      estimatedQuantity: Number(item?.estimatedQuantity),
+      stockBand: text(item?.stockBand).toUpperCase(),
+      estimatedQuantity:
+        item?.estimatedQuantity === undefined
+          ? null
+          : Number(item.estimatedQuantity),
     }));
     const invalidStockEstimate = stockEstimateItems.filter(
       (item) =>
         !item.barcode ||
-        !Number.isInteger(item.estimatedQuantity) ||
-        item.estimatedQuantity < 0 ||
-        item.estimatedQuantity > 1_000_000,
+        (!(["OUT", "LOW", "NORMAL", "HIGH"].includes(item.stockBand)) &&
+          (!Number.isInteger(item.estimatedQuantity) ||
+            Number(item.estimatedQuantity) < 0 ||
+            Number(item.estimatedQuantity) > 1_000_000)),
     );
     if (invalidBarcodes.length || invalidStocktake.length || invalidStockEstimate.length) {
       return Response.json(
@@ -252,8 +258,9 @@ export async function POST(request: Request) {
         productKind: identity.productKind,
         modelNo: identity.modelNo,
         estimatedQuantity: item.estimatedQuantity,
+        stockBand: item.stockBand,
         occurredAt,
-        note: "통합 입력 · 운영자 대략 재고 · 발주계산용",
+        note: "통합 입력 · 운영자 대략 재고상태 · 발주계산용",
       });
     });
 

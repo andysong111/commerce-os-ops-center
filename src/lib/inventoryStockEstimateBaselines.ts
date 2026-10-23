@@ -1,5 +1,9 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { ShoplingStockProductKind } from "@/lib/inventoryStockControl";
+import {
+  normalizeInventoryStockBand,
+  type InventoryStockBand,
+} from "@/lib/inventoryStockBulkInput";
 
 export const INVENTORY_STOCK_ESTIMATE_BASELINE_OPERATION_TYPE =
   "INVENTORY_STOCK_ESTIMATE_BASELINE_EVENT";
@@ -12,7 +16,8 @@ export type InventoryStockEstimateBaselineEvent = {
   barcode: string;
   productKind: ShoplingStockProductKind;
   modelNo: string | null;
-  estimatedQuantity: number;
+  estimatedQuantity: number | null;
+  stockBand: InventoryStockBand | null;
   occurredAt: string;
   note: string;
 };
@@ -55,6 +60,7 @@ function productKind(value: unknown): ShoplingStockProductKind | null {
 }
 
 function nonnegativeQuantity(value: unknown) {
+  if (value === null || value === undefined || text(value) === "") return null;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 1_000_000
     ? parsed
@@ -75,12 +81,13 @@ function eventFrom(row: StoredOperationRow) {
   const normalizedBarcode = barcode(source.barcode);
   const kind = productKind(source.productKind);
   const estimatedQuantity = nonnegativeQuantity(source.estimatedQuantity);
+  const stockBand = normalizeInventoryStockBand(source.stockBand);
   const occurredAt = iso(source.occurredAt) || iso(row.started_at);
   if (
     !eventId ||
     !normalizedBarcode ||
     !kind ||
-    estimatedQuantity === null ||
+    (estimatedQuantity === null && stockBand === null) ||
     !occurredAt
   ) {
     return null;
@@ -91,6 +98,7 @@ function eventFrom(row: StoredOperationRow) {
     productKind: kind,
     modelNo: text(source.modelNo) || null,
     estimatedQuantity,
+    stockBand,
     occurredAt,
     note: text(source.note).slice(0, 500),
   } satisfies InventoryStockEstimateBaselineEvent;
@@ -102,6 +110,7 @@ export function normalizeInventoryStockEstimateInput(input: {
   productKind?: unknown;
   modelNo?: unknown;
   estimatedQuantity?: unknown;
+  stockBand?: unknown;
   occurredAt?: unknown;
   note?: unknown;
 }): InventoryStockEstimateBaselineEvent {
@@ -109,14 +118,15 @@ export function normalizeInventoryStockEstimateInput(input: {
   const normalizedBarcode = barcode(input.barcode);
   const kind = productKind(input.productKind);
   const estimatedQuantity = nonnegativeQuantity(input.estimatedQuantity);
+  const stockBand = normalizeInventoryStockBand(input.stockBand);
   const occurredAt = input.occurredAt
     ? iso(input.occurredAt)
     : new Date().toISOString();
   if (!eventId) throw new TypeError("INVENTORY_STOCK_ESTIMATE_EVENT_ID_REQUIRED");
   if (!normalizedBarcode) throw new TypeError("INVENTORY_STOCK_ESTIMATE_BARCODE_INVALID");
   if (!kind) throw new TypeError("INVENTORY_STOCK_ESTIMATE_PRODUCT_KIND_INVALID");
-  if (estimatedQuantity === null) {
-    throw new TypeError("INVENTORY_STOCK_ESTIMATE_QUANTITY_INVALID");
+  if (estimatedQuantity === null && stockBand === null) {
+    throw new TypeError("INVENTORY_STOCK_ESTIMATE_VALUE_INVALID");
   }
   if (!occurredAt) throw new TypeError("INVENTORY_STOCK_ESTIMATE_OCCURRED_AT_INVALID");
   return {
@@ -125,6 +135,7 @@ export function normalizeInventoryStockEstimateInput(input: {
     productKind: kind,
     modelNo: text(input.modelNo) || null,
     estimatedQuantity,
+    stockBand,
     occurredAt,
     note: text(input.note).slice(0, 500),
   };
