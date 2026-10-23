@@ -96,6 +96,11 @@ export function calculateProductDecisionPlan(
       netRequiredQuantity: entry.netRequirement.recommendedQuantity,
       unitCost: entry.input.unitCost,
       totalScore: entry.sales.priorityScore,
+      revenueQualifiedMonthCount:
+        entry.sales.strategy?.history.qualifiedMonthCount ?? 0,
+      averageMonthlyRevenueKrw:
+        entry.sales.strategy?.history.averageMonthlyRevenueKrw ?? 0,
+      risingStrength: entry.sales.strategy?.history.risingStrength ?? "NONE",
       moq: entry.input.moq,
       cartonQuantity: entry.input.cartonQuantity,
     })),

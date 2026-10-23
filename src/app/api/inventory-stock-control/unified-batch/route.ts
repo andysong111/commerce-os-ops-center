@@ -16,6 +16,10 @@ import {
   INVENTORY_STOCKTAKE_BASELINE_OPERATION_TYPE,
   normalizeInventoryStocktakeBaselineInput,
 } from "@/lib/inventoryStocktakeBaselines";
+import {
+  INVENTORY_STOCK_ESTIMATE_BASELINE_OPERATION_TYPE,
+  normalizeInventoryStockEstimateInput,
+} from "@/lib/inventoryStockEstimateBaselines";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +29,11 @@ export const maxDuration = 30;
 type RawStocktakeItem = {
   barcode?: unknown;
   baselineQuantity?: unknown;
+};
+
+type RawStockEstimateItem = {
+  barcode?: unknown;
+  estimatedQuantity?: unknown;
 };
 
 function text(value: unknown) {
@@ -97,6 +106,9 @@ export async function POST(request: Request) {
     const rawStocktake = Array.isArray(body.stocktakeItems)
       ? (body.stocktakeItems as RawStocktakeItem[])
       : [];
+    const rawStockEstimate = Array.isArray(body.stockEstimateItems)
+      ? (body.stockEstimateItems as RawStockEstimateItem[])
+      : [];
     if (!batchId) throw new Error("INVENTORY_UNIFIED_BATCH_ID_REQUIRED");
 
     const invalidBarcodes = [...rawStockout, ...rawOnSale].filter(
@@ -115,7 +127,18 @@ export async function POST(request: Request) {
         item.baselineQuantity < 1 ||
         item.baselineQuantity > 1_000_000,
     );
-    if (invalidBarcodes.length || invalidStocktake.length) {
+    const stockEstimateItems = rawStockEstimate.map((item) => ({
+      barcode: normalizeInventoryBarcode(item?.barcode),
+      estimatedQuantity: Number(item?.estimatedQuantity),
+    }));
+    const invalidStockEstimate = stockEstimateItems.filter(
+      (item) =>
+        !item.barcode ||
+        !Number.isInteger(item.estimatedQuantity) ||
+        item.estimatedQuantity < 0 ||
+        item.estimatedQuantity > 1_000_000,
+    );
+    if (invalidBarcodes.length || invalidStocktake.length || invalidStockEstimate.length) {
       return Response.json(
         {
           ok: false,
@@ -130,6 +153,7 @@ export async function POST(request: Request) {
       ...stockoutBarcodes,
       ...onSaleBarcodes,
       ...stocktakeItems.map((item) => item.barcode),
+      ...stockEstimateItems.map((item) => item.barcode),
     ];
     if (!allBarcodes.length || allBarcodes.length > 50) {
       throw new Error("INVENTORY_UNIFIED_BATCH_SIZE_INVALID");
@@ -217,6 +241,21 @@ export async function POST(request: Request) {
         note: "통합 입력 · 창고 실물수량 확인",
       });
     });
+    const stockEstimateEvents = stockEstimateItems.map((item) => {
+      const identity = identityByBarcode.get(item.barcode);
+      if (!identity?.productKind) {
+        throw new Error(`INVENTORY_UNIFIED_IDENTITY_MISSING:${item.barcode}`);
+      }
+      return normalizeInventoryStockEstimateInput({
+        eventId: `unified-stock-estimate:${batchId}:${item.barcode}`,
+        barcode: item.barcode,
+        productKind: identity.productKind,
+        modelNo: identity.modelNo,
+        estimatedQuantity: item.estimatedQuantity,
+        occurredAt,
+        note: "통합 입력 · 운영자 대략 재고 · 발주계산용",
+      });
+    });
 
     const storage = await storeInventoryOperationBatch([
       ...stockoutEvents.map((event) => ({
@@ -234,6 +273,12 @@ export async function POST(request: Request) {
       ...stocktakeEvents.map((event) => ({
         operationType: INVENTORY_STOCKTAKE_BASELINE_OPERATION_TYPE,
         sourceEventId: `inventory-stocktake:${encodeURIComponent(event.eventId)}`,
+        correlationId: `inventory-stock:${event.barcode}`,
+        snapshot: event,
+      })),
+      ...stockEstimateEvents.map((event) => ({
+        operationType: INVENTORY_STOCK_ESTIMATE_BASELINE_OPERATION_TYPE,
+        sourceEventId: `inventory-stock-estimate:${encodeURIComponent(event.eventId)}`,
         correlationId: `inventory-stock:${event.barcode}`,
         snapshot: event,
       })),
@@ -266,6 +311,7 @@ export async function POST(request: Request) {
           stockout: stockoutEvents.length,
           onSale: onSaleEvents.length,
           stocktake: stocktakeEvents.length,
+          stockEstimate: stockEstimateEvents.length,
         },
         identities,
         jobs,
@@ -273,7 +319,7 @@ export async function POST(request: Request) {
         message:
           `통합 재고 작업 ${allBarcodes.length}건을 저장했습니다. ` +
           `품절 ${stockoutEvents.length}건과 판매중 ${onSaleEvents.length}건은 Shopling 즉시 전송하며 ` +
-          `재고수량 ${stocktakeEvents.length}건은 새 수량 기준점으로 확정했습니다.`,
+          `정확 재고 ${stocktakeEvents.length}건은 새 기준점으로 확정하고, 대략 재고 ${stockEstimateEvents.length}건은 발주계산용 추정치로 저장했습니다.`,
       },
       {
         status: storage.insertedCount > 0 ? 201 : 200,

@@ -4,6 +4,7 @@ import { purchaseInventoryEvidenceFresh } from "./purchaseInventoryFreshness.ts"
 import type { CandidatePromotionGate } from "./stage8CandidatePromotionGate";
 import type { PostApplyCanonicalReconciliation } from "./stage8PostApplyCanonicalReconciliation";
 import type { InventoryVerificationPriority, InventoryVerificationPriorityRow } from "./stage8InventoryVerificationPriority";
+import { comparePurchaseStrategyPriority } from "./productDecisionEngine/purchaseStrategyPolicy.ts";
 import type { PurchaseCandidateOmissionReviewRow } from "./purchaseCandidateOmissionAudit";
 import type { PurchaseWholesaleCostEstimateSnapshot } from "./purchaseWholesaleCostEstimate";
 import {
@@ -114,6 +115,7 @@ export type PurchasePreflightLine = {
   cashflowTier: "AUTOMATIC" | PurchaseCashflowTier;
   priorityScore: number;
   revenueQualifiedMonthCount: number;
+  averageMonthlyRevenueKrw: number;
   revenueQualificationLabel: string;
   risingStrength: "NONE" | "MILD" | "MODERATE" | "STRONG";
   newProduct: boolean;
@@ -136,6 +138,7 @@ export type PurchasePreflightLine = {
   inventoryQuantity: number;
   inventoryMode: "VERIFIED" | "PROVISIONAL";
   inventoryVerified: boolean;
+  inventoryBaselineKind: string | null;
   advisoryOnly: boolean;
   openCommitment: number;
   costEvidenceAt: string | null;
@@ -477,6 +480,7 @@ function projectedLine(
     cashflowTier,
     priorityScore: row.priorityScore,
     revenueQualifiedMonthCount: row.revenueQualifiedMonthCount,
+    averageMonthlyRevenueKrw: row.averageMonthlyRevenueKrw,
     revenueQualificationLabel: row.revenueQualificationLabel,
     risingStrength: row.risingStrength,
     newProduct: row.newProduct,
@@ -499,6 +503,7 @@ function projectedLine(
     inventoryQuantity: row.inventoryQuantity,
     inventoryMode: row.inventoryMode === "VERIFIED" ? "VERIFIED" : "PROVISIONAL",
     inventoryVerified: row.inventoryVerified,
+    inventoryBaselineKind: row.inventoryBaselineKind,
     advisoryOnly: row.advisoryOnly,
     openCommitment: row.openCommitment,
     costEvidenceAt: basis.evidenceAt,
@@ -800,7 +805,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     if (!operatorPinnedExisting && !previewPolicyReady) reasons.push("ROW_EXECUTION_BLOCKED");
     if (reasons.length) excluded.push({ barcode: row.barcode, reasons }); else eligible.push(row);
   }
-  eligible.sort((a, b) => b.priorityScore - a.priorityScore || lineCost(a, costBasisByBarcode.get(a.barcode) ?? null) - lineCost(b, costBasisByBarcode.get(b.barcode) ?? null) || a.barcode.localeCompare(b.barcode));
+  eligible.sort((a, b) => comparePurchaseStrategyPriority(a, b) || lineCost(a, costBasisByBarcode.get(a.barcode) ?? null) - lineCost(b, costBasisByBarcode.get(b.barcode) ?? null) || a.barcode.localeCompare(b.barcode));
   const candidateBarcodes = new Set(candidates.map((row) => row.barcode));
   const eligibleBarcodes = new Set(eligible.map((row) => row.barcode));
   const preservedReplacementBarcodes = new Set(
@@ -854,6 +859,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         withinSkuLimit.map((row) => ({
           barcode: row.barcode,
           priorityScore: row.priorityScore,
+          revenueQualifiedMonthCount: row.revenueQualifiedMonthCount,
+          averageMonthlyRevenueKrw: row.averageMonthlyRevenueKrw,
+          risingStrength: row.risingStrength,
           targetQuantity: row.recommendedQty,
           unitCostKrw:
             costBasisByBarcode.get(row.barcode)?.unitCostKrw ?? 0,

@@ -7,6 +7,7 @@ import {
   MIN_MONTHLY_REVENUE_THRESHOLD_KRW,
   PURCHASE_STRATEGY_POLICY_VERSION,
   analyzePurchaseStrategyHistory,
+  comparePurchaseStrategyPriority,
   evaluatePurchaseStrategy,
   normalizeCompletedCalendarMonthSales,
   normalizePurchaseStrategyPolicy,
@@ -182,7 +183,18 @@ test("history reports threshold hits, latest hit and threshold-sensitive count",
   assert.equal(defaultAnalysis.qualifiedMonthCount, 6);
   assert.equal(defaultAnalysis.qualificationLabel, "6/12");
   assert.equal(defaultAnalysis.latestQualifiedMonth, "2026-09");
+  assert.equal(defaultAnalysis.averageMonthlyRevenueKrw, 35_417);
   assert.equal(raisedAnalysis.qualifiedMonthCount, 3);
+});
+
+test("purchase priority is qualified months then average monthly revenue then rising and composite score", () => {
+  const moreQualified = { revenueQualifiedMonthCount: 7, averageMonthlyRevenueKrw: 45_000, risingStrength: "NONE", priorityScore: 10 };
+  const moreRevenue = { revenueQualifiedMonthCount: 6, averageMonthlyRevenueKrw: 500_000, risingStrength: "STRONG", priorityScore: 999 };
+  assert.ok(comparePurchaseStrategyPriority(moreQualified, moreRevenue) < 0);
+
+  const highAverage = { revenueQualifiedMonthCount: 6, averageMonthlyRevenueKrw: 120_000, risingStrength: "NONE", priorityScore: 10 };
+  const highLegacyScore = { revenueQualifiedMonthCount: 6, averageMonthlyRevenueKrw: 80_000, risingStrength: "STRONG", priorityScore: 999 };
+  assert.ok(comparePurchaseStrategyPriority(highAverage, highLegacyScore) < 0);
 });
 
 test("recent three versus previous three produces mild, moderate and strong rising tiers", () => {

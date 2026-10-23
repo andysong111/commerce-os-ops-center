@@ -32,6 +32,17 @@ test("insufficient cash excludes lower rows explicitly instead of exceeding the 
   assert.ok(result.every((row) => row.allocatedQuantity <= row.targetQuantity));
 });
 
+test("cash allocation funds qualified-month count before average monthly revenue and legacy score", () => {
+  const result = allocatePurchaseCashflow([
+    { barcode: "BAA1-1", priorityScore: 999, revenueQualifiedMonthCount: 5, averageMonthlyRevenueKrw: 500_000, targetQuantity: 10, unitCostKrw: 1_000 },
+    { barcode: "BAA2-1", priorityScore: 1, revenueQualifiedMonthCount: 6, averageMonthlyRevenueKrw: 40_000, targetQuantity: 10, unitCostKrw: 1_000 },
+    { barcode: "BAA3-1", priorityScore: 999, revenueQualifiedMonthCount: 6, averageMonthlyRevenueKrw: 50_000, targetQuantity: 10, unitCostKrw: 1_000 },
+  ], 12_000);
+  assert.equal(result[0].barcode, "BAA3-1");
+  assert.equal(result[0].allocatedQuantity, 10);
+  assert.equal(result[1].barcode, "BAA2-1");
+});
+
 test("purchase targets are rounded to clean five-unit quantities with tens preferred", () => {
   const result = allocatePurchaseCashflow([
     { barcode: "BAA1-1", priorityScore: 100, targetQuantity: 38, unitCostKrw: 100, moq: 1, cartonQuantity: 1 },

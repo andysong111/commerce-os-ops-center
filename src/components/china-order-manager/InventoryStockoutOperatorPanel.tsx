@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  parseInventoryStockEstimateBulkText,
   parseInventoryStockoutBulkText,
   parseInventoryStocktakeBulkText,
 } from "@/lib/inventoryStockBulkInput";
@@ -127,6 +128,7 @@ export function InventoryStockoutOperatorPanel() {
   const [stockoutInput, setStockoutInput] = useState("");
   const [onSaleInput, setOnSaleInput] = useState("");
   const [stocktakeInput, setStocktakeInput] = useState("");
+  const [stockEstimateInput, setStockEstimateInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState("");
@@ -145,23 +147,30 @@ export function InventoryStockoutOperatorPanel() {
     () => parseInventoryStocktakeBulkText(stocktakeInput),
     [stocktakeInput],
   );
+  const stockEstimateParsed = useMemo(
+    () => parseInventoryStockEstimateBulkText(stockEstimateInput),
+    [stockEstimateInput],
+  );
   const totalCount =
     stockoutParsed.barcodes.length +
     onSaleParsed.barcodes.length +
-    stocktakeParsed.items.length;
+    stocktakeParsed.items.length +
+    stockEstimateParsed.items.length;
   const inputErrors = [
     ...stockoutParsed.errors,
     ...onSaleParsed.errors,
     ...stocktakeParsed.errors,
+    ...stockEstimateParsed.errors,
   ];
   const conflictingBarcodes = useMemo(() => {
     const all = [
       ...stockoutParsed.barcodes,
       ...onSaleParsed.barcodes,
       ...stocktakeParsed.items.map((item) => item.barcode),
+      ...stockEstimateParsed.items.map((item) => item.barcode),
     ];
     return [...new Set(all.filter((barcode, index) => all.indexOf(barcode) !== index))];
-  }, [onSaleParsed.barcodes, stockoutParsed.barcodes, stocktakeParsed.items]);
+  }, [onSaleParsed.barcodes, stockEstimateParsed.items, stockoutParsed.barcodes, stocktakeParsed.items]);
 
   const extensionReadyRef = useRef(false);
   const extensionVersionRef = useRef("");
@@ -489,7 +498,7 @@ export function InventoryStockoutOperatorPanel() {
       return;
     }
     if (totalCount > 50) {
-      setNotice("세 입력을 합쳐 한 번에 최대 50개까지 처리할 수 있습니다.");
+      setNotice("네 입력을 합쳐 한 번에 최대 50개까지 처리할 수 있습니다.");
       return;
     }
     if (
@@ -515,12 +524,13 @@ export function InventoryStockoutOperatorPanel() {
           stockoutBarcodes: stockoutParsed.barcodes,
           onSaleBarcodes: onSaleParsed.barcodes,
           stocktakeItems: stocktakeParsed.items,
+          stockEstimateItems: stockEstimateParsed.items,
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
         savedCount?: number;
-        counts?: { stockout?: number; onSale?: number; stocktake?: number };
+        counts?: { stockout?: number; onSale?: number; stocktake?: number; stockEstimate?: number };
         jobs?: DirectInventoryJob[];
         message?: string;
       };
@@ -543,10 +553,11 @@ export function InventoryStockoutOperatorPanel() {
       setStockoutInput("");
       setOnSaleInput("");
       setStocktakeInput("");
+      setStockEstimateInput("");
 
       if (!jobs.length) {
         setSyncNotice(
-          `재고수량 ${payload.counts?.stocktake ?? stocktakeParsed.items.length}건을 확정했습니다. Shopling 즉시 전송 대상은 없습니다.`,
+          `정확 재고 ${payload.counts?.stocktake ?? stocktakeParsed.items.length}건과 대략 재고 ${payload.counts?.stockEstimate ?? stockEstimateParsed.items.length}건을 저장했습니다. Shopling 즉시 전송 대상은 없습니다.`,
         );
         window.dispatchEvent(new Event(REFRESH_EVENT));
       } else if (extensionReadyRef.current) {
@@ -577,7 +588,7 @@ export function InventoryStockoutOperatorPanel() {
           품절·판매중·재고수량 한꺼번에 적용
         </h2>
         <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
-          세 칸을 모두 작성한 뒤 아래 버튼을 한 번만 누르세요. 전체 B코드를 먼저
+          필요한 칸을 작성한 뒤 아래 버튼을 한 번만 누르세요. 전체 B코드를 먼저
           검증하고 한 묶음으로 저장한 다음, 품절·판매중 전송을 자동으로 끝까지
           이어갑니다. 모델번호와 단품·옵션 형태는 Product Master에서 자동
           판별합니다. 같은 B코드가 두 칸 이상에 있으면 충돌을 막기 위해 전부
@@ -585,7 +596,7 @@ export function InventoryStockoutOperatorPanel() {
         </p>
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <label className="block rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-950">
           ① 품절 처리 B코드
           <textarea
@@ -621,12 +632,24 @@ export function InventoryStockoutOperatorPanel() {
           />
           <span className="mt-2 block text-xs">인식 {stocktakeParsed.items.length}건 · 새 실물수량 기준점 저장</span>
         </label>
+
+        <label className="block rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-950">
+          ④ 대략 재고수량 · B코드 수량
+          <textarea
+            value={stockEstimateInput}
+            onChange={(event) => setStockEstimateInput(event.target.value)}
+            placeholder={"예:\nBCB2-1 50\nBBB8-1 0"}
+            rows={7}
+            className="mt-2 block w-full resize-y rounded-xl border border-amber-200 bg-white px-3 py-3 font-mono text-sm text-slate-950 outline-none focus:border-amber-500"
+          />
+          <span className="mt-2 block text-xs">인식 {stockEstimateParsed.items.length}건 · 발주계산용 추정치로 저장 · 정확 재고로 표시하지 않음</span>
+        </label>
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
         <span>전체 인식 {totalCount}건</span>
         <span>·</span>
-        <span>세 입력 합계 최대 50건</span>
+        <span>네 입력 합계 최대 50건</span>
         <span>·</span>
         <span className={extensionReady ? "text-emerald-700" : "text-amber-700"}>
           {extensionReady

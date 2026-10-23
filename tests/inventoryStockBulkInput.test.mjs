@@ -2,9 +2,25 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  parseInventoryStockEstimateBulkText,
   parseInventoryStockoutBulkText,
   parseInventoryStocktakeBulkText,
 } from "../src/lib/inventoryStockBulkInput.ts";
+
+test("대략 재고 입력은 0을 포함한 정수 수량을 발주계산용으로 해석한다", () => {
+  const parsed = parseInventoryStockEstimateBulkText("BCB2-1 50\nBBB8-1=0");
+  assert.deepEqual(parsed.items, [
+    { barcode: "BCB2-1", estimatedQuantity: 50 },
+    { barcode: "BBB8-1", estimatedQuantity: 0 },
+  ]);
+  assert.deepEqual(parsed.errors, []);
+});
+
+test("대략 재고 입력은 음수·중복·소수를 거부한다", () => {
+  const parsed = parseInventoryStockEstimateBulkText("BCB2-1 2\nBCB2-1 3\nBBB8-1 -1\nBAB3-1 1.5");
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.errors.length, 3);
+});
 
 test("품절 입력은 B코드만 여러 건 정규화하고 중복을 제거한다", () => {
   const parsed = parseInventoryStockoutBulkText(" bcb2-1\nBBB8-1, bcb2-1\nBAB3–1 ");
