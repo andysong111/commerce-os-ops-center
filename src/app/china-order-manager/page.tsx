@@ -3,11 +3,10 @@ import { MonthlyPricePanel } from "@/components/china-order-manager/MonthlyPrice
 import type { ReactNode } from "react";
 import { InternalChinaFundingClosePanel } from "@/components/china-order-manager/InternalChinaFundingClosePanel";
 import { InternalChinaForwarderCostFallback } from "@/components/china-order-manager/InternalChinaForwarderCostFallback";
-import { InternalChinaMonthlyClosePanel } from "@/components/china-order-manager/InternalChinaMonthlyClosePanel";
 import { InternalChinaReceiptPanel } from "@/components/china-order-manager/InternalChinaReceiptPanel";
+import { PurchaseRunStartButton } from "@/components/china-order-manager/PurchaseRunStartButton";
 import { PageHeader } from "@/components/PageHeader";
 import {
-  chinaOrderCommitmentCycleMonth,
   loadChinaOrderLedger,
 } from "@/lib/chinaOrderLedger";
 import { loadFastPurchaseInternalDrafts } from "@/lib/fastPurchaseInternalDraft";
@@ -21,23 +20,16 @@ import {
   loadRecentInternalChinaFundingCloses,
 } from "@/lib/internalChinaFundingClose";
 import {
-  loadInternalChinaMonthlyPurchaseClose,
-  loadRecentInternalChinaMonthlyPurchaseCloses,
-  type InternalChinaMonthlyPurchaseCloseSummary,
-} from "@/lib/internalChinaMonthlyPurchaseClose";
-import {
   loadInternalChinaMonthlyPurchaseSummary,
   loadRecentInternalChinaMonthlyPurchaseSummaries,
+  selectInternalChinaPurchaseSummaryForDraft,
   type InternalChinaMonthlyPurchaseSummary,
 } from "@/lib/internalChinaMonthlyPurchaseSummary";
-import {
-  koreanMonthLabel,
-  previousCalendarMonth,
-  seoulCalendarMonth,
-} from "@/lib/monthlyPurchasePolicy";
+import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import { loadMonthlyDraftDisplayMetadata } from "@/lib/monthlyPurchaseDraftDisplayMetadata";
 import { summarizeMonthlyPurchaseProgress } from "@/lib/purchaseCycleMonthlyFlow";
-import { loadCalendarMonthNormalRevenue } from "@/lib/shopling/calendarMonthRevenue";
+import { loadVerifiedPurchaseCycleSpend } from "@/lib/purchaseCyclePreflightSpend";
+import { buildPurchaseRunHistory, selectPurchaseRun } from "@/lib/purchaseRunHistory";
 import styles from "./monthly-workspace.module.css";
 
 export const dynamic = "force-dynamic";
@@ -54,12 +46,15 @@ const FORWARDER_TIMEOUT_MS = 4_500;
 const METADATA_TIMEOUT_MS = 2_500;
 
 type PageProps = {
-  searchParams: Promise<{ month?: string | string[] }>;
+  searchParams: Promise<{ run?: string | string[] }>;
 };
 
 type SelectedBudget = {
-  budgetMonth: string;
-  budgetMonthRevenueKrw: number;
+  accrualStartMonth: string;
+  accrualEndMonth: string;
+  accruedGrossBudgetKrw: number;
+  recordedSpendKrw: number;
+  availableCashKrw: number;
   totalSpendingBudgetKrw: number;
   error: string | null;
 };
@@ -72,10 +67,6 @@ type CostRow = {
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
-}
-
-function isMonth(value: string) {
-  return /^\d{4}-\d{2}$/.test(value);
 }
 
 function total<T>(rows: T[], select: (row: T) => number) {
@@ -97,32 +88,32 @@ async function timebox<T>(task: Promise<T>, timeoutMs: number) {
 }
 
 async function loadBudget(cycleMonth: string): Promise<SelectedBudget> {
-  const budgetMonth = previousCalendarMonth(cycleMonth);
   try {
-    const revenue = await loadCalendarMonthNormalRevenue(budgetMonth);
-    const budgetMonthRevenueKrw = Math.max(0, Math.round(revenue.revenueKrw));
+    const spend = await loadVerifiedPurchaseCycleSpend(cycleMonth);
     return {
-      budgetMonth,
-      budgetMonthRevenueKrw,
-      totalSpendingBudgetKrw: Math.round(budgetMonthRevenueKrw / 2),
+      accrualStartMonth: spend.accrualStartMonth,
+      accrualEndMonth: spend.accrualEndMonth,
+      accruedGrossBudgetKrw: spend.accruedGrossBudgetKrw,
+      recordedSpendKrw: spend.recordedSpendKrw,
+      availableCashKrw: spend.availableCashKrw,
+      totalSpendingBudgetKrw: spend.availableCashKrw,
       error: null,
     };
   } catch (error) {
     return {
-      budgetMonth,
-      budgetMonthRevenueKrw: 0,
+      accrualStartMonth: "",
+      accrualEndMonth: "",
+      accruedGrossBudgetKrw: 0,
+      recordedSpendKrw: 0,
+      availableCashKrw: 0,
       totalSpendingBudgetKrw: 0,
       error:
-        error instanceof Error ? error.message : "MONTHLY_BUDGET_UNAVAILABLE",
+        error instanceof Error ? error.message : "PURCHASE_BUDGET_UNAVAILABLE",
     };
   }
 }
 
 function purchaseMap(values: InternalChinaMonthlyPurchaseSummary[]) {
-  return new Map(values.map((row) => [row.cycleMonth, row] as const));
-}
-
-function closeMap(values: InternalChinaMonthlyPurchaseCloseSummary[]) {
   return new Map(values.map((row) => [row.cycleMonth, row] as const));
 }
 
@@ -152,78 +143,54 @@ export default async function ChinaOrderManagerPage({
   searchParams,
 }: PageProps) {
   const currentCycleMonth = seoulCalendarMonth(new Date());
-  const requestedMonth = firstParam((await searchParams).month);
+  const requestedRun = firstParam((await searchParams).run);
 
   const [
     draftState,
     ledger,
     purchaseSummaries,
-    purchaseCloses,
     forwarderCloses,
     fundingCloses,
   ] = await Promise.all([
     loadFastPurchaseInternalDrafts(),
     loadChinaOrderLedger(),
     loadRecentInternalChinaMonthlyPurchaseSummaries(24).catch(() => []),
-    loadRecentInternalChinaMonthlyPurchaseCloses(24).catch(() => []),
     loadRecentStoredInternalChinaForwarderCloses(12).catch(() => []),
     loadRecentInternalChinaFundingCloses(24).catch(() => []),
   ]);
 
-  const selectedMonth = isMonth(requestedMonth)
-    ? requestedMonth
-    : currentCycleMonth;
-  const monthSet = new Set<string>([
-    currentCycleMonth,
-    selectedMonth,
-    ...draftState.drafts.map((draft) => draft.cycleMonth),
-    ...purchaseSummaries.map((row) => row.cycleMonth),
-    ...purchaseCloses.map((row) => row.cycleMonth),
-    ...forwarderCloses.map((row) => row.cycleMonth),
-    ...fundingCloses.map((row) => row.cycleMonth),
-  ]);
-  const sortedMonths = [...monthSet]
-    .filter(isMonth)
-    .sort((left, right) => right.localeCompare(left));
-  const months = sortedMonths.slice(0, 12);
-  if (!months.includes(selectedMonth)) {
-    if (months.length === 12) months.pop();
-    months.push(selectedMonth);
-    months.sort((left, right) => right.localeCompare(left));
-  }
-
+  const runHistory = buildPurchaseRunHistory(draftState.drafts);
+  const selectedRun = selectPurchaseRun(runHistory, requestedRun);
+  const selectedDraftId = selectedRun?.draftId ?? "";
+  const selectedMonth = selectedRun?.cycleStartDate.slice(0, 7) || currentCycleMonth;
   const purchaseByMonth = purchaseMap(purchaseSummaries);
-  const closeByMonth = closeMap(purchaseCloses);
-  const [budget, purchaseFallback, closeFallback] = await Promise.all([
-    loadBudget(selectedMonth),
+  const [budget, purchaseFallback] = await Promise.all([
+    loadBudget(currentCycleMonth),
     purchaseByMonth.has(selectedMonth)
       ? Promise.resolve(null)
       : loadInternalChinaMonthlyPurchaseSummary(selectedMonth).catch(() => null),
-    closeByMonth.has(selectedMonth)
-      ? Promise.resolve(null)
-      : loadInternalChinaMonthlyPurchaseClose(selectedMonth).catch(() => null),
   ]);
-  const purchase = purchaseByMonth.get(selectedMonth) ?? purchaseFallback;
-  const monthlyClose = closeByMonth.get(selectedMonth) ?? closeFallback;
-  if (purchase && !purchaseByMonth.has(selectedMonth)) {
-    purchaseByMonth.set(selectedMonth, purchase);
-  }
-  if (monthlyClose && !closeByMonth.has(selectedMonth)) {
-    closeByMonth.set(selectedMonth, monthlyClose);
+  const monthlyPurchase = purchaseByMonth.get(selectedMonth) ?? purchaseFallback;
+  const purchase = selectInternalChinaPurchaseSummaryForDraft(
+    monthlyPurchase,
+    selectedDraftId,
+  );
+  if (monthlyPurchase && !purchaseByMonth.has(selectedMonth)) {
+    purchaseByMonth.set(selectedMonth, monthlyPurchase);
   }
 
   const selectedRows = ledger.commitments
     .filter(
       (row) =>
         row.sourceSystem === SOURCE_SYSTEM &&
-        chinaOrderCommitmentCycleMonth(row) === selectedMonth,
+        row.sourceRunId === selectedDraftId,
     )
     .sort((left, right) => {
       const active = Number(right.openQuantity > 0) - Number(left.openQuantity > 0);
       return active || Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
     });
   const selectedDrafts = draftState.drafts.filter(
-    (draft) => draft.cycleMonth === selectedMonth,
+    (draft) => draft.draftId === selectedDraftId,
   );
   const {
     orderedQuantity,
@@ -300,10 +267,10 @@ export default async function ChinaOrderManagerPage({
   );
 
   const selectedForwarderCloses = forwarderCloses.filter(
-    (row) => row.cycleMonth === selectedMonth,
+    (row) => row.draftId === selectedDraftId,
   );
   const selectedFundingCloses = fundingCloses.filter(
-    (row) => row.cycleMonth === selectedMonth,
+    (row) => row.draftId === selectedDraftId,
   );
   const effectiveForwarderByDraft = new Map(
     costRows
@@ -332,16 +299,13 @@ export default async function ChinaOrderManagerPage({
         )
       : 0;
   const actual1688Krw = purchase?.actualOrderPaidKrwAtInternalFx ?? 0;
-  const remainingBeforeFinalCost = Math.max(
-    0,
-    budget.totalSpendingBudgetKrw - actual1688Krw,
-  );
+  const remainingBeforeFinalCost = budget.availableCashKrw;
   const budgetUsage =
-    budget.totalSpendingBudgetKrw > 0
+    budget.accruedGrossBudgetKrw > 0
       ? Math.min(
           100,
           Math.round(
-            (actual1688Krw / budget.totalSpendingBudgetKrw) * 1_000,
+            (budget.recordedSpendKrw / budget.accruedGrossBudgetKrw) * 1_000,
           ) / 10,
         )
       : 0;
@@ -357,7 +321,6 @@ export default async function ChinaOrderManagerPage({
       ) ?? null
     : null;
   const actionNeeded =
-    (!monthlyClose && selectedMonth === currentCycleMonth) ||
     releasableQuantity > 0 ||
     (receiptDone && !forwarderDone) ||
     (forwarderDone && !fundingDone);
@@ -371,9 +334,9 @@ export default async function ChinaOrderManagerPage({
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="COMMERCE OS · MONTHLY PURCHASE WORKSPACE"
-        title="월별 발주·입고 관리"
-        description="월 하나를 선택해 예산 → 1688 주문 → 배송대행지 바코드 출력 → 입고 → 실제 원가 → 가격조정 → 자금 마감 순서로 처리합니다. 바코드 단계에서는 해당 월 실제 주문정보를 온돌패스 신청서와 자동 연결합니다."
+        eyebrow="COMMERCE OS · PURCHASE RUN WORKSPACE"
+        title="발주차시·입고 관리"
+        description="필요할 때 발주차시를 시작하고 중국 주문초안 → 1688 주문 → 입고확정 순서로 처리합니다. 입고가 끝난 차시는 입고확정일별로 보관되며, 예산은 기존처럼 월별로 적립되고 실제 주문액만 차감됩니다."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -390,6 +353,7 @@ export default async function ChinaOrderManagerPage({
                 중국 주문초안
               </Link>
             ) : null}
+            <PurchaseRunStartButton />
           </div>
         }
       />
@@ -398,15 +362,21 @@ export default async function ChinaOrderManagerPage({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <span className="text-xs font-black tracking-[0.12em] text-blue-700">
-              SELECTED MONTH
+              SELECTED PURCHASE RUN
             </span>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <h2 className="text-2xl font-black text-slate-950">
-                {koreanMonthLabel(selectedMonth)}
+                {selectedRun
+                  ? selectedRun.receiptConfirmedDate
+                    ? `${selectedRun.receiptConfirmedDate} 입고확정`
+                    : `${selectedRun.cycleStartDate} 발주시작`
+                  : "발주차시 없음"}
               </h2>
-              <Badge tone={monthlyClose ? "emerald" : "amber"}>
-                {monthlyClose ? "발주 마감" : "발주 열림"}
-              </Badge>
+              {selectedRun ? (
+                <Badge tone={selectedRun.state === "RECEIVED" ? "emerald" : "amber"}>
+                  {selectedRun.stateLabel}
+                </Badge>
+              ) : null}
               {inboundOpenQuantity > 0 ? (
                 <Badge tone="blue">입고 진행 중</Badge>
               ) : receiptDone ? (
@@ -418,19 +388,21 @@ export default async function ChinaOrderManagerPage({
           </div>
           <nav
             className="flex max-w-full gap-2 overflow-x-auto pb-1"
-            aria-label="발주월 선택"
+            aria-label="발주차시 선택"
           >
-            {months.map((month) => (
+            {runHistory.map((run) => (
               <Link
-                key={month}
-                href={`/china-order-manager?month=${month}`}
+                key={run.draftId}
+                href={`/china-order-manager?run=${encodeURIComponent(run.draftId)}`}
                 className={`whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-black ${
-                  month === selectedMonth
+                  run.draftId === selectedDraftId
                     ? "border-blue-700 bg-blue-700 text-white"
                     : "border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50"
                 }`}
               >
-                {koreanMonthLabel(month)}
+                {run.receiptConfirmedDate
+                  ? `${run.receiptConfirmedDate} 입고확정`
+                  : `${run.cycleStartDate} · ${run.stateLabel}`}
               </Link>
             ))}
           </nav>
@@ -438,13 +410,17 @@ export default async function ChinaOrderManagerPage({
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <SummaryCard
-            label="전체 지출가능금액"
+            label="현재 지출가능금액"
             value={
               budget.totalSpendingBudgetKrw > 0
                 ? `${money.format(budget.totalSpendingBudgetKrw)}원`
                 : "조회 대기"
             }
-            note={`${koreanMonthLabel(budget.budgetMonth)} 정상매출 ÷ 2`}
+            note={
+              budget.accrualStartMonth
+                ? `${budget.accrualStartMonth}~${budget.accrualEndMonth} 월별 적립 누계 - 실제 주문 ${money.format(budget.recordedSpendKrw)}원`
+                : "월별 예산 적립 원장 확인 중"
+            }
             tone="blue"
           />
           <SummaryCard
@@ -486,7 +462,7 @@ export default async function ChinaOrderManagerPage({
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="flex items-center justify-between text-xs font-bold text-slate-600">
-            <span>1688 결제 기준 예산 사용률</span>
+            <span>실제 주문완료 누계 기준 예산 사용률</span>
             <span>{budgetUsage.toFixed(1)}%</span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
@@ -532,16 +508,6 @@ export default async function ChinaOrderManagerPage({
           </div>
 
           <div className={`mt-4 space-y-4 ${styles.inputScope}`}>
-            <InternalChinaMonthlyClosePanel
-              cycleMonth={selectedMonth}
-              currentCycleMonth={currentCycleMonth}
-              totalSpendingBudgetKrw={budget.totalSpendingBudgetKrw}
-              recorded1688SpendKrw={actual1688Krw}
-              releasableLineCount={releasableRows.length}
-              releasableQuantity={releasableQuantity}
-              stored={monthlyClose}
-            />
-
             {costRows.map((row) => {
               const draft = selectedDrafts.find(
                 (candidate) => candidate.draftId === row.draftId,
@@ -607,9 +573,9 @@ export default async function ChinaOrderManagerPage({
               />
             ) : null}
 
-            {!costRows.length && monthlyClose && !hasOrder ? (
+            {!costRows.length && selectedRun?.state === "RELEASED" && !hasOrder ? (
               <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">
-                이 달은 실제 1688 주문 없이 발주 사이클이 마감되었습니다. 추가 입고·원가 입력이 없습니다.
+                이 발주차시는 실제 1688 주문 없이 종료되었습니다. 추가 입고·원가 입력이 없습니다.
               </section>
             ) : null}
           </div>
@@ -617,27 +583,21 @@ export default async function ChinaOrderManagerPage({
 
         <aside className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
           <span className="text-xs font-black tracking-[0.12em] text-cyan-300">
-            MONTHLY FLOW
+            PURCHASE RUN FLOW
           </span>
-          <h2 className="mt-1 text-xl font-black">월 처리 단계</h2>
+          <h2 className="mt-1 text-xl font-black">발주차시 처리 단계</h2>
           <div className="mt-5 space-y-3">
             <FlowStep
               number="1"
-              title="예산 확정"
-              state={budget.totalSpendingBudgetKrw ? "done" : "wait"}
-              detail={`${koreanMonthLabel(budget.budgetMonth)} 정상매출 기준`}
+              title="발주차시 시작"
+              state={selectedRun ? "done" : "wait"}
+              detail={selectedRun ? `${selectedRun.cycleStartDate} 시작 · 이전 기준일 ${selectedRun.previousCycleStartDate || "첫 차시"}` : "이번 발주 시작하기를 누르세요"}
             />
             <FlowStep
               number="2"
-              title="1688 주문·발주 마감"
-              state={monthlyClose ? "done" : hasOrder ? "active" : "wait"}
-              detail={
-                monthlyClose
-                  ? monthlyClose.closeReason
-                  : hasOrder
-                    ? "실제 주문 기록됨 · 추가 발주 종료 여부 결정"
-                    : "주문 또는 무발주 마감 결정"
-              }
+              title="1688 주문"
+              state={hasOrder ? "done" : selectedRun ? "active" : "wait"}
+              detail={hasOrder ? "실제 주문 기록됨" : "중국 주문초안에서 5번 업무 진행"}
             />
             <FlowStep
               number="3"
@@ -645,7 +605,7 @@ export default async function ChinaOrderManagerPage({
               state={receiptDone ? "done" : hasOrder ? "active" : "wait"}
               detail={
                 receiptDone
-                  ? "입고 단계 통과 · 필요 시 월 주문정보로 다시 출력 가능"
+                  ? "입고 단계 통과 · 필요 시 주문정보로 다시 출력 가능"
                   : hasOrder
                     ? `${money.format(purchase?.assignedLineCount ?? selectedRows.length)}개 주문 품목 전달 · 온돌패스 주문번호로 B-code 자동연결`
                     : "실주문 후 진행"
@@ -684,7 +644,7 @@ export default async function ChinaOrderManagerPage({
             <MonthlyPricePanel month={selectedMonth} ready={receiptDone && forwarderDone} />
             <FlowStep
               number="7"
-              title="월 자금 마감"
+              title="자금 마감"
               state={fundingDone ? "done" : forwarderDone ? "active" : "wait"}
               detail={
                 fundingDone
@@ -694,7 +654,7 @@ export default async function ChinaOrderManagerPage({
             />
           </div>
           <p className="mt-5 rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-xs leading-5 text-slate-300">
-            발주 마감 후 배송대행지 바코드 출력에서 해당 월 주문번호·B-code를 온돌패스 신청서와 연결합니다. 이후 입고·실제 원가·가격조정·자금 마감을 계속 진행합니다.
+            주문 후 배송대행지 바코드 출력에서 이 발주차시의 주문번호·B-code를 온돌패스 신청서와 연결합니다. 입고확정을 완료하면 그 날짜로 이력이 닫히고, 다음 발주차시를 새로 시작할 수 있습니다.
           </p>
         </aside>
       </section>
@@ -799,7 +759,7 @@ export default async function ChinaOrderManagerPage({
             </>
           ) : (
             <p className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-              선택한 월에 실제 1688 주문 원가 기록이 없습니다.
+              선택한 발주차시에 실제 1688 주문 원가 기록이 없습니다.
             </p>
           )}
         </div>
@@ -811,10 +771,10 @@ export default async function ChinaOrderManagerPage({
         <summary className="flex items-center justify-between gap-4 px-5 py-4">
           <div>
             <span className="text-xs font-black tracking-[0.12em] text-slate-500">
-              MONTHLY ARCHIVE
+              RECEIPT DATE ARCHIVE
             </span>
             <h2 className="mt-1 text-lg font-black text-slate-950">
-              월별 마감 이력
+              입고확정일별 발주 이력
             </h2>
           </div>
           <span className={`${styles.detailsChevron} text-lg text-slate-400`}>⌄</span>
@@ -824,80 +784,61 @@ export default async function ChinaOrderManagerPage({
             <table className="min-w-[1040px] text-left text-xs">
               <thead className="bg-slate-50 font-bold text-slate-500">
                 <tr>
-                  <th className="px-3 py-3">발주월</th>
-                  <th className="px-3 py-3">발주상태</th>
-                  <th className="px-3 py-3 text-right">전체 예산</th>
+                  <th className="px-3 py-3">입고확정일</th>
+                  <th className="px-3 py-3">발주시작일</th>
+                  <th className="px-3 py-3">상태</th>
+                  <th className="px-3 py-3 text-right">품목 / 요청</th>
                   <th className="px-3 py-3 text-right">1688 결제</th>
                   <th className="px-3 py-3 text-right">주문 / 입고 / 미입고</th>
                   <th className="px-3 py-3">실제 원가</th>
-                  <th className="px-3 py-3">자금</th>
                   <th className="px-3 py-3">보기</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {months.map((month) => {
-                  const monthPurchase = purchaseByMonth.get(month);
-                  const monthClose = closeByMonth.get(month);
-                  const monthRows = ledger.commitments.filter(
-                    (row) =>
-                      row.sourceSystem === SOURCE_SYSTEM &&
-                      chinaOrderCommitmentCycleMonth(row) === month,
+                {runHistory.map((run) => {
+                  const runMonth = run.cycleStartDate.slice(0, 7);
+                  const runPurchase = selectInternalChinaPurchaseSummaryForDraft(
+                    purchaseByMonth.get(runMonth) ?? null,
+                    run.draftId,
                   );
-                  const {
-                    orderedQuantity: monthOrdered,
-                    receivedQuantity: monthReceived,
-                    inboundOpenQuantity: monthOpen,
-                  } = summarizeMonthlyPurchaseProgress(monthRows, monthPurchase);
-                  const monthForwarder = forwarderCloses.filter(
-                    (row) => row.cycleMonth === month,
+                  const runForwarder = forwarderCloses.find(
+                    (row) => row.draftId === run.draftId,
                   );
-                  const monthFunding = fundingCloses.find(
-                    (row) => row.cycleMonth === month,
-                  );
-                  const monthBudget =
-                    monthFunding?.totalSpendingBudgetKrw ||
-                    monthClose?.totalSpendingBudgetKrw ||
-                    (month === selectedMonth ? budget.totalSpendingBudgetKrw : 0);
                   return (
-                    <tr key={month}>
+                    <tr key={run.draftId}>
                       <td className="px-3 py-3 font-black text-slate-950">
-                        {koreanMonthLabel(month)}
+                        {run.receiptConfirmedDate ||
+                          (run.state === "RELEASED" ? "입고 없음 · 종료" : "진행 중")}
+                      </td>
+                      <td className="px-3 py-3 font-mono text-slate-700">
+                        {run.cycleStartDate}
                       </td>
                       <td className="px-3 py-3">
                         <span
                           className={`rounded-full border px-2 py-1 text-[11px] font-black ${
-                            monthClose
+                            run.state === "RECEIVED"
                               ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                               : "border-amber-200 bg-amber-50 text-amber-800"
                           }`}
                         >
-                          {monthClose ? "발주 마감" : "발주 열림"}
+                          {run.stateLabel}
                         </span>
                       </td>
                       <td className="px-3 py-3 text-right font-bold">
-                        {monthBudget ? `${money.format(monthBudget)}원` : "-"}
+                        {money.format(run.lineCount)}종 / {money.format(run.requestedQuantity)}개
                       </td>
                       <td className="px-3 py-3 text-right font-bold text-blue-700">
-                        {monthPurchase
-                          ? `${money.format(monthPurchase.actualOrderPaidKrwAtInternalFx)}원`
+                        {runPurchase
+                          ? `${money.format(runPurchase.actualOrderPaidKrwAtInternalFx)}원`
                           : "-"}
                       </td>
                       <td className="px-3 py-3 text-right">
-                        {money.format(monthOrdered)} / {money.format(monthReceived)} / {money.format(monthOpen)}
+                        {money.format(run.orderedQuantity)} / {money.format(run.receivedQuantity)} / {money.format(run.openQuantity)}
                       </td>
                       <td className="px-3 py-3">
-                        {monthForwarder.length ? (
+                        {runForwarder ? (
                           <span className="font-black text-emerald-700">마감</span>
-                        ) : monthOrdered > 0 && monthOpen === 0 ? (
-                          <span className="font-black text-amber-700">입력 대기</span>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-3 py-3">
-                        {monthFunding ? (
-                          <span className="font-black text-emerald-700">마감</span>
-                        ) : monthForwarder.length ? (
+                        ) : run.orderedQuantity > 0 && run.openQuantity === 0 ? (
                           <span className="font-black text-amber-700">입력 대기</span>
                         ) : (
                           "-"
@@ -905,10 +846,10 @@ export default async function ChinaOrderManagerPage({
                       </td>
                       <td className="px-3 py-3">
                         <Link
-                          href={`/china-order-manager?month=${month}`}
+                          href={`/china-order-manager?run=${encodeURIComponent(run.draftId)}`}
                           className="font-black text-blue-700 hover:underline"
                         >
-                          월 상세
+                          차시 상세
                         </Link>
                       </td>
                     </tr>
@@ -929,7 +870,9 @@ export default async function ChinaOrderManagerPage({
               DETAIL LEDGER
             </span>
             <h2 className="mt-1 text-lg font-black text-slate-950">
-              {koreanMonthLabel(selectedMonth)} 발주·입고 상세 원장
+              {selectedRun
+                ? `${selectedRun.receiptConfirmedDate || selectedRun.cycleStartDate} 발주·입고 상세 원장`
+                : "발주·입고 상세 원장"}
             </h2>
           </div>
           <span className={`${styles.detailsChevron} text-lg text-slate-400`}>⌄</span>
@@ -1000,7 +943,7 @@ export default async function ChinaOrderManagerPage({
                 ) : (
                   <tr>
                     <td colSpan={8} className="px-3 py-10 text-center text-slate-500">
-                      선택한 월의 발주·입고 원장 줄이 없습니다.
+                      선택한 발주차시의 발주·입고 원장 줄이 없습니다.
                     </td>
                   </tr>
                 )}

@@ -73,7 +73,7 @@ test("completed monthly drafts remain visible until actual landed cost is closed
 
 test("recent closed monthly landed costs stay visible after the calendar month changes", () => {
   assert.ok(page.includes("loadRecentStoredInternalChinaForwarderCloses(12)"));
-  assert.ok(page.includes("월별 마감 이력"));
+  assert.ok(page.includes("입고확정일별 발주 이력"));
   assert.ok(page.includes("selectedForwarderCloses"));
   assert.ok(storedClose.includes("loadRecentStoredInternalChinaForwarderCloses"));
   assert.ok(storedClose.includes("order=started_at.desc"));

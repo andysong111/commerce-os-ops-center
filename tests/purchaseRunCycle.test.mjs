@@ -13,6 +13,7 @@ const draft = (overrides = {}) => ({
   cycleStartDate: null,
   previousCycleStartDate: null,
   cycleKey: null,
+  receiptConfirmedAt: null,
   orderedQuantity: 10,
   receivedQuantity: 0,
   openQuantity: 10,
@@ -57,7 +58,7 @@ test("recalculating a draft keeps its original cycle boundaries", () => {
   assert.equal(result.bootstrap, false);
 });
 
-test("new cycle prefers the latest executed purchase start over an older draft", () => {
+test("new cycle uses the latest confirmed receipt date as its prior boundary", () => {
   const result = inferPurchaseRunCycleBasis({
     targetDate: "2026-10-23",
     drafts: [
@@ -65,11 +66,29 @@ test("new cycle prefers the latest executed purchase start over an older draft",
       draft({
         draftId: "fast-purchase-draft:33333333333333333333",
         createdAt: "2026-10-05T01:00:00.000Z",
+        receiptConfirmedAt: "2026-10-18T08:30:00.000Z",
+        receivedQuantity: 10,
+        openQuantity: 0,
+      }),
+    ],
+  });
+  assert.equal(result.previousCycleStartDate, "2026-10-18");
+  assert.equal(result.bootstrap, false);
+});
+
+test("unfinished receipt does not become the next cycle boundary", () => {
+  const result = inferPurchaseRunCycleBasis({
+    targetDate: "2026-10-23",
+    drafts: [
+      draft({
+        cycleStartDate: "2026-10-05",
+        receiptConfirmedAt: "2026-10-20T08:30:00.000Z",
+        receivedQuantity: 5,
+        openQuantity: 5,
       }),
     ],
   });
   assert.equal(result.previousCycleStartDate, "2026-10-05");
-  assert.equal(result.bootstrap, false);
 });
 
 test("first on-demand cycle uses an explicit visible 30-day bootstrap", () => {
