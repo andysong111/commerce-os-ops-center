@@ -109,8 +109,16 @@ test("draft editor exposes one final calculation action and stages additions wit
     "src/components/china-order-manager/InternalChinaManualDraftLineAdder.tsx",
     "utf8",
   );
-  assert.match(workspace, /변경사항 모아 발주안 바로 재계산/);
-  assert.match(workspace, /수량 변경 \{changedQuantityRows\.length\}종 · 수량 고정 해제 \{releasedQuantityOverrideBarcodes\.length\}종 · 제외 \{excludedBarcodes\.length\}종/);
+  assert.match(workspace, /재고상태 저장 후 발주안 재계산/);
+  assert.match(workspace, /대략 재고 \{stockBandUpdates\.length\}종 · 수량 변경 \{changedQuantityRows\.length\}종 · 수량 고정 해제 \{releasedQuantityOverrideBarcodes\.length\}종 · 제외 \{excludedBarcodes\.length\}종/);
+  assert.match(workspace, /stockBandUpdates,/);
+  assert.match(workspace, /많음/);
+  assert.match(workspace, /보통/);
+  assert.match(workspace, /적음/);
+  assert.match(workspace, /품절/);
+  assert.match(workspace, /모델명 ·/);
+  assert.match(workspace, /모델번호 ·/);
+  assert.match(workspace, /옵션명 ·/);
   assert.match(workspace, /선택 수량 고정 해제/);
   assert.match(workspace, /replaceQuantityOverrides: true/);
   assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);

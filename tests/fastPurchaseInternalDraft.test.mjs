@@ -51,14 +51,16 @@ test("manual quantities may exceed the demand reference but never 9999", () => {
   );
 });
 
-test("a calendar month can commit only one different internal purchase Draft", () => {
-  assert.match(draft, /monthlyPurchaseCycleFor\(new Date\(\)\.toISOString\(\)\)/);
-  assert.match(draft, /draft\.cycleMonth === cycleMonth/);
-  assert.match(draft, /object\(line\.latestPayload\)\.cycleMonth/);
-  assert.match(draft, /FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED/);
-  assert.match(route, /FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED/);
-  assert.match(actions, /monthlyLocked/);
-  assert.match(actions, /발주차시 생성완료/);
+test("operator purchase Drafts use on-demand run dates and allow multiple runs in one month", () => {
+  assert.match(draft, /inferPurchaseRunCycleBasis/);
+  assert.match(draft, /purchaseRunCycle\.cycleKey/);
+  assert.match(draft, /purchaseRunCycle\.cycleStartDate/);
+  assert.match(draft, /previousCycleStartDate/);
+  assert.match(draft, /FAST_PURCHASE_CYCLE_ALREADY_USED/);
+  assert.doesNotMatch(route, /loadInternalChinaMonthlyPurchaseClose/);
+  assert.doesNotMatch(route, /FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED/);
+  assert.doesNotMatch(actions, /monthlyLocked/);
+  assert.match(actions, /같은 달에도 여러/);
 });
 
 test("internal draft stores RESERVED commitment events but never ORDERED or external execution", () => {
@@ -76,9 +78,9 @@ test("same-origin API is required for draft reads and writes", () => {
   assert.match(route, /FAST_PURCHASE_DRAFT_UNAUTHORIZED/);
 });
 
-test("browser action requires explicit confirmation before the monthly internal write", () => {
+test("browser action requires explicit confirmation before the on-demand internal write", () => {
   assert.match(actions, /window\.confirm/);
-  assert.match(actions, /월간 발주 Draft/);
+  assert.match(actions, /발주차시 Draft/);
   assert.match(actions, /실제 중국 주문·결제는 실행하지 않습니다/);
   assert.match(actions, /method: "POST"/);
   assert.match(page, /내부 Draft 가능 · 외부 자동주문 0/);

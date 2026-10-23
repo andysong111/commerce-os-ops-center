@@ -197,15 +197,16 @@ test("policy migration subtracts ABLY shipping from the already-frozen gross ins
   assert.match(monthRevenueSource, /"legacy-frozen-cache"/);
 });
 
-test("purchase recommendation is monthly while grade and price cadence remains daily", () => {
+test("background recommendation refresh may stay monthly while operator purchase runs are on demand", () => {
   assert.equal(PURCHASE_RECOMMENDATION_CADENCE, "MONTHLY");
   assert.equal(PRICE_GRADE_CADENCE, "DAILY");
   assert.match(liveRoute, /loadMonthlyPurchaseCycleGate/);
   assert.match(liveRoute, /monthlyPolicy\.locked/);
   assert.match(liveControl, /monthlyLocked/);
   assert.match(liveControl, /월 1회/);
-  assert.match(fastDraft, /FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED/);
-  assert.match(fastDraft, /draft\.cycleMonth === cycleMonth/);
+  assert.match(fastDraft, /inferPurchaseRunCycleBasis/);
+  assert.match(fastDraft, /FAST_PURCHASE_CYCLE_ALREADY_USED/);
+  assert.doesNotMatch(fastDraft, /FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED/);
 });
 
 test("operational purchase allocation uses previous calendar-month revenue, not rolling revenue for its funding cap", () => {

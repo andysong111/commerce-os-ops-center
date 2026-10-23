@@ -5,10 +5,13 @@ import {
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
 import { loadFastPurchaseMvpResilient } from "@/lib/fastPurchaseMvpResilient";
+import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import {
-  monthlyPurchaseCycleFor,
-  seoulCalendarMonth,
-} from "@/lib/monthlyPurchasePolicy";
+  inferPurchaseRunCycleBasis,
+  isPurchaseRunCycleBasis,
+  seoulDateFromTimestamp,
+  type PurchaseRunCycleBasis,
+} from "@/lib/purchaseRunCycle";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
@@ -52,6 +55,13 @@ export type FastPurchaseInternalDraft = {
   dataMode: PurchaseDraftDataMode;
   createdAt: string;
   cycleMonth: string;
+  cycleMode: "ON_DEMAND" | "MONTHLY_LEGACY";
+  cycleKey: string | null;
+  cycleStartDate: string;
+  previousCycleStartDate: string | null;
+  revenueRangeStartDate: string | null;
+  revenueRangeEndDate: string | null;
+  cycleBootstrap: boolean;
   lineCount: number;
   totalQuantity: number;
   duplicate: boolean;
@@ -160,7 +170,7 @@ export async function createFastPurchaseInternalDraft(
   return storeValidatedMonthlyPurchaseDraft({
     sourceFingerprint: input.sourceFingerprint,
     dataMode: input.dataMode,
-    cycleMonth: monthlyPurchaseCycleFor(new Date().toISOString()).cycleMonth,
+    cycleMonth: seoulCalendarMonth(new Date()),
     lines,
     allowAdoptExistingReservedDraft: true,
   });
@@ -174,6 +184,7 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
   allowAdoptExistingReservedDraft?: boolean;
   operatorExcludedBarcodes?: string[];
   operatorQuantityOverrides?: Array<{ barcode: string; targetQuantity: number }>;
+  purchaseRunCycle?: PurchaseRunCycleBasis;
 }): Promise<FastPurchaseInternalDraft> {
   if (!/^sha256:[a-f0-9]{64}$/.test(text(input.sourceFingerprint))) {
     throw new Error("FAST_PURCHASE_DRAFT_FINGERPRINT_INVALID");
@@ -219,10 +230,19 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
   )]
     .map(([code, targetQuantity]) => ({ barcode: code, targetQuantity }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
+  const createdAt = new Date().toISOString();
+  const existing = await loadFastPurchaseInternalDrafts();
+  if (existing.error) {
+    throw new Error(`FAST_PURCHASE_CYCLE_LEDGER_UNAVAILABLE:${existing.error}`);
+  }
+  const purchaseRunCycle = input.purchaseRunCycle ?? inferPurchaseRunCycleBasis({
+    targetDate: seoulDateFromTimestamp(createdAt),
+    drafts: existing.drafts,
+  });
   const stable = {
     sourceFingerprint: input.sourceFingerprint,
     dataMode: input.dataMode,
-    cycleMonth: input.cycleMonth,
+    purchaseRunCycle,
     lines: lines.map((line) => ({
       barcode: line.barcode,
       plannedQuantity: line.plannedQuantity,
@@ -235,24 +255,19 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
     },
   };
   const proposedDraftId = `fast-purchase-draft:${hash(stable).slice(0, 20)}`;
-  const createdAt = new Date().toISOString();
-  const cycleMonth = input.cycleMonth;
+  const cycleMonth = purchaseRunCycle.cycleStartDate.slice(0, 7);
 
-  // A sourcing-confirmed line may create the month's internal Draft before the
-  // replenishment recommendation runs. Keep one monthly Draft by adopting that
-  // still-RESERVED Draft instead of opening a competing second business cycle.
-  const existing = await loadFastPurchaseInternalDrafts();
-  if (existing.error) {
-    throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_LEDGER_UNAVAILABLE:${existing.error}`);
-  }
+  // Recalculation on the same start date keeps one active purchase run. A new
+  // start date creates a separate run, including another run in the same month.
   const sameCycle = existing.drafts.filter(
     (draft) =>
       draft.createdAt &&
-      draft.cycleMonth === cycleMonth &&
+      (draft.cycleKey === purchaseRunCycle.cycleKey ||
+        draft.cycleStartDate === purchaseRunCycle.cycleStartDate) &&
       draft.openQuantity > 0,
   );
   if (sameCycle.length > 1) {
-    throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_MULTIPLE_DRAFTS:${cycleMonth}`);
+    throw new Error(`FAST_PURCHASE_CYCLE_MULTIPLE_DRAFTS:${purchaseRunCycle.cycleKey}`);
   }
   const currentCycleDraft = sameCycle[0] ?? null;
   if (
@@ -263,7 +278,7 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
       currentCycleDraft.receivedQuantity > 0)
   ) {
     throw new Error(
-      `FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED:${cycleMonth}:${currentCycleDraft.draftId}`,
+      `FAST_PURCHASE_CYCLE_ALREADY_USED:${purchaseRunCycle.cycleKey}:${currentCycleDraft.draftId}`,
     );
   }
   const draftId = currentCycleDraft?.draftId || proposedDraftId;
@@ -286,6 +301,13 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
         sourceFingerprint: input.sourceFingerprint,
         dataMode: input.dataMode,
         cycleMonth,
+        cycleMode: purchaseRunCycle.mode,
+        cycleKey: purchaseRunCycle.cycleKey,
+        cycleStartDate: purchaseRunCycle.cycleStartDate,
+        previousCycleStartDate: purchaseRunCycle.previousCycleStartDate,
+        revenueRangeStartDate: purchaseRunCycle.revenueRangeStartDate,
+        revenueRangeEndDate: purchaseRunCycle.revenueRangeEndDate,
+        cycleBootstrap: purchaseRunCycle.bootstrap,
         modelNo: line.modelNo,
         productName: line.productName,
         referenceDemandQuantity: line.referenceDemandQuantity,
@@ -313,6 +335,10 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
         internalDraft: true,
         externalOrderExecuted: false,
         cycleMonth,
+        cycleMode: purchaseRunCycle.mode,
+        cycleKey: purchaseRunCycle.cycleKey,
+        cycleStartDate: purchaseRunCycle.cycleStartDate,
+        previousCycleStartDate: purchaseRunCycle.previousCycleStartDate,
         draftId,
         barcode: line.barcode,
         requestedQuantity: line.plannedQuantity,
@@ -351,6 +377,13 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
     dataMode: input.dataMode,
     createdAt,
     cycleMonth,
+    cycleMode: purchaseRunCycle.mode,
+    cycleKey: purchaseRunCycle.cycleKey,
+    cycleStartDate: purchaseRunCycle.cycleStartDate,
+    previousCycleStartDate: purchaseRunCycle.previousCycleStartDate,
+    revenueRangeStartDate: purchaseRunCycle.revenueRangeStartDate,
+    revenueRangeEndDate: purchaseRunCycle.revenueRangeEndDate,
+    cycleBootstrap: purchaseRunCycle.bootstrap,
     lineCount: lines.length,
     totalQuantity,
     duplicate: insertedCount === 0,
@@ -383,6 +416,23 @@ export async function loadFastPurchaseInternalDrafts() {
             .filter((value) => /^20\d{2}-(0[1-9]|1[0-2])$/.test(value)),
         ),
       ];
+      const payloadCycles = lines
+        .map((line) => object(line.latestPayload))
+        .map((payload) => ({
+          mode: payload.cycleMode,
+          cycleKey: payload.cycleKey,
+          cycleStartDate: payload.cycleStartDate,
+          previousCycleStartDate: payload.previousCycleStartDate,
+          revenueRangeStartDate: payload.revenueRangeStartDate,
+          revenueRangeEndDate: payload.revenueRangeEndDate,
+          bootstrap: payload.cycleBootstrap === true,
+        }))
+        .filter(isPurchaseRunCycleBasis);
+      const distinctCycleKeys = [...new Set(payloadCycles.map((cycle) => cycle.cycleKey))];
+      const purchaseRunCycle = distinctCycleKeys.length === 1
+        ? payloadCycles.find((cycle) => cycle.cycleKey === distinctCycleKeys[0]) ?? null
+        : null;
+      const cycleStartDate = purchaseRunCycle?.cycleStartDate || seoulDateFromTimestamp(createdAt);
       return {
         draftId,
         cycleMonth:
@@ -391,6 +441,13 @@ export async function loadFastPurchaseInternalDrafts() {
             : createdAt
               ? seoulCalendarMonth(createdAt)
               : "",
+        cycleMode: purchaseRunCycle ? "ON_DEMAND" as const : "MONTHLY_LEGACY" as const,
+        cycleKey: purchaseRunCycle?.cycleKey ?? null,
+        cycleStartDate,
+        previousCycleStartDate: purchaseRunCycle?.previousCycleStartDate ?? null,
+        revenueRangeStartDate: purchaseRunCycle?.revenueRangeStartDate ?? null,
+        revenueRangeEndDate: purchaseRunCycle?.revenueRangeEndDate ?? null,
+        cycleBootstrap: purchaseRunCycle?.bootstrap ?? false,
         createdAt,
         lineCount: lines.length,
         requestedQuantity: lines.reduce(

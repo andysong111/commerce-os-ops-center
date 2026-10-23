@@ -66,7 +66,10 @@ When owner intervention is genuinely required, explain it at roughly Korean high
 
 ## Current hot path
 
-As of 2026-09-29:
+As of 2026-10-23:
+
+- 중국 재발주 운영은 달력월 1회 제한이 아니라 주문할 수 있을 때 여는 `발주차시` 기준이다. 새 차시는 직전 발주시작일 이상·이번 발주시작일 미만의 판매 근거를 사용하고, 같은 Draft 재계산은 최초 경계를 유지한다. 발주 가능 금액은 완료된 달의 정상매출 50%를 월별로 적립해 이월하며 실제 `ORDERED` 기록만 누적 잔액에서 차감한다. 같은 달 복수 발주가 가능하고 Draft 미리보기·재계산은 잔액을 차감하지 않는다.
+- 내부 중국 발주초안에서는 B코드·모델명·모델번호·판매옵션과 함께 `많음 / 보통 / 적음 / 품절` 대략 재고를 버튼으로 선택한다. `재고상태 저장 후 발주안 재계산` 한 번으로 발주 계산용 추정치만 저장하고 같은 차시 Draft를 교체한다. 이 입력은 Shopling 판매상태를 바꾸지 않는다.
 
 - Windows Commerce OS Local Agent phase 1 is merged to `main` via PR #1285.
 - The agent is intended to become the permanent diagnostic/observability bridge for this Windows PC.

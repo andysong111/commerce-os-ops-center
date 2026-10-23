@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
+import { calculateInternalChinaOrderedSpendKrw } from "@/lib/internalChinaPurchaseOrderSpend";
 import {
   CHINA_ORDER_EVENT_OPERATION_TYPE,
   loadChinaOrderLedger,
@@ -10,6 +11,10 @@ import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
 import { loadShoplingCurrentModelSnapshot } from "@/lib/shopling/shoplingCurrentModelIdentity";
 import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
+import {
+  isPurchaseRunCycleBasis,
+  seoulDateFromTimestamp,
+} from "@/lib/purchaseRunCycle";
 import {
   createSupabaseAdminClient,
   createSupabaseAdminHeaders,
@@ -48,6 +53,13 @@ export type InternalChinaPurchaseDraftLine = {
 export type InternalChinaPurchaseDraft = {
   draftId: string;
   cycleMonth: string;
+  cycleMode: "ON_DEMAND" | "MONTHLY_LEGACY";
+  cycleKey: string | null;
+  cycleStartDate: string;
+  previousCycleStartDate: string | null;
+  revenueRangeStartDate: string | null;
+  revenueRangeEndDate: string | null;
+  cycleBootstrap: boolean;
   status: InternalChinaPurchaseDraftStatus;
   exchangeRateKrwPerCny: number;
   internalOrderCostMultiplier: number;
@@ -59,6 +71,7 @@ export type InternalChinaPurchaseDraft = {
   metadataWarnings: string[];
   lines: InternalChinaPurchaseDraftLine[];
   externalOrderExecuted: false;
+  actualOrderPaidKrwAtInternalFx?: number;
 };
 
 export type InternalChinaPurchaseDraftInput = {
@@ -402,10 +415,34 @@ async function buildBaseDraft(
   }
   const cycleMonth =
     sourceCycleMonths[0] ?? seoulCalendarMonth(sourceUpdatedAt);
+  const payloadCycles = commitments
+    .map((row) => object(row.latestPayload))
+    .map((payload) => ({
+      mode: payload.cycleMode,
+      cycleKey: payload.cycleKey,
+      cycleStartDate: payload.cycleStartDate,
+      previousCycleStartDate: payload.previousCycleStartDate,
+      revenueRangeStartDate: payload.revenueRangeStartDate,
+      revenueRangeEndDate: payload.revenueRangeEndDate,
+      bootstrap: payload.cycleBootstrap === true,
+    }))
+    .filter(isPurchaseRunCycleBasis);
+  const cycleKeys = [...new Set(payloadCycles.map((row) => row.cycleKey))];
+  if (cycleKeys.length > 1) throw new Error("INTERNAL_CHINA_DRAFT_RUN_CYCLE_CONFLICT");
+  const purchaseRunCycle = cycleKeys.length === 1
+    ? payloadCycles.find((row) => row.cycleKey === cycleKeys[0]) ?? null
+    : null;
 
   return {
     draftId,
     cycleMonth,
+    cycleMode: purchaseRunCycle ? "ON_DEMAND" : "MONTHLY_LEGACY",
+    cycleKey: purchaseRunCycle?.cycleKey ?? null,
+    cycleStartDate: purchaseRunCycle?.cycleStartDate || seoulDateFromTimestamp(sourceUpdatedAt),
+    previousCycleStartDate: purchaseRunCycle?.previousCycleStartDate ?? null,
+    revenueRangeStartDate: purchaseRunCycle?.revenueRangeStartDate ?? null,
+    revenueRangeEndDate: purchaseRunCycle?.revenueRangeEndDate ?? null,
+    cycleBootstrap: purchaseRunCycle?.bootstrap ?? false,
     status: ordered ? "ORDERED" : "DRAFT",
     exchangeRateKrwPerCny: INTERNAL_CHINA_FIXED_KRW_PER_CNY,
     internalOrderCostMultiplier: INTERNAL_CHINA_ORDER_COST_MULTIPLIER,
@@ -535,9 +572,26 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
   const cycleMonth = /^20\d{2}-(0[1-9]|1[0-2])$/.test(storedCycleMonth)
     ? storedCycleMonth
     : seoulCalendarMonth(sourceUpdatedAt);
+  const storedRunCycle = {
+    mode: snapshot.cycleMode,
+    cycleKey: snapshot.cycleKey,
+    cycleStartDate: snapshot.cycleStartDate,
+    previousCycleStartDate: snapshot.previousCycleStartDate,
+    revenueRangeStartDate: snapshot.revenueRangeStartDate,
+    revenueRangeEndDate: snapshot.revenueRangeEndDate,
+    bootstrap: snapshot.cycleBootstrap === true,
+  };
+  const purchaseRunCycle = isPurchaseRunCycleBasis(storedRunCycle) ? storedRunCycle : null;
   return {
     draftId,
     cycleMonth,
+    cycleMode: purchaseRunCycle ? "ON_DEMAND" : "MONTHLY_LEGACY",
+    cycleKey: purchaseRunCycle?.cycleKey ?? null,
+    cycleStartDate: purchaseRunCycle?.cycleStartDate || seoulDateFromTimestamp(sourceUpdatedAt),
+    previousCycleStartDate: purchaseRunCycle?.previousCycleStartDate ?? null,
+    revenueRangeStartDate: purchaseRunCycle?.revenueRangeStartDate ?? null,
+    revenueRangeEndDate: purchaseRunCycle?.revenueRangeEndDate ?? null,
+    cycleBootstrap: purchaseRunCycle?.bootstrap ?? false,
     status: text(snapshot.status) === "ORDERED" ? "ORDERED" : "DRAFT",
     exchangeRateKrwPerCny:
       decimal(snapshot.exchangeRateKrwPerCny) || INTERNAL_CHINA_FIXED_KRW_PER_CNY,
@@ -554,6 +608,7 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
       : [],
     lines,
     externalOrderExecuted: false,
+    actualOrderPaidKrwAtInternalFx: integer(snapshot.actualOrderPaidKrwAtInternalFx) || undefined,
   };
 }
 
@@ -769,6 +824,11 @@ export async function markInternalChinaPurchaseDraftOrdered(
   const orderedDraft: InternalChinaPurchaseDraft = {
     ...draft,
     status: "ORDERED",
+    actualOrderPaidKrwAtInternalFx: calculateInternalChinaOrderedSpendKrw({
+      lines: draft.lines,
+      exchangeRateKrwPerCny: draft.exchangeRateKrwPerCny,
+      internalOrderCostMultiplier: draft.internalOrderCostMultiplier,
+    }),
     savedAt: new Date().toISOString(),
   };
   await storePrepSnapshot(orderedDraft);

@@ -2,7 +2,6 @@ import {
   storeValidatedMonthlyPurchaseDraft,
   type FastPurchaseInternalDraft,
 } from "@/lib/fastPurchaseInternalDraft";
-import { loadInternalChinaMonthlyPurchaseClose } from "@/lib/internalChinaMonthlyPurchaseClose";
 import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import {
   preparePurchaseCycleDraft,
@@ -19,6 +18,11 @@ import {
 } from "@/lib/purchaseCycleDraftRegeneration";
 import { mergePurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegenerationCore";
 import {
+  normalizePurchaseDraftStockBandUpdates,
+  storePurchaseDraftStockBands,
+} from "@/lib/purchaseDraftStockBands";
+import type { PurchaseDraftStockBandUpdate } from "@/lib/purchaseDraftStockBandsCore";
+import {
   confirmSourcingBudgetPlan,
   loadSourcingBudgetPlan,
   returnableSourcingBudgetKrw,
@@ -34,11 +38,20 @@ export type InlinePurchaseCycleDraftRecalculationRequest = {
   excludedBarcodes: string[];
   quantityOverrides: PurchaseQuantityOverride[];
   replaceQuantityOverrides?: boolean;
+  stockBandUpdates?: PurchaseDraftStockBandUpdate[];
 };
 
 export async function recalculatePurchaseCycleDraftInline(
   input: InlinePurchaseCycleDraftRecalculationRequest,
 ) {
+  const stockBandUpdates = normalizePurchaseDraftStockBandUpdates(input.stockBandUpdates ?? []);
+  const stockBandStorage = stockBandUpdates.length
+    ? await storePurchaseDraftStockBands({
+        draftId: input.replaceDraftId,
+        updates: stockBandUpdates,
+      })
+    : { savedCount: 0, storage: null };
+  try {
   const persistedAdjustments = await loadPurchaseDraftOperatorAdjustments(input.replaceDraftId);
   const incomingAdjustments = {
     excludedBarcodes: [...input.excludedBarcodes],
@@ -125,11 +138,9 @@ export async function recalculatePurchaseCycleDraftInline(
       changedCount: fallback.changedCount,
       estimatedSpendKrw: 0,
       manualFallbackUsed: true as const,
+      savedStockBandCount: stockBandStorage.savedCount,
       externalOrderExecuted: false as const,
     };
-  }
-  if (await loadInternalChinaMonthlyPurchaseClose(prepared.cycleMonth)) {
-    throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_CLOSED:${prepared.cycleMonth}`);
   }
   const replacement = await regenerateValidatedMonthlyPurchaseDraft({
     ...prepared,
@@ -148,8 +159,16 @@ export async function recalculatePurchaseCycleDraftInline(
     changedCount: report.replacementAudit?.quantityChanged.length ?? 0,
     estimatedSpendKrw: report.estimatedSpendKrw,
     manualFallbackUsed: false as const,
+    savedStockBandCount: stockBandStorage.savedCount,
     externalOrderExecuted: false as const,
   };
+  } catch (error) {
+    if (stockBandStorage.savedCount > 0) {
+      const cause = error instanceof Error ? error.message.split(":", 1)[0] : "UNKNOWN";
+      throw new Error(`PURCHASE_DRAFT_RECALCULATION_FAILED_AFTER_STOCK_SAVE:${stockBandStorage.savedCount}:${cause}`);
+    }
+    throw error;
+  }
 }
 
 export async function createPurchaseCyclePreflightDraft(
@@ -195,9 +214,6 @@ export async function createPurchaseCyclePreflightDraft(
     });
   }
   const prepared = preparePurchaseCycleDraft(report, request, sourcingPlan);
-  if (await loadInternalChinaMonthlyPurchaseClose(prepared.cycleMonth)) {
-    throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_CLOSED:${prepared.cycleMonth}`);
-  }
   const replacement = request.replaceDraftId
     ? await regenerateValidatedMonthlyPurchaseDraft({
         ...prepared,

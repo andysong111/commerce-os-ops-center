@@ -1,5 +1,12 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { combineCompletePurchaseCycleSpendScanPages, purchaseCycleSpendMonthFilter, verifiedPurchaseCycleSpend } from "@/lib/purchaseCyclePreflightSpendCore";
+import {
+  combineCompletePurchaseCycleSpendScanPages,
+  purchaseBudgetCarryoverBasis,
+  purchaseBudgetCarryoverFingerprint,
+  purchaseCycleSpendMonthFilter,
+  verifiedPurchaseCycleSpend,
+} from "@/lib/purchaseCyclePreflightSpendCore";
+import { loadCalendarMonthNormalRevenue } from "@/lib/shopling/calendarMonthRevenue";
 
 const PAGE_SIZE = 500;
 const MAXIMUM_ROWS = 20_000;
@@ -28,5 +35,30 @@ export async function loadVerifiedPurchaseCycleSpend(cycleMonth: string) {
     if (rowCount !== PAGE_SIZE) throw new Error("CYCLE_SPEND_SCAN_INCOMPLETE");
   }
   const rows = combineCompletePurchaseCycleSpendScanPages(pages, MAXIMUM_ROWS);
-  return verifiedPurchaseCycleSpend(cycleMonth, rows, rows.length, new Date().toISOString());
+  const readAt = new Date().toISOString();
+  const monthly = verifiedPurchaseCycleSpend(cycleMonth, rows, rows.length, readAt);
+  const carryover = purchaseBudgetCarryoverBasis(cycleMonth, rows);
+  const { accrualStartMonth, accrualEndMonth, accruedBudgetMonths, recordedSpendKrw } = carryover;
+  const revenues = await Promise.all(accruedBudgetMonths.map((month) => loadCalendarMonthNormalRevenue(month)));
+  const accruedGrossBudgetKrw = revenues.reduce(
+    (total, row) => total + Math.max(0, Math.round(Number(row.revenueKrw) / 2)),
+    0,
+  );
+  const availableCashKrw = Math.max(0, accruedGrossBudgetKrw - recordedSpendKrw);
+  return {
+    ...monthly,
+    recordedSpendKrw,
+    accrualStartMonth,
+    accrualEndMonth,
+    accruedGrossBudgetKrw,
+    availableCashKrw,
+    accruedBudgetMonths,
+    contentFingerprint: purchaseBudgetCarryoverFingerprint({
+      monthlyFingerprint: monthly.contentFingerprint,
+      recordedSpendKrw,
+      revenues: revenues.map((row) => ({ month: row.month, revenueKrw: row.revenueKrw })),
+      accruedGrossBudgetKrw,
+      availableCashKrw,
+    }),
+  };
 }

@@ -40,17 +40,16 @@ export function InternalChinaPurchaseBudgetAudit({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <span className="text-xs font-black tracking-[0.12em]">
-            CALENDAR-MONTH PURCHASE BUDGET AUDIT
+            CARRYOVER PURCHASE BUDGET AUDIT
           </span>
           <h2 className="mt-1 text-xl font-black">
-            {monthLabel(audit.budgetMonth)} 매출원가 기준 발주예산 검증
+            누적 발주 가능 금액 검증
           </h2>
           <p className="mt-2 max-w-5xl text-sm leading-6 opacity-80">
-            발주 추천은 월 1회만 생성합니다. {audit.budgetMonthRangeStart}~
-            {audit.budgetMonthRangeEnd} 정상매출의 50%를 매출원가 총예산으로
-            고정하고, 내부 주문 수수료율 {audit.purchaseCostMultiplier.toFixed(2)}를
-            역산해 실제 상품대금 한도를 정합니다. 당월 판매가 더 발생해도 이
-            발주차시의 예산은 다시 움직이지 않습니다.
+            매월 완료된 정상매출의 50%를 발주 가능 금액으로 적립하고 쓰지 않은 금액은
+            다음 달로 이월합니다. 한 달에 여러 번 발주할 수 있으며, 실제 주문완료로
+            기록한 금액만 잔액에서 차감합니다. 내부 주문 수수료율 {audit.purchaseCostMultiplier.toFixed(2)}를
+            역산해 이번 발주차시의 실제 상품대금 한도를 정합니다.
           </p>
         </div>
         <span className="rounded-full border border-current/20 bg-white/70 px-3 py-1.5 text-xs font-black">
@@ -76,9 +75,9 @@ export function InternalChinaPurchaseBudgetAudit({
           note="1일~말일 고정"
         />
         <Metric
-          label="매출원가 총예산"
+          label="현재 누적 사용가능액"
           value={`${money.format(audit.grossCogsBudgetKrw)}원`}
-          note="전월 정상매출 ÷ 2"
+          note={`누적 적립 ${money.format(audit.cumulativeAccruedBudgetKrw)}원 - 주문완료 ${money.format(audit.recordedOrderedSpendKrw)}원`}
         />
         <Metric
           label="상품대금 발주한도"
@@ -116,7 +115,7 @@ export function InternalChinaPurchaseBudgetAudit({
           title="현재 수량 vs 엔진 참고"
           body={`현재 엔진 참고 예상 상품대금 ${money.format(
             audit.engineExpectedSpendKrw,
-          )}원 · 현재 Draft에서 엔진 수량과 달라진 SKU ${audit.quantityChangedFromEngineCount}개 (증가 ${audit.quantityAboveEngineCount} · 감소 ${audit.quantityBelowEngineCount}). 월간 발주차시가 확정된 뒤에는 당월 판매 변화로 이 Draft를 다시 만들지 않습니다.`}
+          )}원 · 현재 Draft에서 엔진 수량과 달라진 SKU ${audit.quantityChangedFromEngineCount}개 (증가 ${audit.quantityAboveEngineCount} · 감소 ${audit.quantityBelowEngineCount}). 현재 발주차시를 재계산하면 최신 재고와 전략을 다시 반영합니다.`}
         />
         <InfoBox
           title="다른 활성 Draft"
@@ -126,7 +125,7 @@ export function InternalChinaPurchaseBudgetAudit({
                   audit.otherActiveDraftQuantity,
                 )}개 · 기준원가 추정 ${money.format(
                   audit.otherActiveDraftEstimatedProductCostKrw,
-                )}원. 실제 주문하지 않을 과거 Draft는 해제해야 다음 달 발주 계산이 왜곡되지 않습니다.`
+                )}원. 실제 주문하지 않을 과거 Draft는 해제해야 다음 발주차시 계산이 왜곡되지 않습니다.`
               : "선택한 Draft 외 활성 RESERVED Draft가 없습니다."
           }
         />

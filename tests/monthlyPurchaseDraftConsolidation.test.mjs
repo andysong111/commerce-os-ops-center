@@ -63,11 +63,11 @@ test("monthly consolidation keeps B-code identity metadata available for legacy 
   assert.doesNotMatch(component, /상품명/);
 });
 
-test("new monthly drafts are single-cycle locked while legacy consolidation stays repair-safe", () => {
-  assert.match(fastActions, /currentCycleDrafts = drafts\.filter/);
-  assert.match(fastActions, /monthlyLocked = currentCycleDrafts\.length > 0/);
-  assert.match(fastActions, /FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED/);
-  assert.match(fastActions, /같은 달에 새 내부 Draft를 만들지 않습니다/);
+test("new operator drafts are on-demand while legacy consolidation stays repair-safe", () => {
+  assert.doesNotMatch(fastActions, /monthlyLocked/);
+  assert.doesNotMatch(fastActions, /FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED/);
+  assert.match(fastActions, /같은 달에도 여러/);
+  assert.match(fastActions, /이전 발주시작일부터 이번 발주시작일까지/);
   assert.match(page, /selectedDrafts = draftState\.drafts\.filter/);
   assert.doesNotMatch(page, /MonthlyDraftConsolidation/);
   assert.match(component, /선택 수량으로 월간 최종화/);

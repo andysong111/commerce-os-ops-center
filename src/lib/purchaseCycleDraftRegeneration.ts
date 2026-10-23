@@ -9,7 +9,12 @@ import type {
   FastPurchaseInternalDraft,
   FastPurchaseInternalDraftLine,
 } from "@/lib/fastPurchaseInternalDraft";
+import { loadFastPurchaseInternalDrafts } from "@/lib/fastPurchaseInternalDraft";
 import { loadInternalChinaMonthlyPurchaseClose } from "@/lib/internalChinaMonthlyPurchaseClose";
+import {
+  inferPurchaseRunCycleBasis,
+  type PurchaseRunCycleBasis,
+} from "@/lib/purchaseRunCycle";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   assertDraftCanBeRegenerated,
@@ -149,6 +154,18 @@ function operationRow(
   };
 }
 
+function draftCycleFields(cycle: PurchaseRunCycleBasis) {
+  return {
+    cycleMode: cycle.mode,
+    cycleKey: cycle.cycleKey,
+    cycleStartDate: cycle.cycleStartDate,
+    previousCycleStartDate: cycle.previousCycleStartDate,
+    revenueRangeStartDate: cycle.revenueRangeStartDate,
+    revenueRangeEndDate: cycle.revenueRangeEndDate,
+    cycleBootstrap: cycle.bootstrap,
+  } as const;
+}
+
 export async function regenerateValidatedMonthlyPurchaseDraft(input: {
   sourceFingerprint: string;
   cycleMonth: string;
@@ -167,6 +184,17 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     throw new Error("PURCHASE_DRAFT_REGENERATION_DRAFT_ID_INVALID");
   }
   const lines = normalizeLines(input.lines);
+  const draftLedger = await loadFastPurchaseInternalDrafts();
+  if (draftLedger.error) {
+    throw new Error(`PURCHASE_DRAFT_REGENERATION_LEDGER_UNAVAILABLE:${draftLedger.error}`);
+  }
+  const expectedSummary = draftLedger.drafts.find((row) => row.draftId === input.expectedDraftId);
+  if (!expectedSummary) throw new Error("PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED");
+  const purchaseRunCycle = inferPurchaseRunCycleBasis({
+    targetDate: expectedSummary.cycleStartDate || expectedSummary.createdAt,
+    drafts: draftLedger.drafts,
+    replaceDraftId: input.expectedDraftId,
+  });
   const operatorAdjustments = normalizePurchaseDraftOperatorAdjustments({
     excludedBarcodes: input.operatorExcludedBarcodes,
     quantityOverrides: input.operatorQuantityOverrides,
@@ -175,7 +203,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     regeneration: true,
     sourceFingerprint: input.sourceFingerprint,
     dataMode: "PURCHASE_PREFLIGHT",
-    cycleMonth: input.cycleMonth,
+    purchaseRunCycle,
     lines: lines.map((line) => ({
       barcode: line.barcode,
       plannedQuantity: line.plannedQuantity,
@@ -191,11 +219,11 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       `PURCHASE_DRAFT_REGENERATION_LEDGER_UNAVAILABLE:${ledger.error}`,
     );
   }
-  const cycleRows = ledger.commitments.filter(
-    (row) =>
-      row.sourceSystem === SOURCE_SYSTEM &&
-      chinaOrderCommitmentCycleMonth(row) === input.cycleMonth,
-  );
+  const cycleRows = ledger.commitments.filter((row) => {
+    if (row.sourceSystem !== SOURCE_SYSTEM) return false;
+    const payload = object(row.latestPayload);
+    return text(payload.cycleKey) === purchaseRunCycle.cycleKey || row.sourceRunId === input.expectedDraftId;
+  });
   const targetRows = cycleRows.filter((row) => row.sourceRunId === draftId);
   const activeCycleRows = cycleRows.filter((row) => row.openQuantity > 0);
   if (
@@ -210,6 +238,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         dataMode: "PURCHASE_PREFLIGHT",
         createdAt: targetRows[0].reservedAt ?? targetRows[0].updatedAt,
         cycleMonth: input.cycleMonth,
+        ...draftCycleFields(purchaseRunCycle),
         lineCount: lines.length,
         totalQuantity: lines.reduce(
           (sum, line) => sum + line.plannedQuantity,
@@ -248,6 +277,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         dataMode: "PURCHASE_PREFLIGHT",
         createdAt: activeRows[0].reservedAt ?? activeRows[0].updatedAt,
         cycleMonth: input.cycleMonth,
+        ...draftCycleFields(purchaseRunCycle),
         lineCount: lines.length,
         totalQuantity: lines.reduce(
           (sum, line) => sum + line.plannedQuantity,
@@ -281,6 +311,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       note: `${input.cycleMonth} 최신 발주 로직 재계산으로 기존 RESERVED 약정을 대체했습니다.`,
       payload: {
         cycleMonth: input.cycleMonth,
+        ...draftCycleFields(purchaseRunCycle),
         supersededByDraftId: draftId,
         regeneration: true,
         externalOrderExecuted: false,
@@ -314,6 +345,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         sourceFingerprint: input.sourceFingerprint,
         dataMode: "PURCHASE_PREFLIGHT",
         cycleMonth: input.cycleMonth,
+        ...draftCycleFields(purchaseRunCycle),
         modelNo: line.modelNo,
         productName: line.productName,
         referenceDemandQuantity: line.referenceDemandQuantity,
@@ -345,6 +377,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         internalDraft: true,
         draftRegeneration: true,
         cycleMonth: input.cycleMonth,
+        ...draftCycleFields(purchaseRunCycle),
         draftId,
         barcode: event.barcode,
         requestedQuantity: event.requestedQuantity,
@@ -382,6 +415,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       dataMode: "PURCHASE_PREFLIGHT",
       createdAt,
       cycleMonth: input.cycleMonth,
+      ...draftCycleFields(purchaseRunCycle),
       lineCount: lines.length,
       totalQuantity: lines.reduce(
         (sum, line) => sum + line.plannedQuantity,
@@ -423,14 +457,23 @@ export async function regenerateManualMonthlyPurchaseDraft(input: {
     throw new Error("PURCHASE_DRAFT_REGENERATION_CYCLE_INVALID");
   }
   const cycleMonth = cycleMonths[0];
-  if (await loadInternalChinaMonthlyPurchaseClose(cycleMonth)) {
+  const draftLedger = await loadFastPurchaseInternalDrafts();
+  if (draftLedger.error) {
+    throw new Error(`PURCHASE_DRAFT_REGENERATION_LEDGER_UNAVAILABLE:${draftLedger.error}`);
+  }
+  const expectedSummary = draftLedger.drafts.find((row) => row.draftId === input.expectedDraftId);
+  if (!expectedSummary) throw new Error("PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED");
+  if (expectedSummary.cycleMode === "MONTHLY_LEGACY" && await loadInternalChinaMonthlyPurchaseClose(cycleMonth)) {
     throw new Error(`FAST_PURCHASE_MONTHLY_CYCLE_CLOSED:${cycleMonth}`);
   }
-  const cycleRows = ledger.commitments.filter(
-    (row) =>
-      row.sourceSystem === SOURCE_SYSTEM &&
-      chinaOrderCommitmentCycleMonth(row) === cycleMonth,
-  );
+  const cycleRows = ledger.commitments.filter((row) => {
+    if (row.sourceSystem !== SOURCE_SYSTEM) return false;
+    if (expectedSummary.cycleKey) {
+      return text(object(row.latestPayload).cycleKey) === expectedSummary.cycleKey ||
+        row.sourceRunId === input.expectedDraftId;
+    }
+    return chinaOrderCommitmentCycleMonth(row) === cycleMonth;
+  });
   const revision = buildManualDraftRevision(
     cycleRows,
     input.expectedDraftId,

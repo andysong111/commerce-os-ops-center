@@ -1,7 +1,6 @@
 import { loadChinaOrderLedger } from "@/lib/chinaOrderLedger";
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import {
-  koreanMonthLabel,
   monthlyPurchaseCycleForMonth,
 } from "@/lib/monthlyPurchasePolicy";
 import {
@@ -12,6 +11,7 @@ import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { loadProductMasterInventoryCostReadiness } from "@/lib/productMasterInventoryCostReadiness";
 import { loadCalendarMonthNormalRevenue } from "@/lib/shopling/calendarMonthRevenue";
 import { loadCanonicalPurchaseShadow } from "@/lib/stage8CanonicalPurchaseShadow";
+import { loadVerifiedPurchaseCycleSpend } from "@/lib/purchaseCyclePreflightSpend";
 import { effectivePurchaseUnitCostKrw } from "@/lib/verifiedPurchaseCostEvidence";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
@@ -48,6 +48,10 @@ export type InternalChinaPurchaseBudgetAudit = {
   basisLabel: string;
   recent30RevenueKrw: number;
   grossCogsBudgetKrw: number;
+  currentMonthAccrualKrw: number;
+  cumulativeAccruedBudgetKrw: number;
+  recordedOrderedSpendKrw: number;
+  accrualStartMonth: string;
   purchaseCostMultiplier: number;
   productOrderBudgetKrw: number;
   engineExpectedSpendKrw: number;
@@ -102,7 +106,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const draft = await loadInternalChinaPurchaseDraft(draftId);
   const cycle = monthlyPurchaseCycleForMonth(draft.cycleMonth);
 
-  const [shadowRead, planningRead, inventoryCost, ledger, calendarRevenue] = await Promise.all([
+  const [shadowRead, planningRead, inventoryCost, ledger, calendarRevenue, carryoverRead] = await Promise.all([
     loadCanonicalPurchaseShadow()
       .then((value) => ({ value, warning: null as string | null }))
       .catch(() => ({
@@ -128,6 +132,12 @@ export async function loadInternalChinaPurchaseBudgetAudit(
             ? error.message
             : "CALENDAR_MONTH_REVENUE_UNAVAILABLE",
       })),
+    loadVerifiedPurchaseCycleSpend(draft.cycleMonth)
+      .then((value) => ({ value, error: null as string | null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : "CYCLE_BUDGET_CARRYOVER_UNAVAILABLE",
+      })),
   ]);
 
   const shadow = shadowRead.value;
@@ -138,7 +148,12 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const snapshot = shadow?.snapshot;
   const recent30RevenueKrw = money(shadow?.recent30Revenue);
   const budgetMonthRevenueKrw = money(calendarRevenue.value?.revenueKrw);
-  const grossCogsBudgetKrw = money(budgetMonthRevenueKrw / 2);
+  const currentMonthAccrualKrw = money(budgetMonthRevenueKrw / 2);
+  const cumulativeAccruedBudgetKrw = money(carryoverRead.value?.accruedGrossBudgetKrw);
+  const recordedOrderedSpendKrw = money(carryoverRead.value?.recordedSpendKrw);
+  const grossCogsBudgetKrw = carryoverRead.value
+    ? money(carryoverRead.value.availableCashKrw)
+    : currentMonthAccrualKrw;
   const purchaseCostMultiplier = DEFAULT_PURCHASE_COST_MULTIPLIER;
   const productOrderBudgetKrw = money(
     calculateProductOrderBudget(grossCogsBudgetKrw, purchaseCostMultiplier),
@@ -288,7 +303,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
 
   const status: InternalChinaPurchaseBudgetAuditStatus =
     sourceWarnings.length > 0 ||
-    calendarRevenue.error ||
+    calendarRevenue.error || carryoverRead.error ||
     budgetMonthRevenueKrw <= 0 ||
     missingCostBarcodes.length > 0 ||
     productOrderBudgetKrw <= 0
@@ -308,10 +323,14 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     budgetMonthRangeEnd: budgetRange.end,
     budgetMonthRevenueKrw,
     budgetRevenueError: calendarRevenue.error,
-    sourceWarnings,
-    basisLabel: `${koreanMonthLabel(cycle.budgetMonth)} 1일~말일 정상매출 ${budgetMonthRevenueKrw.toLocaleString("ko-KR")}원 ÷ 2 · 내부 주문 수수료율 ${purchaseCostMultiplier.toFixed(2)}`,
+    sourceWarnings: [...sourceWarnings, ...(carryoverRead.error ? [`누적 발주 가능 금액 확인 실패: ${carryoverRead.error}`] : [])],
+    basisLabel: `${carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth}~${cycle.budgetMonth} 월별 정상매출의 50% 누적 ${cumulativeAccruedBudgetKrw.toLocaleString("ko-KR")}원 - 실제 주문완료 ${recordedOrderedSpendKrw.toLocaleString("ko-KR")}원 · 내부 주문 수수료율 ${purchaseCostMultiplier.toFixed(2)}`,
     recent30RevenueKrw,
     grossCogsBudgetKrw,
+    currentMonthAccrualKrw,
+    cumulativeAccruedBudgetKrw,
+    recordedOrderedSpendKrw,
+    accrualStartMonth: carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth,
     purchaseCostMultiplier,
     productOrderBudgetKrw,
     engineExpectedSpendKrw,

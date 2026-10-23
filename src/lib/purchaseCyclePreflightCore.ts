@@ -54,6 +54,11 @@ export type PurchaseMonthlySpendPin = {
   readAt: string;
   recordedSpendKrw: number;
   contentFingerprint: string;
+  accrualStartMonth?: string;
+  accrualEndMonth?: string;
+  accruedGrossBudgetKrw?: number;
+  availableCashKrw?: number;
+  accruedBudgetMonths?: string[];
 };
 export type PurchaseReplacementDraftLine = {
   barcode: string;
@@ -650,8 +655,13 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const multiplierValid = typeof multiplier === "number" && Number.isFinite(multiplier) && multiplier >= 1 && multiplier <= 3;
   const fundingValid = positive(source?.grossBudgetKrw) && multiplierValid;
   if (!fundingValid) blockers.push("GROSS_FUNDING_BASIS_UNVERIFIED");
+  const carryoverCashKrw = spendStable && input.spendAfter &&
+    nonnegative(input.spendAfter.availableCashKrw)
+      ? input.spendAfter.availableCashKrw!
+      : null;
   const remainingMonthlyCashKrw = fundingValid && recordedCycleSpendKrw !== null
-    ? Math.max(0, source.grossBudgetKrw! - recordedCycleSpendKrw) : 0;
+    ? carryoverCashKrw ?? Math.max(0, source.grossBudgetKrw! - recordedCycleSpendKrw)
+    : 0;
   // An explicit value is the cash available for this purchase run. It replaces
   // the automatic prior-month cost envelope instead of being clamped by it.
   // Recorded cycle spend is already reflected by the operator when they enter
@@ -673,7 +683,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   // Explicit mode uses the entered all-in cash after reserving the multiplier.
   const effectiveBudgetKrw = fundingValid && positive(source?.budgetKrw)
     ? cashLimitKrw === null
-      ? Math.min(source.budgetKrw, Math.floor(reorderCashKrw / multiplier!))
+      ? carryoverCashKrw === null
+        ? Math.min(source.budgetKrw, Math.floor(reorderCashKrw / multiplier!))
+        : Math.floor(reorderCashKrw / multiplier!)
       : Math.floor(reorderCashKrw / multiplier!)
     : 0;
   const comparable = source?.comparisonAvailable === true && source.sameAnalysisAsOf === true;

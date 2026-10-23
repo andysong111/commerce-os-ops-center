@@ -40,7 +40,7 @@ test("native quantity changes remain local until the single recalculation action
   assert.match(workspace, /function stageQuantity/);
   assert.match(workspace, /setEditedQuantities/);
   assert.match(workspace, /targetQuantity/);
-  assert.match(workspace, /변경사항 모아 발주안 바로 재계산/);
+  assert.match(workspace, /재고상태 저장 후 발주안 재계산/);
   assert.doesNotMatch(workspace, /fetch\([\s\S]{0,120}\/quantity`/);
   assert.doesNotMatch(workspace, /window\.location\.reload/);
 
@@ -114,7 +114,7 @@ test("draft products can be selected in bulk and regenerated with next-priority 
   assert.match(workspace, /선택 상품 초안에서 제외/);
   assert.match(workspace, /체크만으로는 삭제되지 않으며/);
   assert.doesNotMatch(workspace, /제거할 상품 전체 선택/);
-  assert.match(workspace, /변경사항 모아 발주안 바로 재계산/);
+  assert.match(workspace, /재고상태 저장 후 발주안 재계산/);
   assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);
   assert.doesNotMatch(workspace, /buildPurchaseDraftBatchRecalculationHref/);
   assert.match(workspace, /남은 예산은 다음 우선순위에 배정/);
@@ -126,6 +126,6 @@ test("draft products can be selected in bulk and regenerated with next-priority 
 test("draft page no longer mounts the DOM quantity bridge", () => {
   assert.doesNotMatch(page, /InternalChinaDraftInlineQuantityBridge/);
   assert.doesNotMatch(page, /InternalChinaDraftQuantityEditor/);
-  assert.match(page, /수량 변경·상품 제외·상품 추가/);
-  assert.match(page, /변경사항 모아 발주안 바로 재계산/);
+  assert.match(page, /수량·제외·추가 변경/);
+  assert.match(page, /재고상태 저장 후 발주안 재계산/);
 });

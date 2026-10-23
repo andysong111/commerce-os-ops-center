@@ -143,3 +143,87 @@ export function verifiedPurchaseCycleSpendPages(
   const rows = [...byId.values()].sort((a, b) => Date.parse(text(b.started_at)) - Date.parse(text(a.started_at)) || text(b.id).localeCompare(text(a.id)));
   return verifiedPurchaseCycleSpend(cycleMonth, rows, rows.length, readAt);
 }
+
+function shiftMonth(month: string, delta: number) {
+  purchaseCycleSpendMonthFilter(month);
+  const [year, value] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, value - 1 + delta, 1)).toISOString().slice(0, 7);
+}
+
+export function purchaseBudgetCarryoverBasis(
+  cycleMonth: string,
+  rows: MonthlySpendRow[],
+) {
+  purchaseCycleSpendMonthFilter(cycleMonth);
+  const snapshots = rows.map((row) => {
+    const result = object(row.result_snapshot);
+    const nested = object(result.snapshot);
+    return {
+      snapshot: Object.keys(nested).length
+        ? nested
+        : Object.keys(result).length
+          ? result
+          : object(row.input_snapshot),
+      sourceEventId: text(row.source_event_id),
+    };
+  });
+  const observedCycleMonths = snapshots
+    .map((row) => text(row.snapshot.cycleMonth))
+    .filter((month) => /^20\d{2}-(0[1-9]|1[0-2])$/.test(month) && month <= cycleMonth)
+    .sort();
+  const firstCycleMonth = observedCycleMonths[0] || cycleMonth;
+  const accrualStartMonth = shiftMonth(firstCycleMonth, -1);
+  const accrualEndMonth = shiftMonth(cycleMonth, -1);
+  const accruedBudgetMonths: string[] = [];
+  for (let month = accrualStartMonth; month <= accrualEndMonth; month = shiftMonth(month, 1)) {
+    accruedBudgetMonths.push(month);
+    if (accruedBudgetMonths.length > 120) throw new Error("CYCLE_BUDGET_ACCRUAL_RANGE_INVALID");
+  }
+
+  const orderedSpendByDraft = new Map<string, number>();
+  for (const row of snapshots) {
+    const rowMonth = text(row.snapshot.cycleMonth);
+    if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(rowMonth) || rowMonth > cycleMonth) continue;
+    const draftId = text(row.snapshot.draftId) || row.sourceEventId;
+    if (!draftId || orderedSpendByDraft.has(draftId) || text(row.snapshot.status) !== "ORDERED") continue;
+    let amount = Number(row.snapshot.actualOrderPaidKrwAtInternalFx);
+    if (!Number.isSafeInteger(amount) && Array.isArray(row.snapshot.lines)) {
+      const exchangeRate = Number(row.snapshot.exchangeRateKrwPerCny);
+      const multiplier = Number(row.snapshot.internalOrderCostMultiplier);
+      let complete = Number.isFinite(exchangeRate) && exchangeRate > 0 &&
+        Number.isFinite(multiplier) && multiplier >= 1;
+      const cnyTotal = row.snapshot.lines.reduce((total, value) => {
+        const line = object(value);
+        const quantity = Number(line.quantity);
+        const unitPrice = Number(line.unitPriceCny);
+        const freight = Number(line.domesticChinaFreightCny ?? 0);
+        if (!Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitPrice) || unitPrice <= 0 || !Number.isFinite(freight) || freight < 0) {
+          complete = false;
+          return total;
+        }
+        return total + quantity * unitPrice + freight;
+      }, 0);
+      if (complete) amount = Math.round(cnyTotal * exchangeRate * multiplier);
+    }
+    if (!Number.isSafeInteger(amount) || amount < 0) {
+      throw new Error("CYCLE_SPEND_AMOUNT_UNVERIFIED");
+    }
+    orderedSpendByDraft.set(draftId, amount);
+  }
+  return {
+    accrualStartMonth,
+    accrualEndMonth,
+    accruedBudgetMonths,
+    recordedSpendKrw: [...orderedSpendByDraft.values()].reduce((total, amount) => total + amount, 0),
+  };
+}
+
+export function purchaseBudgetCarryoverFingerprint(input: {
+  monthlyFingerprint: string;
+  recordedSpendKrw: number;
+  revenues: Array<{ month: string; revenueKrw: number }>;
+  accruedGrossBudgetKrw: number;
+  availableCashKrw: number;
+}) {
+  return `sha256:${createHash("sha256").update(JSON.stringify(input)).digest("hex")}`;
+}
