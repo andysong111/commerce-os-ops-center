@@ -1399,6 +1399,41 @@ test("replacement snapshot recovers the immediate predecessor but not an operato
   assert.equal(lines.find((line) => line.barcode === "BAA2-1")?.recoveredFromPredecessor, true);
 });
 
+test("replacement audit reports a recovered predecessor as newly added to the visible current draft", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "현재 초안 상품", quantity: 5 },
+      {
+        barcode: "BAA2-1",
+        name: "직전 초안에서 복구한 상품",
+        quantity: 20,
+        recoveredFromPredecessor: true,
+      },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.equal(report.replacementAudit.previousLineCount, 1);
+  assert.equal(report.replacementAudit.selectedLineCount, 2);
+  assert.equal(report.replacementAudit.matchedCount, 1);
+  assert.deepEqual(report.replacementAudit.added, [{
+    barcode: "BAA2-1",
+    name: "직전 초안에서 복구한 상품",
+    quantity: 20,
+    recoveredFromPredecessor: true,
+  }]);
+  assert.equal(report.replacementAudit.complete, true);
+});
+
 test("replacement keeps confirmed sourcing lines unless the operator explicitly excludes them", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";

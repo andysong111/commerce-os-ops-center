@@ -129,6 +129,49 @@ test("strategy-qualified recent sales missing from the purchase shadow cannot di
   assert.ok(rows[0].reasons.includes("MONTHLY_REVENUE_40000_ELIGIBLE"));
 });
 
+test("a completed calendar month over the threshold cannot disappear behind a zero-target priority row", () => {
+  const rows = audit({
+    products: [planning({
+      salesRevenue30: 0,
+      purchaseStrategyMonthly: [
+        { month: "2025-10", quantity: 0, revenue: 0 },
+        { month: "2025-11", quantity: 0, revenue: 0 },
+        { month: "2025-12", quantity: 0, revenue: 0 },
+        { month: "2026-01", quantity: 0, revenue: 0 },
+        { month: "2026-02", quantity: 0, revenue: 0 },
+        { month: "2026-03", quantity: 0, revenue: 0 },
+        { month: "2026-04", quantity: 0, revenue: 0 },
+        { month: "2026-05", quantity: 0, revenue: 0 },
+        { month: "2026-06", quantity: 0, revenue: 0 },
+        { month: "2026-07", quantity: 0, revenue: 0 },
+        { month: "2026-08", quantity: 0, revenue: 0 },
+        { month: "2026-09", quantity: 19, revenue: 60_040 },
+      ],
+    })],
+    rows: [priority({ demandTarget: 0, entrySignals: [] })],
+  });
+
+  assert.equal(rows[0].severity, "BLOCKING");
+  assert.ok(rows[0].reasons.includes("MONTHLY_REVENUE_40000_ELIGIBLE"));
+});
+
+test("historical revenue provenance proves a completed-month entry was evaluated", () => {
+  const rows = audit({
+    products: [planning({
+      salesRevenue30: 0,
+      purchaseStrategyMonthly: [
+        { month: "2026-09", quantity: 19, revenue: 60_040 },
+      ],
+    })],
+    rows: [priority({
+      demandTarget: 0,
+      entrySignals: ["HISTORICAL_REVENUE_THRESHOLD"],
+    })],
+  });
+
+  assert.deepEqual(rows, []);
+});
+
 test("low-volume sales with zero stock stay visible without blocking the monthly draft", () => {
   const rows = audit({
     products: [planning({
