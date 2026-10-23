@@ -51,7 +51,7 @@ test("operator fast-purchase UI now opens the Ops Center internal China draft di
   assert.match(actions, /function internalChinaDraftUrl/);
   assert.match(actions, /\/china-order-manager\/drafts\//);
   assert.match(actions, /Ops Center 중국 주문초안 열기/);
-  assert.match(actions, /중국 발주 준비는 같은 월간 Draft를 계속 사용합니다/);
+  assert.match(actions, /중국 발주 준비는 같은 발주차시 Draft를 계속 사용합니다/);
   assert.match(actions, /OPS CENTER NATIVE/);
   assert.doesNotMatch(actions, /\/api\/fast-purchase\/drafts\/queue/);
   assert.doesNotMatch(actions, /orderManagerUrl|chatgpt\.site/);
