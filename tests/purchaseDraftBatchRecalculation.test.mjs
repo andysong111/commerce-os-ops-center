@@ -173,7 +173,7 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   assert.match(editor, /manualAddPanel=/);
   assert.match(workspace, /hasPendingRecalculation \|\| calculations\.budgetOverKrw > 0/);
   assert.match(workspace, /상품대금 한도를[\s\S]*주문완료 기록을 막았습니다/);
-  assert.match(workspace, /실제 위안단가와 중국 내 운임을 자동 반영하고 예산을 다시 검증/);
+  assert.match(workspace, /실제 위안단가와 중국 내 운임을 자동 반영했습니다\. 예산도 다시 검증/);
 });
 
 test("draft page loads legacy commitment pins before rendering the release control", async () => {
