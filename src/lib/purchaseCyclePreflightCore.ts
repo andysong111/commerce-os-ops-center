@@ -936,7 +936,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   let replacementAudit: PurchaseReplacementDraftAudit | null = null;
   let preservedReplacementLines: PurchaseReplacementDraftLine[] = [];
   if (replacementDraftId && replacementStable && input.replacementAfter) {
-    const previousByBarcode = new Map(input.replacementAfter.lines.map((line) => [line.barcode, line]));
+    const visiblePreviousLines = input.replacementAfter.lines.filter(
+      (line) => line.recoveredFromPredecessor !== true,
+    );
+    const previousByBarcode = new Map(
+      visiblePreviousLines.map((line) => [line.barcode, line]),
+    );
     const selectedByBarcode = new Map(selected.map((line) => [line.barcode, line]));
     const priorityByBarcode = new Map(rows.map((row) => [row.barcode, row] as const));
     const automaticRemovalReasonByBarcode = new Map(
@@ -985,10 +990,20 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       blockers.push("PURCHASE_DRAFT_LINE_LIMIT");
     }
     const matchedBarcodes = [...previousByBarcode.keys()].filter((barcode) => finalByBarcode.has(barcode));
-    const added = selected
+    const added = [...finalByBarcode.values()]
       .filter((line) => !previousByBarcode.has(line.barcode))
-      .map((line) => ({ barcode: line.barcode, name: line.name, quantity: line.quantity }));
-    const removed = input.replacementAfter.lines
+      .map((line) => ({
+        barcode: line.barcode,
+        name: line.name,
+        quantity: line.quantity,
+        ...(line.preserveOnRegeneration === true
+          ? { preserveOnRegeneration: true }
+          : {}),
+        ...(line.recoveredFromPredecessor === true
+          ? { recoveredFromPredecessor: true }
+          : {}),
+      }));
+    const removed = visiblePreviousLines
       .filter((line) => !finalByBarcode.has(line.barcode))
       .map((line) => ({
         ...line,
@@ -1009,12 +1024,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       }];
     });
     const complete =
-      matchedBarcodes.length + removed.length === input.replacementAfter.lines.length &&
+      matchedBarcodes.length + removed.length === visiblePreviousLines.length &&
       matchedBarcodes.length + added.length === finalByBarcode.size &&
-      new Set([...matchedBarcodes, ...removed.map((line) => line.barcode)]).size === input.replacementAfter.lines.length &&
+      new Set([...matchedBarcodes, ...removed.map((line) => line.barcode)]).size === visiblePreviousLines.length &&
       new Set([...matchedBarcodes, ...added.map((line) => line.barcode)]).size === finalByBarcode.size;
     replacementAudit = {
-      previousLineCount: input.replacementAfter.lines.length,
+      previousLineCount: visiblePreviousLines.length,
       selectedLineCount: finalByBarcode.size,
       matchedCount: matchedBarcodes.length,
       added,

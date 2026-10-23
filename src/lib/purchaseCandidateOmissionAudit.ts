@@ -49,6 +49,7 @@ type PlanningProduct = {
   salesRevenue90?: unknown;
   salesRevenue365?: unknown;
   salesMonthly?: unknown;
+  purchaseStrategyMonthly?: unknown;
   salesTrend?: unknown;
   salesTrendRate?: unknown;
   orderDecision?: unknown;
@@ -160,10 +161,28 @@ function demandEntryReasons(
     trend === "상승" ||
     trend === "급상승" ||
     (Number.isFinite(trendRate) && trendRate >= 0.2);
+  const strategyMonthlyBuckets = Array.isArray(product.purchaseStrategyMonthly)
+    ? product.purchaseStrategyMonthly
+        .filter(
+          (row): row is { month?: unknown; quantity?: unknown; units?: unknown; revenue?: unknown } =>
+            Boolean(row && typeof row === "object"),
+        )
+        .map((row) => ({
+          month: text(row.month),
+          revenue: quantity(row.revenue),
+        }))
+        .filter((row) => /^\d{4}-(0[1-9]|1[0-2])$/.test(row.month))
+    : [];
+  const historicalRevenueQualified =
+    strategyMonthlyBuckets.length > 0
+      ? strategyMonthlyBuckets.some(
+          (row) => row.revenue >= monthlyRevenueThresholdKrw,
+        )
+      : salesRevenue30 >= monthlyRevenueThresholdKrw;
 
   if (soldOutHistory) reasons.push("STOCKOUT_DEMAND_RECOVERY_ELIGIBLE");
   if (rising) reasons.push("RECENT_RISING_ELIGIBLE");
-  if (salesRevenue30 >= monthlyRevenueThresholdKrw) {
+  if (historicalRevenueQualified) {
     reasons.push("MONTHLY_REVENUE_40000_ELIGIBLE");
   }
   return reasons;
@@ -224,23 +243,34 @@ export function buildPurchaseCandidateOmissionReview(
     // A reversible permanent exclusion is an explicit owner decision, so it is
     // neither a silently omitted candidate nor a reason to block the Draft.
     if (recordedSignals.has("PERMANENTLY_DISCONTINUED")) continue;
-    const signalForReason: Partial<
-      Record<PurchaseCandidateOmissionReason, string>
+    const signalsForReason: Partial<
+      Record<PurchaseCandidateOmissionReason, readonly string[]>
     > = {
-      STOCKOUT_DEMAND_RECOVERY_ELIGIBLE: "STOCKOUT_DEMAND_RECOVERY",
-      RECENT_RISING_ELIGIBLE: "RECENT_RISING",
-      MONTHLY_REVENUE_40000_ELIGIBLE: "MONTHLY_REVENUE_40000",
+      STOCKOUT_DEMAND_RECOVERY_ELIGIBLE: ["STOCKOUT_DEMAND_RECOVERY"],
+      RECENT_RISING_ELIGIBLE: ["RECENT_RISING"],
+      MONTHLY_REVENUE_40000_ELIGIBLE: [
+        "HISTORICAL_REVENUE_THRESHOLD",
+        "MONTHLY_REVENUE_40000",
+      ],
     };
     const demandTarget = quantity(priority?.demandTarget);
-    // A priority row proves that the exact canonical 12x30-day history reached
-    // the demand engine. Product Master summary fields can lag that history,
-    // so they may only report a missing entry signal when the engine row itself
-    // is absent.
-    const missingEntryReasons = priority
+    const independentlyAuthoritativeEntryReasons = priority
+      ? entryReasons.filter(
+          (reason) =>
+            reason === "MONTHLY_REVENUE_40000_ELIGIBLE" &&
+            Array.isArray(product.purchaseStrategyMonthly) &&
+            product.purchaseStrategyMonthly.length > 0,
+        )
+      : entryReasons;
+    // A positive pre-budget target proves that the demand engine evaluated the
+    // row even for older cached snapshots that did not persist signal
+    // provenance. A zero-target row must still carry the exact entry signal;
+    // otherwise a monthly-qualified product could disappear silently.
+    const missingEntryReasons = demandTarget > 0
       ? []
-      : entryReasons.filter((reason) => {
-          const signal = signalForReason[reason];
-          return !signal || !recordedSignals.has(signal);
+      : independentlyAuthoritativeEntryReasons.filter((reason) => {
+          const signals = signalsForReason[reason];
+          return !signals?.some((signal) => recordedSignals.has(signal));
         });
     // A row with a positive pre-budget demand target has been evaluated even
     // when inventory, commitments, claim risk, or the portfolio budget keeps

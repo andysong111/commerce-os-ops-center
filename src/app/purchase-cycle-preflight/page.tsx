@@ -105,7 +105,7 @@ const reasonLabels: Record<string, string> = {
   SOURCE_METADATA_CONFLICT: "같은 B코드의 1688 링크·옵션 근거가 서로 충돌합니다.",
   STOCKOUT_DEMAND_RECOVERY_ELIGIBLE: "확인재고 0개와 최근 판매 0이 겹쳤지만 직전 판매가 강해 품절 전 수요 복원 대상입니다.",
   RECENT_RISING_ELIGIBLE: "최근 판매가 상승 중이라 발주후보 진입 대상입니다.",
-  MONTHLY_REVENUE_40000_ELIGIBLE: "최근 30일 매출이 4만원 이상이라 발주후보 진입 대상입니다.",
+  MONTHLY_REVENUE_40000_ELIGIBLE: "최근 1년의 완료된 월 중 매출 기준을 넘긴 달이 있어 발주후보 진입 대상입니다.",
   CURRENT_ENGINE_NOT_RECOMMENDED: "현재 판매·재고·미입고 계산에서는 발주 추천 대상이 아닙니다.",
   VERIFIED_STOCK_COVERS_DEMAND: "검증된 현재 재고와 미입고 수량이 이번 수요 목표를 충족합니다.",
   PERMANENTLY_DISCONTINUED: "영구 발주 제외로 지정된 상품입니다.",
