@@ -190,6 +190,6 @@ test("fast purchase and monthly China manager route to the Ops Center native dra
   assert.match(manager, /\/china-order-manager\/drafts\//);
   assert.match(manager, /빠른 발주안/);
   assert.match(page, /OPS CENTER NATIVE CHINA ORDER MVP/);
-  assert.match(page, /기존 GPT Site의 주문 준비 단계를 대체/);
+  assert.match(page, /발주차시별 주문 준비 화면/);
   assert.match(page, /budgetAudit=\{budgetAudit\}/);
 });
