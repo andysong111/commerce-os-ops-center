@@ -162,6 +162,10 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   );
 
   assert.match(guide, /작업 순서 보기/);
+  assert.match(guide, /aria-haspopup="dialog"/);
+  assert.match(guide, /aria-expanded=\{open\}/);
+  assert.match(guide, /fixed right-4 top-24 z-\[80\]/);
+  assert.match(guide, /onClick=\{\(\) => setOpen\(true\)\}/);
   assert.match(guide, /대략 재고 선택/);
   assert.match(guide, /수량 확인과 5·10단위 정리/);
   assert.match(guide, /빠진 B코드 수동 추가/);

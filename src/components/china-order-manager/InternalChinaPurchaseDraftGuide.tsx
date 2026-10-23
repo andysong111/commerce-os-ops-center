@@ -62,15 +62,15 @@ export function InternalChinaPurchaseDraftGuide() {
 
   return (
     <>
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-black text-blue-800 hover:bg-blue-100"
-        >
-          작업 순서 보기
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className="fixed right-4 top-24 z-[80] rounded-xl border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-black text-blue-800 shadow-lg hover:bg-blue-100 sm:right-6"
+      >
+        작업 순서 보기
+      </button>
 
       {open ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) closeGuide(); }}>
