@@ -9,6 +9,8 @@ import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
 import { loadPurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegeneration";
 import { mergePurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegenerationCore";
+import { loadLatestInventoryStockEstimates } from "@/lib/inventoryStockEstimateBaselines";
+import type { InventoryStockBand } from "@/lib/inventoryStockBulkInput";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,15 +29,16 @@ export default async function InternalChinaPurchaseDraftPage({
   const rawNotice = (await searchParams).recalculationNotice;
   const initialNotice = (Array.isArray(rawNotice) ? rawNotice[0] : rawNotice || "").slice(0, 500);
   const draftId = decodeURIComponent(rawDraftId);
-  const todaySeoul = seoulCalendarDate();
   let draft;
   let budgetAudit;
   let initialQuantityOverrides: Array<{ barcode: string; targetQuantity: number }> = [];
+  let initialStockBands: Record<string, InventoryStockBand> = {};
   try {
-    const [baseDraft, loadedBudgetAudit, persistedAdjustments] = await Promise.all([
+    const [baseDraft, loadedBudgetAudit, persistedAdjustments, latestStockEstimates] = await Promise.all([
       loadInternalChinaPurchaseDraft(draftId),
       loadInternalChinaPurchaseBudgetAudit(draftId),
       loadPurchaseDraftOperatorAdjustments(draftId),
+      loadLatestInventoryStockEstimates(),
     ]);
     draft = await loadInternalChinaDraftWithQuantityOverrides(baseDraft);
     budgetAudit = loadedBudgetAudit;
@@ -51,6 +54,12 @@ export default async function InternalChinaPurchaseDraftPage({
       persistedAdjustments,
       { excludedBarcodes: [], quantityOverrides: displayedQuantityOverrides },
     ).quantityOverrides;
+    initialStockBands = Object.fromEntries(
+      draft.lines.flatMap((line) => {
+        const stockBand = latestStockEstimates.get(line.barcode)?.stockBand;
+        return stockBand ? [[line.barcode, stockBand] as const] : [];
+      }),
+    );
   } catch (error) {
     return (
       <div className="space-y-6">
@@ -76,7 +85,7 @@ export default async function InternalChinaPurchaseDraftPage({
 
   const regenerationParams = new URLSearchParams({
     check: "1",
-    date: todaySeoul,
+    date: draft.cycleStartDate || seoulCalendarDate(),
     sourcing: "15",
     early: "1",
     selection: "automatic",
@@ -91,7 +100,7 @@ export default async function InternalChinaPurchaseDraftPage({
       <PageHeader
         eyebrow="COMMERCE OS · OPS CENTER NATIVE CHINA ORDER MVP"
         title="중국 발주초안"
-        description="기존 GPT Site의 주문 준비 단계를 대체하는 Ops Center 내부 화면입니다. 빠른 발주안의 RESERVED 수량을 기준으로 실제 주문 직전 검증을 끝내고, 예산 잔액이나 같은 모델의 추가 옵션은 현재 월간 Draft 한 건에 수동으로 더할 수 있습니다."
+        description="발주차시별 주문 준비 화면입니다. 모델명·모델번호·옵션과 대략 재고상태를 확인한 뒤 한 번의 재계산으로 최신 수량과 예산 잔액을 반영합니다."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -111,7 +120,7 @@ export default async function InternalChinaPurchaseDraftPage({
       />
 
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-        <strong>현재 Draft</strong> · <span className="font-mono">{draft.draftId}</span> · {draft.lineCount.toLocaleString("ko-KR")} SKU · {draft.totalQuantity.toLocaleString("ko-KR")}개. 수량 변경·상품 제외·상품 추가는 먼저 계산 대기로 모은 뒤, <strong>`변경사항 모아 발주안 바로 재계산` 버튼 한 번</strong>으로 이 화면에서 즉시 교체합니다. 수량은 5개 단위로 정리하고 남은 예산은 다음 우선순위에 배정합니다.
+        <strong>현재 발주차시</strong> · {draft.previousCycleStartDate || "최초 30일 기준"} → {draft.cycleStartDate} · <span className="font-mono">{draft.draftId}</span> · {draft.lineCount.toLocaleString("ko-KR")} SKU · {draft.totalQuantity.toLocaleString("ko-KR")}개. 각 상품의 대략 재고를 버튼으로 고르고 <strong>`재고상태 저장 후 발주안 재계산`</strong>을 누르면, 수량·제외·추가 변경과 함께 같은 차시의 새 Draft로 교체합니다. 발주 가능액은 월별로 적립되며 실제 주문완료 금액만 차감됩니다.
       </section>
 
       <InternalChinaPurchaseBudgetAudit audit={budgetAudit} />
@@ -121,6 +130,7 @@ export default async function InternalChinaPurchaseDraftPage({
         budgetAudit={budgetAudit}
         regenerationHref={`/purchase-cycle-preflight?${regenerationParams.toString()}`}
         initialQuantityOverrides={initialQuantityOverrides}
+        initialStockBands={initialStockBands}
         initialNotice={initialNotice}
       />
 

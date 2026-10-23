@@ -9,18 +9,21 @@ import { InternalChinaPurchaseDraftWorkspaceV2 } from "@/components/china-order-
 import type { InternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
 import type { InternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
+import type { InventoryStockBand } from "@/lib/inventoryStockBulkInput";
 
 export function InternalChinaDraftBatchEditor({
   initialDraft,
   budgetAudit,
   regenerationHref,
   initialQuantityOverrides = [],
+  initialStockBands = {},
   initialNotice = "",
 }: {
   initialDraft: InternalChinaPurchaseDraft;
   budgetAudit: InternalChinaPurchaseBudgetAudit;
   regenerationHref: string;
   initialQuantityOverrides?: PurchaseQuantityOverride[];
+  initialStockBands?: Record<string, InventoryStockBand>;
   initialNotice?: string;
 }) {
   const [stagedAdditions, setStagedAdditions] = useState<StagedDraftAddition[]>([]);
@@ -39,6 +42,7 @@ export function InternalChinaDraftBatchEditor({
         budgetAudit={budgetAudit}
         regenerationHref={regenerationHref}
         initialQuantityOverrides={initialQuantityOverrides}
+        initialStockBands={initialStockBands}
         initialNotice={initialNotice}
         stagedAdditions={stagedAdditions}
         onStagedAdditionsChange={setStagedAdditions}

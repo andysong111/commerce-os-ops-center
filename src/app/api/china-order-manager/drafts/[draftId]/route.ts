@@ -96,7 +96,9 @@ function errorResponse(error: unknown) {
 
 async function assertDraftPurchaseCycleOpen(draftId: string) {
   const draft = await loadInternalChinaPurchaseDraft(draftId);
-  await assertInternalChinaMonthlyPurchaseOpen(draft.cycleMonth);
+  if (draft.cycleMode === "MONTHLY_LEGACY") {
+    await assertInternalChinaMonthlyPurchaseOpen(draft.cycleMonth);
+  }
   return draft;
 }
 

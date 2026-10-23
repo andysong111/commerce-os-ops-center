@@ -80,7 +80,7 @@ test("calendar-month budget and internal standard cost are visible on the China 
   assert.match(page, /loadInternalChinaPurchaseBudgetAudit/);
   assert.match(page, /InternalChinaPurchaseBudgetAudit/);
   assert.match(page, /budgetAudit=\{budgetAudit\}/);
-  assert.match(card, /매출원가 기준 발주예산 검증/);
+  assert.match(card, /누적 발주 가능 금액 검증/);
   assert.match(card, /1일~말일 고정/);
   assert.match(card, /상품대금 발주한도/);
   assert.match(card, /현재 Draft 상품대금/);

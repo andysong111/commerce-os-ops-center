@@ -10,6 +10,7 @@ import type {
   InternalChinaPurchaseDraftLine,
 } from "@/lib/internalChinaPurchaseDraft";
 import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
+import type { InventoryStockBand } from "@/lib/inventoryStockBulkInput";
 import {
   isPurchaseDraftQuantityUnit,
   nearestPurchaseDraftQuantity,
@@ -38,6 +39,12 @@ const TABLE_COLUMNS = [
 ] as const;
 
 const TABLE_WIDTH = TABLE_COLUMNS.reduce((sum, column) => sum + column.width, 0);
+const STOCK_BANDS: Array<{ value: InventoryStockBand; label: string }> = [
+  { value: "HIGH", label: "많음" },
+  { value: "NORMAL", label: "보통" },
+  { value: "LOW", label: "적음" },
+  { value: "OUT", label: "품절" },
+];
 
 function decimal(value: unknown) {
   const parsed = Number(value);
@@ -135,6 +142,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   budgetAudit,
   regenerationHref,
   initialQuantityOverrides = [],
+  initialStockBands = {},
   initialNotice = "",
   stagedAdditions,
   onStagedAdditionsChange,
@@ -143,6 +151,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   budgetAudit: InternalChinaPurchaseBudgetAudit;
   regenerationHref: string;
   initialQuantityOverrides?: PurchaseQuantityOverride[];
+  initialStockBands?: Record<string, InventoryStockBand>;
   initialNotice?: string;
   stagedAdditions: StagedDraftAddition[];
   onStagedAdditionsChange: (rows: StagedDraftAddition[]) => void;
@@ -159,6 +168,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   );
   const [releasedQuantityOverrides, setReleasedQuantityOverrides] = useState<Record<string, boolean>>({});
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
+  const [stagedStockBands, setStagedStockBands] = useState<Record<string, InventoryStockBand>>({});
   const [regenerating, setRegenerating] = useState(false);
   const [cartPreparing, setCartPreparing] = useState(false);
   const [scrollWidth, setScrollWidth] = useState(TABLE_WIDTH);
@@ -560,6 +570,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const releasedQuantityOverrideBarcodes = Object.keys(releasedQuantityOverrides)
     .filter((barcode) => releasedQuantityOverrides[barcode] === true)
     .sort();
+  const stockBandUpdates = Object.entries(stagedStockBands)
+    .map(([barcode, stockBand]) => ({ barcode, stockBand }))
+    .sort((left, right) => left.barcode.localeCompare(right.barcode));
   const selectedQuantityOverrideCandidates = selectedBarcodes.filter(
     (barcode) =>
       Object.hasOwn(persistedQuantityOverrides, barcode) &&
@@ -596,7 +609,18 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     excludedBarcodes.length > 0 ||
     changedQuantityRows.length > 0 ||
     releasedQuantityOverrideBarcodes.length > 0 ||
+    stockBandUpdates.length > 0 ||
     stagedAdditions.length > 0;
+
+  function stageStockBand(barcode: string, stockBand: InventoryStockBand) {
+    setStagedStockBands((current) => {
+      const next = { ...current };
+      if (initialStockBands[barcode] === stockBand) delete next[barcode];
+      else next[barcode] = stockBand;
+      return next;
+    });
+    setNotice(`${barcode} 대략 재고를 '${STOCK_BANDS.find((row) => row.value === stockBand)?.label}'으로 선택했습니다. 아래 재계산 버튼을 누르면 저장과 발주안 재계산을 한 번에 처리합니다.`);
+  }
 
   function toggleSelectedBarcode(barcode: string, checked: boolean) {
     setSelectedRows((current) => ({ ...current, [barcode]: checked }));
@@ -690,6 +714,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
           excludedBarcodes,
           quantityOverrides: activeQuantityOverrides,
           replaceQuantityOverrides: true,
+          stockBandUpdates,
         }),
       });
       const body = (await response.json().catch(() => ({}))) as DraftRecalculationResponse;
@@ -700,6 +725,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       setSelectedRows({});
       setStagedExclusions({});
       setReleasedQuantityOverrides({});
+      setStagedStockBands({});
       onStagedAdditionsChange([]);
       const successMessage = body.message || "변경사항을 반영해 발주안을 다시 계산했습니다.";
       setNotice(successMessage);
@@ -721,6 +747,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     setSelectedRows({});
     setStagedExclusions({});
     setReleasedQuantityOverrides({});
+    setStagedStockBands({});
     onStagedAdditionsChange([]);
     setNotice("재계산 대기 변경을 모두 취소했습니다. 기존 Draft는 바뀌지 않았습니다.");
   }
@@ -858,7 +885,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <div>
               <strong className="text-sm font-black text-slate-950">한 번에 발주안 재계산</strong>
               <p className="mt-1 text-xs font-bold leading-5 text-slate-700">
-                작업 선택 {selectedBarcodes.length}종 · 수량 변경 {changedQuantityRows.length}종 · 수량 고정 해제 {releasedQuantityOverrideBarcodes.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종입니다. 체크만으로는 삭제되지 않으며, 재계산 버튼을 누르기 전에는 기존 Draft와 주문·입고 원장이 바뀌지 않습니다.
+                작업 선택 {selectedBarcodes.length}종 · 대략 재고 {stockBandUpdates.length}종 · 수량 변경 {changedQuantityRows.length}종 · 수량 고정 해제 {releasedQuantityOverrideBarcodes.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종입니다. 체크만으로는 삭제되지 않으며, 재계산 버튼을 누르기 전에는 기존 Draft와 주문·입고 원장이 바뀌지 않습니다.
               </p>
               {invalidQuantityBarcodes.length > 0 ? (
                 <p className="mt-1 text-xs font-black text-rose-700">
@@ -886,7 +913,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                 대기 변경 취소
               </button>
               <button type="button" onClick={recalculateDraft} disabled={draft.status !== "DRAFT" || !hasPendingRecalculation || invalidQuantityBarcodes.length > 0 || regenerating} aria-busy={regenerating} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
-                {regenerating ? "현재 화면에서 재계산 중..." : "변경사항 모아 발주안 바로 재계산"}
+                {regenerating ? "재고 저장·발주안 재계산 중..." : "재고상태 저장 후 발주안 재계산"}
               </button>
             </div>
           </div>
@@ -942,9 +969,16 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                   <tr key={line.barcode} className={`align-top hover:bg-slate-50/70 ${stagedExclusions[line.barcode] === true ? "bg-rose-50/70" : ""}`}>
                     <td className="px-3 py-3" style={stickyCellStyle(0, freezeThrough)}>
                       <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={selectedRows[line.barcode] === true} onChange={(event) => toggleSelectedBarcode(line.barcode, event.target.checked)} disabled={!editable} aria-label={`${line.barcode} 작업할 상품 선택`} className="size-4" /><strong className="font-mono text-sm text-slate-950">{line.barcode}</strong>{stagedExclusions[line.barcode] === true ? <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-black text-rose-700">제외 대기</span> : null}</label>
-                      <span className="mt-1 block font-semibold text-slate-700">{line.modelName || "모델명 -"}</span>
-                      <span className="mt-1 block font-mono text-[11px] text-slate-400">{line.modelNo}</span>
-                      <span className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-800">옵션 · {line.saleOption || "-"}</span>
+                      <span className="mt-1 block font-semibold text-slate-700">모델명 · {line.modelName || "-"}</span>
+                      <span className="mt-1 block font-mono text-[11px] text-slate-500">모델번호 · {line.modelNo || "-"}</span>
+                      <span className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-800">옵션명 · {line.saleOption || "-"}</span>
+                      <div className="mt-2 grid grid-cols-4 gap-1" aria-label={`${line.barcode} 대략 재고상태`}>
+                        {STOCK_BANDS.map((band) => {
+                          const selected = (stagedStockBands[line.barcode] ?? initialStockBands[line.barcode]) === band.value;
+                          const pending = stagedStockBands[line.barcode] === band.value;
+                          return <button key={band.value} type="button" disabled={!editable || regenerating} onClick={() => stageStockBand(line.barcode, band.value)} className={`rounded-md border px-1 py-1.5 text-[10px] font-black disabled:opacity-40 ${selected ? pending ? "border-blue-600 bg-blue-700 text-white" : "border-emerald-400 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>{band.label}</button>;
+                        })}
+                      </div>
                     </td>
                     <td className="px-2 py-2" style={stickyCellStyle(1, freezeThrough)}>
                       <div className="flex items-center gap-1.5">

@@ -20,6 +20,8 @@ type StoredState = {
 type DraftSummary = {
   draftId: string;
   cycleMonth: string;
+  cycleStartDate?: string;
+  previousCycleStartDate?: string | null;
   createdAt: string;
   lineCount: number;
   requestedQuantity: number;
@@ -42,8 +44,8 @@ function internalChinaDraftUrl(draftId: string) {
   return `/china-order-manager/drafts/${encodeURIComponent(draftId)}`;
 }
 
-function seoulCurrentMonth() {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7);
+function seoulCurrentDate() {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 function monthLabel(month: string) {
@@ -96,20 +98,10 @@ export function FastPurchaseDraftActions({
     return () => window.clearTimeout(timer);
   }, []);
 
-  const currentCycleMonth = seoulCurrentMonth();
-  const currentCycleDrafts = drafts.filter(
-    (draft) => draft.cycleMonth === currentCycleMonth,
-  );
-  const monthlyLocked = currentCycleDrafts.length > 0;
+  const currentCycleDate = seoulCurrentDate();
 
   const saveDraft = async () => {
     setNotice("");
-    if (monthlyLocked) {
-      setNotice(
-        `${monthLabel(currentCycleMonth)} 발주차시는 이미 생성했습니다. 발주 추천은 월 1회만 확정하며 같은 달에 새 내부 Draft를 만들지 않습니다.`,
-      );
-      return;
-    }
     let stored: StoredState;
     try {
       stored = JSON.parse(
@@ -160,7 +152,7 @@ export function FastPurchaseDraftActions({
     );
     if (
       !window.confirm(
-        `${monthLabel(currentCycleMonth)} 발주차시를 ${lines.length}개 SKU · 총 ${totalQuantity}개로 확정할까요?\n\n이 달에는 다른 발주 Draft를 새로 만들 수 없습니다. 실제 중국 주문·결제는 실행하지 않습니다.`,
+        `${currentCycleDate} 발주차시를 ${lines.length}개 SKU · 총 ${totalQuantity}개로 확정할까요?\n\n같은 달에도 필요하면 다음 발주차시를 추가할 수 있습니다. 실제 중국 주문·결제는 실행하지 않습니다.`,
       )
     ) {
       return;
@@ -188,14 +180,14 @@ export function FastPurchaseDraftActions({
         };
       };
       if (!response.ok || !payload.ok) {
-        const monthlyConflict =
-          payload.code === "FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED" ||
+        const cycleConflict =
+          payload.code === "FAST_PURCHASE_CYCLE_ALREADY_USED" ||
           String(payload.message ?? "").includes(
-            "FAST_PURCHASE_MONTHLY_CYCLE_ALREADY_USED",
+            "FAST_PURCHASE_CYCLE_ALREADY_USED",
           );
         setNotice(
-          monthlyConflict
-            ? `${monthLabel(currentCycleMonth)} 발주차시가 이미 존재합니다. 기존 월간 Draft를 사용하세요.`
+          cycleConflict
+            ? `${currentCycleDate} 시작 발주차시가 이미 진행 중입니다. 기존 Draft를 이어서 사용하세요.`
             : payload.message ||
                 `내부 Draft 저장 실패 · ${payload.code || response.status}`,
         );
@@ -203,7 +195,7 @@ export function FastPurchaseDraftActions({
         return;
       }
       setNotice(
-        `${payload.draft?.duplicate ? "기존 월간 Draft 확인" : "월간 발주 Draft 저장완료"} · ${payload.draft?.lineCount ?? lines.length}개 SKU · ${payload.draft?.totalQuantity ?? totalQuantity}개 · 이제 같은 Draft를 Ops Center 내부 중국 발주초안에서 주문 준비에 사용합니다.`,
+        `${payload.draft?.duplicate ? "기존 발주차시 Draft 확인" : "발주차시 Draft 저장완료"} · ${payload.draft?.lineCount ?? lines.length}개 SKU · ${payload.draft?.totalQuantity ?? totalQuantity}개 · 이제 같은 Draft를 Ops Center 내부 중국 발주초안에서 주문 준비에 사용합니다.`,
       );
       await refreshDrafts();
     } catch {
@@ -230,43 +222,27 @@ export function FastPurchaseDraftActions({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <span className="text-xs font-black tracking-[0.12em] text-blue-700">
-            MONTHLY PURCHASE DRAFT · OPS CENTER NATIVE
+            ON-DEMAND PURCHASE DRAFT · OPS CENTER NATIVE
           </span>
           <h2 className="mt-1 text-xl font-black text-slate-950">
-            검토 완료 수량을 월간 발주 Draft로 고정
+            주문할 때 발주차시 Draft 만들기
           </h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-700">
-            발주 추천은 달력월마다 한 번만 확정합니다. 부족/품절 수량을
-            `RESERVED`로 저장하면 그 달의 발주차시가 잠기고, 당월 판매 데이터가
-            추가되어도 새 발주 Draft를 다시 만들지 않습니다. 저장된 미입고 수량은
-            다음 달 발주 계산에서 중복발주 방지용으로 차감됩니다.
+            필요할 때 부족/품절 수량을 `RESERVED`로 저장합니다. 같은 달에도 여러
+            발주차시를 만들 수 있고, 이전 발주시작일부터 이번 발주시작일까지를
+            차시 구간으로 기록합니다. 저장된 미입고 수량은 다음 계산에서
+            중복발주 방지용으로 차감됩니다.
           </p>
         </div>
         <button
           type="button"
           onClick={saveDraft}
-          disabled={saving || monthlyLocked}
+          disabled={saving}
           className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400 disabled:opacity-70"
         >
-          {saving
-            ? "월간 Draft 저장 중..."
-            : monthlyLocked
-              ? `${monthLabel(currentCycleMonth)} 발주차시 생성완료`
-              : `${monthLabel(currentCycleMonth)} 발주 Draft 확정`}
+          {saving ? "발주차시 Draft 저장 중..." : `${currentCycleDate} 발주 Draft 확정`}
         </button>
       </div>
-
-      {monthlyLocked ? (
-        <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-          <strong>{monthLabel(currentCycleMonth)} 신규 발주 잠금</strong>
-          <p className="mt-1 text-xs leading-5 text-emerald-800">
-            이번 달에 생성된 내부 Draft가 {currentCycleDrafts.length}건 있습니다.
-            과거 개발 과정에서 같은 달 Draft가 여러 건 생긴 경우는 기존 데이터로
-            보존하지만, 지금부터는 추가 생성이 차단됩니다. 실제 주문하지 않을
-            과거 Draft는 별도로 해제해 미입고 원장을 정리해야 합니다.
-          </p>
-        </div>
-      ) : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <Metric label="활성 내부 Draft" value={`${activeDrafts.length}건`} />
@@ -288,12 +264,12 @@ export function FastPurchaseDraftActions({
 
       <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-4">
         <strong className="text-sm text-emerald-950">
-          중국 발주 준비는 같은 월간 Draft를 계속 사용합니다.
+          중국 발주 준비는 같은 발주차시 Draft를 계속 사용합니다.
         </strong>
         <p className="mt-1 text-xs leading-5 text-emerald-800">
           아래 Draft를 열면 B-code·모델·옵션·1688 링크·수량을 이어받고,
-          위안단가와 중국내 운임을 입력해 원가를 검증합니다. 월간 발주 잠금은
-          상품등급·가격조정의 일일 판매이력 갱신에는 적용되지 않습니다.
+          위안단가와 중국내 운임을 입력해 원가를 검증합니다. 발주 가능액은
+          월별로 적립되고 실제 주문완료 금액만 차감됩니다.
         </p>
       </div>
 

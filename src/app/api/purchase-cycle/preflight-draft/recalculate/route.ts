@@ -10,6 +10,9 @@ export const revalidate = 0;
 export const maxDuration = 600;
 
 function errorMessage(code: string) {
+  if (code === "PURCHASE_DRAFT_RECALCULATION_FAILED_AFTER_STOCK_SAVE") {
+    return "선택한 대략 재고상태는 저장됐지만 최신 판매·예산 자료 재계산이 끝나지 않았습니다. 현재 Draft는 유지되며 잠시 후 재계산만 다시 누르면 됩니다.";
+  }
   if (code === "FAST_PURCHASE_MONTHLY_CYCLE_CLOSED") {
     return "이번 달 발주 사이클이 이미 마감되어 초안을 바꿀 수 없습니다.";
   }
@@ -49,8 +52,8 @@ export async function POST(request: Request) {
         ok: true,
         ...result,
         message: result.manualFallbackUsed
-          ? `현재 화면에서 요청한 변경을 반영했습니다. 제거 ${result.removedCount}종 · 수량변경 ${result.changedCount}종입니다. 최신 검증자료에서 다음 우선순위 상품을 확보하지 못해 추가는 0종이며, 실제 1688 주문·결제는 실행하지 않았습니다.`
-          : `현재 화면에서 변경을 반영했습니다. 제거 ${result.removedCount}종 · 추가 ${result.addedCount}종 · 수량변경 ${result.changedCount}종이며 남은 예산은 다음 우선순위에 다시 배정했습니다. 실제 1688 주문·결제는 실행하지 않았습니다.`,
+          ? `대략 재고 ${result.savedStockBandCount}종을 저장하고 현재 화면의 변경을 반영했습니다. 제거 ${result.removedCount}종 · 수량변경 ${result.changedCount}종입니다. 최신 검증자료에서 다음 우선순위 상품을 확보하지 못해 추가는 0종이며, 실제 1688 주문·결제는 실행하지 않았습니다.`
+          : `대략 재고 ${result.savedStockBandCount}종을 저장하고 발주안을 다시 계산했습니다. 제거 ${result.removedCount}종 · 추가 ${result.addedCount}종 · 수량변경 ${result.changedCount}종이며 남은 예산은 다음 우선순위에 다시 배정했습니다. 실제 1688 주문·결제는 실행하지 않았습니다.`,
       },
       { status: 200, headers: { "cache-control": "no-store" } },
     );
