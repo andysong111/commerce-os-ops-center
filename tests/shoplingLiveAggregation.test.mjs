@@ -30,6 +30,15 @@ async function loadAggregation() {
       )}`,
     )
     .replace(
+      'from "@/lib/productDecisionEngine/planningMonthlySales"',
+      `from ${JSON.stringify(
+        new URL(
+          "../src/lib/productDecisionEngine/planningMonthlySales.ts",
+          import.meta.url,
+        ).href,
+      )}`,
+    )
+    .replace(
       'from "@/lib/productDecisionSnapshot"',
       `from ${JSON.stringify(
         new URL("../src/lib/productDecisionSnapshot.ts", import.meta.url).href,
@@ -165,6 +174,73 @@ test("purchase strategy history requires the exact 12 completed Korean calendar 
       ),
     /PURCHASE_STRATEGY_MONTHLY_HISTORY_INCOMPLETE/,
   );
+});
+
+test("canonical salesMonthly overrides stale strategy rows and excludes the current month", () => {
+  const staleStrategy = completedStrategyMonthly().map((row) => ({
+    ...row,
+    quantity: 0,
+    revenue: 0,
+  }));
+  const canonicalSales = [
+    ...staleStrategy.map((row) =>
+      row.month === "2026-07"
+        ? { ...row, quantity: 19, revenue: 124_840 }
+        : row,
+    ),
+    { month: "2026-08", quantity: 999, revenue: 9_999_000 },
+  ];
+
+  const result = planningCompletedCalendarMonthlySales(
+    staleStrategy,
+    AS_OF,
+    canonicalSales,
+  );
+
+  assert.equal(result.length, 12);
+  assert.equal(result.find((row) => row.month === "2026-07")?.revenue, 124_840);
+  assert.equal(result.some((row) => row.month === "2026-08"), false);
+});
+
+test("live purchase snapshot uses canonical completed-month sales instead of stale strategy rows", () => {
+  const plan = planning();
+  const product = plan.products[0];
+  product.purchaseStrategyMonthly = completedStrategyMonthly().map((row) => ({
+    ...row,
+    quantity: 0,
+    revenue: 0,
+  }));
+  product.salesMonthly = [
+    ...completedStrategyMonthly().map((row) =>
+      row.month === "2026-07"
+        ? { ...row, quantity: 19, revenue: 124_840 }
+        : { ...row, quantity: 0, revenue: 0 },
+    ),
+    { month: "2026-08", quantity: 999, revenue: 9_999_000 },
+  ];
+  const zeros = Array.from({ length: 12 }, () => 0);
+  const snapshot = buildLiveProductDecisionSnapshot(
+    "canonical-monthly-regression",
+    {
+      analysisAsOf: AS_OF,
+      recent30Revenue: 20_000,
+      products: [{
+        planning: product,
+        units: [10, 10, 10, ...zeros.slice(3)],
+        revenue: [20_000, 20_000, 20_000, ...zeros.slice(3)],
+        shippedOrders: zeros,
+        weightedClaims: zeros,
+        claimQuantity: zeros,
+      }],
+    },
+    new Map(),
+  );
+
+  const row = snapshot.products.find((candidate) => candidate.barcode === "BAA1-1");
+  assert.ok(row);
+  assert.ok(row.entrySignals?.includes("HISTORICAL_REVENUE_THRESHOLD"));
+  assert.equal(row.purchaseStrategy?.history.latestQualifiedMonth, "2026-07");
+  assert.ok(Number(row.rawRecommendedQty) > 0);
 });
 
 test("order aggregation maps option IDs, expands set quantities and counts one shipped order per barcode", () => {

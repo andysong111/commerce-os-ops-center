@@ -43,12 +43,32 @@ const metadata = (overrides = {}) => ({
   ...overrides,
 });
 
+const completedStrategyMonthly = (qualifiedRevenue = 0) => [
+  "2025-10",
+  "2025-11",
+  "2025-12",
+  "2026-01",
+  "2026-02",
+  "2026-03",
+  "2026-04",
+  "2026-05",
+  "2026-06",
+  "2026-07",
+  "2026-08",
+  "2026-09",
+].map((month) => ({
+  month,
+  quantity: month === "2026-09" && qualifiedRevenue > 0 ? 19 : 0,
+  revenue: month === "2026-09" ? qualifiedRevenue : 0,
+}));
+
 const audit = ({
   products = [planning()],
   rows = [priority()],
   inventory = [["BCA5-1", { inventoryQuantity: 10 }]],
   sources = [["BCA5-1", metadata()]],
   sourceMetadataAvailable = true,
+  strategyAsOf = "2026-10-23T00:00:00.000Z",
   monthlyRevenueThresholdKrw,
 } = {}) => buildPurchaseCandidateOmissionReview({
   planningProducts: products,
@@ -56,6 +76,7 @@ const audit = ({
   inventoryByBarcode: new Map(inventory),
   sourceMetadataByBarcode: new Map(sources),
   sourceMetadataAvailable,
+  strategyAsOf,
   monthlyRevenueThresholdKrw,
 });
 
@@ -159,14 +180,45 @@ test("historical revenue provenance proves a completed-month entry was evaluated
   const rows = audit({
     products: [planning({
       salesRevenue30: 0,
-      purchaseStrategyMonthly: [
-        { month: "2026-09", quantity: 19, revenue: 60_040 },
-      ],
+      purchaseStrategyMonthly: completedStrategyMonthly(60_040),
     })],
     rows: [priority({
       demandTarget: 0,
       entrySignals: ["HISTORICAL_REVENUE_THRESHOLD"],
     })],
+  });
+
+  assert.deepEqual(rows, []);
+});
+
+test("canonical salesMonthly blocks a stale zero-target engine row even when strategy rows are stale", () => {
+  const rows = audit({
+    products: [planning({
+      salesRevenue30: 0,
+      purchaseStrategyMonthly: completedStrategyMonthly(0),
+      salesMonthly: [
+        { month: "2026-09", quantity: 31, revenue: 124_840 },
+        { month: "2026-10", quantity: 999, revenue: 9_999_000 },
+      ],
+    })],
+    rows: [priority({ demandTarget: 0, entrySignals: [] })],
+  });
+
+  assert.equal(rows[0].severity, "BLOCKING");
+  assert.ok(rows[0].reasons.includes("MONTHLY_REVENUE_40000_ELIGIBLE"));
+});
+
+test("current calendar month revenue does not satisfy the completed-month threshold", () => {
+  const rows = audit({
+    products: [planning({
+      salesRevenue30: 0,
+      purchaseStrategyMonthly: completedStrategyMonthly(0),
+      salesMonthly: [
+        { month: "2026-09", quantity: 0, revenue: 0 },
+        { month: "2026-10", quantity: 999, revenue: 9_999_000 },
+      ],
+    })],
+    rows: [priority({ demandTarget: 0, entrySignals: [] })],
   });
 
   assert.deepEqual(rows, []);

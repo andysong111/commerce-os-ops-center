@@ -483,6 +483,7 @@ export async function loadInventoryVerificationPriority(
     inventoryByBarcode: inventoryIndex,
     sourceMetadataByBarcode: purchaseMetadata.byBarcode,
     sourceMetadataAvailable: purchaseMetadata.error === null,
+    strategyAsOf: purchaseShadow.analysisAsOf ?? purchaseShadow.generatedAt,
     monthlyRevenueThresholdKrw: purchaseStrategyMonthlyRevenueThreshold(
       purchaseShadow.purchaseStrategyPolicySnapshot,
     ),

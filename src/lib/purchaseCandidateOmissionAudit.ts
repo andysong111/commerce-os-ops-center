@@ -2,6 +2,7 @@ import {
   PURCHASE_MONTHLY_REVENUE_FLOOR_KRW,
   PURCHASE_STOCKOUT_HISTORY_UNIT_FLOOR,
 } from "./productDecisionEngine/salesOrder.ts";
+import { planningCompletedCalendarMonthlySales } from "./productDecisionEngine/planningMonthlySales.ts";
 
 export type PurchaseCandidateOmissionReason =
   | "PURCHASE_SHADOW_ROW_MISSING"
@@ -86,6 +87,7 @@ export type PurchaseCandidateOmissionAuditInput = {
   inventoryByBarcode: Map<string, InventoryRow>;
   sourceMetadataByBarcode: Map<string, SourceMetadata>;
   sourceMetadataAvailable: boolean;
+  strategyAsOf: string;
   monthlyRevenueThresholdKrw?: number;
 };
 
@@ -117,6 +119,7 @@ function planningRecommendsOrder(product: PlanningProduct) {
 function demandEntryReasons(
   product: PlanningProduct,
   monthlyRevenueThresholdKrw: number,
+  strategyAsOf: string,
 ) {
   const reasons: PurchaseCandidateOmissionReason[] = [];
   const salesQuantity30 = quantity(product.salesQuantity30);
@@ -161,17 +164,16 @@ function demandEntryReasons(
     trend === "상승" ||
     trend === "급상승" ||
     (Number.isFinite(trendRate) && trendRate >= 0.2);
-  const strategyMonthlyBuckets = Array.isArray(product.purchaseStrategyMonthly)
-    ? product.purchaseStrategyMonthly
-        .filter(
-          (row): row is { month?: unknown; quantity?: unknown; units?: unknown; revenue?: unknown } =>
-            Boolean(row && typeof row === "object"),
-        )
-        .map((row) => ({
-          month: text(row.month),
-          revenue: quantity(row.revenue),
-        }))
-        .filter((row) => /^\d{4}-(0[1-9]|1[0-2])$/.test(row.month))
+  const hasCompletedMonthlySource =
+    (Array.isArray(product.salesMonthly) && product.salesMonthly.length > 0) ||
+    (Array.isArray(product.purchaseStrategyMonthly) &&
+      product.purchaseStrategyMonthly.length > 0);
+  const strategyMonthlyBuckets = hasCompletedMonthlySource
+    ? planningCompletedCalendarMonthlySales(
+        product.purchaseStrategyMonthly,
+        strategyAsOf,
+        product.salesMonthly,
+      )
     : [];
   const historicalRevenueQualified =
     strategyMonthlyBuckets.length > 0
@@ -185,7 +187,7 @@ function demandEntryReasons(
   if (historicalRevenueQualified) {
     reasons.push("MONTHLY_REVENUE_40000_ELIGIBLE");
   }
-  return reasons;
+  return { reasons, hasCompletedMonthlySource };
 }
 
 export function buildPurchaseCandidateOmissionReview(
@@ -233,10 +235,12 @@ export function buildPurchaseCandidateOmissionReview(
       priority?.purchaseStatus === "발주 추천" && recommendedQuantity > 0,
     );
     const reasons: PurchaseCandidateOmissionReason[] = [];
-    const entryReasons = demandEntryReasons(
+    const entryAssessment = demandEntryReasons(
       product,
       monthlyRevenueThresholdKrw,
+      input.strategyAsOf,
     );
+    const entryReasons = entryAssessment.reasons;
     const recordedSignals = new Set(
       (priority?.entrySignals ?? []).map((value) => text(value).toUpperCase()),
     );
@@ -258,8 +262,7 @@ export function buildPurchaseCandidateOmissionReview(
       ? entryReasons.filter(
           (reason) =>
             reason === "MONTHLY_REVENUE_40000_ELIGIBLE" &&
-            Array.isArray(product.purchaseStrategyMonthly) &&
-            product.purchaseStrategyMonthly.length > 0,
+            entryAssessment.hasCompletedMonthlySource,
         )
       : entryReasons;
     // A positive pre-budget target proves that the demand engine evaluated the

@@ -5,6 +5,7 @@ on:
     paths:
       - "src/lib/shopling/shoplingLiveAggregation.ts"
       - "src/lib/shopling/shoplingNormalize.ts"
+      - "src/lib/productDecisionEngine/planningMonthlySales.ts"
       - "tests/shoplingLiveAggregation.test.mjs"
       - ".github/workflows/shopling-live-aggregation-ci.yml"
   workflow_dispatch:
@@ -30,6 +31,7 @@ jobs:
       - name: Lint live aggregation
         run: >-
           npx eslint
+          src/lib/productDecisionEngine/planningMonthlySales.ts
           src/lib/shopling/shoplingLiveAggregation.ts
           src/lib/shopling/shoplingNormalize.ts
           tests/shoplingLiveAggregation.test.mjs
