@@ -433,6 +433,16 @@ export async function loadFastPurchaseInternalDrafts() {
         ? payloadCycles.find((cycle) => cycle.cycleKey === distinctCycleKeys[0]) ?? null
         : null;
       const cycleStartDate = purchaseRunCycle?.cycleStartDate || seoulDateFromTimestamp(createdAt);
+      const receiptConfirmedAt = lines.reduce((latest, line) => {
+        if (line.receivedQuantity <= 0 || line.openQuantity > 0) return latest;
+        const candidate = line.receivedAt || line.updatedAt;
+        if (!candidate) return latest;
+        return !latest || Date.parse(candidate) > Date.parse(latest)
+          ? candidate
+          : latest;
+      }, "" as string);
+      const receiptComplete = lines.some((line) => line.receivedQuantity > 0) &&
+        lines.every((line) => line.orderedQuantity <= 0 || line.openQuantity === 0);
       return {
         draftId,
         cycleMonth:
@@ -448,6 +458,7 @@ export async function loadFastPurchaseInternalDrafts() {
         revenueRangeStartDate: purchaseRunCycle?.revenueRangeStartDate ?? null,
         revenueRangeEndDate: purchaseRunCycle?.revenueRangeEndDate ?? null,
         cycleBootstrap: purchaseRunCycle?.bootstrap ?? false,
+        receiptConfirmedAt: receiptComplete ? receiptConfirmedAt || null : null,
         createdAt,
         lineCount: lines.length,
         requestedQuantity: lines.reduce(
@@ -485,6 +496,9 @@ export async function loadFastPurchaseInternalDrafts() {
           cancelledQuantity: line.cancelledQuantity,
           openQuantity: line.openQuantity,
           status: line.status,
+          receivedAt: line.receivedAt,
+          cancelledAt: line.cancelledAt,
+          updatedAt: line.updatedAt,
         })),
       };
     })

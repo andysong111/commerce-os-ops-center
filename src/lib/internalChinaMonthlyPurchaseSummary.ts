@@ -337,6 +337,49 @@ export async function loadInternalChinaMonthlyPurchaseSummary(
   return summaries.find((summary) => summary.cycleMonth === cycleMonth) ?? null;
 }
 
+export function selectInternalChinaPurchaseSummaryForDraft(
+  summary: InternalChinaMonthlyPurchaseSummary | null,
+  draftIdInput: unknown,
+): InternalChinaMonthlyPurchaseSummary | null {
+  if (!summary) return null;
+  const draftId = text(draftIdInput);
+  const lines = summary.lines.filter((line) => line.draftId === draftId);
+  if (!draftId || !lines.length) return null;
+  const orderNumbers = new Set(lines.map((line) => line.orderNumber).filter(Boolean));
+  const actualOrderPaidCny = decimal(
+    lines.reduce((sum, line) => sum + line.actualLinePaidCny, 0),
+  );
+  return {
+    cycleMonth: summary.cycleMonth,
+    draftCount: 1,
+    orderCount: orderNumbers.size || (actualOrderPaidCny > 0 ? 1 : 0),
+    lineCount: lines.length,
+    skuCount: new Set(
+      lines
+        .map((line) => line.barcode)
+        .filter((barcode) => barcode && !barcode.startsWith("UNASSIGNED")),
+    ).size,
+    totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
+    goodsPaidCny: decimal(lines.reduce((sum, line) => sum + line.goodsPaidCny, 0)),
+    domesticChinaFreightCny: decimal(
+      lines.reduce((sum, line) => sum + line.domesticChinaFreightCny, 0),
+    ),
+    serviceFeeCny: decimal(lines.reduce((sum, line) => sum + line.serviceFeeCny, 0)),
+    actualOrderPaidCny,
+    actualOrderPaidKrwAtInternalFx: lines.reduce(
+      (sum, line) => sum + line.actualLinePaidKrwAtInternalFx,
+      0,
+    ),
+    exchangeRateKrwPerCny: summary.exchangeRateKrwPerCny,
+    assignedLineCount: lines.filter((line) => line.assigned).length,
+    unassignedLineCount: lines.filter((line) => !line.assigned).length,
+    importedFromActualOrder: summary.importedFromActualOrder,
+    cashFlowEarlyClose: summary.cashFlowEarlyClose,
+    latestRecordedAt: summary.latestRecordedAt,
+    lines,
+  };
+}
+
 /** Complete caller-owned evidence, without the recent-dashboard read limit. */
 export function buildInternalChinaMonthlyPurchaseSummaryFromRows(rows: readonly StoredRow[], cycleMonth: string): InternalChinaMonthlyPurchaseSummary | null {
   const byDraft = new Map<string, ParsedDraft>();

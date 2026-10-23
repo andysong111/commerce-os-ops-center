@@ -138,10 +138,11 @@ test("pre-inbound sourced lines retain identity and 1688 metadata without an act
   assert.match(draft, /sourcePayload\.unitPriceCny/);
 });
 
-test("normal fast-purchase planning adopts a sourcing-seeded unprogressed monthly draft", async () => {
+test("normal fast-purchase planning adopts a sourcing-seeded unprogressed purchase-run draft", async () => {
   const draft = await source("../src/lib/fastPurchaseInternalDraft.ts");
   assert.match(draft, /currentCycleDraft\?\.draftId \|\| proposedDraftId/);
-  assert.match(draft, /FAST_PURCHASE_MONTHLY_CYCLE_MULTIPLE_DRAFTS/);
+  assert.match(draft, /FAST_PURCHASE_CYCLE_MULTIPLE_DRAFTS/);
+  assert.match(draft, /draft\.cycleStartDate === purchaseRunCycle\.cycleStartDate/);
   assert.match(draft, /currentCycleDraft\.orderedQuantity > 0/);
   assert.match(draft, /currentCycleDraft\.receivedQuantity > 0/);
 });

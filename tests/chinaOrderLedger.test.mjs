@@ -351,7 +351,6 @@ test("legacy commitments without an explicit cycle keep the Seoul calendar fallb
 test("monthly purchase consumers use the explicit-cycle ledger resolver", async () => {
   const consumers = await Promise.all(
     [
-      "src/app/china-order-manager/page.tsx",
       "src/lib/internalChinaMonthlyPurchaseClose.ts",
       "src/lib/monthlyPurchaseDraftConsolidation.ts",
       "src/lib/sourcingPurchaseIngress.ts",
@@ -365,6 +364,9 @@ test("monthly purchase consumers use the explicit-cycle ledger resolver", async 
       /seoulCalendarMonth\(row\.reservedAt \|\| row\.updatedAt\)/,
     );
   }
+
+  const runWorkspace = await readFile("src/app/china-order-manager/page.tsx", "utf8");
+  assert.match(runWorkspace, /row\.sourceRunId === selectedDraftId/);
 });
 
 test("ledger summary ignores duplicate event identities", () => {

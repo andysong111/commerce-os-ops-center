@@ -10,10 +10,10 @@ const [engine, route, panel, page, monthlyPolicy, followup] = await Promise.all(
   readFile("src/lib/monthlyPurchasePolicy.ts", "utf8"),
   readFile("src/lib/internalChinaReceiptFollowup.ts", "utf8"),
 ]);
-test("China order manager exposes the calendar-month purchase and receipt cycle", () => {
+test("China order manager exposes the on-demand purchase-run and receipt cycle", () => {
   assert.ok(monthlyPolicy.includes('PURCHASE_RECOMMENDATION_CADENCE = "MONTHLY"'));
-  assert.ok(page.includes("월별 발주·입고 관리")); assert.ok(page.includes("월 처리 단계"));
-  assert.ok(page.includes("koreanMonthLabel(selectedMonth)")); assert.ok(page.includes("1688 주문·발주 마감"));
+  assert.ok(page.includes("발주차시·입고 관리")); assert.ok(page.includes("발주차시 처리 단계"));
+  assert.ok(page.includes("selectedRun.receiptConfirmedDate")); assert.ok(page.includes('title="1688 주문"'));
 });
 test("receipt UI supports full and partial receipt quantities on the existing China order route", () => {
   for (const value of ["입고 처리", "남은 수량 전부 채우기", "PARTIALLY_RECEIVED", "RECEIVED", "/api/china-order-manager/receipts"]) assert.ok(panel.includes(value));

@@ -12,13 +12,13 @@ const registry = await readFile("src/lib/extendedModuleRegistry.ts", "utf8");
 const chinaAdapter = await readFile("src/lib/integrations/chinaOrderManager.ts", "utf8");
 const priceAdapter = await readFile("src/lib/integrations/priceAdjustmentEngine.ts", "utf8");
 
-test("China order manager stays inside Ops Center and exposes the monthly purchase workspace", () => {
+test("China order manager stays inside Ops Center and exposes the purchase-run workspace", () => {
   assert.doesNotMatch(chinaPage, /redirect\(/);
   assert.doesNotMatch(chinaPage, /chatgpt\.site/);
-  assert.match(chinaPage, /월별 발주·입고 관리/);
-  assert.match(chinaPage, /전체 지출가능금액/);
+  assert.match(chinaPage, /발주차시·입고 관리/);
+  assert.match(chinaPage, /현재 지출가능금액/);
   assert.match(chinaPage, /배송대행지 바코드 출력/);
-  assert.match(chinaPage, /월 자금 마감/);
+  assert.match(chinaPage, /title="자금 마감"/);
   assert.match(cashEnvelopePage, /현금 제약 발주/);
   assert.match(cashEnvelopePage, /InternalChinaCashEnvelopePanel/);
   assert.match(registry, /module\.id === "china-order-cost"/);

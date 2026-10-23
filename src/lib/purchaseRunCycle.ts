@@ -17,6 +17,7 @@ export type PurchaseRunDraftSummary = {
   cycleStartDate?: string | null;
   previousCycleStartDate?: string | null;
   cycleKey?: string | null;
+  receiptConfirmedAt?: string | null;
   orderedQuantity: number;
   receivedQuantity: number;
   openQuantity: number;
@@ -80,7 +81,12 @@ function startDate(draft: PurchaseRunDraftSummary) {
   return validDate(draft.cycleStartDate) || seoulDateFromTimestamp(draft.createdAt);
 }
 
-function previousStartBefore(
+function receiptConfirmedDate(draft: PurchaseRunDraftSummary) {
+  if (draft.orderedQuantity <= 0 || draft.openQuantity > 0) return "";
+  return seoulDateFromTimestamp(draft.receiptConfirmedAt);
+}
+
+function previousBoundaryBefore(
   drafts: PurchaseRunDraftSummary[],
   currentStartDate: string,
   excludedDraftId: string | null,
@@ -90,20 +96,24 @@ function previousStartBefore(
     .map((draft) => ({
       draft,
       start: startDate(draft),
+      receipt: receiptConfirmedDate(draft),
       executed: draft.orderedQuantity > 0 || draft.receivedQuantity > 0,
     }))
-    .filter((row) => row.start && row.start < currentStartDate)
+    .filter((row) => (row.receipt || row.start) < currentStartDate)
     .sort((left, right) =>
-      Number(right.executed) - Number(left.executed) ||
-      right.start.localeCompare(left.start),
+      Number(Boolean(right.receipt)) - Number(Boolean(left.receipt)) ||
+      (right.receipt || right.start).localeCompare(left.receipt || left.start) ||
+      Number(right.executed) - Number(left.executed),
     );
-  return older[0]?.start ?? "";
+  return older[0]?.receipt || older[0]?.start || "";
 }
 
 /**
  * Determines the immutable sales/budget interval for an operator-started
- * purchase run. Recalculating a Draft keeps its original start boundary.
- * A 30-day bootstrap is used only when the ledger has no older purchase run.
+ * purchase run. Recalculating a Draft keeps its original boundary. A new run
+ * starts after the latest completed receipt when that evidence exists; legacy
+ * ledgers without receipt timestamps fall back to the prior run start. A
+ * 30-day bootstrap is used only when the ledger has no older purchase run.
  */
 export function inferPurchaseRunCycleBasis(input: {
   targetDate: unknown;
@@ -125,7 +135,7 @@ export function inferPurchaseRunCycleBasis(input: {
   const explicitPrevious = replacement
     ? validDate(replacement.previousCycleStartDate)
     : "";
-  const historicalPrevious = previousStartBefore(
+  const historicalPrevious = previousBoundaryBefore(
     input.drafts,
     cycleStartDate,
     replacement?.draftId ?? null,
