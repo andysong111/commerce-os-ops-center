@@ -49,10 +49,11 @@ limited cash budget toward the larger recurring sellers when two products meet
 it equally often.
 
 The inventory control page also accepts an operator's one-time approximate
-quantity separately from an exact stocktake. It is stored as
-`OPERATOR_ESTIMATE`, can be used for draft planning math, and remains visibly
-provisional; it never becomes exact inventory or a Shopling stock update. A
-newer exact stocktake or inventory movement supersedes the estimate. This input
-exists for the current purchase recalculation when a full physical count is not
-practical, while preserving the execution review boundary before any external
-order or payment.
+stock band separately from an exact stocktake: `HIGH`, `NORMAL`, `LOW`, or
+`OUT` (많음, 보통, 적음, 품절). It is stored as `OPERATOR_ESTIMATE` and is
+translated at calculation time to 100%, 50%, 25%, or 0% of that SKU's current
+demand target. The band remains visibly provisional; it never becomes exact
+inventory or a Shopling stock update. A newer exact stocktake or inventory
+movement supersedes it. This input exists for the current purchase
+recalculation when a full physical count is not practical, while preserving the
+execution review boundary before any external order or payment.

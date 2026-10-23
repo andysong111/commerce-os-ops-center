@@ -557,7 +557,7 @@ export function InventoryStockoutOperatorPanel() {
 
       if (!jobs.length) {
         setSyncNotice(
-          `정확 재고 ${payload.counts?.stocktake ?? stocktakeParsed.items.length}건과 대략 재고 ${payload.counts?.stockEstimate ?? stockEstimateParsed.items.length}건을 저장했습니다. Shopling 즉시 전송 대상은 없습니다.`,
+          `정확 재고 ${payload.counts?.stocktake ?? stocktakeParsed.items.length}건과 대략 재고상태 ${payload.counts?.stockEstimate ?? stockEstimateParsed.items.length}건을 저장했습니다. Shopling 즉시 전송 대상은 없습니다.`,
         );
         window.dispatchEvent(new Event(REFRESH_EVENT));
       } else if (extensionReadyRef.current) {
@@ -634,15 +634,17 @@ export function InventoryStockoutOperatorPanel() {
         </label>
 
         <label className="block rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-950">
-          ④ 대략 재고수량 · B코드 수량
+          ④ 대략 재고상태 · B코드 상태
           <textarea
             value={stockEstimateInput}
             onChange={(event) => setStockEstimateInput(event.target.value)}
-            placeholder={"예:\nBCB2-1 50\nBBB8-1 0"}
+            placeholder={"예:\nBCB2-1 많음\nBBB8-1 보통\nBAB3-1 적음\nBCA5-1 품절"}
             rows={7}
             className="mt-2 block w-full resize-y rounded-xl border border-amber-200 bg-white px-3 py-3 font-mono text-sm text-slate-950 outline-none focus:border-amber-500"
           />
-          <span className="mt-2 block text-xs">인식 {stockEstimateParsed.items.length}건 · 발주계산용 추정치로 저장 · 정확 재고로 표시하지 않음</span>
+          <span className="mt-2 block text-xs leading-5">
+            인식 {stockEstimateParsed.items.length}건 · 발주계산용 상태로 저장 · 많음 100% / 보통 50% / 적음 25% / 품절 0% · 정확 재고로 표시하지 않음
+          </span>
         </label>
       </div>
 

@@ -7,17 +7,19 @@ import {
   parseInventoryStocktakeBulkText,
 } from "../src/lib/inventoryStockBulkInput.ts";
 
-test("대략 재고 입력은 0을 포함한 정수 수량을 발주계산용으로 해석한다", () => {
-  const parsed = parseInventoryStockEstimateBulkText("BCB2-1 50\nBBB8-1=0");
+test("대략 재고 입력은 네 단계 상태를 발주계산용으로 해석한다", () => {
+  const parsed = parseInventoryStockEstimateBulkText("BCB2-1 많음\nBBB8-1=보통\nBAB3-1 적음\nBCA5-1 품절");
   assert.deepEqual(parsed.items, [
-    { barcode: "BCB2-1", estimatedQuantity: 50 },
-    { barcode: "BBB8-1", estimatedQuantity: 0 },
+    { barcode: "BCB2-1", stockBand: "HIGH" },
+    { barcode: "BBB8-1", stockBand: "NORMAL" },
+    { barcode: "BAB3-1", stockBand: "LOW" },
+    { barcode: "BCA5-1", stockBand: "OUT" },
   ]);
   assert.deepEqual(parsed.errors, []);
 });
 
-test("대략 재고 입력은 음수·중복·소수를 거부한다", () => {
-  const parsed = parseInventoryStockEstimateBulkText("BCB2-1 2\nBCB2-1 3\nBBB8-1 -1\nBAB3-1 1.5");
+test("대략 재고 입력은 숫자·중복·알 수 없는 상태를 거부한다", () => {
+  const parsed = parseInventoryStockEstimateBulkText("BCB2-1 적음\nBCB2-1 보통\nBBB8-1 10\nBAB3-1 중간");
   assert.equal(parsed.items.length, 1);
   assert.equal(parsed.errors.length, 3);
 });

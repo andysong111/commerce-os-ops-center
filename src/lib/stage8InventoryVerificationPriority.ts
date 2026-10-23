@@ -34,7 +34,11 @@ import {
 import {
   loadLatestInventoryStocktakeBaselines,
 } from "@/lib/inventoryStocktakeBaselines";
-import { applyOperatorInventoryEstimate } from "@/lib/inventoryStockEstimateOverlay";
+import {
+  applyOperatorInventoryEstimate,
+  estimatedInventoryForStockBand,
+  type ProductMasterInventoryEstimateOverlayRow,
+} from "@/lib/inventoryStockEstimateOverlay";
 
 export type InventoryOperatingMode =
   | "VERIFIED"
@@ -71,6 +75,7 @@ export type InventoryVerificationPriorityRow = {
   averageSellingPriceKrw: number;
   highValueConsistentBonusPoints: number;
   inventoryQuantity: number;
+  operatorStockBand: "OUT" | "LOW" | "NORMAL" | "HIGH" | null;
   inventoryMode: InventoryOperatingMode;
   inventoryVerified: boolean;
   inventoryVerification: string;
@@ -188,7 +193,7 @@ function purchaseStrategyMonthlyRevenueThreshold(
   }
 }
 
-function inventoryByBarcode(rows: ProductMasterInventoryCostRow[]) {
+function inventoryByBarcode(rows: ProductMasterInventoryEstimateOverlayRow[]) {
   return new Map(rows.map((row) => [barcode(row.barcode), row]));
 }
 
@@ -342,6 +347,15 @@ export async function loadInventoryVerificationPriority(
       const demandTarget = integer(
         product.rawRecommendedQty ?? product.recommendedQty,
       );
+      const operatorStockBand = inventory?.operatorStockBand ?? null;
+      const bandInventoryQuantity = estimatedInventoryForStockBand(
+        demandTarget,
+        operatorStockBand,
+      );
+      const planningInventoryQuantity =
+        bandInventoryQuantity === null
+          ? integer(inventory?.inventoryQuantity)
+          : bandInventoryQuantity;
       const openCommitment = integer(product.openCommitment);
       const recentReceipt = recentReceipts.receipts.get(key);
       const recentCycleReceivedQuantity = integer(recentReceipt?.quantity);
@@ -364,7 +378,7 @@ export async function loadInventoryVerificationPriority(
         originalGroup,
         inventoryKnown: inventoryCalculationUsable,
         availableQuantity: inventoryCalculationUsable
-          ? integer(inventory?.inventoryQuantity)
+          ? planningInventoryQuantity
           : 0,
         reservedQuantity: 0,
         incomingQuantity: 0,
@@ -441,7 +455,8 @@ export async function loadInventoryVerificationPriority(
         highValueConsistentBonusPoints: integer(
           product.purchaseStrategy?.highValueConsistentBonusPoints,
         ),
-        inventoryQuantity: inventory ? integer(inventory.inventoryQuantity) : 0,
+        inventoryQuantity: inventory ? planningInventoryQuantity : 0,
+        operatorStockBand,
         inventoryMode: mode,
         inventoryVerified: inventory?.inventoryVerified === true,
         inventoryVerification: text(inventory?.inventoryVerification) || "MISSING",

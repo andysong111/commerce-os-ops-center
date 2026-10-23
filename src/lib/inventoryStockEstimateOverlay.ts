@@ -1,6 +1,12 @@
 import type { ProductMasterInventoryCostRow } from "./productMasterInventoryCostReadiness.ts";
 import type { InventoryStockEstimateBaselineEvent } from "./inventoryStockEstimateBaselines.ts";
 import type { InventoryStocktakeBaselineEvent } from "./inventoryStocktakeBaselines.ts";
+import type { InventoryStockBand } from "./inventoryStockBulkInput.ts";
+
+export type ProductMasterInventoryEstimateOverlayRow =
+  ProductMasterInventoryCostRow & {
+    operatorStockBand?: InventoryStockBand | null;
+  };
 
 function timestamp(value: string | null | undefined) {
   const parsed = Date.parse(value ?? "");
@@ -11,7 +17,7 @@ export function applyOperatorInventoryEstimate(
   row: ProductMasterInventoryCostRow,
   estimate: InventoryStockEstimateBaselineEvent | undefined,
   latestExactStocktake?: InventoryStocktakeBaselineEvent,
-) {
+): ProductMasterInventoryEstimateOverlayRow {
   if (!estimate) return row;
   const estimateAt = timestamp(estimate.occurredAt);
   if (!estimateAt) return row;
@@ -19,7 +25,11 @@ export function applyOperatorInventoryEstimate(
   if (timestamp(row.lastMovementAt) > estimateAt) return row;
   return {
     ...row,
-    inventoryQuantity: estimate.estimatedQuantity,
+    inventoryQuantity:
+      estimate.estimatedQuantity === null
+        ? row.inventoryQuantity
+        : estimate.estimatedQuantity,
+    operatorStockBand: estimate.stockBand,
     inventoryVerification: "OPERATOR_ESTIMATE",
     inventoryVerified: false,
     inventoryConfidence: "APPROXIMATE",
@@ -27,4 +37,16 @@ export function applyOperatorInventoryEstimate(
     inventoryBaselineKind: "OPERATOR_ESTIMATE",
     initialZeroUnverified: false,
   };
+}
+
+export function estimatedInventoryForStockBand(
+  demandTarget: number,
+  stockBand: InventoryStockBand | null | undefined,
+) {
+  const target = Math.max(0, Math.round(Number(demandTarget) || 0));
+  if (stockBand === "HIGH") return target;
+  if (stockBand === "NORMAL") return Math.floor(target * 0.5);
+  if (stockBand === "LOW") return Math.floor(target * 0.25);
+  if (stockBand === "OUT") return 0;
+  return null;
 }
