@@ -1,10 +1,13 @@
 import { calculateProductDecisionPlan } from "@/lib/productDecisionEngine";
 import type { ProductDecisionSnapshot } from "@/lib/productDecisionSnapshot";
 import {
-  normalizeCompletedCalendarMonthSales,
   type CalendarMonthSales,
   type PurchaseStrategyPolicyInput,
 } from "@/lib/productDecisionEngine/purchaseStrategyPolicy";
+import {
+  planningCalendarMonthlySales,
+  planningCompletedCalendarMonthlySales,
+} from "@/lib/productDecisionEngine/planningMonthlySales";
 import {
   normalizeShoplingClaim,
   normalizeShoplingOrder,
@@ -153,37 +156,10 @@ function quantity(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
 }
 
-export function planningCalendarMonthlySales(value: unknown): CalendarMonthSales[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      throw new Error("PURCHASE_STRATEGY_MONTHLY_SALES_INVALID");
-    }
-    const row = item as Record<string, unknown>;
-    return {
-      month: text(row.month),
-      units: quantity(row.quantity ?? row.units),
-      revenue: quantity(row.revenue),
-    };
-  });
-}
-
-export function planningCompletedCalendarMonthlySales(
-  value: unknown,
-  asOf: string,
-) {
-  const rows = planningCalendarMonthlySales(value);
-  const expected = normalizeCompletedCalendarMonthSales(rows, asOf);
-  const suppliedMonths = new Set(rows.map((row) => row.month));
-  if (
-    rows.length !== 12 ||
-    suppliedMonths.size !== 12 ||
-    expected.some((row) => !suppliedMonths.has(row.month))
-  ) {
-    throw new Error("PURCHASE_STRATEGY_MONTHLY_HISTORY_INCOMPLETE");
-  }
-  return expected;
-}
+export {
+  planningCalendarMonthlySales,
+  planningCompletedCalendarMonthlySales,
+};
 
 function firstSalesDate(product: PlanningProduct, rows: CalendarMonthSales[]) {
   const explicit = text(product.firstSalesMonth);
@@ -718,6 +694,7 @@ export function buildLiveProductDecisionSnapshot(
     const calendarMonthlySales = planningCompletedCalendarMonthlySales(
       product.planning.purchaseStrategyMonthly,
       aggregate.analysisAsOf,
+      product.planning.salesMonthly,
     );
     return {
       barcode: product.planning.barcode,

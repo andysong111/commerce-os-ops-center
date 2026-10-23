@@ -20,3 +20,19 @@ The reorder decision fingerprint is limited to the fields that reserve cash and 
 Production recalculation exposed two mismatched views. The purchase engine used Product Master's twelve completed calendar months for the adjustable monthly-revenue rule, while the omission audit checked only the rolling 30-day revenue summary. A product that exceeded the threshold in September could therefore have a zero demand target without a recorded `HISTORICAL_REVENUE_THRESHOLD` signal and still disappear from the review. The omission audit now checks the same `purchaseStrategyMonthly` history and requires the matching engine signal when a zero-target priority row exists. Positive demand targets remain compatible with older cached rows that did not persist signal provenance.
 
 The replacement reader may recover one line from the immediate predecessor so a prior buggy pass cannot silently delete it. That recovered line remains available for preservation, but it is no longer counted as part of the visible current Draft when the operator-facing before/after audit is calculated. A visible 48-line Draft that becomes 49 lines now reports one added line instead of zero changes. Both changes remain read-only until the operator saves the internal Draft; neither performs a 1688 order or payment.
+
+## Canonical completed-month sales authority (2026-10-23)
+
+The purchase engine and omission audit now derive the twelve completed Korean
+calendar months from Product Master's canonical `salesMonthly` ledger whenever
+that ledger is present. The legacy `purchaseStrategyMonthly` payload remains a
+strict compatibility fallback only. This prevents a stale all-zero strategy
+payload from hiding a product that exceeded the operator's monthly revenue
+threshold in the canonical September ledger. The current partial month is
+excluded from the twelve-month strategy window, and explicit temporary or
+permanent exclusions remain unchanged.
+
+The regression coverage uses a stale zero-valued strategy payload plus a
+canonical September value above the threshold. It verifies both the purchase
+engine's `HISTORICAL_REVENUE_THRESHOLD` signal and the omission audit's blocking
+behavior, while a high October current-month value alone does not qualify.
