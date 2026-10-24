@@ -4,6 +4,7 @@ const BUTTON_ID = "seo-material-recovery-button";
 const DIALOG_ID = "seo-material-recovery-dialog";
 const MAX_INSTALL_ATTEMPTS = 40;
 const RECOVERY_BATCH_SIZE = 6;
+const RECOVERY_REQUEST_TIMEOUT_MS = 25_000;
 
 let installAttempts = 0;
 let installTimer = null;
@@ -38,24 +39,39 @@ function showMessage(message) {
 }
 
 async function requestRecovery(body) {
-  const response = await fetch(RECOVERY_ENDPOINT, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload?.ok !== true) {
-    throw new Error(payload?.message || `SEO 재료 검사에 실패했습니다. (${response.status})`);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    RECOVERY_REQUEST_TIMEOUT_MS,
+  );
+  try {
+    const response = await fetch(RECOVERY_ENDPOINT, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.ok !== true) {
+      throw new Error(payload?.message || `SEO 재료 검사에 실패했습니다. (${response.status})`);
+    }
+    return payload;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("자료 조회가 25초를 넘었습니다. 이 묶음은 재확인이 필요합니다.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  return payload;
 }
 
-async function readRecoveryModelNumbers() {
-  const models = [];
+async function readRecoveryTargets() {
+  const targets = new Map();
   let page = 1;
   let pageCount = 1;
   do {
@@ -80,12 +96,17 @@ async function readRecoveryModelNumbers() {
       if (item?.seoExclusion?.excluded === true) continue;
       if (item?.receiptPending === true) continue;
       const modelNumber = text(item?.modelNumber).toUpperCase().replace(/\s+/g, "");
-      if (modelNumber) models.push(modelNumber);
+      if (modelNumber && !targets.has(modelNumber)) {
+        targets.set(modelNumber, {
+          modelNumber,
+          productName: text(item?.productName),
+        });
+      }
     }
     pageCount = Math.max(1, Number(payload?.pageCount) || 1);
     page += 1;
   } while (page <= pageCount);
-  return [...new Set(models)];
+  return [...targets.values()];
 }
 
 function chunk(values, size) {
@@ -109,7 +130,7 @@ function reportSignature(report) {
   );
 }
 
-function combineReports(batches) {
+export function combineRecoveryReports(batches) {
   const sum = (key) =>
     batches.reduce((total, batch) => total + (Number(batch.report?.[key]) || 0), 0);
   return {
@@ -118,25 +139,62 @@ function combineReports(batches) {
     readyAfterCount: sum("readyAfterCount"),
     unresolvedCount: sum("unresolvedCount"),
     receiptPendingCount: sum("receiptPendingCount"),
+    sourceFailureCount: sum("sourceFailureCount"),
+    failedBatchCount: batches.filter((batch) => batch.failed === true).length,
     results: batches.flatMap((batch) => list(batch.report?.results)),
     batches,
   };
 }
 
+export function failedRecoveryBatchReport(targets, error) {
+  const message = error instanceof Error
+    ? error.message
+    : "외부 자료를 불러오지 못했습니다.";
+  return {
+    requestedCount: targets.length,
+    changedCount: 0,
+    readyAfterCount: 0,
+    unresolvedCount: targets.length,
+    receiptPendingCount: 0,
+    sourceFailureCount: targets.length,
+    results: targets.map((target) => ({
+      modelNumber: target.modelNumber,
+      productName: target.productName,
+      status: "unresolved",
+      changed: false,
+      changedFields: [],
+      afterErrors: [message],
+      unresolved: [`자료원 조회 실패: ${message}`],
+    })),
+  };
+}
+
 async function previewRecoveryBatches(button) {
-  const modelNumbers = await readRecoveryModelNumbers();
-  const modelBatches = chunk(modelNumbers, RECOVERY_BATCH_SIZE);
+  const targets = await readRecoveryTargets();
+  const targetBatches = chunk(targets, RECOVERY_BATCH_SIZE);
   const batches = [];
-  for (const [index, models] of modelBatches.entries()) {
-    button.textContent = `SEO 재료 검사 중 (${index + 1}/${modelBatches.length})`;
-    const report = await requestRecovery({ action: "preview", modelNumbers: models });
-    batches.push({
-      modelNumbers: models,
-      signature: reportSignature(report),
-      report,
-    });
+  for (const [index, batchTargets] of targetBatches.entries()) {
+    button.textContent = `SEO 재료 검사 중 (${index + 1}/${targetBatches.length})`;
+    const modelNumbers = batchTargets.map((target) => target.modelNumber);
+    try {
+      const report = await requestRecovery({ action: "preview", modelNumbers });
+      batches.push({
+        modelNumbers,
+        signature: reportSignature(report),
+        report,
+        failed: false,
+      });
+    } catch (error) {
+      const report = failedRecoveryBatchReport(batchTargets, error);
+      batches.push({
+        modelNumbers,
+        signature: reportSignature(report),
+        report,
+        failed: true,
+      });
+    }
   }
-  return combineReports(batches);
+  return combineRecoveryReports(batches);
 }
 
 function recoveryRows(report) {
@@ -193,6 +251,7 @@ function renderPreview(dialog, report) {
     ["보완 후 준비완료", Number(report?.readyAfterCount) || 0],
     ["추가 확인", Number(report?.unresolvedCount) || 0],
     ["입고대기", Number(report?.receiptPendingCount) || 0],
+    ["자료 조회 실패", Number(report?.sourceFailureCount) || 0],
   ]) {
     const item = document.createElement("div");
     item.innerHTML = `<strong>${value}건</strong><span>${label}</span>`;
@@ -229,27 +288,38 @@ async function applyRecovery(dialog, button, report) {
   applyButton.textContent = "반영 중...";
   try {
     let appliedCount = 0;
+    const applyFailures = [];
     const batches = list(report?.batches);
     for (const [index, batch] of batches.entries()) {
-      if (!(Number(batch?.report?.changedCount) > 0)) continue;
+      if (batch?.failed === true || !(Number(batch?.report?.changedCount) > 0)) continue;
       applyButton.textContent = `반영 중 (${index + 1}/${batches.length})`;
-      const latest = await requestRecovery({
-        action: "preview",
-        modelNumbers: list(batch?.modelNumbers),
-      });
-      if (reportSignature(latest) !== text(batch?.signature)) {
-        throw new Error("검사 뒤 상품 상태가 달라졌습니다. 새로 검사한 뒤 다시 반영하세요.");
+      try {
+        const latest = await requestRecovery({
+          action: "preview",
+          modelNumbers: list(batch?.modelNumbers),
+        });
+        if (reportSignature(latest) !== text(batch?.signature)) {
+          throw new Error("검사 뒤 상품 상태가 달라졌습니다.");
+        }
+        const applied = await requestRecovery({
+          action: "apply",
+          modelNumbers: list(batch?.modelNumbers),
+          expectedPlanHash: text(latest?.planHash),
+        });
+        appliedCount += Number(applied?.appliedCount) || 0;
+      } catch (error) {
+        applyFailures.push({
+          modelNumbers: list(batch?.modelNumbers),
+          message: error instanceof Error ? error.message : "반영 결과를 확인하지 못했습니다.",
+        });
       }
-      const applied = await requestRecovery({
-        action: "apply",
-        modelNumbers: list(batch?.modelNumbers),
-        expectedPlanHash: text(latest?.planHash),
-      });
-      appliedCount += Number(applied?.appliedCount) || 0;
     }
     dialog.close();
-    showMessage(`SEO 재료 ${appliedCount}건을 반영했습니다.`);
-    button.textContent = "반영 완료";
+    const retryMessage = applyFailures.length
+      ? ` ${applyFailures.length}개 묶음은 최신 상태를 다시 검사합니다.`
+      : "";
+    showMessage(`SEO 재료 ${appliedCount}건을 반영했습니다.${retryMessage}`);
+    button.textContent = applyFailures.length ? "재검사 필요" : "반영 완료";
     window.setTimeout(() => window.location.reload(), 350);
   } catch (error) {
     showMessage(error instanceof Error ? error.message : "SEO 재료를 반영하지 못했습니다.");
@@ -354,5 +424,5 @@ function scheduleInstall() {
   installTimer = window.setTimeout(scheduleInstall, 100);
 }
 
-scheduleInstall();
+if (typeof document !== "undefined") scheduleInstall();
 

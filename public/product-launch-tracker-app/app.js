@@ -129,7 +129,7 @@ if (detailPageMode === "worker") {
   await import("./product-launch-flow-handoff.js");
   await import("./seo-fallback-cache-selection.js");
   await import("./seo-title-ledger-handoff.js?v=20260916-source-chain-v1");
-  await import("./seo-material-recovery-control.js?v=20261025-v1");
+  await import("./seo-material-recovery-control.js?v=20261025-v2");
 
   installLazyDetailPageIntegrations();
   scheduleIdleIntegrations();
