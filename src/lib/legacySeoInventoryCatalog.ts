@@ -174,7 +174,7 @@ export async function loadLegacySeoInventoryCatalog(modelNumbers: unknown[] = []
       "x-commerce-os-integration-secret": secret,
     },
     cache: "no-store",
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(90_000),
   });
   const payload = (await response.json().catch(() => ({}))) as InventoryCatalogPayload;
   if (!response.ok || payload.ok !== true || !Array.isArray(payload.products)) {

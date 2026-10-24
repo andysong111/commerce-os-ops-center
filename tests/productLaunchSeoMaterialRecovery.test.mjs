@@ -251,4 +251,5 @@ test("recovery API requires a matching preview hash and delegates an atomic bulk
   assert.match(seoRunRoute, /legacySeoRegistrationExclusion\(item\)/);
   assert.match(route, /items\.map\(\(item\) => item\.modelNumber\)/);
   assert.match(inventoryCatalog, /searchParams\.set\("modelNumbers"/);
+  assert.match(inventoryCatalog, /AbortSignal\.timeout\(90_000\)/);
 });
