@@ -581,7 +581,7 @@ export async function syncLegacySeoShoplingOptions(input: {
   const [evidenceByModel, canonicalOptionsByModel, productMasterCatalogResult] = await Promise.all([
     loadLegacySeoShoplingEvidence(requested, goodsKeyOverridesFromItems(items)),
     loadCanonicalOptionHints(input.config, input.identity.userId, requested),
-    loadLegacySeoInventoryCatalog()
+    loadLegacySeoInventoryCatalog(requested)
       .then((products) => ({ products, error: "" }))
       .catch((error) => ({
         products: [],

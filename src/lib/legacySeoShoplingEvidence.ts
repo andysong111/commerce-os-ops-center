@@ -446,14 +446,18 @@ export async function loadLegacySeoShoplingEvidence(
   const requestedModels = unique(modelNumbers.map(normalizeModel), 250);
   if (!requestedModels.length) return new Map();
 
-  const [snapshot, config] = await Promise.all([
-    loadProductPlanningSnapshot(),
-    Promise.resolve(shoplingReadConfigFromEnv(shoplingEnvironment())),
-  ]);
-  const mapping = mergeGoodsKeyOverrides(
-    goodsKeysByModelFromPlanning(snapshot),
-    goodsKeyOverrides,
+  const config = shoplingReadConfigFromEnv(shoplingEnvironment());
+  let mapping = mergeGoodsKeyOverrides(new Map(), goodsKeyOverrides);
+  const hasCompleteOverrideMapping = requestedModels.every(
+    (model) => (mapping.get(model)?.size ?? 0) > 0,
   );
+  if (!hasCompleteOverrideMapping) {
+    const snapshot = await loadProductPlanningSnapshot();
+    mapping = mergeGoodsKeyOverrides(
+      goodsKeysByModelFromPlanning(snapshot),
+      goodsKeyOverrides,
+    );
+  }
 
   const initialDiscoveryModels = requestedModels.filter(
     (model) =>

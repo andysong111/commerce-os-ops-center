@@ -253,3 +253,22 @@ test("recovery API requires a matching preview hash and delegates an atomic bulk
   assert.match(inventoryCatalog, /searchParams\.set\("modelNumbers"/);
   assert.match(inventoryCatalog, /AbortSignal\.timeout\(90_000\)/);
 });
+
+test("legacy option sync keeps Product Master reads inside the requested models", async () => {
+  const source = await readFile(
+    "src/lib/legacySeoShoplingOptionSync.ts",
+    "utf8",
+  );
+  assert.match(source, /loadLegacySeoInventoryCatalog\(requested\)/);
+  assert.doesNotMatch(source, /loadLegacySeoInventoryCatalog\(\)/);
+});
+
+test("Shopling evidence skips the full planning snapshot when exact goods keys exist", async () => {
+  const source = await readFile(
+    "src/lib/legacySeoShoplingEvidence.ts",
+    "utf8",
+  );
+  assert.match(source, /hasCompleteOverrideMapping/);
+  assert.match(source, /if \(!hasCompleteOverrideMapping\)/);
+  assert.match(source, /await loadProductPlanningSnapshot\(\)/);
+});
