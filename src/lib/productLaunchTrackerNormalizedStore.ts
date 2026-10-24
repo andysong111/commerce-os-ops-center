@@ -2,6 +2,7 @@ import { normalizeProductLaunchOptionNames } from "@/lib/productLaunchOptionName
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   buildProductLaunchTrackerIndex,
+  summarizeProductLaunchTrackerItem,
   type ProductLaunchTrackerPageQuery,
   type ProductLaunchTrackerState,
   type ProductLaunchTrackerSummary,
@@ -215,7 +216,7 @@ export async function queryProductLaunchNormalizedPage(
   const direction = text(query.direction) === "asc" ? "asc" : "desc";
 
   const params = new URLSearchParams({
-    select: "summary_payload",
+    select: "item_id,model_number,item_payload,summary_payload,updated_at,updated_by",
     owner_id: `eq.${ownerId}`,
   });
   if (batch) params.set("work_batch", `eq.${batch}`);
@@ -244,20 +245,60 @@ export async function queryProductLaunchNormalizedPage(
           (page - 1) * pageSize,
           pageSize,
         );
+  const items = await summarizeNormalizedPageRows(
+    config,
+    ownerId,
+    payload.rows,
+  );
 
   return {
     page,
     pageSize,
     pageCount,
     total,
-    items: payload.rows
-      .map((row) => (isRecord(row.summary_payload) ? row.summary_payload : null))
-      .filter(Boolean),
+    items,
     counts: isRecord(workspace.counts) ? workspace.counts : {},
     filterOptions: isRecord(workspace.filter_options)
       ? workspace.filter_options
       : { batches: [], assignees: [] },
   };
+}
+
+async function summarizeNormalizedPageRows(
+  config: Config,
+  ownerId: string,
+  rows: UnknownRecord[],
+) {
+  const fallback = () =>
+    rows
+      .map((row) => (isRecord(row.summary_payload) ? row.summary_payload : null))
+      .filter(Boolean);
+  const itemIds = rows.map((row) => text(row.item_id)).filter(Boolean);
+  if (!itemIds.length) return fallback();
+
+  const optionParams = new URLSearchParams({
+    select: "item_id,option_id,option_index,option_payload",
+    owner_id: `eq.${ownerId}`,
+    item_id: `in.(${postgrestIn(itemIds)})`,
+    order: "item_id.asc,option_index.asc",
+    limit: "5000",
+  });
+  const optionResponse = await normalizedFetch(
+    config,
+    `${OPTION_TABLE}?${optionParams.toString()}`,
+  );
+  if (optionResponse.missingSchema) return fallback();
+
+  const byId = hydrateNormalizedItems(rows, optionResponse.body);
+  return rows
+    .map((row) => {
+      const item = byId.get(text(row.item_id));
+      if (!item) {
+        return isRecord(row.summary_payload) ? row.summary_payload : null;
+      }
+      return stripSearchText(summarizeProductLaunchTrackerItem(item));
+    })
+    .filter(Boolean);
 }
 
 export async function readProductLaunchNormalizedItem(
