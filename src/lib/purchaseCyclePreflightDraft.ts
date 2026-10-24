@@ -173,6 +173,7 @@ export async function recalculatePurchaseCycleDraftInline(
 
 export async function createPurchaseCyclePreflightDraft(
   request: PurchaseCycleDraftRequest,
+  behavior: { startNewRun?: boolean } = {},
 ): Promise<{
   draft: FastPurchaseInternalDraft;
   selectedCount: number;
@@ -218,6 +219,7 @@ export async function createPurchaseCyclePreflightDraft(
     ? await regenerateValidatedMonthlyPurchaseDraft({
         ...prepared,
         expectedDraftId: request.replaceDraftId,
+        nextCycleStartDate: behavior.startNewRun ? request.targetDate : undefined,
         operatorExcludedBarcodes: request.excludedBarcodes,
         operatorQuantityOverrides: request.quantityOverrides,
       })

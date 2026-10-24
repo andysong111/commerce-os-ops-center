@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { InternalChinaFundingClosePanel } from "@/components/china-order-manager/InternalChinaFundingClosePanel";
 import { InternalChinaForwarderCostFallback } from "@/components/china-order-manager/InternalChinaForwarderCostFallback";
 import { InternalChinaReceiptPanel } from "@/components/china-order-manager/InternalChinaReceiptPanel";
+import { InternalChinaPurchaseDraftGuide } from "@/components/china-order-manager/InternalChinaPurchaseDraftGuide";
 import { PurchaseRunStartButton } from "@/components/china-order-manager/PurchaseRunStartButton";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -31,7 +32,7 @@ import { summarizeMonthlyPurchaseProgress } from "@/lib/purchaseCycleMonthlyFlow
 import { loadVerifiedPurchaseCycleSpend } from "@/lib/purchaseCyclePreflightSpend";
 import {
   buildPurchaseRunHistory,
-  groupPurchaseRunHistory,
+  filterVisiblePurchaseRunHistory,
   selectPurchaseRun,
 } from "@/lib/purchaseRunHistory";
 import styles from "./monthly-workspace.module.css";
@@ -164,8 +165,8 @@ export default async function ChinaOrderManagerPage({
   ]);
 
   const runHistory = buildPurchaseRunHistory(draftState.drafts);
-  const { visibleRuns, releasedGroups, releasedCount } = groupPurchaseRunHistory(runHistory);
-  const selectedRun = selectPurchaseRun(runHistory, requestedRun);
+  const visibleRuns = filterVisiblePurchaseRunHistory(runHistory);
+  const selectedRun = selectPurchaseRun(visibleRuns, requestedRun);
   const selectedDraftId = selectedRun?.draftId ?? "";
   const selectedMonth = selectedRun?.cycleStartDate.slice(0, 7) || currentCycleMonth;
   const purchaseByMonth = purchaseMap(purchaseSummaries);
@@ -338,6 +339,7 @@ export default async function ChinaOrderManagerPage({
 
   return (
     <div className="space-y-5">
+      <InternalChinaPurchaseDraftGuide />
       <PageHeader
         eyebrow="COMMERCE OS · PURCHASE RUN WORKSPACE"
         title="발주차시·입고 관리"
@@ -355,7 +357,7 @@ export default async function ChinaOrderManagerPage({
                 href={`/china-order-manager/drafts/${encodeURIComponent(selectedDrafts[0].draftId)}`}
                 className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white hover:bg-blue-800"
               >
-                중국 주문초안
+                중국 주문초안 · {selectedRun?.cycleStartDate ?? selectedDrafts[0].cycleStartDate}
               </Link>
             ) : null}
             <PurchaseRunStartButton />
@@ -413,43 +415,6 @@ export default async function ChinaOrderManagerPage({
               ))}
             </nav>
 
-            {releasedCount > 0 ? (
-              <details
-                className="w-full max-w-2xl rounded-xl border border-slate-200 bg-slate-50"
-                open={selectedRun?.state === "RELEASED"}
-              >
-                <summary className="cursor-pointer select-none px-3.5 py-2 text-right text-sm font-black text-slate-700 hover:text-slate-950">
-                  종료 이력 {releasedCount.toLocaleString("ko-KR")}건 · 날짜별 보기
-                </summary>
-                <div className="space-y-2 border-t border-slate-200 p-3">
-                  {releasedGroups.map((group) => (
-                    <div
-                      key={group.cycleStartDate}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2"
-                    >
-                      <span className="text-sm font-black text-slate-800">
-                        {group.cycleStartDate} · 해제·종료 {group.runs.length.toLocaleString("ko-KR")}건
-                      </span>
-                      <div className="flex flex-wrap justify-end gap-1.5">
-                        {group.runs.map((run, index) => (
-                          <Link
-                            key={run.draftId}
-                            href={`/china-order-manager?run=${encodeURIComponent(run.draftId)}`}
-                            className={`rounded-lg border px-2.5 py-1 text-xs font-bold ${
-                              run.draftId === selectedDraftId
-                                ? "border-blue-700 bg-blue-700 text-white"
-                                : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50"
-                            }`}
-                          >
-                            기록 {index + 1}
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            ) : null}
           </div>
         </div>
 

@@ -22,7 +22,7 @@ export async function POST(request: Request) {
         draftUrl: `/china-order-manager/drafts/${encodeURIComponent(result.draft.draftId)}`,
         message: result.created
           ? "새 발주차시와 중국 주문초안을 만들었습니다. 실제 주문·결제는 실행하지 않았습니다."
-          : "진행 중이거나 오늘 이미 만든 발주차시를 다시 엽니다.",
+          : "오늘 이미 계산한 중국 주문초안을 다시 엽니다.",
       },
       { status: result.created ? 201 : 200, headers: { "cache-control": "no-store" } },
     );

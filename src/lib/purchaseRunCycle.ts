@@ -81,11 +81,6 @@ function startDate(draft: PurchaseRunDraftSummary) {
   return validDate(draft.cycleStartDate) || seoulDateFromTimestamp(draft.createdAt);
 }
 
-function receiptConfirmedDate(draft: PurchaseRunDraftSummary) {
-  if (draft.orderedQuantity <= 0 || draft.openQuantity > 0) return "";
-  return seoulDateFromTimestamp(draft.receiptConfirmedAt);
-}
-
 function previousBoundaryBefore(
   drafts: PurchaseRunDraftSummary[],
   currentStartDate: string,
@@ -94,26 +89,24 @@ function previousBoundaryBefore(
   const older = drafts
     .filter((draft) => draft.draftId !== excludedDraftId)
     .map((draft) => ({
-      draft,
       start: startDate(draft),
-      receipt: receiptConfirmedDate(draft),
       executed: draft.orderedQuantity > 0 || draft.receivedQuantity > 0,
     }))
-    .filter((row) => (row.receipt || row.start) < currentStartDate)
+    .filter((row) => row.start && row.start < currentStartDate)
     .sort((left, right) =>
-      Number(Boolean(right.receipt)) - Number(Boolean(left.receipt)) ||
-      (right.receipt || right.start).localeCompare(left.receipt || left.start) ||
+      right.start.localeCompare(left.start) ||
       Number(right.executed) - Number(left.executed),
     );
-  return older[0]?.receipt || older[0]?.start || "";
+  return older[0]?.start || "";
 }
 
 /**
  * Determines the immutable sales/budget interval for an operator-started
  * purchase run. Recalculating a Draft keeps its original boundary. A new run
- * starts after the latest completed receipt when that evidence exists; legacy
- * ledgers without receipt timestamps fall back to the prior run start. A
- * 30-day bootstrap is used only when the ledger has no older purchase run.
+ * starts from the prior run's calculation start date. Receipt confirmation is
+ * deliberately not a boundary because sales made while goods are in transit
+ * must remain inside the next calculation interval. A 30-day bootstrap is used
+ * only when the ledger has no older purchase run.
  */
 export function inferPurchaseRunCycleBasis(input: {
   targetDate: unknown;

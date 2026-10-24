@@ -2,9 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const GUIDE_STORAGE_KEY = "commerceOs.purchaseDraftGuide.v2";
+const GUIDE_STORAGE_KEY = "commerceOs.purchaseDraftGuide.v4";
 
 const STEPS = [
+  {
+    title: "기존 주문초안 날짜 확인",
+    description: "‘중국 주문초안 · 날짜’는 그날 계산해 저장한 발주안입니다. 그대로 이어서 작업하려면 이 버튼을 누릅니다.",
+  },
+  {
+    title: "새 판매자료로 발주 시작",
+    description: "하루 이상 지나 최신 판매를 다시 반영하려면 ‘이번 발주 시작하기’를 누릅니다. 같은 날에는 기존 초안을 다시 열고, 날짜가 지난 미주문 초안은 새 초안으로 교체합니다.",
+  },
   {
     title: "대략 재고 선택",
     description: "각 상품에서 많음·보통·적음·품절 중 현재 상황에 가장 가까운 값을 누릅니다.",
@@ -77,9 +85,9 @@ export function InternalChinaPurchaseDraftGuide() {
           <section role="dialog" aria-modal="true" aria-labelledby="purchase-draft-guide-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-blue-200 bg-white p-5 shadow-2xl sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <span className="text-xs font-black tracking-[0.12em] text-blue-700">발주초안 작업 가이드</span>
-                <h2 id="purchase-draft-guide-title" className="mt-1 text-2xl font-black text-slate-950">이 순서대로 한 번만 진행하세요</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">입력 중에는 주문이나 결제가 실행되지 않습니다. 마지막 재계산까지 마친 뒤 5번 업무로 이동합니다.</p>
+                <span className="text-xs font-black tracking-[0.12em] text-blue-700">발주차시·발주초안 작업 가이드</span>
+                <h2 id="purchase-draft-guide-title" className="mt-1 text-2xl font-black text-slate-950">기존 초안 확인부터 순서대로 진행하세요</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">기존 초안을 이어서 작업할지, 오늘 판매자료로 다시 계산할지 날짜를 보고 선택합니다. 새 계산은 직전 발주계산 시작일부터 어제까지의 판매를 이어서 반영합니다.</p>
               </div>
               <button type="button" onClick={closeGuide} aria-label="작업 가이드 닫기" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-50">닫기</button>
             </div>
@@ -97,7 +105,7 @@ export function InternalChinaPurchaseDraftGuide() {
             </ol>
 
             <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold leading-6 text-amber-950">
-              수동 추가·직접 수정 수량은 자동으로 줄이지 않습니다. 이 고정수량만으로 예산을 넘으면 초과액을 보여주고 주문완료 기록을 막습니다.
+              판매 구간의 기준은 입고확정일이 아니라 직전 발주계산 시작일입니다. 배송 중 판매도 빠뜨리지 않기 위해서입니다. 발주차시 시작과 초안 수정만으로는 예산 지출이나 재고 증가가 생기지 않으며, 실제 주문과 입고확정 때 각각 원장에 반영됩니다.
             </div>
             <button type="button" onClick={closeGuide} className="mt-5 w-full rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800">확인하고 시작</button>
           </section>

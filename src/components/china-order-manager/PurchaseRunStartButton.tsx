@@ -47,7 +47,7 @@ export function PurchaseRunStartButton() {
         disabled={starting}
         className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-wait disabled:bg-slate-400"
       >
-        {starting ? "발주목록 계산 중..." : "이번 발주 시작하기"}
+        {starting ? "최신 발주안 계산 중..." : "이번 발주 시작하기"}
       </button>
       {notice ? (
         <p className="max-w-md text-right text-xs font-bold leading-5 text-amber-800">
