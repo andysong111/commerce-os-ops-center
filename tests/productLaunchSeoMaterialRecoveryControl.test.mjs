@@ -5,6 +5,7 @@ import {
   combineRecoveryReports,
   failedRecoveryBatchReport,
   readyRecoveryModelNumbers,
+  recoveryModelStatus,
 } from "../public/product-launch-tracker-app/seo-material-recovery-control.js";
 
 test("확실한 자료 반영은 복구 후 준비완료 모델만 선택한다", () => {
@@ -18,6 +19,8 @@ test("확실한 자료 반영은 복구 후 준비완료 모델만 선택한다"
   };
 
   assert.deepEqual(readyRecoveryModelNumbers(report), ["AAA097"]);
+  assert.equal(recoveryModelStatus(report, "AAA162"), "partially_recovered");
+  assert.equal(recoveryModelStatus(report, "AAA999"), "");
 });
 
 test("자료원 한 묶음이 실패해도 성공한 SEO 복구 결과를 보존한다", () => {
@@ -48,7 +51,7 @@ test("자료원 한 묶음이 실패해도 성공한 SEO 복구 결과를 보존
   assert.match(report.results[1].unresolved[0], /자료원 조회 실패/);
 });
 
-test("상품출시 화면은 SEO 재료를 미리 검사한 뒤 같은 계획만 반영한다", async () => {
+test("상품출시 화면은 SEO 재료를 상품별로 다시 검사한 뒤 반영한다", async () => {
   const app = await readFile(
     new URL("../public/product-launch-tracker-app/app.js", import.meta.url),
     "utf8",
@@ -66,23 +69,25 @@ test("상품출시 화면은 SEO 재료를 미리 검사한 뒤 같은 계획만
   assert.match(control, /action: "preview"/);
   assert.match(control, /action: "apply"/);
   assert.match(control, /RECOVERY_BATCH_SIZE = 6/);
-  assert.match(control, /RECOVERY_REQUEST_TIMEOUT_MS = 70_000/);
-  assert.match(control, /자료 조회가 70초를 넘었습니다/);
+  assert.match(control, /RECOVERY_REQUEST_TIMEOUT_MS = 90_000/);
+  assert.match(control, /RECOVERY_PREVIEW_ATTEMPTS = 2/);
+  assert.match(control, /자료 조회가 90초를 넘었습니다/);
   assert.match(control, /pageSize: "100"/);
   assert.match(control, /item\?\.readiness\?\.ready === true/);
   assert.match(control, /failedRecoveryBatchReport\(batchTargets, error\)/);
   assert.match(control, /sourceFailureCount: sum\("sourceFailureCount"\)/);
   assert.match(control, /failedBatchCount: batches\.filter/);
-  assert.match(control, /batch\?\.failed === true/);
-  assert.match(control, /readyRecoveryModelNumbers\(batch\?\.report\)/);
-  assert.match(control, /readyRecoveryModelNumbers\(latest\)\.length !== modelNumbers\.length/);
+  assert.match(control, /requestRecoveryPreview\(modelNumbers\)/);
+  assert.match(control, /for \(const \[index, modelNumber\] of modelNumbers\.entries\(\)\)/);
+  assert.match(control, /requestRecoveryPreview\(\[modelNumber\]\)/);
+  assert.match(control, /readyRecoveryModelNumbers\(latest\)\.includes\(modelNumber\)/);
+  assert.match(control, /latestStatus === "already_ready"/);
   assert.match(control, /준비완료 \$\{readyCount\}건 반영/);
   assert.match(control, /const applyFailures = \[\]/);
   assert.match(control, /applyFailures\.push/);
-  assert.match(control, /최신 상태를 다시 검사합니다/);
+  assert.match(control, /은 다시 검사합니다/);
   assert.match(control, /자료원 조회 실패/);
-  assert.match(control, /reportForModelNumbers\(batch\?\.report, modelNumbers\)/);
-  assert.match(control, /modelNumbers,/);
+  assert.match(control, /modelNumbers: \[modelNumber\]/);
   assert.match(control, /expectedPlanHash: text\(latest\?\.planHash\)/);
   assert.match(control, /확실한 자료만 반영/);
   assert.match(control, /credentials: "same-origin"/);
