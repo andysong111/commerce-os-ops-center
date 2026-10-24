@@ -215,13 +215,25 @@ async function previewRecoveryBatches(button) {
         report,
         failed: false,
       });
-    } catch (error) {
-      const report = failedRecoveryBatchReport(batchTargets, error);
-      batches.push({
-        modelNumbers,
-        report,
-        failed: true,
-      });
+    } catch {
+      for (const [targetIndex, target] of batchTargets.entries()) {
+        button.textContent = `자료 조회 개별 재검사 (${targetIndex + 1}/${batchTargets.length})`;
+        try {
+          const report = await requestRecoveryPreview([target.modelNumber]);
+          batches.push({
+            modelNumbers: [target.modelNumber],
+            report,
+            failed: false,
+          });
+        } catch (targetError) {
+          const report = failedRecoveryBatchReport([target], targetError);
+          batches.push({
+            modelNumbers: [target.modelNumber],
+            report,
+            failed: true,
+          });
+        }
+      }
     }
   }
   return combineRecoveryReports(batches);
