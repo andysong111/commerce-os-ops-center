@@ -2,12 +2,19 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
+import {
+  decidePurchaseRunRetry,
+  EMPTY_PURCHASE_RUN_RETRY_TRACKER,
+} from "@/lib/purchaseRunPreparationRetryCore";
 
 type StartPayload = {
   ok?: boolean;
   pending?: boolean;
   state?: "PENDING" | "READY" | "BLOCKED";
   progress?: number;
+  stage?: string;
+  code?: string;
+  retryableFailure?: boolean;
   message?: string;
   draftUrl?: string | null;
   builderUrl?: string | null;
@@ -61,6 +68,7 @@ export function PurchaseRunStartButton() {
     setNotice("발주차시를 준비하고 있습니다.");
 
     try {
+      let retryTracker = EMPTY_PURCHASE_RUN_RETRY_TRACKER;
       for (let attempt = 0; attempt < 120; attempt += 1) {
         const response = await fetch("/api/china-order-manager/purchase-runs/start", {
           method: "POST",
@@ -84,7 +92,15 @@ export function PurchaseRunStartButton() {
           setStarting(false);
           return;
         }
-        await wait(900, controller.signal);
+        const retryDecision = decidePurchaseRunRetry(retryTracker, payload);
+        retryTracker = retryDecision;
+        if (retryDecision.stopAutomaticRetry) {
+          setNotice(
+            `${payload.message || "자료 연결이 지연되고 있습니다."} 같은 오류의 자동 반복을 멈췄습니다. 잠시 후 같은 시작 버튼을 누르면 저장된 단계부터 이어집니다.`,
+          );
+          return;
+        }
+        await wait(retryDecision.waitMs, controller.signal);
       }
       setNotice("준비 시간이 길어지고 있습니다. 같은 시작 버튼을 누르면 완료한 단계부터 이어집니다.");
     } catch (error) {

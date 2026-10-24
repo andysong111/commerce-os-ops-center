@@ -14,6 +14,9 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(service, /runProductDecisionLiveRefreshStep/);
   assert.match(service, /최신 주문·클레임을 읽고 있습니다/);
   assert.match(service, /runProductMasterShoplingSalesEventSyncStep/);
+  assert.match(service, /DEMAND_STEPS_PER_REQUEST = 1/);
+  assert.match(service, /SALES_STEPS_PER_REQUEST = 1/);
+  assert.match(service, /PurchaseRunPreparationStageError/);
   assert.match(service, /loadPostApplyCanonicalReconciliation/);
   assert.match(service, /loadInventoryVerificationPriority/);
   assert.match(service, /prepared:\s*"1"/);
@@ -24,6 +27,8 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(route, /transientSourceReadFailure/);
   assert.match(route, /state:\s*"PENDING"/);
   assert.match(route, /status: 202/);
+  assert.match(route, /retryableFailure: true/);
+  assert.match(route, /purchaseRunPreparationErrorStage/);
   assert.match(route, /\[purchase-run-start\] preparation failed/);
   assert.doesNotMatch(service, /checkout|payment|submitOrder|externalOrderExecuted:\s*true/i);
 });
@@ -47,6 +52,8 @@ test("main manager is run-based and exposes the one-click start action", async (
   assert.match(startButton, /신규상품 소싱예산 비율/);
   assert.match(startButton, /최신 판매·클레임·재고·미입고 자료/);
   assert.match(startButton, /최신자료 준비 중/);
+  assert.match(startButton, /decidePurchaseRunRetry/);
+  assert.match(startButton, /같은 오류의 자동 반복을 멈췄습니다/);
   assert.match(startButton, /aria-label="발주차시 시작 창 닫기"/);
   assert.doesNotMatch(startButton, /onClick=\{close\}\s+disabled=\{starting\}/);
   assert.match(page, /중국 주문초안 ·/);

@@ -16,8 +16,43 @@ import {
 } from "@/lib/productDecisionLiveRefresh";
 
 export const PURCHASE_RUN_SALES_MAX_AGE_MS = 5 * 60 * 1000;
-const SALES_STEPS_PER_REQUEST = 3;
-const DEMAND_STEPS_PER_REQUEST = 4;
+const SALES_STEPS_PER_REQUEST = 1;
+const DEMAND_STEPS_PER_REQUEST = 1;
+
+export type PurchaseRunPreparationStage =
+  | "DEMAND"
+  | "SALES"
+  | "CANARY"
+  | "FULL"
+  | "RECONCILIATION"
+  | "INVENTORY";
+
+export class PurchaseRunPreparationStageError extends Error {
+  readonly stage: PurchaseRunPreparationStage;
+  override readonly cause: unknown;
+
+  constructor(stage: PurchaseRunPreparationStage, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause ?? "PURCHASE_RUN_PREPARATION_FAILED"));
+    this.name = "PurchaseRunPreparationStageError";
+    this.stage = stage;
+    this.cause = cause;
+  }
+}
+
+export function purchaseRunPreparationErrorStage(error: unknown) {
+  return error instanceof PurchaseRunPreparationStageError ? error.stage : null;
+}
+
+async function atPreparationStage<T>(
+  stage: PurchaseRunPreparationStage,
+  action: () => Promise<T>,
+) {
+  try {
+    return await action();
+  } catch (error) {
+    throw new PurchaseRunPreparationStageError(stage, error);
+  }
+}
 
 export type PurchaseRunPreparationInput = {
   targetDate: string;
@@ -104,7 +139,7 @@ function blocked(
 export async function advancePurchaseRunPreparation(
   input: PurchaseRunPreparationInput,
 ): Promise<PurchaseRunPreparationResult> {
-  const ledger = await loadFastPurchaseInternalDrafts();
+  const ledger = await atPreparationStage("INVENTORY", () => loadFastPurchaseInternalDrafts());
   if (ledger.error) {
     return blocked("INVENTORY", 0, "기존 발주기록을 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.");
   }
@@ -121,15 +156,17 @@ export async function advancePurchaseRunPreparation(
     };
   }
 
-  let demand = await ensurePurchaseRunDemandRefreshRequest({
-    maxAgeMs: PURCHASE_RUN_SALES_MAX_AGE_MS,
-  });
+  let demand = await atPreparationStage("DEMAND", () =>
+    ensurePurchaseRunDemandRefreshRequest({
+      maxAgeMs: PURCHASE_RUN_SALES_MAX_AGE_MS,
+    }));
   if (demand.state === "QUEUED" || demand.state === "RUNNING") {
     for (let index = 0; index < DEMAND_STEPS_PER_REQUEST; index += 1) {
-      const step = await runProductDecisionLiveRefreshStep();
+      const step = await atPreparationStage("DEMAND", () => runProductDecisionLiveRefreshStep());
       if (step.state !== "RUNNING") break;
     }
-    demand = await loadProductDecisionLiveStatus(demand.requestId);
+    demand = await atPreparationStage("DEMAND", () =>
+      loadProductDecisionLiveStatus(demand.requestId));
     if (demand.state === "QUEUED" || demand.state === "RUNNING") {
       return {
         state: "PENDING",
@@ -148,17 +185,20 @@ export async function advancePurchaseRunPreparation(
     );
   }
 
-  await ensurePurchaseRunSalesRequest({
+  await atPreparationStage("SALES", () => ensurePurchaseRunSalesRequest({
     targetDate: input.targetDate,
     maxAgeMs: PURCHASE_RUN_SALES_MAX_AGE_MS,
-  });
-  let sales = await loadProductMasterShoplingSalesEventSyncStatus();
+  }));
+  let sales = await atPreparationStage("SALES", () =>
+    loadProductMasterShoplingSalesEventSyncStatus());
   if (sales.state === "QUEUED" || sales.state === "RUNNING") {
     for (let index = 0; index < SALES_STEPS_PER_REQUEST; index += 1) {
-      const step = await runProductMasterShoplingSalesEventSyncStep();
+      const step = await atPreparationStage("SALES", () =>
+        runProductMasterShoplingSalesEventSyncStep());
       if (step.state !== "RUNNING") break;
     }
-    sales = await loadProductMasterShoplingSalesEventSyncStatus();
+    sales = await atPreparationStage("SALES", () =>
+      loadProductMasterShoplingSalesEventSyncStatus());
     if (sales.state === "QUEUED" || sales.state === "RUNNING") {
       return {
         state: "PENDING",
@@ -171,14 +211,17 @@ export async function advancePurchaseRunPreparation(
   }
 
   if (sales.state === "READY_CANARY") {
-    const gate = await loadSalesEventDirectPromotionGate("canary");
+    const gate = await atPreparationStage("CANARY", () =>
+      loadSalesEventDirectPromotionGate("canary"));
     if (!gate.safeToApply || !gate.candidatePlanFingerprint) {
       return blocked("CANARY", 72, "판매자료 1건 확인에서 안전조건을 충족하지 못했습니다.");
     }
-    const applied = await applyProductMasterShoplingSalesEvents(
-      "canary",
-      gate.candidatePlanFingerprint,
-    );
+    const candidatePlanFingerprint = gate.candidatePlanFingerprint;
+    const applied = await atPreparationStage("CANARY", () =>
+      applyProductMasterShoplingSalesEvents(
+        "canary",
+        candidatePlanFingerprint,
+      ));
     if (!applied.ok) {
       return blocked("CANARY", 72, applied.message || "상품마스터 판매자료 저장 준비가 필요합니다.");
     }
@@ -192,14 +235,17 @@ export async function advancePurchaseRunPreparation(
   }
 
   if (sales.state === "READY_FULL") {
-    const gate = await loadSalesEventDirectPromotionGate("full");
+    const gate = await atPreparationStage("FULL", () =>
+      loadSalesEventDirectPromotionGate("full"));
     if (!gate.safeToApply || !gate.candidatePlanFingerprint) {
       return blocked("FULL", 80, "전체 판매자료 반영 안전조건을 충족하지 못했습니다.");
     }
-    const applied = await applyProductMasterShoplingSalesEvents(
-      "full",
-      gate.candidatePlanFingerprint,
-    );
+    const candidatePlanFingerprint = gate.candidatePlanFingerprint;
+    const applied = await atPreparationStage("FULL", () =>
+      applyProductMasterShoplingSalesEvents(
+        "full",
+        candidatePlanFingerprint,
+      ));
     if (!applied.ok) {
       return blocked("FULL", 80, applied.message || "전체 판매자료 저장 준비가 필요합니다.");
     }
@@ -222,13 +268,15 @@ export async function advancePurchaseRunPreparation(
     );
   }
 
-  const reconciliation = await loadPostApplyCanonicalReconciliation();
+  const reconciliation = await atPreparationStage("RECONCILIATION", () =>
+    loadPostApplyCanonicalReconciliation());
   if (!reconciliation.ready) {
     return blocked("RECONCILIATION", 90, "저장한 판매자료와 발주 계산용 원장이 일치하지 않습니다.");
   }
-  const inventory = await loadInventoryVerificationPriority(input.targetDate, {
-    reconciliation,
-  });
+  const inventory = await atPreparationStage("INVENTORY", () =>
+    loadInventoryVerificationPriority(input.targetDate, {
+      reconciliation,
+    }));
   if (inventory.state !== "READY") {
     return blocked(
       "INVENTORY",

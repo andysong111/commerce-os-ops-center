@@ -3,6 +3,8 @@ import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
 import {
   advancePurchaseRunPreparation,
   normalizePurchaseRunPreparationInput,
+  purchaseRunPreparationErrorStage,
+  type PurchaseRunPreparationStage,
 } from "@/lib/purchaseRunPreparation";
 
 export const runtime = "nodejs";
@@ -11,11 +13,41 @@ export const revalidate = 0;
 export const maxDuration = 600;
 
 function transientSourceReadFailure(error: unknown, raw: string) {
-  const name = error instanceof Error ? error.name : "";
-  return name === "AbortError" ||
+  const evidence = [raw];
+  let current = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    evidence.push(current.name, current.message);
+    current = current.cause;
+  }
+  return evidence.includes("AbortError") || evidence.includes("TimeoutError") ||
     /abort|timeout|timed out|fetch failed|econnreset|econnrefused|planning_failed:5\d\d/i.test(
-      raw,
+      evidence.join(" "),
     );
+}
+
+function transientStageResponse(stage: PurchaseRunPreparationStage | null) {
+  const normalized = stage ?? "DEMAND";
+  const progressByStage: Record<PurchaseRunPreparationStage, number> = {
+    DEMAND: 0,
+    SALES: 35,
+    CANARY: 72,
+    FULL: 80,
+    RECONCILIATION: 90,
+    INVENTORY: 95,
+  };
+  const labelByStage: Record<PurchaseRunPreparationStage, string> = {
+    DEMAND: "상품 기준정보와 주문·클레임",
+    SALES: "최신 판매자료",
+    CANARY: "판매자료 1건 안전 대조",
+    FULL: "전체 판매자료 반영",
+    RECONCILIATION: "판매 원장 대조",
+    INVENTORY: "재고·미입고 대조",
+  };
+  return {
+    stage: normalized,
+    progress: progressByStage[normalized],
+    message: `${labelByStage[normalized]} 연결이 지연되어 자동으로 다시 시도합니다.`,
+  };
 }
 
 export async function POST(request: Request) {
@@ -44,9 +76,11 @@ export async function POST(request: Request) {
     const validationError = code === "PURCHASE_RUN_CASH_INVALID" ||
       code === "PURCHASE_RUN_SOURCING_PERCENT_INVALID";
     const retryable = !validationError && transientSourceReadFailure(error, raw);
+    const transientStage = transientStageResponse(purchaseRunPreparationErrorStage(error));
     console.error("[purchase-run-start] preparation failed", {
       code,
       retryable,
+      stage: transientStage.stage,
       errorName: error instanceof Error ? error.name : "UnknownError",
       message: raw.slice(0, 500),
     });
@@ -56,10 +90,11 @@ export async function POST(request: Request) {
           ok: true,
           pending: true,
           state: "PENDING",
-          stage: "DEMAND",
-          progress: 0,
+          stage: transientStage.stage,
+          progress: transientStage.progress,
           code,
-          message: "상품 기준정보 연결이 지연되어 자동으로 다시 시도합니다.",
+          retryableFailure: true,
+          message: transientStage.message,
           externalOrderExecuted: false,
         },
         { status: 202, headers: { "cache-control": "no-store" } },
