@@ -59,6 +59,9 @@ test("상품출시 화면은 SEO 재료를 미리 검사한 뒤 같은 계획만
   assert.match(control, /sourceFailureCount: sum\("sourceFailureCount"\)/);
   assert.match(control, /failedBatchCount: batches\.filter/);
   assert.match(control, /batch\?\.failed === true/);
+  assert.match(control, /const applyFailures = \[\]/);
+  assert.match(control, /applyFailures\.push/);
+  assert.match(control, /최신 상태를 다시 검사합니다/);
   assert.match(control, /자료원 조회 실패/);
   assert.match(control, /modelNumbers: list\(batch\?\.modelNumbers\)/);
   assert.match(control, /reportSignature\(latest\) !== text\(batch\?\.signature\)/);

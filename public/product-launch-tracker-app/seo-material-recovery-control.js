@@ -288,27 +288,38 @@ async function applyRecovery(dialog, button, report) {
   applyButton.textContent = "반영 중...";
   try {
     let appliedCount = 0;
+    const applyFailures = [];
     const batches = list(report?.batches);
     for (const [index, batch] of batches.entries()) {
       if (batch?.failed === true || !(Number(batch?.report?.changedCount) > 0)) continue;
       applyButton.textContent = `반영 중 (${index + 1}/${batches.length})`;
-      const latest = await requestRecovery({
-        action: "preview",
-        modelNumbers: list(batch?.modelNumbers),
-      });
-      if (reportSignature(latest) !== text(batch?.signature)) {
-        throw new Error("검사 뒤 상품 상태가 달라졌습니다. 새로 검사한 뒤 다시 반영하세요.");
+      try {
+        const latest = await requestRecovery({
+          action: "preview",
+          modelNumbers: list(batch?.modelNumbers),
+        });
+        if (reportSignature(latest) !== text(batch?.signature)) {
+          throw new Error("검사 뒤 상품 상태가 달라졌습니다.");
+        }
+        const applied = await requestRecovery({
+          action: "apply",
+          modelNumbers: list(batch?.modelNumbers),
+          expectedPlanHash: text(latest?.planHash),
+        });
+        appliedCount += Number(applied?.appliedCount) || 0;
+      } catch (error) {
+        applyFailures.push({
+          modelNumbers: list(batch?.modelNumbers),
+          message: error instanceof Error ? error.message : "반영 결과를 확인하지 못했습니다.",
+        });
       }
-      const applied = await requestRecovery({
-        action: "apply",
-        modelNumbers: list(batch?.modelNumbers),
-        expectedPlanHash: text(latest?.planHash),
-      });
-      appliedCount += Number(applied?.appliedCount) || 0;
     }
     dialog.close();
-    showMessage(`SEO 재료 ${appliedCount}건을 반영했습니다.`);
-    button.textContent = "반영 완료";
+    const retryMessage = applyFailures.length
+      ? ` ${applyFailures.length}개 묶음은 최신 상태를 다시 검사합니다.`
+      : "";
+    showMessage(`SEO 재료 ${appliedCount}건을 반영했습니다.${retryMessage}`);
+    button.textContent = applyFailures.length ? "재검사 필요" : "반영 완료";
     window.setTimeout(() => window.location.reload(), 350);
   } catch (error) {
     showMessage(error instanceof Error ? error.message : "SEO 재료를 반영하지 못했습니다.");
