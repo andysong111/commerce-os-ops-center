@@ -4,7 +4,8 @@ const BUTTON_ID = "seo-material-recovery-button";
 const DIALOG_ID = "seo-material-recovery-dialog";
 const MAX_INSTALL_ATTEMPTS = 40;
 const RECOVERY_BATCH_SIZE = 6;
-const RECOVERY_REQUEST_TIMEOUT_MS = 70_000;
+const RECOVERY_REQUEST_TIMEOUT_MS = 90_000;
+const RECOVERY_PREVIEW_ATTEMPTS = 2;
 
 let installAttempts = 0;
 let installTimer = null;
@@ -62,12 +63,29 @@ async function requestRecovery(body) {
     return payload;
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error("자료 조회가 70초를 넘었습니다. 이 묶음은 재확인이 필요합니다.");
+      throw new Error("자료 조회가 90초를 넘었습니다. 다시 확인이 필요합니다.");
     }
     throw error;
   } finally {
     window.clearTimeout(timeout);
   }
+}
+
+async function requestRecoveryPreview(modelNumbers) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= RECOVERY_PREVIEW_ATTEMPTS; attempt += 1) {
+    try {
+      return await requestRecovery({ action: "preview", modelNumbers });
+    } catch (error) {
+      lastError = error;
+      if (attempt < RECOVERY_PREVIEW_ATTEMPTS) {
+        await new Promise((resolve) => window.setTimeout(resolve, 800));
+      }
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("SEO 재료를 다시 확인하지 못했습니다.");
 }
 
 async function readRecoveryTargets() {
@@ -115,19 +133,6 @@ function chunk(values, size) {
     result.push(values.slice(index, index + size));
   }
   return result;
-}
-
-function reportSignature(report) {
-  return JSON.stringify(
-    list(report?.results).map((row) => ({
-      modelNumber: text(row?.modelNumber),
-      status: text(row?.status),
-      changed: row?.changed === true,
-      changedFields: list(row?.changedFields).map(text),
-      afterErrors: list(row?.afterErrors).map(text),
-      unresolved: list(row?.unresolved).map(text),
-    })),
-  );
 }
 
 export function combineRecoveryReports(batches) {
@@ -188,13 +193,12 @@ export function readyRecoveryModelNumbers(report) {
   return models;
 }
 
-function reportForModelNumbers(report, modelNumbers) {
-  const selected = new Set(modelNumbers);
-  return {
-    results: list(report?.results).filter((row) =>
-      selected.has(text(row?.modelNumber)),
-    ),
-  };
+export function recoveryModelStatus(report, modelNumber) {
+  const normalizedModelNumber = text(modelNumber);
+  const row = list(report?.results).find(
+    (candidate) => text(candidate?.modelNumber) === normalizedModelNumber,
+  );
+  return text(row?.status);
 }
 
 async function previewRecoveryBatches(button) {
@@ -205,10 +209,9 @@ async function previewRecoveryBatches(button) {
     button.textContent = `SEO 재료 검사 중 (${index + 1}/${targetBatches.length})`;
     const modelNumbers = batchTargets.map((target) => target.modelNumber);
     try {
-      const report = await requestRecovery({ action: "preview", modelNumbers });
+      const report = await requestRecoveryPreview(modelNumbers);
       batches.push({
         modelNumbers,
-        signature: reportSignature(report),
         report,
         failed: false,
       });
@@ -216,7 +219,6 @@ async function previewRecoveryBatches(button) {
       const report = failedRecoveryBatchReport(batchTargets, error);
       batches.push({
         modelNumbers,
-        signature: reportSignature(report),
         report,
         failed: true,
       });
@@ -319,41 +321,51 @@ async function applyRecovery(dialog, button, report) {
   try {
     let appliedCount = 0;
     const applyFailures = [];
-    const batches = list(report?.batches);
-    for (const [index, batch] of batches.entries()) {
-      const modelNumbers = readyRecoveryModelNumbers(batch?.report);
-      if (batch?.failed === true || !modelNumbers.length) continue;
-      applyButton.textContent = `반영 중 (${index + 1}/${batches.length})`;
-      try {
-        const latest = await requestRecovery({
-          action: "preview",
-          modelNumbers,
-        });
-        const expectedSignature = reportSignature(
-          reportForModelNumbers(batch?.report, modelNumbers),
-        );
-        if (
-          readyRecoveryModelNumbers(latest).length !== modelNumbers.length ||
-          reportSignature(latest) !== expectedSignature
-        ) {
-          throw new Error("검사 뒤 상품 상태가 달라졌습니다.");
+    const modelNumbers = readyRecoveryModelNumbers(report);
+    for (const [index, modelNumber] of modelNumbers.entries()) {
+      applyButton.textContent = `반영 중 (${index + 1}/${modelNumbers.length})`;
+      let lastError = null;
+      let completed = false;
+      for (let attempt = 1; attempt <= 2 && !completed; attempt += 1) {
+        try {
+          const latest = await requestRecoveryPreview([modelNumber]);
+          const latestStatus = recoveryModelStatus(latest, modelNumber);
+          if (latestStatus === "already_ready") {
+            appliedCount += 1;
+            completed = true;
+            break;
+          }
+          if (!readyRecoveryModelNumbers(latest).includes(modelNumber)) {
+            throw new Error("최신 검사에서 준비완료 상태가 아닙니다.");
+          }
+          const applied = await requestRecovery({
+            action: "apply",
+            modelNumbers: [modelNumber],
+            expectedPlanHash: text(latest?.planHash),
+          });
+          if ((Number(applied?.appliedCount) || 0) < 1) {
+            throw new Error("반영 결과를 확인하지 못했습니다.");
+          }
+          appliedCount += 1;
+          completed = true;
+        } catch (error) {
+          lastError = error;
         }
-        const applied = await requestRecovery({
-          action: "apply",
-          modelNumbers,
-          expectedPlanHash: text(latest?.planHash),
-        });
-        appliedCount += Number(applied?.appliedCount) || 0;
-      } catch (error) {
+      }
+      if (!completed) {
         applyFailures.push({
-          modelNumbers: list(batch?.modelNumbers),
-          message: error instanceof Error ? error.message : "반영 결과를 확인하지 못했습니다.",
+          modelNumber,
+          message: lastError instanceof Error
+            ? lastError.message
+            : "반영 결과를 확인하지 못했습니다.",
         });
       }
     }
     dialog.close();
     const retryMessage = applyFailures.length
-      ? ` ${applyFailures.length}개 묶음은 최신 상태를 다시 검사합니다.`
+      ? ` 미반영 ${applyFailures.length}건: ${applyFailures
+          .map((failure) => failure.modelNumber)
+          .join(", ")}은 다시 검사합니다.`
       : "";
     showMessage(`SEO 재료 ${appliedCount}건을 반영했습니다.${retryMessage}`);
     button.textContent = applyFailures.length ? "재검사 필요" : "반영 완료";
