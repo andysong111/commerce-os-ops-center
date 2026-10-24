@@ -3,6 +3,7 @@ import {
   sanitizeShoplingCategoryPath,
 } from "./shoplingCategoryPathSafety.ts";
 import { productLaunchSeoMaterialReadiness } from "./productLaunchSeoMaterialReadiness.ts";
+import { legacySeoRegistrationExclusion } from "./legacySeoRegistrationPolicy.ts";
 import {
   sourcingReceiptStatus,
   type SourcingReceiptStatus,
@@ -58,6 +59,7 @@ export type ProductLaunchTrackerSummary = {
     warningCount: number;
     firstError: string;
   };
+  seoExclusion: { excluded: boolean; reason: string };
   receiptStatus: SourcingReceiptStatus;
   receiptPending: boolean;
   stages: Record<string, { status: string; assignee: string }>;
@@ -154,7 +156,10 @@ export function buildProductLaunchTrackerIndex(
   const active = summaries.filter((item) => !item.archivedAt);
   const counts = {
     전체: active.length,
-    "등록 준비": active.filter((item) => item.readiness.ready).length,
+    "등록 준비": active.filter(
+      (item) => !item.seoExclusion.excluded && item.readiness.ready,
+    ).length,
+    "SEO 제외": active.filter((item) => item.seoExclusion.excluded).length,
     "진행 중": active.filter((item) => item.overallStatus === "진행 중").length,
     보류: active.filter((item) => item.overallStatus === "보류").length,
     완료: active.filter((item) => item.overallStatus === "완료").length,
@@ -280,6 +285,7 @@ export function summarizeProductLaunchTrackerItem(
     ...item,
     orderOptions,
   });
+  const seoExclusion = legacySeoRegistrationExclusion(item);
   const readiness = {
     ready: materialReadiness.ready,
     errorCount: materialReadiness.errorCount,
@@ -369,6 +375,7 @@ export function summarizeProductLaunchTrackerItem(
     chinaProductLinks,
     detailPageAsset,
     readiness,
+    seoExclusion,
     receiptStatus,
     receiptPending,
     stages,
@@ -425,6 +432,12 @@ export function applyProductLaunchTrackerMutation(
       if (!patch) throw new Error("상품 패치 객체가 필요합니다.");
       const index = items.findIndex((item) => text(item.id) === itemId);
       if (index < 0) throw new Error("수정할 상품을 찾지 못했습니다.");
+      const expectedUpdatedAt = text(entry.expectedUpdatedAt);
+      if (expectedUpdatedAt && text(items[index].updatedAt) !== expectedUpdatedAt) {
+        throw new Error(
+          `${text(items[index].modelNumber) || itemId} 상품이 미리보기 뒤 동시에 수정되었습니다.`,
+        );
+      }
       items[index] = patchItem(
         items[index],
         {

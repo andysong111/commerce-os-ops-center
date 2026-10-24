@@ -210,6 +210,9 @@ function routeFixture(authorized = true) {
     "next/server": { after: () => {} },
     "@/lib/seoBulkShoplingSource": { seoBulkShoplingGoodsKeys: adapter().seoBulkShoplingGoodsKeys },
     "@/lib/productLaunchSeoMaterialReadiness": materialReadiness,
+    "@/lib/legacySeoRegistrationPolicy": {
+      legacySeoRegistrationExclusion: () => ({ excluded: false, reason: "" }),
+    },
     "@/lib/keywordEngineElonLabV2": v2,
     "@/lib/opsAdaptiveDispatcher": {},
     "@/lib/productLaunchTrackerNormalizedStore": { readProductLaunchNormalizedItems: async () => { reads++; return [{

@@ -372,6 +372,7 @@ function applyCountDelta(
   const next: Record<string, number> = {
     전체: nonNegativeInteger(current["전체"]),
     "등록 준비": nonNegativeInteger(current["등록 준비"]),
+    "SEO 제외": nonNegativeInteger(current["SEO 제외"]),
     "진행 중": nonNegativeInteger(current["진행 중"]),
     보류: nonNegativeInteger(current["보류"]),
     완료: nonNegativeInteger(current["완료"]),
@@ -388,7 +389,10 @@ function applyCountDelta(
 function summaryCountContribution(summary: ProductLaunchTrackerSummary, key: string) {
   if (summary.archivedAt) return 0;
   if (key === "전체") return 1;
-  if (key === "등록 준비") return summary.readiness.ready ? 1 : 0;
+  if (key === "등록 준비") {
+    return !summary.seoExclusion.excluded && summary.readiness.ready ? 1 : 0;
+  }
+  if (key === "SEO 제외") return summary.seoExclusion.excluded ? 1 : 0;
   if (key === "진행 중") return summary.overallStatus === "진행 중" ? 1 : 0;
   if (key === "보류") return summary.overallStatus === "보류" ? 1 : 0;
   if (key === "완료") return summary.overallStatus === "완료" ? 1 : 0;
