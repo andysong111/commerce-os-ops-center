@@ -179,7 +179,8 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
         goodsKeyOverridesFor(evidenceItems, productByModel),
       )
     : new Map();
-  const recoveredAt = new Date().toISOString();
+  const sourceStateUpdatedAt = text(stored.updated_at);
+  const recoveredAt = sourceStateUpdatedAt || "1970-01-01T00:00:00.000Z";
   const plans = items.map((item) => {
     const modelNumber = normalizeLegacyModel(item.modelNumber);
     return buildProductLaunchSeoMaterialRecoveryPlan({
@@ -204,7 +205,7 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
     receiptPendingCount: counts.receipt_pending ?? 0,
     statusCounts: counts,
     planHash,
-    sourceStateUpdatedAt: text(stored.updated_at),
+    sourceStateUpdatedAt,
     results: plans.map(publicPlan),
   };
   return {
