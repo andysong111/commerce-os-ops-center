@@ -166,12 +166,16 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   assert.match(guide, /aria-expanded=\{open\}/);
   assert.match(guide, /fixed right-4 top-24 z-\[80\]/);
   assert.match(guide, /onClick=\{\(\) => setOpen\(true\)\}/);
+  assert.match(guide, /현재 주문초안 먼저 확인/);
+  assert.match(guide, /현재 발주 계속하기/);
+  assert.match(guide, /진행 중인 초안이 없을 때만 발주 시작/);
+  assert.match(guide, /실제 주문하지 않은 옛 초안은 운영 화면에 표시하지 않습니다/);
   assert.match(guide, /대략 재고 선택/);
   assert.match(guide, /수량 확인과 5·10단위 정리/);
   assert.match(guide, /빠진 B코드 수동 추가/);
   assert.match(guide, /발주안 한 번 재계산/);
   assert.match(guide, /5번 업무 실행/);
-  assert.match(guide, /고정수량만으로 예산을 넘으면/);
+  assert.match(guide, /1688 실제 주문을 기록하면 예산이 차감/);
   assert.match(guide, /localStorage\.getItem\(GUIDE_STORAGE_KEY\)/);
   assert.match(editor, /<InternalChinaPurchaseDraftGuide/);
   assert.match(editor, /manualAddPanel=/);

@@ -3,7 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function PurchaseRunStartButton() {
+type Props = {
+  hasActiveRun?: boolean;
+};
+
+export function PurchaseRunStartButton({ hasActiveRun = false }: Props) {
   const router = useRouter();
   const [starting, setStarting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -47,7 +51,11 @@ export function PurchaseRunStartButton() {
         disabled={starting}
         className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-wait disabled:bg-slate-400"
       >
-        {starting ? "발주목록 계산 중..." : "이번 발주 시작하기"}
+        {starting
+          ? "발주목록 확인 중..."
+          : hasActiveRun
+            ? "현재 발주 계속하기"
+            : "이번 발주 시작하기"}
       </button>
       {notice ? (
         <p className="max-w-md text-right text-xs font-bold leading-5 text-amber-800">
