@@ -10,6 +10,7 @@ import {
   loadLegacySeoShoplingEvidence,
   type LegacySeoGoodsKeyOverrides,
 } from "@/lib/legacySeoShoplingEvidence";
+import { productLaunchSeoMaterialReadiness } from "@/lib/productLaunchSeoMaterialReadiness";
 import {
   buildProductLaunchSeoMaterialRecoveryPlan,
   productLaunchSeoRecoveryNeedsShoplingEvidence,
@@ -32,6 +33,39 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 type UnknownRecord = Record<string, unknown>;
+
+class RecoveryStageError extends Error {
+  constructor(
+    readonly stage: string,
+    readonly durationMs: number,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : "SEO 등록재료 복구에 실패했습니다.", {
+      cause,
+    });
+    this.name = "RecoveryStageError";
+  }
+}
+
+async function runRecoveryStage<T>(stage: string, task: () => Promise<T>) {
+  const startedAt = Date.now();
+  try {
+    const result = await task();
+    console.info("[seo-material-recovery] stage complete", {
+      stage,
+      durationMs: Date.now() - startedAt,
+    });
+    return result;
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    console.error("[seo-material-recovery] stage failed", {
+      stage,
+      durationMs,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw new RecoveryStageError(stage, durationMs, error);
+  }
+}
 
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -149,18 +183,26 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
     uniqueStrings(body.modelNumbers, 500).map(normalizeLegacyModel).filter(Boolean),
   );
   const workspace = requestedModels.size
-    ? await readProductLaunchNormalizedWorkspace(config.value, identity.value.userId)
+    ? await runRecoveryStage("normalized-workspace", () =>
+        readProductLaunchNormalizedWorkspace(config.value, identity.value.userId),
+      )
     : null;
   const useNormalizedExactRead = workspace?.normalized_read_enabled === true;
   const stored = useNormalizedExactRead
     ? {}
-    : record(await readProductLaunchState(config.value, identity.value.userId));
+    : record(
+        await runRecoveryStage("legacy-state", () =>
+          readProductLaunchState(config.value, identity.value.userId),
+        ),
+      );
   const state = record(stored.state_payload);
   const allItems = useNormalizedExactRead
-    ? await readProductLaunchNormalizedItemsByModelNumbers(
-        config.value,
-        identity.value.userId,
-        [...requestedModels],
+    ? await runRecoveryStage("normalized-items", () =>
+        readProductLaunchNormalizedItemsByModelNumbers(
+          config.value,
+          identity.value.userId,
+          [...requestedModels],
+        ),
       )
     : array(state.items).map(record);
   const stateExists = useNormalizedExactRead ? Boolean(workspace) : allItems.length > 0;
@@ -176,23 +218,31 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
     if (text(item.archivedAt)) return false;
     return !requestedModels.size || requestedModels.has(normalizeLegacyModel(item.modelNumber));
   });
-  const catalog = await loadLegacySeoInventoryCatalog(
-    items.map((item) => item.modelNumber),
-  );
+  const recoveryItems = items
+    .filter((item) => !legacySeoRegistrationExclusion(item).excluded)
+    .filter((item) => !isSourcingReceiptPending(item))
+    .filter((item) => !productLaunchSeoMaterialReadiness(item).ready);
+  const recoveryModels = [
+    ...new Set(recoveryItems.map((item) => normalizeLegacyModel(item.modelNumber)).filter(Boolean)),
+  ];
+  const catalog = recoveryModels.length
+    ? await runRecoveryStage("inventory-catalog", () =>
+        loadLegacySeoInventoryCatalog(recoveryModels),
+      )
+    : [];
   const productByModel = new Map(
     catalog.map((product) => [normalizeLegacyModel(product.modelNo), product] as const),
   );
-  const evidenceItems = items
-    .filter((item) => !legacySeoRegistrationExclusion(item).excluded)
-    .filter((item) => !isSourcingReceiptPending(item))
-    .filter(productLaunchSeoRecoveryNeedsShoplingEvidence);
+  const evidenceItems = recoveryItems.filter(productLaunchSeoRecoveryNeedsShoplingEvidence);
   const evidenceModels = [
     ...new Set(evidenceItems.map((item) => normalizeLegacyModel(item.modelNumber)).filter(Boolean)),
   ];
   const evidenceByModel = evidenceModels.length
-    ? await loadLegacySeoShoplingEvidence(
-        evidenceModels,
-        goodsKeyOverridesFor(evidenceItems, productByModel),
+    ? await runRecoveryStage("shopling-evidence", () =>
+        loadLegacySeoShoplingEvidence(
+          evidenceModels,
+          goodsKeyOverridesFor(evidenceItems, productByModel),
+        ),
       )
     : new Map();
   const sourceStateUpdatedAt = useNormalizedExactRead
@@ -301,7 +351,13 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : "SEO 등록재료 복구에 실패했습니다.";
     console.error("[seo-material-recovery] failed", error);
     return Response.json(
-      { ok: false, code: "SEO_MATERIAL_RECOVERY_FAILED", message },
+      {
+        ok: false,
+        code: "SEO_MATERIAL_RECOVERY_FAILED",
+        message,
+        stage: error instanceof RecoveryStageError ? error.stage : undefined,
+        durationMs: error instanceof RecoveryStageError ? error.durationMs : undefined,
+      },
       { status: 503 },
     );
   }

@@ -249,7 +249,10 @@ test("recovery API requires a matching preview hash and delegates an atomic bulk
   assert.match(route, /expectedUpdatedAt/);
   assert.match(tracker, /미리보기 뒤 동시에 수정되었습니다/);
   assert.match(seoRunRoute, /legacySeoRegistrationExclusion\(item\)/);
-  assert.match(route, /items\.map\(\(item\) => item\.modelNumber\)/);
+  assert.match(
+    route,
+    /recoveryItems\.map\(\(item\) => normalizeLegacyModel\(item\.modelNumber\)\)/,
+  );
   assert.match(route, /readProductLaunchNormalizedItemsByModelNumbers/);
   assert.match(route, /workspace\?\.normalized_read_enabled === true/);
   assert.match(route, /itemSource: useNormalizedExactRead \? "normalized-exact" : "legacy-state"/);
@@ -257,6 +260,10 @@ test("recovery API requires a matching preview hash and delegates an atomic bulk
   assert.match(inventoryCatalog, /AbortSignal\.timeout\(90_000\)/);
   assert.match(route, /const recoveredAt = sourceStateUpdatedAt/);
   assert.doesNotMatch(route, /const recoveredAt = new Date\(\)\.toISOString\(\)/);
+  assert.match(route, /filter\(\(item\) => !productLaunchSeoMaterialReadiness\(item\)\.ready\)/);
+  assert.match(route, /loadLegacySeoInventoryCatalog\(recoveryModels\)/);
+  assert.match(route, /runRecoveryStage\("inventory-catalog"/);
+  assert.match(route, /runRecoveryStage\("shopling-evidence"/);
 });
 
 test("legacy option sync keeps Product Master reads inside the requested models", async () => {
