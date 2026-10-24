@@ -20,6 +20,7 @@ import {
   createSupabaseAdminClient,
   createSupabaseAdminHeaders,
 } from "@/lib/supabase/admin";
+import { selectRecentStoredPlanningSnapshot } from "@/lib/productPlanningSnapshotFallbackCore";
 
 export const PRODUCT_DECISION_LIVE_REQUEST =
   "PRODUCT_DECISION_LIVE_REFRESH_REQUEST";
@@ -40,8 +41,8 @@ const DEFAULT_PRODUCT_MASTER_URL =
 const ANALYSIS_DAYS = 360;
 const MAX_STEP_ATTEMPTS = 3;
 const OPERATION_LIMIT = 500;
-const PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 75_000;
-const PRODUCT_MASTER_REFRESH_ATTEMPTS = 2;
+const PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 15_000;
+const PRODUCT_MASTER_STORED_FALLBACK_MAX_AGE_MS = 72 * 60 * 60 * 1000;
 
 export type ProductDecisionLiveRequest = {
   requestId: string;
@@ -259,24 +260,6 @@ function retryablePlanningRead(error: unknown) {
   );
 }
 
-async function loadProductPlanningSnapshotForRefresh() {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= PRODUCT_MASTER_REFRESH_ATTEMPTS; attempt += 1) {
-    try {
-      return await loadProductPlanningSnapshot({
-        requestTimeoutMs: PRODUCT_MASTER_REFRESH_TIMEOUT_MS,
-      });
-    } catch (error) {
-      lastError = error;
-      if (!retryablePlanningRead(error) || attempt >= PRODUCT_MASTER_REFRESH_ATTEMPTS) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-    }
-  }
-  throw lastError;
-}
-
 function supabaseConnection() {
   const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(
     /\/$/,
@@ -351,6 +334,26 @@ async function readOperations(
   return (Array.isArray(result.data) ? result.data : []).filter(
     (row): row is OperationRow => Boolean(row && typeof row === "object"),
   );
+}
+
+async function loadRecentStoredPlanningSnapshot() {
+  const rows = await readOperations(PRODUCT_DECISION_LIVE_REQUEST, undefined, 50);
+  return selectRecentStoredPlanningSnapshot<ProductPlanningSnapshot["products"][number]>(rows, {
+    maxAgeMs: PRODUCT_MASTER_STORED_FALLBACK_MAX_AGE_MS,
+  });
+}
+
+async function loadProductPlanningSnapshotForRefresh() {
+  try {
+    return await loadProductPlanningSnapshot({
+      requestTimeoutMs: PRODUCT_MASTER_REFRESH_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (!retryablePlanningRead(error)) throw error;
+    const fallback = await loadRecentStoredPlanningSnapshot().catch(() => null);
+    if (fallback) return fallback;
+    throw error;
+  }
 }
 
 function requestFromRow(row: OperationRow): ProductDecisionLiveRequest | null {

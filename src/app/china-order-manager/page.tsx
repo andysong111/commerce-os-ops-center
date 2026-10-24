@@ -428,7 +428,7 @@ export default async function ChinaOrderManagerPage({
             }
             note={
               budget.accrualStartMonth
-                ? `${budget.accrualStartMonth}~${budget.accrualEndMonth} 월별 적립 누계 - 실제 주문 ${money.format(budget.recordedSpendKrw)}원`
+                ? `${budget.accrualStartMonth === budget.accrualEndMonth ? budget.accrualStartMonth : `${budget.accrualStartMonth}~${budget.accrualEndMonth}`} 정상매출 50% 누계 - 실제 주문 ${money.format(budget.recordedSpendKrw)}원`
                 : "월별 예산 적립 원장 확인 중"
             }
             tone="blue"
