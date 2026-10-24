@@ -33,7 +33,7 @@ export function PurchaseCycleClosurePanel({ refreshKey }: { refreshKey: string |
   const load = useCallback(async (signal: AbortSignal, generation: number) => {
     const response = await fetch(`/api/china-order-manager/cycle-status${month ? `?month=${encodeURIComponent(month)}` : ""}`, { cache: "no-store", signal });
     const body = await response.json() as { ok: boolean; report?: PurchaseCycleClosureReport; message?: string };
-    if (!response.ok || !body.ok || !body.report || (month && body.report.cycleMonth !== month)) throw new Error(body.message || "발주사이클 원장을 확인하지 못했습니다.");
+    if (!response.ok || !body.ok || !body.report || (month && body.report.cycleMonth !== month)) throw new Error(body.message || "발주·입고 원장을 확인하지 못했습니다.");
     if (!signal.aborted && generationRef.current === generation) setView({ month, report: body.report, error: "" });
   }, [month]);
 
@@ -86,10 +86,10 @@ export function PurchaseCycleClosurePanel({ refreshKey }: { refreshKey: string |
   if (!active) return null;
   const href = report && report.nextAction in links ? links[report.nextAction as keyof typeof links] : null;
   return (
-    <section id="purchase-cycle-panel" aria-label="발주사이클 최종 확인" aria-busy={busy} className="mb-5 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+    <section id="purchase-cycle-panel" aria-label="발주·입고 상태 확인" aria-busy={busy} className="mb-5 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-bold text-blue-700">{report?.cycleMonth || month || "이번 달"} · 발주사이클</p>
+          <p className="text-xs font-bold text-blue-700">조회 기준 {report?.cycleMonth || month || "현재"} · 입고·원장 상태</p>
           <h2 className="mt-1 text-xl font-black text-slate-950">{report?.state === "READY_FOR_NEXT_CALCULATION" ? "다음 발주계산 준비 완료" : report?.state === "NO_ORDER_CLOSED" ? "무발주 마감 확인" : "현재 단계와 다음 할 일"}</h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">{error ? "원장 확인을 완료하지 못했습니다. 이전 완료 표시는 현재 근거로 사용하지 마세요." : report?.message || "입고 원장·상품마스터·정확재고·판매상태를 확인하는 중입니다…"}</p>
         </div>

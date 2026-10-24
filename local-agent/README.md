@@ -23,8 +23,11 @@ Windows PC에서 ChatGPT Work/Codex와 독립적으로 실행되는 1단계 로�
 ```powershell
 node .\local-agent\bin\commerce-os-local-agent.mjs status
 node .\local-agent\bin\commerce-os-local-agent.mjs daemon
+node .\local-agent\bin\commerce-os-local-agent.mjs purchase-server
 node .\local-agent\bin\commerce-os-local-agent.mjs diagnose --goods-key 123456
 ```
+
+`daemon`에는 `http://127.0.0.1:43121` 전용 발주 자동화 화면도 포함됩니다. 발주초안의 **5-1 원가·운임 기록**은 1688 주문확인 미리보기까지만 열어 실제 위안단가와 중국내 운임을 저장합니다. **5-2 장바구니 담기**는 확정 수량·옵션으로 장바구니를 다시 맞춥니다. 두 업무 모두 1688 주문 제출과 결제는 실행하지 않습니다.
 
 ## Windows 자동 시작
 

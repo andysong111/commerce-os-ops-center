@@ -174,7 +174,9 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   assert.match(guide, /수량 확인과 5·10단위 정리/);
   assert.match(guide, /빠진 B코드 수동 추가/);
   assert.match(guide, /발주안 한 번 재계산/);
-  assert.match(guide, /5번 업무 실행/);
+  assert.match(guide, /5-1 원가·운임 기록/);
+  assert.match(guide, /5-2 장바구니 담기/);
+  assert.match(guide, /주문 제출과 결제는 실행하지 않습니다/);
   assert.match(guide, /입고확정일이 아니라 직전 발주계산 시작일/);
   assert.match(guide, /localStorage\.getItem\(GUIDE_STORAGE_KEY\)/);
   assert.match(editor, /<InternalChinaPurchaseDraftGuide/);

@@ -12,7 +12,7 @@ const [
   stage8SalesDrainMigration,
   stage8CandidatePrewriteMigration,
   stage8PostapplyReadinessMigration,
-  monthlyPurchasePreparationMigration,
+  retiredMonthlyPurchasePreparationMigration,
   legacySeoRunWorkerMigration,
   registry,
   route,
@@ -26,7 +26,7 @@ const [
   read("supabase/migrations/20260918085500_stage8_sales_event_drain_cadence.sql"),
   read("supabase/migrations/20260918094000_stage8_candidate_prewrite_evidence_worker.sql"),
   read("supabase/migrations/20260918095500_stage8_postapply_purchase_readiness_worker.sql"),
-  read("supabase/migrations/20261012162706_monthly_purchase_preparation_worker.sql"),
+  read("supabase/migrations/20261024153500_retire_monthly_purchase_preparation.sql"),
   read("supabase/migrations/20261014090000_legacy_seo_run_worker_dispatch.sql"),
   read("src/lib/opsAdaptiveDispatcher.ts"),
   read("src/app/api/cron/ops-dispatcher/route.ts"),
@@ -185,16 +185,10 @@ test("post-apply purchase readiness is an additive read-only diagnostic task", (
   assert.match(registry, /"stage8-postapply-purchase-readiness"/);
 });
 
-test("monthly purchase preparation is one bounded operational dispatcher task", () => {
-  assert.match(monthlyPurchasePreparationMigration, /'monthly-purchase-preparation'/);
-  assert.match(
-    monthlyPurchasePreparationMigration,
-    /'\/api\/cron\/monthly-purchase-preparation'/,
-  );
-  assert.match(monthlyPurchasePreparationMigration, /'operational'/);
-  assert.match(monthlyPurchasePreparationMigration, /\r?\n  125,/);
-  assert.match(monthlyPurchasePreparationMigration, /\r?\n  1800,\r?\n  300,/);
-  assert.match(registry, /"monthly-purchase-preparation"/);
+test("retired monthly purchase preparation cannot run through the dispatcher", () => {
+  assert.match(retiredMonthlyPurchasePreparationMigration, /task_key = 'monthly-purchase-preparation'/);
+  assert.match(retiredMonthlyPurchasePreparationMigration, /enabled = false/);
+  assert.doesNotMatch(registry, /"monthly-purchase-preparation"/);
 });
 
 test("legacy SEO retries wake and drain through the durable dispatcher", () => {

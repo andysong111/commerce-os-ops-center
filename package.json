@@ -13,6 +13,7 @@
     "local-agent": "node local-agent/bin/commerce-os-local-agent.mjs",
     "local-agent:status": "node local-agent/bin/commerce-os-local-agent.mjs status",
     "local-agent:daemon": "node local-agent/bin/commerce-os-local-agent.mjs daemon",
+    "local-agent:purchase-server": "node local-agent/bin/commerce-os-local-agent.mjs purchase-server",
     "local-agent:diagnose": "node local-agent/bin/commerce-os-local-agent.mjs diagnose",
     "test": "node --experimental-strip-types --test tests/*.test.mjs"
   },

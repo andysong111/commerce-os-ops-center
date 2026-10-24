@@ -6,6 +6,7 @@ import { ensureDataDirs, writeAgentState, writeLatestStatus } from "../src/files
 import { buildStatusSnapshot } from "../src/status.mjs";
 import { uploadDiagnostic, uploadHeartbeat } from "../src/supabase-upload.mjs";
 import { sanitizeError } from "../src/safe-json.mjs";
+import { listenPurchaseAutomationServer } from "../src/purchase-automation-server.mjs";
 
 function parseArgs(argv) {
   const [command = "daemon", ...rest] = argv;
@@ -68,11 +69,13 @@ async function runDiagnostic(config, flags) {
 }
 
 async function runDaemon(config) {
+  const purchaseServer = await listenPurchaseAutomationServer(config);
   console.log(JSON.stringify({
     event: "agent_started",
     version: config.agentVersion,
     dataDir: config.dataDir,
     intervalMs: config.heartbeatIntervalMs,
+    purchaseAutomationUrl: `http://127.0.0.1:${config.purchaseAutomationPort}`,
   }));
 
   let stopped = false;
@@ -102,6 +105,8 @@ async function runDaemon(config) {
     await delay(config.heartbeatIntervalMs, undefined, { ref: true });
   }
 
+  await new Promise((resolve) => purchaseServer.close(resolve));
+
   console.log(JSON.stringify({ event: "agent_stopped", timestamp: new Date().toISOString() }));
 }
 
@@ -112,8 +117,18 @@ async function main() {
   if (command === "status") return runStatus(config);
   if (command === "diagnose" || command === "diagnostic") return runDiagnostic(config, flags);
   if (command === "daemon" || command === "run") return runDaemon(config);
+  if (command === "purchase-server") {
+    const server = await listenPurchaseAutomationServer(config);
+    console.log(JSON.stringify({ event: "purchase_server_started", url: `http://127.0.0.1:${config.purchaseAutomationPort}` }));
+    await new Promise((resolve) => {
+      const stop = () => server.close(resolve);
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+    });
+    return;
+  }
   if (command === "help" || command === "--help" || command === "-h") {
-    console.log("Usage: node local-agent/bin/commerce-os-local-agent.mjs [daemon|status|diagnose --goods-key GOODSKEY --url URL]");
+    console.log("Usage: node local-agent/bin/commerce-os-local-agent.mjs [daemon|purchase-server|status|diagnose --goods-key GOODSKEY --url URL]");
     return;
   }
   throw new Error(`Unknown local-agent command: ${command}`);

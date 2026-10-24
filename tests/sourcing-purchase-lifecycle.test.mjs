@@ -76,7 +76,7 @@ test("manual sourcing UI batches products with nested options and per-option sto
   assert.doesNotMatch(form, /draftStorageKey\(formId, calculationFormId\)/);
   assert.doesNotMatch(form, /completedCandidateIdsFromLocation/);
   assert.match(form, /MANUAL_SOURCING_DRAFT_COMMITTED_EVENT/);
-  assert.match(form, /월간 Draft 저장 완료 · 임시저장을 정리했습니다/);
+  assert.match(form, /발주차시 초안 저장 완료 · 임시저장을 정리했습니다/);
   assert.doesNotMatch(form, /known\.has\(conceptId\)/);
   assert.doesNotMatch(form, /knownCandidateIds/);
   assert.match(form, /자동 임시저장됩니다/);

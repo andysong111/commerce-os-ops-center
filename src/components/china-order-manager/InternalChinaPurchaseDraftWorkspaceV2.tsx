@@ -172,7 +172,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [stagedStockBands, setStagedStockBands] = useState<Record<string, InventoryStockBand>>({});
   const [regenerating, setRegenerating] = useState(false);
-  const [cartPreparing, setCartPreparing] = useState(false);
+  const [automationPreparing, setAutomationPreparing] = useState<"COST" | "CART" | null>(null);
   const [scrollWidth, setScrollWidth] = useState(TABLE_WIDTH);
   const [freezeThrough, setFreezeThrough] = useState(0);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
@@ -754,34 +754,42 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     setNotice("재계산 대기 변경을 모두 취소했습니다. 기존 Draft는 바뀌지 않았습니다.");
   }
 
-  async function prepare1688Cart() {
-    if (draft.status !== "DRAFT" || saving || cartPreparing) return;
+  async function open1688Workflow(mode: "cost-capture" | "cart-staging") {
+    if (draft.status !== "DRAFT" || saving || automationPreparing) return;
     if (hasPendingRecalculation) {
-      setNotice("재고·수량·추가상품 변경을 먼저 한 번 재계산한 뒤 5번 업무를 실행하세요.");
+      setNotice("재고·수량·추가상품 변경을 먼저 한 번 재계산한 뒤 5-1 업무를 실행하세요.");
       return;
     }
     if (calculations.budgetOverKrw > 0) {
-      setNotice(`현재 실제 위안단가 기준으로 상품대금 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과했습니다. 수량을 조정하고 재계산한 뒤 5번 업무를 다시 실행하세요.`);
+      setNotice(`현재 실제 위안단가 기준으로 상품대금 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과했습니다. 수량을 조정하고 재계산한 뒤 다시 진행하세요.`);
       return;
     }
-    const localAgent = window.open("about:blank", "commerce-os-1688-cart");
+    if (mode === "cart-staging" && (calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0)) {
+      setNotice("5-1 원가·운임 기록을 먼저 마치고 모든 중국옵션을 확인한 뒤 5-2 장바구니 담기를 실행하세요.");
+      return;
+    }
+    const localAgent = window.open("about:blank", `commerce-os-1688-${mode}`);
     if (!localAgent) {
       setNotice("팝업이 차단되었습니다. 이 사이트의 팝업을 허용한 뒤 다시 눌러 주세요.");
       return;
     }
-    setCartPreparing(true);
-    setNotice("현재 입력값을 저장한 뒤 이 초안을 로컬 1688 자동화로 엽니다.");
+    setAutomationPreparing(mode === "cost-capture" ? "COST" : "CART");
+    setNotice(mode === "cost-capture"
+      ? "현재 입력값을 저장한 뒤 실제 위안단가·중국내 운임 확인 업무를 엽니다."
+      : "현재 입력값을 저장한 뒤 1688 장바구니 담기 업무를 엽니다.");
     try {
       const savedDraft = await persistDraft({ quiet: true, syncMetadata: false });
       cartEvidenceRef.current = purchaseEvidenceSignature(savedDraft);
       cartRefreshDeadlineRef.current = Date.now() + 30 * 60_000;
-      localAgent.location.href = `http://127.0.0.1:43121/?draftId=${encodeURIComponent(savedDraft.draftId)}`;
-      setNotice("로컬 업무센터가 열렸습니다. 5번 ‘1688 장바구니 준비’를 실행하면 중국옵션·수량을 맞추고 장바구니/결제 직전의 실제 위안단가와 판매자별 중국내 운임을 저장하며, 이 화면의 합계도 자동 갱신됩니다.");
+      localAgent.location.href = `http://127.0.0.1:43121/?draftId=${encodeURIComponent(savedDraft.draftId)}&mode=${mode}`;
+      setNotice(mode === "cost-capture"
+        ? "5-1 업무가 열렸습니다. 1688 주문확인 미리보기에서 실제 위안단가와 판매자별 중국내 운임을 저장하면 이 화면이 자동 갱신되고 예산을 다시 계산합니다. 주문 제출과 결제는 실행하지 않습니다."
+        : "5-2 업무가 열렸습니다. 확정된 수량과 중국옵션으로 1688 장바구니를 다시 맞추고 검증합니다. 주문 제출과 결제는 실행하지 않습니다.");
     } catch (error) {
       localAgent.close();
-      setNotice(error instanceof Error ? error.message : "1688 장바구니 준비를 시작하지 못했습니다.");
+      setNotice(error instanceof Error ? error.message : "1688 업무를 시작하지 못했습니다.");
     } finally {
-      setCartPreparing(false);
+      setAutomationPreparing(null);
     }
   }
 
@@ -867,7 +875,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <span className="text-xs font-black tracking-[0.12em] text-blue-700">OPS CENTER NATIVE · BIDIRECTIONAL</span>
             <h2 className="mt-1 text-xl font-black text-slate-950">실제 1688 주문 준비</h2>
             <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
-              링크·중국옵션을 확인한 뒤 `1688 장바구니 준비`를 실행하면 권장수량을 정확히 맞추고 장바구니 이후 실제 단가와 판매자별 중국내 운임을 이 표에 기록합니다. 주문 제출과 결제는 자동 실행하지 않습니다.
+              링크·중국옵션을 확인한 뒤 5-1에서 실제 위안단가·중국내 운임을 기록하고 예산을 최종 재계산합니다. 한도 안이면 5-2에서 확정수량을 장바구니에 담습니다. 주문 제출과 결제는 자동 실행하지 않습니다.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -879,7 +887,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <span className="mt-0.5 block text-[11px] text-emerald-700">실주문 원가 × 내부 주문 수수료율 {draft.internalOrderCostMultiplier.toFixed(2)}</span>
             </div>
             <a href="https://commerce-os-product-master.vercel.app/purchase-metadata" target="_blank" rel="noreferrer" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-800 hover:bg-slate-50">상품마스터 최신 원장</a>
-            <button type="button" onClick={() => void prepare1688Cart()} disabled={cartPreparing || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation || calculations.budgetOverKrw > 0} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하세요." : calculations.budgetOverKrw > 0 ? "예산 초과를 먼저 해결하세요." : undefined} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{cartPreparing ? "로컬 자동화 여는 중..." : "1688 장바구니 준비"}</button>
+            <button type="button" onClick={() => void open1688Workflow("cost-capture")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하세요." : undefined} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "COST" ? "5-1 여는 중..." : "5-1 원가·운임 기록"}</button>
+            <button type="button" onClick={() => void open1688Workflow("cart-staging")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation || calculations.budgetOverKrw > 0 || calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하세요." : calculations.budgetOverKrw > 0 ? "예산 초과를 먼저 해결하세요." : calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0 ? "5-1 원가·운임 기록과 중국옵션 확인을 먼저 마치세요." : undefined} className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "CART" ? "5-2 여는 중..." : "5-2 장바구니 담기"}</button>
             <button type="button" onClick={() => void saveDraft()} disabled={saving || draft.status !== "DRAFT"} className="rounded-xl border border-blue-300 bg-white px-4 py-2.5 text-sm font-black text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "양방향 저장 중..." : "발주초안 저장"}</button>
             <button type="button" onClick={() => void markOrdered()} disabled={ordering || draft.status !== "DRAFT" || requiredIssues.length > 0 || hasPendingRecalculation || calculations.budgetOverKrw > 0} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">{draft.status === "ORDERED" ? "실주문 기록완료" : ordering ? "기록 중..." : "1688 주문완료 후 기록"}</button>
           </div>
@@ -896,8 +905,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         </div>
 
         <div className={`mt-4 rounded-xl border px-4 py-3 text-xs leading-5 ${calculations.budgetOverKrw > 0 ? "border-rose-300 bg-rose-50 text-rose-950" : "border-blue-200 bg-blue-50 text-blue-950"}`}>
-          <strong>실시간 월간 발주예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 상품대금 {number.format(Math.round(calculations.productKrw))}원 · 상품대금 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}.
-          {calculations.budgetOverKrw > 0 ? <span className="mt-1 block font-black">사용자 고정수량은 자동으로 줄이지 않습니다. 자동 추천수량을 줄이거나 고정수량을 직접 수정해 재계산한 뒤 5번 업무를 다시 실행하세요.</span> : null}
+          <strong>실시간 발주차시 예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 상품대금 {number.format(Math.round(calculations.productKrw))}원 · 상품대금 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}.
+          {calculations.budgetOverKrw > 0 ? <span className="mt-1 block font-black">사용자 고정수량은 자동으로 줄이지 않습니다. 자동 추천수량을 줄이거나 고정수량을 직접 수정해 재계산한 뒤 5-1 업무를 다시 실행하세요.</span> : null}
         </div>
       </section>
 

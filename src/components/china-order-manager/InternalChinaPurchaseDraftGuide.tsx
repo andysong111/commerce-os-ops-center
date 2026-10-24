@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const GUIDE_STORAGE_KEY = "commerceOs.purchaseDraftGuide.v4";
+const GUIDE_STORAGE_KEY = "commerceOs.purchaseDraftGuide.v5";
 
 const STEPS = [
   {
@@ -30,8 +30,12 @@ const STEPS = [
     description: "고정수량을 먼저 반영하고, 남은 예산을 자동 추천상품에 우선순위대로 배분합니다.",
   },
   {
-    title: "5번 업무 실행",
-    description: "1688 장바구니에서 실제 위안단가와 중국내 운임을 읽어 합계와 예산을 다시 검증합니다. 한도 초과 상태에서는 주문완료 기록이 잠깁니다.",
+    title: "5-1 원가·운임 기록",
+    description: "정확한 단가·운임을 얻기 위해 1688 장바구니와 주문확인 미리보기를 사용해 값을 저장합니다. 주문 제출과 결제는 실행하지 않습니다.",
+  },
+  {
+    title: "5-2 장바구니 담기",
+    description: "5-1 재계산이 예산 안이면 확정한 수량과 중국옵션으로 장바구니를 다시 맞추고 검증합니다. 주문 제출과 실결제는 사용자가 직접 합니다.",
   },
 ] as const;
 
