@@ -89,7 +89,7 @@ function fixture(state = "READY_CANARY", options = {}) {
     "@/lib/supabase/admin": { createSupabaseAdminClient: async () => admin, createSupabaseAdminHeaders: () => ({}) },
     "@/lib/salesEventRefreshPolicy": policy,
     "@/lib/productMasterShoplingSalesEventEngine": { PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS: 360 },
-    "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshot: async () => {
+    "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshotForRefresh: async () => {
       clockReads++;
       if (options.clockRegresses) wall = oldTime;
       if (options.planningFails) throw new Error("fixture planning failed");

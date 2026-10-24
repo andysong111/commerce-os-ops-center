@@ -125,7 +125,7 @@ test("real creator appends a fresh pinned request, preserves history, and reject
     "node:crypto": await import("node:crypto"),
     "@/lib/productMasterShoplingSalesEventEngine": { PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS: 360 },
     "@/lib/monthlySalesEventRefreshCore": monthlyRefreshCore,
-    "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshot: async () => ({ generatedAt: "2026-09-14T00:00:00Z", contentFingerprint: planningFp }) },
+    "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshotForRefresh: async () => ({ generatedAt: "2026-09-14T00:00:00Z", contentFingerprint: planningFp }) },
     "@/lib/shopling/shoplingReadClient": { shoplingReadConfigFromEnv: () => ({}), splitShoplingDateRange: (start, end) => [{ start, end }] },
     "@/lib/supabase/admin": { createSupabaseAdminClient: async () => admin, createSupabaseAdminHeaders: () => ({}) },
   });
