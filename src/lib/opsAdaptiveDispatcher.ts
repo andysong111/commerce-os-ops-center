@@ -20,6 +20,8 @@ type RegistryEntry = {
   load: () => Promise<CronHandler>;
 };
 
+const RETIRED_TASK_KEYS = new Set(["monthly-purchase-preparation"]);
+
 export type OpsDispatchTask = {
   taskKey: string;
   routePath: string;
@@ -279,6 +281,23 @@ export async function invokeOpsDispatchTask(
   origin: string,
   cronSecret: string,
 ): Promise<OpsDispatchExecution> {
+  if (RETIRED_TASK_KEYS.has(task.taskKey)) {
+    const body = {
+      ok: true,
+      retired: true,
+      taskKey: task.taskKey,
+      message: "발주차시 방식으로 전환되어 폐기된 월 단위 준비 작업입니다.",
+    };
+    return {
+      status: 200,
+      ok: true,
+      busy: false,
+      databasePressure: false,
+      durationMs: 0,
+      body,
+      compactResult: body,
+    };
+  }
   const entry = REGISTRY[task.taskKey];
   if (!entry) throw new Error(`등록되지 않은 OPS dispatcher task입니다: ${task.taskKey}`);
   if (entry.routePath !== task.routePath) {
