@@ -43,6 +43,10 @@ function optionsFrom(item: UnknownRecord) {
   }));
 }
 
+function allowsSharedOptionIdentity(item: UnknownRecord) {
+  return record(item.seoMaterialPolicy).allowSharedOptionIdentity === true;
+}
+
 export function productLaunchSeoMaterialReadiness(
   itemInput: unknown,
 ): ProductLaunchSeoMaterialReadiness {
@@ -51,6 +55,7 @@ export function productLaunchSeoMaterialReadiness(
   const warnings: string[] = [];
   const receiptPending = isSourcingReceiptPending(item);
   const options = optionsFrom(item);
+  const sharedOptionIdentityAllowed = allowsSharedOptionIdentity(item);
 
   if (receiptPending) errors.push("신규소싱 상품의 입고확정이 필요합니다.");
   if (!text(item.id)) errors.push("출시 상품 ID가 없습니다.");
@@ -80,14 +85,14 @@ export function productLaunchSeoMaterialReadiness(
       warnings.push(`${optionLabel} 매입가가 없습니다.`);
     }
     if (option.barcode) {
-      if (seenBarcodes.has(option.barcode)) {
+      if (!sharedOptionIdentityAllowed && seenBarcodes.has(option.barcode)) {
         errors.push(`옵션 B코드 ${option.barcode}가 중복되었습니다.`);
       }
       seenBarcodes.add(option.barcode);
     }
     if (option.optionBarcodeNo) {
       const comparableNo = option.optionBarcodeNo.replace(/^OB/, "");
-      if (seenOptionBarcodeNos.has(comparableNo)) {
+      if (!sharedOptionIdentityAllowed && seenOptionBarcodeNos.has(comparableNo)) {
         errors.push(`옵션바코드NO ${comparableNo}가 중복되었습니다.`);
       }
       seenOptionBarcodeNos.add(comparableNo);

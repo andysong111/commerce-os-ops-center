@@ -92,3 +92,32 @@ test("does not trust a RECEIVED label without a receipt id", () => {
   assert.equal(sourcingReceiptStatus(item), "pending");
   assert.equal(productLaunchSeoMaterialReadiness(item).ready, false);
 });
+
+test("blocks duplicate option identities unless an audited product policy allows sharing", () => {
+  const duplicateOptions = [
+    completeItem().orderOptions[0],
+    {
+      ...completeItem().orderOptions[0],
+      saleOption: "블랙",
+    },
+  ];
+
+  const blocked = productLaunchSeoMaterialReadiness(
+    completeItem({ orderOptions: duplicateOptions }),
+  );
+  assert.equal(blocked.ready, false);
+  assert.match(blocked.errors.join("\n"), /B코드 .*중복/);
+  assert.match(blocked.errors.join("\n"), /옵션바코드NO .*중복/);
+
+  const allowed = productLaunchSeoMaterialReadiness(
+    completeItem({
+      orderOptions: duplicateOptions,
+      seoMaterialPolicy: {
+        allowSharedOptionIdentity: true,
+        source: "owner_confirmed_shared_physical_bcode",
+      },
+    }),
+  );
+  assert.equal(allowed.ready, true);
+  assert.deepEqual(allowed.errors, []);
+});
