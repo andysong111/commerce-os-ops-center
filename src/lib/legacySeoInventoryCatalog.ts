@@ -158,9 +158,16 @@ function productMasterConnection() {
   return { baseUrl, secret };
 }
 
-export async function loadLegacySeoInventoryCatalog() {
+export async function loadLegacySeoInventoryCatalog(modelNumbers: unknown[] = []) {
   const { baseUrl, secret } = productMasterConnection();
-  const response = await fetch(`${baseUrl}/api/integrations/inventory-catalog`, {
+  const url = new URL(`${baseUrl}/api/integrations/inventory-catalog`);
+  const requestedModels = [
+    ...new Set(modelNumbers.map(normalizeLegacyModel).filter(Boolean)),
+  ].slice(0, 500);
+  if (requestedModels.length) {
+    url.searchParams.set("modelNumbers", requestedModels.join(","));
+  }
+  const response = await fetch(url, {
     method: "GET",
     headers: {
       accept: "application/json",

@@ -160,7 +160,9 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
     if (text(item.archivedAt)) return false;
     return !requestedModels.size || requestedModels.has(normalizeLegacyModel(item.modelNumber));
   });
-  const catalog = await loadLegacySeoInventoryCatalog();
+  const catalog = await loadLegacySeoInventoryCatalog(
+    items.map((item) => item.modelNumber),
+  );
   const productByModel = new Map(
     catalog.map((product) => [normalizeLegacyModel(product.modelNo), product] as const),
   );
