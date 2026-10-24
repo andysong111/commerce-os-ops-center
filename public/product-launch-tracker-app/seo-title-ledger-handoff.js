@@ -47,7 +47,8 @@ function firstSelectedReadinessBlocker() {
     const row = checkbox.closest("tr[data-id]");
     const badge = row?.querySelector(".readiness-badge");
     if (!badge?.classList.contains("needs-work") &&
-        !badge?.classList.contains("receipt-pending")) {
+        !badge?.classList.contains("receipt-pending") &&
+        !badge?.classList.contains("seo-excluded")) {
       continue;
     }
     const modelNumber = row?.querySelector(".inline-model-number-editor")?.value || "선택 상품";

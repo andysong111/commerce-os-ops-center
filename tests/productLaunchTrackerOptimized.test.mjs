@@ -98,6 +98,25 @@ test("server page query returns only the requested 50-row window", () => {
   assert.ok(page.items.every((entry) => !("searchText" in entry)));
 });
 
+test("SEO exclusions are counted separately and never inflate registration-ready totals", () => {
+  const source = state(2);
+  for (const row of source.items) {
+    row.orderOptions[0].optionBarcodeNo = `1234567890${row.trackerRowNumber}0`;
+  }
+  source.items[1].legacySeoRegistrationPolicy = {
+    excluded: true,
+    status: "sold_out",
+    reason: "사용자 품절 제외",
+  };
+  const index = buildProductLaunchTrackerIndex(source);
+  assert.equal(index.counts["등록 준비"], 1);
+  assert.equal(index.counts["SEO 제외"], 1);
+  assert.deepEqual(index.summaries[1].seoExclusion, {
+    excluded: true,
+    reason: "사용자 품절 제외",
+  });
+});
+
 test("server filters and search run before paging", () => {
   const source = state();
   source.items[72].stages.detailPage.status = "완료";
@@ -183,6 +202,24 @@ test("bulk item patch applies multiple scoped changes in one state mutation", ()
   assert.deepEqual(mutation.state.items[1], untouched);
   assert.deepEqual(mutation.changedIds, ["item-1", "item-3"]);
   assert.equal(mutation.state.items[0].updatedBy, "승준 · AI 카테고리 후보 생성");
+});
+
+test("bulk recovery patch refuses an item changed after its preview", () => {
+  const source = state(1);
+  assert.throws(
+    () =>
+      applyProductLaunchTrackerMutation(source, {
+        operation: "bulk_patch_items",
+        patches: [
+          {
+            itemId: "item-1",
+            expectedUpdatedAt: "2026-08-04T00:00:00.000Z",
+            patch: { shoplingCategory: "생활>수납" },
+          },
+        ],
+      }),
+    /미리보기 뒤 동시에 수정되었습니다/,
+  );
 });
 
 test("category AI approval writes Shopling category and removes review metadata", () => {

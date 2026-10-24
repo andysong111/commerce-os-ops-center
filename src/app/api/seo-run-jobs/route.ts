@@ -1,5 +1,6 @@
 import { seoBulkShoplingGoodsKeys } from "@/lib/seoBulkShoplingSource";
 import { productLaunchSeoMaterialReadiness } from "@/lib/productLaunchSeoMaterialReadiness";
+import { legacySeoRegistrationExclusion } from "@/lib/legacySeoRegistrationPolicy";
 import { after, NextRequest } from "next/server";
 import { validate1688Url } from "@/lib/keywordEngineElonLabV2";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
@@ -255,6 +256,12 @@ export async function POST(request: NextRequest) {
       const item = itemById.get(run.itemId);
       if (!item) {
         missing.push(run.itemId);
+        continue;
+      }
+      const registrationExclusion = legacySeoRegistrationExclusion(item);
+      if (registrationExclusion.excluded) {
+        const model = text(item.modelNumber) || run.itemId;
+        excluded.push(`${model}:${registrationExclusion.reason || "SEO 등록 제외"}`);
         continue;
       }
       const materialReadiness = productLaunchSeoMaterialReadiness(item);

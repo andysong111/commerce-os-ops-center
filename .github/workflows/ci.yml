@@ -153,6 +153,7 @@ jobs:
           tests/productLaunchTrackerFlowConnection.test.mjs
           tests/productLaunchTrackerOptimized.test.mjs
           tests/productLaunchSeoMaterialReadiness.test.mjs
+          tests/productLaunchSeoMaterialRecovery.test.mjs
           tests/productMasterSync.test.mjs
           tests/seoBulkCloudParallel.test.mjs
           tests/seoGroundedReservoirV11.test.mjs
