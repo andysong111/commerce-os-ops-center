@@ -29,7 +29,11 @@ import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import { loadMonthlyDraftDisplayMetadata } from "@/lib/monthlyPurchaseDraftDisplayMetadata";
 import { summarizeMonthlyPurchaseProgress } from "@/lib/purchaseCycleMonthlyFlow";
 import { loadVerifiedPurchaseCycleSpend } from "@/lib/purchaseCyclePreflightSpend";
-import { buildPurchaseRunHistory, selectPurchaseRun } from "@/lib/purchaseRunHistory";
+import {
+  buildPurchaseRunHistory,
+  groupPurchaseRunHistory,
+  selectPurchaseRun,
+} from "@/lib/purchaseRunHistory";
 import styles from "./monthly-workspace.module.css";
 
 export const dynamic = "force-dynamic";
@@ -160,6 +164,7 @@ export default async function ChinaOrderManagerPage({
   ]);
 
   const runHistory = buildPurchaseRunHistory(draftState.drafts);
+  const { visibleRuns, releasedGroups, releasedCount } = groupPurchaseRunHistory(runHistory);
   const selectedRun = selectPurchaseRun(runHistory, requestedRun);
   const selectedDraftId = selectedRun?.draftId ?? "";
   const selectedMonth = selectedRun?.cycleStartDate.slice(0, 7) || currentCycleMonth;
@@ -386,26 +391,66 @@ export default async function ChinaOrderManagerPage({
               {fundingDone ? <Badge tone="emerald">자금 마감</Badge> : null}
             </div>
           </div>
-          <nav
-            className="flex max-w-full gap-2 overflow-x-auto pb-1"
-            aria-label="발주차시 선택"
-          >
-            {runHistory.map((run) => (
-              <Link
-                key={run.draftId}
-                href={`/china-order-manager?run=${encodeURIComponent(run.draftId)}`}
-                className={`whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-black ${
-                  run.draftId === selectedDraftId
-                    ? "border-blue-700 bg-blue-700 text-white"
-                    : "border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50"
-                }`}
+          <div className="flex max-w-full flex-col items-end gap-2">
+            <nav
+              className="flex max-w-full gap-2 overflow-x-auto pb-1"
+              aria-label="진행 중이거나 입고확정된 발주차시 선택"
+            >
+              {visibleRuns.map((run) => (
+                <Link
+                  key={run.draftId}
+                  href={`/china-order-manager?run=${encodeURIComponent(run.draftId)}`}
+                  className={`whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-black ${
+                    run.draftId === selectedDraftId
+                      ? "border-blue-700 bg-blue-700 text-white"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50"
+                  }`}
+                >
+                  {run.receiptConfirmedDate
+                    ? `${run.receiptConfirmedDate} 입고확정`
+                    : `${run.cycleStartDate} · ${run.stateLabel}`}
+                </Link>
+              ))}
+            </nav>
+
+            {releasedCount > 0 ? (
+              <details
+                className="w-full max-w-2xl rounded-xl border border-slate-200 bg-slate-50"
+                open={selectedRun?.state === "RELEASED"}
               >
-                {run.receiptConfirmedDate
-                  ? `${run.receiptConfirmedDate} 입고확정`
-                  : `${run.cycleStartDate} · ${run.stateLabel}`}
-              </Link>
-            ))}
-          </nav>
+                <summary className="cursor-pointer select-none px-3.5 py-2 text-right text-sm font-black text-slate-700 hover:text-slate-950">
+                  종료 이력 {releasedCount.toLocaleString("ko-KR")}건 · 날짜별 보기
+                </summary>
+                <div className="space-y-2 border-t border-slate-200 p-3">
+                  {releasedGroups.map((group) => (
+                    <div
+                      key={group.cycleStartDate}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2"
+                    >
+                      <span className="text-sm font-black text-slate-800">
+                        {group.cycleStartDate} · 해제·종료 {group.runs.length.toLocaleString("ko-KR")}건
+                      </span>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        {group.runs.map((run, index) => (
+                          <Link
+                            key={run.draftId}
+                            href={`/china-order-manager?run=${encodeURIComponent(run.draftId)}`}
+                            className={`rounded-lg border px-2.5 py-1 text-xs font-bold ${
+                              run.draftId === selectedDraftId
+                                ? "border-blue-700 bg-blue-700 text-white"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50"
+                            }`}
+                          >
+                            기록 {index + 1}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
