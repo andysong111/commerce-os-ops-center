@@ -1,4 +1,5 @@
 import { loadFastPurchaseInternalDrafts } from "@/lib/fastPurchaseInternalDraft";
+import { loadPurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegeneration";
 import { createPurchaseCyclePreflightDraft } from "@/lib/purchaseCyclePreflightDraft";
 import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import {
@@ -7,12 +8,10 @@ import {
   type PurchaseCycleDraftRequest,
 } from "@/lib/purchaseCyclePreflightDraftCore";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
-
-export function activePurchaseRun<T extends { openQuantity: number; updatedAt: string }>(drafts: T[]) {
-  return [...drafts]
-    .filter((draft) => draft.openQuantity > 0)
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
-}
+import {
+  replaceablePriorPurchaseRun,
+  sameDayPurchaseRun,
+} from "@/lib/purchaseRunStartPolicy";
 
 export function purchaseRunStartRequest(targetDate: string): PurchaseCycleDraftRequest {
   return {
@@ -40,16 +39,7 @@ export async function startPurchaseRun(targetDate = seoulCalendarDate()) {
   if (ledger.error) {
     throw new Error(`PURCHASE_RUN_LEDGER_UNAVAILABLE:${ledger.error}`);
   }
-  const active = activePurchaseRun(ledger.drafts);
-  if (active) {
-    return {
-      draft: active,
-      reused: true,
-      created: false,
-      externalOrderExecuted: false as const,
-    };
-  }
-  const sameDay = ledger.drafts.find((draft) => draft.cycleStartDate === targetDate);
+  const sameDay = sameDayPurchaseRun(ledger.drafts, targetDate);
   if (sameDay) {
     return {
       draft: sameDay,
@@ -60,16 +50,30 @@ export async function startPurchaseRun(targetDate = seoulCalendarDate()) {
   }
 
   const base = purchaseRunStartRequest(targetDate);
+  const replaceable = replaceablePriorPurchaseRun(ledger.drafts, targetDate);
+  const priorAdjustments = replaceable
+    ? await loadPurchaseDraftOperatorAdjustments(replaceable.draftId)
+    : null;
+  const startRequest: PurchaseCycleDraftRequest = replaceable
+    ? {
+        ...base,
+        replaceDraftId: replaceable.draftId,
+        excludedBarcodes: priorAdjustments?.excludedBarcodes ?? [],
+        quantityOverrides: priorAdjustments?.quantityOverrides ?? [],
+      }
+    : base;
   const report = await loadPurchaseCyclePreflight(
-    purchaseCycleDraftPreflightOptions(base),
+    purchaseCycleDraftPreflightOptions(startRequest),
   );
   const request: PurchaseCycleDraftRequest = {
-    ...base,
+    ...startRequest,
     expectedSourceFingerprint: report.sourceFingerprint,
     expectedPlanFingerprint: report.planFingerprint,
     confirmation: purchaseCycleDraftConfirmation(report),
   };
-  const result = await createPurchaseCyclePreflightDraft(request);
+  const result = await createPurchaseCyclePreflightDraft(request, {
+    startNewRun: Boolean(replaceable),
+  });
   return {
     draft: result.draft,
     reused: result.draft.duplicate,

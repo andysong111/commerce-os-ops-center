@@ -357,12 +357,10 @@ export default async function ChinaOrderManagerPage({
                 href={`/china-order-manager/drafts/${encodeURIComponent(selectedDrafts[0].draftId)}`}
                 className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white hover:bg-blue-800"
               >
-                중국 주문초안
+                중국 주문초안 · {selectedRun?.cycleStartDate ?? selectedDrafts[0].cycleStartDate}
               </Link>
             ) : null}
-            <PurchaseRunStartButton
-              hasActiveRun={visibleRuns.some((run) => run.openQuantity > 0)}
-            />
+            <PurchaseRunStartButton />
           </div>
         }
       />

@@ -171,6 +171,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
   cycleMonth: string;
   lines: FastPurchaseInternalDraftLine[];
   expectedDraftId: string;
+  nextCycleStartDate?: string;
   operatorExcludedBarcodes?: string[];
   operatorQuantityOverrides?: Array<{ barcode: string; targetQuantity: number }>;
 }): Promise<PurchaseCycleDraftRegenerationResult> {
@@ -190,11 +191,16 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
   }
   const expectedSummary = draftLedger.drafts.find((row) => row.draftId === input.expectedDraftId);
   if (!expectedSummary) throw new Error("PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED");
-  const purchaseRunCycle = inferPurchaseRunCycleBasis({
-    targetDate: expectedSummary.cycleStartDate || expectedSummary.createdAt,
-    drafts: draftLedger.drafts,
-    replaceDraftId: input.expectedDraftId,
-  });
+  const purchaseRunCycle = input.nextCycleStartDate
+    ? inferPurchaseRunCycleBasis({
+        targetDate: input.nextCycleStartDate,
+        drafts: draftLedger.drafts,
+      })
+    : inferPurchaseRunCycleBasis({
+        targetDate: expectedSummary.cycleStartDate || expectedSummary.createdAt,
+        drafts: draftLedger.drafts,
+        replaceDraftId: input.expectedDraftId,
+      });
   const operatorAdjustments = normalizePurchaseDraftOperatorAdjustments({
     excludedBarcodes: input.operatorExcludedBarcodes,
     quantityOverrides: input.operatorQuantityOverrides,

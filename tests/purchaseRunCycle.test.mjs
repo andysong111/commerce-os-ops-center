@@ -58,7 +58,7 @@ test("recalculating a draft keeps its original cycle boundaries", () => {
   assert.equal(result.bootstrap, false);
 });
 
-test("new cycle uses the latest confirmed receipt date as its prior boundary", () => {
+test("new cycle uses the prior calculation start and keeps in-transit sales in range", () => {
   const result = inferPurchaseRunCycleBasis({
     targetDate: "2026-10-23",
     drafts: [
@@ -72,7 +72,9 @@ test("new cycle uses the latest confirmed receipt date as its prior boundary", (
       }),
     ],
   });
-  assert.equal(result.previousCycleStartDate, "2026-10-18");
+  assert.equal(result.previousCycleStartDate, "2026-10-05");
+  assert.equal(result.revenueRangeStartDate, "2026-10-05");
+  assert.equal(result.revenueRangeEndDate, "2026-10-22");
   assert.equal(result.bootstrap, false);
 });
 
