@@ -1,0 +1,257 @@
+const RECOVERY_ENDPOINT = "/api/product-launch-tracker/seo-material-recovery";
+const BUTTON_ID = "seo-material-recovery-button";
+const DIALOG_ID = "seo-material-recovery-dialog";
+const MAX_INSTALL_ATTEMPTS = 40;
+
+let installAttempts = 0;
+let installTimer = null;
+
+function text(value) {
+  return String(value ?? "").trim();
+}
+
+function list(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function statusLabel(status) {
+  const labels = {
+    ready_after_recovery: "복구 후 준비완료",
+    partially_recovered: "일부 복구",
+    unresolved: "확인 필요",
+    already_ready: "이미 준비완료",
+    excluded: "SEO 제외",
+    receipt_pending: "입고대기중",
+    archived: "보관됨",
+  };
+  return labels[text(status)] || text(status) || "확인 필요";
+}
+
+function showMessage(message) {
+  if (typeof window.showToast === "function") {
+    window.showToast(message);
+    return;
+  }
+  window.alert(message);
+}
+
+async function requestRecovery(body) {
+  const response = await fetch(RECOVERY_ENDPOINT, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.ok !== true) {
+    throw new Error(payload?.message || `SEO 재료 검사에 실패했습니다. (${response.status})`);
+  }
+  return payload;
+}
+
+function recoveryRows(report) {
+  return list(report?.results).filter((row) => row?.changed || list(row?.unresolved).length);
+}
+
+function rowSummary(row) {
+  const changes = list(row?.changedFields).map(text).filter(Boolean);
+  const unresolved = list(row?.unresolved).map(text).filter(Boolean);
+  return {
+    modelNumber: text(row?.modelNumber),
+    productName: text(row?.productName),
+    status: statusLabel(row?.status),
+    detail: changes.length
+      ? `보완: ${changes.join(", ")}`
+      : unresolved.slice(0, 2).join(" · ") || "추가 확인이 필요합니다.",
+  };
+}
+
+function ensureDialog() {
+  let dialog = document.querySelector(`#${DIALOG_ID}`);
+  if (dialog) return dialog;
+
+  dialog = document.createElement("dialog");
+  dialog.id = DIALOG_ID;
+  dialog.className = "dialog seo-material-recovery-dialog";
+  dialog.innerHTML = `
+    <form method="dialog">
+      <div class="dialog-header">
+        <div><p class="eyebrow">SEO 등록 전 점검</p><h2>SEO 재료 검사 결과</h2></div>
+        <button class="icon-button" value="cancel" aria-label="닫기">×</button>
+      </div>
+      <div class="seo-material-recovery-summary" data-role="summary"></div>
+      <div class="seo-material-recovery-list" data-role="list"></div>
+      <div class="dialog-actions dialog-actions-end">
+        <button class="button button-ghost" value="cancel">닫기</button>
+        <button class="button button-primary" type="button" data-role="apply">확실한 자료만 반영</button>
+      </div>
+    </form>
+  `;
+  document.body.append(dialog);
+  return dialog;
+}
+
+function renderPreview(dialog, report) {
+  const summary = dialog.querySelector('[data-role="summary"]');
+  const listElement = dialog.querySelector('[data-role="list"]');
+  const applyButton = dialog.querySelector('[data-role="apply"]');
+  const rows = recoveryRows(report).map(rowSummary);
+
+  summary.replaceChildren();
+  for (const [label, value] of [
+    ["자동 보완", Number(report?.changedCount) || 0],
+    ["보완 후 준비완료", Number(report?.readyAfterCount) || 0],
+    ["추가 확인", Number(report?.unresolvedCount) || 0],
+    ["입고대기", Number(report?.receiptPendingCount) || 0],
+  ]) {
+    const item = document.createElement("div");
+    item.innerHTML = `<strong>${value}건</strong><span>${label}</span>`;
+    summary.append(item);
+  }
+
+  listElement.replaceChildren();
+  for (const row of rows) {
+    const item = document.createElement("div");
+    item.className = "seo-material-recovery-row";
+    const identity = document.createElement("strong");
+    identity.textContent = `${row.modelNumber} ${row.productName}`.trim();
+    const status = document.createElement("span");
+    status.textContent = row.status;
+    const detail = document.createElement("small");
+    detail.textContent = row.detail;
+    item.append(identity, status, detail);
+    listElement.append(item);
+  }
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "seo-material-recovery-empty";
+    empty.textContent = "현재 자동으로 보완하거나 추가 확인할 상품이 없습니다.";
+    listElement.append(empty);
+  }
+
+  applyButton.hidden = !(Number(report?.changedCount) > 0 && text(report?.planHash));
+  applyButton.dataset.planHash = text(report?.planHash);
+}
+
+async function applyRecovery(dialog, button, report) {
+  const applyButton = dialog.querySelector('[data-role="apply"]');
+  const previousText = applyButton.textContent;
+  applyButton.disabled = true;
+  applyButton.textContent = "반영 중...";
+  try {
+    const applied = await requestRecovery({
+      action: "apply",
+      expectedPlanHash: text(report?.planHash),
+    });
+    dialog.close();
+    showMessage(`SEO 재료 ${Number(applied?.appliedCount) || 0}건을 반영했습니다.`);
+    button.textContent = "반영 완료";
+    window.setTimeout(() => window.location.reload(), 350);
+  } catch (error) {
+    showMessage(error instanceof Error ? error.message : "SEO 재료를 반영하지 못했습니다.");
+    applyButton.disabled = false;
+    applyButton.textContent = previousText;
+  }
+}
+
+async function previewRecovery(button) {
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.textContent = "전체 상품 검사 중...";
+  try {
+    const report = await requestRecovery({ action: "preview" });
+    const dialog = ensureDialog();
+    renderPreview(dialog, report);
+    const applyButton = dialog.querySelector('[data-role="apply"]');
+    applyButton.onclick = () => void applyRecovery(dialog, button, report);
+    dialog.showModal();
+  } catch (error) {
+    showMessage(error instanceof Error ? error.message : "SEO 재료를 검사하지 못했습니다.");
+  } finally {
+    button.disabled = false;
+    button.textContent = previousText;
+  }
+}
+
+function installStyles() {
+  if (document.querySelector("#seo-material-recovery-style")) return;
+  const style = document.createElement("style");
+  style.id = "seo-material-recovery-style";
+  style.textContent = `
+    .seo-material-recovery-button { min-width: 154px; }
+    .seo-material-recovery-dialog { width: min(760px, calc(100vw - 28px)); }
+    .seo-material-recovery-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin: 12px 0 16px;
+    }
+    .seo-material-recovery-summary > div {
+      display: grid;
+      gap: 2px;
+      padding: 10px 12px;
+      border: 1px solid #dbe3ee;
+      border-radius: 6px;
+      background: #f8fafc;
+    }
+    .seo-material-recovery-summary strong { font-size: 17px; }
+    .seo-material-recovery-summary span,
+    .seo-material-recovery-row small { color: #64748b; }
+    .seo-material-recovery-list {
+      display: grid;
+      gap: 1px;
+      max-height: min(52vh, 520px);
+      overflow: auto;
+      border-block: 1px solid #dbe3ee;
+    }
+    .seo-material-recovery-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 1.4fr) minmax(100px, .7fr) minmax(220px, 2fr);
+      gap: 12px;
+      align-items: center;
+      min-height: 48px;
+      padding: 8px 4px;
+      border-bottom: 1px solid #edf1f6;
+    }
+    .seo-material-recovery-row:last-child { border-bottom: 0; }
+    .seo-material-recovery-empty { color: #64748b; padding: 16px 4px; }
+    @media (max-width: 700px) {
+      .seo-material-recovery-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .seo-material-recovery-row { grid-template-columns: 1fr; gap: 3px; }
+    }
+  `;
+  document.head.append(style);
+}
+
+function installButton() {
+  const destination =
+    document.querySelector("#bulk-action-group-data") ||
+    document.querySelector(".bulk-controls");
+  if (!destination) return false;
+  let button = document.querySelector(`#${BUTTON_ID}`);
+  if (!button) {
+    button = document.createElement("button");
+    button.id = BUTTON_ID;
+    button.type = "button";
+    button.className = "button button-secondary seo-material-recovery-button";
+    button.textContent = "SEO 재료 검사·복구";
+    button.title = "전체 활성 상품의 SEO 필수 자료를 검사하고, 근거가 확실한 값만 보완합니다.";
+    button.addEventListener("click", () => void previewRecovery(button));
+  }
+  if (button.parentElement !== destination) destination.prepend(button);
+  return true;
+}
+
+function scheduleInstall() {
+  if (installTimer) window.clearTimeout(installTimer);
+  installStyles();
+  if (installButton() || installAttempts >= MAX_INSTALL_ATTEMPTS) return;
+  installAttempts += 1;
+  installTimer = window.setTimeout(scheduleInstall, 100);
+}
+
+scheduleInstall();
+
