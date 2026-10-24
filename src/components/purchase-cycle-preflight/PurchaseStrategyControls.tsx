@@ -345,13 +345,13 @@ export function PurchaseStrategyControls() {
           onClick={() => void loadState()}
           className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-900 disabled:opacity-50"
         >
-          최신값 다시 불러오기
+          저장된 발주정책 다시 불러오기
         </button>
       </div>
 
       <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-950">
         <strong>이번 Draft만 빼는 기능과 별개입니다.</strong> 재고가 많아서 이번
-        달만 제외할 상품은 Draft의 임시 제외를 사용하세요. 이 화면의 영구
+        이번 발주차시만 제외할 상품은 Draft의 임시 제외를 사용하세요. 이 화면의 영구
         제외는 단종처럼 앞으로도 사지 않을 상품에만 사용합니다.
       </div>
 

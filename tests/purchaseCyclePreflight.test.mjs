@@ -1029,7 +1029,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   const budgetPlan = readFileSync(new URL("../src/lib/sourcingBudgetPlan.ts", import.meta.url), "utf8");
   const finalCalculate = readFileSync(new URL("../src/components/purchase-cycle-preflight/NewProductConfigurationCalculateButton.tsx", import.meta.url), "utf8");
   const draftActions = readFileSync(new URL("../src/components/purchase-cycle-preflight/PurchaseCycleDraftActions.tsx", import.meta.url), "utf8");
-  assert.match(page, /title="다음 발주 준비"/);
+  assert.match(page, /title="발주초안 만들기"/);
   assert.match(page, /1단계/);
   assert.match(page, /발주 준비 단계/);
   assert.match(page, /총현금이 이렇게 나뉩니다/);
@@ -1039,10 +1039,10 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /variant="quick-open"/);
   assert.match(draftActions, /data-testid="preflight-plan-jump"/);
   assert.match(draftActions, /발주안 바로 보기/);
-  assert.match(draftActions, /원가 입력과 1688 장바구니 준비 화면을 엽니다/);
+  assert.match(draftActions, /수량 보정과 5-1·5-2 업무 화면을 엽니다/);
   assert.match(draftActions, /router\.push\(`\/china-order-manager\/drafts\/\$\{encodeURIComponent\(savedDraftId\)\}`\)/);
   assert.match(draftActions, /if \(!savedDraftId\)/);
-  assert.match(draftActions, /발주 Draft는 저장됐지만 주문 준비 화면 주소를 확인하지 못했습니다/);
+  assert.match(draftActions, /발주초안은 저장됐지만 주문 준비 화면 주소를 확인하지 못했습니다/);
   assert.match(draftActions, /disabled=\{!ready \|\| saving\}/);
   assert.match(draftActions, /href="#preflight-result-title"/);
   assert.match(draftActions, /실제 주문·결제는 실행하지 않습니다/);
@@ -1050,7 +1050,8 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(draftActions, /\/api\/purchase-cycle\/preflight-draft\/recalculate/);
   assert.match(page, /canRecalculateWithPreservedSourcingOnly/);
   assert.match(page, /기존상품으로 돌아간 금액/);
-  assert.match(page, /지금 확인할 내용/);
+  assert.match(page, /사용자 확인/);
+  assert.match(page, /상품·입력 확인/);
   assert.match(page, /기존상품 재발주/);
   assert.match(page, /상세 검증 내역 보기/);
   assert.match(page, /id="new-product-configuration"/);
@@ -1065,7 +1066,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.doesNotMatch(page, /후보·수납 반영 후 다시 계산/);
   assert.match(page, /3단계 · 계산 결과/);
   assert.match(page, /sourcingPolicyPreparationCodes/);
-  assert.match(page, /오류나 사용자 할 일로 세지 않습니다/);
+  assert.match(page, /사용자 작업은 필요 없습니다/);
   assert.match(page, /기술 검증 내역/);
   assert.match(page, /소싱 후보 다시 불러오기/);
   assert.match(page, /purchaseCycleDraftConfirmation\(report, preserveExistingSourcingOnly \? null : sourcingPlan\)/);

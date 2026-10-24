@@ -128,7 +128,7 @@ export async function POST(request: Request, context: RouteContext) {
         ...result,
         message: result.duplicate
           ? "같은 추가 요청이 이미 반영되어 중복으로 늘리지 않았습니다."
-          : `${result.line?.barcode ?? String(body.barcode ?? "")}를 현재 월간 Draft에 +${result.addedQuantity.toLocaleString("ko-KR")}개 추가했습니다. 현재 RESERVED 수량은 ${result.targetQuantity.toLocaleString("ko-KR")}개입니다.`,
+          : `${result.line?.barcode ?? String(body.barcode ?? "")}를 현재 발주차시 초안에 +${result.addedQuantity.toLocaleString("ko-KR")}개 추가했습니다. 현재 RESERVED 수량은 ${result.targetQuantity.toLocaleString("ko-KR")}개입니다.`,
       },
       { headers: { "cache-control": "no-store" } },
     );

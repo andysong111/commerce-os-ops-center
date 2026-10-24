@@ -1,5 +1,9 @@
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
-import { startPurchaseRun } from "@/lib/purchaseRunStart";
+import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
+import {
+  advancePurchaseRunPreparation,
+  normalizePurchaseRunPreparationInput,
+} from "@/lib/purchaseRunPreparation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,35 +18,36 @@ export async function POST(request: Request) {
     );
   }
   try {
-    const result = await startPurchaseRun();
+    const body = await request.json().catch(() => ({}));
+    const input = normalizePurchaseRunPreparationInput(body, seoulCalendarDate());
+    const result = await advancePurchaseRunPreparation(input);
+    const status = result.state === "BLOCKED" ? 409 : result.state === "PENDING" ? 202 : 200;
     return Response.json(
       {
-        ok: true,
+        ok: result.state !== "BLOCKED",
+        pending: result.state === "PENDING",
         ...result,
-        draftUrl: `/china-order-manager/drafts/${encodeURIComponent(result.draft.draftId)}`,
-        message: result.created
-          ? "새 발주차시와 중국 주문초안을 만들었습니다. 실제 주문·결제는 실행하지 않았습니다."
-          : "오늘 이미 계산한 중국 주문초안을 다시 엽니다.",
       },
-      { status: result.created ? 201 : 200, headers: { "cache-control": "no-store" } },
+      { status, headers: { "cache-control": "no-store" } },
     );
   } catch (error) {
     const raw = error instanceof Error ? error.message : "PURCHASE_RUN_START_FAILED";
     const code = raw.split(":", 1)[0] || "PURCHASE_RUN_START_FAILED";
+    const validationError = code === "PURCHASE_RUN_CASH_INVALID" ||
+      code === "PURCHASE_RUN_SOURCING_PERCENT_INVALID";
     return Response.json(
       {
         ok: false,
         code,
         message:
-          code === "PURCHASE_CYCLE_DRAFT_NOT_READY"
-            ? "최신 판매·재고 근거에 확인할 항목이 있어 새 발주차시를 만들지 않았습니다. 발주 사전점검에서 남은 항목을 확인하세요."
-            : code === "PURCHASE_RUN_LEDGER_UNAVAILABLE"
-              ? "기존 발주차시를 확인하지 못해 중복 생성을 막았습니다. 잠시 뒤 다시 시도하세요."
-              : "새 발주차시를 만들지 못했습니다. 발주 사전점검에서 최신 자료를 확인하세요.",
-        actionHref: "/purchase-cycle-preflight?check=1&sourcing=0",
+          code === "PURCHASE_RUN_CASH_INVALID"
+            ? "이번 발주에 사용할 현금은 0원 이상의 정수로 입력하세요. 비우면 누적 가용예산을 사용합니다."
+            : code === "PURCHASE_RUN_SOURCING_PERCENT_INVALID"
+              ? "신규상품 소싱 비율은 0~100 사이의 정수로 입력하세요."
+              : "자료 준비가 일시적으로 중단되었습니다. 같은 버튼으로 다시 시도하면 완료한 단계부터 이어갑니다.",
         externalOrderExecuted: false,
       },
-      { status: 409, headers: { "cache-control": "no-store" } },
+      { status: validationError ? 400 : 503, headers: { "cache-control": "no-store" } },
     );
   }
 }

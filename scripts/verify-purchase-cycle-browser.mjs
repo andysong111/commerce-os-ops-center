@@ -74,10 +74,10 @@ try {
   await page.getByRole("button", { name: "상태 새로고침", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('section[aria-busy="true"]'));
   await page.evaluate(() => { history.pushState(null, "", "/china-order-manager?month=2026-08"); window.dispatchEvent(new PopStateEvent("popstate")); });
-  await page.getByText("2026-08 · 발주사이클", { exact: true }).waitFor();
+  await page.getByText("조회 기준 2026-08 · 입고·원장 상태", { exact: true }).waitFor();
   await page.getByRole("heading", { name: "다음 발주계산 준비 완료", exact: true }).waitFor();
   await page.waitForTimeout(700);
-  assert.equal(await page.getByText("2026-09 · 발주사이클", { exact: true }).count(), 0);
+  assert.equal(await page.getByText("조회 기준 2026-09 · 입고·원장 상태", { exact: true }).count(), 0);
   assert.ok(statuses.length > before); assert.equal(writes.length, 1); assert.deepEqual(errors, []);
   console.log("PASS browser: late old-month response cannot replace current-month proof");
   await mkdir("artifacts/purchase-cycle-browser", { recursive: true });

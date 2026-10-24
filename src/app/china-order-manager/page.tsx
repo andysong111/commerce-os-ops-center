@@ -607,7 +607,7 @@ export default async function ChinaOrderManagerPage({
               number="2"
               title="1688 주문"
               state={hasOrder ? "done" : selectedRun ? "active" : "wait"}
-              detail={hasOrder ? "실제 주문 기록됨" : "중국 주문초안에서 5번 업무 진행"}
+              detail={hasOrder ? "실제 주문 기록됨" : "중국 주문초안에서 5-1 원가·운임, 5-2 장바구니 진행"}
             />
             <FlowStep
               number="3"
@@ -622,7 +622,7 @@ export default async function ChinaOrderManagerPage({
               }
               href={
                 hasOrder
-                  ? `/freight-barcode-request/monthly?month=${encodeURIComponent(selectedMonth)}`
+                  ? `/freight-barcode-request/monthly?month=${encodeURIComponent(selectedMonth)}&draft=${encodeURIComponent(selectedDraftId)}`
                   : undefined
               }
               actionLabel="바코드 출력으로 이동"

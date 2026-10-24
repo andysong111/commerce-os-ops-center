@@ -26,7 +26,6 @@ type DraftResponse = {
 
 export function PurchaseCycleDraftActions({
   targetDate,
-  targetCycleMonth,
   cashLimitKrw,
   sourcingBudgetPercent,
   sourcingBudgetKrw,
@@ -62,7 +61,6 @@ export function PurchaseCycleDraftActions({
   variant = "full",
 }: {
   targetDate: string;
-  targetCycleMonth: string;
   cashLimitKrw: number | null;
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
@@ -118,10 +116,10 @@ export function PurchaseCycleDraftActions({
       ? ` · 사용자 수량 고정 ${quantityOverrides.length}종`
       : "";
     const summary = replaceDraftId
-      ? `${targetCycleMonth} 기존 Draft를 최신 계산으로 교체할까요?\n\n${lineSummary}\n기존상품 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원 · ${cashSummary} · ${sourcingSummary}${exclusionSummary}${quantitySummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 Draft가 RESERVED 상태일 때만 감사 기록으로 종료하고 새 Draft를 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
-      : `${targetCycleMonth} 월간 발주 Draft를 저장할까요?\n\n${lineSummary}\n기존상품 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원 · ${cashSummary} · ${sourcingSummary}을 적용했습니다. 미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
+      ? `${targetDate} 기존 발주초안을 최신 계산으로 교체할까요?\n\n${lineSummary}\n기존상품 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원 · ${cashSummary} · ${sourcingSummary}${exclusionSummary}${quantitySummary} · 새로 포함 ${replacementAddedCount}종 · 기존에서 제거 ${replacementRemovedCount}종 · 수량변경 ${replacementChangedCount}종을 확인했습니다. 기존 초안이 RESERVED 상태일 때만 감사 기록으로 종료하고 새 초안을 기록합니다. 1688 주문·결제는 실행하지 않습니다.`
+      : `${targetDate} 발주차시 초안을 저장할까요?\n\n${lineSummary}\n기존상품 상품대금 ${estimatedSpendKrw.toLocaleString("ko-KR")}원 · ${cashSummary} · ${sourcingSummary}을 적용했습니다. 미입고 약정만 RESERVED로 기록합니다. 1688 주문·결제는 실행하지 않습니다.`;
     const quickOpenNotice = variant === "quick-open"
-      ? "\n\n저장 후 상품별 주문수량·1688 링크·옵션·위안단가 입력과 장바구니 준비가 있는 중국 발주초안을 엽니다. 실제 주문·결제는 실행하지 않습니다."
+      ? "\n\n저장 후 상품별 주문수량·1688 링크·옵션을 확인하고 5-1 원가·운임 기록과 5-2 장바구니 담기를 진행하는 중국 발주초안을 엽니다. 실제 주문·결제는 실행하지 않습니다."
       : "";
     if (!window.confirm(summary + quickOpenNotice)) return;
     setSaving(true);
@@ -177,7 +175,7 @@ export function PurchaseCycleDraftActions({
       const savedDraftId = payload.draft?.draftId?.trim() ?? "";
       if (variant === "quick-open") {
         if (!savedDraftId) {
-          setNotice("발주 Draft는 저장됐지만 주문 준비 화면 주소를 확인하지 못했습니다. 아래 Draft 저장 결과를 확인하세요.");
+          setNotice("발주초안은 저장됐지만 주문 준비 화면 주소를 확인하지 못했습니다. 아래 저장 결과를 확인하세요.");
           return;
         }
         router.push(`/china-order-manager/drafts/${encodeURIComponent(savedDraftId)}`);
@@ -187,7 +185,7 @@ export function PurchaseCycleDraftActions({
         `${payload.message} 최종 ${selectedCount}개 SKU · 총 ${totalQuantity.toLocaleString("ko-KR")}개 · ${savedDraftId}`,
       );
     } catch {
-      setNotice("월간 Draft 저장 요청이 실패했습니다. 실제 주문·결제는 실행되지 않았습니다.");
+      setNotice("발주차시 초안 저장 요청이 실패했습니다. 실제 주문·결제는 실행되지 않았습니다.");
     } finally {
       setSaving(false);
     }
@@ -200,7 +198,7 @@ export function PurchaseCycleDraftActions({
           <strong className="text-sm text-blue-950">중국 발주초안으로 이동</strong>
           <p className="mt-1 text-xs leading-5 text-blue-900">
             {ready
-              ? `기존상품 ${existingReorderCount}종 + 유지 신규소싱 ${preservedSourcingCount}종 + 새 신규소싱 ${sourcingSelectedCount}종 = 최종 ${selectedCount}종 · 총 ${totalQuantity.toLocaleString("ko-KR")}개를 내부 Draft로 저장하고, 원가 입력과 1688 장바구니 준비 화면을 엽니다.`
+              ? `기존상품 ${existingReorderCount}종 + 유지 신규소싱 ${preservedSourcingCount}종 + 새 신규소싱 ${sourcingSelectedCount}종 = 최종 ${selectedCount}종 · 총 ${totalQuantity.toLocaleString("ko-KR")}개를 발주차시 초안으로 저장하고, 수량 보정과 5-1·5-2 업무 화면을 엽니다.`
               : "계산 결과에 남은 필수 조건이 있어 아직 발주초안을 만들 수 없습니다. 아래에서 남은 조건을 확인하세요."}
           </p>
         </div>
@@ -220,9 +218,9 @@ export function PurchaseCycleDraftActions({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-3xl">
           <p className="text-xs font-black text-blue-700">4단계 · 내부 기록</p>
-          <h2 className="mt-1 text-lg font-black text-slate-950">월간 발주 Draft로 저장</h2>
+          <h2 className="mt-1 text-lg font-black text-slate-950">발주차시 초안으로 저장</h2>
           <p className="mt-2 text-sm leading-6 text-slate-700">
-            검토한 품목·수량·금액과 미입고 약정만 기록합니다. 이후 같은 달 중복발주 계산에서 차감되며 실제 중국 주문과 결제는 별도입니다.
+            검토한 품목·수량·금액과 미입고 약정만 기록합니다. 다음 발주차시 계산에서 미입고 수량을 차감하며 실제 중국 주문과 결제는 별도입니다.
           </p>
           <p className={`mt-3 text-sm font-bold ${ready ? "text-emerald-800" : "text-amber-800"}`}>
             {ready ? "저장 준비 완료 · 버튼을 누르면 마지막 확인창이 열립니다." : "저장 대기 · 위 확인 항목을 먼저 해결하세요."}
@@ -239,8 +237,8 @@ export function PurchaseCycleDraftActions({
               ? "Draft 재생성 중..."
               : "Draft 저장 중..."
             : replaceDraftId
-              ? `${targetCycleMonth} 최신 로직으로 재생성`
-              : `${targetCycleMonth} Draft 저장`}
+              ? `${targetDate} 최신 로직으로 재생성`
+              : `${targetDate} 초안 저장`}
         </button>
       </div>
       {notice ? <p className="mt-4 border-l-4 border-blue-500 bg-blue-50 px-3 py-2 text-sm font-bold">{notice}</p> : null}

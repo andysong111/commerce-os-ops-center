@@ -339,7 +339,7 @@ export function ManualProductIntakeForm({
       setProducts([makeProduct()]);
       setStagedCandidates([]);
       setFailed(false);
-      setNotice("월간 Draft 저장 완료 · 임시저장을 정리했습니다.");
+      setNotice("발주차시 초안 저장 완료 · 임시저장을 정리했습니다.");
     }
     window.addEventListener(MANUAL_SOURCING_DRAFT_COMMITTED_EVENT, clearCommittedDraft);
     return () => window.removeEventListener(MANUAL_SOURCING_DRAFT_COMMITTED_EVENT, clearCommittedDraft);
@@ -464,7 +464,7 @@ export function ManualProductIntakeForm({
       setFailed(true);
       setNotice(`${completedProducts}상품·${completedOptions}옵션 추가 완료 · ${failedProducts.length}상품 실패. 실패 입력만 남겼습니다.`);
     } else if (calculationFormId) {
-      setNotice(`${completedProducts}상품·${completedOptions}옵션 후보 추가 완료. 아직 발주안은 계산하지 않았습니다. 월간 Draft 저장 전까지 새로고침·재계산 후에도 유지됩니다.`);
+      setNotice(`${completedProducts}상품·${completedOptions}옵션 후보 추가 완료. 아직 발주안은 계산하지 않았습니다. 발주차시 초안 저장 전까지 새로고침·재계산 후에도 유지됩니다.`);
     } else {
       setNotice(`${completedProducts}상품·${completedOptions}옵션 후보를 저장했습니다.`);
     }

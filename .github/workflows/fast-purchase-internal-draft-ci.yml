@@ -25,7 +25,10 @@ jobs:
           tests/monthlyPurchasePolicy.test.mjs
           tests/internalChinaInlineQuantity.test.mjs
           tests/internalChinaManualBulkAdd.test.mjs
+          tests/alibaba1688CartPlan.test.mjs
+          tests/alibaba1688CartStaging.test.mjs
           tests/alibaba1688DraftWorkspace.test.mjs
+          tests/purchaseAutomationServer.test.mjs
       - name: Lint internal draft files
         run: >-
           npx eslint
@@ -37,13 +40,23 @@ jobs:
           src/components/fast-purchase-mvp/FastPurchaseDraftActions.tsx
           src/app/fast-purchase-mvp/page.tsx
           src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx
+          src/components/china-order-manager/InternalChinaPurchaseDraftGuide.tsx
           src/components/china-order-manager/InternalChinaManualDraftLineAdder.tsx
+          local-agent/src/alibaba1688-cart-browser-adapter.mjs
+          local-agent/src/alibaba1688-cart-plan.mjs
+          local-agent/src/alibaba1688-cart-staging.mjs
+          local-agent/src/ops-center-browser-transport.mjs
+          local-agent/src/ops-center-draft-client.mjs
+          local-agent/src/purchase-automation-server.mjs
           src/app/china-order-manager/drafts/[draftId]/page.tsx
           tests/fastPurchaseInternalDraft.test.mjs
           tests/monthlyPurchasePolicy.test.mjs
           tests/internalChinaInlineQuantity.test.mjs
           tests/internalChinaManualBulkAdd.test.mjs
+          tests/alibaba1688CartPlan.test.mjs
+          tests/alibaba1688CartStaging.test.mjs
           tests/alibaba1688DraftWorkspace.test.mjs
+          tests/purchaseAutomationServer.test.mjs
       - name: Build
         run: npm run build
         env:

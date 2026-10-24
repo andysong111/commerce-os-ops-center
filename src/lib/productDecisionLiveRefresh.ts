@@ -426,6 +426,28 @@ export async function createProductDecisionLiveRefreshRequest() {
   return request;
 }
 
+export async function ensurePurchaseRunDemandRefreshRequest(options: {
+  maxAgeMs?: number;
+  now?: Date;
+} = {}) {
+  const maxAgeMs = Math.max(0, Number(options.maxAgeMs ?? 5 * 60 * 1000));
+  const now = options.now ?? new Date();
+  const current = await loadProductDecisionLiveStatus();
+  const analysisAt = Date.parse(String(current.analysisAsOf ?? ""));
+  const fresh = Number.isFinite(analysisAt) &&
+    analysisAt <= now.valueOf() &&
+    now.valueOf() - analysisAt <= maxAgeMs;
+  if (fresh && (
+    current.state === "QUEUED" ||
+    current.state === "RUNNING" ||
+    current.state === "COMPLETED"
+  )) {
+    return current;
+  }
+  const created = await createProductDecisionLiveRefreshRequest();
+  return loadProductDecisionLiveStatus(created.requestId);
+}
+
 async function latestRequest() {
   const requests = await readOperations(PRODUCT_DECISION_LIVE_REQUEST, undefined, 20);
   for (const row of requests) {

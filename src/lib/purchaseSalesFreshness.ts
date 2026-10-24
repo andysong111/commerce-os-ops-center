@@ -10,7 +10,7 @@ function seoulDay(timestampMs: number) {
 // A rolling candidate is ordinarily valid for 12 hours. Once its exact FULL
 // snapshot has been read back and verified, the same frozen candidate remains
 // usable through the following Seoul business day for internal Draft
-// preparation. This lets an overnight monthly preparation feed the next day's
+// preparation. This lets one on-demand purchase-run preparation feed the next
 // operator review without running the 360-day sales collection again. A second
 // day still requires a refresh, and actual 1688 order/payment remains outside
 // this Draft-only gate.

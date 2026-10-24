@@ -36,7 +36,7 @@ export const SALES_EVENT_FAILED = "PRODUCT_MASTER_SHOPLING_SALES_EVENT_FAILED";
 const DEFAULT_PRODUCT_MASTER_URL = "https://commerce-os-product-master.vercel.app";
 const ANALYSIS_DAYS = PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS;
 export const SALES_EVENT_SOURCE_RANGE_DAYS = 7;
-export const MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS = 45;
+export const PURCHASE_RUN_PREPARATION_CORRECTION_DAYS = 45;
 const LEGACY_SALES_EVENT_SOURCE_RANGE_DAYS = 30;
 const OPERATION_LIMIT = 500;
 const APPLY_BATCH_SIZE = 2_000;
@@ -396,11 +396,11 @@ async function appendSalesEventSyncRequest(
   resetMs?: number,
   options: {
     analysisAsOf?: Date;
-    monthlyStableRangeReuse?: boolean;
+    purchaseRunStableRangeReuse?: boolean;
   } = {},
 ) {
   shoplingReadConfigFromEnv(shoplingEnvironment());
-  const parent = options.monthlyStableRangeReuse ? await latestRequest() : null;
+  const parent = options.purchaseRunStableRangeReuse ? await latestRequest() : null;
   const planning = await loadProductPlanningSnapshot();
   let request = createSalesEventSyncRequestPlan(
     crypto.randomUUID(),
@@ -422,7 +422,7 @@ async function appendSalesEventSyncRequest(
         analysisStartDate: request.analysisStartDate,
         analysisEndDate: request.analysisEndDate,
         parentRanges: parent.ranges,
-        correctionDays: MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS,
+        correctionDays: PURCHASE_RUN_PREPARATION_CORRECTION_DAYS,
         chunkDays: SALES_EVENT_SOURCE_RANGE_DAYS,
       });
       request = { ...request, ranges: reusePlan.ranges };
@@ -439,10 +439,10 @@ async function appendSalesEventSyncRequest(
     inputSnapshot: {
       ...request,
       ...provenance,
-      monthlyStableRangeReuse: reusePlan
+      purchaseRunStableRangeReuse: reusePlan
         ? {
             parentRequestId: parent?.requestId ?? null,
-            correctionDays: MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS,
+            correctionDays: PURCHASE_RUN_PREPARATION_CORRECTION_DAYS,
             correctionStartDate: reusePlan.correctionStartDate,
             plannedReusableRanges: reusePlan.reusableRangeKeys.length,
             plannedSourceReadRanges: reusePlan.sourceReadRangeCount,
@@ -472,7 +472,7 @@ async function appendSalesEventSyncRequest(
     const reusedAt = new Date().toISOString();
     const reusableRows = [...chunksByRange.entries()].map(([key, chunk]) => ({
       operationType: SALES_EVENT_CHUNK,
-      sourceEventId: `sales-event-monthly-reuse-chunk:${request.requestId}:${key}`,
+      sourceEventId: `sales-event-purchase-run-reuse-chunk:${request.requestId}:${key}`,
       correlationId: requestCorrelationId(request.requestId),
       inputSnapshot: {
         requestId: request.requestId,
@@ -497,7 +497,7 @@ async function appendSalesEventSyncRequest(
     reusedRangeCount,
     sourceReadRangeCount: persisted.ranges.length - reusedRangeCount,
     correctionDays: reusePlan
-      ? MONTHLY_PURCHASE_PREPARATION_CORRECTION_DAYS
+      ? PURCHASE_RUN_PREPARATION_CORRECTION_DAYS
       : null,
   };
 }
@@ -521,45 +521,42 @@ export async function createProductMasterShoplingSalesEventSyncRequest(refresh?:
 }
 
 const FRESH_SALES_EVENT_STATES = new Set([
-  "QUEUED",
-  "RUNNING",
   "READY_CANARY",
   "READY_FULL",
   "COMPLETED",
 ]);
 
 /**
- * Server-owned monthly purchase preparation may enqueue a fresh read-only
- * Shopling candidate without pretending that CANARY/FULL approval was given.
- * The shared mutation guard prevents duplicate request creation when the
- * dispatcher and an operator action overlap.
+ * Starting an on-demand purchase run reuses the verified historical ranges and
+ * refreshes the latest correction window. Collection, canary and full apply are
+ * advanced by the purchase-run preparation coordinator behind fail-closed gates.
  */
-export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
-  cycleMonth: string;
+export async function ensurePurchaseRunSalesRequest(input: {
+  targetDate: string;
   maxAgeMs?: number;
   now?: Date;
 }) {
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.cycleMonth)) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(input.targetDate)) {
     throw new SalesEventActionError(
-      "MONTHLY_PURCHASE_PREPARATION_CYCLE_INVALID",
+      "PURCHASE_RUN_PREPARATION_DATE_INVALID",
       400,
-      "월간 발주 준비 기준월이 올바르지 않습니다.",
+      "발주차시 시작일이 올바르지 않습니다.",
     );
   }
-  const maxAgeMs = input.maxAgeMs ?? 2 * 60 * 60 * 1000;
+  const maxAgeMs = input.maxAgeMs ?? 5 * 60 * 1000;
   if (!Number.isFinite(maxAgeMs) || maxAgeMs < 0 || maxAgeMs > 12 * 60 * 60 * 1000) {
     throw new SalesEventActionError(
-      "MONTHLY_PURCHASE_PREPARATION_MAX_AGE_INVALID",
+      "PURCHASE_RUN_PREPARATION_MAX_AGE_INVALID",
       400,
-      "월간 발주 준비 판매자료 신선도 기준이 올바르지 않습니다.",
+      "발주차시 판매자료 신선도 기준이 올바르지 않습니다.",
     );
   }
   const now = input.now ? new Date(input.now.valueOf()) : new Date();
   if (!Number.isFinite(now.valueOf())) {
     throw new SalesEventActionError(
-      "MONTHLY_PURCHASE_PREPARATION_NOW_INVALID",
+      "PURCHASE_RUN_PREPARATION_NOW_INVALID",
       400,
-      "월간 발주 준비 시각이 올바르지 않습니다.",
+      "발주차시 준비 시각이 올바르지 않습니다.",
     );
   }
 
@@ -573,7 +570,7 @@ export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
       );
     }
     const analysisMs = Date.parse(current.analysisAsOf ?? "");
-    if (ACTIVE_SALES_EVENT_STATES.has(current.state) && current.requestId) {
+    if ((current.state === "QUEUED" || current.state === "RUNNING") && current.requestId) {
       return {
         accepted: false,
         alreadyFresh: false,
@@ -581,7 +578,24 @@ export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
         requestId: current.requestId,
         analysisAsOf: current.analysisAsOf,
         state: current.state,
-        cycleMonth: input.cycleMonth,
+        targetDate: input.targetDate,
+        reusedRangeCount: 0,
+        sourceReadRangeCount: 0,
+        correctionDays: null,
+      } as const;
+    }
+    if (
+      current.requestId &&
+      (current.state === "BLOCKED" || current.state === "FAILED" || current.state === "STORAGE_NOT_READY")
+    ) {
+      return {
+        accepted: false,
+        alreadyFresh: false,
+        alreadyActive: false,
+        requestId: current.requestId,
+        analysisAsOf: current.analysisAsOf,
+        state: current.state,
+        targetDate: input.targetDate,
         reusedRangeCount: 0,
         sourceReadRangeCount: 0,
         correctionDays: null,
@@ -600,7 +614,7 @@ export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
         requestId: current.requestId,
         analysisAsOf: current.analysisAsOf,
         state: current.state,
-        cycleMonth: input.cycleMonth,
+        targetDate: input.targetDate,
         reusedRangeCount: 0,
         sourceReadRangeCount: 0,
         correctionDays: null,
@@ -608,13 +622,13 @@ export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
     }
 
     const created = await appendSalesEventSyncRequest({
-      refreshReason: "MONTHLY_PURCHASE_PREPARATION",
-      purchaseCycleMonth: input.cycleMonth,
+      refreshReason: "PURCHASE_RUN_PREPARATION",
+      purchaseRunStartDate: input.targetDate,
       refreshesRequestId: current.requestId,
       previousPlanFingerprint: current.report?.planFingerprint ?? null,
     }, undefined, {
       analysisAsOf: now,
-      monthlyStableRangeReuse: true,
+      purchaseRunStableRangeReuse: true,
     });
     return {
       accepted: true,
@@ -623,7 +637,7 @@ export async function ensureMonthlyPurchasePreparationSalesRequest(input: {
       requestId: created.requestId,
       analysisAsOf: created.analysisAsOf,
       state: "QUEUED" as const,
-      cycleMonth: input.cycleMonth,
+      targetDate: input.targetDate,
       reusedRangeCount: created.reusedRangeCount,
       sourceReadRangeCount: created.sourceReadRangeCount,
       correctionDays: created.correctionDays,
