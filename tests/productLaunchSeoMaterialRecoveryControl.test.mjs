@@ -4,7 +4,21 @@ import test from "node:test";
 import {
   combineRecoveryReports,
   failedRecoveryBatchReport,
+  readyRecoveryModelNumbers,
 } from "../public/product-launch-tracker-app/seo-material-recovery-control.js";
+
+test("확실한 자료 반영은 복구 후 준비완료 모델만 선택한다", () => {
+  const report = {
+    results: [
+      { modelNumber: "AAA097", status: "ready_after_recovery", changed: true },
+      { modelNumber: "AAA162", status: "partially_recovered", changed: true },
+      { modelNumber: "AAA410", status: "unresolved", changed: false },
+      { modelNumber: "AAA097", status: "ready_after_recovery", changed: true },
+    ],
+  };
+
+  assert.deepEqual(readyRecoveryModelNumbers(report), ["AAA097"]);
+});
 
 test("자료원 한 묶음이 실패해도 성공한 SEO 복구 결과를 보존한다", () => {
   const successful = {
@@ -60,12 +74,15 @@ test("상품출시 화면은 SEO 재료를 미리 검사한 뒤 같은 계획만
   assert.match(control, /sourceFailureCount: sum\("sourceFailureCount"\)/);
   assert.match(control, /failedBatchCount: batches\.filter/);
   assert.match(control, /batch\?\.failed === true/);
+  assert.match(control, /readyRecoveryModelNumbers\(batch\?\.report\)/);
+  assert.match(control, /readyRecoveryModelNumbers\(latest\)\.length !== modelNumbers\.length/);
+  assert.match(control, /준비완료 \$\{readyCount\}건 반영/);
   assert.match(control, /const applyFailures = \[\]/);
   assert.match(control, /applyFailures\.push/);
   assert.match(control, /최신 상태를 다시 검사합니다/);
   assert.match(control, /자료원 조회 실패/);
-  assert.match(control, /modelNumbers: list\(batch\?\.modelNumbers\)/);
-  assert.match(control, /reportSignature\(latest\) !== text\(batch\?\.signature\)/);
+  assert.match(control, /reportForModelNumbers\(batch\?\.report, modelNumbers\)/);
+  assert.match(control, /modelNumbers,/);
   assert.match(control, /expectedPlanHash: text\(latest\?\.planHash\)/);
   assert.match(control, /확실한 자료만 반영/);
   assert.match(control, /credentials: "same-origin"/);

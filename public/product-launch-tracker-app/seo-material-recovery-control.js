@@ -169,6 +169,34 @@ export function failedRecoveryBatchReport(targets, error) {
   };
 }
 
+export function readyRecoveryModelNumbers(report) {
+  const models = [];
+  const seen = new Set();
+  for (const row of list(report?.results)) {
+    const modelNumber = text(row?.modelNumber);
+    if (
+      row?.changed !== true ||
+      text(row?.status) !== "ready_after_recovery" ||
+      !modelNumber ||
+      seen.has(modelNumber)
+    ) {
+      continue;
+    }
+    seen.add(modelNumber);
+    models.push(modelNumber);
+  }
+  return models;
+}
+
+function reportForModelNumbers(report, modelNumbers) {
+  const selected = new Set(modelNumbers);
+  return {
+    results: list(report?.results).filter((row) =>
+      selected.has(text(row?.modelNumber)),
+    ),
+  };
+}
+
 async function previewRecoveryBatches(button) {
   const targets = await readRecoveryTargets();
   const targetBatches = chunk(targets, RECOVERY_BATCH_SIZE);
@@ -244,6 +272,7 @@ function renderPreview(dialog, report) {
   const listElement = dialog.querySelector('[data-role="list"]');
   const applyButton = dialog.querySelector('[data-role="apply"]');
   const rows = recoveryRows(report).map(rowSummary);
+  const readyCount = readyRecoveryModelNumbers(report).length;
 
   summary.replaceChildren();
   for (const [label, value] of [
@@ -278,7 +307,8 @@ function renderPreview(dialog, report) {
     listElement.append(empty);
   }
 
-  applyButton.hidden = !(Number(report?.changedCount) > 0 && list(report?.batches).length);
+  applyButton.hidden = !(readyCount > 0 && list(report?.batches).length);
+  applyButton.textContent = `준비완료 ${readyCount}건 반영`;
 }
 
 async function applyRecovery(dialog, button, report) {
@@ -291,19 +321,26 @@ async function applyRecovery(dialog, button, report) {
     const applyFailures = [];
     const batches = list(report?.batches);
     for (const [index, batch] of batches.entries()) {
-      if (batch?.failed === true || !(Number(batch?.report?.changedCount) > 0)) continue;
+      const modelNumbers = readyRecoveryModelNumbers(batch?.report);
+      if (batch?.failed === true || !modelNumbers.length) continue;
       applyButton.textContent = `반영 중 (${index + 1}/${batches.length})`;
       try {
         const latest = await requestRecovery({
           action: "preview",
-          modelNumbers: list(batch?.modelNumbers),
+          modelNumbers,
         });
-        if (reportSignature(latest) !== text(batch?.signature)) {
+        const expectedSignature = reportSignature(
+          reportForModelNumbers(batch?.report, modelNumbers),
+        );
+        if (
+          readyRecoveryModelNumbers(latest).length !== modelNumbers.length ||
+          reportSignature(latest) !== expectedSignature
+        ) {
           throw new Error("검사 뒤 상품 상태가 달라졌습니다.");
         }
         const applied = await requestRecovery({
           action: "apply",
-          modelNumbers: list(batch?.modelNumbers),
+          modelNumbers,
           expectedPlanHash: text(latest?.planHash),
         });
         appliedCount += Number(applied?.appliedCount) || 0;
