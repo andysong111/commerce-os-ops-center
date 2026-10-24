@@ -52,7 +52,8 @@ test("상품출시 화면은 SEO 재료를 미리 검사한 뒤 같은 계획만
   assert.match(control, /action: "preview"/);
   assert.match(control, /action: "apply"/);
   assert.match(control, /RECOVERY_BATCH_SIZE = 6/);
-  assert.match(control, /RECOVERY_REQUEST_TIMEOUT_MS = 25_000/);
+  assert.match(control, /RECOVERY_REQUEST_TIMEOUT_MS = 70_000/);
+  assert.match(control, /자료 조회가 70초를 넘었습니다/);
   assert.match(control, /pageSize: "100"/);
   assert.match(control, /item\?\.readiness\?\.ready === true/);
   assert.match(control, /failedRecoveryBatchReport\(batchTargets, error\)/);

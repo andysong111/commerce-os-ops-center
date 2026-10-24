@@ -4,7 +4,7 @@ const BUTTON_ID = "seo-material-recovery-button";
 const DIALOG_ID = "seo-material-recovery-dialog";
 const MAX_INSTALL_ATTEMPTS = 40;
 const RECOVERY_BATCH_SIZE = 6;
-const RECOVERY_REQUEST_TIMEOUT_MS = 25_000;
+const RECOVERY_REQUEST_TIMEOUT_MS = 70_000;
 
 let installAttempts = 0;
 let installTimer = null;
@@ -62,7 +62,7 @@ async function requestRecovery(body) {
     return payload;
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error("자료 조회가 25초를 넘었습니다. 이 묶음은 재확인이 필요합니다.");
+      throw new Error("자료 조회가 70초를 넘었습니다. 이 묶음은 재확인이 필요합니다.");
     }
     throw error;
   } finally {
