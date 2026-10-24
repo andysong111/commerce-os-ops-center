@@ -102,7 +102,7 @@ test("calendar-month normal revenue excludes other months, cancelled rows and du
 test("ABLY free-shipping reserve applies to every funding-basis month", () => {
   assert.equal(ABLY_SHOPLING_MALL_KEY, "SMALL_00112");
   assert.equal(ABLY_FREE_SHIPPING_DEDUCTION_KRW, 3_000);
-  assert.equal(PURCHASE_BUDGET_REVENUE_POLICY_VERSION, "ably-free-shipping-v2-frozen-gross");
+  assert.equal(PURCHASE_BUDGET_REVENUE_POLICY_VERSION, "ably-free-shipping-v3-verified-channel-orders");
   assert.equal(purchaseBudgetRevenuePolicyApplies("2026-08"), true);
   assert.equal(purchaseBudgetRevenuePolicyApplies("2026-09"), true);
   assert.throws(() => purchaseBudgetRevenuePolicyApplies("2026-13"));
@@ -192,9 +192,10 @@ test("policy migration subtracts ABLY shipping from the already-frozen gross ins
   assert.equal(result.ablyShippingDeductionKrw, 567_000);
   assert.equal(result.revenueKrw, 8_719_447);
   assert.notEqual(result.grossRevenueKrw, currentApiGross);
-  assert.match(monthRevenueSource, /readLegacyFrozenGrossRevenue/);
-  assert.match(monthRevenueSource, /grossRevenueSource = legacyFrozen/);
-  assert.match(monthRevenueSource, /"legacy-frozen-cache"/);
+  assert.match(monthRevenueSource, /readFrozenGrossRevenue/);
+  assert.match(monthRevenueSource, /PREVIOUS_PURCHASE_BUDGET_REVENUE_POLICY_VERSION/);
+  assert.match(monthRevenueSource, /grossRevenueSource = frozenGross/);
+  assert.match(monthRevenueSource, /ABLY_ORDER_COUNT_SOURCE/);
 });
 
 test("background recommendation refresh may stay monthly while operator purchase runs are on demand", () => {

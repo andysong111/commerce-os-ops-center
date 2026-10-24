@@ -58,6 +58,8 @@ type SelectedBudget = {
   accrualStartMonth: string;
   accrualEndMonth: string;
   accruedGrossBudgetKrw: number;
+  accruedAblyOrderCount: number;
+  accruedAblyShippingDeductionKrw: number;
   recordedSpendKrw: number;
   availableCashKrw: number;
   totalSpendingBudgetKrw: number;
@@ -99,6 +101,8 @@ async function loadBudget(cycleMonth: string): Promise<SelectedBudget> {
       accrualStartMonth: spend.accrualStartMonth,
       accrualEndMonth: spend.accrualEndMonth,
       accruedGrossBudgetKrw: spend.accruedGrossBudgetKrw,
+      accruedAblyOrderCount: spend.accruedAblyOrderCount,
+      accruedAblyShippingDeductionKrw: spend.accruedAblyShippingDeductionKrw,
       recordedSpendKrw: spend.recordedSpendKrw,
       availableCashKrw: spend.availableCashKrw,
       totalSpendingBudgetKrw: spend.availableCashKrw,
@@ -109,6 +113,8 @@ async function loadBudget(cycleMonth: string): Promise<SelectedBudget> {
       accrualStartMonth: "",
       accrualEndMonth: "",
       accruedGrossBudgetKrw: 0,
+      accruedAblyOrderCount: 0,
+      accruedAblyShippingDeductionKrw: 0,
       recordedSpendKrw: 0,
       availableCashKrw: 0,
       totalSpendingBudgetKrw: 0,
@@ -428,7 +434,7 @@ export default async function ChinaOrderManagerPage({
             }
             note={
               budget.accrualStartMonth
-                ? `${budget.accrualStartMonth === budget.accrualEndMonth ? budget.accrualStartMonth : `${budget.accrualStartMonth}~${budget.accrualEndMonth}`} 정상매출 50% 누계 - 실제 주문 ${money.format(budget.recordedSpendKrw)}원`
+                ? `${budget.accrualStartMonth === budget.accrualEndMonth ? budget.accrualStartMonth : `${budget.accrualStartMonth}~${budget.accrualEndMonth}`} 정상매출${budget.accruedAblyShippingDeductionKrw > 0 ? `에서 에이블리 ${money.format(budget.accruedAblyOrderCount)}건 × 3,000원 차감 후` : "의"} 50% - 실제 주문 ${money.format(budget.recordedSpendKrw)}원`
                 : "월별 예산 적립 원장 확인 중"
             }
             tone="blue"

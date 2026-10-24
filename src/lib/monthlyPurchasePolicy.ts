@@ -10,7 +10,7 @@ export const PRICE_GRADE_CADENCE = "DAILY" as const;
 export const ABLY_SHOPLING_MALL_KEY = "SMALL_00112" as const;
 export const ABLY_FREE_SHIPPING_DEDUCTION_KRW = 3_000;
 export const PURCHASE_BUDGET_REVENUE_POLICY_VERSION =
-  "ably-free-shipping-v2-frozen-gross" as const;
+  "ably-free-shipping-v3-verified-channel-orders" as const;
 
 export type CalendarMonthPurchaseBudgetRevenue = {
   month: string;

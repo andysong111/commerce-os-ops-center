@@ -20,6 +20,9 @@ import {
 
 export const SHOPLING_CALENDAR_MONTH_REVENUE_OPERATION =
   "SHOPLING_CALENDAR_MONTH_REVENUE";
+const PREVIOUS_PURCHASE_BUDGET_REVENUE_POLICY_VERSION =
+  "ably-free-shipping-v2-frozen-gross";
+const ABLY_ORDER_COUNT_SOURCE = "shopling-live-unique-normal-order";
 
 function shoplingEnvironment() {
   return {
@@ -87,7 +90,8 @@ async function readCached(month: string) {
       String(snapshot.budgetRevenuePolicyVersion ?? "") !==
         PURCHASE_BUDGET_REVENUE_POLICY_VERSION ||
       nonnegativeInteger(snapshot.shippingReservePerAblyOrderKrw) !==
-        ABLY_FREE_SHIPPING_DEDUCTION_KRW)
+        ABLY_FREE_SHIPPING_DEDUCTION_KRW ||
+      String(snapshot.ablyOrderCountSource ?? "") !== ABLY_ORDER_COUNT_SOURCE)
   ) {
     return null;
   }
@@ -106,6 +110,7 @@ async function readCached(month: string) {
     ablyShippingDeductionKrw: nonnegativeInteger(
       snapshot.ablyShippingDeductionKrw,
     ),
+    ablyOrderCountSource: ABLY_ORDER_COUNT_SOURCE,
     shippingReservePerAblyOrderKrw: policyApplied
       ? ABLY_FREE_SHIPPING_DEDUCTION_KRW
       : 0,
@@ -124,35 +129,55 @@ async function readCached(month: string) {
   };
 }
 
-async function readLegacyFrozenGrossRevenue(month: string) {
+async function readFrozenGrossRevenue(month: string) {
   if (!closedCalendarMonth(month)) return null;
   const admin = await createSupabaseAdminClient();
   if (!admin) return null;
-  const result = await admin
-    .from("commerce_operation_runs")
-    .select("result_snapshot,started_at")
-    .eq("operation_type", SHOPLING_CALENDAR_MONTH_REVENUE_OPERATION)
-    .eq("source_event_id", legacyCalendarMonthRevenueSourceEventId(month))
-    .eq("status", "SUCCEEDED")
-    .maybeSingle();
-  if (result.error || !result.data || typeof result.data !== "object") {
-    return null;
+  const candidates = [
+    {
+      eventId: `shopling-calendar-month-revenue:${PREVIOUS_PURCHASE_BUDGET_REVENUE_POLICY_VERSION}:${month}`,
+      source: "previous-policy-frozen-cache",
+      grossField: "grossRevenueKrw",
+    },
+    {
+      eventId: legacyCalendarMonthRevenueSourceEventId(month),
+      source: "legacy-frozen-cache",
+      grossField: "revenueKrw",
+    },
+  ];
+  for (const candidate of candidates) {
+    const result = await admin
+      .from("commerce_operation_runs")
+      .select("result_snapshot,started_at")
+      .eq("operation_type", SHOPLING_CALENDAR_MONTH_REVENUE_OPERATION)
+      .eq("source_event_id", candidate.eventId)
+      .eq("status", "SUCCEEDED")
+      .maybeSingle();
+    if (result.error || !result.data || typeof result.data !== "object") {
+      continue;
+    }
+    const row = result.data as {
+      result_snapshot?: unknown;
+      started_at?: unknown;
+    };
+    const snapshot = object(row.result_snapshot);
+    if (
+      String(snapshot.month ?? "") !== month ||
+      snapshot.calendarMonthFrozen !== true
+    ) {
+      continue;
+    }
+    const preferred = snapshot[candidate.grossField];
+    const grossRevenueKrw = nonnegativeInteger(
+      preferred === undefined ? snapshot.revenueKrw : preferred,
+    );
+    return {
+      grossRevenueKrw,
+      frozenAt: String(snapshot.frozenAt ?? row.started_at ?? "") || null,
+      source: candidate.source,
+    };
   }
-  const row = result.data as {
-    result_snapshot?: unknown;
-    started_at?: unknown;
-  };
-  const snapshot = object(row.result_snapshot);
-  if (
-    String(snapshot.month ?? "") !== month ||
-    snapshot.calendarMonthFrozen !== true
-  ) {
-    return null;
-  }
-  return {
-    grossRevenueKrw: nonnegativeInteger(snapshot.revenueKrw),
-    frozenAt: String(snapshot.frozenAt ?? row.started_at ?? "") || null,
-  };
+  return null;
 }
 
 async function storeCached(input: {
@@ -163,6 +188,7 @@ async function storeCached(input: {
   ablyGrossRevenueKrw: number;
   ablyOrderCount: number;
   ablyShippingDeductionKrw: number;
+  ablyOrderCountSource: string;
   shippingReservePerAblyOrderKrw: number;
   policyApplied: boolean;
   budgetRevenuePolicyVersion: string;
@@ -222,7 +248,9 @@ async function storeCached(input: {
  * revenue / 2 purchase budget is calculated. If a month was frozen before the
  * ABLY rule existed, keep that original gross revenue exactly and apply only
  * the newly derived ABLY shipping reserve; do not let a later API re-read alter
- * the historical gross funding basis. Open months remain live.
+ * the historical gross funding basis. The v3 cache re-reads the live mall key
+ * and unique order IDs because an older cache could contain a zero ABLY order
+ * count while preserving the correct frozen gross. Open months remain live.
  */
 export async function loadCalendarMonthNormalRevenue(month: string) {
   const cached = await readCached(month);
@@ -239,15 +267,15 @@ export async function loadCalendarMonthNormalRevenue(month: string) {
   }
 
   const liveBudgetRevenue = calendarMonthPurchaseBudgetRevenue(allRows, month);
-  const legacyFrozen = await readLegacyFrozenGrossRevenue(month);
-  const grossRevenueKrw = legacyFrozen?.grossRevenueKrw ??
+  const frozenGross = await readFrozenGrossRevenue(month);
+  const grossRevenueKrw = frozenGross?.grossRevenueKrw ??
     liveBudgetRevenue.grossRevenueKrw;
   const adjustment = applyAblyShippingDeductionToGrossRevenue(
     grossRevenueKrw,
     liveBudgetRevenue.ablyOrderCount,
   );
-  const grossRevenueSource = legacyFrozen
-    ? "legacy-frozen-cache"
+  const grossRevenueSource = frozenGross
+    ? frozenGross.source
     : "live-shopling";
   const result = {
     month,
@@ -257,12 +285,13 @@ export async function loadCalendarMonthNormalRevenue(month: string) {
     ablyGrossRevenueKrw: liveBudgetRevenue.ablyGrossRevenueKrw,
     ablyOrderCount: adjustment.ablyOrderCount,
     ablyShippingDeductionKrw: adjustment.ablyShippingDeductionKrw,
+    ablyOrderCountSource: ABLY_ORDER_COUNT_SOURCE,
     shippingReservePerAblyOrderKrw:
       liveBudgetRevenue.shippingReservePerAblyOrderKrw,
     policyApplied: liveBudgetRevenue.policyApplied,
     budgetRevenuePolicyVersion: PURCHASE_BUDGET_REVENUE_POLICY_VERSION,
     grossRevenueSource,
-    grossRevenueFrozenAt: legacyFrozen?.frozenAt ?? null,
+    grossRevenueFrozenAt: frozenGross?.frozenAt ?? null,
     fetchedRows: allRows.length,
     chunkCount: chunks.length,
     cached: false,

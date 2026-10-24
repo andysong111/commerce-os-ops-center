@@ -73,7 +73,7 @@ export default async function CashEnvelopePurchasePage() {
             {maxGrossBudgetKrw > 0 ? `${money.format(maxGrossBudgetKrw)}원` : "조회 대기"}
           </strong>
           <p className="mt-1 text-[11px] leading-5 text-slate-500">
-            {koreanMonthLabel(budgetMonth)} 정상매출 ÷ 2
+            {koreanMonthLabel(budgetMonth)} 에이블리 배송비 차감 후 정상매출 ÷ 2
           </p>
         </article>
         <article className="rounded-xl border border-slate-200 bg-white p-4">
