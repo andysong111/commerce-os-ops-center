@@ -61,14 +61,16 @@ test("orders and claims are split into bounded chunks and one step is processed 
   assert.match(workflow, /MAX_STEP_ATTEMPTS = 3/);
 });
 
-test("planning snapshot is fetched with bounded retries, frozen in the request, and reused by every chunk", () => {
+test("planning snapshot uses one bounded live read, a recent verified fallback, and is frozen for every chunk", () => {
   assert.match(workflow, /contentFingerprint\?: string/);
   assert.match(workflow, /planningContentFingerprint: string/);
   assert.match(workflow, /planningSnapshot: VersionedProductPlanningSnapshot \| null/);
   assert.match(workflow, /planningSnapshot: planning/);
   assert.match(workflow, /request\.planningSnapshot \?\?/);
-  assert.match(workflow, /PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 75_000/);
-  assert.match(workflow, /PRODUCT_MASTER_REFRESH_ATTEMPTS = 2/);
+  assert.match(workflow, /PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 15_000/);
+  assert.match(workflow, /PRODUCT_MASTER_STORED_FALLBACK_MAX_AGE_MS = 72 \* 60 \* 60 \* 1000/);
+  assert.match(workflow, /selectRecentStoredPlanningSnapshot/);
+  assert.match(workflow, /if \(!retryablePlanningRead\(error\)\) throw error/);
   assert.match(workflow, /\^sha256:\[a-f0-9\]\{64\}\$/);
   assert.match(
     workflow,

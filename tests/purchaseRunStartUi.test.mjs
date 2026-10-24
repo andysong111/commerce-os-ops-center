@@ -58,3 +58,10 @@ test("main manager is run-based and exposes the one-click start action", async (
   assert.match(freightClient, /savedAt: Date\.now\(\)/);
   assert.match(freightClient, /source=purchase-run/);
 });
+
+test("the expensive receipt ledger is checked only when the operator asks", async () => {
+  const panel = await read("../src/components/china-order-manager/PurchaseCycleClosurePanel.tsx");
+  assert.match(panel, /입고·원장 상태 확인/);
+  assert.match(panel, /발주 시작과 별개인 입고 후 확인/);
+  assert.doesNotMatch(panel, /Promise\.resolve\(\)\.then\([\s\S]*recheck/);
+});

@@ -10,11 +10,26 @@ const row = (draftId, snapshot) => ({
   result_snapshot: { snapshot: { draftId, ...snapshot } },
 });
 
-test("unused monthly budget accrues from the first purchase cycle through the current cycle", () => {
+test("unused budget accrues from the October 2026 purchase-run launch through the current cycle", () => {
   const result = purchaseBudgetCarryoverBasis("2026-11", [
     row("draft-october", { cycleMonth: "2026-10", status: "DRAFT" }),
   ]);
   assert.deepEqual(result.accruedBudgetMonths, ["2026-09", "2026-10"]);
+  assert.equal(result.recordedSpendKrw, 0);
+});
+
+test("October launch uses September sales only and ignores retired September draft spend", () => {
+  const result = purchaseBudgetCarryoverBasis("2026-10", [
+    row("retired-september-order", {
+      cycleMonth: "2026-09",
+      status: "ORDERED",
+      actualOrderPaidKrwAtInternalFx: 1_119_847,
+    }),
+    row("october-preview", { cycleMonth: "2026-10", status: "DRAFT" }),
+  ]);
+  assert.deepEqual(result.accruedBudgetMonths, ["2026-09"]);
+  assert.equal(result.accrualStartMonth, "2026-09");
+  assert.equal(result.accrualEndMonth, "2026-09");
   assert.equal(result.recordedSpendKrw, 0);
 });
 

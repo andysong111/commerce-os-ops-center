@@ -324,7 +324,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     budgetMonthRevenueKrw,
     budgetRevenueError: calendarRevenue.error,
     sourceWarnings: [...sourceWarnings, ...(carryoverRead.error ? [`누적 발주 가능 금액 확인 실패: ${carryoverRead.error}`] : [])],
-    basisLabel: `${carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth}~${cycle.budgetMonth} 월별 정상매출의 50% 누적 ${cumulativeAccruedBudgetKrw.toLocaleString("ko-KR")}원 - 실제 주문완료 ${recordedOrderedSpendKrw.toLocaleString("ko-KR")}원 · 내부 주문 수수료율 ${purchaseCostMultiplier.toFixed(2)}`,
+    basisLabel: `${carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth}~${carryoverRead.value?.accrualEndMonth ?? cycle.budgetMonth} 월별 정상매출의 50% 누적 ${cumulativeAccruedBudgetKrw.toLocaleString("ko-KR")}원 - 실제 주문완료 ${recordedOrderedSpendKrw.toLocaleString("ko-KR")}원 · 내부 주문 수수료율 ${purchaseCostMultiplier.toFixed(2)}`,
     recent30RevenueKrw,
     grossCogsBudgetKrw,
     currentMonthAccrualKrw,

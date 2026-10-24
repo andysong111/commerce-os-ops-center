@@ -150,6 +150,11 @@ function shiftMonth(month: string, delta: number) {
   return new Date(Date.UTC(year, value - 1 + delta, 1)).toISOString().slice(0, 7);
 }
 
+// The on-demand purchase-run ledger became the cash-budget authority in
+// October 2026. Earlier preview/test rows belong to the retired monthly flow
+// and must not seed or reduce the live carryover balance.
+export const PURCHASE_BUDGET_CARRYOVER_START_CYCLE = "2026-10";
+
 export function purchaseBudgetCarryoverBasis(
   cycleMonth: string,
   rows: MonthlySpendRow[],
@@ -167,12 +172,10 @@ export function purchaseBudgetCarryoverBasis(
       sourceEventId: text(row.source_event_id),
     };
   });
-  const observedCycleMonths = snapshots
-    .map((row) => text(row.snapshot.cycleMonth))
-    .filter((month) => /^20\d{2}-(0[1-9]|1[0-2])$/.test(month) && month <= cycleMonth)
-    .sort();
-  const firstCycleMonth = observedCycleMonths[0] || cycleMonth;
-  const accrualStartMonth = shiftMonth(firstCycleMonth, -1);
+  const carryoverStartCycle = cycleMonth >= PURCHASE_BUDGET_CARRYOVER_START_CYCLE
+    ? PURCHASE_BUDGET_CARRYOVER_START_CYCLE
+    : cycleMonth;
+  const accrualStartMonth = shiftMonth(carryoverStartCycle, -1);
   const accrualEndMonth = shiftMonth(cycleMonth, -1);
   const accruedBudgetMonths: string[] = [];
   for (let month = accrualStartMonth; month <= accrualEndMonth; month = shiftMonth(month, 1)) {
@@ -183,7 +186,11 @@ export function purchaseBudgetCarryoverBasis(
   const orderedSpendByDraft = new Map<string, number>();
   for (const row of snapshots) {
     const rowMonth = text(row.snapshot.cycleMonth);
-    if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(rowMonth) || rowMonth > cycleMonth) continue;
+    if (
+      !/^20\d{2}-(0[1-9]|1[0-2])$/.test(rowMonth) ||
+      rowMonth < carryoverStartCycle ||
+      rowMonth > cycleMonth
+    ) continue;
     const draftId = text(row.snapshot.draftId) || row.sourceEventId;
     if (!draftId || orderedSpendByDraft.has(draftId) || text(row.snapshot.status) !== "ORDERED") continue;
     let amount = Number(row.snapshot.actualOrderPaidKrwAtInternalFx);

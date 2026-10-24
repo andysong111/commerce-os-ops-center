@@ -54,6 +54,8 @@ await page.route("**/*", async (route) => {
 });
 try {
   await page.goto(`${origin}/china-order-manager?month=2026-09`);
+  assert.equal(statuses.length, 0, "receipt ledger was fetched before the operator asked");
+  await page.getByRole("button", { name: "입고·원장 상태 확인", exact: true }).click();
   const retry = page.getByRole("button", { name: "입고 후속 반영만 재시도", exact: true });
   await retry.waitFor();
   await retry.evaluate((button) => { button.click(); button.click(); });
@@ -75,11 +77,12 @@ try {
   await page.waitForFunction(() => document.querySelector('section[aria-busy="true"]'));
   await page.evaluate(() => { history.pushState(null, "", "/china-order-manager?month=2026-08"); window.dispatchEvent(new PopStateEvent("popstate")); });
   await page.getByText("조회 기준 2026-08 · 입고·원장 상태", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "입고·원장 상태 확인", exact: true }).click();
   await page.getByRole("heading", { name: "다음 발주계산 준비 완료", exact: true }).waitFor();
   await page.waitForTimeout(700);
   assert.equal(await page.getByText("조회 기준 2026-09 · 입고·원장 상태", { exact: true }).count(), 0);
   assert.ok(statuses.length > before); assert.equal(writes.length, 1); assert.deepEqual(errors, []);
-  console.log("PASS browser: late old-month response cannot replace current-month proof");
+  console.log("PASS browser: ledger is opt-in and a late old-month response cannot replace current-month proof");
   await mkdir("artifacts/purchase-cycle-browser", { recursive: true });
   await page.screenshot({ path: "artifacts/purchase-cycle-browser/current-month.png", fullPage: true });
   await writeFile("artifacts/purchase-cycle-browser/result.json", JSON.stringify({ ok: true, scenarios: 3, writeRequests: writes, databaseWrites: 0, externalRequests: 0, pageErrors: errors }, null, 2));
