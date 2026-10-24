@@ -252,6 +252,8 @@ test("recovery API requires a matching preview hash and delegates an atomic bulk
   assert.match(route, /items\.map\(\(item\) => item\.modelNumber\)/);
   assert.match(inventoryCatalog, /searchParams\.set\("modelNumbers"/);
   assert.match(inventoryCatalog, /AbortSignal\.timeout\(90_000\)/);
+  assert.match(route, /const recoveredAt = sourceStateUpdatedAt/);
+  assert.doesNotMatch(route, /const recoveredAt = new Date\(\)\.toISOString\(\)/);
 });
 
 test("legacy option sync keeps Product Master reads inside the requested models", async () => {
