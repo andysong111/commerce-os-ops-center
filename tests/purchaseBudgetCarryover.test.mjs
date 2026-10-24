@@ -1,9 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { purchaseBudgetCarryoverBasis } = await import(
+const { purchaseBudgetCarryoverBasis, purchaseBudgetRevenueAccrualSummary } = await import(
   new URL("../src/lib/purchaseCyclePreflightSpendCore.ts", import.meta.url)
 );
+
+test("ABLY shipping reserve is deducted before each month's 50% budget accrual", () => {
+  const result = purchaseBudgetRevenueAccrualSummary([
+    {
+      month: "2026-09",
+      grossRevenueKrw: 7_833_827,
+      revenueKrw: 7_194_827,
+      ablyOrderCount: 213,
+      ablyShippingDeductionKrw: 639_000,
+    },
+  ]);
+  assert.deepEqual(result, {
+    grossNormalRevenueKrw: 7_833_827,
+    adjustedNormalRevenueKrw: 7_194_827,
+    ablyOrderCount: 213,
+    ablyShippingDeductionKrw: 639_000,
+    accruedBudgetKrw: 3_597_414,
+  });
+});
 
 const row = (draftId, snapshot) => ({
   source_event_id: `internal-china-prep:${draftId}`,

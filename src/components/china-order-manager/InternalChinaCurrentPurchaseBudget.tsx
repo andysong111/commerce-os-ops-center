@@ -40,7 +40,7 @@ export async function InternalChinaCurrentPurchaseBudget({
               {koreanMonthLabel(cycleMonth)} 발주 지출가능금액
             </h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              {koreanMonthLabel(budgetMonth)} 1일~말일 정상매출을 고정 기준으로 사용합니다. 당월 발주를 조기 마감하거나 현금흐름 사유로 주문량을 줄여도 기준 예산은 숨기지 않습니다.
+              {koreanMonthLabel(budgetMonth)} 1일~말일 정상매출에서 에이블리 정상 주문당 무료배송 부담 3,000원을 먼저 뺀 금액을 고정 기준으로 사용합니다. 당월 발주를 조기 마감하거나 현금흐름 사유로 주문량을 줄여도 기준 예산은 숨기지 않습니다.
             </p>
           </div>
           <span className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-xs font-black text-blue-700">
@@ -50,14 +50,14 @@ export async function InternalChinaCurrentPurchaseBudget({
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <BudgetMetric
-            label={`${koreanMonthLabel(budgetMonth)} 기준 정상매출`}
+            label={`${koreanMonthLabel(budgetMonth)} 발주예산 기준매출`}
             value={`${money.format(budgetMonthRevenueKrw)}원`}
-            note={`${revenue.range.start} ~ ${revenue.range.end}`}
+            note={`${revenue.range.start} ~ ${revenue.range.end}${revenue.ablyShippingDeductionKrw > 0 ? ` · 에이블리 ${money.format(revenue.ablyOrderCount)}건 배송비 ${money.format(revenue.ablyShippingDeductionKrw)}원 차감` : ""}`}
           />
           <BudgetMetric
             label="전체 지출가능금액"
             value={`${money.format(grossCogsBudgetKrw)}원`}
-            note="전월 정상매출 ÷ 2"
+            note="배송비 차감 후 기준매출 ÷ 2"
             emphasized
           />
           <BudgetMetric

@@ -225,6 +225,40 @@ export function purchaseBudgetCarryoverBasis(
   };
 }
 
+export type PurchaseBudgetRevenueAccrualRow = {
+  month: string;
+  grossRevenueKrw: number;
+  revenueKrw: number;
+  ablyOrderCount: number;
+  ablyShippingDeductionKrw: number;
+};
+
+export function purchaseBudgetRevenueAccrualSummary(
+  rows: PurchaseBudgetRevenueAccrualRow[],
+) {
+  return rows.reduce(
+    (summary, row) => ({
+      grossNormalRevenueKrw:
+        summary.grossNormalRevenueKrw + Math.max(0, Math.round(Number(row.grossRevenueKrw) || 0)),
+      adjustedNormalRevenueKrw:
+        summary.adjustedNormalRevenueKrw + Math.max(0, Math.round(Number(row.revenueKrw) || 0)),
+      ablyOrderCount:
+        summary.ablyOrderCount + Math.max(0, Math.round(Number(row.ablyOrderCount) || 0)),
+      ablyShippingDeductionKrw:
+        summary.ablyShippingDeductionKrw + Math.max(0, Math.round(Number(row.ablyShippingDeductionKrw) || 0)),
+      accruedBudgetKrw:
+        summary.accruedBudgetKrw + Math.max(0, Math.round((Number(row.revenueKrw) || 0) / 2)),
+    }),
+    {
+      grossNormalRevenueKrw: 0,
+      adjustedNormalRevenueKrw: 0,
+      ablyOrderCount: 0,
+      ablyShippingDeductionKrw: 0,
+      accruedBudgetKrw: 0,
+    },
+  );
+}
+
 export function purchaseBudgetCarryoverFingerprint(input: {
   monthlyFingerprint: string;
   recordedSpendKrw: number;

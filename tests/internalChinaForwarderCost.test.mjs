@@ -105,7 +105,7 @@ test("landed-cost close shows total monthly spend budget and remaining cash agai
   assert.ok(historyPanel.includes("지출 사용률"));
   assert.ok(
     historyPanel.includes(
-      "월 전체 지출가능금액 = 직전 달력월 정상매출 ÷ 2",
+      "월 전체 지출가능금액 = 직전 달력월 정상매출에서 에이블리 정상 주문당 무료배송 부담 3,000원을 차감한 뒤 ÷ 2",
     ),
   );
   assert.ok(

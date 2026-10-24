@@ -3,6 +3,7 @@ import {
   combineCompletePurchaseCycleSpendScanPages,
   purchaseBudgetCarryoverBasis,
   purchaseBudgetCarryoverFingerprint,
+  purchaseBudgetRevenueAccrualSummary,
   purchaseCycleSpendMonthFilter,
   verifiedPurchaseCycleSpend,
 } from "@/lib/purchaseCyclePreflightSpendCore";
@@ -40,10 +41,8 @@ export async function loadVerifiedPurchaseCycleSpend(cycleMonth: string) {
   const carryover = purchaseBudgetCarryoverBasis(cycleMonth, rows);
   const { accrualStartMonth, accrualEndMonth, accruedBudgetMonths, recordedSpendKrw } = carryover;
   const revenues = await Promise.all(accruedBudgetMonths.map((month) => loadCalendarMonthNormalRevenue(month)));
-  const accruedGrossBudgetKrw = revenues.reduce(
-    (total, row) => total + Math.max(0, Math.round(Number(row.revenueKrw) / 2)),
-    0,
-  );
+  const revenueAccrual = purchaseBudgetRevenueAccrualSummary(revenues);
+  const accruedGrossBudgetKrw = revenueAccrual.accruedBudgetKrw;
   const availableCashKrw = Math.max(0, accruedGrossBudgetKrw - recordedSpendKrw);
   return {
     ...monthly,
@@ -51,6 +50,10 @@ export async function loadVerifiedPurchaseCycleSpend(cycleMonth: string) {
     accrualStartMonth,
     accrualEndMonth,
     accruedGrossBudgetKrw,
+    accruedGrossNormalRevenueKrw: revenueAccrual.grossNormalRevenueKrw,
+    accruedAdjustedNormalRevenueKrw: revenueAccrual.adjustedNormalRevenueKrw,
+    accruedAblyOrderCount: revenueAccrual.ablyOrderCount,
+    accruedAblyShippingDeductionKrw: revenueAccrual.ablyShippingDeductionKrw,
     availableCashKrw,
     accruedBudgetMonths,
     contentFingerprint: purchaseBudgetCarryoverFingerprint({

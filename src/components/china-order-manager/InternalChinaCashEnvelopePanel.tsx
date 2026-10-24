@@ -294,7 +294,7 @@ export function InternalChinaCashEnvelopePanel({
         <Metric
           label="전체 지출가능금액"
           value={`${money.format(maxGrossBudgetKrw)}원`}
-          note="직전 달력월 정상매출 ÷ 2"
+          note="에이블리 주문당 배송비 3,000원 차감 후 ÷ 2"
         />
         <Metric
           label="이미 기록된 1688 결제"
