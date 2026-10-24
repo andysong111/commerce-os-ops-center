@@ -21,6 +21,11 @@ export type PurchaseRunHistoryItem = PurchaseRunHistorySource & {
   stateLabel: string;
 };
 
+export type ReleasedPurchaseRunGroup = {
+  cycleStartDate: string;
+  runs: PurchaseRunHistoryItem[];
+};
+
 function stateOf(draft: PurchaseRunHistorySource): PurchaseRunHistoryItem["state"] {
   if (draft.receivedQuantity > 0 && draft.openQuantity === 0) return "RECEIVED";
   if (draft.receivedQuantity > 0 && draft.openQuantity > 0) return "RECEIVING";
@@ -75,5 +80,32 @@ export function selectPurchaseRun(
 ) {
   const requested = String(requestedDraftId ?? "").trim();
   return history.find((row) => row.draftId === requested) ?? history[0] ?? null;
+}
+
+export function groupPurchaseRunHistory(history: PurchaseRunHistoryItem[]) {
+  const visibleRuns: PurchaseRunHistoryItem[] = [];
+  const releasedByDate = new Map<string, PurchaseRunHistoryItem[]>();
+
+  for (const run of history) {
+    if (run.state !== "RELEASED") {
+      visibleRuns.push(run);
+      continue;
+    }
+
+    const group = releasedByDate.get(run.cycleStartDate) ?? [];
+    group.push(run);
+    releasedByDate.set(run.cycleStartDate, group);
+  }
+
+  const releasedGroups: ReleasedPurchaseRunGroup[] = Array.from(
+    releasedByDate,
+    ([cycleStartDate, runs]) => ({ cycleStartDate, runs }),
+  ).sort((left, right) => right.cycleStartDate.localeCompare(left.cycleStartDate));
+
+  return {
+    visibleRuns,
+    releasedGroups,
+    releasedCount: releasedGroups.reduce((sum, group) => sum + group.runs.length, 0),
+  };
 }
 
