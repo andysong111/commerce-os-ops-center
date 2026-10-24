@@ -41,7 +41,7 @@ const DEFAULT_PRODUCT_MASTER_URL =
 const ANALYSIS_DAYS = 360;
 const MAX_STEP_ATTEMPTS = 3;
 const OPERATION_LIMIT = 500;
-const PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 15_000;
+const PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 30_000;
 const PRODUCT_MASTER_STORED_FALLBACK_MAX_AGE_MS = 72 * 60 * 60 * 1000;
 
 export type ProductDecisionLiveRequest = {
@@ -337,13 +337,13 @@ async function readOperations(
 }
 
 async function loadRecentStoredPlanningSnapshot() {
-  const rows = await readOperations(PRODUCT_DECISION_LIVE_REQUEST, undefined, 50);
+  const rows = await readOperations(PRODUCT_DECISION_LIVE_REQUEST, undefined, 10);
   return selectRecentStoredPlanningSnapshot<ProductPlanningSnapshot["products"][number]>(rows, {
     maxAgeMs: PRODUCT_MASTER_STORED_FALLBACK_MAX_AGE_MS,
   });
 }
 
-async function loadProductPlanningSnapshotForRefresh() {
+export async function loadProductPlanningSnapshotForRefresh() {
   try {
     return await loadProductPlanningSnapshot({
       requestTimeoutMs: PRODUCT_MASTER_REFRESH_TIMEOUT_MS,

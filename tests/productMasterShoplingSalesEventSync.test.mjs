@@ -18,6 +18,8 @@ test("360-day request pins one Product Master planning fingerprint and proven se
   assert.match(sync, /planningContentFingerprint: planning\.contentFingerprint/);
   assert.match(sync, /splitShoplingDateRange\([\s\S]*SALES_EVENT_SOURCE_RANGE_DAYS/);
   assert.match(sync, /SALES_EVENT_PLANNING_CHANGED/);
+  assert.match(sync, /loadProductPlanningSnapshotForRefresh/);
+  assert.doesNotMatch(sync, /loadProductPlanningSnapshot\(/);
 });
 
 test("each source chunk applies the one pinned analysisAsOf instead of its fetch partition", () => {

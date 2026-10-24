@@ -67,7 +67,7 @@ test("planning snapshot uses one bounded live read, a recent verified fallback, 
   assert.match(workflow, /planningSnapshot: VersionedProductPlanningSnapshot \| null/);
   assert.match(workflow, /planningSnapshot: planning/);
   assert.match(workflow, /request\.planningSnapshot \?\?/);
-  assert.match(workflow, /PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 15_000/);
+  assert.match(workflow, /PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 30_000/);
   assert.match(workflow, /PRODUCT_MASTER_STORED_FALLBACK_MAX_AGE_MS = 72 \* 60 \* 60 \* 1000/);
   assert.match(workflow, /selectRecentStoredPlanningSnapshot/);
   assert.match(workflow, /if \(!retryablePlanningRead\(error\)\) throw error/);

@@ -10,7 +10,7 @@ import {
   type ProductMasterShoplingSalesEventChunk,
   type ProductMasterSalesEventRow,
 } from "@/lib/productMasterShoplingSalesEventEngine";
-import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import { loadProductPlanningSnapshotForRefresh } from "@/lib/productDecisionLiveRefresh";
 import {
   buildMonthlySalesEventReusePlan,
   trimReusedSalesEventChunk,
@@ -360,7 +360,7 @@ async function requestOperations(request: SalesEventSyncRequest) {
 
 export function createSalesEventSyncRequestPlan(
   requestId: string,
-  planning: Awaited<ReturnType<typeof loadProductPlanningSnapshot>>,
+  planning: Awaited<ReturnType<typeof loadProductPlanningSnapshotForRefresh>>,
   analysisAsOf = new Date().toISOString(),
 ): SalesEventSyncRequest {
   const asOf = new Date(analysisAsOf);
@@ -401,7 +401,7 @@ async function appendSalesEventSyncRequest(
 ) {
   shoplingReadConfigFromEnv(shoplingEnvironment());
   const parent = options.purchaseRunStableRangeReuse ? await latestRequest() : null;
-  const planning = await loadProductPlanningSnapshot();
+  const planning = await loadProductPlanningSnapshotForRefresh();
   let request = createSalesEventSyncRequestPlan(
     crypto.randomUUID(),
     planning,
@@ -708,7 +708,7 @@ export async function ensureProductMasterShoplingSalesEventCoverageRequest(
 }
 
 async function verifiedPlanning(request: SalesEventSyncRequest) {
-  const planning = await loadProductPlanningSnapshot();
+  const planning = await loadProductPlanningSnapshotForRefresh();
   if (planning.contentFingerprint !== request.planningContentFingerprint) {
     throw new Error("SALES_EVENT_PLANNING_CHANGED");
   }
