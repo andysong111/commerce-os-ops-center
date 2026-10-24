@@ -22,6 +22,10 @@ import {
   readProductLaunchState,
   resolveProductLaunchIdentity,
 } from "@/lib/productLaunchTrackerServer";
+import {
+  readProductLaunchNormalizedItemsByModelNumbers,
+  readProductLaunchNormalizedWorkspace,
+} from "@/lib/productLaunchTrackerNormalizedStore";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -141,10 +145,26 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
   const config = getProductLaunchAdminConfig();
   if (!config.ok) return { response: Response.json(config.body, { status: config.status }) };
 
-  const stored = record(await readProductLaunchState(config.value, identity.value.userId));
+  const requestedModels = new Set(
+    uniqueStrings(body.modelNumbers, 500).map(normalizeLegacyModel).filter(Boolean),
+  );
+  const workspace = requestedModels.size
+    ? await readProductLaunchNormalizedWorkspace(config.value, identity.value.userId)
+    : null;
+  const useNormalizedExactRead = workspace?.normalized_read_enabled === true;
+  const stored = useNormalizedExactRead
+    ? {}
+    : record(await readProductLaunchState(config.value, identity.value.userId));
   const state = record(stored.state_payload);
-  const allItems = array(state.items).map(record);
-  if (!allItems.length) {
+  const allItems = useNormalizedExactRead
+    ? await readProductLaunchNormalizedItemsByModelNumbers(
+        config.value,
+        identity.value.userId,
+        [...requestedModels],
+      )
+    : array(state.items).map(record);
+  const stateExists = useNormalizedExactRead ? Boolean(workspace) : allItems.length > 0;
+  if (!stateExists) {
     return {
       response: Response.json(
         { ok: false, code: "PRODUCT_LAUNCH_STATE_EMPTY", message: "진행관리 상품을 찾지 못했습니다." },
@@ -152,10 +172,6 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
       ),
     };
   }
-
-  const requestedModels = new Set(
-    uniqueStrings(body.modelNumbers, 500).map(normalizeLegacyModel).filter(Boolean),
-  );
   const items = allItems.filter((item) => {
     if (text(item.archivedAt)) return false;
     return !requestedModels.size || requestedModels.has(normalizeLegacyModel(item.modelNumber));
@@ -179,7 +195,9 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
         goodsKeyOverridesFor(evidenceItems, productByModel),
       )
     : new Map();
-  const sourceStateUpdatedAt = text(stored.updated_at);
+  const sourceStateUpdatedAt = useNormalizedExactRead
+    ? text(workspace?.source_state_updated_at)
+    : text(stored.updated_at);
   const recoveredAt = sourceStateUpdatedAt || "1970-01-01T00:00:00.000Z";
   const plans = items.map((item) => {
     const modelNumber = normalizeLegacyModel(item.modelNumber);
@@ -206,6 +224,7 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
     statusCounts: counts,
     planHash,
     sourceStateUpdatedAt,
+    itemSource: useNormalizedExactRead ? "normalized-exact" : "legacy-state",
     results: plans.map(publicPlan),
   };
   return {

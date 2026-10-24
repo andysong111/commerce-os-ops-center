@@ -250,6 +250,9 @@ test("recovery API requires a matching preview hash and delegates an atomic bulk
   assert.match(tracker, /미리보기 뒤 동시에 수정되었습니다/);
   assert.match(seoRunRoute, /legacySeoRegistrationExclusion\(item\)/);
   assert.match(route, /items\.map\(\(item\) => item\.modelNumber\)/);
+  assert.match(route, /readProductLaunchNormalizedItemsByModelNumbers/);
+  assert.match(route, /workspace\?\.normalized_read_enabled === true/);
+  assert.match(route, /itemSource: useNormalizedExactRead \? "normalized-exact" : "legacy-state"/);
   assert.match(inventoryCatalog, /searchParams\.set\("modelNumbers"/);
   assert.match(inventoryCatalog, /AbortSignal\.timeout\(90_000\)/);
   assert.match(route, /const recoveredAt = sourceStateUpdatedAt/);

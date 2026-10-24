@@ -295,8 +295,67 @@ export async function readProductLaunchNormalizedItems(
     normalizedFetch(config, `${OPTION_TABLE}?${optionParams.toString()}`),
   ]);
   if (itemResponse.missingSchema || optionResponse.missingSchema) return [];
+  const byId = hydrateNormalizedItems(itemResponse.body, optionResponse.body);
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
+export async function readProductLaunchNormalizedItemsByModelNumbers(
+  config: Config,
+  ownerId: string,
+  modelNumbers: string[],
+) {
+  const models = uniqueStrings(modelNumbers)
+    .map(normalizeModelNumber)
+    .filter(Boolean)
+    .slice(0, 500);
+  if (!models.length) return [];
+  const itemParams = new URLSearchParams({
+    select: "item_id,model_number,item_payload,updated_at,updated_by",
+    owner_id: `eq.${ownerId}`,
+    model_number: `in.(${postgrestIn(models)})`,
+    limit: "500",
+  });
+  const itemResponse = await normalizedFetch(
+    config,
+    `${ITEM_TABLE}?${itemParams.toString()}`,
+  );
+  if (itemResponse.missingSchema) return [];
+  const itemRows = Array.isArray(itemResponse.body)
+    ? itemResponse.body.filter(isRecord)
+    : [];
+  const itemIds = itemRows.map((row) => text(row.item_id)).filter(Boolean);
+  if (!itemIds.length) return [];
+  const optionParams = new URLSearchParams({
+    select: "item_id,option_id,option_index,option_payload",
+    owner_id: `eq.${ownerId}`,
+    item_id: `in.(${postgrestIn(itemIds)})`,
+    order: "item_id.asc,option_index.asc",
+    limit: "5000",
+  });
+  const optionResponse = await normalizedFetch(
+    config,
+    `${OPTION_TABLE}?${optionParams.toString()}`,
+  );
+  if (optionResponse.missingSchema) return [];
+  const byId = hydrateNormalizedItems(itemRows, optionResponse.body);
+  const itemsByModel = new Map<string, UnknownRecord[]>();
+  for (const row of itemRows) {
+    const item = byId.get(text(row.item_id));
+    if (!item) continue;
+    const modelNumber = normalizeModelNumber(
+      item.modelNumber || row.model_number,
+    );
+    if (!modelNumber) continue;
+    const items = itemsByModel.get(modelNumber) ?? [];
+    items.push(item);
+    itemsByModel.set(modelNumber, items);
+  }
+  return models.flatMap((modelNumber) => itemsByModel.get(modelNumber) ?? []);
+}
+
+function hydrateNormalizedItems(itemBody: unknown, optionBody: unknown) {
   const optionsByItem = new Map<string, UnknownRecord[]>();
-  for (const row of Array.isArray(optionResponse.body) ? optionResponse.body : []) {
+  for (const row of Array.isArray(optionBody) ? optionBody : []) {
     if (!isRecord(row)) continue;
     const itemId = text(row.item_id);
     const payload = isRecord(row.option_payload) ? cloneRecord(row.option_payload) : {};
@@ -307,11 +366,12 @@ export async function readProductLaunchNormalizedItems(
   }
 
   const byId = new Map<string, UnknownRecord>();
-  for (const row of Array.isArray(itemResponse.body) ? itemResponse.body : []) {
+  for (const row of Array.isArray(itemBody) ? itemBody : []) {
     if (!isRecord(row)) continue;
     const itemId = text(row.item_id);
     const payload = isRecord(row.item_payload) ? cloneRecord(row.item_payload) : {};
     payload.id = itemId;
+    payload.modelNumber = text(payload.modelNumber) || text(row.model_number);
     payload.orderOptions = optionsByItem.get(itemId) ?? [];
     payload.options = (payload.orderOptions as UnknownRecord[])
       .map((option) => text(option.saleOption ?? option.value))
@@ -320,7 +380,7 @@ export async function readProductLaunchNormalizedItems(
     payload.updatedBy = text(payload.updatedBy) || text(row.updated_by);
     byId.set(itemId, payload);
   }
-  return ids.map((id) => byId.get(id)).filter(Boolean);
+  return byId;
 }
 
 export async function syncProductLaunchNormalizedFull(
@@ -701,6 +761,10 @@ function readError(body: unknown, status: number) {
 
 function normalizeSearch(value: unknown) {
   return text(value).toLocaleLowerCase("ko-KR").replace(/\s+/g, " ");
+}
+
+function normalizeModelNumber(value: unknown) {
+  return text(value).normalize("NFKC").replace(/\s+/g, "").toUpperCase();
 }
 
 function normalizeLocationCode(value: unknown) {

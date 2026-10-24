@@ -60,6 +60,8 @@ test("page and detail reads use normalized product and option rows", () => {
   assert.match(source.normalized, /queryProductLaunchNormalizedPage/);
   assert.match(source.normalized, /readProductLaunchNormalizedItem/);
   assert.match(source.normalized, /readProductLaunchNormalizedItems/);
+  assert.match(source.store, /readProductLaunchNormalizedItemsByModelNumbers/);
+  assert.match(source.store, /model_number: `in\.\(\$\{postgrestIn\(models\)\}\)`/);
   assert.match(source.normalized, /itemSource: "normalized"/);
   assert.match(source.store, /product_launch_items/);
   assert.match(source.store, /product_launch_options/);
