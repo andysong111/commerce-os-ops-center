@@ -188,7 +188,13 @@ test("post-apply purchase readiness is an additive read-only diagnostic task", (
 test("retired monthly purchase preparation cannot run through the dispatcher", () => {
   assert.match(retiredMonthlyPurchasePreparationMigration, /task_key = 'monthly-purchase-preparation'/);
   assert.match(retiredMonthlyPurchasePreparationMigration, /enabled = false/);
-  assert.doesNotMatch(registry, /"monthly-purchase-preparation"/);
+  assert.match(registry, /RETIRED_TASK_KEYS = new Set\(\["monthly-purchase-preparation"\]\)/);
+  assert.match(registry, /if \(RETIRED_TASK_KEYS\.has\(task\.taskKey\)\)/);
+  assert.match(registry, /retired: true/);
+  assert.doesNotMatch(
+    registry,
+    /"monthly-purchase-preparation":\s*\{[\s\S]*?routePath:/,
+  );
 });
 
 test("legacy SEO retries wake and drain through the durable dispatcher", () => {

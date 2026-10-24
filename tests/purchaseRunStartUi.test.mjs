@@ -21,6 +21,10 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(route, /externalOrderExecuted:\s*false/);
   assert.match(route, /validationError \? 400 : 503/);
+  assert.match(route, /transientSourceReadFailure/);
+  assert.match(route, /state:\s*"PENDING"/);
+  assert.match(route, /status: 202/);
+  assert.match(route, /\[purchase-run-start\] preparation failed/);
   assert.doesNotMatch(service, /checkout|payment|submitOrder|externalOrderExecuted:\s*true/i);
 });
 

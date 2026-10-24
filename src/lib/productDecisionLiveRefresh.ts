@@ -40,6 +40,8 @@ const DEFAULT_PRODUCT_MASTER_URL =
 const ANALYSIS_DAYS = 360;
 const MAX_STEP_ATTEMPTS = 3;
 const OPERATION_LIMIT = 500;
+const PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 75_000;
+const PRODUCT_MASTER_REFRESH_ATTEMPTS = 2;
 
 export type ProductDecisionLiveRequest = {
   requestId: string;
@@ -49,6 +51,7 @@ export type ProductDecisionLiveRequest = {
   planningGeneratedAt: string;
   planningContentFingerprint: string;
   planningProductCount: number;
+  planningSnapshot: VersionedProductPlanningSnapshot | null;
   orderRanges: ShoplingDateRange[];
   claimRanges: ShoplingDateRange[];
   createdAt: string;
@@ -211,7 +214,7 @@ export async function loadProductPlanningSnapshot(
   const { baseUrl, secret } = planningConnection();
   const requestTimeoutMs = Math.max(
     1_000,
-    Math.min(30_000, Math.trunc(options.requestTimeoutMs ?? 30_000)),
+    Math.min(90_000, Math.trunc(options.requestTimeoutMs ?? 30_000)),
   );
   const response = await fetch(
     `${baseUrl}/api/integrations/planning-snapshot`,
@@ -247,6 +250,31 @@ export async function loadProductPlanningSnapshot(
     throw new Error("PRODUCT_MASTER_PLANNING_PRODUCTS_EMPTY");
   }
   return { generatedAt, contentFingerprint, products: payload.products };
+}
+
+function retryablePlanningRead(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /abort|timeout|timed out|fetch failed|econnreset|econnrefused|planning_failed:5\d\d/i.test(
+    message,
+  );
+}
+
+async function loadProductPlanningSnapshotForRefresh() {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= PRODUCT_MASTER_REFRESH_ATTEMPTS; attempt += 1) {
+    try {
+      return await loadProductPlanningSnapshot({
+        requestTimeoutMs: PRODUCT_MASTER_REFRESH_TIMEOUT_MS,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!retryablePlanningRead(error) || attempt >= PRODUCT_MASTER_REFRESH_ATTEMPTS) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+  throw lastError;
 }
 
 function supabaseConnection() {
@@ -331,6 +359,12 @@ function requestFromRow(row: OperationRow): ProductDecisionLiveRequest | null {
   const analysisAsOf = iso(value.analysisAsOf);
   const planningGeneratedAt = iso(value.planningGeneratedAt);
   const planningContentFingerprint = text(value.planningContentFingerprint);
+  const rawPlanningSnapshot = object(value.planningSnapshot);
+  const snapshotGeneratedAt = iso(rawPlanningSnapshot.generatedAt);
+  const snapshotContentFingerprint = text(rawPlanningSnapshot.contentFingerprint);
+  const snapshotProducts = Array.isArray(rawPlanningSnapshot.products)
+    ? (rawPlanningSnapshot.products as ProductPlanningSnapshot["products"])
+    : [];
   const orderRanges = Array.isArray(value.orderRanges)
     ? value.orderRanges
         .map(object)
@@ -353,6 +387,17 @@ function requestFromRow(row: OperationRow): ProductDecisionLiveRequest | null {
   ) {
     return null;
   }
+  const planningProductCount = integer(value.planningProductCount);
+  const planningSnapshot = snapshotGeneratedAt &&
+    snapshotGeneratedAt === planningGeneratedAt &&
+    snapshotContentFingerprint === planningContentFingerprint &&
+    snapshotProducts.length === planningProductCount
+    ? {
+        generatedAt: snapshotGeneratedAt,
+        contentFingerprint: snapshotContentFingerprint,
+        products: snapshotProducts,
+      }
+    : null;
   return {
     requestId,
     analysisAsOf,
@@ -360,7 +405,8 @@ function requestFromRow(row: OperationRow): ProductDecisionLiveRequest | null {
     analysisEndDate: text(value.analysisEndDate),
     planningGeneratedAt,
     planningContentFingerprint,
-    planningProductCount: integer(value.planningProductCount),
+    planningProductCount,
+    planningSnapshot,
     orderRanges,
     claimRanges,
     createdAt: iso(value.createdAt) || analysisAsOf,
@@ -387,6 +433,7 @@ export function createProductDecisionLiveRequestPlan(
     planningGeneratedAt: planning.generatedAt,
     planningContentFingerprint: planning.contentFingerprint,
     planningProductCount: planning.products.length,
+    planningSnapshot: planning,
     orderRanges: splitShoplingDateRange(
       analysisStartDate,
       analysisEndDate,
@@ -403,7 +450,7 @@ export function createProductDecisionLiveRequestPlan(
 
 export async function createProductDecisionLiveRefreshRequest() {
   shoplingReadConfigFromEnv(shoplingEnvironment());
-  const planning = await loadProductPlanningSnapshot();
+  const planning = await loadProductPlanningSnapshotForRefresh();
   const request = createProductDecisionLiveRequestPlan(
     crypto.randomUUID(),
     planning,
@@ -557,7 +604,8 @@ async function storeTerminalFailure(
 }
 
 async function verifiedPlanning(request: ProductDecisionLiveRequest) {
-  const planning = await loadProductPlanningSnapshot();
+  const planning = request.planningSnapshot ??
+    await loadProductPlanningSnapshotForRefresh();
   if (planning.contentFingerprint !== request.planningContentFingerprint) {
     throw new Error(
       `PRODUCT_MASTER_PLANNING_CHANGED:${request.planningContentFingerprint}:${planning.contentFingerprint}`,
@@ -740,12 +788,31 @@ export async function runProductDecisionLiveRefreshStep() {
   }
 
   let planning: ProductPlanningSnapshot;
+  const planningStageKey = "planning";
+  const planningAttempt = stageFailureCount(
+    operations.failures,
+    planningStageKey,
+  ) + 1;
   try {
     planning = await verifiedPlanning(request);
   } catch (error) {
-    const message = await storeStepFailure(request, "planning", 1, error);
-    await storeTerminalFailure(request, "planning", message);
-    return { processed: true, state: "FAILED", requestId: request.requestId, stage: "planning", message };
+    const message = await storeStepFailure(
+      request,
+      planningStageKey,
+      planningAttempt,
+      error,
+    );
+    if (planningAttempt >= MAX_STEP_ATTEMPTS) {
+      await storeTerminalFailure(request, planningStageKey, message);
+    }
+    return {
+      processed: true,
+      state: planningAttempt >= MAX_STEP_ATTEMPTS ? "FAILED" : "RUNNING",
+      requestId: request.requestId,
+      stage: planningStageKey,
+      attempt: planningAttempt,
+      message,
+    };
   }
 
   const completedOrderKeys = new Set(operations.orders.map(operationRangeKey));
