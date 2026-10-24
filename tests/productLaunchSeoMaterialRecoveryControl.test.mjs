@@ -19,7 +19,12 @@ test("상품출시 화면은 SEO 재료를 미리 검사한 뒤 같은 계획만
   assert.match(control, /seo-material-recovery/);
   assert.match(control, /action: "preview"/);
   assert.match(control, /action: "apply"/);
-  assert.match(control, /expectedPlanHash: text\(report\?\.planHash\)/);
+  assert.match(control, /RECOVERY_BATCH_SIZE = 6/);
+  assert.match(control, /pageSize: "100"/);
+  assert.match(control, /item\?\.readiness\?\.ready === true/);
+  assert.match(control, /modelNumbers: list\(batch\?\.modelNumbers\)/);
+  assert.match(control, /reportSignature\(latest\) !== text\(batch\?\.signature\)/);
+  assert.match(control, /expectedPlanHash: text\(latest\?\.planHash\)/);
   assert.match(control, /확실한 자료만 반영/);
   assert.match(control, /credentials: "same-origin"/);
   assert.doesNotMatch(control, /window\.location\.reload\(\).*requestRecovery/);

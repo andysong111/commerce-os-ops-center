@@ -1,7 +1,9 @@
 const RECOVERY_ENDPOINT = "/api/product-launch-tracker/seo-material-recovery";
+const TRACKER_PAGE_ENDPOINT = "/api/product-launch-tracker/optimized";
 const BUTTON_ID = "seo-material-recovery-button";
 const DIALOG_ID = "seo-material-recovery-dialog";
 const MAX_INSTALL_ATTEMPTS = 40;
+const RECOVERY_BATCH_SIZE = 6;
 
 let installAttempts = 0;
 let installTimer = null;
@@ -50,6 +52,91 @@ async function requestRecovery(body) {
     throw new Error(payload?.message || `SEO 재료 검사에 실패했습니다. (${response.status})`);
   }
   return payload;
+}
+
+async function readRecoveryModelNumbers() {
+  const models = [];
+  let page = 1;
+  let pageCount = 1;
+  do {
+    const params = new URLSearchParams({
+      mode: "page",
+      page: String(page),
+      pageSize: "100",
+      unfinishedOnly: "false",
+    });
+    const response = await fetch(`${TRACKER_PAGE_ENDPOINT}?${params.toString()}`, {
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.ok !== true) {
+      throw new Error(payload?.message || "SEO 재료 검사 대상을 불러오지 못했습니다.");
+    }
+    for (const item of list(payload?.items)) {
+      if (text(item?.archivedAt)) continue;
+      if (item?.readiness?.ready === true) continue;
+      if (item?.seoExclusion?.excluded === true) continue;
+      if (item?.receiptPending === true) continue;
+      const modelNumber = text(item?.modelNumber).toUpperCase().replace(/\s+/g, "");
+      if (modelNumber) models.push(modelNumber);
+    }
+    pageCount = Math.max(1, Number(payload?.pageCount) || 1);
+    page += 1;
+  } while (page <= pageCount);
+  return [...new Set(models)];
+}
+
+function chunk(values, size) {
+  const result = [];
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size));
+  }
+  return result;
+}
+
+function reportSignature(report) {
+  return JSON.stringify(
+    list(report?.results).map((row) => ({
+      modelNumber: text(row?.modelNumber),
+      status: text(row?.status),
+      changed: row?.changed === true,
+      changedFields: list(row?.changedFields).map(text),
+      afterErrors: list(row?.afterErrors).map(text),
+      unresolved: list(row?.unresolved).map(text),
+    })),
+  );
+}
+
+function combineReports(batches) {
+  const sum = (key) =>
+    batches.reduce((total, batch) => total + (Number(batch.report?.[key]) || 0), 0);
+  return {
+    requestedCount: sum("requestedCount"),
+    changedCount: sum("changedCount"),
+    readyAfterCount: sum("readyAfterCount"),
+    unresolvedCount: sum("unresolvedCount"),
+    receiptPendingCount: sum("receiptPendingCount"),
+    results: batches.flatMap((batch) => list(batch.report?.results)),
+    batches,
+  };
+}
+
+async function previewRecoveryBatches(button) {
+  const modelNumbers = await readRecoveryModelNumbers();
+  const modelBatches = chunk(modelNumbers, RECOVERY_BATCH_SIZE);
+  const batches = [];
+  for (const [index, models] of modelBatches.entries()) {
+    button.textContent = `SEO 재료 검사 중 (${index + 1}/${modelBatches.length})`;
+    const report = await requestRecovery({ action: "preview", modelNumbers: models });
+    batches.push({
+      modelNumbers: models,
+      signature: reportSignature(report),
+      report,
+    });
+  }
+  return combineReports(batches);
 }
 
 function recoveryRows(report) {
@@ -132,8 +219,7 @@ function renderPreview(dialog, report) {
     listElement.append(empty);
   }
 
-  applyButton.hidden = !(Number(report?.changedCount) > 0 && text(report?.planHash));
-  applyButton.dataset.planHash = text(report?.planHash);
+  applyButton.hidden = !(Number(report?.changedCount) > 0 && list(report?.batches).length);
 }
 
 async function applyRecovery(dialog, button, report) {
@@ -142,12 +228,27 @@ async function applyRecovery(dialog, button, report) {
   applyButton.disabled = true;
   applyButton.textContent = "반영 중...";
   try {
-    const applied = await requestRecovery({
-      action: "apply",
-      expectedPlanHash: text(report?.planHash),
-    });
+    let appliedCount = 0;
+    const batches = list(report?.batches);
+    for (const [index, batch] of batches.entries()) {
+      if (!(Number(batch?.report?.changedCount) > 0)) continue;
+      applyButton.textContent = `반영 중 (${index + 1}/${batches.length})`;
+      const latest = await requestRecovery({
+        action: "preview",
+        modelNumbers: list(batch?.modelNumbers),
+      });
+      if (reportSignature(latest) !== text(batch?.signature)) {
+        throw new Error("검사 뒤 상품 상태가 달라졌습니다. 새로 검사한 뒤 다시 반영하세요.");
+      }
+      const applied = await requestRecovery({
+        action: "apply",
+        modelNumbers: list(batch?.modelNumbers),
+        expectedPlanHash: text(latest?.planHash),
+      });
+      appliedCount += Number(applied?.appliedCount) || 0;
+    }
     dialog.close();
-    showMessage(`SEO 재료 ${Number(applied?.appliedCount) || 0}건을 반영했습니다.`);
+    showMessage(`SEO 재료 ${appliedCount}건을 반영했습니다.`);
     button.textContent = "반영 완료";
     window.setTimeout(() => window.location.reload(), 350);
   } catch (error) {
@@ -162,7 +263,7 @@ async function previewRecovery(button) {
   button.disabled = true;
   button.textContent = "전체 상품 검사 중...";
   try {
-    const report = await requestRecovery({ action: "preview" });
+    const report = await previewRecoveryBatches(button);
     const dialog = ensureDialog();
     renderPreview(dialog, report);
     const applyButton = dialog.querySelector('[data-role="apply"]');
