@@ -26,9 +26,12 @@ export type PurchaseDraftOperatorAdjustmentSnapshot = {
   adjustments: Partial<PurchaseDraftOperatorAdjustments> | null | undefined;
   lineBarcode?: string;
   confirmedQuantityOverrideBarcodes?: string[];
+  quantityOverrideProvenanceVersion?: number;
   manualAddition?: boolean;
   sourcingConfirmed?: boolean;
 };
+
+export const PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION = 2;
 
 const BARCODE = /^B[A-Z]{2}\d+-\d+$/;
 
@@ -97,9 +100,14 @@ export function confirmedPurchaseDraftOperatorAdjustments(
   }
   const confirmed = new Set<string>();
   for (const snapshot of snapshots) {
-    for (const value of snapshot.confirmedQuantityOverrideBarcodes ?? []) {
-      const code = normalizedBarcode(value);
-      if (BARCODE.test(code)) confirmed.add(code);
+    if (
+      Number(snapshot.quantityOverrideProvenanceVersion) >=
+      PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION
+    ) {
+      for (const value of snapshot.confirmedQuantityOverrideBarcodes ?? []) {
+        const code = normalizedBarcode(value);
+        if (BARCODE.test(code)) confirmed.add(code);
+      }
     }
     if (snapshot.manualAddition === true || snapshot.sourcingConfirmed === true) {
       const code = normalizedBarcode(snapshot.lineBarcode);

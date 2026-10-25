@@ -6,6 +6,7 @@ import {
 } from "@/lib/chinaOrderLedger";
 import { loadFastPurchaseMvpResilient } from "@/lib/fastPurchaseMvpResilient";
 import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
+import { PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION } from "@/lib/purchaseCycleDraftRegenerationCore";
 import {
   inferPurchaseRunCycleBasis,
   isPurchaseRunCycleBasis,
@@ -318,6 +319,8 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
         operatorConfirmedQuantityOverrideBarcodes: operatorQuantityOverrides.map(
           (row) => row.barcode,
         ),
+        operatorQuantityOverrideProvenanceVersion:
+          PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION,
         externalOrderExecuted: false,
       },
     });
