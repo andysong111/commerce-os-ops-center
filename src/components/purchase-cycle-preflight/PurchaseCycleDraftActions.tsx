@@ -26,6 +26,7 @@ type DraftResponse = {
 
 export function PurchaseCycleDraftActions({
   targetDate,
+  startNewRun = false,
   cashLimitKrw,
   sourcingBudgetPercent,
   sourcingBudgetKrw,
@@ -65,6 +66,7 @@ export function PurchaseCycleDraftActions({
   variant = "full",
 }: {
   targetDate: string;
+  startNewRun?: boolean;
   cashLimitKrw: number | null;
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
@@ -132,7 +134,9 @@ export function PurchaseCycleDraftActions({
     if (!window.confirm(summary + quickOpenNotice)) return;
     setSaving(true);
     try {
-      const recalculateExistingDraft = Boolean(replaceDraftId && preserveExistingSourcingOnly);
+      const recalculateExistingDraft = Boolean(
+        replaceDraftId && preserveExistingSourcingOnly && !startNewRun,
+      );
       const response = await fetch(
         recalculateExistingDraft
           ? "/api/purchase-cycle/preflight-draft/recalculate"
@@ -145,6 +149,7 @@ export function PurchaseCycleDraftActions({
         body: JSON.stringify(recalculateExistingDraft
           ? {
               targetDate,
+              startNewRun,
               cashLimitKrw,
               sourcingBudgetPercent,
               allowOpenBudgetPreview,
@@ -154,6 +159,7 @@ export function PurchaseCycleDraftActions({
             }
           : {
               targetDate,
+              startNewRun,
               cashLimitKrw,
               sourcingBudgetPercent,
               preferredSourcingConceptIds,

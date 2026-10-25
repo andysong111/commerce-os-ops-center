@@ -113,6 +113,7 @@ export function inferPurchaseRunCycleBasis(input: {
   targetDate: unknown;
   drafts: PurchaseRunDraftSummary[];
   replaceDraftId?: string | null;
+  startNewRun?: boolean;
 }) {
   const targetDate = validDate(input.targetDate);
   if (!targetDate) throw new Error("PURCHASE_RUN_CYCLE_DATE_INVALID");
@@ -124,9 +125,14 @@ export function inferPurchaseRunCycleBasis(input: {
     throw new Error("PURCHASE_RUN_CYCLE_REPLACEMENT_NOT_FOUND");
   }
 
-  const cycleStartDate = replacement ? startDate(replacement) : targetDate;
+  const replacementStartDate = replacement ? startDate(replacement) : "";
+  if (input.startNewRun === true && replacement && targetDate <= replacementStartDate) {
+    throw new Error("PURCHASE_RUN_CYCLE_NEW_RUN_DATE_INVALID");
+  }
+  const preserveReplacementBoundary = Boolean(replacement && input.startNewRun !== true);
+  const cycleStartDate = preserveReplacementBoundary ? replacementStartDate : targetDate;
   if (!cycleStartDate) throw new Error("PURCHASE_RUN_CYCLE_DATE_INVALID");
-  const explicitPrevious = replacement
+  const explicitPrevious = preserveReplacementBoundary && replacement
     ? validDate(replacement.previousCycleStartDate)
     : "";
   const historicalPrevious = previousBoundaryBefore(

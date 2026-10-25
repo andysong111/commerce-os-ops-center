@@ -105,6 +105,7 @@ function sameSourcingSelection(
 
 export type PurchaseCycleDraftRequest = {
   targetDate: string;
+  startNewRun?: boolean;
   cashLimitKrw?: number | null;
   sourcingBudgetPercent?: number;
   preferredSourcingConceptIds?: string[];
