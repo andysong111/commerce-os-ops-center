@@ -117,6 +117,14 @@ export function resolveLegacySeoProductMasterOptionAuthority(input: {
       `product-master-${modelNumber.toLowerCase()}-${index + 1}`,
       claimedOptionIds,
     );
+    const catalogBaseSalePriceKrw = Math.max(
+      0,
+      Math.floor(Number(sku.currentBasePrice) || 0),
+    );
+    const catalogUnitCostKrw = Math.max(
+      0,
+      Math.floor(Number(sku.latestCostKrw) || 0),
+    );
     return {
       ...matchedRecord,
       id: optionId,
@@ -124,8 +132,12 @@ export function resolveLegacySeoProductMasterOptionAuthority(input: {
       saleOption: text(sku.optionName),
       chinaOption: text(sku.chinaOptionName),
       barcode: bCode,
-      baseSalePriceKrw: Math.max(0, Math.floor(Number(sku.currentBasePrice) || 0)),
-      unitCostKrw: Math.max(0, Math.floor(Number(sku.latestCostKrw) || 0)),
+      baseSalePriceKrw:
+        catalogBaseSalePriceKrw ||
+        Math.max(0, Math.ceil(Number(matchedRecord.baseSalePriceKrw) || 0)),
+      unitCostKrw:
+        catalogUnitCostKrw ||
+        Math.max(0, Math.ceil(Number(matchedRecord.unitCostKrw) || 0)),
       sourceOrderItemId:
         matchedRecord.sourceOrderItemId === undefined
           ? null
