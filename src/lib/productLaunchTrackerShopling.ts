@@ -1,4 +1,8 @@
 import { normalizeProductLaunchOptionNames } from "./productLaunchOptionNames.ts";
+import {
+  PRODUCT_LAUNCH_PRICE_ROUND_UP_UNIT_KRW,
+  roundUpProductLaunchPriceKrw,
+} from "./productLaunchPricePolicy.ts";
 import { randomUUID } from "node:crypto";
 
 export const PRODUCT_LAUNCH_CHANNELS = [
@@ -15,7 +19,7 @@ export const PRODUCT_NOTICE_ATTRIBUTE_CODES = [
   "a009", "a126", "a147", "a148", "a149",
 ] as const;
 
-export const SHOPLING_PRICE_ROUND_UP_UNIT_KRW = 10;
+export const SHOPLING_PRICE_ROUND_UP_UNIT_KRW = PRODUCT_LAUNCH_PRICE_ROUND_UP_UNIT_KRW;
 // Production registry values are numeric-only. The optional OB prefix is accepted only
 // as a short transition guard for stale browser/test payloads; the Shopling worker strips it.
 const OPTION_BARCODE_NO_PATTERN = /^(?:OB)?\d{12}$/;
@@ -98,13 +102,7 @@ export function roundUpShoplingPriceKrw(
   value: unknown,
   unit = SHOPLING_PRICE_ROUND_UP_UNIT_KRW,
 ) {
-  const number = Number(value);
-  const normalizedUnit = Math.max(
-    1,
-    Math.floor(Number(unit) || SHOPLING_PRICE_ROUND_UP_UNIT_KRW),
-  );
-  if (!Number.isFinite(number) || number <= 0) return 0;
-  return Math.ceil(number / normalizedUnit) * normalizedUnit;
+  return roundUpProductLaunchPriceKrw(value, unit);
 }
 
 export function resolveProductLaunchBasePurchasePriceKrw(baseSalePriceKrw: unknown) {

@@ -4,6 +4,7 @@ import {
 } from "./shoplingCategoryPathSafety.ts";
 import { productLaunchSeoMaterialReadiness } from "./productLaunchSeoMaterialReadiness.ts";
 import { legacySeoRegistrationExclusion } from "./legacySeoRegistrationPolicy.ts";
+import { roundUpProductLaunchPriceKrw } from "./productLaunchPricePolicy.ts";
 import {
   sourcingReceiptStatus,
   type SourcingReceiptStatus,
@@ -812,7 +813,7 @@ function normalizeOrderOptions(value: unknown, legacy: unknown) {
         saleOption: text(option.saleOption ?? option.value),
         chinaOption: text(option.chinaOption),
         barcode: normalizeLocationCode(option.barcode),
-        baseSalePriceKrw: nonNegativeInteger(option.baseSalePriceKrw),
+        baseSalePriceKrw: roundUpProductLaunchPriceKrw(option.baseSalePriceKrw),
         unitCostKrw: nonNegativeInteger(option.unitCostKrw),
         sourceOrderItemId:
           option.sourceOrderItemId === null || option.sourceOrderItemId === undefined
@@ -834,7 +835,7 @@ function applyOptionLabels(currentValue: unknown, labelsValue: unknown, mainBarc
     optionName: text(current[index]?.optionName) || "옵션",
     saleOption: label,
     barcode: normalizeLocationCode(current[index]?.barcode),
-    baseSalePriceKrw: nonNegativeInteger(current[index]?.baseSalePriceKrw),
+    baseSalePriceKrw: roundUpProductLaunchPriceKrw(current[index]?.baseSalePriceKrw),
     unitCostKrw: nonNegativeInteger(current[index]?.unitCostKrw),
     sourceOrderItemId: current[index]?.sourceOrderItemId ?? null,
   }));

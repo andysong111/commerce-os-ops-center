@@ -121,6 +121,35 @@ test("SEO material recovery fills only exact Product Master option authority", (
   assert.deepEqual(plan.afterErrors, []);
 });
 
+test("이미 준비된 상품도 기준판매가의 일의자리를 안전하게 올린다", () => {
+  const plan = buildProductLaunchSeoMaterialRecoveryPlan({
+    item: item({
+      orderOptions: [
+        {
+          id: "rounded-option",
+          optionName: "색상",
+          saleOption: "블루",
+          barcode: "BEF1-1",
+          optionBarcodeNo: "000000000723",
+          baseSalePriceKrw: 1174,
+          unitCostKrw: 587,
+        },
+      ],
+    }),
+    recoveredAt: "2026-10-25T00:00:00.000Z",
+  });
+
+  assert.equal(plan.status, "already_ready");
+  assert.equal(plan.changed, true);
+  assert.deepEqual(plan.changedFields, ["orderOptions"]);
+  assert.equal(plan.patch.orderOptions[0].baseSalePriceKrw, 1180);
+  assert.equal(plan.patch.orderOptions[0].unitCostKrw, 587);
+  assert.deepEqual(plan.afterErrors, []);
+  assert.deepEqual(plan.patch.seoMaterialRecovery.source, [
+    "product_launch_price_round_up_policy",
+  ]);
+});
+
 test("an empty option list needs Shopling parity or an exact single row B-code", () => {
   const withoutEvidence = buildProductLaunchSeoMaterialRecoveryPlan({
     item: item({ orderOptions: [] }),

@@ -6,6 +6,7 @@ import { resolveLegacySeoProductMasterOptionAuthority } from "./legacySeoProduct
 import type { LegacySeoShoplingEvidence } from "./legacySeoShoplingEvidence.ts";
 import { legacySeoRegistrationExclusion } from "./legacySeoRegistrationPolicy.ts";
 import { productLaunchSeoMaterialReadiness } from "./productLaunchSeoMaterialReadiness.ts";
+import { roundUpProductLaunchPriceKrw } from "./productLaunchPricePolicy.ts";
 import { isSourcingReceiptPending } from "./sourcingReceiptGate.ts";
 
 type UnknownRecord = Record<string, unknown>;
@@ -52,6 +53,19 @@ function text(value: unknown) {
 
 function rawText(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
+}
+
+function roundUpStoredBaseSalePrices(value: unknown) {
+  let changed = false;
+  const options = array(value).map((entry) => {
+    const option = record(entry);
+    const current = Number(option.baseSalePriceKrw);
+    const rounded = roundUpProductLaunchPriceKrw(current);
+    if (!(current > 0) || current === rounded) return option;
+    changed = true;
+    return { ...option, baseSalePriceKrw: rounded };
+  });
+  return { changed, options };
 }
 
 function modelKey(value: unknown) {
@@ -395,8 +409,6 @@ export function buildProductLaunchSeoMaterialRecoveryPlan(input: {
       unresolved: ["신규소싱 상품의 실제 입고확정이 필요합니다."],
     };
   }
-  if (before.ready) return { ...base, status: "already_ready" };
-
   const recoveredAt = input.recoveredAt || new Date().toISOString();
   const product = eligibleProductForModel(input.product, modelNumber);
   const patch: UnknownRecord = {};
@@ -445,12 +457,21 @@ export function buildProductLaunchSeoMaterialRecoveryPlan(input: {
     }
   }
 
+  const roundedPrices = roundUpStoredBaseSalePrices(
+    patch.orderOptions ?? item.orderOptions,
+  );
+  if (roundedPrices.changed) {
+    patch.orderOptions = roundedPrices.options;
+    if (!changedFields.includes("orderOptions")) changedFields.push("orderOptions");
+  }
+
   const changed = changedFields.length > 0;
   if (changed) {
     patch.seoMaterialRecovery = {
       source: [
         product ? "product_master_inventory_catalog" : "",
         input.evidence ? "shopling_live_api" : "",
+        roundedPrices.changed ? "product_launch_price_round_up_policy" : "",
       ].filter(Boolean),
       recoveredAt,
       changedFields,

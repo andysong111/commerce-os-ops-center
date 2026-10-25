@@ -36,12 +36,12 @@ test("독립 편집기 저장은 기준판매가와 원가를 서버 재조회�
   assert.match(editor, /저장 완료 · 기준판매가\/원가/);
 });
 
-test("원가 입력 시 기준판매가는 x2 자동 계산되고 기준판매가는 수동 수정 가능하다", async () => {
+test("원가 입력 시 기준판매가는 x2 후 10원 올림되고 기준판매가는 수동 수정 가능하다", async () => {
   const editor = await source("src/app/product-launch-editor/ProductLaunchStandaloneEditor.tsx");
   assert.match(editor, /function salePriceFromUnitCost\(value: unknown\)/);
-  assert.match(editor, /return nonNegativeInteger\(value\) \* 2/);
+  assert.match(editor, /return productLaunchSalePriceFromUnitCostKrw\(value\)/);
   assert.match(editor, /baseSalePriceKrw: salePriceFromUnitCost\(unitCostKrw\)/);
   assert.match(editor, /onChange=\{\(event\) => updateUnitCost\(index, event\.target\.value\)\}/);
   assert.match(editor, /onChange=\{\(event\) => updateOption\(index, \{ baseSalePriceKrw:/);
-  assert.match(editor, /자동 계산된 기준판매가는 언제든 직접 수정할 수 있습니다/);
+  assert.match(editor, /직접 입력한 가격도 저장할 때 같은 기준이 적용됩니다/);
 });
