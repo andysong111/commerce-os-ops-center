@@ -44,6 +44,11 @@ export const PURCHASE_RUN_PREPARATION_CORRECTION_DAYS = 45;
 const LEGACY_SALES_EVENT_SOURCE_RANGE_DAYS = 30;
 const OPERATION_LIMIT = 500;
 const APPLY_BATCH_SIZE = 2_000;
+// The final full-snapshot batch also runs Product Master's exact-snapshot
+// finalization.  That database step can legitimately outlive an ordinary
+// import batch while Supabase is busy, so keep the caller alive for almost the
+// whole Product Master route budget instead of aborting after two minutes.
+const PRODUCT_MASTER_SALES_EVENT_WRITE_TIMEOUT_MS = 290_000;
 
 type OperationRow = {
   operation_type?: unknown;
@@ -931,7 +936,7 @@ async function postProductMasterEvents(
       ...(snapshot ? { snapshot } : {}),
     }),
     cache: "no-store",
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(PRODUCT_MASTER_SALES_EVENT_WRITE_TIMEOUT_MS),
   });
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok || payload.ok !== true) {
