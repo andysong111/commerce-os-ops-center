@@ -118,7 +118,7 @@ export function PurchaseCycleDraftActions({
     const sourcingSummary = sourcingBudgetPercent > 0
       ? `신규상품 소싱 ${sourcingBudgetPercent}% · 최대 예산 ${sourcingBudgetKrw.toLocaleString("ko-KR")}원 · 기존 예약 ${preservedSourcingCount}종 ${sourcingAlreadyReservedKrw.toLocaleString("ko-KR")}원 + 새 후보 ${sourcingSelectedCount}종 ${sourcingEstimatedSpendKrw.toLocaleString("ko-KR")}원 (저장 시 최신 환율로 한도 안에서 재계산)`
       : "신규상품 소싱 0%";
-    const lineSummary = `기존상품 최신 자동추천 ${existingReorderCount}종·${existingReorderQuantity.toLocaleString("ko-KR")}개 + 수동 고정 ${preservedOperatorCount}종·${preservedOperatorQuantity.toLocaleString("ko-KR")}개 + 유지 신규소싱 ${preservedSourcingCount}종·${preservedSourcingQuantity.toLocaleString("ko-KR")}개 + 새 신규소싱 ${sourcingSelectedCount}종·${newSourcingQuantity.toLocaleString("ko-KR")}개${unresolvedAutomaticCount > 0 ? ` + 근거 확인 대기 ${unresolvedAutomaticCount}종·${unresolvedAutomaticQuantity.toLocaleString("ko-KR")}개` : ""} = 최종 ${selectedCount}종·${totalQuantity.toLocaleString("ko-KR")}개`;
+    const lineSummary = `기존상품 최신 자동추천 ${existingReorderCount}종·${existingReorderQuantity.toLocaleString("ko-KR")}개 + 수동 고정 ${preservedOperatorCount}종·${preservedOperatorQuantity.toLocaleString("ko-KR")}개 + 유지 신규소싱 ${preservedSourcingCount}종·${preservedSourcingQuantity.toLocaleString("ko-KR")}개 + 새 신규소싱 ${sourcingSelectedCount}종·${newSourcingQuantity.toLocaleString("ko-KR")}개${unresolvedAutomaticCount > 0 ? ` + 재고·원가 입력 필요 ${unresolvedAutomaticCount}종·${unresolvedAutomaticQuantity.toLocaleString("ko-KR")}개` : ""} = 최종 ${selectedCount}종·${totalQuantity.toLocaleString("ko-KR")}개`;
     const exclusionSummary = excludedBarcodes.length > 0
       ? ` · 사용자 제외 ${excludedBarcodes.length}종`
       : "";

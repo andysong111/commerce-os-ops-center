@@ -74,3 +74,21 @@ inventory or a Shopling stock update. A newer exact stocktake or inventory
 movement supersedes it. This input exists for the current purchase
 recalculation when a full physical count is not practical, while preserving the
 execution review boundary before any external order or payment.
+
+## Receipt-confirmed run boundary and fresh Draft candidates (2026-10-26)
+
+A new run previously advanced its sales boundary after any ordered run and then
+copied unresolved automatic lines from the Draft it replaced. That could hide
+sales behind an order still in transit and make a newly calculated Draft look
+almost identical to an older one even though current option-level sales had
+changed.
+
+The next run now starts its sales window on the day after the calculation start
+of the latest run whose receipt is fully confirmed. Ordered-only, partially
+received and abandoned Drafts do not advance the boundary. Recalculating the
+same Draft keeps its stored boundary. A new run also discards stale automatic
+lines and rebuilds up to the current input-candidate limit from the latest
+priority rows. Confirmed sourcing lines and explicit operator quantity pins are
+still preserved. The resulting input-pending rows remain internal Draft data:
+the operator must select an approximate stock band and complete 5-1 cost and
+freight capture before the budget-finalized 5-2 cart step can open.

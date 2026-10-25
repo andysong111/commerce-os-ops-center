@@ -129,6 +129,7 @@ export function purchaseCycleDraftPreflightOptions(
 ) {
   return {
     targetDate: request.targetDate,
+    startNewRun: request.startNewRun === true,
     cashLimitKrw: request.cashLimitKrw ?? null,
     sourcingBudgetPercent: request.sourcingBudgetPercent ?? 0,
     maxSkus: 100,
@@ -373,7 +374,7 @@ export function preparePurchaseCycleDraft(
             ? "기존 Draft 운영자 고정수량 유지 · 5-1 원가·운임 기록에서 실제 위안단가 확인 필요"
             : row.recoveredFromPredecessor === true
               ? "이전 Draft 자동추천 복구 후보 · 최신 판매·재고 근거 확인 전 저장 금지"
-              : "기존 Draft 자동추천 재검증 필요 · 최신 판매·재고 근거 확인 전 저장 금지",
+              : "최신 자동추천 입력 대기 · 대략 재고를 선택하고 5-1에서 실제 위안단가·운임 확인 필요",
       })),
     ],
   };

@@ -58,7 +58,7 @@ test("recalculating a draft keeps its original cycle boundaries", () => {
   assert.equal(result.bootstrap, false);
 });
 
-test("starting a new run while replacing an abandoned draft uses today's boundary", () => {
+test("starting a new run uses the day after the latest receipt-confirmed run start", () => {
   const result = inferPurchaseRunCycleBasis({
     targetDate: "2026-10-26",
     replaceDraftId: "fast-purchase-draft:33333333333333333333",
@@ -68,6 +68,9 @@ test("starting a new run while replacing an abandoned draft uses today's boundar
         draftId: "fast-purchase-draft:22222222222222222222",
         cycleStartDate: "2026-10-05",
         orderedQuantity: 10,
+        receivedQuantity: 10,
+        openQuantity: 0,
+        receiptConfirmedAt: "2026-10-18T08:30:00.000Z",
       }),
       draft({
         draftId: "fast-purchase-draft:33333333333333333333",
@@ -82,8 +85,8 @@ test("starting a new run while replacing an abandoned draft uses today's boundar
   });
 
   assert.equal(result.cycleStartDate, "2026-10-26");
-  assert.equal(result.previousCycleStartDate, "2026-10-05");
-  assert.equal(result.revenueRangeStartDate, "2026-10-05");
+  assert.equal(result.previousCycleStartDate, "2026-10-06");
+  assert.equal(result.revenueRangeStartDate, "2026-10-06");
   assert.equal(result.revenueRangeEndDate, "2026-10-25");
   assert.equal(result.bootstrap, false);
 });
@@ -104,7 +107,7 @@ test("a replacement cannot be relabeled as a new run without a later start date"
   );
 });
 
-test("new cycle uses the prior calculation start and keeps in-transit sales in range", () => {
+test("new cycle starts the day after the prior receipt-confirmed calculation start", () => {
   const result = inferPurchaseRunCycleBasis({
     targetDate: "2026-10-23",
     drafts: [
@@ -118,13 +121,13 @@ test("new cycle uses the prior calculation start and keeps in-transit sales in r
       }),
     ],
   });
-  assert.equal(result.previousCycleStartDate, "2026-10-05");
-  assert.equal(result.revenueRangeStartDate, "2026-10-05");
+  assert.equal(result.previousCycleStartDate, "2026-10-06");
+  assert.equal(result.revenueRangeStartDate, "2026-10-06");
   assert.equal(result.revenueRangeEndDate, "2026-10-22");
   assert.equal(result.bootstrap, false);
 });
 
-test("an unexecuted draft never advances the next sales boundary", () => {
+test("ordered-only and abandoned drafts never advance the next sales boundary", () => {
   const result = inferPurchaseRunCycleBasis({
     targetDate: "2026-10-25",
     drafts: [
@@ -145,10 +148,10 @@ test("an unexecuted draft never advances the next sales boundary", () => {
     ],
   });
 
-  assert.equal(result.previousCycleStartDate, "2026-10-05");
-  assert.equal(result.revenueRangeStartDate, "2026-10-05");
+  assert.equal(result.previousCycleStartDate, "2026-09-25");
+  assert.equal(result.revenueRangeStartDate, "2026-09-25");
   assert.equal(result.revenueRangeEndDate, "2026-10-24");
-  assert.equal(result.bootstrap, false);
+  assert.equal(result.bootstrap, true);
 });
 
 test("unfinished receipt does not become the next cycle boundary", () => {
@@ -163,7 +166,8 @@ test("unfinished receipt does not become the next cycle boundary", () => {
       }),
     ],
   });
-  assert.equal(result.previousCycleStartDate, "2026-10-05");
+  assert.equal(result.previousCycleStartDate, "2026-09-23");
+  assert.equal(result.bootstrap, true);
 });
 
 test("first on-demand cycle uses an explicit visible 30-day bootstrap", () => {

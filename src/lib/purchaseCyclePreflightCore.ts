@@ -34,6 +34,7 @@ export type PurchaseCandidatePin = {
 };
 export type PurchasePreflightOptions = {
   targetDate: string;
+  startNewRun?: boolean;
   cashLimitKrw: number | null;
   sourcingBudgetPercent?: number;
   sourcingBudgetReturnKrw?: number;
@@ -223,6 +224,9 @@ export type PurchaseCyclePreflightReport = {
 
 const REPORT_MAX_AGE_MS = 15 * 60 * 1000;
 const PURCHASE_DRAFT_LINE_LIMIT = 100;
+// Leave room for the new-sourcing step while still exposing a broad, current
+// set of reorder candidates that need rough stock or 5-1 cost input.
+const PURCHASE_INPUT_PENDING_LINE_LIMIT = 80;
 const FP = /^sha256:[a-f0-9]{64}$/;
 const CODE = /^B[A-Z]{2}\d+-\d+$/;
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
@@ -613,6 +617,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const blockers = [...input.sourceErrors];
   const reviewBlockers: string[] = [];
   const replacementDraftId = input.options.replaceDraftId ?? null;
+  const startNewRun = input.options.startNewRun === true;
   const operatorExcludedBarcodes = [...(input.options.excludedBarcodes ?? [])].sort();
   const operatorExcludedSet = new Set(operatorExcludedBarcodes);
   const operatorQuantityOverrides = [...(input.options.quantityOverrides ?? [])]
@@ -1038,13 +1043,16 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         return reason ? [[line.barcode, reason] as const] : [];
       }),
     );
-    preservedReplacementLines = input.replacementAfter.lines
+    const retainedReplacementLines = input.replacementAfter.lines
       .filter(
         (line) =>
           !operatorExcludedSet.has(line.barcode) &&
           !operatorReleasedQuantityOverrideSet.has(line.barcode) &&
           !selectedByBarcode.has(line.barcode) &&
-          !automaticRemovalReasonByBarcode.has(line.barcode),
+          !automaticRemovalReasonByBarcode.has(line.barcode) &&
+          (!startNewRun ||
+            line.preserveOnRegeneration === true ||
+            operatorPinnedPreservedBarcodes.has(line.barcode)),
       )
       .map((line) => {
         const currentPriorityRow = priorityByBarcode.get(line.barcode);
@@ -1063,10 +1071,50 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
             refreshedAutomaticQuantity,
         };
       });
+    if (startNewRun) {
+      const retainedBarcodes = new Set([
+        ...selectedByBarcode.keys(),
+        ...retainedReplacementLines.map((line) => line.barcode),
+      ]);
+      const freshInputPendingLines = rows
+        .filter((row) =>
+          !retainedBarcodes.has(row.barcode) &&
+          !operatorExcludedSet.has(row.barcode) &&
+          isCurrentOperatorInputRecommendation(
+            row,
+            exclusionReasonsByBarcode.get(row.barcode) ?? [],
+          )
+        )
+        .sort((left, right) =>
+          comparePurchaseStrategyPriority(left, right) ||
+          left.barcode.localeCompare(right.barcode)
+        )
+        .slice(
+          0,
+          Math.max(
+            0,
+            PURCHASE_INPUT_PENDING_LINE_LIMIT -
+              selected.length -
+              retainedReplacementLines.length,
+          ),
+        )
+        .map((row) => ({
+          barcode: row.barcode,
+          name: row.name,
+          quantity: normalizePurchaseOrderQuantity(row.recommendedQty),
+        }));
+      preservedReplacementLines = [
+        ...retainedReplacementLines,
+        ...freshInputPendingLines,
+      ];
+    } else {
+      preservedReplacementLines = retainedReplacementLines;
+    }
     if (operatorPinnedPreservedBarcodes.size > 0) {
       reviewBlockers.push("OPERATOR_PINNED_EXISTING_COST_REVIEW_REQUIRED");
     }
     if (
+      !startNewRun &&
       preservedReplacementLines.some(
         (line) =>
           line.preserveOnRegeneration !== true &&
@@ -1112,7 +1160,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
           ? ["OPERATOR_DRAFT_EXCLUSION"]
           : operatorReleasedQuantityOverrideSet.has(line.barcode)
             ? ["OPERATOR_QUANTITY_OVERRIDE_RELEASED_TO_POLICY"]
-          : [automaticRemovalReasonByBarcode.get(line.barcode) ?? "EXISTING_DRAFT_REMOVAL_UNVERIFIED"],
+          : startNewRun
+            ? ["NEW_RUN_REBUILT_FROM_LATEST_RECOMMENDATIONS"]
+            : [automaticRemovalReasonByBarcode.get(line.barcode) ?? "EXISTING_DRAFT_REMOVAL_UNVERIFIED"],
       }));
     const quantityChanged = matchedBarcodes.flatMap((barcode) => {
       const previous = previousByBarcode.get(barcode)!;
@@ -1226,6 +1276,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     planFingerprint: hash({
       options: {
         targetDate: input.options.targetDate,
+        startNewRun,
         cashLimitKrw: input.options.cashLimitKrw,
         sourcingBudgetPercent,
         maxSkus: input.options.maxSkus,

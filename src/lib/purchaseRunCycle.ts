@@ -90,24 +90,25 @@ function previousBoundaryBefore(
     .filter((draft) => draft.draftId !== excludedDraftId)
     .map((draft) => ({
       start: startDate(draft),
-      executed: draft.orderedQuantity > 0 || draft.receivedQuantity > 0,
+      receiptComplete:
+        Boolean(draft.receiptConfirmedAt && Number.isFinite(Date.parse(draft.receiptConfirmedAt))) &&
+        draft.receivedQuantity > 0 &&
+        draft.openQuantity === 0,
     }))
-    // A saved or abandoned Draft did not replenish stock. Advancing the sales
-    // boundary to that Draft would silently discard demand that was never
-    // ordered. Only an actually ordered/received run can close the interval.
-    .filter((row) => row.executed && row.start && row.start < currentStartDate)
+    // Only a fully received run closes the demand interval. An abandoned Draft
+    // or an order still in transit must not discard sales from the next run.
+    .filter((row) => row.receiptComplete && row.start && row.start < currentStartDate)
     .sort((left, right) => right.start.localeCompare(left.start));
-  return older[0]?.start || "";
+  return older[0]?.start ? shiftDate(older[0].start, 1) : "";
 }
 
 /**
  * Determines the immutable sales/budget interval for an operator-started
  * purchase run. Recalculating a Draft keeps its original boundary. A new run
- * starts from the prior executed run's calculation start date; an unexecuted
- * Draft never closes a demand interval. Receipt confirmation is deliberately
- * not a boundary because sales made while goods are in transit must remain
- * inside the next calculation interval. A 30-day bootstrap is used only when
- * the ledger has no older executed purchase run.
+ * starts from the day after the most recent fully received run's calculation
+ * start date. Drafts, ordered-only runs and unfinished receipts never close a
+ * demand interval. A 30-day bootstrap is used only when the ledger has no
+ * older receipt-confirmed purchase run.
  */
 export function inferPurchaseRunCycleBasis(input: {
   targetDate: unknown;
