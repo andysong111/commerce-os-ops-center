@@ -25,15 +25,18 @@ test("Shopling 옵션 ID가 겹치면 기존 ID를 한 번만 쓰고 고유 대�
   ]);
 });
 
-test("이전상품 Shopling 옵션 동기화는 B코드 없는 과거/단종 옵션을 재수입하지 않는다", async () => {
+test("이전상품 Shopling 옵션 동기화는 판매중 B 옵션만 사용하고 품절 C·미사용 X는 제외한다", async () => {
   const source = await readFile(
     new URL("../src/lib/legacySeoShoplingOptionSync.ts", import.meta.url),
     "utf8",
   );
 
+  assert.match(source, /function liveGroupOptions/);
+  assert.match(source, /text\(option\.status\)\.toUpperCase\(\) === "B"/);
   assert.match(source, /function activeGroupOptions/);
+  assert.match(source, /return liveGroupOptions\(group\)\.filter/);
   assert.match(source, /Boolean\(text\(option\.bCode\)\)/);
-  assert.match(source, /text\(option\.status\)\.toUpperCase\(\) !== "X"/);
+  assert.doesNotMatch(source, /text\(option\.status\)\.toUpperCase\(\) !== "X"/);
   assert.match(source, /const shoplingOptions = activeGroupOptions\(group\)/);
 });
 
