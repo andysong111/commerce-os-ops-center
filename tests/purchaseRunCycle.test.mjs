@@ -88,6 +88,22 @@ test("starting a new run while replacing an abandoned draft uses today's boundar
   assert.equal(result.bootstrap, false);
 });
 
+test("a replacement cannot be relabeled as a new run without a later start date", () => {
+  assert.throws(
+    () => inferPurchaseRunCycleBasis({
+      targetDate: "2026-10-23",
+      replaceDraftId: "fast-purchase-draft:33333333333333333333",
+      startNewRun: true,
+      drafts: [draft({
+        draftId: "fast-purchase-draft:33333333333333333333",
+        cycleStartDate: "2026-10-23",
+        orderedQuantity: 0,
+      })],
+    }),
+    /PURCHASE_RUN_CYCLE_NEW_RUN_DATE_INVALID/,
+  );
+});
+
 test("new cycle uses the prior calculation start and keeps in-transit sales in range", () => {
   const result = inferPurchaseRunCycleBasis({
     targetDate: "2026-10-23",
