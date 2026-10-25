@@ -57,6 +57,7 @@ export async function startPurchaseRun(targetDate = seoulCalendarDate()) {
   const startRequest: PurchaseCycleDraftRequest = replaceable
     ? {
         ...base,
+        startNewRun: true,
         replaceDraftId: replaceable.draftId,
         excludedBarcodes: priorAdjustments?.excludedBarcodes ?? [],
         quantityOverrides: priorAdjustments?.quantityOverrides ?? [],

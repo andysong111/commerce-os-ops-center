@@ -109,6 +109,7 @@ function request(value = report(), plan = null) {
 test("draft recheck preserves the preview early-budget option", () => {
   const regular = purchaseCycleDraftPreflightOptions(request());
   assert.equal(regular.allowOpenBudgetPreview, false);
+  assert.equal(regular.startNewRun, false);
   assert.equal(regular.cashLimitKrw, null);
   assert.equal(regular.sourcingBudgetPercent, 0);
   assert.equal(regular.maxSkus, 100);
@@ -119,6 +120,12 @@ test("draft recheck preserves the preview early-budget option", () => {
     allowOpenBudgetPreview: true,
   });
   assert.equal(early.allowOpenBudgetPreview, true);
+
+  const newRun = purchaseCycleDraftPreflightOptions({
+    ...request(),
+    startNewRun: true,
+  });
+  assert.equal(newRun.startNewRun, true);
 });
 
 test("draft recheck preserves and pins the operator cash cap", () => {

@@ -274,7 +274,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       if (sourcingStorageInputInvalid) throw new Error("SOURCING_STORAGE_SELECTION_INVALID");
       if (sourcingVariantInputInvalid) throw new Error("SOURCING_VARIANT_SELECTION_INVALID");
       if (quantityOverrideInputInvalid) throw new Error("OPERATOR_QUANTITY_OVERRIDES_INVALID");
-      const options = { targetDate, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId, excludedBarcodes, quantityOverrides };
+      const options = { targetDate, startNewRun, cashLimitKrw, sourcingBudgetPercent, maxSkus: ENGINE_MAX_SKUS, maxUnitsPerSku: ENGINE_MAX_UNITS_PER_SKU, allowOpenBudgetPreview: early, replaceDraftId, excludedBarcodes, quantityOverrides };
       validatePurchasePreflightOptions(options);
       const [reportResult, manualPilotResult] = await Promise.allSettled([
         loadPurchaseCyclePreflightPreview(options),
