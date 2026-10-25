@@ -1534,6 +1534,78 @@ test("a new run drops stale automatic lines and adds current input-pending recom
   assert.equal(report.replacementAudit.complete, true);
 });
 
+test("same-cycle recalculation adds newly eligible input-pending recommendations without dropping operator work", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "같은 차시 최신 추천",
+    recommendedQty: 10,
+    originalRecommendedQty: 10,
+    expectedCost: 0,
+    inventoryMode: "REVIEW",
+    inventoryVerified: false,
+    executionInventoryEligible: false,
+    inventoryCalculationUsable: false,
+    inventoryRequiresReview: true,
+    initialZeroUnverified: true,
+    advisoryOnly: true,
+    inventoryQuantity: 0,
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptAt: null,
+    latestConfirmedReceiptCostKrw: 0,
+    purchaseCostEvidenceCount: 0,
+    hasVerifiedPurchaseCost: false,
+    verifiedPurchaseCostReady: false,
+    purchaseCostTrustSource: "NONE",
+    verifiedPurchaseUnitCostKrw: 0,
+    verifiedPurchaseCostAt: null,
+    purchaseProtectedCostKrw: 0,
+    protectedCostKrw: 0,
+    action: "COST_CONFIRMATION_REQUIRED",
+    operationallyReady: false,
+  });
+  input.priority.managedActiveSkuCount = input.priority.rows.length;
+  input.priority.omissionBlockingCount = 0;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{
+      barcode: "BAA9-1",
+      name: "사용자 고정 추가",
+      quantity: 25,
+      preserveOnRegeneration: true,
+    }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(
+    report.preservedReplacementLines.map((row) => [
+      row.barcode,
+      row.quantity,
+      row.preserveOnRegeneration === true,
+    ]),
+    [
+      ["BAA9-1", 25, true],
+      ["BAA2-1", 10, false],
+    ],
+  );
+  assert.deepEqual(
+    report.replacementAudit.added.map((row) => [row.barcode, row.quantity]),
+    [
+      ["BAA1-1", 5],
+      ["BAA2-1", 10],
+    ],
+  );
+  assert.deepEqual(report.replacementAudit.removed, []);
+  assert.equal(report.replacementAudit.complete, true);
+});
+
 test("replacement does not exempt a current input-pending line from a hard quantity limit", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
