@@ -25,6 +25,10 @@ import {
   createSupabaseAdminClient,
   createSupabaseAdminHeaders,
 } from "@/lib/supabase/admin";
+import {
+  PRODUCT_MASTER_SALES_SNAPSHOT_TIMEOUT_MS,
+  retryableProductMasterSalesSnapshotRead,
+} from "@/lib/productMasterSalesSnapshotRetry";
 
 export const SALES_EVENT_REQUEST = "PRODUCT_MASTER_SHOPLING_SALES_EVENT_REQUEST";
 export const SALES_EVENT_CHUNK = "PRODUCT_MASTER_SHOPLING_SALES_EVENT_CHUNK";
@@ -888,7 +892,7 @@ async function productMasterSnapshot(request: SalesEventSyncRequest) {
         "x-commerce-os-integration-secret": secret,
       },
       cache: "no-store",
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(PRODUCT_MASTER_SALES_SNAPSHOT_TIMEOUT_MS),
     },
   );
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -1120,6 +1124,17 @@ export async function loadProductMasterShoplingSalesEventSyncStatus(): Promise<S
     }
   } catch (error) {
     const message = safeMessage(error);
+    if (retryableProductMasterSalesSnapshotRead(error)) {
+      return {
+        ...common,
+        state: "RUNNING",
+        stage: "Product Master 판매원장 확인 재시도",
+        message:
+          "수집한 판매자료는 저장됐습니다. Product Master 확인만 다시 시도합니다.",
+        error: message,
+        progress: 99,
+      };
+    }
     return { ...common, state: "FAILED", stage: "Product Master 확인 실패", message, error: message, progress: 100 };
   }
   return {

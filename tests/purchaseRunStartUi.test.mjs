@@ -17,6 +17,8 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(service, /runProductMasterShoplingSalesEventSyncStep/);
   assert.match(service, /DEMAND_STEPS_PER_REQUEST = 1/);
   assert.match(service, /SALES_STEPS_PER_REQUEST = 1/);
+  assert.match(service, /sales\.completedRanges >= sales\.totalRanges/);
+  assert.match(service, /\? sales\.message/);
   assert.match(service, /PurchaseRunPreparationStageError/);
   assert.match(service, /loadPostApplyCanonicalReconciliation/);
   assert.match(service, /loadInventoryVerificationPriority/);
