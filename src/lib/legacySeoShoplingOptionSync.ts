@@ -578,8 +578,13 @@ export async function syncLegacySeoShoplingOptions(input: {
   }
 
   const items = await loadNormalizedItems(input.config, input.identity.userId, requested);
-  const [evidenceByModel, canonicalOptionsByModel, productMasterCatalogResult] = await Promise.all([
-    loadLegacySeoShoplingEvidence(requested, goodsKeyOverridesFromItems(items)),
+  const [shoplingEvidenceResult, canonicalOptionsByModel, productMasterCatalogResult] = await Promise.all([
+    loadLegacySeoShoplingEvidence(requested, goodsKeyOverridesFromItems(items))
+      .then((evidenceByModel) => ({ evidenceByModel, error: "" }))
+      .catch((error) => ({
+        evidenceByModel: new Map<string, LegacySeoShoplingEvidence>(),
+        error: error instanceof Error ? error.message : String(error),
+      })),
     loadCanonicalOptionHints(input.config, input.identity.userId, requested),
     loadLegacySeoInventoryCatalog(requested)
       .then((products) => ({ products, error: "" }))
@@ -588,6 +593,8 @@ export async function syncLegacySeoShoplingOptions(input: {
         error: error instanceof Error ? error.message : String(error),
       })),
   ]);
+  const evidenceByModel = shoplingEvidenceResult.evidenceByModel;
+  const shoplingEvidenceError = shoplingEvidenceResult.error;
   const productMasterByModel = new Map(
     productMasterCatalogResult.products.map((product) => [
       normalizeLegacyModel(product.modelNo),
@@ -653,6 +660,20 @@ export async function syncLegacySeoShoplingOptions(input: {
           });
           continue;
         }
+        if (shoplingEvidenceError) {
+          results.push({
+            itemId: item.itemId,
+            modelNumber: item.modelNumber,
+            changed: false,
+            failed: true,
+            status: "failed",
+            sourceGoodsKey: "",
+            optionCount: current.length,
+            bCodeCount: current.filter((option) => text(option.barcode)).length,
+            reason: `Shopling 조회 실패 · 검증된 상품마스터 대체자료 없음: ${shoplingEvidenceError}`,
+          });
+          continue;
+        }
         const reason = evidence
           ? canonicalSaleOptions.length
             ? "중국주문 최종확정 옵션 구조와 일치하는 Shopling 상품군 없음 · 기존 옵션 유지"
@@ -675,6 +696,7 @@ export async function syncLegacySeoShoplingOptions(input: {
             productMasterAuthority?.reason ||
             productMasterCatalogResult.error ||
             "상품마스터 모델 없음",
+          shoplingEvidenceError,
           syncedAt: now,
         };
         await patchItem(input.config, input.identity.userId, item, current, metadata, now);

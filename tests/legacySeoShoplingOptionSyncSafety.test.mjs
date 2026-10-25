@@ -61,6 +61,19 @@ test("한 상품 옵션 동기화 실패가 같은 배치의 다른 상품 복�
   assert.match(source, /failedCount: results\.filter\(\(result\) => result\.failed\)\.length/);
 });
 
+test("Shopling 조회 시간 초과여도 완전한 상품마스터 옵션 복구는 계속한다", async () => {
+  const source = await readFile(
+    new URL("../src/lib/legacySeoShoplingOptionSync.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /shoplingEvidenceResult/);
+  assert.match(source, /loadLegacySeoShoplingEvidence[\s\S]*?\.catch\(\(error\)/);
+  assert.match(source, /if \(productMasterAuthority\?\.confirmed\)/);
+  assert.match(source, /if \(shoplingEvidenceError\)/);
+  assert.match(source, /검증된 상품마스터 대체자료 없음/);
+});
+
 test("옵션 누락 상품도 먼저 Shopling 복구를 시도하고 가격은 현재 동기화가 확정된 모델만 적용한다", async () => {
   const source = await readFile(
     new URL("../src/lib/legacySeoPreflight.ts", import.meta.url),
