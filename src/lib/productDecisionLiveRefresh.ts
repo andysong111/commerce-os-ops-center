@@ -43,6 +43,7 @@ const MAX_STEP_ATTEMPTS = 3;
 const OPERATION_LIMIT = 500;
 const PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 70_000;
 const PRODUCT_MASTER_STORED_FALLBACK_MAX_AGE_MS = 72 * 60 * 60 * 1000;
+const PURCHASE_RUN_ACTIVE_RESUME_MAX_AGE_MS = 30 * 60 * 1000;
 
 export type ProductDecisionLiveRequest = {
   requestId: string;
@@ -488,14 +489,17 @@ export async function ensurePurchaseRunDemandRefreshRequest(options: {
   const now = options.now ?? new Date();
   const current = await loadProductDecisionLiveStatus();
   const analysisAt = Date.parse(String(current.analysisAsOf ?? ""));
-  const fresh = Number.isFinite(analysisAt) &&
-    analysisAt <= now.valueOf() &&
-    now.valueOf() - analysisAt <= maxAgeMs;
-  if (fresh && (
-    current.state === "QUEUED" ||
-    current.state === "RUNNING" ||
-    current.state === "COMPLETED"
-  )) {
+  const ageMs = Number.isFinite(analysisAt)
+    ? now.valueOf() - analysisAt
+    : Number.POSITIVE_INFINITY;
+  const fresh = ageMs >= 0 &&
+    ageMs <= maxAgeMs;
+  const resumableActive = ageMs >= 0 &&
+    ageMs <= PURCHASE_RUN_ACTIVE_RESUME_MAX_AGE_MS && (
+      current.state === "QUEUED" || current.state === "RUNNING"
+    );
+  const freshCompleted = fresh && current.state === "COMPLETED";
+  if (resumableActive || freshCompleted) {
     return current;
   }
   const created = await createProductDecisionLiveRefreshRequest();
