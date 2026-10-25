@@ -109,6 +109,7 @@ const reasonLabels: Record<string, string> = {
   VERIFIED_STOCK_COVERS_DEMAND: "검증된 현재 재고와 미입고 수량이 이번 수요 목표를 충족합니다.",
   PERMANENTLY_DISCONTINUED: "영구 발주 제외로 지정된 상품입니다.",
   LATEST_POLICY_NOT_RECOMMENDED: "최신 판매·재고 발주판정에서 더 이상 자동추천되지 않은 상품입니다.",
+  LATEST_ACTIVE_SCOPE_ABSENT: "최신 전체 활성상품 기준표에서 제외되어 과거 자동추천을 정리했습니다.",
   EXISTING_DRAFT_REMOVAL_UNVERIFIED: "기존 발주품목을 제거할 안전 근거를 확인하지 못했습니다.",
   EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED: "기존 발주품목 중 최신 자동추천 근거가 약한 항목은 삭제하지 않고 수동 검토 대상으로 보존했습니다.",
   "UPSTREAM:claim-auxiliary": "클레임·배송 보조신호 연결이 남아 있어 실제 실행 판단으로 승격하지 않습니다.",
@@ -395,7 +396,16 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       ? sourcingPlan.readyForConfirmation ? 0 : sourcingPlan.allocation.remainingBudgetKrw
       : report.sourcingBudgetKrw
     : 0;
-  const draftReady = Boolean(report && report.previewReady && report.blockers.length === 0 && sourcingReady);
+  const replacementRecommendationReviewRequired = Boolean(
+    report?.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"),
+  );
+  const draftReady = Boolean(
+    report &&
+    report.previewReady &&
+    report.blockers.length === 0 &&
+    !replacementRecommendationReviewRequired &&
+    sourcingReady,
+  );
   const sourcingPreparationCodes = sourcingPlan?.policy.operatorAllocationSupported && sourcingPlan.policy.version !== null
     ? sourcingPlan.blockers.filter(code => sourcingPolicyPreparationCodes.has(code))
     : [];
@@ -407,6 +417,14 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     actionItems.push({
       title: "최신 판매·재고 자료 준비",
       message: `시스템 원본 검증 ${report.blockers.length}건이 만료됐거나 아직 준비되지 않았습니다. 실제 주문은 진행되지 않았으며 최신자료가 준비된 뒤 다시 계산하면 됩니다.`,
+      href: "/stage8-sales-events",
+      hrefLabel: "최신자료 상태 보기",
+    });
+  }
+  if (replacementRecommendationReviewRequired) {
+    actionItems.push({
+      title: "기존 자동추천 근거 확인",
+      message: `최신 전체 활성상품 기준을 확인하지 못한 기존 자동추천 ${draftPlannedTotals?.unresolvedAutomaticCount ?? 0}종은 삭제하지 않고 보존했습니다. 최신자료 연결이 끝난 뒤 다시 계산하세요.`,
       href: "/stage8-sales-events",
       hrefLabel: "최신자료 상태 보기",
     });
@@ -474,6 +492,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const technicalIssues = report
     ? [
         ...report.blockers.map(explain),
+        ...(replacementRecommendationReviewRequired
+          ? [explain("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED")]
+          : []),
         ...(sourcingPlanError ? [sourcingPlanError] : []),
         ...sourcingBlockingCodes.map(code => sourcingReasonLabels[code] ?? code),
       ]
