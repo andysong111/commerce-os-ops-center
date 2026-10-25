@@ -543,6 +543,9 @@ async function mutateStateWithRetry(
   identity: Identity,
   input: unknown,
 ) {
+  const expectedStateUpdatedAt = isRecord(input)
+    ? nullableText(input.expectedStateUpdatedAt)
+    : null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const row = await readLegacyStateFast(
       config,
@@ -551,6 +554,14 @@ async function mutateStateWithRetry(
     );
     if (!row || !isRecord(row.state_payload)) {
       throw new Error("저장된 진행관리 상태를 찾지 못했습니다.");
+    }
+    if (
+      expectedStateUpdatedAt &&
+      nullableText(row.updated_at) !== expectedStateUpdatedAt
+    ) {
+      throw new Error(
+        "진행관리 데이터가 미리보기 뒤 동시에 수정되었습니다.",
+      );
     }
 
     const mutation = applyProductLaunchTrackerMutation(

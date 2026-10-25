@@ -337,6 +337,10 @@ test("recovery API requires a matching preview hash and delegates an atomic bulk
     "src/app/api/product-launch-tracker/seo-material-recovery/route.ts",
     "utf8",
   );
+  const optimizedRoute = await readFile(
+    "src/app/api/product-launch-tracker/optimized/route.ts",
+    "utf8",
+  );
   const tracker = await readFile("src/lib/productLaunchTrackerOptimized.ts", "utf8");
   const inventoryCatalog = await readFile(
     "src/lib/legacySeoInventoryCatalog.ts",
@@ -346,6 +350,18 @@ test("recovery API requires a matching preview hash and delegates an atomic bulk
   assert.match(route, /expectedPlanHash !== prepared\.report\.planHash/);
   assert.match(route, /operation: "bulk_patch_items"/);
   assert.match(route, /expectedUpdatedAt/);
+  assert.match(
+    route,
+    /expectedStateUpdatedAt: prepared\.report\.sourceStateUpdatedAt/,
+  );
+  assert.match(
+    route,
+    /prepared\.report\.itemSource === "normalized-exact"[\s\S]{0,120}\? ""/,
+  );
+  assert.match(
+    optimizedRoute,
+    /nullableText\(row\.updated_at\) !== expectedStateUpdatedAt/,
+  );
   assert.match(tracker, /미리보기 뒤 동시에 수정되었습니다/);
   assert.match(seoRunRoute, /legacySeoRegistrationExclusion\(item\)/);
   assert.match(

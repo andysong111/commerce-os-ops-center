@@ -333,9 +333,13 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         operation: "bulk_patch_items",
         updatedBy: "SEO 등록재료 자동복구",
+        expectedStateUpdatedAt: prepared.report.sourceStateUpdatedAt,
         patches: changedPlans.map((plan) => ({
           itemId: plan.itemId,
-          expectedUpdatedAt: text(prepared.itemById.get(plan.itemId)?.updatedAt),
+          expectedUpdatedAt:
+            prepared.report.itemSource === "normalized-exact"
+              ? ""
+              : text(prepared.itemById.get(plan.itemId)?.updatedAt),
           patch: plan.patch,
         })),
       }),
