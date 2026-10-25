@@ -29,6 +29,9 @@ export function loadPurchaseCycleModule(path, imports = {}, globals = {}) {
       if (name === "@/lib/monthlySalesEventRefreshCore") {
         return loadPurchaseCycleModule("src/lib/monthlySalesEventRefreshCore.ts", imports, globals);
       }
+      if (name === "@/lib/productMasterSalesSnapshotRetry") {
+        return loadPurchaseCycleModule("src/lib/productMasterSalesSnapshotRetry.ts", imports, globals);
+      }
       // Receipt replay and sourcing support were added after these legacy
       // fixtures. Execute their real guards; forbid any unmodelled side effect.
       if (name === "@/domain/china-receipt-request") {
