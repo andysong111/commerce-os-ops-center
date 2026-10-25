@@ -57,6 +57,17 @@ test("native quantity changes remain local until the single recalculation action
   assert.match(workspace, /aria-label="표 상단 고정 발주안 재계산"/);
   assert.match(workspace, /recalculationDisabled/);
   assert.match(workspace, /recalculationButtonLabel/);
+  assert.match(workspace, /최신 추천으로 발주안 재계산/);
+  const disabledRule = workspace.slice(
+    workspace.indexOf("const recalculationDisabled"),
+    workspace.indexOf("const recalculationButtonLabel"),
+  );
+  assert.doesNotMatch(disabledRule, /!hasPendingRecalculation/);
+  const recalculationHandler = workspace.slice(
+    workspace.indexOf("async function recalculateDraft"),
+    workspace.indexOf("function resetPendingRecalculation"),
+  );
+  assert.doesNotMatch(recalculationHandler, /!hasPendingRecalculation/);
 
   const postRoute = quantityRoute.slice(
     quantityRoute.indexOf("export async function POST"),
