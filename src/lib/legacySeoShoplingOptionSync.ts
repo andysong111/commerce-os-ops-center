@@ -90,15 +90,12 @@ function clone(value: unknown): UnknownRecord {
   return { ...record(value) };
 }
 
-function activeGroupOptions(group: LegacySeoShoplingOptionGroup) {
-  return group.options.filter(
-    (option) =>
-      text(option.status).toUpperCase() !== "X" && Boolean(text(option.bCode)),
-  );
+function liveGroupOptions(group: LegacySeoShoplingOptionGroup) {
+  return group.options.filter((option) => text(option.status).toUpperCase() === "B");
 }
 
-function liveGroupOptions(group: LegacySeoShoplingOptionGroup) {
-  return group.options.filter((option) => text(option.status).toUpperCase() !== "X");
+function activeGroupOptions(group: LegacySeoShoplingOptionGroup) {
+  return liveGroupOptions(group).filter((option) => Boolean(text(option.bCode)));
 }
 
 function completeManagedGroup(group: LegacySeoShoplingOptionGroup) {
