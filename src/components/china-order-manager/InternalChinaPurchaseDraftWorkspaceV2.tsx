@@ -615,12 +615,13 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     stagedAdditions.length > 0;
   const recalculationDisabled =
     draft.status !== "DRAFT" ||
-    !hasPendingRecalculation ||
     invalidQuantityBarcodes.length > 0 ||
     regenerating;
   const recalculationButtonLabel = regenerating
     ? "재고 저장·발주안 재계산 중..."
-    : "변경사항 저장 후 발주안 재계산";
+    : hasPendingRecalculation
+      ? "변경사항 저장 후 발주안 재계산"
+      : "최신 추천으로 발주안 재계산";
 
   function stageStockBand(barcode: string, stockBand: InventoryStockBand) {
     setStagedStockBands((current) => {
@@ -702,7 +703,6 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     if (
       draft.status !== "DRAFT" ||
       regenerating ||
-      !hasPendingRecalculation ||
       invalidQuantityBarcodes.length > 0
     ) return;
     setRegenerating(true);
@@ -945,7 +945,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
           >
             <div className="min-w-0 text-xs leading-5">
               <strong className={hasPendingRecalculation ? "text-blue-950" : "text-slate-700"}>
-                {hasPendingRecalculation ? "변경사항 재계산 대기" : "재고·수량 변경 후 여기서 재계산"}
+                {hasPendingRecalculation ? "변경사항 재계산 대기" : "최신 판매판정으로 다시 계산할 수 있습니다"}
               </strong>
               <span className="ml-2 font-bold text-slate-600">
                 대략 재고 {stockBandUpdates.length}종 · 수량 {changedQuantityRows.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종
@@ -960,7 +960,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               disabled={recalculationDisabled}
               aria-busy={regenerating}
               aria-label="표 상단 고정 발주안 재계산"
-              title="재고상태 저장 후 발주안 재계산"
+              title={hasPendingRecalculation ? "재고상태 저장 후 발주안 재계산" : "최신 추천으로 발주안 재계산"}
               className="min-h-10 shrink-0 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
             >
               {recalculationButtonLabel}
@@ -1075,7 +1075,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <button type="button" onClick={releaseSelectedQuantityOverrides} disabled={draft.status !== "DRAFT" || selectedQuantityOverrideCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40">선택 수량 고정 해제 ({selectedQuantityOverrideCandidates.length}종)</button>
             <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">선택 해제</button>
             <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">대기 변경 취소</button>
-            <button type="button" onClick={recalculateDraft} disabled={recalculationDisabled} aria-busy={regenerating} aria-label="변경사항 모아 발주안 재계산" data-action-label="변경사항 저장 후 발주안 재계산" title="재고상태 저장 후 발주안 재계산" className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{recalculationButtonLabel}</button>
+            <button type="button" onClick={recalculateDraft} disabled={recalculationDisabled} aria-busy={regenerating} aria-label="변경사항 모아 발주안 재계산" data-action-label="변경사항 저장 후 발주안 재계산" title={hasPendingRecalculation ? "재고상태 저장 후 발주안 재계산" : "최신 추천으로 발주안 재계산"} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{recalculationButtonLabel}</button>
           </div>
         </div>
       </section>
