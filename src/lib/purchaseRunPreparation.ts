@@ -204,7 +204,10 @@ export async function advancePurchaseRunPreparation(
         state: "PENDING",
         stage: "SALES",
         progress: 35 + Math.min(35, Math.round(sales.progress * 0.35)),
-        message: `최신 판매자료를 읽고 있습니다. ${sales.completedRanges}/${sales.totalRanges}개 구간 완료`,
+        message:
+          sales.totalRanges > 0 && sales.completedRanges >= sales.totalRanges
+            ? sales.message
+            : `최신 판매자료를 읽고 있습니다. ${sales.completedRanges}/${sales.totalRanges}개 구간 완료`,
         externalOrderExecuted: false,
       };
     }
