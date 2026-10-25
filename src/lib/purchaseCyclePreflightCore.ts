@@ -248,6 +248,15 @@ function verifiedAutomaticRemovalReason(
   ) {
     return "VERIFIED_STOCK_COVERS_DEMAND";
   }
+  // A complete current priority snapshot is the authority for automatic
+  // recommendations. Keeping an old automatic line after the current policy
+  // has explicitly stopped recommending it makes the replacement Draft both
+  // stale and impossible to save. A missing row is deliberately different:
+  // it can mean a partial source read, so that case remains preserved and
+  // blocked for review below.
+  if (row.purchaseStatus !== "발주 추천" || !positive(row.recommendedQty)) {
+    return "LATEST_POLICY_NOT_RECOMMENDED";
+  }
   return null;
 }
 
@@ -964,14 +973,15 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     );
     const selectedByBarcode = new Map(selected.map((line) => [line.barcode, line]));
     const priorityByBarcode = new Map(rows.map((row) => [row.barcode, row] as const));
+    const operatorPinnedPreservedBarcodes = new Set(
+      [...operatorPinnedExistingBarcodes].filter((barcode) => !eligibleBarcodes.has(barcode)),
+    );
     const automaticRemovalReasonByBarcode = new Map(
       input.replacementAfter.lines.flatMap((line) => {
+        if (operatorPinnedPreservedBarcodes.has(line.barcode)) return [];
         const reason = verifiedAutomaticRemovalReason(priorityByBarcode.get(line.barcode));
         return reason ? [[line.barcode, reason] as const] : [];
       }),
-    );
-    const operatorPinnedPreservedBarcodes = new Set(
-      [...operatorPinnedExistingBarcodes].filter((barcode) => !eligibleBarcodes.has(barcode)),
     );
     preservedReplacementLines = input.replacementAfter.lines
       .filter(

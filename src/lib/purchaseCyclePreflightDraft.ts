@@ -153,7 +153,9 @@ export async function recalculatePurchaseCycleDraftInline(
     previousDraftId: replacement.previousDraftId,
     supersededLineCount: replacement.supersededLineCount,
     selectedCount: report.selected.length,
-    preservedSourcingCount: report.preservedReplacementLines.length,
+    preservedSourcingCount: report.preservedReplacementLines.filter(
+      (line) => line.preserveOnRegeneration === true,
+    ).length,
     addedCount: report.replacementAudit?.added.length ?? 0,
     removedCount: report.replacementAudit?.removed.length ?? 0,
     changedCount: report.replacementAudit?.quantityChanged.length ?? 0,

@@ -1253,7 +1253,7 @@ test("replacement audit accounts for every old and new line and explains the del
   });
 });
 
-test("replacement removes an old line only when verified inventory covers positive demand", () => {
+test("replacement records the specific verified-stock reason when inventory covers positive demand", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
   input.options.replaceDraftId = draftId;
@@ -1284,6 +1284,45 @@ test("replacement removes an old line only when verified inventory covers positi
   assert.deepEqual(
     report.replacementAudit.removed.map((row) => ({ barcode: row.barcode, reasons: row.reasons })),
     [{ barcode: "BAA2-1", reasons: ["VERIFIED_STOCK_COVERS_DEMAND"] }],
+  );
+  assert.equal(report.replacementAudit.complete, true);
+});
+
+test("replacement removes a stale automatic line when the complete latest policy no longer recommends it", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "LATEST POLICY HOLD",
+    purchaseStatus: "발주 보류",
+    demandTarget: 8,
+    recommendedQty: 0,
+    inventoryMode: "PROVISIONAL",
+    inventoryVerified: false,
+    inventoryQuantity: 0,
+    openCommitment: 0,
+    permanentlyDiscontinued: false,
+  });
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "최신 추천 유지", quantity: 5 },
+      { barcode: "BAA2-1", name: "과거 자동추천", quantity: 10 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(report.preservedReplacementLines, []);
+  assert.ok(!report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
+  assert.deepEqual(
+    report.replacementAudit.removed.map((row) => ({ barcode: row.barcode, reasons: row.reasons })),
+    [{ barcode: "BAA2-1", reasons: ["LATEST_POLICY_NOT_RECOMMENDED"] }],
   );
   assert.equal(report.replacementAudit.complete, true);
 });

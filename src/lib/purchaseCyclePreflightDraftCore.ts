@@ -170,8 +170,30 @@ export function purchaseCycleDraftPlannedTotals(
     (total, row) => total + row.quantity,
     0,
   );
-  const preservedSourcingCount = report.preservedReplacementLines?.length ?? 0;
-  const preservedSourcingQuantity = (report.preservedReplacementLines ?? []).reduce(
+  const preservedSourcingLines = (report.preservedReplacementLines ?? []).filter(
+    (row) => row.preserveOnRegeneration === true,
+  );
+  const operatorPinnedBarcodes = new Set(
+    report.operatorQuantityOverrides.map((row) => row.barcode),
+  );
+  const preservedOperatorLines = (report.preservedReplacementLines ?? []).filter(
+    (row) => row.preserveOnRegeneration !== true && operatorPinnedBarcodes.has(row.barcode),
+  );
+  const unresolvedAutomaticLines = (report.preservedReplacementLines ?? []).filter(
+    (row) => row.preserveOnRegeneration !== true && !operatorPinnedBarcodes.has(row.barcode),
+  );
+  const preservedSourcingCount = preservedSourcingLines.length;
+  const preservedSourcingQuantity = preservedSourcingLines.reduce(
+    (total, row) => total + row.quantity,
+    0,
+  );
+  const preservedOperatorCount = preservedOperatorLines.length;
+  const preservedOperatorQuantity = preservedOperatorLines.reduce(
+    (total, row) => total + row.quantity,
+    0,
+  );
+  const unresolvedAutomaticCount = unresolvedAutomaticLines.length;
+  const unresolvedAutomaticQuantity = unresolvedAutomaticLines.reduce(
     (total, row) => total + row.quantity,
     0,
   );
@@ -191,10 +213,24 @@ export function purchaseCycleDraftPlannedTotals(
     existingReorderQuantity,
     preservedSourcingCount,
     preservedSourcingQuantity,
+    preservedOperatorCount,
+    preservedOperatorQuantity,
+    unresolvedAutomaticCount,
+    unresolvedAutomaticQuantity,
     newSourcingCount,
     newSourcingQuantity,
-    finalLineCount: existingReorderCount + preservedSourcingCount + newSourcingCount,
-    finalQuantity: existingReorderQuantity + preservedSourcingQuantity + newSourcingQuantity,
+    finalLineCount:
+      existingReorderCount +
+      preservedSourcingCount +
+      preservedOperatorCount +
+      unresolvedAutomaticCount +
+      newSourcingCount,
+    finalQuantity:
+      existingReorderQuantity +
+      preservedSourcingQuantity +
+      preservedOperatorQuantity +
+      unresolvedAutomaticQuantity +
+      newSourcingQuantity,
   };
 }
 
@@ -205,7 +241,7 @@ export function canRecalculateWithPreservedSourcingOnly(
   if (
     !report.replacementDraftId ||
     report.sourcingBudgetPercent <= 0 ||
-    report.preservedReplacementLines.length === 0 ||
+    !report.preservedReplacementLines.some((row) => row.preserveOnRegeneration === true) ||
     report.replacementAudit?.complete !== true ||
     !sourcingPlan ||
     sourcingPlan.targetCycleMonth !== report.targetCycleMonth ||
