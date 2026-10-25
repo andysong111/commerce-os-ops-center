@@ -243,16 +243,17 @@ function recoveryRows(report) {
   return list(report?.results).filter((row) => row?.changed || list(row?.unresolved).length);
 }
 
-function rowSummary(row) {
+export function recoveryRowSummary(row) {
   const changes = list(row?.changedFields).map(text).filter(Boolean);
   const unresolved = list(row?.unresolved).map(text).filter(Boolean);
+  const details = [];
+  if (changes.length) details.push(`보완: ${changes.join(", ")}`);
+  if (unresolved.length) details.push(`남음: ${unresolved.slice(0, 2).join(" · ")}`);
   return {
     modelNumber: text(row?.modelNumber),
     productName: text(row?.productName),
     status: statusLabel(row?.status),
-    detail: changes.length
-      ? `보완: ${changes.join(", ")}`
-      : unresolved.slice(0, 2).join(" · ") || "추가 확인이 필요합니다.",
+    detail: details.join(" · ") || "추가 확인이 필요합니다.",
   };
 }
 
@@ -285,7 +286,7 @@ function renderPreview(dialog, report) {
   const summary = dialog.querySelector('[data-role="summary"]');
   const listElement = dialog.querySelector('[data-role="list"]');
   const applyButton = dialog.querySelector('[data-role="apply"]');
-  const rows = recoveryRows(report).map(rowSummary);
+  const rows = recoveryRows(report).map(recoveryRowSummary);
   const readyCount = readyRecoveryModelNumbers(report).length;
 
   summary.replaceChildren();
