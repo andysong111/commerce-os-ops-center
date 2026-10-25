@@ -21,6 +21,7 @@ import {
   buildManualDraftRevision,
   confirmedPurchaseDraftOperatorAdjustments,
   normalizePurchaseDraftOperatorAdjustments,
+  PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION,
   type PurchaseDraftOperatorAdjustments,
 } from "@/lib/purchaseCycleDraftRegenerationCore";
 
@@ -100,6 +101,9 @@ export async function loadPurchaseDraftOperatorAdjustments(
       )
         ? payload.operatorConfirmedQuantityOverrideBarcodes.map(text)
         : [],
+      quantityOverrideProvenanceVersion: Number(
+        payload.operatorQuantityOverrideProvenanceVersion,
+      ),
       manualAddition: payload.manualAddition === true,
       sourcingConfirmed: payload.sourcingConfirmed === true,
     };
@@ -380,6 +384,8 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         operatorExcludedBarcodes: operatorAdjustments.excludedBarcodes,
         operatorQuantityOverrides: operatorAdjustments.quantityOverrides,
         operatorConfirmedQuantityOverrideBarcodes: confirmedQuantityOverrideBarcodes,
+        operatorQuantityOverrideProvenanceVersion:
+          PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION,
         ...(manuallyAddedBarcodes.has(line.barcode) ? { manualAddition: true } : {}),
         regeneration: true,
         supersedesDraftId: input.expectedDraftId,

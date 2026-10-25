@@ -69,10 +69,12 @@ test("ambiguous legacy quantities return to policy while confirmed manual pins s
       adjustments,
       lineBarcode: "BGG1-1",
       confirmedQuantityOverrideBarcodes: ["BAC1-1"],
+      quantityOverrideProvenanceVersion: 2,
     },
     {
       adjustments,
       lineBarcode: "BAA9-1",
+      quantityOverrideProvenanceVersion: 2,
       manualAddition: true,
     },
   ]);
@@ -83,6 +85,35 @@ test("ambiguous legacy quantities return to policy while confirmed manual pins s
       { barcode: "BAA9-1", targetQuantity: 25 },
       { barcode: "BAC1-1", targetQuantity: 50 },
     ],
+  });
+});
+
+test("contaminated pre-v2 confirmation lists are ignored while manual additions survive", () => {
+  const adjustments = {
+    excludedBarcodes: [],
+    quantityOverrides: [
+      { barcode: "BGG1-1", targetQuantity: 7_910 },
+      { barcode: "BAA9-1", targetQuantity: 25 },
+    ],
+  };
+
+  const confirmed = confirmedPurchaseDraftOperatorAdjustments([
+    {
+      adjustments,
+      lineBarcode: "BGG1-1",
+      confirmedQuantityOverrideBarcodes: ["BGG1-1", "BAA9-1"],
+    },
+    {
+      adjustments,
+      lineBarcode: "BAA9-1",
+      confirmedQuantityOverrideBarcodes: ["BGG1-1", "BAA9-1"],
+      manualAddition: true,
+    },
+  ]);
+
+  assert.deepEqual(confirmed, {
+    excludedBarcodes: [],
+    quantityOverrides: [{ barcode: "BAA9-1", targetQuantity: 25 }],
   });
 });
 
