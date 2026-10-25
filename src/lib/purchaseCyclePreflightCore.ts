@@ -1071,45 +1071,41 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
             refreshedAutomaticQuantity,
         };
       });
-    if (startNewRun) {
-      const retainedBarcodes = new Set([
-        ...selectedByBarcode.keys(),
-        ...retainedReplacementLines.map((line) => line.barcode),
-      ]);
-      const freshInputPendingLines = rows
-        .filter((row) =>
-          !retainedBarcodes.has(row.barcode) &&
-          !operatorExcludedSet.has(row.barcode) &&
-          isCurrentOperatorInputRecommendation(
-            row,
-            exclusionReasonsByBarcode.get(row.barcode) ?? [],
-          )
+    const retainedBarcodes = new Set([
+      ...selectedByBarcode.keys(),
+      ...retainedReplacementLines.map((line) => line.barcode),
+    ]);
+    const freshInputPendingLines = rows
+      .filter((row) =>
+        !retainedBarcodes.has(row.barcode) &&
+        !operatorExcludedSet.has(row.barcode) &&
+        isCurrentOperatorInputRecommendation(
+          row,
+          exclusionReasonsByBarcode.get(row.barcode) ?? [],
         )
-        .sort((left, right) =>
-          comparePurchaseStrategyPriority(left, right) ||
-          left.barcode.localeCompare(right.barcode)
-        )
-        .slice(
+      )
+      .sort((left, right) =>
+        comparePurchaseStrategyPriority(left, right) ||
+        left.barcode.localeCompare(right.barcode)
+      )
+      .slice(
+        0,
+        Math.max(
           0,
-          Math.max(
-            0,
-            PURCHASE_INPUT_PENDING_LINE_LIMIT -
-              selected.length -
-              retainedReplacementLines.length,
-          ),
-        )
-        .map((row) => ({
-          barcode: row.barcode,
-          name: row.name,
-          quantity: normalizePurchaseOrderQuantity(row.recommendedQty),
-        }));
-      preservedReplacementLines = [
-        ...retainedReplacementLines,
-        ...freshInputPendingLines,
-      ];
-    } else {
-      preservedReplacementLines = retainedReplacementLines;
-    }
+          PURCHASE_INPUT_PENDING_LINE_LIMIT -
+            selected.length -
+            retainedReplacementLines.length,
+        ),
+      )
+      .map((row) => ({
+        barcode: row.barcode,
+        name: row.name,
+        quantity: normalizePurchaseOrderQuantity(row.recommendedQty),
+      }));
+    preservedReplacementLines = [
+      ...retainedReplacementLines,
+      ...freshInputPendingLines,
+    ];
     if (operatorPinnedPreservedBarcodes.size > 0) {
       reviewBlockers.push("OPERATOR_PINNED_EXISTING_COST_REVIEW_REQUIRED");
     }
