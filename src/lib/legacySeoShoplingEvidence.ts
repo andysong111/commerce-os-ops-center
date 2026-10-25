@@ -562,16 +562,18 @@ function optionGroupsFromRows(
 export async function loadLegacySeoShoplingEvidence(
   modelNumbers: string[],
   goodsKeyOverrides?: LegacySeoGoodsKeyOverrides,
+  options: { discoverMissingModels?: boolean } = {},
 ): Promise<Map<string, LegacySeoShoplingEvidence>> {
   const requestedModels = unique(modelNumbers.map(normalizeModel), 250);
   if (!requestedModels.length) return new Map();
 
   const config = shoplingReadConfigFromEnv(shoplingEnvironment());
+  const discoverMissingModels = options.discoverMissingModels !== false;
   let mapping = mergeGoodsKeyOverrides(new Map(), goodsKeyOverrides);
   const hasCompleteOverrideMapping = requestedModels.every(
     (model) => (mapping.get(model)?.size ?? 0) > 0,
   );
-  if (!hasCompleteOverrideMapping) {
+  if (discoverMissingModels && !hasCompleteOverrideMapping) {
     const snapshot = await loadProductPlanningSnapshot();
     mapping = mergeGoodsKeyOverrides(
       goodsKeysByModelFromPlanning(snapshot),
@@ -579,11 +581,13 @@ export async function loadLegacySeoShoplingEvidence(
     );
   }
 
-  const initialDiscoveryModels = requestedModels.filter(
-    (model) =>
-      isConfirmedLegacyInventoryModel(model) &&
-      (mapping.get(model)?.size ?? 0) === 0,
-  );
+  const initialDiscoveryModels = discoverMissingModels
+    ? requestedModels.filter(
+        (model) =>
+          isConfirmedLegacyInventoryModel(model) &&
+          (mapping.get(model)?.size ?? 0) === 0,
+      )
+    : [];
   if (initialDiscoveryModels.length) {
     const discovered = await discoverGoodsKeysByModel(config, initialDiscoveryModels);
     mergeDiscoveredGoodsKeys(mapping, discovered);
@@ -605,11 +609,13 @@ export async function loadLegacySeoShoplingEvidence(
   // a mapping already exists. This is the AAA116 class of failure: 49 historical
   // goods keys existed, so the old code never ran model discovery and preserved an
   // empty option list forever.
-  const staleMappedModels = requestedModels.filter(
-    (model) =>
-      isConfirmedLegacyInventoryModel(model) &&
-      !hasActiveManagedOption(model, mapping, rowsByGoodsKey),
-  );
+  const staleMappedModels = discoverMissingModels
+    ? requestedModels.filter(
+        (model) =>
+          isConfirmedLegacyInventoryModel(model) &&
+          !hasActiveManagedOption(model, mapping, rowsByGoodsKey),
+      )
+    : [];
   if (staleMappedModels.length) {
     const discovered = await discoverGoodsKeysByModel(config, staleMappedModels);
     const alreadyFetched = new Set(initialGoodsKeys);

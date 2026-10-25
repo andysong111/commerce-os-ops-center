@@ -363,6 +363,7 @@ test("recovery API requires a matching preview hash and delegates an atomic bulk
   assert.match(route, /loadLegacySeoInventoryCatalog\(recoveryModels\)/);
   assert.match(route, /runRecoveryStage\("inventory-catalog"/);
   assert.match(route, /runRecoveryStage\("shopling-evidence"/);
+  assert.match(route, /\{ discoverMissingModels: false \}/);
 });
 
 test("legacy option sync keeps Product Master reads inside the requested models", async () => {
@@ -380,6 +381,6 @@ test("Shopling evidence skips the full planning snapshot when exact goods keys e
     "utf8",
   );
   assert.match(source, /hasCompleteOverrideMapping/);
-  assert.match(source, /if \(!hasCompleteOverrideMapping\)/);
+  assert.match(source, /if \(discoverMissingModels && !hasCompleteOverrideMapping\)/);
   assert.match(source, /await loadProductPlanningSnapshot\(\)/);
 });

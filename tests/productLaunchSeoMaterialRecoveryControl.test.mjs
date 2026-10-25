@@ -6,6 +6,7 @@ import {
   failedRecoveryBatchReport,
   readyRecoveryModelNumbers,
   recoveryModelStatus,
+  recoveryRowSummary,
 } from "../public/product-launch-tracker-app/seo-material-recovery-control.js";
 
 test("확실한 자료 반영은 복구 후 준비완료 모델만 선택한다", () => {
@@ -49,6 +50,21 @@ test("자료원 한 묶음이 실패해도 성공한 SEO 복구 결과를 보존
   assert.equal(report.failedBatchCount, 1);
   assert.equal(report.results[1].modelNumber, "AAA220");
   assert.match(report.results[1].unresolved[0], /자료원 조회 실패/);
+});
+
+test("일부 복구 행은 채운 값과 아직 부족한 값을 함께 보여준다", () => {
+  const row = recoveryRowSummary({
+    modelNumber: "AAA452",
+    productName: "반자동 책갈피 3P 색상랜덤",
+    status: "partially_recovered",
+    changedFields: ["orderOptions"],
+    unresolved: ["상세페이지 HTML이 없습니다.", "기준 판매가가 없습니다."],
+  });
+
+  assert.equal(
+    row.detail,
+    "보완: orderOptions · 남음: 상세페이지 HTML이 없습니다. · 기준 판매가가 없습니다.",
+  );
 });
 
 test("상품출시 화면은 SEO 재료를 상품별로 다시 검사한 뒤 반영한다", async () => {
