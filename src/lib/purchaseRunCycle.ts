@@ -92,21 +92,22 @@ function previousBoundaryBefore(
       start: startDate(draft),
       executed: draft.orderedQuantity > 0 || draft.receivedQuantity > 0,
     }))
-    .filter((row) => row.start && row.start < currentStartDate)
-    .sort((left, right) =>
-      right.start.localeCompare(left.start) ||
-      Number(right.executed) - Number(left.executed),
-    );
+    // A saved or abandoned Draft did not replenish stock. Advancing the sales
+    // boundary to that Draft would silently discard demand that was never
+    // ordered. Only an actually ordered/received run can close the interval.
+    .filter((row) => row.executed && row.start && row.start < currentStartDate)
+    .sort((left, right) => right.start.localeCompare(left.start));
   return older[0]?.start || "";
 }
 
 /**
  * Determines the immutable sales/budget interval for an operator-started
  * purchase run. Recalculating a Draft keeps its original boundary. A new run
- * starts from the prior run's calculation start date. Receipt confirmation is
- * deliberately not a boundary because sales made while goods are in transit
- * must remain inside the next calculation interval. A 30-day bootstrap is used
- * only when the ledger has no older purchase run.
+ * starts from the prior executed run's calculation start date; an unexecuted
+ * Draft never closes a demand interval. Receipt confirmation is deliberately
+ * not a boundary because sales made while goods are in transit must remain
+ * inside the next calculation interval. A 30-day bootstrap is used only when
+ * the ledger has no older executed purchase run.
  */
 export function inferPurchaseRunCycleBasis(input: {
   targetDate: unknown;

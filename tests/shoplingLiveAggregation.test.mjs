@@ -299,6 +299,35 @@ test("order aggregation maps option IDs, expands set quantities and counts one s
   assert.equal(chunk.references.length, 1);
 });
 
+test("sold-out listings keep historical demand mapping and zero-revenue rows still count units", () => {
+  const soldOutPlanning = planning();
+  soldOutPlanning.products[0].listings[0].active = false;
+
+  const chunk = aggregateShoplingOrderChunk(
+    [
+      {
+        ord_no: "SOLD-OUT-ORDER",
+        mall_ord_seq: "1",
+        opt_id: "O1",
+        mall_ord_dt: "20260805100000",
+        ord_status: "배송완료",
+        mall_ord_cnt: "100",
+        mall_unit_price: "0",
+        mall_pay_amt: "0",
+      },
+    ],
+    soldOutPlanning,
+    AS_OF,
+    { start: "2026-08-05", end: "2026-08-05" },
+  );
+
+  assert.equal(chunk.acceptedRows, 1);
+  assert.equal(chunk.unmappedRows, 0);
+  assert.equal(chunk.products[0].barcode, "BAA1-1");
+  assert.equal(chunk.products[0].units[0], 200);
+  assert.equal(chunk.products[0].revenue[0], 0);
+});
+
 test("claim aggregation restores barcode from order references and applies set quantity severity", () => {
   const orderChunk = aggregateShoplingOrderChunk(
     [
