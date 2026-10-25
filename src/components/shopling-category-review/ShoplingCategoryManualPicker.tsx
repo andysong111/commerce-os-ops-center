@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { computeShoplingCategoryAccuracyMetrics } from "@/lib/shoplingCategoryLearning";
-import { applyShoplingCategoryReviewDecisions } from "@/lib/shoplingCategoryReview";
 
 const STATE_ENDPOINT = "/api/product-launch-tracker/state";
+const OPTIMIZED_ENDPOINT = "/api/product-launch-tracker/optimized";
 const CATALOG_ENDPOINT = "/api/shopling-categories/catalog";
 const TRACKER_STORAGE_KEY = "commerce-os-product-launch-tracker:v2";
 const MANUAL_DRAFTS_STORAGE_KEY =
@@ -531,12 +531,11 @@ export function ShoplingCategoryManualPicker() {
       if (!current || !isReviewItem(current)) {
         throw new Error("이 상품은 이미 다른 곳에서 처리되었거나 검토 대상이 아닙니다.");
       }
-      const result = applyShoplingCategoryReviewDecisions(
+      await persistManualCategoryApprovals(
         latest,
-        [{ itemId, action: "approve", category: canonical }],
-        { reviewer: "AI 카테고리 검토함 · 상품별 수동 지정" },
+        [{ itemId, category: canonical }],
+        "AI 카테고리 검토함 · 상품별 수동 지정",
       );
-      await persistState(result.state as TrackerState);
       clearDraft(itemId);
       setNotice(
         `${reviewLabel(item)} · 개별 승인했습니다. 다른 상품의 수동 선택값은 유지됩니다.`,
@@ -596,10 +595,11 @@ export function ShoplingCategoryManualPicker() {
         );
       }
 
-      const result = applyShoplingCategoryReviewDecisions(latest, decisions, {
-        reviewer: "AI 카테고리 검토함 · 수동 선택 일괄 승인",
-      });
-      await persistState(result.state as TrackerState);
+      await persistManualCategoryApprovals(
+        latest,
+        decisions,
+        "AI 카테고리 검토함 · 수동 선택 일괄 승인",
+      );
 
       const approvedIds = new Set(decisions.map((decision) => decision.itemId));
       const nextDrafts = Object.fromEntries(
@@ -624,20 +624,55 @@ export function ShoplingCategoryManualPicker() {
     }
   }
 
-  async function persistState(next: TrackerState) {
-    const response = await fetch(STATE_ENDPOINT, {
-      method: "PUT",
+  async function persistManualCategoryApprovals(
+    latest: TrackerState,
+    decisions: Array<{ itemId: string; category: string }>,
+    reviewer: string,
+  ) {
+    const latestById = new Map(
+      latest.items.map((item) => [text(item.id), item] as const),
+    );
+    const reviewedAt = new Date().toISOString();
+    const patches = decisions.map((decision) => {
+      const current = latestById.get(decision.itemId);
+      if (!current) throw new Error("승인할 상품의 최신 상태를 찾지 못했습니다.");
+      const suggestion = text(current.categoryAiSuggestion);
+      return {
+        itemId: decision.itemId,
+        expectedUpdatedAt: text(current.updatedAt),
+        updatedBy: reviewer,
+        patch: {
+          shoplingCategory: decision.category,
+          categoryAiApprovedValue: decision.category,
+          categoryAiStatus: "review_approved",
+          categoryAiDecision:
+            suggestion && suggestion === decision.category ? "suggestion" : "edited",
+          categoryAiReviewedAt: reviewedAt,
+          categoryAiReviewedBy: reviewer,
+        },
+      };
+    });
+
+    const response = await fetch(OPTIMIZED_ENDPOINT, {
+      method: "PATCH",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
       },
       credentials: "same-origin",
-      body: JSON.stringify({ state: next }),
+      body: JSON.stringify({
+        operation: "bulk_patch_items",
+        patches,
+        updatedBy: reviewer,
+      }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || body?.ok !== true) {
       throw new Error(body?.message || "카테고리 결과를 저장하지 못했습니다.");
     }
+
+    const next = await readServerState();
+    if (!next) throw new Error("저장된 최신 진행관리 데이터를 확인하지 못했습니다.");
     setState(next);
     window.localStorage.setItem(TRACKER_STORAGE_KEY, JSON.stringify(next));
   }

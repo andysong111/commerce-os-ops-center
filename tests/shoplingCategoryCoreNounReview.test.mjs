@@ -324,7 +324,14 @@ test("상품별 수동 경로는 먼저 임시 보존하고 선택한 경로를 
   assert.match(picker, /수동 선택 \{manualSelections\.length\}건/);
   assert.match(picker, /수동 선택 일괄 승인/);
   assert.match(picker, /AI 카테고리 검토함 · 수동 선택 일괄 승인/);
-  assert.match(picker, /applyShoplingCategoryReviewDecisions\(latest, decisions/);
+  assert.match(picker, /OPTIMIZED_ENDPOINT = "\/api\/product-launch-tracker\/optimized"/);
+  assert.match(picker, /persistManualCategoryApprovals/);
+  assert.match(picker, /operation: "bulk_patch_items"/);
+  assert.match(picker, /expectedUpdatedAt: text\(current\.updatedAt\)/);
+  assert.match(picker, /categoryAiStatus: "review_approved"/);
+  assert.match(picker, /const next = await readServerState\(\)/);
+  assert.doesNotMatch(picker, /method: "PUT"/);
+  assert.doesNotMatch(picker, /JSON\.stringify\(\{ state: next \}\)/);
   assert.match(picker, /최신 진행관리 상태와 실제 카탈로그 경로를 다시 확인/);
   assert.match(picker, /다른 상품의 수동 선택값은 유지됩니다/);
   assert.doesNotMatch(picker, /window\.location\.reload/);
