@@ -380,7 +380,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         ? `${barcode} 수량을 5개 단위로 입력하세요. 입력 범위는 5~9,995개입니다.`
         : targetQuantity === baseline
         ? `${barcode} 수량 변경을 취소했습니다.`
-        : `${barcode} ${targetQuantity.toLocaleString("ko-KR")}개를 재계산 대기에 넣었습니다. 아직 기존 Draft는 바뀌지 않았습니다.`,
+        : `${barcode} ${targetQuantity.toLocaleString("ko-KR")}개를 재계산 대기에 넣었습니다. 표 상단의 파란 재계산 버튼을 누르기 전까지 기존 Draft는 바뀌지 않습니다.`,
     );
   }
 
@@ -613,6 +613,14 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     releasedQuantityOverrideBarcodes.length > 0 ||
     stockBandUpdates.length > 0 ||
     stagedAdditions.length > 0;
+  const recalculationDisabled =
+    draft.status !== "DRAFT" ||
+    !hasPendingRecalculation ||
+    invalidQuantityBarcodes.length > 0 ||
+    regenerating;
+  const recalculationButtonLabel = regenerating
+    ? "재고 저장·발주안 재계산 중..."
+    : "변경사항 저장 후 발주안 재계산";
 
   function stageStockBand(barcode: string, stockBand: InventoryStockBand) {
     setStagedStockBands((current) => {
@@ -621,7 +629,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       else next[barcode] = stockBand;
       return next;
     });
-    setNotice(`${barcode} 대략 재고를 '${STOCK_BANDS.find((row) => row.value === stockBand)?.label}'으로 선택했습니다. 아래 재계산 버튼을 누르면 저장과 발주안 재계산을 한 번에 처리합니다.`);
+    setNotice(`${barcode} 대략 재고를 '${STOCK_BANDS.find((row) => row.value === stockBand)?.label}'으로 선택했습니다. 표 상단의 파란 재계산 버튼을 누르면 저장과 발주안 재계산을 한 번에 처리합니다.`);
   }
 
   function toggleSelectedBarcode(barcode: string, checked: boolean) {
@@ -930,6 +938,34 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <button type="button" onClick={autoGroupSameSupplierLinks} disabled={draft.status !== "DRAFT"} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">같은 1688 링크 자동 합배송</button>
             <span className="text-[11px] font-semibold text-slate-500">선택한 열까지 왼쪽에 고정됩니다. 합배송은 그룹 첫 행의 총운임 1회 입력으로 수량 비율 배분합니다.</span>
           </div>
+          <div
+            data-persistent-recalculation-action
+            aria-live="polite"
+            className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}
+          >
+            <div className="min-w-0 text-xs leading-5">
+              <strong className={hasPendingRecalculation ? "text-blue-950" : "text-slate-700"}>
+                {hasPendingRecalculation ? "변경사항 재계산 대기" : "재고·수량 변경 후 여기서 재계산"}
+              </strong>
+              <span className="ml-2 font-bold text-slate-600">
+                대략 재고 {stockBandUpdates.length}종 · 수량 {changedQuantityRows.length}종 · 제외 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종
+              </span>
+              {invalidQuantityBarcodes.length > 0 ? (
+                <span className="ml-2 font-black text-rose-700">수량을 다시 입력: {invalidQuantityBarcodes.join(" · ")}</span>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={recalculateDraft}
+              disabled={recalculationDisabled}
+              aria-busy={regenerating}
+              aria-label="표 상단 고정 발주안 재계산"
+              title="재고상태 저장 후 발주안 재계산"
+              className="min-h-10 shrink-0 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+            >
+              {recalculationButtonLabel}
+            </button>
+          </div>
         </div>
 
         <div ref={tableScrollRef} className="overflow-x-auto overscroll-x-contain">
@@ -1039,7 +1075,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <button type="button" onClick={releaseSelectedQuantityOverrides} disabled={draft.status !== "DRAFT" || selectedQuantityOverrideCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40">선택 수량 고정 해제 ({selectedQuantityOverrideCandidates.length}종)</button>
             <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">선택 해제</button>
             <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">대기 변경 취소</button>
-            <button type="button" onClick={recalculateDraft} disabled={draft.status !== "DRAFT" || !hasPendingRecalculation || invalidQuantityBarcodes.length > 0 || regenerating} aria-busy={regenerating} aria-label="변경사항 모아 발주안 재계산" title="재고상태 저장 후 발주안 재계산" className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{regenerating ? "재고 저장·발주안 재계산 중..." : "변경사항 저장 후 발주안 재계산"}</button>
+            <button type="button" onClick={recalculateDraft} disabled={recalculationDisabled} aria-busy={regenerating} aria-label="변경사항 모아 발주안 재계산" data-action-label="변경사항 저장 후 발주안 재계산" title="재고상태 저장 후 발주안 재계산" className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{recalculationButtonLabel}</button>
           </div>
         </div>
       </section>

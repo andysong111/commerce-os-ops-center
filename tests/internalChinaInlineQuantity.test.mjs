@@ -44,6 +44,20 @@ test("native quantity changes remain local until the single recalculation action
   assert.doesNotMatch(workspace, /fetch\([\s\S]{0,120}\/quantity`/);
   assert.doesNotMatch(workspace, /window\.location\.reload/);
 
+  const persistentAction = workspace.indexOf("data-persistent-recalculation-action");
+  const orderRows = workspace.indexOf("<div ref={tableScrollRef}");
+  assert.ok(
+    persistentAction >= 0,
+    "the recalculation action must be present in the sticky table toolbar",
+  );
+  assert.ok(
+    persistentAction < orderRows,
+    "the recalculation action must render before the long order-row table",
+  );
+  assert.match(workspace, /aria-label="표 상단 고정 발주안 재계산"/);
+  assert.match(workspace, /recalculationDisabled/);
+  assert.match(workspace, /recalculationButtonLabel/);
+
   const postRoute = quantityRoute.slice(
     quantityRoute.indexOf("export async function POST"),
   );

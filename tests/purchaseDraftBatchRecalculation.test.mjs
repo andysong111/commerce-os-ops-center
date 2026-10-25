@@ -100,7 +100,7 @@ test("excluded products cannot also be fixed as quantity additions", () => {
   assert.deepEqual(url.searchParams.getAll("qty"), ["BAE5-1:15"]);
 });
 
-test("draft editor exposes one final calculation action and stages additions without writing", async () => {
+test("draft editor exposes persistent and final calculation actions and stages additions without writing", async () => {
   const workspace = await readFile(
     "src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx",
     "utf8",
@@ -144,6 +144,7 @@ test("draft editor exposes one final calculation action and stages additions wit
   assert.match(addition, /step=\{5\}/);
   assert.match(workspace, /stagedAdditions\.map\(\(row\) => \[row\.barcode, row\.targetQuantity\]\)/);
   assert.match(workspace, /사용자 고정수량의 예산을 먼저 확보/);
+  assert.match(workspace, /data-persistent-recalculation-action/);
   assert.match(workspace, /\{manualAddPanel\}[\s\S]*변경사항 저장 후 발주안 재계산/);
 });
 
