@@ -337,7 +337,11 @@ async function readOperations(
 }
 
 async function loadRecentStoredPlanningSnapshot() {
-  const rows = await readOperations(PRODUCT_DECISION_LIVE_REQUEST, undefined, 10);
+  // A request row freezes the full planning snapshot. Reading several historical
+  // rows multiplies that large JSON payload and can exhaust the purchase-run
+  // request budget before the refresh even starts. The latest valid request is
+  // the only fallback we need.
+  const rows = await readOperations(PRODUCT_DECISION_LIVE_REQUEST, undefined, 1);
   return selectRecentStoredPlanningSnapshot<ProductPlanningSnapshot["products"][number]>(rows, {
     maxAgeMs: PRODUCT_MASTER_STORED_FALLBACK_MAX_AGE_MS,
   });
@@ -499,7 +503,10 @@ export async function ensurePurchaseRunDemandRefreshRequest(options: {
 }
 
 async function latestRequest() {
-  const requests = await readOperations(PRODUCT_DECISION_LIVE_REQUEST, undefined, 20);
+  // Each request contains the frozen planning snapshot. Limit this status read
+  // to the newest row so reopening/resuming a purchase run does not download a
+  // growing history of multi-megabyte snapshots.
+  const requests = await readOperations(PRODUCT_DECISION_LIVE_REQUEST, undefined, 1);
   for (const row of requests) {
     const request = requestFromRow(row);
     if (request) return request;

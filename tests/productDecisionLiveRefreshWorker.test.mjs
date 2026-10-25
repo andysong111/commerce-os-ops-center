@@ -89,6 +89,21 @@ test("planning snapshot uses one bounded live read, a recent verified fallback, 
   assert.match(workflow, /storeTerminalFailure\(request, planningStageKey/);
 });
 
+test("purchase-run status reads only the newest frozen planning snapshot", () => {
+  assert.match(
+    workflow,
+    /loadRecentStoredPlanningSnapshot\(\)[\s\S]*?readOperations\(PRODUCT_DECISION_LIVE_REQUEST, undefined, 1\)/,
+  );
+  assert.match(
+    workflow,
+    /latestRequest\(\)[\s\S]*?readOperations\(PRODUCT_DECISION_LIVE_REQUEST, undefined, 1\)/,
+  );
+  assert.doesNotMatch(
+    workflow,
+    /readOperations\(PRODUCT_DECISION_LIVE_REQUEST, undefined, (?:10|20)\)/,
+  );
+});
+
 test("each Shopling chunk performs one bounded HTTP attempt and worker retries are the only retry layer", () => {
   assert.match(
     shoplingClient,
