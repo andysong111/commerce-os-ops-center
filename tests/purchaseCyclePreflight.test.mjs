@@ -1403,6 +1403,132 @@ test("replacement keeps a current cost-capture recommendation without a stale-li
   assert.equal(report.replacementAudit.complete, true);
 });
 
+test("replacement keeps a current stock-band and cost-input recommendation without a stale-line review blocker", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "대략 재고와 원가 입력 대기 상품",
+    recommendedQty: 10,
+    originalRecommendedQty: 10,
+    expectedCost: 0,
+    inventoryMode: "REVIEW",
+    inventoryVerified: false,
+    executionInventoryEligible: false,
+    inventoryCalculationUsable: false,
+    inventoryRequiresReview: true,
+    initialZeroUnverified: true,
+    advisoryOnly: true,
+    inventoryQuantity: 0,
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptAt: null,
+    latestConfirmedReceiptCostKrw: 0,
+    purchaseCostEvidenceCount: 0,
+    hasVerifiedPurchaseCost: false,
+    verifiedPurchaseCostReady: false,
+    purchaseCostTrustSource: "NONE",
+    verifiedPurchaseUnitCostKrw: 0,
+    verifiedPurchaseCostAt: null,
+    purchaseProtectedCostKrw: 0,
+    protectedCostKrw: 0,
+    action: "COST_CONFIRMATION_REQUIRED",
+    operationallyReady: false,
+  });
+  input.priority.managedActiveSkuCount = input.priority.rows.length;
+  input.priority.omissionBlockingCount = 0;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "최신 추천 유지", quantity: 5 },
+      { barcode: "BAA2-1", name: "입력 전 기존 자동추천", quantity: 5 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(
+    report.excluded.find((row) => row.barcode === "BAA2-1")?.reasons,
+    ["CONFIRMED_COST_REQUIRED", "VERIFIED_INVENTORY_REQUIRED", "ROW_EXECUTION_BLOCKED"],
+  );
+  assert.deepEqual(
+    report.preservedReplacementLines.map((row) => [row.barcode, row.quantity]),
+    [["BAA2-1", 10]],
+  );
+  assert.ok(!report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
+  assert.deepEqual(report.replacementAudit.quantityChanged, [{
+    barcode: "BAA2-1",
+    name: "입력 전 기존 자동추천",
+    previousQuantity: 5,
+    selectedQuantity: 10,
+  }]);
+  assert.equal(report.replacementAudit.complete, true);
+});
+
+test("replacement does not exempt a current input-pending line from a hard quantity limit", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.options.maxUnitsPerSku = 8;
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "수량 상한 초과 상품",
+    recommendedQty: 10,
+    originalRecommendedQty: 10,
+    expectedCost: 0,
+    inventoryMode: "REVIEW",
+    inventoryVerified: false,
+    executionInventoryEligible: false,
+    inventoryCalculationUsable: false,
+    inventoryRequiresReview: true,
+    initialZeroUnverified: true,
+    advisoryOnly: true,
+    inventoryQuantity: 0,
+    hasConfirmedReceiptCost: false,
+    latestConfirmedReceiptAt: null,
+    latestConfirmedReceiptCostKrw: 0,
+    purchaseCostEvidenceCount: 0,
+    hasVerifiedPurchaseCost: false,
+    verifiedPurchaseCostReady: false,
+    purchaseCostTrustSource: "NONE",
+    verifiedPurchaseUnitCostKrw: 0,
+    verifiedPurchaseCostAt: null,
+    purchaseProtectedCostKrw: 0,
+    protectedCostKrw: 0,
+    action: "COST_CONFIRMATION_REQUIRED",
+    operationallyReady: false,
+  });
+  input.priority.managedActiveSkuCount = input.priority.rows.length;
+  input.priority.omissionBlockingCount = 0;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "최신 추천 유지", quantity: 5 },
+      { barcode: "BAA2-1", name: "수량 상한 초과 기존 자동추천", quantity: 5 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.ok(
+    report.excluded.find((row) => row.barcode === "BAA2-1")?.reasons.includes("CANARY_QUANTITY_LIMIT"),
+  );
+  assert.deepEqual(
+    report.preservedReplacementLines.map((row) => [row.barcode, row.quantity]),
+    [["BAA2-1", 5]],
+  );
+  assert.ok(report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
+  assert.deepEqual(report.replacementAudit.quantityChanged, []);
+});
+
 test("replacement records the specific verified-stock reason when inventory covers positive demand", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
