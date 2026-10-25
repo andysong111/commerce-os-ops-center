@@ -52,6 +52,7 @@ const MAX_DISCOVERY_WINDOWS = 28;
 const MIN_DISCOVERY_WINDOW_DAYS = 7;
 const MAX_DISCOVERY_REQUESTS = 80;
 const DISCOVERY_TIMEOUT_MS = 25_000;
+const EXACT_REQUEST_TIMEOUT_MS = 20_000;
 const MAX_EXACT_REQUEST_ATTEMPTS = 3;
 const EXACT_RETRY_DELAY_MS = 500;
 
@@ -217,7 +218,7 @@ function shoplingEnvironment() {
 async function postProductGather(
   config: ShoplingReadConfig,
   xml: string,
-  timeoutMs = 45_000,
+  timeoutMs: number,
 ) {
   const response = await postShoplingXml(config.productsUrl, xml, {
     headers: {
@@ -247,6 +248,7 @@ async function fetchExactShoplingProducts(
         rows = await postProductGather(
           config,
           buildLegacyShoplingProductLookupXml(config, chunk),
+          EXACT_REQUEST_TIMEOUT_MS,
         );
         break;
       } catch (error) {
