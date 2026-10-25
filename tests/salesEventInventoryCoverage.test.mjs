@@ -81,7 +81,7 @@ function fixture(state = "READY_CANARY", options = {}) {
       assert.equal(new URL(url).hostname, "master.invalid");
       return state === "STORAGE_NOT_READY"
         ? Response.json({ error: "SKU_SALES_EVENTS_STORAGE_NOT_READY" }, { status: 503 })
-        : Response.json({ ok: true });
+        : Response.json({ ok: true, storageReady: true, writesEnabled: false });
     },
   };
   const policy = load("src/lib/salesEventRefreshPolicy.ts");

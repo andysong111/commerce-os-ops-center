@@ -120,7 +120,8 @@ test("real creator appends a fresh pinned request, preserves history, and reject
       assert.equal(batch[0].operation_type, "PRODUCT_MASTER_SHOPLING_SALES_EVENT_REQUEST");
       writes.push(batch[0]); rows.push(batch[0]); return Response.json([{ id: randomUUID() }]);
     }
-    assert.equal(new URL(url).hostname, "master.invalid"); return Response.json({ ok: true });
+    assert.equal(new URL(url).hostname, "master.invalid");
+    return Response.json({ ok: true, storageReady: true, writesEnabled: false });
   };
   const admin = memoryAdmin(rows), guard = await guardFor(admin);
   const salesEventModule = await load("src/lib/productMasterShoplingSalesEventSync.ts", {
