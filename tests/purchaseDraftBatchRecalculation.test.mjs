@@ -4,7 +4,10 @@ import test from "node:test";
 const { buildPurchaseDraftBatchRecalculationHref } = await import(
   new URL("../src/lib/purchaseDraftBatchRecalculation.ts", import.meta.url)
 );
-const { mergePurchaseDraftOperatorAdjustments } = await import(
+const {
+  confirmedPurchaseDraftOperatorAdjustments,
+  mergePurchaseDraftOperatorAdjustments,
+} = await import(
   new URL("../src/lib/purchaseCycleDraftRegenerationCore.ts", import.meta.url)
 );
 
@@ -51,21 +54,36 @@ test("draft recalculation can replace the full pinned quantity set", () => {
   });
 });
 
-test("legacy commitment quantity pins stay visible even when already baked into the Draft quantity", () => {
-  const persisted = {
-    excludedBarcodes: [],
-    quantityOverrides: [{ barcode: "BGG1-1", targetQuantity: 3_000 }],
+test("ambiguous legacy quantities return to policy while confirmed manual pins survive", () => {
+  const adjustments = {
+    excludedBarcodes: ["BAF3-1"],
+    quantityOverrides: [
+      { barcode: "BGG1-1", targetQuantity: 7_910 },
+      { barcode: "BAC1-1", targetQuantity: 50 },
+      { barcode: "BAA9-1", targetQuantity: 25 },
+    ],
   };
-  const displayedQuantityOverrides = [];
 
-  const merged = mergePurchaseDraftOperatorAdjustments(
-    persisted,
-    { excludedBarcodes: [], quantityOverrides: displayedQuantityOverrides },
-  );
-
-  assert.deepEqual(merged.quantityOverrides, [
-    { barcode: "BGG1-1", targetQuantity: 3_000 },
+  const confirmed = confirmedPurchaseDraftOperatorAdjustments([
+    {
+      adjustments,
+      lineBarcode: "BGG1-1",
+      confirmedQuantityOverrideBarcodes: ["BAC1-1"],
+    },
+    {
+      adjustments,
+      lineBarcode: "BAA9-1",
+      manualAddition: true,
+    },
   ]);
+
+  assert.deepEqual(confirmed, {
+    excludedBarcodes: ["BAF3-1"],
+    quantityOverrides: [
+      { barcode: "BAA9-1", targetQuantity: 25 },
+      { barcode: "BAC1-1", targetQuantity: 50 },
+    ],
+  });
 });
 
 test("batch recalculation carries quantity edits, exclusions, and additions in one request", () => {
@@ -193,8 +211,9 @@ test("draft page loads legacy commitment pins before rendering the release contr
     "utf8",
   );
   assert.match(page, /loadPurchaseDraftOperatorAdjustments\(draftId\)/);
-  assert.match(page, /mergePurchaseDraftOperatorAdjustments\(/);
   assert.match(page, /persistedAdjustments/);
+  assert.match(page, /initialQuantityOverrides = persistedAdjustments\.quantityOverrides/);
+  assert.doesNotMatch(page, /displayedQuantityOverrides/);
   assert.match(page, /initialQuantityOverrides=\{initialQuantityOverrides\}/);
 });
 

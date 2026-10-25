@@ -83,7 +83,8 @@ export function purchaseReplacementDraftSnapshotLines(
     [...predecessorRows, ...activeRows].map((row) => [row.barcode, row] as const),
   );
   for (const row of activeRows) {
-    if (object(row.latestPayload).sourcingConfirmed === true) {
+    const payload = object(row.latestPayload);
+    if (payload.sourcingConfirmed === true || payload.manualAddition === true) {
       sourceByBarcode.set(row.barcode, row);
     }
   }
@@ -101,7 +102,8 @@ export function purchaseReplacementDraftSnapshotLines(
       barcode,
       quantity,
       name: text(payload.productName),
-      preserveOnRegeneration: payload.sourcingConfirmed === true,
+      preserveOnRegeneration:
+        payload.sourcingConfirmed === true || payload.manualAddition === true,
       recoveredFromPredecessor: predecessorBarcodes.has(barcode),
     };
   });

@@ -315,6 +315,9 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
         operatorNote: line.note,
         operatorExcludedBarcodes,
         operatorQuantityOverrides,
+        operatorConfirmedQuantityOverrideBarcodes: operatorQuantityOverrides.map(
+          (row) => row.barcode,
+        ),
         externalOrderExecuted: false,
       },
     });
