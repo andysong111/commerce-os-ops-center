@@ -262,6 +262,30 @@ function verifiedAutomaticRemovalReason(
   return null;
 }
 
+const COST_CAPTURE_PENDING_REASONS = new Set([
+  "CONFIRMED_COST_REQUIRED",
+  "WHOLESALE_COST_ESTIMATE_UNAVAILABLE",
+  "NO_ACTIVE_WHOLESALE_LISTING",
+  "WHOLESALE_LISTING_PRICE_UNRESOLVED",
+  "ACTIVE_WHOLESALE_PRICE_UNAVAILABLE",
+]);
+
+function isCurrentCostCaptureRecommendation(
+  row: InventoryVerificationPriorityRow | undefined,
+  exclusionReasons: string[],
+) {
+  return Boolean(
+    row?.purchaseStatus === "발주 추천" &&
+      positive(row.recommendedQty) &&
+      exclusionReasons.some((reason) => COST_CAPTURE_PENDING_REASONS.has(reason)) &&
+      exclusionReasons.every(
+        (reason) =>
+          COST_CAPTURE_PENDING_REASONS.has(reason) ||
+          reason === "ROW_EXECUTION_BLOCKED",
+      ),
+  );
+}
+
 function hasCompleteCurrentPriorityScope(
   priority: InventoryVerificationPriority | null,
 ) {
@@ -992,13 +1016,23 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     );
     const selectedByBarcode = new Map(selected.map((line) => [line.barcode, line]));
     const priorityByBarcode = new Map(rows.map((row) => [row.barcode, row] as const));
+    const exclusionReasonsByBarcode = new Map<string, string[]>();
+    for (const row of excluded) {
+      exclusionReasonsByBarcode.set(row.barcode, [
+        ...(exclusionReasonsByBarcode.get(row.barcode) ?? []),
+        ...row.reasons,
+      ]);
+    }
     const completeCurrentPriorityScope = hasCompleteCurrentPriorityScope(input.priority);
     const operatorPinnedPreservedBarcodes = new Set(
       [...operatorPinnedExistingBarcodes].filter((barcode) => !eligibleBarcodes.has(barcode)),
     );
     const automaticRemovalReasonByBarcode = new Map(
       input.replacementAfter.lines.flatMap((line) => {
-        if (operatorPinnedPreservedBarcodes.has(line.barcode)) return [];
+        if (
+          line.preserveOnRegeneration === true ||
+          operatorPinnedPreservedBarcodes.has(line.barcode)
+        ) return [];
         const reason = verifiedAutomaticRemovalReason(
           priorityByBarcode.get(line.barcode),
           completeCurrentPriorityScope,
@@ -1014,11 +1048,23 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
           !selectedByBarcode.has(line.barcode) &&
           !automaticRemovalReasonByBarcode.has(line.barcode),
       )
-      .map((line) => ({
-        ...line,
-        quantity: operatorQuantityByBarcode.get(line.barcode) ??
-          normalizePurchaseOrderQuantity(line.quantity),
-      }));
+      .map((line) => {
+        const currentPriorityRow = priorityByBarcode.get(line.barcode);
+        const refreshedAutomaticQuantity =
+          line.preserveOnRegeneration !== true &&
+          isCurrentCostCaptureRecommendation(
+            currentPriorityRow,
+            exclusionReasonsByBarcode.get(line.barcode) ?? [],
+          )
+            ? normalizePurchaseOrderQuantity(currentPriorityRow!.recommendedQty)
+            : normalizePurchaseOrderQuantity(line.quantity);
+        return {
+          ...line,
+          quantity:
+            operatorQuantityByBarcode.get(line.barcode) ??
+            refreshedAutomaticQuantity,
+        };
+      });
     if (operatorPinnedPreservedBarcodes.size > 0) {
       reviewBlockers.push("OPERATOR_PINNED_EXISTING_COST_REVIEW_REQUIRED");
     }
@@ -1026,7 +1072,11 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       preservedReplacementLines.some(
         (line) =>
           line.preserveOnRegeneration !== true &&
-          !operatorPinnedPreservedBarcodes.has(line.barcode),
+          !operatorPinnedPreservedBarcodes.has(line.barcode) &&
+          !isCurrentCostCaptureRecommendation(
+            priorityByBarcode.get(line.barcode),
+            exclusionReasonsByBarcode.get(line.barcode) ?? [],
+          ),
       )
     ) {
       reviewBlockers.push("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED");
