@@ -262,27 +262,25 @@ function verifiedAutomaticRemovalReason(
   return null;
 }
 
-const COST_CAPTURE_PENDING_REASONS = new Set([
+const OPERATOR_INPUT_PENDING_REASONS = new Set([
   "CONFIRMED_COST_REQUIRED",
   "WHOLESALE_COST_ESTIMATE_UNAVAILABLE",
   "NO_ACTIVE_WHOLESALE_LISTING",
   "WHOLESALE_LISTING_PRICE_UNRESOLVED",
   "ACTIVE_WHOLESALE_PRICE_UNAVAILABLE",
+  "VERIFIED_INVENTORY_REQUIRED",
+  "ROW_EXECUTION_BLOCKED",
 ]);
 
-function isCurrentCostCaptureRecommendation(
+function isCurrentOperatorInputRecommendation(
   row: InventoryVerificationPriorityRow | undefined,
   exclusionReasons: string[],
 ) {
   return Boolean(
     row?.purchaseStatus === "발주 추천" &&
       positive(row.recommendedQty) &&
-      exclusionReasons.some((reason) => COST_CAPTURE_PENDING_REASONS.has(reason)) &&
-      exclusionReasons.every(
-        (reason) =>
-          COST_CAPTURE_PENDING_REASONS.has(reason) ||
-          reason === "ROW_EXECUTION_BLOCKED",
-      ),
+      exclusionReasons.length > 0 &&
+      exclusionReasons.every((reason) => OPERATOR_INPUT_PENDING_REASONS.has(reason)),
   );
 }
 
@@ -1052,7 +1050,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         const currentPriorityRow = priorityByBarcode.get(line.barcode);
         const refreshedAutomaticQuantity =
           line.preserveOnRegeneration !== true &&
-          isCurrentCostCaptureRecommendation(
+          isCurrentOperatorInputRecommendation(
             currentPriorityRow,
             exclusionReasonsByBarcode.get(line.barcode) ?? [],
           )
@@ -1073,7 +1071,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         (line) =>
           line.preserveOnRegeneration !== true &&
           !operatorPinnedPreservedBarcodes.has(line.barcode) &&
-          !isCurrentCostCaptureRecommendation(
+          !isCurrentOperatorInputRecommendation(
             priorityByBarcode.get(line.barcode),
             exclusionReasonsByBarcode.get(line.barcode) ?? [],
           ),
