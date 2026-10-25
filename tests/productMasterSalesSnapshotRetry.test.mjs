@@ -3,11 +3,16 @@ import test from "node:test";
 
 import {
   PRODUCT_MASTER_SALES_SNAPSHOT_TIMEOUT_MS,
+  PRODUCT_MASTER_SALES_STORAGE_HEALTH_TIMEOUT_MS,
   retryableProductMasterSalesSnapshotRead,
 } from "../src/lib/productMasterSalesSnapshotRetry.ts";
 
 test("Product Master sales snapshot gets enough time for paged reads", () => {
   assert.equal(PRODUCT_MASTER_SALES_SNAPSHOT_TIMEOUT_MS, 240_000);
+});
+
+test("storage health probe fails fast instead of waiting for a full ledger timeout", () => {
+  assert.equal(PRODUCT_MASTER_SALES_STORAGE_HEALTH_TIMEOUT_MS, 30_000);
 });
 
 test("transient Product Master snapshot failures remain retryable", () => {
@@ -20,6 +25,12 @@ test("transient Product Master snapshot failures remain retryable", () => {
   assert.equal(
     retryableProductMasterSalesSnapshotRead(
       new Error("SALES_EVENT_SNAPSHOT_FAILED:504"),
+    ),
+    true,
+  );
+  assert.equal(
+    retryableProductMasterSalesSnapshotRead(
+      new Error("SALES_EVENT_STORAGE_HEALTH_FAILED:500:database busy"),
     ),
     true,
   );
