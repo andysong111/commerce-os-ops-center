@@ -952,6 +952,9 @@ test("read-only refreshes use a short cache while Draft creation keeps a fresh r
   const service = readFileSync(new URL("../src/lib/purchaseCyclePreflight.ts", import.meta.url), "utf8");
   assert.match(preview, /unstable_cache/);
   assert.match(preview, /PREVIEW_REVALIDATE_SECONDS = 60/);
+  assert.match(preview, /PREVIEW_CACHE_WINDOW_MS = 30_000/);
+  assert.match(preview, /Math\.floor\(Date\.now\(\) \/ PREVIEW_CACHE_WINDOW_MS\)/);
+  assert.match(preview, /purchase-cycle-preflight-preview-v5-retry-window/);
   assert.match(preview, /PREVIEW_READER_TIMEOUT_MS = 50_000/);
   assert.match(preview, /readerTimeoutMs: PREVIEW_READER_TIMEOUT_MS/);
   assert.match(page, /loadPurchaseCyclePreflightPreview\(options\)/);
@@ -1276,6 +1279,36 @@ test("replacement removes an old automatic line absent from a verified full acti
   const report = buildPurchaseCyclePreflight(input);
 
   assert.deepEqual(report.preservedReplacementLines, []);
+  assert.ok(!report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
+  assert.deepEqual(
+    report.replacementAudit.removed.map((row) => ({ barcode: row.barcode, reasons: row.reasons })),
+    [{ barcode: "BAA2-1", reasons: ["LATEST_ACTIVE_SCOPE_ABSENT"] }],
+  );
+  assert.equal(report.replacementAudit.complete, true);
+});
+
+test("advisory upstream blockers do not make a complete active scope preserve stale automatic lines", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.priority.managedActiveSkuCount = input.priority.rows.length;
+  input.priority.omissionBlockingCount = 0;
+  input.priority.source.blockerKeys = ["claim-auxiliary"];
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "최신 추천 유지", quantity: 5 },
+      { barcode: "BAA2-1", name: "과거 자동추천", quantity: 10 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(report.preservedReplacementLines, []);
+  assert.ok(report.reviewBlockers.includes("UPSTREAM:claim-auxiliary"));
   assert.ok(!report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
   assert.deepEqual(
     report.replacementAudit.removed.map((row) => ({ barcode: row.barcode, reasons: row.reasons })),
