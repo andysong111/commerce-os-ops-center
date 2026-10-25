@@ -34,6 +34,7 @@ export type ProductLaunchSeoMaterialRecoveryPlan = {
 };
 
 const ELIGIBLE_PRODUCT_STATUSES = new Set(["ACTIVE", "LAUNCHING"]);
+const MANUAL_LOCATION_REVIEW_MODELS = new Set(["AAA480"]);
 
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -69,6 +70,10 @@ function optionNameKey(value: unknown) {
   return text(value).toLocaleLowerCase("ko-KR").replace(/\s+/g, "");
 }
 
+function productIdentityKey(value: unknown) {
+  return optionNameKey(value).replace(/(?:색상)?랜덤(?:발송)?|단품/g, "");
+}
+
 function uniqueUrls(values: unknown[]) {
   const result: string[] = [];
   const seen = new Set<string>();
@@ -85,6 +90,19 @@ function uniqueUrls(values: unknown[]) {
 
 function activeSkus(product: LegacySeoInventoryProduct) {
   return product.skus.filter((sku) => sku.active !== false);
+}
+
+function currentRowConfirmsSingleProductMasterBCode(
+  item: UnknownRecord,
+  product: LegacySeoInventoryProduct,
+) {
+  const skus = activeSkus(product);
+  if (skus.length !== 1) return false;
+  const expected = bCodeKey(skus[0]?.barcode);
+  if (!expected) return false;
+  return [item.selfCodeBase, item.barcode, item.warehouseLocation]
+    .map(bCodeKey)
+    .some((value) => value === expected);
 }
 
 function eligibleProductForModel(
@@ -120,12 +138,27 @@ function shoplingConfirmsProductMasterOptions(
 
 function chooseShoplingAssetGroup(
   evidence: LegacySeoShoplingEvidence | undefined,
+  productName: string,
 ) {
   if (!evidence) return null;
   const candidates = evidence.optionGroups.filter(
     (group) => text(group.detailHtml) || group.imageUrls.length,
   );
   return [...candidates].sort((left, right) => {
+    const productKey = productIdentityKey(productName);
+    const identityScore = (group: typeof left) => {
+      const modelName = productIdentityKey(group.modelName);
+      const listingName = productIdentityKey(group.productName);
+      if (modelName && (productKey.includes(modelName) || modelName.includes(productKey))) {
+        return 20;
+      }
+      if (listingName && (productKey.includes(listingName) || listingName.includes(productKey))) {
+        return 10;
+      }
+      return 0;
+    };
+    const identityDifference = identityScore(right) - identityScore(left);
+    if (identityDifference) return identityDifference;
     const managedDifference =
       managedShoplingOptions(right).length - managedShoplingOptions(left).length;
     if (managedDifference) return managedDifference;
@@ -134,6 +167,31 @@ function chooseShoplingAssetGroup(
     if (rightScore !== leftScore) return rightScore - leftScore;
     return (Number(right.goodsKey) || 0) - (Number(left.goodsKey) || 0);
   })[0] ?? null;
+}
+
+function chooseShoplingCategory(
+  productName: string,
+  evidence: LegacySeoShoplingEvidence | undefined,
+) {
+  if (!evidence) return "";
+  const categories = [...new Set(evidence.categories.map(text).filter(Boolean))];
+  if (categories.length === 1) return categories[0] ?? "";
+  const productKey = productIdentityKey(productName);
+  const matchingCategories = [
+    ...new Set(
+      evidence.optionGroups
+        .filter((group) => {
+          const modelName = productIdentityKey(group.modelName);
+          return Boolean(
+            modelName &&
+              (productKey.includes(modelName) || modelName.includes(productKey)),
+          );
+        })
+        .map((group) => text(group.category))
+        .filter(Boolean),
+    ),
+  ];
+  return matchingCategories.length === 1 ? matchingCategories[0] ?? "" : "";
 }
 
 function valueCounts(options: UnknownRecord[], keyOf: (option: UnknownRecord) => string) {
@@ -222,7 +280,16 @@ function recoverOptions(input: {
   }
 
   if (!currentOptions.length) {
-    if (!shoplingConfirmsProductMasterOptions(input.product, input.evidence)) {
+    if (MANUAL_LOCATION_REVIEW_MODELS.has(modelKey(input.product.modelNo))) {
+      return {
+        options: null,
+        reason: "기존 위치 기록이 충돌해 실제 창고 위치 확인이 필요합니다.",
+      };
+    }
+    if (
+      !shoplingConfirmsProductMasterOptions(input.product, input.evidence) &&
+      !currentRowConfirmsSingleProductMasterBCode(input.item, input.product)
+    ) {
       return {
         options: null,
         reason: "옵션이 비어 있어 상품마스터와 현재 Shopling B코드의 일치 확인이 필요합니다.",
@@ -248,7 +315,7 @@ function recoverDetailAsset(
   recoveredAt: string,
 ) {
   const current = record(item.detailPageAsset);
-  const group = chooseShoplingAssetGroup(evidence);
+  const group = chooseShoplingAssetGroup(evidence, text(item.productName));
   const shoplingImages = uniqueUrls(group?.imageUrls ?? []);
   const currentImages = uniqueUrls(array(current.additionalImageUrls));
   const currentHtml = rawText(current.html);
@@ -337,9 +404,8 @@ export function buildProductLaunchSeoMaterialRecoveryPlan(input: {
   const unresolved: string[] = [];
 
   if (!text(item.shoplingCategory)) {
-    const evidenceCategories = input.evidence?.categories.map(text).filter(Boolean) ?? [];
-    const category = text(product?.category) ||
-      ([...new Set(evidenceCategories)].length === 1 ? evidenceCategories[0] : "");
+    const category =
+      text(product?.category) || chooseShoplingCategory(productName, input.evidence);
     if (category) {
       patch.shoplingCategory = category;
       changedFields.push("shoplingCategory");
@@ -407,13 +473,21 @@ export function buildProductLaunchSeoMaterialRecoveryPlan(input: {
   };
 }
 
-export function productLaunchSeoRecoveryNeedsShoplingEvidence(itemInput: unknown) {
+export function productLaunchSeoRecoveryNeedsShoplingEvidence(
+  itemInput: unknown,
+  product?: LegacySeoInventoryProduct,
+) {
   const item = record(itemInput);
   const detail = record(item.detailPageAsset);
+  const exactSingleBCode = Boolean(
+    product &&
+      !MANUAL_LOCATION_REVIEW_MODELS.has(modelKey(product.modelNo)) &&
+      currentRowConfirmsSingleProductMasterBCode(item, product),
+  );
   return (
     !text(detail.html) ||
-    !text(detail.mainImageUrl) ||
-    array(item.orderOptions).length === 0
+    (!text(detail.mainImageUrl) && !text(product?.mainImageUrl)) ||
+    (array(item.orderOptions).length === 0 && !exactSingleBCode)
   );
 }
 

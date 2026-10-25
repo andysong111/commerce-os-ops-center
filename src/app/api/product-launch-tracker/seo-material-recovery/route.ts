@@ -233,7 +233,13 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
   const productByModel = new Map(
     catalog.map((product) => [normalizeLegacyModel(product.modelNo), product] as const),
   );
-  const evidenceItems = recoveryItems.filter(productLaunchSeoRecoveryNeedsShoplingEvidence);
+  const evidenceItems = recoveryItems.filter((item) => {
+    const modelNumber = normalizeLegacyModel(item.modelNumber);
+    return productLaunchSeoRecoveryNeedsShoplingEvidence(
+      item,
+      productByModel.get(modelNumber),
+    );
+  });
   const evidenceModels = [
     ...new Set(evidenceItems.map((item) => normalizeLegacyModel(item.modelNumber)).filter(Boolean)),
   ];
