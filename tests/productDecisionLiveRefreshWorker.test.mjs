@@ -104,8 +104,17 @@ test("purchase-run status reads only the newest frozen planning snapshot", () =>
   );
 });
 
-test("an active purchase-run refresh is resumed beyond the five-minute freshness window", () => {
+test("purchase-run freshness follows the latest stored progress instead of its start time", () => {
   assert.match(workflow, /PURCHASE_RUN_ACTIVE_RESUME_MAX_AGE_MS = 30 \* 60 \* 1000/);
+  assert.match(workflow, /lastActivityAt\?: string \| null/);
+  assert.match(
+    workflow,
+    /current\.lastActivityAt \?\? current\.analysisAsOf/,
+  );
+  assert.match(
+    workflow,
+    /operations\.finals\.map\(\(row\) => iso\(row\.started_at\)\)/,
+  );
   assert.match(
     workflow,
     /resumableActive = ageMs >= 0[\s\S]*?current\.state === "QUEUED" \|\| current\.state === "RUNNING"/,
