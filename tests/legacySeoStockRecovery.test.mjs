@@ -50,10 +50,18 @@ test("복구 API는 원장 1회 저장 후 정규화와 Shopling 옵션 동기�
   assert.doesNotMatch(route, /marketRegistration: stage\("완료"/);
 });
 
-test("Shopling 근거가 Product Master에 없으면 확인 모델만 등록일 구간으로 역탐색한다", async () => {
+test("Shopling 근거가 Product Master에 없으면 확인 모델만 수정일 구간으로 역탐색한다", async () => {
   const evidence = await source("src/lib/legacySeoShoplingEvidence.ts");
   assert.match(evidence, /buildLegacyShoplingModelDiscoveryXml/);
-  assert.match(evidence, /search_tp.*등록일/s);
+  assert.match(evidence, /buildLegacyShoplingModelDiscoveryXml[\s\S]*search_tp.*수정일/);
+  assert.doesNotMatch(evidence, /buildLegacyShoplingModelDiscoveryXml[\s\S]*search_tp.*등록일/);
+  assert.match(evidence, /MIN_DISCOVERY_WINDOW_DAYS/);
+  assert.match(evidence, /MAX_DISCOVERY_REQUESTS/);
+  assert.match(evidence, /isDiscoveryTimeout/);
+  assert.match(evidence, /splitDiscoveryWindow/);
+  assert.match(evidence, /discoverGoodsKeysInWindow/);
+  assert.match(evidence, /split\.newer/);
+  assert.match(evidence, /split\.older/);
   assert.match(evidence, /isConfirmedLegacyInventoryModel\(model\)/);
   assert.match(evidence, /discoverGoodsKeysByModel/);
   assert.match(evidence, /"sale_price"/);
