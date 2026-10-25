@@ -479,15 +479,22 @@ export function productLaunchSeoRecoveryNeedsShoplingEvidence(
 ) {
   const item = record(itemInput);
   const detail = record(item.detailPageAsset);
+  const manualLocationReview = Boolean(
+    product && MANUAL_LOCATION_REVIEW_MODELS.has(modelKey(product.modelNo)),
+  );
+  const hasActiveProductMasterOptions = Boolean(product && activeSkus(product).length);
   const exactSingleBCode = Boolean(
     product &&
-      !MANUAL_LOCATION_REVIEW_MODELS.has(modelKey(product.modelNo)) &&
+      !manualLocationReview &&
       currentRowConfirmsSingleProductMasterBCode(item, product),
   );
   return (
     !text(detail.html) ||
     (!text(detail.mainImageUrl) && !text(product?.mainImageUrl)) ||
-    (array(item.orderOptions).length === 0 && !exactSingleBCode)
+    (array(item.orderOptions).length === 0 &&
+      hasActiveProductMasterOptions &&
+      !manualLocationReview &&
+      !exactSingleBCode)
   );
 }
 
