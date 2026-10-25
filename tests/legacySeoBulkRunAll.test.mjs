@@ -70,3 +70,14 @@ test("전체 준비점검 버튼은 RUN 생성 없이 사전점검만 실행한�
   assert.match(client, /전체 미실행.*준비점검만/);
   assert.match(client, /SEO RUN을 시작하지 않고/);
 });
+
+test("준비점검은 작은 묶음으로 실행하고 시간 초과 항목만 개별 재검사한다", async () => {
+  const client = await source(
+    "src/app/legacy-seo-bulk-cloud/LegacySeoBulkRunAllEnhancer.tsx",
+  );
+  assert.match(client, /const PREFLIGHT_CHUNK_SIZE = 6/);
+  assert.match(client, /chunksOf\(ids, PREFLIGHT_CHUNK_SIZE\)/);
+  assert.match(client, /retryPreflightIndividually/);
+  assert.match(client, /requestPreflight\(\[itemIds\[index\]\]\)/);
+  assert.match(client, /failedPreflightItem/);
+});
