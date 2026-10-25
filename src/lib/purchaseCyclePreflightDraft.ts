@@ -4,6 +4,7 @@ import {
 } from "@/lib/fastPurchaseInternalDraft";
 import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import {
+  canRecalculateWithPreservedSourcingOnly,
   preparePurchaseCycleDraft,
   purchaseCycleDraftConfirmation,
   purchaseCycleDraftPreflightOptions,
@@ -219,7 +220,16 @@ export async function createPurchaseCyclePreflightDraft(
       sourcingBudgetReturnKrw,
     });
   }
-  const prepared = preparePurchaseCycleDraft(report, request, sourcingPlan);
+  const preserveExistingSourcingOnly = canRecalculateWithPreservedSourcingOnly(
+    report,
+    sourcingPlan,
+  );
+  const prepared = preparePurchaseCycleDraft(
+    report,
+    request,
+    preserveExistingSourcingOnly ? null : sourcingPlan,
+    { preserveExistingSourcingOnly },
+  );
   const replacement = request.replaceDraftId
     ? await regenerateValidatedMonthlyPurchaseDraft({
         ...prepared,
@@ -247,7 +257,7 @@ export async function createPurchaseCyclePreflightDraft(
     retryRequiresFreshPreflight: true;
     externalOrderExecuted: false;
   } | null = null;
-  if (sourcingPlan) {
+  if (sourcingPlan && !preserveExistingSourcingOnly) {
     try {
       sourcing = await confirmSourcingBudgetPlan({
         targetCycleMonth: report.targetCycleMonth,

@@ -777,6 +777,10 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(service, /loadSourcingBudgetPlan/);
   assert.match(service, /returnableSourcingBudgetKrw/);
   assert.match(service, /sourcingBudgetReturnKrw/);
+  assert.match(service, /canRecalculateWithPreservedSourcingOnly/);
+  assert.match(service, /preserveExistingSourcingOnly \? null : sourcingPlan/);
+  assert.match(service, /\{ preserveExistingSourcingOnly \}/);
+  assert.match(service, /if \(sourcingPlan && !preserveExistingSourcingOnly\)/);
   assert.match(service, /confirmSourcingBudgetPlan/);
   assert.match(service, /complete: sourcing\?\.ok !== false/);
   assert.match(service, /allowAdoptExistingReservedDraft: false/);
