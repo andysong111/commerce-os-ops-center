@@ -57,11 +57,14 @@ test("Shopling 근거가 Product Master에 없으면 확인 모델만 수정일 
   assert.doesNotMatch(evidence, /buildLegacyShoplingModelDiscoveryXml[\s\S]*search_tp.*등록일/);
   assert.match(evidence, /MIN_DISCOVERY_WINDOW_DAYS/);
   assert.match(evidence, /MAX_DISCOVERY_REQUESTS/);
-  assert.match(evidence, /isDiscoveryTimeout/);
+  assert.match(evidence, /isShoplingTimeout/);
   assert.match(evidence, /splitDiscoveryWindow/);
   assert.match(evidence, /discoverGoodsKeysInWindow/);
   assert.match(evidence, /split\.newer/);
   assert.match(evidence, /split\.older/);
+  assert.match(evidence, /MAX_EXACT_REQUEST_ATTEMPTS = 3/);
+  assert.match(evidence, /attempt >= MAX_EXACT_REQUEST_ATTEMPTS/);
+  assert.match(evidence, /EXACT_RETRY_DELAY_MS \* attempt/);
   assert.match(evidence, /isConfirmedLegacyInventoryModel\(model\)/);
   assert.match(evidence, /discoverGoodsKeysByModel/);
   assert.match(evidence, /"sale_price"/);
