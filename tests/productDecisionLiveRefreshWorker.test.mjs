@@ -104,6 +104,16 @@ test("purchase-run status reads only the newest frozen planning snapshot", () =>
   );
 });
 
+test("an active purchase-run refresh is resumed beyond the five-minute freshness window", () => {
+  assert.match(workflow, /PURCHASE_RUN_ACTIVE_RESUME_MAX_AGE_MS = 30 \* 60 \* 1000/);
+  assert.match(
+    workflow,
+    /resumableActive = ageMs >= 0[\s\S]*?current\.state === "QUEUED" \|\| current\.state === "RUNNING"/,
+  );
+  assert.match(workflow, /freshCompleted = fresh && current\.state === "COMPLETED"/);
+  assert.match(workflow, /if \(resumableActive \|\| freshCompleted\)/);
+});
+
 test("each Shopling chunk performs one bounded HTTP attempt and worker retries are the only retry layer", () => {
   assert.match(
     shoplingClient,
