@@ -235,8 +235,11 @@ const fingerprint = (v: unknown): v is string => typeof v === "string" && FP.tes
 
 function verifiedAutomaticRemovalReason(
   row: InventoryVerificationPriorityRow | undefined,
+  completeCurrentPriorityScope: boolean,
 ) {
-  if (!row) return null;
+  if (!row) {
+    return completeCurrentPriorityScope ? "LATEST_ACTIVE_SCOPE_ABSENT" : null;
+  }
   if (row.permanentlyDiscontinued === true) return "PERMANENTLY_DISCONTINUED";
   const securedQuantity = row.inventoryQuantity + row.openCommitment;
   if (
@@ -251,13 +254,27 @@ function verifiedAutomaticRemovalReason(
   // A complete current priority snapshot is the authority for automatic
   // recommendations. Keeping an old automatic line after the current policy
   // has explicitly stopped recommending it makes the replacement Draft both
-  // stale and impossible to save. A missing row is deliberately different:
-  // it can mean a partial source read, so that case remains preserved and
-  // blocked for review below.
+  // stale and impossible to save. A missing row is removable only when the
+  // priority snapshot proves that it covers the full managed active scope.
   if (row.purchaseStatus !== "발주 추천" || !positive(row.recommendedQty)) {
     return "LATEST_POLICY_NOT_RECOMMENDED";
   }
   return null;
+}
+
+function hasCompleteCurrentPriorityScope(
+  priority: InventoryVerificationPriority | null,
+) {
+  return Boolean(
+    priority?.state === "READY" &&
+    priority.purchaseShadowReady === true &&
+    priority.writesEnabled === false &&
+    positive(priority.managedActiveSkuCount) &&
+    priority.rows.length === priority.managedActiveSkuCount &&
+    Array.isArray(priority.source?.blockerKeys) &&
+    priority.source.blockerKeys.length === 0 &&
+    (priority.omissionBlockingCount ?? 0) === 0,
+  );
 }
 
 export function buildPurchaseReplacementDraftSnapshot(
@@ -973,13 +990,17 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     );
     const selectedByBarcode = new Map(selected.map((line) => [line.barcode, line]));
     const priorityByBarcode = new Map(rows.map((row) => [row.barcode, row] as const));
+    const completeCurrentPriorityScope = hasCompleteCurrentPriorityScope(input.priority);
     const operatorPinnedPreservedBarcodes = new Set(
       [...operatorPinnedExistingBarcodes].filter((barcode) => !eligibleBarcodes.has(barcode)),
     );
     const automaticRemovalReasonByBarcode = new Map(
       input.replacementAfter.lines.flatMap((line) => {
         if (operatorPinnedPreservedBarcodes.has(line.barcode)) return [];
-        const reason = verifiedAutomaticRemovalReason(priorityByBarcode.get(line.barcode));
+        const reason = verifiedAutomaticRemovalReason(
+          priorityByBarcode.get(line.barcode),
+          completeCurrentPriorityScope,
+        );
         return reason ? [[line.barcode, reason] as const] : [];
       }),
     );

@@ -76,3 +76,15 @@ supplier order, checkout, payment, or supplier contact remain outside scope.
   engine does not recommend it, that line leaves this Draft with the audited
   reason `OPERATOR_QUANTITY_OVERRIDE_RELEASED_TO_POLICY`. The release is not a
   permanent exclusion, so a later monthly calculation may recommend it again.
+
+## Full-scope replacement correction — 2026-10-25
+
+- A replacement Draft may remove an old automatic line that is absent from the
+  latest priority rows only when the priority snapshot is `READY`, covers the
+  full managed active SKU count, has no source blocker, and has no blocking
+  omission. The audit records `LATEST_ACTIVE_SCOPE_ABSENT` for that removal.
+- A partial or blocked priority read still preserves the old line and blocks
+  Draft saving for review. Missing data can therefore never silently delete a
+  purchase line.
+- The preflight UI now uses the same replacement-review gate as the server. It
+  cannot display “ready” and then reject the same Draft during save.

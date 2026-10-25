@@ -1007,6 +1007,9 @@ test("operator page accepts an all-in cash cap while preserving the automatic en
   assert.match(page, /평소에는 체크하지 마세요/);
   assert.match(page, /기존 Draft와 새 계산 전체 대조/);
   assert.match(page, /replacementAudit\.added/);
+  assert.match(page, /replacementRecommendationReviewRequired/);
+  assert.match(page, /!replacementRecommendationReviewRequired/);
+  assert.match(page, /최신 전체 활성상품 기준표에서 제외되어 과거 자동추천을 정리했습니다/);
   assert.match(page, /<PurchasePreflightForm>/);
   assert.match(form, /event\.preventDefault\(\)/);
   assert.match(form, /useTransition\(\)/);
@@ -1251,6 +1254,62 @@ test("replacement audit accounts for every old and new line and explains the del
     previousQuantity: 3,
     selectedQuantity: 5,
   });
+});
+
+test("replacement removes an old automatic line absent from a verified full active scope", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.priority.managedActiveSkuCount = input.priority.rows.length;
+  input.priority.omissionBlockingCount = 0;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "최신 추천 유지", quantity: 5 },
+      { barcode: "BAA2-1", name: "활성 범위에서 빠진 과거 자동추천", quantity: 10 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(report.preservedReplacementLines, []);
+  assert.ok(!report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
+  assert.deepEqual(
+    report.replacementAudit.removed.map((row) => ({ barcode: row.barcode, reasons: row.reasons })),
+    [{ barcode: "BAA2-1", reasons: ["LATEST_ACTIVE_SCOPE_ABSENT"] }],
+  );
+  assert.equal(report.replacementAudit.complete, true);
+});
+
+test("replacement preserves an absent automatic line when the current active scope is incomplete", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.priority.managedActiveSkuCount = input.priority.rows.length + 1;
+  input.priority.omissionBlockingCount = 0;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "최신 추천 유지", quantity: 5 },
+      { barcode: "BAA2-1", name: "범위 확인 전 보존할 자동추천", quantity: 10 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(
+    report.preservedReplacementLines.map((row) => row.barcode),
+    ["BAA2-1"],
+  );
+  assert.ok(report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
+  assert.deepEqual(report.replacementAudit.removed, []);
+  assert.equal(report.replacementAudit.complete, true);
 });
 
 test("replacement records the specific verified-stock reason when inventory covers positive demand", () => {
