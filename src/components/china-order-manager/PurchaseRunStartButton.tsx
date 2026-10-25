@@ -46,6 +46,12 @@ export function PurchaseRunStartButton() {
     setOpen(false);
   }
 
+  function openDialog() {
+    setNotice("예산 기준을 입력한 뒤 시작하세요.");
+    setProgress(0);
+    setOpen(true);
+  }
+
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedCash = cash.trim();
@@ -114,7 +120,7 @@ export function PurchaseRunStartButton() {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800">
+      <button type="button" onClick={openDialog} aria-haspopup="dialog" aria-expanded={open} className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800">
         이번 발주차시 시작
       </button>
 
