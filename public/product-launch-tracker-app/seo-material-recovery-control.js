@@ -4,6 +4,7 @@ const BUTTON_ID = "seo-material-recovery-button";
 const DIALOG_ID = "seo-material-recovery-dialog";
 const MAX_INSTALL_ATTEMPTS = 40;
 const RECOVERY_BATCH_SIZE = 1;
+const READY_RECOVERY_BATCH_SIZE = 100;
 const RECOVERY_REQUEST_TIMEOUT_MS = 90_000;
 const RECOVERY_PREVIEW_ATTEMPTS = 2;
 
@@ -110,7 +111,6 @@ async function readRecoveryTargets() {
     }
     for (const item of list(payload?.items)) {
       if (text(item?.archivedAt)) continue;
-      if (item?.readiness?.ready === true) continue;
       if (item?.seoExclusion?.excluded === true) continue;
       if (item?.receiptPending === true) continue;
       const modelNumber = text(item?.modelNumber).toUpperCase().replace(/\s+/g, "");
@@ -118,6 +118,7 @@ async function readRecoveryTargets() {
         targets.set(modelNumber, {
           modelNumber,
           productName: text(item?.productName),
+          ready: item?.readiness?.ready === true,
         });
       }
     }
@@ -203,7 +204,10 @@ export function recoveryModelStatus(report, modelNumber) {
 
 async function previewRecoveryBatches(button) {
   const targets = await readRecoveryTargets();
-  const targetBatches = chunk(targets, RECOVERY_BATCH_SIZE);
+  const targetBatches = [
+    ...chunk(targets.filter((target) => target.ready), READY_RECOVERY_BATCH_SIZE),
+    ...chunk(targets.filter((target) => !target.ready), RECOVERY_BATCH_SIZE),
+  ];
   const batches = [];
   for (const [index, batchTargets] of targetBatches.entries()) {
     button.textContent = `SEO 재료 검사 중 (${index + 1}/${targetBatches.length})`;
