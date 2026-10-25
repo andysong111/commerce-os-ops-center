@@ -10,6 +10,7 @@ const ARCHIVED_HISTORY_API = "/api/legacy-seo-run-jobs-lite?scope=archived&items
 const ARCHIVED_HISTORY_CACHE_MS = 5 * 60_000;
 const ARCHIVE_CHANGED_EVENT = "commerce-os:legacy-seo-archive-changed";
 const CHUNK_SIZE = 50;
+const PREFLIGHT_CHUNK_SIZE = 6;
 let archivedReadyItemIdsCache = new Set<string>();
 let archivedReadyLoadedAt = 0;
 const CUSTOM_BLOCKED_STORAGE_KEY =
@@ -80,12 +81,74 @@ async function readBody(response: Response) {
   }
 }
 
-function chunksOf(ids: string[]) {
+function chunksOf(ids: string[], chunkSize = CHUNK_SIZE) {
   const chunks: string[][] = [];
-  for (let index = 0; index < ids.length; index += CHUNK_SIZE) {
-    chunks.push(ids.slice(index, index + CHUNK_SIZE));
+  for (let index = 0; index < ids.length; index += chunkSize) {
+    chunks.push(ids.slice(index, index + chunkSize));
   }
   return chunks;
+}
+
+function failedPreflightItem(itemId: string, message: string): PreflightItem {
+  return {
+    itemId,
+    ready: false,
+    excluded: false,
+    issues: [{ message }],
+  };
+}
+
+async function requestPreflight(itemIds: string[]) {
+  const response = await fetch(PREFLIGHT_API, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    credentials: "same-origin",
+    cache: "no-store",
+    body: JSON.stringify({ itemIds }),
+  });
+  const body = await readBody(response);
+  if (!response.ok && response.status !== 422) {
+    throw new Error(text(body.message) || `사전점검 HTTP ${response.status}`);
+  }
+
+  const results = (Array.isArray(body.results) ? body.results : []).map(
+    (value) => record(value) as PreflightItem,
+  );
+  const returnedIds = new Set(results.map((result) => text(result.itemId)).filter(Boolean));
+  for (const itemId of itemIds) {
+    if (!returnedIds.has(itemId)) {
+      results.push(failedPreflightItem(itemId, "사전점검 결과가 반환되지 않았습니다."));
+    }
+  }
+  return results;
+}
+
+async function retryPreflightIndividually(
+  itemIds: string[],
+  onProgress: (message: string) => void,
+  batchIndex: number,
+  batchCount: number,
+) {
+  const results: PreflightItem[] = [];
+  for (let index = 0; index < itemIds.length; index += 1) {
+    onProgress(
+      `전체 사전점검 ${batchIndex + 1}/${batchCount} · 시간 초과 항목 재검사 ${index + 1}/${itemIds.length}`,
+    );
+    try {
+      results.push(...(await requestPreflight([itemIds[index]])));
+    } catch (error) {
+      results.push(
+        failedPreflightItem(
+          itemIds[index],
+          error instanceof Error ? error.message : "개별 사전점검에 실패했습니다.",
+        ),
+      );
+    }
+  }
+  return results;
 }
 
 function preflightIssueSummary(value: unknown) {
@@ -169,7 +232,7 @@ async function preflightAll(
   ids: string[],
   onProgress: (message: string) => void,
 ) {
-  const chunks = chunksOf(ids);
+  const chunks = chunksOf(ids, PREFLIGHT_CHUNK_SIZE);
   const readyIds: string[] = [];
   const excluded: PreflightItem[] = [];
   const failed: PreflightItem[] = [];
@@ -178,23 +241,17 @@ async function preflightAll(
     onProgress(
       `전체 사전점검 ${index + 1}/${chunks.length} · 옵션/B코드·중국주문 원가/판매가 확인 중`,
     );
-    const response = await fetch(PREFLIGHT_API, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      credentials: "same-origin",
-      cache: "no-store",
-      body: JSON.stringify({ itemIds: chunks[index] }),
-    });
-    const body = await readBody(response);
-    if (!response.ok && response.status !== 422) {
-      throw new Error(text(body.message) || `사전점검 HTTP ${response.status}`);
+    let results: PreflightItem[];
+    try {
+      results = await requestPreflight(chunks[index]);
+    } catch {
+      results = await retryPreflightIndividually(
+        chunks[index],
+        onProgress,
+        index,
+        chunks.length,
+      );
     }
-    const results = (Array.isArray(body.results) ? body.results : []).map(
-      (value) => record(value) as PreflightItem,
-    );
     for (const result of results) {
       const itemId = text(result.itemId);
       if (result.ready === true && itemId) {
