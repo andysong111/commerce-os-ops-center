@@ -265,14 +265,16 @@ function verifiedAutomaticRemovalReason(
 function hasCompleteCurrentPriorityScope(
   priority: InventoryVerificationPriority | null,
 ) {
+  // READY already proves the shadow, inventory and planning scopes join one
+  // managed active row per SKU. Upstream blocker keys also carry advisory
+  // execution concerns, so they must not make a complete scope look
+  // incomplete for Draft replacement.
   return Boolean(
     priority?.state === "READY" &&
     priority.purchaseShadowReady === true &&
     priority.writesEnabled === false &&
     positive(priority.managedActiveSkuCount) &&
     priority.rows.length === priority.managedActiveSkuCount &&
-    Array.isArray(priority.source?.blockerKeys) &&
-    priority.source.blockerKeys.length === 0 &&
     (priority.omissionBlockingCount ?? 0) === 0,
   );
 }

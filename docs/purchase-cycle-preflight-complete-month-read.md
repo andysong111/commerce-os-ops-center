@@ -1,5 +1,22 @@
 # Monthly-spend scan completeness follow-up
 
+## Repeated purchase-run start recovery (2026-10-25)
+
+Production could finish a complete 214-SKU priority calculation and still keep
+32 stale automatic Draft lines when advisory upstream warnings were present.
+Those warnings cover execution follow-up such as claims or wholesale-cost
+enrichment; they do not mean the managed active product scope is incomplete.
+Draft replacement now treats a `READY` one-row-per-active-SKU priority result
+with no blocking omission as complete even when advisory warnings remain. A
+real row-count mismatch or blocking omission still preserves old lines and
+fails closed.
+
+Read-only preview caching now includes a 30-second time window and a new cache
+version. A transient Product Master read failure can therefore no longer keep
+returning the same failed start screen across later retries. Draft save still
+performs its separate uncached pinned recheck, and neither change performs an
+external order, payment, or 1688 cart action.
+
 PR1211 review discussion_r4024749420 correctly identified that the legacy recent-summary reader scans only 120 global operation rows. A null summary therefore did not prove no spending in a target month.
 
 The preflight no longer uses that reader. It queries the exact target month across the three documented snapshot storage shapes, before a bounded 1000-row limit per shape, requesting an exact count for each. Any missing count or count/data-length mismatch blocks the preflight, including nonzero partial scans. Only successful complete empty results prove no recorded spending. Malformed draft identity/month/paid amount blocks; numeric recorded KRW amounts are not inferred from fallback costs or exchange rates.
