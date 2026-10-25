@@ -72,6 +72,7 @@ test("Shopling 근거가 Product Master에 없으면 확인 모델만 수정일 
   assert.match(evidence, /EXACT_RETRY_DELAY_MS \* attempt/);
   assert.match(evidence, /isConfirmedLegacyInventoryModel\(model\)/);
   assert.match(evidence, /discoverGoodsKeysByModel/);
+  assert.match(evidence, /discoverMissingModels = options\.discoverMissingModels !== false/);
   assert.match(evidence, /"sale_price"/);
   assert.match(evidence, /"dtl_desc"/);
   assert.match(evidence, /const SHOPLING_PRODUCT_IMAGE_FIELDS = Array\.from/);

@@ -248,6 +248,7 @@ async function prepareRecovery(request: NextRequest, body: UnknownRecord) {
         loadLegacySeoShoplingEvidence(
           evidenceModels,
           goodsKeyOverridesFor(evidenceItems, productByModel),
+          { discoverMissingModels: false },
         ),
       )
     : new Map();
