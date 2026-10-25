@@ -256,7 +256,10 @@ export function buildProductPlanningIndex(
     products.set(barcode, product);
 
     for (const listing of product.listings ?? []) {
-      if (listing.active === false) continue;
+      // Listing activity is a current storefront state, not historical
+      // identity evidence. A sold-out option must keep mapping its past orders
+      // so stockout demand can trigger replenishment. Ambiguous identities
+      // still fail closed in registerUnique.
       const identity = {
         barcode,
         unitsPerOrder: unitsPerOrder(listing.unitsPerOrder),
