@@ -6,6 +6,7 @@ const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
 test("purchase-run start prepares every required source before opening the draft builder", async () => {
   const service = await read("../src/lib/purchaseRunPreparation.ts");
+  const liveRefresh = await read("../src/lib/productDecisionLiveRefresh.ts");
   const route = await read("../src/app/api/china-order-manager/purchase-runs/start/route.ts");
   assert.match(service, /sameDayPurchaseRun/);
   assert.match(service, /replaceablePriorPurchaseRun/);
@@ -30,6 +31,8 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(route, /retryableFailure: true/);
   assert.match(route, /purchaseRunPreparationErrorStage/);
   assert.match(route, /\[purchase-run-start\] preparation failed/);
+  assert.match(liveRefresh, /PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 70_000/);
+  assert.match(liveRefresh, /requestTimeoutMs: PRODUCT_MASTER_REFRESH_TIMEOUT_MS/);
   assert.doesNotMatch(service, /checkout|payment|submitOrder|externalOrderExecuted:\s*true/i);
 });
 
@@ -54,6 +57,10 @@ test("main manager is run-based and exposes the one-click start action", async (
   assert.match(startButton, /최신자료 준비 중/);
   assert.match(startButton, /decidePurchaseRunRetry/);
   assert.match(startButton, /같은 오류의 자동 반복을 멈췄습니다/);
+  assert.match(startButton, /function openDialog\(\)/);
+  assert.match(startButton, /setNotice\("예산 기준을 입력한 뒤 시작하세요\."\)/);
+  assert.match(startButton, /setProgress\(0\)/);
+  assert.match(startButton, /onClick=\{openDialog\}/);
   assert.match(startButton, /aria-label="발주차시 시작 창 닫기"/);
   assert.doesNotMatch(startButton, /onClick=\{close\}\s+disabled=\{starting\}/);
   assert.match(page, /중국 주문초안 ·/);
