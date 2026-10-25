@@ -26,7 +26,7 @@ import {
   createSupabaseAdminHeaders,
 } from "@/lib/supabase/admin";
 import {
-  PRODUCT_MASTER_SALES_SNAPSHOT_TIMEOUT_MS,
+  PRODUCT_MASTER_SALES_STORAGE_HEALTH_TIMEOUT_MS,
   retryableProductMasterSalesSnapshotRead,
 } from "@/lib/productMasterSalesSnapshotRetry";
 
@@ -887,17 +887,17 @@ export async function runProductMasterShoplingSalesEventSyncStep() {
   };
 }
 
-async function productMasterSnapshot(request: SalesEventSyncRequest) {
+async function productMasterStorageHealth() {
   const { baseUrl, secret } = productMasterConnection();
   const response = await fetch(
-    `${baseUrl}/api/integrations/sales-events?analysisAsOf=${encodeURIComponent(request.analysisAsOf)}`,
+    `${baseUrl}/api/integrations/sales-events?mode=health`,
     {
       headers: {
         accept: "application/json",
         "x-commerce-os-integration-secret": secret,
       },
       cache: "no-store",
-      signal: AbortSignal.timeout(PRODUCT_MASTER_SALES_SNAPSHOT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(PRODUCT_MASTER_SALES_STORAGE_HEALTH_TIMEOUT_MS),
     },
   );
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -905,7 +905,12 @@ async function productMasterSnapshot(request: SalesEventSyncRequest) {
     return { ready: false as const, payload };
   }
   if (!response.ok || payload.ok !== true) {
-    throw new Error(text(payload.message) || `SALES_EVENT_SNAPSHOT_FAILED:${response.status}`);
+    throw new Error(
+      `SALES_EVENT_STORAGE_HEALTH_FAILED:${response.status}:${text(payload.message)}`,
+    );
+  }
+  if (payload.storageReady !== true || payload.writesEnabled !== false) {
+    throw new Error("SALES_EVENT_STORAGE_HEALTH_CONTRACT_INVALID");
   }
   return { ready: true as const, payload };
 }
@@ -990,7 +995,7 @@ export async function applyProductMasterShoplingSalesEvents(
   if (rebuilt.report.planFingerprint !== expectedPlanFingerprint) {
     throw new Error("SALES_EVENT_PLAN_REBUILD_CHANGED");
   }
-  const storage = await productMasterSnapshot(request);
+  const storage = await productMasterStorageHealth();
   if (!storage.ready) {
     return {
       ok: false as const,
@@ -1054,7 +1059,6 @@ export async function applyProductMasterShoplingSalesEvents(
       businessWritesEnabled: true,
     },
   });
-  const snapshot = await productMasterSnapshot(request);
   return {
     ok: true as const,
     storageReady: true as const,
@@ -1064,7 +1068,10 @@ export async function applyProductMasterShoplingSalesEvents(
     planFingerprint: expectedPlanFingerprint,
     snapshotFinalized: mode === "full" && snapshotFinalization !== null,
     snapshotFinalization,
-    snapshot: snapshot.ready ? snapshot.payload : null,
+    verification: {
+      persistedBatchReadback: written === selected.length,
+      finalizedActiveRows: number(snapshotFinalization?.activeRows),
+    },
   };
 }
 
@@ -1123,7 +1130,7 @@ export async function loadProductMasterShoplingSalesEventSyncStatus(): Promise<S
     return { ...common, state: "BLOCKED", stage: "연결 검토 필요", message: `미연결/identity 충돌 ${blockers}건으로 적재를 차단했습니다.`, blockerCount: blockers, progress: 100 };
   }
   try {
-    const storage = await productMasterSnapshot(request);
+    const storage = await productMasterStorageHealth();
     if (!storage.ready) {
       return { ...common, state: "STORAGE_NOT_READY", stage: "Product Master migration 필요", message: text(storage.payload.message) || "sku_sales_events migration 적용이 필요합니다.", progress: 100 };
     }

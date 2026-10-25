@@ -42,12 +42,21 @@ test("explicit canary/full route has bounded time for persisted verification", (
 });
 
 test("Product Master storage migration gate is preserved before any event write", () => {
-  const storageCheck = sync.indexOf("const storage = await productMasterSnapshot(request)");
+  const storageCheck = sync.indexOf("const storage = await productMasterStorageHealth()");
   const eventPost = sync.indexOf("await postProductMasterEvents(");
   assert.ok(storageCheck >= 0);
   assert.ok(eventPost > storageCheck);
   assert.match(sync, /storageReady: false/);
   assert.match(sync, /migration/);
+});
+
+test("purchase preparation probes storage cheaply and never re-downloads the full ledger around apply", () => {
+  assert.match(sync, /\/api\/integrations\/sales-events\?mode=health/);
+  assert.match(sync, /PRODUCT_MASTER_SALES_STORAGE_HEALTH_TIMEOUT_MS/);
+  assert.doesNotMatch(sync, /analysisAsOf=\$\{encodeURIComponent\(request\.analysisAsOf\)\}/);
+  assert.equal((sync.match(/await productMasterStorageHealth\(\)/g) ?? []).length, 2);
+  assert.match(sync, /persistedBatchReadback: written === selected\.length/);
+  assert.match(sync, /finalizedActiveRows: number\(snapshotFinalization\?\.activeRows\)/);
 });
 
 test("Product Master responses are checked for persisted readback rows", () => {

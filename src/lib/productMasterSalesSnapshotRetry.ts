@@ -1,4 +1,5 @@
 export const PRODUCT_MASTER_SALES_SNAPSHOT_TIMEOUT_MS = 240_000;
+export const PRODUCT_MASTER_SALES_STORAGE_HEALTH_TIMEOUT_MS = 30_000;
 
 function errorEvidence(error: unknown, depth = 0): string {
   if (depth > 2 || error == null) return "";
@@ -11,7 +12,7 @@ function errorEvidence(error: unknown, depth = 0): string {
 }
 
 export function retryableProductMasterSalesSnapshotRead(error: unknown) {
-  return /abort|timeout|timed out|fetch failed|econnreset|econnrefused|etimedout|eai_again|enotfound|sales_event_snapshot_failed:(?:408|429|5\d\d)/i.test(
+  return /abort|timeout|timed out|fetch failed|econnreset|econnrefused|etimedout|eai_again|enotfound|sales_event_(?:snapshot|storage_health)_failed:(?:408|429|5\d\d)/i.test(
     errorEvidence(error),
   );
 }
