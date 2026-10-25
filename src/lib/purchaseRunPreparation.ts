@@ -9,13 +9,13 @@ import { sameDayPurchaseRun, replaceablePriorPurchaseRun } from "@/lib/purchaseR
 import { loadSalesEventDirectPromotionGate } from "@/lib/salesEventDirectPromotionGate";
 import { loadPostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
 import { loadInventoryVerificationPriority } from "@/lib/stage8InventoryVerificationPriority";
+import { PURCHASE_RUN_PREPARATION_RESUME_MAX_AGE_MS } from "@/lib/purchaseRunPreparationPolicy";
 import {
   ensurePurchaseRunDemandRefreshRequest,
   loadProductDecisionLiveStatus,
   runProductDecisionLiveRefreshStep,
 } from "@/lib/productDecisionLiveRefresh";
 
-export const PURCHASE_RUN_SALES_MAX_AGE_MS = 5 * 60 * 1000;
 const SALES_STEPS_PER_REQUEST = 1;
 const DEMAND_STEPS_PER_REQUEST = 1;
 
@@ -158,7 +158,7 @@ export async function advancePurchaseRunPreparation(
 
   let demand = await atPreparationStage("DEMAND", () =>
     ensurePurchaseRunDemandRefreshRequest({
-      maxAgeMs: PURCHASE_RUN_SALES_MAX_AGE_MS,
+      maxAgeMs: PURCHASE_RUN_PREPARATION_RESUME_MAX_AGE_MS,
     }));
   if (demand.state === "QUEUED" || demand.state === "RUNNING") {
     for (let index = 0; index < DEMAND_STEPS_PER_REQUEST; index += 1) {
@@ -187,7 +187,7 @@ export async function advancePurchaseRunPreparation(
 
   await atPreparationStage("SALES", () => ensurePurchaseRunSalesRequest({
     targetDate: input.targetDate,
-    maxAgeMs: PURCHASE_RUN_SALES_MAX_AGE_MS,
+    maxAgeMs: PURCHASE_RUN_PREPARATION_RESUME_MAX_AGE_MS,
   }));
   let sales = await atPreparationStage("SALES", () =>
     loadProductMasterShoplingSalesEventSyncStatus());
