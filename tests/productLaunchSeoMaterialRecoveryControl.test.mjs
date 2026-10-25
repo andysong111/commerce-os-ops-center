@@ -84,13 +84,15 @@ test("상품출시 화면은 SEO 재료를 상품별로 다시 검사한 뒤 반
   assert.match(control, /seo-material-recovery/);
   assert.match(control, /action: "preview"/);
   assert.match(control, /action: "apply"/);
-  assert.match(control, /RECOVERY_BATCH_SIZE = 6/);
+  assert.match(control, /RECOVERY_BATCH_SIZE = 1/);
   assert.match(control, /RECOVERY_REQUEST_TIMEOUT_MS = 90_000/);
   assert.match(control, /RECOVERY_PREVIEW_ATTEMPTS = 2/);
   assert.match(control, /자료 조회가 90초를 넘었습니다/);
   assert.match(control, /pageSize: "100"/);
   assert.match(control, /item\?\.readiness\?\.ready === true/);
   assert.match(control, /자료 조회 개별 재검사/);
+  assert.match(control, /batchTargets\.length === 1/);
+  assert.match(control, /failedRecoveryBatchReport\(batchTargets, batchError\)/);
   assert.match(control, /requestRecoveryPreview\(\[target\.modelNumber\]\)/);
   assert.match(control, /failedRecoveryBatchReport\(\[target\], targetError\)/);
   assert.match(control, /sourceFailureCount: sum\("sourceFailureCount"\)/);

@@ -3,7 +3,7 @@ const TRACKER_PAGE_ENDPOINT = "/api/product-launch-tracker/optimized";
 const BUTTON_ID = "seo-material-recovery-button";
 const DIALOG_ID = "seo-material-recovery-dialog";
 const MAX_INSTALL_ATTEMPTS = 40;
-const RECOVERY_BATCH_SIZE = 6;
+const RECOVERY_BATCH_SIZE = 1;
 const RECOVERY_REQUEST_TIMEOUT_MS = 90_000;
 const RECOVERY_PREVIEW_ATTEMPTS = 2;
 
@@ -215,7 +215,15 @@ async function previewRecoveryBatches(button) {
         report,
         failed: false,
       });
-    } catch {
+    } catch (batchError) {
+      if (batchTargets.length === 1) {
+        batches.push({
+          modelNumbers,
+          report: failedRecoveryBatchReport(batchTargets, batchError),
+          failed: true,
+        });
+        continue;
+      }
       for (const [targetIndex, target] of batchTargets.entries()) {
         button.textContent = `자료 조회 개별 재검사 (${targetIndex + 1}/${batchTargets.length})`;
         try {
