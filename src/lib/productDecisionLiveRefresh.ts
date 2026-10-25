@@ -84,6 +84,7 @@ export type ProductDecisionLiveStatus = {
   stage: string;
   message: string;
   analysisAsOf: string | null;
+  lastActivityAt?: string | null;
   planningGeneratedAt: string | null;
   orderCompleted: number;
   orderTotal: number;
@@ -488,9 +489,11 @@ export async function ensurePurchaseRunDemandRefreshRequest(options: {
   const maxAgeMs = Math.max(0, Number(options.maxAgeMs ?? 5 * 60 * 1000));
   const now = options.now ?? new Date();
   const current = await loadProductDecisionLiveStatus();
-  const analysisAt = Date.parse(String(current.analysisAsOf ?? ""));
-  const ageMs = Number.isFinite(analysisAt)
-    ? now.valueOf() - analysisAt
+  const lastActivityAt = Date.parse(String(
+    current.lastActivityAt ?? current.analysisAsOf ?? "",
+  ));
+  const ageMs = Number.isFinite(lastActivityAt)
+    ? now.valueOf() - lastActivityAt
     : Number.POSITIVE_INFINITY;
   const fresh = ageMs >= 0 &&
     ageMs <= maxAgeMs;
@@ -947,6 +950,7 @@ export async function loadProductDecisionLiveStatus(
       stage: "idle",
       message: "아직 실시간 판매 발주 계산을 실행하지 않았습니다.",
       analysisAsOf: null,
+      lastActivityAt: null,
       planningGeneratedAt: null,
       orderCompleted: 0,
       orderTotal: 0,
@@ -961,6 +965,17 @@ export async function loadProductDecisionLiveStatus(
   const operations = await requestOperations(request);
   const final = finalPayload(operations.finals[0] ?? {});
   const terminal = operations.terminals[0];
+  const activityTimes = [
+    request.createdAt,
+    ...operations.orders.map((row) => iso(row.started_at)),
+    ...operations.claims.map((row) => iso(row.started_at)),
+    ...operations.failures.map((row) => iso(row.started_at)),
+    ...operations.terminals.map((row) => iso(row.started_at)),
+    ...operations.finals.map((row) => iso(row.started_at)),
+  ].filter((value): value is string => Boolean(value));
+  const lastActivityAt = activityTimes.reduce((latest, candidate) =>
+    Date.parse(candidate) > Date.parse(latest) ? candidate : latest,
+  request.createdAt);
   const orderCompleted = new Set(operations.orders.map(operationRangeKey)).size;
   const claimCompleted = new Set(operations.claims.map(operationRangeKey)).size;
   const totalSteps = request.orderRanges.length + request.claimRanges.length + 1;
@@ -992,6 +1007,7 @@ export async function loadProductDecisionLiveStatus(
         ? text(terminal.error_message) || "실시간 판매 발주안 계산이 실패했습니다."
         : `주문 ${orderCompleted}/${request.orderRanges.length} · 클레임 ${claimCompleted}/${request.claimRanges.length}`,
     analysisAsOf: request.analysisAsOf,
+    lastActivityAt,
     planningGeneratedAt: request.planningGeneratedAt,
     orderCompleted,
     orderTotal: request.orderRanges.length,
