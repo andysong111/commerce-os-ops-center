@@ -51,6 +51,8 @@ const MAX_DISCOVERY_WINDOWS = 28;
 const MIN_DISCOVERY_WINDOW_DAYS = 7;
 const MAX_DISCOVERY_REQUESTS = 80;
 const DISCOVERY_TIMEOUT_MS = 25_000;
+const MAX_EXACT_REQUEST_ATTEMPTS = 3;
+const EXACT_RETRY_DELAY_MS = 500;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -236,10 +238,23 @@ async function fetchExactShoplingProducts(
   const result: UnknownRecord[] = [];
   for (let index = 0; index < goodsKeys.length; index += MAX_GOODS_PER_REQUEST) {
     const chunk = goodsKeys.slice(index, index + MAX_GOODS_PER_REQUEST);
-    const rows = await postProductGather(
-      config,
-      buildLegacyShoplingProductLookupXml(config, chunk),
-    );
+    let rows: UnknownRecord[] = [];
+    for (let attempt = 1; attempt <= MAX_EXACT_REQUEST_ATTEMPTS; attempt += 1) {
+      try {
+        rows = await postProductGather(
+          config,
+          buildLegacyShoplingProductLookupXml(config, chunk),
+        );
+        break;
+      } catch (error) {
+        if (!isShoplingTimeout(error) || attempt >= MAX_EXACT_REQUEST_ATTEMPTS) {
+          throw error;
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, EXACT_RETRY_DELAY_MS * attempt),
+        );
+      }
+    }
     result.push(...rows);
   }
   return result;
@@ -277,7 +292,7 @@ function splitDiscoveryWindow(start: Date, end: Date) {
   };
 }
 
-function isDiscoveryTimeout(error: unknown) {
+function isShoplingTimeout(error: unknown) {
   const value = error && typeof error === "object"
     ? (error as { name?: unknown; message?: unknown })
     : {};
@@ -332,7 +347,7 @@ async function discoverGoodsKeysInWindow(input: {
     collectDiscoveredGoodsKeys(rows, input.wanted, input.result);
   } catch (error) {
     if (
-      !isDiscoveryTimeout(error) ||
+      !isShoplingTimeout(error) ||
       discoveryWindowDays(input.start, input.end) <= MIN_DISCOVERY_WINDOW_DAYS
     ) {
       throw error;
