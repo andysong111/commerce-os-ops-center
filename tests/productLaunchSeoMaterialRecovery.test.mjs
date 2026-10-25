@@ -154,16 +154,36 @@ test("an empty option list needs Shopling parity or an exact single row B-code",
 });
 
 test("a known warehouse-location conflict stays blocked for physical confirmation", () => {
+  const conflictItem = item({
+    modelNumber: "AAA480",
+    orderOptions: [],
+    selfCodeBase: "BEF1-1",
+  });
+  const conflictProduct = product({
+    modelNo: "AAA480",
+    skus: [{ ...product().skus[0], barcode: "BEF1-1" }],
+  });
   const plan = buildProductLaunchSeoMaterialRecoveryPlan({
-    item: item({ modelNumber: "AAA480", orderOptions: [], selfCodeBase: "BEF1-1" }),
-    product: product({
-      modelNo: "AAA480",
-      skus: [{ ...product().skus[0], barcode: "BEF1-1" }],
-    }),
+    item: conflictItem,
+    product: conflictProduct,
   });
   assert.equal(plan.status, "unresolved");
   assert.equal("orderOptions" in plan.patch, false);
   assert.match(plan.unresolved.join("\n"), /실제 창고 위치/);
+  assert.equal(
+    productLaunchSeoRecoveryNeedsShoplingEvidence(conflictItem, conflictProduct),
+    false,
+  );
+});
+
+test("missing Product Master options do not trigger a Shopling scan that cannot repair them", () => {
+  assert.equal(
+    productLaunchSeoRecoveryNeedsShoplingEvidence(
+      item({ orderOptions: [] }),
+      product({ skus: [] }),
+    ),
+    false,
+  );
 });
 
 test("option count or identity mismatch never overwrites current options", () => {
