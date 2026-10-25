@@ -19,6 +19,7 @@ import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   assertDraftCanBeRegenerated,
   buildManualDraftRevision,
+  confirmedPurchaseDraftOperatorAdjustments,
   normalizePurchaseDraftOperatorAdjustments,
   type PurchaseDraftOperatorAdjustments,
 } from "@/lib/purchaseCycleDraftRegenerationCore";
@@ -81,23 +82,29 @@ export async function loadPurchaseDraftOperatorAdjustments(
   }
   const snapshots = rows.map((row) => {
     const payload = object(row.latestPayload);
-    return normalizePurchaseDraftOperatorAdjustments({
-      excludedBarcodes: Array.isArray(payload.operatorExcludedBarcodes)
-        ? payload.operatorExcludedBarcodes.map(text)
+    return {
+      adjustments: {
+        excludedBarcodes: Array.isArray(payload.operatorExcludedBarcodes)
+          ? payload.operatorExcludedBarcodes.map(text)
+          : [],
+        quantityOverrides: Array.isArray(payload.operatorQuantityOverrides)
+          ? payload.operatorQuantityOverrides.map((value) => {
+              const item = object(value);
+              return { barcode: text(item.barcode), targetQuantity: quantity(item.targetQuantity) };
+            })
+          : [],
+      },
+      lineBarcode: row.barcode,
+      confirmedQuantityOverrideBarcodes: Array.isArray(
+        payload.operatorConfirmedQuantityOverrideBarcodes,
+      )
+        ? payload.operatorConfirmedQuantityOverrideBarcodes.map(text)
         : [],
-      quantityOverrides: Array.isArray(payload.operatorQuantityOverrides)
-        ? payload.operatorQuantityOverrides.map((value) => {
-            const item = object(value);
-            return { barcode: text(item.barcode), targetQuantity: quantity(item.targetQuantity) };
-          })
-        : [],
-    });
+      manualAddition: payload.manualAddition === true,
+      sourcingConfirmed: payload.sourcingConfirmed === true,
+    };
   });
-  const serialized = snapshots.map((value) => JSON.stringify(value));
-  if (new Set(serialized).size > 1) {
-    throw new Error("PURCHASE_DRAFT_OPERATOR_ADJUSTMENTS_CONFLICT");
-  }
-  return snapshots[0];
+  return confirmedPurchaseDraftOperatorAdjustments(snapshots);
 }
 
 function supabaseConnection() {
@@ -207,6 +214,9 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     excludedBarcodes: input.operatorExcludedBarcodes,
     quantityOverrides: input.operatorQuantityOverrides,
   });
+  const confirmedQuantityOverrideBarcodes = operatorAdjustments.quantityOverrides.map(
+    (row) => row.barcode,
+  );
   const stable = {
     regeneration: true,
     sourceFingerprint: input.sourceFingerprint,
@@ -272,10 +282,18 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       previousByBarcode.set(row.barcode, row);
     }
   }
-  const preservedSourcingBarcodes = new Set(
+  const preservedOperatorBarcodes = new Set(
     lines
-      .filter((line) => object(previousByBarcode.get(line.barcode)?.latestPayload).sourcingConfirmed === true)
+      .filter((line) => {
+        const payload = object(previousByBarcode.get(line.barcode)?.latestPayload);
+        return payload.sourcingConfirmed === true || payload.manualAddition === true;
+      })
       .map((line) => line.barcode),
+  );
+  const manuallyAddedBarcodes = new Set(
+    operatorAdjustments.quantityOverrides
+      .filter((row) => !previousByBarcode.has(row.barcode))
+      .map((row) => row.barcode),
   );
   if (draftId === input.expectedDraftId) {
     return {
@@ -328,7 +346,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
   );
   const reserveEvents = lines.map((line) => {
     const previous = previousByBarcode.get(line.barcode);
-    const preservedPayload = preservedSourcingBarcodes.has(line.barcode)
+    const preservedPayload = preservedOperatorBarcodes.has(line.barcode)
       ? object(previous?.latestPayload)
       : {};
     return normalizeChinaOrderCommitmentEvent({
@@ -361,6 +379,8 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         operatorNote: line.note,
         operatorExcludedBarcodes: operatorAdjustments.excludedBarcodes,
         operatorQuantityOverrides: operatorAdjustments.quantityOverrides,
+        operatorConfirmedQuantityOverrideBarcodes: confirmedQuantityOverrideBarcodes,
+        ...(manuallyAddedBarcodes.has(line.barcode) ? { manualAddition: true } : {}),
         regeneration: true,
         supersedesDraftId: input.expectedDraftId,
         externalOrderExecuted: false,

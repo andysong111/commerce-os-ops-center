@@ -1852,6 +1852,36 @@ test("replacement snapshot recovers the immediate predecessor but not an operato
   assert.equal(lines.find((line) => line.barcode === "BAA2-1")?.recoveredFromPredecessor, true);
 });
 
+test("replacement snapshot preserves a manually added line across later recommendation refreshes", () => {
+  const draftId = "fast-purchase-draft:11111111111111111111";
+  const rows = [{
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: draftId,
+    barcode: "BAA9-1",
+    openQuantity: 25,
+    committedQuantity: 25,
+    latestPayload: {
+      productName: "사용자 수동 추가 상품",
+      manualAddition: true,
+    },
+  }];
+
+  const lines = purchaseReplacementDraftSnapshotLines(
+    rows,
+    rows,
+    draftId,
+    new Map(),
+  );
+
+  assert.deepEqual(lines, [{
+    barcode: "BAA9-1",
+    quantity: 25,
+    name: "사용자 수동 추가 상품",
+    preserveOnRegeneration: true,
+    recoveredFromPredecessor: false,
+  }]);
+});
+
 test("replacement audit reports a recovered predecessor as newly added to the visible current draft", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";

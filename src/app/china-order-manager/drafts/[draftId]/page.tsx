@@ -8,7 +8,6 @@ import { loadInternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchas
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
 import { loadPurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegeneration";
-import { mergePurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegenerationCore";
 import { loadLatestInventoryStockEstimates } from "@/lib/inventoryStockEstimateBaselines";
 import type { InventoryStockBand } from "@/lib/inventoryStockBulkInput";
 
@@ -42,18 +41,7 @@ export default async function InternalChinaPurchaseDraftPage({
     ]);
     draft = await loadInternalChinaDraftWithQuantityOverrides(baseDraft);
     budgetAudit = loadedBudgetAudit;
-    const baseQuantityByBarcode = new Map(
-      baseDraft.lines.map((line) => [line.barcode, line.quantity] as const),
-    );
-    const displayedQuantityOverrides = draft.lines.flatMap((line) =>
-      baseQuantityByBarcode.get(line.barcode) === line.quantity
-        ? []
-        : [{ barcode: line.barcode, targetQuantity: line.quantity }],
-    );
-    initialQuantityOverrides = mergePurchaseDraftOperatorAdjustments(
-      persistedAdjustments,
-      { excludedBarcodes: [], quantityOverrides: displayedQuantityOverrides },
-    ).quantityOverrides;
+    initialQuantityOverrides = persistedAdjustments.quantityOverrides;
     initialStockBands = Object.fromEntries(
       draft.lines.flatMap((line) => {
         const stockBand = latestStockEstimates.get(line.barcode)?.stockBand;

@@ -22,6 +22,14 @@ export type PurchaseDraftOperatorAdjustments = {
   quantityOverrides: ManualDraftRevisionQuantityOverride[];
 };
 
+export type PurchaseDraftOperatorAdjustmentSnapshot = {
+  adjustments: Partial<PurchaseDraftOperatorAdjustments> | null | undefined;
+  lineBarcode?: string;
+  confirmedQuantityOverrideBarcodes?: string[];
+  manualAddition?: boolean;
+  sourcingConfirmed?: boolean;
+};
+
 const BARCODE = /^B[A-Z]{2}\d+-\d+$/;
 
 function text(value: unknown) {
@@ -65,6 +73,44 @@ export function normalizePurchaseDraftOperatorAdjustments(
     quantityOverrides: [...quantityByBarcode]
       .map(([code, targetQuantity]) => ({ barcode: code, targetQuantity }))
       .sort((left, right) => left.barcode.localeCompare(right.barcode)),
+  };
+}
+
+/**
+ * Old draft payloads did not distinguish an actual operator pin from a
+ * display-only quantity overlay. Only explicitly confirmed pins (or rows with
+ * durable manual/sourcing provenance) may survive another recommendation
+ * refresh. This intentionally releases ambiguous legacy values back to the
+ * purchase policy instead of treating every displayed quantity as a command.
+ */
+export function confirmedPurchaseDraftOperatorAdjustments(
+  snapshots: PurchaseDraftOperatorAdjustmentSnapshot[],
+): PurchaseDraftOperatorAdjustments {
+  if (snapshots.length < 1) {
+    return { excludedBarcodes: [], quantityOverrides: [] };
+  }
+  const normalized = snapshots.map((snapshot) =>
+    normalizePurchaseDraftOperatorAdjustments(snapshot.adjustments),
+  );
+  if (new Set(normalized.map((value) => JSON.stringify(value))).size > 1) {
+    throw new Error("PURCHASE_DRAFT_OPERATOR_ADJUSTMENTS_CONFLICT");
+  }
+  const confirmed = new Set<string>();
+  for (const snapshot of snapshots) {
+    for (const value of snapshot.confirmedQuantityOverrideBarcodes ?? []) {
+      const code = normalizedBarcode(value);
+      if (BARCODE.test(code)) confirmed.add(code);
+    }
+    if (snapshot.manualAddition === true || snapshot.sourcingConfirmed === true) {
+      const code = normalizedBarcode(snapshot.lineBarcode);
+      if (BARCODE.test(code)) confirmed.add(code);
+    }
+  }
+  return {
+    excludedBarcodes: normalized[0].excludedBarcodes,
+    quantityOverrides: normalized[0].quantityOverrides.filter((row) =>
+      confirmed.has(row.barcode),
+    ),
   };
 }
 
