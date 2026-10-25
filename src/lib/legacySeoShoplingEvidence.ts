@@ -10,6 +10,7 @@ import {
   postShoplingXml,
   shoplingTlsErrorCode,
 } from "@/lib/shopling/shoplingTlsTransport";
+import { extractLegacySeoDetailImageUrls } from "./legacySeoShoplingDetailImages.ts";
 
 const SHOPLING_PRODUCT_IMAGE_FIELDS = Array.from(
   { length: 32 },
@@ -74,6 +75,8 @@ export type LegacySeoShoplingOptionGroup = {
   goodsKey: string;
   ptnGoodsCd: string;
   productName: string;
+  modelName: string;
+  category: string;
   saleStatus: string;
   originalPrice: string;
   salePrice: string;
@@ -532,6 +535,8 @@ function optionGroupsFromRows(
         goodsKey,
         ptnGoodsCd: scalar(first.ptn_goods_cd),
         productName: scalar(first.prod_nm),
+        modelName: scalar(first.model_nm),
+        category: scalar(first.cate_all_nm),
         saleStatus: scalar(first.sale_status),
         originalPrice: scalar(first.org_price),
         salePrice: scalar(first.sale_price),
@@ -542,6 +547,7 @@ function optionGroupsFromRows(
           [
             ...SHOPLING_PRODUCT_IMAGE_FIELDS.map((field) => first[field]),
             ...rows.map((row) => row.optImgUrl),
+            ...extractLegacySeoDetailImageUrls(first.dtl_desc),
           ],
           32,
         ),

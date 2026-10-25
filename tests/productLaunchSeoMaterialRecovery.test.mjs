@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { buildProductLaunchSeoMaterialRecoveryPlan } from "../src/lib/productLaunchSeoMaterialRecovery.ts";
+import {
+  buildProductLaunchSeoMaterialRecoveryPlan,
+  productLaunchSeoRecoveryNeedsShoplingEvidence,
+} from "../src/lib/productLaunchSeoMaterialRecovery.ts";
+import { extractLegacySeoDetailImageUrls } from "../src/lib/legacySeoShoplingDetailImages.ts";
 
 function item(overrides = {}) {
   return {
@@ -117,7 +121,7 @@ test("SEO material recovery fills only exact Product Master option authority", (
   assert.deepEqual(plan.afterErrors, []);
 });
 
-test("an empty option list stays blocked until Shopling confirms the same B-code set", () => {
+test("an empty option list needs Shopling parity or an exact single row B-code", () => {
   const withoutEvidence = buildProductLaunchSeoMaterialRecoveryPlan({
     item: item({ orderOptions: [] }),
     product: product(),
@@ -133,6 +137,33 @@ test("an empty option list stays blocked until Shopling confirms the same B-code
   });
   assert.equal(confirmed.status, "ready_after_recovery");
   assert.equal(confirmed.patch.orderOptions[0].barcode, "BAA1-1");
+
+  const rowConfirmed = buildProductLaunchSeoMaterialRecoveryPlan({
+    item: item({ orderOptions: [], selfCodeBase: "BAA1-1" }),
+    product: product(),
+  });
+  assert.equal(rowConfirmed.status, "ready_after_recovery");
+  assert.equal(rowConfirmed.patch.orderOptions[0].barcode, "BAA1-1");
+  assert.equal(
+    productLaunchSeoRecoveryNeedsShoplingEvidence(
+      item({ orderOptions: [], selfCodeBase: "BAA1-1" }),
+      product(),
+    ),
+    false,
+  );
+});
+
+test("a known warehouse-location conflict stays blocked for physical confirmation", () => {
+  const plan = buildProductLaunchSeoMaterialRecoveryPlan({
+    item: item({ modelNumber: "AAA480", orderOptions: [], selfCodeBase: "BEF1-1" }),
+    product: product({
+      modelNo: "AAA480",
+      skus: [{ ...product().skus[0], barcode: "BEF1-1" }],
+    }),
+  });
+  assert.equal(plan.status, "unresolved");
+  assert.equal("orderOptions" in plan.patch, false);
+  assert.match(plan.unresolved.join("\n"), /실제 창고 위치/);
 });
 
 test("option count or identity mismatch never overwrites current options", () => {
@@ -231,6 +262,54 @@ test("missing detail assets are filled without replacing an existing main image"
     plan.patch.detailPageAsset.mainImageUrl,
     "https://example.com/current.jpg",
   );
+});
+
+test("Shopling detail HTML supplies static images before animated images", () => {
+  assert.deepEqual(
+    extractLegacySeoDetailImageUrls(
+      '<div><img src="https://example.com/intro.gif"><img data-src="https://example.com/main.jpg?x=1&amp;y=2"></div>',
+    ),
+    [
+      "https://example.com/main.jpg?x=1&y=2",
+      "https://example.com/intro.gif",
+    ],
+  );
+});
+
+test("a matching Shopling model name selects the right category and detail image", () => {
+  const plan = buildProductLaunchSeoMaterialRecoveryPlan({
+    item: item({
+      productName: "풋브러쉬 색상랜덤",
+      shoplingCategory: "",
+      detailPageAsset: {},
+    }),
+    product: product({ mainImageUrl: "", category: "" }),
+    evidence: evidence({
+      categories: ["뷰티>풋케어", "생활>샤워타월"],
+      optionGroups: [
+        {
+          ...evidence().optionGroups[0],
+          goodsKey: "100001",
+          productName: "실리콘 풋브러쉬",
+          modelName: "풋브러쉬",
+          category: "뷰티>풋케어",
+          detailHtml: '<img src="https://example.com/foot.jpg">',
+          imageUrls: ["https://example.com/foot.jpg"],
+        },
+        {
+          ...evidence().optionGroups[0],
+          goodsKey: "100002",
+          productName: "실리콘 등브러쉬",
+          modelName: "등브러쉬 색상랜덤",
+          category: "생활>샤워타월",
+          detailHtml: '<img src="https://example.com/back.jpg">',
+          imageUrls: ["https://example.com/back.jpg"],
+        },
+      ],
+    }),
+  });
+  assert.equal(plan.patch.shoplingCategory, "뷰티>풋케어");
+  assert.equal(plan.patch.detailPageAsset.mainImageUrl, "https://example.com/foot.jpg");
 });
 
 test("recovery API requires a matching preview hash and delegates an atomic bulk patch", async () => {
