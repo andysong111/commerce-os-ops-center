@@ -68,6 +68,76 @@ function roundUpStoredBaseSalePrices(value: unknown) {
   return { changed, options };
 }
 
+function positiveMoney(value: unknown) {
+  const numeric = Number(String(value ?? "").replaceAll(",", ""));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+}
+
+function recoverMissingBaseSalePrices(
+  value: unknown,
+  evidence: LegacySeoShoplingEvidence | undefined,
+) {
+  const options = array(value).map(record);
+  if (!options.length || !evidence?.optionGroups?.length) {
+    return { changed: false, options };
+  }
+  const keyResolvers = [
+    {
+      current: (option: UnknownRecord) => bCodeKey(option.barcode),
+      evidence: (option: UnknownRecord) => bCodeKey(option.bCode),
+    },
+    {
+      current: (option: UnknownRecord) => optionBarcodeKey(option.optionBarcodeNo),
+      evidence: (option: UnknownRecord) => optionBarcodeKey(option.optionBarcode),
+    },
+    {
+      current: (option: UnknownRecord) => optionNameKey(option.saleOption ?? option.value),
+      evidence: (option: UnknownRecord) => optionNameKey(option.optionName),
+    },
+  ];
+  const candidates = evidence.optionGroups.flatMap((group) => {
+    const salePrice = positiveMoney(group.salePrice);
+    const evidenceOptions = array(group.options).map(record);
+    if (!salePrice || evidenceOptions.length !== options.length) return [];
+    const indexes = keyResolvers.map(({ evidence: keyOf }) =>
+      uniqueCanonicalIndexes(evidenceOptions, keyOf),
+    );
+    const claimed = new Set<number>();
+    const prices = new Array<number>(options.length);
+    for (const [currentIndex, current] of options.entries()) {
+      let evidenceIndex: number | null = options.length === 1 ? 0 : null;
+      if (evidenceIndex === null) {
+        for (const [resolverIndex, { current: keyOf }] of keyResolvers.entries()) {
+          const key = keyOf(current);
+          const candidate = key ? indexes[resolverIndex]?.get(key) : undefined;
+          if (typeof candidate === "number") {
+            evidenceIndex = candidate;
+            break;
+          }
+        }
+      }
+      if (evidenceIndex === null || claimed.has(evidenceIndex)) return [];
+      claimed.add(evidenceIndex);
+      const evidenceOption = evidenceOptions[evidenceIndex] ?? {};
+      prices[currentIndex] = roundUpProductLaunchPriceKrw(
+        salePrice + Math.max(0, positiveMoney(evidenceOption.amount)),
+      );
+    }
+    return [{ salePrice, prices }];
+  });
+  const selected = candidates.sort((left, right) => left.salePrice - right.salePrice)[0];
+  if (!selected) return { changed: false, options };
+  let changed = false;
+  const recovered = options.map((option, index) => {
+    if (positiveMoney(option.baseSalePriceKrw)) return option;
+    const baseSalePriceKrw = selected.prices[index] ?? 0;
+    if (!baseSalePriceKrw) return option;
+    changed = true;
+    return { ...option, baseSalePriceKrw };
+  });
+  return { changed, options: recovered };
+}
+
 function modelKey(value: unknown) {
   return text(value).toUpperCase().replace(/\s+/g, "");
 }
@@ -367,7 +437,9 @@ function statusFor(input: {
   beforeReady: boolean;
   afterReady: boolean;
 }): ProductLaunchSeoMaterialRecoveryStatus {
-  if (input.beforeReady) return "already_ready";
+  if (input.beforeReady) {
+    return input.changed ? "ready_after_recovery" : "already_ready";
+  }
   if (input.afterReady) return "ready_after_recovery";
   if (input.changed) return "partially_recovered";
   return "unresolved";
@@ -457,6 +529,15 @@ export function buildProductLaunchSeoMaterialRecoveryPlan(input: {
     }
   }
 
+  const recoveredPrices = recoverMissingBaseSalePrices(
+    patch.orderOptions ?? item.orderOptions,
+    input.evidence,
+  );
+  if (recoveredPrices.changed) {
+    patch.orderOptions = recoveredPrices.options;
+    if (!changedFields.includes("orderOptions")) changedFields.push("orderOptions");
+  }
+
   const roundedPrices = roundUpStoredBaseSalePrices(
     patch.orderOptions ?? item.orderOptions,
   );
@@ -471,6 +552,7 @@ export function buildProductLaunchSeoMaterialRecoveryPlan(input: {
       source: [
         product ? "product_master_inventory_catalog" : "",
         input.evidence ? "shopling_live_api" : "",
+        recoveredPrices.changed ? "shopling_live_price" : "",
         roundedPrices.changed ? "product_launch_price_round_up_policy" : "",
       ].filter(Boolean),
       recoveredAt,
@@ -509,7 +591,11 @@ export function productLaunchSeoRecoveryNeedsShoplingEvidence(
       !manualLocationReview &&
       currentRowConfirmsSingleProductMasterBCode(item, product),
   );
+  const missingBaseSalePrice = productLaunchSeoMaterialReadiness(item).errors.some(
+    (issue) => /기준 판매가/.test(issue),
+  );
   return (
+    missingBaseSalePrice ||
     !text(detail.html) ||
     (!text(detail.mainImageUrl) && !text(product?.mainImageUrl)) ||
     (array(item.orderOptions).length === 0 &&

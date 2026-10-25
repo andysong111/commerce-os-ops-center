@@ -139,7 +139,7 @@ test("이미 준비된 상품도 기준판매가의 일의자리를 안전하게
     recoveredAt: "2026-10-25T00:00:00.000Z",
   });
 
-  assert.equal(plan.status, "already_ready");
+  assert.equal(plan.status, "ready_after_recovery");
   assert.equal(plan.changed, true);
   assert.deepEqual(plan.changedFields, ["orderOptions"]);
   assert.equal(plan.patch.orderOptions[0].baseSalePriceKrw, 1180);
@@ -148,6 +148,49 @@ test("이미 준비된 상품도 기준판매가의 일의자리를 안전하게
   assert.deepEqual(plan.patch.seoMaterialRecovery.source, [
     "product_launch_price_round_up_policy",
   ]);
+});
+
+test("원가가 없는 기존 상품은 Shopling 실제 판매가와 옵션 추가금으로 기준판매가만 복구한다", () => {
+  const plan = buildProductLaunchSeoMaterialRecoveryPlan({
+    item: item({
+      orderOptions: [
+        {
+          id: "white",
+          optionName: "옵션",
+          saleOption: "화이트",
+          barcode: "BAA1-1",
+          optionBarcodeNo: "123456789012",
+          baseSalePriceKrw: 0,
+          unitCostKrw: 0,
+        },
+      ],
+    }),
+    product: product({
+      skus: [
+        {
+          ...product().skus[0],
+          currentBasePrice: 0,
+          latestCostKrw: 0,
+        },
+      ],
+    }),
+    evidence: evidence({
+      optionGroups: [
+        {
+          ...evidence().optionGroups[0],
+          salePrice: "5174",
+          options: [{ ...evidence().optionGroups[0].options[0], amount: "301" }],
+        },
+      ],
+    }),
+  });
+
+  assert.equal(plan.status, "ready_after_recovery");
+  assert.equal(plan.patch.orderOptions[0].baseSalePriceKrw, 5480);
+  assert.equal(plan.patch.orderOptions[0].unitCostKrw, 0);
+  assert.deepEqual(plan.afterErrors, []);
+  assert.equal(productLaunchSeoRecoveryNeedsShoplingEvidence(item(), product()), true);
+  assert.ok(plan.patch.seoMaterialRecovery.source.includes("shopling_live_price"));
 });
 
 test("an empty option list needs Shopling parity or an exact single row B-code", () => {
