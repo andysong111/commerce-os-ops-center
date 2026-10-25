@@ -7,6 +7,7 @@ import {
   resolveProductLaunchIdentity,
 } from "@/lib/productLaunchTrackerServer";
 import { reconcileProductLaunchNormalizedAfterLegacyItems } from "@/lib/productLaunchTrackerNormalizedLegacyReconcile";
+import { roundUpProductLaunchPriceKrw } from "@/lib/productLaunchPricePolicy";
 import {
   readProductLaunchNormalizedItem,
   readProductLaunchNormalizedWorkspace,
@@ -258,6 +259,9 @@ async function writeNormalizedItem(
 
   const optionRows = orderOptions.map((option, optionIndex) => {
     const optionId = text(option.id) || `option-${optionIndex + 1}`;
+    const baseSalePriceKrw = roundUpProductLaunchPriceKrw(option.baseSalePriceKrw);
+    const optionPayload = cloneRecord(option);
+    optionPayload.baseSalePriceKrw = baseSalePriceKrw;
     return {
       owner_id: identity.userId,
       item_id: summary.id,
@@ -267,13 +271,13 @@ async function writeNormalizedItem(
       sale_option: text(option.saleOption ?? option.value),
       china_option: text(option.chinaOption),
       barcode: text(option.barcode),
-      base_sale_price_krw: nonNegativeInteger(option.baseSalePriceKrw),
+      base_sale_price_krw: baseSalePriceKrw,
       unit_cost_krw: nonNegativeInteger(option.unitCostKrw),
       source_order_item_id:
         option.sourceOrderItemId === null || option.sourceOrderItemId === undefined
           ? null
           : text(option.sourceOrderItemId),
-      option_payload: cloneRecord(option),
+      option_payload: optionPayload,
       updated_at: updatedAt,
       option_barcode_no: text(option.optionBarcodeNo),
       option_barcode_identity_key: text(option.optionBarcodeIdentityKey),

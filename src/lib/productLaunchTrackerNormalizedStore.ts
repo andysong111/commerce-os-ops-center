@@ -1,4 +1,5 @@
 import { normalizeProductLaunchOptionNames } from "@/lib/productLaunchOptionNames";
+import { roundUpProductLaunchPriceKrw } from "@/lib/productLaunchPricePolicy";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   buildProductLaunchTrackerIndex,
@@ -123,6 +124,9 @@ export function prepareProductLaunchNormalizedSnapshot(
       : [];
     orderOptions.forEach((option, optionIndex) => {
       const optionId = text(option.id) || `option-${optionIndex + 1}`;
+      const baseSalePriceKrw = roundUpProductLaunchPriceKrw(option.baseSalePriceKrw);
+      const optionPayload = cloneRecord(option);
+      optionPayload.baseSalePriceKrw = baseSalePriceKrw;
       optionRows.push({
         owner_id: identity.userId,
         item_id: summary.id,
@@ -132,13 +136,13 @@ export function prepareProductLaunchNormalizedSnapshot(
         sale_option: text(option.saleOption ?? option.value),
         china_option: text(option.chinaOption),
         barcode: normalizeLocationCode(option.barcode),
-        base_sale_price_krw: nonNegativeInteger(option.baseSalePriceKrw),
+        base_sale_price_krw: baseSalePriceKrw,
         unit_cost_krw: nonNegativeInteger(option.unitCostKrw),
         source_order_item_id:
           option.sourceOrderItemId === null || option.sourceOrderItemId === undefined
             ? null
             : text(option.sourceOrderItemId),
-        option_payload: cloneRecord(option),
+        option_payload: optionPayload,
         updated_at: updatedAt,
       });
     });

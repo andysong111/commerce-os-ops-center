@@ -31,9 +31,11 @@ test("direct item API는 정규화 item\/options를 먼저 저장하고 legacy m
 
 test("direct item API는 기준판매가와 원가를 option 정규화 행에 직접 기록한다", async () => {
   const route = await source("src/app/api/product-launch-tracker/item-editor/route.ts");
-  assert.match(route, /base_sale_price_krw: nonNegativeInteger\(option\.baseSalePriceKrw\)/);
+  assert.match(route, /base_sale_price_krw: baseSalePriceKrw/);
+  assert.match(route, /roundUpProductLaunchPriceKrw\(option\.baseSalePriceKrw\)/);
   assert.match(route, /unit_cost_krw: nonNegativeInteger\(option\.unitCostKrw\)/);
-  assert.match(route, /option_payload: cloneRecord\(option\)/);
+  assert.match(route, /optionPayload\.baseSalePriceKrw = baseSalePriceKrw/);
+  assert.match(route, /option_payload: optionPayload/);
 });
 
 test("옵션 바코드 mirror trigger는 부모 상품 updated_at을 덮어쓰지 않는다", async () => {
