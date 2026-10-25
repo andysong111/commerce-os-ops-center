@@ -16,7 +16,9 @@ export async function POST(request: Request) {
   }
   try {
     const input = (await request.json()) as PurchaseCycleDraftRequest;
-    const result = await createPurchaseCyclePreflightDraft(input);
+    const result = await createPurchaseCyclePreflightDraft(input, {
+      startNewRun: input.startNewRun === true,
+    });
     const sourcingMessage = result.sourcing
       ? result.sourcing.ok
         ? ` 신규상품 ${result.sourcing.confirmedCount}종도 창고 B코드·모델번호를 배정해 같은 발주차시 Draft에 추가했습니다.`

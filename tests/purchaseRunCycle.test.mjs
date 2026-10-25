@@ -58,6 +58,36 @@ test("recalculating a draft keeps its original cycle boundaries", () => {
   assert.equal(result.bootstrap, false);
 });
 
+test("starting a new run while replacing an abandoned draft uses today's boundary", () => {
+  const result = inferPurchaseRunCycleBasis({
+    targetDate: "2026-10-26",
+    replaceDraftId: "fast-purchase-draft:33333333333333333333",
+    startNewRun: true,
+    drafts: [
+      draft({
+        draftId: "fast-purchase-draft:22222222222222222222",
+        cycleStartDate: "2026-10-05",
+        orderedQuantity: 10,
+      }),
+      draft({
+        draftId: "fast-purchase-draft:33333333333333333333",
+        createdAt: "2026-10-23T03:00:00.000Z",
+        cycleStartDate: "2026-10-23",
+        previousCycleStartDate: "2026-09-20",
+        orderedQuantity: 0,
+        receivedQuantity: 0,
+        openQuantity: 20,
+      }),
+    ],
+  });
+
+  assert.equal(result.cycleStartDate, "2026-10-26");
+  assert.equal(result.previousCycleStartDate, "2026-10-05");
+  assert.equal(result.revenueRangeStartDate, "2026-10-05");
+  assert.equal(result.revenueRangeEndDate, "2026-10-25");
+  assert.equal(result.bootstrap, false);
+});
+
 test("new cycle uses the prior calculation start and keeps in-transit sales in range", () => {
   const result = inferPurchaseRunCycleBasis({
     targetDate: "2026-10-23",

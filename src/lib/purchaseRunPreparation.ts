@@ -124,7 +124,12 @@ function draftBuilderUrl(
     prepared: "1",
   });
   if (input.cashLimitKrw !== null) params.set("cash", String(input.cashLimitKrw));
-  if (replaceDraftId) params.set("replace", replaceDraftId);
+  if (replaceDraftId) {
+    params.set("replace", replaceDraftId);
+    // Reusing an abandoned RESERVED Draft is a new purchase run, not a
+    // recalculation of the abandoned run's old sales interval.
+    params.set("newRun", "1");
+  }
   return `/purchase-cycle-preflight?${params.toString()}`;
 }
 

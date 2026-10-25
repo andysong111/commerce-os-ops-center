@@ -232,6 +232,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   let effectiveSourcingVariantSelections = sourcingVariantSelections;
   const early = single("early", "") === "1";
   const replaceDraftId = single("replace", "") || null;
+  const startNewRun = single("newRun", "") === "1";
   const excludedBarcodes = (Array.isArray(query.exclude)
     ? query.exclude
     : typeof query.exclude === "string"
@@ -265,7 +266,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   // explicit read-only form submission does. No polling, cron or write action.
   if (query.check === "1") {
     try {
-      if (["date", "cash", "sourcing", "early", "check", "replace", "selection"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
+      if (["date", "cash", "sourcing", "early", "check", "replace", "newRun", "selection"].some(key => Array.isArray(query[key]))) throw new Error("DUPLICATE_INPUT");
+      if (startNewRun && !replaceDraftId) throw new Error("PURCHASE_RUN_REPLACEMENT_REQUIRED");
       if ((cash !== "" && !/^\d+$/.test(cash)) || (sourcing !== "" && !/^\d+$/.test(sourcing))) throw new Error("NUMERIC_INPUT_INVALID");
       if (!["automatic", "custom"].includes(selectionMode)) throw new Error("SOURCING_SELECTION_MODE_INVALID");
       if (preferredSourcingConceptIds.length > 20 || new Set(preferredSourcingConceptIds).size !== preferredSourcingConceptIds.length) throw new Error("SOURCING_SELECTION_INVALID");
@@ -501,6 +503,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     : [];
   const draftActionProps = report ? {
     targetDate: report.targetDate,
+    startNewRun,
     cashLimitKrw: report.cashLimitKrw,
     sourcingBudgetPercent: report.sourcingBudgetPercent,
     sourcingBudgetKrw: report.sourcingBudgetKrw,
@@ -567,6 +570,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <input type="hidden" name="check" value="1" />
             {prepared ? <input type="hidden" name="prepared" value="1" /> : null}
           {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
+          {startNewRun ? <input type="hidden" name="newRun" value="1" /> : null}
           {excludedBarcodes.map((barcode) => <input key={`exclude:${barcode}`} type="hidden" name="exclude" value={barcode} />)}
           {quantityOverrides.map((row) => <input key={`qty:${row.barcode}`} type="hidden" name="qty" value={`${row.barcode}:${row.targetQuantity}`} />)}
           <label className="text-sm font-bold text-slate-900">발주 예정일<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="date" type="date" defaultValue={targetDate} required /><span className="mt-1 block text-xs font-normal text-slate-500">판매·재고를 계산할 기준일</span></label>
@@ -649,6 +653,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                   <SourcingCandidateSelectionForm
                     formId={NEW_PRODUCT_CONFIGURATION_FORM_ID}
                     targetDate={report.targetDate}
+                    startNewRun={startNewRun}
                     cash={cash}
                     sourcingBudgetPercent={report.sourcingBudgetPercent}
                     early={early}
@@ -719,6 +724,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                   <input type="hidden" name="cash" value={cash} />
                   {early ? <input type="hidden" name="early" value="1" /> : null}
                   {replaceDraftId ? <input type="hidden" name="replace" value={replaceDraftId} /> : null}
+                  {startNewRun ? <input type="hidden" name="newRun" value="1" /> : null}
                   {excludedBarcodes.map((barcode) => <input key={`ratio-exclude:${barcode}`} type="hidden" name="exclude" value={barcode} />)}
                   {quantityOverrides.map((row) => <input key={`ratio-qty:${row.barcode}`} type="hidden" name="qty" value={`${row.barcode}:${row.targetQuantity}`} />)}
                   <input type="hidden" name="selection" value="custom" />

@@ -26,6 +26,7 @@ type Candidate = {
 type Props = {
   formId: string;
   targetDate: string;
+  startNewRun?: boolean;
   cash: string;
   sourcingBudgetPercent: number;
   early: boolean;
@@ -45,6 +46,7 @@ function identity(conceptId: string, variantKey: string) {
 export function SourcingCandidateSelectionForm({
   formId,
   targetDate,
+  startNewRun = false,
   cash,
   sourcingBudgetPercent,
   early,
@@ -128,6 +130,7 @@ export function SourcingCandidateSelectionForm({
     <form id={formId} method="get" action="/purchase-cycle-preflight" className="mt-4 border-t border-slate-200 pt-4">
       <input type="hidden" name="check" value="1" />
       <input type="hidden" name="date" value={targetDate} />
+      {startNewRun ? <input type="hidden" name="newRun" value="1" /> : null}
       <input type="hidden" name="cash" value={cash} />
       <input type="hidden" name="sourcing" value={String(sourcingBudgetPercent)} />
       <input type="hidden" name="selection" value="custom" />

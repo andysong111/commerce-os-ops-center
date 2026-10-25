@@ -196,6 +196,9 @@ export async function createPurchaseCyclePreflightDraft(
   complete: boolean;
   externalOrderExecuted: false;
 }> {
+  if (behavior.startNewRun === true && !request.replaceDraftId) {
+    throw new Error("PURCHASE_RUN_REPLACEMENT_REQUIRED");
+  }
   const options = purchaseCycleDraftPreflightOptions(request);
   let report = await loadPurchaseCyclePreflight(options);
   const sourcingPlan = report.sourcingBudgetPercent > 0

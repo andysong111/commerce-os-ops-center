@@ -195,6 +195,8 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     ? inferPurchaseRunCycleBasis({
         targetDate: input.nextCycleStartDate,
         drafts: draftLedger.drafts,
+        replaceDraftId: input.expectedDraftId,
+        startNewRun: true,
       })
     : inferPurchaseRunCycleBasis({
         targetDate: expectedSummary.cycleStartDate || expectedSummary.createdAt,

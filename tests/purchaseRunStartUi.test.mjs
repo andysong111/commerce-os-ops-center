@@ -24,6 +24,7 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(service, /loadInventoryVerificationPriority/);
   assert.match(service, /prepared:\s*"1"/);
   assert.match(service, /replaceable\?\.draftId/);
+  assert.match(service, /params\.set\("newRun", "1"\)/);
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(route, /externalOrderExecuted:\s*false/);
   assert.match(route, /validationError \? 400 : 503/);
@@ -33,6 +34,13 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(route, /retryableFailure: true/);
   assert.match(route, /purchaseRunPreparationErrorStage/);
   assert.match(route, /\[purchase-run-start\] preparation failed/);
+  const preflightPage = await read("../src/app/purchase-cycle-preflight/page.tsx");
+  const draftActions = await read("../src/components/purchase-cycle-preflight/PurchaseCycleDraftActions.tsx");
+  const draftRoute = await read("../src/app/api/purchase-cycle/preflight-draft/route.ts");
+  assert.match(preflightPage, /const startNewRun = single\("newRun", ""\) === "1"/);
+  assert.match(draftActions, /startNewRun/);
+  assert.match(draftActions, /preserveExistingSourcingOnly && !startNewRun/);
+  assert.match(draftRoute, /startNewRun: input\.startNewRun === true/);
   assert.match(liveRefresh, /PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 70_000/);
   assert.match(liveRefresh, /requestTimeoutMs: PRODUCT_MASTER_REFRESH_TIMEOUT_MS/);
   assert.doesNotMatch(service, /checkout|payment|submitOrder|externalOrderExecuted:\s*true/i);
