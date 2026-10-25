@@ -6,7 +6,10 @@ import {
   shoplingReadConfigFromEnv,
   type ShoplingReadConfig,
 } from "@/lib/shopling/shoplingReadClient";
-import { postShoplingXml } from "@/lib/shopling/shoplingTlsTransport";
+import {
+  postShoplingXml,
+  shoplingTlsErrorCode,
+} from "@/lib/shopling/shoplingTlsTransport";
 
 const SHOPLING_PRODUCT_IMAGE_FIELDS = Array.from(
   { length: 32 },
@@ -45,6 +48,9 @@ const MAX_GOODS_KEYS_PER_MODEL = 120;
 const DISCOVERY_EARLIEST = new Date("2021-01-01T00:00:00.000Z");
 const DISCOVERY_WINDOW_DAYS = 89;
 const MAX_DISCOVERY_WINDOWS = 28;
+const MIN_DISCOVERY_WINDOW_DAYS = 7;
+const MAX_DISCOVERY_REQUESTS = 80;
+const DISCOVERY_TIMEOUT_MS = 25_000;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -182,7 +188,7 @@ export function buildLegacyShoplingModelDiscoveryXml(
     `<login_id>${xmlCdata(config.loginId)}</login_id>`,
     `<company_id>${xmlCdata(config.companyId)}</company_id>`,
     `<api_auth_key>${xmlCdata(config.authKey)}</api_auth_key>`,
-    `<search_tp>${xmlCdata("등록일")}</search_tp>`,
+    `<search_tp>${xmlCdata("수정일")}</search_tp>`,
     `<start_dt>${formatYmd(startDate)}</start_dt>`,
     `<end_dt>${formatYmd(endDate)}</end_dt>`,
     `<prod_fields>${xmlCdata(MODEL_DISCOVERY_FIELDS)}</prod_fields>`,
@@ -203,14 +209,18 @@ function shoplingEnvironment() {
   };
 }
 
-async function postProductGather(config: ShoplingReadConfig, xml: string) {
+async function postProductGather(
+  config: ShoplingReadConfig,
+  xml: string,
+  timeoutMs = 45_000,
+) {
   const response = await postShoplingXml(config.productsUrl, xml, {
     headers: {
       accept: "application/xml, text/xml",
       "content-type": "application/xml; charset=utf-8",
       "user-agent": "commerce-os-legacy-seo-shopling-read/1.0",
     },
-    timeoutMs: 45_000,
+    timeoutMs,
   });
   const body = await response.text();
   if (!response.ok) {
@@ -250,6 +260,97 @@ function discoveryWindows(now = new Date()) {
   return windows;
 }
 
+function discoveryWindowDays(start: Date, end: Date) {
+  return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+}
+
+function splitDiscoveryWindow(start: Date, end: Date) {
+  const midpoint = new Date(
+    start.getTime() + Math.floor((end.getTime() - start.getTime()) / 2),
+  );
+  midpoint.setUTCHours(0, 0, 0, 0);
+  const newerStart = new Date(midpoint);
+  newerStart.setUTCDate(newerStart.getUTCDate() + 1);
+  return {
+    older: { start: new Date(start), end: midpoint },
+    newer: { start: newerStart, end: new Date(end) },
+  };
+}
+
+function isDiscoveryTimeout(error: unknown) {
+  const value = error && typeof error === "object"
+    ? (error as { name?: unknown; message?: unknown })
+    : {};
+  const detail = [
+    String(value.name ?? ""),
+    String(value.message ?? ""),
+    shoplingTlsErrorCode(error),
+  ].join(" ");
+  return /timeout|timed out|aborted/i.test(detail);
+}
+
+function discoveryComplete(wanted: Set<string>, result: Map<string, Set<string>>) {
+  return [...wanted].every((model) => (result.get(model)?.size ?? 0) > 0);
+}
+
+function collectDiscoveredGoodsKeys(
+  rows: UnknownRecord[],
+  wanted: Set<string>,
+  result: Map<string, Set<string>>,
+) {
+  for (const row of rows) {
+    const model = normalizeModel(row.model_no);
+    if (!wanted.has(model)) continue;
+    const goodsKey = normalizeGoodsKey(row.goods_key);
+    if (!goodsKey) continue;
+    const keys = result.get(model) ?? new Set<string>();
+    keys.add(goodsKey);
+    result.set(model, keys);
+  }
+}
+
+async function discoverGoodsKeysInWindow(input: {
+  config: ShoplingReadConfig;
+  start: Date;
+  end: Date;
+  wanted: Set<string>;
+  result: Map<string, Set<string>>;
+  budget: { count: number };
+}) {
+  if (discoveryComplete(input.wanted, input.result)) return;
+  input.budget.count += 1;
+  if (input.budget.count > MAX_DISCOVERY_REQUESTS) {
+    throw new Error("LEGACY_SEO_SHOPLING_DISCOVERY_REQUEST_LIMIT");
+  }
+
+  try {
+    const rows = await postProductGather(
+      input.config,
+      buildLegacyShoplingModelDiscoveryXml(input.config, input.start, input.end),
+      DISCOVERY_TIMEOUT_MS,
+    );
+    collectDiscoveredGoodsKeys(rows, input.wanted, input.result);
+  } catch (error) {
+    if (
+      !isDiscoveryTimeout(error) ||
+      discoveryWindowDays(input.start, input.end) <= MIN_DISCOVERY_WINDOW_DAYS
+    ) {
+      throw error;
+    }
+    const split = splitDiscoveryWindow(input.start, input.end);
+    await discoverGoodsKeysInWindow({
+      ...input,
+      start: split.newer.start,
+      end: split.newer.end,
+    });
+    await discoverGoodsKeysInWindow({
+      ...input,
+      start: split.older.start,
+      end: split.older.end,
+    });
+  }
+}
+
 async function discoverGoodsKeysByModel(
   config: ShoplingReadConfig,
   modelNumbers: string[],
@@ -257,22 +358,18 @@ async function discoverGoodsKeysByModel(
   const wanted = new Set(modelNumbers.map(normalizeModel).filter(Boolean));
   const result = new Map<string, Set<string>>();
   if (!wanted.size) return result;
+  const budget = { count: 0 };
 
   for (const window of discoveryWindows()) {
-    const rows = await postProductGather(
+    await discoverGoodsKeysInWindow({
       config,
-      buildLegacyShoplingModelDiscoveryXml(config, window.start, window.end),
-    );
-    for (const row of rows) {
-      const model = normalizeModel(row.model_no);
-      if (!wanted.has(model)) continue;
-      const goodsKey = normalizeGoodsKey(row.goods_key);
-      if (!goodsKey) continue;
-      const keys = result.get(model) ?? new Set<string>();
-      keys.add(goodsKey);
-      result.set(model, keys);
-    }
-    if ([...wanted].every((model) => (result.get(model)?.size ?? 0) > 0)) break;
+      start: window.start,
+      end: window.end,
+      wanted,
+      result,
+      budget,
+    });
+    if (discoveryComplete(wanted, result)) break;
   }
   return result;
 }
