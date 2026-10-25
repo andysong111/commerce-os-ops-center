@@ -63,6 +63,11 @@ test("Shopling 근거가 Product Master에 없으면 확인 모델만 수정일 
   assert.match(evidence, /split\.newer/);
   assert.match(evidence, /split\.older/);
   assert.match(evidence, /MAX_EXACT_REQUEST_ATTEMPTS = 3/);
+  assert.match(evidence, /EXACT_REQUEST_TIMEOUT_MS = 20_000/);
+  assert.match(
+    evidence,
+    /buildLegacyShoplingProductLookupXml\(config, chunk\),\s*EXACT_REQUEST_TIMEOUT_MS/,
+  );
   assert.match(evidence, /attempt >= MAX_EXACT_REQUEST_ATTEMPTS/);
   assert.match(evidence, /EXACT_RETRY_DELAY_MS \* attempt/);
   assert.match(evidence, /isConfirmedLegacyInventoryModel\(model\)/);
