@@ -574,10 +574,44 @@ test("replacement totals include reorder, preserved sourcing, and newly selected
     existingReorderQuantity: 38,
     preservedSourcingCount: 1,
     preservedSourcingQuantity: 10,
+    preservedOperatorCount: 0,
+    preservedOperatorQuantity: 0,
+    unresolvedAutomaticCount: 0,
+    unresolvedAutomaticQuantity: 0,
     newSourcingCount: 3,
     newSourcingQuantity: 20,
     finalLineCount: 5,
     finalQuantity: 68,
+  });
+});
+
+test("replacement totals do not describe operator pins or unresolved automatic rows as sourcing", () => {
+  const value = report();
+  value.operatorQuantityOverrides = [{ barcode: "BGG1-1", targetQuantity: 3_000 }];
+  value.preservedReplacementLines = [{
+    barcode: "BGG1-1",
+    name: "운영자 수량 고정",
+    quantity: 3_000,
+  }, {
+    barcode: "BBC1-1",
+    name: "근거 확인 대기",
+    quantity: 15,
+    recoveredFromPredecessor: true,
+  }];
+
+  assert.deepEqual(purchaseCycleDraftPlannedTotals(value), {
+    existingReorderCount: 1,
+    existingReorderQuantity: 38,
+    preservedSourcingCount: 0,
+    preservedSourcingQuantity: 0,
+    preservedOperatorCount: 1,
+    preservedOperatorQuantity: 3_000,
+    unresolvedAutomaticCount: 1,
+    unresolvedAutomaticQuantity: 15,
+    newSourcingCount: 0,
+    newSourcingQuantity: 0,
+    finalLineCount: 3,
+    finalQuantity: 3_053,
   });
 });
 
