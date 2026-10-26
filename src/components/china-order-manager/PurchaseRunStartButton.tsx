@@ -54,6 +54,7 @@ export function PurchaseRunStartButton() {
 
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (controllerRef.current) return;
     const trimmedCash = cash.trim();
     const cashLimitKrw = trimmedCash === "" ? null : Number(trimmedCash.replaceAll(",", ""));
     const sourcingBudgetPercent = Number(sourcingPercent);
@@ -67,7 +68,6 @@ export function PurchaseRunStartButton() {
     }
 
     const controller = new AbortController();
-    controllerRef.current?.abort();
     controllerRef.current = controller;
     setStarting(true);
     setProgress(2);

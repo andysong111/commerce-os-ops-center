@@ -105,22 +105,27 @@ test("purchase-run status reads only the newest frozen planning snapshot", () =>
 });
 
 test("purchase-run freshness follows the latest stored progress instead of its start time", () => {
-  assert.match(workflow, /PURCHASE_RUN_ACTIVE_RESUME_MAX_AGE_MS = 30 \* 60 \* 1000/);
   assert.match(workflow, /lastActivityAt\?: string \| null/);
-  assert.match(
-    workflow,
-    /current\.lastActivityAt \?\? current\.analysisAsOf/,
+  assert.match(workflow, /const current = await loadProductDecisionLiveStatus\(\)/);
+  assert.match(workflow, /const evaluatedAt = options\.now \?\? new Date\(\)/);
+  assert.ok(
+    workflow.indexOf("const evaluatedAt = options.now ?? new Date()") >
+      workflow.indexOf("const current = await loadProductDecisionLiveStatus()"),
   );
   assert.match(
     workflow,
     /operations\.finals\.map\(\(row\) => iso\(row\.started_at\)\)/,
   );
+  assert.match(workflow, /shouldReuseProductDecisionLiveStatus\(current/);
+  assert.match(workflow, /PRODUCT_DECISION_ACTIVE_RESUME_MAX_AGE_MS/);
+});
+
+test("purchase-run coordinator pins each worker step to the selected request", async () => {
+  const coordinator = await readFile("src/lib/purchaseRunPreparation.ts", "utf8");
   assert.match(
-    workflow,
-    /resumableActive = ageMs >= 0[\s\S]*?current\.state === "QUEUED" \|\| current\.state === "RUNNING"/,
+    coordinator,
+    /runProductDecisionLiveRefreshStep\(demand\.requestId\)/,
   );
-  assert.match(workflow, /freshCompleted = fresh && current\.state === "COMPLETED"/);
-  assert.match(workflow, /if \(resumableActive \|\| freshCompleted\)/);
 });
 
 test("each Shopling chunk performs one bounded HTTP attempt and worker retries are the only retry layer", () => {
