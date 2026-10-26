@@ -4,6 +4,7 @@ import {
   normalizeShoplingOrder,
   type ShoplingRawRow,
 } from "@/lib/shopling/shoplingNormalize";
+import { resolveShoplingDirectPackUnits } from "@/lib/shopling/shoplingDirectPackEvidence";
 import type { ShoplingDateRange } from "@/lib/shopling/shoplingReadClient";
 import type { ProductPlanningSnapshot } from "@/lib/shopling/shoplingLiveAggregation";
 
@@ -56,6 +57,7 @@ type PlanningIndex = {
   byOptionId: Map<string, ListingIdentity>;
   byGoodsKey: Map<string, ListingIdentity>;
   byBarcode: Map<string, ListingIdentity>;
+  unitsByBarcode: Map<string, Set<number>>;
   historicalByBarcode: Map<string, HistoricalBarcodeEvidence>;
   unitsByGoodsKey: Map<string, Set<number>>;
   managedOptionIds: Set<string>;
@@ -192,6 +194,7 @@ function buildPlanningIndex(planning: ProductPlanningSnapshot): PlanningIndex {
       .map(([barcode]) => barcode),
   );
   for (const barcode of ambiguousBarcodes) products.delete(barcode);
+  for (const barcode of ambiguousBarcodes) activeUnitsByBarcode.delete(barcode);
   for (const [key, identity] of [...byOptionId.entries()]) {
     if (ambiguousBarcodes.has(identity.barcode)) byOptionId.delete(key);
   }
@@ -219,6 +222,7 @@ function buildPlanningIndex(planning: ProductPlanningSnapshot): PlanningIndex {
     byOptionId,
     byGoodsKey,
     byBarcode,
+    unitsByBarcode: activeUnitsByBarcode,
     historicalByBarcode,
     unitsByGoodsKey,
     managedOptionIds,
@@ -351,6 +355,13 @@ function resolveIdentity(
 
     const currentDirect = index.byBarcode.get(optionBarcode);
     if (currentDirect) return currentDirect;
+    const evidencedUnits = resolveShoplingDirectPackUnits(
+      raw,
+      index.unitsByBarcode.get(optionBarcode) ?? [],
+    );
+    if (evidencedUnits) {
+      return { barcode: optionBarcode, unitsPerOrder: evidencedUnits };
+    }
 
     const historicalDirect = historicalDirectIdentity(
       index,
@@ -375,6 +386,13 @@ function resolveIdentity(
   if (partnerCode) {
     const currentDirect = index.byBarcode.get(partnerCode);
     if (currentDirect) return currentDirect;
+    const evidencedUnits = resolveShoplingDirectPackUnits(
+      raw,
+      index.unitsByBarcode.get(partnerCode) ?? [],
+    );
+    if (evidencedUnits) {
+      return { barcode: partnerCode, unitsPerOrder: evidencedUnits };
+    }
 
     const historicalDirect = historicalDirectIdentity(index, partnerCode, order);
     if (historicalDirect) return historicalDirect;

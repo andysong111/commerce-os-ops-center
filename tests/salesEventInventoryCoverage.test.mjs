@@ -90,7 +90,8 @@ function fixture(state = "READY_CANARY", options = {}) {
     "@/lib/salesEventRefreshPolicy": policy,
     "@/lib/productMasterShoplingSalesEventEngine": {
       PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS: 360,
-      PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION: "location-suffix-v3",
+      PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION:
+        "location-suffix-pack-evidence-v4",
     },
     "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshotForRefresh: async () => {
       clockReads++;
@@ -214,7 +215,7 @@ test("purchase-run preparation replaces a fresh completed request built by the l
   assert.equal(f.writes.length, 1);
   assert.equal(
     f.writes[0].input_snapshot.identityResolverVersion,
-    "location-suffix-v3",
+    "location-suffix-pack-evidence-v4",
   );
   assert.equal(
     f.writes[0].input_snapshot.purchaseRunStableRangeReuse,
