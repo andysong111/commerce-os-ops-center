@@ -1,6 +1,10 @@
 const DATE_ONLY = /^20\d{2}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/;
 const SEOUL_OFFSET_MS = 9 * 60 * 60 * 1000;
 
+// The legacy monthly purchase cycle covered sales through 2026-08-31.
+// The first operator-started purchase run must therefore begin at 2026-09-01.
+export const PURCHASE_RUN_LEGACY_CUTOVER_START_DATE = "2026-09-01";
+
 export type PurchaseRunCycleBasis = {
   mode: "ON_DEMAND";
   cycleKey: string;
@@ -14,9 +18,11 @@ export type PurchaseRunCycleBasis = {
 export type PurchaseRunDraftSummary = {
   draftId: string;
   createdAt: string;
+  cycleMode?: "ON_DEMAND" | "MONTHLY_LEGACY" | null;
   cycleStartDate?: string | null;
   previousCycleStartDate?: string | null;
   cycleKey?: string | null;
+  cycleBootstrap?: boolean;
   receiptConfirmedAt?: string | null;
   orderedQuantity: number;
   receivedQuantity: number;
@@ -88,6 +94,9 @@ function previousBoundaryBefore(
 ) {
   const older = drafts
     .filter((draft) => draft.draftId !== excludedDraftId)
+    // A legacy monthly record is not an on-demand run boundary. The monthly
+    // system already covered sales through the fixed cutover date below.
+    .filter((draft) => draft.cycleMode !== "MONTHLY_LEGACY")
     .map((draft) => ({
       start: startDate(draft),
       receiptComplete:
@@ -102,13 +111,20 @@ function previousBoundaryBefore(
   return older[0]?.start ? shiftDate(older[0].start, 1) : "";
 }
 
+function bootstrapBoundary(cycleStartDate: string) {
+  return cycleStartDate > PURCHASE_RUN_LEGACY_CUTOVER_START_DATE
+    ? PURCHASE_RUN_LEGACY_CUTOVER_START_DATE
+    : shiftDate(cycleStartDate, -30);
+}
+
 /**
  * Determines the immutable sales/budget interval for an operator-started
  * purchase run. Recalculating a Draft keeps its original boundary. A new run
  * starts from the day after the most recent fully received run's calculation
  * start date. Drafts, ordered-only runs and unfinished receipts never close a
- * demand interval. A 30-day bootstrap is used only when the ledger has no
- * older receipt-confirmed purchase run.
+ * demand interval. When there is no older receipt-confirmed on-demand run,
+ * the first migrated run starts at 2026-09-01 because the retired monthly
+ * cycle already covered sales through 2026-08-31.
  */
 export function inferPurchaseRunCycleBasis(input: {
   targetDate: unknown;
@@ -133,7 +149,9 @@ export function inferPurchaseRunCycleBasis(input: {
   const preserveReplacementBoundary = Boolean(replacement && input.startNewRun !== true);
   const cycleStartDate = preserveReplacementBoundary ? replacementStartDate : targetDate;
   if (!cycleStartDate) throw new Error("PURCHASE_RUN_CYCLE_DATE_INVALID");
-  const explicitPrevious = preserveReplacementBoundary && replacement
+  // Early migrated Drafts were saved with a rolling 30-day bootstrap. Repair
+  // that boundary on recalculation instead of preserving the obsolete value.
+  const explicitPrevious = preserveReplacementBoundary && replacement && !replacement.cycleBootstrap
     ? validDate(replacement.previousCycleStartDate)
     : "";
   const historicalPrevious = previousBoundaryBefore(
@@ -141,7 +159,7 @@ export function inferPurchaseRunCycleBasis(input: {
     cycleStartDate,
     replacement?.draftId ?? null,
   );
-  const previousCycleStartDate = explicitPrevious || historicalPrevious || shiftDate(cycleStartDate, -30);
+  const previousCycleStartDate = explicitPrevious || historicalPrevious || bootstrapBoundary(cycleStartDate);
   return buildPurchaseRunCycleBasis({
     previousCycleStartDate,
     cycleStartDate,

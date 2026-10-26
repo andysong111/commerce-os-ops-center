@@ -91,7 +91,7 @@ export function InternalChinaPurchaseDraftGuide() {
               <div>
                 <span className="text-xs font-black tracking-[0.12em] text-blue-700">발주차시·발주초안 작업 가이드</span>
                 <h2 id="purchase-draft-guide-title" className="mt-1 text-2xl font-black text-slate-950">기존 초안 확인부터 순서대로 진행하세요</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">기존 초안을 이어서 작업할지, 오늘 판매자료로 새 차시를 계산할지 날짜를 보고 선택합니다. 새 차시는 가장 최근에 입고확정까지 끝난 차시의 계산 시작일 다음 날부터 새 차시 시작 전날까지의 판매를 반영합니다.</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">기존 초안을 이어서 작업할지, 오늘 판매자료로 새 차시를 계산할지 날짜를 보고 선택합니다. 월간 방식에서 넘어온 첫 차시는 2026년 9월 1일부터 계산하고, 이후 새 차시는 가장 최근에 입고확정까지 끝난 차시의 계산 시작일 다음 날부터 새 차시 시작 전날까지의 판매를 반영합니다.</p>
               </div>
               <button type="button" onClick={closeGuide} aria-label="작업 가이드 닫기" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-50">닫기</button>
             </div>
@@ -109,7 +109,7 @@ export function InternalChinaPurchaseDraftGuide() {
             </ol>
 
             <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold leading-6 text-amber-950">
-              판매 구간은 입고확정일 다음 날이 아니라, 가장 최근 입고확정 완료 차시의 계산 시작일 다음 날부터 시작합니다. 예를 들어 10월 5일 계산을 시작하고 10월 18일 입고확정했다면 다음 차시는 10월 6일부터 판매를 이어서 계산합니다. 배송 중 판매도 빠뜨리지 않기 위해서입니다. 발주차시 시작과 초안 수정만으로는 예산 지출이나 재고 증가가 생기지 않으며, 실제 주문과 입고확정 때 각각 원장에 반영됩니다.
+              기존 월간 발주는 2026년 8월 판매분까지 반영했으므로 첫 전환 차시는 9월 1일부터 계산합니다. 그다음부터 판매 구간은 입고확정일 다음 날이 아니라, 가장 최근 입고확정 완료 차시의 계산 시작일 다음 날부터 시작합니다. 이번 차시 계산 시작일이 10월 26일이고 실제 발주·입고확정까지 끝났다면 다음 차시는 10월 27일부터 계산합니다. 배송 중 판매도 빠뜨리지 않기 위해서입니다. 발주차시 시작과 초안 수정만으로는 예산 지출이나 재고 증가가 생기지 않으며, 실제 주문과 입고확정 때 각각 원장에 반영됩니다.
             </div>
             <button type="button" onClick={closeGuide} className="mt-5 w-full rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800">확인하고 시작</button>
           </section>

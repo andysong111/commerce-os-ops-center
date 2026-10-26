@@ -108,7 +108,7 @@ export default async function InternalChinaPurchaseDraftPage({
       />
 
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-        <strong>현재 발주차시</strong> · 계산 시작 {draft.cycleStartDate} · 판매 반영 {draft.revenueRangeStartDate || draft.previousCycleStartDate || "최초 30일 기준"}~{draft.revenueRangeEndDate || "계산 시작 전날"} · <span className="font-mono">{draft.draftId}</span> · {draft.lineCount.toLocaleString("ko-KR")} SKU · {draft.totalQuantity.toLocaleString("ko-KR")}개. 판매 시작일은 가장 최근 입고확정 완료 차시의 계산 시작일 다음 날입니다. 각 상품의 대략 재고를 버튼으로 고르고 <strong>`재고상태 저장 후 발주안 재계산`</strong>을 누르면, 수량·제외·추가 변경과 함께 같은 차시의 새 Draft로 교체합니다. 발주 가능액은 월별로 적립되며 실제 주문완료 금액만 차감됩니다.
+        <strong>현재 발주차시</strong> · 계산 시작 {draft.cycleStartDate} · 판매 반영 {draft.revenueRangeStartDate || draft.previousCycleStartDate || "차시 전환 기준"}~{draft.revenueRangeEndDate || "계산 시작 전날"} · <span className="font-mono">{draft.draftId}</span> · {draft.lineCount.toLocaleString("ko-KR")} SKU · {draft.totalQuantity.toLocaleString("ko-KR")}개. 첫 전환 차시는 2026년 9월 1일부터 계산하고, 이후에는 가장 최근 입고확정 완료 차시의 계산 시작일 다음 날부터 계산합니다. 각 상품의 대략 재고를 버튼으로 고르고 <strong>`재고상태 저장 후 발주안 재계산`</strong>을 누르면, 수량·제외·추가 변경과 함께 같은 차시의 새 Draft로 교체합니다. 발주 가능액은 월별로 적립되며 실제 주문완료 금액만 차감됩니다.
       </section>
 
       <InternalChinaPurchaseBudgetAudit audit={budgetAudit} />
