@@ -36,6 +36,7 @@ const TABLE_NAME = "product_launch_tracker_states";
 export const maxDuration = 90;
 
 const HUMAN_READ_TIMEOUT_MS = 4_000;
+const STOCK_AWARE_PAGE_READ_TIMEOUT_MS = 15_000;
 const MUTATION_READ_TIMEOUT_MS = 15_000;
 const MUTATION_WRITE_TIMEOUT_MS = 20_000;
 const mutationQueues = new Map<string, Promise<unknown>>();
@@ -124,8 +125,8 @@ export async function GET(request: NextRequest) {
             workspace,
             pageQuery(request),
           ),
-          HUMAN_READ_TIMEOUT_MS,
-          "OPS Workflow 목록 조회가 4초를 초과했습니다.",
+          STOCK_AWARE_PAGE_READ_TIMEOUT_MS,
+          "재고 확인이 포함된 OPS Workflow 목록 조회가 15초를 초과했습니다.",
         );
         return Response.json({
           ok: true,

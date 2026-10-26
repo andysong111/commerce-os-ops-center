@@ -135,13 +135,14 @@ test("discontinued items are classified as excluded even when stock is positive"
 });
 
 test("tracker UI exposes sellable filter, red sold-out states, and stock-blocked selection", async () => {
-  const [html, app, styles, handoff, enqueue, queue] = await Promise.all([
+  const [html, app, styles, handoff, enqueue, queue, optimizedRoute] = await Promise.all([
     readFile("public/product-launch-tracker-app/index.html", "utf8"),
     readFile("public/product-launch-tracker-app/optimized-app.js", "utf8"),
     readFile("public/product-launch-tracker-app/styles.css", "utf8"),
     readFile("public/product-launch-tracker-app/seo-title-ledger-handoff.js", "utf8"),
     readFile("src/app/api/seo-run-jobs/route.ts", "utf8"),
     readFile("src/lib/seoRunShoplingRegistrationQueue.ts", "utf8"),
+    readFile("src/app/api/product-launch-tracker/optimized/route.ts", "utf8"),
   ]);
   assert.match(html, /id="stock-filter"/);
   assert.match(html, /value="SELLABLE" selected/);
@@ -151,4 +152,9 @@ test("tracker UI exposes sellable filter, red sold-out states, and stock-blocked
   assert.match(handoff, /dataset\.stockSelectable === "false"/);
   assert.match(enqueue, /classifyProductLaunchStockAvailability/);
   assert.match(queue, /loadProductLaunchInventorySnapshot/);
+  assert.match(optimizedRoute, /const STOCK_AWARE_PAGE_READ_TIMEOUT_MS = 15_000;/);
+  assert.match(
+    optimizedRoute,
+    /queryProductLaunchStockAwareNormalizedPage\([\s\S]*?STOCK_AWARE_PAGE_READ_TIMEOUT_MS/,
+  );
 });
