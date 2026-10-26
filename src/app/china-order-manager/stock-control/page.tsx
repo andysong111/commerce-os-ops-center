@@ -30,6 +30,12 @@ export default function InventoryStockControlPage() {
             >
               재고상태 자동화 확장 v0.6.0 다운로드
             </Link>
+            <Link
+              href="/api/shopling-stock-state-sync/download-hf31"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-600 hover:bg-slate-50"
+            >
+              이전 확장 v0.5.9 다운로드
+            </Link>
           </div>
         }
       />
