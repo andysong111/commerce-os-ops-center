@@ -39,12 +39,18 @@ test("on-demand cycle uses previous purchase start through the day before this s
   assert.equal(isPurchaseRunCycleBasis(result), true);
 });
 
-test("recalculating a draft keeps its original cycle boundaries", () => {
+test("recalculating a draft keeps a boundary backed by a completed prior run", () => {
   const result = inferPurchaseRunCycleBasis({
     targetDate: "2026-10-25",
     replaceDraftId: "fast-purchase-draft:22222222222222222222",
     drafts: [
-      draft(),
+      draft({
+        cycleStartDate: "2026-09-19",
+        receiptConfirmedAt: "2026-10-01T03:00:00.000Z",
+        orderedQuantity: 10,
+        receivedQuantity: 10,
+        openQuantity: 0,
+      }),
       draft({
         draftId: "fast-purchase-draft:22222222222222222222",
         createdAt: "2026-10-23T03:00:00.000Z",
@@ -216,6 +222,27 @@ test("recalculating an early rolling bootstrap draft repairs it to the migration
       previousCycleStartDate: "2026-09-26",
       cycleKey: "purchase-run:2026-09-26:2026-10-26",
       cycleBootstrap: true,
+      orderedQuantity: 0,
+    })],
+  });
+
+  assert.equal(result.cycleStartDate, "2026-10-26");
+  assert.equal(result.previousCycleStartDate, "2026-09-01");
+  assert.equal(result.revenueRangeStartDate, "2026-09-01");
+  assert.equal(result.revenueRangeEndDate, "2026-10-25");
+  assert.equal(result.bootstrap, true);
+});
+
+test("an early rolling bootstrap draft is repaired even when the old record lacks its bootstrap marker", () => {
+  const result = inferPurchaseRunCycleBasis({
+    targetDate: "2026-10-26",
+    replaceDraftId: "fast-purchase-draft:22222222222222222222",
+    drafts: [draft({
+      draftId: "fast-purchase-draft:22222222222222222222",
+      cycleStartDate: "2026-10-26",
+      previousCycleStartDate: "2026-09-26",
+      cycleKey: "purchase-run:2026-09-26:2026-10-26",
+      cycleBootstrap: false,
       orderedQuantity: 0,
     })],
   });

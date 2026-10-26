@@ -87,7 +87,7 @@ function startDate(draft: PurchaseRunDraftSummary) {
   return validDate(draft.cycleStartDate) || seoulDateFromTimestamp(draft.createdAt);
 }
 
-function previousBoundaryBefore(
+function receiptConfirmedBoundariesBefore(
   drafts: PurchaseRunDraftSummary[],
   currentStartDate: string,
   excludedDraftId: string | null,
@@ -108,7 +108,7 @@ function previousBoundaryBefore(
     // or an order still in transit must not discard sales from the next run.
     .filter((row) => row.receiptComplete && row.start && row.start < currentStartDate)
     .sort((left, right) => right.start.localeCompare(left.start));
-  return older[0]?.start ? shiftDate(older[0].start, 1) : "";
+  return older.map((row) => shiftDate(row.start, 1));
 }
 
 function bootstrapBoundary(cycleStartDate: string) {
@@ -151,19 +151,28 @@ export function inferPurchaseRunCycleBasis(input: {
   if (!cycleStartDate) throw new Error("PURCHASE_RUN_CYCLE_DATE_INVALID");
   // Early migrated Drafts were saved with a rolling 30-day bootstrap. Repair
   // that boundary on recalculation instead of preserving the obsolete value.
-  const explicitPrevious = preserveReplacementBoundary && replacement && !replacement.cycleBootstrap
+  const explicitPrevious = preserveReplacementBoundary && replacement
     ? validDate(replacement.previousCycleStartDate)
     : "";
-  const historicalPrevious = previousBoundaryBefore(
+  const historicalBoundaries = receiptConfirmedBoundariesBefore(
     input.drafts,
     cycleStartDate,
     replacement?.draftId ?? null,
   );
-  const previousCycleStartDate = explicitPrevious || historicalPrevious || bootstrapBoundary(cycleStartDate);
+  // Stored boundaries are trusted only when a fully received on-demand run
+  // actually supports them. Early migration Drafts were persisted before the
+  // bootstrap marker existed, so cycleBootstrap=false alone cannot prove that
+  // their rolling 30-day boundary is valid.
+  const trustedExplicitPrevious = historicalBoundaries.includes(explicitPrevious)
+    ? explicitPrevious
+    : "";
+  const historicalPrevious = historicalBoundaries[0] ?? "";
+  const previousCycleStartDate =
+    trustedExplicitPrevious || historicalPrevious || bootstrapBoundary(cycleStartDate);
   return buildPurchaseRunCycleBasis({
     previousCycleStartDate,
     cycleStartDate,
-    bootstrap: !explicitPrevious && !historicalPrevious,
+    bootstrap: !trustedExplicitPrevious && !historicalPrevious,
   });
 }
 
