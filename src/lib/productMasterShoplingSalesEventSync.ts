@@ -7,6 +7,7 @@ import {
   PRODUCT_MASTER_SALES_EVENT_FORMAT,
   PRODUCT_MASTER_SALES_EVENT_SOURCE,
   PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS,
+  PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION,
   type ProductMasterShoplingSalesEventChunk,
   type ProductMasterSalesEventRow,
 } from "@/lib/productMasterShoplingSalesEventEngine";
@@ -74,6 +75,7 @@ type StoreOperationInput = {
 
 export type SalesEventSyncRequest = {
   requestId: string;
+  identityResolverVersion: string;
   analysisAsOf: string;
   analysisStartDate: string;
   analysisEndDate: string;
@@ -103,6 +105,7 @@ export type SalesEventSyncReport = {
 export type SalesEventSyncStatus = {
   configured: boolean;
   requestId: string | null;
+  identityResolverVersion: string | null;
   analysisAsOf: string | null;
   state:
     | "IDLE"
@@ -277,6 +280,7 @@ async function readOperations(
 function requestFromRow(row: OperationRow): SalesEventSyncRequest | null {
   const value = object(row.input_snapshot);
   const requestId = text(value.requestId);
+  const identityResolverVersion = text(value.identityResolverVersion) || "legacy-unversioned";
   const analysisAsOf = iso(value.analysisAsOf);
   const planningGeneratedAt = iso(value.planningGeneratedAt);
   const planningContentFingerprint = text(value.planningContentFingerprint);
@@ -303,6 +307,7 @@ function requestFromRow(row: OperationRow): SalesEventSyncRequest | null {
   }
   return {
     requestId,
+    identityResolverVersion,
     analysisAsOf,
     analysisStartDate: text(value.analysisStartDate),
     analysisEndDate: text(value.analysisEndDate),
@@ -379,6 +384,7 @@ export function createSalesEventSyncRequestPlan(
   const analysisEndDate = dateOnly(asOf);
   return {
     requestId,
+    identityResolverVersion: PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION,
     analysisAsOf: asOf.toISOString(),
     analysisStartDate,
     analysisEndDate,
@@ -418,7 +424,11 @@ async function appendSalesEventSyncRequest(
   );
   let parentOperations: Awaited<ReturnType<typeof requestOperations>> | null = null;
   let reusePlan: ReturnType<typeof buildMonthlySalesEventReusePlan> | null = null;
-  if (parent && parent.planningContentFingerprint === planning.contentFingerprint) {
+  if (
+    parent &&
+    parent.identityResolverVersion === PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION &&
+    parent.planningContentFingerprint === planning.contentFingerprint
+  ) {
     parentOperations = await requestOperations(parent);
     const parentReport = parentOperations.reports.map(reportFromRow).find(Boolean) ?? null;
     if (
@@ -488,6 +498,7 @@ async function appendSalesEventSyncRequest(
         range: chunk.range,
         rangeKey: key,
         planningContentFingerprint: request.planningContentFingerprint,
+        identityResolverVersion: request.identityResolverVersion,
         reusedFromRequestId: parent.requestId,
         reuseReason: "STABLE_BEFORE_45_DAY_CORRECTION_WINDOW",
       },
@@ -579,6 +590,8 @@ export async function ensurePurchaseRunSalesRequest(input: {
       );
     }
     const analysisMs = Date.parse(current.analysisAsOf ?? "");
+    const currentResolverIsValid =
+      current.identityResolverVersion === PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION;
     if ((current.state === "QUEUED" || current.state === "RUNNING") && current.requestId) {
       return {
         accepted: false,
@@ -595,6 +608,7 @@ export async function ensurePurchaseRunSalesRequest(input: {
     }
     if (
       current.requestId &&
+      currentResolverIsValid &&
       (current.state === "BLOCKED" || current.state === "FAILED" || current.state === "STORAGE_NOT_READY")
     ) {
       return {
@@ -611,6 +625,7 @@ export async function ensurePurchaseRunSalesRequest(input: {
       } as const;
     }
     const fresh =
+      currentResolverIsValid &&
       FRESH_SALES_EVENT_STATES.has(current.state) &&
       Number.isFinite(analysisMs) &&
       analysisMs <= now.valueOf() + 30_000 &&
@@ -754,6 +769,7 @@ function planFingerprint(
     .update(
       JSON.stringify({
         planningContentFingerprint: request.planningContentFingerprint,
+        identityResolverVersion: request.identityResolverVersion,
         analysisAsOf: request.analysisAsOf,
         eventFingerprint: eventHash,
       }),
@@ -848,6 +864,7 @@ export async function runProductMasterShoplingSalesEventSyncStep() {
           range: nextRange,
           rangeKey: rangeKey(nextRange),
           planningContentFingerprint: request.planningContentFingerprint,
+          identityResolverVersion: request.identityResolverVersion,
         },
         resultSnapshot: summary,
       });
@@ -876,6 +893,7 @@ export async function runProductMasterShoplingSalesEventSyncStep() {
       requestId: request.requestId,
       analysisAsOf: request.analysisAsOf,
       planningContentFingerprint: request.planningContentFingerprint,
+      identityResolverVersion: request.identityResolverVersion,
     },
     resultSnapshot: report,
   });
@@ -978,6 +996,9 @@ export async function applyProductMasterShoplingSalesEvents(
 ) {
   const request = await latestRequest();
   if (!request) throw new Error("SALES_EVENT_REQUEST_REQUIRED");
+  if (request.identityResolverVersion !== PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION) {
+    throw new Error("SALES_EVENT_IDENTITY_RESOLVER_CHANGED");
+  }
   const operations = await requestOperations(request);
   const report = operations.reports.map(reportFromRow).find(Boolean);
   if (!report) throw new Error("SALES_EVENT_REPORT_REQUIRED");
@@ -1081,6 +1102,7 @@ export async function loadProductMasterShoplingSalesEventSyncStatus(): Promise<S
   const empty: SalesEventSyncStatus = {
     configured,
     requestId: null,
+    identityResolverVersion: null,
     analysisAsOf: null,
     state: "IDLE",
     stage: "대기",
@@ -1100,6 +1122,7 @@ export async function loadProductMasterShoplingSalesEventSyncStatus(): Promise<S
   const common = {
     ...empty,
     requestId: request.requestId,
+    identityResolverVersion: request.identityResolverVersion,
     analysisAsOf: request.analysisAsOf,
     completedRanges,
     totalRanges: request.ranges.length,

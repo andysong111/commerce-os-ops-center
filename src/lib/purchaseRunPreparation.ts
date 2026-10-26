@@ -5,6 +5,7 @@ import {
   loadProductMasterShoplingSalesEventSyncStatus,
   runProductMasterShoplingSalesEventSyncStep,
 } from "@/lib/productMasterShoplingSalesEventSync";
+import { PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION } from "@/lib/productMasterShoplingSalesEventEngine";
 import { sameDayPurchaseRun, replaceablePriorPurchaseRun } from "@/lib/purchaseRunStartPolicy";
 import { loadSalesEventDirectPromotionGate } from "@/lib/salesEventDirectPromotionGate";
 import { loadPostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
@@ -149,17 +150,6 @@ export async function advancePurchaseRunPreparation(
     return blocked("INVENTORY", 0, "기존 발주기록을 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.");
   }
   const existing = sameDayPurchaseRun(ledger.drafts, input.targetDate);
-  if (existing) {
-    return {
-      state: "READY",
-      stage: "EXISTING_DRAFT",
-      progress: 100,
-      message: "오늘 만든 발주초안을 다시 엽니다.",
-      draftUrl: `/china-order-manager/drafts/${encodeURIComponent(existing.draftId)}`,
-      builderUrl: null,
-      externalOrderExecuted: false,
-    };
-  }
 
   let demand = await atPreparationStage("DEMAND", () =>
     ensurePurchaseRunDemandRefreshRequest({
@@ -196,6 +186,21 @@ export async function advancePurchaseRunPreparation(
   }));
   let sales = await atPreparationStage("SALES", () =>
     loadProductMasterShoplingSalesEventSyncStatus());
+  if (sales.identityResolverVersion !== PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION) {
+    if (sales.state === "QUEUED" || sales.state === "RUNNING") {
+      await atPreparationStage("SALES", () =>
+        runProductMasterShoplingSalesEventSyncStep());
+      sales = await atPreparationStage("SALES", () =>
+        loadProductMasterShoplingSalesEventSyncStatus());
+    }
+    return {
+      state: "PENDING",
+      stage: "SALES",
+      progress: Math.min(34, Math.round(sales.progress * 0.34)),
+      message: "이전 상품 연결 방식의 수집을 정리하고 있습니다. 완료 즉시 옵션 자체관리코드 기준으로 전체 판매자료를 다시 준비합니다.",
+      externalOrderExecuted: false,
+    };
+  }
   if (sales.state === "QUEUED" || sales.state === "RUNNING") {
     for (let index = 0; index < SALES_STEPS_PER_REQUEST; index += 1) {
       const step = await atPreparationStage("SALES", () =>
@@ -293,6 +298,18 @@ export async function advancePurchaseRunPreparation(
         ? `판매상품 ${inventory.omissionBlockingCount}종의 재고·발주근거를 확인해야 합니다.`
         : "재고·클레임·미입고 수량 대조를 완료하지 못했습니다.",
     );
+  }
+
+  if (existing) {
+    return {
+      state: "READY",
+      stage: "EXISTING_DRAFT",
+      progress: 100,
+      message: "최신 판매·클레임·재고·미입고 자료를 준비한 뒤 오늘 만든 발주초안을 다시 엽니다.",
+      draftUrl: `/china-order-manager/drafts/${encodeURIComponent(existing.draftId)}`,
+      builderUrl: null,
+      externalOrderExecuted: false,
+    };
   }
 
   const replaceable = replaceablePriorPurchaseRun(ledger.drafts, input.targetDate);

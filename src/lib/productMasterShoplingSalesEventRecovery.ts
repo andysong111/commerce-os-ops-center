@@ -33,6 +33,7 @@ type Range = { start: string; end: string };
 
 type ParsedRequest = {
   requestId: string;
+  identityResolverVersion: string;
   analysisAsOf: string;
   analysisStartDate: string;
   analysisEndDate: string;
@@ -139,6 +140,7 @@ function parseRanges(value: unknown): Range[] {
 function parseRequest(row: OperationRow): ParsedRequest | null {
   const input = object(row.input_snapshot);
   const requestId = text(input.requestId);
+  const identityResolverVersion = text(input.identityResolverVersion) || "legacy-unversioned";
   const analysisAsOf = iso(input.analysisAsOf);
   const analysisStartDate = text(input.analysisStartDate);
   const analysisEndDate = text(input.analysisEndDate);
@@ -158,6 +160,7 @@ function parseRequest(row: OperationRow): ParsedRequest | null {
   }
   return {
     requestId,
+    identityResolverVersion,
     analysisAsOf,
     analysisStartDate,
     analysisEndDate,
@@ -216,6 +219,7 @@ function nextChunkDays(chunkDays: number) {
 function exactReuseContext(child: ParsedRequest, parent: ParsedRequest) {
   return (
     child.analysisAsOf === parent.analysisAsOf &&
+    child.identityResolverVersion === parent.identityResolverVersion &&
     child.analysisStartDate === parent.analysisStartDate &&
     child.analysisEndDate === parent.analysisEndDate &&
     child.planningContentFingerprint === parent.planningContentFingerprint
@@ -324,6 +328,7 @@ function reusedChunkOperation(
       ...chunk.inputSnapshot,
       requestId: request.requestId,
       planningContentFingerprint: request.planningContentFingerprint,
+      identityResolverVersion: request.identityResolverVersion,
       reusedFromRequestId: request.supersedesRequestId,
     },
     result_snapshot: chunk.resultSnapshot,
@@ -440,6 +445,7 @@ async function recoverSalesEventRequestUnderLock() {
     : latest.ranges;
   const request: ParsedRequest = {
     requestId: crypto.randomUUID(),
+    identityResolverVersion: latest.identityResolverVersion,
     analysisAsOf: latest.analysisAsOf,
     analysisStartDate: latest.analysisStartDate,
     analysisEndDate: latest.analysisEndDate,
