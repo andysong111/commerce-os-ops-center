@@ -938,6 +938,7 @@ type ProductMasterSalesEventSnapshotWrite = {
   analysisAsOf: string;
   expectedRows: number;
   finalize: boolean;
+  identityResolverVersion: string;
 };
 
 async function postProductMasterEvents(
@@ -1044,6 +1045,7 @@ export async function applyProductMasterShoplingSalesEvents(
             analysisAsOf: request.analysisAsOf,
             expectedRows: selected.length,
             finalize,
+            identityResolverVersion: request.identityResolverVersion,
           }
         : undefined,
     );

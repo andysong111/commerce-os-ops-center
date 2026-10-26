@@ -75,6 +75,7 @@ export async function POST(request: Request) {
     const code = raw.split(":", 1)[0] || "PURCHASE_RUN_START_FAILED";
     const validationError = code === "PURCHASE_RUN_CASH_INVALID" ||
       code === "PURCHASE_RUN_SOURCING_PERCENT_INVALID";
+    const identityConflict = code === "SALES_EVENT_IDENTITY_CONFLICT";
     const retryable = !validationError && transientSourceReadFailure(error, raw);
     const transientStage = transientStageResponse(purchaseRunPreparationErrorStage(error));
     console.error("[purchase-run-start] preparation failed", {
@@ -109,10 +110,13 @@ export async function POST(request: Request) {
             ? "이번 발주에 사용할 현금은 0원 이상의 정수로 입력하세요. 비우면 누적 가용예산을 사용합니다."
             : code === "PURCHASE_RUN_SOURCING_PERCENT_INVALID"
               ? "신규상품 소싱 비율은 0~100 사이의 정수로 입력하세요."
+              : identityConflict
+                ? "같은 주문행이 서로 다른 상품에 연결되어 자동 반영을 멈췄습니다. 반복 클릭하지 말고 B코드·옵션 연결 확인이 필요합니다."
               : "자료 준비가 일시적으로 중단되었습니다. 같은 버튼으로 다시 시도하면 완료한 단계부터 이어갑니다.",
+        operatorDecisionRequired: identityConflict,
         externalOrderExecuted: false,
       },
-      { status: validationError ? 400 : 503, headers: { "cache-control": "no-store" } },
+      { status: validationError ? 400 : identityConflict ? 409 : 503, headers: { "cache-control": "no-store" } },
     );
   }
 }

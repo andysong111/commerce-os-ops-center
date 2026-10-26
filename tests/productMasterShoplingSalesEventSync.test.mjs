@@ -77,6 +77,15 @@ test("Product Master responses are checked for persisted readback rows", () => {
   assert.match(sync, /SALES_EVENT_WRITE_VERIFY_FAILED/);
 });
 
+test("FULL writes declare the authoritative option identity resolver for audited legacy migration", () => {
+  assert.match(sync, /identityResolverVersion: request\.identityResolverVersion/);
+  const snapshotType = sync.indexOf("type ProductMasterSalesEventSnapshotWrite");
+  const fullApply = sync.indexOf("const result = await postProductMasterEvents(", snapshotType);
+  assert.ok(snapshotType >= 0 && fullApply > snapshotType);
+  assert.match(sync.slice(snapshotType, fullApply + 800), /identityResolverVersion: string/);
+  assert.match(sync.slice(fullApply, fullApply + 800), /identityResolverVersion: request\.identityResolverVersion/);
+});
+
 test("new reads start at 7 days, legacy 30-day failures shrink immediately, and 7 can fall back to 2", () => {
   assert.match(recovery, /SALES_EVENT_LEGACY_CHUNK_DAYS = 30/);
   assert.match(recovery, /SALES_EVENT_DEFAULT_CHUNK_DAYS = SALES_EVENT_SOURCE_RANGE_DAYS/);

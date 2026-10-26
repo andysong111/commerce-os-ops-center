@@ -40,13 +40,17 @@ test("purchase-run start prepares every required source before opening the draft
   assert.ok(service.includes(sameDayReopenMessage));
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(route, /externalOrderExecuted:\s*false/);
-  assert.match(route, /validationError \? 400 : 503/);
+  assert.match(route, /validationError \? 400 : identityConflict \? 409 : 503/);
   assert.match(route, /transientSourceReadFailure/);
   assert.match(route, /state:\s*"PENDING"/);
   assert.match(route, /status: 202/);
   assert.match(route, /retryableFailure: true/);
   assert.match(route, /purchaseRunPreparationErrorStage/);
   assert.match(route, /\[purchase-run-start\] preparation failed/);
+  assert.match(route, /const identityConflict = code === "SALES_EVENT_IDENTITY_CONFLICT"/);
+  assert.match(route, /반복 클릭하지 말고 B코드·옵션 연결 확인이 필요합니다/);
+  assert.match(route, /operatorDecisionRequired: identityConflict/);
+  assert.match(route, /identityConflict \? 409 : 503/);
   const preflightPage = await read("../src/app/purchase-cycle-preflight/page.tsx");
   const draftActions = await read("../src/components/purchase-cycle-preflight/PurchaseCycleDraftActions.tsx");
   const draftRoute = await read("../src/app/api/purchase-cycle/preflight-draft/route.ts");
