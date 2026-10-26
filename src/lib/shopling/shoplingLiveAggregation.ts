@@ -12,6 +12,7 @@ import {
   normalizeShoplingClaim,
   normalizeShoplingOrder,
   normalizeShoplingBarcode,
+  resolveKnownShoplingManagedCode,
   type ShoplingRawRow,
 } from "@/lib/shopling/shoplingNormalize";
 import type { ShoplingDateRange } from "@/lib/shopling/shoplingReadClient";
@@ -289,14 +290,19 @@ function resolveListingIdentity(
     productId?: string | null;
     mallProductKey?: string | null;
     barcode?: string | null;
+    partnerOptionCode?: string | null;
   },
 ): ListingIdentity | null {
   const option = text(input.optionId);
-  if (option && index.byOptionId.has(option)) return index.byOptionId.get(option)!;
-  const directBarcode = managedBarcode(input.barcode);
-  if (directBarcode && index.products.has(directBarcode)) {
+  const optionIdentity = option ? index.byOptionId.get(option) ?? null : null;
+  const directBarcode =
+    resolveKnownShoplingManagedCode(input.partnerOptionCode, index.products) ||
+    resolveKnownShoplingManagedCode(input.barcode, index.products);
+  if (directBarcode) {
+    if (optionIdentity?.barcode === directBarcode) return optionIdentity;
     return { barcode: directBarcode, unitsPerOrder: 1 };
   }
+  if (optionIdentity) return optionIdentity;
   for (const key of [text(input.productId), text(input.mallProductKey)]) {
     if (key && index.byGoodsKey.has(key)) return index.byGoodsKey.get(key)!;
   }

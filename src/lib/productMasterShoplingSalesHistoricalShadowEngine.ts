@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  canonicalShoplingManagedCodeCandidate,
   normalizeShoplingBarcode,
   normalizeShoplingOrder,
   type ShoplingRawRow,
@@ -220,8 +221,18 @@ function rawValue(row: ShoplingRawRow, keys: string[]) {
   return "";
 }
 
-function rawManagedCode(row: ShoplingRawRow) {
-  for (const key of [
+function rawManagedCodeFrom(row: ShoplingRawRow, keys: string[]) {
+  for (const key of keys) {
+    const barcode = managedBarcode(
+      canonicalShoplingManagedCodeCandidate(rawValue(row, [key])),
+    );
+    if (barcode) return barcode;
+  }
+  return "";
+}
+
+function rawOptionManagedCode(row: ShoplingRawRow) {
+  return rawManagedCodeFrom(row, [
     "optPtnOptCd",
     "opt_ptn_opt_cd",
     "ptn_opt_cd",
@@ -230,14 +241,19 @@ function rawManagedCode(row: ShoplingRawRow) {
     "optBarcode",
     "opt_barcode",
     "barcode",
+  ]);
+}
+
+function rawPartnerManagedCode(row: ShoplingRawRow) {
+  return rawManagedCodeFrom(row, [
     "ptn_goods_cd",
     "mall_ptn_goods_cd",
     "buying_cd",
-  ]) {
-    const barcode = managedBarcode(rawValue(row, [key]));
-    if (barcode) return barcode;
-  }
-  return "";
+  ]);
+}
+
+function rawManagedCode(row: ShoplingRawRow) {
+  return rawOptionManagedCode(row) || rawPartnerManagedCode(row);
 }
 
 function resolveCurrentIdentity(
@@ -246,13 +262,17 @@ function resolveCurrentIdentity(
   raw: ShoplingRawRow,
 ) {
   const optionId = text(order.optionId);
-  if (optionId && index.byOptionId.has(optionId)) {
-    return index.byOptionId.get(optionId)!;
+  const optionIdentity = optionId ? index.byOptionId.get(optionId) ?? null : null;
+  const optionCode = rawOptionManagedCode(raw) || managedBarcode(order.barcode);
+  if (optionCode) {
+    if (optionIdentity?.barcode === optionCode) return optionIdentity;
+    return index.byBarcode.get(optionCode) ?? null;
   }
+  if (optionIdentity) return optionIdentity;
 
-  const directCode = rawManagedCode(raw) || managedBarcode(order.barcode);
-  if (directCode && index.byBarcode.has(directCode)) {
-    return index.byBarcode.get(directCode)!;
+  const partnerCode = rawPartnerManagedCode(raw);
+  if (partnerCode) {
+    return index.byBarcode.get(partnerCode) ?? null;
   }
 
   for (const key of [text(order.productId), text(order.mallProductKey)]) {

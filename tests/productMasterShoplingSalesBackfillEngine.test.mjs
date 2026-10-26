@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
 async function loadEngine() {
-  const directory = await mkdtemp(join(dirname(new URL(import.meta.url).pathname), ".sales-backfill-"));
+  const directory = await mkdtemp(
+    join(dirname(fileURLToPath(import.meta.url)), ".sales-backfill-"),
+  );
   let source = await readFile(
     new URL("../src/lib/productMasterShoplingSalesBackfillEngine.ts", import.meta.url),
     "utf8",
@@ -422,6 +424,51 @@ test("actual option barcode remains authoritative over a later current option ma
   assert.equal(result.unmappedRows, 0);
   assert.equal(result.monthlyRows[0].barcode, "BBA4-1");
   assert.equal(result.monthlyRows[0].quantity, 3);
+});
+
+test("one trailing warehouse-location letter is removed before canonical sales aggregation", () => {
+  const catalog = planning({
+    products: [
+      {
+        skuId: "current-other",
+        barcode: "BAA1-1",
+        productName: "현재 다른 상품",
+        optionName: "현재 옵션",
+        skuActive: true,
+        listings: [
+          { goodsKey: "CURRENT", optionId: "O1", unitsPerOrder: 2, active: true },
+        ],
+      },
+      {
+        skuId: "waist-stretcher",
+        barcode: "BAF1-1",
+        productName: "허리스트레칭기구",
+        optionName: "단품",
+        skuActive: true,
+        listings: [
+          { goodsKey: "115082", optionId: "CURRENT-BAF1", unitsPerOrder: 1, active: true },
+        ],
+      },
+    ],
+  });
+  const result = aggregateProductMasterShoplingSalesChunk(
+    [
+      order({
+        ord_no: "WAIST-100",
+        opt_id: "O1",
+        prod_id: "OLD-115082",
+        mall_prod_key: "OLD-MALL-115082",
+        mall_ptn_opt_cd: "BAF1-1e",
+        mall_ord_cnt: "100",
+      }),
+    ],
+    catalog,
+    range,
+  );
+  assert.equal(result.acceptedRows, 1);
+  assert.equal(result.unmappedRows, 0);
+  assert.equal(result.monthlyRows[0].barcode, "BAF1-1");
+  assert.equal(result.monthlyRows[0].quantity, 100);
 });
 
 test("duplicate Product Master ownership of one B-code stays fail-closed", () => {

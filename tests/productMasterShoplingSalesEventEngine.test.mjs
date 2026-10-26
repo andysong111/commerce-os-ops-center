@@ -114,6 +114,55 @@ test("shared product code cannot collapse distinct option self-management codes"
   assert.deepEqual(result.events.map((row) => row.barcode), ["BBA2-1", "BBA3-3"]);
 });
 
+test("event collection canonicalizes one Shopling warehouse-location suffix", () => {
+  const planning = {
+    generatedAt: "2026-10-26T00:00:00.000Z",
+    contentFingerprint: "sha256:location-suffix",
+    products: [
+      {
+        skuId: "other",
+        barcode: "BAA1-1",
+        productName: "다른 상품",
+        optionName: "단품",
+        skuActive: true,
+        listings: [{ goodsKey: "OTHER", optionId: "STALE", unitsPerOrder: 2, active: true }],
+      },
+      {
+        skuId: "waist-stretcher",
+        barcode: "BAF1-1",
+        productName: "허리스트레칭기구",
+        optionName: "단품",
+        skuActive: true,
+        listings: [{ goodsKey: "115082", optionId: "CURRENT", unitsPerOrder: 1, active: true }],
+      },
+    ],
+  };
+  const result = aggregateProductMasterShoplingSalesEventChunk(
+    [
+      {
+        ord_no: "WAIST-100",
+        mall_ord_seq: "1",
+        mall_ord_dt: "20261025120000",
+        ord_status: "배송완료",
+        opt_id: "STALE",
+        prod_id: "OLD-115082",
+        mall_prod_key: "OLD-MALL-115082",
+        mall_ptn_opt_cd: "BAF1-1e",
+        mall_ord_cnt: "100",
+        mall_unit_price: "1000",
+      },
+    ],
+    planning,
+    { start: "2026-10-25", end: "2026-10-25" },
+    { analysisAsOf: "2026-10-26T00:00:00.000Z", syncedAt: "2026-10-26T00:01:00.000Z" },
+  );
+
+  assert.equal(result.unmappedRows, 0);
+  assert.equal(result.events.length, 1);
+  assert.equal(result.events[0].barcode, "BAF1-1");
+  assert.equal(result.events[0].quantity, 100);
+});
+
 
 test("Shopling source range is not treated as the order-date truth", () => {
   assert.match(engine, /PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS = 360/);

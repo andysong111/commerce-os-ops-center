@@ -1,4 +1,5 @@
 import {
+  canonicalShoplingManagedCodeCandidate,
   normalizeShoplingBarcode,
   normalizeShoplingOrder,
   type ShoplingRawRow,
@@ -242,7 +243,7 @@ function rawValue(row: ShoplingRawRow, keys: string[]) {
 
 function firstStructuredCode(row: ShoplingRawRow, keys: string[]) {
   for (const key of keys) {
-    const code = normalizedStructuredCode(rawValue(row, [key]));
+    const code = canonicalShoplingManagedCodeCandidate(rawValue(row, [key]));
     if (code) return code;
   }
   return "";

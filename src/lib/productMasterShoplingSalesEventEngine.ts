@@ -1,4 +1,5 @@
 import {
+  canonicalShoplingManagedCodeCandidate,
   normalizeShoplingBarcode,
   normalizeShoplingOrder,
   type ShoplingRawRow,
@@ -11,7 +12,7 @@ export const PRODUCT_MASTER_SALES_EVENT_SOURCE = "shopling_orders_event_v1";
 export const PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS = 360;
 // Historical chunks are only reusable while SKU identity precedence is the
 // same. A new version forces a clean collection before purchase calculation.
-export const PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION = "option-self-code-v2";
+export const PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION = "location-suffix-v3";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type ProductMasterSalesEventRow = {
@@ -236,7 +237,7 @@ function rawValue(row: ShoplingRawRow, keys: string[]) {
 
 function firstStructuredCode(row: ShoplingRawRow, keys: string[]) {
   for (const key of keys) {
-    const code = normalizedStructuredCode(rawValue(row, [key]));
+    const code = canonicalShoplingManagedCodeCandidate(rawValue(row, [key]));
     if (code) return code;
   }
   return "";
