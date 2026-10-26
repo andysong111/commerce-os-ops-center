@@ -157,7 +157,8 @@ export async function advancePurchaseRunPreparation(
     }));
   if (demand.state === "QUEUED" || demand.state === "RUNNING") {
     for (let index = 0; index < DEMAND_STEPS_PER_REQUEST; index += 1) {
-      const step = await atPreparationStage("DEMAND", () => runProductDecisionLiveRefreshStep());
+      const step = await atPreparationStage("DEMAND", () =>
+        runProductDecisionLiveRefreshStep(demand.requestId));
       if (step.state !== "RUNNING") break;
     }
     demand = await atPreparationStage("DEMAND", () =>

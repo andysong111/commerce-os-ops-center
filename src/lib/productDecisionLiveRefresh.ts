@@ -21,6 +21,10 @@ import {
   createSupabaseAdminHeaders,
 } from "@/lib/supabase/admin";
 import { selectRecentStoredPlanningSnapshot } from "@/lib/productPlanningSnapshotFallbackCore";
+import {
+  PRODUCT_DECISION_ACTIVE_RESUME_MAX_AGE_MS,
+  shouldReuseProductDecisionLiveStatus,
+} from "@/lib/productDecisionLiveResumePolicy";
 
 export const PRODUCT_DECISION_LIVE_REQUEST =
   "PRODUCT_DECISION_LIVE_REFRESH_REQUEST";
@@ -43,7 +47,6 @@ const MAX_STEP_ATTEMPTS = 3;
 const OPERATION_LIMIT = 500;
 const PRODUCT_MASTER_REFRESH_TIMEOUT_MS = 70_000;
 const PRODUCT_MASTER_STORED_FALLBACK_MAX_AGE_MS = 72 * 60 * 60 * 1000;
-const PURCHASE_RUN_ACTIVE_RESUME_MAX_AGE_MS = 30 * 60 * 1000;
 
 export type ProductDecisionLiveRequest = {
   requestId: string;
@@ -487,22 +490,16 @@ export async function ensurePurchaseRunDemandRefreshRequest(options: {
   now?: Date;
 } = {}) {
   const maxAgeMs = Math.max(0, Number(options.maxAgeMs ?? 5 * 60 * 1000));
-  const now = options.now ?? new Date();
   const current = await loadProductDecisionLiveStatus();
-  const lastActivityAt = Date.parse(String(
-    current.lastActivityAt ?? current.analysisAsOf ?? "",
-  ));
-  const ageMs = Number.isFinite(lastActivityAt)
-    ? now.valueOf() - lastActivityAt
-    : Number.POSITIVE_INFINITY;
-  const fresh = ageMs >= 0 &&
-    ageMs <= maxAgeMs;
-  const resumableActive = ageMs >= 0 &&
-    ageMs <= PURCHASE_RUN_ACTIVE_RESUME_MAX_AGE_MS && (
-      current.state === "QUEUED" || current.state === "RUNNING"
-    );
-  const freshCompleted = fresh && current.state === "COMPLETED";
-  if (resumableActive || freshCompleted) {
+  // Capture the wall clock after the status read. Another request can persist a
+  // chunk while this read is in flight, so a clock captured before the read can
+  // incorrectly make fresh progress look future-dated.
+  const evaluatedAt = options.now ?? new Date();
+  if (shouldReuseProductDecisionLiveStatus(current, {
+    nowMs: evaluatedAt.valueOf(),
+    completedMaxAgeMs: maxAgeMs,
+    activeMaxAgeMs: PRODUCT_DECISION_ACTIVE_RESUME_MAX_AGE_MS,
+  })) {
     return current;
   }
   const created = await createProductDecisionLiveRefreshRequest();
@@ -791,8 +788,18 @@ async function executeFinalStep(
   return { snapshot, comparison };
 }
 
-export async function runProductDecisionLiveRefreshStep() {
-  const request = await latestRequest();
+export async function runProductDecisionLiveRefreshStep(
+  requestedId?: string | null,
+) {
+  const request = requestedId
+    ? requestFromRow(
+        (await readOperations(
+          PRODUCT_DECISION_LIVE_REQUEST,
+          requestCorrelationId(requestedId),
+          1,
+        ))[0] ?? {},
+      )
+    : await latestRequest();
   if (!request) {
     return { processed: false, state: "IDLE", message: "대기 중인 실시간 발주 계산이 없습니다." };
   }
