@@ -15,6 +15,13 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(service, /runProductDecisionLiveRefreshStep/);
   assert.match(service, /최신 주문·클레임을 읽고 있습니다/);
   assert.match(service, /runProductMasterShoplingSalesEventSyncStep/);
+  assert.match(service, /sales\.identityResolverVersion !== PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION/);
+  assert.ok(
+    service.indexOf("sales.identityResolverVersion !== PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION") <
+      service.indexOf('sales.state === "READY_CANARY"'),
+    "legacy identity evidence must be replaced before canary or full apply",
+  );
+  assert.match(service, /옵션 자체관리코드 기준으로 전체 판매자료를 다시 준비합니다/);
   assert.match(service, /DEMAND_STEPS_PER_REQUEST = 1/);
   assert.match(service, /SALES_STEPS_PER_REQUEST = 1/);
   assert.match(service, /sales\.completedRanges >= sales\.totalRanges/);
@@ -25,6 +32,12 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(service, /prepared:\s*"1"/);
   assert.match(service, /replaceable\?\.draftId/);
   assert.match(service, /params\.set\("newRun", "1"\)/);
+  const sameDayReopenMessage = "최신 판매·클레임·재고·미입고 자료를 준비한 뒤 오늘 만든 발주초안을 다시 엽니다";
+  assert.ok(
+    service.indexOf("let demand =") < service.indexOf(sameDayReopenMessage),
+    "same-day drafts must refresh required source data before reopening",
+  );
+  assert.ok(service.includes(sameDayReopenMessage));
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(route, /externalOrderExecuted:\s*false/);
   assert.match(route, /validationError \? 400 : 503/);

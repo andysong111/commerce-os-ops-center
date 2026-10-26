@@ -18,6 +18,7 @@ test("candidate parity rebuilds the frozen sales-event candidate before Product 
   assert.match(engine, /candidatePlanFingerprint/);
   assert.match(engine, /CANDIDATE_SALES_REPORT_REBUILD_MISMATCH/);
   assert.doesNotMatch(engine, /SALES_EVENT_CANARY|SALES_EVENT_FULL|applyProductMasterShoplingSalesEvents/);
+  assert.match(engine, /identityResolverVersion !== PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION/);
 });
 
 test("purchase preparation can read the immutable candidate pin without rebuilding 52 chunks", () => {

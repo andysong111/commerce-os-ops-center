@@ -22,6 +22,17 @@ test("360-day request pins one Product Master planning fingerprint and proven se
   assert.doesNotMatch(sync, /loadProductPlanningSnapshot\(/);
 });
 
+test("sales requests pin the option identity resolver and invalidate legacy chunks", () => {
+  assert.match(sync, /PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION/);
+  assert.match(sync, /identityResolverVersion:\s*PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION/);
+  assert.match(sync, /currentResolverIsValid/);
+  assert.match(sync, /parent\.identityResolverVersion === PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION/);
+  assert.match(sync, /identityResolverVersion: request\.identityResolverVersion/);
+  assert.match(sync, /identityResolverVersion: request\.identityResolverVersion,[\s\S]*analysisAsOf/);
+  assert.match(recovery, /identityResolverVersion === parent\.identityResolverVersion/);
+  assert.match(sync, /SALES_EVENT_IDENTITY_RESOLVER_CHANGED/);
+});
+
 test("each source chunk applies the one pinned analysisAsOf instead of its fetch partition", () => {
   assert.match(sync, /aggregateProductMasterShoplingSalesEventChunk\([\s\S]*analysisAsOf: request\.analysisAsOf/);
   assert.doesNotMatch(sync, /aggregateProductMasterShoplingSalesEventChunk\([\s\S]*inDateRange/);

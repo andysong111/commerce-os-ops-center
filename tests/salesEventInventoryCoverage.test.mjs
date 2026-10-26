@@ -88,7 +88,10 @@ function fixture(state = "READY_CANARY", options = {}) {
   const deps = {
     "@/lib/supabase/admin": { createSupabaseAdminClient: async () => admin, createSupabaseAdminHeaders: () => ({}) },
     "@/lib/salesEventRefreshPolicy": policy,
-    "@/lib/productMasterShoplingSalesEventEngine": { PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS: 360 },
+    "@/lib/productMasterShoplingSalesEventEngine": {
+      PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS: 360,
+      PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION: "option-self-code-v2",
+    },
     "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshotForRefresh: async () => {
       clockReads++;
       if (options.clockRegresses) wall = oldTime;
@@ -194,6 +197,30 @@ test("strict monthly freshness replaces old completed coverage and reuses the fr
   assert.equal(second.alreadyCovered, true);
   assert.equal(second.requestId, first.requestId);
   assert.equal(f.writes.length, 1);
+});
+test("purchase-run preparation replaces a fresh completed request built by the legacy identity resolver", async () => {
+  const f = fixture("COMPLETED", { analysisAsOf: now });
+  const before = await f.sync.loadProductMasterShoplingSalesEventSyncStatus();
+  assert.equal(before.state, "COMPLETED");
+  assert.equal(before.identityResolverVersion, "legacy-unversioned");
+
+  const result = await f.sync.ensurePurchaseRunSalesRequest({
+    targetDate: "2026-09-15",
+    maxAgeMs: 60 * 60_000,
+    now: new Date(now),
+  });
+  assert.equal(result.accepted, true);
+  assert.notEqual(result.requestId, oldId);
+  assert.equal(f.writes.length, 1);
+  assert.equal(
+    f.writes[0].input_snapshot.identityResolverVersion,
+    "option-self-code-v2",
+  );
+  assert.equal(
+    f.writes[0].input_snapshot.purchaseRunStableRangeReuse,
+    null,
+    "legacy resolver chunks must never be reused",
+  );
 });
 test("invalid and future reset times cannot append or advance an analysis timestamp", async () => {
   for (const invalid of ["", "not-a-time", null, 1, "2026-09-15T00:00:00.001Z"]) {

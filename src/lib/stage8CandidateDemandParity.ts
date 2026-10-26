@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   combineProductMasterShoplingSalesEventChunks,
+  PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION,
   type ProductMasterSalesEventRow,
   type ProductMasterShoplingSalesEventChunk,
 } from "@/lib/productMasterShoplingSalesEventEngine";
@@ -346,12 +347,14 @@ function parseRanges(value: unknown): ShoplingDateRange[] {
 function salesRequestFromRow(row: OperationRow): SalesEventSyncRequest | null {
   const value = object(row.input_snapshot);
   const requestId = text(value.requestId);
+  const identityResolverVersion = text(value.identityResolverVersion);
   const analysisAsOf = iso(value.analysisAsOf);
   const planningGeneratedAt = iso(value.planningGeneratedAt);
   const planningContentFingerprint = text(value.planningContentFingerprint);
   const ranges = parseRanges(value.ranges);
   if (
     !requestId ||
+    identityResolverVersion !== PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION ||
     !analysisAsOf ||
     !planningGeneratedAt ||
     !/^sha256:[a-f0-9]{64}$/.test(planningContentFingerprint) ||
@@ -359,6 +362,7 @@ function salesRequestFromRow(row: OperationRow): SalesEventSyncRequest | null {
   ) return null;
   return {
     requestId,
+    identityResolverVersion,
     analysisAsOf,
     analysisStartDate: text(value.analysisStartDate),
     analysisEndDate: text(value.analysisEndDate),
