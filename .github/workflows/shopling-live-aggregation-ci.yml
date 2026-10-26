@@ -5,6 +5,7 @@ on:
     paths:
       - "src/lib/shopling/shoplingLiveAggregation.ts"
       - "src/lib/shopling/shoplingNormalize.ts"
+      - "src/lib/shopling/shoplingDirectPackEvidence.ts"
       - "src/lib/productDecisionEngine/planningMonthlySales.ts"
       - "tests/shoplingLiveAggregation.test.mjs"
       - ".github/workflows/shopling-live-aggregation-ci.yml"
@@ -34,6 +35,7 @@ jobs:
           src/lib/productDecisionEngine/planningMonthlySales.ts
           src/lib/shopling/shoplingLiveAggregation.ts
           src/lib/shopling/shoplingNormalize.ts
+          src/lib/shopling/shoplingDirectPackEvidence.ts
           tests/shoplingLiveAggregation.test.mjs
       - name: Run aggregation and full decision assembly tests
         run: >-

@@ -22,6 +22,12 @@ async function loadEngine() {
       new URL("../src/lib/shopling/shoplingNormalize.ts", import.meta.url).href,
     )}`,
   );
+  source = source.replace(
+    'from "@/lib/shopling/shoplingDirectPackEvidence"',
+    `from ${JSON.stringify(
+      new URL("../src/lib/shopling/shoplingDirectPackEvidence.ts", import.meta.url).href,
+    )}`,
+  );
   const output = ts.transpileModule(source, {
     compilerOptions: {
       module: ts.ModuleKind.ESNext,
@@ -215,6 +221,34 @@ test("current shadow aggregation accepts a one-letter location suffix on the opt
   assert.equal(result.unmappedRows, 0);
   assert.equal(result.monthlyRows[0].barcode, "BAF1-1");
   assert.equal(result.monthlyRows[0].quantity, 100);
+});
+
+test("current shadow uses order-time product names to disambiguate a location-suffixed single pack", () => {
+  const current = planning({
+    products: [
+      {
+        skuId: "doorbell",
+        barcode: "BBF6-1",
+        productName: "원목 우드도어벨",
+        optionName: "단품",
+        skuActive: true,
+        listings: [
+          { goodsKey: "SINGLE", optionId: "SINGLE", unitsPerOrder: 1, active: true },
+          { goodsKey: "PAIR", optionId: "PAIR", unitsPerOrder: 2, active: true },
+        ],
+      },
+    ],
+  });
+  const result = aggregateProductMasterShoplingSalesHistoricalShadowChunk(
+    [order({ opt_id: "27080308", prod_id: "118560", ptn_goods_cd: "BBF6-1V", t_prod_nm: "도어벨 원목우드미니종 현관종 자석 마그네틱", t_opt_valu: "브라운", mall_ord_cnt: "1" })],
+    current,
+    range,
+    buildHistoricalOptionFallbackIndex(current, []),
+  );
+  assert.equal(result.acceptedRows, 1);
+  assert.equal(result.unmappedRows, 0);
+  assert.equal(result.monthlyRows[0].barcode, "BBF6-1");
+  assert.equal(result.monthlyRows[0].quantity, 1);
 });
 
 test("goods_key mismatch blocks historical fallback even when optionId matches", () => {

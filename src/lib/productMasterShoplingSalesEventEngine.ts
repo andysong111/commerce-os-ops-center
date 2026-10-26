@@ -4,6 +4,7 @@ import {
   normalizeShoplingOrder,
   type ShoplingRawRow,
 } from "@/lib/shopling/shoplingNormalize";
+import { resolveShoplingDirectPackUnits } from "@/lib/shopling/shoplingDirectPackEvidence";
 import type { ShoplingDateRange } from "@/lib/shopling/shoplingReadClient";
 import type { ProductPlanningSnapshot } from "@/lib/shopling/shoplingLiveAggregation";
 
@@ -12,7 +13,8 @@ export const PRODUCT_MASTER_SALES_EVENT_SOURCE = "shopling_orders_event_v1";
 export const PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS = 360;
 // Historical chunks are only reusable while SKU identity precedence is the
 // same. A new version forces a clean collection before purchase calculation.
-export const PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION = "location-suffix-v3";
+export const PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION =
+  "location-suffix-pack-evidence-v4";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type ProductMasterSalesEventRow = {
@@ -69,6 +71,7 @@ type PlanningIndex = {
   byOptionId: Map<string, ListingIdentity>;
   byGoodsKey: Map<string, ListingIdentity>;
   byBarcode: Map<string, ListingIdentity>;
+  unitsByBarcode: Map<string, Set<number>>;
   historicalByBarcode: Map<string, HistoricalBarcodeEvidence>;
   unitsByGoodsKey: Map<string, Set<number>>;
   managedOptionIds: Set<string>;
@@ -193,6 +196,7 @@ function buildPlanningIndex(planning: ProductPlanningSnapshot): PlanningIndex {
       .map(([barcode]) => barcode),
   );
   for (const barcode of ambiguousBarcodes) products.delete(barcode);
+  for (const barcode of ambiguousBarcodes) activeUnitsByBarcode.delete(barcode);
   for (const [key, identity] of [...byOptionId.entries()]) {
     if (ambiguousBarcodes.has(identity.barcode)) byOptionId.delete(key);
   }
@@ -217,6 +221,7 @@ function buildPlanningIndex(planning: ProductPlanningSnapshot): PlanningIndex {
     byOptionId,
     byGoodsKey,
     byBarcode,
+    unitsByBarcode: activeUnitsByBarcode,
     historicalByBarcode,
     unitsByGoodsKey,
     managedOptionIds,
@@ -322,6 +327,13 @@ function resolveIdentity(
     if (optionIdentity?.barcode === optionBarcode) return optionIdentity;
     const currentDirect = index.byBarcode.get(optionBarcode);
     if (currentDirect) return currentDirect;
+    const evidencedUnits = resolveShoplingDirectPackUnits(
+      raw,
+      index.unitsByBarcode.get(optionBarcode) ?? [],
+    );
+    if (evidencedUnits) {
+      return { barcode: optionBarcode, unitsPerOrder: evidencedUnits };
+    }
     const historicalDirect = historicalDirectIdentity(index, optionBarcode, order);
     if (historicalDirect) return historicalDirect;
     for (const key of [text(order.productId), text(order.mallProductKey)]) {
@@ -335,6 +347,13 @@ function resolveIdentity(
   if (partnerCode) {
     const currentDirect = index.byBarcode.get(partnerCode);
     if (currentDirect) return currentDirect;
+    const evidencedUnits = resolveShoplingDirectPackUnits(
+      raw,
+      index.unitsByBarcode.get(partnerCode) ?? [],
+    );
+    if (evidencedUnits) {
+      return { barcode: partnerCode, unitsPerOrder: evidencedUnits };
+    }
     const historicalDirect = historicalDirectIdentity(index, partnerCode, order);
     if (historicalDirect) return historicalDirect;
     for (const key of [text(order.productId), text(order.mallProductKey)]) {
