@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import ts from "typescript";
+import { productMasterSalesPlanFingerprint } from "../src/lib/productMasterSalesPlanFingerprint.ts";
 
 // Execute the REAL TS implementations with explicit in-memory boundaries.
 // No production credentials, network, Product Master write, or purchase calls.
@@ -130,6 +131,7 @@ test("real creator appends a fresh pinned request, preserves history, and reject
     "@/lib/productMasterShoplingSalesEventEngine": { PRODUCT_MASTER_SALES_EVENT_ANALYSIS_DAYS: 360 },
     "@/lib/monthlySalesEventRefreshCore": monthlyRefreshCore,
     "@/lib/productMasterSalesSnapshotRetry": productMasterSalesSnapshotRetry,
+    "@/lib/productMasterSalesPlanFingerprint": { productMasterSalesPlanFingerprint },
     "@/lib/productDecisionLiveRefresh": { loadProductPlanningSnapshotForRefresh: async () => ({ generatedAt: "2026-09-14T00:00:00Z", contentFingerprint: planningFp }) },
     "@/lib/shopling/shoplingReadClient": { shoplingReadConfigFromEnv: () => ({}), splitShoplingDateRange: (start, end) => [{ start, end }] },
     "@/lib/supabase/admin": { createSupabaseAdminClient: async () => admin, createSupabaseAdminHeaders: () => ({}) },
