@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
 async function loadEngine() {
   const directory = await mkdtemp(
-    join(dirname(new URL(import.meta.url).pathname), ".direct-code-evidence-"),
+    join(process.cwd(), "tests", ".direct-code-evidence-"),
   );
   let source = await readFile(
     new URL(
@@ -86,6 +86,14 @@ function planning(overrides = {}) {
 }
 
 test("raw managed code uses the same Shopling order fields as the canonical resolver", () => {
+  assert.equal(
+    rawManagedCode({ optPtnOptCd: "BBA3-3", ptn_goods_cd: "BBA2-1" }),
+    "BBA3-3",
+  );
+  assert.equal(
+    rawManagedCode({ mall_opt_cd: "BBA3-3", ptn_goods_cd: "BBA2-1" }),
+    "BBA3-3",
+  );
   assert.equal(rawManagedCode({ ptn_goods_cd: " baa1-1 " }), "BAA1-1");
   assert.equal(rawManagedCode({ buying_cd: "BBB2-3" }), "BBB2-3");
   assert.equal(rawManagedCode({ mall_opt_cd: "CCC4-5" }), "CCC4-5");

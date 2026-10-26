@@ -152,11 +152,15 @@ function uniqueUnitsByKey(listings: TargetListing[], key: "goodsKey" | "optionId
 
 function structuredCodes(row: ShoplingRawRow) {
   return [
-    rawValue(row, ["buying_cd"]),
-    rawValue(row, ["ptn_goods_cd"]),
-    rawValue(row, ["mall_ptn_goods_cd"]),
+    rawValue(row, ["optPtnOptCd"]),
+    rawValue(row, ["opt_ptn_opt_cd"]),
+    rawValue(row, ["ptn_opt_cd"]),
+    rawValue(row, ["mall_ptn_opt_cd"]),
     rawValue(row, ["mall_opt_cd"]),
     rawValue(row, ["optBarcode", "opt_barcode", "barcode"]),
+    rawValue(row, ["ptn_goods_cd"]),
+    rawValue(row, ["mall_ptn_goods_cd"]),
+    rawValue(row, ["buying_cd"]),
   ].filter(Boolean);
 }
 

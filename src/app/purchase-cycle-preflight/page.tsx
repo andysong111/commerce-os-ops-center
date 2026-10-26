@@ -158,7 +158,7 @@ const explain = (code: string) => reasonLabels[code] ?? `상위 검증에서 남
 const costBasisLabel = (row: PurchaseCyclePreflightReport["selected"][number]) => {
   if (row.costBasis === "VERIFIED_PURCHASE_COST") return "확정원가";
   if (row.costBasis === "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE") return `도매 판매가 추정 ${money(row.estimatedUnitCostKrw)}/개`;
-  if (row.costBasis === "PURCHASE_SHADOW_UNIT_COST_ESTIMATE") return `재생성용 엔진 추정 ${money(row.estimatedUnitCostKrw)}/개 · 1688 현재가 확인 필요`;
+  if (row.costBasis === "PURCHASE_SHADOW_UNIT_COST_ESTIMATE") return `초안용 엔진 추정 ${money(row.estimatedUnitCostKrw)}/개 · 5-1에서 1688 현재가 확인 필요`;
   if (row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE") {
     return `유사상품 ${row.costReferenceModelNo ?? "미확인"} 참고 추정 ${money(row.estimatedUnitCostKrw)}/개`;
   }
@@ -585,7 +585,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               다음 달 발주를 전월이 끝나기 전에 미리 검토할 때만 사용합니다. 임시 매출로 계산되므로 Draft를 확정할 수 없고, 월 마감 후 반드시 다시 계산해야 합니다. 평소에는 체크하지 마세요.
             </p>
           </div>
-          <p className="text-xs leading-5 text-slate-600 md:col-span-2 xl:col-span-3">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하되, 이 비율은 최대한도입니다. 안전후보 배정이 끝나고 남은 금액은 기존상품 예산으로 자동 복귀합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
+          <p className="text-xs leading-5 text-slate-600 md:col-span-2 xl:col-span-3">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하되, 이 비율은 최대한도입니다. 안전후보 배정이 끝나고 남은 금액은 기존상품 예산으로 자동 복귀합니다. 현금이 적으면 매출기준 충족 개월 수와 월평균 매출이 높은 상품부터 최소 발주단위를 지키며 배정하고, 현금이 늘면 같은 순서로 수량과 다음 상품을 추가합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
         </PurchasePreflightForm>
       </section> : null}
       {draftActionProps ? <PurchaseCycleDraftActions {...draftActionProps} variant="quick-open" /> : null}
