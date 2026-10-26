@@ -13,6 +13,8 @@ const draft = (overrides = {}) => ({
   cycleStartDate: null,
   previousCycleStartDate: null,
   cycleKey: null,
+  cycleMode: "ON_DEMAND",
+  cycleBootstrap: false,
   receiptConfirmedAt: null,
   orderedQuantity: 10,
   receivedQuantity: 0,
@@ -174,8 +176,8 @@ test("ordered-only and abandoned drafts never advance the next sales boundary", 
     ],
   });
 
-  assert.equal(result.previousCycleStartDate, "2026-09-25");
-  assert.equal(result.revenueRangeStartDate, "2026-09-25");
+  assert.equal(result.previousCycleStartDate, "2026-09-01");
+  assert.equal(result.revenueRangeStartDate, "2026-09-01");
   assert.equal(result.revenueRangeEndDate, "2026-10-24");
   assert.equal(result.bootstrap, true);
 });
@@ -192,14 +194,76 @@ test("unfinished receipt does not become the next cycle boundary", () => {
       }),
     ],
   });
-  assert.equal(result.previousCycleStartDate, "2026-09-23");
+  assert.equal(result.previousCycleStartDate, "2026-09-01");
   assert.equal(result.bootstrap, true);
 });
 
-test("first on-demand cycle uses an explicit visible 30-day bootstrap", () => {
-  const result = inferPurchaseRunCycleBasis({ targetDate: "2026-10-23", drafts: [] });
-  assert.equal(result.previousCycleStartDate, "2026-09-23");
-  assert.equal(result.revenueRangeEndDate, "2026-10-22");
+test("first on-demand cycle starts after the last legacy monthly coverage", () => {
+  const result = inferPurchaseRunCycleBasis({ targetDate: "2026-10-26", drafts: [] });
+  assert.equal(result.previousCycleStartDate, "2026-09-01");
+  assert.equal(result.revenueRangeStartDate, "2026-09-01");
+  assert.equal(result.revenueRangeEndDate, "2026-10-25");
+  assert.equal(result.bootstrap, true);
+});
+
+test("recalculating an early rolling bootstrap draft repairs it to the migration boundary", () => {
+  const result = inferPurchaseRunCycleBasis({
+    targetDate: "2026-10-26",
+    replaceDraftId: "fast-purchase-draft:22222222222222222222",
+    drafts: [draft({
+      draftId: "fast-purchase-draft:22222222222222222222",
+      cycleStartDate: "2026-10-26",
+      previousCycleStartDate: "2026-09-26",
+      cycleKey: "purchase-run:2026-09-26:2026-10-26",
+      cycleBootstrap: true,
+      orderedQuantity: 0,
+    })],
+  });
+
+  assert.equal(result.cycleStartDate, "2026-10-26");
+  assert.equal(result.previousCycleStartDate, "2026-09-01");
+  assert.equal(result.revenueRangeStartDate, "2026-09-01");
+  assert.equal(result.revenueRangeEndDate, "2026-10-25");
+  assert.equal(result.bootstrap, true);
+});
+
+test("a completed first on-demand run makes the next run start on October 27", () => {
+  const result = inferPurchaseRunCycleBasis({
+    targetDate: "2026-11-05",
+    drafts: [draft({
+      draftId: "fast-purchase-draft:22222222222222222222",
+      cycleStartDate: "2026-10-26",
+      previousCycleStartDate: "2026-09-01",
+      cycleBootstrap: true,
+      orderedQuantity: 100,
+      receivedQuantity: 100,
+      openQuantity: 0,
+      receiptConfirmedAt: "2026-11-03T09:00:00.000Z",
+    })],
+  });
+
+  assert.equal(result.previousCycleStartDate, "2026-10-27");
+  assert.equal(result.revenueRangeStartDate, "2026-10-27");
+  assert.equal(result.revenueRangeEndDate, "2026-11-04");
+  assert.equal(result.bootstrap, false);
+});
+
+test("legacy monthly receipt records do not replace the September migration boundary", () => {
+  const result = inferPurchaseRunCycleBasis({
+    targetDate: "2026-10-26",
+    drafts: [draft({
+      draftId: "fast-purchase-draft:22222222222222222222",
+      cycleMode: "MONTHLY_LEGACY",
+      cycleStartDate: "2026-08-01",
+      orderedQuantity: 100,
+      receivedQuantity: 100,
+      openQuantity: 0,
+      receiptConfirmedAt: "2026-09-10T09:00:00.000Z",
+    })],
+  });
+
+  assert.equal(result.previousCycleStartDate, "2026-09-01");
+  assert.equal(result.revenueRangeEndDate, "2026-10-25");
   assert.equal(result.bootstrap, true);
 });
 

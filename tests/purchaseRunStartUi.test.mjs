@@ -62,7 +62,8 @@ test("main manager is run-based and exposes the one-click start action", async (
   assert.match(draftPage, /revenueRangeStartDate/);
   assert.match(draftPage, /revenueRangeEndDate/);
   assert.match(guide, /입고확정 완료 차시의 계산 시작일 다음 날/);
-  assert.match(guide, /10월 5일 계산을 시작하고 10월 18일 입고확정했다면 다음 차시는 10월 6일부터/);
+  assert.match(guide, /첫 차시는 2026년 9월 1일부터 계산/);
+  assert.match(guide, /계산 시작일이 10월 26일이고 실제 발주·입고확정까지 끝났다면 다음 차시는 10월 27일부터/);
   assert.match(page, /filterVisiblePurchaseRunHistory/);
   assert.doesNotMatch(page, /종료 이력|releasedGroups|releasedCount/);
   assert.match(page, /sourceRunId === selectedDraftId/);
