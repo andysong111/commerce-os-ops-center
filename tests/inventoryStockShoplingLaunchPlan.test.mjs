@@ -91,6 +91,6 @@ test("both stock-control launch surfaces use the shared version-aware planner", 
     assert.match(source, /extensionVersionRef\.current/);
     assert.match(source, /const version = String\(data\.extensionVersion \|\| ""\)/);
   }
-  assert.match(page, /download-hf31/);
-  assert.match(page, /v0\.5\.9 다운로드/);
+  assert.match(page, /download-hf32/);
+  assert.match(page, /v0\.6\.0 다운로드/);
 });
