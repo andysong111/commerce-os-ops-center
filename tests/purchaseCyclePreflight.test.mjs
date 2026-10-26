@@ -361,7 +361,7 @@ test("operator quantity preserves an existing cost-pending Draft line while new 
   assert.deepEqual(report.replacementAudit.added.map((row) => row.barcode), ["BAA2-1"]);
 });
 
-test("shadow expected cost does not relax the normal monthly Draft path", () => {
+test("fresh purchase-run Draft keeps a recommended seller with a provisional engine cost until 5-1", () => {
   const input = fixture();
   Object.assign(input.priority.rows[0], {
     hasConfirmedReceiptCost: false,
@@ -378,10 +378,14 @@ test("shadow expected cost does not relax the normal monthly Draft path", () => 
 
   const report = buildPurchaseCyclePreflight(input);
 
-  assert.equal(report.shadowEstimatedSelectedCount, 0);
-  assert.equal(report.missingCostCount, 1);
-  assert.deepEqual(report.selected, []);
-  assert.ok(report.excluded[0].reasons.includes("CONFIRMED_COST_REQUIRED"));
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.equal(report.shadowEstimatedSelectedCount, 1);
+  assert.equal(report.missingCostCount, 0);
+  assert.deepEqual(report.selected.map((row) => row.barcode), ["BAA1-1"]);
+  assert.equal(report.selected[0].estimatedUnitCostKrw, 5_000);
+  assert.equal(report.selected[0].costBasis, "PURCHASE_SHADOW_UNIT_COST_ESTIMATE");
+  assert.equal(report.selected[0].executionCostVerified, false);
+  assert.ok(report.reviewBlockers.includes("PURCHASE_SHADOW_COST_ESTIMATE_OWNER_REVIEW_REQUIRED"));
 });
 
 test("operator exclusions require one valid replacement Draft and unique canonical B-codes", () => {
@@ -604,7 +608,7 @@ test("an incoherent provisional SKU is isolated without blocking another valid S
   input.priority.rows.push(bad);
   const report = buildPurchaseCyclePreflight(input);
   assert.equal(report.previewReady, true); assert.equal(report.selected.length, 1);
-  assert.deepEqual(report.stages.filter(row => [7, 8].includes(row.number)).map(row => row.state), ["PARTIAL", "PARTIAL"]);
+  assert.deepEqual(report.stages.filter(row => [7, 8].includes(row.number)).map(row => row.state), ["VERIFIED", "PARTIAL"]);
   assert.ok(report.excluded.find(row => row.barcode === bad.barcode).reasons.includes("VERIFIED_INVENTORY_REQUIRED"));
 });
 for (const patch of [

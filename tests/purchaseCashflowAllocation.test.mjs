@@ -62,3 +62,29 @@ test("allocation is deterministic and never mutates the source", () => {
   assert.deepEqual(source, original);
   assert.deepEqual(first, second);
 });
+
+test("more cash only adds or increases quantities and never exceeds an engine target", () => {
+  const budgets = [12_000, 24_000, 40_000];
+  const allocations = budgets.map((budget) => allocatePurchaseCashflow(rows(), budget));
+
+  for (let index = 1; index < allocations.length; index += 1) {
+    const previous = new Map(
+      allocations[index - 1].map((row) => [row.barcode, row.allocatedQuantity]),
+    );
+    for (const row of allocations[index]) {
+      assert.ok(row.allocatedQuantity >= (previous.get(row.barcode) ?? 0));
+      assert.ok(row.allocatedQuantity <= row.targetQuantity);
+    }
+  }
+});
+
+test("small cash goes to qualified-month count then monthly revenue before legacy score", () => {
+  const result = allocatePurchaseCashflow([
+    { barcode: "BAA1-1", priorityScore: 999, revenueQualifiedMonthCount: 4, averageMonthlyRevenueKrw: 900_000, targetQuantity: 10, unitCostKrw: 1_000 },
+    { barcode: "BAA2-1", priorityScore: 1, revenueQualifiedMonthCount: 7, averageMonthlyRevenueKrw: 100_000, targetQuantity: 10, unitCostKrw: 1_000 },
+    { barcode: "BAA3-1", priorityScore: 1, revenueQualifiedMonthCount: 7, averageMonthlyRevenueKrw: 300_000, targetQuantity: 10, unitCostKrw: 1_000 },
+  ], 10_000);
+
+  assert.deepEqual(result.map((row) => row.barcode), ["BAA3-1", "BAA2-1", "BAA1-1"]);
+  assert.deepEqual(result.map((row) => row.allocatedQuantity), [10, 0, 0]);
+});

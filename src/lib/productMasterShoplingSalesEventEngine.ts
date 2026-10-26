@@ -240,15 +240,23 @@ function firstStructuredCode(row: ShoplingRawRow, keys: string[]) {
 }
 
 function rawOptionStructuredCode(row: ShoplingRawRow) {
-  return firstStructuredCode(row, ["optBarcode", "opt_barcode", "barcode"]);
+  return firstStructuredCode(row, [
+    "optPtnOptCd",
+    "opt_ptn_opt_cd",
+    "ptn_opt_cd",
+    "mall_ptn_opt_cd",
+    "mall_opt_cd",
+    "optBarcode",
+    "opt_barcode",
+    "barcode",
+  ]);
 }
 
 function rawPartnerStructuredCode(row: ShoplingRawRow) {
   return firstStructuredCode(row, [
     "ptn_goods_cd",
-    "buying_cd",
     "mall_ptn_goods_cd",
-    "mall_opt_cd",
+    "buying_cd",
   ]);
 }
 

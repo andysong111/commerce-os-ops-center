@@ -267,7 +267,16 @@ function inactiveManagedBarcodes(planning: ProductPlanningSnapshot) {
 
 function rawOptionBarcodeText(raw: ShoplingRawRow) {
   return normalizedBarcodeText(
-    rawValue(raw, ["optBarcode", "opt_barcode", "barcode"]),
+    rawValue(raw, [
+      "optPtnOptCd",
+      "opt_ptn_opt_cd",
+      "ptn_opt_cd",
+      "mall_ptn_opt_cd",
+      "mall_opt_cd",
+      "optBarcode",
+      "opt_barcode",
+      "barcode",
+    ]),
   );
 }
 
@@ -275,9 +284,8 @@ function rawPartnerCodeText(raw: ShoplingRawRow) {
   return normalizedBarcodeText(
     rawValue(raw, [
       "ptn_goods_cd",
-      "buying_cd",
       "mall_ptn_goods_cd",
-      "mall_opt_cd",
+      "buying_cd",
     ]),
   );
 }

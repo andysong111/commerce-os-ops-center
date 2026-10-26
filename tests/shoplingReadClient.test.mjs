@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
@@ -8,7 +8,7 @@ import { importTranspiledTypeScript } from "./transpileTypeScript.mjs";
 
 async function loadShoplingClient() {
   const directory = await mkdtemp(
-    join(dirname(new URL(import.meta.url).pathname), ".shopling-client-"),
+    join(process.cwd(), "tests", ".shopling-client-"),
   );
   try {
     const xmlSource = await readFile("src/lib/shopling/simpleXml.ts", "utf8");
@@ -200,9 +200,12 @@ test("order amount is quantity times unit price and claim severity follows known
     mall_ord_cnt: "3",
     mall_unit_price: "700",
     mall_pay_amt: "999999",
+    optPtnOptCd: "BBA3-3",
+    ptn_goods_cd: "BBA2-1",
   });
   assert.equal(order.quantity, 3);
   assert.equal(order.paidAmount, 2100);
+  assert.equal(order.barcode, "BBA3-3");
   assert.equal(order.orderedAt, "2026-08-05T12:30:00+09:00");
 
   assert.deepEqual(classifyShoplingClaim("상품 파손", "깨짐"), {

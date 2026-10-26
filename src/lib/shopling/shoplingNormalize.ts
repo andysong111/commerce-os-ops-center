@@ -211,7 +211,16 @@ export function normalizeShoplingOrder(row: ShoplingRawRow) {
       cleanCode(pick(row, ["mall_prod_key", "mallProductKey"])) ||
       null,
     barcode: managedBarcode(
-      pick(row, ["optBarcode", "opt_barcode", "barcode"]),
+      pick(row, [
+        "optPtnOptCd",
+        "opt_ptn_opt_cd",
+        "ptn_opt_cd",
+        "mall_ptn_opt_cd",
+        "mall_opt_cd",
+        "optBarcode",
+        "opt_barcode",
+        "barcode",
+      ]),
     ),
     orderedAt: dateTime(
       pick(row, ["mall_ord_dt", "ordered_at", "i_dt"]),
@@ -252,7 +261,16 @@ export function normalizeShoplingClaim(row: ShoplingRawRow) {
   return {
     claimKey: cleanCode(pick(row, ["claim_key", "claimKey"])),
     barcode: managedBarcode(
-      pick(row, ["optBarcode", "opt_barcode", "barcode"]),
+      pick(row, [
+        "optPtnOptCd",
+        "opt_ptn_opt_cd",
+        "ptn_opt_cd",
+        "mall_ptn_opt_cd",
+        "mall_opt_cd",
+        "optBarcode",
+        "opt_barcode",
+        "barcode",
+      ]),
     ),
     optionId:
       cleanCode(pick(row, ["opt_id", "optId", "option_id"])) || null,

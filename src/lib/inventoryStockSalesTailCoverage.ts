@@ -108,7 +108,16 @@ function rawValue(row: ShoplingRawRow, keys: string[]) {
 }
 
 function rawOptionManagedCode(row: ShoplingRawRow) {
-  for (const key of ["optBarcode", "opt_barcode", "barcode"]) {
+  for (const key of [
+    "optPtnOptCd",
+    "opt_ptn_opt_cd",
+    "ptn_opt_cd",
+    "mall_ptn_opt_cd",
+    "mall_opt_cd",
+    "optBarcode",
+    "opt_barcode",
+    "barcode",
+  ]) {
     const code = barcode(rawValue(row, [key]));
     if (code) return code;
   }
@@ -118,9 +127,8 @@ function rawOptionManagedCode(row: ShoplingRawRow) {
 function rawPartnerManagedCode(row: ShoplingRawRow) {
   for (const key of [
     "ptn_goods_cd",
-    "buying_cd",
     "mall_ptn_goods_cd",
-    "mall_opt_cd",
+    "buying_cd",
   ]) {
     const code = barcode(rawValue(row, [key]));
     if (code) return code;

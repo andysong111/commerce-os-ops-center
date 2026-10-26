@@ -114,12 +114,17 @@ function rawValue(row: ShoplingRawRow, keys: string[]) {
 
 export function rawManagedCode(row: ShoplingRawRow) {
   for (const key of [
-    "ptn_goods_cd",
-    "buying_cd",
-    "mall_ptn_goods_cd",
+    "optPtnOptCd",
+    "opt_ptn_opt_cd",
+    "ptn_opt_cd",
+    "mall_ptn_opt_cd",
     "mall_opt_cd",
+    "optBarcode",
     "opt_barcode",
     "barcode",
+    "ptn_goods_cd",
+    "mall_ptn_goods_cd",
+    "buying_cd",
   ]) {
     const barcode = managedBarcode(rawValue(row, [key]));
     if (barcode) return barcode;
