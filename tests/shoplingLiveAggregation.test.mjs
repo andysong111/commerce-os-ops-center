@@ -299,6 +299,58 @@ test("order aggregation maps option IDs, expands set quantities and counts one s
   assert.equal(chunk.references.length, 1);
 });
 
+test("location-suffixed option self-code keeps the sale on its canonical Product Master B-code", () => {
+  const current = planning();
+  current.products.push({
+    skuId: "sku-waist-stretcher",
+    modelNo: "BAF1",
+    barcode: "BAF1-1",
+    productName: "허리스트레칭기구",
+    skuActive: true,
+    moq: 1,
+    cartonQuantity: 1,
+    latestCostKrw: 1_000,
+    inventoryQuantity: 0,
+    inventoryConfirmed: false,
+    purchaseStrategyMonthly: completedStrategyMonthly(),
+    listings: [
+      {
+        optionId: "CURRENT-BAF1",
+        goodsKey: "CURRENT-GOODS",
+        unitsPerOrder: 1,
+        active: true,
+      },
+    ],
+  });
+
+  const chunk = aggregateShoplingOrderChunk(
+    [
+      {
+        ord_no: "WAIST-100",
+        mall_ord_seq: "1",
+        // These current listing identities deliberately point elsewhere. The
+        // historical option self-code is the exact SKU evidence.
+        opt_id: "O1",
+        prod_id: "OLD-GOODS",
+        mall_prod_key: "OLD-MALL-GOODS",
+        mall_ptn_opt_cd: "BAF1-1e",
+        mall_ord_dt: "20260805100000",
+        ord_status: "배송완료",
+        mall_ord_cnt: "100",
+        mall_unit_price: "1000",
+      },
+    ],
+    current,
+    AS_OF,
+    { start: "2026-08-05", end: "2026-08-05" },
+  );
+
+  assert.equal(chunk.acceptedRows, 1);
+  assert.equal(chunk.unmappedRows, 0);
+  assert.equal(chunk.products[0].barcode, "BAF1-1");
+  assert.equal(chunk.products[0].units[0], 100);
+});
+
 test("sold-out listings keep historical demand mapping and zero-revenue rows still count units", () => {
   const soldOutPlanning = planning();
   soldOutPlanning.products[0].listings[0].active = false;

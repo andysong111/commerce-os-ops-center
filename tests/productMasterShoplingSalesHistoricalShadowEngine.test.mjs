@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
 async function loadEngine() {
   const directory = await mkdtemp(
-    join(dirname(new URL(import.meta.url).pathname), ".historical-shadow-"),
+    join(dirname(fileURLToPath(import.meta.url)), ".historical-shadow-"),
   );
   let source = await readFile(
     new URL(
@@ -172,6 +172,49 @@ test("historical option never overrides a current exact option mapping", () => {
   assert.equal(result.acceptedRows, 1);
   assert.equal(result.fallbackResolvedRows, 0);
   assert.equal(result.monthlyRows[0].quantity, 6);
+});
+
+test("current shadow aggregation accepts a one-letter location suffix on the option self-code", () => {
+  const current = planning({
+    products: [
+      {
+        skuId: "other",
+        barcode: "BAA1-1",
+        productName: "다른 상품",
+        optionName: "단품",
+        skuActive: true,
+        listings: [{ goodsKey: "OTHER", optionId: "STALE", unitsPerOrder: 2, active: true }],
+      },
+      {
+        skuId: "waist-stretcher",
+        barcode: "BAF1-1",
+        productName: "허리스트레칭기구",
+        optionName: "단품",
+        skuActive: true,
+        listings: [{ goodsKey: "115082", optionId: "CURRENT", unitsPerOrder: 1, active: true }],
+      },
+    ],
+  });
+  const fallback = buildHistoricalOptionFallbackIndex(current, []);
+  const result = aggregateProductMasterShoplingSalesHistoricalShadowChunk(
+    [
+      order({
+        ord_no: "WAIST-100",
+        opt_id: "STALE",
+        prod_id: "OLD-115082",
+        mall_prod_key: "OLD-MALL-115082",
+        mall_ptn_opt_cd: "BAF1-1e",
+        mall_ord_cnt: "100",
+      }),
+    ],
+    current,
+    range,
+    fallback,
+  );
+  assert.equal(result.acceptedRows, 1);
+  assert.equal(result.unmappedRows, 0);
+  assert.equal(result.monthlyRows[0].barcode, "BAF1-1");
+  assert.equal(result.monthlyRows[0].quantity, 100);
 });
 
 test("goods_key mismatch blocks historical fallback even when optionId matches", () => {

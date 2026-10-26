@@ -94,6 +94,36 @@ function managedBarcode(value: string) {
   return /^[A-Z]{3}\d+-\d+$/.test(normalized) ? normalized : "";
 }
 
+/**
+ * Shopling option self-management codes sometimes contain one trailing
+ * warehouse-location letter (for example `BAF1-1e`). The Product Master keeps
+ * the canonical B-code without that letter. Returning only a candidate here
+ * keeps the rule shared; callers must still verify the candidate against their
+ * known Product Master barcode registry before assigning a sale.
+ */
+export function canonicalShoplingManagedCodeCandidate(value: unknown) {
+  const normalized = normalizeShoplingBarcode(value);
+  if (/^[A-Z]{3}\d+-\d+$/.test(normalized)) return normalized;
+  const locationSuffix = normalized.match(/^([A-Z]{3}\d+-\d+)[A-Z]$/);
+  return locationSuffix?.[1] ?? "";
+}
+
+export function resolveKnownShoplingManagedCode(
+  value: unknown,
+  knownCodes: { has(value: string): boolean },
+) {
+  const candidate = canonicalShoplingManagedCodeCandidate(value);
+  return candidate && knownCodes.has(candidate) ? candidate : "";
+}
+
+function firstManagedBarcode(row: ShoplingRawRow, keys: string[]) {
+  for (const key of keys) {
+    const barcode = managedBarcode(pick(row, [key]));
+    if (barcode) return barcode;
+  }
+  return "";
+}
+
 function numeric(value: string) {
   const parsed = Number(value.replaceAll(",", ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -196,6 +226,15 @@ export function normalizeShoplingOrder(row: ShoplingRawRow) {
     pick(row, ["mall_unit_price", "unit_price"]),
   );
   const calculatedLineAmount = unitPrice * quantity;
+  const partnerOptionCode = normalizeShoplingBarcode(
+    pick(row, [
+      "optPtnOptCd",
+      "opt_ptn_opt_cd",
+      "ptn_opt_cd",
+      "mall_ptn_opt_cd",
+      "mall_opt_cd",
+    ]),
+  );
   return {
     id: `${orderNo}:${
       optionId ||
@@ -210,18 +249,17 @@ export function normalizeShoplingOrder(row: ShoplingRawRow) {
     mallProductKey:
       cleanCode(pick(row, ["mall_prod_key", "mallProductKey"])) ||
       null,
-    barcode: managedBarcode(
-      pick(row, [
-        "optPtnOptCd",
-        "opt_ptn_opt_cd",
-        "ptn_opt_cd",
-        "mall_ptn_opt_cd",
-        "mall_opt_cd",
-        "optBarcode",
-        "opt_barcode",
-        "barcode",
-      ]),
-    ),
+    partnerOptionCode,
+    barcode: firstManagedBarcode(row, [
+      "optPtnOptCd",
+      "opt_ptn_opt_cd",
+      "ptn_opt_cd",
+      "mall_ptn_opt_cd",
+      "mall_opt_cd",
+      "optBarcode",
+      "opt_barcode",
+      "barcode",
+    ]),
     orderedAt: dateTime(
       pick(row, ["mall_ord_dt", "ordered_at", "i_dt"]),
     ),
@@ -260,18 +298,25 @@ export function normalizeShoplingClaim(row: ShoplingRawRow) {
 
   return {
     claimKey: cleanCode(pick(row, ["claim_key", "claimKey"])),
-    barcode: managedBarcode(
+    partnerOptionCode: normalizeShoplingBarcode(
       pick(row, [
         "optPtnOptCd",
         "opt_ptn_opt_cd",
         "ptn_opt_cd",
         "mall_ptn_opt_cd",
         "mall_opt_cd",
-        "optBarcode",
-        "opt_barcode",
-        "barcode",
       ]),
     ),
+    barcode: firstManagedBarcode(row, [
+      "optPtnOptCd",
+      "opt_ptn_opt_cd",
+      "ptn_opt_cd",
+      "mall_ptn_opt_cd",
+      "mall_opt_cd",
+      "optBarcode",
+      "opt_barcode",
+      "barcode",
+    ]),
     optionId:
       cleanCode(pick(row, ["opt_id", "optId", "option_id"])) || null,
     productId:

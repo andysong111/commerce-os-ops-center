@@ -69,10 +69,12 @@ const {
   splitShoplingDateRange,
 } = loaded.client;
 const {
+  canonicalShoplingManagedCodeCandidate,
   classifyShoplingClaim,
   normalizeShoplingClaim,
   normalizeShoplingOrder,
   normalizeShoplingProduct,
+  resolveKnownShoplingManagedCode,
 } = normalize;
 
 test("bounded XML parser supports declaration, CDATA, entities and repeated tags", () => {
@@ -219,4 +221,21 @@ test("order amount is quantity times unit price and claim severity follows known
   });
   assert.equal(claim.reasonCategory, "구매자 변심");
   assert.equal(claim.severityWeight, 0.3);
+});
+
+test("one trailing warehouse-location letter resolves only against a known canonical B-code", () => {
+  const order = normalizeShoplingOrder({
+    ord_no: "LOCATION-1",
+    mall_ord_seq: "1",
+    mall_ptn_opt_cd: " baf1–1e ",
+  });
+  assert.equal(order.partnerOptionCode, "BAF1-1E");
+  assert.equal(order.barcode, "");
+
+  const known = new Set(["BAF1-1", "BBA2-1"]);
+  assert.equal(canonicalShoplingManagedCodeCandidate(" baf1–1e "), "BAF1-1");
+  assert.equal(resolveKnownShoplingManagedCode("BAF1-1e", known), "BAF1-1");
+  assert.equal(resolveKnownShoplingManagedCode("BAF1-1", known), "BAF1-1");
+  assert.equal(resolveKnownShoplingManagedCode("BAF1-1EXTRA", known), "");
+  assert.equal(resolveKnownShoplingManagedCode("BZZ9-9e", known), "");
 });
