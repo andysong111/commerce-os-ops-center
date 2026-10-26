@@ -42,6 +42,7 @@ jobs:
           src/lib/productMasterShoplingSalesDirectCodeEvidence.ts
           src/lib/productMasterShoplingSalesEventEngine.ts
           src/lib/productMasterShoplingSalesEventSync.ts
+          src/lib/shopling/shoplingDirectPackEvidence.ts
           src/lib/productMasterSalesPlanFingerprint.ts
           src/lib/productMasterCanonicalSalesAudit.ts
           src/lib/productMasterInventoryCostReadiness.ts

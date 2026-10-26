@@ -5,6 +5,7 @@ import {
   normalizeShoplingOrder,
   type ShoplingRawRow,
 } from "@/lib/shopling/shoplingNormalize";
+import { resolveShoplingDirectPackUnits } from "@/lib/shopling/shoplingDirectPackEvidence";
 import type { ShoplingDateRange } from "@/lib/shopling/shoplingReadClient";
 import type { ProductPlanningSnapshot } from "@/lib/shopling/shoplingLiveAggregation";
 import type { ProductMasterSalesMonthlyRow } from "@/lib/productMasterShoplingSalesBackfillEngine";
@@ -82,6 +83,7 @@ type PlanningIndex = {
   byOptionId: Map<string, ListingIdentity>;
   byGoodsKey: Map<string, ListingIdentity>;
   byBarcode: Map<string, ListingIdentity>;
+  unitsByBarcode: Map<string, Set<number>>;
   activeListingCountByBarcode: Map<string, number>;
 };
 
@@ -201,6 +203,7 @@ function buildPlanningIndex(planning: ProductPlanningSnapshot): PlanningIndex {
     byOptionId,
     byGoodsKey,
     byBarcode,
+    unitsByBarcode,
     activeListingCountByBarcode,
   };
 }
@@ -266,13 +269,29 @@ function resolveCurrentIdentity(
   const optionCode = rawOptionManagedCode(raw) || managedBarcode(order.barcode);
   if (optionCode) {
     if (optionIdentity?.barcode === optionCode) return optionIdentity;
-    return index.byBarcode.get(optionCode) ?? null;
+    const direct = index.byBarcode.get(optionCode);
+    if (direct) return direct;
+    const evidencedUnits = resolveShoplingDirectPackUnits(
+      raw,
+      index.unitsByBarcode.get(optionCode) ?? [],
+    );
+    return evidencedUnits
+      ? { barcode: optionCode, unitsPerOrder: evidencedUnits }
+      : null;
   }
   if (optionIdentity) return optionIdentity;
 
   const partnerCode = rawPartnerManagedCode(raw);
   if (partnerCode) {
-    return index.byBarcode.get(partnerCode) ?? null;
+    const direct = index.byBarcode.get(partnerCode);
+    if (direct) return direct;
+    const evidencedUnits = resolveShoplingDirectPackUnits(
+      raw,
+      index.unitsByBarcode.get(partnerCode) ?? [],
+    );
+    return evidencedUnits
+      ? { barcode: partnerCode, unitsPerOrder: evidencedUnits }
+      : null;
   }
 
   for (const key of [text(order.productId), text(order.mallProductKey)]) {

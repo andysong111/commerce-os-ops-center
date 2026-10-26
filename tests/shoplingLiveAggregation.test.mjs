@@ -51,6 +51,12 @@ async function loadAggregation() {
       )}`,
     )
     .replace(
+      'from "@/lib/shopling/shoplingDirectPackEvidence"',
+      `from ${JSON.stringify(
+        new URL("../src/lib/shopling/shoplingDirectPackEvidence.ts", import.meta.url).href,
+      )}`,
+    )
+    .replace(
       'from "@/lib/shopling/shoplingReadClient"',
       `from ${JSON.stringify(
         new URL("../src/lib/shopling/shoplingReadClient.ts", import.meta.url).href,
@@ -349,6 +355,71 @@ test("location-suffixed option self-code keeps the sale on its canonical Product
   assert.equal(chunk.unmappedRows, 0);
   assert.equal(chunk.products[0].barcode, "BAF1-1");
   assert.equal(chunk.products[0].units[0], 100);
+});
+
+test("live aggregation recovers a real location-suffixed single order when the B-code also has a 1+1 listing", () => {
+  const current = planning();
+  current.products.push({
+    skuId: "sku-doorbell",
+    modelNo: "BBF6",
+    barcode: "BBF6-1",
+    productName: "원목 우드도어벨",
+    skuActive: true,
+    moq: 1,
+    cartonQuantity: 1,
+    listings: [
+      { optionId: "SINGLE", goodsKey: "SINGLE", unitsPerOrder: 1, active: true },
+      { optionId: "PAIR", goodsKey: "PAIR", unitsPerOrder: 2, active: true },
+    ],
+  });
+  const chunk = aggregateShoplingOrderChunk(
+    [
+      {
+        ord_no: "3263167",
+        mall_ord_seq: "1",
+        opt_id: "27080308",
+        prod_id: "118560",
+        mall_prod_key: "11029062978",
+        ptn_goods_cd: "BBF6-1V",
+        t_prod_nm: "도어벨 원목우드미니종 현관종 자석 마그네틱",
+        t_opt_valu: "브라운",
+        mall_ord_dt: "20260805100000",
+        ord_status: "배송완료",
+        mall_ord_cnt: "1",
+        mall_unit_price: "6370",
+      },
+    ],
+    current,
+    AS_OF,
+    { start: "2026-08-05", end: "2026-08-05" },
+  );
+  assert.equal(chunk.acceptedRows, 1);
+  assert.equal(chunk.unmappedRows, 0);
+  assert.equal(chunk.products[0].barcode, "BBF6-1");
+  assert.equal(chunk.products[0].units[0], 1);
+});
+
+test("live aggregation keeps exact option identity ahead of a shared product-level B-code", () => {
+  const chunk = aggregateShoplingOrderChunk(
+    [
+      {
+        ord_no: "OPTION-WINS",
+        mall_ord_seq: "1",
+        opt_id: "O1",
+        ptn_goods_cd: "BBB1-1",
+        mall_ord_dt: "20260805100000",
+        ord_status: "배송완료",
+        mall_ord_cnt: "1",
+        mall_unit_price: "700",
+      },
+    ],
+    planning(),
+    AS_OF,
+    { start: "2026-08-05", end: "2026-08-05" },
+  );
+  assert.equal(chunk.acceptedRows, 1);
+  assert.equal(chunk.products[0].barcode, "BAA1-1");
+  assert.equal(chunk.products[0].units[0], 2);
 });
 
 test("sold-out listings keep historical demand mapping and zero-revenue rows still count units", () => {

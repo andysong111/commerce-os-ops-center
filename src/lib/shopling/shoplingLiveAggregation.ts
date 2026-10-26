@@ -15,6 +15,7 @@ import {
   resolveKnownShoplingManagedCode,
   type ShoplingRawRow,
 } from "@/lib/shopling/shoplingNormalize";
+import { resolveShoplingDirectPackUnits } from "@/lib/shopling/shoplingDirectPackEvidence";
 import type { ShoplingDateRange } from "@/lib/shopling/shoplingReadClient";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -140,6 +141,7 @@ type PlanningIndex = {
   products: Map<string, PlanningProduct>;
   byOptionId: Map<string, ListingIdentity>;
   byGoodsKey: Map<string, ListingIdentity>;
+  unitsByBarcode: Map<string, Set<number>>;
 };
 
 type OrderReferenceIndex = {
@@ -150,6 +152,20 @@ type OrderReferenceIndex = {
 
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function rawValue(row: ShoplingRawRow, keys: string[]) {
+  for (const key of keys) {
+    const direct = row[key];
+    if (direct !== undefined && direct !== null && direct !== "") return text(direct);
+    const matchedKey = Object.keys(row).find(
+      (candidate) => candidate.toLowerCase() === key.toLowerCase(),
+    );
+    if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null) {
+      return text(row[matchedKey]);
+    }
+  }
+  return "";
 }
 
 function quantity(value: unknown) {
@@ -241,6 +257,7 @@ export function buildProductPlanningIndex(
   const byGoodsKey = new Map<string, ListingIdentity>();
   const ambiguousOption = new Set<string>();
   const ambiguousGoods = new Set<string>();
+  const unitsByBarcode = new Map<string, Set<number>>();
 
   for (const raw of snapshot.products ?? []) {
     const barcode = managedBarcode(raw.barcode);
@@ -255,6 +272,10 @@ export function buildProductPlanningIndex(
       listings: Array.isArray(raw.listings) ? raw.listings : [],
     };
     products.set(barcode, product);
+
+    if (!product.listings?.length) {
+      unitsByBarcode.set(barcode, new Set([1]));
+    }
 
     for (const listing of product.listings ?? []) {
       // Listing activity is a current storefront state, not historical
@@ -277,10 +298,13 @@ export function buildProductPlanningIndex(
         text(listing.goodsKey),
         identity,
       );
+      const units = unitsByBarcode.get(barcode) ?? new Set<number>();
+      units.add(identity.unitsPerOrder);
+      unitsByBarcode.set(barcode, units);
     }
   }
 
-  return { products, byOptionId, byGoodsKey };
+  return { products, byOptionId, byGoodsKey, unitsByBarcode };
 }
 
 function resolveListingIdentity(
@@ -292,17 +316,37 @@ function resolveListingIdentity(
     barcode?: string | null;
     partnerOptionCode?: string | null;
   },
+  raw: ShoplingRawRow,
 ): ListingIdentity | null {
   const option = text(input.optionId);
   const optionIdentity = option ? index.byOptionId.get(option) ?? null : null;
-  const directBarcode =
+  const optionDirectBarcode =
     resolveKnownShoplingManagedCode(input.partnerOptionCode, index.products) ||
     resolveKnownShoplingManagedCode(input.barcode, index.products);
-  if (directBarcode) {
-    if (optionIdentity?.barcode === directBarcode) return optionIdentity;
-    return { barcode: directBarcode, unitsPerOrder: 1 };
+  if (optionDirectBarcode) {
+    if (optionIdentity?.barcode === optionDirectBarcode) return optionIdentity;
+    const evidencedUnits = resolveShoplingDirectPackUnits(
+      raw,
+      index.unitsByBarcode.get(optionDirectBarcode) ?? [],
+    );
+    return evidencedUnits
+      ? { barcode: optionDirectBarcode, unitsPerOrder: evidencedUnits }
+      : null;
   }
   if (optionIdentity) return optionIdentity;
+  const productDirectBarcode = resolveKnownShoplingManagedCode(
+    rawValue(raw, ["ptn_goods_cd", "mall_ptn_goods_cd", "buying_cd"]),
+    index.products,
+  );
+  if (productDirectBarcode) {
+    const evidencedUnits = resolveShoplingDirectPackUnits(
+      raw,
+      index.unitsByBarcode.get(productDirectBarcode) ?? [],
+    );
+    return evidencedUnits
+      ? { barcode: productDirectBarcode, unitsPerOrder: evidencedUnits }
+      : null;
+  }
   for (const key of [text(input.productId), text(input.mallProductKey)]) {
     if (key && index.byGoodsKey.has(key)) return index.byGoodsKey.get(key)!;
   }
@@ -369,7 +413,7 @@ export function aggregateShoplingOrderChunk(
     }
     const bucket = bucketIndex(orderedAt, analysisEndMs);
     if (bucket < 0) continue;
-    const identity = resolveListingIdentity(index, order);
+    const identity = resolveListingIdentity(index, order, raw);
     if (!identity) {
       unmappedRows += 1;
       continue;
@@ -526,7 +570,7 @@ export function aggregateShoplingClaimChunk(
     if (!claimedAt) continue;
     const bucket = bucketIndex(claimedAt, analysisEndMs);
     if (bucket < 0) continue;
-    const direct = resolveListingIdentity(planningIndex, claim);
+    const direct = resolveListingIdentity(planningIndex, claim, raw);
     const reference = direct ? null : resolveClaimReference(referenceIndex, claim);
     const identity = direct ??
       (reference

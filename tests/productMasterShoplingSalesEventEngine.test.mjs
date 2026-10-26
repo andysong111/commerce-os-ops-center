@@ -21,6 +21,12 @@ async function loadEngine() {
     )}`,
   );
   source = source.replace(
+    'from "@/lib/shopling/shoplingDirectPackEvidence"',
+    `from ${JSON.stringify(
+      new URL("../src/lib/shopling/shoplingDirectPackEvidence.ts", import.meta.url).href,
+    )}`,
+  );
+  source = source.replace(
     /import type \{ ShoplingDateRange \} from "@\/lib\/shopling\/shoplingReadClient";/,
     "",
   );
@@ -161,6 +167,52 @@ test("event collection canonicalizes one Shopling warehouse-location suffix", ()
   assert.equal(result.events.length, 1);
   assert.equal(result.events[0].barcode, "BAF1-1");
   assert.equal(result.events[0].quantity, 100);
+});
+
+test("event collection recovers real BBF6 single-unit orders despite current single and 1+1 listings", () => {
+  const planning = {
+    generatedAt: "2026-10-26T00:00:00.000Z",
+    contentFingerprint: "sha256:bbf6-pack-evidence",
+    products: [
+      {
+        skuId: "doorbell",
+        barcode: "BBF6-1",
+        productName: "원목 우드도어벨",
+        optionName: "단품",
+        skuActive: true,
+        listings: [
+          { goodsKey: "SINGLE", optionId: "SINGLE", unitsPerOrder: 1, active: true },
+          { goodsKey: "PAIR", optionId: "PAIR", unitsPerOrder: 2, active: true },
+        ],
+      },
+    ],
+  };
+  const result = aggregateProductMasterShoplingSalesEventChunk(
+    [
+      {
+        ord_no: "3263167",
+        mall_ord_seq: "1",
+        mall_ord_dt: "20261025120000",
+        ord_status: "배송완료",
+        opt_id: "27080308",
+        prod_id: "118560",
+        mall_prod_key: "11029062978",
+        ptn_goods_cd: "BBF6-1V",
+        t_prod_nm: "도어벨 원목우드미니종 현관종 자석 마그네틱",
+        t_opt_valu: "브라운",
+        mall_prod_nm: "동네일등 우드도어벨 문방울 문딸랑이 자석 현관문",
+        mall_opt_valu: "색상: 브라운",
+        mall_ord_cnt: "1",
+        mall_unit_price: "6370",
+      },
+    ],
+    planning,
+    { start: "2026-10-25", end: "2026-10-25" },
+    { analysisAsOf: "2026-10-26T00:00:00.000Z", syncedAt: "2026-10-26T00:01:00.000Z" },
+  );
+  assert.equal(result.unmappedRows, 0);
+  assert.equal(result.events[0].barcode, "BBF6-1");
+  assert.equal(result.events[0].quantity, 1);
 });
 
 

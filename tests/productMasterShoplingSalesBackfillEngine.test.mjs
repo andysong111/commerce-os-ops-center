@@ -19,6 +19,10 @@ async function loadEngine() {
       `from ${JSON.stringify(new URL("../src/lib/shopling/shoplingNormalize.ts", import.meta.url).href)}`,
     )
     .replace(
+      'from "@/lib/shopling/shoplingDirectPackEvidence"',
+      `from ${JSON.stringify(new URL("../src/lib/shopling/shoplingDirectPackEvidence.ts", import.meta.url).href)}`,
+    )
+    .replace(
       /import type \{ ShoplingDateRange \} from "@\/lib\/shopling\/shoplingReadClient";\n/,
       "",
     )
@@ -244,6 +248,96 @@ test("ambiguous barcode pack ratios are never guessed from the barcode alone", (
   const result = aggregateProductMasterShoplingSalesChunk(
     [order({ opt_id: "OLD", prod_id: "OLD", ptn_goods_cd: "BAA1-1" })],
     ambiguous,
+    range,
+  );
+  assert.equal(result.acceptedRows, 0);
+  assert.equal(result.unmappedRows, 1);
+});
+
+test("real BBF6 location-suffixed legacy orders use order-time names to recover a single unit", () => {
+  const catalog = planning({
+    products: [
+      {
+        skuId: "doorbell",
+        barcode: "BBF6-1",
+        productName: "원목 우드도어벨",
+        optionName: "단품",
+        skuActive: true,
+        listings: [
+          { goodsKey: "CURRENT-SINGLE", optionId: "CURRENT-SINGLE", unitsPerOrder: 1, active: true },
+          { goodsKey: "CURRENT-1PLUS1", optionId: "CURRENT-1PLUS1", unitsPerOrder: 2, active: true },
+        ],
+      },
+    ],
+  });
+  const result = aggregateProductMasterShoplingSalesChunk(
+    [
+      order({
+        ord_no: "3263167",
+        opt_id: "27080308",
+        prod_id: "118560",
+        mall_prod_key: "11029062978",
+        ptn_goods_cd: "BBF6-1V",
+        t_prod_nm: "도어벨 원목우드미니종 현관종 자석 마그네틱",
+        t_opt_valu: "브라운",
+        mall_prod_nm: "동네일등 우드도어벨 문방울 문딸랑이 자석 현관문",
+        mall_opt_valu: "색상: 브라운",
+        mall_ord_cnt: "1",
+      }),
+    ],
+    catalog,
+    range,
+  );
+  assert.equal(result.acceptedRows, 1);
+  assert.equal(result.unmappedRows, 0);
+  assert.equal(result.monthlyRows[0].barcode, "BBF6-1");
+  assert.equal(result.monthlyRows[0].quantity, 1);
+});
+
+test("explicit 1+1 order-time name selects the two-unit pack for the same B-code", () => {
+  const catalog = planning({
+    products: [
+      {
+        skuId: "doorbell",
+        barcode: "BBF6-1",
+        productName: "원목 우드도어벨",
+        optionName: "단품",
+        skuActive: true,
+        listings: [
+          { goodsKey: "SINGLE", optionId: "SINGLE", unitsPerOrder: 1, active: true },
+          { goodsKey: "PAIR", optionId: "PAIR", unitsPerOrder: 2, active: true },
+        ],
+      },
+    ],
+  });
+  const result = aggregateProductMasterShoplingSalesChunk(
+    [order({ opt_id: "OLD", prod_id: "OLD", ptn_goods_cd: "BBF6-1O", t_prod_nm: "우드도어벨 1+1 세트", mall_ord_cnt: "3" })],
+    catalog,
+    range,
+  );
+  assert.equal(result.acceptedRows, 1);
+  assert.equal(result.monthlyRows[0].quantity, 6);
+});
+
+test("an explicit pack marker that is absent from Product Master stays fail-closed", () => {
+  const catalog = planning({
+    products: [
+      {
+        skuId: "doorbell",
+        barcode: "BBF6-1",
+        productName: "원목 우드도어벨",
+        optionName: "단품",
+        skuActive: true,
+        listings: [
+          { goodsKey: "SINGLE", optionId: "SINGLE", unitsPerOrder: 1, active: true },
+          { goodsKey: "TRIPLE", optionId: "TRIPLE", unitsPerOrder: 3, active: true },
+        ],
+      },
+    ],
+  });
+  const result = aggregateProductMasterShoplingSalesChunk(
+    [order({ opt_id: "OLD", prod_id: "OLD", ptn_goods_cd: "BBF6-1V", t_prod_nm: "우드도어벨 1+1 세트" })],
+    catalog,
     range,
   );
   assert.equal(result.acceptedRows, 0);
