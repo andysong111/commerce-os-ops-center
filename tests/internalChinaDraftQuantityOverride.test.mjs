@@ -107,6 +107,7 @@ test("ORDERED correction carries lower quantities into cancellation and higher q
   assert.match(helper, /cancelledQuantity/);
   assert.match(helper, /upwardDelta/);
   assert.match(helper, /orderedQuantity/);
-  assert.match(helper, /manualAddition: true/);
+  assert.match(helper, /addedQuantity: upwardDelta/);
+  assert.doesNotMatch(helper, /manualAddition: true/);
   assert.match(draftRoute, /recordOrderedQuantityOverrideCorrections/);
 });

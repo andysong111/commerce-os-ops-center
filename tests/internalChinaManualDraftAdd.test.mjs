@@ -37,6 +37,7 @@ test("manual addition reserves into the existing monthly draft instead of creati
   assert.match(helper, /status: "RESERVED"/);
   assert.match(helper, /requestedQuantity: targetQuantity/);
   assert.match(helper, /manualAddition: true/);
+  assert.match(helper, /manualAdditionProvenanceVersion/);
   assert.match(helper, /externalOrderExecuted: false/);
 });
 

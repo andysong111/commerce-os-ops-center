@@ -717,3 +717,4 @@ Actual 1688 ordering and payment remain outside this replacement calculation and
 - 기존 Draft를 새 Draft로 교체할 때 검증하는 스냅샷 수량은 주문·입고 원장의 `openQuantity`를 사용한다. 수동 추가 상품은 다음 자동추천에서 중복 차감하지 않기 위해 `recommendationOpenQuantity`가 0일 수 있지만, 실제 Draft 수량이 0인 것은 아니다.
 - 다음 우선순위 계산에서 기존 Draft의 자동추천분을 제외하는 계산은 기존대로 `recommendationOpenQuantity`를 사용한다. 실제 Draft 보존 수량과 자동추천 차감 수량의 용도를 섞지 않는다.
 - 재계산이 실패하면 현재 Draft와 화면의 수량 변경·제외·추가 대기를 유지한다. 실제 새 Draft가 생성되고 URL이 교체된 경우에만 완료로 표시한다.
+- 2026-10-26부터 실제 B코드 수동 추가는 출처 버전 `2`를 기록한다. 과거 수량 증가 이벤트가 잘못 남긴 `manualAddition=true`만으로는 상품이나 수량을 고정하지 않는다. 출처 버전이 확인되는 수동 추가와 `sourcingConfirmed` 상품만 자동추천 재계산 뒤에도 보존한다.

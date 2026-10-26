@@ -7,6 +7,7 @@ import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
+import { PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION } from "@/lib/purchaseCycleDraftRegenerationCore";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const MANUAL_SOURCE = "ops-center-internal-china-order-manual-add";
@@ -286,6 +287,8 @@ export async function addInternalChinaManualDraftLine(input: {
     note: `월간 최종 Draft 운영자 수동 추가 · +${integer(input.addQuantity)}개`,
     payload: {
       manualAddition: true,
+      manualAdditionProvenanceVersion:
+        PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION,
       modelNo: text(product.modelNo),
       productName: text(product.productName),
       optionName: text(product.optionName),

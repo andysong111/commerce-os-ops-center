@@ -76,6 +76,7 @@ test("ambiguous legacy quantities return to policy while confirmed manual pins s
       lineBarcode: "BAA9-1",
       quantityOverrideProvenanceVersion: 2,
       manualAddition: true,
+      manualAdditionProvenanceVersion: 2,
     },
   ]);
 
@@ -88,7 +89,7 @@ test("ambiguous legacy quantities return to policy while confirmed manual pins s
   });
 });
 
-test("contaminated pre-v2 confirmation lists are ignored while manual additions survive", () => {
+test("contaminated pre-v2 confirmation and manual-add flags return to policy", () => {
   const adjustments = {
     excludedBarcodes: [],
     quantityOverrides: [
@@ -113,7 +114,7 @@ test("contaminated pre-v2 confirmation lists are ignored while manual additions 
 
   assert.deepEqual(confirmed, {
     excludedBarcodes: [],
-    quantityOverrides: [{ barcode: "BAA9-1", targetQuantity: 25 }],
+    quantityOverrides: [],
   });
 });
 

@@ -20,7 +20,9 @@ import {
   assertDraftCanBeRegenerated,
   buildManualDraftRevision,
   confirmedPurchaseDraftOperatorAdjustments,
+  isTrustedPurchaseDraftManualAddition,
   normalizePurchaseDraftOperatorAdjustments,
+  PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION,
   PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION,
   type PurchaseDraftOperatorAdjustments,
 } from "@/lib/purchaseCycleDraftRegenerationCore";
@@ -105,6 +107,9 @@ export async function loadPurchaseDraftOperatorAdjustments(
         payload.operatorQuantityOverrideProvenanceVersion,
       ),
       manualAddition: payload.manualAddition === true,
+      manualAdditionProvenanceVersion: Number(
+        payload.manualAdditionProvenanceVersion,
+      ),
       sourcingConfirmed: payload.sourcingConfirmed === true,
     };
   });
@@ -290,7 +295,8 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     lines
       .filter((line) => {
         const payload = object(previousByBarcode.get(line.barcode)?.latestPayload);
-        return payload.sourcingConfirmed === true || payload.manualAddition === true;
+        return payload.sourcingConfirmed === true ||
+          isTrustedPurchaseDraftManualAddition(payload);
       })
       .map((line) => line.barcode),
   );
@@ -386,7 +392,13 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         operatorConfirmedQuantityOverrideBarcodes: confirmedQuantityOverrideBarcodes,
         operatorQuantityOverrideProvenanceVersion:
           PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION,
-        ...(manuallyAddedBarcodes.has(line.barcode) ? { manualAddition: true } : {}),
+        ...(manuallyAddedBarcodes.has(line.barcode)
+          ? {
+              manualAddition: true,
+              manualAdditionProvenanceVersion:
+                PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION,
+            }
+          : {}),
         regeneration: true,
         supersedesDraftId: input.expectedDraftId,
         externalOrderExecuted: false,

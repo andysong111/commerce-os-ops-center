@@ -28,10 +28,12 @@ export type PurchaseDraftOperatorAdjustmentSnapshot = {
   confirmedQuantityOverrideBarcodes?: string[];
   quantityOverrideProvenanceVersion?: number;
   manualAddition?: boolean;
+  manualAdditionProvenanceVersion?: number;
   sourcingConfirmed?: boolean;
 };
 
 export const PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION = 2;
+export const PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION = 2;
 
 const BARCODE = /^B[A-Z]{2}\d+-\d+$/;
 
@@ -109,7 +111,11 @@ export function confirmedPurchaseDraftOperatorAdjustments(
         if (BARCODE.test(code)) confirmed.add(code);
       }
     }
-    if (snapshot.manualAddition === true || snapshot.sourcingConfirmed === true) {
+    const trustedManualAddition =
+      snapshot.manualAddition === true &&
+      Number(snapshot.manualAdditionProvenanceVersion) >=
+        PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION;
+    if (trustedManualAddition || snapshot.sourcingConfirmed === true) {
       const code = normalizedBarcode(snapshot.lineBarcode);
       if (BARCODE.test(code)) confirmed.add(code);
     }
@@ -120,6 +126,14 @@ export function confirmedPurchaseDraftOperatorAdjustments(
       confirmed.has(row.barcode),
     ),
   };
+}
+
+export function isTrustedPurchaseDraftManualAddition(
+  payload: Record<string, unknown>,
+) {
+  return payload.manualAddition === true &&
+    Number(payload.manualAdditionProvenanceVersion) >=
+      PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION;
 }
 
 export function mergePurchaseDraftOperatorAdjustments(

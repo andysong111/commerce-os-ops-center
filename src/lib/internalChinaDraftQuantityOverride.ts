@@ -362,9 +362,7 @@ export async function recordOrderedQuantityOverrideCorrections(
         quantityOverride: true,
         targetQuantity: target,
         previousOpenQuantity: currentOpen,
-        ...(upwardDelta > 0
-          ? { manualAddition: true, addedQuantity: upwardDelta }
-          : {}),
+        ...(upwardDelta > 0 ? { addedQuantity: upwardDelta } : {}),
         externalOrderExecuted: false,
       },
     });
