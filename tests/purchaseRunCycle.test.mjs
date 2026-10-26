@@ -91,6 +91,32 @@ test("starting a new run uses the day after the latest receipt-confirmed run sta
   assert.equal(result.bootstrap, false);
 });
 
+test("receipt date never replaces the prior run calculation start as the sales boundary", () => {
+  const result = inferPurchaseRunCycleBasis({
+    targetDate: "2026-10-26",
+    drafts: [
+      draft({
+        draftId: "fast-purchase-draft:22222222222222222222",
+        cycleStartDate: "2026-10-05",
+        receiptConfirmedAt: "2026-10-25T09:00:00.000Z",
+        receivedQuantity: 10,
+        openQuantity: 0,
+      }),
+      draft({
+        draftId: "fast-purchase-draft:33333333333333333333",
+        cycleStartDate: "2026-10-10",
+        receiptConfirmedAt: "2026-10-20T09:00:00.000Z",
+        receivedQuantity: 10,
+        openQuantity: 0,
+      }),
+    ],
+  });
+
+  assert.equal(result.previousCycleStartDate, "2026-10-11");
+  assert.equal(result.revenueRangeStartDate, "2026-10-11");
+  assert.equal(result.revenueRangeEndDate, "2026-10-25");
+});
+
 test("a replacement cannot be relabeled as a new run without a later start date", () => {
   assert.throws(
     () => inferPurchaseRunCycleBasis({

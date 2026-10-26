@@ -213,6 +213,7 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   );
 
   assert.match(guide, /작업 순서 보기/);
+  assert.match(workspace, /재고를 빼기 전 임시 추천치/);
   assert.match(guide, /aria-haspopup="dialog"/);
   assert.match(guide, /aria-expanded=\{open\}/);
   assert.match(guide, /fixed right-4 top-24 z-\[80\]/);
@@ -228,7 +229,7 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   assert.match(guide, /5-1 원가·운임 기록/);
   assert.match(guide, /5-2 장바구니 담기/);
   assert.match(guide, /주문 제출과 결제는 실행하지 않습니다/);
-  assert.match(guide, /입고확정일이 아니라 직전 발주계산 시작일/);
+  assert.match(guide, /입고확정일 다음 날이 아니라, 가장 최근 입고확정 완료 차시의 계산 시작일 다음 날/);
   assert.match(guide, /localStorage\.getItem\(GUIDE_STORAGE_KEY\)/);
   assert.match(editor, /<InternalChinaPurchaseDraftGuide/);
   assert.match(editor, /manualAddPanel=/);
