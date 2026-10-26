@@ -1863,6 +1863,7 @@ test("replacement snapshot preserves a manually added line across later recommen
     latestPayload: {
       productName: "사용자 수동 추가 상품",
       manualAddition: true,
+      manualAdditionProvenanceVersion: 2,
     },
   }];
 
@@ -1880,6 +1881,31 @@ test("replacement snapshot preserves a manually added line across later recommen
     preserveOnRegeneration: true,
     recoveredFromPredecessor: false,
   }]);
+});
+
+test("replacement snapshot releases legacy quantity increases mislabeled as manual additions", () => {
+  const draftId = "fast-purchase-draft:22222222222222222222";
+  const rows = [{
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: draftId,
+    barcode: "BGG1-1",
+    openQuantity: 7_910,
+    committedQuantity: 7_910,
+    latestPayload: {
+      productName: "계란펀칭기",
+      manualAddition: true,
+      addedQuantity: 4_910,
+    },
+  }];
+
+  const lines = purchaseReplacementDraftSnapshotLines(
+    rows,
+    rows,
+    draftId,
+    new Map(),
+  );
+
+  assert.equal(lines[0]?.preserveOnRegeneration, false);
 });
 
 test("replacement audit reports a recovered predecessor as newly added to the visible current draft", () => {

@@ -1,4 +1,5 @@
 import type { PurchaseReplacementDraftLine } from "@/lib/purchaseCyclePreflightCore";
+import { isTrustedPurchaseDraftManualAddition } from "./purchaseCycleDraftRegenerationCore.ts";
 
 type ReplacementLedgerRow = {
   sourceSystem: string;
@@ -84,7 +85,10 @@ export function purchaseReplacementDraftSnapshotLines(
   );
   for (const row of activeRows) {
     const payload = object(row.latestPayload);
-    if (payload.sourcingConfirmed === true || payload.manualAddition === true) {
+    if (
+      payload.sourcingConfirmed === true ||
+      isTrustedPurchaseDraftManualAddition(payload)
+    ) {
       sourceByBarcode.set(row.barcode, row);
     }
   }
@@ -103,7 +107,8 @@ export function purchaseReplacementDraftSnapshotLines(
       quantity,
       name: text(payload.productName),
       preserveOnRegeneration:
-        payload.sourcingConfirmed === true || payload.manualAddition === true,
+        payload.sourcingConfirmed === true ||
+        isTrustedPurchaseDraftManualAddition(payload),
       recoveredFromPredecessor: predecessorBarcodes.has(barcode),
     };
   });
