@@ -24,13 +24,13 @@ import {
   type ProductLaunchTrackerState,
 } from "@/lib/productLaunchTrackerOptimized";
 import {
-  queryProductLaunchNormalizedPage,
   readProductLaunchNormalizedItem,
   readProductLaunchNormalizedItems,
   readProductLaunchNormalizedWorkspace,
   setProductLaunchNormalizedReadEnabled,
   syncProductLaunchNormalizedChangedItems,
 } from "@/lib/productLaunchTrackerNormalizedStore";
+import { queryProductLaunchStockAwareNormalizedPage } from "@/lib/productLaunchStockAwarePage";
 
 const TABLE_NAME = "product_launch_tracker_states";
 export const maxDuration = 90;
@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
     if (mode === "page" && workspace?.normalized_read_enabled === true) {
       try {
         const page = await withDeadline(
-          queryProductLaunchNormalizedPage(
+          queryProductLaunchStockAwareNormalizedPage(
             config.value,
             identity.value.userId,
             workspace,
@@ -296,6 +296,7 @@ function pageQuery(request: NextRequest) {
     assignee: request.nextUrl.searchParams.get("assignee"),
     overall: request.nextUrl.searchParams.get("overall"),
     unfinishedOnly: request.nextUrl.searchParams.get("unfinishedOnly"),
+    stock: request.nextUrl.searchParams.get("stock"),
     sort: request.nextUrl.searchParams.get("sort"),
     direction: request.nextUrl.searchParams.get("direction"),
   };

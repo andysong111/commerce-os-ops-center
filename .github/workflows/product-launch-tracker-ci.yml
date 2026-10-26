@@ -73,6 +73,7 @@ jobs:
           tests/productLaunchTrackerSorting.test.mjs
           tests/productLaunchTrackerShopling.test.mjs
           tests/productLaunchTrackerShoplingPriceRounding.test.mjs
+          tests/productLaunchStockAvailability.test.mjs
           tests/productLaunchShoplingHistoricalOptionRecovery.test.mjs
           tests/productLaunchShoplingRetry.test.mjs
           tests/productLaunchShoplingReadback.test.mjs

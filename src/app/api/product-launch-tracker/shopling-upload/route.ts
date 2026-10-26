@@ -8,6 +8,13 @@ import {
 import { recoverProductLaunchOrderOptionsFromSuccessfulUpload } from "@/lib/productLaunchShoplingHistoricalOptionRecovery";
 import { buildProductLaunchShoplingPayload } from "@/lib/productLaunchTrackerShopling";
 import {
+  applyProductLaunchStockAvailability,
+  buildProductLaunchInventoryIndex,
+  classifyProductLaunchStockAvailability,
+  loadProductLaunchInventorySnapshot,
+  productLaunchStockBlockReason,
+} from "@/lib/productLaunchStockAvailability";
+import {
   getProductLaunchAdminConfig,
   readProductLaunchError,
   readProductLaunchState,
@@ -115,6 +122,24 @@ export async function POST(request: NextRequest) {
         { status: 422 },
       );
     }
+
+    const inventory = buildProductLaunchInventoryIndex(
+      await loadProductLaunchInventorySnapshot({ maxAgeMs: 5_000 }),
+    );
+    const stock = classifyProductLaunchStockAvailability(item, inventory);
+    const stockBlockReason = productLaunchStockBlockReason(stock);
+    if (stockBlockReason) {
+      return Response.json(
+        {
+          ok: false,
+          code: "PRODUCT_LAUNCH_STOCK_BLOCKED",
+          message: stockBlockReason,
+          stockAvailability: stock,
+        },
+        { status: 422 },
+      );
+    }
+    item = applyProductLaunchStockAvailability(item, stock);
 
     const currentProducts = Object.values(asRecord(item.shoplingProducts)).map(asRecord);
     if (

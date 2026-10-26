@@ -57,7 +57,7 @@ test("normalized reads require an enabled and fresh workspace", () => {
 });
 
 test("page and detail reads use normalized product and option rows", () => {
-  assert.match(source.normalized, /queryProductLaunchNormalizedPage/);
+  assert.match(source.normalized, /queryProductLaunchStockAwareNormalizedPage/);
   assert.match(source.normalized, /readProductLaunchNormalizedItem/);
   assert.match(source.normalized, /readProductLaunchNormalizedItems/);
   assert.match(source.store, /readProductLaunchNormalizedItemsByModelNumbers/);
@@ -72,7 +72,7 @@ test("hot list reads use shared Next Data Cache across function instances", () =
   assert.match(source.cachedNormalized, /unstable_cache/);
   assert.match(source.cachedNormalized, /PAGE_REVALIDATE_SECONDS = 10/);
   assert.match(source.cachedNormalized, /revalidateTag\([^\n]+, "max"\)/);
-  assert.match(source.cachedNormalized, /queryProductLaunchNormalizedPage/);
+  assert.match(source.cachedNormalized, /queryProductLaunchStockAwareNormalizedPage/);
   assert.match(source.cachedNormalized, /listCache: "next-data-cache"/);
 
   assert.match(source.cachedDetailJobs, /unstable_cache/);

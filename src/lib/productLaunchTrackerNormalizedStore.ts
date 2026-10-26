@@ -219,16 +219,19 @@ export async function queryProductLaunchNormalizedPage(
   const sort = text(query.sort);
   const direction = text(query.direction) === "asc" ? "asc" : "desc";
 
-  const params = new URLSearchParams({
-    select: "item_id,model_number,item_payload,summary_payload,updated_at,updated_by",
-    owner_id: `eq.${ownerId}`,
+  const params = normalizedListParams(ownerId, {
+    search,
+    batch,
+    assignee,
+    overall,
+    unfinishedOnly,
+    sort,
+    direction,
   });
-  if (batch) params.set("work_batch", `eq.${batch}`);
-  if (assignee) params.set("assignees", `cs.${postgresArrayLiteral([assignee])}`);
-  if (overall) params.set("overall_status", `eq.${overall}`);
-  if (unfinishedOnly) params.set("overall_status", "not.in.(완료,보관됨)");
-  if (search) params.set("search_text", `ilike.*${safeSearchFilter(search)}*`);
-  params.set("order", normalizedOrder(sort, direction));
+  params.set(
+    "select",
+    "item_id,model_number,item_payload,summary_payload,updated_at,updated_by",
+  );
 
   const initialOffset = (requestedPage - 1) * pageSize;
   const first = await fetchNormalizedPageRows(
@@ -266,6 +269,108 @@ export async function queryProductLaunchNormalizedPage(
       ? workspace.filter_options
       : { batches: [], assignees: [] },
   };
+}
+
+export async function queryProductLaunchNormalizedStockCandidates(
+  config: Config,
+  ownerId: string,
+  query: ProductLaunchTrackerPageQuery,
+) {
+  const params = normalizedListParams(ownerId, {
+    search: normalizeSearch(query.search),
+    batch: text(query.batch),
+    assignee: text(query.assignee),
+    overall: text(query.overall),
+    unfinishedOnly: booleanValue(query.unfinishedOnly, true),
+    sort: text(query.sort),
+    direction: text(query.direction) === "asc" ? "asc" : "desc",
+  });
+  params.set(
+    "select",
+    "item_id,model_number,barcode,option_barcodes,archived_at,seo_exclusion:summary_payload->seoExclusion",
+  );
+  const url = `${ITEM_TABLE}?${params.toString()}`;
+  const chunkSize = 500;
+  const candidates: UnknownRecord[] = [];
+  let offset = 0;
+  while (true) {
+    const result = await fetchNormalizedPageRows(config, url, offset, chunkSize);
+    for (const row of result.rows) {
+      const optionBarcodes = Array.isArray(row.option_barcodes)
+        ? row.option_barcodes.map(text).filter(Boolean)
+        : [];
+      candidates.push({
+        id: text(row.item_id),
+        modelNumber: text(row.model_number),
+        barcode: text(row.barcode),
+        optionLocations: optionBarcodes.map((barcode, index) => ({
+          id: `stock-option-${index + 1}`,
+          label: barcode,
+          barcode,
+          index,
+        })),
+        archivedAt: normalizedTimestamp(row.archived_at),
+        seoExclusion: isRecord(row.seo_exclusion) ? row.seo_exclusion : {},
+      });
+    }
+    offset += result.rows.length;
+    if (!result.rows.length || offset >= result.total) break;
+  }
+  return candidates;
+}
+
+export async function readProductLaunchNormalizedSummaries(
+  config: Config,
+  ownerId: string,
+  itemIds: string[],
+) {
+  const ids = uniqueStrings(itemIds).slice(0, MAX_PAGE_SIZE);
+  if (!ids.length) return [];
+  const params = new URLSearchParams({
+    select: "item_id,summary_payload",
+    owner_id: `eq.${ownerId}`,
+    item_id: `in.(${postgrestIn(ids)})`,
+    limit: String(MAX_PAGE_SIZE),
+  });
+  const response = await normalizedFetch(
+    config,
+    `${ITEM_TABLE}?${params.toString()}`,
+  );
+  if (response.missingSchema) return [];
+  const byId = new Map<string, UnknownRecord>();
+  for (const row of Array.isArray(response.body) ? response.body : []) {
+    if (!isRecord(row) || !isRecord(row.summary_payload)) continue;
+    byId.set(text(row.item_id), row.summary_payload);
+  }
+  return ids
+    .map((id) => byId.get(id))
+    .filter((value): value is UnknownRecord => Boolean(value));
+}
+
+function normalizedListParams(
+  ownerId: string,
+  input: {
+    search: string;
+    batch: string;
+    assignee: string;
+    overall: string;
+    unfinishedOnly: boolean;
+    sort: string;
+    direction: "asc" | "desc";
+  },
+) {
+  const params = new URLSearchParams({ owner_id: `eq.${ownerId}` });
+  if (input.batch) params.set("work_batch", `eq.${input.batch}`);
+  if (input.assignee) {
+    params.set("assignees", `cs.${postgresArrayLiteral([input.assignee])}`);
+  }
+  if (input.overall) params.set("overall_status", `eq.${input.overall}`);
+  if (input.unfinishedOnly) params.set("overall_status", "not.in.(완료,보관됨)");
+  if (input.search) {
+    params.set("search_text", `ilike.*${safeSearchFilter(input.search)}*`);
+  }
+  params.set("order", normalizedOrder(input.sort, input.direction));
+  return params;
 }
 
 async function summarizeNormalizedPageRows(

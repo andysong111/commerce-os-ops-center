@@ -75,6 +75,16 @@
                 <option value="보관됨">보관됨</option>
               </select>
             </label>
+            <label class="field">
+              <span>재고 상태</span>
+              <select id="stock-filter">
+                <option value="SELLABLE" selected>판매 가능만</option>
+                <option value="ALL">전체 재고 상태</option>
+                <option value="PARTIAL_SOLD_OUT">일부 옵션 품절</option>
+                <option value="SOLD_OUT">전체 품절·단종</option>
+                <option value="UNKNOWN">재고 확인 필요</option>
+              </select>
+            </label>
             <label class="toggle-field">
               <input id="unfinished-only-filter" type="checkbox" checked />
               <span>미완료 상품만 보기</span>
@@ -111,6 +121,7 @@
                   <th class="sort-header" data-sort-key="productName" aria-sort="none"><button class="sort-button" type="button" data-sort-key="productName" data-sort-label="모델명">모델명 <span class="sort-indicator">↕</span></button></th>
                   <th class="sort-header" data-sort-key="shoplingCategory" aria-sort="none"><button class="sort-button" type="button" data-sort-key="shoplingCategory" data-sort-label="샵플링 표준 카테고리">샵플링 표준 카테고리 <span class="sort-indicator">↕</span></button></th>
                   <th class="sort-header" data-sort-key="options" aria-sort="none"><button class="sort-button" type="button" data-sort-key="options" data-sort-label="옵션">옵션 <span class="sort-indicator">↕</span></button></th>
+                  <th>재고</th>
                   <th class="sort-header" data-sort-key="readiness" aria-sort="none"><button class="sort-button" type="button" data-sort-key="readiness" data-sort-label="등록 준비">등록 준비 <span class="sort-indicator">↕</span></button></th>
                   <th class="sort-header" data-sort-key="detailPage" aria-sort="none"><button class="sort-button" type="button" data-sort-key="detailPage" data-sort-label="상세페이지">상세페이지 <span class="sort-indicator">↕</span></button></th>
                   <th class="sort-header" data-sort-key="priceKeyword" aria-sort="none"><button class="sort-button" type="button" data-sort-key="priceKeyword" data-sort-label="가격·키워드">가격·키워드 <span class="sort-indicator">↕</span></button></th>

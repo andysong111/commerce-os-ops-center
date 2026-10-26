@@ -65,6 +65,11 @@ export type ProductLaunchShoplingPayload = {
     round: number;
     source: "seo_inventory_append_history";
   };
+  stockPolicy: {
+    enforced: boolean;
+    checkedAt: string;
+    sourceFingerprint: string;
+  };
   fixedFields: {
     prodTp: string;
     taxTp: string;
@@ -94,6 +99,7 @@ export type ProductLaunchShoplingPayload = {
       optionBarcodeNo: string;
       additionalAmountKrw: number;
       finalSalePriceKrw: number;
+      stockStatus: "ON_SALE" | "SOLD_OUT";
     }>;
   }>;
 };
@@ -134,6 +140,8 @@ export function buildProductLaunchShoplingPayload(
     (entry) => text(asRecord(entry).registrationType) === "seo_inventory_append",
   ).length;
   const seoFinal = normalizeSeoFinal(item.seoFinal);
+  const stockAvailability = asRecord(item.stockAvailability);
+  const stockPolicyEnforced = stockAvailability.enforced === true;
   const rawOptions = Array.isArray(item.orderOptions) ? item.orderOptions : [];
   const singleOptionBarcode =
     rawOptions.length === 1
@@ -151,6 +159,7 @@ export function buildProductLaunchShoplingPayload(
       optionBarcodeNo: text(option.optionBarcodeNo).toUpperCase(),
       baseSalePriceKrw: nonNegativeInteger(option.baseSalePriceKrw),
       unitCostKrw: nonNegativeInteger(option.unitCostKrw),
+      stockStatus: text(option.stockStatus).toUpperCase(),
       index,
     };
   });
@@ -164,6 +173,12 @@ export function buildProductLaunchShoplingPayload(
   if (!detailHtml) errors.push("상세페이지 HTML이 없습니다.");
   if (!mainImage) errors.push("대표이미지가 없습니다.");
   if (!options.length) errors.push("발주·입고 옵션가격이 없습니다.");
+  if (stockPolicyEnforced && !text(stockAvailability.checkedAt)) {
+    errors.push("재고 확인 시각이 없습니다.");
+  }
+  if (stockPolicyEnforced && !text(stockAvailability.sourceFingerprint)) {
+    errors.push("재고 확인 자료의 식별값이 없습니다.");
+  }
 
   if (seoFinal) {
     if (!seoFinal.productName) errors.push("SEO FINAL 공통 상품명이 없습니다.");
@@ -187,6 +202,13 @@ export function buildProductLaunchShoplingPayload(
       errors.push(`${name} 옵션바코드NO는 숫자 12자리여야 합니다. 상품 상세에서 자동발급 상태를 확인하세요.`);
     }
     if (option.baseSalePriceKrw <= 0) errors.push(`${name} 기준 판매가가 없습니다.`);
+    if (
+      stockPolicyEnforced &&
+      option.stockStatus !== "ON_SALE" &&
+      option.stockStatus !== "SOLD_OUT"
+    ) {
+      errors.push(`${name} 재고 상태를 확인하지 못했습니다.`);
+    }
     // unitCostKrw is intentionally not a Shopling upload gate. The generated
     // Shopling payload never consumes purchase cost; pricing is based only on
     // baseSalePriceKrw + channel multipliers. Missing purchase cost remains a
@@ -207,6 +229,13 @@ export function buildProductLaunchShoplingPayload(
   const optionNames = new Set(options.map((option) => option.optionName));
   if (optionNames.size > 1) {
     errors.push("현재 샵플링 자동등록은 한 종류의 옵션명만 지원합니다.");
+  }
+  if (
+    stockPolicyEnforced &&
+    options.length > 0 &&
+    options.every((option) => option.stockStatus === "SOLD_OUT")
+  ) {
+    errors.push("모든 옵션이 품절인 상품은 등록할 수 없습니다.");
   }
   if (errors.length) throw new Error([...new Set(errors)].join("\n"));
 
@@ -255,6 +284,10 @@ export function buildProductLaunchShoplingPayload(
         optionBarcodeNo: option.optionBarcodeNo,
         finalSalePriceKrw: option.finalSalePriceKrw,
         additionalAmountKrw: Math.max(0, option.finalSalePriceKrw - salePrice),
+        stockStatus:
+          option.stockStatus === "SOLD_OUT"
+            ? ("SOLD_OUT" as const)
+            : ("ON_SALE" as const),
       })),
     };
   });
@@ -274,6 +307,11 @@ export function buildProductLaunchShoplingPayload(
       strategy: "round_robin_v1",
       round: imageRotationRound,
       source: "seo_inventory_append_history",
+    },
+    stockPolicy: {
+      enforced: stockPolicyEnforced,
+      checkedAt: text(stockAvailability.checkedAt),
+      sourceFingerprint: text(stockAvailability.sourceFingerprint),
     },
     fixedFields: {
       prodTp: text(policy.productType) || "A",

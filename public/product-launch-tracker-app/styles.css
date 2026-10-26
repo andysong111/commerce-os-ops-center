@@ -54,7 +54,7 @@ h3 { font-size: 14px; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 12px; border: 1px solid #bfdbfe; border-radius: 11px; background: #eff6ff; padding: 11px 14px; color: #1e3a8a; font-size: 12px; }
 .source-meta { flex: 0 0 auto; color: #526683; font-size: 11px; }
 .workspace-card { overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
-.filter-grid { display: grid; grid-template-columns: minmax(300px, 1.6fr) repeat(3, minmax(155px, .65fr)) auto; align-items: end; gap: 10px; padding: 16px; border-bottom: 1px solid #edf1f6; }
+.filter-grid { display: grid; grid-template-columns: minmax(300px, 1.6fr) repeat(4, minmax(150px, .65fr)) auto; align-items: end; gap: 10px; padding: 16px; border-bottom: 1px solid #edf1f6; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field > span, .toggle-field { color: #526078; font-size: 11px; font-weight: 750; }
 .field small { color: #94a3b8; font-weight: 500; line-height: 1.5; }
@@ -85,6 +85,11 @@ tbody tr.is-selected td { background: #eff6ff; }
 tbody tr.is-archived td { color: #94a3b8; background: #f8fafc; }
 tbody tr.is-receipt-pending td { background: #fffdf5; }
 tbody tr.is-receipt-pending:hover td { background: #fff9e6; }
+tbody tr.stock-sold-out td, tbody tr.stock-excluded td { background: #fff1f2; }
+tbody tr.stock-sold-out:hover td, tbody tr.stock-excluded:hover td { background: #ffe4e6; }
+tbody tr.stock-partial-sold-out td { background: #fff7f7; }
+tbody tr.stock-partial-sold-out:hover td { background: #ffeded; }
+tbody tr.stock-unknown td { background: #fffbeb; }
 .check-column { width: 42px; text-align: center; }
 .model-number { color: #1d4ed8; font-weight: 800; white-space: nowrap; }
 .barcode-input { width: 92px; border: 1px solid #cfd8e5; border-radius: 7px; background: #fff; padding: 6px 7px; color: #1e40af; font-size: 10px; font-weight: 800; text-transform: uppercase; }
@@ -106,6 +111,14 @@ tbody tr.is-receipt-pending:hover td { background: #fff9e6; }
 .readiness-badge.needs-work { border-color: #fde68a; background: #fffbeb; color: #b45309; }
 .readiness-badge.receipt-pending, .receipt-pending-badge { border: 1px solid #fbbf24; background: #fffbeb; color: #92400e; }
 .receipt-pending-badge { display: inline-flex; align-items: center; min-height: 20px; margin-left: 7px; border-radius: 999px; padding: 2px 6px; font-size: 9px; font-weight: 800; vertical-align: middle; }
+.stock-badge { display:inline-flex; min-width:82px; justify-content:center; border:1px solid; border-radius:999px; padding:5px 8px; font-size:10px; font-weight:800; white-space:nowrap; }
+.stock-badge-on-sale { border-color:#86efac; background:#ecfdf5; color:#047857; }
+.stock-badge-partial-sold-out, .stock-badge-sold-out, .stock-badge-excluded { border-color:#fda4af; background:#fff1f2; color:#be123c; }
+.stock-badge-unknown { border-color:#fbbf24; background:#fffbeb; color:#92400e; }
+.sold-out-option-list { display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
+.sold-out-option-list span { border:1px solid #fecdd3; border-radius:999px; background:#fff1f2; padding:2px 5px; color:#be123c; font-size:9px; font-weight:800; }
+.inline-option-location-row.is-option-sold-out { border-radius:7px; background:#fff1f2; }
+.inline-option-location-row.is-option-sold-out .inline-option-location-label { color:#be123c; }
 .next-stage { min-width: 105px; color: #1e40af; font-weight: 750; }
 .progress-text { display: block; margin-top: 3px; color: #94a3b8; font-size: 9px; font-weight: 650; }
 .row-actions { white-space: nowrap; }
@@ -185,7 +198,7 @@ tbody tr.is-receipt-pending:hover td { background: #fff9e6; }
 
 @media (max-width: 1280px) {
   .app-shell { padding-inline: 20px; }
-  .filter-grid { grid-template-columns: minmax(300px, 1.5fr) repeat(3, minmax(140px, .7fr)); }
+  .filter-grid { grid-template-columns: minmax(300px, 1.5fr) repeat(4, minmax(140px, .7fr)); }
   .toggle-field { grid-column: 1 / -1; }
   .policy-grid { grid-template-columns: 1fr; }
   .policy-card-wide { grid-column: auto; }

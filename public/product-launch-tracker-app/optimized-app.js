@@ -60,6 +60,7 @@ const state = {
     batch: "",
     assignee: "",
     overall: "",
+    stock: "SELLABLE",
     unfinishedOnly: true,
   },
   detailItem: null,
@@ -74,6 +75,7 @@ const state = {
   externalSyncTimer: null,
   composing: false,
   initialized: false,
+  stockAlertMessage: "",
 };
 
 const itemMutationQueues = new Map();
@@ -87,6 +89,7 @@ const elements = {
   batch: document.querySelector("#batch-filter"),
   assignee: document.querySelector("#assignee-filter"),
   overall: document.querySelector("#overall-filter"),
+  stock: document.querySelector("#stock-filter"),
   unfinishedOnly: document.querySelector("#unfinished-only-filter"),
   visibleCount: document.querySelector("#visible-count"),
   selectedCount: document.querySelector("#selected-count"),
@@ -151,6 +154,12 @@ function bindControls() {
       if (elements.unfinishedOnly) elements.unfinishedOnly.checked = false;
     }
     state.page = 1;
+    void loadPage();
+  });
+  elements.stock?.addEventListener("change", (event) => {
+    state.filters.stock = event.target.value || "SELLABLE";
+    state.page = 1;
+    clearSelection();
     void loadPage();
   });
   elements.unfinishedOnly?.addEventListener("change", (event) => {
@@ -256,6 +265,7 @@ async function loadPage(options = {}) {
     batch: state.filters.batch,
     assignee: state.filters.assignee,
     overall: state.filters.overall,
+    stock: state.filters.stock,
     unfinishedOnly: String(state.filters.unfinishedOnly),
     sort: state.sort.key,
     direction: state.sort.direction,
@@ -301,7 +311,12 @@ async function loadPage(options = {}) {
     renderPagination();
     renderSourceMeta();
     syncLegacyPageCache();
-    setSaveStatus("서버 최적화 목록 사용 중");
+    const stockAlert = body.stockAvailabilityMeta?.ok === false
+      ? body.stockAvailabilityMeta.message || "재고 확인 서버 연결 실패"
+      : "";
+    setSaveStatus(stockAlert || "서버 최적화 목록 사용 중");
+    if (stockAlert && stockAlert !== state.stockAlertMessage) showToast(stockAlert);
+    state.stockAlertMessage = stockAlert;
     window.dispatchEvent(
       new CustomEvent("product-launch-tracker:page-loaded", {
         detail: { page: state.page, pageSize: state.pageSize, total: state.total },
@@ -448,7 +463,9 @@ function renderTable() {
 function renderRow(item) {
   const receiptPending = item.receiptPending === true;
   const seoExcluded = item.seoExclusion?.excluded === true;
-  const selected = !seoExcluded && state.selectedIds.has(item.id);
+  const stock = item.stockAvailability ?? {};
+  const stockSelectable = stock.selectable === true;
+  const selected = !seoExcluded && stockSelectable && state.selectedIds.has(item.id);
   const optionLabels = Array.isArray(item.optionLabels) ? item.optionLabels : [];
   const optionLocations = Array.isArray(item.optionLocations) ? item.optionLocations : [];
   const multiOption = optionLocations.length >= 2;
@@ -471,12 +488,12 @@ function renderRow(item) {
     ? item.seoExclusion?.reason || "SEO 등록 제외"
     : item.readiness?.firstError || "";
   return `
-    <tr data-id="${escapeAttribute(item.id)}" class="${selected ? "is-selected" : ""} ${item.archivedAt ? "is-archived" : ""} ${receiptPending ? "is-receipt-pending" : ""} ${seoExcluded ? "is-seo-excluded" : ""}">
-      <td class="check-column" data-column-key="select"><input class="row-check" type="checkbox" ${selected ? "checked" : ""} ${seoExcluded ? "disabled" : ""} aria-label="${escapeAttribute(`${item.modelNumber} 선택`)}" /></td>
+    <tr data-id="${escapeAttribute(item.id)}" data-stock-selectable="${stockSelectable ? "true" : "false"}" class="${selected ? "is-selected" : ""} ${item.archivedAt ? "is-archived" : ""} ${receiptPending ? "is-receipt-pending" : ""} ${seoExcluded ? "is-seo-excluded" : ""} stock-${escapeAttribute(String(stock.status || "UNKNOWN").toLowerCase().replaceAll("_", "-"))}">
+      <td class="check-column" data-column-key="select"><input class="row-check" type="checkbox" ${selected ? "checked" : ""} ${seoExcluded || !stockSelectable ? "disabled" : ""} aria-label="${escapeAttribute(`${item.modelNumber} 선택`)}" /></td>
       <td class="cell-truncate" data-column-key="workBatch" title="${escapeAttribute(item.workBatch)}"><span class="optimized-row-number">#${number(item.trackerRowNumber ?? 0)}</span>${escapeHtml(item.workBatch)}${receiptPending ? '<span class="receipt-pending-badge">입고대기중</span>' : ""}${seoExcluded ? '<span class="receipt-pending-badge">SEO 제외</span>' : ""}</td>
       <td data-column-key="barcode">
         ${multiOption ? "" : `<input class="barcode-input optimized-inline-input" value="${escapeAttribute(item.barcode)}" placeholder="BAA1-1" autocomplete="off" data-last-committed="${escapeAttribute(item.barcode)}" aria-label="${escapeAttribute(item.modelNumber)} 기준 바코드" />`}
-        ${multiOption ? renderOptionLocations(optionLocations) : ""}
+        ${multiOption ? renderOptionLocations(optionLocations, stock.options) : ""}
       </td>
       <td data-column-key="modelNumber"><input class="inline-model-number-editor optimized-inline-input" value="${escapeAttribute(item.modelNumber)}" data-last-committed="${escapeAttribute(item.modelNumber)}" aria-label="모델번호 수정" />${item.migrationReview ? '<span class="review-dot" title="이관 검토 표시"></span>' : ""}</td>
       <td class="product-name" data-column-key="productName"><input class="inline-product-name-editor optimized-inline-input" value="${escapeAttribute(item.productName)}" data-last-committed="${escapeAttribute(item.productName)}" aria-label="모델명 수정" /></td>
@@ -484,7 +501,8 @@ function renderRow(item) {
         <input class="inline-table-editor inline-category-editor optimized-inline-input" value="${escapeAttribute(item.shoplingCategory)}" placeholder="샵플링 표준 카테고리" data-last-committed="${escapeAttribute(item.shoplingCategory)}" />
         ${renderAiSuggestion(item)}
       </td>
-      <td class="options-cell" data-column-key="options"><input class="inline-table-editor inline-options-editor optimized-inline-input" value="${escapeAttribute(optionLabels.join(", "))}" placeholder="단품 또는 옵션1, 옵션2" data-last-committed="${escapeAttribute(optionLabels.join(", "))}" /></td>
+      <td class="options-cell" data-column-key="options"><input class="inline-table-editor inline-options-editor optimized-inline-input" value="${escapeAttribute(optionLabels.join(", "))}" placeholder="단품 또는 옵션1, 옵션2" data-last-committed="${escapeAttribute(optionLabels.join(", "))}" />${renderSoldOutOptionBadges(stock.options)}</td>
+      <td data-column-key="stock">${renderStockBadge(stock)}</td>
       <td data-column-key="readiness"><button class="readiness-badge ${readinessClass}" type="button" data-action="preview" title="${escapeAttribute(readinessTitle)}">${readinessLabel}</button></td>
       ${STAGES.map(({ key }) => statusSelect(stages[key]?.status, key, item.modelNumber)).join("")}
       <td class="next-stage" data-column-key="nextStage">${escapeHtml(item.nextStage)}<span class="progress-text">${number(item.progress?.completed ?? 0)}/${number(item.progress?.total ?? STAGES.length)} 완료</span></td>
@@ -493,22 +511,41 @@ function renderRow(item) {
   `;
 }
 
-function renderOptionLocations(options) {
+function renderOptionLocations(options, stockOptions = []) {
+  const stockByBarcode = new Map(
+    (Array.isArray(stockOptions) ? stockOptions : []).map((option) => [normalizeBarcode(option.barcode), option]),
+  );
   return `
     <div class="inline-option-location-list" data-signature="optimized">
       <div class="inline-option-location-title">옵션별 위치코드</div>
       ${options
         .map(
-          (option) => `
-            <label class="inline-option-location-row">
+          (option) => {
+            const optionStock = stockByBarcode.get(normalizeBarcode(option.barcode));
+            return `
+            <label class="inline-option-location-row ${optionStock?.status === "SOLD_OUT" ? "is-option-sold-out" : ""}">
               <input class="inline-option-location-input optimized-inline-input" value="${escapeAttribute(option.barcode)}" data-empty="${option.barcode ? "false" : "true"}" data-option-id="${escapeAttribute(option.id)}" data-option-index="${option.index}" data-option-label="${escapeAttribute(option.label)}" data-last-committed="${escapeAttribute(option.barcode)}" aria-label="${escapeAttribute(option.label)} 위치코드" />
-              <span class="inline-option-location-label" title="${escapeAttribute(option.label)}">${escapeHtml(option.label)}</span>
+              <span class="inline-option-location-label" title="${escapeAttribute(option.label)}">${escapeHtml(option.label)}${optionStock?.status === "SOLD_OUT" ? " · 품절" : ""}</span>
             </label>
-          `,
+          `;
+          },
         )
         .join("")}
     </div>
   `;
+}
+
+function renderStockBadge(stock) {
+  const status = String(stock?.status || "UNKNOWN");
+  const label = stock?.label || "재고 확인 필요";
+  const reason = stock?.reason || "재고 상태를 확인하지 못했습니다.";
+  return `<span class="stock-badge stock-badge-${escapeAttribute(status.toLowerCase().replaceAll("_", "-"))}" title="${escapeAttribute(reason)}">${escapeHtml(label)}</span>`;
+}
+
+function renderSoldOutOptionBadges(options) {
+  const soldOut = (Array.isArray(options) ? options : []).filter((option) => option.status === "SOLD_OUT");
+  if (!soldOut.length) return "";
+  return `<div class="sold-out-option-list">${soldOut.map((option) => `<span title="${escapeAttribute(option.reason || "품절")}">${escapeHtml(option.label || option.barcode || "옵션")} 품절</span>`).join("")}</div>`;
 }
 
 function renderAiSuggestion(item) {
@@ -742,6 +779,13 @@ function applyMutationResponse(body, itemId, activeControl = null) {
     ? body.items.find((item) => String(item.id) === String(itemId))
     : null;
   if (updated) {
+    updated.stockAvailability = {
+      status: "UNKNOWN",
+      label: "재고 다시 확인 중",
+      reason: "상품 정보가 바뀌어 최신 재고를 다시 확인하고 있습니다.",
+      selectable: false,
+      options: [],
+    };
     const index = state.items.findIndex((item) => String(item.id) === String(itemId));
     if (index >= 0) state.items[index] = updated;
     state.itemById.set(String(itemId), updated);
@@ -749,6 +793,7 @@ function applyMutationResponse(body, itemId, activeControl = null) {
     if (row && (!activeControl || !row.contains(document.activeElement))) {
       row.outerHTML = renderRow(updated);
     }
+    schedulePageRefresh();
   }
   if (body.counts) {
     state.counts = body.counts;
@@ -770,7 +815,7 @@ function rejectEmpty(input, previous, label) {
 }
 
 function toggleVisibleSelection(event) {
-  const selectableItems = state.items.filter((item) => item.seoExclusion?.excluded !== true);
+  const selectableItems = state.items.filter(isItemStockSelectable);
   for (const item of selectableItems) {
     if (event.target.checked) state.selectedIds.add(item.id);
     else state.selectedIds.delete(item.id);
@@ -796,7 +841,7 @@ function updateSelectionUi() {
     elements.selectedCount.textContent = `선택 ${number(state.selectedIds.size)}건`;
   }
   const visibleIds = state.items
-    .filter((item) => item.seoExclusion?.excluded !== true)
+    .filter(isItemStockSelectable)
     .map((item) => item.id);
   if (elements.selectVisible) {
     elements.selectVisible.checked =
@@ -822,10 +867,14 @@ function updateSelectionUi() {
 function pruneSelection() {
   const available = new Set(
     state.items
-      .filter((item) => item.seoExclusion?.excluded !== true)
+      .filter(isItemStockSelectable)
       .map((item) => item.id),
   );
   state.selectedIds = new Set([...state.selectedIds].filter((id) => available.has(id)));
+}
+
+function isItemStockSelectable(item) {
+  return item.seoExclusion?.excluded !== true && item.stockAvailability?.selectable === true;
 }
 
 async function applyBulkStatus() {

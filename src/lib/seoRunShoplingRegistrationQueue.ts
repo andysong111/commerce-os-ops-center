@@ -8,6 +8,13 @@ import {
 } from "@/lib/productLaunchShoplingRetry";
 import { buildProductLaunchShoplingPayload } from "@/lib/productLaunchTrackerShopling";
 import {
+  applyProductLaunchStockAvailability,
+  buildProductLaunchInventoryIndex,
+  classifyProductLaunchStockAvailability,
+  loadProductLaunchInventorySnapshot,
+  productLaunchStockBlockReason,
+} from "@/lib/productLaunchStockAvailability";
+import {
   getProductLaunchAdminConfig,
   readProductLaunchState,
   readProductLaunchStorageJson,
@@ -466,6 +473,13 @@ async function startRegistrationRun(
       );
     }
 
+    const inventory = buildProductLaunchInventoryIndex(
+      await loadProductLaunchInventorySnapshot({ maxAgeMs: 5_000 }),
+    );
+    const stockAvailability = classifyProductLaunchStockAvailability(item, inventory);
+    const stockBlockReason = productLaunchStockBlockReason(stockAvailability);
+    if (stockBlockReason) throw new Error(stockBlockReason);
+
     const recentJobs = await readRecentUploadJobs(config, run.launch_item_id);
     const sameCodeJob = recentJobs.find(
       (job) => selfCodeBaseFromPayload(job.payload) === normalizeCode(newSelfCodeBase),
@@ -543,7 +557,11 @@ async function startRegistrationRun(
 
     const jobId = randomUUID();
     const requestId = `product-launch-${Date.now()}-${jobId.slice(0, 8)}`;
-    const basePayload = buildProductLaunchShoplingPayload(item, state.policy, requestId);
+    const basePayload = buildProductLaunchShoplingPayload(
+      applyProductLaunchStockAvailability(item, stockAvailability),
+      state.policy,
+      requestId,
+    );
     const payload = historicalOptionRecovery
       ? { ...basePayload, optionRecovery: historicalOptionRecovery.evidence }
       : basePayload;
