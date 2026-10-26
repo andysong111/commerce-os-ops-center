@@ -29,6 +29,7 @@ import {
   createSupabaseAdminClient,
   createSupabaseAdminHeaders,
 } from "@/lib/supabase/admin";
+import { productMasterSalesPlanFingerprint } from "@/lib/productMasterSalesPlanFingerprint";
 
 export const CANDIDATE_PARITY_REQUEST = "STAGE8_CANDIDATE_DEMAND_PARITY_REQUEST";
 export const CANDIDATE_PARITY_ORDER_CHUNK = "STAGE8_CANDIDATE_DEMAND_PARITY_ORDER_CHUNK";
@@ -403,15 +404,7 @@ function candidatePlanFingerprint(
   request: SalesEventSyncRequest,
   eventFingerprint: string,
 ) {
-  return `sha256:${createHash("sha256")
-    .update(
-      JSON.stringify({
-        planningContentFingerprint: request.planningContentFingerprint,
-        analysisAsOf: request.analysisAsOf,
-        eventFingerprint,
-      }),
-    )
-    .digest("hex")}`;
+  return productMasterSalesPlanFingerprint(request, eventFingerprint);
 }
 
 async function loadLatestCandidateSalesIdentity(): Promise<{

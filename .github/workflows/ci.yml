@@ -42,6 +42,7 @@ jobs:
           src/lib/productMasterShoplingSalesDirectCodeEvidence.ts
           src/lib/productMasterShoplingSalesEventEngine.ts
           src/lib/productMasterShoplingSalesEventSync.ts
+          src/lib/productMasterSalesPlanFingerprint.ts
           src/lib/productMasterCanonicalSalesAudit.ts
           src/lib/productMasterInventoryCostReadiness.ts
           src/lib/stage8CanonicalDemandParity.ts
@@ -125,6 +126,7 @@ jobs:
           tests/productMasterShoplingSalesDirectCodeEvidence.test.mjs
           tests/productMasterShoplingSalesEventEngine.test.mjs
           tests/productMasterShoplingSalesEventSync.test.mjs
+          tests/productMasterSalesPlanFingerprint.test.mjs
           tests/productMasterCanonicalSalesAudit.test.mjs
           tests/stage8CanonicalDemandParity.test.mjs
           tests/stage8DemandMismatchEvidence.test.mjs

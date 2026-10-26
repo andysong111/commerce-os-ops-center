@@ -30,6 +30,7 @@ import {
   PRODUCT_MASTER_SALES_STORAGE_HEALTH_TIMEOUT_MS,
   retryableProductMasterSalesSnapshotRead,
 } from "@/lib/productMasterSalesSnapshotRetry";
+import { productMasterSalesPlanFingerprint } from "@/lib/productMasterSalesPlanFingerprint";
 
 export const SALES_EVENT_REQUEST = "PRODUCT_MASTER_SHOPLING_SALES_EVENT_REQUEST";
 export const SALES_EVENT_CHUNK = "PRODUCT_MASTER_SHOPLING_SALES_EVENT_CHUNK";
@@ -765,16 +766,7 @@ function planFingerprint(
   request: SalesEventSyncRequest,
   eventHash: string,
 ) {
-  return `sha256:${createHash("sha256")
-    .update(
-      JSON.stringify({
-        planningContentFingerprint: request.planningContentFingerprint,
-        identityResolverVersion: request.identityResolverVersion,
-        analysisAsOf: request.analysisAsOf,
-        eventFingerprint: eventHash,
-      }),
-    )
-    .digest("hex")}`;
+  return productMasterSalesPlanFingerprint(request, eventHash);
 }
 
 function buildReport(
