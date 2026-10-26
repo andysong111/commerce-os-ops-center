@@ -46,6 +46,15 @@ function firstSelectedReadinessBlocker() {
   )) {
     const row = checkbox.closest("tr[data-id]");
     const badge = row?.querySelector(".readiness-badge");
+    const stockBadge = row?.querySelector(".stock-badge");
+    if (row?.dataset.stockSelectable === "false") {
+      const modelNumber = row?.querySelector(".inline-model-number-editor")?.value || "선택 상품";
+      return {
+        modelNumber: text(modelNumber),
+        status: text(stockBadge?.textContent) || "재고 확인 필요",
+        reason: text(stockBadge?.getAttribute("title")),
+      };
+    }
     if (!badge?.classList.contains("needs-work") &&
         !badge?.classList.contains("receipt-pending") &&
         !badge?.classList.contains("seo-excluded")) {

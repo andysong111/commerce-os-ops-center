@@ -99,6 +99,7 @@ export type ProductLaunchTrackerPageQuery = {
   assignee?: unknown;
   overall?: unknown;
   unfinishedOnly?: unknown;
+  stock?: unknown;
   sort?: unknown;
   direction?: unknown;
 };

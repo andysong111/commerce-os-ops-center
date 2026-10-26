@@ -16,6 +16,12 @@ import {
 } from "@/lib/seoRunJobServer";
 import { runCoalescedSeoRunShoplingWorkerPulse } from "@/lib/seoRunShoplingWorkerPulse";
 import { runCoalescedSeoRunWorkerPulse } from "@/lib/seoRunWorkerPulse";
+import {
+  buildProductLaunchInventoryIndex,
+  classifyProductLaunchStockAvailability,
+  loadProductLaunchInventorySnapshot,
+  productLaunchStockBlockReason,
+} from "@/lib/productLaunchStockAvailability";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -234,6 +240,23 @@ export async function POST(request: NextRequest) {
       const itemId = text(item.id);
       if (itemId) itemById.set(itemId, item);
     }
+    let inventory;
+    try {
+      inventory = buildProductLaunchInventoryIndex(
+        await loadProductLaunchInventorySnapshot({ maxAgeMs: 5_000 }),
+      );
+    } catch (error) {
+      console.error("[seo-run-enqueue] inventory snapshot unavailable", error);
+      return Response.json(
+        {
+          ok: false,
+          code: "SEO_RUN_INVENTORY_UNAVAILABLE",
+          message:
+            "재고 확인 서버에 연결하지 못해 대량등록을 안전하게 중단했습니다. 잠시 후 다시 시도해 주세요.",
+        },
+        { status: 503 },
+      );
+    }
     const existing = await listSeoRunJobs(context, {
       includeArchived: true,
       launchItemIds: itemIds,
@@ -262,6 +285,13 @@ export async function POST(request: NextRequest) {
       if (registrationExclusion.excluded) {
         const model = text(item.modelNumber) || run.itemId;
         excluded.push(`${model}:${registrationExclusion.reason || "SEO 등록 제외"}`);
+        continue;
+      }
+      const stock = classifyProductLaunchStockAvailability(item, inventory);
+      const stockBlockReason = productLaunchStockBlockReason(stock);
+      if (stockBlockReason) {
+        const model = text(item.modelNumber) || run.itemId;
+        excluded.push(`${model}:${stockBlockReason}`);
         continue;
       }
       const materialReadiness = productLaunchSeoMaterialReadiness(item);

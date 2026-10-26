@@ -4,10 +4,8 @@ import {
   getProductLaunchAdminConfig,
   resolveProductLaunchIdentity,
 } from "@/lib/productLaunchTrackerServer";
-import {
-  queryProductLaunchNormalizedPage,
-  readProductLaunchNormalizedWorkspace,
-} from "@/lib/productLaunchTrackerNormalizedStore";
+import { readProductLaunchNormalizedWorkspace } from "@/lib/productLaunchTrackerNormalizedStore";
+import { queryProductLaunchStockAwareNormalizedPage } from "@/lib/productLaunchStockAwarePage";
 import { GET as legacyGet, PATCH as legacyPatch } from "../normalized-optimized/route";
 
 const CACHE_TAG_PREFIX = "product-launch-page";
@@ -21,6 +19,7 @@ type PageQuery = {
   assignee: string | null;
   overall: string | null;
   unfinishedOnly: string | null;
+  stock: string | null;
   sort: string | null;
   direction: string | null;
 };
@@ -102,7 +101,7 @@ function readCachedPage(ownerId: string, queryJson: string) {
         }
 
         const query = JSON.parse(queryJson) as PageQuery;
-        const page = await queryProductLaunchNormalizedPage(
+        const page = await queryProductLaunchStockAwareNormalizedPage(
           config.value,
           ownerId,
           workspace,
@@ -152,6 +151,7 @@ function readPageQuery(request: NextRequest): PageQuery {
     assignee: request.nextUrl.searchParams.get("assignee"),
     overall: request.nextUrl.searchParams.get("overall"),
     unfinishedOnly: request.nextUrl.searchParams.get("unfinishedOnly"),
+    stock: request.nextUrl.searchParams.get("stock"),
     sort: request.nextUrl.searchParams.get("sort"),
     direction: request.nextUrl.searchParams.get("direction"),
   };

@@ -213,6 +213,12 @@ function routeFixture(authorized = true) {
     "@/lib/legacySeoRegistrationPolicy": {
       legacySeoRegistrationExclusion: () => ({ excluded: false, reason: "" }),
     },
+    "@/lib/productLaunchStockAvailability": {
+      loadProductLaunchInventorySnapshot: async () => ({}),
+      buildProductLaunchInventoryIndex: () => ({}),
+      classifyProductLaunchStockAvailability: () => ({ selectable: true }),
+      productLaunchStockBlockReason: () => "",
+    },
     "@/lib/keywordEngineElonLabV2": v2,
     "@/lib/opsAdaptiveDispatcher": {},
     "@/lib/productLaunchTrackerNormalizedStore": { readProductLaunchNormalizedItems: async () => { reads++; return [{

@@ -5,11 +5,11 @@ import {
 } from "@/lib/productLaunchTrackerServer";
 import { loadFreshProductLaunchNormalized } from "@/lib/productLaunchTrackerNormalizedAvailability";
 import {
-  queryProductLaunchNormalizedPage,
   readProductLaunchNormalizedItem,
   readProductLaunchNormalizedItems,
   readProductLaunchNormalizedWorkspace,
 } from "@/lib/productLaunchTrackerNormalizedStore";
+import { queryProductLaunchStockAwareNormalizedPage } from "@/lib/productLaunchStockAwarePage";
 import {
   disableProductLaunchNormalizedRead,
   syncProductLaunchNormalizedAfterMutation,
@@ -198,14 +198,14 @@ async function getNormalizedPage(request: NextRequest) {
 }
 
 async function loadNormalizedPageBody(
-  config: Parameters<typeof queryProductLaunchNormalizedPage>[0],
+  config: Parameters<typeof queryProductLaunchStockAwareNormalizedPage>[0],
   ownerId: string,
   query: ReturnType<typeof pageQuery>,
 ) {
   const workspace = await readProductLaunchNormalizedWorkspace(config, ownerId);
   if (!workspace || workspace.normalized_read_enabled !== true) return null;
 
-  const page = await queryProductLaunchNormalizedPage(
+  const page = await queryProductLaunchStockAwareNormalizedPage(
     config,
     ownerId,
     workspace,
@@ -229,7 +229,7 @@ async function loadNormalizedPageBody(
 function schedulePageRefresh(
   cacheKey: string,
   cached: CachedPage,
-  config: Parameters<typeof queryProductLaunchNormalizedPage>[0],
+  config: Parameters<typeof queryProductLaunchStockAwareNormalizedPage>[0],
   ownerId: string,
   query: ReturnType<typeof pageQuery>,
 ) {
@@ -287,6 +287,7 @@ function pageQuery(request: NextRequest) {
     assignee: request.nextUrl.searchParams.get("assignee"),
     overall: request.nextUrl.searchParams.get("overall"),
     unfinishedOnly: request.nextUrl.searchParams.get("unfinishedOnly"),
+    stock: request.nextUrl.searchParams.get("stock"),
     sort: request.nextUrl.searchParams.get("sort"),
     direction: request.nextUrl.searchParams.get("direction"),
   };
