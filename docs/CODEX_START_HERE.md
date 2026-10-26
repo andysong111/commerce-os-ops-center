@@ -29,6 +29,7 @@ Before changing Shopling, purchase-cycle, monthly pricing, stock-state, Product 
 For Product Master / B-code / warehouse-location work also read:
 
 - `docs/product-master-bcode-warehouse-handoff-20260929.md`
+- `docs/warehouse-map-stock-status-20261026.md` when changing warehouse-map sale-status buttons or the HF32 bridge
 
 For Shopling monthly price work also read:
 

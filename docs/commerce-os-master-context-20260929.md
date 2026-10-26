@@ -519,6 +519,7 @@ Separate but related Shopling stock-state automation has established reusable pr
 - partial success must be persisted so a retry continues from the remaining scope
 - completion requires the expected final Shopling evidence, not merely a click
 - failed/uncertain scope should stop safely rather than cascade into later writes
+- Warehouse-map direct status commands use the dedicated signed bridge documented in `docs/warehouse-map-stock-status-20261026.md`: live selected-slot ownership and canonical B-code are bound before Ops records or Shopling work, `ON_SALE` preserves quantity, and `SOLD_OUT` uses the existing zero baseline.
 
 The validated price-extension execution structure can be reused, but never assume stock and price screens have identical DOM.
 
