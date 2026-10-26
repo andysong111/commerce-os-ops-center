@@ -575,6 +575,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const stockBandUpdates = Object.entries(stagedStockBands)
     .map(([barcode, stockBand]) => ({ barcode, stockBand }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
+  const missingStockBandCount = draft.lines.filter(
+    (line) => !(stagedStockBands[line.barcode] ?? initialStockBands[line.barcode]),
+  ).length;
   const selectedQuantityOverrideCandidates = selectedBarcodes.filter(
     (barcode) =>
       Object.hasOwn(persistedQuantityOverrides, barcode) &&
@@ -904,6 +907,11 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
         {notice ? <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-950">{notice}</div> : null}
         {draft.metadataWarnings.length ? <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">{draft.metadataWarnings.slice(0, 4).join(" · ")}</div> : null}
+        {draft.status === "DRAFT" && missingStockBandCount > 0 ? (
+          <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold leading-6 text-amber-950">
+            대략 재고를 아직 고르지 않은 상품이 {missingStockBandCount.toLocaleString("ko-KR")}종입니다. 이 상품의 현재 수량은 재고를 빼기 전 임시 추천치이므로 최종 발주수량이 아닙니다. 많음·보통·적음·품절 중 가까운 상태를 선택하고 한 번 재계산하세요.
+          </div>
+        ) : null}
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SubMetric label="상품금액" value={`${cny.format(calculations.productCny)} CNY`} />

@@ -48,7 +48,9 @@ test("purchase-run start prepares every required source before opening the draft
 
 test("main manager is run-based and exposes the one-click start action", async () => {
   const page = await read("../src/app/china-order-manager/page.tsx");
+  const draftPage = await read("../src/app/china-order-manager/drafts/[draftId]/page.tsx");
   const startButton = await read("../src/components/china-order-manager/PurchaseRunStartButton.tsx");
+  const guide = await read("../src/components/china-order-manager/InternalChinaPurchaseDraftGuide.tsx");
   const nav = await read("../src/components/china-order-manager/ChinaOrderManagerNav.tsx");
   const freightBridge = await read("../src/app/freight-barcode-request/monthly/page.tsx");
   const freightClient = await read("../src/components/freight-barcode-request/FreightMonthlyOrderContextBridge.tsx");
@@ -56,6 +58,11 @@ test("main manager is run-based and exposes the one-click start action", async (
   assert.match(page, /입고확정일별 발주 이력/);
   assert.match(page, /PurchaseRunStartButton/);
   assert.match(page, /InternalChinaPurchaseDraftGuide/);
+  assert.match(draftPage, /판매 반영/);
+  assert.match(draftPage, /revenueRangeStartDate/);
+  assert.match(draftPage, /revenueRangeEndDate/);
+  assert.match(guide, /입고확정 완료 차시의 계산 시작일 다음 날/);
+  assert.match(guide, /10월 5일 계산을 시작하고 10월 18일 입고확정했다면 다음 차시는 10월 6일부터/);
   assert.match(page, /filterVisiblePurchaseRunHistory/);
   assert.doesNotMatch(page, /종료 이력|releasedGroups|releasedCount/);
   assert.match(page, /sourceRunId === selectedDraftId/);
