@@ -13,6 +13,8 @@ test("purchase draft exposes separate 5-1 cost capture and 5-2 cart staging acti
   assert.match(source, /실제 위안단가와 중국 내 운임을 자동 반영했습니다/);
   assert.match(source, /5-1 원가·운임 기록/);
   assert.match(source, /missingStockBandCount > 0/);
+  assert.match(source, /상품 찾기/);
+  assert.match(source, /AUTO_NEW_SOURCING/);
   assert.match(source, /executionLineLimitExceeded/);
   assert.match(source, /모든 후보의 대략 재고를 고른 뒤 재계산하세요/);
   assert.match(source, /5-2 장바구니 담기/);

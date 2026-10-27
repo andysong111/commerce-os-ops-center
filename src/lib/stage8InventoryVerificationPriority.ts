@@ -47,6 +47,7 @@ export type InventoryOperatingMode =
   | "MISSING";
 
 export type InventoryVerificationPriorityRow = {
+  skuId?: string | null;
   barcode: string;
   name: string;
   modelNo: string | null;
@@ -407,6 +408,7 @@ export async function loadInventoryVerificationPriority(
         executionInventoryEligible;
 
       return {
+        skuId: text(profile?.skuId || inventory?.skuId) || null,
         barcode: key,
         name: text(product.name),
         modelNo: product.modelNo ? text(product.modelNo) : null,
