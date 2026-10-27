@@ -16,6 +16,11 @@ import {
   nearestPurchaseDraftQuantity,
 } from "@/lib/purchaseDraftQuantityRounding";
 import { PURCHASE_DRAFT_EXECUTION_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
+import {
+  clearPurchaseDraftPendingAutosave,
+  readPurchaseDraftPendingAutosave,
+  writePurchaseDraftPendingAutosave,
+} from "@/lib/internalChinaPurchaseDraftAutosave";
 
 const number = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const cny = new Intl.NumberFormat("ko-KR", {
@@ -172,6 +177,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [releasedQuantityOverrides, setReleasedQuantityOverrides] = useState<Record<string, boolean>>({});
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [stagedStockBands, setStagedStockBands] = useState<Record<string, InventoryStockBand>>({});
+  const [pendingAutosaveReady, setPendingAutosaveReady] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [automationPreparing, setAutomationPreparing] = useState<"COST" | "CART" | null>(null);
   const [productSearch, setProductSearch] = useState("");
@@ -181,6 +187,50 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const cartRefreshDeadlineRef = useRef(0);
   const cartEvidenceRef = useRef(purchaseEvidenceSignature(initialDraft));
+
+  useEffect(() => {
+    const restored = readPurchaseDraftPendingAutosave(window.localStorage, initialDraft.draftId);
+    if (restored) {
+      // Client-only recovery must run after hydration because localStorage is unavailable to SSR.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEditedQuantities(restored.editedQuantities);
+      setStagedExclusions(restored.stagedExclusions);
+      setReleasedQuantityOverrides(restored.releasedQuantityOverrides);
+      setStagedStockBands(restored.stagedStockBands);
+      onStagedAdditionsChange(restored.stagedAdditions as StagedDraftAddition[]);
+      const restoredCount =
+        Object.keys(restored.editedQuantities).length +
+        Object.keys(restored.stagedExclusions).length +
+        Object.keys(restored.releasedQuantityOverrides).length +
+        Object.keys(restored.stagedStockBands).length +
+        restored.stagedAdditions.length;
+      setNotice(
+        `새로고침 전에 작업하던 ${restoredCount.toLocaleString("ko-KR")}건을 이 브라우저의 자동 임시저장에서 복구했습니다.`,
+      );
+    }
+    setPendingAutosaveReady(true);
+  // The draft id is the recovery boundary. The parent setter is intentionally read once.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDraft.draftId]);
+
+  useEffect(() => {
+    if (!pendingAutosaveReady) return;
+    writePurchaseDraftPendingAutosave(window.localStorage, draft.draftId, {
+      editedQuantities,
+      stagedExclusions,
+      releasedQuantityOverrides,
+      stagedStockBands,
+      stagedAdditions,
+    });
+  }, [
+    draft.draftId,
+    editedQuantities,
+    pendingAutosaveReady,
+    releasedQuantityOverrides,
+    stagedAdditions,
+    stagedExclusions,
+    stagedStockBands,
+  ]);
 
   useEffect(() => {
     let disposed = false;
@@ -755,6 +805,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       setReleasedQuantityOverrides({});
       setStagedStockBands({});
       onStagedAdditionsChange([]);
+      clearPurchaseDraftPendingAutosave(window.localStorage, draft.draftId);
       const successMessage = body.message || "변경사항을 반영해 발주안을 다시 계산했습니다.";
       setNotice(successMessage);
       const destination = new URL(
@@ -1117,6 +1168,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">선택 해제</button>
             <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">대기 변경 취소</button>
             <button type="button" onClick={recalculateDraft} disabled={recalculationDisabled} aria-busy={regenerating} aria-label="변경사항 모아 발주안 재계산" data-action-label="변경사항 저장 후 발주안 재계산" title={hasPendingRecalculation ? "재고상태 저장 후 발주안 재계산" : "최신 추천으로 발주안 재계산"} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{recalculationButtonLabel}</button>
+            <p className="text-xs font-semibold text-emerald-700">재고·수량·제외·추가 변경은 이 브라우저에 자동 임시저장되어 새로고침해도 복구됩니다.</p>
           </div>
         </div>
       </section>
