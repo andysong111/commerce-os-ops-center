@@ -55,6 +55,7 @@ export async function runSeoRunWorkerPulse(
       completedCount: 0,
       failedCount: 0,
       queuedCount: 0,
+      autoQueuedRegistrationCount: 0,
       results: [],
       pulseClaimed: false,
       throttled: true,
@@ -75,6 +76,9 @@ export async function runSeoRunWorkerPulse(
     if (shouldWakeSoon) {
       await wakeOpsDispatchTask("seo-run-worker", 30).catch(() => false);
     }
+    if (result.autoQueuedRegistrationCount > 0) {
+      await wakeOpsDispatchTask("seo-run-worker", 0).catch(() => false);
+    }
     storedResult = {
       ok: true,
       workerId: result.workerId,
@@ -82,6 +86,7 @@ export async function runSeoRunWorkerPulse(
       completedCount: result.completedCount,
       failedCount: result.failedCount,
       queuedCount: result.queuedCount,
+      autoQueuedRegistrationCount: result.autoQueuedRegistrationCount,
     };
     return {
       ...result,

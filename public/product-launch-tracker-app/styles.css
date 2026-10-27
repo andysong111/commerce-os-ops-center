@@ -78,6 +78,9 @@ h3 { font-size: 14px; }
 .button-seo-select { border-color: #7c3aed; background: #7c3aed; color: #fff; }
 .button-seo-select:hover { border-color: #6d28d9; background: #6d28d9; }
 .button-seo-select:disabled { cursor: wait; opacity: .7; transform: none; }
+.button-seo-shopling-one-click { border-color: #047857; background: #047857; color: #fff; font-weight: 850; }
+.button-seo-shopling-one-click:hover { border-color: #065f46; background: #065f46; }
+.button-seo-shopling-one-click:disabled { cursor: wait; opacity: .7; transform: none; }
 .table-wrap { max-height: max(620px, calc(100vh - 180px)); overflow: auto; }
 table { width: 100%; min-width: 2050px; border-collapse: separate; border-spacing: 0; font-size: 11px; }
 thead { position: sticky; top: 0; z-index: 5; }

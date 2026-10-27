@@ -38,6 +38,7 @@ type RequestedRun = {
   itemId: string;
   batchId: string;
   runCreatedAt: string;
+  autoQueueShoplingRegistration: boolean;
 };
 
 function record(value: unknown): UnknownRecord {
@@ -97,6 +98,8 @@ function normalizeRequestedRuns(value: unknown, fallbackBatchId: string) {
       runCreatedAt: Number.isFinite(parsed)
         ? new Date(parsed).toISOString()
         : new Date().toISOString(),
+      autoQueueShoplingRegistration:
+        row.autoQueueShoplingRegistration === true,
     });
     if (result.length >= MAX_ENQUEUE_RUNS) break;
   }
@@ -332,6 +335,8 @@ export async function POST(request: NextRequest) {
           customBlockedTerms,
           variationSeed: run.runId,
           excludedMallTitles: [...new Set(exclusions)].slice(0, 1200),
+          autoQueueShoplingRegistration:
+            run.autoQueueShoplingRegistration,
         },
       });
     }

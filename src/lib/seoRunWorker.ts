@@ -43,6 +43,10 @@ import {
   type SeoRunJobRow,
 } from "@/lib/seoRunJobServer";
 import {
+  buildSeoRunAutoRegistrationPatch,
+  shouldAutoQueueShoplingRegistration,
+} from "@/lib/seoRunOneClickRegistration";
+import {
   getProductLaunchAdminConfig,
   type ProductLaunchAdminConfig,
 } from "@/lib/productLaunchTrackerServer";
@@ -67,6 +71,7 @@ type SeoRunProcessResult = {
   status: SeoRunJobRow["status"];
   stage: SeoRunJobRow["stage"];
   error?: string;
+  autoQueuedShoplingRegistration: boolean;
 };
 
 function record(value: unknown): UnknownRecord {
@@ -484,6 +489,7 @@ async function executeStage(
         allowedCandidates.length,
       titleResult,
     });
+    const completedAt = new Date().toISOString();
     return patchClaimedSeoRunJob(config, job.run_id, workerId, {
       status: "ready",
       stage: "completed",
@@ -491,22 +497,35 @@ async function executeStage(
       progress_percent: 100,
       message: "서버 FINAL 완료 · 컴퓨터가 꺼져도 결과가 보존됩니다.",
       result_payload: result,
+      ...buildSeoRunAutoRegistrationPatch(
+        job.input_payload,
+        job.registration_status,
+        job.registration_payload,
+        completedAt,
+      ),
       error_message: "",
       lease_owner: null,
       lease_until: null,
-      completed_at: new Date().toISOString(),
+      completed_at: completedAt,
     });
   }
 
+  const completedAt = new Date().toISOString();
   return patchClaimedSeoRunJob(config, job.run_id, workerId, {
     status: "ready",
     stage: "completed",
     progress_percent: 100,
     message: "서버 FINAL 완료",
+    ...buildSeoRunAutoRegistrationPatch(
+      job.input_payload,
+      job.registration_status,
+      job.registration_payload,
+      completedAt,
+    ),
     error_message: "",
     lease_owner: null,
     lease_until: null,
-    completed_at: job.completed_at ?? new Date().toISOString(),
+    completed_at: job.completed_at ?? completedAt,
   });
 }
 
@@ -575,7 +594,15 @@ async function processClaimedJob(
     if (job.status === "running" && job.stage !== "completed") {
       job = await requeueAtBudgetBoundary(config, job, workerId);
     }
-    return { runId: job.run_id, status: job.status, stage: job.stage };
+    return {
+      runId: job.run_id,
+      status: job.status,
+      stage: job.stage,
+      autoQueuedShoplingRegistration:
+        job.status === "ready" &&
+        job.registration_status === "queued" &&
+        shouldAutoQueueShoplingRegistration(job.input_payload),
+    };
   } catch (error) {
     if (isSeoRunLeaseLostError(error)) {
       return {
@@ -583,6 +610,7 @@ async function processClaimedJob(
         status: "running",
         stage: job.stage,
         error: "lease transferred",
+        autoQueuedShoplingRegistration: false,
       };
     }
     try {
@@ -592,6 +620,7 @@ async function processClaimedJob(
         status: failed.status,
         stage: failed.stage,
         error: failed.error_message,
+        autoQueuedShoplingRegistration: false,
       };
     } catch (persistError) {
       console.error("[seo-run-worker] failed to persist retry state", {
@@ -601,6 +630,7 @@ async function processClaimedJob(
           persistError instanceof Error
             ? persistError.message
             : String(persistError),
+        autoQueuedShoplingRegistration: false,
       });
       return {
         runId: job.run_id,
@@ -610,6 +640,7 @@ async function processClaimedJob(
           persistError instanceof Error
             ? persistError.message
             : String(persistError),
+        autoQueuedShoplingRegistration: false,
       };
     }
   }
@@ -661,12 +692,14 @@ export async function processSeoRunQueue(options: {
       runId: job.run_id,
       stage: job.stage,
       error: message,
+      autoQueuedShoplingRegistration: false,
     });
     return {
       runId: job.run_id,
       status: "running",
       stage: job.stage,
       error: message,
+      autoQueuedShoplingRegistration: false,
     };
   });
   return {
@@ -675,6 +708,9 @@ export async function processSeoRunQueue(options: {
     completedCount: results.filter((row) => row.status === "ready").length,
     failedCount: results.filter((row) => row.status === "failed").length,
     queuedCount: results.filter((row) => row.status === "queued").length,
+    autoQueuedRegistrationCount: results.filter(
+      (row) => row.autoQueuedShoplingRegistration,
+    ).length,
     results,
   };
 }

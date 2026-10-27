@@ -33,6 +33,7 @@ const MAX_PRODUCT_FLOW_SELECTION = 20;
 const DEFAULT_PAGE_SIZE = 25;
 const SEARCH_DELAY_MS = 260;
 const PAGE_REFRESH_DELAY_MS = 500;
+const SEO_SHOPLING_ONE_CLICK_EVENT = "product-launch-tracker:seo-shopling-one-click";
 const EDITABLE_SELECTOR = [
   ".barcode-input",
   ".inline-model-number-editor",
@@ -100,6 +101,7 @@ const elements = {
   unfinishedOnly: document.querySelector("#unfinished-only-filter"),
   batchQuickFilters: document.querySelector("#batch-quick-filters"),
   selectFilteredSeoReady: document.querySelector("#select-filtered-seo-ready"),
+  seoShoplingOneClick: document.querySelector("#seo-shopling-one-click"),
   visibleCount: document.querySelector("#visible-count"),
   selectedCount: document.querySelector("#selected-count"),
   bulkStage: document.querySelector("#bulk-stage"),
@@ -205,6 +207,9 @@ function bindControls() {
   elements.batchQuickFilters?.addEventListener("click", handleBatchQuickFilter);
   elements.selectFilteredSeoReady?.addEventListener("click", () =>
     void selectFilteredSeoReadyItems(),
+  );
+  elements.seoShoplingOneClick?.addEventListener("click", () =>
+    void startSeoShoplingOneClick(),
   );
   elements.selectVisible?.addEventListener("change", toggleVisibleSelection);
   elements.tableHead?.addEventListener("click", handleSortClick);
@@ -952,7 +957,7 @@ async function selectFilteredSeoReadyItems() {
       state.selectedIds.clear();
       updateSelectionUi();
       showToast("목록을 다시 불러오지 못해 자동 선택을 중단했습니다.");
-      return;
+      return 0;
     }
     const selected = selectProductLaunchSeoBulkItems(state.items);
     state.selectedIds = new Set(selected.map((item) => item.id));
@@ -960,7 +965,7 @@ async function selectFilteredSeoReadyItems() {
     renderPagination();
     if (!selected.length) {
       showToast("현재 필터에는 SEO 등록 가능한 상품이 없습니다.");
-      return;
+      return 0;
     }
     const remaining = Math.max(0, state.total - selected.length);
     showToast(
@@ -968,8 +973,35 @@ async function selectFilteredSeoReadyItems() {
         ? `SEO 등록 가능한 ${number(selected.length)}건을 선택했습니다. 남은 ${number(remaining)}건은 이번 등록 완료 후 이어서 선택하세요.`
         : `SEO 등록 가능한 ${number(selected.length)}건을 모두 선택했습니다.`,
     );
+    return selected.length;
   } finally {
     if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
+  }
+}
+
+async function startSeoShoplingOneClick() {
+  const button = elements.seoShoplingOneClick;
+  const originalLabel = button?.textContent || "SEO 가능 → 샵플링까지 한 번에";
+  let handedOff = false;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "등록 가능 상품 확인 중…";
+  }
+  try {
+    const selectedCount = await selectFilteredSeoReadyItems();
+    if (!selectedCount) return;
+    if (button) button.textContent = originalLabel;
+    handedOff = true;
+    window.dispatchEvent(
+      new CustomEvent(SEO_SHOPLING_ONE_CLICK_EVENT, {
+        detail: { selectedCount },
+      }),
+    );
+  } finally {
+    if (button && !handedOff) {
       button.disabled = false;
       button.textContent = originalLabel;
     }

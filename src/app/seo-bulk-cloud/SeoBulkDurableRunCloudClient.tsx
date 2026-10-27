@@ -70,6 +70,7 @@ type StoredRun = {
   runId: string;
   runCreatedAt: string;
   batchId?: string;
+  autoQueueShoplingRegistration?: boolean;
 };
 
 function record(value: unknown): UnknownRecord {
@@ -212,6 +213,8 @@ function readStoredBatch() {
         runId: text(row.runId),
         runCreatedAt: text(row.runCreatedAt) || new Date().toISOString(),
         batchId,
+        autoQueueShoplingRegistration:
+          row.autoQueueShoplingRegistration === true,
       }))
       .filter((row) => row.id && row.runId) as StoredRun[];
     return { batchId, runs };
