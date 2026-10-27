@@ -17,9 +17,9 @@ import {
 import { runCoalescedSeoRunShoplingWorkerPulse } from "@/lib/seoRunShoplingWorkerPulse";
 import { runCoalescedSeoRunWorkerPulse } from "@/lib/seoRunWorkerPulse";
 import {
-  buildProductLaunchInventoryIndex,
+  buildProductLaunchStockStatusIndex,
   classifyProductLaunchStockAvailability,
-  loadProductLaunchInventorySnapshot,
+  loadProductLaunchShoplingStockSnapshot,
   productLaunchStockBlockReason,
 } from "@/lib/productLaunchStockAvailability";
 
@@ -240,13 +240,13 @@ export async function POST(request: NextRequest) {
       const itemId = text(item.id);
       if (itemId) itemById.set(itemId, item);
     }
-    let inventory;
+    let stockIndex;
     try {
-      inventory = buildProductLaunchInventoryIndex(
-        await loadProductLaunchInventorySnapshot({ maxAgeMs: 5_000 }),
+      stockIndex = buildProductLaunchStockStatusIndex(
+        await loadProductLaunchShoplingStockSnapshot({ maxAgeMs: 0 }),
       );
     } catch (error) {
-      console.error("[seo-run-enqueue] inventory snapshot unavailable", error);
+      console.error("[seo-run-enqueue] Shopling stock state unavailable", error);
       return Response.json(
         {
           ok: false,
@@ -287,7 +287,7 @@ export async function POST(request: NextRequest) {
         excluded.push(`${model}:${registrationExclusion.reason || "SEO 등록 제외"}`);
         continue;
       }
-      const stock = classifyProductLaunchStockAvailability(item, inventory);
+      const stock = classifyProductLaunchStockAvailability(item, stockIndex);
       const stockBlockReason = productLaunchStockBlockReason(stock);
       if (stockBlockReason) {
         const model = text(item.modelNumber) || run.itemId;

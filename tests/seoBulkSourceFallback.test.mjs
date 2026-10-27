@@ -214,8 +214,8 @@ function routeFixture(authorized = true) {
       legacySeoRegistrationExclusion: () => ({ excluded: false, reason: "" }),
     },
     "@/lib/productLaunchStockAvailability": {
-      loadProductLaunchInventorySnapshot: async () => ({}),
-      buildProductLaunchInventoryIndex: () => ({}),
+      loadProductLaunchShoplingStockSnapshot: async () => ({}),
+      buildProductLaunchStockStatusIndex: () => ({}),
       classifyProductLaunchStockAvailability: () => ({ selectable: true }),
       productLaunchStockBlockReason: () => "",
     },

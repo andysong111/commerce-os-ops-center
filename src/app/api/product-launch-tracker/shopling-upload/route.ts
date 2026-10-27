@@ -9,9 +9,9 @@ import { recoverProductLaunchOrderOptionsFromSuccessfulUpload } from "@/lib/prod
 import { buildProductLaunchShoplingPayload } from "@/lib/productLaunchTrackerShopling";
 import {
   applyProductLaunchStockAvailability,
-  buildProductLaunchInventoryIndex,
+  buildProductLaunchStockStatusIndex,
   classifyProductLaunchStockAvailability,
-  loadProductLaunchInventorySnapshot,
+  loadProductLaunchShoplingStockSnapshot,
   productLaunchStockBlockReason,
 } from "@/lib/productLaunchStockAvailability";
 import {
@@ -123,10 +123,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const inventory = buildProductLaunchInventoryIndex(
-      await loadProductLaunchInventorySnapshot({ maxAgeMs: 5_000 }),
+    const stockIndex = buildProductLaunchStockStatusIndex(
+      await loadProductLaunchShoplingStockSnapshot({ maxAgeMs: 0 }),
     );
-    const stock = classifyProductLaunchStockAvailability(item, inventory);
+    const stock = classifyProductLaunchStockAvailability(item, stockIndex);
     const stockBlockReason = productLaunchStockBlockReason(stock);
     if (stockBlockReason) {
       return Response.json(

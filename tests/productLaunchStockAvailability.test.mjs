@@ -3,26 +3,32 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   applyProductLaunchStockAvailability,
-  buildProductLaunchInventoryIndex,
+  buildProductLaunchStockStatusIndex,
   classifyProductLaunchStockAvailability,
 } from "../src/lib/productLaunchStockAvailability.ts";
+import { buildProductLaunchShoplingStockSnapshotFromRows } from "../src/lib/productLaunchShoplingStockState.ts";
 import { buildProductLaunchShoplingPayload } from "../src/lib/productLaunchTrackerShopling.ts";
 
-function inventory(rows) {
-  return buildProductLaunchInventoryIndex({
+function stockIndex(rows = []) {
+  return buildProductLaunchStockStatusIndex({
     generatedAt: "2026-10-27T00:00:00.000Z",
-    contentFingerprint: "stock-fixture-v1",
+    contentFingerprint: "shopling-stock-transmission-fixture-v1",
     rows,
   });
 }
 
-function row(barcode, quantity, overrides = {}) {
+function event(
+  barcode,
+  desiredStatus,
+  outcome = "SUCCEEDED",
+  occurredAt = "2026-10-27T00:00:00.000Z",
+) {
   return {
+    eventId: `${barcode}-${desiredStatus}-${outcome}-${occurredAt}`,
     barcode,
-    inventoryQuantity: quantity,
-    inventoryVerified: true,
-    inventoryRequiresReview: false,
-    ...overrides,
+    desiredStatus,
+    outcome,
+    occurredAt,
   };
 }
 
@@ -58,10 +64,49 @@ function item() {
   };
 }
 
-test("verified zero marks only that option sold out and keeps the product selectable", () => {
+test("persisted Shopling transmission snapshots become the launch stock authority", () => {
+  const snapshot = buildProductLaunchShoplingStockSnapshotFromRows(
+    [
+      {
+        source_event_id: "shopling-stock-sync:event-1",
+        result_snapshot: {
+          accepted: true,
+          snapshot: {
+            eventId: "event-1",
+            barcode: "BAA1-2",
+            desiredStatus: "SOLD_OUT",
+            outcome: "SUCCEEDED",
+            occurredAt: "2026-10-27T00:00:00.000Z",
+          },
+        },
+        started_at: "2026-10-27T00:00:00.000Z",
+      },
+    ],
+    "2026-10-27T00:01:00.000Z",
+  );
   const stock = classifyProductLaunchStockAvailability(
     item(),
-    inventory([row("BAA1-1", 5), row("BAA1-2", 0)]),
+    buildProductLaunchStockStatusIndex(snapshot),
+  );
+  assert.equal(stock.status, "PARTIAL_SOLD_OUT");
+  assert.equal(stock.options[1].status, "SOLD_OUT");
+  assert.match(stock.sourceFingerprint, /^sha256:/);
+});
+
+test("a malformed persisted transmission blocks the authority instead of defaulting to sale", () => {
+  assert.throws(
+    () =>
+      buildProductLaunchShoplingStockSnapshotFromRows([
+        { result_snapshot: { snapshot: { barcode: "BAA1-2" } } },
+      ]),
+    /PRODUCT_LAUNCH_SHOPLING_STOCK_AUTHORITY_INCOMPLETE/,
+  );
+});
+
+test("a confirmed sold-out transmission marks only that option sold out", () => {
+  const stock = classifyProductLaunchStockAvailability(
+    item(),
+    stockIndex([event("BAA1-2", "SOLD_OUT")]),
   );
   assert.equal(stock.status, "PARTIAL_SOLD_OUT");
   assert.equal(stock.selectable, true);
@@ -79,10 +124,13 @@ test("verified zero marks only that option sold out and keeps the product select
   );
 });
 
-test("all verified zero blocks registration", () => {
+test("confirmed sold-out transmissions for every option block registration", () => {
   const stock = classifyProductLaunchStockAvailability(
     item(),
-    inventory([row("BAA1-1", 0), row("BAA1-2", 0)]),
+    stockIndex([
+      event("BAA1-1", "SOLD_OUT"),
+      event("BAA1-2", "SOLD_OUT"),
+    ]),
   );
   assert.equal(stock.status, "SOLD_OUT");
   assert.equal(stock.selectable, false);
@@ -97,22 +145,58 @@ test("all verified zero blocks registration", () => {
   );
 });
 
-test("missing or unverified inventory fails closed", () => {
-  const missing = classifyProductLaunchStockAvailability(
-    item(),
-    inventory([row("BAA1-1", 5)]),
-  );
-  assert.equal(missing.status, "UNKNOWN");
-  assert.equal(missing.selectable, false);
+test("no sold-out transmission means the option remains sellable", () => {
+  const stock = classifyProductLaunchStockAvailability(item(), stockIndex());
+  assert.equal(stock.status, "ON_SALE");
+  assert.equal(stock.selectable, true);
+  assert.deepEqual(stock.options.map(({ status }) => status), ["ON_SALE", "ON_SALE"]);
+});
 
-  const unverified = classifyProductLaunchStockAvailability(
+test("a later confirmed on-sale transmission reopens a sold-out option", () => {
+  const stock = classifyProductLaunchStockAvailability(
     item(),
-    inventory([
-      row("BAA1-1", 5),
-      row("BAA1-2", 9, { inventoryVerified: false }),
+    stockIndex([
+      event("BAA1-2", "SOLD_OUT", "SUCCEEDED", "2026-10-26T00:00:00.000Z"),
+      event("BAA1-2", "ON_SALE", "SUCCEEDED", "2026-10-27T00:00:00.000Z"),
     ]),
   );
-  assert.equal(unverified.status, "UNKNOWN");
+  assert.equal(stock.status, "ON_SALE");
+  assert.equal(stock.options[1].status, "ON_SALE");
+});
+
+test("a failed transmission does not overwrite the last confirmed Shopling state", () => {
+  const stock = classifyProductLaunchStockAvailability(
+    item(),
+    stockIndex([
+      event("BAA1-2", "SOLD_OUT", "SUCCEEDED", "2026-10-26T00:00:00.000Z"),
+      event("BAA1-2", "ON_SALE", "FAILED", "2026-10-27T00:00:00.000Z"),
+    ]),
+  );
+  assert.equal(stock.status, "PARTIAL_SOLD_OUT");
+  assert.equal(stock.options[1].status, "SOLD_OUT");
+});
+
+test("an unresolved latest transmission fails closed", () => {
+  const stock = classifyProductLaunchStockAvailability(
+    item(),
+    stockIndex([
+      event("BAA1-2", "SOLD_OUT", "SUCCEEDED", "2026-10-26T00:00:00.000Z"),
+      event("BAA1-2", "ON_SALE", "UNCERTAIN", "2026-10-27T00:00:00.000Z"),
+    ]),
+  );
+  assert.equal(stock.status, "UNKNOWN");
+  assert.equal(stock.selectable, false);
+});
+
+test("an option without a B-code remains blocked because it cannot be synchronized", () => {
+  const withoutBarcode = item();
+  withoutBarcode.orderOptions[1].barcode = "";
+  const stock = classifyProductLaunchStockAvailability(
+    withoutBarcode,
+    stockIndex(),
+  );
+  assert.equal(stock.status, "UNKNOWN");
+  assert.equal(stock.options[1].status, "UNKNOWN");
 });
 
 test("discontinued items are classified as excluded even when stock is positive", () => {
@@ -122,26 +206,29 @@ test("discontinued items are classified as excluded even when stock is positive"
   };
   const stock = classifyProductLaunchStockAvailability(
     discontinued,
-    inventory([row("BAA1-1", 5), row("BAA1-2", 7)]),
+    stockIndex(),
   );
   assert.equal(stock.status, "EXCLUDED");
   assert.equal(stock.selectable, false);
 
   const summarized = classifyProductLaunchStockAvailability(
     { ...item(), seoExclusion: { excluded: true, reason: "요약 단종" } },
-    inventory([row("BAA1-1", 5), row("BAA1-2", 7)]),
+    stockIndex(),
   );
   assert.equal(summarized.status, "EXCLUDED");
 });
 
 test("tracker UI exposes sellable filter, red sold-out states, and stock-blocked selection", async () => {
-  const [html, app, styles, handoff, enqueue, queue, optimizedRoute] = await Promise.all([
+  const [html, app, styles, handoff, enqueue, queue, upload, stockState, stockAwarePage, optimizedRoute] = await Promise.all([
     readFile("public/product-launch-tracker-app/index.html", "utf8"),
     readFile("public/product-launch-tracker-app/optimized-app.js", "utf8"),
     readFile("public/product-launch-tracker-app/styles.css", "utf8"),
     readFile("public/product-launch-tracker-app/seo-title-ledger-handoff.js", "utf8"),
     readFile("src/app/api/seo-run-jobs/route.ts", "utf8"),
     readFile("src/lib/seoRunShoplingRegistrationQueue.ts", "utf8"),
+    readFile("src/app/api/product-launch-tracker/shopling-upload/route.ts", "utf8"),
+    readFile("src/lib/productLaunchShoplingStockState.ts", "utf8"),
+    readFile("src/lib/productLaunchStockAwarePage.ts", "utf8"),
     readFile("src/app/api/product-launch-tracker/optimized/route.ts", "utf8"),
   ]);
   assert.match(html, /id="stock-filter"/);
@@ -151,7 +238,12 @@ test("tracker UI exposes sellable filter, red sold-out states, and stock-blocked
   assert.match(styles, /stock-sold-out/);
   assert.match(handoff, /dataset\.stockSelectable === "false"/);
   assert.match(enqueue, /classifyProductLaunchStockAvailability/);
-  assert.match(queue, /loadProductLaunchInventorySnapshot/);
+  assert.match(enqueue, /loadProductLaunchShoplingStockSnapshot\(\{ maxAgeMs: 0 \}\)/);
+  assert.match(queue, /loadProductLaunchShoplingStockSnapshot/);
+  assert.match(queue, /loadProductLaunchShoplingStockSnapshot\(\{ maxAgeMs: 0 \}\)/);
+  assert.match(upload, /loadProductLaunchShoplingStockSnapshot\(\{ maxAgeMs: 0 \}\)/);
+  assert.match(stockState, /maxAgeMs > 0 &&/);
+  assert.match(stockAwarePage, /loadProductLaunchShoplingStockSnapshot\(\{ maxAgeMs: 3_000 \}\)/);
   assert.match(optimizedRoute, /const STOCK_AWARE_PAGE_READ_TIMEOUT_MS = 15_000;/);
   assert.match(
     optimizedRoute,
