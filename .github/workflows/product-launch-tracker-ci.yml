@@ -84,6 +84,7 @@ jobs:
           tests/productLaunchShoplingServerQueue.test.mjs
           tests/productLaunchShoplingWorkerSplit.test.mjs
           tests/productLaunchSeoRunStorageResilience.test.mjs
+          tests/productLaunchSeoRunOneClick.test.mjs
           tests/productLaunchOptionBarcodeRegistry.test.mjs
           tests/productLaunchShoplingMallSeo.test.mjs
           tests/productLaunchTrackerUploadClaim.test.mjs

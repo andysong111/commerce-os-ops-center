@@ -5,6 +5,8 @@ const SEO_BULK_REVISION_PARAM = "rev";
 const NORMALIZED_ITEM_API = "/api/product-launch-tracker/normalized-optimized";
 const BUTTON_ID = "seo-title-ledger-handoff-button";
 const DATA_GROUP_ID = "bulk-action-group-data";
+const SEO_SHOPLING_ONE_CLICK_BUTTON_ID = "seo-shopling-one-click";
+const SEO_SHOPLING_ONE_CLICK_EVENT = "product-launch-tracker:seo-shopling-one-click";
 const MAX_INSTALL_ATTEMPTS = 40;
 const MAX_BATCH_ITEMS = 50;
 let installAttempt = 0;
@@ -290,7 +292,9 @@ function openOrFocusBulkWindow(target, revision) {
   }
 }
 
-async function openBulkCloud(button) {
+async function openBulkCloud(button, options = {}) {
+  const autoQueueShoplingRegistration = options.autoQueueShoplingRegistration === true;
+  const isOneClickButton = button.id === SEO_SHOPLING_ONE_CLICK_BUTTON_ID;
   const selectedIds = readSelectedItemIds();
   if (!selectedIds.length) {
     showMessage("SEO 대량등록 클라우드에서 처리할 상품을 1개 이상 선택하세요.");
@@ -321,6 +325,15 @@ async function openBulkCloud(button) {
     }
     // Linkless products are resolved server-side: 1688 → Shopling → launch tracker.
 
+    if (
+      autoQueueShoplingRegistration &&
+      !window.confirm(
+        `${selectedIds.length}개 상품의 SEO를 만들고, 완성된 상품은 Shopling 6채널 등록까지 자동으로 진행합니다.\n\n품절·단종·입고대기·재료부족 상품은 제외됩니다. 계속할까요?`,
+      )
+    ) {
+      return;
+    }
+
     const now = new Date().toISOString();
     const runItems = masters.map((item, index) => ({
       ...item,
@@ -329,6 +342,7 @@ async function openBulkCloud(button) {
       runSequenceInClick: index + 1,
       generationStatus: "idle",
       shoplingStatus: "idle",
+      autoQueueShoplingRegistration,
     }));
     const previousBatch = readPendingBatch();
     const previousIsRunBatch = Number(previousBatch?.version) >= 3;
@@ -366,7 +380,7 @@ async function openBulkCloud(button) {
   } finally {
     button.disabled = false;
     button.textContent = original || "SEO 대량등록 클라우드 열기";
-    updateButton(button);
+    if (!isOneClickButton) updateButton(button);
   }
 }
 
@@ -414,6 +428,11 @@ function scheduleInstall(reset = false) {
     installTimer = null;
   }
   installStyles();
+  const oneClickButton = document.querySelector(`#${SEO_SHOPLING_ONE_CLICK_BUTTON_ID}`);
+  if (oneClickButton instanceof HTMLButtonElement) {
+    oneClickButton.disabled = false;
+    oneClickButton.title = "SEO 등록 가능 상품을 골라 Shopling 6채널 등록까지 자동 진행합니다.";
+  }
   if (installButton()) return;
   if (installAttempt >= MAX_INSTALL_ATTEMPTS) return;
   installAttempt += 1;
@@ -457,16 +476,30 @@ function handlePageLoaded() {
   scheduleInstall(true);
 }
 
+function handleSeoShoplingOneClick() {
+  const button = document.querySelector(`#${SEO_SHOPLING_ONE_CLICK_BUTTON_ID}`);
+  if (!(button instanceof HTMLButtonElement)) {
+    showMessage("원클릭 등록 버튼을 찾지 못했습니다. 화면을 새로고침한 뒤 다시 시도하세요.");
+    return;
+  }
+  void openBulkCloud(button, { autoQueueShoplingRegistration: true }).finally(() => {
+    button.disabled = false;
+    button.textContent = "SEO 가능 → 샵플링까지 한 번에";
+  });
+}
+
 scheduleInstall(true);
 scheduleHealthPanel();
 document.addEventListener("change", handleSelectionChange, true);
 window.addEventListener("product-launch-tracker:page-loaded", handlePageLoaded);
+window.addEventListener(SEO_SHOPLING_ONE_CLICK_EVENT, handleSeoShoplingOneClick);
 window.addEventListener(
   "pagehide",
   () => {
     if (installTimer) window.clearTimeout(installTimer);
     document.removeEventListener("change", handleSelectionChange, true);
     window.removeEventListener("product-launch-tracker:page-loaded", handlePageLoaded);
+    window.removeEventListener(SEO_SHOPLING_ONE_CLICK_EVENT, handleSeoShoplingOneClick);
   },
   { once: true },
 );
