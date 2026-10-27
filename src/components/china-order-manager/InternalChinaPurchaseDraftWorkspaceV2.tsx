@@ -1213,7 +1213,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <span className="text-xs font-black tracking-[0.12em] text-blue-700">PURCHASE RUN · STEP 4</span>
             <h2 className="mt-1 text-xl font-black text-slate-950">한 번에 발주안 재계산</h2>
             <p className="mt-2 text-xs font-bold leading-5 text-slate-700">
-              작업 선택 {selectedBarcodes.length}종 · 대략 재고 {stockBandUpdates.length}종 · 단종예정 {discontinuedBarcodes.length}종 · 수량 변경 {changedQuantityRows.length}종 · 수량 고정 해제 {releasedQuantityOverrideBarcodes.length}종 · 제외 {excludedBarcodes.length}종 · 사용자 고정 추가 {stagedAdditions.length}종입니다. 단종예정은 남은 재고 판매를 유지하되 현재와 이후 발주 후보에서 영구 제외합니다. 재계산 버튼을 누르기 전에는 기존 Draft와 원장이 바뀌지 않습니다.
+              작업 선택 {selectedBarcodes.length}종 · 대략 재고 {stockBandUpdates.length}종 · 단종예정 {discontinuedBarcodes.length}종 · 수량 변경 {changedQuantityRows.length}종 · 수량 고정 해제 {releasedQuantityOverrideBarcodes.length}종 · 제외 {excludedBarcodes.length}종 · 사용자 고정 추가 {stagedAdditions.length}종입니다. 체크만으로는 삭제되지 않으며, 단종예정은 남은 재고 판매를 유지하되 현재와 이후 발주 후보에서 영구 제외합니다. 재계산 버튼을 누르기 전에는 기존 Draft와 원장이 바뀌지 않습니다.
             </p>
             {invalidQuantityBarcodes.length > 0 ? (
               <p className="mt-1 text-xs font-black text-rose-700">수량을 다시 입력할 상품: {invalidQuantityBarcodes.join(" · ")}</p>
