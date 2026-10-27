@@ -60,6 +60,14 @@ test("상품출시 원클릭 버튼은 안전선택·확인 후 RUN별 자동등
   assert.match(optimized, /handedOff = true/);
   assert.match(optimized, /product-launch-tracker:seo-shopling-one-click/);
   assert.match(handoff, /window\.confirm\(/);
+  assert.match(handoff, /await enqueueOneClickRuns\(batchId, runItems\)/);
+  assert.match(handoff, /credentials: "same-origin"/);
+  const openBulkCloudIndex = handoff.indexOf("async function openBulkCloud");
+  assert.ok(openBulkCloudIndex > 0);
+  assert.ok(
+    handoff.indexOf("await enqueueOneClickRuns(batchId, runItems)", openBulkCloudIndex) <
+      handoff.indexOf("openOrFocusBulkWindow(target, revision)", openBulkCloudIndex),
+  );
   assert.match(handoff, /oneClickButton\.disabled = false/);
   assert.match(handoff, /if \(!isOneClickButton\) updateButton\(button\)/);
   assert.match(handoff, /autoQueueShoplingRegistration,/);

@@ -3,6 +3,9 @@ const SEO_BULK_BATCH_STORAGE_KEY = "commerceOs.seoBulkCloud.batch.v1";
 const SEO_BULK_WINDOW_NAME = "commerce-os-seo-bulk-cloud";
 const SEO_BULK_REVISION_PARAM = "rev";
 const NORMALIZED_ITEM_API = "/api/product-launch-tracker/normalized-optimized";
+const SEO_RUN_API = "/api/seo-run-jobs";
+const CUSTOM_BLOCKED_STORAGE_KEY =
+  "keywordEngineElonLab.step4.customBlockedTerms.v1";
 const BUTTON_ID = "seo-title-ledger-handoff-button";
 const DATA_GROUP_ID = "bulk-action-group-data";
 const SEO_SHOPLING_ONE_CLICK_BUTTON_ID = "seo-shopling-one-click";
@@ -174,6 +177,75 @@ function readPendingBatch() {
   }
 }
 
+function readCustomBlockedTerms() {
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_BLOCKED_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return list(parsed).slice(0, 200);
+  } catch {
+    return [];
+  }
+}
+
+function clearPendingBatchIfMatch(batchId, revision) {
+  const current = readPendingBatch();
+  if (
+    text(current?.batchId) !== text(batchId) ||
+    text(current?.revision) !== text(revision)
+  ) {
+    return false;
+  }
+  window.localStorage.removeItem(SEO_BULK_BATCH_STORAGE_KEY);
+  return true;
+}
+
+function sameRunItemSelection(items, selectedIds) {
+  const itemIds = listOfRecords(items).map((item) => text(item.id)).filter(Boolean);
+  if (itemIds.length !== selectedIds.length) return false;
+  const selected = new Set(selectedIds.map(text).filter(Boolean));
+  return selected.size === itemIds.length && itemIds.every((id) => selected.has(id));
+}
+
+async function enqueueOneClickRuns(batchId, runs) {
+  const response = await fetch(SEO_RUN_API, {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "enqueue",
+      batchId,
+      runs,
+      customBlockedTerms: readCustomBlockedTerms(),
+    }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(
+      body?.message ||
+        `서버가 SEO 등록회차를 접수하지 못했습니다. HTTP ${response.status}`,
+    );
+  }
+  const requestedCount = Number(body.requestedCount) || 0;
+  const insertedCount = Number(body.insertedCount) || 0;
+  const existingCount = Number(body.existingCount) || 0;
+  const acceptedCount = insertedCount + existingCount;
+  if (requestedCount !== runs.length || acceptedCount < 1) {
+    throw new Error(
+      `서버 접수 결과가 맞지 않아 실행을 중단했습니다. 요청 ${runs.length}개 · 접수 ${acceptedCount}개`,
+    );
+  }
+  return {
+    acceptedCount,
+    skippedCount: Math.max(0, runs.length - acceptedCount),
+    missing: list(body.missing),
+    excluded: list(body.excluded),
+  };
+}
+
 function normalizeRunItem(item, index = 0) {
   const row = record(item);
   const id = text(row.id);
@@ -334,19 +406,38 @@ async function openBulkCloud(button, options = {}) {
       return;
     }
 
-    const now = new Date().toISOString();
-    const runItems = masters.map((item, index) => ({
-      ...item,
-      runId: newId("seo-run"),
-      runCreatedAt: now,
-      runSequenceInClick: index + 1,
-      generationStatus: "idle",
-      shoplingStatus: "idle",
-      autoQueueShoplingRegistration,
-    }));
     const previousBatch = readPendingBatch();
     const previousIsRunBatch = Number(previousBatch?.version) >= 3;
     const previousItems = previousIsRunBatch ? listOfRecords(previousBatch?.items) : [];
+    const reusableOneClickItems =
+      autoQueueShoplingRegistration &&
+      previousItems.length > 0 &&
+      sameRunItemSelection(previousItems, selectedIds) &&
+      previousItems.every((item) => item.autoQueueShoplingRegistration === true)
+        ? previousItems.map(normalizeRunItem).filter(Boolean)
+        : [];
+    if (
+      autoQueueShoplingRegistration &&
+      previousItems.length > 0 &&
+      reusableOneClickItems.length === 0
+    ) {
+      throw new Error(
+        `아직 서버로 인계되지 않은 이전 작업 ${previousItems.length}개가 남아 있습니다. 먼저 'SEO 대량등록 클라우드 열기'로 이전 작업을 확인하세요.`,
+      );
+    }
+
+    const now = new Date().toISOString();
+    const runItems = reusableOneClickItems.length
+      ? reusableOneClickItems
+      : masters.map((item, index) => ({
+          ...item,
+          runId: newId("seo-run"),
+          runCreatedAt: now,
+          runSequenceInClick: index + 1,
+          generationStatus: "idle",
+          shoplingStatus: "idle",
+          autoQueueShoplingRegistration,
+        }));
     const mergedItems = mergePendingItems(previousItems, runItems);
     if (mergedItems.length > MAX_BATCH_ITEMS) {
       throw new Error(
@@ -370,11 +461,23 @@ async function openBulkCloud(button, options = {}) {
       items: mergedItems,
     };
     window.localStorage.setItem(SEO_BULK_BATCH_STORAGE_KEY, JSON.stringify(batch));
+    let handoff = null;
+    if (autoQueueShoplingRegistration) {
+      button.textContent = `${runItems.length}개 서버 접수 확인 중…`;
+      handoff = await enqueueOneClickRuns(batchId, runItems);
+      clearPendingBatchIfMatch(batchId, revision);
+    }
     const target = `${SEO_BULK_ROUTE}?${new URLSearchParams({
       batchId,
       [SEO_BULK_REVISION_PARAM]: revision,
     }).toString()}`;
     openOrFocusBulkWindow(target, revision);
+    if (handoff?.skippedCount) {
+      const reasons = [...handoff.missing, ...handoff.excluded].slice(0, 3).join(", ");
+      showMessage(
+        `${handoff.acceptedCount}개는 서버가 접수했고 ${handoff.skippedCount}개는 최신 상태 검사에서 제외했습니다.${reasons ? ` ${reasons}` : ""}`,
+      );
+    }
   } catch (error) {
     showMessage(error instanceof Error ? error.message : "SEO 대량등록 클라우드로 이동하지 못했습니다.");
   } finally {
