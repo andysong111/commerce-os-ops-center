@@ -25,6 +25,7 @@ export async function queryProductLaunchStockAwareNormalizedPage(
   workspace: ProductLaunchNormalizedWorkspace,
   query: ProductLaunchTrackerPageQuery,
 ) {
+  const seoReadyOnly = booleanValue(query.seoReadyOnly, false);
   let stockIndex;
   try {
     stockIndex = buildProductLaunchStockStatusIndex(
@@ -42,7 +43,7 @@ export async function queryProductLaunchStockAwareNormalizedPage(
       stockAvailability: unavailableStock(error),
     }));
     const filter = text(query.stock).toUpperCase() || "SELLABLE";
-    const showUnknown = filter === "ALL" || filter === "UNKNOWN";
+    const showUnknown = !seoReadyOnly && (filter === "ALL" || filter === "UNKNOWN");
     return {
       ...page,
       page: showUnknown ? page.page : 1,
@@ -57,7 +58,7 @@ export async function queryProductLaunchStockAwareNormalizedPage(
   }
 
   const stockFilter = text(query.stock).toUpperCase() || "SELLABLE";
-  if (stockFilter === "ALL") {
+  if (stockFilter === "ALL" && !seoReadyOnly) {
     const page = await queryProductLaunchNormalizedPage(
       config,
       ownerId,
@@ -80,7 +81,8 @@ export async function queryProductLaunchStockAwareNormalizedPage(
     .map((item) => enrichStock(item, stockIndex))
     .filter((item) =>
       productLaunchStockMatchesFilter(item.stockAvailability, stockFilter),
-    );
+    )
+    .filter((item) => !seoReadyOnly || isProductLaunchSeoBulkReady(item));
   const pageSize = clamp(
     query.pageSize,
     PRODUCT_LAUNCH_DEFAULT_PAGE_SIZE,
@@ -115,6 +117,18 @@ export async function queryProductLaunchStockAwareNormalizedPage(
       : { batches: [], assignees: [] },
     stockAvailabilityMeta: stockMeta(stockIndex),
   };
+}
+
+export function isProductLaunchSeoBulkReady(item: UnknownRecord) {
+  const stock = isRecord(item.stockAvailability) ? item.stockAvailability : {};
+  const readiness = isRecord(item.readiness) ? item.readiness : {};
+  const exclusion = isRecord(item.seoExclusion) ? item.seoExclusion : {};
+  return (
+    exclusion.excluded !== true &&
+    stock.selectable === true &&
+    item.receiptPending !== true &&
+    readiness.ready === true
+  );
 }
 
 function enrichStock(
@@ -157,6 +171,12 @@ function clamp(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function booleanValue(value: unknown, fallback: boolean) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "boolean") return value;
+  return !["0", "false", "off", "no"].includes(text(value).toLowerCase());
 }
 
 function text(value: unknown) {

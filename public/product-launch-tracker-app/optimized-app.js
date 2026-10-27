@@ -17,6 +17,11 @@ import {
   normalizeChinaProductUrl,
   promoteChinaProductLink,
 } from "./lib/china-product-links.mjs";
+import {
+  availableProductLaunchPriorityBatches,
+  MAX_SEO_BULK_SELECTION,
+  selectProductLaunchSeoBulkItems,
+} from "./lib/seo-bulk-selection.mjs";
 
 const OPTIMIZED_API = "/api/product-launch-tracker/optimized";
 const STATE_API = "/api/product-launch-tracker/state";
@@ -61,6 +66,7 @@ const state = {
     assignee: "",
     overall: "",
     stock: "SELLABLE",
+    seoReadyOnly: false,
     unfinishedOnly: true,
   },
   detailItem: null,
@@ -90,7 +96,10 @@ const elements = {
   assignee: document.querySelector("#assignee-filter"),
   overall: document.querySelector("#overall-filter"),
   stock: document.querySelector("#stock-filter"),
+  seoReadyOnly: document.querySelector("#seo-ready-only-filter"),
   unfinishedOnly: document.querySelector("#unfinished-only-filter"),
+  batchQuickFilters: document.querySelector("#batch-quick-filters"),
+  selectFilteredSeoReady: document.querySelector("#select-filtered-seo-ready"),
   visibleCount: document.querySelector("#visible-count"),
   selectedCount: document.querySelector("#selected-count"),
   bulkStage: document.querySelector("#bulk-stage"),
@@ -162,6 +171,16 @@ function bindControls() {
     clearSelection();
     void loadPage();
   });
+  elements.seoReadyOnly?.addEventListener("change", (event) => {
+    state.filters.seoReadyOnly = event.target.checked;
+    if (event.target.checked) {
+      state.filters.stock = "SELLABLE";
+      if (elements.stock) elements.stock.value = "SELLABLE";
+    }
+    state.page = 1;
+    clearSelection();
+    void loadPage();
+  });
   elements.unfinishedOnly?.addEventListener("change", (event) => {
     state.filters.unfinishedOnly = event.target.checked;
     if (event.target.checked && ["완료", "보관됨"].includes(state.filters.overall)) {
@@ -183,6 +202,10 @@ function bindControls() {
     void applyBulkStatus(),
   );
   document.querySelector("#clear-selection-button")?.addEventListener("click", clearSelection);
+  elements.batchQuickFilters?.addEventListener("click", handleBatchQuickFilter);
+  elements.selectFilteredSeoReady?.addEventListener("click", () =>
+    void selectFilteredSeoReadyItems(),
+  );
   elements.selectVisible?.addEventListener("change", toggleVisibleSelection);
   elements.tableHead?.addEventListener("click", handleSortClick);
   elements.tableBody?.addEventListener("change", handleTableChange);
@@ -266,6 +289,7 @@ async function loadPage(options = {}) {
     assignee: state.filters.assignee,
     overall: state.filters.overall,
     stock: state.filters.stock,
+    seoReadyOnly: String(state.filters.seoReadyOnly),
     unfinishedOnly: String(state.filters.unfinishedOnly),
     sort: state.sort.key,
     direction: state.sort.direction,
@@ -322,8 +346,9 @@ async function loadPage(options = {}) {
         detail: { page: state.page, pageSize: state.pageSize, total: state.total },
       }),
     );
+    return true;
   } catch (error) {
-    if (error?.name === "AbortError") return;
+    if (error?.name === "AbortError") return false;
     console.error(error);
     setSaveStatus("목록 불러오기 실패");
     showToast(error instanceof Error ? error.message : "목록을 불러오지 못했습니다.");
@@ -332,6 +357,7 @@ async function loadPage(options = {}) {
         <tr><td colspan="16" class="empty-state">목록을 불러오지 못했습니다. 새로고침해 주세요.</td></tr>
       `;
     }
+    return false;
   } finally {
     if (requestSerial === state.requestSerial) setLoading(false, options.silent === true);
   }
@@ -433,6 +459,35 @@ function renderFilters() {
     state.filterOptions.assignees ?? [],
     state.filters.assignee,
   );
+  if (elements.seoReadyOnly) elements.seoReadyOnly.checked = state.filters.seoReadyOnly;
+  renderBatchQuickFilters();
+}
+
+function renderBatchQuickFilters() {
+  if (!elements.batchQuickFilters) return;
+  const batches = availableProductLaunchPriorityBatches(state.filterOptions.batches);
+  elements.batchQuickFilters.innerHTML = [
+    `<button class="batch-quick-filter ${state.filters.batch ? "" : "is-active"}" type="button" data-batch="">전체 묶음</button>`,
+    ...batches.map(
+      (batch) => `<button class="batch-quick-filter ${state.filters.batch === batch ? "is-active" : ""}" type="button" data-batch="${escapeAttribute(batch)}">${escapeHtml(batch)}</button>`,
+    ),
+  ].join("");
+  elements.batchQuickFilters.hidden = batches.length === 0;
+}
+
+function handleBatchQuickFilter(event) {
+  const button = event.target.closest?.("button[data-batch]");
+  if (!button || !elements.batchQuickFilters?.contains(button)) return;
+  state.filters.batch = button.dataset.batch || "";
+  state.filters.overall = "";
+  if (elements.overall) elements.overall.value = "";
+  if (state.filters.batch) {
+    state.filters.unfinishedOnly = false;
+    if (elements.unfinishedOnly) elements.unfinishedOnly.checked = false;
+  }
+  state.page = 1;
+  clearSelection();
+  void loadPage();
 }
 
 function replaceSelectOptions(select, allLabel, values, current) {
@@ -875,6 +930,50 @@ function pruneSelection() {
 
 function isItemStockSelectable(item) {
   return item.seoExclusion?.excluded !== true && item.stockAvailability?.selectable === true;
+}
+
+async function selectFilteredSeoReadyItems() {
+  const button = elements.selectFilteredSeoReady;
+  const originalLabel = button?.textContent || "SEO 가능 전체 선택";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "SEO 가능 상품 찾는 중…";
+  }
+  try {
+    state.selectedIds.clear();
+    state.filters.stock = "SELLABLE";
+    state.filters.seoReadyOnly = true;
+    state.page = 1;
+    state.pageSize = MAX_SEO_BULK_SELECTION;
+    if (elements.stock) elements.stock.value = "SELLABLE";
+    if (elements.seoReadyOnly) elements.seoReadyOnly.checked = true;
+    const loaded = await loadPage({ silent: true });
+    if (!loaded) {
+      state.selectedIds.clear();
+      updateSelectionUi();
+      showToast("목록을 다시 불러오지 못해 자동 선택을 중단했습니다.");
+      return;
+    }
+    const selected = selectProductLaunchSeoBulkItems(state.items);
+    state.selectedIds = new Set(selected.map((item) => item.id));
+    renderTable();
+    renderPagination();
+    if (!selected.length) {
+      showToast("현재 필터에는 SEO 등록 가능한 상품이 없습니다.");
+      return;
+    }
+    const remaining = Math.max(0, state.total - selected.length);
+    showToast(
+      remaining > 0
+        ? `SEO 등록 가능한 ${number(selected.length)}건을 선택했습니다. 남은 ${number(remaining)}건은 이번 등록 완료 후 이어서 선택하세요.`
+        : `SEO 등록 가능한 ${number(selected.length)}건을 모두 선택했습니다.`,
+    );
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
+  }
 }
 
 async function applyBulkStatus() {

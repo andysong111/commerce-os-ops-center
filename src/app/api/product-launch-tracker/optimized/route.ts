@@ -298,6 +298,7 @@ function pageQuery(request: NextRequest) {
     overall: request.nextUrl.searchParams.get("overall"),
     unfinishedOnly: request.nextUrl.searchParams.get("unfinishedOnly"),
     stock: request.nextUrl.searchParams.get("stock"),
+    seoReadyOnly: request.nextUrl.searchParams.get("seoReadyOnly"),
     sort: request.nextUrl.searchParams.get("sort"),
     direction: request.nextUrl.searchParams.get("direction"),
   };

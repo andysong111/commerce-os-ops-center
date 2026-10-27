@@ -100,6 +100,7 @@ export type ProductLaunchTrackerPageQuery = {
   overall?: unknown;
   unfinishedOnly?: unknown;
   stock?: unknown;
+  seoReadyOnly?: unknown;
   sort?: unknown;
   direction?: unknown;
 };
