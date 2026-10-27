@@ -1012,7 +1012,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <tr>
                 {TABLE_COLUMNS.map((column, index) => (
                   <th key={column.label} className={`px-3 py-3 ${index >= 3 && index <= 10 ? "text-right" : ""}`} style={stickyCellStyle(index, freezeThrough, true)}>
-                    {index === 0 ? <div><label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedRows((current) => ({ ...current, ...Object.fromEntries(visibleLines.map((line) => [line.barcode, event.target.checked])) }))} disabled={draft.status !== "DRAFT" || visibleLines.length === 0} aria-label="현재 보이는 상품 전체 선택" className="size-4" /><span>작업할 상품 선택</span></label><span className="mt-1 block text-[11px] font-semibold text-slate-500">{column.label}</span></div> : column.label}
+                    {index === 0 ? <div><label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedRows((current) => ({ ...current, ...Object.fromEntries(visibleLines.map((line) => [line.barcode, event.target.checked])) }))} disabled={draft.status !== "DRAFT" || visibleLines.length === 0} aria-label="작업할 상품 전체 선택 (현재 보이는 목록)" className="size-4" /><span>작업할 상품 선택</span></label><span className="mt-1 block text-[11px] font-semibold text-slate-500">{column.label}</span></div> : column.label}
                   </th>
                 ))}
               </tr>
