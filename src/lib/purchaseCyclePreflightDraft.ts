@@ -62,7 +62,7 @@ export async function recalculatePurchaseCycleDraftInline(
           draftId: input.replaceDraftId,
           updates: stockBandUpdates,
         })
-      : { savedCount: 0, storage: null };
+      : { savedCount: 0, storage: null, occurredAt: null };
     savedStockBandCount = stockBandStorage.savedCount;
     const discontinuationStorage = discontinuedBarcodes.length
       ? await storePurchaseDraftDiscontinuations({
@@ -123,6 +123,10 @@ export async function recalculatePurchaseCycleDraftInline(
     };
     const report = await loadPurchaseCyclePreflight(
       purchaseCycleDraftPreflightOptions(requestBase),
+      {
+        operatorStockBandUpdates: stockBandUpdates,
+        operatorStockBandOccurredAt: stockBandStorage.occurredAt,
+      },
     );
     const request: PurchaseCycleDraftRequest = {
       ...requestBase,
@@ -139,6 +143,7 @@ export async function recalculatePurchaseCycleDraftInline(
       const code = error instanceof Error ? error.message.split(":", 1)[0] : "";
       if (
         code !== "PURCHASE_CYCLE_DRAFT_NOT_READY" ||
+        stockBandUpdates.length > 0 ||
         (
           releasedQuantityOverrideBarcodes.length === 0 &&
           excludedBarcodes.length === 0 &&

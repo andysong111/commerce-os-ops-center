@@ -17,6 +17,7 @@ import {
   readPurchaseCyclePreflight,
   type PurchasePreflightOptions,
 } from "@/lib/purchaseCyclePreflightCore";
+import type { InventoryStockBand } from "@/lib/inventoryStockBulkInput";
 
 const DEFAULT_READER_TIMEOUT_MS = 60_000;
 
@@ -68,7 +69,14 @@ async function loadReplacementDraftSnapshot(draftId: string) {
 // real promotion gate's pins rather than inventing fields or weakening checks.
 export async function loadPurchaseCyclePreflight(
   options: PurchasePreflightOptions,
-  loadOptions: { readerTimeoutMs?: number } = {},
+  loadOptions: {
+    readerTimeoutMs?: number;
+    operatorStockBandUpdates?: readonly {
+      barcode: string;
+      stockBand: InventoryStockBand;
+    }[];
+    operatorStockBandOccurredAt?: string | null;
+  } = {},
 ) {
   const timeoutMs = readerTimeoutMs(loadOptions.readerTimeoutMs);
   const bounded = <T>(code: string, read: () => Promise<T>) =>
@@ -101,6 +109,8 @@ export async function loadPurchaseCyclePreflight(
         excludeCommitmentDraftId: options.replaceDraftId ?? null,
         externalRequestTimeoutMs: timeoutMs,
         reconciliation: await sharedReconciliation(),
+        operatorStockBandUpdates: loadOptions.operatorStockBandUpdates,
+        operatorStockBandOccurredAt: loadOptions.operatorStockBandOccurredAt,
       }),
     ),
     monthlySpend: (cycleMonth) => bounded(
