@@ -1610,6 +1610,73 @@ test("same-cycle recalculation adds newly eligible input-pending recommendations
   assert.equal(report.replacementAudit.complete, true);
 });
 
+test("review Draft exposes every current stock-input recommendation beyond the execution cap", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.options.maxSkus = 100;
+  input.options.maxUnitsPerSku = 9_999;
+  input.priority.rows.push(
+    ...Array.from({ length: 173 }, (_, index) => ({
+      ...input.priority.rows[0],
+      barcode: `BZZ${index + 2}-1`,
+      name: `재고 입력 대기 ${index + 2}`,
+      recommendedQty: 10,
+      originalRecommendedQty: 10,
+      priorityScore: 500 - index,
+      inventoryMode: "REVIEW",
+      inventoryVerified: false,
+      executionInventoryEligible: false,
+      inventoryCalculationUsable: false,
+      inventoryRequiresReview: true,
+      initialZeroUnverified: true,
+      advisoryOnly: true,
+      inventoryQuantity: 0,
+      action: "PROVISIONAL_DECISION_EVIDENCE_REQUIRED",
+      operationallyReady: false,
+    })),
+    {
+      ...input.priority.rows[0],
+      barcode: "BAF1-1",
+      name: "허리펴는 등스트레칭기구",
+      recommendedQty: 188,
+      originalRecommendedQty: 188,
+      priorityScore: 0,
+      inventoryMode: "REVIEW",
+      inventoryVerified: false,
+      executionInventoryEligible: false,
+      inventoryCalculationUsable: false,
+      inventoryRequiresReview: true,
+      initialZeroUnverified: true,
+      advisoryOnly: true,
+      inventoryQuantity: 0,
+      action: "PROVISIONAL_DECISION_EVIDENCE_REQUIRED",
+      operationallyReady: false,
+    },
+  );
+  input.priority.managedActiveSkuCount = input.priority.rows.length;
+  input.priority.omissionBlockingCount = 0;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "현재 자동추천", quantity: 5 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.selected.length, 1);
+  assert.equal(report.preservedReplacementLines.length, 174);
+  assert.ok(
+    report.preservedReplacementLines.some((row) => row.barcode === "BAF1-1"),
+    "lower-ranked but currently recommended BAF1-1 must remain visible for rough-stock input",
+  );
+  assert.equal(report.replacementAudit.selectedLineCount, 175);
+  assert.equal(report.replacementAudit.complete, true);
+  assert.ok(!report.blockers.includes("PURCHASE_DRAFT_LINE_LIMIT"));
+});
+
 test("replacement does not exempt a current input-pending line from a hard quantity limit", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";

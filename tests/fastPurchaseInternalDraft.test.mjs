@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [draft, route, actions, page] = await Promise.all([
+const [draft, route, actions, page, internalOrderDraft, internalOrderRoute] = await Promise.all([
   readFile("src/lib/fastPurchaseInternalDraft.ts", "utf8"),
   readFile("src/app/api/fast-purchase/drafts/route.ts", "utf8"),
   readFile(
@@ -10,6 +10,8 @@ const [draft, route, actions, page] = await Promise.all([
     "utf8",
   ),
   readFile("src/app/fast-purchase-mvp/page.tsx", "utf8"),
+  readFile("src/lib/internalChinaPurchaseDraft.ts", "utf8"),
+  readFile("src/app/api/china-order-manager/drafts/[draftId]/route.ts", "utf8"),
 ]);
 
 test("draft creation is tied to the exact current fast-purchase fingerprint and mode", () => {
@@ -69,6 +71,14 @@ test("internal draft stores RESERVED commitment events but never ORDERED or exte
   assert.match(draft, /externalOrderExecuted: false/);
   assert.doesNotMatch(draft, /status: "ORDERED"/);
   assert.doesNotMatch(draft, /shopling|1688|world pay/i);
+});
+
+test("review Draft can hold the full candidate pool while actual execution keeps the 100-SKU ceiling", () => {
+  assert.match(draft, /PURCHASE_DRAFT_REVIEW_LINE_LIMIT/);
+  assert.match(draft, /input\.lines\.length > MAX_LINES/);
+  assert.match(internalOrderDraft, /PURCHASE_DRAFT_EXECUTION_LINE_LIMIT/);
+  assert.match(internalOrderDraft, /INTERNAL_CHINA_ORDER_LINE_LIMIT/);
+  assert.match(internalOrderRoute, /실제 주문 후보를 100종 이하로 줄인 뒤 진행하세요/);
 });
 
 test("same-origin API is required for draft reads and writes", () => {
