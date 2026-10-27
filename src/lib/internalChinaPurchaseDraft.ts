@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
+import { PURCHASE_DRAFT_EXECUTION_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
 import { calculateInternalChinaOrderedSpendKrw } from "@/lib/internalChinaPurchaseOrderSpend";
 import {
   CHINA_ORDER_EVENT_OPERATION_TYPE,
@@ -813,6 +814,11 @@ export async function markInternalChinaPurchaseDraftOrdered(
     return { draft, duplicate: true, externalOrderExecuted: false as const };
   }
   draft = mergeInput(draft, input);
+  if (draft.lines.length > PURCHASE_DRAFT_EXECUTION_LINE_LIMIT) {
+    throw new Error(
+      `INTERNAL_CHINA_ORDER_LINE_LIMIT:${draft.lines.length}:${PURCHASE_DRAFT_EXECUTION_LINE_LIMIT}`,
+    );
+  }
   const issues = internalChinaOrderEvidenceIssues(draft.lines);
   if (issues.length) {
     throw new Error(

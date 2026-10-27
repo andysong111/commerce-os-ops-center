@@ -5,6 +5,7 @@ import type { CandidatePromotionGate } from "./stage8CandidatePromotionGate";
 import type { PostApplyCanonicalReconciliation } from "./stage8PostApplyCanonicalReconciliation";
 import type { InventoryVerificationPriority, InventoryVerificationPriorityRow } from "./stage8InventoryVerificationPriority";
 import { comparePurchaseStrategyPriority } from "./productDecisionEngine/purchaseStrategyPolicy.ts";
+import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "./purchaseDraftLimits.ts";
 import type { PurchaseCandidateOmissionReviewRow } from "./purchaseCandidateOmissionAudit";
 import type { PurchaseWholesaleCostEstimateSnapshot } from "./purchaseWholesaleCostEstimate";
 import {
@@ -223,10 +224,11 @@ export type PurchaseCyclePreflightReport = {
 };
 
 const REPORT_MAX_AGE_MS = 15 * 60 * 1000;
-const PURCHASE_DRAFT_LINE_LIMIT = 100;
-// Leave room for the new-sourcing step while still exposing a broad, current
-// set of reorder candidates that need rough stock or 5-1 cost input.
-const PURCHASE_INPUT_PENDING_LINE_LIMIT = 80;
+// Review Drafts expose every current recommendation so a lower-ranked item
+// cannot disappear before the operator chooses a rough stock band. The actual
+// order scope still has its separate 100-SKU safety ceiling.
+const PURCHASE_DRAFT_LINE_LIMIT = PURCHASE_DRAFT_REVIEW_LINE_LIMIT;
+const PURCHASE_INPUT_PENDING_LINE_LIMIT = PURCHASE_DRAFT_REVIEW_LINE_LIMIT;
 const FP = /^sha256:[a-f0-9]{64}$/;
 const CODE = /^B[A-Z]{2}\d+-\d+$/;
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;

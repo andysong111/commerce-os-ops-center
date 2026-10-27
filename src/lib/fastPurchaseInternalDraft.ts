@@ -14,9 +14,10 @@ import {
   type PurchaseRunCycleBasis,
 } from "@/lib/purchaseRunCycle";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
+import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
-const MAX_LINES = 100;
+const MAX_LINES = PURCHASE_DRAFT_REVIEW_LINE_LIMIT;
 const MANUAL_QUANTITY_MAX = 9_999;
 const BARCODE = /^B[A-Z]{2}\d+-\d+$/;
 

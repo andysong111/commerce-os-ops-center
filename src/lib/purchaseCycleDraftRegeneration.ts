@@ -26,12 +26,13 @@ import {
   PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION,
   type PurchaseDraftOperatorAdjustments,
 } from "@/lib/purchaseCycleDraftRegenerationCore";
+import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
 const BARCODE = /^B[A-Z]{2}\d+-\d+$/;
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
-const MAX_LINES = 100;
+const MAX_LINES = PURCHASE_DRAFT_REVIEW_LINE_LIMIT;
 const MAX_QUANTITY = 9_999;
 
 export type PurchaseCycleDraftRegenerationResult = {

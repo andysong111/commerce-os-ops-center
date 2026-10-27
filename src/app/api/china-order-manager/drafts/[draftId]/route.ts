@@ -57,6 +57,8 @@ function errorResponse(error: unknown) {
       .split(":")
       .slice(1)
       .join(":")}`;
+  } else if (code === "INTERNAL_CHINA_ORDER_LINE_LIMIT") {
+    message = "대략 재고와 예산을 재계산해 실제 주문 후보를 100종 이하로 줄인 뒤 진행하세요.";
   } else if (code === "PRODUCT_LAUNCH_SUPPLIER_LINK_REQUIRED") {
     message = "모델 고정 1번 1688 링크를 입력하세요.";
   } else if (code === "PRODUCT_LAUNCH_SUPPLIER_LINK_INVALID") {
