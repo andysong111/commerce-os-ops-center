@@ -160,12 +160,14 @@ test("draft editor exposes persistent and final calculation actions and stages a
     "utf8",
   );
   assert.match(workspace, /재고상태 저장 후 발주안 재계산/);
-  assert.match(workspace, /대략 재고 \{stockBandUpdates\.length\}종 · 수량 변경 \{changedQuantityRows\.length\}종 · 수량 고정 해제 \{releasedQuantityOverrideBarcodes\.length\}종 · 제외 \{excludedBarcodes\.length\}종/);
+  assert.match(workspace, /대략 재고 \{stockBandUpdates\.length\}종 · 단종예정 \{discontinuedBarcodes\.length\}종 · 수량 변경 \{changedQuantityRows\.length\}종 · 수량 고정 해제 \{releasedQuantityOverrideBarcodes\.length\}종 · 제외 \{excludedBarcodes\.length\}종/);
   assert.match(workspace, /stockBandUpdates,/);
   assert.match(workspace, /많음/);
   assert.match(workspace, /보통/);
   assert.match(workspace, /적음/);
   assert.match(workspace, /품절/);
+  assert.match(workspace, /단종예정/);
+  assert.match(workspace, /discontinuedBarcodes,/);
   assert.match(workspace, /모델명 ·/);
   assert.match(workspace, /모델번호 ·/);
   assert.match(workspace, /옵션명 ·/);
@@ -183,7 +185,7 @@ test("draft editor exposes persistent and final calculation actions and stages a
   assert.doesNotMatch(workspace, /router\.push\(buildPurchaseDraftBatchRecalculationHref/);
   assert.match(workspace, /step=\{5\}/);
   assert.match(workspace, /isPurchaseDraftQuantityUnit\(targetQuantity\)/);
-  assert.match(workspace, /filter\(\(\[barcode\]\) => !excludedBarcodes\.includes\(barcode\)\)/);
+  assert.match(workspace, /!excludedBarcodes\.includes\(barcode\)[\s\S]*!discontinuedBarcodes\.includes\(barcode\)/);
   assert.doesNotMatch(workspace, /regenerateWithoutSelected|regenerateWithQuantityChanges/);
   assert.doesNotMatch(addition, /method: "POST"|postAdd\(/);
   assert.match(addition, /재계산 전 원장 미변경/);
