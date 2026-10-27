@@ -286,6 +286,145 @@ test("actual tracker handoff creates a new run for linkless products without iss
   assert.equal(button.disabled, false);
 });
 
+function oneClickHandoffFixture({ existingBatch = null, responseBody, responseStatus = 200 }) {
+  const raw = readFileSync("public/product-launch-tracker-app/seo-title-ledger-handoff.js", "utf8");
+  const data = new Map();
+  if (existingBatch) {
+    data.set("commerceOs.seoBulkCloud.batch.v1", JSON.stringify(existingBatch));
+  }
+  const messages = [];
+  const events = [];
+  const requests = [];
+  const button = {
+    id: "seo-shopling-one-click",
+    disabled: false,
+    textContent: "SEO 가능 → 샵플링까지 한 번에",
+    dataset: {},
+  };
+  const localStorage = {
+    getItem: (key) => data.get(key) ?? null,
+    setItem: (key, value) => data.set(key, value),
+    removeItem: (key) => data.delete(key),
+  };
+  const sandbox = {
+    console,
+    crypto: globalThis.crypto,
+    URL,
+    URLSearchParams,
+    fetch: async (url, init) => {
+      events.push("server");
+      requests.push({ url, init, body: JSON.parse(init.body) });
+      return {
+        ok: responseStatus >= 200 && responseStatus < 300,
+        status: responseStatus,
+        json: async () => responseBody,
+      };
+    },
+    document: { querySelectorAll: () => [] },
+    window: {
+      confirm: () => true,
+      localStorage,
+      location: { origin: "https://ops.invalid" },
+    },
+  };
+  const cut = raw.indexOf("function installStyle");
+  assert.ok(cut > 0);
+  const context = { ...sandbox, events, messages, button, targets: [] };
+  runInNewContext(
+    raw.slice(0, cut) +
+      `\nreadSelectedItemIds = () => ["launch-aaa284"]; readSelectedItem = async () => (${JSON.stringify({ id: input.launchItemId, productName: input.productName, modelNumber: input.modelNumber, sourceUrl: "" })}); openOrFocusBulkWindow = (target) => { events.push("open"); targets.push(target); }; showMessage = (message) => messages.push(message); globalThis.run = () => openBulkCloud(button, { autoQueueShoplingRegistration: true });`,
+    context,
+  );
+  return { context, data, events, messages, requests };
+}
+
+test("one-click sends the whole batch to the server before opening the monitor", async () => {
+  const fixture = oneClickHandoffFixture({
+    responseBody: {
+      ok: true,
+      requestedCount: 1,
+      insertedCount: 1,
+      existingCount: 0,
+      missing: [],
+      excluded: [],
+      jobs: [{ run_id: "accepted" }],
+    },
+  });
+  await fixture.context.run();
+  assert.deepEqual(
+    { events: fixture.events, messages: fixture.messages },
+    { events: ["server", "open"], messages: [] },
+  );
+  assert.equal(fixture.requests.length, 1);
+  assert.equal(fixture.requests[0].url, "/api/seo-run-jobs");
+  assert.equal(fixture.requests[0].init.credentials, "same-origin");
+  assert.equal(fixture.requests[0].body.runs.length, 1);
+  assert.equal(
+    fixture.requests[0].body.runs[0].autoQueueShoplingRegistration,
+    true,
+  );
+  assert.equal(fixture.data.has("commerceOs.seoBulkCloud.batch.v1"), false);
+  assert.equal(fixture.messages.length, 0);
+});
+
+test("one-click keeps the recovery batch and does not open the monitor when server receipt fails", async () => {
+  const fixture = oneClickHandoffFixture({
+    responseStatus: 503,
+    responseBody: { ok: false, message: "서버 일시 오류" },
+  });
+  await fixture.context.run();
+  assert.deepEqual(fixture.events, ["server"]);
+  const recovery = JSON.parse(
+    fixture.data.get("commerceOs.seoBulkCloud.batch.v1"),
+  );
+  assert.equal(recovery.items.length, 1);
+  assert.equal(recovery.items[0].autoQueueShoplingRegistration, true);
+  assert.deepEqual(fixture.messages, ["서버 일시 오류"]);
+});
+
+test("one-click retry reuses the failed batch run id instead of creating a duplicate", async () => {
+  const previousRunId = "seo-run-previous-handoff";
+  const existingBatch = {
+    version: 3,
+    batchId: "seo-bulk-previous-handoff",
+    createdAt: "2026-10-27T00:00:00.000Z",
+    updatedAt: "2026-10-27T00:00:00.000Z",
+    revision: "2026-10-27T00:00:00.000Z",
+    autoStart: true,
+    items: [
+      {
+        id: input.launchItemId,
+        runId: previousRunId,
+        runCreatedAt: "2026-10-27T00:00:00.000Z",
+        modelNumber: input.modelNumber,
+        productName: input.productName,
+        sourceUrl: "",
+        autoQueueShoplingRegistration: true,
+      },
+    ],
+  };
+  const fixture = oneClickHandoffFixture({
+    existingBatch,
+    responseBody: {
+      ok: true,
+      requestedCount: 1,
+      insertedCount: 0,
+      existingCount: 1,
+      missing: [],
+      excluded: [],
+      jobs: [{ run_id: previousRunId }],
+    },
+  });
+  await fixture.context.run();
+  assert.deepEqual(
+    { events: fixture.events, messages: fixture.messages },
+    { events: ["server", "open"], messages: [] },
+  );
+  assert.equal(fixture.requests[0].body.batchId, existingBatch.batchId);
+  assert.equal(fixture.requests[0].body.runs[0].runId, previousRunId);
+  assert.equal(fixture.data.has("commerceOs.seoBulkCloud.batch.v1"), false);
+});
+
 test("normal worker wiring, checkpoint resume, FINAL guards and independent registration remain intact", () => {
   const worker = readFileSync("src/lib/seoRunWorker.ts", "utf8");
   const bulk = readFileSync("src/lib/keywordEngineElonBulkFinal.ts", "utf8");
