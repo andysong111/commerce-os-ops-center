@@ -5,6 +5,7 @@ import test from "node:test";
 import * as v2 from "../src/lib/keywordEngineElonLabV2.ts";
 import * as materialReadiness from "../src/lib/productLaunchSeoMaterialReadiness.ts";
 import * as chain from "../src/lib/seoBulkSourceFallback.ts";
+import * as oneClickRegistration from "../src/lib/seoRunOneClickRegistration.ts";
 import { loadPurchaseCycleModule as loadModule } from "./helpers/purchaseCycleHarness.mjs";
 
 const input = { launchItemId: "launch-aaa284", modelNumber: "AAA284", productName: "회전 연필꽂이", sourceUrl: "https://detail.1688.com/offer/867720344924.html", optionText: "일반형 / 투명형", supportingText: "문구 > 정리 · 회전 연필꽂이 · AAA284", mallTitleCategory: "문구 > 정리", shoplingGoodsKeys: ["121455"] };
@@ -334,6 +335,7 @@ test("actual durable worker carries Shopling/tracker fallback through checkpoint
       "@/lib/keywordEngineElonLabV2Selection": { normalizeKeywordElonSelectionThresholds: () => ({}), selectKeywordElonStep4Union: (rows) => rows },
       "@/lib/keywordEngineElonLabV2Step4": { filterKeywordElonProhibitedKeywords: async () => { filterCalls++; return { allowedKeys: ["연필꽂이"], allowedCount: 1, decisions: [] }; } },
       "@/lib/productLaunchTrackerServer": { getProductLaunchAdminConfig: () => ({ ok: true, value: {} }) },
+      "@/lib/seoRunOneClickRegistration": oneClickRegistration,
       "@/lib/seoRunJobServer": {
         claimNextSeoRunJob: async () => { if (claimed) return null; claimed = true; return job; },
         patchClaimedSeoRunJob: async (_config, _id, _owner, patch) => { patches.push(patch); job = { ...job, ...patch }; return job; },
