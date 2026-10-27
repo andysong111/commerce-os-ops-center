@@ -17,6 +17,7 @@ import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventor
 import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
+import { invalidateProductLaunchShoplingStockSnapshotCache } from "@/lib/productLaunchShoplingStockState";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { withInventoryReadGuard } from "@/lib/inventoryStockReadGuard";
 
@@ -360,6 +361,7 @@ export async function POST(request: Request) {
       correlationId: `shopling-stock:${event.barcode}`,
       snapshot: event,
     });
+    invalidateProductLaunchShoplingStockSnapshotCache();
     return Response.json(
       {
         ok: true,

@@ -1,7 +1,7 @@
 import {
-  buildProductLaunchInventoryIndex,
+  buildProductLaunchStockStatusIndex,
   classifyProductLaunchStockAvailability,
-  loadProductLaunchInventorySnapshot,
+  loadProductLaunchShoplingStockSnapshot,
   productLaunchStockMatchesFilter,
 } from "./productLaunchStockAvailability.ts";
 import {
@@ -25,10 +25,10 @@ export async function queryProductLaunchStockAwareNormalizedPage(
   workspace: ProductLaunchNormalizedWorkspace,
   query: ProductLaunchTrackerPageQuery,
 ) {
-  let inventory;
+  let stockIndex;
   try {
-    inventory = buildProductLaunchInventoryIndex(
-      await loadProductLaunchInventorySnapshot(),
+    stockIndex = buildProductLaunchStockStatusIndex(
+      await loadProductLaunchShoplingStockSnapshot({ maxAgeMs: 3_000 }),
     );
   } catch (error) {
     const page = await queryProductLaunchNormalizedPage(
@@ -51,7 +51,7 @@ export async function queryProductLaunchStockAwareNormalizedPage(
       items: showUnknown ? items : [],
       stockAvailabilityMeta: {
         ok: false,
-        message: "재고 확인 서버에 연결하지 못해 등록을 안전하게 차단했습니다.",
+        message: "품절·판매중 전송 기록을 확인하지 못해 등록을 안전하게 차단했습니다.",
       },
     };
   }
@@ -66,8 +66,8 @@ export async function queryProductLaunchStockAwareNormalizedPage(
     );
     return {
       ...page,
-      items: page.items.map((item) => enrichStock(record(item), inventory)),
-      stockAvailabilityMeta: stockMeta(inventory),
+      items: page.items.map((item) => enrichStock(record(item), stockIndex)),
+      stockAvailabilityMeta: stockMeta(stockIndex),
     };
   }
 
@@ -77,7 +77,7 @@ export async function queryProductLaunchStockAwareNormalizedPage(
     query,
   );
   const filtered = candidates
-    .map((item) => enrichStock(item, inventory))
+    .map((item) => enrichStock(item, stockIndex))
     .filter((item) =>
       productLaunchStockMatchesFilter(item.stockAvailability, stockFilter),
     );
@@ -107,33 +107,33 @@ export async function queryProductLaunchStockAwareNormalizedPage(
     pageCount,
     total,
     items: pageCandidates.map((candidate) =>
-      enrichStock(summaryById.get(text(candidate.id)) ?? candidate, inventory),
+      enrichStock(summaryById.get(text(candidate.id)) ?? candidate, stockIndex),
     ),
     counts: isRecord(workspace.counts) ? workspace.counts : {},
     filterOptions: isRecord(workspace.filter_options)
       ? workspace.filter_options
       : { batches: [], assignees: [] },
-    stockAvailabilityMeta: stockMeta(inventory),
+    stockAvailabilityMeta: stockMeta(stockIndex),
   };
 }
 
 function enrichStock(
   item: UnknownRecord,
-  inventory: ReturnType<typeof buildProductLaunchInventoryIndex>,
+  stockIndex: ReturnType<typeof buildProductLaunchStockStatusIndex>,
 ): UnknownRecord & {
   stockAvailability: ReturnType<typeof classifyProductLaunchStockAvailability>;
 } {
   return {
     ...item,
-    stockAvailability: classifyProductLaunchStockAvailability(item, inventory),
+    stockAvailability: classifyProductLaunchStockAvailability(item, stockIndex),
   };
 }
 
-function stockMeta(inventory: ReturnType<typeof buildProductLaunchInventoryIndex>) {
+function stockMeta(stockIndex: ReturnType<typeof buildProductLaunchStockStatusIndex>) {
   return {
     ok: true,
-    checkedAt: inventory.checkedAt,
-    sourceFingerprint: inventory.sourceFingerprint,
+    checkedAt: stockIndex.checkedAt,
+    sourceFingerprint: stockIndex.sourceFingerprint,
   };
 }
 
@@ -143,8 +143,8 @@ function unavailableStock(error: unknown) {
     label: "재고 확인 필요",
     reason:
       error instanceof Error
-        ? `재고 확인 서버 연결 실패: ${error.message}`
-        : "재고 확인 서버 연결 실패",
+        ? `품절·판매중 전송 기록 연결 실패: ${error.message}`
+        : "품절·판매중 전송 기록 연결 실패",
     selectable: false,
     enforced: true,
     checkedAt: new Date().toISOString(),

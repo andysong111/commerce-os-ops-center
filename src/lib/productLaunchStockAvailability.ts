@@ -1,9 +1,12 @@
 import { legacySeoRegistrationExclusion } from "./legacySeoRegistrationPolicy.ts";
 import {
-  loadProductMasterInventoryCostReadiness,
-  type ProductMasterInventoryCostReadiness,
-  type ProductMasterInventoryCostRow,
-} from "./productMasterInventoryCostReadiness.ts";
+  type ProductLaunchStockStatusIndex,
+} from "./productLaunchShoplingStockState.ts";
+
+export {
+  buildProductLaunchStockStatusIndex,
+  loadProductLaunchShoplingStockSnapshot,
+} from "./productLaunchShoplingStockState.ts";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -35,54 +38,9 @@ export type ProductLaunchStockAvailability = {
   options: ProductLaunchOptionStockAvailability[];
 };
 
-export type ProductLaunchInventoryIndex = {
-  checkedAt: string;
-  sourceFingerprint: string;
-  byBarcode: Map<string, ProductMasterInventoryCostRow>;
-};
-
-let cachedSnapshot:
-  | { expiresAt: number; value: ProductMasterInventoryCostReadiness }
-  | null = null;
-let pendingSnapshot: Promise<ProductMasterInventoryCostReadiness> | null = null;
-
-export async function loadProductLaunchInventorySnapshot(
-  options: { maxAgeMs?: number; requestTimeoutMs?: number } = {},
-) {
-  const maxAgeMs = Math.max(0, Math.min(30_000, options.maxAgeMs ?? 10_000));
-  if (cachedSnapshot && cachedSnapshot.expiresAt > Date.now()) {
-    return cachedSnapshot.value;
-  }
-  if (!pendingSnapshot) {
-    pendingSnapshot = loadProductMasterInventoryCostReadiness({
-      requestTimeoutMs: options.requestTimeoutMs ?? 15_000,
-    }).finally(() => {
-      pendingSnapshot = null;
-    });
-  }
-  const value = await pendingSnapshot;
-  cachedSnapshot = { value, expiresAt: Date.now() + maxAgeMs };
-  return value;
-}
-
-export function buildProductLaunchInventoryIndex(
-  snapshot: ProductMasterInventoryCostReadiness,
-): ProductLaunchInventoryIndex {
-  const byBarcode = new Map<string, ProductMasterInventoryCostRow>();
-  for (const row of snapshot.rows) {
-    const barcode = normalizeCode(row.barcode);
-    if (barcode) byBarcode.set(barcode, row);
-  }
-  return {
-    checkedAt: text(snapshot.generatedAt) || new Date().toISOString(),
-    sourceFingerprint: text(snapshot.contentFingerprint),
-    byBarcode,
-  };
-}
-
 export function classifyProductLaunchStockAvailability(
   itemInput: unknown,
-  inventory: ProductLaunchInventoryIndex,
+  stockIndex: ProductLaunchStockStatusIndex,
 ): ProductLaunchStockAvailability {
   const item = record(itemInput);
   const exclusion = legacySeoRegistrationExclusion(item);
@@ -90,40 +48,50 @@ export function classifyProductLaunchStockAvailability(
   const archived = Boolean(text(item.archivedAt));
   const optionSources = readOptionSources(item);
   const options = optionSources.map((option, index) =>
-    classifyOptionStock(option, index, inventory),
+    classifyOptionStock(option, index, stockIndex),
   );
 
   if (exclusion.excluded || summarizedExclusion.excluded === true || archived) {
     const reason = archived
       ? "보관 상품"
       : exclusion.reason || text(summarizedExclusion.reason) || "단종·등록 제외 상품";
-    return availability("EXCLUDED", reason, options, inventory);
+    return availability("EXCLUDED", reason, options, stockIndex);
   }
   if (!options.length) {
-    return availability("UNKNOWN", "재고를 연결할 옵션 또는 B코드가 없습니다.", [], inventory);
+    return availability("UNKNOWN", "판매상태를 연결할 옵션 또는 B코드가 없습니다.", [], stockIndex);
   }
   if (options.some((option) => option.status === "UNKNOWN")) {
     const first = options.find((option) => option.status === "UNKNOWN");
     return availability(
       "UNKNOWN",
-      first?.reason || "확인되지 않은 옵션 재고가 있습니다.",
+      first?.reason || "확인되지 않은 옵션 판매상태가 있습니다.",
       options,
-      inventory,
+      stockIndex,
     );
   }
   const soldOutCount = options.filter((option) => option.status === "SOLD_OUT").length;
   if (soldOutCount === options.length) {
-    return availability("SOLD_OUT", "모든 옵션의 확인 재고가 0개입니다.", options, inventory);
+    return availability(
+      "SOLD_OUT",
+      "모든 옵션이 커머스 OS에서 품절 전송된 상태입니다.",
+      options,
+      stockIndex,
+    );
   }
   if (soldOutCount > 0) {
     return availability(
       "PARTIAL_SOLD_OUT",
       `${soldOutCount}개 옵션은 품절 상태로 등록됩니다.`,
       options,
-      inventory,
+      stockIndex,
     );
   }
-  return availability("ON_SALE", "모든 옵션에 확인 재고가 있습니다.", options, inventory);
+  return availability(
+    "ON_SALE",
+    "모든 옵션이 커머스 OS 전송 기준 판매중입니다.",
+    options,
+    stockIndex,
+  );
 }
 
 export function applyProductLaunchStockAvailability(
@@ -156,7 +124,7 @@ export function productLaunchStockBlockReason(stock: ProductLaunchStockAvailabil
   if (stock.selectable) return "";
   if (stock.status === "SOLD_OUT") return "전체 품절 상품은 등록할 수 없습니다.";
   if (stock.status === "EXCLUDED") return stock.reason || "단종·보관 상품은 등록할 수 없습니다.";
-  return stock.reason || "재고 확인이 끝나지 않아 등록할 수 없습니다.";
+  return stock.reason || "판매상태 전송 확인이 끝나지 않아 등록할 수 없습니다.";
 }
 
 export function productLaunchStockMatchesFilter(
@@ -190,7 +158,7 @@ function readOptionSources(item: UnknownRecord) {
 function classifyOptionStock(
   option: UnknownRecord,
   index: number,
-  inventory: ProductLaunchInventoryIndex,
+  stockIndex: ProductLaunchStockStatusIndex,
 ): ProductLaunchOptionStockAvailability {
   const barcode = normalizeCode(option.barcode);
   const label = text(option.saleOption ?? option.label) || `${index + 1}번째 옵션`;
@@ -198,28 +166,57 @@ function classifyOptionStock(
   if (!barcode) {
     return { id, label, barcode: "", status: "UNKNOWN", quantity: null, reason: `${label} B코드가 없습니다.` };
   }
-  const row = inventory.byBarcode.get(barcode);
-  if (!row) {
-    return { id, label, barcode, status: "UNKNOWN", quantity: null, reason: `${label}(${barcode}) 재고 자료를 찾지 못했습니다.` };
+  const state = stockIndex.byBarcode.get(barcode);
+  if (!state) {
+    return {
+      id,
+      label,
+      barcode,
+      status: "ON_SALE",
+      quantity: null,
+      reason: `${label}(${barcode}) 커머스 OS 품절 전송 이력이 없어 판매중`,
+    };
   }
-  const quantity = Number(row.inventoryQuantity);
   if (
-    row.inventoryVerified !== true ||
-    row.inventoryRequiresReview === true ||
-    !Number.isFinite(quantity)
+    state.latestEvent.outcome === "STARTED" ||
+    state.latestEvent.outcome === "UNCERTAIN"
   ) {
-    return { id, label, barcode, status: "UNKNOWN", quantity: Number.isFinite(quantity) ? quantity : null, reason: `${label}(${barcode}) 재고 확인이 필요합니다.` };
+    return {
+      id,
+      label,
+      barcode,
+      status: "UNKNOWN",
+      quantity: null,
+      reason: `${label}(${barcode}) 최신 ${statusLabel(state.latestEvent.desiredStatus)} 전송 결과 확인 필요`,
+    };
   }
-  return quantity <= 0
-    ? { id, label, barcode, status: "SOLD_OUT", quantity, reason: `${label}(${barcode}) 확인 재고 0개` }
-    : { id, label, barcode, status: "ON_SALE", quantity, reason: `${label}(${barcode}) 확인 재고 ${quantity}개` };
+  const succeeded = state.latestSucceeded;
+  if (!succeeded) {
+    return {
+      id,
+      label,
+      barcode,
+      status: "ON_SALE",
+      quantity: null,
+      reason: `${label}(${barcode}) 완료된 품절 전송 이력이 없어 판매중`,
+    };
+  }
+  const status = succeeded.desiredStatus === "SOLD_OUT" ? "SOLD_OUT" : "ON_SALE";
+  return {
+    id,
+    label,
+    barcode,
+    status,
+    quantity: null,
+    reason: `${label}(${barcode}) 커머스 OS ${statusLabel(succeeded.desiredStatus)} 전송 완료`,
+  };
 }
 
 function availability(
   status: ProductLaunchStockStatus,
   reason: string,
   options: ProductLaunchOptionStockAvailability[],
-  inventory: ProductLaunchInventoryIndex,
+  stockIndex: ProductLaunchStockStatusIndex,
 ): ProductLaunchStockAvailability {
   const labels: Record<ProductLaunchStockStatus, string> = {
     ON_SALE: "판매 가능",
@@ -234,10 +231,14 @@ function availability(
     reason,
     selectable: status === "ON_SALE" || status === "PARTIAL_SOLD_OUT",
     enforced: true,
-    checkedAt: inventory.checkedAt,
-    sourceFingerprint: inventory.sourceFingerprint,
+    checkedAt: stockIndex.checkedAt,
+    sourceFingerprint: stockIndex.sourceFingerprint,
     options,
   };
+}
+
+function statusLabel(status: "SOLD_OUT" | "ON_SALE") {
+  return status === "SOLD_OUT" ? "품절" : "판매중";
 }
 
 function normalizeCode(value: unknown) {

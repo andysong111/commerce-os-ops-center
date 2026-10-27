@@ -9,9 +9,9 @@ import {
 import { buildProductLaunchShoplingPayload } from "@/lib/productLaunchTrackerShopling";
 import {
   applyProductLaunchStockAvailability,
-  buildProductLaunchInventoryIndex,
+  buildProductLaunchStockStatusIndex,
   classifyProductLaunchStockAvailability,
-  loadProductLaunchInventorySnapshot,
+  loadProductLaunchShoplingStockSnapshot,
   productLaunchStockBlockReason,
 } from "@/lib/productLaunchStockAvailability";
 import {
@@ -473,10 +473,10 @@ async function startRegistrationRun(
       );
     }
 
-    const inventory = buildProductLaunchInventoryIndex(
-      await loadProductLaunchInventorySnapshot({ maxAgeMs: 5_000 }),
+    const stockIndex = buildProductLaunchStockStatusIndex(
+      await loadProductLaunchShoplingStockSnapshot({ maxAgeMs: 0 }),
     );
-    const stockAvailability = classifyProductLaunchStockAvailability(item, inventory);
+    const stockAvailability = classifyProductLaunchStockAvailability(item, stockIndex);
     const stockBlockReason = productLaunchStockBlockReason(stockAvailability);
     if (stockBlockReason) throw new Error(stockBlockReason);
 

@@ -10,6 +10,23 @@
 - `ON_SALE` records the existing manual status-only event and does not change inventory quantity. `SOLD_OUT` records the existing zero-inventory baseline. Prices, locations, orders, and payments are outside this workflow.
 - Shopling execution remains in extension v0.6.0 HF32 and preserves HF31 all-date, exact B-code, bounded execution, and final readback guards.
 
+## Product Launch tracker synchronization — 2026-10-27
+
+- The owner confirmed that product-launch sale availability follows the latest
+  completed Commerce OS `품절` / `판매중` transmission for each B-code.
+- A B-code with no completed sold-out transmission is treated as selling. An
+  unverified inventory quantity or a placeholder zero must not hide it from the
+  tracker.
+- The latest completed `SOLD_OUT` transmission marks that option sold out. A
+  later completed `ON_SALE` transmission reopens it. A failed transmission does
+  not replace the last completed state.
+- A latest `STARTED` or `UNCERTAIN` transmission is blocked as `재고 확인 필요`
+  until a terminal result is recorded. Missing B-codes also remain blocked.
+- Discontinued, archived, and explicit SEO-exclusion rules still override the
+  transmission default and remain non-selectable.
+- The tracker list, SEO enqueue, direct Shopling upload, and the Shopling worker
+  all read the same transmission ledger immediately before their relevant action.
+
 ## Verification recorded before deployment
 
 - Warehouse: 225/225 Node tests, syntax/assets check, build, and 21/21 real Chromium HTTP checks passed, including exact-request recovery after a lost prepare response.
