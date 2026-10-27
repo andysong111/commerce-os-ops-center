@@ -36,9 +36,11 @@ import {
 } from "@/lib/inventoryStocktakeBaselines";
 import {
   applyOperatorInventoryEstimate,
+  currentOperatorInventoryEstimate,
   estimatedInventoryForStockBand,
   type ProductMasterInventoryEstimateOverlayRow,
 } from "@/lib/inventoryStockEstimateOverlay";
+import type { InventoryStockBand } from "@/lib/inventoryStockBulkInput";
 
 export type InventoryOperatingMode =
   | "VERIFIED"
@@ -263,6 +265,11 @@ export async function loadInventoryVerificationPriority(
     excludeCommitmentDraftId?: string | null;
     externalRequestTimeoutMs?: number;
     reconciliation?: PostApplyCanonicalReconciliation;
+    operatorStockBandUpdates?: readonly {
+      barcode: string;
+      stockBand: InventoryStockBand;
+    }[];
+    operatorStockBandOccurredAt?: string | null;
   } = {},
 ): Promise<InventoryVerificationPriority> {
   const cycle = monthlyPurchaseCycleFor(cycleAsOf);
@@ -315,13 +322,24 @@ export async function loadInventoryVerificationPriority(
   const purchaseShadow = resolvedPurchaseShadow;
   const now = Date.now();
   const purchaseProducts = purchaseShadow.snapshot?.products ?? [];
-  const inventoryRows = inventoryReadiness.rows.map((row) =>
-    applyOperatorInventoryEstimate(
-      row,
-      stockEstimates.get(barcode(row.barcode)),
-      exactStocktakes.get(barcode(row.barcode)),
-    ),
+  const currentStockBands = new Map(
+    (options.operatorStockBandUpdates ?? []).map((row) => [
+      barcode(row.barcode),
+      row.stockBand,
+    ] as const),
   );
+  const inventoryRows = inventoryReadiness.rows.map((row) => {
+    const key = barcode(row.barcode);
+    return applyOperatorInventoryEstimate(
+      row,
+      currentOperatorInventoryEstimate(
+        stockEstimates.get(key),
+        currentStockBands.get(key),
+        options.operatorStockBandOccurredAt,
+      ),
+      exactStocktakes.get(key),
+    );
+  });
   const inventoryIndex = inventoryByBarcode(inventoryRows);
   const operatorEstimateCount = inventoryRows.filter(
     (row) => row.inventoryBaselineKind === "OPERATOR_ESTIMATE",

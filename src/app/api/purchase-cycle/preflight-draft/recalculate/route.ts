@@ -52,8 +52,8 @@ export async function POST(request: Request) {
         ok: true,
         ...result,
         message: result.manualFallbackUsed
-          ? `대략 재고 ${result.savedStockBandCount}종 · 단종예정 ${result.savedDiscontinuationCount}종을 저장하고 현재 화면의 변경을 반영했습니다. 제거 ${result.removedCount}종 · 수량변경 ${result.changedCount}종입니다. 최신 검증자료에서 다음 우선순위 상품을 확보하지 못해 추가는 0종이며, 실제 1688 주문·결제는 실행하지 않았습니다.`
-          : `대략 재고 ${result.savedStockBandCount}종 · 단종예정 ${result.savedDiscontinuationCount}종을 저장하고 발주안을 다시 계산했습니다. 제거 ${result.removedCount}종 · 추가 ${result.addedCount}종 · 수량변경 ${result.changedCount}종이며 남은 예산은 다음 우선순위에 다시 배정했습니다. 실제 1688 주문·결제는 실행하지 않았습니다.`,
+          ? `대략 재고 ${result.savedStockBandCount}종 · 단종예정 ${result.savedDiscontinuationCount}종을 저장하고 현재 화면의 변경을 반영했습니다. 제거 ${result.removedCount}종 · 수량변경 ${result.changedCount}종입니다. 초록색 재고 선택은 저장·적용 완료 기록이라 재계산 후에도 남습니다. 최신 검증자료에서 다음 우선순위 상품을 확보하지 못해 추가는 0종이며, 실제 1688 주문·결제는 실행하지 않았습니다.`
+          : `대략 재고 ${result.savedStockBandCount}종 · 단종예정 ${result.savedDiscontinuationCount}종을 저장하고 발주안을 다시 계산했습니다. 제거 ${result.removedCount}종 · 추가 ${result.addedCount}종 · 수량변경 ${result.changedCount}종이며 남은 예산은 다음 우선순위에 다시 배정했습니다. 초록색 재고 선택은 저장·적용 완료 기록이라 재계산 후에도 남습니다. 실제 1688 주문·결제는 실행하지 않았습니다.`,
       },
       { status: 200, headers: { "cache-control": "no-store" } },
     );

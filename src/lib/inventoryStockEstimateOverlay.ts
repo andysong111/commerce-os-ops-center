@@ -8,6 +8,11 @@ export type ProductMasterInventoryEstimateOverlayRow =
     operatorStockBand?: InventoryStockBand | null;
   };
 
+export type OperatorInventoryEstimateInput = Pick<
+  InventoryStockEstimateBaselineEvent,
+  "estimatedQuantity" | "stockBand" | "occurredAt"
+>;
+
 function timestamp(value: string | null | undefined) {
   const parsed = Date.parse(value ?? "");
   return Number.isFinite(parsed) ? parsed : 0;
@@ -15,7 +20,7 @@ function timestamp(value: string | null | undefined) {
 
 export function applyOperatorInventoryEstimate(
   row: ProductMasterInventoryCostRow,
-  estimate: InventoryStockEstimateBaselineEvent | undefined,
+  estimate: OperatorInventoryEstimateInput | undefined,
   latestExactStocktake?: InventoryStocktakeBaselineEvent,
 ): ProductMasterInventoryEstimateOverlayRow {
   if (!estimate) return row;
@@ -36,6 +41,25 @@ export function applyOperatorInventoryEstimate(
     inventoryRequiresReview: false,
     inventoryBaselineKind: "OPERATOR_ESTIMATE",
     initialZeroUnverified: false,
+  };
+}
+
+/**
+ * The stock-band event is persisted before recalculation. Passing the same
+ * event into the calculation also makes the current click deterministic when
+ * the ledger read replica has not exposed the new row yet.
+ */
+export function currentOperatorInventoryEstimate(
+  persisted: OperatorInventoryEstimateInput | undefined,
+  stockBand: InventoryStockBand | undefined,
+  occurredAt: string | null | undefined,
+): OperatorInventoryEstimateInput | undefined {
+  if (!stockBand || !timestamp(occurredAt)) return persisted;
+  const normalizedOccurredAt = String(occurredAt);
+  return {
+    estimatedQuantity: null,
+    stockBand,
+    occurredAt: normalizedOccurredAt,
   };
 }
 

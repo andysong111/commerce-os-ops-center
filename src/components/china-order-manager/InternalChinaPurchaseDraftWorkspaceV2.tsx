@@ -1035,6 +1035,11 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             대략 재고를 아직 고르지 않은 상품이 {missingStockBandCount.toLocaleString("ko-KR")}종입니다. 이 상품의 현재 수량은 재고를 빼기 전 임시 추천치이므로 최종 발주수량이 아닙니다. 많음·보통·적음·품절 중 가까운 상태를 선택하고 한 번 재계산하세요.
           </div>
         ) : null}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-700" aria-label="대략 재고 선택 색상 안내">
+          <span className="rounded-md border border-blue-600 bg-blue-700 px-2 py-1 text-white">파란색 · 재계산 대기</span>
+          <span className="rounded-md border border-emerald-400 bg-emerald-50 px-2 py-1 text-emerald-900">초록색 · 저장·적용 완료</span>
+          <span>초록색 선택은 다음 차시 재사용을 위한 기록이라 재계산 후에도 남습니다. 완료 메시지의 제거·추가·수량변경 수로 결과를 확인하세요.</span>
+        </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SubMetric label="상품금액" value={`${cny.format(calculations.productCny)} CNY`} />

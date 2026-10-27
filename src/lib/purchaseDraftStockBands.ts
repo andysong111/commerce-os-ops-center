@@ -30,7 +30,9 @@ export async function storePurchaseDraftStockBands(input: {
     throw new Error("PURCHASE_DRAFT_STOCK_BANDS_DRAFT_INVALID");
   }
   const updates = normalizePurchaseDraftStockBandUpdates(input.updates);
-  if (!updates.length) return { savedCount: 0, storage: null };
+  if (!updates.length) {
+    return { savedCount: 0, storage: null, occurredAt: null };
+  }
 
   const ledger = await loadFastPurchaseInternalDrafts();
   if (ledger.error) {
@@ -83,5 +85,5 @@ export async function storePurchaseDraftStockBands(input: {
   for (let index = 0; index < operations.length; index += 50) {
     storage.push(await storeInventoryOperationBatch(operations.slice(index, index + 50)));
   }
-  return { savedCount: updates.length, storage };
+  return { savedCount: updates.length, storage, occurredAt };
 }

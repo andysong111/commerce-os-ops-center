@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyOperatorInventoryEstimate,
+  currentOperatorInventoryEstimate,
   estimatedInventoryForStockBand,
 } from "../src/lib/inventoryStockEstimateOverlay.ts";
 import { calculateNetRequirement } from "../src/lib/productDecisionEngine/netRequirement.ts";
@@ -59,6 +60,30 @@ test("상태 입력은 기존 재고를 정확값처럼 덮지 않고 상태를 
   assert.equal(result.inventoryQuantity, 100);
   assert.equal(result.operatorStockBand, "LOW");
   assert.equal(result.inventoryBaselineKind, "OPERATOR_ESTIMATE");
+});
+
+test("같은 클릭에서 저장한 재고상태는 원장 재조회 지연과 무관하게 현재 재계산에 우선 적용한다", () => {
+  const persisted = {
+    estimatedQuantity: null,
+    stockBand: "LOW",
+    occurredAt: "2026-10-23T00:00:00.000Z",
+  };
+  assert.deepEqual(
+    currentOperatorInventoryEstimate(
+      persisted,
+      "HIGH",
+      "2026-10-27T09:00:00.000Z",
+    ),
+    {
+      estimatedQuantity: null,
+      stockBand: "HIGH",
+      occurredAt: "2026-10-27T09:00:00.000Z",
+    },
+  );
+  assert.equal(
+    currentOperatorInventoryEstimate(persisted, undefined, null),
+    persisted,
+  );
 });
 
 test("같은 100개 목표에서 상태별 발주량이 0·50·75·100개로 계산된다", () => {

@@ -216,6 +216,9 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
 
   assert.match(guide, /작업 순서 보기/);
   assert.match(workspace, /재고를 빼기 전 임시 추천치/);
+  assert.match(workspace, /파란색 · 재계산 대기/);
+  assert.match(workspace, /초록색 · 저장·적용 완료/);
+  assert.match(workspace, /초록색 선택은 다음 차시 재사용을 위한 기록/);
   assert.match(guide, /aria-haspopup="dialog"/);
   assert.match(guide, /aria-expanded=\{open\}/);
   assert.match(guide, /fixed right-4 top-24 z-\[80\]/);
@@ -228,6 +231,7 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   assert.match(guide, /수량 확인과 5·10단위 정리/);
   assert.match(guide, /빠진 B코드 수동 추가/);
   assert.match(guide, /발주안 한 번 재계산/);
+  assert.match(guide, /재계산 후 초록색 재고 선택이 남는 것은 정상/);
   assert.match(guide, /5-1 원가·운임 기록/);
   assert.match(guide, /5-2 장바구니 담기/);
   assert.match(guide, /주문 제출과 결제는 실행하지 않습니다/);
@@ -267,11 +271,15 @@ test("inline recalculation endpoint replaces the reserved draft without renderin
   assert.match(service, /regenerateValidatedMonthlyPurchaseDraft/);
   assert.match(service, /regenerateManualMonthlyPurchaseDraft/);
   assert.match(service, /releasedQuantityOverrideBarcodes,/);
+  assert.match(service, /operatorStockBandUpdates: stockBandUpdates/);
+  assert.match(service, /operatorStockBandOccurredAt: stockBandStorage\.occurredAt/);
+  assert.match(service, /stockBandUpdates\.length > 0/);
   assert.match(
     service,
     /releasedQuantityOverrideBarcodes\.length === 0[\s\S]*excludedBarcodes\.length === 0/,
   );
   assert.match(route, /manualFallbackUsed/);
+  assert.match(route, /초록색 재고 선택은 저장·적용 완료 기록/);
 });
 
 test("manual fallback removes released legacy pins without persisting a permanent exclusion", async () => {
