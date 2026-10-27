@@ -10,6 +10,7 @@ import {
 import {
   normalizePurchaseDraftStockBandUpdates,
 } from "@/lib/purchaseDraftStockBandsCore";
+import { canonicalPurchaseBarcode } from "@/lib/purchaseSkuCanonicalization";
 
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
 
@@ -37,12 +38,22 @@ export async function storePurchaseDraftStockBands(input: {
   }
   const draft = ledger.drafts.find((row) => row.draftId === draftId && row.openQuantity > 0);
   if (!draft) throw new Error("PURCHASE_DRAFT_STOCK_BANDS_ACTIVE_DRAFT_CHANGED");
-  const activeBarcodes = new Set(draft.lines.filter((row) => row.openQuantity > 0).map((row) => row.barcode));
+  const activeBarcodes = new Set(
+    draft.lines
+      .filter((row) => row.openQuantity > 0)
+      .map((row) => canonicalPurchaseBarcode(row.barcode)),
+  );
   if (updates.some((row) => !activeBarcodes.has(row.barcode))) {
     throw new Error("PURCHASE_DRAFT_STOCK_BANDS_OUTSIDE_DRAFT");
   }
 
-  const identities = await loadProductMasterInventoryIdentities(updates.map((row) => row.barcode));
+  const identityBatches: string[][] = [];
+  for (let index = 0; index < updates.length; index += 100) {
+    identityBatches.push(updates.slice(index, index + 100).map((row) => row.barcode));
+  }
+  const identities = (
+    await Promise.all(identityBatches.map(loadProductMasterInventoryIdentities))
+  ).flat();
   const blocked = identities.filter((row) => row.state !== "READY" || !row.productKind);
   if (blocked.length) {
     throw new Error(`PURCHASE_DRAFT_STOCK_BANDS_IDENTITY_BLOCKED:${blocked.map((row) => row.barcode).join(",")}`);
@@ -62,11 +73,15 @@ export async function storePurchaseDraftStockBands(input: {
       note: `발주안 내부 대략 재고상태 · ${draftId}`,
     });
   });
-  const storage = await storeInventoryOperationBatch(events.map((event) => ({
+  const operations = events.map((event) => ({
     operationType: INVENTORY_STOCK_ESTIMATE_BASELINE_OPERATION_TYPE,
     sourceEventId: `inventory-stock-estimate:${encodeURIComponent(event.eventId)}`,
     correlationId: `inventory-stock:${event.barcode}`,
     snapshot: event,
-  })));
+  }));
+  const storage = [];
+  for (let index = 0; index < operations.length; index += 50) {
+    storage.push(await storeInventoryOperationBatch(operations.slice(index, index + 50)));
+  }
   return { savedCount: updates.length, storage };
 }
