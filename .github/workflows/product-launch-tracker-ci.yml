@@ -95,6 +95,7 @@ jobs:
           tests/productLaunchTrackerChinaOrderMappingActiveUi.test.mjs
           tests/productLaunchTrackerModelBcodeAuthority.test.mjs
           tests/productLaunchTrackerManualPriceSave.test.mjs
+          tests/productLaunchTrackerBatchSelection.test.mjs
           tests/productLaunchTrackerNormalizedCutover.test.mjs
           tests/seoTitleIntentPortfolioV7.test.mjs
           tests/seoKeywordTitleSearchComplementV8.test.mjs

@@ -287,7 +287,7 @@ export async function queryProductLaunchNormalizedStockCandidates(
   });
   params.set(
     "select",
-    "item_id,model_number,barcode,option_barcodes,archived_at,seo_exclusion:summary_payload->seoExclusion",
+    "item_id,model_number,barcode,option_barcodes,archived_at,seo_exclusion:summary_payload->seoExclusion,readiness:summary_payload->readiness,receipt_pending:summary_payload->receiptPending",
   );
   const url = `${ITEM_TABLE}?${params.toString()}`;
   const chunkSize = 500;
@@ -311,6 +311,8 @@ export async function queryProductLaunchNormalizedStockCandidates(
         })),
         archivedAt: normalizedTimestamp(row.archived_at),
         seoExclusion: isRecord(row.seo_exclusion) ? row.seo_exclusion : {},
+        readiness: isRecord(row.readiness) ? row.readiness : {},
+        receiptPending: booleanValue(row.receipt_pending, false),
       });
     }
     offset += result.rows.length;

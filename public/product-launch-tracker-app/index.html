@@ -86,10 +86,16 @@
               </select>
             </label>
             <label class="toggle-field">
+              <input id="seo-ready-only-filter" type="checkbox" />
+              <span>SEO 등록 가능만</span>
+            </label>
+            <label class="toggle-field">
               <input id="unfinished-only-filter" type="checkbox" checked />
               <span>미완료 상품만 보기</span>
             </label>
           </div>
+
+          <div id="batch-quick-filters" class="batch-quick-filters" aria-label="주요 작업 묶음 빠른 필터" hidden></div>
 
           <div class="bulkbar">
             <div>
@@ -97,6 +103,9 @@
               <span id="selected-count">선택 0건</span>
             </div>
             <div class="bulk-controls">
+              <button id="select-filtered-seo-ready" class="button button-seo-select" type="button">
+                필터 결과 SEO 가능 전체 선택
+              </button>
               <select id="bulk-stage" aria-label="일괄 변경 단계"></select>
               <select id="bulk-status" aria-label="일괄 변경 상태"></select>
               <button id="bulk-apply-button" class="button button-secondary" type="button">
@@ -113,7 +122,7 @@
               <thead id="launch-table-head">
                 <tr>
                   <th class="check-column">
-                    <input id="select-visible" type="checkbox" aria-label="현재 목록 전체 선택" />
+                    <input id="select-visible" type="checkbox" aria-label="현재 화면에서 선택 가능한 상품 전체 선택" />
                   </th>
                   <th class="sort-header" data-sort-key="workBatch" aria-sort="none"><button class="sort-button" type="button" data-sort-key="workBatch" data-sort-label="작업 묶음">작업 묶음 <span class="sort-indicator">↕</span></button></th>
                   <th class="sort-header" data-sort-key="barcode" aria-sort="none"><button class="sort-button" type="button" data-sort-key="barcode" data-sort-label="기준 바코드">기준 바코드 <span class="sort-indicator">↕</span></button></th>
