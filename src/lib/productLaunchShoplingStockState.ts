@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import {
-  SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE,
-  type ShoplingStockDesiredStatus,
-  type ShoplingStockSyncOutcome,
+import type {
+  ShoplingStockDesiredStatus,
+  ShoplingStockSyncOutcome,
 } from "./inventoryStockControl.ts";
 import { createSupabaseAdminClient } from "./supabase/admin.ts";
+
+const SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE =
+  "SHOPLING_STOCK_STATUS_SYNC_EVENT";
 
 export type ProductLaunchShoplingStockEvent = {
   eventId: string;
@@ -42,13 +44,9 @@ const READ_LIMIT = 10_000;
 const BARCODE_PATTERN = /^B[A-Z]{1,2}\d+-\d+$/;
 
 let cachedSnapshot:
-  | { expiresAt: number; value: ProductLaunchShoplingStockSnapshot }
+  | { loadedAt: number; value: ProductLaunchShoplingStockSnapshot }
   | null = null;
 let pendingSnapshot: Promise<ProductLaunchShoplingStockSnapshot> | null = null;
-
-export function invalidateProductLaunchShoplingStockSnapshotCache() {
-  cachedSnapshot = null;
-}
 
 /**
  * The launch workflow follows confirmed Commerce OS -> Shopling stock-state
@@ -58,7 +56,11 @@ export async function loadProductLaunchShoplingStockSnapshot(
   options: { maxAgeMs?: number } = {},
 ) {
   const maxAgeMs = Math.max(0, Math.min(30_000, options.maxAgeMs ?? 10_000));
-  if (cachedSnapshot && cachedSnapshot.expiresAt > Date.now()) {
+  if (
+    maxAgeMs > 0 &&
+    cachedSnapshot &&
+    Date.now() - cachedSnapshot.loadedAt <= maxAgeMs
+  ) {
     return cachedSnapshot.value;
   }
   if (!pendingSnapshot) {
@@ -67,7 +69,7 @@ export async function loadProductLaunchShoplingStockSnapshot(
     });
   }
   const value = await pendingSnapshot;
-  cachedSnapshot = { value, expiresAt: Date.now() + maxAgeMs };
+  cachedSnapshot = { value, loadedAt: Date.now() };
   return value;
 }
 
