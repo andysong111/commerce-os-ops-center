@@ -30,7 +30,11 @@ export function purchaseBarcodeMetadataCandidates(value: unknown) {
 
 export function collapseCanonicalPurchaseRows<
   T extends { barcode: string; skuId?: string | null },
->(rows: T[], compare: (left: T, right: T) => number) {
+>(
+  rows: T[],
+  compare: (left: T, right: T) => number,
+  merge?: (preferred: T, group: readonly T[]) => T,
+) {
   const byIdentity = new Map<string, T[]>();
   for (const row of rows) {
     const canonical = canonicalPurchaseBarcode(row.barcode);
@@ -56,6 +60,30 @@ export function collapseCanonicalPurchaseRows<
       .map((row) => canonicalPurchaseBarcode(row.barcode))
       .find((candidate) => purchaseBarcodeMetadataCandidates(candidate).length > 1);
     const canonical = verifiedAliasTarget ?? canonicalPurchaseBarcode(preferred.barcode);
-    return { ...preferred, barcode: canonical };
+    return {
+      ...(merge ? merge(preferred, group) : preferred),
+      barcode: canonical,
+    };
+  });
+}
+
+/**
+ * Collapses verified warehouse-location aliases before a purchase Draft is
+ * persisted. A location alias is not extra demand, so quantities are never
+ * summed: the canonical row wins, or the largest remaining alias row is used
+ * when the canonical row is absent.
+ */
+export function collapseCanonicalPurchaseDraftLines<
+  T extends {
+    barcode: string;
+    plannedQuantity: number;
+    skuId?: string | null;
+  },
+>(rows: T[]) {
+  return collapseCanonicalPurchaseRows(rows, (left, right) => {
+    const leftIsAlias = canonicalPurchaseBarcode(left.barcode) !== barcode(left.barcode);
+    const rightIsAlias = canonicalPurchaseBarcode(right.barcode) !== barcode(right.barcode);
+    return Number(leftIsAlias) - Number(rightIsAlias) ||
+      Number(right.plannedQuantity || 0) - Number(left.plannedQuantity || 0);
   });
 }

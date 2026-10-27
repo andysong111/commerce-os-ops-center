@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   canonicalPurchaseBarcode,
+  collapseCanonicalPurchaseDraftLines,
   collapseCanonicalPurchaseRows,
   purchaseBarcodeMetadataCandidates,
 } from "../src/lib/purchaseSkuCanonicalization.ts";
@@ -22,6 +23,19 @@ test("verified legacy warehouse alias becomes one canonical purchase row", () =>
   assert.deepEqual(collapsed, [
     { barcode: "BBD4-2", skuId: "sku-primary", recommendedQty: 85 },
   ]);
+});
+
+test("purchase Draft storage keeps one representative location without adding alias quantities", () => {
+  const collapsed = collapseCanonicalPurchaseDraftLines([
+    { barcode: "BBD4-1", plannedQuantity: 195, optionName: "관통형" },
+    { barcode: "BBD4-2", plannedQuantity: 85, optionName: "비관통형" },
+    { barcode: "BBD4-3", plannedQuantity: 5, optionName: "비관통형" },
+  ]);
+
+  assert.deepEqual(
+    collapsed.map((row) => [row.barcode, row.plannedQuantity]),
+    [["BBD4-1", 195], ["BBD4-2", 85]],
+  );
 });
 
 test("rows sharing a real Product Master skuId become one purchase row", () => {

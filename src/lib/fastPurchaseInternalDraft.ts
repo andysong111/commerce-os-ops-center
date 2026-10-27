@@ -15,6 +15,7 @@ import {
 } from "@/lib/purchaseRunCycle";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
+import { collapseCanonicalPurchaseDraftLines } from "@/lib/purchaseSkuCanonicalization";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const MAX_LINES = PURCHASE_DRAFT_REVIEW_LINE_LIMIT;
@@ -198,7 +199,7 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
     throw new Error("FAST_PURCHASE_DRAFT_LINES_INVALID");
   }
   const seen = new Set<string>();
-  const lines = input.lines.map((line) => {
+  const normalizedLines = input.lines.map((line) => {
     const key = barcode(line.barcode);
     if (!BARCODE.test(key) || seen.has(key)) {
       throw new Error(`FAST_PURCHASE_DRAFT_BARCODE_INVALID:${key}`);
@@ -216,6 +217,7 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
       note: text(line.note).slice(0, 300),
     };
   });
+  const lines = collapseCanonicalPurchaseDraftLines(normalizedLines);
 
   const totalQuantity = lines.reduce(
     (sum, line) => sum + line.plannedQuantity,

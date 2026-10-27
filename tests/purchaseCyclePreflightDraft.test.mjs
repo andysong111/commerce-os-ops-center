@@ -722,6 +722,27 @@ test("manual revision applies exclusions and quantity changes when no refill can
   assert.equal(revision.changedCount, 2);
 });
 
+test("manual fallback collapses a verified duplicate warehouse location to its representative B-code", () => {
+  const expected = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  const revision = buildManualDraftRevision(
+    [
+      commitment({ barcode: "BBD4-1", openQuantity: 195, latestPayload: { productName: "세면대 실버물마개", optionName: "관통형" } }),
+      commitment({ barcode: "BBD4-2", openQuantity: 85, latestPayload: { productName: "세면대 실버물마개", optionName: "비관통형" } }),
+      commitment({ barcode: "BBD4-3", openQuantity: 5, latestPayload: { productName: "세면대 실버물마개", optionName: "비관통형" } }),
+    ],
+    expected,
+    [],
+    [],
+  );
+
+  assert.deepEqual(
+    revision.lines.map((line) => [line.barcode, line.plannedQuantity]),
+    [["BBD4-1", 195], ["BBD4-2", 85]],
+  );
+  assert.equal(revision.removedCount, 1);
+  assert.equal(revision.changedCount, 0);
+});
+
 test("manual revision cannot add an unknown product without the verified engine", () => {
   assert.throws(
     () => buildManualDraftRevision(

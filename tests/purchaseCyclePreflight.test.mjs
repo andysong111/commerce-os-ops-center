@@ -117,6 +117,24 @@ test("operator exclusions refill a replacement Draft from the next priority with
   assert.deepEqual(report.replacementAudit.added.map((row) => row.barcode), ["BAA2-1"]);
 });
 
+test("replacement snapshot fingerprints one representative line for verified warehouse aliases", () => {
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    "fast-purchase-draft:1234567890abcdef1234",
+    "2026-10-27T06:30:00.000Z",
+    [
+      { barcode: "BBD4-1", name: "관통형", quantity: 195 },
+      { barcode: "BBD4-2", name: "비관통형", quantity: 85 },
+      { barcode: "BBD4-3", name: "비관통형 보조 적재", quantity: 5, preserveOnRegeneration: true },
+    ],
+  );
+
+  assert.deepEqual(
+    snapshot.lines.map((line) => [line.barcode, line.quantity]),
+    [["BBD4-1", 195], ["BBD4-2", 85]],
+  );
+  assert.equal(snapshot.lines[1].preserveOnRegeneration, true);
+});
+
 test("operator exclusion refill can budget the next priority with the current shadow estimate", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:1234567890abcdef1234";

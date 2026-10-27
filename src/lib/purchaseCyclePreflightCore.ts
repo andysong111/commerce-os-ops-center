@@ -24,7 +24,10 @@ import {
   normalizePurchaseOrderQuantity,
   type PurchaseCashflowTier,
 } from "./purchaseCashflowAllocation.ts";
-import { collapseCanonicalPurchaseRows } from "./purchaseSkuCanonicalization.ts";
+import {
+  canonicalPurchaseBarcode,
+  collapseCanonicalPurchaseRows,
+} from "./purchaseSkuCanonicalization.ts";
 
 // This module is a calculator, NOT an approval token, draft writer or executor.
 export type PurchaseCandidatePin = {
@@ -316,14 +319,28 @@ export function buildPurchaseReplacementDraftSnapshot(
   if (!/^fast-purchase-draft:[a-f0-9]{20}$/.test(draftId) || !Number.isFinite(Date.parse(readAt))) {
     throw new Error("REPLACEMENT_DRAFT_SNAPSHOT_INVALID");
   }
-  const normalized = lines
+  const normalizedInput = lines
     .map((line) => ({
       barcode: line.barcode.trim().toUpperCase(),
       name: line.name.trim(),
       quantity: line.quantity,
       preserveOnRegeneration: line.preserveOnRegeneration === true,
       recoveredFromPredecessor: line.recoveredFromPredecessor === true,
-    }))
+    }));
+  const normalized = collapseCanonicalPurchaseRows(
+    normalizedInput,
+    (left, right) => {
+      const leftIsAlias = canonicalPurchaseBarcode(left.barcode) !== left.barcode;
+      const rightIsAlias = canonicalPurchaseBarcode(right.barcode) !== right.barcode;
+      return Number(leftIsAlias) - Number(rightIsAlias) || right.quantity - left.quantity;
+    },
+    (preferred, group) => ({
+      ...preferred,
+      name: preferred.name || group.find((row) => row.name)?.name || "",
+      preserveOnRegeneration: group.some((row) => row.preserveOnRegeneration),
+      recoveredFromPredecessor: group.every((row) => row.recoveredFromPredecessor),
+    }),
+  )
     .sort((a, b) => a.barcode.localeCompare(b.barcode));
   if (
     normalized.length === 0 ||
