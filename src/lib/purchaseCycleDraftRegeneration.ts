@@ -27,6 +27,7 @@ import {
   type PurchaseDraftOperatorAdjustments,
 } from "@/lib/purchaseCycleDraftRegenerationCore";
 import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
+import { collapseCanonicalPurchaseDraftLines } from "@/lib/purchaseSkuCanonicalization";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
@@ -131,7 +132,7 @@ function normalizeLines(lines: FastPurchaseInternalDraftLine[]) {
     throw new Error("PURCHASE_DRAFT_REGENERATION_LINES_INVALID");
   }
   const seen = new Set<string>();
-  return lines.map((line) => {
+  const normalized = lines.map((line) => {
     const code = barcode(line.barcode);
     const plannedQuantity = quantity(line.plannedQuantity);
     if (!BARCODE.test(code) || seen.has(code)) {
@@ -149,6 +150,7 @@ function normalizeLines(lines: FastPurchaseInternalDraftLine[]) {
       note: text(line.note).slice(0, 300),
     };
   });
+  return collapseCanonicalPurchaseDraftLines(normalized);
 }
 
 function operationRow(

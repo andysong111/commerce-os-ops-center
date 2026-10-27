@@ -1,3 +1,8 @@
+import {
+  canonicalPurchaseBarcode,
+  collapseCanonicalPurchaseRows,
+} from "./purchaseSkuCanonicalization.ts";
+
 export type RegenerableDraftCommitment = {
   sourceRunId: string | null;
   barcode: string;
@@ -48,7 +53,7 @@ function object(value: unknown): Record<string, unknown> {
 }
 
 function normalizedBarcode(value: unknown) {
-  return text(value).toUpperCase().replace(/\s+/g, "");
+  return canonicalPurchaseBarcode(value);
 }
 
 export function normalizePurchaseDraftOperatorAdjustments(
@@ -200,7 +205,15 @@ export function buildManualDraftRevision(
   excludedBarcodes: string[],
   quantityOverrides: ManualDraftRevisionQuantityOverride[],
 ) {
-  const activeRows = assertDraftCanBeRegenerated(rows, expectedDraftId);
+  const rawActiveRows = assertDraftCanBeRegenerated(rows, expectedDraftId);
+  const activeRows = collapseCanonicalPurchaseRows(rawActiveRows, (left, right) => {
+    const leftIsAlias = canonicalPurchaseBarcode(left.barcode) !==
+      text(left.barcode).toUpperCase().replace(/\s+/g, "");
+    const rightIsAlias = canonicalPurchaseBarcode(right.barcode) !==
+      text(right.barcode).toUpperCase().replace(/\s+/g, "");
+    return Number(leftIsAlias) - Number(rightIsAlias) ||
+      right.openQuantity - left.openQuantity;
+  });
   const activeByBarcode = new Map(
     activeRows.map((row) => [normalizedBarcode(row.barcode), row] as const),
   );
@@ -258,7 +271,7 @@ export function buildManualDraftRevision(
 
   return {
     lines,
-    removedCount: activeRows.length - lines.length,
+    removedCount: rawActiveRows.length - lines.length,
     changedCount: lines.filter((line) => {
       const previous = activeByBarcode.get(line.barcode);
       return Boolean(previous && previous.openQuantity !== line.plannedQuantity);
