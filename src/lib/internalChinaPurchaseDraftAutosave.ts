@@ -19,6 +19,7 @@ export type PurchaseDraftPendingAddition = {
 export type PurchaseDraftPendingAutosave = {
   editedQuantities: Record<string, number>;
   stagedExclusions: Record<string, boolean>;
+  stagedDiscontinuations: Record<string, boolean>;
   releasedQuantityOverrides: Record<string, boolean>;
   stagedStockBands: Record<string, InventoryStockBand>;
   stagedAdditions: PurchaseDraftPendingAddition[];
@@ -107,6 +108,7 @@ export function purchaseDraftPendingAutosaveKey(draftId: string) {
 export function hasPurchaseDraftPendingChanges(value: PurchaseDraftPendingAutosave) {
   return Object.keys(value.editedQuantities).length > 0 ||
     Object.keys(value.stagedExclusions).length > 0 ||
+    Object.keys(value.stagedDiscontinuations).length > 0 ||
     Object.keys(value.releasedQuantityOverrides).length > 0 ||
     Object.keys(value.stagedStockBands).length > 0 ||
     value.stagedAdditions.length > 0;
@@ -135,6 +137,7 @@ export function readPurchaseDraftPendingAutosave(
     const restored: PurchaseDraftPendingAutosave = {
       editedQuantities: quantityMap(parsed.editedQuantities),
       stagedExclusions: trueMap(parsed.stagedExclusions),
+      stagedDiscontinuations: trueMap(parsed.stagedDiscontinuations),
       releasedQuantityOverrides: trueMap(parsed.releasedQuantityOverrides),
       stagedStockBands: stockBandMap(parsed.stagedStockBands),
       stagedAdditions: additions(parsed.stagedAdditions),

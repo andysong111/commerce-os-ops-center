@@ -36,6 +36,7 @@ test("pending stock and quantity changes survive a browser refresh", () => {
   writePurchaseDraftPendingAutosave(storage, draftId, {
     editedQuantities: { "BAF1-1": 190 },
     stagedExclusions: { "BBD4-3": true },
+    stagedDiscontinuations: { "BBC1-3": true },
     releasedQuantityOverrides: {},
     stagedStockBands: { "BAF1-1": "LOW", "BBD4-2": "HIGH" },
     stagedAdditions: [{
@@ -58,6 +59,7 @@ test("pending stock and quantity changes survive a browser refresh", () => {
   assert.equal(JSON.stringify(restored), JSON.stringify({
     editedQuantities: { "BAF1-1": 190 },
     stagedExclusions: { "BBD4-3": true },
+    stagedDiscontinuations: { "BBC1-3": true },
     releasedQuantityOverrides: {},
     stagedStockBands: { "BAF1-1": "LOW", "BBD4-2": "HIGH" },
     stagedAdditions: [{
@@ -79,6 +81,7 @@ test("successful recalculation can clear the pending autosave", () => {
   writePurchaseDraftPendingAutosave(storage, draftId, {
     editedQuantities: {},
     stagedExclusions: {},
+    stagedDiscontinuations: {},
     releasedQuantityOverrides: {},
     stagedStockBands: { "BAF1-1": "OUT" },
     stagedAdditions: [],
@@ -97,6 +100,7 @@ test("corrupt or expired autosaves are discarded", () => {
   writePurchaseDraftPendingAutosave(expired, draftId, {
     editedQuantities: {},
     stagedExclusions: {},
+    stagedDiscontinuations: {},
     releasedQuantityOverrides: {},
     stagedStockBands: { "BAF1-1": "HIGH" },
     stagedAdditions: [],

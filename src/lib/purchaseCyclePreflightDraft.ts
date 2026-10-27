@@ -24,6 +24,10 @@ import {
 } from "@/lib/purchaseDraftStockBands";
 import type { PurchaseDraftStockBandUpdate } from "@/lib/purchaseDraftStockBandsCore";
 import {
+  normalizePurchaseDraftDiscontinuations,
+  storePurchaseDraftDiscontinuations,
+} from "@/lib/purchaseDraftDiscontinuations";
+import {
   confirmSourcingBudgetPlan,
   loadSourcingBudgetPlan,
   returnableSourcingBudgetKrw,
@@ -40,135 +44,160 @@ export type InlinePurchaseCycleDraftRecalculationRequest = {
   quantityOverrides: PurchaseQuantityOverride[];
   replaceQuantityOverrides?: boolean;
   stockBandUpdates?: PurchaseDraftStockBandUpdate[];
+  discontinuedBarcodes?: string[];
 };
 
 export async function recalculatePurchaseCycleDraftInline(
   input: InlinePurchaseCycleDraftRecalculationRequest,
 ) {
   const stockBandUpdates = normalizePurchaseDraftStockBandUpdates(input.stockBandUpdates ?? []);
-  const stockBandStorage = stockBandUpdates.length
-    ? await storePurchaseDraftStockBands({
-        draftId: input.replaceDraftId,
-        updates: stockBandUpdates,
-      })
-    : { savedCount: 0, storage: null };
+  const discontinuedBarcodes = normalizePurchaseDraftDiscontinuations(
+    input.discontinuedBarcodes ?? [],
+  );
+  let savedStockBandCount = 0;
+  let savedDiscontinuationCount = 0;
   try {
-  const persistedAdjustments = await loadPurchaseDraftOperatorAdjustments(input.replaceDraftId);
-  const incomingAdjustments = {
-    excludedBarcodes: [...input.excludedBarcodes],
-    quantityOverrides: input.quantityOverrides.map((row) => ({
-    barcode: row.barcode,
-    targetQuantity: normalizePurchaseOrderQuantity(row.targetQuantity),
-    })),
-  };
-  const {
-    excludedBarcodes,
-    quantityOverrides,
-  } = mergePurchaseDraftOperatorAdjustments(
-    persistedAdjustments,
-    incomingAdjustments,
-    { replaceQuantityOverrides: input.replaceQuantityOverrides === true },
-  );
-  const finalQuantityOverrideBarcodes = new Set(
-    quantityOverrides.map((row) => row.barcode),
-  );
-  const releasedQuantityOverrideBarcodes = input.replaceQuantityOverrides === true
-    ? persistedAdjustments.quantityOverrides
-        .map((row) => row.barcode)
-        .filter((barcode) => !finalQuantityOverrideBarcodes.has(barcode))
-    : [];
-  const requestBase: PurchaseCycleDraftRequest = {
-    targetDate: input.targetDate,
-    cashLimitKrw: input.cashLimitKrw,
-    sourcingBudgetPercent: input.sourcingBudgetPercent,
-    preferredSourcingConceptIds: [],
-    sourcingStorageSizeByConceptId: {},
-    sourcingVariantSelections: [],
-    allowOpenBudgetPreview: input.allowOpenBudgetPreview,
-    expectedSourceFingerprint: "",
-    expectedPlanFingerprint: "",
-    expectedSourcingSourceFingerprint: null,
-    expectedSourcingPlanFingerprint: null,
-    expectedSourcingDecisionFingerprint: null,
-    confirmation: "",
-    replaceDraftId: input.replaceDraftId,
-    excludedBarcodes,
-    quantityOverrides,
-    releasedQuantityOverrideBarcodes,
-  };
-  const report = await loadPurchaseCyclePreflight(
-    purchaseCycleDraftPreflightOptions(requestBase),
-  );
-  const request: PurchaseCycleDraftRequest = {
-    ...requestBase,
-    expectedSourceFingerprint: report.sourceFingerprint,
-    expectedPlanFingerprint: report.planFingerprint,
-    confirmation: purchaseCycleDraftConfirmation(report),
-  };
-  let prepared: ReturnType<typeof preparePurchaseCycleDraft>;
-  try {
-    prepared = preparePurchaseCycleDraft(report, request, null, {
-      preserveExistingSourcingOnly: true,
-    });
-  } catch (error) {
-    const code = error instanceof Error ? error.message.split(":", 1)[0] : "";
-    if (
-      code !== "PURCHASE_CYCLE_DRAFT_NOT_READY" ||
-      (
-        releasedQuantityOverrideBarcodes.length === 0 &&
-        excludedBarcodes.length === 0 &&
-        quantityOverrides.length === 0
-      )
-    ) {
-      throw error;
-    }
-    const fallback = await regenerateManualMonthlyPurchaseDraft({
-      expectedDraftId: input.replaceDraftId,
+    const stockBandStorage = stockBandUpdates.length
+      ? await storePurchaseDraftStockBands({
+          draftId: input.replaceDraftId,
+          updates: stockBandUpdates,
+        })
+      : { savedCount: 0, storage: null };
+    savedStockBandCount = stockBandStorage.savedCount;
+    const discontinuationStorage = discontinuedBarcodes.length
+      ? await storePurchaseDraftDiscontinuations({
+          draftId: input.replaceDraftId,
+          barcodes: discontinuedBarcodes,
+        })
+      : { savedCount: 0, alreadySavedCount: 0, barcodes: [] as string[] };
+    savedDiscontinuationCount =
+      discontinuationStorage.savedCount + discontinuationStorage.alreadySavedCount;
+    const requestedExclusions = [...new Set([
+      ...input.excludedBarcodes,
+      ...discontinuedBarcodes,
+    ])].sort();
+    const persistedAdjustments = await loadPurchaseDraftOperatorAdjustments(
+      input.replaceDraftId,
+    );
+    const incomingAdjustments = {
+      excludedBarcodes: requestedExclusions,
+      quantityOverrides: input.quantityOverrides.map((row) => ({
+        barcode: row.barcode,
+        targetQuantity: normalizePurchaseOrderQuantity(row.targetQuantity),
+      })),
+    };
+    const {
+      excludedBarcodes,
+      quantityOverrides,
+    } = mergePurchaseDraftOperatorAdjustments(
+      persistedAdjustments,
+      incomingAdjustments,
+      { replaceQuantityOverrides: input.replaceQuantityOverrides === true },
+    );
+    const finalQuantityOverrideBarcodes = new Set(
+      quantityOverrides.map((row) => row.barcode),
+    );
+    const releasedQuantityOverrideBarcodes = input.replaceQuantityOverrides === true
+      ? persistedAdjustments.quantityOverrides
+          .map((row) => row.barcode)
+          .filter((barcode) => !finalQuantityOverrideBarcodes.has(barcode))
+      : [];
+    const requestBase: PurchaseCycleDraftRequest = {
+      targetDate: input.targetDate,
+      cashLimitKrw: input.cashLimitKrw,
+      sourcingBudgetPercent: input.sourcingBudgetPercent,
+      preferredSourcingConceptIds: [],
+      sourcingStorageSizeByConceptId: {},
+      sourcingVariantSelections: [],
+      allowOpenBudgetPreview: input.allowOpenBudgetPreview,
+      expectedSourceFingerprint: "",
+      expectedPlanFingerprint: "",
+      expectedSourcingSourceFingerprint: null,
+      expectedSourcingPlanFingerprint: null,
+      expectedSourcingDecisionFingerprint: null,
+      confirmation: "",
+      replaceDraftId: input.replaceDraftId,
       excludedBarcodes,
       quantityOverrides,
       releasedQuantityOverrideBarcodes,
+    };
+    const report = await loadPurchaseCyclePreflight(
+      purchaseCycleDraftPreflightOptions(requestBase),
+    );
+    const request: PurchaseCycleDraftRequest = {
+      ...requestBase,
+      expectedSourceFingerprint: report.sourceFingerprint,
+      expectedPlanFingerprint: report.planFingerprint,
+      confirmation: purchaseCycleDraftConfirmation(report),
+    };
+    let prepared: ReturnType<typeof preparePurchaseCycleDraft>;
+    try {
+      prepared = preparePurchaseCycleDraft(report, request, null, {
+        preserveExistingSourcingOnly: true,
+      });
+    } catch (error) {
+      const code = error instanceof Error ? error.message.split(":", 1)[0] : "";
+      if (
+        code !== "PURCHASE_CYCLE_DRAFT_NOT_READY" ||
+        (
+          releasedQuantityOverrideBarcodes.length === 0 &&
+          excludedBarcodes.length === 0 &&
+          quantityOverrides.length === 0
+        )
+      ) {
+        throw error;
+      }
+      const fallback = await regenerateManualMonthlyPurchaseDraft({
+        expectedDraftId: input.replaceDraftId,
+        excludedBarcodes,
+        quantityOverrides,
+        releasedQuantityOverrideBarcodes,
+      });
+      return {
+        draft: fallback.draft,
+        previousDraftId: fallback.previousDraftId,
+        supersededLineCount: fallback.supersededLineCount,
+        selectedCount: fallback.draft.lineCount,
+        preservedSourcingCount: 0,
+        addedCount: fallback.addedCount,
+        removedCount: fallback.removedCount,
+        changedCount: fallback.changedCount,
+        estimatedSpendKrw: 0,
+        manualFallbackUsed: true as const,
+        savedStockBandCount: stockBandStorage.savedCount,
+        savedDiscontinuationCount,
+        externalOrderExecuted: false as const,
+      };
+    }
+    const replacement = await regenerateValidatedMonthlyPurchaseDraft({
+      ...prepared,
+      expectedDraftId: input.replaceDraftId,
+      operatorExcludedBarcodes: excludedBarcodes,
+      operatorQuantityOverrides: quantityOverrides,
     });
     return {
-      draft: fallback.draft,
-      previousDraftId: fallback.previousDraftId,
-      supersededLineCount: fallback.supersededLineCount,
-      selectedCount: fallback.draft.lineCount,
-      preservedSourcingCount: 0,
-      addedCount: fallback.addedCount,
-      removedCount: fallback.removedCount,
-      changedCount: fallback.changedCount,
-      estimatedSpendKrw: 0,
-      manualFallbackUsed: true as const,
+      draft: replacement.draft,
+      previousDraftId: replacement.previousDraftId,
+      supersededLineCount: replacement.supersededLineCount,
+      selectedCount: report.selected.length,
+      preservedSourcingCount: report.preservedReplacementLines.filter(
+        (line) => line.preserveOnRegeneration === true,
+      ).length,
+      addedCount: report.replacementAudit?.added.length ?? 0,
+      removedCount: report.replacementAudit?.removed.length ?? 0,
+      changedCount: report.replacementAudit?.quantityChanged.length ?? 0,
+      estimatedSpendKrw: report.estimatedSpendKrw,
+      manualFallbackUsed: false as const,
       savedStockBandCount: stockBandStorage.savedCount,
+      savedDiscontinuationCount,
       externalOrderExecuted: false as const,
     };
-  }
-  const replacement = await regenerateValidatedMonthlyPurchaseDraft({
-    ...prepared,
-    expectedDraftId: input.replaceDraftId,
-    operatorExcludedBarcodes: excludedBarcodes,
-    operatorQuantityOverrides: quantityOverrides,
-  });
-  return {
-    draft: replacement.draft,
-    previousDraftId: replacement.previousDraftId,
-    supersededLineCount: replacement.supersededLineCount,
-    selectedCount: report.selected.length,
-    preservedSourcingCount: report.preservedReplacementLines.filter(
-      (line) => line.preserveOnRegeneration === true,
-    ).length,
-    addedCount: report.replacementAudit?.added.length ?? 0,
-    removedCount: report.replacementAudit?.removed.length ?? 0,
-    changedCount: report.replacementAudit?.quantityChanged.length ?? 0,
-    estimatedSpendKrw: report.estimatedSpendKrw,
-    manualFallbackUsed: false as const,
-    savedStockBandCount: stockBandStorage.savedCount,
-    externalOrderExecuted: false as const,
-  };
   } catch (error) {
-    if (stockBandStorage.savedCount > 0) {
+    if (savedStockBandCount > 0 || savedDiscontinuationCount > 0) {
       const cause = error instanceof Error ? error.message.split(":", 1)[0] : "UNKNOWN";
-      throw new Error(`PURCHASE_DRAFT_RECALCULATION_FAILED_AFTER_STOCK_SAVE:${stockBandStorage.savedCount}:${cause}`);
+      throw new Error(
+        `PURCHASE_DRAFT_RECALCULATION_FAILED_AFTER_INPUT_SAVE:${savedStockBandCount}:${savedDiscontinuationCount}:${cause}`,
+      );
     }
     throw error;
   }
