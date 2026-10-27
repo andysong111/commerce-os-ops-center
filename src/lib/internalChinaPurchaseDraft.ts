@@ -20,6 +20,13 @@ import {
   createSupabaseAdminClient,
   createSupabaseAdminHeaders,
 } from "@/lib/supabase/admin";
+import {
+  purchaseBarcodeMetadataCandidates,
+} from "@/lib/purchaseSkuCanonicalization";
+import {
+  internalChinaStockInputMode,
+  type InternalChinaStockInputMode,
+} from "@/lib/internalChinaStockInputPolicy";
 
 export const INTERNAL_CHINA_PURCHASE_PREP_OPERATION_TYPE =
   "INTERNAL_CHINA_PURCHASE_PREP";
@@ -49,6 +56,7 @@ export type InternalChinaPurchaseDraftLine = {
   domesticChinaFreightCny: number;
   orderNumber: string;
   note: string;
+  stockInputMode: InternalChinaStockInputMode;
 };
 
 export type InternalChinaPurchaseDraft = {
@@ -282,7 +290,9 @@ async function buildMetadataByBarcode(barcodes: string[]) {
 
   const goodsKeysByBarcode = new Map<string, string[]>();
   for (const barcode of barcodes) {
-    const profile = planningByBarcode.get(barcode);
+    const profile = purchaseBarcodeMetadataCandidates(barcode)
+      .map((candidate) => planningByBarcode.get(candidate))
+      .find(Boolean);
     const goodsKeys = [
       ...new Set(
         (profile?.listings ?? [])
@@ -345,16 +355,32 @@ async function buildBaseDraft(
 ): Promise<InternalChinaPurchaseDraft> {
   const draftId = validDraftId(draftIdInput);
   const commitments = await currentCommitments(draftId);
-  const barcodes = commitments.map((row) => row.barcode);
+  const barcodes = [
+    ...new Set(
+      commitments.flatMap((row) =>
+        purchaseBarcodeMetadataCandidates(row.barcode),
+      ),
+    ),
+  ];
   const { planningByBarcode, tracker, liveByBarcode, warnings } =
     await buildMetadataByBarcode(barcodes);
 
   const lines = commitments.map(
     (commitment): InternalChinaPurchaseDraftLine => {
+      // Keep the ledger identity unchanged while an old Draft is still open.
+      // A recalculation replaces legacy aliases with the canonical B-code;
+      // rewriting an in-flight commitment here would create duplicate keys.
       const barcode = commitment.barcode;
-      const profile = planningByBarcode.get(barcode);
-      const trackerRow = tracker?.byBarcode.get(barcode);
-      const live = liveByBarcode.get(barcode);
+      const metadataCandidates = purchaseBarcodeMetadataCandidates(barcode);
+      const profile = metadataCandidates
+        .map((candidate) => planningByBarcode.get(candidate))
+        .find(Boolean);
+      const trackerRow = metadataCandidates
+        .map((candidate) => tracker?.byBarcode.get(candidate))
+        .find((candidate) => candidate && !candidate.conflict);
+      const live = metadataCandidates
+        .map((candidate) => liveByBarcode.get(candidate))
+        .find(Boolean);
       const trackerUsable = trackerRow && !trackerRow.conflict ? trackerRow : null;
       const sourcePayload = object(commitment.latestPayload);
       const modelNo =
@@ -390,6 +416,14 @@ async function buildBaseDraft(
         domesticChinaFreightCny: 0,
         orderNumber: "",
         note: "",
+        stockInputMode: internalChinaStockInputMode({
+          sourcingConfirmed: sourcePayload.sourcingConfirmed,
+          inventoryConfirmed: profile?.inventoryConfirmed,
+          inventoryVerified: profile?.inventoryVerified,
+          inventoryRequiresReview: profile?.inventoryRequiresReview,
+          inventoryBaselineKind: profile?.inventoryBaselineKind,
+          inventoryBaselineQuantity: profile?.inventoryBaselineQuantity,
+        }),
       };
     },
   );
@@ -559,6 +593,11 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
         ),
         orderNumber: text(row.orderNumber).slice(0, 160),
         note: text(row.note).slice(0, 300),
+        stockInputMode:
+          row.stockInputMode === "AUTO_SOLD_OUT" ||
+          row.stockInputMode === "AUTO_NEW_SOURCING"
+            ? row.stockInputMode
+            : "MANUAL",
       };
     })
     .filter((line): line is InternalChinaPurchaseDraftLine => Boolean(line));

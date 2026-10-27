@@ -629,6 +629,28 @@ test("duplicate barcode blocks even if only one duplicate is a purchase recommen
   const input = fixture(); input.priority.rows.push({ ...input.priority.rows[0], purchaseStatus: "발주 보류" });
   blocked(buildPurchaseCyclePreflight(input), "DUPLICATE_BARCODE");
 });
+test("verified legacy B-code alias is one purchasable line, not a duplicate order", () => {
+  const input = fixture();
+  input.priority.rows[0] = {
+    ...input.priority.rows[0],
+    skuId: "sku-bbd4-primary",
+    barcode: "BBD4-2",
+    name: "세면대 실버물마개 비관통형",
+  };
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    skuId: "sku-bbd4-legacy",
+    barcode: "BBD4-3",
+    recommendedQty: 1,
+    priorityScore: 1,
+  });
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(report.selected.map((row) => row.barcode), ["BBD4-2"]);
+  assert.equal(report.selected[0].quantity, 5);
+});
 test("omitted duplicate cash cap uses the automatic previous-month cost envelope", () => {
   const input = fixture(); input.options.cashLimitKrw = null;
   const report = buildPurchaseCyclePreflight(input);

@@ -174,6 +174,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [stagedStockBands, setStagedStockBands] = useState<Record<string, InventoryStockBand>>({});
   const [regenerating, setRegenerating] = useState(false);
   const [automationPreparing, setAutomationPreparing] = useState<"COST" | "CART" | null>(null);
+  const [productSearch, setProductSearch] = useState("");
   const [scrollWidth, setScrollWidth] = useState(TABLE_WIDTH);
   const [freezeThrough, setFreezeThrough] = useState(0);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
@@ -555,6 +556,13 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     }
   }
 
+  const normalizedProductSearch = productSearch.normalize("NFKC").trim().toLowerCase();
+  const visibleLines = normalizedProductSearch
+    ? draft.lines.filter((line) =>
+        [line.barcode, line.modelNo, line.modelName, line.productName, line.saleOption]
+          .some((value) => value.normalize("NFKC").toLowerCase().includes(normalizedProductSearch)),
+      )
+    : draft.lines;
   const selectedBarcodes = draft.lines
     .filter((line) => selectedRows[line.barcode] === true)
     .map((line) => line.barcode)
@@ -563,7 +571,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     .filter((line) => stagedExclusions[line.barcode] === true)
     .map((line) => line.barcode)
     .sort();
-  const allLinesSelected = draft.lines.length > 0 && selectedBarcodes.length === draft.lines.length;
+  const allLinesSelected = visibleLines.length > 0 && visibleLines.every(
+    (line) => selectedRows[line.barcode] === true,
+  );
   const selectedExclusionCandidates = selectedBarcodes.filter(
     (barcode) => stagedExclusions[barcode] !== true,
   );
@@ -577,7 +587,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     .map(([barcode, stockBand]) => ({ barcode, stockBand }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
   const missingStockBandCount = draft.lines.filter(
-    (line) => !(stagedStockBands[line.barcode] ?? initialStockBands[line.barcode]),
+    (line) =>
+      line.stockInputMode === "MANUAL" &&
+      !(stagedStockBands[line.barcode] ?? initialStockBands[line.barcode]),
   ).length;
   const executionLineLimitExceeded =
     draft.lineCount > PURCHASE_DRAFT_EXECUTION_LINE_LIMIT;
@@ -937,6 +949,18 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <button type="button" onClick={() => scrollTable(1)} className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">오른쪽 →</button>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="flex min-w-[280px] flex-1 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-950">
+              상품 찾기
+              <input
+                value={productSearch}
+                onChange={(event) => setProductSearch(event.target.value)}
+                placeholder="B코드 · 모델번호 · 상품명 · 옵션명"
+                className="min-w-0 flex-1 rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-semibold text-slate-950 outline-none focus:border-blue-500"
+              />
+              <span className="shrink-0 text-[11px] text-blue-700">
+                {visibleLines.length.toLocaleString("ko-KR")}/{draft.lines.length.toLocaleString("ko-KR")}
+              </span>
+            </label>
             <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
               고정할 마지막 열
               <select value={freezeThrough} onChange={(event) => setFreezeThrough(Number(event.target.value))} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-900">
@@ -988,13 +1012,13 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <tr>
                 {TABLE_COLUMNS.map((column, index) => (
                   <th key={column.label} className={`px-3 py-3 ${index >= 3 && index <= 10 ? "text-right" : ""}`} style={stickyCellStyle(index, freezeThrough, true)}>
-                    {index === 0 ? <div><label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedRows(Object.fromEntries(draft.lines.map((line) => [line.barcode, event.target.checked])))} disabled={draft.status !== "DRAFT"} aria-label="작업할 상품 전체 선택" className="size-4" /><span>작업할 상품 선택</span></label><span className="mt-1 block text-[11px] font-semibold text-slate-500">{column.label}</span></div> : column.label}
+                    {index === 0 ? <div><label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedRows((current) => ({ ...current, ...Object.fromEntries(visibleLines.map((line) => [line.barcode, event.target.checked])) }))} disabled={draft.status !== "DRAFT" || visibleLines.length === 0} aria-label="현재 보이는 상품 전체 선택" className="size-4" /><span>작업할 상품 선택</span></label><span className="mt-1 block text-[11px] font-semibold text-slate-500">{column.label}</span></div> : column.label}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {draft.lines.map((line) => {
+              {visibleLines.map((line) => {
                 const calc = calculations.byBarcode.get(line.barcode)!;
                 const editable = draft.status === "DRAFT";
                 const linkValid = validHttpUrl(line.supplierLink);
@@ -1009,13 +1033,19 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                       <span className="mt-1 block font-semibold text-slate-700">모델명 · {line.modelName || "-"}</span>
                       <span className="mt-1 block font-mono text-[11px] text-slate-500">모델번호 · {line.modelNo || "-"}</span>
                       <span className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-800">옵션명 · {line.saleOption || "-"}</span>
-                      <div className="mt-2 grid grid-cols-4 gap-1" aria-label={`${line.barcode} 대략 재고상태`}>
-                        {STOCK_BANDS.map((band) => {
-                          const selected = (stagedStockBands[line.barcode] ?? initialStockBands[line.barcode]) === band.value;
-                          const pending = stagedStockBands[line.barcode] === band.value;
-                          return <button key={band.value} type="button" disabled={!editable || regenerating} onClick={() => stageStockBand(line.barcode, band.value)} className={`rounded-md border px-1 py-1.5 text-[10px] font-black disabled:opacity-40 ${selected ? pending ? "border-blue-600 bg-blue-700 text-white" : "border-emerald-400 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>{band.label}</button>;
-                        })}
-                      </div>
+                      {line.stockInputMode === "MANUAL" ? (
+                        <div className="mt-2 grid grid-cols-4 gap-1" aria-label={`${line.barcode} 대략 재고상태`}>
+                          {STOCK_BANDS.map((band) => {
+                            const selected = (stagedStockBands[line.barcode] ?? initialStockBands[line.barcode]) === band.value;
+                            const pending = stagedStockBands[line.barcode] === band.value;
+                            return <button key={band.value} type="button" disabled={!editable || regenerating} onClick={() => stageStockBand(line.barcode, band.value)} className={`rounded-md border px-1 py-1.5 text-[10px] font-black disabled:opacity-40 ${selected ? pending ? "border-blue-600 bg-blue-700 text-white" : "border-emerald-400 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>{band.label}</button>;
+                          })}
+                        </div>
+                      ) : (
+                        <div className="mt-2 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-900">
+                          자동 품절 · {line.stockInputMode === "AUTO_NEW_SOURCING" ? "신규소싱 재고 0" : "품절전송 확정 0"}
+                        </div>
+                      )}
                     </td>
                     <td className="px-2 py-2" style={stickyCellStyle(1, freezeThrough)}>
                       <div className="flex items-center gap-1.5">

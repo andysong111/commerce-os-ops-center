@@ -24,6 +24,7 @@ import {
   normalizePurchaseOrderQuantity,
   type PurchaseCashflowTier,
 } from "./purchaseCashflowAllocation.ts";
+import { collapseCanonicalPurchaseRows } from "./purchaseSkuCanonicalization.ts";
 
 // This module is a calculator, NOT an approval token, draft writer or executor.
 export type PurchaseCandidatePin = {
@@ -803,7 +804,21 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     (!wholesaleSnapshot || wholesaleSnapshotUsable) &&
     (!ownerSnapshot || ownerSnapshotUsable);
 
-  const rows = [...(input.priority?.rows ?? [])].sort((a, b) => a.barcode.localeCompare(b.barcode));
+  const rawRows = [...(input.priority?.rows ?? [])].sort((a, b) =>
+    a.barcode.localeCompare(b.barcode),
+  );
+  const duplicateSourceBarcodes = new Set(
+    rawRows
+      .filter((row, index) => index > 0 && rawRows[index - 1].barcode === row.barcode)
+      .map((row) => row.barcode),
+  );
+  const rows = collapseCanonicalPurchaseRows(
+    rawRows,
+    (left, right) =>
+      comparePurchaseStrategyPriority(left, right) ||
+      right.recommendedQty - left.recommendedQty ||
+      left.barcode.localeCompare(right.barcode),
+  ).sort((a, b) => a.barcode.localeCompare(b.barcode));
   const omissionReview = [...(input.priority?.omissionReviewRows ?? [])];
   const omissionBlockingCount = omissionReview.filter(
     (row) => row.severity === "BLOCKING",
@@ -813,7 +828,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (omissionBlockingCount > 0) {
     blockers.push("PURCHASE_CANDIDATE_OMISSION_REVIEW_REQUIRED");
   }
-  const duplicates = new Set(rows.filter((row, i) => i > 0 && rows[i - 1].barcode === row.barcode).map(row => row.barcode));
+  const duplicates = duplicateSourceBarcodes;
   if (duplicates.size) blockers.push("DUPLICATE_BARCODE");
   const replacementLineBarcodes = new Set(
     (input.replacementAfter?.lines ?? []).map((line) => line.barcode),
