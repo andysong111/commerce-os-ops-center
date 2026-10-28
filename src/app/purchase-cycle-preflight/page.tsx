@@ -10,6 +10,10 @@ import { ManualProductIntakeForm } from "@/components/sourcing-center/ManualProd
 import { loadPurchaseCyclePreflightPreview } from "@/lib/purchaseCyclePreflightPreview";
 import { validatePurchasePreflightOptions, type PurchaseCyclePreflightReport } from "@/lib/purchaseCyclePreflightCore";
 import {
+  purchaseCycleBlockerActions,
+  type PurchaseCycleBlockerAction,
+} from "@/lib/purchaseCycleBlockerActions";
+import {
   canRecalculateWithPreservedSourcingOnly,
   purchaseCycleDraftConfirmation,
   purchaseCycleDraftPlannedTotals,
@@ -414,15 +418,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const sourcingBlockingCodes = preserveExistingSourcingOnly
     ? []
     : sourcingPlan?.blockers.filter(code => !sourcingPreparationCodes.includes(code)) ?? [];
-  const actionItems: Array<{ title: string; message: string; href?: string; hrefLabel?: string }> = [];
-  if (report?.blockers.length) {
-    actionItems.push({
-      title: "최신 판매·재고 자료 준비",
-      message: `시스템 원본 검증 ${report.blockers.length}건이 만료됐거나 아직 준비되지 않았습니다. 실제 주문은 진행되지 않았으며 최신자료가 준비된 뒤 다시 계산하면 됩니다.`,
-      href: "/stage8-sales-events",
-      hrefLabel: "최신자료 상태 보기",
-    });
-  }
+  const actionItems: PurchaseCycleBlockerAction[] = purchaseCycleBlockerActions(report, explain);
   if (replacementRecommendationReviewRequired) {
     actionItems.push({
       title: "기존 자동추천 근거 확인",
@@ -796,7 +792,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           ) : null}
 
           {report.omissionReviewCount > 0 ? (
-            <section className={`border-y py-5 ${report.omissionBlockingCount > 0 ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}>
+            <section id="purchase-omission-review" className={`scroll-mt-5 border-y py-5 ${report.omissionBlockingCount > 0 ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}>
               <p className={`text-xs font-black ${report.omissionBlockingCount > 0 ? "text-rose-700" : "text-amber-700"}`}>발주 누락 검토</p>
               <h3 className="mt-1 text-lg font-black text-slate-950">차단 {report.omissionBlockingCount}종 · 다음 발주 준비 {report.omissionPreparationCount}종</h3>
               <p className="mt-2 text-sm leading-6 text-slate-700">이미 후보가 된 상품만 세지 않고, 판매 이력이 있는 전체 활성 B코드를 다시 대조했습니다. 이 목록은 자동 주문이나 자동 추가를 하지 않으며, 차단 항목이 남으면 Draft 저장을 멈춥니다.</p>
