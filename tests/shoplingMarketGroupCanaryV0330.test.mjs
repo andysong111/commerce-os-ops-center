@@ -21,6 +21,9 @@ test("v0.3.30 package includes Commerce OS handoff and Shopling auto-agent", asy
 test("one-click control probes v0.3.30 before creating durable orchestration", async () => {
   const source = await readFile(oneClick, "utf8");
   assert.match(source, /샵플링 일괄 대량등록 및 마켓전송/);
+  assert.match(source, /기존 등록상품 마켓전송만 재개/);
+  assert.match(source, /create_market_only/);
+  assert.match(source, /createHandoffToken/);
   assert.match(source, /probeExtension\(\)/);
   assert.match(source, /handoffToExtension/);
   assert.match(source, /shopling-market-auto-orchestration/);
@@ -43,6 +46,10 @@ test("server verifies market ledger and chunks more than twenty products", async
   assert.match(source, /const CHUNK_SIZE = 20/);
   assert.match(source, /remainingMarketJobIds/);
   assert.match(source, /state: "market_ready"/);
+  assert.match(source, /createMarketOnlyOrchestration/);
+  assert.match(source, /verifiedMarketOnlyUploadJob/);
+  assert.match(source, /marketOnlyLedgerSafety/);
+  assert.match(source, /insertOrRecoverOrchestration/);
 });
 
 test("browser scripts persist handoff and resume through durable selection intent", async () => {

@@ -733,3 +733,13 @@ Actual 1688 ordering and payment remain outside this replacement calculation and
 - 재계산하면 기존 append-only 발주전략 원장에 `DISCONTINUE` 이벤트를 기록하고 현재 Draft에서 제거하며 이후 자동 발주후보에서도 제외한다. 남아 있는 재고 판매는 계속한다.
 - 같은 요청을 다시 보내도 이미 단종 상태인 B코드는 중복 기록하지 않는다. 잘못 지정한 상품은 기존 영구 발주 제외 복구 절차에서 사유를 남기고 `RESTORE`한다.
 - 단종예정 대기값은 대략 재고·수량·임시 제외·추가와 함께 브라우저에 자동 임시저장되어 새로고침 후 복구한다. 단종예정과 대략 재고는 한 상품에 동시에 대기시키지 않는다.
+
+---
+
+## 24. SEO 원클릭 521 이후 마켓전송만 재개 규칙 (2026-10-28)
+
+- 원클릭 작업에서 SEO FINAL과 Shopling 상품등록·실상품 재조회까지 성공했지만 마켓전송 orchestration 저장이 521로 끊긴 경우, 성공한 상품을 SEO 생성이나 Shopling 상품등록부터 다시 실행하지 않는다.
+- `/seo-bulk-cloud`의 `기존 등록상품 마켓전송만 재개`는 최신 작업묶음에서 `ready + registration success`인 RUN만 선택한다. 각 업로드 작업은 6개 채널 성공, 6개 고유 goods_key, readback verification 6/6을 모두 증명해야 한다.
+- 이미 `claimed`/`submit_armed`인 goods_key, `confirm_needed`/`failed`/`legacy_ignored`인 goods_key, 같은 RUN을 포함한 활성 orchestration이 있으면 중복 전송을 막고 운영 확인으로 돌린다.
+- 브라우저가 생성한 고엔트로피 handoff token의 해시를 서버 원장의 고유키로 사용한다. 521처럼 응답만 유실돼도 같은 토큰으로 기존 orchestration을 회수하며 새 작업을 중복 생성하지 않는다.
+- 2026-10-28 사고 범위의 검증 fixture는 Shopling 등록 성공 38상품, 기존 goods_key 228개다. Toss 옵션명 오류 2상품과 SEO 생성 실패 1상품은 이 재개 범위에 넣지 않는다.
