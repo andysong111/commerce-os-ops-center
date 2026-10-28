@@ -37,7 +37,12 @@ export type PurchaseDraftOperatorAdjustmentSnapshot = {
   sourcingConfirmed?: boolean;
 };
 
-export const PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION = 2;
+// Version 2 could be written from a Draft whose displayed recommendation had
+// already been mistaken for an operator pin. That contaminated every line and
+// made later stock-band recalculation unable to lower or remove quantities.
+// Version 3 is the clean boundary: only explicit quantity edits/manual adds
+// written by the current editor may survive another recommendation refresh.
+export const PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION = 3;
 export const PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION = 2;
 
 const BARCODE = /^B[A-Z]{2}\d+-\d+$/;
