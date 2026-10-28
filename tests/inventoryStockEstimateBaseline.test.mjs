@@ -32,7 +32,7 @@ test("operator estimate overrides older inventory but remains provisional", () =
   assert.equal(result.inventoryBaselineKind, "OPERATOR_ESTIMATE");
 });
 
-test("newer exact stocktake or movement wins over an older estimate", () => {
+test("newer exact stocktake or movement wins over an older numeric estimate", () => {
   const estimate = {
     eventId: "estimate-1", barcode: "BCB2-1", productKind: "OPTION",
     modelNo: null, estimatedQuantity: 23, stockBand: null, occurredAt: "2026-10-20T00:00:00.000Z", note: "",
@@ -41,6 +41,28 @@ test("newer exact stocktake or movement wins over an older estimate", () => {
   assert.equal(applyOperatorInventoryEstimate(newerMovement, estimate).inventoryQuantity, 100);
   const exact = { eventId: "exact-1", barcode: "BCB2-1", productKind: "OPTION", modelNo: null, baselineQuantity: 90, occurredAt: "2026-10-22T00:00:00.000Z", note: "" };
   assert.equal(applyOperatorInventoryEstimate(inventory(), estimate, exact).inventoryQuantity, 100);
+});
+
+test("saved rough stock band survives later sales and shipments", () => {
+  const estimate = {
+    eventId: "estimate-band-1", barcode: "BCB2-1", productKind: "OPTION",
+    modelNo: null, estimatedQuantity: null, stockBand: "HIGH", occurredAt: "2026-10-20T00:00:00.000Z", note: "",
+  };
+  const newerMovement = inventory({ lastMovementAt: "2026-10-21T00:00:00.000Z" });
+  const result = applyOperatorInventoryEstimate(newerMovement, estimate);
+  assert.equal(result.operatorStockBand, "HIGH");
+  assert.equal(result.inventoryBaselineKind, "OPERATOR_ESTIMATE");
+  assert.equal(
+    calculateNetRequirement({
+      demandTarget: 100,
+      originalGroup: "발주 추천",
+      inventoryKnown: true,
+      availableQuantity: estimatedInventoryForStockBand(100, result.operatorStockBand),
+      moq: 1,
+      cartonQuantity: 1,
+    }).recommendedQuantity,
+    0,
+  );
 });
 
 test("재고 네 단계는 상품별 수요목표 비율로만 환산한다", () => {
