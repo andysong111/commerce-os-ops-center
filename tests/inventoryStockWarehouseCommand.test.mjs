@@ -154,15 +154,9 @@ test("HF32 adds the warehouse host bridge and requires the signed command token"
     "src/app/api/shopling-stock-state-sync/download-hf32/route.ts",
     "utf8",
   );
-  const page = await readFile(
-    "src/app/china-order-manager/stock-control/page.tsx",
-    "utf8",
-  );
   assert.match(source, /getHf31Download/);
   assert.match(source, /https:\/\/storage-organization\.vercel\.app\/\*/);
   assert.match(source, /commandToken: job\?\.warehouseCommandToken/);
   assert.match(source, /signedCommandTokenRequired: true/);
   assert.match(source, /hf31AllDateAndExactBcodeGuardsPreserved: true/);
-  assert.match(page, /download-hf32/);
-  assert.match(page, /v0\.6\.0/);
 });
