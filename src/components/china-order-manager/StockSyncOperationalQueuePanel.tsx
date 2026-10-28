@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INVENTORY_QUEUE_PATH, inventoryStockReadClient, startInventoryPolling } from "@/lib/inventoryStockConnection";
 import { planShoplingStockLaunch } from "@/lib/shoplingStockLaunchPlan";
+import { selectExactShoplingStockQueueJob, type ShoplingStockQueueSelection } from "@/lib/shoplingStockQueueSelection";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -80,6 +81,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
   const excludedThisRun = useRef(new Set<string>());
   const continueAfterBatch = useRef(false);
   const extensionVersionRef = useRef("");
+  const requestedSingleRun = useRef<ShoplingStockQueueSelection | null>(null);
 
   // Execution defaults to a fresh read. Only passive polls may share an in-flight
   // overview read, and no completed job list is ever used as a transport cache.
@@ -137,14 +139,18 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     }
     const payload = await loadQueue();
     const available = payload.jobs.filter((job) => !excludedThisRun.current.has(job.jobId)).sort(prioritySort);
-    if (!available.length) {
+    const requested = requestedSingleRun.current;
+    const launchable = requested
+      ? [selectExactShoplingStockQueueJob(available, requested)]
+      : available;
+    if (!launchable.length) {
       activeBatch.current = null; setRunningBarcodes([]); setDraining(false); setPhase("DONE");
       setNotice(localExceptions.length || blockedRows.length
         ? "실행 가능한 운영 큐는 비었습니다. 실패/보류 건은 예외 큐에 남겨 자동 재시도하지 않습니다."
         : "운영 재고상태 큐 처리 완료 · 현재 실행 가능한 Shopling 품절·판매중 대기건이 없습니다.");
       return;
     }
-    const plan = planShoplingStockLaunch(available, extensionVersionRef.current);
+    const plan = planShoplingStockLaunch(launchable, extensionVersionRef.current);
     const batchId = randomId("stock-sync-ops-batch");
     const prepared = plan.jobs.map((job, index) => operationalJob(job, batchId, index + 1));
     jobsById.current.clear(); prepared.forEach((job) => jobsById.current.set(job.jobId, job));
@@ -187,7 +193,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
 
   useEffect(() => {
     const queueReadFailed = (error: unknown) => {
-      continueAfterBatch.current = false; setDraining(false); setPhase("QUEUE_READ_FAILED");
+      requestedSingleRun.current = null; continueAfterBatch.current = false; setDraining(false); setPhase("QUEUE_READ_FAILED");
       setNotice(error instanceof Error ? error.message : "연결 복구 전까지 다음 배정을 중지합니다.");
     };
     const onMessage = (event: MessageEvent) => {
@@ -246,12 +252,24 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
           }
           activeBatch.current = null; setRunningBarcodes([]);
           await loadQueue();
-          setNotice(batch.jobs.every((row) => !excludedThisRun.current.has(row.jobId))
-            ? "현재 운영 배치 완료 · 다음 대기건을 자동으로 이어서 배정합니다."
-            : "현재 운영 배치 종료 · 실패/불확실 건은 예외 큐로 격리하고 정상 대기건만 계속 처리합니다.");
-          window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 900);
+          if (requestedSingleRun.current) {
+            requestedSingleRun.current = null;
+            continueAfterBatch.current = false;
+            setDraining(false);
+            const succeeded = batch.jobs.every((row) => !excludedThisRun.current.has(row.jobId));
+            setPhase(succeeded ? "SINGLE_DONE" : "SINGLE_EXCEPTION");
+            setNotice(succeeded
+              ? `${job.barcode} 단건 처리 완료 · 다른 대기건은 실행하지 않았습니다.`
+              : `${job.barcode} 단건 처리 종료 · 실패/불확실 결과를 예외 큐에 남겼으며 자동 재시도하지 않습니다.`);
+          } else {
+            setNotice(batch.jobs.every((row) => !excludedThisRun.current.has(row.jobId))
+              ? "현재 운영 배치 완료 · 다음 대기건을 자동으로 이어서 배정합니다."
+              : "현재 운영 배치 종료 · 실패/불확실 건은 예외 큐로 격리하고 정상 대기건만 계속 처리합니다.");
+            window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 900);
+          }
         } catch (error) {
           handledResults.current.delete(resultKey); continueAfterBatch.current = false;
+          requestedSingleRun.current = null;
           activeBatch.current = null; setRunningBarcodes([]); setDraining(false); setPhase("RESULT_PERSIST_FAILED");
           setNotice(error instanceof Error ? error.message : "운영 큐 결과 저장 실패");
         }
@@ -267,9 +285,30 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     if (draining || activeBatch.current) { setNotice("이미 운영 재고상태 큐가 실행 중입니다."); return; }
     if (report?.state !== "READY") { setNotice("정확재고 원장이 READY가 아니므로 Shopling 자동송신을 시작하지 않습니다."); return; }
     handledResults.current.clear(); excludedThisRun.current.clear(); setLocalExceptions([]);
+    requestedSingleRun.current = null;
     continueAfterBatch.current = true; setDraining(true); setPhase("QUEUE_DRAIN_START");
     try { await launchNext(); }
     catch (error) { continueAfterBatch.current = false; setDraining(false); setPhase("START_FAILED"); setNotice(error instanceof Error ? error.message : "운영 큐 시작 실패"); }
+  };
+  const startOne = async (job: SyncJob) => {
+    setNotice("");
+    if (!extensionReady) { setNotice("재고상태 확장프로그램이 연결되어야 단건 실행할 수 있습니다."); return; }
+    if (draining || activeBatch.current) { setNotice("이미 운영 재고상태 큐가 실행 중입니다."); return; }
+    if (report?.state !== "READY") { setNotice("정확재고 원장이 READY가 아니므로 단건 송신을 시작하지 않습니다."); return; }
+    handledResults.current.clear(); excludedThisRun.current.clear(); setLocalExceptions([]);
+    requestedSingleRun.current = {
+      jobId: job.jobId,
+      barcode: job.barcode,
+      desiredStatus: job.desiredStatus,
+      desiredSince: job.desiredSince,
+    };
+    continueAfterBatch.current = true; setDraining(true); setPhase("SINGLE_QUEUE_START");
+    try { await launchNext(); }
+    catch (error) {
+      requestedSingleRun.current = null; continueAfterBatch.current = false;
+      setDraining(false); setPhase("SINGLE_START_FAILED");
+      setNotice(error instanceof Error ? error.message : "운영 큐 단건 시작 실패");
+    }
   };
   const pauseAfterCurrent = () => {
     continueAfterBatch.current = false;
@@ -303,15 +342,16 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       </div>
       <div className="mt-4 overflow-x-auto rounded-xl border border-sky-200 bg-white">
         <table className="min-w-[900px] text-left text-xs">
-          <thead className="bg-sky-100/70 text-slate-600"><tr><th className="px-3 py-3">우선순위 / B코드</th><th className="px-3 py-3">형태</th><th className="px-3 py-3 text-right">정확재고</th><th className="px-3 py-3">목표상태</th><th className="px-3 py-3">상태전환 시점</th></tr></thead>
+          <thead className="bg-sky-100/70 text-slate-600"><tr><th className="px-3 py-3">우선순위 / B코드</th><th className="px-3 py-3">형태</th><th className="px-3 py-3 text-right">정확재고</th><th className="px-3 py-3">목표상태</th><th className="px-3 py-3">상태전환 시점</th><th className="px-3 py-3">실행</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {jobs.map((job, index) => <tr key={job.jobId}>
               <td className="px-3 py-3"><span className="mr-2 rounded-full bg-slate-100 px-2 py-1 font-black">{index + 1}</span><strong className="font-mono text-slate-950">{job.barcode}</strong><span className="ml-2 text-slate-500">{job.productName}</span></td>
               <td className="px-3 py-3 font-bold">{kindLabel(job.productKind)}</td><td className="px-3 py-3 text-right font-black">{job.inventoryQuantityKnown === false || job.manualStatusOnly ? "미확정" : `${job.exactInventoryQuantity}개`}</td>
               <td className={`px-3 py-3 font-black ${job.desiredStatus === "SOLD_OUT" ? "text-rose-700" : "text-emerald-700"}`}>{job.manualStatusOnly ? "판매중(수동)" : statusLabel(job.desiredStatus)}</td>
               <td className="px-3 py-3 text-slate-600">{new Date(job.desiredSince).toLocaleString("ko-KR")}</td>
+              <td className="px-3 py-3"><button type="button" onClick={() => void startOne(job)} disabled={draining || !extensionReady || report?.state !== "READY"} className="whitespace-nowrap rounded-lg border border-sky-300 bg-white px-3 py-2 font-black text-sky-800 hover:bg-sky-50 disabled:border-slate-200 disabled:text-slate-400">이 건만 처리</button></td>
             </tr>)}
-            {!jobs.length ? <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-500">{report ? "현재 실행 가능한 Shopling 재고상태 대기건이 없습니다." : "조회 전이거나 연결이 지연되어 대기건을 확인할 수 없습니다."}</td></tr> : null}
+            {!jobs.length ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">{report ? "현재 실행 가능한 Shopling 재고상태 대기건이 없습니다." : "조회 전이거나 연결이 지연되어 대기건을 확인할 수 없습니다."}</td></tr> : null}
           </tbody>
         </table>
       </div>
