@@ -30,3 +30,12 @@
 - 실패 안전: 서버 접수가 실패하면 진행 화면을 열지 않고 미전송 배치를 보존한다. 다른 상품의 미전송 배치가 있으면 합쳐서 실행하지 않고 사용자에게 먼저 확인하도록 막는다.
 - 회귀검사: 서버 접수 전 창 열기 금지, 접수 실패 시 복구 배치 보존, 같은 배치 재시도 시 RUN ID 재사용을 실제 handoff 코드로 검증했다.
 - 전체 확인: 상품출시 245개, SEO 116개, 타입 검사, 변경 파일 lint, 운영 빌드가 모두 통과했다.
+
+## v0.3.43 브라우저 연결 누락 사고와 v0.3.44 복구 (2026-10-28)
+
+- 실운영 증거: v0.3.43을 설치하고 Commerce OS와 Shopling A18을 새로고침해도 원클릭 화면의 probe가 응답하지 않았다. 서버 orchestration과 마켓전송은 시작되지 않았다.
+- 확정 원인: v0.3.43 ZIP에는 `commerce-os-market-auto-bridge.mjs`와 `shopling-market-auto-agent.mjs` 파일이 있었지만, `manifest.json`의 `content_scripts`에는 Shopling 기간전송 스크립트만 남아 있었다. 따라서 Commerce OS probe와 A18 최상위 auto-agent가 실행되지 않았다.
+- v0.3.44는 기존 v0.3.43 queue/intent/active 원장과 안정된 v0330 wire protocol을 유지하면서 두 content-script 등록을 정확히 한 번씩 복구한다.
+- 원클릭 화면에는 `최신 확장 v0.3.44 다운로드`와 전송을 만들지 않는 `연결 다시 확인` 버튼을 추가했다. 설치 버전과 연결규격 버전을 혼동시키던 안내도 수정했다.
+- 회귀검사는 실제 v0.3.43 누락 manifest 형태를 fixture로 사용하고, 생성된 실제 ZIP의 두 content-script 항목과 스크립트 내용을 CI에서 다시 확인한다.
+- 운영 재개 순서: 기존 Market Sender를 끄고 v0.3.44 하나만 켠다 → Commerce OS와 A18을 새로고침한다 → `연결 다시 확인`이 초록색 `연결 완료`가 되는지 본다 → 그 뒤에만 `기존 등록상품 마켓전송만 재개`를 한 번 누른다.

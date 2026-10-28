@@ -1,0 +1,61 @@
+name: Shopling Market One Click v0.3.44
+on:
+  pull_request:
+    paths:
+      - 'src/lib/shoplingMarketBridgeManifestV0344.ts'
+      - 'src/app/api/shopling-market-group-canary/v0344/**'
+      - 'src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx'
+      - 'tests/shoplingMarketBridgeManifestV0344.test.mjs'
+      - '.github/workflows/shopling-market-oneclick-v0344.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shopling-oneclick-v0344-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Verify v0.3.44 browser connection regression
+        run: node --experimental-strip-types --test tests/shoplingMarketBridgeManifestV0344.test.mjs tests/shoplingMarketOneClickBackgroundV0343.test.mjs tests/shoplingMarketGroupCanaryV0330.test.mjs
+      - name: Build production app
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Generate and inspect actual extension ZIP
+        run: |
+          npm run start -- --port 3100 > /tmp/shopling-v0344-next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/api/shopling-market-group-canary/v0344/download -o /tmp/commerce-os-shopling-market-sender-v0.3.44.zip; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive=pathlib.Path('/tmp/commerce-os-shopling-market-sender-v0.3.44.zip')
+          assert archive.is_file() and archive.stat().st_size > 1000
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              manifest=json.loads(z.read('manifest.json'))
+              assert manifest['version']=='0.3.44'
+              bridge=[row for row in manifest['content_scripts'] if 'commerce-os-market-auto-bridge.mjs' in row.get('js', [])]
+              agent=[row for row in manifest['content_scripts'] if 'shopling-market-auto-agent.mjs' in row.get('js', [])]
+              assert bridge == [{'matches':['https://commerce-os-ops-center.vercel.app/*'],'js':['commerce-os-market-auto-bridge.mjs'],'run_at':'document_idle'}]
+              assert agent == [{'matches':['*://*.shopling.co.kr/*'],'js':['shopling-market-auto-agent.mjs'],'all_frames':False,'run_at':'document_idle'}]
+              assert 'commerce-os-shopling-market-auto-probe-v0330' in z.read('commerce-os-market-auto-bridge.mjs').decode()
+              assert 'commerceOsShoplingMarketAutoActiveV0343' in z.read('shopling-market-auto-agent.mjs').decode()
+              z.extractall('/tmp/shopling-v0344')
+          PY
+          for file in /tmp/shopling-v0344/*.js /tmp/shopling-v0344/*.mjs; do node --check "$file"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopling-market-sender-v0344
+          path: /tmp/commerce-os-shopling-market-sender-v0.3.44.zip
+          retention-days: 7
