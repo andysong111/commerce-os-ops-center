@@ -10,7 +10,8 @@ test("purchase draft exposes separate 5-1 cost capture and 5-2 cart staging acti
   assert.match(source, /purchaseEvidenceSignature/);
   assert.match(source, /cartRefreshDeadlineRef/);
   assert.match(source, /visibilitychange/);
-  assert.match(source, /실제 위안단가와 중국 내 운임을 자동 반영했습니다/);
+  assert.match(source, /실제 위안단가·중국내 운임을 모두 반영했습니다/);
+  assert.match(source, /실제 원가와 예산으로 발주 우선순위·수량을 자동 재계산합니다/);
   assert.match(source, /5-1 원가·운임 기록/);
   assert.match(source, /missingStockBandCount > 0/);
   assert.match(source, /상품 찾기/);

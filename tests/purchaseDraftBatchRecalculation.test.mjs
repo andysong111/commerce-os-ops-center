@@ -204,6 +204,8 @@ test("draft editor exposes persistent and final calculation actions and stages a
   assert.match(workspace, /선택 수량 고정 해제/);
   assert.match(workspace, /replaceQuantityOverrides: true/);
   assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);
+  assert.match(workspace, /draftEvidenceLines: payload\(sourceDraft\)\.lines/);
+  assert.match(workspace, /recalculateWithDraftRef\.current\(body\.draft, true\)/);
   assert.doesNotMatch(
     workspace,
     /await persistDraft\(\{ quiet: true, syncMetadata: false, refresh: false \}\)/,
@@ -271,7 +273,8 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   assert.match(editor, /manualAddPanel=/);
   assert.match(workspace, /hasPendingRecalculation \|\| calculations\.budgetOverKrw > 0/);
   assert.match(workspace, /상품대금 한도를[\s\S]*주문완료 기록을 막았습니다/);
-  assert.match(workspace, /실제 위안단가와 중국 내 운임을 자동 반영했습니다\. 예산도 다시 검증/);
+  assert.match(workspace, /실제 위안단가·중국내 운임을 모두 반영했습니다/);
+  assert.match(workspace, /실제 원가와 예산으로 발주 우선순위·수량을 자동 재계산합니다/);
 });
 
 test("draft page loads legacy commitment pins before rendering the release control", async () => {

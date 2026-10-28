@@ -8,6 +8,7 @@ import { comparePurchaseStrategyPriority } from "./productDecisionEngine/purchas
 import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "./purchaseDraftLimits.ts";
 import type { PurchaseCandidateOmissionReviewRow } from "./purchaseCandidateOmissionAudit";
 import type { PurchaseWholesaleCostEstimateSnapshot } from "./purchaseWholesaleCostEstimate";
+import type { PurchaseActualDraftCostSnapshot } from "./purchaseActualDraftCostSnapshot";
 import {
   validPurchaseOwnerCostEstimateSnapshot,
   type PurchaseOwnerCostEstimateSnapshot,
@@ -103,6 +104,8 @@ export type PurchasePreflightInput = {
   priority: InventoryVerificationPriority | null;
   wholesaleCosts?: PurchaseWholesaleCostEstimateSnapshot | null;
   ownerCosts?: PurchaseOwnerCostEstimateSnapshot | null;
+  actualCostsBefore?: PurchaseActualDraftCostSnapshot | null;
+  actualCostsAfter?: PurchaseActualDraftCostSnapshot | null;
   costEstimateErrors?: string[];
   sourceErrors: string[];
   spendBefore: PurchaseMonthlySpendPin | null;
@@ -141,7 +144,7 @@ export type PurchasePreflightLine = {
   verifiedUnitCostKrw: number;
   confirmedUnitCostKrw: number;
   estimatedUnitCostKrw: number;
-  costBasis: "VERIFIED_PURCHASE_COST" | "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE" | "PURCHASE_SHADOW_UNIT_COST_ESTIMATE" | PurchaseOwnerCostEstimateSource;
+  costBasis: "ACTUAL_1688_DRAFT_LANDED_COST" | "VERIFIED_PURCHASE_COST" | "SHOPLING_WHOLESALE_SALE_PRICE_ESTIMATE" | "PURCHASE_SHADOW_UNIT_COST_ESTIMATE" | PurchaseOwnerCostEstimateSource;
   costModelNo: string | null;
   costReferenceModelNo: string | null;
   executionCostVerified: boolean;
@@ -478,10 +481,13 @@ type PurchaseCostBasis = {
 function purchaseCostBasis(
   row: InventoryVerificationPriorityRow,
   now: number,
+  actualByBarcode: Map<string, PurchaseCostBasis>,
   wholesaleByBarcode: Map<string, PurchaseCostBasis>,
   ownerByBarcode: Map<string, PurchaseCostBasis>,
   allowShadowEstimate: boolean,
 ): PurchaseCostBasis | null {
+  const actual = actualByBarcode.get(row.barcode);
+  if (actual) return actual;
   if (purchaseCostReadyForExecution(row, now)) {
     const unitCostKrw = verifiedUnitCost(row, now);
     if (positive(unitCostKrw)) {
@@ -814,6 +820,35 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   }
   if (ownerSnapshot && !ownerSnapshotUsable) reviewBlockers.push("OWNER_COST_ESTIMATE_INVALID");
 
+  const actualBefore = input.actualCostsBefore ?? null;
+  const actualAfter = input.actualCostsAfter ?? null;
+  const actualSnapshotStable = Boolean(
+    actualBefore &&
+    actualAfter &&
+    actualBefore.draftId === input.options.replaceDraftId &&
+    actualAfter.draftId === input.options.replaceDraftId &&
+    fingerprint(actualBefore.contentFingerprint) &&
+    actualBefore.contentFingerprint === actualAfter.contentFingerprint,
+  );
+  const actualByBarcode = new Map<string, PurchaseCostBasis>();
+  if (actualSnapshotStable && actualAfter) {
+    for (const row of actualAfter.rows) {
+      if (!CODE.test(row.barcode) || !positive(row.unitCostKrw)) continue;
+      actualByBarcode.set(row.barcode, {
+        unitCostKrw: row.unitCostKrw,
+        basis: "ACTUAL_1688_DRAFT_LANDED_COST",
+        source: "ACTUAL_1688_DRAFT_LANDED_COST",
+        evidenceAt: actualAfter.savedAt,
+        executionVerified: true,
+        modelNo: null,
+        referenceModelNo: null,
+      });
+    }
+  }
+  if ((actualBefore || actualAfter) && !actualSnapshotStable) {
+    blockers.push("ACTUAL_DRAFT_COST_CHANGED_DURING_READ");
+  }
+
   // A calculated Draft estimate keeps ordinary recommended products visible
   // until 5-1 captures the live 1688 price. It must not hide a supplied cost
   // snapshot that failed integrity or freshness checks.
@@ -870,6 +905,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       purchaseCostBasis(
         row,
         now,
+        actualByBarcode,
         wholesaleByBarcode,
         ownerByBarcode,
         allowShadowEstimateForDraft,
@@ -1269,6 +1305,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       contentFingerprint: ownerSnapshot.contentFingerprint,
       rows: ownerSnapshot.rows,
     } : null,
+    actualDraftCosts: actualSnapshotStable && actualAfter ? {
+      draftId: actualAfter.draftId,
+      savedAt: actualAfter.savedAt,
+      contentFingerprint: actualAfter.contentFingerprint,
+      rows: actualAfter.rows,
+    } : null,
     replacementDraft: input.replacementAfter ? {
       draftId: input.replacementAfter.draftId,
       contentFingerprint: input.replacementAfter.contentFingerprint,
@@ -1385,6 +1427,7 @@ export type PurchasePreflightReaders = {
   monthlySpend: (cycleMonth: string) => Promise<PurchaseMonthlySpendPin>;
   wholesaleCosts?: () => Promise<PurchaseWholesaleCostEstimateSnapshot>;
   ownerCosts?: () => Promise<PurchaseOwnerCostEstimateSnapshot>;
+  actualDraftCosts?: (draftId: string) => Promise<PurchaseActualDraftCostSnapshot | null>;
   replacementDraft?: (draftId: string) => Promise<PurchaseReplacementDraftSnapshot>;
 };
 
@@ -1436,11 +1479,17 @@ export async function readPurchaseCyclePreflight(
   const replacementRead = options.replaceDraftId && readers.replacementDraft
     ? () => readers.replacementDraft!(options.replaceDraftId!)
     : null;
-  const [before, spendBefore, replacementBefore] = await Promise.all([
+  const actualCostRead = options.replaceDraftId && readers.actualDraftCosts
+    ? () => readers.actualDraftCosts!(options.replaceDraftId!)
+    : null;
+  const [before, spendBefore, replacementBefore, actualCostsBefore] = await Promise.all([
     capture("CANDIDATE_READ_FAILED", readers.candidate),
     capture("CYCLE_SPEND_READ_FAILED", () => readers.monthlySpend(options.targetDate.slice(0, 7))),
     replacementRead
       ? capture("REPLACEMENT_DRAFT_READ_FAILED", replacementRead)
+      : Promise.resolve(null),
+    actualCostRead
+      ? capture("ACTUAL_DRAFT_COST_READ_FAILED", actualCostRead)
       : Promise.resolve(null),
   ]);
   if (options.replaceDraftId && !replacementRead) sourceErrors.push("REPLACEMENT_DRAFT_READ_FAILED");
@@ -1472,7 +1521,7 @@ export async function readPurchaseCyclePreflight(
       costEstimateErrors.push("OWNER_COST_ESTIMATE_READ_FAILED");
     }
   }
-  const [after, spendAfter, replacementAfter] = await Promise.all([
+  const [after, spendAfter, replacementAfter, actualCostsAfter] = await Promise.all([
     before
       ? capture("CANDIDATE_RECHECK_FAILED", readers.candidate)
       : Promise.resolve(null),
@@ -1482,6 +1531,9 @@ export async function readPurchaseCyclePreflight(
     before && replacementRead && replacementBefore
       ? capture("REPLACEMENT_DRAFT_RECHECK_FAILED", replacementRead)
       : Promise.resolve(null),
+    before && actualCostRead && actualCostsBefore
+      ? capture("ACTUAL_DRAFT_COST_RECHECK_FAILED", actualCostRead)
+      : Promise.resolve(null),
   ]);
-  return buildPurchaseCyclePreflight({ now: clock(), options, before, after, gate, reconciliation, priority, wholesaleCosts, ownerCosts, costEstimateErrors, sourceErrors, spendBefore, spendAfter, replacementBefore, replacementAfter });
+  return buildPurchaseCyclePreflight({ now: clock(), options, before, after, gate, reconciliation, priority, wholesaleCosts, ownerCosts, actualCostsBefore, actualCostsAfter, costEstimateErrors, sourceErrors, spendBefore, spendAfter, replacementBefore, replacementAfter });
 }

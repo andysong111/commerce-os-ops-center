@@ -188,6 +188,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const cartRefreshDeadlineRef = useRef(0);
   const cartEvidenceRef = useRef(purchaseEvidenceSignature(initialDraft));
+  const recalculateWithDraftRef = useRef<(
+    sourceDraft: InternalChinaPurchaseDraft,
+    automaticAfterCostCapture?: boolean,
+  ) => Promise<void>>(async () => {});
 
   useEffect(() => {
     const restored = readPurchaseDraftPendingAutosave(window.localStorage, initialDraft.draftId);
@@ -255,8 +259,17 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         if (nextSignature === cartEvidenceRef.current) return;
         cartEvidenceRef.current = nextSignature;
         setDraft(body.draft);
-        setNotice("1688 장바구니에서 확인한 실제 위안단가와 중국 내 운임을 자동 반영했습니다. 예산도 다시 검증했습니다.");
-        router.refresh();
+        const missingActualPrices = body.draft.lines.filter(
+          (line) => decimal(line.unitPriceCny) <= 0,
+        ).length;
+        if (missingActualPrices === 0) {
+          cartRefreshDeadlineRef.current = 0;
+          setNotice("5-1 실제 위안단가·중국내 운임을 모두 반영했습니다. 실제 원가와 예산으로 발주 우선순위·수량을 자동 재계산합니다.");
+          void recalculateWithDraftRef.current(body.draft, true);
+        } else {
+          setNotice(`1688에서 확인한 실제 위안단가와 중국내 운임을 반영했습니다. 아직 실제 단가가 없는 ${missingActualPrices.toLocaleString("ko-KR")} SKU를 마치면 발주안을 자동 재계산합니다.`);
+          router.refresh();
+        }
       } finally {
         refreshing = false;
       }
@@ -821,14 +834,19 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     );
   }
 
-  async function recalculateDraft() {
+  async function recalculateDraft(
+    sourceDraft = draft,
+    automaticAfterCostCapture = false,
+  ) {
     if (
-      draft.status !== "DRAFT" ||
+      sourceDraft.status !== "DRAFT" ||
       regenerating ||
       invalidQuantityBarcodes.length > 0
     ) return;
     setRegenerating(true);
-    setNotice("현재 Draft에서 최신 우선순위와 예산을 다시 계산하고 있습니다. 다른 준비 화면으로 이동하지 않습니다.");
+    setNotice(automaticAfterCostCapture
+      ? "5-1 실제 원가·운임을 저장했습니다. 이 원가와 예산으로 저우선 상품 제외·고우선 상품 추가·수량 조정을 자동 계산하고 있습니다."
+      : "현재 Draft에서 최신 우선순위와 예산을 다시 계산하고 있습니다. 다른 준비 화면으로 이동하지 않습니다.");
     try {
       const settings = new URL(regenerationHref, window.location.origin);
       const cash = settings.searchParams.get("cash");
@@ -842,12 +860,13 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
           cashLimitKrw: cash ? Number(cash) : null,
           sourcingBudgetPercent: Number(settings.searchParams.get("sourcing") || 0),
           allowOpenBudgetPreview: settings.searchParams.get("early") === "1",
-          replaceDraftId: draft.draftId,
+          replaceDraftId: sourceDraft.draftId,
           excludedBarcodes,
           quantityOverrides: activeQuantityOverrides,
           replaceQuantityOverrides: true,
           stockBandUpdates,
           discontinuedBarcodes,
+          draftEvidenceLines: payload(sourceDraft).lines,
         }),
       });
       const body = (await response.json().catch(() => ({}))) as DraftRecalculationResponse;
@@ -861,7 +880,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       setReleasedQuantityOverrides({});
       setStagedStockBands({});
       onStagedAdditionsChange([]);
-      clearPurchaseDraftPendingAutosave(window.localStorage, draft.draftId);
+      clearPurchaseDraftPendingAutosave(window.localStorage, sourceDraft.draftId);
       const successMessage = body.message || "변경사항을 반영해 발주안을 다시 계산했습니다.";
       setNotice(successMessage);
       const destination = new URL(
@@ -876,6 +895,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       setRegenerating(false);
     }
   }
+  useEffect(() => {
+    recalculateWithDraftRef.current = recalculateDraft;
+  });
 
   function resetPendingRecalculation() {
     setEditedQuantities({});
@@ -894,7 +916,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       setNotice("재고·수량·추가상품 변경을 먼저 한 번 재계산한 뒤 5-1 업무를 실행하세요.");
       return;
     }
-    if (calculations.budgetOverKrw > 0) {
+    if (mode === "cart-staging" && calculations.budgetOverKrw > 0) {
       setNotice(`현재 실제 위안단가 기준으로 상품대금 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과했습니다. 수량을 조정하고 재계산한 뒤 다시 진행하세요.`);
       return;
     }
@@ -1104,7 +1126,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             </div>
             <button
               type="button"
-              onClick={recalculateDraft}
+              onClick={() => void recalculateDraft()}
               disabled={recalculationDisabled}
               aria-busy={regenerating}
               aria-label="표 상단 고정 발주안 재계산"
@@ -1233,7 +1255,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <button type="button" onClick={releaseSelectedQuantityOverrides} disabled={draft.status !== "DRAFT" || selectedQuantityOverrideCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40">선택 수량 고정 해제 ({selectedQuantityOverrideCandidates.length}종)</button>
             <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">선택 해제</button>
             <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">대기 변경 취소</button>
-            <button type="button" onClick={recalculateDraft} disabled={recalculationDisabled} aria-busy={regenerating} aria-label="변경사항 모아 발주안 재계산" data-action-label="변경사항 저장 후 발주안 재계산" title={hasPendingRecalculation ? "재고상태 저장 후 발주안 재계산" : "최신 추천으로 발주안 재계산"} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{recalculationButtonLabel}</button>
+            <button type="button" onClick={() => void recalculateDraft()} disabled={recalculationDisabled} aria-busy={regenerating} aria-label="변경사항 모아 발주안 재계산" data-action-label="변경사항 저장 후 발주안 재계산" title={hasPendingRecalculation ? "재고상태 저장 후 발주안 재계산" : "최신 추천으로 발주안 재계산"} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{recalculationButtonLabel}</button>
             <p className="text-xs font-semibold text-emerald-700">재고·단종예정·수량·제외·추가 변경은 이 브라우저에 자동 임시저장되어 새로고침해도 복구됩니다.</p>
           </div>
         </div>

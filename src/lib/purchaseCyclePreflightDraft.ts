@@ -17,6 +17,11 @@ import {
   regenerateManualMonthlyPurchaseDraft,
   regenerateValidatedMonthlyPurchaseDraft,
 } from "@/lib/purchaseCycleDraftRegeneration";
+import {
+  loadStoredInternalChinaPurchaseDraftForCost,
+  saveInternalChinaPurchaseDraft,
+  type InternalChinaPurchaseDraftInput,
+} from "@/lib/internalChinaPurchaseDraft";
 import { mergePurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegenerationCore";
 import {
   normalizePurchaseDraftStockBandUpdates,
@@ -45,6 +50,7 @@ export type InlinePurchaseCycleDraftRecalculationRequest = {
   replaceQuantityOverrides?: boolean;
   stockBandUpdates?: PurchaseDraftStockBandUpdate[];
   discontinuedBarcodes?: string[];
+  draftEvidenceLines?: NonNullable<InternalChinaPurchaseDraftInput["lines"]>;
 };
 
 export async function recalculatePurchaseCycleDraftInline(
@@ -57,6 +63,21 @@ export async function recalculatePurchaseCycleDraftInline(
   let savedStockBandCount = 0;
   let savedDiscontinuationCount = 0;
   try {
+    const savedDraftEvidence = input.draftEvidenceLines
+      ? await saveInternalChinaPurchaseDraft(input.replaceDraftId, {
+          lines: input.draftEvidenceLines,
+        })
+      : await loadStoredInternalChinaPurchaseDraftForCost(input.replaceDraftId);
+    const lineEvidence = savedDraftEvidence?.lines.map((line) => ({
+      barcode: line.barcode,
+      chinaOption: line.chinaOption,
+      supplierLink: line.supplierLink,
+      unitPriceCny: line.unitPriceCny,
+      freightGroupId: line.freightGroupId,
+      domesticChinaFreightCny: line.domesticChinaFreightCny,
+      orderNumber: line.orderNumber,
+      note: line.note,
+    }));
     const stockBandStorage = stockBandUpdates.length
       ? await storePurchaseDraftStockBands({
           draftId: input.replaceDraftId,
@@ -157,6 +178,7 @@ export async function recalculatePurchaseCycleDraftInline(
         excludedBarcodes,
         quantityOverrides,
         releasedQuantityOverrideBarcodes,
+        lineEvidence,
       });
       return {
         draft: fallback.draft,
@@ -179,6 +201,7 @@ export async function recalculatePurchaseCycleDraftInline(
       expectedDraftId: input.replaceDraftId,
       operatorExcludedBarcodes: excludedBarcodes,
       operatorQuantityOverrides: quantityOverrides,
+      lineEvidence,
     });
     return {
       draft: replacement.draft,

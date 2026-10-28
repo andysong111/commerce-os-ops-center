@@ -43,6 +43,17 @@ export type PurchaseCycleDraftRegenerationResult = {
   externalOrderExecuted: false;
 };
 
+export type PurchaseDraftLineEvidence = {
+  barcode: string;
+  chinaOption?: unknown;
+  supplierLink?: unknown;
+  unitPriceCny?: unknown;
+  freightGroupId?: unknown;
+  domesticChinaFreightCny?: unknown;
+  orderNumber?: unknown;
+  note?: unknown;
+};
+
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
 }
@@ -193,6 +204,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
   nextCycleStartDate?: string;
   operatorExcludedBarcodes?: string[];
   operatorQuantityOverrides?: Array<{ barcode: string; targetQuantity: number }>;
+  lineEvidence?: PurchaseDraftLineEvidence[];
 }): Promise<PurchaseCycleDraftRegenerationResult> {
   if (!FINGERPRINT.test(text(input.sourceFingerprint))) {
     throw new Error("PURCHASE_DRAFT_REGENERATION_FINGERPRINT_INVALID");
@@ -229,6 +241,11 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
   const confirmedQuantityOverrideBarcodes = operatorAdjustments.quantityOverrides.map(
     (row) => row.barcode,
   );
+  const lineEvidenceByBarcode = new Map(
+    (input.lineEvidence ?? [])
+      .map((row) => [barcode(row.barcode), row] as const)
+      .filter(([code]) => BARCODE.test(code)),
+  );
   const stable = {
     regeneration: true,
     sourceFingerprint: input.sourceFingerprint,
@@ -241,6 +258,21 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       referenceDemandQuantity: line.referenceDemandQuantity,
     })),
     operatorAdjustments,
+    lineEvidence: lines.map((line) => {
+      const evidence = lineEvidenceByBarcode.get(line.barcode);
+      return evidence
+        ? {
+            barcode: line.barcode,
+            chinaOption: text(evidence.chinaOption),
+            supplierLink: text(evidence.supplierLink),
+            unitPriceCny: Number(evidence.unitPriceCny) || 0,
+            freightGroupId: text(evidence.freightGroupId),
+            domesticChinaFreightCny: Number(evidence.domesticChinaFreightCny) || 0,
+            orderNumber: text(evidence.orderNumber),
+            note: text(evidence.note),
+          }
+        : { barcode: line.barcode };
+    }),
   };
   const draftId = `fast-purchase-draft:${hash(stable).slice(0, 20)}`;
   const ledger = await loadChinaOrderLedger();
@@ -362,6 +394,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     const preservedPayload = preservedOperatorBarcodes.has(line.barcode)
       ? object(previous?.latestPayload)
       : {};
+    const evidence = lineEvidenceByBarcode.get(line.barcode);
     return normalizeChinaOrderCommitmentEvent({
       sourceSystem: SOURCE_SYSTEM,
       // A regenerated Draft is a new reservation lifecycle. Reusing a prior
@@ -381,6 +414,17 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       }`,
       payload: {
         ...preservedPayload,
+        ...(evidence
+          ? {
+              chinaOption: text(evidence.chinaOption),
+              supplierLink: text(evidence.supplierLink),
+              unitPriceCny: Math.min(1_000_000, Math.max(0, Number(evidence.unitPriceCny) || 0)),
+              freightGroupId: text(evidence.freightGroupId).slice(0, 100),
+              domesticChinaFreightCny: Math.min(1_000_000, Math.max(0, Number(evidence.domesticChinaFreightCny) || 0)),
+              orderNumber: text(evidence.orderNumber).slice(0, 160),
+              operatorNote: text(evidence.note).slice(0, 300),
+            }
+          : {}),
         sourceFingerprint: input.sourceFingerprint,
         dataMode: "PURCHASE_PREFLIGHT",
         cycleMonth: input.cycleMonth,
@@ -389,7 +433,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
         productName: line.productName,
         referenceDemandQuantity: line.referenceDemandQuantity,
         stockSense: line.stockSense,
-        operatorNote: line.note,
+        operatorNote: evidence ? text(evidence.note).slice(0, 300) : line.note,
         operatorExcludedBarcodes: operatorAdjustments.excludedBarcodes,
         operatorQuantityOverrides: operatorAdjustments.quantityOverrides,
         operatorConfirmedQuantityOverrideBarcodes: confirmedQuantityOverrideBarcodes,
@@ -485,6 +529,7 @@ export async function regenerateManualMonthlyPurchaseDraft(input: {
   excludedBarcodes: string[];
   quantityOverrides: Array<{ barcode: string; targetQuantity: number }>;
   releasedQuantityOverrideBarcodes?: string[];
+  lineEvidence?: PurchaseDraftLineEvidence[];
 }) {
   if (!DRAFT_ID.test(text(input.expectedDraftId))) {
     throw new Error("PURCHASE_DRAFT_REGENERATION_DRAFT_ID_INVALID");
@@ -547,6 +592,7 @@ export async function regenerateManualMonthlyPurchaseDraft(input: {
     expectedDraftId: input.expectedDraftId,
     operatorExcludedBarcodes: input.excludedBarcodes,
     operatorQuantityOverrides: input.quantityOverrides,
+    lineEvidence: input.lineEvidence,
   });
   return {
     ...replacement,
