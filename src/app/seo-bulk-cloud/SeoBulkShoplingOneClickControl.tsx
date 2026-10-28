@@ -522,7 +522,7 @@ export default function SeoBulkShoplingOneClickControl() {
               onClick={() => void start()}
               className="rounded-lg border border-emerald-300 bg-white px-3 py-2 font-bold text-emerald-800 disabled:opacity-40"
             >
-              신규 등록만 실행 ({readyRuns.length})
+              샵플링 일괄 대량등록 및 마켓전송 ({readyRuns.length})
             </button>
             <button
               type="button"
@@ -530,7 +530,7 @@ export default function SeoBulkShoplingOneClickControl() {
               onClick={() => void startMarketOnly()}
               className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-bold text-amber-800 disabled:opacity-40"
             >
-              마켓전송만 재개 ({marketOnlyRuns.length})
+              기존 등록상품 마켓전송만 재개 ({marketOnlyRuns.length})
             </button>
             <span className="self-center text-slate-500">계산 상태: {scheduleReason || "확인 중"}</span>
           </div>
