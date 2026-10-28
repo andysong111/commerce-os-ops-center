@@ -9,6 +9,8 @@ const BRIDGE_PROBE_ACK = "commerce-os-shopling-market-auto-probe-ack-v0330";
 const BRIDGE_HANDOFF = "commerce-os-shopling-market-auto-handoff-v0330";
 const BRIDGE_HANDOFF_ACK = "commerce-os-shopling-market-auto-handoff-ack-v0330";
 const PENDING_STORAGE_KEY = "commerceOs.shoplingMarketAutoHandoff.v0330";
+const LATEST_EXTENSION_DOWNLOAD =
+  "/api/shopling-market-group-canary/v0344/download";
 const POLL_MS = 4_000;
 
 type UnknownRecord = Record<string, unknown>;
@@ -171,6 +173,21 @@ export default function SeoBulkShoplingOneClickControl() {
   const [error, setError] = useState("");
   const [bridgeReady, setBridgeReady] = useState<boolean | null>(null);
 
+  const checkBridge = useCallback(async () => {
+    setError("");
+    setMessage("브라우저 에이전트 연결을 확인합니다…");
+    const available = await probeExtension();
+    setBridgeReady(available);
+    if (available) {
+      setMessage("브라우저 에이전트 연결 확인 완료 · 아직 상품 전송은 시작하지 않았습니다.");
+      return;
+    }
+    setMessage("");
+    setError(
+      "최신 Shopling Market Sender v0.3.44 연결이 필요합니다. 설치 후 Commerce OS와 Shopling A18 탭을 새로고침하세요.",
+    );
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const [runsBody, autoBody] = await Promise.all([
@@ -288,7 +305,7 @@ export default function SeoBulkShoplingOneClickControl() {
       const available = await probeExtension();
       setBridgeReady(available);
       if (!available) {
-        throw new Error("Shopling Market Sender v0.3.30이 연결되지 않았습니다. v0.3.30 설치 후 Shopling 관리자/A18 탭을 열고 다시 누르세요.");
+        throw new Error("Shopling Market Sender가 연결되지 않았습니다. 최신 v0.3.44 설치 후 Commerce OS와 Shopling 관리자/A18 탭을 새로고침하고 다시 확인하세요.");
       }
       const runIds = targets.map((row) => row.run_id);
       const token = createHandoffToken();
@@ -354,8 +371,24 @@ export default function SeoBulkShoplingOneClickControl() {
             </p>
             <h2 className="mt-1 text-xl font-black">Shopling 업로드 → 마켓전송 원클릭</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Shopling 로그인/A18 탭과 v0.3.30만 열어두면 확장프로그램 팝업을 조작하지 않아도 됩니다.
+              Shopling 로그인/A18 탭과 최신 확장 v0.3.44를 열어두면 확장프로그램 팝업을 조작하지 않아도 됩니다.
             </p>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+              <a
+                href={LATEST_EXTENSION_DOWNLOAD}
+                className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-emerald-800"
+              >
+                최신 확장 v0.3.44 다운로드
+              </a>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void checkBridge()}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-700 disabled:opacity-40"
+              >
+                연결 다시 확인
+              </button>
+            </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
@@ -388,7 +421,7 @@ export default function SeoBulkShoplingOneClickControl() {
             마켓전송만 재개 가능 {marketOnlyRuns.length}개
           </span>
           <span className={`rounded-full px-3 py-1 ${bridgeReady === true ? "bg-emerald-100 text-emerald-800" : bridgeReady === false ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"}`}>
-            브라우저 에이전트 {bridgeReady === true ? "v0.3.30 연결" : bridgeReady === false ? "연결 필요" : "확인 대기"}
+            브라우저 에이전트 {bridgeReady === true ? "연결 완료" : bridgeReady === false ? "연결 필요" : "확인 대기"}
           </span>
           {latest ? (
             <span className={`rounded-full px-3 py-1 ${terminalState(text(latest.state)) ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>

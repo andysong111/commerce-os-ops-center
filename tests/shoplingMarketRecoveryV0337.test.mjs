@@ -4,6 +4,11 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { marketRowNeedsReview } from '../src/lib/shoplingMarketSafety.ts';
+import {
+  SHOPLING_MARKET_CHANNELS_V0337,
+  buildMissingLedgerRowsV0337,
+  isSafeStalePreSubmitClaimV0337,
+} from '../src/lib/shoplingMarketClaimSelfHealV0337.ts';
 const ts = createRequire(import.meta.url)('typescript');
 const route = fs.readFileSync(new URL('../src/app/api/shopling-market-group-canary/v0337/claim/route.ts', import.meta.url), 'utf8');
 const js = ts.transpileModule(route, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -18,7 +23,7 @@ function handler(ledger) {
   const job={id:jobId,owner_id:'owner',launch_item_id:'launch',status:'success',payload:{seoFinal:{source:'seo-bulk-cloud-test'}},result:{rows:ledger.map((r)=>({goods_key:r.goods_key,channel_key:r.product_group_key,ptn_goods_cd:r.ptn_goods_cd,status:'success'}))}};
   const db={from(table){let single=false;let patch=null;const filters=[];const q={select(){return q},eq(k,v){filters.push([k,v]);return q},in(k,v){filters.push([k,v]);return q},is(k,v){filters.push([k,v]);return q},limit(){return q},order(){return q},maybeSingle(){single=true;return q},update(p){patch=p;return q},then(resolve,reject){try{if(table==='product_launch_upload_jobs')return Promise.resolve({error:null,data:single?job:[job]}).then(resolve,reject);let data=ledger.filter(r=>filters.every(([k,v])=>k==='owner_id'||(Array.isArray(v)?v.includes(r[k]):r[k]===v)));if(patch){updates.push({patch,filters});data=data.map(r=>Object.assign(r,patch));}return Promise.resolve({error:null,data}).then(resolve,reject);}catch(e){return Promise.reject(e).then(resolve,reject)}}};return q}};
   const mod={exports:{}};
-  vm.runInNewContext(js,{exports:mod.exports,module:mod,require(name){if(name==='@/lib/supabase/admin')return {createSupabaseAdminClient:async()=>db};if(name==='@/lib/shoplingMarketSafety')return {marketRowNeedsReview};throw new Error(name)},Request,Response,Date,Set,Map});
+  vm.runInNewContext(js,{exports:mod.exports,module:mod,require(name){if(name==='@/lib/supabase/admin')return {createSupabaseAdminClient:async()=>db};if(name==='@/lib/shoplingMarketSafety')return {marketRowNeedsReview};if(name==='@/lib/shoplingMarketClaimSelfHealV0337')return {SHOPLING_MARKET_CHANNELS_V0337,buildMissingLedgerRowsV0337,isSafeStalePreSubmitClaimV0337};throw new Error(name)},Request,Response,Date,Set,Map});
   return {post:mod.exports.POST,updates};
 }
 function request(runId='canary-group-v030-test-run-123456789') {return new Request('https://example.invalid/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bridge:'shopling-market-selection-all-v0.1',runId,jobId})});}

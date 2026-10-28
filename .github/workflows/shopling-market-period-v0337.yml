@@ -5,7 +5,7 @@ on:
       - 'public/shopling-market-sender-v0337/**'
       - 'src/lib/shoplingMarketRecoveryV0337.ts'
       - 'src/lib/shoplingMarketSafety.ts'
-      - 'src/app/api/shopling-market-group-canary/**'
+      - 'src/app/api/shopling-market-group-canary/v0337/**'
       - 'tests/shoplingMarketRecoveryV0337.*'
       - '.github/workflows/shopling-market-period-v0337.yml'
   workflow_dispatch:
