@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 const SEO_RUN_API = "/api/seo-run-jobs";
 const AUTO_API = "/api/shopling-market-auto-orchestration";
+const LIFECYCLE_API = "/api/seo-listing-lifecycle";
 const BRIDGE_PROBE = "commerce-os-shopling-market-auto-probe-v0330";
 const BRIDGE_PROBE_ACK = "commerce-os-shopling-market-auto-probe-ack-v0330";
 const BRIDGE_HANDOFF = "commerce-os-shopling-market-auto-handoff-v0330";
@@ -67,6 +68,14 @@ function createHandoffToken() {
 function runTimestamp(row: SeoRunRow) {
   const parsed = Date.parse(text(row.run_created_at || row.updated_at));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function latestBatchRows(rows: SeoRunRow[]) {
+  const newest = [...rows]
+    .filter((job) => text(job.batch_id))
+    .sort((left, right) => runTimestamp(right) - runTimestamp(left))[0];
+  const batchId = text(newest?.batch_id);
+  return batchId ? rows.filter((job) => text(job.batch_id) === batchId) : [];
 }
 
 async function requestJson(url: string, init?: RequestInit) {
@@ -169,9 +178,12 @@ export default function SeoBulkShoplingOneClickControl() {
   const [jobs, setJobs] = useState<SeoRunRow[]>([]);
   const [orchestrations, setOrchestrations] = useState<AutoRow[]>([]);
   const [busy, setBusy] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [bridgeReady, setBridgeReady] = useState<boolean | null>(null);
+  const [scheduledRunIds, setScheduledRunIds] = useState<string[]>([]);
+  const [scheduleReason, setScheduleReason] = useState("");
 
   const checkBridge = useCallback(async () => {
     setError("");
@@ -200,6 +212,20 @@ export default function SeoBulkShoplingOneClickControl() {
           ? (autoBody.orchestrations as AutoRow[])
           : [],
       );
+      try {
+        const lifecycleBody = await requestJson(LIFECYCLE_API);
+        const scheduledRun = record(lifecycleBody.scheduledRun);
+        setScheduledRunIds(
+          Array.isArray(scheduledRun.runIds)
+            ? scheduledRun.runIds.map(text).filter(Boolean)
+            : [],
+        );
+        setScheduleReason(text(scheduledRun.reasonCode));
+      } catch {
+        // 수명주기 계획 조회가 일시 실패해도 기존 등록/재전송 복구 기능은 유지한다.
+        setScheduledRunIds([]);
+        setScheduleReason("LIFECYCLE_STATUS_UNAVAILABLE");
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "원클릭 상태 조회 실패");
     }
@@ -233,6 +259,14 @@ export default function SeoBulkShoplingOneClickControl() {
     [latestBatchRuns],
   );
   const latest = orchestrations[0] ?? null;
+  const automaticTargetCount = useMemo(
+    () =>
+      new Set([
+        ...scheduledRunIds,
+        ...marketOnlyRuns.map((row) => row.run_id),
+      ]).size,
+    [marketOnlyRuns, scheduledRunIds],
+  );
 
   const retryPendingHandoff = useCallback(async () => {
     let pending: UnknownRecord = {};
@@ -300,7 +334,7 @@ export default function SeoBulkShoplingOneClickControl() {
     if (!targets.length || busy) return;
     setBusy(true);
     setError("");
-    setMessage("v0.3.30 브라우저 에이전트 연결을 확인합니다…");
+    setMessage("최신 브라우저 에이전트 연결을 확인합니다…");
     try {
       const available = await probeExtension();
       setBridgeReady(available);
@@ -361,17 +395,74 @@ export default function SeoBulkShoplingOneClickControl() {
     [marketOnlyRuns, startPipeline],
   );
 
+  const startScheduledOperation = useCallback(async () => {
+    if (preparing || busy) return;
+    setPreparing(true);
+    setError("");
+    setMessage("재고·판매·마켓 빈자리를 다시 확인해 오늘 작업을 준비합니다…");
+    try {
+      const [planBody, runsBody] = await Promise.all([
+        requestJson(LIFECYCLE_API, {
+          method: "POST",
+          body: JSON.stringify({ action: "prepare_scheduled_run" }),
+        }),
+        requestJson(SEO_RUN_API),
+      ]);
+      const freshJobs = Array.isArray(runsBody.jobs)
+        ? (runsBody.jobs as SeoRunRow[])
+        : [];
+      setJobs(freshJobs);
+      const scheduledRun = record(planBody.scheduledRun);
+      const plannedIds = Array.isArray(scheduledRun.runIds)
+        ? scheduledRun.runIds.map(text).filter(Boolean)
+        : [];
+      setScheduledRunIds(plannedIds);
+      setScheduleReason(text(scheduledRun.reasonCode));
+      const plannedSet = new Set(plannedIds);
+      const resumeSet = new Set(
+        latestBatchRows(freshJobs)
+          .filter(
+            (row) =>
+              row.status === "ready" &&
+              row.registration_status === "success" &&
+              text(row.registration_job_id),
+          )
+          .map((row) => row.run_id),
+      );
+      const targets = freshJobs.filter(
+        (row) => plannedSet.has(row.run_id) || resumeSet.has(row.run_id),
+      );
+      if (!targets.length) {
+        setMessage(
+          text(scheduledRun.reasonCode) === "MARKET_CAPACITY_BLOCKED"
+            ? "마켓 등록한도 확인이 끝나지 않아 안전하게 멈췄습니다. 잘못 등록하지는 않았습니다."
+            : "오늘 새로 진행하거나 이어서 처리할 상품이 없습니다.",
+        );
+        return;
+      }
+      await startPipeline("full_pipeline", targets);
+    } catch (startError) {
+      setError(
+        startError instanceof Error
+          ? startError.message
+          : "오늘 자동운영 준비에 실패했습니다.",
+      );
+    } finally {
+      setPreparing(false);
+    }
+  }, [busy, preparing, startPipeline]);
+
   return (
-    <section className="mx-auto mt-5 max-w-[1500px] px-5">
+    <section id="seo-portfolio-one-click" className="mx-auto mt-5 max-w-[1500px] scroll-mt-6 px-5">
       <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-cyan-50 p-5 shadow-sm">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">
               COMMERCE OS · ONE CLICK SHOPLING PIPELINE
             </p>
-            <h2 className="mt-1 text-xl font-black">Shopling 업로드 → 마켓전송 원클릭</h2>
+            <h2 className="mt-1 text-xl font-black">오늘 자동운영 원클릭</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Shopling 로그인/A18 탭과 최신 확장 v0.3.44를 열어두면 확장프로그램 팝업을 조작하지 않아도 됩니다.
+              재고·판매·마켓 빈자리를 다시 확인한 뒤, 가능한 상품만 Shopling 업로드와 마켓전송까지 이어서 처리합니다.
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
               <a
@@ -390,32 +481,25 @@ export default function SeoBulkShoplingOneClickControl() {
               </button>
             </div>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2 sm:min-w-[330px]">
             <button
               type="button"
-              disabled={busy || readyRuns.length === 0}
-              onClick={() => void start()}
-              className="rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:opacity-40"
+              disabled={busy || preparing || automaticTargetCount === 0}
+              onClick={() => void startScheduledOperation()}
+              className="rounded-xl bg-emerald-700 px-6 py-4 text-base font-black text-white shadow-sm disabled:opacity-40"
             >
-              {busy
-                ? "원클릭 작업 연결 중…"
-                : `샵플링 일괄 대량등록 및 마켓전송 (${readyRuns.length})`}
+              {busy || preparing
+                ? "오늘 작업 준비·연결 중…"
+                : `오늘 자동운영 1번 실행 (${automaticTargetCount})`}
             </button>
-            <button
-              type="button"
-              disabled={busy || marketOnlyRuns.length === 0}
-              onClick={() => void startMarketOnly()}
-              className="rounded-xl bg-amber-600 px-5 py-3 text-sm font-black text-white shadow-sm disabled:opacity-40"
-            >
-              {busy
-                ? "재개 작업 연결 중…"
-                : `기존 등록상품 마켓전송만 재개 (${marketOnlyRuns.length})`}
-            </button>
+            <p className="text-center text-xs font-bold text-slate-500">
+              재고 동기화가 끝난 뒤 하루 1회만 누르면 됩니다.
+            </p>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
           <span className="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-200">
-            등록 가능 {readyRuns.length}개
+            오늘 등록 가능 {scheduledRunIds.length}개
           </span>
           <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-900 ring-1 ring-amber-200">
             마켓전송만 재개 가능 {marketOnlyRuns.length}개
@@ -429,6 +513,28 @@ export default function SeoBulkShoplingOneClickControl() {
             </span>
           ) : null}
         </div>
+        <details className="mt-4 rounded-xl border border-slate-200 bg-white/70 p-3 text-xs">
+          <summary className="cursor-pointer font-bold text-slate-600">문제 발생 때만 쓰는 보조 버튼</summary>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy || readyRuns.length === 0}
+              onClick={() => void start()}
+              className="rounded-lg border border-emerald-300 bg-white px-3 py-2 font-bold text-emerald-800 disabled:opacity-40"
+            >
+              샵플링 일괄 대량등록 및 마켓전송 ({readyRuns.length})
+            </button>
+            <button
+              type="button"
+              disabled={busy || marketOnlyRuns.length === 0}
+              onClick={() => void startMarketOnly()}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-bold text-amber-800 disabled:opacity-40"
+            >
+              기존 등록상품 마켓전송만 재개 ({marketOnlyRuns.length})
+            </button>
+            <span className="self-center text-slate-500">계산 상태: {scheduleReason || "확인 중"}</span>
+          </div>
+        </details>
         {marketOnlyRuns.length ? (
           <p className="mt-3 text-xs font-bold text-amber-800">
             이 버튼은 최신 작업묶음의 기존 goods_key만 사용합니다. SEO 생성과 Shopling 상품등록은 다시 실행하지 않습니다.

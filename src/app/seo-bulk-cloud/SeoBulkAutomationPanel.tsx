@@ -35,11 +35,34 @@ type Dashboard = {
   summary: {
     seoReadyProductCount: number;
     shadowRegistrationCount: number;
+    scheduledRegistrationCount: number;
+    eligibleRegistrationCount: number;
+    excludedByLifecycleCount: number;
+    limitedByCapacityCount: number;
+    soldOutDeleteDueCount: number;
+    relistDueCount: number;
+    protectedProductCount: number;
+    cooldownProductCount: number;
+    reviewProductCount: number;
+    capacityFallbackActive: boolean;
+    scheduledBatchLimit: number;
+    registeredProductCount: number;
+    registrationFailedProductCount: number;
+    processingProductCount: number;
+    verifiedSalesCount: number;
     safeBatchCount: number;
     marketCount: number;
     blockedMarketCount: number;
     lifecycle: Record<string, number>;
     requiresReviewCount: number;
+  };
+  scheduledRun: {
+    executable: boolean;
+    reasonCode: string;
+    runIds: string[];
+    cadenceLabel: string;
+    capacityMode: string;
+    externalDeleteEnabled: boolean;
   };
   markets: MarketRow[];
   warnings: string[];
@@ -102,6 +125,7 @@ const WARNING_LABELS: Record<string, string> = {
   CAPACITY_COUNT_INVALID: "마켓 등록수 데이터 오류",
   CAPACITY_STALE: "마켓 등록한도 24시간 초과",
   ACTIVE_COUNT_EXCEEDS_MAXIMUM: "마켓 등록수 한도 초과",
+  REGISTRATION_ONLY_FALLBACK_ACTIVE: "신규 등록 3개 제한 안전모드",
 };
 
 function normalizeDashboard(body: UnknownRecord): Dashboard {
@@ -122,6 +146,23 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
     summary: {
       seoReadyProductCount: count(summary.seoReadyProductCount),
       shadowRegistrationCount: count(summary.shadowRegistrationCount),
+      scheduledRegistrationCount: count(summary.scheduledRegistrationCount),
+      eligibleRegistrationCount: count(summary.eligibleRegistrationCount),
+      excludedByLifecycleCount: count(summary.excludedByLifecycleCount),
+      limitedByCapacityCount: count(summary.limitedByCapacityCount),
+      soldOutDeleteDueCount: count(summary.soldOutDeleteDueCount),
+      relistDueCount: count(summary.relistDueCount),
+      protectedProductCount: count(summary.protectedProductCount),
+      cooldownProductCount: count(summary.cooldownProductCount),
+      reviewProductCount: count(summary.reviewProductCount),
+      capacityFallbackActive: summary.capacityFallbackActive === true,
+      scheduledBatchLimit: count(summary.scheduledBatchLimit),
+      registeredProductCount: count(summary.registeredProductCount),
+      registrationFailedProductCount: count(
+        summary.registrationFailedProductCount,
+      ),
+      processingProductCount: count(summary.processingProductCount),
+      verifiedSalesCount: count(summary.verifiedSalesCount),
       safeBatchCount: count(summary.safeBatchCount),
       marketCount: count(summary.marketCount),
       blockedMarketCount: count(summary.blockedMarketCount),
@@ -129,6 +170,19 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
         Object.entries(lifecycle).map(([key, value]) => [key, count(value)]),
       ),
       requiresReviewCount: count(summary.requiresReviewCount),
+    },
+    scheduledRun: {
+      executable: record(body.scheduledRun).executable === true,
+      reasonCode: text(record(body.scheduledRun).reasonCode),
+      runIds: Array.isArray(record(body.scheduledRun).runIds)
+        ? (record(body.scheduledRun).runIds as unknown[]).map(text).filter(Boolean)
+        : [],
+      cadenceLabel:
+        text(record(body.scheduledRun).cadenceLabel) ||
+        "재고 동기화가 끝난 뒤 하루 1회",
+      capacityMode: text(record(body.scheduledRun).capacityMode),
+      externalDeleteEnabled:
+        record(body.scheduledRun).externalDeleteEnabled === true,
     },
     markets: Array.isArray(body.markets)
       ? body.markets.map((value): MarketRow => {
@@ -207,15 +261,15 @@ export default function SeoBulkAutomationPanel() {
               SEO Portfolio Autopilot
             </p>
             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-900">
-              Shadow · 실제 등록/품절/삭제 없음
+              신규등록 원클릭 · 물갈이 안전잠금
             </span>
           </div>
           <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
             자동등록 · 상품 물갈이
           </h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-            SEO 준비 상품을 마켓별 빈 슬롯 안에서 자동 배치하고, 판매가 없으면 60일 노출 후
-            90일 쉬었다가 새 SEO 버전으로 다시 기회를 줍니다. 3회 연속 무판매만 단종 후보로 보냅니다.
+            SEO 준비 상품을 확인된 마켓 슬롯 또는 3개 안전 상한 안에서 자동 배치합니다. 판매가 없으면 60일 노출 후
+            90일 쉬었다가 새 SEO 버전으로 다시 기회를 주고, 3회 연속 무판매만 단종 후보로 보냅니다.
           </p>
         </div>
         <button
@@ -228,15 +282,51 @@ export default function SeoBulkAutomationPanel() {
         </button>
       </div>
 
+      <div className="mt-5 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-black text-slate-900">오늘 운영 흐름</h3>
+          <span className="text-xs font-bold text-slate-500">
+            {dashboard?.scheduledRun.cadenceLabel ?? "재고 동기화가 끝난 뒤 하루 1회"}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            ["1. SEO 준비", dashboard?.summary.seoReadyProductCount ?? 0],
+            ["2. 오늘 실행", dashboard?.summary.scheduledRegistrationCount ?? 0],
+            ["3. 처리 중", dashboard?.summary.processingProductCount ?? 0],
+            ["4. 등록 완료", dashboard?.summary.registeredProductCount ?? 0],
+            ["5. 판매 보호", dashboard?.summary.protectedProductCount ?? 0],
+          ].map(([label, value]) => (
+            <div key={String(label)} className="rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-100">
+              <div className="text-xs font-bold text-slate-500">{label}</div>
+              <div className="mt-1 text-xl font-black text-slate-950">
+                {Number(value).toLocaleString("ko-KR")}개
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
+          <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">
+            검증된 판매 {dashboard?.summary.verifiedSalesCount ?? 0}건
+          </span>
+          <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+            등록 실패 확인 {dashboard?.summary.registrationFailedProductCount ?? 0}개
+          </span>
+          <span className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-800">
+            재도전 준비 {dashboard?.summary.relistDueCount ?? 0}개
+          </span>
+        </div>
+      </div>
+
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {[
-          ["SEO 등록 준비", dashboard?.summary.seoReadyProductCount ?? 0],
-          ["Shadow 등록 예상", dashboard?.summary.shadowRegistrationCount ?? 0],
+          ["오늘 등록 가능", dashboard?.summary.scheduledRegistrationCount ?? 0],
+          ["SEO 준비 전체", dashboard?.summary.seoReadyProductCount ?? 0],
           ["노출 중", lifecycle.LIVE ?? 0],
-          ["판매 발생 · 보호", lifecycle.PROTECTED ?? 0],
-          ["90일 휴지", lifecycle.COOLDOWN ?? 0],
+          ["판매 발생 · 보호", dashboard?.summary.protectedProductCount ?? 0],
+          ["90일 휴지", dashboard?.summary.cooldownProductCount ?? 0],
           ["단종 후보", lifecycle.RETIRE_CANDIDATE ?? 0],
-          ["확인 필요", dashboard?.summary.requiresReviewCount ?? 0],
+          ["확인 필요", dashboard?.summary.reviewProductCount ?? 0],
         ].map(([label, value]) => (
           <div key={String(label)} className="rounded-2xl border border-white bg-white/80 p-4 shadow-sm">
             <div className="text-xs font-semibold text-slate-500">{label}</div>
@@ -245,6 +335,41 @@ export default function SeoBulkAutomationPanel() {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4">
+          <div className="text-xs font-black uppercase tracking-wide text-emerald-800">
+            오늘의 자동운영
+          </div>
+          <div className="mt-1 text-lg font-black text-slate-950">
+            {dashboard?.scheduledRun.executable
+              ? dashboard.summary.capacityFallbackActive
+                ? `${dashboard.summary.scheduledRegistrationCount.toLocaleString("ko-KR")}개 상품을 안전 상한 ${dashboard.summary.scheduledBatchLimit}개 안에서 진행합니다.`
+                : `${dashboard.summary.scheduledRegistrationCount.toLocaleString("ko-KR")}개 상품을 한 번에 진행할 수 있습니다.`
+              : "지금 바로 등록할 상품은 없습니다."}
+          </div>
+          <p className="mt-1 text-sm text-slate-600">
+            실행 시점: {dashboard?.scheduledRun.cadenceLabel ?? "재고 동기화가 끝난 뒤 하루 1회"}
+          </p>
+          <a
+            href="#seo-portfolio-one-click"
+            className="mt-3 inline-flex rounded-xl bg-emerald-700 px-4 py-2 text-sm font-black text-white shadow-sm"
+          >
+            아래 원클릭 실행으로 이동
+          </a>
+        </div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4">
+          <div className="text-xs font-black uppercase tracking-wide text-amber-800">
+            안전 경계
+          </div>
+          <div className="mt-1 text-lg font-black text-slate-950">
+            품절·삭제 예정 {dashboard?.summary.soldOutDeleteDueCount ?? 0}개
+          </div>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            실제 품절·삭제는 아직 잠겨 있습니다. 검증된 소수 상품 Canary가 통과한 뒤에만 자동 실행합니다.
+          </p>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -273,7 +398,11 @@ export default function SeoBulkAutomationPanel() {
 
       {!error && actionableWarnings.length ? (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="font-black">자동 실행 차단 중</div>
+          <div className="font-black">
+            {dashboard?.summary.capacityFallbackActive
+              ? "신규 등록만 제한 운영 중"
+              : "자동 실행 차단 중"}
+          </div>
           <div className="mt-1">
             {actionableWarnings
               .map((warning) => WARNING_LABELS[warning] ?? warning)
@@ -329,7 +458,7 @@ export default function SeoBulkAutomationPanel() {
               {!dashboard?.markets.length ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">
-                    아직 수집된 마켓 계정별 등록한도가 없습니다. 한도 확인 전에는 자동등록이 실행되지 않습니다.
+                    아직 수집된 마켓 계정별 등록한도가 없습니다. 신규 등록은 한 번에 최대 3개만 진행하고, 품절·삭제는 계속 잠급니다.
                   </td>
                 </tr>
               ) : null}
@@ -339,8 +468,8 @@ export default function SeoBulkAutomationPanel() {
       </div>
 
       <p className="mt-4 text-xs leading-5 text-slate-500">
-        기존 “샵플링 일괄 대량등록 및 마켓전송”과 오류 재실행 버튼은 아래에 그대로 유지됩니다.
-        자동 실행은 한도·노출·판매 readback 검증이 끝난 뒤 별도 Canary 단계에서만 켭니다.
+        아래 원클릭 버튼은 오늘 등록 가능한 상품과 미완료 마켓전송을 한 번에 이어 처리합니다.
+        실제 품절·삭제 자동 실행은 한도·노출·판매 readback 검증 후 Canary 단계에서만 켭니다.
       </p>
     </section>
   );

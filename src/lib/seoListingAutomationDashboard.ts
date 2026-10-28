@@ -12,6 +12,7 @@ export type SeoReadyProduct = {
 export type SeoListingLifecycleSummaryRow = {
   state?: unknown;
   requires_review?: unknown;
+  sales_count_during_attempt?: unknown;
 };
 
 const STATES: SeoListingLifecycleState[] = [
@@ -94,10 +95,59 @@ export function summarizeSeoListingLifecycle(
     number
   >;
   let requiresReviewCount = 0;
+  let verifiedSalesCount = 0;
   for (const row of rows) {
     const state = text(row.state) as SeoListingLifecycleState;
     if (STATES.includes(state)) counts[state] += 1;
     if (row.requires_review === true) requiresReviewCount += 1;
+    const salesCount = Number(row.sales_count_during_attempt);
+    if (Number.isSafeInteger(salesCount) && salesCount > 0) {
+      verifiedSalesCount += salesCount;
+    }
   }
-  return { counts, requiresReviewCount };
+  return { counts, requiresReviewCount, verifiedSalesCount };
+}
+
+export function summarizeSeoRegistrationOutcomes(
+  jobs: Array<
+    Pick<
+      SeoRunJobRow,
+      | "run_id"
+      | "launch_item_id"
+      | "status"
+      | "registration_status"
+      | "run_created_at"
+      | "created_at"
+    >
+  >,
+) {
+  const latestByProduct = new Map<string, (typeof jobs)[number]>();
+  for (const job of jobs) {
+    const launchItemId = text(job.launch_item_id);
+    if (!launchItemId) continue;
+    const current = latestByProduct.get(launchItemId);
+    if (
+      !current ||
+      jobInstant(job) > jobInstant(current) ||
+      (jobInstant(job) === jobInstant(current) &&
+        text(job.run_id) > text(current.run_id))
+    ) {
+      latestByProduct.set(launchItemId, job);
+    }
+  }
+  const latest = [...latestByProduct.values()];
+  return {
+    registeredProductCount: latest.filter(
+      (job) => job.registration_status === "success",
+    ).length,
+    registrationFailedProductCount: latest.filter(
+      (job) => job.registration_status === "failed",
+    ).length,
+    processingProductCount: latest.filter(
+      (job) =>
+        job.status === "queued" ||
+        job.status === "running" ||
+        ["submitting", "queued", "running"].includes(job.registration_status),
+    ).length,
+  };
 }
