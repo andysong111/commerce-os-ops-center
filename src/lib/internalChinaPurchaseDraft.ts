@@ -40,6 +40,8 @@ const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
 const BARCODE = /^[A-Z]{3}\d+-\d+$/;
 const MANUAL_QUANTITY_MAX = 9_999;
 
+type ChinaOrderLedgerRead = Awaited<ReturnType<typeof loadChinaOrderLedger>>;
+
 export type InternalChinaPurchaseDraftStatus = "DRAFT" | "ORDERED";
 
 export type InternalChinaPurchaseDraftLine = {
@@ -198,8 +200,11 @@ function effectiveCommitmentQuantity(row: {
   return Math.max(0, row.committedQuantity - row.cancelledQuantity);
 }
 
-async function currentCommitments(draftId: string) {
-  const ledger = await loadChinaOrderLedger();
+async function currentCommitments(
+  draftId: string,
+  preloadedLedger?: ChinaOrderLedgerRead,
+) {
+  const ledger = preloadedLedger ?? await loadChinaOrderLedger();
   if (ledger.error) {
     throw new Error(`CHINA_ORDER_LEDGER_UNAVAILABLE:${ledger.error}`);
   }
@@ -254,32 +259,31 @@ async function readSavedPrep(draftId: string) {
 
 async function buildMetadataByBarcode(barcodes: string[]) {
   const warnings: string[] = [];
-  let planning: Awaited<ReturnType<typeof loadProductPlanningSnapshot>> | null =
-    null;
-  let tracker: Awaited<
-    ReturnType<typeof loadProductLaunchPurchaseMetadataByBarcode>
-  > | null = null;
-
-  try {
-    planning = await loadProductPlanningSnapshot();
-  } catch (error) {
+  const [planningRead, trackerRead] = await Promise.all([
+    loadProductPlanningSnapshot()
+      .then((value) => ({ value, error: null as unknown }))
+      .catch((error: unknown) => ({ value: null, error })),
+    loadProductLaunchPurchaseMetadataByBarcode()
+      .then((value) => ({ value, error: null as unknown }))
+      .catch((error: unknown) => ({ value: null, error })),
+  ]);
+  const planning = planningRead.value;
+  const tracker = trackerRead.value;
+  if (planningRead.error) {
     warnings.push(
       `Product Master 표시정보를 일부 불러오지 못했습니다: ${
-        error instanceof Error ? error.message : "UNKNOWN"
+        planningRead.error instanceof Error ? planningRead.error.message : "UNKNOWN"
       }`,
     );
   }
-  try {
-    tracker = await loadProductLaunchPurchaseMetadataByBarcode();
-    if (tracker.error) {
-      warnings.push(`상품출시 구매정보 경고: ${tracker.error}`);
-    }
-  } catch (error) {
+  if (trackerRead.error) {
     warnings.push(
       `상품출시 구매정보를 불러오지 못했습니다: ${
-        error instanceof Error ? error.message : "UNKNOWN"
+        trackerRead.error instanceof Error ? trackerRead.error.message : "UNKNOWN"
       }`,
     );
+  } else if (tracker?.error) {
+    warnings.push(`상품출시 구매정보 경고: ${tracker.error}`);
   }
 
   const planningByBarcode = new Map(
@@ -352,9 +356,10 @@ async function buildMetadataByBarcode(barcodes: string[]) {
 
 async function buildBaseDraft(
   draftIdInput: unknown,
+  options?: { ledger?: ChinaOrderLedgerRead },
 ): Promise<InternalChinaPurchaseDraft> {
   const draftId = validDraftId(draftIdInput);
-  const commitments = await currentCommitments(draftId);
+  const commitments = await currentCommitments(draftId, options?.ledger);
   const barcodes = [
     ...new Set(
       commitments.flatMap((row) =>
@@ -655,8 +660,11 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
   };
 }
 
-export async function loadInternalChinaPurchaseDraft(draftIdInput: unknown) {
-  const base = await buildBaseDraft(draftIdInput);
+export async function loadInternalChinaPurchaseDraft(
+  draftIdInput: unknown,
+  options?: { ledger?: ChinaOrderLedgerRead },
+) {
+  const base = await buildBaseDraft(draftIdInput, options);
   const saved = await readSavedPrep(base.draftId);
   return saved ? mergeSnapshot(base, saved.snapshot, saved.savedAt) : base;
 }
