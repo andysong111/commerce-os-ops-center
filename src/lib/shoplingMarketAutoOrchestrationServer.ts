@@ -5,6 +5,13 @@ import {
   patchOwnedSeoRunJobs,
   type SeoRunJobContext,
 } from "@/lib/seoRunJobServer";
+import {
+  marketAutoRunIdSetsEqual,
+  marketAutoRunIdSetsOverlap,
+  marketOnlyLedgerSafety,
+  normalizeMarketAutoRunIds,
+  verifiedMarketOnlyUploadJob,
+} from "@/lib/shoplingMarketAutoResumePolicy";
 
 const TABLE = "shopling_market_auto_orchestrations";
 const SEO_TABLE = "seo_run_jobs";
@@ -13,12 +20,20 @@ const LEDGER_TABLE = "shopling_market_pipeline_ledger";
 export const MARKET_AUTO_AGENT_BRIDGE = "shopling-market-auto-agent-v0.1";
 const LEASE_SECONDS = 180;
 const CHUNK_SIZE = 20;
+const LOOKUP_CHUNK_SIZE = 180;
 const TERMINAL_STATES = new Set([
   "completed",
   "completed_with_exceptions",
   "exception",
   "cancelled",
 ]);
+const ACTIVE_STATES = [
+  "waiting_upload",
+  "uploading",
+  "market_ready",
+  "market_claimed",
+  "market_running",
+];
 
 type UnknownRecord = Record<string, unknown>;
 type AdminClient = NonNullable<Awaited<ReturnType<typeof createSupabaseAdminClient>>>;
@@ -38,7 +53,7 @@ function text(value: unknown) {
 }
 
 function uniqueIds(value: unknown, limit = 250) {
-  return [...new Set(array(value).map(text).filter((value) => value && value.length <= 180))].slice(0, limit);
+  return normalizeMarketAutoRunIds(value, limit);
 }
 
 function validUuid(value: unknown) {
@@ -60,6 +75,22 @@ export function validMarketAutoToken(value: unknown) {
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function chunks<T>(values: T[], size = LOOKUP_CHUNK_SIZE) {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size));
+  }
+  return result;
+}
+
+function handoffToken(value: unknown) {
+  const supplied = text(value);
+  if (!supplied) return randomBytes(32).toString("base64url");
+  const valid = validMarketAutoToken(supplied);
+  if (!valid) throw new Error("원클릭 작업 재개 토큰이 올바르지 않습니다.");
+  return valid;
 }
 
 function leaseIso(seconds = LEASE_SECONDS) {
@@ -91,6 +122,78 @@ async function requireAdmin() {
   return supabase;
 }
 
+async function readOrchestrationByTokenHash(
+  supabase: AdminClient,
+  ownerId: string,
+  tokenHash: string,
+) {
+  const result = await supabase
+    .from(TABLE)
+    .select("*")
+    .eq("owner_id", ownerId)
+    .eq("token_hash", tokenHash)
+    .limit(1)
+    .maybeSingle();
+  if (result.error) throw new Error(result.error.message);
+  return result.data ? record(result.data) : null;
+}
+
+async function assertNoActiveRunOverlap(
+  supabase: AdminClient,
+  ownerId: string,
+  runIds: string[],
+) {
+  const result = await supabase
+    .from(TABLE)
+    .select("id,run_ids,state")
+    .eq("owner_id", ownerId)
+    .in("state", ACTIVE_STATES)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (result.error) throw new Error(result.error.message);
+  const overlap = (Array.isArray(result.data) ? result.data : [])
+    .map(record)
+    .find((row) => marketAutoRunIdSetsOverlap(row.run_ids, runIds));
+  if (overlap) {
+    throw new Error(
+      `같은 상품의 마켓전송 작업이 이미 진행 중입니다. 작업번호 ${text(overlap.id).slice(0, 8)}`,
+    );
+  }
+}
+
+async function insertOrRecoverOrchestration(
+  supabase: AdminClient,
+  ownerId: string,
+  tokenHash: string,
+  payload: UnknownRecord,
+) {
+  let lastMessage = "원클릭 작업 생성 실패";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const insertResult = await supabase
+      .from(TABLE)
+      .insert(payload)
+      .select("*")
+      .limit(1)
+      .maybeSingle();
+    if (!insertResult.error && insertResult.data) return record(insertResult.data);
+    lastMessage = insertResult.error?.message || lastMessage;
+    try {
+      const recovered = await readOrchestrationByTokenHash(
+        supabase,
+        ownerId,
+        tokenHash,
+      );
+      if (recovered) return recovered;
+    } catch (error) {
+      lastMessage = error instanceof Error ? error.message : lastMessage;
+    }
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+    }
+  }
+  throw new Error(lastMessage);
+}
+
 async function readByToken(token: string) {
   const supabase = await requireAdmin();
   const result = await supabase
@@ -107,12 +210,47 @@ async function readSeoRows(supabase: AdminClient, ownerId: string, runIds: strin
   if (!runIds.length) return [] as UnknownRecord[];
   const result = await supabase
     .from(SEO_TABLE)
-    .select("run_id,batch_id,model_number,registration_status,registration_job_id,error_message,updated_at")
+    .select("run_id,batch_id,model_number,status,registration_status,registration_job_id,error_message,updated_at")
     .eq("owner_id", ownerId)
     .in("run_id", runIds)
     .limit(Math.max(1, runIds.length));
   if (result.error) throw new Error(result.error.message);
   return (Array.isArray(result.data) ? result.data : []).map(record);
+}
+
+async function readUploadJobs(
+  supabase: AdminClient,
+  ownerId: string,
+  jobIds: string[],
+) {
+  if (!jobIds.length) return [] as UnknownRecord[];
+  const result = await supabase
+    .from(UPLOAD_TABLE)
+    .select("id,owner_id,status,result")
+    .eq("owner_id", ownerId)
+    .in("id", jobIds)
+    .limit(jobIds.length);
+  if (result.error) throw new Error(result.error.message);
+  return (Array.isArray(result.data) ? result.data : []).map(record);
+}
+
+async function readMarketLedgerRows(
+  supabase: AdminClient,
+  ownerId: string,
+  goodsKeys: string[],
+) {
+  const rows: UnknownRecord[] = [];
+  for (const goodsKeyChunk of chunks(goodsKeys)) {
+    const result = await supabase
+      .from(LEDGER_TABLE)
+      .select("goods_key,status,market_status")
+      .eq("owner_id", ownerId)
+      .in("goods_key", goodsKeyChunk)
+      .limit(goodsKeyChunk.length);
+    if (result.error) throw new Error(result.error.message);
+    rows.push(...(Array.isArray(result.data) ? result.data : []).map(record));
+  }
+  return rows;
 }
 
 async function patchOrchestration(supabase: AdminClient, id: string, patch: UnknownRecord) {
@@ -236,7 +374,11 @@ async function completeIfTerminal(
   return { state, summary };
 }
 
-export async function createMarketAutoOrchestration(context: SeoRunJobContext, rawRunIds: unknown) {
+export async function createMarketAutoOrchestration(
+  context: SeoRunJobContext,
+  rawRunIds: unknown,
+  rawHandoffToken?: unknown,
+) {
   const runIds = uniqueIds(rawRunIds);
   if (!runIds.length) throw new Error("원클릭 등록 대상으로 선택할 SEO RUN이 없습니다.");
   const current = await listSeoRunJobs(context, {
@@ -249,29 +391,61 @@ export async function createMarketAutoOrchestration(context: SeoRunJobContext, r
   );
   if (!accepted.length) throw new Error("FINAL 완료 상태의 Shopling 등록 가능 RUN이 없습니다.");
 
-  const token = randomBytes(32).toString("base64url");
+  const token = handoffToken(rawHandoffToken);
+  const tokenHash = hashToken(token);
   const supabase = await requireAdmin();
   const acceptedRunIds = accepted.map((job) => job.run_id);
   const batchIds = [...new Set(accepted.map((job) => text(job.batch_id)).filter(Boolean))];
-  const insertResult = await supabase
-    .from(TABLE)
-    .insert({
+  let inserted = await readOrchestrationByTokenHash(
+    supabase,
+    context.identity.userId,
+    tokenHash,
+  );
+  if (inserted) {
+    if (
+      !marketAutoRunIdSetsEqual(inserted.run_ids, acceptedRunIds) ||
+      text(record(inserted.result).mode || "full_pipeline") !== "full_pipeline"
+    ) {
+      throw new Error("같은 재개 토큰이 다른 원클릭 작업에 사용되었습니다.");
+    }
+  } else {
+    await assertNoActiveRunOverlap(
+      supabase,
+      context.identity.userId,
+      acceptedRunIds,
+    );
+    inserted = await insertOrRecoverOrchestration(
+      supabase,
+      context.identity.userId,
+      tokenHash,
+      {
       owner_id: context.identity.userId,
       owner_email: context.identity.email,
       batch_id: batchIds.length === 1 ? batchIds[0] : `mixed-${crypto.randomUUID()}`,
       run_ids: acceptedRunIds,
-      token_hash: hashToken(token),
+      token_hash: tokenHash,
       state: accepted.some((job) => job.registration_status === "success") ? "uploading" : "waiting_upload",
-      result: { requestedCount: runIds.length, acceptedCount: acceptedRunIds.length },
-    })
-    .select("id,state,created_at")
-    .limit(1)
-    .maybeSingle();
-  if (insertResult.error || !insertResult.data) {
-    throw new Error(insertResult.error?.message || "원클릭 작업 생성 실패");
+      result: {
+        mode: "full_pipeline",
+        requestedCount: runIds.length,
+        acceptedCount: acceptedRunIds.length,
+      },
+    });
   }
-  const inserted = record(insertResult.data);
   const orchestrationId = text(inserted.id);
+  if (TERMINAL_STATES.has(text(inserted.state))) {
+    return {
+      orchestrationId,
+      state: text(inserted.state),
+      handoffToken: token,
+      requestedCount: runIds.length,
+      acceptedCount: acceptedRunIds.length,
+      uploadQueuedCount: 0,
+      skippedCount: Math.max(0, runIds.length - acceptedRunIds.length),
+      needsWorkerWake: false,
+      idempotentReplay: true,
+    };
+  }
   const queueRunIds = accepted
     .filter((job) => job.registration_status === "idle")
     .map((job) => job.run_id);
@@ -300,6 +474,140 @@ export async function createMarketAutoOrchestration(context: SeoRunJobContext, r
     uploadQueuedCount: queueRunIds.length,
     skippedCount: Math.max(0, runIds.length - acceptedRunIds.length),
     needsWorkerWake: queueRunIds.length > 0 || accepted.some((job) => ["submitting", "queued", "running"].includes(job.registration_status)),
+  };
+}
+
+export async function createMarketOnlyOrchestration(
+  context: SeoRunJobContext,
+  rawRunIds: unknown,
+  rawHandoffToken: unknown,
+) {
+  const runIds = uniqueIds(rawRunIds);
+  if (!runIds.length) throw new Error("마켓전송만 재개할 SEO RUN이 없습니다.");
+  const token = handoffToken(rawHandoffToken);
+  const tokenHash = hashToken(token);
+  const supabase = await requireAdmin();
+
+  const existing = await readOrchestrationByTokenHash(
+    supabase,
+    context.identity.userId,
+    tokenHash,
+  );
+  if (existing) {
+    if (
+      !marketAutoRunIdSetsEqual(existing.run_ids, runIds) ||
+      text(record(existing.result).mode) !== "market_only"
+    ) {
+      throw new Error("같은 재개 토큰이 다른 마켓전송 작업에 사용되었습니다.");
+    }
+    return {
+      orchestrationId: text(existing.id),
+      state: text(existing.state),
+      handoffToken: token,
+      requestedCount: runIds.length,
+      acceptedCount: runIds.length,
+      uploadQueuedCount: 0,
+      skippedCount: 0,
+      needsWorkerWake: false,
+      marketOnly: true,
+      idempotentReplay: true,
+    };
+  }
+
+  const current = await listSeoRunJobs(context, {
+    runIds,
+    includeArchived: false,
+    limit: runIds.length,
+  });
+  const accepted = current.filter(
+    (job) => job.status === "ready" && job.registration_status === "success",
+  );
+  if (accepted.length !== runIds.length) {
+    throw new Error(
+      `마켓전송만 재개 조건을 충족한 상품은 ${accepted.length}/${runIds.length}개입니다. Shopling 등록 성공·재조회 완료 건만 가능합니다.`,
+    );
+  }
+  const jobIds = accepted
+    .map((job) => validUuid(job.registration_job_id))
+    .filter(Boolean);
+  if (jobIds.length !== accepted.length || new Set(jobIds).size !== accepted.length) {
+    throw new Error("Shopling 등록 성공 작업번호가 빠졌거나 중복되어 재개를 중단했습니다.");
+  }
+  const uploadJobs = await readUploadJobs(
+    supabase,
+    context.identity.userId,
+    jobIds,
+  );
+  const verifiedJobs = uploadJobs
+    .map(verifiedMarketOnlyUploadJob)
+    .filter((job): job is NonNullable<typeof job> => Boolean(job));
+  if (verifiedJobs.length !== accepted.length) {
+    throw new Error(
+      `Shopling 실상품 재조회까지 검증된 작업은 ${verifiedJobs.length}/${accepted.length}개입니다. 검증되지 않은 상품은 전송하지 않습니다.`,
+    );
+  }
+  const verifiedJobIds = new Set(verifiedJobs.map((job) => job.jobId));
+  if (jobIds.some((jobId) => !verifiedJobIds.has(jobId))) {
+    throw new Error("선택한 Shopling 등록 작업과 실상품 재조회 결과가 일치하지 않습니다.");
+  }
+  const goodsKeys = verifiedJobs.flatMap((job) => job.goodsKeys);
+  if (new Set(goodsKeys).size !== accepted.length * 6) {
+    throw new Error("상품 간 goods_key가 중복되어 마켓전송만 재개를 중단했습니다.");
+  }
+  const ledgerRows = await readMarketLedgerRows(
+    supabase,
+    context.identity.userId,
+    goodsKeys,
+  );
+  const ledgerSafety = marketOnlyLedgerSafety(goodsKeys, ledgerRows);
+  if (!ledgerSafety.safe) {
+    throw new Error(
+      `이미 처리 중이거나 확인이 필요한 마켓전송 ${ledgerSafety.busyCount + ledgerSafety.blockedCount}건이 있어 중복 전송을 막았습니다.`,
+    );
+  }
+  if (ledgerSafety.allCompleted) {
+    throw new Error("선택한 상품은 이미 모든 마켓전송이 완료되었습니다.");
+  }
+
+  await assertNoActiveRunOverlap(
+    supabase,
+    context.identity.userId,
+    runIds,
+  );
+  const batchIds = [...new Set(accepted.map((job) => text(job.batch_id)).filter(Boolean))];
+  const inserted = await insertOrRecoverOrchestration(
+    supabase,
+    context.identity.userId,
+    tokenHash,
+    {
+      owner_id: context.identity.userId,
+      owner_email: context.identity.email,
+      batch_id: batchIds.length === 1 ? batchIds[0] : `mixed-market-only-${crypto.randomUUID()}`,
+      run_ids: runIds,
+      token_hash: tokenHash,
+      state: "market_ready",
+      result: {
+        mode: "market_only",
+        requestedCount: runIds.length,
+        acceptedCount: runIds.length,
+        verifiedProductCount: verifiedJobs.length,
+        verifiedGoodsKeyCount: goodsKeys.length,
+        marketPendingCount: ledgerSafety.pendingCount,
+        marketCompletedCount: ledgerSafety.completedCount,
+      },
+    },
+  );
+  return {
+    orchestrationId: text(inserted.id),
+    state: text(inserted.state) || "market_ready",
+    handoffToken: token,
+    requestedCount: runIds.length,
+    acceptedCount: runIds.length,
+    uploadQueuedCount: 0,
+    skippedCount: 0,
+    verifiedGoodsKeyCount: goodsKeys.length,
+    needsWorkerWake: false,
+    marketOnly: true,
   };
 }
 

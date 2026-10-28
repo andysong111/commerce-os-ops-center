@@ -10,6 +10,8 @@ on:
       - "src/app/api/shopling-market-auto-orchestration/**"
       - "src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx"
       - "src/lib/shoplingMarketAutoExtensionV0330.ts"
+      - "src/lib/shoplingMarketAutoOrchestrationServer.ts"
+      - "src/lib/shoplingMarketAutoResumePolicy.ts"
       - "supabase/migrations/202609020001_shopling_market_single_active_wave.sql"
       - "supabase/migrations/202609020002_shopling_market_auto_orchestrations.sql"
       - "tests/shoplingMarketGroupCanary.test.mjs"
@@ -36,6 +38,7 @@ on:
       - "tests/shoplingMarketGroupCanaryV0328.test.mjs"
       - "tests/shoplingMarketGroupCanaryV0329.test.mjs"
       - "tests/shoplingMarketGroupCanaryV0330.test.mjs"
+      - "tests/shoplingMarketAutoResumePolicy.test.mjs"
       - ".github/workflows/shopling-market-group-canary-ci.yml"
   pull_request:
     paths:
@@ -44,6 +47,8 @@ on:
       - "src/app/api/shopling-market-auto-orchestration/**"
       - "src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx"
       - "src/lib/shoplingMarketAutoExtensionV0330.ts"
+      - "src/lib/shoplingMarketAutoOrchestrationServer.ts"
+      - "src/lib/shoplingMarketAutoResumePolicy.ts"
       - "supabase/migrations/202609020001_shopling_market_single_active_wave.sql"
       - "supabase/migrations/202609020002_shopling_market_auto_orchestrations.sql"
       - "tests/shoplingMarketGroupCanary.test.mjs"
@@ -70,6 +75,7 @@ on:
       - "tests/shoplingMarketGroupCanaryV0328.test.mjs"
       - "tests/shoplingMarketGroupCanaryV0329.test.mjs"
       - "tests/shoplingMarketGroupCanaryV0330.test.mjs"
+      - "tests/shoplingMarketAutoResumePolicy.test.mjs"
       - ".github/workflows/shopling-market-group-canary-ci.yml"
   workflow_dispatch:
 
@@ -92,7 +98,7 @@ jobs:
           node --check public/shopling-market-group-canary/background-root.mjs &&
           node --check public/shopling-market-group-canary/content-group-canary.mjs
       - name: Test group canary safety contract
-        run: node --test tests/shoplingMarketGroupCanary.test.mjs tests/shoplingMarketGroupCanaryV038.test.mjs tests/shoplingMarketGroupCanaryV039.test.mjs tests/shoplingMarketGroupCanaryV0310.test.mjs tests/shoplingMarketGroupCanaryV0311.test.mjs tests/shoplingMarketGroupCanaryV0312.test.mjs tests/shoplingMarketGroupCanaryV0313.test.mjs tests/shoplingMarketGroupCanaryV0314.test.mjs tests/shoplingMarketGroupCanaryV0315.test.mjs tests/shoplingMarketGroupCanaryV0316.test.mjs tests/shoplingMarketGroupCanaryV0317.test.mjs tests/shoplingMarketGroupCanaryV0318.test.mjs tests/shoplingMarketGroupCanaryV0319.test.mjs tests/shoplingMarketGroupCanaryV0320.test.mjs tests/shoplingMarketGroupCanaryV0321.test.mjs tests/shoplingMarketGroupCanaryV0322.test.mjs tests/shoplingMarketGroupCanaryV0323.test.mjs tests/shoplingMarketGroupCanaryV0324.test.mjs tests/shoplingMarketGroupCanaryV0325.test.mjs tests/shoplingMarketGroupCanaryV0326.test.mjs tests/shoplingMarketGroupCanaryV0327.test.mjs tests/shoplingMarketGroupCanaryV0328.test.mjs tests/shoplingMarketGroupCanaryV0329.test.mjs tests/shoplingMarketGroupCanaryV0330.test.mjs
+        run: node --test tests/shoplingMarketGroupCanary.test.mjs tests/shoplingMarketGroupCanaryV038.test.mjs tests/shoplingMarketGroupCanaryV039.test.mjs tests/shoplingMarketGroupCanaryV0310.test.mjs tests/shoplingMarketGroupCanaryV0311.test.mjs tests/shoplingMarketGroupCanaryV0312.test.mjs tests/shoplingMarketGroupCanaryV0313.test.mjs tests/shoplingMarketGroupCanaryV0314.test.mjs tests/shoplingMarketGroupCanaryV0315.test.mjs tests/shoplingMarketGroupCanaryV0316.test.mjs tests/shoplingMarketGroupCanaryV0317.test.mjs tests/shoplingMarketGroupCanaryV0318.test.mjs tests/shoplingMarketGroupCanaryV0319.test.mjs tests/shoplingMarketGroupCanaryV0320.test.mjs tests/shoplingMarketGroupCanaryV0321.test.mjs tests/shoplingMarketGroupCanaryV0322.test.mjs tests/shoplingMarketGroupCanaryV0323.test.mjs tests/shoplingMarketGroupCanaryV0324.test.mjs tests/shoplingMarketGroupCanaryV0325.test.mjs tests/shoplingMarketGroupCanaryV0326.test.mjs tests/shoplingMarketGroupCanaryV0327.test.mjs tests/shoplingMarketGroupCanaryV0328.test.mjs tests/shoplingMarketGroupCanaryV0329.test.mjs tests/shoplingMarketGroupCanaryV0330.test.mjs tests/shoplingMarketAutoResumePolicy.test.mjs
       - name: Build
         run: npm run build
         env:

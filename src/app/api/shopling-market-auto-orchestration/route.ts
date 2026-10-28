@@ -3,6 +3,7 @@ import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
 import {
   createMarketAutoOrchestration,
+  createMarketOnlyOrchestration,
   heartbeatMarketAutoAgent,
   listMarketAutoOrchestrations,
   MARKET_AUTO_AGENT_BRIDGE,
@@ -93,14 +94,21 @@ export async function POST(request: NextRequest) {
 
   const authenticated = await requireSeoTitleLedgerContext(request);
   if (!authenticated.ok) return authenticated.response;
-  if (action !== "create") {
+  if (!["create", "create_market_only"].includes(action)) {
     return Response.json({ ok: false, error: "unsupported_market_auto_action" }, { status: 400 });
   }
   try {
-    const created = await createMarketAutoOrchestration(
-      authenticated.value,
-      body.runIds,
-    );
+    const created = action === "create_market_only"
+      ? await createMarketOnlyOrchestration(
+          authenticated.value,
+          body.runIds,
+          body.handoffToken,
+        )
+      : await createMarketAutoOrchestration(
+          authenticated.value,
+          body.runIds,
+          body.handoffToken,
+        );
     if (created.needsWorkerWake) {
       after(() => wakeShoplingWorker(authenticated.value.identity.userId));
     }
@@ -108,13 +116,16 @@ export async function POST(request: NextRequest) {
       ok: true,
       ...created,
       message:
-        "Shopling 업로드 → 마켓전송 원클릭 작업을 만들었습니다. v0.3.30 브라우저 에이전트가 이후 단계를 자동으로 이어갑니다.",
+        action === "create_market_only"
+          ? "이미 Shopling 등록·재조회가 끝난 상품의 마켓전송만 재개했습니다. SEO와 Shopling 상품등록은 다시 실행하지 않습니다."
+          : "Shopling 업로드 → 마켓전송 원클릭 작업을 만들었습니다. v0.3.30 브라우저 에이전트가 이후 단계를 자동으로 이어갑니다.",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "원클릭 작업 생성 실패";
+    const conflict = /없습니다|충족|빠졌|중복|일치하지|이미|검증되지|올바르지|다른/.test(message);
     return Response.json(
       { ok: false, error: "market_auto_create_failed", message },
-      { status: message.includes("없습니다") ? 409 : 503 },
+      { status: conflict ? 409 : 503 },
     );
   }
 }

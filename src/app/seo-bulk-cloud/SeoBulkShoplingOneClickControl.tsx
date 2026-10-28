@@ -14,10 +14,16 @@ const POLL_MS = 4_000;
 type UnknownRecord = Record<string, unknown>;
 type SeoRunRow = {
   run_id: string;
+  batch_id: string;
   status: string;
   registration_status: string;
+  registration_job_id: string;
   model_number: string;
+  run_created_at: string;
+  updated_at: string;
 };
+
+type PipelineMode = "full_pipeline" | "market_only";
 
 type AutoRow = {
   id: string;
@@ -29,6 +35,16 @@ type AutoRow = {
   updated_at: string;
 };
 
+class RequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "RequestError";
+    this.status = status;
+  }
+}
+
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as UnknownRecord)
@@ -37,6 +53,18 @@ function record(value: unknown): UnknownRecord {
 
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function createHandoffToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function runTimestamp(row: SeoRunRow) {
+  const parsed = Date.parse(text(row.run_created_at || row.updated_at));
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 async function requestJson(url: string, init?: RequestInit) {
@@ -52,7 +80,10 @@ async function requestJson(url: string, init?: RequestInit) {
   });
   const body = record(await response.json().catch(() => ({})));
   if (!response.ok || body.ok !== true) {
-    throw new Error(text(body.message) || text(body.error) || `HTTP ${response.status}`);
+    throw new RequestError(
+      text(body.message) || text(body.error) || `HTTP ${response.status}`,
+      response.status,
+    );
   }
   return body;
 }
@@ -95,6 +126,21 @@ async function handoffToExtension(orchestrationId: string, token: string) {
   );
   const ack = await pending;
   return ack?.ok === true;
+}
+
+async function createOrResumeOrchestration(
+  mode: PipelineMode,
+  runIds: string[],
+  token: string,
+) {
+  return requestJson(AUTO_API, {
+    method: "POST",
+    body: JSON.stringify({
+      action: mode === "market_only" ? "create_market_only" : "create",
+      runIds,
+      handoffToken: token,
+    }),
+  });
 }
 
 function stateLabel(state: string) {
@@ -142,12 +188,32 @@ export default function SeoBulkShoplingOneClickControl() {
     }
   }, []);
 
+  const latestBatchId = useMemo(() => {
+    const newest = [...jobs]
+      .filter((job) => text(job.batch_id))
+      .sort((left, right) => runTimestamp(right) - runTimestamp(left))[0];
+    return text(newest?.batch_id);
+  }, [jobs]);
+  const latestBatchRuns = useMemo(
+    () => jobs.filter((job) => text(job.batch_id) === latestBatchId),
+    [jobs, latestBatchId],
+  );
   const readyRuns = useMemo(
     () =>
-      jobs.filter(
+      latestBatchRuns.filter(
         (job) => job.status === "ready" && job.registration_status === "idle",
       ),
-    [jobs],
+    [latestBatchRuns],
+  );
+  const marketOnlyRuns = useMemo(
+    () =>
+      latestBatchRuns.filter(
+        (job) =>
+          job.status === "ready" &&
+          job.registration_status === "success" &&
+          text(job.registration_job_id),
+      ),
+    [latestBatchRuns],
   );
   const latest = orchestrations[0] ?? null;
 
@@ -158,27 +224,63 @@ export default function SeoBulkShoplingOneClickControl() {
     } catch {
       return;
     }
-    const orchestrationId = text(pending.orchestrationId);
+    let orchestrationId = text(pending.orchestrationId);
     const token = text(pending.token);
-    if (!orchestrationId || !token) return;
-    const available = await probeExtension();
-    setBridgeReady(available);
-    if (!available) return;
-    if (await handoffToExtension(orchestrationId, token)) {
-      window.localStorage.removeItem(PENDING_STORAGE_KEY);
-      setMessage("브라우저 에이전트 연결 복구 완료 · Shopling 업로드 후 마켓전송까지 자동으로 이어집니다.");
+    const mode: PipelineMode = pending.mode === "market_only" ? "market_only" : "full_pipeline";
+    const runIds = Array.isArray(pending.runIds)
+      ? pending.runIds.map(text).filter(Boolean)
+      : [];
+    if (!token || (!orchestrationId && !runIds.length)) return;
+    try {
+      if (!orchestrationId) {
+        const body = await createOrResumeOrchestration(mode, runIds, token);
+        orchestrationId = text(body.orchestrationId);
+        if (!orchestrationId) return;
+        window.localStorage.setItem(
+          PENDING_STORAGE_KEY,
+          JSON.stringify({ ...pending, orchestrationId }),
+        );
+      }
+      const available = await probeExtension();
+      setBridgeReady(available);
+      if (!available) return;
+      if (await handoffToExtension(orchestrationId, token)) {
+        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+        setMessage(
+          mode === "market_only"
+            ? "마켓전송만 재개 연결 완료 · 기존 SEO와 Shopling 상품등록은 다시 실행하지 않습니다."
+            : "브라우저 에이전트 연결 복구 완료 · Shopling 업로드 후 마켓전송까지 자동으로 이어집니다.",
+        );
+      }
+    } catch (retryError) {
+      if (retryError instanceof RequestError && retryError.status < 500) {
+        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+      }
+      setError(
+        retryError instanceof Error
+          ? retryError.message
+          : "저장된 원클릭 작업 재연결 실패",
+      );
     }
   }, []);
 
   useEffect(() => {
-    void load();
-    void retryPendingHandoff();
+    const initial = window.setTimeout(() => {
+      void load();
+      void retryPendingHandoff();
+    }, 0);
     const timer = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
   }, [load, retryPendingHandoff]);
 
-  const start = useCallback(async () => {
-    if (!readyRuns.length || busy) return;
+  const startPipeline = useCallback(async (
+    mode: PipelineMode,
+    targets: SeoRunRow[],
+  ) => {
+    if (!targets.length || busy) return;
     setBusy(true);
     setError("");
     setMessage("v0.3.30 브라우저 에이전트 연결을 확인합니다…");
@@ -188,20 +290,25 @@ export default function SeoBulkShoplingOneClickControl() {
       if (!available) {
         throw new Error("Shopling Market Sender v0.3.30이 연결되지 않았습니다. v0.3.30 설치 후 Shopling 관리자/A18 탭을 열고 다시 누르세요.");
       }
-      setMessage(`${readyRuns.length}개 상품의 Shopling 업로드 + 마켓전송 원클릭 작업을 서버에 등록합니다…`);
-      const body = await requestJson(AUTO_API, {
-        method: "POST",
-        body: JSON.stringify({
-          action: "create",
-          runIds: readyRuns.map((row) => row.run_id),
-        }),
-      });
-      const orchestrationId = text(body.orchestrationId);
-      const token = text(body.handoffToken);
-      if (!orchestrationId || !token) throw new Error("원클릭 작업 인계 토큰을 받지 못했습니다.");
+      const runIds = targets.map((row) => row.run_id);
+      const token = createHandoffToken();
+      setMessage(
+        mode === "market_only"
+          ? `${targets.length}개 상품은 SEO·Shopling 재등록 없이 마켓전송만 재개합니다…`
+          : `${targets.length}개 상품의 Shopling 업로드 + 마켓전송 원클릭 작업을 서버에 등록합니다…`,
+      );
       window.localStorage.setItem(
         PENDING_STORAGE_KEY,
-        JSON.stringify({ orchestrationId, token, createdAt: Date.now() }),
+        JSON.stringify({ mode, runIds, token, createdAt: Date.now() }),
+      );
+      const body = await createOrResumeOrchestration(mode, runIds, token);
+      const orchestrationId = text(body.orchestrationId);
+      if (!orchestrationId || text(body.handoffToken) !== token) {
+        throw new Error("원클릭 작업 인계 확인값이 일치하지 않습니다.");
+      }
+      window.localStorage.setItem(
+        PENDING_STORAGE_KEY,
+        JSON.stringify({ mode, runIds, orchestrationId, token, createdAt: Date.now() }),
       );
       let handed = false;
       for (let attempt = 0; attempt < 4 && !handed; attempt += 1) {
@@ -213,15 +320,29 @@ export default function SeoBulkShoplingOneClickControl() {
       }
       window.localStorage.removeItem(PENDING_STORAGE_KEY);
       setMessage(
-        `${Number(body.acceptedCount || readyRuns.length)}개 상품 인계 완료 · 이제 Shopling 업로드 → 도매1~소매2 마켓전송까지 자동 진행합니다.`,
+        mode === "market_only"
+          ? `${Number(body.acceptedCount || targets.length)}개 상품·${Number(body.verifiedGoodsKeyCount || targets.length * 6)}개 기존 goods_key 검증 완료 · 마켓전송만 진행합니다.`
+          : `${Number(body.acceptedCount || targets.length)}개 상품 인계 완료 · 이제 Shopling 업로드 → 도매1~소매2 마켓전송까지 자동 진행합니다.`,
       );
       await load();
     } catch (startError) {
+      if (startError instanceof RequestError && startError.status < 500) {
+        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+      }
       setError(startError instanceof Error ? startError.message : "원클릭 작업 시작 실패");
     } finally {
       setBusy(false);
     }
-  }, [busy, load, readyRuns]);
+  }, [busy, load]);
+
+  const start = useCallback(
+    () => startPipeline("full_pipeline", readyRuns),
+    [readyRuns, startPipeline],
+  );
+  const startMarketOnly = useCallback(
+    () => startPipeline("market_only", marketOnlyRuns),
+    [marketOnlyRuns, startPipeline],
+  );
 
   return (
     <section className="mx-auto mt-5 max-w-[1500px] px-5">
@@ -236,20 +357,35 @@ export default function SeoBulkShoplingOneClickControl() {
               Shopling 로그인/A18 탭과 v0.3.30만 열어두면 확장프로그램 팝업을 조작하지 않아도 됩니다.
             </p>
           </div>
-          <button
-            type="button"
-            disabled={busy || readyRuns.length === 0}
-            onClick={() => void start()}
-            className="rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:opacity-40"
-          >
-            {busy
-              ? "원클릭 작업 연결 중…"
-              : `샵플링 일괄 대량등록 및 마켓전송 (${readyRuns.length})`}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              disabled={busy || readyRuns.length === 0}
+              onClick={() => void start()}
+              className="rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:opacity-40"
+            >
+              {busy
+                ? "원클릭 작업 연결 중…"
+                : `샵플링 일괄 대량등록 및 마켓전송 (${readyRuns.length})`}
+            </button>
+            <button
+              type="button"
+              disabled={busy || marketOnlyRuns.length === 0}
+              onClick={() => void startMarketOnly()}
+              className="rounded-xl bg-amber-600 px-5 py-3 text-sm font-black text-white shadow-sm disabled:opacity-40"
+            >
+              {busy
+                ? "재개 작업 연결 중…"
+                : `기존 등록상품 마켓전송만 재개 (${marketOnlyRuns.length})`}
+            </button>
+          </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
           <span className="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-200">
             등록 가능 {readyRuns.length}개
+          </span>
+          <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-900 ring-1 ring-amber-200">
+            마켓전송만 재개 가능 {marketOnlyRuns.length}개
           </span>
           <span className={`rounded-full px-3 py-1 ${bridgeReady === true ? "bg-emerald-100 text-emerald-800" : bridgeReady === false ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"}`}>
             브라우저 에이전트 {bridgeReady === true ? "v0.3.30 연결" : bridgeReady === false ? "연결 필요" : "확인 대기"}
@@ -260,6 +396,11 @@ export default function SeoBulkShoplingOneClickControl() {
             </span>
           ) : null}
         </div>
+        {marketOnlyRuns.length ? (
+          <p className="mt-3 text-xs font-bold text-amber-800">
+            이 버튼은 최신 작업묶음의 기존 goods_key만 사용합니다. SEO 생성과 Shopling 상품등록은 다시 실행하지 않습니다.
+          </p>
+        ) : null}
         {message ? <p className="mt-3 text-sm font-bold text-emerald-800">{message}</p> : null}
         {error ? <p className="mt-3 text-sm font-bold text-rose-700">{error}</p> : null}
         {latest?.error_message ? (
