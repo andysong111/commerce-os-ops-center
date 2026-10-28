@@ -21,7 +21,7 @@ export function SalesEventSyncControls({ state, requestId, planFingerprint }: Pr
     if (action === "full" && !window.confirm("카나리 검증된 같은 계획으로 최근 360일 판매 이벤트를 전수 적재합니다. 계속할까요?")) return;
     inFlight.current = true;
     setBusy(true);
-    setMessage("");
+    setMessage(action === "run-burst" ? "남은 판매 구간을 한 번에 처리 중입니다. 창을 닫지 마세요." : "");
     try {
       const body: Record<string, unknown> = { action };
       if (action === "refresh") {
@@ -65,8 +65,8 @@ export function SalesEventSyncControls({ state, requestId, planFingerprint }: Pr
         </button>
       ) : null}
       {state === "QUEUED" || state === "RUNNING" ? (
-        <button disabled={busy} onClick={() => act("run-next")} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 disabled:opacity-50">
-          다음 구간 1회 처리
+        <button disabled={busy} onClick={() => act("run-burst")} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 disabled:opacity-50">
+          {busy ? "남은 구간 처리 중…" : "남은 구간 한 번에 처리"}
         </button>
       ) : null}
       {state === "READY_CANARY" && planFingerprint ? (
