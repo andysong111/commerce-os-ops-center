@@ -107,12 +107,14 @@ export function friendlyShoplingStockSyncFailure(
     raw.includes("enableAllDateSearch is not defined") ||
     raw.includes("A21_CONTENT_EXCEPTION")
   ) {
-    return "Shopling 전체기간 조회 기능이 실행되지 않아 품절 반영을 중단했습니다. 재고 0 기준은 저장됐지만 Shopling에는 반영되지 않았습니다. 재고상태 자동화 확장을 v0.5.9로 업데이트한 뒤 다시 실행해 주세요.";
+    return "Shopling 전체기간 조회 기능이 실행되지 않아 품절 반영을 중단했습니다. 재고 0 기준은 저장됐지만 Shopling에는 반영되지 않았습니다. 재고상태 자동화 확장을 v0.6.1로 업데이트한 뒤 다시 실행해 주세요.";
   }
   if (
     raw.includes("A21_ALL_DATE_FILTER_NOT_FOUND") ||
     raw.includes("A6_DATE_SCOPE_CONTROLS_NOT_FOUND") ||
-    raw.includes("A6_DATE_SCOPE_CLEAR_FAILED")
+    raw.includes("A6_DATE_SCOPE_CLEAR_FAILED") ||
+    raw.includes("A6_DATE_SCOPE_SET_FAILED") ||
+    raw.includes("SEARCH_DATE_FIELDS_AMBIGUOUS")
   ) {
     return "Shopling 상품등록 전체기간 조건을 확인하지 못해 안전하게 중단했습니다. 재고 기준은 저장됐고 Shopling에는 반영되지 않았습니다.";
   }
@@ -359,7 +361,7 @@ export function InventoryStockoutOperatorPanel() {
         setExtensionVersion(version);
         if (!supported) {
           setSyncNotice(
-            `Shopling 자동화 v${version || "확인 불가"}는 전체기간 품절 처리 오류가 있어 사용할 수 없습니다. v0.5.9로 업데이트해 주세요.`,
+            `Shopling 자동화 v${version || "확인 불가"}는 품절 처리 오류가 있어 사용할 수 없습니다. v0.6.1로 업데이트해 주세요.`,
           );
         } else if (directQueue.current.length && !activeBatch.current) {
           window.setTimeout(() => {
@@ -506,7 +508,7 @@ export function InventoryStockoutOperatorPanel() {
       !extensionReadyRef.current
     ) {
       setNotice(
-        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.5.9를 연결해 주세요.",
+        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.1을 연결해 주세요.",
       );
       return;
     }
@@ -657,7 +659,7 @@ export function InventoryStockoutOperatorPanel() {
           {extensionReady
             ? `Shopling 자동화 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}`
             : extensionVersion
-              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.5.9`
+              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.6.1`
             : "Shopling 자동화 연결 대기"}
         </span>
         {inputErrors.length ? (

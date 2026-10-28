@@ -22,6 +22,7 @@ on:
       - 'public/shopling-stock-state-sync/**'
       - 'tests/inventoryStock*'
       - 'tests/shoplingStockStateHf31.test.mjs'
+      - 'tests/shoplingStockStateHf33.test.mjs'
       - 'tests/helpers/purchaseCycleHarness.mjs'
       - 'tests/supabaseAdminReadRetry.test.mjs'
       - '.github/workflows/inventory-stock-control-ci.yml'
@@ -46,6 +47,7 @@ on:
       - 'public/shopling-stock-state-sync/**'
       - 'tests/inventoryStock*'
       - 'tests/shoplingStockStateHf31.test.mjs'
+      - 'tests/shoplingStockStateHf33.test.mjs'
       - 'tests/helpers/purchaseCycleHarness.mjs'
       - 'tests/supabaseAdminReadRetry.test.mjs'
       - '.github/workflows/inventory-stock-control-ci.yml'
@@ -98,4 +100,4 @@ jobs:
           done
           docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /workspace/tests/inventoryStockTailProjection.sql
       - name: Test stock control and connection recovery
-        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs tests/inventoryStockUnifiedBatch.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockBulkInput.test.mjs tests/inventoryStockTailLatestView.test.mjs tests/inventoryStockConnection.test.mjs tests/shoplingStockStateHf31.test.mjs tests/supabaseAdminReadRetry.test.mjs
+        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs tests/inventoryStockUnifiedBatch.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockBulkInput.test.mjs tests/inventoryStockTailLatestView.test.mjs tests/inventoryStockConnection.test.mjs tests/shoplingStockStateHf31.test.mjs tests/shoplingStockStateHf33.test.mjs tests/supabaseAdminReadRetry.test.mjs
