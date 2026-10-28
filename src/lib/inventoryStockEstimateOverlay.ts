@@ -26,13 +26,16 @@ export function applyOperatorInventoryEstimate(
   if (!estimate) return row;
   const estimateAt = timestamp(estimate.occurredAt);
   if (!estimateAt) return row;
-  if (timestamp(latestExactStocktake?.occurredAt) >= estimateAt) return row;
   // A numeric spot estimate describes a quantity at one point in time, so a
-  // later stock movement makes that number stale. A rough stock band is an
-  // operator classification (many/normal/low/out), not a counted quantity.
-  // Keep that classification until the operator changes it or a newer exact
-  // stocktake supersedes it; otherwise every sale/shipment silently erases the
-  // saved band while the UI still shows it as applied.
+  // later exact stocktake or stock movement makes that number stale. A rough
+  // stock band is a persistent operator planning classification
+  // (many/normal/low/out), not a counted quantity. Keep the band until the
+  // operator changes it; otherwise the UI keeps showing the saved green band
+  // while the calculation engine silently ignores it.
+  if (
+    estimate.estimatedQuantity !== null &&
+    timestamp(latestExactStocktake?.occurredAt) >= estimateAt
+  ) return row;
   if (
     estimate.estimatedQuantity !== null &&
     timestamp(row.lastMovementAt) > estimateAt

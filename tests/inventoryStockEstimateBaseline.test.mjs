@@ -65,6 +65,40 @@ test("saved rough stock band survives later sales and shipments", () => {
   );
 });
 
+test("saved rough HIGH band remains authoritative after a newer exact stocktake", () => {
+  const estimate = {
+    eventId: "estimate-band-high-1", barcode: "BCB2-1", productKind: "OPTION",
+    modelNo: null, estimatedQuantity: null, stockBand: "HIGH", occurredAt: "2026-10-27T00:00:00.000Z", note: "",
+  };
+  const newerExactStocktake = {
+    eventId: "exact-after-band-1", barcode: "BCB2-1", productKind: "OPTION",
+    modelNo: null, baselineQuantity: 90, occurredAt: "2026-10-28T00:00:00.000Z", note: "",
+  };
+
+  const result = applyOperatorInventoryEstimate(
+    inventory(),
+    estimate,
+    newerExactStocktake,
+  );
+
+  assert.equal(result.operatorStockBand, "HIGH");
+  assert.equal(result.inventoryBaselineKind, "OPERATOR_ESTIMATE");
+  assert.equal(
+    calculateNetRequirement({
+      demandTarget: 100,
+      originalGroup: "발주 추천",
+      inventoryKnown: true,
+      availableQuantity: estimatedInventoryForStockBand(
+        100,
+        result.operatorStockBand,
+      ),
+      moq: 1,
+      cartonQuantity: 1,
+    }).recommendedQuantity,
+    0,
+  );
+});
+
 test("재고 네 단계는 상품별 수요목표 비율로만 환산한다", () => {
   assert.equal(estimatedInventoryForStockBand(100, "HIGH"), 100);
   assert.equal(estimatedInventoryForStockBand(100, "NORMAL"), 50);
