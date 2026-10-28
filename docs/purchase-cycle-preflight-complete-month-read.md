@@ -71,9 +71,13 @@ stock band separately from an exact stocktake: `HIGH`, `NORMAL`, `LOW`, or
 translated at calculation time to 100%, 50%, 25%, or 0% of that SKU's current
 demand target. The band remains visibly provisional; it never becomes exact
 inventory or a Shopling stock update. A newer exact stocktake or inventory
-movement supersedes it. This input exists for the current purchase
-recalculation when a full physical count is not practical, while preserving the
-execution review boundary before any external order or payment.
+movement supersedes a numeric one-time estimate, but not a saved rough stock
+band. The rough band is a persistent operator planning classification and stays
+authoritative until the operator changes it; otherwise the UI would show a
+saved green band that the calculation engine silently ignored. This input
+exists for purchase recalculation when a full physical count is not practical,
+while preserving the execution review boundary before any external order or
+payment.
 
 ## Receipt-confirmed run boundary and fresh Draft candidates (2026-10-26)
 
