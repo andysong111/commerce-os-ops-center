@@ -82,7 +82,7 @@ try {
   // before a click. The click must re-read Q and must never POST or start HF28.
   mode = 'EMPTY';
   const queue = page.locator('section').filter({ has: page.getByRole('heading', { name: '실제 운영 재고상태 자동 큐', exact: true }) });
-  await queue.getByRole('button', { name: '현재 대기건 2-Lane 자동처리', exact: true }).click();
+  await queue.getByRole('button', { name: '현재 대기건 자동처리', exact: true }).click();
   await waitQueueText('운영 재고상태 큐 처리 완료');
   assert.equal(requests.filter(path => path === Q).length, 2);
   assert.deepEqual(writes, []);
@@ -92,7 +92,7 @@ try {
   mode = 'FAIL';
   await queue.getByRole('button', { name: '큐 새로고침', exact: true }).click();
   await waitQueueText('TEST_READ_FAILURE');
-  assert.equal(await queue.getByRole('button', { name: '현재 대기건 2-Lane 자동처리', exact: true }).isDisabled(), true);
+  assert.equal(await queue.getByRole('button', { name: '현재 대기건 자동처리', exact: true }).isDisabled(), true);
   assert.doesNotMatch((await inspect()).queueText || '', /BAB3-1/);
   checks.push('read failure clears actionable rows and disables execution');
 

@@ -363,10 +363,15 @@ export function InventoryStockoutOperatorPanel() {
           setSyncNotice(
             `Shopling 자동화 v${version || "확인 불가"}는 품절 처리 오류가 있어 사용할 수 없습니다. v0.6.1로 업데이트해 주세요.`,
           );
-        } else if (directQueue.current.length && !activeBatch.current) {
-          window.setTimeout(() => {
-            void launchNextRef.current();
-          }, 0);
+        } else {
+          setSyncNotice((current) =>
+            current.includes("Shopling 자동화 v") && current.includes("업데이트해 주세요") ? "" : current,
+          );
+          if (directQueue.current.length && !activeBatch.current) {
+            window.setTimeout(() => {
+              void launchNextRef.current();
+            }, 0);
+          }
         }
         return;
       }
