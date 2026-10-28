@@ -412,10 +412,13 @@ async function buildBaseDraft(
           effectiveCommitmentQuantity(commitment),
         ),
         unitPriceCny: Math.min(1_000_000, decimal(sourcePayload.unitPriceCny)),
-        freightGroupId: "",
-        domesticChinaFreightCny: 0,
-        orderNumber: "",
-        note: "",
+        freightGroupId: text(sourcePayload.freightGroupId).slice(0, 100),
+        domesticChinaFreightCny: Math.min(
+          1_000_000,
+          decimal(sourcePayload.domesticChinaFreightCny),
+        ),
+        orderNumber: text(sourcePayload.orderNumber).slice(0, 160),
+        note: text(sourcePayload.operatorNote ?? sourcePayload.note).slice(0, 300),
         stockInputMode: internalChinaStockInputMode({
           sourcingConfirmed: sourcePayload.sourcingConfirmed,
           inventoryConfirmed: profile?.inventoryConfirmed,

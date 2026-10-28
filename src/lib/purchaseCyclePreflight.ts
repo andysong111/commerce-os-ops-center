@@ -18,6 +18,8 @@ import {
   type PurchasePreflightOptions,
 } from "@/lib/purchaseCyclePreflightCore";
 import type { InventoryStockBand } from "@/lib/inventoryStockBulkInput";
+import { loadStoredInternalChinaPurchaseDraftForCost } from "@/lib/internalChinaPurchaseDraft";
+import { buildPurchaseActualDraftCostSnapshot } from "@/lib/purchaseActualDraftCostSnapshot";
 
 const DEFAULT_READER_TIMEOUT_MS = 60_000;
 
@@ -132,6 +134,15 @@ export async function loadPurchaseCyclePreflight(
       });
     }),
     ownerCosts: async () => PURCHASE_OWNER_COST_ESTIMATES,
+    actualDraftCosts: (draftId) => bounded(
+      "ACTUAL_DRAFT_COST_READ",
+      async () => {
+        const draft = await loadStoredInternalChinaPurchaseDraftForCost(draftId);
+        return draft
+          ? buildPurchaseActualDraftCostSnapshot(draft, new Date().toISOString())
+          : null;
+      },
+    ),
     replacementDraft: (draftId) => bounded(
       "REPLACEMENT_DRAFT_READ",
       () => loadReplacementDraftSnapshot(draftId),

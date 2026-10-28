@@ -272,6 +272,63 @@ test("operator quantity that alone exceeds the budget blocks instead of shrinkin
   blocked(buildPurchaseCyclePreflight(input), "OPERATOR_QUANTITY_BUDGET_EXCEEDED");
 });
 
+test("5-1 actual yuan price and grouped freight replace estimates before budget allocation", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.replaceDraftId = draftId;
+  input.options.cashLimitKrw = 65_000;
+  input.options.maxSkus = 2;
+  Object.assign(input.priority.rows[0], {
+    revenueQualifiedMonthCount: 10,
+    averageMonthlyRevenueKrw: 100_000,
+    risingStrength: "STRONG",
+  });
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "LOWER PRIORITY",
+    priorityScore: 80,
+    revenueQualifiedMonthCount: 5,
+    averageMonthlyRevenueKrw: 50_000,
+    risingStrength: "NONE",
+    latestConfirmedReceiptCostKrw: 4_000,
+    protectedCostKrw: 4_000,
+  });
+  const replacement = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 5 },
+      { barcode: "BAA2-1", name: "LOWER PRIORITY", quantity: 5 },
+    ],
+  );
+  input.replacementBefore = replacement;
+  input.replacementAfter = replacement;
+  const actual = {
+    draftId,
+    readAt: input.now,
+    savedAt: "2026-10-01T01:58:00.000Z",
+    contentFingerprint: fp("9"),
+    rows: [
+      { barcode: "BAA1-1", unitPriceCny: 30, freightPerUnitCny: 5, unitCostKrw: 8_000 },
+      { barcode: "BAA2-1", unitPriceCny: 10, freightPerUnitCny: 3, unitCostKrw: 3_000 },
+    ],
+  };
+  input.actualCostsBefore = actual;
+  input.actualCostsAfter = { ...actual };
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+  assert.deepEqual(report.selected.map((row) => row.barcode), ["BAA1-1"]);
+  assert.equal(report.selected[0].costBasis, "ACTUAL_1688_DRAFT_LANDED_COST");
+  assert.equal(report.selected[0].estimatedUnitCostKrw, 8_000);
+  assert.equal(report.selected[0].estimatedCostKrw, 40_000);
+  assert.ok(
+    report.excluded.find((row) => row.barcode === "BAA2-1")?.reasons.includes("CASH_BUDGET_LIMIT"),
+  );
+});
+
 test("operator quantity keeps an existing Draft line when automatic inventory and recommendation become ineligible", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:1234567890abcdef1234";
