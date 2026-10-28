@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   selectLatestSeoReadyProducts,
+  summarizeSeoRegistrationOutcomes,
   summarizeSeoListingLifecycle,
 } from "../src/lib/seoListingAutomationDashboard.ts";
 
@@ -52,4 +53,30 @@ test("lifecycle summary ignores malformed states but retains review count", () =
   assert.equal(summary.counts.LIVE, 2);
   assert.equal(summary.counts.EXCEPTION, 0);
   assert.equal(summary.requiresReviewCount, 2);
+});
+
+test("one-look outcome summary uses only the latest run per product", () => {
+  const summary = summarizeSeoRegistrationOutcomes([
+    job({
+      run_id: "seo-run-old-success",
+      registration_status: "success",
+      run_created_at: "2026-10-14T00:00:00.000Z",
+    }),
+    job({
+      run_id: "seo-run-new-failed",
+      registration_status: "failed",
+      run_created_at: "2026-10-15T00:00:00.000Z",
+    }),
+    job({
+      run_id: "seo-run-other-running",
+      launch_item_id: "launch-2",
+      status: "running",
+      registration_status: "idle",
+    }),
+  ]);
+  assert.deepEqual(summary, {
+    registeredProductCount: 0,
+    registrationFailedProductCount: 1,
+    processingProductCount: 1,
+  });
 });

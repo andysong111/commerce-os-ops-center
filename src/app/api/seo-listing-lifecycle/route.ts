@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server";
-import { selectLatestSeoReadyProducts, summarizeSeoListingLifecycle } from "@/lib/seoListingAutomationDashboard";
+import {
+  selectLatestSeoReadyProducts,
+  summarizeSeoListingLifecycle,
+  summarizeSeoRegistrationOutcomes,
+} from "@/lib/seoListingAutomationDashboard";
 import {
   calculateSeoPortfolioCapacity,
   SEO_LISTING_COOLDOWN_DAYS,
@@ -9,6 +13,10 @@ import {
   SEO_MARKET_CAPACITY_MAX_AGE_HOURS,
   type SeoMarketCapacityInput,
 } from "@/lib/seoListingLifecyclePolicy";
+import {
+  planSeoScheduledPortfolioRun,
+  SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
+} from "@/lib/seoListingScheduledRun";
 import { listSeoRunJobs } from "@/lib/seoRunJobServer";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -132,19 +140,31 @@ export async function GET(request: NextRequest) {
       new Date(),
     );
     const lifecycle = summarizeSeoListingLifecycle(lifecycleRows);
+    const registration = summarizeSeoRegistrationOutcomes(jobs);
     const policyMatchesCode =
       !policyRow ||
       (numberOrNull(policyRow.exposure_days) === SEO_LISTING_EXPOSURE_DAYS &&
         numberOrNull(policyRow.cooldown_days) === SEO_LISTING_COOLDOWN_DAYS &&
         numberOrNull(policyRow.max_attempts) === SEO_LISTING_MAX_ATTEMPTS);
-    const shadowRegistrationCount = schemaReady && policyMatchesCode && !capacity.blocked
-      ? Math.min(readyProducts.length, capacity.safeBatchCount)
-      : 0;
+    const systemBlocked = !schemaReady || !policyMatchesCode;
+    const scheduledPlan = planSeoScheduledPortfolioRun({
+      readyProducts,
+      lifecycleRows,
+      safeBatchCount: capacity.safeBatchCount,
+      capacityBlocked: systemBlocked || capacity.blocked,
+      allowBoundedRegistrationWithoutCapacity:
+        !systemBlocked && capacity.blocked,
+      fallbackBatchCount: SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
+      now: new Date(),
+    });
     const warnings = [
       "SHADOW_ONLY_NO_MARKET_WRITE",
       ...(!schemaReady ? ["LIFECYCLE_SCHEMA_NOT_APPLIED"] : []),
       ...(!policyRow ? ["POLICY_ROW_NOT_CREATED"] : []),
       ...(!policyMatchesCode ? ["POLICY_VERSION_MISMATCH"] : []),
+      ...(scheduledPlan.capacityFallbackActive
+        ? ["REGISTRATION_ONLY_FALLBACK_ACTIVE"]
+        : []),
       ...capacity.reasonCodes,
     ];
 
@@ -163,7 +183,25 @@ export async function GET(request: NextRequest) {
       },
       summary: {
         seoReadyProductCount: readyProducts.length,
-        shadowRegistrationCount,
+        shadowRegistrationCount: scheduledPlan.selectedProducts.length,
+        scheduledRegistrationCount: scheduledPlan.selectedProducts.length,
+        eligibleRegistrationCount: scheduledPlan.eligibleRegistrationCount,
+        excludedByLifecycleCount: scheduledPlan.excludedByLifecycleCount,
+        limitedByCapacityCount: scheduledPlan.limitedByCapacityCount,
+        soldOutDeleteDueCount: scheduledPlan.soldOutDeleteDueCount,
+        relistDueCount: scheduledPlan.relistDueCount,
+        protectedProductCount: scheduledPlan.protectedProductCount,
+        cooldownProductCount: scheduledPlan.cooldownProductCount,
+        reviewProductCount: scheduledPlan.reviewProductCount,
+        capacityFallbackActive: scheduledPlan.capacityFallbackActive,
+        scheduledBatchLimit: scheduledPlan.capacityFallbackActive
+          ? SEO_REGISTRATION_FALLBACK_BATCH_LIMIT
+          : capacity.safeBatchCount,
+        registeredProductCount: registration.registeredProductCount,
+        registrationFailedProductCount:
+          registration.registrationFailedProductCount,
+        processingProductCount: registration.processingProductCount,
+        verifiedSalesCount: lifecycle.verifiedSalesCount,
         safeBatchCount: capacity.safeBatchCount,
         marketCount: capacity.markets.length,
         blockedMarketCount: capacity.markets.filter((market) => market.blocked)
@@ -173,6 +211,17 @@ export async function GET(request: NextRequest) {
       },
       markets: capacity.markets,
       readyProducts: readyProducts.slice(0, 30),
+      scheduledRun: {
+        executable: scheduledPlan.selectedProducts.length > 0,
+        reasonCode: scheduledPlan.reasonCode,
+        runIds: scheduledPlan.selectedProducts.map((product) => product.runId),
+        products: scheduledPlan.selectedProducts,
+        cadenceLabel: "재고 동기화가 끝난 뒤 하루 1회",
+        capacityMode: scheduledPlan.capacityFallbackActive
+          ? "bounded_registration_only"
+          : "verified_market_capacity",
+        externalDeleteEnabled: false,
+      },
       warnings: [...new Set(warnings)],
     });
   } catch (error) {
@@ -188,4 +237,39 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: NextRequest) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body) || body.action !== "prepare_scheduled_run") {
+    return Response.json(
+      {
+        ok: false,
+        code: "SEO_LIFECYCLE_ACTION_INVALID",
+        message: "지원하지 않는 자동운영 요청입니다.",
+      },
+      { status: 400 },
+    );
+  }
+  const dashboardResponse = await GET(request);
+  const dashboard = (await dashboardResponse.json().catch(() => ({}))) as UnknownRecord;
+  if (!dashboardResponse.ok || dashboard.ok !== true) {
+    return Response.json(dashboard, { status: dashboardResponse.status });
+  }
+  const scheduledRun =
+    dashboard.scheduledRun && typeof dashboard.scheduledRun === "object"
+      ? (dashboard.scheduledRun as UnknownRecord)
+      : {};
+  const runIds = Array.isArray(scheduledRun.runIds)
+    ? scheduledRun.runIds.map(text).filter(Boolean)
+    : [];
+  return Response.json({
+    ok: true,
+    preparedAt: dashboard.generatedAt,
+    scheduledRun,
+    summary: dashboard.summary,
+    warnings: dashboard.warnings,
+    externalMarketWrite: false,
+    requiresBrowserHandoff: runIds.length > 0,
+  });
 }

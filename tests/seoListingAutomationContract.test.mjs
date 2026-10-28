@@ -8,7 +8,7 @@ async function source(path) {
   return readFile(new URL(path, ROOT), "utf8");
 }
 
-test("SEO cloud adds the Shadow automation panel without removing manual controls", async () => {
+test("SEO cloud adds the one-click portfolio panel without removing recovery controls", async () => {
   const page = await source("src/app/seo-bulk-cloud/page.tsx");
   const panel = await source("src/app/seo-bulk-cloud/SeoBulkAutomationPanel.tsx");
   const oneClick = await source("src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx");
@@ -17,19 +17,32 @@ test("SEO cloud adds the Shadow automation panel without removing manual control
   assert.match(page, /SeoBulkRegistrationFailurePanel/);
   assert.match(page, /SeoBulkRegistrationRetryAllControl/);
   assert.match(page, /SeoBulkShoplingOneClickControl/);
-  assert.match(oneClick, /샵플링 일괄 대량등록 및 마켓전송/);
-  assert.match(panel, /Shadow · 실제 등록\/품절\/삭제 없음/);
+  assert.ok(
+    page.indexOf("<SeoBulkShoplingOneClickControl />") <
+      page.indexOf("<SeoBulkWindowBridge />"),
+  );
+  assert.match(oneClick, /오늘 자동운영 1번 실행/);
+  assert.match(oneClick, /prepare_scheduled_run/);
+  assert.match(oneClick, /재고 동기화가 끝난 뒤 하루 1회/);
+  assert.match(panel, /신규등록 원클릭 · 물갈이 안전잠금/);
+  assert.match(panel, /오늘 운영 흐름/);
+  assert.match(panel, /신규 등록은 한 번에 최대 3개만 진행/);
   assert.match(panel, /60일 노출/);
   assert.match(panel, /90일 쉬었다가/);
   assert.match(panel, /3회 연속 무판매/);
 });
 
-test("dashboard endpoint is read-only and hard-blocks auto execution", async () => {
+test("dashboard prepares an authenticated scheduled run but keeps destructive writes locked", async () => {
   const route = await source("src/app/api/seo-listing-lifecycle/route.ts");
   assert.match(route, /export async function GET/);
-  assert.doesNotMatch(route, /export async function POST/);
+  assert.match(route, /export async function POST/);
+  assert.match(route, /prepare_scheduled_run/);
+  assert.match(route, /externalMarketWrite: false/);
+  assert.match(route, /externalDeleteEnabled: false/);
   assert.match(route, /autoExecutionEnabled: false/);
   assert.match(route, /mode: "shadow"/);
+  assert.match(route, /REGISTRATION_ONLY_FALLBACK_ACTIVE/);
+  assert.match(route, /SEO_REGISTRATION_FALLBACK_BATCH_LIMIT/);
   assert.match(route, /requireSeoTitleLedgerContext/);
   assert.match(route, /eq\("owner_id", context\.identity\.userId\)/);
 });

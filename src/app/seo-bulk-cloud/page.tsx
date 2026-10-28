@@ -15,6 +15,7 @@ export default function SeoBulkCloudPage() {
   return (
     <>
       <SeoBulkAutomationPanel />
+      <SeoBulkShoplingOneClickControl />
       <SeoBulkWindowBridge />
       <SeoBulkRunMigrationBridge />
       <SeoBulkLongTitleV6UpgradeBridge />
@@ -24,7 +25,6 @@ export default function SeoBulkCloudPage() {
       <SeoBulkRegistrationRetryAllControl />
       <SeoBulkCustomBlockedTermsPanel />
       <SeoBulkArchiveSummary />
-      <SeoBulkShoplingOneClickControl />
       <SeoBulkRunCloudClient />
     </>
   );
