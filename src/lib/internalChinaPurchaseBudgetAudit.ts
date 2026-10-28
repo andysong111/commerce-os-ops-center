@@ -1,5 +1,8 @@
 import { loadChinaOrderLedger } from "@/lib/chinaOrderLedger";
-import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
+import {
+  loadInternalChinaPurchaseDraft,
+  type InternalChinaPurchaseDraft,
+} from "@/lib/internalChinaPurchaseDraft";
 import {
   monthlyPurchaseCycleForMonth,
 } from "@/lib/monthlyPurchasePolicy";
@@ -100,10 +103,16 @@ function quantity(value: unknown) {
 
 export async function loadInternalChinaPurchaseBudgetAudit(
   draftId: string,
+  options?: {
+    draft?: InternalChinaPurchaseDraft;
+    ledger?: Awaited<ReturnType<typeof loadChinaOrderLedger>>;
+  },
 ): Promise<InternalChinaPurchaseBudgetAudit> {
   // The budget month belongs to the Draft's explicit purchase cycle. A Draft
   // created early for October must still use September, even on September 30.
-  const draft = await loadInternalChinaPurchaseDraft(draftId);
+  const draft = options?.draft ?? await loadInternalChinaPurchaseDraft(draftId, {
+    ledger: options?.ledger,
+  });
   const cycle = monthlyPurchaseCycleForMonth(draft.cycleMonth);
 
   const [shadowRead, planningRead, inventoryCost, ledger, calendarRevenue, carryoverRead] = await Promise.all([
@@ -122,7 +131,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
           "상품 기준원가 자료를 불러오지 못했습니다. 실제 위안단가 입력 전에는 원가 확인이 필요합니다.",
       })),
     loadProductMasterInventoryCostReadiness().catch(() => null),
-    loadChinaOrderLedger(),
+    options?.ledger ? Promise.resolve(options.ledger) : loadChinaOrderLedger(),
     loadCalendarMonthNormalRevenue(cycle.budgetMonth)
       .then((value) => ({ value, error: null as string | null }))
       .catch((error) => ({

@@ -361,6 +361,7 @@ export default async function ChinaOrderManagerPage({
             {selectedDrafts[0] ? (
               <Link
                 href={`/china-order-manager/drafts/${encodeURIComponent(selectedDrafts[0].draftId)}`}
+                prefetch={false}
                 className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white hover:bg-blue-800"
               >
                 중국 주문초안 · {selectedRun?.cycleStartDate ?? selectedDrafts[0].cycleStartDate}
@@ -407,7 +408,12 @@ export default async function ChinaOrderManagerPage({
               {visibleRuns.map((run) => (
                 <Link
                   key={run.draftId}
-                  href={`/china-order-manager?run=${encodeURIComponent(run.draftId)}`}
+                  href={
+                    run.draftId === selectedDraftId
+                      ? `/china-order-manager/drafts/${encodeURIComponent(run.draftId)}`
+                      : `/china-order-manager?run=${encodeURIComponent(run.draftId)}`
+                  }
+                  prefetch={false}
                   className={`whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-black ${
                     run.draftId === selectedDraftId
                       ? "border-blue-700 bg-blue-700 text-white"

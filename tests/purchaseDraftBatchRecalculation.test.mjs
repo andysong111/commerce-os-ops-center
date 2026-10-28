@@ -282,7 +282,7 @@ test("draft page loads legacy commitment pins before rendering the release contr
     "src/app/china-order-manager/drafts/[draftId]/page.tsx",
     "utf8",
   );
-  assert.match(page, /loadPurchaseDraftOperatorAdjustments\(draftId\)/);
+  assert.match(page, /loadPurchaseDraftOperatorAdjustments\(draftId, \{ ledger \}\)/);
   assert.match(page, /persistedAdjustments/);
   assert.match(page, /initialQuantityOverrides = persistedAdjustments\.quantityOverrides/);
   assert.doesNotMatch(page, /displayedQuantityOverrides/);

@@ -79,11 +79,14 @@ function hash(value: unknown) {
 
 export async function loadPurchaseDraftOperatorAdjustments(
   expectedDraftId: string,
+  options?: {
+    ledger?: Awaited<ReturnType<typeof loadChinaOrderLedger>>;
+  },
 ): Promise<PurchaseDraftOperatorAdjustments> {
   if (!DRAFT_ID.test(text(expectedDraftId))) {
     throw new Error("PURCHASE_DRAFT_REGENERATION_DRAFT_ID_INVALID");
   }
-  const ledger = await loadChinaOrderLedger();
+  const ledger = options?.ledger ?? await loadChinaOrderLedger();
   if (ledger.error) {
     throw new Error(`PURCHASE_DRAFT_REGENERATION_LEDGER_UNAVAILABLE:${ledger.error}`);
   }

@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
 import { loadInternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
+import { loadChinaOrderLedger } from "@/lib/chinaOrderLedger";
 import { seoulCalendarDate } from "@/lib/monthlyPurchasePolicy";
 import { loadPurchaseDraftOperatorAdjustments } from "@/lib/purchaseCycleDraftRegeneration";
 import { loadLatestInventoryStockEstimates } from "@/lib/inventoryStockEstimateBaselines";
@@ -33,13 +34,20 @@ export default async function InternalChinaPurchaseDraftPage({
   let initialQuantityOverrides: Array<{ barcode: string; targetQuantity: number }> = [];
   let initialStockBands: Record<string, InventoryStockBand> = {};
   try {
-    const [baseDraft, loadedBudgetAudit, persistedAdjustments, latestStockEstimates] = await Promise.all([
-      loadInternalChinaPurchaseDraft(draftId),
-      loadInternalChinaPurchaseBudgetAudit(draftId),
-      loadPurchaseDraftOperatorAdjustments(draftId),
+    const [ledger, latestStockEstimates] = await Promise.all([
+      loadChinaOrderLedger(),
       loadLatestInventoryStockEstimates(),
     ]);
-    draft = await loadInternalChinaDraftWithQuantityOverrides(baseDraft);
+    if (ledger.error) {
+      throw new Error(`CHINA_ORDER_LEDGER_UNAVAILABLE:${ledger.error}`);
+    }
+    const baseDraft = await loadInternalChinaPurchaseDraft(draftId, { ledger });
+    const [loadedDraft, loadedBudgetAudit, persistedAdjustments] = await Promise.all([
+      loadInternalChinaDraftWithQuantityOverrides(baseDraft),
+      loadInternalChinaPurchaseBudgetAudit(draftId, { draft: baseDraft, ledger }),
+      loadPurchaseDraftOperatorAdjustments(draftId, { ledger }),
+    ]);
+    draft = loadedDraft;
     budgetAudit = loadedBudgetAudit;
     initialQuantityOverrides = persistedAdjustments.quantityOverrides;
     initialStockBands = Object.fromEntries(
