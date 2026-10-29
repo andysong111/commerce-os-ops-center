@@ -21,6 +21,7 @@
 - 빈 날짜 입력칸이 정확히 두 개인 정상 A4 화면에서 시작일 `20230101`, 종료일 KST 오늘을 채우는 회귀 테스트가 통과했다.
 - 날짜 후보가 세 개인 모호 화면에서는 어떤 입력칸도 변경하지 않고 검색 전 차단하며 진단 근거를 남기는 회귀 테스트가 통과했다.
 - HF37 포함 관련 테스트 24건, TypeScript typecheck, 변경 파일 ESLint가 통과했다.
+- PR CI와 동일한 Inventory Stock Control 회귀 묶음 94건도 로컬에서 전부 통과했다.
 - 로컬 Next API `/api/shopling-stock-state-sync/download-hf37?verify=1`이 HTTP 200과 `v0.6.5`, 빈 A4 날짜 지원, 모호 시 무변경, HF36 프레임 보호 유지를 반환했다.
 - 생성 ZIP의 manifest 버전, HF37 날짜 패치, HF36 background 보존을 직접 확인했다.
 - 새 회귀 테스트는 `inventory-stock-control-ci.yml`과 `shopling-stock-state-sync-ci.yml`에 등록했다. 최신 PR head의 CI 통과는 PR 생성 후 확인해야 한다.
