@@ -4,15 +4,19 @@ import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-const [route, server, dispatcher, migration, apiRoute] = await Promise.all([
+const [route, server, dispatcher, migration, enableMigration, apiRoute] =
+  await Promise.all([
   read("src/app/api/cron/seo-listing-lifecycle-shadow-refresh/route.ts"),
   read("src/lib/seoListingLifecycleDailyRefreshServer.ts"),
   read("src/lib/opsAdaptiveDispatcher.ts"),
   read(
     "supabase/migrations/20261029014500_seo_listing_shadow_daily_refresh_dispatch.sql",
   ),
+  read(
+    "supabase/migrations/20261029021500_enable_seo_listing_shadow_daily_refresh.sql",
+  ),
   read("src/app/api/seo-listing-lifecycle/route.ts"),
-]);
+  ]);
 
 test("daily lifecycle refresh is a production-only authenticated dispatcher task", () => {
   assert.match(route, /VERCEL_ENV !== "production"/);
@@ -34,6 +38,18 @@ test("first deployment stages the once-daily task disabled", () => {
   assert.match(migration, /\n  false,/);
   assert.match(migration, /\n  86400,\n  86400,/);
   assert.match(migration, /enabled = false/);
+});
+
+test("verified production task is enabled once daily with a guarded migration", () => {
+  assert.match(enableMigration, /enabled = true/);
+  assert.match(enableMigration, /next_run_at = now\(\) \+ interval '1 day'/);
+  assert.match(enableMigration, /normal_interval_seconds = 86400/);
+  assert.match(enableMigration, /busy_interval_seconds = 86400/);
+  assert.match(enableMigration, /v_updated <> 1/);
+  assert.match(
+    enableMigration,
+    /SEO_LISTING_SHADOW_DAILY_REFRESH_TASK_MISMATCH/,
+  );
 });
 
 test("daily refresh only reads Shopling and writes internal shadow evidence", () => {

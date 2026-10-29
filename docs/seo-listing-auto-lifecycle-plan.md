@@ -125,6 +125,13 @@ Production migration 적용과 실제 마켓 쓰기 활성화는 이 문서 작�
 2. 검증된 노출일이 정확히 60일이고 판매가 0인 행만 내부 Shadow `SOLD_OUT`·`DELETE` 예정표에 넣는다. 실제 Shopling/마켓 쓰기는 하지 않는다.
 3. 새 일일 작업은 먼저 dispatcher에 `enabled=false`로 배포하고 Production 수동 대사 후 별도 migration으로 하루 1회만 활성화한다.
 
+Production 수동 대사 결과:
+
+- `LIVE / PROTECTED` 309행(52개 상품)을 읽었고 Shopling 현재상태는 309행 모두 판매중 `B`였다.
+- 같은 서울 날짜의 재실행이라 노출일·이벤트는 중복 증가하지 않았고, Shadow 품절·삭제 예정도 0건이었다.
+- 기존 상태 `LIVE 297 / PROTECTED 12 / EXCEPTION 117`이 그대로 유지됐다.
+- 외부 마켓 쓰기 0건을 확인한 뒤 하루 1회 dispatcher 활성화 migration을 추가했다.
+
 그 다음 남은 기획:
 
 4. 실제 외부 쓰기는 1개 상품 Canary로 `품절 → 삭제 → readback`을 검증한 뒤 별도 승인받는다.
