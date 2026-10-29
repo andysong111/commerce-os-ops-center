@@ -207,7 +207,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 A6 날짜 검증 오류가 있어 사용할 수 없습니다. v0.6.2로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 A6 날짜·결과행 검증 오류가 있어 사용할 수 없습니다. v0.6.3로 업데이트해 주세요.`);
         }
         return;
       }

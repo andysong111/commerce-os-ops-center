@@ -744,3 +744,4 @@ Actual 1688 ordering and payment remain outside this replacement calculation and
 - 이미 `claimed`/`submit_armed`인 goods_key, `confirm_needed`/`failed`/`legacy_ignored`인 goods_key, 같은 RUN을 포함한 활성 orchestration이 있으면 중복 전송을 막고 운영 확인으로 돌린다.
 - 브라우저가 생성한 고엔트로피 handoff token의 해시를 서버 원장의 고유키로 사용한다. 521처럼 응답만 유실돼도 같은 토큰으로 기존 orchestration을 회수하며 새 작업을 중복 생성하지 않는다.
 - 2026-10-28 사고 범위의 검증 fixture는 Shopling 등록 성공 38상품, 기존 goods_key 228개다. Toss 옵션명 오류 2상품과 SEO 생성 실패 1상품은 이 재개 범위에 넣지 않는다.
+- 2026-10-29 Shopling 재고상태 HF35 결정: A6 옵션 B코드 조회는 등록일 `2023-01-01~KST 오늘`을 사전 설정과 공통 검색정책에서 하나의 기준으로 사용한다. 정확 B코드가 입력된 검색조건 행은 Shopling 결과 체크박스와 `goodsKey/optionId` 식별자가 없으므로 상품 결과행으로 세지 않는다. `BCB6-2` 운영 장애의 `총 8건/읽은 행 9건`은 HF33에서 B코드만으로 행을 세도록 넓어진 회귀였으며 v0.6.3에서 실제 상품 8행만 집계하는 fixture로 보호한다. v0.6.2 이하는 실행을 차단하며, 실제 Shopling 쓰기 재개는 BCB6-2 단일 카나리의 A6 8행·옵션상태 API 재조회·A21 완료 확인 후에만 허용한다. 자세한 근거는 `docs/handoffs/shopling-stockout-hf35-20261029.md`에 있다.
