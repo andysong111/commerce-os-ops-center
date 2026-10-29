@@ -24,7 +24,10 @@ test("v0.5.5 source worker still reads legacy A6 control values and package rout
     const src = await readFile(`${root}/${name}`, "utf8");
     assert.doesNotThrow(() => new Function(src));
   }
-  const built = buildStockWorkerV030(await readFile(`${root}/content-shopling-v018.js`, "utf8"), await readFile(`${root}/search-policy-v023.js`, "utf8"));
+  const built = buildStockWorkerV030(
+    (await readFile(`${root}/content-shopling-v018.js`, "utf8")).replace(/\r\n?/g, "\n"),
+    (await readFile(`${root}/search-policy-v023.js`, "utf8")).replace(/\r\n?/g, "\n"),
+  );
   const route = await readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8");
   assert.doesNotThrow(() => new Function(built));
   assert.match(built, /rowEvidenceTextV053/);

@@ -71,21 +71,13 @@ test("HF35 keeps the A6 pre-search and common search date policy on one 2023-to-
   assert.doesNotMatch(patched, /20130912|20220101|2013-09-12|2022-01-01/);
 });
 
-test("HF35 packages v0.6.3 from HF34 and the stock-control UI requires that version", async () => {
-  const [route, planner, page, queuePanel, operatorPanel] = await Promise.all([
-    readFile("src/app/api/shopling-stock-state-sync/download-hf35/route.ts", "utf8"),
-    readFile("src/lib/shoplingStockLaunchPlan.ts", "utf8"),
-    readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
-    readFile("src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx", "utf8"),
-    readFile("src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx", "utf8"),
-  ]);
+test("HF35 preserves the v0.6.3 package checkpoint for later hotfixes", async () => {
+  const route = await readFile(
+    "src/app/api/shopling-stock-state-sync/download-hf35/route.ts",
+    "utf8",
+  );
   assert.match(route, /getHf34Download/);
   assert.match(route, /const BASE_VERSION = "0\.6\.2"/);
   assert.match(route, /const VERSION = "0\.6\.3"/);
   assert.match(route, /patchShoplingStockHf35Worker/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 3\]/);
-  assert.match(page, /download-hf35/);
-  assert.match(page, /v0\.6\.3 다운로드/);
-  assert.match(queuePanel, /v0\.6\.3로 업데이트해 주세요/);
-  assert.match(operatorPanel, /v0\.6\.3로 업데이트/);
 });

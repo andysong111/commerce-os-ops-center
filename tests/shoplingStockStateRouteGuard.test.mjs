@@ -30,7 +30,10 @@ test("A6 exact B-code reads control values and goods keys without checkbox or st
     readFile("src/app/api/shopling-stock-state-sync/download/route.ts", "utf8"),
     readFile(`${root}/content-ops-v021.js`, "utf8"),
   ]);
-  const worker = buildStockWorkerV030(template, policy);
+  const worker = buildStockWorkerV030(
+    template.replace(/\r\n?/g, "\n"),
+    policy.replace(/\r\n?/g, "\n"),
+  );
   assert.match(worker, /rowEvidenceTextV053/);
   assert.match(worker, /values\.push\(control\.value \|\| ""\)/);
   assert.match(route, /patchA6ReadOnlyResolverV054/);
