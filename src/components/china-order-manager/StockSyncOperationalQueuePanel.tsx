@@ -29,6 +29,13 @@ type ResultMessage = {
 };
 type ActiveBatch = { mode: "PARALLEL" | "SINGLE"; batchId: string; jobs: SyncJob[]; terminalJobIds: Set<string> };
 type LocalException = { jobId: string; barcode: string; outcome: Exclude<SyncOutcome, "STARTED">; message: string };
+type TerminalSummary = {
+  barcode: string;
+  outcome: Exclude<SyncOutcome, "STARTED">;
+  message: string;
+  finishedAt: number;
+  preSearchBlocked: boolean;
+};
 const PARALLEL_START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_START";
 const PARALLEL_STATUS = "COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_STATUS";
 const SINGLE_START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_START";
@@ -50,6 +57,21 @@ function prioritySort(left: SyncJob, right: SyncJob) {
 }
 function operationalJob(job: SyncJob, batchId: string, lane: number): SyncJob {
   return { ...job, operationalQueue: true, parallelBatchId: batchId, parallelLane: lane, ignoreWindowClose: true };
+}
+function phaseLabel(phase: string) {
+  if (phase === "IDLE") return "대기 중";
+  if (phase === "SINGLE_DONE" || phase === "DONE") return "작업 종료 · 성공";
+  if (phase === "SINGLE_EXCEPTION") return "작업 종료 · 실패/확인 필요";
+  if (phase === "PAUSED") return "자동처리 중지";
+  if (phase.includes("FAILED") || phase.includes("EXCEPTION")) return "작업 종료 · 오류";
+  if (phase.includes("START") || phase.includes("RUNNING")) return "처리 중";
+  return phase;
+}
+function isPreSearchDateFailure(message: string, evidence: unknown) {
+  const raw = `${message} ${JSON.stringify(evidence ?? {})}`;
+  return raw.includes("SEARCH_DATE_FIELDS_AMBIGUOUS") ||
+    raw.includes("검색 시작일·종료일을 정확히 특정하지 못해") ||
+    raw.includes("PRE_SEARCH_DATE_BINDING");
 }
 
 export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayload?: QueuePayload | null } = {}) {
@@ -73,6 +95,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
   const [notice, setNotice] = useState("");
   const [runningBarcodes, setRunningBarcodes] = useState<string[]>([]);
   const [localExceptions, setLocalExceptions] = useState<LocalException[]>([]);
+  const [terminalSummary, setTerminalSummary] = useState<TerminalSummary | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const connectionFailed = useRef(false);
   const jobsById = useRef(new Map<string, SyncJob>());
@@ -207,7 +230,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 A6 작업 프레임·결과 검증 오류가 있어 사용할 수 없습니다. v0.6.4로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 빈 날짜 입력칸 또는 작업 프레임·결과 검증 오류가 있어 사용할 수 없습니다. v0.6.5로 업데이트해 주세요.`);
         }
         return;
       }
@@ -261,6 +284,13 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
             continueAfterBatch.current = false;
             setDraining(false);
             const succeeded = batch.jobs.every((row) => !excludedThisRun.current.has(row.jobId));
+            setTerminalSummary({
+              barcode: job.barcode,
+              outcome: result.outcome,
+              message: result.message || (succeeded ? "Shopling 처리가 완료되었습니다." : "원인 확인이 필요합니다."),
+              finishedAt: Number(result.finishedAt || Date.now()),
+              preSearchBlocked: isPreSearchDateFailure(result.message || "", result.evidence),
+            });
             setPhase(succeeded ? "SINGLE_DONE" : "SINGLE_EXCEPTION");
             setNotice(succeeded
               ? `${job.barcode} 단건 처리 완료 · 다른 대기건은 실행하지 않았습니다.`
@@ -288,6 +318,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     if (!extensionReady) { setNotice("재고상태 확장프로그램이 연결되어야 운영 큐를 실행할 수 있습니다."); return; }
     if (draining || activeBatch.current) { setNotice("이미 운영 재고상태 큐가 실행 중입니다."); return; }
     if (report?.state !== "READY") { setNotice("정확재고 원장이 READY가 아니므로 Shopling 자동송신을 시작하지 않습니다."); return; }
+    setTerminalSummary(null);
     handledResults.current.clear(); excludedThisRun.current.clear(); setLocalExceptions([]);
     requestedSingleRun.current = null;
     continueAfterBatch.current = true; setDraining(true); setPhase("QUEUE_DRAIN_START");
@@ -299,6 +330,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     if (!extensionReady) { setNotice("재고상태 확장프로그램이 연결되어야 단건 실행할 수 있습니다."); return; }
     if (draining || activeBatch.current) { setNotice("이미 운영 재고상태 큐가 실행 중입니다."); return; }
     if (report?.state !== "READY") { setNotice("정확재고 원장이 READY가 아니므로 단건 송신을 시작하지 않습니다."); return; }
+    setTerminalSummary(null);
     handledResults.current.clear(); excludedThisRun.current.clear(); setLocalExceptions([]);
     requestedSingleRun.current = {
       jobId: job.jobId,
@@ -333,11 +365,17 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         </div>
       </div>
       {notice ? <div role="status" className="mt-4 rounded-xl border border-sky-200 bg-white px-4 py-3 text-sm font-bold text-slate-800">{notice}</div> : null}
+      {terminalSummary ? <div role="status" className={`mt-4 rounded-xl border px-4 py-4 ${terminalSummary.outcome === "SUCCEEDED" ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-rose-300 bg-rose-50 text-rose-950"}`}>
+        <div className="text-base font-black">{terminalSummary.barcode} 작업 종료 · {terminalSummary.outcome === "SUCCEEDED" ? "성공" : "실패/확인 필요"}</div>
+        <div className="mt-2 text-sm font-bold">Shopling 반영: {terminalSummary.outcome === "SUCCEEDED" ? "완료" : terminalSummary.preSearchBlocked ? "미반영 · 상품 검색 전에 안전 차단" : "확인 필요"}</div>
+        <div className="mt-1 text-sm">자동 재시도: 안 함 · {new Date(terminalSummary.finishedAt).toLocaleString("ko-KR")}</div>
+        <div className="mt-2 text-xs leading-5">{terminalSummary.message}</div>
+      </div> : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">실행 가능 대기</div><div className="mt-1 text-2xl font-black text-slate-950">{report ? jobs.length : "—"}</div></div>
         <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">현재 Lane</div><div className="mt-1 text-lg font-black text-slate-950">{runningBarcodes.length ? runningBarcodes.join(" + ") : "없음"}</div></div>
         <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">차단/확인 필요</div><div className="mt-1 text-2xl font-black text-slate-950">{report ? blockedRows.length + localExceptions.length : "—"}</div></div>
-        <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">운영 단계</div><div className="mt-1 text-sm font-black text-slate-950">{phase}</div></div>
+        <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">운영 단계</div><div className="mt-1 text-sm font-black text-slate-950">{phaseLabel(phase)}</div></div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <button type="button" onClick={() => void startDrain()} disabled={draining || !extensionReady || report?.state !== "READY" || !jobs.length} className="rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-black text-white hover:bg-sky-800 disabled:bg-slate-400">현재 대기건 자동처리</button>

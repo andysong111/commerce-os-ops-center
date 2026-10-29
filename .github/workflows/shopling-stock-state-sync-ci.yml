@@ -11,11 +11,13 @@ on:
       - "src/lib/inventoryStockSalesTail.ts"
       - "src/lib/inventoryStockSalesTailCoverage.ts"
       - "src/lib/inventoryStockSyncResolution.ts"
+      - "src/lib/shoplingStockHf*.ts"
       - "src/app/china-order-manager/stock-control/**"
       - "tests/shoplingStockStateRouteGuard.test.mjs"
       - "tests/shoplingStockStateExtension.test.mjs"
       - "tests/shoplingStockStateSyncV041.test.mjs"
       - "tests/shoplingStockStateHf36.test.mjs"
+      - "tests/shoplingStockStateHf37.test.mjs"
       - "tests/shoplingStockWatchdogHeartbeat.test.mjs"
       - "tests/shoplingOptionA21BatchHF29.test.mjs"
       - "tests/inventoryStockSalesTail.test.mjs"
@@ -62,6 +64,8 @@ jobs:
         run: node --test tests/shoplingOptionA21BatchHF29.test.mjs
       - name: Regression - HF36 exact frame ownership
         run: node --test tests/shoplingStockStateHf36.test.mjs
+      - name: Regression - HF37 empty A4 date controls
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf37.test.mjs
       - name: Regression - v0.4.1 sync
         run: node --test tests/shoplingStockStateSyncV041.test.mjs
       - name: Regression - reset-tail coverage
