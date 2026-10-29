@@ -67,7 +67,9 @@ test("stock-control page publishes the HF35 install path and one unified operato
   );
   assert.match(source, /download-hf35/);
   assert.match(source, /chrome:\/\/extensions/);
-  assert.match(source, /<InventoryStockoutOperatorPanel \/>/);
+  assert.match(source, /<InventoryStockoutOperatorPanel/);
+  assert.match(source, /focusedBarcodes=\{focusedCorrection\.barcodes\}/);
+  assert.match(source, /!isFocusedCorrection \? <InventoryStockOverviewPanel \/>/);
   assert.doesNotMatch(source, /InventoryManualOnSaleOperatorPanel/);
   assert.doesNotMatch(source, /InventoryStocktakeOperatorPanel/);
 });

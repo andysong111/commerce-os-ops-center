@@ -1,4 +1,5 @@
 import type { PurchaseCandidateOmissionReviewRow } from "./purchaseCandidateOmissionAudit.ts";
+import { roughStockCorrectionHref } from "./roughStockCorrectionTargets.ts";
 
 export type PurchaseCycleBlockerAction = {
   title: string;
@@ -53,7 +54,9 @@ export function purchaseCycleBlockerActions(
       actions.push({
         title: `재고 충돌 ${inventoryConflicts.length}종 확인`,
         message: `${products}${remainder ? ` 외 ${remainder}종` : ""}. 샵플링 재고는 0인데 재고원장은 양수입니다. 판매자료 재수집 문제가 아니므로 실제 재고를 확인해 재고상태를 바로잡은 뒤 이 화면에서 다시 계산하세요.`,
-        href: "/china-order-manager/stock-control",
+        href: roughStockCorrectionHref(
+          inventoryConflicts.map((row) => row.barcode),
+        ),
         hrefLabel: "재고 상태 확인·수정",
       });
     }
