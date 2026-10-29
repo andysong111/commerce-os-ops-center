@@ -17,6 +17,7 @@ import {
   planSeoScheduledPortfolioRun,
   SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
 } from "@/lib/seoListingScheduledRun";
+import { reconcileSeoListingLifecycleShadow } from "@/lib/seoListingLifecycleReconciliationServer";
 import { listSeoRunJobs } from "@/lib/seoRunJobServer";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -35,6 +36,32 @@ function numberOrNull(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function reconciliationSummary(value: unknown) {
+  const row =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as UnknownRecord)
+      : {};
+  return {
+    generatedAt: row.generatedAt,
+    source: row.source,
+    productsExamined: row.productsExamined,
+    productsSeeded: row.productsSeeded,
+    productsSkippedExisting: row.productsSkippedExisting,
+    productsNeedingReview: row.productsNeedingReview,
+    liveRecordCount: row.liveRecordCount,
+    protectedRecordCount: row.protectedRecordCount,
+    reviewRecordCount: row.reviewRecordCount,
+    insertedRecordCount: row.insertedRecordCount,
+    insertedEventCount: row.insertedEventCount,
+    internalWriteApplied: row.internalWriteApplied,
+    shoplingReadback: row.shoplingReadback,
+    productReviews: Array.isArray(row.productReviews)
+      ? row.productReviews
+      : [],
+    externalMarketWrite: false,
+  };
 }
 
 function missingLifecycleSchema(error: StorageError) {
@@ -241,7 +268,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object" || Array.isArray(body) || body.action !== "prepare_scheduled_run") {
+  const action =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? text((body as UnknownRecord).action)
+      : "";
+  if (
+    ![
+      "prepare_scheduled_run",
+      "preview_shadow_reconciliation",
+      "apply_shadow_reconciliation",
+    ].includes(action)
+  ) {
     return Response.json(
       {
         ok: false,
@@ -250,6 +287,58 @@ export async function POST(request: NextRequest) {
       },
       { status: 400 },
     );
+  }
+
+  if (
+    action === "preview_shadow_reconciliation" ||
+    action === "apply_shadow_reconciliation"
+  ) {
+    const authenticated = await requireSeoTitleLedgerContext(request);
+    if (!authenticated.ok) return authenticated.response;
+    try {
+      const reconciliation = await reconcileSeoListingLifecycleShadow(
+        authenticated.value,
+        { apply: action === "apply_shadow_reconciliation" },
+      );
+      return Response.json({
+        ok: true,
+        reconciliation: reconciliationSummary(reconciliation),
+      });
+    } catch (error) {
+      return Response.json(
+        {
+          ok: false,
+          code: "SEO_LIFECYCLE_RECONCILIATION_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "자동 물갈이 근거 대사에 실패했습니다.",
+          externalMarketWrite: false,
+        },
+        { status: 500 },
+      );
+    }
+  }
+
+  let reconciliation: UnknownRecord = {};
+  try {
+    const authenticated = await requireSeoTitleLedgerContext(request);
+    if (!authenticated.ok) return authenticated.response;
+    reconciliation = reconciliationSummary(
+      await reconcileSeoListingLifecycleShadow(authenticated.value, {
+        apply: true,
+      }),
+    );
+  } catch (error) {
+    reconciliation = {
+      ok: false,
+      code: "SEO_LIFECYCLE_RECONCILIATION_FAILED",
+      message:
+        error instanceof Error
+          ? error.message
+          : "자동 물갈이 내부표 갱신에 실패했습니다.",
+      externalMarketWrite: false,
+    };
   }
   const dashboardResponse = await GET(request);
   const dashboard = (await dashboardResponse.json().catch(() => ({}))) as UnknownRecord;
@@ -268,7 +357,13 @@ export async function POST(request: NextRequest) {
     preparedAt: dashboard.generatedAt,
     scheduledRun,
     summary: dashboard.summary,
-    warnings: dashboard.warnings,
+    warnings: [
+      ...(Array.isArray(dashboard.warnings) ? dashboard.warnings : []),
+      ...(reconciliation.ok === false
+        ? ["SHADOW_RECONCILIATION_FAILED"]
+        : []),
+    ],
+    reconciliation,
     externalMarketWrite: false,
     requiresBrowserHandoff: runIds.length > 0,
   });
