@@ -92,11 +92,12 @@ test("HF37 remains fail-closed and records pre-search evidence when date fields 
 });
 
 test("HF37 publishes v0.6.5 and the queue shows a persistent human-readable terminal result", async () => {
-  const [route, page, planner, queue] = await Promise.all([
+  const [route, page, planner, queue, hiddenBrowserCheck] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf37/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
     readFile("src/lib/shoplingStockLaunchPlan.ts", "utf8"),
     readFile("src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx", "utf8"),
+    readFile("scripts/inventory-ui-hidden-check.mjs", "utf8"),
   ]);
   assert.match(route, /getHf36Download/);
   assert.match(route, /const VERSION = "0\.6\.5"/);
@@ -106,4 +107,5 @@ test("HF37 publishes v0.6.5 and the queue shows a persistent human-readable term
   assert.match(queue, /작업 종료 · 실패\/확인 필요/);
   assert.match(queue, /미반영 · 상품 검색 전에 안전 차단/);
   assert.match(queue, /자동 재시도: 안 함/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.5'/);
 });
