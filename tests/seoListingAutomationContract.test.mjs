@@ -33,6 +33,8 @@ test("SEO cloud adds the one-click portfolio panel without removing recovery con
   assert.match(panel, /매일 자동 확인 상태/);
   assert.match(panel, /다음 자동 확인/);
   assert.match(panel, /가장 오래 노출된 상품/);
+  assert.match(panel, /첫 실제 시험 준비/);
+  assert.match(panel, /승인 전 외부 변경 0건/);
 });
 
 test("dashboard prepares an authenticated scheduled run but keeps destructive writes locked", async () => {
@@ -51,6 +53,8 @@ test("dashboard prepares an authenticated scheduled run but keeps destructive wr
   assert.match(route, /ops_dispatch_tasks/);
   assert.match(route, /seo-listing-lifecycle-shadow-refresh/);
   assert.match(route, /summarizeSeoVerifiedExposureProgress/);
+  assert.match(route, /summarizeSeoListingCanaryReadiness/);
+  assert.match(route, /seo_listing_rotation_actions/);
   assert.match(route, /externalMarketWrite: false/);
 });
 

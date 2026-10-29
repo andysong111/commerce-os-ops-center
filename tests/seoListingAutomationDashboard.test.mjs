@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   selectLatestSeoReadyProducts,
+  summarizeSeoListingCanaryReadiness,
   summarizeSeoRegistrationOutcomes,
   summarizeSeoListingLifecycle,
   summarizeSeoVerifiedExposureProgress,
@@ -109,6 +110,120 @@ test("verified exposure progress ignores protected products and treats malformed
   assert.equal(summary.maxVerifiedExposureDays, 0);
   assert.equal(summary.progressBands.days0To29, 1);
   assert.equal(summary.dueSoonProductCount, 0);
+});
+
+function lifecycleCanaryRow(overrides = {}) {
+  return {
+    id: "record-1",
+    launch_item_id: "launch-1",
+    market_account_key: "market-1",
+    model_number: "AAA001",
+    product_name: "시험 상품",
+    goods_key: "goods-1",
+    state: "LIVE",
+    exposure_verified: true,
+    requires_review: false,
+    sales_count_during_attempt: 0,
+    evidence: { verifiedExposureDays: 60 },
+    ...overrides,
+  };
+}
+
+function canaryAction(actionType, overrides = {}) {
+  return {
+    id: `action-${actionType}`,
+    lifecycle_record_id: "record-1",
+    market_account_key: "market-1",
+    launch_item_id: "launch-1",
+    goods_key: "goods-1",
+    action_type: actionType,
+    status: "shadow",
+    shadow_mode: true,
+    scheduled_for: "2026-12-28T02:00:00.000Z",
+    ...overrides,
+  };
+}
+
+test("canary readiness selects one complete product without enabling external writes", () => {
+  const summary = summarizeSeoListingCanaryReadiness(
+    [
+      lifecycleCanaryRow(),
+      lifecycleCanaryRow({
+        id: "record-2",
+        market_account_key: "market-2",
+        goods_key: "goods-2",
+      }),
+    ],
+    [
+      canaryAction("SOLD_OUT"),
+      canaryAction("DELETE"),
+      canaryAction("SOLD_OUT", {
+        id: "action-2-sold-out",
+        lifecycle_record_id: "record-2",
+        market_account_key: "market-2",
+        goods_key: "goods-2",
+      }),
+      canaryAction("DELETE", {
+        id: "action-2-delete",
+        lifecycle_record_id: "record-2",
+        market_account_key: "market-2",
+        goods_key: "goods-2",
+      }),
+    ],
+  );
+  assert.equal(summary.dueProductCount, 1);
+  assert.equal(summary.readyProductCount, 1);
+  assert.equal(summary.blockedProductCount, 0);
+  assert.equal(summary.selectedCandidate?.marketListingCount, 2);
+  assert.equal(summary.selectedCandidate?.actionCount, 4);
+  assert.equal(summary.approvalRequired, true);
+  assert.equal(summary.externalMarketWrite, false);
+});
+
+test("canary readiness fails closed when one market action pair is incomplete", () => {
+  const summary = summarizeSeoListingCanaryReadiness(
+    [lifecycleCanaryRow()],
+    [canaryAction("SOLD_OUT")],
+  );
+  assert.equal(summary.dueProductCount, 1);
+  assert.equal(summary.readyProductCount, 0);
+  assert.equal(summary.blockedProductCount, 1);
+  assert.equal(summary.selectedCandidate, null);
+});
+
+test("canary readiness fails closed on malformed sales or scheduling evidence", () => {
+  const malformedSales = summarizeSeoListingCanaryReadiness(
+    [lifecycleCanaryRow({ sales_count_during_attempt: "" })],
+    [canaryAction("SOLD_OUT"), canaryAction("DELETE")],
+  );
+  assert.equal(malformedSales.dueProductCount, 0);
+
+  const missingSchedule = summarizeSeoListingCanaryReadiness(
+    [lifecycleCanaryRow()],
+    [
+      canaryAction("SOLD_OUT"),
+      canaryAction("DELETE", { scheduled_for: null }),
+    ],
+  );
+  assert.equal(missingSchedule.dueProductCount, 1);
+  assert.equal(missingSchedule.readyProductCount, 0);
+  assert.equal(missingSchedule.blockedProductCount, 1);
+});
+
+test("canary readiness excludes products with sales or review flags", () => {
+  const summary = summarizeSeoListingCanaryReadiness(
+    [
+      lifecycleCanaryRow({ sales_count_during_attempt: 1 }),
+      lifecycleCanaryRow({
+        id: "record-2",
+        launch_item_id: "launch-2",
+        requires_review: true,
+      }),
+    ],
+    [canaryAction("SOLD_OUT"), canaryAction("DELETE")],
+  );
+  assert.equal(summary.dueProductCount, 0);
+  assert.equal(summary.readyProductCount, 0);
 });
 
 test("one-look outcome summary uses only the latest run per product", () => {

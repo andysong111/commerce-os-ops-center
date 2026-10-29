@@ -86,6 +86,22 @@ type Dashboard = {
         days60Plus: number;
       };
     };
+    canaryReadiness: {
+      dueProductCount: number;
+      readyProductCount: number;
+      blockedProductCount: number;
+      approvalRequired: boolean;
+      externalMarketWrite: boolean;
+      selectedCandidate: null | {
+        launchItemId: string;
+        modelNumber: string;
+        productName: string;
+        marketListingCount: number;
+        actionCount: number;
+        verifiedExposureDays: number;
+        scheduledFor: string | null;
+      };
+    };
   };
   markets: MarketRow[];
   warnings: string[];
@@ -154,6 +170,7 @@ const WARNING_LABELS: Record<string, string> = {
   DAILY_SHADOW_REFRESH_TASK_MISSING: "매일 자동 확인 작업 누락",
   DAILY_SHADOW_REFRESH_TASK_DISABLED: "매일 자동 확인 중지됨",
   DAILY_SHADOW_REFRESH_LAST_RUN_FAILED: "매일 자동 확인 오류 점검 필요",
+  CANARY_CANDIDATE_EVIDENCE_INCOMPLETE: "시험 후보의 마켓 근거 보완 필요",
 };
 
 function normalizeDashboard(body: UnknownRecord): Dashboard {
@@ -164,6 +181,9 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
   const dailyRefresh = record(operations.dailyRefresh);
   const exposureProgress = record(operations.exposureProgress);
   const progressBands = record(exposureProgress.progressBands);
+  const canaryReadiness = record(operations.canaryReadiness);
+  const selectedCandidate = record(canaryReadiness.selectedCandidate);
+  const candidateExists = Boolean(text(selectedCandidate.launchItemId));
   return {
     generatedAt: text(body.generatedAt),
     schemaReady: body.schemaReady === true,
@@ -240,6 +260,28 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
           days60Plus: count(progressBands.days60Plus),
         },
       },
+      canaryReadiness: {
+        dueProductCount: count(canaryReadiness.dueProductCount),
+        readyProductCount: count(canaryReadiness.readyProductCount),
+        blockedProductCount: count(canaryReadiness.blockedProductCount),
+        approvalRequired: canaryReadiness.approvalRequired !== false,
+        externalMarketWrite: canaryReadiness.externalMarketWrite === true,
+        selectedCandidate: candidateExists
+          ? {
+              launchItemId: text(selectedCandidate.launchItemId),
+              modelNumber: text(selectedCandidate.modelNumber),
+              productName: text(selectedCandidate.productName),
+              marketListingCount: count(
+                selectedCandidate.marketListingCount,
+              ),
+              actionCount: count(selectedCandidate.actionCount),
+              verifiedExposureDays: count(
+                selectedCandidate.verifiedExposureDays,
+              ),
+              scheduledFor: text(selectedCandidate.scheduledFor) || null,
+            }
+          : null,
+      },
     },
     markets: Array.isArray(body.markets)
       ? body.markets.map((value): MarketRow => {
@@ -307,6 +349,8 @@ export default function SeoBulkAutomationPanel() {
   const lifecycle = dashboard?.summary.lifecycle ?? {};
   const dailyRefresh = dashboard?.operations.dailyRefresh;
   const exposureProgress = dashboard?.operations.exposureProgress;
+  const canaryReadiness = dashboard?.operations.canaryReadiness;
+  const canaryCandidate = canaryReadiness?.selectedCandidate;
   const exposureTargetDays = dashboard?.policy.exposureDays || 60;
   const exposurePercent = Math.min(
     100,
@@ -503,6 +547,36 @@ export default function SeoBulkAutomationPanel() {
           <p className="mt-1 text-sm leading-6 text-slate-600">
             실제 품절·삭제는 아직 잠겨 있습니다. 검증된 소수 상품 Canary가 통과한 뒤에만 자동 실행합니다.
           </p>
+          <div className="mt-3 rounded-xl border border-amber-200 bg-white/80 p-3 text-sm">
+            <div className="text-xs font-black text-amber-800">
+              첫 실제 시험 준비
+            </div>
+            {canaryCandidate ? (
+              <>
+                <div className="mt-1 font-black text-slate-950">
+                  {canaryCandidate.modelNumber || "모델번호 미확인"} {canaryCandidate.productName || "상품명 미확인"}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  {canaryCandidate.marketListingCount}개 마켓 근거와 품절·삭제 {canaryCandidate.actionCount}단계가 준비되었습니다.
+                </p>
+              </>
+            ) : (
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                아직 60일을 채운 상품이 없습니다. 도달하면 시스템이 가장 안전한 1개를 자동 선택합니다.
+              </p>
+            )}
+            <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-900">
+                준비 완료 {canaryReadiness?.readyProductCount ?? 0}개
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">
+                근거 보완 {canaryReadiness?.blockedProductCount ?? 0}개
+              </span>
+              <span className="rounded-full bg-rose-100 px-2.5 py-1 text-rose-800">
+                승인 전 외부 변경 0건
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 

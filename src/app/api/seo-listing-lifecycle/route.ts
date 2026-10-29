@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import {
   selectLatestSeoReadyProducts,
+  summarizeSeoListingCanaryReadiness,
   summarizeSeoListingLifecycle,
   summarizeSeoRegistrationOutcomes,
   summarizeSeoVerifiedExposureProgress,
@@ -142,8 +143,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [jobs, policyResult, capacityResult, lifecycleResult, dailyTaskResult] =
-      await Promise.all([
+    const [
+      jobs,
+      policyResult,
+      capacityResult,
+      lifecycleResult,
+      dailyTaskResult,
+      canaryActionResult,
+    ] = await Promise.all([
         listSeoRunJobs(context, { includeArchived: false, limit: 1000 }),
         admin
           .from("seo_listing_rotation_policies")
@@ -173,16 +180,30 @@ export async function GET(request: NextRequest) {
           )
           .eq("task_key", "seo-listing-lifecycle-shadow-refresh")
           .maybeSingle(),
+        admin
+          .from("seo_listing_rotation_actions")
+          .select(
+            "id,lifecycle_record_id,market_account_key,launch_item_id,goods_key,action_type,status,shadow_mode,scheduled_for",
+          )
+          .eq("owner_id", context.identity.userId)
+          .eq("status", "shadow")
+          .order("scheduled_for", { ascending: true })
+          .limit(1000),
       ]);
 
     throwUnexpectedStorageError("SEO_LISTING_POLICY_READ_FAILED", policyResult.error);
     throwUnexpectedStorageError("SEO_MARKET_CAPACITY_READ_FAILED", capacityResult.error);
     throwUnexpectedStorageError("SEO_LISTING_LIFECYCLE_READ_FAILED", lifecycleResult.error);
+    throwUnexpectedStorageError(
+      "SEO_LISTING_CANARY_ACTION_READ_FAILED",
+      canaryActionResult.error,
+    );
 
     const schemaReady = ![
       policyResult.error,
       capacityResult.error,
       lifecycleResult.error,
+      canaryActionResult.error,
     ].some(missingLifecycleSchema);
     const policyRow =
       policyResult.data && typeof policyResult.data === "object"
@@ -198,6 +219,9 @@ export async function GET(request: NextRequest) {
       dailyTaskResult.data && typeof dailyTaskResult.data === "object"
         ? (dailyTaskResult.data as UnknownRecord)
         : null;
+    const canaryActionRows = Array.isArray(canaryActionResult.data)
+      ? (canaryActionResult.data as UnknownRecord[])
+      : [];
     const readyProducts = selectLatestSeoReadyProducts(jobs);
     const capacity = calculateSeoPortfolioCapacity(
       capacityRows.map(capacityInput),
@@ -206,6 +230,11 @@ export async function GET(request: NextRequest) {
     const lifecycle = summarizeSeoListingLifecycle(lifecycleRows);
     const exposureProgress =
       summarizeSeoVerifiedExposureProgress(lifecycleRows);
+    const canaryReadiness = summarizeSeoListingCanaryReadiness(
+      lifecycleRows,
+      canaryActionRows,
+      SEO_LISTING_EXPOSURE_DAYS,
+    );
     const registration = summarizeSeoRegistrationOutcomes(jobs);
     const dailyTaskFailures = numberOrNull(
       dailyTaskRow?.consecutive_failures,
@@ -250,6 +279,9 @@ export async function GET(request: NextRequest) {
         : []),
       ...(dailyTaskRow && !dailyTaskHealthy
         ? ["DAILY_SHADOW_REFRESH_LAST_RUN_FAILED"]
+        : []),
+      ...(canaryReadiness.blockedProductCount > 0
+        ? ["CANARY_CANDIDATE_EVIDENCE_INCOMPLETE"]
         : []),
       ...(scheduledPlan.capacityFallbackActive
         ? ["REGISTRATION_ONLY_FALLBACK_ACTIVE"]
@@ -310,6 +342,7 @@ export async function GET(request: NextRequest) {
           externalMarketWrite: false,
         },
         exposureProgress,
+        canaryReadiness,
       },
       markets: capacity.markets,
       readyProducts: readyProducts.slice(0, 30),
