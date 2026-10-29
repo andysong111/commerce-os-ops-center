@@ -5,6 +5,7 @@ import {
   parseInventoryStockEstimateBulkText,
   parseInventoryStockoutBulkText,
   parseInventoryStocktakeBulkText,
+  type InventoryStockBand,
 } from "@/lib/inventoryStockBulkInput";
 import {
   planShoplingStockLaunch,
@@ -126,7 +127,182 @@ export function friendlyShoplingStockSyncFailure(
     : "Shopling 반영에 실패했습니다. 재고 기준은 저장됐으며 처리 내역에서 실패 사유를 확인해 주세요.";
 }
 
-export function InventoryStockoutOperatorPanel() {
+type InventoryStockoutOperatorPanelProps = {
+  focusedBarcodes?: string[];
+  returnTo?: string | null;
+};
+
+const ROUGH_STOCK_OPTIONS = [
+  { label: "많음", stockBand: "HIGH" },
+  { label: "보통", stockBand: "NORMAL" },
+  { label: "적음", stockBand: "LOW" },
+  { label: "품절", stockBand: "OUT" },
+] as const satisfies ReadonlyArray<{
+  label: string;
+  stockBand: InventoryStockBand;
+}>;
+
+function RoughStockCorrectionPanel({
+  focusedBarcodes,
+  returnTo,
+}: Required<Pick<InventoryStockoutOperatorPanelProps, "focusedBarcodes">> &
+  Pick<InventoryStockoutOperatorPanelProps, "returnTo">) {
+  const [selected, setSelected] = useState<Record<string, InventoryStockBand>>({});
+  const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState("");
+  const complete = focusedBarcodes.every((barcode) => Boolean(selected[barcode]));
+
+  const saveAndReturn = async () => {
+    if (!complete) {
+      setNotice("표시된 상품의 재고상태를 모두 선택해 주세요.");
+      return;
+    }
+
+    setLoading(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/inventory-stock-control/unified-batch", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({
+          batchId: randomId("purchase-rough-stock-correction"),
+          stockoutBarcodes: [],
+          onSaleBarcodes: [],
+          stocktakeItems: [],
+          stockEstimateItems: focusedBarcodes.map((barcode) => ({
+            barcode,
+            stockBand: selected[barcode],
+          })),
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        jobs?: DirectInventoryJob[];
+        message?: string;
+      };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.message || "발주용 재고상태를 저장하지 못했습니다.");
+      }
+      if (Array.isArray(payload.jobs) && payload.jobs.length > 0) {
+        throw new Error("안전 확인에 실패했습니다. Shopling 전송은 실행하지 않았습니다.");
+      }
+
+      window.dispatchEvent(new Event(REFRESH_EVENT));
+      let referrer: URL | null = null;
+      try {
+        referrer = document.referrer ? new URL(document.referrer) : null;
+      } catch {
+        referrer = null;
+      }
+      const target =
+        referrer?.origin === window.location.origin &&
+        referrer.pathname === "/purchase-cycle-preflight"
+          ? referrer.href
+          : returnTo || "/purchase-cycle-preflight";
+      window.location.assign(target);
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "발주용 재고상태 저장 실패",
+      );
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section
+      id="rough-stock-status"
+      className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm"
+    >
+      <span className="text-xs font-black tracking-[0.12em] text-amber-700">
+        PURCHASE PLANNING · 대략 재고 수정
+      </span>
+      <h2 className="mt-1 text-xl font-black text-slate-950">
+        충돌 상품 {focusedBarcodes.length}종만 확인하세요
+      </h2>
+      <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+        여기서는 발주계산용 대략 재고만 저장합니다. Shopling의 품절·판매중
+        상태와 실제 재고수량은 바꾸지 않습니다. 저장하면 발주 계산 화면으로
+        돌아갑니다.
+      </p>
+
+      <div className="mt-5 space-y-3">
+        {focusedBarcodes.map((barcode) => (
+          <fieldset
+            key={barcode}
+            className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <legend className="px-1 text-sm font-black text-slate-950">
+              {barcode}
+            </legend>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {ROUGH_STOCK_OPTIONS.map((option) => {
+                const active = selected[barcode] === option.stockBand;
+                return (
+                  <button
+                    key={option.stockBand}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() =>
+                      setSelected((current) => ({
+                        ...current,
+                        [barcode]: option.stockBand,
+                      }))
+                    }
+                    className={`rounded-lg border px-4 py-2 text-sm font-black ${
+                      active
+                        ? "border-amber-500 bg-amber-500 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-amber-300"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => void saveAndReturn()}
+        disabled={loading || !complete}
+        aria-busy={loading}
+        className="mt-5 rounded-xl bg-amber-600 px-6 py-3 text-sm font-black text-white hover:bg-amber-700 disabled:bg-slate-400"
+      >
+        {loading ? "재고상태 저장 중..." : "재고상태 저장하고 발주 계산으로 돌아가기"}
+      </button>
+      {notice ? (
+        <p
+          role="status"
+          className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800"
+        >
+          {notice}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+export function InventoryStockoutOperatorPanel({
+  focusedBarcodes = [],
+  returnTo = null,
+}: InventoryStockoutOperatorPanelProps = {}) {
+  if (focusedBarcodes.length > 0) {
+    return (
+      <RoughStockCorrectionPanel
+        focusedBarcodes={focusedBarcodes}
+        returnTo={returnTo}
+      />
+    );
+  }
+  return <InventoryStockoutGenericPanel />;
+}
+
+function InventoryStockoutGenericPanel() {
   const [stockoutInput, setStockoutInput] = useState("");
   const [onSaleInput, setOnSaleInput] = useState("");
   const [stocktakeInput, setStocktakeInput] = useState("");

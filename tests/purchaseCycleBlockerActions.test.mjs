@@ -42,7 +42,11 @@ test("inventory conflicts name the exact products and route to stock control wit
   assert.match(actions[0].message, /BCC5-2 안경다리 실리콘 1쌍/);
   assert.match(actions[0].message, /BAE1-3 셀프미발망토/);
   assert.match(actions[0].message, /판매자료 재수집 문제가 아니므로/);
-  assert.equal(actions[0].href, "/china-order-manager/stock-control");
+  const href = new URL(actions[0].href, "https://commerce-os.test");
+  assert.equal(href.pathname, "/china-order-manager/stock-control");
+  assert.equal(href.searchParams.get("focus"), "rough-stock");
+  assert.equal(href.searchParams.get("barcodes"), "BCC5-2,BAE1-3");
+  assert.equal(href.searchParams.get("returnTo"), "/purchase-cycle-preflight");
 });
 
 test("sales refresh is offered only when a sales-source blocker is actually present", () => {
@@ -55,7 +59,7 @@ test("sales refresh is offered only when a sales-source blocker is actually pres
   }, explain);
 
   assert.equal(actions.length, 2);
-  assert.equal(actions[0].href, "/china-order-manager/stock-control");
+  assert.match(actions[0].href, /^\/china-order-manager\/stock-control\?/);
   assert.equal(actions[1].title, "최신 판매자료 준비");
   assert.equal(actions[1].href, "/stage8-sales-events");
 });

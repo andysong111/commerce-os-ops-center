@@ -4,48 +4,91 @@ import { InventoryStockoutOperatorPanel } from "@/components/china-order-manager
 import { InventoryStockOverviewPanel } from "@/components/china-order-manager/InventoryStockOverviewPanel";
 import { StockSyncHF15Bridge } from "@/components/china-order-manager/StockSyncHF15Bridge";
 import { PageHeader } from "@/components/PageHeader";
+import {
+  parseRoughStockCorrectionSearchParams,
+  type RoughStockCorrectionSearchParams,
+} from "@/lib/roughStockCorrectionTargets";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default function InventoryStockControlPage() {
+type PageProps = {
+  searchParams: Promise<RoughStockCorrectionSearchParams>;
+};
+
+export default async function InventoryStockControlPage({
+  searchParams,
+}: PageProps) {
+  const focusedCorrection = parseRoughStockCorrectionSearchParams(
+    await searchParams,
+  );
+  const isFocusedCorrection = focusedCorrection.barcodes.length > 0;
+
   return (
     <div className="space-y-5">
-      <StockSyncHF15Bridge />
+      {!isFocusedCorrection ? <StockSyncHF15Bridge /> : null}
       <PageHeader
-        eyebrow="COMMERCE OS · 재고 운영"
-        title="재고·품절·판매재개"
-        description="품절·판매중·현재 재고수량을 한 화면에 모두 입력하고 버튼을 한 번만 누르면 전체 검증과 저장, Shopling 상태 전송을 순서대로 처리합니다."
+        eyebrow={
+          isFocusedCorrection
+            ? "COMMERCE OS · 발주계산 재고 확인"
+            : "COMMERCE OS · 재고 운영"
+        }
+        title={
+          isFocusedCorrection ? "발주용 대략 재고상태 수정" : "재고·품절·판매재개"
+        }
+        description={
+          isFocusedCorrection
+            ? "발주 계산에서 충돌한 상품만 확인합니다. 이 화면은 Shopling 품절·판매중 상태를 변경하지 않습니다."
+            : "품절·판매중·현재 재고수량을 한 화면에 모두 입력하고 버튼을 한 번만 누르면 전체 검증과 저장, Shopling 상태 전송을 순서대로 처리합니다."
+        }
         actions={
-          <div className="flex flex-wrap gap-2">
+          isFocusedCorrection ? (
             <Link
-              href="/warehouse-capacity"
+              href={focusedCorrection.returnTo || "/purchase-cycle-preflight"}
               className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50"
             >
-              창고 위치·수용능력
+              저장하지 않고 돌아가기
             </Link>
-            <Link
-              href="/api/shopling-stock-state-sync/download-hf35"
-              className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800"
-            >
-              재고상태 자동화 확장 v0.6.3 다운로드
-            </Link>
-          </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/warehouse-capacity"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                창고 위치·수용능력
+              </Link>
+              <Link
+                href="/api/shopling-stock-state-sync/download-hf35"
+                className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800"
+              >
+                재고상태 자동화 확장 v0.6.3 다운로드
+              </Link>
+            </div>
+          )
         }
       />
 
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
-        <strong className="text-slate-950">확장 설치:</strong> 위의
-        <strong> v0.6.3 다운로드</strong> → ZIP 압축 해제 → Chrome 주소창에
-        <code className="mx-1 rounded bg-white px-2 py-1 font-mono text-xs">chrome://extensions</code>
-        입력 → 개발자 모드 → 압축해제된 확장 프로그램 로드 → 압축을 푼 폴더 선택
-      </div>
+      {!isFocusedCorrection ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
+          <strong className="text-slate-950">확장 설치:</strong> 위의
+          <strong> v0.6.3 다운로드</strong> → ZIP 압축 해제 → Chrome
+          주소창에
+          <code className="mx-1 rounded bg-white px-2 py-1 font-mono text-xs">
+            chrome://extensions
+          </code>
+          입력 → 개발자 모드 → 압축해제된 확장 프로그램 로드 → 압축을 푼
+          폴더 선택
+        </div>
+      ) : null}
 
-      <InventoryStockOverviewPanel />
+      {!isFocusedCorrection ? <InventoryStockOverviewPanel /> : null}
 
-      <InventoryStockoutOperatorPanel />
+      <InventoryStockoutOperatorPanel
+        focusedBarcodes={focusedCorrection.barcodes}
+        returnTo={focusedCorrection.returnTo}
+      />
 
-      <InventoryStockOperationalDetails />
+      {!isFocusedCorrection ? <InventoryStockOperationalDetails /> : null}
     </div>
   );
 }
