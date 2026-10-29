@@ -87,6 +87,39 @@ test("calendar time without verified LIVE readback does not consume exposure", (
   assert.equal(decision.action, "NONE");
 });
 
+test("verified-day counter overrides calendar days so missed checks never count", () => {
+  const decision = evaluateSeoListingLifecycle(
+    live({ verifiedExposureDays: 12 }),
+    NOW,
+  );
+  assert.equal(decision.exposureDays, 12);
+  assert.equal(decision.state, "LIVE");
+  assert.equal(decision.action, "NONE");
+});
+
+test("exactly 60 verified checks trigger the shadow sold-out plan", () => {
+  const decision = evaluateSeoListingLifecycle(
+    live({
+      liveStartedAt: "2026-10-01T00:00:00.000Z",
+      verifiedExposureDays: 60,
+    }),
+    NOW,
+  );
+  assert.equal(decision.exposureDays, 60);
+  assert.equal(decision.state, "COOLDOWN");
+  assert.equal(decision.action, "SOLD_OUT_AND_DELETE");
+});
+
+test("invalid verified-day evidence fails closed", () => {
+  const decision = evaluateSeoListingLifecycle(
+    live({ verifiedExposureDays: -1 }),
+    NOW,
+  );
+  assert.equal(decision.state, "EXCEPTION");
+  assert.equal(decision.action, "REVIEW");
+  assert.equal(decision.reasonCode, "INVALID_VERIFIED_EXPOSURE_DAYS");
+});
+
 test("third verified unsold window becomes a retire candidate", () => {
   const decision = evaluateSeoListingLifecycle(live({ attemptCount: 3 }), NOW);
   assert.equal(decision.state, "RETIRE_CANDIDATE");

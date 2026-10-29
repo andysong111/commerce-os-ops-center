@@ -18,6 +18,7 @@ import {
   SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
 } from "@/lib/seoListingScheduledRun";
 import { reconcileSeoListingLifecycleShadow } from "@/lib/seoListingLifecycleReconciliationServer";
+import { refreshSeoListingLifecycleShadowDaily } from "@/lib/seoListingLifecycleDailyRefreshServer";
 import { listSeoRunJobs } from "@/lib/seoRunJobServer";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -60,6 +61,30 @@ function reconciliationSummary(value: unknown) {
     productReviews: Array.isArray(row.productReviews)
       ? row.productReviews
       : [],
+    externalMarketWrite: false,
+  };
+}
+
+function dailyRefreshSummary(value: unknown) {
+  const row =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as UnknownRecord)
+      : {};
+  return {
+    generatedAt: row.generatedAt,
+    source: row.source,
+    productsExamined: row.productsExamined,
+    recordsExamined: row.recordsExamined,
+    refreshedRecordCount: row.refreshedRecordCount,
+    updatedRecordCount: row.updatedRecordCount,
+    protectedRecordCount: row.protectedRecordCount,
+    reviewRecordCount: row.reviewRecordCount,
+    verifiedDayEventCount: row.verifiedDayEventCount,
+    shadowDueRecordCount: row.shadowDueRecordCount,
+    insertedEventCount: row.insertedEventCount,
+    insertedShadowActionCount: row.insertedShadowActionCount,
+    internalWriteApplied: row.internalWriteApplied,
+    shoplingReadback: row.shoplingReadback,
     externalMarketWrite: false,
   };
 }
@@ -277,6 +302,7 @@ export async function POST(request: NextRequest) {
       "prepare_scheduled_run",
       "preview_shadow_reconciliation",
       "apply_shadow_reconciliation",
+      "refresh_shadow_daily",
     ].includes(action)
   ) {
     return Response.json(
@@ -287,6 +313,35 @@ export async function POST(request: NextRequest) {
       },
       { status: 400 },
     );
+  }
+
+  if (action === "refresh_shadow_daily") {
+    const authenticated = await requireSeoTitleLedgerContext(request);
+    if (!authenticated.ok) return authenticated.response;
+    try {
+      const refresh = await refreshSeoListingLifecycleShadowDaily(
+        authenticated.value.identity.userId,
+        { apply: true },
+      );
+      return Response.json({
+        ok: true,
+        refresh: dailyRefreshSummary(refresh),
+        externalMarketWrite: false,
+      });
+    } catch (error) {
+      return Response.json(
+        {
+          ok: false,
+          code: "SEO_LIFECYCLE_DAILY_REFRESH_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "자동 물갈이 일일 근거 확인에 실패했습니다.",
+          externalMarketWrite: false,
+        },
+        { status: 500 },
+      );
+    }
   }
 
   if (
