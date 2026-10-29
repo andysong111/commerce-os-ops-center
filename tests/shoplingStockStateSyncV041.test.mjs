@@ -10,7 +10,10 @@ test("v0.5.5 A21 list worker keeps local search binding and exact multirow selec
     file("public/shopling-stock-state-sync/content-shopling-v018.js"),
     file("public/shopling-stock-state-sync/search-policy-v023.js"),
   ]);
-  const worker = buildStockWorkerV030(template, policy);
+  const worker = buildStockWorkerV030(
+    template.replace(/\r\n?/g, "\n"),
+    policy.replace(/\r\n?/g, "\n"),
+  );
   assert.match(worker, /const VERSION = "0\.4\.2"/);
   assert.match(worker, /function searchFieldV041\(label\)/);
   assert.match(worker, /labels\.includes\("검색항목"\)/);
@@ -52,7 +55,10 @@ test("v0.5.5 package reads A6 goods keys without checking rows, applies API per 
     file("public/shopling-a21-price-option-resend/main-a21-v024.js"),
   ]);
   const manifest = JSON.parse(manifestSource);
-  const worker = buildStockWorkerV030(template, policy);
+  const worker = buildStockWorkerV030(
+    template.replace(/\r\n?/g, "\n"),
+    policy.replace(/\r\n?/g, "\n"),
+  );
 
   assert.equal(manifest.version, "0.5.5");
   assert.equal(manifest.background.service_worker, "background-v052.js");
@@ -80,8 +86,8 @@ test("v0.5.5 package reads A6 goods keys without checking rows, applies API per 
   assert.match(downloadSource, /stock_price_core_not_option_popup_stage/);
   assert.match(downloadSource, /attempt < 16/);
   assert.match(downloadSource, /CANONICAL_PRICE_CORE_MODIFY_TP_GOODS_STOCK_AND_TRSMT_ENV_MODY_OPT_1/);
-  assert.match(pageSource, /href="\/api\/shopling-stock-state-sync\/download-hf35"/);
-  assert.match(pageSource, /v0\.6\.3 다운로드/);
+  assert.match(pageSource, /href="\/api\/shopling-stock-state-sync\/download-hf36"/);
+  assert.match(pageSource, /v0\.6\.4 다운로드/);
   assert.match(popupSource, /chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(adapterSource, /STOCK_PRICE_CORE_POPUP_CLAIM_V050/);
   assert.match(adapterSource, /continueNextGoodsKey/);
