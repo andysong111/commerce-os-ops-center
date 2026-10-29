@@ -10,11 +10,29 @@ export type SeoReadyProduct = {
 };
 
 export type SeoListingLifecycleSummaryRow = {
+  id?: unknown;
   launch_item_id?: unknown;
+  market_account_key?: unknown;
+  model_number?: unknown;
+  product_name?: unknown;
+  goods_key?: unknown;
   state?: unknown;
+  exposure_verified?: unknown;
   requires_review?: unknown;
   sales_count_during_attempt?: unknown;
   evidence?: unknown;
+};
+
+export type SeoListingCanaryActionRow = {
+  id?: unknown;
+  lifecycle_record_id?: unknown;
+  market_account_key?: unknown;
+  launch_item_id?: unknown;
+  goods_key?: unknown;
+  action_type?: unknown;
+  status?: unknown;
+  shadow_mode?: unknown;
+  scheduled_for?: unknown;
 };
 
 export type SeoVerifiedExposureProgress = {
@@ -26,6 +44,23 @@ export type SeoVerifiedExposureProgress = {
     days30To49: number;
     days50To59: number;
     days60Plus: number;
+  };
+};
+
+export type SeoListingCanaryReadiness = {
+  dueProductCount: number;
+  readyProductCount: number;
+  blockedProductCount: number;
+  approvalRequired: true;
+  externalMarketWrite: false;
+  selectedCandidate: null | {
+    launchItemId: string;
+    modelNumber: string;
+    productName: string;
+    marketListingCount: number;
+    actionCount: number;
+    verifiedExposureDays: number;
+    scheduledFor: string;
   };
 };
 
@@ -51,6 +86,12 @@ function record(value: unknown): Record<string, unknown> {
 function nonNegativeInteger(value: unknown) {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function exactNonNegativeInteger(value: unknown) {
+  if (value === null || value === undefined || text(value) === "") return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function instant(value: unknown) {
@@ -178,6 +219,138 @@ export function summarizeSeoVerifiedExposureProgress(
     }
   }
   return progress;
+}
+
+export function summarizeSeoListingCanaryReadiness(
+  lifecycleRows: SeoListingLifecycleSummaryRow[],
+  actionRows: SeoListingCanaryActionRow[],
+  exposureDays = 60,
+): SeoListingCanaryReadiness {
+  const lifecycleByProduct = new Map<
+    string,
+    SeoListingLifecycleSummaryRow[]
+  >();
+  for (const row of lifecycleRows) {
+    const launchItemId = text(row.launch_item_id);
+    const lifecycleRecordId = text(row.id);
+    if (!launchItemId || !lifecycleRecordId) continue;
+    const rows = lifecycleByProduct.get(launchItemId) ?? [];
+    rows.push(row);
+    lifecycleByProduct.set(launchItemId, rows);
+  }
+
+  const actionsByLifecycleRecord = new Map<
+    string,
+    SeoListingCanaryActionRow[]
+  >();
+  for (const row of actionRows) {
+    if (text(row.status) !== "shadow" || row.shadow_mode !== true) continue;
+    const lifecycleRecordId = text(row.lifecycle_record_id);
+    const actionType = text(row.action_type);
+    if (
+      !lifecycleRecordId ||
+      (actionType !== "SOLD_OUT" && actionType !== "DELETE")
+    ) {
+      continue;
+    }
+    const rows = actionsByLifecycleRecord.get(lifecycleRecordId) ?? [];
+    rows.push(row);
+    actionsByLifecycleRecord.set(lifecycleRecordId, rows);
+  }
+
+  const readyCandidates: Array<
+    NonNullable<SeoListingCanaryReadiness["selectedCandidate"]>
+  > = [];
+  let dueProductCount = 0;
+  for (const [launchItemId, rows] of lifecycleByProduct) {
+    const dueRows = rows.filter((row) => {
+      const verifiedExposureDays = nonNegativeInteger(
+        record(row.evidence).verifiedExposureDays,
+      );
+      return (
+        text(row.state) === "LIVE" &&
+        row.exposure_verified === true &&
+        row.requires_review !== true &&
+        exactNonNegativeInteger(row.sales_count_during_attempt) === 0 &&
+        verifiedExposureDays >= exposureDays
+      );
+    });
+    if (dueRows.length === 0) continue;
+    dueProductCount += 1;
+    if (dueRows.length !== rows.length) continue;
+
+    const candidateActions: SeoListingCanaryActionRow[] = [];
+    let complete = true;
+    for (const lifecycleRow of rows) {
+      const lifecycleRecordId = text(lifecycleRow.id);
+      const goodsKey = text(lifecycleRow.goods_key);
+      const marketAccountKey = text(lifecycleRow.market_account_key);
+      if (!lifecycleRecordId || !goodsKey || !marketAccountKey) {
+        complete = false;
+        break;
+      }
+      const matchingActions = (
+        actionsByLifecycleRecord.get(lifecycleRecordId) ?? []
+      ).filter(
+        (action) =>
+          text(action.launch_item_id) === launchItemId &&
+          text(action.goods_key) === goodsKey &&
+          text(action.market_account_key) === marketAccountKey,
+      );
+      const soldOutActions = matchingActions.filter(
+        (action) => text(action.action_type) === "SOLD_OUT",
+      );
+      const deleteActions = matchingActions.filter(
+        (action) => text(action.action_type) === "DELETE",
+      );
+      const requiredActions = [...soldOutActions, ...deleteActions];
+      if (
+        soldOutActions.length !== 1 ||
+        deleteActions.length !== 1 ||
+        requiredActions.some(
+          (action) => !text(action.scheduled_for) || !instant(action.scheduled_for),
+        )
+      ) {
+        complete = false;
+        break;
+      }
+      candidateActions.push(...requiredActions);
+    }
+    if (!complete) continue;
+
+    const verifiedExposureDays = Math.min(
+      ...rows.map((row) =>
+        nonNegativeInteger(record(row.evidence).verifiedExposureDays),
+      ),
+    );
+    const scheduledFor = candidateActions
+      .map((row) => text(row.scheduled_for))
+      .filter(Boolean)
+      .sort()[0] ?? "";
+    readyCandidates.push({
+      launchItemId,
+      modelNumber: text(rows[0]?.model_number),
+      productName: text(rows[0]?.product_name),
+      marketListingCount: rows.length,
+      actionCount: candidateActions.length,
+      verifiedExposureDays,
+      scheduledFor,
+    });
+  }
+
+  readyCandidates.sort(
+    (left, right) =>
+      left.scheduledFor.localeCompare(right.scheduledFor) ||
+      left.launchItemId.localeCompare(right.launchItemId),
+  );
+  return {
+    dueProductCount,
+    readyProductCount: readyCandidates.length,
+    blockedProductCount: dueProductCount - readyCandidates.length,
+    approvalRequired: true,
+    externalMarketWrite: false,
+    selectedCandidate: readyCandidates[0] ?? null,
+  };
 }
 
 export function summarizeSeoRegistrationOutcomes(
