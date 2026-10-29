@@ -30,6 +30,9 @@ test("SEO cloud adds the one-click portfolio panel without removing recovery con
   assert.match(panel, /60일 노출/);
   assert.match(panel, /90일 쉬었다가/);
   assert.match(panel, /3회 연속 무판매/);
+  assert.match(panel, /매일 자동 확인 상태/);
+  assert.match(panel, /다음 자동 확인/);
+  assert.match(panel, /가장 오래 노출된 상품/);
 });
 
 test("dashboard prepares an authenticated scheduled run but keeps destructive writes locked", async () => {
@@ -45,6 +48,10 @@ test("dashboard prepares an authenticated scheduled run but keeps destructive wr
   assert.match(route, /SEO_REGISTRATION_FALLBACK_BATCH_LIMIT/);
   assert.match(route, /requireSeoTitleLedgerContext/);
   assert.match(route, /eq\("owner_id", context\.identity\.userId\)/);
+  assert.match(route, /ops_dispatch_tasks/);
+  assert.match(route, /seo-listing-lifecycle-shadow-refresh/);
+  assert.match(route, /summarizeSeoVerifiedExposureProgress/);
+  assert.match(route, /externalMarketWrite: false/);
 });
 
 test("capacity readback ingestion is authenticated, owner-scoped and reconciled once", async () => {

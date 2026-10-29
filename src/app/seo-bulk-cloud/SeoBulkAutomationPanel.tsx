@@ -64,6 +64,29 @@ type Dashboard = {
     capacityMode: string;
     externalDeleteEnabled: boolean;
   };
+  operations: {
+    dailyRefresh: {
+      enabled: boolean;
+      healthy: boolean;
+      lastStatus: string;
+      nextRunAt: string | null;
+      lastStartedAt: string | null;
+      lastFinishedAt: string | null;
+      consecutiveFailures: number;
+      externalMarketWrite: boolean;
+    };
+    exposureProgress: {
+      trackedProductCount: number;
+      maxVerifiedExposureDays: number;
+      dueSoonProductCount: number;
+      progressBands: {
+        days0To29: number;
+        days30To49: number;
+        days50To59: number;
+        days60Plus: number;
+      };
+    };
+  };
   markets: MarketRow[];
   warnings: string[];
 };
@@ -127,12 +150,20 @@ const WARNING_LABELS: Record<string, string> = {
   ACTIVE_COUNT_EXCEEDS_MAXIMUM: "마켓 등록수 한도 초과",
   REGISTRATION_ONLY_FALLBACK_ACTIVE: "신규 등록 3개 제한 안전모드",
   SHADOW_RECONCILIATION_FAILED: "판매·등록 근거 자동 대사 재시도 필요",
+  DAILY_SHADOW_REFRESH_STATUS_UNAVAILABLE: "매일 자동 확인 상태 조회 실패",
+  DAILY_SHADOW_REFRESH_TASK_MISSING: "매일 자동 확인 작업 누락",
+  DAILY_SHADOW_REFRESH_TASK_DISABLED: "매일 자동 확인 중지됨",
+  DAILY_SHADOW_REFRESH_LAST_RUN_FAILED: "매일 자동 확인 오류 점검 필요",
 };
 
 function normalizeDashboard(body: UnknownRecord): Dashboard {
   const policy = record(body.policy);
   const summary = record(body.summary);
   const lifecycle = record(summary.lifecycle);
+  const operations = record(body.operations);
+  const dailyRefresh = record(operations.dailyRefresh);
+  const exposureProgress = record(operations.exposureProgress);
+  const progressBands = record(exposureProgress.progressBands);
   return {
     generatedAt: text(body.generatedAt),
     schemaReady: body.schemaReady === true,
@@ -184,6 +215,31 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
       capacityMode: text(record(body.scheduledRun).capacityMode),
       externalDeleteEnabled:
         record(body.scheduledRun).externalDeleteEnabled === true,
+    },
+    operations: {
+      dailyRefresh: {
+        enabled: dailyRefresh.enabled === true,
+        healthy: dailyRefresh.healthy === true,
+        lastStatus: text(dailyRefresh.lastStatus) || "unknown",
+        nextRunAt: text(dailyRefresh.nextRunAt) || null,
+        lastStartedAt: text(dailyRefresh.lastStartedAt) || null,
+        lastFinishedAt: text(dailyRefresh.lastFinishedAt) || null,
+        consecutiveFailures: count(dailyRefresh.consecutiveFailures),
+        externalMarketWrite: dailyRefresh.externalMarketWrite === true,
+      },
+      exposureProgress: {
+        trackedProductCount: count(exposureProgress.trackedProductCount),
+        maxVerifiedExposureDays: count(
+          exposureProgress.maxVerifiedExposureDays,
+        ),
+        dueSoonProductCount: count(exposureProgress.dueSoonProductCount),
+        progressBands: {
+          days0To29: count(progressBands.days0To29),
+          days30To49: count(progressBands.days30To49),
+          days50To59: count(progressBands.days50To59),
+          days60Plus: count(progressBands.days60Plus),
+        },
+      },
     },
     markets: Array.isArray(body.markets)
       ? body.markets.map((value): MarketRow => {
@@ -249,6 +305,17 @@ export default function SeoBulkAutomationPanel() {
   }, [load]);
 
   const lifecycle = dashboard?.summary.lifecycle ?? {};
+  const dailyRefresh = dashboard?.operations.dailyRefresh;
+  const exposureProgress = dashboard?.operations.exposureProgress;
+  const exposureTargetDays = dashboard?.policy.exposureDays || 60;
+  const exposurePercent = Math.min(
+    100,
+    Math.round(
+      ((exposureProgress?.maxVerifiedExposureDays ?? 0) /
+        exposureTargetDays) *
+        100,
+    ),
+  );
   const actionableWarnings = (dashboard?.warnings ?? []).filter(
     (warning) => warning !== "SHADOW_ONLY_NO_MARKET_WRITE",
   );
@@ -281,6 +348,72 @@ export default function SeoBulkAutomationPanel() {
         >
           {loading ? "확인 중…" : "현황 새로고침"}
         </button>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-cyan-200 bg-cyan-50/70 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-black text-slate-900">매일 자동 확인 상태</h3>
+            <p className="mt-1 text-xs text-slate-600">
+              Shopling 판매상태와 실제 판매 근거를 하루 한 번 확인하며, 외부 품절·삭제는 아직 실행하지 않습니다.
+            </p>
+          </div>
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-black ${
+              dailyRefresh?.enabled && dailyRefresh.healthy
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-amber-100 text-amber-900"
+            }`}
+          >
+            {dailyRefresh?.enabled && dailyRefresh.healthy
+              ? "하루 1회 자동 확인 중"
+              : "자동 확인 점검 필요"}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-cyan-100">
+            <div className="text-xs font-bold text-slate-500">마지막 자동 확인</div>
+            <div className="mt-1 font-black text-slate-950">
+              {dailyRefresh?.lastFinishedAt
+                ? dateLabel(dailyRefresh.lastFinishedAt)
+                : "첫 실행 전"}
+            </div>
+          </div>
+          <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-cyan-100">
+            <div className="text-xs font-bold text-slate-500">다음 자동 확인</div>
+            <div className="mt-1 font-black text-slate-950">
+              {dailyRefresh?.nextRunAt
+                ? dateLabel(dailyRefresh.nextRunAt)
+                : "미확인"}
+            </div>
+          </div>
+          <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-cyan-100">
+            <div className="text-xs font-bold text-slate-500">가장 오래 노출된 상품</div>
+            <div className="mt-1 font-black text-slate-950">
+              {exposureProgress?.maxVerifiedExposureDays ?? 0}일 / {exposureTargetDays}일
+            </div>
+          </div>
+          <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-cyan-100">
+            <div className="text-xs font-bold text-slate-500">확인 오류</div>
+            <div className="mt-1 font-black text-slate-950">
+              {dailyRefresh?.consecutiveFailures ?? 0}건
+            </div>
+          </div>
+        </div>
+        <div className="mt-3 rounded-xl bg-white p-3 ring-1 ring-cyan-100">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-600">
+            <span>
+              노출 추적 {exposureProgress?.trackedProductCount ?? 0}개 · 50일 이상 무판매 {exposureProgress?.dueSoonProductCount ?? 0}개
+            </span>
+            <span>{exposurePercent}%</span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-cyan-600 transition-[width]"
+              style={{ width: `${exposurePercent}%` }}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="mt-5 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">

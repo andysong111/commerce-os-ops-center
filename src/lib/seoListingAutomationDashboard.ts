@@ -10,9 +10,23 @@ export type SeoReadyProduct = {
 };
 
 export type SeoListingLifecycleSummaryRow = {
+  launch_item_id?: unknown;
   state?: unknown;
   requires_review?: unknown;
   sales_count_during_attempt?: unknown;
+  evidence?: unknown;
+};
+
+export type SeoVerifiedExposureProgress = {
+  trackedProductCount: number;
+  maxVerifiedExposureDays: number;
+  dueSoonProductCount: number;
+  progressBands: {
+    days0To29: number;
+    days30To49: number;
+    days50To59: number;
+    days60Plus: number;
+  };
 };
 
 const STATES: SeoListingLifecycleState[] = [
@@ -26,6 +40,17 @@ const STATES: SeoListingLifecycleState[] = [
 
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function nonNegativeInteger(value: unknown) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function instant(value: unknown) {
@@ -106,6 +131,53 @@ export function summarizeSeoListingLifecycle(
     }
   }
   return { counts, requiresReviewCount, verifiedSalesCount };
+}
+
+export function summarizeSeoVerifiedExposureProgress(
+  rows: SeoListingLifecycleSummaryRow[],
+): SeoVerifiedExposureProgress {
+  const daysByProduct = new Map<string, number>();
+  for (const row of rows) {
+    if (text(row.state) !== "LIVE") continue;
+    const launchItemId = text(row.launch_item_id);
+    if (!launchItemId) continue;
+    const verifiedExposureDays = nonNegativeInteger(
+      record(row.evidence).verifiedExposureDays,
+    );
+    daysByProduct.set(
+      launchItemId,
+      Math.max(daysByProduct.get(launchItemId) ?? 0, verifiedExposureDays),
+    );
+  }
+
+  const progress: SeoVerifiedExposureProgress = {
+    trackedProductCount: daysByProduct.size,
+    maxVerifiedExposureDays: 0,
+    dueSoonProductCount: 0,
+    progressBands: {
+      days0To29: 0,
+      days30To49: 0,
+      days50To59: 0,
+      days60Plus: 0,
+    },
+  };
+  for (const verifiedExposureDays of daysByProduct.values()) {
+    progress.maxVerifiedExposureDays = Math.max(
+      progress.maxVerifiedExposureDays,
+      verifiedExposureDays,
+    );
+    if (verifiedExposureDays >= 60) {
+      progress.progressBands.days60Plus += 1;
+    } else if (verifiedExposureDays >= 50) {
+      progress.progressBands.days50To59 += 1;
+      progress.dueSoonProductCount += 1;
+    } else if (verifiedExposureDays >= 30) {
+      progress.progressBands.days30To49 += 1;
+    } else {
+      progress.progressBands.days0To29 += 1;
+    }
+  }
+  return progress;
 }
 
 export function summarizeSeoRegistrationOutcomes(
