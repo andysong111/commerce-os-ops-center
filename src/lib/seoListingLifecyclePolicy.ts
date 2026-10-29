@@ -32,6 +32,7 @@ export type SeoListingLifecycleInput = {
   salesCountDuringAttempt?: number | null;
   nextEligibleAt?: string | null;
   exposureVerified?: boolean;
+  verifiedExposureDays?: number | null;
   technicalFailure?: boolean;
 };
 
@@ -258,6 +259,25 @@ export function evaluateSeoListingLifecycle(
   if (input.state === "LIVE") {
     const liveStartedAtMs = parseInstant(input.liveStartedAt);
     const lastVerifiedLiveAtMs = parseInstant(input.lastVerifiedLiveAt);
+    const verifiedExposureDays =
+      input.verifiedExposureDays === undefined ||
+      input.verifiedExposureDays === null
+        ? null
+        : nonNegativeInteger(input.verifiedExposureDays);
+    if (
+      input.verifiedExposureDays !== undefined &&
+      input.verifiedExposureDays !== null &&
+      verifiedExposureDays === null
+    ) {
+      return {
+        ...base,
+        attemptCount,
+        state: "EXCEPTION",
+        action: "REVIEW",
+        requiresReview: true,
+        reasonCode: "INVALID_VERIFIED_EXPOSURE_DAYS",
+      };
+    }
     if (
       input.exposureVerified !== true ||
       liveStartedAtMs === null ||
@@ -275,10 +295,14 @@ export function evaluateSeoListingLifecycle(
         reasonCode: "LIVE_EXPOSURE_NOT_VERIFIED",
       };
     }
-    const exposureDays = Math.max(
-      0,
-      Math.floor((Math.min(nowMs, lastVerifiedLiveAtMs) - liveStartedAtMs) / DAY_MS),
-    );
+    const exposureDays =
+      verifiedExposureDays ??
+      Math.max(
+        0,
+        Math.floor(
+          (Math.min(nowMs, lastVerifiedLiveAtMs) - liveStartedAtMs) / DAY_MS,
+        ),
+      );
     if (exposureDays < SEO_LISTING_EXPOSURE_DAYS) {
       return {
         ...base,

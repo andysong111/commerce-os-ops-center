@@ -98,6 +98,11 @@ const REGISTRY: Record<string, RegistryEntry> = {
     load: async () =>
       (await import("@/app/api/cron/product-lifecycle-refresh/route")).GET as CronHandler,
   },
+  "seo-listing-lifecycle-shadow-refresh": {
+    routePath: "/api/cron/seo-listing-lifecycle-shadow-refresh",
+    load: async () =>
+      (await import("@/app/api/cron/seo-listing-lifecycle-shadow-refresh/route")).GET as CronHandler,
+  },
   "product-master-shopling-diagnostic": {
     routePath: "/api/cron/product-master-shopling-diagnostic",
     load: async () =>
