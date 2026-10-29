@@ -3,6 +3,7 @@ import {
   selectLatestSeoReadyProducts,
   summarizeSeoListingLifecycle,
   summarizeSeoRegistrationOutcomes,
+  summarizeSeoVerifiedExposureProgress,
 } from "@/lib/seoListingAutomationDashboard";
 import {
   calculateSeoPortfolioCapacity,
@@ -141,7 +142,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [jobs, policyResult, capacityResult, lifecycleResult] =
+    const [jobs, policyResult, capacityResult, lifecycleResult, dailyTaskResult] =
       await Promise.all([
         listSeoRunJobs(context, { includeArchived: false, limit: 1000 }),
         admin
@@ -160,11 +161,18 @@ export async function GET(request: NextRequest) {
         admin
           .from("seo_listing_lifecycle_records")
           .select(
-            "id,market_account_key,launch_item_id,model_number,product_name,state,attempt_count,current_run_id,goods_key,live_started_at,last_verified_live_at,sales_count_during_attempt,next_eligible_at,exposure_verified,requires_review,review_reason,evaluated_at,updated_at",
+            "id,market_account_key,launch_item_id,model_number,product_name,state,attempt_count,current_run_id,goods_key,live_started_at,last_verified_live_at,sales_count_during_attempt,next_eligible_at,exposure_verified,requires_review,review_reason,evidence,evaluated_at,updated_at",
           )
           .eq("owner_id", context.identity.userId)
           .order("evaluated_at", { ascending: false })
           .limit(1000),
+        admin
+          .from("ops_dispatch_tasks")
+          .select(
+            "task_key,enabled,next_run_at,last_status,last_started_at,last_finished_at,last_error,consecutive_failures,updated_at",
+          )
+          .eq("task_key", "seo-listing-lifecycle-shadow-refresh")
+          .maybeSingle(),
       ]);
 
     throwUnexpectedStorageError("SEO_LISTING_POLICY_READ_FAILED", policyResult.error);
@@ -186,13 +194,30 @@ export async function GET(request: NextRequest) {
     const lifecycleRows = Array.isArray(lifecycleResult.data)
       ? (lifecycleResult.data as UnknownRecord[])
       : [];
+    const dailyTaskRow =
+      dailyTaskResult.data && typeof dailyTaskResult.data === "object"
+        ? (dailyTaskResult.data as UnknownRecord)
+        : null;
     const readyProducts = selectLatestSeoReadyProducts(jobs);
     const capacity = calculateSeoPortfolioCapacity(
       capacityRows.map(capacityInput),
       new Date(),
     );
     const lifecycle = summarizeSeoListingLifecycle(lifecycleRows);
+    const exposureProgress =
+      summarizeSeoVerifiedExposureProgress(lifecycleRows);
     const registration = summarizeSeoRegistrationOutcomes(jobs);
+    const dailyTaskFailures = numberOrNull(
+      dailyTaskRow?.consecutive_failures,
+    );
+    const dailyTaskLastError = text(dailyTaskRow?.last_error);
+    const dailyTaskLastStatus = text(dailyTaskRow?.last_status) || "unknown";
+    const dailyTaskEnabled = dailyTaskRow?.enabled === true;
+    const dailyTaskHealthy =
+      dailyTaskEnabled &&
+      (dailyTaskFailures ?? 0) === 0 &&
+      dailyTaskLastStatus !== "failure" &&
+      !dailyTaskLastError;
     const policyMatchesCode =
       !policyRow ||
       (numberOrNull(policyRow.exposure_days) === SEO_LISTING_EXPOSURE_DAYS &&
@@ -214,6 +239,18 @@ export async function GET(request: NextRequest) {
       ...(!schemaReady ? ["LIFECYCLE_SCHEMA_NOT_APPLIED"] : []),
       ...(!policyRow ? ["POLICY_ROW_NOT_CREATED"] : []),
       ...(!policyMatchesCode ? ["POLICY_VERSION_MISMATCH"] : []),
+      ...(dailyTaskResult.error
+        ? ["DAILY_SHADOW_REFRESH_STATUS_UNAVAILABLE"]
+        : []),
+      ...(!dailyTaskResult.error && !dailyTaskRow
+        ? ["DAILY_SHADOW_REFRESH_TASK_MISSING"]
+        : []),
+      ...(dailyTaskRow && !dailyTaskEnabled
+        ? ["DAILY_SHADOW_REFRESH_TASK_DISABLED"]
+        : []),
+      ...(dailyTaskRow && !dailyTaskHealthy
+        ? ["DAILY_SHADOW_REFRESH_LAST_RUN_FAILED"]
+        : []),
       ...(scheduledPlan.capacityFallbackActive
         ? ["REGISTRATION_ONLY_FALLBACK_ACTIVE"]
         : []),
@@ -260,6 +297,19 @@ export async function GET(request: NextRequest) {
           .length,
         lifecycle: lifecycle.counts,
         requiresReviewCount: lifecycle.requiresReviewCount,
+      },
+      operations: {
+        dailyRefresh: {
+          enabled: dailyTaskEnabled,
+          healthy: dailyTaskHealthy,
+          lastStatus: dailyTaskLastStatus,
+          nextRunAt: text(dailyTaskRow?.next_run_at) || null,
+          lastStartedAt: text(dailyTaskRow?.last_started_at) || null,
+          lastFinishedAt: text(dailyTaskRow?.last_finished_at) || null,
+          consecutiveFailures: dailyTaskFailures ?? 0,
+          externalMarketWrite: false,
+        },
+        exposureProgress,
       },
       markets: capacity.markets,
       readyProducts: readyProducts.slice(0, 30),
