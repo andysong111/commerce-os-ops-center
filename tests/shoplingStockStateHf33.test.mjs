@@ -37,7 +37,7 @@ test("HF33 binds every exact B-code row to a Shopling goods/option identity and 
   assert.match(source, /commerce-os-shopling-stock-state-v\$\{VERSION\}-hf33\.zip/);
 });
 
-test("the stock-control UI rejects known-broken v0.5.9 and v0.6.0 extensions", async () => {
+test("the stock-control UI rejects known-broken extensions through v0.6.1", async () => {
   const [planner, panel] = await Promise.all([
     readFile("src/lib/shoplingStockLaunchPlan.ts", "utf8"),
     readFile(
@@ -46,8 +46,8 @@ test("the stock-control UI rejects known-broken v0.5.9 and v0.6.0 extensions", a
     ),
   ]);
 
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 1\]/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 2\]/);
   assert.match(panel, /SEARCH_DATE_FIELDS_AMBIGUOUS/);
   assert.match(panel, /A6_DATE_SCOPE_SET_FAILED/);
-  assert.match(panel, /v0\.6\.1로 업데이트해 주세요/);
+  assert.match(panel, /v0\.6\.2로 업데이트해 주세요/);
 });

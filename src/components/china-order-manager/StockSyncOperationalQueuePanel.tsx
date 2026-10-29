@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INVENTORY_QUEUE_PATH, inventoryStockReadClient, startInventoryPolling } from "@/lib/inventoryStockConnection";
-import { planShoplingStockLaunch } from "@/lib/shoplingStockLaunchPlan";
+import { planShoplingStockLaunch, supportsAllDateStockSync } from "@/lib/shoplingStockLaunchPlan";
 import { selectExactShoplingStockQueueJob, type ShoplingStockQueueSelection } from "@/lib/shoplingStockQueueSelection";
 
 type ProductKind = "OPTION" | "SINGLE";
@@ -202,9 +202,13 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       const type = String(data.type || "");
       if (type === "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY") {
         const version = String(data.extensionVersion || "");
+        const supported = supportsAllDateStockSync(version);
         extensionVersionRef.current = version;
         setExtensionVersion(version);
-        setExtensionReady(true);
+        setExtensionReady(supported);
+        if (!supported) {
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 A6 날짜 검증 오류가 있어 사용할 수 없습니다. v0.6.2로 업데이트해 주세요.`);
+        }
         return;
       }
       if (type === PARALLEL_STATUS) {
