@@ -88,7 +88,7 @@ test("HF36 ignores page-ready redispatches from a different frame in the assigne
   assert.equal(harness.legacyCalls.length, 0);
 });
 
-test("HF36 packages v0.6.4 from HF35 and the stock-control UI requires it", async () => {
+test("HF36 still packages v0.6.4 while the stock-control UI has advanced to HF37", async () => {
   const [route, planner, page, queuePanel, operatorPanel] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf36/route.ts", "utf8"),
     readFile("src/lib/shoplingStockLaunchPlan.ts", "utf8"),
@@ -99,9 +99,9 @@ test("HF36 packages v0.6.4 from HF35 and the stock-control UI requires it", asyn
   assert.match(route, /getHf35Download/);
   assert.match(route, /const BASE_VERSION = "0\.6\.3"/);
   assert.match(route, /const VERSION = "0\.6\.4"/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 4\]/);
-  assert.match(page, /download-hf36/);
-  assert.match(page, /v0\.6\.4 다운로드/);
-  assert.match(queuePanel, /v0\.6\.4로 업데이트해 주세요/);
-  assert.match(operatorPanel, /v0\.6\.4로 업데이트/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 5\]/);
+  assert.match(page, /download-hf37/);
+  assert.match(page, /v0\.6\.5 다운로드/);
+  assert.match(queuePanel, /v0\.6\.5로 업데이트해 주세요/);
+  assert.match(operatorPanel, /v0\.6\.5로 업데이트/);
 });
