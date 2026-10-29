@@ -126,6 +126,7 @@ const WARNING_LABELS: Record<string, string> = {
   CAPACITY_STALE: "마켓 등록한도 24시간 초과",
   ACTIVE_COUNT_EXCEEDS_MAXIMUM: "마켓 등록수 한도 초과",
   REGISTRATION_ONLY_FALLBACK_ACTIVE: "신규 등록 3개 제한 안전모드",
+  SHADOW_RECONCILIATION_FAILED: "판매·등록 근거 자동 대사 재시도 필요",
 };
 
 function normalizeDashboard(body: UnknownRecord): Dashboard {
