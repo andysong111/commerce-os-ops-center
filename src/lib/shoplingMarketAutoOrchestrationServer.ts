@@ -12,6 +12,7 @@ import {
   normalizeMarketAutoRunIds,
   verifiedMarketOnlyUploadJob,
 } from "@/lib/shoplingMarketAutoResumePolicy";
+import { calculateSeoShoplingProductDbCapacity } from "@/lib/seoShoplingProductDbCapacity";
 
 const TABLE = "shopling_market_auto_orchestrations";
 const SEO_TABLE = "seo_run_jobs";
@@ -33,6 +34,11 @@ const ACTIVE_STATES = [
   "market_ready",
   "market_claimed",
   "market_running",
+];
+const PRODUCT_DB_RESERVING_REGISTRATION_STATES = [
+  "queued",
+  "submitting",
+  "running",
 ];
 
 type UnknownRecord = Record<string, unknown>;
@@ -120,6 +126,60 @@ async function requireAdmin() {
   const supabase = await createSupabaseAdminClient();
   if (!supabase) throw new Error("supabase_admin_unavailable");
   return supabase;
+}
+
+async function assertShoplingProductDbCapacityForNewUploads(
+  supabase: AdminClient,
+  ownerId: string,
+  newProductCount: number,
+) {
+  if (newProductCount <= 0) return;
+  const result = await supabase
+    .from("seo_shopling_product_db_capacities")
+    .select(
+      "maximum_product_code_count,used_product_code_count,observation_status,observed_at,source",
+    )
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  if (result.error) {
+    throw new Error(
+      "Shopling 상품 DB 한도표를 확인하지 못해 새 상품코드 생성을 중단했습니다.",
+    );
+  }
+  const capacity = calculateSeoShoplingProductDbCapacity(result.data);
+  if (capacity.blocked) {
+    const counts =
+      capacity.maximumProductCodeCount === null ||
+      capacity.usedProductCodeCount === null
+        ? "최신 사용량 미확인"
+        : `${capacity.usedProductCodeCount.toLocaleString("ko-KR")} / ${capacity.maximumProductCodeCount.toLocaleString("ko-KR")}`;
+    throw new Error(
+      `Shopling 상품 DB 신규등록 차단: ${counts}. 기존 goods_key 마켓전송만 진행할 수 있습니다.`,
+    );
+  }
+  const activeResult = await supabase
+    .from(SEO_TABLE)
+    .select("run_id,registration_status")
+    .eq("owner_id", ownerId)
+    .in("registration_status", PRODUCT_DB_RESERVING_REGISTRATION_STATES)
+    .limit(1000);
+  if (activeResult.error) {
+    throw new Error(
+      "진행 중인 Shopling 신규등록 수를 확인하지 못해 새 상품코드 생성을 중단했습니다.",
+    );
+  }
+  const activeReservationCount = Array.isArray(activeResult.data)
+    ? activeResult.data.length
+    : 0;
+  const remainingSafeProductCount = Math.max(
+    0,
+    capacity.safeNewProductCount - activeReservationCount,
+  );
+  if (newProductCount > remainingSafeProductCount) {
+    throw new Error(
+      `Shopling 상품 DB 안전 여유는 진행 중 작업을 빼면 ${remainingSafeProductCount}개 상품뿐이라 ${newProductCount}개 신규등록을 중단했습니다.`,
+    );
+  }
 }
 
 async function readOrchestrationByTokenHash(
@@ -391,9 +451,18 @@ export async function createMarketAutoOrchestration(
   );
   if (!accepted.length) throw new Error("FINAL 완료 상태의 Shopling 등록 가능 RUN이 없습니다.");
 
+  const queueRunIds = accepted
+    .filter((job) => job.registration_status === "idle")
+    .map((job) => job.run_id);
+
   const token = handoffToken(rawHandoffToken);
   const tokenHash = hashToken(token);
   const supabase = await requireAdmin();
+  await assertShoplingProductDbCapacityForNewUploads(
+    supabase,
+    context.identity.userId,
+    queueRunIds.length,
+  );
   const acceptedRunIds = accepted.map((job) => job.run_id);
   const batchIds = [...new Set(accepted.map((job) => text(job.batch_id)).filter(Boolean))];
   let inserted = await readOrchestrationByTokenHash(
@@ -446,9 +515,6 @@ export async function createMarketAutoOrchestration(
       idempotentReplay: true,
     };
   }
-  const queueRunIds = accepted
-    .filter((job) => job.registration_status === "idle")
-    .map((job) => job.run_id);
   try {
     if (queueRunIds.length) {
       await patchOwnedSeoRunJobs(context, queueRunIds, {

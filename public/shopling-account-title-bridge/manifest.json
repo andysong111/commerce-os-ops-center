@@ -44,10 +44,30 @@
       "js": [
         "content-shopling-pipeline.js",
         "content-shopling-pipeline-frame-bridge.js",
-        "content-shopling-onebutton-stability-v054.js"
+        "content-shopling-onebutton-stability-v054.js",
+        "content-shopling-product-db-capacity.js"
       ],
       "all_frames": true,
       "match_about_blank": true,
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://commerce-os-ops-center.vercel.app/seo-bulk-cloud*"
+      ],
+      "js": [
+        "content-commerce-os-product-db-capacity-sync.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://commerce-os-ops-center.vercel.app/seo-bulk-cloud*"
+      ],
+      "js": [
+        "content-commerce-os-product-db-capacity-main.js"
+      ],
+      "world": "MAIN",
       "run_at": "document_idle"
     }
   ]

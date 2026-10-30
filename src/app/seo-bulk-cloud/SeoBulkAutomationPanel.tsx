@@ -31,6 +31,21 @@ type Dashboard = {
     cooldownDays: number;
     maxAttempts: number;
     capacityMaxAgeHours: number;
+    shoplingProductDbMaxAgeHours: number;
+  };
+  shoplingProductDb: {
+    maximumProductCodeCount: number | null;
+    usedProductCodeCount: number | null;
+    availableProductCodeCount: number;
+    overLimitProductCodeCount: number;
+    safetyBufferProductCodeCount: number;
+    productCodesPerProduct: number;
+    safeNewProductCount: number;
+    observationStatus: string;
+    observedAt: string | null;
+    stale: boolean;
+    blocked: boolean;
+    reasonCode: string;
   };
   summary: {
     seoReadyProductCount: number;
@@ -41,6 +56,7 @@ type Dashboard = {
     limitedByCapacityCount: number;
     soldOutDeleteDueCount: number;
     relistDueCount: number;
+    relistReuseOnlyCount: number;
     protectedProductCount: number;
     cooldownProductCount: number;
     reviewProductCount: number;
@@ -175,6 +191,11 @@ const WARNING_LABELS: Record<string, string> = {
   CAPACITY_STALE: "마켓 등록한도 24시간 초과",
   ACTIVE_COUNT_EXCEEDS_MAXIMUM: "마켓 등록수 한도 초과",
   REGISTRATION_ONLY_FALLBACK_ACTIVE: "신규 등록 3개 제한 안전모드",
+  SHOPLING_PRODUCT_DB_READBACK_UNVERIFIED: "Shopling 상품 DB 사용량 확인 필요",
+  SHOPLING_PRODUCT_DB_COUNT_INVALID: "Shopling 상품 DB 수량 오류",
+  SHOPLING_PRODUCT_DB_READBACK_STALE: "Shopling 상품 DB 사용량 24시간 초과",
+  SHOPLING_PRODUCT_DB_AT_OR_OVER_LIMIT: "Shopling 상품 DB 1만 개 한도 도달·초과",
+  SHOPLING_PRODUCT_DB_INSUFFICIENT_SAFE_SLOTS: "Shopling 상품 DB 안전 여유 부족",
   SHADOW_RECONCILIATION_FAILED: "판매·등록 근거 자동 대사 재시도 필요",
   DAILY_SHADOW_REFRESH_STATUS_UNAVAILABLE: "매일 자동 확인 상태 조회 실패",
   DAILY_SHADOW_REFRESH_TASK_MISSING: "매일 자동 확인 작업 누락",
@@ -188,6 +209,7 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
   const summary = record(body.summary);
   const lifecycle = record(summary.lifecycle);
   const operations = record(body.operations);
+  const shoplingProductDb = record(body.shoplingProductDb);
   const dailyRefresh = record(operations.dailyRefresh);
   const exposureProgress = record(operations.exposureProgress);
   const progressBands = record(exposureProgress.progressBands);
@@ -204,6 +226,9 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
       cooldownDays: count(policy.cooldownDays),
       maxAttempts: count(policy.maxAttempts),
       capacityMaxAgeHours: count(policy.capacityMaxAgeHours),
+      shoplingProductDbMaxAgeHours: count(
+        policy.shoplingProductDbMaxAgeHours,
+      ),
     },
     summary: {
       seoReadyProductCount: count(summary.seoReadyProductCount),
@@ -214,6 +239,7 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
       limitedByCapacityCount: count(summary.limitedByCapacityCount),
       soldOutDeleteDueCount: count(summary.soldOutDeleteDueCount),
       relistDueCount: count(summary.relistDueCount),
+      relistReuseOnlyCount: count(summary.relistReuseOnlyCount),
       protectedProductCount: count(summary.protectedProductCount),
       cooldownProductCount: count(summary.cooldownProductCount),
       reviewProductCount: count(summary.reviewProductCount),
@@ -245,6 +271,32 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
       capacityMode: text(record(body.scheduledRun).capacityMode),
       externalDeleteEnabled:
         record(body.scheduledRun).externalDeleteEnabled === true,
+    },
+    shoplingProductDb: {
+      maximumProductCodeCount: nullableCount(
+        shoplingProductDb.maximumProductCodeCount,
+      ),
+      usedProductCodeCount: nullableCount(
+        shoplingProductDb.usedProductCodeCount,
+      ),
+      availableProductCodeCount: count(
+        shoplingProductDb.availableProductCodeCount,
+      ),
+      overLimitProductCodeCount: count(
+        shoplingProductDb.overLimitProductCodeCount,
+      ),
+      safetyBufferProductCodeCount: count(
+        shoplingProductDb.safetyBufferProductCodeCount,
+      ),
+      productCodesPerProduct: count(shoplingProductDb.productCodesPerProduct),
+      safeNewProductCount: count(shoplingProductDb.safeNewProductCount),
+      observationStatus: text(shoplingProductDb.observationStatus),
+      observedAt: text(shoplingProductDb.observedAt) || null,
+      stale: shoplingProductDb.stale !== false,
+      blocked: shoplingProductDb.blocked !== false,
+      reasonCode:
+        text(shoplingProductDb.reasonCode) ||
+        "SHOPLING_PRODUCT_DB_READBACK_UNVERIFIED",
     },
     operations: {
       dailyRefresh: {
@@ -375,6 +427,7 @@ export default function SeoBulkAutomationPanel() {
   const exposureProgress = dashboard?.operations.exposureProgress;
   const canaryReadiness = dashboard?.operations.canaryReadiness;
   const canaryCandidate = canaryReadiness?.selectedCandidate;
+  const productDb = dashboard?.shoplingProductDb;
   const exposureTargetDays = dashboard?.policy.exposureDays || 60;
   const exposurePercent = Math.min(
     100,
@@ -404,8 +457,8 @@ export default function SeoBulkAutomationPanel() {
             자동등록 · 상품 물갈이
           </h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-            SEO 준비 상품을 확인된 마켓 슬롯 또는 3개 안전 상한 안에서 자동 배치합니다. 판매가 없으면 60일 노출 후
-            90일 쉬었다가 새 SEO 버전으로 다시 기회를 주고, 3회 연속 무판매만 단종 후보로 보냅니다.
+            SEO 준비 상품을 마켓 슬롯과 Shopling 상품 DB 1만 개 한도 안에서만 자동 배치합니다. 판매가 없으면 60일 노출 후
+            90일 쉬었다가 기존 상품코드를 재사용해 다시 기회를 주고, 3회 연속 무판매만 단종 후보로 보냅니다.
           </p>
         </div>
         <button
@@ -516,6 +569,9 @@ export default function SeoBulkAutomationPanel() {
           </span>
           <span className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-800">
             재도전 준비 {dashboard?.summary.relistDueCount ?? 0}개
+          </span>
+          <span className="rounded-full bg-cyan-100 px-3 py-1 text-cyan-800">
+            기존코드 재사용 대기 {dashboard?.summary.relistReuseOnlyCount ?? 0}개
           </span>
         </div>
       </div>
@@ -648,6 +704,60 @@ export default function SeoBulkAutomationPanel() {
           </div>
         </div>
       ) : null}
+
+      <div className={`mt-5 rounded-2xl border p-4 shadow-sm ${productDb?.blocked ? "border-rose-200 bg-rose-50/80" : "border-emerald-200 bg-emerald-50/80"}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-black text-slate-900">Shopling 상품 DB 1만 개 한도</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              새 상품 1개는 Shopling 상품코드 6개를 사용합니다. 삭제 중인 상품은 최신 Shopling 화면에서 사용 수가 실제로 줄어든 뒤에만 여유분으로 인정합니다.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-black ${productDb?.blocked ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"}`}>
+            {productDb?.blocked ? "신규 코드 생성 차단" : "안전 신규등록 가능"}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-slate-100">
+            <div className="text-xs font-bold text-slate-500">현재 사용 / 최대</div>
+            <div className="mt-1 font-black text-slate-950">
+              {countLabel(productDb?.usedProductCodeCount)} / {countLabel(productDb?.maximumProductCodeCount)}
+            </div>
+          </div>
+          <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-slate-100">
+            <div className="text-xs font-bold text-slate-500">한도 초과</div>
+            <div className="mt-1 font-black text-rose-700">
+              {(productDb?.overLimitProductCodeCount ?? 0).toLocaleString("ko-KR")}개
+            </div>
+          </div>
+          <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-slate-100">
+            <div className="text-xs font-bold text-slate-500">안전 신규등록</div>
+            <div className="mt-1 font-black text-slate-950">
+              {productDb?.safeNewProductCount ?? 0}개 상품
+            </div>
+          </div>
+          <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-slate-100">
+            <div className="text-xs font-bold text-slate-500">마지막 자동 확인</div>
+            <div className="mt-1 font-black text-slate-950">
+              {productDb?.observedAt ? dateLabel(productDb.observedAt) : "미확인"}
+            </div>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold">
+          <span className="rounded-full bg-white px-3 py-1 text-slate-700 ring-1 ring-slate-200">
+            안전 여유 {productDb?.safetyBufferProductCodeCount ?? 12}코드 보존
+          </span>
+          <span className="rounded-full bg-white px-3 py-1 text-slate-700 ring-1 ring-slate-200">
+            기존 goods_key 마켓전송은 계속 가능
+          </span>
+          <a
+            href="/api/shopling-account-title-bridge/download"
+            className="rounded-full bg-slate-900 px-3 py-1 text-white"
+          >
+            상품 DB 자동확인 확장 다운로드
+          </a>
+        </div>
+      </div>
 
       <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 px-5 py-4">

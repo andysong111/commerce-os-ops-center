@@ -45,6 +45,7 @@ test("Shopling bridge source v0.5.5 keeps durable idempotency and adds lifecycle
     "content-shopling-pipeline.js",
     "content-shopling-pipeline-frame-bridge.js",
     "content-shopling-onebutton-stability-v054.js",
+    "content-shopling-product-db-capacity.js",
   ]);
 });
 

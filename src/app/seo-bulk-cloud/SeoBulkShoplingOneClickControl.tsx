@@ -433,8 +433,13 @@ export default function SeoBulkShoplingOneClickControl() {
         (row) => plannedSet.has(row.run_id) || resumeSet.has(row.run_id),
       );
       if (!targets.length) {
+        const reasonCode = text(scheduledRun.reasonCode);
         setMessage(
-          text(scheduledRun.reasonCode) === "MARKET_CAPACITY_BLOCKED"
+          reasonCode.startsWith("SHOPLING_PRODUCT_DB_")
+            ? "Shopling 상품 DB 1만 개 한도 때문에 새 상품코드 생성은 멈췄습니다. 기존 등록상품의 마켓전송은 계속 가능합니다."
+            : reasonCode === "RELIST_REUSE_PIPELINE_PENDING"
+              ? "재등록 대상은 새 상품코드를 만들지 않고 기존 goods_key를 재사용하는 단계에서만 진행합니다."
+            : reasonCode === "MARKET_CAPACITY_BLOCKED"
             ? "마켓 등록한도 확인이 끝나지 않아 안전하게 멈췄습니다. 잘못 등록하지는 않았습니다."
             : "오늘 새로 진행하거나 이어서 처리할 상품이 없습니다.",
         );

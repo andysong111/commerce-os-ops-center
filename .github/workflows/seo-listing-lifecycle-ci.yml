@@ -6,17 +6,28 @@ on:
       - "src/lib/seoListingLifecyclePolicy.ts"
       - "src/lib/seoListingAutomationDashboard.ts"
       - "src/lib/seoMarketCapacityReadback.ts"
+      - "src/lib/seoShoplingProductDbCapacity.ts"
+      - "src/lib/seoListingScheduledRun.ts"
+      - "src/lib/shoplingMarketAutoOrchestrationServer.ts"
       - "src/app/api/seo-listing-lifecycle/**"
       - "src/app/seo-bulk-cloud/SeoBulkAutomationPanel.tsx"
       - "src/app/seo-bulk-cloud/page.tsx"
       - "src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx"
       - "src/app/seo-bulk-cloud/SeoBulkRegistrationFailurePanel.tsx"
       - "src/app/seo-bulk-cloud/SeoBulkRegistrationRetryAllControl.tsx"
+      - "src/app/api/shopling-account-title-bridge/download/route.ts"
+      - "public/shopling-account-title-bridge/content-shopling-product-db-capacity.js"
+      - "public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-sync.js"
+      - "public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-main.js"
       - "supabase/migrations/20261014191618_seo_listing_rotation_shadow_v1.sql"
+      - "supabase/migrations/20261030043000_seo_shopling_product_db_capacity_guard.sql"
       - "tests/seoListingLifecyclePolicy.test.mjs"
       - "tests/seoListingAutomationDashboard.test.mjs"
       - "tests/seoListingAutomationContract.test.mjs"
       - "tests/seoMarketCapacityReadback.test.mjs"
+      - "tests/seoShoplingProductDbCapacity.test.mjs"
+      - "tests/seoListingScheduledRun.test.mjs"
+      - "tests/shoplingProductDbCapacityBridge.test.mjs"
       - ".github/workflows/seo-listing-lifecycle-ci.yml"
   workflow_dispatch:
 
@@ -44,14 +55,23 @@ jobs:
           src/lib/seoListingLifecyclePolicy.ts
           src/lib/seoListingAutomationDashboard.ts
           src/lib/seoMarketCapacityReadback.ts
+          src/lib/seoShoplingProductDbCapacity.ts
+          src/lib/seoListingScheduledRun.ts
+          src/lib/shoplingMarketAutoOrchestrationServer.ts
           src/app/api/seo-listing-lifecycle/route.ts
           src/app/api/seo-listing-lifecycle/capacity-readback/route.ts
+          src/app/api/seo-listing-lifecycle/shopling-product-db-capacity-readback/route.ts
+          src/app/api/shopling-account-title-bridge/download/route.ts
           src/app/seo-bulk-cloud/SeoBulkAutomationPanel.tsx
+          src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx
           src/app/seo-bulk-cloud/page.tsx
           tests/seoListingLifecyclePolicy.test.mjs
           tests/seoListingAutomationDashboard.test.mjs
           tests/seoListingAutomationContract.test.mjs
           tests/seoMarketCapacityReadback.test.mjs
+          tests/seoShoplingProductDbCapacity.test.mjs
+          tests/seoListingScheduledRun.test.mjs
+          tests/shoplingProductDbCapacityBridge.test.mjs
       - name: Test lifecycle policy and capacity safety
         run: >-
           node --experimental-strip-types --test
@@ -59,6 +79,9 @@ jobs:
           tests/seoListingAutomationDashboard.test.mjs
           tests/seoListingAutomationContract.test.mjs
           tests/seoMarketCapacityReadback.test.mjs
+          tests/seoShoplingProductDbCapacity.test.mjs
+          tests/seoListingScheduledRun.test.mjs
+          tests/shoplingProductDbCapacityBridge.test.mjs
       - name: Typecheck
         run: npm run typecheck
       - name: Build Ops Center

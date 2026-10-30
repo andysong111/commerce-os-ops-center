@@ -13,10 +13,13 @@ export type SeoScheduledRunPlan = {
   limitedByCapacityCount: number;
   soldOutDeleteDueCount: number;
   relistDueCount: number;
+  relistReuseOnlyCount: number;
   protectedProductCount: number;
   cooldownProductCount: number;
   reviewProductCount: number;
   capacityFallbackActive: boolean;
+  shoplingProductDbBlocked: boolean;
+  shoplingProductDbSafeNewProductCount: number;
   blocked: boolean;
   reasonCode: string;
 };
@@ -57,6 +60,9 @@ export function planSeoScheduledPortfolioRun(input: {
   capacityBlocked: boolean;
   allowBoundedRegistrationWithoutCapacity?: boolean;
   fallbackBatchCount?: number;
+  shoplingProductDbSafeNewProductCount?: number;
+  shoplingProductDbBlocked?: boolean;
+  shoplingProductDbReasonCode?: string;
   now?: Date;
 }): SeoScheduledRunPlan {
   const now = input.now ?? new Date();
@@ -98,6 +104,9 @@ export function planSeoScheduledPortfolioRun(input: {
   }
 
   const eligible = input.readyProducts.filter((product) => {
+    // A relist must reuse the existing six Shopling goods_keys. Never hand it
+    // to the full pipeline that appends six new product codes.
+    if (dueRelist.has(product.launchItemId)) return false;
     const rows = recordsByProduct.get(product.launchItemId) ?? [];
     if (!rows.length) return true;
     return rows.every((row) => {
@@ -130,12 +139,26 @@ export function planSeoScheduledPortfolioRun(input: {
   const capacityFallbackActive =
     input.capacityBlocked &&
     input.allowBoundedRegistrationWithoutCapacity === true &&
-    fallbackBatchCount > 0;
-  const selectedProducts = input.capacityBlocked
+    fallbackBatchCount > 0 &&
+    input.shoplingProductDbBlocked !== true;
+  const marketBatchCount = input.capacityBlocked
     ? capacityFallbackActive
-      ? eligible.slice(0, fallbackBatchCount)
-      : []
-    : eligible.slice(0, safeBatchCount);
+      ? fallbackBatchCount
+      : 0
+    : safeBatchCount;
+  const shoplingProductDbSafeNewProductCount = Math.max(
+    0,
+    Math.trunc(
+      input.shoplingProductDbSafeNewProductCount ?? Number.MAX_SAFE_INTEGER,
+    ),
+  );
+  const shoplingProductDbBlocked = input.shoplingProductDbBlocked === true;
+  const selectedProducts = shoplingProductDbBlocked
+    ? []
+    : eligible.slice(
+        0,
+        Math.min(marketBatchCount, shoplingProductDbSafeNewProductCount),
+      );
   const excludedByLifecycleCount = Math.max(
     0,
     input.readyProducts.length - eligible.length,
@@ -152,21 +175,35 @@ export function planSeoScheduledPortfolioRun(input: {
     limitedByCapacityCount,
     soldOutDeleteDueCount: dueSoldOutDelete.size,
     relistDueCount: dueRelist.size,
+    relistReuseOnlyCount: dueRelist.size,
     protectedProductCount: protectedProducts.size,
     cooldownProductCount: cooldownProducts.size,
     reviewProductCount: reviewProducts.size,
     capacityFallbackActive,
-    blocked: input.capacityBlocked && !capacityFallbackActive,
-    reasonCode: capacityFallbackActive
+    shoplingProductDbBlocked,
+    shoplingProductDbSafeNewProductCount,
+    blocked:
+      shoplingProductDbBlocked ||
+      (input.capacityBlocked && !capacityFallbackActive),
+    reasonCode: shoplingProductDbBlocked
+      ? text(input.shoplingProductDbReasonCode) ||
+        "SHOPLING_PRODUCT_DB_BLOCKED"
+      : capacityFallbackActive
       ? selectedProducts.length
         ? "REGISTRATION_ONLY_FALLBACK_READY"
-        : "NO_ELIGIBLE_PRODUCT"
+        : eligible.length
+          ? "SHOPLING_PRODUCT_DB_INSUFFICIENT_SAFE_SLOTS"
+          : "NO_ELIGIBLE_PRODUCT"
       : input.capacityBlocked
         ? "MARKET_CAPACITY_BLOCKED"
       : selectedProducts.length
         ? "SCHEDULED_RUN_READY"
-        : eligible.length
-          ? "NO_MARKET_SLOT_AVAILABLE"
-          : "NO_ELIGIBLE_PRODUCT",
+        : dueRelist.size
+          ? "RELIST_REUSE_PIPELINE_PENDING"
+        : eligible.length && shoplingProductDbSafeNewProductCount === 0
+          ? "SHOPLING_PRODUCT_DB_INSUFFICIENT_SAFE_SLOTS"
+          : eligible.length
+            ? "NO_MARKET_SLOT_AVAILABLE"
+            : "NO_ELIGIBLE_PRODUCT",
   };
 }

@@ -19,6 +19,10 @@ import {
   planSeoScheduledPortfolioRun,
   SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
 } from "@/lib/seoListingScheduledRun";
+import {
+  calculateSeoShoplingProductDbCapacity,
+  SEO_SHOPLING_PRODUCT_DB_MAX_AGE_HOURS,
+} from "@/lib/seoShoplingProductDbCapacity";
 import { reconcileSeoListingLifecycleShadow } from "@/lib/seoListingLifecycleReconciliationServer";
 import { refreshSeoListingLifecycleShadowDaily } from "@/lib/seoListingLifecycleDailyRefreshServer";
 import { listSeoRunJobs } from "@/lib/seoRunJobServer";
@@ -147,6 +151,7 @@ export async function GET(request: NextRequest) {
       jobs,
       policyResult,
       capacityResult,
+      shoplingProductDbResult,
       lifecycleResult,
       dailyTaskResult,
       canaryActionResult,
@@ -165,6 +170,13 @@ export async function GET(request: NextRequest) {
           .eq("owner_id", context.identity.userId)
           .order("market_name")
           .limit(100),
+        admin
+          .from("seo_shopling_product_db_capacities")
+          .select(
+            "owner_id,snapshot_id,maximum_product_code_count,used_product_code_count,observation_status,observed_at,source,updated_at",
+          )
+          .eq("owner_id", context.identity.userId)
+          .maybeSingle(),
         admin
           .from("seo_listing_lifecycle_records")
           .select(
@@ -192,6 +204,10 @@ export async function GET(request: NextRequest) {
 
     throwUnexpectedStorageError("SEO_LISTING_POLICY_READ_FAILED", policyResult.error);
     throwUnexpectedStorageError("SEO_MARKET_CAPACITY_READ_FAILED", capacityResult.error);
+    throwUnexpectedStorageError(
+      "SEO_SHOPLING_PRODUCT_DB_CAPACITY_READ_FAILED",
+      shoplingProductDbResult.error,
+    );
     throwUnexpectedStorageError("SEO_LISTING_LIFECYCLE_READ_FAILED", lifecycleResult.error);
     throwUnexpectedStorageError(
       "SEO_LISTING_CANARY_ACTION_READ_FAILED",
@@ -201,6 +217,7 @@ export async function GET(request: NextRequest) {
     const schemaReady = ![
       policyResult.error,
       capacityResult.error,
+      shoplingProductDbResult.error,
       lifecycleResult.error,
       canaryActionResult.error,
     ].some(missingLifecycleSchema);
@@ -211,6 +228,11 @@ export async function GET(request: NextRequest) {
     const capacityRows = Array.isArray(capacityResult.data)
       ? (capacityResult.data as UnknownRecord[])
       : [];
+    const shoplingProductDbRow =
+      shoplingProductDbResult.data &&
+      typeof shoplingProductDbResult.data === "object"
+        ? (shoplingProductDbResult.data as UnknownRecord)
+        : null;
     const lifecycleRows = Array.isArray(lifecycleResult.data)
       ? (lifecycleResult.data as UnknownRecord[])
       : [];
@@ -224,6 +246,10 @@ export async function GET(request: NextRequest) {
     const readyProducts = selectLatestSeoReadyProducts(jobs);
     const capacity = calculateSeoPortfolioCapacity(
       capacityRows.map(capacityInput),
+      new Date(),
+    );
+    const shoplingProductDb = calculateSeoShoplingProductDbCapacity(
+      shoplingProductDbRow,
       new Date(),
     );
     const lifecycle = summarizeSeoListingLifecycle(lifecycleRows);
@@ -264,6 +290,10 @@ export async function GET(request: NextRequest) {
       allowBoundedRegistrationWithoutCapacity:
         !systemBlocked && capacity.blocked,
       fallbackBatchCount: SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
+      shoplingProductDbSafeNewProductCount:
+        shoplingProductDb.safeNewProductCount,
+      shoplingProductDbBlocked: shoplingProductDb.blocked,
+      shoplingProductDbReasonCode: shoplingProductDb.reasonCode,
       now: new Date(),
     });
     const warnings = [
@@ -289,6 +319,7 @@ export async function GET(request: NextRequest) {
       ...(scheduledPlan.capacityFallbackActive
         ? ["REGISTRATION_ONLY_FALLBACK_ACTIVE"]
         : []),
+      ...(shoplingProductDb.blocked ? [shoplingProductDb.reasonCode] : []),
       ...capacity.reasonCodes,
     ];
 
@@ -303,6 +334,8 @@ export async function GET(request: NextRequest) {
         cooldownDays: SEO_LISTING_COOLDOWN_DAYS,
         maxAttempts: SEO_LISTING_MAX_ATTEMPTS,
         capacityMaxAgeHours: SEO_MARKET_CAPACITY_MAX_AGE_HOURS,
+        shoplingProductDbMaxAgeHours:
+          SEO_SHOPLING_PRODUCT_DB_MAX_AGE_HOURS,
         ruleVersion: SEO_LISTING_RULE_VERSION,
       },
       summary: {
@@ -314,13 +347,20 @@ export async function GET(request: NextRequest) {
         limitedByCapacityCount: scheduledPlan.limitedByCapacityCount,
         soldOutDeleteDueCount: scheduledPlan.soldOutDeleteDueCount,
         relistDueCount: scheduledPlan.relistDueCount,
+        relistReuseOnlyCount: scheduledPlan.relistReuseOnlyCount,
         protectedProductCount: scheduledPlan.protectedProductCount,
         cooldownProductCount: scheduledPlan.cooldownProductCount,
         reviewProductCount: scheduledPlan.reviewProductCount,
         capacityFallbackActive: scheduledPlan.capacityFallbackActive,
         scheduledBatchLimit: scheduledPlan.capacityFallbackActive
-          ? SEO_REGISTRATION_FALLBACK_BATCH_LIMIT
-          : capacity.safeBatchCount,
+          ? Math.min(
+              SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
+              shoplingProductDb.safeNewProductCount,
+            )
+          : Math.min(
+              capacity.safeBatchCount,
+              shoplingProductDb.safeNewProductCount,
+            ),
         registeredProductCount: registration.registeredProductCount,
         registrationFailedProductCount:
           registration.registrationFailedProductCount,
@@ -348,6 +388,7 @@ export async function GET(request: NextRequest) {
         canaryReadiness,
       },
       markets: capacity.markets,
+      shoplingProductDb,
       readyProducts: readyProducts.slice(0, 30),
       scheduledRun: {
         executable: scheduledPlan.selectedProducts.length > 0,
@@ -357,7 +398,9 @@ export async function GET(request: NextRequest) {
         cadenceLabel: "재고 동기화가 끝난 뒤 하루 1회",
         capacityMode: scheduledPlan.capacityFallbackActive
           ? "bounded_registration_only"
-          : "verified_market_capacity",
+          : shoplingProductDb.blocked
+            ? "shopling_product_db_blocked"
+            : "verified_market_capacity",
         externalDeleteEnabled: false,
       },
       warnings: [...new Set(warnings)],
