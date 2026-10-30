@@ -46,8 +46,8 @@ test("the stock-control UI rejects known-broken extensions through v0.6.4", asyn
     ),
   ]);
 
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 13\]/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 14\]/);
   assert.match(panel, /SEARCH_DATE_FIELDS_AMBIGUOUS/);
   assert.match(panel, /A6_DATE_SCOPE_SET_FAILED/);
-  assert.match(panel, /v0\.6\.13으로 업데이트해 주세요/);
+  assert.match(panel, /v0\.6\.14로 업데이트해 주세요/);
 });

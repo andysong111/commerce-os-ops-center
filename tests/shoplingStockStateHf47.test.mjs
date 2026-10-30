@@ -201,8 +201,8 @@ test("HF47 publishes v0.6.12 and is permanently wired into stock CI", async () =
   assert.match(route, /const BASE_VERSION = "0\.6\.11"/);
   assert.match(route, /const VERSION = "0\.6\.12"/);
   assert.match(route, /HF47_POPUP_OPENING_STAGE_ACK_FAIL_CLOSED/);
-  assert.match(page, /download-hf48/);
-  assert.match(page, /v0\.6\.13 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 13\]/);
+  assert.match(page, /download-hf49/);
+  assert.match(page, /v0\.6\.14 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 14\]/);
   assert.match(workflow, /shoplingStockStateHf47\.test\.mjs/);
 });

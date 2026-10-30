@@ -220,7 +220,7 @@ test("unified operator sends returned direct jobs immediately and never reloads 
   assert.match(panel, /directQueue\.current = \[/);
   assert.match(panel, /const supported = supportsAllDateStockSync\(version\)/);
   assert.match(panel, /extensionReadyRef\.current = supported/);
-  assert.match(panel, /v0\.6\.13으로 업데이트해 주세요/);
+  assert.match(panel, /v0\.6\.14로 업데이트해 주세요/);
   assert.match(panel, /!extensionReadyRef\.current/);
   assert.doesNotMatch(panel, /window\.location\.reload/);
 });
