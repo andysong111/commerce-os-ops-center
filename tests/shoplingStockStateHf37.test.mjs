@@ -91,7 +91,7 @@ test("HF37 remains fail-closed and records pre-search evidence when date fields 
   assert.ok(f.inputs.every((element) => element.value === ""));
 });
 
-test("HF37 remains v0.6.5 while the UI requires HF38 and keeps a terminal result", async () => {
+test("HF37 remains v0.6.5 while the UI requires HF39 and keeps a terminal result", async () => {
   const [route, page, planner, queue, hiddenBrowserCheck] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf37/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
@@ -101,11 +101,11 @@ test("HF37 remains v0.6.5 while the UI requires HF38 and keeps a terminal result
   ]);
   assert.match(route, /getHf36Download/);
   assert.match(route, /const VERSION = "0\.6\.5"/);
-  assert.match(page, /download-hf38/);
-  assert.match(page, /v0\.6\.6 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 6\]/);
+  assert.match(page, /download-hf39/);
+  assert.match(page, /v0\.6\.7 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 7\]/);
   assert.match(queue, /작업 종료 · 실패\/확인 필요/);
   assert.match(queue, /미반영 · 상품 검색 전에 안전 차단/);
   assert.match(queue, /자동 재시도: 안 함/);
-  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.6'/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.7'/);
 });
