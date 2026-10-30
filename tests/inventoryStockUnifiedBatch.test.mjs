@@ -60,12 +60,12 @@ test("unified UI has four inputs and one wait-until-complete action", async () =
   assert.doesNotMatch(source, /window\.location\.reload/);
 });
 
-test("stock-control page publishes the HF42 install path and one unified operator", async () => {
+test("stock-control page publishes the HF46 install path and one unified operator", async () => {
   const source = await readFile(
     "src/app/china-order-manager/stock-control/page.tsx",
     "utf8",
   );
-  assert.match(source, /download-hf42/);
+  assert.match(source, /download-hf46/);
   assert.match(source, /chrome:\/\/extensions/);
   assert.match(source, /<InventoryStockoutOperatorPanel/);
   assert.match(source, /focusedBarcodes=\{focusedCorrection\.barcodes\}/);
