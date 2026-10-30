@@ -30,6 +30,9 @@ const SHOPLING_STOCK_CANARY_PREPARATION_OPERATION_TYPE =
 const CANONICAL_COVERAGE_BLOCK_REASON =
   "품절 초기화 이후의 Canonical 판매 범위를 완전히 확인하지 못했습니다.";
 const INVENTORY_QUEUE_MODE_HEADER = "x-commerce-os-inventory-queue-mode";
+const KNOWN_TERMINAL_RECOVERY_ACTION = "RECOVER_BBB4_3_HF41_TERMINAL";
+const KNOWN_TERMINAL_RECOVERY_BARCODE = "BBB4-3";
+const KNOWN_TERMINAL_RECOVERY_INCIDENT_ID = "shopling-bbb4-3-hf41-terminal-20261030";
 
 type QueueMode = "observe" | "execute";
 
@@ -342,6 +345,115 @@ export async function POST(request: Request) {
   if (!isSameOriginOpsRequest(request)) return unauthorized();
   try {
     const body = (await request.json()) as Record<string, unknown>;
+    if (text(body.action).toUpperCase() === KNOWN_TERMINAL_RECOVERY_ACTION) {
+      const { report } = await loadRetryableReport();
+      if (report.state !== "READY") {
+        throw new Error("정확재고 원장이 READY가 아니므로 알려진 완료 결과를 복구할 수 없습니다.");
+      }
+      const identityMatches = report.rows.filter(
+        (row) =>
+          row.barcode === KNOWN_TERMINAL_RECOVERY_BARCODE &&
+          row.productKind === "SINGLE" &&
+          row.desiredStatus === "SOLD_OUT" &&
+          row.exactInventoryQuantity === 0 &&
+          row.inventoryQuantityKnown !== false &&
+          row.manualStatusOnly !== true,
+      );
+      if (identityMatches.length !== 1) {
+        throw new Error(
+          "BBB4-3의 현재 단품·품절·정확재고 0 작업이 정확히 1건이 아니므로 복구를 차단했습니다.",
+        );
+      }
+      const row = identityMatches[0];
+      const job = queueJob(row, new Map());
+      if (
+        text(body.jobId) !== job.jobId ||
+        normalizedBarcode(body.barcode) !== KNOWN_TERMINAL_RECOVERY_BARCODE ||
+        text(body.productKind).toUpperCase() !== "SINGLE" ||
+        text(body.desiredStatus).toUpperCase() !== "SOLD_OUT" ||
+        text(body.desiredSince) !== job.desiredSince
+      ) {
+        throw new Error("화면의 BBB4-3 대기건과 현재 원장 작업이 일치하지 않아 복구를 차단했습니다.");
+      }
+      if (!row.syncNeeded && row.latestSyncOutcome === "SUCCEEDED") {
+        return Response.json(
+          {
+            ok: true,
+            duplicate: true,
+            message: "BBB4-3 완료 결과가 이미 원장에 반영되어 있음을 확인했습니다.",
+          },
+          { status: 200, headers: { "cache-control": "no-store" } },
+        );
+      }
+      if (!row.syncNeeded || row.syncBlocked) {
+        throw new Error("BBB4-3이 현재 실행 가능한 대기건이 아니므로 완료 결과 복구를 차단했습니다.");
+      }
+      const occurredAt = new Date().toISOString();
+      const event = normalizeShoplingStockSyncInput({
+        eventId: `${KNOWN_TERMINAL_RECOVERY_INCIDENT_ID}:${job.jobId}`,
+        jobId: job.jobId,
+        barcode: job.barcode,
+        productKind: job.productKind,
+        modelNo: job.modelNo,
+        desiredStatus: job.desiredStatus,
+        outcome: "SUCCEEDED",
+        occurredAt,
+        message:
+          "Shopling 상품상태 변경 전송이 완료되었습니다. 이전 운영 창에서 확인한 완료 결과를 재전송 없이 복구 기록했습니다.",
+        evidence: {
+          incidentId: KNOWN_TERMINAL_RECOVERY_INCIDENT_ID,
+          knownTerminalRecovery: true,
+          recoveredWithoutShoplingResend: true,
+          terminalFooter: "상품상태 변경 전송이 완료되었습니다.",
+          exactIdentity: {
+            barcode: job.barcode,
+            productKind: job.productKind,
+            desiredStatus: job.desiredStatus,
+            desiredSince: job.desiredSince,
+            exactInventoryQuantity: row.exactInventoryQuantity,
+          },
+        },
+      });
+      const stored = await storeInventoryOperation({
+        operationType: SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE,
+        sourceEventId: `shopling-stock-sync:${encodeURIComponent(event.eventId)}`,
+        correlationId: `shopling-stock:${event.barcode}`,
+        snapshot: event,
+      });
+      const verification = await loadRetryableReport();
+      const verifiedRow = verification.report.rows.find(
+        (candidate) => candidate.barcode === KNOWN_TERMINAL_RECOVERY_BARCODE,
+      );
+      if (
+        !verifiedRow ||
+        verifiedRow.syncNeeded ||
+        verifiedRow.latestSyncOutcome !== "SUCCEEDED"
+      ) {
+        return Response.json(
+          {
+            ok: false,
+            code: "KNOWN_TERMINAL_RECOVERY_NOT_VISIBLE",
+            message:
+              "BBB4-3 완료 결과 저장 후 원장 재조회 검증에 실패했습니다. Shopling 재전송 없이 원장 상태를 확인해야 합니다.",
+          },
+          { status: 503, headers: { "cache-control": "no-store" } },
+        );
+      }
+      return Response.json(
+        {
+          ok: true,
+          duplicate: stored.duplicate,
+          event,
+          message: stored.duplicate
+            ? "BBB4-3 완료 결과가 이미 복구되어 있음을 확인했습니다."
+            : "BBB4-3 완료 결과를 Shopling 재전송 없이 복구하고 원장 재조회를 확인했습니다.",
+        },
+        {
+          status: stored.duplicate ? 200 : 201,
+          headers: { "cache-control": "no-store" },
+        },
+      );
+    }
     const event = normalizeShoplingStockSyncInput({
       eventId: body.eventId,
       jobId: body.jobId,
