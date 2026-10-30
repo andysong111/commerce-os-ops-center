@@ -25,6 +25,7 @@ on:
       - "tests/shoplingStockStateHf42.test.mjs"
       - "tests/shoplingStockStateHf46.test.mjs"
       - "tests/shoplingStockStateHf47.test.mjs"
+      - "tests/shoplingStockStateHf48.test.mjs"
       - "tests/shoplingStockWatchdogHeartbeat.test.mjs"
       - "tests/shoplingOptionA21BatchHF29.test.mjs"
       - "tests/inventoryStockSalesTail.test.mjs"
@@ -87,6 +88,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf46.test.mjs
       - name: Regression - HF47 popup opening stage acknowledgement
         run: node --experimental-strip-types --test tests/shoplingStockStateHf47.test.mjs
+      - name: Regression - HF48 canonical message routing acknowledgement
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf48.test.mjs
       - name: Regression - v0.4.1 sync
         run: node --test tests/shoplingStockStateSyncV041.test.mjs
       - name: Regression - reset-tail coverage
