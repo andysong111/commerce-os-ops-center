@@ -1,6 +1,8 @@
 (() => {
   "use strict";
 
+  const READY_EVENT = "commerce-os-shopling-product-db-capacity-bridge-ready";
+  const READY_ATTRIBUTE = "data-commerce-os-shopling-product-db-capacity-bridge-ready";
   const REQUEST_EVENT = "commerce-os-shopling-product-db-capacity-sync-request";
   const RESULT_EVENT = "commerce-os-shopling-product-db-capacity-sync-result";
   const ENDPOINT =
@@ -9,6 +11,25 @@
 
   function text(value) {
     return String(value ?? "").normalize("NFKC").trim();
+  }
+
+  function eventDetail(event) {
+    if (!event || typeof event !== "object") return null;
+    if (typeof event.detail === "string") {
+      try {
+        const parsed = JSON.parse(event.detail);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+    return event.detail && typeof event.detail === "object" ? event.detail : null;
+  }
+
+  function dispatchResult(value) {
+    window.dispatchEvent(
+      new CustomEvent(RESULT_EVENT, { detail: JSON.stringify(value) }),
+    );
   }
 
   function validPayload(value) {
@@ -40,11 +61,11 @@
   }
 
   window.addEventListener(REQUEST_EVENT, async (event) => {
-    const payload = validPayload(
-      event instanceof CustomEvent ? event.detail : null,
-    );
+    const payload = validPayload(eventDetail(event));
     if (!payload || payload.snapshotId === inFlightSnapshotId) return;
     inFlightSnapshotId = payload.snapshotId;
+    let ok = false;
+    let status = 0;
     try {
       const response = await fetch(ENDPOINT, {
         method: "POST",
@@ -54,16 +75,16 @@
         body: JSON.stringify(payload),
       });
       const body = await response.json().catch(() => ({}));
-      window.dispatchEvent(
-        new CustomEvent(RESULT_EVENT, {
-          detail: {
-            ok: response.ok && body?.ok === true,
-            snapshotId: payload.snapshotId,
-          },
-        }),
-      );
+      ok = response.ok && body?.ok === true;
+      status = response.status;
+    } catch {
+      ok = false;
     } finally {
+      dispatchResult({ ok, status, snapshotId: payload.snapshotId });
       inFlightSnapshotId = "";
     }
   });
+
+  document.documentElement?.setAttribute(READY_ATTRIBUTE, "v1");
+  window.dispatchEvent(new CustomEvent(READY_EVENT));
 })();
