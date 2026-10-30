@@ -166,7 +166,7 @@ test("download package upgrades baseline manifest to v0.6.2 with current-status 
     source,
     /js: \[[\s\S]{0,120}"content-shopling-lifecycle-current-status-v062\.js"[\s\S]{0,120}"content-shopling-lifecycle-executor\.js"[\s\S]{0,120}\],[\s\S]{0,120}all_frames: false/,
   );
-  assert.doesNotMatch(source, /world: "MAIN"/);
+  assert.match(source, /content-commerce-os-product-db-capacity-main\.js/);
   assert.match(source, /recurring keeper/);
   assert.match(source, /commerce-os-shopling-account-title-bridge-v0\.6\.2\.zip/);
   assert.match(source, /Commerce OS Shopling Account Title Bridge v0\.6\.2/);

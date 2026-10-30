@@ -36,6 +36,9 @@ test("SEO cloud adds the one-click portfolio panel without removing recovery con
   assert.match(panel, /첫 실제 시험 준비/);
   assert.match(panel, /승인 전 외부 변경 0건/);
   assert.match(panel, /응답이 불명확하면 즉시 멈추며 자동 재시도·재등록은 하지 않습니다/);
+  assert.match(panel, /Shopling 상품 DB 1만 개 한도/);
+  assert.match(panel, /기존 goods_key 마켓전송은 계속 가능/);
+  assert.match(oneClick, /SHOPLING_PRODUCT_DB_/);
 });
 
 test("dashboard prepares an authenticated scheduled run but keeps destructive writes locked", async () => {
@@ -58,8 +61,62 @@ test("dashboard prepares an authenticated scheduled run but keeps destructive wr
   assert.match(route, /seo_listing_rotation_actions/);
   assert.match(route, /requiredMarketListingCount: 6/);
   assert.match(route, /readbackMaxAgeHours: 24/);
+  assert.match(route, /seo_shopling_product_db_capacities/);
+  assert.match(route, /calculateSeoShoplingProductDbCapacity/);
   assert.doesNotMatch(route, /\.eq\("status", "shadow"\)/);
   assert.match(route, /externalMarketWrite: false/);
+});
+
+test("Shopling product DB readback is same-origin, owner-scoped and reconciled once", async () => {
+  const route = await source(
+    "src/app/api/seo-listing-lifecycle/shopling-product-db-capacity-readback/route.ts",
+  );
+  assert.match(route, /requireSeoTitleLedgerContext/);
+  assert.match(route, /prepareSeoShoplingProductDbSnapshot/);
+  assert.match(route, /p_owner_id: context\.identity\.userId/);
+  assert.match(route, /eq\("owner_id", context\.identity\.userId\)/);
+  assert.equal((route.match(/\.rpc\(/g) ?? []).length, 1);
+  assert.match(route, /자동 재시도하지 않습니다/);
+  assert.match(route, /externalMarketWrite: false/);
+});
+
+test("Shopling product DB quota migration is service-only and stale-write safe", async () => {
+  const migration = await source(
+    "supabase/migrations/20261030043000_seo_shopling_product_db_capacity_guard.sql",
+  );
+  assert.match(
+    migration,
+    /alter table public\.seo_shopling_product_db_capacities enable row level security/,
+  );
+  assert.match(
+    migration,
+    /revoke all on table public\.seo_shopling_product_db_capacities[\s\S]*from public, anon, authenticated, service_role/,
+  );
+  assert.match(migration, /security invoker/);
+  assert.match(migration, /p_source <> 'shopling-plan-dom-v1'/);
+  assert.match(
+    migration,
+    /excluded\.observed_at >= public\.seo_shopling_product_db_capacities\.observed_at/,
+  );
+  assert.match(
+    migration,
+    /grant execute on function public\.ingest_seo_shopling_product_db_capacity[\s\S]*to service_role/,
+  );
+  assert.match(migration, /Deletions never create capacity until a newer verified Shopling readback/);
+});
+
+test("server blocks new Shopling uploads before orchestration insertion but preserves market-only resume", async () => {
+  const server = await source("src/lib/shoplingMarketAutoOrchestrationServer.ts");
+  const guardIndex = server.indexOf(
+    "await assertShoplingProductDbCapacityForNewUploads",
+  );
+  const insertIndex = server.indexOf("insertOrRecoverOrchestration", guardIndex);
+  assert.ok(guardIndex > 0);
+  assert.ok(insertIndex > guardIndex);
+  assert.match(server, /queueRunIds\.length/);
+  assert.match(server, /기존 goods_key 마켓전송만 진행할 수 있습니다/);
+  const marketOnly = server.slice(server.indexOf("export async function createMarketOnlyOrchestration"));
+  assert.doesNotMatch(marketOnly, /assertShoplingProductDbCapacityForNewUploads/);
 });
 
 test("capacity readback ingestion is authenticated, owner-scoped and reconciled once", async () => {

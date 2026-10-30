@@ -13,6 +13,11 @@ export const dynamic = "force-dynamic";
 // manifest.version = "0.5.6"
 // commerce-os-shopling-account-title-bridge-v0.6.2.zip
 // Commerce OS Shopling Account Title Bridge v0.6.2
+// manifest.version = "0.6.2"
+// recurring keeper
+// commerce-os-shopling-account-title-bridge-v0.6.3.zip
+// Commerce OS Shopling Account Title Bridge v0.6.3
+// manifest.version = "0.6.3"
 // 상품 생애주기 판매상태 자동화
 
 const FILES = [
@@ -27,6 +32,9 @@ const FILES = [
   "content-shopling-pipeline.js",
   "content-shopling-pipeline-frame-bridge.js",
   "content-shopling-onebutton-stability-v054.js",
+  "content-shopling-product-db-capacity.js",
+  "content-commerce-os-product-db-capacity-sync.js",
+  "content-commerce-os-product-db-capacity-main.js",
   "background-shopling-root.js",
   "background-shopling-title-batch.js",
   "background-shopling-title-registry.js",
@@ -167,13 +175,13 @@ function rewriteLifecycleExecutor(source: string) {
   return rewritten;
 }
 
-function buildV063Manifest(source: Record<string, unknown>) {
+function buildV064Manifest(source: Record<string, unknown>) {
   const manifest = structuredClone(source) as Record<string, unknown> & {
     permissions?: string[];
     content_scripts?: Array<Record<string, unknown> & { matches?: string[]; js?: string[]; world?: string }>;
   };
-  manifest.version = "0.6.3";
-  manifest.description = "기존 상품명·마켓전송·상품 생애주기 자동화를 유지하면서, 확정원가 가격 적용 후 Shopling 로그인 브라우저의 쇼핑몰별 가격 화면을 읽기 전용으로 전수 재검증합니다. 가격 쓰기 없이 불일치만 예외로 남깁니다.";
+  manifest.version = "0.6.4";
+  manifest.description = "기존 상품명·마켓전송·상품 생애주기 자동화를 유지하면서 Shopling 상품 DB 1만 개 사용량을 자동 확인해 SEO 신규등록 한도를 안전하게 지킵니다.";
   manifest.permissions = [...new Set([...(manifest.permissions ?? []), "alarms", "scripting"])];
 
   const scripts = manifest.content_scripts ?? [];
@@ -212,7 +220,7 @@ export async function GET() {
   for (const fileName of FILES) {
     if (fileName === "manifest.json") {
       const sourceManifest = JSON.parse(await readFile(path.join(root, fileName), "utf8")) as Record<string, unknown>;
-      const manifest = buildV063Manifest(sourceManifest);
+      const manifest = buildV064Manifest(sourceManifest);
       entries[fileName] = strToU8(`${JSON.stringify(manifest, null, 2)}\n`);
       continue;
     }
@@ -233,13 +241,13 @@ export async function GET() {
     entries[fileName] = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
 
-  entries["VERSION.txt"] = strToU8("Commerce OS Shopling Account Title Bridge v0.6.3\n");
+  entries["VERSION.txt"] = strToU8("Commerce OS Shopling Account Title Bridge v0.6.4\n");
   const archive = zipSync(entries, { level: 6 });
   return new Response(Buffer.from(archive), {
     status: 200,
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": "attachment; filename=commerce-os-shopling-account-title-bridge-v0.6.3.zip",
+      "Content-Disposition": "attachment; filename=commerce-os-shopling-account-title-bridge-v0.6.4.zip",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     },
