@@ -27,6 +27,18 @@ test("Shopling plan parser reads the 10,000 maximum and 11,113 cumulative use", 
   assert.deepEqual(
     {
       ...parse(
+        `서비스 사용현황 상품 DB 사용 상품 DB 수 (누적) 10,000 11,113 쇼핑몰 상품 등록 사용 쇼핑몰 연동 DB 수 (누적) 25,000 925`,
+      ),
+    },
+    {
+      maximumProductCodeCount: 10_000,
+      usedProductCodeCount: 11_113,
+    },
+    "div-based dashboards can flatten the same headings and values into one line",
+  );
+  assert.deepEqual(
+    {
+      ...parse(
         `상품 DB\t사용 상품 DB 수 (누적)\n10,000\t11,113\n쇼핑몰 상품 등록\t사용 쇼핑몰 연동 DB 수 (누적)\n25,000\t925`,
       ),
     },
@@ -37,9 +49,16 @@ test("Shopling plan parser reads the 10,000 maximum and 11,113 cumulative use", 
     "the real Shopling dashboard renders adjacent headers with values in the next table row",
   );
   assert.equal(parse("상품 DB\n10,000\n사용 상품 DB 수 (누적)\n알 수 없음"), null);
+  assert.equal(
+    parse(
+      "상품 DB\n10,000\n사용 상품 DB 수 (누적)\n11,113\n상품 DB\n9,000\n사용 상품 DB 수 (누적)\n8,000",
+    ),
+    null,
+    "conflicting quota values must fail closed instead of choosing the first pair",
+  );
 });
 
-test("v0.6.7 extension stores Shopling quota and syncs it only from the Ops page", async () => {
+test("v0.6.8 extension stores Shopling quota and syncs it only from the Ops page", async () => {
   const [manifestRaw, download, collector, sync, main] = await Promise.all([
     source("public/shopling-account-title-bridge/manifest.json"),
     source("src/app/api/shopling-account-title-bridge/download/route.ts"),
@@ -48,8 +67,8 @@ test("v0.6.7 extension stores Shopling quota and syncs it only from the Ops page
     source("public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-main.js"),
   ]);
   const manifest = JSON.parse(manifestRaw);
-  assert.match(download, /manifest\.version = "0\.6\.7"/);
-  assert.match(download, /v0\.6\.7\.zip/);
+  assert.match(download, /manifest\.version = "0\.6\.8"/);
+  assert.match(download, /v0\.6\.8\.zip/);
   assert.ok(download.includes('"content-shopling-product-db-capacity.js"'));
   assert.ok(download.includes('"content-commerce-os-product-db-capacity-sync.js"'));
   assert.ok(download.includes('"content-commerce-os-product-db-capacity-main.js"'));
@@ -57,6 +76,7 @@ test("v0.6.7 extension stores Shopling quota and syncs it only from the Ops page
     entry.js?.includes("content-shopling-product-db-capacity.js"),
   );
   assert.equal(collectorEntry?.all_frames, true);
+  assert.equal(collectorEntry?.match_origin_as_fallback, true);
   assert.ok(
     manifest.content_scripts.some(
       (entry) =>
@@ -70,6 +90,7 @@ test("v0.6.7 extension stores Shopling quota and syncs it only from the Ops page
   assert.match(main, /shopling-product-db-capacity-readback/);
   assert.match(sync, /data-commerce-os-shopling-product-db-capacity-bridge-ready/);
   assert.match(sync, /detail: JSON\.stringify\(payload\)/);
+  assert.match(sync, /chrome\.storage\.onChanged/);
   assert.match(main, /setAttribute\(READY_ATTRIBUTE, "v1"\)/);
   assert.match(main, /detail: JSON\.stringify\(value\)/);
   for (const script of [collector, sync, main]) {
@@ -77,7 +98,7 @@ test("v0.6.7 extension stores Shopling quota and syncs it only from the Ops page
   }
 });
 
-test("v0.6.7 collects quota from the nested Shopling dashboard frame", async () => {
+test("v0.6.8 recursively collects quota from the nested Shopling dashboard frame", async () => {
   const collector = await source(
     "public/shopling-account-title-bridge/content-shopling-product-db-capacity.js",
   );
@@ -92,13 +113,31 @@ test("v0.6.7 collects quota from the nested Shopling dashboard frame", async () 
       return timers.length;
     },
   };
-  const document = {
+  const nestedDocument = {
     body: {
       innerText:
         "상품 DB\t사용 상품 DB 수 (누적)\n10,000\t11,113\n쇼핑몰 상품 등록\t사용 쇼핑몰 연동 DB 수 (누적)\n25,000\t925",
     },
-    documentElement: {},
+    location: {
+      href: "https://a.shopling.co.kr/main/dashboard.phtml",
+      pathname: "/main/dashboard.phtml",
+    },
     title: "Shopling",
+    querySelectorAll() {
+      return [];
+    },
+  };
+  const document = {
+    body: { innerText: "Shopling 홈" },
+    documentElement: {},
+    location: {
+      href: "https://a.shopling.co.kr/",
+      pathname: "/",
+    },
+    title: "Shopling",
+    querySelectorAll() {
+      return [{ contentDocument: nestedDocument }];
+    },
   };
   class MutationObserver {
     observe() {}
@@ -124,7 +163,7 @@ test("v0.6.7 collects quota from the nested Shopling dashboard frame", async () 
     crypto: { randomUUID: () => "00000000-0000-4000-8000-000000000001" },
     Date,
     document,
-    location: { pathname: "/main/index.phtml" },
+    location: { href: "https://a.shopling.co.kr/", pathname: "/" },
     MutationObserver,
     Number,
     String,
@@ -145,14 +184,24 @@ test("v0.6.7 collects quota from the nested Shopling dashboard frame", async () 
       maximumProductCodeCount: 10_000,
       usedProductCodeCount: 11_113,
       evidence: {
-        pathname: "/main/index.phtml",
+        pathname: "/main/dashboard.phtml",
         pageTitle: "Shopling",
+        frameHref: "https://a.shopling.co.kr/main/dashboard.phtml",
+        matchedDocumentDepth: 1,
       },
     },
   );
+  assert.equal(
+    stored.commerceOsShoplingProductDbCapacityCollectorDiagnosticV1.status,
+    "matched",
+  );
+  assert.equal(
+    stored.commerceOsShoplingProductDbCapacityCollectorDiagnosticV1.extensionVersion,
+    "0.6.8",
+  );
 });
 
-test("v0.6.7 retries when isolated sync starts before the MAIN-world bridge", async () => {
+test("v0.6.8 retries when isolated sync starts before the MAIN-world bridge", async () => {
   const [sync, main] = await Promise.all([
     source("public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-sync.js"),
     source("public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-main.js"),
@@ -172,6 +221,7 @@ test("v0.6.7 retries when isolated sync starts before the MAIN-world bridge", as
     },
   };
   const requests = [];
+  let storageChangeListener = null;
   let nextTimerId = 1;
 
   class CustomEvent {
@@ -219,6 +269,11 @@ test("v0.6.7 retries when isolated sync starts before the MAIN-world bridge", as
   const chrome = {
     runtime: { lastError: null },
     storage: {
+      onChanged: {
+        addListener(listener) {
+          storageChangeListener = listener;
+        },
+      },
       local: {
         get(keys, callback) {
           callback(Object.fromEntries(keys.map((key) => [key, storage[key]])));
@@ -280,5 +335,25 @@ test("v0.6.7 retries when isolated sync starts before the MAIN-world bridge", as
   assert.equal(
     storage.commerceOsShoplingProductDbCapacityLastSyncedV1,
     "00000000-0000-4000-8000-000000000001",
+  );
+
+  storage.commerceOsShoplingProductDbCapacityV1 = {
+    ...storage.commerceOsShoplingProductDbCapacityV1,
+    snapshotId: "00000000-0000-4000-8000-000000000002",
+    observedAt: new Date().toISOString(),
+  };
+  storageChangeListener?.(
+    {
+      commerceOsShoplingProductDbCapacityV1: {
+        newValue: storage.commerceOsShoplingProductDbCapacityV1,
+      },
+    },
+    "local",
+  );
+  await drainTimers();
+  assert.equal(requests.length, 2, "a fresh Shopling snapshot syncs without reloading Commerce OS");
+  assert.equal(
+    storage.commerceOsShoplingProductDbCapacityLastSyncedV1,
+    "00000000-0000-4000-8000-000000000002",
   );
 });
