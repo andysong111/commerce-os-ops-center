@@ -93,8 +93,7 @@
   if (
     typeof document === "undefined" ||
     typeof window === "undefined" ||
-    typeof chrome === "undefined" ||
-    window.top !== window
+    typeof chrome === "undefined"
   ) {
     return;
   }

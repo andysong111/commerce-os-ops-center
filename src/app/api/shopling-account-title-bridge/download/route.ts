@@ -25,6 +25,9 @@ export const dynamic = "force-dynamic";
 // commerce-os-shopling-account-title-bridge-v0.6.5.zip
 // Commerce OS Shopling Account Title Bridge v0.6.5
 // manifest.version = "0.6.5"
+// commerce-os-shopling-account-title-bridge-v0.6.6.zip
+// Commerce OS Shopling Account Title Bridge v0.6.6
+// manifest.version = "0.6.6"
 
 const FILES = [
   "manifest.json",
@@ -181,12 +184,12 @@ function rewriteLifecycleExecutor(source: string) {
   return rewritten;
 }
 
-function buildV066Manifest(source: Record<string, unknown>) {
+function buildV067Manifest(source: Record<string, unknown>) {
   const manifest = structuredClone(source) as Record<string, unknown> & {
     permissions?: string[];
     content_scripts?: Array<Record<string, unknown> & { matches?: string[]; js?: string[]; world?: string }>;
   };
-  manifest.version = "0.6.6";
+  manifest.version = "0.6.7";
   manifest.description = "기존 상품명·마켓전송·상품 생애주기 자동화를 유지하면서 Shopling 상품 DB 1만 개 사용량을 자동 확인해 SEO 신규등록 한도를 안전하게 지킵니다.";
   manifest.permissions = [...new Set([...(manifest.permissions ?? []), "alarms", "scripting"])];
 
@@ -226,7 +229,7 @@ export async function GET() {
   for (const fileName of FILES) {
     if (fileName === "manifest.json") {
       const sourceManifest = JSON.parse(await readFile(path.join(root, fileName), "utf8")) as Record<string, unknown>;
-      const manifest = buildV066Manifest(sourceManifest);
+      const manifest = buildV067Manifest(sourceManifest);
       entries[fileName] = strToU8(`${JSON.stringify(manifest, null, 2)}\n`);
       continue;
     }
@@ -247,13 +250,13 @@ export async function GET() {
     entries[fileName] = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
 
-  entries["VERSION.txt"] = strToU8("Commerce OS Shopling Account Title Bridge v0.6.6\n");
+  entries["VERSION.txt"] = strToU8("Commerce OS Shopling Account Title Bridge v0.6.7\n");
   const archive = zipSync(entries, { level: 6 });
   return new Response(Buffer.from(archive), {
     status: 200,
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": "attachment; filename=commerce-os-shopling-account-title-bridge-v0.6.6.zip",
+      "Content-Disposition": "attachment; filename=commerce-os-shopling-account-title-bridge-v0.6.7.zip",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     },
