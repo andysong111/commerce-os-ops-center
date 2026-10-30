@@ -17,13 +17,11 @@ const OPTION_BATCH_ASSIGNMENT_AFTER = `          mode: "OPTION",
           stage: optionCanonicalStageV071(active),`;
 
 const SINGLE_BATCH_ASSIGNMENT_BEFORE = `        mode: "OPTION",
-        goodsKeys: batch,
-        stage: singleCanonicalStageV057(active),`;
+        goodsKeys: batch,`;
 
 const SINGLE_BATCH_ASSIGNMENT_AFTER = `        mode: "OPTION",
         stockProductKindHf48: "SINGLE",
-        goodsKeys: batch,
-        stage: singleCanonicalStageV057(active),`;
+        goodsKeys: batch,`;
 
 const SINGLE_SPLIT_LISTENER_BEFORE = `  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== CANONICAL_SPLIT) return;`;

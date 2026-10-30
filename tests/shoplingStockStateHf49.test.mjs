@@ -45,6 +45,18 @@ function hf19SplitLimitFixture(source) {
   return source.replace(before, after);
 }
 
+function packagedSingleBatchFixture(source) {
+  const normalized = source.replace(/\r\n/g, "\n");
+  const before = `        goodsKeys: batch,
+        stage: singleCanonicalStageV057(active),`;
+  const after = `        goodsKeys: batch,
+        stockSingleBatch: true,
+        stockBarcode: active.job.barcode,
+        stage: singleCanonicalStageV057(active),`;
+  assert.equal(normalized.includes(before), true);
+  return normalized.replace(before, after);
+}
+
 function extractFunction(source, signature) {
   const start = source.indexOf(signature);
   assert.notEqual(start, -1, `missing ${signature}`);
@@ -84,7 +96,9 @@ async function patchedScripts() {
   const single = patchShoplingStockHf49SingleBackground(
     patchShoplingStockHf48SingleBackground(rawSingle),
   );
-  const singleBatch = patchShoplingStockHf49SingleBatch(rawSingleBatch);
+  const singleBatch = patchShoplingStockHf49SingleBatch(
+    packagedSingleBatchFixture(rawSingleBatch),
+  );
   const optionBatch = patchShoplingStockHf49OptionBatch(rawOptionBatch);
   for (const script of [worker, option, single, singleBatch, optionBatch]) {
     new Function(script);
@@ -104,6 +118,7 @@ test("HF49 preserves BDE7-3 OPTION ownership after the real search page reload",
     singleBatch,
     /mode: "OPTION",\s*stockProductKindHf48: "SINGLE",\s*goodsKeys: batch/,
   );
+  assert.match(singleBatch, /goodsKeys: batch,\s*stockSingleBatch: true/);
   assert.match(
     option,
     /stockProductKindHf48 \|\| ""\) !== "OPTION"\) return/,
