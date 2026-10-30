@@ -29,6 +29,10 @@ test("SEO cloud adds the one-click portfolio panel without removing recovery con
   assert.match(panel, /신규 등록은 한 번에 최대 3개만 진행/);
   assert.match(panel, /60일 노출/);
   assert.match(panel, /90일 쉬었다가/);
+  assert.match(panel, /새 SEO와 새 상품코드 6개/);
+  assert.match(panel, /새 코드 등록 준비/);
+  assert.match(panel, /삭제확인·새 SEO 대기/);
+  assert.doesNotMatch(panel, /기존코드 재사용 대기/);
   assert.match(panel, /3회 연속 무판매/);
   assert.match(panel, /매일 자동 확인 상태/);
   assert.match(panel, /다음 자동 확인/);
@@ -39,6 +43,8 @@ test("SEO cloud adds the one-click portfolio panel without removing recovery con
   assert.match(panel, /Shopling 상품 DB 1만 개 한도/);
   assert.match(panel, /기존 goods_key 마켓전송은 계속 가능/);
   assert.match(oneClick, /SHOPLING_PRODUCT_DB_/);
+  assert.match(oneClick, /RELIST_FRESH_CODE_PREPARATION_REQUIRED/);
+  assert.doesNotMatch(oneClick, /RELIST_REUSE_PIPELINE_PENDING/);
 });
 
 test("dashboard prepares an authenticated scheduled run but keeps destructive writes locked", async () => {
@@ -63,6 +69,8 @@ test("dashboard prepares an authenticated scheduled run but keeps destructive wr
   assert.match(route, /readbackMaxAgeHours: 24/);
   assert.match(route, /seo_shopling_product_db_capacities/);
   assert.match(route, /calculateSeoShoplingProductDbCapacity/);
+  assert.match(route, /relistFreshCodeReadyCount/);
+  assert.match(route, /relistFreshCodeBlockedCount/);
   assert.doesNotMatch(route, /\.eq\("status", "shadow"\)/);
   assert.match(route, /externalMarketWrite: false/);
 });

@@ -685,6 +685,8 @@ Actual 1688 ordering and payment remain outside this replacement calculation and
 
 확정된 단순 정책은 `60일 검증 노출 → 무판매면 90일 휴지 → 새 SEO 버전 재등록`, 최대 3회다. 판매가 한 건이라도 확인되면 보호하며, 3회의 검증된 노출이 모두 무판매일 때만 단종 후보로 올린다. 기술 오류, 실제 미노출, 판매중 readback 부재는 시도 횟수를 소비하지 않는다. 상품별 계절성은 추정하지 않는다. 물갈이는 Shopling/마켓 listing을 대상으로 하며 Product Master 상품 원본을 삭제하지 않는다.
 
+2026-10-30 소유자 최신 결정으로 `기존 goods_key 재사용` 방식은 폐기했다. 무판매 이전 코드 6개는 품절·삭제 readback까지 정확히 끝내고 90일 휴지한 뒤, 새 SEO RUN·새 selfCode·새 Shopling `goods_key` 6개를 만들어 등록·마켓전송한다. 이전 삭제 readback, 휴지 종료 뒤 생성된 새 RUN, 6개 신규 슬롯과 12개 안전 여유가 모두 확인되지 않으면 외부 등록은 0건으로 막는다. Shopling 상품 DB 수치가 삭제 뒤에도 줄지 않으면 요금제나 Shopling 운영정책이 해결될 때까지 신규 코드 물갈이는 실행할 수 없다. Product Master 원본·B코드·옵션은 계속 보존한다.
+
 초기 구현은 Shadow 전용이다. 마켓별 최대 등록수와 현재 등록수는 24시간 이내의 검증된 readback이 있어야 하고, 필수 마켓 한 곳이라도 불명확하면 전체 자동 배치를 차단한다. 여러 마켓 동시등록의 안전 수량은 남은 슬롯 합계가 아니라 가장 작은 필수 마켓 슬롯이다. Production migration, 실제 Shopling 품절·삭제·재등록, 스케줄 활성화는 readback collector와 Canary 증거를 확보한 뒤 별도 운영 경계에서 진행한다.
 
 마켓 한도 수집 계약은 상품그룹 레지스트리의 29개 계정을 allowlist로 사용한다. 일부 계정을 읽지 못하면 누락 행을 `unknown`으로 채워 전체 배치를 차단하며, owner+snapshot UUID로 29개 행을 원자 저장한 뒤 같은 식별자로 재조회해 전부 일치해야 성공이다. 저장 결과가 불명확하면 쓰기를 재시도하지 않고 `confirm_needed`로 남긴다. 이 경로는 내부 Shadow 증거만 저장하며 외부 마켓을 변경하지 않는다.
