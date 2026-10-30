@@ -78,6 +78,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf40.test.mjs
       - name: Regression - HF41 long SINGLE result recovery
         run: node --experimental-strip-types --test tests/shoplingStockStateHf41.test.mjs
+      - name: Regression - HF42 exact OPTION footer recovery
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf42.test.mjs
       - name: Regression - v0.4.1 sync
         run: node --test tests/shoplingStockStateSyncV041.test.mjs
       - name: Regression - reset-tail coverage

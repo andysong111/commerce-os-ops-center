@@ -138,7 +138,7 @@ test("HF38 fails closed when one menu click creates multiple exact A6 popups", a
   assert.equal(fixture.menuClickCount, 1);
 });
 
-test("HF38 remains v0.6.6 while the UI requires HF41 and preserves the package chain", async () => {
+test("HF38 remains v0.6.6 while the UI requires HF42 and preserves the package chain", async () => {
   const [route, page, planner, queue, hiddenBrowserCheck, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf38/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
@@ -150,10 +150,10 @@ test("HF38 remains v0.6.6 while the UI requires HF41 and preserves the package c
   assert.match(route, /getHf37Download/);
   assert.match(route, /const VERSION = "0\.6\.6"/);
   assert.match(route, /HF38_FRESH_OWNED_A6_POPUP_HANDOFF/);
-  assert.match(page, /download-hf41/);
-  assert.match(page, /v0\.6\.9 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 9\]/);
-  assert.match(queue, /v0\.6\.9로 업데이트/);
-  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.9'/);
+  assert.match(page, /download-hf42/);
+  assert.match(page, /v0\.6\.10 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 10\]/);
+  assert.match(queue, /v0\.6\.10으로 업데이트/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.10'/);
   assert.match(workflow, /shoplingStockStateHf38\.test\.mjs/);
 });
