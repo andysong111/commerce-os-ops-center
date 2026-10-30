@@ -4,12 +4,16 @@ on:
   pull_request:
     paths:
       - "src/lib/seoListingLifecyclePolicy.ts"
+      - "src/lib/seoListingLifecycleReconciliation.ts"
+      - "src/lib/seoListingLifecycleReconciliationServer.ts"
+      - "src/lib/seoListingLegacyOnboarding.ts"
       - "src/lib/seoListingAutomationDashboard.ts"
       - "src/lib/seoMarketCapacityReadback.ts"
       - "src/lib/seoShoplingProductDbCapacity.ts"
       - "src/lib/seoListingScheduledRun.ts"
       - "src/lib/shoplingMarketAutoOrchestrationServer.ts"
       - "src/app/api/seo-listing-lifecycle/**"
+      - "src/app/api/cron/seo-listing-lifecycle-shadow-refresh/route.ts"
       - "src/app/seo-bulk-cloud/SeoBulkAutomationPanel.tsx"
       - "src/app/seo-bulk-cloud/page.tsx"
       - "src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx"
@@ -22,6 +26,8 @@ on:
       - "supabase/migrations/20261014191618_seo_listing_rotation_shadow_v1.sql"
       - "supabase/migrations/20261030043000_seo_shopling_product_db_capacity_guard.sql"
       - "tests/seoListingLifecyclePolicy.test.mjs"
+      - "tests/seoListingLifecycleReconciliation.test.mjs"
+      - "tests/seoListingLegacyOnboarding.test.mjs"
       - "tests/seoListingAutomationDashboard.test.mjs"
       - "tests/seoListingAutomationContract.test.mjs"
       - "tests/seoMarketCapacityReadback.test.mjs"
@@ -53,12 +59,16 @@ jobs:
         run: >-
           npx eslint
           src/lib/seoListingLifecyclePolicy.ts
+          src/lib/seoListingLifecycleReconciliation.ts
+          src/lib/seoListingLifecycleReconciliationServer.ts
+          src/lib/seoListingLegacyOnboarding.ts
           src/lib/seoListingAutomationDashboard.ts
           src/lib/seoMarketCapacityReadback.ts
           src/lib/seoShoplingProductDbCapacity.ts
           src/lib/seoListingScheduledRun.ts
           src/lib/shoplingMarketAutoOrchestrationServer.ts
           src/app/api/seo-listing-lifecycle/route.ts
+          src/app/api/cron/seo-listing-lifecycle-shadow-refresh/route.ts
           src/app/api/seo-listing-lifecycle/capacity-readback/route.ts
           src/app/api/seo-listing-lifecycle/shopling-product-db-capacity-readback/route.ts
           src/app/api/shopling-account-title-bridge/download/route.ts
@@ -66,6 +76,8 @@ jobs:
           src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx
           src/app/seo-bulk-cloud/page.tsx
           tests/seoListingLifecyclePolicy.test.mjs
+          tests/seoListingLifecycleReconciliation.test.mjs
+          tests/seoListingLegacyOnboarding.test.mjs
           tests/seoListingAutomationDashboard.test.mjs
           tests/seoListingAutomationContract.test.mjs
           tests/seoMarketCapacityReadback.test.mjs
@@ -76,6 +88,8 @@ jobs:
         run: >-
           node --experimental-strip-types --test
           tests/seoListingLifecyclePolicy.test.mjs
+          tests/seoListingLifecycleReconciliation.test.mjs
+          tests/seoListingLegacyOnboarding.test.mjs
           tests/seoListingAutomationDashboard.test.mjs
           tests/seoListingAutomationContract.test.mjs
           tests/seoMarketCapacityReadback.test.mjs

@@ -64,6 +64,10 @@ function reconciliationSummary(value: unknown) {
     insertedEventCount: row.insertedEventCount,
     internalWriteApplied: row.internalWriteApplied,
     shoplingReadback: row.shoplingReadback,
+    legacyOnboarding:
+      row.legacyOnboarding && typeof row.legacyOnboarding === "object"
+        ? row.legacyOnboarding
+        : null,
     productReviews: Array.isArray(row.productReviews)
       ? row.productReviews
       : [],
@@ -376,6 +380,8 @@ export async function GET(request: NextRequest) {
           .length,
         lifecycle: lifecycle.counts,
         requiresReviewCount: lifecycle.requiresReviewCount,
+        legacyManagedProductCount: lifecycle.legacyManagedProductCount,
+        legacyReviewProductCount: lifecycle.legacyReviewProductCount,
       },
       operations: {
         dailyRefresh: {

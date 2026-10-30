@@ -49,12 +49,25 @@ test("a newer active or completed RUN prevents an older idle RUN from being auto
 test("lifecycle summary ignores malformed states but retains review count", () => {
   const summary = summarizeSeoListingLifecycle([
     { state: "LIVE", requires_review: false },
-    { state: "LIVE", requires_review: true },
+    {
+      launch_item_id: "legacy-1",
+      state: "LIVE",
+      requires_review: true,
+      evidence: { source: "seo-listing-legacy-shadow-onboarding-v1" },
+    },
+    {
+      launch_item_id: "legacy-1",
+      state: "EXCEPTION",
+      requires_review: true,
+      evidence: { source: "seo-listing-legacy-shadow-onboarding-v1" },
+    },
     { state: "UNKNOWN", requires_review: true },
   ]);
   assert.equal(summary.counts.LIVE, 2);
-  assert.equal(summary.counts.EXCEPTION, 0);
-  assert.equal(summary.requiresReviewCount, 2);
+  assert.equal(summary.counts.EXCEPTION, 1);
+  assert.equal(summary.requiresReviewCount, 3);
+  assert.equal(summary.legacyManagedProductCount, 1);
+  assert.equal(summary.legacyReviewProductCount, 1);
 });
 
 test("verified exposure progress counts one product once across market listings", () => {

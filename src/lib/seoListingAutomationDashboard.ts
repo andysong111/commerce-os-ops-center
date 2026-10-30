@@ -233,16 +233,34 @@ export function summarizeSeoListingLifecycle(
   >;
   let requiresReviewCount = 0;
   let verifiedSalesCount = 0;
+  const legacyManagedProducts = new Set<string>();
+  const legacyReviewProducts = new Set<string>();
   for (const row of rows) {
     const state = text(row.state) as SeoListingLifecycleState;
     if (STATES.includes(state)) counts[state] += 1;
     if (row.requires_review === true) requiresReviewCount += 1;
+    if (
+      text(record(row.evidence).source) ===
+      "seo-listing-legacy-shadow-onboarding-v1"
+    ) {
+      const launchItemId = text(row.launch_item_id);
+      if (launchItemId) legacyManagedProducts.add(launchItemId);
+      if (launchItemId && row.requires_review === true) {
+        legacyReviewProducts.add(launchItemId);
+      }
+    }
     const salesCount = Number(row.sales_count_during_attempt);
     if (Number.isSafeInteger(salesCount) && salesCount > 0) {
       verifiedSalesCount += salesCount;
     }
   }
-  return { counts, requiresReviewCount, verifiedSalesCount };
+  return {
+    counts,
+    requiresReviewCount,
+    verifiedSalesCount,
+    legacyManagedProductCount: legacyManagedProducts.size,
+    legacyReviewProductCount: legacyReviewProducts.size,
+  };
 }
 
 export function summarizeSeoVerifiedExposureProgress(

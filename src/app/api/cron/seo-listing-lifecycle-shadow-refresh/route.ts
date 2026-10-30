@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
+import { getProductLaunchAdminConfig } from "@/lib/productLaunchTrackerServer";
 import { refreshSeoListingLifecycleShadowDaily } from "@/lib/seoListingLifecycleDailyRefreshServer";
+import { reconcileSeoListingLifecycleShadow } from "@/lib/seoListingLifecycleReconciliationServer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -51,6 +53,10 @@ export async function GET(request: Request) {
   }
 
   try {
+    const configResult = getProductLaunchAdminConfig();
+    if (!configResult.ok) {
+      throw new Error(`SEO_LIFECYCLE_CONFIG_UNAVAILABLE:${configResult.body.code}`);
+    }
     const ownersResult = await admin
       .from("seo_listing_lifecycle_records")
       .select("owner_id")
@@ -68,11 +74,20 @@ export async function GET(request: Request) {
     ];
     const summaries: Array<Record<string, unknown>> = [];
     for (const ownerId of ownerIds) {
+      const reconciliation = await reconcileSeoListingLifecycleShadow(
+        {
+          config: configResult.value,
+          identity: { userId: ownerId, email: "" },
+        },
+        { apply: true },
+      );
       const refresh = await refreshSeoListingLifecycleShadowDaily(ownerId, {
         apply: true,
       });
       summaries.push({
         ownerId,
+        legacyOnboarding: reconciliation.legacyOnboarding,
+        reconciledRecordCount: reconciliation.insertedRecordCount,
         generatedAt: refresh.generatedAt,
         productsExamined: refresh.productsExamined,
         recordsExamined: refresh.recordsExamined,

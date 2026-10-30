@@ -3,6 +3,10 @@ import {
   extractSeoRegistrationGoodsKeys,
   type SeoListingShadowSeedRecord,
 } from "@/lib/seoListingLifecycleReconciliation";
+import {
+  buildSeoListingLegacyOnboardingPlan,
+  extractLegacyCurrentGoodsKeys,
+} from "@/lib/seoListingLegacyOnboarding";
 import type { SeoRunJobContext } from "@/lib/seoRunJobServer";
 import { listSeoRunJobs } from "@/lib/seoRunJobServer";
 import { loadShoplingLifecycleStatusSnapshot } from "@/lib/shopling/shoplingLifecycleStatus";
@@ -11,6 +15,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 type UnknownRecord = Record<string, unknown>;
 
 const READ_LIMIT = 2000;
+const READ_BATCH_SIZE = 200;
+const READ_PAGE_SIZE = 1000;
 const WRITE_BATCH_SIZE = 250;
 
 function text(value: unknown) {
@@ -31,6 +37,10 @@ function chunks<T>(rows: T[], size = WRITE_BATCH_SIZE) {
 
 function asRows(value: unknown) {
   return Array.isArray(value) ? (value as UnknownRecord[]) : [];
+}
+
+function unique(values: unknown[]) {
+  return [...new Set(values.map(text).filter(Boolean))];
 }
 
 function launchItemBarcodes(rows: UnknownRecord[]) {
@@ -80,64 +90,108 @@ export async function reconcileSeoListingLifecycleShadow(
   const successfulJobs = jobs.filter(
     (row) => row.registration_status === "success",
   );
-  const goodsKeys = extractSeoRegistrationGoodsKeys(
-    successfulJobs as unknown as UnknownRecord[],
-  );
-  const launchItemIds = [
-    ...new Set(successfulJobs.map((row) => text(row.launch_item_id)).filter(Boolean)),
-  ];
-
-  const [ledgerResult, launchItemResult, existingResult] = await Promise.all([
-    goodsKeys.length
-      ? admin
-          .from("shopling_market_pipeline_ledger")
-          .select(
-            "owner_id,goods_key,launch_item_id,model_number,profile,status,title_status,market_status,registry_registered_at,completed_at,updated_at",
-          )
-          .eq("owner_id", ownerId)
-          .in("goods_key", goodsKeys)
-          .limit(READ_LIMIT)
-      : Promise.resolve({ data: [], error: null }),
-    launchItemIds.length
-      ? admin
-          .from("product_launch_items")
-          .select(
-            "owner_id,item_id,barcode,option_barcodes,option_barcode_nos,updated_at",
-          )
-          .eq("owner_id", ownerId)
-          .in("item_id", launchItemIds)
-          .limit(READ_LIMIT)
-      : Promise.resolve({ data: [], error: null }),
-    admin
-      .from("seo_listing_lifecycle_records")
-      .select("owner_id,market_account_key,launch_item_id,state,goods_key")
-      .eq("owner_id", ownerId)
-      .limit(READ_LIMIT),
-  ]);
-  await throwIfError("SEO_LIFECYCLE_LEDGER_READ_FAILED", ledgerResult);
-  await throwIfError("SEO_LIFECYCLE_LAUNCH_ITEM_READ_FAILED", launchItemResult);
+  const existingResult = await admin
+    .from("seo_listing_lifecycle_records")
+    .select("owner_id,market_account_key,launch_item_id,state,goods_key")
+    .eq("owner_id", ownerId)
+    .limit(READ_LIMIT);
   await throwIfError("SEO_LIFECYCLE_EXISTING_READ_FAILED", existingResult);
+  const existingLifecycleRows = asRows(existingResult.data);
 
-  const launchItems = asRows(launchItemResult.data);
+  const registryRows: UnknownRecord[] = [];
+  for (let offset = 0; ; offset += READ_PAGE_SIZE) {
+    const result = await admin
+      .from("shopling_product_group_registry")
+      .select(
+        "owner_id,goods_key,launch_item_id,model_number,product_group_key,product_group_label,shopling_status,registered_at,first_seen_at,updated_at",
+      )
+      .eq("owner_id", ownerId)
+      .order("goods_key", { ascending: true })
+      .range(offset, offset + READ_PAGE_SIZE - 1);
+    await throwIfError("SEO_LEGACY_REGISTRY_READ_FAILED", result);
+    const page = asRows(result.data);
+    registryRows.push(...page);
+    if (page.length < READ_PAGE_SIZE) break;
+  }
+
+  const launchItemIds = unique([
+    ...successfulJobs.map((row) => row.launch_item_id),
+    ...registryRows.map((row) => row.launch_item_id),
+  ]);
+  const launchItems: UnknownRecord[] = [];
+  for (const batch of chunks(launchItemIds, READ_BATCH_SIZE)) {
+    const result = await admin
+      .from("product_launch_items")
+      .select(
+        "owner_id,item_id,model_number,product_name,barcode,option_barcodes,option_barcode_nos,item_payload,updated_at",
+      )
+      .eq("owner_id", ownerId)
+      .in("item_id", batch)
+      .limit(READ_LIMIT);
+    await throwIfError("SEO_LIFECYCLE_LAUNCH_ITEM_READ_FAILED", result);
+    launchItems.push(...asRows(result.data));
+  }
+
+  const goodsKeys = unique([
+    ...extractSeoRegistrationGoodsKeys(
+      successfulJobs as unknown as UnknownRecord[],
+    ),
+    ...extractLegacyCurrentGoodsKeys(launchItems),
+  ]);
+  const marketLedgerRows: UnknownRecord[] = [];
+  for (const batch of chunks(goodsKeys, READ_BATCH_SIZE)) {
+    const result = await admin
+      .from("shopling_market_pipeline_ledger")
+      .select(
+        "owner_id,goods_key,launch_item_id,model_number,profile,status,title_status,market_status,registry_registered_at,completed_at,updated_at",
+      )
+      .eq("owner_id", ownerId)
+      .in("goods_key", batch)
+      .limit(READ_LIMIT);
+    await throwIfError("SEO_LIFECYCLE_LEDGER_READ_FAILED", result);
+    marketLedgerRows.push(...asRows(result.data));
+  }
+
   const barcodes = launchItemBarcodes(launchItems);
-  const salesResult = barcodes.length
-    ? await admin
-        .from("product_lifecycle_states")
-        .select(
-          "barcode,last_sale_at,sales_quantity_30,sales_quantity_90,sales_quantity_365,evaluated_at,updated_at",
-        )
-        .in("barcode", barcodes)
-        .limit(READ_LIMIT)
-    : { data: [], error: null };
-  await throwIfError("SEO_LIFECYCLE_SALES_EVIDENCE_READ_FAILED", salesResult);
+  const salesRows: UnknownRecord[] = [];
+  for (const batch of chunks(barcodes, READ_BATCH_SIZE)) {
+    const result = await admin
+      .from("product_lifecycle_states")
+      .select(
+        "barcode,last_sale_at,sales_quantity_30,sales_quantity_90,sales_quantity_365,evaluated_at,updated_at",
+      )
+      .in("barcode", batch)
+      .limit(READ_LIMIT);
+    await throwIfError("SEO_LIFECYCLE_SALES_EVIDENCE_READ_FAILED", result);
+    salesRows.push(...asRows(result.data));
+  }
+
+  const legacy = buildSeoListingLegacyOnboardingPlan({
+    ownerId,
+    registryRows,
+    launchItems,
+    marketLedgerRows,
+    existingLifecycleRows,
+    now,
+  });
+  const legacyLaunchItemIds = new Set([
+    ...legacy.syntheticJobs.map((row) => text(row.launch_item_id)),
+    ...legacy.productReviews.map((row) => row.launchItemId),
+  ]);
+  const reconciliationJobs = [
+    ...successfulJobs
+      .filter((row) => !legacyLaunchItemIds.has(text(row.launch_item_id)))
+      .map((row) => row as unknown as UnknownRecord),
+    ...legacy.syntheticJobs,
+  ];
 
   const common = {
     ownerId,
-    jobs: successfulJobs as unknown as UnknownRecord[],
-    marketLedgerRows: asRows(ledgerResult.data),
+    jobs: reconciliationJobs,
+    marketLedgerRows,
     launchItems,
-    salesRows: asRows(salesResult.data),
-    existingLifecycleRows: asRows(existingResult.data),
+    salesRows,
+    existingLifecycleRows,
     now,
   };
   const preflight = buildSeoListingShadowReconciliationPlan({
@@ -148,10 +202,39 @@ export async function reconcileSeoListingLifecycleShadow(
     ...new Set(preflight.records.map((row) => row.goods_key).filter(Boolean)),
   ];
   const snapshot = await loadShoplingLifecycleStatusSnapshot(readbackGoodsKeys);
-  const plan = buildSeoListingShadowReconciliationPlan({
+  const verifiedPlan = buildSeoListingShadowReconciliationPlan({
     ...common,
     shoplingStatuses: snapshot.statuses as unknown as UnknownRecord[],
   });
+  const legacyExceptionProducts = new Set(
+    legacy.exceptionRecords.map((row) => row.launch_item_id),
+  );
+  const combinedProductReviews = [
+    ...verifiedPlan.productReviews,
+    ...legacy.productReviews,
+  ];
+  const plan = {
+    ...verifiedPlan,
+    productsSeeded:
+      verifiedPlan.productsSeeded + legacyExceptionProducts.size,
+    productsNeedingReview: new Set(
+      combinedProductReviews.map((row) => row.launchItemId),
+    ).size,
+    reviewRecordCount:
+      verifiedPlan.reviewRecordCount + legacy.exceptionRecords.length,
+    records: [...verifiedPlan.records, ...legacy.exceptionRecords],
+    productReviews: combinedProductReviews,
+    legacyOnboarding: {
+      source: legacy.source,
+      productsExamined: legacy.productsExamined,
+      productsPreparedForVerification:
+        legacy.productsPreparedForVerification,
+      productsNeedingReview: legacy.productsNeedingReview,
+      productsSkippedExisting: legacy.productsSkippedExisting,
+      exceptionRecordCount: legacy.exceptionRecords.length,
+      externalMarketWrite: false,
+    },
+  };
 
   if (options.apply !== true || plan.records.length === 0) {
     return {
