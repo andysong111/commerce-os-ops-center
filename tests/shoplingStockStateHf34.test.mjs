@@ -31,8 +31,8 @@ test("HF34 remains packaged but current stock execution surfaces reject v0.6.2",
 
   assert.match(queuePanel, /supportsAllDateStockSync\(version\)/);
   assert.match(queuePanel, /setExtensionReady\(supported\)/);
-  assert.match(queuePanel, /v0\.6\.5로 업데이트해 주세요/);
-  assert.match(operatorPanel, /v0\.6\.5로 업데이트/);
-  assert.match(page, /download-hf37/);
+  assert.match(queuePanel, /v0\.6\.6로 업데이트해 주세요/);
+  assert.match(operatorPanel, /v0\.6\.6으로 업데이트/);
+  assert.match(page, /download-hf38/);
   assert.doesNotMatch(page, /download-hf34/);
 });
