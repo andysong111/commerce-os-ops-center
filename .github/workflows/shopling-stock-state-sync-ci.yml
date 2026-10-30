@@ -18,6 +18,7 @@ on:
       - "tests/shoplingStockStateSyncV041.test.mjs"
       - "tests/shoplingStockStateHf36.test.mjs"
       - "tests/shoplingStockStateHf37.test.mjs"
+      - "tests/shoplingStockStateHf38.test.mjs"
       - "tests/shoplingStockWatchdogHeartbeat.test.mjs"
       - "tests/shoplingOptionA21BatchHF29.test.mjs"
       - "tests/inventoryStockSalesTail.test.mjs"
@@ -66,6 +67,8 @@ jobs:
         run: node --test tests/shoplingStockStateHf36.test.mjs
       - name: Regression - HF37 empty A4 date controls
         run: node --experimental-strip-types --test tests/shoplingStockStateHf37.test.mjs
+      - name: Regression - HF38 fresh A6 popup ownership
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf38.test.mjs
       - name: Regression - v0.4.1 sync
         run: node --test tests/shoplingStockStateSyncV041.test.mjs
       - name: Regression - reset-tail coverage

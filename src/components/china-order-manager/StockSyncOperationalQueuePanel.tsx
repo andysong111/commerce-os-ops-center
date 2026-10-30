@@ -230,7 +230,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 빈 날짜 입력칸 또는 작업 프레임·결과 검증 오류가 있어 사용할 수 없습니다. v0.6.5로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 A6 새 팝업 소유권 또는 작업 프레임·결과 검증 오류가 있어 사용할 수 없습니다. v0.6.6로 업데이트해 주세요.`);
         }
         return;
       }
