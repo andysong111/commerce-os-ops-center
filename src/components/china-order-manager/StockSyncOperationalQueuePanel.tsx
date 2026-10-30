@@ -98,7 +98,13 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
   const [terminalSummary, setTerminalSummary] = useState<TerminalSummary | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const connectionFailed = useRef(false);
-  const jobsById = useRef(new Map<string, SyncJob>());
+  const jobsById = useRef(
+    new Map<string, SyncJob>(
+      initialPayload?.ok === true && Array.isArray(initialPayload.jobs)
+        ? initialPayload.jobs.map((job) => [job.jobId, job])
+        : [],
+    ),
+  );
   const handledResults = useRef(new Set<string>());
   const activeBatch = useRef<ActiveBatch | null>(null);
   const excludedThisRun = useRef(new Set<string>());
@@ -259,7 +265,54 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       if (type !== "COMMERCE_OS_SHOPLING_STOCK_SYNC_RESULT") return;
       const result = data as unknown as ResultMessage;
       const batch = activeBatch.current;
-      if (!batch || !batch.jobs.some((job) => job.jobId === result.jobId)) return;
+      if (!batch) {
+        const queuedJob = jobsById.current.get(result.jobId) || null;
+        const replayJob = result.job || null;
+        const exactOperationalReplay = Boolean(
+          queuedJob &&
+            replayJob?.operationalQueue === true &&
+            queuedJob.jobId === replayJob.jobId &&
+            queuedJob.barcode === replayJob.barcode &&
+            queuedJob.productKind === replayJob.productKind &&
+            queuedJob.desiredStatus === replayJob.desiredStatus,
+        );
+        if (!exactOperationalReplay || !queuedJob) return;
+
+        const replayKey = `${result.jobId}:${result.outcome}:${Number(result.finishedAt || 0)}`;
+        if (handledResults.current.has(replayKey)) return;
+        handledResults.current.add(replayKey);
+        void (async () => {
+          try {
+            await recordSync(
+              queuedJob,
+              result.outcome,
+              result.message || "",
+              {
+                ...(result.evidence && typeof result.evidence === "object" && !Array.isArray(result.evidence)
+                  ? (result.evidence as Record<string, unknown>)
+                  : { extensionEvidence: result.evidence ?? null }),
+                recoveredTerminalReplay: true,
+                recoveredWithoutShoplingResend: true,
+              },
+              result.finishedAt,
+            );
+            await loadQueue();
+            setNotice(
+              `${queuedJob.barcode} 저장된 Shopling ${result.outcome} 결과를 재전송 없이 원장에 복구 기록했습니다.`,
+            );
+          } catch (error) {
+            handledResults.current.delete(replayKey);
+            setPhase("RESULT_PERSIST_FAILED");
+            setNotice(
+              error instanceof Error
+                ? error.message
+                : "저장된 Shopling 결과의 원장 복구 기록에 실패했습니다.",
+            );
+          }
+        })();
+        return;
+      }
+      if (!batch.jobs.some((job) => job.jobId === result.jobId)) return;
       const resultKey = `${result.jobId}:${result.outcome}:${Number(result.finishedAt || 0)}`;
       if (handledResults.current.has(resultKey)) return;
       const job = result.job || batch.jobs.find((row) => row.jobId === result.jobId) || jobsById.current.get(result.jobId) || null;
