@@ -39,7 +39,19 @@ type TerminalSummary = {
 const PARALLEL_START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_START";
 const PARALLEL_STATUS = "COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_STATUS";
 const SINGLE_START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_START";
-const KNOWN_TERMINAL_RECOVERY_ACTION = "RECOVER_BBB4_3_HF41_TERMINAL";
+const KNOWN_TERMINAL_RECOVERY_ACTION = "RECOVER_KNOWN_SHOPLING_TERMINAL";
+function isKnownTerminalRecoveryJob(job: SyncJob) {
+  const knownIdentity =
+    (job.barcode === "BBB4-3" && job.productKind === "SINGLE") ||
+    (job.barcode === "BBD3-1" && job.productKind === "OPTION");
+  return Boolean(
+    knownIdentity &&
+      job.desiredStatus === "SOLD_OUT" &&
+      job.exactInventoryQuantity === 0 &&
+      job.inventoryQuantityKnown !== false &&
+      job.manualStatusOnly !== true,
+  );
+}
 function statusLabel(value: DesiredStatus) { return value === "SOLD_OUT" ? "품절" : "판매중"; }
 function kindLabel(value: ProductKind) { return value === "OPTION" ? "옵션" : "단품"; }
 function randomId(prefix: string) {
@@ -403,19 +415,12 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
   };
   const recoverKnownTerminal = async (job: SyncJob) => {
     setNotice("");
-    if (
-      job.barcode !== "BBB4-3" ||
-      job.productKind !== "SINGLE" ||
-      job.desiredStatus !== "SOLD_OUT" ||
-      job.exactInventoryQuantity !== 0 ||
-      job.inventoryQuantityKnown === false ||
-      job.manualStatusOnly === true
-    ) {
-      setNotice("알려진 BBB4-3 완료 결과와 현재 작업이 일치하지 않아 복구하지 않았습니다.");
+    if (!isKnownTerminalRecoveryJob(job)) {
+      setNotice(`알려진 ${job.barcode} 완료 결과와 현재 작업이 일치하지 않아 복구하지 않았습니다.`);
       return;
     }
     if (draining || activeBatch.current) {
-      setNotice("실행 중인 Shopling 작업이 끝난 뒤 BBB4-3 완료 결과를 복구해 주세요.");
+      setNotice(`실행 중인 Shopling 작업이 끝난 뒤 ${job.barcode} 완료 결과를 복구해 주세요.`);
       return;
     }
     setRecoveringKnownTerminalJobId(job.jobId);
@@ -434,13 +439,13 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       });
       const payload = await response.json().catch(() => ({})) as { ok?: boolean; message?: string };
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.message || "BBB4-3 완료 결과를 원장에 복구하지 못했습니다.");
+        throw new Error(payload.message || `${job.barcode} 완료 결과를 원장에 복구하지 못했습니다.`);
       }
       await loadQueue();
-      setNotice(payload.message || "BBB4-3 완료 결과를 Shopling 재전송 없이 복구했습니다.");
+      setNotice(payload.message || `${job.barcode} 완료 결과를 Shopling 재전송 없이 복구했습니다.`);
     } catch (error) {
       setPhase("RESULT_PERSIST_FAILED");
-      setNotice(error instanceof Error ? error.message : "BBB4-3 완료 결과 복구에 실패했습니다.");
+      setNotice(error instanceof Error ? error.message : `${job.barcode} 완료 결과 복구에 실패했습니다.`);
     } finally {
       setRecoveringKnownTerminalJobId("");
     }
@@ -490,7 +495,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
               <td className="px-3 py-3 font-bold">{kindLabel(job.productKind)}</td><td className="px-3 py-3 text-right font-black">{job.inventoryQuantityKnown === false || job.manualStatusOnly ? "미확정" : `${job.exactInventoryQuantity}개`}</td>
               <td className={`px-3 py-3 font-black ${job.desiredStatus === "SOLD_OUT" ? "text-rose-700" : "text-emerald-700"}`}>{job.manualStatusOnly ? "판매중(수동)" : statusLabel(job.desiredStatus)}</td>
               <td className="px-3 py-3 text-slate-600">{new Date(job.desiredSince).toLocaleString("ko-KR")}</td>
-              <td className="px-3 py-3">{job.barcode === "BBB4-3" && job.productKind === "SINGLE" && job.desiredStatus === "SOLD_OUT" ? <button type="button" onClick={() => void recoverKnownTerminal(job)} disabled={draining || recoveringKnownTerminalJobId === job.jobId || report?.state !== "READY"} className="whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 font-black text-emerald-800 hover:bg-emerald-100 disabled:border-slate-200 disabled:text-slate-400">{recoveringKnownTerminalJobId === job.jobId ? "복구 확인 중" : "완료 결과 복구"}</button> : <button type="button" onClick={() => void startOne(job)} disabled={draining || !extensionReady || report?.state !== "READY"} className="whitespace-nowrap rounded-lg border border-sky-300 bg-white px-3 py-2 font-black text-sky-800 hover:bg-sky-50 disabled:border-slate-200 disabled:text-slate-400">이 건만 처리</button>}</td>
+              <td className="px-3 py-3">{isKnownTerminalRecoveryJob(job) ? <button type="button" onClick={() => void recoverKnownTerminal(job)} disabled={draining || recoveringKnownTerminalJobId === job.jobId || report?.state !== "READY"} className="whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 font-black text-emerald-800 hover:bg-emerald-100 disabled:border-slate-200 disabled:text-slate-400">{recoveringKnownTerminalJobId === job.jobId ? "복구 확인 중" : "완료 결과 복구"}</button> : <button type="button" onClick={() => void startOne(job)} disabled={draining || !extensionReady || report?.state !== "READY"} className="whitespace-nowrap rounded-lg border border-sky-300 bg-white px-3 py-2 font-black text-sky-800 hover:bg-sky-50 disabled:border-slate-200 disabled:text-slate-400">이 건만 처리</button>}</td>
             </tr>)}
             {!jobs.length ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">{report ? "현재 실행 가능한 Shopling 재고상태 대기건이 없습니다." : "조회 전이거나 연결이 지연되어 대기건을 확인할 수 없습니다."}</td></tr> : null}
           </tbody>
