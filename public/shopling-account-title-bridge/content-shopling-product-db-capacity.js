@@ -16,14 +16,26 @@
     return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
   }
 
-  function valueAfterLabel(lines, index, labelPattern) {
-    const inline = text(lines[index]).replace(labelPattern, "").trim();
+  function inlineValue(value, labelPattern) {
+    const inline = text(value).replace(labelPattern, "").trim();
     const inlineMatch = inline.match(/(?:^|\s)([\d,]{1,15})(?:\s|$)/);
-    if (inlineMatch) return count(inlineMatch[1]);
-    for (let offset = 1; offset <= 4; offset += 1) {
-      const candidate = text(lines[index + offset]);
+    return inlineMatch ? count(inlineMatch[1]) : null;
+  }
+
+  function valueNearLabel(rows, rowIndex, columnIndex, labelPattern) {
+    const currentRow = rows[rowIndex] || [];
+    const inline = inlineValue(currentRow[columnIndex], labelPattern);
+    if (inline !== null) return inline;
+
+    for (let offset = 1; offset <= 2; offset += 1) {
+      const candidate = text(currentRow[columnIndex + offset]);
       if (/^[\d,]{1,15}$/.test(candidate)) return count(candidate);
       if (candidate && /[가-힣A-Za-z]/.test(candidate)) break;
+    }
+
+    for (let offset = 1; offset <= 4; offset += 1) {
+      const candidate = text(rows[rowIndex + offset]?.[columnIndex]);
+      if (/^[\d,]{1,15}$/.test(candidate)) return count(candidate);
     }
     return null;
   }
@@ -34,29 +46,32 @@
   }
 
   function parseShoplingProductDbCapacityText(value) {
-    const lines = String(value ?? "")
+    const rows = String(value ?? "")
       .normalize("NFKC")
       .replace(/\r/g, "")
-      .split(/\n|\t/)
-      .map(text)
-      .filter(Boolean);
+      .split("\n")
+      .map((row) => row.split("\t").map(text))
+      .filter((row) => row.some(Boolean));
     const maximumCandidates = [];
     const usedCandidates = [];
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index];
-      if (/^상품\s*DB(?:\s|$)/.test(line) && !/^사용\s*상품/.test(line)) {
-        maximumCandidates.push(
-          valueAfterLabel(lines, index, /^상품\s*DB\s*/i),
-        );
-      }
-      if (/^사용\s*상품\s*DB\s*수(?:\s*\(누적\))?/i.test(line)) {
-        usedCandidates.push(
-          valueAfterLabel(
-            lines,
-            index,
-            /^사용\s*상품\s*DB\s*수(?:\s*\(누적\))?\s*/i,
-          ),
-        );
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      for (let columnIndex = 0; columnIndex < rows[rowIndex].length; columnIndex += 1) {
+        const cell = rows[rowIndex][columnIndex];
+        if (/^상품\s*DB(?:\s|$)/.test(cell) && !/^사용\s*상품/.test(cell)) {
+          maximumCandidates.push(
+            valueNearLabel(rows, rowIndex, columnIndex, /^상품\s*DB\s*/i),
+          );
+        }
+        if (/^사용\s*상품\s*DB\s*수(?:\s*\(누적\))?/i.test(cell)) {
+          usedCandidates.push(
+            valueNearLabel(
+              rows,
+              rowIndex,
+              columnIndex,
+              /^사용\s*상품\s*DB\s*수(?:\s*\(누적\))?\s*/i,
+            ),
+          );
+        }
       }
     }
     const maximumProductCodeCount = uniqueValue(maximumCandidates);

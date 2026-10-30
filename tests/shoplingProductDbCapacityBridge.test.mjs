@@ -24,10 +24,22 @@ test("Shopling plan parser reads the 10,000 maximum and 11,113 cumulative use", 
       usedProductCodeCount: 11_113,
     },
   );
+  assert.deepEqual(
+    {
+      ...parse(
+        `상품 DB\t사용 상품 DB 수 (누적)\n10,000\t11,113\n쇼핑몰 상품 등록\t사용 쇼핑몰 연동 DB 수 (누적)\n25,000\t925`,
+      ),
+    },
+    {
+      maximumProductCodeCount: 10_000,
+      usedProductCodeCount: 11_113,
+    },
+    "the real Shopling dashboard renders adjacent headers with values in the next table row",
+  );
   assert.equal(parse("상품 DB\n10,000\n사용 상품 DB 수 (누적)\n알 수 없음"), null);
 });
 
-test("v0.6.5 extension stores Shopling quota and syncs it only from the Ops page", async () => {
+test("v0.6.6 extension stores Shopling quota and syncs it only from the Ops page", async () => {
   const [manifestRaw, download, collector, sync, main] = await Promise.all([
     source("public/shopling-account-title-bridge/manifest.json"),
     source("src/app/api/shopling-account-title-bridge/download/route.ts"),
@@ -36,8 +48,8 @@ test("v0.6.5 extension stores Shopling quota and syncs it only from the Ops page
     source("public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-main.js"),
   ]);
   const manifest = JSON.parse(manifestRaw);
-  assert.match(download, /manifest\.version = "0\.6\.5"/);
-  assert.match(download, /v0\.6\.5\.zip/);
+  assert.match(download, /manifest\.version = "0\.6\.6"/);
+  assert.match(download, /v0\.6\.6\.zip/);
   assert.ok(download.includes('"content-shopling-product-db-capacity.js"'));
   assert.ok(download.includes('"content-commerce-os-product-db-capacity-sync.js"'));
   assert.ok(download.includes('"content-commerce-os-product-db-capacity-main.js"'));
@@ -66,7 +78,7 @@ test("v0.6.5 extension stores Shopling quota and syncs it only from the Ops page
   }
 });
 
-test("v0.6.5 retries when isolated sync starts before the MAIN-world bridge", async () => {
+test("v0.6.6 retries when isolated sync starts before the MAIN-world bridge", async () => {
   const [sync, main] = await Promise.all([
     source("public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-sync.js"),
     source("public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-main.js"),
