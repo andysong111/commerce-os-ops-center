@@ -13,6 +13,29 @@ function product(number) {
   };
 }
 
+function relistRows({
+  currentRunId = "run-old",
+  nextEligibleAt = "2026-10-27T00:00:00.000Z",
+  deleted = true,
+  deleteReadbackAt = "2026-07-29T00:00:00.000Z",
+} = {}) {
+  return Array.from({ length: 6 }, (_, index) => ({
+    launch_item_id: "launch-1",
+    market_account_key: `market-${index + 1}`,
+    goods_key: `old-goods-${index + 1}`,
+    current_run_id: currentRunId,
+    state: "COOLDOWN",
+    attempt_count: 1,
+    next_eligible_at: nextEligibleAt,
+    sales_count_during_attempt: 0,
+    exposure_verified: true,
+    evidence: {
+      previousListingDeleted: deleted,
+      previousListingDeleteReadbackVerifiedAt: deleteReadbackAt,
+    },
+  }));
+}
+
 test("scheduled run selects only lifecycle-safe products within the smallest market capacity", () => {
   const plan = planSeoScheduledPortfolioRun({
     readyProducts: [product(1), product(2), product(3)],
@@ -122,19 +145,28 @@ test("Shopling product DB safe product count is the final registration cap", () 
   assert.equal(plan.reasonCode, "SCHEDULED_RUN_READY");
 });
 
-test("90-day relist never enters the six-new-product-code pipeline", () => {
+test("90-day relist enters the fresh six-product-code pipeline only after exact old-code deletion readback", () => {
   const plan = planSeoScheduledPortfolioRun({
     readyProducts: [product(1)],
-    lifecycleRows: [
-      {
-        launch_item_id: "launch-1",
-        state: "COOLDOWN",
-        attempt_count: 1,
-        next_eligible_at: "2026-10-27T00:00:00.000Z",
-        sales_count_during_attempt: 0,
-        exposure_verified: true,
-      },
-    ],
+    lifecycleRows: relistRows(),
+    safeBatchCount: 10,
+    capacityBlocked: false,
+    shoplingProductDbSafeNewProductCount: 10,
+    shoplingProductDbBlocked: false,
+    now: new Date("2026-10-28T00:00:00.000Z"),
+  });
+  assert.deepEqual(plan.selectedProducts.map((row) => row.runId), ["run-1"]);
+  assert.equal(plan.relistDueCount, 1);
+  assert.equal(plan.relistFreshCodeReadyCount, 1);
+  assert.equal(plan.relistFreshCodeSelectedCount, 1);
+  assert.equal(plan.relistFreshCodeBlockedCount, 0);
+  assert.equal(plan.reasonCode, "SCHEDULED_RUN_READY");
+});
+
+test("90-day relist fails closed when old deletion readback is missing", () => {
+  const plan = planSeoScheduledPortfolioRun({
+    readyProducts: [product(1)],
+    lifecycleRows: relistRows({ deleted: false, deleteReadbackAt: "" }),
     safeBatchCount: 10,
     capacityBlocked: false,
     shoplingProductDbSafeNewProductCount: 10,
@@ -142,7 +174,48 @@ test("90-day relist never enters the six-new-product-code pipeline", () => {
     now: new Date("2026-10-28T00:00:00.000Z"),
   });
   assert.deepEqual(plan.selectedProducts, []);
-  assert.equal(plan.relistDueCount, 1);
-  assert.equal(plan.relistReuseOnlyCount, 1);
-  assert.equal(plan.reasonCode, "RELIST_REUSE_PIPELINE_PENDING");
+  assert.equal(plan.relistFreshCodeReadyCount, 0);
+  assert.equal(plan.relistFreshCodeBlockedCount, 1);
+  assert.equal(plan.reasonCode, "RELIST_FRESH_CODE_PREPARATION_REQUIRED");
+});
+
+test("90-day relist rejects the previous SEO RUN and a RUN created before cooldown ended", () => {
+  const previousRun = {
+    ...product(1),
+    runId: "run-old",
+  };
+  const earlyRun = {
+    ...product(1),
+    runCreatedAt: "2026-10-26T23:59:59.000Z",
+  };
+  for (const readyProduct of [previousRun, earlyRun]) {
+    const plan = planSeoScheduledPortfolioRun({
+      readyProducts: [readyProduct],
+      lifecycleRows: relistRows(),
+      safeBatchCount: 10,
+      capacityBlocked: false,
+      shoplingProductDbSafeNewProductCount: 10,
+      shoplingProductDbBlocked: false,
+      now: new Date("2026-10-28T00:00:00.000Z"),
+    });
+    assert.deepEqual(plan.selectedProducts, []);
+    assert.equal(plan.reasonCode, "RELIST_FRESH_CODE_PREPARATION_REQUIRED");
+  }
+});
+
+test("fresh-code relist still needs six Shopling slots plus the configured safety reserve", () => {
+  const plan = planSeoScheduledPortfolioRun({
+    readyProducts: [product(1)],
+    lifecycleRows: relistRows(),
+    safeBatchCount: 10,
+    capacityBlocked: false,
+    shoplingProductDbSafeNewProductCount: 0,
+    shoplingProductDbBlocked: true,
+    shoplingProductDbReasonCode: "SHOPLING_PRODUCT_DB_AT_OR_OVER_LIMIT",
+    now: new Date("2026-10-28T00:00:00.000Z"),
+  });
+  assert.deepEqual(plan.selectedProducts, []);
+  assert.equal(plan.relistFreshCodeReadyCount, 1);
+  assert.equal(plan.relistFreshCodeSelectedCount, 0);
+  assert.equal(plan.reasonCode, "SHOPLING_PRODUCT_DB_AT_OR_OVER_LIMIT");
 });

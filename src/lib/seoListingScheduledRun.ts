@@ -13,7 +13,9 @@ export type SeoScheduledRunPlan = {
   limitedByCapacityCount: number;
   soldOutDeleteDueCount: number;
   relistDueCount: number;
-  relistReuseOnlyCount: number;
+  relistFreshCodeReadyCount: number;
+  relistFreshCodeSelectedCount: number;
+  relistFreshCodeBlockedCount: number;
   protectedProductCount: number;
   cooldownProductCount: number;
   reviewProductCount: number;
@@ -25,6 +27,8 @@ export type SeoScheduledRunPlan = {
 };
 
 export const SEO_REGISTRATION_FALLBACK_BATCH_LIMIT = 3;
+export const SEO_RELIST_REQUIRED_MARKET_LISTING_COUNT = 6;
+const CLOCK_SKEW_MS = 5 * 60_000;
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -33,6 +37,17 @@ function text(value: unknown) {
 function integer(value: unknown, fallback = 0) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function record(value: unknown): UnknownRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as UnknownRecord)
+    : {};
+}
+
+function instant(value: unknown) {
+  const parsed = Date.parse(text(value));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function lifecycleState(value: unknown): SeoListingLifecycleState {
@@ -51,6 +66,68 @@ function lifecycleState(value: unknown): SeoListingLifecycleState {
 
 function productId(row: UnknownRecord) {
   return text(row.launch_item_id);
+}
+
+function freshCodeRelistReady(
+  product: SeoReadyProduct,
+  rows: UnknownRecord[],
+  now: Date,
+) {
+  if (rows.length !== SEO_RELIST_REQUIRED_MARKET_LISTING_COUNT) return false;
+
+  const currentRunIds = new Set(
+    rows.map((row) => text(row.current_run_id)).filter(Boolean),
+  );
+  const goodsKeys = rows.map((row) => text(row.goods_key));
+  const marketAccountKeys = rows.map((row) => text(row.market_account_key));
+  if (
+    currentRunIds.size !== 1 ||
+    text(product.runId) === [...currentRunIds][0] ||
+    goodsKeys.some((value) => !value) ||
+    marketAccountKeys.some((value) => !value) ||
+    new Set(goodsKeys).size !== rows.length ||
+    new Set(marketAccountKeys).size !== rows.length
+  ) {
+    return false;
+  }
+
+  const runCreatedAt = instant(product.runCreatedAt);
+  const cooldownEnds = rows.map((row) => instant(row.next_eligible_at));
+  if (
+    runCreatedAt === null ||
+    cooldownEnds.some((value) => value === null) ||
+    runCreatedAt < Math.max(...(cooldownEnds as number[]))
+  ) {
+    return false;
+  }
+
+  const nowMs = now.getTime();
+  return rows.every((row) => {
+    const evidence = record(row.evidence);
+    const deleteReadbackAt = instant(
+      evidence.previousListingDeleteReadbackVerifiedAt,
+    );
+    const decision = evaluateSeoListingLifecycle(
+      {
+        state: lifecycleState(row.state),
+        attemptCount: integer(row.attempt_count),
+        liveStartedAt: text(row.live_started_at) || null,
+        lastVerifiedLiveAt: text(row.last_verified_live_at) || null,
+        salesCountDuringAttempt: integer(row.sales_count_during_attempt),
+        nextEligibleAt: text(row.next_eligible_at) || null,
+        exposureVerified: row.exposure_verified === true,
+        technicalFailure:
+          row.requires_review === true || lifecycleState(row.state) === "EXCEPTION",
+      },
+      now,
+    );
+    return (
+      decision.action === "RELIST" &&
+      evidence.previousListingDeleted === true &&
+      deleteReadbackAt !== null &&
+      deleteReadbackAt <= nowMs + CLOCK_SKEW_MS
+    );
+  });
 }
 
 export function planSeoScheduledPortfolioRun(input: {
@@ -103,10 +180,26 @@ export function planSeoScheduledPortfolioRun(input: {
     if (decision.requiresReview) reviewProducts.add(launchItemId);
   }
 
+  const freshCodeRelists = new Set(
+    input.readyProducts
+      .filter((product) => {
+        if (!dueRelist.has(product.launchItemId)) return false;
+        return freshCodeRelistReady(
+          product,
+          recordsByProduct.get(product.launchItemId) ?? [],
+          now,
+        );
+      })
+      .map((product) => product.launchItemId),
+  );
+
   const eligible = input.readyProducts.filter((product) => {
-    // A relist must reuse the existing six Shopling goods_keys. Never hand it
-    // to the full pipeline that appends six new product codes.
-    if (dueRelist.has(product.launchItemId)) return false;
+    // A relist intentionally creates six fresh Shopling product codes. The
+    // previous six listings must already have an exact delete readback, the
+    // 90-day cooldown must be over, and this must be a newer SEO RUN.
+    if (dueRelist.has(product.launchItemId)) {
+      return freshCodeRelists.has(product.launchItemId);
+    }
     const rows = recordsByProduct.get(product.launchItemId) ?? [];
     if (!rows.length) return true;
     return rows.every((row) => {
@@ -167,6 +260,9 @@ export function planSeoScheduledPortfolioRun(input: {
     0,
     eligible.length - selectedProducts.length,
   );
+  const selectedFreshRelistCount = selectedProducts.filter((product) =>
+    freshCodeRelists.has(product.launchItemId),
+  ).length;
 
   return {
     selectedProducts,
@@ -175,7 +271,12 @@ export function planSeoScheduledPortfolioRun(input: {
     limitedByCapacityCount,
     soldOutDeleteDueCount: dueSoldOutDelete.size,
     relistDueCount: dueRelist.size,
-    relistReuseOnlyCount: dueRelist.size,
+    relistFreshCodeReadyCount: freshCodeRelists.size,
+    relistFreshCodeSelectedCount: selectedFreshRelistCount,
+    relistFreshCodeBlockedCount: Math.max(
+      0,
+      dueRelist.size - freshCodeRelists.size,
+    ),
     protectedProductCount: protectedProducts.size,
     cooldownProductCount: cooldownProducts.size,
     reviewProductCount: reviewProducts.size,
@@ -198,8 +299,8 @@ export function planSeoScheduledPortfolioRun(input: {
         ? "MARKET_CAPACITY_BLOCKED"
       : selectedProducts.length
         ? "SCHEDULED_RUN_READY"
-        : dueRelist.size
-          ? "RELIST_REUSE_PIPELINE_PENDING"
+        : dueRelist.size && freshCodeRelists.size === 0
+          ? "RELIST_FRESH_CODE_PREPARATION_REQUIRED"
         : eligible.length && shoplingProductDbSafeNewProductCount === 0
           ? "SHOPLING_PRODUCT_DB_INSUFFICIENT_SAFE_SLOTS"
           : eligible.length

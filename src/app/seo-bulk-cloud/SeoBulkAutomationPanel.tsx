@@ -56,7 +56,9 @@ type Dashboard = {
     limitedByCapacityCount: number;
     soldOutDeleteDueCount: number;
     relistDueCount: number;
-    relistReuseOnlyCount: number;
+    relistFreshCodeReadyCount: number;
+    relistFreshCodeSelectedCount: number;
+    relistFreshCodeBlockedCount: number;
     protectedProductCount: number;
     cooldownProductCount: number;
     reviewProductCount: number;
@@ -239,7 +241,13 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
       limitedByCapacityCount: count(summary.limitedByCapacityCount),
       soldOutDeleteDueCount: count(summary.soldOutDeleteDueCount),
       relistDueCount: count(summary.relistDueCount),
-      relistReuseOnlyCount: count(summary.relistReuseOnlyCount),
+      relistFreshCodeReadyCount: count(summary.relistFreshCodeReadyCount),
+      relistFreshCodeSelectedCount: count(
+        summary.relistFreshCodeSelectedCount,
+      ),
+      relistFreshCodeBlockedCount: count(
+        summary.relistFreshCodeBlockedCount,
+      ),
       protectedProductCount: count(summary.protectedProductCount),
       cooldownProductCount: count(summary.cooldownProductCount),
       reviewProductCount: count(summary.reviewProductCount),
@@ -458,7 +466,7 @@ export default function SeoBulkAutomationPanel() {
           </h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
             SEO 준비 상품을 마켓 슬롯과 Shopling 상품 DB 1만 개 한도 안에서만 자동 배치합니다. 판매가 없으면 60일 노출 후
-            90일 쉬었다가 기존 상품코드를 재사용해 다시 기회를 주고, 3회 연속 무판매만 단종 후보로 보냅니다.
+            90일 쉬었다가 새 SEO와 새 상품코드 6개로 다시 기회를 주고, 3회 연속 무판매만 단종 후보로 보냅니다.
           </p>
         </div>
         <button
@@ -571,7 +579,10 @@ export default function SeoBulkAutomationPanel() {
             재도전 준비 {dashboard?.summary.relistDueCount ?? 0}개
           </span>
           <span className="rounded-full bg-cyan-100 px-3 py-1 text-cyan-800">
-            기존코드 재사용 대기 {dashboard?.summary.relistReuseOnlyCount ?? 0}개
+            새 코드 등록 준비 {dashboard?.summary.relistFreshCodeReadyCount ?? 0}개
+          </span>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+            삭제확인·새 SEO 대기 {dashboard?.summary.relistFreshCodeBlockedCount ?? 0}개
           </span>
         </div>
       </div>

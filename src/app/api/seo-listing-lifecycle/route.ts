@@ -347,7 +347,11 @@ export async function GET(request: NextRequest) {
         limitedByCapacityCount: scheduledPlan.limitedByCapacityCount,
         soldOutDeleteDueCount: scheduledPlan.soldOutDeleteDueCount,
         relistDueCount: scheduledPlan.relistDueCount,
-        relistReuseOnlyCount: scheduledPlan.relistReuseOnlyCount,
+        relistFreshCodeReadyCount: scheduledPlan.relistFreshCodeReadyCount,
+        relistFreshCodeSelectedCount:
+          scheduledPlan.relistFreshCodeSelectedCount,
+        relistFreshCodeBlockedCount:
+          scheduledPlan.relistFreshCodeBlockedCount,
         protectedProductCount: scheduledPlan.protectedProductCount,
         cooldownProductCount: scheduledPlan.cooldownProductCount,
         reviewProductCount: scheduledPlan.reviewProductCount,
