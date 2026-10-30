@@ -183,12 +183,11 @@ export async function GET(request: NextRequest) {
         admin
           .from("seo_listing_rotation_actions")
           .select(
-            "id,lifecycle_record_id,market_account_key,launch_item_id,goods_key,action_type,status,shadow_mode,scheduled_for",
+            "id,lifecycle_record_id,market_account_key,launch_item_id,run_id,goods_key,action_type,status,shadow_mode,dedupe_key,scheduled_for,claimed_at,executed_at,readback_verified_at,evidence",
           )
           .eq("owner_id", context.identity.userId)
-          .eq("status", "shadow")
           .order("scheduled_for", { ascending: true })
-          .limit(1000),
+          .limit(3000),
       ]);
 
     throwUnexpectedStorageError("SEO_LISTING_POLICY_READ_FAILED", policyResult.error);
@@ -233,7 +232,11 @@ export async function GET(request: NextRequest) {
     const canaryReadiness = summarizeSeoListingCanaryReadiness(
       lifecycleRows,
       canaryActionRows,
-      SEO_LISTING_EXPOSURE_DAYS,
+      {
+        exposureDays: SEO_LISTING_EXPOSURE_DAYS,
+        requiredMarketListingCount: 6,
+        readbackMaxAgeHours: 24,
+      },
     );
     const registration = summarizeSeoRegistrationOutcomes(jobs);
     const dailyTaskFailures = numberOrNull(
