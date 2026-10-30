@@ -250,7 +250,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 A4/A21 역할 오인, 작업자 연결 또는 결과 검증 오류가 있어 사용할 수 없습니다. v0.6.13으로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 A4/A21 역할 오인, 작업자 연결 또는 결과 검증 오류가 있어 사용할 수 없습니다. v0.6.14로 업데이트해 주세요.`);
         }
         return;
       }
