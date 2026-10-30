@@ -5,7 +5,7 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 11] as const;
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 12] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
