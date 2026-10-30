@@ -238,6 +238,9 @@ export function buildSeoListingShadowReconciliationPlan(input: {
     const launchItemId = text(job.launch_item_id);
     const modelNumber = text(job.model_number);
     const productName = text(job.product_name);
+    const reconciliationSource =
+      text(job.reconciliation_source) ||
+      SEO_LISTING_SHADOW_RECONCILIATION_SOURCE;
     const goodsKeys = goodsKeysFromJob(job);
     const item = itemsById.get(`${ownerId}\u0000${launchItemId}`);
     const sale = latestSaleEvidence(itemBarcodes(item), salesByBarcode);
@@ -346,7 +349,7 @@ export function buildSeoListingShadowReconciliationPlan(input: {
         requires_review: requiresReview,
         review_reason: reviewReason,
         evidence: {
-          source: SEO_LISTING_SHADOW_RECONCILIATION_SOURCE,
+          source: reconciliationSource,
           pipelineStatus: text(ledger.status),
           marketStatus: text(ledger.market_status),
           titleStatus: text(ledger.title_status),

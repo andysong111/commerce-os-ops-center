@@ -73,6 +73,8 @@ type Dashboard = {
     blockedMarketCount: number;
     lifecycle: Record<string, number>;
     requiresReviewCount: number;
+    legacyManagedProductCount: number;
+    legacyReviewProductCount: number;
   };
   scheduledRun: {
     executable: boolean;
@@ -266,6 +268,8 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
         Object.entries(lifecycle).map(([key, value]) => [key, count(value)]),
       ),
       requiresReviewCount: count(summary.requiresReviewCount),
+      legacyManagedProductCount: count(summary.legacyManagedProductCount),
+      legacyReviewProductCount: count(summary.legacyReviewProductCount),
     },
     scheduledRun: {
       executable: record(body.scheduledRun).executable === true,
@@ -583,6 +587,9 @@ export default function SeoBulkAutomationPanel() {
           </span>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
             삭제확인·새 SEO 대기 {dashboard?.summary.relistFreshCodeBlockedCount ?? 0}개
+          </span>
+          <span className="rounded-full bg-violet-100 px-3 py-1 text-violet-800">
+            과거상품 편입 {dashboard?.summary.legacyManagedProductCount ?? 0}개 · 확인 필요 {dashboard?.summary.legacyReviewProductCount ?? 0}개
           </span>
         </div>
       </div>
