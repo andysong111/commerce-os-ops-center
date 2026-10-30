@@ -139,7 +139,7 @@ export function SourcingCandidateSelectionForm({
       {excludedBarcodes.map((barcode) => <input key={`exclude:${barcode}`} type="hidden" name="exclude" value={barcode} />)}
       {quantityOverrides.map((row) => <input key={`qty:${row.barcode}`} type="hidden" name="qty" value={`${row.barcode}:${row.targetQuantity}`} />)}
       {selectedConceptIds.map((conceptId) => (
-        <input key={`source:${conceptId}`} type="hidden" name="source" value={conceptId} />
+        <input key={`source:${conceptId}`} type="hidden" name="source" value={conceptId} data-candidate-origin="automatic" />
       ))}
       {selections.map((selection) => (
         <input

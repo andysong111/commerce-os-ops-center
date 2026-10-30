@@ -675,7 +675,16 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             />
           </section>
         </div>
-        {report && sourcingPlan ? <NewProductConfigurationCalculateButton formId={NEW_PRODUCT_CONFIGURATION_FORM_ID} manualFormId={MANUAL_PRODUCT_FORM_ID} /> : null}
+        {report && sourcingPlan ? (
+          <NewProductConfigurationCalculateButton
+            formId={NEW_PRODUCT_CONFIGURATION_FORM_ID}
+            manualFormId={MANUAL_PRODUCT_FORM_ID}
+            automaticCandidateCount={manualPilotCatalog?.candidates.length ?? 0}
+            calculationComplete={selectionMode === "custom"}
+            remainingActionCount={actionItems.length}
+            draftReady={draftReady}
+          />
+        ) : null}
         <p className="mt-4 border-t border-slate-100 pt-4 text-xs leading-5 text-slate-500">어느 경로를 사용하든 Draft 저장과 B코드 배정이 끝나면 상품출시 진행관리에는 ‘입고 대기’로 생성됩니다. 실제 입고 전에는 입고완료로 표시하지 않습니다.</p>
       </section>
       {inputError ? <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}

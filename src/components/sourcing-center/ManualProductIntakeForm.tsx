@@ -472,7 +472,18 @@ export function ManualProductIntakeForm({
   }
 
   return (
-    <form id={formId} onSubmit={submit} aria-busy={busy} className={embedded ? "min-w-0 bg-white py-5 xl:border-l xl:border-slate-200 xl:pl-6" : "border-y border-slate-200 bg-white py-5"}>
+    <form
+      id={formId}
+      onSubmit={submit}
+      aria-busy={busy}
+      data-unsaved-product-count={inputProducts.length}
+      data-unsaved-option-count={inputOptionCount}
+      className={
+        embedded
+          ? "min-w-0 bg-white py-5 xl:border-l xl:border-slate-200 xl:pl-6"
+          : "border-y border-slate-200 bg-white py-5"
+      }
+    >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black text-emerald-700">직접 신규상품 추가</p>
@@ -533,7 +544,14 @@ export function ManualProductIntakeForm({
             <div key={candidate.conceptId} className="flex items-center justify-between gap-3 text-sm">
               <span className="min-w-0"><strong className="block truncate">{candidate.productName} · {candidate.saleOption}</strong><span className="text-xs text-emerald-800">1688 {candidate.chinaOption} · {candidate.storageSize === "S" ? "소형" : "대형"}</span></span>
               <button type="button" onClick={() => setStagedCandidates((current) => current.filter((item) => item.conceptId !== candidate.conceptId))} className="shrink-0 text-xs font-bold text-slate-600 underline">제외</button>
-              <input type="hidden" name="source" value={candidate.conceptId} form={calculationFormId} />
+              <input
+                type="hidden"
+                name="source"
+                value={candidate.conceptId}
+                form={calculationFormId}
+                data-candidate-origin="manual"
+                data-manual-product-name={candidate.productName}
+              />
               <input type="hidden" name={`storage.${candidate.conceptId}`} value={candidate.storageSize} form={calculationFormId} />
             </div>
           ))}</div>
