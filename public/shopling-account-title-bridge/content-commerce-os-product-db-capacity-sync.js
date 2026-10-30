@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = "commerceOsShoplingProductDbCapacityV1";
   const LAST_SYNCED_KEY = "commerceOsShoplingProductDbCapacityLastSyncedV1";
+  const SYNC_DIAGNOSTIC_KEY = "commerceOsShoplingProductDbCapacitySyncDiagnosticV1";
   const READY_EVENT = "commerce-os-shopling-product-db-capacity-bridge-ready";
   const READY_ATTRIBUTE = "data-commerce-os-shopling-product-db-capacity-bridge-ready";
   const REQUEST_EVENT = "commerce-os-shopling-product-db-capacity-sync-request";
@@ -37,6 +38,16 @@
     });
   }
 
+  function recordSyncStatus(status, extra = {}) {
+    return writeStorage({
+      [SYNC_DIAGNOSTIC_KEY]: {
+        status,
+        recordedAt: new Date().toISOString(),
+        ...extra,
+      },
+    });
+  }
+
   function eventDetail(event) {
     if (!event || typeof event !== "object") return null;
     if (typeof event.detail === "string") {
@@ -67,15 +78,25 @@
 
   async function syncStoredCapacity() {
     if (!mainBridgeReady()) {
+      if (retryAttempts === 0) void recordSyncStatus("main_bridge_waiting");
       scheduleRetry();
       return;
     }
     const stored = await readStorage([STORAGE_KEY, LAST_SYNCED_KEY]);
     const snapshot = stored[STORAGE_KEY];
-    if (!snapshot || text(snapshot.source) !== "shopling-plan-dom-v1") return;
+    if (!snapshot || text(snapshot.source) !== "shopling-plan-dom-v1") {
+      void recordSyncStatus("snapshot_missing");
+      return;
+    }
     const observedAt = Date.parse(text(snapshot.observedAt));
-    if (!Number.isFinite(observedAt) || Date.now() - observedAt > MAX_AGE_MS) return;
-    if (text(stored[LAST_SYNCED_KEY]) === text(snapshot.snapshotId)) return;
+    if (!Number.isFinite(observedAt) || Date.now() - observedAt > MAX_AGE_MS) {
+      void recordSyncStatus("snapshot_stale", { snapshotId: text(snapshot.snapshotId) });
+      return;
+    }
+    if (text(stored[LAST_SYNCED_KEY]) === text(snapshot.snapshotId)) {
+      void recordSyncStatus("already_synced", { snapshotId: text(snapshot.snapshotId) });
+      return;
+    }
     const snapshotId = text(snapshot.snapshotId);
     if (!snapshotId || pendingSnapshotId === snapshotId) return;
     pendingSnapshotId = snapshotId;
@@ -95,6 +116,7 @@
         detail: JSON.stringify(payload),
       }),
     );
+    void recordSyncStatus("request_dispatched", { snapshotId });
     window.clearTimeout(ackTimer);
     ackTimer = window.setTimeout(() => {
       if (pendingSnapshotId !== snapshotId) return;
@@ -111,9 +133,21 @@
     pendingSnapshotId = "";
     if (detail?.ok) {
       retryAttempts = 0;
-      void writeStorage({ [LAST_SYNCED_KEY]: snapshotId });
+      void writeStorage({
+        [LAST_SYNCED_KEY]: snapshotId,
+        [SYNC_DIAGNOSTIC_KEY]: {
+          status: "synced",
+          recordedAt: new Date().toISOString(),
+          snapshotId,
+          httpStatus: Number(detail?.status) || 0,
+        },
+      });
       return;
     }
+    void recordSyncStatus("request_failed", {
+      snapshotId,
+      httpStatus: Number(detail?.status) || 0,
+    });
     scheduleRetry();
   });
 
@@ -123,6 +157,11 @@
   });
 
   scheduleSync();
+  chrome.storage.onChanged?.addListener?.((changes, areaName) => {
+    if (areaName !== "local" || !changes?.[STORAGE_KEY]) return;
+    retryAttempts = 0;
+    scheduleSync();
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
     retryAttempts = 0;
