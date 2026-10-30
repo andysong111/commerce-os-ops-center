@@ -87,18 +87,28 @@ type Dashboard = {
       };
     };
     canaryReadiness: {
+      preflightVersion: string;
       dueProductCount: number;
       readyProductCount: number;
       blockedProductCount: number;
+      requiredMarketListingCount: number;
+      requiredActionCount: number;
+      readbackMaxAgeHours: number;
       approvalRequired: boolean;
       externalMarketWrite: boolean;
+      executionLocked: boolean;
+      autoRetryOnUncertain: boolean;
+      recoveryMode: string;
       selectedCandidate: null | {
         launchItemId: string;
         modelNumber: string;
         productName: string;
+        currentRunId: string;
         marketListingCount: number;
         actionCount: number;
+        dedupeKeyCount: number;
         verifiedExposureDays: number;
+        latestLiveReadbackAt: string | null;
         scheduledFor: string | null;
       };
     };
@@ -261,23 +271,37 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
         },
       },
       canaryReadiness: {
+        preflightVersion: text(canaryReadiness.preflightVersion),
         dueProductCount: count(canaryReadiness.dueProductCount),
         readyProductCount: count(canaryReadiness.readyProductCount),
         blockedProductCount: count(canaryReadiness.blockedProductCount),
+        requiredMarketListingCount: count(
+          canaryReadiness.requiredMarketListingCount,
+        ),
+        requiredActionCount: count(canaryReadiness.requiredActionCount),
+        readbackMaxAgeHours: count(canaryReadiness.readbackMaxAgeHours),
         approvalRequired: canaryReadiness.approvalRequired !== false,
         externalMarketWrite: canaryReadiness.externalMarketWrite === true,
+        executionLocked: canaryReadiness.executionLocked !== false,
+        autoRetryOnUncertain:
+          canaryReadiness.autoRetryOnUncertain === true,
+        recoveryMode: text(canaryReadiness.recoveryMode),
         selectedCandidate: candidateExists
           ? {
               launchItemId: text(selectedCandidate.launchItemId),
               modelNumber: text(selectedCandidate.modelNumber),
               productName: text(selectedCandidate.productName),
+              currentRunId: text(selectedCandidate.currentRunId),
               marketListingCount: count(
                 selectedCandidate.marketListingCount,
               ),
               actionCount: count(selectedCandidate.actionCount),
+              dedupeKeyCount: count(selectedCandidate.dedupeKeyCount),
               verifiedExposureDays: count(
                 selectedCandidate.verifiedExposureDays,
               ),
+              latestLiveReadbackAt:
+                text(selectedCandidate.latestLiveReadbackAt) || null,
               scheduledFor: text(selectedCandidate.scheduledFor) || null,
             }
           : null,
@@ -559,6 +583,9 @@ export default function SeoBulkAutomationPanel() {
                 <p className="mt-1 text-xs leading-5 text-slate-600">
                   {canaryCandidate.marketListingCount}개 마켓 근거와 품절·삭제 {canaryCandidate.actionCount}단계가 준비되었습니다.
                 </p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  최근 판매중 확인 {dateLabel(canaryCandidate.latestLiveReadbackAt)} · 중복방지키 {canaryCandidate.dedupeKeyCount}개
+                </p>
               </>
             ) : (
               <p className="mt-1 text-xs leading-5 text-slate-600">
@@ -575,6 +602,9 @@ export default function SeoBulkAutomationPanel() {
               <span className="rounded-full bg-rose-100 px-2.5 py-1 text-rose-800">
                 승인 전 외부 변경 0건
               </span>
+            </div>
+            <div className="mt-3 rounded-lg bg-slate-50 p-2.5 text-xs leading-5 text-slate-600">
+              실행 전 다시 판매중·판매 0건을 확인하고, 품절 확인 뒤에만 삭제로 넘어갑니다. 응답이 불명확하면 즉시 멈추며 자동 재시도·재등록은 하지 않습니다.
             </div>
           </div>
         </div>

@@ -20,6 +20,8 @@ export type SeoListingLifecycleSummaryRow = {
   exposure_verified?: unknown;
   requires_review?: unknown;
   sales_count_during_attempt?: unknown;
+  current_run_id?: unknown;
+  last_verified_live_at?: unknown;
   evidence?: unknown;
 };
 
@@ -32,7 +34,30 @@ export type SeoListingCanaryActionRow = {
   action_type?: unknown;
   status?: unknown;
   shadow_mode?: unknown;
+  run_id?: unknown;
+  dedupe_key?: unknown;
   scheduled_for?: unknown;
+  claimed_at?: unknown;
+  executed_at?: unknown;
+  readback_verified_at?: unknown;
+  evidence?: unknown;
+};
+
+export type SeoListingCanaryBlockReason =
+  | "MARKET_LISTING_COUNT_MISMATCH"
+  | "LIFECYCLE_EVIDENCE_INCOMPLETE"
+  | "CURRENT_RUN_ID_MISSING_OR_MISMATCHED"
+  | "LISTING_IDENTITY_MISSING_OR_DUPLICATED"
+  | "LIVE_READBACK_MISSING_OR_STALE"
+  | "CURRENT_RUN_ACTION_PAIR_INCOMPLETE"
+  | "ACTION_DEDUPE_KEY_MISSING_OR_DUPLICATED"
+  | "ACTIVE_OR_UNCERTAIN_ACTION_EXISTS";
+
+export type SeoListingCanaryOptions = {
+  exposureDays?: number;
+  requiredMarketListingCount?: number;
+  readbackMaxAgeHours?: number;
+  now?: Date;
 };
 
 export type SeoVerifiedExposureProgress = {
@@ -48,21 +73,55 @@ export type SeoVerifiedExposureProgress = {
 };
 
 export type SeoListingCanaryReadiness = {
+  preflightVersion: "seo-listing-canary-preflight-v1";
   dueProductCount: number;
   readyProductCount: number;
   blockedProductCount: number;
+  requiredMarketListingCount: number;
+  requiredActionCount: number;
+  readbackMaxAgeHours: number;
+  blockingReasonCounts: Partial<Record<SeoListingCanaryBlockReason, number>>;
   approvalRequired: true;
   externalMarketWrite: false;
+  executionLocked: true;
+  autoRetryOnUncertain: false;
+  recoveryMode: "STOP_AND_CONFIRM_READBACK";
+  executionSteps: readonly [
+    "RECHECK_LIVE_AND_ZERO_SALES",
+    "SOLD_OUT",
+    "VERIFY_SOLD_OUT_READBACK",
+    "DELETE",
+    "VERIFY_DELETE_READBACK",
+  ];
   selectedCandidate: null | {
     launchItemId: string;
     modelNumber: string;
     productName: string;
+    currentRunId: string;
     marketListingCount: number;
     actionCount: number;
+    dedupeKeyCount: number;
     verifiedExposureDays: number;
+    latestLiveReadbackAt: string;
     scheduledFor: string;
   };
 };
+
+export const SEO_LISTING_CANARY_REQUIRED_MARKET_LISTING_COUNT = 6;
+export const SEO_LISTING_CANARY_READBACK_MAX_AGE_HOURS = 24;
+export const SEO_LISTING_CANARY_EXECUTION_STEPS = [
+  "RECHECK_LIVE_AND_ZERO_SALES",
+  "SOLD_OUT",
+  "VERIFY_SOLD_OUT_READBACK",
+  "DELETE",
+  "VERIFY_DELETE_READBACK",
+] as const;
+
+const ACTIVE_OR_UNCERTAIN_ACTION_STATUSES = new Set([
+  "pending",
+  "claimed",
+  "confirm_needed",
+]);
 
 const STATES: SeoListingLifecycleState[] = [
   "READY",
@@ -97,6 +156,18 @@ function exactNonNegativeInteger(value: unknown) {
 function instant(value: unknown) {
   const parsed = Date.parse(text(value));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isFreshPastInstant(value: unknown, nowMs: number, maxAgeMs: number) {
+  const parsed = instant(value);
+  return parsed > 0 && parsed <= nowMs && nowMs - parsed <= maxAgeMs;
+}
+
+function addBlockingReason(
+  reasons: Set<SeoListingCanaryBlockReason>,
+  reason: SeoListingCanaryBlockReason,
+) {
+  reasons.add(reason);
 }
 
 function jobInstant(job: { run_created_at: string; created_at: string }) {
@@ -224,8 +295,30 @@ export function summarizeSeoVerifiedExposureProgress(
 export function summarizeSeoListingCanaryReadiness(
   lifecycleRows: SeoListingLifecycleSummaryRow[],
   actionRows: SeoListingCanaryActionRow[],
-  exposureDays = 60,
+  options: number | SeoListingCanaryOptions = {},
 ): SeoListingCanaryReadiness {
+  const configuration =
+    typeof options === "number" ? { exposureDays: options } : options;
+  const exposureDays = Math.max(
+    1,
+    nonNegativeInteger(configuration.exposureDays ?? 60),
+  );
+  const requiredMarketListingCount = Math.max(
+    1,
+    nonNegativeInteger(
+      configuration.requiredMarketListingCount ??
+        SEO_LISTING_CANARY_REQUIRED_MARKET_LISTING_COUNT,
+    ),
+  );
+  const readbackMaxAgeHours = Math.max(
+    1,
+    nonNegativeInteger(
+      configuration.readbackMaxAgeHours ??
+        SEO_LISTING_CANARY_READBACK_MAX_AGE_HOURS,
+    ),
+  );
+  const nowMs = (configuration.now ?? new Date()).getTime();
+  const readbackMaxAgeMs = readbackMaxAgeHours * 60 * 60 * 1000;
   const lifecycleByProduct = new Map<
     string,
     SeoListingLifecycleSummaryRow[]
@@ -244,15 +337,8 @@ export function summarizeSeoListingCanaryReadiness(
     SeoListingCanaryActionRow[]
   >();
   for (const row of actionRows) {
-    if (text(row.status) !== "shadow" || row.shadow_mode !== true) continue;
     const lifecycleRecordId = text(row.lifecycle_record_id);
-    const actionType = text(row.action_type);
-    if (
-      !lifecycleRecordId ||
-      (actionType !== "SOLD_OUT" && actionType !== "DELETE")
-    ) {
-      continue;
-    }
+    if (!lifecycleRecordId) continue;
     const rows = actionsByLifecycleRecord.get(lifecycleRecordId) ?? [];
     rows.push(row);
     actionsByLifecycleRecord.set(lifecycleRecordId, rows);
@@ -261,6 +347,9 @@ export function summarizeSeoListingCanaryReadiness(
   const readyCandidates: Array<
     NonNullable<SeoListingCanaryReadiness["selectedCandidate"]>
   > = [];
+  const blockingReasonCounts: Partial<
+    Record<SeoListingCanaryBlockReason, number>
+  > = {};
   let dueProductCount = 0;
   for (const [launchItemId, rows] of lifecycleByProduct) {
     const dueRows = rows.filter((row) => {
@@ -277,25 +366,91 @@ export function summarizeSeoListingCanaryReadiness(
     });
     if (dueRows.length === 0) continue;
     dueProductCount += 1;
-    if (dueRows.length !== rows.length) continue;
+    const blockingReasons = new Set<SeoListingCanaryBlockReason>();
+    if (rows.length !== requiredMarketListingCount) {
+      addBlockingReason(blockingReasons, "MARKET_LISTING_COUNT_MISMATCH");
+    }
+    if (dueRows.length !== rows.length) {
+      addBlockingReason(blockingReasons, "LIFECYCLE_EVIDENCE_INCOMPLETE");
+    }
+
+    const currentRunIds = new Set(
+      rows.map((row) => text(row.current_run_id)).filter(Boolean),
+    );
+    if (currentRunIds.size !== 1 || rows.some((row) => !text(row.current_run_id))) {
+      addBlockingReason(
+        blockingReasons,
+        "CURRENT_RUN_ID_MISSING_OR_MISMATCHED",
+      );
+    }
+    const currentRunId = [...currentRunIds][0] ?? "";
+    const goodsKeys = rows.map((row) => text(row.goods_key));
+    const marketAccountKeys = rows.map((row) => text(row.market_account_key));
+    if (
+      goodsKeys.some((value) => !value) ||
+      marketAccountKeys.some((value) => !value) ||
+      new Set(goodsKeys).size !== rows.length ||
+      new Set(marketAccountKeys).size !== rows.length
+    ) {
+      addBlockingReason(
+        blockingReasons,
+        "LISTING_IDENTITY_MISSING_OR_DUPLICATED",
+      );
+    }
+
+    const liveReadbacks = rows.map((row) => text(row.last_verified_live_at));
+    if (
+      rows.some((row) => {
+        const evidence = record(row.evidence);
+        return (
+          !isFreshPastInstant(
+            row.last_verified_live_at,
+            nowMs,
+            readbackMaxAgeMs,
+          ) ||
+          text(evidence.shoplingSaleStatus) !== "B" ||
+          evidence.externalMarketWrite !== false
+        );
+      })
+    ) {
+      addBlockingReason(blockingReasons, "LIVE_READBACK_MISSING_OR_STALE");
+    }
 
     const candidateActions: SeoListingCanaryActionRow[] = [];
-    let complete = true;
     for (const lifecycleRow of rows) {
       const lifecycleRecordId = text(lifecycleRow.id);
       const goodsKey = text(lifecycleRow.goods_key);
       const marketAccountKey = text(lifecycleRow.market_account_key);
       if (!lifecycleRecordId || !goodsKey || !marketAccountKey) {
-        complete = false;
-        break;
+        addBlockingReason(
+          blockingReasons,
+          "LISTING_IDENTITY_MISSING_OR_DUPLICATED",
+        );
+        continue;
       }
-      const matchingActions = (
-        actionsByLifecycleRecord.get(lifecycleRecordId) ?? []
-      ).filter(
+      const allRecordActions =
+        actionsByLifecycleRecord.get(lifecycleRecordId) ?? [];
+      if (
+        allRecordActions.some((action) =>
+          ACTIVE_OR_UNCERTAIN_ACTION_STATUSES.has(text(action.status)),
+        )
+      ) {
+        addBlockingReason(
+          blockingReasons,
+          "ACTIVE_OR_UNCERTAIN_ACTION_EXISTS",
+        );
+      }
+      const currentRunActions = allRecordActions.filter(
+        (action) => text(action.run_id) === currentRunId,
+      );
+      const matchingActions = currentRunActions.filter(
         (action) =>
           text(action.launch_item_id) === launchItemId &&
           text(action.goods_key) === goodsKey &&
-          text(action.market_account_key) === marketAccountKey,
+          text(action.market_account_key) === marketAccountKey &&
+          text(action.status) === "shadow" &&
+          action.shadow_mode === true &&
+          record(action.evidence).externalMarketWrite === false,
       );
       const soldOutActions = matchingActions.filter(
         (action) => text(action.action_type) === "SOLD_OUT",
@@ -305,18 +460,49 @@ export function summarizeSeoListingCanaryReadiness(
       );
       const requiredActions = [...soldOutActions, ...deleteActions];
       if (
+        currentRunActions.length !== 2 ||
+        matchingActions.length !== 2 ||
         soldOutActions.length !== 1 ||
         deleteActions.length !== 1 ||
         requiredActions.some(
-          (action) => !text(action.scheduled_for) || !instant(action.scheduled_for),
+          (action) =>
+            !text(action.scheduled_for) ||
+            !instant(action.scheduled_for) ||
+            instant(action.scheduled_for) > nowMs + 5 * 60 * 1000 ||
+            Boolean(
+              text(action.claimed_at) ||
+                text(action.executed_at) ||
+                text(action.readback_verified_at),
+            ),
         )
       ) {
-        complete = false;
-        break;
+        addBlockingReason(
+          blockingReasons,
+          "CURRENT_RUN_ACTION_PAIR_INCOMPLETE",
+        );
+        continue;
       }
       candidateActions.push(...requiredActions);
     }
-    if (!complete) continue;
+
+    const dedupeKeys = candidateActions.map((action) => text(action.dedupe_key));
+    if (
+      dedupeKeys.some((value) => !value) ||
+      new Set(dedupeKeys).size !== candidateActions.length
+    ) {
+      addBlockingReason(
+        blockingReasons,
+        "ACTION_DEDUPE_KEY_MISSING_OR_DUPLICATED",
+      );
+    }
+
+    if (blockingReasons.size > 0) {
+      for (const reason of blockingReasons) {
+        blockingReasonCounts[reason] =
+          (blockingReasonCounts[reason] ?? 0) + 1;
+      }
+      continue;
+    }
 
     const verifiedExposureDays = Math.min(
       ...rows.map((row) =>
@@ -331,9 +517,12 @@ export function summarizeSeoListingCanaryReadiness(
       launchItemId,
       modelNumber: text(rows[0]?.model_number),
       productName: text(rows[0]?.product_name),
+      currentRunId,
       marketListingCount: rows.length,
       actionCount: candidateActions.length,
+      dedupeKeyCount: new Set(dedupeKeys).size,
       verifiedExposureDays,
+      latestLiveReadbackAt: liveReadbacks.sort().at(-1) ?? "",
       scheduledFor,
     });
   }
@@ -344,11 +533,20 @@ export function summarizeSeoListingCanaryReadiness(
       left.launchItemId.localeCompare(right.launchItemId),
   );
   return {
+    preflightVersion: "seo-listing-canary-preflight-v1",
     dueProductCount,
     readyProductCount: readyCandidates.length,
     blockedProductCount: dueProductCount - readyCandidates.length,
+    requiredMarketListingCount,
+    requiredActionCount: requiredMarketListingCount * 2,
+    readbackMaxAgeHours,
+    blockingReasonCounts,
     approvalRequired: true,
     externalMarketWrite: false,
+    executionLocked: true,
+    autoRetryOnUncertain: false,
+    recoveryMode: "STOP_AND_CONFIRM_READBACK",
+    executionSteps: SEO_LISTING_CANARY_EXECUTION_STEPS,
     selectedCandidate: readyCandidates[0] ?? null,
   };
 }

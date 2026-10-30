@@ -120,29 +120,46 @@ function lifecycleCanaryRow(overrides = {}) {
     model_number: "AAA001",
     product_name: "시험 상품",
     goods_key: "goods-1",
+    current_run_id: "run-canary-1",
+    last_verified_live_at: "2026-12-28T02:30:00.000Z",
     state: "LIVE",
     exposure_verified: true,
     requires_review: false,
     sales_count_during_attempt: 0,
-    evidence: { verifiedExposureDays: 60 },
+    evidence: {
+      verifiedExposureDays: 60,
+      shoplingSaleStatus: "B",
+      externalMarketWrite: false,
+    },
     ...overrides,
   };
 }
 
 function canaryAction(actionType, overrides = {}) {
+  const lifecycleRecordId = overrides.lifecycle_record_id ?? "record-1";
   return {
     id: `action-${actionType}`,
-    lifecycle_record_id: "record-1",
+    lifecycle_record_id: lifecycleRecordId,
     market_account_key: "market-1",
     launch_item_id: "launch-1",
+    run_id: "run-canary-1",
     goods_key: "goods-1",
     action_type: actionType,
     status: "shadow",
     shadow_mode: true,
+    dedupe_key: `${lifecycleRecordId}-${actionType}`,
     scheduled_for: "2026-12-28T02:00:00.000Z",
+    evidence: { externalMarketWrite: false },
     ...overrides,
   };
 }
+
+const CANARY_OPTIONS = {
+  exposureDays: 60,
+  requiredMarketListingCount: 2,
+  readbackMaxAgeHours: 24,
+  now: new Date("2026-12-28T03:00:00.000Z"),
+};
 
 test("canary readiness selects one complete product without enabling external writes", () => {
   const summary = summarizeSeoListingCanaryReadiness(
@@ -170,20 +187,33 @@ test("canary readiness selects one complete product without enabling external wr
         goods_key: "goods-2",
       }),
     ],
+    CANARY_OPTIONS,
   );
   assert.equal(summary.dueProductCount, 1);
   assert.equal(summary.readyProductCount, 1);
   assert.equal(summary.blockedProductCount, 0);
   assert.equal(summary.selectedCandidate?.marketListingCount, 2);
   assert.equal(summary.selectedCandidate?.actionCount, 4);
+  assert.equal(summary.selectedCandidate?.dedupeKeyCount, 4);
   assert.equal(summary.approvalRequired, true);
   assert.equal(summary.externalMarketWrite, false);
+  assert.equal(summary.executionLocked, true);
+  assert.equal(summary.autoRetryOnUncertain, false);
+  assert.equal(summary.recoveryMode, "STOP_AND_CONFIRM_READBACK");
+  assert.deepEqual(summary.executionSteps, [
+    "RECHECK_LIVE_AND_ZERO_SALES",
+    "SOLD_OUT",
+    "VERIFY_SOLD_OUT_READBACK",
+    "DELETE",
+    "VERIFY_DELETE_READBACK",
+  ]);
 });
 
 test("canary readiness fails closed when one market action pair is incomplete", () => {
   const summary = summarizeSeoListingCanaryReadiness(
     [lifecycleCanaryRow()],
     [canaryAction("SOLD_OUT")],
+    { ...CANARY_OPTIONS, requiredMarketListingCount: 1 },
   );
   assert.equal(summary.dueProductCount, 1);
   assert.equal(summary.readyProductCount, 0);
@@ -195,6 +225,7 @@ test("canary readiness fails closed on malformed sales or scheduling evidence", 
   const malformedSales = summarizeSeoListingCanaryReadiness(
     [lifecycleCanaryRow({ sales_count_during_attempt: "" })],
     [canaryAction("SOLD_OUT"), canaryAction("DELETE")],
+    { ...CANARY_OPTIONS, requiredMarketListingCount: 1 },
   );
   assert.equal(malformedSales.dueProductCount, 0);
 
@@ -204,6 +235,7 @@ test("canary readiness fails closed on malformed sales or scheduling evidence", 
       canaryAction("SOLD_OUT"),
       canaryAction("DELETE", { scheduled_for: null }),
     ],
+    { ...CANARY_OPTIONS, requiredMarketListingCount: 1 },
   );
   assert.equal(missingSchedule.dueProductCount, 1);
   assert.equal(missingSchedule.readyProductCount, 0);
@@ -221,9 +253,106 @@ test("canary readiness excludes products with sales or review flags", () => {
       }),
     ],
     [canaryAction("SOLD_OUT"), canaryAction("DELETE")],
+    { ...CANARY_OPTIONS, requiredMarketListingCount: 1 },
   );
   assert.equal(summary.dueProductCount, 0);
   assert.equal(summary.readyProductCount, 0);
+});
+
+test("canary readiness requires six exact market listings in production mode", () => {
+  const incomplete = summarizeSeoListingCanaryReadiness(
+    [lifecycleCanaryRow()],
+    [canaryAction("SOLD_OUT"), canaryAction("DELETE")],
+    {
+      exposureDays: 60,
+      requiredMarketListingCount: 6,
+      readbackMaxAgeHours: 24,
+      now: CANARY_OPTIONS.now,
+    },
+  );
+  assert.equal(incomplete.readyProductCount, 0);
+  assert.equal(
+    incomplete.blockingReasonCounts.MARKET_LISTING_COUNT_MISMATCH,
+    1,
+  );
+});
+
+test("canary readiness blocks stale readback and active or uncertain work", () => {
+  const summary = summarizeSeoListingCanaryReadiness(
+    [
+      lifecycleCanaryRow({
+        last_verified_live_at: "2026-12-26T00:00:00.000Z",
+      }),
+    ],
+    [
+      canaryAction("SOLD_OUT"),
+      canaryAction("DELETE"),
+      canaryAction("DELETE", {
+        id: "active-delete",
+        status: "confirm_needed",
+        shadow_mode: false,
+        dedupe_key: "active-delete-key",
+      }),
+    ],
+    { ...CANARY_OPTIONS, requiredMarketListingCount: 1 },
+  );
+  assert.equal(summary.readyProductCount, 0);
+  assert.equal(summary.blockedProductCount, 1);
+  assert.equal(summary.blockingReasonCounts.LIVE_READBACK_MISSING_OR_STALE, 1);
+  assert.equal(
+    summary.blockingReasonCounts.ACTIVE_OR_UNCERTAIN_ACTION_EXISTS,
+    1,
+  );
+});
+
+test("canary readiness blocks duplicated idempotency keys", () => {
+  const summary = summarizeSeoListingCanaryReadiness(
+    [lifecycleCanaryRow()],
+    [
+      canaryAction("SOLD_OUT", { dedupe_key: "same-key" }),
+      canaryAction("DELETE", { dedupe_key: "same-key" }),
+    ],
+    { ...CANARY_OPTIONS, requiredMarketListingCount: 1 },
+  );
+  assert.equal(summary.readyProductCount, 0);
+  assert.equal(
+    summary.blockingReasonCounts.ACTION_DEDUPE_KEY_MISSING_OR_DUPLICATED,
+    1,
+  );
+});
+
+test("canary readiness rejects action pairs from another SEO run", () => {
+  const summary = summarizeSeoListingCanaryReadiness(
+    [lifecycleCanaryRow()],
+    [
+      canaryAction("SOLD_OUT", { run_id: "older-run" }),
+      canaryAction("DELETE", { run_id: "older-run" }),
+    ],
+    { ...CANARY_OPTIONS, requiredMarketListingCount: 1 },
+  );
+  assert.equal(summary.readyProductCount, 0);
+  assert.equal(
+    summary.blockingReasonCounts.CURRENT_RUN_ACTION_PAIR_INCOMPLETE,
+    1,
+  );
+});
+
+test("canary readiness rejects a shadow action that already has execution timestamps", () => {
+  const summary = summarizeSeoListingCanaryReadiness(
+    [lifecycleCanaryRow()],
+    [
+      canaryAction("SOLD_OUT", {
+        claimed_at: "2026-12-28T02:10:00.000Z",
+      }),
+      canaryAction("DELETE"),
+    ],
+    { ...CANARY_OPTIONS, requiredMarketListingCount: 1 },
+  );
+  assert.equal(summary.readyProductCount, 0);
+  assert.equal(
+    summary.blockingReasonCounts.CURRENT_RUN_ACTION_PAIR_INCOMPLETE,
+    1,
+  );
 });
 
 test("one-look outcome summary uses only the latest run per product", () => {
