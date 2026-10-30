@@ -21,6 +21,7 @@ on:
       - "tests/shoplingStockStateHf38.test.mjs"
       - "tests/shoplingStockStateHf39.test.mjs"
       - "tests/shoplingStockStateHf40.test.mjs"
+      - "tests/shoplingStockStateHf41.test.mjs"
       - "tests/shoplingStockWatchdogHeartbeat.test.mjs"
       - "tests/shoplingOptionA21BatchHF29.test.mjs"
       - "tests/inventoryStockSalesTail.test.mjs"
@@ -75,6 +76,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf39.test.mjs
       - name: Regression - HF40 exact A4/A21 paths
         run: node --experimental-strip-types --test tests/shoplingStockStateHf40.test.mjs
+      - name: Regression - HF41 long SINGLE result recovery
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf41.test.mjs
       - name: Regression - v0.4.1 sync
         run: node --test tests/shoplingStockStateSyncV041.test.mjs
       - name: Regression - reset-tail coverage
