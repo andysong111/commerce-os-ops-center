@@ -222,7 +222,7 @@ export function PurchaseCycleDraftActions({
         <div className="flex flex-wrap items-center gap-3">
           {!ready ? <a href="#preflight-result-title" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-black text-blue-800 hover:bg-blue-100">남은 확인 항목 보기</a> : null}
           <button type="button" onClick={save} disabled={!ready || saving} className="min-h-11 rounded-lg bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
-            {saving ? "발주안 여는 중..." : "발주안 바로 보기"}
+            {saving ? "발주안 저장 중..." : "발주안 확인하고 저장"}
           </button>
         </div>
         {notice ? <p className="w-full border-l-4 border-blue-500 bg-white px-3 py-2 text-sm font-bold">{notice}</p> : null}
