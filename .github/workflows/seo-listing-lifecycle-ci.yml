@@ -7,6 +7,8 @@ on:
       - "src/lib/seoListingLifecycleReconciliation.ts"
       - "src/lib/seoListingLifecycleReconciliationServer.ts"
       - "src/lib/seoListingLegacyOnboarding.ts"
+      - "src/lib/seoListingShoplingBCodeOnboarding.ts"
+      - "src/lib/seoListingShoplingBCodeOnboardingServer.ts"
       - "src/lib/seoListingAutomationDashboard.ts"
       - "src/lib/seoMarketCapacityReadback.ts"
       - "src/lib/seoShoplingProductDbCapacity.ts"
@@ -28,6 +30,8 @@ on:
       - "tests/seoListingLifecyclePolicy.test.mjs"
       - "tests/seoListingLifecycleReconciliation.test.mjs"
       - "tests/seoListingLegacyOnboarding.test.mjs"
+      - "tests/seoListingShoplingBCodeOnboarding.test.mjs"
+      - "scripts/shopling-bcode-catalog-preview.mjs"
       - "tests/seoListingAutomationDashboard.test.mjs"
       - "tests/seoListingAutomationContract.test.mjs"
       - "tests/seoMarketCapacityReadback.test.mjs"
@@ -62,6 +66,8 @@ jobs:
           src/lib/seoListingLifecycleReconciliation.ts
           src/lib/seoListingLifecycleReconciliationServer.ts
           src/lib/seoListingLegacyOnboarding.ts
+          src/lib/seoListingShoplingBCodeOnboarding.ts
+          src/lib/seoListingShoplingBCodeOnboardingServer.ts
           src/lib/seoListingAutomationDashboard.ts
           src/lib/seoMarketCapacityReadback.ts
           src/lib/seoShoplingProductDbCapacity.ts
@@ -78,6 +84,8 @@ jobs:
           tests/seoListingLifecyclePolicy.test.mjs
           tests/seoListingLifecycleReconciliation.test.mjs
           tests/seoListingLegacyOnboarding.test.mjs
+          tests/seoListingShoplingBCodeOnboarding.test.mjs
+          scripts/shopling-bcode-catalog-preview.mjs
           tests/seoListingAutomationDashboard.test.mjs
           tests/seoListingAutomationContract.test.mjs
           tests/seoMarketCapacityReadback.test.mjs
@@ -90,6 +98,7 @@ jobs:
           tests/seoListingLifecyclePolicy.test.mjs
           tests/seoListingLifecycleReconciliation.test.mjs
           tests/seoListingLegacyOnboarding.test.mjs
+          tests/seoListingShoplingBCodeOnboarding.test.mjs
           tests/seoListingAutomationDashboard.test.mjs
           tests/seoListingAutomationContract.test.mjs
           tests/seoMarketCapacityReadback.test.mjs

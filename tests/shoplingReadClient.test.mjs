@@ -146,6 +146,18 @@ test("request builder contains read gather fields and keeps credentials in CDATA
   assert.match(request, /mall_ord_cnt/);
 });
 
+test("product catalog scans can use the official registration-date search", () => {
+  const request = buildShoplingReadRequestXml(
+    "products",
+    { loginId: "id", companyId: "company", authKey: "secret" },
+    { start: "2026-08-01", end: "2026-08-31" },
+    { productSearchType: "등록일" },
+  );
+  assert.match(request, /<search_tp><!\[CDATA\[등록일\]\]><\/search_tp>/);
+  assert.match(request, /<opt_yn>Y<\/opt_yn>/);
+  assert.match(request, /prod_group/);
+});
+
 test("date ranges enforce seven-day order chunks", () => {
   assert.deepEqual(splitShoplingDateRange("2026-07-20", "2026-08-05", 7), [
     { start: "2026-07-20", end: "2026-07-26" },
