@@ -1,11 +1,16 @@
 import type { PurchaseCandidateOmissionReviewRow } from "./purchaseCandidateOmissionAudit.ts";
-import { roughStockCorrectionHref } from "./roughStockCorrectionTargets.ts";
+
+export type PurchaseCycleRoughStockTarget = {
+  barcode: string;
+  productName: string;
+};
 
 export type PurchaseCycleBlockerAction = {
   title: string;
   message: string;
   href?: string;
   hrefLabel?: string;
+  roughStockTargets?: PurchaseCycleRoughStockTarget[];
 };
 
 type PurchaseCycleBlockerActionReport = {
@@ -53,11 +58,11 @@ export function purchaseCycleBlockerActions(
       const remainder = Math.max(0, inventoryConflicts.length - 5);
       actions.push({
         title: `재고 충돌 ${inventoryConflicts.length}종 확인`,
-        message: `${products}${remainder ? ` 외 ${remainder}종` : ""}. 샵플링 재고는 0인데 재고원장은 양수입니다. 판매자료 재수집 문제가 아니므로 실제 재고를 확인해 재고상태를 바로잡은 뒤 이 화면에서 다시 계산하세요.`,
-        href: roughStockCorrectionHref(
-          inventoryConflicts.map((row) => row.barcode),
-        ),
-        hrefLabel: "재고 상태 확인·수정",
+        message: `${products}${remainder ? ` 외 ${remainder}종` : ""}. 샵플링 재고는 0인데 재고원장은 양수입니다. 아래에서 대략재고를 선택하고 저장하면 같은 발주차시를 바로 다시 계산합니다. 판매자료를 다시 수집할 필요는 없습니다.`,
+        roughStockTargets: inventoryConflicts.map((row) => ({
+          barcode: row.barcode,
+          productName: row.productName,
+        })),
       });
     }
 

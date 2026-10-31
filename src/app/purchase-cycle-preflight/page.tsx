@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { PurchaseCycleDraftActions } from "@/components/purchase-cycle-preflight/PurchaseCycleDraftActions";
 import { BulkSourcingCandidateButton } from "@/components/purchase-cycle-preflight/BulkSourcingCandidateButton";
 import { NewProductConfigurationCalculateButton } from "@/components/purchase-cycle-preflight/NewProductConfigurationCalculateButton";
+import { InlineRoughStockCorrection } from "@/components/purchase-cycle-preflight/InlineRoughStockCorrection";
 import { PurchasePreflightForm } from "@/components/purchase-cycle-preflight/PurchasePreflightForm";
 import { SourcingCandidateSelectionForm } from "@/components/purchase-cycle-preflight/SourcingCandidateSelectionForm";
 import { PurchaseStrategyControls } from "@/components/purchase-cycle-preflight/PurchaseStrategyControls";
@@ -755,7 +756,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                 {actionItems.length ? (
                   <ol className="mt-4 grid gap-3 sm:grid-cols-2">
                     {actionItems.map((item, index) => <li key={`${item.title}:${index}`} className="min-w-0 border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm leading-6">
-                      <div className="flex min-w-0 gap-3"><span className="font-black text-amber-700">{index + 1}</span><div className="min-w-0"><strong className="text-slate-950">{item.title}</strong><p className="mt-1 break-words text-slate-700">{item.message}</p>{item.href ? <Link prefetch={false} href={item.href} className="mt-2 inline-block font-black text-blue-700 underline">{item.hrefLabel}</Link> : null}</div></div>
+                      <div className="flex min-w-0 gap-3"><span className="font-black text-amber-700">{index + 1}</span><div className="min-w-0"><strong className="text-slate-950">{item.title}</strong><p className="mt-1 break-words text-slate-700">{item.message}</p>{item.href ? <Link prefetch={false} href={item.href} className="mt-2 inline-block font-black text-blue-700 underline">{item.hrefLabel}</Link> : null}{item.roughStockTargets ? <InlineRoughStockCorrection targets={item.roughStockTargets} resolutionScope={`${report.targetDate}:${report.replacementDraftId ?? "new"}`} /> : null}</div></div>
                     </li>)}
                   </ol>
                 ) : <p className="mt-4 text-sm leading-6 text-emerald-800">품목과 금액을 검토한 뒤 이번 발주차시 Draft를 저장하세요.</p>}

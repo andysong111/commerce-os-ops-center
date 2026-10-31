@@ -108,6 +108,34 @@ test("matching positive ledger inventory holds the order without freezing the mo
   assert.equal(rows[0].ledgerInventoryQuantity, 500);
 });
 
+test("an explicit rough-stock band proves the purchase engine accounted for the conflict", () => {
+  const rows = audit({
+    products: [planning({ inventoryQuantity: 25 })],
+    rows: [priority({ inventoryQuantity: 25, operatorStockBand: "LOW" })],
+    inventory: [["BCA5-1", { inventoryQuantity: 500 }]],
+    sources: [["BCA5-1", metadata({ shoplingQuantity: 0 })]],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].severity, "PREPARATION");
+  assert.deepEqual(rows[0].reasons, ["SHOPLING_ZERO_LEDGER_POSITIVE"]);
+  assert.equal(rows[0].planningInventoryQuantity, 25);
+  assert.equal(rows[0].ledgerInventoryQuantity, 500);
+});
+
+test("an unknown stock-band value cannot bypass a ledger conflict", () => {
+  const rows = audit({
+    products: [planning({ inventoryQuantity: 25 })],
+    rows: [priority({ inventoryQuantity: 25, operatorStockBand: "UNKNOWN" })],
+    inventory: [["BCA5-1", { inventoryQuantity: 500 }]],
+    sources: [["BCA5-1", metadata({ shoplingQuantity: 0 })]],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].severity, "BLOCKING");
+  assert.ok(rows[0].reasons.includes("SHOPLING_ZERO_LEDGER_POSITIVE"));
+});
+
 test("missing purchase-engine row keeps a Shopling-zero ledger conflict blocking", () => {
   const rows = audit({
     products: [planning({ inventoryQuantity: 500 })],
