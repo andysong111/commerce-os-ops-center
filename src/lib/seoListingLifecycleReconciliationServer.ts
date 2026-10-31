@@ -74,6 +74,88 @@ async function throwIfError(
   if (result.error) throw new Error(`${label}:${result.error.message}`);
 }
 
+type SupabaseAdminClient = NonNullable<
+  Awaited<ReturnType<typeof createSupabaseAdminClient>>
+>;
+
+export async function persistSeoListingLifecycleSeedRecords(input: {
+  admin: SupabaseAdminClient;
+  ownerId: string;
+  generatedAt: string;
+  records: SeoListingShadowSeedRecord[];
+}) {
+  const policyResult = await input.admin
+    .from("seo_listing_rotation_policies")
+    .upsert(
+      {
+        owner_id: input.ownerId,
+        mode: "shadow",
+        enabled: false,
+        exposure_days: 60,
+        cooldown_days: 90,
+        max_attempts: 3,
+        timezone: "Asia/Seoul",
+        updated_at: input.generatedAt,
+      },
+      { onConflict: "owner_id", ignoreDuplicates: true },
+    );
+  await throwIfError("SEO_LIFECYCLE_POLICY_SEED_FAILED", policyResult);
+
+  const inserted: UnknownRecord[] = [];
+  for (const batch of chunks(input.records)) {
+    const result = await input.admin
+      .from("seo_listing_lifecycle_records")
+      .upsert(batch, {
+        onConflict: "owner_id,market_account_key,launch_item_id",
+        ignoreDuplicates: true,
+      })
+      .select(
+        "id,owner_id,market_account_key,launch_item_id,state,attempt_count,review_reason,evidence,evaluated_at",
+      );
+    await throwIfError("SEO_LIFECYCLE_RECORD_SEED_FAILED", result);
+    inserted.push(...asRows(result.data));
+  }
+
+  const plannedByIdentity = new Map(
+    input.records.map((record) => [
+      `${record.owner_id}\u0000${record.market_account_key}\u0000${record.launch_item_id}`,
+      record,
+    ]),
+  );
+  const events = inserted.flatMap((saved) => {
+    const record = plannedByIdentity.get(
+      `${text(saved.owner_id)}\u0000${text(saved.market_account_key)}\u0000${text(saved.launch_item_id)}`,
+    );
+    const id = text(saved.id);
+    if (!record || !id) return [];
+    return [
+      {
+        owner_id: input.ownerId,
+        lifecycle_record_id: id,
+        previous_state: null,
+        new_state: record.state,
+        action: eventAction(record),
+        attempt_count: record.attempt_count,
+        reason_code: eventReason(record),
+        shadow_mode: true,
+        evidence: record.evidence,
+        rule_version: record.rule_version,
+        evaluated_at: record.evaluated_at,
+      },
+    ];
+  });
+  for (const batch of chunks(events)) {
+    const result = await input.admin
+      .from("seo_listing_lifecycle_events")
+      .insert(batch);
+    await throwIfError("SEO_LIFECYCLE_EVENT_SEED_FAILED", result);
+  }
+  return {
+    insertedRecordCount: inserted.length,
+    insertedEventCount: events.length,
+  };
+}
+
 export async function reconcileSeoListingLifecycleShadow(
   context: SeoRunJobContext,
   options: { apply?: boolean; now?: Date } = {},
@@ -251,70 +333,18 @@ export async function reconcileSeoListingLifecycleShadow(
     };
   }
 
-  const policyResult = await admin.from("seo_listing_rotation_policies").upsert(
-    {
-      owner_id: ownerId,
-      mode: "shadow",
-      enabled: false,
-      exposure_days: 60,
-      cooldown_days: 90,
-      max_attempts: 3,
-      timezone: "Asia/Seoul",
-      updated_at: plan.generatedAt,
-    },
-    { onConflict: "owner_id", ignoreDuplicates: true },
-  );
-  await throwIfError("SEO_LIFECYCLE_POLICY_SEED_FAILED", policyResult);
-
-  const inserted: UnknownRecord[] = [];
-  for (const batch of chunks(plan.records)) {
-    const result = await admin
-      .from("seo_listing_lifecycle_records")
-      .upsert(batch, {
-        onConflict: "owner_id,market_account_key,launch_item_id",
-        ignoreDuplicates: true,
-      })
-      .select("id,owner_id,market_account_key,launch_item_id,state,attempt_count,review_reason,evidence,evaluated_at");
-    await throwIfError("SEO_LIFECYCLE_RECORD_SEED_FAILED", result);
-    inserted.push(...asRows(result.data));
-  }
-
-  const plannedByIdentity = new Map(
-    plan.records.map((record) => [
-      `${record.owner_id}\u0000${record.market_account_key}\u0000${record.launch_item_id}`,
-      record,
-    ]),
-  );
-  const events = inserted.flatMap((saved) => {
-    const record = plannedByIdentity.get(
-      `${text(saved.owner_id)}\u0000${text(saved.market_account_key)}\u0000${text(saved.launch_item_id)}`,
-    );
-    const id = text(saved.id);
-    if (!record || !id) return [];
-    return [{
-      owner_id: ownerId,
-      lifecycle_record_id: id,
-      previous_state: null,
-      new_state: record.state,
-      action: eventAction(record),
-      attempt_count: record.attempt_count,
-      reason_code: eventReason(record),
-      shadow_mode: true,
-      evidence: record.evidence,
-      rule_version: record.rule_version,
-      evaluated_at: record.evaluated_at,
-    }];
+  const persisted = await persistSeoListingLifecycleSeedRecords({
+    admin,
+    ownerId,
+    generatedAt: plan.generatedAt,
+    records: plan.records,
   });
-  for (const batch of chunks(events)) {
-    const result = await admin.from("seo_listing_lifecycle_events").insert(batch);
-    await throwIfError("SEO_LIFECYCLE_EVENT_SEED_FAILED", result);
-  }
 
   return {
     ...plan,
     internalWriteApplied: true,
-    insertedRecordCount: inserted.length,
-    insertedEventCount: events.length,
+    insertedRecordCount: persisted.insertedRecordCount,
+    insertedEventCount: persisted.insertedEventCount,
     shoplingReadback: {
       requestedGoodsKeyCount: snapshot.requestedGoodsKeyCount,
       sourceRowCount: snapshot.sourceRowCount,

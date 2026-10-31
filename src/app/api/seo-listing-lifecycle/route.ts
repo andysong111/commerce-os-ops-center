@@ -24,6 +24,7 @@ import {
   SEO_SHOPLING_PRODUCT_DB_MAX_AGE_HOURS,
 } from "@/lib/seoShoplingProductDbCapacity";
 import { reconcileSeoListingLifecycleShadow } from "@/lib/seoListingLifecycleReconciliationServer";
+import { reconcileSeoListingShoplingBCodeOnboarding } from "@/lib/seoListingShoplingBCodeOnboardingServer";
 import { refreshSeoListingLifecycleShadowDaily } from "@/lib/seoListingLifecycleDailyRefreshServer";
 import { listSeoRunJobs } from "@/lib/seoRunJobServer";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
@@ -68,6 +69,37 @@ function reconciliationSummary(value: unknown) {
       row.legacyOnboarding && typeof row.legacyOnboarding === "object"
         ? row.legacyOnboarding
         : null,
+    productReviews: Array.isArray(row.productReviews)
+      ? row.productReviews
+      : [],
+    externalMarketWrite: false,
+  };
+}
+
+function shoplingBCodeOnboardingSummary(value: unknown) {
+  const row =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as UnknownRecord)
+      : {};
+  return {
+    generatedAt: row.generatedAt,
+    source: row.source,
+    scan: row.scan,
+    productsExamined: row.productsExamined,
+    productsMatchedCurrentShopling: row.productsMatchedCurrentShopling,
+    productsUnmatchedCurrentShopling: row.productsUnmatchedCurrentShopling,
+    productsPreparedForVerification: row.productsPreparedForVerification,
+    productsSkippedExisting: row.productsSkippedExisting,
+    productsNeedingReview: row.productsNeedingReview,
+    currentCatalogGoodsKeyCount: row.currentCatalogGoodsKeyCount,
+    deletedCatalogGoodsKeyCount: row.deletedCatalogGoodsKeyCount,
+    unresolvedCatalogGoodsKeyCount: row.unresolvedCatalogGoodsKeyCount,
+    liveRecordCount: row.liveRecordCount,
+    protectedRecordCount: row.protectedRecordCount,
+    reviewRecordCount: row.reviewRecordCount,
+    insertedRecordCount: row.insertedRecordCount,
+    insertedEventCount: row.insertedEventCount,
+    internalWriteApplied: row.internalWriteApplied,
     productReviews: Array.isArray(row.productReviews)
       ? row.productReviews
       : [],
@@ -441,6 +473,8 @@ export async function POST(request: NextRequest) {
       "prepare_scheduled_run",
       "preview_shadow_reconciliation",
       "apply_shadow_reconciliation",
+      "preview_shopling_bcode_onboarding",
+      "apply_shopling_bcode_onboarding",
       "refresh_shadow_daily",
     ].includes(action)
   ) {
@@ -476,6 +510,37 @@ export async function POST(request: NextRequest) {
             error instanceof Error
               ? error.message
               : "자동 물갈이 일일 근거 확인에 실패했습니다.",
+          externalMarketWrite: false,
+        },
+        { status: 500 },
+      );
+    }
+  }
+
+  if (
+    action === "preview_shopling_bcode_onboarding" ||
+    action === "apply_shopling_bcode_onboarding"
+  ) {
+    const authenticated = await requireSeoTitleLedgerContext(request);
+    if (!authenticated.ok) return authenticated.response;
+    try {
+      const onboarding = await reconcileSeoListingShoplingBCodeOnboarding(
+        authenticated.value,
+        { apply: action === "apply_shopling_bcode_onboarding" },
+      );
+      return Response.json({
+        ok: true,
+        onboarding: shoplingBCodeOnboardingSummary(onboarding),
+      });
+    } catch (error) {
+      return Response.json(
+        {
+          ok: false,
+          code: "SEO_SHOPLING_BCODE_ONBOARDING_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "샵플링 B코드 상품 대사에 실패했습니다.",
           externalMarketWrite: false,
         },
         { status: 500 },

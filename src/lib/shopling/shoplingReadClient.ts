@@ -8,6 +8,15 @@ export type ShoplingDateRange = {
   end: string;
 };
 
+export type ShoplingProductSearchType =
+  | "수정일"
+  | "등록일"
+  | "판매상태변경일";
+
+export type ShoplingReadOptions = {
+  productSearchType?: ShoplingProductSearchType;
+};
+
 export type ShoplingReadConfig = {
   loginId: string;
   companyId: string;
@@ -38,6 +47,7 @@ const PRODUCT_FIELDS = [
   "season_tp",
   "model_no",
   "sale_status",
+  "prod_group",
 ].join(",");
 
 const ORDER_FIELDS = [
@@ -140,6 +150,7 @@ export function buildShoplingReadRequestXml(
   resource: ShoplingReadResource,
   config: Pick<ShoplingReadConfig, "loginId" | "companyId" | "authKey">,
   range: ShoplingDateRange,
+  options: ShoplingReadOptions = {},
 ) {
   const start = range.start.replaceAll("-", "");
   const end = range.end.replaceAll("-", "");
@@ -153,10 +164,11 @@ export function buildShoplingReadRequestXml(
   ];
 
   if (resource === "products") {
+    const productSearchType = options.productSearchType ?? "수정일";
     return compactXml([
       "<reqst><apiProdGather>",
       ...auth,
-      `<search_tp>${cdata("수정일")}</search_tp>`,
+      `<search_tp>${cdata(productSearchType)}</search_tp>`,
       `<start_dt>${start}</start_dt>`,
       `<end_dt>${end}</end_dt>`,
       `<prod_fields>${cdata(PRODUCT_FIELDS)}</prod_fields>`,
@@ -388,8 +400,17 @@ export class ShoplingReadClient {
     return this.config.claimsUrl;
   }
 
-  async read(resource: ShoplingReadResource, range: ShoplingDateRange) {
-    const xml = buildShoplingReadRequestXml(resource, this.config, range);
+  async read(
+    resource: ShoplingReadResource,
+    range: ShoplingDateRange,
+    options: ShoplingReadOptions = {},
+  ) {
+    const xml = buildShoplingReadRequestXml(
+      resource,
+      this.config,
+      range,
+      options,
+    );
     const response = await postShoplingXml(this.url(resource), xml, {
       headers: {
         accept: "application/xml, text/xml",
@@ -410,9 +431,12 @@ export class ShoplingReadClient {
   async readRanges(
     resource: ShoplingReadResource,
     ranges: ShoplingDateRange[],
+    options: ShoplingReadOptions = {},
   ) {
     const rows: RawObject[] = [];
-    for (const range of ranges) rows.push(...(await this.read(resource, range)));
+    for (const range of ranges) {
+      rows.push(...(await this.read(resource, range, options)));
+    }
     return rows;
   }
 }
