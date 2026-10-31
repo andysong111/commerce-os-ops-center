@@ -60,7 +60,24 @@ function validCode(value: string) { return /^B[A-Z]{1,2}\d+-\d+$/.test(value); }
 // Read-only quarantine for the seven observed legacy launch placeholders only.
 // This is not approval to accept new TMP-shaped identities or generate B-codes.
 const KNOWN_LEGACY_PLACEHOLDERS = new Set(["TMP1-1", "TMP1-2", "TMP1-3", "TMP1-4", "TMP1-5", "TMP1-6", "TMP1-7"]);
+// These exact launch-tracker rows lost their former warehouse locations after
+// those locations were physically reassigned. Keep them visible, but never
+// restore a historical B-code or treat the numeric option barcode as a B-code.
+const KNOWN_LOCATION_UNASSIGNED = new Set([
+  "UNASSIGNED-20261029-000000000873",
+  "UNASSIGNED-20261029-000000000874",
+  "UNASSIGNED-20261029-000000000888",
+  "UNASSIGNED-20261029-000000000889",
+  "UNASSIGNED-20261029-000000000890",
+  "UNASSIGNED-20261029-000000000891",
+  "UNASSIGNED-20261029-000000000944",
+  "UNASSIGNED-20261029-000000000945",
+  "UNASSIGNED-20261029-000000000946",
+  "UNASSIGNED-20261029-000000000947",
+]);
 function temporaryCode(value: string) { return KNOWN_LEGACY_PLACEHOLDERS.has(value); }
+function locationUnassignedCode(value: string) { return KNOWN_LOCATION_UNASSIGNED.has(value); }
+function quarantinedCode(value: string) { return temporaryCode(value) || locationUnassignedCode(value); }
 function quantity(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) >= 0; }
 function finiteNonnegative(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value) && value >= 0; }
 function fresh(value: string | null | undefined, now: number, maxAge: number) {
@@ -121,10 +138,10 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
   const blockers = (input.sourceErrors ?? []).map((value) => issue(value, sourceMessages[value] ?? "필수 원본을 읽지 못했습니다. 읽기 전용 재확인이 필요합니다."));
   const warnings = [...(input.warnings ?? [])];
   const profiles = input.planning?.products.filter((row) => row.skuActive !== false) ?? [];
-  // TMP codes are explicitly unassigned launch placeholders, not canonical
-  // managed B-code SKUs. Retain them visibly in quarantine; never auto-map them.
+  // Exact known TMP and location-unassigned rows are not canonical managed
+  // B-code SKUs. Retain them visibly in quarantine; never auto-map them.
   // Unknown malformed codes still block the entire source, as before.
-  const managedProfiles = profiles.filter((row) => !temporaryCode(code(row.barcode)));
+  const managedProfiles = profiles.filter((row) => !quarantinedCode(code(row.barcode)));
   const quarantinedSkuCount = profiles.length - managedProfiles.length;
   const stocks = input.stock?.rows ?? [];
   const auditRows = input.audit?.snapshot?.rows ?? [];
@@ -159,7 +176,7 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
     }
   }
   if (!input.ledger || input.ledger.invalidEventCount > 0) blockers.push(issue("COMMITMENTS_UNAVAILABLE", "기존 발주·입고대기 원장을 완전히 확인하지 못했습니다."));
-  if (profiles.some((row) => !validCode(code(row.barcode)) && !temporaryCode(code(row.barcode)))) blockers.push(issue("CATALOG_INVALID_BARCODE", "상품 기준정보에 잘못된 B코드가 있습니다."));
+  if (profiles.some((row) => !validCode(code(row.barcode)) && !quarantinedCode(code(row.barcode)))) blockers.push(issue("CATALOG_INVALID_BARCODE", "상품 기준정보에 잘못된 B코드가 있습니다."));
   const openByCode = new Map<string, number>();
   const manualGapByCode = new Map<string, number>();
   for (const row of input.ledger?.commitments ?? []) {
@@ -195,6 +212,13 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
       row.issues.push(issue("CATALOG_PLACEHOLDER", "정식 B코드 배정 전 임시 상품입니다. 실제 옵션과 원본을 확인할 때까지 별도 보류하며 자동 발주하지 않습니다.", key));
       if (matches.length !== 1 || !skuId(profile.skuId) || conflictingSkuIds.has(skuId(profile.skuId))) {
         row.issues.push(issue("SKU_IDENTITY_CONFLICT", "임시 코드의 SKU 연결이 중복되거나 비어 있습니다. 정상 B코드와의 중복 여부를 확인해야 합니다.", key));
+      }
+      rows.push(row); continue;
+    }
+    if (locationUnassignedCode(key)) {
+      row.issues.push(issue("CATALOG_LOCATION_UNASSIGNED", "창고 위치가 미배정된 상품입니다. 실물 B코드를 확인할 때까지 별도 보류하며 과거 위치나 옵션 바코드로 자동 연결·발주하지 않습니다.", key));
+      if (matches.length !== 1 || !skuId(profile.skuId) || conflictingSkuIds.has(skuId(profile.skuId))) {
+        row.issues.push(issue("SKU_IDENTITY_CONFLICT", "미배정 상품의 SKU 연결이 중복되거나 비어 있습니다. 정상 B코드와의 중복 여부를 확인해야 합니다.", key));
       }
       rows.push(row); continue;
     }
@@ -277,7 +301,7 @@ export function buildPurchaseCycleReentryShadow(input: ReentryShadowInput): Reen
   const recovery: NonNullable<ReentryShadowReport["recovery"]> = [
     { id: "sales", state: salesBlocked ? "BLOCKED" : demandRowReviewCount ? "REVIEW" : "VERIFIED", message: salesBlocked ? "판매 원장의 수집·반영 단계와 실제 분석시점을 먼저 복구·검증합니다. 화면 새로고침은 원본 수집이 아닙니다." : demandRowReviewCount ? `판매 원본을 읽었지만 ${demandRowReviewCount}개 상품의 판매 연결·기간 구간·SKU 식별 검증이 남았습니다. 해당 상품을 정상 추천으로 사용하지 않습니다.` : "현재 사전 점검의 판매 자료·분석시점 검증을 통과했습니다." },
     { id: "commitments", state: commitmentBlocked ? "BLOCKED" : "VERIFIED", message: commitmentBlocked ? "기존 발주·미입고 원장과 미연결 주문행을 확인합니다. 실제 수량을 다시 입력하거나 주문하지 않습니다." : "전체 발주 원장을 읽고 수동 추가분을 포함한 미입고를 대조했습니다." },
-    { id: "catalog_cost", state: catalogBlocked ? "BLOCKED" : quarantinedSkuCount || costMissingCount || catalogIdentityReviewCount ? "REVIEW" : "VERIFIED", message: `상품 기준정보 ${catalogBlocked ? "조회·범위 확인 필요" : "조회됨"} · 임시 코드 ${quarantinedSkuCount}개 · 원가 미확인 ${costMissingCount}개 · 상품 식별 재확인 ${catalogIdentityReviewCount}개. 기존 원본과 일치하는 근거만 사용하며 판매가로 원가를 만들어 넣지 않습니다.` },
+    { id: "catalog_cost", state: catalogBlocked ? "BLOCKED" : quarantinedSkuCount || costMissingCount || catalogIdentityReviewCount ? "REVIEW" : "VERIFIED", message: `상품 기준정보 ${catalogBlocked ? "조회·범위 확인 필요" : "조회됨"} · 코드 격리 ${quarantinedSkuCount}개 · 원가 미확인 ${costMissingCount}개 · 상품 식별 재확인 ${catalogIdentityReviewCount}개. 기존 원본과 일치하는 근거만 사용하며 판매가로 원가를 만들어 넣지 않습니다.` },
     { id: "stock_sale", state: stockSourceBlocked ? "BLOCKED" : stockReviewCount || baselineWaitingCount ? "REVIEW" : "VERIFIED", message: `재고 원본 ${stockSourceBlocked ? "조회·범위 확인 필요" : "조회됨"} · 기존 근거 재확인 ${stockReviewCount}개 · 기준점 자연 축적 ${baselineWaitingCount}개. 전수 실사를 요구하지 않습니다.` },
     { id: "purchase_day", state: "DEFERRED", message: "발주일 최신 자료·마감매출·실제 투입현금으로 정상 V2를 다시 계산하고 수동 추가 미입고·추정원가 정책 차이를 대조한 뒤 사람이 소량 승인합니다. 날짜가 바뀌어도 이 화면에서 주문·결제는 실행되지 않습니다." },
   ];

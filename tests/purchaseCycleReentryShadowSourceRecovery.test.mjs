@@ -50,6 +50,40 @@ test("production regression: seven TMP placeholders remain visible without poiso
   }
   assert.ok(!pending(report, "CATALOG_DEMAND_SCOPE_MISMATCH")); assert.ok(!pending(report, "CATALOG_INVALID_BARCODE"));
 });
+test("production regression: 495 managed SKUs proceed while the exact 6 TMP and 10 location-unassigned rows remain quarantined", () => {
+  const x = fixture();
+  for (let i = 2; i <= 495; i++) {
+    const managedBarcode = `BQ${i}-1`, skuId = `managed-${i}`;
+    x.planning.products.push({ skuId, barcode: managedBarcode, productName: `managed ${i}`, skuActive: true, latestCostKrw: 1000 });
+    x.audit.snapshot.rows.push({ skuId, barcode: managedBarcode, monthlyUnits: Array(12).fill(100), monthlyRevenue: Array(12).fill(300000) });
+    x.stock.rows.push({ barcode: managedBarcode, resetAt: earlier, resetEventId: `baseline-${i}`, exactInventoryQuantity: 20, salesCoverageReady: true, desiredStatus: "ON_SALE", syncNeeded: false, syncBlocked: false, latestSyncOutcome: "SUCCEEDED" });
+  }
+  x.audit.snapshot.managedActiveSkuCount = 495;
+  for (let i = 2; i <= 7; i++) x.planning.products.push({ skuId: `temporary-${i}`, barcode: `TMP1-${i}`, productName: "awaiting mapping", skuActive: true });
+  const unassigned = [
+    "000000000873", "000000000874", "000000000888", "000000000889", "000000000890",
+    "000000000891", "000000000944", "000000000945", "000000000946", "000000000947",
+  ].map((optionBarcode) => `UNASSIGNED-20261029-${optionBarcode}`);
+  for (const [index, unassignedCode] of unassigned.entries()) {
+    x.planning.products.push({ skuId: `location-unassigned-${index + 1}`, barcode: unassignedCode, productName: "physical B-code confirmation required", skuActive: true });
+  }
+  const report = build(x);
+  assert.equal(report.managedSkuCount, 495); assert.equal(report.quarantinedSkuCount, 16); assert.equal(report.summary.activeSkuCount, 511);
+  assert.equal(report.state, "REVIEW_SHADOW"); assert.equal(report.summary.candidateCount, 495); assert.equal(report.rows.length, 511);
+  assert.ok(!pending(report, "CATALOG_DEMAND_SCOPE_MISMATCH")); assert.ok(!pending(report, "CATALOG_INVALID_BARCODE"));
+  for (const unassignedCode of unassigned) {
+    const row = report.rows.find((candidate) => candidate.barcode === unassignedCode);
+    assert.equal(row.stage, "DATA_HOLD"); assert.ok(issue(row, "CATALOG_LOCATION_UNASSIGNED"));
+    assert.equal(row.candidateQuantity, null); assert.equal(row.stockQuantity, null); assert.equal(row.allocatedQuantity, 0);
+  }
+});
+test("only the ten observed location-unassigned codes are quarantined; a new lookalike still fails closed", () => {
+  const x = fixture(); x.planning.products.push({ skuId: "unknown-unassigned", barcode: "UNASSIGNED-20261029-999999999999", skuActive: true });
+  const report = build(x);
+  assert.equal(report.state, "BLOCKED"); assert.equal(report.quarantinedSkuCount, 0);
+  assert.ok(pending(report, "CATALOG_INVALID_BARCODE")); assert.equal(report.summary.candidateCount, 0);
+  assert.ok(!issue(report.rows.find((row) => row.barcode === "UNASSIGNED-20261029-999999999999"), "CATALOG_LOCATION_UNASSIGNED"));
+});
 test("only explicit TMP placeholders are quarantined; unknown malformed codes still fail closed", () => {
   const x = fixture(); x.planning.products.push({ skuId: "bad", barcode: "UNKNOWN-1", skuActive: true });
   const report = build(x); assert.equal(report.state, "BLOCKED"); assert.ok(pending(report, "CATALOG_INVALID_BARCODE")); assert.equal(report.summary.candidateCount, 0);
