@@ -16,6 +16,7 @@ import {
 } from "@/lib/purchaseCycleBlockerActions";
 import {
   canRecalculateWithPreservedSourcingOnly,
+  explicitSourcingReplacementScope,
   purchaseCycleDraftConfirmation,
   purchaseCycleDraftPlannedTotals,
   sourcingBudgetDecisionFingerprint,
@@ -135,6 +136,7 @@ const sourcingReasonLabels: Record<string, string> = {
   SOURCING_STORAGE_SIZE_REQUIRED: "선정된 신규상품이 소형 수납인지 대형 수납인지 선택해야 합니다.",
   SOURCING_VARIANT_SELECTION_REQUIRED: "판매할 1688 옵션을 하나 이상 선택하고 옵션별 수납 위치를 지정해야 합니다.",
   SOURCING_VARIANT_CAPACITY_EXCEEDED: "선택한 옵션 수가 이번 달 신규 B코드 배정 한도를 초과했습니다.",
+  SOURCING_PREFERRED_CANDIDATE_UNAVAILABLE: "선택한 수동상품의 정확한 1688 옵션·원가 근거를 준비하지 못했습니다.",
   NO_TEST_READY_CANDIDATE: "모든 품질·원가·공급 근거를 통과한 TEST_READY 후보가 없습니다.",
 };
 const sourcingExclusionLabels: Record<string, string> = {
@@ -245,6 +247,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       : [])
     .map((value) => value.trim().toUpperCase())
     .filter(Boolean);
+  let effectiveExcludedBarcodes = excludedBarcodes;
   const rawQuantityOverrides = Array.isArray(query.qty)
     ? query.qty
     : typeof query.qty === "string"
@@ -370,10 +373,26 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           sourcingPlanError = sourcingPlanErrorMessage(sourcingPlanErrorCode);
         }
       }
+      const initialExplicitScope = report && sourcingPlan
+        ? explicitSourcingReplacementScope(report, sourcingPlan, {
+            startNewRun,
+            sourcingSelectionMode: selectionMode === "custom" ? "custom" : "automatic",
+            preferredSourcingConceptIds: effectivePreferredSourcingConceptIds,
+          })
+        : null;
+      if (initialExplicitScope?.active && initialExplicitScope.excludedBarcodes.length > 0) {
+        effectiveExcludedBarcodes = [...new Set([
+          ...excludedBarcodes,
+          ...initialExplicitScope.excludedBarcodes,
+        ])].sort();
+      }
       const sourcingBudgetReturnKrw = sourcingPlan ? returnableSourcingBudgetKrw(sourcingPlan) : 0;
-      if (sourcingBudgetReturnKrw > 0) {
+      const explicitScopeChanged = effectiveExcludedBarcodes.length !== excludedBarcodes.length ||
+        effectiveExcludedBarcodes.some((barcode, index) => barcode !== [...excludedBarcodes].sort()[index]);
+      if (sourcingBudgetReturnKrw > 0 || explicitScopeChanged) {
         report = await loadPurchaseCyclePreflightPreview({
           ...options,
+          excludedBarcodes: effectiveExcludedBarcodes,
           sourcingBudgetReturnKrw,
         });
       }
@@ -382,6 +401,17 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     }
   }
   const sourcingEnabled = Boolean(report && report.sourcingBudgetPercent > 0);
+  const explicitSourcingScope = report && sourcingPlan
+    ? explicitSourcingReplacementScope(report, sourcingPlan, {
+        startNewRun,
+        sourcingSelectionMode: selectionMode === "custom" ? "custom" : "automatic",
+        preferredSourcingConceptIds: effectivePreferredSourcingConceptIds,
+      })
+    : null;
+  const explicitSourcingScopeReady = !explicitSourcingScope?.active || (
+    explicitSourcingScope.missingReusedBarcodes.length === 0 &&
+    explicitSourcingScope.unexpectedPreservedBarcodes.length === 0
+  );
   const preserveExistingSourcingOnly = Boolean(
     report && canRecalculateWithPreservedSourcingOnly(report, sourcingPlan),
   );
@@ -390,8 +420,14 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     (total, candidate) => total + candidate.selectedVariants.length,
     0,
   ) ?? 0;
+  const sourcingReusedVariantCount = sourcingPlan?.reusedConfirmedVariants?.length ?? 0;
+  const sourcingIncludedVariantCount = sourcingSelectedVariantCount + sourcingReusedVariantCount;
+  const sourcingReusedSpendKrw = sourcingPlan?.reusedConfirmedVariants?.reduce(
+    (total, row) => total + row.estimatedCostKrw,
+    0,
+  ) ?? 0;
   const sourcingPlannedSpendKrw = sourcingPlan
-    ? sourcingPlan.allocation.alreadyReservedKrw + sourcingPlan.allocation.estimatedSpendKrw
+    ? sourcingReusedSpendKrw + sourcingPlan.allocation.estimatedSpendKrw
     : 0;
   const draftPlannedTotals = report
     ? purchaseCycleDraftPlannedTotals(report, sourcingPlan)
@@ -411,7 +447,8 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     report.previewReady &&
     report.blockers.length === 0 &&
     !replacementRecommendationReviewRequired &&
-    sourcingReady,
+    sourcingReady &&
+    explicitSourcingScopeReady,
   );
   const sourcingPreparationCodes = sourcingPlan?.policy.operatorAllocationSupported && sourcingPlan.policy.version !== null
     ? sourcingPlan.blockers.filter(code => sourcingPolicyPreparationCodes.has(code))
@@ -438,6 +475,14 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         : "소싱엔진 연결 상태를 점검한 뒤 1단계의 ‘예산 확인 · 후보 불러오기’를 다시 누르세요.",
       href: "/sourcing-center",
       hrefLabel: "소싱센터 상태 보기",
+    });
+  }
+  if (!explicitSourcingScopeReady) {
+    actionItems.push({
+      title: "이번에 선택한 신규상품 B코드 대조",
+      message: "이번 수동 선택의 기존 B코드와 현재 발주초안이 정확히 일치하지 않습니다. 다른 신규소싱 상품을 섞어 저장하지 않고 계산을 중단했습니다.",
+      href: "#sourcing-selection",
+      hrefLabel: "신규상품 선택 확인",
     });
   }
   if (sourcingBlockingCodes.includes("WAREHOUSE_GATE_NOT_READY")) {
@@ -495,6 +540,9 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           ? [explain("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED")]
           : []),
         ...(sourcingPlanError ? [sourcingPlanError] : []),
+        ...(!explicitSourcingScopeReady
+          ? [`PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH · 누락 ${explicitSourcingScope?.missingReusedBarcodes.join(", ") || "없음"} · 예상 외 유지 ${explicitSourcingScope?.unexpectedPreservedBarcodes.join(", ") || "없음"}`]
+          : []),
         ...sourcingBlockingCodes.map(code => sourcingReasonLabels[code] ?? code),
       ]
     : [];
@@ -504,6 +552,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     cashLimitKrw: report.cashLimitKrw,
     sourcingBudgetPercent: report.sourcingBudgetPercent,
     sourcingBudgetKrw: report.sourcingBudgetKrw,
+    sourcingSelectionMode: selectionMode === "custom" ? "custom" as const : "automatic" as const,
     preferredSourcingConceptIds: effectivePreferredSourcingConceptIds,
     sourcingStorageSizeByConceptId,
     sourcingVariantSelections: effectiveSourcingVariantSelections,
@@ -517,7 +566,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
       : null,
     sourcingSelectedCount: sourcingSelectedVariantCount,
     sourcingEstimatedSpendKrw: sourcingPlan?.allocation.estimatedSpendKrw ?? 0,
-    sourcingAlreadyReservedKrw: sourcingPlan?.allocation.alreadyReservedKrw ?? 0,
+    sourcingAlreadyReservedKrw: sourcingReusedSpendKrw,
     confirmation: draftReady
       ? purchaseCycleDraftConfirmation(report, preserveExistingSourcingOnly ? null : sourcingPlan)
       : "",
@@ -638,13 +687,14 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               <p className="mt-3 border-l-4 border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-700">신규상품 소싱 비율이 0%입니다. 후보를 추가하려면 비율을 입력하고 다시 계산하세요.</p>
             ) : (
               <>
-                <p className="mt-2 text-sm leading-6 text-slate-600">분리 예산 {money(report.sourcingBudgetKrw)}{sourcingPlan ? ` · 현재 ${sourcingSelectedVariantCount}개 옵션 · 예상 상품대금 ${money(sourcingPlan.allocation.estimatedSpendKrw)}` : ""}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">분리 예산 {money(report.sourcingBudgetKrw)}{sourcingPlan ? ` · 이번 선택 ${sourcingIncludedVariantCount}개 옵션 · 예상 상품대금 ${money(sourcingPlannedSpendKrw)}` : ""}</p>
                 <p className="mt-2 text-sm leading-6 text-slate-700">후보를 체크하고 수납 위치를 정하세요. 수동 후보까지 모두 추가한 뒤 두 영역 아래의 계산 버튼을 한 번만 누릅니다.</p>
                 {sourcingPlanError ? <p role="alert" className="mt-3 break-all border-l-4 border-rose-500 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-950">{sourcingPlanError}</p> : null}
                 {sourcingPreparationCodes.length ? <p className="mt-3 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-950">예산 정책 {sourcingPreparationCodes.length}건은 저장 시 자동 준비됩니다.</p> : null}
                 {sourcingBlockingCodes.length ? <p className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">최종 저장 전 소싱 안전조건 {sourcingBlockingCodes.length}개가 남았습니다.</p> : null}
                 {sourcingPlan?.readyForConfirmation ? <p className="mt-3 text-sm font-bold text-emerald-800">신규상품 코드 배정과 이번 발주차시 Draft 추가 준비가 끝났습니다.</p> : null}
                 {sourcingPlan ? <>
+                  {sourcingPlan.reusedConfirmedVariants.length > 0 ? <details className="mt-4 text-sm"><summary className="cursor-pointer font-bold text-blue-800">이번 선택에서 기존 B코드 재사용 {sourcingPlan.reusedConfirmedVariants.length}개</summary>{sourcingPlan.reusedConfirmedVariants.map(row => <p key={`${row.conceptId}:${row.variantKey ?? row.barcode}`} className="mt-2">{row.productName} · {row.saleOption || row.chinaOption || "옵션명 미확인"} · <span className="font-mono font-bold">{row.barcode}</span> · {row.quantity.toLocaleString("ko-KR")}개</p>)}</details> : null}
                   <details className="mt-4 text-sm"><summary className="cursor-pointer font-bold text-emerald-800">선정 후보 {sourcingPlan.allocation.selected.length}종 상세 보기</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">후보 상품</th><th className="p-2">품질</th><th className="p-2">배정</th><th className="p-2">MOQ / 최대 / 수량</th><th className="p-2">예상금액</th></tr></thead><tbody>{sourcingPlan.allocation.selected.map(row => <tr key={row.conceptId} className="border-t"><td className="p-2"><span className="block">{row.canonicalNameKo}</span>{row.sourceUrl ? <a href={row.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs font-bold text-blue-700 underline">1688 링크</a> : <span className="mt-1 block text-xs font-bold text-amber-700">링크 확인 필요</span>}</td><td className="p-2">{row.finalQualityScore ?? "미확인"}</td><td className="p-2">{row.tier === "CORE" ? "핵심" : row.tier === "SUPPORT" ? "안정" : "최소 테스트"}</td><td className="p-2">{row.moq} / {row.recommendedUnits} / <strong>{row.quantity}</strong></td><td className="p-2">{money(row.estimatedCostKrw)}</td></tr>)}</tbody></table></div>{!sourcingPlan.allocation.selected.length ? <p className="mt-3">현재 예산과 안전조건 안에서 선택할 TEST_READY 신규상품이 없습니다.</p> : null}</details>
                   <details className="mt-3 text-sm"><summary className="cursor-pointer font-bold text-slate-700">제외 후보 {sourcingPlan.allocation.excluded.length}종 확인</summary>{sourcingPlan.allocation.excluded.slice(0, 100).map(row => <p key={`${row.conceptId}:${row.reason}`} className="mt-2">{row.canonicalNameKo} · {sourcingExclusionLabels[row.reason] ?? row.reason}</p>)}</details>
                   <SourcingCandidateSelectionForm
@@ -769,7 +819,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
               <h2 className="mt-1 text-xl font-black">발주 준비 단계</h2>
               <div className="mt-5 space-y-3">
                 <PreflightFlowStep number="1" title="예산 기준 입력" state="done" detail={`${report.targetDate} · 신규소싱 ${report.sourcingBudgetPercent}%`} />
-                <PreflightFlowStep number="2" title="신규상품 구성" state={!sourcingEnabled || sourcingReady ? "done" : "active"} detail={sourcingEnabled ? `엔진 후보 ${sourcingPlan?.allocation.selected.length ?? 0}종 · 직접입력 가능` : "신규소싱 0% · 건너뜀"} />
+                <PreflightFlowStep number="2" title="신규상품 구성" state={!sourcingEnabled || sourcingReady ? "done" : "active"} detail={sourcingEnabled ? `이번 선택 ${sourcingIncludedVariantCount}개 옵션 · 기존 B코드 ${sourcingReusedVariantCount}개 재사용` : "신규소싱 0% · 건너뜀"} />
                 <PreflightFlowStep number="3" title="발주안·안전조건 검토" state={draftReady ? "done" : actionItems.length ? "blocked" : "active"} detail={`기존상품 ${report.selected.length}종 · 확인 ${actionItems.length}단계`} />
                 <PreflightFlowStep number="4" title="내부 Draft 저장" state={draftReady ? "active" : "wait"} detail={draftReady ? "검토 후 저장 가능" : "남은 조건 해결 후 가능"} />
               </div>

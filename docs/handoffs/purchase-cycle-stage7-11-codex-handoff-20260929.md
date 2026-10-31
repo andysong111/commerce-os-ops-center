@@ -809,3 +809,22 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Low-volume sold-out products remain visible as next-purchase preparation rows. They become blocking only when an independent purchase-entry signal qualifies them: stockout-demand recovery, Rising, the configured monthly-revenue strategy, a Product Master purchase recommendation, or another canonical engine signal.
 - A strategy-qualified product missing from the purchase shadow, a Product Master recommendation omitted from the engine, and an inventory quantity conflict that the engine did not account for remain fail-closed.
 - This correction aligns the audit with the owner's monthly strategy instead of allowing the older recent-sale heuristic to override it. It does not create a Draft, place a 1688 order, make a payment, or contact a supplier.
+
+---
+
+## 34. Exact custom-sourcing replacement scope (2026-10-31)
+
+- A custom new-run calculation now treats the owner's explicit sourcing selection as the
+  complete replacement scope. Existing confirmed sourcing rows remain only when the sourcing
+  engine returns their exact reusable B-code identity; unrelated old sourcing rows are
+  removed from the replacement preview.
+- The historical incident contained 13 preserved sourcing rows while the operator selected
+  eight options. Seven selected options already had exact B-codes and one option required a
+  new confirmation. The corrected preview therefore shows seven reused B-codes plus one new
+  option, not all 13 preserved rows and not zero new options.
+- Save-time validation independently checks that every reusable B-code exists in the scoped
+  preview and that no unexpected confirmed sourcing row remains. A mismatch blocks Draft
+  regeneration with `PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH`.
+- Automatic selection and ordinary inline recalculation retain their previous preservation
+  behavior. No Draft save, 1688 order, payment or supplier contact was executed while fixing
+  and testing this path.

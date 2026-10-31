@@ -51,6 +51,7 @@ export async function POST(request: Request) {
       "PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED",
       "PURCHASE_DRAFT_REGENERATION_ALREADY_PROGRESSING",
       "PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY",
+      "PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH",
     ].includes(code);
     return Response.json(
       {
@@ -69,6 +70,8 @@ export async function POST(request: Request) {
                       ? "기존 Draft의 주문 또는 입고가 시작되어 자동 재생성을 중단했습니다."
                   : code === "PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY"
                     ? "신규상품 후보·창고·월 소싱 예산 정책이 아직 최종 확정 조건을 충족하지 않습니다. 읽기 전용 사전점검을 다시 확인하세요."
+                  : code === "PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH"
+                    ? "이번에 선택한 기존 신규상품 B코드와 발주초안 구성이 일치하지 않아 저장을 중단했습니다. 사전점검을 다시 실행하세요."
                   : "발주차시 Draft 저장 조건을 확인하지 못했습니다.",
       },
       {

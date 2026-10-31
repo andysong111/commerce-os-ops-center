@@ -30,6 +30,7 @@ export function PurchaseCycleDraftActions({
   cashLimitKrw,
   sourcingBudgetPercent,
   sourcingBudgetKrw,
+  sourcingSelectionMode,
   preferredSourcingConceptIds,
   sourcingStorageSizeByConceptId,
   sourcingVariantSelections,
@@ -70,6 +71,7 @@ export function PurchaseCycleDraftActions({
   cashLimitKrw: number | null;
   sourcingBudgetPercent: number;
   sourcingBudgetKrw: number;
+  sourcingSelectionMode: "automatic" | "custom";
   preferredSourcingConceptIds: string[];
   sourcingStorageSizeByConceptId: Record<string, "S" | "L">;
   sourcingVariantSelections: SourcingVariantSelectionInput[];
@@ -162,6 +164,7 @@ export function PurchaseCycleDraftActions({
               startNewRun,
               cashLimitKrw,
               sourcingBudgetPercent,
+              sourcingSelectionMode,
               preferredSourcingConceptIds,
               sourcingStorageSizeByConceptId,
               sourcingVariantSelections,
