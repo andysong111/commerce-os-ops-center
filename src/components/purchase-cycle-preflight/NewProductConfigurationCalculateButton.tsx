@@ -47,7 +47,7 @@ export function NewProductConfigurationCalculateButton({
     manualOptionCount: 0,
     includedAutomaticCount: 0,
   });
-  const baselineSignatureRef = useRef<string | null>(null);
+  const [baselineSignature, setBaselineSignature] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -104,7 +104,7 @@ export function NewProductConfigurationCalculateButton({
           ? current
           : nextSnapshot,
       );
-      if (baselineSignatureRef.current === null) baselineSignatureRef.current = nextSnapshot.signature;
+      setBaselineSignature((current) => current ?? nextSnapshot.signature);
     };
 
     const configurationForm = document.getElementById(formId);
@@ -172,7 +172,7 @@ export function NewProductConfigurationCalculateButton({
 
     const currentSnapshot = readSnapshot();
     if (currentSnapshot) {
-      baselineSignatureRef.current = currentSnapshot.signature;
+      setBaselineSignature(currentSnapshot.signature);
       setSnapshot(currentSnapshot);
     }
     const startingSearch = window.location.search;
@@ -181,7 +181,7 @@ export function NewProductConfigurationCalculateButton({
     pollRef.current = setInterval(() => {
       if (window.location.search === startingSearch) return;
       clearNavigationWatch();
-      baselineSignatureRef.current = null;
+      setBaselineSignature(null);
       setSubmitted(false);
     }, 100);
     timeoutRef.current = setTimeout(() => {
@@ -196,7 +196,7 @@ export function NewProductConfigurationCalculateButton({
 
   const effectivePending = pending || submitted;
   const configurationChanged =
-    baselineSignatureRef.current !== null && baselineSignatureRef.current !== snapshot.signature;
+    baselineSignature !== null && baselineSignature !== snapshot.signature;
   const buttonState = resolvePurchaseCycleCalculationButtonState({
     pending: effectivePending,
     calculationComplete,
