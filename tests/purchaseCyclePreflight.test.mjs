@@ -1220,9 +1220,11 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(finalCalculate, /일괄 추가가 끝난 뒤 계산하세요/);
   assert.match(finalCalculate, /작성 중인 수동상품이 있습니다/);
   assert.match(finalCalculate, /data-manual-source-url/);
-  assert.match(finalCalculate, /2\. 준비된 후보로 발주안 계산/);
+  assert.match(finalCalculate, /2\.<\/strong> 수동상품을 추가하고 자동소싱 후보는 포함·제외를 정합니다/);
+  assert.match(finalCalculate, /3\.<\/strong> 아래 계산 버튼으로 후보·수량·예산을 한 번에 계산합니다/);
   assert.match(finalCalculate, /초록색 ‘발주안 계산 준비 완료’ 목록과 왼쪽 자동 후보 선택을 모두 반영합니다/);
-  assert.match(finalCalculate, /최종 발주안 계산 중/);
+  assert.match(finalCalculate, /buttonState\.phase === "pending"/);
+  assert.match(finalCalculate, /buttonState\.label/);
 });
 
 

@@ -28,7 +28,7 @@ const inventoryConflict = (barcode, productName) => ({
   openCommitment: 0,
 });
 
-test("inventory conflicts name the exact products and route to stock control without asking for sales refresh", () => {
+test("inventory conflicts stay in the purchase flow and expose exact inline stock targets", () => {
   const actions = purchaseCycleBlockerActions({
     blockers: ["PURCHASE_CANDIDATE_OMISSION_REVIEW_REQUIRED"],
     omissionReview: [
@@ -41,12 +41,13 @@ test("inventory conflicts name the exact products and route to stock control wit
   assert.equal(actions[0].title, "재고 충돌 2종 확인");
   assert.match(actions[0].message, /BCC5-2 안경다리 실리콘 1쌍/);
   assert.match(actions[0].message, /BAE1-3 셀프미발망토/);
-  assert.match(actions[0].message, /판매자료 재수집 문제가 아니므로/);
-  const href = new URL(actions[0].href, "https://commerce-os.test");
-  assert.equal(href.pathname, "/china-order-manager/stock-control");
-  assert.equal(href.searchParams.get("focus"), "rough-stock");
-  assert.equal(href.searchParams.get("barcodes"), "BCC5-2,BAE1-3");
-  assert.equal(href.searchParams.get("returnTo"), "/purchase-cycle-preflight");
+  assert.match(actions[0].message, /같은 발주차시를 바로 다시 계산/);
+  assert.match(actions[0].message, /판매자료를 다시 수집할 필요는 없습니다/);
+  assert.equal(actions[0].href, undefined);
+  assert.deepEqual(actions[0].roughStockTargets, [
+    { barcode: "BCC5-2", productName: "안경다리 실리콘 1쌍" },
+    { barcode: "BAE1-3", productName: "셀프미발망토" },
+  ]);
 });
 
 test("sales refresh is offered only when a sales-source blocker is actually present", () => {
@@ -59,7 +60,10 @@ test("sales refresh is offered only when a sales-source blocker is actually pres
   }, explain);
 
   assert.equal(actions.length, 2);
-  assert.match(actions[0].href, /^\/china-order-manager\/stock-control\?/);
+  assert.equal(actions[0].href, undefined);
+  assert.deepEqual(actions[0].roughStockTargets, [
+    { barcode: "BCC5-2", productName: "안경다리 실리콘 1쌍" },
+  ]);
   assert.equal(actions[1].title, "최신 판매자료 준비");
   assert.equal(actions[1].href, "/stage8-sales-events");
 });

@@ -66,6 +66,7 @@ type PriorityRow = {
   recommendedQty: number;
   originalRecommendedQty?: number;
   inventoryQuantity?: number;
+  operatorStockBand?: "OUT" | "LOW" | "NORMAL" | "HIGH" | null;
   openCommitment: number;
 };
 
@@ -221,10 +222,16 @@ export function buildPurchaseCandidateOmissionReview(
     const priorityInventoryQuantity = priority
       ? quantity(priority.inventoryQuantity)
       : null;
+    const operatorStockBandAccounted = priority
+      ? ["OUT", "LOW", "NORMAL", "HIGH"].includes(
+          text(priority.operatorStockBand).toUpperCase(),
+        )
+      : false;
     const inventoryAccountedByPurchaseEngine = Boolean(
       priority &&
-        ledgerInventoryQuantity !== null &&
-        priorityInventoryQuantity === ledgerInventoryQuantity,
+        (operatorStockBandAccounted ||
+          (ledgerInventoryQuantity !== null &&
+            priorityInventoryQuantity === ledgerInventoryQuantity)),
     );
     const recentSales = salesQuantity30 > 0 || salesQuantity90 > 0;
     const recommendedQuantity = priority
