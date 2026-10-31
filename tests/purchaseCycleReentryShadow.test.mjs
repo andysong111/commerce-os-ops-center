@@ -131,9 +131,25 @@ function strictModule(results = []) {
 }
 test("complete empty ledger is distinct from missing count, truncated and failed reads", async () => {
   assert.equal((await strictModule([{ data: [], count: 0, error: null }]).module.loadPurchaseCycleReentryCommitments()).totalOpenQuantity, 0);
-  for (const result of [{ data: [], count: null, error: null }, { data: [], count: 3, error: null }, { data: [], count: 5001, error: null }, { data: null, count: null, error: { message: "secret must not leak" } }]) {
+  for (const result of [{ data: [], count: null, error: null }, { data: [], count: 3, error: null }, { data: [], count: 20001, error: null }, { data: null, count: null, error: { message: "secret must not leak" } }]) {
     await assert.rejects(strictModule([result]).module.loadPurchaseCycleReentryCommitments());
   }
+});
+test("production regression: the complete 5,556-event commitment ledger remains readable", async () => {
+  const count = 5_556;
+  const pages = Array.from({ length: Math.ceil(count / 500) }, (_, pageIndex) => {
+    const offset = pageIndex * 500;
+    const pageLength = Math.min(500, count - offset);
+    return {
+      data: Array.from({ length: pageLength }, (_, rowIndex) => stored(offset + rowIndex)),
+      count,
+      error: null,
+    };
+  });
+  const fixtureModule = strictModule(pages);
+  const result = await fixtureModule.module.loadPurchaseCycleReentryCommitments();
+  assert.equal(fixtureModule.calls(), 12);
+  assert.equal(result.invalidEventCount, 0);
 });
 test("full count-verified paging preserves older open orders, not just newest page", async () => {
   const first = Array.from({ length: 500 }, (_, i) => stored(i));
