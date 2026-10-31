@@ -186,6 +186,19 @@ export function purchaseCycleDraftPlannedTotals(
   const preservedSourcingLines = (report.preservedReplacementLines ?? []).filter(
     (row) => row.preserveOnRegeneration === true,
   );
+  const preservedSourcingBarcodes = new Set(
+    preservedSourcingLines.map((row) => row.barcode),
+  );
+  const selectedBarcodes = new Set(report.selected.map((row) => row.barcode));
+  const replacementLineBarcodes = new Set(
+    (report.preservedReplacementLines ?? []).map((row) => row.barcode),
+  );
+  const restoredReusedReservations = (sourcingPlan?.reusedConfirmedVariants ?? []).filter(
+    (row) =>
+      !preservedSourcingBarcodes.has(row.barcode) &&
+      !selectedBarcodes.has(row.barcode) &&
+      !replacementLineBarcodes.has(row.barcode),
+  );
   const operatorPinnedBarcodes = new Set(
     report.operatorQuantityOverrides.map((row) => row.barcode),
   );
@@ -195,10 +208,10 @@ export function purchaseCycleDraftPlannedTotals(
   const unresolvedAutomaticLines = (report.preservedReplacementLines ?? []).filter(
     (row) => row.preserveOnRegeneration !== true && !operatorPinnedBarcodes.has(row.barcode),
   );
-  const preservedSourcingCount = preservedSourcingLines.length;
+  const preservedSourcingCount = preservedSourcingLines.length + restoredReusedReservations.length;
   const preservedSourcingQuantity = preservedSourcingLines.reduce(
     (total, row) => total + row.quantity,
-    0,
+    restoredReusedReservations.reduce((total, row) => total + row.quantity, 0),
   );
   const preservedOperatorCount = preservedOperatorLines.length;
   const preservedOperatorQuantity = preservedOperatorLines.reduce(
@@ -295,7 +308,9 @@ export function explicitSourcingReplacementScope(
     return {
       active: false,
       excludedBarcodes: [] as string[],
+      restoredReusedBarcodes: [] as string[],
       missingReusedBarcodes: [] as string[],
+      conflictingReusedBarcodes: [] as string[],
       unexpectedPreservedBarcodes: [] as string[],
     };
   }
@@ -304,13 +319,46 @@ export function explicitSourcingReplacementScope(
       .filter((row) => row.preserveOnRegeneration === true)
       .map((row) => row.barcode),
   );
+  const nonSourcingReplacementBarcodes = new Set(
+    (report.preservedReplacementLines ?? [])
+      .filter((row) => row.preserveOnRegeneration !== true)
+      .map((row) => row.barcode),
+  );
+  const selectedBarcodes = new Set(report.selected.map((row) => row.barcode));
   const reusedBarcodes = new Set(
     (sourcingPlan.reusedConfirmedVariants ?? []).map((row) => row.barcode),
   );
+  const reconstructableReusedBarcodes = new Set(
+    (sourcingPlan.reusedConfirmedVariants ?? [])
+      .filter((row) =>
+        /^B[A-Z]{2}\d+-\d+$/.test(row.barcode) &&
+        Number.isSafeInteger(row.quantity) &&
+        row.quantity > 0 &&
+        row.productName.trim().length > 0
+      )
+      .map((row) => row.barcode),
+  );
+  const conflictingReusedBarcodes = [...reusedBarcodes].filter(
+    (barcode) => selectedBarcodes.has(barcode) || nonSourcingReplacementBarcodes.has(barcode),
+  ).sort();
   return {
     active: true,
     excludedBarcodes: [...preservedBarcodes].filter((barcode) => !reusedBarcodes.has(barcode)).sort(),
-    missingReusedBarcodes: [...reusedBarcodes].filter((barcode) => !preservedBarcodes.has(barcode)).sort(),
+    restoredReusedBarcodes: [...reusedBarcodes].filter(
+      (barcode) =>
+        !preservedBarcodes.has(barcode) &&
+        !selectedBarcodes.has(barcode) &&
+        !nonSourcingReplacementBarcodes.has(barcode) &&
+        reconstructableReusedBarcodes.has(barcode),
+    ).sort(),
+    missingReusedBarcodes: [...reusedBarcodes].filter(
+      (barcode) =>
+        !preservedBarcodes.has(barcode) &&
+        !selectedBarcodes.has(barcode) &&
+        !nonSourcingReplacementBarcodes.has(barcode) &&
+        !reconstructableReusedBarcodes.has(barcode),
+    ).sort(),
+    conflictingReusedBarcodes,
     unexpectedPreservedBarcodes: [...preservedBarcodes].filter((barcode) => !reusedBarcodes.has(barcode)).sort(),
   };
 }
@@ -371,6 +419,7 @@ export function preparePurchaseCycleDraft(
       explicitScope.active &&
       (
         explicitScope.missingReusedBarcodes.length > 0 ||
+        explicitScope.conflictingReusedBarcodes.length > 0 ||
         explicitScope.unexpectedPreservedBarcodes.length > 0
       )
     ) {
@@ -416,6 +465,11 @@ export function preparePurchaseCycleDraft(
   if (request.confirmation !== purchaseCycleDraftConfirmation(report, sourcingPlan)) {
     throw new Error("PURCHASE_CYCLE_DRAFT_CONFIRMATION_REQUIRED");
   }
+  const explicitScope = explicitSourcingReplacementScope(report, sourcingPlan, request);
+  const restoredReusedBarcodeSet = new Set(explicitScope.restoredReusedBarcodes);
+  const restoredReusedReservations = (sourcingPlan?.reusedConfirmedVariants ?? []).filter(
+    (row) => restoredReusedBarcodeSet.has(row.barcode),
+  );
 
   return {
     cycleMonth: report.targetCycleMonth,
@@ -447,6 +501,15 @@ export function preparePurchaseCycleDraft(
             : row.recoveredFromPredecessor === true
               ? "이전 Draft 자동추천 복구 후보 · 최신 판매·재고 근거 확인 전 저장 금지"
               : "최신 자동추천 입력 대기 · 대략 재고를 선택하고 5-1에서 실제 위안단가·운임 확인 필요",
+      })),
+      ...restoredReusedReservations.map((row) => ({
+        barcode: row.barcode,
+        modelNo: null,
+        productName: row.productName,
+        plannedQuantity: row.quantity,
+        stockSense: "LOW" as const,
+        referenceDemandQuantity: row.quantity,
+        note: "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함",
       })),
     ],
   };

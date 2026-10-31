@@ -331,6 +331,10 @@ function assertPlan(value: unknown): asserts value is SourcingBudgetPlan {
       !Number.isSafeInteger(row.quantity) || row.quantity < 1 ||
       !Number.isSafeInteger(row.estimatedCostKrw) || row.estimatedCostKrw < 0 ||
       (row.variantKey !== null && (typeof row.variantKey !== "string" || !row.variantKey)) ||
+      typeof row.productName !== "string" || !row.productName.trim() ||
+      typeof row.saleOption !== "string" || !row.saleOption.trim() ||
+      typeof row.chinaOption !== "string" || !row.chinaOption.trim() ||
+      (row.storageSize !== null && row.storageSize !== "S" && row.storageSize !== "L") ||
       !validCandidateSourceUrl(row.sourceUrl)
     ) ||
     candidates.some((candidate) =>
