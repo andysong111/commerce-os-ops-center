@@ -671,7 +671,9 @@ test("custom new run keeps only the seven reused B-codes and one newly selected 
   });
   assert.equal(initialScope.active, true);
   assert.deepEqual(initialScope.excludedBarcodes, unrelatedBarcodes);
+  assert.deepEqual(initialScope.restoredReusedBarcodes, []);
   assert.deepEqual(initialScope.missingReusedBarcodes, []);
+  assert.deepEqual(initialScope.conflictingReusedBarcodes, []);
 
   value.operatorExcludedBarcodes = unrelatedBarcodes;
   value.preservedReplacementLines = value.preservedReplacementLines.filter(
@@ -694,6 +696,8 @@ test("custom new run keeps only the seven reused B-codes and one newly selected 
     preferredSourcingConceptIds: preferredConceptIds,
   });
   assert.deepEqual(finalScope.missingReusedBarcodes, []);
+  assert.deepEqual(finalScope.restoredReusedBarcodes, []);
+  assert.deepEqual(finalScope.conflictingReusedBarcodes, []);
   assert.deepEqual(finalScope.unexpectedPreservedBarcodes, []);
   assert.deepEqual(purchaseCycleDraftPlannedTotals(value, plan), {
     existingReorderCount: 1,
@@ -721,12 +725,43 @@ test("custom new run keeps only the seven reused B-codes and one newly selected 
   };
   assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
 
-  value.preservedReplacementLines = value.preservedReplacementLines.slice(1);
+  const missingFromPreviousDraft = [desiredBarcodes[1], desiredBarcodes[5]];
+  value.preservedReplacementLines = value.preservedReplacementLines.filter(
+    (row) => !missingFromPreviousDraft.includes(row.barcode),
+  );
   value.replacementAudit = {
     ...value.replacementAudit,
-    selectedLineCount: 7,
-    matchedCount: 7,
+    selectedLineCount: 6,
+    matchedCount: 6,
   };
+  const recoveryScope = explicitSourcingReplacementScope(value, plan, input);
+  assert.deepEqual(recoveryScope.restoredReusedBarcodes, missingFromPreviousDraft.sort());
+  assert.deepEqual(recoveryScope.missingReusedBarcodes, []);
+  assert.deepEqual(recoveryScope.conflictingReusedBarcodes, []);
+  assert.deepEqual(purchaseCycleDraftPlannedTotals(value, plan), {
+    existingReorderCount: 1,
+    existingReorderQuantity: 38,
+    preservedSourcingCount: 7,
+    preservedSourcingQuantity: 28,
+    preservedOperatorCount: 0,
+    preservedOperatorQuantity: 0,
+    unresolvedAutomaticCount: 0,
+    unresolvedAutomaticQuantity: 0,
+    newSourcingCount: 1,
+    newSourcingQuantity: 10,
+    finalLineCount: 9,
+    finalQuantity: 76,
+  });
+  input.confirmation = purchaseCycleDraftConfirmation(value, plan);
+  const recoveredDraft = preparePurchaseCycleDraft(value, input, plan);
+  assert.deepEqual(
+    recoveredDraft.lines.filter((row) => missingFromPreviousDraft.includes(row.barcode)).map((row) => row.barcode).sort(),
+    missingFromPreviousDraft,
+  );
+
+  value.selected[0].barcode = missingFromPreviousDraft[0];
+  const collisionScope = explicitSourcingReplacementScope(value, plan, input);
+  assert.deepEqual(collisionScope.conflictingReusedBarcodes, [missingFromPreviousDraft[0]]);
   assert.throws(
     () => preparePurchaseCycleDraft(value, input, plan),
     /PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH/,
@@ -750,7 +785,9 @@ test("automatic selection does not scope replacement sourcing B-codes", () => {
   }), {
     active: false,
     excludedBarcodes: [],
+    restoredReusedBarcodes: [],
     missingReusedBarcodes: [],
+    conflictingReusedBarcodes: [],
     unexpectedPreservedBarcodes: [],
   });
 });

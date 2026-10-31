@@ -16,6 +16,7 @@ const validPlan = () => ({
   planFingerprint: fingerprint("b"),
   blockers: [],
   allocation: { selected: [], availableCandidates: [], excluded: [] },
+  reusedConfirmedVariants: [],
   businessWritesEnabled: false,
   externalOrderExecuted: false,
 });

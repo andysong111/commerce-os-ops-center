@@ -410,6 +410,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     : null;
   const explicitSourcingScopeReady = !explicitSourcingScope?.active || (
     explicitSourcingScope.missingReusedBarcodes.length === 0 &&
+    explicitSourcingScope.conflictingReusedBarcodes.length === 0 &&
     explicitSourcingScope.unexpectedPreservedBarcodes.length === 0
   );
   const preserveExistingSourcingOnly = Boolean(
@@ -541,7 +542,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           : []),
         ...(sourcingPlanError ? [sourcingPlanError] : []),
         ...(!explicitSourcingScopeReady
-          ? [`PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH · 누락 ${explicitSourcingScope?.missingReusedBarcodes.join(", ") || "없음"} · 예상 외 유지 ${explicitSourcingScope?.unexpectedPreservedBarcodes.join(", ") || "없음"}`]
+          ? [`PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH · 확정예약 복구 ${explicitSourcingScope?.restoredReusedBarcodes.join(", ") || "없음"} · 누락 ${explicitSourcingScope?.missingReusedBarcodes.join(", ") || "없음"} · 충돌 ${explicitSourcingScope?.conflictingReusedBarcodes.join(", ") || "없음"} · 예상 외 유지 ${explicitSourcingScope?.unexpectedPreservedBarcodes.join(", ") || "없음"}`]
           : []),
         ...sourcingBlockingCodes.map(code => sourcingReasonLabels[code] ?? code),
       ]
