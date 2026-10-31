@@ -314,7 +314,11 @@ export async function createPurchaseCyclePreflightDraft(
     retryRequiresFreshPreflight: true;
     externalOrderExecuted: false;
   } | null = null;
-  if (sourcingPlan && !preserveExistingSourcingOnly) {
+  if (
+    sourcingPlan &&
+    !preserveExistingSourcingOnly &&
+    sourcingPlan.allocation.selected.some((row) => row.selectedVariants.length > 0)
+  ) {
     try {
       sourcing = await confirmSourcingBudgetPlan({
         targetCycleMonth: report.targetCycleMonth,

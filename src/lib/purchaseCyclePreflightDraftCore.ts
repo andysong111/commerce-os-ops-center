@@ -52,12 +52,22 @@ export function sourcingBudgetDecisionFingerprint(plan: SourcingBudgetPlan) {
     }
   }
   selected.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  const reused = [...(plan.reusedConfirmedVariants ?? [])]
+    .map((row) => ({
+      conceptId: row.conceptId,
+      variantKey: row.variantKey,
+      barcode: row.barcode,
+      quantity: row.quantity,
+      estimatedCostKrw: row.estimatedCostKrw,
+    }))
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
   return hash({
     targetCycleMonth: plan.targetCycleMonth,
     totalCashKrw: plan.totalCashKrw,
     sourcingBudgetPercent: plan.sourcingBudgetPercent,
     sourcingBudgetKrw: plan.sourcingBudgetKrw,
     selected,
+    reused,
   });
 }
 
@@ -111,6 +121,7 @@ export type PurchaseCycleDraftRequest = {
   preferredSourcingConceptIds?: string[];
   sourcingStorageSizeByConceptId?: Record<string, "S" | "L">;
   sourcingVariantSelections?: SourcingVariantSelectionInput[];
+  sourcingSelectionMode?: "automatic" | "custom";
   allowOpenBudgetPreview?: boolean;
   expectedSourceFingerprint: string;
   expectedPlanFingerprint: string;
@@ -146,12 +157,12 @@ export function purchaseCycleDraftConfirmation(
   report: PurchaseCyclePreflightReport,
   sourcingPlan: SourcingBudgetPlan | null = null,
 ) {
-  const sourcingVariantCount = sourcingPlan?.allocation.selected.reduce(
+  const sourcingVariantCount = (sourcingPlan?.allocation.selected.reduce(
     (total, row) => total + (
       Array.isArray(row.selectedVariants) ? row.selectedVariants.length : 1
     ),
     0,
-  ) ?? 0;
+  ) ?? 0) + (sourcingPlan?.reusedConfirmedVariants?.length ?? 0);
   const sourcingSuffix = report.sourcingBudgetPercent > 0 && sourcingPlan
     ? `_NEWSOURCE${sourcingVariantCount}SKU_LIMIT${report.sourcingBudgetKrw}KRW_${sourcingBudgetDecisionFingerprint(sourcingPlan).slice(-12)}`
     : "";
@@ -253,9 +264,55 @@ export function canRecalculateWithPreservedSourcingOnly(
   ) {
     return false;
   }
+  if (
+    sourcingPlan.preferredConceptIds.length > 0 ||
+    sourcingPlan.variantSelections.length > 0 ||
+    (sourcingPlan.reusedConfirmedVariants?.length ?? 0) > 0
+  ) {
+    return false;
+  }
   return sourcingPlan.allocation.selected.length === 0 && sourcingPlan.blockers.every(
     (code) => PRESERVED_SOURCING_ONLY_BLOCKERS.has(code),
   );
+}
+
+export function explicitSourcingReplacementScope(
+  report: PurchaseCyclePreflightReport,
+  sourcingPlan: SourcingBudgetPlan | null,
+  input: {
+    startNewRun?: boolean;
+    sourcingSelectionMode?: "automatic" | "custom";
+    preferredSourcingConceptIds?: string[];
+  },
+) {
+  const active = Boolean(
+    input.startNewRun === true &&
+    input.sourcingSelectionMode === "custom" &&
+    (input.preferredSourcingConceptIds?.length ?? 0) > 0 &&
+    sourcingPlan,
+  );
+  if (!active || !sourcingPlan) {
+    return {
+      active: false,
+      excludedBarcodes: [] as string[],
+      missingReusedBarcodes: [] as string[],
+      unexpectedPreservedBarcodes: [] as string[],
+    };
+  }
+  const preservedBarcodes = new Set(
+    (report.preservedReplacementLines ?? [])
+      .filter((row) => row.preserveOnRegeneration === true)
+      .map((row) => row.barcode),
+  );
+  const reusedBarcodes = new Set(
+    (sourcingPlan.reusedConfirmedVariants ?? []).map((row) => row.barcode),
+  );
+  return {
+    active: true,
+    excludedBarcodes: [...preservedBarcodes].filter((barcode) => !reusedBarcodes.has(barcode)).sort(),
+    missingReusedBarcodes: [...reusedBarcodes].filter((barcode) => !preservedBarcodes.has(barcode)).sort(),
+    unexpectedPreservedBarcodes: [...preservedBarcodes].filter((barcode) => !reusedBarcodes.has(barcode)).sort(),
+  };
 }
 
 export function preparePurchaseCycleDraft(
@@ -288,6 +345,11 @@ export function preparePurchaseCycleDraft(
   const preserveExistingSourcingOnly =
     behavior.preserveExistingSourcingOnly === true && Boolean(request.replaceDraftId);
   if (report.sourcingBudgetPercent > 0 && !preserveExistingSourcingOnly) {
+    const selectedSourcingVariantCount = sourcingPlan?.allocation.selected.reduce(
+      (total, row) => total + row.selectedVariants.length,
+      0,
+    ) ?? 0;
+    const reusedSourcingVariantCount = sourcingPlan?.reusedConfirmedVariants?.length ?? 0;
     if (
       !sourcingPlan ||
       sourcingPlan.readyForConfirmation !== true ||
@@ -296,13 +358,23 @@ export function preparePurchaseCycleDraft(
       sourcingPlan.sourcingBudgetPercent !== report.sourcingBudgetPercent ||
       sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw ||
       !sameSourcingSelection(sourcingPlan, request) ||
-      sourcingPlan.allocation.selected.length < 1 ||
+      selectedSourcingVariantCount + reusedSourcingVariantCount < 1 ||
       !FINGERPRINT.test(request.expectedSourcingSourceFingerprint ?? "") ||
       !FINGERPRINT.test(request.expectedSourcingPlanFingerprint ?? "") ||
       !FINGERPRINT.test(request.expectedSourcingDecisionFingerprint ?? "") ||
       request.expectedSourcingDecisionFingerprint !== sourcingBudgetDecisionFingerprint(sourcingPlan)
     ) {
       throw new Error("PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY");
+    }
+    const explicitScope = explicitSourcingReplacementScope(report, sourcingPlan, request);
+    if (
+      explicitScope.active &&
+      (
+        explicitScope.missingReusedBarcodes.length > 0 ||
+        explicitScope.unexpectedPreservedBarcodes.length > 0
+      )
+    ) {
+      throw new Error("PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH");
     }
   } else if (!preserveExistingSourcingOnly && (
     request.expectedSourcingSourceFingerprint ||

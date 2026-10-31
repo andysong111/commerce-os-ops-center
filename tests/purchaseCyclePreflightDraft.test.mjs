@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   canRecalculateWithPreservedSourcingOnly,
+  explicitSourcingReplacementScope,
   preparePurchaseCycleDraft,
   purchaseCycleDraftConfirmation,
   purchaseCycleDraftPlannedTotals,
@@ -23,6 +24,10 @@ function emptySourcingPlan(value, blockers = ["WAREHOUSE_GATE_NOT_READY", "NO_TE
     sourcingBudgetPercent: value.sourcingBudgetPercent,
     sourcingBudgetKrw: value.sourcingBudgetKrw,
     blockers,
+    preferredConceptIds: [],
+    storageSizeByConceptId: {},
+    variantSelections: [],
+    reusedConfirmedVariants: [],
     allocation: { selected: [] },
   };
 }
@@ -83,7 +88,17 @@ function sourcingPlan(value) {
     blockers: [],
     sourceFingerprint: fp("c"),
     planFingerprint: fp("d"),
-    allocation: { selected: [{ conceptId: "new-1" }], estimatedSpendKrw: 150_000 },
+    preferredConceptIds: [],
+    storageSizeByConceptId: {},
+    variantSelections: [],
+    reusedConfirmedVariants: [],
+    allocation: {
+      selected: [{
+        conceptId: "new-1",
+        selectedVariants: [{ variantKey: "default", quantity: 1 }],
+      }],
+      estimatedSpendKrw: 150_000,
+    },
   };
 }
 
@@ -592,6 +607,154 @@ test("replacement totals include reorder, preserved sourcing, and newly selected
   });
 });
 
+test("custom new run keeps only the seven reused B-codes and one newly selected option", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 15;
+  value.sourcingBudgetKrw = 587_537;
+  value.replacementDraftId = "fast-purchase-draft:5c2d26333a924323f31c";
+  const desiredBarcodes = Array.from({ length: 7 }, (_, index) => `BSA${index + 1}-1`);
+  const unrelatedBarcodes = Array.from({ length: 6 }, (_, index) => `BSB${index + 1}-1`);
+  value.preservedReplacementLines = [...desiredBarcodes, ...unrelatedBarcodes].map((barcode, index) => ({
+    barcode,
+    name: `기존 신규소싱 ${index + 1}`,
+    quantity: index + 1,
+    preserveOnRegeneration: true,
+  }));
+  value.replacementAudit = {
+    previousLineCount: 14,
+    selectedLineCount: 14,
+    matchedCount: 14,
+    added: [],
+    removed: [],
+    quantityChanged: [],
+    complete: true,
+  };
+
+  const plan = sourcingPlan(value);
+  const preferredConceptIds = Array.from({ length: 8 }, (_, index) => `manual-${index + 1}`);
+  plan.preferredConceptIds = preferredConceptIds;
+  plan.storageSizeByConceptId = Object.fromEntries(preferredConceptIds.map((conceptId) => [conceptId, "S"]));
+  plan.variantSelections = preferredConceptIds.map((conceptId) => ({
+    conceptId,
+    variantKey: `${conceptId}-variant`,
+    storageSize: "S",
+  }));
+  plan.reusedConfirmedVariants = desiredBarcodes.map((barcode, index) => ({
+    conceptId: preferredConceptIds[index + 1],
+    variantKey: `${preferredConceptIds[index + 1]}-variant`,
+    barcode,
+    quantity: index + 1,
+    estimatedCostKrw: 10_000 + index,
+    storageSize: "S",
+    productName: `재사용 상품 ${index + 1}`,
+    saleOption: "단품",
+    chinaOption: "단품",
+    sourceUrl: "https://detail.1688.com/offer/1.html",
+  }));
+  plan.allocation.selected = [{
+    conceptId: preferredConceptIds[0],
+    selectedVariants: [{
+      variantKey: `${preferredConceptIds[0]}-variant`,
+      saleOption: "단품",
+      chinaOption: "단품",
+      storageSize: "S",
+      quantity: 10,
+      estimatedCostKrw: 88_300,
+    }],
+  }];
+  plan.allocation.estimatedSpendKrw = 88_300;
+
+  const initialScope = explicitSourcingReplacementScope(value, plan, {
+    startNewRun: true,
+    sourcingSelectionMode: "custom",
+    preferredSourcingConceptIds: preferredConceptIds,
+  });
+  assert.equal(initialScope.active, true);
+  assert.deepEqual(initialScope.excludedBarcodes, unrelatedBarcodes);
+  assert.deepEqual(initialScope.missingReusedBarcodes, []);
+
+  value.operatorExcludedBarcodes = unrelatedBarcodes;
+  value.preservedReplacementLines = value.preservedReplacementLines.filter(
+    (row) => !unrelatedBarcodes.includes(row.barcode),
+  );
+  value.replacementAudit = {
+    ...value.replacementAudit,
+    selectedLineCount: 8,
+    matchedCount: 8,
+    removed: unrelatedBarcodes.map((barcode) => ({
+      barcode,
+      name: barcode,
+      quantity: 1,
+      reasons: ["OPERATOR_DRAFT_EXCLUSION"],
+    })),
+  };
+  const finalScope = explicitSourcingReplacementScope(value, plan, {
+    startNewRun: true,
+    sourcingSelectionMode: "custom",
+    preferredSourcingConceptIds: preferredConceptIds,
+  });
+  assert.deepEqual(finalScope.missingReusedBarcodes, []);
+  assert.deepEqual(finalScope.unexpectedPreservedBarcodes, []);
+  assert.deepEqual(purchaseCycleDraftPlannedTotals(value, plan), {
+    existingReorderCount: 1,
+    existingReorderQuantity: 38,
+    preservedSourcingCount: 7,
+    preservedSourcingQuantity: 28,
+    preservedOperatorCount: 0,
+    preservedOperatorQuantity: 0,
+    unresolvedAutomaticCount: 0,
+    unresolvedAutomaticQuantity: 0,
+    newSourcingCount: 1,
+    newSourcingQuantity: 10,
+    finalLineCount: 9,
+    finalQuantity: 76,
+  });
+
+  const input = {
+    ...request(value, plan),
+    startNewRun: true,
+    sourcingSelectionMode: "custom",
+    replaceDraftId: value.replacementDraftId,
+    preferredSourcingConceptIds: preferredConceptIds,
+    sourcingStorageSizeByConceptId: plan.storageSizeByConceptId,
+    sourcingVariantSelections: plan.variantSelections,
+  };
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
+
+  value.preservedReplacementLines = value.preservedReplacementLines.slice(1);
+  value.replacementAudit = {
+    ...value.replacementAudit,
+    selectedLineCount: 7,
+    matchedCount: 7,
+  };
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, plan),
+    /PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH/,
+  );
+});
+
+test("automatic selection does not scope replacement sourcing B-codes", () => {
+  const value = report();
+  value.preservedReplacementLines = [{
+    barcode: "BSA1-1",
+    name: "기존 신규소싱",
+    quantity: 1,
+    preserveOnRegeneration: true,
+  }];
+  const plan = sourcingPlan(value);
+  plan.reusedConfirmedVariants = [];
+  assert.deepEqual(explicitSourcingReplacementScope(value, plan, {
+    startNewRun: true,
+    sourcingSelectionMode: "automatic",
+    preferredSourcingConceptIds: ["manual-1"],
+  }), {
+    active: false,
+    excludedBarcodes: [],
+    missingReusedBarcodes: [],
+    unexpectedPreservedBarcodes: [],
+  });
+});
+
 test("replacement totals do not describe operator pins or unresolved automatic rows as sourcing", () => {
   const value = report();
   value.operatorQuantityOverrides = [{ barcode: "BGG1-1", targetQuantity: 3_000 }];
@@ -787,7 +950,7 @@ for (const mutate of [
 }
 
 test("route is same-origin, fingerprint-pinned, and never executes an external order", async () => {
-  const [route, service, core, storage, regeneration, actions] = await Promise.all([
+  const [route, service, core, storage, regeneration, actions, page] = await Promise.all([
     readFile("src/app/api/purchase-cycle/preflight-draft/route.ts", "utf8"),
     readFile("src/lib/purchaseCyclePreflightDraft.ts", "utf8"),
     readFile("src/lib/purchaseCyclePreflightDraftCore.ts", "utf8"),
@@ -797,6 +960,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
       "src/components/purchase-cycle-preflight/PurchaseCycleDraftActions.tsx",
       "utf8",
     ),
+    readFile("src/app/purchase-cycle-preflight/page.tsx", "utf8"),
   ]);
   assert.match(route, /isSameOriginOpsRequest/);
   assert.match(core, /maxSkus: 100/);
@@ -808,7 +972,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(service, /canRecalculateWithPreservedSourcingOnly/);
   assert.match(service, /preserveExistingSourcingOnly \? null : sourcingPlan/);
   assert.match(service, /\{ preserveExistingSourcingOnly \}/);
-  assert.match(service, /if \(sourcingPlan && !preserveExistingSourcingOnly\)/);
+  assert.match(service, /if \(\s*sourcingPlan &&\s*!preserveExistingSourcingOnly/);
   assert.match(service, /confirmSourcingBudgetPlan/);
   assert.match(service, /complete: sourcing\?\.ok !== false/);
   assert.match(service, /allowAdoptExistingReservedDraft: false/);
@@ -837,6 +1001,10 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(actions, /cashLimitKrw/);
   assert.match(actions, /sourcingBudgetPercent/);
   assert.match(actions, /preferredSourcingConceptIds/);
+  assert.match(actions, /sourcingSelectionMode/);
+  assert.match(page, /explicitSourcingReplacementScope/);
+  assert.match(page, /effectiveExcludedBarcodes/);
+  assert.match(page, /sourcingSelectionMode:/);
   assert.match(actions, /신규상품 소싱/);
   assert.match(actions, /기존상품.*유지 신규소싱.*새 신규소싱.*최종/);
   assert.match(actions, /최종 \$\{selectedCount\}개 SKU · 총 \$\{totalQuantity\.toLocaleString\("ko-KR"\)\}개/);

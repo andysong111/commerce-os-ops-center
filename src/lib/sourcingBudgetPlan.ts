@@ -46,6 +46,19 @@ export type SourcingBudgetPlanSelection = {
   }>;
 };
 
+export type SourcingBudgetReusedReservation = {
+  conceptId: string;
+  variantKey: string | null;
+  barcode: string;
+  quantity: number;
+  estimatedCostKrw: number;
+  storageSize: "S" | "L" | null;
+  productName: string;
+  saleOption: string;
+  chinaOption: string;
+  sourceUrl: string | null;
+};
+
 export type SourcingBudgetPlan = {
   version: "sourcing-budget-plan-v1";
   generatedAt: string;
@@ -99,6 +112,7 @@ export type SourcingBudgetPlan = {
     selected: SourcingBudgetPlanSelection[];
     excluded: Array<{ conceptId: string; canonicalNameKo: string; reason: string }>;
   };
+  reusedConfirmedVariants: SourcingBudgetReusedReservation[];
   sourceFingerprint: string;
   planFingerprint: string;
   businessWritesEnabled: false;
@@ -297,6 +311,9 @@ function assertPlan(value: unknown): asserts value is SourcingBudgetPlan {
     ...selected,
     ...available,
   ];
+  const reused = Array.isArray(plan?.reusedConfirmedVariants)
+    ? plan.reusedConfirmedVariants
+    : [];
   if (
     !plan ||
     plan.version !== "sourcing-budget-plan-v1" ||
@@ -306,6 +323,16 @@ function assertPlan(value: unknown): asserts value is SourcingBudgetPlan {
     !Array.isArray(plan.allocation?.selected) ||
     !Array.isArray(plan.allocation?.availableCandidates) ||
     !Array.isArray(plan.allocation?.excluded) ||
+    !Array.isArray(plan.reusedConfirmedVariants) ||
+    reused.some((row) =>
+      !row ||
+      typeof row.conceptId !== "string" || !row.conceptId ||
+      typeof row.barcode !== "string" || !/^B[A-Z]{2}\d+-\d+$/.test(row.barcode) ||
+      !Number.isSafeInteger(row.quantity) || row.quantity < 1 ||
+      !Number.isSafeInteger(row.estimatedCostKrw) || row.estimatedCostKrw < 0 ||
+      (row.variantKey !== null && (typeof row.variantKey !== "string" || !row.variantKey)) ||
+      !validCandidateSourceUrl(row.sourceUrl)
+    ) ||
     candidates.some((candidate) =>
       !validCandidateSourceUrl(candidate.sourceUrl) ||
       !Array.isArray(candidate.variants) ||
