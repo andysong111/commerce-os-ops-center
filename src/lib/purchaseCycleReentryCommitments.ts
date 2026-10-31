@@ -2,7 +2,10 @@ import { buildChinaOrderLedgerSummary, CHINA_ORDER_EVENT_OPERATION_TYPE, normali
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const PAGE_SIZE = 500;
-const MAX_ROWS = 5_000;
+// The production ledger passed 5,000 immutable lifecycle events in October
+// 2026. Keep a bounded fail-closed ceiling, but leave enough headroom for the
+// complete history so open quantities are never mistaken for zero.
+const MAX_ROWS = 20_000;
 const OWNER_CONFIRMATION_METHOD = "OWNER_EXPLICIT_CONFIRMATION";
 const UNASSIGNED_BARCODE_PATTERN = /^UNASSIGNED-[A-Z0-9._:-]+$/;
 type StoredRow = { source_event_id: string; input_snapshot: Record<string, unknown>; started_at: string };
