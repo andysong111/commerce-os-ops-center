@@ -1145,7 +1145,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /action="\/purchase-cycle-preflight#preflight-result-title"/);
   assert.match(page, /variant="quick-open"/);
   assert.match(draftActions, /data-testid="preflight-plan-jump"/);
-  assert.match(draftActions, /발주안 바로 보기/);
+  assert.match(draftActions, /발주안 확인하고 저장/);
   assert.match(draftActions, /수량 보정과 5-1·5-2 업무 화면을 엽니다/);
   assert.match(draftActions, /router\.push\(`\/china-order-manager\/drafts\/\$\{encodeURIComponent\(savedDraftId\)\}`\)/);
   assert.match(draftActions, /if \(!savedDraftId\)/);
@@ -1163,6 +1163,13 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.match(page, /상세 검증 내역 보기/);
   assert.match(page, /id="new-product-configuration"/);
   assert.match(page, /신규상품 구성/);
+  assert.match(page, /data-testid="new-product-configuration-panel"/);
+  assert.match(page, /open=\{Boolean\(report && !draftReady\)\}/);
+  assert.match(page, /신규상품 설정 완료/);
+  assert.match(page, /수정할 때만 열기/);
+  assert.match(page, /data-testid="preflight-review-panel"/);
+  assert.match(page, /계산·검증 상세보기 \(선택사항\)/);
+  assert.match(page, /고급 설정 · 평소에는 열지 않아도 됩니다/);
   assert.match(page, /id="sourcing-selection"/);
   assert.match(page, /id="manual-sourcing-intake"/);
   assert.match(page, /const preferredSourcingConceptIds = \[\.\.\.new Set\(/);
@@ -1185,7 +1192,7 @@ test("operator page presents a simple guided flow and keeps technical evidence c
   assert.equal(page.match(/id="manual-sourcing-intake"/g)?.length, 1);
   assert.doesNotMatch(page, /신규상품 소싱 \{report\.sourcingBudgetPercent\}% 배정 미리보기/);
   assert.doesNotMatch(page, /visibleIssues\.length/);
-  assert.doesNotMatch(page, /<details[^>]*\sopen(?:=|\s|>)/);
+  assert.equal(page.match(/<PurchaseCycleDraftActions/g)?.length, 1);
   assert.match(form, /1\. 예산 · 자동후보 불러오기/);
   assert.match(form, /후보 전체를 소형으로 선택하고 발주 수량까지 한 번에 계산합니다/);
   assert.match(form, /Draft 저장, 1688 주문, 결제는 실행하지 않습니다/);

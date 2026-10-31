@@ -623,20 +623,30 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
           <label className="text-sm font-bold text-slate-900">발주 예정일<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="date" type="date" defaultValue={targetDate} required /><span className="mt-1 block text-xs font-normal text-slate-500">판매·재고를 계산할 기준일</span></label>
           <label className="text-sm font-bold text-slate-900">이번 발주에 쓸 총 현금<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="cash" type="number" min="1" step="1" inputMode="numeric" defaultValue={cash} placeholder="비우면 자동 예산" /><span className="mt-1 block text-xs font-normal text-slate-500">상품대금과 배송비·수수료까지 포함</span></label>
           <label className="text-sm font-bold text-slate-900">신규상품 소싱 예산 비율<input className="mt-2 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="sourcing" type="number" min="0" max="100" step="1" inputMode="numeric" defaultValue={sourcing} /><span className="mt-1 block text-xs font-normal text-slate-500">기본 15% · 후보에 쓰고 남은 금액은 기존상품 예산으로 복귀</span></label>
-          <div className="border-t border-slate-100 pt-3 md:col-span-2 xl:col-span-3">
-            <label className="flex min-h-11 items-center gap-3 text-sm font-bold">
-              <input className="size-4" name="early" type="checkbox" value="1" defaultChecked={early} />
-              전월 마감 전 임시 계산
-            </label>
-            <p className="ml-7 text-xs leading-5 text-slate-500">
-              다음 달 발주를 전월이 끝나기 전에 미리 검토할 때만 사용합니다. 임시 매출로 계산되므로 Draft를 확정할 수 없고, 월 마감 후 반드시 다시 계산해야 합니다. 평소에는 체크하지 마세요.
-            </p>
-          </div>
-          <p className="text-xs leading-5 text-slate-600 md:col-span-2 xl:col-span-3">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하되, 이 비율은 최대한도입니다. 안전후보 배정이 끝나고 남은 금액은 기존상품 예산으로 자동 복귀합니다. 현금이 적으면 매출기준 충족 개월 수와 월평균 매출이 높은 상품부터 최소 발주단위를 지키며 배정하고, 현금이 늘면 같은 순서로 수량과 다음 상품을 추가합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
+          <details className="border-t border-slate-100 pt-3 text-sm md:col-span-2 xl:col-span-3">
+            <summary className="cursor-pointer font-bold text-slate-700">고급 설정 · 평소에는 열지 않아도 됩니다</summary>
+            <div className="mt-3 rounded-lg bg-slate-50 px-4 py-3">
+              <label className="flex min-h-11 items-center gap-3 font-bold">
+                <input className="size-4" name="early" type="checkbox" value="1" defaultChecked={early} />
+                전월 마감 전 임시 계산
+              </label>
+              <p className="ml-7 text-xs leading-5 text-slate-500">
+                다음 달 발주를 전월이 끝나기 전에 미리 검토할 때만 사용합니다. 임시 매출로 계산되므로 Draft를 확정할 수 없고, 월 마감 후 반드시 다시 계산해야 합니다. 평소에는 체크하지 마세요.
+              </p>
+              <p className="mt-3 text-xs leading-5 text-slate-600">입력한 현금이 있으면 그 금액을 우선 사용합니다. 신규상품 소싱 예산을 먼저 분리하되, 이 비율은 최대한도입니다. 안전후보 배정이 끝나고 남은 금액은 기존상품 예산으로 자동 복귀합니다. 현금이 적으면 매출기준 충족 개월 수와 월평균 매출이 높은 상품부터 최소 발주단위를 지키며 배정하고, 현금이 늘면 같은 순서로 수량과 다음 상품을 추가합니다. 현금이 충분해도 엔진 권장수량을 초과하지 않습니다.</p>
+            </div>
+          </details>
         </PurchasePreflightForm>
       </section> : null}
       {draftActionProps ? <PurchaseCycleDraftActions {...draftActionProps} variant="quick-open" /> : null}
-      <section id="new-product-configuration" className="scroll-mt-5 border-y border-slate-200 bg-white py-5" aria-labelledby="new-product-configuration-title">
+      <details open={Boolean(report && !draftReady)} data-testid="new-product-configuration-panel" className="scroll-mt-5 border-y border-slate-200 bg-white">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-5 py-4 font-black text-slate-950 marker:hidden">
+          <span>{draftReady ? "신규상품 설정 완료" : "신규상품 설정"}</span>
+          <span className={`text-sm ${draftReady ? "text-emerald-700" : "text-blue-700"}`}>
+            {report && sourcingPlan ? `이번 선택 ${sourcingIncludedVariantCount}개 옵션${draftReady ? " · 수정할 때만 열기" : " · 확인 필요"}` : "예산 계산 후 필요한 항목만 표시"}
+          </span>
+        </summary>
+      <section id="new-product-configuration" className="border-t border-slate-200 px-5 py-5" aria-labelledby="new-product-configuration-title">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-black text-emerald-700">2단계</p>
@@ -739,8 +749,13 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
         ) : null}
         <p className="mt-4 border-t border-slate-100 pt-4 text-xs leading-5 text-slate-500">어느 경로를 사용하든 Draft 저장과 B코드 배정이 끝나면 상품출시 진행관리에는 ‘입고 대기’로 생성됩니다. 실제 입고 전에는 입고완료로 표시하지 않습니다.</p>
       </section>
+      </details>
       {inputError ? <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm">{inputError}</p> : null}
       {!report ? <section className="border-y border-slate-200 py-8 text-center"><p className="text-sm font-bold text-slate-700">아직 준비 전입니다.</p><p className="mt-1 text-xs text-slate-500">위 기준을 확인한 뒤 예산과 후보를 불러오세요.</p></section> : <>
+        <details open={!draftReady} data-testid="preflight-review-panel" className="border-y border-slate-200 bg-white">
+          <summary className="cursor-pointer list-none px-5 py-4 font-black text-slate-950 marker:hidden">
+            {draftReady ? "계산·검증 상세보기 (선택사항)" : `확인할 항목 ${actionItems.length}건 보기`}
+          </summary>
         <section aria-labelledby="preflight-result-title" className="space-y-5">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="min-w-0 space-y-5">
@@ -1010,8 +1025,6 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
             </article>
           </section>
 
-          {draftActionProps ? <PurchaseCycleDraftActions {...draftActionProps} /> : null}
-
           <details className="border-y border-slate-200 bg-white py-4 text-sm">
             <summary className="cursor-pointer font-black text-slate-900">상세 검증 내역 보기</summary>
             <div className="mt-4 space-y-6 border-t border-slate-100 pt-4">
@@ -1027,6 +1040,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
 
           <details className="border-y border-slate-200 bg-white py-4 text-xs"><summary className="cursor-pointer font-bold">채팅 인계·원본 추적 지문</summary><p className="mt-3 break-all">후보 요청 {report.candidateRequestId ?? "없음"}</p><p className="mt-2 break-all">원본 {report.sourceFingerprint}</p><p className="mt-2 break-all">발주 미리보기 {report.planFingerprint}</p><p className="mt-3">같은 화면·지문이라도 승인 토큰이 아닙니다. 데이터·예산·수량 제한이 바뀌면 다시 점검합니다.</p></details>
         </section>
+        </details>
       </>}
     </div>
   );
