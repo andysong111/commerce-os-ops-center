@@ -56,6 +56,23 @@ in a separate read-only, unbudgeted rehearsal.
 
 ## Verification
 
+### 2026-10-31 location-unassigned catalog quarantine
+
+- The live Product Master planning snapshot contains 495 canonical managed B-code
+  SKUs, six known `TMP1-2` through `TMP1-7` launch placeholders, and ten exact
+  `UNASSIGNED-20261029-*` launch-tracker rows whose prior warehouse locations
+  cannot be safely restored.
+- The read-only shadow excludes only those ten observed unassigned identities
+  from the managed demand-scope count. They remain visible as `DATA_HOLD` rows
+  and can never receive a candidate quantity or allocation.
+- This is an exact allowlist, not an `UNASSIGNED-*` pattern exception. A new or
+  malformed unassigned identity still produces `CATALOG_INVALID_BARCODE` and
+  blocks every recommendation.
+- The ten rows require physical B-code confirmation. Historical warehouse codes
+  and numeric option barcodes are never copied into the B-code field. This
+  classification does not write Product Master, inventory, Shopling, a Draft,
+  an order, or a payment.
+
 Permanent workflow: `Purchase Reentry Shadow CI`.
 - `tests/purchaseCycleReentryShadow.test.mjs` executes the real V2 function, real
   sales-coverage validator, real commitment reducer and actual API/read adapter with
