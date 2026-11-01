@@ -80,7 +80,7 @@ test("HF39 waits for the canonical A21 worker and injects it at most once", asyn
   assert.equal(injections, 1);
 });
 
-test("HF39 remains v0.6.7 while the UI requires HF42", async () => {
+test("HF39 remains v0.6.7 while the UI requires HF50", async () => {
   const [route, page, planner, queue, hiddenBrowserCheck, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf39/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
@@ -98,6 +98,6 @@ test("HF39 remains v0.6.7 while the UI requires HF42", async () => {
   assert.match(page, /v0\.6\.15 다운로드/);
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 15\]/);
   assert.match(queue, /전송 전 로그인 점검 또는 결과 검증/);
-  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.14'/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.15'/);
   assert.match(workflow, /shoplingStockStateHf39\.test\.mjs/);
 });
