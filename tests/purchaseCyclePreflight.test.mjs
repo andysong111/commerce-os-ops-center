@@ -7,6 +7,7 @@ import {
 } from "../src/lib/purchaseCyclePreflightCore.ts";
 import {
   purchaseReplacementDraftSnapshotLines,
+  purchaseReplacementSnapshotIdentityBarcodes,
   purchaseReplacementTrustedPayloadRows,
 } from "../src/lib/purchaseReplacementDraftLineage.ts";
 import {
@@ -2327,6 +2328,173 @@ test("replacement snapshot remaps the real male acupressure-sock barcode collisi
       originalIdentityRows,
     ),
     /PURCHASE_SOURCING_IDENTITY_METADATA_UNAVAILABLE:BBB7-2/,
+  );
+});
+
+test("replacement snapshot keeps the current canonical sock line and does not revive its stale predecessor alias", () => {
+  const draftId = "fast-purchase-draft:73bae74e28f8c8d5cc4e";
+  const previousDraftId = "fast-purchase-draft:86a9665a3a74a2f8bf6a";
+  const currentRows = [
+    {
+      sourceSystem: "fast-purchase-mvp",
+      sourceRunId: draftId,
+      barcode: "BDB5-3",
+      openQuantity: 20,
+      committedQuantity: 20,
+      latestPayload: {
+        productName: "지압양말세트",
+        saleOption: "남성용1쌍과 지압봉",
+        chinaOption: "男袜+按摩棒",
+        supplierLink: "https://detail.1688.com/offer/668850156055.html",
+        sourcingConfirmed: true,
+        supersedesDraftId: previousDraftId,
+      },
+    },
+    {
+      sourceSystem: "fast-purchase-mvp",
+      sourceRunId: draftId,
+      barcode: "BDB6-2",
+      openQuantity: 20,
+      committedQuantity: 20,
+      latestPayload: {
+        productName: "지압양말세트",
+        saleOption: "여성용1쌍과 지압봉",
+        chinaOption: "女袜+按摩棒",
+        supplierLink: "https://detail.1688.com/offer/668850156055.html",
+        sourcingConfirmed: true,
+        supersedesDraftId: previousDraftId,
+      },
+    },
+  ];
+  const predecessorRows = [
+    {
+      ...currentRows[0],
+      sourceRunId: previousDraftId,
+      barcode: "BBB7-2",
+      openQuantity: 0,
+      latestPayload: {
+        productName: "지압양말세트",
+        sourcingConfirmed: true,
+      },
+    },
+    {
+      ...currentRows[1],
+      sourceRunId: previousDraftId,
+      openQuantity: 0,
+      latestPayload: {
+        productName: "지압양말세트",
+        sourcingConfirmed: true,
+      },
+    },
+  ];
+  const identityHistory = [{
+    ...predecessorRows[0],
+    sourceRunId: "fast-purchase-draft:62f76f670872edb868ac",
+    latestPayload: {
+      productName: "지압양말세트",
+      saleOption: "남성용1쌍과 지압봉",
+      chinaOption: "男袜+按摩棒",
+      supplierLink: "https://detail.1688.com/offer/668850156055.html",
+      sourcingConfirmed: true,
+    },
+  }];
+  const metadata = new Map([
+    ["BBB7-2", {
+      barcode: "BBB7-2",
+      productName: "머플러 C형",
+      saleOption: "베이지",
+      chinaOption: "男袜+按摩棒",
+      conflict: false,
+    }],
+    ["BDB5-3", {
+      barcode: "BDB5-3",
+      productName: "지압양말세트",
+      saleOption: "남성용1쌍과 지압봉",
+      chinaOption: "男袜+按摩棒",
+      conflict: false,
+    }],
+    ["BDB6-2", {
+      barcode: "BDB6-2",
+      productName: "지압양말세트",
+      saleOption: "여성용1쌍과 지압봉",
+      chinaOption: "女袜+按摩棒",
+      conflict: false,
+    }],
+  ]);
+  const commitments = [...predecessorRows, ...currentRows];
+
+  assert.deepEqual(
+    purchaseReplacementSnapshotIdentityBarcodes(commitments, currentRows, draftId).sort(),
+    ["BBB7-2", "BDB5-3", "BDB6-2"],
+  );
+
+  const repaired = purchaseReplacementDraftSnapshotLines(
+    commitments,
+    currentRows,
+    draftId,
+    new Map(),
+    metadata,
+    identityHistory,
+  );
+  assert.deepEqual(
+    repaired.map((line) => ({
+      barcode: line.barcode,
+      quantity: line.quantity,
+      recoveredFromPredecessor: line.recoveredFromPredecessor,
+    })).sort((left, right) => left.barcode.localeCompare(right.barcode)),
+    [
+      { barcode: "BDB5-3", quantity: 20, recoveredFromPredecessor: false },
+      { barcode: "BDB6-2", quantity: 20, recoveredFromPredecessor: false },
+    ],
+  );
+  assert.equal(repaired.some((line) => line.barcode === "BBB7-2"), false);
+
+  assert.throws(
+    () => purchaseReplacementDraftSnapshotLines(
+      commitments,
+      currentRows,
+      draftId,
+      new Map(),
+      metadata,
+      [],
+    ),
+    /PURCHASE_SOURCING_IDENTITY_INCOMPLETE:BBB7-2/,
+  );
+
+  assert.throws(
+    () => purchaseReplacementDraftSnapshotLines(
+      [
+        ...currentRows,
+        {
+          ...identityHistory[0],
+          sourceRunId: draftId,
+          openQuantity: 20,
+          committedQuantity: 20,
+          latestPayload: {
+            ...identityHistory[0].latestPayload,
+            supersedesDraftId: previousDraftId,
+          },
+        },
+      ],
+      [
+        ...currentRows,
+        {
+          ...identityHistory[0],
+          sourceRunId: draftId,
+          openQuantity: 20,
+          committedQuantity: 20,
+          latestPayload: {
+            ...identityHistory[0].latestPayload,
+            supersedesDraftId: previousDraftId,
+          },
+        },
+      ],
+      draftId,
+      new Map(),
+      metadata,
+      identityHistory,
+    ),
+    /PURCHASE_SOURCING_BARCODE_IDENTITY_DUPLICATE:BDB5-3/,
   );
 });
 
