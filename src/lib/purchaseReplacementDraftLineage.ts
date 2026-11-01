@@ -44,9 +44,11 @@ export function purchaseReplacementTrustedPayloadRows<TRow extends ReplacementLe
   const restoredConfirmedSourcingBarcodes = new Set(
     currentDraftRows
       .filter(
-        (row) =>
-          text(object(row.latestPayload).operatorNote) ===
-          RESTORED_CONFIRMED_SOURCING_NOTE,
+        (row) => {
+          const payload = object(row.latestPayload);
+          return text(payload.operatorNote ?? payload.note) ===
+            RESTORED_CONFIRMED_SOURCING_NOTE;
+        },
       )
       .map((row) => row.barcode),
   );

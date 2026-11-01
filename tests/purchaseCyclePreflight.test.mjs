@@ -2045,7 +2045,7 @@ test("replacement lineage restores the selected sourcing marker lost from the cu
       productName: "지압양말세트",
       supersedesDraftId: previousDraftId,
       operatorExcludedBarcodes: ["BDB6-3"],
-      operatorNote: "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함",
+      note: "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함",
     },
   }];
   const predecessorRows = [
@@ -2098,7 +2098,7 @@ test("replacement lineage restores the selected sourcing marker lost from the cu
     ...currentRows[0],
     latestPayload: {
       ...currentRows[0].latestPayload,
-      operatorNote: "최신 자동추천 입력 대기",
+      note: "최신 자동추천 입력 대기",
     },
   }];
   const ordinary = purchaseReplacementTrustedPayloadRows(
