@@ -5,6 +5,7 @@ import {
 import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import {
   assertPurchaseCycleDraftMatchesPlannedTotals,
+  canFinalizeWithExactConfirmedSourcing,
   canRecalculateWithPreservedSourcingOnly,
   preparePurchaseCycleDraft,
   purchaseCycleDraftConfirmation,
@@ -347,9 +348,14 @@ export async function createPurchaseCyclePreflightDraft(
     }
 
     ({ report, sourcingPlan } = await loadCurrentPlan());
+    const exactConfirmedSourcingReady = canFinalizeWithExactConfirmedSourcing(
+      report,
+      sourcingPlan,
+      request,
+    );
     if (
       !sourcingPlan ||
-      sourcingPlan.readyForConfirmation !== true ||
+      (sourcingPlan.readyForConfirmation !== true && !exactConfirmedSourcingReady) ||
       sourcingPlan.allocation.selected.some((row) => row.selectedVariants.length > 0)
     ) {
       throw new Error("PURCHASE_CYCLE_SOURCING_CONFIRMATION_INCOMPLETE:REFRESH");

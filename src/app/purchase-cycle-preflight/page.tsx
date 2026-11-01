@@ -15,6 +15,7 @@ import {
   type PurchaseCycleBlockerAction,
 } from "@/lib/purchaseCycleBlockerActions";
 import {
+  canFinalizeWithExactConfirmedSourcing,
   canRecalculateWithPreservedSourcingOnly,
   explicitSourcingReplacementScope,
   purchaseCycleDraftConfirmation,
@@ -416,7 +417,16 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const preserveExistingSourcingOnly = Boolean(
     report && canRecalculateWithPreservedSourcingOnly(report, sourcingPlan),
   );
-  const sourcingReady = !sourcingEnabled || sourcingPlan?.readyForConfirmation === true || preserveExistingSourcingOnly;
+  const exactConfirmedSourcingReady = Boolean(
+    report && canFinalizeWithExactConfirmedSourcing(report, sourcingPlan, {
+      sourcingSelectionMode: selectionMode === "custom" ? "custom" : "automatic",
+      preferredSourcingConceptIds: effectivePreferredSourcingConceptIds,
+      sourcingStorageSizeByConceptId,
+      sourcingVariantSelections: effectiveSourcingVariantSelections,
+    }),
+  );
+  const sourcingReady = !sourcingEnabled || sourcingPlan?.readyForConfirmation === true ||
+    preserveExistingSourcingOnly || exactConfirmedSourcingReady;
   const sourcingSelectedVariantCount = sourcingPlan?.allocation.selected.reduce(
     (total, candidate) => total + candidate.selectedVariants.length,
     0,
@@ -434,7 +444,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
     ? purchaseCycleDraftPlannedTotals(report, sourcingPlan)
     : null;
   const sourcingPendingKrw = report && report.sourcingBudgetPercent > 0 && report.sourcingBudgetReturnKrw === 0
-    ? preserveExistingSourcingOnly
+      ? preserveExistingSourcingOnly || exactConfirmedSourcingReady
       ? 0
       : sourcingPlan
       ? sourcingPlan.readyForConfirmation ? 0 : sourcingPlan.allocation.remainingBudgetKrw
@@ -454,7 +464,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   const sourcingPreparationCodes = sourcingPlan?.policy.operatorAllocationSupported && sourcingPlan.policy.version !== null
     ? sourcingPlan.blockers.filter(code => sourcingPolicyPreparationCodes.has(code))
     : [];
-  const sourcingBlockingCodes = preserveExistingSourcingOnly
+  const sourcingBlockingCodes = preserveExistingSourcingOnly || exactConfirmedSourcingReady
     ? []
     : sourcingPlan?.blockers.filter(code => !sourcingPreparationCodes.includes(code)) ?? [];
   const actionItems: PurchaseCycleBlockerAction[] = purchaseCycleBlockerActions(report, explain);
@@ -703,7 +713,7 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
                 {sourcingPlanError ? <p role="alert" className="mt-3 break-all border-l-4 border-rose-500 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-950">{sourcingPlanError}</p> : null}
                 {sourcingPreparationCodes.length ? <p className="mt-3 border-l-4 border-sky-500 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-950">예산 정책 {sourcingPreparationCodes.length}건은 저장 시 자동 준비됩니다.</p> : null}
                 {sourcingBlockingCodes.length ? <p className="mt-3 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">최종 저장 전 소싱 안전조건 {sourcingBlockingCodes.length}개가 남았습니다.</p> : null}
-                {sourcingPlan?.readyForConfirmation ? <p className="mt-3 text-sm font-bold text-emerald-800">신규상품 코드 배정과 이번 발주차시 Draft 추가 준비가 끝났습니다.</p> : null}
+                {sourcingPlan?.readyForConfirmation || exactConfirmedSourcingReady ? <p className="mt-3 text-sm font-bold text-emerald-800">신규상품 코드 배정과 이번 발주차시 Draft 추가 준비가 끝났습니다.</p> : null}
                 {sourcingPlan ? <>
                   {sourcingPlan.reusedConfirmedVariants.length > 0 ? <details className="mt-4 text-sm"><summary className="cursor-pointer font-bold text-blue-800">이번 선택에서 기존 B코드 재사용 {sourcingPlan.reusedConfirmedVariants.length}개</summary>{sourcingPlan.reusedConfirmedVariants.map(row => <p key={`${row.conceptId}:${row.variantKey ?? row.barcode}`} className="mt-2">{row.productName} · {row.saleOption || row.chinaOption || "옵션명 미확인"} · <span className="font-mono font-bold">{row.barcode}</span> · {row.quantity.toLocaleString("ko-KR")}개</p>)}</details> : null}
                   <details className="mt-4 text-sm"><summary className="cursor-pointer font-bold text-emerald-800">선정 후보 {sourcingPlan.allocation.selected.length}종 상세 보기</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-2">후보 상품</th><th className="p-2">품질</th><th className="p-2">배정</th><th className="p-2">MOQ / 최대 / 수량</th><th className="p-2">예상금액</th></tr></thead><tbody>{sourcingPlan.allocation.selected.map(row => <tr key={row.conceptId} className="border-t"><td className="p-2"><span className="block">{row.canonicalNameKo}</span>{row.sourceUrl ? <a href={row.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs font-bold text-blue-700 underline">1688 링크</a> : <span className="mt-1 block text-xs font-bold text-amber-700">링크 확인 필요</span>}</td><td className="p-2">{row.finalQualityScore ?? "미확인"}</td><td className="p-2">{row.tier === "CORE" ? "핵심" : row.tier === "SUPPORT" ? "안정" : "최소 테스트"}</td><td className="p-2">{row.moq} / {row.recommendedUnits} / <strong>{row.quantity}</strong></td><td className="p-2">{money(row.estimatedCostKrw)}</td></tr>)}</tbody></table></div>{!sourcingPlan.allocation.selected.length ? <p className="mt-3">현재 예산과 안전조건 안에서 선택할 TEST_READY 신규상품이 없습니다.</p> : null}</details>

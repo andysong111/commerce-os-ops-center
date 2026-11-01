@@ -101,7 +101,11 @@ function sortedVariantSelections(values: SourcingVariantSelectionInput[] | undef
 
 function sameSourcingSelection(
   plan: SourcingBudgetPlan,
-  request: PurchaseCycleDraftRequest,
+  request: {
+    preferredSourcingConceptIds?: string[];
+    sourcingStorageSizeByConceptId?: Record<string, "S" | "L">;
+    sourcingVariantSelections?: SourcingVariantSelectionInput[];
+  },
 ) {
   return (
     JSON.stringify(sortedStrings(plan.preferredConceptIds)) ===
@@ -320,6 +324,73 @@ export function canRecalculateWithPreservedSourcingOnly(
   );
 }
 
+export function canFinalizeWithExactConfirmedSourcing(
+  report: PurchaseCyclePreflightReport,
+  sourcingPlan: SourcingBudgetPlan | null,
+  request: {
+    sourcingSelectionMode?: "automatic" | "custom";
+    preferredSourcingConceptIds?: string[];
+    sourcingStorageSizeByConceptId?: Record<string, "S" | "L">;
+    sourcingVariantSelections?: SourcingVariantSelectionInput[];
+  },
+) {
+  const preferredConceptIds = request.preferredSourcingConceptIds ?? [];
+  const requestedVariants = request.sourcingVariantSelections ?? [];
+  if (
+    !report.replacementDraftId ||
+    report.replacementAudit?.complete !== true ||
+    report.sourcingBudgetPercent <= 0 ||
+    request.sourcingSelectionMode !== "custom" ||
+    preferredConceptIds.length === 0 ||
+    requestedVariants.length === 0 ||
+    !sourcingPlan ||
+    sourcingPlan.targetCycleMonth !== report.targetCycleMonth ||
+    sourcingPlan.totalCashKrw !== report.effectiveCashKrw ||
+    sourcingPlan.sourcingBudgetPercent !== report.sourcingBudgetPercent ||
+    sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw ||
+    !sameSourcingSelection(sourcingPlan, request) ||
+    sourcingPlan.allocation.selected.length !== 0 ||
+    !sourcingPlan.blockers.every((code) => PRESERVED_SOURCING_ONLY_BLOCKERS.has(code))
+  ) {
+    return false;
+  }
+
+  const expectedVariants = new Map<string, "S" | "L">();
+  for (const variant of requestedVariants) {
+    const key = `${variant.conceptId}\0${variant.variantKey}`;
+    if (expectedVariants.has(key)) return false;
+    expectedVariants.set(key, variant.storageSize);
+  }
+  const reused = sourcingPlan.reusedConfirmedVariants ?? [];
+  if (reused.length !== expectedVariants.size) return false;
+
+  const reusedIdentities = new Set<string>();
+  const reusedBarcodes = new Set<string>();
+  for (const row of reused) {
+    const identity = `${row.conceptId}\0${row.variantKey ?? ""}`;
+    if (
+      !expectedVariants.has(identity) ||
+      expectedVariants.get(identity) !== row.storageSize ||
+      reusedIdentities.has(identity) ||
+      reusedBarcodes.has(row.barcode) ||
+      !/^B[A-Z]{2}\d+-\d+$/.test(row.barcode) ||
+      !Number.isSafeInteger(row.quantity) ||
+      row.quantity <= 0 ||
+      row.productName.trim().length === 0
+    ) {
+      return false;
+    }
+    reusedIdentities.add(identity);
+    reusedBarcodes.add(row.barcode);
+  }
+
+  const explicitScope = explicitSourcingReplacementScope(report, sourcingPlan, request);
+  return explicitScope.active &&
+    explicitScope.missingReusedBarcodes.length === 0 &&
+    explicitScope.conflictingReusedBarcodes.length === 0 &&
+    explicitScope.unexpectedPreservedBarcodes.length === 0;
+}
+
 export function explicitSourcingReplacementScope(
   report: PurchaseCyclePreflightReport,
   sourcingPlan: SourcingBudgetPlan | null,
@@ -429,9 +500,14 @@ export function preparePurchaseCycleDraft(
       0,
     ) ?? 0;
     const reusedSourcingVariantCount = sourcingPlan?.reusedConfirmedVariants?.length ?? 0;
+    const exactConfirmedSourcingReady = canFinalizeWithExactConfirmedSourcing(
+      report,
+      sourcingPlan,
+      request,
+    );
     if (
       !sourcingPlan ||
-      sourcingPlan.readyForConfirmation !== true ||
+      (sourcingPlan.readyForConfirmation !== true && !exactConfirmedSourcingReady) ||
       sourcingPlan.targetCycleMonth !== report.targetCycleMonth ||
       sourcingPlan.totalCashKrw !== report.effectiveCashKrw ||
       sourcingPlan.sourcingBudgetPercent !== report.sourcingBudgetPercent ||
