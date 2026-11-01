@@ -1,3 +1,5 @@
+import { canonicalSourcingBarcode } from "./sourcingReservationIdentity.ts";
+
 const DEFAULT_SOURCING_ENGINE_URL = "https://commerce-os-sourcing-engine-indol.vercel.app";
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/;
 // The read-only page must fail closed instead of holding the whole operator UI
@@ -128,6 +130,26 @@ export type SourcingBudgetPlanInput = {
   storageSizeByConceptId?: Record<string, "S" | "L">;
   variantSelections?: SourcingVariantSelectionInput[];
 };
+
+export function canonicalizeSourcingPlanReusedReservations(
+  plan: SourcingBudgetPlan,
+  identityMetadata: Parameters<typeof canonicalSourcingBarcode>[2],
+): SourcingBudgetPlan {
+  if (plan.reusedConfirmedVariants.length === 0) return plan;
+  return {
+    ...plan,
+    // Keep the sourcing engine fingerprints as immutable upstream evidence.
+    // The Ops decision fingerprint separately covers these canonical B-codes.
+    reusedConfirmedVariants: plan.reusedConfirmedVariants.map((row) => ({
+      ...row,
+      barcode: canonicalSourcingBarcode(
+        row.barcode,
+        row as unknown as Record<string, unknown>,
+        identityMetadata,
+      ),
+    })),
+  };
+}
 
 export function allSourcingVariantsAsSmall(
   plan: SourcingBudgetPlan,
@@ -505,7 +527,18 @@ export async function loadSourcingBudgetPlan(
   );
   const payload = await responseJson(response);
   assertPlan(payload.plan);
-  return payload.plan;
+  if (payload.plan.reusedConfirmedVariants.length === 0) return payload.plan;
+  const { loadProductLaunchPurchaseMetadataByBarcode } = await import(
+    "./productLaunchPurchaseMetadata.ts"
+  );
+  const identityMetadata = await loadProductLaunchPurchaseMetadataByBarcode();
+  if (identityMetadata.error) {
+    throw new Error("SOURCING_REUSED_IDENTITY_METADATA_UNAVAILABLE");
+  }
+  return canonicalizeSourcingPlanReusedReservations(
+    payload.plan,
+    identityMetadata.byBarcode,
+  );
 }
 
 export async function loadManualPilotCatalog(options: {

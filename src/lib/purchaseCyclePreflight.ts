@@ -20,6 +20,7 @@ import {
 import type { InventoryStockBand } from "@/lib/inventoryStockBulkInput";
 import { loadStoredInternalChinaPurchaseDraftForCost } from "@/lib/internalChinaPurchaseDraft";
 import { buildPurchaseActualDraftCostSnapshot } from "@/lib/purchaseActualDraftCostSnapshot";
+import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
 
 const DEFAULT_READER_TIMEOUT_MS = 60_000;
 
@@ -49,9 +50,10 @@ async function withReaderTimeout<T>(
 }
 
 async function loadReplacementDraftSnapshot(draftId: string) {
-  const [ledger, overrides] = await Promise.all([
+  const [ledger, overrides, metadata] = await Promise.all([
     loadChinaOrderLedger(),
     loadInternalChinaQuantityOverrides(draftId),
+    loadProductLaunchPurchaseMetadataByBarcode(),
   ]);
   if (ledger.error) throw new Error("REPLACEMENT_DRAFT_LEDGER_READ_FAILED");
   const activeRows = safeReplacementCycleDraftRows(ledger.commitments, draftId);
@@ -63,6 +65,7 @@ async function loadReplacementDraftSnapshot(draftId: string) {
       activeRows,
       draftId,
       overrides,
+      metadata.error ? null : metadata.byBarcode,
     ),
   );
 }
