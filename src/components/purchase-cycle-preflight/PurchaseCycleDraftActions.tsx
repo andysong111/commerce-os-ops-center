@@ -185,7 +185,10 @@ export function PurchaseCycleDraftActions({
         const sourcingProgress = payload.sourcing
           ? ` 신규상품 ${payload.sourcing.confirmedCount ?? 0}/${payload.sourcing.selectedCount ?? sourcingSelectedCount}종 반영.`
           : "";
-        setNotice((payload.message || `저장 실패 · ${payload.code || response.status}`) + sourcingProgress);
+        const failureCode = payload.code || String(response.status);
+        setNotice(
+          `${payload.message || "발주차시 Draft 저장에 실패했습니다."} (${failureCode})${sourcingProgress}`,
+        );
         return;
       }
       window.dispatchEvent(new Event(MANUAL_SOURCING_DRAFT_COMMITTED_EVENT));

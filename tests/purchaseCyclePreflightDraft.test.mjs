@@ -1029,6 +1029,9 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(regeneration, /status: "CANCELLED"/);
   assert.match(regeneration, /status: "RESERVED"/);
   assert.match(regeneration, /preservedOperatorBarcodes/);
+  assert.match(regeneration, /loadChinaOrderSourcingIdentityHistory/);
+  assert.match(regeneration, /loadProductLaunchPurchaseMetadataByBarcode/);
+  assert.match(regeneration, /PURCHASE_SOURCING_IDENTITY_INCOMPLETE/);
   assert.match(regeneration, /isTrustedPurchaseDraftManualAddition\(payload\)/);
   assert.doesNotMatch(
     regeneration,
@@ -1044,6 +1047,8 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(regeneration, /inserted\.length !== operations\.length/);
   assert.doesNotMatch(service, /ORDERED|1688|payment/i);
   assert.match(actions, /window\.confirm/);
+  assert.match(actions, /failureCode/);
+  assert.match(route, /\[purchase-cycle-preflight-draft\] save failed/);
   assert.match(actions, /allowOpenBudgetPreview/);
   assert.match(actions, /cashLimitKrw/);
   assert.match(actions, /sourcingBudgetPercent/);

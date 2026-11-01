@@ -28,6 +28,8 @@ export function purchaseReplacementTrustedPayloadRows<TRow extends ReplacementLe
   activeRows: TRow[],
   draftId: string,
   selectedBarcodes: ReadonlySet<string>,
+  metadataByBarcode?: ReadonlyMap<string, PurchaseIdentityMetadata> | null,
+  identityHistory: readonly TRow[] = [],
 ) {
   const currentDraftRows = activeRows.filter((row) => row.sourceRunId === draftId);
   const supersedesDraftIds = [...new Set(
@@ -50,7 +52,10 @@ export function purchaseReplacementTrustedPayloadRows<TRow extends ReplacementLe
       .filter((row) => isRestoredConfirmedSourcingPayload(row.latestPayload))
       .map((row) => row.barcode),
   );
-  const historicalConfirmedSourcingRows = commitments.filter((row) => {
+  const historicalConfirmedSourcingRows = [
+    ...commitments,
+    ...identityHistory,
+  ].filter((row) => {
     if (!restoredConfirmedSourcingBarcodes.has(row.barcode)) return false;
     return object(row.latestPayload).sourcingConfirmed === true;
   });
@@ -59,26 +64,46 @@ export function purchaseReplacementTrustedPayloadRows<TRow extends ReplacementLe
   for (const row of [
     ...historicalConfirmedSourcingRows,
     ...predecessorRows,
+    ...identityHistory,
     ...activeRows,
   ]) {
-    if (!selectedBarcodes.has(row.barcode) || excluded.has(row.barcode)) continue;
     const payload = object(row.latestPayload);
     const restoredCurrentMarker = row.sourceRunId === draftId &&
       isRestoredConfirmedSourcingPayload(payload);
+    const sourcingIdentityGuard = payload.sourcingConfirmed === true ||
+      restoredCurrentMarker;
     if (
-      payload.sourcingConfirmed === true ||
-      isTrustedPurchaseDraftManualAddition(payload) ||
-      restoredCurrentMarker
+      !sourcingIdentityGuard &&
+      !isTrustedPurchaseDraftManualAddition(payload)
+    ) continue;
+
+    const identityPayload = sourcingIdentityGuard
+      ? sourcingIdentityPayload(commitments, row, identityHistory)
+      : payload;
+    const resolvedBarcode = sourcingIdentityGuard
+      ? canonicalSourcingBarcode(row.barcode, identityPayload, metadataByBarcode)
+      : row.barcode;
+    if (
+      !selectedBarcodes.has(resolvedBarcode) ||
+      excluded.has(row.barcode) ||
+      excluded.has(resolvedBarcode)
+    ) continue;
+
+    const resolvedPayload = sourcingIdentityGuard
+      ? { ...payload, ...identityPayload, sourcingConfirmed: true }
+      : payload;
+    const candidate = {
+      ...row,
+      barcode: resolvedBarcode,
+      latestPayload: resolvedPayload,
+    } as TRow;
+    const current = trustedByBarcode.get(resolvedBarcode);
+    if (
+      !current ||
+      identityPayloadScore(resolvedPayload) >=
+        identityPayloadScore(object(current.latestPayload))
     ) {
-      trustedByBarcode.set(
-        row.barcode,
-        restoredCurrentMarker && payload.sourcingConfirmed !== true
-          ? {
-              ...row,
-              latestPayload: { ...payload, sourcingConfirmed: true },
-            }
-          : row,
-      );
+      trustedByBarcode.set(resolvedBarcode, candidate);
     }
   }
 

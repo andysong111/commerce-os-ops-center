@@ -2330,6 +2330,119 @@ test("replacement snapshot remaps the real male acupressure-sock barcode collisi
   );
 });
 
+test("replacement save restores the full acupressure-sock identity on canonical B-codes", () => {
+  const draftId = "fast-purchase-draft:86a9665a3a74a2f8bf6a";
+  const currentRows = [
+    {
+      sourceSystem: "fast-purchase-mvp",
+      sourceRunId: draftId,
+      barcode: "BBB7-2",
+      openQuantity: 20,
+      committedQuantity: 20,
+      latestPayload: {
+        productName: "지압양말세트",
+        sourcingConfirmed: true,
+        supersedesDraftId: "fast-purchase-draft:150d3e2fbca4498d6fe8",
+      },
+    },
+    {
+      sourceSystem: "fast-purchase-mvp",
+      sourceRunId: draftId,
+      barcode: "BDB6-2",
+      openQuantity: 20,
+      committedQuantity: 20,
+      latestPayload: {
+        productName: "지압양말세트",
+        sourcingConfirmed: true,
+        supersedesDraftId: "fast-purchase-draft:150d3e2fbca4498d6fe8",
+      },
+    },
+  ];
+  const identityHistory = [
+    {
+      ...currentRows[0],
+      sourceRunId: "fast-purchase-draft:62f76f670872edb868ac",
+      openQuantity: 0,
+      latestPayload: {
+        productName: "지압양말세트",
+        saleOption: "남성용1쌍과 지압봉",
+        chinaOption: "男袜+按摩棒",
+        supplierLink: "https://detail.1688.com/offer/668850156055.html",
+        sourcingConfirmed: true,
+      },
+    },
+    {
+      ...currentRows[1],
+      sourceRunId: "fast-purchase-draft:62f76f670872edb868ac",
+      openQuantity: 0,
+      latestPayload: {
+        productName: "지압양말세트",
+        saleOption: "여성용1쌍과 지압봉",
+        chinaOption: "女袜+按摩棒",
+        supplierLink: "https://detail.1688.com/offer/668850156055.html",
+        sourcingConfirmed: true,
+      },
+    },
+  ];
+  const metadata = new Map([
+    ["BBB7-2", {
+      barcode: "BBB7-2",
+      productName: "머플러 C형",
+      saleOption: "베이지",
+      chinaOption: "男袜+按摩棒",
+      conflict: false,
+    }],
+    ["BDB5-3", {
+      barcode: "BDB5-3",
+      productName: "지압양말세트",
+      saleOption: "남성용1쌍과 지압봉",
+      chinaOption: "男袜+按摩棒",
+      conflict: false,
+    }],
+    ["BDB6-2", {
+      barcode: "BDB6-2",
+      productName: "지압양말세트",
+      saleOption: "여성용1쌍과 지압봉",
+      chinaOption: "女袜+按摩棒",
+      conflict: false,
+    }],
+  ]);
+
+  const trusted = purchaseReplacementTrustedPayloadRows(
+    currentRows,
+    currentRows,
+    draftId,
+    new Set(["BDB5-3", "BDB6-2"]),
+    metadata,
+    identityHistory,
+  );
+
+  assert.deepEqual([...trusted.keys()].sort(), ["BDB5-3", "BDB6-2"]);
+  assert.equal(trusted.has("BBB7-2"), false);
+  assert.deepEqual(
+    [...trusted.values()].map((row) => ({
+      barcode: row.barcode,
+      saleOption: row.latestPayload.saleOption,
+      chinaOption: row.latestPayload.chinaOption,
+      supplierLink: row.latestPayload.supplierLink,
+    })).sort((left, right) => left.barcode.localeCompare(right.barcode)),
+    [
+      {
+        barcode: "BDB5-3",
+        saleOption: "남성용1쌍과 지압봉",
+        chinaOption: "男袜+按摩棒",
+        supplierLink: "https://detail.1688.com/offer/668850156055.html",
+      },
+      {
+        barcode: "BDB6-2",
+        saleOption: "여성용1쌍과 지압봉",
+        chinaOption: "女袜+按摩棒",
+        supplierLink: "https://detail.1688.com/offer/668850156055.html",
+      },
+    ],
+  );
+});
+
 test("replacement snapshot preserves all eight owner-selected sourcing options when three restored markers only survive on the immediate predecessor", () => {
   const currentDraftId = "fast-purchase-draft:150d3e2fbca4498d6fe8";
   const previousDraftId = "fast-purchase-draft:a3a7038cd279a4c21aa4";
