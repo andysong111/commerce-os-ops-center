@@ -53,6 +53,10 @@ export async function POST(request: Request) {
       "PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY",
       "PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH",
     ].includes(code);
+    console.warn("[purchase-cycle-preflight-draft] save failed", {
+      code,
+      cause: message.slice(0, 300),
+    });
     return Response.json(
       {
         ok: false,
@@ -72,6 +76,8 @@ export async function POST(request: Request) {
                     ? "신규상품 후보·창고·월 소싱 예산 정책이 아직 최종 확정 조건을 충족하지 않습니다. 읽기 전용 사전점검을 다시 확인하세요."
                   : code === "PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH"
                     ? "이번에 선택한 기존 신규상품 B코드와 발주초안 구성이 일치하지 않아 저장을 중단했습니다. 사전점검을 다시 실행하세요."
+                  : code.startsWith("PURCHASE_SOURCING_IDENTITY_")
+                    ? "신규소싱 상품의 B코드·옵션·1688 링크를 안전하게 복원하지 못해 저장을 중단했습니다. 화면을 새로고침한 뒤 다시 확인하세요."
                   : "발주차시 Draft 저장 조건을 확인하지 못했습니다.",
       },
       {

@@ -3,6 +3,7 @@ import {
   CHINA_ORDER_EVENT_OPERATION_TYPE,
   chinaOrderCommitmentCycleMonth,
   loadChinaOrderLedger,
+  loadChinaOrderSourcingIdentityHistory,
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
 import type {
@@ -28,7 +29,11 @@ import {
 } from "@/lib/purchaseCycleDraftRegenerationCore";
 import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
 import { collapseCanonicalPurchaseDraftLines } from "@/lib/purchaseSkuCanonicalization";
-import { purchaseReplacementTrustedPayloadRows } from "@/lib/purchaseReplacementDraftLineage";
+import {
+  purchaseReplacementSourcingIdentityBarcodes,
+  purchaseReplacementTrustedPayloadRows,
+} from "@/lib/purchaseReplacementDraftLineage";
+import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
@@ -325,11 +330,36 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     input.expectedDraftId,
   );
   const previousByBarcode = new Map(activeRows.map((row) => [row.barcode, row] as const));
+  const sourcingIdentityBarcodes = purchaseReplacementSourcingIdentityBarcodes(activeRows);
+  const [identityMetadata, identityHistory] = sourcingIdentityBarcodes.length
+    ? await Promise.all([
+        loadProductLaunchPurchaseMetadataByBarcode(),
+        loadChinaOrderSourcingIdentityHistory(sourcingIdentityBarcodes),
+      ])
+    : [
+        { byBarcode: new Map(), error: null },
+        { commitments: [], error: null },
+      ];
+  if (
+    sourcingIdentityBarcodes.length &&
+    (identityMetadata.error || !identityMetadata.byBarcode.size)
+  ) {
+    throw new Error(
+      `PURCHASE_SOURCING_IDENTITY_METADATA_UNAVAILABLE:${identityMetadata.error ?? "EMPTY"}`,
+    );
+  }
+  if (sourcingIdentityBarcodes.length && identityHistory.error) {
+    throw new Error(
+      `PURCHASE_SOURCING_IDENTITY_HISTORY_UNAVAILABLE:${identityHistory.error}`,
+    );
+  }
   const trustedPayloadRows = purchaseReplacementTrustedPayloadRows(
     ledger.commitments,
     activeRows,
     input.expectedDraftId,
     new Set(lines.map((line) => line.barcode)),
+    identityMetadata.byBarcode,
+    identityHistory.commitments,
   );
   for (const [barcode, row] of trustedPayloadRows) {
     previousByBarcode.set(barcode, row);
@@ -404,6 +434,58 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       ? object(previous?.latestPayload)
       : {};
     const evidence = lineEvidenceByBarcode.get(line.barcode);
+    const preparedPayload: Record<string, unknown> = {
+      ...preservedPayload,
+      ...(line.sourcingConfirmed === true
+        ? { sourcingConfirmed: true }
+        : {}),
+      ...(evidence
+        ? {
+            chinaOption: text(evidence.chinaOption),
+            supplierLink: text(evidence.supplierLink),
+            unitPriceCny: Math.min(1_000_000, Math.max(0, Number(evidence.unitPriceCny) || 0)),
+            freightGroupId: text(evidence.freightGroupId).slice(0, 100),
+            domesticChinaFreightCny: Math.min(1_000_000, Math.max(0, Number(evidence.domesticChinaFreightCny) || 0)),
+            orderNumber: text(evidence.orderNumber).slice(0, 160),
+            operatorNote: text(evidence.note).slice(0, 300),
+          }
+        : {}),
+      sourceFingerprint: input.sourceFingerprint,
+      dataMode: "PURCHASE_PREFLIGHT",
+      cycleMonth: input.cycleMonth,
+      ...draftCycleFields(purchaseRunCycle),
+      modelNo: line.modelNo,
+      productName: line.productName,
+      referenceDemandQuantity: line.referenceDemandQuantity,
+      stockSense: line.stockSense,
+      operatorNote: evidence ? text(evidence.note).slice(0, 300) : line.note,
+      operatorExcludedBarcodes: operatorAdjustments.excludedBarcodes,
+      operatorQuantityOverrides: operatorAdjustments.quantityOverrides,
+      operatorConfirmedQuantityOverrideBarcodes: confirmedQuantityOverrideBarcodes,
+      operatorQuantityOverrideProvenanceVersion:
+        PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION,
+      ...(manuallyAddedBarcodes.has(line.barcode)
+        ? {
+            manualAddition: true,
+            manualAdditionProvenanceVersion:
+              PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION,
+          }
+        : {}),
+      regeneration: true,
+      supersedesDraftId: input.expectedDraftId,
+      externalOrderExecuted: false,
+    };
+    if (
+      preparedPayload.sourcingConfirmed === true &&
+      (
+        !text(preparedPayload.productName) ||
+        !text(preparedPayload.saleOption) ||
+        !text(preparedPayload.chinaOption) ||
+        !text(preparedPayload.supplierLink)
+      )
+    ) {
+      throw new Error(`PURCHASE_SOURCING_IDENTITY_INCOMPLETE:${line.barcode}`);
+    }
     return normalizeChinaOrderCommitmentEvent({
       sourceSystem: SOURCE_SYSTEM,
       // A regenerated Draft is a new reservation lifecycle. Reusing a prior
@@ -421,47 +503,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       note: `${input.cycleMonth} 최신 발주 로직 재생성 Draft · ${
         line.stockSense === "OUT" ? "품절" : "부족"
       }`,
-      payload: {
-        ...preservedPayload,
-        ...(line.sourcingConfirmed === true
-          ? { sourcingConfirmed: true }
-          : {}),
-        ...(evidence
-          ? {
-              chinaOption: text(evidence.chinaOption),
-              supplierLink: text(evidence.supplierLink),
-              unitPriceCny: Math.min(1_000_000, Math.max(0, Number(evidence.unitPriceCny) || 0)),
-              freightGroupId: text(evidence.freightGroupId).slice(0, 100),
-              domesticChinaFreightCny: Math.min(1_000_000, Math.max(0, Number(evidence.domesticChinaFreightCny) || 0)),
-              orderNumber: text(evidence.orderNumber).slice(0, 160),
-              operatorNote: text(evidence.note).slice(0, 300),
-            }
-          : {}),
-        sourceFingerprint: input.sourceFingerprint,
-        dataMode: "PURCHASE_PREFLIGHT",
-        cycleMonth: input.cycleMonth,
-        ...draftCycleFields(purchaseRunCycle),
-        modelNo: line.modelNo,
-        productName: line.productName,
-        referenceDemandQuantity: line.referenceDemandQuantity,
-        stockSense: line.stockSense,
-        operatorNote: evidence ? text(evidence.note).slice(0, 300) : line.note,
-        operatorExcludedBarcodes: operatorAdjustments.excludedBarcodes,
-        operatorQuantityOverrides: operatorAdjustments.quantityOverrides,
-        operatorConfirmedQuantityOverrideBarcodes: confirmedQuantityOverrideBarcodes,
-        operatorQuantityOverrideProvenanceVersion:
-          PURCHASE_DRAFT_QUANTITY_OVERRIDE_PROVENANCE_VERSION,
-        ...(manuallyAddedBarcodes.has(line.barcode)
-          ? {
-              manualAddition: true,
-              manualAdditionProvenanceVersion:
-                PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION,
-            }
-          : {}),
-        regeneration: true,
-        supersedesDraftId: input.expectedDraftId,
-        externalOrderExecuted: false,
-      },
+      payload: preparedPayload,
     });
   });
   const operations = [
