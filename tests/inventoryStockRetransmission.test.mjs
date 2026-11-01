@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { importTranspiledTypeScript } from "./transpileTypeScript.mjs";
-
-const { buildShoplingStockRetransmissionRequest } = await importTranspiledTypeScript(
-  new URL("../src/lib/inventoryShoplingRetransmissionPlan.ts", import.meta.url),
-);
+import { buildShoplingStockRetransmissionRequest } from "../src/lib/inventoryShoplingRetransmissionPlan.ts";
 const blocked = new Set(["BCC6-2", "BAB3-1", "BCB2-1", "BDB2-1"]);
 const onSale = new Set(["BBB8-1", "BCC5-1", "BCC5-2"]);
 const existingPending = new Set(["BCG5-2", "BCG5-3"]);
