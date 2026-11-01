@@ -2290,11 +2290,12 @@ test("replacement snapshot remaps the real male acupressure-sock barcode collisi
   ]);
 
   const repaired = purchaseReplacementDraftSnapshotLines(
-    [...originalIdentityRows, ...currentRows],
+    currentRows,
     currentRows,
     draftId,
     new Map(),
     productLaunchMetadata,
+    originalIdentityRows,
   );
   assert.deepEqual(
     repaired.map((line) => line.barcode).sort(),
@@ -2311,6 +2312,7 @@ test("replacement snapshot remaps the real male acupressure-sock barcode collisi
       draftId,
       new Map(),
       unsafeMetadata,
+      originalIdentityRows,
     ),
     /PURCHASE_SOURCING_BARCODE_IDENTITY_CONFLICT:BBB7-2/,
   );
@@ -2322,6 +2324,7 @@ test("replacement snapshot remaps the real male acupressure-sock barcode collisi
       draftId,
       new Map(),
       null,
+      originalIdentityRows,
     ),
     /PURCHASE_SOURCING_IDENTITY_METADATA_UNAVAILABLE:BBB7-2/,
   );

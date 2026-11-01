@@ -8,10 +8,14 @@ import { buildPurchaseWholesaleCostEstimates } from "@/lib/purchaseWholesaleCost
 import { PURCHASE_OWNER_COST_ESTIMATES } from "@/lib/purchaseCycleOwnerCostEstimate";
 import {
   loadChinaOrderLedger,
+  loadChinaOrderSourcingIdentityHistory,
   safeReplacementCycleDraftRows,
 } from "@/lib/chinaOrderLedger";
 import { loadInternalChinaQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
-import { purchaseReplacementDraftSnapshotLines } from "@/lib/purchaseReplacementDraftLineage";
+import {
+  purchaseReplacementDraftSnapshotLines,
+  purchaseReplacementSourcingIdentityBarcodes,
+} from "@/lib/purchaseReplacementDraftLineage";
 import {
   buildPurchaseReplacementDraftSnapshot,
   readPurchaseCyclePreflight,
@@ -57,6 +61,12 @@ async function loadReplacementDraftSnapshot(draftId: string) {
   ]);
   if (ledger.error) throw new Error("REPLACEMENT_DRAFT_LEDGER_READ_FAILED");
   const activeRows = safeReplacementCycleDraftRows(ledger.commitments, draftId);
+  const identityHistory = await loadChinaOrderSourcingIdentityHistory(
+    purchaseReplacementSourcingIdentityBarcodes(activeRows),
+  );
+  if (identityHistory.error) {
+    throw new Error("REPLACEMENT_DRAFT_IDENTITY_HISTORY_READ_FAILED");
+  }
   return buildPurchaseReplacementDraftSnapshot(
     draftId,
     new Date().toISOString(),
@@ -66,6 +76,7 @@ async function loadReplacementDraftSnapshot(draftId: string) {
       draftId,
       overrides,
       metadata.error ? null : metadata.byBarcode,
+      identityHistory.commitments,
     ),
   );
 }

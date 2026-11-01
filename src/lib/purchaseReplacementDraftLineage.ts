@@ -111,10 +111,11 @@ function identityText(value: unknown) {
 function sourcingIdentityPayload<TRow extends ReplacementLedgerRow>(
   commitments: TRow[],
   source: TRow | undefined,
+  identityHistory: readonly ReplacementLedgerRow[] = [],
 ) {
   const fallback = object(source?.latestPayload);
   const productName = identityText(fallback.productName);
-  const candidates = commitments
+  const candidates = [...commitments, ...identityHistory]
     .filter((row) => row.barcode === source?.barcode)
     .map((row) => object(row.latestPayload))
     .filter((payload) =>
@@ -125,6 +126,20 @@ function sourcingIdentityPayload<TRow extends ReplacementLedgerRow>(
       identityPayloadScore(right) - identityPayloadScore(left)
     );
   return candidates[0] ?? fallback;
+}
+
+export function purchaseReplacementSourcingIdentityBarcodes<
+  TRow extends ReplacementLedgerRow,
+>(activeRows: readonly TRow[]) {
+  return [...new Set(
+    activeRows
+      .filter((row) => {
+        const payload = object(row.latestPayload);
+        return payload.sourcingConfirmed === true ||
+          isRestoredConfirmedSourcingPayload(payload);
+      })
+      .map((row) => row.barcode),
+  )];
 }
 
 function identityPayloadScore(payload: Record<string, unknown>) {
@@ -161,6 +176,7 @@ export function purchaseReplacementDraftSnapshotLines(
   draftId: string,
   overrides: ReadonlyMap<string, { targetQuantity: number }>,
   metadataByBarcode?: ReadonlyMap<string, PurchaseIdentityMetadata> | null,
+  identityHistory: readonly ReplacementLedgerRow[] = [],
 ): PurchaseReplacementDraftLine[] {
   const quantities = new Map<string, number>();
   for (const row of activeRows) {
@@ -227,7 +243,7 @@ export function purchaseReplacementDraftSnapshotLines(
       payload.sourcingConfirmed === true ||
       isRestoredConfirmedSourcingPayload(payload);
     const identityPayload = sourcingIdentityGuard
-      ? sourcingIdentityPayload(commitments, source)
+      ? sourcingIdentityPayload(commitments, source, identityHistory)
       : payload;
     const resolvedBarcode = sourcingIdentityGuard
       ? canonicalSourcingBarcode(barcode, identityPayload, metadataByBarcode)

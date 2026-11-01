@@ -480,6 +480,53 @@ export async function loadChinaOrderLedger() {
   };
 }
 
+export async function loadChinaOrderSourcingIdentityHistory(
+  barcodes: readonly string[],
+) {
+  const normalizedBarcodes = [...new Set(
+    barcodes
+      .map((barcode) => text(barcode).toUpperCase().replace(/\s+/g, ""))
+      .filter((barcode) => BARCODE_PATTERN.test(barcode)),
+  )];
+  if (!normalizedBarcodes.length) {
+    return {
+      ...buildChinaOrderLedgerSummary([]),
+      error: null as string | null,
+    };
+  }
+
+  const admin = await createSupabaseAdminClient();
+  if (!admin) {
+    return {
+      ...buildChinaOrderLedgerSummary([]),
+      error: "Ops Center 운영 원장 연결이 설정되지 않았습니다.",
+    };
+  }
+  const result = await admin
+    .from("commerce_operation_runs")
+    .select("source_event_id,input_snapshot,started_at")
+    .eq("operation_type", CHINA_ORDER_EVENT_OPERATION_TYPE)
+    .eq("status", "SUCCEEDED")
+    .in("input_snapshot->>barcode", normalizedBarcodes)
+    .eq("input_snapshot->payload->>sourcingConfirmed", true)
+    .order("started_at", { ascending: false })
+    .limit(5000);
+  if (result.error) {
+    return {
+      ...buildChinaOrderLedgerSummary([]),
+      error: result.error.message,
+    };
+  }
+  return {
+    ...buildChinaOrderLedgerSummary(
+      (Array.isArray(result.data) ? result.data : []).filter(
+        (row): row is StoredOperationRow => Boolean(row && typeof row === "object"),
+      ),
+    ),
+    error: null as string | null,
+  };
+}
+
 function safeReplacementDraftRows(
   commitments: ChinaOrderCommitmentSnapshot[],
   draftId: string,
