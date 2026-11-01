@@ -108,12 +108,24 @@ function sameSourcingSelection(
   },
 ) {
   return (
+    sameSourcingConceptAndStorageSelection(plan, request) &&
+    JSON.stringify(sortedVariantSelections(plan.variantSelections)) ===
+      JSON.stringify(sortedVariantSelections(request.sourcingVariantSelections))
+  );
+}
+
+function sameSourcingConceptAndStorageSelection(
+  plan: SourcingBudgetPlan,
+  request: {
+    preferredSourcingConceptIds?: string[];
+    sourcingStorageSizeByConceptId?: Record<string, "S" | "L">;
+  },
+) {
+  return (
     JSON.stringify(sortedStrings(plan.preferredConceptIds)) ===
       JSON.stringify(sortedStrings(request.preferredSourcingConceptIds)) &&
     JSON.stringify(sortedStorageEntries(plan.storageSizeByConceptId)) ===
-      JSON.stringify(sortedStorageEntries(request.sourcingStorageSizeByConceptId)) &&
-    JSON.stringify(sortedVariantSelections(plan.variantSelections)) ===
-      JSON.stringify(sortedVariantSelections(request.sourcingVariantSelections))
+      JSON.stringify(sortedStorageEntries(request.sourcingStorageSizeByConceptId))
   );
 }
 
@@ -193,6 +205,9 @@ export function purchaseCycleDraftPlannedTotals(
   const preservedSourcingBarcodes = new Set(
     preservedSourcingLines.map((row) => row.barcode),
   );
+  const reusedByBarcode = new Map(
+    (sourcingPlan?.reusedConfirmedVariants ?? []).map((row) => [row.barcode, row] as const),
+  );
   const selectedBarcodes = new Set(report.selected.map((row) => row.barcode));
   const replacementLineBarcodes = new Set(
     (report.preservedReplacementLines ?? []).map((row) => row.barcode),
@@ -214,7 +229,7 @@ export function purchaseCycleDraftPlannedTotals(
   );
   const preservedSourcingCount = preservedSourcingLines.length + restoredReusedReservations.length;
   const preservedSourcingQuantity = preservedSourcingLines.reduce(
-    (total, row) => total + row.quantity,
+    (total, row) => total + (reusedByBarcode.get(row.barcode)?.quantity ?? row.quantity),
     restoredReusedReservations.reduce((total, row) => total + row.quantity, 0),
   );
   const preservedOperatorCount = preservedOperatorLines.length;
@@ -348,7 +363,7 @@ export function canFinalizeWithExactConfirmedSourcing(
     sourcingPlan.totalCashKrw !== report.effectiveCashKrw ||
     sourcingPlan.sourcingBudgetPercent !== report.sourcingBudgetPercent ||
     sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw ||
-    !sameSourcingSelection(sourcingPlan, request) ||
+    !sameSourcingConceptAndStorageSelection(sourcingPlan, request) ||
     sourcingPlan.allocation.selected.length !== 0 ||
     !sourcingPlan.blockers.every((code) => PRESERVED_SOURCING_ONLY_BLOCKERS.has(code))
   ) {
@@ -366,6 +381,7 @@ export function canFinalizeWithExactConfirmedSourcing(
       expectedVariants.set(key, variant.storageSize);
     }
     if (reused.length !== expectedVariants.size) return false;
+    if (!sameSourcingSelection(sourcingPlan, request)) return false;
   } else {
     // Older/reloaded preflight URLs can retain the user's exact concept IDs and
     // storage choices without the client-only variant query values. Rebuild that
@@ -377,6 +393,34 @@ export function canFinalizeWithExactConfirmedSourcing(
       expectedConcepts.set(conceptId, storageSize);
     }
     if (reused.length !== expectedConcepts.size) return false;
+
+    // A reloaded legacy URL can omit client-only variant query values while the
+    // server plan has already reconstructed them from confirmed lifecycle rows.
+    // Accept that only when every reconstructed variant maps one-to-one to the
+    // exact requested concepts and storage choices.
+    if (sourcingPlan.variantSelections.length > 0) {
+      if (sourcingPlan.variantSelections.length !== reused.length) return false;
+      const reconstructedVariants = new Map<string, "S" | "L">();
+      for (const variant of sourcingPlan.variantSelections) {
+        const key = `${variant.conceptId}\0${variant.variantKey}`;
+        if (
+          reconstructedVariants.has(key) ||
+          expectedConcepts.get(variant.conceptId) !== variant.storageSize
+        ) {
+          return false;
+        }
+        reconstructedVariants.set(key, variant.storageSize);
+      }
+      for (const row of reused) {
+        if (
+          !row.variantKey ||
+          reconstructedVariants.get(`${row.conceptId}\0${row.variantKey}`) !==
+            expectedConcepts.get(row.conceptId)
+        ) {
+          return false;
+        }
+      }
+    }
   }
 
   const reusedIdentities = new Set<string>();
@@ -389,8 +433,8 @@ export function canFinalizeWithExactConfirmedSourcing(
       : expectedConcepts.get(row.conceptId);
     if (
       exactVariantExpected === undefined ||
-      exactVariantExpected !== row.storageSize ||
-      (requestedVariants.length === 0 && (!row.variantKey || reusedConcepts.has(row.conceptId))) ||
+      (row.storageSize !== null && exactVariantExpected !== row.storageSize) ||
+      (requestedVariants.length === 0 && reusedConcepts.has(row.conceptId)) ||
       reusedIdentities.has(identity) ||
       reusedBarcodes.has(row.barcode) ||
       !/^B[A-Z]{2}\d+-\d+$/.test(row.barcode) ||
@@ -533,7 +577,7 @@ export function preparePurchaseCycleDraft(
       sourcingPlan.totalCashKrw !== report.effectiveCashKrw ||
       sourcingPlan.sourcingBudgetPercent !== report.sourcingBudgetPercent ||
       sourcingPlan.sourcingBudgetKrw !== report.sourcingBudgetKrw ||
-      !sameSourcingSelection(sourcingPlan, request) ||
+      (!sameSourcingSelection(sourcingPlan, request) && !exactConfirmedSourcingReady) ||
       selectedSourcingVariantCount + reusedSourcingVariantCount < 1 ||
       !FINGERPRINT.test(request.expectedSourcingSourceFingerprint ?? "") ||
       !FINGERPRINT.test(request.expectedSourcingPlanFingerprint ?? "") ||
@@ -598,6 +642,9 @@ export function preparePurchaseCycleDraft(
   const restoredReusedReservations = (sourcingPlan?.reusedConfirmedVariants ?? []).filter(
     (row) => restoredReusedBarcodeSet.has(row.barcode),
   );
+  const reusedByBarcode = new Map(
+    (sourcingPlan?.reusedConfirmedVariants ?? []).map((row) => [row.barcode, row] as const),
+  );
 
   return {
     cycleMonth: report.targetCycleMonth,
@@ -613,26 +660,34 @@ export function preparePurchaseCycleDraft(
       referenceDemandQuantity: row.originalRecommendedQuantity,
       note: `발주 사전점검 · 정책 v${report.purchaseStrategyConfigVersion ?? "미확인"} · 최근 12개월 매출기준 ${row.revenueQualificationLabel} · 12개월 월평균매출 ${row.averageMonthlyRevenueKrw}원 · 목표재고 ${row.targetCoverageMonths}개월${row.newProduct ? " · NEW" : ""}${row.risingStrength !== "NONE" ? ` · Rising ${row.risingStrength}` : ""}${row.manualHeroCoverageReview ? " · 효자상품 5~6개월 수동검토" : ""} · 클레임 ${Number.isFinite(Number(row.weightedClaimRate)) ? Number(row.weightedClaimRate).toFixed(1) : "0.0"}% · 신규소싱 ${report.sourcingBudgetPercent}% 최대 · 실제 예약 ${report.sourcingBudgetKrw - report.sourcingBudgetReturnKrw}원 · ${row.costEvidenceSource} · 권장 ${row.originalRecommendedQuantity} → 현금반영 ${row.quantity} · ${row.cashflowTier} · 계획재고 ${row.inventoryQuantity} · 미입고 ${row.openCommitment}`,
       })),
-      ...(report.preservedReplacementLines ?? []).map((row) => ({
-        barcode: row.barcode,
-        modelNo: null,
-        productName: row.name,
-        plannedQuantity: row.quantity,
-        stockSense: "LOW" as const,
-        referenceDemandQuantity: row.quantity,
-        ...(row.preserveOnRegeneration === true
-          ? { sourcingConfirmed: true }
-          : {}),
-        note: row.preserveOnRegeneration === true
-          ? "기존 Draft 신규소싱 확정 상품 유지 · 운영자 제외 시에만 제거"
-          : report.operatorQuantityOverrides.some(
-                (override) => override.barcode === row.barcode,
-              )
-            ? "기존 Draft 운영자 고정수량 유지 · 5-1 원가·운임 기록에서 실제 위안단가 확인 필요"
-            : row.recoveredFromPredecessor === true
-              ? "이전 Draft 자동추천 복구 후보 · 최신 판매·재고 근거 확인 전 저장 금지"
-              : "최신 자동추천 입력 대기 · 대략 재고를 선택하고 5-1에서 실제 위안단가·운임 확인 필요",
-      })),
+      ...(report.preservedReplacementLines ?? []).map((row) => {
+        const confirmedReservation = row.preserveOnRegeneration === true
+          ? reusedByBarcode.get(row.barcode)
+          : undefined;
+        const quantity = confirmedReservation?.quantity ?? row.quantity;
+        return {
+          barcode: row.barcode,
+          modelNo: null,
+          productName: confirmedReservation?.productName ?? row.name,
+          plannedQuantity: quantity,
+          stockSense: "LOW" as const,
+          referenceDemandQuantity: quantity,
+          ...(row.preserveOnRegeneration === true
+            ? { sourcingConfirmed: true }
+            : {}),
+          note: confirmedReservation
+            ? "기존 확정 신규소싱 예약의 최신 수량으로 갱신 · 이번 수동 선택에만 포함"
+            : row.preserveOnRegeneration === true
+              ? "기존 Draft 신규소싱 확정 상품 유지 · 운영자 제외 시에만 제거"
+              : report.operatorQuantityOverrides.some(
+                    (override) => override.barcode === row.barcode,
+                  )
+                ? "기존 Draft 운영자 고정수량 유지 · 5-1 원가·운임 기록에서 실제 위안단가 확인 필요"
+                : row.recoveredFromPredecessor === true
+                  ? "이전 Draft 자동추천 복구 후보 · 최신 판매·재고 근거 확인 전 저장 금지"
+                  : "최신 자동추천 입력 대기 · 대략 재고를 선택하고 5-1에서 실제 위안단가·운임 확인 필요",
+        };
+      }),
       ...restoredReusedReservations.map((row) => ({
         barcode: row.barcode,
         modelNo: null,
