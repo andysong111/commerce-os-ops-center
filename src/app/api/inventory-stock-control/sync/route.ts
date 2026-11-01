@@ -41,6 +41,7 @@ const KNOWN_TERMINAL_RECOVERY_INCIDENTS = {
     productKind: null,
     incidentId: "shopling-bbd8-1-hf51-terminal-20261102",
     terminalFooter: "상품상태 변경 전송이 완료되었습니다.",
+    latestSyncAt: "2026-11-01T14:36:34.755Z",
     retransmissionRequestId:
       "owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969",
     resultCounts: { total: 108, success: 83, failure: 25 },
@@ -51,6 +52,7 @@ const KNOWN_TERMINAL_RECOVERY_INCIDENTS = {
     productKind: "SINGLE" | "OPTION" | null;
     incidentId: string;
     terminalFooter: string;
+    latestSyncAt?: string;
     retransmissionRequestId?: string;
     resultCounts?: { total: number; success: number; failure: number };
   }
@@ -436,11 +438,15 @@ export async function POST(request: Request) {
         const startedOrUncertain = ["STARTED", "UNCERTAIN"].includes(
           String(row.latestSyncOutcome || ""),
         );
+        const exactKnownStart =
+          !("latestSyncAt" in incident) ||
+          row.latestSyncAt === incident.latestSyncAt;
         if (
-          !row.syncNeeded ||
-          !row.syncBlocked ||
           !startedOrUncertain ||
-          !["STARTED", "BLOCKED"].includes(String(retransmissionItem.state || ""))
+          !exactKnownStart ||
+          !["STARTED", "BLOCKED"].includes(
+            String(retransmissionItem.state || ""),
+          )
         ) {
           throw new Error(`${requestedBarcode}이 확인된 STARTED/UNCERTAIN 재전송 사고 상태가 아니므로 완료 결과 복구를 차단했습니다.`);
         }
