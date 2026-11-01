@@ -4,10 +4,13 @@ import {
 } from "@/lib/fastPurchaseInternalDraft";
 import { loadPurchaseCyclePreflight } from "@/lib/purchaseCyclePreflight";
 import {
+  assertPurchaseCycleDraftMatchesPlannedTotals,
   canRecalculateWithPreservedSourcingOnly,
   preparePurchaseCycleDraft,
   purchaseCycleDraftConfirmation,
+  purchaseCycleDraftPlannedTotals,
   purchaseCycleDraftPreflightOptions,
+  sourcingBudgetDecisionFingerprint,
   type PurchaseCycleDraftRequest,
 } from "@/lib/purchaseCyclePreflightDraftCore";
 import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
@@ -258,53 +261,45 @@ export async function createPurchaseCyclePreflightDraft(
     throw new Error("PURCHASE_RUN_REPLACEMENT_REQUIRED");
   }
   const options = purchaseCycleDraftPreflightOptions(request);
-  let report = await loadPurchaseCyclePreflight(options);
-  const sourcingPlan = report.sourcingBudgetPercent > 0
-    ? await loadSourcingBudgetPlan({
-        targetCycleMonth: report.targetCycleMonth,
-        totalCashKrw: report.effectiveCashKrw,
-        sourcingBudgetPercent: report.sourcingBudgetPercent,
-        sourcingBudgetKrw: report.sourcingBudgetKrw,
-        preferredConceptIds: request.preferredSourcingConceptIds,
-        storageSizeByConceptId: request.sourcingStorageSizeByConceptId,
-        variantSelections: request.sourcingVariantSelections,
-      })
-    : null;
-  const sourcingBudgetReturnKrw = sourcingPlan ? returnableSourcingBudgetKrw(sourcingPlan) : 0;
-  if (sourcingBudgetReturnKrw > 0) {
-    report = await loadPurchaseCyclePreflight({
-      ...options,
-      sourcingBudgetReturnKrw,
-    });
-  }
-  const preserveExistingSourcingOnly = canRecalculateWithPreservedSourcingOnly(
+  const loadCurrentPlan = async () => {
+    let currentReport = await loadPurchaseCyclePreflight(options);
+    const currentSourcingPlan = currentReport.sourcingBudgetPercent > 0
+      ? await loadSourcingBudgetPlan({
+          targetCycleMonth: currentReport.targetCycleMonth,
+          totalCashKrw: currentReport.effectiveCashKrw,
+          sourcingBudgetPercent: currentReport.sourcingBudgetPercent,
+          sourcingBudgetKrw: currentReport.sourcingBudgetKrw,
+          preferredConceptIds: request.preferredSourcingConceptIds,
+          storageSizeByConceptId: request.sourcingStorageSizeByConceptId,
+          variantSelections: request.sourcingVariantSelections,
+        })
+      : null;
+    const sourcingBudgetReturnKrw = currentSourcingPlan
+      ? returnableSourcingBudgetKrw(currentSourcingPlan)
+      : 0;
+    if (sourcingBudgetReturnKrw > 0) {
+      currentReport = await loadPurchaseCyclePreflight({
+        ...options,
+        sourcingBudgetReturnKrw,
+      });
+    }
+    return { report: currentReport, sourcingPlan: currentSourcingPlan };
+  };
+
+  let { report, sourcingPlan } = await loadCurrentPlan();
+  const reviewedTotals = purchaseCycleDraftPlannedTotals(report, sourcingPlan);
+  let preserveExistingSourcingOnly = canRecalculateWithPreservedSourcingOnly(
     report,
     sourcingPlan,
   );
-  const prepared = preparePurchaseCycleDraft(
+
+  // Validate the exact user-reviewed source before a sourcing confirmation can write B-codes.
+  const reviewedPrepared = preparePurchaseCycleDraft(
     report,
     request,
     preserveExistingSourcingOnly ? null : sourcingPlan,
     { preserveExistingSourcingOnly },
   );
-  const replacement = request.replaceDraftId
-    ? await regenerateValidatedMonthlyPurchaseDraft({
-        ...prepared,
-        expectedDraftId: request.replaceDraftId,
-        nextCycleStartDate: behavior.startNewRun ? request.targetDate : undefined,
-        operatorExcludedBarcodes: request.excludedBarcodes,
-        operatorQuantityOverrides: request.quantityOverrides,
-      })
-    : null;
-  const draft = replacement
-    ? replacement.draft
-    : await storeValidatedMonthlyPurchaseDraft({
-        ...prepared,
-        dataMode: "PURCHASE_PREFLIGHT",
-        allowAdoptExistingReservedDraft: false,
-        operatorExcludedBarcodes: request.excludedBarcodes,
-        operatorQuantityOverrides: request.quantityOverrides,
-      });
   let sourcing: SourcingBudgetConfirmationResult | {
     ok: false;
     status: "FAILED";
@@ -333,23 +328,81 @@ export async function createPurchaseCyclePreflightDraft(
       });
     } catch (error) {
       const raw = error instanceof Error ? error.message : "SOURCING_BUDGET_CONFIRM_FAILED";
-      sourcing = {
-        ok: false,
-        status: "FAILED",
-        selectedCount: sourcingPlan.allocation.selected.reduce(
-          (total, row) => total + row.selectedVariants.length,
-          0,
-        ),
-        confirmedCount: 0,
-        failure: {
-          code: raw.split(":", 1)[0] || "SOURCING_BUDGET_CONFIRM_FAILED",
-          message: raw.slice(0, 500),
-        },
-        retryRequiresFreshPreflight: true,
-        externalOrderExecuted: false,
-      };
+      throw new Error(`PURCHASE_CYCLE_SOURCING_CONFIRMATION_INCOMPLETE:${raw.slice(0, 500)}`);
     }
+    const expectedConfirmedCount = sourcingPlan.allocation.selected.reduce(
+      (total, row) => total + row.selectedVariants.length,
+      0,
+    );
+    if (
+      sourcing.ok !== true ||
+      sourcing.status !== "COMPLETE" ||
+      sourcing.confirmedCount !== expectedConfirmedCount ||
+      sourcing.selectedCount !== expectedConfirmedCount ||
+      sourcing.failure !== null
+    ) {
+      throw new Error(
+        `PURCHASE_CYCLE_SOURCING_CONFIRMATION_INCOMPLETE:${sourcing.confirmedCount}:${expectedConfirmedCount}`,
+      );
+    }
+
+    ({ report, sourcingPlan } = await loadCurrentPlan());
+    if (
+      !sourcingPlan ||
+      sourcingPlan.readyForConfirmation !== true ||
+      sourcingPlan.allocation.selected.some((row) => row.selectedVariants.length > 0)
+    ) {
+      throw new Error("PURCHASE_CYCLE_SOURCING_CONFIRMATION_INCOMPLETE:REFRESH");
+    }
+    preserveExistingSourcingOnly = canRecalculateWithPreservedSourcingOnly(
+      report,
+      sourcingPlan,
+    );
   }
+
+  const effectiveRequest = sourcing
+    ? {
+        ...request,
+        expectedSourceFingerprint: report.sourceFingerprint,
+        expectedPlanFingerprint: report.planFingerprint,
+        expectedSourcingSourceFingerprint: sourcingPlan?.sourceFingerprint ?? null,
+        expectedSourcingPlanFingerprint: sourcingPlan?.planFingerprint ?? null,
+        expectedSourcingDecisionFingerprint: sourcingPlan
+          ? sourcingBudgetDecisionFingerprint(sourcingPlan)
+          : null,
+        confirmation: purchaseCycleDraftConfirmation(report, sourcingPlan),
+      }
+    : request;
+  const prepared = preparePurchaseCycleDraft(
+    report,
+    effectiveRequest,
+    preserveExistingSourcingOnly ? null : sourcingPlan,
+    { preserveExistingSourcingOnly },
+  );
+  assertPurchaseCycleDraftMatchesPlannedTotals(
+    prepared,
+    reviewedTotals,
+    reviewedPrepared.lines,
+  );
+
+  const replacement = request.replaceDraftId
+    ? await regenerateValidatedMonthlyPurchaseDraft({
+        ...prepared,
+        expectedDraftId: request.replaceDraftId,
+        nextCycleStartDate: behavior.startNewRun ? request.targetDate : undefined,
+        operatorExcludedBarcodes: request.excludedBarcodes,
+        operatorQuantityOverrides: request.quantityOverrides,
+      })
+    : null;
+  const draft = replacement
+    ? replacement.draft
+    : await storeValidatedMonthlyPurchaseDraft({
+        ...prepared,
+        dataMode: "PURCHASE_PREFLIGHT",
+        allowAdoptExistingReservedDraft: false,
+        operatorExcludedBarcodes: request.excludedBarcodes,
+        operatorQuantityOverrides: request.quantityOverrides,
+      });
   return {
     draft,
     selectedCount: report.selected.length,

@@ -1,5 +1,24 @@
 # Monthly-spend scan completeness follow-up
 
+## Exact sourcing selection and Draft-save parity (2026-11-01)
+
+A production replacement preview showed 89 lines / 6,165 units, but the saved
+`RESERVED` Draft contained only 88 lines / 6,145 units. The missing line was the
+one newly selected sourcing option; seven previously confirmed sourcing options
+were preserved correctly. The cause was operation order: the replacement Draft
+was written before the sourcing service finished assigning the new option's
+canonical B-code. The UI total already included that pending option.
+
+Draft save now validates the reviewed source first, confirms every newly selected
+sourcing option, reloads the exact plan so those options have canonical B-codes,
+and only then replaces the Draft. A partial confirmation leaves the existing
+Draft unchanged. Immediately before persistence, the service also compares the
+actual unique Draft rows and quantities with the totals shown for review; any
+mismatch fails closed with `PURCHASE_CYCLE_DRAFT_PLAN_PARITY_MISMATCH`.
+Resuming the same custom replacement no longer depends on the transient
+`newRun=1` query flag, so a confirmed selected B-code missing from the predecessor
+is restored on refresh/retry. None of these steps places a 1688 order or payment.
+
 ## Repeated purchase-run start recovery (2026-10-25)
 
 Production could finish a complete 214-SKU priority calculation and still keep

@@ -260,6 +260,37 @@ export function purchaseCycleDraftPlannedTotals(
   };
 }
 
+export function assertPurchaseCycleDraftMatchesPlannedTotals(
+  prepared: { lines: FastPurchaseInternalDraftLine[] },
+  planned: Pick<
+    ReturnType<typeof purchaseCycleDraftPlannedTotals>,
+    "finalLineCount" | "finalQuantity"
+  >,
+  reviewedLines: FastPurchaseInternalDraftLine[] = [],
+) {
+  const barcodes = prepared.lines.map((row) => row.barcode);
+  const preparedByBarcode = new Map(
+    prepared.lines.map((row) => [row.barcode, row.plannedQuantity]),
+  );
+  const actualQuantity = prepared.lines.reduce(
+    (total, row) => total + row.plannedQuantity,
+    0,
+  );
+  const reviewedLineChanged = reviewedLines.some(
+    (row) => preparedByBarcode.get(row.barcode) !== row.plannedQuantity,
+  );
+  if (
+    new Set(barcodes).size !== barcodes.length ||
+    reviewedLineChanged ||
+    prepared.lines.length !== planned.finalLineCount ||
+    actualQuantity !== planned.finalQuantity
+  ) {
+    throw new Error(
+      `PURCHASE_CYCLE_DRAFT_PLAN_PARITY_MISMATCH:${planned.finalLineCount}:${planned.finalQuantity}:${prepared.lines.length}:${actualQuantity}`,
+    );
+  }
+}
+
 export function canRecalculateWithPreservedSourcingOnly(
   report: PurchaseCyclePreflightReport,
   sourcingPlan: SourcingBudgetPlan | null,
@@ -299,7 +330,7 @@ export function explicitSourcingReplacementScope(
   },
 ) {
   const active = Boolean(
-    input.startNewRun === true &&
+    report.replacementDraftId &&
     input.sourcingSelectionMode === "custom" &&
     (input.preferredSourcingConceptIds?.length ?? 0) > 0 &&
     sourcingPlan,

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  assertPurchaseCycleDraftMatchesPlannedTotals,
   canRecalculateWithPreservedSourcingOnly,
   explicitSourcingReplacementScope,
   preparePurchaseCycleDraft,
@@ -769,12 +770,63 @@ test("custom new run keeps only the seven reused B-codes and one newly selected 
     true,
   );
 
+  const resumedRequest = { ...input, startNewRun: false };
+  const resumedScope = explicitSourcingReplacementScope(value, plan, resumedRequest);
+  assert.equal(resumedScope.active, true);
+  assert.deepEqual(resumedScope.restoredReusedBarcodes, missingFromPreviousDraft.sort());
+  const resumedDraft = preparePurchaseCycleDraft(value, resumedRequest, plan);
+  assert.deepEqual(
+    resumedDraft.lines
+      .filter((row) => missingFromPreviousDraft.includes(row.barcode))
+      .map((row) => row.barcode)
+      .sort(),
+    missingFromPreviousDraft,
+  );
+
   value.selected[0].barcode = missingFromPreviousDraft[0];
   const collisionScope = explicitSourcingReplacementScope(value, plan, input);
   assert.deepEqual(collisionScope.conflictingReusedBarcodes, [missingFromPreviousDraft[0]]);
   assert.throws(
     () => preparePurchaseCycleDraft(value, input, plan),
     /PURCHASE_CYCLE_SOURCING_REUSE_SCOPE_MISMATCH/,
+  );
+});
+
+test("reviewed Draft totals must match the exact rows written after sourcing confirmation", () => {
+  const value = report();
+  const prepared = preparePurchaseCycleDraft(value, request(value));
+  const actualQuantity = prepared.lines.reduce(
+    (total, row) => total + row.plannedQuantity,
+    0,
+  );
+  assert.doesNotThrow(() => assertPurchaseCycleDraftMatchesPlannedTotals(
+    prepared,
+    purchaseCycleDraftPlannedTotals(value),
+  ));
+  assert.throws(
+    () => assertPurchaseCycleDraftMatchesPlannedTotals(prepared, {
+      finalLineCount: prepared.lines.length + 1,
+      finalQuantity: actualQuantity + 20,
+    }),
+    /PURCHASE_CYCLE_DRAFT_PLAN_PARITY_MISMATCH/,
+  );
+  assert.throws(
+    () => assertPurchaseCycleDraftMatchesPlannedTotals({
+      lines: [...prepared.lines, prepared.lines[0]],
+    }, {
+      finalLineCount: prepared.lines.length + 1,
+      finalQuantity: actualQuantity + prepared.lines[0].plannedQuantity,
+    }),
+    /PURCHASE_CYCLE_DRAFT_PLAN_PARITY_MISMATCH/,
+  );
+  assert.throws(
+    () => assertPurchaseCycleDraftMatchesPlannedTotals({
+      lines: [{ ...prepared.lines[0], barcode: "BAZ9-9" }],
+    }, {
+      finalLineCount: prepared.lines.length,
+      finalQuantity: actualQuantity,
+    }, prepared.lines),
+    /PURCHASE_CYCLE_DRAFT_PLAN_PARITY_MISMATCH/,
   );
 });
 
@@ -1021,6 +1073,14 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(service, /\{ preserveExistingSourcingOnly \}/);
   assert.match(service, /if \(\s*sourcingPlan &&\s*!preserveExistingSourcingOnly/);
   assert.match(service, /confirmSourcingBudgetPlan/);
+  assert.ok(
+    service.indexOf("sourcing = await confirmSourcingBudgetPlan") <
+      service.indexOf("const replacement = request.replaceDraftId"),
+    "new sourcing must be confirmed before the replacement Draft is written",
+  );
+  assert.match(service, /\(\{ report, sourcingPlan \} = await loadCurrentPlan\(\)\);/);
+  assert.match(service, /assertPurchaseCycleDraftMatchesPlannedTotals\([\s\S]*reviewedPrepared\.lines/);
+  assert.match(service, /PURCHASE_CYCLE_SOURCING_CONFIRMATION_INCOMPLETE/);
   assert.match(service, /complete: sourcing\?\.ok !== false/);
   assert.match(service, /allowAdoptExistingReservedDraft: false/);
   assert.match(storage, /status: "RESERVED"/);
