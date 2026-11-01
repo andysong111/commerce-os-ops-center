@@ -167,7 +167,8 @@ export function purchaseReplacementDraftSnapshotLines(
     const payload = object(row.latestPayload);
     if (
       payload.sourcingConfirmed === true ||
-      isTrustedPurchaseDraftManualAddition(payload)
+      isTrustedPurchaseDraftManualAddition(payload) ||
+      isRestoredConfirmedSourcingPayload(payload)
     ) {
       sourceByBarcode.set(row.barcode, row);
     }
@@ -188,7 +189,8 @@ export function purchaseReplacementDraftSnapshotLines(
       name: text(payload.productName),
       preserveOnRegeneration:
         payload.sourcingConfirmed === true ||
-        isTrustedPurchaseDraftManualAddition(payload),
+        isTrustedPurchaseDraftManualAddition(payload) ||
+        isRestoredConfirmedSourcingPayload(payload),
       recoveredFromPredecessor: predecessorBarcodes.has(barcode),
     };
   });
