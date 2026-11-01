@@ -828,3 +828,23 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Automatic selection and ordinary inline recalculation retain their previous preservation
   behavior. No Draft save, 1688 order, payment or supplier contact was executed while fixing
   and testing this path.
+
+---
+
+## 35. Partial Draft predecessor-alias recovery (2026-11-01)
+
+- A partial regenerated Draft can already contain the current canonical sourcing B-code while
+  its immediate predecessor still contains an older colliding alias for the same option. The
+  replacement snapshot reads identity history for both the visible current Draft and that one
+  immediate predecessor; it does not walk further Draft lineage.
+- If the predecessor alias resolves to the same canonical B-code as a visible current line, the
+  current line is authoritative and the predecessor alias is not revived as a second reservation.
+  Two colliding current rows, two colliding predecessor rows, or missing/conflicting identity
+  evidence still fail closed.
+- The production incident fixture uses current `BDB5-3` for the male acupressure-sock option and
+  stale predecessor alias `BBB7-2`, which belongs to another Product Master item. The regression
+  proves that the snapshot retains `BDB5-3` and `BDB6-2`, excludes `BBB7-2`, preserves current
+  quantities, and still blocks when the historical identity proof is absent.
+- Repeated clicks while this read was blocked did not create another active Draft or execute an
+  external order. The correction affects internal Draft reconstruction only; 1688 order, payment,
+  supplier contact, and ORDERED transition remain separate owner-action boundaries.

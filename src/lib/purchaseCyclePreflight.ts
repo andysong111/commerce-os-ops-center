@@ -14,7 +14,7 @@ import {
 import { loadInternalChinaQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
 import {
   purchaseReplacementDraftSnapshotLines,
-  purchaseReplacementSourcingIdentityBarcodes,
+  purchaseReplacementSnapshotIdentityBarcodes,
 } from "@/lib/purchaseReplacementDraftLineage";
 import {
   buildPurchaseReplacementDraftSnapshot,
@@ -62,7 +62,11 @@ async function loadReplacementDraftSnapshot(draftId: string) {
   if (ledger.error) throw new Error("REPLACEMENT_DRAFT_LEDGER_READ_FAILED");
   const activeRows = safeReplacementCycleDraftRows(ledger.commitments, draftId);
   const identityHistory = await loadChinaOrderSourcingIdentityHistory(
-    purchaseReplacementSourcingIdentityBarcodes(activeRows),
+    purchaseReplacementSnapshotIdentityBarcodes(
+      ledger.commitments,
+      activeRows,
+      draftId,
+    ),
   );
   if (identityHistory.error) {
     throw new Error("REPLACEMENT_DRAFT_IDENTITY_HISTORY_READ_FAILED");

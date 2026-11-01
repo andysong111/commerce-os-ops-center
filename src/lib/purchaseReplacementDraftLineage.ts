@@ -167,6 +167,40 @@ export function purchaseReplacementSourcingIdentityBarcodes<
   )];
 }
 
+/**
+ * Returns the sourcing identities needed to rebuild the visible replacement
+ * snapshot. The snapshot may recover rows from only the immediate predecessor,
+ * so its identity-history read must cover that same bounded lineage.
+ */
+export function purchaseReplacementSnapshotIdentityBarcodes<
+  TRow extends ReplacementLedgerRow,
+>(
+  commitments: readonly TRow[],
+  activeRows: readonly TRow[],
+  draftId: string,
+) {
+  const currentDraftRows = activeRows.filter((row) => row.sourceRunId === draftId);
+  const supersedesDraftIds = [...new Set(
+    currentDraftRows
+      .map((row) => text(object(row.latestPayload).supersedesDraftId))
+      .filter(Boolean),
+  )];
+  const predecessorId = supersedesDraftIds.length === 1 ? supersedesDraftIds[0] : null;
+  const predecessorRows = predecessorId
+    ? commitments.filter(
+        (row) =>
+          row.sourceSystem === "fast-purchase-mvp" &&
+          row.sourceRunId === predecessorId &&
+          row.committedQuantity > 0,
+      )
+    : [];
+
+  return purchaseReplacementSourcingIdentityBarcodes([
+    ...activeRows,
+    ...predecessorRows,
+  ]);
+}
+
 function identityPayloadScore(payload: Record<string, unknown>) {
   return Number(Boolean(text(payload.productName))) * 8 +
     Number(Boolean(text(payload.saleOption))) * 4 +
@@ -273,15 +307,23 @@ export function purchaseReplacementDraftSnapshotLines(
     const resolvedBarcode = sourcingIdentityGuard
       ? canonicalSourcingBarcode(barcode, identityPayload, metadataByBarcode)
       : barcode;
-    if (resolved.has(resolvedBarcode)) {
-      throw new Error(`PURCHASE_SOURCING_BARCODE_IDENTITY_DUPLICATE:${resolvedBarcode}`);
+    const recoveredFromPredecessor = predecessorBarcodes.has(barcode);
+    const existing = resolved.get(resolvedBarcode);
+    if (existing) {
+      const existingRecovered = existing.recoveredFromPredecessor === true;
+      if (existingRecovered !== recoveredFromPredecessor) {
+        if (recoveredFromPredecessor) continue;
+        resolved.delete(resolvedBarcode);
+      } else {
+        throw new Error(`PURCHASE_SOURCING_BARCODE_IDENTITY_DUPLICATE:${resolvedBarcode}`);
+      }
     }
     resolved.set(resolvedBarcode, {
       barcode: resolvedBarcode,
       quantity,
       name: text(identityPayload.productName),
       preserveOnRegeneration,
-      recoveredFromPredecessor: predecessorBarcodes.has(barcode),
+      recoveredFromPredecessor,
     });
   }
   return [...resolved.values()];
