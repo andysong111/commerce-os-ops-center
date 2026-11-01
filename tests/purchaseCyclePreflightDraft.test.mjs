@@ -914,7 +914,7 @@ test("confirmed exact sourcing reconstructs missing client variant params only f
     conceptId: preferredConceptIds[index],
     variantKey: `${preferredConceptIds[index]}-confirmed-variant`,
     barcode,
-    quantity: index + 1,
+    quantity: index + 11,
     estimatedCostKrw: 10_000 + index,
     storageSize: "S",
     productName: `확정 신규소싱 ${index + 1}`,
@@ -934,7 +934,17 @@ test("confirmed exact sourcing reconstructs missing client variant params only f
   input.confirmation = purchaseCycleDraftConfirmation(value, plan);
 
   assert.equal(canFinalizeWithExactConfirmedSourcing(value, plan, input), true);
-  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
+  const prepared = preparePurchaseCycleDraft(value, input, plan);
+  assert.equal(
+    prepared.lines.find((row) => row.barcode === desiredBarcodes[0])?.plannedQuantity,
+    plan.reusedConfirmedVariants[0].quantity,
+    "a preserved sourcing line must refresh to the confirmed lifecycle quantity",
+  );
+  assert.equal(
+    purchaseCycleDraftPlannedTotals(value, plan).preservedSourcingQuantity,
+    plan.reusedConfirmedVariants.reduce((total, row) => total + row.quantity, 0),
+    "the displayed planned total must use the same refreshed sourcing quantities as the saved Draft",
+  );
 
   const ambiguousConcept = structuredClone(plan);
   ambiguousConcept.reusedConfirmedVariants[7].conceptId = ambiguousConcept.reusedConfirmedVariants[6].conceptId;
@@ -942,7 +952,34 @@ test("confirmed exact sourcing reconstructs missing client variant params only f
 
   const missingVariantIdentity = structuredClone(plan);
   missingVariantIdentity.reusedConfirmedVariants[7].variantKey = null;
-  assert.equal(canFinalizeWithExactConfirmedSourcing(value, missingVariantIdentity, input), false);
+  assert.equal(
+    canFinalizeWithExactConfirmedSourcing(value, missingVariantIdentity, input),
+    true,
+    "a unique concept and confirmed B-code remain sufficient when a legacy row omits variantKey",
+  );
+
+  const missingRowStorage = structuredClone(plan);
+  missingRowStorage.reusedConfirmedVariants[7].storageSize = null;
+  assert.equal(
+    canFinalizeWithExactConfirmedSourcing(value, missingRowStorage, input),
+    true,
+    "the exact echoed concept storage map remains authoritative when a legacy row omits storageSize",
+  );
+
+  const reconstructedVariants = structuredClone(plan);
+  reconstructedVariants.variantSelections = reconstructedVariants.reusedConfirmedVariants.map((row) => ({
+    conceptId: row.conceptId,
+    variantKey: row.variantKey,
+    storageSize: "S",
+  }));
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, reconstructedVariants, input), true);
+
+  const mismatchedReconstructedVariant = structuredClone(reconstructedVariants);
+  mismatchedReconstructedVariant.variantSelections[7].variantKey = "unexpected-variant";
+  assert.equal(
+    canFinalizeWithExactConfirmedSourcing(value, mismatchedReconstructedVariant, input),
+    false,
+  );
 
   const missingStorage = structuredClone(input);
   delete missingStorage.sourcingStorageSizeByConceptId[preferredConceptIds[7]];
