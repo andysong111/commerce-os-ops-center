@@ -30,7 +30,7 @@ import {
 import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
 import { collapseCanonicalPurchaseDraftLines } from "@/lib/purchaseSkuCanonicalization";
 import {
-  purchaseReplacementSourcingIdentityBarcodes,
+  purchaseReplacementSnapshotIdentityBarcodes,
   purchaseReplacementTrustedPayloadRows,
 } from "@/lib/purchaseReplacementDraftLineage";
 import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
@@ -330,7 +330,11 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     input.expectedDraftId,
   );
   const previousByBarcode = new Map(activeRows.map((row) => [row.barcode, row] as const));
-  const sourcingIdentityBarcodes = purchaseReplacementSourcingIdentityBarcodes(activeRows);
+  const sourcingIdentityBarcodes = purchaseReplacementSnapshotIdentityBarcodes(
+    ledger.commitments,
+    activeRows,
+    input.expectedDraftId,
+  );
   const [identityMetadata, identityHistory] = sourcingIdentityBarcodes.length
     ? await Promise.all([
         loadProductLaunchPurchaseMetadataByBarcode(),
