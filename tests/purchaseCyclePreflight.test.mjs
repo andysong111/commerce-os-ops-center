@@ -2212,6 +2212,64 @@ test("replacement lineage restores the selected sourcing marker lost from the cu
   assert.equal(unprovenRestoration.has("BDB6-2"), false);
 });
 
+test("replacement snapshot preserves all eight owner-selected sourcing options when three restored markers only survive on the immediate predecessor", () => {
+  const currentDraftId = "fast-purchase-draft:150d3e2fbca4498d6fe8";
+  const previousDraftId = "fast-purchase-draft:a3a7038cd279a4c21aa4";
+  const retained = [
+    ["BSA1-1", "캔압축기"],
+    ["BSA2-1", "귀세우기 테이프 60개입"],
+    ["BSA3-1", "실리콘 세탁망 · 브라"],
+    ["BSA3-2", "실리콘 세탁망 · 신발"],
+    ["BSA4-1", "돌돌이 신발 한켤레 세탁망"],
+  ].map(([barcode, productName], index) => ({
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: currentDraftId,
+    barcode,
+    openQuantity: index + 1,
+    committedQuantity: index + 1,
+    latestPayload: {
+      productName,
+      sourcingConfirmed: true,
+      supersedesDraftId: previousDraftId,
+    },
+  }));
+  const restoredOnlyOnPredecessor = [
+    ["BSA5-1", "강아지바운서"],
+    ["BDB6-1", "지압양말세트 · 남성용"],
+    ["BDB6-2", "지압양말세트 · 여성용"],
+  ].map(([barcode, productName], index) => ({
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: previousDraftId,
+    barcode,
+    openQuantity: 0,
+    committedQuantity: 10 + index,
+    latestPayload: {
+      productName,
+      operatorNote: "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함",
+      dataMode: "PURCHASE_PREFLIGHT",
+      regeneration: true,
+      externalOrderExecuted: false,
+    },
+  }));
+
+  const lines = purchaseReplacementDraftSnapshotLines(
+    [...retained, ...restoredOnlyOnPredecessor],
+    retained,
+    currentDraftId,
+    new Map(),
+  );
+
+  assert.equal(lines.length, 8);
+  assert.deepEqual(
+    lines.filter((line) => line.preserveOnRegeneration).map((line) => line.barcode).sort(),
+    ["BDB6-1", "BDB6-2", "BSA1-1", "BSA2-1", "BSA3-1", "BSA3-2", "BSA4-1", "BSA5-1"],
+  );
+  assert.deepEqual(
+    lines.filter((line) => line.recoveredFromPredecessor).map((line) => line.barcode).sort(),
+    ["BDB6-1", "BDB6-2", "BSA5-1"],
+  );
+});
+
 test("replacement snapshot preserves a manually added line across later recommendation refreshes", () => {
   const draftId = "fast-purchase-draft:11111111111111111111";
   const rows = [{
