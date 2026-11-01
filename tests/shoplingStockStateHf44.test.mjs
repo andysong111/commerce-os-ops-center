@@ -40,11 +40,14 @@ test("HF51 recovers only the exact BBD8 retransmission incident without another 
   assert.match(route, /"BBD8-1"/);
   assert.match(route, new RegExp(requestId));
   assert.match(route, /resultCounts: \{ total: 108, success: 83, failure: 25 \}/);
+  assert.match(route, /latestSyncAt: "2026-11-01T14:36:34\.755Z"/);
   assert.match(route, /latest\.requestId !== retransmissionRequestId/);
   assert.match(route, /retransmissionItem\.jobId/);
   assert.match(route, /\["STARTED", "UNCERTAIN"\]/);
+  assert.match(route, /row\.latestSyncAt === incident\.latestSyncAt/);
   assert.match(panel, new RegExp(requestId));
   assert.match(panel, /item\.barcode === "BBD8-1"/);
+  assert.match(panel, /\["STARTED", "BLOCKED"\]\.includes\(item\.state \|\| ""\)/);
   assert.match(panel, /"완료 결과 복구"/);
   const recovery = panel.slice(
     panel.indexOf("const recoverKnownTerminal"),

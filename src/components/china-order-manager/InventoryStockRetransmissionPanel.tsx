@@ -177,7 +177,9 @@ export function InventoryStockRetransmissionPanel() {
               <td className="px-3 py-3 text-slate-600">{item.mode === "EXISTING_PENDING" ? "기존 미완료 지시 이어서 처리" : "재고 이력 변경 없는 Shopling 전용 재전송"}</td>
               <td className="px-3 py-3 font-bold text-slate-700">
                 {stateLabel(item)}
-                {latest?.requestId === BBD8_INCIDENT_REQUEST_ID && item.barcode === "BBD8-1" && item.state === "BLOCKED" ? (
+                {latest?.requestId === BBD8_INCIDENT_REQUEST_ID &&
+                item.barcode === "BBD8-1" &&
+                ["STARTED", "BLOCKED"].includes(item.state || "") ? (
                   <button
                     type="button"
                     onClick={() => void recoverKnownTerminal(item)}
