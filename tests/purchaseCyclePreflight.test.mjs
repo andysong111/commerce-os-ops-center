@@ -11,6 +11,9 @@ import {
   purchaseReplacementTrustedPayloadRows,
 } from "../src/lib/purchaseReplacementDraftLineage.ts";
 import {
+  completeConfirmedSourcingPayload,
+} from "../src/lib/sourcingReservationIdentity.ts";
+import {
   buildPurchaseOwnerCostEstimateSnapshot,
   OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE,
   OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE,
@@ -2608,6 +2611,50 @@ test("replacement save restores the full acupressure-sock identity on canonical 
         supplierLink: "https://detail.1688.com/offer/668850156055.html",
       },
     ],
+  );
+});
+
+test("replacement save completes a first-time confirmed sourcing option from its exact Product Launch B-code", () => {
+  const metadata = new Map([["BBE6-3", {
+    barcode: "BBE6-3",
+    productName: "강아지바운서",
+    saleOption: "단품 그레이",
+    chinaOption: "单网灰色 大包装】10个起拍",
+    supplierLink: "https://detail.1688.com/offer/673212748487.html",
+    conflict: false,
+  }]]);
+
+  const completed = completeConfirmedSourcingPayload(
+    "BBE6-3",
+    "강아지바운서",
+    { sourcingConfirmed: true },
+    metadata,
+  );
+  assert.deepEqual(completed, {
+    sourcingConfirmed: true,
+    productName: "강아지바운서",
+    saleOption: "단품 그레이",
+    chinaOption: "单网灰色 大包装】10个起拍",
+    supplierLink: "https://detail.1688.com/offer/673212748487.html",
+  });
+
+  assert.throws(
+    () => completeConfirmedSourcingPayload(
+      "BBE6-3",
+      "다른 상품",
+      { sourcingConfirmed: true },
+      metadata,
+    ),
+    /PURCHASE_SOURCING_BARCODE_IDENTITY_CONFLICT:BBE6-3/,
+  );
+  assert.throws(
+    () => completeConfirmedSourcingPayload(
+      "BBE6-3",
+      "강아지바운서",
+      { sourcingConfirmed: true },
+      new Map([["BBE6-3", { ...metadata.get("BBE6-3"), supplierLink: "" }]]),
+    ),
+    /PURCHASE_SOURCING_IDENTITY_INCOMPLETE:BBE6-3/,
   );
 });
 

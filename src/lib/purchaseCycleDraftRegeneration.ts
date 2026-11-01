@@ -34,6 +34,7 @@ import {
   purchaseReplacementTrustedPayloadRows,
 } from "@/lib/purchaseReplacementDraftLineage";
 import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
+import { completeConfirmedSourcingPayload } from "@/lib/sourcingReservationIdentity";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
@@ -330,11 +331,16 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     input.expectedDraftId,
   );
   const previousByBarcode = new Map(activeRows.map((row) => [row.barcode, row] as const));
-  const sourcingIdentityBarcodes = purchaseReplacementSnapshotIdentityBarcodes(
-    ledger.commitments,
-    activeRows,
-    input.expectedDraftId,
-  );
+  const sourcingIdentityBarcodes = [...new Set([
+    ...purchaseReplacementSnapshotIdentityBarcodes(
+      ledger.commitments,
+      activeRows,
+      input.expectedDraftId,
+    ),
+    ...lines
+      .filter((line) => line.sourcingConfirmed === true)
+      .map((line) => line.barcode),
+  ])];
   const [identityMetadata, identityHistory] = sourcingIdentityBarcodes.length
     ? await Promise.all([
         loadProductLaunchPurchaseMetadataByBarcode(),
@@ -438,7 +444,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       ? object(previous?.latestPayload)
       : {};
     const evidence = lineEvidenceByBarcode.get(line.barcode);
-    const preparedPayload: Record<string, unknown> = {
+    let preparedPayload: Record<string, unknown> = {
       ...preservedPayload,
       ...(line.sourcingConfirmed === true
         ? { sourcingConfirmed: true }
@@ -479,6 +485,14 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       supersedesDraftId: input.expectedDraftId,
       externalOrderExecuted: false,
     };
+    if (preparedPayload.sourcingConfirmed === true) {
+      preparedPayload = completeConfirmedSourcingPayload(
+        line.barcode,
+        line.productName,
+        preparedPayload,
+        identityMetadata.byBarcode,
+      );
+    }
     if (
       preparedPayload.sourcingConfirmed === true &&
       (
