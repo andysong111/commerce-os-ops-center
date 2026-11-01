@@ -28,6 +28,7 @@ import {
 } from "@/lib/purchaseCycleDraftRegenerationCore";
 import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
 import { collapseCanonicalPurchaseDraftLines } from "@/lib/purchaseSkuCanonicalization";
+import { purchaseReplacementTrustedPayloadRows } from "@/lib/purchaseReplacementDraftLineage";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
@@ -324,10 +325,14 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     input.expectedDraftId,
   );
   const previousByBarcode = new Map(activeRows.map((row) => [row.barcode, row] as const));
-  for (const row of activeRows) {
-    if (object(row.latestPayload).sourcingConfirmed === true) {
-      previousByBarcode.set(row.barcode, row);
-    }
+  const trustedPayloadRows = purchaseReplacementTrustedPayloadRows(
+    ledger.commitments,
+    activeRows,
+    input.expectedDraftId,
+    new Set(lines.map((line) => line.barcode)),
+  );
+  for (const [barcode, row] of trustedPayloadRows) {
+    previousByBarcode.set(barcode, row);
   }
   const preservedOperatorBarcodes = new Set(
     lines

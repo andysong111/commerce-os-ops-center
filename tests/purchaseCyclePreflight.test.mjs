@@ -5,7 +5,10 @@ import {
   buildPurchaseCyclePreflight, buildPurchaseReplacementDraftSnapshot, readPurchaseCyclePreflight,
   validPurchaseTargetDate, samePurchaseCandidatePin,
 } from "../src/lib/purchaseCyclePreflightCore.ts";
-import { purchaseReplacementDraftSnapshotLines } from "../src/lib/purchaseReplacementDraftLineage.ts";
+import {
+  purchaseReplacementDraftSnapshotLines,
+  purchaseReplacementTrustedPayloadRows,
+} from "../src/lib/purchaseReplacementDraftLineage.ts";
 import {
   buildPurchaseOwnerCostEstimateSnapshot,
   OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE,
@@ -2027,6 +2030,68 @@ test("replacement snapshot recovers the immediate predecessor but not an operato
   );
   assert.equal(lines.find((line) => line.barcode === "BAA1-1")?.recoveredFromPredecessor, false);
   assert.equal(lines.find((line) => line.barcode === "BAA2-1")?.recoveredFromPredecessor, true);
+});
+
+test("replacement lineage restores the selected sourcing marker lost from the current Draft", () => {
+  const currentDraftId = "fast-purchase-draft:a3a7038cd279a4c21aa4";
+  const previousDraftId = "fast-purchase-draft:5c2d26333a924323f31c";
+  const currentRows = [{
+    sourceSystem: "fast-purchase-mvp",
+    sourceRunId: currentDraftId,
+    barcode: "BDB6-2",
+    openQuantity: 20,
+    committedQuantity: 20,
+    latestPayload: {
+      productName: "지압양말세트",
+      supersedesDraftId: previousDraftId,
+      operatorExcludedBarcodes: ["BDB6-3"],
+    },
+  }];
+  const predecessorRows = [
+    {
+      sourceSystem: "fast-purchase-mvp",
+      sourceRunId: previousDraftId,
+      barcode: "BDB6-2",
+      openQuantity: 0,
+      committedQuantity: 20,
+      latestPayload: {
+        productName: "지압양말세트",
+        sourcingConfirmed: true,
+      },
+    },
+    {
+      sourceSystem: "fast-purchase-mvp",
+      sourceRunId: previousDraftId,
+      barcode: "BDB6-3",
+      openQuantity: 0,
+      committedQuantity: 10,
+      latestPayload: {
+        productName: "사용자가 제외한 신규소싱",
+        sourcingConfirmed: true,
+      },
+    },
+    {
+      sourceSystem: "fast-purchase-mvp",
+      sourceRunId: previousDraftId,
+      barcode: "BDB6-4",
+      openQuantity: 0,
+      committedQuantity: 10,
+      latestPayload: {
+        productName: "현재 선택에 없는 과거 신규소싱",
+        sourcingConfirmed: true,
+      },
+    },
+  ];
+
+  const trusted = purchaseReplacementTrustedPayloadRows(
+    [...currentRows, ...predecessorRows],
+    currentRows,
+    currentDraftId,
+    new Set(["BDB6-2", "BDB6-3"]),
+  );
+
+  assert.deepEqual([...trusted.keys()], ["BDB6-2"]);
+  assert.equal(trusted.get("BDB6-2")?.latestPayload.sourcingConfirmed, true);
 });
 
 test("replacement snapshot preserves a manually added line across later recommendation refreshes", () => {

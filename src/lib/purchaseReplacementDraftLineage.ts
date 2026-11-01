@@ -10,6 +10,50 @@ type ReplacementLedgerRow = {
   latestPayload: unknown;
 };
 
+/**
+ * Returns only trusted operator-owned payloads for lines that still belong to
+ * the visible replacement selection. The immediate predecessor is considered
+ * solely to repair metadata lost by a regeneration pass; older history and
+ * operator exclusions are deliberately ignored.
+ */
+export function purchaseReplacementTrustedPayloadRows<TRow extends ReplacementLedgerRow>(
+  commitments: TRow[],
+  activeRows: TRow[],
+  draftId: string,
+  selectedBarcodes: ReadonlySet<string>,
+) {
+  const currentDraftRows = activeRows.filter((row) => row.sourceRunId === draftId);
+  const supersedesDraftIds = [...new Set(
+    currentDraftRows
+      .map((row) => text(object(row.latestPayload).supersedesDraftId))
+      .filter(Boolean),
+  )];
+  const excluded = payloadExclusions(currentDraftRows);
+  const predecessorId = supersedesDraftIds.length === 1 ? supersedesDraftIds[0] : null;
+  const predecessorRows = predecessorId
+    ? commitments.filter(
+        (row) =>
+          row.sourceSystem === "fast-purchase-mvp" &&
+          row.sourceRunId === predecessorId &&
+          row.committedQuantity > 0,
+      )
+    : [];
+  const trustedByBarcode = new Map<string, TRow>();
+
+  for (const row of [...predecessorRows, ...activeRows]) {
+    if (!selectedBarcodes.has(row.barcode) || excluded.has(row.barcode)) continue;
+    const payload = object(row.latestPayload);
+    if (
+      payload.sourcingConfirmed === true ||
+      isTrustedPurchaseDraftManualAddition(payload)
+    ) {
+      trustedByBarcode.set(row.barcode, row);
+    }
+  }
+
+  return trustedByBarcode;
+}
+
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
