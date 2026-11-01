@@ -2212,6 +2212,121 @@ test("replacement lineage restores the selected sourcing marker lost from the cu
   assert.equal(unprovenRestoration.has("BDB6-2"), false);
 });
 
+test("replacement snapshot remaps the real male acupressure-sock barcode collision and fails closed without an exact identity", () => {
+  const draftId = "fast-purchase-draft:86a9665a3a74a2f8bf6a";
+  const previousDraftId = "fast-purchase-draft:150d3e2fbca4498d6fe8";
+  const currentRows = [
+    {
+      sourceSystem: "fast-purchase-mvp",
+      sourceRunId: draftId,
+      barcode: "BBB7-2",
+      openQuantity: 20,
+      committedQuantity: 20,
+      latestPayload: {
+        productName: "지압양말세트",
+        sourcingConfirmed: true,
+        supersedesDraftId: previousDraftId,
+      },
+    },
+    {
+      sourceSystem: "fast-purchase-mvp",
+      sourceRunId: draftId,
+      barcode: "BDB6-2",
+      openQuantity: 20,
+      committedQuantity: 20,
+      latestPayload: {
+        productName: "지압양말세트",
+        sourcingConfirmed: true,
+        supersedesDraftId: previousDraftId,
+      },
+    },
+  ];
+  const originalIdentityRows = [
+    {
+      ...currentRows[0],
+      sourceRunId: "fast-purchase-draft:62f76f670872edb868ac",
+      openQuantity: 0,
+      latestPayload: {
+        productName: "지압양말세트",
+        saleOption: "남성용1쌍과 지압봉",
+        chinaOption: "男袜+按摩棒",
+        sourcingConfirmed: true,
+      },
+    },
+    {
+      ...currentRows[1],
+      sourceRunId: "fast-purchase-draft:62f76f670872edb868ac",
+      openQuantity: 0,
+      latestPayload: {
+        productName: "지압양말세트",
+        saleOption: "여성용1쌍과 지압봉",
+        chinaOption: "女袜+按摩棒",
+        sourcingConfirmed: true,
+      },
+    },
+  ];
+  const productLaunchMetadata = new Map([
+    ["BBB7-2", {
+      barcode: "BBB7-2",
+      productName: "머플러 C형",
+      saleOption: "베이지",
+      chinaOption: "男袜+按摩棒",
+      conflict: false,
+    }],
+    ["BDB5-3", {
+      barcode: "BDB5-3",
+      productName: "지압양말세트",
+      saleOption: "남성용1쌍과 지압봉",
+      chinaOption: "男袜+按摩棒",
+      conflict: false,
+    }],
+    ["BDB6-2", {
+      barcode: "BDB6-2",
+      productName: "지압양말세트",
+      saleOption: "여성용1쌍과 지압봉",
+      chinaOption: "女袜+按摩棒",
+      conflict: false,
+    }],
+  ]);
+
+  const repaired = purchaseReplacementDraftSnapshotLines(
+    [...originalIdentityRows, ...currentRows],
+    currentRows,
+    draftId,
+    new Map(),
+    productLaunchMetadata,
+  );
+  assert.deepEqual(
+    repaired.map((line) => line.barcode).sort(),
+    ["BDB5-3", "BDB6-2"],
+  );
+  assert.ok(repaired.every((line) => line.name === "지압양말세트"));
+
+  const unsafeMetadata = new Map(productLaunchMetadata);
+  unsafeMetadata.delete("BDB5-3");
+  assert.throws(
+    () => purchaseReplacementDraftSnapshotLines(
+      [...originalIdentityRows, ...currentRows],
+      currentRows,
+      draftId,
+      new Map(),
+      unsafeMetadata,
+    ),
+    /PURCHASE_SOURCING_BARCODE_IDENTITY_CONFLICT:BBB7-2/,
+  );
+
+  assert.throws(
+    () => purchaseReplacementDraftSnapshotLines(
+      [...originalIdentityRows, ...currentRows],
+      currentRows,
+      draftId,
+      new Map(),
+      null,
+    ),
+    /PURCHASE_SOURCING_IDENTITY_METADATA_UNAVAILABLE:BBB7-2/,
+  );
+});
+
 test("replacement snapshot preserves all eight owner-selected sourcing options when three restored markers only survive on the immediate predecessor", () => {
   const currentDraftId = "fast-purchase-draft:150d3e2fbca4498d6fe8";
   const previousDraftId = "fast-purchase-draft:a3a7038cd279a4c21aa4";

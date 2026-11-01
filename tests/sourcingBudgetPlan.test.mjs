@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   allSourcingVariantsAsSmall,
+  canonicalizeSourcingPlanReusedReservations,
   loadManualPilotCatalog,
   loadSourcingBudgetPlan,
   manualPilotCatalogVariantsAsSmall,
@@ -117,6 +118,46 @@ test("invalid sourcing fingerprints are rejected before being trusted", async ()
   assert.match(source, /FINGERPRINT\.test/);
   assert.match(source, /SOURCING_BUDGET_PLAN_RESPONSE_INVALID/);
   assert.ok(!source.includes("console.log(secret"));
+});
+
+test("confirmed sourcing reuse remaps the real male acupressure-sock identity without changing upstream fingerprints", () => {
+  const plan = {
+    ...validPlan(),
+    reusedConfirmedVariants: [{
+      conceptId: "male-acupressure-socks",
+      variantKey: "male",
+      barcode: "BBB7-2",
+      quantity: 20,
+      estimatedCostKrw: 16_400,
+      storageSize: "S",
+      productName: "지압양말세트",
+      saleOption: "남성용1쌍과 지압봉",
+      chinaOption: "男袜+按摩棒",
+      sourceUrl: "https://detail.1688.com/offer/668850156055.html",
+    }],
+  };
+  const metadata = new Map([
+    ["BBB7-2", {
+      barcode: "BBB7-2",
+      productName: "머플러 C형",
+      saleOption: "베이지",
+      chinaOption: "男袜+按摩棒",
+      conflict: false,
+    }],
+    ["BDB5-3", {
+      barcode: "BDB5-3",
+      productName: "지압양말세트",
+      saleOption: "남성용1쌍과 지압봉",
+      chinaOption: "男袜+按摩棒",
+      conflict: false,
+    }],
+  ]);
+
+  const repaired = canonicalizeSourcingPlanReusedReservations(plan, metadata);
+  assert.equal(repaired.reusedConfirmedVariants[0].barcode, "BDB5-3");
+  assert.equal(repaired.planFingerprint, plan.planFingerprint);
+  assert.equal(repaired.sourceFingerprint, plan.sourceFingerprint);
+  assert.equal(plan.reusedConfirmedVariants[0].barcode, "BBB7-2");
 });
 
 test("only a complete, internally consistent sourcing plan releases unused cash", () => {

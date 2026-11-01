@@ -1,5 +1,9 @@
 import type { PurchaseReplacementDraftLine } from "@/lib/purchaseCyclePreflightCore";
 import { isTrustedPurchaseDraftManualAddition } from "./purchaseCycleDraftRegenerationCore.ts";
+import {
+  canonicalSourcingBarcode,
+  type PurchaseIdentityMetadata,
+} from "./sourcingReservationIdentity.ts";
 
 type ReplacementLedgerRow = {
   sourceSystem: string;
@@ -100,6 +104,36 @@ function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
 }
 
+function identityText(value: unknown) {
+  return text(value).replace(/\s+/gu, " ").toLocaleLowerCase("ko-KR");
+}
+
+function sourcingIdentityPayload<TRow extends ReplacementLedgerRow>(
+  commitments: TRow[],
+  source: TRow | undefined,
+) {
+  const fallback = object(source?.latestPayload);
+  const productName = identityText(fallback.productName);
+  const candidates = commitments
+    .filter((row) => row.barcode === source?.barcode)
+    .map((row) => object(row.latestPayload))
+    .filter((payload) =>
+      payload.sourcingConfirmed === true &&
+      (!productName || identityText(payload.productName) === productName)
+    )
+    .sort((left, right) =>
+      identityPayloadScore(right) - identityPayloadScore(left)
+    );
+  return candidates[0] ?? fallback;
+}
+
+function identityPayloadScore(payload: Record<string, unknown>) {
+  return Number(Boolean(text(payload.productName))) * 8 +
+    Number(Boolean(text(payload.saleOption))) * 4 +
+    Number(Boolean(text(payload.chinaOption))) * 2 +
+    Number(Boolean(text(payload.supplierLink)));
+}
+
 function payloadExclusions(rows: ReplacementLedgerRow[]) {
   const result = new Set<string>();
   for (const row of rows) {
@@ -126,6 +160,7 @@ export function purchaseReplacementDraftSnapshotLines(
   activeRows: ReplacementLedgerRow[],
   draftId: string,
   overrides: ReadonlyMap<string, { targetQuantity: number }>,
+  metadataByBarcode?: ReadonlyMap<string, PurchaseIdentityMetadata> | null,
 ): PurchaseReplacementDraftLine[] {
   const quantities = new Map<string, number>();
   for (const row of activeRows) {
@@ -180,18 +215,33 @@ export function purchaseReplacementDraftSnapshotLines(
     );
   }
 
-  return [...quantities].map(([barcode, quantity]) => {
+  const resolved = new Map<string, PurchaseReplacementDraftLine>();
+  for (const [barcode, quantity] of quantities) {
     const source = sourceByBarcode.get(barcode);
     const payload = object(source?.latestPayload);
-    return {
-      barcode,
+    const preserveOnRegeneration =
+      payload.sourcingConfirmed === true ||
+      isTrustedPurchaseDraftManualAddition(payload) ||
+      isRestoredConfirmedSourcingPayload(payload);
+    const sourcingIdentityGuard =
+      payload.sourcingConfirmed === true ||
+      isRestoredConfirmedSourcingPayload(payload);
+    const identityPayload = sourcingIdentityGuard
+      ? sourcingIdentityPayload(commitments, source)
+      : payload;
+    const resolvedBarcode = sourcingIdentityGuard
+      ? canonicalSourcingBarcode(barcode, identityPayload, metadataByBarcode)
+      : barcode;
+    if (resolved.has(resolvedBarcode)) {
+      throw new Error(`PURCHASE_SOURCING_BARCODE_IDENTITY_DUPLICATE:${resolvedBarcode}`);
+    }
+    resolved.set(resolvedBarcode, {
+      barcode: resolvedBarcode,
       quantity,
-      name: text(payload.productName),
-      preserveOnRegeneration:
-        payload.sourcingConfirmed === true ||
-        isTrustedPurchaseDraftManualAddition(payload) ||
-        isRestoredConfirmedSourcingPayload(payload),
+      name: text(identityPayload.productName),
+      preserveOnRegeneration,
       recoveredFromPredecessor: predecessorBarcodes.has(barcode),
-    };
-  });
+    });
+  }
+  return [...resolved.values()];
 }
