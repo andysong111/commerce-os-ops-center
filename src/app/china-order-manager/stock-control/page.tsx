@@ -2,6 +2,7 @@ import Link from "next/link";
 import { InventoryStockOperationalDetails } from "@/components/china-order-manager/InventoryStockOperationalDetails";
 import { InventoryStockoutOperatorPanel } from "@/components/china-order-manager/InventoryStockoutOperatorPanel";
 import { InventoryStockOverviewPanel } from "@/components/china-order-manager/InventoryStockOverviewPanel";
+import { InventoryStockRetransmissionPanel } from "@/components/china-order-manager/InventoryStockRetransmissionPanel";
 import { StockSyncHF15Bridge } from "@/components/china-order-manager/StockSyncHF15Bridge";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -58,10 +59,10 @@ export default async function InventoryStockControlPage({
                 창고 위치·수용능력
               </Link>
               <Link
-                href="/api/shopling-stock-state-sync/download-hf49"
+                href="/api/shopling-stock-state-sync/download-hf50"
                 className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800"
               >
-                재고상태 자동화 확장 v0.6.14 다운로드
+                재고상태 자동화 확장 v0.6.15 다운로드
               </Link>
             </div>
           )
@@ -71,7 +72,7 @@ export default async function InventoryStockControlPage({
       {!isFocusedCorrection ? (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
           <strong className="text-slate-950">확장 설치:</strong> 위의
-          <strong> v0.6.14 다운로드</strong> → ZIP 압축 해제 → Chrome
+          <strong> v0.6.15 다운로드</strong> → ZIP 압축 해제 → Chrome
           주소창에
           <code className="mx-1 rounded bg-white px-2 py-1 font-mono text-xs">
             chrome://extensions
@@ -82,6 +83,8 @@ export default async function InventoryStockControlPage({
       ) : null}
 
       {!isFocusedCorrection ? <InventoryStockOverviewPanel /> : null}
+
+      {!isFocusedCorrection ? <InventoryStockRetransmissionPanel /> : null}
 
       <InventoryStockoutOperatorPanel
         focusedBarcodes={focusedCorrection.barcodes}

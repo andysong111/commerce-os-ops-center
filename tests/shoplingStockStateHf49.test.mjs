@@ -211,11 +211,9 @@ test("HF49 rejects missing ownership and carries ownership through popup/result 
   });
 });
 
-test("HF49 publishes v0.6.14, blocks HF48, and runs in permanent CI", async () => {
-  const [route, page, planner, workflow] = await Promise.all([
+test("HF49 publishes v0.6.14, blocks HF48, and remains in permanent CI", async () => {
+  const [route, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf49/route.ts", "utf8"),
-    readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
-    readFile("src/lib/shoplingStockLaunchPlan.ts", "utf8"),
     readFile(".github/workflows/shopling-stock-state-sync-ci.yml", "utf8"),
   ]);
   assert.match(route, /getHf48Download/);
@@ -226,8 +224,5 @@ test("HF49 publishes v0.6.14, blocks HF48, and runs in permanent CI", async () =
     route,
     /BDE7-3_OPTION_BATCH_RELOAD_DROPPED_OWNER_AND_REOPENED_ACK_RACE/,
   );
-  assert.match(page, /download-hf49/);
-  assert.match(page, /v0\.6\.14 \ub2e4\uc6b4\ub85c\ub4dc/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 14\]/);
   assert.match(workflow, /shoplingStockStateHf49\.test\.mjs/);
 });

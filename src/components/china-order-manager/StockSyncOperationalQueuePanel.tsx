@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INVENTORY_QUEUE_PATH, inventoryStockReadClient, startInventoryPolling } from "@/lib/inventoryStockConnection";
 import { planShoplingStockLaunch, supportsAllDateStockSync } from "@/lib/shoplingStockLaunchPlan";
+import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
 import { selectExactShoplingStockQueueJob, type ShoplingStockQueueSelection } from "@/lib/shoplingStockQueueSelection";
 
 type ProductKind = "OPTION" | "SINGLE";
@@ -196,6 +197,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     const plan = planShoplingStockLaunch(launchable, extensionVersionRef.current);
     const batchId = randomId("stock-sync-ops-batch");
     const prepared = plan.jobs.map((job, index) => operationalJob(job, batchId, index + 1));
+    await requireShoplingAuthenticatedSession();
     jobsById.current.clear(); prepared.forEach((job) => jobsById.current.set(job.jobId, job));
     setRunningBarcodes(prepared.map((job) => job.barcode));
     setPhase(plan.mode === "PARALLEL" ? "STARTING_2_LANE" : "STARTING_SINGLE");
@@ -250,7 +252,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 A4/A21 역할 오인, 작업자 연결 또는 결과 검증 오류가 있어 사용할 수 없습니다. v0.6.14로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 전송 전 로그인 점검 또는 결과 검증을 지원하지 않아 사용할 수 없습니다. v0.6.15로 업데이트해 주세요.`);
         }
         return;
       }

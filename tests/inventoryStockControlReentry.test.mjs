@@ -220,7 +220,7 @@ test("unified operator sends returned direct jobs immediately and never reloads 
   assert.match(panel, /directQueue\.current = \[/);
   assert.match(panel, /const supported = supportsAllDateStockSync\(version\)/);
   assert.match(panel, /extensionReadyRef\.current = supported/);
-  assert.match(panel, /v0\.6\.14로 업데이트해 주세요/);
+  assert.match(panel, /v0\.6\.15로 업데이트해 주세요/);
   assert.match(panel, /!extensionReadyRef\.current/);
   assert.doesNotMatch(panel, /window\.location\.reload/);
 });
@@ -316,10 +316,10 @@ test("inventory overview and operational queue label status-only ON_SALE as quan
 
 
 test("manual on-sale rows pass through retry-lock normalization after the manual overlay", async () => {
-  const [syncRoute, overviewRoute] = await Promise.all([
-    readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8"),
+  const [authoritative, overviewRoute] = await Promise.all([
+    readFile("src/lib/inventoryStockAuthoritativeReport.ts", "utf8"),
     readFile("src/app/api/inventory-stock-control/route.ts", "utf8"),
   ]);
-  assert.match(syncRoute, /withManualOnSale[\s\S]*normalizeRetryableShoplingSyncReportWithEvidence\(withManualOnSale\)/);
+  assert.match(authoritative, /withManualOnSale[\s\S]*normalizeRetryableShoplingSyncReportWithEvidence\(withManualOnSale\)/);
   assert.match(overviewRoute, /normalizeRetryableShoplingSyncReportWithEvidence\([\s\S]*overlayInventoryStockControlReportWithManualOnSale\(report\)/);
 });
