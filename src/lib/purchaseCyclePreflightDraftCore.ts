@@ -342,7 +342,7 @@ export function canFinalizeWithExactConfirmedSourcing(
     report.sourcingBudgetPercent <= 0 ||
     request.sourcingSelectionMode !== "custom" ||
     preferredConceptIds.length === 0 ||
-    requestedVariants.length === 0 ||
+    new Set(preferredConceptIds).size !== preferredConceptIds.length ||
     !sourcingPlan ||
     sourcingPlan.targetCycleMonth !== report.targetCycleMonth ||
     sourcingPlan.totalCashKrw !== report.effectiveCashKrw ||
@@ -355,22 +355,42 @@ export function canFinalizeWithExactConfirmedSourcing(
     return false;
   }
 
-  const expectedVariants = new Map<string, "S" | "L">();
-  for (const variant of requestedVariants) {
-    const key = `${variant.conceptId}\0${variant.variantKey}`;
-    if (expectedVariants.has(key)) return false;
-    expectedVariants.set(key, variant.storageSize);
-  }
   const reused = sourcingPlan.reusedConfirmedVariants ?? [];
-  if (reused.length !== expectedVariants.size) return false;
+  const requestStorage = request.sourcingStorageSizeByConceptId ?? {};
+  const expectedVariants = new Map<string, "S" | "L">();
+  const expectedConcepts = new Map<string, "S" | "L">();
+  if (requestedVariants.length > 0) {
+    for (const variant of requestedVariants) {
+      const key = `${variant.conceptId}\0${variant.variantKey}`;
+      if (expectedVariants.has(key)) return false;
+      expectedVariants.set(key, variant.storageSize);
+    }
+    if (reused.length !== expectedVariants.size) return false;
+  } else {
+    // Older/reloaded preflight URLs can retain the user's exact concept IDs and
+    // storage choices without the client-only variant query values. Rebuild that
+    // missing selection only when lifecycle data proves there is exactly one
+    // confirmed reservation per requested concept. Any ambiguity fails closed.
+    for (const conceptId of preferredConceptIds) {
+      const storageSize = requestStorage[conceptId];
+      if (storageSize !== "S" && storageSize !== "L") return false;
+      expectedConcepts.set(conceptId, storageSize);
+    }
+    if (reused.length !== expectedConcepts.size) return false;
+  }
 
   const reusedIdentities = new Set<string>();
+  const reusedConcepts = new Set<string>();
   const reusedBarcodes = new Set<string>();
   for (const row of reused) {
     const identity = `${row.conceptId}\0${row.variantKey ?? ""}`;
+    const exactVariantExpected = requestedVariants.length > 0
+      ? expectedVariants.get(identity)
+      : expectedConcepts.get(row.conceptId);
     if (
-      !expectedVariants.has(identity) ||
-      expectedVariants.get(identity) !== row.storageSize ||
+      exactVariantExpected === undefined ||
+      exactVariantExpected !== row.storageSize ||
+      (requestedVariants.length === 0 && (!row.variantKey || reusedConcepts.has(row.conceptId))) ||
       reusedIdentities.has(identity) ||
       reusedBarcodes.has(row.barcode) ||
       !/^B[A-Z]{2}\d+-\d+$/.test(row.barcode) ||
@@ -381,6 +401,7 @@ export function canFinalizeWithExactConfirmedSourcing(
       return false;
     }
     reusedIdentities.add(identity);
+    reusedConcepts.add(row.conceptId);
     reusedBarcodes.add(row.barcode);
   }
 
