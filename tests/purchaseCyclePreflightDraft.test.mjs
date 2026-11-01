@@ -1030,6 +1030,15 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(regeneration, /status: "RESERVED"/);
   assert.match(regeneration, /preservedOperatorBarcodes/);
   assert.match(regeneration, /loadChinaOrderSourcingIdentityHistory/);
+  assert.match(regeneration, /purchaseReplacementSnapshotIdentityBarcodes/);
+  assert.match(
+    regeneration,
+    /purchaseReplacementSnapshotIdentityBarcodes\(\s*ledger\.commitments,\s*activeRows,\s*input\.expectedDraftId,\s*\)/,
+  );
+  assert.doesNotMatch(
+    regeneration,
+    /purchaseReplacementSourcingIdentityBarcodes\(activeRows\)/,
+  );
   assert.match(regeneration, /loadProductLaunchPurchaseMetadataByBarcode/);
   assert.match(regeneration, /PURCHASE_SOURCING_IDENTITY_INCOMPLETE/);
   assert.match(regeneration, /isTrustedPurchaseDraftManualAddition\(payload\)/);

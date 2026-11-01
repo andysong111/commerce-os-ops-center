@@ -848,3 +848,18 @@ The October Draft remains a Draft until the owner later chooses to place a real 
 - Repeated clicks while this read was blocked did not create another active Draft or execute an
   external order. The correction affects internal Draft reconstruction only; 1688 order, payment,
   supplier contact, and ORDERED transition remain separate owner-action boundaries.
+
+---
+
+## 36. Save-time predecessor-alias parity (2026-11-01)
+
+- The replacement preview and the final internal Draft save now request sourcing-identity history
+  from the same bounded lineage: the active replacement Draft plus its one immediate predecessor.
+  Previously the preview recovered that predecessor correctly, but regeneration loaded history only
+  for active rows and therefore failed on stale alias `BBB7-2` during the final save.
+- The save path reuses the same canonical lineage helper as the preview. It preserves the current
+  canonical `BDB5-3` male option, retains `BDB6-2` for the female option, and never reserves the
+  predecessor alias as another row.
+- Missing, conflicting, or same-level duplicate identity evidence still blocks before any ledger
+  write. A failed save remains atomic and does not place a 1688 order, make a payment, contact a
+  supplier, or create an ORDERED transition.
