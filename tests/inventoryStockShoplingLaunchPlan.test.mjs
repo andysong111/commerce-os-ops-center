@@ -10,7 +10,7 @@ import {
 const option = { jobId: "option-1", productKind: "OPTION" };
 const single = { jobId: "single-1", productKind: "SINGLE" };
 
-test("only HF51 v0.6.16 and later may run stock status sync", () => {
+test("only HF52 v0.6.17 and later may run stock status sync", () => {
   assert.equal(supportsAllDateStockSync("0.5.8"), false);
   assert.equal(supportsAllDateStockSync("0.5.9"), false);
   assert.equal(supportsAllDateStockSync("0.6.0"), false);
@@ -29,7 +29,8 @@ test("only HF51 v0.6.16 and later may run stock status sync", () => {
   assert.equal(supportsAllDateStockSync("0.6.13"), false);
   assert.equal(supportsAllDateStockSync("0.6.14"), false);
   assert.equal(supportsAllDateStockSync("0.6.15"), false);
-  assert.equal(supportsAllDateStockSync("0.6.16"), true);
+  assert.equal(supportsAllDateStockSync("0.6.16"), false);
+  assert.equal(supportsAllDateStockSync("0.6.17"), true);
   assert.equal(supportsAllDateStockSync(""), false);
 });
 
@@ -107,6 +108,6 @@ test("both stock-control launch surfaces use the shared version-aware planner", 
     assert.match(source, /extensionVersionRef\.current/);
     assert.match(source, /const version = String\(data\.extensionVersion \|\| ""\)/);
   }
-  assert.match(page, /download-hf51/);
-  assert.match(page, /v0\.6\.16 다운로드/);
+  assert.match(page, /download-hf52/);
+  assert.match(page, /v0\.6\.17 다운로드/);
 });
