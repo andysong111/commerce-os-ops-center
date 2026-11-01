@@ -1400,6 +1400,81 @@ test("replacement removes an old automatic line absent from a verified full acti
   assert.equal(report.replacementAudit.complete, true);
 });
 
+test("replacement removes an old automatic line explicitly excluded by the latest complete recalculation", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "예산 밖 과거 자동추천",
+    priorityScore: 80,
+  });
+  input.priority.managedActiveSkuCount = input.priority.rows.length;
+  input.priority.omissionBlockingCount = 0;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "최신 추천 유지", quantity: 5 },
+      { barcode: "BAA2-1", name: "예산 밖 과거 자동추천", quantity: 5 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(report.selected.map((row) => row.barcode), ["BAA1-1"]);
+  assert.deepEqual(report.preservedReplacementLines, []);
+  assert.ok(!report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
+  assert.deepEqual(
+    report.replacementAudit.removed.map((row) => ({ barcode: row.barcode, reasons: row.reasons })),
+    [{
+      barcode: "BAA2-1",
+      reasons: ["LATEST_RECALCULATION_EXCLUDED", "CANARY_SKU_LIMIT"],
+    }],
+  );
+  assert.equal(report.replacementAudit.complete, true);
+});
+
+test("replacement removes an old automatic line outside the latest complete cash allocation", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";
+  input.options.replaceDraftId = draftId;
+  input.options.maxSkus = 2;
+  input.options.cashLimitKrw = 50_000;
+  input.priority.rows.push({
+    ...input.priority.rows[0],
+    barcode: "BAA2-1",
+    name: "예산 밖 과거 자동추천",
+    priorityScore: 80,
+  });
+  input.priority.managedActiveSkuCount = input.priority.rows.length;
+  input.priority.omissionBlockingCount = 0;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [
+      { barcode: "BAA1-1", name: "최신 추천 유지", quantity: 5 },
+      { barcode: "BAA2-1", name: "예산 밖 과거 자동추천", quantity: 5 },
+    ],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  const report = buildPurchaseCyclePreflight(input);
+
+  assert.deepEqual(report.selected.map((row) => row.barcode), ["BAA1-1"]);
+  assert.deepEqual(report.preservedReplacementLines, []);
+  assert.ok(!report.reviewBlockers.includes("EXISTING_DRAFT_RECOMMENDATION_REVIEW_REQUIRED"));
+  assert.deepEqual(report.replacementAudit.removed[0].reasons, [
+    "LATEST_RECALCULATION_EXCLUDED",
+    "CASH_BUDGET_LIMIT",
+  ]);
+  assert.equal(report.replacementAudit.complete, true);
+});
+
 test("advisory upstream blockers do not make a complete active scope preserve stale automatic lines", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:68b2aa56a8a0ac018141";

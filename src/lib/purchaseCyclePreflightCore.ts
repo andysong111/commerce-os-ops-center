@@ -285,6 +285,11 @@ const OPERATOR_INPUT_PENDING_REASONS = new Set([
   "ROW_EXECUTION_BLOCKED",
 ]);
 
+const VERIFIED_CURRENT_POLICY_REMOVAL_REASONS = new Set([
+  "CANARY_SKU_LIMIT",
+  "CASH_BUDGET_LIMIT",
+]);
+
 function isCurrentOperatorInputRecommendation(
   row: InventoryVerificationPriorityRow | undefined,
   exclusionReasons: string[],
@@ -1104,26 +1109,51 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     const operatorPinnedPreservedBarcodes = new Set(
       [...operatorPinnedExistingBarcodes].filter((barcode) => !eligibleBarcodes.has(barcode)),
     );
-    const automaticRemovalReasonByBarcode = new Map(
-      input.replacementAfter.lines.flatMap((line) => {
-        if (
-          line.preserveOnRegeneration === true ||
-          operatorPinnedPreservedBarcodes.has(line.barcode)
-        ) return [];
-        const reason = verifiedAutomaticRemovalReason(
-          priorityByBarcode.get(line.barcode),
-          completeCurrentPriorityScope,
-        );
-        return reason ? [[line.barcode, reason] as const] : [];
-      }),
-    );
+    const automaticRemovalReasonsByBarcode = new Map<string, string[]>();
+    for (const line of input.replacementAfter.lines) {
+      if (
+        line.preserveOnRegeneration === true ||
+        operatorPinnedPreservedBarcodes.has(line.barcode)
+      ) continue;
+      const verifiedReason = verifiedAutomaticRemovalReason(
+        priorityByBarcode.get(line.barcode),
+        completeCurrentPriorityScope,
+      );
+      if (verifiedReason) {
+        automaticRemovalReasonsByBarcode.set(line.barcode, [verifiedReason]);
+        continue;
+      }
+
+      const currentExclusionReasons = exclusionReasonsByBarcode.get(line.barcode) ?? [];
+      const currentRow = priorityByBarcode.get(line.barcode);
+      const currentCalculationCanRemove =
+        completeCurrentPriorityScope &&
+        candidateCoverageComplete &&
+        blockers.length === 0 &&
+        currentExclusionReasons.length > 0 &&
+        currentExclusionReasons.some((reason) =>
+          VERIFIED_CURRENT_POLICY_REMOVAL_REASONS.has(reason)
+        ) &&
+        currentExclusionReasons.every(
+          (reason) =>
+            OPERATOR_INPUT_PENDING_REASONS.has(reason) ||
+            VERIFIED_CURRENT_POLICY_REMOVAL_REASONS.has(reason),
+        ) &&
+        !isCurrentOperatorInputRecommendation(currentRow, currentExclusionReasons);
+      if (currentCalculationCanRemove) {
+        automaticRemovalReasonsByBarcode.set(line.barcode, [
+          "LATEST_RECALCULATION_EXCLUDED",
+          ...currentExclusionReasons,
+        ]);
+      }
+    }
     const retainedReplacementLines = input.replacementAfter.lines
       .filter(
         (line) =>
           !operatorExcludedSet.has(line.barcode) &&
           !operatorReleasedQuantityOverrideSet.has(line.barcode) &&
           !selectedByBarcode.has(line.barcode) &&
-          !automaticRemovalReasonByBarcode.has(line.barcode) &&
+          !automaticRemovalReasonsByBarcode.has(line.barcode) &&
           (!startNewRun ||
             line.preserveOnRegeneration === true ||
             operatorPinnedPreservedBarcodes.has(line.barcode)),
@@ -1232,7 +1262,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
             ? ["OPERATOR_QUANTITY_OVERRIDE_RELEASED_TO_POLICY"]
           : startNewRun
             ? ["NEW_RUN_REBUILT_FROM_LATEST_RECOMMENDATIONS"]
-            : [automaticRemovalReasonByBarcode.get(line.barcode) ?? "EXISTING_DRAFT_REMOVAL_UNVERIFIED"],
+            : automaticRemovalReasonsByBarcode.get(line.barcode) ?? ["EXISTING_DRAFT_REMOVAL_UNVERIFIED"],
       }));
     const quantityChanged = matchedBarcodes.flatMap((barcode) => {
       const previous = previousByBarcode.get(barcode)!;

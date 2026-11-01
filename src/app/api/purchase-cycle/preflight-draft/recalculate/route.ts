@@ -3,13 +3,14 @@ import {
   recalculatePurchaseCycleDraftInline,
   type InlinePurchaseCycleDraftRecalculationRequest,
 } from "@/lib/purchaseCyclePreflightDraft";
+import { parsePurchaseDraftRecalculationError } from "@/lib/purchaseDraftRecalculationError";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 600;
 
-function errorMessage(code: string) {
+function errorMessage(code: string, inputsSaved = false) {
   if (code === "PURCHASE_DRAFT_RECALCULATION_FAILED_AFTER_INPUT_SAVE") {
     return "선택한 대략 재고 또는 단종예정 정책은 저장됐지만 최신 판매·예산 자료 재계산이 끝나지 않았습니다. 현재 Draft는 유지되며 잠시 후 재계산만 다시 누르면 됩니다.";
   }
@@ -26,7 +27,9 @@ function errorMessage(code: string) {
     return "최신 판매·재고 자료에서 발주 가능한 다음 순위를 만들지 못했습니다. 현재 Draft는 그대로 유지했습니다.";
   }
   if (code === "PURCHASE_DRAFT_REPLACEMENT_SOURCE_REVIEW_REQUIRED") {
-    return "이전 Draft의 자동추천 품목이 최신 판매·재고 근거로 다시 판정되지 않았습니다. 불완전한 발주안은 저장하지 않았으며 현재 Draft를 그대로 유지했습니다.";
+    return inputsSaved
+      ? "대략 재고·단종예정 저장은 완료됐지만 기존 Draft 일부 품목의 최신 제외 근거를 확인하지 못해 새 발주안 저장을 중단했습니다. 같은 버튼을 반복해서 누르지 말고 최신자료 상태를 확인하세요. 현재 Draft는 그대로 유지했습니다."
+      : "이전 Draft의 자동추천 품목이 최신 판매·재고 근거로 다시 판정되지 않았습니다. 불완전한 발주안은 저장하지 않았으며 현재 Draft를 그대로 유지했습니다.";
   }
   if (code === "OPERATOR_QUANTITY_OVERRIDES_INVALID") {
     return "수량은 5개 단위로, SKU당 5개 이상 9,995개 이하로 입력하세요.";
@@ -59,7 +62,8 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     const raw = error instanceof Error ? error.message : "PURCHASE_CYCLE_INLINE_RECALCULATION_FAILED";
-    const code = raw.split(":", 1)[0] || "PURCHASE_CYCLE_INLINE_RECALCULATION_FAILED";
+    const parsed = parsePurchaseDraftRecalculationError(raw);
+    const { code } = parsed;
     const conflict = [
       "FAST_PURCHASE_MONTHLY_CYCLE_CLOSED",
       "PURCHASE_DRAFT_REGENERATION_ACTIVE_DRAFT_CHANGED",
@@ -69,7 +73,10 @@ export async function POST(request: Request) {
       {
         ok: false,
         code,
-        message: errorMessage(code),
+        message: errorMessage(code, parsed.inputsSaved),
+        inputsSaved: parsed.inputsSaved,
+        savedStockBandCount: parsed.savedStockBandCount,
+        savedDiscontinuationCount: parsed.savedDiscontinuationCount,
         externalOrderExecuted: false,
       },
       {
