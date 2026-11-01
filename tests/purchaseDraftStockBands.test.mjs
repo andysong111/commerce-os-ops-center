@@ -2,9 +2,39 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const { normalizePurchaseDraftStockBandUpdates } = await import(
+const {
+  countMissingPurchaseDraftStockBands,
+  normalizePurchaseDraftStockBandUpdates,
+} = await import(
   new URL("../src/lib/purchaseDraftStockBandsCore.ts", import.meta.url)
 );
+
+test("단종예정 대기 상품은 대략 재고 미선택 차단에서 제외한다", () => {
+  const lines = [
+    { barcode: "BDA7-1", stockInputMode: "MANUAL" },
+    { barcode: "BBA4-3", stockInputMode: "MANUAL" },
+    { barcode: "BDB6-3", stockInputMode: "AUTO_NEW_SOURCING" },
+  ];
+
+  assert.equal(countMissingPurchaseDraftStockBands({
+    lines,
+    stagedStockBands: {},
+    initialStockBands: {},
+    stagedDiscontinuations: {},
+  }), 2);
+  assert.equal(countMissingPurchaseDraftStockBands({
+    lines,
+    stagedStockBands: {},
+    initialStockBands: {},
+    stagedDiscontinuations: { "BDA7-1": true },
+  }), 1);
+  assert.equal(countMissingPurchaseDraftStockBands({
+    lines,
+    stagedStockBands: { "BBA4-3": "NORMAL" },
+    initialStockBands: {},
+    stagedDiscontinuations: { "BDA7-1": true },
+  }), 0);
+});
 
 test("draft stock buttons normalize model-option B-codes and four supported bands", () => {
   assert.deepEqual(
