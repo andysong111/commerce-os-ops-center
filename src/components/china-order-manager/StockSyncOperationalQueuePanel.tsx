@@ -252,7 +252,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 전송 전 로그인 점검 또는 결과 검증을 지원하지 않아 사용할 수 없습니다. v0.6.15로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 전송 전 로그인 점검·결과 검증·병렬 재개를 완전히 지원하지 않아 사용할 수 없습니다. v0.6.16으로 업데이트해 주세요.`);
         }
         return;
       }

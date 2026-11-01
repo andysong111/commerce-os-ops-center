@@ -37,9 +37,23 @@ const KNOWN_TERMINAL_RECOVERY_INCIDENTS = {
     incidentId: "shopling-bbd3-1-hf45-terminal-20261030",
     terminalFooter: "상품옵션 수정 전송이 완료되었습니다.",
   },
+  "BBD8-1": {
+    productKind: null,
+    incidentId: "shopling-bbd8-1-hf51-terminal-20261102",
+    terminalFooter: "상품상태 변경 전송이 완료되었습니다.",
+    retransmissionRequestId:
+      "owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969",
+    resultCounts: { total: 108, success: 83, failure: 25 },
+  },
 } as const satisfies Record<
   string,
-  { productKind: "SINGLE" | "OPTION"; incidentId: string; terminalFooter: string }
+  {
+    productKind: "SINGLE" | "OPTION" | null;
+    incidentId: string;
+    terminalFooter: string;
+    retransmissionRequestId?: string;
+    resultCounts?: { total: number; success: number; failure: number };
+  }
 >;
 
 type QueueMode = "observe" | "execute";
@@ -348,10 +362,42 @@ export async function POST(request: Request) {
       if (report.state !== "READY") {
         throw new Error("정확재고 원장이 READY가 아니므로 알려진 완료 결과를 복구할 수 없습니다.");
       }
+      const retransmissionRequestId = "retransmissionRequestId" in incident
+        ? text(incident.retransmissionRequestId)
+        : "";
+      let retransmissionItem: Awaited<
+        ReturnType<typeof loadShoplingStockRetransmissionState>
+      >["latest"]["items"][number] | null = null;
+      if (retransmissionRequestId) {
+        const retransmission = await loadShoplingStockRetransmissionState(report);
+        const latest = retransmission.latest;
+        if (
+          !latest ||
+          latest.requestId !== retransmissionRequestId ||
+          text(body.retransmissionRequestId) !== retransmissionRequestId
+        ) {
+          throw new Error(`${requestedBarcode} 완료 사고의 재전송 요청번호가 일치하지 않아 복구를 차단했습니다.`);
+        }
+        const matches = latest.items.filter(
+          (item) =>
+            item.jobId === text(body.jobId) &&
+            item.barcode === requestedBarcode &&
+            item.desiredStatus === "SOLD_OUT" &&
+            item.desiredSince === text(body.desiredSince),
+        );
+        if (matches.length !== 1) {
+          throw new Error(`${requestedBarcode} 완료 사고의 재전송 작업이 정확히 1건이 아니므로 복구를 차단했습니다.`);
+        }
+        retransmissionItem = matches[0];
+      }
+      const expectedProductKind = retransmissionItem?.productKind || incident.productKind;
+      if (!expectedProductKind) {
+        throw new Error(`${requestedBarcode} 완료 사고의 상품형태를 확정하지 못해 복구를 차단했습니다.`);
+      }
       const identityMatches = report.rows.filter(
         (row) =>
           row.barcode === requestedBarcode &&
-          row.productKind === incident.productKind &&
+          row.productKind === expectedProductKind &&
           row.desiredStatus === "SOLD_OUT" &&
           row.exactInventoryQuantity === 0 &&
           row.inventoryQuantityKnown !== false &&
@@ -359,15 +405,18 @@ export async function POST(request: Request) {
       );
       if (identityMatches.length !== 1) {
         throw new Error(
-          `${requestedBarcode}의 현재 ${incident.productKind === "OPTION" ? "옵션" : "단품"}·품절·정확재고 0 작업이 정확히 1건이 아니므로 복구를 차단했습니다.`,
+          `${requestedBarcode}의 현재 ${expectedProductKind === "OPTION" ? "옵션" : "단품"}·품절·정확재고 0 작업이 정확히 1건이 아니므로 복구를 차단했습니다.`,
         );
       }
       const row = identityMatches[0];
-      const job = queueJob(row, new Map());
+      const normalJob = queueJob(row, new Map());
+      const job = retransmissionItem
+        ? { ...normalJob, jobId: retransmissionItem.jobId }
+        : normalJob;
       if (
         text(body.jobId) !== job.jobId ||
         requestedBarcode !== job.barcode ||
-        text(body.productKind).toUpperCase() !== incident.productKind ||
+        text(body.productKind).toUpperCase() !== expectedProductKind ||
         text(body.desiredStatus).toUpperCase() !== "SOLD_OUT" ||
         text(body.desiredSince) !== job.desiredSince
       ) {
@@ -383,7 +432,19 @@ export async function POST(request: Request) {
           { status: 200, headers: { "cache-control": "no-store" } },
         );
       }
-      if (!row.syncNeeded || row.syncBlocked) {
+      if (retransmissionItem) {
+        const startedOrUncertain = ["STARTED", "UNCERTAIN"].includes(
+          String(row.latestSyncOutcome || ""),
+        );
+        if (
+          !row.syncNeeded ||
+          !row.syncBlocked ||
+          !startedOrUncertain ||
+          !["STARTED", "BLOCKED"].includes(String(retransmissionItem.state || ""))
+        ) {
+          throw new Error(`${requestedBarcode}이 확인된 STARTED/UNCERTAIN 재전송 사고 상태가 아니므로 완료 결과 복구를 차단했습니다.`);
+        }
+      } else if (!row.syncNeeded || row.syncBlocked) {
         throw new Error(`${requestedBarcode}이 현재 실행 가능한 대기건이 아니므로 완료 결과 복구를 차단했습니다.`);
       }
       const occurredAt = new Date().toISOString();
@@ -403,6 +464,13 @@ export async function POST(request: Request) {
           knownTerminalRecovery: true,
           recoveredWithoutShoplingResend: true,
           terminalFooter: incident.terminalFooter,
+          ...(retransmissionRequestId ? { retransmissionRequestId } : {}),
+          ...("resultCounts" in incident
+            ? {
+                resultCounts: incident.resultCounts,
+                marketFailuresAdvisory: incident.resultCounts.failure > 0,
+              }
+            : {}),
           exactIdentity: {
             barcode: job.barcode,
             productKind: job.productKind,

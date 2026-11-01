@@ -3,13 +3,19 @@
 import { useCallback, useEffect, useState } from "react";
 
 const PATH = "/api/inventory-stock-control/retransmission";
+const SYNC_PATH = "/api/inventory-stock-control/sync";
+const KNOWN_TERMINAL_RECOVERY_ACTION = "RECOVER_KNOWN_SHOPLING_TERMINAL";
+const BBD8_INCIDENT_REQUEST_ID =
+  "owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969";
 
 type Item = {
   jobId: string;
   barcode: string;
   productName: string;
   modelNo: string | null;
+  productKind: "OPTION" | "SINGLE";
   desiredStatus: "SOLD_OUT" | "ON_SALE";
+  desiredSince: string;
   mode: "REPLAY" | "EXISTING_PENDING";
   state?: "PENDING" | "STARTED" | "SUCCEEDED" | "FAILED" | "UNCERTAIN" | "BLOCKED";
 };
@@ -48,6 +54,7 @@ export function InventoryStockRetransmissionPanel() {
   const [latest, setLatest] = useState<Batch | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [recoveringJobId, setRecoveringJobId] = useState("");
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
@@ -98,6 +105,38 @@ export function InventoryStockRetransmissionPanel() {
     }
   };
 
+  const recoverKnownTerminal = async (item: Item) => {
+    if (!latest || latest.requestId !== BBD8_INCIDENT_REQUEST_ID) return;
+    setRecoveringJobId(item.jobId);
+    setNotice("");
+    try {
+      const response = await fetch(SYNC_PATH, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          action: KNOWN_TERMINAL_RECOVERY_ACTION,
+          retransmissionRequestId: latest.requestId,
+          jobId: item.jobId,
+          barcode: item.barcode,
+          productKind: item.productKind,
+          desiredStatus: item.desiredStatus,
+          desiredSince: item.desiredSince,
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as Payload;
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.message || `${item.barcode} 완료 결과를 원장에 복구하지 못했습니다.`);
+      }
+      await load();
+      setNotice(payload.message || `${item.barcode} 완료 결과를 Shopling 재전송 없이 복구했습니다.`);
+      window.dispatchEvent(new Event("commerce-os:inventory-refresh"));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : `${item.barcode} 완료 결과 복구에 실패했습니다.`);
+    } finally {
+      setRecoveringJobId("");
+    }
+  };
+
   const rows = latest?.items ?? preview;
   return (
     <section className="rounded-2xl border border-violet-200 bg-violet-50 p-5 shadow-sm">
@@ -136,7 +175,19 @@ export function InventoryStockRetransmissionPanel() {
               <td className="px-3 py-3 font-bold text-slate-700">{item.modelNo || "—"}</td>
               <td className={`px-3 py-3 font-black ${item.desiredStatus === "SOLD_OUT" ? "text-rose-700" : "text-emerald-700"}`}>{statusLabel(item.desiredStatus)}</td>
               <td className="px-3 py-3 text-slate-600">{item.mode === "EXISTING_PENDING" ? "기존 미완료 지시 이어서 처리" : "재고 이력 변경 없는 Shopling 전용 재전송"}</td>
-              <td className="px-3 py-3 font-bold text-slate-700">{stateLabel(item)}</td>
+              <td className="px-3 py-3 font-bold text-slate-700">
+                {stateLabel(item)}
+                {latest?.requestId === BBD8_INCIDENT_REQUEST_ID && item.barcode === "BBD8-1" && item.state === "BLOCKED" ? (
+                  <button
+                    type="button"
+                    onClick={() => void recoverKnownTerminal(item)}
+                    disabled={Boolean(recoveringJobId)}
+                    className="ml-2 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 font-black text-emerald-800 disabled:border-slate-200 disabled:text-slate-400"
+                  >
+                    {recoveringJobId === item.jobId ? "복구 확인 중" : "완료 결과 복구"}
+                  </button>
+                ) : null}
+              </td>
             </tr>)}
             {!rows.length ? <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">{loading ? "확정 대상을 확인하고 있습니다." : "재전송 가능한 확정 대상이 없습니다."}</td></tr> : null}
           </tbody>
