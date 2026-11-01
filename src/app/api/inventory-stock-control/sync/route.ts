@@ -1,22 +1,16 @@
 import {
   SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE,
-  loadInventoryStockControlReport,
   normalizeShoplingStockSyncInput,
   storeInventoryOperation,
   type ExactInventoryAfterReset,
   type InventoryStockControlReport,
 } from "@/lib/inventoryStockControl";
-import { overlayInventoryStockControlReportWithResetCorrections } from "@/lib/inventoryStockResetCorrections";
-import { overlayInventoryStockControlReportWithManualOnSale } from "@/lib/inventoryManualOnSale";
 import {
   loadLatestInventoryStockSalesTailSnapshots,
-  overlayInventoryStockControlReportWithTail,
 } from "@/lib/inventoryStockSalesTail";
-import { ensureExactInventoryStockSalesTailCoverage } from "@/lib/inventoryStockSalesTailCoverage";
-import { normalizeRetryableShoplingSyncReportWithEvidence } from "@/lib/inventoryStockSyncResolution";
-import { overlayInventoryStockControlReportWithStocktakeBaselines } from "@/lib/inventoryStocktakeBaselines";
+import { loadAuthoritativeInventoryStockReport } from "@/lib/inventoryStockAuthoritativeReport";
+import { loadShoplingStockRetransmissionState } from "@/lib/inventoryShoplingRetransmission";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
-import { loadProductMasterVerifiedZeroResetEvents } from "@/lib/productMasterVerifiedInventoryBaselines";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { withInventoryReadGuard } from "@/lib/inventoryStockReadGuard";
 
@@ -151,54 +145,7 @@ async function loadPreparedGoodsKeysByBarcode() {
   return result;
 }
 
-async function loadCorrectedReport() {
-  // The purchase-cycle status and the operational Shopling queue must consume
-  // the same user-backed physical-zero evidence. Product Master contributes
-  // only strict VERIFIED SOLD_OUT_RESET=0 events, and its helper fails soft to
-  // an empty list. The canonical inventory ledger then recomputes receipts and
-  // sales from that reset before any Shopling job can become executable.
-  const supplementalResetEvents =
-    await loadProductMasterVerifiedZeroResetEvents();
-  const seeded = await overlayInventoryStockControlReportWithStocktakeBaselines(
-    await loadInventoryStockControlReport({ supplementalResetEvents }),
-  );
-  const tailed = await overlayInventoryStockControlReportWithTail(seeded);
-  const corrected =
-    await overlayInventoryStockControlReportWithResetCorrections(tailed);
-  return overlayInventoryStockControlReportWithStocktakeBaselines(corrected);
-}
-
-async function loadRetryableReport({
-  refreshTail = false,
-}: {
-  refreshTail?: boolean;
-} = {}) {
-  let report = await loadCorrectedReport();
-  let tailSalesRefresh: Awaited<
-    ReturnType<typeof ensureExactInventoryStockSalesTailCoverage>
-  > | null = null;
-
-  // The operational queue polls this GET endpoint every 30 seconds. Polling must
-  // remain read-only; otherwise every stale check appends a Tail snapshot to the
-  // operation ledger. Refresh Tail coverage only after a real state-changing POST
-  // or through the explicit overview preflight used by an execution read.
-  if (refreshTail) {
-    tailSalesRefresh = await ensureExactInventoryStockSalesTailCoverage(report);
-    if (tailSalesRefresh.refreshed) {
-      report = await loadCorrectedReport();
-    }
-  }
-
-  const normalized =
-    await normalizeRetryableShoplingSyncReportWithEvidence(report);
-  const withManualOnSale =
-    await overlayInventoryStockControlReportWithManualOnSale(normalized);
-  return {
-    report:
-      await normalizeRetryableShoplingSyncReportWithEvidence(withManualOnSale),
-    tailSalesRefresh,
-  };
-}
+const loadRetryableReport = loadAuthoritativeInventoryStockReport;
 
 async function loadObserveRevalidationBarcodes(
   report: InventoryStockControlReport,
@@ -309,6 +256,8 @@ export async function GET(request: Request) {
     const mode = queueMode(request);
     const [{ report: authoritativeReport, tailSalesRefresh }, preparedGoodsKeysByBarcode] =
       await Promise.all([loadRetryableReport(), loadPreparedGoodsKeysByBarcode()]);
+    const retransmission =
+      await loadShoplingStockRetransmissionState(authoritativeReport);
     const revalidationBarcodes =
       mode === "observe" && authoritativeReport.state === "READY"
         ? await loadObserveRevalidationBarcodes(authoritativeReport)
@@ -328,12 +277,31 @@ export async function GET(request: Request) {
         (!row.syncBlocked ||
           (mode === "observe" && revalidationBarcodes.has(row.barcode))),
     );
-    const jobs = [
+    const normalJobs = [
       ...new Map(
         queueRows.map((row) => {
           const job = queueJob(row, preparedGoodsKeysByBarcode);
           return [job.jobId, job] as const;
         }),
+      ).values(),
+    ];
+    const currentByBarcode = new Map(
+      authoritativeReport.rows.map((row) => [row.barcode, row]),
+    );
+    const replayJobs = retransmission.replayItems.flatMap((item) => {
+      const row = currentByBarcode.get(item.barcode);
+      if (!row) return [];
+      const job = queueJob(row, preparedGoodsKeysByBarcode);
+      return [{
+        ...job,
+        jobId: item.jobId,
+        retransmissionRequestId: item.requestId,
+        retransmissionOnly: true,
+      }];
+    });
+    const jobs = [
+      ...new Map(
+        [...normalJobs, ...replayJobs].map((job) => [job.jobId, job] as const),
       ).values(),
     ];
 
@@ -343,6 +311,10 @@ export async function GET(request: Request) {
         report,
         tailSalesRefresh,
         jobs,
+        retransmission: {
+          latest: retransmission.latest,
+          replayPendingCount: retransmission.replayItems.length,
+        },
         queueMode: mode,
         executionRevalidationRequiredCount:
           mode === "observe" ? revalidationBarcodes.size : 0,

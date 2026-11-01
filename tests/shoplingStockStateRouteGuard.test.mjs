@@ -127,6 +127,7 @@ test("explicit operator safe-stop and pre-HF1 marketplace-failure completion are
   const resolution = await readFile("src/lib/inventoryStockSyncResolution.ts", "utf8");
   const stateRoute = await readFile("src/app/api/inventory-stock-control/route.ts", "utf8");
   const syncRoute = await readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8");
+  const authoritative = await readFile("src/lib/inventoryStockAuthoritativeReport.ts", "utf8");
   assert.match(resolution, /STOCK_SYNC_OPERATOR_STOPPED/);
   assert.match(resolution, /outcome === "UNCERTAIN"/);
   assert.match(resolution, /code === OPERATOR_STOP_CODE/);
@@ -140,8 +141,9 @@ test("explicit operator safe-stop and pre-HF1 marketplace-failure completion are
   assert.match(resolution, /syncBlocked: false/);
   assert.match(stateRoute, /normalizeRetryableShoplingSyncReportWithEvidence\(/);
   assert.match(stateRoute, /overlayInventoryStockControlReportWithTail\(/);
-  assert.match(syncRoute, /normalizeRetryableShoplingSyncReportWithEvidence\(/);
-  assert.match(syncRoute, /overlayInventoryStockControlReportWithTail\(/);
+  assert.match(syncRoute, /loadAuthoritativeInventoryStockReport/);
+  assert.match(authoritative, /normalizeRetryableShoplingSyncReportWithEvidence\(/);
+  assert.match(authoritative, /overlayInventoryStockControlReportWithTail\(/);
 });
 
 test("inventory stock control accepts both one-letter and two-letter B-code prefixes", async () => {

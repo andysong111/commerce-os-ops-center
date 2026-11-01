@@ -26,6 +26,19 @@ function productMasterBaselineMock(calls) {
 
 function loadRoute(calls) {
   return load("src/app/api/inventory-stock-control/sync/route.ts", {
+    "@/lib/inventoryStockAuthoritativeReport": {
+      loadAuthoritativeInventoryStockReport: async () => {
+        calls.productMaster += 1;
+        const options = { supplementalResetEvents: [supplementalReset] };
+        calls.inventory.push(options);
+        return { report: stockFixture(), tailSalesRefresh: null };
+      },
+    },
+    "@/lib/inventoryShoplingRetransmission": {
+      loadShoplingStockRetransmissionState: async () => ({
+        batches: [], replayItems: [], latest: null,
+      }),
+    },
     "@/lib/inventoryStockControl": {
       SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE: "SHOPLING_STOCK_STATUS_SYNC_EVENT",
       loadInventoryStockControlReport: async (options) => {

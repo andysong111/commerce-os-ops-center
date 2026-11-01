@@ -3,11 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("stock control uses exact-identity reset-tail coverage before 360-day canonical fallback", async () => {
-  const [tail, coverage, route, syncRoute] = await Promise.all([
+  const [tail, coverage, route, syncRoute, authoritative] = await Promise.all([
     readFile("src/lib/inventoryStockSalesTail.ts", "utf8"),
     readFile("src/lib/inventoryStockSalesTailCoverage.ts", "utf8"),
     readFile("src/app/api/inventory-stock-control/route.ts", "utf8"),
     readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8"),
+    readFile("src/lib/inventoryStockAuthoritativeReport.ts", "utf8"),
   ]);
 
   assert.match(tail, /INVENTORY_STOCK_SALES_TAIL_EVENT/);
@@ -32,22 +33,23 @@ test("stock control uses exact-identity reset-tail coverage before 360-day canon
   assert.match(route, /latestCanonicalCoverageGapResetAt\(report\)/);
   assert.match(route, /ensureCanonicalSalesCoverageAfterReset/);
 
-  assert.match(syncRoute, /ensureExactInventoryStockSalesTailCoverage/);
-  assert.match(syncRoute, /overlayInventoryStockControlReportWithTail/);
+  assert.match(authoritative, /ensureExactInventoryStockSalesTailCoverage/);
+  assert.match(authoritative, /overlayInventoryStockControlReportWithTail/);
   assert.match(syncRoute, /tailSalesRefresh/);
 });
 
 test("operational queue reads and sync-event writes do not refresh Tail; explicit overview owns evidence refresh", async () => {
-  const [syncRoute, overviewRoute] = await Promise.all([
+  const [syncRoute, overviewRoute, authoritative] = await Promise.all([
     readFile("src/app/api/inventory-stock-control/sync/route.ts", "utf8"),
     readFile("src/app/api/inventory-stock-control/route.ts", "utf8"),
+    readFile("src/lib/inventoryStockAuthoritativeReport.ts", "utf8"),
   ]);
   const getSection = syncRoute
     .split("export async function GET")[1]
     .split("export async function POST")[0];
   const postSection = syncRoute.split("export async function POST")[1];
 
-  assert.match(syncRoute, /refreshTail = false/);
+  assert.match(authoritative, /refreshTail = false/);
   assert.match(getSection, /loadRetryableReport\(\)/);
   assert.doesNotMatch(getSection, /refreshTail:\s*true/);
   assert.match(postSection, /storeInventoryOperation/);
@@ -55,8 +57,7 @@ test("operational queue reads and sync-event writes do not refresh Tail; explici
   assert.doesNotMatch(postSection, /ensureExactInventoryStockSalesTailCoverage/);
   assert.doesNotMatch(postSection, /tailSalesRefresh/);
   assert.match(overviewRoute, /ensureExactInventoryStockSalesTailCoverage/);
-  assert.match(syncRoute, /Polling must/);
-  assert.match(syncRoute, /remain read-only/);
+  assert.doesNotMatch(getSection, /ensureExactInventoryStockSalesTailCoverage/);
 });
 
 test("tail identity accepts both B+one-letter and B+two-letter barcode families but only promotes mapped codes", async () => {
