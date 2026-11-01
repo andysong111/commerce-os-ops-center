@@ -175,6 +175,8 @@ test("draft workspace stages a fifth discontinue button and recalculates once", 
   assert.match(workspace, />단종예정<\/button>/);
   assert.match(workspace, /stagedDiscontinuations/);
   assert.match(workspace, /discontinuedBarcodes,/);
+  assert.match(workspace, /단종예정 대기 · 대략 재고 선택 불필요/);
+  assert.match(workspace, /countMissingPurchaseDraftStockBands/);
   assert.match(workspace, /현재와 이후 발주 후보에서 영구 제외/);
   assert.match(recalculation, /storePurchaseDraftDiscontinuations/);
   assert.match(

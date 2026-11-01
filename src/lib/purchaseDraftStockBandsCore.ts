@@ -7,6 +7,25 @@ export type PurchaseDraftStockBandUpdate = {
   stockBand: PurchaseDraftStockBand;
 };
 
+type PurchaseDraftStockBandCandidate = {
+  barcode: string;
+  stockInputMode: string;
+};
+
+export function countMissingPurchaseDraftStockBands(input: {
+  lines: PurchaseDraftStockBandCandidate[];
+  stagedStockBands: Record<string, PurchaseDraftStockBand | undefined>;
+  initialStockBands: Record<string, PurchaseDraftStockBand | undefined>;
+  stagedDiscontinuations: Record<string, boolean | undefined>;
+}) {
+  return input.lines.filter(
+    (line) =>
+      line.stockInputMode === "MANUAL" &&
+      input.stagedDiscontinuations[line.barcode] !== true &&
+      !(input.stagedStockBands[line.barcode] ?? input.initialStockBands[line.barcode]),
+  ).length;
+}
+
 const BARCODE = /^B[A-Z]{1,2}\d+-\d+$/;
 
 export function normalizePurchaseDraftStockBandUpdates(input: unknown) {

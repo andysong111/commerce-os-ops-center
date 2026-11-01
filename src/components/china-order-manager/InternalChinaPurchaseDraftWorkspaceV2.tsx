@@ -16,6 +16,7 @@ import {
   nearestPurchaseDraftQuantity,
 } from "@/lib/purchaseDraftQuantityRounding";
 import { PURCHASE_DRAFT_EXECUTION_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
+import { countMissingPurchaseDraftStockBands } from "@/lib/purchaseDraftStockBandsCore";
 import {
   clearPurchaseDraftPendingAutosave,
   readPurchaseDraftPendingAutosave,
@@ -660,11 +661,12 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const stockBandUpdates = Object.entries(stagedStockBands)
     .map(([barcode, stockBand]) => ({ barcode, stockBand }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
-  const missingStockBandCount = draft.lines.filter(
-    (line) =>
-      line.stockInputMode === "MANUAL" &&
-      !(stagedStockBands[line.barcode] ?? initialStockBands[line.barcode]),
-  ).length;
+  const missingStockBandCount = countMissingPurchaseDraftStockBands({
+    lines: draft.lines,
+    stagedStockBands,
+    initialStockBands,
+    stagedDiscontinuations,
+  });
   const executionLineLimitExceeded =
     draft.lineCount > PURCHASE_DRAFT_EXECUTION_LINE_LIMIT;
   const selectedQuantityOverrideCandidates = selectedBarcodes.filter(
@@ -1168,7 +1170,14 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                       <span className="mt-1 block font-semibold text-slate-700">모델명 · {line.modelName || "-"}</span>
                       <span className="mt-1 block font-mono text-[11px] text-slate-500">모델번호 · {line.modelNo || "-"}</span>
                       <span className="mt-2 inline-flex rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-800">옵션명 · {line.saleOption || "-"}</span>
-                      {line.stockInputMode === "MANUAL" ? (
+                      {stagedDiscontinuations[line.barcode] === true ? (
+                        <div className="mt-2 grid grid-cols-[1fr_auto] gap-1" aria-label={`${line.barcode} 단종예정 대기`}>
+                          <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[10px] font-black text-amber-900">
+                            단종예정 대기 · 대략 재고 선택 불필요
+                          </div>
+                          <button type="button" disabled={!editable || regenerating} onClick={() => stageDiscontinuation(line.barcode)} className="rounded-md border border-amber-300 bg-white px-2 py-1.5 text-[10px] font-black text-amber-900 hover:bg-amber-50 disabled:opacity-40">단종예정 취소</button>
+                        </div>
+                      ) : line.stockInputMode === "MANUAL" ? (
                         <div className="mt-2 grid grid-cols-5 gap-1" aria-label={`${line.barcode} 대략 재고상태와 단종예정`}>
                           {STOCK_BANDS.map((band) => {
                             const selected = (stagedStockBands[line.barcode] ?? initialStockBands[line.barcode]) === band.value;
