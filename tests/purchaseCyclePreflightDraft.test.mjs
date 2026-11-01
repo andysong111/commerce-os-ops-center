@@ -877,6 +877,78 @@ test("confirmed exact sourcing can finish after the last new option becomes a re
   assert.equal(canFinalizeWithExactConfirmedSourcing(value, plan, changedSelection), false);
 });
 
+test("confirmed exact sourcing reconstructs missing client variant params only from one reservation per concept", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 15;
+  value.sourcingBudgetKrw = 587_537;
+  value.replacementDraftId = "fast-purchase-draft:18e0c0fece0a92599449";
+  const preferredConceptIds = Array.from({ length: 8 }, (_, index) => `manual-${index + 1}`);
+  const desiredBarcodes = Array.from({ length: 8 }, (_, index) => `BSC${index + 1}-1`);
+  value.preservedReplacementLines = desiredBarcodes.slice(0, 7).map((barcode, index) => ({
+    barcode,
+    name: `기존 확정 신규소싱 ${index + 1}`,
+    quantity: index + 1,
+    preserveOnRegeneration: true,
+  }));
+  value.replacementAudit = {
+    previousLineCount: 8,
+    selectedLineCount: 8,
+    matchedCount: 8,
+    added: [],
+    removed: [],
+    quantityChanged: [],
+    complete: true,
+  };
+
+  const plan = sourcingPlan(value);
+  plan.readyForConfirmation = false;
+  plan.blockers = ["WAREHOUSE_GATE_NOT_READY"];
+  plan.preferredConceptIds = preferredConceptIds;
+  plan.storageSizeByConceptId = Object.fromEntries(
+    preferredConceptIds.map((conceptId) => [conceptId, "S"]),
+  );
+  plan.variantSelections = [];
+  plan.allocation.selected = [];
+  plan.allocation.estimatedSpendKrw = 0;
+  plan.reusedConfirmedVariants = desiredBarcodes.map((barcode, index) => ({
+    conceptId: preferredConceptIds[index],
+    variantKey: `${preferredConceptIds[index]}-confirmed-variant`,
+    barcode,
+    quantity: index + 1,
+    estimatedCostKrw: 10_000 + index,
+    storageSize: "S",
+    productName: `확정 신규소싱 ${index + 1}`,
+    saleOption: "단품",
+    chinaOption: "单品",
+    sourceUrl: "https://detail.1688.com/offer/1.html",
+  }));
+  const input = {
+    ...request(value, plan),
+    startNewRun: true,
+    sourcingSelectionMode: "custom",
+    replaceDraftId: value.replacementDraftId,
+    preferredSourcingConceptIds: preferredConceptIds,
+    sourcingStorageSizeByConceptId: plan.storageSizeByConceptId,
+    sourcingVariantSelections: [],
+  };
+  input.confirmation = purchaseCycleDraftConfirmation(value, plan);
+
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, plan, input), true);
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
+
+  const ambiguousConcept = structuredClone(plan);
+  ambiguousConcept.reusedConfirmedVariants[7].conceptId = ambiguousConcept.reusedConfirmedVariants[6].conceptId;
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, ambiguousConcept, input), false);
+
+  const missingVariantIdentity = structuredClone(plan);
+  missingVariantIdentity.reusedConfirmedVariants[7].variantKey = null;
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, missingVariantIdentity, input), false);
+
+  const missingStorage = structuredClone(input);
+  delete missingStorage.sourcingStorageSizeByConceptId[preferredConceptIds[7]];
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, plan, missingStorage), false);
+});
+
 test("reviewed Draft totals must match the exact rows written after sourcing confirmation", () => {
   const value = report();
   const prepared = preparePurchaseCycleDraft(value, request(value));
