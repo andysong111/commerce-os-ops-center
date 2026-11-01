@@ -50,6 +50,7 @@ export type FastPurchaseInternalDraftLine = {
   stockSense: FastPurchaseDraftStockSense;
   referenceDemandQuantity: number;
   note: string;
+  sourcingConfirmed?: boolean;
 };
 
 export type FastPurchaseInternalDraft = {

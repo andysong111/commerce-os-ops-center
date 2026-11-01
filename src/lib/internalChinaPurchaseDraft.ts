@@ -27,6 +27,7 @@ import {
   internalChinaStockInputMode,
   type InternalChinaStockInputMode,
 } from "@/lib/internalChinaStockInputPolicy";
+import { purchaseReplacementTrustedPayloadRows } from "@/lib/purchaseReplacementDraftLineage";
 
 export const INTERNAL_CHINA_PURCHASE_PREP_OPERATION_TYPE =
   "INTERNAL_CHINA_PURCHASE_PREP";
@@ -359,7 +360,14 @@ async function buildBaseDraft(
   options?: { ledger?: ChinaOrderLedgerRead },
 ): Promise<InternalChinaPurchaseDraft> {
   const draftId = validDraftId(draftIdInput);
-  const commitments = await currentCommitments(draftId, options?.ledger);
+  const ledger = options?.ledger ?? await loadChinaOrderLedger();
+  const commitments = await currentCommitments(draftId, ledger);
+  const trustedPayloadRows = purchaseReplacementTrustedPayloadRows(
+    ledger.commitments,
+    commitments,
+    draftId,
+    new Set(commitments.map((row) => row.barcode)),
+  );
   const barcodes = [
     ...new Set(
       commitments.flatMap((row) =>
@@ -387,7 +395,10 @@ async function buildBaseDraft(
         .map((candidate) => liveByBarcode.get(candidate))
         .find(Boolean);
       const trackerUsable = trackerRow && !trackerRow.conflict ? trackerRow : null;
-      const sourcePayload = object(commitment.latestPayload);
+      const sourcePayload = {
+        ...object(trustedPayloadRows.get(barcode)?.latestPayload),
+        ...object(commitment.latestPayload),
+      };
       const modelNo =
         normalizedModelNo(trackerUsable?.modelNumber, "") ||
         normalizedModelNo(profile?.modelNo, "") ||

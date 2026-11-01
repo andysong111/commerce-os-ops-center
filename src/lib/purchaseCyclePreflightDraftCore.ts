@@ -492,6 +492,9 @@ export function preparePurchaseCycleDraft(
         plannedQuantity: row.quantity,
         stockSense: "LOW" as const,
         referenceDemandQuantity: row.quantity,
+        ...(row.preserveOnRegeneration === true
+          ? { sourcingConfirmed: true }
+          : {}),
         note: row.preserveOnRegeneration === true
           ? "기존 Draft 신규소싱 확정 상품 유지 · 운영자 제외 시에만 제거"
           : report.operatorQuantityOverrides.some(
@@ -509,6 +512,7 @@ export function preparePurchaseCycleDraft(
         plannedQuantity: row.quantity,
         stockSense: "LOW" as const,
         referenceDemandQuantity: row.quantity,
+        sourcingConfirmed: true,
         note: "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함",
       })),
     ],
