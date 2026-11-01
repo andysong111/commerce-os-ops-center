@@ -2045,7 +2045,10 @@ test("replacement lineage restores the selected sourcing marker lost from the cu
       productName: "지압양말세트",
       supersedesDraftId: previousDraftId,
       operatorExcludedBarcodes: ["BDB6-3"],
-      note: "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함",
+      operatorNote: "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함",
+      dataMode: "PURCHASE_PREFLIGHT",
+      regeneration: true,
+      externalOrderExecuted: false,
     },
   }];
   const predecessorRows = [
@@ -2094,11 +2097,22 @@ test("replacement lineage restores the selected sourcing marker lost from the cu
   assert.deepEqual([...trusted.keys()], ["BDB6-2"]);
   assert.equal(trusted.get("BDB6-2")?.latestPayload.sourcingConfirmed, true);
 
+  const retainedCurrentProof = purchaseReplacementTrustedPayloadRows(
+    currentRows,
+    currentRows,
+    currentDraftId,
+    new Set(["BDB6-2"]),
+  );
+  assert.equal(
+    retainedCurrentProof.get("BDB6-2")?.latestPayload.sourcingConfirmed,
+    true,
+  );
+
   const ordinaryCurrentRows = [{
     ...currentRows[0],
     latestPayload: {
       ...currentRows[0].latestPayload,
-      note: "최신 자동추천 입력 대기",
+      operatorNote: "최신 자동추천 입력 대기",
     },
   }];
   const ordinary = purchaseReplacementTrustedPayloadRows(
@@ -2108,6 +2122,19 @@ test("replacement lineage restores the selected sourcing marker lost from the cu
     new Set(["BDB6-2"]),
   );
   assert.equal(ordinary.has("BDB6-2"), false);
+
+  const unprovenRestoration = purchaseReplacementTrustedPayloadRows(
+    [],
+    [{
+      ...currentRows[0],
+      latestPayload: {
+        operatorNote: "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함",
+      },
+    }],
+    currentDraftId,
+    new Set(["BDB6-2"]),
+  );
+  assert.equal(unprovenRestoration.has("BDB6-2"), false);
 });
 
 test("replacement snapshot preserves a manually added line across later recommendation refreshes", () => {

@@ -15,9 +15,9 @@ const RESTORED_CONFIRMED_SOURCING_NOTE =
 
 /**
  * Returns only trusted operator-owned payloads for lines that still belong to
- * the visible replacement selection. The immediate predecessor is considered
- * solely to repair metadata lost by a regeneration pass; older history and
- * operator exclusions are deliberately ignored.
+ * the visible replacement selection. A system-generated restored-sourcing note is
+ * accepted only on the current PURCHASE_PREFLIGHT regeneration row; this repairs
+ * legacy rows whose explicit boolean marker fell outside ledger retention.
  */
 export function purchaseReplacementTrustedPayloadRows<TRow extends ReplacementLedgerRow>(
   commitments: TRow[],
@@ -43,13 +43,7 @@ export function purchaseReplacementTrustedPayloadRows<TRow extends ReplacementLe
     : [];
   const restoredConfirmedSourcingBarcodes = new Set(
     currentDraftRows
-      .filter(
-        (row) => {
-          const payload = object(row.latestPayload);
-          return text(payload.operatorNote ?? payload.note) ===
-            RESTORED_CONFIRMED_SOURCING_NOTE;
-        },
-      )
+      .filter((row) => isRestoredConfirmedSourcingPayload(row.latestPayload))
       .map((row) => row.barcode),
   );
   const historicalConfirmedSourcingRows = commitments.filter((row) => {
@@ -65,15 +59,35 @@ export function purchaseReplacementTrustedPayloadRows<TRow extends ReplacementLe
   ]) {
     if (!selectedBarcodes.has(row.barcode) || excluded.has(row.barcode)) continue;
     const payload = object(row.latestPayload);
+    const restoredCurrentMarker = row.sourceRunId === draftId &&
+      isRestoredConfirmedSourcingPayload(payload);
     if (
       payload.sourcingConfirmed === true ||
-      isTrustedPurchaseDraftManualAddition(payload)
+      isTrustedPurchaseDraftManualAddition(payload) ||
+      restoredCurrentMarker
     ) {
-      trustedByBarcode.set(row.barcode, row);
+      trustedByBarcode.set(
+        row.barcode,
+        restoredCurrentMarker && payload.sourcingConfirmed !== true
+          ? {
+              ...row,
+              latestPayload: { ...payload, sourcingConfirmed: true },
+            }
+          : row,
+      );
     }
   }
 
   return trustedByBarcode;
+}
+
+function isRestoredConfirmedSourcingPayload(value: unknown) {
+  const payload = object(value);
+  return text(payload.operatorNote ?? payload.note) ===
+    RESTORED_CONFIRMED_SOURCING_NOTE &&
+    text(payload.dataMode) === "PURCHASE_PREFLIGHT" &&
+    payload.regeneration === true &&
+    payload.externalOrderExecuted !== true;
 }
 
 function object(value: unknown): Record<string, unknown> {
