@@ -2045,12 +2045,13 @@ test("replacement lineage restores the selected sourcing marker lost from the cu
       productName: "지압양말세트",
       supersedesDraftId: previousDraftId,
       operatorExcludedBarcodes: ["BDB6-3"],
+      operatorNote: "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함",
     },
   }];
   const predecessorRows = [
     {
       sourceSystem: "fast-purchase-mvp",
-      sourceRunId: previousDraftId,
+      sourceRunId: "fast-purchase-draft:4926c030500326a8ed45",
       barcode: "BDB6-2",
       openQuantity: 0,
       committedQuantity: 20,
@@ -2092,6 +2093,21 @@ test("replacement lineage restores the selected sourcing marker lost from the cu
 
   assert.deepEqual([...trusted.keys()], ["BDB6-2"]);
   assert.equal(trusted.get("BDB6-2")?.latestPayload.sourcingConfirmed, true);
+
+  const ordinaryCurrentRows = [{
+    ...currentRows[0],
+    latestPayload: {
+      ...currentRows[0].latestPayload,
+      operatorNote: "최신 자동추천 입력 대기",
+    },
+  }];
+  const ordinary = purchaseReplacementTrustedPayloadRows(
+    [...ordinaryCurrentRows, ...predecessorRows],
+    ordinaryCurrentRows,
+    currentDraftId,
+    new Set(["BDB6-2"]),
+  );
+  assert.equal(ordinary.has("BDB6-2"), false);
 });
 
 test("replacement snapshot preserves a manually added line across later recommendation refreshes", () => {

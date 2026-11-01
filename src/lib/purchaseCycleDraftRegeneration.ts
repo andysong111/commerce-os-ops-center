@@ -338,7 +338,8 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     lines
       .filter((line) => {
         const payload = object(previousByBarcode.get(line.barcode)?.latestPayload);
-        return payload.sourcingConfirmed === true ||
+        return line.sourcingConfirmed === true ||
+          payload.sourcingConfirmed === true ||
           isTrustedPurchaseDraftManualAddition(payload);
       })
       .map((line) => line.barcode),
@@ -422,6 +423,9 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       }`,
       payload: {
         ...preservedPayload,
+        ...(line.sourcingConfirmed === true
+          ? { sourcingConfirmed: true }
+          : {}),
         ...(evidence
           ? {
               chinaOption: text(evidence.chinaOption),

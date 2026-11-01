@@ -479,6 +479,10 @@ test("replacement preparation carries confirmed sourcing lines into the regenera
     prepared.lines.map((line) => [line.barcode, line.plannedQuantity]),
     [["BAC1-1", 38], ["BAA3-1", 10]],
   );
+  assert.equal(
+    prepared.lines.find((line) => line.barcode === "BAA3-1")?.sourcingConfirmed,
+    true,
+  );
   assert.match(input.confirmation, /_2SKU_/);
 });
 
@@ -757,6 +761,12 @@ test("custom new run keeps only the seven reused B-codes and one newly selected 
   assert.deepEqual(
     recoveredDraft.lines.filter((row) => missingFromPreviousDraft.includes(row.barcode)).map((row) => row.barcode).sort(),
     missingFromPreviousDraft,
+  );
+  assert.equal(
+    recoveredDraft.lines
+      .filter((row) => missingFromPreviousDraft.includes(row.barcode))
+      .every((row) => row.sourcingConfirmed === true),
+    true,
   );
 
   value.selected[0].barcode = missingFromPreviousDraft[0];

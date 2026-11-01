@@ -10,6 +10,9 @@ type ReplacementLedgerRow = {
   latestPayload: unknown;
 };
 
+const RESTORED_CONFIRMED_SOURCING_NOTE =
+  "기존 확정 신규소싱 예약에서 복구 · 이번 수동 선택에만 포함";
+
 /**
  * Returns only trusted operator-owned payloads for lines that still belong to
  * the visible replacement selection. The immediate predecessor is considered
@@ -38,9 +41,26 @@ export function purchaseReplacementTrustedPayloadRows<TRow extends ReplacementLe
           row.committedQuantity > 0,
       )
     : [];
+  const restoredConfirmedSourcingBarcodes = new Set(
+    currentDraftRows
+      .filter(
+        (row) =>
+          text(object(row.latestPayload).operatorNote) ===
+          RESTORED_CONFIRMED_SOURCING_NOTE,
+      )
+      .map((row) => row.barcode),
+  );
+  const historicalConfirmedSourcingRows = commitments.filter((row) => {
+    if (!restoredConfirmedSourcingBarcodes.has(row.barcode)) return false;
+    return object(row.latestPayload).sourcingConfirmed === true;
+  });
   const trustedByBarcode = new Map<string, TRow>();
 
-  for (const row of [...predecessorRows, ...activeRows]) {
+  for (const row of [
+    ...historicalConfirmedSourcingRows,
+    ...predecessorRows,
+    ...activeRows,
+  ]) {
     if (!selectedBarcodes.has(row.barcode) || excluded.has(row.barcode)) continue;
     const payload = object(row.latestPayload);
     if (
