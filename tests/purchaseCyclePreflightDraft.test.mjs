@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   assertPurchaseCycleDraftMatchesPlannedTotals,
+  canFinalizeWithExactConfirmedSourcing,
   canRecalculateWithPreservedSourcingOnly,
   explicitSourcingReplacementScope,
   preparePurchaseCycleDraft,
@@ -792,6 +793,90 @@ test("custom new run keeps only the seven reused B-codes and one newly selected 
   );
 });
 
+test("confirmed exact sourcing can finish after the last new option becomes a reused reservation", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 15;
+  value.sourcingBudgetKrw = 587_537;
+  value.replacementDraftId = "fast-purchase-draft:5c2d26333a924323f31c";
+  const preferredConceptIds = Array.from({ length: 8 }, (_, index) => `manual-${index + 1}`);
+  const desiredBarcodes = Array.from({ length: 8 }, (_, index) => `BSA${index + 1}-1`);
+  value.preservedReplacementLines = desiredBarcodes.slice(0, 7).map((barcode, index) => ({
+    barcode,
+    name: `기존 확정 신규소싱 ${index + 1}`,
+    quantity: index + 1,
+    preserveOnRegeneration: true,
+  }));
+  value.replacementAudit = {
+    previousLineCount: 8,
+    selectedLineCount: 8,
+    matchedCount: 8,
+    added: [],
+    removed: [],
+    quantityChanged: [],
+    complete: true,
+  };
+
+  const plan = sourcingPlan(value);
+  plan.readyForConfirmation = false;
+  plan.blockers = ["WAREHOUSE_GATE_NOT_READY"];
+  plan.preferredConceptIds = preferredConceptIds;
+  plan.storageSizeByConceptId = Object.fromEntries(
+    preferredConceptIds.map((conceptId) => [conceptId, "S"]),
+  );
+  plan.variantSelections = preferredConceptIds.map((conceptId) => ({
+    conceptId,
+    variantKey: `${conceptId}-variant`,
+    storageSize: "S",
+  }));
+  plan.allocation.selected = [];
+  plan.allocation.estimatedSpendKrw = 0;
+  plan.reusedConfirmedVariants = desiredBarcodes.map((barcode, index) => ({
+    conceptId: preferredConceptIds[index],
+    variantKey: `${preferredConceptIds[index]}-variant`,
+    barcode,
+    quantity: index + 1,
+    estimatedCostKrw: 10_000 + index,
+    storageSize: "S",
+    productName: `확정 신규소싱 ${index + 1}`,
+    saleOption: "단품",
+    chinaOption: "单品",
+    sourceUrl: "https://detail.1688.com/offer/1.html",
+  }));
+  const input = {
+    ...request(value, plan),
+    startNewRun: true,
+    sourcingSelectionMode: "custom",
+    replaceDraftId: value.replacementDraftId,
+    preferredSourcingConceptIds: preferredConceptIds,
+    sourcingStorageSizeByConceptId: plan.storageSizeByConceptId,
+    sourcingVariantSelections: plan.variantSelections,
+  };
+  input.confirmation = purchaseCycleDraftConfirmation(value, plan);
+
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, plan, input), true);
+  assert.doesNotThrow(() => preparePurchaseCycleDraft(value, input, plan));
+
+  const missing = structuredClone(plan);
+  missing.reusedConfirmedVariants.pop();
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, missing, input), false);
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, missing),
+    /PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
+  );
+
+  const duplicateBarcode = structuredClone(plan);
+  duplicateBarcode.reusedConfirmedVariants[7].barcode = duplicateBarcode.reusedConfirmedVariants[6].barcode;
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, duplicateBarcode, input), false);
+
+  const unexpectedBlocker = structuredClone(plan);
+  unexpectedBlocker.blockers = ["SOURCING_PERCENT_POLICY_MISMATCH"];
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, unexpectedBlocker, input), false);
+
+  const changedSelection = structuredClone(input);
+  changedSelection.sourcingVariantSelections[7].variantKey = "unexpected-variant";
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, plan, changedSelection), false);
+});
+
 test("reviewed Draft totals must match the exact rows written after sourcing confirmation", () => {
   const value = report();
   const prepared = preparePurchaseCycleDraft(value, request(value));
@@ -1069,6 +1154,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(service, /returnableSourcingBudgetKrw/);
   assert.match(service, /sourcingBudgetReturnKrw/);
   assert.match(service, /canRecalculateWithPreservedSourcingOnly/);
+  assert.match(service, /canFinalizeWithExactConfirmedSourcing/);
   assert.match(service, /preserveExistingSourcingOnly \? null : sourcingPlan/);
   assert.match(service, /\{ preserveExistingSourcingOnly \}/);
   assert.match(service, /if \(\s*sourcingPlan &&\s*!preserveExistingSourcingOnly/);
@@ -1124,6 +1210,7 @@ test("route is same-origin, fingerprint-pinned, and never executes an external o
   assert.match(actions, /preferredSourcingConceptIds/);
   assert.match(actions, /sourcingSelectionMode/);
   assert.match(page, /explicitSourcingReplacementScope/);
+  assert.match(page, /canFinalizeWithExactConfirmedSourcing/);
   assert.match(page, /effectiveExcludedBarcodes/);
   assert.match(page, /sourcingSelectionMode:/);
   assert.match(actions, /신규상품 소싱/);
