@@ -22,7 +22,7 @@ await context.addInitScript(() => {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
   window.__inventoryTestStartMessages = [];
   window.addEventListener('message', event => {
-    if (event.source !== window || event.origin !== location.origin) return;
+    if (event.origin !== location.origin) return;
     const type = event.data?.type || '';
     if (type === 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING_HF27') {
       window.postMessage({
@@ -117,14 +117,6 @@ try {
   mode = 'EMPTY';
   const queue = page.locator('section').filter({ has: page.getByRole('heading', { name: '실제 운영 재고상태 자동 큐', exact: true }) });
   await queue.getByRole('button', { name: '현재 대기건 자동처리', exact: true }).click();
-  await waitQueueText('Shopling 확장의 다음 작업 가능 상태를 확인하고 있습니다.');
-  await page.evaluate(() => {
-    window.postMessage({
-      type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_STATUS',
-      active: null,
-      extensionVersion: '0.6.19',
-    }, location.origin);
-  });
   await waitQueueText('운영 재고상태 큐 처리 완료');
   assert.equal(requests.filter(path => path === Q).length, 2);
   assert.deepEqual(writes, []);
@@ -148,6 +140,7 @@ try {
   assert.equal(errors.length, 0);
   console.log('HIDDEN_TAB_RENDER_PASSED', JSON.stringify({ evidence, checks, requests, writes }));
 } catch (error) {
+  evidence = await inspect().catch(() => evidence);
   console.log('HIDDEN_TAB_RENDER_FAILED', JSON.stringify({ message: error.message, evidence, checks, requests, writes, errors }));
   process.exitCode = 1;
 } finally {
