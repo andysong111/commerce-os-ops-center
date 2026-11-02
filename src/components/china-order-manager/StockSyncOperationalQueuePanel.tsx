@@ -28,7 +28,14 @@ type ResultMessage = {
   type: "COMMERCE_OS_SHOPLING_STOCK_SYNC_RESULT"; jobId: string; job?: SyncJob | null;
   outcome: Exclude<SyncOutcome, "STARTED">; message?: string; evidence?: unknown; finishedAt?: number;
 };
-type ActiveBatch = { mode: "PARALLEL" | "SINGLE"; batchId: string; jobs: SyncJob[]; terminalJobIds: Set<string> };
+type ActiveBatch = {
+  mode: "PARALLEL" | "SINGLE";
+  batchId: string;
+  jobs: SyncJob[];
+  startedJobIds: Set<string>;
+  startRecordPromises: Map<string, Promise<void>>;
+  terminalJobIds: Set<string>;
+};
 type LocalException = { jobId: string; barcode: string; outcome: Exclude<SyncOutcome, "STARTED">; message: string };
 type TerminalSummary = {
   barcode: string;
@@ -201,12 +208,20 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     jobsById.current.clear(); prepared.forEach((job) => jobsById.current.set(job.jobId, job));
     setRunningBarcodes(prepared.map((job) => job.barcode));
     setPhase(plan.mode === "PARALLEL" ? "STARTING_2_LANE" : "STARTING_SINGLE");
-    await Promise.all(prepared.map((job) => recordSync(job, "STARTED",
-      job.manualStatusOnly
-        ? `운영 큐 ${job.parallelLane || 1}번 Lane 시작 · 재고수량 미확정 수동 Shopling ${statusLabel(job.desiredStatus)} 반영`
-        : `운영 큐 ${job.parallelLane || 1}번 Lane 시작 · 현재 정확재고 ${job.exactInventoryQuantity}개 기준 Shopling ${statusLabel(job.desiredStatus)} 반영`,
-      { operationalQueue: true, operationalBatchId: batchId, operationalLane: job.parallelLane || 1, desiredSince: job.desiredSince, manualStatusOnly: job.manualStatusOnly === true })));
-    activeBatch.current = { mode: plan.mode, batchId, jobs: prepared, terminalJobIds: new Set<string>() };
+    const firstJob = prepared[0];
+    await recordSync(firstJob, "STARTED",
+      firstJob.manualStatusOnly
+        ? `운영 큐 ${firstJob.parallelLane || 1}번 Lane 시작 · 재고수량 미확정 수동 Shopling ${statusLabel(firstJob.desiredStatus)} 반영`
+        : `운영 큐 ${firstJob.parallelLane || 1}번 Lane 시작 · 현재 정확재고 ${firstJob.exactInventoryQuantity}개 기준 Shopling ${statusLabel(firstJob.desiredStatus)} 반영`,
+      { operationalQueue: true, operationalBatchId: batchId, operationalLane: firstJob.parallelLane || 1, desiredSince: firstJob.desiredSince, manualStatusOnly: firstJob.manualStatusOnly === true });
+    activeBatch.current = {
+      mode: plan.mode,
+      batchId,
+      jobs: prepared,
+      startedJobIds: new Set([firstJob.jobId]),
+      startRecordPromises: new Map<string, Promise<void>>(),
+      terminalJobIds: new Set<string>(),
+    };
     if (plan.mode === "PARALLEL") {
       window.postMessage({ type: PARALLEL_START, batchId, jobs: prepared }, window.location.origin);
       setNotice(`${prepared[0].barcode} + ${prepared[1].barcode} 운영 큐 2-Lane 시작 · 품절 우선순위로 최대 2건을 겹쳐 처리합니다.`);
@@ -262,6 +277,47 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         const batchId = String(data.batchId || "");
         if (batchId && batchId !== batch.batchId) return;
         const nextPhase = String(data.phase || ""); if (nextPhase) setPhase(nextPhase);
+        const secondJob = batch.jobs[1];
+        if (data.secondStarted === true && secondJob && !batch.startedJobIds.has(secondJob.jobId)) {
+          batch.startedJobIds.add(secondJob.jobId);
+          const startRecord = recordSync(
+            secondJob,
+            "STARTED",
+            secondJob.manualStatusOnly
+              ? `운영 큐 ${secondJob.parallelLane || 2}번 Lane 시작 · 재고수량 미확정 수동 Shopling ${statusLabel(secondJob.desiredStatus)} 반영`
+              : `운영 큐 ${secondJob.parallelLane || 2}번 Lane 시작 · 현재 정확재고 ${secondJob.exactInventoryQuantity}개 기준 Shopling ${statusLabel(secondJob.desiredStatus)} 반영`,
+            {
+              operationalQueue: true,
+              operationalBatchId: batch.batchId,
+              operationalLane: secondJob.parallelLane || 2,
+              desiredSince: secondJob.desiredSince,
+              manualStatusOnly: secondJob.manualStatusOnly === true,
+              extensionConfirmedLaneStart: true,
+            },
+          );
+          batch.startRecordPromises.set(secondJob.jobId, startRecord);
+          void startRecord.catch((error) => {
+            batch.startedJobIds.delete(secondJob.jobId);
+            queueReadFailed(error);
+          });
+        }
+        const secondNeverDispatched =
+          secondJob &&
+          data.secondStarted !== true &&
+          String(data.status || "").toUpperCase() === "FAILED" &&
+          ["DONE", "FIRST_START_FAILED", "COORDINATOR_TIMEOUT"].includes(nextPhase);
+        if (secondNeverDispatched && !batch.terminalJobIds.has(secondJob.jobId)) {
+          batch.terminalJobIds.add(secondJob.jobId);
+          setNotice(`${secondJob.barcode} Lane 2는 Shopling에 시작되지 않아 원장에는 대기로 유지하고 다음 배치에서 처리합니다.`);
+          if (batch.terminalJobIds.size === batch.jobs.length) {
+            void (async () => {
+              activeBatch.current = null; setRunningBarcodes([]);
+              await loadQueue();
+              window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 900);
+            })();
+          }
+          return;
+        }
         if (data.ok === false) {
           void (async () => {
             const message = String(data.message || "HF28 운영 큐 병렬 시작에 실패했습니다.");
@@ -336,6 +392,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       handledResults.current.add(resultKey);
       void (async () => {
         try {
+          await batch.startRecordPromises.get(job.jobId);
           await recordSync(job, result.outcome, result.message || "", result.evidence, result.finishedAt);
           batch.terminalJobIds.add(job.jobId);
           if (result.outcome !== "SUCCEEDED") {

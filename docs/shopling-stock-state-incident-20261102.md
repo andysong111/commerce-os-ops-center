@@ -26,6 +26,11 @@
   - HF52는 정확히 3분 이상 된 `STARTING_FIRST`, 활성 작업 없음, 동일 Lane 1 최종 결과 없음을 모두 확인한 후에만 `start(job)`을 재개한다. `start()`는 실제 상품 변경 전에 활성 작업을 먼저 저장하므로, 활성 작업이 없는 이 체크포인트는 중복 Shopling 쓰기 없이 재개할 수 있다.
   - 75초 영속 리스와 기존 active/result 검사로 다중 기동을 차단한다. UI는 v0.6.17 미만 확장을 차단한다.
 
+- 2026-11-02 Lane 2 감사 원장 수정:
+  - BCB6-2/BCC5-3 병렬 배치에서 Lane 1이 A21 진행 신호 시간초과로 실패했고, 확장 체크포인트는 `secondStarted=false`였다. BCC5-3은 Shopling에 시작되지 않았지만 웹 화면이 배치 시작 전에 두 Lane 모두 `STARTED`로 기록해 진행중으로 고착됐다.
+  - 이제 Lane 1만 즉시 `STARTED`로 기록하고 Lane 2는 확장이 `secondStarted=true`를 확인한 뒤에만 기록한다. Lane 1이 먼저 실패하면 미전송 Lane 2는 원장 `PENDING`을 유지해 다음 배치로 이어진다.
+  - 기존 성공·대기 상품을 건드리지 않고 최신 요청의 `FAILED/UNCERTAIN` 항목만 새 작업번호로 재큐잉하는 `RETRY_EXCEPTIONS` 경로를 추가했다.
+
 ## 재전송 요청
 
 - requestId: `owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969`
