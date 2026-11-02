@@ -38,6 +38,7 @@ on:
       - "tests/shoplingStockStateHf54.test.mjs"
       - "tests/shoplingStockStateHf57.test.mjs"
       - "tests/shoplingStockStateHf58.test.mjs"
+      - "tests/shoplingStockStateHf59.test.mjs"
       - "tests/shoplingStockReadyBarrier.test.mjs"
       - "tests/shoplingDirectRunProgress.test.mjs"
       - "tests/shoplingDirectRunRecovery.test.mjs"
@@ -125,6 +126,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf57.test.mjs
       - name: Regression - HF58 owner processing-screen acceptance
         run: node --experimental-strip-types --test tests/shoplingStockStateHf58.test.mjs
+      - name: Regression - HF59 same-popup processing acceptance and reload recovery
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf59.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary
