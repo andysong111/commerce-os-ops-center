@@ -14,6 +14,7 @@ type SyncJob = {
   modelNo: string | null; goodsKeys: string[]; desiredStatus: DesiredStatus;
   desiredSince: string; exactInventoryQuantity: number; resetAt: string; route: string[];
   inventoryQuantityKnown?: boolean; manualStatusOnly?: boolean;
+  retransmissionRequestId?: string;
   operationalQueue?: true; parallelBatchId?: string; parallelLane?: number; ignoreWindowClose?: true;
 };
 type StockRow = {
@@ -489,6 +490,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
           action: KNOWN_TERMINAL_RECOVERY_ACTION,
+          retransmissionRequestId: job.retransmissionRequestId,
           jobId: job.jobId,
           barcode: job.barcode,
           productKind: job.productKind,

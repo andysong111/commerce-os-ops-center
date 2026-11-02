@@ -29,3 +29,18 @@ test("exception retry creates new replay job ids without requeueing successes or
   assert.match(route, /mode: "REPLAY" as const/);
   assert.match(route, /verified\.items\.some\(\(item\) => item\.state !== "PENDING"\)/);
 });
+
+test("operational queue dispatches one semantic mutation and prefers its audited replay job", async () => {
+  const route = await readFile(
+    "src/app/api/inventory-stock-control/sync/route.ts",
+    "utf8",
+  );
+  assert.match(route, /function semanticQueueIdentity/);
+  assert.match(route, /job\.barcode/);
+  assert.match(route, /job\.productKind/);
+  assert.match(route, /job\.desiredStatus/);
+  assert.match(route, /job\.desiredSince/);
+  assert.match(route, /normalJobs\.map\(\(job\) => \[semanticQueueIdentity\(job\), job\]/);
+  assert.match(route, /jobsBySemanticIdentity\.set\(semanticQueueIdentity\(replayJob\), replayJob\)/);
+  assert.doesNotMatch(route, /\[\.\.\.normalJobs, \.\.\.replayJobs\]\.map\(\(job\) => \[job\.jobId/);
+});
