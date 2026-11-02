@@ -5,7 +5,7 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 21] as const;
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 22] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
@@ -37,9 +37,9 @@ export function supportsAllDateStockSync(
 
 /**
  * Keep queue priority intact and bound concurrency to the extension's proven
- * two-lane coordinator. HF58 terminates Commerce OS responsibility when the
- * exact owner popup starts Shopling's processing/result page. Foreign lanes'
- * processing popups remain Shopling-owned and cannot block or satisfy a job.
+ * two-lane coordinator. HF59 terminates Commerce OS responsibility when the
+ * exact owner popup starts Shopling's processing/result page, including the
+ * same-popup evidence path. Foreign lanes' processing popups cannot satisfy a job.
  */
 export function planShoplingStockLaunch<T extends StockLaunchJob>(
   jobs: readonly T[],
