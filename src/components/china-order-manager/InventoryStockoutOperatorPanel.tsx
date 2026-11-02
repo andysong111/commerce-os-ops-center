@@ -13,6 +13,13 @@ import {
 } from "@/lib/shoplingStockLaunchPlan";
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
 import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
+import {
+  finalizeShoplingDirectRun,
+  recordShoplingDirectRunOutcome,
+  shoplingDirectRunSummaryText,
+  startShoplingDirectRun,
+  type ShoplingDirectRunProgress,
+} from "@/lib/shoplingDirectRunProgress";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -319,6 +326,8 @@ function InventoryStockoutGenericPanel() {
   const [syncNotice, setSyncNotice] = useState("");
   const [extensionReady, setExtensionReady] = useState(false);
   const [extensionVersion, setExtensionVersion] = useState("");
+  const [directRunProgress, setDirectRunProgress] =
+    useState<ShoplingDirectRunProgress | null>(null);
   const stockoutParsed = useMemo(
     () => parseInventoryStockoutBulkText(stockoutInput),
     [stockoutInput],
@@ -361,7 +370,22 @@ function InventoryStockoutGenericPanel() {
   const directQueue = useRef<DirectInventoryJob[]>([]);
   const activeBatch = useRef<ActiveBatch | null>(null);
   const handledResults = useRef(new Set<string>());
+  const directRunProgressRef = useRef<ShoplingDirectRunProgress | null>(null);
   const launchNextRef = useRef<() => Promise<void>>(async () => undefined);
+
+  const publishDirectRunProgress = useCallback(
+    (next: ShoplingDirectRunProgress | null) => {
+      directRunProgressRef.current = next;
+      setDirectRunProgress(next);
+    },
+    [],
+  );
+
+  const stopDirectRunProgress = useCallback(() => {
+    const current = directRunProgressRef.current;
+    if (!current) return;
+    publishDirectRunProgress(finalizeShoplingDirectRun(current, true));
+  }, [publishDirectRunProgress]);
 
   const recordSync = useCallback(
     async (
@@ -431,7 +455,14 @@ function InventoryStockoutGenericPanel() {
     );
     if (!plan.jobs.length) {
       setSyncing(false);
-      setSyncNotice("통합 입력과 Shopling 재고상태 전송을 모두 마쳤습니다.");
+      const current = directRunProgressRef.current;
+      if (current) {
+        const finalized = finalizeShoplingDirectRun(current);
+        publishDirectRunProgress(finalized);
+        setSyncNotice(shoplingDirectRunSummaryText(finalized));
+      } else {
+        setSyncNotice("통합 입력과 Shopling 재고상태 전송을 모두 마쳤습니다.");
+      }
       window.dispatchEvent(new Event(REFRESH_EVENT));
       return;
     }
@@ -443,6 +474,7 @@ function InventoryStockoutGenericPanel() {
       await waitForShoplingStockIdle();
     } catch (error) {
       setSyncing(false);
+      stopDirectRunProgress();
       setSyncNotice(
         `${
           error instanceof Error
@@ -458,6 +490,7 @@ function InventoryStockoutGenericPanel() {
       await requireShoplingAuthenticatedSession();
     } catch (error) {
       setSyncing(false);
+      stopDirectRunProgress();
       setSyncNotice(
         error instanceof Error
           ? error.message
@@ -525,12 +558,13 @@ function InventoryStockoutGenericPanel() {
       activeBatch.current = null;
       directQueue.current = [];
       setSyncing(false);
+      stopDirectRunProgress();
       setSyncNotice(
         `${error instanceof Error ? error.message : "Shopling 즉시 전송 시작 실패"} · 입력 내용은 저장되어 있으므로 일반 운영 큐에서 다시 처리할 수 있습니다.`,
       );
       window.dispatchEvent(new Event(REFRESH_EVENT));
     }
-  }, [recordSync]);
+  }, [publishDirectRunProgress, recordSync, stopDirectRunProgress]);
 
   useEffect(() => {
     launchNextRef.current = launchNext;
@@ -551,6 +585,7 @@ function InventoryStockoutGenericPanel() {
       if (batch.stopAfterBatch) {
         directQueue.current = [];
         setSyncing(false);
+        stopDirectRunProgress();
         setSyncNotice(
           "Shopling 전송 접수 실패/불확실 건이 발생해 이후 B코드 자동배정을 중지했습니다. 시작하지 않은 명령은 운영 큐에 그대로 보존했습니다.",
         );
@@ -564,6 +599,12 @@ function InventoryStockoutGenericPanel() {
         }, 250);
       } else {
         setSyncing(false);
+        const current = directRunProgressRef.current;
+        if (current) {
+          const finalized = finalizeShoplingDirectRun(current);
+          publishDirectRunProgress(finalized);
+          setSyncNotice(shoplingDirectRunSummaryText(finalized));
+        }
         window.dispatchEvent(new Event(REFRESH_EVENT));
       }
     };
@@ -668,6 +709,16 @@ function InventoryStockoutGenericPanel() {
               unifiedInventoryBatch: true,
               operationalBatchId: batch.batchId,
             }).catch(() => undefined);
+            const currentProgress = directRunProgressRef.current;
+            if (currentProgress) {
+              publishDirectRunProgress(
+                recordShoplingDirectRunOutcome(
+                  currentProgress,
+                  job.jobId,
+                  "FAILED",
+                ),
+              );
+            }
           }
           batch.stopAfterBatch = true;
           setSyncNotice(
@@ -713,6 +764,16 @@ function InventoryStockoutGenericPanel() {
             result.finishedAt,
           );
           batch.terminalJobIds.add(job.jobId);
+          const currentProgress = directRunProgressRef.current;
+          if (currentProgress) {
+            publishDirectRunProgress(
+              recordShoplingDirectRunOutcome(
+                currentProgress,
+                job.jobId,
+                result.outcome,
+              ),
+            );
+          }
           if (result.outcome !== "SUCCEEDED") {
             batch.stopAfterBatch = true;
           }
@@ -741,6 +802,7 @@ function InventoryStockoutGenericPanel() {
           activeBatch.current = null;
           directQueue.current = [];
           setSyncing(false);
+          stopDirectRunProgress();
           setSyncNotice(
             `${error instanceof Error ? error.message : "Shopling 결과 저장 실패"} · 외부 전송을 임의 재시도하지 않고 일반 운영 큐에서 확인합니다.`,
           );
@@ -755,7 +817,7 @@ function InventoryStockoutGenericPanel() {
       window.location.origin,
     );
     return () => window.removeEventListener("message", onMessage);
-  }, [recordSync]);
+  }, [publishDirectRunProgress, recordSync, stopDirectRunProgress]);
 
   const save = async () => {
     setNotice("");
@@ -821,6 +883,9 @@ function InventoryStockoutGenericPanel() {
         ...jobs.filter((job) => !existingIds.has(job.jobId)),
       ];
       handledResults.current.clear();
+      publishDirectRunProgress(
+        jobs.length ? startShoplingDirectRun(jobs.length) : null,
+      );
 
       setNotice(
         payload.message ||
@@ -975,6 +1040,32 @@ function InventoryStockoutGenericPanel() {
         <p role="status" className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold leading-6 text-slate-800">
           {notice}
         </p>
+      ) : null}
+
+      {directRunProgress ? (
+        <div
+          data-testid="shopling-direct-run-summary"
+          role="status"
+          aria-live="polite"
+          className={`mt-3 rounded-xl border px-4 py-4 ${
+            directRunProgress.status === "COMPLETED"
+              ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+              : directRunProgress.status === "STOPPED"
+                ? "border-rose-300 bg-rose-50 text-rose-950"
+                : "border-sky-300 bg-sky-50 text-sky-950"
+          }`}
+        >
+          <p className="text-base font-black">
+            {shoplingDirectRunSummaryText(directRunProgress)}
+          </p>
+          <p className="mt-1 text-xs font-bold leading-5">
+            {directRunProgress.status === "COMPLETED"
+              ? "Commerce OS가 모든 B코드의 Shopling 처리화면 도달을 확인했습니다. 마켓별 최종 결과는 Shopling에서 계속 처리됩니다."
+              : directRunProgress.status === "STOPPED"
+                ? "전체 접수가 끝난 상태가 아닙니다. 아래 실패 사유를 확인하기 전에는 다음 일괄 작업을 시작하지 마세요."
+                : "아직 모든 B코드의 Shopling 전송 접수가 끝나지 않았습니다."}
+          </p>
+        </div>
       ) : null}
 
       {syncNotice ? (
