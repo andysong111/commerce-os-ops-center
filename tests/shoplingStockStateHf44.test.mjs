@@ -18,6 +18,8 @@ test("HF44/HF45 recover only allowlisted exact terminal incidents", async () => 
   assert.match(route, /row\.desiredStatus === "SOLD_OUT"/);
   assert.match(route, /row\.exactInventoryQuantity === 0/);
   assert.match(route, /!row\.syncNeeded && row\.latestSyncOutcome === "SUCCEEDED"/);
+  assert.match(route, /alreadySucceeded && !retransmissionItem/);
+  assert.match(route, /\(!alreadySucceeded && !startedOrUncertain\)/);
   assert.match(route, /startedOrUncertain/);
   assert.match(route, /!row\.syncBlocked/);
   assert.match(route, /text\(body\.jobId\) !== job\.jobId/);
