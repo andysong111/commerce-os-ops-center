@@ -14,6 +14,7 @@ on:
       - "src/lib/shoplingStockHf*.ts"
       - "src/lib/shoplingStockReadyBarrier.ts"
       - "src/lib/shoplingDirectRunProgress.ts"
+      - "src/lib/shoplingDirectRunRecovery.ts"
       - "src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx"
       - "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx"
       - "src/app/china-order-manager/stock-control/**"
@@ -39,6 +40,7 @@ on:
       - "tests/shoplingStockStateHf58.test.mjs"
       - "tests/shoplingStockReadyBarrier.test.mjs"
       - "tests/shoplingDirectRunProgress.test.mjs"
+      - "tests/shoplingDirectRunRecovery.test.mjs"
       - "tests/inventoryStockRetransmission.test.mjs"
       - "tests/shoplingStockWatchdogHeartbeat.test.mjs"
       - "tests/shoplingOptionA21BatchHF29.test.mjs"
@@ -126,7 +128,7 @@ jobs:
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary
-        run: node --experimental-strip-types --test tests/shoplingDirectRunProgress.test.mjs
+        run: node --experimental-strip-types --test tests/shoplingDirectRunProgress.test.mjs tests/shoplingDirectRunRecovery.test.mjs
       - name: Regression - v0.4.1 sync
         run: node --test tests/shoplingStockStateSyncV041.test.mjs
       - name: Regression - reset-tail coverage

@@ -58,6 +58,13 @@ test("unified UI has four inputs and one wait-until-complete action", async () =
   assert.match(source, /shopling-direct-run-summary/);
   assert.match(source, /전체 접수가 끝난 상태가 아닙니다/);
   assert.match(source, /Shopling 처리화면 도달을 확인했습니다/);
+  assert.match(source, /data-testid="retry-stopped-shopling-run"/);
+  assert.match(source, /중단된 \{directRunCounts\.remaining\}건 다시 시도/);
+  assert.match(source, /canRetryUnstartedShoplingDirectRun/);
+  assert.match(source, /directQueue\.current/);
+  assert.match(source, /loadLatestPendingDirectJobs/);
+  assert.match(source, /sync\?mode=execute/);
+  assert.match(source, /retransmissionRequestId/);
   assert.match(source, /conflictingBarcodes/);
   assert.match(source, /planShoplingStockLaunch/);
   assert.match(source, /supportsAllDateStockSync/);

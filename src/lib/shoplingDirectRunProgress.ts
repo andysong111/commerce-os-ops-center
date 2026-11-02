@@ -79,6 +79,18 @@ export function finalizeShoplingDirectRun(
   };
 }
 
+export function canRetryUnstartedShoplingDirectRun(
+  current: ShoplingDirectRunProgress,
+) {
+  const counts = shoplingDirectRunCounts(current);
+  return (
+    current.status === "STOPPED" &&
+    counts.remaining > 0 &&
+    counts.failed === 0 &&
+    counts.uncertain === 0
+  );
+}
+
 export function shoplingDirectRunSummaryText(
   current: ShoplingDirectRunProgress,
 ) {
