@@ -12,6 +12,9 @@ on:
       - "src/lib/inventoryStockSalesTailCoverage.ts"
       - "src/lib/inventoryStockSyncResolution.ts"
       - "src/lib/shoplingStockHf*.ts"
+      - "src/lib/shoplingStockReadyBarrier.ts"
+      - "src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx"
+      - "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx"
       - "src/app/china-order-manager/stock-control/**"
       - "tests/shoplingStockStateRouteGuard.test.mjs"
       - "tests/shoplingStockStateExtension.test.mjs"
@@ -31,6 +34,7 @@ on:
       - "tests/shoplingStockStateHf52.test.mjs"
       - "tests/shoplingStockStateHf53.test.mjs"
       - "tests/shoplingStockStateHf54.test.mjs"
+      - "tests/shoplingStockReadyBarrier.test.mjs"
       - "tests/inventoryStockRetransmission.test.mjs"
       - "tests/shoplingStockWatchdogHeartbeat.test.mjs"
       - "tests/shoplingOptionA21BatchHF29.test.mjs"
@@ -110,6 +114,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf53.test.mjs
       - name: Regression - HF54 bounded parallel login preflight
         run: node --experimental-strip-types --test tests/shoplingStockStateHf54.test.mjs
+      - name: Regression - explicit idle acknowledgement between B-codes
+        run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - v0.4.1 sync
         run: node --test tests/shoplingStockStateSyncV041.test.mjs
       - name: Regression - reset-tail coverage

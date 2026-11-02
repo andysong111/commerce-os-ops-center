@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INVENTORY_QUEUE_PATH, inventoryStockReadClient, startInventoryPolling } from "@/lib/inventoryStockConnection";
 import { planShoplingStockLaunch, supportsAllDateStockSync } from "@/lib/shoplingStockLaunchPlan";
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
+import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
 import { selectExactShoplingStockQueueJob, type ShoplingStockQueueSelection } from "@/lib/shoplingStockQueueSelection";
 
 type ProductKind = "OPTION" | "SINGLE";
@@ -195,6 +196,8 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     if (!continueAfterBatch.current) {
       setDraining(false); setPhase("PAUSED"); activeBatch.current = null; setRunningBarcodes([]); return;
     }
+    setNotice("Shopling 확장의 다음 작업 가능 상태를 확인하고 있습니다.");
+    await waitForShoplingStockIdle();
     const payload = await loadQueue();
     const available = payload.jobs.filter((job) => !excludedThisRun.current.has(job.jobId)).sort(prioritySort);
     const requested = requestedSingleRun.current;
