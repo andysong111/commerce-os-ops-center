@@ -14,12 +14,15 @@ import {
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
 import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
 import {
+  canRetryUnstartedShoplingDirectRun,
   finalizeShoplingDirectRun,
   recordShoplingDirectRunOutcome,
+  shoplingDirectRunCounts,
   shoplingDirectRunSummaryText,
   startShoplingDirectRun,
   type ShoplingDirectRunProgress,
 } from "@/lib/shoplingDirectRunProgress";
+import { recoverLatestPendingDirectJobs } from "@/lib/shoplingDirectRunRecovery";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -40,6 +43,7 @@ type DirectInventoryJob = {
   resetAt: string;
   route: string[];
   directOperatorCommand?: true;
+  retransmissionRequestId?: string;
   operationalQueue?: true;
   parallelBatchId?: string;
   parallelLane?: number;
@@ -71,6 +75,29 @@ const PARALLEL_START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_START";
 const PARALLEL_STATUS = "COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_STATUS";
 const SINGLE_START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_START";
 const REFRESH_EVENT = "commerce-os:inventory-refresh";
+
+async function loadLatestPendingDirectJobs() {
+  const response = await fetch("/api/inventory-stock-control/sync?mode=execute", {
+    method: "GET",
+    headers: { accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = object(payload).message;
+    throw new Error(
+      typeof message === "string" && message.trim()
+        ? message
+        : "저장된 Shopling 미전송 작업을 불러오지 못했습니다.",
+    );
+  }
+  const recovered = recoverLatestPendingDirectJobs(payload);
+  if (!recovered) return null;
+  return {
+    requestId: recovered.requestId,
+    jobs: recovered.jobs.map((job) => job as unknown as DirectInventoryJob),
+  };
+}
 
 function randomId(prefix: string) {
   const random =
@@ -328,6 +355,7 @@ function InventoryStockoutGenericPanel() {
   const [extensionVersion, setExtensionVersion] = useState("");
   const [directRunProgress, setDirectRunProgress] =
     useState<ShoplingDirectRunProgress | null>(null);
+  const [retryableRequestId, setRetryableRequestId] = useState("");
   const stockoutParsed = useMemo(
     () => parseInventoryStockoutBulkText(stockoutInput),
     [stockoutInput],
@@ -418,6 +446,9 @@ function InventoryStockoutGenericPanel() {
           desiredStatus: job.desiredStatus,
           outcome,
           message,
+          ...(job.retransmissionRequestId
+            ? { retransmissionRequestId: job.retransmissionRequestId }
+            : {}),
           evidence: {
             unifiedInventoryBatch: true,
             maxConcurrentLanes: 1,
@@ -455,6 +486,7 @@ function InventoryStockoutGenericPanel() {
     );
     if (!plan.jobs.length) {
       setSyncing(false);
+      setRetryableRequestId("");
       const current = directRunProgressRef.current;
       if (current) {
         const finalized = finalizeShoplingDirectRun(current);
@@ -571,6 +603,29 @@ function InventoryStockoutGenericPanel() {
   }, [launchNext]);
 
   useEffect(() => {
+    let cancelled = false;
+    void loadLatestPendingDirectJobs()
+      .then((recovered) => {
+        if (cancelled || !recovered || directRunProgressRef.current) return;
+        directQueue.current = recovered.jobs;
+        setRetryableRequestId(recovered.requestId);
+        publishDirectRunProgress(
+          finalizeShoplingDirectRun(
+            startShoplingDirectRun(recovered.jobs.length),
+            true,
+          ),
+        );
+        setSyncNotice(
+          `최근 저장된 Shopling 미전송 ${recovered.jobs.length}건을 복구했습니다. 관리자 로그인 확인 후 아래 버튼으로 다시 시도하세요.`,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [publishDirectRunProgress]);
+
+  useEffect(() => {
     const finishBatch = (batch: ActiveBatch, retainedJobIds = new Set<string>()) => {
       const completedIds = new Set(
         batch.jobs
@@ -599,6 +654,7 @@ function InventoryStockoutGenericPanel() {
         }, 250);
       } else {
         setSyncing(false);
+        setRetryableRequestId("");
         const current = directRunProgressRef.current;
         if (current) {
           const finalized = finalizeShoplingDirectRun(current);
@@ -870,6 +926,7 @@ function InventoryStockoutGenericPanel() {
         savedCount?: number;
         counts?: { stockout?: number; onSale?: number; stocktake?: number; stockEstimate?: number };
         jobs?: DirectInventoryJob[];
+        commandRequestId?: string | null;
         message?: string;
       };
       if (!response.ok || !payload.ok) {
@@ -885,6 +942,9 @@ function InventoryStockoutGenericPanel() {
       handledResults.current.clear();
       publishDirectRunProgress(
         jobs.length ? startShoplingDirectRun(jobs.length) : null,
+      );
+      setRetryableRequestId(
+        jobs.length && payload.commandRequestId ? payload.commandRequestId : "",
       );
 
       setNotice(
@@ -918,6 +978,79 @@ function InventoryStockoutGenericPanel() {
       setLoading(false);
     }
   };
+
+  const retryStoppedDirectRun = async () => {
+    setNotice("");
+    const current = directRunProgressRef.current;
+    if (
+      !current ||
+      !canRetryUnstartedShoplingDirectRun(current)
+    ) {
+      setSyncNotice(
+        "다시 시작할 미전송 Shopling 작업이 없습니다. 실패·불확실 건은 중복 전송을 막기 위해 자동 재시도하지 않습니다.",
+      );
+      return;
+    }
+    if (!extensionReadyRef.current) {
+      setSyncNotice(
+        "Shopling 자동화 확장 v0.6.21 연결을 확인한 뒤 다시 시도해 주세요.",
+      );
+      return;
+    }
+
+    setSyncing(true);
+    setSyncNotice("저장된 Shopling 미전송 목록을 최신 운영 큐에서 확인하고 있습니다.");
+    try {
+      const recovered = await loadLatestPendingDirectJobs();
+      if (!recovered) {
+        setSyncing(false);
+        publishDirectRunProgress(null);
+        setRetryableRequestId("");
+        setSyncNotice(
+          "다시 시작할 미전송 Shopling 작업이 없습니다. 이미 처리됐거나 운영 큐 상태가 변경되었습니다.",
+        );
+        return;
+      }
+      if (retryableRequestId && recovered.requestId !== retryableRequestId) {
+        directQueue.current = recovered.jobs;
+        setSyncing(false);
+        setRetryableRequestId(recovered.requestId);
+        publishDirectRunProgress(
+          finalizeShoplingDirectRun(
+            startShoplingDirectRun(recovered.jobs.length),
+            true,
+          ),
+        );
+        setSyncNotice(
+          `최근 미전송 목록이 ${recovered.jobs.length}건으로 변경되어 화면을 갱신했습니다. 내용을 확인한 뒤 다시 시도하세요.`,
+        );
+        return;
+      }
+
+      directQueue.current = recovered.jobs;
+      handledResults.current.clear();
+      setRetryableRequestId(recovered.requestId);
+      publishDirectRunProgress(startShoplingDirectRun(recovered.jobs.length));
+      setSyncNotice(
+        `로그인 확인 후 중단된 Shopling 미전송 ${recovered.jobs.length}건을 다시 시작합니다.`,
+      );
+      void launchNextRef.current();
+    } catch (error) {
+      setSyncing(false);
+      setSyncNotice(
+        error instanceof Error
+          ? error.message
+          : "저장된 Shopling 미전송 작업을 불러오지 못했습니다.",
+      );
+    }
+  };
+
+  const directRunCounts = directRunProgress
+    ? shoplingDirectRunCounts(directRunProgress)
+    : null;
+  const canRetryStoppedRun =
+    directRunProgress !== null &&
+    canRetryUnstartedShoplingDirectRun(directRunProgress);
 
   return (
     <section className="rounded-2xl border border-indigo-200 bg-white p-5 shadow-sm">
@@ -1065,6 +1198,17 @@ function InventoryStockoutGenericPanel() {
                 ? "전체 접수가 끝난 상태가 아닙니다. 아래 실패 사유를 확인하기 전에는 다음 일괄 작업을 시작하지 마세요."
                 : "아직 모든 B코드의 Shopling 전송 접수가 끝나지 않았습니다."}
           </p>
+          {canRetryStoppedRun && directRunCounts ? (
+            <button
+              type="button"
+              data-testid="retry-stopped-shopling-run"
+              onClick={() => void retryStoppedDirectRun()}
+              disabled={loading || syncing || !extensionReady}
+              className="mt-3 rounded-xl bg-rose-700 px-5 py-2.5 text-sm font-black text-white hover:bg-rose-800 disabled:bg-slate-400"
+            >
+              중단된 {directRunCounts.remaining}건 다시 시도
+            </button>
+          ) : null}
         </div>
       ) : null}
 
