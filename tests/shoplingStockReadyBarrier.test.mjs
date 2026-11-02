@@ -83,3 +83,11 @@ test("both direct input and operational queue gate STARTED recording behind the 
     "READY alone must not launch a queued B-code before STATUS confirms idle",
   );
 });
+
+test("hidden-tab browser fixture acknowledges the production idle-status protocol", async () => {
+  const fixture = await readFile("scripts/inventory-ui-hidden-check.mjs", "utf8");
+  assert.match(fixture, /COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING/);
+  assert.match(fixture, /COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY/);
+  assert.match(fixture, /COMMERCE_OS_SHOPLING_STOCK_SYNC_STATUS/);
+  assert.match(fixture, /active: null/);
+});

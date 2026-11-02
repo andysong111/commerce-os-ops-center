@@ -30,6 +30,17 @@ await context.addInitScript(() => {
         extensionVersion: '0.6.19',
       }, location.origin);
     }
+    if (type === 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING') {
+      window.postMessage({
+        type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY',
+        extensionVersion: '0.6.19',
+      }, location.origin);
+      window.postMessage({
+        type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_STATUS',
+        active: null,
+        extensionVersion: '0.6.19',
+      }, location.origin);
+    }
     if (/STOCK_SYNC_(?:PARALLEL_)?START/.test(type)) window.__inventoryTestStartMessages.push(type);
   });
 });
