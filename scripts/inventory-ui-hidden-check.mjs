@@ -92,6 +92,26 @@ try {
   assert.match((await inspect()).queueText || '', /BAB3-1/, 'Render must survive the old five-second handoff expiry');
   checks.push('accepted display survives the temporary handoff expiry');
 
+  // This check owns queue rendering, not extension discovery. Make the mocked
+  // extension handshake explicit before exercising the write-free queue click.
+  await page.evaluate(() => {
+    window.postMessage({
+      type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY',
+      extensionVersion: '0.6.19',
+    }, location.origin);
+    window.postMessage({
+      type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_STATUS',
+      active: null,
+      extensionVersion: '0.6.19',
+    }, location.origin);
+  });
+  await page.waitForFunction(() => {
+    const queue = [...document.querySelectorAll('h2')].find(node => node.textContent?.includes('실제 운영 재고상태 자동 큐'))?.closest('section');
+    const button = [...(queue?.querySelectorAll('button') || [])].find(node => node.textContent?.includes('현재 대기건 자동처리'));
+    return button && !button.disabled;
+  }, null, { timeout: 20000 });
+  checks.push('mocked v0.6.19 extension is explicitly ready and idle before execution');
+
   // Show why render state is NOT execution authority. The server removes the job
   // before a click. The click must re-read Q and must never POST or start HF28.
   mode = 'EMPTY';
