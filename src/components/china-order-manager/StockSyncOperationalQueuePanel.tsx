@@ -14,6 +14,7 @@ type SyncJob = {
   modelNo: string | null; goodsKeys: string[]; desiredStatus: DesiredStatus;
   desiredSince: string; exactInventoryQuantity: number; resetAt: string; route: string[];
   inventoryQuantityKnown?: boolean; manualStatusOnly?: boolean;
+  directOperatorCommand?: boolean;
   retransmissionRequestId?: string;
   operationalQueue?: true; parallelBatchId?: string; parallelLane?: number; ignoreWindowClose?: true;
 };
@@ -165,25 +166,30 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         eventId: outcome === "STARTED" ? stableEventId("shopling-stock-started", job, outcome) : stableEventId("shopling-stock-result", job, outcome, finishedAt || Date.now()),
         jobId: job.jobId, barcode: job.barcode, productKind: job.productKind, modelNo: job.modelNo,
         desiredStatus: job.desiredStatus, outcome, message,
-        evidence: { operationalQueue: true, twoLaneMax: 2, windowCloseIgnored: true,
+        evidence: { operationalQueue: true, maxConcurrentLanes: 1, windowCloseIgnored: true,
           inventoryQuantityKnown: job.inventoryQuantityKnown !== false,
           manualStatusOnly: job.manualStatusOnly === true,
+          directOperatorCommand: job.directOperatorCommand === true,
           ...(evidence && typeof evidence === "object" && !Array.isArray(evidence) ? evidence as Record<string, unknown> : { extensionEvidence: evidence ?? null }) },
       }),
     });
     const payload = await response.json().catch(() => ({})) as { ok?: boolean; message?: string };
     if (!response.ok || !payload.ok) throw new Error(payload.message || "운영 큐 Shopling 결과를 원장에 저장하지 못했습니다.");
   }, []);
-  const blockedRows = useMemo(
-    () =>
-      (report?.rows ?? []).filter(
+  const blockedRows = useMemo(() => {
+    const directCommandBarcodes = new Set(
+      jobs
+        .filter((job) => job.directOperatorCommand === true)
+        .map((job) => job.barcode),
+    );
+    return (report?.rows ?? []).filter(
         (row) =>
           row.syncNeeded &&
           row.syncBlocked &&
+          !directCommandBarcodes.has(row.barcode) &&
           !runningBarcodes.includes(row.barcode),
-      ),
-    [report, runningBarcodes],
-  );
+      );
+  }, [jobs, report, runningBarcodes]);
 
   const launchNext = useCallback(async () => {
     if (!continueAfterBatch.current) {
@@ -229,8 +235,8 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     } else {
       window.postMessage({ type: SINGLE_START, job: prepared[0] }, window.location.origin);
       setNotice(plan.compatibilitySerial
-        ? `${prepared[0].barcode} 옵션 B코드를 현재 확장 버전과 호환되는 단독 창에서 먼저 실행합니다.`
-        : `${prepared[0].barcode} 운영 큐 마지막 1건을 단독 실행합니다.`);
+        ? `${prepared[0].barcode} · Shopling 동시작업 충돌을 막기 위해 B코드를 1건씩 순차 전송합니다.`
+        : `${prepared[0].barcode} 운영 큐 1건을 단독 실행합니다.`);
     }
   }, [blockedRows.length, loadQueue, localExceptions.length, recordSync]);
 
@@ -520,9 +526,9 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     <section ref={panelRef} className="rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <span className="text-xs font-black tracking-[0.12em] text-sky-800">OPERATION QUEUE · EXACT INVENTORY → SHOPLING · MAX 2 LANES</span>
+          <span className="text-xs font-black tracking-[0.12em] text-sky-800">OPERATION QUEUE · B-CODE → SHOPLING · SERIAL</span>
           <h2 className="mt-1 text-xl font-black text-slate-950">실제 운영 재고상태 자동 큐</h2>
-          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded와 사용자가 명시한 수량 미확정 판매중 전환을 실행 대상으로 사용합니다. 품절을 판매중보다 먼저 처리하고 설치된 확장 버전이 지원하는 범위에서 최대 2건을 겹쳐 실행합니다. 구버전에서 옵션이 첫 순서면 우선순위를 바꾸지 않고 1건씩 안전하게 처리합니다. FAILED/UNCERTAIN은 같은 실행에서 자동 재시도하지 않고 예외 큐로 격리합니다.</p>
+          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded와 사용자가 B코드로 명시한 품절·판매중 지시를 실행 대상으로 사용합니다. 수동 지시는 재고 판매범위 추론과 분리해 유지하고, Shopling 동시작업 충돌을 막기 위해 반드시 1건의 최종 결과를 기록한 뒤 다음 B코드로 넘어갑니다. FAILED/UNCERTAIN은 같은 실행에서 자동 재시도하지 않고 예외 큐로 격리합니다.</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-black">
           <span className={`rounded-full border px-3 py-1.5 ${extensionReady ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{extensionReady ? `확장 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}` : "확장 연결 대기"}</span>

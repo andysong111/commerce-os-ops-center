@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildShoplingStockRetransmissionRequest } from "../src/lib/inventoryShoplingRetransmissionPlan.ts";
+import {
+  buildShoplingStockRetransmissionRequest,
+  isCurrentShoplingRetransmissionIdentity,
+} from "../src/lib/inventoryShoplingRetransmissionPlan.ts";
 const blocked = new Set(["BCC6-2", "BAB3-1", "BCB2-1", "BDB2-1"]);
 const onSale = new Set(["BBB8-1", "BCC5-1", "BCC5-2"]);
 const existingPending = new Set(["BCG5-2", "BCG5-3"]);
@@ -54,4 +57,64 @@ test("operational queue merges pending replay jobs with exact request ids", asyn
   assert.match(route, /retransmissionOnly: true/);
   assert.match(ledger, /order\("started_at", \{ ascending: false \}\)/);
   assert.match(ledger, /\.reverse\(\)/);
+});
+
+test("explicit B-code command bypasses only canonical coverage uncertainty", () => {
+  const current = {
+    desiredStatus: "SOLD_OUT",
+    productKind: "OPTION",
+    desiredSince: "2026-11-02T10:05:28.000Z",
+    syncBlocked: true,
+    syncBlockReason:
+      "품절 초기화 이후의 Canonical 판매 범위를 완전히 확인하지 못했습니다.",
+  };
+  const command = {
+    desiredStatus: "SOLD_OUT",
+    productKind: "OPTION",
+    desiredSince: current.desiredSince,
+    directOperatorCommand: true,
+  };
+  assert.equal(isCurrentShoplingRetransmissionIdentity(current, command), true);
+  assert.equal(
+    isCurrentShoplingRetransmissionIdentity(current, {
+      ...command,
+      directOperatorCommand: false,
+    }),
+    false,
+  );
+  assert.equal(
+    isCurrentShoplingRetransmissionIdentity(
+      {
+        ...current,
+        syncBlockReason:
+          "이전 Shopling 실행이 STARTED/UNCERTAIN 상태라 중복 실행을 차단했습니다.",
+      },
+      command,
+    ),
+    false,
+  );
+  assert.equal(
+    isCurrentShoplingRetransmissionIdentity(current, {
+      ...command,
+      desiredSince: "2026-11-02T10:05:29.000Z",
+    }),
+    false,
+  );
+});
+
+test("direct B-code commands stay in the runnable queue instead of the coverage exception list", async () => {
+  const [queue, overview] = await Promise.all([
+    readFile(
+      "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx",
+      "utf8",
+    ),
+    readFile(
+      "src/components/china-order-manager/InventoryStockOverviewPanel.tsx",
+      "utf8",
+    ),
+  ]);
+  assert.match(queue, /directCommandBarcodes/);
+  assert.match(queue, /!directCommandBarcodes\.has\(row\.barcode\)/);
+  assert.match(queue, /directOperatorCommand: job\.directOperatorCommand === true/);
+  assert.match(overview, /!row\.syncNeeded \? row\.manualStatusOnly/);
 });

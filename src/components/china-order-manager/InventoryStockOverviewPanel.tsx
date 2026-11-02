@@ -101,7 +101,7 @@ export function InventoryStockOverviewPanel() {
                 <td className="px-3 py-3"><strong className="font-mono text-slate-950">{row.barcode}</strong><span className="ml-2 text-slate-500">{row.productName}</span></td>
                 <td className="px-3 py-3 text-right text-base font-black text-slate-950">{!ready ? "확인 보류" : row.manualStatusOnly || row.inventoryQuantityKnown === false ? "미확정" : row.salesCoverageReady !== false ? `${number.format(row.exactInventoryQuantity)}개` : "확인 보류"}</td>
                 <td className="px-3 py-3 font-black">{!ready ? "판단 보류" : row.manualStatusOnly ? "판매중(수동)" : row.salesCoverageReady !== false ? row.desiredStatus === "SOLD_OUT" ? "품절" : "판매중" : "판단 보류"}</td>
-                <td className="px-3 py-3 text-slate-600">{!ready ? "조회 복구 대기 · 이전 기록" : row.syncBlocked ? row.syncBlockReason || "확인 필요" : row.syncNeeded ? row.manualStatusOnly ? "판매중 전환 대기" : "자동 처리 대기" : row.manualStatusOnly ? "판매중 수동반영 완료" : "반영 완료"}</td>
+                <td className="px-3 py-3 text-slate-600">{!ready ? "조회 복구 대기 · 이전 기록" : !row.syncNeeded ? row.manualStatusOnly ? "판매중 수동반영 완료" : "반영 완료" : row.syncBlocked ? row.syncBlockReason || "확인 필요" : row.manualStatusOnly ? "판매중 전환 대기" : "자동 처리 대기"}</td>
               </tr>
             ))}
             {!report?.rows?.length ? <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-500">{loading ? "재고 상태를 확인하고 있습니다." : ready ? "관리 중인 재고 기준점이 없습니다." : "조회 실패로 기준점을 확인할 수 없습니다. 재고가 없다는 뜻이 아닙니다."}</td></tr> : null}

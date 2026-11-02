@@ -12,6 +12,9 @@ test("unified API validates all four inputs before one durable batch write", asy
   assert.match(source, /stocktakeItems/);
   assert.match(source, /stockEstimateItems/);
   assert.match(source, /INVENTORY_STOCK_ESTIMATE_BASELINE_OPERATION_TYPE/);
+  assert.match(source, /SHOPLING_STOCK_RETRANSMISSION_REQUEST_OPERATION_TYPE/);
+  assert.match(source, /DIRECT_OPERATOR_BCODE_COMMAND_V1/);
+  assert.match(source, /directOperatorCommand: true/);
   assert.match(source, /INVENTORY_UNIFIED_BATCH_BARCODE_CONFLICT/);
   assert.match(source, /allBarcodes\.length > 50/);
   assert.match(source, /loadProductMasterInventoryIdentities\(allBarcodes\)/);
@@ -20,6 +23,7 @@ test("unified API validates all four inputs before one durable batch write", asy
   assert.match(source, /INVENTORY_STOCKOUT_RESET_OPERATION_TYPE/);
   assert.match(source, /INVENTORY_MANUAL_ON_SALE_OPERATION_TYPE/);
   assert.match(source, /INVENTORY_STOCKTAKE_BASELINE_OPERATION_TYPE/);
+  assert.match(source, /shopling-stock-retransmission:\$\{commandRequest\.requestId\}/);
 });
 
 test("unified API creates immediate Shopling jobs only for explicit status changes", async () => {
@@ -29,7 +33,7 @@ test("unified API creates immediate Shopling jobs only for explicit status chang
   );
   const jobsBlock = source.slice(
     source.indexOf("const jobs = ["),
-    source.indexOf("return Response.json", source.indexOf("const jobs = [")),
+    source.indexOf("const commandRequest", source.indexOf("const jobs = [")),
   );
   assert.match(jobsBlock, /stockoutEvents\.map/);
   assert.match(jobsBlock, /"SOLD_OUT"/);

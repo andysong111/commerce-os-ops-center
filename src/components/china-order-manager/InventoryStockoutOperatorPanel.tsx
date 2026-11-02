@@ -394,7 +394,7 @@ function InventoryStockoutGenericPanel() {
           message,
           evidence: {
             unifiedInventoryBatch: true,
-            twoLaneMax: 2,
+            maxConcurrentLanes: 1,
             windowCloseIgnored: true,
             inventoryQuantityKnown: job.inventoryQuantityKnown !== false,
             manualStatusOnly: job.manualStatusOnly === true,
@@ -469,7 +469,7 @@ function InventoryStockoutGenericPanel() {
       plan.mode === "PARALLEL"
         ? `${prepared[0].barcode} + ${prepared[1].barcode} · Shopling 재고상태 2-Lane 전송 시작`
         : plan.compatibilitySerial
-          ? `${prepared[0].barcode} · 현재 확장 버전에서는 옵션 B코드를 안전하게 1건씩 전송합니다.`
+          ? `${prepared[0].barcode} · Shopling 동시작업 충돌을 막기 위해 B코드를 1건씩 순차 전송합니다.`
           : `${prepared[0].barcode} · Shopling 재고상태 전송 시작`,
     );
 

@@ -22,6 +22,7 @@ export type ShoplingStockRetransmissionItem = {
   desiredStatus: "SOLD_OUT" | "ON_SALE";
   desiredSince: string;
   mode: RetransmissionItemMode;
+  directOperatorCommand?: boolean;
 };
 export type ShoplingStockRetransmissionRequest = {
   requestId: string;
@@ -30,6 +31,42 @@ export type ShoplingStockRetransmissionRequest = {
   reason: string;
   items: ShoplingStockRetransmissionItem[];
 };
+
+export type RetransmissionCurrentIdentity = {
+  desiredStatus: "SOLD_OUT" | "ON_SALE";
+  productKind: "OPTION" | "SINGLE";
+  desiredSince: string;
+  syncBlocked: boolean;
+  syncBlockReason: string | null;
+};
+
+const CANONICAL_COVERAGE_BLOCK_REASON =
+  "품절 초기화 이후의 Canonical 판매 범위를 완전히 확인하지 못했습니다.";
+
+export function isCurrentShoplingRetransmissionIdentity(
+  current: RetransmissionCurrentIdentity | undefined,
+  item: Pick<
+    ShoplingStockRetransmissionItem,
+    | "desiredStatus"
+    | "productKind"
+    | "desiredSince"
+    | "directOperatorCommand"
+  >,
+) {
+  if (
+    !current ||
+    current.desiredStatus !== item.desiredStatus ||
+    current.productKind !== item.productKind ||
+    current.desiredSince !== item.desiredSince
+  ) {
+    return false;
+  }
+  if (!current.syncBlocked) return true;
+  return Boolean(
+    item.directOperatorCommand === true &&
+      current.syncBlockReason === CANONICAL_COVERAGE_BLOCK_REASON,
+  );
+}
 
 function clean(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
