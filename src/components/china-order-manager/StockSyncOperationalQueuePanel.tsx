@@ -196,8 +196,6 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     if (!continueAfterBatch.current) {
       setDraining(false); setPhase("PAUSED"); activeBatch.current = null; setRunningBarcodes([]); return;
     }
-    setNotice("Shopling 확장의 다음 작업 가능 상태를 확인하고 있습니다.");
-    await waitForShoplingStockIdle();
     const payload = await loadQueue();
     const available = payload.jobs.filter((job) => !excludedThisRun.current.has(job.jobId)).sort(prioritySort);
     const requested = requestedSingleRun.current;
@@ -211,6 +209,8 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         : "운영 재고상태 큐 처리 완료 · 현재 실행 가능한 Shopling 품절·판매중 대기건이 없습니다.");
       return;
     }
+    setNotice("Shopling 확장의 다음 작업 가능 상태를 확인하고 있습니다.");
+    await waitForShoplingStockIdle();
     const plan = planShoplingStockLaunch(launchable, extensionVersionRef.current);
     const batchId = randomId("stock-sync-ops-batch");
     const prepared = plan.jobs.map((job, index) => operationalJob(job, batchId, index + 1));

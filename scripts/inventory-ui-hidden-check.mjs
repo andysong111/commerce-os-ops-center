@@ -21,24 +21,6 @@ const queuePayload = { ok: true, report, jobs: [{ ...row, jobId: 'fixture-stock-
 await context.addInitScript(() => {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
   window.__inventoryTestStartMessages = [];
-  const nativePostMessage = window.postMessage.bind(window);
-  window.postMessage = (message, targetOrigin, transfer) => {
-    if (transfer === undefined) nativePostMessage(message, targetOrigin);
-    else nativePostMessage(message, targetOrigin, transfer);
-    if (message?.type === 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING') {
-      queueMicrotask(() => {
-        nativePostMessage({
-          type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY',
-          extensionVersion: '0.6.19',
-        }, location.origin);
-        nativePostMessage({
-          type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_STATUS',
-          active: null,
-          extensionVersion: '0.6.19',
-        }, location.origin);
-      });
-    }
-  };
   window.addEventListener('message', event => {
     if (event.origin !== location.origin) return;
     const type = event.data?.type || '';
