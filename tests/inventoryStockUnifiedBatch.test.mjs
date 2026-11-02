@@ -65,7 +65,7 @@ test("stock-control page publishes the HF52 install path and one unified operato
     "src/app/china-order-manager/stock-control/page.tsx",
     "utf8",
   );
-  assert.match(source, /download-hf52/);
+  assert.match(source, /download-hf53/);
   assert.match(source, /chrome:\/\/extensions/);
   assert.match(source, /<InventoryStockoutOperatorPanel/);
   assert.match(source, /focusedBarcodes=\{focusedCorrection\.barcodes\}/);
