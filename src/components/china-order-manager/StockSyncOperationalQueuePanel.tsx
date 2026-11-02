@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INVENTORY_QUEUE_PATH, inventoryStockReadClient, startInventoryPolling } from "@/lib/inventoryStockConnection";
 import { planShoplingStockLaunch, supportsAllDateStockSync } from "@/lib/shoplingStockLaunchPlan";
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
+import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
 import { selectExactShoplingStockQueueJob, type ShoplingStockQueueSelection } from "@/lib/shoplingStockQueueSelection";
 
 type ProductKind = "OPTION" | "SINGLE";
@@ -208,6 +209,8 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         : "운영 재고상태 큐 처리 완료 · 현재 실행 가능한 Shopling 품절·판매중 대기건이 없습니다.");
       return;
     }
+    setNotice("Shopling 확장의 다음 작업 가능 상태를 확인하고 있습니다.");
+    await waitForShoplingStockIdle();
     const plan = planShoplingStockLaunch(launchable, extensionVersionRef.current);
     const batchId = randomId("stock-sync-ops-batch");
     const prepared = plan.jobs.map((job, index) => operationalJob(job, batchId, index + 1));

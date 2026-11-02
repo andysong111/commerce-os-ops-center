@@ -12,6 +12,7 @@ import {
   supportsAllDateStockSync,
 } from "@/lib/shoplingStockLaunchPlan";
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
+import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -435,6 +436,24 @@ function InventoryStockoutGenericPanel() {
     }
 
     try {
+      setSyncNotice(
+        `${plan.jobs[0].barcode} · Shopling 다음 작업 가능 상태를 확인하고 있습니다.`,
+      );
+      await waitForShoplingStockIdle();
+    } catch (error) {
+      setSyncing(false);
+      setSyncNotice(
+        `${
+          error instanceof Error
+            ? error.message
+            : "Shopling 다음 작업 가능 상태를 확인하지 못했습니다."
+        } · 남은 B코드는 전송하지 않고 운영 큐에 그대로 남겼습니다.`,
+      );
+      window.dispatchEvent(new Event(REFRESH_EVENT));
+      return;
+    }
+
+    try {
       await requireShoplingAuthenticatedSession();
     } catch (error) {
       setSyncing(false);
@@ -565,11 +584,6 @@ function InventoryStockoutGenericPanel() {
           setSyncNotice((current) =>
             current.includes("Shopling 자동화 v") && current.includes("업데이트해 주세요") ? "" : current,
           );
-          if (directQueue.current.length && !activeBatch.current) {
-            window.setTimeout(() => {
-              void launchNextRef.current();
-            }, 0);
-          }
         }
         return;
       }
