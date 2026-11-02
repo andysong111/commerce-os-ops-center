@@ -220,7 +220,7 @@ test("unified operator sends returned direct jobs immediately and never reloads 
   assert.match(panel, /directQueue\.current = \[/);
   assert.match(panel, /const supported = supportsAllDateStockSync\(version\)/);
   assert.match(panel, /extensionReadyRef\.current = supported/);
-  assert.match(panel, /v0\.6\.19로 업데이트해 주세요/);
+  assert.match(panel, /v0\.6\.20으로 업데이트해 주세요/);
   assert.match(panel, /!extensionReadyRef\.current/);
   assert.doesNotMatch(panel, /window\.location\.reload/);
 });
@@ -234,10 +234,10 @@ test("stock sync event writes acknowledge immediately instead of refreshing Cano
   assert.doesNotMatch(post, /tailSalesRefresh/);
 });
 
-test("direct unified result messaging distinguishes marketplace advisory failures from the Shopling state result", async () => {
+test("direct unified result messaging ends Commerce OS responsibility at Shopling dispatch acceptance", async () => {
   const panel = await readFile("src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx", "utf8");
   assert.match(panel, /marketFailuresAdvisory/);
-  assert.match(panel, /Shopling 자체 상태 반영 실패와 구분됩니다/);
+  assert.match(panel, /전송 접수 완료 · 마켓별 최종 결과는 Shopling에서 계속 처리됩니다/);
 });
 
 
