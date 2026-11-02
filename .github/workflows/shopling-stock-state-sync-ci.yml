@@ -35,6 +35,7 @@ on:
       - "tests/shoplingStockStateHf53.test.mjs"
       - "tests/shoplingStockStateHf54.test.mjs"
       - "tests/shoplingStockStateHf57.test.mjs"
+      - "tests/shoplingStockStateHf58.test.mjs"
       - "tests/shoplingStockReadyBarrier.test.mjs"
       - "tests/inventoryStockRetransmission.test.mjs"
       - "tests/shoplingStockWatchdogHeartbeat.test.mjs"
@@ -118,6 +119,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf54.test.mjs
       - name: Regression - HF57 Shopling dispatch acceptance boundary
         run: node --experimental-strip-types --test tests/shoplingStockStateHf57.test.mjs
+      - name: Regression - HF58 owner processing-screen acceptance
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf58.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - v0.4.1 sync
