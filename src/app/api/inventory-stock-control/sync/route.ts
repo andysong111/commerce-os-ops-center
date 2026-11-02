@@ -31,11 +31,17 @@ const KNOWN_TERMINAL_RECOVERY_INCIDENTS = {
     productKind: "SINGLE",
     incidentId: "shopling-bbb4-3-hf41-terminal-20261030",
     terminalFooter: "상품상태 변경 전송이 완료되었습니다.",
+    retransmissionRequestId:
+      "owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969",
+    allowPendingReplayRecovery: true,
   },
   "BBD3-1": {
     productKind: "OPTION",
     incidentId: "shopling-bbd3-1-hf45-terminal-20261030",
     terminalFooter: "상품옵션 수정 전송이 완료되었습니다.",
+    retransmissionRequestId:
+      "owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969",
+    allowPendingReplayRecovery: true,
   },
   "BBD8-1": {
     productKind: null,
@@ -55,6 +61,7 @@ const KNOWN_TERMINAL_RECOVERY_INCIDENTS = {
     latestSyncAt?: string;
     retransmissionRequestId?: string;
     resultCounts?: { total: number; success: number; failure: number };
+    allowPendingReplayRecovery?: boolean;
   }
 >;
 
@@ -266,6 +273,15 @@ function queueJob(
   };
 }
 
+function semanticQueueIdentity(job: ReturnType<typeof queueJob>) {
+  return [
+    job.barcode,
+    job.productKind,
+    job.desiredStatus,
+    job.desiredSince,
+  ].join(":");
+}
+
 export async function GET(request: Request) {
   if (!isSameOriginOpsRequest(request)) return unauthorized();
   return withInventoryReadGuard("queue", async () => {
@@ -315,11 +331,16 @@ export async function GET(request: Request) {
         retransmissionOnly: true,
       }];
     });
-    const jobs = [
-      ...new Map(
-        [...normalJobs, ...replayJobs].map((job) => [job.jobId, job] as const),
-      ).values(),
-    ];
+    // A retransmission job and the normal inventory job can describe the exact
+    // same Shopling mutation with different job IDs. Keep the audited replay job
+    // so its request ledger reaches a terminal state, but never dispatch both.
+    const jobsBySemanticIdentity = new Map(
+      normalJobs.map((job) => [semanticQueueIdentity(job), job] as const),
+    );
+    for (const replayJob of replayJobs) {
+      jobsBySemanticIdentity.set(semanticQueueIdentity(replayJob), replayJob);
+    }
+    const jobs = [...jobsBySemanticIdentity.values()];
 
     return Response.json(
       {
@@ -372,15 +393,16 @@ export async function POST(request: Request) {
       >["latest"]["items"][number] | null = null;
       if (retransmissionRequestId) {
         const retransmission = await loadShoplingStockRetransmissionState(report);
-        const latest = retransmission.latest;
+        const incidentBatch = retransmission.batches.find(
+          (batch) => batch.requestId === retransmissionRequestId,
+        );
         if (
-          !latest ||
-          latest.requestId !== retransmissionRequestId ||
+          !incidentBatch ||
           text(body.retransmissionRequestId) !== retransmissionRequestId
         ) {
           throw new Error(`${requestedBarcode} 완료 사고의 재전송 요청번호가 일치하지 않아 복구를 차단했습니다.`);
         }
-        const matches = latest.items.filter(
+        const matches = incidentBatch.items.filter(
           (item) =>
             item.jobId === text(body.jobId) &&
             item.barcode === requestedBarcode &&
@@ -441,10 +463,15 @@ export async function POST(request: Request) {
         const exactKnownStart =
           !("latestSyncAt" in incident) ||
           row.latestSyncAt === incident.latestSyncAt;
+        const recoverableReplayStates =
+          "allowPendingReplayRecovery" in incident &&
+          incident.allowPendingReplayRecovery
+          ? ["PENDING", "STARTED", "BLOCKED"]
+          : ["STARTED", "BLOCKED"];
         if (
           !startedOrUncertain ||
           !exactKnownStart ||
-          !["STARTED", "BLOCKED"].includes(
+          !recoverableReplayStates.includes(
             String(retransmissionItem.state || ""),
           )
         ) {

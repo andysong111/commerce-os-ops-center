@@ -41,10 +41,13 @@ test("HF51 recovers only the exact BBD8 retransmission incident without another 
   assert.match(route, new RegExp(requestId));
   assert.match(route, /resultCounts: \{ total: 108, success: 83, failure: 25 \}/);
   assert.match(route, /latestSyncAt: "2026-11-01T14:36:34\.755Z"/);
-  assert.match(route, /latest\.requestId !== retransmissionRequestId/);
+  assert.match(route, /retransmission\.batches\.find/);
+  assert.match(route, /batch\.requestId === retransmissionRequestId/);
   assert.match(route, /retransmissionItem\.jobId/);
   assert.match(route, /\["STARTED", "UNCERTAIN"\]/);
   assert.match(route, /row\.latestSyncAt === incident\.latestSyncAt/);
+  assert.match(route, /allowPendingReplayRecovery/);
+  assert.match(route, /\["PENDING", "STARTED", "BLOCKED"\]/);
   assert.match(panel, new RegExp(requestId));
   assert.match(panel, /item\.barcode === "BBD8-1"/);
   assert.match(panel, /\["STARTED", "BLOCKED"\]\.includes\(item\.state \|\| ""\)/);
@@ -68,6 +71,7 @@ test("HF44/HF45 expose allowlisted recovery buttons without Shopling dispatch", 
   assert.match(panel, /job\.barcode === "BBD3-1"/);
   assert.match(panel, /isKnownTerminalRecoveryJob\(job\)/);
   assert.match(panel, /action: KNOWN_TERMINAL_RECOVERY_ACTION/);
+  assert.match(panel, /retransmissionRequestId: job\.retransmissionRequestId/);
   assert.match(panel, /"완료 결과 복구"/);
   const recoveryHandler = panel.slice(
     panel.indexOf("const recoverKnownTerminal"),
