@@ -11,6 +11,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const RETRY_EXCEPTIONS_ACTION = "RETRY_EXCEPTIONS";
+
 function unauthorized() {
   return Response.json(
     { ok: false, message: "Shopling 재전송 목록 관리 권한이 필요합니다." },
@@ -64,6 +66,60 @@ export async function POST(request: Request) {
     >;
     const { report, state } = await current();
     const latest = state.latest;
+    const action = String(body.action || "").trim().toUpperCase();
+    if (action === RETRY_EXCEPTIONS_ACTION) {
+      const sourceRequestId = String(body.sourceRequestId || "").trim();
+      const source = state.batches.find((batch) => batch.requestId === sourceRequestId);
+      if (!source || source.requestId !== latest?.requestId) {
+        throw new Error("최신 Shopling 재전송 요청과 재시도 원본 요청번호가 일치하지 않습니다.");
+      }
+      const retryable = source.items.filter((item) =>
+        ["FAILED", "UNCERTAIN"].includes(String(item.state || "")),
+      );
+      if (!retryable.length) {
+        throw new Error("실패 또는 불확실 상태인 재전송 항목이 없어 재시도 목록을 만들지 않았습니다.");
+      }
+      const occurredAt = new Date().toISOString();
+      const requestId = `owner-retry-${occurredAt.replace(/[^0-9]/g, "")}-${randomUUID()}`;
+      const retryableByBarcode = new Map(
+        retryable.map((item) => [`${item.barcode}:${item.desiredStatus}:${item.desiredSince}`, item]),
+      );
+      const fullRequest = buildShoplingStockRetransmissionRequest(
+        report,
+        requestId,
+        occurredAt,
+        String(body.reason || `운영자 승인 재전송 ${sourceRequestId}의 실패·불확실 항목만 안전 재시도`),
+      );
+      const retransmission = {
+        ...fullRequest,
+        items: fullRequest.items
+          .filter((item) => retryableByBarcode.has(`${item.barcode}:${item.desiredStatus}:${item.desiredSince}`))
+          .map((item) => ({
+            ...item,
+            jobId: `stock-resend:${requestId}:${item.barcode}:${item.desiredStatus}`,
+            mode: "REPLAY" as const,
+          })),
+      };
+      if (retransmission.items.length !== retryable.length) {
+        throw new Error("현재 원장과 실패·불확실 재전송 항목의 정확한 신원이 일치하지 않아 재시도를 차단했습니다.");
+      }
+      await storeShoplingStockRetransmissionRequest(retransmission);
+      const verification = await loadShoplingStockRetransmissionState(report);
+      const verified = verification.batches.find((batch) => batch.requestId === requestId);
+      if (!verified || verified.items.length !== retryable.length || verified.items.some((item) => item.state !== "PENDING")) {
+        throw new Error("실패·불확실 재시도 목록 저장 후 재조회 검증에 실패했습니다.");
+      }
+      return Response.json(
+        {
+          ok: true,
+          duplicate: false,
+          request: verified,
+          sourceRequestId,
+          message: `기존 성공·대기 항목은 건드리지 않고 실패·불확실 ${verified.items.length}건만 새 작업번호로 재큐잉했습니다.`,
+        },
+        { status: 201, headers: { "cache-control": "no-store" } },
+      );
+    }
     if (
       latest &&
       latest.reportFingerprint === report.fingerprint &&

@@ -52,6 +52,9 @@ type ActiveBatch = {
   mode: "PARALLEL" | "SINGLE";
   batchId: string;
   jobs: DirectInventoryJob[];
+  startedJobIds: Set<string>;
+  startRecordPromises: Map<string, Promise<void>>;
+  retainedJobIds: Set<string>;
   terminalJobIds: Set<string>;
 };
 
@@ -457,6 +460,9 @@ function InventoryStockoutGenericPanel() {
       mode: plan.mode,
       batchId,
       jobs: prepared,
+      startedJobIds: new Set<string>(),
+      startRecordPromises: new Map<string, Promise<void>>(),
+      retainedJobIds: new Set<string>(),
       terminalJobIds: new Set<string>(),
     };
     setSyncNotice(
@@ -468,22 +474,20 @@ function InventoryStockoutGenericPanel() {
     );
 
     try {
-      await Promise.all(
-        prepared.map((job) =>
-          recordSync(
-            job,
-            "STARTED",
-            `통합 재고 입력 후 Shopling ${job.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 전송 시작 · Lane ${job.parallelLane || 1}`,
-            {
-              directOperatorCommand: true,
-              unifiedInventoryBatch: true,
-              operationalBatchId: batchId,
-              operationalLane: job.parallelLane || 1,
-              desiredSince: job.desiredSince,
-            },
-          ),
-        ),
+      const firstJob = prepared[0];
+      await recordSync(
+        firstJob,
+        "STARTED",
+        `통합 재고 입력 후 Shopling ${firstJob.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 전송 시작 · Lane ${firstJob.parallelLane || 1}`,
+        {
+          directOperatorCommand: true,
+          unifiedInventoryBatch: true,
+          operationalBatchId: batchId,
+          operationalLane: firstJob.parallelLane || 1,
+          desiredSince: firstJob.desiredSince,
+        },
       );
+      activeBatch.current.startedJobIds.add(firstJob.jobId);
 
       if (plan.mode === "PARALLEL") {
         window.postMessage(
@@ -512,8 +516,12 @@ function InventoryStockoutGenericPanel() {
   }, [launchNext]);
 
   useEffect(() => {
-    const finishBatch = (batch: ActiveBatch) => {
-      const completedIds = new Set(batch.jobs.map((job) => job.jobId));
+    const finishBatch = (batch: ActiveBatch, retainedJobIds = new Set<string>()) => {
+      const completedIds = new Set(
+        batch.jobs
+          .filter((job) => !retainedJobIds.has(job.jobId))
+          .map((job) => job.jobId),
+      );
       directQueue.current = directQueue.current.filter(
         (job) => !completedIds.has(job.jobId),
       );
@@ -580,6 +588,44 @@ function InventoryStockoutGenericPanel() {
         if (!batch || batch.mode !== "PARALLEL") return;
         const batchId = String(data.batchId || "");
         if (batchId && batchId !== batch.batchId) return;
+        const secondJob = batch.jobs[1];
+        if (data.secondStarted === true && secondJob && !batch.startedJobIds.has(secondJob.jobId)) {
+          batch.startedJobIds.add(secondJob.jobId);
+          const startRecord = recordSync(
+            secondJob,
+            "STARTED",
+            `통합 재고 입력 후 Shopling ${secondJob.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 전송 시작 · Lane ${secondJob.parallelLane || 2}`,
+            {
+              directOperatorCommand: true,
+              unifiedInventoryBatch: true,
+              operationalBatchId: batch.batchId,
+              operationalLane: secondJob.parallelLane || 2,
+              desiredSince: secondJob.desiredSince,
+              extensionConfirmedLaneStart: true,
+            },
+          );
+          batch.startRecordPromises.set(secondJob.jobId, startRecord);
+          void startRecord.catch((error) => {
+            batch.startedJobIds.delete(secondJob.jobId);
+            setSyncing(false);
+            setSyncNotice(error instanceof Error ? error.message : "Lane 2 시작 원장 기록에 실패했습니다.");
+          });
+        }
+        const phase = String(data.phase || "");
+        const secondNeverDispatched =
+          secondJob &&
+          data.secondStarted !== true &&
+          String(data.status || "").toUpperCase() === "FAILED" &&
+          ["DONE", "FIRST_START_FAILED", "COORDINATOR_TIMEOUT"].includes(phase);
+        if (secondNeverDispatched) {
+          batch.retainedJobIds.add(secondJob.jobId);
+          batch.terminalJobIds.add(secondJob.jobId);
+          setSyncNotice(`${secondJob.barcode} Lane 2는 Shopling에 시작되지 않아 대기 상태로 다음 배치에서 처리합니다.`);
+          if (batch.terminalJobIds.size >= batch.jobs.length) {
+            finishBatch(batch, batch.retainedJobIds);
+          }
+          return;
+        }
         if (data.ok !== false) return;
 
         void (async () => {
@@ -629,6 +675,7 @@ function InventoryStockoutGenericPanel() {
       handledResults.current.add(resultKey);
       void (async () => {
         try {
+          await batch.startRecordPromises.get(job.jobId);
           await recordSync(
             job,
             result.outcome,
@@ -655,7 +702,7 @@ function InventoryStockoutGenericPanel() {
           }
 
           if (batch.terminalJobIds.size >= batch.jobs.length) {
-            finishBatch(batch);
+            finishBatch(batch, batch.retainedJobIds);
           }
         } catch (error) {
           handledResults.current.delete(resultKey);
