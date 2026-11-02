@@ -52,6 +52,14 @@ const KNOWN_TERMINAL_RECOVERY_INCIDENTS = {
       "owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969",
     resultCounts: { total: 108, success: 83, failure: 25 },
   },
+  "BBA7-1": {
+    productKind: "SINGLE",
+    incidentId: "shopling-bba7-1-hf53-terminal-20261102",
+    terminalFooter: "상품상태 변경 전송이 완료되었습니다.",
+    latestSyncAt: "2026-11-02T03:29:04.745Z",
+    retransmissionRequestId:
+      "owner-retry-20261102032732917-926c5f41-9761-482a-a74b-3e51ae8da686",
+  },
 } as const satisfies Record<
   string,
   {
