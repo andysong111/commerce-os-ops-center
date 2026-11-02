@@ -24,7 +24,9 @@ jobs:
           tests/fastPurchaseInternalDraft.test.mjs
           tests/monthlyPurchasePolicy.test.mjs
           tests/internalChinaInlineQuantity.test.mjs
+          tests/internalChinaManualDraftAdd.test.mjs
           tests/internalChinaManualBulkAdd.test.mjs
+          tests/internalChinaManualDraftSearchCore.test.mjs
           tests/alibaba1688CartPlan.test.mjs
           tests/alibaba1688CartStaging.test.mjs
           tests/alibaba1688DraftWorkspace.test.mjs
@@ -36,6 +38,8 @@ jobs:
           src/lib/monthlyPurchasePolicy.ts
           src/lib/monthlyPurchaseCycleGate.ts
           src/lib/purchaseDraftQuantityRounding.ts
+          src/lib/internalChinaManualDraftSearchCore.ts
+          src/lib/internalChinaPurchaseDraftManualAdd.ts
           src/app/api/fast-purchase/drafts/route.ts
           src/components/fast-purchase-mvp/FastPurchaseDraftActions.tsx
           src/app/fast-purchase-mvp/page.tsx
@@ -52,7 +56,9 @@ jobs:
           tests/fastPurchaseInternalDraft.test.mjs
           tests/monthlyPurchasePolicy.test.mjs
           tests/internalChinaInlineQuantity.test.mjs
+          tests/internalChinaManualDraftAdd.test.mjs
           tests/internalChinaManualBulkAdd.test.mjs
+          tests/internalChinaManualDraftSearchCore.test.mjs
           tests/alibaba1688CartPlan.test.mjs
           tests/alibaba1688CartStaging.test.mjs
           tests/alibaba1688DraftWorkspace.test.mjs

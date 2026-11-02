@@ -8,6 +8,10 @@ import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION } from "@/lib/purchaseCycleDraftRegenerationCore";
+import {
+  bestManualDraftSearchMatch,
+  parseManualDraftSearchTerms,
+} from "@/lib/internalChinaManualDraftSearchCore";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const MANUAL_SOURCE = "ops-center-internal-china-order-manual-add";
@@ -15,7 +19,6 @@ const BARCODE = /^[A-Z]{3}\d+-\d+$/;
 const MANUAL_QUANTITY_MAX = 9_999;
 const RESULT_LIMIT_PER_TERM = 30;
 const RESULT_LIMIT_MAX = 200;
-const SEARCH_TERM_LIMIT = 50;
 
 export type InternalChinaManualDraftCandidate = {
   barcode: string;
@@ -42,21 +45,6 @@ function integer(value: unknown) {
 
 function joinedLabels(values: unknown[]) {
   return [...new Set(values.map(text).filter(Boolean))].join(" / ");
-}
-
-export function parseManualDraftSearchTerms(value: unknown) {
-  const seen = new Set<string>();
-  const terms: string[] = [];
-  for (const raw of text(value).split(/[,;\n\r]+/)) {
-    const term = text(raw);
-    if (term.length < 2) continue;
-    const key = term.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    terms.push(term);
-    if (terms.length >= SEARCH_TERM_LIMIT) break;
-  }
-  return terms;
 }
 
 function normalizeRequestId(value: unknown) {
@@ -88,51 +76,6 @@ export function calculateManualDraftTargetQuantity(
     throw new Error("INTERNAL_CHINA_MANUAL_ADD_QUANTITY_EXCEEDED");
   }
   return targetQuantity;
-}
-
-function candidateScore(
-  candidate: Pick<
-    InternalChinaManualDraftCandidate,
-    "barcode" | "modelNo" | "productName" | "optionName"
-  >,
-  queryInput: unknown,
-) {
-  const query = text(queryInput).toLowerCase();
-  const barcode = candidate.barcode.toLowerCase();
-  const modelNo = candidate.modelNo.toLowerCase();
-  const productName = candidate.productName.toLowerCase();
-  const optionName = candidate.optionName.toLowerCase();
-  if (barcode === query) return 0;
-  if (modelNo === query) return 1;
-  if (barcode.startsWith(query)) return 2;
-  if (modelNo.startsWith(query)) return 3;
-  if (productName.startsWith(query)) return 4;
-  if (optionName.startsWith(query)) return 5;
-  if (barcode.includes(query)) return 6;
-  if (modelNo.includes(query)) return 7;
-  if (productName.includes(query)) return 8;
-  if (optionName.includes(query)) return 9;
-  return 100;
-}
-
-function bestSearchMatch(
-  candidate: Pick<
-    InternalChinaManualDraftCandidate,
-    "barcode" | "modelNo" | "productName" | "optionName"
-  >,
-  terms: string[],
-) {
-  let termIndex = Number.POSITIVE_INFINITY;
-  let score = 100;
-  for (let index = 0; index < terms.length; index += 1) {
-    const currentScore = candidateScore(candidate, terms[index]);
-    if (currentScore >= 100) continue;
-    if (index < termIndex || (index === termIndex && currentScore < score)) {
-      termIndex = index;
-      score = currentScore;
-    }
-  }
-  return { termIndex, score };
 }
 
 export async function searchInternalChinaManualDraftCandidates(
@@ -193,7 +136,7 @@ export async function searchInternalChinaManualDraftCandidates(
       currentDraftQuantity: current?.quantity ?? 0,
       otherOpenQuantity: otherOpenByBarcode.get(barcode) ?? 0,
     };
-    const match = bestSearchMatch(candidate, terms);
+    const match = bestManualDraftSearchMatch(candidate, terms);
     if (!Number.isFinite(match.termIndex) || match.score >= 100) continue;
     seenBarcodes.add(barcode);
     matched.push({ candidate, ...match });
