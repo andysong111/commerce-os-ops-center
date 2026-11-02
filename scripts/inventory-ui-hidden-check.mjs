@@ -117,6 +117,13 @@ try {
   mode = 'EMPTY';
   const queue = page.locator('section').filter({ has: page.getByRole('heading', { name: '실제 운영 재고상태 자동 큐', exact: true }) });
   await queue.getByRole('button', { name: '현재 대기건 자동처리', exact: true }).click();
+  await page.evaluate(() => {
+    window.postMessage({
+      type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_STATUS',
+      active: null,
+      extensionVersion: '0.6.19',
+    }, location.origin);
+  });
   await waitQueueText('운영 재고상태 큐 처리 완료');
   assert.equal(requests.filter(path => path === Q).length, 2);
   assert.deepEqual(writes, []);
