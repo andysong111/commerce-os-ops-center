@@ -10,7 +10,7 @@ import {
 const option = { jobId: "option-1", productKind: "OPTION" };
 const single = { jobId: "single-1", productKind: "SINGLE" };
 
-test("only HF54 v0.6.19 and later may run stock status sync", () => {
+test("only HF57 v0.6.20 and later may run dispatch-ack stock status sync", () => {
   assert.equal(supportsAllDateStockSync("0.5.8"), false);
   assert.equal(supportsAllDateStockSync("0.5.9"), false);
   assert.equal(supportsAllDateStockSync("0.6.0"), false);
@@ -32,11 +32,12 @@ test("only HF54 v0.6.19 and later may run stock status sync", () => {
   assert.equal(supportsAllDateStockSync("0.6.16"), false);
   assert.equal(supportsAllDateStockSync("0.6.17"), false);
   assert.equal(supportsAllDateStockSync("0.6.18"), false);
-  assert.equal(supportsAllDateStockSync("0.6.19"), true);
+  assert.equal(supportsAllDateStockSync("0.6.19"), false);
+  assert.equal(supportsAllDateStockSync("0.6.20"), true);
   assert.equal(supportsAllDateStockSync(""), false);
 });
 
-test("every supported extension keeps an OPTION-first queue in priority order and launches one B-code", () => {
+test("unsupported extensions keep an OPTION-first queue in priority order and launch one B-code", () => {
   for (const version of ["", "0.5.6", "0.5.7"]) {
     const plan = planShoplingStockLaunch([option, single], version);
     assert.equal(plan.mode, "SINGLE");
@@ -45,11 +46,11 @@ test("every supported extension keeps an OPTION-first queue in priority order an
   }
 });
 
-test("single-first batches wait for a terminal result before assigning the next B-code", () => {
-  const plan = planShoplingStockLaunch([single, option], "0.6.19");
-  assert.equal(plan.mode, "SINGLE");
-  assert.deepEqual(plan.jobs.map((job) => job.jobId), ["single-1"]);
-  assert.equal(plan.compatibilitySerial, true);
+test("HF57 assigns at most two B-codes and preserves priority order", () => {
+  const plan = planShoplingStockLaunch([single, option], "0.6.20");
+  assert.equal(plan.mode, "PARALLEL");
+  assert.deepEqual(plan.jobs.map((job) => job.jobId), ["single-1", "option-1"]);
+  assert.equal(plan.compatibilitySerial, false);
 });
 
 test("parallel-capable extension history does not override the serial completeness policy", () => {
@@ -61,11 +62,11 @@ test("parallel-capable extension history does not override the serial completene
   assert.equal(plan.compatibilitySerial, true);
 });
 
-test("launch planner never assigns more than one concurrent B-code job", () => {
+test("launch planner never assigns more than two concurrent B-code jobs", () => {
   const third = { jobId: "single-2", productKind: "SINGLE" };
-  const plan = planShoplingStockLaunch([option, single, third], "0.5.8");
-  assert.equal(plan.jobs.length, 1);
-  assert.deepEqual(plan.jobs.map((job) => job.jobId), ["option-1"]);
+  const plan = planShoplingStockLaunch([option, single, third], "0.6.20");
+  assert.equal(plan.jobs.length, 2);
+  assert.deepEqual(plan.jobs.map((job) => job.jobId), ["option-1", "single-1"]);
 });
 
 test("HF30 extension gates OPTION detach to its final A21 batch and raises the exact batch cap to 200", async () => {
@@ -111,6 +112,6 @@ test("both stock-control launch surfaces use the shared version-aware planner", 
     assert.match(source, /extensionVersionRef\.current/);
     assert.match(source, /const version = String\(data\.extensionVersion \|\| ""\)/);
   }
-  assert.match(page, /download-hf54/);
-  assert.match(page, /v0\.6\.19 다운로드/);
+  assert.match(page, /download-hf57/);
+  assert.match(page, /v0\.6\.20 다운로드/);
 });

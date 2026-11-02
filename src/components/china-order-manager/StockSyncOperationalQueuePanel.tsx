@@ -38,6 +38,7 @@ type ActiveBatch = {
   startedJobIds: Set<string>;
   startRecordPromises: Map<string, Promise<void>>;
   terminalJobIds: Set<string>;
+  stopAfterBatch?: boolean;
 };
 type LocalException = { jobId: string; barcode: string; outcome: Exclude<SyncOutcome, "STARTED">; message: string };
 type TerminalSummary = {
@@ -223,7 +224,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       firstJob.manualStatusOnly
         ? `운영 큐 ${firstJob.parallelLane || 1}번 Lane 시작 · 재고수량 미확정 수동 Shopling ${statusLabel(firstJob.desiredStatus)} 반영`
         : `운영 큐 ${firstJob.parallelLane || 1}번 Lane 시작 · 현재 정확재고 ${firstJob.exactInventoryQuantity}개 기준 Shopling ${statusLabel(firstJob.desiredStatus)} 반영`,
-      { operationalQueue: true, operationalBatchId: batchId, operationalLane: firstJob.parallelLane || 1, desiredSince: firstJob.desiredSince, manualStatusOnly: firstJob.manualStatusOnly === true });
+      { operationalQueue: true, operationalBatchId: batchId, operationalLane: firstJob.parallelLane || 1, maxConcurrentLanes: prepared.length, desiredSince: firstJob.desiredSince, manualStatusOnly: firstJob.manualStatusOnly === true });
     activeBatch.current = {
       mode: plan.mode,
       batchId,
@@ -277,7 +278,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 전송 전 로그인 점검·결과 검증·병렬 재개를 완전히 지원하지 않아 사용할 수 없습니다. v0.6.19로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 전송 접수 확인·실패 즉시중지·2-Lane 처리를 지원하지 않아 사용할 수 없습니다. v0.6.20으로 업데이트해 주세요.`);
         }
         return;
       }
@@ -303,6 +304,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
               desiredSince: secondJob.desiredSince,
               manualStatusOnly: secondJob.manualStatusOnly === true,
               extensionConfirmedLaneStart: true,
+              maxConcurrentLanes: batch.jobs.length,
             },
           );
           batch.startRecordPromises.set(secondJob.jobId, startRecord);
@@ -317,13 +319,16 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
           String(data.status || "").toUpperCase() === "FAILED" &&
           ["DONE", "FIRST_START_FAILED", "COORDINATOR_TIMEOUT"].includes(nextPhase);
         if (secondNeverDispatched && !batch.terminalJobIds.has(secondJob.jobId)) {
+          batch.stopAfterBatch = true;
+          continueAfterBatch.current = false;
           batch.terminalJobIds.add(secondJob.jobId);
-          setNotice(`${secondJob.barcode} Lane 2는 Shopling에 시작되지 않아 원장에는 대기로 유지하고 다음 배치에서 처리합니다.`);
+          setNotice(`${secondJob.barcode} Lane 2는 Shopling에 시작되지 않아 원장에 대기 상태로 보존하고 자동배정을 중지했습니다.`);
           if (batch.terminalJobIds.size === batch.jobs.length) {
             void (async () => {
               activeBatch.current = null; setRunningBarcodes([]);
-              await loadQueue();
-              window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 900);
+              setDraining(false);
+              setPhase("PAUSED_ON_FAILURE");
+              await loadQueue().catch(() => undefined);
             })();
           }
           return;
@@ -339,7 +344,10 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
             }
             activeBatch.current = null; setRunningBarcodes([]);
             setNotice(`${message} · 해당 2건은 이번 실행에서 자동 재시도하지 않습니다.`);
-            window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 800);
+            continueAfterBatch.current = false;
+            setDraining(false);
+            setPhase("PAUSED_ON_FAILURE");
+            await loadQueue().catch(() => undefined);
           })();
         }
         return;
@@ -406,6 +414,8 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
           await recordSync(job, result.outcome, result.message || "", result.evidence, result.finishedAt);
           batch.terminalJobIds.add(job.jobId);
           if (result.outcome !== "SUCCEEDED") {
+            batch.stopAfterBatch = true;
+            continueAfterBatch.current = false;
             excludedThisRun.current.add(job.jobId);
             const exceptionOutcome: Exclude<SyncOutcome, "STARTED"> = result.outcome;
             setLocalExceptions((current) => [...current.filter((row) => row.jobId !== job.jobId), { jobId: job.jobId, barcode: job.barcode, outcome: exceptionOutcome, message: result.message || "원인 확인 필요" }]);
@@ -423,7 +433,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
             setTerminalSummary({
               barcode: job.barcode,
               outcome: result.outcome,
-              message: result.message || (succeeded ? "Shopling 처리가 완료되었습니다." : "원인 확인이 필요합니다."),
+              message: result.message || (succeeded ? "Shopling 전송 접수가 완료되었습니다." : "원인 확인이 필요합니다."),
               finishedAt: Number(result.finishedAt || Date.now()),
               preSearchBlocked: isPreSearchDateFailure(result.message || "", result.evidence),
             });
@@ -432,10 +442,15 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
               ? `${job.barcode} 단건 처리 완료 · 다른 대기건은 실행하지 않았습니다.`
               : `${job.barcode} 단건 처리 종료 · 실패/불확실 결과를 예외 큐에 남겼으며 자동 재시도하지 않습니다.`);
           } else {
-            setNotice(batch.jobs.every((row) => !excludedThisRun.current.has(row.jobId))
-              ? "현재 운영 배치 완료 · 다음 대기건을 자동으로 이어서 배정합니다."
-              : "현재 운영 배치 종료 · 실패/불확실 건은 예외 큐로 격리하고 정상 대기건만 계속 처리합니다.");
-            window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 900);
+            if (batch.stopAfterBatch) {
+              continueAfterBatch.current = false;
+              setDraining(false);
+              setPhase("PAUSED_ON_FAILURE");
+              setNotice("현재 운영 배치에서 실패/불확실 건이 발생해 이후 B코드 자동배정을 중지했습니다. 시작하지 않은 명령은 운영 큐에 보존했습니다.");
+            } else {
+              setNotice("현재 운영 배치의 Shopling 전송 접수 완료 · 다음 대기건을 자동으로 이어서 배정합니다.");
+              window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 250);
+            }
           }
         } catch (error) {
           handledResults.current.delete(resultKey); continueAfterBatch.current = false;
@@ -529,9 +544,9 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     <section ref={panelRef} className="rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <span className="text-xs font-black tracking-[0.12em] text-sky-800">OPERATION QUEUE · B-CODE → SHOPLING · SERIAL</span>
+          <span className="text-xs font-black tracking-[0.12em] text-sky-800">OPERATION QUEUE · B-CODE → SHOPLING · BOUNDED 2-LANE</span>
           <h2 className="mt-1 text-xl font-black text-slate-950">실제 운영 재고상태 자동 큐</h2>
-          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded와 사용자가 B코드로 명시한 품절·판매중 지시를 실행 대상으로 사용합니다. 수동 지시는 재고 판매범위 추론과 분리해 유지하고, Shopling 동시작업 충돌을 막기 위해 반드시 1건의 최종 결과를 기록한 뒤 다음 B코드로 넘어갑니다. FAILED/UNCERTAIN은 같은 실행에서 자동 재시도하지 않고 예외 큐로 격리합니다.</p>
+          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded와 사용자가 B코드로 명시한 품절·판매중 지시를 실행 대상으로 사용합니다. Shopling 실제 결과페이지 진입으로 전송 접수가 확인되면 Commerce OS 책임을 종결하고 다음 B코드를 최대 2-Lane으로 배정합니다. 마켓별 최종 결과는 Shopling에서 계속 처리하며, FAILED/UNCERTAIN 발생 시 이후 자동배정을 즉시 중지합니다.</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-black">
           <span className={`rounded-full border px-3 py-1.5 ${extensionReady ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{extensionReady ? `확장 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}` : "확장 연결 대기"}</span>
@@ -541,7 +556,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       {notice ? <div role="status" className="mt-4 rounded-xl border border-sky-200 bg-white px-4 py-3 text-sm font-bold text-slate-800">{notice}</div> : null}
       {terminalSummary ? <div role="status" className={`mt-4 rounded-xl border px-4 py-4 ${terminalSummary.outcome === "SUCCEEDED" ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-rose-300 bg-rose-50 text-rose-950"}`}>
         <div className="text-base font-black">{terminalSummary.barcode} 작업 종료 · {terminalSummary.outcome === "SUCCEEDED" ? "성공" : "실패/확인 필요"}</div>
-        <div className="mt-2 text-sm font-bold">Shopling 반영: {terminalSummary.outcome === "SUCCEEDED" ? "완료" : terminalSummary.preSearchBlocked ? "미반영 · 상품 검색 전에 안전 차단" : "확인 필요"}</div>
+        <div className="mt-2 text-sm font-bold">Shopling 전송 접수: {terminalSummary.outcome === "SUCCEEDED" ? "완료" : terminalSummary.preSearchBlocked ? "미접수 · 상품 검색 전에 안전 차단" : "확인 필요"}</div>
         <div className="mt-1 text-sm">자동 재시도: 안 함 · {new Date(terminalSummary.finishedAt).toLocaleString("ko-KR")}</div>
         <div className="mt-2 text-xs leading-5">{terminalSummary.message}</div>
       </div> : null}

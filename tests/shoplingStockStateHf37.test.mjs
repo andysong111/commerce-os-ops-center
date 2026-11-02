@@ -101,11 +101,11 @@ test("HF37 remains v0.6.5 while the UI requires HF52 and keeps a terminal result
   ]);
   assert.match(route, /getHf36Download/);
   assert.match(route, /const VERSION = "0\.6\.5"/);
-  assert.match(page, /download-hf54/);
-  assert.match(page, /v0\.6\.19 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 19\]/);
+  assert.match(page, /download-hf57/);
+  assert.match(page, /v0\.6\.20 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 20\]/);
   assert.match(queue, /작업 종료 · 실패\/확인 필요/);
-  assert.match(queue, /미반영 · 상품 검색 전에 안전 차단/);
+  assert.match(queue, /미접수 · 상품 검색 전에 안전 차단/);
   assert.match(queue, /자동 재시도: 안 함/);
-  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.19'/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.20'/);
 });

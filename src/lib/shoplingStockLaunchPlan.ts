@@ -5,7 +5,7 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 19] as const;
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 20] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
@@ -36,20 +36,24 @@ export function supportsAllDateStockSync(
 }
 
 /**
- * Keeps queue priority intact. HF28/HF29 can overlap only when Lane 1 is SINGLE;
- * HF30 can safely detach OPTION Lane 1 after its final A21 batch submission.
+ * Keep queue priority intact and bound concurrency to the extension's proven
+ * two-lane coordinator. HF57 terminates Commerce OS responsibility at exact
+ * Shopling result-page navigation, so both lanes can release quickly without
+ * waiting for marketplace-by-marketplace completion.
  */
 export function planShoplingStockLaunch<T extends StockLaunchJob>(
   jobs: readonly T[],
   extensionVersion: string | null | undefined,
 ): { mode: ShoplingStockLaunchMode; jobs: T[]; compatibilitySerial: boolean } {
-  void extensionVersion;
   const first = jobs[0];
   if (!first) return { mode: "SINGLE", jobs: [], compatibilitySerial: false };
-  // Shopling exposes one shared stock-state worker. A live production batch
-  // proved that launching lane 2 while lane 1 still owned that worker rejects
-  // the second B-code. Dispatch one B-code at a time until its terminal result
-  // is durably recorded; completeness is more important than overlap speed.
+  if (jobs.length >= 2 && supportsAllDateStockSync(extensionVersion)) {
+    return {
+      mode: "PARALLEL",
+      jobs: [jobs[0], jobs[1]],
+      compatibilitySerial: false,
+    };
+  }
   return {
     mode: "SINGLE",
     jobs: [first],
