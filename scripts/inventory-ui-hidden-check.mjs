@@ -42,7 +42,7 @@ await context.route('**/*', async route => {
     return route.fulfill({ status: 403, json: { ok: false, code: 'TEST_WRITES_BLOCKED' } });
   }
   if (url.pathname === R || url.pathname === Q) {
-    requests.push(url.pathname);
+    requests.push(`${url.pathname}${url.search}`);
     if (mode === 'FAIL' && url.pathname === Q) return route.fulfill({ status: 503, json: { ok: false, code: 'TEST_READ_FAILURE', message: '모의 연결 실패' } });
     const payload = mode === 'EMPTY' ? { ok: true, report: { ...report, pendingSyncCount: 0, rows: [] }, jobs: [] } : queuePayload;
     return route.fulfill({ json: url.pathname === Q ? payload : { ok: true, report } });
@@ -74,8 +74,12 @@ try {
   await page.screenshot({ path: `${output}/screen.png`, fullPage: true });
   assert.match(evidence.queueText || '', /원장 READY/, 'An accepted explicit response must render even when passive polling is gated');
   assert.match(evidence.queueText || '', /BAB3-1/, 'The exact response row must reach the rendered queue');
-  assert.deepEqual(requests, [R, Q], 'Hidden passive polling must not add an initial read');
-  checks.push('hidden initial response paints immediately with R then Q only');
+  assert.deepEqual(
+    requests,
+    [`${Q}?mode=execute`, R, Q],
+    'Hidden passive polling must add no read beyond explicit direct-run recovery plus R and Q',
+  );
+  checks.push('hidden initial response paints after explicit direct-run recovery, then R and Q only');
 
   await page.clock.fastForward(6000);
   assert.match((await inspect()).queueText || '', /BAB3-1/, 'Render must survive the old five-second handoff expiry');
