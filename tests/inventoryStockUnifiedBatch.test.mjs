@@ -55,6 +55,9 @@ test("unified UI has four inputs and one wait-until-complete action", async () =
   assert.match(source, /inventory-stock-control\/unified-batch/);
   assert.match(source, /전체 \$\{totalCount\}건 저장·적용 시작/);
   assert.match(source, /Shopling 자동 처리 중 · 기다려 주세요/);
+  assert.match(source, /shopling-direct-run-summary/);
+  assert.match(source, /전체 접수가 끝난 상태가 아닙니다/);
+  assert.match(source, /Shopling 처리화면 도달을 확인했습니다/);
   assert.match(source, /conflictingBarcodes/);
   assert.match(source, /planShoplingStockLaunch/);
   assert.match(source, /supportsAllDateStockSync/);
