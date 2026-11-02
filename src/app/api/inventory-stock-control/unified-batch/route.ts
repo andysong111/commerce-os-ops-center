@@ -20,6 +20,10 @@ import {
   INVENTORY_STOCK_ESTIMATE_BASELINE_OPERATION_TYPE,
   normalizeInventoryStockEstimateInput,
 } from "@/lib/inventoryStockEstimateBaselines";
+import {
+  SHOPLING_STOCK_RETRANSMISSION_REQUEST_OPERATION_TYPE,
+  type ShoplingStockRetransmissionRequest,
+} from "@/lib/inventoryShoplingRetransmission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -264,6 +268,44 @@ export async function POST(request: Request) {
       });
     });
 
+    const jobs = [
+      ...stockoutEvents.map((event) =>
+        directJob(
+          event,
+          identityByBarcode.get(event.barcode) || {},
+          "SOLD_OUT",
+        ),
+      ),
+      ...onSaleEvents.map((event) =>
+        directJob(
+          event,
+          identityByBarcode.get(event.barcode) || {},
+          "ON_SALE",
+          true,
+        ),
+      ),
+    ];
+    const commandRequest: ShoplingStockRetransmissionRequest | null = jobs.length
+      ? {
+          requestId: `unified-command:${batchId}`.slice(0, 180),
+          occurredAt,
+          reportFingerprint: "DIRECT_OPERATOR_BCODE_COMMAND_V1",
+          reason:
+            "통합 입력에서 사용자가 B코드별로 명시한 Shopling 품절·판매중 지시",
+          items: jobs.map((job) => ({
+            jobId: job.jobId,
+            barcode: job.barcode,
+            productName: job.productName,
+            modelNo: job.modelNo,
+            productKind: job.productKind,
+            desiredStatus: job.desiredStatus,
+            desiredSince: job.desiredSince,
+            mode: "REPLAY" as const,
+            directOperatorCommand: true,
+          })),
+        }
+      : null;
+
     const storage = await storeInventoryOperationBatch([
       ...stockoutEvents.map((event) => ({
         operationType: INVENTORY_STOCKOUT_RESET_OPERATION_TYPE,
@@ -289,25 +331,18 @@ export async function POST(request: Request) {
         correlationId: `inventory-stock:${event.barcode}`,
         snapshot: event,
       })),
+      ...(commandRequest
+        ? [
+            {
+              operationType:
+                SHOPLING_STOCK_RETRANSMISSION_REQUEST_OPERATION_TYPE,
+              sourceEventId: `shopling-stock-retransmission:${commandRequest.requestId}`,
+              correlationId: `shopling-stock-retransmission:${commandRequest.requestId}`,
+              snapshot: commandRequest,
+            },
+          ]
+        : []),
     ]);
-
-    const jobs = [
-      ...stockoutEvents.map((event) =>
-        directJob(
-          event,
-          identityByBarcode.get(event.barcode) || {},
-          "SOLD_OUT",
-        ),
-      ),
-      ...onSaleEvents.map((event) =>
-        directJob(
-          event,
-          identityByBarcode.get(event.barcode) || {},
-          "ON_SALE",
-          true,
-        ),
-      ),
-    ];
 
     return Response.json(
       {
@@ -322,6 +357,7 @@ export async function POST(request: Request) {
         },
         identities,
         jobs,
+        commandRequestId: commandRequest?.requestId ?? null,
         storage,
         message:
           `통합 재고 작업 ${allBarcodes.length}건을 저장했습니다. ` +

@@ -247,7 +247,8 @@ test("currently running operational lanes are not mislabeled as STARTED/UNCERTAI
     "utf8",
   );
   assert.match(panel, /!runningBarcodes\.includes\(row\.barcode\)/);
-  assert.match(panel, /\[report, runningBarcodes\]/);
+  assert.match(panel, /!directCommandBarcodes\.has\(row\.barcode\)/);
+  assert.match(panel, /\[jobs, report, runningBarcodes\]/);
 });
 
 

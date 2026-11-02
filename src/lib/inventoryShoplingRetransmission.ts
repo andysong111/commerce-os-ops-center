@@ -8,6 +8,7 @@ import {
 } from "@/lib/inventoryStockControl";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
+  isCurrentShoplingRetransmissionIdentity,
   type RetransmissionItemMode,
   type ShoplingStockRetransmissionRequest,
 } from "@/lib/inventoryShoplingRetransmissionPlan";
@@ -81,6 +82,7 @@ function requestFrom(row: StoredRow): ShoplingStockRetransmissionRequest | null 
       desiredStatus,
       desiredSince: text(item.desiredSince),
       mode,
+      directOperatorCommand: item.directOperatorCommand === true,
     }];
   });
   if (!requestId || !occurredAt || !items.length) return null;
@@ -144,12 +146,9 @@ export async function loadShoplingStockRetransmissionState(
   const batches = requests.map((request) => {
     const items = request.items.map((item) => {
       const current = currentByBarcode.get(item.barcode);
-      const identityStillCurrent = Boolean(
-        current &&
-          !current.syncBlocked &&
-          current.desiredStatus === item.desiredStatus &&
-          current.productKind === item.productKind &&
-          current.desiredSince === item.desiredSince,
+      const identityStillCurrent = isCurrentShoplingRetransmissionIdentity(
+        current,
+        item,
       );
       const outcome = latestOutcomeByJobId.get(item.jobId);
       const state: RetransmissionItemState = !identityStillCurrent

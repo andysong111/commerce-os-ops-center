@@ -43,23 +43,16 @@ export function planShoplingStockLaunch<T extends StockLaunchJob>(
   jobs: readonly T[],
   extensionVersion: string | null | undefined,
 ): { mode: ShoplingStockLaunchMode; jobs: T[]; compatibilitySerial: boolean } {
+  void extensionVersion;
   const first = jobs[0];
   if (!first) return { mode: "SINGLE", jobs: [], compatibilitySerial: false };
-
-  const firstTwo = jobs.slice(0, 2);
-  const canUseParallel =
-    firstTwo.length === 2 &&
-    (first.productKind === "SINGLE" ||
-      supportsOptionFirstParallel(extensionVersion));
-
-  if (canUseParallel) {
-    return { mode: "PARALLEL", jobs: firstTwo, compatibilitySerial: false };
-  }
-
+  // Shopling exposes one shared stock-state worker. A live production batch
+  // proved that launching lane 2 while lane 1 still owned that worker rejects
+  // the second B-code. Dispatch one B-code at a time until its terminal result
+  // is durably recorded; completeness is more important than overlap speed.
   return {
     mode: "SINGLE",
     jobs: [first],
-    compatibilitySerial:
-      firstTwo.length === 2 && first.productKind === "OPTION",
+    compatibilitySerial: jobs.length > 1,
   };
 }

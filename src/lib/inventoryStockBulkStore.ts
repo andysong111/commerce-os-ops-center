@@ -23,7 +23,10 @@ export async function storeInventoryOperationBatch(
   inputs: InventoryBulkOperationInput[],
 ) {
   if (!inputs.length) throw new Error("INVENTORY_BATCH_EMPTY");
-  if (inputs.length > 50) throw new Error("INVENTORY_BATCH_TOO_LARGE");
+  // A unified operator batch may contain 50 B-code operations plus one durable
+  // Shopling command envelope. Keep those rows in the same atomic upsert so a
+  // saved manual status instruction can never disappear between UI and queue.
+  if (inputs.length > 51) throw new Error("INVENTORY_BATCH_TOO_LARGE");
   const sourceIds = inputs.map((input) => input.sourceEventId);
   if (new Set(sourceIds).size !== sourceIds.length) {
     throw new Error("INVENTORY_BATCH_SOURCE_EVENT_DUPLICATE");

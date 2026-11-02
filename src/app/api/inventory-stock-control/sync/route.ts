@@ -337,6 +337,7 @@ export async function GET(request: Request) {
         jobId: item.jobId,
         retransmissionRequestId: item.requestId,
         retransmissionOnly: true,
+        directOperatorCommand: item.directOperatorCommand === true,
       }];
     });
     // A retransmission job and the normal inventory job can describe the exact
