@@ -2,6 +2,10 @@
 
 import { useState, type FormEvent } from "react";
 import { isPurchaseDraftQuantityUnit } from "@/lib/purchaseDraftQuantityRounding";
+import {
+  MANUAL_DRAFT_SEARCH_TERM_LIMIT,
+  parseManualDraftSearchTerms,
+} from "@/lib/internalChinaManualDraftSearchCore";
 
 export type ManualDraftCandidate = {
   barcode: string;
@@ -64,10 +68,7 @@ export function InternalChinaManualDraftLineAdder({
   async function search(event?: FormEvent) {
     event?.preventDefault();
     const trimmed = query.trim();
-    const terms = trimmed
-      .split(/[,;\n\r]+/)
-      .map((term) => term.trim())
-      .filter((term) => term.length >= 2);
+    const terms = parseManualDraftSearchTerms(trimmed);
     if (!terms.length) {
       setNotice("검색어를 2글자 이상 입력하세요. 여러 개는 콤마로 구분할 수 있습니다.");
       return;
@@ -100,7 +101,11 @@ export function InternalChinaManualDraftLineAdder({
         }
         return output;
       });
-      setNotice(body.message || "검색을 완료했습니다.");
+      setNotice(
+        next.length
+          ? `${terms.length}개 검색어로 중복 제외 ${next.length}개 B-code를 찾았습니다.`
+          : body.message || "조건에 맞는 활성 B-code가 없습니다.",
+      );
     } catch (error) {
       setCandidates([]);
       setNotice(
@@ -118,6 +123,7 @@ export function InternalChinaManualDraftLineAdder({
     const retained = stagedAdditions.filter((row) => !visible.has(row.barcode));
     if (!checked) {
       onStagedAdditionsChange(retained);
+      setNotice(`이 검색결과의 추가 대기 ${selectedCandidates.length}종을 선택 해제했습니다.`);
       return;
     }
     const additions = selectableCandidates.flatMap((candidate) => {
@@ -127,6 +133,9 @@ export function InternalChinaManualDraftLineAdder({
         : [];
     });
     onStagedAdditionsChange([...retained, ...additions]);
+    setNotice(
+      `${additions.length}종을 사용자 고정수량으로 재계산 대기에 넣었습니다. 아래 4단계에서 최종 재계산하세요.`,
+    );
   }
 
   function toggleOne(barcode: string, checked: boolean) {
@@ -190,20 +199,29 @@ export function InternalChinaManualDraftLineAdder({
         </div>
       ) : (
         <>
-          <form onSubmit={(event) => void search(event)} className="mt-4 flex flex-col gap-2 md:flex-row">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="여러 개는 콤마로 구분 · 예: aaa288, aaa131, BAF1-1, 허리스트레칭"
-              className="min-w-0 flex-1 rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-amber-500"
-            />
-            <button
-              type="submit"
-              disabled={searching}
-              className="rounded-xl bg-amber-600 px-5 py-3 text-sm font-black text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {searching ? "검색 중..." : "추가할 B-code 검색"}
-            </button>
+          <form onSubmit={(event) => void search(event)} className="mt-4">
+            <label htmlFor="manual-draft-product-search" className="mb-2 block text-sm font-black text-slate-800">
+              B-code · 모델번호 · 모델명 · 상품명으로 여러 건 검색
+            </label>
+            <div className="flex flex-col gap-2 md:flex-row">
+              <input
+                id="manual-draft-product-search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="예: BBA2-2, AAA092, 토끼브로치 (콤마·줄바꿈으로 여러 건)"
+                className="min-w-0 flex-1 rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-amber-500"
+              />
+              <button
+                type="submit"
+                disabled={searching}
+                className="rounded-xl bg-amber-600 px-5 py-3 text-sm font-black text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {searching ? "검색 중..." : "주문품목 여러 건 검색"}
+              </button>
+            </div>
+            <p className="mt-2 text-xs font-semibold text-slate-600">
+              콤마(,), 세미콜론 또는 줄바꿈으로 구분해 최대 {MANUAL_DRAFT_SEARCH_TERM_LIMIT}개까지 검색합니다. 중복 검색어와 중복 B-code는 한 번만 표시합니다.
+            </p>
           </form>
 
           {notice ? (
@@ -300,6 +318,19 @@ export function InternalChinaManualDraftLineAdder({
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-amber-100 bg-amber-50/70 px-4 py-3">
+                <p className="text-xs font-bold leading-5 text-slate-700">
+                  추가할 행을 체크하고 수량을 입력하세요. 이미 초안에 있는 행은 아래 주문표에서 수량을 수정합니다.
+                </p>
+                {selectedCandidates.length > 0 ? (
+                  <a
+                    href="#purchase-draft-recalculate"
+                    className="rounded-xl bg-blue-700 px-4 py-3 text-sm font-black text-white hover:bg-blue-800"
+                  >
+                    선택 완료 · 4단계 재계산으로 이동
+                  </a>
+                ) : null}
               </div>
             </div>
           ) : null}

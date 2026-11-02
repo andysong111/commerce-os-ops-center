@@ -58,12 +58,12 @@ test("manual addition search also uses product-launch model names and sale optio
 
 test("manual addition search supports comma-separated model, product and B-code terms", () => {
   assert.match(helper, /parseManualDraftSearchTerms/);
-  assert.match(helper, /split\(\/\[,;\\n\\r\]\+\//);
-  assert.match(helper, /bestSearchMatch/);
+  assert.match(helper, /bestManualDraftSearchMatch/);
   assert.match(helper, /termIndex/);
   assert.match(helper, /RESULT_LIMIT_MAX = 200/);
-  assert.match(component, /여러 개는 콤마로 구분/);
-  assert.match(component, /aaa288, aaa131, BAF1-1/);
+  assert.match(component, /B-code · 모델번호 · 모델명 · 상품명으로 여러 건 검색/);
+  assert.match(component, /BBA2-2, AAA092, 토끼브로치/);
+  assert.match(component, /선택 완료 · 4단계 재계산으로 이동/);
 });
 
 test("manual addition API is same-origin only and exposes search plus add", () => {
@@ -79,7 +79,7 @@ test("manual addition API is same-origin only and exposes search plus add", () =
 test("draft page stages searchable B-code additions for the shared recalculation", () => {
   assert.match(page, /InternalChinaDraftBatchEditor/);
   assert.match(batchEditor, /InternalChinaManualDraftLineAdder/);
-  assert.match(component, /추가할 B-code 검색/);
+  assert.match(component, /주문품목 여러 건 검색/);
   assert.match(component, /다른 미입고/);
   assert.match(component, /재계산 대기/);
   assert.match(component, /재계산 전 원장 미변경/);

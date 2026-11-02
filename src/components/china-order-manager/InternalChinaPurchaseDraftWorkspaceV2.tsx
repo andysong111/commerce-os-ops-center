@@ -1243,7 +1243,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
       {manualAddPanel}
 
-      <section className={`rounded-2xl border p-5 shadow-sm ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
+      <section id="purchase-draft-recalculate" className={`scroll-mt-24 rounded-2xl border p-5 shadow-sm ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <span className="text-xs font-black tracking-[0.12em] text-blue-700">PURCHASE RUN · STEP 4</span>
