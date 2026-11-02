@@ -446,7 +446,9 @@ export async function POST(request: Request) {
       ) {
         throw new Error(`화면의 ${requestedBarcode} 대기건과 현재 원장 작업이 일치하지 않아 복구를 차단했습니다.`);
       }
-      if (!row.syncNeeded && row.latestSyncOutcome === "SUCCEEDED") {
+      const alreadySucceeded =
+        !row.syncNeeded && row.latestSyncOutcome === "SUCCEEDED";
+      if (alreadySucceeded && !retransmissionItem) {
         return Response.json(
           {
             ok: true,
@@ -469,7 +471,7 @@ export async function POST(request: Request) {
           ? ["PENDING", "STARTED", "BLOCKED"]
           : ["STARTED", "BLOCKED"];
         if (
-          !startedOrUncertain ||
+          (!alreadySucceeded && !startedOrUncertain) ||
           !exactKnownStart ||
           !recoverableReplayStates.includes(
             String(retransmissionItem.state || ""),
