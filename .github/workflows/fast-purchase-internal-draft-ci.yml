@@ -38,6 +38,7 @@ jobs:
           src/lib/monthlyPurchasePolicy.ts
           src/lib/monthlyPurchaseCycleGate.ts
           src/lib/purchaseDraftQuantityRounding.ts
+          src/lib/internalChinaManualDraftQuantityCore.ts
           src/lib/internalChinaManualDraftSearchCore.ts
           src/lib/internalChinaPurchaseDraftManualAdd.ts
           src/app/api/fast-purchase/drafts/route.ts

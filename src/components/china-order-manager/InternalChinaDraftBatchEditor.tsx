@@ -1,10 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  InternalChinaManualDraftLineAdder,
-  type StagedDraftAddition,
-} from "@/components/china-order-manager/InternalChinaManualDraftLineAdder";
+import type { StagedDraftAddition } from "@/components/china-order-manager/InternalChinaManualDraftLineAdder";
 import { InternalChinaPurchaseDraftGuide } from "@/components/china-order-manager/InternalChinaPurchaseDraftGuide";
 import { InternalChinaPurchaseDraftWorkspaceV2 } from "@/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2";
 import type { InternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
@@ -42,14 +39,6 @@ export function InternalChinaDraftBatchEditor({
         initialNotice={initialNotice}
         stagedAdditions={stagedAdditions}
         onStagedAdditionsChange={setStagedAdditions}
-        manualAddPanel={
-          <InternalChinaManualDraftLineAdder
-            draftId={initialDraft.draftId}
-            status={initialDraft.status}
-            stagedAdditions={stagedAdditions}
-            onStagedAdditionsChange={setStagedAdditions}
-          />
-        }
       />
     </>
   );
