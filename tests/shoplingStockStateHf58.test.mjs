@@ -24,9 +24,9 @@ test("HF58 packages v0.6.21 and makes the owner processing screen the terminal b
   assert.match(route, /foreignProcessingPopupsBlockCurrentJob: false/);
   assert.match(patch, /SHOPLING_PROCESSING_SCREEN_ACCEPTED_HF58/);
   assert.match(patch, /popupOwnershipScope: "EXACT_OPENER_TAB_HF58"/);
-  assert.match(page, /download-hf60/);
-  assert.match(page, /v0\.6\.23 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 23\]/);
+  assert.match(page, /download-hf61/);
+  assert.match(page, /v0\.6\.24 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 24\]/);
 });
 
 async function runPopupPreflight({ popups, inspections, senderTabId = 900 }) {

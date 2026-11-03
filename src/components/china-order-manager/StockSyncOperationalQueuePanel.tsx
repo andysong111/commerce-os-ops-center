@@ -278,7 +278,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 중첩 결과창 접수 확인·정확한 팝업 소유권·2-Lane 처리를 지원하지 않아 사용할 수 없습니다. v0.6.23으로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 중첩 결과창 접수 확인·정확한 팝업 소유권·2-Lane 처리를 지원하지 않아 사용할 수 없습니다. v0.6.24로 업데이트해 주세요.`);
         }
         return;
       }
