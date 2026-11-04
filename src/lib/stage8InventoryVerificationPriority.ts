@@ -376,6 +376,15 @@ export async function loadInventoryVerificationPriority(
         bandInventoryQuantity === null
           ? integer(inventory?.inventoryQuantity)
           : bandInventoryQuantity;
+      const preGateDemandTarget = integer(product.forecastUnits);
+      const preGateBandInventoryQuantity = estimatedInventoryForStockBand(
+        preGateDemandTarget,
+        operatorStockBand,
+      );
+      const preGatePlanningInventoryQuantity =
+        preGateBandInventoryQuantity === null
+          ? integer(inventory?.inventoryQuantity)
+          : preGateBandInventoryQuantity;
       const openCommitment = integer(product.openCommitment);
       const recentReceipt = recentReceipts.receipts.get(key);
       const recentCycleReceivedQuantity = integer(recentReceipt?.quantity);
@@ -414,11 +423,11 @@ export async function loadInventoryVerificationPriority(
       // inventory, open commitments and recent receipts before simulating a
       // recovery strategy.
       const preGateNet = calculateNetRequirement({
-        demandTarget: integer(product.forecastUnits),
+        demandTarget: preGateDemandTarget,
         originalGroup,
         inventoryKnown: inventoryCalculationUsable,
         availableQuantity: inventoryCalculationUsable
-          ? planningInventoryQuantity
+          ? preGatePlanningInventoryQuantity
           : 0,
         reservedQuantity: 0,
         incomingQuantity: 0,

@@ -49,6 +49,22 @@ test("provisional quantity, open commitment and unreflected prior-cycle receipts
   assert.match(page, /별도 안전증거 없이는 실제 Draft 실행대상이 아닙니다/);
 });
 
+test("pre-gate strategy recovery recalculates stock-band inventory against the same pre-gate demand target", () => {
+  assert.match(engine, /const preGateDemandTarget = integer\(product\.forecastUnits\)/);
+  assert.match(
+    engine,
+    /const preGateBandInventoryQuantity = estimatedInventoryForStockBand\(\s*preGateDemandTarget,\s*operatorStockBand,\s*\)/,
+  );
+  assert.match(
+    engine,
+    /const preGatePlanningInventoryQuantity =\s*preGateBandInventoryQuantity === null\s*\? integer\(inventory\?\.inventoryQuantity\)\s*: preGateBandInventoryQuantity/,
+  );
+  assert.match(
+    engine,
+    /const preGateNet = calculateNetRequirement\(\{[\s\S]*?demandTarget: preGateDemandTarget,[\s\S]*?availableQuantity: inventoryCalculationUsable\s*\? preGatePlanningInventoryQuantity\s*: 0/,
+  );
+});
+
 test("draft regeneration excludes all safe same-cycle RESERVED drafts before portfolio allocation", () => {
   assert.match(engine, /excludeCommitmentDraftId/);
   assert.match(engine, /safeReplacementCycleDraftCommitments/);
