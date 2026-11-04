@@ -153,6 +153,9 @@ export type SeoListingShoplingBCodeOnboardingPlan = {
   productsPreparedForVerification: number;
   productsNeedingReview: number;
   productsSkippedExisting: number;
+  productsAuditedExisting: number;
+  productsPassingExistingAudit: number;
+  productsFailingExistingAudit: number;
   currentCatalogGoodsKeyCount: number;
   deletedCatalogGoodsKeyCount: number;
   unresolvedCatalogGoodsKeyCount: number;
@@ -172,6 +175,7 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
   launchOptions: UnknownRecord[];
   marketLedgerRows: UnknownRecord[];
   existingLifecycleRows?: UnknownRecord[];
+  auditExisting?: boolean;
   now?: Date;
 }): SeoListingShoplingBCodeOnboardingPlan {
   const now = input.now ?? new Date();
@@ -249,8 +253,10 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       deletedCatalogGoodsKeyCount += 1;
       continue;
     }
+    const ptnCodes = [...group.ptnCodes];
     const candidateItemIds = new Set<string>();
-    let identityConflict = group.invalidPartnerCodeRowCount > 0;
+    let identityConflict =
+      group.invalidPartnerCodeRowCount > 0 || ptnCodes.length !== 1;
     for (const bCode of group.bCodes) {
       const itemIds = itemIdsByBCode.get(bCode);
       if (!itemIds || itemIds.size !== 1) identityConflict = true;
@@ -258,7 +264,6 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
     }
     if (candidateItemIds.size !== 1) identityConflict = true;
 
-    const ptnCodes = [...group.ptnCodes];
     const suffixProfiles = new Set(
       ptnCodes
         .map((value) => inferProductGroupFromPtnGoodsCd(value))
@@ -310,6 +315,7 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
     ),
   );
   const existingProfilesByProduct = new Map<string, Set<string>>();
+  const existingRowsByProduct = new Map<string, UnknownRecord[]>();
   for (const row of input.existingLifecycleRows ?? []) {
     if (text(row.owner_id) !== ownerId) continue;
     const launchItemId = text(row.launch_item_id);
@@ -317,6 +323,9 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       existingProfilesByProduct.get(launchItemId) ?? new Set<string>();
     profiles.add(text(row.market_account_key));
     existingProfilesByProduct.set(launchItemId, profiles);
+    const rows = existingRowsByProduct.get(launchItemId) ?? [];
+    rows.push(row);
+    existingRowsByProduct.set(launchItemId, rows);
   }
   const latestLedger = latestRowsByGoodsKey(
     input.marketLedgerRows.filter((row) => text(row.owner_id) === ownerId),
@@ -329,11 +338,20 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
   let productsUnmatchedCurrentShopling = 0;
   let productsPreparedForVerification = 0;
   let productsSkippedExisting = 0;
+  let productsAuditedExisting = 0;
+  let productsPassingExistingAudit = 0;
+  let productsFailingExistingAudit = 0;
 
   for (const launchItemId of [...bCodesByItem.keys()].sort()) {
     const item = itemsById.get(launchItemId);
     if (!item) continue;
+    const existingRowsForProduct =
+      existingRowsByProduct.get(launchItemId) ?? [];
+    if (input.auditExisting === true && existingRowsForProduct.length === 0) {
+      continue;
+    }
     if (
+      input.auditExisting !== true &&
       SEO_LISTING_SHADOW_EXPECTED_PROFILES.every((profile) =>
         existingProfilesByProduct.get(launchItemId)?.has(profile),
       )
@@ -341,9 +359,18 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       productsSkippedExisting += 1;
       continue;
     }
+    if (input.auditExisting === true) productsAuditedExisting += 1;
     const currentRows = currentByItem.get(launchItemId) ?? [];
     if (currentRows.length === 0) {
       productsUnmatchedCurrentShopling += 1;
+      if (input.auditExisting === true) {
+        productsFailingExistingAudit += 1;
+        productReviews.push({
+          launchItemId,
+          modelNumber: text(item.model_number),
+          reason: "BCODE_SHOPLING_CURRENT_CATALOG_MISSING",
+        });
+      }
       continue;
     }
     productsMatchedCurrentShopling += 1;
@@ -384,26 +411,41 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
     } else if (selfCodeBases.size !== 1) {
       reason = "BCODE_SHOPLING_SELF_CODE_CONFLICT";
     } else {
-      const ledgerRows = goodsKeys
-        .map((goodsKey) => latestLedger.get(goodsKey))
-        .filter((row): row is UnknownRecord => Boolean(row));
-      const ledgerProfiles = new Set(
-        ledgerRows.map((row) => text(row.profile)),
-      );
+      const ledgerRows = goodsKeys.map((goodsKey) => latestLedger.get(goodsKey));
       const ledgerShapeComplete =
         ledgerRows.length === SEO_LISTING_SHADOW_EXPECTED_PROFILES.length &&
         ledgerRows.every(
-          (row) => text(row.launch_item_id) === launchItemId,
-        ) &&
-        SEO_LISTING_SHADOW_EXPECTED_PROFILES.every((profile) =>
-          ledgerProfiles.has(profile),
+          (row, index) =>
+            Boolean(row) &&
+            text(row?.launch_item_id) === launchItemId &&
+            text(row?.profile) === SEO_LISTING_SHADOW_EXPECTED_PROFILES[index],
         );
       if (!ledgerShapeComplete) {
         reason = "BCODE_MARKET_PIPELINE_IDENTITY_INCOMPLETE";
       }
     }
+    if (!reason && input.auditExisting === true) {
+      const existingByProfile = new Map<string, UnknownRecord[]>();
+      for (const row of existingRowsForProduct) {
+        const profile = text(row.market_account_key);
+        const rows = existingByProfile.get(profile) ?? [];
+        rows.push(row);
+        existingByProfile.set(profile, rows);
+      }
+      const existingIdentityMatches =
+        existingRowsForProduct.length ===
+          SEO_LISTING_SHADOW_EXPECTED_PROFILES.length &&
+        SEO_LISTING_SHADOW_EXPECTED_PROFILES.every((profile, index) => {
+          const rows = existingByProfile.get(profile) ?? [];
+          return rows.length === 1 && text(rows[0].goods_key) === goodsKeys[index];
+        });
+      if (!existingIdentityMatches) {
+        reason = "BCODE_EXISTING_LIFECYCLE_IDENTITY_MISMATCH";
+      }
+    }
 
     if (reason) {
+      if (input.auditExisting === true) productsFailingExistingAudit += 1;
       reviewRecords.push(
         ...exceptionRecords({
           ownerId,
@@ -422,6 +464,7 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       });
       continue;
     }
+    if (input.auditExisting === true) productsPassingExistingAudit += 1;
 
     syntheticJobs.push({
       owner_id: ownerId,
@@ -448,6 +491,9 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       productReviews.map((row) => row.launchItemId),
     ).size,
     productsSkippedExisting,
+    productsAuditedExisting,
+    productsPassingExistingAudit,
+    productsFailingExistingAudit,
     currentCatalogGoodsKeyCount:
       bCodeCatalogGoodsKeyCount - deletedCatalogGoodsKeyCount,
     deletedCatalogGoodsKeyCount,

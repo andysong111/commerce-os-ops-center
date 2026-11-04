@@ -65,3 +65,24 @@ API. This workflow must never write to Shopling or a marketplace.
   unrelated pre-existing Windows/environment tests fail. The feature-owned CI
   suites above pass independently.
 
+## Integrity hardening — 2026-11-04
+
+- A product now passes only when each Shopling `goods_key` matches the same
+  canonical profile in the current catalog and the market pipeline ledger.
+  Having the same six profile names in a different goods-key order is no longer
+  accepted.
+- Multiple `ptn_goods_cd` values on one current goods key are treated as an
+  identity conflict even when their suffixes imply the same profile.
+- Authenticated action `preview_shopling_bcode_integrity_audit` rechecks only
+  products already present in the lifecycle ledger. It compares every persisted
+  profile-to-goods-key pair against the current Shopling catalog and pipeline
+  evidence, never writes lifecycle rows, and never writes Shopling or a market.
+- The owner-provided Shopling screen on 2026-11-04 showed product DB usage
+  `6,072 / 10,000`. With 12 safety codes reserved and six codes per SEO product,
+  this is capacity for 652 complete product sets. The production gate still
+  requires the same value in its authenticated internal readback; the screenshot
+  alone does not bypass that gate.
+- Next evidence: deploy this hardening, run the read-only integrity audit over
+  the previously onboarded products, and independently inspect every reported
+  mismatch before any external sold-out/delete canary.
+

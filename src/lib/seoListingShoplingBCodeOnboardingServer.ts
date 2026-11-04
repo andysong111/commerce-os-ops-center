@@ -75,11 +75,14 @@ function catalogScanRange(now: Date) {
 
 export async function reconcileSeoListingShoplingBCodeOnboarding(
   context: SeoRunJobContext,
-  options: { apply?: boolean; now?: Date } = {},
+  options: { apply?: boolean; auditExisting?: boolean; now?: Date } = {},
 ) {
   const now = options.now ?? new Date();
   if (!Number.isFinite(now.getTime())) {
     throw new TypeError("SEO_SHOPLING_BCODE_ONBOARDING_INVALID_NOW");
+  }
+  if (options.apply === true && options.auditExisting === true) {
+    throw new TypeError("SEO_SHOPLING_BCODE_AUDIT_MUST_BE_READ_ONLY");
   }
   const ownerId = context.identity.userId;
   const admin = await createSupabaseAdminClient();
@@ -177,6 +180,7 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     launchOptions,
     marketLedgerRows,
     existingLifecycleRows,
+    auditExisting: options.auditExisting === true,
     now,
   });
   const verification = buildSeoListingShadowReconciliationPlan({
@@ -217,6 +221,12 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     productsPreparedForVerification:
       onboarding.productsPreparedForVerification,
     productsSkippedExisting: onboarding.productsSkippedExisting,
+    integrityAudit: options.auditExisting === true,
+    productsAuditedExisting: onboarding.productsAuditedExisting,
+    productsPassingExistingAudit:
+      onboarding.productsPassingExistingAudit,
+    productsFailingExistingAudit:
+      onboarding.productsFailingExistingAudit,
     productsNeedingReview: new Set(
       productReviews.map((row) => row.launchItemId),
     ).size,
