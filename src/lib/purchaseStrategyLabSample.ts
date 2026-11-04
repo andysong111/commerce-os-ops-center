@@ -4,6 +4,7 @@ type SampleRowOverrides = Partial<PurchaseStrategyLabRow> &
   Pick<PurchaseStrategyLabRow, "barcode" | "name">;
 
 function sampleRow(overrides: SampleRowOverrides): PurchaseStrategyLabRow {
+  const recommendedQuantity = overrides.recommendedQuantity ?? 10;
   return {
     barcode: overrides.barcode,
     name: overrides.name,
@@ -14,7 +15,9 @@ function sampleRow(overrides: SampleRowOverrides): PurchaseStrategyLabRow {
       overrides.purchaseStatus ??
       "발주 추천",
     entrySignals: overrides.entrySignals ? [...overrides.entrySignals] : [],
-    recommendedQuantity: overrides.recommendedQuantity ?? 10,
+    recommendedQuantity,
+    preGateRecommendedQuantity:
+      overrides.preGateRecommendedQuantity ?? recommendedQuantity,
     moq: overrides.moq ?? 1,
     cartonQuantity: overrides.cartonQuantity ?? 1,
     unitCostKrw: overrides.unitCostKrw ?? 100,
@@ -75,7 +78,8 @@ export function purchaseStrategyLabSampleRows(): PurchaseStrategyLabRow[] {
         originalPurchaseStatus:
           barcode === "BBA3-3" ? "발주 추천" : "발주 보류",
         entrySignals: ["MONTHLY_REVENUE_40000"],
-        recommendedQuantity: 50,
+        recommendedQuantity: barcode === "BBA3-3" ? 50 : 0,
+        preGateRecommendedQuantity: 50,
         unitCostKrw: 275,
         revenueQualifiedMonthCount: barcode === "BBA3-3" ? 1 : 0,
         averageMonthlyRevenueKrw: revenue,

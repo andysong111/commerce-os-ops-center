@@ -7,6 +7,7 @@ import {
 } from "../src/lib/purchaseStrategyLabSample.ts";
 
 function row(overrides = {}) {
+  const recommendedQuantity = overrides.recommendedQuantity ?? 10;
   return {
     barcode: "TEST-1",
     name: "테스트 상품",
@@ -14,7 +15,9 @@ function row(overrides = {}) {
     purchaseStatus: "발주 추천",
     originalPurchaseStatus: "발주 추천",
     entrySignals: [],
-    recommendedQuantity: 10,
+    recommendedQuantity,
+    preGateRecommendedQuantity:
+      overrides.preGateRecommendedQuantity ?? recommendedQuantity,
     moq: 1,
     cartonQuantity: 1,
     unitCostKrw: 100,
@@ -101,7 +104,8 @@ test("recent sales can restore every rabbit-brooch color hidden by the completed
       originalPurchaseStatus:
         barcode === "BBA3-3" ? "발주 추천" : "발주 보류",
       entrySignals: ["MONTHLY_REVENUE_40000"],
-      recommendedQuantity: 10,
+      recommendedQuantity: barcode === "BBA3-3" ? 10 : 0,
+      preGateRecommendedQuantity: 10,
       unitCostKrw: 100,
       revenueQualifiedMonthCount: barcode === "BBA3-3" ? 1 : 0,
     }),
@@ -136,6 +140,55 @@ test("balanced strategy can raise a cheap 5-unit recommendation to the configure
 
   assert.equal(quantity(result, "CURRENT", "CHEAP-1"), 5);
   assert.equal(quantity(result, "BALANCED_LOW_COST", "CHEAP-1"), 20);
+});
+
+test("recent demand can recover a completed-month HOLD from the net pre-gate forecast", () => {
+  const result = simulatePurchaseStrategies(
+    [
+      row({
+        barcode: "RECENT-HOLD-1",
+        purchaseStatus: "발주 보류",
+        originalPurchaseStatus: "발주 보류",
+        entrySignals: ["MONTHLY_REVENUE_40000"],
+        recommendedQuantity: 0,
+        // Stage 8 has already subtracted inventory and commitments from the
+        // pre-gate forecast before handing this value to the lab.
+        preGateRecommendedQuantity: 25,
+        unitCostKrw: 100,
+      }),
+    ],
+    { ...config, budgetKrw: 10_000 },
+  );
+
+  assert.equal(quantity(result, "CURRENT", "RECENT-HOLD-1"), 0);
+  assert.equal(quantity(result, "RECENT_PROTECTED", "RECENT-HOLD-1"), 25);
+});
+
+test("experimental strategies never allocate a non-executable quantity below MOQ", () => {
+  const source = [
+    row({
+      barcode: "MOQ-50",
+      recommendedQuantity: 100,
+      preGateRecommendedQuantity: 100,
+      moq: 50,
+      unitCostKrw: 100,
+      entrySignals: ["MONTHLY_REVENUE_40000"],
+    }),
+  ];
+
+  const underfunded = simulatePurchaseStrategies(source, {
+    ...config,
+    budgetKrw: 1_000,
+  });
+  assert.equal(quantity(underfunded, "RECENT_PROTECTED", "MOQ-50"), 0);
+  assert.equal(quantity(underfunded, "BALANCED_LOW_COST", "MOQ-50"), 0);
+
+  const funded = simulatePurchaseStrategies(source, {
+    ...config,
+    budgetKrw: 5_000,
+  });
+  assert.equal(quantity(funded, "RECENT_PROTECTED", "MOQ-50"), 50);
+  assert.equal(quantity(funded, "BALANCED_LOW_COST", "MOQ-50"), 50);
 });
 
 test("simulation is deterministic, respects budget, and never mutates source rows", () => {

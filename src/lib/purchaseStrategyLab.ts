@@ -22,6 +22,7 @@ export type PurchaseStrategyLabRow = {
   originalPurchaseStatus: string;
   entrySignals: string[];
   recommendedQuantity: number;
+  preGateRecommendedQuantity: number;
   moq: number;
   cartonQuantity: number;
   unitCostKrw: number;
@@ -103,6 +104,15 @@ function targetQuantity(row: PurchaseStrategyLabRow) {
   );
 }
 
+function experimentalTargetQuantity(row: PurchaseStrategyLabRow) {
+  const canonicalTarget = targetQuantity(row);
+  if (canonicalTarget > 0 || !hasRecentSignal(row)) return canonicalTarget;
+  return normalizePurchaseOrderQuantity(
+    row.preGateRecommendedQuantity,
+    row.cartonQuantity,
+  );
+}
+
 function normalizedRows(rows: PurchaseStrategyLabRow[]) {
   const byBarcode = new Map<string, PurchaseStrategyLabRow>();
   for (const source of rows) {
@@ -113,6 +123,9 @@ function normalizedRows(rows: PurchaseStrategyLabRow[]) {
       barcode,
       entrySignals: [...source.entrySignals],
       recommendedQuantity: quantity(source.recommendedQuantity),
+      preGateRecommendedQuantity: quantity(
+        source.preGateRecommendedQuantity,
+      ),
       moq: Math.max(1, quantity(source.moq) || 1),
       cartonQuantity: Math.max(1, quantity(source.cartonQuantity) || 1),
       unitCostKrw: money(source.unitCostKrw),
@@ -274,12 +287,13 @@ function fairScenario(
       (row) =>
         !row.permanentlyDiscontinued &&
         row.unitCostKrw > 0 &&
-        targetQuantity(row) > 0 &&
+        experimentalTargetQuantity(row) > 0 &&
         (row.purchaseStatus === "발주 추천" || hasRecentSignal(row)),
     )
     .map((row) => {
-      let target = targetQuantity(row);
+      let target = experimentalTargetQuantity(row);
       const unit = purchaseOrderQuantityUnit(row.cartonQuantity);
+      const executableMinimum = roundUp(row.moq, unit);
       let configuredMinimum = 0;
       const signals = recentSignals(row);
       const includedByRecentSignal =
@@ -312,8 +326,8 @@ function fairScenario(
         );
       }
 
-      target = Math.max(target, configuredMinimum);
-      const baseMinimum = Math.min(target, roundUp(row.moq, unit));
+      target = Math.max(target, executableMinimum, configuredMinimum);
+      const baseMinimum = executableMinimum;
       let minimum = Math.max(
         baseMinimum,
         Math.min(target, configuredMinimum),
@@ -353,12 +367,13 @@ function fairScenario(
   // whole protected floor. This is the anti-starvation behavior missing from
   // the production sequential allocator.
   for (const candidate of candidates) {
-    const lotCost = candidate.allocationUnit * candidate.row.unitCostKrw;
-    if (lotCost > remaining) continue;
-    candidate.allocatedQuantity = Math.min(
+    const seedQuantity = Math.min(
       candidate.targetQuantity,
-      candidate.allocationUnit,
+      roundUp(candidate.row.moq, candidate.allocationUnit),
     );
+    const lotCost = seedQuantity * candidate.row.unitCostKrw;
+    if (lotCost > remaining) continue;
+    candidate.allocatedQuantity = seedQuantity;
     remaining -= candidate.allocatedQuantity * candidate.row.unitCostKrw;
   }
 
@@ -371,6 +386,7 @@ function fairScenario(
               ? candidate.minimumQuantity
               : candidate.targetQuantity;
           return (
+            candidate.allocatedQuantity > 0 &&
             candidate.allocatedQuantity < cap &&
             candidate.allocationUnit * candidate.row.unitCostKrw <= remaining
           );

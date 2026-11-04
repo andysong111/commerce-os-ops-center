@@ -66,6 +66,7 @@ async function loadStrategyLabSnapshot(
       originalPurchaseStatus: row.originalPurchaseStatus,
       entrySignals: row.entrySignals,
       recommendedQuantity: row.recommendedQty,
+      preGateRecommendedQuantity: row.preGateRecommendedQty,
       moq: row.moq,
       cartonQuantity: row.cartonQuantity,
       unitCostKrw: effectiveUnitCost(row),
