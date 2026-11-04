@@ -170,6 +170,9 @@ test("a listing with both a B-code and an invalid partner option code is quarant
     result.productReviews[0].reason,
     "BCODE_SHOPLING_IDENTITY_CONFLICT",
   );
+  assert.deepEqual(result.productReviews[0].details, [
+    "BCODE_INVALID_PARTNER_OPTION_CODE",
+  ]);
 });
 
 test("conflicting partner product codes on one goods key are quarantined", () => {
@@ -185,6 +188,9 @@ test("conflicting partner product codes on one goods key are quarantined", () =>
     result.productReviews[0].reason,
     "BCODE_SHOPLING_IDENTITY_CONFLICT",
   );
+  assert.deepEqual(result.productReviews[0].details, [
+    "BCODE_PARTNER_PRODUCT_CODE_CONFLICT",
+  ]);
 });
 
 test("a partial six-profile set is onboarded as six fail-closed review rows", () => {
@@ -234,6 +240,11 @@ test("a B-code shared by two launch items is quarantined instead of auto-mapped"
   assert.ok(
     result.productReviews.every(
       (row) => row.reason === "BCODE_SHOPLING_IDENTITY_CONFLICT",
+    ),
+  );
+  assert.ok(
+    result.productReviews.every((row) =>
+      row.details?.includes("BCODE_LAUNCH_ITEM_MAPPING_CONFLICT"),
     ),
   );
 });

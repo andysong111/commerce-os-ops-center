@@ -104,6 +104,13 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     existingLifecycleRows.push(...page);
     if (page.length < READ_PAGE_SIZE) break;
   }
+  const auditLifecycleRows =
+    options.auditExisting === true
+      ? selectSeoListingShoplingBCodeAuditLifecycleRows(existingLifecycleRows)
+      : existingLifecycleRows;
+  const auditGoodsKeys = unique(
+    auditLifecycleRows.map((row) => row.goods_key),
+  ).filter((value) => /^\d{1,12}$/.test(value));
 
   const launchItems: UnknownRecord[] = [];
   for (let offset = 0; ; offset += READ_PAGE_SIZE) {
@@ -141,13 +148,20 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
   const shopling = new ShoplingReadClient(
     shoplingReadConfigFromEnv(process.env),
   );
-  const catalogRows = await shopling.readRanges("products", scan.ranges, {
-    productSearchType: "등록일",
-  });
+  const catalogRows =
+    options.auditExisting === true
+      ? await shopling.readProductsByIds(auditGoodsKeys, {
+          productSearchType: "등록일",
+        })
+      : await shopling.readRanges("products", scan.ranges, {
+          productSearchType: "등록일",
+        });
   const catalogGoodsKeys = extractShoplingBCodeCatalogGoodsKeys(catalogRows);
+  const ledgerGoodsKeys =
+    options.auditExisting === true ? auditGoodsKeys : catalogGoodsKeys;
 
   const marketLedgerRows: UnknownRecord[] = [];
-  for (const batch of chunks(catalogGoodsKeys)) {
+  for (const batch of chunks(ledgerGoodsKeys)) {
     const result = await admin
       .from("shopling_market_pipeline_ledger")
       .select(
@@ -182,10 +196,7 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     launchItems,
     launchOptions,
     marketLedgerRows,
-    existingLifecycleRows:
-      options.auditExisting === true
-        ? selectSeoListingShoplingBCodeAuditLifecycleRows(existingLifecycleRows)
-        : existingLifecycleRows,
+    existingLifecycleRows: auditLifecycleRows,
     auditExisting: options.auditExisting === true,
     now,
   });
@@ -212,10 +223,16 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     source: onboarding.source,
     writesEnabled: false as const,
     scan: {
+      lookupMode:
+        options.auditExisting === true
+          ? "goods_key_exact"
+          : "registration_date_ranges",
       searchType: "등록일",
-      start: scan.start,
-      end: scan.end,
-      rangeCount: scan.ranges.length,
+      start: options.auditExisting === true ? null : scan.start,
+      end: options.auditExisting === true ? null : scan.end,
+      rangeCount: options.auditExisting === true ? 0 : scan.ranges.length,
+      requestedGoodsKeyCount:
+        options.auditExisting === true ? auditGoodsKeys.length : 0,
       sourceRowCount: catalogRows.length,
       bCodeGoodsKeyCount: catalogGoodsKeys.length,
     },

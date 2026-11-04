@@ -158,6 +158,29 @@ test("product catalog scans can use the official registration-date search", () =
   assert.match(request, /prod_group/);
 });
 
+test("product lookup can target exact Shopling goods keys and reject invalid ids", () => {
+  const request = buildShoplingReadRequestXml(
+    "products",
+    { loginId: "id", companyId: "company", authKey: "secret" },
+    { start: "2026-11-04", end: "2026-11-04" },
+    { productIds: ["100051", "100052", "100051"] },
+  );
+  assert.match(
+    request,
+    /<prod_id><!\[CDATA\[100051,100052\]\]><\/prod_id>/,
+  );
+  assert.throws(
+    () =>
+      buildShoplingReadRequestXml(
+        "products",
+        { loginId: "id", companyId: "company", authKey: "secret" },
+        { start: "2026-11-04", end: "2026-11-04" },
+        { productIds: ["100051,100052"] },
+      ),
+    /SHOPLING_PRODUCT_ID_INVALID/,
+  );
+});
+
 test("date ranges enforce seven-day order chunks", () => {
   assert.deepEqual(splitShoplingDateRange("2026-07-20", "2026-08-05", 7), [
     { start: "2026-07-20", end: "2026-07-26" },

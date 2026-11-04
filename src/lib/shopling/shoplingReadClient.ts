@@ -15,6 +15,7 @@ export type ShoplingProductSearchType =
 
 export type ShoplingReadOptions = {
   productSearchType?: ShoplingProductSearchType;
+  productIds?: string[];
 };
 
 export type ShoplingReadConfig = {
@@ -146,6 +147,15 @@ function compactXml(lines: string[]) {
   return `<?xml version="1.0" encoding="UTF-8"?>${lines.join("")}`;
 }
 
+function normalizedProductIds(values: string[] | undefined) {
+  if (!values) return [];
+  const normalized = [...new Set(values.map((value) => value.trim()))];
+  if (normalized.some((value) => !/^\d{1,12}$/.test(value))) {
+    throw new Error("SHOPLING_PRODUCT_ID_INVALID");
+  }
+  return normalized;
+}
+
 export function buildShoplingReadRequestXml(
   resource: ShoplingReadResource,
   config: Pick<ShoplingReadConfig, "loginId" | "companyId" | "authKey">,
@@ -165,12 +175,16 @@ export function buildShoplingReadRequestXml(
 
   if (resource === "products") {
     const productSearchType = options.productSearchType ?? "수정일";
+    const productIds = normalizedProductIds(options.productIds);
     return compactXml([
       "<reqst><apiProdGather>",
       ...auth,
       `<search_tp>${cdata(productSearchType)}</search_tp>`,
       `<start_dt>${start}</start_dt>`,
       `<end_dt>${end}</end_dt>`,
+      ...(productIds.length
+        ? [`<prod_id>${cdata(productIds.join(","))}</prod_id>`]
+        : []),
       `<prod_fields>${cdata(PRODUCT_FIELDS)}</prod_fields>`,
       "<opt_yn>Y</opt_yn><attri_yn>N</attri_yn>",
       "</apiProdGather></reqst>",
@@ -436,6 +450,30 @@ export class ShoplingReadClient {
     const rows: RawObject[] = [];
     for (const range of ranges) {
       rows.push(...(await this.read(resource, range, options)));
+    }
+    return rows;
+  }
+
+  async readProductsByIds(
+    productIds: string[],
+    options: Omit<ShoplingReadOptions, "productIds"> = {},
+  ) {
+    const normalized = normalizedProductIds(productIds);
+    if (normalized.length === 0) return [];
+
+    const rows: RawObject[] = [];
+    const today = formatDate(new Date());
+    for (let offset = 0; offset < normalized.length; offset += 100) {
+      rows.push(
+        ...(await this.read(
+          "products",
+          { start: today, end: today },
+          {
+            ...options,
+            productIds: normalized.slice(offset, offset + 100),
+          },
+        )),
+      );
     }
     return rows;
   }
