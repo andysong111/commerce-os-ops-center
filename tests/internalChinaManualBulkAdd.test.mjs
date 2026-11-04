@@ -27,8 +27,9 @@ test("bulk staging excludes existing draft rows and preserves per-row quantities
   assert.doesNotMatch(source, /postAdd\(/);
 });
 
-test("bulk staging leaves the server draft untouched until recalculation", () => {
-  assert.match(source, /재계산 전 원장 미변경/);
+test("bulk staging leaves the server draft untouched until explicit direct save", () => {
+  assert.match(source, /저장 전 원장 미변경/);
+  assert.match(source, /재계산 없이 변경 저장/);
   assert.doesNotMatch(source, /router\.refresh\(\)/);
   assert.doesNotMatch(source, /method: "POST"/);
   assert.doesNotMatch(source, /window\.location\.reload/);
