@@ -51,6 +51,8 @@ on:
       - "tests/shoplingStockStateHf64.test.mjs"
       - "tests/shoplingStockApiFirstHf65.test.mjs"
       - "tests/shoplingStockHf66PageChannel.test.mjs"
+      - "tests/shoplingStockStateHf67.test.mjs"
+      - "tests/shoplingStockStateHf68.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -108,6 +110,8 @@ jobs:
           && node --check public/shopling-stock-state-sync/background-v087.js
           && node --check public/shopling-stock-state-sync/content-ops-preflight-v002.js
           && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
+          && node --check public/shopling-stock-state-sync/price-core-content-a21-v025.js
+          && node --check public/shopling-stock-state-sync/price-core-main-a21-v025.js
           && node --check public/shopling-stock-state-sync/popup.js
       - name: Regression - route guard
         run: node --test tests/shoplingStockStateRouteGuard.test.mjs
@@ -167,6 +171,10 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockApiFirstHf65.test.mjs tests/shoplingOptionStatusUnmanagedQuantity.test.mjs tests/inventoryStockControl.test.mjs
       - name: Regression - HF66 exact HF27 Commerce OS page channel
         run: node --experimental-strip-types --test tests/shoplingStockHf66PageChannel.test.mjs
+      - name: Regression - HF67 authenticated admin shell and owned A21 worker
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf67.test.mjs
+      - name: Regression - HF68 current A21 option-send controls
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf68.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

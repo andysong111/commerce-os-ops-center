@@ -183,7 +183,7 @@ test("HF67 fails closed before worker creation when the kt admin session is logg
 });
 
 test("HF67 package advances the live gate and preserves API-only state writes", async () => {
-  const [route, bridge, page, planner, preflight] = await Promise.all([
+  const [route, bridge, preflight] = await Promise.all([
     readFile(
       "src/app/api/shopling-stock-state-sync/download-hf67/route.ts",
       "utf8",
@@ -192,8 +192,6 @@ test("HF67 package advances the live gate and preserves API-only state writes", 
       "public/shopling-stock-state-sync/content-ops-preflight-v003.js",
       "utf8",
     ),
-    readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
-    readFile("src/lib/shoplingStockLaunchPlan.ts", "utf8"),
     readFile("src/lib/shoplingStockSessionPreflight.ts", "utf8"),
   ]);
   assert.match(route, /getHf66Download/);
@@ -203,8 +201,5 @@ test("HF67 package advances the live gate and preserves API-only state writes", 
   assert.match(route, /preMutationA21Preparation: true/);
   assert.match(bridge, /STOCK_SYNC_SESSION_PREFLIGHT_HF67/);
   assert.match(bridge, /stockSyncChannel: "HF67"/);
-  assert.match(page, /download-hf67/);
-  assert.match(page, /v0\.6\.30 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 30\]/);
   assert.match(preflight, /timeoutMs = 55_000/);
 });
