@@ -355,7 +355,8 @@ export function canFinalizeWithExactConfirmedSourcing(
     !report.replacementDraftId ||
     report.replacementAudit?.complete !== true ||
     report.sourcingBudgetPercent <= 0 ||
-    request.sourcingSelectionMode !== "custom" ||
+    (request.sourcingSelectionMode !== "automatic" &&
+      request.sourcingSelectionMode !== "custom") ||
     preferredConceptIds.length === 0 ||
     new Set(preferredConceptIds).size !== preferredConceptIds.length ||
     !sourcingPlan ||
@@ -448,6 +449,25 @@ export function canFinalizeWithExactConfirmedSourcing(
     reusedConcepts.add(row.conceptId);
     reusedBarcodes.add(row.barcode);
   }
+
+  const selectedBarcodes = new Set(report.selected.map((row) => row.barcode));
+  const nonSourcingReplacementBarcodes = new Set(
+    (report.preservedReplacementLines ?? [])
+      .filter((row) => row.preserveOnRegeneration !== true)
+      .map((row) => row.barcode),
+  );
+  if ([...reusedBarcodes].some(
+    (barcode) =>
+      selectedBarcodes.has(barcode) || nonSourcingReplacementBarcodes.has(barcode),
+  )) {
+    return false;
+  }
+
+  // Automatic selection does not remove older preserved sourcing rows. It may,
+  // however, restore the exact reservations created by this reviewed selection
+  // when their concept, variant, storage, B-code and quantity lifecycle data all
+  // passed the one-to-one checks above.
+  if (request.sourcingSelectionMode === "automatic") return true;
 
   const explicitScope = explicitSourcingReplacementScope(report, sourcingPlan, request);
   return explicitScope.active &&
@@ -638,7 +658,26 @@ export function preparePurchaseCycleDraft(
     throw new Error("PURCHASE_CYCLE_DRAFT_CONFIRMATION_REQUIRED");
   }
   const explicitScope = explicitSourcingReplacementScope(report, sourcingPlan, request);
-  const restoredReusedBarcodeSet = new Set(explicitScope.restoredReusedBarcodes);
+  const exactConfirmedSourcingReady = canFinalizeWithExactConfirmedSourcing(
+    report,
+    sourcingPlan,
+    request,
+  );
+  const selectedBarcodeSet = new Set(report.selected.map((row) => row.barcode));
+  const replacementBarcodeSet = new Set(
+    (report.preservedReplacementLines ?? []).map((row) => row.barcode),
+  );
+  const restoredReusedBarcodeSet = new Set([
+    ...explicitScope.restoredReusedBarcodes,
+    ...(exactConfirmedSourcingReady
+      ? (sourcingPlan?.reusedConfirmedVariants ?? [])
+          .filter((row) =>
+            !selectedBarcodeSet.has(row.barcode) &&
+            !replacementBarcodeSet.has(row.barcode)
+          )
+          .map((row) => row.barcode)
+      : []),
+  ]);
   const restoredReusedReservations = (sourcingPlan?.reusedConfirmedVariants ?? []).filter(
     (row) => restoredReusedBarcodeSet.has(row.barcode),
   );
