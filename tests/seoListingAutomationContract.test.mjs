@@ -72,8 +72,10 @@ test("dashboard prepares an authenticated scheduled run but keeps destructive wr
   assert.match(onboardingServer, /lookupMode:[\s\S]*goods_key_exact/);
   assert.match(
     onboardingServer,
-    /owner_id,market_account_key,launch_item_id,state,goods_key,evidence/,
+    /owner_id,market_account_key,launch_item_id,state,goods_key,requires_review,review_reason,evidence/,
   );
+  assert.match(onboardingServer, /buildSeoListingShoplingAuditPopulationSummary/);
+  assert.match(route, /auditPopulation: row\.auditPopulation/);
   assert.match(route, /externalMarketWrite: false/);
   assert.match(route, /externalDeleteEnabled: false/);
   assert.match(route, /autoExecutionEnabled: false/);

@@ -70,6 +70,79 @@ export function selectSeoListingShoplingBCodeAuditLifecycleRows(
   });
 }
 
+type AuditPopulationGroup = {
+  key: string;
+  rowCount: number;
+  productCount: number;
+  goodsKeyCount: number;
+};
+
+function auditPopulationGroups(
+  rows: UnknownRecord[],
+  keyOf: (row: UnknownRecord) => string,
+): AuditPopulationGroup[] {
+  const groups = new Map<
+    string,
+    { rowCount: number; productIds: Set<string>; goodsKeys: Set<string> }
+  >();
+  for (const row of rows) {
+    const key = keyOf(row) || "UNKNOWN";
+    const group = groups.get(key) ?? {
+      rowCount: 0,
+      productIds: new Set<string>(),
+      goodsKeys: new Set<string>(),
+    };
+    group.rowCount += 1;
+    const productId = text(row.launch_item_id);
+    const goodsKey = text(row.goods_key);
+    if (productId) group.productIds.add(productId);
+    if (GOODS_KEY.test(goodsKey)) group.goodsKeys.add(goodsKey);
+    groups.set(key, group);
+  }
+  return [...groups.entries()]
+    .map(([key, group]) => ({
+      key,
+      rowCount: group.rowCount,
+      productCount: group.productIds.size,
+      goodsKeyCount: group.goodsKeys.size,
+    }))
+    .sort((left, right) =>
+      right.productCount - left.productCount || left.key.localeCompare(right.key),
+    );
+}
+
+export function buildSeoListingShoplingAuditPopulationSummary(
+  rows: UnknownRecord[],
+) {
+  const productIds = new Set<string>();
+  const goodsKeys = new Set<string>();
+  for (const row of rows) {
+    const productId = text(row.launch_item_id);
+    const goodsKey = text(row.goods_key);
+    if (productId) productIds.add(productId);
+    if (GOODS_KEY.test(goodsKey)) goodsKeys.add(goodsKey);
+  }
+  return {
+    rowCount: rows.length,
+    productCount: productIds.size,
+    goodsKeyCount: goodsKeys.size,
+    sources: auditPopulationGroups(rows, (row) =>
+      text(record(row.evidence).source),
+    ),
+    states: auditPopulationGroups(rows, (row) => code(row.state)),
+    reviewReasons: auditPopulationGroups(rows, (row) => {
+      const reviewReason = text(row.review_reason);
+      if (reviewReason) return reviewReason;
+      return row.requires_review === true ? "REVIEW_UNSPECIFIED" : "NO_REVIEW";
+    }),
+    sourceStates: auditPopulationGroups(rows, (row) => {
+      const source = text(record(row.evidence).source) || "UNKNOWN";
+      const state = code(row.state) || "UNKNOWN";
+      return `${source}:${state}`;
+    }),
+  };
+}
+
 function code(value: unknown) {
   return text(value).toUpperCase().replace(/\s+/g, "");
 }
