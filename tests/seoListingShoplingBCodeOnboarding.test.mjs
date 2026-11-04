@@ -300,6 +300,19 @@ test("uses the official product-group field for legacy codes without a-f suffixe
   assert.equal(result.productsNeedingReview, 0);
 });
 
+test("accepts the verified legacy DM and SM prefixes as one six-profile identity", () => {
+  const prefixes = ["DM1_", "DM2_", "DM3_", "DM4_", "SM1_", "SM2_"];
+  const legacyPrefixCatalog = catalog().map((row) => ({
+    ...row,
+    ptn_goods_cd: `${prefixes[Number(row.goods_key) - 9001]}PLRA9A9090997`,
+    prod_group: "",
+  }));
+  const result = build({ catalogRows: legacyPrefixCatalog });
+  assert.equal(result.productsPreparedForVerification, 1);
+  assert.equal(result.productsNeedingReview, 0);
+  assert.equal(result.productReviews.length, 0);
+});
+
 test("uses optPtnOptCd only and never mistakes numeric option barcode for a B-code", () => {
   const numericOnly = catalog().map((row) => ({
     ...row,

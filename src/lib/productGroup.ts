@@ -21,6 +21,22 @@ const PRODUCT_GROUP_BY_SUFFIX: ReadonlyMap<string, (typeof PRODUCT_GROUP_DEFINIT
   PRODUCT_GROUP_DEFINITIONS.map((definition) => [definition.suffix, definition]),
 );
 
+const LEGACY_PRODUCT_GROUP_PREFIXES = [
+  { prefix: "DM1_", suffix: "a" },
+  { prefix: "DM2_", suffix: "b" },
+  { prefix: "DM3_", suffix: "c" },
+  { prefix: "DM4_", suffix: "d" },
+  { prefix: "SM1_", suffix: "e" },
+  { prefix: "SM2_", suffix: "f" },
+] as const;
+
+function legacyProductGroupPrefix(value: string) {
+  const normalized = value.toUpperCase();
+  return LEGACY_PRODUCT_GROUP_PREFIXES.find(({ prefix }) =>
+    normalized.startsWith(prefix) && normalized.length > prefix.length,
+  );
+}
+
 export const MISSING_PRODUCT_GROUP: ProductGroupInference = {
   groupSuffix: "",
   productGroup: "상품그룹 확인 필요",
@@ -33,6 +49,19 @@ export function inferProductGroupFromPtnGoodsCd(
 ): ProductGroupInference {
   const trimmed = ptnGoodsCd.trim();
   if (!trimmed) return MISSING_PRODUCT_GROUP;
+
+  const legacyPrefix = legacyProductGroupPrefix(trimmed);
+  if (legacyPrefix) {
+    const registeredGroup = PRODUCT_GROUP_BY_SUFFIX.get(legacyPrefix.suffix);
+    if (registeredGroup) {
+      return {
+        groupSuffix: registeredGroup.suffix,
+        productGroup: registeredGroup.productGroup,
+        productGroupType: registeredGroup.productGroupType,
+        productGroupStatus: "registered",
+      };
+    }
+  }
 
   const suffix = trimmed.slice(-1).toLowerCase();
   if (!/^[a-z]$/.test(suffix)) return MISSING_PRODUCT_GROUP;
@@ -53,4 +82,13 @@ export function inferProductGroupFromPtnGoodsCd(
     productGroupType: "확인 필요",
     productGroupStatus: "unregistered",
   };
+}
+
+export function inferSelfCodeBaseFromPtnGoodsCd(ptnGoodsCd: string) {
+  const trimmed = ptnGoodsCd.trim();
+  if (!trimmed) return "";
+  const legacyPrefix = legacyProductGroupPrefix(trimmed);
+  return legacyPrefix
+    ? trimmed.slice(legacyPrefix.prefix.length)
+    : trimmed.slice(0, -1);
 }
