@@ -96,8 +96,8 @@ test("HF39 remains v0.6.7 while the UI requires HF52", async () => {
   assert.match(route, /BBB4-3_A6_RESOLVED_12_GOODS_KEYS/);
   assert.match(page, /download-hf66/);
   assert.match(page, /v0\.6\.29 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 29\]/);
-  assert.match(queue, /API 우선 B코드 검증·A21 순차 전송/);
-  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.29'/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 30\]/);
+  assert.match(queue, /현재 관리자 로그인 인식·A21 자동 준비/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.30'/);
   assert.match(workflow, /shoplingStockStateHf39\.test\.mjs/);
 });

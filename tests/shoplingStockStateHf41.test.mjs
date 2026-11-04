@@ -60,8 +60,8 @@ test("HF41 publishes v0.6.9 and blocks the live-failed HF40 package", async () =
   assert.match(route, /HF41_LONG_SINGLE_RESULT_RECOVERY/);
   assert.match(page, /download-hf66/);
   assert.match(page, /v0\.6\.29 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 29\]/);
-  assert.match(queue, /v0\.6\.29로 업데이트/);
-  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.29'/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 30\]/);
+  assert.match(queue, /v0\.6\.30으로 업데이트/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.30'/);
   assert.match(workflow, /shoplingStockStateHf41\.test\.mjs/);
 });

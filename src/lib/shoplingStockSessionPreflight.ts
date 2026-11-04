@@ -10,12 +10,12 @@ export class ShoplingSessionPreflightError extends Error {
   }
 }
 
-export function requireShoplingAuthenticatedSession(timeoutMs = 7_000) {
+export function requireShoplingAuthenticatedSession(timeoutMs = 55_000) {
   return new Promise<{ authenticated: true; tabId?: number }>((resolve, reject) => {
     const requestId = `shopling-session:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      reject(new ShoplingSessionPreflightError("Shopling 로그인 점검 응답이 없습니다. 재고상태 자동화 확장 v0.6.29 연결을 확인해 주세요.", "SHOPLING_SESSION_PREFLIGHT_TIMEOUT"));
+      reject(new ShoplingSessionPreflightError("Shopling 로그인과 A21 작업창 자동 준비 응답이 없습니다. 재고상태 자동화 확장 v0.6.30 연결을 확인해 주세요.", "SHOPLING_SESSION_PREFLIGHT_TIMEOUT"));
     }, timeoutMs);
     function onMessage(event: MessageEvent) {
       if (event.source !== window || event.origin !== window.location.origin) return;
@@ -27,7 +27,7 @@ export function requireShoplingAuthenticatedSession(timeoutMs = 7_000) {
         resolve({ authenticated: true, tabId: Number(data.tabId) || undefined });
       } else {
         reject(new ShoplingSessionPreflightError(
-          String(data.message || "Shopling 관리자 로그인이 필요합니다."),
+          String(data.message || "Shopling 관리자 로그인과 A21 작업창 준비가 필요합니다."),
           String(data.code || "SHOPLING_LOGIN_REQUIRED_BEFORE_START"),
         ));
       }

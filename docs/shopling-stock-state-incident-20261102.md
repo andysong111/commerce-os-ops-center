@@ -110,6 +110,12 @@
   - `content-ops-v023.js`는 READY/PING/START/RESULT/PROGRESS/STATUS 여섯 메시지를 모두 HF27 전용 채널로 고정하고 `stockSyncChannel: "HF27"` 표식을 함께 보낸다. HF65의 B코드 서버 인덱스, 실시간 Shopling API 재검증, 상태·수량 readback, A21 전용 브라우저 책임경계는 변경하지 않았다.
   - UI 최소 허용 버전을 0.6.29로 올려 통신이 끊긴 0.6.28이 새 품절·판매중 작업을 시작하지 못하게 했다. 다운로드 패키지와 Commerce OS 브리지의 여섯 채널 상수가 전부 일치하는 회귀 테스트를 CI에 고정했다.
 
+- v0.6.30/HF67 현재 관리자 주소 인식·A21 사전 준비:
+  - 실제 로그인된 관리자 메인 탭은 `kt.shopling.co.kr`인데 HF54 로그인 사전점검은 최상위 `a.shopling.co.kr` 탭만 조회했다. 따라서 로그인 화면이 열려 있어도 탭 0개로 오판해 `로그인된 Shopling 관리자 메인 탭을 1개 열어 주세요`로 중단한 것이 직접 원인이다.
+  - HF65 API 우선 경로도 상태변경 시작 전에 이미 열린 A21 탭을 요구했다. 로그인 메인 탭만 열린 정상 운영 상태에서는 A21 준비가 되지 않아 API 변경 단계에 도달할 수 없었다.
+  - HF67은 `kt.shopling.co.kr`와 `a.shopling.co.kr`를 모두 로그인 후보로 검사하고, 인증된 메인 탭에서 정확한 `[A21] 쇼핑몰상품수정` 메뉴만 눌러 전용 작업창 1개를 준비한다. 정확한 A21 경로·검색항목·소유권이 확인된 뒤에만 `STARTED` 기록과 API 상태변경을 허용한다.
+  - A4/A6 브라우저 탐색은 계속 생략하고, 사용자가 열어 둔 원본 관리자 탭은 이동·새로고침하지 않는다. 같은 작업창이 유효하면 다음 실행에서 재사용하며, 로그인·메뉴·A21 준비가 불확실하면 Shopling 변경 전에 안전 중단한다.
+
 ## 재전송 요청
 
 - requestId: `owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969`
@@ -139,4 +145,6 @@
 - HF65 동일 소스의 `next build --webpack` 프로덕션 빌드는 컴파일·타입검사·124개 정적 페이지 생성을 모두 통과했다. 빌드된 로컬 서버에서 검증 JSON과 실제 ZIP을 호출해 manifest `0.6.28`, service worker `background-v087.js`, B코드 서버 인덱스+실시간 API 재검증, API 상태·수량 readback, 브라우저 단계 A21만 포함, A4/A6 제외, 마켓 최종완료 불필요를 확인했다. ZIP은 194,417 byte, background SHA-256은 `37908b8c0889dcfe99ce1c78d8d7ecadf7c7567938adba568c7516cc77201833`, Commerce OS bridge SHA-256은 `af7372febe39a8e674db0fc6c0ef43947e368e83444057688c406fb9e9b1db77`다.
 - HF66 재고 제어 CI 고정 범위 112/112, 추가 Shopling 책임경계·회복 회귀 58/58, 과거 HF 전체 회귀가 통과했다. `content-ops-v023.js` 문법 검사, TypeScript 검사, 변경 파일 ESLint와 `next build --webpack` 프로덕션 빌드(124/124 정적 페이지)가 통과했다.
 - 빌드된 로컬 프로덕션 서버에서 HF66 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.29`, service worker `background-v087.js`, Commerce OS ops `content-ops-v023.js`, HF27 READY/PING/START/RESULT/PROGRESS/STATUS 여섯 채널, HF27 표식, API 우선 상태변경을 모두 확인했다. ZIP은 196,574 byte, SHA-256은 `E06702CA77D9F7592E1898D9409A063F63E257D09FF91127E9432A32DFC96E96`, ops SHA-256은 `b945f402af86c7a3b5970441f85850dc2188960c9fe99c7e2204fa460cef5bdb`다.
+- HF18~HF67 기존·현재 책임경계와 API 우선 경로 회귀 115/115, HF57~HF67 집중 회귀 44/44, HF67 표적 테스트 20/20, TypeScript `tsc --noEmit`, 변경 파일 ESLint, `background-v088.js`·`content-ops-preflight-v003.js` 문법 검사와 `next build --webpack` 프로덕션 빌드(124/124 정적 페이지)가 통과했다. 재현 fixture는 최상위 `kt.shopling.co.kr` 관리자 탭 1개만 있는 상태에서 인증·정확 A21 메뉴를 찾고, 전용 작업창을 1개만 생성하며, 두 번째 사전점검에서는 같은 A21 작업창을 재사용하고 원본 탭을 이동하지 않음을 검증한다.
+- 빌드된 로컬 프로덕션 서버에서 HF67 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.30`, service worker `background-v088.js`, Commerce OS preflight `content-ops-preflight-v003.js`, `kt`·`a` 관리자 호스트 권한, A21 사전 준비, A4/A6 생략, API 상태·수량 readback, 마켓 최종완료 불필요를 확인했다. ZIP은 201,996 byte, SHA-256은 `31CAD9A4A8130EE1F9C66A1F356CB5384921533B18CC9DF05AB526CBABBBB1B9`, background SHA-256은 `daa1ecaa12d95919ec14573e57ab4a25fbfcf0ed60416fcc45d3aa841ad42f7c`, preflight SHA-256은 `0209a5a3092b82942e24b7ef20aaf851bcbb48a2216239d2c71010697f57f7ab`다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.

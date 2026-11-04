@@ -140,5 +140,5 @@ test("HF59 download route publishes v0.6.22 and the exact responsibility boundar
   assert.match(route, /marketplaceCompletionRequired: false/);
   assert.match(page, /download-hf66/);
   assert.match(page, /v0\.6\.29 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 29\]/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 30\]/);
 });

@@ -5,7 +5,7 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 29] as const;
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 30] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
@@ -38,8 +38,8 @@ export function supportsAllDateStockSync(
 /**
  * Preserve queue priority and execute one B-code at a time. The UI removes each
  * terminal job and launches the next saved job independently, so one failed
- * B-code cannot suppress another. HF66 verifies state and quantity through the
- * Shopling API, then gives the browser only the A21 transmission stage.
+ * B-code cannot suppress another. HF67 verifies the current Shopling admin
+ * shell and prepares an owned A21 worker before the API-first state change.
  */
 export function planShoplingStockLaunch<T extends StockLaunchJob>(
   jobs: readonly T[],
