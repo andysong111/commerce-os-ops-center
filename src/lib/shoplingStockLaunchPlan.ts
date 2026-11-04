@@ -5,7 +5,7 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 23] as const;
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 24] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
@@ -39,7 +39,9 @@ export function supportsAllDateStockSync(
  * Keep queue priority intact and bound concurrency to the extension's proven
  * two-lane coordinator. HF60 terminates Commerce OS responsibility when the
  * claimed A21 popup itself or its exact nested Shopling result child starts the
- * processing/result page. Foreign lanes' processing popups cannot satisfy a job.
+ * processing/result page. HF61 durably starts the saved second lane after that
+ * acceptance even if Chrome suspends the extension worker between jobs. Foreign
+ * lanes' processing popups cannot satisfy a job.
  */
 export function planShoplingStockLaunch<T extends StockLaunchJob>(
   jobs: readonly T[],
