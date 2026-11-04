@@ -61,6 +61,8 @@ test("unified UI has four inputs and one wait-until-complete action", async () =
   assert.match(source, /data-testid="retry-stopped-shopling-run"/);
   assert.match(source, /중단된 \{directRunCounts\.remaining\}건 다시 시도/);
   assert.match(source, /canRetryUnstartedShoplingDirectRun/);
+  assert.match(source, /COMPLETED_WITH_EXCEPTIONS/);
+  assert.doesNotMatch(source, /batch\.stopAfterBatch = true/);
   assert.match(source, /directQueue\.current/);
   assert.match(source, /loadLatestPendingDirectJobs/);
   assert.match(source, /sync\?mode=execute/);
@@ -74,12 +76,12 @@ test("unified UI has four inputs and one wait-until-complete action", async () =
   assert.doesNotMatch(source, /window\.location\.reload/);
 });
 
-test("stock-control page publishes the HF61 install path and one unified operator", async () => {
+test("stock-control page publishes the HF62 install path and one unified operator", async () => {
   const source = await readFile(
     "src/app/china-order-manager/stock-control/page.tsx",
     "utf8",
   );
-  assert.match(source, /download-hf61/);
+  assert.match(source, /download-hf62/);
   assert.match(source, /chrome:\/\/extensions/);
   assert.match(source, /<InventoryStockoutOperatorPanel/);
   assert.match(source, /focusedBarcodes=\{focusedCorrection\.barcodes\}/);

@@ -4,7 +4,7 @@ export type ShoplingDirectRunTerminalOutcome =
   | "UNCERTAIN";
 
 export type ShoplingDirectRunProgress = {
-  status: "RUNNING" | "COMPLETED" | "STOPPED";
+  status: "RUNNING" | "COMPLETED" | "COMPLETED_WITH_EXCEPTIONS" | "STOPPED";
   total: number;
   outcomesByJobId: Record<string, ShoplingDirectRunTerminalOutcome>;
 };
@@ -68,14 +68,19 @@ export function finalizeShoplingDirectRun(
   forceStopped = false,
 ): ShoplingDirectRunProgress {
   const counts = shoplingDirectRunCounts(current);
+  const allTerminal = counts.total > 0 && counts.completed === counts.total;
   const allSucceeded =
-    counts.total > 0 &&
+    allTerminal &&
     counts.succeeded === counts.total &&
     counts.failed === 0 &&
     counts.uncertain === 0;
   return {
     ...current,
-    status: !forceStopped && allSucceeded ? "COMPLETED" : "STOPPED",
+    status: forceStopped || !allTerminal
+      ? "STOPPED"
+      : allSucceeded
+        ? "COMPLETED"
+        : "COMPLETED_WITH_EXCEPTIONS",
   };
 }
 
@@ -97,6 +102,9 @@ export function shoplingDirectRunSummaryText(
   const counts = shoplingDirectRunCounts(current);
   if (current.status === "COMPLETED") {
     return `전체 작업 끝남 · Shopling 전송 접수 완료 ${counts.succeeded}/${counts.total}건`;
+  }
+  if (current.status === "COMPLETED_WITH_EXCEPTIONS") {
+    return `전체 시도 끝남 · 성공 ${counts.succeeded}/${counts.total}건 · 실패·확인 필요 ${counts.failed + counts.uncertain}건`;
   }
   if (current.status === "STOPPED") {
     return `작업 중단 · 성공 ${counts.succeeded}/${counts.total}건 · 실패·확인 필요 ${counts.failed + counts.uncertain}건 · 미시작 ${counts.remaining}건`;

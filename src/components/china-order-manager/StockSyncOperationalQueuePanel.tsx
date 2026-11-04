@@ -38,7 +38,6 @@ type ActiveBatch = {
   startedJobIds: Set<string>;
   startRecordPromises: Map<string, Promise<void>>;
   terminalJobIds: Set<string>;
-  stopAfterBatch?: boolean;
 };
 type LocalException = { jobId: string; barcode: string; outcome: Exclude<SyncOutcome, "STARTED">; message: string };
 type TerminalSummary = {
@@ -278,7 +277,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 중첩 결과창 접수 확인·정확한 팝업 소유권·2-Lane 처리를 지원하지 않아 사용할 수 없습니다. v0.6.24로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 검색 재로딩 복구·중첩 결과창 접수 확인·중단 없는 B코드 배정을 지원하지 않아 사용할 수 없습니다. v0.6.25로 업데이트해 주세요.`);
         }
         return;
       }
@@ -319,16 +318,14 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
           String(data.status || "").toUpperCase() === "FAILED" &&
           ["DONE", "FIRST_START_FAILED", "COORDINATOR_TIMEOUT"].includes(nextPhase);
         if (secondNeverDispatched && !batch.terminalJobIds.has(secondJob.jobId)) {
-          batch.stopAfterBatch = true;
-          continueAfterBatch.current = false;
           batch.terminalJobIds.add(secondJob.jobId);
-          setNotice(`${secondJob.barcode} Lane 2는 Shopling에 시작되지 않아 원장에 대기 상태로 보존하고 자동배정을 중지했습니다.`);
+          setNotice(`${secondJob.barcode} Lane 2는 Shopling에 시작되지 않아 원장 대기 상태로 유지했습니다. 현재 Lane 종료 후 다음 배치의 첫 작업으로 다시 배정합니다.`);
           if (batch.terminalJobIds.size === batch.jobs.length) {
             void (async () => {
               activeBatch.current = null; setRunningBarcodes([]);
-              setDraining(false);
-              setPhase("PAUSED_ON_FAILURE");
-              await loadQueue().catch(() => undefined);
+              setPhase("REASSIGNING_UNSTARTED_LANE");
+              await loadQueue().catch(queueReadFailed);
+              window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 250);
             })();
           }
           return;
@@ -343,11 +340,10 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
               setLocalExceptions((current) => [...current.filter((row) => row.jobId !== job.jobId), { jobId: job.jobId, barcode: job.barcode, outcome: "FAILED", message }]);
             }
             activeBatch.current = null; setRunningBarcodes([]);
-            setNotice(`${message} · 해당 2건은 이번 실행에서 자동 재시도하지 않습니다.`);
-            continueAfterBatch.current = false;
-            setDraining(false);
-            setPhase("PAUSED_ON_FAILURE");
-            await loadQueue().catch(() => undefined);
+            setNotice(`${message} · 해당 건만 예외로 남기고 다음 B코드 전송을 계속합니다.`);
+            setPhase("BATCH_EXCEPTION_CONTINUE");
+            await loadQueue().catch(queueReadFailed);
+            window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 250);
           })();
         }
         return;
@@ -414,8 +410,6 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
           await recordSync(job, result.outcome, result.message || "", result.evidence, result.finishedAt);
           batch.terminalJobIds.add(job.jobId);
           if (result.outcome !== "SUCCEEDED") {
-            batch.stopAfterBatch = true;
-            continueAfterBatch.current = false;
             excludedThisRun.current.add(job.jobId);
             const exceptionOutcome: Exclude<SyncOutcome, "STARTED"> = result.outcome;
             setLocalExceptions((current) => [...current.filter((row) => row.jobId !== job.jobId), { jobId: job.jobId, barcode: job.barcode, outcome: exceptionOutcome, message: result.message || "원인 확인 필요" }]);
@@ -442,15 +436,12 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
               ? `${job.barcode} 단건 처리 완료 · 다른 대기건은 실행하지 않았습니다.`
               : `${job.barcode} 단건 처리 종료 · 실패/불확실 결과를 예외 큐에 남겼으며 자동 재시도하지 않습니다.`);
           } else {
-            if (batch.stopAfterBatch) {
-              continueAfterBatch.current = false;
-              setDraining(false);
-              setPhase("PAUSED_ON_FAILURE");
-              setNotice("현재 운영 배치에서 실패/불확실 건이 발생해 이후 B코드 자동배정을 중지했습니다. 시작하지 않은 명령은 운영 큐에 보존했습니다.");
-            } else {
-              setNotice("현재 운영 배치의 Shopling 전송 접수 완료 · 다음 대기건을 자동으로 이어서 배정합니다.");
-              window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 250);
-            }
+            setNotice(
+              batch.jobs.some((row) => excludedThisRun.current.has(row.jobId))
+                ? "현재 운영 배치의 예외 건은 분리 기록했습니다. 다음 대기 B코드를 자동으로 이어서 배정합니다."
+                : "현재 운영 배치의 Shopling 전송 접수 완료 · 다음 대기건을 자동으로 이어서 배정합니다.",
+            );
+            window.setTimeout(() => { void launchNext().catch(queueReadFailed); }, 250);
           }
         } catch (error) {
           handledResults.current.delete(resultKey); continueAfterBatch.current = false;
