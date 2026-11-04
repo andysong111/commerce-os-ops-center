@@ -32,7 +32,9 @@ type StrategyLabSnapshot = {
   generatedAt: string;
   sourceAsOf: string | null;
   sourceState: string;
-  dataMode: "LIVE" | "SAMPLE";
+  dataMode: "LIVE" | "SAMPLE" | "BLOCKED";
+  sourceMessage: string | null;
+  blockerKeys: string[];
 };
 
 function isExpectedLocalReadinessError(error: unknown) {
@@ -49,6 +51,18 @@ async function loadStrategyLabSnapshot(
     const report = await loadInventoryVerificationPriority(
       requestedAsOf ? `${requestedAsOf}T12:00:00+09:00` : new Date(),
     );
+    if (report.state !== "READY") {
+      return {
+        rows: [],
+        defaultBudgetKrw: 0,
+        generatedAt: report.generatedAt,
+        sourceAsOf: report.source?.analysisAsOf?.slice(0, 10) ?? requestedAsOf,
+        sourceState: report.state,
+        dataMode: "BLOCKED",
+        sourceMessage: report.message,
+        blockerKeys: report.source?.blockerKeys ?? [],
+      };
+    }
     const rows: PurchaseStrategyLabRow[] = report.rows.map((row) => ({
       barcode: row.barcode,
       name: row.name,
@@ -81,6 +95,8 @@ async function loadStrategyLabSnapshot(
       sourceAsOf: report.source?.analysisAsOf?.slice(0, 10) ?? requestedAsOf,
       sourceState: report.state,
       dataMode: "LIVE",
+      sourceMessage: null,
+      blockerKeys: [],
     };
   } catch (error) {
     if (
@@ -96,6 +112,8 @@ async function loadStrategyLabSnapshot(
       sourceAsOf: requestedAsOf ?? "2026-11-04",
       sourceState: "LOCAL_SAMPLE_ONLY",
       dataMode: "SAMPLE",
+      sourceMessage: null,
+      blockerKeys: [],
     };
   }
 }
@@ -130,31 +148,50 @@ export default async function PurchaseStrategyLabPage({ searchParams }: PageProp
 
       <section
         className={`rounded-2xl border p-5 text-sm leading-6 ${
-          snapshot.dataMode === "SAMPLE"
+          snapshot.dataMode === "BLOCKED"
+            ? "border-rose-300 bg-rose-50 text-rose-950"
+            : snapshot.dataMode === "SAMPLE"
             ? "border-amber-300 bg-amber-50 text-amber-950"
             : "border-emerald-200 bg-emerald-50 text-emerald-950"
         }`}
       >
         <strong>
-          {snapshot.dataMode === "SAMPLE"
+          {snapshot.dataMode === "BLOCKED"
+            ? "운영 스냅샷 차단 · 전략 비교를 실행하지 않았습니다"
+            : snapshot.dataMode === "SAMPLE"
             ? "샘플 데이터 모드 · 운영 값 아님"
             : "실제 읽기 전용 스냅샷 · 운영 초안 보호됨"}
         </strong>
         <p>
-          {snapshot.dataMode === "SAMPLE"
+          {snapshot.dataMode === "BLOCKED"
+            ? snapshot.sourceMessage ??
+              "필수 운영 근거가 준비되지 않아 잘못된 전략 결과를 표시하지 않습니다."
+            : snapshot.dataMode === "SAMPLE"
             ? "로컬 개발환경에 상품마스터 읽기 비밀값이 없어 사용자 제보 사례로 화면을 검증합니다. 이 값으로 운영 판단하거나 발주하지 마세요."
             : "11월 4일을 포함한 기존 발주초안은 읽거나 바꾸지 않습니다. 최초 스냅샷을 한 번 읽은 뒤 아래 전략 변경은 브라우저 안에서만 다시 계산됩니다."}
         </p>
+        {snapshot.dataMode === "BLOCKED" && snapshot.blockerKeys.length ? (
+          <p className="mt-2 font-semibold">
+            차단 근거: {snapshot.blockerKeys.join(", ")}
+          </p>
+        ) : null}
       </section>
 
-      <PurchaseStrategyLabClient
-        rows={snapshot.rows}
-        defaultBudgetKrw={snapshot.defaultBudgetKrw}
-        generatedAt={snapshot.generatedAt}
-        sourceAsOf={snapshot.sourceAsOf}
-        sourceState={snapshot.sourceState}
-        dataMode={snapshot.dataMode}
-      />
+      {snapshot.dataMode === "BLOCKED" ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm leading-6 text-slate-700">
+          차단 원인을 해결한 뒤 다시 열면 동일한 읽기 전용 화면에서 전략을 비교할 수
+          있습니다. 운영 발주초안과 주문 데이터는 변경되지 않았습니다.
+        </section>
+      ) : (
+        <PurchaseStrategyLabClient
+          rows={snapshot.rows}
+          defaultBudgetKrw={snapshot.defaultBudgetKrw}
+          generatedAt={snapshot.generatedAt}
+          sourceAsOf={snapshot.sourceAsOf}
+          sourceState={snapshot.sourceState}
+          dataMode={snapshot.dataMode}
+        />
+      )}
     </div>
   );
 }

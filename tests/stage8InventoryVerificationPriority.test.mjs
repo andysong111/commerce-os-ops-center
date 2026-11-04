@@ -53,7 +53,10 @@ test("provisional quantity, open commitment and unreflected prior-cycle receipts
 });
 
 test("pre-gate strategy recovery recalculates stock-band inventory against the same pre-gate demand target", () => {
-  assert.match(engine, /const preGateDemandTarget = integer\(product\.forecastUnits\)/);
+  assert.match(
+    engine,
+    /const preGateDemandTarget = integer\(\s*product\.preGateDemandTarget \?\? product\.forecastUnits,\s*\)/,
+  );
   assert.match(
     engine,
     /const preGateBandInventoryQuantity = estimatedInventoryForStockBand\(\s*preGateDemandTarget,\s*operatorStockBand,\s*\)/,
@@ -70,6 +73,10 @@ test("pre-gate strategy recovery recalculates stock-band inventory against the s
 
 test("pre-gate strategy recovery preserves canonical planning cost when the saved recommendation is zero", () => {
   assert.match(liveAggregation, /unitCost: row\.input\.unitCost/);
+  assert.match(
+    liveAggregation,
+    /preGateDemandTarget: row\.sales\.preGateDemandTarget/,
+  );
   assert.match(engine, /planningUnitCostKrw: number/);
   assert.match(engine, /integer\(profile\?\.latestCostKrw\)/);
   assert.match(engine, /integer\(product\.unitCost\)/);
@@ -80,6 +87,14 @@ test("pre-gate strategy recovery preserves canonical planning cost when the save
   assert.match(strategyLabPage, /resolvePurchaseStrategyLabUnitCost\(row\)/);
   assert.match(strategyLabEngine, /source\.verifiedPurchaseCostReady === true/);
   assert.match(strategyLabEngine, /source\.planningUnitCostKrw/);
+});
+
+test("strategy lab fails closed when the operating snapshot is blocked", () => {
+  assert.match(strategyLabPage, /if \(report\.state !== "READY"\)/);
+  assert.match(strategyLabPage, /dataMode: "BLOCKED"/);
+  assert.match(strategyLabPage, /rows: \[\]/);
+  assert.match(strategyLabPage, /snapshot\.dataMode === "BLOCKED"/);
+  assert.match(strategyLabPage, /전략 비교를 실행하지 않았습니다/);
 });
 
 test("draft regeneration excludes all safe same-cycle RESERVED drafts before portfolio allocation", () => {

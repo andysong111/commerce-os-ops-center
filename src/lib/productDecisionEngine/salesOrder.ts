@@ -60,6 +60,7 @@ export interface SalesOrderResult {
   group: SalesOrderGroup;
   priorityScore: number;
   forecastUnits: number;
+  preGateDemandTarget: number;
   rawRecommendedQuantity: number;
   recommendedQuantity: number;
   oneMonthGrowthRate: number;
@@ -312,6 +313,9 @@ export function calculateSalesOrderRecommendation(
   const rawRecommendedQuantity = strategy
     ? strategy.grossDemandTarget
     : legacyRawRecommendedQuantity;
+  const preGateDemandTarget = strategy
+    ? strategy.preGateGrossDemandTarget
+    : legacyRawRecommendedQuantity;
   const recommendedQuantity = roundOrderQuantity(
     rawRecommendedQuantity,
     input.moq,
@@ -458,6 +462,7 @@ export function calculateSalesOrderRecommendation(
     group,
     priorityScore,
     forecastUnits: Math.max(0, Math.ceil(forecast)),
+    preGateDemandTarget,
     rawRecommendedQuantity,
     recommendedQuantity,
     oneMonthGrowthRate: round(oneMonthGrowthRate),

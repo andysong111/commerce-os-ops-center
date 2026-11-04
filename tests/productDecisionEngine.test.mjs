@@ -377,6 +377,8 @@ test("adjusted revenue threshold controls integrated strategy eligibility", () =
   assert.equal(accepted.group, "발주 추천");
   assert.equal(held.strategy.history.qualificationLabel, "0/12");
   assert.equal(held.strategy.recommended, false);
+  assert.equal(held.preGateDemandTarget, held.strategy.preGateGrossDemandTarget);
+  assert.ok(held.preGateDemandTarget > 0);
   assert.equal(held.rawRecommendedQuantity, 0);
   assert.equal(held.group, "발주 보류");
 });
@@ -394,6 +396,7 @@ test("permanent discontinuation overrides strong sales, rising and new-product p
 
   assert.equal(result.strategy.decision, "DISCONTINUED");
   assert.equal(result.strategy.permanentlyDiscontinued, true);
+  assert.equal(result.preGateDemandTarget, 0);
   assert.equal(result.rawRecommendedQuantity, 0);
   assert.equal(result.recommendedQuantity, 0);
   assert.equal(result.group, "발주 보류");

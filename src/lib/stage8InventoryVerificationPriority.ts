@@ -377,7 +377,9 @@ export async function loadInventoryVerificationPriority(
         bandInventoryQuantity === null
           ? integer(inventory?.inventoryQuantity)
           : bandInventoryQuantity;
-      const preGateDemandTarget = integer(product.forecastUnits);
+      const preGateDemandTarget = integer(
+        product.preGateDemandTarget ?? product.forecastUnits,
+      );
       const preGateBandInventoryQuantity = estimatedInventoryForStockBand(
         preGateDemandTarget,
         operatorStockBand,
@@ -420,7 +422,7 @@ export async function loadInventoryVerificationPriority(
       });
       // The completed-month strategy gate can intentionally reduce the
       // canonical demand target to zero. The read-only strategy lab also
-      // needs the pre-gate forecast, but it must deduct exactly the same
+      // needs the explicit pre-gate strategy demand, but it must deduct the same
       // inventory, open commitments and recent receipts before simulating a
       // recovery strategy.
       const preGateNet = calculateNetRequirement({

@@ -263,6 +263,7 @@ test("new product protection ends at day 365 and zero recent demand blocks only 
   assert.equal(day364.newProduct, true);
   assert.equal(day364.newProductAgeDays, 364);
   assert.equal(day364.recommended, false);
+  assert.equal(day364.preGateGrossDemandTarget, 0);
   assert.equal(day364.grossDemandTarget, 0);
   assert.equal(day364.automaticCoverageMonths, 1.5);
   assert.equal(day365.newProduct, false);
@@ -392,6 +393,9 @@ test("only unprotected zero-of-twelve non-rising products become discontinuation
   assert.equal(review.history.qualificationLabel, "0/12");
   assert.equal(review.history.risingStrength, "NONE");
   assert.equal(review.discontinuationReviewCandidate, true);
+  assert.equal(review.recommended, false);
+  assert.equal(review.grossDemandTarget, 0);
+  assert.equal(review.preGateGrossDemandTarget, 150);
   assert.equal(protectedNew.discontinuationReviewCandidate, false);
   assert.equal(permanentlyDiscontinued.discontinuationReviewCandidate, false);
   assert.equal(qualified.discontinuationReviewCandidate, false);
@@ -410,6 +414,7 @@ test("permanent discontinuation overrides new, rising and hero signals", () => {
   assert.equal(result.decision, "DISCONTINUED");
   assert.equal(result.recommended, false);
   assert.equal(result.automaticCoverageMonths, 0);
+  assert.equal(result.preGateGrossDemandTarget, 0);
   assert.equal(result.grossDemandTarget, 0);
   assert.equal(result.manualCoverageReview.required, false);
 });
