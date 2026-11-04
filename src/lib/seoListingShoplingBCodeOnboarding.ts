@@ -44,11 +44,16 @@ function record(value: unknown): UnknownRecord {
 export function selectSeoListingShoplingBCodeAuditLifecycleRows(
   rows: UnknownRecord[],
 ) {
-  return rows.filter((row) =>
-    SEO_LISTING_SHOPLING_BCODE_AUDIT_SOURCES.has(
-      text(record(row.evidence).source),
-    ),
-  );
+  return rows.filter((row) => {
+    const evidence = record(row.evidence);
+    const source = text(evidence.source);
+    if (!SEO_LISTING_SHOPLING_BCODE_AUDIT_SOURCES.has(source)) return false;
+
+    return !(
+      source === SEO_LISTING_LEGACY_ONBOARDING_SOURCE &&
+      evidence.legacyOnboarding === true
+    );
+  });
 }
 
 function code(value: unknown) {
