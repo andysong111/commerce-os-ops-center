@@ -123,6 +123,12 @@
   - 두 컨트롤은 isolated world에서 선택한 뒤 DOM 표식으로 MAIN world에 인계하며, MAIN world가 동일 두 컨트롤·선택상태·추가상품 미선택을 다시 검증한 경우에만 Shopling 원본 `goods_mallMdfy_submit_sp()`를 호출한다. 모호하거나 복수 후보면 전송하지 않는다.
   - 회귀 fixture `shoplingStockStateHf68.test.mjs`는 실제 화면의 상단 모드와 하단 3개 행을 재현해 옵션 단독 행만 허용하고 추가상품 두 행을 거부한다. 이전 HF67 패키지 소스는 변경하지 않는다.
 
+- v0.6.33/HF70 A21 라디오 정확 소유권·새 팝업 소유권:
+  - HF69 실화면에서 Shopling 상품코드 검색은 계속됐지만 A21 전송 팝업의 상단 라디오는 `일반내용수정`에 머물렀다. HF69가 후보 근거에 `control.closest("tr")`의 공유 행 전체 문구를 포함해 세 라디오 모두를 `옵션송신` 후보로 만들고, 화면 왼쪽 순서상 첫 라디오를 선택한 것이 직접 원인이다. MAIN world도 같은 공유 행을 검사해 잘못된 선택을 거부하지 못했다.
+  - HF70은 label·cell·직접 parent 안에 정확히 라디오 하나와 `옵션송신` 문구만 있는 경우를 유일한 상단 모드 후보로 인정한다. 공유 `tr` 문구는 isolated world 선택과 MAIN world 제출 직전 확인에서 모두 제외한다. 후보가 없거나 둘 이상이면 Shopling 원본 전송 함수를 호출하지 않는다.
+  - 클릭 전에 이미 열려 있던 같은 주소의 팝업은 현재 실행 팝업으로 인정하지 않는다. 옵션·단품 경로 모두 클릭 직전 팝업 ID 기준선을 저장하고, 기준선에 없으며 현재 전용 A21 목록 탭이 정확한 opener인 새 팝업만 작업을 claim한다. 확장 재시작 뒤에는 이미 저장된 동일 팝업만 멱등 복구한다.
+  - goodsKey 처리는 계속 한 번에 하나씩 직렬 실행한다. 여러 goodsKey는 채널별 등록으로 정상이며 쪼개기 근거가 아니다. 각 goodsKey의 실제 옵션 수에 따른 HF69 전송 분기와 API 상태·수량 readback은 변경하지 않는다.
+
 ## 재전송 요청
 
 - requestId: `owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969`
@@ -156,4 +162,6 @@
 - 빌드된 로컬 프로덕션 서버에서 HF67 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.30`, service worker `background-v088.js`, Commerce OS preflight `content-ops-preflight-v003.js`, `kt`·`a` 관리자 호스트 권한, A21 사전 준비, A4/A6 생략, API 상태·수량 readback, 마켓 최종완료 불필요를 확인했다. ZIP은 201,996 byte, SHA-256은 `31CAD9A4A8130EE1F9C66A1F356CB5384921533B18CC9DF05AB526CBABBBB1B9`, background SHA-256은 `daa1ecaa12d95919ec14573e57ab4a25fbfcf0ed60416fcc45d3aa841ad42f7c`, preflight SHA-256은 `0209a5a3092b82942e24b7ef20aaf851bcbb48a2216239d2c71010697f57f7ab`다.
 - HF68 영향 범위 회귀 20/20, TypeScript 검사, 변경 파일 ESLint, `price-core-content-a21-v025.js`·`price-core-main-a21-v025.js` 문법 검사와 프로덕션 빌드(124/124 정적 페이지)가 통과했다. 실제 화면 fixture에서 상단 `옵션송신`과 하단 `옵션송신 / 선택`만 선택하고 `추가상품송신`·`옵션+추가상품송신`을 거부하며, 후보가 복수이면 Shopling 원본 전송 함수를 호출하지 않음을 확인했다.
 - 빌드된 로컬 프로덕션 서버에서 HF68 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.31`, service worker `background-v088.js`, 새 A21 작업기 `content-a21-price-core-v051.js`·`main-a21-price-core-v051.js`, 구형 form 계약 우선·정확한 화면 문구 fallback·MAIN world 전송 직전 재검증·마켓 최종완료 불필요를 확인했다. ZIP은 203,683 byte, SHA-256은 `E2CDDFDB5B920E15CF7B845ECD4DE52E6D2BC289E5AC3F200E0AF92717D11783`, content SHA-256은 `e22a4c69062573ec6babf85cc17540a125b2016c9b2581c0c9457d9c521ec973`, main SHA-256은 `a810c4546a7bc8c26eaaf32f209a0d6452bdf9842dacb8044725bfe688ba50f5`다. 실제 Shopling 변경은 사용자의 1건 canary에서 별도로 확인한다.
+- HF70 CI 고정 범위 166/166, 과거 HF36~HF70 집중 회귀 115/115, TypeScript `tsc --noEmit`, 변경 파일 ESLint와 `background-v090.js` 문법 검사가 통과했다. 공유 상단 행에 세 모드 문구가 함께 있는 실제 실패 fixture에서 `옵션송신`의 정확한 cell-local 라디오만 선택하고, 클릭 전부터 있던 동일 URL 팝업과 잘못된 opener 팝업은 거부하며 현재 A21 목록 탭이 연 새 팝업만 claim함을 확인했다.
+- 동일 소스의 `next build --webpack` 프로덕션 빌드는 컴파일·타입검사·124/124 정적 페이지 생성을 통과했다. 로컬 프로덕션 서버의 검증 JSON과 실제 ZIP은 모두 207,394 byte였고 manifest `0.6.33`, service worker `background-v090.js`, 직렬 goodsKey 처리, 정확한 새 팝업 소유권, 공유 행 제외 라디오 선택을 확인했다. ZIP SHA-256은 `3e2cca4f8b2bbdcebebfb8912c8c00c53c14df04a255d0d7cce38dfbfc4fcbe0`, background SHA-256은 `eca106348c9731dccfa3215dd52b14f3478db4b23f599a142ba1df0699c4d8fb`다. 실제 Shopling 변경은 배포·설치 뒤 사용자의 1건 canary에서 확인한다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.

@@ -140,8 +140,8 @@ test("HF62 package and both queue surfaces preserve isolated failures while cont
   assert.match(route, /search-policy-v024\.js/);
   assert.match(route, /background-v084\.js/);
   assert.match(route, /EXECUTION_SCOPED_SUBMITTED_TICKET_NO_RECLICK/);
-  assert.match(page, /download-hf69/);
-  assert.match(page, /v0\.6\.32 다운로드/);
+  assert.match(page, /download-hf70/);
+  assert.match(page, /v0\.6\.33 다운로드/);
   assert.doesNotMatch(direct, /batch\.stopAfterBatch = true/);
   assert.doesNotMatch(operational, /batch\.stopAfterBatch = true/);
   assert.match(direct, /나머지 B코드 전송을 계속합니다/);

@@ -5,7 +5,7 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 32] as const;
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 33] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
@@ -40,7 +40,9 @@ export function supportsAllDateStockSync(
  * terminal job and launches the next saved job independently, so one failed
  * B-code cannot suppress another. HF69 also classifies every goods key by its
  * live option count and executes one goods key at a time, so an old one-option
- * split listing cannot be hidden inside an option batch.
+ * split listing cannot be hidden inside an option batch. HF70 binds each A21
+ * write to the fresh popup opened by the exact current list tab and rejects
+ * shared-row radio-label matches.
  */
 export function planShoplingStockLaunch<T extends StockLaunchJob>(
   jobs: readonly T[],
