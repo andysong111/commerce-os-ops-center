@@ -83,6 +83,13 @@ test("integrity audit scope includes only legacy and B-code onboarding records",
       evidence: { source: SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE },
     },
     {
+      launch_item_id: "legacy-review",
+      evidence: {
+        source: SEO_LISTING_LEGACY_ONBOARDING_SOURCE,
+        legacyOnboarding: true,
+      },
+    },
+    {
       launch_item_id: "unrelated-shadow",
       evidence: { source: "seo-listing-shadow-bootstrap-v1" },
     },
