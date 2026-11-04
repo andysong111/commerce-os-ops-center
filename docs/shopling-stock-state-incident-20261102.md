@@ -116,6 +116,13 @@
   - HF67은 `kt.shopling.co.kr`와 `a.shopling.co.kr`를 모두 로그인 후보로 검사하고, 인증된 메인 탭에서 정확한 `[A21] 쇼핑몰상품수정` 메뉴만 눌러 전용 작업창 1개를 준비한다. 정확한 A21 경로·검색항목·소유권이 확인된 뒤에만 `STARTED` 기록과 API 상태변경을 허용한다.
   - A4/A6 브라우저 탐색은 계속 생략하고, 사용자가 열어 둔 원본 관리자 탭은 이동·새로고침하지 않는다. 같은 작업창이 유효하면 다음 실행에서 재사용하며, 로그인·메뉴·A21 준비가 불확실하면 Shopling 변경 전에 안전 중단한다.
 
+- v0.6.31/HF68 현재 A21 옵션송신 단추 인식:
+  - 2026-11-05 실운영 화면에서 API 상태·수량 readback과 A21 상품코드 검색은 끝났지만 `0/1건`에서 멈췄다. A21 수정전송 팝업은 열려 있었고, 상단 `옵션송신` 모드와 하단 `옵션송신 / 선택` 단추가 모두 미선택이었다.
+  - 직접 원인은 A21 작업기가 구형 내부 form 계약 `modify_tp=goods_stock`, `trsmt_env_mody_opt=1`만 찾은 점이다. 현재 Shopling 화면에서 해당 내부 name/value 계약이 달라지거나 노출되지 않아 실제 보이는 단추를 선택하지 못했고, 안전 차단되어 원본 전송 함수까지 도달하지 않았다.
+  - HF68은 구형 form 계약을 1순위로 유지하되 실패하면 현재 화면의 정확한 문구와 구조를 사용한다. 상단 셀 안에서 라디오를 직접 소유한 `옵션송신`을 모드로, 별도 행의 `옵션송신 / 선택`을 옵션 단독 송신으로 식별한다. `추가상품송신`과 `옵션+추가상품송신` 행은 명시적으로 제외한다.
+  - 두 컨트롤은 isolated world에서 선택한 뒤 DOM 표식으로 MAIN world에 인계하며, MAIN world가 동일 두 컨트롤·선택상태·추가상품 미선택을 다시 검증한 경우에만 Shopling 원본 `goods_mallMdfy_submit_sp()`를 호출한다. 모호하거나 복수 후보면 전송하지 않는다.
+  - 회귀 fixture `shoplingStockStateHf68.test.mjs`는 실제 화면의 상단 모드와 하단 3개 행을 재현해 옵션 단독 행만 허용하고 추가상품 두 행을 거부한다. 이전 HF67 패키지 소스는 변경하지 않는다.
+
 ## 재전송 요청
 
 - requestId: `owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969`
@@ -147,4 +154,6 @@
 - 빌드된 로컬 프로덕션 서버에서 HF66 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.29`, service worker `background-v087.js`, Commerce OS ops `content-ops-v023.js`, HF27 READY/PING/START/RESULT/PROGRESS/STATUS 여섯 채널, HF27 표식, API 우선 상태변경을 모두 확인했다. ZIP은 196,574 byte, SHA-256은 `E06702CA77D9F7592E1898D9409A063F63E257D09FF91127E9432A32DFC96E96`, ops SHA-256은 `b945f402af86c7a3b5970441f85850dc2188960c9fe99c7e2204fa460cef5bdb`다.
 - HF18~HF67 기존·현재 책임경계와 API 우선 경로 회귀 115/115, HF57~HF67 집중 회귀 44/44, HF67 표적 테스트 20/20, TypeScript `tsc --noEmit`, 변경 파일 ESLint, `background-v088.js`·`content-ops-preflight-v003.js` 문법 검사와 `next build --webpack` 프로덕션 빌드(124/124 정적 페이지)가 통과했다. 재현 fixture는 최상위 `kt.shopling.co.kr` 관리자 탭 1개만 있는 상태에서 인증·정확 A21 메뉴를 찾고, 전용 작업창을 1개만 생성하며, 두 번째 사전점검에서는 같은 A21 작업창을 재사용하고 원본 탭을 이동하지 않음을 검증한다.
 - 빌드된 로컬 프로덕션 서버에서 HF67 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.30`, service worker `background-v088.js`, Commerce OS preflight `content-ops-preflight-v003.js`, `kt`·`a` 관리자 호스트 권한, A21 사전 준비, A4/A6 생략, API 상태·수량 readback, 마켓 최종완료 불필요를 확인했다. ZIP은 201,996 byte, SHA-256은 `31CAD9A4A8130EE1F9C66A1F356CB5384921533B18CC9DF05AB526CBABBBB1B9`, background SHA-256은 `daa1ecaa12d95919ec14573e57ab4a25fbfcf0ed60416fcc45d3aa841ad42f7c`, preflight SHA-256은 `0209a5a3092b82942e24b7ef20aaf851bcbb48a2216239d2c71010697f57f7ab`다.
+- HF68 영향 범위 회귀 20/20, TypeScript 검사, 변경 파일 ESLint, `price-core-content-a21-v025.js`·`price-core-main-a21-v025.js` 문법 검사와 프로덕션 빌드(124/124 정적 페이지)가 통과했다. 실제 화면 fixture에서 상단 `옵션송신`과 하단 `옵션송신 / 선택`만 선택하고 `추가상품송신`·`옵션+추가상품송신`을 거부하며, 후보가 복수이면 Shopling 원본 전송 함수를 호출하지 않음을 확인했다.
+- 빌드된 로컬 프로덕션 서버에서 HF68 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.31`, service worker `background-v088.js`, 새 A21 작업기 `content-a21-price-core-v051.js`·`main-a21-price-core-v051.js`, 구형 form 계약 우선·정확한 화면 문구 fallback·MAIN world 전송 직전 재검증·마켓 최종완료 불필요를 확인했다. ZIP은 203,683 byte, SHA-256은 `E2CDDFDB5B920E15CF7B845ECD4DE52E6D2BC289E5AC3F200E0AF92717D11783`, content SHA-256은 `e22a4c69062573ec6babf85cc17540a125b2016c9b2581c0c9457d9c521ec973`, main SHA-256은 `a810c4546a7bc8c26eaaf32f209a0d6452bdf9842dacb8044725bfe688ba50f5`다. 실제 Shopling 변경은 사용자의 1건 canary에서 별도로 확인한다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.
