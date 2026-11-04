@@ -49,9 +49,21 @@ test("SEO cloud adds the one-click portfolio panel without removing recovery con
 
 test("dashboard prepares an authenticated scheduled run but keeps destructive writes locked", async () => {
   const route = await source("src/app/api/seo-listing-lifecycle/route.ts");
+  const onboardingServer = await source(
+    "src/lib/seoListingShoplingBCodeOnboardingServer.ts",
+  );
   assert.match(route, /export async function GET/);
   assert.match(route, /export async function POST/);
   assert.match(route, /prepare_scheduled_run/);
+  assert.match(route, /preview_shopling_bcode_integrity_audit/);
+  assert.match(
+    route,
+    /auditExisting:\s*action === "preview_shopling_bcode_integrity_audit"/,
+  );
+  assert.match(
+    onboardingServer,
+    /SEO_SHOPLING_BCODE_AUDIT_MUST_BE_READ_ONLY/,
+  );
   assert.match(route, /externalMarketWrite: false/);
   assert.match(route, /externalDeleteEnabled: false/);
   assert.match(route, /autoExecutionEnabled: false/);

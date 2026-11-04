@@ -249,15 +249,18 @@ export function buildSeoListingShadowReconciliationPlan(input: {
       nowMs - Date.parse(sale.observedAt) <= SALES_EVIDENCE_MAX_AGE_MS &&
       Date.parse(sale.observedAt) <= nowMs + 5 * 60_000,
     );
-    const ledgers = goodsKeys
-      .map((goodsKey) => ledgerByGoodsKey.get(`${ownerId}\u0000${goodsKey}`))
-      .filter((row): row is UnknownRecord => Boolean(row));
-    const profiles = new Set(ledgers.map((row) => text(row.profile)));
+    const ledgerCandidates = goodsKeys.map((goodsKey) =>
+      ledgerByGoodsKey.get(`${ownerId}\u0000${goodsKey}`),
+    );
     const shapeValid =
       goodsKeys.length === SEO_LISTING_SHADOW_EXPECTED_PROFILES.length &&
-      ledgers.length === SEO_LISTING_SHADOW_EXPECTED_PROFILES.length &&
-      SEO_LISTING_SHADOW_EXPECTED_PROFILES.every((profile) => profiles.has(profile)) &&
-      ledgers.every((row) => text(row.launch_item_id) === launchItemId);
+      ledgerCandidates.length === SEO_LISTING_SHADOW_EXPECTED_PROFILES.length &&
+      ledgerCandidates.every(
+        (row, index) =>
+          Boolean(row) &&
+          text(row?.launch_item_id) === launchItemId &&
+          text(row?.profile) === SEO_LISTING_SHADOW_EXPECTED_PROFILES[index],
+      );
 
     if (!shapeValid) {
       productReviews.push({
@@ -267,6 +270,9 @@ export function buildSeoListingShadowReconciliationPlan(input: {
       });
       continue;
     }
+    const ledgers = ledgerCandidates.filter(
+      (row): row is UnknownRecord => Boolean(row),
+    );
 
     const allExist = ledgers.every((row) =>
       existing.has(`${ownerId}\u0000${text(row.profile)}\u0000${launchItemId}`),

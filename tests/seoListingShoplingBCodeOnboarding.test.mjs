@@ -135,6 +135,21 @@ test("a listing with both a B-code and an invalid partner option code is quarant
   );
 });
 
+test("conflicting partner product codes on one goods key are quarantined", () => {
+  const conflicting = catalog().map((row, index) =>
+    row.goods_key === "9001" && index === 1
+      ? { ...row, ptn_goods_cd: "OTHERBASEa" }
+      : row,
+  );
+  const result = build({ catalogRows: conflicting });
+  assert.equal(result.syntheticJobs.length, 0);
+  assert.equal(result.unresolvedCatalogGoodsKeyCount, 1);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_SHOPLING_IDENTITY_CONFLICT",
+  );
+});
+
 test("a partial six-profile set is onboarded as six fail-closed review rows", () => {
   const partial = catalog().filter((row) => row.goods_key !== "9006");
   const result = build({ catalogRows: partial });
@@ -198,6 +213,21 @@ test("missing market pipeline identity stays in review with attempt zero", () =>
   );
 });
 
+test("market ledger profiles must match the catalog profile for each goods key", () => {
+  const swapped = ledger();
+  [swapped[0].profile, swapped[1].profile] = [
+    swapped[1].profile,
+    swapped[0].profile,
+  ];
+  const result = build({ marketLedgerRows: swapped });
+  assert.equal(result.syntheticJobs.length, 0);
+  assert.equal(result.productsNeedingReview, 1);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_MARKET_PIPELINE_IDENTITY_INCOMPLETE",
+  );
+});
+
 test("deleted-only Shopling codes are evidence, not current managed listings", () => {
   const result = build({ catalogRows: catalog({ sale_status: "Z" }) });
   assert.equal(result.deletedCatalogGoodsKeyCount, 6);
@@ -218,4 +248,129 @@ test("a complete existing lifecycle identity is idempotently skipped", () => {
   assert.equal(result.productsSkippedExisting, 1);
   assert.equal(result.syntheticJobs.length, 0);
   assert.equal(result.exceptionRecords.length, 0);
+});
+
+test("read-only integrity audit rechecks an existing six-profile lifecycle set", () => {
+  const existingLifecycleRows = SEO_LISTING_SHADOW_EXPECTED_PROFILES.map(
+    (profile, index) => ({
+      owner_id: OWNER,
+      launch_item_id: "item-1",
+      market_account_key: profile,
+      goods_key: String(9001 + index),
+    }),
+  );
+  const result = build({ existingLifecycleRows, auditExisting: true });
+  assert.equal(result.productsSkippedExisting, 0);
+  assert.equal(result.productsAuditedExisting, 1);
+  assert.equal(result.productsPassingExistingAudit, 1);
+  assert.equal(result.productsFailingExistingAudit, 0);
+  assert.equal(result.productsPreparedForVerification, 1);
+  assert.equal(result.syntheticJobs.length, 1);
+  assert.equal(result.productsNeedingReview, 0);
+});
+
+test("read-only integrity audit reports a persisted profile-to-goods-key mismatch", () => {
+  const existingLifecycleRows = SEO_LISTING_SHADOW_EXPECTED_PROFILES.map(
+    (profile, index) => ({
+      owner_id: OWNER,
+      launch_item_id: "item-1",
+      market_account_key: profile,
+      goods_key: String(9001 + index),
+    }),
+  );
+  [existingLifecycleRows[0].goods_key, existingLifecycleRows[1].goods_key] = [
+    existingLifecycleRows[1].goods_key,
+    existingLifecycleRows[0].goods_key,
+  ];
+  const result = build({ existingLifecycleRows, auditExisting: true });
+  assert.equal(result.productsAuditedExisting, 1);
+  assert.equal(result.productsPassingExistingAudit, 0);
+  assert.equal(result.productsFailingExistingAudit, 1);
+  assert.equal(result.syntheticJobs.length, 0);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_EXISTING_LIFECYCLE_IDENTITY_MISMATCH",
+  );
+  assert.equal(result.exceptionRecords.length, 0);
+});
+
+test("read-only integrity audit excludes products that were never onboarded", () => {
+  const result = build({ existingLifecycleRows: [], auditExisting: true });
+  assert.equal(result.productsAuditedExisting, 0);
+  assert.equal(result.productsPreparedForVerification, 0);
+  assert.equal(result.syntheticJobs.length, 0);
+  assert.equal(result.productsNeedingReview, 0);
+});
+
+test("read-only integrity audit fails closed when persisted product B-code options disappeared", () => {
+  const existingLifecycleRows = SEO_LISTING_SHADOW_EXPECTED_PROFILES.map(
+    (profile, index) => ({
+      owner_id: OWNER,
+      launch_item_id: "item-1",
+      market_account_key: profile,
+      goods_key: String(9001 + index),
+    }),
+  );
+  const result = build({
+    existingLifecycleRows,
+    launchOptions: [],
+    auditExisting: true,
+  });
+  assert.equal(result.productsExamined, 1);
+  assert.equal(result.productsAuditedExisting, 1);
+  assert.equal(result.productsPassingExistingAudit, 0);
+  assert.equal(result.productsFailingExistingAudit, 1);
+  assert.equal(result.productsNeedingReview, 1);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_LAUNCH_OPTION_BCODE_MISSING",
+  );
+});
+
+test("read-only integrity audit fails closed when persisted launch item disappeared", () => {
+  const existingLifecycleRows = SEO_LISTING_SHADOW_EXPECTED_PROFILES.map(
+    (profile, index) => ({
+      owner_id: OWNER,
+      launch_item_id: "missing-item",
+      market_account_key: profile,
+      goods_key: String(9001 + index),
+    }),
+  );
+  const result = build({
+    existingLifecycleRows,
+    auditExisting: true,
+  });
+  assert.equal(result.productsExamined, 1);
+  assert.equal(result.productsAuditedExisting, 1);
+  assert.equal(result.productsPassingExistingAudit, 0);
+  assert.equal(result.productsFailingExistingAudit, 1);
+  assert.equal(result.productsNeedingReview, 1);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_LAUNCH_ITEM_MISSING",
+  );
+});
+
+test("read-only integrity audit fails closed when an existing product vanished from the current catalog", () => {
+  const existingLifecycleRows = SEO_LISTING_SHADOW_EXPECTED_PROFILES.map(
+    (profile, index) => ({
+      owner_id: OWNER,
+      launch_item_id: "item-1",
+      market_account_key: profile,
+      goods_key: String(9001 + index),
+    }),
+  );
+  const result = build({
+    catalogRows: [],
+    existingLifecycleRows,
+    auditExisting: true,
+  });
+  assert.equal(result.productsAuditedExisting, 1);
+  assert.equal(result.productsPassingExistingAudit, 0);
+  assert.equal(result.productsFailingExistingAudit, 1);
+  assert.equal(result.syntheticJobs.length, 0);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_SHOPLING_CURRENT_CATALOG_MISSING",
+  );
 });

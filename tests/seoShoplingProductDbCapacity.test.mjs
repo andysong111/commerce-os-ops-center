@@ -59,6 +59,23 @@ test("safe new product count reserves 12 codes and charges six per product", () 
   assert.equal(result.safeNewProductCount, 3);
 });
 
+test("verified 6,072 / 10,000 usage leaves 652 safe six-code product sets", () => {
+  const result = calculateSeoShoplingProductDbCapacity(
+    {
+      maximum_product_code_count: 10_000,
+      used_product_code_count: 6_072,
+      observation_status: "verified",
+      observed_at: "2026-11-04T10:00:00.000Z",
+    },
+    new Date("2026-11-04T10:30:00.000Z"),
+  );
+  assert.equal(result.blocked, false);
+  assert.equal(result.availableProductCodeCount, 3_928);
+  assert.equal(result.safetyBufferProductCodeCount, 12);
+  assert.equal(result.safeNewProductCount, 652);
+  assert.equal(result.reasonCode, "SHOPLING_PRODUCT_DB_READY");
+});
+
 test("readback preparation rejects stale evidence and reconciles exact snapshot", () => {
   const snapshot = prepareSeoShoplingProductDbSnapshot(
     {

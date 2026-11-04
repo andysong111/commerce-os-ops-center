@@ -90,6 +90,10 @@ function shoplingBCodeOnboardingSummary(value: unknown) {
     productsUnmatchedCurrentShopling: row.productsUnmatchedCurrentShopling,
     productsPreparedForVerification: row.productsPreparedForVerification,
     productsSkippedExisting: row.productsSkippedExisting,
+    integrityAudit: row.integrityAudit,
+    productsAuditedExisting: row.productsAuditedExisting,
+    productsPassingExistingAudit: row.productsPassingExistingAudit,
+    productsFailingExistingAudit: row.productsFailingExistingAudit,
     productsNeedingReview: row.productsNeedingReview,
     currentCatalogGoodsKeyCount: row.currentCatalogGoodsKeyCount,
     deletedCatalogGoodsKeyCount: row.deletedCatalogGoodsKeyCount,
@@ -475,6 +479,7 @@ export async function POST(request: NextRequest) {
       "apply_shadow_reconciliation",
       "preview_shopling_bcode_onboarding",
       "apply_shopling_bcode_onboarding",
+      "preview_shopling_bcode_integrity_audit",
       "refresh_shadow_daily",
     ].includes(action)
   ) {
@@ -519,14 +524,19 @@ export async function POST(request: NextRequest) {
 
   if (
     action === "preview_shopling_bcode_onboarding" ||
-    action === "apply_shopling_bcode_onboarding"
+    action === "apply_shopling_bcode_onboarding" ||
+    action === "preview_shopling_bcode_integrity_audit"
   ) {
     const authenticated = await requireSeoTitleLedgerContext(request);
     if (!authenticated.ok) return authenticated.response;
     try {
       const onboarding = await reconcileSeoListingShoplingBCodeOnboarding(
         authenticated.value,
-        { apply: action === "apply_shopling_bcode_onboarding" },
+        {
+          apply: action === "apply_shopling_bcode_onboarding",
+          auditExisting:
+            action === "preview_shopling_bcode_integrity_audit",
+        },
       );
       return Response.json({
         ok: true,

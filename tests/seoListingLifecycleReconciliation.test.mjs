@@ -181,3 +181,15 @@ test("an incomplete six-channel identity is reported and never guessed", () => {
   assert.deepEqual(result.records, []);
   assert.equal(result.productReviews[0].reason, "REGISTRATION_IDENTITY_INCOMPLETE");
 });
+
+test("a goods key cannot borrow another profile from the same six-channel set", () => {
+  const swapped = ledgers();
+  [swapped[0].profile, swapped[1].profile] = [
+    swapped[1].profile,
+    swapped[0].profile,
+  ];
+  const result = plan({ marketLedgerRows: swapped });
+  assert.equal(result.productsNeedingReview, 1);
+  assert.deepEqual(result.records, []);
+  assert.equal(result.productReviews[0].reason, "REGISTRATION_IDENTITY_INCOMPLETE");
+});
