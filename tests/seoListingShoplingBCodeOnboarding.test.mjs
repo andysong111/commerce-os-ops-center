@@ -313,6 +313,70 @@ test("accepts the verified legacy DM and SM prefixes as one six-profile identity
   assert.equal(result.productReviews.length, 0);
 });
 
+test("accepts a verified six-code set that differs only by one legacy leading digit", () => {
+  const partnerCodes = [
+    "7BAA2-2",
+    "6BAA2-2",
+    "5BAA2-2",
+    "4BAA2-2",
+    "2BAA2-2",
+    "1BAA2-2",
+  ];
+  const legacyLeadingDigitCatalog = catalog().map((row) => {
+    const index = Number(row.goods_key) - 9001;
+    return {
+      ...row,
+      ptn_goods_cd: partnerCodes[index],
+      prod_group: `${SEO_LISTING_SHADOW_EXPECTED_PROFILES[index]}번`,
+    };
+  });
+  const result = build({ catalogRows: legacyLeadingDigitCatalog });
+  assert.equal(result.productsPreparedForVerification, 1);
+  assert.equal(result.productsNeedingReview, 0);
+});
+
+test("leading digits cannot hide two different self-code identities", () => {
+  const partnerCodes = [
+    "7BAA2-2",
+    "6BAA2-2",
+    "5BAA2-2",
+    "4BAA2-2",
+    "2BAA2-2",
+    "1DIFFERENT",
+  ];
+  const conflictingCatalog = catalog().map((row) => {
+    const index = Number(row.goods_key) - 9001;
+    return {
+      ...row,
+      ptn_goods_cd: partnerCodes[index],
+      prod_group: `${SEO_LISTING_SHADOW_EXPECTED_PROFILES[index]}번`,
+    };
+  });
+  const result = build({ catalogRows: conflictingCatalog });
+  assert.equal(result.productsPreparedForVerification, 0);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_SHOPLING_SELF_CODE_CONFLICT",
+  );
+});
+
+test("single-digit product codes cannot become an empty shared identity", () => {
+  const malformedCatalog = catalog().map((row) => {
+    const index = Number(row.goods_key) - 9001;
+    return {
+      ...row,
+      ptn_goods_cd: String(index + 1),
+      prod_group: `${SEO_LISTING_SHADOW_EXPECTED_PROFILES[index]}번`,
+    };
+  });
+  const result = build({ catalogRows: malformedCatalog });
+  assert.equal(result.productsPreparedForVerification, 0);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_SHOPLING_SELF_CODE_CONFLICT",
+  );
+});
+
 test("uses optPtnOptCd only and never mistakes numeric option barcode for a B-code", () => {
   const numericOnly = catalog().map((row) => ({
     ...row,
