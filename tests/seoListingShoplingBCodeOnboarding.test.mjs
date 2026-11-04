@@ -10,6 +10,7 @@ import {
 } from "../src/lib/seoListingShoplingBCodeOnboarding.ts";
 import { SEO_LISTING_LEGACY_ONBOARDING_SOURCE } from "../src/lib/seoListingLegacyOnboarding.ts";
 import { SEO_LISTING_SHADOW_EXPECTED_PROFILES } from "../src/lib/seoListingLifecycleReconciliation.ts";
+import { buildSeoListingShoplingBCodeAuditDiagnostics } from "../src/lib/seoListingShoplingBCodeAuditDiagnostics.ts";
 
 const OWNER = "11111111-1111-1111-1111-111111111111";
 const NOW = new Date("2026-10-31T08:00:00.000Z");
@@ -181,6 +182,75 @@ test("integrity audit population explains source, state, and initial review verd
       },
     ],
   });
+});
+
+test("bounded audit diagnostics join only requested auditable product evidence", () => {
+  const result = buildSeoListingShoplingBCodeAuditDiagnostics({
+    targetLaunchItemIds: ["item-1", "not-auditable"],
+    existingLifecycleRows: [
+      {
+        launch_item_id: "item-1",
+        market_account_key: "도매1",
+        state: "EXCEPTION",
+        goods_key: "9001",
+        requires_review: true,
+        review_reason: "BCODE_SHOPLING_IDENTITY_CONFLICT",
+        evidence: { source: SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE },
+      },
+    ],
+    launchItems: [item()],
+    launchOptions: options(),
+    catalogRows: [
+      {
+        goods_key: "9001",
+        ptn_goods_cd: "SEO20261031a",
+        prod_group: "도매1번",
+        sale_status: "B",
+        optPtnOptCd: "BAA1-1",
+      },
+      {
+        goods_key: "9999",
+        ptn_goods_cd: "UNRELATED",
+        prod_group: "소매1번",
+        sale_status: "B",
+        optPtnOptCd: "BAA1-2",
+      },
+    ],
+    marketLedgerRows: [
+      {
+        goods_key: "9001",
+        launch_item_id: "item-1",
+        profile: "도매1",
+        status: "sent",
+        title_status: "sent",
+        market_status: "sent",
+      },
+    ],
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].launchItemId, "item-1");
+  assert.equal(result[0].modelNumber, "AAA900");
+  assert.deepEqual(result[0].lifecycle, [
+    {
+      profile: "도매1",
+      state: "EXCEPTION",
+      goodsKey: "9001",
+      requiresReview: true,
+      reviewReason: "BCODE_SHOPLING_IDENTITY_CONFLICT",
+      source: SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE,
+    },
+  ]);
+  assert.deepEqual(result[0].shoplingCatalog, [
+    {
+      goodsKey: "9001",
+      partnerProductCode: "SEO20261031a",
+      productGroup: "도매1번",
+      saleStatus: "B",
+      partnerOptionCode: "BAA1-1",
+    },
+  ]);
+  assert.equal(result[0].marketLedger.length, 1);
+  assert.equal(result[0].launchOptions.length, 2);
 });
 
 test("prepares exactly one six-profile current Shopling set for verification", () => {
