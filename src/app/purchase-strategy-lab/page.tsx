@@ -29,6 +29,7 @@ function effectiveUnitCost(row: Awaited<ReturnType<typeof loadInventoryVerificat
     row.verifiedPurchaseUnitCostKrw,
     row.purchaseProtectedCostKrw,
     row.protectedCostKrw,
+    row.planningUnitCostKrw,
     row.recommendedQty > 0
       ? Math.round(row.expectedCost / row.recommendedQty)
       : 0,

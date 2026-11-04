@@ -44,6 +44,7 @@ export type ProductDecisionRow = {
   recommendedQty?: number;
   rawRecommendedQty?: number;
   forecastUnits?: number;
+  unitCost?: number;
   expectedCost?: number;
   estimatedStock?: number;
   openCommitment?: number;

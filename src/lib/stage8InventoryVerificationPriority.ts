@@ -62,6 +62,7 @@ export type InventoryVerificationPriorityRow = {
   originalRecommendedQty: number;
   moq: number;
   cartonQuantity: number;
+  planningUnitCostKrw: number;
   expectedCost: number;
   priorityScore: number;
   revenueQualifiedMonthCount: number;
@@ -445,6 +446,18 @@ export async function loadInventoryVerificationPriority(
           ? ("RECENT_RECEIPT_COVERED" as const)
           : actionFor(inventory, now);
       const recommendedQty = net.recommendedQuantity;
+      // Preserve the canonical planning cost even when a completed-month gate
+      // reduces the saved recommendation to zero. The read-only strategy lab
+      // can then price a safely restored pre-gate quantity without treating it
+      // as a free item or silently filtering it out.
+      const planningUnitCostKrw = Math.max(
+        0,
+        integer(profile?.latestCostKrw),
+        integer(product.unitCost),
+        originalRecommendedQty > 0
+          ? Math.round(integer(product.expectedCost) / originalRecommendedQty)
+          : 0,
+      );
       const expectedCost = expectedCostForQuantity(
         product.expectedCost,
         originalRecommendedQty,
@@ -471,6 +484,7 @@ export async function loadInventoryVerificationPriority(
         originalRecommendedQty,
         moq,
         cartonQuantity,
+        planningUnitCostKrw,
         expectedCost,
         priorityScore: integer(product.score?.total),
         revenueQualifiedMonthCount: integer(
