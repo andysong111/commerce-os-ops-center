@@ -91,6 +91,6 @@ test("HF46 packages v0.6.11 and blocks BDE7-3 from using the live-failed v0.6.10
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 26\]/);
   assert.match(queue, /v0\.6\.26으로 업데이트/);
   assert.match(direct, /v0\.6\.26/);
-  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.25'/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.26'/);
   assert.match(workflow, /shoplingStockStateHf46\.test\.mjs/);
 });
