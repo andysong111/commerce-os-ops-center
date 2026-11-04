@@ -1,4 +1,7 @@
-import { inferProductGroupFromPtnGoodsCd } from "./productGroup.ts";
+import {
+  inferProductGroupFromPtnGoodsCd,
+  inferSelfCodeBaseFromPtnGoodsCd,
+} from "./productGroup.ts";
 import { SEO_LISTING_LEGACY_ONBOARDING_SOURCE } from "./seoListingLegacyOnboarding.ts";
 import {
   SEO_LISTING_SHADOW_EXPECTED_PROFILES,
@@ -412,7 +415,7 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
     ];
     const ptnGoodsCd = ptnCodes.length === 1 ? ptnCodes[0] : "";
     const profile = profiles.size === 1 ? [...profiles][0] : "";
-    const selfCodeBase = ptnGoodsCd ? ptnGoodsCd.slice(0, -1) : "";
+    const selfCodeBase = inferSelfCodeBaseFromPtnGoodsCd(ptnGoodsCd);
     const identityRow: CatalogIdentity = {
       goodsKey,
       ptnGoodsCd,
