@@ -96,12 +96,14 @@ test("Shopling ON_SALE API maps to status B and preserves the existing option qu
   const source = await readFile("src/lib/shopling/shoplingOptionStatus.ts", "utf8");
   assert.match(source, /return desired === "SOLD_OUT" \? "C" : "B"/);
   assert.match(source, /<optStatus>\$\{target\}<\/optStatus>/);
-  // Main already emits numeric quantities through cdata and deliberately omits
-  // unmanaged quantities. Preserve the round-trip invariant, not obsolete syntax.
-  assert.match(source, /const quantityField = \/\^\\d\+\$\/\.test\(variant\.optionQuantity\)/);
-  assert.match(source, /<optQty>\$\{cdata\(variant\.optionQuantity\)\}<\/optQty>/);
-  assert.match(source, /\.\.\.quantityField/);
-  assert.match(source, /after\.optionQuantity !== before\.optionQuantity/);
+  // Status sync never sends quantity. It independently reads it back and fails
+  // closed if Shopling changed it as an unintended side effect.
+  const modifyBuilder = source.slice(
+    source.indexOf("function buildModifyXml"),
+    source.indexOf("function parseModifyResponse"),
+  );
+  assert.doesNotMatch(modifyBuilder, /optQty/);
+  assert.match(source, /last\.optionQuantity === expectedQuantity/);
   assert.match(source, /SHOPLING_OPTION_READBACK_QTY_MISMATCH/);
 });
 
@@ -220,7 +222,7 @@ test("unified operator sends returned direct jobs immediately and never reloads 
   assert.match(panel, /directQueue\.current = \[/);
   assert.match(panel, /const supported = supportsAllDateStockSync\(version\)/);
   assert.match(panel, /extensionReadyRef\.current = supported/);
-  assert.match(panel, /v0\.6\.27로 업데이트해 주세요/);
+  assert.match(panel, /v0\.6\.28로 업데이트해 주세요/);
   assert.match(panel, /!extensionReadyRef\.current/);
   assert.doesNotMatch(panel, /window\.location\.reload/);
 });

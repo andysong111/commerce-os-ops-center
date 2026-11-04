@@ -52,21 +52,22 @@ test("zero inventory requests stockout and confirmed inbound requests on-sale re
   );
   assert.match(syncRoute, /SHOPLING_API_OPTION_STATUS/);
   assert.match(syncRoute, /A21_GOODS_KEY_OPTION_SEND/);
-  assert.match(syncRoute, /A4_PRODUCT_STATUS/);
+  assert.match(syncRoute, /SHOPLING_API_PRODUCT_STATUS/);
   assert.match(syncRoute, /A21_GOODS_KEY_PRODUCT_SALE_STATUS/);
   assert.match(
     syncRoute,
-    /row\.productKind === "OPTION"[\s\S]*SHOPLING_API_OPTION_STATUS[\s\S]*A21_GOODS_KEY_OPTION_SEND[\s\S]*A4_PRODUCT_STATUS[\s\S]*A21_GOODS_KEY_PRODUCT_SALE_STATUS/,
+    /row\.productKind === "OPTION"[\s\S]*SHOPLING_API_OPTION_STATUS[\s\S]*A21_GOODS_KEY_OPTION_SEND[\s\S]*SHOPLING_API_PRODUCT_STATUS[\s\S]*A21_GOODS_KEY_PRODUCT_SALE_STATUS/,
   );
+  assert.doesNotMatch(syncRoute, /A4_PRODUCT_STATUS|A6_READ_ONLY_GOODS_KEY_RESOLVE/);
   assert.doesNotMatch(syncRoute, /A22_OPTION_TRANSMIT/);
 });
 
-test("single products keep the model-number inventory guard while Shopling execution routes A4 to A21", async () => {
+test("single products keep the model-number inventory guard while Shopling execution routes API to A21", async () => {
   const { inventory, panel, syncRoute } = await sources();
   assert.match(inventory, /reset\.productKind === "SINGLE" && !modelNo/);
   assert.match(panel, /productKind === "SINGLE" && !modelNo\.trim\(\)/);
-  assert.match(panel, /단품은 A4 상품상태 변경 후 A21 상품판매상태 송신을 사용합니다/);
-  assert.match(syncRoute, /A4_PRODUCT_STATUS/);
+  assert.match(panel, /단품 모두 Shopling API에서 B코드 소유권, 목표 상태, 기존 수량 보존을 재검증한 뒤 A21 전송만 브라우저로 실행합니다/);
+  assert.match(syncRoute, /SHOPLING_API_PRODUCT_STATUS/);
   assert.match(syncRoute, /A21_GOODS_KEY_PRODUCT_SALE_STATUS/);
 });
 

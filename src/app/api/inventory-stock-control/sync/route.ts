@@ -277,7 +277,7 @@ function queueJob(
     route:
       row.productKind === "OPTION"
         ? ["SHOPLING_API_OPTION_STATUS", "A21_GOODS_KEY_OPTION_SEND"]
-        : ["A4_PRODUCT_STATUS", "A21_GOODS_KEY_PRODUCT_SALE_STATUS"],
+        : ["SHOPLING_API_PRODUCT_STATUS", "A21_GOODS_KEY_PRODUCT_SALE_STATUS"],
   };
 }
 

@@ -7,7 +7,12 @@ on:
       - "scripts/build-shopling-stock-worker-v030.mjs"
       - "src/app/api/shopling-stock-state-sync/**"
       - "src/app/api/inventory-stock-control/sync/**"
+      - "src/app/api/inventory-stock-control/shopling-option-status/**"
+      - "src/app/api/inventory-stock-control/shopling-bcode-index/**"
       - "src/app/api/inventory-stock-control/route.ts"
+      - "src/lib/shopling/shoplingBcodeIndex*.ts"
+      - "src/lib/shopling/shoplingOptionStatus.ts"
+      - "src/lib/shopling/shoplingProductStatus.ts"
       - "src/lib/inventoryStockSalesTail.ts"
       - "src/lib/inventoryStockSalesTailCoverage.ts"
       - "src/lib/inventoryStockSyncResolution.ts"
@@ -44,6 +49,9 @@ on:
       - "tests/shoplingStockStateHf62.test.mjs"
       - "tests/shoplingStockStateHf63.test.mjs"
       - "tests/shoplingStockStateHf64.test.mjs"
+      - "tests/shoplingStockApiFirstHf65.test.mjs"
+      - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
+      - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
       - "tests/shoplingDirectRunProgress.test.mjs"
       - "tests/shoplingDirectRunRecovery.test.mjs"
@@ -94,6 +102,8 @@ jobs:
           && node --check public/shopling-stock-state-sync/background-v085.js
           && node --check public/shopling-stock-state-sync/a6-frame-evidence-v086.js
           && node --check public/shopling-stock-state-sync/background-v086.js
+          && node --check public/shopling-stock-state-sync/content-ops-v022.js
+          && node --check public/shopling-stock-state-sync/background-v087.js
           && node --check public/shopling-stock-state-sync/content-ops-preflight-v002.js
           && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
           && node --check public/shopling-stock-state-sync/popup.js
@@ -151,6 +161,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf63.test.mjs
       - name: Regression - HF64 serial B-code exact A6 result ownership
         run: node --experimental-strip-types --test tests/shoplingStockStateHf64.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF65 API-first B-code status and A21-only browser boundary
+        run: node --experimental-strip-types --test tests/shoplingStockApiFirstHf65.test.mjs tests/shoplingOptionStatusUnmanagedQuantity.test.mjs tests/inventoryStockControl.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

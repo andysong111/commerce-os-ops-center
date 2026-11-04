@@ -18,11 +18,14 @@ on:
       - 'src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx'
       - 'src/lib/supabase/admin.ts'
       - 'src/lib/shopling/shoplingOptionStatus.ts'
+      - 'src/lib/shopling/shoplingProductStatus.ts'
+      - 'src/lib/shopling/shoplingBcodeIndex*.ts'
       - 'src/lib/shoplingStockLaunchPlan.ts'
       - 'src/lib/shoplingStockHf*.ts'
       - 'src/lib/shoplingStockQueueSelection.ts'
       - 'src/lib/shoplingStockReadyBarrier.ts'
       - 'supabase/migrations/*inventory_tail*.sql'
+      - 'supabase/migrations/*shopling_bcode_option_index*.sql'
       - 'public/shopling-stock-state-sync/**'
       - 'tests/inventoryStock*'
       - 'tests/shoplingStockStateHf31.test.mjs'
@@ -32,6 +35,8 @@ on:
       - 'tests/shoplingStockStateHf36.test.mjs'
       - 'tests/shoplingStockStateHf37.test.mjs'
       - 'tests/shoplingStockReadyBarrier.test.mjs'
+      - 'tests/shoplingStockApiFirstHf65.test.mjs'
+      - 'tests/shoplingOptionStatusUnmanagedQuantity.test.mjs'
       - 'tests/helpers/purchaseCycleHarness.mjs'
       - 'tests/supabaseAdminReadRetry.test.mjs'
       - '.github/workflows/inventory-stock-control-ci.yml'
@@ -52,11 +57,14 @@ on:
       - 'src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx'
       - 'src/lib/supabase/admin.ts'
       - 'src/lib/shopling/shoplingOptionStatus.ts'
+      - 'src/lib/shopling/shoplingProductStatus.ts'
+      - 'src/lib/shopling/shoplingBcodeIndex*.ts'
       - 'src/lib/shoplingStockLaunchPlan.ts'
       - 'src/lib/shoplingStockHf*.ts'
       - 'src/lib/shoplingStockQueueSelection.ts'
       - 'src/lib/shoplingStockReadyBarrier.ts'
       - 'supabase/migrations/*inventory_tail*.sql'
+      - 'supabase/migrations/*shopling_bcode_option_index*.sql'
       - 'public/shopling-stock-state-sync/**'
       - 'tests/inventoryStock*'
       - 'tests/shoplingStockStateHf31.test.mjs'
@@ -66,6 +74,8 @@ on:
       - 'tests/shoplingStockStateHf36.test.mjs'
       - 'tests/shoplingStockStateHf37.test.mjs'
       - 'tests/shoplingStockReadyBarrier.test.mjs'
+      - 'tests/shoplingStockApiFirstHf65.test.mjs'
+      - 'tests/shoplingOptionStatusUnmanagedQuantity.test.mjs'
       - 'tests/helpers/purchaseCycleHarness.mjs'
       - 'tests/supabaseAdminReadRetry.test.mjs'
       - '.github/workflows/inventory-stock-control-ci.yml'
@@ -118,4 +128,4 @@ jobs:
           done
           docker run --rm --network host -v "$PWD:/workspace" -e PGPASSWORD="$PGPASSWORD" postgres:16 psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /workspace/tests/inventoryStockTailProjection.sql
       - name: Test stock control and connection recovery
-        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockQueueSelection.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs tests/inventoryStockUnifiedBatch.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockBulkInput.test.mjs tests/inventoryStockTailLatestView.test.mjs tests/inventoryStockConnection.test.mjs tests/inventoryStockRetransmission.test.mjs tests/shoplingStockStateHf31.test.mjs tests/shoplingStockStateHf33.test.mjs tests/shoplingStockStateHf34.test.mjs tests/shoplingStockStateHf35.test.mjs tests/shoplingStockStateHf36.test.mjs tests/shoplingStockStateHf37.test.mjs tests/shoplingStockStateHf50.test.mjs tests/shoplingStockStateHf57.test.mjs tests/shoplingStockReadyBarrier.test.mjs tests/supabaseAdminReadRetry.test.mjs
+        run: node --experimental-strip-types --test tests/inventoryStockControlReentry.test.mjs tests/inventoryStockQueueSelection.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs tests/inventoryStockUnifiedBatch.test.mjs tests/inventoryStockProductMasterBridge.test.mjs tests/inventoryStockBulkInput.test.mjs tests/inventoryStockTailLatestView.test.mjs tests/inventoryStockConnection.test.mjs tests/inventoryStockRetransmission.test.mjs tests/shoplingStockStateHf31.test.mjs tests/shoplingStockStateHf33.test.mjs tests/shoplingStockStateHf34.test.mjs tests/shoplingStockStateHf35.test.mjs tests/shoplingStockStateHf36.test.mjs tests/shoplingStockStateHf37.test.mjs tests/shoplingStockStateHf50.test.mjs tests/shoplingStockStateHf57.test.mjs tests/shoplingStockReadyBarrier.test.mjs tests/shoplingStockApiFirstHf65.test.mjs tests/shoplingOptionStatusUnmanagedQuantity.test.mjs tests/supabaseAdminReadRetry.test.mjs
