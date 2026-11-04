@@ -1,6 +1,10 @@
-import { applyShoplingOptionStatus } from "@/lib/shopling/shoplingOptionStatus";
+import {
+  applyShoplingOptionStatus,
+  inspectShoplingBcodeOnGoodsKey,
+} from "@/lib/shopling/shoplingOptionStatus";
 import { applyShoplingProductStatus } from "@/lib/shopling/shoplingProductStatus";
 import { loadIndexedShoplingGoodsKeys } from "@/lib/shopling/shoplingBcodeIndex";
+import { planShoplingGoodsKeyTransmission } from "@/lib/shopling/shoplingGoodsKeyTransmission";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 
 export const runtime = "nodejs";
@@ -96,20 +100,56 @@ export async function POST(request: Request) {
     }
     const candidateGoodsKeys = [...new Set([...indexedGoodsKeys, ...requestedGoodsKeys])];
     const receipts = [];
+    const transmissions = [];
     for (const goodsKey of candidateGoodsKeys) {
       try {
-        const receipt = productKind === "OPTION"
+        const inspection = await inspectShoplingBcodeOnGoodsKey({
+          barcode: normalizedBarcode,
+          goodsKey,
+        });
+        const plan = planShoplingGoodsKeyTransmission(
+          productKind as "OPTION" | "SINGLE",
+          { goodsKey, optionCount: inspection.goodsOptionCount },
+        );
+        const optionReceipt = plan.applyExactOptionStatus
           ? await applyShoplingOptionStatus({
               barcode: normalizedBarcode,
               desiredStatus,
               goodsKeys: [goodsKey],
             })
-          : await applyShoplingProductStatus({
+          : null;
+        const productReceipt = plan.applyProductSaleStatus
+          ? await applyShoplingProductStatus({
               barcode: normalizedBarcode,
               desiredStatus,
               goodsKey,
-            });
+            })
+          : null;
+        const primaryReceipt = productReceipt || optionReceipt;
+        if (!primaryReceipt) {
+          throw new Error(`SHOPLING_GOODS_KEY_EXECUTION_PLAN_EMPTY:${goodsKey}`);
+        }
+        const receipt = {
+          matchedGoodsKey: primaryReceipt.matchedGoodsKey,
+          barcode: normalizedBarcode,
+          desiredStatus,
+          goodsOptionCount: plan.optionCount,
+          transmissionKind: plan.transmissionKind,
+          effectiveProductKind: plan.effectiveProductKind,
+          mutated: Boolean(optionReceipt?.mutated || productReceipt?.mutated),
+          optionReceipt,
+          productReceipt,
+          optionQuantity: primaryReceipt.optionQuantity,
+          optionQuantityAfter: primaryReceipt.optionQuantityAfter,
+          verifiedAt: new Date().toISOString(),
+        };
         receipts.push(receipt);
+        transmissions.push({
+          goodsKey: receipt.matchedGoodsKey,
+          optionCount: plan.optionCount,
+          transmissionKind: plan.transmissionKind,
+          effectiveProductKind: plan.effectiveProductKind,
+        });
       } catch (error) {
         const raw = error instanceof Error ? error.message : String(error ?? "");
         if (raw === `SHOPLING_OPTION_EXACT_MATCH_REQUIRED:${normalizedBarcode}:0`) {
@@ -127,6 +167,13 @@ export async function POST(request: Request) {
       productKind,
       desiredStatus,
       goodsKeys: resolvedGoodsKeys,
+      transmissions,
+      optionGoodsKeys: transmissions
+        .filter((row) => row.transmissionKind === "OPTION_SEND")
+        .map((row) => row.goodsKey),
+      productStatusGoodsKeys: transmissions
+        .filter((row) => row.transmissionKind === "PRODUCT_SALE_STATUS_SEND")
+        .map((row) => row.goodsKey),
       indexedGoodsKeys,
       receipts,
       mutatedCount: receipts.filter((row) => row.mutated).length,

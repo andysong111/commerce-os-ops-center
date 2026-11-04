@@ -277,7 +277,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 현재 A21 옵션송신 단추 인식을 지원하지 않아 사용할 수 없습니다. v0.6.31로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 goods key별 1옵션 분기와 A21 단추 복구를 지원하지 않아 사용할 수 없습니다. v0.6.32로 업데이트해 주세요.`);
         }
         return;
       }

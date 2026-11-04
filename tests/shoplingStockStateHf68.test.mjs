@@ -61,8 +61,8 @@ test("HF68 fails closed on ambiguous labels and verifies the exact marked contro
   assert.match(main, /window\.goods_mallMdfy_submit_sp\(\)/);
 });
 
-test("HF68 packages new workers without silently changing the immutable HF67 package", async () => {
-  const [route, oldContent, page, planner] = await Promise.all([
+test("HF68 remains an immutable historical package after HF69 becomes current", async () => {
+  const [route, oldContent] = await Promise.all([
     readFile(
       "src/app/api/shopling-stock-state-sync/download-hf68/route.ts",
       "utf8",
@@ -71,8 +71,6 @@ test("HF68 packages new workers without silently changing the immutable HF67 pac
       "public/shopling-stock-state-sync/price-core-content-a21-v024.js",
       "utf8",
     ),
-    readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
-    readFile("src/lib/shoplingStockLaunchPlan.ts", "utf8"),
   ]);
 
   assert.match(route, /getHf67Download/);
@@ -85,7 +83,4 @@ test("HF68 packages new workers without silently changing the immutable HF67 pac
   assert.match(route, /liveShoplingVerificationRequired: true/);
   assert.match(oldContent, /const VERSION = "0\.2\.4"/);
   assert.doesNotMatch(oldContent, /EXACT_VISIBLE_LABELS/);
-  assert.match(page, /download-hf68/);
-  assert.match(page, /v0\.6\.31 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 31\]/);
 });
