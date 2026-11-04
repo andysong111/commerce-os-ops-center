@@ -149,3 +149,33 @@ API. This workflow must never write to Shopling or a marketplace.
   No lifecycle correction or external Shopling write is authorized by this
   evidence.
 
+### Representative evidence and legacy identity correction
+
+- The authenticated diagnostic is bounded to 20 UUID launch items and joins
+  lifecycle profiles, launch B-codes, exact Shopling option rows, and market
+  ledger identities without writing any source.
+- The scoped population is 129 B-code onboarding products plus 50 legacy
+  products. The legacy group contains 28 protected, 19 live, and three
+  exception products; all 129 B-code onboarding products were initially in
+  exception state.
+- Eleven reason-group representatives and all five self-code conflicts were
+  independently inspected. AAA043 was genuinely incomplete, AAA192 reused a
+  B-code found on another product, and AAA281 mixed managed B-code and blank
+  partner-option rows. These remain fail-closed.
+- AAA403 and AAA353 proved that the verified legacy `DM1_..DM4_` and
+  `SM1_..SM2_` prefixes encode the six canonical profiles. Supporting those
+  prefixes and their shared base removed 17 ambiguous-profile findings and 31
+  product-group profile conflicts.
+- All five leading-digit self-code findings had six exact profiles and one
+  shared base after removing one channel digit, but no market-ledger rows.
+  They are now correctly classified as incomplete market identity rather than
+  passed. Empty bases and multiple bases remain blocked by regression tests.
+- The latest Production read-only result is 48 pass and 131 review across 179
+  persisted products. Within the 127 products currently matched to Shopling,
+  48 pass and 79 still need review. Remaining groups are 51 catalog misses,
+  41 identity conflicts, 26 incomplete six-profile sets, nine incomplete market
+  identities, three archived launch items, and one missing launch-option B-code.
+- Every diagnostic and audit reported `internalWriteApplied=false` and
+  `externalMarketWrite=false`. The project remains in phase 4; no sold-out,
+  delete, or re-registration canary is authorized yet.
+
