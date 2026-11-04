@@ -106,3 +106,22 @@ API. This workflow must never write to Shopling or a marketplace.
   The internal authenticated quota readback must be refreshed to the current
   value before the registration gate can open.
 
+### Production scope audit outcome
+
+- The first source-filtered audit selected 185 products. Excluding row-level
+  legacy quarantine evidence reduced the population to 179 products.
+- A product-level legacy quarantine exclusion did not reduce the population
+  further. The earlier `71 + 56 = 127` operating report therefore remains an
+  unverified planning baseline, not the current lifecycle-ledger population.
+- The latest Production read-only run audited 179 products: `0 pass / 179
+  review`, with 176 matched to the current Shopling catalog and 3 unmatched.
+- Review reasons were: 165 identity conflicts, 4 archived launch items, 3
+  ambiguous profiles, 3 self-code conflicts, 2 current-catalog misses, 1
+  missing launch-option B-code, and 1 incomplete market-pipeline identity.
+- The audit must next expose source/state population counts and split the broad
+  identity-conflict reason into machine-verifiable subreasons. No managed
+  population count may be forced to 127 without that evidence.
+- Every run remained read-only: `internalWriteApplied=false` and
+  `externalMarketWrite=false`. External sold-out/delete/re-registration stays
+  locked.
+
