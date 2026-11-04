@@ -14,6 +14,7 @@ const PRESERVED_SOURCING_ONLY_BLOCKERS = new Set([
   "WAREHOUSE_GATE_NOT_READY",
   "NO_TEST_READY_CANDIDATE",
 ]);
+const DIRECT_SOURCING_VARIANT_NAMESPACE = "direct-variant-v1:";
 
 const hash = (value: unknown) =>
   `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
@@ -97,6 +98,17 @@ function sortedVariantSelections(values: SourcingVariantSelectionInput[] | undef
       }
       return 0;
     });
+}
+
+function compatibleSourcingVariantIdentity(
+  conceptId: string,
+  variantKey: string | null,
+) {
+  if (!conceptId || !variantKey) return null;
+  const compatibleVariantKey = variantKey.startsWith(DIRECT_SOURCING_VARIANT_NAMESPACE)
+    ? variantKey.slice(DIRECT_SOURCING_VARIANT_NAMESPACE.length)
+    : variantKey;
+  return compatibleVariantKey ? `${conceptId}\0${compatibleVariantKey}` : null;
 }
 
 function sameSourcingSelection(
@@ -377,7 +389,11 @@ export function canFinalizeWithExactConfirmedSourcing(
   const expectedConcepts = new Map<string, "S" | "L">();
   if (requestedVariants.length > 0) {
     for (const variant of requestedVariants) {
-      const key = `${variant.conceptId}\0${variant.variantKey}`;
+      const key = compatibleSourcingVariantIdentity(
+        variant.conceptId,
+        variant.variantKey,
+      );
+      if (!key) return false;
       if (expectedVariants.has(key)) return false;
       expectedVariants.set(key, variant.storageSize);
     }
@@ -428,7 +444,10 @@ export function canFinalizeWithExactConfirmedSourcing(
   const reusedConcepts = new Set<string>();
   const reusedBarcodes = new Set<string>();
   for (const row of reused) {
-    const identity = `${row.conceptId}\0${row.variantKey ?? ""}`;
+    const identity = requestedVariants.length > 0
+      ? compatibleSourcingVariantIdentity(row.conceptId, row.variantKey)
+      : `${row.conceptId}\0${row.variantKey ?? ""}`;
+    if (!identity) return false;
     const exactVariantExpected = requestedVariants.length > 0
       ? expectedVariants.get(identity)
       : expectedConcepts.get(row.conceptId);

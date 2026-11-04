@@ -1074,7 +1074,7 @@ test("automatic selection restores only the exact confirmed sourcing reservation
   );
   plan.variantSelections = preferredConceptIds.map((conceptId) => ({
     conceptId,
-    variantKey: `${conceptId}-variant`,
+    variantKey: `direct-variant-v1:${conceptId}-variant`,
     storageSize: "S",
   }));
   plan.allocation.selected = [];
@@ -1115,6 +1115,25 @@ test("automatic selection restores only the exact confirmed sourcing reservation
     prepared,
     purchaseCycleDraftPlannedTotals(value, plan),
   ));
+
+  const unsupportedNamespace = structuredClone(plan);
+  unsupportedNamespace.reusedConfirmedVariants[0].variantKey =
+    `legacy-variant-v1:${preferredConceptIds[0]}-variant`;
+  assert.equal(
+    canFinalizeWithExactConfirmedSourcing(value, unsupportedNamespace, input),
+    false,
+    "only the source engine's validated direct-variant namespace may be normalized",
+  );
+
+  const ambiguousCompatibleIdentity = structuredClone(plan);
+  ambiguousCompatibleIdentity.reusedConfirmedVariants[1].conceptId = preferredConceptIds[0];
+  ambiguousCompatibleIdentity.reusedConfirmedVariants[1].variantKey =
+    `direct-variant-v1:${preferredConceptIds[0]}-variant`;
+  assert.equal(
+    canFinalizeWithExactConfirmedSourcing(value, ambiguousCompatibleIdentity, input),
+    false,
+    "two lifecycle rows must never satisfy one reviewed option identity",
+  );
 
   const collision = structuredClone(plan);
   collision.reusedConfirmedVariants[0].barcode = value.selected[0].barcode;
