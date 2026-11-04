@@ -75,12 +75,16 @@ function build(overrides = {}) {
 test("integrity audit scope includes only legacy and B-code onboarding records", () => {
   const rows = [
     {
-      launch_item_id: "legacy",
+      launch_item_id: "legacy-managed",
       evidence: { source: SEO_LISTING_LEGACY_ONBOARDING_SOURCE },
     },
     {
       launch_item_id: "bcode",
       evidence: { source: SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE },
+    },
+    {
+      launch_item_id: "legacy-review",
+      evidence: { source: SEO_LISTING_LEGACY_ONBOARDING_SOURCE },
     },
     {
       launch_item_id: "legacy-review",
@@ -99,7 +103,7 @@ test("integrity audit scope includes only legacy and B-code onboarding records",
     selectSeoListingShoplingBCodeAuditLifecycleRows(rows).map(
       (row) => row.launch_item_id,
     ),
-    ["legacy", "bcode"],
+    ["legacy-managed", "bcode"],
   );
 });
 
