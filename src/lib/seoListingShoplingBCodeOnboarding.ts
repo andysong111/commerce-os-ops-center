@@ -44,6 +44,19 @@ function record(value: unknown): UnknownRecord {
 export function selectSeoListingShoplingBCodeAuditLifecycleRows(
   rows: UnknownRecord[],
 ) {
+  const legacyReviewProductIds = new Set(
+    rows
+      .filter((row) => {
+        const evidence = record(row.evidence);
+        return (
+          text(evidence.source) === SEO_LISTING_LEGACY_ONBOARDING_SOURCE &&
+          evidence.legacyOnboarding === true
+        );
+      })
+      .map((row) => text(row.launch_item_id))
+      .filter(Boolean),
+  );
+
   return rows.filter((row) => {
     const evidence = record(row.evidence);
     const source = text(evidence.source);
@@ -51,7 +64,7 @@ export function selectSeoListingShoplingBCodeAuditLifecycleRows(
 
     return !(
       source === SEO_LISTING_LEGACY_ONBOARDING_SOURCE &&
-      evidence.legacyOnboarding === true
+      legacyReviewProductIds.has(text(row.launch_item_id))
     );
   });
 }
