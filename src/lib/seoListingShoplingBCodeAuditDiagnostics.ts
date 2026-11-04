@@ -2,6 +2,7 @@ type UnknownRecord = Record<string, unknown>;
 
 const DIAGNOSTIC_LIMIT = 20;
 const GOODS_KEY = /^\d+$/;
+const B_CODE = /^B[A-Z]{1,2}\d+-\d+$/;
 
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
@@ -11,6 +12,10 @@ function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as UnknownRecord)
     : {};
+}
+
+function code(value: unknown) {
+  return text(value).toUpperCase().replace(/\s+/g, "");
 }
 
 function uniqueRows<T>(rows: T[], identity: (row: T) => string) {
@@ -50,15 +55,36 @@ export function buildSeoListingShoplingBCodeAuditDiagnostics(input: {
     const launchItem = input.launchItems.find(
       (row) => text(row.item_id) === launchItemId,
     );
+    const launchOptionRows = input.launchOptions.filter(
+      (row) => text(row.item_id) === launchItemId,
+    );
+    const launchBCodes = new Set(
+      launchOptionRows
+        .map((row) => code(row.barcode))
+        .filter((barcode) => B_CODE.test(barcode)),
+    );
     const shoplingRows = input.catalogRows
-      .filter((row) => lifecycleGoodsKeys.has(text(row.goods_key)))
-      .map((row) => ({
-        goodsKey: text(row.goods_key),
-        partnerProductCode: text(row.ptn_goods_cd),
-        productGroup: text(row.prod_group),
-        saleStatus: text(row.sale_status),
-        partnerOptionCode: text(row.optPtnOptCd),
-      }));
+      .flatMap((row) => {
+        const goodsKey = text(row.goods_key);
+        const lifecycleMatch = lifecycleGoodsKeys.has(goodsKey);
+        const bCodeMatch = launchBCodes.has(code(row.optPtnOptCd));
+        if (!lifecycleMatch && !bCodeMatch) return [];
+        return [
+          {
+            goodsKey,
+            matchBasis:
+              lifecycleMatch && bCodeMatch
+                ? "both"
+                : lifecycleMatch
+                  ? "lifecycle_goods_key"
+                  : "launch_bcode",
+            partnerProductCode: text(row.ptn_goods_cd),
+            productGroup: text(row.prod_group),
+            saleStatus: text(row.sale_status),
+            partnerOptionCode: text(row.optPtnOptCd),
+          },
+        ];
+      });
     const marketRows = input.marketLedgerRows
       .filter(
         (row) =>
@@ -86,9 +112,7 @@ export function buildSeoListingShoplingBCodeAuditDiagnostics(input: {
         reviewReason: text(row.review_reason),
         source: text(record(row.evidence).source),
       })),
-      launchOptions: input.launchOptions
-        .filter((row) => text(row.item_id) === launchItemId)
-        .map((row) => ({
+      launchOptions: launchOptionRows.map((row) => ({
           optionId: text(row.option_id),
           optionName: text(row.option_name),
           barcode: text(row.barcode),
@@ -97,7 +121,7 @@ export function buildSeoListingShoplingBCodeAuditDiagnostics(input: {
       shoplingCatalog: uniqueRows(
         shoplingRows,
         (row) =>
-          `${row.goodsKey}\u0000${row.partnerProductCode}\u0000${row.productGroup}\u0000${row.saleStatus}\u0000${row.partnerOptionCode}`,
+          `${row.goodsKey}\u0000${row.matchBasis}\u0000${row.partnerProductCode}\u0000${row.productGroup}\u0000${row.saleStatus}\u0000${row.partnerOptionCode}`,
       ),
       marketLedger: uniqueRows(
         marketRows,
