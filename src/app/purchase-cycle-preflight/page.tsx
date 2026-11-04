@@ -127,7 +127,7 @@ const reasonLabels: Record<string, string> = {
 };
 const sourcingReasonLabels: Record<string, string> = {
   SOURCING_CONTEXT_UNAVAILABLE: "소싱 월 예산·창고 원장을 읽지 못했습니다.",
-  WAREHOUSE_GATE_NOT_READY: "실사 완료된 빈 창고 자리와 창고 정책 확인이 필요합니다.",
+  WAREHOUSE_GATE_NOT_READY: "창고 자동 판정이 통과하지 못했습니다. 저장된 창고맵의 실사·동기화·소형·대형 용량 근거를 확인합니다.",
   MONTHLY_SPENDING_BASIS_REQUIRED: "이번 달 신규소싱에 사용할 총현금 기준이 아직 확정되지 않았습니다.",
   STALE_MONTHLY_SPENDING_BASIS: "소싱 예산 기준월이 이번 발주월과 다릅니다.",
   SOURCING_PERCENT_ABOVE_POLICY_MAX: "입력한 소싱 비율이 현재 소싱 안전상한보다 큽니다.",
@@ -498,10 +498,10 @@ export default async function PurchaseCyclePreflightPage({ searchParams }: {
   }
   if (sourcingBlockingCodes.includes("WAREHOUSE_GATE_NOT_READY")) {
     actionItems.push({
-      title: "창고 빈자리 확인",
-      message: "신규상품을 둘 소형·대형 빈자리가 실사 완료 상태인지 확인해야 합니다.",
-      href: "/sourcing-center",
-      hrefLabel: "창고·소싱 상태 보기",
+      title: "창고 자동 판정 확인",
+      message: sourcingPlan?.warehouse.message || "저장된 창고맵에서 소형·대형 가용칸을 자동 확인하지 못했습니다. 수동으로 빈자리를 다시 세지 말고 자동 판정 근거를 확인하세요.",
+      href: "/warehouse-capacity",
+      hrefLabel: "창고 자동 판정 보기",
     });
   }
   if (sourcingBlockingCodes.includes("SOURCING_PERCENT_ABOVE_POLICY_MAX")) {

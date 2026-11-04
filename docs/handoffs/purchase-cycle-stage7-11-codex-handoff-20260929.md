@@ -1,6 +1,18 @@
 # Commerce OS · 발주사이클 7~11구간 · Codex handoff
 
-Updated: 2026-09-30
+Updated: 2026-11-04
+
+## 2026-11-04 automatic warehouse gate correction
+
+- The purchase preflight no longer asks the owner to re-inspect small/large empty warehouse slots when all selected
+  variants reuse existing B-codes and warehouse assignments. The sourcing engine returns a zero-new-slot automatic
+  pass for that case.
+- If any new slot is required, the engine compares required small/large slots with verified or conservative stored
+  warehouse capacity and fails closed when the evidence is missing, unsafe or insufficient.
+- A remaining warehouse exception links to `/warehouse-capacity` and shows the exact upstream automatic-decision
+  reason. It no longer sends the owner to the generic sourcing center or describes routine recounting as owner work.
+- Verification: the new UI regression test, changed-file ESLint, TypeScript and the full Webpack production build
+  passed. The repository-wide suite/lint still contain unrelated pre-existing failures; no order or payment ran.
 
 ## 0. Purpose
 
