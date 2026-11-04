@@ -276,9 +276,9 @@ test("HF61 download route publishes v0.6.24 and the durable second-lane checkpoi
   assert.match(route, /const VERSION = "0\.6\.24"/);
   assert.match(route, /durableSecondLaneResume: true/);
   assert.match(route, /persistedSecondLaneClaim: true/);
-  assert.match(page, /download-hf63/);
-  assert.match(page, /v0\.6\.26 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 26\]/);
+  assert.match(page, /download-hf64/);
+  assert.match(page, /v0\.6\.27 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 27\]/);
   assert.match(worker, /STARTING_SECOND_HF61/);
   assert.match(worker, /FIRST_FINISH_HF61/);
 });
