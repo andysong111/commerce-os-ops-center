@@ -105,6 +105,11 @@
   - Commerce OS 책임 경계는 현재 B코드가 소유한 A21 처리중/결과 화면 시작이다. 마켓별 최종 성공·실패는 기다리지 않는다. B코드는 계속 한 건씩 순차 처리해 한 건의 팝업이나 실패가 다른 B코드를 삼키지 않게 한다.
   - 새 인덱스 테이블은 RLS를 켜고 `service_role`에만 접근을 허용한다. 운영 반영 전에는 별도 승인으로 스키마 추가·읽기 전용 인덱스 초기화·배포를 진행해야 한다.
 
+- v0.6.29/HF66 Commerce OS 페이지 채널 복구:
+  - HF65 다운로드 경로가 기존 HF27 전용으로 변환된 Commerce OS 브리지 파일 대신 일반 채널 상수의 `content-ops-v022.js`를 패키지했다. 화면은 `_HF27` PING/START만 보내고 일반 READY/RESULT는 차단하는데, 확장은 일반 PING/START만 듣고 일반 READY/RESULT를 보내 서로 연결되지 않았다. 설치·권한·서비스워커는 정상이어도 화면에 `Shopling 자동화 연결 대기`가 계속 표시된 직접 원인이다.
+  - `content-ops-v023.js`는 READY/PING/START/RESULT/PROGRESS/STATUS 여섯 메시지를 모두 HF27 전용 채널로 고정하고 `stockSyncChannel: "HF27"` 표식을 함께 보낸다. HF65의 B코드 서버 인덱스, 실시간 Shopling API 재검증, 상태·수량 readback, A21 전용 브라우저 책임경계는 변경하지 않았다.
+  - UI 최소 허용 버전을 0.6.29로 올려 통신이 끊긴 0.6.28이 새 품절·판매중 작업을 시작하지 못하게 했다. 다운로드 패키지와 Commerce OS 브리지의 여섯 채널 상수가 전부 일치하는 회귀 테스트를 CI에 고정했다.
+
 ## 재전송 요청
 
 - requestId: `owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969`
@@ -132,4 +137,6 @@
 - HF64 CI 고정 범위 140/140, TypeScript `tsc --noEmit`, 변경 파일 ESLint, `a6-frame-evidence-v086.js`·`background-v086.js` 문법 검사, 프로덕션 빌드 124/124 정적 페이지 생성이 통과했다. 로컬 프로덕션 서버에서 생성한 실제 ZIP은 189,935 byte였고 manifest `0.6.27`, service worker `background-v086.js`, 첫 A6 검사 스크립트 `a6-frame-evidence-v086.js`, 직렬 동시성 `1`, A21 쓰기 소유권 인계 금지를 확인했다. background SHA-256은 `fb604f29b812ebe6c063a0a7036237f6e3e56a630d5ec924e531ed616b64b84f`, A6 읽기 증거 스크립트 SHA-256은 `9ccad0abbc0005ac1cb52710078dc67e94d03d38a3ea1644f1e8e9ed43f25245`다.
 - HF65 영향 범위 회귀 160/160, TypeScript `tsc --noEmit`, 신규 API·인덱스·다운로드 경로 ESLint, `content-ops-v022.js`·`background-v087.js`·숨김 UI 검사 문법 검사가 통과했다. 회귀에는 실제 `BCD8-2` 실패 형태의 B코드/goods key/option/수량 fixture, 수정 XML의 `optQty` 부재, API 상태·수량 재조회, A4/A6 미실행, A21 전용 브라우저 책임경계, 인덱스 RLS/권한 검사가 포함된다.
 - HF65 동일 소스의 `next build --webpack` 프로덕션 빌드는 컴파일·타입검사·124개 정적 페이지 생성을 모두 통과했다. 빌드된 로컬 서버에서 검증 JSON과 실제 ZIP을 호출해 manifest `0.6.28`, service worker `background-v087.js`, B코드 서버 인덱스+실시간 API 재검증, API 상태·수량 readback, 브라우저 단계 A21만 포함, A4/A6 제외, 마켓 최종완료 불필요를 확인했다. ZIP은 194,417 byte, background SHA-256은 `37908b8c0889dcfe99ce1c78d8d7ecadf7c7567938adba568c7516cc77201833`, Commerce OS bridge SHA-256은 `af7372febe39a8e674db0fc6c0ef43947e368e83444057688c406fb9e9b1db77`다.
+- HF66 재고 제어 CI 고정 범위 112/112, 추가 Shopling 책임경계·회복 회귀 58/58, 과거 HF 전체 회귀가 통과했다. `content-ops-v023.js` 문법 검사, TypeScript 검사, 변경 파일 ESLint와 `next build --webpack` 프로덕션 빌드(124/124 정적 페이지)가 통과했다.
+- 빌드된 로컬 프로덕션 서버에서 HF66 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.29`, service worker `background-v087.js`, Commerce OS ops `content-ops-v023.js`, HF27 READY/PING/START/RESULT/PROGRESS/STATUS 여섯 채널, HF27 표식, API 우선 상태변경을 모두 확인했다. ZIP은 196,574 byte, SHA-256은 `E06702CA77D9F7592E1898D9409A063F63E257D09FF91127E9432A32DFC96E96`, ops SHA-256은 `b945f402af86c7a3b5970441f85850dc2188960c9fe99c7e2204fa460cef5bdb`다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.
