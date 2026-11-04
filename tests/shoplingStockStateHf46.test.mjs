@@ -86,11 +86,11 @@ test("HF46 packages v0.6.11 and blocks BDE7-3 from using the live-failed v0.6.10
   assert.match(route, /const VERSION = "0\.6\.11"/);
   assert.match(route, /HF46_OPTION_A21_CANONICAL_WORKER_READY/);
   assert.match(route, /BDE7-3_OPTION_API_SUCCEEDED_THEN_FRESH_A21_WORKER_MISSED_AFTER_140MS/);
-  assert.match(page, /download-hf66/);
-  assert.match(page, /v0\.6\.29 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 30\]/);
-  assert.match(queue, /v0\.6\.30으로 업데이트/);
-  assert.match(direct, /v0\.6\.30/);
-  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.30'/);
+  assert.match(page, /download-hf69/);
+  assert.match(page, /v0\.6\.32 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 32\]/);
+  assert.match(queue, /v0\.6\.32로 업데이트/);
+  assert.match(direct, /v0\.6\.32/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.32'/);
   assert.match(workflow, /shoplingStockStateHf46\.test\.mjs/);
 });
