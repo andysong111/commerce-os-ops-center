@@ -16,6 +16,15 @@ test("supported tiers retry up to three times, while legacy 30-day requests shri
   assert.match(recovery, /SHRINK_RANGE/);
 });
 
+test("planning changes replan against the latest mapping without consuming range-failure retries", () => {
+  assert.match(recovery, /function terminalFailureMessage/);
+  assert.match(recovery, /salesEventPlanningChangedFailure/);
+  assert.match(recovery, /"REPLAN"/);
+  assert.match(recovery, /!planningChanged &&[\s\S]*legacyOversizedRange/);
+  assert.match(cron, /result\.reason === "REPLAN"/);
+  assert.match(cron, /최신 연결 기준으로 자동 재계획/);
+});
+
 test("request lineage preserves the same analysis instant while shrinking legacy 30 to 7 to 2 days", () => {
   assert.match(recovery, /SALES_EVENT_LEGACY_CHUNK_DAYS = 30/);
   assert.match(recovery, /SALES_EVENT_DEFAULT_CHUNK_DAYS = SALES_EVENT_SOURCE_RANGE_DAYS/);
@@ -30,7 +39,7 @@ test("request lineage preserves the same analysis instant while shrinking legacy
 test("legacy failed request without chunkDays is safely interpreted as 30 days", () => {
   assert.match(recovery, /function normalizeChunkDays/);
   assert.match(recovery, /: SALES_EVENT_LEGACY_CHUNK_DAYS/);
-  assert.match(recovery, /hasTerminalFailure\(latest\.requestId\)/);
+  assert.match(recovery, /terminalFailureMessage\(latest\.requestId\)/);
 });
 
 test("same-tier retries can hydrate exact prior successful ranges instead of rereading them", () => {

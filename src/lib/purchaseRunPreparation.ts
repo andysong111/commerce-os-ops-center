@@ -6,6 +6,10 @@ import {
   runProductMasterShoplingSalesEventSyncStep,
 } from "@/lib/productMasterShoplingSalesEventSync";
 import { PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION } from "@/lib/productMasterShoplingSalesEventEngine";
+import {
+  recoverProductMasterShoplingSalesEventRequest,
+  salesEventPlanningChangedFailure,
+} from "@/lib/productMasterShoplingSalesEventRecovery";
 import { sameDayPurchaseRun, replaceablePriorPurchaseRun } from "@/lib/purchaseRunStartPolicy";
 import { loadSalesEventDirectPromotionGate } from "@/lib/salesEventDirectPromotionGate";
 import { loadPostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
@@ -226,6 +230,27 @@ export async function advancePurchaseRunPreparation(
           sales.totalRanges > 0 && sales.completedRanges >= sales.totalRanges
             ? sales.message
             : `최신 판매자료를 읽고 있습니다. ${sales.completedRanges}/${sales.totalRanges}개 구간 완료`,
+        externalOrderExecuted: false,
+      };
+    }
+  }
+
+  if (
+    sales.state === "FAILED" &&
+    salesEventPlanningChangedFailure(sales.error)
+  ) {
+    const recovery = await atPreparationStage("SALES", () =>
+      recoverProductMasterShoplingSalesEventRequest());
+    if (
+      recovery.recovered ||
+      recovery.reason === "LATEST_NOT_FAILED"
+    ) {
+      return {
+        state: "PENDING",
+        stage: "SALES",
+        progress: 35,
+        message:
+          "상품 연결정보가 준비 중 갱신되어 최신 연결 기준으로 판매자료를 자동 재계획했습니다.",
         externalOrderExecuted: false,
       };
     }
