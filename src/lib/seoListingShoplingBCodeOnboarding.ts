@@ -29,6 +29,7 @@ type CatalogIdentity = {
   identityConflict: boolean;
   profileConflict: boolean;
   saleStatusConflict: boolean;
+  conflictReasons: string[];
 };
 
 function text(value: unknown) {
@@ -205,6 +206,7 @@ export type SeoListingShoplingBCodeOnboardingPlan = {
     launchItemId: string;
     modelNumber: string;
     reason: string;
+    details?: string[];
   }>;
 };
 
@@ -295,14 +297,24 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
     }
     const ptnCodes = [...group.ptnCodes];
     const candidateItemIds = new Set<string>();
-    let identityConflict =
-      group.invalidPartnerCodeRowCount > 0 || ptnCodes.length !== 1;
+    const identityConflictReasons: string[] = [];
+    if (group.invalidPartnerCodeRowCount > 0) {
+      identityConflictReasons.push("BCODE_INVALID_PARTNER_OPTION_CODE");
+    }
+    if (ptnCodes.length !== 1) {
+      identityConflictReasons.push("BCODE_PARTNER_PRODUCT_CODE_CONFLICT");
+    }
     for (const bCode of group.bCodes) {
       const itemIds = itemIdsByBCode.get(bCode);
-      if (!itemIds || itemIds.size !== 1) identityConflict = true;
+      if (!itemIds || itemIds.size !== 1) {
+        identityConflictReasons.push("BCODE_LAUNCH_ITEM_MAPPING_CONFLICT");
+      }
       for (const itemId of itemIds ?? []) candidateItemIds.add(itemId);
     }
-    if (candidateItemIds.size !== 1) identityConflict = true;
+    if (candidateItemIds.size !== 1) {
+      identityConflictReasons.push("BCODE_LAUNCH_ITEM_MAPPING_CONFLICT");
+    }
+    const identityConflict = identityConflictReasons.length > 0;
 
     const suffixProfiles = new Set(
       ptnCodes
@@ -318,6 +330,13 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       group.productGroups.size > 1 ||
       suffixProfiles.size > 1 ||
       profiles.size !== 1;
+    const saleStatusConflict =
+      nonDeletedStatuses.length !== 1 || group.statuses.size !== 1;
+    const conflictReasons = [
+      ...identityConflictReasons,
+      ...(profileConflict ? ["BCODE_PRODUCT_GROUP_PROFILE_CONFLICT"] : []),
+      ...(saleStatusConflict ? ["BCODE_SALE_STATUS_CONFLICT"] : []),
+    ];
     const ptnGoodsCd = ptnCodes.length === 1 ? ptnCodes[0] : "";
     const profile = profiles.size === 1 ? [...profiles][0] : "";
     const selfCodeBase = ptnGoodsCd ? ptnGoodsCd.slice(0, -1) : "";
@@ -332,8 +351,8 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       candidateItemIds: [...candidateItemIds].sort(),
       identityConflict,
       profileConflict,
-      saleStatusConflict:
-        nonDeletedStatuses.length !== 1 || group.statuses.size !== 1,
+      saleStatusConflict,
+      conflictReasons: [...new Set(conflictReasons)].sort(),
     };
     if (identityConflict || profileConflict || identityRow.saleStatusConflict) {
       unresolvedCatalogGoodsKeyCount += 1;
@@ -461,6 +480,7 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       currentRows.map((row) => row.selfCodeBase).filter(Boolean),
     );
     let reason = "";
+    let details: string[] = [];
     if (text(item.archived_at)) {
       reason = "BCODE_LAUNCH_ITEM_ARCHIVED";
     } else if (
@@ -470,6 +490,9 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       )
     ) {
       reason = "BCODE_SHOPLING_IDENTITY_CONFLICT";
+      details = [
+        ...new Set(currentRows.flatMap((row) => row.conflictReasons)),
+      ].sort();
     } else if (orderedRows.some((rows) => rows.length > 1)) {
       reason = "BCODE_SHOPLING_PROFILE_AMBIGUOUS";
     } else if (
@@ -530,6 +553,7 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
         launchItemId,
         modelNumber: text(item.model_number),
         reason,
+        ...(details.length ? { details } : {}),
       });
       continue;
     }

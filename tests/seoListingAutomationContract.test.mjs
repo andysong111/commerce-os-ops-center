@@ -68,6 +68,8 @@ test("dashboard prepares an authenticated scheduled run but keeps destructive wr
     onboardingServer,
     /selectSeoListingShoplingBCodeAuditLifecycleRows\(existingLifecycleRows\)/,
   );
+  assert.match(onboardingServer, /readProductsByIds\(auditGoodsKeys/);
+  assert.match(onboardingServer, /lookupMode:[\s\S]*goods_key_exact/);
   assert.match(
     onboardingServer,
     /owner_id,market_account_key,launch_item_id,state,goods_key,evidence/,
