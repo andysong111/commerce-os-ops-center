@@ -49,6 +49,9 @@ function recoveryMessage(result: {
 }) {
   const reused = Number(result.reusedChunks ?? 0);
   const reuseNote = reused > 0 ? ` 이전 성공 구간 ${reused}개는 다시 읽지 않고 재사용합니다.` : "";
+  if (result.reason === "REPLAN") {
+    return `상품 연결정보가 수집 중 갱신되어 최신 연결 기준으로 자동 재계획했습니다.${reuseNote}`;
+  }
   if (result.reason === "RETRY_SAME_TIER") {
     return `${result.chunkDays}일 Shopling 조회를 같은 분석시점으로 안전 재시도합니다. 이 구간 크기의 ${Number(result.attemptsInPreviousTier ?? 0) + 1}번째 요청입니다.${reuseNote}`;
   }

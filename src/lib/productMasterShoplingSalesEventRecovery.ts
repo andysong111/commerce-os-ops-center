@@ -179,13 +179,21 @@ async function latestRequests() {
     .filter(Boolean) as ParsedRequest[];
 }
 
-async function hasTerminalFailure(requestId: string) {
+async function terminalFailureMessage(requestId: string) {
   const correlationId = requestCorrelationId(requestId);
-  return (await readOperations(SALES_EVENT_FAILED, 100)).some(
+  const failure = (await readOperations(SALES_EVENT_FAILED, 100)).find(
     (row) =>
       text(row.correlation_id) === correlationId &&
       text(row.status).toUpperCase() === "FAILED",
   );
+  if (!failure) return null;
+  return text(
+    failure.error_message || object(failure.result_snapshot).message,
+  ) || "SALES_EVENT_FAILED";
+}
+
+export function salesEventPlanningChangedFailure(message: unknown) {
+  return text(message) === "SALES_EVENT_PLANNING_CHANGED";
 }
 
 function tierAttemptCount(latest: ParsedRequest, requestsById: Map<string, ParsedRequest>) {
@@ -401,22 +409,29 @@ async function recoverSalesEventRequestUnderLock() {
   const requests = await latestRequests();
   const latest = requests[0];
   if (!latest) return { recovered: false as const, reason: "NO_REQUEST" as const };
-  if (!(await hasTerminalFailure(latest.requestId))) {
+  const failureMessage = await terminalFailureMessage(latest.requestId);
+  if (!failureMessage) {
     return { recovered: false as const, reason: "LATEST_NOT_FAILED" as const };
   }
 
   const requestsById = new Map(requests.map((request) => [request.requestId, request]));
   const attemptsInTier = tierAttemptCount(latest, requestsById);
+  const planningChanged = salesEventPlanningChangedFailure(failureMessage);
   let chunkDays = latest.chunkDays;
-  let reason: "RETRY_SAME_TIER" | "SHRINK_RANGE" = "RETRY_SAME_TIER";
+  let reason: "REPLAN" | "RETRY_SAME_TIER" | "SHRINK_RANGE" = planningChanged
+    ? "REPLAN"
+    : "RETRY_SAME_TIER";
   // 30-day reads are legacy-only now. Production has repeatedly shown that
   // this oversized partition can fail while smaller Shopling windows succeed,
   // so do not spend two more retries on a tier we no longer create.
   const legacyOversizedRange =
     latest.chunkDays === SALES_EVENT_LEGACY_CHUNK_DAYS;
   if (
-    legacyOversizedRange ||
-    attemptsInTier >= SALES_EVENT_MAX_REQUEST_ATTEMPTS_PER_TIER
+    !planningChanged &&
+    (
+      legacyOversizedRange ||
+      attemptsInTier >= SALES_EVENT_MAX_REQUEST_ATTEMPTS_PER_TIER
+    )
   ) {
     const smaller = nextChunkDays(latest.chunkDays);
     if (smaller === null) {
