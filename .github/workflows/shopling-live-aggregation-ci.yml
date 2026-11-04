@@ -4,10 +4,12 @@ on:
   pull_request:
     paths:
       - "src/lib/shopling/shoplingLiveAggregation.ts"
+      - "src/lib/purchaseRunDemandIncrementalCore.ts"
       - "src/lib/shopling/shoplingNormalize.ts"
       - "src/lib/shopling/shoplingDirectPackEvidence.ts"
       - "src/lib/productDecisionEngine/planningMonthlySales.ts"
       - "tests/shoplingLiveAggregation.test.mjs"
+      - "tests/purchaseRunDemandIncrementalCore.test.mjs"
       - ".github/workflows/shopling-live-aggregation-ci.yml"
   workflow_dispatch:
 
@@ -34,13 +36,16 @@ jobs:
           npx eslint
           src/lib/productDecisionEngine/planningMonthlySales.ts
           src/lib/shopling/shoplingLiveAggregation.ts
+          src/lib/purchaseRunDemandIncrementalCore.ts
           src/lib/shopling/shoplingNormalize.ts
           src/lib/shopling/shoplingDirectPackEvidence.ts
           tests/shoplingLiveAggregation.test.mjs
+          tests/purchaseRunDemandIncrementalCore.test.mjs
       - name: Run aggregation and full decision assembly tests
         run: >-
           node --experimental-strip-types --test
           tests/shoplingLiveAggregation.test.mjs
+          tests/purchaseRunDemandIncrementalCore.test.mjs
       - name: Build Ops Center
         run: npm run build
         env:

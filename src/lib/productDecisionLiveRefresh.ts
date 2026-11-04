@@ -1,19 +1,24 @@
 import { openChinaOrderCommitmentsByBarcode } from "@/lib/chinaOrderLedger";
 import type { ProductDecisionSnapshot } from "@/lib/productDecisionSnapshot";
 import {
+  aggregateShoplingLiveLedger,
   aggregateShoplingClaimChunk,
   aggregateShoplingOrderChunk,
+  buildShoplingLiveLedger,
   buildLiveProductDecisionSnapshot,
   combineShoplingLiveChunks,
+  orderReferencesFromLedgerEvents,
   type ProductPlanningSnapshot,
   type ShoplingClaimChunkSummary,
+  type ShoplingClaimLedgerEvent,
+  type ShoplingLiveEventLedger,
   type ShoplingOrderChunkSummary,
+  type ShoplingOrderLedgerEvent,
   type ShoplingOrderReference,
 } from "@/lib/shopling/shoplingLiveAggregation";
 import {
   ShoplingReadClient,
   shoplingReadConfigFromEnv,
-  splitShoplingDateRange,
   type ShoplingDateRange,
 } from "@/lib/shopling/shoplingReadClient";
 import {
@@ -25,6 +30,11 @@ import {
   PRODUCT_DECISION_ACTIVE_RESUME_MAX_AGE_MS,
   shouldReuseProductDecisionLiveStatus,
 } from "@/lib/productDecisionLiveResumePolicy";
+import {
+  buildPurchaseRunDemandCollectionPlan,
+  demandMappingIdentitiesCompatible,
+  type DemandMappingIdentity,
+} from "@/lib/purchaseRunDemandIncrementalCore";
 
 export const PRODUCT_DECISION_LIVE_REQUEST =
   "PRODUCT_DECISION_LIVE_REFRESH_REQUEST";
@@ -38,6 +48,8 @@ export const PRODUCT_DECISION_LIVE_FAILED =
   "PRODUCT_DECISION_LIVE_FAILED";
 export const PRODUCT_DECISION_LIVE_SHADOW =
   "PRODUCT_DECISION_LIVE_SHADOW";
+export const PRODUCT_DECISION_LIVE_EVENT_LEDGER =
+  "PRODUCT_DECISION_LIVE_EVENT_LEDGER";
 
 const BASELINE_OPERATION = "PRODUCT_DECISION_SNAPSHOT_IMPORT";
 const DEFAULT_PRODUCT_MASTER_URL =
@@ -57,6 +69,11 @@ export type ProductDecisionLiveRequest = {
   planningContentFingerprint: string;
   planningProductCount: number;
   planningSnapshot: VersionedProductPlanningSnapshot | null;
+  targetDate: string;
+  previousPurchaseRunStartDate: string | null;
+  collectionMode: "FULL_BASELINE" | "INCREMENTAL";
+  parentLedgerRequestId: string | null;
+  mappingIdentities: DemandMappingIdentity[];
   orderRanges: ShoplingDateRange[];
   claimRanges: ShoplingDateRange[];
   createdAt: string;
@@ -86,6 +103,9 @@ export type ProductDecisionLiveStatus = {
     | "FAILED";
   stage: string;
   message: string;
+  targetDate: string | null;
+  previousPurchaseRunStartDate: string | null;
+  collectionMode: "FULL_BASELINE" | "INCREMENTAL" | null;
   analysisAsOf: string | null;
   lastActivityAt?: string | null;
   planningGeneratedAt: string | null;
@@ -171,6 +191,14 @@ function iso(value: unknown) {
 
 function dateOnly(value: Date) {
   return value.toISOString().slice(0, 10);
+}
+
+function validDateOnly(value: unknown) {
+  const normalized = text(value);
+  return /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(normalized) &&
+    Number.isFinite(Date.parse(`${normalized}T00:00:00.000Z`))
+    ? normalized
+    : null;
 }
 
 function rangeKey(range: ShoplingDateRange) {
@@ -389,10 +417,30 @@ function requestFromRow(row: OperationRow): ProductDecisionLiveRequest | null {
         .map((range) => ({ start: text(range.start), end: text(range.end) }))
         .filter((range) => range.start && range.end)
     : [];
+  const targetDate = validDateOnly(value.targetDate) ??
+    validDateOnly(text(value.analysisEndDate));
+  const previousPurchaseRunStartDate = value.previousPurchaseRunStartDate
+    ? validDateOnly(value.previousPurchaseRunStartDate)
+    : null;
+  const collectionMode = value.collectionMode === "INCREMENTAL"
+    ? "INCREMENTAL"
+    : "FULL_BASELINE";
+  const parentLedgerRequestId = text(value.parentLedgerRequestId) || null;
+  const mappingIdentities = Array.isArray(value.mappingIdentities)
+    ? value.mappingIdentities
+        .map(object)
+        .map((row) => ({
+          key: text(row.key),
+          barcode: text(row.barcode),
+          unitsPerOrder: Math.max(1, integer(row.unitsPerOrder) || 1),
+        }))
+        .filter((row) => row.key && row.barcode)
+    : [];
   if (
     !requestId ||
     !analysisAsOf ||
     !planningGeneratedAt ||
+    !targetDate ||
     !/^sha256:[a-f0-9]{64}$/.test(planningContentFingerprint) ||
     !orderRanges.length ||
     !claimRanges.length
@@ -419,24 +467,109 @@ function requestFromRow(row: OperationRow): ProductDecisionLiveRequest | null {
     planningContentFingerprint,
     planningProductCount,
     planningSnapshot,
+    targetDate,
+    previousPurchaseRunStartDate,
+    collectionMode,
+    parentLedgerRequestId,
+    mappingIdentities,
     orderRanges,
     claimRanges,
     createdAt: iso(value.createdAt) || analysisAsOf,
   };
 }
 
+function planningMappingIdentities(
+  planning: ProductPlanningSnapshot,
+): DemandMappingIdentity[] {
+  const rows: DemandMappingIdentity[] = [];
+  for (const product of planning.products ?? []) {
+    const barcode = text(product.barcode).toUpperCase().replace(/\s+/g, "");
+    if (!/^B[A-Z]{2}\d+-\d+$/.test(barcode)) continue;
+    for (const listing of product.listings ?? []) {
+      const unitsPerOrder = Math.max(1, integer(listing.unitsPerOrder) || 1);
+      const optionId = text(listing.optionId);
+      const goodsKey = text(listing.goodsKey);
+      if (optionId) rows.push({ key: `option:${optionId}`, barcode, unitsPerOrder });
+      if (goodsKey) rows.push({ key: `goods:${goodsKey}`, barcode, unitsPerOrder });
+    }
+  }
+  return rows.sort((left, right) => left.key.localeCompare(right.key));
+}
+
+type StoredDemandEventLedger = ShoplingLiveEventLedger & {
+  requestId: string;
+  mappingIdentities: DemandMappingIdentity[];
+};
+
+function eventLedgerFromRow(row: OperationRow): StoredDemandEventLedger | null {
+  const input = object(row.input_snapshot);
+  const value = object(row.result_snapshot);
+  const requestId = text(input.requestId || value.requestId);
+  const analysisAsOf = iso(value.analysisAsOf);
+  const orderEvents = Array.isArray(value.orderEvents)
+    ? value.orderEvents as ShoplingOrderLedgerEvent[]
+    : [];
+  const claimEvents = Array.isArray(value.claimEvents)
+    ? value.claimEvents as ShoplingClaimLedgerEvent[]
+    : [];
+  const mappingIdentities = Array.isArray(input.mappingIdentities)
+    ? input.mappingIdentities
+        .map(object)
+        .map((identity) => ({
+          key: text(identity.key),
+          barcode: text(identity.barcode),
+          unitsPerOrder: Math.max(1, integer(identity.unitsPerOrder) || 1),
+        }))
+        .filter((identity) => identity.key && identity.barcode)
+    : [];
+  if (!requestId || !analysisAsOf || !mappingIdentities.length) return null;
+  return { requestId, analysisAsOf, orderEvents, claimEvents, mappingIdentities };
+}
+
+async function latestEventLedger(requestId?: string | null) {
+  const rows = await readOperations(
+    PRODUCT_DECISION_LIVE_EVENT_LEDGER,
+    requestId ? requestCorrelationId(requestId) : undefined,
+    requestId ? 1 : 5,
+  );
+  for (const row of rows) {
+    const ledger = eventLedgerFromRow(row);
+    if (!ledger) continue;
+    const completed = await readOperations(
+      PRODUCT_DECISION_LIVE_SHADOW,
+      requestCorrelationId(ledger.requestId),
+      1,
+    );
+    if (completed.length) return ledger;
+  }
+  return null;
+}
+
 export function createProductDecisionLiveRequestPlan(
   requestId: string,
   planning: VersionedProductPlanningSnapshot,
   analysisAsOf = new Date().toISOString(),
+  options: {
+    targetDate?: string;
+    previousPurchaseRunStartDate?: string | null;
+    parentLedgerRequestId?: string | null;
+    reusableLedgerAvailable?: boolean;
+  } = {},
 ): ProductDecisionLiveRequest {
   const asOf = new Date(analysisAsOf);
   if (!Number.isFinite(asOf.valueOf())) {
     throw new Error("PRODUCT_DECISION_LIVE_AS_OF_INVALID");
   }
-  const start = new Date(asOf.valueOf() - ANALYSIS_DAYS * 24 * 60 * 60 * 1000);
-  const analysisStartDate = dateOnly(start);
-  const analysisEndDate = dateOnly(asOf);
+  const targetDate = validDateOnly(options.targetDate) ?? dateOnly(asOf);
+  const collection = buildPurchaseRunDemandCollectionPlan({
+    targetDate,
+    previousPurchaseRunStartDate: options.previousPurchaseRunStartDate,
+    reusableLedgerAvailable: options.reusableLedgerAvailable === true,
+  });
+  const analysisStartDate = dateOnly(
+    new Date(asOf.valueOf() - ANALYSIS_DAYS * 24 * 60 * 60 * 1000),
+  );
+  const analysisEndDate = targetDate;
   return {
     requestId,
     analysisAsOf: asOf.toISOString(),
@@ -446,26 +579,49 @@ export function createProductDecisionLiveRequestPlan(
     planningContentFingerprint: planning.contentFingerprint,
     planningProductCount: planning.products.length,
     planningSnapshot: planning,
-    orderRanges: splitShoplingDateRange(
-      analysisStartDate,
-      analysisEndDate,
-      7,
-    ),
-    claimRanges: splitShoplingDateRange(
-      analysisStartDate,
-      analysisEndDate,
-      90,
-    ),
-    createdAt: new Date().toISOString(),
+    targetDate,
+    previousPurchaseRunStartDate:
+      validDateOnly(options.previousPurchaseRunStartDate) ?? null,
+    collectionMode: collection.mode,
+    parentLedgerRequestId:
+      collection.mode === "INCREMENTAL"
+        ? text(options.parentLedgerRequestId) || null
+        : null,
+    mappingIdentities: planningMappingIdentities(planning),
+    orderRanges: collection.orderRanges,
+    claimRanges: collection.claimRanges,
+    createdAt: asOf.toISOString(),
   };
 }
 
-export async function createProductDecisionLiveRefreshRequest() {
+export async function createProductDecisionLiveRefreshRequest(options: {
+  targetDate?: string;
+  previousPurchaseRunStartDate?: string | null;
+  now?: Date;
+} = {}) {
   shoplingReadConfigFromEnv(shoplingEnvironment());
   const planning = await loadProductPlanningSnapshotForRefresh();
+  const parent = await latestEventLedger();
+  const currentMappingIdentities = planningMappingIdentities(planning);
+  const canReuseParent = Boolean(
+    parent &&
+    options.previousPurchaseRunStartDate &&
+    demandMappingIdentitiesCompatible(
+      parent.mappingIdentities,
+      currentMappingIdentities,
+    ),
+  );
+  const analysisAsOf = options.now?.toISOString() ?? new Date().toISOString();
   const request = createProductDecisionLiveRequestPlan(
     crypto.randomUUID(),
     planning,
+    analysisAsOf,
+    {
+      targetDate: options.targetDate,
+      previousPurchaseRunStartDate: options.previousPurchaseRunStartDate,
+      parentLedgerRequestId: canReuseParent ? parent!.requestId : null,
+      reusableLedgerAvailable: canReuseParent,
+    },
   );
   await storeOperation({
     operationType: PRODUCT_DECISION_LIVE_REQUEST,
@@ -477,8 +633,12 @@ export async function createProductDecisionLiveRefreshRequest() {
     resultSnapshot: {
       accepted: true,
       state: "QUEUED",
+      collectionMode: request.collectionMode,
+      parentLedgerRequestId: request.parentLedgerRequestId,
       message:
-        "Shopling 주문·클레임을 구간별로 읽어 Ops Center 자체 발주안을 그림자 생성합니다.",
+        request.collectionMode === "INCREMENTAL"
+          ? "직전 발주차시 이후 주문과 최근 1개월 클레임만 다시 읽어 중복 제거 후 발주안 그림자를 갱신합니다."
+          : "증분 원장을 최초 구성하기 위해 Shopling 주문·클레임 기준자료를 한 번 준비합니다.",
     },
     occurredAt: request.createdAt,
   });
@@ -488,6 +648,8 @@ export async function createProductDecisionLiveRefreshRequest() {
 export async function ensurePurchaseRunDemandRefreshRequest(options: {
   maxAgeMs?: number;
   now?: Date;
+  targetDate?: string;
+  previousPurchaseRunStartDate?: string | null;
 } = {}) {
   const maxAgeMs = Math.max(0, Number(options.maxAgeMs ?? 5 * 60 * 1000));
   const current = await loadProductDecisionLiveStatus();
@@ -499,10 +661,18 @@ export async function ensurePurchaseRunDemandRefreshRequest(options: {
     nowMs: evaluatedAt.valueOf(),
     completedMaxAgeMs: maxAgeMs,
     activeMaxAgeMs: PRODUCT_DECISION_ACTIVE_RESUME_MAX_AGE_MS,
-  })) {
+  }) &&
+    (!options.targetDate || current.targetDate === options.targetDate) &&
+    (options.previousPurchaseRunStartDate === undefined ||
+      current.previousPurchaseRunStartDate ===
+        (options.previousPurchaseRunStartDate ?? null))) {
     return current;
   }
-  const created = await createProductDecisionLiveRefreshRequest();
+  const created = await createProductDecisionLiveRefreshRequest({
+    targetDate: options.targetDate,
+    previousPurchaseRunStartDate: options.previousPurchaseRunStartDate,
+    now: options.now,
+  });
   return loadProductDecisionLiveStatus(created.requestId);
 }
 
@@ -688,6 +858,7 @@ async function executeOrderStep(
     planning,
     request.analysisAsOf,
     range,
+    { syncedAt: request.analysisAsOf },
   );
   await storeOperation({
     operationType: PRODUCT_DECISION_LIVE_ORDER_CHUNK,
@@ -723,6 +894,7 @@ async function executeClaimStep(
     references,
     request.analysisAsOf,
     range,
+    { syncedAt: request.analysisAsOf },
   );
   await storeOperation({
     operationType: PRODUCT_DECISION_LIVE_CLAIM_CHUNK,
@@ -752,12 +924,47 @@ async function executeFinalStep(
 ) {
   const orderChunks = orderRows.map(orderSummary).filter(Boolean) as ShoplingOrderChunkSummary[];
   const claimChunks = claimRows.map(claimSummary).filter(Boolean) as ShoplingClaimChunkSummary[];
-  const aggregate = combineShoplingLiveChunks(
-    planning,
-    orderChunks,
-    claimChunks,
-    request.analysisAsOf,
-  );
+  const exactChunks =
+    orderChunks.every((chunk) => Array.isArray(chunk.events)) &&
+    claimChunks.every((chunk) => Array.isArray(chunk.events));
+  let eventLedger: ShoplingLiveEventLedger | null = null;
+  let aggregate;
+  if (exactChunks) {
+    const parent = request.parentLedgerRequestId
+      ? await latestEventLedger(request.parentLedgerRequestId)
+      : null;
+    if (request.collectionMode === "INCREMENTAL" && !parent) {
+      throw new Error("PRODUCT_DECISION_LIVE_PARENT_LEDGER_MISSING");
+    }
+    if (parent && !demandMappingIdentitiesCompatible(
+      parent.mappingIdentities,
+      request.mappingIdentities,
+    )) {
+      throw new Error("PRODUCT_DECISION_LIVE_PARENT_MAPPING_CHANGED");
+    }
+    eventLedger = buildShoplingLiveLedger(
+      request.analysisAsOf,
+      [
+        ...(parent?.orderEvents ?? []),
+        ...orderChunks.flatMap((chunk) => chunk.events ?? []),
+      ],
+      [
+        ...(parent?.claimEvents ?? []),
+        ...claimChunks.flatMap((chunk) => chunk.events ?? []),
+      ],
+    );
+    aggregate = aggregateShoplingLiveLedger(planning, eventLedger);
+  } else {
+    if (request.collectionMode === "INCREMENTAL") {
+      throw new Error("PRODUCT_DECISION_LIVE_INCREMENTAL_EVENTS_MISSING");
+    }
+    aggregate = combineShoplingLiveChunks(
+      planning,
+      orderChunks,
+      claimChunks,
+      request.analysisAsOf,
+    );
+  }
   const commitments = await openChinaOrderCommitmentsByBarcode();
   if (commitments.error) {
     throw new Error(`CHINA_ORDER_COMMITMENT_READ_FAILED:${commitments.error}`);
@@ -771,6 +978,22 @@ async function executeFinalStep(
     await baselineSnapshot(),
     snapshot,
   );
+  if (eventLedger) {
+    await storeOperation({
+      operationType: PRODUCT_DECISION_LIVE_EVENT_LEDGER,
+      sourceEventId: `product-decision-live-event-ledger:${request.requestId}`,
+      correlationId: requestCorrelationId(request.requestId),
+      source: "ops-center-product-decision-live",
+      actorType: "OPS_WORKER",
+      inputSnapshot: {
+        requestId: request.requestId,
+        collectionMode: request.collectionMode,
+        parentLedgerRequestId: request.parentLedgerRequestId,
+        mappingIdentities: request.mappingIdentities,
+      },
+      resultSnapshot: eventLedger,
+    });
+  }
   await storeOperation({
     operationType: PRODUCT_DECISION_LIVE_SHADOW,
     sourceEventId: `product-decision-live-shadow:${request.requestId}`,
@@ -872,7 +1095,22 @@ export async function runProductDecisionLiveRefreshStep(
   }
 
   const orderChunks = operations.orders.map(orderSummary).filter(Boolean) as ShoplingOrderChunkSummary[];
-  const references = orderChunks.flatMap((chunk) => chunk.references);
+  const parentLedger = request.parentLedgerRequestId
+    ? await latestEventLedger(request.parentLedgerRequestId)
+    : null;
+  if (request.collectionMode === "INCREMENTAL" && !parentLedger) {
+    const stageKey = "parent-ledger";
+    const message = "PRODUCT_DECISION_LIVE_PARENT_LEDGER_MISSING";
+    await storeTerminalFailure(request, stageKey, message);
+    return { processed: true, state: "FAILED", requestId: request.requestId, stage: stageKey, message };
+  }
+  const currentOrderEvents = orderChunks.flatMap((chunk) => chunk.events ?? []);
+  const references = currentOrderEvents.length || parentLedger
+    ? orderReferencesFromLedgerEvents([
+        ...(parentLedger?.orderEvents ?? []),
+        ...currentOrderEvents,
+      ])
+    : orderChunks.flatMap((chunk) => chunk.references);
   const completedClaimKeys = new Set(operations.claims.map(operationRangeKey));
   const nextClaim = request.claimRanges.find(
     (range) => !completedClaimKeys.has(rangeKey(range)),
@@ -956,6 +1194,9 @@ export async function loadProductDecisionLiveStatus(
       state: "IDLE",
       stage: "idle",
       message: "아직 실시간 판매 발주 계산을 실행하지 않았습니다.",
+      targetDate: null,
+      previousPurchaseRunStartDate: null,
+      collectionMode: null,
       analysisAsOf: null,
       lastActivityAt: null,
       planningGeneratedAt: null,
@@ -1013,6 +1254,9 @@ export async function loadProductDecisionLiveStatus(
       : terminal
         ? text(terminal.error_message) || "실시간 판매 발주안 계산이 실패했습니다."
         : `주문 ${orderCompleted}/${request.orderRanges.length} · 클레임 ${claimCompleted}/${request.claimRanges.length}`,
+    targetDate: request.targetDate,
+    previousPurchaseRunStartDate: request.previousPurchaseRunStartDate,
+    collectionMode: request.collectionMode,
     analysisAsOf: request.analysisAsOf,
     lastActivityAt,
     planningGeneratedAt: request.planningGeneratedAt,

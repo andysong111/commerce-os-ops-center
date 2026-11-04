@@ -6,6 +6,10 @@ const workflow = await readFile(
   "src/lib/productDecisionLiveRefresh.ts",
   "utf8",
 );
+const incrementalCore = await readFile(
+  "src/lib/purchaseRunDemandIncrementalCore.ts",
+  "utf8",
+);
 const shoplingClient = await readFile(
   "src/lib/shopling/shoplingReadClient.ts",
   "utf8",
@@ -43,6 +47,7 @@ test("live refresh stores immutable request, chunk, failure and final operation 
     "PRODUCT_DECISION_LIVE_STEP_FAILURE",
     "PRODUCT_DECISION_LIVE_FAILED",
     "PRODUCT_DECISION_LIVE_SHADOW",
+    "PRODUCT_DECISION_LIVE_EVENT_LEDGER",
   ]) {
     assert.match(workflow, new RegExp(operation));
   }
@@ -52,13 +57,23 @@ test("live refresh stores immutable request, chunk, failure and final operation 
 });
 
 test("orders and claims are split into bounded chunks and one step is processed per worker call", () => {
-  assert.match(workflow, /splitShoplingDateRange\([\s\S]*?7,/);
-  assert.match(workflow, /splitShoplingDateRange\([\s\S]*?90,/);
+  assert.match(incrementalCore, /splitDateRange\(orderStartDate, input\.targetDate, 7\)/);
+  assert.match(incrementalCore, /incremental \? CLAIM_REFRESH_DAYS : 90/);
   assert.match(workflow, /request\.orderRanges\.find/);
   assert.match(workflow, /request\.claimRanges\.find/);
   assert.match(workflow, /executeOrderStep/);
   assert.match(workflow, /executeClaimStep/);
   assert.match(workflow, /MAX_STEP_ATTEMPTS = 3/);
+});
+
+test("purchase-run demand refresh reuses an exact event ledger and deduplicates the recent claim window", () => {
+  assert.match(workflow, /collectionMode: "FULL_BASELINE" \| "INCREMENTAL"/);
+  assert.match(workflow, /parentLedgerRequestId/);
+  assert.match(workflow, /buildShoplingLiveLedger/);
+  assert.match(workflow, /aggregateShoplingLiveLedger/);
+  assert.match(workflow, /PRODUCT_DECISION_LIVE_PARENT_LEDGER_MISSING/);
+  assert.match(workflow, /demandMappingIdentitiesCompatible/);
+  assert.match(workflow, /current\.targetDate === options\.targetDate/);
 });
 
 test("planning snapshot uses one bounded live read, a recent verified fallback, and is frozen for every chunk", () => {
@@ -126,6 +141,8 @@ test("purchase-run coordinator pins each worker step to the selected request", a
     coordinator,
     /runProductDecisionLiveRefreshStep\(demand\.requestId\)/,
   );
+  assert.match(coordinator, /targetDate: input\.targetDate/);
+  assert.match(coordinator, /previousPurchaseRunStartDate/);
 });
 
 test("each Shopling chunk performs one bounded HTTP attempt and worker retries are the only retry layer", () => {

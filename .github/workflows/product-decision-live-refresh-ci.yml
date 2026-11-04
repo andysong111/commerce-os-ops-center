@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "src/lib/productDecisionLiveRefresh.ts"
+      - "src/lib/purchaseRunDemandIncrementalCore.ts"
       - "src/lib/productDecisionMonthlyArchive.ts"
       - "src/lib/monthlyPurchasePolicy.ts"
       - "src/lib/monthlyPurchaseCycleGate.ts"
@@ -15,6 +16,7 @@ on:
       - "src/app/product-decision-agent/page.tsx"
       - "src/app/product-decision-agent/live-refresh/**"
       - "tests/productDecisionLiveRefreshWorker.test.mjs"
+      - "tests/purchaseRunDemandIncrementalCore.test.mjs"
       - "tests/productDecisionMonthlyArchive.test.mjs"
       - "tests/monthlyPurchasePolicy.test.mjs"
       - "tests/stage8CanonicalPurchaseShadow.test.mjs"
@@ -44,6 +46,7 @@ jobs:
         run: >-
           npx eslint
           src/lib/productDecisionLiveRefresh.ts
+          src/lib/purchaseRunDemandIncrementalCore.ts
           src/lib/productDecisionMonthlyArchive.ts
           src/lib/monthlyPurchasePolicy.ts
           src/lib/monthlyPurchaseCycleGate.ts
@@ -56,6 +59,7 @@ jobs:
           src/app/product-decision-agent/live-refresh/page.tsx
           src/app/product-decision-agent/live-refresh/LiveRefreshControl.tsx
           tests/productDecisionLiveRefreshWorker.test.mjs
+          tests/purchaseRunDemandIncrementalCore.test.mjs
           tests/productDecisionMonthlyArchive.test.mjs
           tests/monthlyPurchasePolicy.test.mjs
           tests/stage8CanonicalPurchaseShadow.test.mjs
@@ -63,6 +67,7 @@ jobs:
         run: >-
           node --experimental-strip-types --test
           tests/productDecisionLiveRefreshWorker.test.mjs
+          tests/purchaseRunDemandIncrementalCore.test.mjs
           tests/productDecisionMonthlyArchive.test.mjs
           tests/monthlyPurchasePolicy.test.mjs
           tests/stage8CanonicalPurchaseShadow.test.mjs

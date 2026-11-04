@@ -19,6 +19,9 @@ export default async function ProductDecisionLiveRefreshPage() {
         error instanceof Error
           ? error.message
           : "월간 발주 계산 상태를 불러오지 못했습니다.",
+      targetDate: null,
+      previousPurchaseRunStartDate: null,
+      collectionMode: null,
       analysisAsOf: null,
       planningGeneratedAt: null,
       orderCompleted: 0,
