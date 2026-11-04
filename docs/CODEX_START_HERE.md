@@ -86,6 +86,14 @@ As of 2026-10-25:
 - A21 extension v0.5.17 is merged through PR #1300 and reports terminal batch failures without leaving false `RUNNING` rows. A 2026-09-30 live recovery then proved that `A21_EMPTY_RESULT` could be false: GOODSKEY `100091` returned 4 rows manually while the content script had treated a missing count marker after 500 ms as zero. The v0.5.18 continuation submits the search form directly and waits for an authoritative `총 조회수` marker before any empty-result decision. After deploy/reload, recover status first and request fresh action-time confirmation before a new scoped resend.
 - Product Master / B-code / warehouse reconciliation now has a dedicated persistent handoff. Its first live continuation check is the AAA030 멀티탭 트레이 / AAA038 실리콘 악력볼 Product Master and warehouse-map sync after the 2026-09-28 physical correction.
 
+### Shopling stock-state HF69 handoff (2026-11-05)
+
+- `goodsKey` 개수는 쪼개기 상품 판정 근거가 아니다. 한 B코드는 판매 채널별로 여러 goodsKey를 정상적으로 가질 수 있다. 품절·판매중 전환은 Product Master의 논리 상품형태와 **각 goodsKey의 실제 옵션 수**를 조합해 개별 판정한다.
+- 논리 `OPTION`인데 해당 goodsKey의 실제 옵션이 1개인 과거 쪼개기 등록은 정확한 옵션상태와 상품 판매상태를 Shopling API로 모두 변경·재조회하고 수량 불변을 확인한 뒤 A21 `상품판매상태송신`을 사용한다. 실제 옵션이 2개 이상이면 정확한 옵션상태만 API로 변경·재조회한 뒤 A21 `옵션송신`을 사용한다. 논리 `SINGLE`은 기존 상품 판매상태 경로를 유지한다. 같은 B코드 안에서도 goodsKey별 경로가 섞일 수 있다.
+- A21 브라우저 단계는 goodsKey를 한 번에 하나씩 직렬 처리한다. 옵션송신 화면에서는 과거 운영에서 성공했던 방식대로 실제 보이는 상단 `옵션송신` 라디오를 화면 순서로 먼저 클릭하고, 하단 옵션 전용 `선택`을 클릭한다. 내부 name/value 선택은 보조 fallback이다.
+- 현재 패키지는 HF69 `v0.6.32`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf69`이다. 전용 회귀 15건, TypeScript, 변경 파일 ESLint, Webpack 프로덕션 빌드가 통과했다. 로컬 검증 엔드포인트가 ZIP 206,226바이트를 생성했고 background/ops/content/main SHA-256도 반환했다.
+- 아직 실 Shopling 상태 변경 카나리는 하지 않았다. 다음 안전 단계는 새 확장을 설치한 뒤 1옵션 쪼개기 1건과 다옵션 1건을 각각 실행해 API 상태·수량 readback, 선택된 A21 전송 종류, Commerce OS 접수 완료를 확인하는 것이다. 마켓 종결 결과는 Commerce OS 책임 범위가 아니지만 Shopling 전송 접수까지는 누락 없이 확인한다.
+
 ## Handoff discipline
 
 After any major subsystem change, update the relevant persistent context instead of leaving the key decision only in chat.
