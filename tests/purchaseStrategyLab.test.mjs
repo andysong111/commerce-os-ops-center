@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { simulatePurchaseStrategies } from "../src/lib/purchaseStrategyLab.ts";
+import { performance } from "node:perf_hooks";
+import {
+  resolvePurchaseStrategyLabUnitCost,
+  simulatePurchaseStrategies,
+} from "../src/lib/purchaseStrategyLab.ts";
 import {
   PURCHASE_STRATEGY_LAB_SAMPLE_BUDGET_KRW,
   purchaseStrategyLabSampleRows,
@@ -54,6 +58,43 @@ function quantity(result, scenarioId, barcode) {
     )?.allocatedQuantity ?? 0
   );
 }
+
+test("verified purchase evidence takes precedence over a higher planning estimate", () => {
+  assert.equal(
+    resolvePurchaseStrategyLabUnitCost({
+      verifiedPurchaseCostReady: true,
+      verifiedPurchaseUnitCostKrw: 1_000,
+      purchaseProtectedCostKrw: 1_200,
+      planningUnitCostKrw: 3_000,
+      recommendedQty: 10,
+      expectedCost: 35_000,
+    }),
+    1_200,
+  );
+});
+
+test("planning and shadow costs are used only when verified evidence is unavailable", () => {
+  assert.equal(
+    resolvePurchaseStrategyLabUnitCost({
+      verifiedPurchaseCostReady: false,
+      verifiedPurchaseUnitCostKrw: 1_000,
+      purchaseProtectedCostKrw: 1_200,
+      planningUnitCostKrw: 3_000,
+      recommendedQty: 10,
+      expectedCost: 35_000,
+    }),
+    3_000,
+  );
+  assert.equal(
+    resolvePurchaseStrategyLabUnitCost({
+      verifiedPurchaseCostReady: false,
+      planningUnitCostKrw: 0,
+      recommendedQty: 10,
+      expectedCost: 10_001,
+    }),
+    1_001,
+  );
+});
 
 test("anti-starvation prevents a strong recent seller from collapsing to one 5-unit lot", () => {
   const rows = [
@@ -210,6 +251,33 @@ test("simulation is deterministic, respects budget, and never mutates source row
   for (const item of first) {
     assert.ok(item.estimatedSpendKrw <= config.budgetKrw);
   }
+});
+
+test("large portfolios recalculate without sorting the full table for every lot", () => {
+  const rows = Array.from({ length: 1_000 }, (_, index) =>
+    row({
+      barcode: `PERF-${String(index).padStart(4, "0")}`,
+      recommendedQuantity: 200,
+      preGateRecommendedQuantity: 200,
+      cartonQuantity: 5,
+      unitCostKrw: 1,
+      priorityScore: index,
+    }),
+  );
+  const startedAt = performance.now();
+  const result = simulatePurchaseStrategies(rows, {
+    ...config,
+    budgetKrw: 200_000,
+  });
+  const elapsedMilliseconds = performance.now() - startedAt;
+  const balanced = scenario(result, "BALANCED_LOW_COST");
+
+  assert.equal(balanced.selectedSkuCount, 1_000);
+  assert.equal(balanced.totalQuantity, 200_000);
+  assert.ok(
+    elapsedMilliseconds < 3_000,
+    `expected recalculation under 3000ms, received ${elapsedMilliseconds.toFixed(1)}ms`,
+  );
 });
 
 test("local sample reproduces both reported failures and the balanced recovery", () => {

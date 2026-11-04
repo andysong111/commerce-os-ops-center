@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [engine, page, verifiedCost, strategyLabPage, liveAggregation] = await Promise.all([
+const [engine, page, verifiedCost, strategyLabPage, strategyLabEngine, liveAggregation] = await Promise.all([
   readFile("src/lib/stage8InventoryVerificationPriority.ts", "utf8"),
   readFile("src/app/stage8-inventory-verification-priority/page.tsx", "utf8"),
   readFile("src/lib/verifiedPurchaseCostEvidence.ts", "utf8"),
   readFile("src/app/purchase-strategy-lab/page.tsx", "utf8"),
+  readFile("src/lib/purchaseStrategyLab.ts", "utf8"),
   readFile("src/lib/shopling/shoplingLiveAggregation.ts", "utf8"),
 ]);
 
@@ -76,7 +77,9 @@ test("pre-gate strategy recovery preserves canonical planning cost when the save
     engine,
     /originalRecommendedQty > 0\s*\? Math\.round\(integer\(product\.expectedCost\) \/ originalRecommendedQty\)\s*: 0/,
   );
-  assert.match(strategyLabPage, /row\.planningUnitCostKrw/);
+  assert.match(strategyLabPage, /resolvePurchaseStrategyLabUnitCost\(row\)/);
+  assert.match(strategyLabEngine, /source\.verifiedPurchaseCostReady === true/);
+  assert.match(strategyLabEngine, /source\.planningUnitCostKrw/);
 });
 
 test("draft regeneration excludes all safe same-cycle RESERVED drafts before portfolio allocation", () => {

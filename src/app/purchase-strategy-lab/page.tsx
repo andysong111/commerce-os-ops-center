@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { loadInventoryVerificationPriority } from "@/lib/stage8InventoryVerificationPriority";
-import type { PurchaseStrategyLabRow } from "@/lib/purchaseStrategyLab";
+import {
+  resolvePurchaseStrategyLabUnitCost,
+  type PurchaseStrategyLabRow,
+} from "@/lib/purchaseStrategyLab";
 import {
   PURCHASE_STRATEGY_LAB_SAMPLE_BUDGET_KRW,
   purchaseStrategyLabSampleRows,
@@ -21,19 +24,6 @@ function firstParam(value: string | string[] | undefined) {
 
 function validAsOf(value: string | undefined) {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
-}
-
-function effectiveUnitCost(row: Awaited<ReturnType<typeof loadInventoryVerificationPriority>>["rows"][number]) {
-  return Math.max(
-    0,
-    row.verifiedPurchaseUnitCostKrw,
-    row.purchaseProtectedCostKrw,
-    row.protectedCostKrw,
-    row.planningUnitCostKrw,
-    row.recommendedQty > 0
-      ? Math.round(row.expectedCost / row.recommendedQty)
-      : 0,
-  );
 }
 
 type StrategyLabSnapshot = {
@@ -70,7 +60,7 @@ async function loadStrategyLabSnapshot(
       preGateRecommendedQuantity: row.preGateRecommendedQty,
       moq: row.moq,
       cartonQuantity: row.cartonQuantity,
-      unitCostKrw: effectiveUnitCost(row),
+      unitCostKrw: resolvePurchaseStrategyLabUnitCost(row),
       priorityScore: row.priorityScore,
       revenueQualifiedMonthCount: row.revenueQualifiedMonthCount,
       averageMonthlyRevenueKrw: row.averageMonthlyRevenueKrw,

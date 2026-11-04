@@ -85,6 +85,36 @@ function money(value: unknown) {
   return Math.max(0, Math.round(number(value)));
 }
 
+export type PurchaseStrategyLabCostSource = {
+  verifiedPurchaseCostReady?: unknown;
+  verifiedPurchaseUnitCostKrw?: unknown;
+  purchaseProtectedCostKrw?: unknown;
+  planningUnitCostKrw?: unknown;
+  recommendedQty?: unknown;
+  expectedCost?: unknown;
+};
+
+export function resolvePurchaseStrategyLabUnitCost(
+  source: PurchaseStrategyLabCostSource,
+) {
+  if (source.verifiedPurchaseCostReady === true) {
+    const verifiedCost = Math.max(
+      money(source.verifiedPurchaseUnitCostKrw),
+      money(source.purchaseProtectedCostKrw),
+    );
+    if (verifiedCost > 0) return verifiedCost;
+  }
+
+  const planningCost = money(source.planningUnitCostKrw);
+  if (planningCost > 0) return planningCost;
+
+  const recommendedQuantity = quantity(source.recommendedQty);
+  const expectedCost = money(source.expectedCost);
+  return recommendedQuantity > 0 && expectedCost > 0
+    ? Math.ceil(expectedCost / recommendedQuantity)
+    : 0;
+}
+
 function roundUp(value: number, unit: number) {
   return Math.max(0, Math.ceil(value / unit) * unit);
 }
@@ -268,6 +298,79 @@ type FairCandidate = {
   includedByRecentSignal: boolean;
 };
 
+type FairQueueEntry = {
+  candidate: FairCandidate;
+  cap: number;
+};
+
+function compareFairQueueEntry(
+  left: FairQueueEntry,
+  right: FairQueueEntry,
+) {
+  const coverageDifference =
+    left.candidate.allocatedQuantity / Math.max(1, left.cap) -
+    right.candidate.allocatedQuantity / Math.max(1, right.cap);
+  return (
+    coverageDifference ||
+    protectionWeight(right.candidate.row) -
+      protectionWeight(left.candidate.row) ||
+    priority(left.candidate.row, right.candidate.row)
+  );
+}
+
+function pushFairQueue(
+  queue: FairQueueEntry[],
+  entry: FairQueueEntry,
+) {
+  queue.push(entry);
+  let index = queue.length - 1;
+  while (index > 0) {
+    const parentIndex = Math.floor((index - 1) / 2);
+    if (compareFairQueueEntry(queue[parentIndex]!, queue[index]!) <= 0) {
+      break;
+    }
+    [queue[parentIndex], queue[index]] = [
+      queue[index]!,
+      queue[parentIndex]!,
+    ];
+    index = parentIndex;
+  }
+}
+
+function popFairQueue(queue: FairQueueEntry[]) {
+  const first = queue[0];
+  const last = queue.pop();
+  if (!first || !last) return first;
+  if (queue.length === 0) return first;
+
+  queue[0] = last;
+  let index = 0;
+  while (true) {
+    const leftIndex = index * 2 + 1;
+    const rightIndex = leftIndex + 1;
+    let smallestIndex = index;
+    if (
+      leftIndex < queue.length &&
+      compareFairQueueEntry(queue[leftIndex]!, queue[smallestIndex]!) < 0
+    ) {
+      smallestIndex = leftIndex;
+    }
+    if (
+      rightIndex < queue.length &&
+      compareFairQueueEntry(queue[rightIndex]!, queue[smallestIndex]!) < 0
+    ) {
+      smallestIndex = rightIndex;
+    }
+    if (smallestIndex === index) break;
+    [queue[index], queue[smallestIndex]] = [
+      queue[smallestIndex]!,
+      queue[index]!,
+    ];
+    index = smallestIndex;
+  }
+  return first;
+}
+
 function fairScenario(
   id: "RECENT_PROTECTED" | "BALANCED_LOW_COST",
   rows: PurchaseStrategyLabRow[],
@@ -378,50 +481,38 @@ function fairScenario(
   }
 
   function allocateLowestCoverage(limit: "minimum" | "target") {
-    while (remaining > 0) {
-      const affordable = candidates
-        .filter((candidate) => {
-          const cap =
-            limit === "minimum"
-              ? candidate.minimumQuantity
-              : candidate.targetQuantity;
-          return (
-            candidate.allocatedQuantity > 0 &&
-            candidate.allocatedQuantity < cap &&
-            candidate.allocationUnit * candidate.row.unitCostKrw <= remaining
-          );
-        })
-        .sort((left, right) => {
-          const leftCap =
-            limit === "minimum"
-              ? left.minimumQuantity
-              : left.targetQuantity;
-          const rightCap =
-            limit === "minimum"
-              ? right.minimumQuantity
-              : right.targetQuantity;
-          const coverageDifference =
-            left.allocatedQuantity / Math.max(1, leftCap) -
-            right.allocatedQuantity / Math.max(1, rightCap);
-          return (
-            coverageDifference ||
-            protectionWeight(right.row) - protectionWeight(left.row) ||
-            priority(left.row, right.row)
-          );
-        });
-      const candidate = affordable[0];
-      if (!candidate) break;
+    const queue: FairQueueEntry[] = [];
+    for (const candidate of candidates) {
       const cap =
         limit === "minimum"
           ? candidate.minimumQuantity
           : candidate.targetQuantity;
+      if (
+        candidate.allocatedQuantity > 0 &&
+        candidate.allocatedQuantity < cap &&
+        candidate.allocationUnit * candidate.row.unitCostKrw <= remaining
+      ) {
+        pushFairQueue(queue, { candidate, cap });
+      }
+    }
+
+    while (remaining > 0) {
+      const entry = popFairQueue(queue);
+      if (!entry) break;
+      const { candidate, cap } = entry;
+      const lotCost =
+        candidate.allocationUnit * candidate.row.unitCostKrw;
+      if (lotCost > remaining) continue;
       const added = Math.min(
         candidate.allocationUnit,
         cap - candidate.allocatedQuantity,
       );
-      if (added <= 0) break;
+      if (added <= 0) continue;
       candidate.allocatedQuantity += added;
       remaining -= added * candidate.row.unitCostKrw;
+      if (candidate.allocatedQuantity < cap && lotCost <= remaining) {
+        pushFairQueue(queue, entry);
+      }
     }
   }
 
