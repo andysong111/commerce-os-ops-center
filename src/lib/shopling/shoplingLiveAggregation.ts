@@ -89,6 +89,30 @@ export type ShoplingOrderProductAggregate = {
   shippedOrders: number[];
 };
 
+export type ShoplingOrderLedgerEvent = {
+  externalId: string;
+  syncedAt: string;
+  occurredAt: string;
+  orderNo: string;
+  productId: string | null;
+  mallProductKey: string | null;
+  optionId: string | null;
+  barcode: string;
+  unitsPerOrder: number;
+  units: number;
+  revenue: number;
+  validSale: boolean;
+};
+
+export type ShoplingClaimLedgerEvent = {
+  claimKey: string;
+  syncedAt: string;
+  occurredAt: string;
+  barcode: string;
+  claimedUnits: number;
+  weightedClaims: number;
+};
+
 export type ShoplingClaimProductAggregate = {
   barcode: string;
   weightedClaims: number[];
@@ -103,6 +127,7 @@ export type ShoplingOrderChunkSummary = {
   recent30Revenue: number;
   products: ShoplingOrderProductAggregate[];
   references: ShoplingOrderReference[];
+  events?: ShoplingOrderLedgerEvent[];
 };
 
 export type ShoplingClaimChunkSummary = {
@@ -111,6 +136,13 @@ export type ShoplingClaimChunkSummary = {
   acceptedRows: number;
   unmappedRows: number;
   products: ShoplingClaimProductAggregate[];
+  events?: ShoplingClaimLedgerEvent[];
+};
+
+export type ShoplingLiveEventLedger = {
+  analysisAsOf: string;
+  orderEvents: ShoplingOrderLedgerEvent[];
+  claimEvents: ShoplingClaimLedgerEvent[];
 };
 
 export type ShoplingLiveAggregate = {
@@ -211,6 +243,10 @@ function emptyNumbers() {
 function validIso(value: unknown) {
   const parsed = Date.parse(text(value));
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function dateOnly(value: Date) {
+  return value.toISOString().slice(0, 10);
 }
 
 function validSaleStatus(status: string) {
@@ -385,6 +421,7 @@ export function aggregateShoplingOrderChunk(
   planning: ProductPlanningSnapshot,
   analysisAsOf: string,
   range: ShoplingDateRange,
+  options: { syncedAt?: string } = {},
 ): ShoplingOrderChunkSummary {
   const asOf = validIso(analysisAsOf);
   if (!asOf) throw new Error("SHOPLING_AGGREGATION_AS_OF_INVALID");
@@ -396,21 +433,20 @@ export function aggregateShoplingOrderChunk(
     ShoplingOrderProductAggregate & { orderSets: Set<string>[] }
   >();
   const references = new Map<string, ShoplingOrderReference>();
+  const events: ShoplingOrderLedgerEvent[] = [];
   const seenOrderLines = new Set<string>();
   let acceptedRows = 0;
   let unmappedRows = 0;
   let recent30Revenue = 0;
+  const syncedAt = validIso(options.syncedAt) ?? new Date().toISOString();
 
   for (const raw of rows) {
     const order = normalizeShoplingOrder(raw);
     if (!order.id || seenOrderLines.has(order.id)) continue;
     seenOrderLines.add(order.id);
-    if (!order.orderNo || !validSaleStatus(order.status)) continue;
+    if (!order.orderNo) continue;
     const orderedAt = validIso(order.orderedAt);
     if (!orderedAt || Date.parse(orderedAt) >= analysisEndMs) continue;
-    if (Date.parse(orderedAt) >= recent30Start) {
-      recent30Revenue += decimal(order.paidAmount);
-    }
     const bucket = bucketIndex(orderedAt, analysisEndMs);
     if (bucket < 0) continue;
     const identity = resolveListingIdentity(index, order, raw);
@@ -418,22 +454,40 @@ export function aggregateShoplingOrderChunk(
       unmappedRows += 1;
       continue;
     }
-    acceptedRows += 1;
     const units = quantity(order.quantity) * identity.unitsPerOrder;
-    const aggregate = productAggregate(aggregates, identity.barcode);
-    aggregate.units[bucket] += units;
-    aggregate.revenue[bucket] += decimal(order.paidAmount);
-    aggregate.orderSets[bucket].add(order.orderNo);
-
-    const reference: ShoplingOrderReference = {
+    const revenue = decimal(order.paidAmount);
+    const validSale = validSaleStatus(order.status) && units > 0;
+    events.push({
+      externalId: order.id,
+      syncedAt,
+      occurredAt: orderedAt,
       orderNo: order.orderNo,
       productId: order.productId,
       mallProductKey: order.mallProductKey,
       optionId: order.optionId || null,
       barcode: identity.barcode,
       unitsPerOrder: identity.unitsPerOrder,
-    };
-    references.set(referenceKey(reference), reference);
+      units,
+      revenue: Math.round(revenue),
+      validSale,
+    });
+    if (validSale) {
+      acceptedRows += 1;
+      if (Date.parse(orderedAt) >= recent30Start) recent30Revenue += revenue;
+      const aggregate = productAggregate(aggregates, identity.barcode);
+      aggregate.units[bucket] += units;
+      aggregate.revenue[bucket] += revenue;
+      aggregate.orderSets[bucket].add(order.orderNo);
+      const reference: ShoplingOrderReference = {
+        orderNo: order.orderNo,
+        productId: order.productId,
+        mallProductKey: order.mallProductKey,
+        optionId: order.optionId || null,
+        barcode: identity.barcode,
+        unitsPerOrder: identity.unitsPerOrder,
+      };
+      references.set(referenceKey(reference), reference);
+    }
   }
 
   return {
@@ -449,6 +503,7 @@ export function aggregateShoplingOrderChunk(
       shippedOrders: row.orderSets.map((orders) => orders.size),
     })),
     references: [...references.values()],
+    events,
   };
 }
 
@@ -551,6 +606,7 @@ export function aggregateShoplingClaimChunk(
   orderReferences: ShoplingOrderReference[],
   analysisAsOf: string,
   range: ShoplingDateRange,
+  options: { syncedAt?: string } = {},
 ): ShoplingClaimChunkSummary {
   const asOf = validIso(analysisAsOf);
   if (!asOf) throw new Error("SHOPLING_AGGREGATION_AS_OF_INVALID");
@@ -559,8 +615,10 @@ export function aggregateShoplingClaimChunk(
   const referenceIndex = buildOrderReferenceIndex(orderReferences);
   const aggregates = new Map<string, ShoplingClaimProductAggregate>();
   const seenClaims = new Set<string>();
+  const events: ShoplingClaimLedgerEvent[] = [];
   let acceptedRows = 0;
   let unmappedRows = 0;
+  const syncedAt = validIso(options.syncedAt) ?? new Date().toISOString();
 
   for (const raw of rows) {
     const claim = normalizeShoplingClaim(raw);
@@ -587,9 +645,17 @@ export function aggregateShoplingClaimChunk(
     const claimedUnits =
       Math.max(1, quantity(claim.quantity) || 1) * identity.unitsPerOrder;
     const aggregate = claimAggregate(aggregates, identity.barcode);
+    const weightedClaims = claimedUnits * decimal(claim.severityWeight);
     aggregate.claimQuantity[bucket] += claimedUnits;
-    aggregate.weightedClaims[bucket] +=
-      claimedUnits * decimal(claim.severityWeight);
+    aggregate.weightedClaims[bucket] += weightedClaims;
+    events.push({
+      claimKey: claim.claimKey,
+      syncedAt,
+      occurredAt: claimedAt,
+      barcode: identity.barcode,
+      claimedUnits,
+      weightedClaims,
+    });
   }
 
   return {
@@ -603,7 +669,120 @@ export function aggregateShoplingClaimChunk(
         (value) => Math.round(value * 1000) / 1000,
       ),
     })),
+    events,
   };
+}
+
+function latestByIdentity<T extends { syncedAt: string }>(
+  rows: T[],
+  identity: (row: T) => string,
+) {
+  const latest = new Map<string, T>();
+  for (const row of rows) {
+    const key = identity(row);
+    const prior = latest.get(key);
+    if (!key || !prior || row.syncedAt >= prior.syncedAt) latest.set(key, row);
+  }
+  return [...latest.values()];
+}
+
+export function orderReferencesFromLedgerEvents(
+  events: ShoplingOrderLedgerEvent[],
+) {
+  const references = new Map<string, ShoplingOrderReference>();
+  for (const event of latestByIdentity(events, (row) => row.externalId)) {
+    if (!event.validSale) continue;
+    const reference: ShoplingOrderReference = {
+      orderNo: event.orderNo,
+      productId: event.productId,
+      mallProductKey: event.mallProductKey,
+      optionId: event.optionId,
+      barcode: event.barcode,
+      unitsPerOrder: event.unitsPerOrder,
+    };
+    references.set(referenceKey(reference), reference);
+  }
+  return [...references.values()];
+}
+
+export function buildShoplingLiveLedger(
+  analysisAsOf: string,
+  orderEvents: ShoplingOrderLedgerEvent[],
+  claimEvents: ShoplingClaimLedgerEvent[],
+): ShoplingLiveEventLedger {
+  const asOf = validIso(analysisAsOf);
+  if (!asOf) throw new Error("SHOPLING_AGGREGATION_AS_OF_INVALID");
+  const end = Date.parse(asOf);
+  const insideWindow = (occurredAt: string) => {
+    const timestamp = Date.parse(occurredAt);
+    return Number.isFinite(timestamp) && timestamp < end && end - timestamp < ANALYSIS_SPAN_MS;
+  };
+  return {
+    analysisAsOf: asOf,
+    orderEvents: latestByIdentity(orderEvents, (row) => row.externalId)
+      .filter((row) => insideWindow(row.occurredAt))
+      .sort((left, right) => `${left.occurredAt}\u0000${left.externalId}`.localeCompare(`${right.occurredAt}\u0000${right.externalId}`)),
+    claimEvents: latestByIdentity(claimEvents, (row) => row.claimKey)
+      .filter((row) => insideWindow(row.occurredAt))
+      .sort((left, right) => `${left.occurredAt}\u0000${left.claimKey}`.localeCompare(`${right.occurredAt}\u0000${right.claimKey}`)),
+  };
+}
+
+export function aggregateShoplingLiveLedger(
+  planning: ProductPlanningSnapshot,
+  ledger: ShoplingLiveEventLedger,
+): ShoplingLiveAggregate {
+  const orderProducts = new Map<string, ShoplingOrderProductAggregate & { orderSets: Set<string>[] }>();
+  const claimProducts = new Map<string, ShoplingClaimProductAggregate>();
+  const analysisEndMs = Date.parse(ledger.analysisAsOf);
+  const recent30Start = analysisEndMs - 30 * DAY_MS;
+  let recent30Revenue = 0;
+
+  for (const event of ledger.orderEvents) {
+    if (!event.validSale) continue;
+    const bucket = bucketIndex(event.occurredAt, analysisEndMs);
+    if (bucket < 0) continue;
+    const aggregate = productAggregate(orderProducts, event.barcode);
+    aggregate.units[bucket] += quantity(event.units);
+    aggregate.revenue[bucket] += decimal(event.revenue);
+    aggregate.orderSets[bucket].add(event.orderNo);
+    if (Date.parse(event.occurredAt) >= recent30Start) {
+      recent30Revenue += decimal(event.revenue);
+    }
+  }
+  for (const event of ledger.claimEvents) {
+    const bucket = bucketIndex(event.occurredAt, analysisEndMs);
+    if (bucket < 0) continue;
+    const aggregate = claimAggregate(claimProducts, event.barcode);
+    aggregate.claimQuantity[bucket] += quantity(event.claimedUnits);
+    aggregate.weightedClaims[bucket] += decimal(event.weightedClaims);
+  }
+
+  const orderChunk: ShoplingOrderChunkSummary = {
+    range: { start: dateOnly(new Date(analysisEndMs - ANALYSIS_SPAN_MS)), end: dateOnly(new Date(analysisEndMs)) },
+    fetchedRows: ledger.orderEvents.length,
+    acceptedRows: ledger.orderEvents.length,
+    unmappedRows: 0,
+    recent30Revenue: Math.round(recent30Revenue),
+    products: [...orderProducts.values()].map((row) => ({
+      barcode: row.barcode,
+      units: row.units,
+      revenue: row.revenue.map((value) => Math.round(value)),
+      shippedOrders: row.orderSets.map((orders) => orders.size),
+    })),
+    references: orderReferencesFromLedgerEvents(ledger.orderEvents),
+  };
+  const claimChunk: ShoplingClaimChunkSummary = {
+    range: orderChunk.range,
+    fetchedRows: ledger.claimEvents.length,
+    acceptedRows: ledger.claimEvents.length,
+    unmappedRows: 0,
+    products: [...claimProducts.values()].map((row) => ({
+      ...row,
+      weightedClaims: row.weightedClaims.map((value) => Math.round(value * 1000) / 1000),
+    })),
+  };
+  return combineShoplingLiveChunks(planning, [orderChunk], [claimChunk], ledger.analysisAsOf);
 }
 
 function addArrays(target: number[], source: number[]) {

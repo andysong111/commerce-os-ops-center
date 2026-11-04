@@ -13,7 +13,9 @@ test("purchase-run start prepares every required source before opening the draft
   assert.match(service, /ensurePurchaseRunSalesRequest/);
   assert.match(service, /ensurePurchaseRunDemandRefreshRequest/);
   assert.match(service, /runProductDecisionLiveRefreshStep/);
-  assert.match(service, /최신 주문·클레임을 읽고 있습니다/);
+  assert.match(service, /직전 발주차시 이후 주문·최근 1개월 클레임/);
+  assert.match(service, /latestPriorPurchaseRunStartDate/);
+  assert.match(service, /targetDate: input\.targetDate/);
   assert.match(service, /runProductMasterShoplingSalesEventSyncStep/);
   assert.match(service, /sales\.identityResolverVersion !== PRODUCT_MASTER_SALES_IDENTITY_RESOLVER_VERSION/);
   assert.ok(

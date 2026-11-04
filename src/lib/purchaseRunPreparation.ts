@@ -11,6 +11,7 @@ import { loadSalesEventDirectPromotionGate } from "@/lib/salesEventDirectPromoti
 import { loadPostApplyCanonicalReconciliation } from "@/lib/stage8PostApplyCanonicalReconciliation";
 import { loadInventoryVerificationPriority } from "@/lib/stage8InventoryVerificationPriority";
 import { PURCHASE_RUN_PREPARATION_RESUME_MAX_AGE_MS } from "@/lib/purchaseRunPreparationPolicy";
+import { latestPriorPurchaseRunStartDate } from "@/lib/purchaseRunDemandIncrementalCore";
 import {
   ensurePurchaseRunDemandRefreshRequest,
   loadProductDecisionLiveStatus,
@@ -150,10 +151,16 @@ export async function advancePurchaseRunPreparation(
     return blocked("INVENTORY", 0, "기존 발주기록을 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.");
   }
   const existing = sameDayPurchaseRun(ledger.drafts, input.targetDate);
+  const previousPurchaseRunStartDate = latestPriorPurchaseRunStartDate(
+    ledger.drafts,
+    input.targetDate,
+  );
 
   let demand = await atPreparationStage("DEMAND", () =>
     ensurePurchaseRunDemandRefreshRequest({
       maxAgeMs: PURCHASE_RUN_PREPARATION_RESUME_MAX_AGE_MS,
+      targetDate: input.targetDate,
+      previousPurchaseRunStartDate,
     }));
   if (demand.state === "QUEUED" || demand.state === "RUNNING") {
     for (let index = 0; index < DEMAND_STEPS_PER_REQUEST; index += 1) {
@@ -168,7 +175,7 @@ export async function advancePurchaseRunPreparation(
         state: "PENDING",
         stage: "DEMAND",
         progress: Math.min(35, Math.round(demand.progress * 0.35)),
-        message: `최신 주문·클레임을 읽고 있습니다. 주문 ${demand.orderCompleted}/${demand.orderTotal} · 클레임 ${demand.claimCompleted}/${demand.claimTotal}`,
+        message: `${demand.collectionMode === "INCREMENTAL" ? "직전 발주차시 이후 주문·최근 1개월 클레임" : "최초 증분 원장용 주문·클레임"}을 읽고 있습니다. 주문 ${demand.orderCompleted}/${demand.orderTotal} · 클레임 ${demand.claimCompleted}/${demand.claimTotal}`,
         externalOrderExecuted: false,
       };
     }

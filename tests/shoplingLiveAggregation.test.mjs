@@ -82,7 +82,9 @@ const aggregation = await loadAggregation();
 const {
   aggregateShoplingOrderChunk,
   aggregateShoplingClaimChunk,
+  aggregateShoplingLiveLedger,
   buildProductPlanningIndex,
+  buildShoplingLiveLedger,
   buildLiveProductDecisionSnapshot,
   combineShoplingLiveChunks,
   planningCompletedCalendarMonthlySales,
@@ -297,7 +299,7 @@ test("order aggregation maps option IDs, expands set quantities and counts one s
   assert.equal(chunk.fetchedRows, 4);
   assert.equal(chunk.acceptedRows, 2);
   assert.equal(chunk.unmappedRows, 1);
-  assert.equal(chunk.recent30Revenue, 3800);
+  assert.equal(chunk.recent30Revenue, 2800);
   assert.equal(chunk.products.length, 1);
   assert.equal(chunk.products[0].units[0], 8);
   assert.equal(chunk.products[0].revenue[0], 2800);
@@ -490,6 +492,52 @@ test("claim aggregation restores barcode from order references and applies set q
   assert.equal(claimChunk.products[0].barcode, "BAA1-1");
   assert.equal(claimChunk.products[0].claimQuantity[0], 4);
   assert.equal(claimChunk.products[0].weightedClaims[0], 4);
+});
+
+test("incremental ledger deduplicates rereads and lets a newer cancellation remove prior demand", () => {
+  const baseline = aggregateShoplingOrderChunk(
+    [{
+      ord_no: "LEDGER-1",
+      mall_ord_seq: "1",
+      opt_id: "O1",
+      mall_ord_dt: "20260804100000",
+      ord_status: "배송완료",
+      mall_ord_cnt: "3",
+      mall_unit_price: "700",
+    }],
+    planning(),
+    AS_OF,
+    { start: "2026-08-04", end: "2026-08-04" },
+    { syncedAt: "2026-08-05T01:00:00.000Z" },
+  );
+  const reread = aggregateShoplingOrderChunk(
+    [{
+      ord_no: "LEDGER-1",
+      mall_ord_seq: "1",
+      opt_id: "O1",
+      mall_ord_dt: "20260804100000",
+      ord_status: "취소완료",
+      mall_ord_cnt: "3",
+      mall_unit_price: "700",
+    }],
+    planning(),
+    AS_OF,
+    { start: "2026-08-04", end: "2026-08-05" },
+    { syncedAt: "2026-08-05T02:00:00.000Z" },
+  );
+  const ledger = buildShoplingLiveLedger(
+    AS_OF,
+    [...baseline.events, ...reread.events],
+    [],
+  );
+  const aggregate = aggregateShoplingLiveLedger(planning(), ledger);
+  const row = aggregate.products.find((candidate) => candidate.planning.barcode === "BAA1-1");
+
+  assert.equal(ledger.orderEvents.length, 1);
+  assert.equal(ledger.orderEvents[0].validSale, false);
+  assert.equal(row.units[0], 0);
+  assert.equal(row.revenue[0], 0);
+  assert.equal(aggregate.recent30Revenue, 0);
 });
 
 test("ambiguous option mappings fail closed instead of choosing an arbitrary barcode", () => {
