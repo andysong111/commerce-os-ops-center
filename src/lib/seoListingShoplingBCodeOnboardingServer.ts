@@ -6,6 +6,7 @@ import { persistSeoListingLifecycleSeedRecords } from "@/lib/seoListingLifecycle
 import {
   buildSeoListingShoplingBCodeOnboardingPlan,
   extractShoplingBCodeCatalogGoodsKeys,
+  selectSeoListingShoplingBCodeAuditLifecycleRows,
 } from "@/lib/seoListingShoplingBCodeOnboarding";
 import type { SeoRunJobContext } from "@/lib/seoRunJobServer";
 import {
@@ -92,7 +93,9 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
   for (let offset = 0; ; offset += READ_PAGE_SIZE) {
     const result = await admin
       .from("seo_listing_lifecycle_records")
-      .select("owner_id,market_account_key,launch_item_id,state,goods_key")
+      .select(
+        "owner_id,market_account_key,launch_item_id,state,goods_key,evidence",
+      )
       .eq("owner_id", ownerId)
       .order("launch_item_id", { ascending: true })
       .range(offset, offset + READ_PAGE_SIZE - 1);
@@ -179,7 +182,10 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     launchItems,
     launchOptions,
     marketLedgerRows,
-    existingLifecycleRows,
+    existingLifecycleRows:
+      options.auditExisting === true
+        ? selectSeoListingShoplingBCodeAuditLifecycleRows(existingLifecycleRows)
+        : existingLifecycleRows,
     auditExisting: options.auditExisting === true,
     now,
   });
