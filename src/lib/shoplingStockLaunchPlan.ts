@@ -5,7 +5,7 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 26] as const;
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 27] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
@@ -36,29 +36,18 @@ export function supportsAllDateStockSync(
 }
 
 /**
- * Keep queue priority intact and bound concurrency to the extension's proven
- * two-lane coordinator. HF60 terminates Commerce OS responsibility when the
- * claimed A21 popup itself or its exact nested Shopling result child starts the
- * processing/result page. HF61 durably starts the saved second lane after that
- * acceptance even if Chrome suspends the extension worker between jobs. HF62
- * resumes a submitted exact search without clicking it twice and prevents one
- * isolated B-code failure from suppressing the remaining queue. Foreign lanes'
- * processing popups cannot satisfy a job. HF63 safely resumes the replacement
- * A6 frame after Shopling navigation and attempts Lane 2 even when Lane 1 fails.
+ * Preserve queue priority and execute one B-code at a time. The UI removes each
+ * terminal job and launches the next saved job independently, so one failed
+ * B-code cannot suppress another. HF64 follows the exact B-code result frame in
+ * the dedicated A6 tab while retaining strict A21 write ownership.
  */
 export function planShoplingStockLaunch<T extends StockLaunchJob>(
   jobs: readonly T[],
   extensionVersion: string | null | undefined,
 ): { mode: ShoplingStockLaunchMode; jobs: T[]; compatibilitySerial: boolean } {
+  void extensionVersion;
   const first = jobs[0];
   if (!first) return { mode: "SINGLE", jobs: [], compatibilitySerial: false };
-  if (jobs.length >= 2 && supportsAllDateStockSync(extensionVersion)) {
-    return {
-      mode: "PARALLEL",
-      jobs: [jobs[0], jobs[1]],
-      compatibilitySerial: false,
-    };
-  }
   return {
     mode: "SINGLE",
     jobs: [first],

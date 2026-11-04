@@ -13,7 +13,7 @@ test("parallel stock launch records Lane 2 STARTED only after the extension conf
     assert.match(source, /extensionConfirmedLaneStart: true/);
     assert.doesNotMatch(source, /Promise\.all\(\s*prepared\.map\(\(job\) =>\s*recordSync\([\s\S]*?"STARTED"/);
   }
-  assert.match(queue, /Lane 2는 Shopling에 시작되지 않아 원장에 대기 상태로 보존하고 자동배정을 중지/);
+  assert.match(queue, /Lane 2는 Shopling에 시작되지 않아 원장 대기 상태로 유지/);
   assert.match(direct, /batch\.retainedJobIds\.add\(secondJob\.jobId\)/);
   assert.match(direct, /finishBatch\(batch, batch\.retainedJobIds\)/);
 });

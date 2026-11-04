@@ -277,7 +277,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 검색 재로딩 복구·중첩 결과창 접수 확인·중단 없는 B코드 배정을 지원하지 않아 사용할 수 없습니다. v0.6.26으로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 정확 B코드 결과 프레임 추적·순차 전송을 지원하지 않아 사용할 수 없습니다. v0.6.27로 업데이트해 주세요.`);
         }
         return;
       }
@@ -535,9 +535,9 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     <section ref={panelRef} className="rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <span className="text-xs font-black tracking-[0.12em] text-sky-800">OPERATION QUEUE · B-CODE → SHOPLING · BOUNDED 2-LANE</span>
+          <span className="text-xs font-black tracking-[0.12em] text-sky-800">OPERATION QUEUE · B-CODE → SHOPLING · SERIAL</span>
           <h2 className="mt-1 text-xl font-black text-slate-950">실제 운영 재고상태 자동 큐</h2>
-          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded와 사용자가 B코드로 명시한 품절·판매중 지시를 실행 대상으로 사용합니다. Shopling 실제 결과페이지 진입으로 전송 접수가 확인되면 Commerce OS 책임을 종결하고 다음 B코드를 최대 2-Lane으로 배정합니다. 마켓별 최종 결과는 Shopling에서 계속 처리하며, FAILED/UNCERTAIN 발생 시 이후 자동배정을 즉시 중지합니다.</p>
+          <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">Commerce OS 정확재고가 만든 syncNeeded와 사용자가 B코드로 명시한 품절·판매중 지시를 실행 대상으로 사용합니다. B코드를 1건씩 순차 처리하고, 각 B코드의 Shopling A21 처리화면 시작이 확인되면 Commerce OS 책임을 종결한 뒤 다음 건을 배정합니다. 마켓별 최종 결과는 Shopling에서 계속 처리합니다.</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-black">
           <span className={`rounded-full border px-3 py-1.5 ${extensionReady ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{extensionReady ? `확장 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}` : "확장 연결 대기"}</span>
@@ -553,7 +553,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       </div> : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">실행 가능 대기</div><div className="mt-1 text-2xl font-black text-slate-950">{report ? jobs.length : "—"}</div></div>
-        <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">현재 Lane</div><div className="mt-1 text-lg font-black text-slate-950">{runningBarcodes.length ? runningBarcodes.join(" + ") : "없음"}</div></div>
+        <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">현재 B코드</div><div className="mt-1 text-lg font-black text-slate-950">{runningBarcodes.length ? runningBarcodes.join(" + ") : "없음"}</div></div>
         <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">차단/확인 필요</div><div className="mt-1 text-2xl font-black text-slate-950">{report ? blockedRows.length + localExceptions.length : "—"}</div></div>
         <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-xs font-bold text-slate-500">운영 단계</div><div className="mt-1 text-sm font-black text-slate-950">{phaseLabel(phase)}</div></div>
       </div>

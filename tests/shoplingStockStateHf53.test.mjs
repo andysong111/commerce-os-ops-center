@@ -27,9 +27,9 @@ test("HF53 packages v0.6.18 and requires stale-popup preflight before Shopling c
   assert.match(background, /safeStalePreSubmit/);
   assert.match(background, /ambiguousPopupClosed: false/);
   assert.match(background, /priorA21TransmissionSubmitted: false/);
-  assert.match(page, /download-hf63/);
-  assert.match(page, /v0\.6\.26 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 26\]/);
+  assert.match(page, /download-hf64/);
+  assert.match(page, /v0\.6\.27 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 27\]/);
 });
 
 async function runPreflight(frameResult) {

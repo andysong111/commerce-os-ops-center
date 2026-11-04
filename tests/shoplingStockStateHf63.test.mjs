@@ -297,7 +297,7 @@ test("HF63 attempts BCD8-1 even when paired BCD8-2 fails before A21", async () =
   );
 });
 
-test("HF63 package publishes v0.6.26 and makes it the required stock-sync build", async () => {
+test("HF63 package remains reproducible while HF64 becomes the required stock-sync build", async () => {
   const [route, page, planner, background] = await Promise.all([
     readFile(
       "src/app/api/shopling-stock-state-sync/download-hf63/route.ts",
@@ -311,9 +311,9 @@ test("HF63 package publishes v0.6.26 and makes it the required stock-sync build"
   assert.match(route, /const VERSION = "0\.6\.26"/);
   assert.match(route, /background-v085\.js/);
   assert.match(route, /everySavedBcodeGetsIndependentAttempt: true/);
-  assert.match(page, /download-hf63/);
-  assert.match(page, /v0\.6\.26 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 26\]/);
+  assert.match(page, /download-hf64/);
+  assert.match(page, /v0\.6\.27 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 27\]/);
   assert.match(background, /HF63_EXACT_A6_NAVIGATION_OWNER_REBOUND/);
   assert.match(background, /HF63_CONTINUE_AFTER_FIRST_FAILURE/);
 });
