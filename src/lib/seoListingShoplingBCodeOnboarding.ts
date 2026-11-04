@@ -176,6 +176,25 @@ function stableRunId(launchItemId: string, goodsKeys: string[]) {
   return `bcode-onboarding-v1:${launchItemId}:${goodsKeys.join(".")}`;
 }
 
+function hasConsistentSelfCodeIdentity(rows: CatalogIdentity[]) {
+  const selfCodeBases = new Set(
+    rows.map((row) => row.selfCodeBase).filter(Boolean),
+  );
+  if (selfCodeBases.size === 1) return true;
+
+  const partnerProductCodes = rows.map((row) => row.ptnGoodsCd);
+  if (
+    partnerProductCodes.some((value) => /^\d/.test(value)) &&
+    partnerProductCodes.every(Boolean)
+  ) {
+    const legacyLeadingDigitBases = new Set(
+      partnerProductCodes.map((value) => value.replace(/^\d/, "")),
+    );
+    if (legacyLeadingDigitBases.size === 1) return true;
+  }
+  return false;
+}
+
 function latestRowsByGoodsKey(rows: UnknownRecord[]) {
   const latest = new Map<string, UnknownRecord>();
   for (const row of rows) {
@@ -552,9 +571,7 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       rows.length === 1 ? rows[0].goodsKey : "",
     );
     const currentRunId = stableRunId(launchItemId, goodsKeys.filter(Boolean));
-    const selfCodeBases = new Set(
-      currentRows.map((row) => row.selfCodeBase).filter(Boolean),
-    );
+    const selfCodeIdentityConsistent = hasConsistentSelfCodeIdentity(currentRows);
     let reason = "";
     let details: string[] = [];
     if (text(item.archived_at)) {
@@ -576,7 +593,7 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       new Set(goodsKeys).size !== SEO_LISTING_SHADOW_EXPECTED_PROFILES.length
     ) {
       reason = "BCODE_SHOPLING_SIX_PROFILE_SET_INCOMPLETE";
-    } else if (selfCodeBases.size !== 1) {
+    } else if (!selfCodeIdentityConsistent) {
       reason = "BCODE_SHOPLING_SELF_CODE_CONFLICT";
     } else {
       const ledgerRows = goodsKeys.map((goodsKey) => latestLedger.get(goodsKey));
