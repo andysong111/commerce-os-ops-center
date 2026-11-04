@@ -7,12 +7,17 @@ const source = await readFile(
   "utf8",
 );
 
-test("option status sync never invents quantity when Shopling optQty is unmanaged", () => {
+test("option status sync omits quantity from writes and verifies it by API readback", () => {
   assert.doesNotMatch(
     source,
     /throw new Error\("SHOPLING_OPTION_QUANTITY_INVALID"\)/,
   );
-  assert.match(source, /const quantityField = \/\^\\d\+\$\/\.test\(variant\.optionQuantity\)/);
-  assert.match(source, /\.\.\.quantityField/);
+  const modifyBuilder = source.slice(
+    source.indexOf("function buildModifyXml"),
+    source.indexOf("function parseModifyResponse"),
+  );
+  assert.doesNotMatch(modifyBuilder, /optQty/);
+  assert.match(source, /const delays = \[0, 400, 1_200\]/);
+  assert.match(source, /last\.optionQuantity === expectedQuantity/);
   assert.match(source, /SHOPLING_OPTION_READBACK_QTY_MISMATCH/);
 });

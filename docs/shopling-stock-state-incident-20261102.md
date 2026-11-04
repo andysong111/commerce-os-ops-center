@@ -97,6 +97,14 @@
   - 운영 2-Lane 배정을 제거하고 B코드 한 건이 Shopling 접수 성공·실패·확인 필요 중 하나로 종결된 뒤 다음 B코드를 시작한다. 각 B코드가 독립 시도를 받으며, 한 건의 화면·팝업 상태가 다른 B코드 진행을 막지 않는다.
   - Commerce OS 완료 기준은 그대로다. 현재 B코드가 소유한 A21 처리중/결과 화면 시작을 확인하면 성공이며, 마켓별 최종 결과는 기다리지 않는다.
 
+- v0.6.28/HF65 Shopling API 우선 B코드 상태전환:
+  - 반복 실패의 공통 원인은 품절·판매중 API 자체가 아니라, 매 실행마다 브라우저 A6 화면을 열어 B코드의 Shopling goods key를 다시 찾도록 강제한 구조였다. Shopling의 프레임 교체·초기화·서비스워커 절전이 이 탐색을 끊으면 API 변경 단계에 도달하지 못했다.
+  - Shopling 상품조회 API 전체 스캔으로 `B코드 → goods key/option id` 후보 인덱스를 서버에 저장한다. 인덱스는 탐색 후보일 뿐 권한 있는 원장이 아니며, 매 상태변경 직전에 Shopling API에서 해당 goods key가 정확한 B코드를 현재 소유하는지 다시 검증한다. 오래된 후보는 건너뛰고 현재 일치가 없으면 변경 없이 안전 중단한다.
+  - 옵션상품은 `optStatus`만, 단품상품은 `sale_status`만 수정한다. 옵션수량 `optQty`는 수정 XML에 넣지 않으며, 수정 전후 API 재조회에서 목표상태와 기존 수량이 모두 일치해야 다음 단계로 진행한다.
+  - 브라우저 자동화는 A4 상품변경과 A6 B코드 검색을 완전히 건너뛴다. API 영수증이 모든 대상 goods key에서 확인된 뒤 A21 마켓 전송만 실행한다.
+  - Commerce OS 책임 경계는 현재 B코드가 소유한 A21 처리중/결과 화면 시작이다. 마켓별 최종 성공·실패는 기다리지 않는다. B코드는 계속 한 건씩 순차 처리해 한 건의 팝업이나 실패가 다른 B코드를 삼키지 않게 한다.
+  - 새 인덱스 테이블은 RLS를 켜고 `service_role`에만 접근을 허용한다. 운영 반영 전에는 별도 승인으로 스키마 추가·읽기 전용 인덱스 초기화·배포를 진행해야 한다.
+
 ## 재전송 요청
 
 - requestId: `owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969`
@@ -122,4 +130,6 @@
 - HF63 표적 회귀 57/57, TypeScript `tsc --noEmit`, 변경 파일 ESLint, `background-v085.js` 문법 검사가 통과했다. 샌드박스 안의 Turbopack 보조 프로세스 시작은 환경 제한으로 중단됐지만, 동일 소스를 외부 실행한 프로덕션 빌드는 컴파일·타입검사·124개 정적 페이지 생성까지 통과했다.
 - 빌드된 로컬 프로덕션 서버에서 HF63 검증 JSON과 실제 ZIP을 받았다. manifest는 `0.6.26`, service worker는 `background-v085.js`, 안전한 동일 탭 A6 소유권 인계·첫 Lane 실패 후 다음 B코드 계속·마켓 최종완료 불필요를 모두 표시했다. ZIP은 185,967 byte, SHA-256은 `B1C56105E3E65E67C1854D483128A95ECC96319187B25D25183C6CD283187420`, HF63 background SHA-256은 `e0c00e3a101ca98903f2f0de97625808b494f711a04fb553e900c67b4f5ffbff`다.
 - HF64 CI 고정 범위 140/140, TypeScript `tsc --noEmit`, 변경 파일 ESLint, `a6-frame-evidence-v086.js`·`background-v086.js` 문법 검사, 프로덕션 빌드 124/124 정적 페이지 생성이 통과했다. 로컬 프로덕션 서버에서 생성한 실제 ZIP은 189,935 byte였고 manifest `0.6.27`, service worker `background-v086.js`, 첫 A6 검사 스크립트 `a6-frame-evidence-v086.js`, 직렬 동시성 `1`, A21 쓰기 소유권 인계 금지를 확인했다. background SHA-256은 `fb604f29b812ebe6c063a0a7036237f6e3e56a630d5ec924e531ed616b64b84f`, A6 읽기 증거 스크립트 SHA-256은 `9ccad0abbc0005ac1cb52710078dc67e94d03d38a3ea1644f1e8e9ed43f25245`다.
+- HF65 영향 범위 회귀 160/160, TypeScript `tsc --noEmit`, 신규 API·인덱스·다운로드 경로 ESLint, `content-ops-v022.js`·`background-v087.js`·숨김 UI 검사 문법 검사가 통과했다. 회귀에는 실제 `BCD8-2` 실패 형태의 B코드/goods key/option/수량 fixture, 수정 XML의 `optQty` 부재, API 상태·수량 재조회, A4/A6 미실행, A21 전용 브라우저 책임경계, 인덱스 RLS/권한 검사가 포함된다.
+- HF65 동일 소스의 `next build --webpack` 프로덕션 빌드는 컴파일·타입검사·124개 정적 페이지 생성을 모두 통과했다. 빌드된 로컬 서버에서 검증 JSON과 실제 ZIP을 호출해 manifest `0.6.28`, service worker `background-v087.js`, B코드 서버 인덱스+실시간 API 재검증, API 상태·수량 readback, 브라우저 단계 A21만 포함, A4/A6 제외, 마켓 최종완료 불필요를 확인했다. ZIP은 194,417 byte, background SHA-256은 `37908b8c0889dcfe99ce1c78d8d7ecadf7c7567938adba568c7516cc77201833`, Commerce OS bridge SHA-256은 `af7372febe39a8e674db0fc6c0ef43947e368e83444057688c406fb9e9b1db77`다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.

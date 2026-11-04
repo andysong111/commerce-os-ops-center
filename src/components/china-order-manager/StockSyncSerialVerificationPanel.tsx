@@ -92,7 +92,7 @@ function kindLabel(value: ProductKind) {
 function routeFor(row: StockRow) {
   return row.productKind === "OPTION"
     ? ["SHOPLING_API_OPTION_STATUS", "A21_GOODS_KEY_OPTION_SEND"]
-    : ["A6_LIVE_SINGLE_BARCODE", "A21_GOODS_KEY_PRODUCT_SALE_STATUS"];
+    : ["SHOPLING_API_PRODUCT_STATUS", "A21_GOODS_KEY_PRODUCT_SALE_STATUS"];
 }
 
 function makeJob(row: StockRow, batchId: string, lane: number): VerificationJob {

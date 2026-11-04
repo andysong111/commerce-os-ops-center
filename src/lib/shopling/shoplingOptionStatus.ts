@@ -14,9 +14,10 @@ type OptionSelection = {
   value: string;
 };
 
-type ShoplingOptionVariant = {
+export type ShoplingOptionVariant = {
   goodsKey: string;
   partnerGoodsCode: string;
+  productSaleStatus: string;
   selection: OptionSelection[];
   optionId: string;
   optionStatus: string;
@@ -32,6 +33,7 @@ export type ShoplingOptionStatusApplyResult = {
   statusBefore: "B" | "C";
   statusAfter: "B" | "C";
   optionQuantity: string;
+  optionQuantityAfter: string;
   optionId: string;
   mutated: boolean;
   modifyCode: string;
@@ -133,6 +135,7 @@ function parseProductVariants(body: string) {
     const goodsKey = scalar(goods.goods_key);
     if (!/^\d+$/.test(goodsKey)) continue;
     const partnerGoodsCode = scalar(goods.ptn_goods_cd);
+    const productSaleStatus = scalar(goods.sale_status).toUpperCase();
     const options = object(goods.options);
     if (!options) continue;
 
@@ -175,6 +178,7 @@ function parseProductVariants(body: string) {
       variants.push({
         goodsKey,
         partnerGoodsCode,
+        productSaleStatus,
         selection: selections[index] ?? [],
         optionId: optionIds[index] ?? "",
         optionStatus: statuses[index] ?? "",
@@ -198,7 +202,7 @@ function buildExactProductReadXml(
     `<api_auth_key>${cdata(config.authKey)}</api_auth_key>`,
     `<start_dt>${today}</start_dt><end_dt>${today}</end_dt>`,
     `<prod_id>${cdata(goodsKeys.join(","))}</prod_id>`,
-    `<prod_fields>${cdata("goods_key,ptn_goods_cd")}</prod_fields>`,
+    `<prod_fields>${cdata("goods_key,ptn_goods_cd,sale_status")}</prod_fields>`,
     "<opt_yn>Y</opt_yn><attri_yn>N</attri_yn>",
     "</apiProdGather></reqst>",
   ]);
@@ -213,14 +217,6 @@ function buildModifyXml(
     throw new Error("SHOPLING_OPTION_SELECTION_REQUIRED");
   }
 
-  // Shopling may expose an empty/non-numeric optQty for options whose quantity is
-  // not managed by this field. Stock-state sync owns only optStatus. When a valid
-  // numeric quantity exists we round-trip it unchanged; otherwise omit optQty so
-  // a status-only transition cannot invent or overwrite inventory.
-  const quantityField = /^\d+$/.test(variant.optionQuantity)
-    ? [`<optQty>${cdata(variant.optionQuantity)}</optQty>`]
-    : [];
-
   return compactXml([
     "<reqst><apiProdMdy>",
     `<login_id>${cdata(config.loginId)}</login_id>`,
@@ -234,7 +230,6 @@ function buildModifyXml(
         `<optList><title>${cdata(selection.title)}</title><value>${cdata(selection.value)}</value></optList>`,
     ),
     `<optStatus>${target}</optStatus>`,
-    ...quantityField,
     "</options>",
     "</goodsInfo>",
     "</apiProdMdy></reqst>",
@@ -301,6 +296,40 @@ async function readVariants(
   return parseProductVariants(body);
 }
 
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function verifiedReadback(
+  config: ShoplingReadConfig,
+  goodsKey: string,
+  barcode: string,
+  expectedStatus: "B" | "C",
+  expectedQuantity: string,
+) {
+  const delays = [0, 400, 1_200];
+  let last: ShoplingOptionVariant | null = null;
+  for (const delay of delays) {
+    if (delay) await sleep(delay);
+    const variants = await readVariants(config, [goodsKey]);
+    last = exactVariant(variants, barcode);
+    if (
+      last.optionStatus === expectedStatus &&
+      last.optionQuantity === expectedQuantity
+    ) {
+      return last;
+    }
+  }
+  if (last?.optionQuantity !== expectedQuantity) {
+    throw new Error(
+      `SHOPLING_OPTION_READBACK_QTY_MISMATCH:${expectedQuantity}:${last?.optionQuantity || "EMPTY"}`,
+    );
+  }
+  throw new Error(
+    `SHOPLING_OPTION_READBACK_STATUS_MISMATCH:${expectedStatus}:${last?.optionStatus || "EMPTY"}`,
+  );
+}
+
 function exactVariant(
   variants: ShoplingOptionVariant[],
   barcode: string,
@@ -314,6 +343,21 @@ function exactVariant(
     );
   }
   return matches[0];
+}
+
+export async function inspectShoplingBcodeOnGoodsKey(input: {
+  barcode: string;
+  goodsKey: string;
+  env?: Record<string, string | undefined>;
+}) {
+  const barcode = normalizeBarcode(input.barcode);
+  const goodsKeys = normalizeGoodsKeys([input.goodsKey]);
+  if (!/^B[A-Z]{2}\d+-\d+$/.test(barcode)) {
+    throw new Error("SHOPLING_OPTION_BARCODE_INVALID");
+  }
+  if (goodsKeys.length !== 1) throw new Error("SHOPLING_OPTION_GOODS_KEY_REQUIRED");
+  const config = shoplingReadConfigFromEnv(input.env ?? process.env);
+  return exactVariant(await readVariants(config, goodsKeys), barcode);
 }
 
 export async function applyShoplingOptionStatus(input: {
@@ -351,6 +395,7 @@ export async function applyShoplingOptionStatus(input: {
       statusBefore: before.optionStatus as "B" | "C",
       statusAfter: before.optionStatus as "B" | "C",
       optionQuantity: before.optionQuantity,
+      optionQuantityAfter: before.optionQuantity,
       optionId: before.optionId,
       mutated: false,
       modifyCode: "NOOP_ALREADY_DESIRED",
@@ -371,16 +416,16 @@ export async function applyShoplingOptionStatus(input: {
   );
   const modified = parseModifyResponse(modifyBody, before.goodsKey);
 
-  const afterVariants = await readVariants(config, [before.goodsKey]);
-  const after = exactVariant(afterVariants, barcode);
-  if (after.optionStatus !== target) {
-    throw new Error(
-      `SHOPLING_OPTION_READBACK_STATUS_MISMATCH:${target}:${after.optionStatus || "EMPTY"}`,
-    );
-  }
+  const after = await verifiedReadback(
+    config,
+    before.goodsKey,
+    barcode,
+    target,
+    before.optionQuantity,
+  );
   if (after.optionQuantity !== before.optionQuantity) {
     throw new Error(
-      `SHOPLING_OPTION_READBACK_QTY_MISMATCH:${before.optionQuantity}:${after.optionQuantity}`,
+      `SHOPLING_OPTION_READBACK_QTY_MISMATCH:${before.optionQuantity}:${after.optionQuantity || "EMPTY"}`,
     );
   }
 
@@ -392,6 +437,7 @@ export async function applyShoplingOptionStatus(input: {
     statusBefore: before.optionStatus as "B" | "C",
     statusAfter: after.optionStatus as "B" | "C",
     optionQuantity: before.optionQuantity,
+    optionQuantityAfter: after.optionQuantity,
     optionId: before.optionId,
     mutated: true,
     modifyCode: modified.code,
