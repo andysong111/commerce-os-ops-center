@@ -51,16 +51,16 @@ test("duplicate result messages cannot inflate the completed count", () => {
   });
 });
 
-test("failure or uncertainty ends with a clear stopped summary", () => {
+test("after every B-code is attempted, failures end with a clear completed-with-exceptions summary", () => {
   let progress = startShoplingDirectRun(2);
   progress = recordShoplingDirectRunOutcome(progress, "job-1", "SUCCEEDED");
   progress = recordShoplingDirectRunOutcome(progress, "job-2", "FAILED");
   progress = finalizeShoplingDirectRun(progress);
 
-  assert.equal(progress.status, "STOPPED");
+  assert.equal(progress.status, "COMPLETED_WITH_EXCEPTIONS");
   assert.equal(
     shoplingDirectRunSummaryText(progress),
-    "작업 중단 · 성공 1/2건 · 실패·확인 필요 1건 · 미시작 0건",
+    "전체 시도 끝남 · 성공 1/2건 · 실패·확인 필요 1건",
   );
 });
 

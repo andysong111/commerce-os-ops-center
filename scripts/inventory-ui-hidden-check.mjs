@@ -27,7 +27,7 @@ await context.addInitScript(() => {
     if (type === 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING_HF27') {
       window.postMessage({
         type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY_HF27',
-        extensionVersion: '0.6.24',
+        extensionVersion: '0.6.25',
       }, location.origin);
     }
     if (/STOCK_SYNC_(?:PARALLEL_)?START/.test(type)) window.__inventoryTestStartMessages.push(type);
@@ -90,12 +90,12 @@ try {
   await page.evaluate(() => {
     window.postMessage({
       type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY',
-      extensionVersion: '0.6.24',
+      extensionVersion: '0.6.25',
     }, location.origin);
     window.postMessage({
       type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_STATUS',
       active: null,
-      extensionVersion: '0.6.24',
+      extensionVersion: '0.6.25',
     }, location.origin);
   });
   await page.waitForFunction(() => {

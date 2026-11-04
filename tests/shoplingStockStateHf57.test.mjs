@@ -19,17 +19,16 @@ test("HF57 completes Commerce OS responsibility at exact Shopling result navigat
   assert.match(background, /const ACK_DELAY_MS = 25/);
   assert.match(route, /const VERSION = "0\.6\.20"/);
   assert.match(route, /SHOPLING_RESULT_NAVIGATION_ACCEPTED/);
-  assert.match(page, /download-hf61/);
-  assert.match(page, /v0\.6\.24 다운로드/);
+  assert.match(page, /download-hf62/);
+  assert.match(page, /v0\.6\.25 다운로드/);
 
   for (const source of [direct, queue]) {
-    assert.match(source, /stopAfterBatch/);
-    assert.match(source, /이후 B코드 자동배정을 중지/);
+    assert.doesNotMatch(source, /batch\.stopAfterBatch = true/);
     assert.match(source, /maxConcurrentLanes: (prepared|batch\.jobs)\.length/);
   }
 });
 
-test("HF57 regression: BCG5-2 failure stops BCG5-3 instead of burning the rest of the queue", async () => {
+test("HF62 replacement policy isolates a BCG5-2 failure and still attempts BCG5-3", async () => {
   const direct = await readFile(
     "src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx",
     "utf8",
@@ -38,8 +37,9 @@ test("HF57 regression: BCG5-2 failure stops BCG5-3 instead of burning the rest o
     "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx",
     "utf8",
   );
-  assert.match(direct, /result\.outcome !== "SUCCEEDED"[\s\S]{0,120}batch\.stopAfterBatch = true/);
-  assert.match(direct, /if \(batch\.stopAfterBatch\)[\s\S]{0,300}directQueue\.current = \[\]/);
-  assert.match(operational, /result\.outcome !== "SUCCEEDED"[\s\S]{0,180}continueAfterBatch\.current = false/);
-  assert.match(operational, /PAUSED_ON_FAILURE/);
+  assert.doesNotMatch(direct, /batch\.stopAfterBatch = true/);
+  assert.match(direct, /실패 건만 기록하고 나머지 B코드 전송을 계속합니다/);
+  assert.doesNotMatch(operational, /batch\.stopAfterBatch = true/);
+  assert.match(operational, /해당 건만 예외로 남기고 다음 B코드 전송을 계속합니다/);
+  assert.match(operational, /excludedThisRun\.current\.add\(job\.jobId\)/);
 });

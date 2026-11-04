@@ -68,7 +68,6 @@ type ActiveBatch = {
   startRecordPromises: Map<string, Promise<void>>;
   retainedJobIds: Set<string>;
   terminalJobIds: Set<string>;
-  stopAfterBatch?: boolean;
 };
 
 const PARALLEL_START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_START";
@@ -148,7 +147,7 @@ export function friendlyShoplingStockSyncFailure(
     raw.includes("enableAllDateSearch is not defined") ||
     raw.includes("A21_CONTENT_EXCEPTION")
   ) {
-    return "Shopling A6/A21 작업 프레임·처리화면 접수를 확인하지 못했습니다. Shopling에는 이미 접수됐을 수 있으므로 같은 B코드를 다시 실행하지 말고 A6·A21 결과를 먼저 확인해 주세요. 이후 재고상태 자동화 확장을 v0.6.24로 업데이트해 주세요.";
+    return "Shopling A6/A21 작업 프레임·처리화면 접수를 확인하지 못했습니다. Shopling에는 이미 접수됐을 수 있으므로 같은 B코드를 다시 실행하지 말고 A6·A21 결과를 먼저 확인해 주세요. 이후 재고상태 자동화 확장을 v0.6.25로 업데이트해 주세요.";
   }
   if (
     raw.includes("A21_ALL_DATE_FILTER_NOT_FOUND") ||
@@ -637,17 +636,6 @@ function InventoryStockoutGenericPanel() {
       );
       activeBatch.current = null;
 
-      if (batch.stopAfterBatch) {
-        directQueue.current = [];
-        setSyncing(false);
-        stopDirectRunProgress();
-        setSyncNotice(
-          "Shopling 전송 접수 실패/불확실 건이 발생해 이후 B코드 자동배정을 중지했습니다. 시작하지 않은 명령은 운영 큐에 그대로 보존했습니다.",
-        );
-        window.dispatchEvent(new Event(REFRESH_EVENT));
-        return;
-      }
-
       if (directQueue.current.length) {
         window.setTimeout(() => {
           void launchNextRef.current();
@@ -687,7 +675,7 @@ function InventoryStockoutGenericPanel() {
         setExtensionVersion(version);
         if (!supported) {
           setSyncNotice(
-            `Shopling 자동화 v${version || "확인 불가"}는 중첩 결과창 접수 확인·정확한 팝업 소유권·중단 없는 2-Lane 처리를 지원하지 않아 사용할 수 없습니다. v0.6.24로 업데이트해 주세요.`,
+            `Shopling 자동화 v${version || "확인 불가"}는 검색 재로딩 복구·중첩 결과창 접수 확인·중단 없는 B코드 배정을 지원하지 않아 사용할 수 없습니다. v0.6.25로 업데이트해 주세요.`,
           );
         } else {
           setSyncNotice((current) =>
@@ -742,10 +730,9 @@ function InventoryStockoutGenericPanel() {
           String(data.status || "").toUpperCase() === "FAILED" &&
           ["DONE", "FIRST_START_FAILED", "COORDINATOR_TIMEOUT"].includes(phase);
         if (secondNeverDispatched) {
-          batch.stopAfterBatch = true;
           batch.retainedJobIds.add(secondJob.jobId);
           batch.terminalJobIds.add(secondJob.jobId);
-          setSyncNotice(`${secondJob.barcode} Lane 2는 Shopling에 시작되지 않아 대기 상태로 다음 배치에서 처리합니다.`);
+          setSyncNotice(`${secondJob.barcode} Lane 2는 아직 Shopling에 시작되지 않았습니다. 대기 목록에 유지하고 다음 배치의 첫 작업으로 다시 배정합니다.`);
           if (batch.terminalJobIds.size >= batch.jobs.length) {
             finishBatch(batch, batch.retainedJobIds);
           }
@@ -776,9 +763,8 @@ function InventoryStockoutGenericPanel() {
               );
             }
           }
-          batch.stopAfterBatch = true;
           setSyncNotice(
-            `${message} · 저장된 재고 기준은 유지되며 실패 건은 일반 운영 큐에서 다시 처리할 수 있습니다.`,
+            `${message} · 이 배치의 실패 건만 기록하고 나머지 B코드 전송을 계속합니다.`,
           );
           finishBatch(batch);
         })();
@@ -830,10 +816,6 @@ function InventoryStockoutGenericPanel() {
               ),
             );
           }
-          if (result.outcome !== "SUCCEEDED") {
-            batch.stopAfterBatch = true;
-          }
-
           const marketFailures =
             result.outcome === "SUCCEEDED"
               ? advisoryMarketFailureCount(result.evidence)
@@ -900,7 +882,7 @@ function InventoryStockoutGenericPanel() {
       !extensionReadyRef.current
     ) {
       setNotice(
-        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.24를 연결해 주세요.",
+        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.25를 연결해 주세요.",
       );
       return;
     }
@@ -993,7 +975,7 @@ function InventoryStockoutGenericPanel() {
     }
     if (!extensionReadyRef.current) {
       setSyncNotice(
-        "Shopling 자동화 확장 v0.6.24 연결을 확인한 뒤 다시 시도해 주세요.",
+        "Shopling 자동화 확장 v0.6.25 연결을 확인한 뒤 다시 시도해 주세요.",
       );
       return;
     }
@@ -1131,7 +1113,7 @@ function InventoryStockoutGenericPanel() {
           {extensionReady
             ? `Shopling 자동화 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}`
             : extensionVersion
-              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.6.24`
+              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.6.25`
             : "Shopling 자동화 연결 대기"}
         </span>
         {inputErrors.length ? (
@@ -1183,6 +1165,8 @@ function InventoryStockoutGenericPanel() {
           className={`mt-3 rounded-xl border px-4 py-4 ${
             directRunProgress.status === "COMPLETED"
               ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+              : directRunProgress.status === "COMPLETED_WITH_EXCEPTIONS"
+                ? "border-amber-300 bg-amber-50 text-amber-950"
               : directRunProgress.status === "STOPPED"
                 ? "border-rose-300 bg-rose-50 text-rose-950"
                 : "border-sky-300 bg-sky-50 text-sky-950"
@@ -1194,6 +1178,8 @@ function InventoryStockoutGenericPanel() {
           <p className="mt-1 text-xs font-bold leading-5">
             {directRunProgress.status === "COMPLETED"
               ? "Commerce OS가 모든 B코드의 Shopling 처리화면 도달을 확인했습니다. 마켓별 최종 결과는 Shopling에서 계속 처리됩니다."
+              : directRunProgress.status === "COMPLETED_WITH_EXCEPTIONS"
+                ? "모든 B코드의 전송 시도는 끝났습니다. 실패·확인 필요 건만 아래 운영 큐에서 확인하면 됩니다."
               : directRunProgress.status === "STOPPED"
                 ? "전체 접수가 끝난 상태가 아닙니다. 아래 실패 사유를 확인하기 전에는 다음 일괄 작업을 시작하지 마세요."
                 : "아직 모든 B코드의 Shopling 전송 접수가 끝나지 않았습니다."}

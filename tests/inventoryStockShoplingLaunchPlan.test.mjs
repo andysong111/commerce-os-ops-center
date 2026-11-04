@@ -10,7 +10,7 @@ import {
 const option = { jobId: "option-1", productKind: "OPTION" };
 const single = { jobId: "single-1", productKind: "SINGLE" };
 
-test("only HF61 v0.6.24 and later may run durable nested processing-result sync", () => {
+test("only HF62 v0.6.25 and later may run exact-search-resume batch sync", () => {
   assert.equal(supportsAllDateStockSync("0.5.8"), false);
   assert.equal(supportsAllDateStockSync("0.5.9"), false);
   assert.equal(supportsAllDateStockSync("0.6.0"), false);
@@ -37,7 +37,8 @@ test("only HF61 v0.6.24 and later may run durable nested processing-result sync"
   assert.equal(supportsAllDateStockSync("0.6.21"), false);
   assert.equal(supportsAllDateStockSync("0.6.22"), false);
   assert.equal(supportsAllDateStockSync("0.6.23"), false);
-  assert.equal(supportsAllDateStockSync("0.6.24"), true);
+  assert.equal(supportsAllDateStockSync("0.6.24"), false);
+  assert.equal(supportsAllDateStockSync("0.6.25"), true);
   assert.equal(supportsAllDateStockSync(""), false);
 });
 
@@ -50,8 +51,8 @@ test("unsupported extensions keep an OPTION-first queue in priority order and la
   }
 });
 
-test("HF61 assigns at most two B-codes and preserves priority order", () => {
-  const plan = planShoplingStockLaunch([single, option], "0.6.24");
+test("HF62 assigns at most two B-codes and preserves priority order", () => {
+  const plan = planShoplingStockLaunch([single, option], "0.6.25");
   assert.equal(plan.mode, "PARALLEL");
   assert.deepEqual(plan.jobs.map((job) => job.jobId), ["single-1", "option-1"]);
   assert.equal(plan.compatibilitySerial, false);
@@ -68,7 +69,7 @@ test("parallel-capable extension history does not override the serial completene
 
 test("launch planner never assigns more than two concurrent B-code jobs", () => {
   const third = { jobId: "single-2", productKind: "SINGLE" };
-  const plan = planShoplingStockLaunch([option, single, third], "0.6.24");
+  const plan = planShoplingStockLaunch([option, single, third], "0.6.25");
   assert.equal(plan.jobs.length, 2);
   assert.deepEqual(plan.jobs.map((job) => job.jobId), ["option-1", "single-1"]);
 });
@@ -116,6 +117,6 @@ test("both stock-control launch surfaces use the shared version-aware planner", 
     assert.match(source, /extensionVersionRef\.current/);
     assert.match(source, /const version = String\(data\.extensionVersion \|\| ""\)/);
   }
-  assert.match(page, /download-hf61/);
-  assert.match(page, /v0\.6\.24 다운로드/);
+  assert.match(page, /download-hf62/);
+  assert.match(page, /v0\.6\.25 다운로드/);
 });
