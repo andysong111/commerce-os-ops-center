@@ -42,6 +42,7 @@ on:
       - "tests/shoplingStockStateHf60.test.mjs"
       - "tests/shoplingStockStateHf61.test.mjs"
       - "tests/shoplingStockStateHf62.test.mjs"
+      - "tests/shoplingStockStateHf63.test.mjs"
       - "tests/shoplingStockReadyBarrier.test.mjs"
       - "tests/shoplingDirectRunProgress.test.mjs"
       - "tests/shoplingDirectRunRecovery.test.mjs"
@@ -89,6 +90,7 @@ jobs:
           && node --check public/shopling-stock-state-sync/background-v083.js
           && node --check public/shopling-stock-state-sync/search-policy-v024.js
           && node --check public/shopling-stock-state-sync/background-v084.js
+          && node --check public/shopling-stock-state-sync/background-v085.js
           && node --check public/shopling-stock-state-sync/content-ops-preflight-v002.js
           && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
           && node --check public/shopling-stock-state-sync/popup.js
@@ -142,6 +144,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf61.test.mjs
       - name: Regression - HF62 exact-search resume and full batch continuation
         run: node --experimental-strip-types --test tests/shoplingStockStateHf62.test.mjs
+      - name: Regression - HF63 replacement A6 owner and independent B-code attempts
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf63.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

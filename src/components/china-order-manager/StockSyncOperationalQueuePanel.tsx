@@ -277,7 +277,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 검색 재로딩 복구·중첩 결과창 접수 확인·중단 없는 B코드 배정을 지원하지 않아 사용할 수 없습니다. v0.6.25로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 검색 재로딩 복구·중첩 결과창 접수 확인·중단 없는 B코드 배정을 지원하지 않아 사용할 수 없습니다. v0.6.26으로 업데이트해 주세요.`);
         }
         return;
       }
