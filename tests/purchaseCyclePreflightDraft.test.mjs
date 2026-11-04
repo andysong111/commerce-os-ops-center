@@ -1048,6 +1048,83 @@ test("automatic selection does not scope replacement sourcing B-codes", () => {
   });
 });
 
+test("automatic selection restores only the exact confirmed sourcing reservations before save", () => {
+  const value = report();
+  value.sourcingBudgetPercent = 15;
+  value.sourcingBudgetKrw = 675_000;
+  value.replacementDraftId = "fast-purchase-draft:49b6c0fb833e26495f86";
+  value.replacementAudit = {
+    previousLineCount: 89,
+    selectedLineCount: 89,
+    matchedCount: 89,
+    added: [],
+    removed: [],
+    quantityChanged: [],
+    complete: true,
+  };
+
+  const quantities = [20, 15, 10, 9, 20, 15, 20, 15];
+  const preferredConceptIds = quantities.map((_, index) => `automatic-${index + 1}`);
+  const plan = sourcingPlan(value);
+  plan.readyForConfirmation = false;
+  plan.blockers = ["WAREHOUSE_GATE_NOT_READY"];
+  plan.preferredConceptIds = preferredConceptIds;
+  plan.storageSizeByConceptId = Object.fromEntries(
+    preferredConceptIds.map((conceptId) => [conceptId, "S"]),
+  );
+  plan.variantSelections = preferredConceptIds.map((conceptId) => ({
+    conceptId,
+    variantKey: `${conceptId}-variant`,
+    storageSize: "S",
+  }));
+  plan.allocation.selected = [];
+  plan.allocation.estimatedSpendKrw = 0;
+  plan.reusedConfirmedVariants = preferredConceptIds.map((conceptId, index) => ({
+    conceptId,
+    variantKey: `${conceptId}-variant`,
+    barcode: `BSA${index + 1}-1`,
+    quantity: quantities[index],
+    estimatedCostKrw: 10_000 + index,
+    storageSize: "S",
+    productName: `자동 확정 신규소싱 ${index + 1}`,
+    saleOption: "단품",
+    chinaOption: "单品",
+    sourceUrl: "https://detail.1688.com/offer/1.html",
+  }));
+
+  const input = {
+    ...request(value, plan),
+    startNewRun: true,
+    sourcingSelectionMode: "automatic",
+    replaceDraftId: value.replacementDraftId,
+    preferredSourcingConceptIds: preferredConceptIds,
+    sourcingStorageSizeByConceptId: plan.storageSizeByConceptId,
+    sourcingVariantSelections: plan.variantSelections,
+  };
+  input.confirmation = purchaseCycleDraftConfirmation(value, plan);
+
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, plan, input), true);
+  const prepared = preparePurchaseCycleDraft(value, input, plan);
+  const restored = prepared.lines.filter((row) => row.sourcingConfirmed === true);
+  assert.equal(restored.length, 8);
+  assert.equal(
+    restored.reduce((total, row) => total + row.plannedQuantity, 0),
+    124,
+  );
+  assert.doesNotThrow(() => assertPurchaseCycleDraftMatchesPlannedTotals(
+    prepared,
+    purchaseCycleDraftPlannedTotals(value, plan),
+  ));
+
+  const collision = structuredClone(plan);
+  collision.reusedConfirmedVariants[0].barcode = value.selected[0].barcode;
+  assert.equal(canFinalizeWithExactConfirmedSourcing(value, collision, input), false);
+  assert.throws(
+    () => preparePurchaseCycleDraft(value, input, collision),
+    /PURCHASE_CYCLE_SOURCING_PLAN_NOT_READY/,
+  );
+});
+
 test("replacement totals do not describe operator pins or unresolved automatic rows as sourcing", () => {
   const value = report();
   value.operatorQuantityOverrides = [{ barcode: "BGG1-1", targetQuantity: 3_000 }];
