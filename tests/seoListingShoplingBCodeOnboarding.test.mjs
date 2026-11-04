@@ -302,6 +302,55 @@ test("read-only integrity audit excludes products that were never onboarded", ()
   assert.equal(result.productsNeedingReview, 0);
 });
 
+test("read-only integrity audit fails closed when persisted product B-code options disappeared", () => {
+  const existingLifecycleRows = SEO_LISTING_SHADOW_EXPECTED_PROFILES.map(
+    (profile, index) => ({
+      owner_id: OWNER,
+      launch_item_id: "item-1",
+      market_account_key: profile,
+      goods_key: String(9001 + index),
+    }),
+  );
+  const result = build({
+    existingLifecycleRows,
+    launchOptions: [],
+    auditExisting: true,
+  });
+  assert.equal(result.productsExamined, 1);
+  assert.equal(result.productsAuditedExisting, 1);
+  assert.equal(result.productsPassingExistingAudit, 0);
+  assert.equal(result.productsFailingExistingAudit, 1);
+  assert.equal(result.productsNeedingReview, 1);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_LAUNCH_OPTION_BCODE_MISSING",
+  );
+});
+
+test("read-only integrity audit fails closed when persisted launch item disappeared", () => {
+  const existingLifecycleRows = SEO_LISTING_SHADOW_EXPECTED_PROFILES.map(
+    (profile, index) => ({
+      owner_id: OWNER,
+      launch_item_id: "missing-item",
+      market_account_key: profile,
+      goods_key: String(9001 + index),
+    }),
+  );
+  const result = build({
+    existingLifecycleRows,
+    auditExisting: true,
+  });
+  assert.equal(result.productsExamined, 1);
+  assert.equal(result.productsAuditedExisting, 1);
+  assert.equal(result.productsPassingExistingAudit, 0);
+  assert.equal(result.productsFailingExistingAudit, 1);
+  assert.equal(result.productsNeedingReview, 1);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_LAUNCH_ITEM_MISSING",
+  );
+});
+
 test("read-only integrity audit fails closed when an existing product vanished from the current catalog", () => {
   const existingLifecycleRows = SEO_LISTING_SHADOW_EXPECTED_PROFILES.map(
     (profile, index) => ({

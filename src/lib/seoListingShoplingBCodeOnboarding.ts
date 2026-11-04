@@ -342,12 +342,42 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
   let productsPassingExistingAudit = 0;
   let productsFailingExistingAudit = 0;
 
-  for (const launchItemId of [...bCodesByItem.keys()].sort()) {
-    const item = itemsById.get(launchItemId);
-    if (!item) continue;
+  const productIdsToExamine = [
+    ...(input.auditExisting === true
+      ? existingRowsByProduct.keys()
+      : bCodesByItem.keys()),
+  ].sort();
+  for (const launchItemId of productIdsToExamine) {
     const existingRowsForProduct =
       existingRowsByProduct.get(launchItemId) ?? [];
     if (input.auditExisting === true && existingRowsForProduct.length === 0) {
+      continue;
+    }
+    if (input.auditExisting === true) productsAuditedExisting += 1;
+    const item = itemsById.get(launchItemId);
+    if (!item) {
+      if (input.auditExisting === true) {
+        productsUnmatchedCurrentShopling += 1;
+        productsFailingExistingAudit += 1;
+        productReviews.push({
+          launchItemId,
+          modelNumber: "",
+          reason: "BCODE_LAUNCH_ITEM_MISSING",
+        });
+      }
+      continue;
+    }
+    if (
+      input.auditExisting === true &&
+      (bCodesByItem.get(launchItemId)?.size ?? 0) === 0
+    ) {
+      productsUnmatchedCurrentShopling += 1;
+      productsFailingExistingAudit += 1;
+      productReviews.push({
+        launchItemId,
+        modelNumber: text(item.model_number),
+        reason: "BCODE_LAUNCH_OPTION_BCODE_MISSING",
+      });
       continue;
     }
     if (
@@ -359,7 +389,6 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
       productsSkippedExisting += 1;
       continue;
     }
-    if (input.auditExisting === true) productsAuditedExisting += 1;
     const currentRows = currentByItem.get(launchItemId) ?? [];
     if (currentRows.length === 0) {
       productsUnmatchedCurrentShopling += 1;
@@ -483,7 +512,7 @@ export function buildSeoListingShoplingBCodeOnboardingPlan(input: {
   return {
     generatedAt,
     source: SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE,
-    productsExamined: bCodesByItem.size,
+    productsExamined: productIdsToExamine.length,
     productsMatchedCurrentShopling,
     productsUnmatchedCurrentShopling,
     productsPreparedForVerification,
