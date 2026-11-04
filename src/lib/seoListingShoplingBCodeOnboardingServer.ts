@@ -4,6 +4,7 @@ import {
 } from "@/lib/seoListingLifecycleReconciliation";
 import { persistSeoListingLifecycleSeedRecords } from "@/lib/seoListingLifecycleReconciliationServer";
 import {
+  buildSeoListingShoplingAuditPopulationSummary,
   buildSeoListingShoplingBCodeOnboardingPlan,
   extractShoplingBCodeCatalogGoodsKeys,
   selectSeoListingShoplingBCodeAuditLifecycleRows,
@@ -94,7 +95,7 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     const result = await admin
       .from("seo_listing_lifecycle_records")
       .select(
-        "owner_id,market_account_key,launch_item_id,state,goods_key,evidence",
+        "owner_id,market_account_key,launch_item_id,state,goods_key,requires_review,review_reason,evidence",
       )
       .eq("owner_id", ownerId)
       .order("launch_item_id", { ascending: true })
@@ -111,6 +112,9 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
   const auditGoodsKeys = unique(
     auditLifecycleRows.map((row) => row.goods_key),
   ).filter((value) => /^\d{1,12}$/.test(value));
+  const auditPopulation = buildSeoListingShoplingAuditPopulationSummary(
+    auditLifecycleRows,
+  );
 
   const launchItems: UnknownRecord[] = [];
   for (let offset = 0; ; offset += READ_PAGE_SIZE) {
@@ -236,6 +240,8 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
       sourceRowCount: catalogRows.length,
       bCodeGoodsKeyCount: catalogGoodsKeys.length,
     },
+    auditPopulation:
+      options.auditExisting === true ? auditPopulation : null,
     productsExamined: onboarding.productsExamined,
     productsMatchedCurrentShopling:
       onboarding.productsMatchedCurrentShopling,

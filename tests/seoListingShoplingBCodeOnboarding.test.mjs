@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE,
+  buildSeoListingShoplingAuditPopulationSummary,
   buildSeoListingShoplingBCodeOnboardingPlan,
   extractShoplingBCodeCatalogGoodsKeys,
   selectSeoListingShoplingBCodeAuditLifecycleRows,
@@ -105,6 +106,81 @@ test("integrity audit scope includes only legacy and B-code onboarding records",
     ),
     ["legacy-managed", "bcode"],
   );
+});
+
+test("integrity audit population explains source, state, and initial review verdicts", () => {
+  const rows = [
+    {
+      launch_item_id: "legacy-current",
+      goods_key: "9001",
+      state: "LIVE",
+      requires_review: false,
+      review_reason: "",
+      evidence: { source: SEO_LISTING_LEGACY_ONBOARDING_SOURCE },
+    },
+    {
+      launch_item_id: "legacy-current",
+      goods_key: "9002",
+      state: "LIVE",
+      requires_review: false,
+      review_reason: "",
+      evidence: { source: SEO_LISTING_LEGACY_ONBOARDING_SOURCE },
+    },
+    {
+      launch_item_id: "bcode-review",
+      goods_key: "9101",
+      state: "EXCEPTION",
+      requires_review: true,
+      review_reason: "BCODE_SHOPLING_PROFILE_AMBIGUOUS",
+      evidence: { source: SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE },
+    },
+  ];
+  assert.deepEqual(buildSeoListingShoplingAuditPopulationSummary(rows), {
+    rowCount: 3,
+    productCount: 2,
+    goodsKeyCount: 3,
+    sources: [
+      {
+        key: SEO_LISTING_LEGACY_ONBOARDING_SOURCE,
+        rowCount: 2,
+        productCount: 1,
+        goodsKeyCount: 2,
+      },
+      {
+        key: SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE,
+        rowCount: 1,
+        productCount: 1,
+        goodsKeyCount: 1,
+      },
+    ],
+    states: [
+      { key: "EXCEPTION", rowCount: 1, productCount: 1, goodsKeyCount: 1 },
+      { key: "LIVE", rowCount: 2, productCount: 1, goodsKeyCount: 2 },
+    ],
+    reviewReasons: [
+      {
+        key: "BCODE_SHOPLING_PROFILE_AMBIGUOUS",
+        rowCount: 1,
+        productCount: 1,
+        goodsKeyCount: 1,
+      },
+      { key: "NO_REVIEW", rowCount: 2, productCount: 1, goodsKeyCount: 2 },
+    ],
+    sourceStates: [
+      {
+        key: `${SEO_LISTING_LEGACY_ONBOARDING_SOURCE}:LIVE`,
+        rowCount: 2,
+        productCount: 1,
+        goodsKeyCount: 2,
+      },
+      {
+        key: `${SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE}:EXCEPTION`,
+        rowCount: 1,
+        productCount: 1,
+        goodsKeyCount: 1,
+      },
+    ],
+  });
 });
 
 test("prepares exactly one six-profile current Shopling set for verification", () => {

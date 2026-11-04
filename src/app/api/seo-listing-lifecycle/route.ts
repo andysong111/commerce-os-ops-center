@@ -85,6 +85,7 @@ function shoplingBCodeOnboardingSummary(value: unknown) {
     generatedAt: row.generatedAt,
     source: row.source,
     scan: row.scan,
+    auditPopulation: row.auditPopulation,
     productsExamined: row.productsExamined,
     productsMatchedCurrentShopling: row.productsMatchedCurrentShopling,
     productsUnmatchedCurrentShopling: row.productsUnmatchedCurrentShopling,

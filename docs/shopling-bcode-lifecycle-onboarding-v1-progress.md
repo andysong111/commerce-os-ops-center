@@ -125,3 +125,27 @@ API. This workflow must never write to Shopling or a marketplace.
   `externalMarketWrite=false`. External sold-out/delete/re-registration stays
   locked.
 
+### Exact goods-key API audit outcome
+
+- PR #1668 replaced the historical registration-date scan for integrity audits
+  with the official `prod_id` exact lookup. The endpoint ignores the date range
+  when exact Shopling goods keys are supplied, so audit work is now bounded to
+  the persisted lifecycle identities.
+- Production requested 652 exact goods keys and received 1,144 option rows;
+  this replaced the former 9,874-row catalog scan. Invalid IDs fail before an
+  external request, and IDs are sent in batches of 100.
+- Of 179 persisted products, exactly 127 matched their current Shopling catalog
+  identities and 52 did not. The unmatched group is 51 current-catalog misses
+  plus one missing launch-option B-code. This independently explains the old
+  `127` planning baseline without forcing the audit population to that number.
+- The 127 current matches remain review-only: 72 identity conflicts, 26
+  incomplete six-profile sets, 17 ambiguous profiles, five self-code conflicts,
+  four incomplete market-pipeline identities, and three archived launch items.
+- The 72 identity conflicts now expose overlapping machine-readable details:
+  39 partner product code conflicts, 31 product-group profile conflicts, six
+  launch-item mapping conflicts, and four invalid partner option codes.
+- The next read-only diagnostic reports source, lifecycle state, and original
+  review-reason population counts before representative products are inspected.
+  No lifecycle correction or external Shopling write is authorized by this
+  evidence.
+
