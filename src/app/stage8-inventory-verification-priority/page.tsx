@@ -29,6 +29,7 @@ export default async function InventoryVerificationPriorityPage() {
         description="전체 재고실사는 요구하지 않습니다. PROVISIONAL 수량은 발주수량을 미리 계산하는 advisory 입력으로 사용하지만, 기준점이 없는 추정재고만으로 실제 발주 Draft 실행을 열지는 않습니다. 품절 확인 후 SOLD_OUT_RESET=0 또는 다른 신뢰 가능한 기준점이 생기면 VERIFIED로 전환합니다."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link href="/purchase-strategy-lab" className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-800">읽기 전용 발주전략 시험장</Link>
             <Link href="/stage8-canonical-purchase-shadow" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700">Canonical 발주 Shadow</Link>
             <Link href="/stage8-provisional-inventory-diagnostics" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700">추정재고 안전진단</Link>
             <Link href="/product-master/inventory-cost-readiness" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700">재고·원가 원장</Link>
