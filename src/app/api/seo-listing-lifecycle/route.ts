@@ -35,6 +35,8 @@ export const runtime = "nodejs";
 
 type UnknownRecord = Record<string, unknown>;
 type StorageError = { message: string; code?: string } | null;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_AUDIT_DIAGNOSTIC_PRODUCTS = 20;
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -86,6 +88,7 @@ function shoplingBCodeOnboardingSummary(value: unknown) {
     source: row.source,
     scan: row.scan,
     auditPopulation: row.auditPopulation,
+    auditDiagnostics: row.auditDiagnostics,
     productsExamined: row.productsExamined,
     productsMatchedCurrentShopling: row.productsMatchedCurrentShopling,
     productsUnmatchedCurrentShopling: row.productsUnmatchedCurrentShopling,
@@ -469,10 +472,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  const action =
+  const bodyRecord =
     body && typeof body === "object" && !Array.isArray(body)
-      ? text((body as UnknownRecord).action)
-      : "";
+      ? (body as UnknownRecord)
+      : {};
+  const action = text(bodyRecord.action);
   if (
     ![
       "prepare_scheduled_run",
@@ -489,6 +493,26 @@ export async function POST(request: NextRequest) {
         ok: false,
         code: "SEO_LIFECYCLE_ACTION_INVALID",
         message: "지원하지 않는 자동운영 요청입니다.",
+      },
+      { status: 400 },
+    );
+  }
+  const rawDiagnosticLaunchItemIds = bodyRecord.diagnosticLaunchItemIds;
+  const diagnosticLaunchItemIds = Array.isArray(rawDiagnosticLaunchItemIds)
+    ? [...new Set(rawDiagnosticLaunchItemIds.map(text))]
+    : [];
+  if (
+    action === "preview_shopling_bcode_integrity_audit" &&
+    rawDiagnosticLaunchItemIds !== undefined &&
+    (!Array.isArray(rawDiagnosticLaunchItemIds) ||
+      diagnosticLaunchItemIds.length > MAX_AUDIT_DIAGNOSTIC_PRODUCTS ||
+      diagnosticLaunchItemIds.some((value) => !UUID.test(value)))
+  ) {
+    return Response.json(
+      {
+        ok: false,
+        code: "SEO_SHOPLING_BCODE_DIAGNOSTIC_IDS_INVALID",
+        message: "진단 상품 ID는 UUID 배열로 최대 20개까지 요청할 수 있습니다.",
       },
       { status: 400 },
     );
@@ -537,6 +561,7 @@ export async function POST(request: NextRequest) {
           apply: action === "apply_shopling_bcode_onboarding",
           auditExisting:
             action === "preview_shopling_bcode_integrity_audit",
+          diagnosticLaunchItemIds,
         },
       );
       return Response.json({

@@ -16,6 +16,7 @@ import {
   splitShoplingDateRange,
 } from "@/lib/shopling/shoplingReadClient";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { buildSeoListingShoplingBCodeAuditDiagnostics } from "@/lib/seoListingShoplingBCodeAuditDiagnostics";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -77,7 +78,12 @@ function catalogScanRange(now: Date) {
 
 export async function reconcileSeoListingShoplingBCodeOnboarding(
   context: SeoRunJobContext,
-  options: { apply?: boolean; auditExisting?: boolean; now?: Date } = {},
+  options: {
+    apply?: boolean;
+    auditExisting?: boolean;
+    diagnosticLaunchItemIds?: string[];
+    now?: Date;
+  } = {},
 ) {
   const now = options.now ?? new Date();
   if (!Number.isFinite(now.getTime())) {
@@ -222,6 +228,18 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     ...verification.productReviews,
     ...onboarding.productReviews,
   ];
+  const auditDiagnostics =
+    options.auditExisting === true &&
+    (options.diagnosticLaunchItemIds?.length ?? 0) > 0
+      ? buildSeoListingShoplingBCodeAuditDiagnostics({
+          targetLaunchItemIds: options.diagnosticLaunchItemIds ?? [],
+          existingLifecycleRows: auditLifecycleRows,
+          launchItems,
+          launchOptions,
+          catalogRows,
+          marketLedgerRows,
+        })
+      : [];
   const result = {
     generatedAt: onboarding.generatedAt,
     source: onboarding.source,
@@ -242,6 +260,7 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     },
     auditPopulation:
       options.auditExisting === true ? auditPopulation : null,
+    auditDiagnostics,
     productsExamined: onboarding.productsExamined,
     productsMatchedCurrentShopling:
       onboarding.productsMatchedCurrentShopling,
