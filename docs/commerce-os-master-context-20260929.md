@@ -31,6 +31,11 @@ A recurring product principle is:
 
 > build the system so the owner sees exceptions, not routine work.
 
+Warehouse capacity follows this rule: exact reuse of already assigned B-codes needs zero new slots and should pass
+automatically. New-slot cases must be checked against the stored small/large warehouse map. The owner should only
+see a blocker when the stored evidence is missing, unsafe or insufficient, not be asked to repeat a stocktake that
+the system can decide.
+
 The target is a one-button / near-zero-touch Commerce OS, but every step must be earned through evidence and staged gates rather than skipping directly to blind automation.
 
 ---
