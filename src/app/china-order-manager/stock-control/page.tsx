@@ -12,7 +12,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-// Historical incident package retained for traceability: v0.6.27 다운로드 /api/shopling-stock-state-sync/download-hf64
+// Historical incident packages retained for traceability: v0.6.27 다운로드 /api/shopling-stock-state-sync/download-hf64; v0.6.29 다운로드 href="/api/shopling-stock-state-sync/download-hf66"
 
 type PageProps = {
   searchParams: Promise<RoughStockCorrectionSearchParams>;
@@ -60,10 +60,10 @@ export default async function InventoryStockControlPage({
                 창고 위치·수용능력
               </Link>
               <Link
-                href="/api/shopling-stock-state-sync/download-hf66"
+                href="/api/shopling-stock-state-sync/download-hf67"
                 className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800"
               >
-                재고상태 자동화 확장 v0.6.29 다운로드
+                재고상태 자동화 확장 v0.6.30 다운로드
               </Link>
             </div>
           )
@@ -73,7 +73,7 @@ export default async function InventoryStockControlPage({
       {!isFocusedCorrection ? (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
           <strong className="text-slate-950">확장 설치:</strong> 위의
-          <strong> v0.6.29 다운로드</strong> → ZIP 압축 해제 → Chrome
+          <strong> v0.6.30 다운로드</strong> → ZIP 압축 해제 → Chrome
           주소창에
           <code className="mx-1 rounded bg-white px-2 py-1 font-mono text-xs">
             chrome://extensions

@@ -273,7 +273,7 @@ test("HF64 package publishes v0.6.27 with serial B-code execution", async () => 
   assert.match(page, /v0\.6\.29 다운로드/);
   // HF64 stays downloadable for incident replay, while the live launch gate
   // advances when the intentionally incompatible HF65 API-first flow replaces it.
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 29\]/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 30\]/);
   assert.doesNotMatch(planner, /mode: "PARALLEL",\s*jobs:/);
   assert.match(background, /HF64_EXACT_BCODE_RESULT_FRAME/);
 });

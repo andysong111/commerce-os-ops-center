@@ -277,7 +277,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 API 우선 B코드 검증·A21 순차 전송을 지원하지 않아 사용할 수 없습니다. v0.6.29로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 현재 관리자 로그인 인식·A21 자동 준비를 지원하지 않아 사용할 수 없습니다. v0.6.30으로 업데이트해 주세요.`);
         }
         return;
       }

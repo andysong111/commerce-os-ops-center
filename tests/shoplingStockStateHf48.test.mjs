@@ -176,7 +176,7 @@ test("HF48 publishes v0.6.13, rejects HF47 at launch, and is permanent CI covera
   assert.match(page, /v0\.6\.29 다운로드/);
   assert.match(
     planner,
-    /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 29\]/,
+    /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 30\]/,
   );
   assert.match(workflow, /shoplingStockStateHf48\.test\.mjs/);
 });
