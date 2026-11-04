@@ -91,8 +91,16 @@ As of 2026-10-25:
 - `goodsKey` 개수는 쪼개기 상품 판정 근거가 아니다. 한 B코드는 판매 채널별로 여러 goodsKey를 정상적으로 가질 수 있다. 품절·판매중 전환은 Product Master의 논리 상품형태와 **각 goodsKey의 실제 옵션 수**를 조합해 개별 판정한다.
 - 논리 `OPTION`인데 해당 goodsKey의 실제 옵션이 1개인 과거 쪼개기 등록은 정확한 옵션상태와 상품 판매상태를 Shopling API로 모두 변경·재조회하고 수량 불변을 확인한 뒤 A21 `상품판매상태송신`을 사용한다. 실제 옵션이 2개 이상이면 정확한 옵션상태만 API로 변경·재조회한 뒤 A21 `옵션송신`을 사용한다. 논리 `SINGLE`은 기존 상품 판매상태 경로를 유지한다. 같은 B코드 안에서도 goodsKey별 경로가 섞일 수 있다.
 - A21 브라우저 단계는 goodsKey를 한 번에 하나씩 직렬 처리한다. 옵션송신 화면에서는 과거 운영에서 성공했던 방식대로 실제 보이는 상단 `옵션송신` 라디오를 화면 순서로 먼저 클릭하고, 하단 옵션 전용 `선택`을 클릭한다. 내부 name/value 선택은 보조 fallback이다.
-- 현재 패키지는 HF69 `v0.6.32`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf69`이다. 전용 회귀 15건, TypeScript, 변경 파일 ESLint, Webpack 프로덕션 빌드가 통과했다. 로컬 검증 엔드포인트가 ZIP 206,226바이트를 생성했고 background/ops/content/main SHA-256도 반환했다.
+- HF69 패키지는 `v0.6.32`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf69`였으며 아래 HF70으로 대체됐다. HF69의 goodsKey별 실제 옵션 수 분기와 API 상태·수량 readback 계약은 HF70에서도 그대로 유지한다.
 - 아직 실 Shopling 상태 변경 카나리는 하지 않았다. 다음 안전 단계는 새 확장을 설치한 뒤 1옵션 쪼개기 1건과 다옵션 1건을 각각 실행해 API 상태·수량 readback, 선택된 A21 전송 종류, Commerce OS 접수 완료를 확인하는 것이다. 마켓 종결 결과는 Commerce OS 책임 범위가 아니지만 Shopling 전송 접수까지는 누락 없이 확인한다.
+
+### Shopling stock-state HF70 correction (2026-11-05)
+
+- HF69 실화면에서 A21 상단 `옵션송신` 라디오가 움직이지 않은 직접 원인을 재현했다. HF69는 각 라디오의 근거에 공유 상단 행 전체 문구를 포함했고, 그 행에는 `일반내용수정 / 상품판매상태송신 / 옵션송신`이 모두 들어 있었다. 따라서 세 라디오가 모두 옵션 후보가 된 뒤 화면상 맨 왼쪽 `일반내용수정`을 다시 선택했고, MAIN world 재검증도 같은 공유 행을 읽어 잘못 통과할 수 있었다.
+- HF70은 라디오 자체의 정확한 label·cell·직접 parent만 근거로 사용한다. `옵션송신`이라는 문구와 라디오가 정확히 1:1인 후보가 하나일 때만 선택하며, 공유 행은 isolated world와 MAIN world 양쪽에서 근거로 사용하지 않는다.
+- 현재 실행이 열기 전부터 존재한 동일 주소의 A21 팝업도 이번 팝업으로 오인할 수 있었다. HF70은 클릭 직전 팝업 ID 목록을 저장하고, 그 목록에 없으며 현재 전용 A21 목록 탭을 정확한 `openerTabId`로 가진 새 팝업만 작업 소유자로 인정한다. 옵션·단품 경로 모두 같은 규칙을 사용한다.
+- goodsKey는 채널별로 여러 개가 정상이며 계속 한 개씩 직렬 처리한다. 이 직렬화는 느림의 원인이 아니라 한 goodsKey의 팝업·전송 결과가 다음 goodsKey와 섞이지 않게 하는 안전장치다. 쪼개기 판정과 전송 종류는 HF69의 goodsKey별 실제 옵션 수 규칙을 그대로 유지한다.
+- 수정 패키지는 HF70 `v0.6.33`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf70`이다. CI 고정 범위 166/166, TypeScript, 변경 파일 ESLint, Webpack 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 로컬 검증·실제 ZIP은 모두 207,394 byte였고 manifest `0.6.33`, service worker `background-v090.js`, ZIP SHA-256 `3e2cca4f8b2bbdcebebfb8912c8c00c53c14df04a255d0d7cce38dfbfc4fcbe0`를 확인했다. 실 Shopling 변경 카나리는 아직 실행하지 않았으며, 배포·설치 뒤 다옵션 1건에서 상단 `옵션송신`과 하단 옵션 전용 `선택`이 실제로 선택되고 Shopling 처리중/결과 화면이 시작되는지 확인해야 한다.
 
 ## Handoff discipline
 
