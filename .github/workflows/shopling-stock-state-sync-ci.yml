@@ -50,6 +50,7 @@ on:
       - "tests/shoplingStockStateHf63.test.mjs"
       - "tests/shoplingStockStateHf64.test.mjs"
       - "tests/shoplingStockApiFirstHf65.test.mjs"
+      - "tests/shoplingStockHf66PageChannel.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -103,6 +104,7 @@ jobs:
           && node --check public/shopling-stock-state-sync/a6-frame-evidence-v086.js
           && node --check public/shopling-stock-state-sync/background-v086.js
           && node --check public/shopling-stock-state-sync/content-ops-v022.js
+          && node --check public/shopling-stock-state-sync/content-ops-v023.js
           && node --check public/shopling-stock-state-sync/background-v087.js
           && node --check public/shopling-stock-state-sync/content-ops-preflight-v002.js
           && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
@@ -163,6 +165,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf64.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF65 API-first B-code status and A21-only browser boundary
         run: node --experimental-strip-types --test tests/shoplingStockApiFirstHf65.test.mjs tests/shoplingOptionStatusUnmanagedQuantity.test.mjs tests/inventoryStockControl.test.mjs
+      - name: Regression - HF66 exact HF27 Commerce OS page channel
+        run: node --experimental-strip-types --test tests/shoplingStockHf66PageChannel.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary
