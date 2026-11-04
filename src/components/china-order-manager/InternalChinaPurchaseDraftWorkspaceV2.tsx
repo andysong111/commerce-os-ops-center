@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
-import type { StagedDraftAddition } from "@/components/china-order-manager/InternalChinaManualDraftLineAdder";
+import {
+  InternalChinaManualDraftLineAdder,
+  type StagedDraftAddition,
+} from "@/components/china-order-manager/InternalChinaManualDraftLineAdder";
 import type { InternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
 import type {
   InternalChinaPurchaseDraft,
@@ -153,7 +156,6 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   initialNotice = "",
   stagedAdditions,
   onStagedAdditionsChange,
-  manualAddPanel,
 }: {
   initialDraft: InternalChinaPurchaseDraft;
   budgetAudit: InternalChinaPurchaseBudgetAudit;
@@ -163,7 +165,6 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   initialNotice?: string;
   stagedAdditions: StagedDraftAddition[];
   onStagedAdditionsChange: (rows: StagedDraftAddition[]) => void;
-  manualAddPanel?: ReactNode;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState(initialDraft);
@@ -1241,9 +1242,16 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         </div>
       </section>
 
-      {manualAddPanel}
+      <InternalChinaManualDraftLineAdder
+        draftId={draft.draftId}
+        status={draft.status}
+        stagedAdditions={stagedAdditions}
+        onStagedAdditionsChange={onStagedAdditionsChange}
+        stagedDraftQuantities={editedQuantities}
+        onStagedDraftQuantityChange={stageQuantity}
+      />
 
-      <section id="purchase-draft-recalculate" className={`scroll-mt-24 rounded-2xl border p-5 shadow-sm ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
+      <section id="purchase-draft-recalculate" tabIndex={-1} aria-label="4단계 발주안 재계산" className={`scroll-mt-24 rounded-2xl border p-5 shadow-sm outline-none focus:ring-4 focus:ring-blue-200 ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <span className="text-xs font-black tracking-[0.12em] text-blue-700">PURCHASE RUN · STEP 4</span>

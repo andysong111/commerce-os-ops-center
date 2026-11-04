@@ -229,7 +229,7 @@ test("draft editor exposes persistent and final calculation actions and stages a
   assert.match(workspace, /stagedAdditions\.map\(\(row\) => \[row\.barcode, row\.targetQuantity\]\)/);
   assert.match(workspace, /사용자 고정수량의 예산을 먼저 확보/);
   assert.match(workspace, /data-persistent-recalculation-action/);
-  assert.match(workspace, /\{manualAddPanel\}[\s\S]*변경사항 저장 후 발주안 재계산/);
+  assert.match(workspace, /<InternalChinaManualDraftLineAdder[\s\S]*변경사항 저장 후 발주안 재계산/);
 });
 
 test("draft guide explains the operator sequence and actual-price budget gate", async () => {
@@ -270,7 +270,8 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   assert.match(guide, /입고확정일 다음 날이 아니라, 가장 최근 입고확정 완료 차시의 계산 시작일 다음 날/);
   assert.match(guide, /localStorage\.getItem\(GUIDE_STORAGE_KEY\)/);
   assert.match(editor, /<InternalChinaPurchaseDraftGuide/);
-  assert.match(editor, /manualAddPanel=/);
+  assert.match(workspace, /stagedDraftQuantities=\{editedQuantities\}/);
+  assert.match(workspace, /onStagedDraftQuantityChange=\{stageQuantity\}/);
   assert.match(workspace, /hasPendingRecalculation \|\| calculations\.budgetOverKrw > 0/);
   assert.match(workspace, /상품대금 한도를[\s\S]*주문완료 기록을 막았습니다/);
   assert.match(workspace, /실제 위안단가·중국내 운임을 모두 반영했습니다/);

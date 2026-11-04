@@ -78,7 +78,7 @@ test("manual addition API is same-origin only and exposes search plus add", () =
 
 test("draft page stages searchable B-code additions for the shared recalculation", () => {
   assert.match(page, /InternalChinaDraftBatchEditor/);
-  assert.match(batchEditor, /InternalChinaManualDraftLineAdder/);
+  assert.match(batchEditor, /InternalChinaPurchaseDraftWorkspaceV2/);
   assert.match(component, /주문품목 여러 건 검색/);
   assert.match(component, /다른 미입고/);
   assert.match(component, /재계산 대기/);

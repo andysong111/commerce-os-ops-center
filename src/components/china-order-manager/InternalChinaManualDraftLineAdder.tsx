@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { isPurchaseDraftQuantityUnit } from "@/lib/purchaseDraftQuantityRounding";
 import {
   MANUAL_DRAFT_SEARCH_TERM_LIMIT,
   parseManualDraftSearchTerms,
 } from "@/lib/internalChinaManualDraftSearchCore";
+import { applyManualDraftBulkQuantity } from "@/lib/internalChinaManualDraftQuantityCore";
 
 export type ManualDraftCandidate = {
   barcode: string;
@@ -37,17 +38,31 @@ export function InternalChinaManualDraftLineAdder({
   status,
   stagedAdditions,
   onStagedAdditionsChange,
+  stagedDraftQuantities,
+  onStagedDraftQuantityChange,
 }: {
   draftId: string;
   status: "DRAFT" | "ORDERED";
   stagedAdditions: StagedDraftAddition[];
   onStagedAdditionsChange: (rows: StagedDraftAddition[]) => void;
+  stagedDraftQuantities: Record<string, number>;
+  onStagedDraftQuantityChange: (barcode: string, quantity: number) => void;
 }) {
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<ManualDraftCandidate[]>([]);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState("");
+  const [bulkQuantity, setBulkQuantity] = useState(5);
+  const [movingToRecalculate, setMovingToRecalculate] = useState(false);
+  const moveTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (moveTimerRef.current !== null) window.clearTimeout(moveTimerRef.current);
+    },
+    [],
+  );
 
   const stagedByBarcode = new Map(
     stagedAdditions.map((row) => [row.barcode, row] as const),
@@ -96,7 +111,9 @@ export function InternalChinaManualDraftLineAdder({
         for (const candidate of next) {
           if (!output[candidate.barcode]) {
             output[candidate.barcode] =
-              stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? 5;
+              candidate.inDraft
+                ? stagedDraftQuantities[candidate.barcode] ?? candidate.currentDraftQuantity
+                : stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? 5;
           }
         }
         return output;
@@ -158,6 +175,17 @@ export function InternalChinaManualDraftLineAdder({
   function updateQuantity(candidate: ManualDraftCandidate, value: unknown) {
     const targetQuantity = quantity(value);
     setQuantities((current) => ({ ...current, [candidate.barcode]: targetQuantity }));
+    if (candidate.inDraft) {
+      onStagedDraftQuantityChange(candidate.barcode, targetQuantity);
+      setNotice(
+        isPurchaseDraftQuantityUnit(targetQuantity)
+          ? targetQuantity === candidate.currentDraftQuantity
+            ? `${candidate.barcode} 수량 변경을 취소했습니다.`
+            : `${candidate.barcode} 목표수량 ${targetQuantity.toLocaleString("ko-KR")}개를 재계산 대기에 넣었습니다.`
+          : `${candidate.barcode} 수량은 5~9,995개 범위의 5개 단위로 입력하세요.`,
+      );
+      return;
+    }
     if (!stagedByBarcode.has(candidate.barcode)) return;
     if (!isPurchaseDraftQuantityUnit(targetQuantity)) {
       onStagedAdditionsChange(
@@ -171,6 +199,54 @@ export function InternalChinaManualDraftLineAdder({
         row.barcode === candidate.barcode ? { ...row, targetQuantity } : row,
       ),
     );
+  }
+
+  function applyBulkQuantity() {
+    const targetQuantity = quantity(bulkQuantity);
+    if (!isPurchaseDraftQuantityUnit(targetQuantity)) {
+      setNotice("일괄수량은 5~9,995개 범위의 5개 단위로 입력하세요.");
+      return;
+    }
+    const selected = new Set(selectedCandidates.map((candidate) => candidate.barcode));
+    if (!selected.size) {
+      setNotice("먼저 일괄수량을 적용할 추가 품목을 체크하세요.");
+      return;
+    }
+    setQuantities((current) => {
+      const next = { ...current };
+      for (const barcode of selected) next[barcode] = targetQuantity;
+      return next;
+    });
+    onStagedAdditionsChange(
+      applyManualDraftBulkQuantity(stagedAdditions, selected, targetQuantity),
+    );
+    setNotice(
+      `선택한 ${selected.size}종의 목표수량을 모두 ${targetQuantity.toLocaleString("ko-KR")}개로 맞췄습니다.`,
+    );
+  }
+
+  function moveToRecalculate() {
+    if (movingToRecalculate) return;
+    setMovingToRecalculate(true);
+    setNotice("4단계 재계산 영역으로 이동 중입니다.");
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById("purchase-draft-recalculate");
+      if (!target) {
+        setMovingToRecalculate(false);
+        setNotice("4단계 재계산 영역을 찾지 못했습니다. 화면을 새로고침한 뒤 다시 시도하세요.");
+        return;
+      }
+      const nextUrl = new URL(window.location.href);
+      nextUrl.hash = "purchase-draft-recalculate";
+      window.history.replaceState(window.history.state, "", nextUrl);
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.focus({ preventScroll: true });
+      moveTimerRef.current = window.setTimeout(() => {
+        setMovingToRecalculate(false);
+        setNotice("4단계로 이동했습니다. 파란 재계산 버튼을 눌러 대기 변경을 반영하세요.");
+        moveTimerRef.current = null;
+      }, 650);
+    });
   }
 
   return (
@@ -242,6 +318,29 @@ export function InternalChinaManualDraftLineAdder({
                 <span className="rounded-lg bg-white px-3 py-2 text-xs font-black text-amber-900">
                   전체 계산 대기 {stagedAdditions.length}종
                 </span>
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-white p-2">
+                  <label htmlFor="manual-draft-bulk-quantity" className="text-xs font-black text-slate-700">
+                    선택 품목 일괄수량
+                  </label>
+                  <input
+                    id="manual-draft-bulk-quantity"
+                    type="number"
+                    min={5}
+                    max={9995}
+                    step={5}
+                    value={bulkQuantity}
+                    onChange={(event) => setBulkQuantity(quantity(event.target.value))}
+                    className="w-24 rounded-lg border border-amber-300 px-3 py-2 text-right text-sm font-black text-slate-900 outline-none focus:border-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={applyBulkQuantity}
+                    disabled={!selectedCandidates.length}
+                    className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-black text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    선택 {selectedCandidates.length}종에 적용
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="min-w-[1040px] w-full text-left text-xs">
@@ -262,7 +361,7 @@ export function InternalChinaManualDraftLineAdder({
                       <th className="px-3 py-3">상품 / 옵션</th>
                       <th className="px-3 py-3 text-right">현재 Draft</th>
                       <th className="px-3 py-3 text-right">다른 미입고</th>
-                      <th className="px-3 py-3 text-right">추가수량(고정)</th>
+                      <th className="px-3 py-3 text-right">목표수량(고정)</th>
                       <th className="px-3 py-3">반영</th>
                     </tr>
                   </thead>
@@ -299,16 +398,24 @@ export function InternalChinaManualDraftLineAdder({
                             min={5}
                             max={9995}
                             step={5}
-                            value={stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? quantities[candidate.barcode] ?? 5}
-                            disabled={candidate.inDraft}
+                            value={
+                              candidate.inDraft
+                                ? stagedDraftQuantities[candidate.barcode] ?? quantities[candidate.barcode] ?? candidate.currentDraftQuantity
+                                : stagedByBarcode.get(candidate.barcode)?.targetQuantity ?? quantities[candidate.barcode] ?? 5
+                            }
                             onChange={(event) => updateQuantity(candidate, event.target.value)}
-                            className="w-28 rounded-lg border border-amber-300 px-3 py-2 text-right font-black text-slate-900 outline-none focus:border-amber-500 disabled:bg-slate-100 disabled:text-slate-400"
+                            aria-label={`${candidate.barcode} 목표수량`}
+                            className="w-28 rounded-lg border border-amber-300 px-3 py-2 text-right font-black text-slate-900 outline-none focus:border-amber-500"
                           />
                         </td>
                         <td className="px-3 py-3">
                           <span className={`inline-flex rounded-lg px-3 py-2 font-black ${candidate.inDraft ? "bg-slate-100 text-slate-500" : stagedByBarcode.has(candidate.barcode) ? "bg-amber-100 text-amber-900" : "bg-slate-50 text-slate-500"}`}>
                             {candidate.inDraft
-                              ? "아래 주문표에서 수정"
+                              ? stagedDraftQuantities[candidate.barcode] === undefined
+                                ? "현재 수량 유지"
+                                : isPurchaseDraftQuantityUnit(stagedDraftQuantities[candidate.barcode])
+                                  ? "수량 변경 대기"
+                                  : "5개 단위 확인"
                               : stagedByBarcode.has(candidate.barcode)
                                 ? "고정·재계산 대기"
                                 : "체크하면 대기"}
@@ -321,15 +428,21 @@ export function InternalChinaManualDraftLineAdder({
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-amber-100 bg-amber-50/70 px-4 py-3">
                 <p className="text-xs font-bold leading-5 text-slate-700">
-                  추가할 행을 체크하고 수량을 입력하세요. 이미 초안에 있는 행은 아래 주문표에서 수량을 수정합니다.
+                  추가할 행을 체크하고 수량을 입력하세요. 이미 초안에 있는 행도 이 표의 목표수량에서 바로 수정할 수 있습니다.
                 </p>
-                {selectedCandidates.length > 0 ? (
-                  <a
-                    href="#purchase-draft-recalculate"
-                    className="rounded-xl bg-blue-700 px-4 py-3 text-sm font-black text-white hover:bg-blue-800"
+                {stagedAdditions.length > 0 || Object.keys(stagedDraftQuantities).length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={moveToRecalculate}
+                    disabled={movingToRecalculate}
+                    aria-busy={movingToRecalculate}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-wait disabled:bg-blue-500"
                   >
-                    선택 완료 · 4단계 재계산으로 이동
-                  </a>
+                    {movingToRecalculate ? (
+                      <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
+                    ) : null}
+                    {movingToRecalculate ? "4단계로 이동 중..." : "선택 완료 · 4단계 재계산으로 이동"}
+                  </button>
                 ) : null}
               </div>
             </div>
