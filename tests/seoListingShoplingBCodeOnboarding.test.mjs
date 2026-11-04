@@ -210,10 +210,17 @@ test("bounded audit diagnostics join only requested auditable product evidence",
       },
       {
         goods_key: "9999",
-        ptn_goods_cd: "UNRELATED",
+        ptn_goods_cd: "SHARED_BCODE",
         prod_group: "소매1번",
         sale_status: "B",
         optPtnOptCd: "BAA1-2",
+      },
+      {
+        goods_key: "8888",
+        ptn_goods_cd: "UNRELATED",
+        prod_group: "소매2번",
+        sale_status: "B",
+        optPtnOptCd: "BCC9-9",
       },
     ],
     marketLedgerRows: [
@@ -243,10 +250,19 @@ test("bounded audit diagnostics join only requested auditable product evidence",
   assert.deepEqual(result[0].shoplingCatalog, [
     {
       goodsKey: "9001",
+      matchBasis: "both",
       partnerProductCode: "SEO20261031a",
       productGroup: "도매1번",
       saleStatus: "B",
       partnerOptionCode: "BAA1-1",
+    },
+    {
+      goodsKey: "9999",
+      matchBasis: "launch_bcode",
+      partnerProductCode: "SHARED_BCODE",
+      productGroup: "소매1번",
+      saleStatus: "B",
+      partnerOptionCode: "BAA1-2",
     },
   ]);
   assert.equal(result[0].marketLedger.length, 1);
