@@ -64,6 +64,14 @@ test("dashboard prepares an authenticated scheduled run but keeps destructive wr
     onboardingServer,
     /SEO_SHOPLING_BCODE_AUDIT_MUST_BE_READ_ONLY/,
   );
+  assert.match(
+    onboardingServer,
+    /selectSeoListingShoplingBCodeAuditLifecycleRows\(existingLifecycleRows\)/,
+  );
+  assert.match(
+    onboardingServer,
+    /owner_id,market_account_key,launch_item_id,state,goods_key,evidence/,
+  );
   assert.match(route, /externalMarketWrite: false/);
   assert.match(route, /externalDeleteEnabled: false/);
   assert.match(route, /autoExecutionEnabled: false/);

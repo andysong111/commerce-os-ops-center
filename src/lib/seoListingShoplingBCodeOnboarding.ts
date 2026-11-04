@@ -1,4 +1,5 @@
 import { inferProductGroupFromPtnGoodsCd } from "./productGroup.ts";
+import { SEO_LISTING_LEGACY_ONBOARDING_SOURCE } from "./seoListingLegacyOnboarding.ts";
 import {
   SEO_LISTING_SHADOW_EXPECTED_PROFILES,
   type SeoListingShadowSeedRecord,
@@ -8,6 +9,11 @@ type UnknownRecord = Record<string, unknown>;
 
 export const SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE =
   "seo-listing-shopling-bcode-onboarding-v1";
+
+const SEO_LISTING_SHOPLING_BCODE_AUDIT_SOURCES = new Set([
+  SEO_LISTING_LEGACY_ONBOARDING_SOURCE,
+  SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE,
+]);
 
 const GOODS_KEY = /^\d+$/;
 const B_CODE = /^B[A-Z]{1,2}\d+-\d+$/;
@@ -27,6 +33,22 @@ type CatalogIdentity = {
 
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
+}
+
+function record(value: unknown): UnknownRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as UnknownRecord)
+    : {};
+}
+
+export function selectSeoListingShoplingBCodeAuditLifecycleRows(
+  rows: UnknownRecord[],
+) {
+  return rows.filter((row) =>
+    SEO_LISTING_SHOPLING_BCODE_AUDIT_SOURCES.has(
+      text(record(row.evidence).source),
+    ),
+  );
 }
 
 function code(value: unknown) {

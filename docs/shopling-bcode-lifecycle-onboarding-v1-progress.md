@@ -86,3 +86,23 @@ API. This workflow must never write to Shopling or a marketplace.
   the previously onboarded products, and independently inspect every reported
   mismatch before any external sold-out/delete canary.
 
+### First Production audit and scope correction
+
+- PR #1663 deployed the read-only integrity action. Its first Production run
+  completed successfully with `externalMarketWrite=false`, but it audited 256
+  persisted lifecycle products instead of the intended 127 onboarding products.
+- The broad result was `0 pass / 256 review`; this is not accepted as product
+  identity evidence. It mixed records from unrelated Shadow bootstrap paths
+  into the legacy 71 plus B-code 56 onboarding population.
+- The follow-up scope is derived from immutable lifecycle evidence source:
+  `seo-listing-legacy-shadow-onboarding-v1` and
+  `seo-listing-shopling-bcode-onboarding-v1` only. Missing or unknown source is
+  excluded rather than guessed.
+- The scoped audit must be redeployed and rerun before any mismatch is
+  investigated or any external sold-out/delete canary is considered.
+- The same Production readback still reported the older stale quota evidence
+  `10,565 / 10,000` from 2026-10-31, so new registration remains blocked even
+  though the owner confirmed `6,072 / 10,000` on the current Shopling screen.
+  The internal authenticated quota readback must be refreshed to the current
+  value before the registration gate can open.
+

@@ -5,7 +5,9 @@ import {
   SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE,
   buildSeoListingShoplingBCodeOnboardingPlan,
   extractShoplingBCodeCatalogGoodsKeys,
+  selectSeoListingShoplingBCodeAuditLifecycleRows,
 } from "../src/lib/seoListingShoplingBCodeOnboarding.ts";
+import { SEO_LISTING_LEGACY_ONBOARDING_SOURCE } from "../src/lib/seoListingLegacyOnboarding.ts";
 import { SEO_LISTING_SHADOW_EXPECTED_PROFILES } from "../src/lib/seoListingLifecycleReconciliation.ts";
 
 const OWNER = "11111111-1111-1111-1111-111111111111";
@@ -69,6 +71,30 @@ function build(overrides = {}) {
     ...overrides,
   });
 }
+
+test("integrity audit scope includes only legacy and B-code onboarding records", () => {
+  const rows = [
+    {
+      launch_item_id: "legacy",
+      evidence: { source: SEO_LISTING_LEGACY_ONBOARDING_SOURCE },
+    },
+    {
+      launch_item_id: "bcode",
+      evidence: { source: SEO_LISTING_SHOPLING_BCODE_ONBOARDING_SOURCE },
+    },
+    {
+      launch_item_id: "unrelated-shadow",
+      evidence: { source: "seo-listing-shadow-bootstrap-v1" },
+    },
+    { launch_item_id: "unknown", evidence: {} },
+  ];
+  assert.deepEqual(
+    selectSeoListingShoplingBCodeAuditLifecycleRows(rows).map(
+      (row) => row.launch_item_id,
+    ),
+    ["legacy", "bcode"],
+  );
+});
 
 test("prepares exactly one six-profile current Shopling set for verification", () => {
   const result = build();
