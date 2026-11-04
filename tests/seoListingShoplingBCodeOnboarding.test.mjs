@@ -360,6 +360,23 @@ test("leading digits cannot hide two different self-code identities", () => {
   );
 });
 
+test("single-digit product codes cannot become an empty shared identity", () => {
+  const malformedCatalog = catalog().map((row) => {
+    const index = Number(row.goods_key) - 9001;
+    return {
+      ...row,
+      ptn_goods_cd: String(index + 1),
+      prod_group: `${SEO_LISTING_SHADOW_EXPECTED_PROFILES[index]}번`,
+    };
+  });
+  const result = build({ catalogRows: malformedCatalog });
+  assert.equal(result.productsPreparedForVerification, 0);
+  assert.equal(
+    result.productReviews[0].reason,
+    "BCODE_SHOPLING_SELF_CODE_CONFLICT",
+  );
+});
+
 test("uses optPtnOptCd only and never mistakes numeric option barcode for a B-code", () => {
   const numericOnly = catalog().map((row) => ({
     ...row,

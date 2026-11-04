@@ -190,7 +190,12 @@ function hasConsistentSelfCodeIdentity(rows: CatalogIdentity[]) {
     const legacyLeadingDigitBases = new Set(
       partnerProductCodes.map((value) => value.replace(/^\d/, "")),
     );
-    if (legacyLeadingDigitBases.size === 1) return true;
+    if (
+      legacyLeadingDigitBases.size === 1 &&
+      !legacyLeadingDigitBases.has("")
+    ) {
+      return true;
+    }
   }
   return false;
 }
