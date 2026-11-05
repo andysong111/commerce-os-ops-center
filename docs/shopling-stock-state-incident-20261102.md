@@ -146,6 +146,11 @@
   - 각 묶음/분할 묶음을 시작하기 직전에 이미 열려 있던 Shopling 결과창 ID를 기준선으로 저장한다. 기준선에 있던 과거 결과창과 이미 접수 완료로 저장된 처리창이 나중에 결과 URL로 바뀐 경우는 현재 묶음의 접수 증거로 인정하지 않으며, 현재 묶음 전송 이후 현재 팝업에서 열린 새 처리중/결과 화면만 다음 묶음 진행을 허용한다.
   - 접수된 A21 처리창은 Shopling이 후속 처리를 계속할 수 있도록 닫지 않는다. 처리 증거의 팝업 ID가 현재 작업에서 claim한 팝업 ID와 정확히 일치할 때만 `stockStateAcceptedPopupTabIdsHf72`에 기록하고, 다음 묶음 사전검사는 그 ID만 건너뛴다. 미등록 처리창은 계속 `A21_EXISTING_POPUP_NOT_SAFE_TO_CLOSE_HF53`로 차단된다. 이 규칙은 첫 방식 묶음이 성공한 뒤 남은 처리창 때문에 두 번째 방식 묶음이 시작되지 않던 회귀를 막는다.
 
+- v0.6.36/HF73 Shopling MAIN world 실제 라디오 선택:
+  - HF72 실화면은 A21 묶음 검색과 설정 팝업 소유까지 성공했지만 팝업 상단이 계속 `일반내용수정`으로 보였다. 확장프로그램 영역의 라디오 클릭은 현재 구형 Shopling 화면 상태에 남지 않았고, MAIN world는 직접 선택하지 않은 채 선택 결과만 검사했다.
+  - HF73은 상단 `옵션송신`과 하단 옵션 전용 `선택`을 정확한 의미 기준으로 각각 하나만 표식하고, Shopling MAIN world에서 실제 radio input을 직접 클릭한다. 클릭 뒤 `input`·`change` 이벤트를 발생시키고 두 input의 `checked` 값을 다시 읽어 모두 선택된 경우에만 빨간 전송 버튼을 누른다. 모호한 후보·비활성 input·선택 미반영은 전송 전 안전 중단한다.
+  - HF72의 goods key 전송 방식별 최대 200개 묶음, 묶음당 검색·전송 1회, 쪼개기 상품 판정, API 상태·수량 readback, Shopling 처리중/결과 화면 시작 책임 경계는 변경하지 않았다.
+
 ## 재전송 요청
 
 - requestId: `owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969`
@@ -185,4 +190,5 @@
 - 빌드된 로컬 프로덕션 서버에서 HF71 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.34`, service worker `background-v091.js`, 정확 인접 라벨 우선·3열 화면 순서 fallback·제한 진단·goodsKey 직렬 처리·마켓 최종완료 불필요를 확인했다. ZIP은 208,976 byte, SHA-256은 `3EC56EF6DB19ADFD9CFF43AB5069FB9C92CCA991C13FA6BE8DF9C6E2212D485B`, background SHA-256은 `6116800db7793a79f5c11162e9222e8b642acb5772972daac5dbf8606b405fe3`다.
 - HF72+계획기 표적 회귀에는 같은 방식 14개 묶음, 혼합 방식 2묶음, 201개를 200+1로 나누기, 중복 거부, opener 없는 새 팝업·닫힌 중간 opener 수용, 기존·복수·살아 있는 무관 opener 거부, 각 묶음 결과 뒤 다음 묶음 계속, 과거 결과창의 다음 묶음 오인 방지, 접수 완료 처리창의 안전한 다음 묶음 인계, 미등록 처리창 차단, 과거 단일 묶음 관찰기의 조기 성공 차단, 축소 묶음 한도 유지를 포함한다.
 - HF72 직접 표적 회귀 17/17과 최근 HF57~HF72 영향 범위 74/74, TypeScript, 변경 파일 ESLint, `background-v092.js` 문법 검사와 프로덕션 빌드가 통과했다. 최신 Vercel 미리보기 검증 API는 200을 반환했고 ZIP 214,396 byte, manifest `0.6.35`, service worker `background-v092.js`, 방식별 최대 200개 묶음 전송, 새 팝업 소유권 복구, 접수 완료 팝업의 다음 묶음 인계와 후속 결과 오인 방지, 묶음별 처리중/결과 책임경계를 확인했다. background SHA-256은 `6fb3d33f623b966ad37dc3c4e4c013014d9815c8a429b8a1f4851e998e05c51a`, 실행 HF58 사전검사는 `fc15b04820f4e35b338dcae63437a613961240aa339ab1ef0066a762b5bbba11`, HF25 단일결과 감시기 차단 패치는 `07b9726b488ec0cdecff286c582d6503cc862551a2081a76b703e574bc0f6005`, 과거 결과이동 관찰기는 `7bc31138d4f2e8461ee29e5ac3c1c1ec97cf72f2786397294ed838e7ed68be7a`, 과거 처리화면 관찰기는 `2b613329a0b24772aa73e462ef4a43e41d77fa59ad10cdffe07b9c21278e05cf`, 현재 결과 관찰기는 `22f28d9a7f68ae5b8ba3054e2b335e028f16a2316d50c7808690b2170fa16d8c`다. 실제 Shopling 변경은 운영 배포·설치 뒤 사용자의 카나리에서 확인한다.
+- HF73 관련 회귀 95/95, TypeScript, 변경 파일 ESLint, 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 로컬 검증 API는 manifest `0.6.36`, 최대 200개 방식별 goods key 묶음, Shopling MAIN world의 정확한 옵션 라디오 선택·readback, 묶음당 전송 1회, 처리중/결과 화면 시작 책임 경계를 반환했다. 실제 ZIP은 215,645 byte, content SHA-256은 `f21510419488692655872fbd309cff0e1d977cc36c79e7d27fcb355ec138d3dc`, MAIN world SHA-256은 `126ee8f3c415256eabc436ad9d17f44d93e5267c69e969a33acb6e03f0e79f9b`다. 실제 Shopling 변경은 운영 배포·설치 뒤 사용자의 다옵션 1건 카나리에서 확인한다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.

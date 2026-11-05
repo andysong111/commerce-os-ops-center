@@ -103,9 +103,9 @@ test("HF69 package stays reproducible while HF70 becomes the current serial gate
   assert.match(route, /const VERSION = "0\.6\.32"/);
   assert.match(route, /LIVE_OPTION_COUNT_PER_GOODS_KEY/);
   assert.match(route, /SERIAL_ONE_AT_A_TIME/);
-  assert.match(page, /download-hf72/);
-  assert.match(page, /v0\.6\.35 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 35\]/);
+  assert.match(page, /download-hf73/);
+  assert.match(page, /v0\.6\.36 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 36\]/);
   new Function(background);
   new Function(ops);
 });

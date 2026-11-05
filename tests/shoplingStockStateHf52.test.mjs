@@ -20,7 +20,7 @@ test("HF52 packages the stale STARTING_FIRST recovery as v0.6.17", async () => {
   assert.match(background, /await loadLastResult\(\)/);
   assert.match(background, /const response = await start\(state\.jobs\[0\]\)/);
   assert.match(background, /shoplingMutationBeforeRecovery: false/);
-  assert.match(page, /download-hf72/);
+  assert.match(page, /download-hf73/);
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 35\]/);
 });
 
