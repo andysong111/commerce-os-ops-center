@@ -101,9 +101,22 @@ function supplierPageKey(value: string) {
     const offerFromPath = url.pathname.match(/\/offer\/(\d+)/i)?.[1];
     const offerId = offerFromPath || url.searchParams.get("offerId") || "";
     if (offerId) return `1688-${offerId}`;
+    const taobaoItemId = /(^|\.)taobao\.com$/i.test(url.hostname)
+      ? url.searchParams.get("id") || ""
+      : "";
+    if (taobaoItemId) return `taobao-${taobaoItemId}`;
     return `${url.hostname.toLowerCase()}${url.pathname.replace(/\/$/, "")}`;
   } catch {
     return "";
+  }
+}
+
+function supplierLinkLabel(value: string) {
+  try {
+    const hostname = new URL(value.trim()).hostname.toLowerCase();
+    return /(^|\.)taobao\.com$/.test(hostname) ? "타오바오 열기" : "1688 열기";
+  } catch {
+    return "중국 링크 열기";
   }
 }
 
@@ -605,7 +618,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
           {
             method: "POST",
             headers: { "content-type": "application/json", accept: "application/json" },
-            body: JSON.stringify(payload(nextDraft)),
+            // The first save response can still be hydrated from the previous
+            // tracker metadata. Sync the operator's exact client-side values so
+            // Taobao/1688 query identifiers are not replaced by stale links.
+            body: JSON.stringify(payload()),
             credentials: "same-origin",
             cache: "no-store",
           },
@@ -1309,8 +1325,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                     </td>
                     <td className="px-2 py-2" style={stickyCellStyle(2, freezeThrough)}>
                       <div className="flex items-center gap-2">
-                        <Input value={line.supplierLink} type="url" disabled={!editable} required={!linkValid} placeholder="https://detail.1688.com/offer/..." onChange={(value) => updateModelSupplierLink(line, value)} mono />
-                        {linkValid ? <a href={line.supplierLink} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-emerald-300 bg-white px-2.5 py-2 font-black text-emerald-800 hover:bg-emerald-50">1688 열기</a> : null}
+                        <Input value={line.supplierLink} type="url" disabled={!editable} required={!linkValid} placeholder="https://detail.1688.com/offer/... 또는 https://item.taobao.com/item.htm?id=..." onChange={(value) => updateModelSupplierLink(line, value)} mono />
+                        {linkValid ? <a href={line.supplierLink} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-emerald-300 bg-white px-2.5 py-2 font-black text-emerald-800 hover:bg-emerald-50">{supplierLinkLabel(line.supplierLink)}</a> : null}
                       </div>
                       <span className="mt-1 block text-[10px] font-bold text-indigo-700">같은 모델 모든 B-code에 공통 적용 · 저장 시 상품출시 1번 링크로 역저장</span>
                     </td>

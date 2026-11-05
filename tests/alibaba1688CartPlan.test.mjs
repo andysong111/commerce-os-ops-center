@@ -5,6 +5,7 @@ import {
   buildDraftLinesFrom1688Checkout,
   normalize1688OptionName,
   parse1688OfferLink,
+  parseTaobaoItemLink,
   plan1688CartReconciliation,
   split1688OptionNames,
 } from "../local-agent/src/alibaba1688-cart-plan.mjs";
@@ -46,6 +47,11 @@ test("1688 offer links and exact option names are normalized conservatively", ()
     url: "https://detail.1688.com/offer/660021847749.html",
   });
   assert.equal(parse1688OfferLink("https://example.com/offer/660021847749.html"), null);
+  assert.deepEqual(parseTaobaoItemLink("https://item.taobao.com/item.htm?abbucket=9&id=851333972135&skuId=5642910424014"), {
+    itemId: "851333972135",
+    url: "https://item.taobao.com/item.htm?id=851333972135",
+  });
+  assert.equal(parseTaobaoItemLink("https://item.taobao.com/item.htm"), null);
   assert.equal(normalize1688OptionName(" 紫色 ( 中文说明书 ) "), "紫色 ( 中文说明书 )");
   assert.equal(normalize1688OptionName("A302 蜡黄 / 小号"), "a302 蜡黄/小号");
   assert.deepEqual(split1688OptionNames("透明 精灵耳贴【硅胶】, 60贴袋装"), ["透明 精灵耳贴【硅胶】", "60贴袋装"]);
