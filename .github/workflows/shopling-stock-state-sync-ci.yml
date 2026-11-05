@@ -199,6 +199,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf73.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF74 grouped A21 assignment and proven MAIN-world list action
         run: node --experimental-strip-types --test tests/shoplingStockStateHf74.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF75 fresh A21 execution owner and exact query guard
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf75.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

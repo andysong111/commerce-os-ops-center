@@ -5,7 +5,8 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 37] as const;
+// Historical HF74 checkpoint: ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 37]
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 38] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
@@ -47,6 +48,8 @@ export function supportsAllDateStockSync(
  * diagnostics when the live Shopling layout still differs. HF72 keeps the
  * per-key classification but groups compatible goods keys into A21 batches of
  * at most 200 and completes each batch at Shopling's processing-screen boundary.
+ * HF75 gives each B-code execution a fresh A21 list worker and requires its
+ * owner marker and complete goods-key query before any stale rows can be used.
  */
 export function planShoplingStockLaunch<T extends StockLaunchJob>(
   jobs: readonly T[],

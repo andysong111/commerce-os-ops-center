@@ -196,4 +196,9 @@
   - 목록 버튼은 격리된 content-script world의 `element.click()`로만 눌렀다. 가격수정 경로는 이미 정확한 DOM 토큰을 붙인 뒤 Shopling MAIN world에서 실제 마우스 이벤트를 발생시키는 방식을 사용하고 있었지만 재고상태 목록 경로가 이를 재사용하지 않았다.
   - HF74는 호환 goods key 최대 200개를 하나의 A21 배정과 현재 배치에 보존한다. API가 확정한 `OPTION`/`SINGLE` 소유권을 묶음 배정에도 보존하고, 전송 직전 기존 결과 탭 ID를 묶음당 한 번 기록해 과거 탭을 이번 완료로 오인하지 않는다. 정확한 빨간 수정전송 후보 하나만 표식하고 MAIN world 브리지에서 실제 클릭하며, 0개·복수 후보는 fail-closed한다. 팝업의 옵션/상품상태 분기와 묶음별 처리중/결과 시작 책임경계는 변경하지 않는다.
   - HF48/HF49/HF72/HF74·계획기 영향 회귀 21/21과 전체 stock-state CI 회귀 186/186, TypeScript, 변경 파일 ESLint, `background-v093.js` 문법 검사, Webpack 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 로컬 검증 API와 228,050 byte 실제 ZIP을 확인했다. ZIP SHA-256은 `9ed9430d01ef8719c2b4618f7854e996b67a1efda37450c39ceb15075e2ac314`, background SHA-256은 `2cc34cebccc58c6a4fdc53ee9b15a2faa9866c3d79be436c807e811780f0e478`, canonical list SHA-256은 `61d30810404fcaef4d881e07195c9422a3c887492b58b4bcbb20ec0a10ff84eb`다. 실제 Shopling 변경은 운영 배포·설치 뒤 사용자의 한 B코드 카나리에서 확인한다.
+- v0.6.38/HF75 B코드별 새 A21 작업창·이전 검색결과 차단:
+  - HF74 실화면에서 이전 B코드의 goods key 14개/결과 64건이 남은 A21 목록 탭을 다음 `BBC4-3`이 계속 사용했다. 새 배정이 와도 탭·서비스워커 재사용 순서에 따라 이전 검색 행이 현재 B코드 행처럼 남아 있던 것이 직접 원인이다.
+  - B코드 실행마다 새 exact A21 팝업을 만들고, 같은 실행 안에서만 재사용한다. 작업 표식의 job/run/stage/OPTION·SINGLE/goods key 전체 목록과 화면 검색어 전체가 일치하기 전에는 행 선택과 수정전송 클릭을 금지한다.
+  - HF72~HF74의 최대 200개 호환 goods key 묶음, API 상태·수량 readback, 1옵션 쪼개기 상품 분기, Shopling 처리중/결과 화면 시작 책임 경계는 그대로다.
+  - HF74/HF75/계획기 표적 회귀 17/17, TypeScript, Webpack 프로덕션 빌드·124/124 정적 페이지 생성, 로컬 프로덕션 검증 API 200을 확인했다. 생성 ZIP은 240,642 byte, background SHA-256은 `2dbfb43e93db14f12b0ccb6f100c7094527ba4db588c09a47b468265c2ce2038`, canonical list SHA-256은 `21744b40a4c5c6e0655380cf99ba992d16e493fd472b8e7922ced3f90648ff23`다. 실 Shopling 카나리는 운영 배포·v0.6.38 설치 후 사용자가 실행한다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.

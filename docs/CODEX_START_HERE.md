@@ -134,6 +134,13 @@ As of 2026-10-25:
 - 묶음당 A21 검색·수정전송은 한 번만 수행한다. 팝업의 옵션/상품상태 분기, 실제 옵션 1개 쪼개기 상품의 상품상태 송신, API 상태·수량 readback, Shopling 처리중/결과 화면 시작을 Commerce OS 완료로 보는 책임 경계는 그대로 유지한다.
 - 수정 패키지는 HF74 `v0.6.37`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf74`다. HF48/HF49/HF72/HF74·계획기 영향 회귀 21/21과 전체 stock-state CI 회귀 186/186, TypeScript, 변경 파일 ESLint, `background-v093.js` 문법 검사와 Webpack 프로덕션 빌드(124/124 정적 페이지)가 통과했다. 로컬 프로덕션 검증 API는 묶음당 최대 200개 단일 배정·OPTION/SINGLE 소유권·전송 전 결과 탭 기준점·MAIN world 목록 버튼 클릭·묶음당 팝업 제출 1회를 반환했다. 실제 ZIP은 228,050 byte, ZIP SHA-256 `9ed9430d01ef8719c2b4618f7854e996b67a1efda37450c39ceb15075e2ac314`, background SHA-256 `2cc34cebccc58c6a4fdc53ee9b15a2faa9866c3d79be436c807e811780f0e478`, canonical list SHA-256 `61d30810404fcaef4d881e07195c9422a3c887492b58b4bcbb20ec0a10ff84eb`다. 실제 Shopling 변경은 운영 배포·설치 뒤 한 B코드 카나리에서 확인한다.
 
+### Shopling stock-state HF75 correction (2026-11-06)
+
+- HF74 실화면에서 이전 B코드가 검색한 goods key 14개와 결과 64건이 같은 A21 목록 탭에 남은 채 다음 `BBC4-3`이 배정됐다. 새 명령이 명확한 goods key 묶음을 가져도 구형 A21 작업자를 계속 재사용했고, 새로고침·서비스워커 재개 순서에 따라 이전 검색 결과를 현재 B코드 결과로 사용할 수 있던 것이 반복 정지의 직접 원인이다.
+- HF75는 B코드 실행마다 로그인 쿠키를 공유하는 **새 A21 전용 작업창 1개**를 만든다. 같은 B코드 실행 안에서만 그 창을 재사용하며, 다음 B코드는 새 창으로 격리한다. A21 목록은 `jobId + runId + stage + OPTION/SINGLE + goods key 전체 목록`으로 소유권을 표식하고, 현재 검색창의 쉼표 문자열이 요청 goods key 묶음과 정확히 일치할 때만 행 선택·빨간 `상품 수정전송`으로 진행한다. 이전 검색어나 소유권이 다르면 외부 쓰기 전에 중단한다.
+- HF72~HF74의 호환 goods key 최대 200개 묶음 전송, 실제 옵션 1개 쪼개기 상품의 상품상태 송신, API 상태·수량 readback, Shopling 처리중/결과 화면 시작을 Commerce OS 완료로 보는 책임 경계는 그대로다.
+- 수정 패키지는 HF75 `v0.6.38`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf75`다. HF74/HF75/계획기 표적 회귀 17/17, TypeScript, Webpack 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 로컬 프로덕션 검증 API는 200을 반환했고 ZIP 240,642 byte, background SHA-256 `2dbfb43e93db14f12b0ccb6f100c7094527ba4db588c09a47b468265c2ce2038`, canonical list SHA-256 `21744b40a4c5c6e0655380cf99ba992d16e493fd472b8e7922ced3f90648ff23`를 확인했다. 실제 Shopling 변경은 운영 배포·설치 뒤 사용자가 선택한 한 B코드 카나리로 확인한다.
+
 ## Handoff discipline
 
 After any major subsystem change, update the relevant persistent context instead of leaving the key decision only in chat.
