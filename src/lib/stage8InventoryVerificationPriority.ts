@@ -56,11 +56,13 @@ export type InventoryVerificationPriorityRow = {
   purchaseStatus: SalesOrderGroup;
   originalPurchaseStatus: string;
   demandTarget: number;
+  preGateRecommendedQty: number;
   entrySignals: string[];
   recommendedQty: number;
   originalRecommendedQty: number;
   moq: number;
   cartonQuantity: number;
+  planningUnitCostKrw: number;
   expectedCost: number;
   priorityScore: number;
   revenueQualifiedMonthCount: number;
@@ -375,6 +377,17 @@ export async function loadInventoryVerificationPriority(
         bandInventoryQuantity === null
           ? integer(inventory?.inventoryQuantity)
           : bandInventoryQuantity;
+      const preGateDemandTarget = integer(
+        product.preGateDemandTarget ?? product.forecastUnits,
+      );
+      const preGateBandInventoryQuantity = estimatedInventoryForStockBand(
+        preGateDemandTarget,
+        operatorStockBand,
+      );
+      const preGatePlanningInventoryQuantity =
+        preGateBandInventoryQuantity === null
+          ? integer(inventory?.inventoryQuantity)
+          : preGateBandInventoryQuantity;
       const openCommitment = integer(product.openCommitment);
       const recentReceipt = recentReceipts.receipts.get(key);
       const recentCycleReceivedQuantity = integer(recentReceipt?.quantity);
@@ -407,6 +420,26 @@ export async function loadInventoryVerificationPriority(
         moq,
         cartonQuantity,
       });
+      // The completed-month strategy gate can intentionally reduce the
+      // canonical demand target to zero. The read-only strategy lab also
+      // needs the explicit pre-gate strategy demand, but it must deduct the same
+      // inventory, open commitments and recent receipts before simulating a
+      // recovery strategy.
+      const preGateNet = calculateNetRequirement({
+        demandTarget: preGateDemandTarget,
+        originalGroup,
+        inventoryKnown: inventoryCalculationUsable,
+        availableQuantity: inventoryCalculationUsable
+          ? preGatePlanningInventoryQuantity
+          : 0,
+        reservedQuantity: 0,
+        incomingQuantity: 0,
+        ledgerCommitment:
+          openCommitment +
+          (recentReceiptCoverageApplied ? recentCycleReceivedQuantity : 0),
+        moq,
+        cartonQuantity,
+      });
       const purchaseStatus = net.group;
       const action =
         recentReceiptCoverageApplied &&
@@ -415,6 +448,18 @@ export async function loadInventoryVerificationPriority(
           ? ("RECENT_RECEIPT_COVERED" as const)
           : actionFor(inventory, now);
       const recommendedQty = net.recommendedQuantity;
+      // Preserve the canonical planning cost even when a completed-month gate
+      // reduces the saved recommendation to zero. The read-only strategy lab
+      // can then price a safely restored pre-gate quantity without treating it
+      // as a free item or silently filtering it out.
+      const planningUnitCostKrw = Math.max(
+        0,
+        integer(profile?.latestCostKrw),
+        integer(product.unitCost),
+        originalRecommendedQty > 0
+          ? Math.round(integer(product.expectedCost) / originalRecommendedQty)
+          : 0,
+      );
       const expectedCost = expectedCostForQuantity(
         product.expectedCost,
         originalRecommendedQty,
@@ -433,6 +478,7 @@ export async function loadInventoryVerificationPriority(
         purchaseStatus,
         originalPurchaseStatus: originalGroup,
         demandTarget,
+        preGateRecommendedQty: preGateNet.recommendedQuantity,
         entrySignals: Array.isArray(product.entrySignals)
           ? product.entrySignals.map((value) => text(value)).filter(Boolean)
           : [],
@@ -440,6 +486,7 @@ export async function loadInventoryVerificationPriority(
         originalRecommendedQty,
         moq,
         cartonQuantity,
+        planningUnitCostKrw,
         expectedCost,
         priorityScore: integer(product.score?.total),
         revenueQualifiedMonthCount: integer(

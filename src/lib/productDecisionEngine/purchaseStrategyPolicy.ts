@@ -168,6 +168,7 @@ export type PurchaseStrategyEvaluation = {
   priorityScoreAdjustment: number;
   highValueConsistentProduct: boolean;
   monthlyDemandUnits: number;
+  preGateGrossDemandTarget: number;
   grossDemandTarget: number;
   reasons: string[];
 };
@@ -690,9 +691,13 @@ export function evaluatePurchaseStrategy(
     !permanentlyDiscontinued &&
     history.heroProduct &&
     monthlyDemandUnits > 0;
-  const grossDemandTarget = recommended
-    ? Math.ceil(monthlyDemandUnits * automaticCoverageMonths)
-    : 0;
+  const preGateGrossDemandTarget =
+    monthlyDemandUnits > 0 &&
+    !(newProduct.newProduct && recent60DayUnits <= 0) &&
+    !permanentlyDiscontinued
+      ? Math.ceil(monthlyDemandUnits * automaticCoverageMonths)
+      : 0;
+  const grossDemandTarget = recommended ? preGateGrossDemandTarget : 0;
 
   if (history.qualifiedMonthCount > 0) {
     reasons.push(
@@ -747,6 +752,7 @@ export function evaluatePurchaseStrategy(
     priorityScoreAdjustment,
     highValueConsistentProduct,
     monthlyDemandUnits,
+    preGateGrossDemandTarget,
     grossDemandTarget,
     reasons: reasons.slice(0, 8),
   };

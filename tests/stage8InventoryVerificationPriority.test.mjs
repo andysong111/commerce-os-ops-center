@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [engine, page, verifiedCost] = await Promise.all([
+const [engine, page, verifiedCost, strategyLabPage, strategyLabEngine, liveAggregation] = await Promise.all([
   readFile("src/lib/stage8InventoryVerificationPriority.ts", "utf8"),
   readFile("src/app/stage8-inventory-verification-priority/page.tsx", "utf8"),
   readFile("src/lib/verifiedPurchaseCostEvidence.ts", "utf8"),
+  readFile("src/app/purchase-strategy-lab/page.tsx", "utf8"),
+  readFile("src/lib/purchaseStrategyLab.ts", "utf8"),
+  readFile("src/lib/shopling/shoplingLiveAggregation.ts", "utf8"),
 ]);
 
 test("provisional inventory readiness is read only and joins canonical demand to Product Master inventory and planning", () => {
@@ -47,6 +50,60 @@ test("provisional quantity, open commitment and unreflected prior-cycle receipts
   assert.match(engine, /cartonQuantity:/);
   assert.match(page, /기존 gross 권장수량에서 현재 PROVISIONAL 수량과 중국 미입고 약정을 반영해 참고용 권장수량은 계산/);
   assert.match(page, /별도 안전증거 없이는 실제 Draft 실행대상이 아닙니다/);
+});
+
+test("pre-gate strategy recovery recalculates stock-band inventory against the same pre-gate demand target", () => {
+  assert.match(
+    engine,
+    /const preGateDemandTarget = integer\(\s*product\.preGateDemandTarget \?\? product\.forecastUnits,\s*\)/,
+  );
+  assert.match(
+    engine,
+    /const preGateBandInventoryQuantity = estimatedInventoryForStockBand\(\s*preGateDemandTarget,\s*operatorStockBand,\s*\)/,
+  );
+  assert.match(
+    engine,
+    /const preGatePlanningInventoryQuantity =\s*preGateBandInventoryQuantity === null\s*\? integer\(inventory\?\.inventoryQuantity\)\s*: preGateBandInventoryQuantity/,
+  );
+  assert.match(
+    engine,
+    /const preGateNet = calculateNetRequirement\(\{[\s\S]*?demandTarget: preGateDemandTarget,[\s\S]*?availableQuantity: inventoryCalculationUsable\s*\? preGatePlanningInventoryQuantity\s*: 0/,
+  );
+});
+
+test("pre-gate strategy recovery preserves canonical planning cost when the saved recommendation is zero", () => {
+  assert.match(liveAggregation, /unitCost: row\.input\.unitCost/);
+  assert.match(
+    liveAggregation,
+    /preGateDemandTarget: row\.sales\.preGateDemandTarget/,
+  );
+  assert.match(engine, /planningUnitCostKrw: number/);
+  assert.match(engine, /integer\(profile\?\.latestCostKrw\)/);
+  assert.match(engine, /integer\(product\.unitCost\)/);
+  assert.match(
+    engine,
+    /originalRecommendedQty > 0\s*\? Math\.round\(integer\(product\.expectedCost\) \/ originalRecommendedQty\)\s*: 0/,
+  );
+  assert.match(strategyLabPage, /resolvePurchaseStrategyLabUnitCost\(row\)/);
+  assert.match(strategyLabEngine, /source\.verifiedPurchaseCostReady === true/);
+  assert.match(strategyLabEngine, /source\.planningUnitCostKrw/);
+});
+
+test("strategy lab fails closed when the operating snapshot is blocked", () => {
+  assert.match(strategyLabPage, /if \(report\.state !== "READY"\)/);
+  assert.match(strategyLabPage, /dataMode: "BLOCKED"/);
+  assert.match(strategyLabPage, /rows: \[\]/);
+  assert.match(strategyLabPage, /snapshot\.dataMode === "BLOCKED"/);
+  assert.match(strategyLabPage, /전략 비교를 실행하지 않았습니다/);
+  assert.match(
+    strategyLabPage,
+    /isExpectedPurchaseStrategyLabReadinessError\(error\)/,
+  );
+  assert.match(
+    strategyLabPage,
+    /sourceState: PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED/,
+  );
+  assert.match(strategyLabPage, /운영 발주안은 변경되지 않았습니다/);
 });
 
 test("draft regeneration excludes all safe same-cycle RESERVED drafts before portfolio allocation", () => {

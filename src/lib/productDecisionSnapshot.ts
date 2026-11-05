@@ -44,6 +44,8 @@ export type ProductDecisionRow = {
   recommendedQty?: number;
   rawRecommendedQty?: number;
   forecastUnits?: number;
+  preGateDemandTarget?: number;
+  unitCost?: number;
   expectedCost?: number;
   estimatedStock?: number;
   openCommitment?: number;
@@ -187,6 +189,7 @@ export function buildProductDecisionSnapshot(
       const flags = safeJsonArray(item.flags_json);
       const calculation = safeJsonObject(evidence?.calculation_json);
       const order = record(calculation.order);
+      const strategy = record(order.strategy);
       const netRequirement = record(calculation.netRequirement);
       const demandTarget =
         nonnegativeNumber(netRequirement.demandTarget) ??
@@ -227,6 +230,12 @@ export function buildProductDecisionSnapshot(
         rawRecommendedQty: demandTarget,
         forecastUnits:
           nonnegativeNumber(order.forecastUnits || item.forecast_units) ?? 0,
+        preGateDemandTarget:
+          nonnegativeNumber(order.preGateDemandTarget) ??
+          nonnegativeNumber(strategy.preGateGrossDemandTarget) ??
+          nonnegativeNumber(order.forecastUnits) ??
+          nonnegativeNumber(item.forecast_units) ??
+          0,
         expectedCost: nonnegativeNumber(item.expected_cost) ?? 0,
         estimatedStock,
         openCommitment,

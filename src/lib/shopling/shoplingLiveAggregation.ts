@@ -1000,6 +1000,8 @@ export function buildLiveProductDecisionSnapshot(
         recommendedQty: row.finalQuantity,
         rawRecommendedQty: row.sales.rawRecommendedQuantity,
         forecastUnits: row.sales.forecastUnits,
+        preGateDemandTarget: row.sales.preGateDemandTarget,
+        unitCost: row.input.unitCost,
         expectedCost: row.expectedCost,
         estimatedStock: row.netRequirement.estimatedStock,
         openCommitment: row.netRequirement.openCommitment,
