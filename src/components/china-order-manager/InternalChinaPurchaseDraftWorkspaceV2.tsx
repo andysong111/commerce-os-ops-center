@@ -774,7 +774,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       setNotice("재고·수량·추가상품 변경을 먼저 한 번 재계산한 뒤 5-1 업무를 실행하세요.");
       return;
     }
-    if (calculations.budgetOverKrw > 0) {
+    if (mode === "cart-staging" && calculations.budgetOverKrw > 0) {
       setNotice(`현재 실제 위안단가 기준으로 상품대금 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과했습니다. 수량을 조정하고 재계산한 뒤 다시 진행하세요.`);
       return;
     }
@@ -901,7 +901,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <span className="mt-0.5 block text-[11px] text-emerald-700">실주문 원가 × 내부 주문 수수료율 {draft.internalOrderCostMultiplier.toFixed(2)}</span>
             </div>
             <a href="https://commerce-os-product-master.vercel.app/purchase-metadata" target="_blank" rel="noreferrer" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-800 hover:bg-slate-50">상품마스터 최신 원장</a>
-            <button type="button" onClick={() => void open1688Workflow("cost-capture")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation || missingStockBandCount > 0 || executionLineLimitExceeded} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하세요." : missingStockBandCount > 0 ? "모든 후보의 대략 재고를 고른 뒤 재계산하세요." : executionLineLimitExceeded ? `재계산 후 실제 주문 후보를 ${PURCHASE_DRAFT_EXECUTION_LINE_LIMIT}종 이하로 줄이세요.` : undefined} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "COST" ? "5-1 여는 중..." : "5-1 원가·운임 기록"}</button>
+            <button type="button" onClick={() => void open1688Workflow("cost-capture")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하거나 취소하세요." : "실제 위안단가·중국내 운임만 기록하며 주문·결제는 실행하지 않습니다."} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "COST" ? "5-1 여는 중..." : "5-1 원가·운임 기록"}</button>
             <button type="button" onClick={() => void open1688Workflow("cart-staging")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation || missingStockBandCount > 0 || executionLineLimitExceeded || calculations.budgetOverKrw > 0 || calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하세요." : missingStockBandCount > 0 || executionLineLimitExceeded ? "대략 재고 선택과 발주안 재계산을 먼저 마치세요." : calculations.budgetOverKrw > 0 ? "예산 초과를 먼저 해결하세요." : calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0 ? "5-1 원가·운임 기록과 중국옵션 확인을 먼저 마치세요." : undefined} className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "CART" ? "5-2 여는 중..." : "5-2 장바구니 담기"}</button>
             <button type="button" onClick={() => void saveDraft()} disabled={saving || draft.status !== "DRAFT"} className="rounded-xl border border-blue-300 bg-white px-4 py-2.5 text-sm font-black text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "양방향 저장 중..." : "발주초안 저장"}</button>
             <button type="button" onClick={() => void markOrdered()} disabled={ordering || draft.status !== "DRAFT" || requiredIssues.length > 0 || hasPendingRecalculation || calculations.budgetOverKrw > 0 || missingStockBandCount > 0 || executionLineLimitExceeded} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">{draft.status === "ORDERED" ? "실주문 기록완료" : ordering ? "기록 중..." : "1688 주문완료 후 기록"}</button>
@@ -912,7 +912,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         {draft.metadataWarnings.length ? <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">{draft.metadataWarnings.slice(0, 4).join(" · ")}</div> : null}
         {draft.status === "DRAFT" && missingStockBandCount > 0 ? (
           <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold leading-6 text-amber-950">
-            대략 재고를 아직 고르지 않은 상품이 {missingStockBandCount.toLocaleString("ko-KR")}종입니다. 이 상품의 현재 수량은 재고를 빼기 전 임시 추천치이므로 최종 발주수량이 아닙니다. 많음·보통·적음·품절 중 가까운 상태를 선택하고 한 번 재계산하세요.
+            대략 재고를 아직 고르지 않은 상품이 {missingStockBandCount.toLocaleString("ko-KR")}종입니다. 이 상품의 현재 수량은 재고를 빼기 전 임시 추천치이므로 최종 발주수량이 아닙니다. 실제 원가 확인을 위한 5-1 원가·운임 기록은 먼저 진행할 수 있습니다. 5-2 장바구니 담기 전에는 많음·보통·적음·품절 중 가까운 상태를 선택하고 한 번 재계산하세요.
           </div>
         ) : null}
 
