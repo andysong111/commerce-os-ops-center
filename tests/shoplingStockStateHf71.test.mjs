@@ -99,7 +99,7 @@ test("HF71 regression: adjacent labels and the proven three-column layout select
   new Function(main);
 });
 
-test("HF71 package advances the live gate without changing the serial goods-key responsibility boundary", async () => {
+test("HF71 historical package stays reproducible while HF72 advances the live gate", async () => {
   const [route, page, planner, operator, background, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf71/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
@@ -112,9 +112,9 @@ test("HF71 package advances the live gate without changing the serial goods-key 
   assert.match(route, /EXACT_ADJACENT_LABEL_THEN_GUARDED_THREE_COLUMN_GEOMETRY/);
   assert.match(route, /SERIAL_ONE_AT_A_TIME/);
   assert.match(route, /marketplaceCompletionRequired: false/);
-  assert.match(page, /download-hf71/);
-  assert.match(page, /v0\.6\.34 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 34\]/);
+  assert.match(page, /download-hf72/);
+  assert.match(page, /v0\.6\.35 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 35\]/);
   assert.doesNotMatch(operator, /v0\.6\.33/);
   assert.match(background, /importScripts\("background-v090\.js"\)/);
   assert.match(workflow, /shoplingStockStateHf71\.test\.mjs/);

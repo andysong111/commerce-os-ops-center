@@ -161,7 +161,7 @@ test("HF60 download route publishes v0.6.23 and nested owner-chain recovery", as
   assert.match(route, /const VERSION = "0\.6\.23"/);
   assert.match(route, /nestedResultOwnerChainAccepted: true/);
   assert.match(route, /marketplaceCompletionRequired: false/);
-  assert.match(page, /download-hf71/);
-  assert.match(page, /v0\.6\.34 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 34\]/);
+  assert.match(page, /download-hf72/);
+  assert.match(page, /v0\.6\.35 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 35\]/);
 });

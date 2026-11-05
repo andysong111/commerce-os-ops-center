@@ -110,6 +110,14 @@ As of 2026-10-25:
 - 수정 패키지는 HF71 `v0.6.34`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf71`이다. CI 고정 범위 168/168, HF68~HF71 표적 회귀 20/20, TypeScript, 변경 파일 ESLint, `background-v091.js` 문법 검사와 Webpack 프로덕션 빌드(124/124 정적 페이지)가 통과했다. 배포·설치 뒤 다옵션 1건에서 상단 `옵션송신`과 하단 옵션 전용 `선택`, Shopling 처리중/결과 화면 시작을 실운영 카나리로 확인해야 한다.
 - 빌드된 로컬 서버의 검증 응답과 실제 ZIP은 모두 208,976 byte였고 manifest `0.6.34`, service worker `background-v091.js`, ZIP SHA-256 `3EC56EF6DB19ADFD9CFF43AB5069FB9C92CCA991C13FA6BE8DF9C6E2212D485B`를 확인했다. 실제 Shopling 변경 카나리는 아직 실행하지 않았다.
 
+### Shopling stock-state HF72 correction (2026-11-05)
+
+- HF71 실화면에서 빨간 `상품 수정전송` 버튼은 실제로 눌렸고 설정 팝업도 열렸다. 실패 원인은 라디오 선택이 아니라, 현재 Shopling이 새 팝업의 `openerTabId`를 비우거나 잠깐 존재했다가 닫히는 중간 창으로 기록하는 경우를 HF70의 엄격한 직접-opener 규칙이 거부한 데 있었다. 그 결과 팝업은 열렸지만 작업 배정 전에 종료되어 라디오가 움직이지 않았다.
+- HF72는 클릭 직전 팝업 기준선에 없고 주소가 정확히 일치하는 새 팝업이 **정확히 1개**일 때만 소유한다. 직접 opener가 맞거나 opener가 없거나 닫힌 중간 창인 경우는 허용하되, 살아 있는 다른 탭이 opener인 팝업·기존 팝업·복수 후보는 계속 거부한다. 배정된 팝업은 이후 결과 화면까지 같은 작업 소유자로 유지한다.
+- 한 B코드의 goods key는 전송 방식별로 모아 A21 검색·전송을 묶음 처리한다. `OPTION_SEND`끼리, `PRODUCT_SALE_STATUS_SEND`끼리 각각 최대 200개를 쉼표 검색해 한 번에 선택·전송하며 서로 다른 방식은 섞지 않는다. 논리 옵션의 1옵션 과거 쪼개기 상품은 계속 상품 판매상태 송신, 2옵션 이상은 옵션 송신, 논리 단품은 상품 판매상태 송신을 사용한다.
+- Shopling 처리중/결과 화면 시작은 한 묶음의 접수 증거다. 모든 묶음과 200개 초과 분할 묶음이 각각 이 경계에 도달해야 B코드 전체를 완료한다. 마켓별 최종 종결은 기다리지 않는다.
+- 수정 패키지는 HF72 `v0.6.35`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf72`다. 재고상태 회귀 172건, HF72 표적 회귀 13건, TypeScript, 변경 파일 ESLint, `background-v092.js` 문법 검사와 프로덕션 빌드(124/124 정적 페이지)가 통과했다. 빌드된 로컬 서버의 검증 응답과 실제 ZIP은 모두 213,915 byte였고 manifest `0.6.35`, service worker `background-v092.js`, ZIP SHA-256 `DB8ACCAC9E3E52F1D56800EB505EEE85DFE1F2C0EF822E3DC7B95C307ACA698E`를 확인했다. 실제 Shopling 변경 카나리는 배포·설치 뒤 사용자가 실행한다.
+
 ## Handoff discipline
 
 After any major subsystem change, update the relevant persistent context instead of leaving the key decision only in chat.
