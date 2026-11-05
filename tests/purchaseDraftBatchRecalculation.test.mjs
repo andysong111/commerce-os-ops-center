@@ -190,7 +190,7 @@ test("draft editor exposes persistent and final calculation actions and stages a
     "utf8",
   );
   assert.match(workspace, /재고상태 저장 후 발주안 재계산/);
-  assert.match(workspace, /대략 재고 \{stockBandUpdates\.length\}종 · 단종예정 \{discontinuedBarcodes\.length\}종 · 수량 변경 \{changedQuantityRows\.length\}종 · 수량 고정 해제 \{releasedQuantityOverrideBarcodes\.length\}종 · 제외 \{excludedBarcodes\.length\}종/);
+  assert.match(workspace, /대략 재고 \{stockBandUpdates\.length\}종 · 단종예정 \{discontinuedBarcodes\.length\}종 · 수량 변경 \{changedQuantityRows\.length\}종 · 수량 고정 해제 \{releasedQuantityOverrideBarcodes\.length\}종 · 제거 \{excludedBarcodes\.length\}종/);
   assert.match(workspace, /stockBandUpdates,/);
   assert.match(workspace, /많음/);
   assert.match(workspace, /보통/);
@@ -220,8 +220,8 @@ test("draft editor exposes persistent and final calculation actions and stages a
   assert.match(workspace, /!excludedBarcodes\.includes\(barcode\)[\s\S]*!discontinuedBarcodes\.includes\(barcode\)/);
   assert.doesNotMatch(workspace, /regenerateWithoutSelected|regenerateWithQuantityChanges/);
   assert.doesNotMatch(addition, /method: "POST"|postAdd\(/);
-  assert.match(addition, /재계산 전 원장 미변경/);
-  assert.match(addition, /사용자 고정수량/);
+  assert.match(addition, /저장 전 원장 미변경/);
+  assert.match(addition, /입력 수량 그대로/);
   assert.match(addition, /isPurchaseDraftQuantityUnit/);
   assert.match(addition, /min=\{5\}/);
   assert.match(addition, /max=\{9995\}/);
@@ -229,7 +229,7 @@ test("draft editor exposes persistent and final calculation actions and stages a
   assert.match(workspace, /stagedAdditions\.map\(\(row\) => \[row\.barcode, row\.targetQuantity\]\)/);
   assert.match(workspace, /사용자 고정수량의 예산을 먼저 확보/);
   assert.match(workspace, /data-persistent-recalculation-action/);
-  assert.match(workspace, /<InternalChinaManualDraftLineAdder[\s\S]*변경사항 저장 후 발주안 재계산/);
+  assert.match(workspace, /<InternalChinaManualDraftLineAdder[\s\S]*재계산 없이 변경 저장/);
 });
 
 test("draft guide explains the operator sequence and actual-price budget gate", async () => {

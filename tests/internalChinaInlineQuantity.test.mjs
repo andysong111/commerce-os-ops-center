@@ -130,14 +130,16 @@ test("optionless 1688 products can be marked as single item with one click", () 
   assert.match(workspace, /옵션 없음은 `단품`/);
 });
 
-test("draft products can be selected in bulk and regenerated with next-priority budget refill", () => {
+test("draft products can be selected in bulk, saved directly, and optionally recalculated", () => {
   assert.match(workspace, /const \[selectedRows, setSelectedRows\]/);
   assert.match(workspace, /const \[stagedExclusions, setStagedExclusions\]/);
   assert.match(workspace, /작업할 상품 전체 선택/);
   assert.match(workspace, /작업할 상품 선택/);
   assert.match(workspace, /선택 수량 5·10단위 맞춤/);
   assert.match(workspace, /선택 상품 초안에서 제외/);
-  assert.match(workspace, /체크만으로는 삭제되지 않으며/);
+  assert.match(workspace, /재계산 없이 변경 저장/);
+  assert.match(workspace, /\/direct-edits/);
+  assert.match(workspace, /excludedBarcodes/);
   assert.doesNotMatch(workspace, /제거할 상품 전체 선택/);
   assert.match(workspace, /재고상태 저장 후 발주안 재계산/);
   assert.match(workspace, /fetch\("\/api\/purchase-cycle\/preflight-draft\/recalculate"/);

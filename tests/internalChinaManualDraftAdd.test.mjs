@@ -63,7 +63,7 @@ test("manual addition search supports comma-separated model, product and B-code 
   assert.match(helper, /RESULT_LIMIT_MAX = 200/);
   assert.match(component, /B-code · 모델번호 · 모델명 · 상품명으로 여러 건 검색/);
   assert.match(component, /BBA2-2, AAA092, 토끼브로치/);
-  assert.match(component, /선택 완료 · 4단계 재계산으로 이동/);
+  assert.match(component, /선택 완료 · 4단계 변경 저장으로 이동/);
 });
 
 test("manual addition API is same-origin only and exposes search plus add", () => {
@@ -76,13 +76,13 @@ test("manual addition API is same-origin only and exposes search plus add", () =
   assert.doesNotMatch(route, /seoulCalendarMonth\(draft\.sourceUpdatedAt\)/);
 });
 
-test("draft page stages searchable B-code additions for the shared recalculation", () => {
+test("draft page stages searchable B-code additions for explicit direct save", () => {
   assert.match(page, /InternalChinaDraftBatchEditor/);
   assert.match(batchEditor, /InternalChinaPurchaseDraftWorkspaceV2/);
   assert.match(component, /주문품목 여러 건 검색/);
   assert.match(component, /다른 미입고/);
-  assert.match(component, /재계산 대기/);
-  assert.match(component, /재계산 전 원장 미변경/);
+  assert.match(component, /현재 발주안 추가 대기/);
+  assert.match(component, /저장 전 원장 미변경/);
   assert.doesNotMatch(component, /method: "POST"/);
   assert.doesNotMatch(component, /window\.location\.reload/);
 });

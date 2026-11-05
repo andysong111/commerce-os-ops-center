@@ -20,8 +20,8 @@ test("HF52 packages the stale STARTING_FIRST recovery as v0.6.17", async () => {
   assert.match(background, /await loadLastResult\(\)/);
   assert.match(background, /const response = await start\(state\.jobs\[0\]\)/);
   assert.match(background, /shoplingMutationBeforeRecovery: false/);
-  assert.match(page, /download-hf66/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 30\]/);
+  assert.match(page, /download-hf71/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 34\]/);
 });
 
 test("HF52 resumes exactly once only after STARTING_FIRST is stale and has no active or terminal owner", async () => {

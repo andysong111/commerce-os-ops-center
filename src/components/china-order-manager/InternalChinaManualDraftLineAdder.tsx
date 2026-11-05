@@ -151,7 +151,7 @@ export function InternalChinaManualDraftLineAdder({
     });
     onStagedAdditionsChange([...retained, ...additions]);
     setNotice(
-      `${additions.length}종을 사용자 고정수량으로 재계산 대기에 넣었습니다. 아래 4단계에서 최종 재계산하세요.`,
+      `${additions.length}종을 현재 발주안 추가 대기에 넣었습니다. 아래 4단계에서 재계산 없이 저장하세요.`,
     );
   }
 
@@ -169,7 +169,7 @@ export function InternalChinaManualDraftLineAdder({
       return;
     }
     onStagedAdditionsChange([...retained, { ...candidate, targetQuantity }]);
-    setNotice(`${barcode} ${targetQuantity.toLocaleString("ko-KR")}개를 사용자 고정수량으로 재계산 대기에 넣었습니다.`);
+    setNotice(`${barcode} ${targetQuantity.toLocaleString("ko-KR")}개를 현재 발주안 추가 대기에 넣었습니다.`);
   }
 
   function updateQuantity(candidate: ManualDraftCandidate, value: unknown) {
@@ -228,12 +228,12 @@ export function InternalChinaManualDraftLineAdder({
   function moveToRecalculate() {
     if (movingToRecalculate) return;
     setMovingToRecalculate(true);
-    setNotice("4단계 재계산 영역으로 이동 중입니다.");
+    setNotice("4단계 변경 저장 영역으로 이동 중입니다.");
     window.requestAnimationFrame(() => {
       const target = document.getElementById("purchase-draft-recalculate");
       if (!target) {
         setMovingToRecalculate(false);
-        setNotice("4단계 재계산 영역을 찾지 못했습니다. 화면을 새로고침한 뒤 다시 시도하세요.");
+        setNotice("4단계 변경 저장 영역을 찾지 못했습니다. 화면을 새로고침한 뒤 다시 시도하세요.");
         return;
       }
       const nextUrl = new URL(window.location.href);
@@ -243,7 +243,7 @@ export function InternalChinaManualDraftLineAdder({
       target.focus({ preventScroll: true });
       moveTimerRef.current = window.setTimeout(() => {
         setMovingToRecalculate(false);
-        setNotice("4단계로 이동했습니다. 파란 재계산 버튼을 눌러 대기 변경을 반영하세요.");
+        setNotice("4단계로 이동했습니다. 초록색 '재계산 없이 변경 저장' 버튼을 눌러 반영하세요.");
         moveTimerRef.current = null;
       }, 650);
     });
@@ -258,14 +258,14 @@ export function InternalChinaManualDraftLineAdder({
           </span>
           <h2 className="mt-1 text-xl font-black text-slate-950">주문품목 추가</h2>
           <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-700">
-            현재 Draft에 없는 상품을 검색해 체크하면 발주안 재계산 대기에 넣습니다. 입력한 수량은 사용자 고정수량으로 먼저 예산을 확보하며, 마지막 재계산 버튼을 누르기 전까지 기존 Draft와 주문·입고 원장은 바뀌지 않습니다.
+            현재 Draft에 없는 상품을 검색해 체크하면 현재 발주안 추가 대기에 넣습니다. 입력한 수량 그대로 저장하며 판매·재고 기준 전체 재계산은 실행하지 않습니다.
           </p>
           <p className="mt-1 max-w-5xl text-xs font-bold leading-5 text-amber-800">
-            고정수량을 반영하고 남은 예산을 자동 추천상품에 배분합니다. 고정수량만으로 한도를 넘으면 초안 교체를 막고 초과 이유를 보여줍니다.
+            아래 4단계의 초록색 저장 버튼을 누르기 전까지 기존 Draft와 주문·입고 원장은 바뀌지 않습니다.
           </p>
         </div>
         <span className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-black text-amber-800">
-          사용자 고정수량 · 재계산 전 원장 미변경
+          입력 수량 그대로 · 저장 전 원장 미변경
         </span>
       </div>
 
@@ -441,7 +441,7 @@ export function InternalChinaManualDraftLineAdder({
                     {movingToRecalculate ? (
                       <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
                     ) : null}
-                    {movingToRecalculate ? "4단계로 이동 중..." : "선택 완료 · 4단계 재계산으로 이동"}
+                    {movingToRecalculate ? "4단계로 이동 중..." : "선택 완료 · 4단계 변경 저장으로 이동"}
                   </button>
                 ) : null}
               </div>

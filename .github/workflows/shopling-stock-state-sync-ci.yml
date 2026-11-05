@@ -13,6 +13,7 @@ on:
       - "src/lib/shopling/shoplingBcodeIndex*.ts"
       - "src/lib/shopling/shoplingOptionStatus.ts"
       - "src/lib/shopling/shoplingProductStatus.ts"
+      - "src/lib/shopling/shoplingGoodsKeyTransmission.ts"
       - "src/lib/inventoryStockSalesTail.ts"
       - "src/lib/inventoryStockSalesTailCoverage.ts"
       - "src/lib/inventoryStockSyncResolution.ts"
@@ -53,6 +54,9 @@ on:
       - "tests/shoplingStockHf66PageChannel.test.mjs"
       - "tests/shoplingStockStateHf67.test.mjs"
       - "tests/shoplingStockStateHf68.test.mjs"
+      - "tests/shoplingStockStateHf69.test.mjs"
+      - "tests/shoplingStockStateHf70.test.mjs"
+      - "tests/shoplingStockStateHf71.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -108,6 +112,9 @@ jobs:
           && node --check public/shopling-stock-state-sync/content-ops-v022.js
           && node --check public/shopling-stock-state-sync/content-ops-v023.js
           && node --check public/shopling-stock-state-sync/background-v087.js
+          && node --check public/shopling-stock-state-sync/background-v089.js
+          && node --check public/shopling-stock-state-sync/background-v090.js
+          && node --check public/shopling-stock-state-sync/background-v091.js
           && node --check public/shopling-stock-state-sync/content-ops-preflight-v002.js
           && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
           && node --check public/shopling-stock-state-sync/price-core-content-a21-v025.js
@@ -174,7 +181,13 @@ jobs:
       - name: Regression - HF67 authenticated admin shell and owned A21 worker
         run: node --experimental-strip-types --test tests/shoplingStockStateHf67.test.mjs
       - name: Regression - HF68 current A21 option-send controls
-        run: node --experimental-strip-types --test tests/shoplingStockStateHf68.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf68.test.mjs
+      - name: Regression - HF69 per-goods-key option shape and proven A21 click path
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf69.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF70 exact popup ownership and cell-local A21 radio
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf70.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF71 adjacent-label and guarded three-column A21 radio
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf71.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

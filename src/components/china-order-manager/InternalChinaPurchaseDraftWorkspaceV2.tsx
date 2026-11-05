@@ -132,6 +132,18 @@ type DraftRecalculationResponse = DraftSaveResponse & {
   changedCount?: number;
 };
 
+type DraftDirectEditResponse = DraftSaveResponse & {
+  code?: string;
+  overrides?: Array<{
+    barcode: string;
+    targetQuantity: number;
+    savedAt: string;
+  }>;
+  addedCount?: number;
+  removedCount?: number;
+  changedCount?: number;
+};
+
 type MetadataSyncResponse = DraftSaveResponse & {
   productMasterSynced?: boolean;
   productMasterError?: string | null;
@@ -174,13 +186,14 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [stagedExclusions, setStagedExclusions] = useState<Record<string, boolean>>({});
   const [stagedDiscontinuations, setStagedDiscontinuations] = useState<Record<string, boolean>>({});
-  const [persistedQuantityOverrides] = useState<Record<string, number>>(
+  const [persistedQuantityOverrides, setPersistedQuantityOverrides] = useState<Record<string, number>>(
     () => Object.fromEntries(initialQuantityOverrides.map((row) => [row.barcode, row.targetQuantity])),
   );
   const [releasedQuantityOverrides, setReleasedQuantityOverrides] = useState<Record<string, boolean>>({});
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [stagedStockBands, setStagedStockBands] = useState<Record<string, InventoryStockBand>>({});
   const [pendingAutosaveReady, setPendingAutosaveReady] = useState(false);
+  const [savingDirectEdits, setSavingDirectEdits] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [automationPreparing, setAutomationPreparing] = useState<"COST" | "CART" | null>(null);
   const [productSearch, setProductSearch] = useState("");
@@ -706,21 +719,27 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       : line.quantity;
     return nearestPurchaseDraftQuantity(candidate) !== candidate;
   });
-  const hasPendingRecalculation =
+  const hasPendingDirectEdits =
     excludedBarcodes.length > 0 ||
     changedQuantityRows.length > 0 ||
+    stagedAdditions.length > 0;
+  const hasPendingRecalculation =
+    hasPendingDirectEdits ||
     releasedQuantityOverrideBarcodes.length > 0 ||
     stockBandUpdates.length > 0 ||
-    discontinuedBarcodes.length > 0 ||
-    stagedAdditions.length > 0;
+    discontinuedBarcodes.length > 0;
   const recalculationDisabled =
     draft.status !== "DRAFT" ||
     invalidQuantityBarcodes.length > 0 ||
-    regenerating;
+    regenerating ||
+    savingDirectEdits ||
+    hasPendingDirectEdits;
   const recalculationButtonLabel = regenerating
     ? "재고 저장·발주안 재계산 중..."
-    : hasPendingRecalculation
-      ? "변경사항 저장 후 발주안 재계산"
+    : hasPendingDirectEdits
+      ? "먼저 수동 변경 저장"
+      : hasPendingRecalculation
+        ? "재고 변경 저장 후 발주안 재계산"
       : "최신 추천으로 발주안 재계산";
 
   function stageStockBand(barcode: string, stockBand: InventoryStockBand) {
@@ -837,6 +856,67 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     );
   }
 
+  async function saveDirectEdits() {
+    if (
+      draft.status !== "DRAFT" ||
+      savingDirectEdits ||
+      regenerating ||
+      !hasPendingDirectEdits ||
+      invalidQuantityBarcodes.length > 0
+    ) return;
+    setSavingDirectEdits(true);
+    setNotice("상품 추가·제거·수량 변경을 재계산 없이 현재 발주안에 저장하고 있습니다.");
+    try {
+      const response = await fetch(
+        `/api/china-order-manager/drafts/${encodeURIComponent(draft.draftId)}/direct-edits`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+          body: JSON.stringify({
+            requestId: crypto.randomUUID(),
+            additions: stagedAdditions.map((row) => ({
+              barcode: row.barcode,
+              targetQuantity: row.targetQuantity,
+            })),
+            quantityChanges: changedQuantityRows,
+            excludedBarcodes,
+          }),
+        },
+      );
+      const body = (await response.json().catch(() => ({}))) as DraftDirectEditResponse;
+      if (!response.ok || !body.ok || !body.draft) {
+        throw new Error(body.message || `발주안 변경 저장 실패 · ${body.code || response.status}`);
+      }
+      const activeBarcodes = new Set(body.draft.lines.map((line) => line.barcode));
+      setPersistedQuantityOverrides(Object.fromEntries(
+        (body.overrides ?? [])
+          .filter((row) => row.targetQuantity > 0 && activeBarcodes.has(row.barcode))
+          .map((row) => [row.barcode, row.targetQuantity]),
+      ));
+      cartEvidenceRef.current = purchaseEvidenceSignature(body.draft);
+      setDraft(body.draft);
+      setEditedQuantities({});
+      setSelectedRows({});
+      setStagedExclusions({});
+      onStagedAdditionsChange([]);
+      setNotice(
+        body.message ||
+        `재계산 없이 상품 추가 ${body.addedCount ?? 0}종 · 제거 ${body.removedCount ?? 0}종 · 수량 변경 ${body.changedCount ?? 0}종을 저장했습니다.`,
+      );
+      router.refresh();
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "발주안 변경사항 저장에 실패했습니다. 현재 Draft는 다시 읽어 확인해야 합니다.",
+      );
+    } finally {
+      setSavingDirectEdits(false);
+    }
+  }
+
   async function recalculateDraft(
     sourceDraft = draft,
     automaticAfterCostCapture = false,
@@ -844,6 +924,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     if (
       sourceDraft.status !== "DRAFT" ||
       regenerating ||
+      savingDirectEdits ||
+      hasPendingDirectEdits ||
       invalidQuantityBarcodes.length > 0
     ) return;
     setRegenerating(true);
@@ -1251,13 +1333,13 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         onStagedDraftQuantityChange={stageQuantity}
       />
 
-      <section id="purchase-draft-recalculate" tabIndex={-1} aria-label="4단계 발주안 재계산" className={`scroll-mt-24 rounded-2xl border p-5 shadow-sm outline-none focus:ring-4 focus:ring-blue-200 ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
+      <section id="purchase-draft-recalculate" tabIndex={-1} aria-label="4단계 발주안 변경 저장과 재계산" className={`scroll-mt-24 rounded-2xl border p-5 shadow-sm outline-none focus:ring-4 focus:ring-blue-200 ${hasPendingRecalculation ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <span className="text-xs font-black tracking-[0.12em] text-blue-700">PURCHASE RUN · STEP 4</span>
-            <h2 className="mt-1 text-xl font-black text-slate-950">한 번에 발주안 재계산</h2>
+            <h2 className="mt-1 text-xl font-black text-slate-950">발주안 변경 저장 · 필요할 때만 재계산</h2>
             <p className="mt-2 text-xs font-bold leading-5 text-slate-700">
-              작업 선택 {selectedBarcodes.length}종 · 대략 재고 {stockBandUpdates.length}종 · 단종예정 {discontinuedBarcodes.length}종 · 수량 변경 {changedQuantityRows.length}종 · 수량 고정 해제 {releasedQuantityOverrideBarcodes.length}종 · 제외 {excludedBarcodes.length}종 · 사용자 고정 추가 {stagedAdditions.length}종입니다. 체크만으로는 삭제되지 않으며, 단종예정은 남은 재고 판매를 유지하되 현재와 이후 발주 후보에서 영구 제외합니다. 재계산 버튼을 누르기 전에는 기존 Draft와 원장이 바뀌지 않습니다.
+              작업 선택 {selectedBarcodes.length}종 · 대략 재고 {stockBandUpdates.length}종 · 단종예정 {discontinuedBarcodes.length}종 · 수량 변경 {changedQuantityRows.length}종 · 수량 고정 해제 {releasedQuantityOverrideBarcodes.length}종 · 제거 {excludedBarcodes.length}종 · 추가 {stagedAdditions.length}종입니다. 상품 추가·제거·수량 변경은 초록 버튼으로 현재 발주안에 그대로 저장하며 자동 추천 재계산은 실행하지 않습니다. 대략 재고·단종예정·수량 고정 해제만 파란 재계산 버튼으로 반영합니다.
             </p>
             {invalidQuantityBarcodes.length > 0 ? (
               <p className="mt-1 text-xs font-black text-rose-700">수량을 다시 입력할 상품: {invalidQuantityBarcodes.join(" · ")}</p>
@@ -1272,8 +1354,9 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <button type="button" onClick={releaseSelectedQuantityOverrides} disabled={draft.status !== "DRAFT" || selectedQuantityOverrideCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40">선택 수량 고정 해제 ({selectedQuantityOverrideCandidates.length}종)</button>
             <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">선택 해제</button>
             <button type="button" onClick={resetPendingRecalculation} disabled={!hasPendingRecalculation || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">대기 변경 취소</button>
+            <button type="button" onClick={() => void saveDirectEdits()} disabled={draft.status !== "DRAFT" || !hasPendingDirectEdits || invalidQuantityBarcodes.length > 0 || savingDirectEdits || regenerating} aria-busy={savingDirectEdits} aria-label="재계산 없이 상품 추가 제거 수량 변경 저장" className="min-h-11 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{savingDirectEdits ? "현재 발주안에 저장 중..." : `재계산 없이 변경 저장 (${stagedAdditions.length + excludedBarcodes.length + changedQuantityRows.length}종)`}</button>
             <button type="button" onClick={() => void recalculateDraft()} disabled={recalculationDisabled} aria-busy={regenerating} aria-label="변경사항 모아 발주안 재계산" data-action-label="변경사항 저장 후 발주안 재계산" title={hasPendingRecalculation ? "재고상태 저장 후 발주안 재계산" : "최신 추천으로 발주안 재계산"} className="min-h-11 rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">{recalculationButtonLabel}</button>
-            <p className="text-xs font-semibold text-emerald-700">재고·단종예정·수량·제외·추가 변경은 이 브라우저에 자동 임시저장되어 새로고침해도 복구됩니다.</p>
+            <p className="w-full text-xs font-semibold text-emerald-700">추가·제거·수량은 초록 버튼으로 확정 저장한 뒤에도 판매·재고 기준 전체 재계산을 하지 않습니다. 저장 전 대기 변경은 이 브라우저에 자동 임시저장됩니다.</p>
           </div>
         </div>
       </section>

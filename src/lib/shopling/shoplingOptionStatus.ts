@@ -25,6 +25,10 @@ export type ShoplingOptionVariant = {
   partnerOptionCode: string;
 };
 
+export type ShoplingBcodeGoodsKeyInspection = ShoplingOptionVariant & {
+  goodsOptionCount: number;
+};
+
 export type ShoplingOptionStatusApplyResult = {
   matchedGoodsKey: string;
   barcode: string;
@@ -357,7 +361,15 @@ export async function inspectShoplingBcodeOnGoodsKey(input: {
   }
   if (goodsKeys.length !== 1) throw new Error("SHOPLING_OPTION_GOODS_KEY_REQUIRED");
   const config = shoplingReadConfigFromEnv(input.env ?? process.env);
-  return exactVariant(await readVariants(config, goodsKeys), barcode);
+  const variants = await readVariants(config, goodsKeys);
+  const exact = exactVariant(variants, barcode);
+  const goodsOptionCount = variants.filter(
+    (variant) => variant.goodsKey === exact.goodsKey,
+  ).length;
+  if (goodsOptionCount < 1) {
+    throw new Error(`SHOPLING_GOODS_KEY_OPTION_COUNT_INVALID:${exact.goodsKey}:0`);
+  }
+  return { ...exact, goodsOptionCount } satisfies ShoplingBcodeGoodsKeyInspection;
 }
 
 export async function applyShoplingOptionStatus(input: {
