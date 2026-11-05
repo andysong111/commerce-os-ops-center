@@ -201,4 +201,9 @@
   - B코드 실행마다 새 exact A21 팝업을 만들고, 같은 실행 안에서만 재사용한다. 작업 표식의 job/run/stage/OPTION·SINGLE/goods key 전체 목록과 화면 검색어 전체가 일치하기 전에는 행 선택과 수정전송 클릭을 금지한다.
   - HF72~HF74의 최대 200개 호환 goods key 묶음, API 상태·수량 readback, 1옵션 쪼개기 상품 분기, Shopling 처리중/결과 화면 시작 책임 경계는 그대로다.
   - HF74/HF75/계획기 표적 회귀 17/17, TypeScript, Webpack 프로덕션 빌드·124/124 정적 페이지 생성, 로컬 프로덕션 검증 API 200을 확인했다. 생성 ZIP은 240,642 byte, background SHA-256은 `2dbfb43e93db14f12b0ccb6f100c7094527ba4db588c09a47b468265c2ce2038`, canonical list SHA-256은 `21744b40a4c5c6e0655380cf99ba992d16e493fd472b8e7922ced3f90648ff23`다. 실 Shopling 카나리는 운영 배포·v0.6.38 설치 후 사용자가 실행한다.
+- v0.6.39/HF76 준비 완료 접수증·단계 독립 소유권:
+  - HF75는 실제 A21 검색조건을 쓰기 전에 약한 접수 응답을 보냈고, 작업창 소유권에 진행 단계까지 포함해 `LIST_START → SEARCH_SUBMITTED` 전환만으로 같은 창을 다른 작업처럼 거부했다. 이것이 검색 반복·빈 작업창·수정전송 미실행의 직접 원인이다.
+  - HF76은 exact A21 창에 전체기간·샵플링상품코드·쇼핑몰별판매가·200행·정확 goods key 검색어를 준비한 뒤에만 owner/query/count/version을 포함한 강한 접수증을 보낸다. background는 이 접수증이 모두 일치하지 않으면 전송을 시작하지 않는다.
+  - 소유권은 B코드 실행 ID + 전송 방식 + goods key 묶음으로 고정하며 stage는 진행상태로만 취급한다. 새 A21 창은 최대 6초 준비를 기다린다. 최대 200개 goods key 묶음, API readback, 1옵션 쪼개기 분기와 Shopling 처리중/결과 시작 책임경계는 유지한다.
+  - 표적 회귀 22/22, TypeScript, ESLint, background 문법 검사와 실제 v0.6.38 부모 ZIP 기반 로컬 HTTP 검증이 통과했다. ZIP은 245,679 byte, background SHA-256은 `4861027dad450a62271ba5b534084a178522188ba849ad0285a9834bb43220fb`, canonical SHA-256은 `e1dfdd9bd84ace339e53e3471229cfd35df91fe9c1d7c716803fdafc14c4e36e`다. 세부 기록은 `docs/handoffs/shopling-stockout-hf76-20261106.md`에 있다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.

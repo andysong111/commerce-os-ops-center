@@ -6,7 +6,8 @@ type StockLaunchJob = {
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
 // Historical HF74 checkpoint: ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 37]
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 38] as const;
+// Historical HF75 checkpoint: ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 38]
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 39] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);

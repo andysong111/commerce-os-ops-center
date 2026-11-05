@@ -60,6 +60,8 @@ on:
       - "tests/shoplingStockStateHf72.test.mjs"
       - "tests/shoplingStockStateHf73.test.mjs"
       - "tests/shoplingStockStateHf74.test.mjs"
+      - "tests/shoplingStockStateHf75.test.mjs"
+      - "tests/shoplingStockStateHf76.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -120,6 +122,8 @@ jobs:
           && node --check public/shopling-stock-state-sync/background-v091.js
           && node --check public/shopling-stock-state-sync/background-v092.js
           && node --check public/shopling-stock-state-sync/background-v093.js
+          && node --check public/shopling-stock-state-sync/background-v094.js
+          && node --check public/shopling-stock-state-sync/background-v095.js
           && node --check public/shopling-stock-state-sync/content-ops-preflight-v002.js
           && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
           && node --check public/shopling-stock-state-sync/price-core-content-a21-v025.js
@@ -201,6 +205,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf74.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF75 fresh A21 execution owner and exact query guard
         run: node --experimental-strip-types --test tests/shoplingStockStateHf75.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF76 prepared A21 acknowledgement and stable execution owner
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf76.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary
