@@ -30,10 +30,10 @@ test("HF54 packages v0.6.19 with a bounded parallel read-only login preflight", 
   assert.match(background, /const PER_TAB_TIMEOUT_MS = 2_500/);
   assert.match(bridge, /STOCK_SYNC_SESSION_PREFLIGHT_HF54/);
   assert.match(bridge, /stockSyncChannel: "HF54"/);
-  assert.match(page, /download-hf70/);
-  assert.match(page, /v0\.6\.33 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 33\]/);
-  assert.match(preflight, /자동화 확장 v0\.6\.33 연결/);
+  assert.match(page, /download-hf71/);
+  assert.match(page, /v0\.6\.34 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 34\]/);
+  assert.match(preflight, /자동화 확장 v0\.6\.34 연결/);
 });
 
 async function runHf54Preflight({ tabCount, authenticatedTabId }) {

@@ -5,7 +5,7 @@ type StockLaunchJob = {
 };
 
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 33] as const;
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 34] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
@@ -42,7 +42,9 @@ export function supportsAllDateStockSync(
  * live option count and executes one goods key at a time, so an old one-option
  * split listing cannot be hidden inside an option batch. HF70 binds each A21
  * write to the fresh popup opened by the exact current list tab and rejects
- * shared-row radio-label matches.
+ * shared-row radio-label matches. HF71 restores the proven three-column top
+ * radio locator only after exact adjacent-label checks and records bounded
+ * diagnostics when the live Shopling layout still differs.
  */
 export function planShoplingStockLaunch<T extends StockLaunchJob>(
   jobs: readonly T[],
