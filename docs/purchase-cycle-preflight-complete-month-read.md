@@ -1,5 +1,18 @@
 # Monthly-spend scan completeness follow-up
 
+## Cost capture before final quantity trimming (2026-11-06)
+
+The operator may run step 5-1 to collect actual 1688 unit prices and domestic
+freight before every approximate-stock band is finalized and while the review
+Draft still contains more than the 100-SKU execution ceiling. This is necessary
+to trim products and quantities using real spend instead of estimated cost.
+
+Step 5-1 remains blocked while unsaved recalculation changes exist and still
+does not add to cart, submit an order, or pay. Step 5-2 and the ordered-record
+action continue to require completed approximate-stock review, recalculation,
+100 or fewer executable SKUs, required option/price evidence, and a budget-safe
+Draft.
+
 ## Exact sourcing selection and Draft-save parity (2026-11-01)
 
 A production replacement preview showed 89 lines / 6,165 units, but the saved
