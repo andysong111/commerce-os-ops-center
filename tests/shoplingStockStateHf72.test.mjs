@@ -552,9 +552,9 @@ test("HF72 package exposes grouped dispatch, current gate, and one canonical Sho
     [...main.matchAll(/window\.goods_mallMdfy_submit_sp\(\);/g)].length,
     1,
   );
-  assert.match(page, /download-hf72/);
-  assert.match(page, /v0\.6\.35 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 35\]/);
+  assert.match(page, /download-hf73/);
+  assert.match(page, /v0\.6\.36 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 36\]/);
   assert.match(workflow, /shoplingStockStateHf72\.test\.mjs/);
   new Function(background);
 });

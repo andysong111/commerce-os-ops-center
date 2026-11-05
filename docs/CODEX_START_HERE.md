@@ -120,6 +120,13 @@ As of 2026-10-25:
 - 첫 묶음 접수 뒤 Shopling 처리창이 `goods_mallMdfy_trsmt.phtml`에 계속 남아 있어도 닫지 않는다. 방금 접수 증거와 현재 claim 기록이 모두 가리키는 정확한 팝업 ID만 `접수 완료 창`으로 저장하고, 다음 묶음 사전검사에서 그 ID만 제외한다. 기록되지 않은 처리창·다른 작업창은 기존처럼 fail-closed이므로 과거 처리창 때문에 다음 묶음이 막히지 않으면서도 임의 창을 건너뛰지 않는다.
 - 수정 패키지는 HF72 `v0.6.35`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf72`다. HF72+계획기 표적 회귀 17/17, 최근 HF57~HF72 영향 범위 74/74, TypeScript, 변경 파일 ESLint, `background-v092.js` 문법 검사와 프로덕션 빌드가 통과했다. 최신 Vercel 미리보기의 실제 검증 API는 200을 반환했고 ZIP 214,396 byte, background SHA-256 `6fb3d33f623b966ad37dc3c4e4c013014d9815c8a429b8a1f4851e998e05c51a`, 실행 중인 HF58 사전검사 패치 SHA-256 `fc15b04820f4e35b338dcae63437a613961240aa339ab1ef0066a762b5bbba11`, HF25 단일결과 감시기 차단 패치 SHA-256 `07b9726b488ec0cdecff286c582d6503cc862551a2081a76b703e574bc0f6005`, 과거 결과이동 관찰기 SHA-256 `7bc31138d4f2e8461ee29e5ac3c1c1ec97cf72f2786397294ed838e7ed68be7a`, 과거 처리화면 관찰기 SHA-256 `2b613329a0b24772aa73e462ef4a43e41d77fa59ad10cdffe07b9c21278e05cf`, 현재 결과 관찰기 SHA-256 `22f28d9a7f68ae5b8ba3054e2b335e028f16a2316d50c7808690b2170fa16d8c`를 반환했다. 실제 Shopling 변경 카나리는 운영 배포·설치 뒤 사용자가 실행한다.
 
+### Shopling stock-state HF73 correction (2026-11-05)
+
+- HF72 실화면에서는 goods key 14개 묶음 검색과 설정 팝업 소유까지 성공했지만, 팝업이 계속 `일반내용수정`을 선택한 채 멈췄다. 확장프로그램 영역에서 실행한 첫 라디오 클릭이 구형 Shopling 본체 화면 상태에 남지 않았고, MAIN world는 선택을 직접 수행하지 않은 채 결과만 검사한 것이 직접 원인이다.
+- HF73은 팝업 안에서 상단 `옵션송신`과 하단 옵션 전용 `선택`을 각각 정확히 하나로 먼저 표식한다. 그 뒤 Shopling MAIN world에서 두 실제 radio input을 순서대로 직접 클릭하고 `input`·`change` 이벤트를 발생시킨 다음, 두 input의 `checked` 상태를 다시 읽는다. 하나라도 모호하거나 파란 선택 상태가 확인되지 않으면 빨간 전송 버튼을 누르지 않는다.
+- HF72의 전송 방식별 goods key 최대 200개 묶음, 묶음당 A21 검색·전송 1회, 실제 옵션 1개 쪼개기 상품의 상품상태 송신, API 상태·수량 readback, Shopling 처리중/결과 화면 시작을 책임 완료로 보는 경계는 그대로 유지한다.
+- 수정 패키지는 HF73 `v0.6.36`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf73`다. 관련 회귀 95/95, TypeScript, 변경 파일 ESLint, 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 로컬 검증 API와 실제 ZIP은 215,645 byte였고 content SHA-256 `f21510419488692655872fbd309cff0e1d977cc36c79e7d27fcb355ec138d3dc`, MAIN world SHA-256 `126ee8f3c415256eabc436ad9d17f44d93e5267c69e969a33acb6e03f0e79f9b`를 확인했다. 실 Shopling 변경은 운영 배포·설치 뒤 다옵션 1건 카나리에서 확인한다.
+
 ## Handoff discipline
 
 After any major subsystem change, update the relevant persistent context instead of leaving the key decision only in chat.

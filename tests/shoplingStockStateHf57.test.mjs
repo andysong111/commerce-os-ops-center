@@ -19,8 +19,8 @@ test("HF57 completes Commerce OS responsibility at exact Shopling result navigat
   assert.match(background, /const ACK_DELAY_MS = 25/);
   assert.match(route, /const VERSION = "0\.6\.20"/);
   assert.match(route, /SHOPLING_RESULT_NAVIGATION_ACCEPTED/);
-  assert.match(page, /download-hf72/);
-  assert.match(page, /v0\.6\.35 다운로드/);
+  assert.match(page, /download-hf73/);
+  assert.match(page, /v0\.6\.36 다운로드/);
 
   for (const source of [direct, queue]) {
     assert.doesNotMatch(source, /batch\.stopAfterBatch = true/);
