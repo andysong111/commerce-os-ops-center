@@ -4,6 +4,7 @@ import {
   buildDraftLinesFrom1688Checkout,
   normalize1688OptionName,
   parse1688OfferLink,
+  parseTaobaoItemLink,
   plan1688CartReconciliation,
 } from "./alibaba1688-cart-plan.mjs";
 import { createAlibaba1688CartBrowserAdapter } from "./alibaba1688-cart-browser-adapter.mjs";
@@ -53,9 +54,30 @@ function hasOfflinePreparationNote(value, offerId) {
 
 function preparationReasonLabel(reason) {
   if (reason === "SUPPLIER_LINK_MISSING") return "1688 링크 없음";
+  if (reason === "SUPPLIER_LINK_UNSUPPORTED") return "지원하지 않는 중국 공급처 링크";
   if (reason === "CHINA_OPTION_MISSING") return "중국 옵션 없음";
   if (reason === "OFFER_OFFLINE") return "1688 상품 판매중단";
   return "장바구니 준비 불가";
+}
+
+export function listAlibaba1688SeparateSupplierLines(draft) {
+  return (Array.isArray(draft?.lines) ? draft.lines : []).flatMap((line) => {
+    const item = parseTaobaoItemLink(line?.supplierLink);
+    if (!item) return [];
+    const chinaOption = String(line?.chinaOption || "").normalize("NFKC").trim();
+    const quantity = Number(line?.quantity);
+    return [{
+      barcode: String(line?.barcode || "").trim(),
+      modelNo: String(line?.modelNo || "").trim(),
+      platform: "TAOBAO",
+      itemId: item.itemId,
+      supplierLink: item.url,
+      chinaOption,
+      quantity: Number.isInteger(quantity) && quantity > 0 ? quantity : 0,
+      ready: Boolean(chinaOption) && Number.isInteger(quantity) && quantity > 0,
+      reason: chinaOption ? "SEPARATE_CART_REQUIRED" : "CHINA_OPTION_MISSING",
+    }];
+  });
 }
 
 export function annotateAlibaba1688PreparationStatus(lines, { unreadyLines = [], unavailableOffers = [], processedBarcodes = [] } = {}) {
@@ -176,19 +198,25 @@ export async function runAlibaba1688CartStaging(config, options = {}, dependenci
   try {
     await checkpoint("LOAD_DRAFT");
     const draft = await client.loadDraft(draftId);
+    const separateSupplierLines = listAlibaba1688SeparateSupplierLines(draft);
     const unreadyLines = draft.lines.flatMap((line) => {
+      if (parseTaobaoItemLink(line?.supplierLink)) return [];
       const offer = parse1688OfferLink(line?.supplierLink);
+      const supplierLink = String(line?.supplierLink || "").trim();
       const optionName = String(line?.chinaOption || "").normalize("NFKC").trim();
       const optionReady = Boolean(optionName)
         || line?.purchaseOptionSelection === "ANY_AVAILABLE"
         || (Array.isArray(line?.purchaseComponents) && line.purchaseComponents.length > 0);
-      const reason = !offer ? "SUPPLIER_LINK_MISSING" : !optionReady ? "CHINA_OPTION_MISSING" : "";
+      const reason = !offer
+        ? (supplierLink ? "SUPPLIER_LINK_UNSUPPORTED" : "SUPPLIER_LINK_MISSING")
+        : !optionReady ? "CHINA_OPTION_MISSING" : "";
       return reason ? [{
         barcode: String(line?.barcode || "").trim(),
         reason,
       }] : [];
     });
     audit.unreadyLines = unreadyLines;
+    audit.separateSupplierLines = separateSupplierLines;
     const unavailableOffers = [];
     const excludedOfferIds = new Set();
     let scopedDraft;
@@ -206,6 +234,7 @@ export async function runAlibaba1688CartStaging(config, options = {}, dependenci
         totalQuantity: uncheckedPlan.totalQuantity,
         canary: maxItems === 1,
         unreadyLines,
+        separateSupplierLines,
         unavailableOffers,
       });
       const offerIds = [...new Set(uncheckedPlan.items.map((item) => String(item.offerId || "")).filter(Boolean))];
@@ -233,6 +262,7 @@ export async function runAlibaba1688CartStaging(config, options = {}, dependenci
         totalQuantity: uncheckedPlan.totalQuantity,
         canary: maxItems === 1,
         unreadyLines,
+        separateSupplierLines,
         unavailableOffers,
         inspectedOfferCount: offerIds.filter((offerId) => inspectionCache.has(offerId)).length,
         offerCount: offerIds.length,
@@ -390,6 +420,7 @@ export async function runAlibaba1688CartStaging(config, options = {}, dependenci
       checkoutSummary,
       unavailableOffers,
       unreadyLines,
+      separateSupplierLines,
       savedAt: verifiedDraft.savedAt || null,
       cartReplacement,
     });

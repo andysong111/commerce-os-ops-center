@@ -54,6 +54,24 @@ export function parse1688OfferLink(value) {
   };
 }
 
+export function parseTaobaoItemLink(value) {
+  const source = text(value);
+  let parsed;
+  try {
+    parsed = new URL(source);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || !/(^|\.)taobao\.com$/i.test(parsed.hostname)) return null;
+  if (!/^\/item\.htm$/i.test(parsed.pathname)) return null;
+  const itemId = text(parsed.searchParams.get("id"));
+  if (!/^\d+$/.test(itemId)) return null;
+  return {
+    itemId,
+    url: `https://item.taobao.com/item.htm?id=${itemId}`,
+  };
+}
+
 function normalizeInspection(inspection) {
   const options = Array.isArray(inspection?.options) ? inspection.options : [];
   return {

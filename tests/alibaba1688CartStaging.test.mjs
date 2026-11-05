@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   annotateAlibaba1688PreparationStatus,
+  listAlibaba1688SeparateSupplierLines,
   runAlibaba1688CartStaging,
 } from "../local-agent/src/alibaba1688-cart-staging.mjs";
 
@@ -242,6 +243,64 @@ test("full execution skips draft rows that still lack a supplier link or Chinese
     { barcode: "BAB2-1", reason: "CHINA_OPTION_MISSING" },
     { barcode: "BAB5-1", reason: "SUPPLIER_LINK_MISSING" },
   ]);
+});
+
+test("Taobao rows are preserved as a separate cart handoff instead of being reported as missing 1688 links", async () => {
+  const taobaoLines = [{
+    ...sourceDraft.lines[0],
+    barcode: "BCD8-1",
+    modelNo: "AAA365",
+    saleOption: "ps4",
+    chinaOption: "ps4专用白色",
+    supplierLink: "https://item.taobao.com/item.htm?abbucket=9&id=851333972135&skuId=5642910424014",
+    quantity: 60,
+  }, {
+    ...sourceDraft.lines[0],
+    barcode: "BCD8-2",
+    modelNo: "AAA365",
+    saleOption: "ps5",
+    chinaOption: "ps5白色款",
+    supplierLink: "https://item.taobao.com/item.htm?id=851333972135",
+    quantity: 60,
+  }];
+  const draft = { ...sourceDraft, lines: [...sourceDraft.lines, ...taobaoLines] };
+  let inspectedItems = null;
+  const result = await runAlibaba1688CartStaging(config(), { draftId, execute: false }, {
+    client: { loadDraft: async () => draft },
+    browser: successBrowser({
+      inspectOffers: async (items) => {
+        inspectedItems = items;
+        return [{ offerId: "660021847749", options: [{ name: "铜芯" }] }];
+      },
+      readCart: async () => [],
+    }),
+    writeAudit: async () => {},
+  });
+  assert.equal(inspectedItems.length, 1);
+  assert.equal(result.plan.lineCount, 1);
+  assert.deepEqual(result.audit.unreadyLines, []);
+  assert.deepEqual(result.audit.separateSupplierLines, [{
+    barcode: "BCD8-1",
+    modelNo: "AAA365",
+    platform: "TAOBAO",
+    itemId: "851333972135",
+    supplierLink: "https://item.taobao.com/item.htm?id=851333972135",
+    chinaOption: "ps4专用白色",
+    quantity: 60,
+    ready: true,
+    reason: "SEPARATE_CART_REQUIRED",
+  }, {
+    barcode: "BCD8-2",
+    modelNo: "AAA365",
+    platform: "TAOBAO",
+    itemId: "851333972135",
+    supplierLink: "https://item.taobao.com/item.htm?id=851333972135",
+    chinaOption: "ps5白色款",
+    quantity: 60,
+    ready: true,
+    reason: "SEPARATE_CART_REQUIRED",
+  }]);
+  assert.deepEqual(listAlibaba1688SeparateSupplierLines(draft), result.audit.separateSupplierLines);
 });
 
 test("preparation status preserves operator notes, marks unavailable rows, and clears a resolved marker", () => {
