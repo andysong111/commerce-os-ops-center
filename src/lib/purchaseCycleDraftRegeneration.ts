@@ -21,6 +21,7 @@ import {
   assertDraftCanBeRegenerated,
   buildManualDraftRevision,
   confirmedPurchaseDraftOperatorAdjustments,
+  hasExplicitPurchaseDraftOperatorAdjustmentSnapshot,
   isTrustedPurchaseDraftManualAddition,
   normalizePurchaseDraftOperatorAdjustments,
   PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION,
@@ -108,18 +109,25 @@ export async function loadPurchaseDraftOperatorAdjustments(
   }
   const snapshots = rows.map((row) => {
     const payload = object(row.latestPayload);
+    const hasAdjustmentSnapshot =
+      hasExplicitPurchaseDraftOperatorAdjustmentSnapshot(payload);
     return {
-      adjustments: {
-        excludedBarcodes: Array.isArray(payload.operatorExcludedBarcodes)
-          ? payload.operatorExcludedBarcodes.map(text)
-          : [],
-        quantityOverrides: Array.isArray(payload.operatorQuantityOverrides)
-          ? payload.operatorQuantityOverrides.map((value) => {
-              const item = object(value);
-              return { barcode: text(item.barcode), targetQuantity: quantity(item.targetQuantity) };
-            })
-          : [],
-      },
+      adjustments: hasAdjustmentSnapshot
+        ? {
+            excludedBarcodes: Array.isArray(payload.operatorExcludedBarcodes)
+              ? payload.operatorExcludedBarcodes.map(text)
+              : [],
+            quantityOverrides: Array.isArray(payload.operatorQuantityOverrides)
+              ? payload.operatorQuantityOverrides.map((value) => {
+                  const item = object(value);
+                  return {
+                    barcode: text(item.barcode),
+                    targetQuantity: quantity(item.targetQuantity),
+                  };
+                })
+              : [],
+          }
+        : null,
       lineBarcode: row.barcode,
       confirmedQuantityOverrideBarcodes: Array.isArray(
         payload.operatorConfirmedQuantityOverrideBarcodes,
