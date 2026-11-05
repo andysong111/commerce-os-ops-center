@@ -285,7 +285,14 @@ export function patchHf72ResultObserverSource(source: string) {
         .map(Number)
         .filter(Number.isInteger),
     );
-    if (resultBaseline.has(candidateTabId)) return null;`,
+    const acceptedPopupTabIds = new Set(
+      (Array.isArray(active?.stockStateAcceptedPopupTabIdsHf72)
+        ? active.stockStateAcceptedPopupTabIdsHf72
+        : [])
+        .map(Number)
+        .filter(Number.isInteger),
+    );
+    if (resultBaseline.has(candidateTabId) || acceptedPopupTabIds.has(candidateTabId)) return null;`,
     "hf72_reject_prior_batch_result_tab",
   );
   next = replaceOnce(

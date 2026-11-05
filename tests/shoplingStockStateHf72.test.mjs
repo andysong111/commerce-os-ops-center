@@ -316,7 +316,7 @@ test("HF72 accepts each claimed processing screen as one batch receipt, then con
   new Function(patched);
 });
 
-test("HF72 rejects a prior-batch direct result tab and accepts only a fresh current-batch result", async () => {
+test("HF72 rejects baseline and previously accepted popup results, then accepts only the fresh current-batch result", async () => {
   const base = await readFile(
     "public/shopling-stock-state-sync/background-v082.js",
     "utf8",
@@ -326,9 +326,10 @@ test("HF72 rejects a prior-batch direct result tab and accepts only a fresh curr
     "https://shopling.co.kr/prod_a/prod_status_trsmt.phtml?test=hf72";
   const tabs = new Map([
     [10, { id: 10, url: "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy.phtml" }],
-    [22, { id: 22, openerTabId: 10, url: "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml" }],
+    [22, { id: 22, openerTabId: 10, url: resultUrl }],
+    [23, { id: 23, openerTabId: 10, url: "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml" }],
     [31, { id: 31, openerTabId: 10, url: resultUrl }],
-    [32, { id: 32, openerTabId: 10, url: resultUrl }],
+    [32, { id: 32, openerTabId: 23, url: resultUrl }],
   ]);
   const active = {
     status: "RUNNING",
@@ -336,9 +337,10 @@ test("HF72 rejects a prior-batch direct result tab and accepts only a fresh curr
     stockStateGroupIndexHf72: 1,
     goodsKeyIndex: 0,
     shoplingResultBaselineTabIdsHf72: [31],
+    stockStateAcceptedPopupTabIdsHf72: [22],
     workTabs: {
       A21_LIST: { tabId: 10, frameId: 0 },
-      A21_POPUP: { tabId: 22, frameId: 0 },
+      A21_POPUP: { tabId: 23, frameId: 0 },
     },
     job: {
       jobId: "job-hf72-result-baseline",
@@ -397,6 +399,13 @@ test("HF72 rejects a prior-batch direct result tab and accepts only a fresh curr
     { tab: { id: 31 }, frameId: 0 },
   );
   assert.equal(stale.legacy, true);
+  assert.equal(continued, 0);
+
+  const delayedPriorPopupResult = await handleEvidence(
+    { evidence: { processing: true } },
+    { tab: { id: 22 }, frameId: 0 },
+  );
+  assert.equal(delayedPriorPopupResult.legacy, true);
   assert.equal(continued, 0);
 
   const fresh = await handleEvidence(

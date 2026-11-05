@@ -147,6 +147,7 @@ export async function GET(request: Request) {
     ["legacyProcessingObserver", legacyProcessingObserver, "stockStateTransmissionGroupsHf72"],
     ["resultObserver", resultObserver, "PERSISTED_CLAIMED_POPUP_HF72"],
     ["resultObserver", resultObserver, "shoplingResultBaselineTabIdsHf72"],
+    ["resultObserver", resultObserver, "stockStateAcceptedPopupTabIdsHf72"],
     ["resultObserver", resultObserver, "SHOPLING_PROCESSING_OR_RESULT_ACCEPTED_HF72"],
     ["resultObserver", resultObserver, "continueNextGoodsKey("],
   ];
@@ -197,8 +198,9 @@ export async function GET(request: Request) {
         popupOwnership:
           "UNIQUE_FRESH_EXACT_POPUP_WITH_DIRECT_MISSING_OR_CLOSED_INTERMEDIATE_OPENER",
         completionBoundary: "A21_PROCESSING_OR_RESULT_SCREEN_STARTED_PER_GROUP",
-        resultAcceptance: "CURRENT_GROUP_BATCH_RESULT_BASELINE",
-        acceptedPopupHandoff: "EXACT_ACCEPTED_POPUP_IGNORED_BY_NEXT_GROUP_PREFLIGHT",
+        resultAcceptance: "CURRENT_GROUP_BATCH_RESULT_BASELINE_AND_ACCEPTED_POPUP_EXCLUSION",
+        acceptedPopupHandoff:
+          "EXACT_ACCEPTED_POPUP_IGNORED_BY_NEXT_GROUP_PREFLIGHT_AND_RESULTS",
         legacySingleResultScanner: "DISABLED_FOR_GROUPED_JOBS",
         marketplaceCompletionRequired: false,
         liveShoplingVerificationRequired: true,
