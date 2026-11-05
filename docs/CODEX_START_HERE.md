@@ -127,6 +127,13 @@ As of 2026-10-25:
 - HF72의 전송 방식별 goods key 최대 200개 묶음, 묶음당 A21 검색·전송 1회, 실제 옵션 1개 쪼개기 상품의 상품상태 송신, API 상태·수량 readback, Shopling 처리중/결과 화면 시작을 책임 완료로 보는 경계는 그대로 유지한다.
 - 수정 패키지는 HF73 `v0.6.36`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf73`다. 관련 회귀 95/95, TypeScript, 변경 파일 ESLint, 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 로컬 검증 API와 실제 ZIP은 215,645 byte였고 content SHA-256 `f21510419488692655872fbd309cff0e1d977cc36c79e7d27fcb355ec138d3dc`, MAIN world SHA-256 `126ee8f3c415256eabc436ad9d17f44d93e5267c69e969a33acb6e03f0e79f9b`를 확인했다. 실 Shopling 변경은 운영 배포·설치 뒤 다옵션 1건 카나리에서 확인한다.
 
+### Shopling stock-state HF74 correction (2026-11-06)
+
+- HF73 실화면에서 A21 goods key 검색은 계속 반복됐지만 목록의 빨간 `상품 수정전송`은 눌리지 않았다. 직접 원인은 HF72가 만든 묶음을 구형 HF53/HF56 어댑터가 다시 현재 goods key 1개로 축소했고, 목록 작업기가 격리된 content-script world에서 첫 후보에 `.click()`만 호출한 것이다. 그래서 최대 200개 묶음 계약과 가격수정에서 검증된 실제 화면 클릭 방식이 모두 우회됐다.
+- HF74는 같은 전송 방식의 호환 goods key를 최대 200개까지 한 `A21_LIST_ASSIGNMENT`에 넣고, 전체 묶음을 현재 배치로 저장한다. 목록의 정확한 빨간 수정전송 후보는 하나만 DOM 토큰으로 표식하고, 가격수정과 같은 Shopling MAIN world 이벤트 브리지에서 실제 `mousedown`·`mouseup`·`click`을 발생시킨다. 후보가 없거나 복수이면 전송하지 않는다.
+- 묶음당 A21 검색·수정전송은 한 번만 수행한다. 팝업의 옵션/상품상태 분기, 실제 옵션 1개 쪼개기 상품의 상품상태 송신, API 상태·수량 readback, Shopling 처리중/결과 화면 시작을 Commerce OS 완료로 보는 책임 경계는 그대로 유지한다.
+- 수정 패키지는 HF74 `v0.6.37`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf74`다. HF74 영향 회귀 16/16, TypeScript, 변경 파일 ESLint, `background-v093.js` 문법 검사와 Webpack 프로덕션 빌드(124/124 정적 페이지)가 통과했다. 로컬 프로덕션 검증 API는 묶음당 최대 200개 단일 배정·MAIN world 목록 버튼 클릭·묶음당 팝업 제출 1회를 반환했다. 실제 ZIP은 227,705 byte, ZIP SHA-256 `C05089B2810A8D93921100BE616979678A572B929920995B333A05FD6E05AC51`, background SHA-256 `e03095babbe4fbda251037f933b97559e86bb5e353594133e67330a092e84629`, canonical list SHA-256 `61d30810404fcaef4d881e07195c9422a3c887492b58b4bcbb20ec0a10ff84eb`다. 실제 Shopling 변경은 운영 배포·설치 뒤 한 B코드 카나리에서 확인한다.
+
 ## Handoff discipline
 
 After any major subsystem change, update the relevant persistent context instead of leaving the key decision only in chat.

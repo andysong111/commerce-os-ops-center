@@ -127,9 +127,9 @@ test("HF73 download and operator gate expose v0.6.36 while preserving the HF72 g
   assert.match(route, /GROUPED_BY_TRANSMISSION_KIND_UP_TO_200/);
   assert.match(route, /ONE_PER_COMPATIBLE_GOODS_KEY_GROUP/);
   assert.match(route, /EXACT_SEMANTIC_RADIOS_SELECTED_AND_READ_BACK_IN_SHOPLING_MAIN_WORLD/);
-  assert.match(page, /download-hf73/);
-  assert.match(page, /v0\.6\.36 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 36\]/);
+  assert.match(page, /download-hf74/);
+  assert.match(page, /v0\.6\.37 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 37\]/);
   assert.match(background, /GROUP_BY_TRANSMISSION_KIND_UP_TO_200/);
   assert.match(workflow, /shoplingStockStateHf73\.test\.mjs/);
   new Function(background);
