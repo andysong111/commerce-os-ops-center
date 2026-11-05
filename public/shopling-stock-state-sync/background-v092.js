@@ -162,6 +162,31 @@ importScripts("background-v091.js");
     active.shoplingFrameId = active.workTabs?.A21_LIST?.frameId || null;
   }
 
+  function rememberAcceptedPopupV092(active, evidence) {
+    const acceptedPopupTabId = Number(evidence?.exactOwnerA21PopupTabId);
+    const claimedPopupTabIds = [
+      active?.workTabs?.A21_POPUP?.tabId,
+      active?.singlePopupTabId,
+    ]
+      .map(Number)
+      .filter(Number.isInteger);
+    if (
+      !Number.isInteger(acceptedPopupTabId) ||
+      !claimedPopupTabIds.includes(acceptedPopupTabId)
+    ) {
+      return null;
+    }
+    active.stockStateAcceptedPopupTabIdsHf72 = [
+      ...new Set([
+        ...(Array.isArray(active.stockStateAcceptedPopupTabIdsHf72)
+          ? active.stockStateAcceptedPopupTabIdsHf72
+          : []),
+        acceptedPopupTabId,
+      ]),
+    ];
+    return acceptedPopupTabId;
+  }
+
   async function ensureResultBaselineV092(active) {
     const batchKey = `${Number(active?.stockStateGroupIndexHf72 || 0)}:${Number(active?.goodsKeyIndex || 0)}`;
     if (active?.shoplingResultBaselineBatchKeyHf72 === batchKey) return;
@@ -292,12 +317,23 @@ importScripts("background-v091.js");
         }),
       };
     }
+    const acceptedPopupTabId = rememberAcceptedPopupV092(active, evidence);
+    if (!Number.isInteger(acceptedPopupTabId)) {
+      return {
+        ok: false,
+        result: await finish(active, "FAILED", "Shopling 처리화면은 확인했지만 현재 전송창 소유권을 다시 확인하지 못했습니다.", {
+          code: "SHOPLING_HF72_ACCEPTED_POPUP_IDENTITY_MISMATCH",
+          evidence,
+        }),
+      };
+    }
     active.stockStateGroupReceiptsHf72 = [
       ...(Array.isArray(active.stockStateGroupReceiptsHf72) ? active.stockStateGroupReceiptsHf72 : []),
       {
         transmissionKind: group.transmissionKind,
         goodsKeys: batch,
         acceptedAt: Date.now(),
+        acceptedPopupTabId,
         evidence,
       },
     ];

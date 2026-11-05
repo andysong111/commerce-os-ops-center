@@ -6,6 +6,7 @@ import {
   patchHf72LegacyProcessingObserverSource,
   patchHf72LegacyResultNavigationObserverSource,
   patchHf72OptionClaimSource,
+  patchHf72PopupPreflightSource,
   patchHf72ResultObserverSource,
   patchHf72SingleClaimSource,
 } from "@/lib/shoplingStockHf72Patch";
@@ -21,6 +22,7 @@ const BASE_BACKGROUND = "background-v091.js";
 const BACKGROUND = "background-v092.js";
 const OPTION_CLAIM = "background-v050.js";
 const SINGLE_CLAIM = "background-v059.js";
+const POPUP_PREFLIGHT = "background-v077.js";
 const LEGACY_RESULT_NAV_OBSERVER = "background-v079.js";
 const LEGACY_PROCESSING_OBSERVER = "background-v081.js";
 const RESULT_OBSERVER = "background-v082.js";
@@ -43,6 +45,7 @@ export async function GET(request: Request) {
     BASE_BACKGROUND,
     OPTION_CLAIM,
     SINGLE_CLAIM,
+    POPUP_PREFLIGHT,
     LEGACY_RESULT_NAV_OBSERVER,
     LEGACY_PROCESSING_OBSERVER,
     RESULT_OBSERVER,
@@ -75,6 +78,9 @@ export async function GET(request: Request) {
   const singleClaim = patchHf72SingleClaimSource(
     normalized(strFromU8(entries[SINGLE_CLAIM])),
   );
+  const popupPreflight = patchHf72PopupPreflightSource(
+    normalized(strFromU8(entries[POPUP_PREFLIGHT])),
+  );
   const legacyResultNavigationObserver =
     patchHf72LegacyResultNavigationObserverSource(
       normalized(strFromU8(entries[LEGACY_RESULT_NAV_OBSERVER])),
@@ -90,6 +96,7 @@ export async function GET(request: Request) {
     background,
     optionClaim,
     singleClaim,
+    popupPreflight,
     legacyResultNavigationObserver,
     legacyProcessingObserver,
     resultObserver,
@@ -100,6 +107,7 @@ export async function GET(request: Request) {
   entries[BACKGROUND] = strToU8(background);
   entries[OPTION_CLAIM] = strToU8(optionClaim);
   entries[SINGLE_CLAIM] = strToU8(singleClaim);
+  entries[POPUP_PREFLIGHT] = strToU8(popupPreflight);
   entries[LEGACY_RESULT_NAV_OBSERVER] = strToU8(legacyResultNavigationObserver);
   entries[LEGACY_PROCESSING_OBSERVER] = strToU8(legacyProcessingObserver);
   entries[RESULT_OBSERVER] = strToU8(resultObserver);
@@ -119,9 +127,12 @@ export async function GET(request: Request) {
     ["background", background, "stockStateTransmissionGroupsHf72"],
     ["background", background, "BATCH_MAX_V092 = 200"],
     ["background", background, "shoplingResultBaselineBatchKeyHf72"],
+    ["background", background, "stockStateAcceptedPopupTabIdsHf72"],
     ["optionClaim", optionClaim, "fresh.length !== 1"],
     ["optionClaim", optionClaim, "if (!opener) return true"],
     ["singleClaim", singleClaim, "fresh.length !== 1"],
+    ["popupPreflight", popupPreflight, "acceptedPopupTabIdsHf72"],
+    ["popupPreflight", popupPreflight, "EXACT_OPENER_TAB_WITH_ACCEPTED_HANDOFF_HF72"],
     ["legacyResultNavigationObserver", legacyResultNavigationObserver, "const groupedActive = await loadActive()"],
     ["legacyResultNavigationObserver", legacyResultNavigationObserver, "stockStateTransmissionGroupsHf72"],
     ["legacyProcessingObserver", legacyProcessingObserver, "stockStateTransmissionGroupsHf72"],
@@ -152,6 +163,7 @@ export async function GET(request: Request) {
       background,
       optionClaim,
       singleClaim,
+      popupPreflight,
       legacyResultNavigationObserver,
       legacyProcessingObserver,
       resultObserver,
@@ -176,6 +188,7 @@ export async function GET(request: Request) {
           "UNIQUE_FRESH_EXACT_POPUP_WITH_DIRECT_MISSING_OR_CLOSED_INTERMEDIATE_OPENER",
         completionBoundary: "A21_PROCESSING_OR_RESULT_SCREEN_STARTED_PER_GROUP",
         resultAcceptance: "CURRENT_GROUP_BATCH_RESULT_BASELINE",
+        acceptedPopupHandoff: "EXACT_ACCEPTED_POPUP_IGNORED_BY_NEXT_GROUP_PREFLIGHT",
         marketplaceCompletionRequired: false,
         liveShoplingVerificationRequired: true,
         ...hashes,

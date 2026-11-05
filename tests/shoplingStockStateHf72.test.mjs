@@ -6,6 +6,7 @@ import {
   patchHf72LegacyProcessingObserverSource,
   patchHf72LegacyResultNavigationObserverSource,
   patchHf72OptionClaimSource,
+  patchHf72PopupPreflightSource,
   patchHf72ResultObserverSource,
   patchHf72SingleClaimSource,
 } from "../src/lib/shoplingStockHf72Patch.ts";
@@ -13,6 +14,7 @@ import {
   patchHf70OptionClaimSource,
   patchHf70SingleClaimSource,
 } from "../src/lib/shoplingStockHf70Patch.ts";
+import { patchShoplingStockHf58PopupOwnership } from "../src/lib/shoplingStockHf58Patch.ts";
 
 function row(goodsKey, transmissionKind, optionCount) {
   return {
@@ -193,6 +195,108 @@ test("HF72 claims exactly one fresh popup after the proven red submit click even
   assert.equal(unrelatedLiveOwner.ok, false);
 });
 
+async function popupPreflightHandoffHf72({ acceptedPopupTabIds = [] } = {}) {
+  const base = await readFile(
+    "public/shopling-stock-state-sync/background-v077.js",
+    "utf8",
+  );
+  const source = patchHf72PopupPreflightSource(
+    patchShoplingStockHf58PopupOwnership(base),
+  );
+  const listeners = [];
+  const removed = [];
+  const processingPopup = {
+    id: 417,
+    openerTabId: 900,
+    url: "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml",
+  };
+  const active = {
+    status: "RUNNING",
+    stage: "A21_LIST",
+    workTabs: { A21_LIST: { tabId: 900, frameId: 0 } },
+    shoplingTabId: 900,
+    stockStateAcceptedPopupTabIdsHf72: acceptedPopupTabIds,
+    job: {
+      jobId: "job-hf72-popup-handoff",
+      barcode: "BBC4-3",
+      productKind: "SINGLE",
+    },
+  };
+  const chrome = {
+    runtime: {
+      getManifest: () => ({ version: "0.6.35" }),
+      onMessage: { addListener: (listener) => listeners.push(listener) },
+    },
+    tabs: {
+      query: async (query) => (query?.url ? [processingPopup] : []),
+      get: async (tabId) => (tabId === processingPopup.id ? processingPopup : null),
+      remove: async (tabId) => removed.push(tabId),
+    },
+    scripting: {
+      executeScript: async () => [
+        {
+          result: {
+            terminal: false,
+            processing: true,
+            staleMarker: false,
+            hasTransmitForm: false,
+            generalChecked: false,
+            mutationModeChecked: true,
+          },
+        },
+      ],
+    },
+  };
+  new Function(
+    "chrome",
+    "importScripts",
+    "setTimeout",
+    "loadActive",
+    "finish",
+    source,
+  )(
+    chrome,
+    () => {},
+    () => 1,
+    async () => active,
+    async () => null,
+  );
+  const response = await new Promise((resolve) => {
+    const asynchronous = listeners.at(-1)(
+      {
+        type: "A21_STALE_POPUP_PREFLIGHT_HF53",
+        jobId: active.job.jobId,
+      },
+      { tab: { id: 900 } },
+      resolve,
+    );
+    assert.equal(asynchronous, true);
+  });
+  return { response, removed, source };
+}
+
+test("HF72 hands the exact accepted processing popup across groups without closing it, while unknown processing popups still fail closed", async () => {
+  const accepted = await popupPreflightHandoffHf72({
+    acceptedPopupTabIds: [417],
+  });
+  assert.equal(accepted.response.ok, true);
+  assert.deepEqual(accepted.response.retiredAcceptedPopupTabIdsHf72, [417]);
+  assert.equal(
+    accepted.response.popupOwnershipScope,
+    "EXACT_OPENER_TAB_WITH_ACCEPTED_HANDOFF_HF72",
+  );
+  assert.deepEqual(accepted.removed, []);
+  assert.match(accepted.source, /acceptedPopupTabIdsHf72\.has\(tab\.id\)/);
+
+  const unknown = await popupPreflightHandoffHf72();
+  assert.equal(unknown.response.ok, false);
+  assert.equal(
+    unknown.response.code,
+    "A21_EXISTING_POPUP_NOT_SAFE_TO_CLOSE_HF53",
+  );
+  assert.deepEqual(unknown.removed, []);
+});
+
 test("HF72 accepts each claimed processing screen as one batch receipt, then continues instead of finishing the whole B-code early", async () => {
   const base = await readFile(
     "public/shopling-stock-state-sync/background-v082.js",
@@ -325,6 +429,8 @@ test("HF72 preserves a reduced batch limit during retry and resets it only for t
   );
   assert.match(source, /stockStatePreparedGroupIndexHf72/);
   assert.match(source, /shoplingResultBaselineBatchKeyHf72/);
+  assert.match(source, /stockStateAcceptedPopupTabIdsHf72/);
+  assert.match(source, /SHOPLING_HF72_ACCEPTED_POPUP_IDENTITY_MISMATCH/);
   assert.match(source, /RESULT_MATCH_V092/);
   assert.match(source, /if \(groupChanged\)/);
   assert.match(source, /start \+ limit/);

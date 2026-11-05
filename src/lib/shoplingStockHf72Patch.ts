@@ -194,6 +194,66 @@ export function patchHf72SingleClaimSource(source: string) {
   return replaceOnce(source, before, after, "hf72_single_fresh_popup_owner");
 }
 
+export function patchHf72PopupPreflightSource(source: string) {
+  let next = replaceOnce(
+    source,
+    `    const ignoredForeignPopupTabIds = allTabs
+      .filter((tab) => Number(tab?.openerTabId) !== ownerA21ListTabId)
+      .map((tab) => tab.id)
+      .filter(Number.isInteger);
+    const closedTabIds = [];`,
+    `    const ignoredForeignPopupTabIds = allTabs
+      .filter((tab) => Number(tab?.openerTabId) !== ownerA21ListTabId)
+      .map((tab) => tab.id)
+      .filter(Number.isInteger);
+    const acceptedPopupTabIdsHf72 = new Set(
+      (Array.isArray(active?.stockStateAcceptedPopupTabIdsHf72)
+        ? active.stockStateAcceptedPopupTabIdsHf72
+        : [])
+        .map(Number)
+        .filter(Number.isInteger),
+    );
+    const retiredAcceptedPopupTabIdsHf72 = tabs
+      .map((tab) => Number(tab?.id))
+      .filter((tabId) => Number.isInteger(tabId) && acceptedPopupTabIdsHf72.has(tabId));
+    const closedTabIds = [];`,
+    "hf72_popup_preflight_accepted_ids",
+  );
+  next = replaceOnce(
+    next,
+    `    for (const tab of tabs) {
+      if (!Number.isInteger(tab?.id)) continue;
+      const inspection = await inspectPopup(tab.id);`,
+    `    for (const tab of tabs) {
+      if (!Number.isInteger(tab?.id)) continue;
+      if (acceptedPopupTabIdsHf72.has(tab.id)) continue;
+      const inspection = await inspectPopup(tab.id);`,
+    "hf72_popup_preflight_skip_accepted",
+  );
+  next = replaceOnce(
+    next,
+    `    const remaining = remainingAll.filter(
+      (tab) => Number(tab?.openerTabId) === ownerA21ListTabId,
+    );`,
+    `    const remaining = remainingAll.filter(
+      (tab) =>
+        Number(tab?.openerTabId) === ownerA21ListTabId &&
+        !acceptedPopupTabIdsHf72.has(Number(tab?.id)),
+    );`,
+    "hf72_popup_preflight_ignore_accepted_remaining",
+  );
+  next = replaceOnce(
+    next,
+    `      ignoredForeignPopupTabIds,
+      popupOwnershipScope: "EXACT_OPENER_TAB_HF58",`,
+    `      ignoredForeignPopupTabIds,
+      retiredAcceptedPopupTabIdsHf72,
+      popupOwnershipScope: "EXACT_OPENER_TAB_WITH_ACCEPTED_HANDOFF_HF72",`,
+    "hf72_popup_preflight_receipt",
+  );
+  return next;
+}
+
 export function patchHf72ResultObserverSource(source: string) {
   let next = replaceOnce(
     source,
