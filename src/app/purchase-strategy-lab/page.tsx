@@ -9,6 +9,10 @@ import {
   PURCHASE_STRATEGY_LAB_SAMPLE_BUDGET_KRW,
   purchaseStrategyLabSampleRows,
 } from "@/lib/purchaseStrategyLabSample";
+import {
+  isExpectedPurchaseStrategyLabReadinessError,
+  PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED,
+} from "@/lib/purchaseStrategyLabReadiness";
 import { PurchaseStrategyLabClient } from "./PurchaseStrategyLabClient";
 
 export const dynamic = "force-dynamic";
@@ -36,13 +40,6 @@ type StrategyLabSnapshot = {
   sourceMessage: string | null;
   blockerKeys: string[];
 };
-
-function isExpectedLocalReadinessError(error: unknown) {
-  return (
-    error instanceof Error &&
-    error.message === "PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED"
-  );
-}
 
 async function loadStrategyLabSnapshot(
   requestedAsOf: string | null,
@@ -99,11 +96,21 @@ async function loadStrategyLabSnapshot(
       blockerKeys: [],
     };
   } catch (error) {
-    if (
-      process.env.NODE_ENV === "production" ||
-      !isExpectedLocalReadinessError(error)
-    ) {
+    if (!isExpectedPurchaseStrategyLabReadinessError(error)) {
       throw error;
+    }
+    if (process.env.NODE_ENV === "production") {
+      return {
+        rows: [],
+        defaultBudgetKrw: 0,
+        generatedAt: new Date().toISOString(),
+        sourceAsOf: requestedAsOf,
+        sourceState: PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED,
+        dataMode: "BLOCKED",
+        sourceMessage:
+          "상품마스터 읽기 연결이 준비되지 않아 전략 비교를 실행하지 않았습니다. 운영 발주안은 변경되지 않았습니다.",
+        blockerKeys: [PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED],
+      };
     }
     return {
       rows: purchaseStrategyLabSampleRows(),

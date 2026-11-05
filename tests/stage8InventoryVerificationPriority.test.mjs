@@ -95,6 +95,15 @@ test("strategy lab fails closed when the operating snapshot is blocked", () => {
   assert.match(strategyLabPage, /rows: \[\]/);
   assert.match(strategyLabPage, /snapshot\.dataMode === "BLOCKED"/);
   assert.match(strategyLabPage, /전략 비교를 실행하지 않았습니다/);
+  assert.match(
+    strategyLabPage,
+    /isExpectedPurchaseStrategyLabReadinessError\(error\)/,
+  );
+  assert.match(
+    strategyLabPage,
+    /sourceState: PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED/,
+  );
+  assert.match(strategyLabPage, /운영 발주안은 변경되지 않았습니다/);
 });
 
 test("draft regeneration excludes all safe same-cycle RESERVED drafts before portfolio allocation", () => {
