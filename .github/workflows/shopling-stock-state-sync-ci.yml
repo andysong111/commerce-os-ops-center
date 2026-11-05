@@ -58,6 +58,8 @@ on:
       - "tests/shoplingStockStateHf70.test.mjs"
       - "tests/shoplingStockStateHf71.test.mjs"
       - "tests/shoplingStockStateHf72.test.mjs"
+      - "tests/shoplingStockStateHf73.test.mjs"
+      - "tests/shoplingStockStateHf74.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -117,6 +119,7 @@ jobs:
           && node --check public/shopling-stock-state-sync/background-v090.js
           && node --check public/shopling-stock-state-sync/background-v091.js
           && node --check public/shopling-stock-state-sync/background-v092.js
+          && node --check public/shopling-stock-state-sync/background-v093.js
           && node --check public/shopling-stock-state-sync/content-ops-preflight-v002.js
           && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
           && node --check public/shopling-stock-state-sync/price-core-content-a21-v025.js
@@ -194,6 +197,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf72.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF73 Shopling MAIN-world option radio selection and readback
         run: node --experimental-strip-types --test tests/shoplingStockStateHf73.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF74 grouped A21 assignment and proven MAIN-world list action
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf74.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary
