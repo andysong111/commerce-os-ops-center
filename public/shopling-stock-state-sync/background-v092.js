@@ -116,14 +116,19 @@ importScripts("background-v091.js");
   function prepareCurrentGroupV092(active) {
     const group = currentGroupV092(active);
     if (!group || !Array.isArray(group.goodsKeys) || !group.goodsKeys.length) return false;
+    const groupIndex = Math.max(0, Number(active?.stockStateGroupIndexHf72 || 0));
+    const groupChanged = Number(active?.stockStatePreparedGroupIndexHf72) !== groupIndex;
     active.job.productKind = group.effectiveProductKind;
     active.job.goodsKeys = [...group.goodsKeys];
     active.job.currentTransmissionKind = group.transmissionKind;
     active.job.optionApiApplied = group.effectiveProductKind === "OPTION";
     active.job.productStatusApiApplied = group.effectiveProductKind === "SINGLE";
     active.job.currentGoodsOptionCount = Number(group.optionCounts?.[currentGoodsKey(active)] || 0);
-    active.optionBatchLimit = BATCH_MAX_V092;
-    active.singleBatchLimit = BATCH_MAX_V092;
+    if (groupChanged) {
+      active.optionBatchLimit = BATCH_MAX_V092;
+      active.singleBatchLimit = BATCH_MAX_V092;
+      active.stockStatePreparedGroupIndexHf72 = groupIndex;
+    }
     return Number(active.goodsKeyIndex || 0) < group.goodsKeys.length;
   }
 
@@ -156,8 +161,10 @@ importScripts("background-v091.js");
     const saved = option ? active?.optionCurrentBatchKeys : active?.singleCurrentBatchKeys;
     if (Array.isArray(saved) && saved.length) return [...saved];
     const start = Math.max(0, Number(active?.goodsKeyIndex || 0));
+    const configuredLimit = Number(option ? active?.optionBatchLimit : active?.singleBatchLimit);
+    const limit = Math.max(1, Math.min(BATCH_MAX_V092, Number.isFinite(configuredLimit) ? configuredLimit : BATCH_MAX_V092));
     return Array.isArray(active?.job?.goodsKeys)
-      ? active.job.goodsKeys.slice(start, start + BATCH_MAX_V092)
+      ? active.job.goodsKeys.slice(start, start + limit)
       : [];
   }
 
@@ -234,11 +241,14 @@ importScripts("background-v091.js");
     if (!prepareCurrentGroupV092(active)) return false;
     await saveActive(active);
     const group = currentGroupV092(active);
-    await progress(active, `${active.job.barcode} · ${group.effectiveProductKind === "OPTION" ? "옵션송신" : "상품판매상태송신"} goods key ${group.goodsKeys.length}건 중 ${Number(active.goodsKeyIndex || 0) + 1}번째부터 최대 ${BATCH_MAX_V092}건 일괄검색`, {
+    const configuredLimit = Number(group.effectiveProductKind === "OPTION" ? active.optionBatchLimit : active.singleBatchLimit);
+    const batchLimit = Math.max(1, Math.min(BATCH_MAX_V092, Number.isFinite(configuredLimit) ? configuredLimit : BATCH_MAX_V092));
+    await progress(active, `${active.job.barcode} · ${group.effectiveProductKind === "OPTION" ? "옵션송신" : "상품판매상태송신"} goods key ${group.goodsKeys.length}건 중 ${Number(active.goodsKeyIndex || 0) + 1}번째부터 최대 ${batchLimit}건 일괄검색`, {
       transmissionKind: group.transmissionKind,
       groupIndex: Number(active.stockStateGroupIndexHf72 || 0),
       groupCount: active.job.stockStateTransmissionGroupsHf72.length,
       groupedGoodsKeyDispatch: true,
+      batchLimit,
       extensionVersion: VERSION_V092,
     });
     return legacyDispatchCurrentV092(active, options);
@@ -276,10 +286,13 @@ importScripts("background-v091.js");
       active.goodsKeyIndex = nextStart;
       resetForNextBatchV092(active);
       await saveActive(active);
-      await progress(active, `${active.job.barcode} · ${group.transmissionKind} ${batch.length}건 전송 접수 확인 → 같은 묶음 다음 ${Math.min(BATCH_MAX_V092, group.goodsKeys.length - nextStart)}건 계속`, {
+      const configuredLimit = Number(group.effectiveProductKind === "OPTION" ? active.optionBatchLimit : active.singleBatchLimit);
+      const batchLimit = Math.max(1, Math.min(BATCH_MAX_V092, Number.isFinite(configuredLimit) ? configuredLimit : BATCH_MAX_V092));
+      await progress(active, `${active.job.barcode} · ${group.transmissionKind} ${batch.length}건 전송 접수 확인 → 같은 묶음 다음 ${Math.min(batchLimit, group.goodsKeys.length - nextStart)}건 계속`, {
         completedBatchKeys: batch,
         nextStart,
         groupGoodsKeyCount: group.goodsKeys.length,
+        batchLimit,
         commerceOsBoundary: "A21_PROCESSING_OR_RESULT_SCREEN_STARTED",
       });
       await sleep(350);

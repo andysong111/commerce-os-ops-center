@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   buildHf72TransmissionGroups,
+  patchHf72LegacyProcessingObserverSource,
+  patchHf72LegacyResultNavigationObserverSource,
   patchHf72OptionClaimSource,
   patchHf72ResultObserverSource,
   patchHf72SingleClaimSource,
@@ -208,6 +210,37 @@ test("HF72 accepts each claimed processing screen as one batch receipt, then con
   new Function(patched);
 });
 
+test("HF72 disables inherited terminal observers so the first compatible group cannot finish a mixed job", async () => {
+  const [navigationBase, processingBase] = await Promise.all([
+    readFile("public/shopling-stock-state-sync/background-v079.js", "utf8"),
+    readFile("public/shopling-stock-state-sync/background-v081.js", "utf8"),
+  ]);
+  const navigation = patchHf72LegacyResultNavigationObserverSource(navigationBase);
+  const processing = patchHf72LegacyProcessingObserverSource(processingBase);
+  for (const source of [navigation, processing]) {
+    assert.match(source, /stockStateTransmissionGroupsHf72/);
+    assert.match(source, /length > 0/);
+    new Function(source);
+  }
+  assert.match(navigation, /const groupedActive = await loadActive\(\)/);
+  assert.match(processing, /Array\.isArray\(active\?\.job\?\.stockStateTransmissionGroupsHf72\)/);
+});
+
+test("HF72 preserves a reduced batch limit during retry and resets it only for the next transmission group", async () => {
+  const source = await readFile(
+    "public/shopling-stock-state-sync/background-v092.js",
+    "utf8",
+  );
+  assert.match(source, /stockStatePreparedGroupIndexHf72/);
+  assert.match(source, /if \(groupChanged\)/);
+  assert.match(source, /start \+ limit/);
+  assert.doesNotMatch(
+    source,
+    /active\.optionBatchLimit = BATCH_MAX_V092;\s*active\.singleBatchLimit = BATCH_MAX_V092;\s*return Number/,
+  );
+  new Function(source);
+});
+
 test("HF72 package exposes grouped dispatch, current gate, and one canonical Shopling submit call", async () => {
   const [route, background, optionBatch, singleBatch, main, page, planner, workflow] =
     await Promise.all([
@@ -226,6 +259,9 @@ test("HF72 package exposes grouped dispatch, current gate, and one canonical Sho
   assert.match(background, /BATCH_MAX_V092 = 200/);
   assert.match(background, /stockStateTransmissionGroupsHf72/);
   assert.match(background, /stockStateAllGoodsKeysHf72/);
+  assert.match(background, /stockStatePreparedGroupIndexHf72/);
+  assert.match(route, /LEGACY_RESULT_NAV_OBSERVER/);
+  assert.match(route, /LEGACY_PROCESSING_OBSERVER/);
   assert.match(optionBatch, /goodsKeys: batch/);
   assert.match(singleBatch, /goodsKeys: batch/);
   assert.equal(

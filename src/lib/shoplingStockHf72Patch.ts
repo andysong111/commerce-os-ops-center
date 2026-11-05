@@ -296,3 +296,38 @@ export function patchHf72ResultObserverSource(source: string) {
   );
   return next;
 }
+
+export function patchHf72LegacyResultNavigationObserverSource(source: string) {
+  return replaceOnce(
+    source,
+    `  async function acknowledgeDispatch(trigger, tabId, rawUrl, windowId = null) {
+    if (!Number.isInteger(tabId) || !exactResultUrl(rawUrl)) return false;`,
+    `  async function acknowledgeDispatch(trigger, tabId, rawUrl, windowId = null) {
+    const groupedActive = await loadActive();
+    if (
+      Array.isArray(groupedActive?.job?.stockStateTransmissionGroupsHf72) &&
+      groupedActive.job.stockStateTransmissionGroupsHf72.length > 0
+    ) {
+      return false;
+    }
+    if (!Number.isInteger(tabId) || !exactResultUrl(rawUrl)) return false;`,
+    "hf72_disable_legacy_result_navigation_terminal_observer",
+  );
+}
+
+export function patchHf72LegacyProcessingObserverSource(source: string) {
+  return replaceOnce(
+    source,
+    `  async function acceptProcessingScreen(active, tabId, trigger, evidence = {}) {
+    if (`,
+    `  async function acceptProcessingScreen(active, tabId, trigger, evidence = {}) {
+    if (
+      Array.isArray(active?.job?.stockStateTransmissionGroupsHf72) &&
+      active.job.stockStateTransmissionGroupsHf72.length > 0
+    ) {
+      return false;
+    }
+    if (`,
+    "hf72_disable_legacy_processing_terminal_observer",
+  );
+}

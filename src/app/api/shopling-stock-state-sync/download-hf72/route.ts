@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
+  patchHf72LegacyProcessingObserverSource,
+  patchHf72LegacyResultNavigationObserverSource,
   patchHf72OptionClaimSource,
   patchHf72ResultObserverSource,
   patchHf72SingleClaimSource,
@@ -19,6 +21,8 @@ const BASE_BACKGROUND = "background-v091.js";
 const BACKGROUND = "background-v092.js";
 const OPTION_CLAIM = "background-v050.js";
 const SINGLE_CLAIM = "background-v059.js";
+const LEGACY_RESULT_NAV_OBSERVER = "background-v079.js";
+const LEGACY_PROCESSING_OBSERVER = "background-v081.js";
 const RESULT_OBSERVER = "background-v082.js";
 
 function normalized(source: string) {
@@ -39,6 +43,8 @@ export async function GET(request: Request) {
     BASE_BACKGROUND,
     OPTION_CLAIM,
     SINGLE_CLAIM,
+    LEGACY_RESULT_NAV_OBSERVER,
+    LEGACY_PROCESSING_OBSERVER,
     RESULT_OBSERVER,
   ]) {
     if (!entries[file]) throw new Error(`shopling_stock_hf72_base_file_missing:${file}`);
@@ -69,17 +75,33 @@ export async function GET(request: Request) {
   const singleClaim = patchHf72SingleClaimSource(
     normalized(strFromU8(entries[SINGLE_CLAIM])),
   );
+  const legacyResultNavigationObserver =
+    patchHf72LegacyResultNavigationObserverSource(
+      normalized(strFromU8(entries[LEGACY_RESULT_NAV_OBSERVER])),
+    );
+  const legacyProcessingObserver = patchHf72LegacyProcessingObserverSource(
+    normalized(strFromU8(entries[LEGACY_PROCESSING_OBSERVER])),
+  );
   const resultObserver = patchHf72ResultObserverSource(
     normalized(strFromU8(entries[RESULT_OBSERVER])),
   );
 
-  for (const source of [background, optionClaim, singleClaim, resultObserver]) {
+  for (const source of [
+    background,
+    optionClaim,
+    singleClaim,
+    legacyResultNavigationObserver,
+    legacyProcessingObserver,
+    resultObserver,
+  ]) {
     new Function(source);
   }
 
   entries[BACKGROUND] = strToU8(background);
   entries[OPTION_CLAIM] = strToU8(optionClaim);
   entries[SINGLE_CLAIM] = strToU8(singleClaim);
+  entries[LEGACY_RESULT_NAV_OBSERVER] = strToU8(legacyResultNavigationObserver);
+  entries[LEGACY_PROCESSING_OBSERVER] = strToU8(legacyProcessingObserver);
   entries[RESULT_OBSERVER] = strToU8(resultObserver);
 
   manifest.version = VERSION;
@@ -99,6 +121,9 @@ export async function GET(request: Request) {
     ["optionClaim", optionClaim, "fresh.length !== 1"],
     ["optionClaim", optionClaim, "if (!opener) return true"],
     ["singleClaim", singleClaim, "fresh.length !== 1"],
+    ["legacyResultNavigationObserver", legacyResultNavigationObserver, "const groupedActive = await loadActive()"],
+    ["legacyResultNavigationObserver", legacyResultNavigationObserver, "stockStateTransmissionGroupsHf72"],
+    ["legacyProcessingObserver", legacyProcessingObserver, "stockStateTransmissionGroupsHf72"],
     ["resultObserver", resultObserver, "PERSISTED_CLAIMED_POPUP_HF72"],
     ["resultObserver", resultObserver, "SHOPLING_PROCESSING_OR_RESULT_ACCEPTED_HF72"],
     ["resultObserver", resultObserver, "continueNextGoodsKey("],
@@ -121,7 +146,14 @@ export async function GET(request: Request) {
 
   const zip = zipSync(entries, { level: 9 });
   const hashes = Object.fromEntries(
-    Object.entries({ background, optionClaim, singleClaim, resultObserver }).map(
+    Object.entries({
+      background,
+      optionClaim,
+      singleClaim,
+      legacyResultNavigationObserver,
+      legacyProcessingObserver,
+      resultObserver,
+    }).map(
       ([key, source]) => [
         `${key}Sha256`,
         createHash("sha256").update(source).digest("hex"),
