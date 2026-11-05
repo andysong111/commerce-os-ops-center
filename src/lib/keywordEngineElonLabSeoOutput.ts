@@ -2,7 +2,12 @@ export const KEYWORD_ELON_SEO_SEARCH_LIMIT = 10;
 export const KEYWORD_ELON_SEO_TITLE_BYTE_LIMIT = 50;
 export const KEYWORD_ELON_SEO_MODEL_NAME_BYTE_LIMIT = 36;
 export const KEYWORD_ELON_SEO_SEARCH_TERM_BYTE_LIMIT = 30;
-export const KEYWORD_ELON_SEO_FORBIDDEN_TERMS = ["도매", "대량", "납품"] as const;
+export const KEYWORD_ELON_SEO_FORBIDDEN_TERMS = [
+  "도매",
+  "대량",
+  "납품",
+  "바이칸",
+] as const;
 export const KEYWORD_ELON_SEO_NOISE_TERMS = [
   "제조지",
   "원산지",

@@ -102,6 +102,26 @@ test("link-derived model name is included exactly once in all 29 mall titles", (
   }
 });
 
+test("바이칸 상표 키워드는 검색어와 쇼핑몰 상품명에서 공통 차단한다", () => {
+  assert.ok(KEYWORD_ELON_SEO_FORBIDDEN_TERMS.includes("바이칸"));
+
+  const trademarkCandidate = candidate("바이칸틈새브러쉬", 100, 100, 100000);
+  const rows = [trademarkCandidate, ...candidates];
+  const output = build({
+    candidates: rows,
+    allowedKeys: rows.map((row) => row.searchKey),
+  });
+
+  assert.equal(
+    output.commonSearchKeywords.some((keyword) => keyword.includes("바이칸")),
+    false,
+  );
+  assert.equal(
+    output.mallTitles.some((row) => row.title.includes("바이칸")),
+    false,
+  );
+});
+
 test("generic core product is upgraded with a specific STEP 4 keyword", () => {
   const rows = [
     candidate("콧볼축소", 98, 84, 6800, { specificity: 96 }),

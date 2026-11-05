@@ -143,6 +143,22 @@ test("코드형 최종키워드는 쇼핑몰별 상품명에 조용히 섞지 �
   );
 });
 
+test("바이칸 상표 키워드가 FINAL 경로를 우회해도 상품명 생성을 차단한다", () => {
+  assert.throws(
+    () =>
+      composeKeywordElonSafeMallTitles({
+        markets: PRODUCT_GROUP_MARKET_REGISTRY,
+        finalKeywords: ["청소솔", "바이칸틈새브러쉬", "틈새브러쉬"],
+        modelName: "세탁기 청소솔",
+        context: {
+          modelNumber: "AAA375",
+          productName: "세탁기 청소솔",
+        },
+      }),
+    /부적합 최종키워드: 바이칸틈새브러쉬/,
+  );
+});
+
 test("짧은 키워드는 실제 Shopling 카테고리 꼬리말로만 30바이트를 채운다", () => {
   const result = composeKeywordElonSafeMallTitles({
     markets: [PRODUCT_GROUP_MARKET_REGISTRY[0]],
