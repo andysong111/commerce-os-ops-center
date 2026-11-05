@@ -4,6 +4,14 @@ import test from "node:test";
 
 test("purchase draft exposes separate 5-1 cost capture and 5-2 cart staging actions", async () => {
   const source = await readFile("src/components/china-order-manager/InternalChinaPurchaseDraftWorkspaceV2.tsx", "utf8");
+  const costCaptureButton = source.match(
+    /<button type="button" onClick=\{\(\) => void open1688Workflow\("cost-capture"\)\}[\s\S]*?<\/button>/,
+  );
+  const cartStagingButton = source.match(
+    /<button type="button" onClick=\{\(\) => void open1688Workflow\("cart-staging"\)\}[\s\S]*?<\/button>/,
+  );
+  assert.ok(costCaptureButton, "5-1 cost capture button must remain present");
+  assert.ok(cartStagingButton, "5-2 cart staging button must remain present");
   assert.match(source, /persistDraft\(\{ quiet: true, syncMetadata: false \}\)/);
   assert.match(source, /if \(options\.syncMetadata !== false\) \{/);
   assert.match(source, /127\.0\.0\.1:43121\/\?draftId=/);
@@ -13,11 +21,14 @@ test("purchase draft exposes separate 5-1 cost capture and 5-2 cart staging acti
   assert.match(source, /실제 위안단가·중국내 운임을 모두 반영했습니다/);
   assert.match(source, /실제 원가와 예산으로 발주 우선순위·수량을 자동 재계산합니다/);
   assert.match(source, /5-1 원가·운임 기록/);
-  assert.match(source, /missingStockBandCount > 0/);
   assert.match(source, /상품 찾기/);
   assert.match(source, /AUTO_NEW_SOURCING/);
-  assert.match(source, /executionLineLimitExceeded/);
-  assert.match(source, /모든 후보의 대략 재고를 고른 뒤 재계산하세요/);
+  assert.doesNotMatch(costCaptureButton[0], /missingStockBandCount > 0/);
+  assert.doesNotMatch(costCaptureButton[0], /executionLineLimitExceeded/);
+  assert.match(cartStagingButton[0], /missingStockBandCount > 0/);
+  assert.match(cartStagingButton[0], /executionLineLimitExceeded/);
+  assert.match(source, /if \(mode === "cart-staging" && calculations\.budgetOverKrw > 0\)/);
+  assert.match(source, /5-1 원가·운임 기록은 먼저 진행할 수 있습니다/);
   assert.match(source, /5-2 장바구니 담기/);
   assert.match(source, /mode=\$\{mode\}/);
   assert.match(source, /"cost-capture" \| "cart-staging"/);
