@@ -436,6 +436,9 @@ test("browser automation recognizes order submission and payment controls as for
 test("browser adapter exposes checkout preview but no order submission or payment action", async () => {
   const source = await readFile("local-agent/src/alibaba1688-cart-browser-adapter.mjs", "utf8");
   assert.match(source, /readCheckoutPreview/);
+  assert.match(source, /async function clearCart\(\)/);
+  assert.match(source, /ALIBABA1688_CART_CLEAR_NOT_PERSISTED/);
+  assert.match(source, /emptyMarker/);
   assert.doesNotMatch(source, /submitCheckoutOrder|checkoutSubmitOrderProbe|paymentSelectionProbe/);
 });
 

@@ -34,6 +34,11 @@ test("local purchase automation exposes 5-1 and 5-2 without order submission", a
     assert.match(page, /5-1 원가·운임 기록/);
     assert.match(page, /textContent/);
     assert.doesNotMatch(page, /result\.innerHTML/);
+    assert.match(page, /"continue":""/);
+    assert.match(page, /if\(input\.continue==='1688-cart-staging'\)/);
+
+    const resumedPage = await fetch(`${origin}/?draftId=${encodeURIComponent(draftId)}&mode=cost-capture&continue=1688-cart-staging`).then((response) => response.text());
+    assert.match(resumedPage, /"continue":"1688-cart-staging"/);
 
     for (const mode of ["cost-capture", "cart-staging"]) {
       const response = await fetch(`${origin}/run`, {

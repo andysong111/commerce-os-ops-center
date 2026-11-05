@@ -14,7 +14,11 @@ test("purchase draft exposes separate 5-1 cost capture and 5-2 cart staging acti
   assert.ok(cartStagingButton, "5-2 cart staging button must remain present");
   assert.match(source, /persistDraft\(\{ quiet: true, syncMetadata: false \}\)/);
   assert.match(source, /if \(options\.syncMetadata !== false\) \{/);
-  assert.match(source, /127\.0\.0\.1:43121\/\?draftId=/);
+  assert.match(source, /new URL\("http:\/\/127\.0\.0\.1:43121\/"\)/);
+  assert.match(source, /url\.searchParams\.set\("draftId", draftId\)/);
+  assert.match(source, /url\.searchParams\.set\("mode", mode\)/);
+  assert.match(source, /url\.searchParams\.set\("continue", "1688-cart-staging"\)/);
+  assert.doesNotMatch(source, /window\.open\("about:blank"/);
   assert.match(source, /purchaseEvidenceSignature/);
   assert.match(source, /cartRefreshDeadlineRef/);
   assert.match(source, /visibilitychange/);
@@ -30,7 +34,7 @@ test("purchase draft exposes separate 5-1 cost capture and 5-2 cart staging acti
   assert.match(source, /if \(mode === "cart-staging" && calculations\.budgetOverKrw > 0\)/);
   assert.match(source, /5-1 원가·운임 기록은 먼저 진행할 수 있습니다/);
   assert.match(source, /5-2 장바구니 담기/);
-  assert.match(source, /mode=\$\{mode\}/);
+  assert.match(source, /local1688WorkflowUrl\(savedDraft\.draftId, mode, true\)/);
   assert.match(source, /"cost-capture" \| "cart-staging"/);
   assert.match(source, /주문 제출과 결제는 자동 실행하지 않습니다/);
   assert.doesNotMatch(source, /submitCheckoutOrder|paymentExecuted:\s*true/);
