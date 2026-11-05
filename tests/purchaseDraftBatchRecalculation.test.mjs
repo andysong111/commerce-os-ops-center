@@ -6,6 +6,7 @@ const { buildPurchaseDraftBatchRecalculationHref } = await import(
 );
 const {
   confirmedPurchaseDraftOperatorAdjustments,
+  hasExplicitPurchaseDraftOperatorAdjustmentSnapshot,
   mergePurchaseDraftOperatorAdjustments,
 } = await import(
   new URL("../src/lib/purchaseCycleDraftRegenerationCore.ts", import.meta.url)
@@ -87,6 +88,61 @@ test("v3 explicit manual pins survive while trusted manual additions stay fixed"
       { barcode: "BAC1-1", targetQuantity: 50 },
     ],
   });
+});
+
+test("direct manual additions without a global adjustment snapshot do not conflict", () => {
+  const adjustments = {
+    excludedBarcodes: ["BBE7-2"],
+    quantityOverrides: [{ barcode: "BGC3-1", targetQuantity: 500 }],
+  };
+
+  const confirmed = confirmedPurchaseDraftOperatorAdjustments([
+    {
+      adjustments,
+      lineBarcode: "BGC3-1",
+      confirmedQuantityOverrideBarcodes: ["BGC3-1"],
+      quantityOverrideProvenanceVersion: 3,
+    },
+    {
+      adjustments: null,
+      lineBarcode: "BDB1-3",
+      manualAddition: true,
+      manualAdditionProvenanceVersion: 2,
+    },
+  ]);
+
+  assert.deepEqual(confirmed, adjustments);
+});
+
+test("only explicit operator-adjustment fields create an authoritative snapshot", () => {
+  assert.equal(hasExplicitPurchaseDraftOperatorAdjustmentSnapshot({
+    manualAddition: true,
+    manualAdditionProvenanceVersion: 2,
+  }), false);
+  assert.equal(hasExplicitPurchaseDraftOperatorAdjustmentSnapshot({
+    operatorExcludedBarcodes: [],
+    operatorQuantityOverrides: [],
+  }), true);
+});
+
+test("conflicting explicit operator-adjustment snapshots still fail closed", () => {
+  assert.throws(
+    () => confirmedPurchaseDraftOperatorAdjustments([
+      {
+        adjustments: {
+          excludedBarcodes: [],
+          quantityOverrides: [],
+        },
+      },
+      {
+        adjustments: {
+          excludedBarcodes: ["BBE7-2"],
+          quantityOverrides: [],
+        },
+      },
+    ]),
+    /PURCHASE_DRAFT_OPERATOR_ADJUSTMENTS_CONFLICT/,
+  );
 });
 
 test("contaminated v2 quantity pins return to policy", () => {

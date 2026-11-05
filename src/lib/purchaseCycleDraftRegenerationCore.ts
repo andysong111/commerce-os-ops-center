@@ -37,6 +37,13 @@ export type PurchaseDraftOperatorAdjustmentSnapshot = {
   sourcingConfirmed?: boolean;
 };
 
+export function hasExplicitPurchaseDraftOperatorAdjustmentSnapshot(
+  payload: Record<string, unknown>,
+) {
+  return Object.prototype.hasOwnProperty.call(payload, "operatorExcludedBarcodes") ||
+    Object.prototype.hasOwnProperty.call(payload, "operatorQuantityOverrides");
+}
+
 // Version 2 could be written from a Draft whose displayed recommendation had
 // already been mistaken for an operator pin. That contaminated every line and
 // made later stock-band recalculation unable to lower or remove quantities.
@@ -101,10 +108,13 @@ export function normalizePurchaseDraftOperatorAdjustments(
 export function confirmedPurchaseDraftOperatorAdjustments(
   snapshots: PurchaseDraftOperatorAdjustmentSnapshot[],
 ): PurchaseDraftOperatorAdjustments {
-  if (snapshots.length < 1) {
+  const adjustmentSnapshots = snapshots.filter(
+    (snapshot) => snapshot.adjustments !== null && snapshot.adjustments !== undefined,
+  );
+  if (adjustmentSnapshots.length < 1) {
     return { excludedBarcodes: [], quantityOverrides: [] };
   }
-  const normalized = snapshots.map((snapshot) =>
+  const normalized = adjustmentSnapshots.map((snapshot) =>
     normalizePurchaseDraftOperatorAdjustments(snapshot.adjustments),
   );
   if (new Set(normalized.map((value) => JSON.stringify(value))).size > 1) {

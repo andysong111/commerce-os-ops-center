@@ -30,3 +30,10 @@
 - After deployment, use a non-ordered Draft to add one B-code, remove one existing B-code and change one quantity in a single save.
 - Refresh the page and verify the exact three results remain while the Draft ID is unchanged.
 - Do not use live order completion or payment for this check.
+
+## Production read regression and correction
+
+- A direct-edit row intentionally stores its own absolute quantity and manual-addition provenance, but it does not repeat the Draft-wide operator-adjustment snapshot.
+- The Draft page loader incorrectly converted that missing metadata into an explicit empty snapshot. Existing rows carried the real non-empty snapshot, so opening the Draft failed with `PURCHASE_DRAFT_OPERATOR_ADJUSTMENTS_CONFLICT` even though the saved quantities were valid.
+- Missing snapshot metadata is now ignored during Draft-wide consensus. An explicitly stored empty snapshot remains authoritative, and two different explicit snapshots still fail closed.
+- The correction is read-only: it does not rewrite the Draft ledger, recalculate quantities, place a 1688 order, or make a payment.
