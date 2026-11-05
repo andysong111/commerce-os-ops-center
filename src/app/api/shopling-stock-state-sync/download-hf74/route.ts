@@ -102,6 +102,9 @@ export async function GET(request: Request) {
   const guards: Array<[string, string, string]> = [
     ["background", background, 'importScripts("background-v092.js")'],
     ["background", background, "goodsKeys: batch"],
+    ["background", background, "stockProductKindHf48: group.effectiveProductKind"],
+    ["background", background, "await ensureResultBaselineV093(active)"],
+    ["background", background, "shoplingResultBaselineTabIdsHf72"],
     ["background", background, "serialPerGoodsKey: false"],
     ["background", background, "content-a21-canonical-v015.js"],
     ["canonical", canonical, "commerce-os-stock-main-click"],
@@ -139,6 +142,8 @@ export async function GET(request: Request) {
         hotfix: HOTFIX,
         zipBytes: zip.byteLength,
         goodsKeyDispatch: "ONE_ASSIGNMENT_PER_COMPATIBLE_GROUP_UP_TO_200",
+        canonicalOwnerRouting: "OPTION_OR_SINGLE_PER_COMPATIBLE_GROUP",
+        resultTabBaseline: "CAPTURED_ONCE_BEFORE_EACH_GROUPED_BATCH",
         listActionClick: "SHOPLING_MAIN_WORLD_EVENT_BRIDGE",
         popupSubmitCardinality: "ONE_PER_COMPATIBLE_GROUP",
         completionBoundary: "A21_PROCESSING_OR_RESULT_SCREEN_STARTED_PER_GROUP",

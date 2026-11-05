@@ -13,6 +13,10 @@ importScripts("background-v092.js");
   const CANONICAL_IDENTIFY_V093 = "A21_IDENTIFY";
   const CANONICAL_ASSIGN_V093 = "A21_LIST_ASSIGNMENT";
   const BATCH_MAX_V093 = 200;
+  const RESULT_MATCH_V093 = [
+    "https://shopling.co.kr/prod_a/prod_status_trsmt.phtml*",
+    "https://*.shopling.co.kr/prod_a/prod_status_trsmt.phtml*",
+  ];
   const legacyDispatchCurrentV093 = dispatchCurrent;
   const legacyDispatchToTargetV093 = dispatchToTarget;
 
@@ -94,11 +98,26 @@ importScripts("background-v092.js");
       // OPTION is the canonical list transport mode for both popup types.
       // The claimed popup is configured by the stock OPTION/SINGLE worker.
       mode: "OPTION",
+      // The inherited OPTION/SINGLE popup workers claim the canonical list
+      // assignment only when this owner marker matches their lane.
+      stockProductKindHf48: group.effectiveProductKind,
       goodsKeys: [...batch],
       stage: canonicalStageV093(active, group),
       runId: runIdV093(active),
       version: VERSION_V093,
     };
+  }
+
+  async function ensureResultBaselineV093(active) {
+    const batchKey = `${Number(active?.stockStateGroupIndexHf72 || 0)}:${Number(active?.goodsKeyIndex || 0)}`;
+    if (active?.shoplingResultBaselineBatchKeyHf72 === batchKey) return;
+    const resultTabs = await chrome.tabs
+      .query({ url: RESULT_MATCH_V093 })
+      .catch(() => []);
+    active.shoplingResultBaselineBatchKeyHf72 = batchKey;
+    active.shoplingResultBaselineTabIdsHf72 = resultTabs
+      .map((tab) => Number(tab?.id))
+      .filter(Number.isInteger);
   }
 
   async function ensureCanonicalListWorkerV093(target) {
@@ -152,6 +171,9 @@ importScripts("background-v092.js");
       ...(active.workTabs || {}),
       A21_LIST: { tabId: target.tabId, frameId: target.frameId },
     };
+    // HF74 bypasses HF72's legacy dispatch adapters, so preserve HF72's
+    // per-batch result baseline here before the grouped list mutation starts.
+    await ensureResultBaselineV093(active);
     await saveActive(active);
 
     const assignment = canonicalAssignmentV093(active, group, batch);
@@ -185,6 +207,7 @@ importScripts("background-v092.js");
       prepareGroupedBatchV093,
       canonicalStageV093,
       canonicalAssignmentV093,
+      ensureResultBaselineV093,
     };
     return;
   }

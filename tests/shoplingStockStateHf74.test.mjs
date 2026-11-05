@@ -64,12 +64,99 @@ test("HF74 keeps fourteen compatible goods keys in one A21 assignment batch", as
     prepared.batch,
   );
   assert.equal(assignment.type, "A21_LIST_ASSIGNMENT");
+  assert.equal(assignment.stockProductKindHf48, "OPTION");
   assert.deepEqual(assignment.goodsKeys, goodsKeys);
   assert.equal(assignment.goodsKeys.length, 14);
   assert.equal(assignment.stage, hooks.canonicalStageV093(active, prepared.group));
   assert.match(source, /goodsKeys: batch/);
   assert.match(source, /serialPerGoodsKey: false/);
   new Function(source);
+});
+
+test("HF74 preserves the OPTION/SINGLE owner marker for each grouped A21 assignment", async () => {
+  const source = await readFile(
+    "public/shopling-stock-state-sync/background-v093.js",
+    "utf8",
+  );
+  const sandbox = { __COMMERCE_OS_EXPOSE_STOCK_HF74_TEST_HOOKS__: true };
+  new Function(
+    "globalThis",
+    "importScripts",
+    "chrome",
+    "dispatchCurrent",
+    "dispatchToTarget",
+    "norm",
+    source,
+  )(
+    sandbox,
+    () => {},
+    { runtime: { getManifest: () => ({ version: "0.6.37" }) } },
+    () => false,
+    () => false,
+    (value) => String(value ?? "").trim(),
+  );
+  const active = {
+    goodsKeyIndex: 0,
+    stockStateGroupIndexHf72: 1,
+    job: { jobId: "hf74-single-owner", executionId: "run-1" },
+  };
+  const group = {
+    transmissionKind: "PRODUCT_SALE_STATUS_SEND",
+    effectiveProductKind: "SINGLE",
+    goodsKeys: ["120001", "120002"],
+  };
+  const assignment = sandbox.__commerceOsStockHf74TestHooks.canonicalAssignmentV093(
+    active,
+    group,
+    group.goodsKeys,
+  );
+  assert.equal(assignment.stockProductKindHf48, "SINGLE");
+  assert.deepEqual(assignment.goodsKeys, group.goodsKeys);
+});
+
+test("HF74 captures one result-tab baseline per grouped batch before dispatch", async () => {
+  const source = await readFile(
+    "public/shopling-stock-state-sync/background-v093.js",
+    "utf8",
+  );
+  let queryCount = 0;
+  const sandbox = { __COMMERCE_OS_EXPOSE_STOCK_HF74_TEST_HOOKS__: true };
+  new Function(
+    "globalThis",
+    "importScripts",
+    "chrome",
+    "dispatchCurrent",
+    "dispatchToTarget",
+    "norm",
+    source,
+  )(
+    sandbox,
+    () => {},
+    {
+      runtime: { getManifest: () => ({ version: "0.6.37" }) },
+      tabs: {
+        query: async ({ url }) => {
+          queryCount += 1;
+          assert.deepEqual(url, [
+            "https://shopling.co.kr/prod_a/prod_status_trsmt.phtml*",
+            "https://*.shopling.co.kr/prod_a/prod_status_trsmt.phtml*",
+          ]);
+          return [{ id: 31 }, { id: 32 }, { id: undefined }];
+        },
+      },
+    },
+    () => false,
+    () => false,
+    (value) => String(value ?? "").trim(),
+  );
+  const active = { stockStateGroupIndexHf72: 1, goodsKeyIndex: 200 };
+  const hooks = sandbox.__commerceOsStockHf74TestHooks;
+  await hooks.ensureResultBaselineV093(active);
+  assert.equal(active.shoplingResultBaselineBatchKeyHf72, "1:200");
+  assert.deepEqual(active.shoplingResultBaselineTabIdsHf72, [31, 32]);
+  await hooks.ensureResultBaselineV093(active);
+  assert.equal(queryCount, 1);
+  assert.match(source, /await ensureResultBaselineV093\(active\);\s*await saveActive\(active\);/);
 });
 
 test("HF74 clicks the single red Shopling list action through the MAIN-world bridge", async () => {
@@ -250,6 +337,10 @@ test("HF74 download contract exposes v0.6.37 and replaces both grouped dispatch 
   assert.match(route, /const BASE_VERSION = "0\.6\.36"/);
   assert.match(route, /const VERSION = "0\.6\.37"/);
   assert.match(route, /ONE_ASSIGNMENT_PER_COMPATIBLE_GROUP_UP_TO_200/);
+  assert.match(route, /OPTION_OR_SINGLE_PER_COMPATIBLE_GROUP/);
+  assert.match(route, /CAPTURED_ONCE_BEFORE_EACH_GROUPED_BATCH/);
+  assert.match(route, /stockProductKindHf48: group\.effectiveProductKind/);
+  assert.match(route, /await ensureResultBaselineV093\(active\)/);
   assert.match(route, /SHOPLING_MAIN_WORLD_EVENT_BRIDGE/);
   assert.match(page, /download-hf74/);
   assert.match(page, /v0\.6\.37 다운로드/);
