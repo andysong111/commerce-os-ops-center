@@ -707,6 +707,80 @@ function cartViewportProbe(action = "STATE") {
   };
 }
 
+function cartClearControlProbe(stage = "STATE") {
+  const rowSelector = "tr[data-cart-id],tr[data-item-id],tr[class*='item--container']";
+  const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const inViewport = (element) => {
+    if (!element) return false;
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden"
+      && rect.width > 2 && rect.height > 2 && rect.bottom > 0 && rect.top < innerHeight;
+  };
+  const clickTarget = (element) => element?.closest("label,[role='checkbox'],.next-checkbox-wrapper,.next-checkbox")
+    || element?.closest("button,a,[role='button']") || element;
+  const pointFor = (element) => {
+    const target = clickTarget(element);
+    if (!inViewport(target)) return null;
+    const rect = target.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  };
+  const nearbyLabel = (input) => {
+    let element = clickTarget(input);
+    for (let depth = 0; element && depth < 4; depth += 1, element = element.parentElement) {
+      const value = clean(element.getAttribute?.("aria-label") || element.getAttribute?.("title") || element.textContent);
+      if (value && value.length <= 80) return value;
+    }
+    return "";
+  };
+  const rows = Array.from(document.querySelectorAll(rowSelector));
+  const rowCheckboxes = rows.flatMap((row) => {
+    const input = row.querySelector("input[type='checkbox']");
+    return input ? [input] : [];
+  });
+  const selectAllCandidates = Array.from(document.querySelectorAll("input[type='checkbox']"))
+    .filter((input) => !input.closest(rowSelector) && inViewport(clickTarget(input)))
+    .map((input) => ({ input, label: nearbyLabel(input), point: pointFor(input) }))
+    .filter((entry) => entry.point && /全选|全選|select\s*all/i.test(entry.label))
+    .sort((left, right) => left.point.y - right.point.y);
+  const selectAll = selectAllCandidates[0] || null;
+  const bodyText = clean(document.body?.innerText);
+  const state = {
+    href: location.href,
+    rowCount: rows.length,
+    checkedRowCount: rowCheckboxes.filter((input) => input.checked).length,
+    selectAllCandidateCount: selectAllCandidates.length,
+    selectAllChecked: Boolean(selectAll?.input?.checked),
+    selectAllLabel: selectAll?.label || "",
+    emptyMarker: /进货单还是空的|购物车还是空的|您的购物车中没有商品|空空如也|暂无商品|去逛逛/.test(bodyText.slice(0, 4_000)),
+    loginRequired: /passport\.1688\.com|login\.1688\.com/i.test(location.href),
+    securityChallenge: /滑块|安全验证|验证码|异常流量|슬라이더|보안 인증|인증을 완료|밀어서 확인|정상 접속/.test(bodyText.slice(0, 2_500)),
+  };
+  if (stage === "STATE") return state;
+  if (stage === "SELECT_ALL") return { ...state, ok: Boolean(selectAll?.point), point: selectAll?.point || null };
+  const controls = Array.from(document.querySelectorAll("button,a,[role='button'],span,div"))
+    .filter((element) => inViewport(element) && !element.closest(rowSelector))
+    .map((element) => ({ element, label: clean(element.getAttribute("aria-label") || element.getAttribute("title") || element.textContent) }))
+    .filter((entry) => entry.label.length <= 30);
+  if (stage === "DELETE") {
+    const candidates = controls
+      .filter((entry) => /^(?:批量)?删除(?:选中|所选|已选)?(?:商品|宝贝)?$|^移除(?:选中|所选|已选)?(?:商品|宝贝)?$/u.test(entry.label))
+      .map((entry) => ({ ...entry, point: pointFor(entry.element) })).filter((entry) => entry.point)
+      .sort((left, right) => left.point.y - right.point.y);
+    return { ...state, ok: candidates.length > 0, candidateCount: candidates.length, label: candidates[0]?.label || "", point: candidates[0]?.point || null };
+  }
+  if (stage === "CONFIRM") {
+    const dialogs = Array.from(document.querySelectorAll("[role='dialog'],.next-dialog,.ant-modal,.ant-popover,.next-overlay-wrapper")).filter(inViewport);
+    const candidates = dialogs.flatMap((dialog) => Array.from(dialog.querySelectorAll("button,a,[role='button']")))
+      .filter(inViewport)
+      .map((element) => ({ element, label: clean(element.getAttribute("aria-label") || element.getAttribute("title") || element.textContent) }))
+      .filter((entry) => /^(确定|確認|确认|删除|刪除)$/u.test(entry.label))
+      .map((entry) => ({ ...entry, point: pointFor(entry.element) })).filter((entry) => entry.point);
+    return { ...state, ok: candidates.length > 0, notRequired: dialogs.length === 0, dialogCount: dialogs.length, label: candidates[0]?.label || "", point: candidates[0]?.point || null };
+  }
+  return { ...state, ok: false };
+}
+
 function cartLineIdentity(line) {
   const marker = String(line?.lineMarker || "").trim();
   if (marker) return marker;
@@ -1258,6 +1332,72 @@ export function createAlibaba1688CartBrowserAdapter(config, dependencies = {}) {
     });
   }
 
+  async function clearCart() {
+    return withSession(CART_URL, async (session) => {
+      const clickPoint = async (point) => {
+        const x = Number(point?.x);
+        const y = Number(point?.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          fail("ALIBABA1688_CLICK_POINT_INVALID", "1688 장바구니에서 누를 위치를 확인하지 못했습니다.", { point });
+        }
+        await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y }, DEFAULT_TIMEOUT_MS);
+        await session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 }, DEFAULT_TIMEOUT_MS);
+        await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 }, DEFAULT_TIMEOUT_MS);
+      };
+      await navigate(session, CART_URL);
+      let before = null;
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        before = await evaluate(session, browserProbeExpression(cartClearControlProbe, JSON.stringify("STATE")));
+        if (before?.loginRequired) fail("ALIBABA1688_LOGIN_REQUIRED", "1688 로그인이 필요합니다.");
+        if (before?.securityChallenge) fail("ALIBABA1688_SECURITY_CHALLENGE", "1688 보안 확인을 사용자가 완료해야 합니다.");
+        if (before?.emptyMarker || Number(before?.rowCount || 0) > 0) break;
+        await sleep(500);
+      }
+      if (before?.emptyMarker && Number(before?.rowCount || 0) === 0) {
+        return { cleared: false, beforeRowCount: 0, afterRowCount: 0, alreadyEmpty: true };
+      }
+      const beforeRowCount = Number(before?.rowCount || 0);
+      if (beforeRowCount < 1) {
+        fail("ALIBABA1688_CART_STATE_UNKNOWN", "1688 장바구니 기존 항목을 확인하지 못해 삭제 전에 중단했습니다.", before || {});
+      }
+      const selectAll = await evaluate(session, browserProbeExpression(cartClearControlProbe, JSON.stringify("SELECT_ALL")));
+      if (!selectAll?.ok || !selectAll?.point) {
+        fail("ALIBABA1688_CART_SELECT_ALL_CONTROL_NOT_FOUND", "1688 장바구니 전체 선택 버튼을 찾지 못해 삭제 전에 중단했습니다.", selectAll || {});
+      }
+      await clickPoint(selectAll.point);
+      await sleep(800);
+      const selected = await evaluate(session, browserProbeExpression(cartClearControlProbe, JSON.stringify("STATE")));
+      if (!selected?.selectAllChecked || Number(selected?.checkedRowCount || 0) < Number(selected?.rowCount || 0)) {
+        fail("ALIBABA1688_CART_SELECT_ALL_NOT_PERSISTED", "1688 장바구니 전체 선택 상태가 유지되지 않아 삭제 전에 중단했습니다.", selected || {});
+      }
+      const deletion = await evaluate(session, browserProbeExpression(cartClearControlProbe, JSON.stringify("DELETE")));
+      if (!deletion?.ok || !deletion?.point) {
+        fail("ALIBABA1688_CART_DELETE_CONTROL_NOT_FOUND", "1688 장바구니 선택 항목 삭제 버튼을 찾지 못해 중단했습니다.", deletion || {});
+      }
+      await clickPoint(deletion.point);
+      await sleep(600);
+      const confirmation = await evaluate(session, browserProbeExpression(cartClearControlProbe, JSON.stringify("CONFIRM")));
+      if (confirmation?.ok && confirmation?.point) await clickPoint(confirmation.point);
+      else if (!confirmation?.notRequired) {
+        fail("ALIBABA1688_CART_DELETE_CONFIRM_CONTROL_NOT_FOUND", "1688 장바구니 삭제 확인 버튼을 찾지 못해 중단했습니다.", confirmation || {});
+      }
+      await sleep(1_500);
+      await navigate(session, CART_URL);
+      let after = null;
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        after = await evaluate(session, browserProbeExpression(cartClearControlProbe, JSON.stringify("STATE")));
+        if (after?.loginRequired) fail("ALIBABA1688_LOGIN_REQUIRED", "1688 로그인이 필요합니다.");
+        if (after?.securityChallenge) fail("ALIBABA1688_SECURITY_CHALLENGE", "1688 보안 확인을 사용자가 완료해야 합니다.");
+        if (after?.emptyMarker && Number(after?.rowCount || 0) === 0) break;
+        await sleep(500);
+      }
+      if (!after?.emptyMarker || Number(after?.rowCount || 0) !== 0) {
+        fail("ALIBABA1688_CART_CLEAR_NOT_PERSISTED", "1688 장바구니 기존 항목이 모두 삭제되었는지 확인하지 못해 새 품목 추가 전에 중단했습니다.", after || {});
+      }
+      return { cleared: true, beforeRowCount, afterRowCount: 0, deleteLabel: deletion.label || "", confirmationLabel: confirmation?.label || "" };
+    });
+  }
+
   async function applyActions(actions) {
     if (!actions.length) return;
     return withSession(actions[0]?.item?.offerUrl || CART_URL, async (session) => {
@@ -1497,6 +1637,7 @@ export function createAlibaba1688CartBrowserAdapter(config, dependencies = {}) {
   return {
     inspectOffers,
     readCart,
+    clearCart,
     applyActions,
     readCheckoutPreview,
     getLastCartDiagnostics: () => lastCartDiagnostics,

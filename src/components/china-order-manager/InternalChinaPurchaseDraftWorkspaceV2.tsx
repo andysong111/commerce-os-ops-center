@@ -49,6 +49,19 @@ const TABLE_COLUMNS = [
 ] as const;
 
 const TABLE_WIDTH = TABLE_COLUMNS.reduce((sum, column) => sum + column.width, 0);
+const LOCAL_1688_WORKFLOW_WINDOW = "commerce-os-1688-workflow";
+
+function local1688WorkflowUrl(
+  draftId: string,
+  mode: "cost-capture" | "cart-staging",
+  continueWorkflow = false,
+) {
+  const url = new URL("http://127.0.0.1:43121/");
+  url.searchParams.set("draftId", draftId);
+  url.searchParams.set("mode", mode);
+  if (continueWorkflow) url.searchParams.set("continue", "1688-cart-staging");
+  return url.toString();
+}
 const STOCK_BANDS: Array<{ value: InventoryStockBand; label: string }> = [
   { value: "HIGH", label: "많음" },
   { value: "NORMAL", label: "보통" },
@@ -1009,7 +1022,13 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       setNotice("5-1 원가·운임 기록을 먼저 마치고 모든 중국옵션을 확인한 뒤 5-2 장바구니 담기를 실행하세요.");
       return;
     }
-    const localAgent = window.open("about:blank", `commerce-os-1688-${mode}`);
+    // Open the local control center synchronously while the click still has a
+    // user gesture. An about:blank placeholder can remain stranded when the
+    // cross-origin navigation is attempted after the async draft save.
+    const localAgent = window.open(
+      local1688WorkflowUrl(draft.draftId, mode),
+      LOCAL_1688_WORKFLOW_WINDOW,
+    );
     if (!localAgent) {
       setNotice("팝업이 차단되었습니다. 이 사이트의 팝업을 허용한 뒤 다시 눌러 주세요.");
       return;
@@ -1022,7 +1041,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       const savedDraft = await persistDraft({ quiet: true, syncMetadata: false });
       cartEvidenceRef.current = purchaseEvidenceSignature(savedDraft);
       cartRefreshDeadlineRef.current = Date.now() + 30 * 60_000;
-      localAgent.location.href = `http://127.0.0.1:43121/?draftId=${encodeURIComponent(savedDraft.draftId)}&mode=${mode}`;
+      const continuationUrl = local1688WorkflowUrl(savedDraft.draftId, mode, true);
+      const resumedAgent = window.open(continuationUrl, LOCAL_1688_WORKFLOW_WINDOW);
+      if (resumedAgent) resumedAgent.focus();
+      else localAgent.location.href = continuationUrl;
       setNotice(mode === "cost-capture"
         ? "5-1 업무가 열렸습니다. 1688 주문확인 미리보기에서 실제 위안단가와 판매자별 중국내 운임을 저장하면 이 화면이 자동 갱신되고 예산을 다시 계산합니다. 주문 제출과 결제는 실행하지 않습니다."
         : "5-2 업무가 열렸습니다. 확정된 수량과 중국옵션으로 1688 장바구니를 다시 맞추고 검증합니다. 주문 제출과 결제는 실행하지 않습니다.");

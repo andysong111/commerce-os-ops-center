@@ -34,6 +34,7 @@ function config() {
 function successBrowser(overrides = {}) {
   return {
     inspectOffers: async () => [{ offerId: "660021847749", options: [{ name: "铜芯" }] }],
+    clearCart: async () => ({ cleared: true, beforeRowCount: 1, afterRowCount: 0 }),
     readCart: async () => [{ offerId: "660021847749", optionName: "铜芯", quantity: 18 }],
     applyActions: async () => {},
     readCheckoutPreview: async () => ({
@@ -63,7 +64,12 @@ test("dry run inspects and plans without cart mutation or draft save", async () 
 test("5-1 writes actual price and freight without submitting an order or payment", async () => {
   let savedLines = null;
   let cartReads = 0;
+  let clearCalls = 0;
   const browser = successBrowser({
+    clearCart: async () => {
+      clearCalls += 1;
+      return { cleared: true, beforeRowCount: 4, afterRowCount: 0 };
+    },
     readCart: async () => {
       cartReads += 1;
       return cartReads === 1 ? [] : [{ offerId: "660021847749", optionName: "铜芯", quantity: 18 }];
@@ -88,6 +94,27 @@ test("5-1 writes actual price and freight without submitting an order or payment
   assert.equal(result.audit.externalOrderExecuted, false);
   assert.equal(result.audit.checkoutSubmitted, false);
   assert.equal(result.audit.paymentExecuted, false);
+  assert.equal(clearCalls, 1);
+  assert.equal(result.audit.cartReplacement.beforeRowCount, 4);
+});
+
+test("one-item canary preserves the existing cart", async () => {
+  let clearCalls = 0;
+  const result = await runAlibaba1688CartStaging(config(), { draftId, execute: true, maxItems: 1 }, {
+    client: {
+      loadDraft: async () => sourceDraft,
+      saveAndVerifyDraftLines: async (_draftId, lines) => ({ ...sourceDraft, lines }),
+    },
+    browser: successBrowser({
+      clearCart: async () => {
+        clearCalls += 1;
+        return { cleared: true, beforeRowCount: 2, afterRowCount: 0 };
+      },
+    }),
+    writeAudit: async () => {},
+  });
+  assert.equal(clearCalls, 0);
+  assert.equal(result.audit.status, "SUCCEEDED");
 });
 
 test("execute corrects a newly added cart line once when 1688 hydrates the default quantity", async () => {

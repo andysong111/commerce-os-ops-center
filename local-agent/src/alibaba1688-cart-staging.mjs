@@ -162,6 +162,7 @@ export async function runAlibaba1688CartStaging(config, options = {}, dependenci
     submissionAttempted: false,
     inspectionCache: [...inspectionCache.values()],
     actionSummary: null,
+    cartReplacement: null,
     checkoutSummary: null,
     error: null,
   };
@@ -265,7 +266,25 @@ export async function runAlibaba1688CartStaging(config, options = {}, dependenci
       plan = build1688CartPlan(scopedDraft, inspections);
     }
 
-    await checkpoint("READ_CART");
+    let cartReplacement = null;
+    if (execute && !maxItems) {
+      await checkpoint("CLEAR_EXISTING_CART_PENDING", { cartReplacementPolicy: "FULL_REPLACE" });
+      if (typeof browser.clearCart !== "function") {
+        const error = new Error("1688 장바구니 전체 교체 기능을 사용할 수 없어 기존 항목 삭제 전에 중단했습니다.");
+        error.code = "ALIBABA1688_CART_FULL_REPLACE_UNAVAILABLE";
+        throw error;
+      }
+      cartReplacement = await browser.clearCart();
+      await checkpoint("CLEAR_EXISTING_CART_COMPLETE", {
+        cartReplacementPolicy: "FULL_REPLACE",
+        cartReplacement,
+      });
+    }
+
+    await checkpoint("READ_CART", {
+      cartReplacementPolicy: execute && !maxItems ? "FULL_REPLACE" : "PRESERVE_FOR_CANARY_OR_DRY_RUN",
+      cartReplacement,
+    });
     const cartBefore = await browser.readCart(plan.items);
     const actions = plan1688CartReconciliation(plan, cartBefore);
     const actionSummary = {
@@ -372,6 +391,7 @@ export async function runAlibaba1688CartStaging(config, options = {}, dependenci
       unavailableOffers,
       unreadyLines,
       savedAt: verifiedDraft.savedAt || null,
+      cartReplacement,
     });
     return { ok: true, execute: true, mode, draftId, verifiedDraft, audit };
   } catch (error) {
