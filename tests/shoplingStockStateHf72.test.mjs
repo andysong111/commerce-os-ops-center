@@ -462,6 +462,7 @@ test("HF72 package exposes grouped dispatch, current gate, and one canonical Sho
   assert.match(background, /stockStatePreparedGroupIndexHf72/);
   assert.match(route, /LEGACY_RESULT_NAV_OBSERVER/);
   assert.match(route, /LEGACY_PROCESSING_OBSERVER/);
+  assert.match(route, /background-v077-hf58\.js/);
   assert.match(optionBatch, /goodsKeys: batch/);
   assert.match(singleBatch, /goodsKeys: batch/);
   assert.equal(
