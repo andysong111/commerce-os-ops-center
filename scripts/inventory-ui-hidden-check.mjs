@@ -27,7 +27,7 @@ await context.addInitScript(() => {
     if (type === 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING_HF27') {
       window.postMessage({
         type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY_HF27',
-        extensionVersion: '0.6.34',
+        extensionVersion: '0.6.35',
       }, location.origin);
     }
     if (/STOCK_SYNC_(?:PARALLEL_)?START/.test(type)) window.__inventoryTestStartMessages.push(type);
@@ -90,12 +90,12 @@ try {
   await page.evaluate(() => {
     window.postMessage({
       type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY',
-      extensionVersion: '0.6.34',
+      extensionVersion: '0.6.35',
     }, location.origin);
     window.postMessage({
       type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_STATUS',
       active: null,
-      extensionVersion: '0.6.34',
+      extensionVersion: '0.6.35',
     }, location.origin);
   });
   await page.waitForFunction(() => {
@@ -103,7 +103,7 @@ try {
     const button = [...(queue?.querySelectorAll('button') || [])].find(node => node.textContent?.includes('현재 대기건 자동처리'));
     return button && !button.disabled;
   }, null, { timeout: 20000 });
-  checks.push('mocked v0.6.34 extension is explicitly ready and idle before execution');
+  checks.push('mocked v0.6.35 extension is explicitly ready and idle before execution');
 
   // Show why render state is NOT execution authority. The server removes the job
   // before a click. The click must re-read Q and must never POST or start HF28.

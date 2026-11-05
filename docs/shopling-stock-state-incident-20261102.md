@@ -135,6 +135,13 @@
   - isolated world에서 선택한 라디오는 MAIN world 제출 직전 같은 규칙으로 다시 검증한다. 실패 메시지에는 최대 12개 라디오의 name/value/선택상태/인접 문구만 제한적으로 남겨 다음 실화면 차이를 추적할 수 있게 했다.
   - HF69의 goodsKey별 실제 옵션 수 분기, API 상태·수량 readback, HF70의 새 팝업 소유권, 한 번에 goodsKey 1개 직렬 처리, 현재 B코드가 소유한 Shopling 처리중/결과 화면 시작을 Commerce OS 완료로 보는 책임 경계는 변경하지 않았다.
 
+- v0.6.35/HF72 새 팝업 소유권 복구·goods key 묶음 전송:
+  - 실화면에 설정 팝업이 열린 사실은 빨간 `상품 수정전송` 버튼 클릭이 성공했다는 직접 증거다. 라디오가 움직이지 않은 직접 원인은 버튼 클릭 실패가 아니라, Shopling이 새 팝업의 opener를 비우거나 잠깐 존재한 중간 창으로 남긴 상태를 확장이 작업 팝업으로 claim하지 못한 것이다.
+  - 클릭 직전 동일 주소 팝업 ID를 기준선으로 저장하고, 기준선에 없으며 정확한 설정 주소인 새 후보가 하나일 때만 claim한다. 직접 opener 일치, opener 없음, 닫힌 중간 opener는 허용한다. 살아 있는 무관 탭 opener, 기존 팝업, 새 후보 복수는 fail-closed다. 이미 claim한 팝업은 서비스워커 재개와 결과 관찰에서도 같은 소유자로 유지한다.
+  - 한 B코드의 goods key를 개별 전송하지 않고 호환되는 전송 방식별로 모은다. `OPTION_SEND`는 옵션 전용 묶음, `PRODUCT_SALE_STATUS_SEND`는 상품상태 전용 묶음이며 각 묶음은 최대 200개다. A21에서 묶음 goods key를 쉼표로 한 번 검색하고 정확히 전부 나온 경우에만 모두 선택해 빨간 버튼을 한 번 누른다. 혼합 방식은 최대 두 묶음으로 분리한다.
+  - goods key 수는 쪼개기 상품 판정 근거가 아니다. 논리 옵션 + 실제 옵션 1개인 과거 쪼개기 등록은 API 옵션·상품상태 readback 뒤 `PRODUCT_SALE_STATUS_SEND`, 실제 옵션 2개 이상은 `OPTION_SEND`, 논리 단품은 `PRODUCT_SALE_STATUS_SEND`를 사용한다.
+  - 현재 묶음이 소유한 Shopling 처리중/결과 화면 시작을 묶음 접수 완료로 저장하고 다음 묶음/200개 분할 묶음을 시작한다. 첫 결과에서 B코드 전체를 조기 완료하지 않으며, 모든 묶음 접수 뒤에만 Commerce OS 성공으로 종결한다.
+
 ## 재전송 요청
 
 - requestId: `owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969`
@@ -172,4 +179,6 @@
 - 동일 소스의 `next build --webpack` 프로덕션 빌드는 컴파일·타입검사·124/124 정적 페이지 생성을 통과했다. 로컬 프로덕션 서버의 검증 JSON과 실제 ZIP은 모두 207,394 byte였고 manifest `0.6.33`, service worker `background-v090.js`, 직렬 goodsKey 처리, 정확한 새 팝업 소유권, 공유 행 제외 라디오 선택을 확인했다. ZIP SHA-256은 `3e2cca4f8b2bbdcebebfb8912c8c00c53c14df04a255d0d7cce38dfbfc4fcbe0`, background SHA-256은 `eca106348c9731dccfa3215dd52b14f3478db4b23f599a142ba1df0699c4d8fb`다. 실제 Shopling 변경은 배포·설치 뒤 사용자의 1건 canary에서 확인한다.
 - HF71 CI 고정 범위 168/168과 HF68~HF71 표적 회귀 20/20, TypeScript `tsc --noEmit`, 변경 파일 ESLint, `background-v091.js` 문법 검사, Webpack 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 실제 실패를 닮은 인접 라벨·중첩 셀 fixture에서 오른쪽 `옵션송신`만 선택하고, 2개 라디오·중복 정확 라벨은 안전 중단하며 진단 크기를 제한함을 확인했다. 실제 Shopling 변경은 배포·설치 뒤 사용자의 1건 canary에서 확인한다.
 - 빌드된 로컬 프로덕션 서버에서 HF71 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.34`, service worker `background-v091.js`, 정확 인접 라벨 우선·3열 화면 순서 fallback·제한 진단·goodsKey 직렬 처리·마켓 최종완료 불필요를 확인했다. ZIP은 208,976 byte, SHA-256은 `3EC56EF6DB19ADFD9CFF43AB5069FB9C92CCA991C13FA6BE8DF9C6E2212D485B`, background SHA-256은 `6116800db7793a79f5c11162e9222e8b642acb5772972daac5dbf8606b405fe3`다.
+- HF72 표적 회귀 13/13과 현재 재고상태 CI 범위 172/172가 통과했다. 회귀는 같은 방식 14개 묶음, 혼합 방식 2묶음, 201개를 200+1로 나누기, 중복 거부, opener 없는 새 팝업·닫힌 중간 opener 수용, 기존·복수·살아 있는 무관 opener 거부, 각 묶음 결과 뒤 다음 묶음 계속을 포함한다.
+- HF72 TypeScript, 변경 파일 ESLint, `background-v092.js` 문법 검사, 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 빌드된 로컬 서버의 검증 JSON과 실제 ZIP은 모두 213,915 byte였고 manifest `0.6.35`, service worker `background-v092.js`, 방식별 최대 200개 묶음 전송, 새 팝업 소유권 복구, 묶음별 처리중/결과 책임경계를 확인했다. ZIP SHA-256은 `DB8ACCAC9E3E52F1D56800EB505EEE85DFE1F2C0EF822E3DC7B95C307ACA698E`다. 실제 Shopling 변경은 배포·설치 뒤 사용자의 카나리에서 확인한다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.
