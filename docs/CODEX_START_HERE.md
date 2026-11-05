@@ -102,6 +102,14 @@ As of 2026-10-25:
 - goodsKey는 채널별로 여러 개가 정상이며 계속 한 개씩 직렬 처리한다. 이 직렬화는 느림의 원인이 아니라 한 goodsKey의 팝업·전송 결과가 다음 goodsKey와 섞이지 않게 하는 안전장치다. 쪼개기 판정과 전송 종류는 HF69의 goodsKey별 실제 옵션 수 규칙을 그대로 유지한다.
 - 수정 패키지는 HF70 `v0.6.33`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf70`이다. CI 고정 범위 166/166, TypeScript, 변경 파일 ESLint, Webpack 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 로컬 검증·실제 ZIP은 모두 207,394 byte였고 manifest `0.6.33`, service worker `background-v090.js`, ZIP SHA-256 `3e2cca4f8b2bbdcebebfb8912c8c00c53c14df04a255d0d7cce38dfbfc4fcbe0`를 확인했다. 실 Shopling 변경 카나리는 아직 실행하지 않았으며, 배포·설치 뒤 다옵션 1건에서 상단 `옵션송신`과 하단 옵션 전용 `선택`이 실제로 선택되고 Shopling 처리중/결과 화면이 시작되는지 확인해야 한다.
 
+### Shopling stock-state HF71 correction (2026-11-05)
+
+- HF70 실운영 카나리는 API 상태·수량 readback과 A21 상품코드 검색 뒤 상단 `옵션송신` 라디오 후보를 0개로 판단해 접수 전에 멈췄다. 공유 행 오인식을 막기 위해 같은 셀 문구만 허용했지만 현재 Shopling의 보이는 문구는 라디오의 인접 형제 또는 중첩 셀에 있어 실제 컨트롤을 놓친 것이 직접 원인이다.
+- HF71은 정확한 인접 라벨을 먼저 사용하고, 없을 때만 최상단에 같은 높이로 놓인 정확히 3개 모드 라디오의 화면 순서를 검증해 오른쪽 라디오를 `옵션송신`으로 선택한다. 2개뿐이거나 중복 정확 라벨·모호한 배치이면 전송하지 않는다. isolated world 선택 뒤 MAIN world도 같은 규칙으로 다시 확인한다.
+- 실패 시 최대 12개 라디오의 제한된 진단을 남긴다. HF69의 goodsKey별 실제 옵션 수 분기와 API 상태·수량 readback, HF70의 새 팝업 소유권, goodsKey 1개씩 직렬 처리, Shopling 처리중/결과 화면 시작을 완료로 보는 책임 경계는 그대로다.
+- 수정 패키지는 HF71 `v0.6.34`, 다운로드 경로는 `/api/shopling-stock-state-sync/download-hf71`이다. CI 고정 범위 168/168, HF68~HF71 표적 회귀 20/20, TypeScript, 변경 파일 ESLint, `background-v091.js` 문법 검사와 Webpack 프로덕션 빌드(124/124 정적 페이지)가 통과했다. 배포·설치 뒤 다옵션 1건에서 상단 `옵션송신`과 하단 옵션 전용 `선택`, Shopling 처리중/결과 화면 시작을 실운영 카나리로 확인해야 한다.
+- 빌드된 로컬 서버의 검증 응답과 실제 ZIP은 모두 208,976 byte였고 manifest `0.6.34`, service worker `background-v091.js`, ZIP SHA-256 `3EC56EF6DB19ADFD9CFF43AB5069FB9C92CCA991C13FA6BE8DF9C6E2212D485B`를 확인했다. 실제 Shopling 변경 카나리는 아직 실행하지 않았다.
+
 ## Handoff discipline
 
 After any major subsystem change, update the relevant persistent context instead of leaving the key decision only in chat.
