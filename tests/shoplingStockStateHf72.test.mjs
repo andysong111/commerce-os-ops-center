@@ -5,6 +5,7 @@ import {
   buildHf72TransmissionGroups,
   patchHf72LegacyProcessingObserverSource,
   patchHf72LegacyResultNavigationObserverSource,
+  patchHf72LegacySingleResultScannerSource,
   patchHf72OptionClaimSource,
   patchHf72PopupPreflightSource,
   patchHf72ResultObserverSource,
@@ -406,18 +407,89 @@ test("HF72 rejects a prior-batch direct result tab and accepts only a fresh curr
   assert.equal(continued, 1);
 });
 
-test("HF72 disables inherited terminal observers so the first compatible group cannot finish a mixed job", async () => {
-  const [navigationBase, processingBase] = await Promise.all([
+test("HF72 disables every inherited terminal observer so a stale result tab cannot finish or fail a later group", async () => {
+  const [singleScannerBase, navigationBase, processingBase] = await Promise.all([
+    readFile("public/shopling-stock-state-sync/background-v066.js", "utf8"),
     readFile("public/shopling-stock-state-sync/background-v079.js", "utf8"),
     readFile("public/shopling-stock-state-sync/background-v081.js", "utf8"),
   ]);
+  const singleScanner = patchHf72LegacySingleResultScannerSource(singleScannerBase);
   const navigation = patchHf72LegacyResultNavigationObserverSource(navigationBase);
   const processing = patchHf72LegacyProcessingObserverSource(processingBase);
-  for (const source of [navigation, processing]) {
+  for (const source of [singleScanner, navigation, processing]) {
     assert.match(source, /stockStateTransmissionGroupsHf72/);
     assert.match(source, /length > 0/);
     new Function(source);
   }
+  let resultTabQueries = 0;
+  let continued = 0;
+  const baselineResultTab = {
+    id: 31,
+    windowId: 301,
+    url: "https://shopling.co.kr/prod_a/prod_status_trsmt.phtml?stale=1",
+  };
+  const groupedActive = {
+    status: "RUNNING",
+    stage: "A21_LIST",
+    goodsKeyIndex: 0,
+    job: {
+      jobId: "job-hf72-stale-single-result",
+      productKind: "SINGLE",
+      stockStateTransmissionGroupsHf72: [
+        { transmissionKind: "OPTION_SEND", goodsKeys: ["111881"] },
+        { transmissionKind: "PRODUCT_SALE_STATUS_SEND", goodsKeys: ["111882"] },
+      ],
+    },
+  };
+  const chrome = {
+    runtime: {
+      getManifest: () => ({ version: "0.6.35" }),
+      onMessage: { addListener: () => {} },
+      onStartup: { addListener: () => {} },
+      onInstalled: { addListener: () => {} },
+    },
+    tabs: {
+      query: async () => {
+        resultTabQueries += 1;
+        return [baselineResultTab];
+      },
+      onCreated: { addListener: () => {} },
+      onUpdated: { addListener: () => {} },
+    },
+    webNavigation: {
+      onCommitted: { addListener: () => {} },
+      onCompleted: { addListener: () => {} },
+    },
+  };
+  const scheduled = [];
+  new Function(
+    "chrome",
+    "importScripts",
+    "setTimeout",
+    "loadActive",
+    "continueNextGoodsKey",
+    singleScanner,
+  )(
+    chrome,
+    () => {},
+    (callback) => {
+      scheduled.push(callback);
+      return scheduled.length;
+    },
+    async () => groupedActive,
+    async () => {
+      continued += 1;
+      return { ok: true };
+    },
+  );
+  assert.equal(scheduled.length, 1);
+  await scheduled[0]();
+  assert.equal(resultTabQueries, 0);
+  assert.equal(continued, 0);
+  assert.match(
+    singleScanner,
+    /return Boolean\(\s*active && active\.status === "RUNNING" && active\.job\?\.productKind === "SINGLE"/,
+  );
   assert.match(navigation, /const groupedActive = await loadActive\(\)/);
   assert.match(processing, /Array\.isArray\(active\?\.job\?\.stockStateTransmissionGroupsHf72\)/);
 });
@@ -456,12 +528,14 @@ test("HF72 package exposes grouped dispatch, current gate, and one canonical Sho
   assert.match(route, /const VERSION = "0\.6\.35"/);
   assert.match(route, /GROUPED_BY_TRANSMISSION_KIND_UP_TO_200/);
   assert.match(route, /A21_PROCESSING_OR_RESULT_SCREEN_STARTED_PER_GROUP/);
+  assert.match(route, /legacySingleResultScanner: "DISABLED_FOR_GROUPED_JOBS"/);
   assert.match(background, /BATCH_MAX_V092 = 200/);
   assert.match(background, /stockStateTransmissionGroupsHf72/);
   assert.match(background, /stockStateAllGoodsKeysHf72/);
   assert.match(background, /stockStatePreparedGroupIndexHf72/);
   assert.match(route, /LEGACY_RESULT_NAV_OBSERVER/);
   assert.match(route, /LEGACY_PROCESSING_OBSERVER/);
+  assert.match(route, /LEGACY_SINGLE_RESULT_SCANNER/);
   assert.match(route, /background-v077-hf58\.js/);
   assert.match(optionBatch, /goodsKeys: batch/);
   assert.match(singleBatch, /goodsKeys: batch/);

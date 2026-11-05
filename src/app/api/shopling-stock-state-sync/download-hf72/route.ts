@@ -5,6 +5,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
   patchHf72LegacyProcessingObserverSource,
   patchHf72LegacyResultNavigationObserverSource,
+  patchHf72LegacySingleResultScannerSource,
   patchHf72OptionClaimSource,
   patchHf72PopupPreflightSource,
   patchHf72ResultObserverSource,
@@ -23,6 +24,7 @@ const BACKGROUND = "background-v092.js";
 const OPTION_CLAIM = "background-v050.js";
 const SINGLE_CLAIM = "background-v059.js";
 const POPUP_PREFLIGHT = "background-v077-hf58.js";
+const LEGACY_SINGLE_RESULT_SCANNER = "background-v066.js";
 const LEGACY_RESULT_NAV_OBSERVER = "background-v079.js";
 const LEGACY_PROCESSING_OBSERVER = "background-v081.js";
 const RESULT_OBSERVER = "background-v082.js";
@@ -46,6 +48,7 @@ export async function GET(request: Request) {
     OPTION_CLAIM,
     SINGLE_CLAIM,
     POPUP_PREFLIGHT,
+    LEGACY_SINGLE_RESULT_SCANNER,
     LEGACY_RESULT_NAV_OBSERVER,
     LEGACY_PROCESSING_OBSERVER,
     RESULT_OBSERVER,
@@ -81,6 +84,9 @@ export async function GET(request: Request) {
   const popupPreflight = patchHf72PopupPreflightSource(
     normalized(strFromU8(entries[POPUP_PREFLIGHT])),
   );
+  const legacySingleResultScanner = patchHf72LegacySingleResultScannerSource(
+    normalized(strFromU8(entries[LEGACY_SINGLE_RESULT_SCANNER])),
+  );
   const legacyResultNavigationObserver =
     patchHf72LegacyResultNavigationObserverSource(
       normalized(strFromU8(entries[LEGACY_RESULT_NAV_OBSERVER])),
@@ -97,6 +103,7 @@ export async function GET(request: Request) {
     optionClaim,
     singleClaim,
     popupPreflight,
+    legacySingleResultScanner,
     legacyResultNavigationObserver,
     legacyProcessingObserver,
     resultObserver,
@@ -108,6 +115,7 @@ export async function GET(request: Request) {
   entries[OPTION_CLAIM] = strToU8(optionClaim);
   entries[SINGLE_CLAIM] = strToU8(singleClaim);
   entries[POPUP_PREFLIGHT] = strToU8(popupPreflight);
+  entries[LEGACY_SINGLE_RESULT_SCANNER] = strToU8(legacySingleResultScanner);
   entries[LEGACY_RESULT_NAV_OBSERVER] = strToU8(legacyResultNavigationObserver);
   entries[LEGACY_PROCESSING_OBSERVER] = strToU8(legacyProcessingObserver);
   entries[RESULT_OBSERVER] = strToU8(resultObserver);
@@ -133,6 +141,7 @@ export async function GET(request: Request) {
     ["singleClaim", singleClaim, "fresh.length !== 1"],
     ["popupPreflight", popupPreflight, "acceptedPopupTabIdsHf72"],
     ["popupPreflight", popupPreflight, "EXACT_OPENER_TAB_WITH_ACCEPTED_HANDOFF_HF72"],
+    ["legacySingleResultScanner", legacySingleResultScanner, "stockStateTransmissionGroupsHf72"],
     ["legacyResultNavigationObserver", legacyResultNavigationObserver, "const groupedActive = await loadActive()"],
     ["legacyResultNavigationObserver", legacyResultNavigationObserver, "stockStateTransmissionGroupsHf72"],
     ["legacyProcessingObserver", legacyProcessingObserver, "stockStateTransmissionGroupsHf72"],
@@ -164,6 +173,7 @@ export async function GET(request: Request) {
       optionClaim,
       singleClaim,
       popupPreflight,
+      legacySingleResultScanner,
       legacyResultNavigationObserver,
       legacyProcessingObserver,
       resultObserver,
@@ -189,6 +199,7 @@ export async function GET(request: Request) {
         completionBoundary: "A21_PROCESSING_OR_RESULT_SCREEN_STARTED_PER_GROUP",
         resultAcceptance: "CURRENT_GROUP_BATCH_RESULT_BASELINE",
         acceptedPopupHandoff: "EXACT_ACCEPTED_POPUP_IGNORED_BY_NEXT_GROUP_PREFLIGHT",
+        legacySingleResultScanner: "DISABLED_FOR_GROUPED_JOBS",
         marketplaceCompletionRequired: false,
         liveShoplingVerificationRequired: true,
         ...hashes,

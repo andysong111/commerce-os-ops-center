@@ -409,3 +409,28 @@ export function patchHf72LegacyProcessingObserverSource(source: string) {
     "hf72_disable_legacy_processing_terminal_observer",
   );
 }
+
+export function patchHf72LegacySingleResultScannerSource(source: string) {
+  return replaceOnce(
+    source,
+    `  function eligible(active) {
+    return Boolean(
+      active && active.status === "RUNNING" && active.job?.productKind === "SINGLE" &&
+      ["A21_LIST", "A21_POPUP", "WAIT_A21_RESULT"].includes(String(active.stage || ""))
+    );
+  }`,
+    `  function eligible(active) {
+    if (
+      Array.isArray(active?.job?.stockStateTransmissionGroupsHf72) &&
+      active.job.stockStateTransmissionGroupsHf72.length > 0
+    ) {
+      return false;
+    }
+    return Boolean(
+      active && active.status === "RUNNING" && active.job?.productKind === "SINGLE" &&
+      ["A21_LIST", "A21_POPUP", "WAIT_A21_RESULT"].includes(String(active.stage || ""))
+    );
+  }`,
+    "hf72_disable_legacy_single_result_scanner",
+  );
+}
