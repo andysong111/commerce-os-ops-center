@@ -212,6 +212,24 @@ export function patchHf72ResultObserverSource(source: string) {
   );
   next = replaceOnce(
     next,
+    `    const candidateUrl = String(candidate.url || candidate.pendingUrl || "");
+    const isResult = exactResultUrl(candidateUrl);
+    if (!isResult && processing !== true) return null;`,
+    `    const candidateUrl = String(candidate.url || candidate.pendingUrl || "");
+    const isResult = exactResultUrl(candidateUrl);
+    if (!isResult && processing !== true) return null;
+    const resultBaseline = new Set(
+      (Array.isArray(active?.shoplingResultBaselineTabIdsHf72)
+        ? active.shoplingResultBaselineTabIdsHf72
+        : [])
+        .map(Number)
+        .filter(Number.isInteger),
+    );
+    if (resultBaseline.has(candidateTabId)) return null;`,
+    "hf72_reject_prior_batch_result_tab",
+  );
+  next = replaceOnce(
+    next,
     `    if (candidateTabId === popupTabId) {
       if (Number(candidate.openerTabId) !== listTabId) return null;
       return {

@@ -203,11 +203,103 @@ test("HF72 accepts each claimed processing screen as one batch receipt, then con
   assert.match(patched, /SHOPLING_PROCESSING_OR_RESULT_ACCEPTED_HF72/);
   assert.match(patched, /const advanced = await continueNextGoodsKey/);
   assert.match(patched, /active\.stockStateGroupIndexHf72/);
+  assert.match(patched, /shoplingResultBaselineTabIdsHf72/);
   assert.doesNotMatch(
     patched,
     /await finish\(\s*latest,\s*"SUCCEEDED",\s*`\$\{latest\.job\.barcode\} · Shopling 처리화면/,
   );
   new Function(patched);
+});
+
+test("HF72 rejects a prior-batch direct result tab and accepts only a fresh current-batch result", async () => {
+  const base = await readFile(
+    "public/shopling-stock-state-sync/background-v082.js",
+    "utf8",
+  );
+  const source = patchHf72ResultObserverSource(base);
+  const resultUrl =
+    "https://shopling.co.kr/prod_a/prod_status_trsmt.phtml?test=hf72";
+  const tabs = new Map([
+    [10, { id: 10, url: "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy.phtml" }],
+    [22, { id: 22, openerTabId: 10, url: "https://a.shopling.co.kr/prodlinkage/goods_mallMdfy_trsmt.phtml" }],
+    [31, { id: 31, openerTabId: 10, url: resultUrl }],
+    [32, { id: 32, openerTabId: 10, url: resultUrl }],
+  ]);
+  const active = {
+    status: "RUNNING",
+    stage: "WAIT_A21_RESULT",
+    stockStateGroupIndexHf72: 1,
+    goodsKeyIndex: 0,
+    shoplingResultBaselineTabIdsHf72: [31],
+    workTabs: {
+      A21_LIST: { tabId: 10, frameId: 0 },
+      A21_POPUP: { tabId: 22, frameId: 0 },
+    },
+    job: {
+      jobId: "job-hf72-result-baseline",
+      barcode: "BBC4-3",
+      productKind: "SINGLE",
+      goodsKeys: ["111882"],
+      stockStateTransmissionGroupsHf72: [
+        { transmissionKind: "OPTION_SEND", goodsKeys: ["111881"] },
+        { transmissionKind: "PRODUCT_SALE_STATUS_SEND", goodsKeys: ["111882"] },
+      ],
+    },
+  };
+  let continued = 0;
+  let handleEvidence = async () => ({ ok: false, legacy: true });
+  const chrome = {
+    runtime: {
+      getManifest: () => ({ version: "0.6.35" }),
+      onInstalled: { addListener: () => {} },
+    },
+    tabs: {
+      get: async (tabId) => tabs.get(tabId) || null,
+      query: async () => [tabs.get(31), tabs.get(32)],
+      onCreated: { addListener: () => {} },
+      onUpdated: { addListener: () => {} },
+    },
+    webNavigation: {
+      onCommitted: { addListener: () => {} },
+      onCompleted: { addListener: () => {} },
+    },
+    scripting: { executeScript: async () => [] },
+  };
+  handleEvidence = new Function(
+    "chrome",
+    "importScripts",
+    "handleEvidence",
+    "loadActive",
+    "saveActive",
+    "continueNextGoodsKey",
+    "setTimeout",
+    `${source}; return handleEvidence;`,
+  )(
+    chrome,
+    () => {},
+    handleEvidence,
+    async () => active,
+    async () => {},
+    async () => {
+      continued += 1;
+      return { ok: true };
+    },
+    () => 0,
+  );
+
+  const stale = await handleEvidence(
+    { evidence: { processing: true } },
+    { tab: { id: 31 }, frameId: 0 },
+  );
+  assert.equal(stale.legacy, true);
+  assert.equal(continued, 0);
+
+  const fresh = await handleEvidence(
+    { evidence: { processing: true } },
+    { tab: { id: 32 }, frameId: 0 },
+  );
+  assert.equal(fresh.processingScreenAccepted, true);
+  assert.equal(continued, 1);
 });
 
 test("HF72 disables inherited terminal observers so the first compatible group cannot finish a mixed job", async () => {
@@ -232,6 +324,8 @@ test("HF72 preserves a reduced batch limit during retry and resets it only for t
     "utf8",
   );
   assert.match(source, /stockStatePreparedGroupIndexHf72/);
+  assert.match(source, /shoplingResultBaselineBatchKeyHf72/);
+  assert.match(source, /RESULT_MATCH_V092/);
   assert.match(source, /if \(groupChanged\)/);
   assert.match(source, /start \+ limit/);
   assert.doesNotMatch(

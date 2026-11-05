@@ -118,6 +118,7 @@ export async function GET(request: Request) {
     ["background", background, "GROUP_BY_TRANSMISSION_KIND_UP_TO_200"],
     ["background", background, "stockStateTransmissionGroupsHf72"],
     ["background", background, "BATCH_MAX_V092 = 200"],
+    ["background", background, "shoplingResultBaselineBatchKeyHf72"],
     ["optionClaim", optionClaim, "fresh.length !== 1"],
     ["optionClaim", optionClaim, "if (!opener) return true"],
     ["singleClaim", singleClaim, "fresh.length !== 1"],
@@ -125,6 +126,7 @@ export async function GET(request: Request) {
     ["legacyResultNavigationObserver", legacyResultNavigationObserver, "stockStateTransmissionGroupsHf72"],
     ["legacyProcessingObserver", legacyProcessingObserver, "stockStateTransmissionGroupsHf72"],
     ["resultObserver", resultObserver, "PERSISTED_CLAIMED_POPUP_HF72"],
+    ["resultObserver", resultObserver, "shoplingResultBaselineTabIdsHf72"],
     ["resultObserver", resultObserver, "SHOPLING_PROCESSING_OR_RESULT_ACCEPTED_HF72"],
     ["resultObserver", resultObserver, "continueNextGoodsKey("],
   ];
@@ -173,6 +175,7 @@ export async function GET(request: Request) {
         popupOwnership:
           "UNIQUE_FRESH_EXACT_POPUP_WITH_DIRECT_MISSING_OR_CLOSED_INTERMEDIATE_OPENER",
         completionBoundary: "A21_PROCESSING_OR_RESULT_SCREEN_STARTED_PER_GROUP",
+        resultAcceptance: "CURRENT_GROUP_BATCH_RESULT_BASELINE",
         marketplaceCompletionRequired: false,
         liveShoplingVerificationRequired: true,
         ...hashes,

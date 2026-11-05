@@ -6,6 +6,10 @@ importScripts("background-v091.js");
 (() => {
   const VERSION_V092 = chrome.runtime.getManifest().version;
   const BATCH_MAX_V092 = 200;
+  const RESULT_MATCH_V092 = [
+    "https://shopling.co.kr/prod_a/prod_status_trsmt.phtml*",
+    "https://*.shopling.co.kr/prod_a/prod_status_trsmt.phtml*",
+  ];
   const legacyStartV092 = start;
   const legacyDispatchToTargetV092 = dispatchToTarget;
   const legacyDispatchCurrentV092 = dispatchCurrent;
@@ -151,9 +155,23 @@ importScripts("background-v091.js");
     active.shoplingDispatchResultTabId = null;
     active.shoplingDispatchResultWindowId = null;
     active.shoplingDispatchResultUrl = "";
+    active.shoplingResultBaselineBatchKeyHf72 = "";
+    active.shoplingResultBaselineTabIdsHf72 = [];
     active.workTabs = { A21_LIST: active.workTabs?.A21_LIST };
     active.shoplingTabId = active.workTabs?.A21_LIST?.tabId || null;
     active.shoplingFrameId = active.workTabs?.A21_LIST?.frameId || null;
+  }
+
+  async function ensureResultBaselineV092(active) {
+    const batchKey = `${Number(active?.stockStateGroupIndexHf72 || 0)}:${Number(active?.goodsKeyIndex || 0)}`;
+    if (active?.shoplingResultBaselineBatchKeyHf72 === batchKey) return;
+    const resultTabs = await chrome.tabs
+      .query({ url: RESULT_MATCH_V092 })
+      .catch(() => []);
+    active.shoplingResultBaselineBatchKeyHf72 = batchKey;
+    active.shoplingResultBaselineTabIdsHf72 = resultTabs
+      .map((tab) => Number(tab?.id))
+      .filter(Number.isInteger);
   }
 
   function currentBatchV092(active) {
@@ -232,6 +250,7 @@ importScripts("background-v091.js");
   dispatchToTarget = async function dispatchToTargetV092(active, target) {
     if (!isGroupedJobV092(active)) return legacyDispatchToTargetV092(active, target);
     if (!prepareCurrentGroupV092(active)) return false;
+    await ensureResultBaselineV092(active);
     await saveActive(active);
     return legacyDispatchToTargetV092(active, target);
   };
@@ -239,6 +258,7 @@ importScripts("background-v091.js");
   dispatchCurrent = async function dispatchCurrentV092(active, options = {}) {
     if (!isGroupedJobV092(active)) return legacyDispatchCurrentV092(active, options);
     if (!prepareCurrentGroupV092(active)) return false;
+    await ensureResultBaselineV092(active);
     await saveActive(active);
     const group = currentGroupV092(active);
     const configuredLimit = Number(group.effectiveProductKind === "OPTION" ? active.optionBatchLimit : active.singleBatchLimit);
