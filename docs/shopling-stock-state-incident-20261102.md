@@ -141,6 +141,8 @@
   - 한 B코드의 goods key를 개별 전송하지 않고 호환되는 전송 방식별로 모은다. `OPTION_SEND`는 옵션 전용 묶음, `PRODUCT_SALE_STATUS_SEND`는 상품상태 전용 묶음이며 각 묶음은 최대 200개다. A21에서 묶음 goods key를 쉼표로 한 번 검색하고 정확히 전부 나온 경우에만 모두 선택해 빨간 버튼을 한 번 누른다. 혼합 방식은 최대 두 묶음으로 분리한다.
   - goods key 수는 쪼개기 상품 판정 근거가 아니다. 논리 옵션 + 실제 옵션 1개인 과거 쪼개기 등록은 API 옵션·상품상태 readback 뒤 `PRODUCT_SALE_STATUS_SEND`, 실제 옵션 2개 이상은 `OPTION_SEND`, 논리 단품은 `PRODUCT_SALE_STATUS_SEND`를 사용한다.
   - 현재 묶음이 소유한 Shopling 처리중/결과 화면 시작을 묶음 접수 완료로 저장하고 다음 묶음/200개 분할 묶음을 시작한다. 첫 결과에서 B코드 전체를 조기 완료하지 않으며, 모든 묶음 접수 뒤에만 Commerce OS 성공으로 종결한다.
+  - HF57/HF59에서 상속된 단일 묶음용 결과이동·처리화면 관찰기는 HF72 묶음 작업을 직접 성공 종결하지 못하게 차단했다. HF72 결과 관찰기만 현재 묶음을 접수 처리하고 다음 묶음으로 진행한다.
+  - Shopling 결과가 500행을 넘어서 검색 묶음을 줄여 다시 시도할 때는 같은 전송 방식 묶음 안에서 축소된 한도를 유지한다. 다음 `OPTION_SEND`/`PRODUCT_SALE_STATUS_SEND` 묶음으로 넘어갈 때만 최대 200개로 초기화한다.
 
 ## 재전송 요청
 
@@ -179,6 +181,6 @@
 - 동일 소스의 `next build --webpack` 프로덕션 빌드는 컴파일·타입검사·124/124 정적 페이지 생성을 통과했다. 로컬 프로덕션 서버의 검증 JSON과 실제 ZIP은 모두 207,394 byte였고 manifest `0.6.33`, service worker `background-v090.js`, 직렬 goodsKey 처리, 정확한 새 팝업 소유권, 공유 행 제외 라디오 선택을 확인했다. ZIP SHA-256은 `3e2cca4f8b2bbdcebebfb8912c8c00c53c14df04a255d0d7cce38dfbfc4fcbe0`, background SHA-256은 `eca106348c9731dccfa3215dd52b14f3478db4b23f599a142ba1df0699c4d8fb`다. 실제 Shopling 변경은 배포·설치 뒤 사용자의 1건 canary에서 확인한다.
 - HF71 CI 고정 범위 168/168과 HF68~HF71 표적 회귀 20/20, TypeScript `tsc --noEmit`, 변경 파일 ESLint, `background-v091.js` 문법 검사, Webpack 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 실제 실패를 닮은 인접 라벨·중첩 셀 fixture에서 오른쪽 `옵션송신`만 선택하고, 2개 라디오·중복 정확 라벨은 안전 중단하며 진단 크기를 제한함을 확인했다. 실제 Shopling 변경은 배포·설치 뒤 사용자의 1건 canary에서 확인한다.
 - 빌드된 로컬 프로덕션 서버에서 HF71 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.34`, service worker `background-v091.js`, 정확 인접 라벨 우선·3열 화면 순서 fallback·제한 진단·goodsKey 직렬 처리·마켓 최종완료 불필요를 확인했다. ZIP은 208,976 byte, SHA-256은 `3EC56EF6DB19ADFD9CFF43AB5069FB9C92CCA991C13FA6BE8DF9C6E2212D485B`, background SHA-256은 `6116800db7793a79f5c11162e9222e8b642acb5772972daac5dbf8606b405fe3`다.
-- HF72 표적 회귀 13/13과 현재 재고상태 CI 범위 172/172가 통과했다. 회귀는 같은 방식 14개 묶음, 혼합 방식 2묶음, 201개를 200+1로 나누기, 중복 거부, opener 없는 새 팝업·닫힌 중간 opener 수용, 기존·복수·살아 있는 무관 opener 거부, 각 묶음 결과 뒤 다음 묶음 계속을 포함한다.
-- HF72 TypeScript, 변경 파일 ESLint, `background-v092.js` 문법 검사, 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 빌드된 로컬 서버의 검증 JSON과 실제 ZIP은 모두 213,915 byte였고 manifest `0.6.35`, service worker `background-v092.js`, 방식별 최대 200개 묶음 전송, 새 팝업 소유권 복구, 묶음별 처리중/결과 책임경계를 확인했다. ZIP SHA-256은 `DB8ACCAC9E3E52F1D56800EB505EEE85DFE1F2C0EF822E3DC7B95C307ACA698E`다. 실제 Shopling 변경은 배포·설치 뒤 사용자의 카나리에서 확인한다.
+- HF72+계획기 표적 회귀 13/13과 최근 HF57~HF72 영향 범위 회귀 71/71이 통과했다. 회귀는 같은 방식 14개 묶음, 혼합 방식 2묶음, 201개를 200+1로 나누기, 중복 거부, opener 없는 새 팝업·닫힌 중간 opener 수용, 기존·복수·살아 있는 무관 opener 거부, 각 묶음 결과 뒤 다음 묶음 계속, 과거 단일 묶음 관찰기의 조기 성공 차단, 축소 묶음 한도 유지를 포함한다.
+- HF72 TypeScript, 변경 파일 ESLint, `background-v092.js` 문법 검사, 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. Vercel 미리보기 검증 JSON은 ZIP 213,654 byte, manifest `0.6.35`, service worker `background-v092.js`, 방식별 최대 200개 묶음 전송, 새 팝업 소유권 복구, 묶음별 처리중/결과 책임경계를 확인했다. background SHA-256은 `eb2adbc7a5aaeb04dd138991fdf2608030cb28af51b2f7b2cfe418be2917de61`, 과거 결과이동 관찰기는 `7bc31138d4f2e8461ee29e5ac3c1c1ec97cf72f2786397294ed838e7ed68be7a`, 과거 처리화면 관찰기는 `2b613329a0b24772aa73e462ef4a43e41d77fa59ad10cdffe07b9c21278e05cf`다. 실제 Shopling 변경은 운영 배포·설치 뒤 사용자의 카나리에서 확인한다.
 - 저장소 전체 `npm test`는 이 변경과 무관한 기존 실패(절대경로 alias 직접 실행, 오래된 화면 계약, 운영스크립트 문자열 검증 등)이 남아 있어 전체 녹색 기준으로 사용하지 않았다. HF63과 영향 범위 회귀는 전부 통과했다.
