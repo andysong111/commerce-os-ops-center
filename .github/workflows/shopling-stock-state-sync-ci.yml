@@ -62,6 +62,7 @@ on:
       - "tests/shoplingStockStateHf74.test.mjs"
       - "tests/shoplingStockStateHf75.test.mjs"
       - "tests/shoplingStockStateHf76.test.mjs"
+      - "tests/shoplingStockStateHf77.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -207,6 +208,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf75.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF76 prepared A21 acknowledgement and stable execution owner
         run: node --experimental-strip-types --test tests/shoplingStockStateHf76.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF77 document-start-safe MAIN-world click bridge
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf77.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

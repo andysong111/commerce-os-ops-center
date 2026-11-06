@@ -311,7 +311,7 @@ test("HF76 background rejects a weak accepted reply and accepts only the prepare
   new Function(source);
 });
 
-test("HF76 download contract exposes v0.6.39 and makes it the required stock-sync version", async () => {
+test("HF76 download contract remains reproducible after HF77 becomes required", async () => {
   const [route, page, planner, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf76/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
@@ -321,9 +321,9 @@ test("HF76 download contract exposes v0.6.39 and makes it the required stock-syn
   assert.match(route, /const BASE_VERSION = "0\.6\.38"/);
   assert.match(route, /const VERSION = "0\.6\.39"/);
   assert.match(route, /EXACT_OWNER_AND_EXACT_GOODS_KEY_QUERY_PREPARED_BEFORE_ACK/);
-  assert.match(page, /download-hf76/);
-  assert.match(page, /v0\.6\.39 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 39\]/);
+  assert.match(page, /download-hf77/);
+  assert.match(page, /v0\.6\.40 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 40\]/);
   assert.match(workflow, /shoplingStockStateHf76\.test\.mjs/);
   assert.match(workflow, /background-v095\.js/);
 });

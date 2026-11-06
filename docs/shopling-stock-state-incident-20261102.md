@@ -151,6 +151,12 @@
   - HF73은 상단 `옵션송신`과 하단 옵션 전용 `선택`을 정확한 의미 기준으로 각각 하나만 표식하고, Shopling MAIN world에서 실제 radio input을 직접 클릭한다. 클릭 뒤 `input`·`change` 이벤트를 발생시키고 두 input의 `checked` 값을 다시 읽어 모두 선택된 경우에만 빨간 전송 버튼을 누른다. 모호한 후보·비활성 input·선택 미반영은 전송 전 안전 중단한다.
   - HF72의 goods key 전송 방식별 최대 200개 묶음, 묶음당 검색·전송 1회, 쪼개기 상품 판정, API 상태·수량 readback, Shopling 처리중/결과 화면 시작 책임 경계는 변경하지 않았다.
 
+- v0.6.40/HF77 document_start 안전 MAIN 클릭 브리지:
+  - v0.6.39 `BBC4-3` 실운영 카나리는 API 상태·수량 readback, goods key 14개 OPTION 묶음, A21 검색 64행 선택까지 정상이고 `A21_MODIFY_SEND_MAIN_CLICK_TIMEOUT`에서 끝났다. 즉 검색·묶음·선택 문제가 아니라 정확한 빨간 `상품 수정전송` 대상에 표식을 한 뒤 MAIN-world 응답을 못 받은 문제다.
+  - 직접 원인은 MAIN 스크립트가 `document_start`에 주입됐을 때 `document.documentElement`가 아직 없는 경우 `MutationObserver.observe(null, ...)`에서 예외가 나고, 아래의 클릭 요청 수신기 등록까지 도달하지 못한 것이다.
+  - HF77은 DOM 루트가 없으면 감시기만 `DOMContentLoaded`까지 미루고 나머지 스크립트와 클릭 수신기는 즉시 설치한다. 과거 공개 파일은 바꾸지 않고 v0.6.40 ZIP의 MAIN entry만 패치 파일로 교체한다.
+  - 실제 실패 전후 fixture는 v0.6.39 예외·수신기 미설치와 v0.6.40 수신기 생존·DOM 생성 후 감시·대상 1회 클릭·성공 응답을 함께 고정한다. goods key 최대 200개 묶음과 처리중/결과 화면 시작 책임 경계는 유지한다.
+
 ## 재전송 요청
 
 - requestId: `owner-request-20261101140024695-b4d64f55-042d-4a04-9f7b-6dabf75f3969`
@@ -187,6 +193,7 @@
 - HF70 CI 고정 범위 166/166, 과거 HF36~HF70 집중 회귀 115/115, TypeScript `tsc --noEmit`, 변경 파일 ESLint와 `background-v090.js` 문법 검사가 통과했다. 공유 상단 행에 세 모드 문구가 함께 있는 실제 실패 fixture에서 `옵션송신`의 정확한 cell-local 라디오만 선택하고, 클릭 전부터 있던 동일 URL 팝업과 잘못된 opener 팝업은 거부하며 현재 A21 목록 탭이 연 새 팝업만 claim함을 확인했다.
 - 동일 소스의 `next build --webpack` 프로덕션 빌드는 컴파일·타입검사·124/124 정적 페이지 생성을 통과했다. 로컬 프로덕션 서버의 검증 JSON과 실제 ZIP은 모두 207,394 byte였고 manifest `0.6.33`, service worker `background-v090.js`, 직렬 goodsKey 처리, 정확한 새 팝업 소유권, 공유 행 제외 라디오 선택을 확인했다. ZIP SHA-256은 `3e2cca4f8b2bbdcebebfb8912c8c00c53c14df04a255d0d7cce38dfbfc4fcbe0`, background SHA-256은 `eca106348c9731dccfa3215dd52b14f3478db4b23f599a142ba1df0699c4d8fb`다. 실제 Shopling 변경은 배포·설치 뒤 사용자의 1건 canary에서 확인한다.
 - HF71 CI 고정 범위 168/168과 HF68~HF71 표적 회귀 20/20, TypeScript `tsc --noEmit`, 변경 파일 ESLint, `background-v091.js` 문법 검사, Webpack 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 실제 실패를 닮은 인접 라벨·중첩 셀 fixture에서 오른쪽 `옵션송신`만 선택하고, 2개 라디오·중복 정확 라벨은 안전 중단하며 진단 크기를 제한함을 확인했다. 실제 Shopling 변경은 배포·설치 뒤 사용자의 1건 canary에서 확인한다.
+- HF77 영향 범위 회귀 54/54, TypeScript 검사, 변경 파일 ESLint, Webpack 프로덕션 빌드와 124/124 정적 페이지 생성이 통과했다. 로컬 실제 다운로드 API의 검증 JSON·ZIP은 manifest `0.6.40`, MAIN `main-shopling-v002.js`, `world=MAIN`, `all_frames=true`, `run_at=document_start`, 245,749 byte를 확인했다. MAIN SHA-256은 `4bae6604c9aab7bd58d3ebd9d6bc2265feda29c7bf07ce17b178cbc15d07018b`다. 실제 Shopling 쓰기는 배포·설치 뒤 B코드 한 건 카나리에서 확인한다.
 - 빌드된 로컬 프로덕션 서버에서 HF71 검증 JSON과 실제 ZIP을 호출했다. manifest `0.6.34`, service worker `background-v091.js`, 정확 인접 라벨 우선·3열 화면 순서 fallback·제한 진단·goodsKey 직렬 처리·마켓 최종완료 불필요를 확인했다. ZIP은 208,976 byte, SHA-256은 `3EC56EF6DB19ADFD9CFF43AB5069FB9C92CCA991C13FA6BE8DF9C6E2212D485B`, background SHA-256은 `6116800db7793a79f5c11162e9222e8b642acb5772972daac5dbf8606b405fe3`다.
 - HF72+계획기 표적 회귀에는 같은 방식 14개 묶음, 혼합 방식 2묶음, 201개를 200+1로 나누기, 중복 거부, opener 없는 새 팝업·닫힌 중간 opener 수용, 기존·복수·살아 있는 무관 opener 거부, 각 묶음 결과 뒤 다음 묶음 계속, 과거 결과창의 다음 묶음 오인 방지, 접수 완료 처리창의 안전한 다음 묶음 인계, 미등록 처리창 차단, 과거 단일 묶음 관찰기의 조기 성공 차단, 축소 묶음 한도 유지를 포함한다.
 - HF72 직접 표적 회귀 17/17과 최근 HF57~HF72 영향 범위 74/74, TypeScript, 변경 파일 ESLint, `background-v092.js` 문법 검사와 프로덕션 빌드가 통과했다. 최신 Vercel 미리보기 검증 API는 200을 반환했고 ZIP 214,396 byte, manifest `0.6.35`, service worker `background-v092.js`, 방식별 최대 200개 묶음 전송, 새 팝업 소유권 복구, 접수 완료 팝업의 다음 묶음 인계와 후속 결과 오인 방지, 묶음별 처리중/결과 책임경계를 확인했다. background SHA-256은 `6fb3d33f623b966ad37dc3c4e4c013014d9815c8a429b8a1f4851e998e05c51a`, 실행 HF58 사전검사는 `fc15b04820f4e35b338dcae63437a613961240aa339ab1ef0066a762b5bbba11`, HF25 단일결과 감시기 차단 패치는 `07b9726b488ec0cdecff286c582d6503cc862551a2081a76b703e574bc0f6005`, 과거 결과이동 관찰기는 `7bc31138d4f2e8461ee29e5ac3c1c1ec97cf72f2786397294ed838e7ed68be7a`, 과거 처리화면 관찰기는 `2b613329a0b24772aa73e462ef4a43e41d77fa59ad10cdffe07b9c21278e05cf`, 현재 결과 관찰기는 `22f28d9a7f68ae5b8ba3054e2b335e028f16a2316d50c7808690b2170fa16d8c`다. 실제 Shopling 변경은 운영 배포·설치 뒤 사용자의 카나리에서 확인한다.
