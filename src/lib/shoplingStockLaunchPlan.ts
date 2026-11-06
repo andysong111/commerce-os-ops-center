@@ -7,9 +7,10 @@ type StockLaunchJob = {
 const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
 // Historical HF74 checkpoint: ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 37]
 // Historical HF75 checkpoint: ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 38]
-// HF77 is the first package whose MAIN-world click bridge survives Chrome
-// injection before document.documentElement exists.
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 40] as const;
+// Historical HF77 checkpoint: ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 40]
+// HF78 also injects that MAIN-world bridge into the current kt.shopling.co.kr
+// A21 worker, instead of only the legacy a.shopling.co.kr host.
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 41] as const;
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
