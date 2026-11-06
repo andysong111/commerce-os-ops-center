@@ -60,7 +60,7 @@ test("HF78 accepts the single-status result popup on kt and legacy hosts", async
   assert.doesNotThrow(() => new Function(patched));
 });
 
-test("HF78 download contract makes v0.6.41 the required package", async () => {
+test("HF78 preserves the historical v0.6.41 package while HF79 owns the current gate", async () => {
   const [route, page, planner, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf78/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
@@ -70,8 +70,8 @@ test("HF78 download contract makes v0.6.41 the required package", async () => {
   assert.match(route, /const BASE_VERSION = "0\.6\.40"/);
   assert.match(route, /const VERSION = "0\.6\.41"/);
   assert.match(route, /LIVE_A21_WORKER_MOVED_TO_KT_SHOPLING/);
-  assert.match(page, /download-hf78/);
-  assert.match(page, /v0\.6\.41 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 41\]/);
+  assert.match(page, /download-hf79/);
+  assert.match(page, /v0\.6\.42 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 42\]/);
   assert.match(workflow, /shoplingStockStateHf78\.test\.mjs/);
 });
