@@ -77,7 +77,7 @@ test("HF69 restores visible top-to-bottom A21 option clicking before the form fa
   new Function(main);
 });
 
-test("HF69 package stays reproducible while HF70 becomes the current serial gate", async () => {
+test("HF69 package stays reproducible while HF80 becomes the current aggregate-state gate", async () => {
   const [opsBase, background, route, optionRoute, page, planner] = await Promise.all([
     readFile("public/shopling-stock-state-sync/content-ops-v023.js", "utf8"),
     readFile("public/shopling-stock-state-sync/background-v089.js", "utf8"),
@@ -96,16 +96,17 @@ test("HF69 package stays reproducible while HF70 becomes the current serial gate
   assert.match(background, /active\.job\.optionApiApplied = false/);
   assert.match(background, /serialPerGoodsKey: true/);
   assert.match(optionRoute, /inspectShoplingBcodeOnGoodsKey/);
-  assert.match(optionRoute, /inspection\.goodsOptionCount/);
+  assert.match(optionRoute, /inspectionBefore\.goodsOptionCount/);
   assert.match(optionRoute, /applyExactOptionStatus/);
   assert.match(optionRoute, /applyProductSaleStatus/);
-  assert.match(optionRoute, /transmissionKind: plan\.transmissionKind/);
+  assert.match(optionRoute, /transmissionSteps: plan\.transmissions/);
+  assert.match(optionRoute, /\.\.\.plan\.transmissions\.map/);
   assert.match(route, /const VERSION = "0\.6\.32"/);
   assert.match(route, /LIVE_OPTION_COUNT_PER_GOODS_KEY/);
   assert.match(route, /SERIAL_ONE_AT_A_TIME/);
-  assert.match(page, /download-hf74/);
-  assert.match(page, /v0\.6\.37 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 37\]/);
+  assert.match(page, /download-hf80/);
+  assert.match(page, /v0\.6\.43 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 43\]/);
   new Function(background);
   new Function(ops);
 });

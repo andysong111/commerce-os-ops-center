@@ -65,6 +65,7 @@ on:
       - "tests/shoplingStockStateHf77.test.mjs"
       - "tests/shoplingStockStateHf78.test.mjs"
       - "tests/shoplingStockStateHf79.test.mjs"
+      - "tests/shoplingStockStateHf80.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -216,6 +217,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf78.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF79 current kt popup background assignment claim
         run: node --experimental-strip-types --test tests/shoplingStockStateHf79.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF80 aggregate option state and staged product-to-option transmission
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf80.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

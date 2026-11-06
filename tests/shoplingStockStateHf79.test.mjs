@@ -220,7 +220,7 @@ test("HF79 expands pre-click popup discovery on OPTION and SINGLE lanes to both 
   }
 });
 
-test("HF79 package contract advances the current production gate without changing the responsibility boundary", async () => {
+test("HF79 package remains reproducible while HF80 becomes the current production gate", async () => {
   const [route, page, planner, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf79/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
@@ -233,9 +233,9 @@ test("HF79 package contract advances the current production gate without changin
   assert.match(route, /GROUPED_BY_TRANSMISSION_KIND_UP_TO_200/);
   assert.match(route, /A21_PROCESSING_OR_RESULT_SCREEN_STARTED_PER_GROUP/);
   assert.match(route, /marketplaceCompletionRequired: false/);
-  assert.match(page, /download-hf79/);
-  assert.match(page, /v0\.6\.42 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 42\]/);
+  assert.match(page, /download-hf80/);
+  assert.match(page, /v0\.6\.43 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 43\]/);
   assert.match(workflow, /shoplingStockStateHf79\.test\.mjs/);
 });
 

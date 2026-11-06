@@ -265,6 +265,14 @@ Where sold-out state must temporarily change to allow transmission, the guarded 
 
 A prior-stage failure must block dependent later stages.
 
+The exact stock-state rules confirmed on 2026-11-06 are:
+
+- partial option sold-out -> full sold-out: after the exact option API write, if no sellable option remains, use the general product **sold-out transmission**, not option transmission alone
+- full sold-out -> partial option recovery: send general product **on-sale** first, then option transmission so only the recovered options remain exposed
+- price change while the product is sold out: send **on-sale -> PRICE -> OPTION when applicable -> sold-out restore**; if any dependent stage fails, do not silently continue
+
+Implementation checkpoint on 2026-11-06: the price review/execution UI still excludes inactive/sold-out listings, so this price-state restoration contract is documented but not yet implemented in the price transmitter. It remains a separate fail-closed follow-up; HF80 applies only the stock-state transitions above.
+
 ### 6.3 Protected pricing
 
 Price plans use confirmed cost / protected-cost logic.

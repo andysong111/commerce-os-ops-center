@@ -11,8 +11,10 @@ const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
 // HF78 also injects that MAIN-world bridge into the current kt.shopling.co.kr
 // A21 worker, instead of only the legacy a.shopling.co.kr host.
 // HF79 also lets the current kt popup claim its assignment from background.
-const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 42] as const;
-export const CURRENT_SHOPLING_STOCK_EXTENSION_VERSION = "0.6.42";
+// HF80 adds aggregate option-state transitions and staged product -> option
+// transmission for a product recovering from full sold-out.
+const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 43] as const;
+export const CURRENT_SHOPLING_STOCK_EXTENSION_VERSION = "0.6.43";
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);

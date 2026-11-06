@@ -4,7 +4,10 @@ import {
 } from "@/lib/shopling/shoplingOptionStatus";
 import { applyShoplingProductStatus } from "@/lib/shopling/shoplingProductStatus";
 import { loadIndexedShoplingGoodsKeys } from "@/lib/shopling/shoplingBcodeIndex";
-import { planShoplingGoodsKeyTransmission } from "@/lib/shopling/shoplingGoodsKeyTransmission";
+import {
+  planShoplingGoodsKeyStateTransition,
+  planShoplingGoodsKeyTransmission,
+} from "@/lib/shopling/shoplingGoodsKeyTransmission";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 
 export const runtime = "nodejs";
@@ -44,6 +47,12 @@ function safeError(error: unknown) {
   }
   if (raw.startsWith("SHOPLING_OPTION_STATUS_TRANSITION_BLOCKED:")) {
     return "대상 옵션이 판매/품절(B/C) 상태가 아니어서 자동 전환을 차단했습니다.";
+  }
+  if (raw.startsWith("SHOPLING_OPTION_AGGREGATE_STATUS_UNCERTAIN:")) {
+    return "상품의 전체 옵션 상태를 판매/품절(B/C)로 확정하지 못해 상품 전체 품절·판매재개 전송을 차단했습니다.";
+  }
+  if (raw.startsWith("SHOPLING_OPTION_ON_SALE_AGGREGATE_MISMATCH:")) {
+    return "판매중으로 바꾼 옵션을 재조회했지만 판매 가능한 옵션이 확인되지 않아 전송을 차단했습니다.";
   }
   if (raw.startsWith("SHOPLING_PRODUCT_STATUS_TRANSITION_BLOCKED:")) {
     return "대상 상품이 판매/품절(B/C) 상태가 아니어서 자동 전환을 차단했습니다.";
@@ -103,25 +112,42 @@ export async function POST(request: Request) {
     const transmissions = [];
     for (const goodsKey of candidateGoodsKeys) {
       try {
-        const inspection = await inspectShoplingBcodeOnGoodsKey({
+        const inspectionBefore = await inspectShoplingBcodeOnGoodsKey({
           barcode: normalizedBarcode,
           goodsKey,
         });
-        const plan = planShoplingGoodsKeyTransmission(
+        const initialPlan = planShoplingGoodsKeyTransmission(
           productKind as "OPTION" | "SINGLE",
-          { goodsKey, optionCount: inspection.goodsOptionCount },
+          { goodsKey, optionCount: inspectionBefore.goodsOptionCount },
         );
-        const optionReceipt = plan.applyExactOptionStatus
+        const optionReceipt = initialPlan.applyExactOptionStatus
           ? await applyShoplingOptionStatus({
               barcode: normalizedBarcode,
               desiredStatus,
               goodsKeys: [goodsKey],
             })
           : null;
-        const productReceipt = plan.applyProductSaleStatus
+        const inspectionAfterOption = await inspectShoplingBcodeOnGoodsKey({
+          barcode: normalizedBarcode,
+          goodsKey,
+        });
+        const plan = planShoplingGoodsKeyStateTransition({
+          logicalProductKind: productKind as "OPTION" | "SINGLE",
+          shape: {
+            goodsKey,
+            optionCount: inspectionAfterOption.goodsOptionCount,
+          },
+          desiredStatus: desiredStatus as "SOLD_OUT" | "ON_SALE",
+          productSaleStatusBefore: inspectionBefore.productSaleStatus,
+          sellableOptionCountAfter:
+            inspectionAfterOption.sellableOptionCount,
+          soldOutOptionCountAfter:
+            inspectionAfterOption.soldOutOptionCount,
+        });
+        const productReceipt = plan.applyProductSaleStatus && plan.productStatusTarget
           ? await applyShoplingProductStatus({
               barcode: normalizedBarcode,
-              desiredStatus,
+              desiredStatus: plan.productStatusTarget,
               goodsKey,
             })
           : null;
@@ -134,8 +160,17 @@ export async function POST(request: Request) {
           barcode: normalizedBarcode,
           desiredStatus,
           goodsOptionCount: plan.optionCount,
-          transmissionKind: plan.transmissionKind,
-          effectiveProductKind: plan.effectiveProductKind,
+          transmissionKind: plan.transmissions[0].transmissionKind,
+          effectiveProductKind: plan.transmissions[0].effectiveProductKind,
+          transitionReason: plan.transitionReason,
+          productSaleStatusBefore: inspectionBefore.productSaleStatus,
+          sellableOptionCountBefore: inspectionBefore.sellableOptionCount,
+          soldOutOptionCountBefore: inspectionBefore.soldOutOptionCount,
+          sellableOptionCountAfter:
+            inspectionAfterOption.sellableOptionCount,
+          soldOutOptionCountAfter:
+            inspectionAfterOption.soldOutOptionCount,
+          transmissionSteps: plan.transmissions,
           mutated: Boolean(optionReceipt?.mutated || productReceipt?.mutated),
           optionReceipt,
           productReceipt,
@@ -144,12 +179,12 @@ export async function POST(request: Request) {
           verifiedAt: new Date().toISOString(),
         };
         receipts.push(receipt);
-        transmissions.push({
-          goodsKey: receipt.matchedGoodsKey,
-          optionCount: plan.optionCount,
-          transmissionKind: plan.transmissionKind,
-          effectiveProductKind: plan.effectiveProductKind,
-        });
+        transmissions.push(
+          ...plan.transmissions.map((step) => ({
+            ...step,
+            goodsKey: receipt.matchedGoodsKey,
+          })),
+        );
       } catch (error) {
         const raw = error instanceof Error ? error.message : String(error ?? "");
         if (raw === `SHOPLING_OPTION_EXACT_MATCH_REQUIRED:${normalizedBarcode}:0`) {

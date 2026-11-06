@@ -10,7 +10,7 @@ import {
 const option = { jobId: "option-1", productKind: "OPTION" };
 const single = { jobId: "single-1", productKind: "SINGLE" };
 
-test("only HF79 v0.6.42 and later may run current API-classified grouped A21 sync", () => {
+test("only HF80 v0.6.43 and later may run aggregate staged A21 sync", () => {
   assert.equal(supportsAllDateStockSync("0.5.8"), false);
   assert.equal(supportsAllDateStockSync("0.5.9"), false);
   assert.equal(supportsAllDateStockSync("0.6.0"), false);
@@ -55,7 +55,8 @@ test("only HF79 v0.6.42 and later may run current API-classified grouped A21 syn
   assert.equal(supportsAllDateStockSync("0.6.39"), false);
   assert.equal(supportsAllDateStockSync("0.6.40"), false);
   assert.equal(supportsAllDateStockSync("0.6.41"), false);
-  assert.equal(supportsAllDateStockSync("0.6.42"), true);
+  assert.equal(supportsAllDateStockSync("0.6.42"), false);
+  assert.equal(supportsAllDateStockSync("0.6.43"), true);
   assert.equal(supportsAllDateStockSync(""), false);
 });
 
