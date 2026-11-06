@@ -11,6 +11,7 @@ const OPTION_FIRST_PARALLEL_MIN_VERSION = [0, 5, 8] as const;
 // HF78 also injects that MAIN-world bridge into the current kt.shopling.co.kr
 // A21 worker, instead of only the legacy a.shopling.co.kr host.
 const ALL_DATE_STOCK_SYNC_MIN_VERSION = [0, 6, 41] as const;
+export const CURRENT_SHOPLING_STOCK_EXTENSION_VERSION = "0.6.41";
 
 function versionParts(value: string | null | undefined) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);

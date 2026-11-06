@@ -1,3 +1,5 @@
+import { CURRENT_SHOPLING_STOCK_EXTENSION_VERSION } from "@/lib/shoplingStockLaunchPlan";
+
 const REQUEST = "COMMERCE_OS_SHOPLING_STOCK_SYNC_SESSION_PREFLIGHT_REQUEST";
 const RESULT = "COMMERCE_OS_SHOPLING_STOCK_SYNC_SESSION_PREFLIGHT_RESULT";
 
@@ -15,7 +17,7 @@ export function requireShoplingAuthenticatedSession(timeoutMs = 55_000) {
     const requestId = `shopling-session:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      reject(new ShoplingSessionPreflightError("Shopling 로그인과 A21 작업창 자동 준비 응답이 없습니다. 재고상태 자동화 확장 v0.6.38 연결을 확인해 주세요.", "SHOPLING_SESSION_PREFLIGHT_TIMEOUT"));
+      reject(new ShoplingSessionPreflightError(`Shopling 로그인과 A21 작업창 자동 준비 응답이 없습니다. 재고상태 자동화 확장 v${CURRENT_SHOPLING_STOCK_EXTENSION_VERSION} 연결을 확인해 주세요.`, "SHOPLING_SESSION_PREFLIGHT_TIMEOUT"));
     }, timeoutMs);
     function onMessage(event: MessageEvent) {
       if (event.source !== window || event.origin !== window.location.origin) return;

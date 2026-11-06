@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INVENTORY_QUEUE_PATH, inventoryStockReadClient, startInventoryPolling } from "@/lib/inventoryStockConnection";
-import { planShoplingStockLaunch, supportsAllDateStockSync } from "@/lib/shoplingStockLaunchPlan";
+import {
+  CURRENT_SHOPLING_STOCK_EXTENSION_VERSION,
+  planShoplingStockLaunch,
+  supportsAllDateStockSync,
+} from "@/lib/shoplingStockLaunchPlan";
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
 import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
 import { selectExactShoplingStockQueueJob, type ShoplingStockQueueSelection } from "@/lib/shoplingStockQueueSelection";
@@ -277,7 +281,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 현재 goods key 일괄전송을 지원하지 않아 사용할 수 없습니다. v0.6.38로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 현재 goods key 일괄전송을 지원하지 않아 사용할 수 없습니다. v${CURRENT_SHOPLING_STOCK_EXTENSION_VERSION}로 업데이트해 주세요.`);
         }
         return;
       }
