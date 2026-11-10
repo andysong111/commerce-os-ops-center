@@ -11,6 +11,7 @@ on:
       - "src/lib/seoListingShoplingBCodeOnboarding.ts"
       - "src/lib/seoListingShoplingBCodeOnboardingServer.ts"
       - "src/lib/seoListingShoplingBCodeAuditPlanning.ts"
+      - "src/lib/shopling/shoplingReadClient.ts"
       - "src/lib/seoListingAutomationDashboard.ts"
       - "src/lib/seoMarketCapacityReadback.ts"
       - "src/lib/seoShoplingProductDbCapacity.ts"
@@ -35,6 +36,7 @@ on:
       - "tests/productGroupLegacyPrefix.test.mjs"
       - "tests/seoListingShoplingBCodeOnboarding.test.mjs"
       - "tests/seoListingShoplingBCodeAuditPlanning.test.mjs"
+      - "tests/shoplingReadClient.test.mjs"
       - "scripts/shopling-bcode-catalog-preview.mjs"
       - "tests/seoListingAutomationDashboard.test.mjs"
       - "tests/seoListingAutomationContract.test.mjs"
@@ -74,6 +76,7 @@ jobs:
           src/lib/seoListingShoplingBCodeOnboarding.ts
           src/lib/seoListingShoplingBCodeOnboardingServer.ts
           src/lib/seoListingShoplingBCodeAuditPlanning.ts
+          src/lib/shopling/shoplingReadClient.ts
           src/lib/seoListingAutomationDashboard.ts
           src/lib/seoMarketCapacityReadback.ts
           src/lib/seoShoplingProductDbCapacity.ts
@@ -93,6 +96,7 @@ jobs:
           tests/productGroupLegacyPrefix.test.mjs
           tests/seoListingShoplingBCodeOnboarding.test.mjs
           tests/seoListingShoplingBCodeAuditPlanning.test.mjs
+          tests/shoplingReadClient.test.mjs
           scripts/shopling-bcode-catalog-preview.mjs
           tests/seoListingAutomationDashboard.test.mjs
           tests/seoListingAutomationContract.test.mjs
@@ -109,6 +113,7 @@ jobs:
           tests/productGroupLegacyPrefix.test.mjs
           tests/seoListingShoplingBCodeOnboarding.test.mjs
           tests/seoListingShoplingBCodeAuditPlanning.test.mjs
+          tests/shoplingReadClient.test.mjs
           tests/seoListingAutomationDashboard.test.mjs
           tests/seoListingAutomationContract.test.mjs
           tests/seoMarketCapacityReadback.test.mjs

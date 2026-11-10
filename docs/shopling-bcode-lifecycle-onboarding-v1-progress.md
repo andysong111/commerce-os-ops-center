@@ -179,3 +179,42 @@ API. This workflow must never write to Shopling or a marketplace.
   `externalMarketWrite=false`. The project remains in phase 4; no sold-out,
   delete, or re-registration canary is authorized yet.
 
+### Receipt preview and fail-closed isolation evidence
+
+- PR #1697 deployed canonical integrity receipts for the 48 passing products.
+  Production returned 48/48 receipts, no holds, 48 unique fingerprints, and six
+  exact bindings for every receipt. The deterministic receipt-set fingerprint is
+  `sha256:2b79ea7ca5bca70ffd4d64120438ea734295adaf8c2c544b3a4e7bd9ab7ac203`.
+- The same read-only plan identified nine exact internal market-ledger recovery
+  candidates: AAA337, AAA143, AAA241, AAA333, AAA095, AAA428, AAA206, AAA365,
+  and AAA390. No recovery row has been written.
+- PR #1698 removed an over-strict requirement that an isolation candidate must
+  have the canonical six-profile lifecycle shape. An irregular set is now
+  eligible only when it contains persisted numeric goods keys, every key is
+  absent from the current catalog, and no current launch item overlaps.
+- Production correctly kept all 52 candidates on hold. Forty-nine products have
+  six lifecycle rows but no persisted goods key, AAA026 and AAA336 still resolve
+  to current goods keys, and AAA129 has no launch-option B-code. Treating the 49
+  empty-key products as absent without another independent lookup would be an
+  unsafe inference.
+
+### Exact partner-product-code lookup (local verification, not deployed)
+
+- The supplied official Shopling manual confirms that product gather accepts
+  `key_search_tp=자사코드` and a comma-separated exact code list in `prod_id`;
+  an exact code lookup ignores the date range.
+- The pending implementation derives twelve bounded candidates from each
+  launch item's persisted `self_code_base`: six current `a..f` suffix codes and
+  six verified legacy `DM1_..DM4_` / `SM1_..SM2_` prefix codes. It never guesses
+  from a B-code and never scans the full historical catalog.
+- An empty-goods-key product becomes isolation-ready only when all twelve exact
+  partner codes were requested successfully, no current matching catalog row
+  exists, and no launch B-code overlaps another product. Missing self-code
+  evidence, partial lookup coverage, or any current match remains on hold.
+- Local evidence: 136/136 lifecycle and Shopling read-client tests, changed-file
+  ESLint, TypeScript, and the Production build with 124/124 static pages passed.
+  Repository-wide lint still has unrelated pre-existing failures and was not
+  used as evidence for this change.
+- Next gate: deploy this read-only lookup, rerun the authenticated Production
+  audit, and only then ask for approval to persist receipts or internal repairs.
+
