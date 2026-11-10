@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildSeoListingBCodeAuditPlans,
+  seoListingPartnerProductCodeCandidates,
   seoListingBCodeAuditFingerprint,
 } from "../src/lib/seoListingShoplingBCodeAuditPlanning.ts";
 import { SEO_LISTING_SHADOW_EXPECTED_PROFILES } from "../src/lib/seoListingLifecycleReconciliation.ts";
@@ -189,6 +190,81 @@ test("real legacy failure: an irregular persisted profile set can be isolated wh
     "8002",
   ]);
   assert.equal(result.isolationPlan.products[0].lifecycleRowCount, 2);
+});
+
+test("real empty-goods-key legacy rows become isolation-ready only after an exact partner-code absence lookup", () => {
+  const partnerCodes = seoListingPartnerProductCodeCandidates("SEO367");
+  assert.equal(partnerCodes.length, 12);
+  const result = build({
+    passingJobs: [],
+    productReviews: [
+      {
+        launchItemId: "old-item",
+        modelNumber: "AAA367",
+        reason: "BCODE_SHOPLING_CURRENT_CATALOG_MISSING",
+      },
+    ],
+    existingLifecycleRows: lifecycle("old-item", 0).map((row) => ({
+      ...row,
+      goods_key: "",
+    })),
+    launchItems: [
+      {
+        owner_id: OWNER,
+        item_id: "old-item",
+        model_number: "AAA367",
+        self_code_base: "SEO367",
+      },
+    ],
+    catalogRows: [],
+    marketLedgerRows: [],
+    partnerProductCodeLookup: {
+      requestedCodes: partnerCodes,
+      complete: true,
+    },
+  });
+  assert.equal(result.isolationPlan.readyCount, 1);
+  assert.equal(result.isolationPlan.holdCount, 0);
+  assert.equal(
+    result.isolationPlan.products[0].evidenceBasis,
+    "PARTNER_PRODUCT_CODE_ABSENCE",
+  );
+  assert.equal(
+    result.isolationPlan.products[0].partnerProductCodeLookupComplete,
+    true,
+  );
+
+  const incomplete = build({
+    passingJobs: [],
+    productReviews: [
+      {
+        launchItemId: "old-item",
+        modelNumber: "AAA367",
+        reason: "BCODE_SHOPLING_CURRENT_CATALOG_MISSING",
+      },
+    ],
+    existingLifecycleRows: lifecycle("old-item", 0).map((row) => ({
+      ...row,
+      goods_key: "",
+    })),
+    launchItems: [
+      {
+        owner_id: OWNER,
+        item_id: "old-item",
+        model_number: "AAA367",
+        self_code_base: "SEO367",
+      },
+    ],
+    catalogRows: [],
+    marketLedgerRows: [],
+    partnerProductCodeLookup: {
+      requestedCodes: partnerCodes.slice(0, -1),
+      complete: true,
+    },
+  });
+  assert.equal(incomplete.isolationPlan.readyCount, 0);
+  assert.equal(incomplete.isolationPlan.holdCount, 1);
+  assert.equal(incomplete.isolationPlan.products[0].evidenceBasis, "INSUFFICIENT");
 });
 
 test("market-ledger recovery candidate requires six exact persisted and current bindings", () => {

@@ -181,6 +181,39 @@ test("product lookup can target exact Shopling goods keys and reject invalid ids
   );
 });
 
+test("product lookup can target exact partner product codes without a catalog scan", () => {
+  const request = buildShoplingReadRequestXml(
+    "products",
+    { loginId: "id", companyId: "company", authKey: "secret" },
+    { start: "2026-11-10", end: "2026-11-10" },
+    {
+      productKeySearchType: "자사코드",
+      productIds: ["SEO367a", "DM1_SEO367", "SEO367a"],
+    },
+  );
+  assert.match(
+    request,
+    /<key_search_tp><!\[CDATA\[자사코드\]\]><\/key_search_tp>/,
+  );
+  assert.match(
+    request,
+    /<prod_id><!\[CDATA\[SEO367a,DM1_SEO367\]\]><\/prod_id>/,
+  );
+  assert.throws(
+    () =>
+      buildShoplingReadRequestXml(
+        "products",
+        { loginId: "id", companyId: "company", authKey: "secret" },
+        { start: "2026-11-10", end: "2026-11-10" },
+        {
+          productKeySearchType: "자사코드",
+          productIds: ["SEO367a,DM1_SEO367"],
+        },
+      ),
+    /SHOPLING_PRODUCT_PARTNER_CODE_INVALID/,
+  );
+});
+
 test("date ranges enforce seven-day order chunks", () => {
   assert.deepEqual(splitShoplingDateRange("2026-07-20", "2026-08-05", 7), [
     { start: "2026-07-20", end: "2026-07-26" },

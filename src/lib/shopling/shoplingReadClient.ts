@@ -13,8 +13,11 @@ export type ShoplingProductSearchType =
   | "등록일"
   | "판매상태변경일";
 
+export type ShoplingProductKeySearchType = "상품코드" | "자사코드";
+
 export type ShoplingReadOptions = {
   productSearchType?: ShoplingProductSearchType;
+  productKeySearchType?: ShoplingProductKeySearchType;
   productIds?: string[];
 };
 
@@ -147,11 +150,29 @@ function compactXml(lines: string[]) {
   return `<?xml version="1.0" encoding="UTF-8"?>${lines.join("")}`;
 }
 
-function normalizedProductIds(values: string[] | undefined) {
+function normalizedProductIds(
+  values: string[] | undefined,
+  keySearchType: ShoplingProductKeySearchType = "상품코드",
+) {
   if (!values) return [];
-  const normalized = [...new Set(values.map((value) => value.trim()))];
-  if (normalized.some((value) => !/^\d{1,12}$/.test(value))) {
-    throw new Error("SHOPLING_PRODUCT_ID_INVALID");
+  const normalized = [
+    ...new Set(values.map((value) => value.normalize("NFKC").trim())),
+  ];
+  if (keySearchType === "상품코드") {
+    if (normalized.some((value) => !/^\d{1,12}$/.test(value))) {
+      throw new Error("SHOPLING_PRODUCT_ID_INVALID");
+    }
+    return normalized;
+  }
+  if (
+    normalized.some(
+      (value) =>
+        !value ||
+        value.length > 100 ||
+        /[,<>\u0000-\u001f\u007f]/.test(value),
+    )
+  ) {
+    throw new Error("SHOPLING_PRODUCT_PARTNER_CODE_INVALID");
   }
   return normalized;
 }
@@ -175,7 +196,11 @@ export function buildShoplingReadRequestXml(
 
   if (resource === "products") {
     const productSearchType = options.productSearchType ?? "수정일";
-    const productIds = normalizedProductIds(options.productIds);
+    const productKeySearchType = options.productKeySearchType ?? "상품코드";
+    const productIds = normalizedProductIds(
+      options.productIds,
+      productKeySearchType,
+    );
     return compactXml([
       "<reqst><apiProdGather>",
       ...auth,
@@ -183,7 +208,10 @@ export function buildShoplingReadRequestXml(
       `<start_dt>${start}</start_dt>`,
       `<end_dt>${end}</end_dt>`,
       ...(productIds.length
-        ? [`<prod_id>${cdata(productIds.join(","))}</prod_id>`]
+        ? [
+            `<key_search_tp>${cdata(productKeySearchType)}</key_search_tp>`,
+            `<prod_id>${cdata(productIds.join(","))}</prod_id>`,
+          ]
         : []),
       `<prod_fields>${cdata(PRODUCT_FIELDS)}</prod_fields>`,
       "<opt_yn>Y</opt_yn><attri_yn>N</attri_yn>",
@@ -470,6 +498,34 @@ export class ShoplingReadClient {
           { start: today, end: today },
           {
             ...options,
+            productIds: normalized.slice(offset, offset + 100),
+          },
+        )),
+      );
+    }
+    return rows;
+  }
+
+  async readProductsByPartnerCodes(
+    partnerCodes: string[],
+    options: Omit<
+      ShoplingReadOptions,
+      "productIds" | "productKeySearchType"
+    > = {},
+  ) {
+    const normalized = normalizedProductIds(partnerCodes, "자사코드");
+    if (normalized.length === 0) return [];
+
+    const rows: RawObject[] = [];
+    const today = formatDate(new Date());
+    for (let offset = 0; offset < normalized.length; offset += 100) {
+      rows.push(
+        ...(await this.read(
+          "products",
+          { start: today, end: today },
+          {
+            ...options,
+            productKeySearchType: "자사코드",
             productIds: normalized.slice(offset, offset + 100),
           },
         )),

@@ -7,6 +7,15 @@ type UnknownRecord = Record<string, unknown>;
 const B_CODE = /^B[A-Z]{1,2}\d+-\d+$/;
 const GOODS_KEY = /^\d+$/;
 const AUDIT_RECEIPT_SCHEMA_VERSION = "seo-listing-bcode-integrity-receipt-v1";
+const PARTNER_CODE_SUFFIXES = ["a", "b", "c", "d", "e", "f"] as const;
+const LEGACY_PARTNER_CODE_PREFIXES = [
+  "DM1_",
+  "DM2_",
+  "DM3_",
+  "DM4_",
+  "SM1_",
+  "SM2_",
+] as const;
 
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
@@ -14,6 +23,25 @@ function text(value: unknown) {
 
 function code(value: unknown) {
   return text(value).toUpperCase().replace(/\s+/g, "");
+}
+
+export function seoListingPartnerProductCodeCandidates(value: unknown) {
+  const base = code(value);
+  if (
+    !base ||
+    base.length > 80 ||
+    /[,<>\u0000-\u001f\u007f]/.test(base)
+  ) {
+    return [];
+  }
+  return [
+    ...new Set(
+      PARTNER_CODE_SUFFIXES.flatMap((suffix, index) => [
+        `${base}${suffix}`,
+        `${LEGACY_PARTNER_CODE_PREFIXES[index]}${base}`,
+      ]),
+    ),
+  ];
 }
 
 function record(value: unknown): UnknownRecord {
@@ -209,6 +237,10 @@ export function buildSeoListingBCodeAuditPlans(input: {
   marketLedgerRows: UnknownRecord[];
   launchItems: UnknownRecord[];
   launchOptions: UnknownRecord[];
+  partnerProductCodeLookup?: {
+    requestedCodes: string[];
+    complete: boolean;
+  };
 }) {
   const ownerId = text(input.ownerId);
   const lifecycleByProduct = lifecycleRowsByProduct(input.existingLifecycleRows);
@@ -216,6 +248,20 @@ export function buildSeoListingBCodeAuditPlans(input: {
   const latestLedger = latestRowsByGoodsKey(input.marketLedgerRows);
   const itemsById = launchItemsById(input.launchItems);
   const ownersByBCode = launchItemOwnersByBCode(input.launchOptions);
+  const requestedPartnerProductCodes = new Set(
+    (input.partnerProductCodeLookup?.requestedCodes ?? []).map(code),
+  );
+  const currentCatalogByPartnerProductCode = new Map<
+    string,
+    UnknownRecord[]
+  >();
+  for (const row of input.catalogRows) {
+    const partnerProductCode = code(row.ptn_goods_cd);
+    if (!partnerProductCode || code(row.sale_status) === "Z") continue;
+    const rows = currentCatalogByPartnerProductCode.get(partnerProductCode) ?? [];
+    rows.push(row);
+    currentCatalogByPartnerProductCode.set(partnerProductCode, rows);
+  }
 
   const receipts: UnknownRecord[] = [];
   const receiptHolds: UnknownRecord[] = [];
@@ -322,6 +368,7 @@ export function buildSeoListingBCodeAuditPlans(input: {
     isolationReasons.has(row.reason),
   )) {
     const lifecycleRows = lifecycleByProduct.get(review.launchItemId) ?? [];
+    const item = itemsById.get(review.launchItemId) ?? {};
     const persistedGoodsKeys = [
       ...new Set(
         lifecycleRows
@@ -341,10 +388,36 @@ export function buildSeoListingBCodeAuditPlans(input: {
         }
       }
     }
+    const partnerProductCodeCandidates =
+      seoListingPartnerProductCodeCandidates(item.self_code_base);
+    const partnerProductCodeLookupComplete =
+      input.partnerProductCodeLookup?.complete === true &&
+      partnerProductCodeCandidates.length ===
+        PARTNER_CODE_SUFFIXES.length * 2 &&
+      partnerProductCodeCandidates.every((partnerProductCode) =>
+        requestedPartnerProductCodes.has(code(partnerProductCode)),
+      );
+    const currentPartnerCatalogRows = partnerProductCodeCandidates.flatMap(
+      (partnerProductCode) =>
+        currentCatalogByPartnerProductCode.get(code(partnerProductCode)) ?? [],
+    );
+    for (const row of currentPartnerCatalogRows) {
+      const goodsKey = text(row.goods_key);
+      if (GOODS_KEY.test(goodsKey)) currentCatalogGoodsKeys.push(goodsKey);
+      const bCode = code(row.optPtnOptCd);
+      for (const launchItemId of ownersByBCode.get(bCode) ?? []) {
+        overlapLaunchItemIds.add(launchItemId);
+      }
+    }
+    const persistedGoodsKeyAbsenceProven =
+      persistedGoodsKeys.length > 0 && currentCatalogGoodsKeys.length === 0;
+    const partnerProductCodeAbsenceProven =
+      persistedGoodsKeys.length === 0 &&
+      partnerProductCodeLookupComplete &&
+      currentPartnerCatalogRows.length === 0;
     const ready =
       review.reason === "BCODE_SHOPLING_CURRENT_CATALOG_MISSING" &&
-      persistedGoodsKeys.length > 0 &&
-      currentCatalogGoodsKeys.length === 0 &&
+      (persistedGoodsKeyAbsenceProven || partnerProductCodeAbsenceProven) &&
       overlapLaunchItemIds.size === 0;
     isolationProducts.push({
       launchItemId: review.launchItemId,
@@ -352,8 +425,15 @@ export function buildSeoListingBCodeAuditPlans(input: {
       reason: review.reason,
       lifecycleRowCount: lifecycleRows.length,
       lifecycleGoodsKeys: persistedGoodsKeys,
+      partnerProductCodeCandidates,
+      partnerProductCodeLookupComplete,
       currentCatalogGoodsKeys: [...new Set(currentCatalogGoodsKeys)].sort(),
       overlapLaunchItemIds: [...overlapLaunchItemIds].sort(),
+      evidenceBasis: persistedGoodsKeyAbsenceProven
+        ? "PERSISTED_GOODS_KEY_ABSENCE"
+        : partnerProductCodeAbsenceProven
+          ? "PARTNER_PRODUCT_CODE_ABSENCE"
+          : "INSUFFICIENT",
       disposition: ready ? "INTERNAL_ISOLATION_READY" : "HOLD_FOR_REVIEW",
     });
   }

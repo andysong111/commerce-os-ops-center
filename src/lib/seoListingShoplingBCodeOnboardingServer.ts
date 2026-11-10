@@ -17,7 +17,10 @@ import {
 } from "@/lib/shopling/shoplingReadClient";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildSeoListingShoplingBCodeAuditDiagnostics } from "@/lib/seoListingShoplingBCodeAuditDiagnostics";
-import { buildSeoListingBCodeAuditPlans } from "@/lib/seoListingShoplingBCodeAuditPlanning";
+import {
+  buildSeoListingBCodeAuditPlans,
+  seoListingPartnerProductCodeCandidates,
+} from "@/lib/seoListingShoplingBCodeAuditPlanning";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -42,6 +45,21 @@ function chunks<T>(rows: T[], size = READ_BATCH_SIZE) {
 
 function unique(values: unknown[]) {
   return [...new Set(values.map(text).filter(Boolean))];
+}
+
+function dedupeCatalogRows(rows: UnknownRecord[]) {
+  const output = new Map<string, UnknownRecord>();
+  for (const row of rows) {
+    const identity = [
+      text(row.goods_key),
+      text(row.ptn_goods_cd),
+      text(row.optId),
+      text(row.optPtnOptCd),
+      text(row.sale_status),
+    ].join("\u0000");
+    output.set(identity, row);
+  }
+  return [...output.values()];
 }
 
 async function throwIfError(
@@ -128,7 +146,7 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     const result = await admin
       .from("product_launch_items")
       .select(
-        "owner_id,item_id,model_number,product_name,barcode,option_barcodes,option_barcode_nos,shopling_upload_status,archived_at,item_payload,updated_at",
+        "owner_id,item_id,model_number,product_name,barcode,option_barcodes,option_barcode_nos,shopling_upload_status,archived_at,self_code_base,item_payload,updated_at",
       )
       .eq("owner_id", ownerId)
       .order("item_id", { ascending: true })
@@ -159,7 +177,7 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
   const shopling = new ShoplingReadClient(
     shoplingReadConfigFromEnv(process.env),
   );
-  const catalogRows =
+  const exactGoodsKeyCatalogRows =
     options.auditExisting === true
       ? await shopling.readProductsByIds(auditGoodsKeys, {
           productSearchType: "등록일",
@@ -167,6 +185,44 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
       : await shopling.readRanges("products", scan.ranges, {
           productSearchType: "등록일",
         });
+  const auditProductsWithoutGoodsKeys = new Set<string>();
+  if (options.auditExisting === true) {
+    const goodsKeyCountByProduct = new Map<string, number>();
+    for (const row of auditLifecycleRows) {
+      const launchItemId = text(row.launch_item_id);
+      if (!launchItemId) continue;
+      const current = goodsKeyCountByProduct.get(launchItemId) ?? 0;
+      goodsKeyCountByProduct.set(
+        launchItemId,
+        current + (/^\d{1,12}$/.test(text(row.goods_key)) ? 1 : 0),
+      );
+    }
+    for (const [launchItemId, goodsKeyCount] of goodsKeyCountByProduct) {
+      if (goodsKeyCount === 0) auditProductsWithoutGoodsKeys.add(launchItemId);
+    }
+  }
+  const auditPartnerProductCodes =
+    options.auditExisting === true
+      ? unique(
+          launchItems
+            .filter((row) =>
+              auditProductsWithoutGoodsKeys.has(text(row.item_id)),
+            )
+            .flatMap((row) =>
+              seoListingPartnerProductCodeCandidates(row.self_code_base),
+            ),
+        )
+      : [];
+  const partnerProductCodeCatalogRows =
+    options.auditExisting === true && auditPartnerProductCodes.length > 0
+      ? await shopling.readProductsByPartnerCodes(auditPartnerProductCodes, {
+          productSearchType: "등록일",
+        })
+      : [];
+  const catalogRows = dedupeCatalogRows([
+    ...exactGoodsKeyCatalogRows,
+    ...partnerProductCodeCatalogRows,
+  ]);
   const catalogGoodsKeys = extractShoplingBCodeCatalogGoodsKeys(catalogRows);
   const ledgerGoodsKeys =
     options.auditExisting === true ? auditGoodsKeys : catalogGoodsKeys;
@@ -253,6 +309,10 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
           marketLedgerRows,
           launchItems,
           launchOptions,
+          partnerProductCodeLookup: {
+            requestedCodes: auditPartnerProductCodes,
+            complete: true,
+          },
         })
       : null;
   const result = {
@@ -272,6 +332,8 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
         options.auditExisting === true ? auditGoodsKeys.length : 0,
       sourceRowCount: catalogRows.length,
       bCodeGoodsKeyCount: catalogGoodsKeys.length,
+      partnerProductCodeLookupCount: auditPartnerProductCodes.length,
+      partnerProductCodeSourceRowCount: partnerProductCodeCatalogRows.length,
     },
     auditPopulation:
       options.auditExisting === true ? auditPopulation : null,
