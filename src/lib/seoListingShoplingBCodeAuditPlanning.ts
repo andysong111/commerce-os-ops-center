@@ -321,14 +321,19 @@ export function buildSeoListingBCodeAuditPlans(input: {
   for (const review of input.productReviews.filter((row) =>
     isolationReasons.has(row.reason),
   )) {
-    const lifecycle = exactLifecycleBindings(
-      lifecycleByProduct.get(review.launchItemId) ?? [],
-    );
+    const lifecycleRows = lifecycleByProduct.get(review.launchItemId) ?? [];
+    const persistedGoodsKeys = [
+      ...new Set(
+        lifecycleRows
+          .map((row) => text(row.goods_key))
+          .filter((goodsKey) => GOODS_KEY.test(goodsKey)),
+      ),
+    ].sort();
     const overlapLaunchItemIds = new Set<string>();
     const currentCatalogGoodsKeys: string[] = [];
-    for (const binding of lifecycle.bindings) {
-      const rows = catalogByGoodsKey.get(binding.goodsKey) ?? [];
-      if (rows.length > 0) currentCatalogGoodsKeys.push(binding.goodsKey);
+    for (const goodsKey of persistedGoodsKeys) {
+      const rows = catalogByGoodsKey.get(goodsKey) ?? [];
+      if (rows.length > 0) currentCatalogGoodsKeys.push(goodsKey);
       for (const row of rows) {
         const bCode = code(row.optPtnOptCd);
         for (const launchItemId of ownersByBCode.get(bCode) ?? []) {
@@ -338,14 +343,15 @@ export function buildSeoListingBCodeAuditPlans(input: {
     }
     const ready =
       review.reason === "BCODE_SHOPLING_CURRENT_CATALOG_MISSING" &&
-      lifecycle.exact &&
+      persistedGoodsKeys.length > 0 &&
       currentCatalogGoodsKeys.length === 0 &&
       overlapLaunchItemIds.size === 0;
     isolationProducts.push({
       launchItemId: review.launchItemId,
       modelNumber: review.modelNumber,
       reason: review.reason,
-      lifecycleGoodsKeys: lifecycle.bindings.map((row) => row.goodsKey),
+      lifecycleRowCount: lifecycleRows.length,
+      lifecycleGoodsKeys: persistedGoodsKeys,
       currentCatalogGoodsKeys: [...new Set(currentCatalogGoodsKeys)].sort(),
       overlapLaunchItemIds: [...overlapLaunchItemIds].sort(),
       disposition: ready ? "INTERNAL_ISOLATION_READY" : "HOLD_FOR_REVIEW",

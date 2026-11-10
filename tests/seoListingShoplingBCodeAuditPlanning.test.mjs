@@ -155,6 +155,42 @@ test("missing old goods keys are isolation-ready only when no current product re
   assert.deepEqual(reused.isolationPlan.products[0].overlapLaunchItemIds, ["item-1"]);
 });
 
+test("real legacy failure: an irregular persisted profile set can be isolated when every stored goods key is absent", () => {
+  const result = build({
+    passingJobs: [],
+    productReviews: [
+      {
+        launchItemId: "old-item",
+        modelNumber: "AAA367",
+        reason: "BCODE_SHOPLING_CURRENT_CATALOG_MISSING",
+      },
+    ],
+    existingLifecycleRows: [
+      {
+        owner_id: OWNER,
+        launch_item_id: "old-item",
+        market_account_key: "legacy-market-a",
+        goods_key: "8001",
+      },
+      {
+        owner_id: OWNER,
+        launch_item_id: "old-item",
+        market_account_key: "legacy-market-b",
+        goods_key: "8002",
+      },
+    ],
+    catalogRows: [],
+    marketLedgerRows: [],
+  });
+  assert.equal(result.isolationPlan.readyCount, 1);
+  assert.equal(result.isolationPlan.holdCount, 0);
+  assert.deepEqual(result.isolationPlan.products[0].lifecycleGoodsKeys, [
+    "8001",
+    "8002",
+  ]);
+  assert.equal(result.isolationPlan.products[0].lifecycleRowCount, 2);
+});
+
 test("market-ledger recovery candidate requires six exact persisted and current bindings", () => {
   const reviews = [
     {
