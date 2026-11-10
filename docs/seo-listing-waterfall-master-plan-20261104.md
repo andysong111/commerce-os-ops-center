@@ -168,10 +168,14 @@ Production read-only 감사 결과:
 - 같은 Production 재감사에서 48/48 영수증과 세트 fingerprint, 마켓 원장
   복구 후보 9개가 변하지 않았고 모든 쓰기 플래그는 false였다.
 - 다음 내부 교정은 원본 lifecycle 행을 삭제하지 않는다. 49개는 별도 활성
-  격리 마커로 제외하고, 48개 영수증은 불변 작업 원장에 보존하며, 원장 복구는
-  9개 상품의 정확한 before/after 신원만 한 트랜잭션으로 갱신한다. 한 행이라도
-  재감사 계획과 달라지면 전체를 중단하고, rollback은 격리 마커 비활성화와
-  원장 before 신원 복구로 수행한다.
+  격리 마커로 제외하고, 48개 영수증은 불변 작업 원장에 보존한다. PR #1700
+  Production 재감사에서 원장 복구 후보 9개 모두 실제 기존 원장 행이 없어
+  `0 적용 / 9 보류`로 좁혀졌으며 신규 행을 추측 생성하지 않는다.
+- 최종 read-only 내부 교정 계획은 영수증 48개, 격리 마커 49개, 원장 변경
+  0개이며 fingerprint는
+  `sha256:6a4b0d40790a872d5ebda10ec2f283da8d74422a3c65106aa0dadad7ee742855`다.
+  schema는 아직 적용하지 않았고 모든 내부·외부 쓰기 플래그는 false였다.
+  rollback은 49개 격리 마커만 비활성화하며 감사 영수증은 증거로 보존한다.
 - 모든 감사에서 `internalWriteApplied=false`, `externalMarketWrite=false`였다.
 
 완료 조건:
@@ -247,16 +251,16 @@ Production read-only 감사 결과:
 
 ## 7. 바로 다음 실행 순서
 
-1. 통과 48개 영수증, 안전 격리 후보 49개, 마켓 원장 복구 후보 9개를
-   정확한 계획 fingerprint가 고정된 한 번의 내부 DB 교정 단위로 배포한다.
-2. Production read-only 재감사에서 원장 9개 상품 모두 실제 기존 행 6개와
-   exact before 신원을 갖는지 확인하고 최종 계획 fingerprint를 확정한다.
-3. 사용자가 그 fingerprint의 내부 교정을 명시 승인한 뒤에만 적용하고, 즉시 read-only 감사를
+1. 통과 48개 영수증과 안전 격리 후보 49개만 정확한 계획 fingerprint가
+   고정된 한 번의 내부 DB 교정 단위로 사용한다. 원장 후보 9개는 제외한다.
+2. Production read-only 재감사에서 최종 fingerprint와 `48/49/0` 범위를
+   확정했다. schema와 데이터는 아직 변경하지 않았다.
+3. 사용자가 그 fingerprint의 내부 교정을 명시 승인한 뒤에만 schema와 계획을 적용하고, 즉시 read-only 감사를
    재실행해 fingerprint·대상 수·부작용 0건을 확인한다.
 4. 내부 Shopling 용량 readback 6,072를 재확인한다.
 5. 60일 무판매 조건을 충족한 실제 후보가 생기면 사용자에게 상품명·B코드·6개 goods key·영향 범위를 제시한다.
 6. 사용자가 그 1개 Canary의 외부 품절·삭제를 명시적으로 승인한 뒤에만 5단계로 이동한다.
 
-현재 사용자가 추가로 할 일은 없다. 내부 교정 코드 배포와 Production
-read-only 계획 확정까지 자동으로 진행하고, 실제 내부 DB 교정 직전에 정확한
-계획 fingerprint와 rollback 범위를 제시한다.
+현재 필요한 사용자 결정은 위 fingerprint의 내부 DB 교정 승인 여부뿐이다.
+승인 범위는 영수증 48개 보존과 격리 마커 49개 활성화이며 Shopling·마켓
+외부 쓰기와 마켓 원장 변경은 0건이다.

@@ -223,20 +223,24 @@ API. This workflow must never write to Shopling or a marketplace.
   Repository-wide lint still has unrelated pre-existing failures and was not
   used as evidence for this change.
 
-### Reversible internal correction plan (local implementation)
+### Reversible internal correction plan (Production read-only verified)
 
-- The next plan persists the 48 canonical receipts in the existing immutable
-  operation ledger, activates 49 separate isolation markers without deleting or
-  overwriting lifecycle source rows, and repairs only the exact before/after
-  launch-item/profile identities of the nine market-ledger products.
+- The deployed plan persists the 48 canonical receipts in the existing immutable
+  operation ledger and activates 49 separate isolation markers without deleting
+  or overwriting lifecycle source rows.
+- The stricter Production planner found no existing ledger row for any of the nine
+  former recovery candidates. They are now correctly `0 ready / 9 held`; the
+  correction will not guess or insert missing ledger rows.
 - Apply is one database transaction. The route reruns the complete live audit and
   requires the approved SHA-256 plan fingerprint; any changed or missing ledger
   identity aborts the whole transaction. Independent readback checks receipts,
   active markers, every repaired goods key, and the correction run receipt.
-- Rollback retains audit receipts, deactivates only markers from the exact plan,
-  and restores every market-ledger identity to its frozen before value. Any later
-  drift aborts rollback rather than overwriting newer data.
-- No internal correction or external Shopling/market write has been executed.
-  Next gate: deploy the code, confirm the final Production plan fingerprint and
-  exact counts, then request approval for that single internal database mutation.
+- The final read-only scope is 48 receipts, 49 isolation markers, and zero ledger
+  mutations. Its fingerprint is
+  `sha256:6a4b0d40790a872d5ebda10ec2f283da8d74422a3c65106aa0dadad7ee742855`.
+- Rollback retains audit receipts and deactivates only the 49 markers from this
+  exact plan. No internal correction or external Shopling/market write has been
+  executed; the migration schema is also still unapplied.
+- Next gate: obtain explicit approval for this fingerprint, apply the schema and
+  one internal transaction, then rerun the full read-only audit and readbacks.
 
