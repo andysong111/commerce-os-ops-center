@@ -11,6 +11,10 @@ import type { SeoRunJobContext } from "@/lib/seoRunJobServer";
 import { listSeoRunJobs } from "@/lib/seoRunJobServer";
 import { loadShoplingLifecycleStatusSnapshot } from "@/lib/shopling/shoplingLifecycleStatus";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  excludeActiveSeoListingLifecycleIsolations,
+  readActiveSeoListingLifecycleIsolations,
+} from "@/lib/seoListingLifecycleIsolationServer";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -169,18 +173,27 @@ export async function reconcileSeoListingLifecycleShadow(
     includeArchived: true,
     limit: 1000,
   });
-  const successfulJobs = jobs.filter(
-    (row) => row.registration_status === "success",
-  );
   const existingResult = await admin
     .from("seo_listing_lifecycle_records")
     .select("owner_id,market_account_key,launch_item_id,state,goods_key")
     .eq("owner_id", ownerId)
     .limit(READ_LIMIT);
   await throwIfError("SEO_LIFECYCLE_EXISTING_READ_FAILED", existingResult);
-  const existingLifecycleRows = asRows(existingResult.data);
+  const activeIsolations = await readActiveSeoListingLifecycleIsolations(
+    admin,
+    ownerId,
+  );
+  const existingLifecycleRows = excludeActiveSeoListingLifecycleIsolations(
+    asRows(existingResult.data),
+    activeIsolations.launchItemIds,
+  );
+  const successfulJobs = jobs.filter(
+    (row) =>
+      row.registration_status === "success" &&
+      !activeIsolations.launchItemIds.has(text(row.launch_item_id)),
+  );
 
-  const registryRows: UnknownRecord[] = [];
+  const storedRegistryRows: UnknownRecord[] = [];
   for (let offset = 0; ; offset += READ_PAGE_SIZE) {
     const result = await admin
       .from("shopling_product_group_registry")
@@ -192,9 +205,13 @@ export async function reconcileSeoListingLifecycleShadow(
       .range(offset, offset + READ_PAGE_SIZE - 1);
     await throwIfError("SEO_LEGACY_REGISTRY_READ_FAILED", result);
     const page = asRows(result.data);
-    registryRows.push(...page);
+    storedRegistryRows.push(...page);
     if (page.length < READ_PAGE_SIZE) break;
   }
+  const registryRows = storedRegistryRows.filter(
+    (row) =>
+      !activeIsolations.launchItemIds.has(text(row.launch_item_id)),
+  );
 
   const launchItemIds = unique([
     ...successfulJobs.map((row) => row.launch_item_id),

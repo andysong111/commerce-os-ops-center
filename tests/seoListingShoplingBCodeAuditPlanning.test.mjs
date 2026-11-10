@@ -278,7 +278,10 @@ test("market-ledger recovery candidate requires six exact persisted and current 
   const ready = build({
     passingJobs: [],
     productReviews: reviews,
-    marketLedgerRows: [],
+    marketLedgerRows: ledger("legacy-item").map((row) => ({
+      ...row,
+      profile: `legacy-${row.profile}`,
+    })),
   });
   assert.equal(ready.marketLedgerRecoveryPlan.readyCount, 1);
   assert.equal(
@@ -286,6 +289,12 @@ test("market-ledger recovery candidate requires six exact persisted and current 
     "INTERNAL_MARKET_LEDGER_RECOVERY_CANDIDATE",
   );
   assert.equal(ready.marketLedgerRecoveryPlan.internalWriteApplied, false);
+  assert.equal(
+    ready.marketLedgerRecoveryPlan.products[0].bindings.every(
+      (binding) => binding.ledgerPresent,
+    ),
+    true,
+  );
 
   const incomplete = build({
     passingJobs: [],
@@ -295,4 +304,104 @@ test("market-ledger recovery candidate requires six exact persisted and current 
   });
   assert.equal(incomplete.marketLedgerRecoveryPlan.readyCount, 0);
   assert.equal(incomplete.marketLedgerRecoveryPlan.holdCount, 1);
+
+  const missingLedger = build({
+    passingJobs: [],
+    productReviews: reviews,
+    marketLedgerRows: [],
+  });
+  assert.equal(missingLedger.marketLedgerRecoveryPlan.readyCount, 0);
+  assert.equal(missingLedger.marketLedgerRecoveryPlan.holdCount, 1);
+});
+
+test("internal correction plan freezes exact reversible scope without performing a write", () => {
+  const result = build({
+    productReviews: [
+      {
+        launchItemId: "old-item",
+        modelNumber: "AAA100",
+        reason: "BCODE_SHOPLING_CURRENT_CATALOG_MISSING",
+      },
+      {
+        launchItemId: "item-2",
+        modelNumber: "AAA901",
+        reason: "BCODE_MARKET_PIPELINE_IDENTITY_INCOMPLETE",
+      },
+    ],
+    existingLifecycleRows: [
+      ...lifecycle(),
+      ...lifecycle("item-2", 9101),
+      ...lifecycle("old-item", 8001),
+    ],
+    catalogRows: [...catalog(), ...catalog("BAA2-1", 9101)],
+    marketLedgerRows: [
+      ...ledger(),
+      ...ledger("legacy-item", 9101).map((row) => ({
+        ...row,
+        profile: `legacy-${row.profile}`,
+      })),
+    ],
+    launchItems: [
+      { item_id: "item-1", model_number: "AAA900", product_name: "감사 상품" },
+      { item_id: "item-2", model_number: "AAA901", product_name: "복구 상품" },
+      { item_id: "old-item", model_number: "AAA100", product_name: "격리 상품" },
+    ],
+    launchOptions: [
+      { item_id: "item-1", barcode: "BAA1-1" },
+      { item_id: "item-2", barcode: "BAA2-1" },
+    ],
+  });
+  const plan = result.internalCorrectionPlan;
+  assert.equal(plan.readyToApply, true);
+  assert.equal(plan.auditReceiptCount, 1);
+  assert.equal(plan.isolationMarkerCount, 1);
+  assert.equal(plan.marketLedgerProductCount, 1);
+  assert.equal(plan.marketLedgerBindingCount, 6);
+  assert.equal(plan.applyScope, "INTERNAL_DB_ONLY");
+  assert.deepEqual(plan.rollback, {
+    auditReceipts: "IMMUTABLE_RETAIN",
+    isolationMarkers: "DEACTIVATE",
+    marketLedgerRepairs: "RESTORE_EXACT_BEFORE_IDENTITY",
+  });
+  assert.equal(plan.internalWriteApplied, false);
+  assert.equal(plan.externalMarketWrite, false);
+
+  const later = build({
+    generatedAt: "2026-11-12T01:00:00.000Z",
+    productReviews: [
+      {
+        launchItemId: "old-item",
+        modelNumber: "AAA100",
+        reason: "BCODE_SHOPLING_CURRENT_CATALOG_MISSING",
+      },
+      {
+        launchItemId: "item-2",
+        modelNumber: "AAA901",
+        reason: "BCODE_MARKET_PIPELINE_IDENTITY_INCOMPLETE",
+      },
+    ],
+    existingLifecycleRows: [
+      ...lifecycle(),
+      ...lifecycle("item-2", 9101),
+      ...lifecycle("old-item", 8001),
+    ],
+    catalogRows: [...catalog(), ...catalog("BAA2-1", 9101)],
+    marketLedgerRows: [
+      ...ledger(),
+      ...ledger("legacy-item", 9101).map((row) => ({
+        ...row,
+        profile: `legacy-${row.profile}`,
+      })),
+    ],
+    launchItems: [
+      { item_id: "item-1", model_number: "AAA900", product_name: "감사 상품" },
+      { item_id: "item-2", model_number: "AAA901", product_name: "복구 상품" },
+      { item_id: "old-item", model_number: "AAA100", product_name: "격리 상품" },
+    ],
+    launchOptions: [
+      { item_id: "item-1", barcode: "BAA1-1" },
+      { item_id: "item-2", barcode: "BAA2-1" },
+    ],
+  });
+  assert.equal(plan.planFingerprint, later.internalCorrectionPlan.planFingerprint);
 });

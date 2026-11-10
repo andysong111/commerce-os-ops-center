@@ -11,6 +11,8 @@ on:
       - "src/lib/seoListingShoplingBCodeOnboarding.ts"
       - "src/lib/seoListingShoplingBCodeOnboardingServer.ts"
       - "src/lib/seoListingShoplingBCodeAuditPlanning.ts"
+      - "src/lib/seoListingShoplingBCodeInternalCorrectionServer.ts"
+      - "src/lib/seoListingLifecycleIsolationServer.ts"
       - "src/lib/shopling/shoplingReadClient.ts"
       - "src/lib/seoListingAutomationDashboard.ts"
       - "src/lib/seoMarketCapacityReadback.ts"
@@ -30,12 +32,14 @@ on:
       - "public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-main.js"
       - "supabase/migrations/20261014191618_seo_listing_rotation_shadow_v1.sql"
       - "supabase/migrations/20261030043000_seo_shopling_product_db_capacity_guard.sql"
+      - "supabase/migrations/20261110160000_seo_listing_bcode_internal_correction_v1.sql"
       - "tests/seoListingLifecyclePolicy.test.mjs"
       - "tests/seoListingLifecycleReconciliation.test.mjs"
       - "tests/seoListingLegacyOnboarding.test.mjs"
       - "tests/productGroupLegacyPrefix.test.mjs"
       - "tests/seoListingShoplingBCodeOnboarding.test.mjs"
       - "tests/seoListingShoplingBCodeAuditPlanning.test.mjs"
+      - "tests/seoListingShoplingBCodeInternalCorrection.test.mjs"
       - "tests/shoplingReadClient.test.mjs"
       - "scripts/shopling-bcode-catalog-preview.mjs"
       - "tests/seoListingAutomationDashboard.test.mjs"
@@ -76,6 +80,8 @@ jobs:
           src/lib/seoListingShoplingBCodeOnboarding.ts
           src/lib/seoListingShoplingBCodeOnboardingServer.ts
           src/lib/seoListingShoplingBCodeAuditPlanning.ts
+          src/lib/seoListingShoplingBCodeInternalCorrectionServer.ts
+          src/lib/seoListingLifecycleIsolationServer.ts
           src/lib/shopling/shoplingReadClient.ts
           src/lib/seoListingAutomationDashboard.ts
           src/lib/seoMarketCapacityReadback.ts
@@ -96,6 +102,7 @@ jobs:
           tests/productGroupLegacyPrefix.test.mjs
           tests/seoListingShoplingBCodeOnboarding.test.mjs
           tests/seoListingShoplingBCodeAuditPlanning.test.mjs
+          tests/seoListingShoplingBCodeInternalCorrection.test.mjs
           tests/shoplingReadClient.test.mjs
           scripts/shopling-bcode-catalog-preview.mjs
           tests/seoListingAutomationDashboard.test.mjs
@@ -113,6 +120,7 @@ jobs:
           tests/productGroupLegacyPrefix.test.mjs
           tests/seoListingShoplingBCodeOnboarding.test.mjs
           tests/seoListingShoplingBCodeAuditPlanning.test.mjs
+          tests/seoListingShoplingBCodeInternalCorrection.test.mjs
           tests/shoplingReadClient.test.mjs
           tests/seoListingAutomationDashboard.test.mjs
           tests/seoListingAutomationContract.test.mjs

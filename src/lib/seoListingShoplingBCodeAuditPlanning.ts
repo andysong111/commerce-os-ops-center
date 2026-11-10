@@ -7,6 +7,8 @@ type UnknownRecord = Record<string, unknown>;
 const B_CODE = /^B[A-Z]{1,2}\d+-\d+$/;
 const GOODS_KEY = /^\d+$/;
 const AUDIT_RECEIPT_SCHEMA_VERSION = "seo-listing-bcode-integrity-receipt-v1";
+const INTERNAL_CORRECTION_PLAN_SCHEMA_VERSION =
+  "seo-listing-bcode-internal-correction-plan-v1";
 const PARTNER_CODE_SUFFIXES = ["a", "b", "c", "d", "e", "f"] as const;
 const LEGACY_PARTNER_CODE_PREFIXES = [
   "DM1_",
@@ -461,13 +463,18 @@ export function buildSeoListingBCodeAuditPlans(input: {
         profile: binding.profile,
         goodsKey: binding.goodsKey,
         catalogIdentityExact: catalog.exact,
+        ledgerPresent: Boolean(ledger),
         existingLedgerLaunchItemId: text(ledger?.launch_item_id),
         existingLedgerProfile: text(ledger?.profile),
+        intendedLedgerLaunchItemId: review.launchItemId,
+        intendedLedgerProfile: binding.profile,
       };
     });
     const exact =
       lifecycle.exact &&
-      bindings.every((binding) => binding.catalogIdentityExact);
+      bindings.every(
+        (binding) => binding.catalogIdentityExact && binding.ledgerPresent,
+      );
     marketLedgerRecoveryProducts.push({
       launchItemId: review.launchItemId,
       modelNumber: review.modelNumber,
@@ -480,6 +487,111 @@ export function buildSeoListingBCodeAuditPlans(input: {
   marketLedgerRecoveryProducts.sort((left, right) =>
     text(left.launchItemId).localeCompare(text(right.launchItemId)),
   );
+
+  const stableAuditReceipts = receipts.map((row) => ({
+    schemaVersion: text(row.schemaVersion),
+    ownerId: text(row.ownerId),
+    launchItemId: text(row.launchItemId),
+    modelNumber: text(row.modelNumber),
+    productName: text(row.productName),
+    bindings: Array.isArray(row.bindings) ? row.bindings : [],
+    fingerprint: text(row.fingerprint),
+  }));
+  const isolationMarkers = isolationProducts
+    .filter((row) => row.disposition === "INTERNAL_ISOLATION_READY")
+    .map((row) => {
+      const evidence = {
+        schemaVersion: INTERNAL_CORRECTION_PLAN_SCHEMA_VERSION,
+        ownerId,
+        launchItemId: text(row.launchItemId),
+        modelNumber: text(row.modelNumber),
+        reason: text(row.reason),
+        evidenceBasis: text(row.evidenceBasis),
+        lifecycleRowCount: Number(row.lifecycleRowCount) || 0,
+        lifecycleGoodsKeys: Array.isArray(row.lifecycleGoodsKeys)
+          ? row.lifecycleGoodsKeys
+          : [],
+        partnerProductCodeCandidates: Array.isArray(
+          row.partnerProductCodeCandidates,
+        )
+          ? row.partnerProductCodeCandidates
+          : [],
+      };
+      return {
+        ...evidence,
+        action: "ACTIVATE_INTERNAL_ISOLATION",
+        fingerprint: seoListingBCodeAuditFingerprint(evidence),
+      };
+    });
+  const marketLedgerRepairs = marketLedgerRecoveryProducts
+    .filter(
+      (row) =>
+        row.disposition === "INTERNAL_MARKET_LEDGER_RECOVERY_CANDIDATE",
+    )
+    .map((row) => {
+      const evidence = {
+        schemaVersion: INTERNAL_CORRECTION_PLAN_SCHEMA_VERSION,
+        ownerId,
+        launchItemId: text(row.launchItemId),
+        modelNumber: text(row.modelNumber),
+        bindings: Array.isArray(row.bindings) ? row.bindings : [],
+      };
+      return {
+        ...evidence,
+        action: "REPAIR_INTERNAL_MARKET_LEDGER_IDENTITY",
+        fingerprint: seoListingBCodeAuditFingerprint(evidence),
+      };
+    });
+  const correctionSemantic = {
+    schemaVersion: INTERNAL_CORRECTION_PLAN_SCHEMA_VERSION,
+    ownerId,
+    receiptSetFingerprint: seoListingBCodeAuditFingerprint(receiptSetEvidence),
+    auditReceipts: stableAuditReceipts,
+    isolationMarkers,
+    marketLedgerRepairs,
+  };
+  const correctionPlan = {
+    ...correctionSemantic,
+    generatedAt: input.generatedAt,
+    planFingerprint: seoListingBCodeAuditFingerprint(correctionSemantic),
+    auditReceiptCount: stableAuditReceipts.length,
+    isolationMarkerCount: isolationMarkers.length,
+    marketLedgerProductCount: marketLedgerRepairs.length,
+    marketLedgerBindingCount: marketLedgerRepairs.reduce(
+      (count, row) =>
+        count + (Array.isArray(row.bindings) ? row.bindings.length : 0),
+      0,
+    ),
+    omittedIsolationHoldCount: isolationProducts.length - isolationMarkers.length,
+    omittedMarketLedgerHoldCount:
+      marketLedgerRecoveryProducts.length - marketLedgerRepairs.length,
+    readyToApply:
+      receipts.length === input.passingJobs.length &&
+      receiptHolds.length === 0 &&
+      stableAuditReceipts.length > 0 &&
+      new Set(isolationMarkers.map((row) => row.launchItemId)).size ===
+        isolationMarkers.length &&
+      new Set(
+        marketLedgerRepairs.flatMap((row) =>
+          Array.isArray(row.bindings)
+            ? row.bindings.map((binding) => text(record(binding).goodsKey))
+            : [],
+        ),
+      ).size ===
+        marketLedgerRepairs.reduce(
+          (count, row) =>
+            count + (Array.isArray(row.bindings) ? row.bindings.length : 0),
+          0,
+        ),
+    applyScope: "INTERNAL_DB_ONLY",
+    rollback: {
+      auditReceipts: "IMMUTABLE_RETAIN",
+      isolationMarkers: "DEACTIVATE",
+      marketLedgerRepairs: "RESTORE_EXACT_BEFORE_IDENTITY",
+    },
+    internalWriteApplied: false,
+    externalMarketWrite: false,
+  };
 
   return {
     auditReceipts: {
@@ -520,5 +632,6 @@ export function buildSeoListingBCodeAuditPlans(input: {
       internalWriteApplied: false,
       externalMarketWrite: false,
     },
+    internalCorrectionPlan: correctionPlan,
   };
 }

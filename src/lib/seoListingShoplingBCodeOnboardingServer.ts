@@ -16,6 +16,10 @@ import {
   splitShoplingDateRange,
 } from "@/lib/shopling/shoplingReadClient";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  excludeActiveSeoListingLifecycleIsolations,
+  readActiveSeoListingLifecycleIsolations,
+} from "@/lib/seoListingLifecycleIsolationServer";
 import { buildSeoListingShoplingBCodeAuditDiagnostics } from "@/lib/seoListingShoplingBCodeAuditDiagnostics";
 import {
   buildSeoListingBCodeAuditPlans,
@@ -115,7 +119,7 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
   const admin = await createSupabaseAdminClient();
   if (!admin) throw new Error("SUPABASE_ADMIN_NOT_CONFIGURED");
 
-  const existingLifecycleRows: UnknownRecord[] = [];
+  const storedLifecycleRows: UnknownRecord[] = [];
   for (let offset = 0; ; offset += READ_PAGE_SIZE) {
     const result = await admin
       .from("seo_listing_lifecycle_records")
@@ -127,9 +131,17 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
       .range(offset, offset + READ_PAGE_SIZE - 1);
     await throwIfError("SEO_BCODE_EXISTING_LIFECYCLE_READ_FAILED", result);
     const page = asRows(result.data);
-    existingLifecycleRows.push(...page);
+    storedLifecycleRows.push(...page);
     if (page.length < READ_PAGE_SIZE) break;
   }
+  const activeIsolations = await readActiveSeoListingLifecycleIsolations(
+    admin,
+    ownerId,
+  );
+  const existingLifecycleRows = excludeActiveSeoListingLifecycleIsolations(
+    storedLifecycleRows,
+    activeIsolations.launchItemIds,
+  );
   const auditLifecycleRows =
     options.auditExisting === true
       ? selectSeoListingShoplingBCodeAuditLifecycleRows(existingLifecycleRows)
@@ -337,10 +349,15 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     },
     auditPopulation:
       options.auditExisting === true ? auditPopulation : null,
+    isolationPersistence: {
+      schemaAvailable: activeIsolations.schemaAvailable,
+      activeProductCount: activeIsolations.launchItemIds.size,
+    },
     auditDiagnostics,
     auditReceipts: auditPlans?.auditReceipts ?? null,
     isolationPlan: auditPlans?.isolationPlan ?? null,
     marketLedgerRecoveryPlan: auditPlans?.marketLedgerRecoveryPlan ?? null,
+    internalCorrectionPlan: auditPlans?.internalCorrectionPlan ?? null,
     productsExamined: onboarding.productsExamined,
     productsMatchedCurrentShopling:
       onboarding.productsMatchedCurrentShopling,
