@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
 import {
   InternalChinaManualDraftLineAdder,
@@ -205,8 +205,19 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   onStagedAdditionsChange: (rows: StagedDraftAddition[]) => void;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedPurchaseIssue = searchParams.get("purchaseIssue")
+    ?.normalize("NFKC")
+    .trim()
+    .toUpperCase();
+  const focusedPurchaseIssue = requestedPurchaseIssue
+    && initialDraft.lines.some((line) => line.barcode.toUpperCase() === requestedPurchaseIssue)
+    ? requestedPurchaseIssue
+    : "";
   const [draft, setDraft] = useState(initialDraft);
-  const [notice, setNotice] = useState(initialNotice);
+  const [notice, setNotice] = useState(focusedPurchaseIssue
+    ? `${focusedPurchaseIssue}의 1688 링크와 중국 옵션을 확인하세요. 저장 후 로컬 업무 화면에서 오류 품목만 다시 실행할 수 있습니다.`
+    : initialNotice);
   const [saving, setSaving] = useState(false);
   const [ordering, setOrdering] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
@@ -222,7 +233,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   const [savingDirectEdits, setSavingDirectEdits] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [automationPreparing, setAutomationPreparing] = useState<"COST" | "CART" | null>(null);
-  const [productSearch, setProductSearch] = useState("");
+  const [productSearch, setProductSearch] = useState(focusedPurchaseIssue);
   const [scrollWidth, setScrollWidth] = useState(TABLE_WIDTH);
   const [freezeThrough, setFreezeThrough] = useState(0);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
@@ -233,6 +244,13 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     sourceDraft: InternalChinaPurchaseDraft,
     automaticAfterCostCapture?: boolean,
   ) => Promise<void>>(async () => {});
+
+  useEffect(() => {
+    if (!focusedPurchaseIssue) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById(`purchase-line-${focusedPurchaseIssue}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [focusedPurchaseIssue]);
 
   useEffect(() => {
     const restored = readPurchaseDraftPendingAutosave(window.localStorage, initialDraft.draftId);
@@ -757,6 +775,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     releasedQuantityOverrideBarcodes.length > 0 ||
     stockBandUpdates.length > 0 ||
     discontinuedBarcodes.length > 0;
+  const hasPendingCostCaptureBlockingEdits =
+    hasPendingDirectEdits ||
+    releasedQuantityOverrideBarcodes.length > 0 ||
+    discontinuedBarcodes.length > 0;
   const recalculationDisabled =
     draft.status !== "DRAFT" ||
     invalidQuantityBarcodes.length > 0 ||
@@ -1026,8 +1048,12 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
   async function open1688Workflow(mode: "cost-capture" | "cart-staging") {
     if (draft.status !== "DRAFT" || saving || automationPreparing) return;
-    if (hasPendingRecalculation) {
-      setNotice("재고·수량·추가상품 변경을 먼저 한 번 재계산한 뒤 5-1 업무를 실행하세요.");
+    if (mode === "cost-capture" && hasPendingCostCaptureBlockingEdits) {
+      setNotice("수량·제외·추가·단종 변경을 먼저 저장하거나 취소한 뒤 5-1 업무를 실행하세요.");
+      return;
+    }
+    if (mode === "cart-staging" && hasPendingRecalculation) {
+      setNotice("재고·수량·추가상품 변경을 먼저 한 번 재계산한 뒤 5-2 업무를 실행하세요.");
       return;
     }
     if (mode === "cart-staging" && calculations.budgetOverKrw > 0) {
@@ -1166,7 +1192,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <span className="mt-0.5 block text-[11px] text-emerald-700">실주문 원가 × 내부 주문 수수료율 {draft.internalOrderCostMultiplier.toFixed(2)}</span>
             </div>
             <a href="https://commerce-os-product-master.vercel.app/purchase-metadata" target="_blank" rel="noreferrer" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-800 hover:bg-slate-50">상품마스터 최신 원장</a>
-            <button type="button" onClick={() => void open1688Workflow("cost-capture")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하거나 취소하세요." : "실제 위안단가·중국내 운임만 기록하며 주문·결제는 실행하지 않습니다."} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "COST" ? "5-1 여는 중..." : "5-1 원가·운임 기록"}</button>
+            <button type="button" onClick={() => void open1688Workflow("cost-capture")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingCostCaptureBlockingEdits} title={hasPendingCostCaptureBlockingEdits ? "수량·제외·추가·단종 변경을 먼저 저장하거나 취소하세요." : stockBandUpdates.length > 0 ? "대략 재고 변경은 보류하고 현재 발주안의 원가·운임만 기록합니다." : "실제 위안단가·중국내 운임만 기록하며 주문·결제는 실행하지 않습니다."} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "COST" ? "5-1 여는 중..." : "5-1 원가·운임 기록"}</button>
             <button type="button" onClick={() => void open1688Workflow("cart-staging")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation || missingStockBandCount > 0 || executionLineLimitExceeded || calculations.budgetOverKrw > 0 || calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하세요." : missingStockBandCount > 0 || executionLineLimitExceeded ? "대략 재고 선택과 발주안 재계산을 먼저 마치세요." : calculations.budgetOverKrw > 0 ? "예산 초과를 먼저 해결하세요." : calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0 ? "5-1 원가·운임 기록과 중국옵션 확인을 먼저 마치세요." : undefined} className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "CART" ? "5-2 여는 중..." : "5-2 장바구니 담기"}</button>
             <button type="button" onClick={() => void saveDraft()} disabled={saving || draft.status !== "DRAFT"} className="rounded-xl border border-blue-300 bg-white px-4 py-2.5 text-sm font-black text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "양방향 저장 중..." : "발주초안 저장"}</button>
             <button type="button" onClick={() => void markOrdered()} disabled={ordering || draft.status !== "DRAFT" || requiredIssues.length > 0 || hasPendingRecalculation || calculations.budgetOverKrw > 0 || missingStockBandCount > 0 || executionLineLimitExceeded} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">{draft.status === "ORDERED" ? "실주문 기록완료" : ordering ? "기록 중..." : "1688 주문완료 후 기록"}</button>
@@ -1285,7 +1311,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                 const groupLeader = Boolean(sharedGroup && groupInfo?.leaderBarcode === line.barcode);
                 const sameLinkCount = supplierLinkCounts.get(supplierPageKey(line.supplierLink)) ?? 0;
                 return (
-                  <tr key={line.barcode} className={`align-top hover:bg-slate-50/70 ${stagedDiscontinuations[line.barcode] === true ? "bg-amber-50/80" : stagedExclusions[line.barcode] === true ? "bg-rose-50/70" : ""}`}>
+                  <tr id={`purchase-line-${line.barcode}`} key={line.barcode} className={`align-top hover:bg-slate-50/70 ${stagedDiscontinuations[line.barcode] === true ? "bg-amber-50/80" : stagedExclusions[line.barcode] === true ? "bg-rose-50/70" : ""}`}>
                     <td className="px-3 py-3" style={stickyCellStyle(0, freezeThrough)}>
                       <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={selectedRows[line.barcode] === true} onChange={(event) => toggleSelectedBarcode(line.barcode, event.target.checked)} disabled={!editable} aria-label={`${line.barcode} 작업할 상품 선택`} className="size-4" /><strong className="font-mono text-sm text-slate-950">{line.barcode}</strong>{stagedDiscontinuations[line.barcode] === true ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-black text-amber-800">단종예정 대기</span> : stagedExclusions[line.barcode] === true ? <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-black text-rose-700">제외 대기</span> : null}</label>
                       <span className="mt-1 block font-semibold text-slate-700">모델명 · {line.modelName || "-"}</span>
