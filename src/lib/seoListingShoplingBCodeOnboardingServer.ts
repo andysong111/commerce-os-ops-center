@@ -17,6 +17,7 @@ import {
 } from "@/lib/shopling/shoplingReadClient";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildSeoListingShoplingBCodeAuditDiagnostics } from "@/lib/seoListingShoplingBCodeAuditDiagnostics";
+import { buildSeoListingBCodeAuditPlans } from "@/lib/seoListingShoplingBCodeAuditPlanning";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -240,6 +241,20 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
           marketLedgerRows,
         })
       : [];
+  const auditPlans =
+    options.auditExisting === true
+      ? buildSeoListingBCodeAuditPlans({
+          ownerId,
+          generatedAt: onboarding.generatedAt,
+          passingJobs: onboarding.syntheticJobs,
+          productReviews: onboarding.productReviews,
+          existingLifecycleRows: auditLifecycleRows,
+          catalogRows,
+          marketLedgerRows,
+          launchItems,
+          launchOptions,
+        })
+      : null;
   const result = {
     generatedAt: onboarding.generatedAt,
     source: onboarding.source,
@@ -261,6 +276,9 @@ export async function reconcileSeoListingShoplingBCodeOnboarding(
     auditPopulation:
       options.auditExisting === true ? auditPopulation : null,
     auditDiagnostics,
+    auditReceipts: auditPlans?.auditReceipts ?? null,
+    isolationPlan: auditPlans?.isolationPlan ?? null,
+    marketLedgerRecoveryPlan: auditPlans?.marketLedgerRecoveryPlan ?? null,
     productsExamined: onboarding.productsExamined,
     productsMatchedCurrentShopling:
       onboarding.productsMatchedCurrentShopling,
