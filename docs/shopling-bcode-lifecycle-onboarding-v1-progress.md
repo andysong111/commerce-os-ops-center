@@ -198,12 +198,12 @@ API. This workflow must never write to Shopling or a marketplace.
   empty-key products as absent without another independent lookup would be an
   unsafe inference.
 
-### Exact partner-product-code lookup (local verification, not deployed)
+### Exact partner-product-code lookup (Production verified)
 
 - The supplied official Shopling manual confirms that product gather accepts
   `key_search_tp=자사코드` and a comma-separated exact code list in `prod_id`;
   an exact code lookup ignores the date range.
-- The pending implementation derives twelve bounded candidates from each
+- PR #1699 derives twelve bounded candidates from each
   launch item's persisted `self_code_base`: six current `a..f` suffix codes and
   six verified legacy `DM1_..DM4_` / `SM1_..SM2_` prefix codes. It never guesses
   from a B-code and never scans the full historical catalog.
@@ -211,10 +211,32 @@ API. This workflow must never write to Shopling or a marketplace.
   partner codes were requested successfully, no current matching catalog row
   exists, and no launch B-code overlaps another product. Missing self-code
   evidence, partial lookup coverage, or any current match remains on hold.
-- Local evidence: 136/136 lifecycle and Shopling read-client tests, changed-file
+- Production requested 612 exact partner codes for the 51 empty-key products and
+  returned zero current rows. Forty-nine products are now isolation-ready from
+  independent partner-code absence evidence. AAA026 and AAA336 remain held
+  because current goods keys still exist; AAA129 remains held because its launch
+  option B-code is missing.
+- The same Production audit preserved all 48 receipts, the receipt-set fingerprint,
+  and all nine market-ledger recovery candidates. Every write flag remained false.
+- Verification evidence: 136/136 lifecycle and Shopling read-client tests, changed-file
   ESLint, TypeScript, and the Production build with 124/124 static pages passed.
   Repository-wide lint still has unrelated pre-existing failures and was not
   used as evidence for this change.
-- Next gate: deploy this read-only lookup, rerun the authenticated Production
-  audit, and only then ask for approval to persist receipts or internal repairs.
+
+### Reversible internal correction plan (local implementation)
+
+- The next plan persists the 48 canonical receipts in the existing immutable
+  operation ledger, activates 49 separate isolation markers without deleting or
+  overwriting lifecycle source rows, and repairs only the exact before/after
+  launch-item/profile identities of the nine market-ledger products.
+- Apply is one database transaction. The route reruns the complete live audit and
+  requires the approved SHA-256 plan fingerprint; any changed or missing ledger
+  identity aborts the whole transaction. Independent readback checks receipts,
+  active markers, every repaired goods key, and the correction run receipt.
+- Rollback retains audit receipts, deactivates only markers from the exact plan,
+  and restores every market-ledger identity to its frozen before value. Any later
+  drift aborts rollback rather than overwriting newer data.
+- No internal correction or external Shopling/market write has been executed.
+  Next gate: deploy the code, confirm the final Production plan fingerprint and
+  exact counts, then request approval for that single internal database mutation.
 

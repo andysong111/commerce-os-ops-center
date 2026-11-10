@@ -160,9 +160,18 @@ Production read-only 감사 결과:
 - Shopling 공식 매뉴얼의 `key_search_tp=자사코드` 정확조회 계약을 확인했다.
   저장 goods key가 없는 상품은 `self_code_base`에서 현행 suffix 6개와 구형
   `DM1_~DM4_`·`SM1_~SM2_` prefix 6개만 조회하고, 12개 조회 범위가 모두
-  증명되며 현재 행이 0건일 때만 격리 후보로 여는 보완을 로컬에서 구현했다.
-  물갈이 회귀 136/136, 변경 파일 lint, TypeScript, Production build
-  124/124를 통과했으며 아직 Production에는 배포하지 않았다.
+  증명되며 현재 행이 0건일 때만 격리 후보로 여는 보완을 구현했다.
+- PR #1699를 Production에 배포한 뒤 51개 empty-key 상품의 자사코드 후보
+  612개를 정확조회했고 현재 행은 0건이었다. 그 결과 49개는 안전 격리
+  후보로 열렸고, 현재 goods key가 남은 `AAA026`·`AAA336`과 launch option
+  B코드가 없는 `AAA129`만 계속 보류됐다.
+- 같은 Production 재감사에서 48/48 영수증과 세트 fingerprint, 마켓 원장
+  복구 후보 9개가 변하지 않았고 모든 쓰기 플래그는 false였다.
+- 다음 내부 교정은 원본 lifecycle 행을 삭제하지 않는다. 49개는 별도 활성
+  격리 마커로 제외하고, 48개 영수증은 불변 작업 원장에 보존하며, 원장 복구는
+  9개 상품의 정확한 before/after 신원만 한 트랜잭션으로 갱신한다. 한 행이라도
+  재감사 계획과 달라지면 전체를 중단하고, rollback은 격리 마커 비활성화와
+  원장 before 신원 복구로 수행한다.
 - 모든 감사에서 `internalWriteApplied=false`, `externalMarketWrite=false`였다.
 
 완료 조건:
@@ -173,7 +182,7 @@ Production read-only 감사 결과:
    연결 여부로 설명 — 완료
 4. 정체성 충돌을 실제 충돌 원인별로 세분화하고 대표 상품을 독립 확인 — 완료
 5. 불일치 항목의 교정 계획과 fail-closed 영수증 설계 — 완료
-6. 자사코드 정확조회 보완을 Production read-only로 재검증 — 미완료
+6. 자사코드 정확조회 보완을 Production read-only로 재검증 — 완료
 7. 내부 인증 readback에서도 Shopling 사용량 6,072 확인 — 미완료
 
 ### 5단계 — 기존 코드 품절·삭제 Canary `다음 단계, 별도 승인 필요`
@@ -238,15 +247,16 @@ Production read-only 감사 결과:
 
 ## 7. 바로 다음 실행 순서
 
-1. 자사코드 정확조회 안전판을 배포하고 Production read-only 감사에서
-   이전 세대 52건의 안전 격리 가능 수와 보류 사유를 다시 확정한다.
-2. 통과 48개 영수증, 안전 격리 후보, 마켓 원장 복구 후보 9개를 한 번의
-   내부 DB 교정 단위로 묶되 실제 적용 전 사용자에게 대상 수와 rollback을 제시한다.
-3. 사용자가 내부 교정을 명시 승인한 뒤에만 적용하고, 즉시 read-only 감사를
+1. 통과 48개 영수증, 안전 격리 후보 49개, 마켓 원장 복구 후보 9개를
+   정확한 계획 fingerprint가 고정된 한 번의 내부 DB 교정 단위로 배포한다.
+2. Production read-only 재감사에서 원장 9개 상품 모두 실제 기존 행 6개와
+   exact before 신원을 갖는지 확인하고 최종 계획 fingerprint를 확정한다.
+3. 사용자가 그 fingerprint의 내부 교정을 명시 승인한 뒤에만 적용하고, 즉시 read-only 감사를
    재실행해 fingerprint·대상 수·부작용 0건을 확인한다.
 4. 내부 Shopling 용량 readback 6,072를 재확인한다.
 5. 60일 무판매 조건을 충족한 실제 후보가 생기면 사용자에게 상품명·B코드·6개 goods key·영향 범위를 제시한다.
 6. 사용자가 그 1개 Canary의 외부 품절·삭제를 명시적으로 승인한 뒤에만 5단계로 이동한다.
 
-현재 사용자가 추가로 할 일은 없다. 자사코드 정확조회 배포와 Production
-read-only 재검증까지 자동으로 진행하고, 실제 내부 원장 교정 직전에만 승인받는다.
+현재 사용자가 추가로 할 일은 없다. 내부 교정 코드 배포와 Production
+read-only 계획 확정까지 자동으로 진행하고, 실제 내부 DB 교정 직전에 정확한
+계획 fingerprint와 rollback 범위를 제시한다.

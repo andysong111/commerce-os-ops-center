@@ -4,6 +4,10 @@ import {
 } from "@/lib/seoListingLifecycleDailyRefresh";
 import { loadShoplingLifecycleStatusSnapshot } from "@/lib/shopling/shoplingLifecycleStatus";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  excludeActiveSeoListingLifecycleIsolations,
+  readActiveSeoListingLifecycleIsolations,
+} from "@/lib/seoListingLifecycleIsolationServer";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -85,7 +89,14 @@ export async function refreshSeoListingLifecycleShadowDaily(
     .in("state", ["LIVE", "PROTECTED"])
     .limit(READ_LIMIT);
   await throwIfError("SEO_LIFECYCLE_DAILY_RECORD_READ_FAILED", lifecycleResult);
-  const lifecycleRows = asRows(lifecycleResult.data);
+  const activeIsolations = await readActiveSeoListingLifecycleIsolations(
+    admin,
+    ownerId,
+  );
+  const lifecycleRows = excludeActiveSeoListingLifecycleIsolations(
+    asRows(lifecycleResult.data),
+    activeIsolations.launchItemIds,
+  );
   const launchItemIds = [
     ...new Set(lifecycleRows.map((row) => text(row.launch_item_id)).filter(Boolean)),
   ];

@@ -25,7 +25,15 @@ import {
 } from "@/lib/seoShoplingProductDbCapacity";
 import { reconcileSeoListingLifecycleShadow } from "@/lib/seoListingLifecycleReconciliationServer";
 import { reconcileSeoListingShoplingBCodeOnboarding } from "@/lib/seoListingShoplingBCodeOnboardingServer";
+import {
+  applySeoListingShoplingBCodeInternalCorrection,
+  rollbackSeoListingShoplingBCodeInternalCorrection,
+} from "@/lib/seoListingShoplingBCodeInternalCorrectionServer";
 import { refreshSeoListingLifecycleShadowDaily } from "@/lib/seoListingLifecycleDailyRefreshServer";
+import {
+  excludeActiveSeoListingLifecycleIsolations,
+  readActiveSeoListingLifecycleIsolations,
+} from "@/lib/seoListingLifecycleIsolationServer";
 import { listSeoRunJobs } from "@/lib/seoRunJobServer";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -36,6 +44,7 @@ export const runtime = "nodejs";
 type UnknownRecord = Record<string, unknown>;
 type StorageError = { message: string; code?: string } | null;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256_FINGERPRINT = /^sha256:[0-9a-f]{64}$/;
 const MAX_AUDIT_DIAGNOSTIC_PRODUCTS = 20;
 
 function text(value: unknown) {
@@ -88,10 +97,12 @@ function shoplingBCodeOnboardingSummary(value: unknown) {
     source: row.source,
     scan: row.scan,
     auditPopulation: row.auditPopulation,
+    isolationPersistence: row.isolationPersistence,
     auditDiagnostics: row.auditDiagnostics,
     auditReceipts: row.auditReceipts,
     isolationPlan: row.isolationPlan,
     marketLedgerRecoveryPlan: row.marketLedgerRecoveryPlan,
+    internalCorrectionPlan: row.internalCorrectionPlan,
     productsExamined: row.productsExamined,
     productsMatchedCurrentShopling: row.productsMatchedCurrentShopling,
     productsUnmatchedCurrentShopling: row.productsUnmatchedCurrentShopling,
@@ -280,9 +291,17 @@ export async function GET(request: NextRequest) {
       typeof shoplingProductDbResult.data === "object"
         ? (shoplingProductDbResult.data as UnknownRecord)
         : null;
-    const lifecycleRows = Array.isArray(lifecycleResult.data)
+    const storedLifecycleRows = Array.isArray(lifecycleResult.data)
       ? (lifecycleResult.data as UnknownRecord[])
       : [];
+    const activeIsolations = await readActiveSeoListingLifecycleIsolations(
+      admin,
+      context.identity.userId,
+    );
+    const lifecycleRows = excludeActiveSeoListingLifecycleIsolations(
+      storedLifecycleRows,
+      activeIsolations.launchItemIds,
+    );
     const dailyTaskRow =
       dailyTaskResult.data && typeof dailyTaskResult.data === "object"
         ? (dailyTaskResult.data as UnknownRecord)
@@ -290,7 +309,12 @@ export async function GET(request: NextRequest) {
     const canaryActionRows = Array.isArray(canaryActionResult.data)
       ? (canaryActionResult.data as UnknownRecord[])
       : [];
-    const readyProducts = selectLatestSeoReadyProducts(jobs);
+    const readyProducts = selectLatestSeoReadyProducts(
+      jobs.filter(
+        (job) =>
+          !activeIsolations.launchItemIds.has(text(job.launch_item_id)),
+      ),
+    );
     const capacity = calculateSeoPortfolioCapacity(
       capacityRows.map(capacityInput),
       new Date(),
@@ -374,6 +398,10 @@ export async function GET(request: NextRequest) {
       ok: true,
       generatedAt: new Date().toISOString(),
       schemaReady,
+      isolationPersistence: {
+        schemaAvailable: activeIsolations.schemaAvailable,
+        activeProductCount: activeIsolations.launchItemIds.size,
+      },
       mode: "shadow",
       autoExecutionEnabled: false,
       policy: {
@@ -488,6 +516,8 @@ export async function POST(request: NextRequest) {
       "preview_shopling_bcode_onboarding",
       "apply_shopling_bcode_onboarding",
       "preview_shopling_bcode_integrity_audit",
+      "apply_shopling_bcode_internal_correction",
+      "rollback_shopling_bcode_internal_correction",
       "refresh_shadow_daily",
     ].includes(action)
   ) {
@@ -519,6 +549,71 @@ export async function POST(request: NextRequest) {
       },
       { status: 400 },
     );
+  }
+  const approvedPlanFingerprint = text(bodyRecord.approvedPlanFingerprint);
+  const correctionAction =
+    action === "apply_shopling_bcode_internal_correction" ||
+    action === "rollback_shopling_bcode_internal_correction";
+  if (
+    correctionAction &&
+    (!SHA256_FINGERPRINT.test(approvedPlanFingerprint) ||
+      bodyRecord.confirmation !==
+        (action === "apply_shopling_bcode_internal_correction"
+          ? "APPLY_INTERNAL_CORRECTION"
+          : "ROLLBACK_INTERNAL_CORRECTION"))
+  ) {
+    return Response.json(
+      {
+        ok: false,
+        code: "SEO_BCODE_INTERNAL_CORRECTION_APPROVAL_INVALID",
+        message: "승인된 계획 지문과 정확한 내부 교정 확인값이 필요합니다.",
+        externalMarketWrite: false,
+      },
+      { status: 400 },
+    );
+  }
+
+  if (correctionAction) {
+    const authenticated = await requireSeoTitleLedgerContext(request);
+    if (!authenticated.ok) return authenticated.response;
+    try {
+      if (action === "rollback_shopling_bcode_internal_correction") {
+        const rollback =
+          await rollbackSeoListingShoplingBCodeInternalCorrection({
+            ownerId: authenticated.value.identity.userId,
+            approvedPlanFingerprint,
+          });
+        return Response.json({ ok: true, rollback });
+      }
+      const audit = await reconcileSeoListingShoplingBCodeOnboarding(
+        authenticated.value,
+        { auditExisting: true },
+      );
+      const correction =
+        await applySeoListingShoplingBCodeInternalCorrection({
+          ownerId: authenticated.value.identity.userId,
+          approvedPlanFingerprint,
+          currentPlan: audit.internalCorrectionPlan,
+        });
+      return Response.json({
+        ok: true,
+        audit: shoplingBCodeOnboardingSummary(audit),
+        correction,
+      });
+    } catch (error) {
+      return Response.json(
+        {
+          ok: false,
+          code: "SEO_BCODE_INTERNAL_CORRECTION_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "내부 물갈이 교정에 실패했습니다.",
+          externalMarketWrite: false,
+        },
+        { status: 500 },
+      );
+    }
   }
 
   if (action === "refresh_shadow_daily") {
