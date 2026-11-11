@@ -43,8 +43,8 @@ create or replace function public.apply_seo_listing_bcode_internal_correction_v1
   p_applied_at timestamptz default now()
 ) returns jsonb
 language plpgsql
-security definer
-set search_path = public, pg_temp
+security invoker
+set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_receipt jsonb;
@@ -64,9 +64,6 @@ declare
   v_binding_count integer := 0;
   v_distinct_binding_count integer := 0;
 begin
-  if coalesce(auth.role(), '') <> 'service_role' then
-    raise exception 'SEO_BCODE_INTERNAL_CORRECTION_SERVICE_ROLE_REQUIRED';
-  end if;
   if p_plan_fingerprint !~ '^sha256:[0-9a-f]{64}$'
     or p_plan->>'planFingerprint' is distinct from p_plan_fingerprint
     or p_plan->>'ownerId' is distinct from p_owner_id::text
@@ -290,8 +287,8 @@ create or replace function public.rollback_seo_listing_bcode_internal_correction
   p_rolled_back_at timestamptz default now()
 ) returns jsonb
 language plpgsql
-security definer
-set search_path = public, pg_temp
+security invoker
+set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_plan jsonb;
@@ -307,9 +304,6 @@ declare
   v_released_count integer := 0;
   v_restored_count integer := 0;
 begin
-  if coalesce(auth.role(), '') <> 'service_role' then
-    raise exception 'SEO_BCODE_INTERNAL_CORRECTION_SERVICE_ROLE_REQUIRED';
-  end if;
   select input_snapshot into v_plan
   from public.commerce_operation_runs
   where source_event_id = 'seo-listing-bcode-correction:' || p_plan_fingerprint

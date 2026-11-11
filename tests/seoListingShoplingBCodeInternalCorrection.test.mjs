@@ -49,6 +49,28 @@ test("database correction is atomic, drift-locked and never deletes source lifec
   assert.doesNotMatch(migration, /http|shopling.*write|market.*submit/i);
 });
 
+test("database correction RPCs use least-privilege invoker execution for service role only", () => {
+  assert.equal((migration.match(/\bsecurity invoker\b/gi) ?? []).length, 2);
+  assert.doesNotMatch(migration, /\bsecurity definer\b/i);
+  assert.doesNotMatch(migration, /auth\.role\s*\(/i);
+  assert.match(
+    migration,
+    /revoke all on function public\.apply_seo_listing_bcode_internal_correction_v1\([\s\S]*?from public, anon, authenticated;/i,
+  );
+  assert.match(
+    migration,
+    /revoke all on function public\.rollback_seo_listing_bcode_internal_correction_v1\([\s\S]*?from public, anon, authenticated;/i,
+  );
+  assert.match(
+    migration,
+    /grant execute on function public\.apply_seo_listing_bcode_internal_correction_v1\([\s\S]*?to service_role;/i,
+  );
+  assert.match(
+    migration,
+    /grant execute on function public\.rollback_seo_listing_bcode_internal_correction_v1\([\s\S]*?to service_role;/i,
+  );
+});
+
 test("active isolation markers are reversible filters and missing pre-migration schema is explicit", () => {
   assert.match(isolation, /schemaAvailable: false/);
   assert.match(isolation, /error\.code === "42P01"/);
