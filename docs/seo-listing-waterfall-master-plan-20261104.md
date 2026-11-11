@@ -171,11 +171,20 @@ Production read-only 감사 결과:
   격리 마커로 제외하고, 48개 영수증은 불변 작업 원장에 보존한다. PR #1700
   Production 재감사에서 원장 복구 후보 9개 모두 실제 기존 원장 행이 없어
   `0 적용 / 9 보류`로 좁혀졌으며 신규 행을 추측 생성하지 않는다.
-- 최종 read-only 내부 교정 계획은 영수증 48개, 격리 마커 49개, 원장 변경
-  0개이며 fingerprint는
-  `sha256:6a4b0d40790a872d5ebda10ec2f283da8d74422a3c65106aa0dadad7ee742855`다.
-  schema는 아직 적용하지 않았고 모든 내부·외부 쓰기 플래그는 false였다.
-  rollback은 49개 격리 마커만 비활성화하며 감사 영수증은 증거로 보존한다.
+- 최신 read-only 내부 교정 범위는 영수증 48개, 격리 마커 49개, 원장 변경
+  0개로 동일하다. 2026-11-11 일일 갱신에서 `AAA298 차량 뒷좌석손잡이 D형`
+  6개 채널의 판매가 확인되어 lifecycle 상태만 `LIVE → PROTECTED`로 강화됐다.
+  이 한 가지 변화로 영수증 세트 fingerprint는
+  `sha256:2bea66a54daa68eb3ed681145a3a827229a7d571f1068a000a40dff03963ce88`,
+  현재 계획 fingerprint는
+  `sha256:66282b23493eaddfeb8799f8f767090d827fd7a2e20864df0d8f7fdd0b2fb50d`가 됐다.
+  AAA298 상태만 이전 `LIVE`로 되돌려 계산하면 기존 두 fingerprint가 정확히
+  재현되어 그 외 대상·수량·정체성 변화가 없음을 확인했다.
+- PR #1704는 운영 RPC를 `SECURITY INVOKER`와 service-role 전용 실행으로
+  좁혔고 2026-11-12 Production schema 적용과 권한 readback을 완료했다.
+  적용 직후 격리 행 0개, 교정 실행 원장 0건이었다. 실제 48개 영수증 저장과
+  49개 마커 활성화는 현재 fingerprint의 새 승인 전까지 중단했다. rollback은
+  49개 격리 마커만 비활성화하며 감사 영수증은 증거로 보존한다.
 - 모든 감사에서 `internalWriteApplied=false`, `externalMarketWrite=false`였다.
 
 완료 조건:
