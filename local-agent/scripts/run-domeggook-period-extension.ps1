@@ -68,13 +68,32 @@ if (-not $Ready) {
 }
 if ($LaunchOnly) { exit 0 }
 
-$CredentialPath = Join-Path $env:LOCALAPPDATA "CommerceOS\DomeggookCredentials\$AccountId.xml"
+$CredentialPath = Join-Path $env:LOCALAPPDATA "CommerceOS\DomeggookCredentials\$AccountId.dpapi"
 if (Test-Path -LiteralPath $CredentialPath) {
-  $StoredCredential = Import-Clixml -LiteralPath $CredentialPath
-  if ($StoredCredential.UserName -ne $AccountId) {
+[void][Reflection.Assembly]::LoadWithPartialName("System.Security")
+  $CredentialLines = [IO.File]::ReadAllLines($CredentialPath, [Text.Encoding]::UTF8)
+  if ($CredentialLines.Length -ne 3 -or $CredentialLines[0] -ne "COMMERCE_OS_DOMEGGOOK_DPAPI_V1") {
+    throw "Stored Domeggook credential format is invalid."
+  }
+  if ($CredentialLines[1] -ne $AccountId) {
     throw "Stored Domeggook credential account does not match AccountId."
   }
-  $env:DOMEGGOOK_PASSWORD = $StoredCredential.GetNetworkCredential().Password
+  $EncryptedPassword = [Convert]::FromBase64String($CredentialLines[2])
+  $Entropy = [Text.Encoding]::UTF8.GetBytes("commerce-os-domeggook-v1:$AccountId")
+  $PlainPasswordBytes = $null
+  try {
+    $PlainPasswordBytes = [Security.Cryptography.ProtectedData]::Unprotect(
+      $EncryptedPassword,
+      $Entropy,
+      [Security.Cryptography.DataProtectionScope]::CurrentUser
+    )
+    $env:DOMEGGOOK_PASSWORD = [Text.Encoding]::UTF8.GetString($PlainPasswordBytes)
+  }
+  finally {
+    [Array]::Clear($EncryptedPassword, 0, $EncryptedPassword.Length)
+    [Array]::Clear($Entropy, 0, $Entropy.Length)
+    if ($PlainPasswordBytes) { [Array]::Clear($PlainPasswordBytes, 0, $PlainPasswordBytes.Length) }
+  }
 }
 
 $env:COMMERCE_OS_CHROME_DEBUG_URL = $Endpoint

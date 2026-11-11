@@ -58,12 +58,14 @@ test("multiple-account settings reject duplicate account IDs", () => {
   }), /중복된 도매꾹 아이디/);
 });
 
-test("dashboard search exposes the encrypted multi-account feature card", async () => {
-  const [card, registry, workspace, api] = await Promise.all([
+test("dashboard search exposes the multi-account card with current-user DPAPI credentials", async () => {
+  const [card, registry, workspace, api, saveCredential, runner] = await Promise.all([
     readFile("src/components/domeggook-period-extension/DomeggookPeriodExtensionCard.tsx", "utf8"),
     readFile("src/lib/opsModuleRegistry.ts", "utf8"),
     readFile("src/lib/opsWorkspace.ts", "utf8"),
     readFile("src/app/api/local/domeggook-period-extension/route.ts", "utf8"),
+    readFile("local-agent/scripts/save-domeggook-credential.ps1", "utf8"),
+    readFile("local-agent/scripts/run-domeggook-period-extension.ps1", "utf8"),
   ]);
   assert.match(card, /도매꾹 아이디/);
   assert.match(card, /\+ 계정 추가/);
@@ -78,4 +80,9 @@ test("dashboard search exposes the encrypted multi-account feature card", async 
   assert.match(workspace, /moduleIds: \["domeggook-period-extension"\]/);
   assert.match(api, /localhost/);
   assert.match(api, /다른 사이트에서 보낸 실행 요청은 차단/);
+  assert.match(saveCredential, /DataProtectionScope\]::CurrentUser/);
+  assert.match(saveCredential, /ProtectedData\]::Protect/);
+  assert.doesNotMatch(saveCredential, /ConvertTo-SecureString|Export-Clixml/);
+  assert.match(runner, /ProtectedData\]::Unprotect/);
+  assert.match(runner, /\.dpapi/);
 });
