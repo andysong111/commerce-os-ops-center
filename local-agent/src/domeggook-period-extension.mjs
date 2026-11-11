@@ -257,11 +257,6 @@ function updateProbe() {
   const text = document.body?.innerText || "";
   const compact = text.replace(/\s+/g, " ").trim();
   const url = String(location.href || "");
-  const authenticated = Boolean(
-    document.querySelector('a[href*="logout" i], a[onclick*="logout" i]')
-    || /로그아웃/.test(text.slice(0, 3000))
-    || /기간연장/.test(compact),
-  ) && !/로그인\s*(?:하세요|필요)/.test(compact.slice(0, 1000));
   const loginPage = /\/ssl\/member\/mem_loginForm\.php/i.test(url)
     || Boolean(document.querySelector('form[action*="login" i] input[type="password"]'));
   const itemNos = [...new Set([
@@ -269,10 +264,21 @@ function updateProbe() {
     ...[...document.querySelectorAll('a[href*="itemNo"], a[href*="item_no"], a[href*="no="]')]
       .flatMap((anchor) => (anchor.textContent || "").match(/\d{6,12}/g) || []),
   ])];
-  const controls = [...document.querySelectorAll('button,input[type="button"],input[type="submit"],a')];
+  const controls = [...document.querySelectorAll(
+    'button,input[type="button"],input[type="submit"],input[type="image"],a,img[alt],[role="button"]',
+  )];
   const executeControlPresent = controls.some((element) => (
-    /기간연장\s*실행하기/.test(`${element.value || ""} ${element.textContent || ""}`)
+    /기간연장\s*실행하기/.test(
+      `${element.value || ""} ${element.textContent || ""} ${element.alt || ""} ${element.title || ""}`,
+    )
   ));
+  const dateRegPresent = Boolean(document.querySelector('#dateReg, input[name="dateReg"]'));
+  const scopedNosPresent = Boolean(document.querySelector('input[name="nos"]'));
+  const authenticated = !loginPage && Boolean(
+    document.querySelector('a[href*="logout" i], a[onclick*="logout" i]')
+    || /로그아웃/.test(text.slice(0, 3000))
+    || (dateRegPresent && executeControlPresent && scopedNosPresent && itemNos.length),
+  );
   const positiveNumericInputs = [...document.querySelectorAll('input')]
     .filter((input) => !["hidden", "radio", "checkbox", "submit", "button"].includes(input.type))
     .filter((input) => !/^\d{4}-\d{2}-\d{2}$/.test(String(input.value || "")))
@@ -285,7 +291,8 @@ function updateProbe() {
   let paidOptionExtension = null;
   for (const radio of radios) {
     const context = radio.closest("label,td,tr,div")?.innerText || "";
-    if (!/유료옵션기간|유료옵션/.test(context)) continue;
+    const isKnownPaidOptionControl = radio.id === "noUpdateAdvT" || radio.id === "noUpdateAdvF";
+    if (!isKnownPaidOptionControl && !/유료옵션기간|유료옵션/.test(context)) continue;
     if (!radio.checked) continue;
     const adjacentText = [
       ...(radio.labels ? [...radio.labels].map((label) => label.innerText || "") : []),
@@ -293,8 +300,12 @@ function updateProbe() {
       radio.previousSibling?.textContent || "",
     ].join(" ").trim();
     const normalizedValue = String(radio.value || "").trim().toLowerCase();
-    if (/아니오/.test(adjacentText) || /^(?:n|no|false|0)$/.test(normalizedValue)) paidOptionExtension = false;
-    else if (/예/.test(adjacentText) || /^(?:y|yes|true|1)$/.test(normalizedValue)) paidOptionExtension = true;
+    if (radio.id === "noUpdateAdvT"
+      || /아니오/.test(adjacentText)
+      || /^(?:n|no|false|0)$/.test(normalizedValue)) paidOptionExtension = false;
+    else if (radio.id === "noUpdateAdvF"
+      || /예/.test(adjacentText)
+      || /^(?:y|yes|true|1)$/.test(normalizedValue)) paidOptionExtension = true;
   }
   const success = /기간연장이\s*완료되었습니다/.test(compact);
   return {
@@ -310,6 +321,7 @@ function updateProbe() {
     chargeWon,
     paidOptionExtension,
     executeControlPresent,
+    dateRegPresent,
     success,
     textSample: compact.slice(0, 800),
   };
@@ -325,7 +337,7 @@ function configureUpdate(targetDate) {
     ) ? 1 : 0;
     return score(right) - score(left);
   });
-  const dateInput = ranked[0];
+  const dateInput = document.querySelector('#dateReg, input[name="dateReg"]') || ranked[0];
   const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
   if (descriptor?.set) descriptor.set.call(dateInput, targetDate);
   else dateInput.value = targetDate;
@@ -333,7 +345,16 @@ function configureUpdate(targetDate) {
     dateInput.dispatchEvent(new Event(eventName, { bubbles: true }));
   }
 
-  const radios = [...document.querySelectorAll('input[type="radio"]')];
+  if (dateInput.value !== targetDate) {
+    return { ok: false, code: "DATE_INPUT_VALUE_MISMATCH", actual: dateInput.value };
+  }
+
+  const explicitNoPaidOption = document.querySelector('#noUpdateAdvT');
+  if (explicitNoPaidOption) {
+    if (!explicitNoPaidOption.checked) explicitNoPaidOption.click();
+    else explicitNoPaidOption.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  const radios = explicitNoPaidOption ? [] : [...document.querySelectorAll('input[type="radio"]')];
   for (const radio of radios) {
     const context = radio.closest("td,tr,div")?.innerText || "";
     const adjacentText = [
@@ -384,9 +405,13 @@ function submitLogin(credentials) {
 }
 
 function clickExecuteControl() {
-  const controls = [...document.querySelectorAll('button,input[type="button"],input[type="submit"],a')];
+  const controls = [...document.querySelectorAll(
+    'button,input[type="button"],input[type="submit"],input[type="image"],a,img[alt],[role="button"]',
+  )];
   const control = controls.find((element) => (
-    /기간연장\s*실행하기/.test(`${element.value || ""} ${element.textContent || ""}`)
+    /기간연장\s*실행하기/.test(
+      `${element.value || ""} ${element.textContent || ""} ${element.alt || ""} ${element.title || ""}`,
+    )
   ));
   if (!control) return { ok: false, code: "EXECUTE_CONTROL_MISSING" };
   if (control.disabled) return { ok: false, code: "EXECUTE_CONTROL_DISABLED" };
@@ -436,6 +461,15 @@ async function navigate(session, url, probe, predicate, timeoutMs = DEFAULT_TIME
 
 export function isDomeggookSettledPage(value, expectedRole) {
   return value?.pageRole === expectedRole || value?.loginPage === true;
+}
+
+export function isDomeggookUpdateReady(value, expectedItemNos = []) {
+  if (value?.loginPage === true) return true;
+  if (value?.pageRole !== "PERIOD_EXTENSION"
+    || value?.dateRegPresent !== true
+    || value?.executeControlPresent !== true) return false;
+  const observed = new Set((value.itemNos || []).map(String));
+  return expectedItemNos.every((itemNo) => observed.has(String(itemNo)));
 }
 
 export function createDomeggookCdpBrowser(session, options = {}) {
@@ -490,7 +524,7 @@ export function createDomeggookCdpBrowser(session, options = {}) {
       return waitForProbe(
         session,
         updateProbe,
-        (value) => isDomeggookSettledPage(value, "PERIOD_EXTENSION"),
+        (value) => isDomeggookUpdateReady(value, itemNos),
         {
           timeoutMs,
           code: "DOMEGGOOK_UPDATE_PAGE_TIMEOUT",
