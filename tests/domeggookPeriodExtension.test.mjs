@@ -5,6 +5,7 @@ import {
   buildDomeggookExtensionPlan,
   createDomeggookCdpBrowser,
   isDomeggookSettledPage,
+  isDomeggookUpdateReady,
   runDomeggookPeriodExtensionWithBrowser,
   targetRegistrationDate,
   validateDomeggookUpdatePreflight,
@@ -79,6 +80,24 @@ test("navigation ignores transient unauthenticated DOM and settles only on a rea
   assert.equal(isDomeggookSettledPage({ pageRole: "UNKNOWN", authenticated: false }, "PERIOD_EXPIRED_LIST"), false);
   assert.equal(isDomeggookSettledPage({ pageRole: "UNKNOWN", loginPage: true }, "PERIOD_EXPIRED_LIST"), true);
   assert.equal(isDomeggookSettledPage({ pageRole: "PERIOD_EXPIRED_LIST" }, "PERIOD_EXPIRED_LIST"), true);
+});
+
+test("update navigation waits for the real controls and every selected item", () => {
+  const expected = ["61942623", "40449639", "61924681"];
+  assert.equal(isDomeggookUpdateReady({ pageRole: "PERIOD_EXTENSION" }, expected), false);
+  assert.equal(isDomeggookUpdateReady({
+    pageRole: "PERIOD_EXTENSION",
+    dateRegPresent: true,
+    executeControlPresent: true,
+    itemNos: expected.slice(0, 2),
+  }, expected), false);
+  assert.equal(isDomeggookUpdateReady({
+    pageRole: "PERIOD_EXTENSION",
+    dateRegPresent: true,
+    executeControlPresent: true,
+    itemNos: expected,
+  }, expected), true);
+  assert.equal(isDomeggookUpdateReady({ loginPage: true }, expected), true);
 });
 
 test("plan fails closed when the dedicated browser has a different account", () => {
@@ -245,6 +264,13 @@ test("CDP execution rejects an unexpected dialog instead of clicking through it"
   };
   const browser = createDomeggookCdpBrowser(session, { timeoutMs: 500 });
   await assert.rejects(browser.executeUpdate(), { code: "DOMEGGOOK_UNEXPECTED_DIALOG" });
+});
+
+test("live image-based execute control remains supported", async () => {
+  const source = await readFile("local-agent/src/domeggook-period-extension.mjs", "utf8");
+  assert.match(source, /img\[alt\]/);
+  assert.match(source, /element\.alt/);
+  assert.match(source, /noUpdateAdvT/);
 });
 
 test("scheduler is reversible and remains dry-run unless Execute is explicit", async () => {
