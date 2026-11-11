@@ -40,7 +40,7 @@ function receiptPath(accountId: string) {
 function credentialPath(accountId: string) {
   const localAppData = process.env.LOCALAPPDATA;
   if (!localAppData) return "";
-  return path.join(localAppData, "CommerceOS", "DomeggookCredentials", `${accountId}.xml`);
+  return path.join(localAppData, "CommerceOS", "DomeggookCredentials", `${accountId}.dpapi`);
 }
 
 function scriptPath(name: string) {
@@ -113,17 +113,21 @@ export async function saveDomeggookCredentials(passwords: Record<string, string>
   if (!passwords) return;
   for (const [accountId, password] of Object.entries(passwords)) {
     if (!password) continue;
-    await runProcess(
-      "powershell.exe",
-      powershellFileArgs(scriptPath("save-domeggook-credential.ps1"), ["-AccountId", accountId]),
-      30_000,
-      password,
-    );
+    try {
+      await runProcess(
+        "powershell.exe",
+        powershellFileArgs(scriptPath("save-domeggook-credential.ps1"), ["-AccountId", accountId]),
+        30_000,
+        password,
+      );
+    } catch {
+      throw new Error(`도매꾹 계정 ${accountId}의 비밀번호를 Windows 암호화 저장소에 저장하지 못했습니다.`);
+    }
   }
 }
 
 function powershellFileArgs(file: string, args: string[]) {
-  return ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file, ...args];
+  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", file, ...args];
 }
 
 async function installAccount(account: DomeggookAccountSettings) {
