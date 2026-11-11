@@ -63,7 +63,7 @@ const domeggookPeriodExtensionModule: CommerceModule = {
   outputType: "예약 실행 상태, 대상 상품, 비용 0원 검증, 실행 후 재조회 기록",
   historySupport: true,
   externalProject: false,
-  note: "로컬 Windows에서만 실행하며 비밀번호는 저장하지 않습니다. 비용이 발생하거나 계정·대상·완료 재조회가 일치하지 않으면 중단합니다.",
+  note: "로컬 Windows에서만 실행하며 비밀번호는 현재 Windows 사용자 전용 암호화 저장소에 보관합니다. 비용이 발생하거나 계정·대상·완료 재조회가 일치하지 않으면 중단합니다.",
   helperNote: "다계정 · 독립 로그인 · 로컬 예약",
   actionLabel: "기간연장 설정 열기",
   safetyBadge: "0원·계정·재조회 검증",

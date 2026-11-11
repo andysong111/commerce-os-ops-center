@@ -58,10 +58,11 @@ test("multiple-account settings reject duplicate account IDs", () => {
   }), /중복된 도매꾹 아이디/);
 });
 
-test("feature card exposes settings and keeps passwords out of storage", async () => {
-  const [card, registry, api] = await Promise.all([
+test("dashboard search exposes the encrypted multi-account feature card", async () => {
+  const [card, registry, workspace, api] = await Promise.all([
     readFile("src/components/domeggook-period-extension/DomeggookPeriodExtensionCard.tsx", "utf8"),
     readFile("src/lib/opsModuleRegistry.ts", "utf8"),
+    readFile("src/lib/opsWorkspace.ts", "utf8"),
     readFile("src/app/api/local/domeggook-period-extension/route.ts", "utf8"),
   ]);
   assert.match(card, /도매꾹 아이디/);
@@ -72,6 +73,9 @@ test("feature card exposes settings and keeps passwords out of storage", async (
   assert.match(card, /type="password"/);
   assert.doesNotMatch(card, /password\s*:/i);
   assert.match(registry, /id: "domeggook-period-extension"/);
+  assert.match(registry, /Windows 사용자 전용 암호화 저장소/);
+  assert.match(workspace, /patterns: \[\/도매꾹\//);
+  assert.match(workspace, /moduleIds: \["domeggook-period-extension"\]/);
   assert.match(api, /localhost/);
   assert.match(api, /다른 사이트에서 보낸 실행 요청은 차단/);
 });
