@@ -33,6 +33,7 @@ test("Shopling bridge source v0.5.5 keeps durable idempotency and adds lifecycle
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions, [
     "https://a.shopling.co.kr/*",
+    "https://kt.shopling.co.kr/*",
     "https://commerce-os-ops-center.vercel.app/*",
   ]);
   assert.equal(manifest.background.service_worker, "background-shopling-root.js");
@@ -45,6 +46,12 @@ test("Shopling bridge source v0.5.5 keeps durable idempotency and adds lifecycle
     "content-shopling-pipeline.js",
     "content-shopling-pipeline-frame-bridge.js",
     "content-shopling-onebutton-stability-v054.js",
+  ]);
+  assert.deepEqual(manifest.content_scripts[3].matches, [
+    "https://a.shopling.co.kr/*",
+    "https://kt.shopling.co.kr/*",
+  ]);
+  assert.deepEqual(manifest.content_scripts[3].js, [
     "content-shopling-product-db-capacity.js",
   ]);
 });
