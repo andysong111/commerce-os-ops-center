@@ -31,6 +31,9 @@ export const dynamic = "force-dynamic";
 // commerce-os-shopling-account-title-bridge-v0.6.7.zip
 // Commerce OS Shopling Account Title Bridge v0.6.7
 // manifest.version = "0.6.7"
+// commerce-os-shopling-account-title-bridge-v0.6.8.zip
+// Commerce OS Shopling Account Title Bridge v0.6.8
+// manifest.version = "0.6.8"
 
 const FILES = [
   "manifest.json",
@@ -140,11 +143,12 @@ const SCRIPTING_LIFECYCLE_INVOKE_MUTATION = String.raw`  async function invokeMu
 `;
 
 function rewritePipeline(source: string) {
-  if (!source.includes(CANONICAL_SNIPPET)) throw new Error("shopling_v057_canonical_anchor_missing");
-  if (!source.includes(LEGACY_IDENTITY_MATCH)) throw new Error("shopling_v057_identity_anchor_missing");
-  if (!source.includes(LEGACY_CATEGORY_BLOCK)) throw new Error("shopling_v057_category_anchor_missing");
+  const normalized = source.replace(/\r\n/g, "\n");
+  if (!normalized.includes(CANONICAL_SNIPPET)) throw new Error("shopling_v057_canonical_anchor_missing");
+  if (!normalized.includes(LEGACY_IDENTITY_MATCH)) throw new Error("shopling_v057_identity_anchor_missing");
+  if (!normalized.includes(LEGACY_CATEGORY_BLOCK)) throw new Error("shopling_v057_category_anchor_missing");
 
-  const rewritten = source
+  const rewritten = normalized
     .replace(CANONICAL_SNIPPET, () => `${CANONICAL_SNIPPET}${IDENTITY_HELPERS}`)
     .replace(LEGACY_IDENTITY_MATCH, () => DUAL_IDENTITY_MATCH)
     .replace(LEGACY_AMBIGUOUS_REASON, () => DUAL_AMBIGUOUS_REASON)
@@ -165,10 +169,11 @@ function rewritePipeline(source: string) {
 }
 
 function rewriteLifecycleExecutor(source: string) {
-  if (!source.includes(LEGACY_LIFECYCLE_INVOKE_MUTATION)) {
+  const normalized = source.replace(/\r\n/g, "\n");
+  if (!normalized.includes(LEGACY_LIFECYCLE_INVOKE_MUTATION)) {
     throw new Error("shopling_v060_lifecycle_invoke_anchor_missing");
   }
-  const rewritten = source.replace(
+  const rewritten = normalized.replace(
     LEGACY_LIFECYCLE_INVOKE_MUTATION,
     () => SCRIPTING_LIFECYCLE_INVOKE_MUTATION,
   );
@@ -187,14 +192,21 @@ function rewriteLifecycleExecutor(source: string) {
   return rewritten;
 }
 
-function buildV068Manifest(source: Record<string, unknown>) {
+function buildV069Manifest(source: Record<string, unknown>) {
   const manifest = structuredClone(source) as Record<string, unknown> & {
     permissions?: string[];
+    host_permissions?: string[];
     content_scripts?: Array<Record<string, unknown> & { matches?: string[]; js?: string[]; world?: string }>;
   };
-  manifest.version = "0.6.8";
+  manifest.version = "0.6.9";
   manifest.description = "기존 상품명·마켓전송·상품 생애주기 자동화를 유지하면서 Shopling 상품 DB 1만 개 사용량을 자동 확인해 SEO 신규등록 한도를 안전하게 지킵니다.";
   manifest.permissions = [...new Set([...(manifest.permissions ?? []), "alarms", "scripting"])];
+  manifest.host_permissions = [
+    ...new Set([
+      ...(manifest.host_permissions ?? []),
+      "https://kt.shopling.co.kr/*",
+    ]),
+  ];
 
   const scripts = manifest.content_scripts ?? [];
   const shopInfoIndex = scripts.findIndex((entry) =>
@@ -214,6 +226,16 @@ function buildV068Manifest(source: Record<string, unknown>) {
     entry.js?.includes("content-shopling-product-db-capacity.js"),
   );
   if (!quotaCollector) throw new Error("shopling_v068_quota_collector_missing");
+  quotaCollector.matches = [
+    ...new Set([
+      ...(quotaCollector.matches ?? []),
+      "https://a.shopling.co.kr/*",
+      "https://kt.shopling.co.kr/*",
+    ]),
+  ];
+  if (quotaCollector.js?.length !== 1) {
+    throw new Error("shopling_v069_quota_collector_must_be_read_only_dedicated");
+  }
   quotaCollector.all_frames = true;
   quotaCollector.match_about_blank = true;
   quotaCollector.match_origin_as_fallback = true;
@@ -240,7 +262,7 @@ export async function GET() {
   for (const fileName of FILES) {
     if (fileName === "manifest.json") {
       const sourceManifest = JSON.parse(await readFile(path.join(root, fileName), "utf8")) as Record<string, unknown>;
-      const manifest = buildV068Manifest(sourceManifest);
+      const manifest = buildV069Manifest(sourceManifest);
       entries[fileName] = strToU8(`${JSON.stringify(manifest, null, 2)}\n`);
       continue;
     }
@@ -261,13 +283,13 @@ export async function GET() {
     entries[fileName] = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
 
-  entries["VERSION.txt"] = strToU8("Commerce OS Shopling Account Title Bridge v0.6.8\n");
+  entries["VERSION.txt"] = strToU8("Commerce OS Shopling Account Title Bridge v0.6.9\n");
   const archive = zipSync(entries, { level: 6 });
   return new Response(Buffer.from(archive), {
     status: 200,
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": "attachment; filename=commerce-os-shopling-account-title-bridge-v0.6.8.zip",
+      "Content-Disposition": "attachment; filename=commerce-os-shopling-account-title-bridge-v0.6.9.zip",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     },

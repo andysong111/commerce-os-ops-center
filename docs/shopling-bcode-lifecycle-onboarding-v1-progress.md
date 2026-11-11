@@ -102,9 +102,16 @@ API. This workflow must never write to Shopling or a marketplace.
   investigated or any external sold-out/delete canary is considered.
 - The same Production readback still reported the older stale quota evidence
   `10,565 / 10,000` from 2026-10-31, so new registration remains blocked even
-  though the owner confirmed `6,072 / 10,000` on the current Shopling screen.
-  The internal authenticated quota readback must be refreshed to the current
-  value before the registration gate can open.
+  though the owner reconfirmed `6,072 / 10,000` on the current Shopling screen
+  on 2026-11-12. Refreshing both pages did not update the internal value.
+- The root cause is host scoping: the current dashboard is served from
+  `kt.shopling.co.kr`, while extension v0.6.8 injected the quota collector only
+  on `a.shopling.co.kr`. Extension v0.6.9 adds `kt` permission only to a dedicated
+  read-only quota collector; no title, market, lifecycle mutation, stock-out, or
+  delete script is widened to the new host. The generated ZIP, its manifest,
+  the real `6,072` parser fixture, 35 targeted tests, and TypeScript all pass.
+  Deployment and an authenticated readback are still required before the
+  registration gate can open.
 
 ### Production scope audit outcome
 
@@ -223,7 +230,7 @@ API. This workflow must never write to Shopling or a marketplace.
   Repository-wide lint still has unrelated pre-existing failures and was not
   used as evidence for this change.
 
-### Reversible internal correction plan (Production read-only verified)
+### Reversible internal correction plan (Production applied and independently verified)
 
 - The deployed plan persists the 48 canonical receipts in the existing immutable
   operation ledger and activates 49 separate isolation markers without deleting
@@ -248,10 +255,21 @@ API. This workflow must never write to Shopling or a marketplace.
 - Rollback retains audit receipts and deactivates only the 49 markers from this
   exact plan. The production schema was applied on 2026-11-12 after PR #1704
   changed both RPCs to `SECURITY INVOKER`, removed deprecated `auth.role()`
-  checks, and retained service-role-only execution. Post-migration readback found
-  zero isolation rows and zero correction runs. No internal correction or
-  external Shopling/market write has been executed.
-- Next gate: obtain explicit approval for the current fingerprint, execute one
-  internal transaction, then rerun the full read-only audit and independent
-  database readbacks.
+  checks, and retained service-role-only execution.
+- The owner explicitly approved plan fingerprint
+  `sha256:66282b23493eaddfeb8799f8f767090d827fd7a2e20864df0d8f7fdd0b2fb50d`.
+  Production applied it once at `2026-11-11T22:08:52.599Z`: 48 immutable audit
+  receipts, 49 active isolation markers, zero market-ledger products, zero
+  market-ledger bindings, and no external Shopling/market write.
+- Independent database readback found exactly 49 active markers on 49 distinct
+  launch items, all tied to the approved fingerprint; 48 distinct succeeded
+  receipt events; one succeeded correction run; zero inactive or foreign-plan
+  markers; and zero market-ledger rows updated at the correction timestamp.
+  The post-apply Production API audit independently reported 49 active isolated
+  products and reduced the active audit population from 179 to 130 products,
+  while preserving the same 48/48 receipt set. It proposed zero additional
+  isolation markers and kept all external-write flags false.
+- Next gate: refresh the still-stale authenticated Shopling capacity readback,
+  identify one real 60-day zero-sale Canary candidate, and request separate
+  approval before any external stock-out or deletion.
 

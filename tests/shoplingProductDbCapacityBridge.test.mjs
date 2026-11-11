@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
+import { strFromU8, unzipSync } from "fflate";
 
 const ROOT = new URL("../", import.meta.url);
 
@@ -23,6 +24,18 @@ test("Shopling plan parser reads the 10,000 maximum and 11,113 cumulative use", 
       maximumProductCodeCount: 10_000,
       usedProductCodeCount: 11_113,
     },
+  );
+  assert.deepEqual(
+    {
+      ...parse(
+        `상품 DB\t사용 상품 DB 수 (누적)\n10,000\t6,072\n쇼핑몰 상품 등록\t사용 쇼핑몰 연동 DB 수 (누적)\n25,000\t925`,
+      ),
+    },
+    {
+      maximumProductCodeCount: 10_000,
+      usedProductCodeCount: 6_072,
+    },
+    "the current Shopling dashboard value is parsed without confusing the linked-mall count",
   );
   assert.deepEqual(
     {
@@ -58,7 +71,7 @@ test("Shopling plan parser reads the 10,000 maximum and 11,113 cumulative use", 
   );
 });
 
-test("v0.6.8 extension stores Shopling quota and syncs it only from the Ops page", async () => {
+test("v0.6.9 extension stores Shopling quota from a/kt hosts and syncs it only from the Ops page", async () => {
   const [manifestRaw, download, collector, sync, main] = await Promise.all([
     source("public/shopling-account-title-bridge/manifest.json"),
     source("src/app/api/shopling-account-title-bridge/download/route.ts"),
@@ -67,14 +80,21 @@ test("v0.6.8 extension stores Shopling quota and syncs it only from the Ops page
     source("public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-main.js"),
   ]);
   const manifest = JSON.parse(manifestRaw);
-  assert.match(download, /manifest\.version = "0\.6\.8"/);
-  assert.match(download, /v0\.6\.8\.zip/);
+  assert.match(download, /manifest\.version = "0\.6\.9"/);
+  assert.match(download, /v0\.6\.9\.zip/);
   assert.ok(download.includes('"content-shopling-product-db-capacity.js"'));
   assert.ok(download.includes('"content-commerce-os-product-db-capacity-sync.js"'));
   assert.ok(download.includes('"content-commerce-os-product-db-capacity-main.js"'));
   const collectorEntry = manifest.content_scripts.find((entry) =>
     entry.js?.includes("content-shopling-product-db-capacity.js"),
   );
+  assert.deepEqual(collectorEntry?.matches, [
+    "https://a.shopling.co.kr/*",
+    "https://kt.shopling.co.kr/*",
+  ]);
+  assert.deepEqual(collectorEntry?.js, [
+    "content-shopling-product-db-capacity.js",
+  ]);
   assert.equal(collectorEntry?.all_frames, true);
   assert.equal(collectorEntry?.match_origin_as_fallback, true);
   assert.ok(
@@ -98,7 +118,34 @@ test("v0.6.8 extension stores Shopling quota and syncs it only from the Ops page
   }
 });
 
-test("v0.6.8 recursively collects quota from the nested Shopling dashboard frame", async () => {
+test("v0.6.9 download builds a real ZIP with only the read-only collector on kt Shopling", async () => {
+  const { GET } = await import(
+    "../src/app/api/shopling-account-title-bridge/download/route.ts"
+  );
+  const response = await GET();
+  assert.equal(response.status, 200);
+  assert.match(
+    response.headers.get("content-disposition") || "",
+    /commerce-os-shopling-account-title-bridge-v0\.6\.9\.zip/,
+  );
+  const files = unzipSync(new Uint8Array(await response.arrayBuffer()));
+  const manifest = JSON.parse(strFromU8(files["manifest.json"]));
+  const ktEntries = manifest.content_scripts.filter((entry) =>
+    entry.matches?.includes("https://kt.shopling.co.kr/*"),
+  );
+  assert.equal(manifest.version, "0.6.9");
+  assert.ok(manifest.host_permissions.includes("https://kt.shopling.co.kr/*"));
+  assert.equal(ktEntries.length, 1);
+  assert.deepEqual(ktEntries[0].js, [
+    "content-shopling-product-db-capacity.js",
+  ]);
+  assert.equal(
+    strFromU8(files["VERSION.txt"]).trim(),
+    "Commerce OS Shopling Account Title Bridge v0.6.9",
+  );
+});
+
+test("v0.6.9 recursively collects quota from the nested kt Shopling dashboard frame", async () => {
   const collector = await source(
     "public/shopling-account-title-bridge/content-shopling-product-db-capacity.js",
   );
@@ -119,7 +166,7 @@ test("v0.6.8 recursively collects quota from the nested Shopling dashboard frame
         "상품 DB\t사용 상품 DB 수 (누적)\n10,000\t11,113\n쇼핑몰 상품 등록\t사용 쇼핑몰 연동 DB 수 (누적)\n25,000\t925",
     },
     location: {
-      href: "https://a.shopling.co.kr/main/dashboard.phtml",
+      href: "https://kt.shopling.co.kr/main/dashboard.phtml",
       pathname: "/main/dashboard.phtml",
     },
     title: "Shopling",
@@ -131,7 +178,7 @@ test("v0.6.8 recursively collects quota from the nested Shopling dashboard frame
     body: { innerText: "Shopling 홈" },
     documentElement: {},
     location: {
-      href: "https://a.shopling.co.kr/",
+      href: "https://kt.shopling.co.kr/",
       pathname: "/",
     },
     title: "Shopling",
@@ -163,7 +210,7 @@ test("v0.6.8 recursively collects quota from the nested Shopling dashboard frame
     crypto: { randomUUID: () => "00000000-0000-4000-8000-000000000001" },
     Date,
     document,
-    location: { href: "https://a.shopling.co.kr/", pathname: "/" },
+    location: { href: "https://kt.shopling.co.kr/", pathname: "/" },
     MutationObserver,
     Number,
     String,
@@ -186,7 +233,7 @@ test("v0.6.8 recursively collects quota from the nested Shopling dashboard frame
       evidence: {
         pathname: "/main/dashboard.phtml",
         pageTitle: "Shopling",
-        frameHref: "https://a.shopling.co.kr/main/dashboard.phtml",
+        frameHref: "https://kt.shopling.co.kr/main/dashboard.phtml",
         matchedDocumentDepth: 1,
       },
     },
@@ -197,11 +244,11 @@ test("v0.6.8 recursively collects quota from the nested Shopling dashboard frame
   );
   assert.equal(
     stored.commerceOsShoplingProductDbCapacityCollectorDiagnosticV1.extensionVersion,
-    "0.6.8",
+    "0.6.9",
   );
 });
 
-test("v0.6.8 retries when isolated sync starts before the MAIN-world bridge", async () => {
+test("v0.6.9 retries when isolated sync starts before the MAIN-world bridge", async () => {
   const [sync, main] = await Promise.all([
     source("public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-sync.js"),
     source("public/shopling-account-title-bridge/content-commerce-os-product-db-capacity-main.js"),

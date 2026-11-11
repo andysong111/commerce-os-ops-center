@@ -4,7 +4,7 @@
   const STORAGE_KEY = "commerceOsShoplingProductDbCapacityV1";
   const DIAGNOSTIC_KEY = "commerceOsShoplingProductDbCapacityCollectorDiagnosticV1";
   const SOURCE = "shopling-plan-dom-v1";
-  const EXTENSION_VERSION = "0.6.8";
+  const EXTENSION_VERSION = "0.6.9";
   const REFRESH_MS = 6 * 60 * 60 * 1000;
 
   function text(value) {
