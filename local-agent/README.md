@@ -25,9 +25,12 @@ node .\local-agent\bin\commerce-os-local-agent.mjs status
 node .\local-agent\bin\commerce-os-local-agent.mjs daemon
 node .\local-agent\bin\commerce-os-local-agent.mjs purchase-server
 node .\local-agent\bin\commerce-os-local-agent.mjs diagnose --goods-key 123456
+npm run local-agent:domeggook-period-extension
 ```
 
 `daemon`에는 `http://127.0.0.1:43121` 전용 발주 자동화 화면도 포함됩니다. 발주초안의 **5-1 원가·운임 기록**은 1688 주문확인 미리보기까지만 열어 실제 위안단가와 중국내 운임을 저장합니다. **5-2 장바구니 담기**는 확정 수량·옵션으로 장바구니를 다시 맞춥니다. 두 업무 모두 1688 주문 제출과 결제는 실행하지 않습니다.
+
+`local-agent:domeggook-period-extension`은 도매꾹 기간종료 목록의 상품번호와 승인완료 상태만 읽는 드라이런입니다. 상단 이벤트 배너를 좌표로 누르지 않으며, 실제 연장은 전용 Chrome에서 0원·유료옵션 미연장·최대 90일을 확인하고 `--execute`를 명시했을 때만 진행합니다. 실행 후 같은 상품번호가 기간종료 목록에서 사라진 것을 재확인해야 성공으로 기록합니다. 일정 설치와 최초 카나리 절차는 `docs/domeggook-period-extension-runbook.md`에 있습니다.
 
 ## Windows 자동 시작
 

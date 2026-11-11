@@ -62,6 +62,7 @@ export const OPS_WORKSPACE_GROUPS: readonly OpsWorkspaceGroup[] = [
       "detail-page-ai-review",
       "product-launch-flow",
       "shopling-product-upload-runner",
+      "domeggook-period-extension",
     ],
     searchTerms: [
       "상품",
@@ -149,6 +150,7 @@ export const OPS_WORKSPACE_GROUPS: readonly OpsWorkspaceGroup[] = [
 ] as const;
 
 export const DEFAULT_FAVORITE_MODULE_IDS = [
+  "domeggook-period-extension",
   "china-order-cost",
   "internal-china-cost-price-review",
   "product-launch-tracker",
@@ -164,6 +166,12 @@ export type OpsCommandIntent = {
 };
 
 const COMMAND_INTENTS: readonly (OpsCommandIntent & { patterns: readonly RegExp[] })[] = [
+  {
+    label: "도매꾹 기간연장",
+    reason: "도매꾹 기간종료 상품 유지관리 표현을 인식했습니다.",
+    moduleIds: ["domeggook-period-extension"],
+    patterns: [/도매꾹/, /기간.*연장/, /기간종료/],
+  },
   {
     label: "가격 작업",
     reason: "판매가·마진·인상·인하 관련 표현을 인식했습니다.",
