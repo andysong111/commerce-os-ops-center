@@ -161,7 +161,7 @@ jobs:
           tests/seoBulkCloudParallel.test.mjs
           tests/seoGroundedReservoirV11.test.mjs
       - name: Test Domeggook period-extension safety
-        run: node --experimental-strip-types --test tests/domeggookPeriodExtension.test.mjs
+        run: node --experimental-strip-types --test tests/domeggookPeriodExtension.test.mjs tests/domeggookPeriodExtensionSettings.test.mjs
       - name: Build
         run: npm run build
         env:

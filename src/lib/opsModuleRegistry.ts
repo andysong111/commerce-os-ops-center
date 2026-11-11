@@ -50,6 +50,25 @@ const warehouseCapacityModule: CommerceModule = {
   safetyBadge: "미실사 공간 자동배정 금지",
 };
 
+const domeggookPeriodExtensionModule: CommerceModule = {
+  id: "domeggook-period-extension",
+  title: "도매꾹 상품 기간연장",
+  navigationLabel: "도매꾹 기간연장",
+  description:
+    "여러 도매꾹 계정의 기간종료 상품을 계정별 예약시간에 확인하고 무료 기본등록 기간만 연장합니다.",
+  status: "available",
+  route: "/domeggook-period-extension",
+  category: "채널 자동화",
+  inputType: "도매꾹 계정별 아이디, 실행시간, 연장기간, 독립 Chrome 로그인 세션",
+  outputType: "예약 실행 상태, 대상 상품, 비용 0원 검증, 실행 후 재조회 기록",
+  historySupport: true,
+  externalProject: false,
+  note: "로컬 Windows에서만 실행하며 비밀번호는 저장하지 않습니다. 비용이 발생하거나 계정·대상·완료 재조회가 일치하지 않으면 중단합니다.",
+  helperNote: "다계정 · 독립 로그인 · 로컬 예약",
+  actionLabel: "기간연장 설정 열기",
+  safetyBadge: "0원·계정·재조회 검증",
+};
+
 const isolatedBaseModules: readonly CommerceModule[] = extendedModuleRegistry.map(
   (module) => {
     if (module.id === "sourcing-engine") {
@@ -93,6 +112,7 @@ const isolatedBaseModules: readonly CommerceModule[] = extendedModuleRegistry.ma
 
 export const opsModuleRegistry: readonly CommerceModule[] = [
   reliabilityLearningModule,
+  domeggookPeriodExtensionModule,
   inventoryStockOperationsModule,
   warehouseCapacityModule,
   ...isolatedBaseModules,

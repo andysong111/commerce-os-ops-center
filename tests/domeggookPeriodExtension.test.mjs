@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildDomeggookExtensionPlan,
   createDomeggookCdpBrowser,
+  isDomeggookSettledPage,
   runDomeggookPeriodExtensionWithBrowser,
   targetRegistrationDate,
   validateDomeggookUpdatePreflight,
@@ -19,6 +20,7 @@ function listing({ totalCount = 3, items } = {}) {
       { itemNo: "40449639", status: "DONE" },
       { itemNo: "61924681", status: "DONE" },
     ],
+    accountContext: "송승준 everysale999 (사업자) 로그아웃",
   };
 }
 
@@ -73,6 +75,23 @@ test("plan fails closed for login loss, unreadable rows, and non-DONE status", (
   );
 });
 
+test("navigation ignores transient unauthenticated DOM and settles only on a real list or login page", () => {
+  assert.equal(isDomeggookSettledPage({ pageRole: "UNKNOWN", authenticated: false }, "PERIOD_EXPIRED_LIST"), false);
+  assert.equal(isDomeggookSettledPage({ pageRole: "UNKNOWN", loginPage: true }, "PERIOD_EXPIRED_LIST"), true);
+  assert.equal(isDomeggookSettledPage({ pageRole: "PERIOD_EXPIRED_LIST" }, "PERIOD_EXPIRED_LIST"), true);
+});
+
+test("plan fails closed when the dedicated browser has a different account", () => {
+  assert.throws(
+    () => buildDomeggookExtensionPlan(listing(), { accountId: "anotherSeller" }),
+    { code: "DOMEGGOOK_ACCOUNT_MISMATCH" },
+  );
+  assert.equal(
+    buildDomeggookExtensionPlan(listing(), { accountId: "everysale999" }).mode,
+    "READY",
+  );
+});
+
 test("dry-run reads the exact scope but never opens or executes the update page", async () => {
   const calls = [];
   const browser = {
@@ -90,6 +109,30 @@ test("dry-run reads the exact scope but never opens or executes the update page"
   assert.equal(result.status, "planned");
   assert.equal(result.verification, "NOT_EXECUTED");
   assert.deepEqual(calls, ["openListing", "readListing"]);
+});
+
+test("stored credential logs in once before a dry-run and is never returned in the receipt", async () => {
+  const calls = [];
+  let reads = 0;
+  const browser = {
+    async openListing() { calls.push("openListing"); },
+    async readListing() {
+      reads += 1;
+      return reads === 1
+        ? { authenticated: false, loginPage: true, pageRole: "UNKNOWN" }
+        : listing();
+    },
+    async login(accountId, password) { calls.push(["login", accountId, password]); },
+  };
+  const result = await runDomeggookPeriodExtensionWithBrowser(browser, {
+    execute: false,
+    accountId: "everysale999",
+    password: "secret-value",
+    now: new Date("2026-11-11T19:00:00.000Z"),
+  });
+  assert.equal(result.status, "planned");
+  assert.deepEqual(calls, ["openListing", ["login", "everysale999", "secret-value"], "openListing"]);
+  assert.equal(JSON.stringify(result).includes("secret-value"), false);
 });
 
 test("execute requires zero charge and paid-option extension off", () => {
@@ -213,6 +256,8 @@ test("scheduler is reversible and remains dry-run unless Execute is explicit", a
   assert.match(install, /\[switch\]\$Execute/);
   assert.match(install, /if \(\$Execute\).*\-Execute/);
   assert.match(install, /New-ScheduledTaskTrigger -Daily/);
+  assert.match(install, /\[string\]\$At = "00:10"/);
+  assert.match(install, /\-AccountId/);
   assert.match(uninstall, /Unregister-ScheduledTask/);
   assert.match(runner, /if \(\$Execute\).*--execute.*else.*--dry-run/s);
 });

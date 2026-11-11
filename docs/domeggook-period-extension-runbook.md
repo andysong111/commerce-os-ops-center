@@ -29,6 +29,21 @@
 - 실행 후 같은 상품번호가 기간종료 목록에서 사라진 것을 확인해야 성공으로 기록한다.
 - 실행 잠금과 원자적 영수증을 `local-agent/data/domeggook-period-extension/`에 남긴다.
 - 전용 Chrome 프로필을 사용하며 도매꾹 비밀번호를 Commerce OS에 저장하지 않는다.
+- 설정한 도매꾹 아이디가 현재 로그인 계정 문맥에서 확인되지 않으면 중단한다.
+
+## Commerce OS 기능 카드
+
+운영 대시보드의 `도매꾹 상품 기간연장` 카드에서 최대 12개 계정을 추가하고 다음 값을 계정별로 관리한다.
+
+- 도매꾹 아이디와 비밀번호: 비밀번호는 일반 설정 JSON이 아니라 현재 Windows 사용자만 복호화할 수 있는 DPAPI 암호화 자격증명으로 저장
+- 매일 실행시간: 기본 `00:10`
+- 연장기간: 1~90일
+- 실제 실행 여부: 끄면 예약 작업도 드라이런으로만 동작
+- 예약 사용 여부: 끄거나 계정을 제거한 뒤 예약 적용하면 해당 Windows 예약을 제거
+
+계정마다 `%LOCALAPPDATA%\CommerceOS\DomeggookChromeProfiles\<아이디>` 프로필, 전용 디버그 포트, Windows 예약 작업, 잠금과 실행 영수증을 분리한다. 여러 계정을 운영할 때는 `00:10`, `00:15`, `00:20`, `00:25`처럼 5분 간격을 권장한다.
+
+카드는 로컬 Windows의 Commerce OS에서만 설정 저장, 예약 설치, 전용 로그인 브라우저 열기, 시험 실행, 즉시 실행을 허용한다. 다른 호스트의 실행 요청은 차단한다. 저장된 비밀번호는 자동로그인 시 자식 프로세스 메모리에서만 잠깐 복호화하고 로그·영수증·명령행에는 남기지 않는다. CAPTCHA나 추가 본인인증이 나타나면 우회하지 않고 중단한다.
 
 ## 명령
 
@@ -41,19 +56,19 @@ npm run local-agent:domeggook-period-extension
 로컬 전용 Chrome을 포함한 드라이런:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\local-agent\scripts\run-domeggook-period-extension.ps1
+powershell -ExecutionPolicy Bypass -File .\local-agent\scripts\run-domeggook-period-extension.ps1 -AccountId everysale999 -DebugPort 9600
 ```
 
 실제 실행은 최초 3개 상품 카나리 검증 뒤에만 사용한다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\local-agent\scripts\run-domeggook-period-extension.ps1 -Execute
+powershell -ExecutionPolicy Bypass -File .\local-agent\scripts\run-domeggook-period-extension.ps1 -AccountId everysale999 -DebugPort 9600 -Execute
 ```
 
-매일 04:10 드라이런 작업 설치:
+매일 00:10 실제 자동연장 작업 설치:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\local-agent\scripts\install-domeggook-period-extension-task.ps1 -At 04:10
+powershell -ExecutionPolicy Bypass -File .\local-agent\scripts\install-domeggook-period-extension-task.ps1 -At 00:10 -Days 90 -AccountId everysale999 -Execute
 ```
 
 실제 자동연장은 `-Execute`를 명시한 작업으로만 열린다. 제거는 다음과 같다.
@@ -62,10 +77,11 @@ powershell -ExecutionPolicy Bypass -File .\local-agent\scripts\install-domeggook
 powershell -ExecutionPolicy Bypass -File .\local-agent\scripts\uninstall-domeggook-period-extension-task.ps1
 ```
 
-## 아직 열지 않은 운영 경계
+## 남은 운영 경계
 
-- 전용 Chrome 프로필의 도매꾹 로그인
-- 현재 3개 상품에 대한 최초 실제 카나리
-- 실제 자동연장 Scheduled Task 설치
+- 카드에 실제 4개 계정 ID·비밀번호·시간 입력
+- 계정별 자동로그인 드라이런과 기간종료 대상 확인
+- 각 계정 최초 실제 카나리와 재조회 성공 확인
+- 기존 단일 예약을 계정별 예약 4개로 교체
 
-위 세 단계 전까지 실제 도매꾹 상품 상태는 변경하지 않는다.
+계정별 카나리 전까지 해당 계정의 실제 도매꾹 상품 상태는 변경하지 않는다.

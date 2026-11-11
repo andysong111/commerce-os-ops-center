@@ -71,6 +71,7 @@ function stableFingerprint(value) {
 export function buildDomeggookExtensionPlan(snapshot, options = {}) {
   const extensionDays = normalizeDomeggookExtensionDays(options.extensionDays);
   const maxItems = parseInteger(options.maxItems, 50, 1, 50);
+  const expectedAccountId = String(options.accountId || "").trim().toLowerCase();
   if (!snapshot?.authenticated) {
     fail(
       "DOMEGGOOK_LOGIN_REQUIRED",
@@ -84,6 +85,16 @@ export function buildDomeggookExtensionPlan(snapshot, options = {}) {
       "도매꾹 기간종료 목록 화면을 확인하지 못했습니다.",
       { url: snapshot?.url || "", pageRole: snapshot?.pageRole || "UNKNOWN" },
     );
+  }
+  if (expectedAccountId) {
+    const accountContext = String(snapshot.accountContext || "").toLowerCase();
+    if (!accountContext.includes(expectedAccountId)) {
+      fail(
+        "DOMEGGOOK_ACCOUNT_MISMATCH",
+        "로그인된 도매꾹 계정이 설정한 아이디와 일치하지 않습니다.",
+        { expectedAccountId },
+      );
+    }
   }
   const totalCount = Number.isFinite(Number(snapshot.totalCount))
     ? Number(snapshot.totalCount)
@@ -203,6 +214,9 @@ function listingProbe() {
     document.querySelector('a[href*="logout" i], a[onclick*="logout" i]')
     || /로그아웃/.test(text.slice(0, 3000)),
   );
+  const loginPage = /\/ssl\/member\/mem_loginForm\.php/i.test(url)
+    || Boolean(document.querySelector('form[action*="login" i] input[type="password"]'));
+  const accountContext = text.slice(0, 800).replace(/\s+/g, " ");
   return {
     url,
     title: document.title || "",
@@ -210,6 +224,8 @@ function listingProbe() {
       ? "PERIOD_EXPIRED_LIST"
       : "UNKNOWN",
     authenticated,
+    loginPage,
+    accountContext,
     totalCount: totalMatch ? Number(totalMatch[1].replace(/,/g, "")) : null,
     items,
     updateFormPresent: Boolean(updateForm),
@@ -246,6 +262,8 @@ function updateProbe() {
     || /로그아웃/.test(text.slice(0, 3000))
     || /기간연장/.test(compact),
   ) && !/로그인\s*(?:하세요|필요)/.test(compact.slice(0, 1000));
+  const loginPage = /\/ssl\/member\/mem_loginForm\.php/i.test(url)
+    || Boolean(document.querySelector('form[action*="login" i] input[type="password"]'));
   const itemNos = [...new Set([
     ...[...text.matchAll(/\[\s*(\d{6,12})\s*\]/g)].map((match) => match[1]),
     ...[...document.querySelectorAll('a[href*="itemNo"], a[href*="item_no"], a[href*="no="]')]
@@ -286,6 +304,7 @@ function updateProbe() {
       ? "PERIOD_EXTENSION"
       : "UNKNOWN",
     authenticated,
+    loginPage,
     itemNos,
     extensionDayValues: positiveNumericInputs,
     chargeWon,
@@ -332,6 +351,36 @@ function configureUpdate(targetDate) {
   }
   if (typeof globalThis.mainCalc === "function") globalThis.mainCalc();
   return { ok: true, targetDate, inputName: dateInput.name || "", inputId: dateInput.id || "" };
+}
+
+function submitLogin(credentials) {
+  const accountId = String(credentials?.accountId || "").trim();
+  const password = String(credentials?.password || "");
+  if (!accountId || !password) return { ok: false, code: "LOGIN_CREDENTIAL_MISSING" };
+  const captchaInput = document.querySelector('input[name*="captcha" i],input[id*="captcha" i],input[name*="security" i]');
+  if (captchaInput) return { ok: false, code: "LOGIN_CAPTCHA_REQUIRED" };
+  const passwordInput = document.querySelector('input[type="password"]');
+  const form = passwordInput?.form || passwordInput?.closest("form");
+  if (!passwordInput || !form) return { ok: false, code: "LOGIN_FORM_MISSING" };
+  const textInputs = [...form.querySelectorAll('input:not([type]),input[type="text"],input[type="email"]')];
+  const accountInput = textInputs.find((input) => /(?:^|_)(?:id|user|member|login)(?:$|_)/i.test(`${input.name || ""}_${input.id || ""}`))
+    || textInputs[0];
+  if (!accountInput) return { ok: false, code: "LOGIN_ACCOUNT_INPUT_MISSING" };
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  const setValue = (input, value) => {
+    if (descriptor?.set) descriptor.set.call(input, value);
+    else input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  setValue(accountInput, accountId);
+  setValue(passwordInput, password);
+  const controls = [...form.querySelectorAll('button,input[type="submit"],input[type="button"],a')];
+  const submit = controls.find((element) => /로그인/.test(`${element.textContent || ""} ${element.value || ""}`))
+    || form.querySelector('button[type="submit"],input[type="submit"]');
+  if (!submit) return { ok: false, code: "LOGIN_SUBMIT_MISSING" };
+  submit.click();
+  return { ok: true };
 }
 
 function clickExecuteControl() {
@@ -385,6 +434,10 @@ async function navigate(session, url, probe, predicate, timeoutMs = DEFAULT_TIME
   return waitForProbe(session, probe, predicate, { timeoutMs });
 }
 
+export function isDomeggookSettledPage(value, expectedRole) {
+  return value?.pageRole === expectedRole || value?.loginPage === true;
+}
+
 export function createDomeggookCdpBrowser(session, options = {}) {
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
   return {
@@ -393,12 +446,37 @@ export function createDomeggookCdpBrowser(session, options = {}) {
         session,
         DOMEGGOOK_LIST_URL,
         listingProbe,
-        (value) => value.pageRole === "PERIOD_EXPIRED_LIST" || !value.authenticated,
+        (value) => isDomeggookSettledPage(value, "PERIOD_EXPIRED_LIST"),
         timeoutMs,
       );
     },
     async readListing() {
       return evaluate(session, listingProbe, undefined, timeoutMs);
+    },
+    async login(accountId, password) {
+      const submitted = await evaluate(session, submitLogin, { accountId, password }, timeoutMs, true);
+      if (!submitted?.ok) {
+        const code = submitted?.code === "LOGIN_CAPTCHA_REQUIRED"
+          ? "DOMEGGOOK_LOGIN_CAPTCHA_REQUIRED"
+          : "DOMEGGOOK_LOGIN_SUBMIT_FAILED";
+        fail(
+          code,
+          submitted?.code === "LOGIN_CAPTCHA_REQUIRED"
+            ? "도매꾹 로그인 보안문자가 나타나 자동로그인을 중단했습니다."
+            : "저장된 계정으로 도매꾹 로그인을 시작하지 못했습니다.",
+          submitted || {},
+        );
+      }
+      await waitForProbe(
+        session,
+        listingProbe,
+        (value) => value.loginPage !== true,
+        {
+          timeoutMs,
+          code: "DOMEGGOOK_LOGIN_NOT_CONFIRMED",
+          message: "도매꾹 자동로그인 완료를 확인하지 못했습니다. 비밀번호 또는 추가 인증을 확인하세요.",
+        },
+      );
     },
     async openUpdate(itemNos) {
       const submitted = await evaluate(session, submitUpdateScope, itemNos, timeoutMs, true);
@@ -412,7 +490,7 @@ export function createDomeggookCdpBrowser(session, options = {}) {
       return waitForProbe(
         session,
         updateProbe,
-        (value) => value.pageRole === "PERIOD_EXTENSION" || !value.authenticated,
+        (value) => isDomeggookSettledPage(value, "PERIOD_EXTENSION"),
         {
           timeoutMs,
           code: "DOMEGGOOK_UPDATE_PAGE_TIMEOUT",
@@ -489,7 +567,12 @@ export function createDomeggookCdpBrowser(session, options = {}) {
 export async function runDomeggookPeriodExtensionWithBrowser(browser, options = {}) {
   const startedAt = new Date().toISOString();
   await browser.openListing();
-  const before = await browser.readListing();
+  let before = await browser.readListing();
+  if (!before?.authenticated && before?.loginPage && options.password && typeof browser.login === "function") {
+    await browser.login(options.accountId, options.password);
+    await browser.openListing();
+    before = await browser.readListing();
+  }
   const plan = buildDomeggookExtensionPlan(before, options);
   if (plan.mode === "NOOP" || options.execute !== true) {
     return {

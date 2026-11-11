@@ -1,7 +1,9 @@
 param(
-  [string]$TaskName = "Commerce OS Domeggook Period Extension",
-  [string]$At = "04:10",
+  [string]$TaskName = "",
+  [string]$At = "00:10",
   [int]$Days = 90,
+  [string]$AccountId = "",
+  [int]$DebugPort = 9234,
   [switch]$Execute,
   [switch]$StartNow
 )
@@ -9,6 +11,10 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RunScript = Resolve-Path (Join-Path $ScriptDir "run-domeggook-period-extension.ps1")
+if (-not $AccountId -or $AccountId -notmatch '^[A-Za-z0-9._-]{3,50}$') {
+  throw "AccountId must use 3-50 letters, numbers, dots, underscores, or hyphens."
+}
+if (-not $TaskName) { $TaskName = "Commerce OS Domeggook Period Extension - $AccountId" }
 try {
   $ScheduleTime = [DateTime]::ParseExact($At, "HH:mm", [Globalization.CultureInfo]::InvariantCulture)
 } catch {
@@ -20,8 +26,12 @@ $ArgumentParts = @(
   "-WindowStyle Hidden",
   "-ExecutionPolicy Bypass",
   "-File `"$RunScript`"",
-  "-Days $Days"
+  "-Days $Days",
+  "-DebugPort $DebugPort"
 )
+if ($AccountId) {
+  $ArgumentParts += "-AccountId `"$AccountId`""
+}
 if ($Execute) { $ArgumentParts += "-Execute" }
 $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ($ArgumentParts -join " ")
 $Trigger = New-ScheduledTaskTrigger -Daily -At $ScheduleTime
@@ -49,3 +59,5 @@ Write-Host "Installed scheduled task: $TaskName"
 Write-Host "Schedule: daily $At"
 Write-Host "Mode: $Mode"
 Write-Host "Extension days: $Days"
+Write-Host "Account ID: $AccountId"
+Write-Host "Debug port: $DebugPort"

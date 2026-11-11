@@ -15,6 +15,8 @@ import { sanitizeError } from "../src/safe-json.mjs";
 function parseArgs(argv) {
   const flags = {
     execute: false,
+    accountId: "",
+    password: process.env.DOMEGGOOK_PASSWORD || "",
     extensionDays: 90,
     maxItems: 50,
     timeoutMs: 20_000,
@@ -23,6 +25,7 @@ function parseArgs(argv) {
     const value = argv[index];
     if (value === "--execute") flags.execute = true;
     else if (value === "--dry-run") flags.execute = false;
+    else if (value === "--account-id") flags.accountId = String(argv[++index] || "").trim();
     else if (value === "--days") flags.extensionDays = Number(argv[++index]);
     else if (value === "--max-items") flags.maxItems = Number(argv[++index]);
     else if (value === "--timeout-ms") flags.timeoutMs = Number(argv[++index]);
@@ -56,7 +59,8 @@ function acquireLock(path) {
 
 const config = loadConfig();
 const flags = parseArgs(process.argv.slice(2));
-const stateDir = join(config.dataDir, "domeggook-period-extension");
+const accountKey = /^[A-Za-z0-9._-]{3,50}$/.test(flags.accountId) ? flags.accountId : "default";
+const stateDir = join(config.dataDir, "domeggook-period-extension", accountKey);
 const receiptPath = join(stateDir, "latest.json");
 const lockPath = join(stateDir, "run.lock");
 let lockHandle;
