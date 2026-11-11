@@ -235,12 +235,23 @@ API. This workflow must never write to Shopling or a marketplace.
   requires the approved SHA-256 plan fingerprint; any changed or missing ledger
   identity aborts the whole transaction. Independent readback checks receipts,
   active markers, every repaired goods key, and the correction run receipt.
-- The final read-only scope is 48 receipts, 49 isolation markers, and zero ledger
-  mutations. Its fingerprint is
-  `sha256:6a4b0d40790a872d5ebda10ec2f283da8d74422a3c65106aa0dadad7ee742855`.
+- The latest read-only scope remains 48 receipts, 49 isolation markers, and zero
+  ledger mutations. After the 2026-11-11 daily refresh confirmed a sale for
+  AAA298, its six lifecycle rows moved from `LIVE` to the safer `PROTECTED`
+  state. This single semantic change moved the receipt-set fingerprint to
+  `sha256:2bea66a54daa68eb3ed681145a3a827229a7d571f1068a000a40dff03963ce88`
+  and the correction-plan fingerprint to
+  `sha256:66282b23493eaddfeb8799f8f767090d827fd7a2e20864df0d8f7fdd0b2fb50d`.
+  Replacing only AAA298's six states with `LIVE` reconstructs the previously
+  approved receipt-set and plan fingerprints exactly, proving that the target
+  counts and identities did not otherwise drift.
 - Rollback retains audit receipts and deactivates only the 49 markers from this
-  exact plan. No internal correction or external Shopling/market write has been
-  executed; the migration schema is also still unapplied.
-- Next gate: obtain explicit approval for this fingerprint, apply the schema and
-  one internal transaction, then rerun the full read-only audit and readbacks.
+  exact plan. The production schema was applied on 2026-11-12 after PR #1704
+  changed both RPCs to `SECURITY INVOKER`, removed deprecated `auth.role()`
+  checks, and retained service-role-only execution. Post-migration readback found
+  zero isolation rows and zero correction runs. No internal correction or
+  external Shopling/market write has been executed.
+- Next gate: obtain explicit approval for the current fingerprint, execute one
+  internal transaction, then rerun the full read-only audit and independent
+  database readbacks.
 
