@@ -214,6 +214,10 @@ function routeFixture(authorized = true) {
     "@/lib/legacySeoRegistrationPolicy": {
       legacySeoRegistrationExclusion: () => ({ excluded: false, reason: "" }),
     },
+    "@/lib/seoProhibitedKeywordPolicy": {
+      mergeSeoProhibitedKeywordLists: (...values) => [...new Set(values.flat().filter(Boolean))],
+      readCombinedSeoProhibitedKeywordTerms: async () => [],
+    },
     "@/lib/productLaunchStockAvailability": {
       loadProductLaunchShoplingStockSnapshot: async () => ({}),
       buildProductLaunchStockStatusIndex: () => ({}),
