@@ -374,7 +374,7 @@ function configureUpdate(targetDate) {
   return { ok: true, targetDate, inputName: dateInput.name || "", inputId: dateInput.id || "" };
 }
 
-function submitLogin(credentials) {
+export function submitLogin(credentials) {
   const accountId = String(credentials?.accountId || "").trim();
   const password = String(credentials?.password || "");
   if (!accountId || !password) return { ok: false, code: "LOGIN_CREDENTIAL_MISSING" };
@@ -400,7 +400,7 @@ function submitLogin(credentials) {
   const submit = controls.find((element) => /로그인/.test(`${element.textContent || ""} ${element.value || ""}`))
     || form.querySelector('button[type="submit"],input[type="submit"]');
   if (!submit) return { ok: false, code: "LOGIN_SUBMIT_MISSING" };
-  submit.click();
+  setTimeout(() => submit.click(), 250);
   return { ok: true };
 }
 
@@ -490,6 +490,7 @@ export function createDomeggookCdpBrowser(session, options = {}) {
     async login(accountId, password) {
       const submitted = await evaluate(session, submitLogin, { accountId, password }, timeoutMs, true);
       if (!submitted?.ok) {
+        const reason = submitted?.code || "LOGIN_SUBMIT_NO_RESPONSE";
         const code = submitted?.code === "LOGIN_CAPTCHA_REQUIRED"
           ? "DOMEGGOOK_LOGIN_CAPTCHA_REQUIRED"
           : "DOMEGGOOK_LOGIN_SUBMIT_FAILED";
@@ -497,7 +498,7 @@ export function createDomeggookCdpBrowser(session, options = {}) {
           code,
           submitted?.code === "LOGIN_CAPTCHA_REQUIRED"
             ? "도매꾹 로그인 보안문자가 나타나 자동로그인을 중단했습니다."
-            : "저장된 계정으로 도매꾹 로그인을 시작하지 못했습니다.",
+            : `저장된 계정으로 도매꾹 로그인을 시작하지 못했습니다. (${reason})`,
           submitted || {},
         );
       }
@@ -674,7 +675,15 @@ async function createDomeggookTarget(config, options = {}) {
 }
 
 export async function runDomeggookPeriodExtension(config, options = {}, dependencies = {}) {
-  const listing = await (dependencies.listChromeTargets || listChromeTargets)(config);
+  const getTargets = dependencies.listChromeTargets || listChromeTargets;
+  const wait = dependencies.sleep || sleep;
+  const attempts = Math.max(1, Number(options.chromeReadyAttempts || 30));
+  let listing = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    listing = await getTargets(config);
+    if (listing.available && listing.targets.some((candidate) => candidate.type === "page")) break;
+    if (attempt + 1 < attempts) await wait(500);
+  }
   if (!listing.available) {
     fail(
       "DOMEGGOOK_CHROME_UNAVAILABLE",

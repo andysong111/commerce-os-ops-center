@@ -70,6 +70,7 @@ test("dashboard search exposes the multi-account card with current-user DPAPI cr
   assert.match(card, /도매꾹 아이디/);
   assert.match(card, /\+ 계정 추가/);
   assert.match(card, /모든 계정 저장 및 예약 적용/);
+  assert.match(card, /전체 즉시실행/);
   assert.match(card, /type="time"/);
   assert.match(card, /Windows 암호화 저장/);
   assert.match(card, /type="password"/);
@@ -80,6 +81,7 @@ test("dashboard search exposes the multi-account card with current-user DPAPI cr
   assert.match(workspace, /moduleIds: \["domeggook-period-extension"\]/);
   assert.match(api, /localhost/);
   assert.match(api, /다른 사이트에서 보낸 실행 요청은 차단/);
+  assert.match(api, /execute-all-now/);
   assert.match(saveCredential, /DataProtectionScope\]::CurrentUser/);
   assert.match(saveCredential, /ProtectedData\]::Protect/);
   assert.doesNotMatch(saveCredential, /ConvertTo-SecureString|Export-Clixml/);

@@ -3,6 +3,7 @@ import {
   installDomeggookTasks,
   readDomeggookAccountsSettings,
   readDomeggookLocalState,
+  runAllDomeggookAccountsNow,
   runDomeggookAccountNow,
   saveDomeggookCredentials,
   writeDomeggookAccountsSettings,
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
       passwords?: Record<string, string>;
     };
     const action = String(body.action || "");
+    let bulkRun = null;
     let settings = body.settings
       ? await writeDomeggookAccountsSettings(body.settings)
       : await readDomeggookAccountsSettings();
@@ -59,10 +61,13 @@ export async function POST(request: NextRequest) {
       const account = settings.accounts.find((candidate) => candidate.accountId === body.accountId);
       if (!account) throw new Error("선택한 도매꾹 계정 설정을 찾지 못했습니다.");
       await runDomeggookAccountNow(account, action === "execute-now", action === "open-browser");
+    } else if (action === "execute-all-now") {
+      if (!settings.accounts.length) throw new Error("즉시 실행할 도매꾹 계정이 없습니다.");
+      bulkRun = await runAllDomeggookAccountsNow(settings.accounts);
     } else {
       throw new Error("지원하지 않는 작업입니다.");
     }
-    return NextResponse.json({ ok: true, ...(await readDomeggookLocalState()) });
+    return NextResponse.json({ ok: true, bulkRun, ...(await readDomeggookLocalState()) });
   } catch (error) {
     return errorResponse(error);
   }

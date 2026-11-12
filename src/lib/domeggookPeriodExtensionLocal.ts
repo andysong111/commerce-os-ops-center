@@ -11,6 +11,10 @@ import {
   type DomeggookAccountSettings,
   type DomeggookAccountsSettings,
 } from "@/lib/domeggookPeriodExtensionSettings";
+import {
+  runDomeggookAccountsSequentially,
+  summarizeDomeggookBulkRun,
+} from "@/lib/domeggookPeriodExtensionBatch";
 
 export type { DomeggookAccountSettings, DomeggookAccountsSettings } from "@/lib/domeggookPeriodExtensionSettings";
 
@@ -181,6 +185,14 @@ export async function runDomeggookAccountNow(
     ]),
     180_000,
   );
+}
+
+export async function runAllDomeggookAccountsNow(accounts: DomeggookAccountSettings[]) {
+  const results = await runDomeggookAccountsSequentially(
+    accounts,
+    (account) => runDomeggookAccountNow(account, true),
+  );
+  return { results, ...summarizeDomeggookBulkRun(results) };
 }
 
 export async function readDomeggookTaskState(account: DomeggookAccountSettings): Promise<DomeggookTaskState> {

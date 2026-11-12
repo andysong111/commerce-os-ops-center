@@ -15,6 +15,7 @@ type Settings = { accounts: AccountSettings[]; updatedAt: string | null };
 type TaskState = { accountId: string; installed: boolean; state: string | null; nextRunTime: string | null };
 type ReceiptState = { accountId: string; receipt: Record<string, unknown> | null };
 type LocalState = { settings: Settings; tasks: TaskState[]; receipts: ReceiptState[]; credentials: { accountId: string; saved: boolean }[]; localWindows: boolean };
+type BulkRun = { total: number; succeeded: string[]; failed: string[] };
 type CloudRun = {
   sourceEventId: string;
   accountId: string;
@@ -128,6 +129,10 @@ export function DomeggookPeriodExtensionHistoryCard() {
   async function run(action: string, accountId?: string) {
     const selected = settings.accounts.find((account) => account.accountId === accountId);
     if (action === "execute-now" && selected && !window.confirm(`${selected.accountId}의 기간종료 상품을 실제로 ${selected.extensionDays}일 연장합니다. 계속할까요?`)) return;
+    if (action === "execute-all-now") {
+      const accountSummary = settings.accounts.map((account) => `${account.accountId}(${account.extensionDays}일)`).join(", ");
+      if (!window.confirm(`저장된 ${settings.accounts.length}개 계정을 순서대로 실제 연장합니다.\n${accountSummary}\n한 계정이 실패해도 다음 계정은 계속합니다. 계속할까요?`)) return;
+    }
     setBusy(`${action}:${accountId || "all"}`);
     setMessage("처리 중입니다.");
     try {
@@ -142,7 +147,16 @@ export function DomeggookPeriodExtensionHistoryCard() {
       setSettings(body.settings);
       setPasswords({});
       await loadCloudHistory();
-      setMessage(action === "install" ? "모든 활성 계정의 설정 저장과 예약 동기화를 완료했습니다." : "작업을 완료했습니다.");
+      if (action === "install") {
+        setMessage("모든 활성 계정의 설정 저장과 예약 동기화를 완료했습니다.");
+      } else if (action === "execute-all-now") {
+        const bulkRun = body.bulkRun as BulkRun;
+        setMessage(bulkRun.failed.length
+          ? `전체 즉시실행 완료 · 성공 ${bulkRun.succeeded.length}개, 실패 ${bulkRun.failed.length}개(${bulkRun.failed.join(", ")}). 아래 이력을 확인하세요.`
+          : `전체 즉시실행 성공 · ${bulkRun.total}개 계정 모두 완료했습니다.`);
+      } else {
+        setMessage("작업을 완료했습니다.");
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "작업에 실패했습니다.");
     } finally {
@@ -205,7 +219,7 @@ export function DomeggookPeriodExtensionHistoryCard() {
         })}
       </div>
 
-      {!cloudOnly && <div className="mt-5 flex flex-wrap gap-2"><button disabled={Boolean(busy)} onClick={() => run("install")} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">모든 계정 저장 및 예약 적용</button><button disabled={Boolean(busy)} onClick={() => run("save")} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-800 disabled:opacity-50">설정만 저장</button></div>}
+      {!cloudOnly && <div className="mt-5 flex flex-wrap gap-2"><button disabled={Boolean(busy)} onClick={() => run("execute-all-now")} className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">전체 즉시실행</button><button disabled={Boolean(busy)} onClick={() => run("install")} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">모든 계정 저장 및 예약 적용</button><button disabled={Boolean(busy)} onClick={() => run("save")} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-800 disabled:opacity-50">설정만 저장</button></div>}
 
       <div className="mt-8 border-t border-slate-200 pt-6">
         <div className="flex flex-wrap items-end justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">검증 영수증</p><h3 className="mt-1 text-lg font-black text-slate-950">날짜별 실행 성공·실패 이력</h3></div><p className="text-xs text-slate-500">연장 후 기간종료 목록 재조회가 0개여야 성공</p></div>

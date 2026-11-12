@@ -57,6 +57,8 @@ $Ready = $false
 for ($Attempt = 0; $Attempt -lt 30; $Attempt += 1) {
   try {
     Invoke-RestMethod -Uri "$Endpoint/json/version" -TimeoutSec 2 | Out-Null
+    $Targets = @(Invoke-RestMethod -Uri "$Endpoint/json/list" -TimeoutSec 2)
+    if (-not ($Targets | Where-Object { $_.type -eq "page" })) { throw "Chrome page target is not ready." }
     $Ready = $true
     break
   } catch {
