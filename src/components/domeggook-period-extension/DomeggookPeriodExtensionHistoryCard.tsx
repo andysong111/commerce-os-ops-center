@@ -175,7 +175,7 @@ export function DomeggookPeriodExtensionHistoryCard() {
         {!cloudOnly && <button onClick={addAccount} disabled={Boolean(busy) || settings.accounts.length >= 12} className="w-fit rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-800 disabled:opacity-50">+ 계정 추가</button>}
       </div>
 
-      {cloudOnly && <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900"><strong>운영 화면 모드</strong> · 계정과 성공/실패 이력은 여기서 확인하고, 비밀번호·예약 변경은 현재 Windows의 로컬 Commerce OS에서만 처리합니다.</div>}
+      {cloudOnly && <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900"><div><strong>운영 화면 모드</strong> · 계정과 성공/실패 이력은 여기서 확인하고, 실제 실행은 현재 Windows의 로컬 Commerce OS에서만 처리합니다.</div><a href="http://127.0.0.1:43122/" target="_blank" rel="noreferrer" className="w-fit rounded-xl bg-rose-600 px-4 py-2.5 font-bold text-white">4개 계정 전체 즉시실행 (이 PC)</a></div>}
 
       <div className="mt-6 space-y-4">
         {settings.accounts.map((account, index) => {

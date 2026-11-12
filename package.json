@@ -16,6 +16,7 @@
     "local-agent:purchase-server": "node local-agent/bin/commerce-os-local-agent.mjs purchase-server",
     "local-agent:diagnose": "node local-agent/bin/commerce-os-local-agent.mjs diagnose",
     "local-agent:domeggook-period-extension": "node local-agent/scripts/run-domeggook-period-extension.mjs",
+    "local-agent:domeggook-control": "node local-agent/bin/domeggook-period-extension-control.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.mjs"
   },
   "dependencies": {
