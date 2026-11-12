@@ -49,6 +49,14 @@ type Dashboard = {
   };
   summary: {
     seoReadyProductCount: number;
+    materialReadyProductCount: number;
+    deliveryPreparationCandidateCount: number;
+    deliveryPreparationPlannedCount: number;
+    deliveryPreparationBacklogCount: number;
+    deliveryPreparationDispatchCount: number;
+    deliveryPreparationInventoryCount: number;
+    deliveryPreparationTargetCount: number;
+    dailyDispatchCount: number;
     shadowRegistrationCount: number;
     scheduledRegistrationCount: number;
     eligibleRegistrationCount: number;
@@ -236,6 +244,26 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
     },
     summary: {
       seoReadyProductCount: count(summary.seoReadyProductCount),
+      materialReadyProductCount: count(summary.materialReadyProductCount),
+      deliveryPreparationCandidateCount: count(
+        summary.deliveryPreparationCandidateCount,
+      ),
+      deliveryPreparationPlannedCount: count(
+        summary.deliveryPreparationPlannedCount,
+      ),
+      deliveryPreparationBacklogCount: count(
+        summary.deliveryPreparationBacklogCount,
+      ),
+      deliveryPreparationDispatchCount: count(
+        summary.deliveryPreparationDispatchCount,
+      ),
+      deliveryPreparationInventoryCount: count(
+        summary.deliveryPreparationInventoryCount,
+      ),
+      deliveryPreparationTargetCount: count(
+        summary.deliveryPreparationTargetCount,
+      ),
+      dailyDispatchCount: count(summary.dailyDispatchCount),
       shadowRegistrationCount: count(summary.shadowRegistrationCount),
       scheduledRegistrationCount: count(summary.scheduledRegistrationCount),
       eligibleRegistrationCount: count(summary.eligibleRegistrationCount),
@@ -452,6 +480,12 @@ export default function SeoBulkAutomationPanel() {
   const actionableWarnings = (dashboard?.warnings ?? []).filter(
     (warning) => warning !== "SHADOW_ONLY_NO_MARKET_WRITE",
   );
+  const dailyDispatchCount = dashboard?.summary.dailyDispatchCount ?? 0;
+  const scheduledBatchLimit = dashboard?.summary.scheduledBatchLimit ?? 0;
+  const preparationPlannedCount =
+    dashboard?.summary.deliveryPreparationPlannedCount ?? 0;
+  const capacityFallbackActive =
+    dashboard?.summary.capacityFallbackActive === true;
 
   return (
     <section className="mx-auto mt-6 max-w-[1500px] rounded-3xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-6 shadow-sm">
@@ -469,7 +503,7 @@ export default function SeoBulkAutomationPanel() {
             자동등록 · 상품 물갈이
           </h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-            SEO 준비 상품을 마켓 슬롯과 Shopling 상품 DB 1만 개 한도 안에서만 자동 배치합니다. 판매가 없으면 60일 노출 후
+            B코드·SEO 재료가 준비된 상품에서 배달준비 재고를 유지하고, 마켓 슬롯과 Shopling 상품 DB 1만 개 한도 안에서 자동 배달합니다. 판매가 없으면 60일 노출 후
             90일 쉬었다가 새 SEO와 새 상품코드 6개로 다시 기회를 주고, 3회 연속 무판매만 단종 후보로 보냅니다.
           </p>
         </div>
@@ -556,13 +590,14 @@ export default function SeoBulkAutomationPanel() {
             {dashboard?.scheduledRun.cadenceLabel ?? "재고 동기화가 끝난 뒤 하루 1회"}
           </span>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
           {[
-            ["1. SEO 준비", dashboard?.summary.seoReadyProductCount ?? 0],
-            ["2. 오늘 실행", dashboard?.summary.scheduledRegistrationCount ?? 0],
-            ["3. 처리 중", dashboard?.summary.processingProductCount ?? 0],
-            ["4. 등록 완료", dashboard?.summary.registeredProductCount ?? 0],
-            ["5. 판매 보호", dashboard?.summary.protectedProductCount ?? 0],
+            ["1. SEO 재료 준비", dashboard?.summary.materialReadyProductCount ?? 0],
+            ["2. 배달준비 재고", dashboard?.summary.deliveryPreparationInventoryCount ?? 0],
+            ["3. 오늘 배달", dashboard?.summary.dailyDispatchCount ?? 0],
+            ["4. 처리 중", dashboard?.summary.processingProductCount ?? 0],
+            ["5. 등록 완료", dashboard?.summary.registeredProductCount ?? 0],
+            ["6. 판매 보호", dashboard?.summary.protectedProductCount ?? 0],
           ].map(([label, value]) => (
             <div key={String(label)} className="rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-100">
               <div className="text-xs font-bold text-slate-500">{label}</div>
@@ -583,7 +618,10 @@ export default function SeoBulkAutomationPanel() {
             재도전 준비 {dashboard?.summary.relistDueCount ?? 0}개
           </span>
           <span className="rounded-full bg-cyan-100 px-3 py-1 text-cyan-800">
-            새 코드 등록 준비 {dashboard?.summary.relistFreshCodeReadyCount ?? 0}개
+            새 배달준비 예정 {dashboard?.summary.deliveryPreparationPlannedCount ?? 0}개 · 목표 {dashboard?.summary.deliveryPreparationTargetCount ?? 0}개
+          </span>
+          <span className="rounded-full bg-cyan-100 px-3 py-1 text-cyan-800">
+            새 코드 재등록 준비 {dashboard?.summary.relistFreshCodeReadyCount ?? 0}개
           </span>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
             삭제확인·새 SEO 대기 {dashboard?.summary.relistFreshCodeBlockedCount ?? 0}개
@@ -596,8 +634,8 @@ export default function SeoBulkAutomationPanel() {
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {[
-          ["오늘 등록 가능", dashboard?.summary.scheduledRegistrationCount ?? 0],
-          ["SEO 준비 전체", dashboard?.summary.seoReadyProductCount ?? 0],
+          ["오늘 배달 가능", dashboard?.summary.dailyDispatchCount ?? 0],
+          ["배달 대기(SEO 완료)", dashboard?.summary.seoReadyProductCount ?? 0],
           ["노출 중", lifecycle.LIVE ?? 0],
           ["판매 발생 · 보호", dashboard?.summary.protectedProductCount ?? 0],
           ["90일 휴지", dashboard?.summary.cooldownProductCount ?? 0],
@@ -619,11 +657,13 @@ export default function SeoBulkAutomationPanel() {
             오늘의 자동운영
           </div>
           <div className="mt-1 text-lg font-black text-slate-950">
-            {dashboard?.scheduledRun.executable
-              ? dashboard.summary.capacityFallbackActive
-                ? `${dashboard.summary.scheduledRegistrationCount.toLocaleString("ko-KR")}개 상품을 안전 상한 ${dashboard.summary.scheduledBatchLimit}개 안에서 진행합니다.`
-                : `${dashboard.summary.scheduledRegistrationCount.toLocaleString("ko-KR")}개 상품을 한 번에 진행할 수 있습니다.`
-              : "지금 바로 등록할 상품은 없습니다."}
+            {dailyDispatchCount > 0
+              ? capacityFallbackActive
+                ? `${dailyDispatchCount.toLocaleString("ko-KR")}개 상품을 안전 상한 ${scheduledBatchLimit}개 안에서 배달합니다.`
+                : `${dailyDispatchCount.toLocaleString("ko-KR")}개 상품을 한 번에 배달할 수 있습니다.`
+              : preparationPlannedCount
+                ? `${preparationPlannedCount.toLocaleString("ko-KR")}개 상품의 SEO 배달준비 재고를 보충합니다.`
+                : "지금 새로 배달하거나 준비할 상품은 없습니다."}
           </div>
           <p className="mt-1 text-sm text-slate-600">
             실행 시점: {dashboard?.scheduledRun.cadenceLabel ?? "재고 동기화가 끝난 뒤 하루 1회"}

@@ -278,6 +278,30 @@ async function readSeoRows(supabase: AdminClient, ownerId: string, runIds: strin
   return (Array.isArray(result.data) ? result.data : []).map(record);
 }
 
+async function readAutoQueueIntentRunIds(
+  supabase: AdminClient,
+  ownerId: string,
+  runIds: string[],
+) {
+  if (!runIds.length) return new Set<string>();
+  const result = await supabase
+    .from(SEO_TABLE)
+    .select("run_id,input_payload")
+    .eq("owner_id", ownerId)
+    .in("run_id", runIds)
+    .limit(runIds.length);
+  if (result.error) throw new Error(result.error.message);
+  return new Set(
+    (Array.isArray(result.data) ? result.data : [])
+      .map(record)
+      .filter(
+        (row) => record(row.input_payload).autoQueueShoplingRegistration === true,
+      )
+      .map((row) => text(row.run_id))
+      .filter(Boolean),
+  );
+}
+
 async function readUploadJobs(
   supabase: AdminClient,
   ownerId: string,
@@ -446,22 +470,48 @@ export async function createMarketAutoOrchestration(
     includeArchived: false,
     limit: runIds.length,
   });
-  const accepted = current.filter(
-    (job) => job.status === "ready" && job.registration_status !== "failed",
+  const supabase = await requireAdmin();
+  const pendingGenerationIds = current
+    .filter(
+      (job) =>
+        ["queued", "running"].includes(job.status) &&
+        job.registration_status === "idle",
+    )
+    .map((job) => job.run_id);
+  const autoQueueIntentRunIds = await readAutoQueueIntentRunIds(
+    supabase,
+    context.identity.userId,
+    pendingGenerationIds,
   );
-  if (!accepted.length) throw new Error("FINAL 완료 상태의 Shopling 등록 가능 RUN이 없습니다.");
+  const accepted = current.filter(
+    (job) =>
+      (job.status === "ready" && job.registration_status !== "failed") ||
+      (autoQueueIntentRunIds.has(job.run_id) &&
+        ["queued", "running"].includes(job.status) &&
+        job.registration_status === "idle"),
+  );
+  if (!accepted.length) {
+    throw new Error(
+      "FINAL 완료 또는 원클릭 SEO 생성 중 상태의 Shopling 등록 가능 RUN이 없습니다.",
+    );
+  }
 
   const queueRunIds = accepted
-    .filter((job) => job.registration_status === "idle")
+    .filter(
+      (job) =>
+        job.status === "ready" && job.registration_status === "idle",
+    )
     .map((job) => job.run_id);
+  const newlyReservedProductCount = accepted.filter(
+    (job) => job.registration_status === "idle",
+  ).length;
 
   const token = handoffToken(rawHandoffToken);
   const tokenHash = hashToken(token);
-  const supabase = await requireAdmin();
   await assertShoplingProductDbCapacityForNewUploads(
     supabase,
     context.identity.userId,
-    queueRunIds.length,
+    newlyReservedProductCount,
   );
   const acceptedRunIds = accepted.map((job) => job.run_id);
   const batchIds = [...new Set(accepted.map((job) => text(job.batch_id)).filter(Boolean))];
@@ -701,9 +751,25 @@ export async function pollMarketAutoAgent(token: string, agentId: string) {
   const ownerId = text(row.owner_id);
   const runIds = uniqueIds(row.run_ids);
   const seoRows = await readSeoRows(found.supabase, ownerId, runIds);
-  const pendingUploads = seoRows.filter((job) => !["success", "failed"].includes(text(job.registration_status)));
+  const generationFailedRunIds = seoRows
+    .filter((job) => ["failed", "cancelled"].includes(text(job.status)))
+    .map((job) => text(job.run_id))
+    .filter(Boolean);
+  const pendingUploads = seoRows.filter(
+    (job) =>
+      !["failed", "cancelled"].includes(text(job.status)) &&
+      !["success", "failed"].includes(text(job.registration_status)),
+  );
   const successfulJobIds = registrationJobIds(seoRows);
-  const failedUploadRunIds = seoRows.filter((job) => text(job.registration_status) === "failed").map((job) => text(job.run_id)).filter(Boolean);
+  const failedUploadRunIds = [
+    ...new Set([
+      ...generationFailedRunIds,
+      ...seoRows
+        .filter((job) => text(job.registration_status) === "failed")
+        .map((job) => text(job.run_id))
+        .filter(Boolean),
+    ]),
+  ];
   if (pendingUploads.length) {
     if (!["market_claimed", "market_running"].includes(state)) {
       await patchOrchestration(found.supabase, orchestrationId, {

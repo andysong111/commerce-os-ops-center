@@ -18,12 +18,21 @@ type UnknownRecord = Record<string, unknown>;
 type SeoRunRow = {
   run_id: string;
   batch_id: string;
+  launch_item_id: string;
   status: string;
   registration_status: string;
   registration_job_id: string;
   model_number: string;
+  product_name: string;
   run_created_at: string;
   updated_at: string;
+};
+
+type DeliveryPreparationCandidate = {
+  launchItemId: string;
+  modelNumber: string;
+  productName: string;
+  dispatchToday: boolean;
 };
 
 type PipelineMode = "full_pipeline" | "market_only";
@@ -70,12 +79,22 @@ function runTimestamp(row: SeoRunRow) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function latestBatchRows(rows: SeoRunRow[]) {
-  const newest = [...rows]
-    .filter((job) => text(job.batch_id))
-    .sort((left, right) => runTimestamp(right) - runTimestamp(left))[0];
-  const batchId = text(newest?.batch_id);
-  return batchId ? rows.filter((job) => text(job.batch_id) === batchId) : [];
+function deliveryPreparationCandidates(value: unknown) {
+  const preparation = record(value);
+  return (Array.isArray(preparation.candidates)
+    ? preparation.candidates
+    : []
+  )
+    .map(record)
+    .map(
+      (row): DeliveryPreparationCandidate => ({
+        launchItemId: text(row.launchItemId),
+        modelNumber: text(row.modelNumber),
+        productName: text(row.productName),
+        dispatchToday: row.dispatchToday === true,
+      }),
+    )
+    .filter((row) => row.launchItemId);
 }
 
 async function requestJson(url: string, init?: RequestInit) {
@@ -184,6 +203,11 @@ export default function SeoBulkShoplingOneClickControl() {
   const [bridgeReady, setBridgeReady] = useState<boolean | null>(null);
   const [scheduledRunIds, setScheduledRunIds] = useState<string[]>([]);
   const [scheduleReason, setScheduleReason] = useState("");
+  const [preparationCandidates, setPreparationCandidates] = useState<
+    DeliveryPreparationCandidate[]
+  >([]);
+  const [preparationInventoryCount, setPreparationInventoryCount] = useState(0);
+  const [preparationTargetCount, setPreparationTargetCount] = useState(0);
 
   const checkBridge = useCallback(async () => {
     setError("");
@@ -221,10 +245,21 @@ export default function SeoBulkShoplingOneClickControl() {
             : [],
         );
         setScheduleReason(text(scheduledRun.reasonCode));
+        const preparation = record(scheduledRun.deliveryPreparation);
+        setPreparationCandidates(
+          deliveryPreparationCandidates(preparation),
+        );
+        setPreparationInventoryCount(
+          Math.max(0, Number(preparation.currentInventoryCount) || 0),
+        );
+        setPreparationTargetCount(
+          Math.max(0, Number(preparation.queueTargetCount) || 0),
+        );
       } catch {
         // 수명주기 계획 조회가 일시 실패해도 기존 등록/재전송 복구 기능은 유지한다.
         setScheduledRunIds([]);
         setScheduleReason("LIFECYCLE_STATUS_UNAVAILABLE");
+        setPreparationCandidates([]);
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "원클릭 상태 조회 실패");
@@ -264,8 +299,8 @@ export default function SeoBulkShoplingOneClickControl() {
       new Set([
         ...scheduledRunIds,
         ...marketOnlyRuns.map((row) => row.run_id),
-      ]).size,
-    [marketOnlyRuns, scheduledRunIds],
+      ]).size + preparationCandidates.length,
+    [marketOnlyRuns, preparationCandidates.length, scheduledRunIds],
   );
 
   const retryPendingHandoff = useCallback(async () => {
@@ -330,13 +365,14 @@ export default function SeoBulkShoplingOneClickControl() {
   const startPipeline = useCallback(async (
     mode: PipelineMode,
     targets: SeoRunRow[],
+    bridgeAlreadyVerified = false,
   ) => {
     if (!targets.length || busy) return;
     setBusy(true);
     setError("");
     setMessage("최신 브라우저 에이전트 연결을 확인합니다…");
     try {
-      const available = await probeExtension();
+      const available = bridgeAlreadyVerified || await probeExtension();
       setBridgeReady(available);
       if (!available) {
         throw new Error("Shopling Market Sender가 연결되지 않았습니다. 최신 v0.3.44 설치 후 Commerce OS와 Shopling 관리자/A18 탭을 새로고침하고 다시 확인하세요.");
@@ -399,35 +435,99 @@ export default function SeoBulkShoplingOneClickControl() {
     if (preparing || busy) return;
     setPreparing(true);
     setError("");
-    setMessage("재고·판매·마켓 빈자리를 다시 확인해 오늘 작업을 준비합니다…");
+    setMessage("재고·판매·마켓 빈자리를 확인하고 SEO 배달준비 재고를 보충합니다…");
     try {
-      const [planBody, runsBody] = await Promise.all([
-        requestJson(LIFECYCLE_API, {
+      const planBody = await requestJson(LIFECYCLE_API, {
+        method: "POST",
+        body: JSON.stringify({ action: "prepare_scheduled_run" }),
+      });
+      const scheduledRun = record(planBody.scheduledRun);
+      const preparation = record(scheduledRun.deliveryPreparation);
+      const candidates = deliveryPreparationCandidates(preparation);
+      const plannedIds = Array.isArray(scheduledRun.runIds)
+        ? scheduledRun.runIds.map(text).filter(Boolean)
+        : [];
+      setPreparationCandidates(candidates);
+      setPreparationInventoryCount(
+        Math.max(0, Number(preparation.currentInventoryCount) || 0),
+      );
+      setPreparationTargetCount(
+        Math.max(0, Number(preparation.queueTargetCount) || 0),
+      );
+
+      const needsBridge =
+        plannedIds.length > 0 ||
+        candidates.some((candidate) => candidate.dispatchToday) ||
+        marketOnlyRuns.length > 0;
+      let bridgeAvailable = true;
+      if (needsBridge) {
+        setMessage("오늘 배달 전 브라우저 에이전트 연결을 확인합니다…");
+        bridgeAvailable = await probeExtension();
+        setBridgeReady(bridgeAvailable);
+      }
+
+      const generatedDispatchIds = new Set<string>();
+      if (candidates.length) {
+        const batchId = `seo-bulk-daily-${crypto.randomUUID()}`;
+        const runCreatedAt = new Date().toISOString();
+        const requestedRuns = candidates.map((candidate) => {
+          const runId = `seo-run-${crypto.randomUUID()}`;
+          const dispatchToday = candidate.dispatchToday && bridgeAvailable;
+          if (dispatchToday) generatedDispatchIds.add(runId);
+          return {
+            id: candidate.launchItemId,
+            runId,
+            batchId,
+            runCreatedAt,
+            autoQueueShoplingRegistration: dispatchToday,
+          };
+        });
+        const enqueueBody = await requestJson(SEO_RUN_API, {
           method: "POST",
-          body: JSON.stringify({ action: "prepare_scheduled_run" }),
-        }),
-        requestJson(SEO_RUN_API),
-      ]);
+          body: JSON.stringify({
+            action: "enqueue",
+            batchId,
+            runs: requestedRuns,
+          }),
+        });
+        const acceptedRunIds = new Set(
+          (Array.isArray(enqueueBody.jobs) ? enqueueBody.jobs : [])
+            .map(record)
+            .map((row) => text(row.run_id))
+            .filter(Boolean),
+        );
+        for (const runId of [...generatedDispatchIds]) {
+          if (!acceptedRunIds.has(runId)) generatedDispatchIds.delete(runId);
+        }
+      }
+
+      const runsBody = await requestJson(SEO_RUN_API);
       const freshJobs = Array.isArray(runsBody.jobs)
         ? (runsBody.jobs as SeoRunRow[])
         : [];
       setJobs(freshJobs);
-      const scheduledRun = record(planBody.scheduledRun);
-      const plannedIds = Array.isArray(scheduledRun.runIds)
-        ? scheduledRun.runIds.map(text).filter(Boolean)
-        : [];
       setScheduledRunIds(plannedIds);
       setScheduleReason(text(scheduledRun.reasonCode));
-      const plannedSet = new Set(plannedIds);
+      if (needsBridge && !bridgeAvailable) {
+        setPreparationCandidates(
+          candidates.map((candidate) => ({
+            ...candidate,
+            dispatchToday: false,
+          })),
+        );
+        setMessage(
+          candidates.length
+            ? `${candidates.length}개 상품은 SEO 배달준비 재고로 만들기 시작했습니다. 브라우저 에이전트가 없어 오늘 외부 배달은 시작하지 않았습니다.`
+            : "브라우저 에이전트가 없어 오늘 외부 배달은 시작하지 않았습니다.",
+        );
+        setError(
+          "최신 Shopling Market Sender v0.3.44를 연결한 뒤 다시 누르면 준비된 상품부터 배달합니다.",
+        );
+        return;
+      }
+      const plannedSet = new Set([...plannedIds, ...generatedDispatchIds]);
       const resumeSet = new Set(
-        latestBatchRows(freshJobs)
-          .filter(
-            (row) =>
-              row.status === "ready" &&
-              row.registration_status === "success" &&
-              text(row.registration_job_id),
-          )
-          .map((row) => row.run_id),
+        marketOnlyRuns.map((row) => row.run_id),
       );
       const targets = freshJobs.filter(
         (row) => plannedSet.has(row.run_id) || resumeSet.has(row.run_id),
@@ -435,7 +535,9 @@ export default function SeoBulkShoplingOneClickControl() {
       if (!targets.length) {
         const reasonCode = text(scheduledRun.reasonCode);
         setMessage(
-          reasonCode.startsWith("SHOPLING_PRODUCT_DB_")
+          candidates.length
+            ? `${candidates.length}개 상품의 SEO 배달준비를 시작했습니다. 오늘 배달 한도가 차 있어 준비 재고로 보관합니다.`
+            : reasonCode.startsWith("SHOPLING_PRODUCT_DB_")
             ? "Shopling 상품 DB 1만 개 한도 때문에 새 상품코드 생성은 멈췄습니다. 기존 등록상품의 마켓전송은 계속 가능합니다."
             : reasonCode === "RELIST_FRESH_CODE_PREPARATION_REQUIRED"
               ? "재도전 상품은 기존 코드 삭제 확인, 90일 휴지 완료, 새 SEO RUN 준비가 모두 끝나야 새 상품코드 6개로 등록됩니다."
@@ -445,7 +547,7 @@ export default function SeoBulkShoplingOneClickControl() {
         );
         return;
       }
-      await startPipeline("full_pipeline", targets);
+      await startPipeline("full_pipeline", targets, true);
     } catch (startError) {
       setError(
         startError instanceof Error
@@ -455,7 +557,7 @@ export default function SeoBulkShoplingOneClickControl() {
     } finally {
       setPreparing(false);
     }
-  }, [busy, preparing, startPipeline]);
+  }, [busy, marketOnlyRuns, preparing, startPipeline]);
 
   return (
     <section id="seo-portfolio-one-click" className="mx-auto mt-5 max-w-[1500px] scroll-mt-6 px-5">
@@ -467,7 +569,7 @@ export default function SeoBulkShoplingOneClickControl() {
             </p>
             <h2 className="mt-1 text-xl font-black">오늘 자동운영 원클릭</h2>
             <p className="mt-1 text-sm text-slate-600">
-              재고·판매·마켓 빈자리를 다시 확인한 뒤, 가능한 상품만 Shopling 업로드와 마켓전송까지 이어서 처리합니다.
+              SEO 배달준비 재고를 먼저 채우고, 오늘 빈 슬롯만큼 Shopling 업로드와 마켓전송까지 이어서 처리합니다.
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
               <a
@@ -504,7 +606,13 @@ export default function SeoBulkShoplingOneClickControl() {
         </div>
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
           <span className="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-200">
-            오늘 등록 가능 {scheduledRunIds.length}개
+            오늘 배달 {scheduledRunIds.length + preparationCandidates.filter((row) => row.dispatchToday).length}개
+          </span>
+          <span className="rounded-full bg-cyan-100 px-3 py-1 text-cyan-900 ring-1 ring-cyan-200">
+            새 배달준비 {preparationCandidates.length}개
+          </span>
+          <span className="rounded-full bg-white px-3 py-1 ring-1 ring-emerald-200">
+            준비 재고 {preparationInventoryCount}/{preparationTargetCount}개
           </span>
           <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-900 ring-1 ring-amber-200">
             마켓전송만 재개 가능 {marketOnlyRuns.length}개
