@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  authorizeDomeggookCloudSync,
   buildDomeggookCloudRows,
   domeggookCloudStateFromRows,
 } from "../src/lib/domeggookPeriodExtensionCloud.ts";
@@ -62,6 +63,14 @@ test("cloud payload fails closed for an account absent from settings", () => {
     () => buildDomeggookCloudRows({ settings, runs: [{ ...success, accountId: "unexpected1" }] }),
     /설정에 없는 계정/,
   );
+});
+
+test("cloud sync accepts the Vercel automation bypass when the dedicated secret is stale", () => {
+  const request = new Request("https://commerce-os-ops-center.vercel.app/api/integrations/domeggook-period-extension", {
+    headers: { "x-commerce-os-domeggook-secret": "official-automation-bypass" },
+  });
+  assert.equal(authorizeDomeggookCloudSync(request, "stale-dedicated-secret", "official-automation-bypass"), true);
+  assert.equal(authorizeDomeggookCloudSync(request, "stale-dedicated-secret", "different-bypass"), false);
 });
 
 test("local history persists and syncs through the authenticated endpoint without exposing the token", async () => {
