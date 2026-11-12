@@ -10,6 +10,10 @@ import {
 import { dirname, join } from "node:path";
 import { loadConfig } from "../src/config.mjs";
 import { runDomeggookPeriodExtension } from "../src/domeggook-period-extension.mjs";
+import {
+  persistDomeggookHistory,
+  syncDomeggookCloudHistory,
+} from "../src/domeggook-period-extension-history.mjs";
 import { sanitizeError } from "../src/safe-json.mjs";
 
 function parseArgs(argv) {
@@ -64,21 +68,42 @@ const stateDir = join(config.dataDir, "domeggook-period-extension", accountKey);
 const receiptPath = join(stateDir, "latest.json");
 const lockPath = join(stateDir, "run.lock");
 let lockHandle;
+const runStartedAt = new Date().toISOString();
+
+async function persistAndSync(receipt) {
+  const normalized = {
+    ...receipt,
+    accountId: accountKey,
+    startedAt: receipt.startedAt || runStartedAt,
+  };
+  writeJsonAtomic(receiptPath, normalized);
+  persistDomeggookHistory(config, accountKey, normalized);
+  const cloudSync = await syncDomeggookCloudHistory(config, accountKey, normalized);
+  if (!cloudSync.ok && !cloudSync.skipped) {
+    console.error(JSON.stringify({
+      event: "domeggook_period_extension_cloud_sync_failed",
+      accountId: accountKey,
+      reason: cloudSync.reason,
+    }));
+  }
+  return normalized;
+}
 
 try {
   lockHandle = acquireLock(lockPath);
   const result = await runDomeggookPeriodExtension(config, flags);
-  writeJsonAtomic(receiptPath, result);
-  console.log(JSON.stringify({ event: "domeggook_period_extension", ...result }, null, 2));
+  const receipt = await persistAndSync(result);
+  console.log(JSON.stringify({ event: "domeggook_period_extension", ...receipt }, null, 2));
 } catch (error) {
   const failure = {
     status: "failed",
     mode: flags.execute ? "execute" : "dry-run",
+    startedAt: runStartedAt,
     finishedAt: new Date().toISOString(),
     error: sanitizeError(error, "DOMEGGOOK_PERIOD_EXTENSION_FAILED"),
   };
-  writeJsonAtomic(receiptPath, failure);
-  console.error(JSON.stringify({ event: "domeggook_period_extension_failed", ...failure }, null, 2));
+  const receipt = await persistAndSync(failure);
+  console.error(JSON.stringify({ event: "domeggook_period_extension_failed", ...receipt }, null, 2));
   process.exitCode = 1;
 } finally {
   if (lockHandle !== undefined) closeSync(lockHandle);

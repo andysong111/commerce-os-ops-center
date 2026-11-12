@@ -70,7 +70,7 @@ if ($LaunchOnly) { exit 0 }
 
 $CredentialPath = Join-Path $env:LOCALAPPDATA "CommerceOS\DomeggookCredentials\$AccountId.dpapi"
 if (Test-Path -LiteralPath $CredentialPath) {
-[void][Reflection.Assembly]::LoadWithPartialName("System.Security")
+  [void][Reflection.Assembly]::LoadWithPartialName("System.Security")
   $CredentialLines = [IO.File]::ReadAllLines($CredentialPath, [Text.Encoding]::UTF8)
   if ($CredentialLines.Length -ne 3 -or $CredentialLines[0] -ne "COMMERCE_OS_DOMEGGOOK_DPAPI_V1") {
     throw "Stored Domeggook credential format is invalid."
@@ -96,6 +96,31 @@ if (Test-Path -LiteralPath $CredentialPath) {
   }
 }
 
+$SyncTokenPath = Join-Path $env:LOCALAPPDATA "CommerceOS\DomeggookReceiptSync.dpapi"
+if (Test-Path -LiteralPath $SyncTokenPath) {
+  [void][Reflection.Assembly]::LoadWithPartialName("System.Security")
+  $SyncTokenLines = [IO.File]::ReadAllLines($SyncTokenPath, [Text.Encoding]::UTF8)
+  if ($SyncTokenLines.Length -ne 2 -or $SyncTokenLines[0] -ne "COMMERCE_OS_DOMEGGOOK_RECEIPT_SYNC_DPAPI_V1") {
+    throw "Stored Domeggook receipt sync token format is invalid."
+  }
+  $EncryptedSyncToken = [Convert]::FromBase64String($SyncTokenLines[1])
+  $SyncEntropy = [Text.Encoding]::UTF8.GetBytes("commerce-os-domeggook-receipt-sync-v1")
+  $PlainSyncTokenBytes = $null
+  try {
+    $PlainSyncTokenBytes = [Security.Cryptography.ProtectedData]::Unprotect(
+      $EncryptedSyncToken,
+      $SyncEntropy,
+      [Security.Cryptography.DataProtectionScope]::CurrentUser
+    )
+    $env:DOMEGGOOK_RECEIPT_SYNC_TOKEN = [Text.Encoding]::UTF8.GetString($PlainSyncTokenBytes)
+  }
+  finally {
+    [Array]::Clear($EncryptedSyncToken, 0, $EncryptedSyncToken.Length)
+    [Array]::Clear($SyncEntropy, 0, $SyncEntropy.Length)
+    if ($PlainSyncTokenBytes) { [Array]::Clear($PlainSyncTokenBytes, 0, $PlainSyncTokenBytes.Length) }
+  }
+}
+
 $env:COMMERCE_OS_CHROME_DEBUG_URL = $Endpoint
 $NodeArgs = @("local-agent/scripts/run-domeggook-period-extension.mjs", "--days", "$Days")
 if ($AccountId) { $NodeArgs += @("--account-id", $AccountId) }
@@ -107,5 +132,6 @@ try {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } finally {
   Remove-Item Env:DOMEGGOOK_PASSWORD -ErrorAction SilentlyContinue
+  Remove-Item Env:DOMEGGOOK_RECEIPT_SYNC_TOKEN -ErrorAction SilentlyContinue
   Pop-Location
 }
