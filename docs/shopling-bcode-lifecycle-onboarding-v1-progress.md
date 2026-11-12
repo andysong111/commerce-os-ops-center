@@ -41,7 +41,7 @@ API. This workflow must never write to Shopling or a marketplace.
   Shopling registry/current six-code payload.
 - [x] Implement and test the read-only catalog reconciliation.
 - [x] Complete the official API canary and full catalog scan evidence.
-- [ ] Apply verified internal lifecycle onboarding and independently read back.
+- [x] Apply verified internal lifecycle onboarding and independently read back.
 
 ## Verified evidence — 2026-10-31
 
@@ -110,8 +110,14 @@ API. This workflow must never write to Shopling or a marketplace.
   read-only quota collector; no title, market, lifecycle mutation, stock-out, or
   delete script is widened to the new host. The generated ZIP, its manifest,
   the real `6,072` parser fixture, 35 targeted tests, and TypeScript all pass.
-  Deployment and an authenticated readback are still required before the
-  registration gate can open.
+  PR #1706 passed every GitHub and Vercel check and deployed to Production as
+  commit `5c2c29b`.
+- After extension v0.6.9 was installed, the live Shopling screen, Commerce OS,
+  and the owner-scoped database row all agreed on `6,069 / 10,000`. The database
+  evidence is `verified`, source `shopling-plan-dom-v1`, observed at
+  `2026-11-12T06:44:38.736Z` (`15:44:38 KST`) from `/main.phtml`. With 12 safety
+  codes reserved, the gate allows at most 653 complete six-code product sets.
+  Zero market-pipeline ledger rows changed during the readback window.
 
 ### Production scope audit outcome
 
@@ -269,7 +275,7 @@ API. This workflow must never write to Shopling or a marketplace.
   products and reduced the active audit population from 179 to 130 products,
   while preserving the same 48/48 receipt set. It proposed zero additional
   isolation markers and kept all external-write flags false.
-- Next gate: refresh the still-stale authenticated Shopling capacity readback,
-  identify one real 60-day zero-sale Canary candidate, and request separate
-  approval before any external stock-out or deletion.
+- Next gate: identify one real 60-day zero-sale Canary candidate and present its
+  exact product name, B-code, six goods keys, and impact scope. Separate owner
+  approval is still required before any external stock-out or deletion.
 
