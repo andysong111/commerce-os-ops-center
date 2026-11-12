@@ -58,9 +58,9 @@ test("multiple-account settings reject duplicate account IDs", () => {
   }), /중복된 도매꾹 아이디/);
 });
 
-test("dashboard search exposes the current-user DPAPI multi-account feature card", async () => {
+test("dashboard search exposes the multi-account card with current-user DPAPI credentials", async () => {
   const [card, registry, workspace, api, saveCredential, runner] = await Promise.all([
-    readFile("src/components/domeggook-period-extension/DomeggookPeriodExtensionCard.tsx", "utf8"),
+    readFile("src/components/domeggook-period-extension/DomeggookPeriodExtensionHistoryCard.tsx", "utf8"),
     readFile("src/lib/opsModuleRegistry.ts", "utf8"),
     readFile("src/lib/opsWorkspace.ts", "utf8"),
     readFile("src/app/api/local/domeggook-period-extension/route.ts", "utf8"),
