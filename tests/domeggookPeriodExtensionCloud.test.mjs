@@ -107,6 +107,8 @@ test("production card uses cloud history while keeping password control local", 
     readFile("local-agent/scripts/run-domeggook-period-extension.ps1", "utf8"),
   ]);
   assert.match(card, /날짜별 실행 성공·실패 이력/);
+  assert.match(card, /http:\/\/127\.0\.0\.1:43122\//);
+  assert.match(card, /4개 계정 전체 즉시실행/);
   assert.match(card, /실행 전 종료상품/);
   assert.match(card, /종료상품 0개 확인/);
   assert.match(card, /Windows 암호화 저장 · 서버 전송 안 함/);
