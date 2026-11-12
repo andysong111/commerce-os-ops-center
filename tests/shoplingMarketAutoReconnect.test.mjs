@@ -94,6 +94,6 @@ test("authenticated reconnect route is wired to the server recovery function", a
   assert.match(server, /updateQuery\.is\("lease_until", null\)/);
   assert.match(server, /updateQuery\.eq\("lease_until", previousLeaseUntil\)/);
   assert.match(server, /token_hash:\s*hashToken\(token\)/);
-  assert.match(server, /patch\.agent_id = null/);
+  assert.match(server, /patch\.agent_id = ""/);
   assert.match(server, /patch\.lease_until = null/);
 });
