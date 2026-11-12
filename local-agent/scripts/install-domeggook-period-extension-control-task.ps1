@@ -6,9 +6,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RunScript = Resolve-Path (Join-Path $ScriptDir "run-domeggook-period-extension-control.ps1")
-$Argument = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$RunScript`" -Port $Port"
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $Argument
+$RepoDir = Resolve-Path (Join-Path $ScriptDir "..\..")
+$EntryPoint = Resolve-Path (Join-Path $RepoDir "local-agent\bin\domeggook-period-extension-control.mjs")
+$Node = (Get-Command "node.exe" -ErrorAction Stop).Source
+$Argument = "`"$EntryPoint`" --port $Port"
+$Action = New-ScheduledTaskAction -Execute $Node -Argument $Argument -WorkingDirectory $RepoDir
 $Trigger = New-ScheduledTaskTrigger -AtLogOn
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances IgnoreNew
 
