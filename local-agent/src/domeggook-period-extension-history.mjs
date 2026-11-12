@@ -100,6 +100,7 @@ export async function syncDomeggookCloudHistory(config, accountId, currentReceip
       headers: {
         "content-type": "application/json",
         "x-commerce-os-domeggook-secret": token,
+        "x-vercel-protection-bypass": token,
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(options.timeoutMs || 12_000),

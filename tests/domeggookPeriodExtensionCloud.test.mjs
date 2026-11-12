@@ -85,6 +85,7 @@ test("local history persists and syncs through the authenticated endpoint withou
   assert.equal(result.ok, true);
   assert.equal(captured.url, "https://commerce-os-ops-center.vercel.app/api/integrations/domeggook-period-extension");
   assert.equal(captured.init.headers["x-commerce-os-domeggook-secret"], "test-secret-token");
+  assert.equal(captured.init.headers["x-vercel-protection-bypass"], "test-secret-token");
   assert.equal(captured.init.body.includes("test-secret-token"), false);
 });
 
