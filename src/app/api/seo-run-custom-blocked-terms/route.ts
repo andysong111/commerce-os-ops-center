@@ -7,6 +7,11 @@ import {
   type SeoRunJobRow,
 } from "@/lib/seoRunJobServer";
 import { runCoalescedSeoRunWorkerPulse } from "@/lib/seoRunWorkerPulse";
+import {
+  mergeSeoProhibitedKeywordLists,
+  mergeSeoProhibitedKeywordPolicy,
+  readCombinedSeoProhibitedKeywordTerms,
+} from "@/lib/seoProhibitedKeywordPolicy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -84,12 +89,49 @@ function scheduleWorker(userId: string, maxJobs: number) {
   });
 }
 
+export async function GET(request: NextRequest) {
+  const authenticated = await requireSeoTitleLedgerContext(request);
+  if (!authenticated.ok) return authenticated.response;
+  try {
+    const customBlockedTerms = await readCombinedSeoProhibitedKeywordTerms(
+      authenticated.value.identity.userId,
+    );
+    return Response.json({
+      ok: true,
+      customBlockedTerms,
+      termCount: customBlockedTerms.length,
+    });
+  } catch (error) {
+    return Response.json(
+      {
+        ok: false,
+        code: "SEO_PROHIBITED_KEYWORD_POLICY_READ_FAILED",
+        message:
+          error instanceof Error
+            ? error.message
+            : "금지키워드 정책을 읽지 못했습니다.",
+      },
+      { status: 503 },
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   const authenticated = await requireSeoTitleLedgerContext(request);
   if (!authenticated.ok) return authenticated.response;
   const context = authenticated.value;
   const body = record(await request.json().catch(() => ({})));
-  const customBlockedTerms = stringList(body.customBlockedTerms);
+  const requestedTerms = stringList(body.customBlockedTerms);
+  const policy = await mergeSeoProhibitedKeywordPolicy({
+    ownerId: context.identity.userId,
+    terms: requestedTerms,
+    source: "commerce-os-manual-keyword-panel",
+    sourceReference: `manual:${new Date().toISOString().slice(0, 10)}`,
+  });
+  const customBlockedTerms = mergeSeoProhibitedKeywordLists(
+    await readCombinedSeoProhibitedKeywordTerms(context.identity.userId),
+    policy.terms,
+  );
 
   const current = await listSeoRunJobs(context, {
     includeArchived: false,
@@ -163,6 +205,7 @@ export async function POST(request: NextRequest) {
   return Response.json({
     ok: true,
     customBlockedTerms,
+    addedTerms: policy.addedTerms,
     termCount: customBlockedTerms.length,
     targetCount: targets.length,
     updatedOnlyCount,

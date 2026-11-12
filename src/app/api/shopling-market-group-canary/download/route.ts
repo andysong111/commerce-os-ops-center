@@ -196,8 +196,14 @@ export async function GET() {
   manifest.content_scripts = (manifest.content_scripts || []).map((entry) => ({ ...entry, js: ["content-group-canary.mjs"] }));
   entries["manifest.json"] = strToU8(`${JSON.stringify(manifest, null, 2)}\n`);
 
-  const backgroundSource = await readFile(path.join(root, "background-root.mjs"), "utf8");
-  const contentSource = await readFile(path.join(root, "content-group-canary.mjs"), "utf8");
+  const backgroundSource = (await readFile(
+    path.join(root, "background-root.mjs"),
+    "utf8",
+  )).replace(/\r\n/g, "\n");
+  const contentSource = (await readFile(
+    path.join(root, "content-group-canary.mjs"),
+    "utf8",
+  )).replace(/\r\n/g, "\n");
   entries["background-root.mjs"] = strToU8(rewriteBackground(backgroundSource));
   entries["content-group-canary.mjs"] = strToU8(rewriteContent(contentSource));
   entries["popup.html"] = strToU8(POPUP_HTML);

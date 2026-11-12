@@ -47,7 +47,40 @@ export default function SeoBulkCustomBlockedTermsPanel() {
   const terms = useMemo(() => parseSeoBulkCustomBlockedTerms(input), [input]);
 
   useEffect(() => {
-    setInput(readStoredTerms().join(", "));
+    let cancelled = false;
+    const localTerms = readStoredTerms();
+    queueMicrotask(() => {
+      if (!cancelled) setInput(localTerms.join(", "));
+    });
+    void (async () => {
+      try {
+        const response = await fetch(APPLY_API, {
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        const body = (await response.json().catch(() => ({}))) as Record<
+          string,
+          unknown
+        >;
+        if (!response.ok || body.ok !== true) return;
+        const serverTerms = Array.isArray(body.customBlockedTerms)
+          ? body.customBlockedTerms.map(text).filter(Boolean)
+          : [];
+        const merged = parseSeoBulkCustomBlockedTerms(
+          [...localTerms, ...serverTerms].join("\n"),
+        );
+        if (!cancelled) {
+          persistTerms(merged);
+          setInput(merged.join(", "));
+        }
+      } catch {
+        // The local list remains usable when the durable policy read is unavailable.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const saveDefault = () => {
@@ -110,7 +143,7 @@ export default function SeoBulkCustomBlockedTermsPanel() {
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base font-black text-slate-950">직접 금지키워드</h2>
               <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-amber-800 ring-1 ring-amber-200">
-                현재 {terms.length}개
+                현재 {terms.length}개 · A19 자동학습 포함
               </span>
             </div>
             <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">

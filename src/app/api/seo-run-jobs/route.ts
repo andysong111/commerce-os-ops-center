@@ -22,6 +22,10 @@ import {
   loadProductLaunchShoplingStockSnapshot,
   productLaunchStockBlockReason,
 } from "@/lib/productLaunchStockAvailability";
+import {
+  mergeSeoProhibitedKeywordLists,
+  readCombinedSeoProhibitedKeywordTerms,
+} from "@/lib/seoProhibitedKeywordPolicy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -271,9 +275,11 @@ export async function POST(request: NextRequest) {
       titles.push(...resultMallTitles(job.result_payload));
       serverTitlesByItem.set(job.launch_item_id, titles);
     }
-    const customBlockedTerms = stringList(
-      body.customBlockedTerms,
-      CUSTOM_BLOCKED_LIMIT,
+    const customBlockedTerms = mergeSeoProhibitedKeywordLists(
+      await readCombinedSeoProhibitedKeywordTerms(
+        context.identity.userId,
+      ),
+      stringList(body.customBlockedTerms, CUSTOM_BLOCKED_LIMIT),
     );
     const rows: SeoRunJobInsert[] = [];
     const missing: string[] = [];
