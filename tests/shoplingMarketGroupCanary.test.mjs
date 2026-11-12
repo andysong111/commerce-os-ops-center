@@ -121,6 +121,10 @@ test("v0.3.7 recognizes actual Shopling tsrmt result container and child result 
   assert.match(source, /frameHasSuccess/);
   assert.match(source, /nonIgnoredFrameFailure/);
   assert.match(source, /shopling_submit_success_parallel_worker_v037/);
+  assert.equal(
+    source.match(/\.replace\(\/\\r\\n\/g, "\\n"\)/g)?.length,
+    2,
+  );
   assert.match(source, /RESULT_SETTLE_MS = 2500/);
 });
 

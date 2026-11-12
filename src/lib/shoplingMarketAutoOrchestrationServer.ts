@@ -14,6 +14,11 @@ import {
 } from "@/lib/shoplingMarketAutoResumePolicy";
 import { calculateSeoShoplingProductDbCapacity } from "@/lib/seoShoplingProductDbCapacity";
 import { decideMarketAutoReconnect } from "@/lib/shoplingMarketAutoReconnectPolicy";
+import {
+  extractShoplingA19ProhibitedTerms,
+  mergeSeoProhibitedKeywordPolicy,
+  shoplingA19EvidenceFingerprint,
+} from "@/lib/seoProhibitedKeywordPolicy";
 
 const TABLE = "shopling_market_auto_orchestrations";
 const SEO_TABLE = "seo_run_jobs";
@@ -444,19 +449,147 @@ async function completeIfTerminal(
   supabase: AdminClient,
   orchestrationId: string,
   summary: Awaited<ReturnType<typeof computeMarketSummary>>,
+  currentResult: unknown,
 ) {
   if (!summary.terminal) return null;
+  const previousResult = record(currentResult);
+  const previousAudit = record(previousResult.a19Audit);
+  if (text(previousAudit.status) !== "completed") {
+    const pendingAudit = {
+      status: "pending",
+      required: true,
+      reason: "SHOPLING_A19_POST_MARKET_AUDIT_REQUIRED",
+    };
+    await patchOrchestration(supabase, orchestrationId, {
+      state: "market_ready",
+      completed_at: null,
+      lease_until: null,
+      error_message: "",
+      result: { ...previousResult, ...summary, a19Audit: pendingAudit },
+    });
+    return {
+      terminal: false,
+      auditRequired: true,
+      state: "market_ready",
+      summary,
+      a19Audit: pendingAudit,
+    };
+  }
   const state = summary.failedUploadRunIds.length || summary.exceptionProducts
     ? "completed_with_exceptions"
     : "completed";
+  const result = { ...previousResult, ...summary, a19Audit: previousAudit };
   await patchOrchestration(supabase, orchestrationId, {
     state,
     completed_at: new Date().toISOString(),
     lease_until: null,
     error_message: state === "completed" ? "" : "일부 Shopling 업로드 또는 마켓 채널이 확인필요로 종료되었습니다.",
-    result: summary,
+    result,
   });
-  return { state, summary };
+  return {
+    terminal: true,
+    auditRequired: false,
+    state,
+    summary,
+    a19Audit: previousAudit,
+  };
+}
+
+function summaryGoodsKeys(
+  summary: Awaited<ReturnType<typeof computeMarketSummary>>,
+) {
+  return [
+    ...new Set(
+      summary.products.flatMap((product) =>
+        Array.isArray(product.goodsKeys)
+          ? product.goodsKeys.map(text).filter((value) => /^\d{5,9}$/.test(value))
+          : [],
+      ),
+    ),
+  ];
+}
+
+function kstDateAt(timestamp: number) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(timestamp));
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year ?? ""}${byType.month ?? ""}${byType.day ?? ""}`;
+}
+
+function validateA19AuditReceipt(rawReceipt: unknown, evidenceCount: number) {
+  const receipt = record(rawReceipt);
+  const querySubmittedAt = Number(receipt.querySubmittedAt);
+  const parsedAt = Number(receipt.parsedAt);
+  const checkboxCount = Number(receipt.checkboxCount);
+  const failureRowCount = Number(receipt.failureRowCount);
+  const now = Date.now();
+  const valid =
+    receipt.ok === true &&
+    text(receipt.pagePath) === "/prodlinkage/goods_mallReg_failList.phtml" &&
+    Number(receipt.rowLimit) === 100 &&
+    Number.isFinite(querySubmittedAt) &&
+    Number.isFinite(parsedAt) &&
+    text(receipt.queryDate) === kstDateAt(querySubmittedAt) &&
+    parsedAt >= querySubmittedAt &&
+    parsedAt - querySubmittedAt <= 120_000 &&
+    Math.abs(now - parsedAt) <= 300_000 &&
+    Number.isInteger(checkboxCount) &&
+    checkboxCount >= evidenceCount &&
+    Number.isInteger(failureRowCount) &&
+    failureRowCount >= evidenceCount;
+  if (!valid) throw new Error("SHOPLING_A19_AUDIT_RECEIPT_INVALID");
+  return {
+    pagePath: text(receipt.pagePath),
+    queryDate: text(receipt.queryDate),
+    rowLimit: 100,
+    querySubmittedAt,
+    parsedAt,
+    checkboxCount,
+    failureRowCount,
+  };
+}
+
+async function buildCompletedA19Audit(input: {
+  supabase: AdminClient;
+  ownerId: string;
+  orchestrationId: string;
+  summary: Awaited<ReturnType<typeof computeMarketSummary>>;
+  rawEvidence: unknown;
+  rawReceipt: unknown;
+}) {
+  const allowedGoodsKeys = summaryGoodsKeys(input.summary);
+  const extracted = extractShoplingA19ProhibitedTerms(
+    input.rawEvidence,
+    allowedGoodsKeys,
+  );
+  const receipt = validateA19AuditReceipt(
+    input.rawReceipt,
+    extracted.evidence.length,
+  );
+  const policy = await mergeSeoProhibitedKeywordPolicy({
+    ownerId: input.ownerId,
+    terms: extracted.terms,
+    source: "shopling-a19-market-transmission-audit",
+    sourceReference: input.orchestrationId,
+    admin: input.supabase,
+  });
+  return {
+    status: "completed",
+    required: true,
+    scannedAt: new Date().toISOString(),
+    allowedGoodsKeyCount: allowedGoodsKeys.length,
+    evidenceRowCount: extracted.evidence.length,
+    matchedFailureCount: extracted.matchedEvidence.length,
+    extractedTerms: extracted.terms,
+    addedTerms: policy.addedTerms,
+    policyTermCount: policy.terms.length,
+    evidenceFingerprint: shoplingA19EvidenceFingerprint(extracted.evidence),
+    receipt,
+  };
 }
 
 export async function createMarketAutoOrchestration(
@@ -879,9 +1012,22 @@ export async function pollMarketAutoAgent(token: string, agentId: string) {
   }
 
   const summary = await computeMarketSummary(found.supabase, ownerId, seoRows);
-  const completed = await completeIfTerminal(found.supabase, orchestrationId, summary);
+  const completed = await completeIfTerminal(
+    found.supabase,
+    orchestrationId,
+    summary,
+    row.result,
+  );
   if (completed) {
-    return { terminal: true, ready: false, orchestrationId, ...completed };
+    if (completed.auditRequired) {
+      return {
+        ready: false,
+        auditReady: true,
+        orchestrationId,
+        ...completed,
+      };
+    }
+    return { ready: false, orchestrationId, ...completed };
   }
   if (!successfulJobIds.length) {
     await patchOrchestration(found.supabase, orchestrationId, {
@@ -944,7 +1090,12 @@ export async function heartbeatMarketAutoAgent(token: string, agentId: string) {
   return { terminal: false, state: "market_running", orchestrationId: text(row.id), leaseSeconds: LEASE_SECONDS };
 }
 
-export async function reportMarketAutoAgent(token: string, agentId: string) {
+export async function reportMarketAutoAgent(
+  token: string,
+  agentId: string,
+  rawA19Evidence?: unknown,
+  rawA19AuditReceipt?: unknown,
+) {
   const found = await readByToken(token);
   if (!found.row) throw new Error("market_auto_token_not_found");
   const row = found.row;
@@ -955,8 +1106,27 @@ export async function reportMarketAutoAgent(token: string, agentId: string) {
   }
   const seoRows = await readSeoRows(found.supabase, text(row.owner_id), uniqueIds(row.run_ids));
   const summary = await computeMarketSummary(found.supabase, text(row.owner_id), seoRows);
-  const completed = await completeIfTerminal(found.supabase, text(row.id), summary);
-  if (completed) return { terminal: true, orchestrationId: text(row.id), ...completed };
+  let currentResult: UnknownRecord = record(row.result);
+  if (summary.terminal && Array.isArray(rawA19Evidence)) {
+    const a19Audit = await buildCompletedA19Audit({
+      supabase: found.supabase,
+      ownerId: text(row.owner_id),
+      orchestrationId: text(row.id),
+      summary,
+      rawEvidence: rawA19Evidence,
+      rawReceipt: rawA19AuditReceipt,
+    });
+    currentResult = { ...currentResult, a19Audit };
+  }
+  const completed = await completeIfTerminal(
+    found.supabase,
+    text(row.id),
+    summary,
+    currentResult,
+  );
+  if (completed) {
+    return { orchestrationId: text(row.id), ...completed };
+  }
   await patchOrchestration(found.supabase, text(row.id), {
     state: "market_ready",
     agent_id: agentId,

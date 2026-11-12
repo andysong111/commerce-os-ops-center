@@ -84,7 +84,12 @@ export async function POST(request: NextRequest) {
           ? await pollMarketAutoAgent(token, agentId)
           : action === "agent_heartbeat"
             ? await heartbeatMarketAutoAgent(token, agentId)
-            : await reportMarketAutoAgent(token, agentId);
+            : await reportMarketAutoAgent(
+                token,
+                agentId,
+                body.a19Evidence,
+                body.a19AuditReceipt,
+              );
       return Response.json({ ok: true, bridge: MARKET_AUTO_AGENT_BRIDGE, ...result });
     } catch (error) {
       const message = error instanceof Error ? error.message : "market auto agent failed";

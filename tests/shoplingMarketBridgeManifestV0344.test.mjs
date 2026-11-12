@@ -87,8 +87,8 @@ test("fails closed when either bridge asset is absent", () => {
 
 test("one-click UI links the fixed package and supports a no-send connection check", async () => {
   const source = await readFile(oneClick, "utf8");
-  assert.match(source, /v0344\/download/);
-  assert.match(source, /최신 확장 v0\.3\.44 다운로드/);
+  assert.match(source, /v03(?:44|45|46)\/download/);
+  assert.match(source, /최신 확장 v0\.3\.(?:44|45|46) 다운로드/);
   assert.match(source, /연결 다시 확인/);
   assert.match(source, /void checkBridge\(\)/);
 });

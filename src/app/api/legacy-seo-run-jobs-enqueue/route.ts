@@ -14,6 +14,10 @@ import { legacySeoRegistrationExclusion } from "@/lib/legacySeoRegistrationPolic
 import { readProductLaunchNormalizedItems } from "@/lib/productLaunchTrackerNormalizedStore";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
 import type { SeoRunJobInsert } from "@/lib/seoRunJobServer";
+import {
+  mergeSeoProhibitedKeywordLists,
+  readCombinedSeoProhibitedKeywordTerms,
+} from "@/lib/seoProhibitedKeywordPolicy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -227,9 +231,9 @@ export async function POST(request: NextRequest) {
     previousTitles.set(job.launch_item_id, values);
   }
 
-  const customBlockedTerms = uniqueStrings(
-    body.customBlockedTerms,
-    CUSTOM_BLOCKED_LIMIT,
+  const customBlockedTerms = mergeSeoProhibitedKeywordLists(
+    await readCombinedSeoProhibitedKeywordTerms(context.identity.userId),
+    uniqueStrings(body.customBlockedTerms, CUSTOM_BLOCKED_LIMIT),
   );
   const batchId = text(primaryPayload.batchId) || `legacy-seo-stock-${crypto.randomUUID()}`;
   const rows: SeoRunJobInsert[] = [];

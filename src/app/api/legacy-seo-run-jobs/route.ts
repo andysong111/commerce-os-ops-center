@@ -30,6 +30,10 @@ import { readProductLaunchStorageJson } from "@/lib/productLaunchTrackerServer";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
 import type { SeoRunJobInsert } from "@/lib/seoRunJobServer";
+import {
+  mergeSeoProhibitedKeywordLists,
+  readCombinedSeoProhibitedKeywordTerms,
+} from "@/lib/seoProhibitedKeywordPolicy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -309,9 +313,11 @@ export async function POST(request: NextRequest) {
             .map((job) => job.launch_item_id)
         : [],
     );
-    const customBlockedTerms = uniqueStrings(
-      body.customBlockedTerms,
-      CUSTOM_BLOCKED_LIMIT,
+    const customBlockedTerms = mergeSeoProhibitedKeywordLists(
+      await readCombinedSeoProhibitedKeywordTerms(
+        context.identity.userId,
+      ),
+      uniqueStrings(body.customBlockedTerms, CUSTOM_BLOCKED_LIMIT),
     );
     const batchId = `legacy-seo-bulk-${crypto.randomUUID()}`;
     const rows: SeoRunJobInsert[] = [];

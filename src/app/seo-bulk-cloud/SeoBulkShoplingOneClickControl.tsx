@@ -11,7 +11,7 @@ const BRIDGE_HANDOFF = "commerce-os-shopling-market-auto-handoff-v0330";
 const BRIDGE_HANDOFF_ACK = "commerce-os-shopling-market-auto-handoff-ack-v0330";
 const PENDING_STORAGE_KEY = "commerceOs.shoplingMarketAutoHandoff.v0330";
 const LATEST_EXTENSION_DOWNLOAD =
-  "/api/shopling-market-group-canary/v0344/download";
+  "/api/shopling-market-group-canary/v0346/download";
 const POLL_MS = 4_000;
 const HANDOFF_RECOVERY_MS = 15_000;
 
@@ -232,7 +232,7 @@ export default function SeoBulkShoplingOneClickControl() {
     }
     setMessage("");
     setError(
-      "최신 Shopling Market Sender v0.3.44 연결이 필요합니다. 설치 후 Commerce OS와 Shopling A18 탭을 새로고침하세요.",
+      "최신 Shopling Market Sender v0.3.46 연결이 필요합니다. 설치 후 Commerce OS와 Shopling A18 탭을 새로고침하세요.",
     );
   }, []);
 
@@ -463,7 +463,7 @@ export default function SeoBulkShoplingOneClickControl() {
           `${Number(body.acceptedCount || targets.length)}개 상품의 Shopling 작업을 서버에 등록했습니다. 브라우저 에이전트가 연결되는 즉시 같은 작업을 자동 인계해 마켓전송까지 이어갑니다.`,
         );
         setError(
-          "최신 Shopling Market Sender v0.3.44와 로그인된 A18 탭이 필요합니다. 연결 후에는 버튼을 다시 누르지 않아도 자동 재개됩니다.",
+          "최신 Shopling Market Sender v0.3.46과 로그인된 Shopling 관리자 탭이 필요합니다. 연결 후에는 버튼을 다시 누르지 않아도 자동 재개됩니다.",
         );
         await load();
         return;
@@ -633,7 +633,7 @@ export default function SeoBulkShoplingOneClickControl() {
                 href={LATEST_EXTENSION_DOWNLOAD}
                 className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-emerald-800"
               >
-                최신 확장 v0.3.44 다운로드
+                최신 확장 v0.3.46 다운로드
               </a>
               <button
                 type="button"
