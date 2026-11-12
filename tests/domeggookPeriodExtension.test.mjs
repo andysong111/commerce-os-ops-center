@@ -7,6 +7,8 @@ import {
   isDomeggookSettledPage,
   isDomeggookUpdateReady,
   runDomeggookPeriodExtensionWithBrowser,
+  runDomeggookPeriodExtension,
+  submitLogin,
   targetRegistrationDate,
   validateDomeggookUpdatePreflight,
 } from "../local-agent/src/domeggook-period-extension.mjs";
@@ -152,6 +154,65 @@ test("stored credential logs in once before a dry-run and is never returned in t
   assert.equal(result.status, "planned");
   assert.deepEqual(calls, ["openListing", ["login", "everysale999", "secret-value"], "openListing"]);
   assert.equal(JSON.stringify(result).includes("secret-value"), false);
+});
+
+test("login submit reports success before the navigation-triggering click runs", async () => {
+  const originalDocument = globalThis.document;
+  const originalInput = globalThis.HTMLInputElement;
+  class FakeInput {
+    set value(next) { this.currentValue = next; }
+    get value() { return this.currentValue || ""; }
+    dispatchEvent() {}
+  }
+  const accountInput = new FakeInput();
+  Object.assign(accountInput, { name: "id", id: "idInput" });
+  const passwordInput = new FakeInput();
+  let clicked = false;
+  const submit = { textContent: "", value: "로그인하기", click: () => { clicked = true; } };
+  const form = {
+    querySelectorAll(selector) {
+      return selector.includes('input:not') ? [accountInput] : [submit];
+    },
+    querySelector() { return submit; },
+  };
+  passwordInput.form = form;
+  globalThis.HTMLInputElement = FakeInput;
+  globalThis.document = {
+    querySelector(selector) {
+      if (selector.includes("captcha")) return null;
+      if (selector === 'input[type="password"]') return passwordInput;
+      return null;
+    },
+  };
+  try {
+    assert.deepEqual(submitLogin({ accountId: "everysale999", password: "fixture-secret" }), { ok: true });
+    assert.equal(clicked, false);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(clicked, true);
+  } finally {
+    globalThis.document = originalDocument;
+    globalThis.HTMLInputElement = originalInput;
+  }
+});
+
+test("Chrome readiness retries transient unavailable target listings", async () => {
+  let attempts = 0;
+  const result = await runDomeggookPeriodExtension(
+    { chromeDebugBaseUrl: "http://127.0.0.1:9600" },
+    { execute: false, chromeReadyAttempts: 3 },
+    {
+      listChromeTargets: async () => {
+        attempts += 1;
+        return attempts < 3
+          ? { available: false, targets: [] }
+          : { available: true, targets: [{ id: "fixture", type: "page", url: "https://www.domeggook.com/" }] };
+      },
+      sleep: async () => {},
+      withBrowserCdpTarget: async (_target, handler) => handler({}),
+    },
+  ).catch((error) => error);
+  assert.equal(attempts, 3);
+  assert.notEqual(result.code, "DOMEGGOOK_CHROME_UNAVAILABLE");
 });
 
 test("execute requires zero charge and paid-option extension off", () => {
