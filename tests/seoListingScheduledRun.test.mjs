@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planSeoScheduledPortfolioRun } from "../src/lib/seoListingScheduledRun.ts";
+import {
+  planSeoDeliveryPreparation,
+  planSeoScheduledPortfolioRun,
+} from "../src/lib/seoListingScheduledRun.ts";
 
 function product(number) {
   return {
@@ -12,6 +15,101 @@ function product(number) {
     runCreatedAt: "2026-10-28T00:00:00.000Z",
   };
 }
+
+function material(number, overrides = {}) {
+  return {
+    item_id: `material-${number}`,
+    model_number: `B${String(number).padStart(3, "0")}`,
+    product_name: `재료 상품 ${number}`,
+    readiness_ready: true,
+    option_barcodes: [`880000000${String(number).padStart(3, "0")}`],
+    shopling_upload_status: "미시작",
+    archived_at: null,
+    updated_at: `2026-10-${String(Math.min(28, number)).padStart(2, "0")}T00:00:00.000Z`,
+    summary_payload: {},
+    ...overrides,
+  };
+}
+
+test("delivery preparation fills a 12-product queue and dispatches only today's remaining slots", () => {
+  const plan = planSeoDeliveryPreparation({
+    productLaunchRows: Array.from({ length: 15 }, (_, index) => material(index + 1)),
+    jobHistoryRows: [
+      {
+        run_id: "seo-run-ready-1",
+        launch_item_id: "already-ready-1",
+        status: "ready",
+        registration_status: "idle",
+        run_created_at: "2026-10-28T00:00:00.000Z",
+      },
+    ],
+    lifecycleRows: [],
+    scheduledBatchLimit: 3,
+    scheduledRegistrationCount: 1,
+  });
+
+  assert.equal(plan.materialReadyProductCount, 15);
+  assert.equal(plan.currentPreparationInventoryCount, 1);
+  assert.equal(plan.queueTargetCount, 12);
+  assert.equal(plan.plannedPreparationCount, 11);
+  assert.equal(plan.dispatchPreparationCount, 2);
+  assert.equal(plan.backlogPreparationCount, 9);
+  assert.equal(plan.dailyDispatchCount, 3);
+  assert.equal(plan.candidates.filter((row) => row.dispatchToday).length, 2);
+});
+
+test("delivery preparation excludes uploaded, previously attempted, lifecycle-managed, isolated, and invalid products", () => {
+  const plan = planSeoDeliveryPreparation({
+    productLaunchRows: [
+      material(1),
+      material(2, { shopling_upload_status: "완료" }),
+      material(3),
+      material(4),
+      material(5),
+      material(6, {
+        summary_payload: { seoExclusion: { excluded: true } },
+      }),
+      material(7, { option_barcodes: [], barcode: "" }),
+      material(8, { readiness_ready: false }),
+    ],
+    jobHistoryRows: [{ launch_item_id: "material-3", status: "failed" }],
+    lifecycleRows: [{ launch_item_id: "material-4", state: "LIVE" }],
+    isolatedLaunchItemIds: ["material-5"],
+    scheduledBatchLimit: 3,
+    scheduledRegistrationCount: 0,
+  });
+
+  assert.deepEqual(
+    plan.candidates.map((row) => row.launchItemId),
+    ["material-1"],
+  );
+  assert.equal(plan.preparationCandidateCount, 1);
+});
+
+test("delivery preparation keeps backlog work internal when dispatch is blocked and stops entirely on schema-policy failure", () => {
+  const rows = Array.from({ length: 14 }, (_, index) => material(index + 1));
+  const backlogOnly = planSeoDeliveryPreparation({
+    productLaunchRows: rows,
+    jobHistoryRows: [],
+    lifecycleRows: [],
+    scheduledBatchLimit: 0,
+    scheduledRegistrationCount: 0,
+  });
+  assert.equal(backlogOnly.plannedPreparationCount, 12);
+  assert.equal(backlogOnly.dispatchPreparationCount, 0);
+  assert.ok(backlogOnly.candidates.every((row) => row.dispatchToday === false));
+
+  const blocked = planSeoDeliveryPreparation({
+    productLaunchRows: rows,
+    jobHistoryRows: [],
+    lifecycleRows: [],
+    scheduledBatchLimit: 3,
+    scheduledRegistrationCount: 0,
+    systemBlocked: true,
+  });
+  assert.equal(blocked.plannedPreparationCount, 0);
+  assert.equal(blocked.reasonCode, "DELIVERY_PREPARATION_SYSTEM_BLOCKED");
+});
 
 function relistRows({
   currentRunId = "run-old",

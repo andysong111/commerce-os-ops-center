@@ -23,6 +23,18 @@ test("SEO cloud adds the one-click portfolio panel without removing recovery con
   );
   assert.match(oneClick, /오늘 자동운영 1번 실행/);
   assert.match(oneClick, /prepare_scheduled_run/);
+  assert.match(oneClick, /action: "enqueue"/);
+  assert.match(oneClick, /candidate\.dispatchToday && bridgeAvailable/);
+  assert.match(oneClick, /autoQueueShoplingRegistration: dispatchToday/);
+  assert.match(oneClick, /bridgeAlreadyVerified/);
+  const scheduledOperation = oneClick.slice(
+    oneClick.indexOf("const startScheduledOperation"),
+  );
+  assert.ok(
+    scheduledOperation.indexOf("bridgeAvailable = await probeExtension()") <
+      scheduledOperation.indexOf('action: "enqueue"'),
+  );
+  assert.match(oneClick, /SEO 배달준비 재고를 먼저 채우고/);
   assert.match(oneClick, /재고 동기화가 끝난 뒤 하루 1회/);
   assert.match(panel, /신규등록 원클릭 · 물갈이 안전잠금/);
   assert.match(panel, /오늘 운영 흐름/);
@@ -30,7 +42,11 @@ test("SEO cloud adds the one-click portfolio panel without removing recovery con
   assert.match(panel, /60일 노출/);
   assert.match(panel, /90일 쉬었다가/);
   assert.match(panel, /새 SEO와 새 상품코드 6개/);
-  assert.match(panel, /새 코드 등록 준비/);
+  assert.match(panel, /SEO 재료 준비/);
+  assert.match(panel, /배달준비 재고/);
+  assert.match(panel, /오늘 배달/);
+  assert.match(panel, /새 배달준비 예정/);
+  assert.match(panel, /새 코드 재등록 준비/);
   assert.match(panel, /삭제확인·새 SEO 대기/);
   assert.doesNotMatch(panel, /기존코드 재사용 대기/);
   assert.match(panel, /3회 연속 무판매/);
@@ -55,6 +71,10 @@ test("dashboard prepares an authenticated scheduled run but keeps destructive wr
   assert.match(route, /export async function GET/);
   assert.match(route, /export async function POST/);
   assert.match(route, /prepare_scheduled_run/);
+  assert.match(route, /planSeoDeliveryPreparation/);
+  assert.match(route, /materialReadyProductCount/);
+  assert.match(route, /dailyDispatchCount/);
+  assert.match(route, /SEO_DAILY_ONE_CLICK_PREPARATION_FAILED/);
   assert.match(route, /preview_shopling_bcode_integrity_audit/);
   assert.match(
     route,
@@ -150,6 +170,10 @@ test("server blocks new Shopling uploads before orchestration insertion but pres
   assert.ok(guardIndex > 0);
   assert.ok(insertIndex > guardIndex);
   assert.match(server, /queueRunIds\.length/);
+  assert.match(server, /readAutoQueueIntentRunIds/);
+  assert.match(server, /\["queued", "running"\]\.includes\(job\.status\)/);
+  assert.match(server, /job\.status === "ready" && job\.registration_status === "idle"/);
+  assert.match(server, /generationFailedRunIds/);
   assert.match(server, /기존 goods_key 마켓전송만 진행할 수 있습니다/);
   const marketOnly = server.slice(server.indexOf("export async function createMarketOnlyOrchestration"));
   assert.doesNotMatch(marketOnly, /assertShoplingProductDbCapacityForNewUploads/);

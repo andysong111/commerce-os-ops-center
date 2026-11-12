@@ -16,6 +16,7 @@ import {
   type SeoMarketCapacityInput,
 } from "@/lib/seoListingLifecyclePolicy";
 import {
+  planSeoDeliveryPreparation,
   planSeoScheduledPortfolioRun,
   SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
 } from "@/lib/seoListingScheduledRun";
@@ -40,6 +41,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 type UnknownRecord = Record<string, unknown>;
 type StorageError = { message: string; code?: string } | null;
@@ -207,14 +209,17 @@ export async function GET(request: NextRequest) {
   try {
     const [
       jobs,
+      jobHistory,
       policyResult,
       capacityResult,
       shoplingProductDbResult,
       lifecycleResult,
       dailyTaskResult,
       canaryActionResult,
+      productLaunchResult,
     ] = await Promise.all([
         listSeoRunJobs(context, { includeArchived: false, limit: 1000 }),
+        listSeoRunJobs(context, { includeArchived: true, limit: 1000 }),
         admin
           .from("seo_listing_rotation_policies")
           .select("owner_id,mode,enabled,exposure_days,cooldown_days,max_attempts,timezone,updated_at")
@@ -258,6 +263,15 @@ export async function GET(request: NextRequest) {
           .eq("owner_id", context.identity.userId)
           .order("scheduled_for", { ascending: true })
           .limit(3000),
+        admin
+          .from("product_launch_items")
+          .select(
+            "item_id,model_number,product_name,barcode,option_barcodes,readiness_ready,shopling_upload_status,market_registration_status,archived_at,summary_payload,updated_at",
+          )
+          .eq("owner_id", context.identity.userId)
+          .is("archived_at", null)
+          .order("updated_at", { ascending: true })
+          .limit(1000),
       ]);
 
     throwUnexpectedStorageError("SEO_LISTING_POLICY_READ_FAILED", policyResult.error);
@@ -271,6 +285,10 @@ export async function GET(request: NextRequest) {
       "SEO_LISTING_CANARY_ACTION_READ_FAILED",
       canaryActionResult.error,
     );
+    throwUnexpectedStorageError(
+      "PRODUCT_LAUNCH_SEO_PREPARATION_READ_FAILED",
+      productLaunchResult.error,
+    );
 
     const schemaReady = ![
       policyResult.error,
@@ -278,6 +296,7 @@ export async function GET(request: NextRequest) {
       shoplingProductDbResult.error,
       lifecycleResult.error,
       canaryActionResult.error,
+      productLaunchResult.error,
     ].some(missingLifecycleSchema);
     const policyRow =
       policyResult.data && typeof policyResult.data === "object"
@@ -308,6 +327,9 @@ export async function GET(request: NextRequest) {
         : null;
     const canaryActionRows = Array.isArray(canaryActionResult.data)
       ? (canaryActionResult.data as UnknownRecord[])
+      : [];
+    const productLaunchRows = Array.isArray(productLaunchResult.data)
+      ? (productLaunchResult.data as UnknownRecord[])
       : [];
     const readyProducts = selectLatestSeoReadyProducts(
       jobs.filter(
@@ -367,6 +389,24 @@ export async function GET(request: NextRequest) {
       shoplingProductDbReasonCode: shoplingProductDb.reasonCode,
       now: new Date(),
     });
+    const scheduledBatchLimit = scheduledPlan.capacityFallbackActive
+      ? Math.min(
+          SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
+          shoplingProductDb.safeNewProductCount,
+        )
+      : Math.min(
+          capacity.safeBatchCount,
+          shoplingProductDb.safeNewProductCount,
+        );
+    const deliveryPreparation = planSeoDeliveryPreparation({
+      productLaunchRows,
+      jobHistoryRows: jobHistory as unknown as UnknownRecord[],
+      lifecycleRows: storedLifecycleRows,
+      isolatedLaunchItemIds: activeIsolations.launchItemIds,
+      scheduledBatchLimit,
+      scheduledRegistrationCount: scheduledPlan.selectedProducts.length,
+      systemBlocked: !schemaReady || !policyMatchesCode,
+    });
     const warnings = [
       "SHADOW_ONLY_NO_MARKET_WRITE",
       ...(!schemaReady ? ["LIFECYCLE_SCHEMA_NOT_APPLIED"] : []),
@@ -391,6 +431,9 @@ export async function GET(request: NextRequest) {
         ? ["REGISTRATION_ONLY_FALLBACK_ACTIVE"]
         : []),
       ...(shoplingProductDb.blocked ? [shoplingProductDb.reasonCode] : []),
+      ...(deliveryPreparation.blocked
+        ? [deliveryPreparation.reasonCode]
+        : []),
       ...capacity.reasonCodes,
     ];
 
@@ -414,6 +457,21 @@ export async function GET(request: NextRequest) {
         ruleVersion: SEO_LISTING_RULE_VERSION,
       },
       summary: {
+        materialReadyProductCount:
+          deliveryPreparation.materialReadyProductCount,
+        deliveryPreparationCandidateCount:
+          deliveryPreparation.preparationCandidateCount,
+        deliveryPreparationPlannedCount:
+          deliveryPreparation.plannedPreparationCount,
+        deliveryPreparationBacklogCount:
+          deliveryPreparation.backlogPreparationCount,
+        deliveryPreparationDispatchCount:
+          deliveryPreparation.dispatchPreparationCount,
+        deliveryPreparationInventoryCount:
+          deliveryPreparation.currentPreparationInventoryCount,
+        deliveryPreparationTargetCount:
+          deliveryPreparation.queueTargetCount,
+        dailyDispatchCount: deliveryPreparation.dailyDispatchCount,
         seoReadyProductCount: readyProducts.length,
         shadowRegistrationCount: scheduledPlan.selectedProducts.length,
         scheduledRegistrationCount: scheduledPlan.selectedProducts.length,
@@ -431,15 +489,7 @@ export async function GET(request: NextRequest) {
         cooldownProductCount: scheduledPlan.cooldownProductCount,
         reviewProductCount: scheduledPlan.reviewProductCount,
         capacityFallbackActive: scheduledPlan.capacityFallbackActive,
-        scheduledBatchLimit: scheduledPlan.capacityFallbackActive
-          ? Math.min(
-              SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
-              shoplingProductDb.safeNewProductCount,
-            )
-          : Math.min(
-              capacity.safeBatchCount,
-              shoplingProductDb.safeNewProductCount,
-            ),
+        scheduledBatchLimit,
         registeredProductCount: registration.registeredProductCount,
         registrationFailedProductCount:
           registration.registrationFailedProductCount,
@@ -476,6 +526,20 @@ export async function GET(request: NextRequest) {
         reasonCode: scheduledPlan.reasonCode,
         runIds: scheduledPlan.selectedProducts.map((product) => product.runId),
         products: scheduledPlan.selectedProducts,
+        deliveryPreparation: {
+          reasonCode: deliveryPreparation.reasonCode,
+          materialReadyProductCount:
+            deliveryPreparation.materialReadyProductCount,
+          candidateCount: deliveryPreparation.preparationCandidateCount,
+          queueTargetCount: deliveryPreparation.queueTargetCount,
+          currentInventoryCount:
+            deliveryPreparation.currentPreparationInventoryCount,
+          plannedCount: deliveryPreparation.plannedPreparationCount,
+          dispatchTodayCount:
+            deliveryPreparation.dispatchPreparationCount,
+          backlogOnlyCount: deliveryPreparation.backlogPreparationCount,
+          candidates: deliveryPreparation.candidates,
+        },
         cadenceLabel: "재고 동기화가 끝난 뒤 하루 1회",
         capacityMode: scheduledPlan.capacityFallbackActive
           ? "bounded_registration_only"
@@ -713,10 +777,11 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const authenticated = await requireSeoTitleLedgerContext(request);
+  if (!authenticated.ok) return authenticated.response;
   let reconciliation: UnknownRecord = {};
+  let dailyRefresh: UnknownRecord = {};
   try {
-    const authenticated = await requireSeoTitleLedgerContext(request);
-    if (!authenticated.ok) return authenticated.response;
     reconciliation = reconciliationSummary(
       await reconcileSeoListingLifecycleShadow(authenticated.value, {
         apply: true,
@@ -732,6 +797,40 @@ export async function POST(request: NextRequest) {
           : "자동 물갈이 내부표 갱신에 실패했습니다.",
       externalMarketWrite: false,
     };
+  }
+  try {
+    dailyRefresh = dailyRefreshSummary(
+      await refreshSeoListingLifecycleShadowDaily(
+        authenticated.value.identity.userId,
+        { apply: true },
+      ),
+    );
+  } catch (error) {
+    dailyRefresh = {
+      ok: false,
+      code: "SEO_LIFECYCLE_DAILY_PREPARATION_FAILED",
+      message:
+        error instanceof Error
+          ? error.message
+          : "자동 물갈이 일일 근거 확인에 실패했습니다.",
+      externalMarketWrite: false,
+    };
+  }
+  if (reconciliation.ok === false || dailyRefresh.ok === false) {
+    return Response.json(
+      {
+        ok: false,
+        code: "SEO_DAILY_ONE_CLICK_PREPARATION_FAILED",
+        message:
+          text(dailyRefresh.message) ||
+          text(reconciliation.message) ||
+          "오늘 자동운영의 최신 근거 확인에 실패해 외부 등록을 안전하게 중단했습니다.",
+        reconciliation,
+        dailyRefresh,
+        externalMarketWrite: false,
+      },
+      { status: 503 },
+    );
   }
   const dashboardResponse = await GET(request);
   const dashboard = (await dashboardResponse.json().catch(() => ({}))) as UnknownRecord;
@@ -755,8 +854,12 @@ export async function POST(request: NextRequest) {
       ...(reconciliation.ok === false
         ? ["SHADOW_RECONCILIATION_FAILED"]
         : []),
+      ...(dailyRefresh.ok === false
+        ? ["DAILY_SHADOW_REFRESH_FAILED"]
+        : []),
     ],
     reconciliation,
+    dailyRefresh,
     externalMarketWrite: false,
     requiresBrowserHandoff: runIds.length > 0,
   });
