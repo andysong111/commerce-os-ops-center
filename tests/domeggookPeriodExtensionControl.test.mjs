@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -84,4 +84,12 @@ test("server blocks cross-site and tokenless run requests", async () => {
   } finally {
     await control.close();
   }
+});
+
+test("Windows startup task launches the Node control server directly", async () => {
+  const source = await readFile("local-agent/scripts/install-domeggook-period-extension-control-task.ps1", "utf8");
+  assert.match(source, /Get-Command "node\.exe"/);
+  assert.match(source, /New-ScheduledTaskAction -Execute \$Node/);
+  assert.match(source, /-WorkingDirectory \$RepoDir/);
+  assert.doesNotMatch(source, /New-ScheduledTaskAction -Execute "powershell\.exe"/);
 });
