@@ -13,6 +13,7 @@ const PENDING_STORAGE_KEY = "commerceOs.shoplingMarketAutoHandoff.v0330";
 const LATEST_EXTENSION_DOWNLOAD =
   "/api/shopling-market-group-canary/v0344/download";
 const POLL_MS = 4_000;
+const HANDOFF_RECOVERY_MS = 15_000;
 
 type UnknownRecord = Record<string, unknown>;
 type SeoRunRow = {
@@ -173,6 +174,17 @@ async function createOrResumeOrchestration(
   });
 }
 
+async function reconnectOrchestration(orchestrationId: string, token: string) {
+  return requestJson(AUTO_API, {
+    method: "POST",
+    body: JSON.stringify({
+      action: "reconnect",
+      orchestrationId,
+      handoffToken: token,
+    }),
+  });
+}
+
 function stateLabel(state: string) {
   return (
     {
@@ -308,16 +320,60 @@ export default function SeoBulkShoplingOneClickControl() {
     try {
       pending = record(JSON.parse(window.localStorage.getItem(PENDING_STORAGE_KEY) || "{}"));
     } catch {
-      return;
+      window.localStorage.removeItem(PENDING_STORAGE_KEY);
     }
     let orchestrationId = text(pending.orchestrationId);
-    const token = text(pending.token);
-    const mode: PipelineMode = pending.mode === "market_only" ? "market_only" : "full_pipeline";
-    const runIds = Array.isArray(pending.runIds)
+    let token = text(pending.token);
+    let mode: PipelineMode = pending.mode === "market_only" ? "market_only" : "full_pipeline";
+    let runIds = Array.isArray(pending.runIds)
       ? pending.runIds.map(text).filter(Boolean)
       : [];
-    if (!token || (!orchestrationId && !runIds.length)) return;
     try {
+      const autoBody = await requestJson(AUTO_API);
+      const currentOrchestrations = Array.isArray(autoBody.orchestrations)
+        ? (autoBody.orchestrations as AutoRow[])
+        : [];
+      setOrchestrations(currentOrchestrations);
+      if (orchestrationId) {
+        const current = currentOrchestrations.find((row) => text(row.id) === orchestrationId);
+        if (current && terminalState(text(current.state))) {
+          window.localStorage.removeItem(PENDING_STORAGE_KEY);
+          return;
+        }
+      }
+
+      if (!token || (!orchestrationId && !runIds.length)) {
+        const active = currentOrchestrations.find(
+          (row) => !terminalState(text(row.state)),
+        );
+        if (!active) return;
+        const available = await probeExtension();
+        setBridgeReady(available);
+        if (!available) return;
+
+        token = createHandoffToken();
+        orchestrationId = text(active.id);
+        runIds = Array.isArray(active.run_ids)
+          ? active.run_ids.map(text).filter(Boolean)
+          : [];
+        mode = text(record(active.result).mode) === "market_only"
+          ? "market_only"
+          : "full_pipeline";
+        const recovered = await reconnectOrchestration(orchestrationId, token);
+        if (recovered.terminal === true) return;
+        if (recovered.activeAgent === true || recovered.needsHandoff === false) {
+          setMessage("브라우저 에이전트가 원클릭 마켓전송을 계속 처리하고 있습니다.");
+          return;
+        }
+        if (text(recovered.handoffToken) !== token) {
+          throw new Error("원클릭 자동 재연결 확인값이 일치하지 않습니다.");
+        }
+        window.localStorage.setItem(
+          PENDING_STORAGE_KEY,
+          JSON.stringify({ mode, runIds, orchestrationId, token, recoveredAt: Date.now() }),
+        );
+      }
+
       if (!orchestrationId) {
         const body = await createOrResumeOrchestration(mode, runIds, token);
         orchestrationId = text(body.orchestrationId);
@@ -331,7 +387,10 @@ export default function SeoBulkShoplingOneClickControl() {
       setBridgeReady(available);
       if (!available) return;
       if (await handoffToExtension(orchestrationId, token)) {
-        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+        window.localStorage.setItem(
+          PENDING_STORAGE_KEY,
+          JSON.stringify({ mode, runIds, orchestrationId, token, handedOffAt: Date.now() }),
+        );
         setMessage(
           mode === "market_only"
             ? "마켓전송만 재개 연결 완료 · 기존 SEO와 Shopling 상품등록은 다시 실행하지 않습니다."
@@ -356,27 +415,29 @@ export default function SeoBulkShoplingOneClickControl() {
       void retryPendingHandoff();
     }, 0);
     const timer = window.setInterval(() => void load(), POLL_MS);
+    const reconnectTimer = window.setInterval(
+      () => void retryPendingHandoff(),
+      HANDOFF_RECOVERY_MS,
+    );
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(timer);
+      window.clearInterval(reconnectTimer);
     };
   }, [load, retryPendingHandoff]);
 
   const startPipeline = useCallback(async (
     mode: PipelineMode,
     targets: SeoRunRow[],
-    bridgeAlreadyVerified = false,
+    knownBridgeAvailability?: boolean,
   ) => {
     if (!targets.length || busy) return;
     setBusy(true);
     setError("");
     setMessage("최신 브라우저 에이전트 연결을 확인합니다…");
     try {
-      const available = bridgeAlreadyVerified || await probeExtension();
+      const available = knownBridgeAvailability ?? await probeExtension();
       setBridgeReady(available);
-      if (!available) {
-        throw new Error("Shopling Market Sender가 연결되지 않았습니다. 최신 v0.3.44 설치 후 Commerce OS와 Shopling 관리자/A18 탭을 새로고침하고 다시 확인하세요.");
-      }
       const runIds = targets.map((row) => row.run_id);
       const token = createHandoffToken();
       setMessage(
@@ -397,6 +458,16 @@ export default function SeoBulkShoplingOneClickControl() {
         PENDING_STORAGE_KEY,
         JSON.stringify({ mode, runIds, orchestrationId, token, createdAt: Date.now() }),
       );
+      if (!available) {
+        setMessage(
+          `${Number(body.acceptedCount || targets.length)}개 상품의 Shopling 작업을 서버에 등록했습니다. 브라우저 에이전트가 연결되는 즉시 같은 작업을 자동 인계해 마켓전송까지 이어갑니다.`,
+        );
+        setError(
+          "최신 Shopling Market Sender v0.3.44와 로그인된 A18 탭이 필요합니다. 연결 후에는 버튼을 다시 누르지 않아도 자동 재개됩니다.",
+        );
+        await load();
+        return;
+      }
       let handed = false;
       for (let attempt = 0; attempt < 4 && !handed; attempt += 1) {
         if (attempt) await new Promise((resolve) => window.setTimeout(resolve, 700));
@@ -405,7 +476,10 @@ export default function SeoBulkShoplingOneClickControl() {
       if (!handed) {
         throw new Error("서버 작업은 생성됐지만 확장프로그램 인계 확인을 받지 못했습니다. 이 페이지를 유지하면 자동 재연결을 시도합니다.");
       }
-      window.localStorage.removeItem(PENDING_STORAGE_KEY);
+      window.localStorage.setItem(
+        PENDING_STORAGE_KEY,
+        JSON.stringify({ mode, runIds, orchestrationId, token, handedOffAt: Date.now() }),
+      );
       setMessage(
         mode === "market_only"
           ? `${Number(body.acceptedCount || targets.length)}개 상품·${Number(body.verifiedGoodsKeyCount || targets.length * 6)}개 기존 goods_key 검증 완료 · 마켓전송만 진행합니다.`
@@ -472,7 +546,7 @@ export default function SeoBulkShoplingOneClickControl() {
         const runCreatedAt = new Date().toISOString();
         const requestedRuns = candidates.map((candidate) => {
           const runId = `seo-run-${crypto.randomUUID()}`;
-          const dispatchToday = candidate.dispatchToday && bridgeAvailable;
+          const dispatchToday = candidate.dispatchToday;
           if (dispatchToday) generatedDispatchIds.add(runId);
           return {
             id: candidate.launchItemId,
@@ -508,23 +582,6 @@ export default function SeoBulkShoplingOneClickControl() {
       setJobs(freshJobs);
       setScheduledRunIds(plannedIds);
       setScheduleReason(text(scheduledRun.reasonCode));
-      if (needsBridge && !bridgeAvailable) {
-        setPreparationCandidates(
-          candidates.map((candidate) => ({
-            ...candidate,
-            dispatchToday: false,
-          })),
-        );
-        setMessage(
-          candidates.length
-            ? `${candidates.length}개 상품은 SEO 배달준비 재고로 만들기 시작했습니다. 브라우저 에이전트가 없어 오늘 외부 배달은 시작하지 않았습니다.`
-            : "브라우저 에이전트가 없어 오늘 외부 배달은 시작하지 않았습니다.",
-        );
-        setError(
-          "최신 Shopling Market Sender v0.3.44를 연결한 뒤 다시 누르면 준비된 상품부터 배달합니다.",
-        );
-        return;
-      }
       const plannedSet = new Set([...plannedIds, ...generatedDispatchIds]);
       const resumeSet = new Set(
         marketOnlyRuns.map((row) => row.run_id),
@@ -547,7 +604,7 @@ export default function SeoBulkShoplingOneClickControl() {
         );
         return;
       }
-      await startPipeline("full_pipeline", targets, true);
+      await startPipeline("full_pipeline", targets, bridgeAvailable);
     } catch (startError) {
       setError(
         startError instanceof Error

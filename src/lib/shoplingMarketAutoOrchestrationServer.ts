@@ -13,6 +13,7 @@ import {
   verifiedMarketOnlyUploadJob,
 } from "@/lib/shoplingMarketAutoResumePolicy";
 import { calculateSeoShoplingProductDbCapacity } from "@/lib/seoShoplingProductDbCapacity";
+import { decideMarketAutoReconnect } from "@/lib/shoplingMarketAutoReconnectPolicy";
 
 const TABLE = "shopling_market_auto_orchestrations";
 const SEO_TABLE = "seo_run_jobs";
@@ -737,6 +738,95 @@ export async function listMarketAutoOrchestrations(ownerId: string) {
     .limit(12);
   if (result.error) throw new Error(result.error.message);
   return Array.isArray(result.data) ? result.data : [];
+}
+
+export async function reconnectMarketAutoOrchestration(
+  context: SeoRunJobContext,
+  rawOrchestrationId: unknown,
+  rawHandoffToken: unknown,
+) {
+  const orchestrationId = validUuid(rawOrchestrationId);
+  if (!orchestrationId) {
+    throw new Error("재연결할 원클릭 작업번호가 올바르지 않습니다.");
+  }
+  const token = handoffToken(rawHandoffToken);
+  const supabase = await requireAdmin();
+  const result = await supabase
+    .from(TABLE)
+    .select("*")
+    .eq("owner_id", context.identity.userId)
+    .eq("id", orchestrationId)
+    .limit(1)
+    .maybeSingle();
+  if (result.error) throw new Error(result.error.message);
+  if (!result.data) throw new Error("재연결할 원클릭 작업을 찾지 못했습니다.");
+
+  const row = record(result.data);
+  const decision = decideMarketAutoReconnect({
+    state: text(row.state),
+    agentId: text(row.agent_id),
+    leaseUntil: text(row.lease_until),
+  });
+  const runIds = uniqueIds(row.run_ids);
+
+  if (decision.terminal) {
+    return {
+      orchestrationId,
+      state: decision.nextState,
+      terminal: true,
+      needsHandoff: false,
+      runIds,
+    };
+  }
+  if (decision.activeAgent) {
+    return {
+      orchestrationId,
+      state: decision.nextState,
+      terminal: false,
+      activeAgent: true,
+      needsHandoff: false,
+      runIds,
+    };
+  }
+  if (!decision.reconnectAllowed) {
+    throw new Error(`재연결할 수 없는 원클릭 상태입니다: ${text(row.state) || "UNKNOWN"}`);
+  }
+
+  const patch: UnknownRecord = {
+    token_hash: hashToken(token),
+  };
+  if (decision.nextState !== text(row.state)) {
+    patch.state = decision.nextState;
+    patch.agent_id = null;
+    patch.lease_until = null;
+  }
+  let updateQuery = supabase
+    .from(TABLE)
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("owner_id", context.identity.userId)
+    .eq("id", orchestrationId)
+    .eq("state", text(row.state));
+  const previousLeaseUntil = row.lease_until;
+  updateQuery = previousLeaseUntil == null
+    ? updateQuery.is("lease_until", null)
+    : updateQuery.eq("lease_until", previousLeaseUntil);
+  const updated = await updateQuery
+    .select("id")
+    .limit(1)
+    .maybeSingle();
+  if (updated.error) throw new Error(updated.error.message);
+  if (!updated.data) {
+    throw new Error("원클릭 작업 상태가 방금 변경되어 다음 자동 재연결에서 다시 확인합니다.");
+  }
+  return {
+    orchestrationId,
+    state: decision.nextState,
+    terminal: false,
+    activeAgent: false,
+    needsHandoff: true,
+    handoffToken: token,
+    runIds,
+  };
 }
 
 export async function pollMarketAutoAgent(token: string, agentId: string) {

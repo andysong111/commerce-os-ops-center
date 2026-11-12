@@ -24,15 +24,19 @@ test("SEO cloud adds the one-click portfolio panel without removing recovery con
   assert.match(oneClick, /오늘 자동운영 1번 실행/);
   assert.match(oneClick, /prepare_scheduled_run/);
   assert.match(oneClick, /action: "enqueue"/);
-  assert.match(oneClick, /candidate\.dispatchToday && bridgeAvailable/);
+  assert.match(oneClick, /const dispatchToday = candidate\.dispatchToday/);
   assert.match(oneClick, /autoQueueShoplingRegistration: dispatchToday/);
-  assert.match(oneClick, /bridgeAlreadyVerified/);
+  assert.match(oneClick, /knownBridgeAvailability/);
   const scheduledOperation = oneClick.slice(
     oneClick.indexOf("const startScheduledOperation"),
   );
   assert.ok(
     scheduledOperation.indexOf("bridgeAvailable = await probeExtension()") <
       scheduledOperation.indexOf('action: "enqueue"'),
+  );
+  assert.match(
+    oneClick,
+    /버튼을 다시 누르지 않아도 자동 재개됩니다/,
   );
   assert.match(oneClick, /SEO 배달준비 재고를 먼저 채우고/);
   assert.match(oneClick, /재고 동기화가 끝난 뒤 하루 1회/);
