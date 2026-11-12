@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function POST(request: Request) {
-  if (!process.env.DOMEGGOOK_RECEIPT_SYNC_SECRET?.trim()) {
+  if (!process.env.DOMEGGOOK_RECEIPT_SYNC_SECRET?.trim()
+    && !process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim()) {
     return Response.json({ ok: false, code: "DOMEGGOOK_SYNC_UNCONFIGURED" }, { status: 503 });
   }
   if (!authorizeDomeggookCloudSync(request)) {

@@ -94,11 +94,18 @@ function normalizedReceipt(value: unknown) {
   };
 }
 
-export function authorizeDomeggookCloudSync(request: Request, expected = process.env.DOMEGGOOK_RECEIPT_SYNC_SECRET?.trim() || "") {
+export function authorizeDomeggookCloudSync(
+  request: Request,
+  expected = process.env.DOMEGGOOK_RECEIPT_SYNC_SECRET?.trim() || "",
+  protectionBypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim() || "",
+) {
   const supplied = request.headers.get(DOMEGGOOK_SYNC_SECRET_HEADER)?.trim() || "";
-  const expectedBuffer = Buffer.from(expected, "utf8");
   const suppliedBuffer = Buffer.from(supplied, "utf8");
-  return Boolean(expected) && expectedBuffer.length === suppliedBuffer.length && timingSafeEqual(expectedBuffer, suppliedBuffer);
+  const acceptedSecrets = [...new Set([expected, protectionBypass].map((value) => value.trim()).filter(Boolean))];
+  return acceptedSecrets.some((accepted) => {
+    const acceptedBuffer = Buffer.from(accepted, "utf8");
+    return acceptedBuffer.length === suppliedBuffer.length && timingSafeEqual(acceptedBuffer, suppliedBuffer);
+  });
 }
 
 export function normalizeDomeggookCloudPayload(value: unknown) {
