@@ -797,7 +797,7 @@ export async function reconnectMarketAutoOrchestration(
   };
   if (decision.nextState !== text(row.state)) {
     patch.state = decision.nextState;
-    patch.agent_id = null;
+    patch.agent_id = "";
     patch.lease_until = null;
   }
   let updateQuery = supabase
