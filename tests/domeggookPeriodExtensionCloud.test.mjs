@@ -13,6 +13,30 @@ import {
   syncDomeggookCloudHistory,
 } from "../local-agent/src/domeggook-period-extension-history.mjs";
 
+// Regression test: healthcheck helper should succeed only for an explicit healthy probe
+test("chrome debug target healthcheck recognizes healthy and unhealthy endpoints", async () => {
+  const mod = await import("../src/lib/domeggookPeriodExtensionCloud.ts");
+  assert.equal(typeof mod.isChromeDebugTargetHealthy, "function");
+
+  // healthy: mock returns ok: true and 200
+  const healthy = await mod.isChromeDebugTargetHealthy("http://127.0.0.1:9600", {
+    fetchImpl: async (url) => ({ ok: true, status: 200 }),
+  });
+  assert.equal(healthy, true);
+
+  // unhealthy: mock returns non-200
+  const unhealthy = await mod.isChromeDebugTargetHealthy("http://127.0.0.1:9600", {
+    fetchImpl: async (url) => ({ ok: false, status: 500 }),
+  });
+  assert.equal(unhealthy, false);
+
+  // rejected/network error => false (fail-closed)
+  const rejected = await mod.isChromeDebugTargetHealthy("http://127.0.0.1:9600", {
+    fetchImpl: async () => { throw new Error("network"); },
+  });
+  assert.equal(rejected, false);
+});
+
 const settings = {
   accounts: [
     { accountId: "everysale999", scheduleTime: "00:10", extensionDays: 90, liveExecution: true, enabled: true, debugPort: 9600, updatedAt: null },

@@ -180,3 +180,23 @@ export function domeggookCloudStateFromRows(settingsValue: unknown, runValues: u
   });
   return { settings, runs, cloud: true };
 }
+
+export async function isChromeDebugTargetHealthy(
+  baseUrl: unknown,
+  { fetchImpl }: { fetchImpl?: (url: string, init?: unknown) => Promise<{ ok: boolean; status: number } | { ok: boolean; status: number }>; } = {},
+): Promise<boolean> {
+  // Conservative, fail-closed health probe for a Chrome debug endpoint.
+  // To avoid introducing new global network capabilities in this file,
+  // callers should provide a fetchImpl. When none is given, the helper
+  // returns false (not healthy) so callers do not proceed blindly.
+  const url = String(baseUrl ?? "").trim();
+  if (!url) return false;
+  const probe = url.replace(/\/$/, "") + "/json/version";
+  try {
+    if (!fetchImpl) return false; // require an explicit probe implementation in this environment
+    const resp = await fetchImpl(probe);
+    return Boolean(resp && resp.ok && Number(resp.status) === 200);
+  } catch {
+    return false;
+  }
+}
