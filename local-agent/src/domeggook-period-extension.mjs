@@ -210,6 +210,10 @@ function listingProbe() {
   });
   const totalMatch = text.match(/총\s*([\d,]+)\s*개의\s*상품/);
   const updateForm = document.querySelector('form[name="multiExecForUpdate"]');
+  const passwordInput = document.querySelector('input[type="password"]');
+  const loginForm = passwordInput?.form || passwordInput?.closest("form");
+  const loginAccountInput = loginForm?.querySelector('input:not([type]),input[type="text"],input[type="email"]');
+  const loginSubmit = loginForm?.querySelector('button,input[type="submit"],input[type="button"]');
   const authenticated = Boolean(
     document.querySelector('a[href*="logout" i], a[onclick*="logout" i]')
     || /로그아웃/.test(text.slice(0, 3000)),
@@ -225,6 +229,7 @@ function listingProbe() {
       : "UNKNOWN",
     authenticated,
     loginPage,
+    loginFormReady: Boolean(passwordInput && loginForm && loginAccountInput && loginSubmit),
     accountContext,
     totalCount: totalMatch ? Number(totalMatch[1].replace(/,/g, "")) : null,
     items,
@@ -460,7 +465,8 @@ async function navigate(session, url, probe, predicate, timeoutMs = DEFAULT_TIME
 }
 
 export function isDomeggookSettledPage(value, expectedRole) {
-  return value?.pageRole === expectedRole || value?.loginPage === true;
+  return value?.pageRole === expectedRole
+    || (value?.loginPage === true && value?.loginFormReady === true);
 }
 
 export function isDomeggookUpdateReady(value, expectedItemNos = []) {

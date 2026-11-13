@@ -490,6 +490,13 @@ They must be typed commands with validated arguments, not arbitrary command stri
 
 Use bounded retry/backoff and idempotency.
 
+### 9.4 도매꾹 다계정 기간연장 제어 복구 (2026-11-13)
+
+- localhost `43122`의 4계정 전체실행은 계정별 고정 Chrome 프로필과 포트를 순차 사용하며, 실제 실행 전 확인·중복 실행 차단·실행 후 기간종료 목록 재조회를 유지한다.
+- 첫 실운영 전체실행에서 화면이 10분 이상 `진행 중`으로 남았다. 직접 확인 결과 로그인 URL이 DOM보다 먼저 도착해 `LOGIN_FORM_MISSING`을 만들었고, PowerShell이 시작한 Chrome이 stdout/stderr 파이프를 계속 소유해 래퍼 종료 뒤에도 child `close` 이벤트가 늦어졌다.
+- 로그인 화면은 ID·비밀번호·제출 컨트롤이 실제 생성될 때까지 기다린다. 제어 래퍼는 PowerShell `exit`를 완료 신호로 사용하고, API 상태는 현재 계정·완료 수·최근 전체 결과를 제공한다. 화면은 1초마다 상태를 재조회해 새로고침이나 장기 요청 응답 유실 뒤에도 복구한다.
+- 수정 뒤 실제 변경 없는 4계정 시험 조회는 `everysale999=기간종료 4개`, `andy8010=0개`, `buzz1237=0개`, `andy80101=0개`를 확인했다. `buzz1237`과 `andy80101`의 저장 계정 자동로그인도 각각 7초 안에 완료됐다. `everysale999` 4개의 실제 연장은 별도 사용자 확인 전에는 재실행하지 않는다.
+
 ---
 
 ## 10. Desired debugging workflow going forward
