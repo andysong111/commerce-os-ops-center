@@ -112,6 +112,8 @@ test("production card uses cloud history while keeping password control local", 
   assert.match(card, /실행 전 종료상품/);
   assert.match(card, /종료상품 0개 확인/);
   assert.match(card, /Windows 암호화 저장 · 서버 전송 안 함/);
+  assert.match(card, /127\.0\.0\.1:43122\/api\/credentials/);
+  assert.match(card, /이 PC에 저장/);
   assert.match(page, /DomeggookPeriodExtensionHistoryCard/);
   assert.match(ingest, /DOMEGGOOK_RECEIPT_SYNC_SECRET/);
   assert.match(historyRoute, /isSameOriginOpsRequest/);

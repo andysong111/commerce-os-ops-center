@@ -60,6 +60,7 @@ export function DomeggookPeriodExtensionHistoryCard() {
   const [history, setHistory] = useState<CloudRun[]>([]);
   const [cloudOnly, setCloudOnly] = useState(false);
   const [passwords, setPasswords] = useState<Record<string, string>>({});
+  const [savedCloudCredentials, setSavedCloudCredentials] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("계정과 실행 이력을 확인하는 중입니다.");
 
@@ -124,6 +125,29 @@ export function DomeggookPeriodExtensionHistoryCard() {
     const accountId = settings.accounts[index]?.accountId || "새 계정";
     if (!window.confirm(`${accountId} 설정을 목록에서 제거할까요? 저장 및 예약 적용 전에는 Windows 예약이 바뀌지 않습니다.`)) return;
     setSettings((current) => ({ ...current, accounts: current.accounts.filter((_, accountIndex) => accountIndex !== index) }));
+  }
+
+  async function saveCloudCredential(accountId: string) {
+    const password = passwords[accountId] || "";
+    if (!password) return setMessage("저장할 도매꾹 비밀번호를 입력하세요.");
+    setBusy(`save-credential:${accountId}`);
+    setMessage(`${accountId} 비밀번호를 이 Windows에 암호화 저장하는 중입니다.`);
+    try {
+      const response = await fetch("http://127.0.0.1:43122/api/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, password }),
+      });
+      const body = await response.json();
+      if (!response.ok || body.ok !== true) throw new Error(body.message || "비밀번호 저장에 실패했습니다.");
+      setPasswords((current) => ({ ...current, [accountId]: "" }));
+      setSavedCloudCredentials((current) => ({ ...current, [accountId]: true }));
+      setMessage(`${accountId} 비밀번호를 이 Windows에 암호화 저장했습니다. 서버에는 전송하지 않았습니다.`);
+    } catch {
+      setMessage("이 PC의 로컬 제어기에 연결하지 못했습니다. 상단의 ‘4개 계정 전체 즉시실행 (이 PC)’을 먼저 열고 다시 저장하세요.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function run(action: string, accountId?: string) {
@@ -195,7 +219,7 @@ export function DomeggookPeriodExtensionHistoryCard() {
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-4">
                 <label className="text-sm font-bold text-slate-700">도매꾹 아이디<input disabled={cloudOnly} className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 font-normal disabled:bg-slate-50" value={account.accountId} onChange={(event) => updateAccount(index, { accountId: event.target.value })} autoComplete="off" /></label>
-                {cloudOnly ? <div className="text-sm font-bold text-slate-700">도매꾹 비밀번호<div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-normal text-slate-600">Windows 암호화 저장 · 서버 전송 안 함</div></div> : <label className="text-sm font-bold text-slate-700">도매꾹 비밀번호<input type="password" className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 font-normal" value={passwords[account.accountId] || ""} onChange={(event) => setPasswords((current) => ({ ...current, [account.accountId]: event.target.value }))} autoComplete="new-password" placeholder={credentialSaved ? "암호화 저장됨 · 변경 시에만 입력" : "Windows 암호화 저장"} /><span className="mt-1 block text-xs font-normal text-slate-500">{credentialSaved ? "이 Windows 사용자만 복호화 가능" : "일반 설정 파일에는 저장하지 않음"}</span></label>}
+                {cloudOnly ? <label className="text-sm font-bold text-slate-700">도매꾹 비밀번호<div className="mt-2 flex gap-2"><input type="password" className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2.5 font-normal" value={passwords[account.accountId] || ""} onChange={(event) => setPasswords((current) => ({ ...current, [account.accountId]: event.target.value }))} autoComplete="new-password" placeholder={savedCloudCredentials[account.accountId] ? "이 PC에 암호화 저장됨" : "변경할 때만 입력"} /><button type="button" disabled={Boolean(busy) || !(passwords[account.accountId] || "")} onClick={() => saveCloudCredential(account.accountId)} className="shrink-0 rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800 disabled:opacity-50">이 PC에 저장</button></div><span className="mt-1 block text-xs font-normal text-slate-500">Windows 암호화 저장 · 서버 전송 안 함</span></label> : <label className="text-sm font-bold text-slate-700">도매꾹 비밀번호<input type="password" className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 font-normal" value={passwords[account.accountId] || ""} onChange={(event) => setPasswords((current) => ({ ...current, [account.accountId]: event.target.value }))} autoComplete="new-password" placeholder={credentialSaved ? "암호화 저장됨 · 변경 시에만 입력" : "Windows 암호화 저장"} /><span className="mt-1 block text-xs font-normal text-slate-500">{credentialSaved ? "이 Windows 사용자만 복호화 가능" : "일반 설정 파일에는 저장하지 않음"}</span></label>}
                 <label className="text-sm font-bold text-slate-700">매일 실행시간<input disabled={cloudOnly} type="time" className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 font-normal disabled:bg-slate-50" value={account.scheduleTime} onChange={(event) => updateAccount(index, { scheduleTime: event.target.value })} /></label>
                 <label className="text-sm font-bold text-slate-700">연장기간<input disabled={cloudOnly} type="number" min={1} max={90} className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 font-normal disabled:bg-slate-50" value={account.extensionDays} onChange={(event) => updateAccount(index, { extensionDays: Number(event.target.value) })} /></label>
               </div>

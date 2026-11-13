@@ -80,8 +80,20 @@ test("plan fails closed for login loss, unreadable rows, and non-DONE status", (
 
 test("navigation ignores transient unauthenticated DOM and settles only on a real list or login page", () => {
   assert.equal(isDomeggookSettledPage({ pageRole: "UNKNOWN", authenticated: false }, "PERIOD_EXPIRED_LIST"), false);
-  assert.equal(isDomeggookSettledPage({ pageRole: "UNKNOWN", loginPage: true }, "PERIOD_EXPIRED_LIST"), true);
+  assert.equal(isDomeggookSettledPage({ pageRole: "UNKNOWN", loginPage: true, loginFormReady: false }, "PERIOD_EXPIRED_LIST"), false);
+  assert.equal(isDomeggookSettledPage({ pageRole: "UNKNOWN", loginPage: true, loginFormReady: true }, "PERIOD_EXPIRED_LIST"), true);
   assert.equal(isDomeggookSettledPage({ pageRole: "PERIOD_EXPIRED_LIST" }, "PERIOD_EXPIRED_LIST"), true);
+});
+
+test("2026-11-13 login race waits for the late-rendered form instead of failing LOGIN_FORM_MISSING", () => {
+  const urlArrivedBeforeDom = {
+    url: "https://www.domeggook.com/ssl/member/mem_loginForm.php",
+    pageRole: "UNKNOWN",
+    loginPage: true,
+    loginFormReady: false,
+  };
+  assert.equal(isDomeggookSettledPage(urlArrivedBeforeDom, "PERIOD_EXPIRED_LIST"), false);
+  assert.equal(isDomeggookSettledPage({ ...urlArrivedBeforeDom, loginFormReady: true }, "PERIOD_EXPIRED_LIST"), true);
 });
 
 test("update navigation waits for the real controls and every selected item", () => {

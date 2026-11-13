@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
   createDomeggookPeriodExtensionController,
   createDomeggookPeriodExtensionControlServer,
   normalizeDomeggookControlSettings,
+  waitForDomeggookControlChild,
 } from "../local-agent/src/domeggook-period-extension-control-server.mjs";
 
 const accounts = [
@@ -67,23 +70,82 @@ test("a second all-account execution is rejected while the first is active", asy
   });
   const first = controller.runAll();
   await started;
+  const active = await controller.readState();
+  assert.equal(active.running, true);
+  assert.equal(active.progress.currentAccountId, "everysale999");
+  assert.equal(active.progress.completed, 0);
+  assert.equal(active.progress.total, 4);
   await assert.rejects(() => controller.runAll(), (error) => error.code === "DOMEGGOOK_CONTROL_ALREADY_RUNNING");
   releaseFirst();
   await first;
+  const completed = await controller.readState();
+  assert.equal(completed.running, false);
+  assert.equal(completed.progress, null);
+  assert.deepEqual(completed.lastRun.succeeded, accounts.map((account) => account.accountId));
+});
+
+test("2026-11-13 wrapper completion uses process exit even when Chrome keeps stdio pipes open", async () => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => assert.fail("completed wrapper must not be killed");
+  const completed = waitForDomeggookControlChild(child, { timeoutMs: 1_000 });
+  child.stdout.write("receipt persisted");
+  child.emit("exit", 0);
+  const result = await completed;
+  assert.match(result.stdout, /receipt persisted/);
+  assert.equal(child.stdout.destroyed, false);
 });
 
 test("server blocks cross-site and tokenless run requests", async () => {
-  const controller = { readState: async () => ({ settings: { accounts }, receipts: [], running: false }), runAll: async () => ({ total: 4 }) };
-  const control = await createDomeggookPeriodExtensionControlServer({}, { port: 0, token: "fixture-token", controller });
+  const savedCredentials = [];
+  const controller = {
+    readState: async () => ({ settings: { accounts }, receipts: [], running: false }),
+    runAll: async () => ({ total: 4 }),
+    saveCredential: async (accountId, password) => {
+      savedCredentials.push({ accountId, password });
+      return { accountId, saved: true };
+    },
+  };
+  const opsOrigin = "https://commerce-os-ops-center.vercel.app";
+  const control = await createDomeggookPeriodExtensionControlServer({ opsOrigin }, { port: 0, token: "fixture-token", controller });
   const { origin } = await control.listen();
   try {
+    const page = await fetch(origin).then((response) => response.text());
+    assert.match(page, /setInterval\(\(\)=>load\(\)/);
+    assert.match(page, /currentAccountId/);
+    assert.match(page, /완료 · 성공/);
     const blocked = await fetch(`${origin}/api/run-all`, { method: "POST", headers: { origin: "https://evil.example", "x-commerce-os-token": "fixture-token" } });
     assert.equal(blocked.status, 403);
     const allowed = await fetch(`${origin}/api/run-all`, { method: "POST", headers: { origin, "x-commerce-os-token": "fixture-token" } });
     assert.equal(allowed.status, 200);
+    const preflight = await fetch(`${origin}/api/credentials`, { method: "OPTIONS", headers: { origin: opsOrigin, "access-control-request-private-network": "true" } });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), opsOrigin);
+    assert.equal(preflight.headers.get("access-control-allow-private-network"), "true");
+    const crossSiteCredential = await fetch(`${origin}/api/credentials`, { method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: JSON.stringify({ accountId: "everysale999", password: "not-saved" }) });
+    assert.equal(crossSiteCredential.status, 403);
+    const saved = await fetch(`${origin}/api/credentials`, { method: "POST", headers: { origin: opsOrigin, "content-type": "application/json" }, body: JSON.stringify({ accountId: "everysale999", password: "fixture-password" }) });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(savedCredentials, [{ accountId: "everysale999", password: "fixture-password" }]);
   } finally {
     await control.close();
   }
+});
+
+test("credential saving accepts only configured accounts and passes the password through stdin", async () => {
+  const { root, dataRoot } = await fixture();
+  const calls = [];
+  const controller = createDomeggookPeriodExtensionController({ repoRoot: root, dataDir: root }, {
+    repoRoot: root,
+    dataRoot,
+    runProcess: async (executable, args, options) => { calls.push({ executable, args, options }); },
+  });
+  await controller.saveCredential("everysale999", "fixture-password");
+  assert.equal(calls[0].executable, "powershell.exe");
+  assert.equal(calls[0].args.includes("fixture-password"), false);
+  assert.equal(calls[0].options.input, "fixture-password");
+  await assert.rejects(() => controller.saveCredential("unknown999", "fixture-password"), /저장된 도매꾹 계정/);
 });
 
 test("Windows startup task launches the Node control server directly", async () => {
