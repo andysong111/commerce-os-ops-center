@@ -92,9 +92,9 @@ test("fails closed if the proven host or agent anchors drift", () => {
   );
 });
 
-test("one-click UI keeps the KT-compatible package in the latest A19 build", async () => {
+test("one-click UI keeps the KT-compatible package in the latest A19 login-loop hotfix", async () => {
   const source = await readFile(oneClick, "utf8");
-  assert.match(source, /v0346\/download/);
-  assert.match(source, /최신 확장 v0\.3\.46 다운로드/);
-  assert.match(source, /Shopling Market Sender v0\.3\.46/);
+  assert.match(source, /v0347\/download/);
+  assert.match(source, /최신 확장 v0\.3\.47 다운로드/);
+  assert.match(source, /Shopling Market Sender v0\.3\.47/);
 });
