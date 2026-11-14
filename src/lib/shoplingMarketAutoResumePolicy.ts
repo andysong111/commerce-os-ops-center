@@ -1,4 +1,10 @@
 const EXPECTED_CHANNEL_COUNT = 6;
+const TERMINAL_MARKET_AUTO_STATES = new Set([
+  "completed",
+  "completed_with_exceptions",
+  "exception",
+  "cancelled",
+]);
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -40,6 +46,24 @@ export function marketAutoRunIdSetsEqual(left: unknown, right: unknown) {
 export function marketAutoRunIdSetsOverlap(left: unknown, right: unknown) {
   const a = new Set(normalizeMarketAutoRunIds(left));
   return normalizeMarketAutoRunIds(right).some((value) => a.has(value));
+}
+
+export function findActiveMarketAutoRunOverlap(
+  orchestrationsInput: unknown,
+  runIdsInput: unknown,
+) {
+  const runIds = normalizeMarketAutoRunIds(runIdsInput);
+  if (!runIds.length) return null;
+  return (
+    array(orchestrationsInput)
+      .map(record)
+      .find(
+        (row) =>
+          text(row.id) &&
+          !TERMINAL_MARKET_AUTO_STATES.has(text(row.state)) &&
+          marketAutoRunIdSetsOverlap(row.run_ids, runIds),
+      ) ?? null
+  );
 }
 
 export function verifiedMarketOnlyUploadJob(jobInput: unknown) {

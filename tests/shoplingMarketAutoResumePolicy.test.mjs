@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  findActiveMarketAutoRunOverlap,
   marketAutoRunIdSetsEqual,
   marketAutoRunIdSetsOverlap,
   marketOnlyLedgerSafety,
@@ -73,4 +74,39 @@ test("같은 토큰의 재시도는 같은 RUN 집합만 허용하고 다른 활
   assert.equal(marketAutoRunIdSetsEqual(original, ["seo-run-a"]), false);
   assert.equal(marketAutoRunIdSetsOverlap(original, ["seo-run-c", "seo-run-b"]), true);
   assert.equal(marketAutoRunIdSetsOverlap(original, ["seo-run-c"]), false);
+});
+
+test("작업번호 3e2ada48 회귀: 살아 있는 기존 작업은 새 중복 생성 대신 재연결 대상으로 찾는다", () => {
+  const rows = [
+    {
+      id: "3e2ada48-0000-4000-8000-000000000001",
+      state: "market_ready",
+      run_ids: ["seo-run-existing-a", "seo-run-existing-b"],
+    },
+    {
+      id: "00000000-0000-4000-8000-000000000002",
+      state: "completed",
+      run_ids: ["seo-run-terminal"],
+    },
+  ];
+
+  assert.equal(
+    findActiveMarketAutoRunOverlap(rows, ["seo-run-new", "seo-run-existing-b"])?.id,
+    "3e2ada48-0000-4000-8000-000000000001",
+  );
+  assert.equal(findActiveMarketAutoRunOverlap(rows, ["seo-run-terminal"]), null);
+  assert.equal(findActiveMarketAutoRunOverlap(rows, ["seo-run-new"]), null);
+});
+
+test("원클릭 UI는 생성 전에 활성 중복을 재연결하고 409 경합도 같은 복구 경로로 처리한다", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(
+      new URL("../src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.match(source, /findActiveMarketAutoRunOverlap/);
+  assert.match(source, /activeOverlap && await resumeActiveOverlap\(activeOverlap\)/);
+  assert.match(source, /startError\.status === 409/);
+  assert.match(source, /새 중복 작업은 만들지 않았습니다/);
 });

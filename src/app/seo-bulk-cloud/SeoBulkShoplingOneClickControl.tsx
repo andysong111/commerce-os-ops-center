@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { findActiveMarketAutoRunOverlap } from "@/lib/shoplingMarketAutoResumePolicy";
 
 const SEO_RUN_API = "/api/seo-run-jobs";
 const AUTO_API = "/api/shopling-market-auto-orchestration";
@@ -435,10 +436,107 @@ export default function SeoBulkShoplingOneClickControl() {
     setBusy(true);
     setError("");
     setMessage("최신 브라우저 에이전트 연결을 확인합니다…");
+    const runIds = targets.map((row) => row.run_id);
+    let available = knownBridgeAvailability ?? false;
+    let attemptedOverlapRecovery = false;
+
+    const resumeActiveOverlap = async (activeInput: unknown) => {
+      attemptedOverlapRecovery = true;
+      const active = record(activeInput);
+      const orchestrationId = text(active.id);
+      const activeRunIds = Array.isArray(active.run_ids)
+        ? active.run_ids.map(text).filter(Boolean)
+        : [];
+      if (!orchestrationId) return false;
+      if (!available) {
+        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+        setMessage(
+          `기존 원클릭 작업 ${orchestrationId.slice(0, 8)}이 이미 같은 상품을 처리 중입니다. 새 중복 작업은 만들지 않았습니다.`,
+        );
+        setError(
+          "최신 Shopling Market Sender v0.3.47과 로그인된 Shopling 관리자 탭을 연결하면 기존 작업부터 자동 재개됩니다.",
+        );
+        await load();
+        return true;
+      }
+
+      const token = createHandoffToken();
+      const recovered = await reconnectOrchestration(orchestrationId, token);
+      if (recovered.terminal === true) {
+        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+        setMessage("기존 원클릭 작업이 방금 종료되었습니다. 현황을 새로 확인했습니다.");
+        await load();
+        return true;
+      }
+      if (recovered.activeAgent === true || recovered.needsHandoff === false) {
+        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+        setMessage(
+          `기존 원클릭 작업 ${orchestrationId.slice(0, 8)}을 브라우저 에이전트가 계속 처리하고 있습니다. 새 중복 작업은 만들지 않았습니다.`,
+        );
+        await load();
+        return true;
+      }
+      if (text(recovered.handoffToken) !== token) {
+        throw new Error("기존 원클릭 작업 재연결 확인값이 일치하지 않습니다.");
+      }
+      const recoveredRunIds = Array.isArray(recovered.runIds)
+        ? recovered.runIds.map(text).filter(Boolean)
+        : activeRunIds;
+      window.localStorage.setItem(
+        PENDING_STORAGE_KEY,
+        JSON.stringify({
+          mode: text(record(active.result).mode) === "market_only"
+            ? "market_only"
+            : "full_pipeline",
+          runIds: recoveredRunIds,
+          orchestrationId,
+          token,
+          recoveredAt: Date.now(),
+        }),
+      );
+      let handed = false;
+      for (let attempt = 0; attempt < 4 && !handed; attempt += 1) {
+        if (attempt) await new Promise((resolve) => window.setTimeout(resolve, 700));
+        handed = await handoffToExtension(orchestrationId, token);
+      }
+      if (!handed) {
+        throw new Error(
+          "기존 서버 작업은 보존됐지만 확장프로그램 인계 확인을 받지 못했습니다. 이 페이지를 유지하면 자동 재연결을 시도합니다.",
+        );
+      }
+      window.localStorage.setItem(
+        PENDING_STORAGE_KEY,
+        JSON.stringify({
+          mode: text(record(active.result).mode) === "market_only"
+            ? "market_only"
+            : "full_pipeline",
+          runIds: recoveredRunIds,
+          orchestrationId,
+          token,
+          handedOffAt: Date.now(),
+        }),
+      );
+      setMessage(
+        `기존 원클릭 작업 ${orchestrationId.slice(0, 8)} 재연결 완료 · 같은 상품의 새 중복 작업 없이 이어서 처리합니다.`,
+      );
+      await load();
+      return true;
+    };
+
     try {
-      const available = knownBridgeAvailability ?? await probeExtension();
+      available = knownBridgeAvailability ?? await probeExtension();
       setBridgeReady(available);
-      const runIds = targets.map((row) => row.run_id);
+      const autoBody = await requestJson(AUTO_API);
+      const currentOrchestrations = Array.isArray(autoBody.orchestrations)
+        ? (autoBody.orchestrations as AutoRow[])
+        : [];
+      setOrchestrations(currentOrchestrations);
+      const activeOverlap = findActiveMarketAutoRunOverlap(
+        currentOrchestrations,
+        runIds,
+      );
+      if (activeOverlap && await resumeActiveOverlap(activeOverlap)) return;
+
       const token = createHandoffToken();
       setMessage(
         mode === "market_only"
@@ -487,6 +585,31 @@ export default function SeoBulkShoplingOneClickControl() {
       );
       await load();
     } catch (startError) {
+      if (
+        !attemptedOverlapRecovery &&
+        startError instanceof RequestError &&
+        startError.status === 409 &&
+        startError.message.includes("같은 상품의 마켓전송 작업이 이미 진행 중")
+      ) {
+        try {
+          const autoBody = await requestJson(AUTO_API);
+          const currentOrchestrations = Array.isArray(autoBody.orchestrations)
+            ? (autoBody.orchestrations as AutoRow[])
+            : [];
+          const activeOverlap = findActiveMarketAutoRunOverlap(
+            currentOrchestrations,
+            runIds,
+          );
+          if (activeOverlap && await resumeActiveOverlap(activeOverlap)) return;
+        } catch (recoveryError) {
+          setError(
+            recoveryError instanceof Error
+              ? recoveryError.message
+              : "기존 원클릭 작업 재연결 실패",
+          );
+          return;
+        }
+      }
       if (startError instanceof RequestError && startError.status < 500) {
         window.localStorage.removeItem(PENDING_STORAGE_KEY);
       }
