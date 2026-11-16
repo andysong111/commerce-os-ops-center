@@ -393,7 +393,7 @@ export async function loadCanonicalPurchaseShadow(
           budgetBasis:
             `${koreanMonthLabel(cycle.budgetMonth)} 1일~말일 정상매출 ` +
             `${purchaseBudgetMonthRevenue.toLocaleString("ko-KR")}원 ÷ 2 · ` +
-            `배송대행 포함 배수 ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`,
+            `현금 결제 수수료 2.4%를 올림한 배수 ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`,
         };
         if ((snapshot.products ?? []).length !== exactPlanningMatchCount) {
           blockers.push({

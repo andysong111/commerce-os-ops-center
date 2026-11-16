@@ -39,7 +39,7 @@ const TABLE_COLUMNS = [
   { label: "수량 · 계산 대기", width: 190 },
   { label: "위안단가", width: 130 },
   { label: "운임그룹", width: 180 },
-  { label: "중국내 운임", width: 150 },
+  { label: "운임·할인/가감", width: 150 },
   { label: "개당 운임", width: 100 },
   { label: "최종단가 CNY", width: 110 },
   { label: "실주문원가 KRW", width: 120 },
@@ -72,6 +72,11 @@ const STOCK_BANDS: Array<{ value: InventoryStockBand; label: string }> = [
 function decimal(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+function signedDecimal(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function cnyCent(value: unknown) {
@@ -126,7 +131,7 @@ function purchaseEvidenceSignature(draft: InternalChinaPurchaseDraft) {
       line.barcode,
       decimal(line.unitPriceCny),
       line.freightGroupId.trim(),
-      decimal(line.domesticChinaFreightCny),
+      signedDecimal(line.domesticChinaFreightCny),
     ].join("\u0000"))
     .sort()
     .join("\u0001");
@@ -392,7 +397,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         totalFreight: 0,
       };
       current.members.push(line);
-      current.totalFreight += decimal(line.domesticChinaFreightCny);
+      current.totalFreight += signedDecimal(line.domesticChinaFreightCny);
       groups.set(key, current);
     }
     return groups;
@@ -414,7 +419,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       const key = lineKey(line);
       const current = groups.get(key) ?? { quantity: 0, freight: 0 };
       current.quantity += line.quantity;
-      current.freight += decimal(line.domesticChinaFreightCny);
+      current.freight += signedDecimal(line.domesticChinaFreightCny);
       groups.set(key, current);
     }
 
@@ -562,7 +567,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     for (const [key, members] of eligible) {
       const groupId = `LINK-${key.replace(/[^A-Za-z0-9-]/g, "").slice(-40)}`;
       const totalFreight = members.reduce(
-        (sum, member) => sum + decimal(member.domesticChinaFreightCny),
+        (sum, member) => sum + signedDecimal(member.domesticChinaFreightCny),
         0,
       );
       for (const member of members) {
@@ -1189,7 +1194,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <strong className="mt-0.5 block text-right text-base font-black text-emerald-950">
                 {number.format(Math.round(calculations.internalStandardTotalKrw))}원
               </strong>
-              <span className="mt-0.5 block text-[11px] text-emerald-700">실주문 원가 × 내부 주문 수수료율 {draft.internalOrderCostMultiplier.toFixed(2)}</span>
+              <span className="mt-0.5 block text-[11px] text-emerald-700">현금 결제 수수료 2.4%를 올림해 3%로 적용</span>
             </div>
             <a href="https://commerce-os-product-master.vercel.app/purchase-metadata" target="_blank" rel="noreferrer" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-800 hover:bg-slate-50">상품마스터 최신 원장</a>
             <button type="button" onClick={() => void open1688Workflow("cost-capture")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingCostCaptureBlockingEdits} title={hasPendingCostCaptureBlockingEdits ? "수량·제외·추가·단종 변경을 먼저 저장하거나 취소하세요." : stockBandUpdates.length > 0 ? "대략 재고 변경은 보류하고 현재 발주안의 원가·운임만 기록합니다." : "실제 위안단가·중국내 운임만 기록하며 주문·결제는 실행하지 않습니다."} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "COST" ? "5-1 여는 중..." : "5-1 원가·운임 기록"}</button>
@@ -1214,7 +1219,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SubMetric label="상품금액" value={`${cny.format(calculations.productCny)} CNY`} />
-          <SubMetric label="중국내 운임" value={`${cny.format(calculations.freightCny)} CNY`} />
+          <SubMetric label="중국내 운임·할인/가감" value={`${cny.format(calculations.freightCny)} CNY`} />
           <SubMetric label="실주문 원가" value={`${number.format(Math.round(calculations.totalKrw))}원`} />
           <SubMetric label="중국옵션 확인 필요" value={`${number.format(optionReviewCount)} SKU`} />
         </div>

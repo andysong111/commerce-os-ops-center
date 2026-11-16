@@ -1,7 +1,9 @@
 import type { SalesOrderGroup } from "./salesOrder.ts";
 import { comparePurchaseStrategyPriority, type RisingStrength } from "./purchaseStrategyPolicy.ts";
 
-export const DEFAULT_PURCHASE_COST_MULTIPLIER = 1.45;
+// Cash payment currently costs 2.4%. The owner-approved planning policy rounds
+// that fee up to a conservative 3% so every new/open Draft uses one basis.
+export const DEFAULT_PURCHASE_COST_MULTIPLIER = 1.03;
 export const MIN_PURCHASE_COST_MULTIPLIER = 1;
 export const MAX_PURCHASE_COST_MULTIPLIER = 3;
 export const DEFAULT_MINIMUM_ORDER_AMOUNT = 5_000;

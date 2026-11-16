@@ -25,8 +25,7 @@ export function calculateInternalChinaOrderedSpendKrw(input: {
       line.quantity <= 0 ||
       !Number.isFinite(line.unitPriceCny) ||
       line.unitPriceCny <= 0 ||
-      !Number.isFinite(line.domesticChinaFreightCny) ||
-      line.domesticChinaFreightCny < 0
+      !Number.isFinite(line.domesticChinaFreightCny)
     ) {
       throw new Error("INTERNAL_CHINA_ORDER_SPEND_UNVERIFIED");
     }

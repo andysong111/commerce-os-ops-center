@@ -192,7 +192,7 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     const key = line.freightGroupId.trim() || `__${line.barcode}`;
     const current = groupStats.get(key) ?? { quantity: 0, freight: 0 };
     current.quantity += line.quantity;
-    current.freight += Math.max(0, Number(line.domesticChinaFreightCny) || 0);
+    current.freight += Number(line.domesticChinaFreightCny) || 0;
     groupStats.set(key, current);
   }
   const now = new Date().toISOString();
@@ -226,7 +226,7 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     const freightPerUnitCny = group.quantity > 0 ? group.freight / group.quantity : 0;
     const actualUnitCny = Math.max(0, Number(line.unitPriceCny) || 0) + freightPerUnitCny;
     // 배송대행지 청구액은 별도 원가 마감에서 처리한다. 입고 시점의 상품대금과
-    // 중국내 운임에 1.45 추정계수를 섞지 않는 기존 계산을 유지한다.
+    // 중국내 운임·주문할인/가감에 내부 기준원가 배수를 섞지 않는다.
     const unitCostKrw = Math.max(1, Math.round(actualUnitCny * draft.exchangeRateKrwPerCny));
     const receiptCost: PriceAdjustmentReceipt = {
       id: `china-receipt:${receiptId}:${code}`, receiptId,

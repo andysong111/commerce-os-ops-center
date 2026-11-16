@@ -80,6 +80,11 @@ function decimal(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+function signedDecimal(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function validMonth(value: unknown) {
   const month = text(value);
   return /^\d{4}-\d{2}$/.test(month) ? month : null;
@@ -117,7 +122,7 @@ function normalizePrep(row: OperationRow): PrepSummary | null {
         saleOption: text(line.saleOption),
         quantity,
         unitPriceCny: decimal(line.unitPriceCny),
-        domesticChinaFreightCny: decimal(line.domesticChinaFreightCny),
+        domesticChinaFreightCny: signedDecimal(line.domesticChinaFreightCny),
         orderNumber: text(line.orderNumber),
       },
     ];

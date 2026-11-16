@@ -20,6 +20,11 @@ function decimal(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+function signedDecimal(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function lineKey(line: InternalChinaPurchaseDraftLine) {
   return line.freightGroupId.trim() || `__${line.barcode}`;
 }
@@ -52,7 +57,7 @@ export function InternalChinaPurchaseDraftWorkspace({
       const key = lineKey(line);
       const current = groups.get(key) ?? { quantity: 0, freight: 0 };
       current.quantity += line.quantity;
-      current.freight += decimal(line.domesticChinaFreightCny);
+      current.freight += signedDecimal(line.domesticChinaFreightCny);
       groups.set(key, current);
     }
 
@@ -315,7 +320,7 @@ export function InternalChinaPurchaseDraftWorkspace({
                 원
               </strong>
               <span className="mt-0.5 block text-[11px] text-emerald-700">
-                실주문 원가 × 내부 주문 수수료율 {draft.internalOrderCostMultiplier.toFixed(2)}
+                현금 결제 수수료 2.4%를 올림해 3%로 적용
               </span>
             </div>
             <button

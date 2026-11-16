@@ -84,7 +84,7 @@ test("recent closed monthly landed costs stay visible after the calendar month c
   assert.ok(historyPanel.includes("중국내운임 포함 배수"));
   assert.ok(
     historyPanel.includes(
-      "표시 배수 = (상품대금 + 중국내운임 + 실제 부대비용) ÷ (상품대금 + 중국내운임)",
+      "표시 배수 = (상품대금 + 중국내운임·할인/가감 + 실제 부대비용) ÷ (상품대금 + 중국내운임·할인/가감)",
     ),
   );
   assert.ok(historyPanel.includes("기존 내부 원가배수 저장값은 변경하지 않고"));

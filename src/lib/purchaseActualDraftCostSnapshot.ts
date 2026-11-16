@@ -20,6 +20,10 @@ function decimal(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
+function signedDecimal(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 function canonicalRows(rows: PurchaseActualDraftCostLine[]) {
   return rows
     .map((row) => ({
@@ -40,7 +44,7 @@ export function buildPurchaseActualDraftCostSnapshot(
     const key = line.freightGroupId.trim() || `__${line.barcode}`;
     const current = groups.get(key) ?? { quantity: 0, freightCny: 0 };
     current.quantity += Math.max(0, Math.round(line.quantity));
-    current.freightCny += decimal(line.domesticChinaFreightCny);
+    current.freightCny += signedDecimal(line.domesticChinaFreightCny);
     groups.set(key, current);
   }
 

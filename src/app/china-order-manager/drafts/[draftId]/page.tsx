@@ -42,13 +42,18 @@ export default async function InternalChinaPurchaseDraftPage({
       throw new Error(`CHINA_ORDER_LEDGER_UNAVAILABLE:${ledger.error}`);
     }
     const baseDraft = await loadInternalChinaPurchaseDraft(draftId, { ledger });
-    const [loadedDraft, loadedBudgetAudit, persistedAdjustments] = await Promise.all([
+    const [loadedDraft, persistedAdjustments] = await Promise.all([
       loadInternalChinaDraftWithQuantityOverrides(baseDraft),
-      loadInternalChinaPurchaseBudgetAudit(draftId, { draft: baseDraft, ledger }),
       loadPurchaseDraftOperatorAdjustments(draftId, { ledger }),
     ]);
     draft = loadedDraft;
-    budgetAudit = loadedBudgetAudit;
+    // The upper audit and lower order workspace must calculate from the exact
+    // same quantity-overridden Draft. Using baseDraft here made the two totals
+    // disagree after an operator recalculation.
+    budgetAudit = await loadInternalChinaPurchaseBudgetAudit(draftId, {
+      draft: loadedDraft,
+      ledger,
+    });
     initialQuantityOverrides = persistedAdjustments.quantityOverrides;
     initialStockBands = Object.fromEntries(
       draft.lines.flatMap((line) => {
