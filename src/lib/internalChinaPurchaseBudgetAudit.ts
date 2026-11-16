@@ -16,6 +16,7 @@ import { loadCalendarMonthNormalRevenue } from "@/lib/shopling/calendarMonthReve
 import { loadCanonicalPurchaseShadow } from "@/lib/stage8CanonicalPurchaseShadow";
 import { loadVerifiedPurchaseCycleSpend } from "@/lib/purchaseCyclePreflightSpend";
 import { effectivePurchaseUnitCostKrw } from "@/lib/verifiedPurchaseCostEvidence";
+import { calculateInternalChinaPurchaseCostSummary } from "@/lib/internalChinaPurchaseCostMath";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 
@@ -94,11 +95,6 @@ function money(value: unknown) {
 function decimal(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
-}
-
-function signedDecimal(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function quantity(value: unknown) {
@@ -256,26 +252,34 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const referencePriceCount = lines.filter(
     (line) => line.costSource === "REFERENCE",
   ).length;
+  const actualCostSummary = calculateInternalChinaPurchaseCostSummary({
+    lines: draft.lines,
+    exchangeRateKrwPerCny: draft.exchangeRateKrwPerCny,
+    internalOrderCostMultiplier: purchaseCostMultiplier,
+  });
+  const everyDraftLineHasActualPrice = actualPriceCount === lines.length;
   // Round only after summing the Draft. Rounding every unit before quantity
   // multiplication caused the upper audit to drift from the lower workspace.
-  const selectedDraftExactProductCostKrw = lines.reduce(
+  const referenceBackfilledProductCostKrwExact = lines.reduce(
     (sum, line) => sum + (exactProductCostByBarcode.get(line.barcode) ?? 0),
     0,
   );
-  const selectedDraftExactDomesticChinaFreightKrw = draft.lines.reduce(
-    (sum, line) => sum + signedDecimal(line.domesticChinaFreightCny),
-    0,
-  ) * draft.exchangeRateKrwPerCny;
-  const selectedDraftEstimatedProductCostKrw = money(
-    selectedDraftExactProductCostKrw,
-  );
-  const selectedDraftDomesticChinaFreightKrw = money(
-    selectedDraftExactDomesticChinaFreightKrw,
-  );
-  const selectedDraftEstimatedLandedCostKrw = money(
-    (selectedDraftExactProductCostKrw + selectedDraftExactDomesticChinaFreightKrw) *
-      purchaseCostMultiplier,
-  );
+  const selectedDraftExactProductCostKrw = everyDraftLineHasActualPrice
+    ? actualCostSummary.productCostKrwExact
+    : referenceBackfilledProductCostKrwExact;
+  const selectedDraftExactDomesticChinaFreightKrw =
+    actualCostSummary.domesticChinaAdjustmentKrwExact;
+  const selectedDraftEstimatedProductCostKrw = everyDraftLineHasActualPrice
+    ? actualCostSummary.productCostKrw
+    : money(selectedDraftExactProductCostKrw);
+  const selectedDraftDomesticChinaFreightKrw =
+    actualCostSummary.domesticChinaAdjustmentKrw;
+  const selectedDraftEstimatedLandedCostKrw = everyDraftLineHasActualPrice
+    ? actualCostSummary.internalBaseCostKrw
+    : money(
+        (selectedDraftExactProductCostKrw + selectedDraftExactDomesticChinaFreightKrw) *
+          purchaseCostMultiplier,
+      );
   const selectedDraftBudgetRemainingKrw = Math.max(
     0,
     productOrderBudgetKrw - selectedDraftEstimatedProductCostKrw,
