@@ -3,7 +3,7 @@ export const PURCHASE_V2_RULE_VERSION =
 export const PURCHASE_V2_COVERAGE_DAYS = 44;
 export const PURCHASE_V2_LEAD_DAYS = 14;
 export const PURCHASE_V2_ORDER_CYCLE_DAYS = 30;
-export const PURCHASE_V2_DEFAULT_COST_MULTIPLIER = 1.45;
+export const PURCHASE_V2_DEFAULT_COST_MULTIPLIER = 1.03;
 export const PURCHASE_V2_DEFAULT_MINIMUM_LINE_KRW = 5_000;
 
 export type PurchaseV2Pattern =

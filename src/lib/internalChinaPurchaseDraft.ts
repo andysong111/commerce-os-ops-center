@@ -139,6 +139,11 @@ function decimal(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+function signedDecimal(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -429,9 +434,9 @@ async function buildBaseDraft(
         ),
         unitPriceCny: Math.min(1_000_000, decimal(sourcePayload.unitPriceCny)),
         freightGroupId: text(sourcePayload.freightGroupId).slice(0, 100),
-        domesticChinaFreightCny: Math.min(
-          1_000_000,
-          decimal(sourcePayload.domesticChinaFreightCny),
+        domesticChinaFreightCny: Math.max(
+          -1_000_000,
+          Math.min(1_000_000, signedDecimal(sourcePayload.domesticChinaFreightCny)),
         ),
         orderNumber: text(sourcePayload.orderNumber).slice(0, 160),
         note: text(sourcePayload.operatorNote ?? sourcePayload.note).slice(0, 300),
@@ -527,9 +532,9 @@ function editableFrom(value: unknown): Partial<EditableLine> {
     output.freightGroupId = text(row.freightGroupId).slice(0, 100);
   }
   if ("domesticChinaFreightCny" in row) {
-    output.domesticChinaFreightCny = Math.min(
-      1_000_000,
-      decimal(row.domesticChinaFreightCny),
+    output.domesticChinaFreightCny = Math.max(
+      -1_000_000,
+      Math.min(1_000_000, signedDecimal(row.domesticChinaFreightCny)),
     );
   }
   if ("orderNumber" in row) {
@@ -606,9 +611,9 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
         quantity: Math.min(MANUAL_QUANTITY_MAX, quantity),
         unitPriceCny: Math.min(1_000_000, decimal(row.unitPriceCny)),
         freightGroupId: text(row.freightGroupId).slice(0, 100),
-        domesticChinaFreightCny: Math.min(
-          1_000_000,
-          decimal(row.domesticChinaFreightCny),
+        domesticChinaFreightCny: Math.max(
+          -1_000_000,
+          Math.min(1_000_000, signedDecimal(row.domesticChinaFreightCny)),
         ),
         orderNumber: text(row.orderNumber).slice(0, 160),
         note: text(row.note).slice(0, 300),

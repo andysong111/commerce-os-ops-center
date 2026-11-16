@@ -81,6 +81,11 @@ function decimal(value: unknown) {
     : 0;
 }
 
+function signedDecimal(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function iso(value: unknown) {
   const parsed = Date.parse(text(value));
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
@@ -108,7 +113,7 @@ function parseLine(
   const goodsPaidCny = decimal(
     row.goodsPaidCny ?? decimal(row.unitPriceCny) * quantity,
   );
-  const domesticChinaFreightCny = decimal(row.domesticChinaFreightCny);
+  const domesticChinaFreightCny = signedDecimal(row.domesticChinaFreightCny);
   const serviceFeeCny = decimal(row.serviceFeeCny);
   const actualLinePaidCny = decimal(
     row.actualLinePaidCny ??
@@ -161,8 +166,8 @@ function parseDraft(row: StoredRow): ParsedDraft | null {
     decimal(snapshot.goodsPaidCny) ||
     decimal(lines.reduce((sum, line) => sum + line.goodsPaidCny, 0));
   const domesticChinaFreightCny =
-    decimal(snapshot.domesticChinaFreightCny) ||
-    decimal(
+    signedDecimal(snapshot.domesticChinaFreightCny) ||
+    signedDecimal(
       lines.reduce((sum, line) => sum + line.domesticChinaFreightCny, 0),
     );
   const serviceFeeCny =
@@ -237,7 +242,7 @@ function aggregateDrafts(
     goodsPaidCny: decimal(
       drafts.reduce((sum, draft) => sum + draft.goodsPaidCny, 0),
     ),
-    domesticChinaFreightCny: decimal(
+    domesticChinaFreightCny: signedDecimal(
       drafts.reduce(
         (sum, draft) => sum + draft.domesticChinaFreightCny,
         0,
@@ -361,7 +366,7 @@ export function selectInternalChinaPurchaseSummaryForDraft(
     ).size,
     totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
     goodsPaidCny: decimal(lines.reduce((sum, line) => sum + line.goodsPaidCny, 0)),
-    domesticChinaFreightCny: decimal(
+    domesticChinaFreightCny: signedDecimal(
       lines.reduce((sum, line) => sum + line.domesticChinaFreightCny, 0),
     ),
     serviceFeeCny: decimal(lines.reduce((sum, line) => sum + line.serviceFeeCny, 0)),

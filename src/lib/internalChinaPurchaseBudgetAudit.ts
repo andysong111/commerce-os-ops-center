@@ -96,6 +96,11 @@ function decimal(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+function signedDecimal(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function quantity(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
@@ -202,6 +207,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
       : 0;
   }
 
+  const exactProductCostByBarcode = new Map<string, number>();
   const lines: InternalChinaPurchaseBudgetAuditLine[] = draft.lines.map((line) => {
     const key = barcode(line.barcode);
     const referenceUnitCost = referenceUnitCostKrw(key);
@@ -209,9 +215,11 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     const actualUnitCostKrw = money(
       actualUnitPriceCny * draft.exchangeRateKrwPerCny,
     );
-    const effectiveUnitCostKrw = actualUnitCostKrw || referenceUnitCost;
+    const effectiveUnitCostKrw = actualUnitPriceCny > 0
+      ? actualUnitCostKrw
+      : referenceUnitCost;
     const costSource: InternalChinaPurchaseBudgetAuditLine["costSource"] =
-      actualUnitCostKrw > 0
+      actualUnitPriceCny > 0
         ? "ACTUAL_1688"
         : referenceUnitCost > 0
           ? "REFERENCE"
@@ -219,6 +227,10 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     const engine = engineByBarcode.get(key);
     const engineRecommendedQuantity = quantity(engine?.recommendedQty);
     const engineExpectedCostKrw = money(engine?.expectedCost);
+    const exactProductCostKrw = actualUnitPriceCny > 0
+      ? actualUnitPriceCny * draft.exchangeRateKrwPerCny * quantity(line.quantity)
+      : referenceUnitCost * quantity(line.quantity);
+    exactProductCostByBarcode.set(key, exactProductCostKrw);
     return {
       barcode: key,
       quantity: quantity(line.quantity),
@@ -227,9 +239,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
       actualUnitCostKrw,
       effectiveUnitCostKrw,
       costSource,
-      estimatedProductCostKrw: money(
-        effectiveUnitCostKrw * quantity(line.quantity),
-      ),
+      estimatedProductCostKrw: money(exactProductCostKrw),
       engineRecommendedQuantity,
       engineExpectedCostKrw,
       quantityDeltaFromEngine:
@@ -246,18 +256,24 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const referencePriceCount = lines.filter(
     (line) => line.costSource === "REFERENCE",
   ).length;
-  const selectedDraftEstimatedProductCostKrw = lines.reduce(
-    (sum, line) => sum + line.estimatedProductCostKrw,
+  // Round only after summing the Draft. Rounding every unit before quantity
+  // multiplication caused the upper audit to drift from the lower workspace.
+  const selectedDraftExactProductCostKrw = lines.reduce(
+    (sum, line) => sum + (exactProductCostByBarcode.get(line.barcode) ?? 0),
     0,
   );
+  const selectedDraftExactDomesticChinaFreightKrw = draft.lines.reduce(
+    (sum, line) => sum + signedDecimal(line.domesticChinaFreightCny),
+    0,
+  ) * draft.exchangeRateKrwPerCny;
+  const selectedDraftEstimatedProductCostKrw = money(
+    selectedDraftExactProductCostKrw,
+  );
   const selectedDraftDomesticChinaFreightKrw = money(
-    draft.lines.reduce(
-      (sum, line) => sum + decimal(line.domesticChinaFreightCny),
-      0,
-    ) * draft.exchangeRateKrwPerCny,
+    selectedDraftExactDomesticChinaFreightKrw,
   );
   const selectedDraftEstimatedLandedCostKrw = money(
-    (selectedDraftEstimatedProductCostKrw + selectedDraftDomesticChinaFreightKrw) *
+    (selectedDraftExactProductCostKrw + selectedDraftExactDomesticChinaFreightKrw) *
       purchaseCostMultiplier,
   );
   const selectedDraftBudgetRemainingKrw = Math.max(
@@ -333,7 +349,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     budgetMonthRevenueKrw,
     budgetRevenueError: calendarRevenue.error,
     sourceWarnings: [...sourceWarnings, ...(carryoverRead.error ? [`누적 발주 가능 금액 확인 실패: ${carryoverRead.error}`] : [])],
-    basisLabel: `${carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth}~${carryoverRead.value?.accrualEndMonth ?? cycle.budgetMonth} 월별 정상매출${carryoverRead.value?.accruedAblyShippingDeductionKrw ? `에서 에이블리 ${carryoverRead.value.accruedAblyOrderCount.toLocaleString("ko-KR")}건 × 3,000원 차감 후` : "의"} 50% 누적 ${cumulativeAccruedBudgetKrw.toLocaleString("ko-KR")}원 - 실제 주문완료 ${recordedOrderedSpendKrw.toLocaleString("ko-KR")}원 · 내부 주문 수수료율 ${purchaseCostMultiplier.toFixed(2)}`,
+    basisLabel: `${carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth}~${carryoverRead.value?.accrualEndMonth ?? cycle.budgetMonth} 월별 정상매출${carryoverRead.value?.accruedAblyShippingDeductionKrw ? `에서 에이블리 ${carryoverRead.value.accruedAblyOrderCount.toLocaleString("ko-KR")}건 × 3,000원 차감 후` : "의"} 50% 누적 ${cumulativeAccruedBudgetKrw.toLocaleString("ko-KR")}원 - 실제 주문완료 ${recordedOrderedSpendKrw.toLocaleString("ko-KR")}원 · 현금 결제 수수료 2.4%를 올림해 3%로 적용`,
     recent30RevenueKrw,
     grossCogsBudgetKrw,
     currentMonthAccrualKrw,

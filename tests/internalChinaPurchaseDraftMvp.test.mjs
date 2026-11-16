@@ -146,7 +146,7 @@ test("exchange input is removed and internal standard cost is system-owned", () 
   assert.match(engine, /internalOrderCostMultiplier/);
   assert.doesNotMatch(workspace, /적용 환율 KRW\/CNY/);
   assert.match(workspace, /내부기준원가/);
-  assert.match(workspace, /실주문 원가 × 내부 주문 수수료율/);
+  assert.match(workspace, /현금 결제 수수료 2\.4%를 올림해 3%로 적용/);
 });
 
 test("product name column is removed and B-code model and sale option share one identity cell", () => {

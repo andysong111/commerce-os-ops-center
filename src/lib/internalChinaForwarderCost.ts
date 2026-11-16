@@ -83,6 +83,11 @@ function decimal(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+function signedDecimal(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function validDraftId(value: unknown) {
   const draftId = text(value);
   if (!DRAFT_ID.test(draftId)) throw new Error("CHINA_FORWARDER_COST_DRAFT_INVALID");
@@ -129,7 +134,7 @@ function freightGroups(draft: InternalChinaPurchaseDraft) {
     const key = line.freightGroupId.trim() || `__${line.barcode}`;
     const current = groups.get(key) ?? { quantity: 0, freightCny: 0 };
     current.quantity += line.quantity;
-    current.freightCny += decimal(line.domesticChinaFreightCny);
+    current.freightCny += signedDecimal(line.domesticChinaFreightCny);
     groups.set(key, current);
   }
   return groups;

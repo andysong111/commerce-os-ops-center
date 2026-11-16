@@ -17,6 +17,11 @@ const [audit, draftEngine, page, card, monthlyRevenue, workspace] = await Promis
   ),
 ]);
 
+const portfolio = await readFile(
+  "src/lib/productDecisionEngine/portfolio.ts",
+  "utf8",
+);
+
 test("China order draft budgets from the previous full calendar month", () => {
   assert.match(audit, /monthlyPurchaseCycleForMonth\(draft\.cycleMonth\)/);
   assert.doesNotMatch(audit, /monthlyPurchaseCycleFor\(draft\.sourceUpdatedAt\)/);
@@ -30,6 +35,7 @@ test("China order draft budgets from the previous full calendar month", () => {
   assert.match(audit, /productOrderBudgetKrw/);
   assert.match(audit, /selectedDraftEstimatedProductCostKrw/);
   assert.match(audit, /selectedDraftEstimatedLandedCostKrw/);
+  assert.match(portfolio, /DEFAULT_PURCHASE_COST_MULTIPLIER = 1\.03/);
   assert.doesNotMatch(audit, /recent30RevenueKrw \/ 2/);
 });
 
@@ -53,7 +59,7 @@ test("saved actual 1688 CNY price has priority over Product Master reference cos
     audit,
     /actualUnitPriceCny \* draft\.exchangeRateKrwPerCny/,
   );
-  assert.match(audit, /effectiveUnitCostKrw = actualUnitCostKrw \|\| referenceUnitCost/);
+  assert.match(audit, /effectiveUnitCostKrw = actualUnitPriceCny > 0/);
   assert.match(audit, /costSource: "ACTUAL_1688" \| "REFERENCE" \| "MISSING"/);
   assert.match(audit, /actualPriceCount/);
   assert.match(audit, /referencePriceCount/);
@@ -85,8 +91,16 @@ test("calendar-month budget and internal standard cost are visible on the China 
   assert.match(card, /상품대금 발주한도/);
   assert.match(card, /현재 Draft 상품대금/);
   assert.match(card, /내부기준원가/);
-  assert.match(card, /내부 주문 수수료율/);
+  assert.match(card, /현금 결제 시 사용되는 수수료 2\.4%/);
   assert.match(card, /예산 초과/);
+});
+
+test("upper audit uses the same quantity-overridden Draft and rounds totals only once", () => {
+  assert.match(page, /draft: loadedDraft/);
+  assert.doesNotMatch(page, /draft: baseDraft, ledger/);
+  assert.match(audit, /selectedDraftExactProductCostKrw/);
+  assert.match(audit, /selectedDraftExactDomesticChinaFreightKrw/);
+  assert.match(audit, /Round only after summing the Draft/);
 });
 
 test("optional comparison sources cannot make a saved China Draft unreadable", () => {

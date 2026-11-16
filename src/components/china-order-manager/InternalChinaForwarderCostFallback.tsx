@@ -93,7 +93,7 @@ export function InternalChinaForwarderCostFallback({
             배송대행지 비용 · 실제 원가 마감
           </h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            관세·부가세·바코드 스티커 작업 등을 포함한 배송대행지 최종 청구액 하나를 입력하면 기존 임시 1.45 대신 실제 원가배수를 확정합니다.
+            관세·부가세·바코드 스티커 작업 등을 포함한 배송대행지 최종 청구액 하나를 입력하면 현금결제 수수료 3% 기준의 임시 1.03 대신 실제 원가배수를 확정합니다.
           </p>
           <p className="mt-1 font-mono text-[11px] text-slate-400">{draftId}</p>
         </div>

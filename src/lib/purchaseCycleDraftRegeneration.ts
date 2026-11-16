@@ -463,7 +463,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
             supplierLink: text(evidence.supplierLink),
             unitPriceCny: Math.min(1_000_000, Math.max(0, Number(evidence.unitPriceCny) || 0)),
             freightGroupId: text(evidence.freightGroupId).slice(0, 100),
-            domesticChinaFreightCny: Math.min(1_000_000, Math.max(0, Number(evidence.domesticChinaFreightCny) || 0)),
+            domesticChinaFreightCny: Math.max(-1_000_000, Math.min(1_000_000, Number(evidence.domesticChinaFreightCny) || 0)),
             orderNumber: text(evidence.orderNumber).slice(0, 160),
             operatorNote: text(evidence.note).slice(0, 300),
           }
