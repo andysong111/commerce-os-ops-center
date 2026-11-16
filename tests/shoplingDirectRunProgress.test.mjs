@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  canRetryShoplingDirectRun,
   canRetryUnstartedShoplingDirectRun,
   finalizeShoplingDirectRun,
+  prepareShoplingDirectRunRetry,
   recordShoplingDirectRunOutcome,
+  retryableShoplingDirectRunJobIds,
+  shoplingDirectRunAttempt,
   shoplingDirectRunCounts,
   shoplingDirectRunSummaryText,
   startShoplingDirectRun,
@@ -100,4 +104,58 @@ test("retry is offered when login preflight stopped every job before dispatch", 
     uncertain: 0,
     remaining: 2,
   });
+});
+
+test("second attempt retries only incomplete jobs and can replace failure with success", () => {
+  let progress = startShoplingDirectRun(3);
+  progress = recordShoplingDirectRunOutcome(progress, "job-1", "SUCCEEDED");
+  progress = recordShoplingDirectRunOutcome(progress, "job-2", "FAILED");
+  progress = recordShoplingDirectRunOutcome(progress, "job-3", "UNCERTAIN");
+  progress = finalizeShoplingDirectRun(progress);
+
+  const allJobIds = ["job-1", "job-2", "job-3"];
+  assert.equal(canRetryShoplingDirectRun(progress, allJobIds), true);
+  assert.deepEqual(retryableShoplingDirectRunJobIds(progress, allJobIds), [
+    "job-2",
+    "job-3",
+  ]);
+
+  progress = prepareShoplingDirectRunRetry(progress, allJobIds);
+  assert.equal(shoplingDirectRunAttempt(progress), 2);
+  assert.deepEqual(progress.outcomesByJobId, { "job-1": "SUCCEEDED" });
+
+  progress = recordShoplingDirectRunOutcome(progress, "job-2", "SUCCEEDED");
+  progress = recordShoplingDirectRunOutcome(progress, "job-3", "FAILED");
+  progress = finalizeShoplingDirectRun(progress);
+  assert.deepEqual(shoplingDirectRunCounts(progress), {
+    total: 3,
+    completed: 3,
+    succeeded: 2,
+    failed: 1,
+    uncertain: 0,
+    remaining: 0,
+  });
+});
+
+test("a proven success is immutable and retries stop after the third attempt", () => {
+  const allJobIds = ["job-1", "job-2"];
+  let progress = startShoplingDirectRun(2);
+  progress = recordShoplingDirectRunOutcome(progress, "job-1", "SUCCEEDED");
+  progress = recordShoplingDirectRunOutcome(progress, "job-2", "FAILED");
+  progress = finalizeShoplingDirectRun(progress);
+
+  progress = prepareShoplingDirectRunRetry(progress, allJobIds);
+  progress = recordShoplingDirectRunOutcome(progress, "job-1", "FAILED");
+  assert.equal(progress.outcomesByJobId["job-1"], "SUCCEEDED");
+  progress = recordShoplingDirectRunOutcome(progress, "job-2", "FAILED");
+  progress = finalizeShoplingDirectRun(progress);
+
+  progress = prepareShoplingDirectRunRetry(progress, allJobIds);
+  progress = recordShoplingDirectRunOutcome(progress, "job-2", "FAILED");
+  progress = finalizeShoplingDirectRun(progress);
+  assert.equal(shoplingDirectRunAttempt(progress), 3);
+  assert.equal(canRetryShoplingDirectRun(progress, allJobIds), false);
+  assert.deepEqual(retryableShoplingDirectRunJobIds(progress, allJobIds), [
+    "job-2",
+  ]);
 });

@@ -3,10 +3,13 @@ export type ShoplingDirectRunTerminalOutcome =
   | "FAILED"
   | "UNCERTAIN";
 
+export type ShoplingDirectRunAttempt = 1 | 2 | 3;
+
 export type ShoplingDirectRunProgress = {
   status: "RUNNING" | "COMPLETED" | "COMPLETED_WITH_EXCEPTIONS" | "STOPPED";
   total: number;
   outcomesByJobId: Record<string, ShoplingDirectRunTerminalOutcome>;
+  attempt?: ShoplingDirectRunAttempt;
 };
 
 export type ShoplingDirectRunCounts = {
@@ -18,11 +21,63 @@ export type ShoplingDirectRunCounts = {
   remaining: number;
 };
 
-export function startShoplingDirectRun(total: number): ShoplingDirectRunProgress {
+export function startShoplingDirectRun(
+  total: number,
+  attempt: ShoplingDirectRunAttempt = 1,
+): ShoplingDirectRunProgress {
   return {
     status: "RUNNING",
     total: Math.max(0, Math.trunc(total)),
     outcomesByJobId: {},
+    attempt,
+  };
+}
+
+export function shoplingDirectRunAttempt(current: ShoplingDirectRunProgress) {
+  return current.attempt ?? 1;
+}
+
+export function retryableShoplingDirectRunJobIds(
+  current: ShoplingDirectRunProgress,
+  allJobIds: string[],
+) {
+  return [...new Set(allJobIds.map((jobId) => jobId.trim()).filter(Boolean))]
+    .filter((jobId) => current.outcomesByJobId[jobId] !== "SUCCEEDED");
+}
+
+export function canRetryShoplingDirectRun(
+  current: ShoplingDirectRunProgress,
+  allJobIds: string[],
+) {
+  return (
+    current.status !== "RUNNING" &&
+    shoplingDirectRunAttempt(current) < 3 &&
+    retryableShoplingDirectRunJobIds(current, allJobIds).length > 0
+  );
+}
+
+export function prepareShoplingDirectRunRetry(
+  current: ShoplingDirectRunProgress,
+  allJobIds: string[],
+): ShoplingDirectRunProgress {
+  const uniqueJobIds = [
+    ...new Set(allJobIds.map((jobId) => jobId.trim()).filter(Boolean)),
+  ];
+  const nextAttempt = Math.min(
+    3,
+    shoplingDirectRunAttempt(current) + 1,
+  ) as ShoplingDirectRunAttempt;
+  const succeededOutcomes = Object.fromEntries(
+    uniqueJobIds
+      .filter((jobId) => current.outcomesByJobId[jobId] === "SUCCEEDED")
+      .map((jobId) => [jobId, "SUCCEEDED" as const]),
+  );
+
+  return {
+    status: "RUNNING",
+    total: uniqueJobIds.length,
+    outcomesByJobId: succeededOutcomes,
+    attempt: nextAttempt,
   };
 }
 
@@ -32,7 +87,10 @@ export function recordShoplingDirectRunOutcome(
   outcome: ShoplingDirectRunTerminalOutcome,
 ): ShoplingDirectRunProgress {
   const normalizedJobId = jobId.trim();
-  if (!normalizedJobId || current.outcomesByJobId[normalizedJobId]) {
+  if (
+    !normalizedJobId ||
+    current.outcomesByJobId[normalizedJobId] === "SUCCEEDED"
+  ) {
     return current;
   }
 
