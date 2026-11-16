@@ -14,15 +14,22 @@ import {
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
 import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
 import {
-  canRetryUnstartedShoplingDirectRun,
+  canRetryShoplingDirectRun,
   finalizeShoplingDirectRun,
+  prepareShoplingDirectRunRetry,
   recordShoplingDirectRunOutcome,
+  retryableShoplingDirectRunJobIds,
+  shoplingDirectRunAttempt,
   shoplingDirectRunCounts,
   shoplingDirectRunSummaryText,
   startShoplingDirectRun,
   type ShoplingDirectRunProgress,
 } from "@/lib/shoplingDirectRunProgress";
 import { recoverLatestPendingDirectJobs } from "@/lib/shoplingDirectRunRecovery";
+import {
+  buildShoplingManualFallbackGroups,
+  shoplingManualFallbackCopyText,
+} from "@/lib/shoplingManualFallback";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -42,6 +49,7 @@ type DirectInventoryJob = {
   manualStatusOnly?: boolean;
   resetAt: string;
   route: string[];
+  stockStateApiEvidence?: unknown;
   directOperatorCommand?: true;
   retransmissionRequestId?: string;
   operationalQueue?: true;
@@ -352,9 +360,12 @@ function InventoryStockoutGenericPanel() {
   const [syncNotice, setSyncNotice] = useState("");
   const [extensionReady, setExtensionReady] = useState(false);
   const [extensionVersion, setExtensionVersion] = useState("");
+  const [manualCopyNotice, setManualCopyNotice] = useState("");
   const [directRunProgress, setDirectRunProgress] =
     useState<ShoplingDirectRunProgress | null>(null);
-  const [retryableRequestId, setRetryableRequestId] = useState("");
+  const [directRunJobSnapshot, setDirectRunJobSnapshot] = useState<
+    DirectInventoryJob[]
+  >([]);
   const stockoutParsed = useMemo(
     () => parseInventoryStockoutBulkText(stockoutInput),
     [stockoutInput],
@@ -395,6 +406,7 @@ function InventoryStockoutGenericPanel() {
   const extensionReadyRef = useRef(false);
   const extensionVersionRef = useRef("");
   const directQueue = useRef<DirectInventoryJob[]>([]);
+  const directRunJobs = useRef(new Map<string, DirectInventoryJob>());
   const activeBatch = useRef<ActiveBatch | null>(null);
   const handledResults = useRef(new Set<string>());
   const directRunProgressRef = useRef<ShoplingDirectRunProgress | null>(null);
@@ -404,6 +416,27 @@ function InventoryStockoutGenericPanel() {
     (next: ShoplingDirectRunProgress | null) => {
       directRunProgressRef.current = next;
       setDirectRunProgress(next);
+    },
+    [],
+  );
+
+  const rememberDirectJobs = useCallback(
+    (jobs: readonly DirectInventoryJob[], replace = false) => {
+      if (replace) directRunJobs.current.clear();
+      for (const job of jobs) {
+        const previous = directRunJobs.current.get(job.jobId);
+        directRunJobs.current.set(job.jobId, {
+          ...previous,
+          ...job,
+          goodsKeys:
+            Array.isArray(job.goodsKeys) && job.goodsKeys.length
+              ? job.goodsKeys
+              : previous?.goodsKeys ?? [],
+          stockStateApiEvidence:
+            job.stockStateApiEvidence ?? previous?.stockStateApiEvidence,
+        });
+      }
+      setDirectRunJobSnapshot([...directRunJobs.current.values()]);
     },
     [],
   );
@@ -485,7 +518,6 @@ function InventoryStockoutGenericPanel() {
     );
     if (!plan.jobs.length) {
       setSyncing(false);
-      setRetryableRequestId("");
       const current = directRunProgressRef.current;
       if (current) {
         const finalized = finalizeShoplingDirectRun(current);
@@ -607,7 +639,7 @@ function InventoryStockoutGenericPanel() {
       .then((recovered) => {
         if (cancelled || !recovered || directRunProgressRef.current) return;
         directQueue.current = recovered.jobs;
-        setRetryableRequestId(recovered.requestId);
+        rememberDirectJobs(recovered.jobs, true);
         publishDirectRunProgress(
           finalizeShoplingDirectRun(
             startShoplingDirectRun(recovered.jobs.length),
@@ -622,7 +654,7 @@ function InventoryStockoutGenericPanel() {
     return () => {
       cancelled = true;
     };
-  }, [publishDirectRunProgress]);
+  }, [publishDirectRunProgress, rememberDirectJobs]);
 
   useEffect(() => {
     const finishBatch = (batch: ActiveBatch, retainedJobIds = new Set<string>()) => {
@@ -642,7 +674,6 @@ function InventoryStockoutGenericPanel() {
         }, 250);
       } else {
         setSyncing(false);
-        setRetryableRequestId("");
         const current = directRunProgressRef.current;
         if (current) {
           const finalized = finalizeShoplingDirectRun(current);
@@ -690,6 +721,9 @@ function InventoryStockoutGenericPanel() {
         if (!batch) return;
         const jobId = String(data.jobId || "");
         if (!batch.jobs.some((job) => job.jobId === jobId)) return;
+        if (data.job && typeof data.job === "object") {
+          rememberDirectJobs([data.job as DirectInventoryJob]);
+        }
         if (data.message) setSyncNotice(String(data.message));
         return;
       }
@@ -795,6 +829,7 @@ function InventoryStockoutGenericPanel() {
       if (!job) return;
 
       handledResults.current.add(resultKey);
+      rememberDirectJobs([job]);
       void (async () => {
         try {
           await batch.startRecordPromises.get(job.jobId);
@@ -855,7 +890,7 @@ function InventoryStockoutGenericPanel() {
       window.location.origin,
     );
     return () => window.removeEventListener("message", onMessage);
-  }, [publishDirectRunProgress, recordSync, stopDirectRunProgress]);
+  }, [publishDirectRunProgress, recordSync, rememberDirectJobs, stopDirectRunProgress]);
 
   const save = async () => {
     setNotice("");
@@ -916,17 +951,12 @@ function InventoryStockoutGenericPanel() {
       }
 
       const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
-      const existingIds = new Set(directQueue.current.map((job) => job.jobId));
-      directQueue.current = [
-        ...directQueue.current,
-        ...jobs.filter((job) => !existingIds.has(job.jobId)),
-      ];
+      directQueue.current = jobs;
+      rememberDirectJobs(jobs, true);
       handledResults.current.clear();
+      setManualCopyNotice("");
       publishDirectRunProgress(
         jobs.length ? startShoplingDirectRun(jobs.length) : null,
-      );
-      setRetryableRequestId(
-        jobs.length && payload.commandRequestId ? payload.commandRequestId : "",
       );
 
       setNotice(
@@ -961,15 +991,14 @@ function InventoryStockoutGenericPanel() {
     }
   };
 
-  const retryStoppedDirectRun = async () => {
+  const retryIncompleteDirectRun = async () => {
     setNotice("");
     const current = directRunProgressRef.current;
-    if (
-      !current ||
-      !canRetryUnstartedShoplingDirectRun(current)
-    ) {
+    const allJobs = [...directRunJobs.current.values()];
+    const allJobIds = allJobs.map((job) => job.jobId);
+    if (!current || !canRetryShoplingDirectRun(current, allJobIds)) {
       setSyncNotice(
-        "다시 시작할 미전송 Shopling 작업이 없습니다. 실패·불확실 건은 중복 전송을 막기 위해 자동 재시도하지 않습니다.",
+        "다시 시도할 Shopling 미완료 건이 없거나 최대 3차 시도까지 끝났습니다.",
       );
       return;
     }
@@ -980,59 +1009,64 @@ function InventoryStockoutGenericPanel() {
       return;
     }
 
-    setSyncing(true);
-    setSyncNotice("저장된 Shopling 미전송 목록을 최신 운영 큐에서 확인하고 있습니다.");
-    try {
-      const recovered = await loadLatestPendingDirectJobs();
-      if (!recovered) {
-        setSyncing(false);
-        publishDirectRunProgress(null);
-        setRetryableRequestId("");
-        setSyncNotice(
-          "다시 시작할 미전송 Shopling 작업이 없습니다. 이미 처리됐거나 운영 큐 상태가 변경되었습니다.",
-        );
-        return;
-      }
-      if (retryableRequestId && recovered.requestId !== retryableRequestId) {
-        directQueue.current = recovered.jobs;
-        setSyncing(false);
-        setRetryableRequestId(recovered.requestId);
-        publishDirectRunProgress(
-          finalizeShoplingDirectRun(
-            startShoplingDirectRun(recovered.jobs.length),
-            true,
-          ),
-        );
-        setSyncNotice(
-          `최근 미전송 목록이 ${recovered.jobs.length}건으로 변경되어 화면을 갱신했습니다. 내용을 확인한 뒤 다시 시도하세요.`,
-        );
-        return;
-      }
-
-      directQueue.current = recovered.jobs;
-      handledResults.current.clear();
-      setRetryableRequestId(recovered.requestId);
-      publishDirectRunProgress(startShoplingDirectRun(recovered.jobs.length));
+    const retryableIds = new Set(
+      retryableShoplingDirectRunJobIds(current, allJobIds),
+    );
+    const retryJobs = allJobs.filter((job) => retryableIds.has(job.jobId));
+    if (!retryJobs.length || allJobs.length !== current.total) {
       setSyncNotice(
-        `로그인 확인 후 중단된 Shopling 미전송 ${recovered.jobs.length}건을 다시 시작합니다.`,
+        "미완료 작업의 저장 정보가 화면 상태와 일치하지 않아 자동 재시도를 중단했습니다. 아래 수동 전송 목록을 확인해 주세요.",
       );
-      void launchNextRef.current();
-    } catch (error) {
-      setSyncing(false);
-      setSyncNotice(
-        error instanceof Error
-          ? error.message
-          : "저장된 Shopling 미전송 작업을 불러오지 못했습니다.",
-      );
+      return;
     }
+
+    const retryProgress = prepareShoplingDirectRunRetry(current, allJobIds);
+    directQueue.current = retryJobs;
+    activeBatch.current = null;
+    handledResults.current.clear();
+    publishDirectRunProgress(retryProgress);
+    setSyncing(true);
+    setSyncNotice(
+      `미완료 ${retryJobs.length}건만 ${shoplingDirectRunAttempt(retryProgress)}차 시도를 시작합니다. 이미 성공한 건은 다시 보내지 않습니다.`,
+    );
+    void launchNextRef.current();
   };
 
   const directRunCounts = directRunProgress
     ? shoplingDirectRunCounts(directRunProgress)
     : null;
-  const canRetryStoppedRun =
+  const directRunJobIds = directRunJobSnapshot.map((job) => job.jobId);
+  const canRetryIncompleteRun =
     directRunProgress !== null &&
-    canRetryUnstartedShoplingDirectRun(directRunProgress);
+    canRetryShoplingDirectRun(directRunProgress, directRunJobIds);
+  const finalManualFallbackJobs =
+    directRunProgress &&
+    directRunProgress.status !== "RUNNING" &&
+    shoplingDirectRunAttempt(directRunProgress) >= 3
+      ? retryableShoplingDirectRunJobIds(
+          directRunProgress,
+          directRunJobIds,
+        ).flatMap((jobId) => {
+          const job = directRunJobSnapshot.find((row) => row.jobId === jobId);
+          return job ? [job] : [];
+        })
+      : [];
+  const manualFallbackGroups = buildShoplingManualFallbackGroups(
+    finalManualFallbackJobs,
+  );
+
+  const copyManualFallback = async (label: string, values: string[]) => {
+    const text = shoplingManualFallbackCopyText(values);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setManualCopyNotice(`${label} ${values.length}개를 복사했습니다.`);
+    } catch {
+      setManualCopyNotice(
+        `${label} 자동 복사에 실패했습니다. 아래 목록을 직접 선택해 복사해 주세요.`,
+      );
+    }
+  };
 
   return (
     <section className="rounded-2xl border border-indigo-200 bg-white p-5 shadow-sm">
@@ -1184,16 +1218,105 @@ function InventoryStockoutGenericPanel() {
                 ? "전체 접수가 끝난 상태가 아닙니다. 아래 실패 사유를 확인하기 전에는 다음 일괄 작업을 시작하지 마세요."
                 : "아직 모든 B코드의 Shopling 전송 접수가 끝나지 않았습니다."}
           </p>
-          {canRetryStoppedRun && directRunCounts ? (
+          {canRetryIncompleteRun && directRunCounts ? (
             <button
               type="button"
-              data-testid="retry-stopped-shopling-run"
-              onClick={() => void retryStoppedDirectRun()}
+              data-testid="retry-incomplete-shopling-run"
+              onClick={() => void retryIncompleteDirectRun()}
               disabled={loading || syncing || !extensionReady}
               className="mt-3 rounded-xl bg-rose-700 px-5 py-2.5 text-sm font-black text-white hover:bg-rose-800 disabled:bg-slate-400"
             >
-              중단된 {directRunCounts.remaining}건 다시 시도
+              미완료 건 {shoplingDirectRunAttempt(directRunProgress) + 1}차 시도
             </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {finalManualFallbackJobs.length ? (
+        <div
+          data-testid="shopling-manual-fallback"
+          className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-4 text-rose-950"
+        >
+          <h3 className="text-base font-black">
+            3차 후 남은 {finalManualFallbackJobs.length}건 · 수동 전송용 목록
+          </h3>
+          <p className="mt-1 text-xs font-bold leading-5">
+            아래 GOODS KEY를 종류별로 복사해 Shopling A21에서 직접 전송하세요.
+            판매중 상품이 옵션 판매를 회복하는 경우에는 상품 판매중전송을 먼저
+            끝낸 뒤 옵션전송을 진행하세요.
+          </p>
+
+          <div className="mt-3 grid gap-3 xl:grid-cols-3">
+            {[
+              {
+                label: "상품 품절전송",
+                values: manualFallbackGroups.soldOutProductGoodsKeys,
+              },
+              {
+                label: "상품 판매중전송",
+                values: manualFallbackGroups.onSaleProductGoodsKeys,
+              },
+              {
+                label: "옵션전송",
+                values: manualFallbackGroups.optionGoodsKeys,
+              },
+            ].map((group) => (
+              <div key={group.label} className="rounded-lg border border-rose-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <strong className="text-sm">{group.label} · {group.values.length}개</strong>
+                  <button
+                    type="button"
+                    disabled={!group.values.length}
+                    onClick={() => void copyManualFallback(group.label, group.values)}
+                    className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black text-white disabled:bg-slate-300"
+                  >
+                    복사
+                  </button>
+                </div>
+                <textarea
+                  readOnly
+                  aria-label={`${group.label} GOODS KEY`}
+                  value={shoplingManualFallbackCopyText(group.values)}
+                  rows={4}
+                  className="mt-2 block w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 font-mono text-xs text-slate-950"
+                />
+              </div>
+            ))}
+          </div>
+
+          {manualFallbackGroups.unresolvedBarcodes.length ? (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
+              <div className="flex items-center justify-between gap-2">
+                <strong className="text-sm">
+                  GOODS KEY 확인 필요 B코드 · {manualFallbackGroups.unresolvedBarcodes.length}개
+                </strong>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void copyManualFallback(
+                      "GOODS KEY 확인 필요 B코드",
+                      manualFallbackGroups.unresolvedBarcodes,
+                    )
+                  }
+                  className="rounded-lg bg-amber-800 px-3 py-1.5 text-xs font-black text-white"
+                >
+                  복사
+                </button>
+              </div>
+              <textarea
+                readOnly
+                aria-label="GOODS KEY 확인 필요 B코드"
+                value={manualFallbackGroups.unresolvedBarcodes.join(",")}
+                rows={2}
+                className="mt-2 block w-full resize-y rounded-lg border border-amber-200 bg-white px-2 py-2 font-mono text-xs text-slate-950"
+              />
+            </div>
+          ) : null}
+
+          {manualCopyNotice ? (
+            <p role="status" className="mt-2 text-xs font-black">
+              {manualCopyNotice}
+            </p>
           ) : null}
         </div>
       ) : null}
