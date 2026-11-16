@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
 import type { InternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
+import { calculateInternalChinaPurchaseCostSummary } from "@/lib/internalChinaPurchaseCostMath";
 import type {
   InternalChinaPurchaseDraft,
   InternalChinaPurchaseDraftLine,
@@ -74,12 +75,6 @@ export function InternalChinaPurchaseDraftWorkspace({
       }
     >();
 
-    let productCny = 0;
-    let freightCny = 0;
-    let totalCny = 0;
-    let totalKrw = 0;
-    let internalStandardTotalKrw = 0;
-
     for (const line of draft.lines) {
       const group = groups.get(lineKey(line)) ?? { quantity: 0, freight: 0 };
       const freightPerUnitCny =
@@ -103,39 +98,32 @@ export function InternalChinaPurchaseDraftWorkspace({
         internalStandardTotalKrw: rowInternalStandardTotalKrw,
       });
 
-      productCny += decimal(line.unitPriceCny) * line.quantity;
-      totalCny += rowTotalCny;
-      totalKrw += rowTotalKrw;
-      internalStandardTotalKrw += rowInternalStandardTotalKrw;
     }
 
-    freightCny = [...groups.values()].reduce(
-      (sum, group) => sum + group.freight,
-      0,
-    );
-
-    const productKrw = productCny * draft.exchangeRateKrwPerCny;
+    const costSummary = calculateInternalChinaPurchaseCostSummary({
+      lines: draft.lines,
+      exchangeRateKrwPerCny: draft.exchangeRateKrwPerCny,
+      internalOrderCostMultiplier: draft.internalOrderCostMultiplier,
+    });
+    const productKrw = costSummary.productCostKrwExact;
     const budgetKrw = budgetAudit.productOrderBudgetKrw;
     const budgetUsedPercent =
       budgetKrw > 0 ? Math.round((productKrw / budgetKrw) * 10_000) / 100 : 0;
     const budgetRemainingKrw = Math.max(0, budgetKrw - productKrw);
     const budgetOverKrw = Math.max(0, productKrw - budgetKrw);
-    const actualPriceCount = draft.lines.filter(
-      (line) => decimal(line.unitPriceCny) > 0,
-    ).length;
-
     return {
       byBarcode,
-      productCny,
+      productCny: costSummary.productCny,
       productKrw,
-      freightCny,
-      totalCny,
-      totalKrw,
-      internalStandardTotalKrw,
+      freightCny: costSummary.domesticChinaAdjustmentCny,
+      totalCny:
+        costSummary.productCny + costSummary.domesticChinaAdjustmentCny,
+      totalKrw: costSummary.actualOrderCostKrwExact,
+      internalStandardTotalKrw: costSummary.internalBaseCostKrwExact,
       budgetUsedPercent,
       budgetRemainingKrw,
       budgetOverKrw,
-      actualPriceCount,
+      actualPriceCount: costSummary.actualPriceCount,
     };
   }, [budgetAudit.productOrderBudgetKrw, draft]);
 

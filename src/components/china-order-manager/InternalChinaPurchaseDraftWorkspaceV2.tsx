@@ -25,6 +25,7 @@ import {
   readPurchaseDraftPendingAutosave,
   writePurchaseDraftPendingAutosave,
 } from "@/lib/internalChinaPurchaseDraftAutosave";
+import { calculateInternalChinaPurchaseCostSummary } from "@/lib/internalChinaPurchaseCostMath";
 
 const number = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const cny = new Intl.NumberFormat("ko-KR", {
@@ -432,16 +433,12 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         internalStandardUnitKrw: number;
       }
     >();
-    let productCny = 0;
-    let totalKrw = 0;
-    let internalStandardTotalKrw = 0;
 
     for (const line of draft.lines) {
       const group = groups.get(lineKey(line)) ?? { quantity: 0, freight: 0 };
       const freightPerUnitCny = group.quantity > 0 ? group.freight / group.quantity : 0;
       const finalUnitCny = decimal(line.unitPriceCny) + freightPerUnitCny;
       const actualUnitKrw = finalUnitCny * draft.exchangeRateKrwPerCny;
-      const rowTotalKrw = actualUnitKrw * line.quantity;
       const internalStandardUnitKrw = actualUnitKrw * draft.internalOrderCostMultiplier;
       byBarcode.set(line.barcode, {
         freightPerUnitCny,
@@ -449,26 +446,28 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         actualUnitKrw,
         internalStandardUnitKrw,
       });
-      productCny += decimal(line.unitPriceCny) * line.quantity;
-      totalKrw += rowTotalKrw;
-      internalStandardTotalKrw += rowTotalKrw * draft.internalOrderCostMultiplier;
     }
-    const freightCny = [...groups.values()].reduce((sum, group) => sum + group.freight, 0);
-    const productKrw = productCny * draft.exchangeRateKrwPerCny;
+    const costSummary = calculateInternalChinaPurchaseCostSummary({
+      lines: draft.lines,
+      exchangeRateKrwPerCny: draft.exchangeRateKrwPerCny,
+      internalOrderCostMultiplier: draft.internalOrderCostMultiplier,
+    });
     const budgetKrw = budgetAudit.productOrderBudgetKrw;
     const budgetUsedPercent =
-      budgetKrw > 0 ? Math.round((productKrw / budgetKrw) * 10_000) / 100 : 0;
+      budgetKrw > 0
+        ? Math.round((costSummary.productCostKrwExact / budgetKrw) * 10_000) / 100
+        : 0;
     return {
       byBarcode,
-      productCny,
-      productKrw,
-      freightCny,
-      totalKrw,
-      internalStandardTotalKrw,
+      productCny: costSummary.productCny,
+      productKrw: costSummary.productCostKrwExact,
+      freightCny: costSummary.domesticChinaAdjustmentCny,
+      totalKrw: costSummary.actualOrderCostKrwExact,
+      internalStandardTotalKrw: costSummary.internalBaseCostKrwExact,
       budgetUsedPercent,
-      budgetRemainingKrw: Math.max(0, budgetKrw - productKrw),
-      budgetOverKrw: Math.max(0, productKrw - budgetKrw),
-      actualPriceCount: draft.lines.filter((line) => decimal(line.unitPriceCny) > 0).length,
+      budgetRemainingKrw: Math.max(0, budgetKrw - costSummary.productCostKrwExact),
+      budgetOverKrw: Math.max(0, costSummary.productCostKrwExact - budgetKrw),
+      actualPriceCount: costSummary.actualPriceCount,
     };
   }, [budgetAudit.productOrderBudgetKrw, draft]);
 

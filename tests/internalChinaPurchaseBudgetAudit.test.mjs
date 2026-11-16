@@ -100,6 +100,8 @@ test("upper audit uses the same quantity-overridden Draft and rounds totals only
   assert.doesNotMatch(page, /draft: baseDraft, ledger/);
   assert.match(audit, /selectedDraftExactProductCostKrw/);
   assert.match(audit, /selectedDraftExactDomesticChinaFreightKrw/);
+  assert.match(audit, /calculateInternalChinaPurchaseCostSummary/);
+  assert.match(workspace, /calculateInternalChinaPurchaseCostSummary/);
   assert.match(audit, /Round only after summing the Draft/);
 });
 
