@@ -5,6 +5,7 @@ import type { CandidatePromotionGate } from "./stage8CandidatePromotionGate";
 import type { PostApplyCanonicalReconciliation } from "./stage8PostApplyCanonicalReconciliation";
 import type { InventoryVerificationPriority, InventoryVerificationPriorityRow } from "./stage8InventoryVerificationPriority";
 import { comparePurchaseStrategyPriority } from "./productDecisionEngine/purchaseStrategyPolicy.ts";
+import { DEFAULT_PAYMENT_FEE_MULTIPLIER } from "./productDecisionEngine/portfolio.ts";
 import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "./purchaseDraftLimits.ts";
 import type { PurchaseCandidateOmissionReviewRow } from "./purchaseCandidateOmissionAudit";
 import type { PurchaseWholesaleCostEstimateSnapshot } from "./purchaseWholesaleCostEstimate";
@@ -194,6 +195,7 @@ export type PurchaseCyclePreflightReport = {
   recordedCycleSpendKrw: number | null;
   remainingMonthlyCashKrw: number;
   effectiveCashKrw: number;
+  paymentFeeMultiplier: number | null;
   purchaseCostMultiplier: number | null;
   estimatedAllInSpendKrw: number;
   estimatedSpendKrw: number;
@@ -738,8 +740,10 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   if (!spendStable) blockers.push("CYCLE_SPEND_CHANGED_OR_UNVERIFIED");
   const recordedCycleSpendKrw = spendStable && input.spendAfter ? input.spendAfter.recordedSpendKrw : null;
   const multiplier = source?.purchaseCostMultiplier;
+  const paymentFeeMultiplier = source?.paymentFeeMultiplier ?? DEFAULT_PAYMENT_FEE_MULTIPLIER;
   const multiplierValid = typeof multiplier === "number" && Number.isFinite(multiplier) && multiplier >= 1 && multiplier <= 3;
-  const fundingValid = positive(source?.grossBudgetKrw) && multiplierValid;
+  const paymentFeeMultiplierValid = typeof paymentFeeMultiplier === "number" && Number.isFinite(paymentFeeMultiplier) && paymentFeeMultiplier >= 1 && paymentFeeMultiplier <= 2;
+  const fundingValid = positive(source?.grossBudgetKrw) && multiplierValid && paymentFeeMultiplierValid;
   if (!fundingValid) blockers.push("GROSS_FUNDING_BASIS_UNVERIFIED");
   const carryoverCashKrw = spendStable && input.spendAfter &&
     nonnegative(input.spendAfter.availableCashKrw)
@@ -770,9 +774,9 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const effectiveBudgetKrw = fundingValid && positive(source?.budgetKrw)
     ? cashLimitKrw === null
       ? carryoverCashKrw === null
-        ? Math.min(source.budgetKrw, Math.floor(reorderCashKrw / multiplier!))
-        : Math.floor(reorderCashKrw / multiplier!)
-      : Math.floor(reorderCashKrw / multiplier!)
+        ? Math.min(source.budgetKrw, Math.floor(reorderCashKrw / multiplier! / paymentFeeMultiplier!))
+        : Math.floor(reorderCashKrw / multiplier! / paymentFeeMultiplier!)
+      : Math.floor(reorderCashKrw / multiplier! / paymentFeeMultiplier!)
     : 0;
   const comparable = source?.comparisonAvailable === true && source.sameAnalysisAsOf === true;
   if (!comparable) reviewBlockers.push("SAME_TIME_LEGACY_COMPARISON_REQUIRED");
@@ -1301,6 +1305,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     budgetKrw: source.budgetKrw,
     inventoryContentFingerprint: source.inventoryContentFingerprint,
     grossBudgetKrw: source.grossBudgetKrw,
+    paymentFeeMultiplier,
     purchaseCostMultiplier: source.purchaseCostMultiplier,
     comparisonAvailable: source.comparisonAvailable,
     sameAnalysisAsOf: source.sameAnalysisAsOf,
@@ -1431,8 +1436,11 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     ownerEstimatedSelectedCount: selected.filter((row) => row.costBasis === "OWNER_APPROXIMATE_PURCHASE_COST_ESTIMATE" || row.costBasis === "OWNER_SIMILAR_PRODUCT_PURCHASE_COST_ESTIMATE").length,
     missingCostCount: candidates.filter((row) => !costBasisByBarcode.get(row.barcode)).length,
     recordedCycleSpendKrw, remainingMonthlyCashKrw, effectiveCashKrw,
+    paymentFeeMultiplier: paymentFeeMultiplierValid ? paymentFeeMultiplier! : null,
     purchaseCostMultiplier: multiplierValid ? multiplier! : null,
-    estimatedAllInSpendKrw: multiplierValid ? Math.ceil(estimatedSpendKrw * multiplier!) : 0,
+    estimatedAllInSpendKrw: multiplierValid && paymentFeeMultiplierValid
+      ? Math.ceil(estimatedSpendKrw * paymentFeeMultiplier! * multiplier!)
+      : 0,
     previewReady, comparisonAvailable: source?.comparisonAvailable === true, comparable,
     comparisonMessage: comparable ? "동일 분석시점의 기존 방식 비교가 있습니다. 실제 승인 전 차이를 검토하세요." : "기존 비교가 없거나 분석시점이 달라 동일 조건 비교로 인정하지 않습니다.",
     stages, blockers: uniqueBlockers, reviewBlockers: uniqueReview, excluded,

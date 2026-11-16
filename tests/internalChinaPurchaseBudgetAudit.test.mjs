@@ -21,6 +21,10 @@ const portfolio = await readFile(
   "src/lib/productDecisionEngine/portfolio.ts",
   "utf8",
 );
+const costPolicy = await readFile(
+  "src/lib/productDecisionEngine/purchaseCostPolicy.ts",
+  "utf8",
+);
 
 test("China order draft budgets from the previous full calendar month", () => {
   assert.match(audit, /monthlyPurchaseCycleForMonth\(draft\.cycleMonth\)/);
@@ -31,11 +35,14 @@ test("China order draft budgets from the previous full calendar month", () => {
   assert.match(audit, /loadCalendarMonthNormalRevenue\(cycle\.budgetMonth\)/);
   assert.match(audit, /budgetMonthRevenueKrw \/ 2/);
   assert.match(audit, /DEFAULT_PURCHASE_COST_MULTIPLIER/);
+  assert.match(audit, /DEFAULT_PAYMENT_FEE_MULTIPLIER/);
   assert.match(audit, /calculateProductOrderBudget/);
   assert.match(audit, /productOrderBudgetKrw/);
   assert.match(audit, /selectedDraftEstimatedProductCostKrw/);
   assert.match(audit, /selectedDraftEstimatedLandedCostKrw/);
-  assert.match(portfolio, /DEFAULT_PURCHASE_COST_MULTIPLIER = 1\.03/);
+  assert.match(portfolio, /purchaseCostPolicy\.ts/);
+  assert.match(costPolicy, /DEFAULT_PURCHASE_COST_MULTIPLIER = 1\.5/);
+  assert.match(costPolicy, /DEFAULT_PAYMENT_FEE_MULTIPLIER = 1\.05/);
   assert.doesNotMatch(audit, /recent30RevenueKrw \/ 2/);
 });
 
@@ -91,7 +98,8 @@ test("calendar-month budget and internal standard cost are visible on the China 
   assert.match(card, /상품대금 발주한도/);
   assert.match(card, /현재 Draft 상품대금/);
   assert.match(card, /내부기준원가/);
-  assert.match(card, /현금 결제 시 사용되는 수수료 2\.4%/);
+  assert.match(card, /결제수수료 1\.05/);
+  assert.match(card, /내부기준원가 1\.50/);
   assert.match(card, /예산 초과/);
 });
 

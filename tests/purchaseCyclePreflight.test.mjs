@@ -31,7 +31,7 @@ const fixture = () => {
     gate: { generatedAt: "2026-10-01T01:59:00.000Z", state: "EXACT_MATCH", safeToApply: true, candidateSalesRequestId: before.requestId, candidatePlanFingerprint: before.planFingerprint, candidateEventFingerprint: before.eventFingerprint, promotionFingerprint: fp("d"), checks: [{ key: "context", passed: true, message: "same" }], message: "checked" },
     reconciliation: { generatedAt: "2026-10-01T01:59:00.000Z", state: "READY", ready: true, fullApplyVerified: true, candidateSalesRequestId: before.requestId, analysisAsOf: before.analysisAsOf, candidatePlanFingerprint: before.planFingerprint, candidateEventFingerprint: before.eventFingerprint, planningContentFingerprint: before.planningContentFingerprint, reconciliationFingerprint: fp("e"), persistedContentFingerprint: fp("f"), checks: [{ key: "full-readback", passed: true, message: "verified" }], message: "readback verified" },
     priority: { generatedAt: "2026-10-01T01:59:00.000Z", state: "READY", writesEnabled: false, purchaseShadowReady: true,
-      source: { analysisAsOf: before.analysisAsOf, planningContentFingerprint: before.planningContentFingerprint, shadowPlanningContentFingerprint: before.planningContentFingerprint, canonicalContentFingerprint: fp("f"), reconciliationFingerprint: fp("e"), cycleMonth: "2026-10", budgetMonth: "2026-09", budgetKrw: 100000, grossBudgetKrw: 145000, purchaseCostMultiplier: 1.45, inventoryGeneratedAt: "2026-10-01T01:59:00Z", inventoryContentFingerprint: fp("2"), comparisonAvailable: true, sameAnalysisAsOf: true, blockerKeys: [] },
+      source: { analysisAsOf: before.analysisAsOf, planningContentFingerprint: before.planningContentFingerprint, shadowPlanningContentFingerprint: before.planningContentFingerprint, canonicalContentFingerprint: fp("f"), reconciliationFingerprint: fp("e"), cycleMonth: "2026-10", budgetMonth: "2026-09", budgetKrw: 100000, grossBudgetKrw: 145000, paymentFeeMultiplier: 1, purchaseCostMultiplier: 1.45, inventoryGeneratedAt: "2026-10-01T01:59:00Z", inventoryContentFingerprint: fp("2"), comparisonAvailable: true, sameAnalysisAsOf: true, blockerKeys: [] },
       rows: [{ barcode: "BAA1-1", name: "SIMULATION ONLY", purchaseStatus: "발주 추천", recommendedQty: 5, expectedCost: 25000, priorityScore: 90, inventoryMode: "VERIFIED", inventoryVerified: true, executionInventoryEligible: true, inventoryCalculationUsable: true, inventoryRequiresReview: false, initialZeroUnverified: false, advisoryOnly: false, inventoryQuantity: 2, openCommitment: 3, hasConfirmedReceiptCost: true, latestConfirmedReceiptAt: "2026-09-01T00:00:00Z", latestConfirmedReceiptCostKrw: 5000, protectedCostKrw: 4000, action: "NONE", operationallyReady: true }],
     },
   };
@@ -56,6 +56,18 @@ test("real stage shapes compose a budget-limited preview, never an approval", ()
   assert.equal(report.requiredBudgetMonth, "2026-09");
   assert.deepEqual(report.stages.map(row => row.number), [5, 6, 7, 8, 9, 10, 11]);
   locked(report);
+});
+
+test("preflight reserves the payment fee separately from the landed-cost multiplier", () => {
+  const input = fixture();
+  input.options.cashLimitKrw = 152_250;
+  input.priority.source.paymentFeeMultiplier = 1.05;
+  input.priority.source.purchaseCostMultiplier = 1.45;
+  const report = buildPurchaseCyclePreflight(input);
+  assert.equal(report.paymentFeeMultiplier, 1.05);
+  assert.equal(report.purchaseCostMultiplier, 1.45);
+  assert.equal(report.effectiveBudgetKrw, 100_000);
+  assert.equal(report.estimatedAllInSpendKrw, Math.ceil(25_000 * 1.05 * 1.45));
 });
 test("an upstream sales-bearing omission blocks Draft save but keeps the advisory preview", () => {
   const input = fixture();

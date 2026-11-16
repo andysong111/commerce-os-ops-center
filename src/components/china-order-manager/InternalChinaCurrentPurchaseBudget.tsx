@@ -5,6 +5,7 @@ import {
 } from "@/lib/monthlyPurchasePolicy";
 import {
   calculateProductOrderBudget,
+  DEFAULT_PAYMENT_FEE_MULTIPLIER,
   DEFAULT_PURCHASE_COST_MULTIPLIER,
 } from "@/lib/productDecisionEngine/portfolio";
 
@@ -16,21 +17,38 @@ export async function InternalChinaCurrentPurchaseBudget({
   cycleMonth: string;
 }) {
   const budgetMonth = previousCalendarMonth(cycleMonth);
+  const revenueResult = await loadCalendarMonthNormalRevenue(budgetMonth).then(
+    (revenue) => ({ revenue, error: null }),
+    (error: unknown) => ({ revenue: null, error }),
+  );
 
-  try {
-    const revenue = await loadCalendarMonthNormalRevenue(budgetMonth);
-    const budgetMonthRevenueKrw = Math.max(0, Math.round(revenue.revenueKrw));
-    const grossCogsBudgetKrw = Math.max(
-      0,
-      Math.round(budgetMonthRevenueKrw / 2),
-    );
-    const productOrderBudgetKrw = calculateProductOrderBudget(
-      grossCogsBudgetKrw,
-      DEFAULT_PURCHASE_COST_MULTIPLIER,
-    );
-
+  if (!revenueResult.revenue) {
     return (
-      <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950 shadow-sm">
+        <strong>{koreanMonthLabel(cycleMonth)} 발주예산을 불러오지 못했습니다.</strong>
+        <p className="mt-1 text-xs leading-5">
+          {revenueResult.error instanceof Error
+            ? revenueResult.error.message
+            : "MONTHLY_PURCHASE_BUDGET_UNAVAILABLE"}
+        </p>
+      </section>
+    );
+  }
+
+  const revenue = revenueResult.revenue;
+  const budgetMonthRevenueKrw = Math.max(0, Math.round(revenue.revenueKrw));
+  const grossCogsBudgetKrw = Math.max(
+    0,
+    Math.round(budgetMonthRevenueKrw / 2),
+  );
+  const productOrderBudgetKrw = calculateProductOrderBudget(
+    grossCogsBudgetKrw,
+    DEFAULT_PURCHASE_COST_MULTIPLIER,
+    DEFAULT_PAYMENT_FEE_MULTIPLIER,
+  );
+
+  return (
+    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <span className="text-xs font-black tracking-[0.12em] text-blue-700">
@@ -48,7 +66,7 @@ export async function InternalChinaCurrentPurchaseBudget({
           </span>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <BudgetMetric
             label={`${koreanMonthLabel(budgetMonth)} 발주예산 기준매출`}
             value={`${money.format(budgetMonthRevenueKrw)}원`}
@@ -63,26 +81,21 @@ export async function InternalChinaCurrentPurchaseBudget({
           <BudgetMetric
             label="상품대금 발주한도"
             value={`${money.format(productOrderBudgetKrw)}원`}
-            note={`전체 지출가능금액 ÷ ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`}
+            note={`전체 지출가능금액 ÷ ${DEFAULT_PAYMENT_FEE_MULTIPLIER.toFixed(2)} ÷ ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`}
+          />
+          <BudgetMetric
+            label="결제수수료 배수"
+            value={DEFAULT_PAYMENT_FEE_MULTIPLIER.toFixed(2)}
+            note="현금 결제에 실제 적용"
           />
           <BudgetMetric
             label="내부 원가배수"
             value={DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}
-            note="배송·부대비용 포함 발주 계산 기준"
+            note="한국 도착까지 배송대행·관부가세 등 포함"
           />
         </div>
-      </section>
-    );
-  } catch (error) {
-    return (
-      <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950 shadow-sm">
-        <strong>{koreanMonthLabel(cycleMonth)} 발주예산을 불러오지 못했습니다.</strong>
-        <p className="mt-1 text-xs leading-5">
-          {error instanceof Error ? error.message : "MONTHLY_PURCHASE_BUDGET_UNAVAILABLE"}
-        </p>
-      </section>
-    );
-  }
+    </section>
+  );
 }
 
 function BudgetMetric({

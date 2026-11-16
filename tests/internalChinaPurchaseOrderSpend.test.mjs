@@ -12,9 +12,9 @@ test("ordered purchase spend includes product cost and China domestic freight", 
       { quantity: 5, unitPriceCny: 5, domesticChinaFreightCny: 5 },
     ],
     exchangeRateKrwPerCny: 230,
-    internalOrderCostMultiplier: 1.45,
+    paymentFeeMultiplier: 1.05,
   });
-  assert.equal(amount, Math.round(55 * 230 * 1.45));
+  assert.equal(amount, Math.round(55 * 230 * 1.05));
 });
 
 test("ordered purchase spend fails closed when price evidence is incomplete", () => {
@@ -22,7 +22,7 @@ test("ordered purchase spend fails closed when price evidence is incomplete", ()
     () => calculateInternalChinaOrderedSpendKrw({
       lines: [{ quantity: 10, unitPriceCny: 0, domesticChinaFreightCny: 0 }],
       exchangeRateKrwPerCny: 230,
-      internalOrderCostMultiplier: 1.45,
+      paymentFeeMultiplier: 1.05,
     }),
     /INTERNAL_CHINA_ORDER_SPEND_UNVERIFIED/,
   );
@@ -30,7 +30,7 @@ test("ordered purchase spend fails closed when price evidence is incomplete", ()
     () => calculateInternalChinaOrderedSpendKrw({
       lines: [],
       exchangeRateKrwPerCny: 230,
-      internalOrderCostMultiplier: 1.45,
+      paymentFeeMultiplier: 1.05,
     }),
     /INTERNAL_CHINA_ORDER_SPEND_UNVERIFIED/,
   );

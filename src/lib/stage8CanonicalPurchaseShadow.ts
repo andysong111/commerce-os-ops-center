@@ -4,6 +4,7 @@ import {
   monthlyPurchaseCycleFor,
 } from "@/lib/monthlyPurchasePolicy";
 import {
+  DEFAULT_PAYMENT_FEE_MULTIPLIER,
   DEFAULT_PURCHASE_COST_MULTIPLIER,
 } from "@/lib/productDecisionEngine/portfolio";
 import {
@@ -393,7 +394,7 @@ export async function loadCanonicalPurchaseShadow(
           budgetBasis:
             `${koreanMonthLabel(cycle.budgetMonth)} 1일~말일 정상매출 ` +
             `${purchaseBudgetMonthRevenue.toLocaleString("ko-KR")}원 ÷ 2 · ` +
-            `현금 결제 수수료 2.4%를 올림한 배수 ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`,
+            `결제수수료 배수 ${DEFAULT_PAYMENT_FEE_MULTIPLIER.toFixed(2)} · 한국 도착 내부기준원가 배수 ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`,
         };
         if ((snapshot.products ?? []).length !== exactPlanningMatchCount) {
           blockers.push({

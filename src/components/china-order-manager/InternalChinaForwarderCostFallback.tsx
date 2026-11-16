@@ -38,7 +38,7 @@ export function InternalChinaForwarderCostFallback({
     }
     if (
       !window.confirm(
-        `${monthLabel(cycleMonth)} 배송대행지 실제비용 ${number.format(actualCostKrw)}원을 반영해 실제 원가배수를 확정할까요?\n\n실제 원가배수 = (상품 총 매입금액 + 배송대행지 실제비용) ÷ 상품 총 매입금액\n최종 SKU 매입원가 = (상품원가 × 실제 원가배수) + 중국내운임\n\n이 확정원가는 이후 가격조정 판단에 사용됩니다.`,
+        `${monthLabel(cycleMonth)} 배송대행지 실제비용 ${number.format(actualCostKrw)}원을 반영해 실제 한국 도착 원가배수를 확정할까요?\n\n결제원가 = (상품대금 + 중국내운임·할인/가감) × 1.05\n실제 도착 원가배수 = (결제원가 + 배송대행지 실제비용) ÷ 결제원가\n최종 SKU 매입원가 = SKU별 결제원가 × 실제 도착 원가배수\n\n이 확정원가는 이후 가격조정 판단에 사용됩니다.`,
       )
     ) {
       return;
@@ -93,7 +93,7 @@ export function InternalChinaForwarderCostFallback({
             배송대행지 비용 · 실제 원가 마감
           </h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            관세·부가세·바코드 스티커 작업 등을 포함한 배송대행지 최종 청구액 하나를 입력하면 현금결제 수수료 3% 기준의 임시 1.03 대신 실제 원가배수를 확정합니다.
+            관세·부가세·바코드 스티커 작업 등을 포함한 배송대행지 최종 청구액을 입력하면 결제수수료 1.05는 유지하고, 임시 한국 도착 내부기준원가 1.50을 실제 원가배수로 교체합니다.
           </p>
           <p className="mt-1 font-mono text-[11px] text-slate-400">{draftId}</p>
         </div>
@@ -123,7 +123,7 @@ export function InternalChinaForwarderCostFallback({
             className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-right font-black outline-none focus:border-blue-500"
           />
           <span className="mt-1 block text-[11px] text-slate-500">
-            실제 원가배수 계산 후 상품원가에 곱하고, 중국내운임은 마지막에 별도로 더합니다.
+            상품대금과 중국내운임·할인/가감에 결제수수료 1.05를 적용한 뒤 실제 배송대행비를 배분합니다.
           </span>
         </div>
         <button

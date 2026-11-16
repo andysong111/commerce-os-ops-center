@@ -86,3 +86,17 @@ test("legacy ordered snapshot derives spend only from complete price evidence", 
     /CYCLE_SPEND_AMOUNT_UNVERIFIED/,
   );
 });
+
+test("new ordered snapshots use payment fee only and accept a signed final-payment discount", () => {
+  const result = purchaseBudgetCarryoverBasis("2026-10", [
+    row("separated-policy", {
+      cycleMonth: "2026-10",
+      status: "ORDERED",
+      exchangeRateKrwPerCny: 230,
+      paymentFeeMultiplier: 1.05,
+      internalOrderCostMultiplier: 1.5,
+      lines: [{ quantity: 10, unitPriceCny: 2, domesticChinaFreightCny: -1 }],
+    }),
+  ]);
+  assert.equal(result.recordedSpendKrw, Math.round(19 * 230 * 1.05));
+});

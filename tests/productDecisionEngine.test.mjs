@@ -438,6 +438,7 @@ test("net requirement subtracts confirmed stock and the larger single incoming l
 test("portfolio allocation applies minimum order economics before score-ordered budget allocation", () => {
   const result = allocatePurchasePortfolio({
     recent30DayRevenue: 300_000,
+    paymentFeeMultiplier: 1,
     purchaseCostMultiplier: 1.5,
     minimumOrderAmount: 5_000,
     items: [

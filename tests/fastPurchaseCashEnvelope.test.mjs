@@ -39,12 +39,13 @@ const items = [
 test("legacy explicit cash envelope still overrides only the gross funding cap", () => {
   const result = allocatePurchasePortfolio({
     recent30DayRevenue: 9_000_000,
-    grossBudgetOverrideKrw: 145_000,
+    grossBudgetOverrideKrw: 152_250,
     purchaseCostMultiplier: 1.45,
     minimumOrderAmount: 0,
     items,
   });
-  assert.equal(result.grossBudget, 145_000);
+  assert.equal(result.grossBudget, 152_250);
+  assert.equal(result.paymentFeeMultiplier, 1.05);
   assert.equal(result.productOrderBudget, 100_000);
   assert.equal(result.expectedSpend, 100_000);
   assert.deepEqual(
@@ -60,7 +61,7 @@ test("legacy explicit cash envelope still overrides only the gross funding cap",
 test("legacy cash envelope preserves existing group priority before score", () => {
   const result = allocatePurchasePortfolio({
     recent30DayRevenue: 9_000_000,
-    grossBudgetOverrideKrw: 87_000,
+    grossBudgetOverrideKrw: 91_350,
     purchaseCostMultiplier: 1.45,
     minimumOrderAmount: 0,
     items,
@@ -73,15 +74,15 @@ test("legacy cash envelope preserves existing group priority before score", () =
 
 test("omitting legacy cash envelope keeps the original revenue based budget", () => {
   const result = allocatePurchasePortfolio({
-    recent30DayRevenue: 290_000,
+    recent30DayRevenue: 304_500,
     purchaseCostMultiplier: 1.45,
     minimumOrderAmount: 0,
     items: [],
   });
-  assert.equal(result.grossBudget, 145_000);
+  assert.equal(result.grossBudget, 152_250);
   assert.equal(
     result.productOrderBudget,
-    calculateProductOrderBudget(145_000, 1.45),
+    calculateProductOrderBudget(152_250, 1.45, 1.05),
   );
 });
 

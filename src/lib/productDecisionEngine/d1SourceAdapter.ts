@@ -5,6 +5,7 @@ import {
 } from "./index.ts";
 import {
   DEFAULT_MINIMUM_ORDER_AMOUNT,
+  DEFAULT_PAYMENT_FEE_MULTIPLIER,
   DEFAULT_PURCHASE_COST_MULTIPLIER,
 } from "./portfolio.ts";
 
@@ -45,6 +46,7 @@ export type D1ProductDecisionSource = {
   runId: string;
   analysisAsOf: string;
   recent30DayRevenue: number;
+  paymentFeeMultiplier: number;
   purchaseCostMultiplier: number;
   minimumOrderAmount: number;
   products: D1ProductEngineInput[];
@@ -255,6 +257,7 @@ export function buildProductDecisionSourceFromD1(
     runId,
     analysisAsOf,
     recent30DayRevenue: Math.round(recent30DayRevenue),
+    paymentFeeMultiplier: DEFAULT_PAYMENT_FEE_MULTIPLIER,
     purchaseCostMultiplier: boundedNumber(
       settings.get("purchase_cost_multiplier"),
       1,
@@ -280,6 +283,7 @@ export function replayProductDecisionFromD1(
     plan: calculateProductDecisionPlan({
       generatedAt: source.analysisAsOf,
       recent30DayRevenue: source.recent30DayRevenue,
+      paymentFeeMultiplier: source.paymentFeeMultiplier,
       purchaseCostMultiplier: source.purchaseCostMultiplier,
       minimumOrderAmount: source.minimumOrderAmount,
       products: source.products,

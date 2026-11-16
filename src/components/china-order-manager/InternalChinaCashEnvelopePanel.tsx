@@ -55,6 +55,7 @@ type CashEnvelopeReport = {
   effectiveCashKrw: number;
   cashClamped: boolean;
   purchaseCostMultiplier: number;
+  paymentFeeMultiplier: number;
   productOrderBudgetKrw: number;
   expectedProductSpendKrw: number;
   expectedAllInSpendKrw: number;
@@ -372,7 +373,7 @@ export function InternalChinaCashEnvelopePanel({
             <ResultMetric label="적용 현금" value={`${money.format(report.effectiveCashKrw)}원`} />
             <ResultMetric label="상품대금 안전한도" value={`${money.format(report.productOrderBudgetKrw)}원`} />
             <ResultMetric label="예상 상품대금" value={`${money.format(report.expectedProductSpendKrw)}원`} />
-            <ResultMetric label={`예상 총비용 · ×${report.purchaseCostMultiplier.toFixed(2)}`} value={`${money.format(report.expectedAllInSpendKrw)}원`} />
+            <ResultMetric label={`예상 총비용 · 결제 ×${report.paymentFeeMultiplier.toFixed(2)} · 도착 ×${report.purchaseCostMultiplier.toFixed(2)}`} value={`${money.format(report.expectedAllInSpendKrw)}원`} />
             <ResultMetric label="예상 잔여현금" value={`${money.format(report.remainingCashKrw)}원`} />
           </div>
 
