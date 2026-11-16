@@ -21,6 +21,10 @@ const portfolio = await readFile(
   "src/lib/productDecisionEngine/portfolio.ts",
   "utf8",
 );
+const costPolicy = await readFile(
+  "src/lib/productDecisionEngine/purchaseCostPolicy.ts",
+  "utf8",
+);
 
 test("China order draft budgets from the previous full calendar month", () => {
   assert.match(audit, /monthlyPurchaseCycleForMonth\(draft\.cycleMonth\)/);
@@ -36,8 +40,9 @@ test("China order draft budgets from the previous full calendar month", () => {
   assert.match(audit, /productOrderBudgetKrw/);
   assert.match(audit, /selectedDraftEstimatedProductCostKrw/);
   assert.match(audit, /selectedDraftEstimatedLandedCostKrw/);
-  assert.match(portfolio, /DEFAULT_PURCHASE_COST_MULTIPLIER = 1\.5/);
-  assert.match(portfolio, /DEFAULT_PAYMENT_FEE_MULTIPLIER = 1\.05/);
+  assert.match(portfolio, /purchaseCostPolicy\.ts/);
+  assert.match(costPolicy, /DEFAULT_PURCHASE_COST_MULTIPLIER = 1\.5/);
+  assert.match(costPolicy, /DEFAULT_PAYMENT_FEE_MULTIPLIER = 1\.05/);
   assert.doesNotMatch(audit, /recent30RevenueKrw \/ 2/);
 });
 

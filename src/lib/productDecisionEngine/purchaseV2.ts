@@ -1,7 +1,7 @@
 import {
   DEFAULT_PAYMENT_FEE_MULTIPLIER,
   DEFAULT_PURCHASE_COST_MULTIPLIER,
-} from "./portfolio.ts";
+} from "./purchaseCostPolicy.ts";
 
 export const PURCHASE_V2_RULE_VERSION =
   "commerce-os-purchase-v2.0.1-separated-payment-landed-cost";
