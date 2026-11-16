@@ -1,9 +1,11 @@
 import type { SalesOrderGroup } from "./salesOrder.ts";
 import { comparePurchaseStrategyPriority, type RisingStrength } from "./purchaseStrategyPolicy.ts";
 
-// Cash payment currently costs 2.4%. The owner-approved planning policy rounds
-// that fee up to a conservative 3% so every new/open Draft uses one basis.
-export const DEFAULT_PURCHASE_COST_MULTIPLIER = 1.03;
+// Owner-approved policies are deliberately separate:
+// - landed-cost multiplier: estimated forwarding/import/arrival cost to Korea
+// - payment-fee multiplier: cash/payment processing cost at supplier payment time
+export const DEFAULT_PURCHASE_COST_MULTIPLIER = 1.5;
+export const DEFAULT_PAYMENT_FEE_MULTIPLIER = 1.05;
 export const MIN_PURCHASE_COST_MULTIPLIER = 1;
 export const MAX_PURCHASE_COST_MULTIPLIER = 3;
 export const DEFAULT_MINIMUM_ORDER_AMOUNT = 5_000;
@@ -41,6 +43,7 @@ export type PortfolioAllocationInput = {
   recent30DayRevenue: number;
   grossBudgetOverrideKrw?: number;
   purchaseCostMultiplier?: number;
+  paymentFeeMultiplier?: number;
   minimumOrderAmount?: number;
   items: PortfolioItemInput[];
 };
@@ -48,6 +51,7 @@ export type PortfolioAllocationInput = {
 export type PortfolioAllocationResult = {
   grossBudget: number;
   purchaseCostMultiplier: number;
+  paymentFeeMultiplier: number;
   productOrderBudget: number;
   remainingBudget: number;
   expectedSpend: number;
@@ -69,13 +73,24 @@ function normalizeMultiplier(value: unknown) {
   );
 }
 
+function normalizePaymentFeeMultiplier(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_PAYMENT_FEE_MULTIPLIER;
+  return Math.min(1.5, Math.max(1, Math.round(parsed * 100) / 100));
+}
+
 export function calculateProductOrderBudget(
   grossBudget: number,
   multiplier: number,
+  paymentFeeMultiplier = DEFAULT_PAYMENT_FEE_MULTIPLIER,
 ) {
   return Math.max(
     0,
-    Math.floor(Math.max(0, grossBudget) / normalizeMultiplier(multiplier)),
+    Math.floor(
+      Math.max(0, grossBudget) /
+        normalizeMultiplier(multiplier) /
+        normalizePaymentFeeMultiplier(paymentFeeMultiplier),
+    ),
   );
 }
 
@@ -124,9 +139,13 @@ export function allocatePurchasePortfolio(
   const purchaseCostMultiplier = normalizeMultiplier(
     input.purchaseCostMultiplier,
   );
+  const paymentFeeMultiplier = normalizePaymentFeeMultiplier(
+    input.paymentFeeMultiplier,
+  );
   const productOrderBudget = calculateProductOrderBudget(
     grossBudget,
     purchaseCostMultiplier,
+    paymentFeeMultiplier,
   );
   const minimumOrderAmount = Math.max(
     0,
@@ -236,6 +255,7 @@ export function allocatePurchasePortfolio(
   return {
     grossBudget,
     purchaseCostMultiplier,
+    paymentFeeMultiplier,
     productOrderBudget,
     remainingBudget,
     expectedSpend,

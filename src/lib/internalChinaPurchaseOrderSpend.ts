@@ -7,13 +7,13 @@ export type InternalChinaPurchaseOrderSpendLine = {
 export function calculateInternalChinaOrderedSpendKrw(input: {
   lines: InternalChinaPurchaseOrderSpendLine[];
   exchangeRateKrwPerCny: number;
-  internalOrderCostMultiplier: number;
+  paymentFeeMultiplier: number;
 }) {
   if (
     !Number.isFinite(input.exchangeRateKrwPerCny) ||
     input.exchangeRateKrwPerCny <= 0 ||
-    !Number.isFinite(input.internalOrderCostMultiplier) ||
-    input.internalOrderCostMultiplier <= 0 ||
+    !Number.isFinite(input.paymentFeeMultiplier) ||
+    input.paymentFeeMultiplier < 1 ||
     input.lines.length === 0
   ) {
     throw new Error("INTERNAL_CHINA_ORDER_SPEND_UNVERIFIED");
@@ -33,7 +33,7 @@ export function calculateInternalChinaOrderedSpendKrw(input: {
   }, 0);
 
   const amountKrw = Math.round(
-    totalCny * input.exchangeRateKrwPerCny * input.internalOrderCostMultiplier,
+    totalCny * input.exchangeRateKrwPerCny * input.paymentFeeMultiplier,
   );
   if (!Number.isSafeInteger(amountKrw) || amountKrw <= 0) {
     throw new Error("INTERNAL_CHINA_ORDER_SPEND_UNVERIFIED");

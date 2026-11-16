@@ -7,6 +7,7 @@ import { loadProductMasterCanonicalSalesAudit } from "@/lib/productMasterCanonic
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import {
   PURCHASE_V2_DEFAULT_COST_MULTIPLIER,
+  PURCHASE_V2_DEFAULT_PAYMENT_FEE_MULTIPLIER,
   PURCHASE_V2_DEFAULT_MINIMUM_LINE_KRW,
   PURCHASE_V2_RULE_VERSION,
   allocatePurchaseV2Portfolio,
@@ -69,6 +70,7 @@ export type FastPurchaseCashEnvelopeReport = {
   effectiveCashKrw: number;
   cashClamped: boolean;
   purchaseCostMultiplier: number;
+  paymentFeeMultiplier: number;
   productOrderBudgetKrw: number;
   expectedProductSpendKrw: number;
   expectedAllInSpendKrw: number;
@@ -117,6 +119,7 @@ function blockedReport(input: {
     maxAdditionalGrossBudgetKrw, effectiveCashKrw: 0,
     cashClamped: input.requestedCashKrw > maxAdditionalGrossBudgetKrw,
     purchaseCostMultiplier: PURCHASE_V2_DEFAULT_COST_MULTIPLIER,
+    paymentFeeMultiplier: PURCHASE_V2_DEFAULT_PAYMENT_FEE_MULTIPLIER,
     productOrderBudgetKrw: 0, expectedProductSpendKrw: 0, expectedAllInSpendKrw: 0,
     remainingCashKrw: 0, recommendedSkuCount: 0, allocatedSkuCount: 0,
     budgetReducedSkuCount: 0, exactInventorySkuCount: 0, inventoryReviewSkuCount: 0,
@@ -202,6 +205,7 @@ export async function loadFastPurchaseCashEnvelope(cashInputKrw: unknown): Promi
   }).filter((row): row is NonNullable<typeof row> => Boolean(row));
   const allocation = allocatePurchaseV2Portfolio({
     grossCashBudgetKrw: effectiveCashKrw, purchaseCostMultiplier: PURCHASE_V2_DEFAULT_COST_MULTIPLIER,
+    paymentFeeMultiplier: PURCHASE_V2_DEFAULT_PAYMENT_FEE_MULTIPLIER,
     minimumLineAmountKrw: PURCHASE_V2_DEFAULT_MINIMUM_LINE_KRW, products,
   });
   const rows: FastPurchaseCashEnvelopeRow[] = allocation.products.map((row) => {
@@ -227,6 +231,8 @@ export async function loadFastPurchaseCashEnvelope(cashInputKrw: unknown): Promi
     requestedCashKrw, effectiveCashKrw, canonicalFingerprint: audit.snapshot?.contentFingerprint,
     stockFingerprint: stockControl.fingerprint, feedbackFingerprint: feedback.fingerprint,
     commitmentRows: [...commitments.commitments.entries()].sort(([left], [right]) => left.localeCompare(right)),
+    purchaseCostMultiplier: allocation.purchaseCostMultiplier,
+    paymentFeeMultiplier: allocation.paymentFeeMultiplier,
     rows: rows.map((row) => ({
       barcode: row.barcode, pattern: row.pattern, decision: row.decision, forecast30Quantity: row.forecast30Quantity,
       target44Quantity: row.target44Quantity, inventoryLowQuantity: row.inventoryLowQuantity,
@@ -244,6 +250,7 @@ export async function loadFastPurchaseCashEnvelope(cashInputKrw: unknown): Promi
     budgetMonth: shadow.purchaseBudgetMonth, requestedCashKrw, maxGrossBudgetKrw, recorded1688SpendKrw,
     maxAdditionalGrossBudgetKrw, effectiveCashKrw, cashClamped,
     purchaseCostMultiplier: allocation.purchaseCostMultiplier, productOrderBudgetKrw: allocation.productOrderBudgetKrw,
+    paymentFeeMultiplier: allocation.paymentFeeMultiplier,
     expectedProductSpendKrw: allocation.expectedProductSpendKrw, expectedAllInSpendKrw: allocation.expectedAllInSpendKrw,
     remainingCashKrw: allocation.remainingGrossCashKrw, recommendedSkuCount: allocation.recommendedSkuCount,
     allocatedSkuCount: allocation.allocatedSkuCount, budgetReducedSkuCount: allocation.budgetReducedSkuCount,

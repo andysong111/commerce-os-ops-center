@@ -1,9 +1,17 @@
+import {
+  DEFAULT_PAYMENT_FEE_MULTIPLIER,
+  DEFAULT_PURCHASE_COST_MULTIPLIER,
+} from "./portfolio.ts";
+
 export const PURCHASE_V2_RULE_VERSION =
-  "commerce-os-purchase-v2.0.0-cash-and-stock-control";
+  "commerce-os-purchase-v2.0.1-separated-payment-landed-cost";
 export const PURCHASE_V2_COVERAGE_DAYS = 44;
 export const PURCHASE_V2_LEAD_DAYS = 14;
 export const PURCHASE_V2_ORDER_CYCLE_DAYS = 30;
-export const PURCHASE_V2_DEFAULT_COST_MULTIPLIER = 1.03;
+export const PURCHASE_V2_DEFAULT_COST_MULTIPLIER =
+  DEFAULT_PURCHASE_COST_MULTIPLIER;
+export const PURCHASE_V2_DEFAULT_PAYMENT_FEE_MULTIPLIER =
+  DEFAULT_PAYMENT_FEE_MULTIPLIER;
 export const PURCHASE_V2_DEFAULT_MINIMUM_LINE_KRW = 5_000;
 
 export type PurchaseV2Pattern =
@@ -112,6 +120,7 @@ export type PurchaseV2AllocatedProduct = PurchaseV2ProductResult & {
 export type PurchaseV2PortfolioInput = {
   grossCashBudgetKrw: number;
   purchaseCostMultiplier?: number;
+  paymentFeeMultiplier?: number;
   minimumLineAmountKrw?: number;
   products: PurchaseV2ProductResult[];
 };
@@ -120,6 +129,7 @@ export type PurchaseV2PortfolioResult = {
   ruleVersion: string;
   grossCashBudgetKrw: number;
   purchaseCostMultiplier: number;
+  paymentFeeMultiplier: number;
   productOrderBudgetKrw: number;
   expectedProductSpendKrw: number;
   expectedAllInSpendKrw: number;
@@ -588,6 +598,14 @@ function normalizedCostMultiplier(value: unknown) {
   return clamp(Math.round(parsed * 100) / 100, 1, 3);
 }
 
+function normalizedPaymentFeeMultiplier(value: unknown) {
+  const parsed = number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return PURCHASE_V2_DEFAULT_PAYMENT_FEE_MULTIPLIER;
+  }
+  return clamp(Math.round(parsed * 100) / 100, 1, 1.5);
+}
+
 function emptyRoundRecord(): Record<PurchaseV2AllocationRound, number> {
   return {
     URGENT_14_DAY: 0,
@@ -615,8 +633,11 @@ export function allocatePurchaseV2Portfolio(
   const purchaseCostMultiplier = normalizedCostMultiplier(
     input.purchaseCostMultiplier,
   );
+  const paymentFeeMultiplier = normalizedPaymentFeeMultiplier(
+    input.paymentFeeMultiplier,
+  );
   const productOrderBudgetKrw = Math.floor(
-    grossCashBudgetKrw / purchaseCostMultiplier,
+    grossCashBudgetKrw / purchaseCostMultiplier / paymentFeeMultiplier,
   );
   const minimumLineAmountKrw = money(
     input.minimumLineAmountKrw ?? PURCHASE_V2_DEFAULT_MINIMUM_LINE_KRW,
@@ -720,13 +741,18 @@ export function allocatePurchaseV2Portfolio(
   );
   const expectedAllInSpendKrw = Math.min(
     grossCashBudgetKrw,
-    Math.round(expectedProductSpendKrw * purchaseCostMultiplier),
+    Math.round(
+      expectedProductSpendKrw *
+        purchaseCostMultiplier *
+        paymentFeeMultiplier,
+    ),
   );
 
   return {
     ruleVersion: PURCHASE_V2_RULE_VERSION,
     grossCashBudgetKrw,
     purchaseCostMultiplier,
+    paymentFeeMultiplier,
     productOrderBudgetKrw,
     expectedProductSpendKrw,
     expectedAllInSpendKrw,

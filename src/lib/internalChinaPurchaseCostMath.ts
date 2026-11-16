@@ -9,10 +9,12 @@ export type InternalChinaPurchaseCostSummary = {
   domesticChinaAdjustmentCny: number;
   productCostKrwExact: number;
   domesticChinaAdjustmentKrwExact: number;
+  paymentFeeKrwExact: number;
   actualOrderCostKrwExact: number;
   internalBaseCostKrwExact: number;
   productCostKrw: number;
   domesticChinaAdjustmentKrw: number;
+  paymentFeeKrw: number;
   actualOrderCostKrw: number;
   internalBaseCostKrw: number;
   actualPriceCount: number;
@@ -40,9 +42,11 @@ function roundedKrw(value: number) {
 export function calculateInternalChinaPurchaseCostSummary(input: {
   lines: InternalChinaPurchaseCostLine[];
   exchangeRateKrwPerCny: number;
+  paymentFeeMultiplier: number;
   internalOrderCostMultiplier: number;
 }): InternalChinaPurchaseCostSummary {
   const exchangeRateKrwPerCny = nonNegative(input.exchangeRateKrwPerCny);
+  const paymentFeeMultiplier = Math.max(1, nonNegative(input.paymentFeeMultiplier));
   const internalOrderCostMultiplier = nonNegative(input.internalOrderCostMultiplier);
   let productCny = 0;
   let domesticChinaAdjustmentCny = 0;
@@ -59,10 +63,14 @@ export function calculateInternalChinaPurchaseCostSummary(input: {
   const productCostKrwExact = productCny * exchangeRateKrwPerCny;
   const domesticChinaAdjustmentKrwExact =
     domesticChinaAdjustmentCny * exchangeRateKrwPerCny;
-  const actualOrderCostKrwExact = Math.max(
+  const preFeeOrderCostKrwExact = Math.max(
     0,
     productCostKrwExact + domesticChinaAdjustmentKrwExact,
   );
+  const actualOrderCostKrwExact =
+    preFeeOrderCostKrwExact * paymentFeeMultiplier;
+  const paymentFeeKrwExact =
+    actualOrderCostKrwExact - preFeeOrderCostKrwExact;
   const internalBaseCostKrwExact =
     actualOrderCostKrwExact * internalOrderCostMultiplier;
 
@@ -71,10 +79,12 @@ export function calculateInternalChinaPurchaseCostSummary(input: {
     domesticChinaAdjustmentCny,
     productCostKrwExact,
     domesticChinaAdjustmentKrwExact,
+    paymentFeeKrwExact,
     actualOrderCostKrwExact,
     internalBaseCostKrwExact,
     productCostKrw: roundedKrw(productCostKrwExact),
     domesticChinaAdjustmentKrw: Math.round(domesticChinaAdjustmentKrwExact),
+    paymentFeeKrw: roundedKrw(paymentFeeKrwExact),
     actualOrderCostKrw: roundedKrw(actualOrderCostKrwExact),
     internalBaseCostKrw: roundedKrw(internalBaseCostKrwExact),
     actualPriceCount,

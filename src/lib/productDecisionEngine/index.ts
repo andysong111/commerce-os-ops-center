@@ -32,6 +32,7 @@ export type ProductDecisionPlanInput = {
   generatedAt: string;
   recent30DayRevenue: number;
   purchaseCostMultiplier?: number;
+  paymentFeeMultiplier?: number;
   minimumOrderAmount?: number;
   products: ProductDecisionEngineProductInput[];
 };
@@ -52,6 +53,7 @@ export type ProductDecisionPlan = {
   grossBudget: number;
   productOrderBudget: number;
   purchaseCostMultiplier: number;
+  paymentFeeMultiplier: number;
   remainingBudget: number;
   expectedSpend: number;
   groupCounts: PortfolioAllocationResult["groupCounts"];
@@ -89,6 +91,7 @@ export function calculateProductDecisionPlan(
   const allocation = allocatePurchasePortfolio({
     recent30DayRevenue: input.recent30DayRevenue,
     purchaseCostMultiplier: input.purchaseCostMultiplier,
+    paymentFeeMultiplier: input.paymentFeeMultiplier,
     minimumOrderAmount: input.minimumOrderAmount,
     items: demandCalculations.map((entry) => ({
       barcode: entry.input.barcode,
@@ -136,6 +139,7 @@ export function calculateProductDecisionPlan(
     grossBudget: allocation.grossBudget,
     productOrderBudget: allocation.productOrderBudget,
     purchaseCostMultiplier: allocation.purchaseCostMultiplier,
+    paymentFeeMultiplier: allocation.paymentFeeMultiplier,
     remainingBudget: allocation.remainingBudget,
     expectedSpend: allocation.expectedSpend,
     groupCounts: allocation.groupCounts,

@@ -81,8 +81,9 @@ export function InternalChinaPurchaseDraftWorkspace({
         group.quantity > 0 ? group.freight / group.quantity : 0;
       const finalUnitCny = decimal(line.unitPriceCny) + freightPerUnitCny;
       const rowTotalCny = finalUnitCny * line.quantity;
-      const actualUnitKrw = finalUnitCny * draft.exchangeRateKrwPerCny;
-      const rowTotalKrw = rowTotalCny * draft.exchangeRateKrwPerCny;
+      const actualUnitKrw =
+        finalUnitCny * draft.exchangeRateKrwPerCny * draft.paymentFeeMultiplier;
+      const rowTotalKrw = actualUnitKrw * line.quantity;
       const internalStandardUnitKrw =
         actualUnitKrw * draft.internalOrderCostMultiplier;
       const rowInternalStandardTotalKrw =
@@ -103,6 +104,7 @@ export function InternalChinaPurchaseDraftWorkspace({
     const costSummary = calculateInternalChinaPurchaseCostSummary({
       lines: draft.lines,
       exchangeRateKrwPerCny: draft.exchangeRateKrwPerCny,
+      paymentFeeMultiplier: draft.paymentFeeMultiplier,
       internalOrderCostMultiplier: draft.internalOrderCostMultiplier,
     });
     const productKrw = costSummary.productCostKrwExact;
@@ -116,6 +118,7 @@ export function InternalChinaPurchaseDraftWorkspace({
       productCny: costSummary.productCny,
       productKrw,
       freightCny: costSummary.domesticChinaAdjustmentCny,
+      paymentFeeKrw: costSummary.paymentFeeKrwExact,
       totalCny:
         costSummary.productCny + costSummary.domesticChinaAdjustmentCny,
       totalKrw: costSummary.actualOrderCostKrwExact,
@@ -308,7 +311,7 @@ export function InternalChinaPurchaseDraftWorkspace({
                 원
               </strong>
               <span className="mt-0.5 block text-[11px] text-emerald-700">
-                현금 결제 수수료 2.4%를 올림해 3%로 적용
+                결제수수료 ×{draft.paymentFeeMultiplier.toFixed(2)} · 한국 도착 원가 ×{draft.internalOrderCostMultiplier.toFixed(2)}
               </span>
             </div>
             <button
@@ -350,7 +353,7 @@ export function InternalChinaPurchaseDraftWorkspace({
           </div>
         ) : null}
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <SubMetric
             label="상품금액"
             value={`${cny.format(calculations.productCny)} CNY`}
@@ -358,6 +361,10 @@ export function InternalChinaPurchaseDraftWorkspace({
           <SubMetric
             label="중국내 운임"
             value={`${cny.format(calculations.freightCny)} CNY`}
+          />
+          <SubMetric
+            label={`결제수수료 ×${draft.paymentFeeMultiplier.toFixed(2)}`}
+            value={`${number.format(Math.round(calculations.paymentFeeKrw))}원`}
           />
           <SubMetric
             label="실주문 원가"

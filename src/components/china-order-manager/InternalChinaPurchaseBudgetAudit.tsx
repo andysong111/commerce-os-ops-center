@@ -48,8 +48,8 @@ export function InternalChinaPurchaseBudgetAudit({
           <p className="mt-2 max-w-5xl text-sm leading-6 opacity-80">
             매월 완료된 정상매출에서 에이블리 정상 주문당 무료배송 부담 3,000원을 먼저 빼고 그 금액의 50%를 발주 가능 금액으로 적립합니다. 쓰지 않은 금액은
             다음 달로 이월합니다. 한 달에 여러 번 발주할 수 있으며, 실제 주문완료로
-            기록한 금액만 잔액에서 차감합니다. 현금 결제 시 사용되는 수수료 2.4%를
-            올림해 3%로 적용하고, 이번 발주차시의 실제 상품대금 한도를 역산합니다.
+            기록한 금액만 잔액에서 차감합니다. 결제수수료 1.05와 한국 도착까지의
+            배송대행·관부가세 등 내부기준원가 1.50을 분리 적용해 실제 상품대금 한도를 역산합니다.
           </p>
         </div>
         <span className="rounded-full border border-current/20 bg-white/70 px-3 py-1.5 text-xs font-black">
@@ -82,7 +82,7 @@ export function InternalChinaPurchaseBudgetAudit({
         <Metric
           label="상품대금 발주한도"
           value={`${money.format(audit.productOrderBudgetKrw)}원`}
-          note={`총예산 ÷ ${audit.purchaseCostMultiplier.toFixed(2)}`}
+          note={`총예산 ÷ ${audit.paymentFeeMultiplier.toFixed(2)} ÷ ${audit.purchaseCostMultiplier.toFixed(2)}`}
         />
         <Metric
           label="현재 Draft 상품대금"
@@ -93,7 +93,7 @@ export function InternalChinaPurchaseBudgetAudit({
         <Metric
           label="내부기준원가"
           value={`${money.format(audit.selectedDraftEstimatedLandedCostKrw)}원`}
-          note="현금 결제 시 사용되는 수수료 2.4%를 올림해 3%로 적용"
+          note={`결제 ×${audit.paymentFeeMultiplier.toFixed(2)} · 한국 도착 ×${audit.purchaseCostMultiplier.toFixed(2)}`}
         />
         <Metric
           label={

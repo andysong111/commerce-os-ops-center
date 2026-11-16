@@ -30,6 +30,11 @@ function integer(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
 }
 
+function signedInteger(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed) : 0;
+}
+
 function decimal(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
@@ -73,6 +78,10 @@ export function parseStoredInternalChinaForwarderClose(
   const cycleMonth = text(snapshot.cycleMonth);
   const actualCostKrw = integer(snapshot.actualCostKrw);
   const productPurchaseCostKrw = integer(snapshot.productPurchaseCostKrw);
+  const domesticChinaFreightKrw = signedInteger(snapshot.domesticChinaFreightKrw);
+  const orderPaymentCostKrw =
+    integer(snapshot.orderPaymentCostKrw) ||
+    Math.max(1, productPurchaseCostKrw + domesticChinaFreightKrw);
   const actualMultiplier = decimal(snapshot.actualMultiplier);
   if (
     !/^\d{4}-\d{2}$/.test(cycleMonth) ||
@@ -87,7 +96,16 @@ export function parseStoredInternalChinaForwarderClose(
     draftId,
     cycleMonth,
     productPurchaseCostKrw,
-    domesticChinaFreightKrw: integer(snapshot.domesticChinaFreightKrw),
+    domesticChinaFreightKrw,
+    paymentFeeMultiplier: decimal(snapshot.paymentFeeMultiplier) || 1,
+    paymentFeeCostKrw:
+      integer(snapshot.paymentFeeCostKrw) ||
+      Math.max(
+        0,
+        orderPaymentCostKrw -
+          Math.max(1, productPurchaseCostKrw + domesticChinaFreightKrw),
+      ),
+    orderPaymentCostKrw,
     estimatedMultiplier: decimal(snapshot.estimatedMultiplier),
     estimatedForwarderCostKrw: integer(snapshot.estimatedForwarderCostKrw),
     estimatedTotalOutflowKrw: integer(snapshot.estimatedTotalOutflowKrw),

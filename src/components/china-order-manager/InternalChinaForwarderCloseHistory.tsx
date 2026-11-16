@@ -17,6 +17,8 @@ type MonthlyClose = {
   cycleMonth: string;
   productPurchaseCostKrw: number;
   domesticChinaFreightKrw: number;
+  paymentFeeCostKrw: number;
+  orderPaymentCostKrw: number;
   actualCostKrw: number;
   actualTotalOutflowKrw: number;
   closedAt: string | null;
@@ -47,8 +49,9 @@ function totalOutflow(summary: MonthlyClose) {
 }
 
 function inclusiveMultiplier(summary: MonthlyClose) {
-  const purchase = purchaseIncludingChinaFreight(summary);
-  return purchase > 0 ? totalOutflow(summary) / purchase : null;
+  return summary.orderPaymentCostKrw > 0
+    ? totalOutflow(summary) / summary.orderPaymentCostKrw
+    : null;
 }
 
 function aggregateByCycleMonth(
@@ -59,14 +62,14 @@ function aggregateByCycleMonth(
     const existing = byMonth.get(summary.cycleMonth);
     const rowTotalOutflow =
       summary.actualTotalOutflowKrw ??
-      summary.productPurchaseCostKrw +
-        summary.domesticChinaFreightKrw +
-        (summary.actualCostKrw ?? 0);
+      summary.orderPaymentCostKrw + (summary.actualCostKrw ?? 0);
     if (!existing) {
       byMonth.set(summary.cycleMonth, {
         cycleMonth: summary.cycleMonth,
         productPurchaseCostKrw: summary.productPurchaseCostKrw,
         domesticChinaFreightKrw: summary.domesticChinaFreightKrw,
+        paymentFeeCostKrw: summary.paymentFeeCostKrw,
+        orderPaymentCostKrw: summary.orderPaymentCostKrw,
         actualCostKrw: summary.actualCostKrw ?? 0,
         actualTotalOutflowKrw: rowTotalOutflow,
         closedAt: summary.closedAt ?? null,
@@ -75,6 +78,8 @@ function aggregateByCycleMonth(
     }
     existing.productPurchaseCostKrw += summary.productPurchaseCostKrw;
     existing.domesticChinaFreightKrw += summary.domesticChinaFreightKrw;
+    existing.paymentFeeCostKrw += summary.paymentFeeCostKrw;
+    existing.orderPaymentCostKrw += summary.orderPaymentCostKrw;
     existing.actualCostKrw += summary.actualCostKrw ?? 0;
     existing.actualTotalOutflowKrw += rowTotalOutflow;
     if (
@@ -186,7 +191,7 @@ export async function InternalChinaForwarderCloseHistory({
         </span>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-9">
         <Metric label="상품대금" value={`${number.format(latest.productPurchaseCostKrw)}원`} />
         <Metric
           label="월 전체 지출가능금액"
@@ -214,18 +219,22 @@ export async function InternalChinaForwarderCloseHistory({
           value={`${number.format(purchase)}원`}
         />
         <Metric
+          label="결제수수료"
+          value={`${number.format(latest.paymentFeeCostKrw)}원`}
+        />
+        <Metric
           label="실제 부대비용"
           value={`${number.format(latest.actualCostKrw)}원`}
         />
         <Metric label="실제 총지출" value={`${number.format(totalOutflow(latest))}원`} />
         <Metric
-          label="중국내운임 포함 배수"
+          label="실제 도착 원가배수"
           value={multiplier === null ? "-" : multiplier.toFixed(4)}
         />
       </div>
 
       <p className="mt-3 rounded-lg border border-indigo-100 bg-white px-3 py-2 text-xs font-bold leading-5 text-indigo-950">
-        월 전체 지출가능금액 = 직전 달력월 정상매출에서 에이블리 정상 주문당 무료배송 부담 3,000원을 차감한 뒤 ÷ 2. 실제 총지출 = 상품대금 + 중국내운임·할인/가감 + 실제 부대비용이며, 사용 후 남은금액 = 전체 지출가능금액 - 실제 총지출입니다. 발주안의 내부 기준원가는 현금결제 수수료 2.4%를 올림한 1.03을 사용하고, 이 마감 원가 카드에서는 실제 현금지출 한도를 기준으로 보여줍니다. 표시 배수 = (상품대금 + 중국내운임·할인/가감 + 실제 부대비용) ÷ (상품대금 + 중국내운임·할인/가감). 기존 내부 원가배수 저장값은 변경하지 않고 조회용으로 분리 표시합니다.
+        월 전체 지출가능금액 = 직전 달력월 정상매출에서 에이블리 정상 주문당 무료배송 부담 3,000원을 차감한 뒤 ÷ 2. 주문 전에는 결제수수료 1.05와 한국 도착 내부기준원가 1.50을 분리 적용합니다. 배송대행 마감 후에는 결제수수료 1.05는 유지하고 1.50만 실제 배송대행·관부가세 비용으로 교체합니다. 실제 총지출 = (상품대금 + 중국내운임·할인/가감) × 1.05 + 실제 부대비용이며, 사용 후 남은금액 = 전체 지출가능금액 - 실제 총지출입니다. 과거 주문 기록의 저장값은 소급 변경하지 않습니다.
       </p>
 
       {latestSummary && latestBudget?.available && (latestSummary.actualCostKrw ?? 0) > 0 ? (

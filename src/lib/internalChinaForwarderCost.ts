@@ -51,6 +51,9 @@ export type InternalChinaForwarderCostSummary = {
   cycleMonth: string;
   productPurchaseCostKrw: number;
   domesticChinaFreightKrw: number;
+  paymentFeeMultiplier: number;
+  paymentFeeCostKrw: number;
+  orderPaymentCostKrw: number;
   estimatedMultiplier: number;
   estimatedForwarderCostKrw: number;
   estimatedTotalOutflowKrw: number;
@@ -153,16 +156,24 @@ function domesticChinaFreightKrw(draft: InternalChinaPurchaseDraft) {
     (sum, group) => sum + group.freightCny,
     0,
   );
-  return Math.max(0, Math.round(totalCny * draft.exchangeRateKrwPerCny));
+  return Math.round(totalCny * draft.exchangeRateKrwPerCny);
+}
+
+function orderPaymentCostKrw(draft: InternalChinaPurchaseDraft) {
+  const preFeeOrderCost = Math.max(
+    1,
+    productPurchaseCostKrw(draft) + domesticChinaFreightKrw(draft),
+  );
+  return Math.max(1, Math.round(preFeeOrderCost * draft.paymentFeeMultiplier));
 }
 
 function landedCostMultiplier(
   draft: InternalChinaPurchaseDraft,
   actualForwarderCostKrw: number,
 ) {
-  const productCost = productPurchaseCostKrw(draft);
-  return productCost > 0
-    ? (productCost + actualForwarderCostKrw) / productCost
+  const orderPaymentCost = orderPaymentCostKrw(draft);
+  return orderPaymentCost > 0
+    ? (orderPaymentCost + actualForwarderCostKrw) / orderPaymentCost
     : 1;
 }
 
@@ -181,7 +192,9 @@ export function productUnitCostByBarcode(
         : 0;
     const productUnitKrw =
       decimal(line.unitPriceCny) * draft.exchangeRateKrwPerCny;
-    const landedUnitKrw = productUnitKrw * multiplier + freightPerUnitKrw;
+    const preFeeUnitKrw = Math.max(0, productUnitKrw + freightPerUnitKrw);
+    const landedUnitKrw =
+      preFeeUnitKrw * draft.paymentFeeMultiplier * multiplier;
     result.set(line.barcode, Math.max(1, Math.round(landedUnitKrw)));
   }
   return result;
@@ -196,25 +209,31 @@ export function buildInternalChinaForwarderCostSummaryFromDraft(
 ): InternalChinaForwarderCostSummary {
   const productCost = productPurchaseCostKrw(draft);
   const domesticFreight = domesticChinaFreightKrw(draft);
+  const preFeeOrderCost = Math.max(1, productCost + domesticFreight);
+  const orderPaymentCost = orderPaymentCostKrw(draft);
+  const paymentFeeCost = Math.max(0, orderPaymentCost - preFeeOrderCost);
   const estimatedForwarder = Math.max(
     0,
-    Math.round(productCost * (draft.internalOrderCostMultiplier - 1)),
+    Math.round(orderPaymentCost * (draft.internalOrderCostMultiplier - 1)),
   );
-  const estimatedTotal = productCost + estimatedForwarder + domesticFreight;
+  const estimatedTotal = orderPaymentCost + estimatedForwarder;
   const actualMultiplierRaw =
-    actualCostKrw === null || productCost <= 0
+    actualCostKrw === null || orderPaymentCost <= 0
       ? null
-      : (productCost + actualCostKrw) / productCost;
+      : (orderPaymentCost + actualCostKrw) / orderPaymentCost;
   const actualTotal =
     actualCostKrw === null
       ? null
-      : productCost + actualCostKrw + domesticFreight;
+      : orderPaymentCost + actualCostKrw;
 
   return {
     draftId: draft.draftId,
     cycleMonth,
     productPurchaseCostKrw: productCost,
     domesticChinaFreightKrw: domesticFreight,
+    paymentFeeMultiplier: draft.paymentFeeMultiplier,
+    paymentFeeCostKrw: paymentFeeCost,
+    orderPaymentCostKrw: orderPaymentCost,
     estimatedMultiplier: draft.internalOrderCostMultiplier,
     estimatedForwarderCostKrw: estimatedForwarder,
     estimatedTotalOutflowKrw: estimatedTotal,

@@ -1,4 +1,7 @@
-import { DEFAULT_PURCHASE_COST_MULTIPLIER } from "@/lib/productDecisionEngine/portfolio";
+import {
+  DEFAULT_PAYMENT_FEE_MULTIPLIER,
+  DEFAULT_PURCHASE_COST_MULTIPLIER,
+} from "@/lib/productDecisionEngine/portfolio";
 import { loadCanonicalPurchaseShadow } from "@/lib/stage8CanonicalPurchaseShadow";
 import {
   loadProductMasterInventoryCostReadiness,
@@ -154,6 +157,7 @@ export type InventoryVerificationPriority = {
     inventoryGeneratedAt?: string;
     inventoryContentFingerprint?: string;
     grossBudgetKrw?: number;
+    paymentFeeMultiplier?: number;
     purchaseCostMultiplier?: number;
     comparisonAvailable: boolean;
     sameAnalysisAsOf: boolean;
@@ -670,6 +674,7 @@ export async function loadInventoryVerificationPriority(
       inventoryGeneratedAt: inventoryReadiness.generatedAt,
       inventoryContentFingerprint: inventoryReadiness.contentFingerprint,
       grossBudgetKrw: Math.round(purchaseShadow.purchaseBudgetMonthRevenue / 2),
+      paymentFeeMultiplier: DEFAULT_PAYMENT_FEE_MULTIPLIER,
       purchaseCostMultiplier: DEFAULT_PURCHASE_COST_MULTIPLIER,
       comparisonAvailable: purchaseShadow.legacyReference.comparison !== null,
       sameAnalysisAsOf: purchaseShadow.legacyReference.sameAnalysisAsOf,

@@ -36,17 +36,18 @@ test("actual forwarder charge closes the landed-cost multiplier instead of remai
   assert.ok(engine.includes("CHINA_FORWARDER_COST_RECEIPT_OPEN"));
 });
 
-test("historical landed-cost formula uses product purchase total as the multiplier base", () => {
-  assert.ok(engine.includes("(productCost + actualForwarderCostKrw) / productCost"));
+test("landed-cost formula uses the payment-fee-inclusive order cost as its multiplier base", () => {
+  assert.ok(engine.includes("(orderPaymentCost + actualForwarderCostKrw) / orderPaymentCost"));
   assert.ok(engine.includes("decimal(line.unitPriceCny) * line.quantity"));
   assert.ok(engine.includes("domesticChinaFreightKrw"));
-  assert.ok(engine.includes("productUnitKrw * multiplier + freightPerUnitKrw"));
+  assert.ok(engine.includes("preFeeUnitKrw * draft.paymentFeeMultiplier * multiplier"));
 });
 
-test("China domestic freight is added after the multiplier and not included in its base", () => {
+test("China domestic freight is included before payment fee and landed-cost allocation", () => {
   assert.ok(engine.includes("function domesticChinaFreightKrw"));
   assert.ok(engine.includes("const productCost = productPurchaseCostKrw(draft)"));
-  assert.ok(engine.includes("productCost + actualCostKrw + domesticFreight"));
+  assert.ok(engine.includes("productCost + domesticFreight"));
+  assert.ok(engine.includes("orderPaymentCost + actualCostKrw"));
   assert.ok(engine.includes("group.freightCny / group.quantity"));
 });
 
@@ -81,13 +82,14 @@ test("recent closed monthly landed costs stay visible after the calendar month c
   assert.ok(historyPanel.includes("매입금액(중국내운임 포함)"));
   assert.ok(historyPanel.includes("실제 부대비용"));
   assert.ok(historyPanel.includes("실제 총지출"));
-  assert.ok(historyPanel.includes("중국내운임 포함 배수"));
+  assert.ok(historyPanel.includes("실제 도착 원가배수"));
+  assert.ok(historyPanel.includes("결제수수료"));
   assert.ok(
     historyPanel.includes(
-      "표시 배수 = (상품대금 + 중국내운임·할인/가감 + 실제 부대비용) ÷ (상품대금 + 중국내운임·할인/가감)",
+      "배송대행 마감 후에는 결제수수료 1.05는 유지하고 1.50만 실제 배송대행·관부가세 비용으로 교체",
     ),
   );
-  assert.ok(historyPanel.includes("기존 내부 원가배수 저장값은 변경하지 않고"));
+  assert.ok(historyPanel.includes("과거 주문 기록의 저장값은 소급 변경하지 않습니다"));
 });
 
 test("landed-cost close shows total monthly spend budget and remaining cash against actual outflow", () => {
@@ -169,7 +171,8 @@ test("forwarder amount fallback remains available only as a recovery UI while th
   assert.ok(fallbackPanel.includes("배송대행지 실제비용(원)"));
   assert.ok(fallbackPanel.includes("배송대행 비용 · 원가 마감"));
   assert.ok(fallbackPanel.includes('/api/china-order-manager/forwarder-cost'));
-  assert.ok(fallbackPanel.includes("실제 원가배수 = (상품 총 매입금액 + 배송대행지 실제비용) ÷ 상품 총 매입금액"));
+  assert.ok(fallbackPanel.includes("실제 도착 원가배수 = (결제원가 + 배송대행지 실제비용) ÷ 결제원가"));
+  assert.ok(fallbackPanel.includes("결제수수료 1.05는 유지"));
   assert.ok(route.includes("loadStoredInternalChinaForwarderClose"));
   assert.equal(fallbackPanel.includes("상품등급"), false);
 });
@@ -177,8 +180,9 @@ test("forwarder amount fallback remains available only as a recovery UI while th
 test("normal receipt panel previews the actual multiplier and downstream cost semantics", () => {
   assert.ok(panel.includes("actualMultiplierPreview"));
   assert.ok(panel.includes("forwarderCost.domesticChinaFreightKrw"));
-  assert.ok(panel.includes("실제 원가배수 = (상품 총 매입금액 + 배송대행지 실제비용) ÷ 상품 총 매입금액"));
-  assert.ok(panel.includes("최종 SKU 매입원가 = (상품원가 × 실제 원가배수) + 중국내운임"));
+  assert.ok(panel.includes("forwarderCost.orderPaymentCostKrw"));
+  assert.ok(panel.includes("실제 도착 원가배수 = (결제원가 + 배송대행지 실제비용) ÷ 결제원가"));
+  assert.ok(panel.includes("최종 SKU 매입원가는 SKU별 결제원가 × 실제 도착 원가배수"));
   assert.ok(panel.includes("실제 판매가격은 별도 승인 절차 없이 즉시 변경하지 않습니다"));
   assert.ok(panel.includes("월 가격조정으로 이동"));
   assert.ok(panel.includes("#monthly-price"));
@@ -191,12 +195,13 @@ test("forwarder cost API reports the actual multiplier and landed receipt-cost s
   assert.ok(route.includes("isSameOriginOpsRequest"));
   assert.ok(route.includes("recordInternalChinaForwarderCost"));
   assert.ok(route.includes("실제 원가배수"));
-  assert.ok(route.includes("최종 SKU 매입원가는 (상품원가 × 실제 원가배수) + 중국내운임"));
-  assert.ok(route.includes("이후 가격조정 판단의 원가로 사용됩니다"));
+  assert.ok(route.includes("결제수수료 ×"));
+  assert.ok(route.includes("최종 SKU 매입원가는 SKU별 결제원가 × 실제 도착 원가배수"));
+  assert.ok(route.includes("이후 가격조정 판단에 사용합니다"));
   assert.equal(route.includes("상품등급"), false);
 });
 
-test("initial receipt still excludes the temporary 1.45 until actual forwarder cost is known", () => {
+test("initial receipt still excludes the temporary 1.50 until actual forwarder cost is known", () => {
   assert.ok(receiptEngine.includes("actualUnitCny * draft.exchangeRateKrwPerCny"));
   assert.equal(receiptEngine.includes("draft.internalOrderCostMultiplier"), false);
 });

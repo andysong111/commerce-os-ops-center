@@ -196,7 +196,11 @@ export function purchaseBudgetCarryoverBasis(
     let amount = Number(row.snapshot.actualOrderPaidKrwAtInternalFx);
     if (!Number.isSafeInteger(amount) && Array.isArray(row.snapshot.lines)) {
       const exchangeRate = Number(row.snapshot.exchangeRateKrwPerCny);
-      const multiplier = Number(row.snapshot.internalOrderCostMultiplier);
+      const paymentFeeMultiplier = Number(row.snapshot.paymentFeeMultiplier);
+      const legacyMultiplier = Number(row.snapshot.internalOrderCostMultiplier);
+      const multiplier = Number.isFinite(paymentFeeMultiplier) && paymentFeeMultiplier >= 1
+        ? paymentFeeMultiplier
+        : legacyMultiplier;
       let complete = Number.isFinite(exchangeRate) && exchangeRate > 0 &&
         Number.isFinite(multiplier) && multiplier >= 1;
       const cnyTotal = row.snapshot.lines.reduce((total, value) => {
@@ -204,7 +208,7 @@ export function purchaseBudgetCarryoverBasis(
         const quantity = Number(line.quantity);
         const unitPrice = Number(line.unitPriceCny);
         const freight = Number(line.domesticChinaFreightCny ?? 0);
-        if (!Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitPrice) || unitPrice <= 0 || !Number.isFinite(freight) || freight < 0) {
+        if (!Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitPrice) || unitPrice <= 0 || !Number.isFinite(freight)) {
           complete = false;
           return total;
         }

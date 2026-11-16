@@ -7,6 +7,7 @@ import {
   monthlyPurchaseCycleForMonth,
 } from "@/lib/monthlyPurchasePolicy";
 import {
+  DEFAULT_PAYMENT_FEE_MULTIPLIER,
   DEFAULT_PURCHASE_COST_MULTIPLIER,
   calculateProductOrderBudget,
 } from "@/lib/productDecisionEngine/portfolio";
@@ -56,6 +57,7 @@ export type InternalChinaPurchaseBudgetAudit = {
   cumulativeAccruedBudgetKrw: number;
   recordedOrderedSpendKrw: number;
   accrualStartMonth: string;
+  paymentFeeMultiplier: number;
   purchaseCostMultiplier: number;
   productOrderBudgetKrw: number;
   engineExpectedSpendKrw: number;
@@ -164,9 +166,14 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const grossCogsBudgetKrw = carryoverRead.value
     ? money(carryoverRead.value.availableCashKrw)
     : currentMonthAccrualKrw;
+  const paymentFeeMultiplier = DEFAULT_PAYMENT_FEE_MULTIPLIER;
   const purchaseCostMultiplier = DEFAULT_PURCHASE_COST_MULTIPLIER;
   const productOrderBudgetKrw = money(
-    calculateProductOrderBudget(grossCogsBudgetKrw, purchaseCostMultiplier),
+    calculateProductOrderBudget(
+      grossCogsBudgetKrw,
+      purchaseCostMultiplier,
+      paymentFeeMultiplier,
+    ),
   );
   const engineExpectedSpendKrw = money(snapshot?.expectedSpend);
 
@@ -255,6 +262,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const actualCostSummary = calculateInternalChinaPurchaseCostSummary({
     lines: draft.lines,
     exchangeRateKrwPerCny: draft.exchangeRateKrwPerCny,
+    paymentFeeMultiplier,
     internalOrderCostMultiplier: purchaseCostMultiplier,
   });
   const everyDraftLineHasActualPrice = actualPriceCount === lines.length;
@@ -278,6 +286,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     ? actualCostSummary.internalBaseCostKrw
     : money(
         (selectedDraftExactProductCostKrw + selectedDraftExactDomesticChinaFreightKrw) *
+          paymentFeeMultiplier *
           purchaseCostMultiplier,
       );
   const selectedDraftBudgetRemainingKrw = Math.max(
@@ -353,13 +362,14 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     budgetMonthRevenueKrw,
     budgetRevenueError: calendarRevenue.error,
     sourceWarnings: [...sourceWarnings, ...(carryoverRead.error ? [`누적 발주 가능 금액 확인 실패: ${carryoverRead.error}`] : [])],
-    basisLabel: `${carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth}~${carryoverRead.value?.accrualEndMonth ?? cycle.budgetMonth} 월별 정상매출${carryoverRead.value?.accruedAblyShippingDeductionKrw ? `에서 에이블리 ${carryoverRead.value.accruedAblyOrderCount.toLocaleString("ko-KR")}건 × 3,000원 차감 후` : "의"} 50% 누적 ${cumulativeAccruedBudgetKrw.toLocaleString("ko-KR")}원 - 실제 주문완료 ${recordedOrderedSpendKrw.toLocaleString("ko-KR")}원 · 현금 결제 수수료 2.4%를 올림해 3%로 적용`,
+    basisLabel: `${carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth}~${carryoverRead.value?.accrualEndMonth ?? cycle.budgetMonth} 월별 정상매출${carryoverRead.value?.accruedAblyShippingDeductionKrw ? `에서 에이블리 ${carryoverRead.value.accruedAblyOrderCount.toLocaleString("ko-KR")}건 × 3,000원 차감 후` : "의"} 50% 누적 ${cumulativeAccruedBudgetKrw.toLocaleString("ko-KR")}원 - 실제 주문완료 ${recordedOrderedSpendKrw.toLocaleString("ko-KR")}원 · 결제수수료 ×${paymentFeeMultiplier.toFixed(2)} · 한국 도착 내부기준원가 ×${purchaseCostMultiplier.toFixed(2)}`,
     recent30RevenueKrw,
     grossCogsBudgetKrw,
     currentMonthAccrualKrw,
     cumulativeAccruedBudgetKrw,
     recordedOrderedSpendKrw,
     accrualStartMonth: carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth,
+    paymentFeeMultiplier,
     purchaseCostMultiplier,
     productOrderBudgetKrw,
     engineExpectedSpendKrw,

@@ -84,7 +84,7 @@ export async function POST(request: Request) {
       {
         ok: true,
         result,
-        message: `배송대행지 실제비용 ${result.actualCostKrw?.toLocaleString("ko-KR")}원을 반영해 실제 원가배수 ${multiplier}를 확정했습니다. 최종 SKU 매입원가는 (상품원가 × 실제 원가배수) + 중국내운임으로 계산되며 이후 가격조정 판단의 원가로 사용됩니다.${receiptMessage}`,
+        message: `배송대행지 실제비용 ${result.actualCostKrw?.toLocaleString("ko-KR")}원을 반영해 실제 도착 원가배수 ${multiplier}를 확정했습니다. 결제원가에는 결제수수료 ×${result.paymentFeeMultiplier.toFixed(2)}를 유지하고, 최종 SKU 매입원가는 SKU별 결제원가 × 실제 도착 원가배수로 계산해 이후 가격조정 판단에 사용합니다.${receiptMessage}`,
       },
       { headers: { "cache-control": "no-store" } },
     );
