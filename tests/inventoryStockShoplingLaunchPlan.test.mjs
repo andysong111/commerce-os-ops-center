@@ -10,7 +10,7 @@ import {
 const option = { jobId: "option-1", productKind: "OPTION" };
 const single = { jobId: "single-1", productKind: "SINGLE" };
 
-test("only HF74 v0.6.37 and later may run current API-classified grouped A21 sync", () => {
+test("only HF86 v0.6.49 and later may run trusted-click A21 sync", () => {
   assert.equal(supportsAllDateStockSync("0.5.8"), false);
   assert.equal(supportsAllDateStockSync("0.5.9"), false);
   assert.equal(supportsAllDateStockSync("0.6.0"), false);
@@ -50,7 +50,19 @@ test("only HF74 v0.6.37 and later may run current API-classified grouped A21 syn
   assert.equal(supportsAllDateStockSync("0.6.34"), false);
   assert.equal(supportsAllDateStockSync("0.6.35"), false);
   assert.equal(supportsAllDateStockSync("0.6.36"), false);
-  assert.equal(supportsAllDateStockSync("0.6.37"), true);
+  assert.equal(supportsAllDateStockSync("0.6.37"), false);
+  assert.equal(supportsAllDateStockSync("0.6.38"), false);
+  assert.equal(supportsAllDateStockSync("0.6.39"), false);
+  assert.equal(supportsAllDateStockSync("0.6.40"), false);
+  assert.equal(supportsAllDateStockSync("0.6.41"), false);
+  assert.equal(supportsAllDateStockSync("0.6.42"), false);
+  assert.equal(supportsAllDateStockSync("0.6.43"), false);
+  assert.equal(supportsAllDateStockSync("0.6.44"), false);
+  assert.equal(supportsAllDateStockSync("0.6.45"), false);
+  assert.equal(supportsAllDateStockSync("0.6.46"), false);
+  assert.equal(supportsAllDateStockSync("0.6.47"), false);
+  assert.equal(supportsAllDateStockSync("0.6.48"), false);
+  assert.equal(supportsAllDateStockSync("0.6.49"), true);
   assert.equal(supportsAllDateStockSync(""), false);
 });
 
@@ -63,8 +75,8 @@ test("unsupported extensions keep an OPTION-first queue in priority order and la
   }
 });
 
-test("HF74 assigns exactly one B-code and preserves priority order", () => {
-  const plan = planShoplingStockLaunch([single, option], "0.6.37");
+test("HF86 assigns exactly one B-code and preserves priority order", () => {
+  const plan = planShoplingStockLaunch([single, option], "0.6.49");
   assert.equal(plan.mode, "SINGLE");
   assert.deepEqual(plan.jobs.map((job) => job.jobId), ["single-1"]);
   assert.equal(plan.compatibilitySerial, true);
@@ -81,7 +93,7 @@ test("parallel-capable extension history does not override the serial completene
 
 test("launch planner never assigns more than one concurrent B-code job", () => {
   const third = { jobId: "single-2", productKind: "SINGLE" };
-  const plan = planShoplingStockLaunch([option, single, third], "0.6.37");
+  const plan = planShoplingStockLaunch([option, single, third], "0.6.49");
   assert.equal(plan.jobs.length, 1);
   assert.deepEqual(plan.jobs.map((job) => job.jobId), ["option-1"]);
 });

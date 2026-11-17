@@ -122,6 +122,7 @@ jobs:
           && node --check public/shopling-stock-state-sync/background-v091.js
           && node --check public/shopling-stock-state-sync/background-v092.js
           && node --check public/shopling-stock-state-sync/background-v093.js
+          && node --check public/shopling-stock-state-sync/background-v096.js
           && node --check public/shopling-stock-state-sync/content-ops-preflight-v002.js
           && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
           && node --check public/shopling-stock-state-sync/price-core-content-a21-v025.js
@@ -201,6 +202,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf73.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF74 grouped A21 assignment and proven MAIN-world list action
         run: node --experimental-strip-types --test tests/shoplingStockStateHf74.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF86 trusted A21 list click and exact popup receipt
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf86.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary
