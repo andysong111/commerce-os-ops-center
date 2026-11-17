@@ -266,8 +266,8 @@ test("HF92 package remains v0.6.54 while the page and gate advance to HF93", asy
   assert.match(route, /const VERSION = "0\.6\.54"/);
   assert.match(route, /EXACT_NEW_POPUP_RECEIPT_WINS_OVER_SOURCE_TARGET_DETACH/);
   assert.match(route, /EXACT_OWNED_POPUP_DIRECT_FRAME_PROBE_AND_ORIGINAL_SHOPLING_COMMIT/);
-  assert.match(page, /download-hf93/);
-  assert.match(page, /v0\.6\.55 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 55\]/);
+  assert.match(page, /download-hf94/);
+  assert.match(page, /v0\.6\.56 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 56\]/);
   assert.match(workflow, /shoplingStockStateHf92\.test\.mjs/);
 });

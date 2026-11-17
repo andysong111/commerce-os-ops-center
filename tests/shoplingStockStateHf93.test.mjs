@@ -210,7 +210,7 @@ test("HF93 closes the exact no-selection alert and fails fast without an eight-s
   );
 });
 
-test("HF93 package and stock-control gate advance to v0.6.55", async () => {
+test("HF93 package remains v0.6.55 while the stock-control gate advances to HF94", async () => {
   const [route, page, planner, workflow] = await Promise.all([
     readFile(
       "src/app/api/shopling-stock-state-sync/download-hf93/route.ts",
@@ -224,8 +224,8 @@ test("HF93 package and stock-control gate advance to v0.6.55", async () => {
   assert.match(route, /const VERSION = "0\.6\.55"/);
   assert.match(route, /EXACT_CURRENT_RESULT_ROWS_REVERIFIED_IN_MAIN_WORLD/);
   assert.match(route, /EXACT_NO_SELECTION_ALERT_AUTO_CLOSED_AND_FAILED_FAST/);
-  assert.match(page, /download-hf93/);
-  assert.match(page, /v0\.6\.55 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 55\]/);
+  assert.match(page, /download-hf94/);
+  assert.match(page, /v0\.6\.56 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 56\]/);
   assert.match(workflow, /shoplingStockStateHf93\.test\.mjs/);
 });

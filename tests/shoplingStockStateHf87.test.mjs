@@ -164,9 +164,9 @@ test("HF87 package remains traceable while current UI supersedes same-model coal
   assert.match(route, /const VERSION = "0\.6\.50"/);
   assert.match(route, /APPLY_ALL_THEN_ONE_A21_SEND/);
   assert.match(route, /STABLE_BALANCED_SHOPLING_RESULT_TABLE/);
-  assert.match(page, /download-hf93/);
-  assert.match(page, /v0\.6\.55 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 55\]/);
+  assert.match(page, /download-hf94/);
+  assert.match(page, /v0\.6\.56 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 56\]/);
   assert.doesNotMatch(panel, /selectShoplingCoalescedJobs/);
   assert.doesNotMatch(panel, /coalescedJobs: prepared/);
   assert.doesNotMatch(queuePanel, /selectShoplingCoalescedJobs/);
