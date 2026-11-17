@@ -342,7 +342,7 @@ test("HF74 download contract exposes v0.6.37 and replaces both grouped dispatch 
   assert.match(route, /stockProductKindHf48: group\.effectiveProductKind/);
   assert.match(route, /await ensureResultBaselineV093\(active\)/);
   assert.match(route, /SHOPLING_MAIN_WORLD_EVENT_BRIDGE/);
-  assert.match(page, /download-hf74/);
-  assert.match(page, /v0\.6\.37 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 49\]/);
+  assert.match(page, /download-hf88/);
+  assert.match(page, /v0\.6\.51 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 50\]/);
 });
