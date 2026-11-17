@@ -55,7 +55,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   regression:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     services:
       postgres:
