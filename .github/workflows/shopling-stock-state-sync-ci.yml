@@ -65,6 +65,7 @@ on:
       - "tests/shoplingStockStateHf89.test.mjs"
       - "tests/shoplingStockStateHf90.test.mjs"
       - "tests/shoplingStockStrictSerialHf91.test.mjs"
+      - "tests/shoplingStockStateHf92.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -225,6 +226,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf90.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF91 strict one-B-code dispatch
         run: node --experimental-strip-types --test tests/shoplingStockStrictSerialHf91.test.mjs tests/shoplingStockReadyBarrier.test.mjs
+      - name: Regression - HF92 detached-click receipt and exact-popup direct blue submit
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf92.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

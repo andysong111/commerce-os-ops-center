@@ -17,6 +17,14 @@ When sources conflict, use this order:
 
 Never preserve an old plan merely because it is documented if current code or direct live evidence disproves it.
 
+### Shopling stock-state HF92 handoff (2026-11-18)
+
+- HF91 뒤 실제 B코드 2건은 확장 START가 한 건씩 순차 실행됐지만 모두 실패했다. 따라서 다건 병렬화가 직접 원인은 아니었다.
+- `BDE7-1`은 정확한 A21 수정전송 팝업까지 열렸으나 파란 전송 완료 확인이 제한시간 안에 끝나지 않았고, `BDE7-2`는 빨간 `상품 수정전송` 신뢰 클릭 중 Chrome CDP가 `Detached while handling command`로 끊겼다.
+- HF92 확장 v0.6.54는 CDP가 끊겨도 정확한 새 팝업이 실제로 열렸으면 그 팝업을 클릭 성공 영수증으로 인정한다. 이어서 공유 스캐너 잠금을 기다리지 않고 그 팝업의 정확한 프레임에서 원본 파란 전송 함수를 직접 실행한다.
+- Commerce OS는 v0.6.54 미만 확장 실행을 막고, 입력이 여러 건이어도 확장 START에는 B코드 한 건만 전달하는 HF91 엄격 직렬 정책을 유지한다.
+- 코드·단위 테스트·프로덕션 빌드·로컬 ZIP 생성 검증은 통과했다. 실제 Shopling 외부 전송은 배포 후 v0.6.54를 설치한 단일 B코드 카나리에서 확인하기 전까지 성공으로 보고하지 않는다. 상세 근거는 `docs/shopling-stock-state-hf92-20261118.md`에 있다.
+
 ### Shopling stock-state HF91 handoff (2026-11-18)
 
 - HF90 확장 v0.6.53의 단일 B코드 실행은 실제 Shopling 전송과 Commerce OS `전송 접수 완료 1/1건`까지 확인됐다.

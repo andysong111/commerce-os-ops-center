@@ -125,7 +125,7 @@ test("HF90 rejects a popup whose opener belongs to another A21 list", async () =
   assert.equal(harness.active().workTabs.A21_POPUP, undefined);
 });
 
-test("HF90 download and stock-control gate require v0.6.53", async () => {
+test("HF90 package remains traceable while the stock-control gate advances beyond v0.6.53", async () => {
   const [background, route, page, planner, workflow] = await Promise.all([
     readFile("public/shopling-stock-state-sync/background-v099.js", "utf8"),
     readFile(
@@ -144,8 +144,8 @@ test("HF90 download and stock-control gate require v0.6.53", async () => {
   assert.match(route, /const BASE_VERSION = "0\.6\.52"/);
   assert.match(route, /const VERSION = "0\.6\.53"/);
   assert.match(route, /PROVEN_HF60_HF72_PROCESSING_OR_RESULT_OWNER_CHAIN/);
-  assert.match(page, /download-hf90/);
-  assert.match(page, /v0\.6\.53 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 53\]/);
+  assert.match(page, /download-hf92/);
+  assert.match(page, /v0\.6\.54 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 54\]/);
   assert.match(workflow, /shoplingStockStateHf90\.test\.mjs/);
 });
