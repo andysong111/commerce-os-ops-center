@@ -1,0 +1,66 @@
+name: Shopling Market One Click v0.3.48
+on:
+  pull_request:
+    paths:
+      - 'src/lib/shoplingMarketStaleQueueRecoveryV0348.ts'
+      - 'src/app/api/shopling-market-group-canary/v0348/**'
+      - 'src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx'
+      - 'tests/shoplingMarketStaleQueueRecoveryV0348.test.mjs'
+      - 'docs/handoffs/seo-one-click-market-auto-reconnect-20261113.md'
+      - 'docs/commerce-os-master-context-20260929.md'
+      - '.github/workflows/shopling-market-oneclick-v0348.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shopling-oneclick-v0348-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  stale-queue-safe-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Verify running-queue recovery and inherited one-click safety
+        run: node --experimental-strip-types --test tests/shoplingMarketStaleQueueRecoveryV0348.test.mjs tests/shoplingMarketA19LoginLoopV0347.test.mjs tests/shoplingMarketA19KeywordAuditV0346.test.mjs tests/shoplingMarketAdminHostV0345.test.mjs tests/shoplingMarketBridgeManifestV0344.test.mjs tests/shoplingMarketOneClickBackgroundV0343.test.mjs tests/shoplingMarketGroupCanaryV0330.test.mjs tests/shoplingMarketGroupCanary.test.mjs
+      - run: npm run typecheck
+      - name: Build production app
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Generate and inspect actual v0.3.48 extension ZIP
+        run: |
+          npm run start -- --port 3100 > /tmp/shopling-v0348-next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/api/shopling-market-group-canary/v0348/download -o /tmp/commerce-os-shopling-market-sender-v0.3.48.zip; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive=pathlib.Path('/tmp/commerce-os-shopling-market-sender-v0.3.48.zip')
+          assert archive.is_file() and archive.stat().st_size > 1000
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              manifest=json.loads(z.read('manifest.json'))
+              assert manifest['version']=='0.3.48'
+              agent=z.read('shopling-market-auto-agent.mjs').decode()
+              background=z.read('background-root.mjs').decode()
+              assert 'ensureRunningQueueResumeIntentV0348' in agent
+              assert 'resume_existing_running_queue' in agent
+              assert 'remove(QUEUE_KEY)' not in agent
+              assert '/login.phtml' in agent
+              assert '/prodlinkage/goods_mallReg_failList.phtml' in agent
+              assert 'marketAutoA19AuditInFlight' in background
+              z.extractall('/tmp/shopling-v0348')
+          PY
+          for file in /tmp/shopling-v0348/*.js /tmp/shopling-v0348/*.mjs; do node --check "$file"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopling-market-sender-v0348
+          path: /tmp/commerce-os-shopling-market-sender-v0.3.48.zip
+          retention-days: 7
