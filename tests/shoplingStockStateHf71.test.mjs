@@ -112,9 +112,9 @@ test("HF71 historical package stays reproducible while HF72 advances the live ga
   assert.match(route, /EXACT_ADJACENT_LABEL_THEN_GUARDED_THREE_COLUMN_GEOMETRY/);
   assert.match(route, /SERIAL_ONE_AT_A_TIME/);
   assert.match(route, /marketplaceCompletionRequired: false/);
-  assert.match(page, /download-hf88/);
-  assert.match(page, /v0\.6\.51 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 50\]/);
+  assert.match(page, /download-hf89/);
+  assert.match(page, /v0\.6\.52 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 52\]/);
   assert.doesNotMatch(operator, /v0\.6\.33/);
   assert.match(background, /importScripts\("background-v090\.js"\)/);
   assert.match(workflow, /shoplingStockStateHf71\.test\.mjs/);

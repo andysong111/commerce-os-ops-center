@@ -297,7 +297,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 현재 동일모델 묶음·성공표 영수증을 지원하지 않아 사용할 수 없습니다. v0.6.50으로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 새 A21 팝업의 파란색 전송 확정 영수증을 지원하지 않아 사용할 수 없습니다. v0.6.52로 업데이트해 주세요.`);
         }
         return;
       }
