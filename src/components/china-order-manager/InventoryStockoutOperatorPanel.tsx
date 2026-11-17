@@ -30,7 +30,6 @@ import {
   buildShoplingManualFallbackGroups,
   shoplingManualFallbackCopyText,
 } from "@/lib/shoplingManualFallback";
-import { selectShoplingCoalescedJobs } from "@/lib/shoplingStockBatchCoalescing";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -57,8 +56,6 @@ type DirectInventoryJob = {
   parallelBatchId?: string;
   parallelLane?: number;
   ignoreWindowClose?: true;
-  coalescedBatchId?: string;
-  coalescedJobIds?: string[];
 };
 
 type ResultMessage = {
@@ -567,22 +564,17 @@ function InventoryStockoutGenericPanel() {
     }
 
     const batchId = randomId("stockout-direct-batch");
-    const groupedJobs =
-      plan.mode === "SINGLE"
-        ? selectShoplingCoalescedJobs(
-            directQueue.current,
-            plan.jobs[0],
-          )
-        : plan.jobs;
-    const coalescedJobIds = groupedJobs.map((job) => job.jobId);
-    const prepared = groupedJobs.map((job, index) => ({
+    // A proven one-B-code run is the only safe transport boundary. Even when
+    // several option B-codes share a model number, never merge them back into
+    // one extension START. The next B-code is assigned only after this job has
+    // a terminal receipt and the extension explicitly reports idle.
+    const assignedJobs = plan.jobs.slice(0, 1);
+    const prepared = assignedJobs.map((job, index) => ({
       ...job,
       operationalQueue: true as const,
       parallelBatchId: batchId,
       parallelLane: index + 1,
       ignoreWindowClose: true as const,
-      coalescedBatchId: batchId,
-      coalescedJobIds,
     }));
 
     activeBatch.current = {
@@ -597,8 +589,6 @@ function InventoryStockoutGenericPanel() {
     setSyncNotice(
       plan.mode === "PARALLEL"
         ? `${prepared[0].barcode} + ${prepared[1].barcode} · Shopling 재고상태 2-Lane 전송 시작`
-        : prepared.length > 1
-          ? `${prepared[0].modelNo || prepared[0].barcode} · 동일 모델 ${prepared.length}개 B코드를 API에 먼저 적용한 뒤 A21은 한 번만 전송합니다.`
         : plan.compatibilitySerial
           ? `${prepared[0].barcode} · Shopling 동시작업 충돌을 막기 위해 B코드를 1건씩 순차 전송합니다.`
           : `${prepared[0].barcode} · Shopling 재고상태 전송 시작`,
@@ -609,14 +599,14 @@ function InventoryStockoutGenericPanel() {
         const startRecord = recordSync(
           job,
           "STARTED",
-          `통합 재고 입력 후 Shopling ${job.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 전송 시작${prepared.length > 1 ? " · 동일 모델 API 선적용 묶음" : ""}`,
+          `통합 재고 입력 후 Shopling ${job.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 1건 전송 시작`,
           {
             directOperatorCommand: true,
             unifiedInventoryBatch: true,
             operationalBatchId: batchId,
             operationalLane: 1,
             maxConcurrentLanes: 1,
-            coalescedJobIds,
+            strictSingleBcodeDispatch: true,
             desiredSince: job.desiredSince,
           },
         );
@@ -634,10 +624,7 @@ function InventoryStockoutGenericPanel() {
         window.postMessage(
           {
             type: SINGLE_START,
-            job: {
-              ...prepared[0],
-              coalescedJobs: prepared,
-            },
+            job: prepared[0],
           },
           window.location.origin,
         );
@@ -1001,7 +988,7 @@ function InventoryStockoutGenericPanel() {
       } else if (extensionReadyRef.current) {
         setSyncing(true);
         setSyncNotice(
-          `입력 저장 완료 · Shopling 품절·판매중 ${jobs.length}건을 B코드 1건씩 순차 전송합니다. 각 건의 A21 처리화면 시작까지만 확인하며 마켓별 결과 완료는 기다리지 않습니다.`,
+          `입력 저장 완료 · Shopling 품절·판매중 ${jobs.length}건을 확장 호출 1회당 B코드 1건씩 순차 전송합니다. 한 건의 접수와 작업 잠금 해제를 확인한 뒤 다음 건을 시작합니다.`,
         );
         void launchNextRef.current();
       } else {

@@ -152,7 +152,7 @@ test("HF87 fails closed for a Shopling failure row or unbalanced result table", 
   assert.equal(unbalanced.rowsBalanced, false);
 });
 
-test("HF87 package remains traceable while the UI and minimum advance to HF90", async () => {
+test("HF87 package remains traceable while current UI supersedes same-model coalescing", async () => {
   const [route, page, planner, panel, queuePanel, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf87/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
@@ -167,9 +167,9 @@ test("HF87 package remains traceable while the UI and minimum advance to HF90", 
   assert.match(page, /download-hf90/);
   assert.match(page, /v0\.6\.53 다운로드/);
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 53\]/);
-  assert.match(panel, /selectShoplingCoalescedJobs/);
-  assert.match(panel, /coalescedJobs: prepared/);
-  assert.match(queuePanel, /selectShoplingCoalescedJobs/);
-  assert.match(queuePanel, /coalescedJobs: prepared/);
+  assert.doesNotMatch(panel, /selectShoplingCoalescedJobs/);
+  assert.doesNotMatch(panel, /coalescedJobs: prepared/);
+  assert.doesNotMatch(queuePanel, /selectShoplingCoalescedJobs/);
+  assert.doesNotMatch(queuePanel, /coalescedJobs: prepared/);
   assert.match(workflow, /shoplingStockStateHf87\.test\.mjs/);
 });
