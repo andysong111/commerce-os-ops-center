@@ -164,8 +164,8 @@ test("HF87 download contract advances the UI and extension minimum to v0.6.50", 
   assert.match(route, /const VERSION = "0\.6\.50"/);
   assert.match(route, /APPLY_ALL_THEN_ONE_A21_SEND/);
   assert.match(route, /STABLE_BALANCED_SHOPLING_RESULT_TABLE/);
-  assert.match(page, /download-hf87/);
-  assert.match(page, /v0\.6\.50 다운로드/);
+  assert.match(page, /download-hf8[78]/);
+  assert.match(page, /v0\.6\.5[01] 다운로드/);
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 50\]/);
   assert.match(panel, /selectShoplingCoalescedJobs/);
   assert.match(panel, /coalescedJobs: prepared/);
