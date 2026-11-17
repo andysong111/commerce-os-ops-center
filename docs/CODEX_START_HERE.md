@@ -17,6 +17,14 @@ When sources conflict, use this order:
 
 Never preserve an old plan merely because it is documented if current code or direct live evidence disproves it.
 
+### Shopling stock-state HF91 handoff (2026-11-18)
+
+- HF90 확장 v0.6.53의 단일 B코드 실행은 실제 Shopling 전송과 Commerce OS `전송 접수 완료 1/1건`까지 확인됐다.
+- 다건 실패의 직접 원인은 Commerce OS가 같은 모델 옵션 B코드를 실행 직전에 HF87 묶음으로 다시 합쳐 하나의 확장 START에 넣은 것이었다. 화면의 직렬 안내와 실제 payload 경계가 달랐다.
+- 현재 통합 입력과 운영 큐는 모델번호가 같아도 확장 START 한 번에 B코드 정확히 1건만 전달한다. 터미널 결과 저장·배치 해제·확장 idle 확인 뒤 다음 B코드를 시작하며 성공 건은 재시도하지 않는다.
+- 확장 프로그램은 HF90 v0.6.53을 유지한다. 새 확장 설치 없이 Commerce OS 배포만으로 적용되는 조율 수정이다.
+- 자동 검증 뒤 실제 같은 모델 B코드 2건 카나리에서 `접수 완료 2/2건`을 확인하기 전에는 다건 완전 성공으로 보고하지 않는다. 상세 근거는 `docs/shopling-stock-state-hf91-20261118.md`에 있다.
+
 ## Mandatory reading by task
 
 Before changing Shopling, purchase-cycle, monthly pricing, stock-state, Product Master, B-code, warehouse-location, or Local Agent code, read:
