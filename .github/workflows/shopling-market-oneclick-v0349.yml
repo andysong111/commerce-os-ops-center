@@ -1,0 +1,75 @@
+name: Shopling Market One Click v0.3.49
+on:
+  pull_request:
+    paths:
+      - 'src/lib/shoplingMarketSingleCoordinatorV0349.ts'
+      - 'src/app/api/shopling-market-group-canary/v0349/**'
+      - 'src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx'
+      - 'tests/shoplingMarketSingleCoordinatorV0349.test.mjs'
+      - 'tests/shoplingMarketAdminHostV0345.test.mjs'
+      - 'tests/shoplingMarketBridgeManifestV0344.test.mjs'
+      - 'docs/handoffs/seo-one-click-market-auto-reconnect-20261113.md'
+      - 'docs/commerce-os-master-context-20260929.md'
+      - '.github/workflows/shopling-market-oneclick-v0349.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shopling-oneclick-v0349-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  single-owner-a18-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Verify single-owner recovery and inherited one-click safety
+        run: node --experimental-strip-types --test tests/shoplingMarketSingleCoordinatorV0349.test.mjs tests/shoplingMarketStaleQueueRecoveryV0348.test.mjs tests/shoplingMarketA19LoginLoopV0347.test.mjs tests/shoplingMarketA19KeywordAuditV0346.test.mjs tests/shoplingMarketAdminHostV0345.test.mjs tests/shoplingMarketBridgeManifestV0344.test.mjs tests/shoplingMarketOneClickBackgroundV0343.test.mjs tests/shoplingMarketGroupCanaryV0330.test.mjs tests/shoplingMarketGroupCanary.test.mjs
+      - run: npm run typecheck
+      - name: Build production app
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Generate and inspect actual v0.3.49 extension ZIP
+        run: |
+          npm run start -- --port 3100 > /tmp/shopling-v0349-next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/api/shopling-market-group-canary/v0349/download -o /tmp/commerce-os-shopling-market-sender-v0.3.49.zip; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive=pathlib.Path('/tmp/commerce-os-shopling-market-sender-v0.3.49.zip')
+          assert archive.is_file() and archive.stat().st_size > 1000
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              manifest=json.loads(z.read('manifest.json'))
+              assert manifest['version']=='0.3.49'
+              agent=z.read('shopling-market-auto-agent.mjs').decode()
+              content=z.read('content-group-canary.mjs').decode()
+              background=z.read('background-root.mjs').decode()
+              assert 'ensureRunningQueueResumeIntentV0348' not in agent
+              assert 'resumeRunningQueue: true' not in agent
+              assert 'market-resume-running-queue-v0349' in agent
+              assert 'coordinator.granted !== true' in content
+              assert 'intent.resumeRunningQueue === true' in content
+              assert 'COORDINATOR_NAVIGATE_MESSAGE_V0349' in content
+              assert 'navigationRequestedAt' not in content
+              assert 'marketCoordinatorMutationV0349' in background
+              assert 'marketCoordinatorUpdateTabV0349' in background
+              assert '/login.phtml' in agent
+              assert '/prodlinkage/goods_mallReg_failList.phtml' in agent
+              assert 'marketAutoA19AuditInFlight' in background
+              z.extractall('/tmp/shopling-v0349')
+          PY
+          for file in /tmp/shopling-v0349/*.js /tmp/shopling-v0349/*.mjs; do node --check "$file"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopling-market-sender-v0349
+          path: /tmp/commerce-os-shopling-market-sender-v0.3.49.zip
+          retention-days: 7

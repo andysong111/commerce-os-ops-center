@@ -94,7 +94,7 @@ test("fails closed if the proven host or agent anchors drift", () => {
 
 test("one-click UI keeps the KT-compatible package in the latest safe queue recovery", async () => {
   const source = await readFile(oneClick, "utf8");
-  assert.match(source, /v0348\/download/);
-  assert.match(source, /최신 확장 v0\.3\.48 다운로드/);
-  assert.match(source, /Shopling Market Sender v0\.3\.48/);
+  assert.match(source, /v0349\/download/);
+  assert.match(source, /최신 확장 v0\.3\.49 다운로드/);
+  assert.match(source, /Shopling Market Sender v0\.3\.49/);
 });
