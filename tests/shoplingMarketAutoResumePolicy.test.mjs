@@ -3,9 +3,11 @@ import test from "node:test";
 
 import {
   findActiveMarketAutoRunOverlap,
+  marketAutoContinuationAllowed,
   marketAutoRunIdSetsEqual,
   marketAutoRunIdSetsOverlap,
   marketOnlyLedgerSafety,
+  remainingMarketAutoRunIds,
   verifiedMarketOnlyUploadJob,
 } from "../src/lib/shoplingMarketAutoResumePolicy.ts";
 
@@ -98,6 +100,31 @@ test("작업번호 3e2ada48 회귀: 살아 있는 기존 작업은 새 중복 �
   assert.equal(findActiveMarketAutoRunOverlap(rows, ["seo-run-new"]), null);
 });
 
+test("활성 작업이 끝나면 그 작업에 포함되지 않은 신규 RUN만 후속 등록한다", () => {
+  assert.deepEqual(
+    remainingMarketAutoRunIds(
+      ["seo-run-existing-a", "seo-run-new", "seo-run-new", "seo-run-existing-b"],
+      ["seo-run-existing-a", "seo-run-existing-b"],
+    ),
+    ["seo-run-new"],
+  );
+  assert.deepEqual(
+    remainingMarketAutoRunIds(
+      ["seo-run-existing-a", "seo-run-existing-b"],
+      ["seo-run-existing-b", "seo-run-existing-a"],
+    ),
+    [],
+  );
+});
+
+test("후속 신규 등록은 정상 종료 또는 확인필요 종료 뒤에만 허용한다", () => {
+  assert.equal(marketAutoContinuationAllowed("completed"), true);
+  assert.equal(marketAutoContinuationAllowed("completed_with_exceptions"), true);
+  assert.equal(marketAutoContinuationAllowed("exception"), false);
+  assert.equal(marketAutoContinuationAllowed("cancelled"), false);
+  assert.equal(marketAutoContinuationAllowed("market_running"), false);
+});
+
 test("원클릭 UI는 생성 전에 활성 중복을 재연결하고 409 경합도 같은 복구 경로로 처리한다", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(
@@ -109,4 +136,25 @@ test("원클릭 UI는 생성 전에 활성 중복을 재연결하고 409 경합�
   assert.match(source, /activeOverlap && await resumeActiveOverlap\(activeOverlap\)/);
   assert.match(source, /startError\.status === 409/);
   assert.match(source, /새 중복 작업은 만들지 않았습니다/);
+});
+
+test("활성 작업과 신규 등록이 겹치면 종료 뒤 남은 RUN을 단일 후속 작업으로 자동 연결한다", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(
+      new URL("../src/app/seo-bulk-cloud/SeoBulkShoplingOneClickControl.tsx", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.match(source, /remainingMarketAutoRunIds\(\s*runIds,\s*activeRunIds/);
+  assert.match(source, /continuationMode/);
+  assert.match(source, /continuationRunIds/);
+  assert.match(source, /handoffRecoveryInFlightRef\.current/);
+  assert.match(source, /기존 작업 완료 확인 · 신규 \$\{continuationRunIds\.length\}개 등록을 자동으로 시작합니다/);
+  assert.match(source, /retryError\.message\.includes\("마켓전송 작업이 이미 진행 중"\)/);
+  assert.match(source, /기존 작업 종료를 기다린 뒤 신규 등록을 자동 재시도합니다/);
+
+  const terminalBranch = source.indexOf("if (current && terminalState(text(current.state)))");
+  const successorCreate = source.indexOf("createOrResumeOrchestration(mode, runIds, token)", terminalBranch);
+  assert.ok(terminalBranch >= 0);
+  assert.ok(successorCreate > terminalBranch);
 });

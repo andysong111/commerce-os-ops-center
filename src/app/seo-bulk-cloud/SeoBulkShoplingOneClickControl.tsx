@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { findActiveMarketAutoRunOverlap } from "@/lib/shoplingMarketAutoResumePolicy";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  findActiveMarketAutoRunOverlap,
+  marketAutoContinuationAllowed,
+  remainingMarketAutoRunIds,
+} from "@/lib/shoplingMarketAutoResumePolicy";
 
 const SEO_RUN_API = "/api/seo-run-jobs";
 const AUTO_API = "/api/shopling-market-auto-orchestration";
@@ -221,6 +225,7 @@ export default function SeoBulkShoplingOneClickControl() {
   >([]);
   const [preparationInventoryCount, setPreparationInventoryCount] = useState(0);
   const [preparationTargetCount, setPreparationTargetCount] = useState(0);
+  const handoffRecoveryInFlightRef = useRef(false);
 
   const checkBridge = useCallback(async () => {
     setError("");
@@ -317,19 +322,29 @@ export default function SeoBulkShoplingOneClickControl() {
   );
 
   const retryPendingHandoff = useCallback(async () => {
-    let pending: UnknownRecord = {};
+    if (handoffRecoveryInFlightRef.current) return;
+    handoffRecoveryInFlightRef.current = true;
     try {
-      pending = record(JSON.parse(window.localStorage.getItem(PENDING_STORAGE_KEY) || "{}"));
-    } catch {
-      window.localStorage.removeItem(PENDING_STORAGE_KEY);
-    }
-    let orchestrationId = text(pending.orchestrationId);
-    let token = text(pending.token);
-    let mode: PipelineMode = pending.mode === "market_only" ? "market_only" : "full_pipeline";
-    let runIds = Array.isArray(pending.runIds)
-      ? pending.runIds.map(text).filter(Boolean)
-      : [];
-    try {
+      let pending: UnknownRecord = {};
+      try {
+        pending = record(JSON.parse(window.localStorage.getItem(PENDING_STORAGE_KEY) || "{}"));
+      } catch {
+        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+      }
+      let orchestrationId = text(pending.orchestrationId);
+      let token = text(pending.token);
+      let mode: PipelineMode = pending.mode === "market_only" ? "market_only" : "full_pipeline";
+      let runIds = Array.isArray(pending.runIds)
+        ? pending.runIds.map(text).filter(Boolean)
+        : [];
+      const continuationMode: PipelineMode = pending.continuationMode === "market_only"
+        ? "market_only"
+        : "full_pipeline";
+      let continuationRunIds = Array.isArray(pending.continuationRunIds)
+        ? pending.continuationRunIds.map(text).filter(Boolean)
+        : [];
+      let continuationStartedCount = 0;
+
       const autoBody = await requestJson(AUTO_API);
       const currentOrchestrations = Array.isArray(autoBody.orchestrations)
         ? (autoBody.orchestrations as AutoRow[])
@@ -338,41 +353,143 @@ export default function SeoBulkShoplingOneClickControl() {
       if (orchestrationId) {
         const current = currentOrchestrations.find((row) => text(row.id) === orchestrationId);
         if (current && terminalState(text(current.state))) {
-          window.localStorage.removeItem(PENDING_STORAGE_KEY);
-          return;
+          if (!continuationRunIds.length) {
+            window.localStorage.removeItem(PENDING_STORAGE_KEY);
+            return;
+          }
+          if (!marketAutoContinuationAllowed(current.state)) {
+            window.localStorage.removeItem(PENDING_STORAGE_KEY);
+            setError("기존 원클릭 작업이 예외·취소로 끝나 신규 등록을 안전하게 중단했습니다.");
+            return;
+          }
+          continuationStartedCount = continuationRunIds.length;
+          mode = continuationMode;
+          runIds = continuationRunIds;
+          continuationRunIds = [];
+          orchestrationId = "";
+          token = createHandoffToken();
+          window.localStorage.setItem(
+            PENDING_STORAGE_KEY,
+            JSON.stringify({
+              mode,
+              runIds,
+              token,
+              predecessorOrchestrationId: text(current.id),
+              continuationStartedAt: Date.now(),
+            }),
+          );
+          setMessage(
+            `기존 원클릭 작업 완료 확인 · 대기 중인 신규 ${runIds.length}개를 자동으로 이어서 등록합니다…`,
+          );
         }
       }
 
-      if (!token || (!orchestrationId && !runIds.length)) {
+      if (!orchestrationId && !runIds.length) {
         const active = currentOrchestrations.find(
           (row) => !terminalState(text(row.state)),
         );
         if (!active) return;
+        orchestrationId = text(active.id);
+        runIds = Array.isArray(active.run_ids)
+          ? active.run_ids.map(text).filter(Boolean)
+          : [];
+        continuationRunIds = remainingMarketAutoRunIds(
+          continuationRunIds,
+          runIds,
+        );
+        mode = text(record(active.result).mode) === "market_only"
+          ? "market_only"
+          : "full_pipeline";
+        window.localStorage.setItem(
+          PENDING_STORAGE_KEY,
+          JSON.stringify({
+            mode,
+            runIds,
+            orchestrationId,
+            token: "",
+            continuationMode,
+            continuationRunIds,
+            recoveredAt: Date.now(),
+          }),
+        );
+      }
+
+      if (orchestrationId && !token) {
         const available = await probeExtension();
         setBridgeReady(available);
         if (!available) return;
 
         token = createHandoffToken();
-        orchestrationId = text(active.id);
-        runIds = Array.isArray(active.run_ids)
-          ? active.run_ids.map(text).filter(Boolean)
-          : [];
-        mode = text(record(active.result).mode) === "market_only"
-          ? "market_only"
-          : "full_pipeline";
         const recovered = await reconnectOrchestration(orchestrationId, token);
-        if (recovered.terminal === true) return;
-        if (recovered.activeAgent === true || recovered.needsHandoff === false) {
-          setMessage("브라우저 에이전트가 원클릭 마켓전송을 계속 처리하고 있습니다.");
+        if (recovered.terminal === true) {
+          if (!continuationRunIds.length) {
+            window.localStorage.removeItem(PENDING_STORAGE_KEY);
+            return;
+          }
+          if (!marketAutoContinuationAllowed(recovered.state)) {
+            window.localStorage.removeItem(PENDING_STORAGE_KEY);
+            setError("기존 원클릭 작업이 예외·취소로 끝나 신규 등록을 안전하게 중단했습니다.");
+            return;
+          }
+          continuationStartedCount = continuationRunIds.length;
+          mode = continuationMode;
+          runIds = continuationRunIds;
+          continuationRunIds = [];
+          orchestrationId = "";
+          token = createHandoffToken();
+          window.localStorage.setItem(
+            PENDING_STORAGE_KEY,
+            JSON.stringify({
+              mode,
+              runIds,
+              token,
+              predecessorOrchestrationId: text(recovered.orchestrationId),
+              continuationStartedAt: Date.now(),
+            }),
+          );
+        } else if (recovered.activeAgent === true || recovered.needsHandoff === false) {
+          runIds = Array.isArray(recovered.runIds)
+            ? recovered.runIds.map(text).filter(Boolean)
+            : runIds;
+          window.localStorage.setItem(
+            PENDING_STORAGE_KEY,
+            JSON.stringify({
+              mode,
+              runIds,
+              orchestrationId,
+              token: "",
+              continuationMode,
+              continuationRunIds,
+              recoveredAt: Date.now(),
+            }),
+          );
+          setMessage(
+            continuationRunIds.length
+              ? `브라우저 에이전트가 기존 원클릭 작업을 처리 중입니다. 종료 후 신규 ${continuationRunIds.length}개를 자동 등록합니다.`
+              : "브라우저 에이전트가 원클릭 마켓전송을 계속 처리하고 있습니다.",
+          );
           return;
         }
-        if (text(recovered.handoffToken) !== token) {
+        if (orchestrationId && text(recovered.handoffToken) !== token) {
           throw new Error("원클릭 자동 재연결 확인값이 일치하지 않습니다.");
         }
-        window.localStorage.setItem(
-          PENDING_STORAGE_KEY,
-          JSON.stringify({ mode, runIds, orchestrationId, token, recoveredAt: Date.now() }),
-        );
+        if (orchestrationId) {
+          runIds = Array.isArray(recovered.runIds)
+            ? recovered.runIds.map(text).filter(Boolean)
+            : runIds;
+          window.localStorage.setItem(
+            PENDING_STORAGE_KEY,
+            JSON.stringify({
+              mode,
+              runIds,
+              orchestrationId,
+              token,
+              continuationMode,
+              continuationRunIds,
+              recoveredAt: Date.now(),
+            }),
+          );
+        }
       }
 
       if (!orchestrationId) {
@@ -381,7 +498,15 @@ export default function SeoBulkShoplingOneClickControl() {
         if (!orchestrationId) return;
         window.localStorage.setItem(
           PENDING_STORAGE_KEY,
-          JSON.stringify({ ...pending, orchestrationId }),
+          JSON.stringify({
+            mode,
+            runIds,
+            orchestrationId,
+            token,
+            continuationMode,
+            continuationRunIds,
+            continuationStartedAt: continuationStartedCount ? Date.now() : undefined,
+          }),
         );
       }
       const available = await probeExtension();
@@ -390,23 +515,47 @@ export default function SeoBulkShoplingOneClickControl() {
       if (await handoffToExtension(orchestrationId, token)) {
         window.localStorage.setItem(
           PENDING_STORAGE_KEY,
-          JSON.stringify({ mode, runIds, orchestrationId, token, handedOffAt: Date.now() }),
+          JSON.stringify({
+            mode,
+            runIds,
+            orchestrationId,
+            token,
+            continuationMode,
+            continuationRunIds,
+            handedOffAt: Date.now(),
+          }),
         );
         setMessage(
-          mode === "market_only"
+          continuationStartedCount
+            ? `기존 작업 완료 → 신규 ${continuationStartedCount}개 Shopling 등록·마켓전송 자동 연결 완료`
+            : mode === "market_only"
             ? "마켓전송만 재개 연결 완료 · 기존 SEO와 Shopling 상품등록은 다시 실행하지 않습니다."
             : "브라우저 에이전트 연결 복구 완료 · Shopling 업로드 후 마켓전송까지 자동으로 이어집니다.",
         );
       }
     } catch (retryError) {
-      if (retryError instanceof RequestError && retryError.status < 500) {
+      const preserveQueuedContinuation =
+        retryError instanceof RequestError &&
+        retryError.status === 409 &&
+        retryError.message.includes("마켓전송 작업이 이미 진행 중") &&
+        Boolean(window.localStorage.getItem(PENDING_STORAGE_KEY));
+      if (
+        retryError instanceof RequestError &&
+        retryError.status < 500 &&
+        !preserveQueuedContinuation
+      ) {
         window.localStorage.removeItem(PENDING_STORAGE_KEY);
+      }
+      if (preserveQueuedContinuation) {
+        setMessage("기존 작업 종료를 기다린 뒤 신규 등록을 자동 재시도합니다.");
       }
       setError(
         retryError instanceof Error
           ? retryError.message
           : "저장된 원클릭 작업 재연결 실패",
       );
+    } finally {
+      handoffRecoveryInFlightRef.current = false;
     }
   }, []);
 
@@ -447,11 +596,32 @@ export default function SeoBulkShoplingOneClickControl() {
       const activeRunIds = Array.isArray(active.run_ids)
         ? active.run_ids.map(text).filter(Boolean)
         : [];
+      const continuationRunIds = remainingMarketAutoRunIds(
+        runIds,
+        activeRunIds,
+      );
+      const continuationMessage = continuationRunIds.length
+        ? ` · 종료 후 신규 ${continuationRunIds.length}개 자동 등록 대기`
+        : "";
+      const activeMode: PipelineMode = text(record(active.result).mode) === "market_only"
+        ? "market_only"
+        : "full_pipeline";
       if (!orchestrationId) return false;
       if (!available) {
-        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+        window.localStorage.setItem(
+          PENDING_STORAGE_KEY,
+          JSON.stringify({
+            mode: activeMode,
+            runIds: activeRunIds,
+            orchestrationId,
+            token: "",
+            continuationMode: mode,
+            continuationRunIds,
+            recoveredAt: Date.now(),
+          }),
+        );
         setMessage(
-          `기존 원클릭 작업 ${orchestrationId.slice(0, 8)}이 이미 같은 상품을 처리 중입니다. 새 중복 작업은 만들지 않았습니다.`,
+          `기존 원클릭 작업 ${orchestrationId.slice(0, 8)}이 이미 같은 상품을 처리 중입니다. 새 중복 작업은 만들지 않았습니다${continuationMessage}.`,
         );
         setError(
           "최신 Shopling Market Sender v0.3.47과 로그인된 Shopling 관리자 탭을 연결하면 기존 작업부터 자동 재개됩니다.",
@@ -463,15 +633,51 @@ export default function SeoBulkShoplingOneClickControl() {
       const token = createHandoffToken();
       const recovered = await reconnectOrchestration(orchestrationId, token);
       if (recovered.terminal === true) {
-        window.localStorage.removeItem(PENDING_STORAGE_KEY);
-        setMessage("기존 원클릭 작업이 방금 종료되었습니다. 현황을 새로 확인했습니다.");
-        await load();
+        if (!continuationRunIds.length) {
+          window.localStorage.removeItem(PENDING_STORAGE_KEY);
+          setMessage("기존 원클릭 작업이 방금 종료되었습니다. 현황을 새로 확인했습니다.");
+          await load();
+          return true;
+        }
+        if (!marketAutoContinuationAllowed(recovered.state)) {
+          window.localStorage.removeItem(PENDING_STORAGE_KEY);
+          setMessage("기존 작업이 정상 완료되지 않아 신규 등록을 시작하지 않았습니다.");
+          setError("기존 원클릭 작업의 예외·취소 원인을 먼저 확인해야 합니다.");
+          await load();
+          return true;
+        }
+        const continuationToken = createHandoffToken();
+        window.localStorage.setItem(
+          PENDING_STORAGE_KEY,
+          JSON.stringify({
+            mode,
+            runIds: continuationRunIds,
+            token: continuationToken,
+            predecessorOrchestrationId: orchestrationId,
+            continuationStartedAt: Date.now(),
+          }),
+        );
+        setMessage(
+          `기존 작업 완료 확인 · 신규 ${continuationRunIds.length}개 등록을 자동으로 시작합니다…`,
+        );
+        await retryPendingHandoff();
         return true;
       }
       if (recovered.activeAgent === true || recovered.needsHandoff === false) {
-        window.localStorage.removeItem(PENDING_STORAGE_KEY);
+        window.localStorage.setItem(
+          PENDING_STORAGE_KEY,
+          JSON.stringify({
+            mode: activeMode,
+            runIds: activeRunIds,
+            orchestrationId,
+            token: "",
+            continuationMode: mode,
+            continuationRunIds,
+            recoveredAt: Date.now(),
+          }),
+        );
         setMessage(
-          `기존 원클릭 작업 ${orchestrationId.slice(0, 8)}을 브라우저 에이전트가 계속 처리하고 있습니다. 새 중복 작업은 만들지 않았습니다.`,
+          `기존 원클릭 작업 ${orchestrationId.slice(0, 8)}을 브라우저 에이전트가 계속 처리하고 있습니다. 새 중복 작업은 만들지 않았습니다${continuationMessage}.`,
         );
         await load();
         return true;
@@ -485,12 +691,12 @@ export default function SeoBulkShoplingOneClickControl() {
       window.localStorage.setItem(
         PENDING_STORAGE_KEY,
         JSON.stringify({
-          mode: text(record(active.result).mode) === "market_only"
-            ? "market_only"
-            : "full_pipeline",
+          mode: activeMode,
           runIds: recoveredRunIds,
           orchestrationId,
           token,
+          continuationMode: mode,
+          continuationRunIds,
           recoveredAt: Date.now(),
         }),
       );
@@ -507,17 +713,17 @@ export default function SeoBulkShoplingOneClickControl() {
       window.localStorage.setItem(
         PENDING_STORAGE_KEY,
         JSON.stringify({
-          mode: text(record(active.result).mode) === "market_only"
-            ? "market_only"
-            : "full_pipeline",
+          mode: activeMode,
           runIds: recoveredRunIds,
           orchestrationId,
           token,
+          continuationMode: mode,
+          continuationRunIds,
           handedOffAt: Date.now(),
         }),
       );
       setMessage(
-        `기존 원클릭 작업 ${orchestrationId.slice(0, 8)} 재연결 완료 · 같은 상품의 새 중복 작업 없이 이어서 처리합니다.`,
+        `기존 원클릭 작업 ${orchestrationId.slice(0, 8)} 재연결 완료 · 같은 상품의 새 중복 작업 없이 이어서 처리합니다${continuationMessage}.`,
       );
       await load();
       return true;
@@ -617,7 +823,7 @@ export default function SeoBulkShoplingOneClickControl() {
     } finally {
       setBusy(false);
     }
-  }, [busy, load]);
+  }, [busy, load, retryPendingHandoff]);
 
   const start = useCallback(
     () => startPipeline("full_pipeline", readyRuns),
