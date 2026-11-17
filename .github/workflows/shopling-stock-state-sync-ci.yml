@@ -62,6 +62,8 @@ on:
       - "tests/shoplingStockStateHf73.test.mjs"
       - "tests/shoplingStockStateHf74.test.mjs"
       - "tests/shoplingStockStateHf88.test.mjs"
+      - "tests/shoplingStockStateHf89.test.mjs"
+      - "tests/shoplingStockStateHf90.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -129,6 +131,7 @@ jobs:
           && node --check public/shopling-stock-state-sync/background-v096.js
           && node --check public/shopling-stock-state-sync/background-v097.js
           && node --check public/shopling-stock-state-sync/background-v098.js
+          && node --check public/shopling-stock-state-sync/background-v099.js
           && node --check public/shopling-stock-state-sync/content-ops-v025.js
           && node --check public/shopling-stock-state-sync/content-ops-preflight-v002.js
           && node --check public/shopling-stock-state-sync/content-ops-heartbeat-v001.js
@@ -217,6 +220,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf88.test.mjs
       - name: Regression - HF89 exact popup blue-submit handoff
         run: node --experimental-strip-types --test tests/shoplingStockStateHf89.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: Regression - HF90 exact popup owner receipt bridge
+        run: node --experimental-strip-types --test tests/shoplingStockStateHf90.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary
