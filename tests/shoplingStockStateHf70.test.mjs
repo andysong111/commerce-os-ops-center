@@ -180,9 +180,9 @@ test("HF70 package and UI advance the live gate while preserving serial goods-ke
   assert.match(route, /const VERSION = "0\.6\.33"/);
   assert.match(route, /FRESH_TAB_NOT_IN_BASELINE_AND_EXACT_A21_LIST_OPENER/);
   assert.match(route, /SERIAL_ONE_AT_A_TIME/);
-  assert.match(page, /download-hf92/);
-  assert.match(page, /v0\.6\.54 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 54\]/);
+  assert.match(page, /download-hf93/);
+  assert.match(page, /v0\.6\.55 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 55\]/);
   assert.match(background, /importScripts\("background-v089\.js"\)/);
   new Function(background);
 });

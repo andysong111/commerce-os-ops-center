@@ -155,7 +155,7 @@ export function friendlyShoplingStockSyncFailure(
     raw.includes("enableAllDateSearch is not defined") ||
     raw.includes("A21_CONTENT_EXCEPTION")
   ) {
-    return "Shopling A21 작업 프레임·성공표 영수증을 확인하지 못했습니다. Shopling에는 이미 접수됐을 수 있으므로 같은 B코드를 다시 실행하지 말고 A21 결과를 먼저 확인해 주세요. 이후 재고상태 자동화 확장을 v0.6.54로 업데이트해 주세요.";
+    return "Shopling A21 작업 프레임·성공표 영수증을 확인하지 못했습니다. Shopling에는 이미 접수됐을 수 있으므로 같은 B코드를 다시 실행하지 말고 A21 결과를 먼저 확인해 주세요. 이후 재고상태 자동화 확장을 v0.6.55로 업데이트해 주세요.";
   }
   if (
     raw.includes("A21_ALL_DATE_FILTER_NOT_FOUND") ||
@@ -718,7 +718,7 @@ function InventoryStockoutGenericPanel() {
         setExtensionVersion(version);
         if (!supported) {
           setSyncNotice(
-            `Shopling 자동화 v${version || "확인 불가"}는 새 A21 팝업의 전송 결과 귀속 영수증을 지원하지 않아 사용할 수 없습니다. v0.6.54로 업데이트해 주세요.`,
+            `Shopling 자동화 v${version || "확인 불가"}는 새 A21 팝업의 전송 결과 귀속 영수증을 지원하지 않아 사용할 수 없습니다. v0.6.55로 업데이트해 주세요.`,
           );
         } else {
           setSyncNotice((current) =>
@@ -929,7 +929,7 @@ function InventoryStockoutGenericPanel() {
       !extensionReadyRef.current
     ) {
       setNotice(
-        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.54를 연결해 주세요.",
+        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.55를 연결해 주세요.",
       );
       return;
     }
@@ -1016,7 +1016,7 @@ function InventoryStockoutGenericPanel() {
     }
     if (!extensionReadyRef.current) {
       setSyncNotice(
-        "Shopling 자동화 확장 v0.6.54 연결을 확인한 뒤 다시 시도해 주세요.",
+        "Shopling 자동화 확장 v0.6.55 연결을 확인한 뒤 다시 시도해 주세요.",
       );
       return;
     }
@@ -1159,7 +1159,7 @@ function InventoryStockoutGenericPanel() {
           {extensionReady
             ? `Shopling 자동화 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}`
             : extensionVersion
-              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.6.54`
+              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.6.55`
             : "Shopling 자동화 연결 대기"}
         </span>
         {inputErrors.length ? (
