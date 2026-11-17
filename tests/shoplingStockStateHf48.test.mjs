@@ -172,11 +172,11 @@ test("HF48 publishes v0.6.13, rejects HF47 at launch, and is permanent CI covera
     route,
     /BDE7-3_OPTION_ACK_RACED_BY_SINGLE_BACKGROUND_LISTENER/,
   );
-  assert.match(page, /download-hf89/);
-  assert.match(page, /v0\.6\.52 다운로드/);
+  assert.match(page, /download-hf90/);
+  assert.match(page, /v0\.6\.53 다운로드/);
   assert.match(
     planner,
-    /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 52\]/,
+    /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 53\]/,
   );
   assert.match(workflow, /shoplingStockStateHf48\.test\.mjs/);
 });

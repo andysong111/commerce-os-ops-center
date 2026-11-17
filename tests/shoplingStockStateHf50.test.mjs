@@ -17,9 +17,9 @@ test("HF50 packages read-only login preflight as v0.6.15", async () => {
   assert.match(background, /SHOPLING_LOGIN_REQUIRED_BEFORE_START/);
   assert.doesNotMatch(background, /chrome\.tabs\.update/);
   assert.doesNotMatch(background, /\.click\(/);
-  assert.match(page, /download-hf89/);
-  assert.match(page, /v0\.6\.52 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 52\]/);
+  assert.match(page, /download-hf90/);
+  assert.match(page, /v0\.6\.53 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 53\]/);
 });
 
 test("both execution paths preflight before STARTED is recorded", async () => {

@@ -144,7 +144,7 @@ test("HF89 rejects a popup handoff from an unrelated Shopling list window", asyn
   assert.equal(harness.directInput(), null);
 });
 
-test("HF89 download and stock-control gate require v0.6.52", async () => {
+test("HF89 package stays reproducible while the stock-control gate advances to HF90", async () => {
   const [route, page, planner, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf89/route.ts", "utf8"),
     readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
@@ -154,8 +154,8 @@ test("HF89 download and stock-control gate require v0.6.52", async () => {
   assert.match(route, /const BASE_VERSION = "0\.6\.51"/);
   assert.match(route, /const VERSION = "0\.6\.52"/);
   assert.match(route, /EXACT_POPUP_ID_DIRECT_TO_PROVEN_HF84_COMMIT/);
-  assert.match(page, /download-hf89/);
-  assert.match(page, /v0\.6\.52 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 52\]/);
+  assert.match(page, /download-hf90/);
+  assert.match(page, /v0\.6\.53 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 53\]/);
   assert.match(workflow, /shoplingStockStateHf89\.test\.mjs/);
 });
