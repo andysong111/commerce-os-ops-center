@@ -15,11 +15,11 @@ test("HF88 packages the isolated preview origins without widening to every Verce
   assert.match(route, /opsEntry\.matches\.push/);
 });
 
-test("stock control downloads the preview-aware HF88 extension", async () => {
+test("HF88 remains traceable while stock control downloads HF89", async () => {
   const page = await readFile(
     "src/app/china-order-manager/stock-control/page.tsx",
     "utf8",
   );
-  assert.match(page, /download-hf88/);
-  assert.match(page, /v0\.6\.51/);
+  assert.match(page, /download-hf89/);
+  assert.match(page, /v0\.6\.52/);
 });

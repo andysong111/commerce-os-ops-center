@@ -10,7 +10,7 @@ import {
 const option = { jobId: "option-1", productKind: "OPTION" };
 const single = { jobId: "single-1", productKind: "SINGLE" };
 
-test("only HF87 v0.6.50 and later may run coalesced A21 sync", () => {
+test("only HF89 v0.6.52 and later may run exact-popup A21 sync", () => {
   assert.equal(supportsAllDateStockSync("0.5.8"), false);
   assert.equal(supportsAllDateStockSync("0.5.9"), false);
   assert.equal(supportsAllDateStockSync("0.6.0"), false);
@@ -63,7 +63,9 @@ test("only HF87 v0.6.50 and later may run coalesced A21 sync", () => {
   assert.equal(supportsAllDateStockSync("0.6.47"), false);
   assert.equal(supportsAllDateStockSync("0.6.48"), false);
   assert.equal(supportsAllDateStockSync("0.6.49"), false);
-  assert.equal(supportsAllDateStockSync("0.6.50"), true);
+  assert.equal(supportsAllDateStockSync("0.6.50"), false);
+  assert.equal(supportsAllDateStockSync("0.6.51"), false);
+  assert.equal(supportsAllDateStockSync("0.6.52"), true);
   assert.equal(supportsAllDateStockSync(""), false);
 });
 
@@ -142,6 +144,6 @@ test("both stock-control launch surfaces use the shared version-aware planner", 
     assert.match(source, /extensionVersionRef\.current/);
     assert.match(source, /const version = String\(data\.extensionVersion \|\| ""\)/);
   }
-  assert.match(page, /download-hf88/);
-  assert.match(page, /v0\.6\.51 다운로드/);
+  assert.match(page, /download-hf89/);
+  assert.match(page, /v0\.6\.52 다운로드/);
 });
