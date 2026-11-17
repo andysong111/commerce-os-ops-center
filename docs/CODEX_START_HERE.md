@@ -17,6 +17,14 @@ When sources conflict, use this order:
 
 Never preserve an old plan merely because it is documented if current code or direct live evidence disproves it.
 
+### Shopling stock-state HF94 handoff (2026-11-18)
+
+- v0.6.55 연결 상태에서 B코드 3건 실행이 첫 건도 시작하지 못하고 `SHOPLING_STOCK_EXTENSION_NOT_IDLE`, `성공 0/3 · 실패 0 · 미시작 3`으로 중단됐다. READY 신호는 왔지만 기존 전체 상태 응답이 누락되면 브리지가 조용히 끝나 STATUS를 보내지 않는 것이 직접 원인이었다.
+- HF94 v0.6.56은 매 B코드 시작 전에 백그라운드 저장소에서 실행 소유권만 읽는 전용 최소 상태 영수증을 보낸다. `statusProbeOk: true`와 `idleConfirmed: true`가 모두 없으면 READY나 기존 `active: null`만으로 절대 시작하지 않는다.
+- RUNNING 잠금은 같은 정확한 jobId의 종결 영수증이 시작시각 뒤에 저장된 경우에만 해제한다. 다른 작업 영수증이나 살아 있는 작업은 보존해 중복 전송을 막는다.
+- B코드 한 건씩 직렬 실행, 정확 팝업·탭·프레임 소유권, 원본 Shopling 전송 영수증 책임 경계는 그대로다. 중단된 3건은 외부 전송 전에 멈췄으므로 기존 2차 시도를 누르지 않고, v0.6.56 설치·새로고침 후 신규 1건 카나리부터 확인한다.
+- 상세 원인·계약·검증 절차는 `docs/shopling-stock-state-hf94-20261118.md`에 있다.
+
 ### Shopling stock-state HF93 handoff (2026-11-18)
 
 - v0.6.54 실제 42건 실행은 `37/42`에서 A21 `가격조정 원본 검색 제출 → 전체 정확일치 행 선택` 문구로 오래 머물렀고, Shopling은 `수정 전송할 자료를 선택하여 주세요.` 경고를 표시했다. 가격 변경 작업은 아니며 가격전송에서 검증한 A21 상품 원본 검색기를 재사용한 내부 명칭이었다.

@@ -5,6 +5,10 @@ export const SHOPLING_STOCK_EXTENSION_STATUS =
 
 type ShoplingStockStatusMessage = {
   type?: unknown;
+  idleConfirmed?: unknown;
+  statusProbeOk?: unknown;
+  statusProbeCode?: unknown;
+  statusProbeError?: unknown;
   active?: {
     status?: unknown;
     job?: { jobId?: unknown; barcode?: unknown } | null;
@@ -38,6 +42,7 @@ export async function waitForShoplingStockIdle({
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     let lastRunningBarcode = "";
+    let lastProbeFailure = "";
 
     const cleanup = () => {
       bridgeWindow.removeEventListener("message", onMessage);
@@ -69,8 +74,25 @@ export async function waitForShoplingStockIdle({
       const message = event.data as ShoplingStockStatusMessage;
       if (message.type !== SHOPLING_STOCK_EXTENSION_STATUS) return;
 
+      if (message.statusProbeOk === false) {
+        const code = String(message.statusProbeCode || "").trim();
+        const detail = String(message.statusProbeError || "").trim();
+        lastProbeFailure = [code, detail].filter(Boolean).join(" · ");
+        return;
+      }
+
       if (String(message.active?.status || "").toUpperCase() === "RUNNING") {
         lastRunningBarcode = String(message.active?.job?.barcode || "");
+        return;
+      }
+      if (message.statusProbeOk !== true) {
+        lastProbeFailure =
+          "확장 프로그램의 전용 다음 작업 가능 확인 영수증을 받지 못했습니다.";
+        return;
+      }
+      if (message.idleConfirmed !== true) {
+        lastProbeFailure =
+          "확장 프로그램이 작업 없음 상태를 명시적으로 확인하지 않았습니다.";
         return;
       }
       finish();
@@ -84,7 +106,8 @@ export async function waitForShoplingStockIdle({
           `SHOPLING_STOCK_EXTENSION_NOT_IDLE: ${
             lastRunningBarcode
               ? `${lastRunningBarcode} Shopling 작업 잠금이 해제되지 않았습니다.`
-              : "Shopling 확장의 다음 작업 가능 상태를 확인하지 못했습니다."
+              : lastProbeFailure ||
+                "Shopling 확장의 다음 작업 가능 상태를 확인하지 못했습니다."
           }`,
         ),
       );

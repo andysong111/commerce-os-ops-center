@@ -5,7 +5,11 @@ const base = process.env.INVENTORY_UI_BASE_URL || 'https://commerce-os-ops-cente
 const origin = new URL(base).origin;
 const output = 'artifacts/inventory-ui-hidden';
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+const browser = await chromium.launch({
+  headless: true,
+  ...(executablePath ? { executablePath } : {}),
+});
 const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, locale: 'ko-KR' });
 const page = await context.newPage();
 const requests = [];
@@ -27,7 +31,7 @@ await context.addInitScript(() => {
     if (type === 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING_HF27') {
       window.postMessage({
         type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY_HF27',
-        extensionVersion: '0.6.55',
+        extensionVersion: '0.6.56',
       }, location.origin);
     }
     if (/STOCK_SYNC_(?:PARALLEL_)?START/.test(type)) window.__inventoryTestStartMessages.push(type);
@@ -90,12 +94,14 @@ try {
   await page.evaluate(() => {
     window.postMessage({
       type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY',
-      extensionVersion: '0.6.55',
+      extensionVersion: '0.6.56',
     }, location.origin);
     window.postMessage({
       type: 'COMMERCE_OS_SHOPLING_STOCK_SYNC_STATUS',
       active: null,
-      extensionVersion: '0.6.55',
+      extensionVersion: '0.6.56',
+      idleConfirmed: true,
+      statusProbeOk: true,
     }, location.origin);
   });
   await page.waitForFunction(() => {
@@ -103,7 +109,7 @@ try {
     const button = [...(queue?.querySelectorAll('button') || [])].find(node => node.textContent?.includes('현재 대기건 자동처리'));
     return button && !button.disabled;
   }, null, { timeout: 20000 });
-  checks.push('mocked v0.6.55 extension is explicitly ready and idle before execution');
+  checks.push('mocked v0.6.56 extension is explicitly ready and idle before execution');
 
   // Show why render state is NOT execution authority. The server removes the job
   // before a click. The click must re-read Q and must never POST or start HF28.
