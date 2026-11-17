@@ -88,6 +88,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
       - name: Syntax check stock sync extension scripts
         run: >-
           node --check public/shopling-stock-state-sync/menu-guard-v014.js
