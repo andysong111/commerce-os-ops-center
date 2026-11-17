@@ -6,6 +6,7 @@ import { planShoplingStockLaunch, supportsAllDateStockSync } from "@/lib/shoplin
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
 import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
 import { selectExactShoplingStockQueueJob, type ShoplingStockQueueSelection } from "@/lib/shoplingStockQueueSelection";
+import { selectShoplingCoalescedJobs } from "@/lib/shoplingStockBatchCoalescing";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -18,6 +19,7 @@ type SyncJob = {
   directOperatorCommand?: boolean;
   retransmissionRequestId?: string;
   operationalQueue?: true; parallelBatchId?: string; parallelLane?: number; ignoreWindowClose?: true;
+  coalescedBatchId?: string; coalescedJobIds?: string[];
 };
 type StockRow = {
   barcode: string; productName: string; productKind: ProductKind; exactInventoryQuantity: number;
@@ -213,31 +215,49 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     await waitForShoplingStockIdle();
     const plan = planShoplingStockLaunch(launchable, extensionVersionRef.current);
     const batchId = randomId("stock-sync-ops-batch");
-    const prepared = plan.jobs.map((job, index) => operationalJob(job, batchId, index + 1));
+    const groupedJobs =
+      plan.mode === "SINGLE" && !requested
+        ? selectShoplingCoalescedJobs(launchable, plan.jobs[0])
+        : plan.jobs;
+    const coalescedJobIds = groupedJobs.map((job) => job.jobId);
+    const prepared = groupedJobs.map((job, index) => ({
+      ...operationalJob(job, batchId, index + 1),
+      coalescedBatchId: batchId,
+      coalescedJobIds,
+    }));
     await requireShoplingAuthenticatedSession();
     jobsById.current.clear(); prepared.forEach((job) => jobsById.current.set(job.jobId, job));
     setRunningBarcodes(prepared.map((job) => job.barcode));
     setPhase(plan.mode === "PARALLEL" ? "STARTING_2_LANE" : "STARTING_SINGLE");
-    const firstJob = prepared[0];
-    await recordSync(firstJob, "STARTED",
-      firstJob.manualStatusOnly
-        ? `운영 큐 ${firstJob.parallelLane || 1}번 Lane 시작 · 재고수량 미확정 수동 Shopling ${statusLabel(firstJob.desiredStatus)} 반영`
-        : `운영 큐 ${firstJob.parallelLane || 1}번 Lane 시작 · 현재 정확재고 ${firstJob.exactInventoryQuantity}개 기준 Shopling ${statusLabel(firstJob.desiredStatus)} 반영`,
-      { operationalQueue: true, operationalBatchId: batchId, operationalLane: firstJob.parallelLane || 1, maxConcurrentLanes: prepared.length, desiredSince: firstJob.desiredSince, manualStatusOnly: firstJob.manualStatusOnly === true });
+    const startRecordPromises = new Map<string, Promise<void>>();
+    for (const job of prepared) {
+      const startRecord = recordSync(job, "STARTED",
+        job.manualStatusOnly
+          ? `운영 큐 시작 · 재고수량 미확정 수동 Shopling ${statusLabel(job.desiredStatus)} 반영${prepared.length > 1 ? " · 동일 모델 API 선적용 묶음" : ""}`
+          : `운영 큐 시작 · 현재 정확재고 ${job.exactInventoryQuantity}개 기준 Shopling ${statusLabel(job.desiredStatus)} 반영${prepared.length > 1 ? " · 동일 모델 API 선적용 묶음" : ""}`,
+        { operationalQueue: true, operationalBatchId: batchId, operationalLane: 1, maxConcurrentLanes: 1, coalescedJobIds, desiredSince: job.desiredSince, manualStatusOnly: job.manualStatusOnly === true });
+      startRecordPromises.set(job.jobId, startRecord);
+      await startRecord;
+    }
     activeBatch.current = {
       mode: plan.mode,
       batchId,
       jobs: prepared,
-      startedJobIds: new Set([firstJob.jobId]),
-      startRecordPromises: new Map<string, Promise<void>>(),
+      startedJobIds: new Set(prepared.map((job) => job.jobId)),
+      startRecordPromises,
       terminalJobIds: new Set<string>(),
     };
     if (plan.mode === "PARALLEL") {
       window.postMessage({ type: PARALLEL_START, batchId, jobs: prepared }, window.location.origin);
       setNotice(`${prepared[0].barcode} + ${prepared[1].barcode} 운영 큐 2-Lane 시작 · 품절 우선순위로 최대 2건을 겹쳐 처리합니다.`);
     } else {
-      window.postMessage({ type: SINGLE_START, job: prepared[0] }, window.location.origin);
-      setNotice(plan.compatibilitySerial
+      window.postMessage({
+        type: SINGLE_START,
+        job: { ...prepared[0], coalescedJobs: prepared },
+      }, window.location.origin);
+      setNotice(prepared.length > 1
+        ? `${prepared[0].modelNo || prepared[0].barcode} · 동일 모델 ${prepared.length}개 B코드를 API에 먼저 적용한 뒤 A21은 한 번만 전송합니다.`
+        : plan.compatibilitySerial
         ? `${prepared[0].barcode} · Shopling 동시작업 충돌을 막기 위해 B코드를 1건씩 순차 전송합니다.`
         : `${prepared[0].barcode} 운영 큐 1건을 단독 실행합니다.`);
     }
@@ -277,7 +297,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 현재 goods key 일괄전송을 지원하지 않아 사용할 수 없습니다. v0.6.37로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 현재 동일모델 묶음·성공표 영수증을 지원하지 않아 사용할 수 없습니다. v0.6.50으로 업데이트해 주세요.`);
         }
         return;
       }
