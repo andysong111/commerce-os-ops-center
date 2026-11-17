@@ -30,6 +30,7 @@ import {
   buildShoplingManualFallbackGroups,
   shoplingManualFallbackCopyText,
 } from "@/lib/shoplingManualFallback";
+import { selectShoplingCoalescedJobs } from "@/lib/shoplingStockBatchCoalescing";
 
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
@@ -56,6 +57,8 @@ type DirectInventoryJob = {
   parallelBatchId?: string;
   parallelLane?: number;
   ignoreWindowClose?: true;
+  coalescedBatchId?: string;
+  coalescedJobIds?: string[];
 };
 
 type ResultMessage = {
@@ -155,7 +158,7 @@ export function friendlyShoplingStockSyncFailure(
     raw.includes("enableAllDateSearch is not defined") ||
     raw.includes("A21_CONTENT_EXCEPTION")
   ) {
-    return "Shopling A21 작업 프레임·처리화면 접수를 확인하지 못했습니다. Shopling에는 이미 접수됐을 수 있으므로 같은 B코드를 다시 실행하지 말고 A21 결과를 먼저 확인해 주세요. 이후 재고상태 자동화 확장을 v0.6.49로 업데이트해 주세요.";
+    return "Shopling A21 작업 프레임·성공표 영수증을 확인하지 못했습니다. Shopling에는 이미 접수됐을 수 있으므로 같은 B코드를 다시 실행하지 말고 A21 결과를 먼저 확인해 주세요. 이후 재고상태 자동화 확장을 v0.6.50으로 업데이트해 주세요.";
   }
   if (
     raw.includes("A21_ALL_DATE_FILTER_NOT_FOUND") ||
@@ -564,12 +567,22 @@ function InventoryStockoutGenericPanel() {
     }
 
     const batchId = randomId("stockout-direct-batch");
-    const prepared = plan.jobs.map((job, index) => ({
+    const groupedJobs =
+      plan.mode === "SINGLE"
+        ? selectShoplingCoalescedJobs(
+            directQueue.current,
+            plan.jobs[0],
+          )
+        : plan.jobs;
+    const coalescedJobIds = groupedJobs.map((job) => job.jobId);
+    const prepared = groupedJobs.map((job, index) => ({
       ...job,
       operationalQueue: true as const,
       parallelBatchId: batchId,
       parallelLane: index + 1,
       ignoreWindowClose: true as const,
+      coalescedBatchId: batchId,
+      coalescedJobIds,
     }));
 
     activeBatch.current = {
@@ -584,27 +597,33 @@ function InventoryStockoutGenericPanel() {
     setSyncNotice(
       plan.mode === "PARALLEL"
         ? `${prepared[0].barcode} + ${prepared[1].barcode} · Shopling 재고상태 2-Lane 전송 시작`
+        : prepared.length > 1
+          ? `${prepared[0].modelNo || prepared[0].barcode} · 동일 모델 ${prepared.length}개 B코드를 API에 먼저 적용한 뒤 A21은 한 번만 전송합니다.`
         : plan.compatibilitySerial
           ? `${prepared[0].barcode} · Shopling 동시작업 충돌을 막기 위해 B코드를 1건씩 순차 전송합니다.`
           : `${prepared[0].barcode} · Shopling 재고상태 전송 시작`,
     );
 
     try {
-      const firstJob = prepared[0];
-      await recordSync(
-        firstJob,
-        "STARTED",
-        `통합 재고 입력 후 Shopling ${firstJob.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 전송 시작 · Lane ${firstJob.parallelLane || 1}`,
-        {
-          directOperatorCommand: true,
-          unifiedInventoryBatch: true,
-          operationalBatchId: batchId,
-          operationalLane: firstJob.parallelLane || 1,
-          maxConcurrentLanes: prepared.length,
-          desiredSince: firstJob.desiredSince,
-        },
-      );
-      activeBatch.current.startedJobIds.add(firstJob.jobId);
+      for (const job of prepared) {
+        const startRecord = recordSync(
+          job,
+          "STARTED",
+          `통합 재고 입력 후 Shopling ${job.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 전송 시작${prepared.length > 1 ? " · 동일 모델 API 선적용 묶음" : ""}`,
+          {
+            directOperatorCommand: true,
+            unifiedInventoryBatch: true,
+            operationalBatchId: batchId,
+            operationalLane: 1,
+            maxConcurrentLanes: 1,
+            coalescedJobIds,
+            desiredSince: job.desiredSince,
+          },
+        );
+        activeBatch.current.startRecordPromises.set(job.jobId, startRecord);
+        await startRecord;
+        activeBatch.current.startedJobIds.add(job.jobId);
+      }
 
       if (plan.mode === "PARALLEL") {
         window.postMessage(
@@ -613,7 +632,13 @@ function InventoryStockoutGenericPanel() {
         );
       } else {
         window.postMessage(
-          { type: SINGLE_START, job: prepared[0] },
+          {
+            type: SINGLE_START,
+            job: {
+              ...prepared[0],
+              coalescedJobs: prepared,
+            },
+          },
           window.location.origin,
         );
       }
@@ -706,7 +731,7 @@ function InventoryStockoutGenericPanel() {
         setExtensionVersion(version);
         if (!supported) {
           setSyncNotice(
-            `Shopling 자동화 v${version || "확인 불가"}는 현재 신뢰 클릭·실제 팝업 확인을 지원하지 않아 사용할 수 없습니다. v0.6.49로 업데이트해 주세요.`,
+            `Shopling 자동화 v${version || "확인 불가"}는 현재 동일모델 묶음·성공표 영수증을 지원하지 않아 사용할 수 없습니다. v0.6.50으로 업데이트해 주세요.`,
           );
         } else {
           setSyncNotice((current) =>
@@ -917,7 +942,7 @@ function InventoryStockoutGenericPanel() {
       !extensionReadyRef.current
     ) {
       setNotice(
-        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.49를 연결해 주세요.",
+        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.50을 연결해 주세요.",
       );
       return;
     }
@@ -1004,7 +1029,7 @@ function InventoryStockoutGenericPanel() {
     }
     if (!extensionReadyRef.current) {
       setSyncNotice(
-        "Shopling 자동화 확장 v0.6.49 연결을 확인한 뒤 다시 시도해 주세요.",
+        "Shopling 자동화 확장 v0.6.50 연결을 확인한 뒤 다시 시도해 주세요.",
       );
       return;
     }
@@ -1147,7 +1172,7 @@ function InventoryStockoutGenericPanel() {
           {extensionReady
             ? `Shopling 자동화 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}`
             : extensionVersion
-              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.6.49`
+              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.6.50`
             : "Shopling 자동화 연결 대기"}
         </span>
         {inputErrors.length ? (

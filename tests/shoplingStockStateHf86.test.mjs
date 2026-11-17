@@ -233,19 +233,14 @@ test("HF86 fails closed before clicking when the A21 worker does not own the job
   assert.equal(harness.commands.length, 0);
 });
 
-test("HF86 download contract advances the UI and extension minimum to v0.6.49", async () => {
-  const [route, page, planner, workflow] = await Promise.all([
+test("HF86 download contract keeps its trusted-click v0.6.49 checkpoint", async () => {
+  const [route, workflow] = await Promise.all([
     readFile("src/app/api/shopling-stock-state-sync/download-hf86/route.ts", "utf8"),
-    readFile("src/app/china-order-manager/stock-control/page.tsx", "utf8"),
-    readFile("src/lib/shoplingStockLaunchPlan.ts", "utf8"),
     readFile(".github/workflows/shopling-stock-state-sync-ci.yml", "utf8"),
   ]);
   assert.match(route, /const BASE_VERSION = "0\.6\.48"/);
   assert.match(route, /const VERSION = "0\.6\.49"/);
   assert.match(route, /CHROME_DEBUGGER_TRUSTED_MOUSE_EVENT/);
   assert.match(route, /EXACT_NEW_SHOPLING_MODIFY_SEND_POPUP_OBSERVED/);
-  assert.match(page, /download-hf86/);
-  assert.match(page, /v0\.6\.49 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 49\]/);
   assert.match(workflow, /shoplingStockStateHf86\.test\.mjs/);
 });

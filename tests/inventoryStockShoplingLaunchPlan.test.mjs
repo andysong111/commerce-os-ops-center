@@ -10,7 +10,7 @@ import {
 const option = { jobId: "option-1", productKind: "OPTION" };
 const single = { jobId: "single-1", productKind: "SINGLE" };
 
-test("only HF86 v0.6.49 and later may run trusted-click A21 sync", () => {
+test("only HF87 v0.6.50 and later may run coalesced A21 sync", () => {
   assert.equal(supportsAllDateStockSync("0.5.8"), false);
   assert.equal(supportsAllDateStockSync("0.5.9"), false);
   assert.equal(supportsAllDateStockSync("0.6.0"), false);
@@ -62,7 +62,8 @@ test("only HF86 v0.6.49 and later may run trusted-click A21 sync", () => {
   assert.equal(supportsAllDateStockSync("0.6.46"), false);
   assert.equal(supportsAllDateStockSync("0.6.47"), false);
   assert.equal(supportsAllDateStockSync("0.6.48"), false);
-  assert.equal(supportsAllDateStockSync("0.6.49"), true);
+  assert.equal(supportsAllDateStockSync("0.6.49"), false);
+  assert.equal(supportsAllDateStockSync("0.6.50"), true);
   assert.equal(supportsAllDateStockSync(""), false);
 });
 
