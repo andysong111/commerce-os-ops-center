@@ -6,6 +6,7 @@ import {
 import { assertInternalChinaMonthlyPurchaseOpen } from "@/lib/internalChinaMonthlyPurchaseClose";
 import {
   loadInternalChinaPurchaseDraft,
+  loadStoredInternalChinaPurchaseDraftForCost,
   markInternalChinaPurchaseDraftOrdered,
   saveInternalChinaPurchaseDraft,
   type InternalChinaPurchaseDraftInput,
@@ -108,8 +109,23 @@ export async function GET(request: Request, context: RouteContext) {
   if (!isSameOriginOpsRequest(request)) return unauthorized();
   const { draftId } = await context.params;
   try {
+    const decodedDraftId = decodeURIComponent(draftId);
+    if (new URL(request.url).searchParams.get("storedSnapshot") === "1") {
+      const storedDraft =
+        await loadStoredInternalChinaPurchaseDraftForCost(decodedDraftId);
+      if (!storedDraft) throw new Error("INTERNAL_CHINA_DRAFT_NOT_FOUND");
+      return Response.json(
+        {
+          ok: true,
+          draft: storedDraft,
+          storedSnapshot: true,
+          externalOrderExecuted: false,
+        },
+        { headers: { "cache-control": "no-store" } },
+      );
+    }
     const base = await loadInternalChinaPurchaseDraft(
-      decodeURIComponent(draftId),
+      decodedDraftId,
     );
     const draft = await loadInternalChinaDraftWithQuantityOverrides(base);
     return Response.json(
