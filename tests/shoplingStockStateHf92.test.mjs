@@ -251,7 +251,7 @@ test("HF92 directly probes and commits the exact owned popup without the shared 
   );
 });
 
-test("HF92 package, page, version gate, and CI all require v0.6.54", async () => {
+test("HF92 package remains v0.6.54 while the page and gate advance to HF93", async () => {
   const [route, page, planner, workflow] = await Promise.all([
     readFile(
       "src/app/api/shopling-stock-state-sync/download-hf92/route.ts",
@@ -266,8 +266,8 @@ test("HF92 package, page, version gate, and CI all require v0.6.54", async () =>
   assert.match(route, /const VERSION = "0\.6\.54"/);
   assert.match(route, /EXACT_NEW_POPUP_RECEIPT_WINS_OVER_SOURCE_TARGET_DETACH/);
   assert.match(route, /EXACT_OWNED_POPUP_DIRECT_FRAME_PROBE_AND_ORIGINAL_SHOPLING_COMMIT/);
-  assert.match(page, /download-hf92/);
-  assert.match(page, /v0\.6\.54 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 54\]/);
+  assert.match(page, /download-hf93/);
+  assert.match(page, /v0\.6\.55 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 55\]/);
   assert.match(workflow, /shoplingStockStateHf92\.test\.mjs/);
 });
