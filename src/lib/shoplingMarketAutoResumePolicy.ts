@@ -48,6 +48,22 @@ export function marketAutoRunIdSetsOverlap(left: unknown, right: unknown) {
   return normalizeMarketAutoRunIds(right).some((value) => a.has(value));
 }
 
+export function remainingMarketAutoRunIds(
+  requestedInput: unknown,
+  coveredInput: unknown,
+) {
+  const covered = new Set(normalizeMarketAutoRunIds(coveredInput));
+  return normalizeMarketAutoRunIds(requestedInput).filter(
+    (runId) => !covered.has(runId),
+  );
+}
+
+export function marketAutoContinuationAllowed(stateInput: unknown) {
+  return ["completed", "completed_with_exceptions"].includes(
+    text(stateInput).toLowerCase(),
+  );
+}
+
 export function findActiveMarketAutoRunOverlap(
   orchestrationsInput: unknown,
   runIdsInput: unknown,
