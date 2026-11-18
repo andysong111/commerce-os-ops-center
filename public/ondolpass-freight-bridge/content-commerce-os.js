@@ -1,0 +1,89 @@
+(function installCommerceOsFreightBridge() {
+  "use strict";
+
+  const CHANNEL = "COMMERCE_OS_ONDOLPASS_FREIGHT_BRIDGE_V1";
+  const PAGE_SOURCE = "commerce-os-freight-barcode-request";
+  const EXTENSION_SOURCE = "commerce-os-ondolpass-freight-bridge";
+  const FETCH_TYPE = "COMMERCE_OS_ONDOLPASS_FETCH_V1";
+
+  function isAllowedCommercePage() {
+    const allowedOrigin =
+      window.location.origin === "https://commerce-os-ops-center.vercel.app" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "localhost";
+    return allowedOrigin && window.location.pathname === "/freight-barcode-request";
+  }
+
+  function post(message) {
+    window.postMessage(
+      { channel: CHANNEL, source: EXTENSION_SOURCE, ...message },
+      window.location.origin,
+    );
+  }
+
+  async function fetchApplication(message) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: FETCH_TYPE,
+        requestId: message.requestId,
+        applicationNo: message.applicationNo,
+      });
+      if (response && response.ok) {
+        post({
+          type: "RESULT",
+          requestId: message.requestId,
+          applicationNo: message.applicationNo,
+          payload: response.payload,
+        });
+        return;
+      }
+      post({
+        type: "ERROR",
+        requestId: message.requestId,
+        applicationNo: message.applicationNo,
+        errorCode:
+          response && typeof response.errorCode === "string"
+            ? response.errorCode
+            : "BRIDGE_UNKNOWN_ERROR",
+      });
+    } catch {
+      post({
+        type: "ERROR",
+        requestId: message.requestId,
+        applicationNo: message.applicationNo,
+        errorCode: "BRIDGE_UNKNOWN_ERROR",
+      });
+    }
+  }
+
+  window.addEventListener("message", (event) => {
+    if (
+      event.source !== window ||
+      event.origin !== window.location.origin ||
+      !isAllowedCommercePage()
+    ) {
+      return;
+    }
+    const message = event.data;
+    if (
+      !message ||
+      message.channel !== CHANNEL ||
+      message.source !== PAGE_SOURCE
+    ) {
+      return;
+    }
+    if (message.type === "PING") {
+      post({ type: "READY" });
+      return;
+    }
+    if (
+      message.type === "FETCH_APPLICATION" &&
+      typeof message.requestId === "string" &&
+      /^\d{4,20}$/.test(String(message.applicationNo || ""))
+    ) {
+      void fetchApplication(message);
+    }
+  });
+
+  if (isAllowedCommercePage()) post({ type: "READY" });
+})();

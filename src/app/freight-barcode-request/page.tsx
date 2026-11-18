@@ -40,6 +40,14 @@ import {
   getFreightItemImageSources,
   mergeRichPasteImages,
 } from "@/lib/richPasteExtractor";
+import {
+  ONDOLPASS_FREIGHT_BRIDGE_CHANNEL,
+  ONDOLPASS_FREIGHT_PAGE_SOURCE,
+  buildOndolpassFreightImport,
+  getOndolpassFreightBridgeErrorMessage,
+  normalizeOndolpassApplicationNo,
+  parseOndolpassFreightExtensionMessage,
+} from "@/lib/ondolpassFreightBridge";
 import type {
   RichPasteImageCandidate,
   RichPasteImageExtraction,
@@ -122,8 +130,16 @@ type AnalysisStatus =
   | { kind: "warning"; message: string }
   | { kind: "error"; message: string };
 
+type OndolpassBridgeStatus =
+  | { kind: "loading" | "success" | "error"; message: string }
+  | null;
+
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
+  const [ondolpassApplicationNo, setOndolpassApplicationNo] = useState("");
+  const [ondolpassBridgeReady, setOndolpassBridgeReady] = useState(false);
+  const [ondolpassBridgeStatus, setOndolpassBridgeStatus] =
+    useState<OndolpassBridgeStatus>(null);
   const [pastedImages, setPastedImages] =
     useState<RichPasteImageExtraction>(EMPTY_PASTED_IMAGES);
   const richPasteRef = useRef<HTMLDivElement>(null);
@@ -131,6 +147,11 @@ export default function FreightBarcodeRequestPage() {
   const editTableScrollRef = useRef<HTMLDivElement>(null);
   const clipboardObjectUrlsRef = useRef<string[]>([]);
   const localImageObjectUrlsRef = useRef<Map<string, string>>(new Map());
+  const ondolpassRequestRef = useRef<{
+    requestId: string;
+    applicationNo: string;
+  } | null>(null);
+  const ondolpassTimeoutRef = useRef<number | undefined>(undefined);
   const [application, setApplication] =
     useState<FreightApplication>(EMPTY_APPLICATION);
   const [lookupFailedIds, setLookupFailedIds] = useState<Set<string>>(
@@ -167,6 +188,127 @@ export default function FreightBarcodeRequestPage() {
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
   ).length;
+
+  useEffect(() => {
+    function clearPendingRequest() {
+      if (ondolpassTimeoutRef.current !== undefined) {
+        window.clearTimeout(ondolpassTimeoutRef.current);
+        ondolpassTimeoutRef.current = undefined;
+      }
+      ondolpassRequestRef.current = null;
+    }
+
+    function handleBridgeMessage(event: MessageEvent) {
+      if (event.source !== window || event.origin !== window.location.origin) {
+        return;
+      }
+
+      const message = parseOndolpassFreightExtensionMessage(event.data);
+      if (!message) return;
+      if (message.type === "READY") {
+        setOndolpassBridgeReady(true);
+        return;
+      }
+
+      const pending = ondolpassRequestRef.current;
+      if (!pending || message.requestId !== pending.requestId) return;
+      if (message.applicationNo !== pending.applicationNo) {
+        clearPendingRequest();
+        setOndolpassBridgeStatus({
+          kind: "error",
+          message: "요청한 번호와 브리지 응답 번호가 달라 적용하지 않았습니다.",
+        });
+        return;
+      }
+
+      if (message.type === "ERROR") {
+        clearPendingRequest();
+        setOndolpassBridgeStatus({
+          kind: "error",
+          message: getOndolpassFreightBridgeErrorMessage(message.errorCode),
+        });
+        return;
+      }
+
+      try {
+        const imported = buildOndolpassFreightImport(
+          message.payload,
+          pending.applicationNo,
+        );
+        const parsedApplication = parseFreightApplicationText(imported.rawText);
+        if (
+          parsedApplication.applicationNo !== imported.applicationNo ||
+          parsedApplication.items.length !== imported.itemCount
+        ) {
+          throw new Error("가져온 품목 수와 분석된 품목 수가 다릅니다.");
+        }
+
+        clipboardObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+        clipboardObjectUrlsRef.current = [];
+        localImageObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+        localImageObjectUrlsRef.current.clear();
+        const applicationWithImages = {
+          ...parsedApplication,
+          items: assignPastedImagesToItems(
+            parsedApplication.items,
+            imported.pastedImages,
+          ),
+        };
+        setRawText(imported.rawText);
+        setPastedImages(imported.pastedImages);
+        if (richPasteRef.current) {
+          richPasteRef.current.textContent = imported.rawText;
+        }
+        setApplication(applicationWithImages);
+        setLookupFailedIds(new Set());
+        setLoadedHistoryId(undefined);
+        setLoadedServerHistoryId(undefined);
+        setHistoryTitle("");
+        setHistoryMemo("");
+        setHistoryStatus("");
+        setAnalysisStatus({
+          kind: "success",
+          message: `자동 분석 완료: ${imported.itemCount}개 품목을 찾았습니다.`,
+        });
+        setOndolpassBridgeStatus({
+          kind: "success",
+          message: `신청서 ${imported.applicationNo}의 제품정보 ${imported.itemCount}개와 상품 이미지 ${imported.pastedImages.candidates.length}개를 가져와 분석했습니다.`,
+        });
+      } catch (error) {
+        setOndolpassBridgeStatus({
+          kind: "error",
+          message:
+            error instanceof Error
+              ? `${error.message} 자동 적용을 중단했습니다.`
+              : "신청서 검증에 실패해 자동 적용을 중단했습니다.",
+        });
+      } finally {
+        clearPendingRequest();
+      }
+    }
+
+    window.addEventListener("message", handleBridgeMessage);
+    const pingDelays = [0, 500, 1_500].map((delay) =>
+      window.setTimeout(() => {
+        window.postMessage(
+          {
+            channel: ONDOLPASS_FREIGHT_BRIDGE_CHANNEL,
+            source: ONDOLPASS_FREIGHT_PAGE_SOURCE,
+            type: "PING",
+          },
+          window.location.origin,
+        );
+      }, delay),
+    );
+
+    return () => {
+      window.removeEventListener("message", handleBridgeMessage);
+      pingDelays.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      if (ondolpassTimeoutRef.current !== undefined) {
+        window.clearTimeout(ondolpassTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -222,6 +364,63 @@ export default function FreightBarcodeRequestPage() {
   function clearLocalImageObjectUrls() {
     localImageObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     localImageObjectUrlsRef.current.clear();
+  }
+
+  function importOndolpassApplication() {
+    let applicationNo: string;
+    try {
+      applicationNo = normalizeOndolpassApplicationNo(ondolpassApplicationNo);
+    } catch (error) {
+      setOndolpassBridgeStatus({
+        kind: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "신청서 번호를 확인해주세요.",
+      });
+      return;
+    }
+
+    setOndolpassApplicationNo(applicationNo);
+    if (!ondolpassBridgeReady) {
+      setOndolpassBridgeStatus({
+        kind: "error",
+        message:
+          "온돌패스 브리지 확장이 연결되지 않았습니다. 확장을 설치하거나 켠 뒤 이 화면을 새로고침해주세요.",
+      });
+      return;
+    }
+
+    if (ondolpassTimeoutRef.current !== undefined) {
+      window.clearTimeout(ondolpassTimeoutRef.current);
+    }
+    const requestId = crypto.randomUUID();
+    ondolpassRequestRef.current = { requestId, applicationNo };
+    setOndolpassBridgeStatus({
+      kind: "loading",
+      message: `신청서 ${applicationNo}의 제품정보를 읽는 중입니다.`,
+    });
+    ondolpassTimeoutRef.current = window.setTimeout(() => {
+      if (ondolpassRequestRef.current?.requestId !== requestId) return;
+      ondolpassRequestRef.current = null;
+      ondolpassTimeoutRef.current = undefined;
+      setOndolpassBridgeStatus({
+        kind: "error",
+        message:
+          "가져오기가 제한시간 안에 끝나지 않았습니다. 온돌패스 로그인과 인터넷 연결을 확인한 뒤 다시 시도해주세요.",
+      });
+    }, 35_000);
+
+    window.postMessage(
+      {
+        channel: ONDOLPASS_FREIGHT_BRIDGE_CHANNEL,
+        source: ONDOLPASS_FREIGHT_PAGE_SOURCE,
+        type: "FETCH_APPLICATION",
+        requestId,
+        applicationNo,
+      },
+      window.location.origin,
+    );
   }
 
   function analyzeText() {
@@ -306,6 +505,8 @@ export default function FreightBarcodeRequestPage() {
     if (richPasteRef.current) richPasteRef.current.textContent = "";
     setApplication(EMPTY_APPLICATION);
     setAnalysisStatus(null);
+    setOndolpassApplicationNo("");
+    setOndolpassBridgeStatus(null);
     setLookupFailedIds(new Set());
     setLoadedHistoryId(undefined);
     setLoadedServerHistoryId(undefined);
@@ -680,7 +881,7 @@ export default function FreightBarcodeRequestPage() {
       <div className="freight-editing-ui">
         <PageHeader
           title="배대지 바코드 PDF 생성기"
-          description="배송대행지 신청서 세부 페이지의 제품정보를 붙여넣어 바코드 작업요청서를 만듭니다."
+          description="온돌패스 신청서 번호로 제품정보를 자동으로 가져오거나, 세부 페이지 내용을 직접 붙여넣어 바코드 작업요청서를 만듭니다."
         />
 
         <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -695,8 +896,88 @@ export default function FreightBarcodeRequestPage() {
               </p>
             </div>
             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-              붙여넣기 기반 MVP
+              번호 자동 가져오기 + 수동 붙여넣기
             </span>
+          </div>
+          <div className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50/70 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-slate-950">
+                  신청서 번호로 자동 가져오기
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  로그인된 Chrome에서 해당 온돌패스 신청서의 제품정보와 상품
+                  이미지만 읽고, 아래 신청서 분석까지 한 번에 실행합니다.
+                </p>
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  ondolpassBridgeReady
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-amber-100 text-amber-800"
+                }`}
+              >
+                {ondolpassBridgeReady ? "브리지 연결됨" : "확장 연결 필요"}
+              </span>
+            </div>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <label className="sr-only" htmlFor="ondolpass-application-no">
+                온돌패스 신청서 번호
+              </label>
+              <input
+                id="ondolpass-application-no"
+                inputMode="numeric"
+                autoComplete="off"
+                value={ondolpassApplicationNo}
+                onChange={(event) => {
+                  setOndolpassApplicationNo(
+                    event.target.value.replace(/\D/g, "").slice(0, 20),
+                  );
+                  setOndolpassBridgeStatus(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") importOndolpassApplication();
+                }}
+                placeholder="예: 673626"
+                className="min-w-0 flex-1 rounded-lg border border-emerald-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              />
+              <Button
+                onClick={importOndolpassApplication}
+                primary
+                disabled={ondolpassBridgeStatus?.kind === "loading"}
+              >
+                {ondolpassBridgeStatus?.kind === "loading"
+                  ? "가져오는 중…"
+                  : "가져와서 자동 분석"}
+              </Button>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5">
+              <a
+                href="/api/ondolpass-freight-bridge/download"
+                download
+                className="font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-900"
+              >
+                온돌패스 브리지 확장 다운로드
+              </a>
+              <span className="text-slate-500">
+                조회 전용이며 온돌패스 체크박스·버튼·신청서 내용은 변경하지
+                않습니다.
+              </span>
+            </div>
+            {ondolpassBridgeStatus && (
+              <p
+                role="status"
+                className={`mt-3 rounded-lg border px-3 py-2 text-xs font-medium leading-5 ${
+                  ondolpassBridgeStatus.kind === "success"
+                    ? "border-emerald-300 bg-white text-emerald-900"
+                    : ondolpassBridgeStatus.kind === "error"
+                      ? "border-red-300 bg-red-50 text-red-900"
+                      : "border-blue-300 bg-blue-50 text-blue-900"
+                }`}
+              >
+                {ondolpassBridgeStatus.message}
+              </p>
+            )}
           </div>
           <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
             <h3 className="font-semibold text-slate-950">
@@ -2425,16 +2706,19 @@ function Button({
   children,
   onClick,
   primary = false,
+  disabled = false,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   primary?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${primary ? "bg-blue-600 text-white hover:bg-blue-700" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}
+      disabled={disabled}
+      className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${primary ? "bg-blue-600 text-white hover:bg-blue-700 disabled:hover:bg-blue-600" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:hover:bg-white"}`}
     >
       {children}
     </button>
