@@ -311,9 +311,9 @@ test("HF63 package remains reproducible while HF64 becomes the required stock-sy
   assert.match(route, /const VERSION = "0\.6\.26"/);
   assert.match(route, /background-v085\.js/);
   assert.match(route, /everySavedBcodeGetsIndependentAttempt: true/);
-  assert.match(page, /download-hf94/);
-  assert.match(page, /v0\.6\.56 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 56\]/);
+  assert.match(page, /download-hf95/);
+  assert.match(page, /v0\.6\.57 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 57\]/);
   assert.match(background, /HF63_EXACT_A6_NAVIGATION_OWNER_REBOUND/);
   assert.match(background, /HF63_CONTINUE_AFTER_FIRST_FAILURE/);
 });

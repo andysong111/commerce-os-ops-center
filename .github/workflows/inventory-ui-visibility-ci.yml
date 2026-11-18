@@ -1,11 +1,16 @@
 name: Inventory UI Visibility CI
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'src/components/china-order-manager/InventoryStockOperationalDetails.tsx'
       - 'src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx'
       - 'src/lib/inventoryStockConnection.ts'
       - 'scripts/inventory-ui-hidden-check.mjs'
+      - 'scripts/shopling-idle-live-channel-check.mjs'
+      - 'public/shopling-stock-state-sync/**'
+      - 'src/app/api/shopling-stock-state-sync/**'
+      - 'src/components/china-order-manager/StockSyncHF15Bridge.tsx'
       - '.github/workflows/inventory-ui-visibility-ci.yml'
   push:
     branches: [fix/inventory-ui-owned-state-20260913]
@@ -34,7 +39,7 @@ jobs:
       - name: Install isolated browser tools (do not resolve app dependencies again)
         run: |
           mkdir -p /tmp/inventory-ui-tools
-          npm install --prefix /tmp/inventory-ui-tools --no-save playwright@1.55.1
+          npm install --prefix /tmp/inventory-ui-tools --no-save playwright@1.55.1 fflate@0.8.2
           /tmp/inventory-ui-tools/node_modules/.bin/playwright install --with-deps chromium
       - name: Start actual Next page with no production credentials
         run: |
@@ -53,6 +58,13 @@ jobs:
           node /tmp/inventory-ui-tools/check.mjs
         env:
           INVENTORY_UI_BASE_URL: http://127.0.0.1:3210
+      - name: Real extension worker must return the explicit idle receipt
+        run: |
+          cp scripts/shopling-idle-live-channel-check.mjs /tmp/inventory-ui-tools/idle-channel-check.mjs
+          xvfb-run -a node /tmp/inventory-ui-tools/idle-channel-check.mjs
+        env:
+          COMMERCE_OS_EXTENSION_URL: http://127.0.0.1:3210/api/shopling-stock-state-sync/download-hf95
+          COMMERCE_OS_EXTENSION_VERSION: 0.6.57
       - uses: actions/upload-artifact@v4
         if: always()
         with:
