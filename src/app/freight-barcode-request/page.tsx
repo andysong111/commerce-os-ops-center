@@ -34,12 +34,11 @@ import {
 import { createCode128Layout } from "@/lib/code128";
 import {
   buildBarcodeLabelPages,
-  buildSampleBarcodeLabelPages,
   calculateBarcodeLabelPrint,
-  formatBarcodeBundleUnit,
   getSampleBarcodeLabelCount,
   getTotalBarcodeLabelCount,
 } from "@/lib/barcodeLabelPrint";
+import { buildFreightWorkRequestZip } from "@/lib/freightWorkRequestZip";
 import {
   BARCODE_ORIGIN_LABEL,
   getEncodedBarcodeValue,
@@ -195,6 +194,20 @@ function combinePastedImageExtractions(
   );
 }
 
+function downloadZipFile(zipBytes: Uint8Array, filename: string) {
+  const blob = new Blob([new Uint8Array(zipBytes)], {
+    type: "application/zip",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
   const [ondolpassApplicationNo, setOndolpassApplicationNo] = useState("");
@@ -239,6 +252,8 @@ export default function FreightBarcodeRequestPage() {
   const [historyStatus, setHistoryStatus] = useState("");
   const [freightForwarderZipStatus, setFreightForwarderZipStatus] =
     useState("");
+  const [workRequestZipStatus, setWorkRequestZipStatus] = useState("");
+  const [workRequestZipBusy, setWorkRequestZipBusy] = useState(false);
   const [bulkBundleUnit, setBulkBundleUnit] = useState("");
   const [bulkBundleNote, setBulkBundleNote] = useState("");
   const [pinnedColumnIds, setPinnedColumnIds] = useState<EditTableColumnId[]>(
@@ -246,9 +261,6 @@ export default function FreightBarcodeRequestPage() {
   );
   const [pinnedColumnsStorageReady, setPinnedColumnsStorageReady] =
     useState(false);
-  const [printMode, setPrintMode] = useState<
-    "work-request" | "individual-labels" | "sample-labels"
-  >("work-request");
   const createdDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
@@ -601,6 +613,8 @@ export default function FreightBarcodeRequestPage() {
     setHistoryTitle("");
     setHistoryMemo("");
     setHistoryStatus("");
+    setFreightForwarderZipStatus("");
+    setWorkRequestZipStatus("");
   }
 
   function reset() {
@@ -625,6 +639,8 @@ export default function FreightBarcodeRequestPage() {
     setHistoryTitle("");
     setHistoryMemo("");
     setHistoryStatus("");
+    setFreightForwarderZipStatus("");
+    setWorkRequestZipStatus("");
   }
 
   function updateApplicationNo(value: string) {
@@ -1011,27 +1027,25 @@ export default function FreightBarcodeRequestPage() {
 
   function downloadFreightForwarderMvpZip() {
     const result = buildFreightForwarderMvpZip(application);
-    const blob = new Blob([new Uint8Array(result.zipBytes)], {
-      type: "application/zip",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.zipFilename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    downloadZipFile(result.zipBytes, result.zipFilename);
     setFreightForwarderZipStatus(result.statusMessage);
   }
 
-  function printDocument(
-    target: "work-request" | "individual-labels" | "sample-labels",
-  ) {
-    setPrintMode(target);
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => window.print());
-    });
+  async function downloadWorkRequestZip() {
+    if (workRequestZipBusy) return;
+    setWorkRequestZipBusy(true);
+    setWorkRequestZipStatus("신청서별 작업요청서 PDF를 생성하는 중입니다…");
+    try {
+      const result = await buildFreightWorkRequestZip(application, createdDate);
+      downloadZipFile(result.zipBytes, result.zipFilename);
+      setWorkRequestZipStatus(result.statusMessage);
+    } catch {
+      setWorkRequestZipStatus(
+        "작업요청서 PDF ZIP을 생성하지 못했습니다. 잠시 후 다시 시도해주세요.",
+      );
+    } finally {
+      setWorkRequestZipBusy(false);
+    }
   }
 
   function syncEditTableHorizontalScroll(
@@ -1049,7 +1063,7 @@ export default function FreightBarcodeRequestPage() {
   }
 
   return (
-    <div className={`print-${printMode}`}>
+    <div>
       <div className="freight-editing-ui">
         <PageHeader
           title="배대지 바코드 PDF 생성기"
@@ -1151,75 +1165,82 @@ export default function FreightBarcodeRequestPage() {
               </p>
             )}
           </div>
-          <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
-            <h3 className="font-semibold text-slate-950">
-              이미지 포함 붙여넣기
-            </h3>
-            <p className="mt-1 text-xs leading-5 text-slate-600">
-              1688 장바구니나 배송대행지 신청서처럼 이미지가 포함된 영역을
-              복사한 뒤 여기에 붙여넣으면 이미지 URL을 함께 추출합니다. 여러
-              신청서 내용을 이어 붙이면 신청번호별로 구분해 함께 분석합니다.
-            </p>
-            <div
-              ref={richPasteRef}
-              contentEditable
-              suppressContentEditableWarning
-              onPaste={handleRichPaste}
-              onInput={(event) => {
-                setRawText(event.currentTarget.textContent ?? "");
-                setAnalysisStatus(null);
-              }}
-              role="textbox"
-              aria-label="이미지 포함 HTML 붙여넣기"
-              aria-multiline="true"
-              data-placeholder="이미지가 포함된 1688 장바구니 또는 배송대행지 신청서 영역을 여기에 붙여넣으세요."
-              className="rich-paste-box mt-3 min-h-28 whitespace-pre-wrap rounded-lg border border-dashed border-blue-300 bg-white p-4 text-sm leading-6 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
-                전체 이미지 {pastedImages.totalImages}개
+          <details className="mb-5 rounded-lg border border-blue-200 bg-blue-50/60">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+              <span className="font-semibold text-slate-950">
+                이미지 포함 붙여넣기
               </span>
-              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                상품 이미지 후보 {pastedImages.candidates.length}개
+              <span className="text-xs font-semibold text-blue-700">
+                필요할 때 펼치기
               </span>
-              <span className="rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                제외 {pastedImages.ignoredImages}개
-              </span>
-            </div>
-            {(pastedImages.candidates.length > 0 ||
-              pastedImages.excludedCandidates.length > 0) && (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {pastedImages.candidates.map((candidate, index) => (
-                  <ImageCandidateDiagnostic
-                    key={`${candidate.url}-${index}`}
-                    candidate={candidate}
-                    label={`상품 이미지 후보 ${index + 1}`}
-                    onLoadStatusChange={(status) =>
-                      updateCandidateLoadStatus(candidate.url, status)
-                    }
-                  />
-                ))}
-                {pastedImages.excludedCandidates.map((candidate, index) => (
-                  <ImageCandidateDiagnostic
-                    key={`${candidate.url ?? candidate.reason}-${index}`}
-                    candidate={{
-                      ...candidate,
-                      url: candidate.url ?? "",
-                      score: 0,
-                      loadStatus: "failed",
-                    }}
-                    label={`제외 이미지 ${index + 1}`}
-                    excluded
-                  />
-                ))}
+            </summary>
+            <div className="border-t border-blue-200 p-4">
+              <p className="text-xs leading-5 text-slate-600">
+                1688 장바구니나 배송대행지 신청서처럼 이미지가 포함된 영역을
+                복사한 뒤 여기에 붙여넣으면 이미지 URL을 함께 추출합니다. 여러
+                신청서 내용을 이어 붙이면 신청번호별로 구분해 함께 분석합니다.
+              </p>
+              <div
+                ref={richPasteRef}
+                contentEditable
+                suppressContentEditableWarning
+                onPaste={handleRichPaste}
+                onInput={(event) => {
+                  setRawText(event.currentTarget.textContent ?? "");
+                  setAnalysisStatus(null);
+                }}
+                role="textbox"
+                aria-label="이미지 포함 HTML 붙여넣기"
+                aria-multiline="true"
+                data-placeholder="이미지가 포함된 1688 장바구니 또는 배송대행지 신청서 영역을 여기에 붙여넣으세요."
+                className="rich-paste-box mt-3 min-h-28 whitespace-pre-wrap rounded-lg border border-dashed border-blue-300 bg-white p-4 text-sm leading-6 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                  전체 이미지 {pastedImages.totalImages}개
+                </span>
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                  상품 이미지 후보 {pastedImages.candidates.length}개
+                </span>
+                <span className="rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                  제외 {pastedImages.ignoredImages}개
+                </span>
               </div>
-            )}
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              온돌패스에서 복사된 일부 1688 이미지는 외부 페이지에서 직접 열리지
-              않을 수 있습니다. 이미지가 필요한 품목만 상품마스터 이미지 또는
-              직접 이미지 URL로 보완해주세요.
-            </p>
-          </div>
+              {(pastedImages.candidates.length > 0 ||
+                pastedImages.excludedCandidates.length > 0) && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {pastedImages.candidates.map((candidate, index) => (
+                    <ImageCandidateDiagnostic
+                      key={`${candidate.url}-${index}`}
+                      candidate={candidate}
+                      label={`상품 이미지 후보 ${index + 1}`}
+                      onLoadStatusChange={(status) =>
+                        updateCandidateLoadStatus(candidate.url, status)
+                      }
+                    />
+                  ))}
+                  {pastedImages.excludedCandidates.map((candidate, index) => (
+                    <ImageCandidateDiagnostic
+                      key={`${candidate.url ?? candidate.reason}-${index}`}
+                      candidate={{
+                        ...candidate,
+                        url: candidate.url ?? "",
+                        score: 0,
+                        loadStatus: "failed",
+                      }}
+                      label={`제외 이미지 ${index + 1}`}
+                      excluded
+                    />
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                온돌패스에서 복사된 일부 1688 이미지는 외부 페이지에서 직접
+                열리지 않을 수 있습니다. 이미지가 필요한 품목만 상품마스터
+                이미지 또는 직접 이미지 URL로 보완해주세요.
+              </p>
+            </div>
+          </details>
 
           <label
             className="mb-2 block text-sm font-semibold text-slate-800"
@@ -1713,48 +1734,62 @@ export default function FreightBarcodeRequestPage() {
           )}
         </section>
 
-        <section className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          <h2 className="font-semibold">바코드 스캐너 확인</h2>
-          <p className="mt-1 text-xs leading-5">
-            스캐너 테스트 시 입력한 바코드값과 스캔 결과가 정확히 일치해야
-            합니다.
-          </p>
-          <div className="mt-2 space-y-1 text-xs">
-            {application.items.map((item) => {
-              const encodedValue = getEncodedBarcodeValue(item.barcode);
-              return (
-                <p key={item.id}>
-                  {item.applicationNo ? `${item.applicationNo} / ` : ""}
-                  {item.rowNo}번 · 입력값: {item.barcode || "-"} · 인코딩값:{" "}
-                  {encodedValue || "생성 안 함"}
-                </p>
-              );
-            })}
+        <details className="mb-5 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-950">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+            <span className="font-semibold">바코드 스캐너 확인</span>
+            <span className="text-xs font-semibold text-amber-800">
+              필요할 때 펼치기
+            </span>
+          </summary>
+          <div className="border-t border-amber-200 px-4 py-3">
+            <p className="text-xs leading-5">
+              스캐너 테스트 시 입력한 바코드값과 스캔 결과가 정확히 일치해야
+              합니다.
+            </p>
+            <div className="mt-2 space-y-1 text-xs">
+              {application.items.map((item) => {
+                const encodedValue = getEncodedBarcodeValue(item.barcode);
+                return (
+                  <p key={item.id}>
+                    {item.applicationNo ? `${item.applicationNo} / ` : ""}
+                    {item.rowNo}번 · 입력값: {item.barcode || "-"} · 인코딩값:{" "}
+                    {encodedValue || "생성 안 함"}
+                  </p>
+                );
+              })}
+            </div>
           </div>
-        </section>
+        </details>
 
         <section className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="font-semibold text-blue-950">인쇄 및 전달</h2>
-              <p className="mt-1 text-sm text-blue-800">
-                권장 파일명:{" "}
-                <strong>
-                  barcode-work-request-{application.applicationNo || "unknown"}
-                  .pdf
-                </strong>
-              </p>
+              <h2 className="font-semibold text-blue-950">작업요청서 전달</h2>
               <p className="mt-1 text-xs text-blue-700">
-                PDF 저장 시 대상은 &apos;PDF로 저장&apos;, 용지는 A4, 배율은
-                기본값 또는 100%를 권장합니다.
+                신청번호별 A4 작업요청서 PDF를 각각 생성해 ZIP 안의 신청번호
+                폴더에 저장합니다. 압축을 풀어 PDF를 바로 인쇄할 수 있습니다.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => printDocument("work-request")} primary>
-                작업요청서 PDF 저장/인쇄
+              <Button
+                onClick={downloadWorkRequestZip}
+                primary
+                disabled={workRequestZipBusy || application.items.length === 0}
+              >
+                {workRequestZipBusy
+                  ? "작업요청서 ZIP 생성 중…"
+                  : "작업요청서 PDF ZIP 다운로드"}
               </Button>
             </div>
           </div>
+          {workRequestZipStatus && (
+            <p
+              role="status"
+              className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-semibold leading-5 text-blue-900"
+            >
+              {workRequestZipStatus}
+            </p>
+          )}
           <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="text-xs font-semibold text-slate-600">
@@ -1779,12 +1814,6 @@ export default function FreightBarcodeRequestPage() {
           onDownloadFreightForwarderZip={downloadFreightForwarderMvpZip}
         />
       </div>
-
-      <WorkRequestPreview application={application} createdDate={createdDate} />
-      <BarcodeLabelPrintPreview
-        application={application}
-        printMode={printMode}
-      />
     </div>
   );
 }
@@ -2431,15 +2460,6 @@ function getItemLabelCalculation(item: FreightApplicationItem) {
   });
 }
 
-function getItemBundleUnitText(item: FreightApplicationItem): string {
-  return formatBarcodeBundleUnit({
-    quantity: item.quantity,
-    memo: item.memo,
-    bundleUnit: item.bundleUnit,
-    printCount: item.labelPrintCount,
-  });
-}
-
 function BarcodeLabelCard({
   item,
   preview = false,
@@ -2583,187 +2603,6 @@ function BarcodeLabelOutput({
   );
 }
 
-function BarcodeLabelPrintPreview({
-  application,
-  printMode,
-}: {
-  application: FreightApplication;
-  printMode: "work-request" | "individual-labels" | "sample-labels";
-}) {
-  const printableItems = application.items.map((item) => ({
-    ...item,
-    printCount: item.labelPrintCount,
-  }));
-  const labels =
-    printMode === "individual-labels"
-      ? buildBarcodeLabelPages(printableItems)
-      : printMode === "sample-labels"
-        ? buildSampleBarcodeLabelPages(printableItems)
-        : [];
-  const active = printMode !== "work-request";
-
-  return (
-    <div
-      className="barcode-label-print-wrapper"
-      aria-label="바코드 라벨 인쇄 미리보기"
-    >
-      <section className="barcode-label-sheet">
-        {labels.map(({ item, labelNumber }, index) => (
-          <div
-            className="individual-label-page"
-            key={`${item.id}-${labelNumber}-${index}`}
-          >
-            <BarcodeLabelCard item={item} />
-          </div>
-        ))}
-        {active && labels.length === 0 && (
-          <p className="barcode-label-empty">출력할 바코드 라벨이 없습니다.</p>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function WorkRequestPreview({
-  application,
-  createdDate,
-}: {
-  application: FreightApplication;
-  createdDate: string;
-}) {
-  return (
-    <div className="freight-print-wrapper">
-      <section
-        className="freight-print-area rounded-xl border border-slate-300 bg-white p-6 shadow-sm sm:p-8"
-        aria-label="바코드 작업요청서 인쇄 미리보기"
-      >
-        <div className="print-document-header border-b-2 border-slate-900 pb-4 text-center">
-          <h2 className="text-2xl font-bold text-slate-950">
-            바코드 작업요청서
-          </h2>
-        </div>
-        <div className="print-document-meta mt-4 flex flex-wrap justify-between gap-2 text-sm">
-          <p>
-            <strong>신청번호:</strong> {application.applicationNo || "-"}
-          </p>
-          <p>
-            <strong>생성일자:</strong> {createdDate}
-          </p>
-        </div>
-        <div className="print-instructions mt-5 border-y border-slate-300 py-4 text-sm leading-6">
-          <p>
-            바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지
-            스티커는 별도로 부착하지 않으셔도 됩니다.
-          </p>
-          <p>
-            같은 상품이라도 옵션별로 바코드번호가 다를 수 있으니 상품 카드별로
-            구분해서 작업 부탁드립니다.
-          </p>
-        </div>
-        <div className="print-card-list mt-5 space-y-4">
-          {application.items.map((item) => {
-            const labelCalculation = getItemLabelCalculation(item);
-            return (
-              <article
-                key={item.id}
-                className="freight-item-card break-inside-avoid rounded-lg border-2 border-slate-800 p-4 text-xs text-slate-950"
-              >
-                <div className="item-card-top grid grid-cols-[3rem_4.5rem_minmax(0,1fr)] gap-3">
-                  <div className="flex h-12 items-center justify-center rounded border border-slate-400 text-lg font-bold">
-                    {item.rowNo}
-                  </div>
-                  <div className="product-image flex size-[72px] items-center justify-center overflow-hidden rounded border border-slate-300 bg-white text-center text-[10px] text-slate-500">
-                    <FreightItemImage
-                      key={getFreightItemImageSources(item).join("|")}
-                      sources={getFreightItemImageSources(item)}
-                      alt={item.matchedModelName || item.itemName}
-                      className="size-[72px] object-contain"
-                    />
-                  </div>
-                  <dl className="min-w-0 space-y-1 leading-5">
-                    <PrintField
-                      label="신청번호"
-                      value={item.applicationNo || application.applicationNo}
-                    />
-                    <PrintField
-                      label="품목"
-                      value={item.matchedProductNameKo || item.itemName}
-                    />
-                    <PrintField
-                      label="옵션"
-                      value={item.optionText}
-                      multiline
-                    />
-                    <div className="grid gap-x-4 sm:grid-cols-2">
-                      <PrintField
-                        label="제품 수량"
-                        value={String(item.quantity)}
-                      />
-                      <PrintField label="HS CODE" value={item.hsCode} />
-                      <PrintField
-                        label="트래킹번호"
-                        value={item.trackingNo}
-                        breakAll
-                      />
-                      <PrintField
-                        label="오픈마켓 주문번호"
-                        value={item.orderNo}
-                        breakAll
-                      />
-                    </div>
-                  </dl>
-                </div>
-
-                <dl className="item-card-details mt-3 border-y border-slate-400 py-2">
-                  <PrintField
-                    className="barcode-info-section"
-                    label="바코드"
-                    value={item.barcode?.trim() || "바코드 미입력"}
-                    mono
-                  />
-                  <div className="label-calculation-fields grid gap-x-4 sm:grid-cols-2">
-                    <PrintField
-                      label="소분단위"
-                      value={getItemBundleUnitText(item)}
-                    />
-                    <PrintField
-                      label="바코드 출력수량"
-                      value={`${labelCalculation.printCount}장`}
-                    />
-                    {labelCalculation.hasRemainderWarning && (
-                      <PrintField
-                        label="소분 잔여"
-                        value={`${labelCalculation.remainder}개`}
-                      />
-                    )}
-                  </div>
-                  {item.memo?.trim() && (
-                    <PrintField
-                      className="memo-section"
-                      label="작업메모"
-                      value={item.memo.trim()}
-                      multiline
-                    />
-                  )}
-                </dl>
-
-                <div className="barcode-area py-3 text-center">
-                  <LocationBarcode value={item.barcode} />
-                </div>
-              </article>
-            );
-          })}
-        </div>
-        {application.items.length === 0 && (
-          <p className="py-12 text-center text-sm text-slate-500">
-            분석된 품목이 없습니다.
-          </p>
-        )}
-      </section>
-    </div>
-  );
-}
-
 function ImageCandidateDiagnostic({
   candidate,
   label,
@@ -2864,33 +2703,6 @@ function FreightItemImage({
       className={className}
       onError={() => setSourceIndex((current) => current + 1)}
     />
-  );
-}
-
-function PrintField({
-  label,
-  value,
-  multiline = false,
-  breakAll = false,
-  mono = false,
-  className = "",
-}: {
-  label: string;
-  value?: string;
-  multiline?: boolean;
-  breakAll?: boolean;
-  mono?: boolean;
-  className?: string;
-}) {
-  return (
-    <div className={`min-w-0 ${className}`}>
-      <dt className="inline font-bold">{label}: </dt>
-      <dd
-        className={`inline ${multiline ? "whitespace-pre-wrap break-words" : ""} ${breakAll ? "break-all" : ""} ${mono ? "font-mono font-bold" : ""}`}
-      >
-        {value || "-"}
-      </dd>
-    </div>
   );
 }
 
