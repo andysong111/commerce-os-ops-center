@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect } from "react";
+import { normalizeShoplingStockResponsibilityResult } from "@/lib/shoplingStockResponsibility";
 
 const CHANNEL_MARK = "__commerceOsStockSyncBridgeHF27";
 
@@ -49,7 +50,14 @@ export function StockSyncHF15Bridge() {
       if (mapped) {
         event.stopImmediatePropagation();
         queueMicrotask(() => {
-          nativePostMessage({ ...data, type: mapped, [CHANNEL_MARK]: true }, window.location.origin);
+          const translated =
+            mapped === "COMMERCE_OS_SHOPLING_STOCK_SYNC_RESULT"
+              ? normalizeShoplingStockResponsibilityResult(data)
+              : data;
+          nativePostMessage(
+            { ...translated, type: mapped, [CHANNEL_MARK]: true },
+            window.location.origin,
+          );
         });
         return;
       }

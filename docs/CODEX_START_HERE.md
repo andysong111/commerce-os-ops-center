@@ -26,6 +26,7 @@ Never preserve an old plan merely because it is documented if current code or di
 - HF95 당시 기존 중단 세션은 외부 전송 전에 멈췄고 평탄화된 worker/IDLE 확인까지 완료했다. 이 버전은 현재 HF96으로 대체됐으며 상세 이력은 `docs/shopling-stock-state-hf95-20261119.md`에 있다.
 - HF96 v0.6.58은 같은 직렬 B코드가 중복 준비되며 이미 열린 정상 팝업을 `baselineTabIds`로 오판한 `HF92_EXACT_POPUP_OWNER_CHANGED` 사건을 수정한다. 신선한 HF90 영수증이 동일 job·execution·상품종류·goods-key 묶음·A21 목록창·팝업·opener·assignment를 모두 증명할 때만 파란 전송 직전 소유권을 복구하며, 하나라도 다르면 외부 전송 0회로 차단한다.
 - 실제 `BCC5-1` 판매중 12개 goods key 회귀에서 원본 commit 1회, 영수증 누락·다른 팝업·goods-key 변경은 commit 0회를 확인했다. 설치 후에는 v0.6.58 연결 확인 → Shopling 로그인 확인 → 실패 B코드 1건 카나리 → 원본 접수와 Commerce OS `1/1` 확인 순서로 진행한다. 상세는 `docs/shopling-stock-state-hf96-20261119.md`에 있다.
+- HF97은 원본 파란 전송 접수 영수증 뒤 Shopling 결과표 일부 행이 실패한 건을 Commerce OS 전송 실패로 재분류하던 문제를 수정한다. 정확한 팝업·작업·goods-key·확인창·전송 함수 영수증과 균형 잡힌 종료 결과표가 모두 맞을 때만 전송 접수 성공으로 집계하고, 마켓 실패 수는 황색 경고로 별도 표시한다. 실제 실패 B코드·단계·코드는 같은 실행 요약 바로 아래 표시하며 영수증이 확인된 건은 재시도하지 않는다. 상세는 `docs/shopling-stock-state-hf97-20261119.md`에 있다.
 
 ### Shopling stock-state HF94 handoff (2026-11-18)
 

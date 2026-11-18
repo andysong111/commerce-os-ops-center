@@ -7,6 +7,7 @@ import {
   type Stage8CanonicalSalesEventSnapshot,
 } from "@/lib/stage8CanonicalSalesEventSnapshot";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { normalizeShoplingStockResponsibilityResult } from "@/lib/shoplingStockResponsibility";
 
 export const INVENTORY_STOCKOUT_RESET_OPERATION_TYPE =
   "INVENTORY_STOCKOUT_RESET_EVENT";
@@ -194,7 +195,7 @@ function resetEventFrom(row: StoredOperationRow): InventoryStockoutResetEvent | 
 }
 
 function syncEventFrom(row: StoredOperationRow): ShoplingStockSyncEvent | null {
-  const source = snapshot(row);
+  const source = normalizeShoplingStockResponsibilityResult(snapshot(row));
   const normalizedBarcode = barcode(source.barcode);
   const kind = productKind(source.productKind);
   const desired = desiredStatus(source.desiredStatus);
