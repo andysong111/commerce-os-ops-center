@@ -4,7 +4,6 @@ import type {
   FreightParseDiagnostics,
   FreightParserMode,
 } from "../types/freightBarcodeRequest.ts";
-import { findProductsByText } from "./productMaster.ts";
 import { applyActiveFreightMonthlyOrderContext } from "./freightMonthlyOrderContext.ts";
 import { combineFreightApplications } from "./freightApplicationBatch.ts";
 
@@ -291,37 +290,10 @@ function parseLooseTableItems(lines: string[]): FreightApplicationItem[] {
   return items;
 }
 
-function enrichItemFromProductMaster(
-  item: FreightApplicationItem,
-): FreightApplicationItem {
-  const lookupText = [item.itemName, item.optionText].filter(Boolean).join(" ");
-  const product = findProductsByText(lookupText)[0];
-  if (!product) return item;
-
-  return {
-    ...item,
-    modelNo: product.modelNo,
-    modelName: product.modelName,
-    optionName: product.optionName,
-    barcode: product.barcode,
-    origin: product.origin,
-    displayName: product.displayName,
-    matchedModelNo: product.modelNo,
-    matchedModelName: product.modelName,
-    matchedProductNameKo: product.productNameKo,
-    matchedBarcode: product.barcode,
-    matchedOriginLabel: product.origin,
-    matchedLabelText: product.labelText,
-    matchedImageUrl: product.imageUrl,
-    hsCode: item.hsCode || product.hsCode,
-  };
-}
-
-function enrichItemsFromProductMaster(
+function applyFreightItemContext(
   items: FreightApplicationItem[],
 ): FreightApplicationItem[] {
-  const productMasterItems = items.map(enrichItemFromProductMaster);
-  return applyActiveFreightMonthlyOrderContext(productMasterItems);
+  return applyActiveFreightMonthlyOrderContext(items);
 }
 
 function createDiagnostics(
@@ -364,7 +336,7 @@ export function parseFreightApplicationText(
   if (nextLineItems.length > 0) {
     return {
       applicationNo,
-      items: enrichItemsFromProductMaster(nextLineItems),
+      items: applyFreightItemContext(nextLineItems),
       diagnostics: createDiagnostics(lines, "labeled-next-line", nextLineItems.length),
     };
   }
@@ -373,7 +345,7 @@ export function parseFreightApplicationText(
   if (inlineItems.length > 0) {
     return {
       applicationNo,
-      items: enrichItemsFromProductMaster(inlineItems),
+      items: applyFreightItemContext(inlineItems),
       diagnostics: createDiagnostics(lines, "labeled-inline", inlineItems.length),
     };
   }
@@ -384,7 +356,7 @@ export function parseFreightApplicationText(
 
   return {
     applicationNo,
-    items: enrichItemsFromProductMaster(looseItems),
+    items: applyFreightItemContext(looseItems),
     diagnostics: createDiagnostics(lines, parserMode, looseItems.length),
   };
 }

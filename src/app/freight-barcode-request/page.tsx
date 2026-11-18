@@ -23,7 +23,10 @@ import {
   saveFreightBundleUnitPreference,
 } from "@/lib/freightBundleUnitPreferences";
 import { buildFreightForwarderMvpZip } from "@/lib/freightForwarderZipMvp";
-import { findProductsByText } from "@/lib/productMaster";
+import {
+  applyFreightProductMasterMatches,
+  type FreightProductMasterMatchResponse,
+} from "@/lib/freightProductMasterMatcher";
 import {
   buildFreightBarcodeHistoryRecordFromCurrentState,
   deleteFreightBarcodeHistory,
@@ -146,7 +149,7 @@ type AnalysisStatus =
   | { kind: "error"; message: string };
 
 type OndolpassBridgeStatus =
-  | { kind: "loading" | "success" | "error"; message: string }
+  | { kind: "loading" | "success" | "warning" | "error"; message: string }
   | null;
 
 type OndolpassBatchResult = {
@@ -208,6 +211,62 @@ function downloadZipFile(zipBytes: Uint8Array, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+async function requestFreightProductMasterMatches(
+  application: FreightApplication,
+): Promise<FreightProductMasterMatchResponse> {
+  const response = await fetch("/api/freight-product-master-match", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      items: application.items.map((item) => ({
+        id: item.id,
+        applicationNo: item.applicationNo,
+        rowNo: item.rowNo,
+        itemName: item.itemName,
+        optionText: item.optionText,
+        detailUrl: item.detailUrl,
+        lookupText: item.lookupText,
+        quantity: item.quantity,
+      })),
+    }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as
+    | FreightProductMasterMatchResponse
+    | { ok?: false; message?: string };
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(
+      "message" in payload && payload.message
+        ? payload.message
+        : "커머스OS 상품마스터 자동매칭에 실패했습니다.",
+    );
+  }
+  return payload;
+}
+
+function applyLiveProductMasterMatches(
+  application: FreightApplication,
+  response: FreightProductMasterMatchResponse,
+) {
+  const matched = applyFreightProductMasterMatches(
+    application,
+    response.matches,
+  );
+  return {
+    ...matched,
+    items: applyFreightBundleUnitPreferences(matched.items),
+  };
+}
+
+function productMasterMatchMessage(
+  prefix: string,
+  response: FreightProductMasterMatchResponse,
+) {
+  const { total, matched, unmatched, ambiguous } = response.summary;
+  return `${prefix} 상품마스터 ${matched}/${total}개 자동매칭 완료${
+    unmatched ? ` · 미등록/옵션 불일치 ${unmatched}개` : ""
+  }${ambiguous ? ` · 중복 후보 확인 필요 ${ambiguous}개` : ""}`;
+}
+
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
   const [ondolpassApplicationNo, setOndolpassApplicationNo] = useState("");
@@ -239,6 +298,9 @@ export default function FreightBarcodeRequestPage() {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(
     null,
   );
+  const [productMasterMatchStatus, setProductMasterMatchStatus] =
+    useState<AnalysisStatus | null>(null);
+  const [productMasterMatchBusy, setProductMasterMatchBusy] = useState(false);
   const [historyRecords, setHistoryRecords] = useState<
     FreightBarcodeHistoryRecord[]
   >([]);
@@ -310,7 +372,7 @@ export default function FreightBarcodeRequestPage() {
     }
     startOndolpassRequestRef.current = startRequest;
 
-    function handleBridgeMessage(event: MessageEvent) {
+    async function handleBridgeMessage(event: MessageEvent) {
       if (event.source !== window || event.origin !== window.location.origin) {
         return;
       }
@@ -391,6 +453,7 @@ export default function FreightBarcodeRequestPage() {
         const combinedApplication = combineFreightApplications(
           batch.results.map((result) => result.application),
         );
+        const importedApplicationNos = [...batch.applicationNos];
         clipboardObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
         clipboardObjectUrlsRef.current = [];
         localImageObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -407,13 +470,72 @@ export default function FreightBarcodeRequestPage() {
         setHistoryStatus("");
         setAnalysisStatus({
           kind: "success",
-          message: `자동 분석 완료: 신청서 ${batch.applicationNos.length}건에서 ${combinedApplication.items.length}개 품목을 찾았습니다.`,
+          message: `자동 분석 완료: 신청서 ${importedApplicationNos.length}건에서 ${combinedApplication.items.length}개 품목을 찾았습니다. 상품마스터를 확인하는 중입니다.`,
         });
         setOndolpassBridgeStatus({
-          kind: "success",
-          message: `신청서 ${batch.applicationNos.join(", ")}의 제품정보 ${combinedApplication.items.length}개와 상품 이미지 ${combinedPastedImages.candidates.length}개를 가져와 분석했습니다.`,
+          kind: "loading",
+          message: `신청서 품목을 가져왔습니다. 실제 커머스OS 상품마스터와 자동매칭하는 중입니다.`,
         });
         ondolpassBatchRef.current = null;
+        setProductMasterMatchBusy(true);
+        setProductMasterMatchStatus({
+          kind: "warning",
+          message: "실제 커머스OS 상품마스터와 자동매칭하는 중입니다.",
+        });
+        try {
+          const matchResponse = await requestFreightProductMasterMatches(
+            combinedApplication,
+          );
+          const matchedApplication = applyLiveProductMasterMatches(
+            combinedApplication,
+            matchResponse,
+          );
+          setApplication(matchedApplication);
+          const message = productMasterMatchMessage(
+            `신청서 ${importedApplicationNos.length}건 ·`,
+            matchResponse,
+          );
+          setAnalysisStatus({
+            kind:
+              matchResponse.summary.unmatched > 0 ||
+              matchResponse.summary.ambiguous > 0
+                ? "warning"
+                : "success",
+            message,
+          });
+          setProductMasterMatchStatus({
+            kind:
+              matchResponse.summary.unmatched > 0 ||
+              matchResponse.summary.ambiguous > 0
+                ? "warning"
+                : "success",
+            message,
+          });
+          setOndolpassBridgeStatus({
+            kind:
+              matchResponse.summary.unmatched > 0 ||
+              matchResponse.summary.ambiguous > 0
+                ? "warning"
+                : "success",
+            message: `신청서 ${importedApplicationNos.join(", ")}의 제품정보 ${combinedApplication.items.length}개와 상품 이미지 ${combinedPastedImages.candidates.length}개를 가져왔습니다. ${productMasterMatchMessage("", matchResponse)}`,
+          });
+        } catch (matchError) {
+          const message =
+            matchError instanceof Error
+              ? matchError.message
+              : "상품마스터 자동매칭에 실패했습니다.";
+          setAnalysisStatus({
+            kind: "warning",
+            message: `신청서 분석은 완료했지만 ${message} 품목 원문은 그대로 유지했습니다.`,
+          });
+          setProductMasterMatchStatus({ kind: "warning", message });
+          setOndolpassBridgeStatus({
+            kind: "warning",
+            message: `신청서 ${importedApplicationNos.join(", ")}의 품목과 이미지는 가져왔지만 ${message}`,
+          });
+        } finally {
+          setProductMasterMatchBusy(false);
+        }
       } catch (error) {
         clearPendingRequest();
         ondolpassBatchRef.current = null;
@@ -536,7 +658,7 @@ export default function FreightBarcodeRequestPage() {
     startOndolpassRequestRef.current(applicationNos[0], 0, applicationNos.length);
   }
 
-  function analyzeText() {
+  async function analyzeText() {
     clearLocalImageObjectUrls();
     try {
       const parsedApplication = parseFreightApplicationBatchText(rawText);
@@ -547,6 +669,7 @@ export default function FreightBarcodeRequestPage() {
         ),
       };
       setApplication(applicationWithPastedImages);
+      setProductMasterMatchStatus(null);
       const hasParseWarnings = Boolean(
         parsedApplication.diagnostics?.warnings.length,
       );
@@ -556,13 +679,51 @@ export default function FreightBarcodeRequestPage() {
               kind: hasParseWarnings ? "warning" : "success",
               message: `분석 완료: 신청서 ${parsedApplication.applicationNos?.length || 1}건에서 ${parsedApplication.items.length}개 품목을 찾았습니다.${
                 hasParseWarnings ? " 일부 품목은 값이 없어 제외되었습니다." : ""
-              }`,
+              } 상품마스터를 확인하는 중입니다.`,
             }
           : { kind: "warning", message: NO_ITEMS_WARNING },
       );
+      if (applicationWithPastedImages.items.length > 0) {
+        setProductMasterMatchBusy(true);
+        setProductMasterMatchStatus({
+          kind: "warning",
+          message: "실제 커머스OS 상품마스터와 자동매칭하는 중입니다.",
+        });
+        try {
+          const matchResponse = await requestFreightProductMasterMatches(
+            applicationWithPastedImages,
+          );
+          const matchedApplication = applyLiveProductMasterMatches(
+            applicationWithPastedImages,
+            matchResponse,
+          );
+          setApplication(matchedApplication);
+          const message = productMasterMatchMessage("분석 완료 ·", matchResponse);
+          const kind =
+            matchResponse.summary.unmatched > 0 ||
+            matchResponse.summary.ambiguous > 0
+              ? "warning"
+              : "success";
+          setAnalysisStatus({ kind, message });
+          setProductMasterMatchStatus({ kind, message });
+        } catch (matchError) {
+          const message =
+            matchError instanceof Error
+              ? matchError.message
+              : "상품마스터 자동매칭에 실패했습니다.";
+          setAnalysisStatus({
+            kind: "warning",
+            message: `신청서 분석은 완료했지만 ${message} 품목 원문은 그대로 유지했습니다.`,
+          });
+          setProductMasterMatchStatus({ kind: "warning", message });
+        } finally {
+          setProductMasterMatchBusy(false);
+        }
+      }
     } catch {
       setApplication(EMPTY_APPLICATION);
       setAnalysisStatus({ kind: "error", message: ANALYSIS_ERROR });
+      setProductMasterMatchStatus(null);
     }
     setLookupFailedIds(new Set());
   }
@@ -625,6 +786,8 @@ export default function FreightBarcodeRequestPage() {
     if (richPasteRef.current) richPasteRef.current.textContent = "";
     setApplication(EMPTY_APPLICATION);
     setAnalysisStatus(null);
+    setProductMasterMatchStatus(null);
+    setProductMasterMatchBusy(false);
     setOndolpassApplicationNo("");
     setOndolpassBridgeStatus(null);
     if (ondolpassTimeoutRef.current !== undefined) {
@@ -723,6 +886,43 @@ export default function FreightBarcodeRequestPage() {
     });
   }
 
+  async function rerunProductMasterMatching() {
+    if (productMasterMatchBusy || application.items.length === 0) return;
+    setProductMasterMatchBusy(true);
+    setProductMasterMatchStatus({
+      kind: "warning",
+      message: "실제 커머스OS 상품마스터와 다시 매칭하는 중입니다.",
+    });
+    try {
+      const matchResponse = await requestFreightProductMasterMatches(application);
+      setApplication(
+        applyLiveProductMasterMatches(application, matchResponse),
+      );
+      const message = productMasterMatchMessage(
+        "상품마스터 재매칭 완료 ·",
+        matchResponse,
+      );
+      setProductMasterMatchStatus({
+        kind:
+          matchResponse.summary.unmatched > 0 ||
+          matchResponse.summary.ambiguous > 0
+            ? "warning"
+            : "success",
+        message,
+      });
+    } catch (error) {
+      setProductMasterMatchStatus({
+        kind: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "상품마스터 자동매칭에 실패했습니다.",
+      });
+    } finally {
+      setProductMasterMatchBusy(false);
+    }
+  }
+
   function applyBulkBundleUnit() {
     const bundleUnit = Number(bulkBundleUnit);
     if (!Number.isInteger(bundleUnit) || bundleUnit <= 0) {
@@ -801,37 +1001,51 @@ export default function FreightBarcodeRequestPage() {
     }
   }
 
-  function applyProductMaster(item: FreightApplicationItem) {
-    const product = findProductsByText(item.lookupText ?? "")[0];
+  async function applyProductMaster(item: FreightApplicationItem) {
+    if (productMasterMatchBusy) return;
+    setProductMasterMatchBusy(true);
+    try {
+      const response = await requestFreightProductMasterMatches({
+        ...application,
+        items: [item],
+      });
+      const match = response.matches[0];
+      if (!match || match.status !== "MATCHED") {
+        setLookupFailedIds((current) => new Set(current).add(item.id));
+        setProductMasterMatchStatus({
+          kind: "warning",
+          message:
+            match?.status === "AMBIGUOUS"
+              ? "후보가 여러 개라 자동 적용하지 않았습니다. B코드 또는 정확한 모델번호로 다시 검색해주세요."
+              : "일치하는 실제 상품마스터 항목을 찾지 못했습니다.",
+        });
+        return;
+      }
 
-    if (!product) {
+      setApplication((current) =>
+        applyLiveProductMasterMatches(current, response),
+      );
+      setLookupFailedIds((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+      setProductMasterMatchStatus({
+        kind: "success",
+        message: `${match.modelNo} · ${match.modelName} · ${match.barcode}를 실제 상품마스터에서 적용했습니다.`,
+      });
+    } catch (error) {
       setLookupFailedIds((current) => new Set(current).add(item.id));
-      return;
+      setProductMasterMatchStatus({
+        kind: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "상품마스터 적용에 실패했습니다.",
+      });
+    } finally {
+      setProductMasterMatchBusy(false);
     }
-
-    const bundlePreference = findFreightBundleUnitPreference(product.barcode);
-    updateItem(item.id, {
-      modelNo: product.modelNo,
-      modelName: product.modelName,
-      optionName: product.optionName,
-      barcode: product.barcode,
-      origin: product.origin,
-      displayName: product.displayName,
-      matchedModelNo: product.modelNo,
-      matchedModelName: product.modelName,
-      matchedProductNameKo: product.productNameKo,
-      matchedBarcode: product.barcode,
-      matchedOriginLabel: product.origin,
-      matchedLabelText: product.labelText,
-      matchedImageUrl: product.imageUrl,
-      hsCode: item.hsCode || product.hsCode,
-      ...(bundlePreference ? { bundleUnit: bundlePreference.bundleUnit } : {}),
-    });
-    setLookupFailedIds((current) => {
-      const next = new Set(current);
-      next.delete(item.id);
-      return next;
-    });
   }
 
   function refreshHistoryRecords() {
@@ -1158,6 +1372,8 @@ export default function FreightBarcodeRequestPage() {
                     ? "border-emerald-300 bg-white text-emerald-900"
                     : ondolpassBridgeStatus.kind === "error"
                       ? "border-red-300 bg-red-50 text-red-900"
+                      : ondolpassBridgeStatus.kind === "warning"
+                        ? "border-amber-300 bg-amber-50 text-amber-900"
                       : "border-blue-300 bg-blue-50 text-blue-900"
                 }`}
               >
@@ -1330,8 +1546,8 @@ export default function FreightBarcodeRequestPage() {
             </div>
           )}
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={analyzeText} primary>
-              신청서 분석하기
+            <Button onClick={analyzeText} primary disabled={productMasterMatchBusy}>
+              {productMasterMatchBusy ? "상품마스터 매칭 중…" : "신청서 분석하기"}
             </Button>
             <Button onClick={loadSample}>샘플 불러오기</Button>
             <Button onClick={reset}>초기화</Button>
@@ -1593,8 +1809,9 @@ export default function FreightBarcodeRequestPage() {
                 분석 품목 편집 및 상품마스터 매칭
               </h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                파싱 결과를 직접 수정하고 모델번호 또는 모델명으로 안정적인
-                기준정보를 적용하세요.
+                신청서의 1688 상품 URL과 중국 옵션을 실제 커머스OS
+                상품마스터와 대조해 B코드·모델번호·모델명을 자동 적용합니다.
+                후보가 중복되면 자동 입력하지 않습니다.
               </p>
             </div>
             <label className="w-full sm:w-64">
@@ -1640,11 +1857,33 @@ export default function FreightBarcodeRequestPage() {
                 <Button onClick={rerunAutoImageMatching}>
                   이미지 자동 매칭 다시 실행
                 </Button>
+                <Button
+                  onClick={rerunProductMasterMatching}
+                  disabled={productMasterMatchBusy || application.items.length === 0}
+                >
+                  {productMasterMatchBusy
+                    ? "상품마스터 매칭 중…"
+                    : "상품마스터 자동매칭 다시 실행"}
+                </Button>
               </div>
             </div>
             {bulkBundleNote && (
               <p className="mt-2 text-xs font-semibold text-slate-600">
                 {bulkBundleNote}
+              </p>
+            )}
+            {productMasterMatchStatus && (
+              <p
+                role="status"
+                className={`mt-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                  productMasterMatchStatus.kind === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : productMasterMatchStatus.kind === "error"
+                      ? "border-red-200 bg-red-50 text-red-800"
+                      : "border-amber-200 bg-amber-50 text-amber-800"
+                }`}
+              >
+                {productMasterMatchStatus.message}
               </p>
             )}
           </div>
@@ -1975,8 +2214,8 @@ function EditableRow({
   onApply: () => void;
 }) {
   const status = item.matchedModelNo
-    ? "Product Master matched"
-    : "No Product Master match";
+    ? "상품마스터 매칭 완료"
+    : "상품마스터 미매칭";
   const statusStyle = item.matchedModelNo
     ? "bg-emerald-50 text-emerald-700"
     : lookupFailed
@@ -2229,7 +2468,7 @@ function EditableRow({
           <input
             value={item.lookupText ?? ""}
             onChange={(event) => onChange({ lookupText: event.target.value })}
-            placeholder="예: aaa270 또는 말발굽 고리링"
+            placeholder="B코드·정확한 모델번호·상품명"
             className={inputClassName}
           />
           <button
@@ -2237,7 +2476,7 @@ function EditableRow({
             onClick={onApply}
             className="w-full rounded-md bg-slate-800 px-3 py-2 font-semibold text-white hover:bg-slate-950"
           >
-            상품마스터 적용
+            실제 상품마스터 적용
           </button>
         </div>
       </td>

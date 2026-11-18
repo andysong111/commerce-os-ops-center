@@ -312,7 +312,7 @@ test("keeps parsed freight items unchanged when Product Master has no match", ()
   assert.equal(parsed.items[0].matchedModelNo, undefined);
 });
 
-test("enriches a parsed item from an exact Product Master model number", () => {
+test("does not enrich parsed freight rows from the browser-only sample Product Master", () => {
   const parsed = parseFreightApplicationText(`신청번호:700002
 제품정보:(1)
 품목: aaa179
@@ -320,23 +320,19 @@ test("enriches a parsed item from an exact Product Master model number", () => {
 수량: 30`);
   const item = parsed.items[0];
 
-  assert.equal(item.modelNo, "aaa179");
-  assert.equal(item.modelName, "닭물통 니플형");
-  assert.equal(item.optionName, "단품");
-  assert.equal(item.barcode, "8800000001790");
-  assert.equal(item.origin, "MADE IN CHINA");
-  assert.match(item.displayName ?? "", /닭물통 니플형/);
-  assert.equal(item.matchedModelNo, "aaa179");
+  assert.equal(item.modelNo, undefined);
+  assert.equal(item.barcode, undefined);
+  assert.equal(item.matchedModelNo, undefined);
 });
 
-test("enriches a parsed item from Product Master text inclusion", () => {
+test("leaves name-only parsed rows unmatched until the live Product Master check", () => {
   const parsed = parseFreightApplicationText(`신청번호:700003
 제품정보:(1)
 품목: 말발굽 고리링
 옵션(색상,사이즈): 골드
 수량: 20`);
 
-  assert.equal(parsed.items[0].modelNo, "aaa270");
-  assert.equal(parsed.items[0].optionName, "골드");
-  assert.equal(parsed.items[0].matchedModelName, "말발굽 고리링");
+  assert.equal(parsed.items[0].modelNo, undefined);
+  assert.equal(parsed.items[0].optionName, undefined);
+  assert.equal(parsed.items[0].matchedModelName, undefined);
 });
