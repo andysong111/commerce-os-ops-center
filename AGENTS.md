@@ -50,3 +50,13 @@ For Commerce OS work that touches Shopling, purchase-cycle, monthly pricing, sto
 That file points to `docs/commerce-os-master-context-20260929.md`, which persists important owner decisions and live-operating lessons that were established across prior ChatGPT/Codex conversations. For Product Master / B-code / warehouse work it also points to `docs/product-master-bcode-warehouse-handoff-20260929.md`, which contains the detailed physical-location reconciliation state and safety rules.
 
 Do not ask the owner to restate context already documented there. When the persistent context conflicts with current code, tests, direct live evidence, or the owner's latest explicit instruction, prefer the newer evidence and update the context after the change.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

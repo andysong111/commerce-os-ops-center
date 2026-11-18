@@ -17,6 +17,14 @@ When sources conflict, use this order:
 
 Never preserve an old plan merely because it is documented if current code or direct live evidence disproves it.
 
+### Shopling stock-state HF95 handoff (2026-11-19)
+
+- 운영 v0.6.56에서 B코드 1건이 `SHOPLING_STOCK_EXTENSION_NOT_IDLE`, `성공 0/1 · 실패 0 · 미시작 1`로 전송 전에 중단됐다. 화면의 `연결됨`은 content script READY만 뜻했고 서비스워커 응답 가능 여부를 증명하지 못했다.
+- 실제 Chrome에 운영 ZIP을 설치한 비교검사에서 v0.6.54는 STATUS 응답이 왔지만 v0.6.56은 READY 뒤 모든 runtime 메시지가 시간초과됐다. HF94가 `background-v099.js`를 다시 감싼 한 단계의 `importScripts`를 추가하면서 누적 로딩 체인이 Chrome 서비스워커 초기화를 깨뜨린 것이 직접 원인이다.
+- HF95 v0.6.57은 검증된 `background-v099.js`와 HF94 IDLE 계층을 하나의 `background-v101.js`로 평탄화한다. 루트 import는 다시 1개만 유지한다. 페이지 브리지는 백그라운드가 2초 안에 응답하지 않으면 `HF95_IDLE_STATUS_RESPONSE_TIMEOUT`을 명시적으로 반환해 READY-only 대기를 숨기지 않는다.
+- 로컬 실제 Chrome 검사는 `statusProbeOk: true`, `idleConfirmed: true`, v0.6.57 서비스워커, 외부 Shopling 쓰기 0건을 확인했다. CI 대상 58개 회귀파일, TypeScript, 변경 파일 ESLint, 125개 정적 페이지 프로덕션 빌드도 통과했다.
+- 기존 중단 세션은 외부 전송 전에 멈췄으므로 재시도 버튼을 누르지 않는다. 운영 배포 뒤 v0.6.57 설치·새로고침 후 신규 B코드 1건만 실행해 Shopling 원본 전송 접수와 Commerce OS `1/1`을 확인한 다음 나머지를 진행한다. 상세는 `docs/shopling-stock-state-hf95-20261119.md`에 있다.
+
 ### Shopling stock-state HF94 handoff (2026-11-18)
 
 - v0.6.55 연결 상태에서 B코드 3건 실행이 첫 건도 시작하지 못하고 `SHOPLING_STOCK_EXTENSION_NOT_IDLE`, `성공 0/3 · 실패 0 · 미시작 3`으로 중단됐다. READY 신호는 왔지만 기존 전체 상태 응답이 누락되면 브리지가 조용히 끝나 STATUS를 보내지 않는 것이 직접 원인이었다.
