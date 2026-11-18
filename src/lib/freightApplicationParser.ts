@@ -6,6 +6,7 @@ import type {
 } from "../types/freightBarcodeRequest.ts";
 import { findProductsByText } from "./productMaster.ts";
 import { applyActiveFreightMonthlyOrderContext } from "./freightMonthlyOrderContext.ts";
+import { combineFreightApplications } from "./freightApplicationBatch.ts";
 
 const PRODUCT_BLOCK_PATTERN = /제품\s*정보\s*:?\s*\(\s*(\d+)\s*\)/gi;
 const TRACKING_PLACEHOLDER = "입력란에 하나의 트래킹만 입력";
@@ -15,6 +16,8 @@ const LONG_NUMBER_PATTERN = /^\d{12,}$/;
 const SMALL_INTEGER_PATTERN = /^\d{1,3}$/;
 const URL_PATTERN = /https?:\/\/\S+/i;
 const IMAGE_URL_PATTERN = /https?:\/\/(?:[^/]*\.)?(?:alicdn\.com|cbu01\.alicdn\.com)\/\S+/i;
+const APPLICATION_SECTION_PATTERN =
+  /신청\s*번호\s*:*\s*(?:\[[^\]]+\]\s*)?(\d{4,20})/gi;
 
 const FIELD_LABELS = [
   "옵션\\s*\\(\\s*색상\\s*,\\s*사이즈\\s*\\)",
@@ -384,4 +387,20 @@ export function parseFreightApplicationText(
     items: enrichItemsFromProductMaster(looseItems),
     diagnostics: createDiagnostics(lines, parserMode, looseItems.length),
   };
+}
+
+export function parseFreightApplicationBatchText(
+  rawText: string,
+): FreightApplication {
+  const matches = [...rawText.matchAll(APPLICATION_SECTION_PATTERN)];
+  if (matches.length <= 1) {
+    return combineFreightApplications([parseFreightApplicationText(rawText)]);
+  }
+
+  const applications = matches.map((match, index) =>
+    parseFreightApplicationText(
+      rawText.slice(match.index ?? 0, matches[index + 1]?.index ?? rawText.length),
+    ),
+  );
+  return combineFreightApplications(applications);
 }

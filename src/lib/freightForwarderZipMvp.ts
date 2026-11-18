@@ -1,8 +1,9 @@
 import { zipSync } from "fflate";
-import { createCode128Layout } from "./code128";
-import { getEncodedBarcodeValue } from "./barcodeValue";
-import { calculateBarcodeLabelPrint } from "./barcodeLabelPrint";
-import type { FreightApplication, FreightApplicationItem } from "../types/freightBarcodeRequest";
+import { createCode128Layout } from "./code128.ts";
+import { getEncodedBarcodeValue } from "./barcodeValue.ts";
+import { calculateBarcodeLabelPrint } from "./barcodeLabelPrint.ts";
+import { getFreightApplicationNumbers } from "./freightApplicationBatch.ts";
+import type { FreightApplication, FreightApplicationItem } from "../types/freightBarcodeRequest.ts";
 
 export const FREIGHT_FORWARDER_MVP_WIDTH_PT = 90;
 export const FREIGHT_FORWARDER_MVP_HEIGHT_PT = 147;
@@ -10,12 +11,14 @@ const FREIGHT_FORWARDER_LOGICAL_WIDTH_PT = 147;
 
 export interface FreightForwarderMvpValidRow {
   item: FreightApplicationItem;
+  applicationNo?: string;
   rowNo: number;
   printCount: number;
   barcodeValue: string;
 }
 
 export interface FreightForwarderMvpExcludedRow {
+  applicationNo?: string;
   rowNo?: number;
   reason: string;
 }
@@ -29,6 +32,7 @@ export interface FreightForwarderMvpValidationResult {
 export interface FreightForwarderMvpZipResult extends FreightForwarderMvpValidationResult {
   zipFilename: string;
   folderName: string;
+  applicationNos: string[];
   zipBytes: Uint8Array;
   statusMessage: string;
 }
@@ -111,7 +115,7 @@ export function buildFreightForwarderMvpStatusMessage(result: FreightForwarderMv
   }
 
   const excludedDetails = result.excludedRows
-    .map((row) => `- ${row.rowNo ? `${row.rowNo}번` : "순번 없음"}: ${row.reason}`)
+    .map((row) => `- ${row.applicationNo ? `${row.applicationNo} / ` : ""}${row.rowNo ? `${row.rowNo}번` : "순번 없음"}: ${row.reason}`)
     .join("\n");
 
   return `총 ${result.total}개 품목 중 ${result.validRows.length}개 PDF 생성 완료\n${result.excludedRows.length}개 제외:\n${excludedDetails}`;
@@ -152,22 +156,60 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
 }
 
 export function buildFreightForwarderMvpZip(application: FreightApplication): FreightForwarderMvpZipResult {
-  const applicationNo = application.applicationNo.trim() || "unknown";
-  const validation = validateFreightForwarderMvpRows(application.items);
-  const folderName = applicationNo;
-  const files: Record<string, Uint8Array> = { [`${folderName}/`]: new Uint8Array() };
-
-  for (const row of validation.validRows) {
-    files[`${folderName}/${buildFreightForwarderMvpFilename(applicationNo, row.rowNo, row.printCount)}`] =
-      buildFreightForwarderMvpPdf(row.item, row.printCount);
+  const declaredApplicationNos = getFreightApplicationNumbers(application);
+  const fallbackApplicationNo =
+    declaredApplicationNos.length === 1
+      ? declaredApplicationNos[0]
+      : application.applicationNo.trim() || "unknown";
+  const groupedItems = new Map<string, FreightApplicationItem[]>();
+  for (const item of application.items) {
+    const applicationNo = item.applicationNo?.trim() || fallbackApplicationNo;
+    const rows = groupedItems.get(applicationNo) ?? [];
+    rows.push(item);
+    groupedItems.set(applicationNo, rows);
   }
+  if (groupedItems.size === 0) groupedItems.set(fallbackApplicationNo, []);
+
+  const applicationNos = [...groupedItems.keys()];
+  const hasMultipleApplications = applicationNos.length > 1;
+  const folderName = applicationNos.length === 1
+    ? applicationNos[0]
+    : applicationNos.join("_");
+  const files: Record<string, Uint8Array> = {};
+  const validRows: FreightForwarderMvpValidRow[] = [];
+  const excludedRows: FreightForwarderMvpExcludedRow[] = [];
+
+  for (const [applicationNo, items] of groupedItems) {
+    files[`${applicationNo}/`] = new Uint8Array();
+    const groupValidation = validateFreightForwarderMvpRows(items);
+    validRows.push(
+      ...groupValidation.validRows.map((row) =>
+        hasMultipleApplications ? { ...row, applicationNo } : row,
+      ),
+    );
+    excludedRows.push(
+      ...groupValidation.excludedRows.map((row) =>
+        hasMultipleApplications ? { ...row, applicationNo } : row,
+      ),
+    );
+    for (const row of groupValidation.validRows) {
+      files[`${applicationNo}/${buildFreightForwarderMvpFilename(applicationNo, row.rowNo, row.printCount)}`] =
+        buildFreightForwarderMvpPdf(row.item, row.printCount);
+    }
+  }
+  const validation = { total: application.items.length, validRows, excludedRows };
+  const statusMessage = buildFreightForwarderMvpStatusMessage(validation);
 
   return {
     ...validation,
-    zipFilename: `${applicationNo}.zip`,
+    zipFilename: `${folderName}.zip`,
     folderName,
+    applicationNos,
     zipBytes: zipSync(files),
-    statusMessage: buildFreightForwarderMvpStatusMessage(validation),
+    statusMessage:
+      applicationNos.length > 1
+        ? `신청서 ${applicationNos.length}건 · ${statusMessage}`
+        : statusMessage,
   };
 }
 

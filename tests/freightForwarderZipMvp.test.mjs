@@ -10,16 +10,18 @@ import {
   validateFreightForwarderMvpRows,
 } from "../src/lib/freightForwarderZipMvp.ts";
 
-const item = (rowNo, barcode = `BBA1-${rowNo}`, printCount = 50, overrides = {}) => ({
-  id: `item-${rowNo}-${barcode}`,
-  rowNo,
-  itemName: "Product name must not render",
-  optionText: "옵션/中文 must not render",
-  quantity: 100,
-  barcode,
-  labelPrintCount: printCount,
-  ...overrides,
-});
+function item(rowNo, barcode = `BBA1-${rowNo}`, printCount, overrides = {}) {
+  return {
+    id: `item-${rowNo}-${barcode}`,
+    rowNo,
+    itemName: "Product name must not render",
+    optionText: "옵션/中文 must not render",
+    quantity: 100,
+    barcode,
+    labelPrintCount: arguments.length >= 3 ? printCount : 50,
+    ...overrides,
+  };
+}
 
 function pdfText(bytes) {
   return new TextDecoder().decode(bytes);
@@ -95,6 +97,25 @@ test("ZIP contains actual PDF files for calculated rows, not only folder", () =>
   for (const pdfName of pdfNames) {
     assert.match(pdfText(entries[pdfName]), /^%PDF-1\.4/);
   }
+});
+
+test("multiple applications share one ZIP but keep separate application folders", () => {
+  const result = buildFreightForwarderMvpZip({
+    applicationNo: "673626, 673627",
+    applicationNos: ["673626", "673627"],
+    items: [
+      item(1, "BCE6-1", 15, { applicationNo: "673626" }),
+      item(1, "BBF8-1", 4, { applicationNo: "673627" }),
+    ],
+  });
+  const entries = zipEntries(result);
+  assert.equal(result.zipFilename, "673626_673627.zip");
+  assert.deepEqual(result.applicationNos, ["673626", "673627"]);
+  assert.equal(result.validRows.length, 2);
+  assert.deepEqual(result.excludedRows, []);
+  assert.ok(Object.hasOwn(entries, "673626/673626-1번 15개.pdf"));
+  assert.ok(Object.hasOwn(entries, "673627/673627-1번 4개.pdf"));
+  assert.match(result.statusMessage, /신청서 2건/);
 });
 
 test("numeric row sorting works", () => {

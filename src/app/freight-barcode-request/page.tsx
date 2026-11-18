@@ -8,7 +8,19 @@ import {
   useState,
 } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { parseFreightApplicationText } from "@/lib/freightApplicationParser";
+import {
+  parseFreightApplicationBatchText,
+  parseFreightApplicationText,
+} from "@/lib/freightApplicationParser";
+import {
+  combineFreightApplications,
+  parseFreightApplicationNumberList,
+} from "@/lib/freightApplicationBatch";
+import {
+  applyFreightBundleUnitPreferences,
+  findFreightBundleUnitPreference,
+  saveFreightBundleUnitPreference,
+} from "@/lib/freightBundleUnitPreferences";
 import { buildFreightForwarderMvpZip } from "@/lib/freightForwarderZipMvp";
 import { findProductsByText } from "@/lib/productMaster";
 import {
@@ -45,7 +57,6 @@ import {
   ONDOLPASS_FREIGHT_PAGE_SOURCE,
   buildOndolpassFreightImport,
   getOndolpassFreightBridgeErrorMessage,
-  normalizeOndolpassApplicationNo,
   parseOndolpassFreightExtensionMessage,
 } from "@/lib/ondolpassFreightBridge";
 import type {
@@ -112,7 +123,11 @@ hs_code: 7326209000
 const KOREAN_MESSAGE = `바코드 라벨 상단에는 MADE IN CHINA 문구가 포함되어 있으므로 원산지 스티커는 별도로 부착하지 않으셔도 됩니다.
 같은 상품이라도 옵션별로 바코드번호가 다를 수 있으니 상품 카드별로 구분해서 작업 부탁드립니다.`;
 
-const EMPTY_APPLICATION: FreightApplication = { applicationNo: "", items: [] };
+const EMPTY_APPLICATION: FreightApplication = {
+  applicationNo: "",
+  applicationNos: [],
+  items: [],
+};
 const EMPTY_PASTED_IMAGES: RichPasteImageExtraction = {
   totalImages: 0,
   candidates: [],
@@ -134,6 +149,51 @@ type OndolpassBridgeStatus =
   | { kind: "loading" | "success" | "error"; message: string }
   | null;
 
+type OndolpassBatchResult = {
+  rawText: string;
+  pastedImages: RichPasteImageExtraction;
+  application: FreightApplication;
+};
+
+type OndolpassBatchState = {
+  applicationNos: string[];
+  currentIndex: number;
+  results: OndolpassBatchResult[];
+};
+
+function combinePastedImageExtractions(
+  results: OndolpassBatchResult[],
+): RichPasteImageExtraction {
+  let blockOffset = 0;
+  return results.reduce<RichPasteImageExtraction>(
+    (total, result) => {
+      const shiftBlockIndex = (blockIndex: number | undefined) =>
+        blockIndex === undefined ? undefined : blockIndex + blockOffset;
+      total.totalImages += result.pastedImages.totalImages;
+      total.ignoredImages += result.pastedImages.ignoredImages;
+      total.candidates.push(
+        ...result.pastedImages.candidates.map((candidate) => ({
+          ...candidate,
+          blockIndex: shiftBlockIndex(candidate.blockIndex),
+        })),
+      );
+      total.excludedCandidates.push(
+        ...result.pastedImages.excludedCandidates.map((candidate) => ({ ...candidate })),
+      );
+      total.productBlockCount += result.pastedImages.productBlockCount;
+      blockOffset += result.pastedImages.productBlockCount;
+      return total;
+    },
+    {
+      totalImages: 0,
+      candidates: [],
+      excludedCandidates: [],
+      ignoredImages: 0,
+      productBlockCount: 0,
+    },
+  );
+}
+
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
   const [ondolpassApplicationNo, setOndolpassApplicationNo] = useState("");
@@ -151,6 +211,10 @@ export default function FreightBarcodeRequestPage() {
     requestId: string;
     applicationNo: string;
   } | null>(null);
+  const ondolpassBatchRef = useRef<OndolpassBatchState | null>(null);
+  const startOndolpassRequestRef = useRef<
+    (applicationNo: string, currentIndex: number, totalCount: number) => void
+  >(() => undefined);
   const ondolpassTimeoutRef = useRef<number | undefined>(undefined);
   const [application, setApplication] =
     useState<FreightApplication>(EMPTY_APPLICATION);
@@ -198,6 +262,41 @@ export default function FreightBarcodeRequestPage() {
       ondolpassRequestRef.current = null;
     }
 
+    function startRequest(
+      applicationNo: string,
+      currentIndex: number,
+      totalCount: number,
+    ) {
+      clearPendingRequest();
+      const requestId = crypto.randomUUID();
+      ondolpassRequestRef.current = { requestId, applicationNo };
+      setOndolpassBridgeStatus({
+        kind: "loading",
+        message: `신청서 ${applicationNo}의 제품정보를 읽는 중입니다. (${currentIndex + 1}/${totalCount})`,
+      });
+      ondolpassTimeoutRef.current = window.setTimeout(() => {
+        if (ondolpassRequestRef.current?.requestId !== requestId) return;
+        clearPendingRequest();
+        ondolpassBatchRef.current = null;
+        setOndolpassBridgeStatus({
+          kind: "error",
+          message: `신청서 ${applicationNo} 가져오기가 제한시간 안에 끝나지 않았습니다. 온돌패스 로그인과 인터넷 연결을 확인한 뒤 다시 시도해주세요.`,
+        });
+      }, 35_000);
+
+      window.postMessage(
+        {
+          channel: ONDOLPASS_FREIGHT_BRIDGE_CHANNEL,
+          source: ONDOLPASS_FREIGHT_PAGE_SOURCE,
+          type: "FETCH_APPLICATION",
+          requestId,
+          applicationNo,
+        },
+        window.location.origin,
+      );
+    }
+    startOndolpassRequestRef.current = startRequest;
+
     function handleBridgeMessage(event: MessageEvent) {
       if (event.source !== window || event.origin !== window.location.origin) {
         return;
@@ -214,6 +313,7 @@ export default function FreightBarcodeRequestPage() {
       if (!pending || message.requestId !== pending.requestId) return;
       if (message.applicationNo !== pending.applicationNo) {
         clearPendingRequest();
+        ondolpassBatchRef.current = null;
         setOndolpassBridgeStatus({
           kind: "error",
           message: "요청한 번호와 브리지 응답 번호가 달라 적용하지 않았습니다.",
@@ -223,9 +323,10 @@ export default function FreightBarcodeRequestPage() {
 
       if (message.type === "ERROR") {
         clearPendingRequest();
+        ondolpassBatchRef.current = null;
         setOndolpassBridgeStatus({
           kind: "error",
-          message: getOndolpassFreightBridgeErrorMessage(message.errorCode),
+          message: `신청서 ${pending.applicationNo}: ${getOndolpassFreightBridgeErrorMessage(message.errorCode)}`,
         });
         return;
       }
@@ -243,23 +344,48 @@ export default function FreightBarcodeRequestPage() {
           throw new Error("가져온 품목 수와 분석된 품목 수가 다릅니다.");
         }
 
+        const applicationWithImages = {
+          ...parsedApplication,
+          items: applyFreightBundleUnitPreferences(
+            assignPastedImagesToItems(
+              parsedApplication.items,
+              imported.pastedImages,
+            ),
+          ),
+        };
+        const batch = ondolpassBatchRef.current;
+        if (!batch || batch.applicationNos[batch.currentIndex] !== imported.applicationNo) {
+          throw new Error("현재 가져오기 순서와 응답 신청서가 일치하지 않습니다.");
+        }
+        batch.results.push({
+          rawText: imported.rawText,
+          pastedImages: imported.pastedImages,
+          application: applicationWithImages,
+        });
+        clearPendingRequest();
+
+        const nextIndex = batch.currentIndex + 1;
+        if (nextIndex < batch.applicationNos.length) {
+          batch.currentIndex = nextIndex;
+          startRequest(batch.applicationNos[nextIndex], nextIndex, batch.applicationNos.length);
+          return;
+        }
+
+        const combinedRawText = batch.results
+          .map((result) => result.rawText)
+          .join("\n\n");
+        const combinedPastedImages = combinePastedImageExtractions(batch.results);
+        const combinedApplication = combineFreightApplications(
+          batch.results.map((result) => result.application),
+        );
         clipboardObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
         clipboardObjectUrlsRef.current = [];
         localImageObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
         localImageObjectUrlsRef.current.clear();
-        const applicationWithImages = {
-          ...parsedApplication,
-          items: assignPastedImagesToItems(
-            parsedApplication.items,
-            imported.pastedImages,
-          ),
-        };
-        setRawText(imported.rawText);
-        setPastedImages(imported.pastedImages);
-        if (richPasteRef.current) {
-          richPasteRef.current.textContent = imported.rawText;
-        }
-        setApplication(applicationWithImages);
+        setRawText(combinedRawText);
+        setPastedImages(combinedPastedImages);
+        if (richPasteRef.current) richPasteRef.current.textContent = combinedRawText;
+        setApplication(combinedApplication);
         setLookupFailedIds(new Set());
         setLoadedHistoryId(undefined);
         setLoadedServerHistoryId(undefined);
@@ -268,13 +394,16 @@ export default function FreightBarcodeRequestPage() {
         setHistoryStatus("");
         setAnalysisStatus({
           kind: "success",
-          message: `자동 분석 완료: ${imported.itemCount}개 품목을 찾았습니다.`,
+          message: `자동 분석 완료: 신청서 ${batch.applicationNos.length}건에서 ${combinedApplication.items.length}개 품목을 찾았습니다.`,
         });
         setOndolpassBridgeStatus({
           kind: "success",
-          message: `신청서 ${imported.applicationNo}의 제품정보 ${imported.itemCount}개와 상품 이미지 ${imported.pastedImages.candidates.length}개를 가져와 분석했습니다.`,
+          message: `신청서 ${batch.applicationNos.join(", ")}의 제품정보 ${combinedApplication.items.length}개와 상품 이미지 ${combinedPastedImages.candidates.length}개를 가져와 분석했습니다.`,
         });
+        ondolpassBatchRef.current = null;
       } catch (error) {
+        clearPendingRequest();
+        ondolpassBatchRef.current = null;
         setOndolpassBridgeStatus({
           kind: "error",
           message:
@@ -282,8 +411,6 @@ export default function FreightBarcodeRequestPage() {
               ? `${error.message} 자동 적용을 중단했습니다.`
               : "신청서 검증에 실패해 자동 적용을 중단했습니다.",
         });
-      } finally {
-        clearPendingRequest();
       }
     }
 
@@ -307,6 +434,7 @@ export default function FreightBarcodeRequestPage() {
       if (ondolpassTimeoutRef.current !== undefined) {
         window.clearTimeout(ondolpassTimeoutRef.current);
       }
+      startOndolpassRequestRef.current = () => undefined;
     };
   }, []);
 
@@ -367,9 +495,9 @@ export default function FreightBarcodeRequestPage() {
   }
 
   function importOndolpassApplication() {
-    let applicationNo: string;
+    let applicationNos: string[];
     try {
-      applicationNo = normalizeOndolpassApplicationNo(ondolpassApplicationNo);
+      applicationNos = parseFreightApplicationNumberList(ondolpassApplicationNo);
     } catch (error) {
       setOndolpassBridgeStatus({
         kind: "error",
@@ -381,7 +509,7 @@ export default function FreightBarcodeRequestPage() {
       return;
     }
 
-    setOndolpassApplicationNo(applicationNo);
+    setOndolpassApplicationNo(applicationNos.join(", "));
     if (!ondolpassBridgeReady) {
       setOndolpassBridgeStatus({
         kind: "error",
@@ -391,45 +519,19 @@ export default function FreightBarcodeRequestPage() {
       return;
     }
 
-    if (ondolpassTimeoutRef.current !== undefined) {
-      window.clearTimeout(ondolpassTimeoutRef.current);
-    }
-    const requestId = crypto.randomUUID();
-    ondolpassRequestRef.current = { requestId, applicationNo };
-    setOndolpassBridgeStatus({
-      kind: "loading",
-      message: `신청서 ${applicationNo}의 제품정보를 읽는 중입니다.`,
-    });
-    ondolpassTimeoutRef.current = window.setTimeout(() => {
-      if (ondolpassRequestRef.current?.requestId !== requestId) return;
-      ondolpassRequestRef.current = null;
-      ondolpassTimeoutRef.current = undefined;
-      setOndolpassBridgeStatus({
-        kind: "error",
-        message:
-          "가져오기가 제한시간 안에 끝나지 않았습니다. 온돌패스 로그인과 인터넷 연결을 확인한 뒤 다시 시도해주세요.",
-      });
-    }, 35_000);
-
-    window.postMessage(
-      {
-        channel: ONDOLPASS_FREIGHT_BRIDGE_CHANNEL,
-        source: ONDOLPASS_FREIGHT_PAGE_SOURCE,
-        type: "FETCH_APPLICATION",
-        requestId,
-        applicationNo,
-      },
-      window.location.origin,
-    );
+    ondolpassBatchRef.current = { applicationNos, currentIndex: 0, results: [] };
+    startOndolpassRequestRef.current(applicationNos[0], 0, applicationNos.length);
   }
 
   function analyzeText() {
     clearLocalImageObjectUrls();
     try {
-      const parsedApplication = parseFreightApplicationText(rawText);
+      const parsedApplication = parseFreightApplicationBatchText(rawText);
       const applicationWithPastedImages = {
         ...parsedApplication,
-        items: assignPastedImagesToItems(parsedApplication.items, pastedImages),
+        items: applyFreightBundleUnitPreferences(
+          assignPastedImagesToItems(parsedApplication.items, pastedImages),
+        ),
       };
       setApplication(applicationWithPastedImages);
       const hasParseWarnings = Boolean(
@@ -439,7 +541,7 @@ export default function FreightBarcodeRequestPage() {
         parsedApplication.items.length > 0
           ? {
               kind: hasParseWarnings ? "warning" : "success",
-              message: `분석 완료: ${parsedApplication.items.length}개 품목을 찾았습니다.${
+              message: `분석 완료: 신청서 ${parsedApplication.applicationNos?.length || 1}건에서 ${parsedApplication.items.length}개 품목을 찾았습니다.${
                 hasParseWarnings ? " 일부 품목은 값이 없어 제외되었습니다." : ""
               }`,
             }
@@ -479,12 +581,15 @@ export default function FreightBarcodeRequestPage() {
 
   function loadSample() {
     clearLocalImageObjectUrls();
-    const parsedApplication = parseFreightApplicationText(SAMPLE_TEXT);
+    const parsedApplication = parseFreightApplicationBatchText(SAMPLE_TEXT);
     setRawText(SAMPLE_TEXT);
     clearClipboardObjectUrls();
     setPastedImages(EMPTY_PASTED_IMAGES);
     if (richPasteRef.current) richPasteRef.current.textContent = SAMPLE_TEXT;
-    setApplication(parsedApplication);
+    setApplication({
+      ...parsedApplication,
+      items: applyFreightBundleUnitPreferences(parsedApplication.items),
+    });
     setAnalysisStatus({
       kind: "success",
       message: `분석 완료: ${parsedApplication.items.length}개 품목을 찾았습니다.`,
@@ -507,6 +612,12 @@ export default function FreightBarcodeRequestPage() {
     setAnalysisStatus(null);
     setOndolpassApplicationNo("");
     setOndolpassBridgeStatus(null);
+    if (ondolpassTimeoutRef.current !== undefined) {
+      window.clearTimeout(ondolpassTimeoutRef.current);
+      ondolpassTimeoutRef.current = undefined;
+    }
+    ondolpassRequestRef.current = null;
+    ondolpassBatchRef.current = null;
     setLookupFailedIds(new Set());
     setLoadedHistoryId(undefined);
     setLoadedServerHistoryId(undefined);
@@ -516,16 +627,57 @@ export default function FreightBarcodeRequestPage() {
   }
 
   function updateApplicationNo(value: string) {
-    setApplication((current) => ({ ...current, applicationNo: value }));
+    setApplication((current) => {
+      let applicationNos: string[] | undefined;
+      try {
+        applicationNos = parseFreightApplicationNumberList(value);
+      } catch {
+        applicationNos = undefined;
+      }
+      const shouldUpdateEveryItem =
+        applicationNos?.length === 1 && (current.applicationNos?.length ?? 1) <= 1;
+      return {
+        ...current,
+        applicationNo: value,
+        ...(applicationNos ? { applicationNos } : {}),
+        items: shouldUpdateEveryItem
+          ? current.items.map((item) => ({ ...item, applicationNo: applicationNos?.[0] }))
+          : current.items,
+      };
+    });
   }
 
   function updateItem(id: string, changes: Partial<FreightApplicationItem>) {
-    setApplication((current) => ({
-      ...current,
-      items: current.items.map((item) =>
-        item.id === id ? { ...item, ...changes } : item,
-      ),
-    }));
+    setApplication((current) => {
+      const items = current.items.map((item) => {
+        if (item.id !== id) return item;
+        const next = { ...item, ...changes };
+        if (changes.barcode !== undefined) {
+          const preference = findFreightBundleUnitPreference(changes.barcode);
+          if (preference) next.bundleUnit = preference.bundleUnit;
+        }
+        if (changes.bundleUnit !== undefined) {
+          saveFreightBundleUnitPreference(next.barcode, changes.bundleUnit);
+        }
+        return next;
+      });
+      if (changes.applicationNo === undefined) return { ...current, items };
+      const applicationNos = [
+        ...new Set(items.map((item) => item.applicationNo?.trim()).filter(Boolean)),
+      ] as string[];
+      return {
+        ...current,
+        applicationNo: applicationNos.join(", "),
+        applicationNos,
+        items,
+      };
+    });
+  }
+
+  function rememberItemBundleUnit(id: string) {
+    const item = application.items.find((candidate) => candidate.id === id);
+    if (!item) return;
+    saveFreightBundleUnitPreference(item.barcode, item.bundleUnit);
   }
 
   function rerunAutoImageMatching() {
@@ -556,16 +708,15 @@ export default function FreightBarcodeRequestPage() {
 
   function applyBulkBundleUnit(mode: "all" | "with-barcode" | "empty-only") {
     const bundleUnit = Number(bulkBundleUnit);
-    if (!Number.isFinite(bundleUnit) || bundleUnit <= 0) {
+    if (!Number.isInteger(bundleUnit) || bundleUnit <= 0) {
       setBulkBundleNote("소분단위는 1 이상의 숫자로 입력해주세요.");
       return;
     }
 
     let manualPrintCountPreserved = 0;
     let changedCount = 0;
-    setApplication((current) => ({
-      ...current,
-      items: current.items.map((item) => {
+    let rememberedBarcodeCount = 0;
+    const items = application.items.map((item) => {
         const isTarget =
           mode === "all" ||
           (mode === "with-barcode" && Boolean(item.barcode?.trim())) ||
@@ -574,13 +725,16 @@ export default function FreightBarcodeRequestPage() {
 
         changedCount += 1;
         if (item.labelPrintCount) manualPrintCountPreserved += 1;
+        if (saveFreightBundleUnitPreference(item.barcode, bundleUnit)) {
+          rememberedBarcodeCount += 1;
+        }
         return { ...item, bundleUnit };
-      }),
-    }));
+      });
+    setApplication((current) => ({ ...current, items }));
     setBulkBundleNote(
       `${changedCount}개 품목에 소분단위를 적용했습니다.${
         manualPrintCountPreserved > 0 ? " 수동 출력수량은 유지됩니다." : ""
-      }`,
+      }${rememberedBarcodeCount > 0 ? ` B코드 ${rememberedBarcodeCount}개의 최신값으로 저장했습니다.` : ""}`,
     );
   }
 
@@ -635,6 +789,7 @@ export default function FreightBarcodeRequestPage() {
       return;
     }
 
+    const bundlePreference = findFreightBundleUnitPreference(product.barcode);
     updateItem(item.id, {
       modelNo: product.modelNo,
       modelName: product.modelName,
@@ -650,6 +805,7 @@ export default function FreightBarcodeRequestPage() {
       matchedLabelText: product.labelText,
       matchedImageUrl: product.imageUrl,
       hsCode: item.hsCode || product.hsCode,
+      ...(bundlePreference ? { bundleUnit: bundlePreference.bundleUnit } : {}),
     });
     setLookupFailedIds((current) => {
       const next = new Set(current);
@@ -685,9 +841,21 @@ export default function FreightBarcodeRequestPage() {
     setRawText(record.rawText);
     if (richPasteRef.current) richPasteRef.current.textContent = record.rawText;
     setPastedImages(EMPTY_PASTED_IMAGES);
+    let restoredApplicationNos: string[] = [];
+    try {
+      restoredApplicationNos = parseFreightApplicationNumberList(record.applicationNo);
+    } catch {
+      restoredApplicationNos = [];
+    }
     setApplication({
       applicationNo: record.applicationNo,
-      items: record.parsedItems,
+      applicationNos: restoredApplicationNos,
+      items: record.parsedItems.map((item) => ({
+        ...item,
+        applicationNo:
+          item.applicationNo ||
+          (restoredApplicationNos.length === 1 ? restoredApplicationNos[0] : undefined),
+      })),
     });
     setLookupFailedIds(new Set());
     setHistoryTitle(record.title);
@@ -906,8 +1074,8 @@ export default function FreightBarcodeRequestPage() {
                   신청서 번호로 자동 가져오기
                 </h3>
                 <p className="mt-1 text-xs leading-5 text-slate-600">
-                  로그인된 Chrome에서 해당 온돌패스 신청서의 제품정보와 상품
-                  이미지만 읽고, 아래 신청서 분석까지 한 번에 실행합니다.
+                  신청번호를 쉼표로 구분하면 로그인된 Chrome에서 여러 신청서를
+                  순서대로 읽고, 하나의 작업으로 합쳐 자동 분석합니다.
                 </p>
               </div>
               <span
@@ -926,19 +1094,19 @@ export default function FreightBarcodeRequestPage() {
               </label>
               <input
                 id="ondolpass-application-no"
-                inputMode="numeric"
+                inputMode="text"
                 autoComplete="off"
                 value={ondolpassApplicationNo}
                 onChange={(event) => {
                   setOndolpassApplicationNo(
-                    event.target.value.replace(/\D/g, "").slice(0, 20),
+                    event.target.value.replace(/[^\d,，\s]/g, "").slice(0, 500),
                   );
                   setOndolpassBridgeStatus(null);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") importOndolpassApplication();
                 }}
-                placeholder="예: 673626"
+                placeholder="예: 673626, 673627, 673628"
                 className="min-w-0 flex-1 rounded-lg border border-emerald-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
               />
               <Button
@@ -961,7 +1129,7 @@ export default function FreightBarcodeRequestPage() {
               </a>
               <span className="text-slate-500">
                 조회 전용이며 온돌패스 체크박스·버튼·신청서 내용은 변경하지
-                않습니다.
+                않습니다. 신청서는 한 건씩 안전하게 순차 조회합니다.
               </span>
             </div>
             {ondolpassBridgeStatus && (
@@ -985,7 +1153,8 @@ export default function FreightBarcodeRequestPage() {
             </h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">
               1688 장바구니나 배송대행지 신청서처럼 이미지가 포함된 영역을
-              복사한 뒤 여기에 붙여넣으면 이미지 URL을 함께 추출합니다.
+              복사한 뒤 여기에 붙여넣으면 이미지 URL을 함께 추출합니다. 여러
+              신청서 내용을 이어 붙이면 신청번호별로 구분해 함께 분석합니다.
             </p>
             <div
               ref={richPasteRef}
@@ -1422,7 +1591,8 @@ export default function FreightBarcodeRequestPage() {
                 </h3>
                 <p className="mt-1 text-xs text-slate-500">
                   수동 출력수량이 입력된 행은 출력수량을 유지하고 소분단위만
-                  적용합니다.
+                  적용합니다. 입력한 값은 B코드별 최신 소분단위로 자동 저장되어
+                  다음 수동·자동 가져오기에 다시 적용됩니다.
                 </p>
               </div>
               <div className="flex flex-wrap items-end gap-2">
@@ -1528,6 +1698,7 @@ export default function FreightBarcodeRequestPage() {
                     imageCandidates={pastedImages.candidates}
                     lookupFailed={lookupFailedIds.has(item.id)}
                     onChange={(changes) => updateItem(item.id, changes)}
+                    onRememberBundleUnit={() => rememberItemBundleUnit(item.id)}
                     onLocalImageChange={(file) =>
                       updateLocalImage(item.id, file)
                     }
@@ -1555,6 +1726,7 @@ export default function FreightBarcodeRequestPage() {
               const encodedValue = getEncodedBarcodeValue(item.barcode);
               return (
                 <p key={item.id}>
+                  {item.applicationNo ? `${item.applicationNo} / ` : ""}
                   {item.rowNo}번 · 입력값: {item.barcode || "-"} · 인코딩값:{" "}
                   {encodedValue || "생성 안 함"}
                 </p>
@@ -1761,6 +1933,7 @@ function EditableRow({
   imageCandidates,
   lookupFailed,
   onChange,
+  onRememberBundleUnit,
   onLocalImageChange,
   onApply,
 }: {
@@ -1770,6 +1943,7 @@ function EditableRow({
   imageCandidates: RichPasteImageCandidate[];
   lookupFailed: boolean;
   onChange: (changes: Partial<FreightApplicationItem>) => void;
+  onRememberBundleUnit: () => void;
   onLocalImageChange: (file?: File) => void;
   onApply: () => void;
 }) {
@@ -1807,6 +1981,17 @@ function EditableRow({
           value={item.rowNo}
           onChange={(event) => onChange({ rowNo: Number(event.target.value) })}
           className={`${inputClassName} w-16`}
+        />
+      </td>
+      <td
+        className={getEditTableCellClassName("applicationNo", pinnedColumnIds)}
+        style={getEditTableCellStyle("applicationNo", pinnedColumnIds, rowIndex)}
+      >
+        <input
+          value={item.applicationNo ?? ""}
+          onChange={(event) => onChange({ applicationNo: event.target.value })}
+          className={`${inputClassName} w-28`}
+          aria-label={`${item.rowNo}행 신청번호`}
         />
       </td>
       <td
@@ -2040,6 +2225,7 @@ function EditableRow({
             onChange={(event) =>
               onChange({ barcode: sanitizeBarcodeValue(event.target.value) })
             }
+            onBlur={onRememberBundleUnit}
             placeholder="예: BAA1-1"
             aria-invalid={barcodeInvalid}
             className={`${inputClassName} ${
@@ -2128,6 +2314,7 @@ function EditableRow({
                 : undefined,
             })
           }
+          onBlur={onRememberBundleUnit}
           aria-label={`${item.rowNo}행 소분단위`}
           className={`${inputClassName} w-28`}
         />
@@ -2310,7 +2497,8 @@ function BarcodeLabelOutput({
           </h2>
           <p className="mt-1 text-xs leading-5 text-violet-800">
             화면에는 처음 3장만 표시하며, PDF에는 계산된 전체 수량이 한 페이지에
-            한 라벨씩 출력됩니다.
+            한 라벨씩 출력됩니다. 여러 신청서는 ZIP 안에서 신청번호별 폴더로
+            자동 분리됩니다.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -2352,6 +2540,7 @@ function BarcodeLabelOutput({
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
           {missingBarcodeItems.map((item) => (
             <p key={item.id}>
+              {item.applicationNo ? `${item.applicationNo} / ` : ""}
               {item.rowNo}번 품목 바코드 미입력 · 라벨 PDF에서 제외됩니다.
             </p>
           ))}
@@ -2363,6 +2552,7 @@ function BarcodeLabelOutput({
           <div className="mt-1 space-y-1 font-medium">
             {remainderItems.map(({ item, calculation }) => (
               <p key={item.id}>
+                {item.applicationNo ? `${item.applicationNo} / ` : ""}
                 {item.rowNo}번: {item.quantity}개 / {calculation.bundleUnit}개씩
                 → 잔여 {calculation.remainder}개
               </p>
@@ -2493,6 +2683,10 @@ function WorkRequestPreview({
                     />
                   </div>
                   <dl className="min-w-0 space-y-1 leading-5">
+                    <PrintField
+                      label="신청번호"
+                      value={item.applicationNo || application.applicationNo}
+                    />
                     <PrintField
                       label="품목"
                       value={item.matchedProductNameKo || item.itemName}

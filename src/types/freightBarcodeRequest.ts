@@ -2,6 +2,7 @@ export type FreightParserMode =
   | "labeled-next-line"
   | "labeled-inline"
   | "loose-table"
+  | "batch"
   | "failed";
 
 export interface FreightParseDiagnostics {
@@ -18,12 +19,14 @@ export interface FreightParseDiagnostics {
 
 export interface FreightApplication {
   applicationNo: string;
+  applicationNos?: string[];
   items: FreightApplicationItem[];
   diagnostics?: FreightParseDiagnostics;
 }
 
 export interface FreightApplicationItem {
   id: string;
+  applicationNo?: string;
   rowNo: number;
   itemName: string;
   optionText: string;

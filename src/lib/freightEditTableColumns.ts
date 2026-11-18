@@ -1,5 +1,6 @@
 export type EditTableColumnId =
   | "rowNo"
+  | "applicationNo"
   | "image"
   | "itemName"
   | "optionText"
@@ -35,6 +36,7 @@ export const DEFAULT_PINNED_EDIT_TABLE_COLUMN_IDS: EditTableColumnId[] = [
 
 export const EDIT_TABLE_COLUMNS: EditTableColumn[] = [
   { id: "rowNo", label: "순번", width: 88 },
+  { id: "applicationNo", label: "신청번호", width: 144 },
   { id: "image", label: "이미지", width: 88 },
   { id: "itemName", label: "품목", width: 200 },
   { id: "optionText", label: "옵션", width: 248 },
