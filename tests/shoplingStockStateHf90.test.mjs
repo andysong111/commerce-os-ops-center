@@ -144,8 +144,8 @@ test("HF90 package remains traceable while the stock-control gate advances beyon
   assert.match(route, /const BASE_VERSION = "0\.6\.52"/);
   assert.match(route, /const VERSION = "0\.6\.53"/);
   assert.match(route, /PROVEN_HF60_HF72_PROCESSING_OR_RESULT_OWNER_CHAIN/);
-  assert.match(page, /download-hf95/);
-  assert.match(page, /v0\.6\.57 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 57\]/);
+  assert.match(page, /download-hf96/);
+  assert.match(page, /v0\.6\.58 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 58\]/);
   assert.match(workflow, /shoplingStockStateHf90\.test\.mjs/);
 });

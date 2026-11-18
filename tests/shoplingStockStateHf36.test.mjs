@@ -99,9 +99,9 @@ test("HF36 still packages v0.6.4 while the stock-control UI has advanced to HF90
   assert.match(route, /getHf35Download/);
   assert.match(route, /const BASE_VERSION = "0\.6\.3"/);
   assert.match(route, /const VERSION = "0\.6\.4"/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 57\]/);
-  assert.match(page, /download-hf95/);
-  assert.match(page, /v0\.6\.57 다운로드/);
-  assert.match(queuePanel, /v0\.6\.57로 업데이트해 주세요/);
-  assert.match(operatorPanel, /v0\.6\.57로 업데이트/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 58\]/);
+  assert.match(page, /download-hf96/);
+  assert.match(page, /v0\.6\.58 다운로드/);
+  assert.match(queuePanel, /v0\.6\.58로 업데이트해 주세요/);
+  assert.match(operatorPanel, /v0\.6\.58로 업데이트/);
 });
