@@ -1,3 +1,5 @@
+import { describeShoplingStockFailure } from "./shoplingStockFailureDetail.ts";
+
 type ShoplingTerminalOutcome = "SUCCEEDED" | "FAILED" | "UNCERTAIN";
 
 export type ShoplingStockResponsibilityResult = Record<string, unknown> & {
@@ -15,6 +17,11 @@ export type ShoplingStockResultDetail = {
   marketSuccessCount: number;
   marketTotalCount: number;
   responsibilityReceiptAccepted: boolean;
+  failurePhaseLabel?: string;
+  failureReason?: string;
+  failureImpact?: string;
+  failureNextAction?: string;
+  failureCurrentStatus?: string;
 };
 
 const RESULT_FAILURE_CODE = "SHOPLING_HF87_RESULT_TABLE_FAILURE";
@@ -149,14 +156,28 @@ export function shoplingStockResultDetail(
   input: ShoplingStockResponsibilityResult,
 ): ShoplingStockResultDetail {
   const evidence = object(input.evidence);
+  const code = text(evidence.code);
+  const stage =
+    text(evidence.stage) ||
+    (code === "SHOPLING_STOCK_STATE_COALESCED_API_FAILED"
+      ? "SHOPLING_API_STOCK_STATE"
+      : "");
+  const failure = describeShoplingStockFailure({
+    outcome: input.outcome,
+    code,
+    stage,
+    message: input.message,
+    browserMutationStarted: evidence.browserMutationStarted,
+  });
   return {
-    code: text(evidence.code),
-    stage: text(evidence.stage),
+    code,
+    stage,
     marketFailureCount: Math.max(0, Number(evidence.marketFailureCount) || 0),
     marketSuccessCount: Math.max(0, Number(evidence.marketSuccessCount) || 0),
     marketTotalCount: Math.max(0, Number(evidence.marketTotalCount) || 0),
     responsibilityReceiptAccepted:
       evidence.responsibilityReceiptAccepted === true,
+    ...(failure || {}),
   };
 }
 

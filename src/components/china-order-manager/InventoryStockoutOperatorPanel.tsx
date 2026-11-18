@@ -81,6 +81,11 @@ type DirectRunResultDetail = {
   marketSuccessCount: number;
   marketTotalCount: number;
   responsibilityReceiptAccepted: boolean;
+  failurePhaseLabel?: string;
+  failureReason?: string;
+  failureImpact?: string;
+  failureNextAction?: string;
+  failureCurrentStatus?: string;
 };
 
 type ActiveBatch = {
@@ -466,7 +471,11 @@ function InventoryStockoutGenericPanel() {
       message: string,
       evidence?: unknown,
     ) => {
-      const receipt = shoplingStockResultDetail({ outcome, evidence });
+      const receipt = shoplingStockResultDetail({
+        outcome,
+        message,
+        evidence,
+      });
       const nextDetail: DirectRunResultDetail = {
         jobId: job.jobId,
         barcode: job.barcode,
@@ -1339,9 +1348,37 @@ function InventoryStockoutGenericPanel() {
                       </span>
                       <span>· {statusLabel}</span>
                     </div>
-                    <p className="mt-1 text-xs font-bold leading-5">
-                      {detail.message || "상세 메시지가 없습니다."}
-                    </p>
+                    {successful ? (
+                      <p className="mt-1 text-xs font-bold leading-5">
+                        {detail.message || "상세 메시지가 없습니다."}
+                      </p>
+                    ) : null}
+                    {!successful && detail.failurePhaseLabel ? (
+                      <dl className="mt-2 grid gap-1 rounded-md border border-rose-200/80 bg-white/70 px-3 py-2 text-xs font-bold leading-5">
+                        <div className="grid gap-0.5 sm:grid-cols-[6.5rem_1fr]">
+                          <dt>중단 위치</dt>
+                          <dd>{detail.failurePhaseLabel}</dd>
+                        </div>
+                        {detail.failureCurrentStatus ? (
+                          <div className="grid gap-0.5 sm:grid-cols-[6.5rem_1fr]">
+                            <dt>확인된 상태</dt>
+                            <dd>{detail.failureCurrentStatus}</dd>
+                          </div>
+                        ) : null}
+                        <div className="grid gap-0.5 sm:grid-cols-[6.5rem_1fr]">
+                          <dt>실패 원인</dt>
+                          <dd>{detail.failureReason}</dd>
+                        </div>
+                        <div className="grid gap-0.5 sm:grid-cols-[6.5rem_1fr]">
+                          <dt>전송 여부</dt>
+                          <dd>{detail.failureImpact}</dd>
+                        </div>
+                        <div className="grid gap-0.5 sm:grid-cols-[6.5rem_1fr]">
+                          <dt>다음 조치</dt>
+                          <dd>{detail.failureNextAction}</dd>
+                        </div>
+                      </dl>
+                    ) : null}
                     <p className="mt-1 break-all font-mono text-[11px] font-bold opacity-80">
                       코드 {detail.code || "-"} · 단계 {detail.stage || "-"}
                     </p>
