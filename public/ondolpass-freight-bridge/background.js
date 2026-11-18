@@ -95,6 +95,34 @@ async function sendCaptureWithRetry(tabId, applicationNo) {
   throw makeError("APPLICATION_NOT_FOUND_OR_EMPTY");
 }
 
+async function captureWithReadOnlyInjection(tabId, applicationNo) {
+  let results;
+  try {
+    results = await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["ondolpass-extractor.js", "ondolpass-capture.js"],
+    });
+  } catch {
+    throw makeError("ONDOLPASS_CAPTURE_UNAVAILABLE");
+  }
+
+  const capture = results && results[0] && results[0].result;
+  if (!capture || !capture.ok) {
+    throw makeError(
+      capture && typeof capture.errorCode === "string"
+        ? capture.errorCode
+        : "APPLICATION_NOT_FOUND_OR_EMPTY",
+    );
+  }
+  if (
+    !capture.payload ||
+    capture.payload.applicationNo !== applicationNo
+  ) {
+    throw makeError("APPLICATION_NUMBER_MISMATCH");
+  }
+  return capture;
+}
+
 async function focusTab(tabId) {
   try {
     await chrome.tabs.update(tabId, { active: true });
@@ -130,7 +158,13 @@ async function importApplication(applicationNo) {
       await focusTab(tabId);
       throw makeError("ONDOLPASS_LOGIN_REQUIRED");
     }
-    const capture = await sendCaptureWithRetry(tabId, applicationNo);
+    let capture;
+    try {
+      capture = await captureWithReadOnlyInjection(tabId, applicationNo);
+    } catch (error) {
+      if (!error || error.code !== "ONDOLPASS_CAPTURE_UNAVAILABLE") throw error;
+      capture = await sendCaptureWithRetry(tabId, applicationNo);
+    }
     if (!capture || !capture.ok) {
       throw makeError(
         capture && typeof capture.errorCode === "string"

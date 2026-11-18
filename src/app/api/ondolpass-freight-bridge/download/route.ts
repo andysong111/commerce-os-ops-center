@@ -10,6 +10,7 @@ const FILES = [
   "manifest.json",
   "background.js",
   "ondolpass-extractor.js",
+  "ondolpass-capture.js",
   "content-ondolpass.js",
   "content-commerce-os.js",
   "README.txt",
@@ -30,7 +31,7 @@ export async function GET() {
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition":
-          'attachment; filename="commerce-os-ondolpass-freight-bridge-v0.1.0.zip"',
+          'attachment; filename="commerce-os-ondolpass-freight-bridge-v0.1.1.zip"',
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       },

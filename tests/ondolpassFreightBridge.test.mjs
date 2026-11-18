@@ -241,7 +241,7 @@ test("extension manifest stays read-only and narrowly scoped", async () => {
       "utf8",
     ),
   );
-  assert.deepEqual(manifest.permissions, ["tabs"]);
+  assert.deepEqual(manifest.permissions, ["tabs", "scripting"]);
   assert.deepEqual(manifest.host_permissions, [
     "https://ondolpass.co.kr/*",
     "https://www.ondolpass.co.kr/*",
@@ -251,6 +251,7 @@ test("extension manifest stays read-only and narrowly scoped", async () => {
   for (const fileName of [
     "background.js",
     "ondolpass-extractor.js",
+    "ondolpass-capture.js",
     "content-ondolpass.js",
     "content-commerce-os.js",
   ]) {
@@ -260,6 +261,13 @@ test("extension manifest stays read-only and narrowly scoped", async () => {
     );
     assert.doesNotMatch(script, /chrome\.cookies|\.click\s*\(|fetch\s*\(/);
   }
+
+  const background = await readFile(
+    new URL("../public/ondolpass-freight-bridge/background.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(background, /chrome\.scripting\.executeScript/);
+  assert.match(background, /"ondolpass-extractor\.js", "ondolpass-capture\.js"/);
 });
 
 test("download route returns a complete no-cache extension ZIP", async () => {
@@ -269,7 +277,7 @@ test("download route returns a complete no-cache extension ZIP", async () => {
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.match(
     response.headers.get("content-disposition") || "",
-    /commerce-os-ondolpass-freight-bridge-v0\.1\.0\.zip/,
+    /commerce-os-ondolpass-freight-bridge-v0\.1\.1\.zip/,
   );
 
   const files = unzipSync(new Uint8Array(await response.arrayBuffer()));
@@ -279,6 +287,7 @@ test("download route returns a complete no-cache extension ZIP", async () => {
     "content-commerce-os.js",
     "content-ondolpass.js",
     "manifest.json",
+    "ondolpass-capture.js",
     "ondolpass-extractor.js",
   ]);
 });

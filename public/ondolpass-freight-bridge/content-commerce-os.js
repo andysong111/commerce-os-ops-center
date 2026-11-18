@@ -46,12 +46,15 @@
             ? response.errorCode
             : "BRIDGE_UNKNOWN_ERROR",
       });
-    } catch {
+    } catch (error) {
+      const runtimeErrorMessage = String((error && error.message) || "");
       post({
         type: "ERROR",
         requestId: message.requestId,
         applicationNo: message.applicationNo,
-        errorCode: "BRIDGE_UNKNOWN_ERROR",
+        errorCode: /context invalidated/i.test(runtimeErrorMessage)
+          ? "BRIDGE_RELOAD_REQUIRED"
+          : "BRIDGE_RUNTIME_ERROR",
       });
     }
   }

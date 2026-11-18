@@ -254,6 +254,11 @@ export function getOndolpassFreightBridgeErrorMessage(errorCode: string): string
       return "온돌패스 페이지가 제한시간 안에 열리지 않았습니다. 인터넷 연결을 확인한 뒤 다시 시도해주세요.";
     case "APPLICATION_NUMBER_MISMATCH":
       return "요청한 번호와 열린 온돌패스 신청서가 달라 가져오기를 중단했습니다.";
+    case "BRIDGE_RELOAD_REQUIRED":
+      return "확장프로그램이 갱신되었습니다. Commerce OS 화면을 새로고침한 뒤 다시 눌러주세요.";
+    case "BRIDGE_RUNTIME_ERROR":
+    case "ONDOLPASS_CAPTURE_UNAVAILABLE":
+      return "온돌패스 읽기 연결에 실패했습니다. 확장프로그램을 새로고침하고 다시 실행해주세요.";
     default:
       return "온돌패스 신청서를 가져오지 못했습니다. 브리지 확장 연결과 온돌패스 로그인을 확인해주세요.";
   }
