@@ -63,8 +63,8 @@ jobs:
           cp scripts/shopling-idle-live-channel-check.mjs /tmp/inventory-ui-tools/idle-channel-check.mjs
           xvfb-run -a node /tmp/inventory-ui-tools/idle-channel-check.mjs
         env:
-          COMMERCE_OS_EXTENSION_URL: http://127.0.0.1:3210/api/shopling-stock-state-sync/download-hf95
-          COMMERCE_OS_EXTENSION_VERSION: 0.6.57
+          COMMERCE_OS_EXTENSION_URL: http://127.0.0.1:3210/api/shopling-stock-state-sync/download-hf96
+          COMMERCE_OS_EXTENSION_VERSION: 0.6.58
       - uses: actions/upload-artifact@v4
         if: always()
         with:

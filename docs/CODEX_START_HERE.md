@@ -23,7 +23,9 @@ Never preserve an old plan merely because it is documented if current code or di
 - 실제 Chrome에 운영 ZIP을 설치한 비교검사에서 v0.6.54는 STATUS 응답이 왔지만 v0.6.56은 READY 뒤 모든 runtime 메시지가 시간초과됐다. HF94가 `background-v099.js`를 다시 감싼 한 단계의 `importScripts`를 추가하면서 누적 로딩 체인이 Chrome 서비스워커 초기화를 깨뜨린 것이 직접 원인이다.
 - HF95 v0.6.57은 검증된 `background-v099.js`와 HF94 IDLE 계층을 하나의 `background-v101.js`로 평탄화한다. 루트 import는 다시 1개만 유지한다. 페이지 브리지는 백그라운드가 2초 안에 응답하지 않으면 `HF95_IDLE_STATUS_RESPONSE_TIMEOUT`을 명시적으로 반환해 READY-only 대기를 숨기지 않는다.
 - 로컬 실제 Chrome 검사는 `statusProbeOk: true`, `idleConfirmed: true`, v0.6.57 서비스워커, 외부 Shopling 쓰기 0건을 확인했다. CI 대상 58개 회귀파일, TypeScript, 변경 파일 ESLint, 125개 정적 페이지 프로덕션 빌드도 통과했다.
-- 기존 중단 세션은 외부 전송 전에 멈췄으므로 재시도 버튼을 누르지 않는다. 운영 배포 뒤 v0.6.57 설치·새로고침 후 신규 B코드 1건만 실행해 Shopling 원본 전송 접수와 Commerce OS `1/1`을 확인한 다음 나머지를 진행한다. 상세는 `docs/shopling-stock-state-hf95-20261119.md`에 있다.
+- HF95 당시 기존 중단 세션은 외부 전송 전에 멈췄고 평탄화된 worker/IDLE 확인까지 완료했다. 이 버전은 현재 HF96으로 대체됐으며 상세 이력은 `docs/shopling-stock-state-hf95-20261119.md`에 있다.
+- HF96 v0.6.58은 같은 직렬 B코드가 중복 준비되며 이미 열린 정상 팝업을 `baselineTabIds`로 오판한 `HF92_EXACT_POPUP_OWNER_CHANGED` 사건을 수정한다. 신선한 HF90 영수증이 동일 job·execution·상품종류·goods-key 묶음·A21 목록창·팝업·opener·assignment를 모두 증명할 때만 파란 전송 직전 소유권을 복구하며, 하나라도 다르면 외부 전송 0회로 차단한다.
+- 실제 `BCC5-1` 판매중 12개 goods key 회귀에서 원본 commit 1회, 영수증 누락·다른 팝업·goods-key 변경은 commit 0회를 확인했다. 설치 후에는 v0.6.58 연결 확인 → Shopling 로그인 확인 → 실패 B코드 1건 카나리 → 원본 접수와 Commerce OS `1/1` 확인 순서로 진행한다. 상세는 `docs/shopling-stock-state-hf96-20261119.md`에 있다.
 
 ### Shopling stock-state HF94 handoff (2026-11-18)
 

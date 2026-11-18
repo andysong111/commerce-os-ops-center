@@ -224,8 +224,8 @@ test("HF93 package remains v0.6.55 while the stock-control gate advances to HF94
   assert.match(route, /const VERSION = "0\.6\.55"/);
   assert.match(route, /EXACT_CURRENT_RESULT_ROWS_REVERIFIED_IN_MAIN_WORLD/);
   assert.match(route, /EXACT_NO_SELECTION_ALERT_AUTO_CLOSED_AND_FAILED_FAST/);
-  assert.match(page, /download-hf95/);
-  assert.match(page, /v0\.6\.57 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 57\]/);
+  assert.match(page, /download-hf96/);
+  assert.match(page, /v0\.6\.58 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 58\]/);
   assert.match(workflow, /shoplingStockStateHf93\.test\.mjs/);
 });
