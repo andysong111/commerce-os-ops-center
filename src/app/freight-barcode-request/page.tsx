@@ -19,6 +19,7 @@ import {
 import {
   applyFreightBundleUnitPreferences,
   findFreightBundleUnitPreference,
+  isFreightBundleUnitEmpty,
   saveFreightBundleUnitPreference,
 } from "@/lib/freightBundleUnitPreferences";
 import { buildFreightForwarderMvpZip } from "@/lib/freightForwarderZipMvp";
@@ -706,7 +707,7 @@ export default function FreightBarcodeRequestPage() {
     });
   }
 
-  function applyBulkBundleUnit(mode: "all" | "with-barcode" | "empty-only") {
+  function applyBulkBundleUnit() {
     const bundleUnit = Number(bulkBundleUnit);
     if (!Number.isInteger(bundleUnit) || bundleUnit <= 0) {
       setBulkBundleNote("소분단위는 1 이상의 숫자로 입력해주세요.");
@@ -715,26 +716,29 @@ export default function FreightBarcodeRequestPage() {
 
     let manualPrintCountPreserved = 0;
     let changedCount = 0;
-    let rememberedBarcodeCount = 0;
+    const rememberedBarcodes = new Set<string>();
     const items = application.items.map((item) => {
-        const isTarget =
-          mode === "all" ||
-          (mode === "with-barcode" && Boolean(item.barcode?.trim())) ||
-          (mode === "empty-only" && !item.bundleUnit);
-        if (!isTarget) return item;
+      if (!isFreightBundleUnitEmpty(item.bundleUnit)) return item;
 
-        changedCount += 1;
-        if (item.labelPrintCount) manualPrintCountPreserved += 1;
-        if (saveFreightBundleUnitPreference(item.barcode, bundleUnit)) {
-          rememberedBarcodeCount += 1;
-        }
-        return { ...item, bundleUnit };
-      });
+      changedCount += 1;
+      if (item.labelPrintCount) manualPrintCountPreserved += 1;
+      const saved = saveFreightBundleUnitPreference(item.barcode, bundleUnit);
+      if (saved) rememberedBarcodes.add(saved.barcode);
+      return { ...item, bundleUnit };
+    });
     setApplication((current) => ({ ...current, items }));
     setBulkBundleNote(
-      `${changedCount}개 품목에 소분단위를 적용했습니다.${
-        manualPrintCountPreserved > 0 ? " 수동 출력수량은 유지됩니다." : ""
-      }${rememberedBarcodeCount > 0 ? ` B코드 ${rememberedBarcodeCount}개의 최신값으로 저장했습니다.` : ""}`,
+      changedCount > 0
+        ? `소분단위가 비어 있던 ${changedCount}개 품목에 적용했습니다.${
+            manualPrintCountPreserved > 0
+              ? " 수동 출력수량은 유지됩니다."
+              : ""
+          }${
+            rememberedBarcodes.size > 0
+              ? ` B코드 ${rememberedBarcodes.size}개의 최신값으로 저장했습니다.`
+              : ""
+          }`
+        : "소분단위가 비어 있는 품목이 없습니다. 기존 값은 변경하지 않았습니다.",
     );
   }
 
@@ -1590,8 +1594,8 @@ export default function FreightBarcodeRequestPage() {
                   소분단위 일괄 입력
                 </h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  수동 출력수량이 입력된 행은 출력수량을 유지하고 소분단위만
-                  적용합니다. 입력한 값은 B코드별 최신 소분단위로 자동 저장되어
+                  소분단위가 비어 있는 품목에만 적용하며 기존 입력값은 변경하지
+                  않습니다. 입력한 값은 B코드별 최신 소분단위로 자동 저장되어
                   다음 수동·자동 가져오기에 다시 적용됩니다.
                 </p>
               </div>
@@ -1609,13 +1613,7 @@ export default function FreightBarcodeRequestPage() {
                     className={inputClassName}
                   />
                 </label>
-                <Button onClick={() => applyBulkBundleUnit("all")} primary>
-                  전체 품목에 적용
-                </Button>
-                <Button onClick={() => applyBulkBundleUnit("with-barcode")}>
-                  바코드 입력된 품목에만 적용
-                </Button>
-                <Button onClick={() => applyBulkBundleUnit("empty-only")}>
+                <Button onClick={applyBulkBundleUnit} primary>
                   소분단위 비어있는 품목에만 적용
                 </Button>
                 <Button onClick={rerunAutoImageMatching}>

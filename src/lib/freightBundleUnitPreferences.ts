@@ -27,6 +27,12 @@ export function normalizeFreightBundleBarcode(value: unknown): string {
   return typeof value === "string" ? value.trim().toUpperCase() : "";
 }
 
+export function isFreightBundleUnitEmpty(
+  value: unknown,
+): value is null | undefined {
+  return value === undefined || value === null;
+}
+
 function positiveInteger(value: unknown): number | undefined {
   const number = Number(value);
   return Number.isInteger(number) && number > 0 ? number : undefined;
