@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   buildShoplingBlockedTransitionDetail,
   describeShoplingStockFailure,
+  shoplingSaleStatusLabel,
 } from "../src/lib/shoplingStockFailureDetail.ts";
+import { shoplingProductStatusDisposition } from "../src/lib/shopling/shoplingGoodsKeyTransmission.ts";
 import { shoplingStockResultDetail } from "../src/lib/shoplingStockResponsibility.ts";
 
 test("HF98 preserves the exact Shopling state and explains the BAF3-3 pre-submit block", () => {
@@ -35,6 +37,32 @@ test("HF98 never guesses an undocumented Shopling status label", () => {
   assert.equal(detail.currentStatusLabel, "B/C 외 상태");
   assert.match(detail.message, /H\(B\/C 외 상태\)/);
   assert.match(detail.nextAction, /현재 상태 H/);
+});
+
+test("HF99 uses the official Shopling product status labels", () => {
+  assert.equal(shoplingSaleStatusLabel("A"), "대기중");
+  assert.equal(shoplingSaleStatusLabel("D"), "판매중지");
+  assert.equal(shoplingSaleStatusLabel("E"), "판매종료");
+});
+
+test("HF99 excludes only ended products and leaves every other status to the existing guard", () => {
+  assert.equal(shoplingProductStatusDisposition("E"), "SKIP_ENDED");
+  assert.equal(shoplingProductStatusDisposition(" e "), "SKIP_ENDED");
+  for (const status of ["A", "B", "C", "D", "Z", "", "H"]) {
+    assert.equal(shoplingProductStatusDisposition(status), "PROCESS");
+  }
+});
+
+test("HF99 explains that an ended product is excluded rather than retried", () => {
+  const detail = buildShoplingBlockedTransitionDetail(
+    "SHOPLING_PRODUCT_STATUS_TRANSITION_BLOCKED:E",
+    { barcode: "BAF3-3", desiredStatus: "ON_SALE" },
+  );
+
+  assert.ok(detail);
+  assert.equal(detail.currentStatusLabel, "판매종료");
+  assert.match(detail.nextAction, /자동 제외/);
+  assert.doesNotMatch(detail.nextAction, /다시 시도/);
 });
 
 test("HF98 gives old coarse BAF3-3 records an honest fallback without inventing a status", () => {
@@ -90,6 +118,8 @@ test("HF98 route and run UI expose reason, transmission impact, and next action"
 
   assert.match(route, /buildShoplingBlockedTransitionDetail/);
   assert.match(route, /failureDetail: blockedTransition/);
+  assert.match(route, /shoplingProductStatusDisposition\(inspection\.productSaleStatus\)/);
+  assert.match(route, /skippedEndedGoodsKeys/);
   assert.match(panel, /중단 위치/);
   assert.match(panel, /확인된 상태/);
   assert.match(panel, /실패 원인/);

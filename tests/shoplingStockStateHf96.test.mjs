@@ -318,8 +318,8 @@ test("HF96 package advances only the guarded ownership layer and current UI gate
   assert.match(route, /ONE_BCODE_AT_A_TIME_UNCHANGED/);
   assert.match(route, /FAIL_CLOSED_BEFORE_EXTERNAL_SUBMIT/);
   assert.match(route, /patchHf96SameAssignmentPopupRearm/);
-  assert.match(page, /download-hf96/);
-  assert.match(page, /v0\.6\.58 다운로드/);
+  assert.match(page, /download-hf99/);
+  assert.match(page, /v0\.6\.59 다운로드/);
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 58\]/);
   assert.match(workflow, /shoplingStockStateHf96\.test\.mjs/);
 });

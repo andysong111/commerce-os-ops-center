@@ -59,8 +59,8 @@ test("HF42 publishes v0.6.10 and blocks the live-failed HF41 package", async () 
   assert.match(route, /const BASE_VERSION = "0\.6\.9"/);
   assert.match(route, /const VERSION = "0\.6\.10"/);
   assert.match(route, /HF42_OPTION_TERMINAL_FOOTER_PRECEDENCE/);
-  assert.match(page, /download-hf96/);
-  assert.match(page, /v0\.6\.58 다운로드/);
+  assert.match(page, /download-hf99/);
+  assert.match(page, /v0\.6\.59 다운로드/);
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 58\]/);
   assert.match(queue, /v0\.6\.58로 업데이트/);
   assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.58'/);

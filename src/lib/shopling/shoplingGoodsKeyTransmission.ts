@@ -16,6 +16,23 @@ export type ShoplingGoodsKeyTransmissionPlan = ShoplingGoodsKeyShape & {
   applyProductSaleStatus: boolean;
 };
 
+export type ShoplingProductStatusDisposition = "PROCESS" | "SKIP_ENDED";
+
+/**
+ * E is Shopling's terminal "판매종료" state.  It is not a stock state and must
+ * never be revived or rewritten by either the 판매중 or 품절 workflow.
+ *
+ * Other unsupported statuses deliberately remain PROCESS here so the existing
+ * transition guard can fail closed and expose the exact status to operators.
+ */
+export function shoplingProductStatusDisposition(
+  value: unknown,
+): ShoplingProductStatusDisposition {
+  return String(value ?? "").normalize("NFKC").trim().toUpperCase() === "E"
+    ? "SKIP_ENDED"
+    : "PROCESS";
+}
+
 /**
  * Shopling creates multiple goods keys for ordinary channel listings, so the
  * number of goods keys never identifies a split-option product.  The safe
