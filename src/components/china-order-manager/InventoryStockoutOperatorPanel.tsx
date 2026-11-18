@@ -26,6 +26,7 @@ import {
   type ShoplingDirectRunProgress,
 } from "@/lib/shoplingDirectRunProgress";
 import { recoverLatestPendingDirectJobs } from "@/lib/shoplingDirectRunRecovery";
+import { shoplingStockResultDetail } from "@/lib/shoplingStockResponsibility";
 import {
   buildShoplingManualFallbackGroups,
   shoplingManualFallbackCopyText,
@@ -66,6 +67,20 @@ type ResultMessage = {
   message?: string;
   evidence?: unknown;
   finishedAt?: number;
+};
+
+type DirectRunResultDetail = {
+  jobId: string;
+  barcode: string;
+  desiredStatus: DesiredStatus;
+  outcome: Exclude<SyncOutcome, "STARTED">;
+  message: string;
+  code: string;
+  stage: string;
+  marketFailureCount: number;
+  marketSuccessCount: number;
+  marketTotalCount: number;
+  responsibilityReceiptAccepted: boolean;
 };
 
 type ActiveBatch = {
@@ -366,6 +381,9 @@ function InventoryStockoutGenericPanel() {
   const [directRunJobSnapshot, setDirectRunJobSnapshot] = useState<
     DirectInventoryJob[]
   >([]);
+  const [directRunResultDetails, setDirectRunResultDetails] = useState<
+    DirectRunResultDetail[]
+  >([]);
   const stockoutParsed = useMemo(
     () => parseInventoryStockoutBulkText(stockoutInput),
     [stockoutInput],
@@ -437,6 +455,33 @@ function InventoryStockoutGenericPanel() {
         });
       }
       setDirectRunJobSnapshot([...directRunJobs.current.values()]);
+    },
+    [],
+  );
+
+  const upsertDirectRunResultDetail = useCallback(
+    (
+      job: DirectInventoryJob,
+      outcome: Exclude<SyncOutcome, "STARTED">,
+      message: string,
+      evidence?: unknown,
+    ) => {
+      const receipt = shoplingStockResultDetail({ outcome, evidence });
+      const nextDetail: DirectRunResultDetail = {
+        jobId: job.jobId,
+        barcode: job.barcode,
+        desiredStatus: job.desiredStatus,
+        outcome,
+        message,
+        ...receipt,
+      };
+      setDirectRunResultDetails((current) => {
+        const index = current.findIndex((row) => row.jobId === job.jobId);
+        if (index < 0) return [...current, nextDetail];
+        const next = [...current];
+        next[index] = nextDetail;
+        return next;
+      });
     },
     [],
   );
@@ -793,11 +838,20 @@ function InventoryStockoutGenericPanel() {
           const message = friendlyShoplingStockSyncFailure(rawMessage, data);
           for (const job of batch.jobs) {
             if (batch.terminalJobIds.has(job.jobId)) continue;
-            await recordSync(job, "FAILED", message, {
+            const failureEvidence = {
               code: String(data.code || "DIRECT_PARALLEL_START_FAILED"),
               unifiedInventoryBatch: true,
               operationalBatchId: batch.batchId,
+            };
+            await recordSync(job, "FAILED", message, {
+              ...failureEvidence,
             }).catch(() => undefined);
+            upsertDirectRunResultDetail(
+              job,
+              "FAILED",
+              message,
+              failureEvidence,
+            );
             const currentProgress = directRunProgressRef.current;
             if (currentProgress) {
               publishDirectRunProgress(
@@ -852,6 +906,12 @@ function InventoryStockoutGenericPanel() {
             result.evidence,
             result.finishedAt,
           );
+          upsertDirectRunResultDetail(
+            job,
+            result.outcome,
+            result.message || "",
+            result.evidence,
+          );
           batch.terminalJobIds.add(job.jobId);
           const currentProgress = directRunProgressRef.current;
           if (currentProgress) {
@@ -902,7 +962,13 @@ function InventoryStockoutGenericPanel() {
       window.location.origin,
     );
     return () => window.removeEventListener("message", onMessage);
-  }, [publishDirectRunProgress, recordSync, rememberDirectJobs, stopDirectRunProgress]);
+  }, [
+    publishDirectRunProgress,
+    recordSync,
+    rememberDirectJobs,
+    stopDirectRunProgress,
+    upsertDirectRunResultDetail,
+  ]);
 
   const save = async () => {
     setNotice("");
@@ -966,6 +1032,7 @@ function InventoryStockoutGenericPanel() {
       directQueue.current = jobs;
       rememberDirectJobs(jobs, true);
       handledResults.current.clear();
+      setDirectRunResultDetails([]);
       setManualCopyNotice("");
       publishDirectRunProgress(
         jobs.length ? startShoplingDirectRun(jobs.length) : null,
@@ -1036,6 +1103,9 @@ function InventoryStockoutGenericPanel() {
     directQueue.current = retryJobs;
     activeBatch.current = null;
     handledResults.current.clear();
+    setDirectRunResultDetails((currentDetails) =>
+      currentDetails.filter((row) => !retryableIds.has(row.jobId)),
+    );
     publishDirectRunProgress(retryProgress);
     setSyncing(true);
     setSyncNotice(
@@ -1223,13 +1293,63 @@ function InventoryStockoutGenericPanel() {
           </p>
           <p className="mt-1 text-xs font-bold leading-5">
             {directRunProgress.status === "COMPLETED"
-              ? "Commerce OS가 모든 B코드의 Shopling 처리화면 도달을 확인했습니다. 마켓별 최종 결과는 Shopling에서 계속 처리됩니다."
+              ? "Commerce OS가 모든 B코드의 원본 Shopling 전송 접수 영수증을 확인했습니다. 마켓별 최종 결과는 Shopling에서 계속 처리됩니다."
               : directRunProgress.status === "COMPLETED_WITH_EXCEPTIONS"
-                ? "모든 B코드의 전송 시도는 끝났습니다. 실패·확인 필요 건만 아래 운영 큐에서 확인하면 됩니다."
+                ? "모든 B코드의 전송 시도는 끝났습니다. 성공·마켓 경고·실패 원인은 바로 아래 이번 실행 상세에서 확인할 수 있습니다."
               : directRunProgress.status === "STOPPED"
                 ? "전체 접수가 끝난 상태가 아닙니다. 아래 실패 사유를 확인하기 전에는 다음 일괄 작업을 시작하지 마세요."
                 : "아직 모든 B코드의 Shopling 전송 접수가 끝나지 않았습니다."}
           </p>
+          {directRunResultDetails.length ? (
+            <div
+              data-testid="shopling-direct-run-details"
+              className="mt-3 space-y-2"
+            >
+              <h3 className="text-sm font-black">
+                이번 실행 상세 · {directRunResultDetails.length}건
+              </h3>
+              {directRunResultDetails.map((detail) => {
+                const marketWarning =
+                  detail.responsibilityReceiptAccepted &&
+                  detail.marketFailureCount > 0;
+                const successful = detail.outcome === "SUCCEEDED";
+                const statusLabel = marketWarning
+                  ? `전송 접수 성공 · 마켓 경고 ${detail.marketFailureCount}/${detail.marketTotalCount}`
+                  : successful
+                    ? "전송 접수 성공"
+                    : detail.outcome === "FAILED"
+                      ? "실패"
+                      : "확인 필요";
+                const tone = marketWarning
+                  ? "border-amber-300 bg-amber-100 text-amber-950"
+                  : successful
+                    ? "border-emerald-300 bg-emerald-100 text-emerald-950"
+                    : "border-rose-300 bg-rose-100 text-rose-950";
+                return (
+                  <div
+                    key={detail.jobId}
+                    className={`rounded-lg border px-3 py-3 ${tone}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-black">
+                      <span>{detail.barcode}</span>
+                      <span>
+                        {detail.desiredStatus === "SOLD_OUT"
+                          ? "품절"
+                          : "판매중"}
+                      </span>
+                      <span>· {statusLabel}</span>
+                    </div>
+                    <p className="mt-1 text-xs font-bold leading-5">
+                      {detail.message || "상세 메시지가 없습니다."}
+                    </p>
+                    <p className="mt-1 break-all font-mono text-[11px] font-bold opacity-80">
+                      코드 {detail.code || "-"} · 단계 {detail.stage || "-"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
           {canRetryIncompleteRun && directRunCounts ? (
             <button
               type="button"
