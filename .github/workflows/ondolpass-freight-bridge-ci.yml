@@ -1,0 +1,61 @@
+name: Ondolpass Freight Bridge CI
+
+on:
+  pull_request:
+    paths:
+      - "public/ondolpass-freight-bridge/**"
+      - "src/app/api/ondolpass-freight-bridge/**"
+      - "src/app/freight-barcode-request/page.tsx"
+      - "src/lib/ondolpassFreightBridge.ts"
+      - "src/lib/freightApplicationParser.ts"
+      - "src/lib/richPasteExtractor.ts"
+      - "tests/ondolpassFreightBridge.test.mjs"
+      - "tests/freightApplicationParser.test.mjs"
+      - "tests/richPasteExtractor.test.mjs"
+      - ".github/workflows/ondolpass-freight-bridge-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ondolpass-freight-bridge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Test automatic import and existing freight parsing
+        run: >-
+          node --experimental-strip-types --test
+          tests/ondolpassFreightBridge.test.mjs
+          tests/freightApplicationParser.test.mjs
+          tests/richPasteExtractor.test.mjs
+      - name: Lint bridge and freight page
+        run: >-
+          npx eslint
+          src/app/api/ondolpass-freight-bridge/download/route.ts
+          src/app/freight-barcode-request/page.tsx
+          src/lib/ondolpassFreightBridge.ts
+          tests/ondolpassFreightBridge.test.mjs
+      - name: Check extension script syntax
+        run: >-
+          node --check public/ondolpass-freight-bridge/background.js &&
+          node --check public/ondolpass-freight-bridge/ondolpass-extractor.js &&
+          node --check public/ondolpass-freight-bridge/content-ondolpass.js &&
+          node --check public/ondolpass-freight-bridge/content-commerce-os.js
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build Ops Center
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ondolpass-bridge-build-check.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ondolpass_bridge_build_check
