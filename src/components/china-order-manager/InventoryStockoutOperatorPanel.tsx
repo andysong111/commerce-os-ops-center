@@ -1293,7 +1293,7 @@ function InventoryStockoutGenericPanel() {
           </p>
           <p className="mt-1 text-xs font-bold leading-5">
             {directRunProgress.status === "COMPLETED"
-              ? "Commerce OS가 모든 B코드의 원본 Shopling 전송 접수 영수증을 확인했습니다. 마켓별 최종 결과는 Shopling에서 계속 처리됩니다."
+              ? "Commerce OS가 모든 B코드의 Shopling 처리화면 도달을 확인했습니다. 원본 전송 접수 영수증도 확인됐으며 마켓별 최종 결과는 Shopling에서 계속 처리됩니다."
               : directRunProgress.status === "COMPLETED_WITH_EXCEPTIONS"
                 ? "모든 B코드의 전송 시도는 끝났습니다. 성공·마켓 경고·실패 원인은 바로 아래 이번 실행 상세에서 확인할 수 있습니다."
               : directRunProgress.status === "STOPPED"
