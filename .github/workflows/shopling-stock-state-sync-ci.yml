@@ -250,6 +250,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockResponsibilityHf97.test.mjs tests/shoplingDirectRunProgress.test.mjs
       - name: Regression - HF98 exact pre-submit failure explanation
         run: node --experimental-strip-types --test tests/shoplingStockFailureDetailHf98.test.mjs tests/shoplingStockResponsibilityHf97.test.mjs
+      - name: Regression - HF99 ended product exclusion
+        run: node --experimental-strip-types --test tests/shoplingStockEndedSkipHf99.test.mjs tests/shoplingStockFailureDetailHf98.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

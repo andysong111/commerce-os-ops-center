@@ -4,7 +4,10 @@ import {
 } from "@/lib/shopling/shoplingOptionStatus";
 import { applyShoplingProductStatus } from "@/lib/shopling/shoplingProductStatus";
 import { loadIndexedShoplingGoodsKeys } from "@/lib/shopling/shoplingBcodeIndex";
-import { planShoplingGoodsKeyTransmission } from "@/lib/shopling/shoplingGoodsKeyTransmission";
+import {
+  planShoplingGoodsKeyTransmission,
+  shoplingProductStatusDisposition,
+} from "@/lib/shopling/shoplingGoodsKeyTransmission";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import { buildShoplingBlockedTransitionDetail } from "@/lib/shoplingStockFailureDetail";
 
@@ -104,12 +107,30 @@ export async function POST(request: Request) {
     const candidateGoodsKeys = [...new Set([...indexedGoodsKeys, ...requestedGoodsKeys])];
     const receipts = [];
     const transmissions = [];
+    const skippedEndedGoodsKeys: Array<{
+      goodsKey: string;
+      partnerGoodsCode: string;
+      productSaleStatus: "E";
+      reason: "SHOPLING_PRODUCT_ENDED";
+    }> = [];
     for (const goodsKey of candidateGoodsKeys) {
       try {
         const inspection = await inspectShoplingBcodeOnGoodsKey({
           barcode: normalizedBarcode,
           goodsKey,
         });
+        if (
+          shoplingProductStatusDisposition(inspection.productSaleStatus) ===
+          "SKIP_ENDED"
+        ) {
+          skippedEndedGoodsKeys.push({
+            goodsKey: inspection.goodsKey,
+            partnerGoodsCode: inspection.partnerGoodsCode,
+            productSaleStatus: "E",
+            reason: "SHOPLING_PRODUCT_ENDED",
+          });
+          continue;
+        }
         const plan = planShoplingGoodsKeyTransmission(
           productKind as "OPTION" | "SINGLE",
           { goodsKey, optionCount: inspection.goodsOptionCount },
@@ -161,7 +182,7 @@ export async function POST(request: Request) {
         throw error;
       }
     }
-    if (!receipts.length) {
+    if (!receipts.length && !skippedEndedGoodsKeys.length) {
       throw new Error(`SHOPLING_BCODE_INDEX_STALE_NO_LIVE_MATCH:${normalizedBarcode}`);
     }
     const resolvedGoodsKeys = [...new Set(receipts.map((row) => row.matchedGoodsKey))];
@@ -179,6 +200,9 @@ export async function POST(request: Request) {
         .map((row) => row.goodsKey),
       indexedGoodsKeys,
       receipts,
+      skippedEndedGoodsKeys,
+      skippedEndedCount: skippedEndedGoodsKeys.length,
+      noActionableGoodsKeys: receipts.length === 0,
       mutatedCount: receipts.filter((row) => row.mutated).length,
       verifiedCount: receipts.length,
       verifiedAt: new Date().toISOString(),
@@ -188,9 +212,13 @@ export async function POST(request: Request) {
       {
         ok: true,
         result,
-        message: result.mutatedCount
-          ? `${result.barcode} Shopling 상태를 API로 변경하고 ${result.verifiedCount}건 모두 상태·수량 재조회 검증했습니다.`
-          : `${result.barcode} Shopling 상태가 이미 목표상태라 ${result.verifiedCount}건 모두 변경 없이 검증했습니다.`,
+        message: result.noActionableGoodsKeys
+          ? `${result.barcode}는 판매종료(E) 상품만 있어 변경하거나 전송하지 않았습니다.`
+          : `${result.mutatedCount
+              ? `${result.barcode} Shopling 상태를 API로 변경하고 ${result.verifiedCount}건 모두 상태·수량 재조회 검증했습니다.`
+              : `${result.barcode} Shopling 상태가 이미 목표상태라 ${result.verifiedCount}건 모두 변경 없이 검증했습니다.`}${result.skippedEndedCount
+              ? ` 판매종료(E) ${result.skippedEndedCount}건은 변경·전송 대상에서 제외했습니다.`
+              : ""}`,
       },
       { headers: { "cache-control": "no-store" } },
     );
