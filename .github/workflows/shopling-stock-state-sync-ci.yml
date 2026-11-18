@@ -24,6 +24,7 @@ on:
       - "src/lib/shoplingDirectRunRecovery.ts"
       - "src/lib/shoplingManualFallback.ts"
       - "src/lib/shoplingStockResponsibility.ts"
+      - "src/lib/shoplingStockFailureDetail.ts"
       - "src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx"
       - "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx"
       - "src/app/china-order-manager/stock-control/**"
@@ -73,6 +74,7 @@ on:
       - "tests/shoplingStockStateHf95.test.mjs"
       - "tests/shoplingStockStateHf96.test.mjs"
       - "tests/shoplingStockResponsibilityHf97.test.mjs"
+      - "tests/shoplingStockFailureDetailHf98.test.mjs"
       - "tests/shoplingOptionStatusUnmanagedQuantity.test.mjs"
       - "supabase/migrations/*shopling_bcode_option_index*.sql"
       - "tests/shoplingStockReadyBarrier.test.mjs"
@@ -246,6 +248,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf96.test.mjs tests/shoplingStockReadyBarrier.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF97 submit receipt responsibility and visible run details
         run: node --experimental-strip-types --test tests/shoplingStockResponsibilityHf97.test.mjs tests/shoplingDirectRunProgress.test.mjs
+      - name: Regression - HF98 exact pre-submit failure explanation
+        run: node --experimental-strip-types --test tests/shoplingStockFailureDetailHf98.test.mjs tests/shoplingStockResponsibilityHf97.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

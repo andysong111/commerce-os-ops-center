@@ -6,6 +6,7 @@ import { applyShoplingProductStatus } from "@/lib/shopling/shoplingProductStatus
 import { loadIndexedShoplingGoodsKeys } from "@/lib/shopling/shoplingBcodeIndex";
 import { planShoplingGoodsKeyTransmission } from "@/lib/shopling/shoplingGoodsKeyTransmission";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
+import { buildShoplingBlockedTransitionDetail } from "@/lib/shoplingStockFailureDetail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,12 +43,6 @@ function safeError(error: unknown) {
     const [, code, count] = raw.split(":");
     return `${code || "B코드"}와 정확히 일치하는 Shopling 옵션이 ${count || "0"}건이라 안전상 변경하지 않았습니다.`;
   }
-  if (raw.startsWith("SHOPLING_OPTION_STATUS_TRANSITION_BLOCKED:")) {
-    return "대상 옵션이 판매/품절(B/C) 상태가 아니어서 자동 전환을 차단했습니다.";
-  }
-  if (raw.startsWith("SHOPLING_PRODUCT_STATUS_TRANSITION_BLOCKED:")) {
-    return "대상 상품이 판매/품절(B/C) 상태가 아니어서 자동 전환을 차단했습니다.";
-  }
   if (raw.startsWith("SHOPLING_BCODE_INDEX_")) {
     return `B코드 서버 인덱스를 사용할 수 없습니다. 인덱스 갱신 상태를 확인하세요. (${raw.split(":", 1)[0]})`;
   }
@@ -78,12 +73,20 @@ export async function POST(request: Request) {
     );
   }
 
+  let requestContext: { barcode: string; desiredStatus: string } = {
+    barcode: "",
+    desiredStatus: "",
+  };
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const normalizedBarcode = barcode(body.barcode);
     const desiredStatus = text(body.desiredStatus).toUpperCase();
     const requestedGoodsKeys = goodsKeys(body.goodsKeys);
     const productKind = text(body.productKind).toUpperCase();
+    requestContext = {
+      barcode: normalizedBarcode,
+      desiredStatus,
+    };
 
     if (!/^B[A-Z]{2}\d+-\d+$/.test(normalizedBarcode)) {
       throw new Error("B코드 형식이 올바르지 않습니다.");
@@ -192,11 +195,20 @@ export async function POST(request: Request) {
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error) {
+    const blockedTransition = buildShoplingBlockedTransitionDetail(
+      error,
+      requestContext,
+    );
     return Response.json(
       {
         ok: false,
-        code: "SHOPLING_OPTION_STATUS_APPLY_FAILED",
-        message: safeError(error),
+        code:
+          blockedTransition?.errorCode ||
+          "SHOPLING_OPTION_STATUS_APPLY_FAILED",
+        message: blockedTransition?.message || safeError(error),
+        ...(blockedTransition
+          ? { failureDetail: blockedTransition }
+          : {}),
       },
       { status: 409, headers: { "cache-control": "no-store" } },
     );
