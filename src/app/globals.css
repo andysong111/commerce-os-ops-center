@@ -346,6 +346,7 @@ button:not(:disabled) {
   width: 94%;
   min-width: 0;
   padding: 0;
+  font-family: Arial, "Malgun Gothic", sans-serif;
   line-height: 1;
 }
 

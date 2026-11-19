@@ -35,11 +35,15 @@ function countPdfPages(pdf) {
   return (pdf.match(/\/Type \/Page\b/g) ?? []).length;
 }
 
-function extractTextCommand(pdf, text) {
-  const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = pdf.match(new RegExp(`BT /F1 (\\d+) Tf ([\\d.]+) ([\\d.]+) Td \\(${escapedText}\\) Tj ET`));
+function extractUnicodeTextCommand(pdf, text) {
+  const match = pdf.match(new RegExp(`BT /F2 (\\d+) Tf ([\\d.]+) Tz ([\\d.]+) ([\\d.]+) Td <${utf16BeHex(text)}> Tj ET`));
   assert.ok(match, `${text} text command should exist`);
-  return { fontSize: Number(match[1]), x: Number(match[2]), y: Number(match[3]) };
+  return {
+    fontSize: Number(match[1]),
+    horizontalScale: Number(match[2]),
+    x: Number(match[3]),
+    y: Number(match[4]),
+  };
 }
 
 function utf16BeHex(value) {
@@ -143,7 +147,7 @@ test("PDF rotates enlarged label content clockwise while preserving the page", (
 
   assert.match(pdf, /\/MediaBox \[0 0 90 147\]/);
   assert.equal(countPdfPages(pdf), 1);
-  assert.match(pdf, /q\n0 -1 1 0 0 147 cm\n[\s\S]*BT \/F1 10 Tf [\d.]+ 80 Td \(MADE IN CHINA\)[\s\S]*BAA1-1[\s\S]*\nQ/);
+  assert.match(pdf, new RegExp(`q\\n0 -1 1 0 0 147 cm\\n[\\s\\S]*BT /F2 10 Tf [\\d.]+ Tz [\\d.]+ 80 Td <${utf16BeHex("MADE IN CHINA")}>[\\s\\S]*<${utf16BeHex("BAA1-1")}>[\\s\\S]*\\nQ`));
   assert.doesNotMatch(pdf, /\/Rotate\b/);
 });
 
@@ -163,14 +167,14 @@ test("barcode scan dimensions remain unchanged while the stack moves into the fu
   assert.match(source, /const barcodeHeight = 29;/);
 });
 
-test("origin and barcode value text use 10pt centered logical positions", () => {
+test("origin and barcode value text use the same 10pt centered label font", () => {
   const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BAA1-1"), 50));
 
-  const origin = extractTextCommand(pdf, "MADE IN CHINA");
-  const barcode = extractTextCommand(pdf, "BAA1-1");
+  const origin = extractUnicodeTextCommand(pdf, "MADE IN CHINA");
+  const barcode = extractUnicodeTextCommand(pdf, "BAA1-1");
 
-  assert.deepEqual(origin, { fontSize: 10, x: 35.72, y: 80 });
-  assert.deepEqual(barcode, { fontSize: 10, x: 56.27, y: 36 });
+  assert.deepEqual(origin, { fontSize: 10, horizontalScale: 100, x: 8.5, y: 80 });
+  assert.deepEqual(barcode, { fontSize: 10, horizontalScale: 100, x: 43.5, y: 36 });
 });
 
 test("rotated text areas do not overlap barcode area", () => {
@@ -199,17 +203,17 @@ test("printCount does not create repeated pages", () => {
   assert.equal(countPdfPages(pdf), 1);
 });
 
-test("PDF adds centered bundle unit, model name, and model number at the same 10pt text height", () => {
+test("PDF adds centered bundle unit and model values without model field titles", () => {
   const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1", 50, {
     bundleUnit: 10,
     modelName: "만능 고리링",
     modelNo: "BAA7-3",
   }), 50));
-  assert.match(pdf, /MADE IN CHINA/);
-  assert.match(pdf, /BBA1-1/);
+  assert.match(pdf, new RegExp(utf16BeHex("MADE IN CHINA")));
   assert.match(pdf, new RegExp(`BT /F2 10 Tf [\\d.]+ Tz [\\d.]+ 25 Td <${utf16BeHex("소분단위: 10개")}> Tj ET`));
-  assert.match(pdf, new RegExp(`BT /F2 10 Tf [\\d.]+ Tz [\\d.]+ 14 Td <${utf16BeHex("모델명: 만능 고리링")}> Tj ET`));
-  assert.match(pdf, new RegExp(`BT /F2 10 Tf [\\d.]+ Tz [\\d.]+ 3 Td <${utf16BeHex("모델번호: BAA7-3")}> Tj ET`));
+  assert.match(pdf, new RegExp(`BT /F2 10 Tf [\\d.]+ Tz [\\d.]+ 14 Td <${utf16BeHex("만능 고리링")}> Tj ET`));
+  assert.match(pdf, new RegExp(`BT /F2 10 Tf [\\d.]+ Tz [\\d.]+ 3 Td <${utf16BeHex("BAA7-3")}> Tj ET`));
+  assert.doesNotMatch(pdf, new RegExp(`${utf16BeHex("모델명:")}|${utf16BeHex("모델번호:")}`));
   assert.doesNotMatch(pdf, /Product name must not render|옵션|中文/);
 });
 
@@ -219,8 +223,8 @@ test("PDF metadata falls back to matched product-master fields", () => {
     matchedModelNo: "BBA9-2",
   }), 50));
 
-  assert.match(pdf, new RegExp(utf16BeHex("모델명: 멀티 후크")));
-  assert.match(pdf, new RegExp(utf16BeHex("모델번호: BBA9-2")));
+  assert.match(pdf, new RegExp(utf16BeHex("멀티 후크")));
+  assert.match(pdf, new RegExp(utf16BeHex("BBA9-2")));
 });
 
 test("long model text stays inside the label by using horizontal scaling and ellipsis", () => {
@@ -232,6 +236,54 @@ test("long model text stays inside the label by using horizontal scaling and ell
   assert.ok(modelLine);
   assert.ok(Number(modelLine[1]) >= 60 && Number(modelLine[1]) < 63);
   assert.match(modelLine[2], new RegExp(`${utf16BeHex("...")}$`));
+});
+
+test("browser PDF draws every visible text line with one Arial and Malgun Gothic font stack", () => {
+  const originalDocument = globalThis.document;
+  const drawnLines = [];
+  const canvas = { width: 0, height: 0 };
+  const context = {
+    font: "",
+    fillStyle: "",
+    textAlign: "",
+    textBaseline: "",
+    fillRect() {},
+    measureText(text) { return { width: text.length * 20 }; },
+    save() {},
+    translate() {},
+    scale() {},
+    fillText(text) { drawnLines.push({ text, font: this.font }); },
+    restore() {},
+    getImageData() {
+      const data = new Uint8ClampedArray(canvas.width * canvas.height * 4);
+      data.fill(255);
+      return { data };
+    },
+  };
+  canvas.getContext = () => context;
+  globalThis.document = { createElement: () => canvas };
+
+  try {
+    const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1", 50, {
+      bundleUnit: 10,
+      modelName: "만능 고리링",
+      modelNo: "BAA7-3",
+    }), 50));
+
+    assert.deepEqual(drawnLines.map((line) => line.text), [
+      "MADE IN CHINA",
+      "BBA1-1",
+      "소분단위: 10개",
+      "만능 고리링",
+      "BAA7-3",
+    ]);
+    assert.ok(drawnLines.every((line) => line.font === '40px Arial, "Malgun Gothic", sans-serif'));
+    assert.match(pdf, /\/Subtype \/Image/);
+    assert.match(pdf, /\/Im1 Do/);
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  }
 });
 
 test("missing barcode row is excluded while valid rows still generate", () => {

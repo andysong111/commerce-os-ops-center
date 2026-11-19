@@ -1,4 +1,4 @@
-import { zipSync } from "fflate";
+import { zipSync, zlibSync } from "fflate";
 import { createCode128Layout } from "./code128.ts";
 import { getEncodedBarcodeValue } from "./barcodeValue.ts";
 import { calculateBarcodeLabelPrint, formatBarcodeBundleUnit } from "./barcodeLabelPrint.ts";
@@ -38,6 +38,12 @@ export interface FreightForwarderMvpZipResult extends FreightForwarderMvpValidat
   applicationNos: string[];
   zipBytes: Uint8Array;
   statusMessage: string;
+}
+
+interface FreightForwarderLabelTextImage {
+  width: number;
+  height: number;
+  compressedRgbBytes: Uint8Array;
 }
 
 export function buildFreightForwarderMvpFilename(
@@ -140,16 +146,31 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
     .join("\n");
   const originText = "MADE IN CHINA";
   const bundleUnitText = `소분단위: ${formatBarcodeBundleUnit(item)}`;
-  const modelNameText = `모델명: ${item.modelName?.trim() || item.matchedModelName?.trim() || item.matchedProductNameKo?.trim() || "-"}`;
-  const modelNoText = `모델번호: ${item.modelNo?.trim() || item.matchedModelNo?.trim() || "-"}`;
-  const rotatedContent = [
-    `BT /F1 ${LABEL_TEXT_FONT_SIZE_PT} Tf ${formatPdfNumber(centeredLogicalTextX(originText, LABEL_TEXT_FONT_SIZE_PT))} 80 Td (${originText}) Tj ET`,
-    bars,
-    `BT /F1 ${LABEL_TEXT_FONT_SIZE_PT} Tf ${formatPdfNumber(centeredLogicalTextX(barcodeValue, LABEL_TEXT_FONT_SIZE_PT))} 36 Td (${escapePdfText(barcodeValue)}) Tj ET`,
-    buildUnicodeLabelTextCommand(bundleUnitText, 25),
-    buildUnicodeLabelTextCommand(modelNameText, 14),
-    buildUnicodeLabelTextCommand(modelNoText, 3),
-  ].join("\n");
+  const modelNameText = item.modelName?.trim() || item.matchedModelName?.trim() || item.matchedProductNameKo?.trim() || "-";
+  const modelNoText = item.modelNo?.trim() || item.matchedModelNo?.trim() || "-";
+  const labelTextLines = [
+    { text: originText, y: 80 },
+    { text: barcodeValue, y: 36 },
+    { text: bundleUnitText, y: 25 },
+    { text: modelNameText, y: 14 },
+    { text: modelNoText, y: 3 },
+  ];
+  const labelTextImage = buildBrowserLabelTextImage(labelTextLines);
+  const labelTextContent = labelTextImage
+    ? [
+        "q",
+        `${FREIGHT_FORWARDER_LOGICAL_WIDTH_PT} 0 0 ${FREIGHT_FORWARDER_MVP_WIDTH_PT} 0 0 cm`,
+        "/Im1 Do",
+        "Q",
+      ]
+    : [
+        buildUnicodeLabelTextCommand(originText, 80),
+        buildUnicodeLabelTextCommand(barcodeValue, 36),
+        buildUnicodeLabelTextCommand(bundleUnitText, 25),
+        buildUnicodeLabelTextCommand(modelNameText, 14),
+        buildUnicodeLabelTextCommand(modelNoText, 3),
+      ];
+  const rotatedContent = [...labelTextContent, bars].join("\n");
   const content = [
     "q",
     // Rotate the label artwork clockwise inside the unchanged 90 x 147pt page.
@@ -159,7 +180,7 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
     "Q",
   ].join("\n");
 
-  return new TextEncoder().encode(buildPdfDocument(content));
+  return buildPdfDocument(content, labelTextImage);
 }
 
 export function buildFreightForwarderMvpZip(application: FreightApplication): FreightForwarderMvpZipResult {
@@ -220,38 +241,93 @@ export function buildFreightForwarderMvpZip(application: FreightApplication): Fr
   };
 }
 
-function buildPdfDocument(content: string): string {
+function buildPdfDocument(
+  content: string,
+  labelTextImage: FreightForwarderLabelTextImage | null,
+): Uint8Array {
   const streamLength = new TextEncoder().encode(content).length;
-  const objects = [
-    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
-    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
-    `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${FREIGHT_FORWARDER_MVP_WIDTH_PT} ${FREIGHT_FORWARDER_MVP_HEIGHT_PT}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 7 0 R >> endobj\n`,
-    "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
-    "5 0 obj << /Type /Font /Subtype /Type0 /BaseFont /HYGoThic-Medium /Encoding /UniKS-UCS2-H /DescendantFonts [6 0 R] >> endobj\n",
-    "6 0 obj << /Type /Font /Subtype /CIDFontType0 /BaseFont /HYGoThic-Medium /CIDSystemInfo << /Registry (Adobe) /Ordering (Korea1) /Supplement 2 >> /DW 1000 >> endobj\n",
-    `7 0 obj << /Length ${streamLength} >> stream\n${content}\nendstream endobj\n`,
+  const imageResource = labelTextImage ? " /XObject << /Im1 8 0 R >>" : "";
+  const objects: Uint8Array[] = [
+    asciiBytes("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"),
+    asciiBytes("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"),
+    asciiBytes(`3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${FREIGHT_FORWARDER_MVP_WIDTH_PT} ${FREIGHT_FORWARDER_MVP_HEIGHT_PT}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >>${imageResource} >> /Contents 7 0 R >> endobj\n`),
+    asciiBytes("4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n"),
+    asciiBytes("5 0 obj << /Type /Font /Subtype /Type0 /BaseFont /HYGoThic-Medium /Encoding /UniKS-UCS2-H /DescendantFonts [6 0 R] >> endobj\n"),
+    asciiBytes("6 0 obj << /Type /Font /Subtype /CIDFontType0 /BaseFont /HYGoThic-Medium /CIDSystemInfo << /Registry (Adobe) /Ordering (Korea1) /Supplement 2 >> /DW 1000 >> endobj\n"),
+    asciiBytes(`7 0 obj << /Length ${streamLength} >> stream\n${content}\nendstream endobj\n`),
   ];
-  let offset = "%PDF-1.4\n".length;
+  if (labelTextImage) {
+    objects.push(
+      concatBytes([
+        asciiBytes(`8 0 obj << /Type /XObject /Subtype /Image /Width ${labelTextImage.width} /Height ${labelTextImage.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${labelTextImage.compressedRgbBytes.length} >> stream\n`),
+        labelTextImage.compressedRgbBytes,
+        asciiBytes("\nendstream endobj\n"),
+      ]),
+    );
+  }
+
+  const header = asciiBytes("%PDF-1.4\n");
+  let offset = header.length;
   const xrefOffsets = ["0000000000 65535 f "];
   for (const object of objects) {
     xrefOffsets.push(`${String(offset).padStart(10, "0")} 00000 n `);
     offset += object.length;
   }
-  const body = objects.join("");
-  const xrefOffset = "%PDF-1.4\n".length + body.length;
-  return `%PDF-1.4\n${body}xref\n0 8\n${xrefOffsets.join("\n")}\ntrailer << /Size 8 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  const body = concatBytes(objects);
+  const xrefOffset = header.length + body.length;
+  const objectCount = objects.length + 1;
+  const trailer = asciiBytes(`xref\n0 ${objectCount}\n${xrefOffsets.join("\n")}\ntrailer << /Size ${objectCount} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`);
+  return concatBytes([header, body, trailer]);
 }
 
-function escapePdfText(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-}
+function buildBrowserLabelTextImage(
+  lines: Array<{ text: string; y: number }>,
+): FreightForwarderLabelTextImage | null {
+  if (typeof document === "undefined") return null;
 
-function helveticaTextWidth(value: string, fontSize: number): number {
-  return [...value].reduce((total, character) => total + getHelveticaGlyphWidth(character), 0) / 1000 * fontSize;
-}
+  const renderScale = 4;
+  const canvas = document.createElement("canvas");
+  canvas.width = FREIGHT_FORWARDER_LOGICAL_WIDTH_PT * renderScale;
+  canvas.height = FREIGHT_FORWARDER_MVP_WIDTH_PT * renderScale;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
 
-function centeredLogicalTextX(value: string, fontSize: number): number {
-  return (FREIGHT_FORWARDER_LOGICAL_WIDTH_PT - helveticaTextWidth(value, fontSize)) / 2;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#000";
+  context.font = `${LABEL_TEXT_FONT_SIZE_PT * renderScale}px Arial, "Malgun Gothic", sans-serif`;
+  context.textAlign = "center";
+  context.textBaseline = "alphabetic";
+
+  const centerX = canvas.width / 2;
+  const maxWidth = LABEL_TEXT_MAX_WIDTH_PT * renderScale;
+  for (const line of lines) {
+    const text = normalizeUnicodeLabelText(line.text);
+    const measuredWidth = Math.max(1, context.measureText(text).width);
+    const horizontalScale = Math.min(1, maxWidth / measuredWidth);
+    const canvasY = (FREIGHT_FORWARDER_MVP_WIDTH_PT - line.y) * renderScale;
+
+    context.save();
+    context.translate(centerX, 0);
+    context.scale(horizontalScale, 1);
+    context.fillText(text, 0, canvasY);
+    context.restore();
+  }
+
+  const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const rgb = new Uint8Array(canvas.width * canvas.height * 3);
+  for (let sourceIndex = 0, targetIndex = 0; sourceIndex < rgba.length; sourceIndex += 4) {
+    rgb[targetIndex] = rgba[sourceIndex];
+    rgb[targetIndex + 1] = rgba[sourceIndex + 1];
+    rgb[targetIndex + 2] = rgba[sourceIndex + 2];
+    targetIndex += 3;
+  }
+
+  return {
+    width: canvas.width,
+    height: canvas.height,
+    compressedRgbBytes: zlibSync(rgb, { level: 9 }),
+  };
 }
 
 function buildUnicodeLabelTextCommand(value: string, y: number): string {
@@ -307,52 +383,19 @@ function toUtf16BeHex(value: string): string {
   return hex;
 }
 
-function getHelveticaGlyphWidth(character: string): number {
-  if (character >= "0" && character <= "9") return 556;
+function asciiBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
 
-  switch (character) {
-    case " ":
-      return 278;
-    case "-":
-      return 333;
-    case "A":
-    case "B":
-    case "E":
-    case "S":
-      return 667;
-    case "C":
-    case "D":
-    case "H":
-    case "N":
-      return 722;
-    case "I":
-      return 278;
-    case "M":
-      return 833;
-    case "F":
-    case "K":
-    case "L":
-    case "P":
-    case "R":
-    case "T":
-    case "V":
-    case "X":
-    case "Y":
-    case "Z":
-      return 611;
-    case "G":
-    case "O":
-    case "Q":
-      return 778;
-    case "J":
-      return 500;
-    case "U":
-      return 722;
-    case "W":
-      return 944;
-    default:
-      return 556;
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const length = parts.reduce((total, part) => total + part.length, 0);
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.length;
   }
+  return result;
 }
 
 function formatPdfNumber(value: number): string {

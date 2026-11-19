@@ -2898,7 +2898,7 @@ function LocationBarcode({
           />
         ))}
       </svg>
-      <span className="mt-1 font-mono text-[10px] font-bold tracking-wide">
+      <span className="mt-1 font-sans text-[10px] font-bold tracking-wide">
         {encodedValue}
       </span>
     </div>
@@ -2935,8 +2935,8 @@ function BarcodeLabelCard({
       <LocationBarcode value={item.barcode} compact />
       <div className="barcode-label-meta">
         <span>소분단위: {formatBarcodeBundleUnit(item)}</span>
-        <span title={`모델명: ${modelName}`}>모델명: {modelName}</span>
-        <span title={`모델번호: ${modelNo}`}>모델번호: {modelNo}</span>
+        <span title={modelName}>{modelName}</span>
+        <span title={modelNo}>{modelNo}</span>
       </div>
     </article>
   );
