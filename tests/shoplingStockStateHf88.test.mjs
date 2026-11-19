@@ -20,6 +20,6 @@ test("HF88 remains traceable while stock control downloads HF90", async () => {
     "src/app/china-order-manager/stock-control/page.tsx",
     "utf8",
   );
-  assert.match(page, /download-hf100/);
+  assert.match(page, /download-hf101/);
   assert.match(page, /v0\.6\.55/);
 });

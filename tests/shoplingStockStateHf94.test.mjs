@@ -179,9 +179,9 @@ test("HF94 package stays reproducible while the live gate advances to flattened 
   assert.match(bridge, /let probePromise = null/);
   assert.match(barrier, /message\.statusProbeOk === false/);
   assert.match(barrier, /message\.idleConfirmed !== true/);
-  assert.match(page, /href="\/api\/shopling-stock-state-sync\/download-hf100"/);
-  assert.match(page, /v0\.6\.60 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 60\]/);
+  assert.match(page, /href="\/api\/shopling-stock-state-sync\/download-hf101"/);
+  assert.match(page, /v0\.6\.61 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 61\]/);
   assert.match(workflow, /shoplingStockStateHf94\.test\.mjs/);
   new Function(bridge);
 });

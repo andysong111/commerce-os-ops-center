@@ -106,8 +106,8 @@ test("HF99 package and page expose the ended-product-safe extension", async () =
   ]);
   assert.match(route, /const VERSION = "0\.6\.59"/);
   assert.match(route, /SUCCEED_WITHOUT_A21_TRANSMISSION/);
-  assert.match(page, /download-hf100/);
-  assert.match(page, /v0\.6\.60 다운로드/);
+  assert.match(page, /download-hf101/);
+  assert.match(page, /v0\.6\.61 다운로드/);
   assert.match(workflow, /shoplingStockEndedSkipHf99\.test\.mjs/);
 });
 

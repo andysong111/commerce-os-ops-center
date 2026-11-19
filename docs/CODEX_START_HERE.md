@@ -30,6 +30,7 @@ Never preserve an old plan merely because it is documented if current code or di
 - HF98은 `BAF3-3`처럼 전송 전 API 상태검증에서 차단된 건의 실제 Shopling 상태 코드를 보존한다. 화면은 중단 위치·확인 상태·실패 원인·파란 전송 여부·다음 조치를 분리해 표시하며, 과거에 상태 원문이 이미 유실된 결과는 추정하지 않는다. v0.6.58 확장은 그대로 사용하고 Commerce OS 서버/UI만 갱신한다. 상세는 `docs/shopling-stock-state-hf98-20261119.md`에 있다.
 - HF99 v0.6.59는 공식 Shopling 상품상태 `E=판매종료` GOODS KEY를 판매중·품절 양쪽 작업에서 API 변경과 A21 전송 대상에서 제외한다. 같은 B코드의 B/C 상품은 계속 직렬 처리하고, 전부 E이면 A21을 열지 않은 정상 완료 영수증을 남긴다. E 이외의 비정상 상태는 기존대로 실패 폐쇄한다. 상세 근거와 배포 후 1건 카나리는 `docs/shopling-stock-state-hf99-20261119.md`에 있다.
 - HF100 v0.6.60은 실제 `BCC5-2` 판매중 실행에서 정확한 A21 팝업이 열렸는데도 초기 파란 전송 소유권 검사가 같은 작업의 재준비 팝업을 타 작업으로 오판해 버튼을 누르지 않은 사건을 수정한다. 신선한 HF90 영수증이 동일 job·execution·상품종류·goods-key 묶음·A21 목록창·팝업을 모두 증명할 때만 초기 소유권을 복구해 원본 파란 전송을 정확히 1회 실행하며, 영수증 누락·다른 팝업·상품키 변경은 전송 0회로 차단한다. 상세는 `docs/shopling-stock-state-hf100-20261119.md`에 있다.
+- HF101 v0.6.61은 HF100 초기 검사는 통과했지만 팝업 프레임 확인 중 같은 `BCC5-2` 준비가 다시 저장되며 HF90 팝업 영수증을 덮어써 최종 `HF92_EXACT_POPUP_OWNER_CHANGED`로 멈춘 사건을 수정한다. 초기 검사에서 확인한 정확한 소유 증거를 그 한 번의 실행 동안 변경 불가능하게 보존하고, 현재 job·execution·상품종류·goods-key 묶음·A21 목록창·팝업이 계속 같을 때만 늦은 같은 작업 저장을 복구한다. 다른 상품키·목록창·팝업 claim은 외부 전송 0회로 차단한다. 상세는 `docs/shopling-stock-state-hf101-20261119.md`에 있다.
 
 ### Shopling stock-state HF94 handoff (2026-11-18)
 

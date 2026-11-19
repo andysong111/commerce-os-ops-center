@@ -259,9 +259,9 @@ test("HF100 package, UI gate and CI expose the initial-owner fix", async () => {
   assert.match(route, /const VERSION = "0\.6\.60"/);
   assert.match(route, /FAIL_CLOSED_BEFORE_EXTERNAL_SUBMIT/);
   assert.match(route, /HF99_ENDED_ONLY_NO_TRANSMISSION/);
-  assert.match(page, /download-hf100/);
-  assert.match(page, /v0\.6\.60 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 60\]/);
+  assert.match(page, /download-hf101/);
+  assert.match(page, /v0\.6\.61 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 61\]/);
   assert.match(workflow, /shoplingStockStateHf100\.test\.mjs/);
 });
 
