@@ -5,7 +5,9 @@ import {
   applyFreightBundleUnitPreferences,
   findFreightBundleUnitPreference,
   isFreightBundleUnitEmpty,
+  listFreightBundleUnitLedgerSkipMarkers,
   listFreightBundleUnitPreferences,
+  reconcileFreightBundleUnitLedgerSkipMarkers,
   saveFreightBundleUnitPreference,
 } from "../src/lib/freightBundleUnitPreferences.ts";
 
@@ -94,9 +96,41 @@ test("opening the freight page migrates saved browser bundle units to Product Ma
   );
 
   assert.match(pageSource, /for \(const preference of listFreightBundleUnitPreferences\(\)\)/);
+  assert.match(pageSource, /listFreightBundleUnitLedgerSkipMarkers\(\)/);
+  assert.match(pageSource, /skippedPreferenceVersions\.has/);
   assert.match(pageSource, /fetch\("\/api\/freight-bundle-units"/);
+  assert.match(pageSource, /reconcileFreightBundleUnitLedgerSkipMarkers\(/);
   assert.match(
     pageSource,
     /saveFreightBundleUnitPreference\([\s\S]*stored\.updatedAt,[\s\S]*\);/,
   );
+});
+
+test("missing Product Master B-codes are skipped again only after their local value changes", () => {
+  const storage = memoryStorage();
+  const first = saveFreightBundleUnitPreference(
+    "BAA3-1",
+    20,
+    storage,
+    "2026-11-19T04:00:00.000Z",
+  );
+  reconcileFreightBundleUnitLedgerSkipMarkers(
+    [first],
+    [],
+    ["BAA3-1"],
+    storage,
+  );
+  assert.deepEqual(listFreightBundleUnitLedgerSkipMarkers(storage), [
+    { barcode: "BAA3-1", updatedAt: "2026-11-19T04:00:00.000Z" },
+  ]);
+  assert.deepEqual(listFreightBundleUnitPreferences(storage), [first]);
+
+  const changed = saveFreightBundleUnitPreference(
+    "BAA3-1",
+    25,
+    storage,
+    "2026-11-19T05:00:00.000Z",
+  );
+  const marker = listFreightBundleUnitLedgerSkipMarkers(storage)[0];
+  assert.notEqual(changed.updatedAt, marker.updatedAt);
 });

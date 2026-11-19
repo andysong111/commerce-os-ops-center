@@ -20,7 +20,9 @@ import {
   applyFreightBundleUnitPreferences,
   findFreightBundleUnitPreference,
   isFreightBundleUnitEmpty,
+  listFreightBundleUnitLedgerSkipMarkers,
   listFreightBundleUnitPreferences,
+  reconcileFreightBundleUnitLedgerSkipMarkers,
   saveFreightBundleUnitPreference,
 } from "@/lib/freightBundleUnitPreferences";
 import { buildFreightForwarderMvpZip } from "@/lib/freightForwarderZipMvp";
@@ -371,8 +373,18 @@ export default function FreightBarcodeRequestPage() {
       string,
       { barcode: string; bundleUnit: number; updatedAt: string }
     >();
+    const skippedPreferenceVersions = new Set(
+      listFreightBundleUnitLedgerSkipMarkers().map(
+        (marker) => `${marker.barcode}\u0000${marker.updatedAt}`,
+      ),
+    );
     for (const preference of listFreightBundleUnitPreferences()) {
       if (!/^B[A-Z]{2}\d+-\d+$/.test(preference.barcode)) continue;
+      if (
+        skippedPreferenceVersions.has(
+          `${preference.barcode}\u0000${preference.updatedAt}`,
+        )
+      ) continue;
       latestByBarcode.set(preference.barcode, preference);
     }
     for (const item of application.items) {
@@ -417,6 +429,11 @@ export default function FreightBarcodeRequestPage() {
         if (sequence !== bundleUnitSyncSequenceRef.current) return;
         const storedByBarcode = new Map(
           body.updates.map((row) => [row.barcode.trim().toUpperCase(), row] as const),
+        );
+        reconcileFreightBundleUnitLedgerSkipMarkers(
+          updates,
+          body.updates.map((row) => row.barcode),
+          body.skipped?.map((row) => row.barcode) ?? [],
         );
         for (const stored of body.updates) {
           saveFreightBundleUnitPreference(
