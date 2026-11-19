@@ -1,13 +1,16 @@
 import { zipSync } from "fflate";
 import { createCode128Layout } from "./code128.ts";
 import { getEncodedBarcodeValue } from "./barcodeValue.ts";
-import { calculateBarcodeLabelPrint } from "./barcodeLabelPrint.ts";
+import { calculateBarcodeLabelPrint, formatBarcodeBundleUnit } from "./barcodeLabelPrint.ts";
 import { getFreightApplicationNumbers } from "./freightApplicationBatch.ts";
 import type { FreightApplication, FreightApplicationItem } from "../types/freightBarcodeRequest.ts";
 
 export const FREIGHT_FORWARDER_MVP_WIDTH_PT = 90;
 export const FREIGHT_FORWARDER_MVP_HEIGHT_PT = 147;
 const FREIGHT_FORWARDER_LOGICAL_WIDTH_PT = 147;
+const LABEL_TEXT_FONT_SIZE_PT = 10;
+const LABEL_TEXT_MAX_WIDTH_PT = 137;
+const LABEL_TEXT_MIN_HORIZONTAL_SCALE = 60;
 
 export interface FreightForwarderMvpValidRow {
   item: FreightApplicationItem;
@@ -128,7 +131,7 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
 
   const layout = createCode128Layout(barcodeValue);
   const barcodeX = 7;
-  const barcodeY = 41;
+  const barcodeY = 47;
   const barcodeWidth = 130;
   const barcodeHeight = 29;
   const moduleScale = barcodeWidth / layout.width;
@@ -136,18 +139,22 @@ export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printC
     .map((bar) => `${formatPdfNumber(barcodeX + bar.x * moduleScale)} ${barcodeY} ${formatPdfNumber(bar.width * moduleScale)} ${barcodeHeight} re f`)
     .join("\n");
   const originText = "MADE IN CHINA";
-  const originFontSize = 10;
-  const barcodeTextFontSize = 10;
+  const bundleUnitText = `소분단위: ${formatBarcodeBundleUnit(item)}`;
+  const modelNameText = `모델명: ${item.modelName?.trim() || item.matchedModelName?.trim() || item.matchedProductNameKo?.trim() || "-"}`;
+  const modelNoText = `모델번호: ${item.modelNo?.trim() || item.matchedModelNo?.trim() || "-"}`;
   const rotatedContent = [
-    `BT /F1 ${originFontSize} Tf ${formatPdfNumber(centeredLogicalTextX(originText, originFontSize))} ${formatPdfNumber(107)} Td (${originText}) Tj ET`,
+    `BT /F1 ${LABEL_TEXT_FONT_SIZE_PT} Tf ${formatPdfNumber(centeredLogicalTextX(originText, LABEL_TEXT_FONT_SIZE_PT))} 80 Td (${originText}) Tj ET`,
     bars,
-    `BT /F1 ${barcodeTextFontSize} Tf ${formatPdfNumber(centeredLogicalTextX(barcodeValue, barcodeTextFontSize))} ${formatPdfNumber(29)} Td (${escapePdfText(barcodeValue)}) Tj ET`,
+    `BT /F1 ${LABEL_TEXT_FONT_SIZE_PT} Tf ${formatPdfNumber(centeredLogicalTextX(barcodeValue, LABEL_TEXT_FONT_SIZE_PT))} 36 Td (${escapePdfText(barcodeValue)}) Tj ET`,
+    buildUnicodeLabelTextCommand(bundleUnitText, 25),
+    buildUnicodeLabelTextCommand(modelNameText, 14),
+    buildUnicodeLabelTextCommand(modelNoText, 3),
   ].join("\n");
   const content = [
     "q",
-    // Rotate the enlarged vector barcode artwork clockwise inside the unchanged 90 x 147pt page.
-    // Matrix: x' = y - 28, y' = -x + 147 keeps the barcode outer bounds at x=13..42, y=10..140.
-    "0 -1 1 0 -28 147 cm",
+    // Rotate the label artwork clockwise inside the unchanged 90 x 147pt page.
+    // Logical y becomes physical x, leaving the full 90pt label width for six stacked rows.
+    "0 -1 1 0 0 147 cm",
     rotatedContent,
     "Q",
   ].join("\n");
@@ -218,9 +225,11 @@ function buildPdfDocument(content: string): string {
   const objects = [
     "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
     "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
-    `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${FREIGHT_FORWARDER_MVP_WIDTH_PT} ${FREIGHT_FORWARDER_MVP_HEIGHT_PT}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n`,
+    `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${FREIGHT_FORWARDER_MVP_WIDTH_PT} ${FREIGHT_FORWARDER_MVP_HEIGHT_PT}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 7 0 R >> endobj\n`,
     "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
-    `5 0 obj << /Length ${streamLength} >> stream\n${content}\nendstream endobj\n`,
+    "5 0 obj << /Type /Font /Subtype /Type0 /BaseFont /HYGoThic-Medium /Encoding /UniKS-UCS2-H /DescendantFonts [6 0 R] >> endobj\n",
+    "6 0 obj << /Type /Font /Subtype /CIDFontType0 /BaseFont /HYGoThic-Medium /CIDSystemInfo << /Registry (Adobe) /Ordering (Korea1) /Supplement 2 >> /DW 1000 >> endobj\n",
+    `7 0 obj << /Length ${streamLength} >> stream\n${content}\nendstream endobj\n`,
   ];
   let offset = "%PDF-1.4\n".length;
   const xrefOffsets = ["0000000000 65535 f "];
@@ -230,7 +239,7 @@ function buildPdfDocument(content: string): string {
   }
   const body = objects.join("");
   const xrefOffset = "%PDF-1.4\n".length + body.length;
-  return `%PDF-1.4\n${body}xref\n0 6\n${xrefOffsets.join("\n")}\ntrailer << /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return `%PDF-1.4\n${body}xref\n0 8\n${xrefOffsets.join("\n")}\ntrailer << /Size 8 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
 }
 
 function escapePdfText(value: string): string {
@@ -243,6 +252,59 @@ function helveticaTextWidth(value: string, fontSize: number): number {
 
 function centeredLogicalTextX(value: string, fontSize: number): number {
   return (FREIGHT_FORWARDER_LOGICAL_WIDTH_PT - helveticaTextWidth(value, fontSize)) / 2;
+}
+
+function buildUnicodeLabelTextCommand(value: string, y: number): string {
+  const fitted = fitUnicodeLabelText(value);
+  return `BT /F2 ${LABEL_TEXT_FONT_SIZE_PT} Tf ${formatPdfNumber(fitted.horizontalScale)} Tz ${formatPdfNumber(fitted.x)} ${formatPdfNumber(y)} Td <${toUtf16BeHex(fitted.text)}> Tj ET`;
+}
+
+function fitUnicodeLabelText(value: string): {
+  text: string;
+  horizontalScale: number;
+  x: number;
+} {
+  const normalized = normalizeUnicodeLabelText(value);
+  const maxCharactersAtMinimumScale = Math.max(
+    4,
+    Math.floor(
+      LABEL_TEXT_MAX_WIDTH_PT /
+        (LABEL_TEXT_FONT_SIZE_PT * (LABEL_TEXT_MIN_HORIZONTAL_SCALE / 100)),
+    ),
+  );
+  const characters = Array.from(normalized);
+  const text = characters.length > maxCharactersAtMinimumScale
+    ? `${characters.slice(0, maxCharactersAtMinimumScale - 3).join("")}...`
+    : normalized;
+  const textWidthAtFullScale = Math.max(1, Array.from(text).length * LABEL_TEXT_FONT_SIZE_PT);
+  const horizontalScale = Math.max(
+    LABEL_TEXT_MIN_HORIZONTAL_SCALE,
+    Math.min(100, (LABEL_TEXT_MAX_WIDTH_PT / textWidthAtFullScale) * 100),
+  );
+  const fittedWidth = textWidthAtFullScale * (horizontalScale / 100);
+
+  return {
+    text,
+    horizontalScale,
+    x: (FREIGHT_FORWARDER_LOGICAL_WIDTH_PT - fittedWidth) / 2,
+  };
+}
+
+function normalizeUnicodeLabelText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/[^\u0000-\uFFFF]/gu, "?")
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toUtf16BeHex(value: string): string {
+  let hex = "";
+  for (let index = 0; index < value.length; index += 1) {
+    hex += value.charCodeAt(index).toString(16).padStart(4, "0").toUpperCase();
+  }
+  return hex;
 }
 
 function getHelveticaGlyphWidth(character: string): number {

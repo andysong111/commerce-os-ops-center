@@ -38,6 +38,7 @@ import { createCode128Layout } from "@/lib/code128";
 import {
   buildBarcodeLabelPages,
   calculateBarcodeLabelPrint,
+  formatBarcodeBundleUnit,
   getSampleBarcodeLabelCount,
   getTotalBarcodeLabelCount,
 } from "@/lib/barcodeLabelPrint";
@@ -2866,7 +2867,7 @@ function LocationBarcode({
   // larger compact label remains scan-safe without changing its encoding.
   const layout = createCode128Layout(encodedValue);
   const moduleWidth = compact ? 1.4 : 2;
-  const barcodeHeight = compact ? 88 : 52;
+  const barcodeHeight = compact ? 38 : 52;
   const svgWidth = layout.width * moduleWidth;
 
   return (
@@ -2920,11 +2921,23 @@ function BarcodeLabelCard({
   item: FreightApplicationItem;
   preview?: boolean;
 }) {
+  const modelName =
+    item.modelName?.trim() ||
+    item.matchedModelName?.trim() ||
+    item.matchedProductNameKo?.trim() ||
+    "-";
+  const modelNo = item.modelNo?.trim() || item.matchedModelNo?.trim() || "-";
+
   return (
     <article
       className={`barcode-label-card${preview ? " barcode-label-card-preview" : ""}`}
     >
       <LocationBarcode value={item.barcode} compact />
+      <div className="barcode-label-meta">
+        <span>소분단위: {formatBarcodeBundleUnit(item)}</span>
+        <span title={`모델명: ${modelName}`}>모델명: {modelName}</span>
+        <span title={`모델번호: ${modelNo}`}>모델번호: {modelNo}</span>
+      </div>
     </article>
   );
 }

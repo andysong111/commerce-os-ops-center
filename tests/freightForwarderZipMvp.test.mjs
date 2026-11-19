@@ -42,6 +42,14 @@ function extractTextCommand(pdf, text) {
   return { fontSize: Number(match[1]), x: Number(match[2]), y: Number(match[3]) };
 }
 
+function utf16BeHex(value) {
+  let hex = "";
+  for (let index = 0; index < value.length; index += 1) {
+    hex += value.charCodeAt(index).toString(16).padStart(4, "0").toUpperCase();
+  }
+  return hex;
+}
+
 test("ZIP filename is applicationNo.zip and folder is applicationNo/", () => {
   const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1)] });
   assert.equal(result.zipFilename, "634993.zip");
@@ -135,22 +143,22 @@ test("PDF rotates enlarged label content clockwise while preserving the page", (
 
   assert.match(pdf, /\/MediaBox \[0 0 90 147\]/);
   assert.equal(countPdfPages(pdf), 1);
-  assert.match(pdf, /q\n0 -1 1 0 -28 147 cm\n[\s\S]*BT \/F1 10 Tf [\d.]+ 107 Td \(MADE IN CHINA\)[\s\S]*BAA1-1[\s\S]*\nQ/);
+  assert.match(pdf, /q\n0 -1 1 0 0 147 cm\n[\s\S]*BT \/F1 10 Tf [\d.]+ 80 Td \(MADE IN CHINA\)[\s\S]*BAA1-1[\s\S]*\nQ/);
   assert.doesNotMatch(pdf, /\/Rotate\b/);
 });
 
 test("barcode remains vector rectangles and uses sample-like logical bounds", () => {
   const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BAA1-1"), 50));
-  const barcodeBars = pdf.match(/[\d.]+ 41 [\d.]+ 29 re f/g) ?? [];
+  const barcodeBars = pdf.match(/[\d.]+ 47 [\d.]+ 29 re f/g) ?? [];
 
   assert.ok(barcodeBars.length >= 20);
 });
 
-test("barcode layout constants remain unchanged", () => {
+test("barcode scan dimensions remain unchanged while the stack moves into the full label width", () => {
   const source = readFileSync(new URL("../src/lib/freightForwarderZipMvp.ts", import.meta.url), "utf8");
 
   assert.match(source, /const barcodeX = 7;/);
-  assert.match(source, /const barcodeY = 41;/);
+  assert.match(source, /const barcodeY = 47;/);
   assert.match(source, /const barcodeWidth = 130;/);
   assert.match(source, /const barcodeHeight = 29;/);
 });
@@ -161,19 +169,28 @@ test("origin and barcode value text use 10pt centered logical positions", () => 
   const origin = extractTextCommand(pdf, "MADE IN CHINA");
   const barcode = extractTextCommand(pdf, "BAA1-1");
 
-  assert.deepEqual(origin, { fontSize: 10, x: 35.72, y: 107 });
-  assert.deepEqual(barcode, { fontSize: 10, x: 56.27, y: 29 });
+  assert.deepEqual(origin, { fontSize: 10, x: 35.72, y: 80 });
+  assert.deepEqual(barcode, { fontSize: 10, x: 56.27, y: 36 });
 });
 
 test("rotated text areas do not overlap barcode area", () => {
-  const barcodePhysicalXStart = 41 - 28;
+  const barcodePhysicalXStart = 47;
   const barcodePhysicalXEnd = barcodePhysicalXStart + 29;
-  const barcodeValuePhysicalXEnd = 29 - 28 + 10;
-  const originPhysicalXStart = 107 - 28;
+  const barcodeValuePhysicalXEnd = 36 + 10;
+  const bundlePhysicalXStart = 25;
+  const bundlePhysicalXEnd = bundlePhysicalXStart + 10;
+  const modelNamePhysicalXStart = 14;
+  const modelNamePhysicalXEnd = modelNamePhysicalXStart + 10;
+  const modelNoPhysicalXStart = 3;
+  const modelNoPhysicalXEnd = modelNoPhysicalXStart + 10;
+  const originPhysicalXStart = 80;
 
-  assert.equal(barcodePhysicalXStart, 13);
-  assert.equal(barcodePhysicalXEnd, 42);
-  assert.ok(barcodeValuePhysicalXEnd <= barcodePhysicalXStart - 2);
+  assert.equal(barcodePhysicalXStart, 47);
+  assert.equal(barcodePhysicalXEnd, 76);
+  assert.ok(barcodeValuePhysicalXEnd < barcodePhysicalXStart);
+  assert.ok(bundlePhysicalXEnd < 36);
+  assert.ok(modelNamePhysicalXEnd < bundlePhysicalXStart);
+  assert.ok(modelNoPhysicalXEnd < modelNamePhysicalXStart);
   assert.ok(originPhysicalXStart >= barcodePhysicalXEnd + 2);
 });
 
@@ -182,11 +199,39 @@ test("printCount does not create repeated pages", () => {
   assert.equal(countPdfPages(pdf), 1);
 });
 
-test("PDF body contains only origin label, barcode bars, and barcode value text", () => {
-  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1"), 50));
+test("PDF adds centered bundle unit, model name, and model number at the same 10pt text height", () => {
+  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1", 50, {
+    bundleUnit: 10,
+    modelName: "만능 고리링",
+    modelNo: "BAA7-3",
+  }), 50));
   assert.match(pdf, /MADE IN CHINA/);
   assert.match(pdf, /BBA1-1/);
+  assert.match(pdf, new RegExp(`BT /F2 10 Tf [\\d.]+ Tz [\\d.]+ 25 Td <${utf16BeHex("소분단위: 10개")}> Tj ET`));
+  assert.match(pdf, new RegExp(`BT /F2 10 Tf [\\d.]+ Tz [\\d.]+ 14 Td <${utf16BeHex("모델명: 만능 고리링")}> Tj ET`));
+  assert.match(pdf, new RegExp(`BT /F2 10 Tf [\\d.]+ Tz [\\d.]+ 3 Td <${utf16BeHex("모델번호: BAA7-3")}> Tj ET`));
   assert.doesNotMatch(pdf, /Product name must not render|옵션|中文/);
+});
+
+test("PDF metadata falls back to matched product-master fields", () => {
+  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1", 50, {
+    matchedModelName: "멀티 후크",
+    matchedModelNo: "BBA9-2",
+  }), 50));
+
+  assert.match(pdf, new RegExp(utf16BeHex("모델명: 멀티 후크")));
+  assert.match(pdf, new RegExp(utf16BeHex("모델번호: BBA9-2")));
+});
+
+test("long model text stays inside the label by using horizontal scaling and ellipsis", () => {
+  const pdf = pdfText(buildFreightForwarderMvpPdf(item(1, "BBA1-1", 50, {
+    modelName: "아주 긴 모델명 테스트가 라벨 너비를 넘어가도 잘리지 않아야 합니다",
+  }), 50));
+  const modelLine = pdf.match(/BT \/F2 10 Tf ([\d.]+) Tz [\d.]+ 14 Td <([0-9A-F]+)> Tj ET/);
+
+  assert.ok(modelLine);
+  assert.ok(Number(modelLine[1]) >= 60 && Number(modelLine[1]) < 63);
+  assert.match(modelLine[2], new RegExp(`${utf16BeHex("...")}$`));
 });
 
 test("missing barcode row is excluded while valid rows still generate", () => {

@@ -346,16 +346,17 @@ button:not(:disabled) {
   width: 94%;
   min-width: 0;
   padding: 0;
+  line-height: 1;
 }
 
 .label-location-barcode > span:first-child {
-  margin-bottom: 0.3mm;
+  margin-bottom: 0.15mm;
   font-size: 8px;
   line-height: 1;
 }
 
 .label-location-barcode > span:last-child {
-  margin-top: 0.3mm;
+  margin-top: 0;
   font-size: 9px;
   line-height: 1;
 }
@@ -363,6 +364,29 @@ button:not(:disabled) {
 .label-location-barcode svg {
   flex: none;
   max-width: 100%;
+}
+
+.barcode-label-meta {
+  display: flex;
+  width: 94%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 0.15mm;
+  color: #000;
+  font-family: Arial, "Malgun Gothic", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.barcode-label-meta > span {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .barcode-label-empty {
