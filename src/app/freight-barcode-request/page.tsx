@@ -171,7 +171,9 @@ type OndolpassBatchState = {
 type BundleUnitLedgerResponse = {
   ok?: boolean;
   savedCount?: number;
+  skippedCount?: number;
   updates?: Array<{ barcode: string; bundleUnit: number; updatedAt: string }>;
+  skipped?: Array<{ barcode: string; reason: "BARCODE_NOT_FOUND" }>;
   message?: string;
 };
 
@@ -443,8 +445,16 @@ export default function FreightBarcodeRequestPage() {
             };
           }),
         }));
+        const savedCount = body.savedCount ?? body.updates.length;
+        const skippedCount = body.skippedCount ?? body.skipped?.length ?? 0;
         setBundleUnitLedgerStatus(
-          `상품마스터 B코드 원장에 소분단위 ${body.savedCount ?? body.updates.length}개를 저장했습니다.`,
+          savedCount > 0
+            ? `상품마스터 B코드 원장에 소분단위 ${savedCount}개를 저장했습니다.${
+                skippedCount > 0
+                  ? ` 원장에 없는 오래된 B코드 ${skippedCount}개는 제외했습니다.`
+                  : ""
+              }`
+            : `상품마스터 원장에 없는 오래된 B코드 ${skippedCount}개를 제외했습니다.`,
         );
       } catch (error) {
         if (sequence !== bundleUnitSyncSequenceRef.current) return;

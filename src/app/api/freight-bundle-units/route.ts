@@ -1,4 +1,5 @@
 import { saveLegacySeoInventoryBundleUnits } from "@/lib/legacySeoInventoryCatalog";
+import { saveFreightBundleUnitLedgerUpdates } from "@/lib/freightBundleUnitLedger";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 
 export const runtime = "nodejs";
@@ -52,9 +53,18 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as { updates?: unknown };
     const updates = normalizeUpdates(body.updates);
-    const stored = await saveLegacySeoInventoryBundleUnits(updates);
+    const stored = await saveFreightBundleUnitLedgerUpdates(
+      updates,
+      saveLegacySeoInventoryBundleUnits,
+    );
     return Response.json(
-      { ok: true, savedCount: stored.length, updates: stored },
+      {
+        ok: true,
+        savedCount: stored.updates.length,
+        skippedCount: stored.skipped.length,
+        updates: stored.updates,
+        skipped: stored.skipped,
+      },
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error) {
