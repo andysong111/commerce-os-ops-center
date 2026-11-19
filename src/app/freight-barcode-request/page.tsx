@@ -272,8 +272,10 @@ function productMasterMatchMessage(
     (match) => match.status === "MATCHED" && match.source === "PURCHASE_DRAFT",
   ).length;
   const masterMatched = matched - draftMatched;
+  const orderAutoResolved =
+    response.purchaseDraftResolution?.mode === "ORDER_NUMBER_AUTO";
   const sourceText = draftMatched
-    ? ` · 발주초안 ${draftMatched}개${masterMatched ? `, 상품마스터 ${masterMatched}개` : ""}`
+    ? ` · ${orderAutoResolved ? "1688 주문번호로 " : ""}발주초안 ${draftMatched}개${masterMatched ? `, 상품마스터 ${masterMatched}개` : ""}`
     : "";
   return `${prefix} 내부상품 ${matched}/${total}개 자동매칭 완료${sourceText}${
     unmatched ? ` · 미등록/옵션 불일치 ${unmatched}개` : ""

@@ -402,8 +402,10 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
   };
 }
 
-export async function loadFastPurchaseInternalDrafts() {
-  const ledger = await loadChinaOrderLedger();
+export async function loadFastPurchaseInternalDrafts(options?: {
+  ledger?: Awaited<ReturnType<typeof loadChinaOrderLedger>>;
+}) {
+  const ledger = options?.ledger ?? await loadChinaOrderLedger();
   const rows = ledger.commitments.filter(
     (row) => row.sourceSystem === SOURCE_SYSTEM,
   );

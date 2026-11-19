@@ -2,12 +2,16 @@ import { loadLegacySeoInventoryCatalog } from "@/lib/legacySeoInventoryCatalog";
 import {
   matchFreightItemsToProductMaster,
   matchFreightItemsWithPurchaseDraftFallback,
+  selectFreightPurchaseDraftLinesByOrderNumbers,
 } from "@/lib/freightProductMasterMatcher";
+import { loadChinaOrderLedger } from "@/lib/chinaOrderLedger";
+import { loadFastPurchaseInternalDrafts } from "@/lib/fastPurchaseInternalDraft";
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 import type { FreightApplicationItem } from "@/types/freightBarcodeRequest";
 
 const MAX_ITEMS_PER_REQUEST = 500;
+const MAX_AUTO_DRAFTS = 12;
 const CATALOG_CACHE_MS = 5 * 60 * 1_000;
 
 let catalogCache:
@@ -51,6 +55,26 @@ async function loadCachedCatalog() {
   return products;
 }
 
+async function loadOrderNumberMatchedDraftLines(items: FreightApplicationItem[]) {
+  if (!items.some((item) => item.orderNo?.trim())) return null;
+
+  const ledger = await loadChinaOrderLedger();
+  const state = await loadFastPurchaseInternalDrafts({ ledger });
+  if (state.error) return null;
+
+  const loaded = await Promise.allSettled(
+    state.drafts.slice(0, MAX_AUTO_DRAFTS).map(async (summary) => {
+      const draft = await loadInternalChinaPurchaseDraft(summary.draftId, { ledger });
+      return { draftId: summary.draftId, lines: draft.lines };
+    }),
+  );
+  const selection = selectFreightPurchaseDraftLinesByOrderNumbers(
+    items,
+    loaded.flatMap((result) => result.status === "fulfilled" ? [result.value] : []),
+  );
+  return selection.lines.length > 0 ? selection : null;
+}
+
 export async function POST(request: Request) {
   const auth = await resolveProductLaunchIdentity(request);
   if (!auth.ok) return Response.json(auth.body, { status: auth.status });
@@ -89,19 +113,42 @@ export async function POST(request: Request) {
   }
 
   try {
-    const [products, draft] = await Promise.all([
+    const [products, explicitDraft, automaticDraft] = await Promise.all([
       loadCachedCatalog(),
       draftId ? loadInternalChinaPurchaseDraft(draftId) : Promise.resolve(null),
+      draftId ? Promise.resolve(null) : loadOrderNumberMatchedDraftLines(body.items),
     ]);
-    return Response.json(
-      draft
-        ? matchFreightItemsWithPurchaseDraftFallback(
-            body.items,
-            draft.lines,
-            products,
-          )
-        : matchFreightItemsToProductMaster(body.items, products),
-    );
+    const explicitSelection = explicitDraft
+      ? selectFreightPurchaseDraftLinesByOrderNumbers(body.items, [
+          { draftId, lines: explicitDraft.lines },
+        ])
+      : null;
+    const draftLines = explicitDraft?.lines ?? automaticDraft?.lines ?? null;
+    const result = draftLines
+      ? matchFreightItemsWithPurchaseDraftFallback(body.items, draftLines, products)
+      : matchFreightItemsToProductMaster(body.items, products);
+    return Response.json({
+      ...result,
+      ...(explicitDraft
+        ? {
+            purchaseDraftResolution: {
+              mode: "EXPLICIT" as const,
+              draftIds: [draftId],
+              requestedOrderCount: explicitSelection?.requestedOrderCount ?? 0,
+              resolvedOrderCount: explicitSelection?.resolvedOrderCount ?? 0,
+            },
+          }
+        : automaticDraft
+          ? {
+              purchaseDraftResolution: {
+                mode: "ORDER_NUMBER_AUTO" as const,
+                draftIds: automaticDraft.draftIds,
+                requestedOrderCount: automaticDraft.requestedOrderCount,
+                resolvedOrderCount: automaticDraft.resolvedOrderCount,
+              },
+            }
+          : {}),
+    });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "UNKNOWN";
     const configurationError =

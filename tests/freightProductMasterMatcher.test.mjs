@@ -8,6 +8,7 @@ import {
   matchFreightItemsToProductMaster,
   matchFreightItemsWithPurchaseDraftFallback,
   normalizeFreightChinaOption,
+  selectFreightPurchaseDraftLinesByOrderNumbers,
 } from "../src/lib/freightProductMasterMatcher.ts";
 
 function product(overrides = {}) {
@@ -242,6 +243,51 @@ test("uses Product Master only when no purchase-draft candidate exists", () => {
   assert.equal(response.matches[0].barcode, "BAA1-1");
 });
 
+test("auto-selects the newest purchase draft by exact 1688 order number and ignores stale copies", () => {
+  const orderNumber = "3316598510069009453";
+  const selection = selectFreightPurchaseDraftLinesByOrderNumbers(
+    [item({ orderNo: orderNumber })],
+    [
+      {
+        draftId: "fast-purchase-draft:newest00000000000000",
+        lines: [
+          {
+            barcode: "BBA7-3",
+            modelNo: "AAA495",
+            modelName: "캔압축기",
+            saleOption: "단품 그레이",
+            chinaOption: "深空灰压罐器",
+            supplierLink: "https://detail.1688.com/offer/923615736263.html",
+            orderNumber,
+            quantity: 8,
+          },
+        ],
+      },
+      {
+        draftId: "fast-purchase-draft:stale000000000000000",
+        lines: [
+          {
+            barcode: "OLD1-1",
+            modelNo: "OLD001",
+            modelName: "이전 초안",
+            saleOption: "",
+            chinaOption: "",
+            supplierLink: "",
+            orderNumber,
+            quantity: 8,
+          },
+        ],
+      },
+    ],
+  );
+
+  assert.deepEqual(selection.draftIds, ["fast-purchase-draft:newest00000000000000"]);
+  assert.equal(selection.requestedOrderCount, 1);
+  assert.equal(selection.resolvedOrderCount, 1);
+  assert.equal(selection.lines.length, 1);
+  assert.equal(selection.lines[0].barcode, "BBA7-3");
+});
+
 test("applies only confirmed canonical fields to the freight row", () => {
   const application = {
     applicationNo: "673626",
@@ -271,6 +317,8 @@ test("keeps the Product Master secret server-side and wires both import paths to
 
   assert.match(route, /loadLegacySeoInventoryCatalog/);
   assert.match(route, /loadInternalChinaPurchaseDraft/);
+  assert.match(route, /loadOrderNumberMatchedDraftLines/);
+  assert.match(route, /selectFreightPurchaseDraftLinesByOrderNumbers/);
   assert.match(route, /matchFreightItemsWithPurchaseDraftFallback/);
   assert.match(route, /resolveProductLaunchIdentity/);
   assert.match(page, /draftId/);

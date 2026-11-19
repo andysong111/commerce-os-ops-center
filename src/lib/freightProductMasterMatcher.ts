@@ -59,6 +59,12 @@ export type FreightProductMasterMatchResponse = {
   ok: true;
   matches: FreightProductMasterMatch[];
   summary: FreightProductMasterMatchSummary;
+  purchaseDraftResolution?: {
+    mode: "EXPLICIT" | "ORDER_NUMBER_AUTO";
+    draftIds: string[];
+    requestedOrderCount: number;
+    resolvedOrderCount: number;
+  };
 };
 
 type CanonicalSkuCandidate = {
@@ -77,6 +83,18 @@ export type FreightPurchaseDraftLine = {
   orderNumber: string;
   supplierLink: string;
   quantity: number;
+};
+
+export type FreightPurchaseDraftSource = {
+  draftId: string;
+  lines: FreightPurchaseDraftLine[];
+};
+
+export type FreightPurchaseDraftOrderSelection = {
+  draftIds: string[];
+  lines: FreightPurchaseDraftLine[];
+  requestedOrderCount: number;
+  resolvedOrderCount: number;
 };
 
 type PurchaseDraftCandidate = {
@@ -98,6 +116,48 @@ function normalizeLookup(value: unknown) {
 
 function normalizeOrderNumber(value: unknown) {
   return text(value).replace(/\s+/g, "").toUpperCase();
+}
+
+export function selectFreightPurchaseDraftLinesByOrderNumbers(
+  items: FreightApplicationItem[],
+  draftsInPriorityOrder: FreightPurchaseDraftSource[],
+): FreightPurchaseDraftOrderSelection {
+  const requestedOrders = [
+    ...new Set(items.map((item) => normalizeOrderNumber(item.orderNo)).filter(Boolean)),
+  ];
+  const ownerByOrder = new Map<string, FreightPurchaseDraftSource>();
+
+  for (const draft of draftsInPriorityOrder) {
+    const draftOrders = new Set(
+      draft.lines
+        .map((line) => normalizeOrderNumber(line.orderNumber))
+        .filter(Boolean),
+    );
+    for (const orderNumber of requestedOrders) {
+      if (!ownerByOrder.has(orderNumber) && draftOrders.has(orderNumber)) {
+        ownerByOrder.set(orderNumber, draft);
+      }
+    }
+  }
+
+  const selectedDraftIds = [
+    ...new Set([...ownerByOrder.values()].map((draft) => draft.draftId)),
+  ];
+  const lines = selectedDraftIds.flatMap((draftId) => {
+    const draft = draftsInPriorityOrder.find((candidate) => candidate.draftId === draftId);
+    if (!draft) return [];
+    return draft.lines.filter((line) => {
+      const orderNumber = normalizeOrderNumber(line.orderNumber);
+      return orderNumber && ownerByOrder.get(orderNumber)?.draftId === draftId;
+    });
+  });
+
+  return {
+    draftIds: selectedDraftIds,
+    lines,
+    requestedOrderCount: requestedOrders.length,
+    resolvedOrderCount: ownerByOrder.size,
+  };
 }
 
 export function extractFreight1688OfferId(value: unknown) {
