@@ -288,6 +288,7 @@ export function rankWorkspaceModules(
   query: string,
 ): CommerceModule[] {
   const normalized = normalize(query);
+  const compactQuery = compactSearchText(query);
   if (!normalized) return [...modules];
 
   const tokens = normalized.split(" ").filter(Boolean);
@@ -314,12 +315,26 @@ export function rankWorkspaceModules(
           .filter(Boolean)
           .join(" "),
       );
+      const compactHaystack = compactSearchText(haystack);
+      const compactTitle = compactSearchText(module.title);
 
       let score = 0;
       if (haystack.includes(normalized)) score += 80;
+      if (compactQuery && compactHaystack.includes(compactQuery)) score += 80;
       for (const token of tokens) {
-        if (haystack.includes(token)) score += 12;
-        if (normalize(module.title).startsWith(token)) score += 18;
+        const compactToken = compactSearchText(token);
+        if (
+          haystack.includes(token) ||
+          (compactToken && compactHaystack.includes(compactToken))
+        ) {
+          score += 12;
+        }
+        if (
+          normalize(module.title).startsWith(token) ||
+          (compactToken && compactTitle.startsWith(compactToken))
+        ) {
+          score += 18;
+        }
       }
       const commandIndex = command?.moduleIds.indexOf(module.id) ?? -1;
       if (commandIndex >= 0) score += 70 - commandIndex * 8;
@@ -370,8 +385,13 @@ export function moduleRouteWithContext(module: CommerceModule, query: string) {
 
 function normalize(value: string | null | undefined) {
   return (value ?? "")
+    .normalize("NFKC")
     .toLocaleLowerCase("ko-KR")
-    .replace(/[_/·,()[\]{}:;]+/g, " ")
+    .replace(/[\p{P}\p{S}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function compactSearchText(value: string | null | undefined) {
+  return normalize(value).replace(/\s+/g, "");
 }
