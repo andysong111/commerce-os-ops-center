@@ -43,7 +43,7 @@ test("cash allocation funds qualified-month count before average monthly revenue
   assert.equal(result[1].barcode, "BAA2-1");
 });
 
-test("purchase targets are rounded to clean five-unit quantities with tens preferred", () => {
+test("purchase targets are rounded to each B-code bundle unit", () => {
   const result = allocatePurchaseCashflow([
     { barcode: "BAA1-1", priorityScore: 100, targetQuantity: 38, unitCostKrw: 100, moq: 1, cartonQuantity: 1 },
     { barcode: "BAA2-1", priorityScore: 90, targetQuantity: 31, unitCostKrw: 100, moq: 1, cartonQuantity: 1 },
@@ -52,6 +52,21 @@ test("purchase targets are rounded to clean five-unit quantities with tens prefe
   ], 100_000);
   assert.deepEqual(result.map((row) => row.targetQuantity), [40, 30, 5, 20]);
   assert.deepEqual(result.map((row) => row.allocatedQuantity), [40, 30, 5, 20]);
+});
+
+test("bundle unit 10 rounds 13 down, 16 up, and combines with carton quantity", () => {
+  const result = allocatePurchaseCashflow([
+    { barcode: "BAA1-1", priorityScore: 100, targetQuantity: 13, unitCostKrw: 100, moq: 1, cartonQuantity: 1, bundleUnit: 10 },
+    { barcode: "BAA2-1", priorityScore: 90, targetQuantity: 16, unitCostKrw: 100, moq: 1, cartonQuantity: 1, bundleUnit: 10 },
+    { barcode: "BAA3-1", priorityScore: 80, targetQuantity: 25, unitCostKrw: 100, moq: 1, cartonQuantity: 6, bundleUnit: 10 },
+  ], 100_000);
+  assert.deepEqual(result.map((row) => row.targetQuantity), [10, 20, 30]);
+  assert.deepEqual(
+    Object.fromEntries(result.map((row) => [row.barcode, row.targetQuantity])),
+    { "BAA1-1": 10, "BAA2-1": 20, "BAA3-1": 30 },
+  );
+  assert.ok(result.every((row) => row.targetQuantity % row.bundleUnit === 0));
+  assert.equal(result.find((row) => row.barcode === "BAA3-1")?.targetQuantity % 6, 0);
 });
 
 test("allocation is deterministic and never mutates the source", () => {

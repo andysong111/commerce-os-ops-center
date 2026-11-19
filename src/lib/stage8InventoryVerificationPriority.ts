@@ -65,6 +65,7 @@ export type InventoryVerificationPriorityRow = {
   originalRecommendedQty: number;
   moq: number;
   cartonQuantity: number;
+  bundleUnit: number;
   planningUnitCostKrw: number;
   expectedCost: number;
   priorityScore: number;
@@ -409,6 +410,7 @@ export async function loadInventoryVerificationPriority(
         1,
         integer(profile?.cartonQuantity) || 1,
       );
+      const bundleUnit = Math.max(1, integer(profile?.bundleUnit) || 5);
       const net = calculateNetRequirement({
         demandTarget,
         originalGroup,
@@ -490,6 +492,7 @@ export async function loadInventoryVerificationPriority(
         originalRecommendedQty,
         moq,
         cartonQuantity,
+        bundleUnit,
         planningUnitCostKrw,
         expectedCost,
         priorityScore: integer(product.score?.total),

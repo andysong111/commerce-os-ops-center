@@ -271,17 +271,17 @@ test("draft editor exposes persistent and final calculation actions and stages a
   assert.match(workspace, /router\.replace\(`\$\{destination\.pathname\}\$\{destination\.search\}`\)/);
   assert.doesNotMatch(workspace, /대기 중인 변경을 현재 Draft에 바로 반영할까요/);
   assert.doesNotMatch(workspace, /router\.push\(buildPurchaseDraftBatchRecalculationHref/);
-  assert.match(workspace, /step=\{5\}/);
-  assert.match(workspace, /isPurchaseDraftQuantityUnit\(targetQuantity\)/);
+  assert.match(workspace, /min=\{bundleUnit\}[\s\S]*max=\{maximumPurchaseDraftQuantity\(bundleUnit\)\}[\s\S]*step=\{bundleUnit\}/);
+  assert.match(workspace, /isPurchaseDraftQuantityUnit\(targetQuantity, bundleUnit\)/);
   assert.match(workspace, /!excludedBarcodes\.includes\(barcode\)[\s\S]*!discontinuedBarcodes\.includes\(barcode\)/);
   assert.doesNotMatch(workspace, /regenerateWithoutSelected|regenerateWithQuantityChanges/);
   assert.doesNotMatch(addition, /method: "POST"|postAdd\(/);
   assert.match(addition, /저장 전 원장 미변경/);
   assert.match(addition, /입력 수량 그대로/);
   assert.match(addition, /isPurchaseDraftQuantityUnit/);
-  assert.match(addition, /min=\{5\}/);
-  assert.match(addition, /max=\{9995\}/);
-  assert.match(addition, /step=\{5\}/);
+  assert.match(addition, /min=\{candidate\.bundleUnit\}/);
+  assert.match(addition, /max=\{maximumPurchaseDraftQuantity\(candidate\.bundleUnit\)\}/);
+  assert.match(addition, /step=\{candidate\.bundleUnit\}/);
   assert.match(workspace, /stagedAdditions\.map\(\(row\) => \[row\.barcode, row\.targetQuantity\]\)/);
   assert.match(workspace, /사용자 고정수량의 예산을 먼저 확보/);
   assert.match(workspace, /data-persistent-recalculation-action/);
@@ -370,6 +370,9 @@ test("inline recalculation endpoint replaces the reserved draft without renderin
   );
   assert.match(route, /manualFallbackUsed/);
   assert.match(route, /초록색 재고 선택은 저장·적용 완료 기록/);
+  assert.match(route, /PURCHASE_DRAFT_DIRECT_EDIT_BUNDLE_UNIT_INVALID/);
+  assert.match(route, /이 상품은 소분단위가/);
+  assert.doesNotMatch(route, /수량은 5개 단위로/);
 });
 
 test("manual fallback removes released legacy pins without persisting a permanent exclusion", async () => {

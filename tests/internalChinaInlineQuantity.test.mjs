@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   isPurchaseDraftQuantityUnit,
   nearestPurchaseDraftQuantity,
+  purchaseDraftQuantityUnitMessage,
 } from "../src/lib/purchaseDraftQuantityRounding.ts";
 
 const workspace = await readFile(
@@ -77,7 +78,7 @@ test("native quantity changes remain local until the single recalculation action
   assert.doesNotMatch(postRoute, /applyInternalChinaQuantityOverrides/);
 });
 
-test("draft quantities can be staged in bulk at the nearest 5-unit boundary", () => {
+test("draft quantities follow each B-code bundle unit without silently changing manual input", () => {
   assert.equal(nearestPurchaseDraftQuantity(38), 40);
   assert.equal(nearestPurchaseDraftQuantity(31), 30);
   assert.equal(nearestPurchaseDraftQuantity(8), 10);
@@ -85,14 +86,18 @@ test("draft quantities can be staged in bulk at the nearest 5-unit boundary", ()
   assert.equal(nearestPurchaseDraftQuantity(61), 60);
   assert.equal(nearestPurchaseDraftQuantity(35), 35);
   assert.equal(nearestPurchaseDraftQuantity(7.5), 10);
-  assert.equal(nearestPurchaseDraftQuantity(12.5), 10);
+  assert.equal(nearestPurchaseDraftQuantity(12.5), 15);
   assert.equal(nearestPurchaseDraftQuantity(9_999), 9_995);
   assert.equal(nearestPurchaseDraftQuantity(0), 0);
   assert.equal(isPurchaseDraftQuantityUnit(40), true);
   assert.equal(isPurchaseDraftQuantityUnit(38), false);
+  assert.equal(nearestPurchaseDraftQuantity(13, 10), 10);
+  assert.equal(nearestPurchaseDraftQuantity(16, 10), 20);
+  assert.equal(isPurchaseDraftQuantityUnit(26, 10), false);
+  assert.equal(purchaseDraftQuantityUnitMessage(10), "이 상품은 소분단위가 10개입니다.");
   assert.match(workspace, /function stageSelectedQuantitiesToNearestUnit/);
-  assert.match(workspace, /선택 수량 5·10단위 맞춤/);
-  assert.match(workspace, /가장 가까운 5개 단위/);
+  assert.match(workspace, /선택 수량 소분단위 맞춤/);
+  assert.match(workspace, /purchaseDraftQuantityUnitMessage/);
 });
 
 test("draft table can freeze every column through an operator-selected last column", () => {
@@ -135,7 +140,7 @@ test("draft products can be selected in bulk, saved directly, and optionally rec
   assert.match(workspace, /const \[stagedExclusions, setStagedExclusions\]/);
   assert.match(workspace, /작업할 상품 전체 선택/);
   assert.match(workspace, /작업할 상품 선택/);
-  assert.match(workspace, /선택 수량 5·10단위 맞춤/);
+  assert.match(workspace, /선택 수량 소분단위 맞춤/);
   assert.match(workspace, /선택 상품 초안에서 제외/);
   assert.match(workspace, /재계산 없이 변경 저장/);
   assert.match(workspace, /\/direct-edits/);

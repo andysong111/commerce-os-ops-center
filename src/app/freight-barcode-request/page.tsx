@@ -20,6 +20,7 @@ import {
   applyFreightBundleUnitPreferences,
   findFreightBundleUnitPreference,
   isFreightBundleUnitEmpty,
+  listFreightBundleUnitPreferences,
   saveFreightBundleUnitPreference,
 } from "@/lib/freightBundleUnitPreferences";
 import { buildFreightForwarderMvpZip } from "@/lib/freightForwarderZipMvp";
@@ -165,6 +166,13 @@ type OndolpassBatchState = {
   applicationNos: string[];
   currentIndex: number;
   results: OndolpassBatchResult[];
+};
+
+type BundleUnitLedgerResponse = {
+  ok?: boolean;
+  savedCount?: number;
+  updates?: Array<{ barcode: string; bundleUnit: number; updatedAt: string }>;
+  message?: string;
 };
 
 function combinePastedImageExtractions(
@@ -342,6 +350,10 @@ export default function FreightBarcodeRequestPage() {
   const [workRequestZipBusy, setWorkRequestZipBusy] = useState(false);
   const [bulkBundleUnit, setBulkBundleUnit] = useState("");
   const [bulkBundleNote, setBulkBundleNote] = useState("");
+  const [bundleUnitLedgerStatus, setBundleUnitLedgerStatus] = useState("");
+  const bundleUnitSyncTimerRef = useRef<number | undefined>(undefined);
+  const bundleUnitSyncSequenceRef = useRef(0);
+  const lastBundleUnitSyncSignatureRef = useRef("");
   const [pinnedColumnIds, setPinnedColumnIds] = useState<EditTableColumnId[]>(
     DEFAULT_PINNED_EDIT_TABLE_COLUMN_IDS,
   );
@@ -351,6 +363,106 @@ export default function FreightBarcodeRequestPage() {
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
   ).length;
+
+  useEffect(() => {
+    const latestByBarcode = new Map<
+      string,
+      { barcode: string; bundleUnit: number; updatedAt: string }
+    >();
+    for (const preference of listFreightBundleUnitPreferences()) {
+      if (!/^B[A-Z]{2}\d+-\d+$/.test(preference.barcode)) continue;
+      latestByBarcode.set(preference.barcode, preference);
+    }
+    for (const item of application.items) {
+      const barcode = (item.barcode ?? "").trim().toUpperCase();
+      const bundleUnit = Number(item.bundleUnit);
+      const updatedAt = item.bundleUnitUpdatedAt ?? "";
+      if (
+        !/^B[A-Z]{2}\d+-\d+$/.test(barcode) ||
+        !Number.isSafeInteger(bundleUnit) ||
+        bundleUnit < 1 ||
+        !Number.isFinite(Date.parse(updatedAt))
+      ) continue;
+      const current = latestByBarcode.get(barcode);
+      if (!current || Date.parse(current.updatedAt) <= Date.parse(updatedAt)) {
+        latestByBarcode.set(barcode, { barcode, bundleUnit, updatedAt });
+      }
+    }
+    const updates = [...latestByBarcode.values()].sort((left, right) =>
+      left.barcode.localeCompare(right.barcode),
+    );
+    const signature = JSON.stringify(updates);
+    if (!updates.length || signature === lastBundleUnitSyncSignatureRef.current) return;
+    if (bundleUnitSyncTimerRef.current !== undefined) {
+      window.clearTimeout(bundleUnitSyncTimerRef.current);
+    }
+    bundleUnitSyncTimerRef.current = window.setTimeout(async () => {
+      const sequence = ++bundleUnitSyncSequenceRef.current;
+      lastBundleUnitSyncSignatureRef.current = signature;
+      setBundleUnitLedgerStatus(`B코드 ${updates.length}개의 소분단위를 상품마스터에 저장 중입니다.`);
+      try {
+        const response = await fetch("/api/freight-bundle-units", {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+          body: JSON.stringify({ updates }),
+        });
+        const body = (await response.json().catch(() => ({}))) as BundleUnitLedgerResponse;
+        if (!response.ok || body.ok !== true || !Array.isArray(body.updates)) {
+          throw new Error(body.message || "상품마스터 소분단위 저장에 실패했습니다.");
+        }
+        if (sequence !== bundleUnitSyncSequenceRef.current) return;
+        const storedByBarcode = new Map(
+          body.updates.map((row) => [row.barcode.trim().toUpperCase(), row] as const),
+        );
+        for (const stored of body.updates) {
+          saveFreightBundleUnitPreference(
+            stored.barcode,
+            stored.bundleUnit,
+            undefined,
+            stored.updatedAt,
+          );
+        }
+        setApplication((current) => ({
+          ...current,
+          items: current.items.map((item) => {
+            const stored = storedByBarcode.get((item.barcode ?? "").trim().toUpperCase());
+            if (!stored) return item;
+            const localTime = Date.parse(item.bundleUnitUpdatedAt ?? "");
+            const storedTime = Date.parse(stored.updatedAt);
+            if (Number.isFinite(localTime) && localTime > storedTime) return item;
+            if (
+              item.bundleUnit === stored.bundleUnit &&
+              item.bundleUnitUpdatedAt === stored.updatedAt
+            ) return item;
+            return {
+              ...item,
+              bundleUnit: stored.bundleUnit,
+              bundleUnitUpdatedAt: stored.updatedAt,
+            };
+          }),
+        }));
+        setBundleUnitLedgerStatus(
+          `상품마스터 B코드 원장에 소분단위 ${body.savedCount ?? body.updates.length}개를 저장했습니다.`,
+        );
+      } catch (error) {
+        if (sequence !== bundleUnitSyncSequenceRef.current) return;
+        lastBundleUnitSyncSignatureRef.current = "";
+        setBundleUnitLedgerStatus(
+          error instanceof Error
+            ? `소분단위 원장 저장 확인 필요: ${error.message}`
+            : "소분단위 원장 저장 확인이 필요합니다.",
+        );
+      }
+    }, 450);
+    return () => {
+      if (bundleUnitSyncTimerRef.current !== undefined) {
+        window.clearTimeout(bundleUnitSyncTimerRef.current);
+        bundleUnitSyncTimerRef.current = undefined;
+      }
+    };
+  }, [application.items]);
 
   useEffect(() => {
     function clearPendingRequest() {
@@ -1000,10 +1112,20 @@ export default function FreightBarcodeRequestPage() {
         const next = { ...item, ...changes };
         if (changes.barcode !== undefined) {
           const preference = findFreightBundleUnitPreference(changes.barcode);
-          if (preference) next.bundleUnit = preference.bundleUnit;
+          if (preference) {
+            next.bundleUnit = preference.bundleUnit;
+            next.bundleUnitUpdatedAt = preference.updatedAt;
+          }
         }
-        if (changes.bundleUnit !== undefined) {
-          saveFreightBundleUnitPreference(next.barcode, changes.bundleUnit);
+        if (
+          changes.bundleUnit !== undefined &&
+          changes.bundleUnitUpdatedAt === undefined
+        ) {
+          const saved = saveFreightBundleUnitPreference(
+            next.barcode,
+            changes.bundleUnit,
+          );
+          if (saved) next.bundleUnitUpdatedAt = saved.updatedAt;
         }
         return next;
       });
@@ -1023,7 +1145,13 @@ export default function FreightBarcodeRequestPage() {
   function rememberItemBundleUnit(id: string) {
     const item = application.items.find((candidate) => candidate.id === id);
     if (!item) return;
-    saveFreightBundleUnitPreference(item.barcode, item.bundleUnit);
+    const saved = saveFreightBundleUnitPreference(item.barcode, item.bundleUnit);
+    if (saved) {
+      updateItem(id, {
+        bundleUnit: saved.bundleUnit,
+        bundleUnitUpdatedAt: saved.updatedAt,
+      });
+    }
   }
 
   function rerunAutoImageMatching() {
@@ -1106,7 +1234,11 @@ export default function FreightBarcodeRequestPage() {
       if (item.labelPrintCount) manualPrintCountPreserved += 1;
       const saved = saveFreightBundleUnitPreference(item.barcode, bundleUnit);
       if (saved) rememberedBarcodes.add(saved.barcode);
-      return { ...item, bundleUnit };
+      return {
+        ...item,
+        bundleUnit,
+        ...(saved ? { bundleUnitUpdatedAt: saved.updatedAt } : {}),
+      };
     });
     setApplication((current) => ({ ...current, items }));
     setBulkBundleNote(
@@ -2085,6 +2217,11 @@ export default function FreightBarcodeRequestPage() {
             {bulkBundleNote && (
               <p className="mt-2 text-xs font-semibold text-slate-600">
                 {bulkBundleNote}
+              </p>
+            )}
+            {bundleUnitLedgerStatus && (
+              <p className="mt-2 text-xs font-semibold text-emerald-700" role="status">
+                {bundleUnitLedgerStatus}
               </p>
             )}
             {productMasterMatchStatus && (

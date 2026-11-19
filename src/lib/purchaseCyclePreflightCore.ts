@@ -27,6 +27,10 @@ import {
   type PurchaseCashflowTier,
 } from "./purchaseCashflowAllocation.ts";
 import {
+  isPurchaseDraftQuantityUnit,
+  normalizePurchaseBundleUnit,
+} from "./purchaseDraftQuantityRounding.ts";
+import {
   canonicalPurchaseBarcode,
   collapseCanonicalPurchaseRows,
 } from "./purchaseSkuCanonicalization.ts";
@@ -72,6 +76,7 @@ export type PurchaseReplacementDraftLine = {
   barcode: string;
   name: string;
   quantity: number;
+  bundleUnit?: number;
   preserveOnRegeneration?: boolean;
   recoveredFromPredecessor?: boolean;
 };
@@ -123,6 +128,7 @@ export type PurchasePreflightStage = {
 };
 export type PurchasePreflightLine = {
   barcode: string;
+  bundleUnit: number;
   name: string;
   quantity: number;
   originalRecommendedQuantity: number;
@@ -334,6 +340,7 @@ export function buildPurchaseReplacementDraftSnapshot(
       barcode: line.barcode.trim().toUpperCase(),
       name: line.name.trim(),
       quantity: line.quantity,
+      bundleUnit: normalizePurchaseBundleUnit(line.bundleUnit),
       preserveOnRegeneration: line.preserveOnRegeneration === true,
       recoveredFromPredecessor: line.recoveredFromPredecessor === true,
     }));
@@ -347,6 +354,9 @@ export function buildPurchaseReplacementDraftSnapshot(
     (preferred, group) => ({
       ...preferred,
       name: preferred.name || group.find((row) => row.name)?.name || "",
+      bundleUnit: normalizePurchaseBundleUnit(
+        preferred.bundleUnit ?? group.find((row) => row.bundleUnit)?.bundleUnit,
+      ),
       preserveOnRegeneration: group.some((row) => row.preserveOnRegeneration),
       recoveredFromPredecessor: group.every((row) => row.recoveredFromPredecessor),
     }),
@@ -536,6 +546,7 @@ function lineCost(row: InventoryVerificationPriorityRow, basis: PurchaseCostBasi
   const value = (basis?.unitCostKrw ?? 0) * normalizePurchaseOrderQuantity(
     row.recommendedQty,
     row.cartonQuantity,
+    row.bundleUnit,
   );
   return positive(value) ? value : 0;
 }
@@ -561,12 +572,16 @@ function projectedLine(
   allocatedQuantity = normalizePurchaseOrderQuantity(
     row.recommendedQty,
     row.cartonQuantity,
+    row.bundleUnit,
   ),
   cashflowTier: PurchasePreflightLine["cashflowTier"] = "AUTOMATIC",
 ): PurchasePreflightLine {
   const unitCost = basis.unitCostKrw;
   return {
-    barcode: row.barcode, name: row.name, quantity: allocatedQuantity,
+    barcode: row.barcode,
+    bundleUnit: normalizePurchaseBundleUnit(row.bundleUnit),
+    name: row.name,
+    quantity: allocatedQuantity,
     originalRecommendedQuantity: row.recommendedQty,
     cashAdjusted: allocatedQuantity !== row.recommendedQty,
     cashflowTier,
@@ -605,6 +620,7 @@ function projectedLine(
 function stablePlanLine(line: PurchasePreflightLine) {
   return {
     barcode: line.barcode,
+    bundleUnit: line.bundleUnit,
     quantity: line.quantity,
   };
 }
@@ -894,6 +910,24 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   const replacementLineBarcodes = new Set(
     (input.replacementAfter?.lines ?? []).map((line) => line.barcode),
   );
+  const bundleUnitByBarcode = new Map<string, number>([
+    ...(input.replacementAfter?.lines ?? []).map((line) => [
+      line.barcode,
+      normalizePurchaseBundleUnit(line.bundleUnit),
+    ] as const),
+    ...rows.map((row) => [
+      row.barcode,
+      normalizePurchaseBundleUnit(row.bundleUnit),
+    ] as const),
+  ]);
+  for (const override of operatorQuantityOverrides) {
+    const unit = bundleUnitByBarcode.get(override.barcode) ?? 5;
+    if (!isPurchaseDraftQuantityUnit(override.targetQuantity, unit)) {
+      blockers.push(
+        `OPERATOR_QUANTITY_BUNDLE_UNIT_INVALID:${override.barcode}:${unit}`,
+      );
+    }
+  }
   const operatorPinnedExistingBarcodes = new Set(
     operatorQuantityOverrides
       .map((row) => row.barcode)
@@ -990,7 +1024,17 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       const targetQuantity = operatorQuantityByBarcode.get(row.barcode) ?? 0;
       return sum + (basis?.unitCostKrw ?? 0) * targetQuantity;
     }, 0);
-    if (fixedRows.length > maxSkus) {
+    const invalidFixedRow = fixedRows.find((row) =>
+      !isPurchaseDraftQuantityUnit(
+        operatorQuantityByBarcode.get(row.barcode),
+        row.bundleUnit,
+      )
+    );
+    if (invalidFixedRow) {
+      blockers.push(
+        `OPERATOR_QUANTITY_BUNDLE_UNIT_INVALID:${invalidFixedRow.barcode}:${normalizePurchaseBundleUnit(invalidFixedRow.bundleUnit)}`,
+      );
+    } else if (fixedRows.length > maxSkus) {
       blockers.push("OPERATOR_QUANTITY_SKU_LIMIT_EXCEEDED");
     } else if (fixedSpendKrw > effectiveBudgetKrw) {
       blockers.push("OPERATOR_QUANTITY_BUDGET_EXCEEDED");
@@ -1017,6 +1061,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
             costBasisByBarcode.get(row.barcode)?.unitCostKrw ?? 0,
           moq: row.moq,
           cartonQuantity: row.cartonQuantity,
+          bundleUnit: row.bundleUnit,
         })),
         remainingBudgetKrw,
       );
@@ -1170,10 +1215,17 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
             currentPriorityRow,
             exclusionReasonsByBarcode.get(line.barcode) ?? [],
           )
-            ? normalizePurchaseOrderQuantity(currentPriorityRow!.recommendedQty)
-            : normalizePurchaseOrderQuantity(line.quantity);
+            ? normalizePurchaseOrderQuantity(
+                currentPriorityRow!.recommendedQty,
+                currentPriorityRow!.cartonQuantity,
+                currentPriorityRow!.bundleUnit,
+              )
+            : normalizePurchaseOrderQuantity(line.quantity, 1, line.bundleUnit);
         return {
           ...line,
+          bundleUnit: normalizePurchaseBundleUnit(
+            currentPriorityRow?.bundleUnit ?? line.bundleUnit,
+          ),
           quantity:
             operatorQuantityByBarcode.get(line.barcode) ??
             refreshedAutomaticQuantity,
@@ -1208,7 +1260,12 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       .map((row) => ({
         barcode: row.barcode,
         name: row.name,
-        quantity: normalizePurchaseOrderQuantity(row.recommendedQty),
+        quantity: normalizePurchaseOrderQuantity(
+          row.recommendedQty,
+          row.cartonQuantity,
+          row.bundleUnit,
+        ),
+        bundleUnit: normalizePurchaseBundleUnit(row.bundleUnit),
       }));
     preservedReplacementLines = [
       ...retainedReplacementLines,
@@ -1236,6 +1293,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         barcode: line.barcode,
         name: line.name,
         quantity: line.quantity,
+        bundleUnit: line.bundleUnit,
       }] as const),
       ...preservedReplacementLines.map((line) => [line.barcode, line] as const),
     ]);
@@ -1249,6 +1307,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
         barcode: line.barcode,
         name: line.name,
         quantity: line.quantity,
+        bundleUnit: line.bundleUnit,
         ...(line.preserveOnRegeneration === true
           ? { preserveOnRegeneration: true }
           : {}),
@@ -1401,6 +1460,7 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
       selected: stablePlanLines(selected),
       preservedReplacementLines: preservedReplacementLines.map((line) => ({
         barcode: line.barcode,
+        bundleUnit: normalizePurchaseBundleUnit(line.bundleUnit),
         quantity: line.quantity,
         preserveOnRegeneration: line.preserveOnRegeneration === true,
         recoveredFromPredecessor: line.recoveredFromPredecessor === true,

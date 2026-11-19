@@ -2,6 +2,11 @@ import {
   canonicalPurchaseBarcode,
   collapseCanonicalPurchaseRows,
 } from "./purchaseSkuCanonicalization.ts";
+import {
+  isPurchaseDraftQuantityUnit,
+  nearestPurchaseDraftQuantity,
+  normalizePurchaseBundleUnit,
+} from "./purchaseDraftQuantityRounding.ts";
 
 export type RegenerableDraftCommitment = {
   sourceRunId: string | null;
@@ -249,13 +254,16 @@ export function buildManualDraftRevision(
     exclusions.some((barcode) => !BARCODE.test(barcode)) ||
     normalizedOverrides.length !== overrideByBarcode.size ||
     normalizedOverrides.some(
-      (row) =>
-        !BARCODE.test(row.barcode) ||
-        !activeByBarcode.has(row.barcode) ||
-        exclusionSet.has(row.barcode) ||
-        row.targetQuantity < 5 ||
-        row.targetQuantity > 9_995 ||
-        row.targetQuantity % 5 !== 0,
+      (row) => {
+        const active = activeByBarcode.get(row.barcode);
+        const bundleUnit = normalizePurchaseBundleUnit(
+          object(active?.latestPayload).bundleUnit,
+        );
+        return !BARCODE.test(row.barcode) ||
+          !active ||
+          exclusionSet.has(row.barcode) ||
+          !isPurchaseDraftQuantityUnit(row.targetQuantity, bundleUnit);
+      },
     )
   ) {
     throw new Error("PURCHASE_DRAFT_MANUAL_REVISION_TARGET_CHANGED");
@@ -266,9 +274,18 @@ export function buildManualDraftRevision(
     .map((row) => {
       const barcode = normalizedBarcode(row.barcode);
       const payload = object(row.latestPayload);
-      const plannedQuantity = overrideByBarcode.get(barcode) ?? row.openQuantity;
+      const bundleUnit = normalizePurchaseBundleUnit(payload.bundleUnit);
+      const plannedQuantity = overrideByBarcode.get(barcode) ??
+        nearestPurchaseDraftQuantity(row.openQuantity, bundleUnit);
+      if (!isPurchaseDraftQuantityUnit(plannedQuantity, bundleUnit)) {
+        throw new Error(
+          `PURCHASE_DRAFT_MANUAL_REVISION_BUNDLE_UNIT_INVALID:${barcode}:${bundleUnit}`,
+        );
+      }
       return {
         barcode,
+        bundleUnit,
+        bundleUnitUpdatedAt: text(payload.bundleUnitUpdatedAt) || null,
         modelNo: text(payload.modelNo) || null,
         productName: text(payload.productName),
         plannedQuantity,

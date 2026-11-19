@@ -710,6 +710,7 @@ export function preparePurchaseCycleDraft(
     lines: [
       ...report.selected.map((row) => ({
       barcode: row.barcode,
+      bundleUnit: row.bundleUnit,
       modelNo: null,
       productName: row.name,
       plannedQuantity: row.quantity,
@@ -725,6 +726,7 @@ export function preparePurchaseCycleDraft(
         const quantity = confirmedReservation?.quantity ?? row.quantity;
         return {
           barcode: row.barcode,
+          bundleUnit: row.bundleUnit,
           modelNo: null,
           productName: confirmedReservation?.productName ?? row.name,
           plannedQuantity: quantity,
@@ -748,6 +750,7 @@ export function preparePurchaseCycleDraft(
       }),
       ...restoredReusedReservations.map((row) => ({
         barcode: row.barcode,
+        bundleUnit: 5,
         modelNo: null,
         productName: row.productName,
         plannedQuantity: row.quantity,

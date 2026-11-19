@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 600;
 
-function errorMessage(code: string, inputsSaved = false) {
+function errorMessage(code: string, inputsSaved = false, raw = "") {
   if (code === "PURCHASE_DRAFT_RECALCULATION_FAILED_AFTER_INPUT_SAVE") {
     return "선택한 대략 재고 또는 단종예정 정책은 저장됐지만 최신 판매·예산 자료 재계산이 끝나지 않았습니다. 현재 Draft는 유지되며 잠시 후 재계산만 다시 누르면 됩니다.";
   }
@@ -32,7 +32,10 @@ function errorMessage(code: string, inputsSaved = false) {
       : "이전 Draft의 자동추천 품목이 최신 판매·재고 근거로 다시 판정되지 않았습니다. 불완전한 발주안은 저장하지 않았으며 현재 Draft를 그대로 유지했습니다.";
   }
   if (code === "OPERATOR_QUANTITY_OVERRIDES_INVALID") {
-    return "수량은 5개 단위로, SKU당 5개 이상 9,995개 이하로 입력하세요.";
+    return "수량은 SKU당 1개 이상 9,999개 이하의 정수로 입력하세요.";
+  }
+  if (code === "PURCHASE_DRAFT_DIRECT_EDIT_BUNDLE_UNIT_INVALID") {
+    return `이 상품은 소분단위가 ${raw.split(":").at(-1) || 5}개입니다.`;
   }
   if (code === "REPLACEMENT_DRAFT_SNAPSHOT_INVALID") {
     return "현재 Draft의 일부 수량을 검증하지 못했습니다. 입력은 유지했으므로 잠시 후 다시 계산하세요.";
@@ -73,7 +76,7 @@ export async function POST(request: Request) {
       {
         ok: false,
         code,
-        message: errorMessage(code, parsed.inputsSaved),
+        message: errorMessage(code, parsed.inputsSaved, raw),
         inputsSaved: parsed.inputsSaved,
         savedStockBandCount: parsed.savedStockBandCount,
         savedDiscontinuationCount: parsed.savedDiscontinuationCount,

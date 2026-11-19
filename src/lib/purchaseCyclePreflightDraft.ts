@@ -15,7 +15,10 @@ import {
   type PurchaseCycleDraftRequest,
 } from "@/lib/purchaseCyclePreflightDraftCore";
 import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore";
-import { normalizePurchaseOrderQuantity } from "@/lib/purchaseCashflowAllocation";
+import {
+  isPurchaseDraftQuantityUnit,
+  normalizePurchaseBundleUnit,
+} from "@/lib/purchaseDraftQuantityRounding";
 import {
   loadPurchaseDraftOperatorAdjustments,
   regenerateManualMonthlyPurchaseDraft,
@@ -101,6 +104,20 @@ export async function recalculatePurchaseCycleDraftInline(
       ...input.excludedBarcodes,
       ...discontinuedBarcodes,
     ])].sort();
+    const bundleUnitByBarcode = new Map(
+      (savedDraftEvidence?.lines ?? []).map((line) => [
+        line.barcode,
+        normalizePurchaseBundleUnit(line.bundleUnit),
+      ] as const),
+    );
+    for (const row of input.quantityOverrides) {
+      const unit = bundleUnitByBarcode.get(row.barcode) ?? 5;
+      if (!isPurchaseDraftQuantityUnit(row.targetQuantity, unit)) {
+        throw new Error(
+          `PURCHASE_DRAFT_DIRECT_EDIT_BUNDLE_UNIT_INVALID:${row.barcode}:${unit}`,
+        );
+      }
+    }
     const persistedAdjustments = await loadPurchaseDraftOperatorAdjustments(
       input.replaceDraftId,
     );
@@ -108,7 +125,7 @@ export async function recalculatePurchaseCycleDraftInline(
       excludedBarcodes: requestedExclusions,
       quantityOverrides: input.quantityOverrides.map((row) => ({
         barcode: row.barcode,
-        targetQuantity: normalizePurchaseOrderQuantity(row.targetQuantity),
+        targetQuantity: row.targetQuantity,
       })),
     };
     const {

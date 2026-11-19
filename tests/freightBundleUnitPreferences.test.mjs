@@ -36,6 +36,29 @@ test("saved B-code units apply to future manual or automatic imports", () => {
   assert.equal(items[1].bundleUnit, undefined);
 });
 
+test("the latest timestamp wins when local preferences and Product Master differ", () => {
+  const base = {
+    id: "1",
+    rowNo: 1,
+    itemName: "A",
+    optionText: "",
+    quantity: 100,
+    barcode: "BCE6-1",
+  };
+  const remoteNewer = applyFreightBundleUnitPreferences(
+    [{ ...base, bundleUnit: 20, bundleUnitUpdatedAt: "2026-11-19T03:00:00.000Z" }],
+    [{ barcode: "BCE6-1", bundleUnit: 10, updatedAt: "2026-11-19T02:00:00.000Z" }],
+  );
+  assert.equal(remoteNewer[0].bundleUnit, 20);
+
+  const localNewer = applyFreightBundleUnitPreferences(
+    [{ ...base, bundleUnit: 20, bundleUnitUpdatedAt: "2026-11-19T03:00:00.000Z" }],
+    [{ barcode: "BCE6-1", bundleUnit: 30, updatedAt: "2026-11-19T04:00:00.000Z" }],
+  );
+  assert.equal(localNewer[0].bundleUnit, 30);
+  assert.equal(localNewer[0].bundleUnitUpdatedAt, "2026-11-19T04:00:00.000Z");
+});
+
 test("empty barcodes and non-positive units are not stored", () => {
   const storage = memoryStorage();
   assert.equal(saveFreightBundleUnitPreference("", 10, storage), undefined);
@@ -62,4 +85,18 @@ test("bulk bundle unit action only fills rows whose bundle unit is empty", async
   assert.doesNotMatch(pageSource, /applyBulkBundleUnit\("(?:all|with-barcode)"\)/);
   assert.doesNotMatch(pageSource, />전체 품목에 적용</);
   assert.doesNotMatch(pageSource, />바코드 입력된 품목에만 적용</);
+});
+
+test("opening the freight page migrates saved browser bundle units to Product Master", async () => {
+  const pageSource = await readFile(
+    new URL("../src/app/freight-barcode-request/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(pageSource, /for \(const preference of listFreightBundleUnitPreferences\(\)\)/);
+  assert.match(pageSource, /fetch\("\/api\/freight-bundle-units"/);
+  assert.match(
+    pageSource,
+    /saveFreightBundleUnitPreference\([\s\S]*stored\.updatedAt,[\s\S]*\);/,
+  );
 });

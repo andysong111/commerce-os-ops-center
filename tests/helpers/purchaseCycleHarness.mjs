@@ -23,6 +23,9 @@ export function loadPurchaseCycleModule(path, imports = {}, globals = {}) {
       if (name === "@/lib/shoplingStockResponsibility") {
         return loadPurchaseCycleModule("src/lib/shoplingStockResponsibility.ts", imports, globals);
       }
+      if (name === "./shoplingStockFailureDetail.ts") {
+        return loadPurchaseCycleModule("src/lib/shoplingStockFailureDetail.ts", imports, globals);
+      }
       if (name === "./handler" && /^src\/app\/api\/inventory-stock-control\/(sync\/)?route\.ts$/.test(path)) {
         return loadPurchaseCycleModule(join(dirname(path), "handler.ts"), imports, globals);
       }

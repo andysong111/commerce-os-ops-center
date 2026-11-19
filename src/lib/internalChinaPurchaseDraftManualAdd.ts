@@ -9,6 +9,10 @@ import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchP
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION } from "@/lib/purchaseCycleDraftRegenerationCore";
 import {
+  isPurchaseDraftQuantityUnit,
+  normalizePurchaseBundleUnit,
+} from "@/lib/purchaseDraftQuantityRounding";
+import {
   bestManualDraftSearchMatch,
   parseManualDraftSearchTerms,
 } from "@/lib/internalChinaManualDraftSearchCore";
@@ -25,6 +29,7 @@ export type InternalChinaManualDraftCandidate = {
   modelNo: string;
   productName: string;
   optionName: string;
+  bundleUnit: number;
   inDraft: boolean;
   currentDraftQuantity: number;
   otherOpenQuantity: number;
@@ -65,6 +70,7 @@ function supabaseConnection() {
 export function calculateManualDraftTargetQuantity(
   currentQuantityInput: unknown,
   addQuantityInput: unknown,
+  bundleUnitInput: unknown = 5,
 ) {
   const currentQuantity = integer(currentQuantityInput);
   const addQuantity = integer(addQuantityInput);
@@ -74,6 +80,10 @@ export function calculateManualDraftTargetQuantity(
   const targetQuantity = currentQuantity + addQuantity;
   if (targetQuantity > MANUAL_QUANTITY_MAX) {
     throw new Error("INTERNAL_CHINA_MANUAL_ADD_QUANTITY_EXCEEDED");
+  }
+  const bundleUnit = normalizePurchaseBundleUnit(bundleUnitInput);
+  if (!isPurchaseDraftQuantityUnit(targetQuantity, bundleUnit)) {
+    throw new Error(`INTERNAL_CHINA_MANUAL_ADD_BUNDLE_UNIT_INVALID:${bundleUnit}`);
   }
   return targetQuantity;
 }
@@ -132,6 +142,9 @@ export async function searchInternalChinaManualDraftCandidates(
       productName:
         joinedLabels([trackerRow?.productName, product.productName]) || barcode,
       optionName: joinedLabels([trackerRow?.saleOption, product.optionName]),
+      bundleUnit: normalizePurchaseBundleUnit(
+        current?.bundleUnit ?? product.bundleUnit,
+      ),
       inDraft: Boolean(current),
       currentDraftQuantity: current?.quantity ?? 0,
       otherOpenQuantity: otherOpenByBarcode.get(barcode) ?? 0,
@@ -212,9 +225,14 @@ export async function addInternalChinaManualDraftLine(input: {
   }
 
   const currentQuantity = current?.requestedQuantity ?? 0;
+  const bundleUnit = normalizePurchaseBundleUnit(
+    draft.lines.find((line) => normalizeBarcode(line.barcode) === barcode)?.bundleUnit ??
+      product.bundleUnit,
+  );
   const targetQuantity = calculateManualDraftTargetQuantity(
     currentQuantity,
     input.addQuantity,
+    bundleUnit,
   );
   const occurredAt = new Date().toISOString();
   const sourceLineId = current?.sourceLineId || `${draft.draftId}:${barcode}`;
@@ -235,6 +253,8 @@ export async function addInternalChinaManualDraftLine(input: {
       modelNo: text(product.modelNo),
       productName: text(product.productName),
       optionName: text(product.optionName),
+      bundleUnit,
+      bundleUnitUpdatedAt: text(product.bundleUnitUpdatedAt) || null,
       previousRequestedQuantity: currentQuantity,
       addedQuantity: integer(input.addQuantity),
       targetRequestedQuantity: targetQuantity,

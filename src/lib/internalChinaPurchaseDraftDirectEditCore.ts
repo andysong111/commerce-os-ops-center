@@ -1,5 +1,10 @@
+import {
+  isPurchaseDraftQuantityUnit,
+  normalizePurchaseBundleUnit,
+} from "./purchaseDraftQuantityRounding.ts";
+
 const BARCODE = /^[A-Z]{3}\d+-\d+$/;
-const QUANTITY_MAX = 9_995;
+const QUANTITY_MAX = 9_999;
 const EDIT_LIMIT = 200;
 
 export type PurchaseDraftDirectEditAddition = {
@@ -31,9 +36,8 @@ function quantity(value: unknown) {
   if (
     !Number.isFinite(parsed) ||
     !Number.isInteger(parsed) ||
-    parsed < 5 ||
-    parsed > QUANTITY_MAX ||
-    parsed % 5 !== 0
+    parsed < 1 ||
+    parsed > QUANTITY_MAX
   ) {
     throw new Error("PURCHASE_DRAFT_DIRECT_EDIT_QUANTITY_INVALID");
   }
@@ -96,4 +100,18 @@ export function normalizePurchaseDraftDirectEditRequest(
   if (!seen.size) throw new Error("PURCHASE_DRAFT_DIRECT_EDIT_EMPTY");
 
   return { requestId, additions, quantityChanges, excludedBarcodes };
+}
+
+export function assertPurchaseDraftDirectEditBundleUnits(
+  request: Pick<PurchaseDraftDirectEditRequest, "additions" | "quantityChanges">,
+  bundleUnitByBarcode: ReadonlyMap<string, unknown>,
+) {
+  for (const row of [...request.additions, ...request.quantityChanges]) {
+    const unit = normalizePurchaseBundleUnit(bundleUnitByBarcode.get(row.barcode));
+    if (!isPurchaseDraftQuantityUnit(row.targetQuantity, unit)) {
+      throw new Error(
+        `PURCHASE_DRAFT_DIRECT_EDIT_BUNDLE_UNIT_INVALID:${row.barcode}:${unit}`,
+      );
+    }
+  }
 }

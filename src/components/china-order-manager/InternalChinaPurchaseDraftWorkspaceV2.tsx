@@ -16,7 +16,9 @@ import type { PurchaseQuantityOverride } from "@/lib/purchaseCyclePreflightCore"
 import type { InventoryStockBand } from "@/lib/inventoryStockBulkInput";
 import {
   isPurchaseDraftQuantityUnit,
+  maximumPurchaseDraftQuantity,
   nearestPurchaseDraftQuantity,
+  purchaseDraftQuantityUnitMessage,
 } from "@/lib/purchaseDraftQuantityRounding";
 import { PURCHASE_DRAFT_EXECUTION_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
 import { countMissingPurchaseDraftStockBands } from "@/lib/purchaseDraftStockBandsCore";
@@ -496,9 +498,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
   }
 
   function stageQuantity(barcode: string, targetQuantity: number) {
-    const baseline = draft.lines.find((line) => line.barcode === barcode)?.quantity;
-    if (baseline === undefined) return;
-    const valid = isPurchaseDraftQuantityUnit(targetQuantity);
+    const line = draft.lines.find((candidate) => candidate.barcode === barcode);
+    if (!line) return;
+    const baseline = line.quantity;
+    const valid = isPurchaseDraftQuantityUnit(targetQuantity, line.bundleUnit);
     setReleasedQuantityOverrides((current) => {
       if (current[barcode] !== true) return current;
       const next = { ...current };
@@ -513,7 +516,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     });
     setNotice(
       !valid
-        ? `${barcode} 수량을 5개 단위로 입력하세요. 입력 범위는 5~9,995개입니다.`
+        ? purchaseDraftQuantityUnitMessage(line.bundleUnit)
         : targetQuantity === baseline
         ? `${barcode} 수량 변경을 취소했습니다.`
         : `${barcode} ${targetQuantity.toLocaleString("ko-KR")}개를 재계산 대기에 넣었습니다. 표 상단의 파란 재계산 버튼을 누르기 전까지 기존 Draft는 바뀌지 않습니다.`,
@@ -743,7 +746,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       releasedQuantityOverrides[barcode] !== true,
   );
   const invalidQuantityBarcodes = changedQuantityRows
-    .filter((row) => !isPurchaseDraftQuantityUnit(row.targetQuantity))
+    .filter((row) => {
+      const unit = draft.lines.find((line) => line.barcode === row.barcode)?.bundleUnit;
+      return !isPurchaseDraftQuantityUnit(row.targetQuantity, unit);
+    })
     .map((row) => row.barcode);
   const activeQuantityOverrides = Object.entries({
     ...Object.fromEntries(
@@ -763,7 +769,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     )
     .map(([barcode, targetQuantity]) => ({
       barcode,
-      targetQuantity: nearestPurchaseDraftQuantity(targetQuantity),
+      targetQuantity,
     }))
     .sort((left, right) => left.barcode.localeCompare(right.barcode));
   const quantitiesNeedingUnitRounding = draft.lines.filter((line) => {
@@ -771,7 +777,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
     const candidate = Object.hasOwn(editedQuantities, line.barcode)
       ? editedQuantities[line.barcode]
       : line.quantity;
-    return nearestPurchaseDraftQuantity(candidate) !== candidate;
+    return nearestPurchaseDraftQuantity(candidate, line.bundleUnit) !== candidate;
   });
   const hasPendingDirectEdits =
     excludedBarcodes.length > 0 ||
@@ -861,7 +867,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         const candidate = Object.hasOwn(current, line.barcode)
           ? current[line.barcode]
           : line.quantity;
-        const rounded = nearestPurchaseDraftQuantity(candidate);
+        const rounded = nearestPurchaseDraftQuantity(candidate, line.bundleUnit);
         if (rounded <= 0) continue;
         if (rounded === line.quantity) delete next[line.barcode];
         else next[line.barcode] = rounded;
@@ -869,7 +875,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       return next;
     });
     setNotice(
-      `선택한 상품 중 ${roundedCount.toLocaleString("ko-KR")}종의 수량을 가장 가까운 5개 단위로 맞췄습니다. 끝자리는 0 또는 5가 되며, 아직 기존 Draft는 바뀌지 않았습니다.`,
+      `선택한 상품 중 ${roundedCount.toLocaleString("ko-KR")}종의 수량을 각 B코드 소분단위에 맞췄습니다. 아직 기존 Draft는 바뀌지 않았습니다.`,
     );
   }
 
@@ -1365,7 +1371,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                       <span className="mt-1 block text-[10px] font-bold text-indigo-700">같은 모델 모든 B-code에 공통 적용 · 저장 시 상품출시 1번 링크로 역저장</span>
                     </td>
                     <td className="px-2 py-2 text-right" style={stickyCellStyle(3, freezeThrough)}>
-                      <NativeQuantityControl key={`${line.barcode}:${editedQuantities[line.barcode] ?? line.quantity}`} status={draft.status} barcode={line.barcode} quantity={line.quantity} stagedQuantity={editedQuantities[line.barcode]} onStage={stageQuantity} />
+                      <NativeQuantityControl key={`${line.barcode}:${editedQuantities[line.barcode] ?? line.quantity}`} status={draft.status} barcode={line.barcode} quantity={line.quantity} bundleUnit={line.bundleUnit} stagedQuantity={editedQuantities[line.barcode]} onStage={stageQuantity} />
                     </td>
                     <td className="px-2 py-2" style={stickyCellStyle(4, freezeThrough)}><NumberInput value={line.unitPriceCny} disabled={!editable} required={line.unitPriceCny <= 0} onChange={(value) => updateLine(line.barcode, { unitPriceCny: value })} /></td>
                     <td className="px-2 py-2" style={stickyCellStyle(5, freezeThrough)}>
@@ -1417,11 +1423,11 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <p className="mt-1 text-xs font-black text-rose-700">수량을 다시 입력할 상품: {invalidQuantityBarcodes.join(" · ")}</p>
             ) : null}
             <p className="mt-1 text-[11px] leading-5 text-slate-500">
-              사용자 고정수량의 예산을 먼저 확보하고 자동 권장수량은 5개 단위로 맞춥니다. 남은 예산은 다음 우선순위에 배정합니다.
+              사용자 고정수량의 예산을 먼저 확보하고 자동 권장수량은 B코드별 소분단위와 박스입수량을 함께 만족하도록 맞춥니다. 남은 예산은 다음 우선순위에 배정합니다.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={stageSelectedQuantitiesToNearestUnit} disabled={draft.status !== "DRAFT" || quantitiesNeedingUnitRounding.length === 0 || regenerating} className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40">선택 수량 5·10단위 맞춤 ({quantitiesNeedingUnitRounding.length}종)</button>
+            <button type="button" onClick={stageSelectedQuantitiesToNearestUnit} disabled={draft.status !== "DRAFT" || quantitiesNeedingUnitRounding.length === 0 || regenerating} className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40">선택 수량 소분단위 맞춤 ({quantitiesNeedingUnitRounding.length}종)</button>
             <button type="button" onClick={stageSelectedProductsForExclusion} disabled={draft.status !== "DRAFT" || selectedExclusionCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-black text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40">선택 상품 초안에서 제외 ({selectedExclusionCandidates.length}종)</button>
             <button type="button" onClick={releaseSelectedQuantityOverrides} disabled={draft.status !== "DRAFT" || selectedQuantityOverrideCandidates.length === 0 || regenerating} className="min-h-11 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40">선택 수량 고정 해제 ({selectedQuantityOverrideCandidates.length}종)</button>
             <button type="button" onClick={() => setSelectedRows({})} disabled={selectedBarcodes.length === 0 || regenerating} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">선택 해제</button>
@@ -1440,25 +1446,28 @@ function NativeQuantityControl({
   status,
   barcode,
   quantity,
+  bundleUnit,
   stagedQuantity,
   onStage,
 }: {
   status: "DRAFT" | "ORDERED";
   barcode: string;
   quantity: number;
+  bundleUnit: number;
   stagedQuantity?: number;
   onStage: (barcode: string, quantity: number) => void;
 }) {
   const [value, setValue] = useState(String(stagedQuantity ?? quantity));
   const targetQuantity = Math.round(Number(value));
-  const valid = isPurchaseDraftQuantityUnit(targetQuantity);
+  const valid = isPurchaseDraftQuantityUnit(targetQuantity, bundleUnit);
   const changed = valid && targetQuantity !== quantity;
-  const currentNeedsRounding = stagedQuantity === undefined && quantity % 5 !== 0;
+  const currentNeedsRounding = stagedQuantity === undefined && quantity % bundleUnit !== 0;
+  const unitMessage = purchaseDraftQuantityUnitMessage(bundleUnit);
 
   function updateValue(nextValue: string) {
     setValue(nextValue);
     const parsed = Math.round(Number(nextValue));
-    if (Number.isFinite(parsed) && parsed >= 5 && parsed <= 9_995 && parsed % 5 === 0) {
+    if (isPurchaseDraftQuantityUnit(parsed, bundleUnit)) {
       onStage(barcode, parsed);
     } else {
       onStage(barcode, Number.isFinite(parsed) ? parsed : 0);
@@ -1467,9 +1476,9 @@ function NativeQuantityControl({
 
   return (
     <div className="flex items-center justify-end gap-1.5" data-native-draft-quantity={barcode}>
-      <input type="number" min={5} max={9995} step={5} value={value} disabled={status !== "DRAFT"} onChange={(event) => updateValue(event.target.value)} aria-label={`${barcode} 주문수량`} aria-invalid={!valid} className={`w-20 rounded-lg border bg-white px-2 py-2 text-right text-xs font-black outline-none disabled:bg-slate-100 ${!valid ? "border-rose-400 text-rose-800" : changed ? "border-blue-400 text-blue-900" : "border-slate-300 text-slate-800"}`} />
-      <span className={`max-w-[74px] truncate text-[10px] font-bold ${!valid ? "text-rose-700" : changed ? "text-blue-700" : "text-slate-400"}`}>
-        {!valid ? "5개 단위" : changed ? "재계산 대기" : currentNeedsRounding ? "재계산 시 정리" : "현재 수량"}
+      <input type="number" min={bundleUnit} max={maximumPurchaseDraftQuantity(bundleUnit)} step={bundleUnit} value={value} disabled={status !== "DRAFT"} onChange={(event) => updateValue(event.target.value)} aria-label={`${barcode} 주문수량`} aria-invalid={!valid} className={`w-20 rounded-lg border bg-white px-2 py-2 text-right text-xs font-black outline-none disabled:bg-slate-100 ${!valid ? "border-rose-400 text-rose-800" : changed ? "border-blue-400 text-blue-900" : "border-slate-300 text-slate-800"}`} />
+      <span title={!valid ? unitMessage : undefined} className={`max-w-[140px] text-[10px] font-bold ${!valid ? "text-rose-700" : changed ? "text-blue-700" : "text-slate-400"}`}>
+        {!valid ? unitMessage : changed ? "재계산 대기" : currentNeedsRounding ? "재계산 시 정리" : `소분 ${bundleUnit}개`}
       </span>
     </div>
   );

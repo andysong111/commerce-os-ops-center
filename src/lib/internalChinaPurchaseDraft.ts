@@ -12,6 +12,7 @@ import {
   DEFAULT_PURCHASE_COST_MULTIPLIER,
 } from "@/lib/productDecisionEngine/portfolio";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import { normalizePurchaseBundleUnit } from "@/lib/purchaseDraftQuantityRounding";
 import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
 import { loadShoplingCurrentModelSnapshot } from "@/lib/shopling/shoplingCurrentModelIdentity";
 import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
@@ -52,6 +53,8 @@ export type InternalChinaPurchaseDraftStatus = "DRAFT" | "ORDERED";
 
 export type InternalChinaPurchaseDraftLine = {
   barcode: string;
+  bundleUnit: number;
+  bundleUnitUpdatedAt: string | null;
   modelNo: string;
   modelName: string;
   productName: string;
@@ -423,6 +426,13 @@ async function buildBaseDraft(
         barcode;
       return {
         barcode,
+        bundleUnit: normalizePurchaseBundleUnit(
+          profile?.bundleUnit ?? sourcePayload.bundleUnit,
+        ),
+        bundleUnitUpdatedAt:
+          text(profile?.bundleUnitUpdatedAt) ||
+          text(sourcePayload.bundleUnitUpdatedAt) ||
+          null,
         modelNo,
         modelName,
         productName: modelName,
@@ -610,6 +620,8 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
       if (!BARCODE.test(barcode) || quantity <= 0) return null;
       return {
         barcode,
+        bundleUnit: normalizePurchaseBundleUnit(row.bundleUnit),
+        bundleUnitUpdatedAt: text(row.bundleUnitUpdatedAt) || null,
         modelNo: text(row.modelNo),
         modelName: text(row.modelName || row.productName) || barcode,
         productName: text(row.productName || row.modelName) || barcode,

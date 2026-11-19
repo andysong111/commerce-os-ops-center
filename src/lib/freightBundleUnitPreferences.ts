@@ -104,10 +104,18 @@ export function applyFreightBundleUnitPreferences(
   preferences: FreightBundleUnitPreference[] = listFreightBundleUnitPreferences(),
 ): FreightApplicationItem[] {
   const byBarcode = new Map(
-    preferences.map((preference) => [preference.barcode, preference.bundleUnit]),
+    preferences.map((preference) => [preference.barcode, preference] as const),
   );
   return items.map((item) => {
-    const bundleUnit = byBarcode.get(normalizeFreightBundleBarcode(item.barcode));
-    return bundleUnit ? { ...item, bundleUnit } : item;
+    const preference = byBarcode.get(normalizeFreightBundleBarcode(item.barcode));
+    if (!preference) return item;
+    const remoteTime = Date.parse(item.bundleUnitUpdatedAt ?? "");
+    const localTime = Date.parse(preference.updatedAt);
+    if (Number.isFinite(remoteTime) && remoteTime > localTime) return item;
+    return {
+      ...item,
+      bundleUnit: preference.bundleUnit,
+      bundleUnitUpdatedAt: preference.updatedAt,
+    };
   });
 }

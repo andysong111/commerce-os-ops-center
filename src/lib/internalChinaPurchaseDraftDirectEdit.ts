@@ -13,9 +13,11 @@ import {
   type InternalChinaPurchaseDraft,
 } from "@/lib/internalChinaPurchaseDraft";
 import {
+  assertPurchaseDraftDirectEditBundleUnits,
   normalizePurchaseDraftDirectEditRequest,
 } from "@/lib/internalChinaPurchaseDraftDirectEditCore";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
+import { normalizePurchaseBundleUnit } from "@/lib/purchaseDraftQuantityRounding";
 import { PURCHASE_DRAFT_MANUAL_ADDITION_PROVENANCE_VERSION } from "@/lib/purchaseCycleDraftRegenerationCore";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 
@@ -82,7 +84,13 @@ function manualAdditionOperation(input: {
   targetQuantity: number;
   requestId: string;
   occurredAt: string;
-  product: { modelNo?: unknown; productName?: unknown; optionName?: unknown };
+  product: {
+    modelNo?: unknown;
+    productName?: unknown;
+    optionName?: unknown;
+    bundleUnit?: unknown;
+    bundleUnitUpdatedAt?: unknown;
+  };
 }) {
   const event = normalizeChinaOrderCommitmentEvent({
     sourceSystem: SOURCE_SYSTEM,
@@ -102,6 +110,8 @@ function manualAdditionOperation(input: {
       modelNo: text(input.product.modelNo),
       productName: text(input.product.productName),
       optionName: text(input.product.optionName),
+      bundleUnit: normalizePurchaseBundleUnit(input.product.bundleUnit),
+      bundleUnitUpdatedAt: text(input.product.bundleUnitUpdatedAt) || null,
       previousRequestedQuantity: 0,
       addedQuantity: input.targetQuantity,
       targetRequestedQuantity: input.targetQuantity,
@@ -173,6 +183,18 @@ export async function applyInternalChinaPurchaseDraftDirectEdit(
       .filter((row) => row.skuActive !== false)
       .map((row) => [normalizedBarcode(row.barcode), row] as const),
   );
+  const currentLineByBarcode = new Map(
+    draft.lines.map((line) => [normalizedBarcode(line.barcode), line] as const),
+  );
+  const bundleUnitByBarcode = new Map<string, unknown>();
+  for (const row of [...request.additions, ...request.quantityChanges]) {
+    bundleUnitByBarcode.set(
+      row.barcode,
+      currentLineByBarcode.get(row.barcode)?.bundleUnit ??
+        productByBarcode.get(row.barcode)?.bundleUnit,
+    );
+  }
+  assertPurchaseDraftDirectEditBundleUnits(request, bundleUnitByBarcode);
   for (const row of request.additions) {
     if (currentBarcodes.has(row.barcode)) continue;
     if (draftCommitments.some((commitment) =>
