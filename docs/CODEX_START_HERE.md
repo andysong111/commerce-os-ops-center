@@ -28,6 +28,7 @@ Never preserve an old plan merely because it is documented if current code or di
 - 실제 `BCC5-1` 판매중 12개 goods key 회귀에서 원본 commit 1회, 영수증 누락·다른 팝업·goods-key 변경은 commit 0회를 확인했다. 설치 후에는 v0.6.58 연결 확인 → Shopling 로그인 확인 → 실패 B코드 1건 카나리 → 원본 접수와 Commerce OS `1/1` 확인 순서로 진행한다. 상세는 `docs/shopling-stock-state-hf96-20261119.md`에 있다.
 - HF97은 원본 파란 전송 접수 영수증 뒤 Shopling 결과표 일부 행이 실패한 건을 Commerce OS 전송 실패로 재분류하던 문제를 수정한다. 정확한 팝업·작업·goods-key·확인창·전송 함수 영수증과 균형 잡힌 종료 결과표가 모두 맞을 때만 전송 접수 성공으로 집계하고, 마켓 실패 수는 황색 경고로 별도 표시한다. 실제 실패 B코드·단계·코드는 같은 실행 요약 바로 아래 표시하며 영수증이 확인된 건은 재시도하지 않는다. 상세는 `docs/shopling-stock-state-hf97-20261119.md`에 있다.
 - HF98은 `BAF3-3`처럼 전송 전 API 상태검증에서 차단된 건의 실제 Shopling 상태 코드를 보존한다. 화면은 중단 위치·확인 상태·실패 원인·파란 전송 여부·다음 조치를 분리해 표시하며, 과거에 상태 원문이 이미 유실된 결과는 추정하지 않는다. v0.6.58 확장은 그대로 사용하고 Commerce OS 서버/UI만 갱신한다. 상세는 `docs/shopling-stock-state-hf98-20261119.md`에 있다.
+- HF99 v0.6.59는 공식 Shopling 상품상태 `E=판매종료` GOODS KEY를 판매중·품절 양쪽 작업에서 API 변경과 A21 전송 대상에서 제외한다. 같은 B코드의 B/C 상품은 계속 직렬 처리하고, 전부 E이면 A21을 열지 않은 정상 완료 영수증을 남긴다. E 이외의 비정상 상태는 기존대로 실패 폐쇄한다. 상세 근거와 배포 후 1건 카나리는 `docs/shopling-stock-state-hf99-20261119.md`에 있다.
 
 ### Shopling stock-state HF94 handoff (2026-11-18)
 

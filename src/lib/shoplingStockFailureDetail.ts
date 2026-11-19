@@ -36,8 +36,11 @@ function statusCode(value: unknown) {
 
 export function shoplingSaleStatusLabel(value: unknown) {
   const code = statusCode(value);
+  if (code === "A") return "대기중";
   if (code === "B") return "판매중";
   if (code === "C") return "품절";
+  if (code === "D") return "판매중지";
+  if (code === "E") return "판매종료";
   if (code === "Z") return "삭제";
   if (code === "EMPTY") return "상태값 없음";
   return "B/C 외 상태";
@@ -48,6 +51,9 @@ function desiredStatusLabel(value: unknown) {
 }
 
 function blockedNextAction(currentStatusCode: string) {
+  if (currentStatusCode === "E") {
+    return "판매종료 상품은 판매중·품절 전환 대상이 아닙니다. 현재 버전은 해당 GOODS KEY만 자동 제외하고 같은 B코드의 나머지 상품을 계속 처리합니다.";
+  }
   if (currentStatusCode === "Z") {
     return "삭제 상품은 품절·판매중 전환 대상이 아닙니다. Shopling에서 상품을 다시 사용할지 또는 재등록할지 먼저 결정한 뒤 수동 처리하세요.";
   }
